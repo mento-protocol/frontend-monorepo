@@ -377,10 +377,12 @@ function isTrustedBotComment(comment) {
 function classifyTrust({ headRepository, headRef, author }) {
   validatedHeadRef(headRef);
   validatedLogin(author);
+  const normalizedAuthor = author.toLowerCase();
+  const normalizedHeadRef = headRef.toLowerCase();
   if (
-    author === "dependabot[bot]" ||
-    headRef === "dependabot" ||
-    headRef.startsWith("dependabot/")
+    normalizedAuthor === "dependabot[bot]" ||
+    normalizedHeadRef === "dependabot" ||
+    normalizedHeadRef.startsWith("dependabot/")
   ) {
     return "dependabot";
   }
@@ -452,7 +454,7 @@ function representedPullRequest(events, checkpoint = null) {
   return [...snapshots.values()][0];
 }
 
-export function snapshotPullRequestEvent(payload, runId) {
+export function snapshotPullRequestEvent(payload, runId, runNumber = null) {
   plainObject(payload, "GitHub event payload");
   const action = boundedText(payload.action, "Event action", 32);
   invariant(
@@ -473,6 +475,9 @@ export function snapshotPullRequestEvent(payload, runId) {
     repository,
     pr: pull.number,
     event_run_id: exactRunId(runId),
+    ...(runNumber === null
+      ? {}
+      : { event_run_number: exactRunId(runNumber, "Event run number") }),
     event_action: action,
     pr_state: pull.state,
     pr_updated_at: pull.updatedAt,
@@ -488,7 +493,7 @@ export function snapshotPullRequestEvent(payload, runId) {
   };
 }
 
-function snapshotBootstrapPullRequest(rawPull, runId) {
+function snapshotBootstrapPullRequest(rawPull, runId, runNumber = null) {
   const pull = normalizePullRequest(rawPull);
   invariant(pull.state === "open", "Bootstrap requires an open PR");
   return {
@@ -496,6 +501,9 @@ function snapshotBootstrapPullRequest(rawPull, runId) {
     repository: PREVIEW_REPOSITORY,
     pr: pull.number,
     event_run_id: exactRunId(runId),
+    ...(runNumber === null
+      ? {}
+      : { event_run_number: exactRunId(runNumber, "Event run number") }),
     event_action: "bootstrap",
     pr_state: pull.state,
     pr_updated_at: pull.updatedAt,
@@ -644,6 +652,9 @@ export function validateEventReceipt(value, { requirePlan = true } = {}) {
   validatedRepository(event.repository);
   pullRequestNumber(event.pr);
   exactRunId(event.event_run_id, "Event run ID");
+  if (event.event_run_number !== undefined) {
+    exactRunId(event.event_run_number, "Event run number");
+  }
   invariant(
     ALLOWED_EVENT_ACTIONS.has(event.event_action),
     "Event receipt action is invalid",
@@ -3987,7 +3998,11 @@ export async function prepareBootstrap({
   prNumber: rawPr,
 }) {
   const pull = await pullFromApi(github, context, rawPr);
-  const snapshot = snapshotBootstrapPullRequest(pull, context.runId);
+  const snapshot = snapshotBootstrapPullRequest(
+    pull,
+    context.runId,
+    context.runNumber ?? null,
+  );
   core.setOutput("snapshot", JSON.stringify(snapshot));
   for (const [name, value] of Object.entries({
     pr_number: snapshot.pr,
@@ -4001,8 +4016,8 @@ export async function prepareBootstrap({
   return snapshot;
 }
 
-export function writeEventSnapshotOutputs({ payload, runId, core }) {
-  const snapshot = snapshotPullRequestEvent(payload, runId);
+export function writeEventSnapshotOutputs({ payload, runId, runNumber, core }) {
+  const snapshot = snapshotPullRequestEvent(payload, runId, runNumber);
   core.setOutput("snapshot", JSON.stringify(snapshot));
   for (const [name, value] of Object.entries({
     pr_number: snapshot.pr,
@@ -4029,7 +4044,11 @@ export async function recordEventReceipt({
   try {
     snapshot = snapshotRaw
       ? JSON.parse(snapshotRaw)
-      : snapshotPullRequestEvent(context.payload, context.runId);
+      : snapshotPullRequestEvent(
+          context.payload,
+          context.runId,
+          context.runNumber ?? null,
+        );
   } catch (error) {
     const fallback = context.payload?.pull_request?.head?.sha;
     if (SHA_PATTERN.test(fallback ?? "")) {

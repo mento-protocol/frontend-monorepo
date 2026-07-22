@@ -156,6 +156,16 @@ run. A delayed non-closed event also remains inert when the live PR is already
 closed and no journal or witness exists. Explicit bootstrap remains the only
 operator-authorized clean restart.
 
+As precursor evidence for stronger gap detection, every `pull_request_target`
+run uses a strict machine-readable title that binds run ID, workflow-monotonic
+run number, PR, action, head SHA, synchronize `before` SHA, and whether a receipt
+is required. Dependabot events and unrelated edits encode `receipt=false`,
+matching the jobs that do not append a controller receipt. New event and
+bootstrap receipts persist the run number when it is available. This precursor
+does not query Actions, establish an admission frontier, or alter reconciliation
+behavior; existing v2 receipts without the optional field remain valid and keep
+their canonical digest.
+
 GitHub currently bounds `queue: max` at 100 pending jobs. The controller must
 keep journal mutations short, expose queue pressure during canaries, and treat
 an admitted-event gap as ambiguous. It may recover current intent only by

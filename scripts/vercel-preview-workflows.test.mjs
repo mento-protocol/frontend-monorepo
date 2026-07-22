@@ -26,6 +26,23 @@ function permissionWrites(job) {
   );
 }
 
+function controllerTitleReceiptRequired({
+  action = "opened",
+  author = "trusted-author",
+  headRef = "feature/preview-controller",
+  baseChanged = false,
+} = {}) {
+  // GitHub Actions string comparisons and startsWith() are case-insensitive.
+  const normalizedAuthor = author.toLowerCase();
+  const normalizedHeadRef = headRef.toLowerCase();
+  return (
+    normalizedAuthor !== "dependabot[bot]" &&
+    normalizedHeadRef !== "dependabot" &&
+    !normalizedHeadRef.startsWith("dependabot/") &&
+    (action !== "edited" || baseChanged)
+  );
+}
+
 function queuedStateConcurrency(prExpression) {
   return {
     group: `vercel-preview-state-pr-${prExpression}`,
@@ -72,12 +89,42 @@ test("controller has only the three specified recovery-aware triggers", () => {
     "vercel-preview-reconcile",
   ]);
   assert.deepEqual(controller.permissions, {});
+  assert.equal(
+    controller["run-name"],
+    [
+      "${{ github.event_name == 'pull_request_target' &&",
+      "format('Vercel preview controller event | id={0} | number={1} | pr={2} | sha={3} | before={4} | action={5} | receipt={6}', github.run_id, github.run_number, github.event.pull_request.number, github.event.pull_request.head.sha, github.event.action == 'synchronize' && github.event.before || 'none', github.event.action, github.event.pull_request.user.login != 'dependabot[bot]' && github.event.pull_request.head.ref != 'dependabot' && !startsWith(github.event.pull_request.head.ref, 'dependabot/') && (github.event.action != 'edited' || github.event.changes.base != null)) ||",
+      "format('Vercel Preview Controller | event={0} | id={1}', github.event_name, github.run_id) }}",
+    ].join(" "),
+  );
   assert.match(
     controller.jobs["snapshot-event"].if,
     /action != 'edited'.*changes\.base != null/,
   );
   const raw = read(controllerPath);
+  assert.match(raw, /runNumber:\s*context\.runNumber/);
   assert.doesNotMatch(raw, /workflow_dispatch|\binputs\./);
+});
+
+test("controller run title marks exactly the receipt-producing PR events", () => {
+  const cases = [
+    ["Dependabot author", { author: "dependabot[bot]" }, false],
+    ["exact Dependabot ref", { headRef: "dependabot" }, false],
+    ["Dependabot ref prefix", { headRef: "dependabot/npm/pnpm" }, false],
+    [
+      "mixed-case Dependabot ref prefix",
+      { headRef: "Dependabot/npm/pnpm" },
+      false,
+    ],
+    ["trusted branch", {}, true],
+    ["fork branch", { headRef: "contributor/change" }, true],
+    ["unsupported ref", { headRef: "refs/change" }, true],
+    ["unrelated edit", { action: "edited" }, false],
+    ["base edit", { action: "edited", baseChanged: true }, true],
+  ];
+  for (const [label, inputs, expected] of cases) {
+    assert.equal(controllerTitleReceiptRequired(inputs), expected, label);
+  }
 });
 
 test("controller mode is canonical and reaches every reconciliation call", () => {
