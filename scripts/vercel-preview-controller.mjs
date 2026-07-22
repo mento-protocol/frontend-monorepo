@@ -118,6 +118,27 @@ const TERMINAL_WORKFLOW_RUN_CONCLUSIONS = new Set([
   "stale",
   "startup_failure",
 ]);
+const RESULT_BEARING_WORKER_CONCLUSIONS = new Set([
+  "success",
+  "failure",
+  "cancelled",
+  "timed_out",
+  "startup_failure",
+  "action_required",
+  "stale",
+]);
+const FAILURE_CONCLUSION_FAILURE_REASONS = new Set([
+  "build-failed-retriable",
+  "build-failed-final",
+  "smoke-failed-retriable",
+  "smoke-failed-final",
+  "worker-failure",
+  "worker-failure-recovered",
+]);
+const FAILURE_CONCLUSION_ERROR_REASONS = new Set([
+  "upload-ambiguous",
+  "verification-ambiguous",
+]);
 const WORKER_RECOVERY_BEFORE_MS = 2 * 60 * 1_000;
 const WORKER_RECOVERY_AFTER_MS = 15 * 60 * 1_000;
 const UPLOAD_STARTED_DESCRIPTION = "Prebuilt preview upload starting";
@@ -4798,6 +4819,7 @@ async function mutatePreviewJournal({
   allowCreate = false,
   assertCanCreate,
   expectedComment = null,
+  closedBootstrapRecoveryCapability = null,
   mutate,
 }) {
   const pr = pullRequestNumber(rawPr);
@@ -4810,10 +4832,28 @@ async function mutatePreviewJournal({
       "Preview journal identity changed",
     );
   }
+  const pendingClosedBootstrapRecovery = loaded
+    ? pendingClosedBootstrapTerminalRecovery(loaded)
+    : null;
+  if (pendingClosedBootstrapRecovery) {
+    assertClosedBootstrapTerminalRecoveryWriteAuthorized({
+      recovery: pendingClosedBootstrapRecovery,
+      context,
+      capability: closedBootstrapRecoveryCapability,
+    });
+  }
   if (!loaded && assertCanCreate) await assertCanCreate();
   const current = loaded?.journal ?? createPreviewJournal({ pr, revision: 1 });
   const candidate = structuredClone(current);
   mutate(candidate);
+  if (pendingClosedBootstrapRecovery) {
+    assertClosedBootstrapTerminalRecoveryWriteResult({
+      current,
+      candidate,
+      recovery: pendingClosedBootstrapRecovery,
+      capability: closedBootstrapRecoveryCapability,
+    });
+  }
   candidate.journal_digest = previewJournalDigest(
     candidate.receipts,
     candidate.state,
@@ -4933,6 +4973,7 @@ function journalHasUnfinishedOwnership(journal, state) {
     const pendingKey =
       journal.checkpoint?.targets[target].pending_owner_key_digest ?? null;
     return (
+      pendingKey !== null ||
       targetState.active !== null ||
       targetState.retired_active.some(
         (selection) =>
@@ -4941,6 +4982,255 @@ function journalHasUnfinishedOwnership(journal, state) {
       )
     );
   });
+}
+
+function closedBootstrapOwnershipClaims(journal, state) {
+  const claims = new Map();
+  for (const target of PREVIEW_TARGETS) {
+    const targetState = state.targets[target];
+    invariant(
+      targetState.retired_active.length === 0 &&
+        (journal.checkpoint?.targets[target].pending_owner_key_digest ??
+          null) === null,
+      "Closed bootstrap terminal recovery rejects retired or checkpoint ownership",
+    );
+    const dispatch = targetState.active;
+    if (!dispatch) continue;
+    invariant(
+      !claims.has(dispatch.key_digest),
+      "Closed bootstrap terminal ownership is duplicated",
+    );
+    claims.set(dispatch.key_digest, { target, dispatch });
+  }
+  return [...claims.entries()].map(([keyDigest, claim]) => ({
+    keyDigest,
+    ...claim,
+  }));
+}
+
+function workerConclusionMatchesTerminalResult(conclusion, result) {
+  if (conclusion === "success") {
+    return (
+      (result.state === "success" && result.terminal_reason === "verified") ||
+      (result.state === "error" &&
+        result.terminal_reason === "missing-success-evidence")
+    );
+  }
+  if (conclusion === "failure") {
+    return (
+      (result.state === "failure" &&
+        FAILURE_CONCLUSION_FAILURE_REASONS.has(result.terminal_reason)) ||
+      (result.state === "error" &&
+        FAILURE_CONCLUSION_ERROR_REASONS.has(result.terminal_reason))
+    );
+  }
+  return (
+    result.state === "error" &&
+    result.terminal_reason === `worker-${conclusion}`
+  );
+}
+
+async function authenticateClosedBootstrapTerminalOwnership({
+  github,
+  context,
+  parsed,
+  state,
+  bootstrap,
+  alreadyRepresented,
+  waitForRetry,
+}) {
+  const admission = validateControllerAdmissionCursor(parsed.admission);
+  const exactBootstrapRerun =
+    alreadyRepresented &&
+    admission?.through_run_id === bootstrap.event_run_id &&
+    admission.through_run_number === bootstrap.event_run_number;
+  invariant(
+    admission === null || exactBootstrapRerun,
+    "Closed bootstrap terminal recovery requires a cursorless journal or its exact admitted rerun",
+  );
+  const claims = closedBootstrapOwnershipClaims(parsed.journal, state);
+  invariant(
+    claims.length > 0,
+    "Closed bootstrap terminal recovery has no stale ownership",
+  );
+  const workerRunIds = new Set();
+  for (const { keyDigest, target, dispatch } of claims) {
+    const selections = parsed.selections.filter(
+      (selection) => selection.key_digest === keyDigest,
+    );
+    invariant(
+      selections.length === 1 && selections[0].target === target,
+      "Closed bootstrap terminal recovery selection is missing or ambiguous",
+    );
+    const [selection] = selections;
+    invariant(
+      dispatch.dispatch_state === "dispatched" &&
+        dispatch.workflow_run_id !== null &&
+        dispatch.workflow_run_attempt !== null &&
+        dispatch.run_url !== null &&
+        dispatch.html_url !== null &&
+        canonicalJson(selection) ===
+          canonicalJson(selectionReceiptFromDispatch(dispatch)),
+      "Closed bootstrap terminal recovery owner is not an exact dispatched selection",
+    );
+    const results = parsed.results.filter(
+      (result) => result.key_digest === keyDigest,
+    );
+    invariant(
+      results.length === 1 && sameAttemptBinding(results[0], selection),
+      "Closed bootstrap terminal recovery result is missing or ambiguous",
+    );
+    const [result] = results;
+    invariant(
+      dispatch.workflow_run_id === result.worker_run_id &&
+        dispatch.workflow_run_attempt === result.worker_run_attempt &&
+        !workerRunIds.has(result.worker_run_id),
+      "Closed bootstrap terminal recovery worker ownership is ambiguous",
+    );
+    workerRunIds.add(result.worker_run_id);
+    const worker = await getValidatedWorkerRun(
+      github,
+      context,
+      result.worker_run_id,
+      dispatch,
+      { waitForRetry },
+    );
+    invariant(
+      worker.workflow_run_id === result.worker_run_id &&
+        worker.workflow_run_attempt === result.worker_run_attempt &&
+        worker.status === "completed" &&
+        RESULT_BEARING_WORKER_CONCLUSIONS.has(worker.conclusion) &&
+        workerConclusionMatchesTerminalResult(worker.conclusion, result),
+      "Closed bootstrap terminal recovery worker evidence is nonterminal or mismatched",
+    );
+    invariant(
+      worker.workflow_sha === dispatch.workflow_sha &&
+        worker.run_url === dispatch.run_url &&
+        worker.html_url === dispatch.html_url,
+      "Closed bootstrap terminal recovery worker identity changed",
+    );
+  }
+  return claims.length;
+}
+
+function closedBootstrapTerminalRecoveryBootstrap({ parsed, state }) {
+  const admission = validateControllerAdmissionCursor(parsed.admission);
+  if (
+    admission === null ||
+    !journalHasUnfinishedOwnership(parsed.journal, state)
+  ) {
+    return null;
+  }
+  const bootstrap = controllerAdmissionEvents(
+    parsed.events,
+    parsed.checkpoint,
+  ).find((event) => event.event_run_id === admission.through_run_id);
+  if (
+    bootstrap?.event_action !== "bootstrap" ||
+    bootstrap.pr_state !== "closed" ||
+    bootstrap.event_run_number !== admission.through_run_number
+  ) {
+    return null;
+  }
+  return closedBootstrapOwnershipClaims(parsed.journal, state).length > 0
+    ? bootstrap
+    : null;
+}
+
+function isSameRunClosedBootstrapTerminalRecovery({ bootstrap, context }) {
+  return (
+    context.runNumber !== null &&
+    context.runNumber !== undefined &&
+    bootstrap.event_run_id === exactRunId(context.runId) &&
+    bootstrap.event_run_number === exactRunId(context.runNumber)
+  );
+}
+
+const CLOSED_BOOTSTRAP_RECOVERY_EXACT_RECEIPT = "exact-bootstrap-receipt";
+const CLOSED_BOOTSTRAP_RECOVERY_TERMINAL_STATE =
+  "exact-same-run-terminal-state";
+
+function pendingClosedBootstrapTerminalRecovery(parsed) {
+  if (parsed.state === null) return null;
+  const state = normalizeExistingState(parsed.state, parsed.journal.pr);
+  const bootstrap = closedBootstrapTerminalRecoveryBootstrap({
+    parsed,
+    state,
+  });
+  return bootstrap ? { bootstrap, state } : null;
+}
+
+function assertClosedBootstrapTerminalRecoveryWriteAuthorized({
+  recovery,
+  context,
+  capability,
+}) {
+  invariant(
+    isSameRunClosedBootstrapTerminalRecovery({
+      bootstrap: recovery.bootstrap,
+      context,
+    }),
+    "Closed bootstrap terminal recovery rejects journal writes outside its exact run",
+  );
+  invariant(
+    capability?.type === CLOSED_BOOTSTRAP_RECOVERY_EXACT_RECEIPT ||
+      capability?.type === CLOSED_BOOTSTRAP_RECOVERY_TERMINAL_STATE,
+    "Closed bootstrap terminal recovery rejects journal writes before same-run drain",
+  );
+  if (capability.type === CLOSED_BOOTSTRAP_RECOVERY_EXACT_RECEIPT) {
+    const receipt = validateEventReceipt(capability.receipt);
+    invariant(
+      canonicalJson(receipt) === canonicalJson(recovery.bootstrap),
+      "Closed bootstrap terminal recovery receipt capability is not exact",
+    );
+  }
+}
+
+function assertClosedBootstrapTerminalRecoveryWriteResult({
+  current,
+  candidate,
+  recovery,
+  capability,
+}) {
+  if (capability.type === CLOSED_BOOTSTRAP_RECOVERY_EXACT_RECEIPT) {
+    invariant(
+      canonicalJson(candidate) === canonicalJson(current),
+      "Closed bootstrap terminal recovery bootstrap replay mutated the journal",
+    );
+    return;
+  }
+
+  const currentAdmission = validateControllerAdmissionCursor(current.admission);
+  const candidateAdmission = validateControllerAdmissionCursor(
+    candidate.admission,
+  );
+  invariant(
+    currentAdmission?.through_run_id === recovery.bootstrap.event_run_id &&
+      currentAdmission.through_run_number ===
+        recovery.bootstrap.event_run_number &&
+      canonicalJson(candidateAdmission) === canonicalJson(currentAdmission),
+    "Closed bootstrap terminal recovery state write changed its admission floor",
+  );
+  const representedBootstrap = controllerAdmissionEvents(
+    candidate.receipts.events,
+    candidate.checkpoint,
+  ).find((event) => event.event_run_id === recovery.bootstrap.event_run_id);
+  invariant(
+    representedBootstrap &&
+      canonicalJson(representedBootstrap) === canonicalJson(recovery.bootstrap),
+    "Closed bootstrap terminal recovery state write lost its bootstrap receipt",
+  );
+  const terminalState = normalizeExistingState(candidate.state, candidate.pr);
+  invariant(
+    terminalState.closed &&
+      !journalHasUnfinishedOwnership(candidate, terminalState) &&
+      PREVIEW_TARGETS.every(
+        (target) =>
+          terminalState.targets[target].active === null &&
+          terminalState.targets[target].retired_active.length === 0,
+      ),
+    "Closed bootstrap terminal recovery state write is not terminal and drained",
+  );
 }
 
 function foldCheckpointSemanticEvent(journal, event) {
@@ -4986,17 +5276,35 @@ async function appendJournalReceipt({
   allowCreate = false,
   assertCanCreate,
   eventAdmissionProof = null,
+  deferCompaction = false,
 }) {
   const definition = RECEIPT_COLLECTION[kind];
   invariant(definition, "Preview journal receipt kind is invalid");
   const value = definition.validate(rawValue);
   invariant(value.pr === pullRequestNumber(pr), "Preview receipt PR mismatch");
+  invariant(
+    deferCompaction === false ||
+      (kind === "event" &&
+        value.event_action === "bootstrap" &&
+        value.pr_state === "closed" &&
+        eventAdmissionProof?.complete === true),
+    "Preview receipt compaction deferral is not authorized",
+  );
   return mutatePreviewJournal({
     github,
     context,
     pr,
     allowCreate,
     assertCanCreate,
+    closedBootstrapRecoveryCapability:
+      kind === "event" &&
+      value.event_action === "bootstrap" &&
+      value.pr_state === "closed"
+        ? {
+            type: CLOSED_BOOTSTRAP_RECOVERY_EXACT_RECEIPT,
+            receipt: value,
+          }
+        : null,
     mutate(journal) {
       const priorAdmissionRunNumber =
         journal.admission?.through_run_number ?? null;
@@ -5122,6 +5430,13 @@ async function appendJournalReceipt({
         kind === "event" ? structuredClone(journal.receipts.events) : null;
       entries.push(structuredClone(value));
       persistAdmission();
+      if (deferCompaction) {
+        // This one authenticated legacy drain must preserve the old active
+        // owner lineage until the same run reconciles the persisted results.
+        // Rendering here enforces the 60 KB comment headroom before any write.
+        renderPreviewJournalBody(journal);
+        return;
+      }
       if (
         kind === "event" &&
         journal.state !== null &&
@@ -5206,14 +5521,31 @@ async function writeControllerState({
   pr,
   state,
   stateComment,
+  compactClosedBootstrapRecovery = false,
 }) {
   const updated = await mutatePreviewJournal({
     github,
     context,
     pr,
     expectedComment: stateComment,
+    closedBootstrapRecoveryCapability: compactClosedBootstrapRecovery
+      ? { type: CLOSED_BOOTSTRAP_RECOVERY_TERMINAL_STATE }
+      : null,
     mutate(journal) {
       journal.state = structuredClone(state);
+      if (compactClosedBootstrapRecovery) {
+        invariant(
+          state.closed,
+          "Closed bootstrap recovery compaction requires terminal state",
+        );
+        journal.journal_digest = previewJournalDigest(
+          journal.receipts,
+          journal.state,
+          journal.checkpoint,
+          journal.admission,
+        );
+        compactPreviewJournal(journal, { expectedPullNumber: pr });
+      }
     },
   });
   return updated.journalComment;
@@ -5572,6 +5904,7 @@ export async function recordEventReceipt({
   const receipt = validateEventReceipt({ ...validatedSnapshot, plan });
   const firstAttempt = exactRunAttempt(context.runAttempt ?? 1) === 1;
   const operatorBootstrap = receipt.event_action === "bootstrap";
+  let closedBootstrapTerminalRecoveryState = null;
   const currentBefore = normalizePullRequest(
     await pullFromApi(github, context, receipt.pr),
   );
@@ -5607,6 +5940,34 @@ export async function recordEventReceipt({
       allowMissing: firstAttempt,
     });
   }
+  const representedEvent = existing
+    ? (controllerAdmissionEvents(existing.events, existing.checkpoint).find(
+        (event) => event.event_run_id === receipt.event_run_id,
+      ) ?? null)
+    : null;
+  const alreadyRepresented = representedEvent !== null;
+  if (operatorBootstrap && representedEvent) {
+    invariant(
+      canonicalJson(representedEvent) === canonicalJson(receipt),
+      "Conflicting bootstrap receipt in preview journal",
+    );
+  }
+  const pendingClosedBootstrapRecovery = existing
+    ? pendingClosedBootstrapTerminalRecovery(existing)
+    : null;
+  if (pendingClosedBootstrapRecovery) {
+    invariant(
+      operatorBootstrap &&
+        alreadyRepresented &&
+        isSameRunClosedBootstrapTerminalRecovery({
+          bootstrap: pendingClosedBootstrapRecovery.bootstrap,
+          context,
+        }) &&
+        canonicalJson(receipt) ===
+          canonicalJson(pendingClosedBootstrapRecovery.bootstrap),
+      "Closed bootstrap terminal recovery rejects later event receipts before same-run drain",
+    );
+  }
   if (operatorBootstrap && receipt.pr_state === "closed") {
     invariant(
       existing && currentBefore.state === "closed",
@@ -5616,14 +5977,36 @@ export async function recordEventReceipt({
       existing.state === null
         ? null
         : normalizeExistingState(existing.state, receipt.pr);
-    invariant(
-      existingState
-        ? !journalHasUnfinishedOwnership(existing.journal, existingState)
-        : existing.selections.length === 0 &&
-            existing.workerEvidence.length === 0 &&
-            existing.results.length === 0,
-      "Closed bootstrap requires all preview ownership to be drained",
-    );
+    if (existingState) {
+      if (journalHasUnfinishedOwnership(existing.journal, existingState)) {
+        const staleClaims = closedBootstrapOwnershipClaims(
+          existing.journal,
+          existingState,
+        );
+        const priorAdmission = validateControllerAdmissionCursor(
+          existing.admission,
+        );
+        const exactBootstrapRerun =
+          alreadyRepresented &&
+          priorAdmission?.through_run_id === receipt.event_run_id &&
+          priorAdmission.through_run_number === receipt.event_run_number;
+        invariant(
+          staleClaims.length > 0 &&
+            (priorAdmission === null || exactBootstrapRerun),
+          staleClaims.length > 0
+            ? "Closed bootstrap terminal recovery requires a cursorless journal or its exact admitted rerun"
+            : "Closed bootstrap requires all preview ownership to be drained",
+        );
+        closedBootstrapTerminalRecoveryState = existingState;
+      }
+    } else {
+      invariant(
+        existing.selections.length === 0 &&
+          existing.workerEvidence.length === 0 &&
+          existing.results.length === 0,
+        "Closed bootstrap requires all preview ownership to be drained",
+      );
+    }
   }
   const representedEvents = [
     ...(existing?.events ?? []),
@@ -5633,11 +6016,6 @@ export async function recordEventReceipt({
       ? []
       : [receipt]),
   ];
-  const alreadyRepresented = existing
-    ? controllerAdmissionEvents(existing.events, existing.checkpoint).some(
-        (event) => event.event_run_id === receipt.event_run_id,
-      )
-    : false;
   const admissionSession = await createControllerAdmissionSession({
     github,
     context,
@@ -5663,6 +6041,49 @@ export async function recordEventReceipt({
     pull: currentBefore,
   });
   if (preFloorEvent) eventAdmissionProof.preFloorEvent = preFloorEvent;
+  if (closedBootstrapTerminalRecoveryState !== null) {
+    const authenticatedFloor = validateControllerAdmissionCursor(
+      eventAdmissionProof.cursor,
+    );
+    invariant(
+      eventAdmissionProof.complete &&
+        authenticatedFloor?.through_run_id === receipt.event_run_id &&
+        authenticatedFloor.through_run_number === receipt.event_run_number,
+      "Closed bootstrap terminal recovery requires an exact quiescent admission floor",
+    );
+    const recoveredOwners = await authenticateClosedBootstrapTerminalOwnership({
+      github,
+      context,
+      parsed: existing,
+      state: closedBootstrapTerminalRecoveryState,
+      bootstrap: receipt,
+      alreadyRepresented,
+      waitForRetry: waitForAdmission,
+    });
+    const confirmedClosedPull = normalizePullRequest(
+      await pullFromApi(github, context, receipt.pr),
+    );
+    invariant(
+      confirmedClosedPull.number === receipt.pr &&
+        confirmedClosedPull.state === "closed" &&
+        confirmedClosedPull.baseSha === receipt.trusted_base_sha &&
+        (receipt.base_ref === undefined ||
+          confirmedClosedPull.baseRef === receipt.base_ref) &&
+        confirmedClosedPull.headSha === receipt.head_sha &&
+        confirmedClosedPull.headRef === receipt.head_ref &&
+        confirmedClosedPull.headRepository === receipt.head_repository &&
+        confirmedClosedPull.author === receipt.pr_author &&
+        confirmedClosedPull.trust === receipt.trust &&
+        confirmedClosedPull.updatedAt === receipt.pr_updated_at &&
+        confirmedClosedPull.closedAt === receipt.pr_closed_at,
+      "Closed bootstrap terminal recovery PR state changed before mutation",
+    );
+    core.setOutput("closed_bootstrap_terminal_recovery", "true");
+    core.setOutput(
+      "closed_bootstrap_terminal_owner_count",
+      String(recoveredOwners),
+    );
+  }
   await appendJournalReceipt({
     github,
     context,
@@ -5676,6 +6097,7 @@ export async function recordEventReceipt({
         ? () => assertPreviewJournalIsUninitialized(github, context, receipt)
         : undefined,
     eventAdmissionProof,
+    deferCompaction: closedBootstrapTerminalRecoveryState !== null,
   });
   const controllerRunUrl = `https://github.com/${PREVIEW_REPOSITORY}/actions/runs/${context.runId}`;
   await ensurePreviewInitializationWitness({
@@ -6784,7 +7206,11 @@ export async function reconcilePreview({
     core.setOutput("reconcile_deferred", "true");
     core.setOutput("pr_number", String(pr));
   };
-  const deferIfBacklogged = async (currentPull, parsed) => {
+  const deferIfBacklogged = async (
+    currentPull,
+    parsed,
+    { pinnedAdmissionEvent = null } = {},
+  ) => {
     admissionSession ??= await createControllerAdmissionSession({
       github,
       context,
@@ -6804,12 +7230,23 @@ export async function reconcilePreview({
         pull: currentPull,
       }))
     ) {
-      await persistControllerAdmissionCursor({
-        github,
-        context,
-        pr,
-        admission: admissionSession.cursor(),
-      });
+      const refreshedCursor = admissionSession.cursor();
+      if (pinnedAdmissionEvent) {
+        invariant(
+          refreshedCursor?.through_run_id ===
+            pinnedAdmissionEvent.event_run_id &&
+            refreshedCursor.through_run_number ===
+              pinnedAdmissionEvent.event_run_number,
+          "Closed bootstrap terminal recovery requires an exact quiescent admission floor",
+        );
+      } else {
+        await persistControllerAdmissionCursor({
+          github,
+          context,
+          pr,
+          admission: refreshedCursor,
+        });
+      }
       return false;
     }
     recordBacklogDeferral();
@@ -6845,7 +7282,29 @@ export async function reconcilePreview({
       const pull = await pullFromApi(github, context, pr);
       const currentPull = normalizePullRequest(pull);
       const parsed = await loadPreviewJournal(github, context, pr);
-      if (await deferIfBacklogged(currentPull, parsed)) {
+      const parsedState =
+        parsed.state === null ? null : normalizeExistingState(parsed.state, pr);
+      const pendingClosedBootstrapRecovery = parsedState
+        ? closedBootstrapTerminalRecoveryBootstrap({
+            parsed,
+            state: parsedState,
+          })
+        : null;
+      invariant(
+        pendingClosedBootstrapRecovery === null ||
+          isSameRunClosedBootstrapTerminalRecovery({
+            bootstrap: pendingClosedBootstrapRecovery,
+            context,
+          }),
+        "Closed bootstrap terminal recovery requires its exact admitted run",
+      );
+      const compactClosedBootstrapRecovery =
+        pendingClosedBootstrapRecovery !== null;
+      if (
+        await deferIfBacklogged(currentPull, parsed, {
+          pinnedAdmissionEvent: pendingClosedBootstrapRecovery,
+        })
+      ) {
         return parsed.state;
       }
       const previewOwners = await candidatePreviewOwners(github, context, pull);
@@ -6887,7 +7346,11 @@ export async function reconcilePreview({
         await pullFromApi(github, context, pr),
       );
       const mutationComments = await loadPreviewJournal(github, context, pr);
-      if (await deferIfBacklogged(mutationPull, mutationComments)) {
+      if (
+        await deferIfBacklogged(mutationPull, mutationComments, {
+          pinnedAdmissionEvent: pendingClosedBootstrapRecovery,
+        })
+      ) {
         return mutationComments.state;
       }
 
@@ -6923,6 +7386,7 @@ export async function reconcilePreview({
           pr,
           state,
           stateComment,
+          compactClosedBootstrapRecovery,
         });
         if (headDecision) {
           await github.rest.repos.createCommitStatus({
@@ -6992,6 +7456,7 @@ export async function reconcilePreview({
           pr,
           state,
           stateComment,
+          compactClosedBootstrapRecovery,
         });
       }
 
@@ -8102,15 +8567,7 @@ export async function recoverWorkerResult({
     32,
   );
   invariant(
-    [
-      "success",
-      "failure",
-      "cancelled",
-      "timed_out",
-      "startup_failure",
-      "action_required",
-      "stale",
-    ].includes(conclusion),
+    RESULT_BEARING_WORKER_CONCLUSIONS.has(conclusion),
     "Worker conclusion is unsupported",
   );
   const existingResult = evidence.results.find(

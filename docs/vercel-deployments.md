@@ -1419,15 +1419,56 @@ gh api --method POST \
 
 A closed bootstrap is an exceptional recovery reset, not a way to create a
 journal. It is accepted only when the exact PR is live-closed, exactly one
-canonical v2 journal already exists, and that journal has no unfinished worker,
-selection, result, or dispatch ownership. The journal must be cursorless unless
-this is an exact rerun of its already-recorded bootstrap. The numbered
-`repository_dispatch` run must authenticate the exact repository, numeric
-controller workflow ID and path, run ID, run number, strict title, and durable
-receipt. The reset records a terminal closed anchor/state and the new admission
-floor without invoking the planner, dispatching a worker, creating or updating
-a Deployment, or publishing a pending preview status. A later `reopened` event
-starts normally from that terminal anchor.
+canonical v2 journal already exists, and that journal either has no unfinished
+ownership or matches the narrow terminal-active legacy case below. The journal
+must be cursorless unless this is an exact rerun of its already-recorded
+bootstrap. The numbered `repository_dispatch` run must authenticate the exact
+repository, numeric controller workflow ID and path, run ID, run number, strict
+title, and durable receipt. Its receipt establishes the new admission floor;
+the same run's existing reconciliation job then folds the state and records the
+terminal closed anchor/state. Neither step invokes the planner, dispatches a
+worker, creates or updates a Deployment, or publishes a pending preview status.
+A later `reopened` event starts normally from that terminal anchor.
+
+The terminal-active legacy case exists only for a cursorless closed journal
+whose mutable state failed to fold already-durable terminal results. It permits
+current `active` slots only: no intended owner, any `retired_active` entry, or
+checkpoint pending owner is recoverable through this exception. Every active
+slot must bind exactly one canonical selection, one compatible terminal result,
+and one distinct exact worker run and attempt. The controller
+reads that exact attempt through the authenticated Actions API and validates
+the trusted worker path, repository, default ref, authorized workflow SHA,
+strict title, run URL, completed status, terminal conclusion, and
+result/conclusion compatibility. It does not search for a worker, synthesize a
+result, call worker recovery, or read or mutate a Deployment. Missing,
+duplicate, nonterminal, contradictory, or changed evidence fails before
+journal mutation. The live PR is queried again after proof and must still match
+the closed bootstrap snapshot exactly.
+
+The authenticated bootstrap run must also be the complete quiescent admission
+frontier. Its receipt establishes that one floor; the existing
+`reconcile-bootstrap` job in the same workflow run then consumes the already
+persisted results, clears the stale current-active slots, and compacts the
+journal. This is not another operation, reader, or compatibility mode. A
+terminal-recovery receipt deliberately defers active-capacity checkpointing so
+the old owner lineage survives until that reconcile; the ordinary 60 KB
+comment guard still rejects an oversized body before any write. While that
+drain is pending, the durable admission cursor remains pinned to the bootstrap
+run. If a later controller run appears at the Actions frontier before the drain
+and compaction write commits, same-run reconciliation fails before persisting
+that later cursor or mutating journal state. A centralized journal-write barrier
+also rejects event, selection, worker-evidence, result, cursor, and nonterminal
+state writes during this interval. Its only capabilities are an idempotent
+replay of the exact admitted bootstrap receipt and the exact same run's terminal
+drain-and-compaction state write. `state.closed` alone does not clear this
+barrier: recovery remains pending while authenticated ownership is unfinished,
+and only a terminal closed-and-drained state clears it.
+A later PR event fails before admission refresh, even when its live pull-request
+snapshot has already changed.
+A distinct reconciliation run is rejected before admission refresh or state
+mutation. A
+terminal non-pending retired entry remains part of the pre-existing drained
+contract and does not enter terminal-active recovery.
 
 If a closed bootstrap partially fails after committing its receipt or terminal
 witness, rerun the failed job(s) on that same Actions run. Reruns retain the
@@ -1435,7 +1476,34 @@ same run ID and run number and repair missing witness or reconciliation work
 idempotently. Never send a second bootstrap dispatch for the same closed
 journal: a distinct run cannot replace its established admission cursor. A
 closed bootstrap against a missing journal or unfinished ownership fails before
-mutation.
+mutation unless the unfinished state is exactly the authenticated
+terminal-active legacy case above.
+
+For a terminal-active cursorless closed journal, recovery after the corrective
+change reaches `main` has exactly two operator steps:
+
+1. Freeze lifecycle mutations and confirm the PR is still closed, exactly one
+   canonical v2 journal exists with no admission cursor, no checkpoint pending
+   owner or `retired_active` entry exists, every current active slot has one
+   matching terminal result, every exact worker attempt is completed, and no
+   later controller run is in flight. Do not edit the journal, run a standalone
+   reconcile, or redispatch a worker.
+2. Dispatch one closed bootstrap and wait for both its receipt and same-run
+   reconciliation jobs. Verify the journal has the exact bootstrap run
+   ID/number as its admission cursor, is terminal-closed with all active and
+   retired slots empty, and the run emitted no planner execution, worker
+   dispatch, Deployment mutation, or pending `Vercel Preview` status:
+
+   ```bash
+   PR_NUMBER="<closed-pr-number>"
+   gh api --method POST \
+     repos/mento-protocol/frontend-monorepo/dispatches \
+     -f event_type=vercel-preview-bootstrap \
+     -F "client_payload[pr_number]=$PR_NUMBER"
+   ```
+
+If step 2 fails after its receipt commits, rerun the failed job on that same
+Actions run. Never dispatch another distinct closed bootstrap.
 
 Do not invent an opened event, manually edit or delete a journal, invent journal
 entries, or re-dispatch the worker directly. Missing repository names must be

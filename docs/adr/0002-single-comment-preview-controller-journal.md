@@ -224,20 +224,44 @@ legacy admission fallback.
 
 One explicit closed-bootstrap path exists for recovery of a legacy cursorless
 closed journal during the admission-cursor cutover. It can update only an
-existing canonical v2 journal whose live PR is closed and whose durable state
-proves that no worker, selection, result, or dispatch ownership remains
-unfinished. The journal is cursorless unless this is an exact rerun of its
-already-recorded bootstrap. It authenticates the exact repository,
-numeric workflow ID/path, `repository_dispatch` run ID and run number, strict
-title, and receipt before mutation. It records a terminal closed anchor/state
-and admission floor without planning, worker dispatch, Deployment mutation, or
-a pending preview status. A rerun of that same Actions run is idempotent and can
-repair a post-commit witness or reconciliation failure; a second distinct
-closed-bootstrap run cannot replace the cursor. A missing journal fails rather
-than being created. Delayed events at or below that floor are exact-run-
-authenticated write-free no-ops, while every later run remains part of the
-global admission interval. A subsequent valid `reopened` event starts a new
-epoch from the terminal anchor.
+existing canonical v2 journal whose live PR is closed. Normally its durable
+state proves that no ownership remains unfinished. One narrowly bounded legacy
+case may instead fold stale current-active slots only when the journal is
+cursorless, has no checkpoint pending owner or `retired_active` entry, and every
+active slot has one exact selection, one compatible persisted
+terminal result, and one distinct completed worker run and attempt
+authenticated through the Actions API. Intended owners, worker search, result
+synthesis, Deployment inspection or mutation, ambiguous evidence, nonterminal
+evidence, a changed live PR, or a later controller run all fail before mutation.
+Terminal non-pending retired history retains the pre-existing drained semantics
+and does not use this exception.
+
+The journal is cursorless unless this is an exact rerun of its already-recorded
+bootstrap. The path authenticates the exact repository, numeric workflow
+ID/path, `repository_dispatch` run ID and run number, strict title, and receipt
+before mutation. The authenticated bootstrap must be the complete quiescent
+frontier. It records the admission floor without planning, worker dispatch,
+Deployment mutation, or a pending preview status; the same run's existing
+reconciliation job then consumes only the already-persisted terminal results,
+drains the active slots, and records terminal closed state. No second operation,
+reader, or compatibility mode exists. Active-capacity compaction is deferred only
+between that receipt and same-run drain, while the ordinary 60 KB guard remains
+fail-closed. Until drain and compaction commit, the durable admission cursor
+remains pinned to the bootstrap: a later Actions frontier fails before its
+cursor or any journal mutation is persisted, and a distinct reconciliation run
+cannot consume the pending state. A central writer barrier covers event,
+selection, worker-evidence, result, cursor, and state mutations; only the exact
+bootstrap's idempotent receipt replay and its same-run terminal
+state-and-compaction write are authorized. `state.closed` alone is not
+terminality for this barrier: unfinished authenticated ownership keeps recovery
+pending until the same run records a closed-and-drained state. Later PR receipts fail before
+admission refresh. A rerun of that same Actions run is
+idempotent and can repair a post-commit witness or reconciliation failure; a
+second distinct closed-bootstrap run cannot replace the cursor. A missing
+journal fails rather than being created. Delayed events at or below that floor
+are exact-run-authenticated write-free no-ops, while every later run remains
+part of the global admission interval. A subsequent valid `reopened` event
+starts a new epoch from the terminal anchor.
 
 During the historical precursor phase, every `pull_request_target` run began
 using a strict machine-readable title that binds run ID, workflow-monotonic run
@@ -407,6 +431,11 @@ cost, retention policy, and operator dependency for preview deployment.
 - Cutover and rollback require explicit run draining and fresh bootstrap. They
   intentionally abandon persistence continuity across journal versions rather
   than carrying compatibility code indefinitely.
+- The closed-bootstrap terminal-active exception is deliberately narrower than
+  general worker recovery: only exact current active slots with already-durable
+  terminal results qualify. Checkpoint owners, all retired owners, and intended
+  owners remain fail-closed, and there is no alternate operation or
+  second journal reader to maintain.
 - The decision should be reconsidered after any lost journal entry, duplicate
   worker or Deployment caused by journal state, repeated approach to the body
   limit, queue pressure near the 100-pending platform bound, material preview
