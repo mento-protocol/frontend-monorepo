@@ -102,10 +102,10 @@ the primary client.
 
 A target-local ownership rollback keeps the controller `active`, atomically
 restores only that target's native Vercel Git configuration and `shadow` mode,
-and leaves the dispatch credential available for other GitHub-owned targets. A
-Governance rollback therefore leaves Reserve and UI GitHub-owned and App
-shadowed; it neither revokes the shared dispatch path nor recreates the deleted
-Governance QA environment. A
+and leaves the dispatch credential available for other GitHub-owned targets.
+An App rollback therefore leaves Governance, Reserve, and UI GitHub-owned; a
+Governance rollback leaves App, Reserve, and UI GitHub-owned. Neither revokes
+the shared dispatch path nor recreates the deleted Governance QA environment. A
 coordinated full-controller rollback may set the version-controlled controller
 mode to `observe-only` only in the same reviewed change that restores native
 ownership for every GitHub-owned target. In that full shutdown mode the
