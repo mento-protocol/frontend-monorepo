@@ -935,6 +935,23 @@ test("stable final status job fails closed over literal dependencies", () => {
   assert.match(source, /if \[\[ "\$result" != "success" \]\]/);
 });
 
+test("fresh smoke jobs resolve the Playwright config from the filtered workspace", () => {
+  for (const target of ["governance", "reserve", "ui"]) {
+    const smoke = workflow.jobs[`smoke-${target}`].steps.find((step) =>
+      step.name?.startsWith("Run direct "),
+    );
+    assert.ok(smoke, `${target} smoke step must exist`);
+    assert.match(
+      smoke.run,
+      /pnpm --filter app\.mento\.org exec playwright test -c playwright\.production-shadow\.config\.ts/,
+    );
+    assert.doesNotMatch(
+      smoke.run,
+      /-c apps\/app\.mento\.org\/playwright\.production-shadow\.config\.ts/,
+    );
+  }
+});
+
 test("all external action references remain immutable full SHA pins", () => {
   for (const value of allStrings(workflow)) {
     if (!value.includes("@") || value.startsWith("./")) continue;

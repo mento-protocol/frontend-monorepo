@@ -908,7 +908,7 @@ jobs:
           PRODUCTION_SHADOW_URL: ${{ needs.governance.outputs.deployment_url }}
         run: |
           node scripts/vercel-production-shadow.mjs health --url "$PRODUCTION_SHADOW_URL"
-          env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE -u GITHUB_STEP_SUMMARY pnpm --filter app.mento.org exec playwright test -c apps/app.mento.org/playwright.production-shadow.config.ts
+          env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE -u GITHUB_STEP_SUMMARY pnpm --filter app.mento.org exec playwright test -c playwright.production-shadow.config.ts
       - name: Upload governance browser diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -954,7 +954,7 @@ jobs:
           PRODUCTION_SHADOW_URL: ${{ needs.reserve.outputs.deployment_url }}
         run: |
           node scripts/vercel-production-shadow.mjs health --url "$PRODUCTION_SHADOW_URL"
-          env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE -u GITHUB_STEP_SUMMARY pnpm --filter app.mento.org exec playwright test -c apps/app.mento.org/playwright.production-shadow.config.ts
+          env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE -u GITHUB_STEP_SUMMARY pnpm --filter app.mento.org exec playwright test -c playwright.production-shadow.config.ts
       - name: Upload reserve browser diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -1000,7 +1000,7 @@ jobs:
           PRODUCTION_SHADOW_URL: ${{ needs.ui.outputs.deployment_url }}
         run: |
           node scripts/vercel-production-shadow.mjs health --url "$PRODUCTION_SHADOW_URL"
-          env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE -u GITHUB_STEP_SUMMARY pnpm --filter app.mento.org exec playwright test -c apps/app.mento.org/playwright.production-shadow.config.ts
+          env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE -u GITHUB_STEP_SUMMARY pnpm --filter app.mento.org exec playwright test -c playwright.production-shadow.config.ts
       - name: Upload UI browser diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
