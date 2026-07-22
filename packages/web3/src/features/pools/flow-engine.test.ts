@@ -351,6 +351,60 @@ describe("executeLiquidityFlow", () => {
     );
   });
 
+  it("preserves actionable copy when the pool ratio changes after approval", async () => {
+    const recorder = createFlowRecorder();
+    const ratioChangedMessage =
+      "Pool ratio changed. Review the updated amounts before submitting.";
+
+    estimateGasMock.mockResolvedValueOnce(100n);
+    sendTransactionMock.mockResolvedValueOnce(firstHash as never);
+    waitForTransactionReceiptMock.mockResolvedValueOnce({
+      status: "success",
+    } as never);
+
+    const result = await executeLiquidityFlow(
+      wagmiConfig,
+      recorder.setFlowAtom,
+      "Add liquidity",
+      [
+        {
+          id: "approve",
+          label: "Approve",
+          buildTx: vi.fn().mockResolvedValue({
+            to: "0x0000000000000000000000000000000000000001",
+            data: "0x01",
+            value: 0n,
+          }),
+        },
+        {
+          id: "deposit",
+          label: "Deposit",
+          buildTx: vi.fn().mockRejectedValue(new Error(ratioChangedMessage)),
+        },
+      ],
+    );
+
+    expect(result).toEqual({ success: false, txHashes: [firstHash] });
+    expect(recorder.getState()).toEqual({
+      operation: "Add liquidity",
+      currentStepIndex: 1,
+      steps: [
+        {
+          id: "approve",
+          label: "Approve",
+          status: "confirmed",
+          txHash: firstHash,
+        },
+        {
+          id: "deposit",
+          label: "Deposit",
+          status: "error",
+          error: { message: ratioChangedMessage },
+        },
+      ],
+    });
+  });
+
   it("surfaces reverted receipts while preserving the pools-friendly error copy", async () => {
     const recorder = createFlowRecorder();
 

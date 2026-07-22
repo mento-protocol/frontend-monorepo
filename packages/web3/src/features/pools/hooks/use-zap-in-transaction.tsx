@@ -21,6 +21,11 @@ const FPMM_FACTORY_POOL_ABI = parseAbi([
 
 type ZapRoute = ZapInTransaction["zapIn"]["routesA"];
 
+export interface ZapInBuildAttempt {
+  build: ZapInTransaction | null;
+  error: string | null;
+}
+
 function getZapInBuildError(message: string): string | null {
   if (/no viable zap-in route|no single-token route/i.test(message)) {
     return "No route for this amount. Reduce amount or use balanced mode.";
@@ -49,12 +54,12 @@ function getZapInBuildError(message: string): string | null {
   return null;
 }
 
-function isSameAddress(addressA: string, addressB: string): boolean {
-  return addressA.toLowerCase() === addressB.toLowerCase();
+function isApprovalPreflightEstimateError(message: string): boolean {
+  return /allowance|0xfb8f41b2|transfer failed/i.test(message);
 }
 
-function isAllowanceError(message: string): boolean {
-  return /allowance|insufficient allowance|exceeds allowance/i.test(message);
+function isSameAddress(addressA: string, addressB: string): boolean {
+  return addressA.toLowerCase() === addressB.toLowerCase();
 }
 
 async function validateZapRouteLiquidity({
@@ -176,13 +181,13 @@ export function useZapInTransaction(pool: PoolDisplay, chainId?: ChainId) {
       });
   }, [txHash, publicClient, pool, resolvedChainId, queryClient]);
 
-  const buildTransaction = useCallback(
+  const buildTransactionAttempt = useCallback(
     async (
       tokenIn: Address,
       amountIn: bigint,
       recipient: Address,
       slippage: SlippageOption,
-    ): Promise<ZapInTransaction | null> => {
+    ): Promise<ZapInBuildAttempt> => {
       setIsBuilding(true);
       setBuildError(null);
       try {
@@ -215,22 +220,13 @@ export function useZapInTransaction(pool: PoolDisplay, chainId?: ChainId) {
               ? estimateErr.message
               : String(estimateErr);
 
-          // Pre-approval simulations legitimately fail with allowance errors
-          // because the wallet hasn't granted the allowance yet. That doesn't
-          // mean the zap is invalid — let the build through so the approval
-          // step can run; a fresh preflight after approval will catch any
-          // real issues. All other failures (bad route, ratio shift, etc.)
-          // still gate the build to avoid prompting an approval for a zap
-          // we already know will revert.
-          if (result.approval && isAllowanceError(estimateMessage)) {
-            setBuildResult(result);
-            setBuildError(null);
-            return result;
-          }
-
           let parsedError = getZapInBuildError(estimateMessage);
+          const canBeMissingAllowance =
+            Boolean(result.approval) &&
+            !parsedError &&
+            isApprovalPreflightEstimateError(estimateMessage);
 
-          if (!parsedError) {
+          if (canBeMissingAllowance) {
             try {
               await Promise.all([
                 validateZapRouteLiquidity({
@@ -256,31 +252,52 @@ export function useZapInTransaction(pool: PoolDisplay, chainId?: ChainId) {
             }
           }
 
-          setBuildError(
+          // Missing allowance can surface as a generic transfer failure on
+          // Monad. Waive only that recognized approval failure after the route
+          // itself has passed read-only liquidity validation.
+          if (canBeMissingAllowance && !parsedError) {
+            setBuildResult(result);
+            setBuildError(null);
+            return { build: result, error: null };
+          }
+
+          const error =
             parsedError ||
-              "This single-token amount cannot be simulated right now. Try a smaller amount, higher slippage, or balanced mode.",
-          );
+            "This single-token amount cannot be simulated right now. Try a smaller amount, higher slippage, or balanced mode.";
+          setBuildError(error);
           setBuildResult(null);
-          return null;
+          return { build: null, error };
         }
 
         setBuildResult(result);
         setBuildError(null);
-        return result;
+        return { build: result, error: null };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         const parsedError = getZapInBuildError(message);
-        setBuildError(
-          parsedError || "Unable to prepare single-token liquidity right now.",
-        );
+        const error =
+          parsedError || "Unable to prepare single-token liquidity right now.";
+        setBuildError(error);
         logger.error("Failed to build zap-in transaction:", err);
         setBuildResult(null);
-        return null;
+        return { build: null, error };
       } finally {
         setIsBuilding(false);
       }
     },
     [resolvedChainId, pool, publicClient],
+  );
+
+  const buildTransaction = useCallback(
+    async (
+      tokenIn: Address,
+      amountIn: bigint,
+      recipient: Address,
+      slippage: SlippageOption,
+    ): Promise<ZapInTransaction | null> =>
+      (await buildTransactionAttempt(tokenIn, amountIn, recipient, slippage))
+        .build,
+    [buildTransactionAttempt],
   );
 
   const sendZapIn = useCallback(
@@ -321,6 +338,7 @@ export function useZapInTransaction(pool: PoolDisplay, chainId?: ChainId) {
 
   return {
     buildTransaction,
+    buildTransactionAttempt,
     buildResult,
     buildError,
     isBuilding,

@@ -9,11 +9,14 @@ import {
   CoinInput,
   toast,
 } from "@mento-protocol/ui";
-import type { PoolDisplay, SlippageOption } from "@repo/web3";
+import type {
+  LiquidityQuoteResult,
+  PoolDisplay,
+  SlippageOption,
+} from "@repo/web3";
 import {
   SLIPPAGE_OPTIONS,
   useLiquidityQuote,
-  getProportionalAmount,
   useAddLiquidityTransaction,
   useZapInQuote,
   useZapInTransaction,
@@ -26,6 +29,7 @@ import {
   type LiquidityFlowStepDefinition,
   getPoolDisplayOrder,
   isUserRejection,
+  type LiquidityQuoteRequest,
 } from "@repo/web3";
 import {
   useAccount,
@@ -36,9 +40,16 @@ import {
 import { erc20Abi, formatUnits, type Address } from "viem";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { AlertTriangle } from "lucide-react";
-import { getContractAddress } from "@mento-protocol/mento-sdk";
+import {
+  getContractAddress,
+  type AddLiquidityTransaction,
+} from "@mento-protocol/mento-sdk";
 import { useSetAtom } from "jotai";
 import { useQueryClient } from "@tanstack/react-query";
+import {
+  formatLiquiditySummaryAmount,
+  getBalancedLiquidityDisplayState,
+} from "./balanced-liquidity-display";
 
 function isSingleTokenLiquidityLimitError(message: string): boolean {
   return /pool liquidity is insufficient|insufficient liquidity|insufficient reserves|insufficient output amount|bb55fd27/i.test(
@@ -75,6 +86,38 @@ function getSingleTokenLiquidityErrorMessage(
   }
 
   return message.replace(/zap-?in/gi, "single-token liquidity");
+}
+
+const POOL_RATIO_CHANGED_ERROR =
+  "Pool ratio changed. Review the updated amounts before submitting.";
+
+function isWithinOneWei(actual: bigint, expected: bigint): boolean {
+  return actual >= expected ? actual - expected <= 1n : expected - actual <= 1n;
+}
+
+function getMinimumAmount(amount: bigint, slippage: SlippageOption): bigint {
+  const basisPoints = BigInt(Math.floor(slippage * 100));
+  return (amount * (10_000n - basisPoints)) / 10_000n;
+}
+
+function isBuildAlignedWithQuote(
+  build: AddLiquidityTransaction,
+  quote: LiquidityQuoteResult,
+  slippage: SlippageOption,
+): boolean {
+  const details = build.addLiquidity;
+  return (
+    isWithinOneWei(details.amountADesired, quote.amountA) &&
+    isWithinOneWei(details.amountBDesired, quote.amountB) &&
+    isWithinOneWei(
+      details.amountAMin,
+      getMinimumAmount(quote.amountA, slippage),
+    ) &&
+    isWithinOneWei(
+      details.amountBMin,
+      getMinimumAmount(quote.amountB, slippage),
+    )
+  );
 }
 
 function TokenAmountInput({
@@ -144,18 +187,6 @@ function TokenAmountInput({
   );
 }
 
-function formatSummaryAmount(amount: string): string {
-  if (amount === "—") return amount;
-
-  const value = Number(amount);
-  if (!Number.isFinite(value)) return "0.0000";
-
-  return value.toLocaleString(undefined, {
-    minimumFractionDigits: 4,
-    maximumFractionDigits: 4,
-  });
-}
-
 interface AddLiquidityFormProps {
   pool: PoolDisplay;
   onLiquidityUpdated?: (txHash?: string) => void | Promise<void>;
@@ -188,16 +219,15 @@ export function AddLiquidityForm({
   const [mode, setMode] = useState<"balanced" | "single">("balanced");
   const [token0Amount, setToken0Amount] = useState("");
   const [token1Amount, setToken1Amount] = useState("");
-  const [lastEditedToken, setLastEditedToken] = useState<0 | 1>(0);
+  const [liquidityQuoteRequest, setLiquidityQuoteRequest] =
+    useState<LiquidityQuoteRequest | null>(null);
   const [slippage, setSlippage] = useState<SlippageOption>(0.3);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const liquidityQuoteRequestId = useRef(0);
 
   // Single-token (zap) state
   const [zapTokenIn, setZapTokenIn] = useState<string>(pool.token0.address);
   const [zapAmount, setZapAmount] = useState("");
-
-  // Track whether the auto-fill should be suppressed (during programmatic updates)
-  const isAutoFilling = useRef(false);
 
   // Fetch token balances
   const { data: token0Balance, refetch: refetchToken0Balance } =
@@ -281,30 +311,26 @@ export function AddLiquidityForm({
 
   // === Balanced mode hooks ===
 
-  const { data: quote, isFetching: isQuoting } = useLiquidityQuote({
+  const {
+    data: quote,
+    isFetching: isFetchingQuote,
+    isDebouncing: isQuoteDebouncing,
+    refetch: refetchLiquidityQuote,
+  } = useLiquidityQuote({
     pool,
-    token0Amount: mode === "balanced" ? token0Amount : "",
-    token1Amount: mode === "balanced" ? token1Amount : "",
-    lastEditedToken,
+    request: mode === "balanced" ? liquidityQuoteRequest : null,
     chainId,
   });
+  const isQuoting = isFetchingQuote || isQuoteDebouncing;
 
-  // Auto-fill proportional amount when quote returns
-  useEffect(() => {
-    if (mode !== "balanced" || !quote || isAutoFilling.current) return;
-    const proportional = getProportionalAmount(quote, lastEditedToken, pool);
-    if (!proportional) return;
-
-    isAutoFilling.current = true;
-    if (lastEditedToken === 0) {
-      setToken1Amount(proportional);
-    } else {
-      setToken0Amount(proportional);
-    }
-    requestAnimationFrame(() => {
-      isAutoFilling.current = false;
-    });
-  }, [quote, lastEditedToken, pool, mode]);
+  const currentQuote =
+    quote && quote.requestId === liquidityQuoteRequest?.id ? quote : null;
+  const balancedDisplay = getBalancedLiquidityDisplayState({
+    quote: currentQuote,
+    pool,
+    rawToken0Amount: token0Amount,
+    rawToken1Amount: token1Amount,
+  });
 
   const { buildTransaction, buildResult, isBuilding } =
     useAddLiquidityTransaction(pool, chainId);
@@ -312,10 +338,20 @@ export function AddLiquidityForm({
   // Build transaction when we have a valid quote and wallet
   useEffect(() => {
     if (mode !== "balanced") return;
-    if (!address || !quote || quote.amountA === 0n || quote.amountB === 0n)
+    if (
+      !address ||
+      !currentQuote ||
+      currentQuote.amountA === 0n ||
+      currentQuote.amountB === 0n
+    )
       return;
-    buildTransaction(quote.amountA, quote.amountB, address, slippage);
-  }, [quote, address, slippage, buildTransaction, mode]);
+    buildTransaction(
+      currentQuote.amountA,
+      currentQuote.amountB,
+      address,
+      slippage,
+    );
+  }, [currentQuote, address, slippage, buildTransaction, mode]);
 
   // === Single-token (zap) hooks ===
 
@@ -337,6 +373,7 @@ export function AddLiquidityForm({
 
   const {
     buildTransaction: buildZapTransaction,
+    buildTransactionAttempt: buildZapTransactionAttempt,
     buildResult: zapBuildResult,
     buildError: zapBuildError,
     isBuilding: isZapBuilding,
@@ -362,37 +399,77 @@ export function AddLiquidityForm({
 
   const handleToken0Change = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (isAutoFilling.current) return;
-      setLastEditedToken(0);
-      setToken0Amount(e.target.value);
+      const amount = e.target.value;
+      const requestId = ++liquidityQuoteRequestId.current;
+      setToken0Amount(amount);
+      setToken1Amount("");
+      setLiquidityQuoteRequest(
+        amount ? { id: requestId, kind: "manual", token: 0, amount } : null,
+      );
     },
     [],
   );
 
   const handleToken1Change = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (isAutoFilling.current) return;
-      setLastEditedToken(1);
-      setToken1Amount(e.target.value);
+      const amount = e.target.value;
+      const requestId = ++liquidityQuoteRequestId.current;
+      setToken0Amount("");
+      setToken1Amount(amount);
+      setLiquidityQuoteRequest(
+        amount ? { id: requestId, kind: "manual", token: 1, amount } : null,
+      );
     },
     [],
   );
 
   const handleMax0 = useCallback(() => {
-    setLastEditedToken(0);
-    setToken0Amount(formattedToken0Balance);
-  }, [formattedToken0Balance]);
+    if (
+      token0Balance === undefined ||
+      token1Balance === undefined ||
+      token0Balance === 0n ||
+      token1Balance === 0n
+    )
+      return;
+
+    const requestId = ++liquidityQuoteRequestId.current;
+    setToken0Amount("");
+    setToken1Amount("");
+    setLiquidityQuoteRequest({
+      id: requestId,
+      kind: "max",
+      token: 0,
+      token0Balance,
+      token1Balance,
+    });
+  }, [token0Balance, token1Balance]);
 
   const handleMax1 = useCallback(() => {
-    setLastEditedToken(1);
-    setToken1Amount(formattedToken1Balance);
-  }, [formattedToken1Balance]);
+    if (
+      token0Balance === undefined ||
+      token1Balance === undefined ||
+      token0Balance === 0n ||
+      token1Balance === 0n
+    )
+      return;
+
+    const requestId = ++liquidityQuoteRequestId.current;
+    setToken0Amount("");
+    setToken1Amount("");
+    setLiquidityQuoteRequest({
+      id: requestId,
+      kind: "max",
+      token: 1,
+      token0Balance,
+      token1Balance,
+    });
+  }, [token0Balance, token1Balance]);
 
   // === Validation ===
 
   // Balanced mode
-  const parsedToken0 = tryParseUnits(token0Amount, pool.token0.decimals);
-  const parsedToken1 = tryParseUnits(token1Amount, pool.token1.decimals);
+  const parsedToken0 = currentQuote?.amountA ?? null;
+  const parsedToken1 = currentQuote?.amountB ?? null;
   const hasAmounts =
     parsedToken0 !== null &&
     parsedToken0 > 0n &&
@@ -531,8 +608,18 @@ export function AddLiquidityForm({
         if (!capturedZapAmount || capturedZapAmount <= 0n) {
           throw new Error("Invalid single-token amount");
         }
-        if (zapBuildError) {
-          throw new Error(zapBuildError);
+        const capturedZapAttempt = await buildZapTransactionAttempt(
+          capturedZapTokenIn as Address,
+          capturedZapAmount,
+          address,
+          capturedSlippage,
+        );
+        const capturedZapBuild = capturedZapAttempt.build;
+        if (!capturedZapBuild) {
+          throw new Error(
+            capturedZapAttempt.error ||
+              "No single-token route is available for this amount. Try a smaller amount or use balanced mode.",
+          );
         }
 
         const steps: LiquidityFlowStepDefinition[] = [];
@@ -544,10 +631,10 @@ export function AddLiquidityForm({
             : allowances.token1;
 
         if (
-          zapBuildResult.approval &&
+          capturedZapBuild.approval &&
           capturedZapAmount > currentZapAllowance
         ) {
-          const approvalParams = zapBuildResult.approval.params;
+          const approvalParams = capturedZapBuild.approval.params;
           steps.push({
             id: "approve-token",
             label: `Approve ${zapToken.symbol}`,
@@ -555,20 +642,31 @@ export function AddLiquidityForm({
           });
         }
 
+        const hasApprovalStep = steps.length > 0;
+
         steps.push({
           id: "zap-in",
           label: "Add Liquidity",
           buildTx: async () => {
-            const freshBuild = await buildZapTransaction(
-              capturedZapTokenIn as Address,
-              capturedZapAmount,
-              address,
-              capturedSlippage,
-            );
+            const freshBuildAttempt =
+              hasApprovalStep || capturedZapBuild.approval
+                ? await buildZapTransactionAttempt(
+                    capturedZapTokenIn as Address,
+                    capturedZapAmount,
+                    address,
+                    capturedSlippage,
+                  )
+                : { build: capturedZapBuild, error: null };
+            const freshBuild = freshBuildAttempt.build;
             if (!freshBuild) {
               throw new Error(
-                singleTokenLiquidityError ||
+                freshBuildAttempt.error ||
                   "No single-token route is available for this amount. Try a smaller amount or use balanced mode.",
+              );
+            }
+            if (freshBuild.approval) {
+              throw new Error(
+                "Token approval is still required. Please try again.",
               );
             }
             return freshBuild.zapIn.params;
@@ -597,19 +695,52 @@ export function AddLiquidityForm({
           await refreshLiquidityState(lastTxHash);
           setZapAmount("");
         }
-      } else if (mode === "balanced" && quote && buildResult) {
+      } else if (mode === "balanced" && currentQuote && buildResult) {
         // --- Balanced add flow ---
-        const capturedQuote = quote;
+        const capturedQuote = currentQuote;
         const capturedSlippage = slippage;
+
+        const refreshedQuoteResult = await refetchLiquidityQuote();
+        if (refreshedQuoteResult.error) {
+          throw new Error("Unable to refresh liquidity quote.");
+        }
+        const refreshedQuote = refreshedQuoteResult.data;
+        if (
+          !refreshedQuote ||
+          refreshedQuote.requestId !== capturedQuote.requestId ||
+          refreshedQuote.amountA !== capturedQuote.amountA ||
+          refreshedQuote.amountB !== capturedQuote.amountB
+        ) {
+          throw new Error(POOL_RATIO_CHANGED_ERROR);
+        }
+
+        // Rebuild at click time and use this exact result for approvals. The
+        // stateful preview build may still belong to a previous quote.
+        const capturedBuild = await buildTransaction(
+          capturedQuote.amountA,
+          capturedQuote.amountB,
+          address,
+          capturedSlippage,
+        );
+        if (!capturedBuild) throw new Error("Failed to build transaction");
+        if (
+          !isBuildAlignedWithQuote(
+            capturedBuild,
+            capturedQuote,
+            capturedSlippage,
+          )
+        ) {
+          throw new Error(POOL_RATIO_CHANGED_ERROR);
+        }
 
         const steps: LiquidityFlowStepDefinition[] = [];
         const allowances = await getLatestAllowances();
 
         if (
-          buildResult.approvalA &&
+          capturedBuild.approvalA &&
           capturedQuote.amountA > allowances.token0
         ) {
-          const approvalParams = buildResult.approvalA.params;
+          const approvalParams = capturedBuild.approvalA.params;
           steps.push({
             id: "approve-a",
             label: `Approve ${pool.token0.symbol}`,
@@ -618,10 +749,10 @@ export function AddLiquidityForm({
         }
 
         if (
-          buildResult.approvalB &&
+          capturedBuild.approvalB &&
           capturedQuote.amountB > allowances.token1
         ) {
-          const approvalParams = buildResult.approvalB.params;
+          const approvalParams = capturedBuild.approvalB.params;
           steps.push({
             id: "approve-b",
             label: `Approve ${pool.token1.symbol}`,
@@ -629,10 +760,30 @@ export function AddLiquidityForm({
           });
         }
 
+        const hasApprovalSteps = steps.length > 0;
+
         steps.push({
           id: "add-liquidity",
           label: "Add Liquidity",
           buildTx: async () => {
+            if (!hasApprovalSteps) {
+              return capturedBuild.addLiquidity.params;
+            }
+
+            const postApprovalQuoteResult = await refetchLiquidityQuote();
+            if (postApprovalQuoteResult.error) {
+              throw new Error("Unable to refresh liquidity quote.");
+            }
+            const postApprovalQuote = postApprovalQuoteResult.data;
+            if (
+              !postApprovalQuote ||
+              postApprovalQuote.requestId !== capturedQuote.requestId ||
+              postApprovalQuote.amountA !== capturedQuote.amountA ||
+              postApprovalQuote.amountB !== capturedQuote.amountB
+            ) {
+              throw new Error(POOL_RATIO_CHANGED_ERROR);
+            }
+
             const freshBuild = await buildTransaction(
               capturedQuote.amountA,
               capturedQuote.amountB,
@@ -640,6 +791,20 @@ export function AddLiquidityForm({
               capturedSlippage,
             );
             if (!freshBuild) throw new Error("Failed to build transaction");
+            if (freshBuild.approvalA || freshBuild.approvalB) {
+              throw new Error(
+                "Token approval is still required. Please try again.",
+              );
+            }
+            if (
+              !isBuildAlignedWithQuote(
+                freshBuild,
+                capturedQuote,
+                capturedSlippage,
+              )
+            ) {
+              throw new Error(POOL_RATIO_CHANGED_ERROR);
+            }
             return freshBuild.addLiquidity.params;
           },
         });
@@ -666,6 +831,7 @@ export function AddLiquidityForm({
           await refreshLiquidityState(lastTxHash);
           setToken0Amount("");
           setToken1Amount("");
+          setLiquidityQuoteRequest(null);
         }
       }
     } catch (err) {
@@ -683,6 +849,8 @@ export function AddLiquidityForm({
           toast.error(
             getSingleTokenLiquidityErrorMessage(msg, zapToken.symbol),
           );
+        } else if (msg === POOL_RATIO_CHANGED_ERROR) {
+          toast.error(POOL_RATIO_CHANGED_ERROR);
         } else {
           toast.error("Something went wrong. Please try again.");
         }
@@ -710,16 +878,25 @@ export function AddLiquidityForm({
   // Summary display values
   const summaryToken0Amount =
     mode === "balanced"
-      ? formatSummaryAmount(token0Amount || "0")
+      ? balancedDisplay.summaryToken0Amount
       : zapTokenIn === pool.token0.address
-        ? formatSummaryAmount(zapAmount || "0")
+        ? formatLiquiditySummaryAmount(zapAmount || "0")
         : "—";
   const summaryToken1Amount =
     mode === "balanced"
-      ? formatSummaryAmount(token1Amount || "0")
+      ? balancedDisplay.summaryToken1Amount
       : zapTokenIn === pool.token1.address
-        ? formatSummaryAmount(zapAmount || "0")
+        ? formatLiquiditySummaryAmount(zapAmount || "0")
         : "—";
+
+  const maxSurplus0 =
+    currentQuote?.requestKind === "max" && currentQuote.surplus0 > 0n
+      ? formatUnits(currentQuote.surplus0, pool.token0.decimals)
+      : null;
+  const maxSurplus1 =
+    currentQuote?.requestKind === "max" && currentQuote.surplus1 > 0n
+      ? formatUnits(currentQuote.surplus1, pool.token1.decimals)
+      : null;
 
   return (
     <div className="gap-4 md:grid-cols-[2fr_1fr] grid grid-cols-1">
@@ -759,7 +936,7 @@ export function AddLiquidityForm({
                       key="t1"
                       token={pool.token1}
                       balance={formattedToken1Balance}
-                      amount={token1Amount}
+                      amount={balancedDisplay.token1Amount}
                       onChange={handleToken1Change}
                       onMax={handleMax1}
                       insufficient={insufficientToken1}
@@ -769,7 +946,7 @@ export function AddLiquidityForm({
                       key="t0"
                       token={pool.token0}
                       balance={formattedToken0Balance}
-                      amount={token0Amount}
+                      amount={balancedDisplay.token0Amount}
                       onChange={handleToken0Change}
                       onMax={handleMax0}
                       insufficient={insufficientToken0}
@@ -781,7 +958,7 @@ export function AddLiquidityForm({
                       key="t0"
                       token={pool.token0}
                       balance={formattedToken0Balance}
-                      amount={token0Amount}
+                      amount={balancedDisplay.token0Amount}
                       onChange={handleToken0Change}
                       onMax={handleMax0}
                       insufficient={insufficientToken0}
@@ -791,7 +968,7 @@ export function AddLiquidityForm({
                       key="t1"
                       token={pool.token1}
                       balance={formattedToken1Balance}
-                      amount={token1Amount}
+                      amount={balancedDisplay.token1Amount}
                       onChange={handleToken1Change}
                       onMax={handleMax1}
                       insufficient={insufficientToken1}
@@ -799,6 +976,23 @@ export function AddLiquidityForm({
                     />,
                   ]
               ).map((input) => input)}
+              <div className="gap-1.5 p-3 text-xs leading-5 flex flex-col rounded-lg border border-border bg-muted/30 text-muted-foreground">
+                <span>
+                  Balanced liquidity follows the pool&apos;s current reserve
+                  ratio, which may differ from equal USD value.
+                </span>
+                {(maxSurplus0 || maxSurplus1) && (
+                  <span className="text-foreground">
+                    Estimated surplus:{" "}
+                    {maxSurplus0 &&
+                      `${formatCompactBalance(maxSurplus0)} ${pool.token0.symbol}`}
+                    {maxSurplus0 && maxSurplus1 && ", "}
+                    {maxSurplus1 &&
+                      `${formatCompactBalance(maxSurplus1)} ${pool.token1.symbol}`}{" "}
+                    stays in your wallet.
+                  </span>
+                )}
+              </div>
             </>
           ) : (
             <>
