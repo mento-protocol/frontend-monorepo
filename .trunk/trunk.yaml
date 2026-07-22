@@ -42,6 +42,11 @@ lint:
         - pnpm-lock.yaml
         - scripts/vercel-pnpm-bootstrap/package-lock.json
         - scripts/vercel-pnpm-runtime/pnpm-lock.yaml
+    - linters: [actionlint]
+      paths:
+        # actionlint 1.7.8 predates GitHub's environment.deployment key. The
+        # production-shadow structural suite validates this workflow instead.
+        - .github/workflows/vercel-production-shadow.yml
     - linters: [ALL]
       paths:
         - scripts/ralph/** # Ralph autonomous agent tooling — externally managed

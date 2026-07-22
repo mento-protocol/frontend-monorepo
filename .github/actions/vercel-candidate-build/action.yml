@@ -1,0 +1,601 @@
+name: Build isolated Vercel candidate
+description: Run candidate install and build under a dedicated UID, then hand off immutable output
+
+inputs:
+  controller-path:
+    description: Trusted workflow-controller checkout
+    required: true
+  source-path:
+    description: Runner-owned exact-SHA source checkout
+    required: true
+  candidate-source-path:
+    description: Fresh candidate-owned source path under RUNNER_TEMP
+    required: true
+  candidate-home-path:
+    description: Fresh candidate-owned HOME path under RUNNER_TEMP
+    required: true
+  pull-staging-path:
+    description: Validated runner-owned Vercel pull staging under RUNNER_TEMP
+    required: true
+  upload-source-path:
+    description: Fresh runner-owned upload handoff under RUNNER_TEMP
+    required: true
+  node-bin:
+    description: Canonical protected Node executable
+    required: true
+  pnpm-bin:
+    description: Canonical protected pnpm executable
+    required: true
+  vercel-cli:
+    description: Canonical protected Vercel CLI entry point
+    required: true
+  deploy-sha:
+    description: Exact candidate commit SHA
+    required: true
+  next-deployment-id:
+    description: Deterministic build identity embedded in the prebuilt output
+    required: true
+  logical-target:
+    description: Literal app, governance, reserve, or ui target
+    required: true
+  expected-root-directory:
+    description: Literal reviewed Vercel Root Directory
+    required: true
+  vercel-org-id:
+    description: Literal reviewed Vercel organization ID
+    required: true
+  vercel-project-id:
+    description: Literal reviewed Vercel project ID
+    required: true
+
+outputs:
+  build_duration_ms:
+    description: Candidate Vercel build duration
+    value: ${{ steps.build.outputs.build_duration_ms }}
+  turbo_cache_hits:
+    description: Tasks restored from the canonical Turbo cache summary
+    value: ${{ steps.build.outputs.turbo_cache_hits }}
+  turbo_cache_misses:
+    description: Tasks not restored from the canonical Turbo cache summary
+    value: ${{ steps.build.outputs.turbo_cache_misses }}
+  upload_uid:
+    description: Runner UID owning the immutable upload handoff
+    value: ${{ steps.handoff.outputs.upload_uid }}
+  upload_gid:
+    description: Runner GID owning the immutable upload handoff
+    value: ${{ steps.handoff.outputs.upload_gid }}
+
+runs:
+  using: composite
+  steps:
+    - name: Validate runner-owned build inputs
+      shell: bash
+      env:
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected-root-directory }}
+        LOGICAL_TARGET: ${{ inputs.logical-target }}
+        MENTO_NEXT_DEPLOYMENT_ID: ${{ inputs.next-deployment-id }}
+        NODE_BIN: ${{ inputs.node-bin }}
+        PULL_STAGING_PATH: ${{ inputs.pull-staging-path }}
+      run: |
+        set -euo pipefail
+        "$NODE_BIN" "$CONTROLLER_PATH/scripts/vercel-production-shadow.mjs" check-build-inputs
+        case "$LOGICAL_TARGET" in
+          app) build_environment=v3 ;;
+          governance|reserve|ui) build_environment=production ;;
+          *) echo "Unknown production-shadow target" >&2; exit 1 ;;
+        esac
+        "$NODE_BIN" "$CONTROLLER_PATH/scripts/vercel-build-environment.mjs" \
+          check \
+          --target "$LOGICAL_TARGET" \
+          --environment "$build_environment" \
+          --project-directory "$PULL_STAGING_PATH/$EXPECTED_ROOT_DIRECTORY"
+
+    - name: Prepare isolated exact-SHA candidate source
+      id: isolation
+      shell: bash
+      env:
+        CANDIDATE_HOME_PATH: ${{ inputs.candidate-home-path }}
+        CANDIDATE_SOURCE_PATH: ${{ inputs.candidate-source-path }}
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        DEPLOY_SHA: ${{ inputs.deploy-sha }}
+        NODE_BIN: ${{ inputs.node-bin }}
+        PNPM_BIN: ${{ inputs.pnpm-bin }}
+        SOURCE_PATH: ${{ inputs.source-path }}
+        TRUSTED_VERCEL_CLI_PATH: ${{ inputs.vercel-cli }}
+      run: |
+        set -euo pipefail
+        umask 077
+        build_user=mento-vercel-build
+        identity_marker="$RUNNER_TEMP/mento-vercel-production-candidate-identity"
+        if /usr/bin/getent passwd "$build_user" >/dev/null || /usr/bin/getent group "$build_user" >/dev/null; then
+          echo "Dedicated candidate identity already exists" >&2
+          exit 1
+        fi
+        if [ -e "$identity_marker" ] || [ -L "$identity_marker" ]; then
+          echo "Candidate identity marker must be fresh" >&2
+          exit 1
+        fi
+        set -o noclobber
+        printf 'pending\n' > "$identity_marker"
+        set +o noclobber
+        /bin/chmod 0600 "$identity_marker"
+        sudo --non-interactive /usr/sbin/useradd \
+          --system \
+          --no-create-home \
+          --home-dir /nonexistent \
+          --shell /usr/sbin/nologin \
+          --user-group \
+          "$build_user"
+        build_uid="$(/usr/bin/id -u "$build_user")"
+        build_gid="$(/usr/bin/id -g "$build_user")"
+        printf '%s:%s\n' "$build_uid" "$build_gid" > "$identity_marker"
+        /bin/chmod 0600 "$identity_marker"
+        if sudo --non-interactive /usr/bin/pgrep -u "$build_uid" >/dev/null 2>&1; then
+          echo "Dedicated candidate identity unexpectedly owns a process" >&2
+          exit 1
+        fi
+        candidate_can_write() {
+          sudo --non-interactive /usr/bin/env -i PATH=/usr/bin:/bin \
+            /usr/bin/setpriv \
+            --reuid="$build_uid" \
+            --regid="$build_gid" \
+            --clear-groups \
+            --no-new-privs \
+            -- \
+            /usr/bin/test -w "$1"
+        }
+        for protected_path in \
+          "$GITHUB_WORKSPACE" \
+          "$CONTROLLER_PATH" \
+          "$RUNNER_TEMP" \
+          "$SOURCE_PATH" \
+          "$SOURCE_PATH/.git" \
+          "$SOURCE_PATH/package.json" \
+          "$SOURCE_PATH/pnpm-lock.yaml" \
+          "$NODE_BIN" \
+          "$PNPM_BIN" \
+          "$TRUSTED_VERCEL_CLI_PATH"; do
+          if [ ! -e "$protected_path" ] || candidate_can_write "$protected_path"; then
+            echo "Candidate can modify a protected runner path" >&2
+            exit 1
+          fi
+        done
+        case "$CANDIDATE_SOURCE_PATH:$CANDIDATE_HOME_PATH" in
+          "$RUNNER_TEMP"/mento-vercel-*:"$RUNNER_TEMP"/mento-vercel-*) ;;
+          *) echo "Candidate isolation path is outside RUNNER_TEMP" >&2; exit 1 ;;
+        esac
+        if [ -e "$CANDIDATE_SOURCE_PATH" ] || [ -e "$CANDIDATE_HOME_PATH" ]; then
+          echo "Candidate isolation paths must be fresh" >&2
+          exit 1
+        fi
+        "$NODE_BIN" \
+          "$CONTROLLER_PATH/scripts/vercel-production-shadow.mjs" \
+          materialize-source
+        sudo --non-interactive /bin/chown \
+          -R --no-dereference "$build_uid:$build_gid" "$CANDIDATE_SOURCE_PATH"
+        sudo --non-interactive /usr/bin/install \
+          -d -o "$build_uid" -g "$build_gid" -m 0700 \
+          "$CANDIDATE_HOME_PATH" \
+          "$CANDIDATE_HOME_PATH/cache" \
+          "$CANDIDATE_HOME_PATH/config" \
+          "$CANDIDATE_HOME_PATH/data" \
+          "$CANDIDATE_HOME_PATH/pnpm-store" \
+          "$CANDIDATE_HOME_PATH/tmp"
+        printf '{"commitSha":"%s"}\n' "$DEPLOY_SHA" > "${CANDIDATE_SOURCE_PATH}.provenance.json"
+        /bin/chmod 0600 "${CANDIDATE_SOURCE_PATH}.provenance.json"
+        echo "build_uid=$build_uid" >> "$GITHUB_OUTPUT"
+        echo "build_gid=$build_gid" >> "$GITHUB_OUTPUT"
+
+    - name: Install frozen dependencies as candidate
+      shell: bash
+      env:
+        BUILD_GID: ${{ steps.isolation.outputs.build_gid }}
+        BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
+        CANDIDATE_HOME_PATH: ${{ inputs.candidate-home-path }}
+        CANDIDATE_SOURCE_PATH: ${{ inputs.candidate-source-path }}
+        NODE_BIN: ${{ inputs.node-bin }}
+        PNPM_BIN: ${{ inputs.pnpm-bin }}
+      run: |
+        set -euo pipefail
+        terminate_candidate() {
+          sudo --non-interactive /usr/bin/pkill -KILL -u "$BUILD_UID" >/dev/null 2>&1 || true
+          for _ in $(seq 1 50); do
+            if ! sudo --non-interactive /usr/bin/pgrep -u "$BUILD_UID" >/dev/null 2>&1; then return 0; fi
+            /bin/sleep 0.1
+          done
+          sudo --non-interactive /usr/bin/pgrep -a -u "$BUILD_UID" >&2 || true
+          echo "Candidate processes survived the UID-wide kill" >&2
+          return 1
+        }
+        command_token=""
+        trap 'status=$?; terminate_candidate || status=1; if [ -n "$command_token" ]; then echo "::$command_token::"; fi; exit "$status"' EXIT
+        if sudo --non-interactive /usr/bin/pgrep -u "$BUILD_UID" >/dev/null 2>&1; then
+          echo "Candidate identity owns a process before dependency installation" >&2
+          exit 1
+        fi
+        safe_path="$(dirname "$NODE_BIN"):$(dirname "$PNPM_BIN"):/usr/local/bin:/usr/bin:/bin"
+        command_token="mento-$(/usr/bin/openssl rand -hex 16)"
+        echo "::stop-commands::$command_token"
+        set +e
+        sudo --non-interactive /usr/bin/env -i \
+          CI=1 \
+          HOME="$CANDIDATE_HOME_PATH" \
+          HTTP_PROXY="${HTTP_PROXY:-}" \
+          HTTPS_PROXY="${HTTPS_PROXY:-}" \
+          LANG="${LANG:-C.UTF-8}" \
+          LC_ALL="${LC_ALL:-C.UTF-8}" \
+          NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-}" \
+          NO_PROXY="${NO_PROXY:-}" \
+          PATH="$safe_path" \
+          PNPM_HOME="$CANDIDATE_HOME_PATH/pnpm" \
+          SSL_CERT_FILE="${SSL_CERT_FILE:-}" \
+          TMPDIR="$CANDIDATE_HOME_PATH/tmp" \
+          XDG_CACHE_HOME="$CANDIDATE_HOME_PATH/cache" \
+          XDG_CONFIG_HOME="$CANDIDATE_HOME_PATH/config" \
+          XDG_DATA_HOME="$CANDIDATE_HOME_PATH/data" \
+          /usr/bin/setpriv \
+          --reuid="$BUILD_UID" \
+          --regid="$BUILD_GID" \
+          --clear-groups \
+          --no-new-privs \
+          -- \
+          "$PNPM_BIN" --dir "$CANDIDATE_SOURCE_PATH" install \
+          --frozen-lockfile \
+          --ignore-scripts \
+          --store-dir "$CANDIDATE_HOME_PATH/pnpm-store" \
+          2>&1
+        candidate_status=$?
+        set -e
+        terminate_candidate
+        echo "::$command_token::"
+        command_token=""
+        if [ "$candidate_status" -ne 0 ]; then exit "$candidate_status"; fi
+
+    - name: Stage validated runner-owned Vercel settings
+      shell: bash
+      env:
+        BUILD_GID: ${{ steps.isolation.outputs.build_gid }}
+        BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
+        CANDIDATE_SOURCE_PATH: ${{ inputs.candidate-source-path }}
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected-root-directory }}
+        LOGICAL_TARGET: ${{ inputs.logical-target }}
+        MENTO_NEXT_DEPLOYMENT_ID: ${{ inputs.next-deployment-id }}
+        NODE_BIN: ${{ inputs.node-bin }}
+        PULL_STAGING_PATH: ${{ inputs.pull-staging-path }}
+        VERCEL_ORG_ID: ${{ inputs.vercel-org-id }}
+        VERCEL_PROJECT_ID: ${{ inputs.vercel-project-id }}
+      run: |
+        set -euo pipefail
+        if sudo --non-interactive /usr/bin/pgrep -u "$BUILD_UID" >/dev/null 2>&1; then
+          echo "Candidate identity owns a process before settings staging" >&2
+          exit 1
+        fi
+        sudo --non-interactive /usr/bin/env -i \
+          BUILD_GID="$BUILD_GID" \
+          BUILD_UID="$BUILD_UID" \
+          CANDIDATE_SOURCE_PATH="$CANDIDATE_SOURCE_PATH" \
+          EXPECTED_ROOT_DIRECTORY="$EXPECTED_ROOT_DIRECTORY" \
+          LOGICAL_TARGET="$LOGICAL_TARGET" \
+          PATH="$(dirname "$NODE_BIN"):/usr/bin:/bin" \
+          PULL_STAGING_GID="$(id -g)" \
+          PULL_STAGING_PATH="$PULL_STAGING_PATH" \
+          PULL_STAGING_UID="$(id -u)" \
+          RUNNER_TEMP="$RUNNER_TEMP" \
+          VERCEL_ORG_ID="$VERCEL_ORG_ID" \
+          VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
+          "$NODE_BIN" "$CONTROLLER_PATH/scripts/vercel-production-shadow.mjs" stage-pull
+        if sudo --non-interactive /usr/bin/pgrep -u "$BUILD_UID" >/dev/null 2>&1; then
+          echo "Candidate identity acquired a process while settings were staged" >&2
+          exit 1
+        fi
+
+    - name: Build prebuilt output as candidate
+      id: build
+      shell: bash
+      env:
+        BUILD_GID: ${{ steps.isolation.outputs.build_gid }}
+        BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
+        CANDIDATE_HOME_PATH: ${{ inputs.candidate-home-path }}
+        CANDIDATE_SOURCE_PATH: ${{ inputs.candidate-source-path }}
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        DEPLOY_SHA: ${{ inputs.deploy-sha }}
+        EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected-root-directory }}
+        LOGICAL_TARGET: ${{ inputs.logical-target }}
+        NODE_BIN: ${{ inputs.node-bin }}
+        PNPM_BIN: ${{ inputs.pnpm-bin }}
+        TRUSTED_VERCEL_CLI_PATH: ${{ inputs.vercel-cli }}
+        VERCEL_ORG_ID: ${{ inputs.vercel-org-id }}
+        VERCEL_PROJECT_ID: ${{ inputs.vercel-project-id }}
+      run: |
+        set -euo pipefail
+        terminate_candidate() {
+          sudo --non-interactive /usr/bin/pkill -KILL -u "$BUILD_UID" >/dev/null 2>&1 || true
+          for _ in $(seq 1 50); do
+            if ! sudo --non-interactive /usr/bin/pgrep -u "$BUILD_UID" >/dev/null 2>&1; then return 0; fi
+            /bin/sleep 0.1
+          done
+          sudo --non-interactive /usr/bin/pgrep -a -u "$BUILD_UID" >&2 || true
+          echo "Candidate processes survived the UID-wide kill" >&2
+          return 1
+        }
+        command_token=""
+        trap 'status=$?; terminate_candidate || status=1; if [ -n "$command_token" ]; then echo "::$command_token::"; fi; exit "$status"' EXIT
+        if sudo --non-interactive /usr/bin/pgrep -u "$BUILD_UID" >/dev/null 2>&1; then
+          echo "Candidate identity owns a process before the build" >&2
+          exit 1
+        fi
+        sudo --non-interactive /usr/bin/env -i \
+          BUILD_GID="$BUILD_GID" \
+          BUILD_UID="$BUILD_UID" \
+          CANDIDATE_SOURCE_PATH="$CANDIDATE_SOURCE_PATH" \
+          EXPECTED_ROOT_DIRECTORY="$EXPECTED_ROOT_DIRECTORY" \
+          LOGICAL_TARGET="$LOGICAL_TARGET" \
+          PATH="$(dirname "$NODE_BIN"):/usr/bin:/bin" \
+          PULL_STAGING_GID="$(id -g)" \
+          PULL_STAGING_UID="$(id -u)" \
+          RUNNER_TEMP="$RUNNER_TEMP" \
+          VERCEL_ORG_ID="$VERCEL_ORG_ID" \
+          VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
+          "$NODE_BIN" "$CONTROLLER_PATH/scripts/vercel-production-shadow.mjs" validate-candidate-pull
+        case "$LOGICAL_TARGET" in
+          app) build_arguments=(build --yes --standalone --target v3 --project "$VERCEL_PROJECT_ID") ;;
+          governance|reserve|ui) build_arguments=(build --yes --standalone --prod --project "$VERCEL_PROJECT_ID") ;;
+          *) echo "Unknown production-shadow target" >&2; exit 1 ;;
+        esac
+        safe_path="$(dirname "$NODE_BIN"):$(dirname "$PNPM_BIN"):/usr/local/bin:/usr/bin:/bin"
+        started_at_ms="$(date +%s%3N)"
+        build_log="$RUNNER_TEMP/mento-vercel-production-${LOGICAL_TARGET}-build.log"
+        if [ -e "$build_log" ] || [ -L "$build_log" ]; then
+          echo "Candidate build log path must be fresh" >&2
+          exit 1
+        fi
+        cd "$CANDIDATE_SOURCE_PATH"
+        command_token="mento-$(/usr/bin/openssl rand -hex 16)"
+        echo "::stop-commands::$command_token"
+        set +e
+        sudo --non-interactive /usr/bin/env -i \
+          CI=1 \
+          ETHERSCAN_API_KEY="${ETHERSCAN_API_KEY:-}" \
+          HOME="$CANDIDATE_HOME_PATH" \
+          HTTP_PROXY="${HTTP_PROXY:-}" \
+          HTTPS_PROXY="${HTTPS_PROXY:-}" \
+          LANG="${LANG:-C.UTF-8}" \
+          LC_ALL="${LC_ALL:-C.UTF-8}" \
+          MENTO_NEXT_DEPLOYMENT_ID="${MENTO_NEXT_DEPLOYMENT_ID:-}" \
+          NEXT_PUBLIC_VERCEL_ENV="${NEXT_PUBLIC_VERCEL_ENV:-}" \
+          NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-}" \
+          NO_PROXY="${NO_PROXY:-}" \
+          PATH="$safe_path" \
+          SENTRY_AUTH_TOKEN="${SENTRY_AUTH_TOKEN:-}" \
+          SSL_CERT_FILE="${SSL_CERT_FILE:-}" \
+          TMPDIR="$CANDIDATE_HOME_PATH/tmp" \
+          TURBO_REMOTE_CACHE_SIGNATURE_KEY="${TURBO_REMOTE_CACHE_SIGNATURE_KEY:-}" \
+          TURBO_TEAM="${TURBO_TEAM:-}" \
+          TURBO_TOKEN="${TURBO_TOKEN:-}" \
+          VERCEL="${VERCEL:-1}" \
+          VERCEL_ENV="${VERCEL_ENV:-}" \
+          VERCEL_GIT_COMMIT_REF="${VERCEL_GIT_COMMIT_REF:-main}" \
+          VERCEL_GIT_COMMIT_SHA="$DEPLOY_SHA" \
+          VERCEL_GIT_PROVIDER="${VERCEL_GIT_PROVIDER:-github}" \
+          VERCEL_GIT_REPO_OWNER="${VERCEL_GIT_REPO_OWNER:-mento-protocol}" \
+          VERCEL_GIT_REPO_SLUG="${VERCEL_GIT_REPO_SLUG:-frontend-monorepo}" \
+          VERCEL_TARGET_ENV="${VERCEL_TARGET_ENV:-}" \
+          XDG_CACHE_HOME="$CANDIDATE_HOME_PATH/cache" \
+          XDG_CONFIG_HOME="$CANDIDATE_HOME_PATH/config" \
+          XDG_DATA_HOME="$CANDIDATE_HOME_PATH/data" \
+          /usr/bin/setpriv \
+          --reuid="$BUILD_UID" \
+          --regid="$BUILD_GID" \
+          --clear-groups \
+          --no-new-privs \
+          -- \
+          "$NODE_BIN" "$TRUSTED_VERCEL_CLI_PATH" "${build_arguments[@]}" \
+          2>&1 | /usr/bin/tee "$build_log"
+        pipeline_status=("${PIPESTATUS[@]}")
+        candidate_status="${pipeline_status[0]}"
+        tee_status="${pipeline_status[1]}"
+        set -e
+        terminate_candidate
+        echo "::$command_token::"
+        command_token=""
+        if [ "$tee_status" -ne 0 ]; then exit "$tee_status"; fi
+        if [ "$candidate_status" -ne 0 ]; then exit "$candidate_status"; fi
+        "$NODE_BIN" "$CONTROLLER_PATH/scripts/vercel-production-shadow.mjs" \
+          cache-summary --input "$build_log"
+        /bin/rm -f "$build_log"
+        trap - EXIT
+        echo "build_duration_ms=$(($(date +%s%3N) - started_at_ms))" >> "$GITHUB_OUTPUT"
+
+    - name: Validate candidate-owned prebuilt output
+      shell: bash
+      env:
+        BUILD_GID: ${{ steps.isolation.outputs.build_gid }}
+        BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
+        CANDIDATE_SOURCE_PATH: ${{ inputs.candidate-source-path }}
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        DEPLOY_SHA: ${{ inputs.deploy-sha }}
+        EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected-root-directory }}
+        LOGICAL_TARGET: ${{ inputs.logical-target }}
+        MENTO_NEXT_DEPLOYMENT_ID: ${{ inputs.next-deployment-id }}
+        NODE_BIN: ${{ inputs.node-bin }}
+        VERCEL_ORG_ID: ${{ inputs.vercel-org-id }}
+        VERCEL_PROJECT_ID: ${{ inputs.vercel-project-id }}
+      run: |
+        set -euo pipefail
+        if sudo --non-interactive /usr/bin/pgrep -u "$BUILD_UID" >/dev/null 2>&1; then
+          echo "Candidate identity owns a process before output validation" >&2
+          exit 1
+        fi
+        sudo --non-interactive /usr/bin/env -i \
+          DEPLOY_SHA="$DEPLOY_SHA" \
+          EXPECTED_OUTPUT_GID="$BUILD_GID" \
+          EXPECTED_OUTPUT_UID="$BUILD_UID" \
+          EXPECTED_PROVENANCE_UID="$(id -u)" \
+          EXPECTED_ROOT_DIRECTORY="$EXPECTED_ROOT_DIRECTORY" \
+          LOGICAL_TARGET="$LOGICAL_TARGET" \
+          MENTO_NEXT_DEPLOYMENT_ID="$MENTO_NEXT_DEPLOYMENT_ID" \
+          PATH="$(dirname "$NODE_BIN"):/usr/bin:/bin" \
+          SOURCE_PATH="$CANDIDATE_SOURCE_PATH" \
+          VERCEL_ORG_ID="$VERCEL_ORG_ID" \
+          VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
+          "$NODE_BIN" "$CONTROLLER_PATH/scripts/vercel-production-shadow.mjs" assert-output
+
+    - name: Create immutable runner-owned output handoff
+      id: handoff
+      shell: bash
+      env:
+        BUILD_GID: ${{ steps.isolation.outputs.build_gid }}
+        BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
+        CANDIDATE_SOURCE_PATH: ${{ inputs.candidate-source-path }}
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        DEPLOY_SHA: ${{ inputs.deploy-sha }}
+        LOGICAL_TARGET: ${{ inputs.logical-target }}
+        MENTO_NEXT_DEPLOYMENT_ID: ${{ inputs.next-deployment-id }}
+        NODE_BIN: ${{ inputs.node-bin }}
+        PULL_STAGING_PATH: ${{ inputs.pull-staging-path }}
+        UPLOAD_SOURCE_PATH: ${{ inputs.upload-source-path }}
+        VERCEL_ORG_ID: ${{ inputs.vercel-org-id }}
+        VERCEL_PROJECT_ID: ${{ inputs.vercel-project-id }}
+      run: |
+        set -euo pipefail
+        umask 077
+        if sudo --non-interactive /usr/bin/pgrep -u "$BUILD_UID" >/dev/null 2>&1; then
+          echo "Candidate identity still owns a process before handoff" >&2
+          exit 1
+        fi
+        runner_uid="$(/usr/bin/id -u)"
+        runner_gid="$(/usr/bin/id -g)"
+        sudo --non-interactive /usr/bin/env -i \
+          PATH=/usr/bin:/bin \
+          BUILD_GID="$BUILD_GID" \
+          BUILD_UID="$BUILD_UID" \
+          CANDIDATE_SOURCE_PATH="$CANDIDATE_SOURCE_PATH" \
+          DEPLOY_SHA="$DEPLOY_SHA" \
+          LOGICAL_TARGET="$LOGICAL_TARGET" \
+          MENTO_NEXT_DEPLOYMENT_ID="$MENTO_NEXT_DEPLOYMENT_ID" \
+          PULL_STAGING_PATH="$PULL_STAGING_PATH" \
+          RUNNER_GID="$runner_gid" \
+          RUNNER_TEMP="$RUNNER_TEMP" \
+          RUNNER_UID="$runner_uid" \
+          UPLOAD_SOURCE_PATH="$UPLOAD_SOURCE_PATH" \
+          VERCEL_ORG_ID="$VERCEL_ORG_ID" \
+          VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
+          "$NODE_BIN" \
+          "$CONTROLLER_PATH/scripts/vercel-production-shadow.mjs" \
+          create-handoff
+        echo "upload_uid=$runner_uid" >> "$GITHUB_OUTPUT"
+        echo "upload_gid=$runner_gid" >> "$GITHUB_OUTPUT"
+
+    - name: Remove candidate execution boundary
+      if: always()
+      shell: bash
+      env:
+        CANDIDATE_HOME_PATH: ${{ inputs.candidate-home-path }}
+        CANDIDATE_SOURCE_PATH: ${{ inputs.candidate-source-path }}
+        PULL_STAGING_PATH: ${{ inputs.pull-staging-path }}
+      run: |
+        set -euo pipefail
+        identity_marker="$RUNNER_TEMP/mento-vercel-production-candidate-identity"
+        if [ -e "$identity_marker" ] || [ -L "$identity_marker" ]; then
+          if [ -L "$identity_marker" ] || [ ! -f "$identity_marker" ] || \
+            [ "$(/usr/bin/stat -c '%u' "$identity_marker")" != "$(id -u)" ] || \
+            [ "$(/usr/bin/stat -c '%g' "$identity_marker")" != "$(id -g)" ] || \
+            [ "$(/usr/bin/stat -c '%h' "$identity_marker")" != 1 ] || \
+            [ "$(/usr/bin/stat -c '%a' "$identity_marker")" != 600 ]; then
+            echo "Candidate identity marker is unsafe" >&2
+            exit 1
+          fi
+          identity="$(< "$identity_marker")"
+          if [ "$identity" = pending ]; then
+            if /usr/bin/getent passwd mento-vercel-build >/dev/null || \
+              /usr/bin/getent group mento-vercel-build >/dev/null; then
+              echo "Candidate identity ownership was not bound before teardown" >&2
+              exit 1
+            fi
+            /bin/rm -f -- "$identity_marker"
+          elif [[ "$identity" =~ ^([0-9]+):([0-9]+)$ ]]; then
+            build_uid="${BASH_REMATCH[1]}"
+            build_gid="${BASH_REMATCH[2]}"
+            if ! /usr/bin/getent passwd mento-vercel-build >/dev/null || \
+              ! /usr/bin/getent group mento-vercel-build >/dev/null || \
+              [ "$(/usr/bin/id -u mento-vercel-build)" != "$build_uid" ] || \
+              [ "$(/usr/bin/id -g mento-vercel-build)" != "$build_gid" ] || \
+              [ "$(/usr/bin/getent group mento-vercel-build | /usr/bin/cut -d: -f3)" != "$build_gid" ]; then
+              echo "Candidate identity no longer matches its runner-owned marker" >&2
+              exit 1
+            fi
+            sudo --non-interactive /usr/bin/pkill -KILL -u "$build_uid" >/dev/null 2>&1 || true
+            for _ in $(/usr/bin/seq 1 50); do
+              if ! sudo --non-interactive /usr/bin/pgrep -u "$build_uid" >/dev/null 2>&1; then break; fi
+              /bin/sleep 0.1
+            done
+            if sudo --non-interactive /usr/bin/pgrep -u "$build_uid" >/dev/null 2>&1; then
+              sudo --non-interactive /usr/bin/pgrep -a -u "$build_uid" >&2 || true
+              echo "Candidate processes survived final boundary teardown" >&2
+              exit 1
+            fi
+            sudo --non-interactive /usr/sbin/userdel mento-vercel-build
+            if /usr/bin/getent group mento-vercel-build >/dev/null; then
+              if [ "$(/usr/bin/getent group mento-vercel-build | /usr/bin/cut -d: -f3)" != "$build_gid" ]; then
+                echo "Candidate group changed during teardown" >&2
+                exit 1
+              fi
+              sudo --non-interactive /usr/sbin/groupdel mento-vercel-build
+            fi
+            /bin/rm -f -- "$identity_marker"
+          else
+            echo "Candidate identity marker is malformed" >&2
+            exit 1
+          fi
+        fi
+        materialized_environment_path="$RUNNER_TEMP/mento-vercel-production-build-environment"
+        for path in "$CANDIDATE_HOME_PATH" "$CANDIDATE_SOURCE_PATH" "$PULL_STAGING_PATH" "$materialized_environment_path"; do
+          case "$path" in
+            "$RUNNER_TEMP"/mento-vercel-*) ;;
+            *) echo "Refusing to clean an unexpected path" >&2; exit 1 ;;
+          esac
+        done
+        sudo --non-interactive /bin/rm -rf -- \
+          "$CANDIDATE_HOME_PATH" \
+          "$CANDIDATE_SOURCE_PATH" \
+          "$PULL_STAGING_PATH" \
+          "$materialized_environment_path"
+        /bin/rm -f -- "${CANDIDATE_SOURCE_PATH}.provenance.json"
+
+    - name: Assert immutable runner-owned upload handoff
+      if: steps.build.outcome == 'success' && steps.handoff.outcome == 'success'
+      shell: bash
+      env:
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        DEPLOY_SHA: ${{ inputs.deploy-sha }}
+        EXPECTED_OUTPUT_GID: ${{ steps.handoff.outputs.upload_gid }}
+        EXPECTED_OUTPUT_UID: ${{ steps.handoff.outputs.upload_uid }}
+        EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected-root-directory }}
+        LOGICAL_TARGET: ${{ inputs.logical-target }}
+        MENTO_NEXT_DEPLOYMENT_ID: ${{ inputs.next-deployment-id }}
+        NODE_BIN: ${{ inputs.node-bin }}
+        SOURCE_PATH: ${{ inputs.upload-source-path }}
+        VERCEL_ORG_ID: ${{ inputs.vercel-org-id }}
+        VERCEL_PROJECT_ID: ${{ inputs.vercel-project-id }}
+      run: |
+        set -euo pipefail
+        if [ -e "$RUNNER_TEMP/mento-vercel-production-candidate-identity" ] || \
+          [ -L "$RUNNER_TEMP/mento-vercel-production-candidate-identity" ] || \
+          /usr/bin/getent passwd mento-vercel-build >/dev/null || \
+          /usr/bin/getent group mento-vercel-build >/dev/null; then
+          echo "Candidate identity survived the upload handoff" >&2
+          exit 1
+        fi
+        DEPLOY_SHA="$DEPLOY_SHA" \
+        EXPECTED_OUTPUT_GID="$EXPECTED_OUTPUT_GID" \
+        EXPECTED_OUTPUT_UID="$EXPECTED_OUTPUT_UID" \
+        EXPECTED_PROVENANCE_UID="$(id -u)" \
+        EXPECTED_ROOT_DIRECTORY="$EXPECTED_ROOT_DIRECTORY" \
+        LOGICAL_TARGET="$LOGICAL_TARGET" \
+        MENTO_NEXT_DEPLOYMENT_ID="$MENTO_NEXT_DEPLOYMENT_ID" \
+        SOURCE_PATH="$SOURCE_PATH" \
+        VERCEL_ORG_ID="$VERCEL_ORG_ID" \
+        VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
+          "$NODE_BIN" "$CONTROLLER_PATH/scripts/vercel-production-shadow.mjs" assert-output

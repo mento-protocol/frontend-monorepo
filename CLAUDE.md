@@ -61,6 +61,8 @@ pnpm vercel:deployment-state:test    # Test canonical read-only Vercel state and
 pnpm vercel:primitives:test          # Test affected planning, custom deployment IDs, and build-env contracts
 pnpm vercel:workflow:test            # Test the manual prebuilt pilot, REST lifecycle, CLI args, and HTTP/browser smoke
 pnpm vercel:preview:test             # Test preview state plus reusable smoke trust, native-adapter, and Git-ownership boundaries
+pnpm vercel:production-shadow:test   # Test state allowlisting, shadow helpers, and workflow invariants
+pnpm --filter app.mento.org test:production-shadow:routing  # Prove bypass headers do not cross Chromium redirects
 pnpm vercel:versions:check           # Verify pinned Next.js/Vercel CLI custom-ID prerequisites
 pnpm vercel:plan --base <sha> --head <sha>  # Emit the fail-closed Vercel target plan
 gh pr view --json body --jq .body | pnpm pr:description:check  # Validate the current PR body
@@ -143,6 +145,10 @@ cutover and required observation period. GitHub-built workers call the reusable
 workflow directly because a `GITHUB_TOKEN` Deployment status is evidence, not
 a downstream trigger contract. The automatic exact-SHA controller, bootstrap,
 canary, cutover, and rollback contract is in `docs/vercel-deployments.md`.
+
+Manual staged production URLs use the separate target-aware
+`test:production-shadow` command documented in `docs/vercel-deployments.md`; it
+never enables the mock wallet.
 
 ## Coding Conventions
 

@@ -16,6 +16,8 @@
     "test:connected:monad": "playwright test --project=connected-monad --workers=1",
     "test:coverage": "vitest run --coverage",
     "test:preview": "playwright test -c playwright.preview.config.ts",
+    "test:production-shadow": "playwright test -c playwright.production-shadow.config.ts",
+    "test:production-shadow:routing": "node --test production-shadow-routing.test.mjs",
     "test:visual": "playwright test --project=desktop --project=mobile",
     "test:watch": "vitest"
   },

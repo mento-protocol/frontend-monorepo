@@ -55,6 +55,27 @@ When adding or renaming an operational workflow, update its static allowlist and
 the structural test in the same PR. Never execute a triggering head SHA from
 this privileged `workflow_run` workflow.
 
+`.github/workflows/vercel-production-shadow.yml` is manual-only and
+non-activating. Candidate dependency installation and builds must run under its
+dedicated UID boundary with exact protected tools, private-umask runner-owned
+pull staging, raw Git-object materialization of the exact commit (never
+archive/checkout filters), and a runner-owned verified output handoff. Browser
+smoke must use a fresh trusted checkout and dependencies, never candidate
+`node_modules`; tear down every candidate boundary before upload or later
+production-token checks. Preserve App custom `v3` as build-only, preserve the
+App `v2` alias, and keep Governance, Reserve, and UI deployments unaliased.
+Every candidate Vercel build must use `--standalone`; reject invalid, oversized,
+or non-empty-`filePathMap` `.vc-config.json` files before handoff and again on
+the runner-owned upload tree.
+Never copy a raw Vercel-pulled `.env.*.local` into candidate storage. One-way
+materialize only the exact `vercel-pull` allowlist, prove the raw source is
+unchanged, reassert candidate canonical bytes, and clean both protected roots.
+Preflight must bind workflow, requested, fetched-main, and source SHAs before
+downstream jobs consume its single SHA output. Reachable browser smokes must
+verify both the custom build ID and exact deployed-SHA response header. Candidate
+builds must emit one canonical Turbo cache summary for per-target evidence.
+The full contract and commands live in `docs/vercel-deployments.md`.
+
 ## Pull request descriptions
 
 Every non-draft, non-Dependabot pull request body must start with the exact

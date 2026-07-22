@@ -41,7 +41,7 @@
     "supply-chain:lockfile-lint:test": "node scripts/lockfile-lint.test.mjs",
     "supply-chain:version-skew": "node scripts/version-skew-check.mjs",
     "supply-chain:version-skew:test": "node scripts/version-skew-check.test.mjs",
-    "test": "pnpm adr:check:test && pnpm vercel:primitives:test && pnpm vercel:deployment-state:test && pnpm vercel:workflow:test && pnpm vercel:preview:test && pnpm vercel:cost:test && turbo run test",
+    "test": "pnpm adr:check:test && pnpm vercel:primitives:test && pnpm vercel:deployment-state:test && pnpm vercel:production-shadow:test && pnpm vercel:workflow:test && pnpm vercel:preview:test && pnpm vercel:cost:test && turbo run test",
     "test:coverage": "turbo run test:coverage",
     "vercel:cost:analyze": "node scripts/vercel-cost-analysis.mjs",
     "vercel:cost:test": "node --test scripts/vercel-cost-analysis.test.mjs",
@@ -52,6 +52,7 @@
     "vercel:prebuilt:assert": "node scripts/vercel-prebuilt.mjs assert-output",
     "vercel:preview:test": "node --test scripts/vercel-preview-controller.test.mjs scripts/vercel-preview-workflows.test.mjs scripts/vercel-preview-smoke.test.mjs scripts/vercel-preview-browser-smoke.test.mjs scripts/vercel-preview-smoke-workflows.test.mjs scripts/vercel-git-ownership.test.mjs",
     "vercel:primitives:test": "node --test scripts/plan-vercel-deployments.test.mjs scripts/vercel-build-environment.test.mjs scripts/vercel-prebuilt.test.mjs",
+    "vercel:production-shadow:test": "node --test scripts/vercel-deployment-state.test.mjs scripts/vercel-production-shadow.test.mjs scripts/vercel-production-shadow-workflow.test.mjs",
     "vercel:versions:check": "node scripts/vercel-prebuilt.mjs check-versions",
     "vercel:workflow:test": "node --test scripts/github-deployment.test.mjs scripts/vercel-prebuilt-workflow.test.mjs scripts/vercel-prebuilt-workflows.test.mjs apps/ui.mento.org/e2e/vercel-preview-browser-smoke.test.mjs"
   },

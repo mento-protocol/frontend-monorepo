@@ -27,6 +27,10 @@ per-target `shadow` or `github` mode live together in
 guards, and ownership tests import or structurally verify that source; do not
 copy a second ownership table into executable code.
 
+The guarded manual production-shadow pilot does not activate a domain or change
+deployment ownership. Until the later production cutover issues ship, the
+Vercel Git integration remains the production deployment owner.
+
 ## Pinned prerequisites
 
 - Vercel CLI: exactly `56.2.0` in the root `devDependencies`. The project owner
@@ -164,16 +168,18 @@ After `vercel build`, verify the build-bound ID before uploading anything:
 ```bash
 pnpm vercel:prebuilt:assert \
   --expected "$MENTO_NEXT_DEPLOYMENT_ID" \
-  --output .vercel/output
+  --output "$PROJECT_DIRECTORY/.vercel/output"
 ```
 
-The assertion reads `.vercel/output/config.json` and fails when `deploymentId`
-is missing or different. Next.js first writes the custom ID to its
+The assertion reads the selected project's
+`apps/<target>/.vercel/output/config.json` and fails when `deploymentId` is
+missing or different. Next.js first writes the custom ID to its
 `routes-manifest.json`; the pinned Vercel CLI carries that value into the final
 Build Output API `config.json` that `--prebuilt` uploads. `vercel deploy
---prebuilt` must upload that exact, unchanged `.vercel/output` directory in the
-same job. Do not regenerate the ID, rebuild, transfer an unverified artifact, or
-pass an invented deployment-ID option to `vercel deploy`.
+--prebuilt` must upload that exact, unchanged app-root `.vercel/output`
+directory in the same job. Do not regenerate the ID, rebuild, transfer an
+unverified artifact, or pass an invented deployment-ID option to
+`vercel deploy`.
 
 ## Build-environment contract
 
@@ -232,7 +238,21 @@ source for a Sensitive value without depending on a denylist of names that may
 appear in Vercel's raw file. A missing, empty, oversized, controlled, or
 unrepresentable required value, missing scoped secret, or cross-target
 Sensitive name fails closed. The checker prints variable names on failure but
-never values. Its machine-readable inventory is available directly:
+never values.
+
+The production-shadow workflow uses a separate runner-owned staging boundary.
+`PROJECT_DIRECTORY` must be the directory in which the Vercel CLI writes its
+`.vercel` state. The production-shadow workflow launches the CLI from the
+monorepo root, but first materializes a trusted root `.vercel/repo.json` mapping
+and selects the literal project with `--project`. Pinned CLI 56.2.0 then writes
+the pulled environment and project settings below `apps/<target>/.vercel`, so
+the checker passes the literal `apps/<target>` directory. Both the local mapping
+and the project's configured Root Directory are verified, with the latter also
+checked through the Vercel project API. The checker loads
+`$PROJECT_DIRECTORY/.vercel/.env.<environment>.local`, then overlays explicit
+workflow constants and scoped GitHub secrets so they take precedence. A missing
+or invalid pulled file fails closed. Its machine-readable inventory is available
+directly:
 
 ```bash
 node scripts/vercel-build-environment.mjs inventory \
@@ -322,6 +342,249 @@ are maintainer-entered. Automation must not discover, export, recover, or print
 them, and a Vercel Sensitive value must never be assumed to appear in
 `vercel pull` output.
 
+## Manual production-shadow pilot
+
+`.github/workflows/vercel-production-shadow.yml` is a manual-only,
+non-activating pilot. Dispatch it from `main` with:
+
+- `deploy_sha`: a full 40-character commit SHA that exactly equals the fetched
+  `refs/remotes/origin/main` tip;
+- `app_v3_aliases_json`: the exact reviewed JSON array
+  `["app.mento.org","appmentoorg-env-v3-mentolabs.vercel.app"]` for the app
+  project's custom `v3` deployment. It must not omit either entry, add another
+  alias, or contain `v2-app.mento.org`.
+
+Do not guess the alias list. Capture it read-only, review it, then use the exact
+literal array for the pilot and record it for the activation issue. The workflow
+will not read a credential manager or attempt to recover a missing credential.
+
+Every credential-bearing job uses the dedicated `vercel-cli-production` GitHub
+Environment with `deployment: false`. This prevents an implicit GitHub
+Deployment whose ref could differ from `deploy_sha`. The token-free preflight
+also verifies the canonical repository, the workflow definition on `main`, and
+first proves `deploy_sha` is an ancestor of the freshly fetched `origin/main`.
+It then requires exact equality among `${{ github.workflow_sha }}`, `deploy_sha`,
+the fetched `origin/main` tip, and the checked-out `HEAD` before any job can
+reference production credentials. That validated SHA is the preflight output;
+every later trusted controller, source, post-build, smoke, and final-comparison
+checkout consumes only that output.
+Each fresh smoke checkout and the credential-bearing final comparison fetches
+`origin/main` and reruns the same ancestry, tip, workflow-SHA, and `HEAD` guard
+before installing dependencies or mapping a production token.
+
+Every source-consuming job separates the trusted controller, immutable source,
+candidate execution, and upload handoff. Preflight checks the workflow
+definition's `${{ github.workflow_sha }}` at the workspace root. After proving
+it is the requested current-main commit, downstream jobs check out the
+preflight-issued immutable SHA for validators, state readers, CLI orchestration,
+drift evidence, and the runner-owned `source/` build input. Before candidate
+code can run, the workflow materializes exact protected
+Node, pnpm, and Vercel CLI paths outside candidate control, pulls Vercel settings
+with the production token under a private `077` umask into a fresh runner-owned
+staging tree, and validates that tree's complete file set, ownership, project
+mapping, and Root Directory.
+
+The raw Vercel-pulled `.env.<target>.local` remains private and runner-owned.
+Before staging settings into candidate storage, the trusted controller parses
+that file, selects only the target/environment variables classified
+`vercel-pull` in `scripts/vercel-build-environment.mjs`, and serializes them into
+a fresh canonical `0600` file below a runner-owned `0700` materialization root.
+Unknown values and sensitive values such as `SENTRY_AUTH_TOKEN`,
+`ETHERSCAN_API_KEY`, or `CHAINALYSIS_API_KEY` are never copied into candidate
+storage. The controller proves the raw file's inode and bytes did not change,
+reasserts the materialized and candidate files are the exact canonical
+allowlist, rechecks the materialization before handoff, and deletes the raw and
+materialized roots during boundary teardown.
+
+`.github/actions/vercel-candidate-build/action.yml` then creates the dedicated
+system identity `mento-vercel-build`, binds its numeric UID/GID to a private
+runner-owned marker, and materializes the exact commit directly from bounded raw
+Git tree/blob objects into a fresh candidate-owned tree. This deliberately does
+not use `git archive` or checkout filters: candidate-controlled
+`.gitattributes` entries such as `export-ignore`, `export-subst`, `ident`, or
+line-ending conversion cannot omit or rewrite build input. Gitlinks and unsafe
+paths are rejected before any candidate source is written. Dependency
+installation and `vercel build` run through `env -i` plus `setpriv` with an
+isolated HOME, temporary directory, XDG directories, pnpm store, and an
+allowlisted PATH containing the exact protected executables. Lifecycle scripts
+are disabled. The action first proves that this UID cannot write the workspace,
+trusted controller, runner temp root, immutable checkout, lockfile, or protected
+runtime. GitHub command-file paths and the production Vercel token are absent
+from candidate processes. A UID-wide
+kill and process check runs after install, after build, before handoff, and
+during final teardown; teardown deletes the account only when its live UID/GID
+still matches that marker.
+
+The trusted controller validates candidate ownership, the exact output tree,
+custom deployment ID, project mapping, and source provenance. Every shadow
+build uses Vercel's `--standalone` mode so function inputs are copied into the
+output tree. Before handoff, and again on the runner-owned upload tree, the
+controller parses every `.vc-config.json` and rejects invalid or oversized
+configs plus every non-empty `filePathMap`; a candidate path such as
+`../../proc/self/environ` therefore cannot make the later token-bearing uploader
+read outside the handoff. Only then does it copy the prebuilt output and
+validated Vercel mapping into a fresh runner-owned, non-writable-by-candidate
+upload tree. The candidate UID/group and all candidate and pull-staging paths
+are deleted before any upload or later production-token step. A fresh
+`trusted-after-build/` checkout owns deploy, state, evidence, and read-only alias
+checks, and upload reads only the runner-owned handoff. Canonical temporary JSON
+uses exclusive, no-follow creation, and shell-created evidence files enable
+`noclobber`; a precreated file or symlink therefore fails the job instead of
+replacing controller or evidence content.
+
+Browser smokes run in separate jobs from fresh checkouts of the exact
+preflight-issued workflow/source SHA with freshly installed trusted dependencies
+and Chromium. They never reuse
+the candidate checkout, candidate `node_modules`, or candidate command files;
+they receive neither production credentials nor a protected GitHub Environment.
+
+### Protected-domain transaction boundary
+
+Before building, the workflow uses `scripts/vercel-deployment-state.mjs` to
+capture an allowlisted snapshot for the reviewed app-v3 aliases,
+`v2-app.mento.org`, and the governance, reserve, and UI production domains. The
+state helper calls only Vercel's read endpoints for aliases, deployments,
+deployment aliases, and projects. It emits only canonical project, deployment,
+readiness, environment, Git, and alias fields; raw API responses, protection
+bypass data, and environment arrays never enter logs or artifacts.
+The reviewed app-v3 input must exactly equal the deployment's complete,
+normalized alias set. The current reviewed topology has two entries:
+`app.mento.org` and `appmentoorg-env-v3-mentolabs.vercel.app`. An omitted or
+extra alias fails baseline capture.
+
+Governance, reserve, and UI each execute this staged sequence:
+
+```text
+runner:    vercel pull --yes --environment=production
+candidate: vercel build --yes --standalone --prod
+runner:    validate -> immutable handoff -> destroy candidate boundary
+runner:    vercel deploy --prebuilt --prod --skip-domain --archive=tgz --format=json
+```
+
+Each command is launched at the monorepo root with an explicit literal
+`--project` argument. The controller removes `VERCEL_ORG_ID` and
+`VERCEL_PROJECT_ID` only from the CLI child environment after validating them
+and writing the trusted repo mapping; CLI 56.2.0 otherwise gives those variables
+precedence and loses the Root Directory. Authentication remains in the narrowly
+scoped `VERCEL_TOKEN` environment for API, pull, deploy, and alias-check steps,
+but
+`vercel build` receives no production token. The non-exportable
+`SENTRY_AUTH_TOKEN` and `ETHERSCAN_API_KEY` mirrors exist only on the literal
+build step that needs them. Before every literal build, the trusted controller
+requires the names `TURBO_TEAM`, `TURBO_TOKEN`, and
+`TURBO_REMOTE_CACHE_SIGNATURE_KEY` without printing their values, then runs the
+target environment checker. No deployment-protection bypass is mapped; direct
+health and browser checks must succeed through the public immutable URLs. Pulled
+project state and prebuilt output must exist below the matching
+`apps/<target>/.vercel` path.
+
+The uploaded `apps/<target>/.vercel/output` is the exact output whose custom
+Next deployment ID was asserted and copied into the runner-owned handoff. It is
+never transferred as a GitHub artifact.
+Each immutable URL must prove the literal project, `production` target, `READY`
+state, exact repository/ref/SHA metadata, and an alias set containing only its
+immutable deployment hostname before smoke begins. The browser then proves
+critical security headers, a stable page marker, and a target-specific
+non-transaction interaction. Protected alias
+mappings are compared after each upload and once again at the end. Once the
+candidate build boundary and fresh trusted-controller checkout both succeed, an
+always-run read-only check executes immediately after every deploy attempt,
+including failed deploy attempts, before state polling, Chromium installation,
+or smoke checks. Candidate-boundary or trusted-checkout failure never exposes
+the production token to this check. Any drift fails the run without executing
+an alias, deploy, promotion, or rollback command. The failure contains only
+canonical alias plus before/current deployment IDs and immutable URLs, followed
+by manual operator instructions. The final all-target comparison has its own
+fresh trusted checkout and likewise cannot receive the production token when
+that checkout fails.
+
+On drift, stop all forward work. Confirm the change is not an intentional or
+concurrent activation, re-resolve every affected alias, and require it still to
+match the reported canonical current ID/URL. Only then may an operator run the
+listed `vercel alias set <captured-prior-immutable-url> <alias>` command
+manually. Capture and compare the complete protected snapshot afterward. Never
+automate this restoration and never restore by a mutable `latest` lookup. The
+final job repeats the same read-only check directly from the trusted workflow
+tree and does not install or execute candidate dependencies.
+
+### App custom v3: build-only Outcome B
+
+The app job runs only:
+
+```text
+vercel pull --yes --environment=v3
+vercel build --yes --standalone --target=v3
+```
+
+The pinned CLI documents `--skip-domain` only with `--prod`, so a custom-target
+deploy cannot be proven non-activating. The app job therefore has no reachable
+deploy, promotion, or alias command. It explicitly builds with
+`VERCEL_ENV=preview`, `VERCEL_TARGET_ENV=v3`,
+`NEXT_PUBLIC_VERCEL_ENV=preview`, and an empty `SENTRY_AUTH_TOKEN`.
+
+The composite caller deliberately omits `SENTRY_AUTH_TOKEN` so the trusted
+credential-boundary preflight sees no forbidden app-v3 source. Only the isolated
+Vercel build child materializes the required explicit empty override.
+
+The job then records the future activation shape for the next issue:
+
+```text
+vercel deploy --prebuilt --target=v3 --archive=tgz --format=json
+```
+
+That future command is live activation and must remain inside the later guarded
+coordinator. The production-shadow pilot never creates an app URL. The legacy
+`v2-app.mento.org` production mapping is inspected, health-checked, and left
+untouched.
+
+### Direct production-shadow smoke
+
+The `deployment_status`-driven preview smoke is not reused for production
+shadow artifacts. Staged governance, reserve, and UI URLs run the direct command
+below in separate fresh trusted smoke jobs:
+
+```bash
+PRODUCTION_SHADOW_TARGET=governance \
+PRODUCTION_SHADOW_URL=https://<immutable>.vercel.app \
+PRODUCTION_SHADOW_EXPECTED_DEPLOYMENT_ID=<generated-build-id> \
+PRODUCTION_SHADOW_EXPECTED_SHA=<40-character-current-main-sha> \
+pnpm --filter app.mento.org test:production-shadow
+```
+
+Before this smoke starts, the stage job's trusted state helper independently
+proves the immutable deployment's exact repository, ref, SHA, project,
+production target, transaction, and READY state against Vercel's API. The smoke
+job checks out the exact preflight-issued SHA into a fresh workspace, installs
+its own trusted dependencies and Chromium, and consumes only the canonical
+deployment URL, expected custom ID, and exact SHA from prior jobs. The browser
+smoke then checks
+bounded HTTP readiness, document status, stable target content, one
+safe interaction, critical security headers, uncaught page errors, console
+errors, failed document/script/style requests from any origin, critical HTTP
+responses with status 400 or higher from any origin, the exact custom Next
+build ID rendered as the document's `data-dpl-id`, and the exact deployed SHA
+from the build-bound `X-Mento-Deployment-Sha` response header. No deployment-protection header is
+supplied. The request policy rejects any ambient protection header, handles each
+redirect as a new browser request, and origin-checks main-frame navigation
+throughout the smoke and after every target interaction. HTTP readiness also
+uses manual redirects and rejects a cross-origin redirect. The fresh smoke job
+never links or executes candidate `node_modules`. Failure uploads only
+screenshots/video for seven days; tracing stays disabled to keep diagnostic
+artifacts bounded.
+
+Do not run the manual pilot until the required GitHub Environment, repository
+variables, production token, mirrored build-variable names, and reviewed app-v3
+alias list are confirmed present. The workflow itself performs no Vercel Git
+setting change, domain activation, promotion, or cleanup of a serving
+deployment.
+
+Each candidate build must emit exactly one canonical Turbo
+`Cached: X cached, Y total` line. Missing, duplicate, malformed, or impossible
+counts fail the job. The final summary records hits and misses for every target,
+per-target build/deploy/job timing, and whole-workflow duration measured from
+the first preflight step; the original cache summaries remain in their build
+logs.
+
 ## Tests
 
 The ADR, primitive, read-only state-inspector, reusable-workflow, and
@@ -333,6 +596,8 @@ pnpm vercel:primitives:test
 pnpm vercel:deployment-state:test
 pnpm vercel:workflow:test
 pnpm vercel:preview:test
+pnpm vercel:production-shadow:test
+pnpm --filter app.mento.org test:production-shadow:routing
 ```
 
 They are stages near the start of the canonical root `pnpm test` command. The
@@ -340,10 +605,18 @@ suites cover app/package graph fixtures, fail-closed cases, output ordering,
 every deployment-ID constraint, prebuilt-config matching, prerequisite versions,
 all target/environment classifications, canonical alias mappings, guarded
 rollback evidence, exclusive private-file output, and redaction-safe
-missing-variable and API-error handling.
+missing-variable and API-error handling. The production-shadow command adds
+canonical Vercel state fixtures, read-only protected mapping failures, workflow
+structure, and direct runtime-smoke structure. Those commands are offline and
+do not contact or mutate Vercel. The separate routing regression starts two
+loopback origins and the Playwright-pinned Chromium to prove a cross-origin
+redirect cannot inherit a protection header.
 
-The test commands perform no Vercel API call, build upload, deployment, alias
-mutation, environment mutation, or Git-ownership change.
+The test commands above perform no Vercel API call, build upload, deployment,
+alias mutation, environment mutation, or Git-ownership change. The manual
+production-shadow workflow described above does use read-only Vercel API checks
+and stages non-activating ordinary-project deployments; it still performs no
+alias mutation, environment mutation, or Git-ownership change.
 
 ## Cost validation preparation
 

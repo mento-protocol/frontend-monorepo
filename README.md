@@ -149,6 +149,12 @@ pnpm vercel:workflow:test
 # Test preview state, reusable smoke trust, native-adapter, and Git ownership
 pnpm vercel:preview:test
 
+# Test production-shadow state, workflow, and runtime-smoke invariants
+pnpm vercel:production-shadow:test
+
+# Run the real two-origin Chromium protection-header isolation regression
+pnpm --filter app.mento.org test:production-shadow:routing
+
 # Verify exact Next.js and Vercel CLI custom deployment-ID prerequisites
 pnpm vercel:versions:check
 
@@ -491,11 +497,21 @@ The repository is set up with GitHub Actions for CI:
   v2 bootstrap, activation canaries, per-target cutover, and rollback
   procedures.
 
+  The manual `Vercel Production Shadow` workflow can build App custom `v3`
+  without deploying it and upload unaliased Governance, Reserve, and UI
+  production artifacts for verification; it never activates a domain or changes
+  ownership. Its exact-SHA contract, read-only protected-domain drift checks,
+  guarded manual operator recovery, and direct smoke are documented in the same
+  runbook.
+
 Dependency-installing jobs use `.github/actions/pnpm-install`, which pins the
 Node/pnpm bootstrap, relies on `actions/setup-node` as the single pnpm-store
-cache owner, and enforces `pnpm install --frozen-lockfile`. Publishing overrides
-the composite's Node version and disables its cache; zero-dependency jobs may
-set up Node directly.
+cache owner, and enforces `pnpm install --frozen-lockfile`.
+Production-shadow candidate builds instead use the dedicated-UID
+`.github/actions/vercel-candidate-build` boundary documented in the deployment
+runbook; fresh browser-smoke jobs return to the trusted pnpm action. Publishing
+overrides the trusted composite's Node version and disables its cache;
+zero-dependency jobs may set up Node directly.
 
 The docs-only decision is implemented by `scripts/ci-change-plan.mjs` and
 covered by `pnpm ci:change-plan:test`, which the Unit tests job runs before the
