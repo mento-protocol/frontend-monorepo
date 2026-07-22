@@ -198,16 +198,6 @@ export function useZapInTransaction(pool: PoolDisplay, chainId?: ChainId) {
           options: { slippageTolerance: slippage, deadline },
         });
 
-        // A zap that still needs approval cannot be simulated successfully:
-        // the router's transferFrom runs before the approval transaction has
-        // granted allowance. Preserve the build so callers can send approval,
-        // then use their existing fresh build to run this estimate fail-closed.
-        if (result.approval) {
-          setBuildResult(result);
-          setBuildError(null);
-          return result;
-        }
-
         try {
           await publicClient.estimateGas({
             account: recipient,
@@ -247,6 +237,15 @@ export function useZapInTransaction(pool: PoolDisplay, chainId?: ChainId) {
               parsedError =
                 getZapInBuildError(validationMessage) || validationMessage;
             }
+          }
+
+          // A missing allowance can surface as a generic transfer failure on
+          // Monad. Only waive that generic estimate after the route itself has
+          // passed read-only liquidity validation.
+          if (result.approval && !parsedError) {
+            setBuildResult(result);
+            setBuildError(null);
+            return result;
           }
 
           setBuildError(

@@ -140,7 +140,7 @@ describe("useZapInTransaction build preflight", () => {
     expect(build).toBe(approvalBuild);
     expect(hook.result.current.buildResult).toBe(approvalBuild);
     expect(hook.result.current.buildError).toBeNull();
-    expect(mocks.estimateGas).not.toHaveBeenCalled();
+    expect(mocks.estimateGas).toHaveBeenCalledTimes(1);
   });
 
   it("runs the fail-closed estimate on a fresh build after approval", async () => {
@@ -153,10 +153,10 @@ describe("useZapInTransaction build preflight", () => {
     const hook = renderHook(() => useZapInTransaction(pool, 143));
 
     expect(await buildTransaction(hook)).toBe(approvalBuild);
-    expect(mocks.estimateGas).not.toHaveBeenCalled();
+    expect(mocks.estimateGas).toHaveBeenCalledTimes(1);
 
     expect(await buildTransaction(hook)).toBe(freshBuild);
-    expect(mocks.estimateGas).toHaveBeenCalledTimes(1);
+    expect(mocks.estimateGas).toHaveBeenCalledTimes(2);
     expect(hook.result.current.buildResult).toBe(freshBuild);
     expect(hook.result.current.buildError).toBeNull();
   });
@@ -174,6 +174,21 @@ describe("useZapInTransaction build preflight", () => {
     expect(hook.result.current.buildResult).toBeNull();
     expect(hook.result.current.buildError).toBe(
       "This single-token amount cannot be simulated right now. Try a smaller amount, higher slippage, or balanced mode.",
+    );
+  });
+
+  it("blocks a known liquidity failure even when approval is required", async () => {
+    const approvalBuild = makeBuild({ approval: true });
+    mocks.buildZapInTransaction.mockResolvedValueOnce(approvalBuild);
+    mocks.estimateGas.mockRejectedValueOnce(
+      new Error("execution reverted: insufficient liquidity"),
+    );
+    const hook = renderHook(() => useZapInTransaction(pool, 143));
+
+    expect(await buildTransaction(hook)).toBeNull();
+    expect(mocks.readContract).not.toHaveBeenCalled();
+    expect(hook.result.current.buildError).toBe(
+      "Pool liquidity is insufficient for this single-token amount.",
     );
   });
 });

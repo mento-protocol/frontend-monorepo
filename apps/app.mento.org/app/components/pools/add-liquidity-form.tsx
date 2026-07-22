@@ -9,7 +9,11 @@ import {
   CoinInput,
   toast,
 } from "@mento-protocol/ui";
-import type { PoolDisplay, SlippageOption } from "@repo/web3";
+import type {
+  LiquidityQuoteResult,
+  PoolDisplay,
+  SlippageOption,
+} from "@repo/web3";
 import {
   SLIPPAGE_OPTIONS,
   useLiquidityQuote,
@@ -36,7 +40,10 @@ import {
 import { erc20Abi, formatUnits, type Address } from "viem";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { AlertTriangle } from "lucide-react";
-import { getContractAddress } from "@mento-protocol/mento-sdk";
+import {
+  getContractAddress,
+  type AddLiquidityTransaction,
+} from "@mento-protocol/mento-sdk";
 import { useSetAtom } from "jotai";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -79,6 +86,38 @@ function getSingleTokenLiquidityErrorMessage(
   }
 
   return message.replace(/zap-?in/gi, "single-token liquidity");
+}
+
+const POOL_RATIO_CHANGED_ERROR =
+  "Pool ratio changed. Review the updated amounts before submitting.";
+
+function isWithinOneWei(actual: bigint, expected: bigint): boolean {
+  return actual >= expected ? actual - expected <= 1n : expected - actual <= 1n;
+}
+
+function getMinimumAmount(amount: bigint, slippage: SlippageOption): bigint {
+  const basisPoints = BigInt(Math.floor(slippage * 100));
+  return (amount * (10_000n - basisPoints)) / 10_000n;
+}
+
+function isBuildAlignedWithQuote(
+  build: AddLiquidityTransaction,
+  quote: LiquidityQuoteResult,
+  slippage: SlippageOption,
+): boolean {
+  const details = build.addLiquidity;
+  return (
+    isWithinOneWei(details.amountADesired, quote.amountA) &&
+    isWithinOneWei(details.amountBDesired, quote.amountB) &&
+    isWithinOneWei(
+      details.amountAMin,
+      getMinimumAmount(quote.amountA, slippage),
+    ) &&
+    isWithinOneWei(
+      details.amountBMin,
+      getMinimumAmount(quote.amountB, slippage),
+    )
+  );
 }
 
 function TokenAmountInput({
@@ -276,6 +315,7 @@ export function AddLiquidityForm({
     data: quote,
     isFetching: isFetchingQuote,
     isDebouncing: isQuoteDebouncing,
+    refetch: refetchLiquidityQuote,
   } = useLiquidityQuote({
     pool,
     request: mode === "balanced" ? liquidityQuoteRequest : null,
@@ -291,19 +331,6 @@ export function AddLiquidityForm({
     rawToken0Amount: token0Amount,
     rawToken1Amount: token1Amount,
   });
-
-  // Persist the Router-authoritative pair without changing the user request.
-  // Keeping those states separate prevents a quote/input feedback loop.
-  useEffect(() => {
-    if (mode !== "balanced" || !currentQuote) return;
-    setToken0Amount(balancedDisplay.token0Amount);
-    setToken1Amount(balancedDisplay.token1Amount);
-  }, [
-    balancedDisplay.token0Amount,
-    balancedDisplay.token1Amount,
-    currentQuote,
-    mode,
-  ]);
 
   const { buildTransaction, buildResult, isBuilding } =
     useAddLiquidityTransaction(pool, chainId);
@@ -580,8 +607,17 @@ export function AddLiquidityForm({
         if (!capturedZapAmount || capturedZapAmount <= 0n) {
           throw new Error("Invalid single-token amount");
         }
-        if (zapBuildError) {
-          throw new Error(zapBuildError);
+        const capturedZapBuild = await buildZapTransaction(
+          capturedZapTokenIn as Address,
+          capturedZapAmount,
+          address,
+          capturedSlippage,
+        );
+        if (!capturedZapBuild) {
+          throw new Error(
+            singleTokenLiquidityError ||
+              "No single-token route is available for this amount. Try a smaller amount or use balanced mode.",
+          );
         }
 
         const steps: LiquidityFlowStepDefinition[] = [];
@@ -593,10 +629,10 @@ export function AddLiquidityForm({
             : allowances.token1;
 
         if (
-          zapBuildResult.approval &&
+          capturedZapBuild.approval &&
           capturedZapAmount > currentZapAllowance
         ) {
-          const approvalParams = zapBuildResult.approval.params;
+          const approvalParams = capturedZapBuild.approval.params;
           steps.push({
             id: "approve-token",
             label: `Approve ${zapToken.symbol}`,
@@ -604,20 +640,30 @@ export function AddLiquidityForm({
           });
         }
 
+        const hasApprovalStep = steps.length > 0;
+
         steps.push({
           id: "zap-in",
           label: "Add Liquidity",
           buildTx: async () => {
-            const freshBuild = await buildZapTransaction(
-              capturedZapTokenIn as Address,
-              capturedZapAmount,
-              address,
-              capturedSlippage,
-            );
+            const freshBuild =
+              hasApprovalStep || capturedZapBuild.approval
+                ? await buildZapTransaction(
+                    capturedZapTokenIn as Address,
+                    capturedZapAmount,
+                    address,
+                    capturedSlippage,
+                  )
+                : capturedZapBuild;
             if (!freshBuild) {
               throw new Error(
                 singleTokenLiquidityError ||
                   "No single-token route is available for this amount. Try a smaller amount or use balanced mode.",
+              );
+            }
+            if (freshBuild.approval) {
+              throw new Error(
+                "Token approval is still required. Please try again.",
               );
             }
             return freshBuild.zapIn.params;
@@ -651,6 +697,20 @@ export function AddLiquidityForm({
         const capturedQuote = currentQuote;
         const capturedSlippage = slippage;
 
+        const refreshedQuoteResult = await refetchLiquidityQuote();
+        if (refreshedQuoteResult.error) {
+          throw new Error("Unable to refresh liquidity quote.");
+        }
+        const refreshedQuote = refreshedQuoteResult.data;
+        if (
+          !refreshedQuote ||
+          refreshedQuote.requestId !== capturedQuote.requestId ||
+          refreshedQuote.amountA !== capturedQuote.amountA ||
+          refreshedQuote.amountB !== capturedQuote.amountB
+        ) {
+          throw new Error(POOL_RATIO_CHANGED_ERROR);
+        }
+
         // Rebuild at click time and use this exact result for approvals. The
         // stateful preview build may still belong to a previous quote.
         const capturedBuild = await buildTransaction(
@@ -660,6 +720,15 @@ export function AddLiquidityForm({
           capturedSlippage,
         );
         if (!capturedBuild) throw new Error("Failed to build transaction");
+        if (
+          !isBuildAlignedWithQuote(
+            capturedBuild,
+            capturedQuote,
+            capturedSlippage,
+          )
+        ) {
+          throw new Error(POOL_RATIO_CHANGED_ERROR);
+        }
 
         const steps: LiquidityFlowStepDefinition[] = [];
         const allowances = await getLatestAllowances();
@@ -688,10 +757,30 @@ export function AddLiquidityForm({
           });
         }
 
+        const hasApprovalSteps = steps.length > 0;
+
         steps.push({
           id: "add-liquidity",
           label: "Add Liquidity",
           buildTx: async () => {
+            if (!hasApprovalSteps) {
+              return capturedBuild.addLiquidity.params;
+            }
+
+            const postApprovalQuoteResult = await refetchLiquidityQuote();
+            if (postApprovalQuoteResult.error) {
+              throw new Error("Unable to refresh liquidity quote.");
+            }
+            const postApprovalQuote = postApprovalQuoteResult.data;
+            if (
+              !postApprovalQuote ||
+              postApprovalQuote.requestId !== capturedQuote.requestId ||
+              postApprovalQuote.amountA !== capturedQuote.amountA ||
+              postApprovalQuote.amountB !== capturedQuote.amountB
+            ) {
+              throw new Error(POOL_RATIO_CHANGED_ERROR);
+            }
+
             const freshBuild = await buildTransaction(
               capturedQuote.amountA,
               capturedQuote.amountB,
@@ -699,6 +788,20 @@ export function AddLiquidityForm({
               capturedSlippage,
             );
             if (!freshBuild) throw new Error("Failed to build transaction");
+            if (freshBuild.approvalA || freshBuild.approvalB) {
+              throw new Error(
+                "Token approval is still required. Please try again.",
+              );
+            }
+            if (
+              !isBuildAlignedWithQuote(
+                freshBuild,
+                capturedQuote,
+                capturedSlippage,
+              )
+            ) {
+              throw new Error(POOL_RATIO_CHANGED_ERROR);
+            }
             return freshBuild.addLiquidity.params;
           },
         });
@@ -743,6 +846,8 @@ export function AddLiquidityForm({
           toast.error(
             getSingleTokenLiquidityErrorMessage(msg, zapToken.symbol),
           );
+        } else if (msg === POOL_RATIO_CHANGED_ERROR) {
+          toast.error(POOL_RATIO_CHANGED_ERROR);
         } else {
           toast.error("Something went wrong. Please try again.");
         }

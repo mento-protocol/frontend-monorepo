@@ -1,6 +1,6 @@
 import type { ChainId } from "@/config/chains";
 import { getMentoSdk, getPublicClient } from "@/features/sdk";
-import { fromWei, toWei } from "@/utils/amount";
+import { toWei } from "@/utils/amount";
 import { useDebounce } from "@/utils/debounce";
 import { FPMM_ABI } from "@mento-protocol/mento-sdk";
 import { useQuery } from "@tanstack/react-query";
@@ -184,34 +184,4 @@ export function useLiquidityQuote({
     isDebouncing:
       request?.kind === "manual" && isValidRequest && !isManualRequestSettled,
   };
-}
-
-/** Formats both Router-authoritative amounts in pool contract order. */
-export function getCanonicalLiquidityAmounts(
-  quote: LiquidityQuoteResult | null | undefined,
-  pool: PoolDisplay,
-): { token0: string; token1: string } | null {
-  if (!quote) return null;
-
-  return {
-    token0: fromWei(quote.amountA.toString(), pool.token0.decimals),
-    token1: fromWei(quote.amountB.toString(), pool.token1.decimals),
-  };
-}
-
-/**
- * Formats the proportional amount from a quote result for the non-edited token input.
- * Kept for consumers outside the add-liquidity form; new code should canonicalize both sides.
- */
-export function getProportionalAmount(
-  quote: LiquidityQuoteResult | null | undefined,
-  lastEditedToken: 0 | 1,
-  pool: PoolDisplay,
-): string {
-  if (!quote) return "";
-  const amount = lastEditedToken === 0 ? quote.amountB : quote.amountA;
-  const decimals =
-    lastEditedToken === 0 ? pool.token1.decimals : pool.token0.decimals;
-  if (amount === 0n) return "";
-  return fromWei(amount.toString(), decimals);
 }

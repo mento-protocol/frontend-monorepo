@@ -4,13 +4,16 @@ import { formatUnits } from "viem";
 export function formatLiquiditySummaryAmount(amount: string): string {
   if (amount === "—") return amount;
 
-  const value = Number(amount);
-  if (!Number.isFinite(value)) return "0.0000";
+  const match = amount.trim().match(/^(-?)(\d*)(?:\.(\d*))?$/);
+  if (!match || (!match[2] && !match[3])) return "0";
 
-  return value.toLocaleString(undefined, {
-    minimumFractionDigits: 4,
-    maximumFractionDigits: 4,
-  });
+  const [, sign, integer, fraction] = match;
+  const normalizedInteger = (integer || "0").replace(/^0+(?=\d)/, "");
+  const groupedInteger = normalizedInteger.replace(
+    /\B(?=(\d{3})+(?!\d))/g,
+    ",",
+  );
+  return `${sign}${groupedInteger}${fraction === undefined ? "" : `.${fraction}`}`;
 }
 
 export interface BalancedLiquidityDisplayState {

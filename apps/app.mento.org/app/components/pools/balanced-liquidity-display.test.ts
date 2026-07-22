@@ -25,8 +25,8 @@ describe("getBalancedLiquidityDisplayState", () => {
     ).toEqual({
       token0Amount: "1938.824449465635730703",
       token1Amount: "1677.027867285683156092",
-      summaryToken0Amount: "1,938.8244",
-      summaryToken1Amount: "1,677.0279",
+      summaryToken0Amount: "1,938.824449465635730703",
+      summaryToken1Amount: "1,677.027867285683156092",
     });
   });
 
@@ -41,8 +41,8 @@ describe("getBalancedLiquidityDisplayState", () => {
     ).toEqual({
       token0Amount: "10",
       token1Amount: "",
-      summaryToken0Amount: "0.0000",
-      summaryToken1Amount: "0.0000",
+      summaryToken0Amount: "0",
+      summaryToken1Amount: "0",
     });
   });
 });

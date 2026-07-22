@@ -24,11 +24,8 @@ vi.mock("wagmi", () => ({
   useChainId: () => 143,
 }));
 
-const {
-  getCanonicalLiquidityAmounts,
-  getDesiredBalancedLiquidityAmounts,
-  useLiquidityQuote,
-} = await import("./use-liquidity-quote");
+const { getDesiredBalancedLiquidityAmounts, useLiquidityQuote } =
+  await import("./use-liquidity-quote");
 
 const pool: PoolDisplay = {
   poolAddr: "0x0000000000000000000000000000000000000001",
@@ -208,9 +205,9 @@ describe("useLiquidityQuote", () => {
 
     await waitFor(() => expect(result.current.data).toBeTruthy());
 
-    expect(getCanonicalLiquidityAmounts(result.current.data, pool)).toEqual({
-      token0: "8",
-      token1: "4",
+    expect(result.current.data).toMatchObject({
+      amountA: 8n * 10n ** 18n,
+      amountB: 4n * 10n ** 18n,
     });
   });
 
