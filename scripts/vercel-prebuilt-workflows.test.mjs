@@ -160,6 +160,15 @@ test("preview credentials keep Governance explorer access target-local and never
     build.run,
     /vercel-build-environment\.mjs" \\\n\s+check --target "\$LOGICAL_TARGET" --environment preview/,
   );
+  assert.equal(
+    build.env.BUILD_ENVIRONMENT_PATH,
+    "${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-build-environment",
+  );
+  assert.match(build.run, /--project-directory "\$BUILD_ENVIRONMENT_PATH"/);
+  assert.doesNotMatch(
+    build.run,
+    /--project-directory "\$SOURCE_PATH\/\$EXPECTED_ROOT_DIRECTORY"/,
+  );
   assert.match(
     build.run,
     /candidate_secret_environment\+=\("ETHERSCAN_API_KEY=\$ETHERSCAN_API_KEY"\)/,
@@ -179,6 +188,39 @@ test("preview credentials keep Governance explorer access target-local and never
     "vercel_token",
   ]);
   assert.equal(worker.jobs["deploy-ui-preview"].with.logical_target, "ui");
+});
+
+test("runner-side Governance validation never traverses the distinct candidate identity tree", () => {
+  const reusable = workflow(reusablePath);
+  const steps = reusable.jobs.prebuilt.steps;
+  const isolation = steps.find(
+    ({ name }) =>
+      name === "Prepare isolated exact-SHA source and protected Vercel CLI",
+  );
+  const build = steps.find(
+    ({ name }) => name === "Build the literal target prebuilt output",
+  );
+
+  assert.match(
+    isolation.run,
+    /if \[ "\$build_uid" = "\$\(id -u\)" \] \|\| \[ "\$build_gid" = "\$\(id -g\)" \]; then/,
+  );
+  assert.equal(
+    build.env.BUILD_ENVIRONMENT_PATH,
+    "${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-build-environment",
+  );
+  assert.match(
+    build.run,
+    /if \[ "\$LOGICAL_TARGET" = "governance" \]; then[\s\S]*--project-directory "\$BUILD_ENVIRONMENT_PATH"/,
+  );
+  assert.doesNotMatch(
+    build.run,
+    /--project-directory "\$SOURCE_PATH\/\$EXPECTED_ROOT_DIRECTORY"/,
+  );
+  assert.match(
+    build.run,
+    /sudo --non-interactive \/usr\/bin\/env -i[\s\S]*BUILD_UID="\$BUILD_UID"[\s\S]*vercel-prebuilt-workflow\.mjs" \\\n\s+build/,
+  );
 });
 
 test("pilot maps only preview credentials and never exposes a production path", () => {
@@ -669,7 +711,12 @@ test("monorepo CLI and trusted env validation use their exact roots", () => {
     environmentValidation.run,
     /--project-directory "\$BUILD_ENVIRONMENT_PATH"/,
   );
-  assert.match(
+  assert.match(build.run, /--project-directory "\$BUILD_ENVIRONMENT_PATH"/);
+  assert.equal(
+    build.env.BUILD_ENVIRONMENT_PATH,
+    "${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-build-environment",
+  );
+  assert.doesNotMatch(
     build.run,
     /--project-directory "\$SOURCE_PATH\/\$EXPECTED_ROOT_DIRECTORY"/,
   );

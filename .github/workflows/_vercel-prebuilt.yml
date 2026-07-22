@@ -510,6 +510,10 @@ jobs:
             "$build_user"
           build_uid="$(id -u "$build_user")"
           build_gid="$(id -g "$build_user")"
+          if [ "$build_uid" = "$(id -u)" ] || [ "$build_gid" = "$(id -g)" ]; then
+            echo "Dedicated candidate identity overlaps the runner identity" >&2
+            exit 1
+          fi
           if sudo --non-interactive /usr/bin/pgrep -u "$build_uid" >/dev/null 2>&1; then
             echo "Dedicated candidate identity unexpectedly owns a process" >&2
             exit 1
@@ -1030,6 +1034,7 @@ jobs:
       - name: Build the literal target prebuilt output
         id: build
         env:
+          BUILD_ENVIRONMENT_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-build-environment
           BUILD_GID: ${{ steps.isolation.outputs.build_gid }}
           BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
           CANDIDATE_HOME_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-home
@@ -1063,7 +1068,7 @@ jobs:
           if [ "$LOGICAL_TARGET" = "governance" ]; then
             node "$GITHUB_WORKSPACE/controller/scripts/vercel-build-environment.mjs" \
               check --target "$LOGICAL_TARGET" --environment preview \
-              --project-directory "$SOURCE_PATH/$EXPECTED_ROOT_DIRECTORY"
+              --project-directory "$BUILD_ENVIRONMENT_PATH"
           fi
           terminate_candidate() {
             sudo --non-interactive /usr/bin/pkill -KILL -u "$BUILD_UID" >/dev/null 2>&1 || true

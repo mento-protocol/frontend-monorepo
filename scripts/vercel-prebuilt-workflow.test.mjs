@@ -2752,6 +2752,10 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
     isolationBlock,
     /Protected runtime root is not the authenticated fixed directory/,
   );
+  assert.match(
+    isolationBlock,
+    /if \[ "\$build_uid" = "\$\(id -u\)" \] \|\| \[ "\$build_gid" = "\$\(id -g\)" \]; then\n\s+echo "Dedicated candidate identity overlaps the runner identity"/,
+  );
   assert.match(isolationBlock, /trusted-install-modules-dir/);
   assert.match(isolationBlock, /--modules-dir "\$trusted_modules_dir"/);
   const isolationRootValidationIndex = isolationBlock.indexOf(
@@ -3041,7 +3045,15 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   assert.doesNotMatch(environmentValidationBlock, /SENTRY_AUTH_TOKEN/);
   assert.match(
     buildBlock,
-    /vercel-build-environment\.mjs" \\\n\s+check --target "\$LOGICAL_TARGET" --environment preview \\\n\s+--project-directory "\$SOURCE_PATH\/\$EXPECTED_ROOT_DIRECTORY"/,
+    /vercel-build-environment\.mjs" \\\n\s+check --target "\$LOGICAL_TARGET" --environment preview \\\n\s+--project-directory "\$BUILD_ENVIRONMENT_PATH"/,
+  );
+  assert.match(
+    buildBlock,
+    /BUILD_ENVIRONMENT_PATH: \$\{\{ env\.VERCEL_ISOLATION_ROOT \}\}\/mento-vercel-build-environment/,
+  );
+  assert.doesNotMatch(
+    buildBlock,
+    /--project-directory "\$SOURCE_PATH\/\$EXPECTED_ROOT_DIRECTORY"/,
   );
   assert.doesNotMatch(environmentValidationBlock, /working-directory: source/);
   assert.doesNotMatch(
