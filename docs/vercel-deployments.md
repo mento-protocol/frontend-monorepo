@@ -950,8 +950,9 @@ matching outcome. One collapsed GitHub `<details>` block contains canonical
 JSON. The visible table is derived from that JSON and is part of the exact
 canonical body, not a second state surface. The document holds the repository
 and PR identity, a monotonic revision, an optional deterministic checkpoint, a
-top-level journal digest over that checkpoint, the canonical live receipt set,
-and mutable state, logically immutable live
+top-level numeric controller-workflow admission cursor, and a journal digest
+over that cursor, checkpoint, canonical live receipt set, and mutable state.
+It also contains logically immutable live
 event/selection/worker-evidence/result entries, and bounded mutable controller
 state. The state's separate receipts digest binds reconciliation to the
 checkpoint plus live receipt set. The canonical Markdown envelope includes the explicit closing
@@ -964,9 +965,9 @@ per-PR concurrency group configured with `queue: max` and
 `cancel-in-progress: false`. That serialization is a correctness boundary, not
 an optimization. After acquiring the queue, each writer validates the exact
 journal count and complete canonical body, applies one idempotent transition,
-updates the comment, or initially creates it for an explicit bootstrap, a
-first-attempt `opened`, or another first-attempt non-closed PR event whose
-`before` and head commits have no prior PR-scoped
+updates the comment, or initially creates it for an explicit bootstrap or a
+strict numbered first-attempt `opened`/`reopened` event whose head commit has no
+prior PR-scoped
 `Vercel Preview Journal v2 / PR #<number>` initialization status,
 then rereads and proves the expected
 revision, canonical JSON, journal digest, and, when state exists,
@@ -977,19 +978,58 @@ ambiguous reread fail closed.
 Before completed-worker recovery, journal mutation, status publication, or
 dispatch, reconciliation compares the live pull request with the journal's
 latest uniquely represented operational snapshot: PR number, lifecycle state,
-trusted base SHA, head SHA/ref/repository, author/trust classification, and
-closed timestamp. GitHub's `updated_at` is deliberately excluded because
-title- or body-only edits advance it without creating a preview event receipt.
-A difference in the operational snapshot proves that the matching event receipt
-can still be queued behind another serialized job. With zero or one epoch
-candidate the controller returns a deferred result and performs no journal,
-status, dispatch, or ownership write; the receipt-owning run later reconciles
-normally. If those operational fields match, a missing epoch remains an error
-rather than a backlog. More than one epoch candidate always fails closed,
-including when the latest represented snapshot differs from GitHub.
+trusted base ref, head SHA/ref/repository, author/trust classification, and
+closed timestamp. The base ref is the PR target identity: ordinary base-tip SHA
+advancement on that same ref does not imply a missing receipt or deferral,
+while an actual base-ref retarget does. The trusted base SHA remains immutable
+planning evidence on each receipt. GitHub's `updated_at` is deliberately
+excluded because title- or body-only edits advance it without creating a
+preview event receipt.
+Each `pull_request_target` run has a strict machine name that binds its workflow
+run ID and workflow-monotonic run number to the PR, action, head SHA,
+synchronize `before` SHA, and whether a receipt is required. Dependabot
+author/ref events and edited events without a base change are strict
+non-receipt admissions; every other eligible event requires a receipt.
 
-A first-attempt non-closed event can therefore preserve an out-of-order receipt
-when it wins the queue before `opened`. Every durably recorded event ensures a
+The journal's top-level `admission` cursor stores the active controller's
+numeric workflow ID plus the exact run ID and run number proven through. One
+scanner instance and request budget are shared by the whole job. It resolves
+the workflow file to its active numeric ID, then lists that workflow's runs
+newest-first with no branch, event, SHA, or time filter. Every run number above
+the cursor must appear exactly once and in descending order, including inert
+`repository_dispatch` and `workflow_run` invocations. The scanner validates
+each run's workflow ID/path, repository, trigger, immutable identity, state,
+and strict event or inert title. It rereads the first page to reject a moving
+view, processes at most five 100-run pages, and shares fixed request, raw-run,
+and title-hydration budgets across every reconciliation, mutation, dispatch,
+and final-publication boundary. A complete proof advances the in-memory cursor;
+only that complete monotonic cursor may be persisted. Rerun attempts reuse the
+same run ID and number and therefore do not create another sequence entry.
+
+For this PR, every receipt-required admission above the cursor must have its
+exact live receipt, and every numbered receipt above the cursor must map back
+to one strict admission. A requested, queued, or in-progress run without its
+receipt defers without state, status, dispatch, or ownership mutation; a
+completed run without one fails closed. Strict foreign-PR runs are classified
+as part of the same global interval but never cause a foreign journal lookup.
+GitHub may temporarily expose the static workflow name before the dynamic
+title, so placeholder titles hydrate under one shared 30-second job budget. An
+unresolved pending title defers; a completed placeholder or malformed title
+fails closed. Closed PRs may have empty run-to-PR linkage; present linkage is
+validated, while the strict title and top-level envelope authenticate an
+empty-link historical run.
+
+A stable numeric gap, workflow-ID mismatch, unavailable cursor, traversal
+overflow, or exhausted proof budget fails closed and requires drain plus an
+explicit numbered bootstrap. The receipt-event and bootstrap-receipt jobs need
+least-privilege `actions: read`; reconciliation jobs already have Actions
+access for worker recovery. This global sequence proof catches consecutive
+pushes and same-head close/reopen cycles without trusting mutable
+`updated_at`, branch-name uniqueness, or fork-controlled branch names.
+
+A first-attempt `opened`/`reopened` event can initialize only from its strict
+numbered run; synchronize, edited, and closed events never infer the missing
+history. Every durably recorded event ensures a
 `Vercel Preview Journal v2 / PR #<number>` success-status witness on its head before
 normal reconciliation. That lets a retry repair a witness write that failed
 after the journal mutation and carries deletion evidence across every push. The
@@ -1003,20 +1043,34 @@ journal and no matching witness is inert and explicitly skips reconciliation;
 it does not create an anchorless closure-only journal. A delayed non-closed
 event is likewise inert when the live PR is already closed and neither journal
 nor witness exists. Explicit bootstrap is the sole operator-authorized clean
-restart.
+restart. The controller validates the numbered bootstrap receipt against its
+exact strict `repository_dispatch` run under the current numeric workflow ID
+and stores that run as the new admission floor. Older controller runs are
+intentionally outside the fresh journal; every later controller run is
+globally accounted. A brand-new strict `opened` or `reopened` journal may use
+the immediately preceding run number as a temporary floor, but a
+legacy/unnumbered journal or a first strict `synchronize`, `edited`, or `closed`
+receipt requires bootstrap. There is no legacy admission reader or
+branch-scoped fallback.
 
-Before a later event is appended, a terminal journal with no active or retired
-worker and no unfinished evidence folds its completed prefix into one
-deterministic in-place checkpoint. The checkpoint holds cumulative receipt
-counts and digest, the verified lifecycle tail event, and independent status,
-runtime, and pending-owner evidence for all four targets.
+When a later event is appended, a terminal journal with no active or retired
+worker and no unfinished evidence may fold its completed prefix into one
+deterministic in-place checkpoint only after the Actions admission proof is
+complete. The admission cursor remains top-level and independent from receipt
+compaction. The checkpoint holds cumulative receipt counts and digest, the
+verified lifecycle tail event, and independent status, runtime, and
+pending-owner evidence for all four targets.
 For an open PR the tail is the last reconciled lineage event; for a closed PR
 it is the closure whose timestamp matches current GitHub state. State is
 rebased onto that tail and completed live receipts are cleared in the same
 revision. The checkpoint remains a verified reconciliation anchor even when
-its tail is a synchronize or closure event. A semantic replay of that tail
-with another workflow run ID is already represented and is therefore a no-op;
-the same run ID with conflicting content still fails closed. When a docs-only
+its tail is a synchronize or closure event. A new-format semantic replay of
+that tail remains live by exact workflow run ID until admission proof succeeds;
+only then may it be folded while the top-level cursor advances atomically.
+Pre-floor aliases remain idempotent, and the same run ID with conflicting
+content still fails closed. Retrying an alias already covered by the cursor is
+a no-op, so it cannot increment checkpoint sequence, counts, or digest twice.
+When a docs-only
 tail is checkpointed, its inherited terminal runtime state, immutable URL, and
 failure or cancellation meaning continue across later docs-only pushes rather
 than reverting to a fresh no-runtime success. The four-target 50-preview
@@ -1311,12 +1365,13 @@ or exactly-once delivery across GitHub and Vercel.
 
 Before `Vercel Preview` became required during Phase A, maintainers had to
 inventory every already-open PR and bootstrap each trusted same-repository PR
-that should participate. A lone
-synchronize journal entry deliberately waits for an
-opened/reopened/bootstrap anchor. Repeated semantically identical bootstrap
-requests are idempotent, and a bootstrap identical to an existing lifecycle
-anchor aliases that anchor; conflicting lifecycle or planning evidence still
-fails closed.
+that should participate. A first strict `synchronize`, `edited`, or `closed`
+event without an admitted anchor fails before persistence; it does not wait in
+an anchorless journal. Drain the PR's preview ownership and bootstrap the
+existing open PR before another lifecycle event. Repeated execution of the same
+bootstrap workflow run is idempotent, and a bootstrap identical to an existing
+lifecycle anchor aliases that anchor; conflicting lifecycle or planning
+evidence still fails closed.
 
 ```bash
 gh pr list --state open --limit 100 --json number,headRepository,headRefName,author
@@ -1339,11 +1394,76 @@ gh api --method POST \
   -F "client_payload[pr_number]=$PR_NUMBER"
 ```
 
-Do not bootstrap a closed PR, invent an opened event, manually edit or delete a
-journal, invent journal entries, or re-dispatch the worker directly. Missing
-repository names must be provisioned by a maintainer; automation may check
-presence but must never retrieve, export, reconstruct, or print credential
-values.
+A closed bootstrap is an exceptional recovery reset, not a way to create a
+journal. It is accepted only when the exact PR is live-closed, exactly one
+canonical v2 journal already exists, and that journal has no unfinished worker,
+selection, result, or dispatch ownership. The journal must be cursorless unless
+this is an exact rerun of its already-recorded bootstrap. The numbered
+`repository_dispatch` run must authenticate the exact repository, numeric
+controller workflow ID and path, run ID, run number, strict title, and durable
+receipt. The reset records a terminal closed anchor/state and the new admission
+floor without invoking the planner, dispatching a worker, creating or updating
+a Deployment, or publishing a pending preview status. A later `reopened` event
+starts normally from that terminal anchor.
+
+If a closed bootstrap partially fails after committing its receipt or terminal
+witness, rerun the failed job(s) on that same Actions run. Reruns retain the
+same run ID and run number and repair missing witness or reconciliation work
+idempotently. Never send a second bootstrap dispatch for the same closed
+journal: a distinct run cannot replace its established admission cursor. A
+closed bootstrap against a missing journal or unfinished ownership fails before
+mutation.
+
+Do not invent an opened event, manually edit or delete a journal, invent journal
+entries, or re-dispatch the worker directly. Missing repository names must be
+provisioned by a maintainer; automation may check presence but must never
+retrieve, export, reconstruct, or print credential values.
+
+### Global admission-cursor cutover
+
+The global run-number proof has no legacy branch-scan fallback. Roll it out as
+one ordered reset protocol:
+
+1. Merge the precursor that adds strict numbered event/inert run names and
+   numbered bootstrap receipts, without enabling global admission enforcement.
+2. Run one canary and verify the live controller title and durable receipt carry
+   the same strict run ID and run number.
+3. Update enforcement PR #586 from that precursor exactly once, wait for its
+   strict numbered `synchronize` receipt, and freeze it. Do not establish a
+   speculative cursor from a branch scan or mutable head ref.
+4. Drain controller, worker, intake, and controller-callback activity that can
+   still mutate #586's journal, and prove its durable journal has no unfinished
+   ownership. Merge #586 only after that quiescence proof. Its close event may
+   fail admission because the enforcement implementation was not yet running
+   from the default branch when GitHub emitted the close; this is expected
+   during this one cutover and must not be repaired by inventing a receipt.
+5. From the new default branch, drain again, dispatch exactly one closed
+   `vercel-preview-bootstrap` for #586, and verify the exact
+   `repository_dispatch` run ID, run number, strict title, controller workflow
+   ID/path, repository, durable receipt, and top-level admission cursor all
+   agree. Verify the journal is terminal-closed and the run emitted no planner,
+   worker dispatch, Deployment, or pending preview status. Let that same run's
+   reconciliation job finish; if it failed after the receipt committed, rerun
+   that job on the same run or dispatch one `vercel-preview-reconcile`, then
+   verify terminal state again. Do not send a second distinct closed bootstrap.
+6. Inventory every other open v2 journal created before the global cursor.
+   Drain and bootstrap each immediately before its next synchronize, retarget,
+   reopen, or close event. No further event may race ahead of its bootstrap.
+   During this rollout, PR #535 is part of that explicit inventory; do not
+   rebase, push, or close it before its numbered bootstrap.
+7. Treat any delayed controller event at or below the authenticated reset floor
+   as an exact-run-authenticated, write-free no-op. A receipt above the floor is
+   never silently ignored: an incomplete run defers without mutation and a
+   completed run missing its receipt fails closed.
+
+A numeric workflow-ID change, deleted run, stable sequence gap, or exhausted
+bounded traversal uses the same recovery: stop pushes, drain, deploy any
+reviewed corrective change, and establish a new exact numbered bootstrap floor
+on an open PR. The closed-bootstrap exception may repair any existing drained,
+legacy cursorless journal whose live PR is closed; #586 is the required rollout
+instance. It never creates a journal or replaces an existing cursor. Never
+infer a floor from a legacy `synchronize`/`edited` receipt or manually edit the
+cursor JSON.
 
 ### Clean v1-to-v2 journal migration
 

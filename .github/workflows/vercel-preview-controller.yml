@@ -1,4 +1,8 @@
 name: Vercel Preview Controller
+run-name: >-
+  ${{ github.event_name == 'pull_request_target' &&
+  format('Vercel preview controller event | id={0} | number={1} | pr={2} | sha={3} | before={4} | action={5} | receipt={6}', github.run_id, github.run_number, github.event.pull_request.number, github.event.pull_request.head.sha, github.event.action == 'synchronize' && github.event.before || 'none', github.event.action, github.event.pull_request.user.login != 'dependabot[bot]' && github.event.pull_request.head.ref != 'dependabot' && !startsWith(github.event.pull_request.head.ref, 'dependabot/') && (github.event.action != 'edited' || github.event.changes.base != null)) ||
+  format('Vercel Preview Controller | event={0} | id={1}', github.event_name, github.run_id) }}
 
 on:
   pull_request_target:
@@ -85,6 +89,7 @@ jobs:
             writeEventSnapshotOutputs({
               payload: context.payload,
               runId: context.runId,
+              runNumber: context.runNumber,
               core,
             });
 
@@ -159,6 +164,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      actions: read
       contents: read
       pull-requests: write
       statuses: write
@@ -364,6 +370,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      actions: read
       contents: read
       pull-requests: write
       statuses: write

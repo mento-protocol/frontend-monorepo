@@ -26,6 +26,23 @@ function permissionWrites(job) {
   );
 }
 
+function controllerTitleReceiptRequired({
+  action = "opened",
+  author = "trusted-author",
+  headRef = "feature/preview-controller",
+  baseChanged = false,
+} = {}) {
+  // GitHub Actions string comparisons and startsWith() are case-insensitive.
+  const normalizedAuthor = author.toLowerCase();
+  const normalizedHeadRef = headRef.toLowerCase();
+  return (
+    normalizedAuthor !== "dependabot[bot]" &&
+    normalizedHeadRef !== "dependabot" &&
+    !normalizedHeadRef.startsWith("dependabot/") &&
+    (action !== "edited" || baseChanged)
+  );
+}
+
 function queuedStateConcurrency(prExpression) {
   return {
     group: `vercel-preview-state-pr-${prExpression}`,
@@ -72,12 +89,42 @@ test("controller has only the three specified recovery-aware triggers", () => {
     "vercel-preview-reconcile",
   ]);
   assert.deepEqual(controller.permissions, {});
+  assert.equal(
+    controller["run-name"],
+    [
+      "${{ github.event_name == 'pull_request_target' &&",
+      "format('Vercel preview controller event | id={0} | number={1} | pr={2} | sha={3} | before={4} | action={5} | receipt={6}', github.run_id, github.run_number, github.event.pull_request.number, github.event.pull_request.head.sha, github.event.action == 'synchronize' && github.event.before || 'none', github.event.action, github.event.pull_request.user.login != 'dependabot[bot]' && github.event.pull_request.head.ref != 'dependabot' && !startsWith(github.event.pull_request.head.ref, 'dependabot/') && (github.event.action != 'edited' || github.event.changes.base != null)) ||",
+      "format('Vercel Preview Controller | event={0} | id={1}', github.event_name, github.run_id) }}",
+    ].join(" "),
+  );
   assert.match(
     controller.jobs["snapshot-event"].if,
     /action != 'edited'.*changes\.base != null/,
   );
   const raw = read(controllerPath);
+  assert.match(raw, /runNumber:\s*context\.runNumber/);
   assert.doesNotMatch(raw, /workflow_dispatch|\binputs\./);
+});
+
+test("controller run title marks exactly the receipt-producing PR events", () => {
+  const cases = [
+    ["Dependabot author", { author: "dependabot[bot]" }, false],
+    ["exact Dependabot ref", { headRef: "dependabot" }, false],
+    ["Dependabot ref prefix", { headRef: "dependabot/npm/pnpm" }, false],
+    [
+      "mixed-case Dependabot ref prefix",
+      { headRef: "Dependabot/npm/pnpm" },
+      false,
+    ],
+    ["trusted branch", {}, true],
+    ["fork branch", { headRef: "contributor/change" }, true],
+    ["unsupported ref", { headRef: "refs/change" }, true],
+    ["unrelated edit", { action: "edited" }, false],
+    ["base edit", { action: "edited", baseChanged: true }, true],
+  ];
+  for (const [label, inputs, expected] of cases) {
+    assert.equal(controllerTitleReceiptRequired(inputs), expected, label);
+  }
 });
 
 test("controller mode is canonical and reaches every reconciliation call", () => {
@@ -317,16 +364,19 @@ test("planner materializes only trusted-base code without shared caches", () => 
 });
 
 test("all preview journal and status mutations share queued cross-workflow serialization", () => {
-  const expected = {
+  const receiptExpected = {
+    actions: "read",
     contents: "read",
     "pull-requests": "write",
     statuses: "write",
   };
-  for (const jobName of ["receipt-event", "receipt-bootstrap"]) {
-    const job = controller.jobs[jobName];
-    assert.deepEqual(job.permissions, expected);
-    assert.match(JSON.stringify(job), /recordEventReceipt/);
-  }
+  const eventReceipt = controller.jobs["receipt-event"];
+  assert.deepEqual(eventReceipt.permissions, receiptExpected);
+  assert.match(JSON.stringify(eventReceipt), /recordEventReceipt/);
+
+  const bootstrapReceipt = controller.jobs["receipt-bootstrap"];
+  assert.deepEqual(bootstrapReceipt.permissions, receiptExpected);
+  assert.match(JSON.stringify(bootstrapReceipt), /recordEventReceipt/);
   for (const [jobName, prExpression] of serializedControllerMutations) {
     assert.deepEqual(
       controller.jobs[jobName].concurrency,
@@ -852,6 +902,36 @@ test("runbook covers v2 migration, four-target canaries, cutover, and exact roll
       new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
     );
   }
+
+  const orderedAdmissionCutover = [
+    "### Global admission-cursor cutover",
+    "Merge the precursor that adds strict numbered event/inert run names",
+    "Update enforcement PR #586",
+    "Drain controller, worker, intake, and controller-callback activity",
+    "Merge #586 only after that quiescence proof",
+    "Its close event may",
+    "dispatch exactly one closed",
+    "`repository_dispatch` run ID, run number, strict title",
+    "journal is terminal-closed",
+    "same run's reconciliation job finish",
+    "Do not send a second distinct closed bootstrap",
+    "Inventory every other open v2 journal",
+    "immediately before its next synchronize",
+    "delayed controller event at or below the authenticated reset floor",
+    "A receipt above the floor is never silently ignored",
+  ];
+  const normalizedDocs = docs.replace(/\s+/g, " ");
+  let previousIndex = -1;
+  for (const marker of orderedAdmissionCutover) {
+    const currentIndex = normalizedDocs.indexOf(marker);
+    assert.ok(currentIndex >= 0, `runbook must contain ${marker}`);
+    assert.ok(
+      currentIndex > previousIndex,
+      `runbook must order ${marker} after the previous cutover step`,
+    );
+    previousIndex = currentIndex;
+  }
+
   assert.doesNotMatch(
     docs,
     /gh workflow run vercel-preview-controller|operation=(?:bootstrap|reconcile)|gh run list --workflow.*--limit/,
