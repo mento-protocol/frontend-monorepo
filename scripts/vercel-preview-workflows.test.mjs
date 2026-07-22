@@ -912,7 +912,14 @@ test("runbook covers v2 migration, four-target canaries, cutover, and exact roll
     "target-local acceptance matrix",
     "Independent Governance rollback",
     "Do not call Governance cut over, begin the App cutover",
-    "Reserve and UI keep their GitHub preview owners",
+    "App, Reserve, and UI keep their GitHub preview owners",
+    "App Vercel Git cutover",
+    "evidence must not be reused as proof for App",
+    "App target-local acceptance matrix",
+    "Independent App rollback",
+    "Governance, Reserve, and UI keep their GitHub preview owners",
+    "App `main` and `v2` still deploy natively",
+    "custom `v3` behavior",
     "Do not change `VERCEL_PREVIEW_CONTROLLER_MODE`",
     "live cutover matrix and the post-merge canary",
     "UI rollback is target-local",
@@ -969,6 +976,9 @@ test("runbook covers v2 migration, four-target canaries, cutover, and exact roll
     "### Governance Vercel Git cutover",
     "Do not call Governance cut over, begin the App cutover",
     "#### Independent Governance rollback",
+    "### App Vercel Git cutover",
+    "Do not call App cut over or close the rollout item",
+    "#### Independent App rollback",
   ];
   let previousOwnershipIndex = -1;
   for (const marker of orderedOwnershipCutovers) {

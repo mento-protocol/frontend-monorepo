@@ -137,10 +137,9 @@ guarantee which event runs first.
 Each worker creates or reuses one GitHub Deployment whose `ref` is the selected
 40-character SHA, then reports queued, in-progress, and a truthful terminal
 status. Every selected target runs direct smoke against its immutable URL before
-success. App and governance additionally retain the temporary native
-`deployment_status` adapter only while Vercel Git still produces those events;
-a status created with the repository `GITHUB_TOKEN` is evidence, not a trigger
-contract.
+success. App and governance retain a rollback-only native `deployment_status`
+adapter for bounded target-local recovery; a status created with the repository
+`GITHUB_TOKEN` is evidence, not a trigger contract.
 
 The direct smoke is one credential-free reusable workflow shared by all four
 targets and the temporary native adapter. Its input is an already verified,
@@ -221,12 +220,11 @@ evidence. Preview paths cut over before `main`; the three ordinary production
 targets prove no-domain staging, and app `v3` proves its activation semantics,
 before the final reviewed ownership change.
 
-The current version-controlled preview map assigns Governance, Reserve, and UI
-to GitHub Actions while App remains in shadow mode. Governance's configuration
-change is accepted only after its exact-head and fresh post-merge canaries pass,
-and it may not be published until the earlier Reserve post-merge canary has
-passed. The later App cutover remains independently gated; App `main`, `v2`,
-and custom-`v3` semantics do not change in this step.
+The current version-controlled preview map assigns App, Governance, Reserve,
+and UI to GitHub Actions. App's configuration change is accepted only after its
+exact-head and fresh post-merge canaries pass, and it may not be published until
+the earlier Governance post-merge canary has passed. App `main`, `v2`, and
+custom-`v3` semantics do not change in this step.
 
 `git.deploymentEnabled` branch rules disable only replaced native paths. The app
 configuration always retains `v2: true`. Outside a bounded shadow canary or
