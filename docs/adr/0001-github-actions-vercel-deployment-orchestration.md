@@ -3,7 +3,7 @@ title: GitHub Actions owns Vercel build and deployment orchestration; Vercel rem
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 scope: ci/deployment
 date: 2026-07
 ---
@@ -222,19 +222,22 @@ targets prove no-domain staging, and app `v3` proves its activation semantics,
 before the final reviewed ownership change.
 
 `git.deploymentEnabled` branch rules disable only replaced native paths. The app
-configuration always retains `v2: true`. There is no permanent state in which
-native Vercel Git and GitHub Actions both automatically activate the same
-target/SHA. Recovery sets GitHub's controller to `observe-only` mode and restores
-the prior Vercel Git branch rules in the same reviewed change, then proves the
-native canary path before treating Vercel Git as owner again.
+configuration always retains `v2: true`. Outside a bounded shadow canary or
+rollback proving period, native Vercel Git and GitHub Actions do not both
+automatically activate the same target/SHA. A target-local recovery atomically
+restores that target's prior Vercel Git branch rules and changes only its
+ownership mode from `github` to `shadow`; the controller stays `active` so
+already-proven GitHub-owned targets remain available. The recovered target then
+proves both its native path and GitHub shadow canary before another cutover.
 
-For UI branch previews, that boundary is executable:
-`.github/workflows/vercel-preview-controller.yml` carries a
-version-controlled `active` or `observe-only` mode, and
-`scripts/vercel-git-ownership.test.mjs` accepts only `active` paired with native
-branch previews disabled or `observe-only` paired with native ownership
-restored. `observe-only` retains receipts, terminal recovery, and status
-evidence but cannot dispatch a new worker.
+That boundary is executable per target:
+`scripts/vercel-git-ownership.test.mjs` accepts only each target's exact
+canonical configuration paired with its reviewed ownership mode. The
+version-controlled controller also supports `observe-only`, but that is a
+coordinated full-controller shutdown only: every participating candidate must
+first have native ownership restored. `observe-only` retains receipts, terminal
+recovery, and status evidence but cannot dispatch a new worker; it is not a
+single-target rollback while another target remains GitHub-owned.
 
 Ordinary targets recover with exact captured deployment IDs and verify every
 domain after rollback. App `v3` recovers each reviewed alias independently to

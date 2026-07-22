@@ -43,6 +43,7 @@ import {
 } from "./vercel-preview-controller.mjs";
 import { validateGitBranch } from "./vercel-prebuilt-workflow.mjs";
 import {
+  PREVIEW_OWNERSHIP_MODES,
   PREVIEW_TARGET_CONFIG,
   PREVIEW_TARGETS,
 } from "./vercel-preview-targets.mjs";
@@ -3636,6 +3637,7 @@ function fakeGitHub({
   beforeListCommitStatuses,
   beforeListWorkflowRuns,
   beforeGetWorkflowRun,
+  allCandidateTargetsNative = false,
   uiVercelConfiguration = GITHUB_OWNED_UI_VERCEL_CONFIGURATION,
   uiVercelConfigurations = [],
   uiVercelConfigurationsByRef = new Map(),
@@ -3880,8 +3882,14 @@ function fakeGitHub({
             "fixture content request must target Vercel config",
           );
           if (target !== "ui") {
+            const targetConfiguration = PREVIEW_TARGET_CONFIG[target];
             const configuration =
-              PREVIEW_TARGET_CONFIG[target].nativeVercelConfiguration;
+              allCandidateTargetsNative && request.ref !== SHA.E
+                ? targetConfiguration.nativeVercelConfiguration
+                : targetConfiguration.ownershipMode ===
+                    PREVIEW_OWNERSHIP_MODES.GITHUB
+                  ? targetConfiguration.githubVercelConfiguration
+                  : targetConfiguration.nativeVercelConfiguration;
             const text = `${JSON.stringify(configuration, null, 2)}\n`;
             const content = Buffer.from(text, "utf8");
             return {
@@ -7792,7 +7800,7 @@ test("worker preflight rejects expected A versus actual B before any API access"
 });
 
 test("worker preflight permits GitHub canaries for every native-owned shadow target", async () => {
-  for (const [index, target] of ["app", "governance", "reserve"].entries()) {
+  for (const [index, target] of ["app", "governance"].entries()) {
     const opened = event({
       run: 116 + index,
       action: "opened",
@@ -9137,6 +9145,7 @@ test("observe-only controller mode records status without creating dispatch inte
   const fixture = fakeGitHub({
     pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
     comments: [journalComment({ events: [opened] })],
+    allCandidateTargetsNative: true,
     uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
   });
   const core = fakeCore();
@@ -9212,6 +9221,7 @@ test("observe-only mode recovers completed work and reconstructs state without d
     pullRequest,
     comments: [journalWithState([opened, runtimeB], dispatched)],
     runs: [completed],
+    allCandidateTargetsNative: true,
     uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
   });
   const core = fakeCore();
@@ -9274,6 +9284,7 @@ test("observe-only mode attaches and terminalizes a completed crash-window worke
     pullRequest,
     comments: [journalWithState([opened], intended)],
     runs: [completed],
+    allCandidateTargetsNative: true,
     uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
   });
   const core = fakeCore();
@@ -9322,6 +9333,7 @@ test("observe-only mode durably attaches an in-progress crash-window worker and 
     pullRequest,
     comments: [journalWithState([opened], intended)],
     runs: [queued],
+    allCandidateTargetsNative: true,
     uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
   });
   const core = fakeCore();
@@ -9352,7 +9364,7 @@ test("observe-only mode durably attaches an in-progress crash-window worker and 
     targets: {
       app: "not affected",
       governance: "not affected",
-      reserve: "not affected",
+      reserve: "native-owned",
       ui: "pending",
     },
   });
@@ -9381,6 +9393,7 @@ test("observe-only mode durably retires a crash-window intent with no worker and
   const fixture = fakeGitHub({
     pullRequest,
     comments: [journalWithState([opened], intended)],
+    allCandidateTargetsNative: true,
     uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
   });
   const core = fakeCore();
@@ -9453,6 +9466,7 @@ test("observe-only mode retires a reopened epoch's intended worker slot when no 
         ],
       }),
     ],
+    allCandidateTargetsNative: true,
     uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
   });
   const core = fakeCore();
@@ -9506,6 +9520,7 @@ test("observe-only mode retires same-SHA active and reopened-epoch intents witho
         ],
       }),
     ],
+    allCandidateTargetsNative: true,
     uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
   });
   const core = fakeCore();
@@ -9652,6 +9667,7 @@ test("no-dispatch retirement stays authoritative over an earlier real worker res
         results: [firstFailure],
       }),
     ],
+    allCandidateTargetsNative: true,
     uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
   });
 
@@ -9725,6 +9741,7 @@ test("observe-only mode attaches a reopened epoch's matching worker in its retir
       }),
     ],
     runs: [queued],
+    allCandidateTargetsNative: true,
     uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
   });
   const core = fakeCore();
@@ -9777,6 +9794,7 @@ test("observe-only mode fails closed when multiple workers match one crash-windo
       workerRun(selected.nextDispatch, { id: 8_000 }),
       workerRun(selected.nextDispatch, { id: 8_001 }),
     ],
+    allCandidateTargetsNative: true,
     uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
   });
 

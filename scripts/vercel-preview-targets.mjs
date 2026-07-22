@@ -50,7 +50,7 @@ export const PREVIEW_TARGET_CONFIG = Object.freeze({
     workspacePackage: "reserve.mento.org",
     expectedRootDirectory: "apps/reserve.mento.org",
     projectVariable: "VERCEL_PROJECT_ID_RESERVE",
-    ownershipMode: PREVIEW_OWNERSHIP_MODES.SHADOW,
+    ownershipMode: PREVIEW_OWNERSHIP_MODES.GITHUB,
     vercelConfigurationPath: "apps/reserve.mento.org/vercel.json",
     githubVercelConfiguration: GITHUB_VERCEL_CONFIGURATION,
     nativeVercelConfiguration: NATIVE_VERCEL_CONFIGURATION,
