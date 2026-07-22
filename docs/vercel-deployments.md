@@ -831,10 +831,13 @@ console/page errors, and same-origin failures, then runs the target interaction:
 - Reserve: Overview data plus Supply tab and URL/state transition;
 - UI: exact build/asset identity, navigation, and hydrated control interaction.
 
-The temporary `.github/workflows/preview-smoke.yml` native adapter classifies
+The transitional `.github/workflows/preview-smoke.yml` native adapter classifies
 only exact successful `Preview – app.mento.org` and
 `Preview – governance.mento.org` events created by Vercel's fixed bot identity
-on the exact project-slug team host. Production/v3, inactive/skipped, main,
+on the exact project-slug team host. Before App cutover, it handles App's
+still-native shadow-preview events; Governance enters only during bounded
+target-local rollback. After App cutover, both App and Governance enter only
+during those bounded rollback paths. Production/v3, inactive/skipped, main,
 controller-payload, actor-lookalike, Reserve, and UI events do not call smoke.
 Every qualifying event runs the full reusable workflow. No historical status
 is listed or trusted for dedupe, and the adapter deliberately declares no
@@ -842,8 +845,8 @@ workflow or job concurrency group: GitHub replaces an older pending run in a
 shared group even when `cancel-in-progress` is false, which would violate the
 one-full-smoke-per-event contract. The appended terminal status is bounded,
 run-specific evidence only. The adapter receives no PAT, Vercel token, Turbo
-token, or application secret and is deleted after all native consumers leave
-the observation window.
+token, or application secret and remains available only for the bounded
+rollback paths above after App cutover.
 
 ## Automatic trusted four-target previews (current v2 controller)
 
@@ -1891,9 +1894,11 @@ unsupported-trust, failure, cancellation, and old-epoch evidence.
 ## UI Vercel Git cutover (Phase B)
 
 Phase B established UI's GitHub-owned branch-preview state, which remains part
-of the current ownership map alongside Governance and Reserve. Its completed
-precondition was that every Phase A dual-path canary above passed and its
-GitHub-built/native-preview evidence was recorded. This separate merge paired
+of the current ownership map alongside Governance and Reserve. App remains
+shadowed until its separate cutover; after that cutover, App joins the map and
+all four targets are GitHub-owned. Phase B's completed precondition was that
+every Phase A dual-path canary above passed and its GitHub-built/native-preview
+evidence was recorded. This separate merge paired
 `VERCEL_PREVIEW_CONTROLLER_MODE: active` in
 `.github/workflows/vercel-preview-controller.yml` with the following exact
 `apps/ui.mento.org/vercel.json`, preserving its schema and unrelated keys:
