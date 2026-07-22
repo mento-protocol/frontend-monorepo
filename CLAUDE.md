@@ -57,6 +57,7 @@ pnpm fork:seed                       # Fund fork accounts + re-report oracle pri
 pnpm fork:monad                      # Local anvil fork of Monad mainnet (chain 143, port 8546; no --celo)
 pnpm fork:seed:monad                 # Monad sibling of fork:seed (Reserve collateral + swap-to-seed, idempotent)
 pnpm pr:description:test             # Test the required PR-description format validator
+pnpm vercel:deployment-state:test    # Test canonical read-only Vercel state and alias-drift evidence
 pnpm vercel:primitives:test          # Test affected planning, custom deployment IDs, and build-env contracts
 pnpm vercel:workflow:test            # Test the manual prebuilt pilot, REST lifecycle, CLI args, and HTTP/browser smoke
 pnpm vercel:preview:test             # Test preview state plus reusable smoke trust, native-adapter, and Git-ownership boundaries

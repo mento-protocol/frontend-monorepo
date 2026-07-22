@@ -324,20 +324,23 @@ them, and a Vercel Sensitive value must never be assumed to appear in
 
 ## Tests
 
-The ADR, primitive, reusable-workflow, and automatic-preview suites have no
-network or Vercel dependency:
+The ADR, primitive, read-only state-inspector, reusable-workflow, and
+automatic-preview suites have no network or Vercel dependency:
 
 ```bash
 pnpm adr:check:test
 pnpm vercel:primitives:test
+pnpm vercel:deployment-state:test
 pnpm vercel:workflow:test
 pnpm vercel:preview:test
 ```
 
 They are stages near the start of the canonical root `pnpm test` command. The
-suites cover app/package graph fixtures, fail-closed cases, output ordering, every
-deployment-ID constraint, prebuilt-config matching, prerequisite versions, all
-target/environment classifications, and redaction-safe missing-variable errors.
+suites cover app/package graph fixtures, fail-closed cases, output ordering,
+every deployment-ID constraint, prebuilt-config matching, prerequisite versions,
+all target/environment classifications, canonical alias mappings, guarded
+rollback evidence, exclusive private-file output, and redaction-safe
+missing-variable and API-error handling.
 
 The test commands perform no Vercel API call, build upload, deployment, alias
 mutation, environment mutation, or Git-ownership change.

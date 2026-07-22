@@ -1,0 +1,52 @@
+{
+  "aliasResponse": {
+    "alias": "app.mento.org",
+    "deployment": {
+      "id": "dpl_appv3abc",
+      "url": "app-v3-immutable.vercel.app"
+    },
+    "deploymentId": "dpl_appv3abc",
+    "projectId": "prj_app123"
+  },
+  "deploymentResponse": {
+    "id": "dpl_appv3abc",
+    "url": "app-v3-immutable.vercel.app",
+    "project": {
+      "id": "prj_app123",
+      "name": "app.mento.org"
+    },
+    "readyState": "READY",
+    "target": null,
+    "customEnvironment": { "slug": "v3" },
+    "meta": {
+      "githubCommitOrg": "mento-protocol",
+      "githubCommitRepo": "frontend-monorepo",
+      "githubCommitRef": "main",
+      "githubCommitSha": "abcdef0123456789abcdef0123456789abcdef01"
+    },
+    "gitSource": {
+      "org": "mento-protocol",
+      "repo": "frontend-monorepo",
+      "ref": "main",
+      "sha": "abcdef0123456789abcdef0123456789abcdef01"
+    }
+  },
+  "aliasesResponse": {
+    "aliases": [
+      { "alias": "app.mento.org" },
+      { "alias": "appmentoorg-env-v3-mentolabs.vercel.app" }
+    ]
+  },
+  "expected": {
+    "projectId": "prj_app123",
+    "projectName": "app.mento.org",
+    "target": null,
+    "customEnvironmentSlug": "v3",
+    "git": {
+      "org": "mento-protocol",
+      "repo": "frontend-monorepo",
+      "ref": "main",
+      "sha": "abcdef0123456789abcdef0123456789abcdef01"
+    }
+  }
+}
