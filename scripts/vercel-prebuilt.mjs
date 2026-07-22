@@ -201,7 +201,11 @@ if (isCliEntrypoint()) {
     process.stdout.write("Prebuilt deployment ID verified\n");
   } else if (command === "check-versions") {
     process.stdout.write(
-      `${JSON.stringify(assertDeploymentIdPrerequisites(process.cwd()))}\n`,
+      `${JSON.stringify(
+        assertDeploymentIdPrerequisites(
+          resolve(options["repo-root"] ?? process.cwd()),
+        ),
+      )}\n`,
     );
   } else {
     throw new Error(

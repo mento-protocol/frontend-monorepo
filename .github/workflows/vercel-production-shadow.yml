@@ -1,0 +1,1157 @@
+name: Vercel Production Shadow
+
+# Manual, non-activating production pilot. Ordinary projects upload unaliased
+# production artifacts; app custom v3 is build-only because the pinned CLI has
+# no documented no-alias custom-environment deploy.
+#checkov:skip=CKV_GHA_7:Immutable SHA and reviewed alias inputs are mandatory for this manual pilot.
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_sha:
+        description: Full immutable current-main commit SHA to build
+        required: true
+        type: string
+      app_v3_aliases_json:
+        description: Reviewed JSON array of every intentional app v3 alias
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_PATH: source
+  TRUSTED_POST_BUILD_PATH: trusted-after-build
+
+concurrency:
+  group: vercel-production-shadow
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Validate immutable main source
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      deploy_sha: ${{ steps.source.outputs.deploy_sha }}
+      started_at_ms: ${{ steps.timing.outputs.started_at_ms }}
+    steps:
+      - name: Start workflow timing
+        id: timing
+        run: echo "started_at_ms=$(date +%s%3N)" >> "$GITHUB_OUTPUT"
+
+      - name: Check out trusted workflow controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Validate trusted dispatch context
+        env:
+          DEPLOY_SHA: ${{ inputs.deploy_sha }}
+        run: node scripts/vercel-production-shadow.mjs validate-context
+
+      - name: Check out exact requested source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          path: source
+          persist-credentials: false
+          ref: ${{ inputs.deploy_sha }}
+
+      - name: Fetch main and prove immutable source
+        id: source
+        env:
+          DEPLOY_SHA: ${{ inputs.deploy_sha }}
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          git -C "$SOURCE_PATH" fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          node scripts/vercel-production-shadow.mjs validate-source
+
+  baseline:
+    name: Capture protected-domain baseline
+    needs: [preflight]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: vercel-cli-production
+      deployment: false
+    outputs:
+      snapshot: ${{ steps.emit.outputs.snapshot }}
+    steps:
+      - name: Check out trusted workflow controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
+
+      - name: Check out exact deployment source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          path: source
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
+
+      - name: Prove exact checked-out source
+        env:
+          DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          GITHUB_WORKFLOW_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+        run: |
+          git -C "$SOURCE_PATH" fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          node scripts/vercel-production-shadow.mjs validate-source
+
+      - name: Materialize reviewed protected-alias specification
+        env:
+          APP_V3_ALIASES_JSON: ${{ inputs.app_v3_aliases_json }}
+          VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
+          VERCEL_PROJECT_ID_GOVERNANCE: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
+          VERCEL_PROJECT_ID_RESERVE: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
+          VERCEL_PROJECT_ID_UI: ${{ vars.VERCEL_PROJECT_ID_UI }}
+        run: node scripts/vercel-production-shadow.mjs create-spec --output "$RUNNER_TEMP/protected-spec.json"
+
+      - name: Capture canonical Vercel state
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: >-
+          node scripts/vercel-deployment-state.mjs snapshot
+          --spec "$RUNNER_TEMP/protected-spec.json"
+          --output "$RUNNER_TEMP/baseline.json"
+
+      - name: Verify every protected public hostname is healthy
+        run: node scripts/vercel-production-shadow.mjs health --spec "$RUNNER_TEMP/protected-spec.json"
+
+      - name: Scan canonical evidence for forbidden fields
+        run: |
+          set -o noclobber
+          printf '["%s"]\n' "$RUNNER_TEMP/baseline.json" > "$RUNNER_TEMP/evidence-files.json"
+          node scripts/vercel-production-shadow.mjs evidence --files "$RUNNER_TEMP/evidence-files.json"
+
+      - name: Emit canonical baseline
+        id: emit
+        run: node scripts/vercel-production-shadow.mjs emit-output --name snapshot --input "$RUNNER_TEMP/baseline.json"
+
+  app:
+    name: Build app custom v3 (Outcome B)
+    needs: [preflight, baseline]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: vercel-cli-production
+      deployment: false
+    outputs:
+      next_deployment_id: ${{ steps.identity.outputs.next_deployment_id }}
+      build_duration_ms: ${{ steps.build.outputs.build_duration_ms }}
+      turbo_cache_hits: ${{ steps.build.outputs.turbo_cache_hits }}
+      turbo_cache_misses: ${{ steps.build.outputs.turbo_cache_misses }}
+      total_duration_ms: ${{ steps.total.outputs.total_duration_ms }}
+    steps:
+      - name: Start app job timing
+        id: timing
+        run: echo "started_at_ms=$(date +%s%3N)" >> "$GITHUB_OUTPUT"
+
+      - name: Check out trusted workflow controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
+
+      - name: Check out exact deployment source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          path: source
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
+
+      - name: Prove exact checked-out source
+        env:
+          DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          GITHUB_WORKFLOW_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+        run: |
+          git -C "$SOURCE_PATH" fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          node scripts/vercel-production-shadow.mjs validate-source
+
+      - name: Prepare protected app build runtime
+        id: runtime
+        uses: ./.github/actions/vercel-protected-runtime
+        with:
+          controller-path: ${{ github.workspace }}
+          source-path: ${{ github.workspace }}/source
+          tools-path: ${{ runner.temp }}/mento-vercel-production-tools
+
+      - name: Verify pinned Vercel prerequisites
+        run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-prebuilt.mjs check-versions --repo-root "$SOURCE_PATH"
+
+      - name: Prepare runner-owned app pull staging
+        env:
+          LOGICAL_TARGET: app
+          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_APP }}
+        run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-production-shadow.mjs prepare-pull-staging
+
+      - name: Pull app custom-v3 configuration
+        env:
+          LOGICAL_TARGET: app
+          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          TRUSTED_NODE_PATH: ${{ steps.runtime.outputs.node-bin }}
+          TRUSTED_VERCEL_CLI_PATH: ${{ steps.runtime.outputs.vercel-cli }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_APP }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-production-shadow.mjs pull
+
+      - name: Validate app project link and Root Directory
+        env:
+          LOGICAL_TARGET: app
+          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_APP }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: |
+          "${{ steps.runtime.outputs.node-bin }}" scripts/vercel-production-shadow.mjs validate-pull-staging
+          "${{ steps.runtime.outputs.node-bin }}" scripts/vercel-deployment-state.mjs project --project-id "$VERCEL_PROJECT_ID" --project-name app.mento.org --root-directory apps/app.mento.org
+
+      - name: Generate exact app build deployment ID
+        id: identity
+        env:
+          DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+        run: |
+          next_deployment_id="$("${{ steps.runtime.outputs.node-bin }}" scripts/vercel-prebuilt.mjs deployment-id --target app --sha "$DEPLOY_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT")"
+          echo "next_deployment_id=$next_deployment_id" >> "$GITHUB_OUTPUT"
+
+      - name: Build app custom v3 and assert output
+        id: build
+        env:
+          CI: 1
+          LOGICAL_TARGET: app
+          MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.identity.outputs.next_deployment_id }}
+          NEXT_PUBLIC_VERCEL_ENV: preview
+          TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+          TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          VERCEL: 1
+          VERCEL_ENV: preview
+          VERCEL_GIT_COMMIT_REF: main
+          VERCEL_GIT_COMMIT_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          VERCEL_GIT_PROVIDER: github
+          VERCEL_GIT_REPO_OWNER: mento-protocol
+          VERCEL_GIT_REPO_SLUG: frontend-monorepo
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_APP }}
+          VERCEL_TARGET_ENV: v3
+        uses: ./.github/actions/vercel-candidate-build
+        with:
+          controller-path: ${{ github.workspace }}
+          source-path: ${{ github.workspace }}/source
+          candidate-source-path: ${{ runner.temp }}/mento-vercel-production-candidate-source
+          candidate-home-path: ${{ runner.temp }}/mento-vercel-production-candidate-home
+          pull-staging-path: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          upload-source-path: ${{ runner.temp }}/mento-vercel-production-upload-source
+          node-bin: ${{ steps.runtime.outputs.node-bin }}
+          pnpm-bin: ${{ steps.runtime.outputs.pnpm-bin }}
+          vercel-cli: ${{ steps.runtime.outputs.vercel-cli }}
+          deploy-sha: ${{ needs.preflight.outputs.deploy_sha }}
+          next-deployment-id: ${{ steps.identity.outputs.next_deployment_id }}
+          logical-target: app
+          expected-root-directory: apps/app.mento.org
+          vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_APP }}
+
+      - name: Restore trusted controller after candidate build
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: trusted-after-build
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
+
+      - name: Record static app Outcome B proof
+        env:
+          DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.identity.outputs.next_deployment_id }}
+        run: |
+          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" app-proof --output "$RUNNER_TEMP/app-proof.json"
+          set -o noclobber
+          printf '["%s"]\n' "$RUNNER_TEMP/app-proof.json" > "$RUNNER_TEMP/evidence-files.json"
+          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" evidence --files "$RUNNER_TEMP/evidence-files.json"
+
+      - name: Measure app job duration
+        id: total
+        env:
+          STARTED_AT_MS: ${{ steps.timing.outputs.started_at_ms }}
+        run: echo "total_duration_ms=$(($(date +%s%3N) - STARTED_AT_MS))" >> "$GITHUB_OUTPUT"
+
+  governance:
+    name: Stage governance production
+    needs: [preflight, baseline]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment:
+      name: vercel-cli-production
+      deployment: false
+    outputs:
+      deployment_id: ${{ steps.deploy.outputs.vercel_deployment_id }}
+      deployment_url: ${{ steps.deploy.outputs.vercel_deployment_url }}
+      next_deployment_id: ${{ steps.identity.outputs.next_deployment_id }}
+      build_duration_ms: ${{ steps.build.outputs.build_duration_ms }}
+      turbo_cache_hits: ${{ steps.build.outputs.turbo_cache_hits }}
+      turbo_cache_misses: ${{ steps.build.outputs.turbo_cache_misses }}
+      deploy_duration_ms: ${{ steps.deploy.outputs.deploy_duration_ms }}
+      total_duration_ms: ${{ steps.total.outputs.total_duration_ms }}
+    steps:
+      - name: Start governance job timing
+        id: timing
+        run: echo "started_at_ms=$(date +%s%3N)" >> "$GITHUB_OUTPUT"
+
+      - name: Check out trusted workflow controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
+      - name: Check out exact deployment source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          path: source
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
+      - name: Prove exact checked-out source
+        env:
+          DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          GITHUB_WORKFLOW_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+        run: |
+          git -C "$SOURCE_PATH" fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          node scripts/vercel-production-shadow.mjs validate-source
+      - name: Prepare protected governance build runtime
+        id: runtime
+        uses: ./.github/actions/vercel-protected-runtime
+        with:
+          controller-path: ${{ github.workspace }}
+          source-path: ${{ github.workspace }}/source
+          tools-path: ${{ runner.temp }}/mento-vercel-production-tools
+      - name: Verify pinned Vercel prerequisites
+        run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-prebuilt.mjs check-versions --repo-root "$SOURCE_PATH"
+      - name: Prepare runner-owned governance pull staging
+        env:
+          LOGICAL_TARGET: governance
+          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
+        run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-production-shadow.mjs prepare-pull-staging
+      - name: Pull governance production configuration
+        env:
+          LOGICAL_TARGET: governance
+          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          TRUSTED_NODE_PATH: ${{ steps.runtime.outputs.node-bin }}
+          TRUSTED_VERCEL_CLI_PATH: ${{ steps.runtime.outputs.vercel-cli }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-production-shadow.mjs pull
+      - name: Validate governance project link and Root Directory
+        env:
+          LOGICAL_TARGET: governance
+          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: |
+          "${{ steps.runtime.outputs.node-bin }}" scripts/vercel-production-shadow.mjs validate-pull-staging
+          "${{ steps.runtime.outputs.node-bin }}" scripts/vercel-deployment-state.mjs project --project-id "$VERCEL_PROJECT_ID" --project-name governance.mento.org --root-directory apps/governance.mento.org
+      - name: Generate exact governance build deployment ID
+        id: identity
+        env:
+          DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+        run: |
+          next_deployment_id="$("${{ steps.runtime.outputs.node-bin }}" scripts/vercel-prebuilt.mjs deployment-id --target governance --sha "$DEPLOY_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT")"
+          echo "next_deployment_id=$next_deployment_id" >> "$GITHUB_OUTPUT"
+      - name: Build governance production and assert output
+        id: build
+        env:
+          CI: 1
+          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+          LOGICAL_TARGET: governance
+          MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.identity.outputs.next_deployment_id }}
+          NEXT_PUBLIC_VERCEL_ENV: production
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+          TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          VERCEL: 1
+          VERCEL_ENV: production
+          VERCEL_GIT_COMMIT_REF: main
+          VERCEL_GIT_COMMIT_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          VERCEL_GIT_PROVIDER: github
+          VERCEL_GIT_REPO_OWNER: mento-protocol
+          VERCEL_GIT_REPO_SLUG: frontend-monorepo
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
+          VERCEL_TARGET_ENV: production
+        uses: ./.github/actions/vercel-candidate-build
+        with:
+          controller-path: ${{ github.workspace }}
+          source-path: ${{ github.workspace }}/source
+          candidate-source-path: ${{ runner.temp }}/mento-vercel-production-candidate-source
+          candidate-home-path: ${{ runner.temp }}/mento-vercel-production-candidate-home
+          pull-staging-path: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          upload-source-path: ${{ runner.temp }}/mento-vercel-production-upload-source
+          node-bin: ${{ steps.runtime.outputs.node-bin }}
+          pnpm-bin: ${{ steps.runtime.outputs.pnpm-bin }}
+          vercel-cli: ${{ steps.runtime.outputs.vercel-cli }}
+          deploy-sha: ${{ needs.preflight.outputs.deploy_sha }}
+          next-deployment-id: ${{ steps.identity.outputs.next_deployment_id }}
+          logical-target: governance
+          expected-root-directory: apps/governance.mento.org
+          vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
+      - name: Restore trusted controller after candidate build
+        id: trusted
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: trusted-after-build
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
+      - name: Upload unchanged governance output without domains
+        id: deploy
+        env:
+          DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          LOGICAL_TARGET: governance
+          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-upload-source
+          TRUSTED_NODE_PATH: ${{ steps.runtime.outputs.node-bin }}
+          TRUSTED_VERCEL_CLI_PATH: ${{ steps.runtime.outputs.vercel-cli }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" deploy --expected "$RUNNER_TEMP/governance-expected.json"
+      - name: Fail read-only on protected alias drift after governance deploy
+        if: ${{ always() && steps.build.outcome == 'success' && steps.trusted.outcome == 'success' }}
+        env:
+          BASELINE_JSON: ${{ needs.baseline.outputs.snapshot }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: >-
+          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs"
+          check-aliases
+      - name: Prove every protected mapping remains unchanged
+        env:
+          APP_V3_ALIASES_JSON: ${{ inputs.app_v3_aliases_json }}
+          BASELINE_JSON: ${{ needs.baseline.outputs.snapshot }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
+          VERCEL_PROJECT_ID_GOVERNANCE: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
+          VERCEL_PROJECT_ID_RESERVE: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
+          VERCEL_PROJECT_ID_UI: ${{ vars.VERCEL_PROJECT_ID_UI }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: |
+          umask 077
+          set -o noclobber
+          printf '%s\n' "$BASELINE_JSON" > "$RUNNER_TEMP/governance-compare-baseline.json"
+          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" create-spec --output "$RUNNER_TEMP/protected-spec.json"
+          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" snapshot --spec "$RUNNER_TEMP/protected-spec.json" --output "$RUNNER_TEMP/current.json"
+          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" compare --before "$RUNNER_TEMP/governance-compare-baseline.json" --after "$RUNNER_TEMP/current.json"
+      - name: Verify governance deployment provenance and readiness
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: |
+          verified=false
+          for attempt in {1..12}; do
+            echo "Verifying governance deployment (attempt $attempt/12)"
+            if node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" deployment --expected "$RUNNER_TEMP/governance-expected.json" --output "$RUNNER_TEMP/governance-state.json"; then verified=true; break; fi
+            sleep 5
+          done
+          "$verified"
+          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" assert-unaliased --input "$RUNNER_TEMP/governance-state.json"
+      - name: Scan governance canonical evidence
+        run: |
+          set -o noclobber
+          printf '["%s","%s"]\n' "$RUNNER_TEMP/governance-state.json" "$RUNNER_TEMP/current.json" > "$RUNNER_TEMP/evidence-files.json"
+          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" evidence --files "$RUNNER_TEMP/evidence-files.json"
+      - name: Measure governance job duration
+        id: total
+        env:
+          STARTED_AT_MS: ${{ steps.timing.outputs.started_at_ms }}
+        run: echo "total_duration_ms=$(($(date +%s%3N) - STARTED_AT_MS))" >> "$GITHUB_OUTPUT"
+  reserve:
+    name: Stage reserve production
+    needs: [preflight, baseline, governance, smoke-governance]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment:
+      name: vercel-cli-production
+      deployment: false
+    outputs:
+      deployment_id: ${{ steps.deploy.outputs.vercel_deployment_id }}
+      deployment_url: ${{ steps.deploy.outputs.vercel_deployment_url }}
+      next_deployment_id: ${{ steps.identity.outputs.next_deployment_id }}
+      build_duration_ms: ${{ steps.build.outputs.build_duration_ms }}
+      turbo_cache_hits: ${{ steps.build.outputs.turbo_cache_hits }}
+      turbo_cache_misses: ${{ steps.build.outputs.turbo_cache_misses }}
+      deploy_duration_ms: ${{ steps.deploy.outputs.deploy_duration_ms }}
+      total_duration_ms: ${{ steps.total.outputs.total_duration_ms }}
+    steps:
+      - name: Start reserve job timing
+        id: timing
+        run: echo "started_at_ms=$(date +%s%3N)" >> "$GITHUB_OUTPUT"
+
+      - name: Check out trusted workflow controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
+      - name: Check out exact deployment source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          path: source
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
+      - name: Prove exact checked-out source
+        env:
+          DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          GITHUB_WORKFLOW_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+        run: |
+          git -C "$SOURCE_PATH" fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          node scripts/vercel-production-shadow.mjs validate-source
+      - name: Prepare protected reserve build runtime
+        id: runtime
+        uses: ./.github/actions/vercel-protected-runtime
+        with:
+          controller-path: ${{ github.workspace }}
+          source-path: ${{ github.workspace }}/source
+          tools-path: ${{ runner.temp }}/mento-vercel-production-tools
+      - name: Verify pinned Vercel prerequisites
+        run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-prebuilt.mjs check-versions --repo-root "$SOURCE_PATH"
+      - name: Prepare runner-owned reserve pull staging
+        env:
+          LOGICAL_TARGET: reserve
+          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
+        run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-production-shadow.mjs prepare-pull-staging
+      - name: Pull reserve production configuration
+        env:
+          LOGICAL_TARGET: reserve
+          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          TRUSTED_NODE_PATH: ${{ steps.runtime.outputs.node-bin }}
+          TRUSTED_VERCEL_CLI_PATH: ${{ steps.runtime.outputs.vercel-cli }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-production-shadow.mjs pull
+      - name: Validate reserve project link and Root Directory
+        env:
+          LOGICAL_TARGET: reserve
+          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: |
+          "${{ steps.runtime.outputs.node-bin }}" scripts/vercel-production-shadow.mjs validate-pull-staging
+          "${{ steps.runtime.outputs.node-bin }}" scripts/vercel-deployment-state.mjs project --project-id "$VERCEL_PROJECT_ID" --project-name reserve.mento.org --root-directory apps/reserve.mento.org
+      - name: Generate exact reserve build deployment ID
+        id: identity
+        env:
+          DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+        run: |
+          next_deployment_id="$("${{ steps.runtime.outputs.node-bin }}" scripts/vercel-prebuilt.mjs deployment-id --target reserve --sha "$DEPLOY_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT")"
+          echo "next_deployment_id=$next_deployment_id" >> "$GITHUB_OUTPUT"
+      - name: Build reserve production and assert output
+        id: build
+        env:
+          CI: 1
+          LOGICAL_TARGET: reserve
+          MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.identity.outputs.next_deployment_id }}
+          NEXT_PUBLIC_VERCEL_ENV: production
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+          TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          VERCEL: 1
+          VERCEL_ENV: production
+          VERCEL_GIT_COMMIT_REF: main
+          VERCEL_GIT_COMMIT_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          VERCEL_GIT_PROVIDER: github
+          VERCEL_GIT_REPO_OWNER: mento-protocol
+          VERCEL_GIT_REPO_SLUG: frontend-monorepo
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
+          VERCEL_TARGET_ENV: production
+        uses: ./.github/actions/vercel-candidate-build
+        with:
+          controller-path: ${{ github.workspace }}
+          source-path: ${{ github.workspace }}/source
+          candidate-source-path: ${{ runner.temp }}/mento-vercel-production-candidate-source
+          candidate-home-path: ${{ runner.temp }}/mento-vercel-production-candidate-home
+          pull-staging-path: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          upload-source-path: ${{ runner.temp }}/mento-vercel-production-upload-source
+          node-bin: ${{ steps.runtime.outputs.node-bin }}
+          pnpm-bin: ${{ steps.runtime.outputs.pnpm-bin }}
+          vercel-cli: ${{ steps.runtime.outputs.vercel-cli }}
+          deploy-sha: ${{ needs.preflight.outputs.deploy_sha }}
+          next-deployment-id: ${{ steps.identity.outputs.next_deployment_id }}
+          logical-target: reserve
+          expected-root-directory: apps/reserve.mento.org
+          vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
+      - name: Restore trusted controller after candidate build
+        id: trusted
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: trusted-after-build
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
+      - name: Upload unchanged reserve output without domains
+        id: deploy
+        env:
+          DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          LOGICAL_TARGET: reserve
+          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-upload-source
+          TRUSTED_NODE_PATH: ${{ steps.runtime.outputs.node-bin }}
+          TRUSTED_VERCEL_CLI_PATH: ${{ steps.runtime.outputs.vercel-cli }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" deploy --expected "$RUNNER_TEMP/reserve-expected.json"
+      - name: Fail read-only on protected alias drift after reserve deploy
+        if: ${{ always() && steps.build.outcome == 'success' && steps.trusted.outcome == 'success' }}
+        env:
+          BASELINE_JSON: ${{ needs.baseline.outputs.snapshot }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: >-
+          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs"
+          check-aliases
+      - name: Prove every protected mapping remains unchanged
+        env:
+          APP_V3_ALIASES_JSON: ${{ inputs.app_v3_aliases_json }}
+          BASELINE_JSON: ${{ needs.baseline.outputs.snapshot }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
+          VERCEL_PROJECT_ID_GOVERNANCE: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
+          VERCEL_PROJECT_ID_RESERVE: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
+          VERCEL_PROJECT_ID_UI: ${{ vars.VERCEL_PROJECT_ID_UI }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: |
+          umask 077
+          set -o noclobber
+          printf '%s\n' "$BASELINE_JSON" > "$RUNNER_TEMP/reserve-compare-baseline.json"
+          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" create-spec --output "$RUNNER_TEMP/protected-spec.json"
+          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" snapshot --spec "$RUNNER_TEMP/protected-spec.json" --output "$RUNNER_TEMP/current.json"
+          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" compare --before "$RUNNER_TEMP/reserve-compare-baseline.json" --after "$RUNNER_TEMP/current.json"
+      - name: Verify reserve deployment provenance and readiness
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: |
+          verified=false
+          for attempt in {1..12}; do
+            echo "Verifying reserve deployment (attempt $attempt/12)"
+            if node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" deployment --expected "$RUNNER_TEMP/reserve-expected.json" --output "$RUNNER_TEMP/reserve-state.json"; then verified=true; break; fi
+            sleep 5
+          done
+          "$verified"
+          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" assert-unaliased --input "$RUNNER_TEMP/reserve-state.json"
+      - name: Scan reserve canonical evidence
+        run: |
+          set -o noclobber
+          printf '["%s","%s"]\n' "$RUNNER_TEMP/reserve-state.json" "$RUNNER_TEMP/current.json" > "$RUNNER_TEMP/evidence-files.json"
+          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" evidence --files "$RUNNER_TEMP/evidence-files.json"
+      - name: Measure reserve job duration
+        id: total
+        env:
+          STARTED_AT_MS: ${{ steps.timing.outputs.started_at_ms }}
+        run: echo "total_duration_ms=$(($(date +%s%3N) - STARTED_AT_MS))" >> "$GITHUB_OUTPUT"
+  ui:
+    name: Stage UI production
+    needs: [preflight, baseline, governance, reserve, smoke-reserve]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment:
+      name: vercel-cli-production
+      deployment: false
+    outputs:
+      deployment_id: ${{ steps.deploy.outputs.vercel_deployment_id }}
+      deployment_url: ${{ steps.deploy.outputs.vercel_deployment_url }}
+      next_deployment_id: ${{ steps.identity.outputs.next_deployment_id }}
+      build_duration_ms: ${{ steps.build.outputs.build_duration_ms }}
+      turbo_cache_hits: ${{ steps.build.outputs.turbo_cache_hits }}
+      turbo_cache_misses: ${{ steps.build.outputs.turbo_cache_misses }}
+      deploy_duration_ms: ${{ steps.deploy.outputs.deploy_duration_ms }}
+      total_duration_ms: ${{ steps.total.outputs.total_duration_ms }}
+    steps:
+      - name: Start UI job timing
+        id: timing
+        run: echo "started_at_ms=$(date +%s%3N)" >> "$GITHUB_OUTPUT"
+
+      - name: Check out trusted workflow controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
+      - name: Check out exact deployment source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          path: source
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
+      - name: Prove exact checked-out source
+        env:
+          DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          GITHUB_WORKFLOW_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+        run: |
+          git -C "$SOURCE_PATH" fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          node scripts/vercel-production-shadow.mjs validate-source
+      - name: Prepare protected UI build runtime
+        id: runtime
+        uses: ./.github/actions/vercel-protected-runtime
+        with:
+          controller-path: ${{ github.workspace }}
+          source-path: ${{ github.workspace }}/source
+          tools-path: ${{ runner.temp }}/mento-vercel-production-tools
+      - name: Verify pinned Vercel prerequisites
+        run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-prebuilt.mjs check-versions --repo-root "$SOURCE_PATH"
+      - name: Prepare runner-owned UI pull staging
+        env:
+          LOGICAL_TARGET: ui
+          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_UI }}
+        run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-production-shadow.mjs prepare-pull-staging
+      - name: Pull UI production configuration
+        env:
+          LOGICAL_TARGET: ui
+          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          TRUSTED_NODE_PATH: ${{ steps.runtime.outputs.node-bin }}
+          TRUSTED_VERCEL_CLI_PATH: ${{ steps.runtime.outputs.vercel-cli }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_UI }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-production-shadow.mjs pull
+      - name: Validate UI project link and Root Directory
+        env:
+          LOGICAL_TARGET: ui
+          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_UI }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: |
+          "${{ steps.runtime.outputs.node-bin }}" scripts/vercel-production-shadow.mjs validate-pull-staging
+          "${{ steps.runtime.outputs.node-bin }}" scripts/vercel-deployment-state.mjs project --project-id "$VERCEL_PROJECT_ID" --project-name ui.mento.org --root-directory apps/ui.mento.org
+      - name: Generate exact UI build deployment ID
+        id: identity
+        env:
+          DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+        run: |
+          next_deployment_id="$("${{ steps.runtime.outputs.node-bin }}" scripts/vercel-prebuilt.mjs deployment-id --target ui --sha "$DEPLOY_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT")"
+          echo "next_deployment_id=$next_deployment_id" >> "$GITHUB_OUTPUT"
+      - name: Build UI production and assert output
+        id: build
+        env:
+          CI: 1
+          LOGICAL_TARGET: ui
+          MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.identity.outputs.next_deployment_id }}
+          NEXT_PUBLIC_VERCEL_ENV: production
+          TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+          TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          VERCEL: 1
+          VERCEL_ENV: production
+          VERCEL_GIT_COMMIT_REF: main
+          VERCEL_GIT_COMMIT_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          VERCEL_GIT_PROVIDER: github
+          VERCEL_GIT_REPO_OWNER: mento-protocol
+          VERCEL_GIT_REPO_SLUG: frontend-monorepo
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_UI }}
+          VERCEL_TARGET_ENV: production
+        uses: ./.github/actions/vercel-candidate-build
+        with:
+          controller-path: ${{ github.workspace }}
+          source-path: ${{ github.workspace }}/source
+          candidate-source-path: ${{ runner.temp }}/mento-vercel-production-candidate-source
+          candidate-home-path: ${{ runner.temp }}/mento-vercel-production-candidate-home
+          pull-staging-path: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          upload-source-path: ${{ runner.temp }}/mento-vercel-production-upload-source
+          node-bin: ${{ steps.runtime.outputs.node-bin }}
+          pnpm-bin: ${{ steps.runtime.outputs.pnpm-bin }}
+          vercel-cli: ${{ steps.runtime.outputs.vercel-cli }}
+          deploy-sha: ${{ needs.preflight.outputs.deploy_sha }}
+          next-deployment-id: ${{ steps.identity.outputs.next_deployment_id }}
+          logical-target: ui
+          expected-root-directory: apps/ui.mento.org
+          vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_UI }}
+      - name: Restore trusted controller after candidate build
+        id: trusted
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: trusted-after-build
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
+      - name: Upload unchanged UI output without domains
+        id: deploy
+        env:
+          DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          LOGICAL_TARGET: ui
+          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-upload-source
+          TRUSTED_NODE_PATH: ${{ steps.runtime.outputs.node-bin }}
+          TRUSTED_VERCEL_CLI_PATH: ${{ steps.runtime.outputs.vercel-cli }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_UI }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" deploy --expected "$RUNNER_TEMP/ui-expected.json"
+      - name: Fail read-only on protected alias drift after UI deploy
+        if: ${{ always() && steps.build.outcome == 'success' && steps.trusted.outcome == 'success' }}
+        env:
+          BASELINE_JSON: ${{ needs.baseline.outputs.snapshot }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: >-
+          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs"
+          check-aliases
+      - name: Prove every protected mapping remains unchanged
+        env:
+          APP_V3_ALIASES_JSON: ${{ inputs.app_v3_aliases_json }}
+          BASELINE_JSON: ${{ needs.baseline.outputs.snapshot }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
+          VERCEL_PROJECT_ID_GOVERNANCE: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
+          VERCEL_PROJECT_ID_RESERVE: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
+          VERCEL_PROJECT_ID_UI: ${{ vars.VERCEL_PROJECT_ID_UI }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: |
+          umask 077
+          set -o noclobber
+          printf '%s\n' "$BASELINE_JSON" > "$RUNNER_TEMP/ui-compare-baseline.json"
+          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" create-spec --output "$RUNNER_TEMP/protected-spec.json"
+          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" snapshot --spec "$RUNNER_TEMP/protected-spec.json" --output "$RUNNER_TEMP/current.json"
+          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" compare --before "$RUNNER_TEMP/ui-compare-baseline.json" --after "$RUNNER_TEMP/current.json"
+      - name: Verify UI deployment provenance and readiness
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: |
+          verified=false
+          for attempt in {1..12}; do
+            echo "Verifying UI deployment (attempt $attempt/12)"
+            if node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" deployment --expected "$RUNNER_TEMP/ui-expected.json" --output "$RUNNER_TEMP/ui-state.json"; then verified=true; break; fi
+            sleep 5
+          done
+          "$verified"
+          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" assert-unaliased --input "$RUNNER_TEMP/ui-state.json"
+      - name: Scan UI canonical evidence
+        run: |
+          set -o noclobber
+          printf '["%s","%s"]\n' "$RUNNER_TEMP/ui-state.json" "$RUNNER_TEMP/current.json" > "$RUNNER_TEMP/evidence-files.json"
+          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" evidence --files "$RUNNER_TEMP/evidence-files.json"
+      - name: Measure UI job duration
+        id: total
+        env:
+          STARTED_AT_MS: ${{ steps.timing.outputs.started_at_ms }}
+        run: echo "total_duration_ms=$(($(date +%s%3N) - STARTED_AT_MS))" >> "$GITHUB_OUTPUT"
+
+  smoke-governance:
+    name: Smoke governance from fresh trusted state
+    needs: [preflight, governance]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out fresh trusted governance smoke source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
+      - name: Prove exact fresh governance smoke source
+        env:
+          DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          GITHUB_WORKFLOW_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          SOURCE_PATH: ${{ github.workspace }}
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          node scripts/vercel-production-shadow.mjs validate-source
+      - name: Install fresh trusted governance smoke dependencies
+        uses: ./.github/actions/pnpm-install
+      - name: Install governance smoke Chromium
+        run: >-
+          env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE
+          -u GITHUB_STEP_SUMMARY pnpm --filter app.mento.org exec playwright
+          install --with-deps chromium
+      - name: Run direct governance production-shadow smoke
+        env:
+          PRODUCTION_SHADOW_EXPECTED_DEPLOYMENT_ID: ${{ needs.governance.outputs.next_deployment_id }}
+          PRODUCTION_SHADOW_EXPECTED_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          PRODUCTION_SHADOW_OUTPUT_DIR: ${{ github.workspace }}/apps/app.mento.org/test-results
+          PRODUCTION_SHADOW_TARGET: governance
+          PRODUCTION_SHADOW_URL: ${{ needs.governance.outputs.deployment_url }}
+        run: |
+          node scripts/vercel-production-shadow.mjs health --url "$PRODUCTION_SHADOW_URL"
+          env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE -u GITHUB_STEP_SUMMARY pnpm --filter app.mento.org exec playwright test -c playwright.production-shadow.config.ts
+      - name: Upload governance browser diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-shadow-governance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: apps/app.mento.org/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  smoke-reserve:
+    name: Smoke reserve from fresh trusted state
+    needs: [preflight, reserve]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out fresh trusted reserve smoke source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
+      - name: Prove exact fresh reserve smoke source
+        env:
+          DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          GITHUB_WORKFLOW_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          SOURCE_PATH: ${{ github.workspace }}
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          node scripts/vercel-production-shadow.mjs validate-source
+      - name: Install fresh trusted reserve smoke dependencies
+        uses: ./.github/actions/pnpm-install
+      - name: Install reserve smoke Chromium
+        run: >-
+          env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE
+          -u GITHUB_STEP_SUMMARY pnpm --filter app.mento.org exec playwright
+          install --with-deps chromium
+      - name: Run direct reserve production-shadow smoke
+        env:
+          PRODUCTION_SHADOW_EXPECTED_DEPLOYMENT_ID: ${{ needs.reserve.outputs.next_deployment_id }}
+          PRODUCTION_SHADOW_EXPECTED_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          PRODUCTION_SHADOW_OUTPUT_DIR: ${{ github.workspace }}/apps/app.mento.org/test-results
+          PRODUCTION_SHADOW_TARGET: reserve
+          PRODUCTION_SHADOW_URL: ${{ needs.reserve.outputs.deployment_url }}
+        run: |
+          node scripts/vercel-production-shadow.mjs health --url "$PRODUCTION_SHADOW_URL"
+          env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE -u GITHUB_STEP_SUMMARY pnpm --filter app.mento.org exec playwright test -c playwright.production-shadow.config.ts
+      - name: Upload reserve browser diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-shadow-reserve-${{ github.run_id }}-${{ github.run_attempt }}
+          path: apps/app.mento.org/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  smoke-ui:
+    name: Smoke UI from fresh trusted state
+    needs: [preflight, ui]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out fresh trusted UI smoke source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
+      - name: Prove exact fresh UI smoke source
+        env:
+          DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          GITHUB_WORKFLOW_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          SOURCE_PATH: ${{ github.workspace }}
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          node scripts/vercel-production-shadow.mjs validate-source
+      - name: Install fresh trusted UI smoke dependencies
+        uses: ./.github/actions/pnpm-install
+      - name: Install UI smoke Chromium
+        run: >-
+          env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE
+          -u GITHUB_STEP_SUMMARY pnpm --filter app.mento.org exec playwright
+          install --with-deps chromium
+      - name: Run direct UI production-shadow smoke
+        env:
+          PRODUCTION_SHADOW_EXPECTED_DEPLOYMENT_ID: ${{ needs.ui.outputs.next_deployment_id }}
+          PRODUCTION_SHADOW_EXPECTED_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          PRODUCTION_SHADOW_OUTPUT_DIR: ${{ github.workspace }}/apps/app.mento.org/test-results
+          PRODUCTION_SHADOW_TARGET: ui
+          PRODUCTION_SHADOW_URL: ${{ needs.ui.outputs.deployment_url }}
+        run: |
+          node scripts/vercel-production-shadow.mjs health --url "$PRODUCTION_SHADOW_URL"
+          env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE -u GITHUB_STEP_SUMMARY pnpm --filter app.mento.org exec playwright test -c playwright.production-shadow.config.ts
+      - name: Upload UI browser diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-shadow-ui-${{ github.run_id }}-${{ github.run_attempt }}
+          path: apps/app.mento.org/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  final-alias-comparison:
+    name: Final protected-domain comparison
+    needs:
+      - preflight
+      - baseline
+      - app
+      - governance
+      - smoke-governance
+      - reserve
+      - smoke-reserve
+      - ui
+      - smoke-ui
+    if: ${{ always() && needs.preflight.result == 'success' && needs.baseline.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: vercel-cli-production
+      deployment: false
+    steps:
+      - name: Check out trusted workflow controller
+        id: trusted
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
+      - name: Prove exact final-comparison source
+        id: source
+        env:
+          DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          GITHUB_WORKFLOW_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          SOURCE_PATH: ${{ github.workspace }}
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          node scripts/vercel-production-shadow.mjs validate-source
+      - name: Fail read-only on final protected alias drift
+        if: ${{ always() && steps.trusted.outcome == 'success' && steps.source.outcome == 'success' }}
+        env:
+          BASELINE_JSON: ${{ needs.baseline.outputs.snapshot }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: >-
+          node scripts/vercel-production-shadow.mjs
+          check-aliases
+      - name: Capture and compare final protected mappings
+        env:
+          APP_V3_ALIASES_JSON: ${{ inputs.app_v3_aliases_json }}
+          BASELINE_JSON: ${{ needs.baseline.outputs.snapshot }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
+          VERCEL_PROJECT_ID_GOVERNANCE: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
+          VERCEL_PROJECT_ID_RESERVE: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
+          VERCEL_PROJECT_ID_UI: ${{ vars.VERCEL_PROJECT_ID_UI }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: |
+          umask 077
+          set -o noclobber
+          printf '%s\n' "$BASELINE_JSON" > "$RUNNER_TEMP/final-compare-baseline.json"
+          node scripts/vercel-production-shadow.mjs create-spec --output "$RUNNER_TEMP/protected-spec.json"
+          node scripts/vercel-deployment-state.mjs snapshot --spec "$RUNNER_TEMP/protected-spec.json" --output "$RUNNER_TEMP/final.json"
+          node scripts/vercel-deployment-state.mjs compare --before "$RUNNER_TEMP/final-compare-baseline.json" --after "$RUNNER_TEMP/final.json"
+          set -o noclobber
+          printf '["%s"]\n' "$RUNNER_TEMP/final.json" > "$RUNNER_TEMP/evidence-files.json"
+          node scripts/vercel-production-shadow.mjs evidence --files "$RUNNER_TEMP/evidence-files.json"
+
+      - name: Record complete pilot evidence
+        if: >-
+          needs.app.result == 'success' &&
+          needs.governance.result == 'success' &&
+          needs.smoke-governance.result == 'success' &&
+          needs.reserve.result == 'success' &&
+          needs.smoke-reserve.result == 'success' &&
+          needs.ui.result == 'success' &&
+          needs.smoke-ui.result == 'success'
+        env:
+          APP_BUILD_DURATION_MS: ${{ needs.app.outputs.build_duration_ms }}
+          APP_TURBO_CACHE_HITS: ${{ needs.app.outputs.turbo_cache_hits }}
+          APP_TURBO_CACHE_MISSES: ${{ needs.app.outputs.turbo_cache_misses }}
+          APP_NEXT_DEPLOYMENT_ID: ${{ needs.app.outputs.next_deployment_id }}
+          APP_TOTAL_DURATION_MS: ${{ needs.app.outputs.total_duration_ms }}
+          BASELINE_JSON: ${{ needs.baseline.outputs.snapshot }}
+          DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          GOVERNANCE_BUILD_DURATION_MS: ${{ needs.governance.outputs.build_duration_ms }}
+          GOVERNANCE_DEPLOY_DURATION_MS: ${{ needs.governance.outputs.deploy_duration_ms }}
+          GOVERNANCE_DEPLOYMENT_ID: ${{ needs.governance.outputs.deployment_id }}
+          GOVERNANCE_DEPLOYMENT_URL: ${{ needs.governance.outputs.deployment_url }}
+          GOVERNANCE_TOTAL_DURATION_MS: ${{ needs.governance.outputs.total_duration_ms }}
+          GOVERNANCE_TURBO_CACHE_HITS: ${{ needs.governance.outputs.turbo_cache_hits }}
+          GOVERNANCE_TURBO_CACHE_MISSES: ${{ needs.governance.outputs.turbo_cache_misses }}
+          RESERVE_BUILD_DURATION_MS: ${{ needs.reserve.outputs.build_duration_ms }}
+          RESERVE_DEPLOY_DURATION_MS: ${{ needs.reserve.outputs.deploy_duration_ms }}
+          RESERVE_DEPLOYMENT_ID: ${{ needs.reserve.outputs.deployment_id }}
+          RESERVE_DEPLOYMENT_URL: ${{ needs.reserve.outputs.deployment_url }}
+          RESERVE_TOTAL_DURATION_MS: ${{ needs.reserve.outputs.total_duration_ms }}
+          RESERVE_TURBO_CACHE_HITS: ${{ needs.reserve.outputs.turbo_cache_hits }}
+          RESERVE_TURBO_CACHE_MISSES: ${{ needs.reserve.outputs.turbo_cache_misses }}
+          UI_BUILD_DURATION_MS: ${{ needs.ui.outputs.build_duration_ms }}
+          UI_DEPLOY_DURATION_MS: ${{ needs.ui.outputs.deploy_duration_ms }}
+          UI_DEPLOYMENT_ID: ${{ needs.ui.outputs.deployment_id }}
+          UI_DEPLOYMENT_URL: ${{ needs.ui.outputs.deployment_url }}
+          UI_TOTAL_DURATION_MS: ${{ needs.ui.outputs.total_duration_ms }}
+          UI_TURBO_CACHE_HITS: ${{ needs.ui.outputs.turbo_cache_hits }}
+          UI_TURBO_CACHE_MISSES: ${{ needs.ui.outputs.turbo_cache_misses }}
+          WORKFLOW_STARTED_AT_MS: ${{ needs.preflight.outputs.started_at_ms }}
+          WORKFLOW_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: |
+          export WORKFLOW_DURATION_MS="$(($(date +%s%3N) - WORKFLOW_STARTED_AT_MS))"
+          node scripts/vercel-production-shadow.mjs summary
+
+  result:
+    name: Vercel Production Shadow
+    needs:
+      - preflight
+      - baseline
+      - app
+      - governance
+      - smoke-governance
+      - reserve
+      - smoke-reserve
+      - ui
+      - smoke-ui
+      - final-alias-comparison
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Enforce complete shadow-pilot success
+        env:
+          PREFLIGHT_RESULT: ${{ needs.preflight.result }}
+          BASELINE_RESULT: ${{ needs.baseline.result }}
+          APP_RESULT: ${{ needs.app.result }}
+          GOVERNANCE_RESULT: ${{ needs.governance.result }}
+          GOVERNANCE_SMOKE_RESULT: ${{ needs.smoke-governance.result }}
+          RESERVE_RESULT: ${{ needs.reserve.result }}
+          RESERVE_SMOKE_RESULT: ${{ needs.smoke-reserve.result }}
+          UI_RESULT: ${{ needs.ui.result }}
+          UI_SMOKE_RESULT: ${{ needs.smoke-ui.result }}
+          FINAL_ALIAS_RESULT: ${{ needs.final-alias-comparison.result }}
+        run: |
+          for result in "$PREFLIGHT_RESULT" "$BASELINE_RESULT" "$APP_RESULT" "$GOVERNANCE_RESULT" "$GOVERNANCE_SMOKE_RESULT" "$RESERVE_RESULT" "$RESERVE_SMOKE_RESULT" "$UI_RESULT" "$UI_SMOKE_RESULT" "$FINAL_ALIAS_RESULT"; do
+            if [[ "$result" != "success" ]]; then
+              echo "A required production-shadow job did not succeed" >&2
+              exit 1
+            fi
+          done

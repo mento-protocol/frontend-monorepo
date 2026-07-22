@@ -11,6 +11,7 @@ on:
       - Quality Budgets
       - Scorecard supply-chain security
       - Supply Chain
+      - Vercel Production Shadow
       - Visual Regression
     types: [completed]
 

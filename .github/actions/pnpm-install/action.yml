@@ -17,6 +17,10 @@ inputs:
     description: Whether actions/setup-node should cache the pnpm store
     required: false
     default: "true"
+  working-directory:
+    description: Repository directory containing package.json and pnpm-lock.yaml
+    required: false
+    default: .
 
 runs:
   using: composite
@@ -30,6 +34,7 @@ runs:
       with:
         node-version: ${{ inputs.node-version }}
         cache: pnpm
+        cache-dependency-path: ${{ inputs.working-directory }}/pnpm-lock.yaml
         registry-url: ${{ inputs.registry-url }}
 
     - name: Set up Node.js without package-manager cache
@@ -42,4 +47,7 @@ runs:
 
     - name: Install dependencies
       shell: bash
-      run: pnpm install --frozen-lockfile
+      working-directory: ${{ inputs.working-directory }}
+      run: >-
+        env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE
+        -u GITHUB_STEP_SUMMARY pnpm install --frozen-lockfile

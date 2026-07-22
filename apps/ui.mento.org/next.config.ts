@@ -6,6 +6,12 @@ import { sharpOutputFileTracingConfig } from "../../scripts/next-sharp-output-tr
 // Declared in this app's turbo.json so deployment attempts do not invalidate shared-package caches.
 // eslint-disable-next-line turbo/no-undeclared-env-vars
 const deploymentId = process.env.MENTO_NEXT_DEPLOYMENT_ID;
+// Vercel provides this in hosted builds; the production-shadow workflow binds it to preflight's exact main SHA.
+// eslint-disable-next-line turbo/no-undeclared-env-vars
+const deploymentSha = process.env.VERCEL_GIT_COMMIT_SHA;
+if (deploymentSha && !/^[a-f0-9]{40}$/i.test(deploymentSha)) {
+  throw new Error("VERCEL_GIT_COMMIT_SHA must be a full commit SHA");
+}
 const storageHostname = env.NEXT_PUBLIC_STORAGE_URL.replace(
   /^https?:\/\/([^/]+)\/?.*$/,
   "$1",
@@ -44,7 +50,17 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/:path*",
-        headers: buildSecurityHeaders({ reportOnlyCsp }),
+        headers: [
+          ...buildSecurityHeaders({ reportOnlyCsp }),
+          ...(deploymentSha
+            ? [
+                {
+                  key: "X-Mento-Deployment-Sha",
+                  value: deploymentSha.toLowerCase(),
+                },
+              ]
+            : []),
+        ],
       },
     ];
   },

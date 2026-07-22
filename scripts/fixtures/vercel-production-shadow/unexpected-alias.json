@@ -1,0 +1,17 @@
+{
+  "alias": "governance-immutable.vercel.app",
+  "deploymentId": "dpl_governance123",
+  "deploymentUrl": "https://governance-immutable.vercel.app",
+  "projectId": "prj_governance123",
+  "projectName": "governance.mento.org",
+  "readyState": "READY",
+  "target": "production",
+  "customEnvironmentSlug": null,
+  "git": {
+    "org": "mento-protocol",
+    "repo": "frontend-monorepo",
+    "ref": "main",
+    "sha": "0123456789abcdef0123456789abcdef01234567"
+  },
+  "aliases": ["governance-immutable.vercel.app", "governance.mento.org"]
+}

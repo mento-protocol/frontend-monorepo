@@ -1,0 +1,100 @@
+name: Prepare protected Vercel runtime
+description: Install pinned Node, pnpm, and Vercel CLI files outside candidate control
+
+inputs:
+  controller-path:
+    description: Trusted workflow-controller checkout
+    required: true
+  source-path:
+    description: Runner-owned exact-SHA source checkout used only for cache provenance
+    required: true
+  tools-path:
+    description: Fresh runner-owned path under RUNNER_TEMP for the pinned Vercel CLI
+    required: true
+
+outputs:
+  node-bin:
+    description: Canonical protected Node executable
+    value: ${{ steps.runtime.outputs.node_bin }}
+  pnpm-bin:
+    description: Canonical protected pnpm executable
+    value: ${{ steps.runtime.outputs.pnpm_bin }}
+  vercel-cli:
+    description: Canonical protected Vercel CLI entry point
+    value: ${{ steps.runtime.outputs.vercel_cli }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up pinned pnpm
+      uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v4
+      with:
+        version: 10.34.4
+
+    - name: Set up pinned Node.js and pnpm cache
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      with:
+        node-version: 22
+        cache: pnpm
+        cache-dependency-path: ${{ inputs.source-path }}/pnpm-lock.yaml
+
+    - name: Materialize protected pinned Vercel CLI
+      id: runtime
+      shell: bash
+      env:
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        SOURCE_PATH: ${{ inputs.source-path }}
+        TRUSTED_VERCEL_TOOLS_PATH: ${{ inputs.tools-path }}
+      run: |
+        set -euo pipefail
+        umask 077
+        controller_path="$(realpath "$CONTROLLER_PATH")"
+        source_path="$(realpath "$SOURCE_PATH")"
+        case "$TRUSTED_VERCEL_TOOLS_PATH" in
+          "$RUNNER_TEMP"/mento-vercel-*) ;;
+          *) echo "Protected Vercel tools path is outside RUNNER_TEMP" >&2; exit 1 ;;
+        esac
+        if [ -e "$TRUSTED_VERCEL_TOOLS_PATH" ]; then
+          echo "Protected Vercel tools path must be fresh" >&2
+          exit 1
+        fi
+        /usr/bin/install -d -m 0755 "$TRUSTED_VERCEL_TOOLS_PATH"
+        node_bin="$(realpath "$(command -v node)")"
+        pnpm_bin="$(realpath "$(command -v pnpm)")"
+        for path in "$controller_path" "$source_path" "$node_bin" "$pnpm_bin"; do
+          if [ ! -e "$path" ] || [ -L "$path" ]; then
+            echo "Protected runtime prerequisite is missing or symbolic" >&2
+            exit 1
+          fi
+        done
+        trusted_modules_dir="$(
+          /usr/bin/realpath -m \
+            --relative-to="$controller_path" \
+            "$TRUSTED_VERCEL_TOOLS_PATH/node_modules"
+        )"
+        if [ -z "$trusted_modules_dir" ] || [[ "$trusted_modules_dir" = /* ]]; then
+          echo "Protected pnpm modules path is not relative" >&2
+          exit 1
+        fi
+        env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE \
+          -u GITHUB_STEP_SUMMARY \
+          "$pnpm_bin" --dir "$controller_path" --filter frontend-monorepo install \
+          --frozen-lockfile \
+          --ignore-scripts \
+          --modules-dir "$trusted_modules_dir" \
+          --package-import-method copy \
+          --virtual-store-dir "$trusted_modules_dir/.pnpm"
+        /bin/chmod -R a+rX,go-w "$TRUSTED_VERCEL_TOOLS_PATH"
+        vercel_cli="$(realpath "$TRUSTED_VERCEL_TOOLS_PATH/node_modules/vercel/dist/index.js")"
+        case "$vercel_cli" in
+          "$TRUSTED_VERCEL_TOOLS_PATH"/*) ;;
+          *) echo "Pinned Vercel CLI escaped its protected directory" >&2; exit 1 ;;
+        esac
+        if [ ! -f "$vercel_cli" ] || [ -L "$vercel_cli" ]; then
+          echo "Pinned Vercel CLI is not a regular file" >&2
+          exit 1
+        fi
+        "$node_bin" "$vercel_cli" --version >/dev/null
+        echo "node_bin=$node_bin" >> "$GITHUB_OUTPUT"
+        echo "pnpm_bin=$pnpm_bin" >> "$GITHUB_OUTPUT"
+        echo "vercel_cli=$vercel_cli" >> "$GITHUB_OUTPUT"
