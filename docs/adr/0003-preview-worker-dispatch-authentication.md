@@ -3,7 +3,7 @@ title: A dedicated repository-scoped credential dispatches preview workers
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 scope: ci/deployment/preview-worker-dispatch-authentication
 date: 2026-07
 ---
@@ -100,9 +100,13 @@ then proves one automatic worker callback. Revocation is fail-closed for new
 dispatches; already-created workers and their recovery remain operable through
 the primary client.
 
-Rollback sets the version-controlled controller mode to `observe-only` in the
-same reviewed change that restores native Vercel Git ownership. That mode does
-not expose the secondary credential to reconciliation and the dispatch
+A target-local ownership rollback keeps the controller `active`, atomically
+restores only that target's native Vercel Git configuration and `shadow` mode,
+and leaves the dispatch credential available for other GitHub-owned targets. A
+coordinated full-controller rollback may set the version-controlled controller
+mode to `observe-only` only in the same reviewed change that restores native
+ownership for every GitHub-owned target. In that full shutdown mode the
+secondary credential is not exposed to reconciliation and the dispatch
 implementation rejects a new worker POST. Reintroducing `GITHUB_TOKEN` dispatch
 is not a valid rollback because it recreates the known event-suppression
 failure.

@@ -6,11 +6,13 @@ four-target preview controller used by the GitHub Actions deployment migration t
 The ownership boundary and its trade-offs are recorded in
 [ADR 0001](adr/0001-github-actions-vercel-deployment-orchestration.md).
 The v2 controller builds App, Governance, Reserve, and UI independently from one
-target-ordered plan. UI branch-preview ownership is GitHub-only. App,
-Governance, and Reserve are in shadow mode: GitHub builds run alongside their
+target-ordered plan. Reserve and UI branch-preview ownership is GitHub-only.
+App and Governance remain in shadow mode: GitHub builds run alongside their
 native Vercel Git previews until each target completes its own canary and a
-separate atomic ownership cutover. Vercel Git continues to own every main and
-production deployment.
+separate atomic ownership cutover. The Reserve configuration change is not an
+accepted live cutover until the merge and post-merge canary gates in
+[Reserve Vercel Git cutover](#reserve-vercel-git-cutover) pass. Vercel Git
+continues to own every main and production deployment.
 
 The automatic controller's version-controlled
 `VERCEL_PREVIEW_CONTROLLER_MODE` is `active` in this ownership state. The only
@@ -373,9 +375,11 @@ The automatic worker has four literal caller jobs in stable `app`,
 `preview-controller:v2` provenance. There is no matrix, dynamic secret name,
 or `secrets: inherit`. Initial uploads and same-upload retries call the single
 secretless `_vercel-preview-smoke.yml` workflow with the complete verified
-target tuple before canonical Deployment success. The v2 activation does not
-change any target's `vercel.json`; App, Governance, and Reserve therefore remain
-dual-run shadow canaries while UI remains GitHub-owned.
+target tuple before canonical Deployment success. The original v2 activation
+did not change any target's `vercel.json`; App, Governance, and Reserve
+therefore began as dual-run shadow canaries while UI was GitHub-owned. The
+current version-controlled map cuts Reserve over to GitHub ownership while App
+and Governance remain shadowed.
 
 The reusable declaration has the three common secrets
 (`VERCEL_TOKEN_PREVIEW`, `TURBO_TOKEN`, and
@@ -1221,10 +1225,12 @@ repeat full source validation before any status or Deployment write.
 The worker independently repeats the immutable ownership check before emitting
 `should_deploy`, inspecting deployment state, or reaching any Vercel secret. It
 requires both the then-current PR head and its controller-authorized
-`commit_sha` to remain GitHub-owned. This is defense in depth for a worker that
-was queued while ownership changed; controller journal ownership alone cannot
-authorize code whose own `vercel.json` assigns preview deployment to native
-Vercel.
+`commit_sha` to remain eligible under the target's canonical ownership mode:
+`shadow` accepts the exact native configuration for a GitHub canary, while
+`github` requires the exact GitHub-owned configuration. This is defense in
+depth for a worker that was queued while ownership changed; controller journal
+ownership alone cannot authorize a configuration that contradicts the
+version-controlled target mode.
 
 Zero matches dispatches `.github/workflows/vercel-preview-worker.yml` on `main`
 using a secondary Octokit client authenticated only by repository secret
@@ -1566,8 +1572,8 @@ App**, with one reviewed merge and completed live canary between targets. Stop
 after any failed target: keep every already-proven target in its accepted owner
 state, leave all later targets in shadow mode, and diagnose or roll back only
 the failed target. App may not cut over until Governance has completed its own
-cutover and browser-verified canary. This controller-expansion change ends at
-shadow activation and must not include any of those three configuration
+cutover and browser-verified canary. The earlier controller-expansion change
+ended at shadow activation and did not include any of those three configuration
 cutovers.
 
 Before each Reserve, Governance, or App cutover, inventory open branches and
@@ -1583,6 +1589,129 @@ and worker ownership for the target. Atomically restore both its canonical
 native Vercel configuration and `shadow` ownership mode, then require an exact
 head native deployment plus browser proof before accepting the rollback. Never
 split the configuration and ownership edits across merges.
+
+### Reserve Vercel Git cutover
+
+This change is the first per-target ownership cutover. It atomically pairs
+`PREVIEW_TARGET_CONFIG.reserve.ownershipMode` set to `github` with this exact
+`apps/reserve.mento.org/vercel.json`:
+
+```json
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "**": false,
+      "main": true
+    }
+  }
+}
+```
+
+`main: true` keeps Reserve main and production deployments on Vercel Git. This
+PR must not alter App or Governance shadow ownership, UI GitHub ownership, App
+`v2`/`v3` behavior, any production domain, or the deleted Governance QA
+environment.
+
+The version-controlled pair is preparation, not proof that Reserve has cut
+over successfully. Before accepting the cutover, inventory and rebase every
+Reserve-runtime validation branch that still carries the native configuration.
+On the cutover PR's exact head, then again on a fresh post-merge canary branched
+from the resulting `main`, record and verify all of the following:
+
+1. the planner selects only the targets affected by the immutable runtime
+   delta, and the Reserve controller/worker completes successfully;
+2. exactly one canonical GitHub Deployment and at most one Vercel preview exist
+   for the Reserve target/key/SHA;
+3. the immutable Reserve URL passes the repository browser protocol, including
+   Overview data, the Supply tab and URL/state transition, console, network,
+   assets, fonts, and security headers;
+4. no native Reserve branch preview exists for the same exact SHA;
+5. the aggregate `Vercel Preview` status and v2 journal agree with the exact
+   Reserve outcome; and
+6. Reserve `main` remains natively deployed, while App and Governance remain
+   shadowed and UI remains GitHub-owned.
+
+Do not call Reserve cut over, begin the Governance cutover, or close the rollout
+item until both the live cutover matrix and the post-merge canary pass.
+
+#### Independent Reserve rollback
+
+Rollback changes only Reserve and returns it to the pre-cutover shadow state;
+it does not roll back UI or pause the active controller globally. First establish
+a coordinated no-push window. Exhaustively drain controller, worker, and intake
+activity with this copy-safe command, repeating it until two consecutive
+inventories are empty after cancellations have settled:
+
+```bash
+set -euo pipefail
+
+list_nonterminal_preview_runs() {
+  local workflow status
+  local -a workflows=(
+    vercel-preview-controller.yml
+    vercel-preview-worker.yml
+    vercel-preview-intake.yml
+  )
+  local -a statuses=(queued requested waiting pending in_progress)
+
+  for workflow in "${workflows[@]}"; do
+    for status in "${statuses[@]}"; do
+      gh api --paginate --method GET \
+        "repos/mento-protocol/frontend-monorepo/actions/workflows/${workflow}/runs" \
+        -f status="$status" \
+        -f per_page=100 \
+        --jq '.workflow_runs[] | [.id, .status, .path, .html_url] | @tsv'
+    done
+  done | sort -u
+}
+
+list_nonterminal_preview_runs
+list_nonterminal_preview_runs |
+  cut -f1 |
+  sort -u |
+  while read -r run_id; do gh run cancel "$run_id"; done
+```
+
+In one reviewed rollback PR, restore
+`apps/reserve.mento.org/vercel.json` exactly to:
+
+```json
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "dependabot/**": false
+    }
+  }
+}
+```
+
+In that same commit, change only the Reserve entry in
+`scripts/vercel-preview-targets.mjs` back to:
+
+```js
+ownershipMode: PREVIEW_OWNERSHIP_MODES.SHADOW,
+```
+
+Do not change `VERCEL_PREVIEW_CONTROLLER_MODE`: it stays `active` so UI keeps
+its GitHub preview owner and App/Governance keep their existing shadow canaries.
+Do not split the two Reserve edits across commits or merges. Run the ownership,
+preview, primitives, and workflow structural tests, update the current-state
+text in this runbook and `README.md`, and re-inventory every active Reserve
+runtime branch carrying the GitHub-owned configuration.
+
+Before merging the rollback, require the native Vercel deployment/status for
+the rollback PR's exact head SHA and run the full Reserve browser protocol on
+its immutable URL. The aggregate `Vercel Preview` status proves controller
+selection and journal state only; it is not native deployment or browser
+evidence. After merge, rebase a fresh Reserve-runtime canary onto the restored
+`main`, bootstrap or reconcile its v2 journal through the documented operator
+events if required, and prove both native-preview recovery and the expected
+GitHub shadow canary. Keep Reserve in shadow mode until a new independently
+reviewed cutover repeats the full acceptance matrix. Never touch App,
+Governance, UI, production domains, or recreate Governance QA as part of this
+rollback.
 
 ### Phase A canary evidence template
 
@@ -1628,9 +1757,10 @@ unsupported-trust, failure, cancellation, and old-epoch evidence.
 
 ## UI Vercel Git cutover (Phase B)
 
-Phase B is the current ownership model after this change merges. Its completed
-precondition was that every Phase A dual-path canary above passed and its
-GitHub-built/native-preview evidence was recorded. This separate merge pairs
+Phase B established UI's GitHub-owned branch-preview state, which remains part
+of the current ownership map alongside Reserve. Its completed precondition was
+that every Phase A dual-path canary above passed and its
+GitHub-built/native-preview evidence was recorded. This separate merge paired
 `VERCEL_PREVIEW_CONTROLLER_MODE: active` in
 `.github/workflows/vercel-preview-controller.yml` with the following exact
 `apps/ui.mento.org/vercel.json`, preserving its schema and unrelated keys:
@@ -1662,9 +1792,8 @@ unchanged native merge/main deployment. A fresh canary proves only its own
 branch; stale pre-cutover branches still carry their old static `vercel.json`
 and are not valid repository-wide duplicate-prevention evidence.
 
-Rollback is mutually exclusive with the Phase B configuration. One reviewed PR
-must atomically change `VERCEL_PREVIEW_CONTROLLER_MODE` to `observe-only` and
-restore `apps/ui.mento.org/vercel.json` exactly to:
+UI rollback is target-local. One reviewed PR must atomically restore
+`apps/ui.mento.org/vercel.json` exactly to:
 
 ```json
 {
@@ -1677,14 +1806,23 @@ restore `apps/ui.mento.org/vercel.json` exactly to:
 }
 ```
 
-Do not split those two edits across merges. A configuration-only rollback would
-not be a supported steady state, and a mode-only rollback would leave every
-still-Phase-B UI branch without an automatic preview owner.
-`pnpm vercel:preview:test` rejects both invalid repository ownership pairs. The
-exact-head runtime guard is additional pre-merge protection: as soon as the
-rollback PR contains the exact native configuration, the still-`active`
-controller from `main` refuses to dispatch for it. This cross-ref safeguard does
-not make a split rollback acceptable.
+In that same commit, change only the UI entry in
+`scripts/vercel-preview-targets.mjs` back to:
+
+```js
+ownershipMode: PREVIEW_OWNERSHIP_MODES.SHADOW,
+```
+
+Keep `VERCEL_PREVIEW_CONTROLLER_MODE` set to `active`; Reserve remains
+GitHub-owned and App/Governance retain their independent shadow canaries. Do not
+split the two UI edits across commits or merges. A configuration-only or
+mode-only rollback is not a supported repository state, and
+`pnpm vercel:preview:test` rejects either mismatch. The exact-head runtime guard
+is additional pre-merge protection: as soon as the rollback PR contains the
+exact native configuration, the still-GitHub-owned workflow from `main` refuses
+to dispatch UI for it. This cross-ref safeguard does not make a split rollback
+acceptable. After merge, the new shadow mode deliberately permits both the
+restored native preview and the GitHub canary for UI.
 
 On the rollback PR, `Vercel Preview` reports `pending` with
 `Draining GitHub preview before native ownership` while any journal-owned
@@ -1698,10 +1836,10 @@ dispatched by the later head's configuration. Its dedicated
 `native-owned-selection-without-github-worker` result is reported as
 ownership-success and never claims a native build or smoke. Generic retirement
 of a GitHub-owned intent keeps its error semantics. Only after no active or
-retired GitHub ownership remains does the current native-owned context become
-`success` with `Native Vercel owns this UI preview`. Missing, malformed, or
-unknown candidate configuration, multiple matching workers, and an
-`observe-only`/GitHub-owned combination remain `error`.
+retired GitHub ownership remains does the rollback PR's native-owned context
+become `success` with `Native Vercel owns this UI preview`. Missing, malformed,
+or unknown candidate configuration and multiple matching workers remain
+`error`.
 
 That green context proves only the controller's owner selection and drained
 journal state. Its target is the controller run as audit evidence; it does not
@@ -1760,29 +1898,29 @@ that first empty result, wait for cancellations to settle because worker and
 intake completion can start a final controller callback, then require a second
 empty exhaustive sweep immediately before merge. Do not merge while any queued,
 requested, waiting, pending, or in-progress controller, worker, or intake run
-remains. This quiescence proof prevents a run loaded from the old `active`
-workflow SHA from dispatching after native ownership is restored.
+remains. This quiescence proof prevents a run loaded from the pre-rollback
+ownership map from dispatching after native ownership is restored.
 
 Before merging the rollback, inventory every active UI-runtime PR and branch
 that carries the Phase B `"**": false` rule. After the restored configuration
 reaches `main`, each inventoried branch must rebase or merge that `main`, or
 receive an explicitly reviewed equivalent branch update containing the exact
 rollback configuration, before native preview restoration can be claimed. A
-stale Phase B branch still carrying the GitHub-owned configuration is
-deliberately ownerless under the restored `observe-only` controller and receives
-an error status until it takes the rollback configuration.
+stale Phase B branch still carrying the GitHub-owned configuration continues to
+request only its GitHub preview under the restored shadow controller; it is not
+evidence that native UI previews have recovered.
 
 The rollback PR must update the current-state ownership text in `README.md` and
 this runbook. Do not weaken or remove the executable pairing assertion in
 `scripts/vercel-git-ownership.test.mjs`; it is the guard that makes the atomic
 mode/configuration change mandatory.
 
-Use a fresh or restored-main-rebased UI canary to prove native previews return.
-A fresh canary proves only its own branch and is not evidence that every active
-Phase B branch was restored. The `Vercel Preview` context remains
-ownership-only in `observe-only`; require separate native Vercel and browser
-evidence anywhere preview readiness gates a merge. Do not change production
-domains, other apps, or recreate Governance QA.
+Use a fresh or restored-main-rebased UI canary to prove both the native preview
+and expected GitHub shadow canary return. A fresh canary proves only its own
+branch and is not evidence that every active Phase B branch was restored. The
+rollback PR's `Vercel Preview` owner-selection result is not native deployment
+or browser evidence; require both separately anywhere preview readiness gates a
+merge. Do not change production domains, other apps, or recreate Governance QA.
 
 ### Historical Phase A pilot cleanup
 

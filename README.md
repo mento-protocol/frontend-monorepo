@@ -454,9 +454,11 @@ The repository is set up with GitHub Actions for CI:
   PRs remain credential-free. A dedicated repository-scoped GitHub credential
   performs only the worker-dispatch POST so terminal `workflow_run` callbacks
   are created; the normal job token still owns all state and recovery calls.
-  GitHub Actions is the sole automatic branch-preview owner for UI. App,
-  governance, and reserve initially run in shadow mode, where their existing
-  native Vercel branch previews remain enabled alongside GitHub-built canaries.
+  GitHub Actions is the sole automatic branch-preview owner for Reserve and UI.
+  App and governance remain in shadow mode, where their existing native Vercel
+  branch previews stay enabled alongside GitHub-built canaries. The Reserve
+  configuration change is not an accepted live cutover until its merge and
+  post-merge canary gates pass.
   The version-controlled controller mode is `active`; per-target ownership and
   exact expected Vercel configurations are executable invariants. The trusted
   controller reads every selected target's bounded exact-head Vercel
