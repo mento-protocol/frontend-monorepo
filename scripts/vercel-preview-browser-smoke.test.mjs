@@ -145,18 +145,9 @@ class FakePage extends EventEmitter {
   }
 
   async waitForFunction(predicate, argument) {
-    assert.deepEqual(argument, {
-      expectedOrigin: new URL(this.values.deploymentUrl).origin,
-      expectedTabLabel: "Supply",
-      expectedTabValue: "stablecoins",
-    });
+    this.assertSupplyTabArgument(argument);
     assert.equal(this.supplySelected, true);
-    const stateMatches = () =>
-      predicate({
-        ...argument,
-        currentHref: this.currentUrl,
-        selectedTabLabel: this.supplySelected ? "Supply" : "Overview",
-      });
+    const stateMatches = () => this.supplyTabStateMatches(predicate, argument);
     if (this.competingNavigation) {
       assert.equal(stateMatches(), false);
       this.calls.push(["competing-navigation", this.currentUrl]);
@@ -164,6 +155,28 @@ class FakePage extends EventEmitter {
     }
     assert.equal(stateMatches(), true);
     this.calls.push(["wait-for-function", this.currentUrl]);
+  }
+
+  assertSupplyTabArgument(argument) {
+    assert.deepEqual(argument, {
+      expectedOrigin: new URL(this.values.deploymentUrl).origin,
+      expectedTabLabel: "Supply",
+      expectedTabValue: "stablecoins",
+    });
+  }
+
+  supplyTabStateMatches(predicate, argument) {
+    return predicate({
+      ...argument,
+      currentHref: this.currentUrl,
+      selectedTabLabel: this.supplySelected ? "Supply" : "Overview",
+    });
+  }
+
+  async evaluate(predicate, argument) {
+    this.assertSupplyTabArgument(argument);
+    this.calls.push(["evaluate-supply-state", this.currentUrl]);
+    return this.supplyTabStateMatches(predicate, argument);
   }
 
   async waitForLoadState(state) {
@@ -229,6 +242,26 @@ test("Reserve browser smoke does not latch onto a competing root navigation", as
   assert.ok(page.calls.some(([name]) => name === "competing-navigation"));
   assert.ok(page.calls.some(([name]) => name === "wait-for-function"));
   assert.equal(new URL(page.url()).searchParams.get("tab"), "stablecoins");
+});
+
+test("Reserve browser smoke rejects a late same-origin return to Overview", async () => {
+  const values = controllerTuple("reserve");
+  const page = new FakePage(values, {
+    afterInteraction: (currentPage) => {
+      currentPage.currentUrl = values.deploymentUrl;
+      currentPage.supplySelected = false;
+      currentPage.calls.push(["late-overview-navigation"]);
+    },
+  });
+  const fake = fakeChromium(page);
+
+  await assert.rejects(
+    runBrowserSmoke({ chromium: fake.chromium, values }),
+    /Reserve Supply tab state did not persist after interaction settle/,
+  );
+  assert.equal(fake.state.closed, true);
+  assert.ok(page.calls.some(([name]) => name === "late-overview-navigation"));
+  assert.ok(page.calls.some(([name]) => name === "evaluate-supply-state"));
 });
 
 test("Reserve tab matcher binds the immutable origin, URL state, and selected tab", () => {

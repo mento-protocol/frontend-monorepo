@@ -132,6 +132,14 @@ export function reserveTabStateMatches({
   }
 }
 
+function reserveSupplyTabState(expectedOrigin) {
+  return {
+    expectedOrigin,
+    expectedTabLabel: "Supply",
+    expectedTabValue: "stablecoins",
+  };
+}
+
 async function runTargetInteraction(page, target, deploymentUrl) {
   if (target === "reserve") {
     const overview = page.getByRole("tab", { name: "Overview", exact: true });
@@ -144,11 +152,10 @@ async function runTargetInteraction(page, target, deploymentUrl) {
       .waitFor({ state: "visible" });
     const supply = page.getByRole("tab", { name: "Supply", exact: true });
     await supply.click();
-    await page.waitForFunction(reserveTabStateMatches, {
-      expectedOrigin: deploymentUrl.origin,
-      expectedTabLabel: "Supply",
-      expectedTabValue: "stablecoins",
-    });
+    await page.waitForFunction(
+      reserveTabStateMatches,
+      reserveSupplyTabState(deploymentUrl.origin),
+    );
     if (new URL(page.url()).searchParams.get("tab") !== "stablecoins") {
       throw new Error("Reserve Supply tab URL state did not persist");
     }
@@ -209,6 +216,17 @@ export async function runBrowserSmoke({
     if (new URL(page.url()).origin !== baseUrl.origin) {
       throw new Error(
         "Browser smoke escaped the immutable preview origin after interaction",
+      );
+    }
+    if (
+      tuple.logicalTarget === "reserve" &&
+      !(await page.evaluate(
+        reserveTabStateMatches,
+        reserveSupplyTabState(baseUrl.origin),
+      ))
+    ) {
+      throw new Error(
+        "Reserve Supply tab state did not persist after interaction settle",
       );
     }
     monitor.assertClean();
