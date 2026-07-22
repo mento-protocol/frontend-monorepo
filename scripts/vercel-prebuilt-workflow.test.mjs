@@ -25,10 +25,17 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  getVercelBuildRequirements,
+  parseVercelPulledEnvironment,
+  serializeVercelPulledEnvironment,
+} from "./vercel-build-environment.mjs";
+import {
   assertPrebuiltOutput,
   assertPrebuiltReadyForUpload,
   assertPulledProject,
   assertSafeVercelArguments,
+  assertMaterializedVercelBuildEnvironment,
+  assertSharpPrebuiltArtifacts,
   assertVercelPullStaging,
   assertVercelInspection,
   buildVercelBuildArguments,
@@ -39,6 +46,7 @@ import {
   deployWithAmbiguityRecovery,
   environmentForVercelCli,
   materializeExactGitTree,
+  materializeVercelBuildEnvironment,
   materializeVercelRepoLink,
   parseVercelDeploymentLookup,
   parseVercelDeploymentJson,
@@ -59,6 +67,7 @@ import {
   validateSourceCheckout,
   withValidatedPrebuiltUpload,
 } from "./vercel-prebuilt-workflow.mjs";
+import { sharpRuntimePlatform } from "./next-sharp-output-tracing.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const DEPLOYMENT_ID = "m-ui-0123456789abcdef012";
@@ -67,6 +76,64 @@ const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const BUILD_ENVIRONMENT_SCRIPT = fileURLToPath(
   new URL("./vercel-build-environment.mjs", import.meta.url),
 );
+
+function writeSharpRuntimeArtifactsInFunction(
+  functionDirectory,
+  platform = sharpRuntimePlatform(),
+  { writeFunctionConfig = true } = {},
+) {
+  const nativeDirectory = join(
+    functionDirectory,
+    "node_modules",
+    ".pnpm",
+    `@img+sharp-${platform}@0.35.3`,
+    "node_modules",
+    "@img",
+    `sharp-${platform}`,
+    "lib",
+  );
+  const libvipsDirectory = join(
+    functionDirectory,
+    "node_modules",
+    ".pnpm",
+    `@img+sharp-libvips-${platform}@1.3.2`,
+    "node_modules",
+    "@img",
+    `sharp-libvips-${platform}`,
+  );
+  mkdirSync(nativeDirectory, { recursive: true });
+  mkdirSync(join(libvipsDirectory, "lib"), { recursive: true });
+  const nativeAddon = join(nativeDirectory, `sharp-${platform}-0.35.3.node`);
+  const sharedLibrary = join(
+    libvipsDirectory,
+    "lib",
+    platform.startsWith("darwin-")
+      ? "libvips-cpp.8.18.3.dylib"
+      : "libvips-cpp.so.8.18.3",
+  );
+  const versionsManifest = join(libvipsDirectory, "versions.json");
+  if (writeFunctionConfig) {
+    writeFileSync(
+      join(functionDirectory, ".vc-config.json"),
+      JSON.stringify({ runtime: "nodejs22.x" }),
+    );
+  }
+  writeFileSync(nativeAddon, "native");
+  writeFileSync(sharedLibrary, "libvips");
+  writeFileSync(versionsManifest, JSON.stringify({ vips: "8.18.3" }));
+  return { nativeAddon, sharedLibrary, versionsManifest };
+}
+
+function writeSharpRuntimeArtifacts(
+  outputDirectory,
+  platform = sharpRuntimePlatform(),
+  functionName = "api.func",
+) {
+  return writeSharpRuntimeArtifactsInFunction(
+    join(outputDirectory, "functions", functionName),
+    platform,
+  );
+}
 
 function checkUiPreviewEnvironment(projectDirectory) {
   return execFileSync(
@@ -132,6 +199,7 @@ function uploadFixture(logicalTarget = "ui") {
     join(outputDirectory, "builds.json"),
     JSON.stringify({ target: "preview", cliVersion: "56.2.0" }),
   );
+  writeSharpRuntimeArtifacts(outputDirectory);
   mkdirSync(join(outputDirectory, "static", "nested"), { recursive: true });
   writeFileSync(join(outputDirectory, "static", "nested", "asset.js"), "ok");
   writeFileSync(
@@ -195,15 +263,34 @@ function pilotContract(overrides = {}) {
   };
 }
 
-function pulledStagingFixture() {
+function defaultPulledEnvironment(logicalTarget) {
+  return Object.fromEntries(
+    getVercelBuildRequirements(logicalTarget, "preview")
+      .filter((item) => item.ciClassification === "vercel-pull")
+      .map((item) => [
+        item.name,
+        item.allowEmpty ? "" : `${item.name}-fixture`,
+      ]),
+  );
+}
+
+function pulledStagingFixture(
+  logicalTarget = "ui",
+  pulledEnvironment = defaultPulledEnvironment(logicalTarget),
+) {
   const isolationRoot = realpathSync(
     mkdtempSync(join(tmpdir(), "vercel-pull-runner-")),
   );
   const stagingRoot = join(isolationRoot, "mento-vercel-pull-staging");
+  const materializationRoot = join(
+    isolationRoot,
+    "mento-vercel-build-environment",
+  );
   const candidateRoot = join(isolationRoot, "mento-vercel-candidate-source");
   const vercelOrgId = "team_example";
-  const vercelProjectId = "prj_ui";
-  const expectedRootDirectory = PILOT_TARGET.expectedRootDirectory;
+  const vercelProjectId = `prj_${logicalTarget}`;
+  const expectedRootDirectory =
+    PREBUILT_TARGETS[logicalTarget].expectedRootDirectory;
   chmodSync(isolationRoot, 0o711);
   prepareVercelPullStaging({
     isolationRoot,
@@ -221,12 +308,15 @@ function pulledStagingFixture() {
   );
   writeFileSync(
     join(appState, ".env.preview.local"),
-    "NEXT_PUBLIC_STORAGE_URL=https://storage.example\n",
+    `${Object.entries(pulledEnvironment)
+      .map(([name, value]) => `${name}=${value}`)
+      .join("\n")}\n`,
     { mode: 0o600 },
   );
   return {
     isolationRoot,
     stagingRoot,
+    materializationRoot,
     candidateRoot,
     appState,
     expectedRootDirectory,
@@ -235,7 +325,9 @@ function pulledStagingFixture() {
     options: {
       isolationRoot,
       stagingRoot,
+      materializationRoot,
       expectedRootDirectory,
+      logicalTarget,
       vercelOrgId,
       vercelProjectId,
     },
@@ -243,6 +335,14 @@ function pulledStagingFixture() {
       rmSync(isolationRoot, { force: true, recursive: true });
     },
   };
+}
+
+function materializeFixture(fixture) {
+  return materializeVercelBuildEnvironment({
+    ...fixture.options,
+    expectedUid: process.getuid(),
+    expectedGid: process.getgid(),
+  });
 }
 
 test("pilot contract accepts only the UI preview mapping and exact SHA", () => {
@@ -1095,6 +1195,270 @@ test("Vercel pull staging is a fresh exact isolation-root tree", () => {
   }
 });
 
+test("one-way materialization preserves raw source and emits only the canonical exact allowlist", () => {
+  const sensitiveSentinel = "raw-sensitive-sentinel";
+  const unknownSentinel = "raw-unknown-sentinel";
+  const pulledEnvironment = {
+    NEXT_PUBLIC_SENTRY_DSN_SWAP: "",
+    NEXT_PUBLIC_STORAGE_URL:
+      "https://storage.example/path?a=b#fragment with spaces",
+    NEXT_PUBLIC_WALLET_CONNECT_ID: String.raw`wallet\\identifier`,
+    SENTRY_AUTH_TOKEN: sensitiveSentinel,
+    ETHERSCAN_API_KEY: sensitiveSentinel,
+    UNKNOWN_VARIABLE: unknownSentinel,
+  };
+  const fixture = pulledStagingFixture("app", pulledEnvironment);
+  const sourcePath = join(fixture.appState, ".env.preview.local");
+  const sourceRaw = serializeVercelPulledEnvironment(pulledEnvironment);
+  writeFileSync(sourcePath, sourceRaw, { mode: 0o600 });
+  const sourceBefore = lstatSync(sourcePath);
+  try {
+    const result = materializeFixture(fixture);
+    const sourceAfter = lstatSync(sourcePath);
+    assert.equal(readFileSync(sourcePath, "utf8"), sourceRaw);
+    for (const name of [
+      "dev",
+      "ino",
+      "mode",
+      "nlink",
+      "size",
+      "uid",
+      "gid",
+      "mtimeMs",
+      "ctimeMs",
+    ]) {
+      assert.equal(sourceAfter[name], sourceBefore[name], name);
+    }
+    assert.equal(lstatSync(fixture.materializationRoot).mode & 0o777, 0o700);
+    assert.equal(lstatSync(result.environmentPath).mode & 0o777, 0o600);
+    assert.equal(lstatSync(result.environmentPath).nlink, 1);
+    const materializedRaw = readFileSync(result.environmentPath, "utf8");
+    assert.deepEqual(parseVercelPulledEnvironment(materializedRaw), {
+      NEXT_PUBLIC_SENTRY_DSN_SWAP: "",
+      NEXT_PUBLIC_STORAGE_URL:
+        "https://storage.example/path?a=b#fragment with spaces",
+      NEXT_PUBLIC_WALLET_CONNECT_ID: String.raw`wallet\\identifier`,
+    });
+    assert.doesNotMatch(materializedRaw, new RegExp(sensitiveSentinel));
+    assert.doesNotMatch(materializedRaw, new RegExp(unknownSentinel));
+    assert.deepEqual(
+      assertMaterializedVercelBuildEnvironment({
+        ...fixture.options,
+        expectedUid: process.getuid(),
+        expectedGid: process.getgid(),
+      }),
+      result,
+    );
+    mkdirSync(join(fixture.candidateRoot, fixture.expectedRootDirectory), {
+      recursive: true,
+    });
+    stageVercelPullForCandidate({
+      ...fixture.options,
+      candidateRoot: fixture.candidateRoot,
+      buildUid: process.getuid(),
+      buildGid: process.getgid(),
+      runnerUid: process.getuid(),
+      runnerGid: process.getgid(),
+    });
+    const candidateEnvironment = readFileSync(
+      join(
+        fixture.candidateRoot,
+        fixture.expectedRootDirectory,
+        ".vercel",
+        ".env.preview.local",
+      ),
+      "utf8",
+    );
+    assert.equal(candidateEnvironment, materializedRaw);
+    assert.doesNotMatch(candidateEnvironment, new RegExp(sensitiveSentinel));
+    assert.doesNotMatch(candidateEnvironment, new RegExp(unknownSentinel));
+    const destinationBeforeRetry = readFileSync(result.environmentPath);
+    assert.throws(() => materializeFixture(fixture), /must be fresh/);
+    assert.deepEqual(
+      readFileSync(result.environmentPath),
+      destinationBeforeRetry,
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("Governance materialization never requires or carries pulled explorer credentials", () => {
+  const pulledEnvironment = defaultPulledEnvironment("governance");
+  pulledEnvironment.ETHERSCAN_API_KEY = "pulled-explorer-sentinel";
+  pulledEnvironment.SENTRY_AUTH_TOKEN = "pulled-sentry-sentinel";
+  const fixture = pulledStagingFixture("governance", pulledEnvironment);
+  try {
+    const { environmentPath } = materializeFixture(fixture);
+    const materialized = parseVercelPulledEnvironment(
+      readFileSync(environmentPath, "utf8"),
+    );
+    assert.equal(Object.hasOwn(materialized, "ETHERSCAN_API_KEY"), false);
+    assert.equal(Object.hasOwn(materialized, "SENTRY_AUTH_TOKEN"), false);
+    assert.deepEqual(
+      Object.keys(materialized).sort(),
+      Object.keys(defaultPulledEnvironment("governance")).sort(),
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("build-environment materialization rejects unsafe source and destination filesystem state", () => {
+  const sourceMutations = [
+    {
+      name: "source symlink swap",
+      mutate: (fixture) => {
+        const source = join(fixture.appState, ".env.preview.local");
+        const outside = join(fixture.isolationRoot, "outside-source");
+        writeFileSync(outside, readFileSync(source), { mode: 0o600 });
+        rmSync(source);
+        symlinkSync(outside, source);
+      },
+    },
+    {
+      name: "source hardlink swap",
+      mutate: (fixture) => {
+        const source = join(fixture.appState, ".env.preview.local");
+        const outside = join(fixture.isolationRoot, "outside-source");
+        writeFileSync(outside, readFileSync(source), { mode: 0o600 });
+        rmSync(source);
+        linkSync(outside, source);
+      },
+    },
+    {
+      name: "source mode",
+      mutate: (fixture) =>
+        chmodSync(join(fixture.appState, ".env.preview.local"), 0o640),
+    },
+    {
+      name: "source oversize",
+      mutate: (fixture) =>
+        truncateSync(
+          join(fixture.appState, ".env.preview.local"),
+          16 * 1_024 * 1_024 + 1,
+        ),
+    },
+    {
+      name: "source invalid UTF-8",
+      mutate: (fixture) =>
+        writeFileSync(
+          join(fixture.appState, ".env.preview.local"),
+          Buffer.from([0xff, 0xfe]),
+          { mode: 0o600 },
+        ),
+    },
+    {
+      name: "source empty",
+      mutate: (fixture) =>
+        writeFileSync(join(fixture.appState, ".env.preview.local"), "", {
+          mode: 0o600,
+        }),
+    },
+    {
+      name: "source controlled value",
+      mutate: (fixture) =>
+        writeFileSync(
+          join(fixture.appState, ".env.preview.local"),
+          "NEXT_PUBLIC_STORAGE_URL=value\u0000sentinel\n",
+          { mode: 0o600 },
+        ),
+    },
+  ];
+  for (const mutation of sourceMutations) {
+    const fixture = pulledStagingFixture();
+    try {
+      mutation.mutate(fixture);
+      assert.throws(
+        () => materializeFixture(fixture),
+        undefined,
+        mutation.name,
+      );
+      assert.equal(existsSync(fixture.materializationRoot), false);
+    } finally {
+      fixture.cleanup();
+    }
+  }
+
+  for (const destinationType of ["directory", "symlink"]) {
+    const fixture = pulledStagingFixture();
+    const outside = join(fixture.isolationRoot, "outside-destination");
+    try {
+      if (destinationType === "directory") {
+        mkdirSync(fixture.materializationRoot, { mode: 0o700 });
+        writeFileSync(
+          join(fixture.materializationRoot, "sentinel"),
+          "do-not-overwrite",
+          { mode: 0o600 },
+        );
+      } else {
+        mkdirSync(outside, { mode: 0o700 });
+        symlinkSync(outside, fixture.materializationRoot);
+      }
+      assert.throws(() => materializeFixture(fixture), /must be fresh/);
+      if (destinationType === "directory") {
+        assert.equal(
+          readFileSync(join(fixture.materializationRoot, "sentinel"), "utf8"),
+          "do-not-overwrite",
+        );
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  }
+
+  const containment = pulledStagingFixture();
+  try {
+    assert.throws(() =>
+      materializeVercelBuildEnvironment({
+        ...containment.options,
+        materializationRoot: join(
+          containment.isolationRoot,
+          "attacker-selected-environment",
+        ),
+      }),
+    );
+  } finally {
+    containment.cleanup();
+  }
+});
+
+test("materialized state is fail-closed after raw or derived tampering", () => {
+  for (const tamper of ["raw-value", "derived-symlink", "derived-hardlink"]) {
+    const fixture = pulledStagingFixture();
+    try {
+      const result = materializeFixture(fixture);
+      if (tamper === "raw-value") {
+        writeFileSync(
+          join(fixture.appState, ".env.preview.local"),
+          "NEXT_PUBLIC_STORAGE_URL=changed-after-materialization\n",
+          { mode: 0o600 },
+        );
+      } else {
+        const outside = join(fixture.isolationRoot, `outside-${tamper}`);
+        writeFileSync(outside, readFileSync(result.environmentPath), {
+          mode: 0o600,
+        });
+        rmSync(result.environmentPath);
+        if (tamper === "derived-symlink") {
+          symlinkSync(outside, result.environmentPath);
+        } else {
+          linkSync(outside, result.environmentPath);
+        }
+      }
+      assert.throws(() =>
+        assertMaterializedVercelBuildEnvironment({
+          ...fixture.options,
+          expectedUid: process.getuid(),
+          expectedGid: process.getgid(),
+        }),
+      );
+    } finally {
+      fixture.cleanup();
+    }
+  }
+});
+
 test("UI preview environment validation reads only trusted pull staging", () => {
   const fixture = pulledStagingFixture();
   try {
@@ -1126,6 +1490,7 @@ test("UI preview environment validation reads only trusted pull staging", () => 
       fixture.expectedRootDirectory,
     );
     mkdirSync(candidateProject, { recursive: true });
+    materializeFixture(fixture);
     stageVercelPullForCandidate({
       ...fixture.options,
       candidateRoot: fixture.candidateRoot,
@@ -1279,6 +1644,7 @@ test("candidate Vercel links cannot redirect trusted pulled-state copies", () =>
         outsideDirectory,
         sentinelPath,
       });
+      materializeFixture(fixture);
 
       assert.equal(
         stageVercelPullForCandidate({
@@ -1316,6 +1682,7 @@ test("candidate staging rejects a source root that escapes the isolation root", 
       recursive: true,
     });
     symlinkSync(outside, fixture.candidateRoot);
+    materializeFixture(fixture);
     assert.throws(() =>
       stageVercelPullForCandidate({
         ...fixture.options,
@@ -1338,6 +1705,7 @@ test("candidate staging rejects source components with the wrong owner", () => {
     mkdirSync(join(fixture.candidateRoot, fixture.expectedRootDirectory), {
       recursive: true,
     });
+    materializeFixture(fixture);
     assert.throws(() =>
       stageVercelPullForCandidate({
         ...fixture.options,
@@ -2445,6 +2813,10 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
     isolationBlock,
     /Protected runtime root is not the authenticated fixed directory/,
   );
+  assert.match(
+    isolationBlock,
+    /if \[ "\$build_uid" = "\$\(id -u\)" \] \|\| \[ "\$build_gid" = "\$\(id -g\)" \]; then\n\s+echo "Dedicated candidate identity overlaps the runner identity"/,
+  );
   assert.match(isolationBlock, /trusted-install-modules-dir/);
   assert.match(isolationBlock, /--modules-dir "\$trusted_modules_dir"/);
   const isolationRootValidationIndex = isolationBlock.indexOf(
@@ -2566,9 +2938,7 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   );
   const candidateOutputValidationBlock = raw.slice(
     raw.indexOf("- name: Assert the literal target prebuilt output"),
-    raw.indexOf(
-      "- name: Revalidate runner-owned pulled settings after the build",
-    ),
+    raw.indexOf("- name: Revalidate runner-owned build inputs after the build"),
   );
   const uploadOutputValidationBlock = raw.slice(
     raw.indexOf("- name: Assert immutable runner-owned upload handoff"),
@@ -2579,18 +2949,24 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
     raw.indexOf("- name: Assert isolated runner-owned Vercel pull result"),
   );
   const stagePullBlock = raw.slice(
-    raw.indexOf("- name: Stage trusted project settings into candidate source"),
-    raw.indexOf("- name: Assert isolated project mapping"),
+    raw.indexOf(
+      "- name: Stage project settings and allowlisted environment into candidate source",
+    ),
+    raw.indexOf(
+      "- name: Assert isolated candidate project mapping and environment",
+    ),
   );
   const validateCandidatePullBlock = raw.slice(
-    raw.indexOf("- name: Assert isolated project mapping"),
+    raw.indexOf(
+      "- name: Assert isolated candidate project mapping and environment",
+    ),
     raw.indexOf("- name: Build the literal target prebuilt output"),
   );
   const environmentValidationIndex = raw.indexOf(
     "- name: Validate runner-owned non-Governance preview build variables",
   );
   const stagePullIndex = raw.indexOf(
-    "- name: Stage trusted project settings into candidate source",
+    "- name: Stage project settings and allowlisted environment into candidate source",
   );
   const environmentValidationBlock = raw.slice(
     environmentValidationIndex,
@@ -2700,11 +3076,23 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
     raw.indexOf("- name: Assert isolated runner-owned Vercel pull result") <
       environmentValidationIndex,
   );
+  const materializationIndex = raw.indexOf(
+    "- name: Materialize exact allowlisted preview build environment",
+  );
+  const materializedAssertionIndex = raw.indexOf(
+    "- name: Assert isolated allowlisted preview build environment",
+  );
+  assert.ok(
+    raw.indexOf("- name: Assert isolated runner-owned Vercel pull result") <
+      materializationIndex,
+  );
+  assert.ok(materializationIndex < materializedAssertionIndex);
+  assert.ok(materializedAssertionIndex < environmentValidationIndex);
   assert.ok(environmentValidationIndex < stagePullIndex);
   assert.equal(raw.match(/vercel-build-environment\.mjs/g)?.length, 2);
   assert.match(
     environmentValidationBlock,
-    /PULL_STAGING_PATH: \$\{\{ env\.VERCEL_ISOLATION_ROOT \}\}\/mento-vercel-pull-staging/,
+    /BUILD_ENVIRONMENT_PATH: \$\{\{ env\.VERCEL_ISOLATION_ROOT \}\}\/mento-vercel-build-environment/,
   );
   assert.match(
     environmentValidationBlock,
@@ -2712,19 +3100,38 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   );
   assert.match(
     environmentValidationBlock,
-    /--project-directory "\$PULL_STAGING_PATH\/\$EXPECTED_ROOT_DIRECTORY"/,
+    /--project-directory "\$BUILD_ENVIRONMENT_PATH"/,
   );
   assert.doesNotMatch(environmentValidationBlock, /ETHERSCAN_API_KEY/);
   assert.doesNotMatch(environmentValidationBlock, /SENTRY_AUTH_TOKEN/);
   assert.match(
     buildBlock,
-    /vercel-build-environment\.mjs" \\\n\s+check --target "\$LOGICAL_TARGET" --environment preview \\\n\s+--project-directory "\$PULL_STAGING_PATH\/\$EXPECTED_ROOT_DIRECTORY"/,
+    /vercel-build-environment\.mjs" \\\n\s+check --target "\$LOGICAL_TARGET" --environment preview \\\n\s+--project-directory "\$BUILD_ENVIRONMENT_PATH"/,
+  );
+  assert.match(
+    buildBlock,
+    /BUILD_ENVIRONMENT_PATH: \$\{\{ env\.VERCEL_ISOLATION_ROOT \}\}\/mento-vercel-build-environment/,
+  );
+  assert.doesNotMatch(
+    buildBlock,
+    /--project-directory "\$SOURCE_PATH\/\$EXPECTED_ROOT_DIRECTORY"/,
   );
   assert.doesNotMatch(environmentValidationBlock, /working-directory: source/);
   assert.doesNotMatch(
     environmentValidationBlock,
     /mento-vercel-candidate-source/,
   );
+  const materializationBlock = raw.slice(
+    materializationIndex,
+    materializedAssertionIndex,
+  );
+  assert.match(materializationBlock, /materialize-build-environment/);
+  assert.match(
+    materializationBlock,
+    /pgrep -u "\$BUILD_UID"[\s\S]*materialize-build-environment[\s\S]*pgrep -u "\$BUILD_UID"/,
+  );
+  assert.match(stagePullBlock, /BUILD_ENVIRONMENT_PATH=/);
+  assert.match(stagePullBlock, /LOGICAL_TARGET=/);
   assert.match(
     handoffBlock,
     /\/bin\/cp -R \\\n\s+--no-dereference \\\n\s+--preserve=mode,timestamps/,
@@ -2764,6 +3171,14 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   assert.doesNotMatch(buildBlock, /\n\s+VERCEL_TOKEN=/);
   assert.doesNotMatch(handoffBlock, /userdel|groupdel/);
   assert.match(handoffBlock, /--one-file-system/);
+  assert.match(
+    handoffBlock,
+    /BUILD_ENVIRONMENT_PATH[^\n]*mento-vercel-build-environment/,
+  );
+  assert.match(
+    handoffBlock,
+    /"\$BUILD_ENVIRONMENT_PATH" != "\$VERCEL_ISOLATION_ROOT\/mento-vercel-build-environment"/,
+  );
   const cleanupBlock = raw.slice(
     raw.indexOf("- name: Remove isolated build and upload state"),
     raw.indexOf("\n  smoke:"),
@@ -2774,6 +3189,14 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   assert.match(cleanupBlock, /CANDIDATE_IDENTITY_UID/);
   assert.match(cleanupBlock, /CANDIDATE_IDENTITY_GID/);
   assert.match(cleanupBlock, /assert_expected_path/g);
+  assert.match(
+    cleanupBlock,
+    /"\$BUILD_ENVIRONMENT_PATH" \\\n\s+"\$VERCEL_ISOLATION_ROOT\/mento-vercel-build-environment"/,
+  );
+  assert.match(
+    cleanupBlock,
+    /-- \\\n\s+"\$BUILD_ENVIRONMENT_PATH" \\\n\s+"\$CANDIDATE_HOME_PATH"/,
+  );
   assert.doesNotMatch(cleanupBlock, /mento-vercel-\*\)/);
   assert.match(cleanupBlock, /-rf \\\n\s+--one-file-system \\\n\s+--/);
   assert.match(
@@ -2840,6 +3263,7 @@ test("pulled project and prebuilt output bind the configured UI root and build I
       join(outputDirectory, "builds.json"),
       JSON.stringify({ target: "preview", cliVersion: "56.2.0" }),
     );
+    writeSharpRuntimeArtifacts(outputDirectory);
     assert.equal(
       assertPulledProject({
         repoRoot: directory,
@@ -2879,6 +3303,85 @@ test("pulled project and prebuilt output bind the configured UI root and build I
           vercelProjectId: "prj_example",
         }),
       /does not match/,
+    );
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("prebuilt output requires matching sharp and libvips runtime artifacts", () => {
+  const directory = mkdtempSync(join(tmpdir(), "vercel-sharp-output-"));
+  try {
+    const artifacts = writeSharpRuntimeArtifacts(directory, "linux-x64");
+    writeSharpRuntimeArtifacts(directory, "win32-arm64");
+    assert.deepEqual(
+      assertSharpPrebuiltArtifacts(directory, {
+        runtimePlatform: "linux-x64",
+      }),
+      artifacts,
+    );
+    rmSync(artifacts.nativeAddon);
+    rmSync(artifacts.sharedLibrary);
+    assert.throws(
+      () =>
+        assertSharpPrebuiltArtifacts(directory, {
+          runtimePlatform: "linux-x64",
+        }),
+      /missing sharp 0\.35\.3.*libvips 8\.18\.3/,
+    );
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("prebuilt output rejects sharp artifacts split across functions", () => {
+  const directory = mkdtempSync(join(tmpdir(), "vercel-sharp-split-output-"));
+  try {
+    const nativeFunction = writeSharpRuntimeArtifacts(
+      directory,
+      "linux-x64",
+      "native.func",
+    );
+    const libvipsFunction = writeSharpRuntimeArtifacts(
+      directory,
+      "linux-x64",
+      "libvips.func",
+    );
+    rmSync(nativeFunction.sharedLibrary);
+    rmSync(nativeFunction.versionsManifest);
+    rmSync(libvipsFunction.nativeAddon);
+
+    assert.throws(
+      () =>
+        assertSharpPrebuiltArtifacts(directory, {
+          runtimePlatform: "linux-x64",
+        }),
+      /missing sharp 0\.35\.3.*libvips 8\.18\.3/,
+    );
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("prebuilt output ignores sharp artifacts outside configured physical functions", () => {
+  const directory = mkdtempSync(join(tmpdir(), "vercel-sharp-decoy-output-"));
+  try {
+    writeSharpRuntimeArtifactsInFunction(
+      join(directory, "static", "fake.func"),
+      "linux-x64",
+    );
+    writeSharpRuntimeArtifactsInFunction(
+      join(directory, "functions", "unconfigured.func"),
+      "linux-x64",
+      { writeFunctionConfig: false },
+    );
+
+    assert.throws(
+      () =>
+        assertSharpPrebuiltArtifacts(directory, {
+          runtimePlatform: "linux-x64",
+        }),
+      /missing sharp 0\.35\.3.*libvips 8\.18\.3/,
     );
   } finally {
     rmSync(directory, { force: true, recursive: true });
@@ -3095,7 +3598,7 @@ test("upload guard rejects unsafe links, special nodes, and runner-writable stat
       name: "absolute symbolic link",
       mutate: ({ outputDirectory }) => {
         const functionsDirectory = join(outputDirectory, "functions");
-        mkdirSync(functionsDirectory);
+        mkdirSync(functionsDirectory, { recursive: true });
         symlinkSync(
           join(outputDirectory, "static", "nested", "asset.js"),
           join(functionsDirectory, "absolute.func"),
@@ -3114,7 +3617,7 @@ test("upload guard rejects unsafe links, special nodes, and runner-writable stat
       name: "function symbolic link outside functions",
       mutate: ({ outputDirectory }) => {
         const functionsDirectory = join(outputDirectory, "functions");
-        mkdirSync(functionsDirectory);
+        mkdirSync(functionsDirectory, { recursive: true });
         mkdirSync(join(outputDirectory, "static", "outside.func"));
         symlinkSync(
           "../static/outside.func",
@@ -3126,7 +3629,7 @@ test("upload guard rejects unsafe links, special nodes, and runner-writable stat
       name: "escaping relative symbolic link",
       mutate: ({ outputDirectory }) => {
         const functionsDirectory = join(outputDirectory, "functions");
-        mkdirSync(functionsDirectory);
+        mkdirSync(functionsDirectory, { recursive: true });
         const path = join(functionsDirectory, "escape.func");
         symlinkSync(relative(dirname(path), "/etc/passwd"), path);
       },
@@ -3135,7 +3638,7 @@ test("upload guard rejects unsafe links, special nodes, and runner-writable stat
       name: "broken symbolic link",
       mutate: ({ outputDirectory }) => {
         const functionsDirectory = join(outputDirectory, "functions");
-        mkdirSync(functionsDirectory);
+        mkdirSync(functionsDirectory, { recursive: true });
         symlinkSync("missing.func", join(functionsDirectory, "broken.func"));
       },
     },
@@ -3143,7 +3646,7 @@ test("upload guard rejects unsafe links, special nodes, and runner-writable stat
       name: "cyclic symbolic link",
       mutate: ({ outputDirectory }) => {
         const functionsDirectory = join(outputDirectory, "functions");
-        mkdirSync(functionsDirectory);
+        mkdirSync(functionsDirectory, { recursive: true });
         symlinkSync("cycle-b.func", join(functionsDirectory, "cycle-a.func"));
         symlinkSync("cycle-a.func", join(functionsDirectory, "cycle-b.func"));
       },
@@ -3152,7 +3655,7 @@ test("upload guard rejects unsafe links, special nodes, and runner-writable stat
       name: "function symbolic link to a file",
       mutate: ({ outputDirectory }) => {
         const functionsDirectory = join(outputDirectory, "functions");
-        mkdirSync(functionsDirectory);
+        mkdirSync(functionsDirectory, { recursive: true });
         writeFileSync(
           join(functionsDirectory, "target.func"),
           "not a directory",
@@ -3186,7 +3689,7 @@ test("upload guard rejects unsafe links, special nodes, and runner-writable stat
       name: "output-root symbolic link",
       mutate: ({ outputDirectory }) => {
         const functionsDirectory = join(outputDirectory, "functions");
-        mkdirSync(functionsDirectory);
+        mkdirSync(functionsDirectory, { recursive: true });
         symlinkSync("..", join(functionsDirectory, "root.func"));
       },
     },

@@ -28,7 +28,7 @@ copy a second ownership table into executable code.
 - Vercel CLI: exactly `56.2.0` in the root `devDependencies`. The project owner
   approved the dependency as part of delivering the epic. The stable npm version
   was re-queried on 2026-07-14 before it was pinned.
-- Resolved Next.js: `16.2.10` in `pnpm-lock.yaml`.
+- Resolved Next.js: `16.2.11` in `pnpm-lock.yaml`.
 
 Both exceed Vercel's custom deployment-ID prerequisites: Next.js newer than
 `16.2.0-canary.15` and Vercel CLI newer than `50.3.3`. Verify this invariant
@@ -39,6 +39,31 @@ pnpm vercel:versions:check
 ```
 
 Do not replace the pinned CLI with `npx vercel@latest` in automation.
+
+## Temporary sharp 0.35 output-tracing guard
+
+The root conditional override forces vulnerable `sharp >=0.34.0 <0.35.0`
+consumers to `0.35.3`, which includes libvips 8.18.3. Stable Next.js 16.2.11
+does not yet recognize sharp 0.35's versioned native-addon filename during
+Turbopack output tracing. A build can otherwise succeed while omitting the
+native addon or matching libvips shared library from the deployed function.
+
+All four Next configs call `sharpOutputFileTracingConfig` from
+`scripts/next-sharp-output-tracing.mjs`. It adds only the build host's exact
+platform and architecture packages to `outputFileTracingIncludes`; it must not
+fall back to another optional platform package that happens to exist in the
+pnpm store. Each app's `postbuild` lifecycle then runs
+`scripts/assert-next-sharp-trace.mjs` and fails unless one output trace contains
+the exact sharp 0.35.3 manifest, host-native versioned addon, libvips shared
+library, and libvips 8.18.3 manifest.
+
+The trusted prebuilt workflow independently scans the final
+`.vercel/output` tree before upload. It rejects an output that lacks the exact
+Linux runtime pair, even if the earlier Next build succeeded. Keep both checks
+until [issue #587](https://github.com/mento-protocol/frontend-monorepo/issues/587)
+verifies that a stable Next.js release contains the upstream tracing and image
+optimizer fixes. Do not replace this with a canary Next.js release or a patched
+compiled `@next/swc-*` binary.
 
 ## Affected-deployment planner
 
@@ -192,16 +217,18 @@ pnpm vercel:env:check \
   --project-directory "$PROJECT_DIRECTORY"
 ```
 
-`PROJECT_DIRECTORY` must be the same app directory used by `vercel pull` and
-`vercel build` (for example, `apps/ui.mento.org`). The checker loads
-`$PROJECT_DIRECTORY/.vercel/.env.<environment>.local`, rejects every
-`sensitive-non-exportable` name found in that pulled file, then overlays
-explicit workflow constants and the secrets allowed for that exact
-target/environment. This makes the GitHub-scoped mirror the only accepted
-source for a Sensitive value. A missing or invalid pulled file, missing scoped
-secret, or cross-target Sensitive name fails closed. The checker prints
-variable names on failure but never values. Its machine-readable inventory is
-available directly:
+`PROJECT_DIRECTORY` identifies the directory whose
+`.vercel/.env.<environment>.local` should be checked. The prebuilt worker points
+this at a runner-owned, one-way materialization rather than the raw `vercel
+pull` directory. The loader selects only requirements whose
+`ciClassification` is `vercel-pull`, omits every unknown or Sensitive name, and
+then overlays explicit workflow constants and the secrets allowed for that
+exact target/environment. This makes the GitHub-scoped mirror the only accepted
+source for a Sensitive value without depending on a denylist of names that may
+appear in Vercel's raw file. A missing, empty, oversized, controlled, or
+unrepresentable required value, missing scoped secret, or cross-target
+Sensitive name fails closed. The checker prints variable names on failure but
+never values. Its machine-readable inventory is available directly:
 
 ```bash
 node scripts/vercel-build-environment.mjs inventory \
@@ -244,7 +271,10 @@ RPC overrides (`NEXT_PUBLIC_RPC_URL`, chain-specific RPC variables), feature and
 test flags (`NEXT_PUBLIC_ENABLE_DEBUG`, `NEXT_PUBLIC_E2E_TEST`,
 `NEXT_PUBLIC_USE_FORK`, `NEXT_PUBLIC_SANCTIONS_TEST_MODE`), banner values,
 `NEXT_PUBLIC_VERSION`, and Governance's optional Celo Sepolia Blockscout URL.
-These are pulled when they exist but are not missing-build failures.
+These are not part of the prebuilt candidate environment unless they are added
+to the reviewed inventory above with `ciClassification: vercel-pull`; raw
+unknown values are intentionally omitted rather than passed through. They are
+not missing-build failures.
 `CHAINALYSIS_API_KEY` is optional in the app schema and is not a prebuilt-build
 prerequisite.
 
@@ -351,9 +381,43 @@ The reusable declaration has the three common secrets
 (`VERCEL_TOKEN_PREVIEW`, `TURBO_TOKEN`, and
 `TURBO_REMOTE_CACHE_SIGNATURE_KEY`) plus one optional Governance-only
 `ETHERSCAN_API_KEY` input. App, Reserve, and UI pass only the three common
-secrets; Governance alone also passes `ETHERSCAN_API_KEY`. No preview caller declares or passes
-`SENTRY_AUTH_TOKEN`, and the preflight rejects either Sensitive name if it
-appears in the Vercel-pulled file before candidate code can execute.
+secrets; Governance alone also passes `ETHERSCAN_API_KEY`. No preview caller
+declares or passes `SENTRY_AUTH_TOKEN`. Raw pulled Sensitive names may exist,
+but the one-way exact allowlist never writes them into the derived file or the
+candidate tree; Governance receives `ETHERSCAN_API_KEY` only from its scoped
+GitHub secret in the validation and build process environment.
+
+### One-way preview build-environment materialization
+
+The token-bearing `vercel pull` still runs only in fresh runner-owned staging.
+Its raw `.env.preview.local` remains untouched under a `0700` staging root and
+never crosses into candidate-owned storage. With the candidate UID stopped, a
+trusted controller opens that raw file with no-follow semantics after exact
+containment, ownership, `0600` mode, single-link, file-type, and size checks. It
+parses the file with Node's pinned dotenv parser, selects only the target's
+declared `vercel-pull` requirements, and emits a deterministic canonical dotenv
+file under the fresh runner-owned `0700`
+`mento-vercel-build-environment` root.
+
+The derived file is created once with exclusive/no-follow flags and `0600`
+mode. Serialization must parse back to the exact selected key/value set;
+control characters, oversized values, and values that cannot be represented
+losslessly fail by variable name only. The controller then reopens the raw
+source and proves its inode, bytes, size, mode, ownership, and link count did
+not change. It never rewrites, renames, or unlinks the raw file, and a partial
+failure leaves the authenticated run root for the always-run final cleanup.
+Retries use a new run root; an existing materialization destination is never
+reused or overwritten.
+
+Before staging, the controller recomputes the exact derived bytes from the raw
+source and rejects any mismatch or ambiguity. Only `repo.json`, `project.json`,
+and the derived `.env.preview.local` enter the stopped candidate's `.vercel`
+directories. The candidate copy is checked again for the canonical exact key
+set before the existing clean `env -i` -> `setpriv --clear-groups
+--no-new-privs` -> pinned Vercel CLI build boundary. The raw pull staging and
+derived materialization remain runner-private through the build, are
+revalidated afterward, and are removed only by the trusted handoff/final
+cleanup after the candidate UID has been killed and proven stopped.
 
 ## Historical Phase A manual UI prebuilt pilot (audit record)
 

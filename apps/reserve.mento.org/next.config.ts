@@ -6,6 +6,7 @@ import {
   originOf,
   sentryCspReportUri,
 } from "../../scripts/security-headers.mjs";
+import { sharpOutputFileTracingConfig } from "../../scripts/next-sharp-output-tracing.mjs";
 
 const uploadSentrySourceMaps = process.env.VERCEL_ENV === "production";
 const sentryAuthToken = env.SENTRY_AUTH_TOKEN;
@@ -51,6 +52,7 @@ const reportOnlyCsp = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  ...sharpOutputFileTracingConfig(import.meta.url),
   deploymentId,
   experimental: deploymentId
     ? {

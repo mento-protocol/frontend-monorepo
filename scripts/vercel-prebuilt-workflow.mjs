@@ -14,11 +14,13 @@ import {
   copyFileSync,
   existsSync,
   fchmodSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
   readlinkSync,
+  readSync,
   readdirSync,
   realpathSync,
   rmSync,
@@ -41,6 +43,15 @@ import {
   assertPrebuiltDeploymentId,
   generateVercelDeploymentId,
 } from "./vercel-prebuilt.mjs";
+import {
+  parseVercelPulledEnvironment,
+  selectVercelPulledEnvironment,
+  serializeVercelPulledEnvironment,
+} from "./vercel-build-environment.mjs";
+import {
+  sharpRuntimePlatform,
+  SHARP_RUNTIME_VERSION,
+} from "./next-sharp-output-tracing.mjs";
 import { PREVIEW_TARGET_CONFIG } from "./vercel-preview-targets.mjs";
 
 export const PREBUILT_TARGETS = Object.freeze(
@@ -71,6 +82,8 @@ const VERCEL_DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
 const MAX_PREBUILT_CONFIG_BYTES = 1024 * 1024;
 const MAX_PREBUILT_FILE_BYTES = 250 * 1024 * 1024;
 const MAX_PREBUILT_TOTAL_BYTES = 1024 * 1024 * 1024;
+const LIBVIPS_SHARED_LIBRARY_PATTERN =
+  /^libvips-cpp(?:\.[0-9.]+)?\.(?:dylib|so)(?:\.[0-9.]+)?$/;
 const VERCEL_CLI_BASE_ENVIRONMENT = [
   "CI",
   "FORCE_COLOR",
@@ -91,6 +104,7 @@ const VERCEL_CLI_BASE_ENVIRONMENT = [
   "no_proxy",
 ];
 const PULL_STAGING_DIRECTORY = "mento-vercel-pull-staging";
+const BUILD_ENVIRONMENT_DIRECTORY = "mento-vercel-build-environment";
 const CANDIDATE_SOURCE_DIRECTORY = "mento-vercel-candidate-source";
 const TRUSTED_TOOLS_DIRECTORY = "mento-vercel-trusted-tools";
 const PNPM_BOOTSTRAP_DIRECTORY = "mento-vercel-pnpm-bootstrap";
@@ -110,6 +124,7 @@ const PINNED_PNPM_LINUX_X64_SHA256 =
 const PINNED_PNPM_RUNTIME_LOCKFILE_SHA256 =
   "c0dbb0f05ade0e4a8db501e5eb25ebe3c2f2794feed1caec2cf4df6c4583715a";
 const PULLED_ENVIRONMENT_FILE = ".env.preview.local";
+const MAX_PULLED_ENVIRONMENT_BYTES = 16 * 1_024 * 1_024;
 const MAX_SOURCE_ENTRIES = 20_000;
 const MAX_SOURCE_PATH_BYTES = 4_096;
 const MAX_SOURCE_BLOB_BYTES = 32 * 1_024 * 1_024;
@@ -1015,6 +1030,372 @@ export function assertVercelPullStaging({
   });
 }
 
+function protectedFileIdentity(entry) {
+  return {
+    ctimeMs: entry.ctimeMs,
+    dev: entry.dev,
+    gid: entry.gid,
+    ino: entry.ino,
+    mode: entry.mode,
+    mtimeMs: entry.mtimeMs,
+    nlink: entry.nlink,
+    size: entry.size,
+    uid: entry.uid,
+  };
+}
+
+function sameProtectedFileIdentity(left, right) {
+  return Object.keys(left).every((name) => left[name] === right[name]);
+}
+
+function assertProtectedEnvironmentEntry(
+  entry,
+  { expectedUid, expectedGid, label },
+) {
+  if (
+    entry.isSymbolicLink() ||
+    !entry.isFile() ||
+    entry.uid !== expectedUid ||
+    entry.gid !== expectedGid ||
+    (entry.mode & 0o777) !== 0o600 ||
+    entry.nlink !== 1 ||
+    entry.size > MAX_PULLED_ENVIRONMENT_BYTES
+  ) {
+    throw new Error(`${label} has unsafe filesystem metadata`);
+  }
+}
+
+function readProtectedEnvironmentFile({
+  root,
+  filePath,
+  expectedUid,
+  expectedGid,
+  label,
+}) {
+  const canonicalRoot = realpathSync(root);
+  const canonicalFilePath = realpathSync(filePath);
+  if (
+    canonicalFilePath !== filePath ||
+    !isStrictDescendant(canonicalRoot, canonicalFilePath)
+  ) {
+    throw new Error(`${label} escapes its protected root`);
+  }
+  const beforeEntry = lstatSync(filePath);
+  assertProtectedEnvironmentEntry(beforeEntry, {
+    expectedUid,
+    expectedGid,
+    label,
+  });
+  if (typeof fsConstants.O_NOFOLLOW !== "number") {
+    throw new Error(`${label} cannot be opened without following links`);
+  }
+  const descriptor = openSync(
+    filePath,
+    fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+  );
+  let bytes;
+  const beforeIdentity = protectedFileIdentity(beforeEntry);
+  try {
+    const openedEntry = fstatSync(descriptor);
+    assertProtectedEnvironmentEntry(openedEntry, {
+      expectedUid,
+      expectedGid,
+      label,
+    });
+    if (
+      !sameProtectedFileIdentity(
+        beforeIdentity,
+        protectedFileIdentity(openedEntry),
+      )
+    ) {
+      throw new Error(`${label} changed before it was opened`);
+    }
+    bytes = Buffer.alloc(openedEntry.size);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const count = readSync(
+        descriptor,
+        bytes,
+        offset,
+        bytes.length - offset,
+        offset,
+      );
+      if (count === 0) throw new Error(`${label} was truncated while reading`);
+      offset += count;
+    }
+    const afterReadEntry = fstatSync(descriptor);
+    if (
+      !sameProtectedFileIdentity(
+        beforeIdentity,
+        protectedFileIdentity(afterReadEntry),
+      )
+    ) {
+      throw new Error(`${label} changed while it was read`);
+    }
+  } finally {
+    closeSync(descriptor);
+  }
+  const afterPathEntry = lstatSync(filePath);
+  if (
+    !sameProtectedFileIdentity(
+      beforeIdentity,
+      protectedFileIdentity(afterPathEntry),
+    )
+  ) {
+    throw new Error(`${label} changed after it was read`);
+  }
+  return { bytes, identity: beforeIdentity };
+}
+
+function assertSameProtectedSource(before, after) {
+  if (
+    !sameProtectedFileIdentity(before.identity, after.identity) ||
+    !before.bytes.equals(after.bytes)
+  ) {
+    throw new Error(
+      "Vercel-pulled build environment changed during materialization",
+    );
+  }
+}
+
+function deriveVercelBuildEnvironment({ target, environment, raw }) {
+  let text;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(raw);
+  } catch {
+    throw new Error("Vercel-pulled build environment is not valid UTF-8");
+  }
+  const values = selectVercelPulledEnvironment({
+    target,
+    environment,
+    pulledValues: parseVercelPulledEnvironment(text),
+  });
+  return {
+    serialized: serializeVercelPulledEnvironment(values),
+    values,
+  };
+}
+
+function materializedEnvironmentEntries() {
+  return [
+    ["", { type: "directory" }],
+    [".vercel", { type: "directory" }],
+    [
+      join(".vercel", PULLED_ENVIRONMENT_FILE),
+      { type: "file", maximumSize: MAX_PULLED_ENVIRONMENT_BYTES },
+    ],
+  ];
+}
+
+function inspectMaterializedVercelBuildEnvironment({
+  isolationRoot,
+  stagingRoot,
+  materializationRoot,
+  expectedRootDirectory,
+  logicalTarget,
+  environment = "preview",
+  vercelOrgId,
+  vercelProjectId,
+  expectedUid,
+  expectedGid,
+}) {
+  const uid = numericIdentity(expectedUid, "Expected runner UID");
+  const gid = numericIdentity(expectedGid, "Expected runner GID");
+  assertVercelPullStaging({
+    isolationRoot,
+    stagingRoot,
+    expectedRootDirectory,
+    vercelOrgId,
+    vercelProjectId,
+    expectedUid: uid,
+    expectedGid: gid,
+  });
+  validatePrebuiltTargetMapping({
+    logicalTarget,
+    workspacePackage: PREBUILT_TARGETS[logicalTarget]?.workspacePackage,
+    expectedRootDirectory,
+  });
+  const canonicalMaterializationRoot = assertIsolationRootChild({
+    isolationRoot,
+    path: materializationRoot,
+    expectedName: BUILD_ENVIRONMENT_DIRECTORY,
+    expectedUid: uid,
+    expectedGid: gid,
+  });
+  if (realpathSync(materializationRoot) !== canonicalMaterializationRoot) {
+    throw new Error("Materialized Vercel build environment escaped isolation");
+  }
+  assertExactFilesystemTree(
+    canonicalMaterializationRoot,
+    materializedEnvironmentEntries(),
+    {
+      expectedUid: uid,
+      expectedGid: gid,
+      label: "Materialized Vercel build environment",
+    },
+  );
+  for (const path of [
+    canonicalMaterializationRoot,
+    join(canonicalMaterializationRoot, ".vercel"),
+  ]) {
+    if ((lstatSync(path).mode & 0o777) !== 0o700) {
+      throw new Error(
+        "Materialized Vercel build environment directory is not private",
+      );
+    }
+  }
+  const sourcePath = join(
+    stagingRoot,
+    expectedRootDirectory,
+    ".vercel",
+    PULLED_ENVIRONMENT_FILE,
+  );
+  const sourceSnapshot = readProtectedEnvironmentFile({
+    root: stagingRoot,
+    filePath: sourcePath,
+    expectedUid: uid,
+    expectedGid: gid,
+    label: "Vercel-pulled build environment",
+  });
+  const expected = deriveVercelBuildEnvironment({
+    target: logicalTarget,
+    environment,
+    raw: sourceSnapshot.bytes,
+  });
+  const environmentPath = join(
+    canonicalMaterializationRoot,
+    ".vercel",
+    PULLED_ENVIRONMENT_FILE,
+  );
+  const materialized = readProtectedEnvironmentFile({
+    root: canonicalMaterializationRoot,
+    filePath: environmentPath,
+    expectedUid: uid,
+    expectedGid: gid,
+    label: "Materialized Vercel build environment",
+  });
+  if (!materialized.bytes.equals(Buffer.from(expected.serialized, "utf8"))) {
+    throw new Error(
+      "Materialized Vercel build environment does not match the exact allowlist",
+    );
+  }
+  return {
+    checked: Object.keys(expected.values).length,
+    environmentPath,
+    sourceSnapshot,
+  };
+}
+
+export function materializeVercelBuildEnvironment({
+  isolationRoot,
+  stagingRoot,
+  materializationRoot,
+  expectedRootDirectory,
+  logicalTarget,
+  environment = "preview",
+  vercelOrgId,
+  vercelProjectId,
+  expectedUid = process.getuid?.(),
+  expectedGid = process.getgid?.(),
+}) {
+  const uid = numericIdentity(expectedUid, "Expected runner UID");
+  const gid = numericIdentity(expectedGid, "Expected runner GID");
+  assertVercelPullStaging({
+    isolationRoot,
+    stagingRoot,
+    expectedRootDirectory,
+    vercelOrgId,
+    vercelProjectId,
+    expectedUid: uid,
+    expectedGid: gid,
+  });
+  validatePrebuiltTargetMapping({
+    logicalTarget,
+    workspacePackage: PREBUILT_TARGETS[logicalTarget]?.workspacePackage,
+    expectedRootDirectory,
+  });
+  const canonicalMaterializationRoot = assertIsolationRootChild({
+    isolationRoot,
+    path: materializationRoot,
+    expectedName: BUILD_ENVIRONMENT_DIRECTORY,
+    expectedUid: uid,
+    expectedGid: gid,
+  });
+  if (optionalEntry(canonicalMaterializationRoot)) {
+    throw new Error("Materialized Vercel build environment must be fresh");
+  }
+  const sourcePath = join(
+    stagingRoot,
+    expectedRootDirectory,
+    ".vercel",
+    PULLED_ENVIRONMENT_FILE,
+  );
+  const sourceBefore = readProtectedEnvironmentFile({
+    root: stagingRoot,
+    filePath: sourcePath,
+    expectedUid: uid,
+    expectedGid: gid,
+    label: "Vercel-pulled build environment",
+  });
+  const derived = deriveVercelBuildEnvironment({
+    target: logicalTarget,
+    environment,
+    raw: sourceBefore.bytes,
+  });
+
+  mkdirSync(canonicalMaterializationRoot, { mode: 0o700 });
+  chmodSync(canonicalMaterializationRoot, 0o700);
+  const vercelDirectory = join(canonicalMaterializationRoot, ".vercel");
+  mkdirSync(vercelDirectory, { mode: 0o700 });
+  chmodSync(vercelDirectory, 0o700);
+  const environmentPath = join(vercelDirectory, PULLED_ENVIRONMENT_FILE);
+  if (typeof fsConstants.O_NOFOLLOW !== "number") {
+    throw new Error(
+      "Materialized Vercel build environment cannot be created safely",
+    );
+  }
+  const descriptor = openSync(
+    environmentPath,
+    fsConstants.O_CREAT |
+      fsConstants.O_EXCL |
+      fsConstants.O_NOFOLLOW |
+      fsConstants.O_WRONLY,
+    0o600,
+  );
+  try {
+    writeFileSync(descriptor, derived.serialized, { encoding: "utf8" });
+    fchmodSync(descriptor, 0o600);
+  } finally {
+    closeSync(descriptor);
+  }
+
+  const inspected = inspectMaterializedVercelBuildEnvironment({
+    isolationRoot,
+    stagingRoot,
+    materializationRoot: canonicalMaterializationRoot,
+    expectedRootDirectory,
+    logicalTarget,
+    environment,
+    vercelOrgId,
+    vercelProjectId,
+    expectedUid: uid,
+    expectedGid: gid,
+  });
+  assertSameProtectedSource(sourceBefore, inspected.sourceSnapshot);
+  return {
+    checked: inspected.checked,
+    environmentPath: inspected.environmentPath,
+  };
+}
+
+export function assertMaterializedVercelBuildEnvironment(options) {
+  const inspected = inspectMaterializedVercelBuildEnvironment(options);
+  return {
+    checked: inspected.checked,
+    environmentPath: inspected.environmentPath,
+  };
+}
+
 function assertCandidateRootComponents({
   isolationRoot,
   candidateRoot,
@@ -1059,6 +1440,8 @@ function assertCandidateVercelPull({
   isolationRoot,
   candidateRoot,
   expectedRootDirectory,
+  logicalTarget,
+  environment,
   vercelOrgId,
   vercelProjectId,
   buildUid,
@@ -1086,6 +1469,38 @@ function assertCandidateVercelPull({
     expectedGid: candidateGid,
     label: "Candidate Vercel state",
   });
+  validatePrebuiltTargetMapping({
+    logicalTarget,
+    workspacePackage: PREBUILT_TARGETS[logicalTarget]?.workspacePackage,
+    expectedRootDirectory,
+  });
+  const environmentPath = join(
+    canonicalCandidateRoot,
+    expectedRootDirectory,
+    ".vercel",
+    PULLED_ENVIRONMENT_FILE,
+  );
+  const candidateEnvironment = readProtectedEnvironmentFile({
+    root: canonicalCandidateRoot,
+    filePath: environmentPath,
+    expectedUid: candidateUid,
+    expectedGid: candidateGid,
+    label: "Candidate Vercel build environment",
+  });
+  const expectedEnvironment = deriveVercelBuildEnvironment({
+    target: logicalTarget,
+    environment,
+    raw: candidateEnvironment.bytes,
+  });
+  if (
+    !candidateEnvironment.bytes.equals(
+      Buffer.from(expectedEnvironment.serialized, "utf8"),
+    )
+  ) {
+    throw new Error(
+      "Candidate Vercel build environment is not the canonical exact allowlist",
+    );
+  }
   return assertPulledProject({
     repoRoot: canonicalCandidateRoot,
     expectedRootDirectory,
@@ -1097,8 +1512,11 @@ function assertCandidateVercelPull({
 export function stageVercelPullForCandidate({
   isolationRoot,
   stagingRoot,
+  materializationRoot,
   candidateRoot,
   expectedRootDirectory,
+  logicalTarget,
+  environment = "preview",
   vercelOrgId,
   vercelProjectId,
   buildUid,
@@ -1110,10 +1528,13 @@ export function stageVercelPullForCandidate({
   const candidateGid = numericIdentity(buildGid, "Candidate build GID");
   const trustedUid = numericIdentity(runnerUid, "Runner UID");
   const trustedGid = numericIdentity(runnerGid, "Runner GID");
-  assertVercelPullStaging({
+  const materializedEnvironment = inspectMaterializedVercelBuildEnvironment({
     isolationRoot,
     stagingRoot,
+    materializationRoot,
     expectedRootDirectory,
+    logicalTarget,
+    environment,
     vercelOrgId,
     vercelProjectId,
     expectedUid: trustedUid,
@@ -1146,10 +1567,6 @@ export function stageVercelPullForCandidate({
       join(expectedRootDirectory, ".vercel", "project.json"),
       join(expectedRootDirectory, ".vercel", "project.json"),
     ],
-    [
-      join(expectedRootDirectory, ".vercel", PULLED_ENVIRONMENT_FILE),
-      join(expectedRootDirectory, ".vercel", PULLED_ENVIRONMENT_FILE),
-    ],
   ];
   for (const [sourcePath, destinationPath] of copies) {
     const destination = join(canonicalCandidateRoot, destinationPath);
@@ -1161,10 +1578,25 @@ export function stageVercelPullForCandidate({
     chownSync(destination, candidateUid, candidateGid);
     chmodSync(destination, 0o600);
   }
+  const candidateEnvironmentPath = join(
+    canonicalCandidateRoot,
+    expectedRootDirectory,
+    ".vercel",
+    PULLED_ENVIRONMENT_FILE,
+  );
+  copyFileSync(
+    materializedEnvironment.environmentPath,
+    candidateEnvironmentPath,
+    fsConstants.COPYFILE_EXCL,
+  );
+  chownSync(candidateEnvironmentPath, candidateUid, candidateGid);
+  chmodSync(candidateEnvironmentPath, 0o600);
   return assertCandidateVercelPull({
     isolationRoot,
     candidateRoot: canonicalCandidateRoot,
     expectedRootDirectory,
+    logicalTarget,
+    environment,
     vercelOrgId,
     vercelProjectId,
     buildUid: candidateUid,
@@ -2499,6 +2931,104 @@ export function assertPulledProject({
   return project;
 }
 
+export function assertSharpPrebuiltArtifacts(
+  outputDirectory,
+  { runtimePlatform = sharpRuntimePlatform() } = {},
+) {
+  const functionsDirectory = join(outputDirectory, "functions");
+  const pending = [];
+  const artifactsByFunction = new Map();
+  const validatedFunctions = new Set();
+
+  try {
+    const functionsEntry = lstatSync(functionsDirectory);
+    if (!functionsEntry.isSymbolicLink() && functionsEntry.isDirectory()) {
+      pending.push(functionsDirectory);
+    }
+  } catch {
+    // A static-only or malformed output cannot satisfy the Sharp runtime guard.
+  }
+
+  while (pending.length > 0) {
+    const path = pending.pop();
+    const entry = lstatSync(path);
+    if (entry.isSymbolicLink()) continue;
+    if (entry.isDirectory()) {
+      for (const child of readdirSync(path)) {
+        pending.push(join(path, child));
+      }
+      continue;
+    }
+    if (!entry.isFile()) continue;
+
+    const sourceParts = relative(outputDirectory, path).split(sep);
+    const functionDirectory = findPhysicalFunctionDirectory(
+      outputDirectory,
+      sourceParts,
+    );
+    if (functionDirectory === undefined) continue;
+    if (!validatedFunctions.has(functionDirectory)) {
+      const configPath = join(functionDirectory, ".vc-config.json");
+      assertStandaloneVercelConfig(configPath, lstatSync(configPath));
+      validatedFunctions.add(functionDirectory);
+    }
+
+    let artifacts = artifactsByFunction.get(functionDirectory);
+    if (!artifacts) {
+      artifacts = {
+        nativeAddon: undefined,
+        sharedLibraries: [],
+        versionsManifests: [],
+      };
+      artifactsByFunction.set(functionDirectory, artifacts);
+    }
+
+    if (
+      basename(path) ===
+      `sharp-${runtimePlatform}-${SHARP_RUNTIME_VERSION}.node`
+    ) {
+      artifacts.nativeAddon = path;
+    }
+    if (LIBVIPS_SHARED_LIBRARY_PATTERN.test(basename(path))) {
+      artifacts.sharedLibraries.push(path);
+    }
+    if (basename(path) === "versions.json" && path.includes("sharp-libvips-")) {
+      try {
+        if (JSON.parse(readFileSync(path, "utf8")).vips === "8.18.3") {
+          artifacts.versionsManifests.push(path);
+        }
+      } catch {
+        // The exact artifact checks below fail closed.
+      }
+    }
+  }
+
+  for (const artifacts of artifactsByFunction.values()) {
+    if (!artifacts.nativeAddon) continue;
+    if (runtimePlatform.startsWith("win32-")) {
+      return { nativeAddon: artifacts.nativeAddon };
+    }
+    const packageSegment = `sharp-libvips-${runtimePlatform}`;
+    const sharedLibrary = artifacts.sharedLibraries.find((path) =>
+      path.includes(packageSegment),
+    );
+    const versionsManifest = artifacts.versionsManifests.find((path) =>
+      path.includes(packageSegment),
+    );
+    if (sharedLibrary && versionsManifest) {
+      return {
+        nativeAddon: artifacts.nativeAddon,
+        sharedLibrary,
+        versionsManifest,
+      };
+    }
+  }
+
+  throw new Error(
+    `Prebuilt output is missing sharp ${SHARP_RUNTIME_VERSION}'s ${runtimePlatform} native addon or its matching libvips 8.18.3 runtime`,
+  );
+}
+
 export function assertPrebuiltOutput({
   repoRoot,
   expectedRootDirectory,
@@ -2514,6 +3044,7 @@ export function assertPrebuiltOutput({
   );
   const configPath = join(outputDirectory, "config.json");
   assertSafeOutputTree(outputDirectory, { expectedUid, expectedGid });
+  assertSharpPrebuiltArtifacts(outputDirectory);
   const configEntry = lstatSync(configPath);
   if (configEntry.isSymbolicLink() || !configEntry.isFile()) {
     throw new Error("Prebuilt output config is not a regular file");
@@ -3018,12 +3549,45 @@ function validatePullStagingFromEnvironment() {
   });
 }
 
+function materializeBuildEnvironmentFromEnvironment() {
+  materializeVercelBuildEnvironment({
+    isolationRoot: process.env.VERCEL_ISOLATION_ROOT,
+    stagingRoot: process.env.PULL_STAGING_PATH,
+    materializationRoot: process.env.BUILD_ENVIRONMENT_PATH,
+    expectedRootDirectory: process.env.EXPECTED_ROOT_DIRECTORY,
+    logicalTarget: process.env.LOGICAL_TARGET,
+    environment: "preview",
+    vercelOrgId: process.env.VERCEL_ORG_ID,
+    vercelProjectId: process.env.VERCEL_PROJECT_ID,
+    expectedUid: process.env.PULL_STAGING_UID ?? process.getuid?.(),
+    expectedGid: process.env.PULL_STAGING_GID ?? process.getgid?.(),
+  });
+}
+
+function validateMaterializedBuildEnvironmentFromEnvironment() {
+  assertMaterializedVercelBuildEnvironment({
+    isolationRoot: process.env.VERCEL_ISOLATION_ROOT,
+    stagingRoot: process.env.PULL_STAGING_PATH,
+    materializationRoot: process.env.BUILD_ENVIRONMENT_PATH,
+    expectedRootDirectory: process.env.EXPECTED_ROOT_DIRECTORY,
+    logicalTarget: process.env.LOGICAL_TARGET,
+    environment: "preview",
+    vercelOrgId: process.env.VERCEL_ORG_ID,
+    vercelProjectId: process.env.VERCEL_PROJECT_ID,
+    expectedUid: process.env.PULL_STAGING_UID ?? process.getuid?.(),
+    expectedGid: process.env.PULL_STAGING_GID ?? process.getgid?.(),
+  });
+}
+
 function stagePullFromEnvironment() {
   stageVercelPullForCandidate({
     isolationRoot: process.env.VERCEL_ISOLATION_ROOT,
     stagingRoot: process.env.PULL_STAGING_PATH,
+    materializationRoot: process.env.BUILD_ENVIRONMENT_PATH,
     candidateRoot: process.env.CANDIDATE_SOURCE_PATH,
     expectedRootDirectory: process.env.EXPECTED_ROOT_DIRECTORY,
+    logicalTarget: process.env.LOGICAL_TARGET,
+    environment: "preview",
     vercelOrgId: process.env.VERCEL_ORG_ID,
     vercelProjectId: process.env.VERCEL_PROJECT_ID,
     buildUid: process.env.BUILD_UID,
@@ -3038,6 +3602,8 @@ function validateCandidatePullFromEnvironment() {
     isolationRoot: process.env.VERCEL_ISOLATION_ROOT,
     candidateRoot: process.env.CANDIDATE_SOURCE_PATH,
     expectedRootDirectory: process.env.EXPECTED_ROOT_DIRECTORY,
+    logicalTarget: process.env.LOGICAL_TARGET,
+    environment: "preview",
     vercelOrgId: process.env.VERCEL_ORG_ID,
     vercelProjectId: process.env.VERCEL_PROJECT_ID,
     buildUid: process.env.BUILD_UID,
@@ -3103,6 +3669,8 @@ function buildFromEnvironment() {
     isolationRoot: process.env.VERCEL_ISOLATION_ROOT,
     candidateRoot: process.env.SOURCE_PATH,
     expectedRootDirectory: process.env.EXPECTED_ROOT_DIRECTORY,
+    logicalTarget: process.env.LOGICAL_TARGET,
+    environment: "preview",
     vercelOrgId: process.env.VERCEL_ORG_ID,
     vercelProjectId: process.env.VERCEL_PROJECT_ID,
     buildUid: process.env.BUILD_UID,
@@ -3270,6 +3838,10 @@ if (isCliEntrypoint()) {
   else if (command === "validate-pull") validatePullFromEnvironment();
   else if (command === "validate-pull-staging")
     validatePullStagingFromEnvironment();
+  else if (command === "materialize-build-environment")
+    materializeBuildEnvironmentFromEnvironment();
+  else if (command === "validate-materialized-build-environment")
+    validateMaterializedBuildEnvironmentFromEnvironment();
   else if (command === "stage-pull") stagePullFromEnvironment();
   else if (command === "validate-candidate-pull")
     validateCandidatePullFromEnvironment();
@@ -3286,7 +3858,7 @@ if (isCliEntrypoint()) {
   else if (command === "total") totalFromEnvironment();
   else {
     throw new Error(
-      "Usage: vercel-prebuilt-workflow.mjs prepare|validate-source|materialize-source|stage-runtime|stage-pnpm-bootstrap|stage-pnpm-runtime|stage-pnpm-launcher|prepare-link|prepare-pull-staging|pull|validate-pull|validate-pull-staging|stage-pull|validate-candidate-pull|build|assert-output|trusted-install-modules-dir|deploy|verify|total",
+      "Usage: vercel-prebuilt-workflow.mjs prepare|validate-source|materialize-source|stage-runtime|stage-pnpm-bootstrap|stage-pnpm-runtime|stage-pnpm-launcher|prepare-link|prepare-pull-staging|pull|validate-pull|validate-pull-staging|materialize-build-environment|validate-materialized-build-environment|stage-pull|validate-candidate-pull|build|assert-output|trusted-install-modules-dir|deploy|verify|total",
     );
   }
 }
