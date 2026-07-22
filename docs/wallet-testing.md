@@ -235,12 +235,13 @@ connect only on an allowlisted team preview host.
 
 GitHub-built workers call the reusable workflow directly before posting a
 successful canonical Deployment status. While native Vercel Git still owns App
-and Governance branch previews, `.github/workflows/preview-smoke.yml` is a
-temporary `deployment_status` adapter. It accepts only the exact Vercel bot,
-exact `Preview – <project>` environment, successful status, empty native
-Deployment payload, and exact project-slug team hostname. Every qualifying
-event runs the full smoke; the adapter does not query or reuse earlier statuses
-or use a lossy shared concurrency group, and has no PAT or Vercel credential.
+branch previews, `.github/workflows/preview-smoke.yml` is its temporary
+`deployment_status` adapter and remains available for a bounded Governance
+rollback/shadow path. It accepts only the exact Vercel bot, exact
+`Preview – <project>` environment, successful status, empty native Deployment
+payload, and exact project-slug team hostname. Every qualifying event runs the
+full smoke; the adapter does not query or reuse earlier statuses or use a lossy
+shared concurrency group, and has no PAT or Vercel credential.
 
 Run the wallet-specific portion locally against any live App or Governance
 preview URL:

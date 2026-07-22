@@ -895,6 +895,12 @@ test("runbook covers v2 migration, four-target canaries, cutover, and exact roll
     "leave all later targets in shadow mode",
     "Reserve Vercel Git cutover",
     "Independent Reserve rollback",
+    "Governance Vercel Git cutover",
+    "Reserve evidence must not be reused as proof",
+    "target-local acceptance matrix",
+    "Independent Governance rollback",
+    "Do not call Governance cut over, begin the App cutover",
+    "Reserve and UI keep their GitHub preview owners",
     "Do not change `VERCEL_PREVIEW_CONTROLLER_MODE`",
     "live cutover matrix and the post-merge canary",
     "UI rollback is target-local",
@@ -932,6 +938,25 @@ test("runbook covers v2 migration, four-target canaries, cutover, and exact roll
     );
   }
 
+  const normalizedDocs = docs.replace(/\s+/g, " ");
+  const orderedOwnershipCutovers = [
+    "### Reserve Vercel Git cutover",
+    "Do not call Reserve cut over, begin the Governance cutover",
+    "### Governance Vercel Git cutover",
+    "Do not call Governance cut over, begin the App cutover",
+    "#### Independent Governance rollback",
+  ];
+  let previousOwnershipIndex = -1;
+  for (const marker of orderedOwnershipCutovers) {
+    const currentIndex = normalizedDocs.indexOf(marker);
+    assert.ok(currentIndex >= 0, `runbook must contain ${marker}`);
+    assert.ok(
+      currentIndex > previousOwnershipIndex,
+      `runbook must order ${marker} after the previous cutover step`,
+    );
+    previousOwnershipIndex = currentIndex;
+  }
+
   const orderedAdmissionCutover = [
     "### Global admission-cursor cutover",
     "Merge the precursor that adds strict numbered event/inert run names",
@@ -951,7 +976,6 @@ test("runbook covers v2 migration, four-target canaries, cutover, and exact roll
     "delayed controller event at or below the authenticated reset floor",
     "A receipt above the floor is never silently ignored",
   ];
-  const normalizedDocs = docs.replace(/\s+/g, " ");
   let previousIndex = -1;
   for (const marker of orderedAdmissionCutover) {
     const currentIndex = normalizedDocs.indexOf(marker);

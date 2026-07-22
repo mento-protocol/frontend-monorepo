@@ -221,6 +221,13 @@ evidence. Preview paths cut over before `main`; the three ordinary production
 targets prove no-domain staging, and app `v3` proves its activation semantics,
 before the final reviewed ownership change.
 
+The current version-controlled preview map assigns Governance, Reserve, and UI
+to GitHub Actions while App remains in shadow mode. Governance's configuration
+change is accepted only after its exact-head and fresh post-merge canaries pass,
+and it may not be published until the earlier Reserve post-merge canary has
+passed. The later App cutover remains independently gated; App `main`, `v2`,
+and custom-`v3` semantics do not change in this step.
+
 `git.deploymentEnabled` branch rules disable only replaced native paths. The app
 configuration always retains `v2: true`. Outside a bounded shadow canary or
 rollback proving period, native Vercel Git and GitHub Actions do not both

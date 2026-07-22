@@ -108,14 +108,14 @@ test("ownership configurations keep only their reviewed branch exceptions", () =
   }
 });
 
-test("current rollout keeps App and Governance shadowed while Reserve and UI are GitHub-only", () => {
+test("current rollout keeps only App shadowed while Governance, Reserve, and UI are GitHub-only", () => {
   assert.deepEqual(
     PREVIEW_TARGETS.filter(
       (target) =>
         PREVIEW_TARGET_CONFIG[target].ownershipMode ===
         PREVIEW_OWNERSHIP_MODES.SHADOW,
     ),
-    ["app", "governance"],
+    ["app"],
   );
   assert.deepEqual(
     PREVIEW_TARGETS.filter(
@@ -123,7 +123,7 @@ test("current rollout keeps App and Governance shadowed while Reserve and UI are
         PREVIEW_TARGET_CONFIG[target].ownershipMode ===
         PREVIEW_OWNERSHIP_MODES.GITHUB,
     ),
-    ["reserve", "ui"],
+    ["governance", "reserve", "ui"],
   );
   assert.equal(controller.env.VERCEL_PREVIEW_CONTROLLER_MODE, "active");
 });
