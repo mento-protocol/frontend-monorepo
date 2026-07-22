@@ -364,16 +364,19 @@ test("planner materializes only trusted-base code without shared caches", () => 
 });
 
 test("all preview journal and status mutations share queued cross-workflow serialization", () => {
-  const expected = {
+  const receiptExpected = {
+    actions: "read",
     contents: "read",
     "pull-requests": "write",
     statuses: "write",
   };
-  for (const jobName of ["receipt-event", "receipt-bootstrap"]) {
-    const job = controller.jobs[jobName];
-    assert.deepEqual(job.permissions, expected);
-    assert.match(JSON.stringify(job), /recordEventReceipt/);
-  }
+  const eventReceipt = controller.jobs["receipt-event"];
+  assert.deepEqual(eventReceipt.permissions, receiptExpected);
+  assert.match(JSON.stringify(eventReceipt), /recordEventReceipt/);
+
+  const bootstrapReceipt = controller.jobs["receipt-bootstrap"];
+  assert.deepEqual(bootstrapReceipt.permissions, receiptExpected);
+  assert.match(JSON.stringify(bootstrapReceipt), /recordEventReceipt/);
   for (const [jobName, prExpression] of serializedControllerMutations) {
     assert.deepEqual(
       controller.jobs[jobName].concurrency,
@@ -878,6 +881,8 @@ test("runbook covers v2 migration, four-target canaries, cutover, and exact roll
     '"main": true',
     '"dependabot/**": false',
     "immutable 40-character SHAs",
+    "at most eight concurrent run-detail requests",
+    "96 title requests",
     "selected historical event is rechecked",
     "own SHA after PR-lineage proof",
     "dispatch-disabled-intent-without-worker",
@@ -899,6 +904,38 @@ test("runbook covers v2 migration, four-target canaries, cutover, and exact roll
       new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
     );
   }
+
+  const orderedAdmissionCutover = [
+    "### Global admission-cursor cutover",
+    "Merge the precursor that adds strict numbered event/inert run names",
+    "Update enforcement PR #586",
+    "Drain controller, worker, intake, and controller-callback activity",
+    "Merge #586 only after that quiescence proof",
+    "Its close event may",
+    "dispatch exactly one closed",
+    "`repository_dispatch` run ID, run number, strict title",
+    "journal is terminal-closed",
+    "same run's reconciliation job finish",
+    "Do not send a second distinct closed bootstrap",
+    "Freeze further pull-request lifecycle mutations",
+    "Inventory every other open canonical v2 journal without an admission cursor",
+    "bootstrap every inventoried journal immediately",
+    "Do not resume pushes, retargets, reopens, or closes until every bootstrap is proven",
+    "delayed controller event at or below the authenticated reset floor",
+    "A receipt above the floor is never silently ignored",
+  ];
+  const normalizedDocs = docs.replace(/\s+/g, " ");
+  let previousIndex = -1;
+  for (const marker of orderedAdmissionCutover) {
+    const currentIndex = normalizedDocs.indexOf(marker);
+    assert.ok(currentIndex >= 0, `runbook must contain ${marker}`);
+    assert.ok(
+      currentIndex > previousIndex,
+      `runbook must order ${marker} after the previous cutover step`,
+    );
+    previousIndex = currentIndex;
+  }
+
   assert.doesNotMatch(
     docs,
     /gh workflow run vercel-preview-controller|operation=(?:bootstrap|reconcile)|gh run list --workflow.*--limit/,

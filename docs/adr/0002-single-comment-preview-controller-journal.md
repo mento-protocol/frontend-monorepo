@@ -3,7 +3,7 @@ title: One canonical pull-request comment stores the preview controller journal
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 scope: ci/deployment/preview-controller-state
 date: 2026-07
 ---
@@ -59,10 +59,11 @@ The comment keeps the reviewer explanation and a compact, stable-order
 when one exists. The table is derived from the journal and is part of the exact
 canonical body; it is not a second state surface. One canonical JSON document
 inside the collapsed block contains the repository and pull-request identity,
-a monotonic revision, an optional deterministic checkpoint, logically
+a monotonic revision, an optional deterministic checkpoint, a top-level
+numeric controller-workflow admission cursor, logically
 immutable live event/selection/worker-evidence/result entries, and the bounded
 mutable four-target controller state. The top-level `journal_digest` covers the
-checkpoint, canonical live receipt set, and mutable state;
+admission cursor, checkpoint, canonical live receipt set, and mutable state;
 `state.receipts_digest` separately binds reconciliation to the checkpoint plus
 live receipt set. The canonical Markdown envelope includes an explicit closing
 `</details>` tag and permits no extra presentation text. The comment ID is
@@ -79,13 +80,16 @@ receipt set.
 
 Before appending a later event, a terminal journal with no active or retired
 worker and no unfinished evidence deterministically checkpoints its completed
-prefix in place. The checkpoint retains the cumulative receipt digest and
-counts, the verified lifecycle tail event, and independent status, runtime,
-and pending-owner evidence for every target. Open state uses the reconciled
+prefix in place. The admission cursor remains top-level and independent from
+receipt compaction. The checkpoint retains the cumulative receipt digest and
+counts, the verified lifecycle tail event, and independent status, runtime, and
+pending-owner evidence for every target. Open state uses the reconciled
 lineage tail; closed state uses the matching closure. The mutable state is
 rebased onto that verified tail and the completed live receipts are cleared.
 Semantic replays of the checkpoint tail are idempotent, while a conflicting
-receipt under the same run identity fails closed. A docs-only checkpoint tail
+receipt under the same run identity fails closed. Retrying a semantic alias
+already covered by the top-level cursor is an exact no-op and cannot advance checkpoint
+sequence, counts, or digest twice. A docs-only checkpoint tail
 carries each target's inherited runtime success URL or terminal failure/error
 meaning for subsequent docs-only pushes. This is one atomic revision of the
 same comment and schema, not rollover, archival, or a second persistence path.
@@ -125,9 +129,9 @@ After acquiring that queue, a writer:
    pull request, revision, journal digest, receipts, state, and, when state
    exists, `state.receipts_digest`;
 2. applies one idempotent transition in memory;
-3. updates the existing comment, or creates it for an explicit bootstrap, a
-   first-attempt `opened`, or another first-attempt non-closed PR event only
-   after proving that its `before` and head commits carry no matching
+3. updates the existing comment, or creates it for an explicit bootstrap or a
+   strict numbered first-attempt `opened`/`reopened` event only after proving
+   that its head commit carries no matching
    `Vercel Preview Journal v2 / PR #<number>` initialization status;
 4. rereads the comment and proves its exact revision, canonical JSON, and
    journal digest before publishing statuses or dispatching work.
@@ -138,9 +142,64 @@ ambiguous state and fails closed. The queue is not the first-plus-latest
 selection algorithm; it only prevents concurrent journal replacement. Receipt
 contents and current pull-request state continue to determine selection.
 
-A first-attempt non-closed event may win the queue before `opened`; it may
-create the journal only when no durable controller status for the same PR
-exists on its `before` or head commit. Every durably recorded event ensures a
+Before completed-worker recovery, journal mutation, status publication, or
+dispatch, reconciliation compares the live pull request with the journal's
+latest uniquely represented operational snapshot: PR number, lifecycle state,
+trusted base ref, head SHA/ref/repository, author/trust classification, and
+closed timestamp. The base ref is the PR target identity: ordinary base-tip SHA
+advancement on that same ref does not imply a missing receipt or deferral,
+while an actual base-ref retarget does. The trusted base SHA remains immutable
+planning evidence on each receipt. GitHub's `updated_at` is deliberately
+excluded because title- or body-only edits advance it without creating a
+preview event receipt.
+Each `pull_request_target` run has a strict machine name that binds its workflow
+run ID and workflow-monotonic run number to the PR, action, head SHA,
+synchronize `before` SHA, and receipt requirement. Dependabot author/ref events
+and edited events without a base change are strict non-receipt admissions;
+every other eligible event requires a receipt.
+
+The journal's top-level `admission` cursor stores the active controller's
+numeric workflow ID and the exact run ID/run number proven through. One
+job-scoped scanner resolves the workflow file to that numeric identity and
+lists the workflow's runs newest-first without branch, event, SHA, or time
+filters. It must account for every run number above the cursor exactly once,
+including inert `repository_dispatch` and `workflow_run` runs, and validate
+each run's workflow, repository, trigger, immutable envelope, state, and strict
+title. The first page is reread to reject a moving view. Five 100-run pages,
+128 total admission requests, 500 processed raw runs, and 96 title hydration
+requests are hard job-wide bounds shared by every proof boundary. A complete
+proof advances the in-memory cursor; only a complete monotonic cursor is
+persisted.
+
+For this PR, every receipt-required admission above the cursor needs its exact
+live receipt, and every numbered receipt above the cursor must map to one strict
+admission. A missing queued or in-progress receipt defers without state, status,
+dispatch, or ownership mutation; a completed run with no receipt fails closed.
+Foreign strict runs are classified inside the same interval without opening a
+foreign journal. Dynamic placeholder titles hydrate through one shared
+deadline-based queue capped at eight concurrent run-detail requests. The queue
+stops cleanly at 30 seconds, 96 title requests, or the job's 128 total admission
+requests instead of fanning out every placeholder or overshooting a budget. A
+still-pending placeholder then leaves the proof incomplete and defers, while a
+completed placeholder or malformed strict run fails closed. Closed PR runs may
+have empty PR linkage; present linkage is validated, while the strict title and
+top-level envelope authenticate an empty-link run. Reruns reuse the same run ID
+and number, so attempts do not create sequence entries.
+
+A stable run-number gap, numeric workflow-ID mismatch, unavailable floor,
+traversal overflow, or budget exhaustion fails closed and requires drain plus
+explicit bootstrap. This global interval proof catches consecutive pushes and
+same-head close/reopen cycles without relying on mutable `updated_at`, branch
+names, or fork-controlled refs. Live reconciliation, dispatch, and final
+publication boundaries reuse the same scanner, cache, cursor, and budget. The
+event-receipt and bootstrap-receipt jobs receive least-privilege
+`actions: read`; reconciliation already has Actions access for worker
+recovery.
+
+A first-attempt strict `opened`/`reopened` event may create the journal only
+when no durable controller status for the same PR exists on its head commit.
+Synchronize, edited, and closed events never infer a missing floor. Every
+durably recorded event ensures a
 separate `Vercel Preview Journal v2 / PR #<number>` success-status witness on
 its head before normal reconciliation. This advances deletion evidence across
 pushes and lets a retry repair a status write that failed after the journal
@@ -154,23 +213,54 @@ intentionally inert: the receipt job emits `reconcile_required=false`, so the
 workflow creates neither an anchorless closure-only journal nor a reconciliation
 run. A delayed non-closed event also remains inert when the live PR is already
 closed and no journal or witness exists. Explicit bootstrap remains the only
-operator-authorized clean restart.
+operator-authorized clean restart. The controller validates its numbered
+receipt against the exact strict `repository_dispatch` run under the current
+numeric workflow ID, then stores that run as the new floor. Earlier controller
+runs are excluded and every later run is globally accounted. A brand-new strict
+`opened` or `reopened` journal may use the immediately preceding run number as
+a temporary floor. A legacy/unnumbered journal or first strict `synchronize`,
+`edited`, or `closed` receipt must be bootstrapped. There is no branch-scoped or
+legacy admission fallback.
 
-As precursor evidence for stronger gap detection, every `pull_request_target`
-run uses a strict machine-readable title that binds run ID, workflow-monotonic
-run number, PR, action, head SHA, synchronize `before` SHA, and whether a receipt
-is required. Dependabot events and unrelated edits encode `receipt=false`,
+One explicit closed-bootstrap path exists for recovery of a legacy cursorless
+closed journal during the admission-cursor cutover. It can update only an
+existing canonical v2 journal whose live PR is closed and whose durable state
+proves that no worker, selection, result, or dispatch ownership remains
+unfinished. The journal is cursorless unless this is an exact rerun of its
+already-recorded bootstrap. It authenticates the exact repository,
+numeric workflow ID/path, `repository_dispatch` run ID and run number, strict
+title, and receipt before mutation. It records a terminal closed anchor/state
+and admission floor without planning, worker dispatch, Deployment mutation, or
+a pending preview status. A rerun of that same Actions run is idempotent and can
+repair a post-commit witness or reconciliation failure; a second distinct
+closed-bootstrap run cannot replace the cursor. A missing journal fails rather
+than being created. Delayed events at or below that floor are exact-run-
+authenticated write-free no-ops, while every later run remains part of the
+global admission interval. A subsequent valid `reopened` event starts a new
+epoch from the terminal anchor.
+
+During the historical precursor phase, every `pull_request_target` run began
+using a strict machine-readable title that binds run ID, workflow-monotonic run
+number, PR, action, head SHA, synchronize `before` SHA, and whether a receipt is
+required. Dependabot events and unrelated edits encode `receipt=false`,
 matching the jobs that do not append a controller receipt. New event and
-bootstrap receipts persist the run number when it is available. This precursor
-does not query Actions, establish an admission frontier, or alter reconciliation
-behavior; existing v2 receipts without the optional field remain valid and keep
-their canonical digest.
+bootstrap receipts persist the run number when it is available. That precursor
+alone did not query Actions, establish an admission frontier, or alter
+reconciliation behavior. The active global-admission implementation now
+consumes those titles and numbered receipts through the bounded Actions proof
+and persists the resulting cursor. Existing v2 receipts without the optional
+field retain their canonical digest but cannot establish or advance that
+cursor.
 
 GitHub currently bounds `queue: max` at 100 pending jobs. The controller must
-keep journal mutations short, expose queue pressure during canaries, and treat
-an admitted-event gap as ambiguous. It may recover current intent only by
-re-querying the live pull request and performing the existing conservative,
-fail-closed plan; it must not invent a missing historical receipt.
+keep journal mutations short and expose queue pressure during canaries. When
+only the live pull request's current operational snapshot is awaiting its
+serialized receipt, and epoch selection has at most one candidate, the
+controller may return the bounded, zero-write deferred result described above.
+A missing historical admitted-event receipt, or more than one epoch candidate,
+remains ambiguous and fails closed. The controller may recover current intent
+only by re-querying the live pull request and performing the existing
+conservative, fail-closed plan; it must not invent a missing historical receipt.
 
 ### Trust and public evidence
 
@@ -188,6 +278,29 @@ collapsed JSON remains internal coordination evidence, not a new required
 check or deployment.
 
 ### Clean cutover, cleanup, and rollback
+
+Admission-cursor rollout is also intentionally single-path. First merge a
+precursor that emits strict numbered event/inert titles and numbered bootstrap
+receipts without enforcing the cursor. Verify one live canary. Then update
+enforcement PR #586 exactly once, wait for its strict `synchronize` receipt,
+freeze it, and drain controller, worker, intake, and callback activity plus all
+unfinished durable ownership before merging it. Its close may fail admission
+because the new implementation was not yet live on the default branch; that
+one rollout edge is repaired only after merge. From the new default branch,
+drain again and dispatch one closed bootstrap for #586. The exact
+`repository_dispatch` run ID/number/title, numeric workflow ID/path,
+repository, receipt, cursor, and terminal closed state must agree, with no
+planner, worker, Deployment, or pending-status side effect. Finish or rerun the
+same run's reconciliation (or dispatch an explicit reconcile after a committed
+receipt) and recheck the terminal state. A second distinct closed bootstrap is
+forbidden. Keep pull-request lifecycle mutations frozen, inventory every other
+open canonical v2 journal without an admission cursor, drain its unfinished
+ownership, and immediately bootstrap every inventoried journal before lifting
+the freeze. This inventory includes #535. Do not resume pushes, retargets,
+reopens, or closes until every numbered bootstrap and cursor is proven. Delayed
+pre-floor runs authenticate exactly and perform no writes; missing receipts
+above the floor defer while running and fail closed when completed. No old
+branch proof, inferred synchronize floor, or dual admission reader remains.
 
 There is no dual-read period and no compatibility path for v1 journals or
 already-running v1 workers. Before merging v2, operators establish a no-push

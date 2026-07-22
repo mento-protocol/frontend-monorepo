@@ -27,8 +27,11 @@ export const CONTROLLER_SCHEMA = "vercel-preview-controller:v2";
 export const PREVIEW_JOURNAL_SCHEMA = "vercel-preview-journal:v2";
 export const PREVIEW_JOURNAL_MARKER = "<!-- vercel-preview-journal:v2 -->";
 const PREVIEW_CHECKPOINT_SCHEMA = "vercel-preview-checkpoint:v2";
+const CONTROLLER_ADMISSION_SCHEMA = "vercel-preview-controller-admission:v1";
 const WORKER_WORKFLOW = "vercel-preview-worker.yml";
 const WORKER_WORKFLOW_NAME = "Vercel Preview Worker";
+const CONTROLLER_WORKFLOW = "vercel-preview-controller.yml";
+const CONTROLLER_WORKFLOW_NAME = "Vercel Preview Controller";
 const INTAKE_WORKFLOW = "vercel-preview-intake.yml";
 const INTAKE_WORKFLOW_NAME = "Vercel Preview Intake";
 export const BOOTSTRAP_DISPATCH_EVENT = "vercel-preview-bootstrap";
@@ -85,6 +88,36 @@ const WORKER_RUN_TITLE_RETRY_MS = 1_000;
 const WORKER_RUN_TITLE_OBSERVATIONS =
   1 + WORKER_RUN_TITLE_RETRY_DELAY_BUDGET_MS / WORKER_RUN_TITLE_RETRY_MS;
 const WORKER_RUN_NAME_PARSE_ERROR = "Worker run name is not strictly parseable";
+const CONTROLLER_EVENT_RUN_PREFIX = "Vercel preview controller event";
+const CONTROLLER_EVENT_RUN_PAGE_SIZE = 100;
+const MAX_CONTROLLER_EVENT_RUN_PAGES = 5;
+const MAX_CONTROLLER_EVENT_ADMISSIONS = 100;
+const MAX_CONTROLLER_EVENT_SCAN_ATTEMPTS = 3;
+const MAX_CONTROLLER_ADMISSION_REQUESTS = 128;
+const MAX_CONTROLLER_ADMISSION_RAW_RUNS =
+  MAX_CONTROLLER_EVENT_RUN_PAGES * CONTROLLER_EVENT_RUN_PAGE_SIZE;
+const MAX_CONTROLLER_ADMISSION_TITLE_REQUESTS = 96;
+const CONTROLLER_RUN_TITLE_RETRY_DELAY_BUDGET_MS = 30_000;
+const CONTROLLER_RUN_TITLE_RETRY_MS = 1_000;
+const CONTROLLER_RUN_TITLE_MAX_CONCURRENCY = 8;
+const PENDING_WORKFLOW_RUN_STATUSES = new Set([
+  "requested",
+  "waiting",
+  "pending",
+  "queued",
+  "in_progress",
+]);
+const TERMINAL_WORKFLOW_RUN_CONCLUSIONS = new Set([
+  "success",
+  "failure",
+  "cancelled",
+  "skipped",
+  "timed_out",
+  "action_required",
+  "neutral",
+  "stale",
+  "startup_failure",
+]);
 const WORKER_RECOVERY_BEFORE_MS = 2 * 60 * 1_000;
 const WORKER_RECOVERY_AFTER_MS = 15 * 60 * 1_000;
 const UPLOAD_STARTED_DESCRIPTION = "Prebuilt preview upload starting";
@@ -119,6 +152,19 @@ class WorkerWorkflowShaMismatchError extends Error {
     this.runId = runId;
     this.actualWorkflowSha = actualWorkflowSha;
     this.expectedWorkflowSha = expectedWorkflowSha;
+  }
+}
+
+class CurrentEpochSelectionError extends Error {
+  constructor(
+    candidateCount,
+    message = "Current PR epoch is missing or ambiguous",
+    reason = "candidate-count",
+  ) {
+    super(message);
+    this.name = "CurrentEpochSelectionError";
+    this.candidateCount = candidateCount;
+    this.reason = reason;
   }
 }
 
@@ -182,8 +228,8 @@ function validatedLogin(value, label = "PR author") {
   return value;
 }
 
-function validatedHeadRef(value) {
-  boundedText(value, "PR head ref", 255);
+function validatedPullRef(value, label) {
+  boundedText(value, label, 255);
   invariant(
     !value.startsWith("-") &&
       !value.startsWith("/") &&
@@ -194,9 +240,17 @@ function validatedHeadRef(value) {
       !value.includes("//") &&
       !value.includes("@{") &&
       !/[~^:?*[\\\s]/.test(value),
-    "PR head ref is invalid",
+    `${label} is invalid`,
   );
   return value;
+}
+
+function validatedHeadRef(value) {
+  return validatedPullRef(value, "PR head ref");
+}
+
+function validatedBaseRef(value) {
+  return validatedPullRef(value, "PR base ref");
 }
 
 function validatedWorkerHeadRef(value) {
@@ -405,6 +459,7 @@ function normalizePullRequest(raw) {
     number: pullRequestNumber(raw.number),
     state,
     baseSha: exactSha(raw.base?.sha, "Trusted base SHA"),
+    baseRef: validatedBaseRef(raw.base?.ref),
     headSha: exactSha(raw.head?.sha, "Head SHA"),
     headRef,
     headRepository,
@@ -437,6 +492,8 @@ function representedPullRequest(events, checkpoint = null) {
       number: event.pr,
       state: event.pr_state,
       baseSha: event.trusted_base_sha,
+      baseRef:
+        event.base_ref === undefined ? null : validatedBaseRef(event.base_ref),
       headSha: event.head_sha,
       headRef: event.head_ref,
       headRepository: event.head_repository,
@@ -483,6 +540,7 @@ export function snapshotPullRequestEvent(payload, runId, runNumber = null) {
     pr_updated_at: pull.updatedAt,
     pr_closed_at: pull.closedAt,
     trusted_base_sha: pull.baseSha,
+    base_ref: pull.baseRef,
     change_base_sha: changeBaseSha,
     head_sha: pull.headSha,
     before_sha: before,
@@ -495,7 +553,6 @@ export function snapshotPullRequestEvent(payload, runId, runNumber = null) {
 
 function snapshotBootstrapPullRequest(rawPull, runId, runNumber = null) {
   const pull = normalizePullRequest(rawPull);
-  invariant(pull.state === "open", "Bootstrap requires an open PR");
   return {
     schema: EVENT_RECEIPT_SCHEMA,
     repository: PREVIEW_REPOSITORY,
@@ -509,6 +566,7 @@ function snapshotBootstrapPullRequest(rawPull, runId, runNumber = null) {
     pr_updated_at: pull.updatedAt,
     pr_closed_at: pull.closedAt,
     trusted_base_sha: pull.baseSha,
+    base_ref: pull.baseRef,
     change_base_sha: pull.baseSha,
     head_sha: pull.headSha,
     before_sha: null,
@@ -528,7 +586,7 @@ export function normalizePlannerResult(
     { ...snapshot, plan: undefined },
     { requirePlan: false },
   );
-  if (event.event_action === "closed") {
+  if (event.pr_state === "closed") {
     return {
       targets: [],
       reason: "closed",
@@ -634,13 +692,21 @@ function validatePlan(plan, event) {
       event.trusted_base_sha,
     "Planner source mismatch",
   );
-  if (event.trust !== "trusted" || event.event_action === "closed") {
+  if (event.trust !== "trusted" || event.pr_state === "closed") {
     invariant(
       plan.targets.length === 0,
       "Unsupported or closed events cannot target a worker",
     );
   }
   return plan;
+}
+
+function isClosedLifecycleReceipt(event) {
+  return (
+    (event.event_action === "closed" || event.event_action === "bootstrap") &&
+    event.pr_state === "closed" &&
+    event.pr_closed_at !== null
+  );
 }
 
 export function validateEventReceipt(value, { requirePlan = true } = {}) {
@@ -666,6 +732,7 @@ export function validateEventReceipt(value, { requirePlan = true } = {}) {
   exactTimestamp(event.pr_updated_at);
   optionalTimestamp(event.pr_closed_at, "Event PR closed timestamp");
   exactSha(event.trusted_base_sha, "Trusted base SHA");
+  if (event.base_ref !== undefined) validatedBaseRef(event.base_ref);
   exactSha(event.change_base_sha, "Change base SHA");
   exactSha(event.head_sha, "Head SHA");
   if (event.before_sha !== null) exactSha(event.before_sha, "Before SHA");
@@ -696,14 +763,16 @@ export function validateEventReceipt(value, { requirePlan = true } = {}) {
       "Only synchronize receipts may have before SHA",
     );
   }
-  if (event.event_action === "closed") {
+  if (isClosedLifecycleReceipt(event)) {
     invariant(
       event.pr_state === "closed" && event.pr_closed_at !== null,
-      "Closed event requires closed lifecycle evidence",
+      "Closed event or bootstrap requires closed lifecycle evidence",
     );
   } else {
     invariant(
-      event.pr_state === "open" && event.pr_closed_at === null,
+      event.event_action !== "closed" &&
+        event.pr_state === "open" &&
+        event.pr_closed_at === null,
       "Open lifecycle event has inconsistent closed evidence",
     );
   }
@@ -719,6 +788,7 @@ function semanticEventKey(event) {
     pr_updated_at: receipt.pr_updated_at,
     pr_closed_at: receipt.pr_closed_at,
     trusted_base_sha: receipt.trusted_base_sha,
+    ...(receipt.base_ref === undefined ? {} : { base_ref: receipt.base_ref }),
     change_base_sha: receipt.change_base_sha,
     before_sha: receipt.before_sha,
     head_sha: receipt.head_sha,
@@ -737,6 +807,7 @@ function anchorAliasKey(event) {
     pr_updated_at: receipt.pr_updated_at,
     pr_closed_at: receipt.pr_closed_at,
     trusted_base_sha: receipt.trusted_base_sha,
+    ...(receipt.base_ref === undefined ? {} : { base_ref: receipt.base_ref }),
     change_base_sha: receipt.change_base_sha,
     before_sha: receipt.before_sha,
     head_sha: receipt.head_sha,
@@ -865,6 +936,64 @@ export function dependabotIntakeRunName({ pr, sha, action }) {
     "Dependabot intake action is invalid",
   );
   return `Vercel preview intake | pr=${pullRequestNumber(pr)} | sha=${exactSha(sha)} | action=${eventAction}`;
+}
+
+export function controllerEventRunName({
+  runId,
+  runNumber,
+  pr,
+  sha,
+  before = null,
+  action,
+  receiptRequired,
+}) {
+  const eventAction = boundedText(action, "Controller event action", 32);
+  invariant(
+    ALLOWED_EVENT_ACTIONS.has(eventAction) && eventAction !== "bootstrap",
+    "Controller event action is invalid",
+  );
+  const beforeValue = before === null ? "none" : exactSha(before, "Before SHA");
+  invariant(
+    (eventAction === "synchronize") === (beforeValue !== "none"),
+    "Controller event before SHA is inconsistent with its action",
+  );
+  invariant(
+    typeof receiptRequired === "boolean",
+    "Controller event receipt requirement is invalid",
+  );
+  return `${CONTROLLER_EVENT_RUN_PREFIX} | id=${exactRunId(runId, "Controller event run ID")} | number=${exactRunId(runNumber, "Controller event run number")} | pr=${pullRequestNumber(pr)} | sha=${exactSha(sha)} | before=${beforeValue} | action=${eventAction} | receipt=${receiptRequired}`;
+}
+
+function parseControllerEventRunName(value) {
+  boundedText(value, "Controller event run name", 255);
+  const match = value.match(
+    /^Vercel preview controller event \| id=([1-9][0-9]*) \| number=([1-9][0-9]*) \| pr=([1-9][0-9]{0,9}) \| sha=([0-9a-f]{40}) \| before=(none|[0-9a-f]{40}) \| action=([a-z]+) \| receipt=(true|false)$/,
+  );
+  invariant(match, "Controller event run name is malformed");
+  const action = boundedText(match[6], "Controller event action", 32);
+  invariant(
+    ALLOWED_EVENT_ACTIONS.has(action) && action !== "bootstrap",
+    "Controller event action is invalid",
+  );
+  const before = match[5] === "none" ? null : exactSha(match[5], "Before SHA");
+  invariant(
+    (action === "synchronize") === (before !== null),
+    "Controller event before SHA is inconsistent with its action",
+  );
+  const receiptRequired = match[7] === "true";
+  invariant(
+    typeof receiptRequired === "boolean",
+    "Controller event receipt requirement is invalid",
+  );
+  return {
+    runId: exactRunId(match[1], "Controller event run ID"),
+    runNumber: exactRunId(match[2], "Controller event run number"),
+    pr: pullRequestNumber(match[3]),
+    sha: exactSha(match[4]),
+    before,
+    action,
+    receiptRequired,
+  };
 }
 
 function parseDependabotIntakeRunName(value) {
@@ -1175,6 +1304,24 @@ function samePullIdentity(event, pullOrAnchor) {
   );
 }
 
+function sameOperationalPullRequest(left, right) {
+  const sameBase =
+    left.baseRef !== null && right.baseRef !== null
+      ? left.baseRef === right.baseRef
+      : left.baseSha === right.baseSha || left.updatedAt === right.updatedAt;
+  return (
+    left.number === right.number &&
+    left.state === right.state &&
+    sameBase &&
+    left.headSha === right.headSha &&
+    left.headRef === right.headRef &&
+    left.headRepository === right.headRepository &&
+    left.author === right.author &&
+    left.trust === right.trust &&
+    left.closedAt === right.closedAt
+  );
+}
+
 function findLineagePaths(anchor, events, pull, epochClosedAt) {
   const lower = anchor.pr_updated_at;
   const upper = epochClosedAt ?? pull.updatedAt;
@@ -1235,10 +1382,13 @@ function selectCurrentEpoch(events, pull, checkpoint = null) {
         !nonBootstrapAnchorKeys.has(anchorAliasKey(event)),
     )
     .sort((a, b) => b.pr_updated_at.localeCompare(a.pr_updated_at));
-  invariant(
-    anchors.length > 0,
-    "No opened, edited, reopened, or bootstrap anchor receipt exists",
-  );
+  if (anchors.length === 0) {
+    throw new CurrentEpochSelectionError(
+      0,
+      "No opened, edited, reopened, or bootstrap anchor receipt exists",
+      "no-anchor",
+    );
+  }
 
   const candidates = [];
   for (const anchor of anchors) {
@@ -1255,12 +1405,23 @@ function selectCurrentEpoch(events, pull, checkpoint = null) {
     );
     let closure = null;
     if (pull.state === "closed") {
-      const matching = closures.filter(
-        (event) => event.pr_closed_at === pull.closedAt,
-      );
-      invariant(matching.length <= 1, "Current closure lifecycle is ambiguous");
-      if (matching.length === 0) continue;
-      [closure] = matching;
+      if (
+        anchor.event_action === "bootstrap" &&
+        isClosedLifecycleReceipt(anchor) &&
+        anchor.pr_closed_at === pull.closedAt
+      ) {
+        closure = anchor;
+      } else {
+        const matching = closures.filter(
+          (event) => event.pr_closed_at === pull.closedAt,
+        );
+        invariant(
+          matching.length <= 1,
+          "Current closure lifecycle is ambiguous",
+        );
+        if (matching.length === 0) continue;
+        [closure] = matching;
+      }
     }
     const paths = findLineagePaths(
       anchor,
@@ -1290,11 +1451,1030 @@ function selectCurrentEpoch(events, pull, checkpoint = null) {
       }
     }
   }
-  invariant(
-    candidates.length === 1,
-    "Current PR epoch is missing or ambiguous",
-  );
+  if (candidates.length !== 1)
+    throw new CurrentEpochSelectionError(candidates.length);
   return candidates[0];
+}
+
+function controllerWorkflowPathMatches(value) {
+  const workflowPath = `.github/workflows/${CONTROLLER_WORKFLOW}`;
+  return value === workflowPath || value === `${workflowPath}@main`;
+}
+
+function validateControllerEventWorkflowRunStatus(run) {
+  const status = boundedText(
+    run.status,
+    "Controller event workflow status",
+    32,
+  );
+  invariant(
+    status === "completed" || PENDING_WORKFLOW_RUN_STATUSES.has(status),
+    "Controller event workflow status is invalid",
+  );
+  invariant(
+    status === "completed"
+      ? TERMINAL_WORKFLOW_RUN_CONCLUSIONS.has(run.conclusion)
+      : run.conclusion === null,
+    "Controller event workflow conclusion is invalid",
+  );
+  return status;
+}
+
+export function validateControllerEventWorkflowRun(rawRun, expectedHeadSha) {
+  const run = plainObject(rawRun, "Controller event workflow run");
+  const displayTitle = boundedText(
+    run.display_title,
+    "Controller event display title",
+  );
+  const parsed = parseControllerEventRunName(displayTitle);
+  invariant(
+    exactRunId(run.id, "Controller event workflow run ID") === parsed.runId,
+    "Controller event workflow run ID mismatch",
+  );
+  invariant(
+    exactRunId(run.run_number, "Controller event workflow run number") ===
+      parsed.runNumber,
+    "Controller event workflow run number mismatch",
+  );
+  const workflowName = boundedText(run.name, "Controller event workflow name");
+  invariant(
+    workflowName === CONTROLLER_WORKFLOW_NAME || workflowName === displayTitle,
+    "Controller event workflow name mismatch",
+  );
+  invariant(
+    controllerWorkflowPathMatches(run.path),
+    "Controller event workflow path mismatch",
+  );
+  invariant(
+    run.event === "pull_request_target",
+    "Controller event workflow trigger mismatch",
+  );
+  const headSha = exactSha(run.head_sha, "Controller event head SHA");
+  invariant(
+    headSha === parsed.sha && headSha === exactSha(expectedHeadSha),
+    "Controller event head SHA mismatch",
+  );
+  const headRef = validatedHeadRef(run.head_branch);
+  const headRepository = plainObject(
+    run.head_repository,
+    "Controller event head repository",
+  );
+  const headRepositoryName = boundedText(
+    headRepository.full_name,
+    "Controller event head repository name",
+  );
+  invariant(
+    optionalHttpsUrl(
+      headRepository.url,
+      "Controller event head repository URL",
+    ) === `https://api.github.com/repos/${headRepositoryName}`,
+    "Controller event head repository mismatch",
+  );
+  validatedRepository(
+    run.repository?.full_name,
+    "Controller event workflow repository",
+  );
+  const createdAt = exactTimestamp(run.created_at);
+  const status = validateControllerEventWorkflowRunStatus(run);
+  invariant(
+    Array.isArray(run.pull_requests) && run.pull_requests.length <= 1,
+    "Controller event PR linkage mismatch",
+  );
+  if (run.pull_requests.length === 1) {
+    const linkedPull = plainObject(
+      run.pull_requests[0],
+      "Controller event linked PR",
+    );
+    const linkedHead = plainObject(
+      linkedPull.head,
+      "Controller event linked PR head",
+    );
+    const linkedHeadRepository = plainObject(
+      linkedHead.repo,
+      "Controller event linked PR head repository",
+    );
+    const linkedBase = plainObject(
+      linkedPull.base,
+      "Controller event linked PR base",
+    );
+    const linkedBaseRepository = plainObject(
+      linkedBase.repo,
+      "Controller event linked PR base repository",
+    );
+    invariant(
+      pullRequestNumber(linkedPull.number) === parsed.pr &&
+        optionalHttpsUrl(linkedPull.url, "Controller event linked PR URL") ===
+          `https://api.github.com/repos/${PREVIEW_REPOSITORY}/pulls/${parsed.pr}`,
+      "Controller event linked PR identity mismatch",
+    );
+    invariant(
+      optionalHttpsUrl(
+        linkedBaseRepository.url,
+        "Controller event linked PR base repository URL",
+      ) === `https://api.github.com/repos/${PREVIEW_REPOSITORY}`,
+      "Controller event linked PR base repository mismatch",
+    );
+    validatedBaseRef(linkedBase.ref);
+    exactSha(linkedBase.sha, "Controller event linked PR base SHA");
+    const linkedHeadSha = exactSha(
+      linkedHead.sha,
+      "Controller event linked PR head SHA",
+    );
+    const linkedHeadRef = validatedHeadRef(linkedHead.ref);
+    const linkedHeadRepositoryUrl = optionalHttpsUrl(
+      linkedHeadRepository.url,
+      "Controller event linked PR head repository URL",
+    );
+    if (linkedHeadSha === parsed.sha) {
+      invariant(
+        linkedHeadRef === headRef &&
+          linkedHeadRepositoryUrl ===
+            `https://api.github.com/repos/${headRepositoryName}`,
+        "Controller event current linked head mismatch",
+      );
+    }
+  }
+  return {
+    ...parsed,
+    status,
+    createdAt,
+    headRef,
+    headRepository: headRepositoryName,
+  };
+}
+
+function controllerEventRunIsStrict(value) {
+  return String(value ?? "").startsWith(`${CONTROLLER_EVENT_RUN_PREFIX} |`);
+}
+
+function controllerInertRunName(event, runId) {
+  invariant(
+    event === "repository_dispatch" || event === "workflow_run",
+    "Controller inert workflow event is invalid",
+  );
+  return `Vercel Preview Controller | event=${event} | id=${exactRunId(runId)}`;
+}
+
+function validateControllerWorkflowIdentity(value) {
+  const workflow = plainObject(value, "Controller workflow identity");
+  const workflowId = exactRunId(workflow.id, "Controller workflow ID");
+  invariant(
+    boundedText(workflow.name, "Controller workflow name") ===
+      CONTROLLER_WORKFLOW_NAME &&
+      controllerWorkflowPathMatches(workflow.path) &&
+      workflow.state === "active",
+    "Controller workflow identity is invalid; drain and bootstrap required",
+  );
+  return { workflowId };
+}
+
+function validateControllerAdmissionCursor(value) {
+  if (value === undefined || value === null) return null;
+  const cursor = plainObject(value, "Controller admission cursor");
+  invariant(
+    Object.keys(cursor).sort().join(",") ===
+      "schema,through_run_id,through_run_number,workflow_id" &&
+      cursor.schema === CONTROLLER_ADMISSION_SCHEMA,
+    "Controller admission cursor fields are invalid",
+  );
+  return {
+    schema: CONTROLLER_ADMISSION_SCHEMA,
+    workflow_id: exactRunId(cursor.workflow_id, "Controller workflow ID"),
+    through_run_id: exactRunId(
+      cursor.through_run_id,
+      "Controller admission run ID",
+    ),
+    through_run_number: exactRunId(
+      cursor.through_run_number,
+      "Controller admission run number",
+    ),
+  };
+}
+
+function createControllerAdmissionBudget() {
+  return {
+    requests: 0,
+    rawRuns: 0,
+    titleRequests: 0,
+    titleHydrationStartedAt: null,
+    titleHydrationScheduledDelay: 0,
+    rawRunIdsByNumber: new Map(),
+  };
+}
+
+function consumeControllerAdmissionBudget(budget, field, count, maximum) {
+  budget[field] += count;
+  invariant(
+    budget[field] <= maximum,
+    "Controller admission proof exceeded its job budget; drain and bootstrap required",
+  );
+}
+
+function validateControllerWorkflowRunEnvelope(rawRun, expectedWorkflowId) {
+  const run = plainObject(rawRun, "Controller workflow run");
+  const displayTitle = boundedText(
+    run.display_title,
+    "Controller workflow display title",
+  );
+  const workflowName = boundedText(run.name, "Controller workflow name");
+  invariant(
+    workflowName === CONTROLLER_WORKFLOW_NAME || workflowName === displayTitle,
+    "Controller workflow run name mismatch",
+  );
+  invariant(
+    controllerWorkflowPathMatches(run.path) &&
+      exactRunId(run.workflow_id, "Controller workflow run workflow ID") ===
+        expectedWorkflowId,
+    "Controller workflow identity changed; drain and bootstrap required",
+  );
+  validatedRepository(
+    run.repository?.full_name,
+    "Controller workflow repository",
+  );
+  invariant(
+    ["pull_request_target", "repository_dispatch", "workflow_run"].includes(
+      run.event,
+    ),
+    "Controller workflow run trigger is unclassified; drain and bootstrap required",
+  );
+  const headRepository = plainObject(
+    run.head_repository,
+    "Controller workflow run head repository",
+  );
+  const headRepositoryName = boundedText(
+    headRepository.full_name,
+    "Controller workflow run head repository name",
+  );
+  invariant(
+    optionalHttpsUrl(
+      headRepository.url,
+      "Controller workflow run head repository URL",
+    ) === `https://api.github.com/repos/${headRepositoryName}`,
+    "Controller workflow run head repository mismatch",
+  );
+  invariant(
+    Array.isArray(run.pull_requests) && run.pull_requests.length <= 1,
+    "Controller workflow run PR linkage mismatch",
+  );
+  return {
+    run,
+    displayTitle,
+    event: run.event,
+    runId: exactRunId(run.id, "Controller workflow run ID"),
+    runNumber: exactRunId(run.run_number, "Controller workflow run number"),
+    headSha: exactSha(run.head_sha, "Controller workflow run head SHA"),
+    headRef: validatedHeadRef(run.head_branch),
+    headRepository: headRepositoryName,
+    status: validateControllerEventWorkflowRunStatus(run),
+    createdAt: exactTimestamp(run.created_at),
+  };
+}
+
+async function controllerAdmissionRequest(budget, request) {
+  consumeControllerAdmissionBudget(
+    budget,
+    "requests",
+    1,
+    MAX_CONTROLLER_ADMISSION_REQUESTS,
+  );
+  return request();
+}
+
+async function currentControllerWorkflowIdentity(github, context, budget) {
+  const { data } = await controllerAdmissionRequest(budget, () =>
+    github.rest.actions.getWorkflow({
+      ...ownerRepo(context),
+      workflow_id: CONTROLLER_WORKFLOW,
+    }),
+  );
+  return validateControllerWorkflowIdentity(data);
+}
+
+async function getControllerWorkflowRun(github, context, budget, runId) {
+  const exactId = exactRunId(runId, "Controller workflow run ID");
+  const { data } = await controllerAdmissionRequest(budget, () =>
+    github.rest.actions.getWorkflowRun({
+      ...ownerRepo(context),
+      run_id: exactId,
+    }),
+  );
+  invariant(
+    exactRunId(data.id, "Controller workflow run ID") === exactId,
+    "Controller workflow run identity changed",
+  );
+  return data;
+}
+
+async function listControllerWorkflowRunsPage({
+  github,
+  context,
+  workflowId,
+  budget,
+  page,
+}) {
+  const { data } = await controllerAdmissionRequest(budget, () =>
+    github.rest.actions.listWorkflowRuns({
+      ...ownerRepo(context),
+      workflow_id: workflowId,
+      page,
+      per_page: CONTROLLER_EVENT_RUN_PAGE_SIZE,
+    }),
+  );
+  invariant(
+    Array.isArray(data.workflow_runs) &&
+      data.workflow_runs.length <= CONTROLLER_EVENT_RUN_PAGE_SIZE &&
+      Number.isSafeInteger(data.total_count) &&
+      data.total_count >= data.workflow_runs.length,
+    "Controller workflow run traversal was malformed",
+  );
+  return data.workflow_runs;
+}
+
+function controllerRunPageSignature(runs) {
+  return canonicalJson(
+    runs.map((run) => ({
+      id: exactRunId(run.id, "Controller workflow run ID"),
+      runNumber: exactRunId(run.run_number, "Controller workflow run number"),
+    })),
+  );
+}
+
+async function stableControllerWorkflowFirstPage(args) {
+  for (
+    let attempt = 0;
+    attempt < MAX_CONTROLLER_EVENT_SCAN_ATTEMPTS;
+    attempt += 1
+  ) {
+    const first = await listControllerWorkflowRunsPage({ ...args, page: 1 });
+    const confirmation = await listControllerWorkflowRunsPage({
+      ...args,
+      page: 1,
+    });
+    if (
+      controllerRunPageSignature(first) ===
+      controllerRunPageSignature(confirmation)
+    ) {
+      return confirmation;
+    }
+  }
+  throw new Error("Controller workflow run traversal remained unstable");
+}
+
+async function collectControllerWorkflowRunDeltaOnce({
+  github,
+  context,
+  workflowId,
+  cursor,
+  budget,
+}) {
+  const floorRunNumber = cursor.through_run_number;
+  const delta = [];
+  let previousRunNumber = null;
+  let reachedFloor = false;
+  let frontier = null;
+  for (let page = 1; page <= MAX_CONTROLLER_EVENT_RUN_PAGES; page += 1) {
+    const pageRuns =
+      page === 1
+        ? await stableControllerWorkflowFirstPage({
+            github,
+            context,
+            workflowId,
+            budget,
+          })
+        : await listControllerWorkflowRunsPage({
+            github,
+            context,
+            workflowId,
+            budget,
+            page,
+          });
+    for (const rawRun of pageRuns) {
+      const envelope = validateControllerWorkflowRunEnvelope(
+        rawRun,
+        workflowId,
+      );
+      const cachedRunId = budget.rawRunIdsByNumber.get(envelope.runNumber);
+      invariant(
+        cachedRunId === undefined || cachedRunId === envelope.runId,
+        "Controller workflow run-number identity changed; drain and bootstrap required",
+      );
+      if (cachedRunId === undefined) {
+        budget.rawRunIdsByNumber.set(envelope.runNumber, envelope.runId);
+        consumeControllerAdmissionBudget(
+          budget,
+          "rawRuns",
+          1,
+          MAX_CONTROLLER_ADMISSION_RAW_RUNS,
+        );
+      }
+      if (previousRunNumber === null) {
+        invariant(
+          envelope.runNumber >= floorRunNumber,
+          "Controller admission frontier is ahead of the current workflow; drain and bootstrap required",
+        );
+        frontier = envelope;
+      } else {
+        invariant(
+          envelope.runNumber === previousRunNumber - 1,
+          "Controller workflow run-number gap detected; drain and bootstrap required",
+        );
+      }
+      previousRunNumber = envelope.runNumber;
+      if (envelope.runNumber > floorRunNumber) {
+        delta.push(envelope);
+        if (
+          cursor.through_run_id === null &&
+          envelope.runNumber === floorRunNumber + 1
+        ) {
+          reachedFloor = true;
+          break;
+        }
+        continue;
+      }
+      invariant(
+        envelope.runNumber === floorRunNumber &&
+          (cursor.through_run_id === null ||
+            envelope.runId === cursor.through_run_id),
+        "Controller admission floor identity changed; drain and bootstrap required",
+      );
+      reachedFloor = true;
+      break;
+    }
+    if (reachedFloor) break;
+    invariant(
+      pageRuns.length === CONTROLLER_EVENT_RUN_PAGE_SIZE,
+      "Controller admission floor is unavailable; drain and bootstrap required",
+    );
+  }
+  invariant(
+    reachedFloor,
+    "Controller admission traversal overflowed; drain and bootstrap required",
+  );
+  const nextCursor =
+    delta.length === 0
+      ? cursor
+      : {
+          schema: CONTROLLER_ADMISSION_SCHEMA,
+          workflow_id: workflowId,
+          through_run_id: frontier.runId,
+          through_run_number: frontier.runNumber,
+        };
+  return { delta, cursor: validateControllerAdmissionCursor(nextCursor) };
+}
+
+function retryableControllerTraversalError(error) {
+  return /frontier is ahead|run-number gap detected|floor identity changed|floor is unavailable|traversal overflowed/.test(
+    String(error?.message ?? ""),
+  );
+}
+
+async function collectControllerWorkflowRunDelta(args) {
+  let lastError = null;
+  for (
+    let attempt = 0;
+    attempt < MAX_CONTROLLER_EVENT_SCAN_ATTEMPTS;
+    attempt += 1
+  ) {
+    try {
+      return await collectControllerWorkflowRunDeltaOnce(args);
+    } catch (error) {
+      lastError = error;
+      if (!retryableControllerTraversalError(error)) throw error;
+    }
+  }
+  throw lastError;
+}
+
+async function hydrateControllerWorkflowRuns({
+  github,
+  context,
+  workflowId,
+  envelopes,
+  budget,
+  waitForRetry,
+}) {
+  const values = envelopes.map((envelope) => ({ ...envelope }));
+  const pause = waitForRetry ?? wait;
+  budget.titleHydrationStartedAt ??= Date.now();
+  const startedAt = budget.titleHydrationStartedAt;
+  const deadline = startedAt + CONTROLLER_RUN_TITLE_RETRY_DELAY_BUDGET_MS;
+  const effectiveNow = () =>
+    Math.max(Date.now(), startedAt + budget.titleHydrationScheduledDelay);
+  let firstObservation = true;
+  while (firstObservation || effectiveNow() <= deadline) {
+    const unresolvedIndexes = values
+      .map((envelope, index) => {
+        if (envelope.displayTitle !== CONTROLLER_WORKFLOW_NAME) return null;
+        return index;
+      })
+      .filter((index) => index !== null);
+    if (unresolvedIndexes.length === 0) break;
+
+    for (let offset = 0; offset < unresolvedIndexes.length; ) {
+      if (offset > 0 && effectiveNow() > deadline) return values;
+      const availableRequests = Math.min(
+        MAX_CONTROLLER_ADMISSION_TITLE_REQUESTS - budget.titleRequests,
+        MAX_CONTROLLER_ADMISSION_REQUESTS - budget.requests,
+      );
+      if (availableRequests <= 0) return values;
+      const batchIndexes = unresolvedIndexes.slice(
+        offset,
+        offset +
+          Math.min(CONTROLLER_RUN_TITLE_MAX_CONCURRENCY, availableRequests),
+      );
+      consumeControllerAdmissionBudget(
+        budget,
+        "titleRequests",
+        batchIndexes.length,
+        MAX_CONTROLLER_ADMISSION_TITLE_REQUESTS,
+      );
+      const settled = await Promise.allSettled(
+        batchIndexes.map((index) =>
+          getControllerWorkflowRun(
+            github,
+            context,
+            budget,
+            values[index].runId,
+          ),
+        ),
+      );
+      const rejected = settled.find((result) => result.status === "rejected");
+      if (rejected) throw rejected.reason;
+      const hydrated = settled.map((result) => result.value);
+      for (const [batchOffset, index] of batchIndexes.entries()) {
+        const envelope = validateControllerWorkflowRunEnvelope(
+          hydrated[batchOffset],
+          workflowId,
+        );
+        invariant(
+          envelope.runId === values[index].runId &&
+            envelope.runNumber === values[index].runNumber,
+          "Hydrated controller workflow run identity changed",
+        );
+        values[index] = envelope;
+      }
+      offset += batchIndexes.length;
+    }
+
+    firstObservation = false;
+    if (
+      values.every(
+        (envelope) => envelope.displayTitle !== CONTROLLER_WORKFLOW_NAME,
+      )
+    ) {
+      break;
+    }
+    if (
+      budget.titleRequests >= MAX_CONTROLLER_ADMISSION_TITLE_REQUESTS ||
+      budget.requests >= MAX_CONTROLLER_ADMISSION_REQUESTS
+    ) {
+      return values;
+    }
+    const remainingDelay = deadline - effectiveNow();
+    if (remainingDelay <= 0) break;
+    const retryDelay = Math.min(CONTROLLER_RUN_TITLE_RETRY_MS, remainingDelay);
+    await pause(retryDelay);
+    budget.titleHydrationScheduledDelay += retryDelay;
+  }
+  return values;
+}
+
+function classifyControllerWorkflowDelta(envelopes, pull) {
+  const admissions = [];
+  const unresolvedPendingRunIds = [];
+  for (const envelope of envelopes) {
+    if (envelope.displayTitle === CONTROLLER_WORKFLOW_NAME) {
+      invariant(
+        PENDING_WORKFLOW_RUN_STATUSES.has(envelope.status),
+        "Completed controller workflow run name did not materialize",
+      );
+      unresolvedPendingRunIds.push(envelope.runId);
+      continue;
+    }
+    if (
+      envelope.event === "repository_dispatch" ||
+      envelope.event === "workflow_run"
+    ) {
+      invariant(
+        envelope.displayTitle ===
+          controllerInertRunName(envelope.event, envelope.runId),
+        "Controller inert workflow run is unclassified; drain and bootstrap required",
+      );
+      continue;
+    }
+    invariant(
+      envelope.event === "pull_request_target" &&
+        controllerEventRunIsStrict(envelope.displayTitle),
+      "Controller pull-request run is unclassified; drain and bootstrap required",
+    );
+    const parsed = parseControllerEventRunName(envelope.displayTitle);
+    const admission = validateControllerEventWorkflowRun(
+      envelope.run,
+      parsed.sha,
+    );
+    if (admission.pr !== pull.number) continue;
+    const admissionTrust = classifyTrust({
+      headRepository: admission.headRepository,
+      headRef: admission.headRef,
+      author: pull.author,
+    });
+    invariant(
+      admissionTrust === "dependabot"
+        ? admission.receiptRequired === false
+        : admission.action === "edited" || admission.receiptRequired,
+      "Controller event receipt requirement does not match the PR trust boundary",
+    );
+    admissions.push(admission);
+    invariant(
+      admissions.length <= MAX_CONTROLLER_EVENT_ADMISSIONS,
+      "Controller admission scan exceeded its bound",
+    );
+  }
+  return { admissions, unresolvedPendingRunIds };
+}
+
+function assertAdmissionMatchesReceipt(admission, rawEvent) {
+  const event = validateEventReceipt(rawEvent);
+  invariant(
+    event.event_run_id === admission.runId &&
+      event.event_run_number === admission.runNumber &&
+      event.pr === admission.pr &&
+      event.event_action === admission.action &&
+      event.head_sha === admission.sha &&
+      event.before_sha === admission.before &&
+      event.head_ref === admission.headRef &&
+      event.head_repository === admission.headRepository,
+    "Controller admission does not match its exact event receipt",
+  );
+}
+
+function controllerAdmissionEvents(events, checkpoint) {
+  const values = events.map((event) => validateEventReceipt(event));
+  if (
+    checkpoint?.event &&
+    !values.some(
+      (event) => event.event_run_id === checkpoint.event.event_run_id,
+    )
+  ) {
+    values.push(validateEventReceipt(checkpoint.event));
+  }
+  return values;
+}
+
+async function validateBootstrapAdmissionCursor({
+  github,
+  context,
+  workflowId,
+  bootstrap,
+  budget,
+  waitForRetry,
+}) {
+  invariant(
+    bootstrap.event_action === "bootstrap" &&
+      bootstrap.event_run_number !== undefined,
+    "Controller admission bootstrap floor is invalid",
+  );
+  const initialEnvelope = validateControllerWorkflowRunEnvelope(
+    await getControllerWorkflowRun(
+      github,
+      context,
+      budget,
+      bootstrap.event_run_id,
+    ),
+    workflowId,
+  );
+  const [envelope] = await hydrateControllerWorkflowRuns({
+    github,
+    context,
+    workflowId,
+    envelopes: [initialEnvelope],
+    budget,
+    waitForRetry,
+  });
+  invariant(
+    envelope.event === "repository_dispatch" &&
+      envelope.runId === bootstrap.event_run_id &&
+      envelope.runNumber === bootstrap.event_run_number &&
+      envelope.displayTitle ===
+        controllerInertRunName(envelope.event, envelope.runId),
+    "Controller bootstrap workflow identity changed; drain and bootstrap required",
+  );
+  return validateControllerAdmissionCursor({
+    schema: CONTROLLER_ADMISSION_SCHEMA,
+    workflow_id: workflowId,
+    through_run_id: envelope.runId,
+    through_run_number: envelope.runNumber,
+  });
+}
+
+async function authenticatePreFloorEventReceipt({
+  github,
+  context,
+  workflowId,
+  cursor,
+  event: rawEvent,
+  budget,
+}) {
+  const event = validateEventReceipt(rawEvent);
+  invariant(
+    event.event_action !== "bootstrap" &&
+      event.event_run_number !== undefined &&
+      event.event_run_number <= cursor.through_run_number &&
+      (event.event_run_number < cursor.through_run_number ||
+        event.event_run_id === cursor.through_run_id),
+    "Pre-floor controller event receipt is invalid",
+  );
+  const envelope = validateControllerWorkflowRunEnvelope(
+    await getControllerWorkflowRun(github, context, budget, event.event_run_id),
+    workflowId,
+  );
+  invariant(
+    envelope.event === "pull_request_target" &&
+      envelope.runNumber === event.event_run_number,
+    "Pre-floor controller event workflow identity changed",
+  );
+  const admission = validateControllerEventWorkflowRun(
+    envelope.run,
+    event.head_sha,
+  );
+  invariant(
+    admission.receiptRequired,
+    "Pre-floor event belongs to a non-receipt controller admission",
+  );
+  assertAdmissionMatchesReceipt(admission, event);
+  return {
+    runId: admission.runId,
+    runNumber: admission.runNumber,
+  };
+}
+
+async function initialControllerAdmissionCursor({
+  github,
+  context,
+  workflowId,
+  admission,
+  events,
+  checkpoint,
+  budget,
+  waitForRetry,
+  resetBootstrap = null,
+}) {
+  const persisted = validateControllerAdmissionCursor(admission);
+  if (resetBootstrap) {
+    const reset = await validateBootstrapAdmissionCursor({
+      github,
+      context,
+      workflowId,
+      bootstrap: validateEventReceipt(resetBootstrap),
+      budget,
+      waitForRetry,
+    });
+    if (persisted?.workflow_id === reset.workflow_id) {
+      invariant(
+        reset.through_run_number > persisted.through_run_number,
+        "Controller bootstrap reset must advance the current admission cursor",
+      );
+    }
+    return reset;
+  }
+  if (persisted) {
+    invariant(
+      persisted.workflow_id === workflowId,
+      "Controller workflow identity changed; drain and bootstrap required",
+    );
+    return persisted;
+  }
+  const represented = controllerAdmissionEvents(events, checkpoint);
+  const bootstrap = represented
+    .filter(
+      (event) =>
+        event.event_action === "bootstrap" &&
+        event.event_run_number !== undefined,
+    )
+    .toSorted((left, right) => right.event_run_number - left.event_run_number)
+    .at(0);
+  if (bootstrap) {
+    return validateBootstrapAdmissionCursor({
+      github,
+      context,
+      workflowId,
+      bootstrap,
+      budget,
+      waitForRetry,
+    });
+  }
+  const numbered = represented
+    .filter((event) => event.event_run_number !== undefined)
+    .toSorted((left, right) => left.event_run_number - right.event_run_number);
+  const first = numbered.at(0);
+  invariant(
+    checkpoint === null &&
+      represented.length > 0 &&
+      numbered.length === represented.length &&
+      first &&
+      ["opened", "reopened"].includes(first.event_action),
+    "Controller admission has no authorized floor; drain and bootstrap required",
+  );
+  return {
+    schema: CONTROLLER_ADMISSION_SCHEMA,
+    workflow_id: workflowId,
+    through_run_id: null,
+    through_run_number: first.event_run_number - 1,
+  };
+}
+
+async function proveControllerAdmissionDelta({
+  github,
+  context,
+  workflowId,
+  cursor,
+  events,
+  pull,
+  budget,
+  waitForRetry,
+}) {
+  const rawEvents = events.map((event) => validateEventReceipt(event));
+  const baselineRunNumber = cursor.through_run_number;
+  const scanned = await collectControllerWorkflowRunDelta({
+    github,
+    context,
+    workflowId,
+    cursor,
+    budget,
+  });
+  const hydrated = await hydrateControllerWorkflowRuns({
+    github,
+    context,
+    workflowId,
+    envelopes: scanned.delta,
+    budget,
+    waitForRetry,
+  });
+  const { admissions, unresolvedPendingRunIds } =
+    classifyControllerWorkflowDelta(hydrated, pull);
+  const exactReceipts = new Map(
+    rawEvents.map((event) => [event.event_run_id, event]),
+  );
+  const pending = unresolvedPendingRunIds.map((runId) => ({ runId }));
+  for (const admission of admissions.filter(
+    (candidate) => candidate.receiptRequired,
+  )) {
+    const receipt = exactReceipts.get(admission.runId);
+    if (receipt) {
+      assertAdmissionMatchesReceipt(admission, receipt);
+      continue;
+    }
+    if (PENDING_WORKFLOW_RUN_STATUSES.has(admission.status)) {
+      pending.push(admission);
+      continue;
+    }
+    throw new Error(
+      `Completed controller event run ${admission.runId} has no durable receipt`,
+    );
+  }
+  for (const receipt of rawEvents.filter(
+    (event) =>
+      event.event_run_number !== undefined &&
+      event.event_run_number > baselineRunNumber,
+  )) {
+    const admission = admissions.find(
+      (candidate) => candidate.runId === receipt.event_run_id,
+    );
+    if (!admission) {
+      if (receipt.event_run_number <= scanned.cursor.through_run_number) {
+        throw new Error(
+          `Durable event receipt ${receipt.event_run_id} has no controller admission`,
+        );
+      }
+      pending.push({ runId: receipt.event_run_id });
+      continue;
+    }
+    invariant(
+      admission.receiptRequired,
+      "Durable event receipt belongs to a non-receipt admission",
+    );
+    assertAdmissionMatchesReceipt(admission, receipt);
+  }
+  return {
+    pr: pull.number,
+    baselineRunNumber,
+    baselineCursor:
+      cursor.through_run_id === null
+        ? null
+        : validateControllerAdmissionCursor(cursor),
+    frontierRunNumber: scanned.cursor.through_run_number,
+    cursor: scanned.cursor,
+    complete: pending.length === 0,
+    pendingRunIds: [...new Set(pending.map((admission) => admission.runId))],
+    admissions: admissions.map((admission) => ({
+      runId: admission.runId,
+      runNumber: admission.runNumber,
+      receiptRequired: admission.receiptRequired,
+    })),
+  };
+}
+
+async function createControllerAdmissionSession({
+  github,
+  context,
+  admission,
+  events,
+  checkpoint,
+  waitForRetry,
+  resetBootstrap = null,
+}) {
+  const budget = createControllerAdmissionBudget();
+  const { workflowId } = await currentControllerWorkflowIdentity(
+    github,
+    context,
+    budget,
+  );
+  let cursor = await initialControllerAdmissionCursor({
+    github,
+    context,
+    workflowId,
+    admission,
+    events,
+    checkpoint,
+    budget,
+    waitForRetry,
+    resetBootstrap,
+  });
+  return {
+    async authenticatePreFloorEvent(event) {
+      return authenticatePreFloorEventReceipt({
+        github,
+        context,
+        workflowId,
+        cursor,
+        event,
+        budget,
+      });
+    },
+    async refresh({ events: currentEvents, pull }) {
+      const proof = await proveControllerAdmissionDelta({
+        github,
+        context,
+        workflowId,
+        cursor,
+        events: currentEvents,
+        pull,
+        budget,
+        waitForRetry,
+      });
+      if (proof.complete) cursor = proof.cursor;
+      return proof;
+    },
+    cursor() {
+      return cursor.through_run_id === null
+        ? null
+        : validateControllerAdmissionCursor(cursor);
+    },
+    budget,
+  };
+}
+
+async function currentEpochReceiptIsBacklogged({
+  admissionSession,
+  events: rawEvents,
+  results,
+  selections,
+  state,
+  checkpoint,
+  pull,
+}) {
+  const admissionProof = await admissionSession.refresh({
+    events: rawEvents,
+    pull,
+  });
+  if (!admissionProof.complete) return true;
+  const representedPull = representedPullRequest(rawEvents, checkpoint);
+  const representedOperationalPull =
+    representedPull.baseRef === null
+      ? { ...representedPull, baseRef: pull.baseRef }
+      : representedPull;
+  if (sameOperationalPullRequest(representedOperationalPull, pull)) {
+    return false;
+  }
+  const events = dedupeEvents(
+    rawEvents,
+    persistedEventRunIds(state, results, selections),
+  ).filter((event) => event.pr === pull.number);
+  try {
+    selectCurrentEpoch(events, pull, checkpoint);
+    return true;
+  } catch (error) {
+    if (
+      error instanceof CurrentEpochSelectionError &&
+      error.candidateCount === 0
+    ) {
+      if (error.reason !== "no-anchor") {
+        selectCurrentEpoch(events, representedPull, checkpoint);
+      }
+      return true;
+    }
+    throw error;
+  }
 }
 
 function resultForSelection(results, anchorRunId, event, selection, target) {
@@ -2700,8 +3880,14 @@ function receiptSetDigest({ events, selections, worker_evidence, results }) {
   });
 }
 
-function previewJournalDigest(receipts, state, checkpoint = null) {
+function previewJournalDigest(
+  receipts,
+  state,
+  checkpoint = null,
+  admission = undefined,
+) {
   return digest({
+    ...(admission === undefined ? {} : { admission }),
     checkpoint,
     receipts_digest: receiptSetDigest(receipts),
     state,
@@ -2741,9 +3927,19 @@ function validateCheckpointStatus(value, target) {
 function validatePreviewCheckpoint(value, expectedPr) {
   if (value === null) return null;
   const checkpoint = plainObject(value, "Preview checkpoint");
+  const requiredCheckpointFields = [
+    "cumulative_receipts_digest",
+    "event",
+    "pruned_receipt_counts",
+    "schema",
+    "sequence",
+    "targets",
+    "through_event_run_id",
+  ];
   invariant(
-    Object.keys(checkpoint).sort().join(",") ===
-      "cumulative_receipts_digest,event,pruned_receipt_counts,schema,sequence,targets,through_event_run_id",
+    requiredCheckpointFields.every((field) =>
+      Object.hasOwn(checkpoint, field),
+    ) && Object.keys(checkpoint).length === requiredCheckpointFields.length,
     "Preview checkpoint fields are invalid",
   );
   invariant(
@@ -2927,9 +4123,20 @@ function validatePreviewJournal(value, expectedPr) {
     journal.schema === PREVIEW_JOURNAL_SCHEMA,
     "Preview journal schema mismatch",
   );
+  const requiredJournalFields = [
+    "checkpoint",
+    "journal_digest",
+    "pr",
+    "receipts",
+    "repository",
+    "revision",
+    "schema",
+    "state",
+  ];
+  const allowedJournalFields = new Set([...requiredJournalFields, "admission"]);
   invariant(
-    Object.keys(journal).sort().join(",") ===
-      "checkpoint,journal_digest,pr,receipts,repository,revision,schema,state",
+    requiredJournalFields.every((field) => Object.hasOwn(journal, field)) &&
+      Object.keys(journal).every((field) => allowedJournalFields.has(field)),
     "Preview journal fields are invalid",
   );
   validatedRepository(journal.repository);
@@ -2943,6 +4150,7 @@ function validatePreviewJournal(value, expectedPr) {
     "Preview journal revision is invalid",
   );
   const checkpoint = validatePreviewCheckpoint(journal.checkpoint, pr);
+  validateControllerAdmissionCursor(journal.admission);
   const receipts = plainObject(journal.receipts, "Preview journal receipts");
   invariant(
     Object.keys(receipts).sort().join(",") ===
@@ -2975,14 +4183,6 @@ function validatePreviewJournal(value, expectedPr) {
         (event) => event.event_run_id === checkpoint.through_event_run_id,
       ),
     "Preview checkpoint event is duplicated in live receipts",
-  );
-  invariant(
-    !checkpoint ||
-      !events.some(
-        (event) =>
-          semanticEventKey(event) === semanticEventKey(checkpoint.event),
-      ),
-    "Preview checkpoint event has a semantic duplicate in live receipts",
   );
   invariant(
     selections.every((selection) => selection.pr === pr),
@@ -3036,7 +4236,12 @@ function validatePreviewJournal(value, expectedPr) {
     typeof journal.journal_digest === "string" &&
       /^[0-9a-f]{64}$/.test(journal.journal_digest) &&
       journal.journal_digest ===
-        previewJournalDigest(receipts, journal.state, checkpoint),
+        previewJournalDigest(
+          receipts,
+          journal.state,
+          checkpoint,
+          journal.admission,
+        ),
     "Preview journal digest mismatch",
   );
   renderPreviewJournalBody(journal);
@@ -3052,6 +4257,7 @@ export function createPreviewJournal({
   workerEvidence = [],
   results = [],
   state = null,
+  admission = undefined,
 } = {}) {
   const pr = pullRequestNumber(rawPr);
   const receipts = {
@@ -3066,8 +4272,16 @@ export function createPreviewJournal({
       repository: PREVIEW_REPOSITORY,
       pr,
       revision,
+      ...(admission === undefined
+        ? {}
+        : { admission: validateControllerAdmissionCursor(admission) }),
       checkpoint: checkpoint === null ? null : structuredClone(checkpoint),
-      journal_digest: previewJournalDigest(receipts, state, checkpoint),
+      journal_digest: previewJournalDigest(
+        receipts,
+        state,
+        checkpoint,
+        admission,
+      ),
       receipts,
       state: state === null ? null : structuredClone(state),
     },
@@ -3253,7 +4467,10 @@ function assertCheckpointableReceipts(
   );
 }
 
-export function compactPreviewJournal(value, { pullRequest = null } = {}) {
+export function compactPreviewJournal(
+  value,
+  { expectedPullNumber = null } = {},
+) {
   const journal = validatePreviewJournal(value, value.pr);
   if (journal.state === null) return journal;
   const state = normalizeExistingState(journal.state, journal.pr);
@@ -3280,6 +4497,7 @@ export function compactPreviewJournal(value, { pullRequest = null } = {}) {
       journal.receipts,
       journal.state,
       journal.checkpoint,
+      journal.admission,
     );
   }
   const receiptCount = Object.values(journal.receipts).reduce(
@@ -3299,9 +4517,9 @@ export function compactPreviewJournal(value, { pullRequest = null } = {}) {
   ) {
     return journal;
   }
-  if (pullRequest !== null) {
+  if (expectedPullNumber !== null) {
     invariant(
-      normalizePullRequest(pullRequest).number === journal.pr,
+      pullRequestNumber(expectedPullNumber) === journal.pr,
       "Capacity checkpoint PR mismatch",
     );
   }
@@ -3318,7 +4536,7 @@ export function compactPreviewJournal(value, { pullRequest = null } = {}) {
   invariant(tailEvent, "Preview checkpoint tail event is missing");
   invariant(
     !state.closed ||
-      (tailEvent.event_action === "closed" &&
+      (isClosedLifecycleReceipt(tailEvent) &&
         tailEvent.pr_closed_at === state.epoch.closed_at),
     "Preview checkpoint closure does not match persisted lifecycle state",
   );
@@ -3507,6 +4725,7 @@ export function compactPreviewJournal(value, { pullRequest = null } = {}) {
     journal.receipts,
     journal.state,
     checkpoint,
+    journal.admission,
   );
   return validatePreviewJournal(journal, journal.pr);
 }
@@ -3519,6 +4738,7 @@ function journalRecords(journal, journalComment) {
     selections: journal.receipts.selections,
     state: journal.state,
     checkpoint: journal.checkpoint,
+    admission: journal.admission,
     stateComment: journalComment,
     journal,
     journalComment,
@@ -3589,6 +4809,7 @@ async function mutatePreviewJournal({
     candidate.receipts,
     candidate.state,
     candidate.checkpoint,
+    candidate.admission,
   );
   const changed =
     canonicalJson({ ...candidate, revision: 0 }) !==
@@ -3646,15 +4867,116 @@ const RECEIPT_COLLECTION = {
   },
 };
 
+function eventAdmissionProofPermitsCompaction(proof, journal, event) {
+  if (
+    !proof ||
+    !proof.complete ||
+    proof.pr !== journal.pr ||
+    proof.baselineRunNumber === null ||
+    proof.frontierRunNumber === null
+  ) {
+    return false;
+  }
+  invariant(
+    proof.frontierRunNumber >= proof.baselineRunNumber,
+    "Controller admission proof frontier is invalid",
+  );
+  const eventRunNumber = event.event_run_number;
+  if (eventRunNumber === undefined) return false;
+  const currentAdmission = proof.admissions.find(
+    (admission) => admission.runId === event.event_run_id,
+  );
+  if (
+    eventRunNumber > proof.baselineRunNumber &&
+    (!currentAdmission || currentAdmission.runNumber !== eventRunNumber)
+  ) {
+    return false;
+  }
+  const liveEvents = journal.receipts.events.map((raw) =>
+    validateEventReceipt(raw),
+  );
+  if (
+    liveEvents.some(
+      (candidate) =>
+        candidate.event_run_number !== undefined &&
+        candidate.event_run_number > proof.frontierRunNumber,
+    )
+  ) {
+    return false;
+  }
+  const liveByRunId = new Map(
+    liveEvents.map((candidate) => [candidate.event_run_id, candidate]),
+  );
+  return proof.admissions
+    .filter((admission) => admission.receiptRequired)
+    .every((admission) => {
+      const receipt = liveByRunId.get(admission.runId);
+      return receipt?.event_run_number === admission.runNumber;
+    });
+}
+
+function journalHasUnfinishedOwnership(journal, state) {
+  const terminalKeys = new Set(
+    journal.receipts.results.map((result) => result.key_digest),
+  );
+  return PREVIEW_TARGETS.some((target) => {
+    const targetState = state.targets[target];
+    const pendingKey =
+      journal.checkpoint?.targets[target].pending_owner_key_digest ?? null;
+    return (
+      targetState.active !== null ||
+      targetState.retired_active.some(
+        (selection) =>
+          selection.key_digest === pendingKey ||
+          !terminalKeys.has(selection.key_digest),
+      )
+    );
+  });
+}
+
+function foldCheckpointSemanticEvent(journal, event) {
+  const checkpoint = journal.checkpoint;
+  invariant(
+    checkpoint &&
+      semanticEventKey(checkpoint.event) === semanticEventKey(event),
+    "Semantic checkpoint fold does not match its event",
+  );
+  const index = journal.receipts.events.findIndex(
+    (candidate) => candidate.event_run_id === event.event_run_id,
+  );
+  invariant(index >= 0, "Semantic checkpoint fold event is missing");
+  journal.receipts.events.splice(index, 1);
+  const prunedReceipts = {
+    events: [event],
+    selections: [],
+    worker_evidence: [],
+    results: [],
+  };
+  journal.checkpoint = {
+    ...structuredClone(checkpoint),
+    sequence: checkpoint.sequence + 1,
+    cumulative_receipts_digest: digest({
+      previous: checkpoint.cumulative_receipts_digest,
+      receipts: receiptSetDigest(prunedReceipts),
+      state: digest(journal.state),
+    }),
+    pruned_receipt_counts: {
+      ...checkpoint.pruned_receipt_counts,
+      events: checkpoint.pruned_receipt_counts.events + 1,
+    },
+  };
+}
+
 async function appendJournalReceipt({
   github,
   context,
   pr,
-  pullRequest = null,
+  expectedPullNumber = null,
   kind,
   value: rawValue,
   allowCreate = false,
   assertCanCreate,
+  eventAdmissionProof = null,
 }) {
   const definition = RECEIPT_COLLECTION[kind];
   invariant(definition, "Preview journal receipt kind is invalid");
@@ -3667,6 +4989,22 @@ async function appendJournalReceipt({
     allowCreate,
     assertCanCreate,
     mutate(journal) {
+      const priorAdmissionRunNumber =
+        journal.admission?.through_run_number ?? null;
+      const nextAdmission =
+        kind === "event" &&
+        (eventAdmissionProof?.complete === true ||
+          value.event_action === "bootstrap")
+          ? validateControllerAdmissionCursor(
+              eventAdmissionProof?.complete === true
+                ? eventAdmissionProof.cursor
+                : eventAdmissionProof?.baselineCursor,
+            )
+          : null;
+      invariant(
+        value.event_action !== "bootstrap" || nextAdmission,
+        "Controller bootstrap admission proof is missing",
+      );
       const identity = definition.identity(value);
       const existing = journal.receipts[definition.name].find(
         (entry) => definition.identity(definition.validate(entry)) === identity,
@@ -3675,71 +5013,179 @@ async function appendJournalReceipt({
         !existing || canonicalJson(existing) === canonicalJson(value),
         `Conflicting ${kind} receipt in preview journal`,
       );
-      if (existing) return;
-      let compactAfterAppend = false;
-      if (kind === "event" && journal.state !== null) {
-        const state = normalizeExistingState(journal.state, journal.pr);
-        const liveReceiptsAreRepresented =
-          state.receipts_digest ===
-          controllerReceiptsDigest(
-            journal.receipts.events,
-            journal.receipts.results,
-            journal.receipts.selections,
-            journal.pr,
-            journal.checkpoint,
-          );
-        const terminalKeys = new Set(
-          journal.receipts.results.map((result) => result.key_digest),
-        );
-        const hasUnfinishedOwnership = PREVIEW_TARGETS.some((target) => {
-          const targetState = state.targets[target];
-          const pendingKey =
-            journal.checkpoint?.targets[target].pending_owner_key_digest ??
-            null;
-          return (
-            targetState.active !== null ||
-            targetState.retired_active.some(
-              (selection) =>
-                selection.key_digest === pendingKey ||
-                !terminalKeys.has(selection.key_digest),
-            )
-          );
-        });
-        if (hasUnfinishedOwnership) {
-          compactAfterAppend = true;
-        } else if (liveReceiptsAreRepresented) {
-          compactPreviewJournal(journal);
-        }
-      }
       const checkpointEntry =
         kind === "event" && journal.checkpoint
           ? journal.checkpoint.event
           : null;
-      if (
-        checkpointEntry &&
-        definition.identity(checkpointEntry) === identity
-      ) {
+      const checkpointMatches =
+        checkpointEntry && definition.identity(checkpointEntry) === identity;
+      if (checkpointMatches) {
         invariant(
           canonicalJson(checkpointEntry) === canonicalJson(value),
           "Conflicting event receipt at preview checkpoint",
         );
+      }
+      const alreadyRepresented = Boolean(existing || checkpointMatches);
+      if (nextAdmission) {
+        invariant(
+          eventAdmissionProof.pr === journal.pr &&
+            (eventAdmissionProof.complete
+              ? eventAdmissionProof.frontierRunNumber
+              : eventAdmissionProof.baselineRunNumber) ===
+              nextAdmission.through_run_number,
+          "Controller admission proof cursor is invalid",
+        );
+        if (journal.admission) {
+          const sameWorkflow =
+            nextAdmission.workflow_id === journal.admission.workflow_id;
+          if (value.event_action !== "bootstrap" || alreadyRepresented) {
+            invariant(
+              eventAdmissionProof.baselineRunNumber ===
+                journal.admission.through_run_number &&
+                sameWorkflow &&
+                nextAdmission.through_run_number >=
+                  journal.admission.through_run_number,
+              "Controller admission proof baseline changed before journal mutation",
+            );
+          } else if (sameWorkflow) {
+            invariant(
+              value.event_run_number > journal.admission.through_run_number,
+              "Controller bootstrap reset must advance the current admission cursor",
+            );
+          }
+        }
+      }
+      const persistAdmission = () => {
+        if (nextAdmission) journal.admission = structuredClone(nextAdmission);
+      };
+      if (
+        value.event_action === "bootstrap" &&
+        value.pr_state === "closed" &&
+        journal.admission
+      ) {
+        invariant(
+          alreadyRepresented,
+          "Closed bootstrap cannot replace an existing admission cursor",
+        );
+      }
+      if (existing) {
+        persistAdmission();
         return;
+      }
+      if (checkpointMatches) {
+        persistAdmission();
+        return;
+      }
+      if (kind === "event" && journal.admission) {
+        invariant(
+          value.event_run_number !== undefined,
+          "Unnumbered event cannot mutate an admitted preview journal",
+        );
+        if (value.event_run_number <= journal.admission.through_run_number) {
+          invariant(
+            eventAdmissionProof?.preFloorEvent?.runId === value.event_run_id &&
+              eventAdmissionProof.preFloorEvent.runNumber ===
+                value.event_run_number,
+            "Pre-floor event receipt lacks exact workflow authentication",
+          );
+          persistAdmission();
+          return;
+        }
       }
       if (
         checkpointEntry &&
         semanticEventKey(checkpointEntry) === semanticEventKey(value)
       ) {
-        return;
+        if (value.event_run_number === undefined) return;
+        if (
+          priorAdmissionRunNumber !== null &&
+          value.event_run_number <= priorAdmissionRunNumber
+        ) {
+          persistAdmission();
+          return;
+        }
+        // A later run may recreate an identical lifecycle snapshot. Its exact
+        // receipt remains live until the Actions admission scan proves that no
+        // required run is missing before the API-backed frontier.
       }
       const entries = journal.receipts[definition.name];
+      const eventsBeforeAppend =
+        kind === "event" ? structuredClone(journal.receipts.events) : null;
       entries.push(structuredClone(value));
-      if (compactAfterAppend) {
-        journal.journal_digest = previewJournalDigest(
-          journal.receipts,
-          journal.state,
-          journal.checkpoint,
-        );
-        compactPreviewJournal(journal, { pullRequest });
+      persistAdmission();
+      if (
+        kind === "event" &&
+        journal.state !== null &&
+        eventAdmissionProofPermitsCompaction(
+          eventAdmissionProof,
+          journal,
+          value,
+        )
+      ) {
+        const state = normalizeExistingState(journal.state, journal.pr);
+        const beforeWasRepresented =
+          state.receipts_digest ===
+          controllerReceiptsDigest(
+            eventsBeforeAppend,
+            journal.receipts.results,
+            journal.receipts.selections,
+            journal.pr,
+            journal.checkpoint,
+          );
+        const semanticCheckpointReplay =
+          checkpointEntry &&
+          semanticEventKey(checkpointEntry) === semanticEventKey(value);
+        const admittedAppendCanCheckpoint =
+          eventAdmissionProof.complete &&
+          journalHasUnfinishedOwnership(journal, state);
+        const afterIsRepresented =
+          admittedAppendCanCheckpoint ||
+          semanticCheckpointReplay ||
+          state.receipts_digest ===
+            controllerReceiptsDigest(
+              journal.receipts.events,
+              journal.receipts.results,
+              journal.receipts.selections,
+              journal.pr,
+              journal.checkpoint,
+            );
+        if (
+          semanticCheckpointReplay &&
+          eventAdmissionProof.frontierRunNumber !== null
+        ) {
+          foldCheckpointSemanticEvent(journal, value);
+        } else if (afterIsRepresented) {
+          journal.journal_digest = previewJournalDigest(
+            journal.receipts,
+            journal.state,
+            journal.checkpoint,
+            journal.admission,
+          );
+          compactPreviewJournal(journal, {
+            expectedPullNumber,
+          });
+        } else if (beforeWasRepresented) {
+          journal.receipts.events = eventsBeforeAppend;
+          journal.journal_digest = previewJournalDigest(
+            journal.receipts,
+            journal.state,
+            journal.checkpoint,
+            journal.admission,
+          );
+          const checkpointSequence = journal.checkpoint?.sequence ?? 0;
+          compactPreviewJournal(journal, {
+            expectedPullNumber,
+          });
+          const compacted =
+            (journal.checkpoint?.sequence ?? 0) > checkpointSequence;
+          if (
+            !compacted ||
+            semanticEventKey(journal.checkpoint.event) !==
+              semanticEventKey(value)
+          ) {
+            journal.receipts.events.push(structuredClone(value));
+          }
+        }
       }
     },
   });
@@ -3800,6 +5246,39 @@ async function writeControllerIntents({
     },
   });
   return updated.journalComment;
+}
+
+async function persistControllerAdmissionCursor({
+  github,
+  context,
+  pr,
+  admission,
+}) {
+  const next = validateControllerAdmissionCursor(admission);
+  invariant(next, "Controller admission cursor is missing after proof");
+  return mutatePreviewJournal({
+    github,
+    context,
+    pr,
+    mutate(journal) {
+      const current = validateControllerAdmissionCursor(journal.admission);
+      if (current) {
+        invariant(
+          current.workflow_id === next.workflow_id,
+          "Controller workflow identity changed before cursor persistence",
+        );
+        if (current.through_run_number >= next.through_run_number) {
+          invariant(
+            current.through_run_number !== next.through_run_number ||
+              current.through_run_id === next.through_run_id,
+            "Controller admission cursor identity changed",
+          );
+          return;
+        }
+      }
+      journal.admission = structuredClone(next);
+    },
+  });
 }
 
 async function pullFromApi(github, context, pr) {
@@ -4010,7 +5489,7 @@ export async function prepareBootstrap({
     change_base_sha: snapshot.change_base_sha,
     head_sha: snapshot.head_sha,
     trust: snapshot.trust,
-    plan_required: snapshot.trust === "trusted",
+    plan_required: snapshot.trust === "trusted" && snapshot.pr_state === "open",
   }))
     core.setOutput(name, String(value));
   return snapshot;
@@ -4039,6 +5518,7 @@ export async function recordEventReceipt({
   snapshotRaw,
   planRaw,
   plannerOutcome = "success",
+  waitForAdmission = wait,
 }) {
   let snapshot;
   try {
@@ -4086,15 +5566,20 @@ export async function recordEventReceipt({
   const currentBefore = normalizePullRequest(
     await pullFromApi(github, context, receipt.pr),
   );
+  let existing = null;
   if (
     receipt.event_action === "closed" ||
     currentBefore.state === "closed" ||
     firstAttempt
   ) {
-    const existing = await loadPreviewJournal(github, context, receipt.pr, {
+    existing = await loadPreviewJournal(github, context, receipt.pr, {
       allowMissing: true,
     });
     if (!existing) {
+      invariant(
+        !(operatorBootstrap && currentBefore.state === "closed"),
+        "Closed bootstrap requires an existing preview journal",
+      );
       if (!operatorBootstrap) {
         await assertPreviewJournalIsUninitialized(github, context, receipt);
       }
@@ -4108,11 +5593,72 @@ export async function recordEventReceipt({
       }
     }
   }
+  if (!existing) {
+    existing = await loadPreviewJournal(github, context, receipt.pr, {
+      allowMissing: firstAttempt,
+    });
+  }
+  if (operatorBootstrap && receipt.pr_state === "closed") {
+    invariant(
+      existing && currentBefore.state === "closed",
+      "Closed bootstrap requires an existing closed preview journal",
+    );
+    const existingState =
+      existing.state === null
+        ? null
+        : normalizeExistingState(existing.state, receipt.pr);
+    invariant(
+      existingState
+        ? !journalHasUnfinishedOwnership(existing.journal, existingState)
+        : existing.selections.length === 0 &&
+            existing.workerEvidence.length === 0 &&
+            existing.results.length === 0,
+      "Closed bootstrap requires all preview ownership to be drained",
+    );
+  }
+  const representedEvents = [
+    ...(existing?.events ?? []),
+    ...((existing?.events ?? []).some(
+      (event) => event.event_run_id === receipt.event_run_id,
+    )
+      ? []
+      : [receipt]),
+  ];
+  const alreadyRepresented = existing
+    ? controllerAdmissionEvents(existing.events, existing.checkpoint).some(
+        (event) => event.event_run_id === receipt.event_run_id,
+      )
+    : false;
+  const admissionSession = await createControllerAdmissionSession({
+    github,
+    context,
+    admission: existing?.admission,
+    events: representedEvents,
+    checkpoint: existing?.checkpoint ?? null,
+    waitForRetry: waitForAdmission,
+    resetBootstrap: operatorBootstrap && !alreadyRepresented ? receipt : null,
+  });
+  let preFloorEvent = null;
+  const priorAdmission = validateControllerAdmissionCursor(existing?.admission);
+  if (priorAdmission && !operatorBootstrap && !alreadyRepresented) {
+    invariant(
+      receipt.event_run_number !== undefined,
+      "Unnumbered event cannot mutate an admitted preview journal",
+    );
+    if (receipt.event_run_number <= priorAdmission.through_run_number) {
+      preFloorEvent = await admissionSession.authenticatePreFloorEvent(receipt);
+    }
+  }
+  const eventAdmissionProof = await admissionSession.refresh({
+    events: representedEvents,
+    pull: currentBefore,
+  });
+  if (preFloorEvent) eventAdmissionProof.preFloorEvent = preFloorEvent;
   await appendJournalReceipt({
     github,
     context,
     pr: receipt.pr,
-    pullRequest: currentBefore,
+    expectedPullNumber: currentBefore.number,
     kind: "event",
     value: receipt,
     allowCreate: firstAttempt,
@@ -4120,6 +5666,7 @@ export async function recordEventReceipt({
       firstAttempt && !operatorBootstrap
         ? () => assertPreviewJournalIsUninitialized(github, context, receipt)
         : undefined,
+    eventAdmissionProof,
   });
   const controllerRunUrl = `https://github.com/${PREVIEW_REPOSITORY}/actions/runs/${context.runId}`;
   await ensurePreviewInitializationWitness({
@@ -4139,7 +5686,11 @@ export async function recordEventReceipt({
     current.state === receipt.pr_state &&
     current.updatedAt === receipt.pr_updated_at &&
     current.closedAt === receipt.pr_closed_at;
-  if (stillCurrent && receipt.event_action !== "closed") {
+  if (
+    stillCurrent &&
+    receipt.pr_state === "open" &&
+    receipt.event_action !== "closed"
+  ) {
     await github.rest.repos.createCommitStatus({
       ...ownerRepo(context),
       sha: receipt.head_sha,
@@ -4867,16 +6418,32 @@ function assertDispatchTrust(pull, selected) {
 async function refreshDispatchOwnership({
   github,
   context,
+  admissionSession,
   pr,
   selected,
   controllerUrl,
   workflowSha,
 }) {
   const pull = await pullFromApi(github, context, pr);
-  if (normalizePullRequest(pull).state !== "open") {
+  const normalized = normalizePullRequest(pull);
+  const comments = await loadPreviewJournal(github, context, pr);
+  if (
+    await currentEpochReceiptIsBacklogged({
+      admissionSession,
+      events: comments.events,
+      results: comments.results,
+      selections: comments.selections,
+      state: comments.state,
+      checkpoint: comments.checkpoint,
+      pull: normalized,
+    })
+  ) {
+    return { outcome: "backlogged", state: comments.state };
+  }
+  if (normalized.state !== "open") {
     return { outcome: "closed" };
   }
-  const normalized = assertDispatchTrust(pull, selected);
+  assertDispatchTrust(pull, selected);
   const target = previewTarget(selected.target, "Selected preview target");
   const currentPreviewOwner = await previewOwnerAtSha(
     github,
@@ -4907,7 +6474,6 @@ async function refreshDispatchOwnership({
       selectedPreviewOwner,
     };
   }
-  const comments = await loadPreviewJournal(github, context, pr);
   const ownershipCheck = reconcileState({
     events: comments.events,
     results: comments.results,
@@ -5201,6 +6767,45 @@ export async function reconcilePreview({
   let serializedUpdateAttempts = 1;
   let deterministicProgressPasses = 0;
   let ownershipMapValidated = false;
+  let admissionSession = null;
+  const recordBacklogDeferral = () => {
+    core.notice?.(
+      "Preview reconciliation deferred until the current PR event receipt is durable",
+    );
+    core.setOutput("reconcile_deferred", "true");
+    core.setOutput("pr_number", String(pr));
+  };
+  const deferIfBacklogged = async (currentPull, parsed) => {
+    admissionSession ??= await createControllerAdmissionSession({
+      github,
+      context,
+      admission: parsed.admission,
+      events: parsed.events,
+      checkpoint: parsed.checkpoint,
+      waitForRetry: waitForRecovery,
+    });
+    if (
+      !(await currentEpochReceiptIsBacklogged({
+        admissionSession,
+        events: parsed.events,
+        results: parsed.results,
+        selections: parsed.selections,
+        state: parsed.state,
+        checkpoint: parsed.checkpoint,
+        pull: currentPull,
+      }))
+    ) {
+      await persistControllerAdmissionCursor({
+        github,
+        context,
+        pr,
+        admission: admissionSession.cursor(),
+      });
+      return false;
+    }
+    recordBacklogDeferral();
+    return true;
+  };
   const failClosed = async (error) => {
     const pull = await pullFromApi(github, context, pr);
     const headSha = exactSha(pull.head.sha);
@@ -5230,6 +6835,10 @@ export async function reconcilePreview({
       }
       const pull = await pullFromApi(github, context, pr);
       const currentPull = normalizePullRequest(pull);
+      const parsed = await loadPreviewJournal(github, context, pr);
+      if (await deferIfBacklogged(currentPull, parsed)) {
+        return parsed.state;
+      }
       const previewOwners = await candidatePreviewOwners(github, context, pull);
       if (controllerMode === "observe-only") {
         invariant(
@@ -5239,7 +6848,6 @@ export async function reconcilePreview({
           "Observe-only controller leaves a candidate preview ownerless",
         );
       }
-      const parsed = await loadPreviewJournal(github, context, pr);
       const stateBeforeReconciliation =
         parsed.state === null ? null : canonicalJson(parsed.state);
       if (
@@ -5266,6 +6874,13 @@ export async function reconcilePreview({
       });
       let state = reconciled.state;
       let stateComment = parsed.stateComment;
+      const mutationPull = normalizePullRequest(
+        await pullFromApi(github, context, pr),
+      );
+      const mutationComments = await loadPreviewJournal(github, context, pr);
+      if (await deferIfBacklogged(mutationPull, mutationComments)) {
+        return mutationComments.state;
+      }
 
       if (controllerMode === "observe-only") {
         if (
@@ -5377,11 +6992,16 @@ export async function reconcilePreview({
         const refreshed = await refreshDispatchOwnership({
           github,
           context,
+          admissionSession,
           pr,
           selected: selection,
           controllerUrl,
           workflowSha,
         });
+        if (refreshed.outcome === "backlogged") {
+          recordBacklogDeferral();
+          return refreshed.state;
+        }
         if (refreshed.outcome === "closed") {
           core.setOutput("dispatch_skipped_closed", "true");
           return state;
@@ -5458,11 +7078,16 @@ export async function reconcilePreview({
         const refreshed = await refreshDispatchOwnership({
           github,
           context,
+          admissionSession,
           pr,
           selected: selection,
           controllerUrl,
           workflowSha,
         });
+        if (refreshed.outcome === "backlogged") {
+          recordBacklogDeferral();
+          return refreshed.state;
+        }
         if (refreshed.outcome === "closed") {
           core.setOutput("dispatch_skipped_closed", "true");
           return state;
@@ -5571,12 +7196,15 @@ export async function reconcilePreview({
 
       const finalPull = await pullFromApi(github, context, pr);
       const finalCurrentPull = normalizePullRequest(finalPull);
+      const finalComments = await loadPreviewJournal(github, context, pr);
+      if (await deferIfBacklogged(finalCurrentPull, finalComments)) {
+        return finalComments.state;
+      }
       const finalOwners = await candidatePreviewOwners(
         github,
         context,
         finalPull,
       );
-      const finalComments = await loadPreviewJournal(github, context, pr);
       const finalReconciled = reconcileState({
         events: finalComments.events,
         results: finalComments.results,
