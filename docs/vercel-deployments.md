@@ -991,6 +991,17 @@ event is likewise inert when the live PR is already closed and neither journal
 nor witness exists. Explicit bootstrap is the sole operator-authorized clean
 restart.
 
+Each `pull_request_target` workflow run now has a strict machine-readable title
+that binds its run ID and workflow-monotonic run number to the PR, action, head
+SHA, synchronize `before` SHA, and whether that event requires a receipt. New
+Dependabot events and unrelated edits encode `receipt=false`, matching the jobs
+that do not append a controller receipt. Event and bootstrap receipts also
+persist that run number when GitHub supplies it. This is evidence groundwork
+only: reconciliation does not yet scan Actions, establish an admission frontier,
+or change its receipt-selection behavior. Already-persisted v2 receipts without
+`event_run_number` remain valid and retain their existing canonical journal
+digests.
+
 Before a later event is appended, a terminal journal with no active or retired
 worker and no unfinished evidence folds its completed prefix into one
 deterministic in-place checkpoint. The checkpoint holds cumulative receipt
