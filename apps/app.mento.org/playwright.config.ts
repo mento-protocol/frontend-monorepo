@@ -29,17 +29,18 @@ export default defineConfig({
   use: { baseURL: `http://localhost:${PORT}`, deviceScaleFactor: 1 },
   projects: [
     {
-      // `preview/` runs only via playwright.preview.config.ts (needs
-      // PREVIEW_URL, has no webServer) — ignore it here or these projects
-      // would pick it up against the local webServer below and fail fast on
-      // the missing env var.
+      // `preview/` and `production-shadow/` each run only through their
+      // dedicated configs (they need deployment-specific environment and
+      // have no local webServer). Ignore them here or the visual projects
+      // would collect the smoke specs against the local webServer and fail
+      // fast on missing env vars.
       name: "desktop",
-      testIgnore: [/connected\//, /preview\//],
+      testIgnore: [/connected\//, /preview\//, /production-shadow\//],
       use: { viewport: { width: 1280, height: 900 } },
     },
     {
       name: "mobile",
-      testIgnore: [/connected\//, /preview\//],
+      testIgnore: [/connected\//, /preview\//, /production-shadow\//],
       use: { viewport: { width: 375, height: 812 } },
     },
     {
