@@ -127,21 +127,25 @@ describe("useZapInTransaction build preflight", () => {
     mocks.getBlock.mockResolvedValue({ timestamp: 1_000n });
   });
 
-  it("preserves a build requiring approval without running the zap estimate", async () => {
-    const approvalBuild = makeBuild({ approval: true });
-    mocks.buildZapInTransaction.mockResolvedValueOnce(approvalBuild);
-    mocks.estimateGas.mockRejectedValueOnce(
-      new Error("execution reverted: Transfer failed"),
-    );
-    const hook = renderHook(() => useZapInTransaction(pool, 143));
+  it.each([
+    "execution reverted: Transfer failed",
+    "ERC20: transfer amount exceeds allowance",
+  ])(
+    "preserves a build for an approval preflight failure: %s",
+    async (error) => {
+      const approvalBuild = makeBuild({ approval: true });
+      mocks.buildZapInTransaction.mockResolvedValueOnce(approvalBuild);
+      mocks.estimateGas.mockRejectedValueOnce(new Error(error));
+      const hook = renderHook(() => useZapInTransaction(pool, 143));
 
-    const build = await buildTransaction(hook);
+      const build = await buildTransaction(hook);
 
-    expect(build).toBe(approvalBuild);
-    expect(hook.result.current.buildResult).toBe(approvalBuild);
-    expect(hook.result.current.buildError).toBeNull();
-    expect(mocks.estimateGas).toHaveBeenCalledTimes(1);
-  });
+      expect(build).toBe(approvalBuild);
+      expect(hook.result.current.buildResult).toBe(approvalBuild);
+      expect(hook.result.current.buildError).toBeNull();
+      expect(mocks.estimateGas).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("runs the fail-closed estimate on a fresh build after approval", async () => {
     const approvalBuild = makeBuild({ approval: true });

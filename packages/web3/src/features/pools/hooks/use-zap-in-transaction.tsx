@@ -55,9 +55,7 @@ function getZapInBuildError(message: string): string | null {
 }
 
 function isApprovalPreflightEstimateError(message: string): boolean {
-  return /erc20insufficientallowance|insufficient allowance|0xfb8f41b2|transfer failed/i.test(
-    message,
-  );
+  return /allowance|0xfb8f41b2|transfer failed/i.test(message);
 }
 
 function isSameAddress(addressA: string, addressB: string): boolean {
