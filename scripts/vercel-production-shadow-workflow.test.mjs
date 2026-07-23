@@ -1484,6 +1484,26 @@ test("fresh smoke jobs resolve the Playwright config from the filtered workspace
   }
 });
 
+test("production-shadow smoke waits for hydration before target interaction", () => {
+  const spec = readFileSync(
+    new URL(
+      "../apps/app.mento.org/e2e/production-shadow/smoke.spec.ts",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const hydrationWaitIndex = spec.indexOf(
+    'await page.waitForLoadState("load");',
+  );
+  const targetInteractionIndex = spec.indexOf(
+    "await verifyTarget(page, target, url.origin);",
+  );
+
+  assert.notEqual(hydrationWaitIndex, -1);
+  assert.notEqual(targetInteractionIndex, -1);
+  assert.ok(hydrationWaitIndex < targetInteractionIndex);
+});
+
 test("all external action references remain immutable full SHA pins", () => {
   for (const value of allStrings(workflow)) {
     if (!value.includes("@") || value.startsWith("./")) continue;
