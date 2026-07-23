@@ -8,6 +8,8 @@ import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { assertHtmlDocumentDeploymentIdentity } from "./vercel-html-deployment-identity.mjs";
+
 export const PREVIEW_SMOKE_TARGETS = ["app", "governance", "reserve", "ui"];
 
 const REPOSITORY = "mento-protocol/frontend-monorepo";
@@ -602,11 +604,9 @@ function representativeAssets(html, baseUrl) {
 }
 
 function requireUiHtmlDeploymentIdentity(html, expectedDeploymentId) {
-  const deploymentIds = [
-    ...html.matchAll(/\bdata-dpl-id=(["'])([^"']+)\1/g),
-  ].map((match) => match[2]);
-  invariant(
-    deploymentIds.length === 1 && deploymentIds[0] === expectedDeploymentId,
+  assertHtmlDocumentDeploymentIdentity(
+    html,
+    expectedDeploymentId,
     "UI preview HTML does not carry only the expected build deployment ID",
   );
 }

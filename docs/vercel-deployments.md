@@ -668,15 +668,25 @@ bounded HTTP readiness, document status, stable target content, one
 safe interaction, critical security headers, uncaught page errors, console
 errors, failed document/script/style requests from any origin, critical HTTP
 responses with status 400 or higher from any origin, the exact custom Next
-build ID rendered as the document's `data-dpl-id`, and the exact deployed SHA
-from the build-bound `X-Mento-Deployment-Sha` response header. No deployment-protection header is
-supplied. The request policy rejects any ambient protection header, handles each
-redirect as a new browser request, and origin-checks main-frame navigation
-throughout the smoke and after every target interaction. HTTP readiness also
-uses manual redirects and rejects a cross-origin redirect. The fresh smoke job
-never links or executes candidate `node_modules`. Failure uploads only
-screenshots/video for seven days; tracing stays disabled to keep diagnostic
-artifacts bounded.
+build ID, and the exact deployed SHA from the build-bound
+`X-Mento-Deployment-Sha` response header. The raw server response's leading
+`<html>` start tag must contain exactly one quoted, case-insensitive
+`data-dpl-id` attribute with the expected value. Governance and Reserve must
+retain that exact marker in the hydrated DOM. For UI, the smoke accepts React
+removing the server-injected marker during hydration only when every observed
+same-origin `/_next/static/` request carries exactly one matching `?dpl=` value
+and Playwright classified representative requests as a JavaScript script and a
+CSS stylesheet. A static-asset redirect must retain the same immutable origin
+and identity. The UI identity monitor waits for all observed static requests to
+finish and for a quiet window both before and after reading the DOM marker, then
+checks before and after the interaction so late chunks cannot introduce a mixed
+build. No deployment-protection header is supplied. The request policy
+rejects any ambient protection header, handles each redirect as a new browser
+request, and origin-checks main-frame navigation throughout the smoke and after
+every target interaction. HTTP readiness also uses manual redirects and rejects
+a cross-origin redirect. The fresh smoke job never links or executes candidate
+`node_modules`. Failure uploads only screenshots/video for seven days; tracing
+stays disabled to keep diagnostic artifacts bounded.
 
 Do not run the manual pilot until the required GitHub Environment, repository
 variables, production token, mirrored build-variable names, and reviewed app-v3
@@ -1735,14 +1745,16 @@ pinned Playwright container and keeps the common bounded
 HTTP/header/static-asset checks before the trusted UI deployment-identity
 browser flow renders the showcase, searches and navigates to a second route,
 changes a form control, and fails on page/console errors or failed same-origin
-requests and responses. The HTTP phase verifies the server-rendered
-`data-dpl-id`; after hydration, the browser phase requires every loaded
-same-origin `/_next/static/` asset to carry exactly the expected `?dpl=` value
-and rejects any conflicting retained HTML deployment marker. Request monitoring
-remains active through the second-route interaction, so dynamically loaded
-chunks cannot escape the same identity check. The controller waits for all
-observed static requests to finish and for a quiet window before its final
-assertion. This preserves fail-closed deployment-identity proof when
+requests and responses. The HTTP phase verifies the server-rendered marker on
+the leading `<html>` start tag; after hydration, the browser phase requires
+every loaded same-origin `/_next/static/` asset to carry exactly the expected
+`?dpl=` value, requires actual script and stylesheet request types, rejects a
+static asset redirected outside that immutable identity, and rejects any
+conflicting retained HTML deployment marker. Request monitoring remains active
+through the second-route interaction, so dynamically loaded chunks cannot
+escape the same identity check. The controller waits for all observed static
+requests to finish and for a quiet window after each DOM marker read before its
+identity assertion. This preserves fail-closed deployment-identity proof when
 React reconciles the server-injected HTML attribute out of the live DOM. Chrome
 also waits for the initial page load before changing controlled inputs, then
 rechecks the changed form control after the hydration/interaction settle. Its
