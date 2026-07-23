@@ -57,7 +57,8 @@ this privileged `workflow_run` workflow.
 
 `.github/workflows/vercel-production-shadow.yml` is manual-only and
 non-promoting. Ordinary uploads implicitly move the target's reviewed generated
-project/team alias, but the workflow issues no explicit alias assignment, promotion,
+base project/team alias and may also move Vercel's exact creator-scoped alias,
+but the workflow issues no explicit alias assignment, promotion,
 environment-configuration, ownership, or protected-domain mutation. Candidate
 dependency installation and builds must run under its dedicated UID boundary
 with exact protected tools, private-umask runner-owned pull staging, raw
@@ -72,8 +73,10 @@ reauthenticate and remove the exact runtime in a final `if: always()` step.
 Preserve App custom `v3` as build-only and preserve the App `v2` alias.
 Governance, Reserve, and UI uploads must avoid custom production domains and
 must expose the immutable deployment hostname through the deployment URL/state
-identity while the provider alias list contains exactly the target's reviewed
-literal Vercel-generated project/team alias.
+identity. The provider alias list must contain the target's reviewed literal
+base project/team alias and may contain at most one author alias derived exactly
+from the canonical Vercel deployment `creator.username`; reject every other
+alias.
 Every candidate Vercel build must use `--standalone`; reject invalid, oversized,
 or non-empty-`filePathMap` `.vc-config.json` files before handoff and again on
 the runner-owned upload tree.

@@ -64,6 +64,7 @@ test("ordinary production fixture emits only canonical allowlisted state", () =>
     alias: "governance.mento.org",
     deploymentId: "dpl_governance123",
     deploymentUrl: "https://governance-immutable.vercel.app",
+    creatorUsername: "chapati",
     projectId: "prj_governance123",
     projectName: "governance.mento.org",
     readyState: "READY",
@@ -327,8 +328,79 @@ test("sensitive API fields cannot reach canonical JSON", () => {
     },
   });
   const output = JSON.stringify(state);
+  assert.equal(state.creatorUsername, "fixture-author");
   assert.doesNotMatch(output, /test-value-not-printed/);
-  assert.doesNotMatch(output, /protectionBypass|buildEnv|creator|env/);
+  assert.doesNotMatch(
+    output,
+    /protectionBypass|buildEnv|email|avatar|test-value-not-printed-user-id|env/,
+  );
+});
+
+test("creator username canonicalization is narrow and fail-closed", () => {
+  const production = fixture("valid-production.json");
+  assert.equal(
+    canonicalizeDeploymentState({
+      ...production,
+      deploymentResponse: {
+        ...production.deploymentResponse,
+        creator: { uid: "user_fixture123", username: "Chapati" },
+      },
+    }).creatorUsername,
+    "chapati",
+  );
+  assert.equal(
+    canonicalizeDeploymentState({
+      ...production,
+      deploymentResponse: {
+        ...production.deploymentResponse,
+        creator: { uid: "user_fixture123" },
+      },
+    }).creatorUsername,
+    null,
+  );
+  for (const creator of [
+    "chapati",
+    [],
+    { username: "" },
+    { username: "chapati.example" },
+    { username: "chapati_user" },
+    { username: "a".repeat(64) },
+  ]) {
+    assert.throws(
+      () =>
+        canonicalizeDeploymentState({
+          ...production,
+          deploymentResponse: {
+            ...production.deploymentResponse,
+            creator,
+          },
+        }),
+      /creator/,
+    );
+  }
+});
+
+test("creator display names and Git author metadata cannot authorize aliases", () => {
+  const production = fixture("valid-production.json");
+  const state = canonicalizeDeploymentState({
+    ...production,
+    deploymentResponse: {
+      ...production.deploymentResponse,
+      creator: {
+        uid: "user_fixture123",
+        username: "actual-creator",
+        name: "chapati",
+      },
+      meta: {
+        ...production.deploymentResponse.meta,
+        githubCommitAuthorLogin: "chapati23",
+        githubCommitAuthorName: "chapati",
+      },
+    },
+  });
+  assert.equal(state.creatorUsername, "actual-creator");
+  const output = JSON.stringify(state);
+  assert.doesNotMatch(output, /chapati23|githubCommitAuthor|"name"/);
 });
 
 test("canonical output boundary rejects every non-allowlisted field", () => {
@@ -361,6 +433,14 @@ test("canonical output boundary rejects every non-allowlisted field", () => {
         aliases: [...state.aliases].reverse(),
       }),
     /aliases are malformed/,
+  );
+  assert.throws(
+    () =>
+      assertCanonicalOutput({
+        ...state,
+        creatorUsername: "Chapati",
+      }),
+    /creator username is malformed/,
   );
 });
 

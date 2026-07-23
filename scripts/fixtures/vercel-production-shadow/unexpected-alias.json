@@ -2,6 +2,7 @@
   "alias": "governance-immutable.vercel.app",
   "deploymentId": "dpl_governance123",
   "deploymentUrl": "https://governance-immutable.vercel.app",
+  "creatorUsername": null,
   "projectId": "prj_governance123",
   "projectName": "governance.mento.org",
   "readyState": "READY",

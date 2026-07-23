@@ -4,6 +4,11 @@
     "protectionBypass": "test-value-not-printed",
     "env": [{ "key": "SECRET", "value": "test-value-not-printed" }],
     "buildEnv": ["test-value-not-printed"],
-    "creator": { "email": "test-value-not-printed@example.org" }
+    "creator": {
+      "uid": "test-value-not-printed-user-id",
+      "username": "fixture-author",
+      "email": "test-value-not-printed@example.org",
+      "avatar": "https://test-value-not-printed.example/avatar.png"
+    }
   }
 }

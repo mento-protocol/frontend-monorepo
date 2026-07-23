@@ -3,5 +3,6 @@
   "target": "governance",
   "sourceSha": "fd995b2413d983188de86e829f6ef21813ecbc23",
   "deploymentUrl": "https://governancemento-ktabi5bgi-mentolabs.vercel.app",
+  "creatorUsername": "chapati",
   "generatedAliases": ["governancementoorg-mentolabs.vercel.app"]
 }

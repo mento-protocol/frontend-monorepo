@@ -11,6 +11,10 @@
     "name": "governance.mento.org",
     "readyState": "READY",
     "target": "production",
+    "creator": {
+      "uid": "user_fixture123",
+      "username": "chapati"
+    },
     "meta": {
       "githubCommitOrg": "mento-protocol",
       "githubCommitRepo": "frontend-monorepo",

@@ -29,7 +29,8 @@ copy a second ownership table into executable code.
 
 The guarded manual production-shadow pilot does not promote or mutate a
 protected/custom production domain or deployment ownership. Each ordinary
-upload implicitly moves the target's reviewed generated project/team alias.
+upload implicitly moves the target's reviewed base generated project/team alias
+and may also move Vercel's exact creator-scoped generated alias.
 Until the later production cutover issues ship, the Vercel Git integration
 remains the protected/custom production deployment owner.
 
@@ -524,22 +525,39 @@ runner:    validate -> immutable handoff -> destroy candidate boundary
 runner:    vercel deploy --prebuilt --prod --skip-domain --archive=tgz --format=json
 ```
 
-`--skip-domain` suppresses custom production-domain assignment. In this reviewed
-team/project topology, confirmed by read-only checks of the observed public
-routes, Vercel exposes the immutable deployment hostname as deployment
-identity, while the provider alias list still contains an unavoidable generated
-project/team alias; the CLI offers no supported zero-generated-alias mode. The
-controller binds that generated alias to each literal target:
+`--skip-domain` suppresses custom production-domain assignment. Vercel's
+[generated-URL contract](https://vercel.com/docs/deployments/generated-urls)
+documents a CLI project/scope URL and, for Team deployments, an optional
+project/author/scope URL. The immutable deployment hostname remains separate
+deployment identity. Read-only evidence matched both documented provider alias
+forms: run `30034411210` exposed only the base alias, while run `30037927329`
+exposed the base alias plus the creator-scoped alias. The CLI offers no
+supported zero-generated-alias mode.
+
+The controller pins the project and scope slugs for each literal target and
+requires its base alias:
 
 - Governance: `governancementoorg-mentolabs.vercel.app`
 - Reserve: `reservementoorg-mentolabs.vercel.app`
 - UI: `uimentoorg-mentolabs.vercel.app`
 
-Any immutable deployment identity mismatch, missing generated alias,
-protected/custom domain, branch or global alias, wrong-target alias, or
-malformed canonical hostname evidence fails closed. The read-only state
-inspector normalizes and deduplicates raw provider aliases; persisted canonical
-evidence must remain deduplicated and sorted.
+It permits at most one additional alias: the exact
+`<project-slug>-<creator-username>-<scope-slug>.vercel.app` value derived from
+the same deployment response's canonical `creator.username`. The canonical
+state retains only that sanitized username; creator IDs, email, avatar, display
+name, Git author metadata, and `GITHUB_ACTOR` cannot authorize an alias. A
+creator username beginning with the reserved `git-` or `env-` generated-alias
+namespace can still produce the required base-only topology, but cannot
+authorize an author alias because that hostname is indistinguishable from
+Vercel's documented Git branch or custom-environment form. A
+creator whose full project/author/scope label exceeds DNS's 63-character limit
+can also use only the base topology; the provider's documented truncation is
+not stable enough to authorize without a reviewed contract update. A
+missing base alias, creator-less or wrong-author alias, protected/custom domain,
+branch or global alias, wrong-target alias, second author alias, immutable
+hostname in the alias list, or malformed canonical evidence fails closed. The
+read-only state inspector normalizes and deduplicates raw provider aliases;
+persisted canonical evidence must remain deduplicated and sorted.
 Protected-domain before/after equality remains the decisive proof that the
 upload did not activate protected/custom production traffic. A future
 provider-generated alias topology must fail first and receive a reviewed
@@ -568,7 +586,8 @@ never transferred as a GitHub artifact.
 Each staged state must prove the literal project, `production` target, `READY`
 state, exact repository/ref/SHA metadata, and an `alias` equal to the immutable
 hostname in `deploymentUrl`. Its provider-reported alias set must contain
-exactly the target's reviewed generated project/team alias before smoke begins.
+the target's reviewed base generated project/team alias and at most the exact
+creator-scoped alias described above before smoke begins.
 Smoke and browser verification use only the immutable deployment URL; the
 generated alias is state evidence, never the runtime test endpoint. The browser
 then proves critical security headers, a stable page marker, and a
@@ -665,7 +684,8 @@ alias list are confirmed present. The workflow itself performs no Vercel Git
 setting, explicit alias, promotion, environment-configuration, ownership,
 protected/custom production-domain, or serving-deployment cleanup command. Each
 ordinary deploy still performs the bounded implicit movement of its reviewed
-generated system alias.
+generated system aliases: the required project/scope alias and, when Vercel
+emits it, the exact creator-scoped project/creator/scope alias.
 
 Each candidate build must emit exactly one canonical Turbo
 `Cached: X cached, Y total` line. Missing, duplicate, malformed, or impossible
@@ -706,9 +726,11 @@ alias mutation, environment-configuration mutation, or Git-ownership change. The
 manual production-shadow workflow described above does use read-only Vercel API
 checks and stages ordinary-project deployments without promoting
 protected/custom production domains. Each upload implicitly moves the target's
-reviewed generated system alias; the workflow performs no explicit alias
-assignment, promotion, environment-configuration, ownership, or
-protected/custom production-domain mutation.
+reviewed generated system aliases: the required project/scope alias and, when
+Vercel emits it, the exact creator-scoped project/creator/scope alias. The
+workflow performs no explicit alias assignment, promotion,
+environment-configuration, ownership, or protected/custom production-domain
+mutation.
 
 ## Cost validation preparation
 

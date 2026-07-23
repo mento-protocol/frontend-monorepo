@@ -559,8 +559,12 @@ test("deployment expectation fixes production provenance and exact SHA", () => {
   );
 });
 
-test("run 30034411210 keeps immutable identity separate from the provider alias list", () => {
-  const unexpected = JSON.parse(
+test("observed runs allow only the base alias plus one exact optional creator alias", () => {
+  assert.doesNotMatch(
+    readFileSync(productionShadowScript, "utf8"),
+    /GITHUB_ACTOR|githubCommitAuthor|creator\.name/,
+  );
+  const template = JSON.parse(
     readFileSync(
       new URL(
         "./fixtures/vercel-production-shadow/unexpected-alias.json",
@@ -569,47 +573,77 @@ test("run 30034411210 keeps immutable identity separate from the provider alias 
       "utf8",
     ),
   );
-  const observedTopology = JSON.parse(
-    readFileSync(
-      new URL(
-        "./fixtures/vercel-production-shadow/run-30034411210-governance-topology.json",
-        import.meta.url,
+  const topologies = [
+    "run-30034411210-governance-topology.json",
+    "run-30037927329-governance-topology.json",
+  ].map((name) =>
+    JSON.parse(
+      readFileSync(
+        new URL(`./fixtures/vercel-production-shadow/${name}`, import.meta.url),
+        "utf8",
       ),
-      "utf8",
     ),
   );
-  assert.equal(observedTopology.runId, 30034411210);
-  assert.equal(observedTopology.target, "governance");
-  const immutableHostname = new URL(observedTopology.deploymentUrl).hostname;
   const generatedProjectAlias =
     PRODUCTION_SHADOW_TARGETS.governance.generatedProjectAlias;
-  assert.deepEqual(observedTopology.generatedAliases, [generatedProjectAlias]);
-  const expected = {
-    ...unexpected,
-    alias: immutableHostname,
-    deploymentUrl: observedTopology.deploymentUrl,
-    git: {
-      ...unexpected.git,
-      sha: observedTopology.sourceSha,
-    },
-    aliases: observedTopology.generatedAliases,
-  };
-  assert.equal(
-    assertOnlyExpectedVercelGeneratedAliases(expected, "governance"),
-    expected,
+  const generatedAuthorAlias =
+    "governancementoorg-chapati-mentolabs.vercel.app";
+  assert.deepEqual(
+    topologies.map((topology) => topology.runId),
+    [30034411210, 30037927329],
   );
+  assert.deepEqual(
+    topologies.map((topology) => topology.creatorUsername),
+    ["chapati", "chapati"],
+  );
+  assert.deepEqual(topologies[0].generatedAliases, [generatedProjectAlias]);
+  assert.deepEqual(topologies[1].generatedAliases, [
+    generatedAuthorAlias,
+    generatedProjectAlias,
+  ]);
+  const states = topologies.map((topology) => ({
+    ...template,
+    alias: new URL(topology.deploymentUrl).hostname,
+    deploymentUrl: topology.deploymentUrl,
+    creatorUsername: topology.creatorUsername,
+    git: {
+      ...template.git,
+      sha: topology.sourceSha,
+    },
+    aliases: topology.generatedAliases,
+  }));
+  for (const state of states) {
+    assert.equal(
+      assertOnlyExpectedVercelGeneratedAliases(state, "governance"),
+      state,
+    );
+  }
 
+  const expected = states[1];
+  const immutableHostname = new URL(expected.deploymentUrl).hostname;
   const unexpectedAliasSets = [
-    unexpected.aliases,
-    [immutableHostname],
+    template.aliases,
+    [generatedAuthorAlias],
     [],
-    ...[
-      "governance.mento.org",
+    [
+      generatedProjectAlias,
+      "governancementoorg-chapati23-mentolabs.vercel.app",
+    ].sort(),
+    [
+      generatedProjectAlias,
       "governancementoorg-git-main-mentolabs.vercel.app",
-      "governancementoorg.vercel.app",
-    ].map((extraAlias) => [generatedProjectAlias, extraAlias].sort()),
-    [immutableHostname, generatedProjectAlias].sort(),
-    [PRODUCTION_SHADOW_TARGETS.reserve.generatedProjectAlias],
+    ].sort(),
+    [generatedProjectAlias, "governancementoorg.vercel.app"].sort(),
+    [generatedProjectAlias, "governance.mento.org"].sort(),
+    [
+      generatedProjectAlias,
+      PRODUCTION_SHADOW_TARGETS.reserve.generatedProjectAlias,
+    ].sort(),
+    [
+      generatedAuthorAlias,
+      generatedProjectAlias,
+      "governancementoorg-other-mentolabs.vercel.app",
+    ].sort(),
   ];
   for (const aliases of unexpectedAliasSets) {
     assert.throws(
@@ -621,19 +655,16 @@ test("run 30034411210 keeps immutable identity separate from the provider alias 
           },
           "governance",
         ),
-      (error) => {
-        assert.equal(
-          error.message,
-          `Staged governance production generated-alias topology mismatch: expected ${JSON.stringify([generatedProjectAlias])}; actual ${JSON.stringify(aliases)}`,
-        );
-        return true;
-      },
+      /generated-alias topology mismatch/,
     );
   }
 
   for (const aliases of [
     [generatedProjectAlias, generatedProjectAlias],
+    [generatedAuthorAlias, generatedAuthorAlias, generatedProjectAlias].sort(),
     [generatedProjectAlias.toUpperCase()],
+    [...expected.aliases].reverse(),
+    [generatedProjectAlias, "not a hostname"].sort(),
   ]) {
     assert.throws(
       () =>
@@ -644,9 +675,144 @@ test("run 30034411210 keeps immutable identity separate from the provider alias 
           },
           "governance",
         ),
-      /aliases are malformed/,
+      /aliases are malformed|Alias hostname is malformed/,
     );
   }
+
+  assert.throws(
+    () =>
+      assertOnlyExpectedVercelGeneratedAliases(
+        {
+          ...expected,
+          aliases: [immutableHostname, generatedProjectAlias].sort(),
+        },
+        "governance",
+      ),
+    /immutable hostname must remain separate/,
+  );
+  assert.throws(
+    () =>
+      assertOnlyExpectedVercelGeneratedAliases(
+        {
+          ...expected,
+          alias: generatedProjectAlias,
+          deploymentUrl: `https://${generatedProjectAlias}`,
+          aliases: [generatedProjectAlias],
+        },
+        "governance",
+      ),
+    /immutable hostname must remain separate/,
+  );
+
+  assert.throws(
+    () =>
+      assertOnlyExpectedVercelGeneratedAliases(
+        {
+          ...expected,
+          creatorUsername: null,
+        },
+        "governance",
+      ),
+    /generated-alias topology mismatch/,
+  );
+  for (const creatorUsername of [
+    "chapati.example",
+    "chapati/name",
+    "chapati_name",
+    "a".repeat(64),
+  ]) {
+    assert.throws(
+      () =>
+        assertOnlyExpectedVercelGeneratedAliases(
+          {
+            ...expected,
+            creatorUsername,
+            aliases: [generatedProjectAlias],
+          },
+          "governance",
+        ),
+      /creator username is malformed/,
+    );
+  }
+  assert.throws(
+    () =>
+      assertOnlyExpectedVercelGeneratedAliases(
+        {
+          ...expected,
+          creatorUsername: "git-main",
+          aliases: [
+            generatedProjectAlias,
+            "governancementoorg-git-main-mentolabs.vercel.app",
+          ].sort(),
+        },
+        "governance",
+      ),
+    /generated-alias topology mismatch/,
+  );
+  const branchLikeCreatorBaseOnly = {
+    ...expected,
+    creatorUsername: "git-main",
+    aliases: [generatedProjectAlias],
+  };
+  assert.equal(
+    assertOnlyExpectedVercelGeneratedAliases(
+      branchLikeCreatorBaseOnly,
+      "governance",
+    ),
+    branchLikeCreatorBaseOnly,
+  );
+  assert.throws(
+    () =>
+      assertOnlyExpectedVercelGeneratedAliases(
+        {
+          ...expected,
+          creatorUsername: "env-staging",
+          aliases: [
+            generatedProjectAlias,
+            "governancementoorg-env-staging-mentolabs.vercel.app",
+          ].sort(),
+        },
+        "governance",
+      ),
+    /generated-alias topology mismatch/,
+  );
+  const environmentLikeCreatorBaseOnly = {
+    ...expected,
+    creatorUsername: "env-staging",
+    aliases: [generatedProjectAlias],
+  };
+  assert.equal(
+    assertOnlyExpectedVercelGeneratedAliases(
+      environmentLikeCreatorBaseOnly,
+      "governance",
+    ),
+    environmentLikeCreatorBaseOnly,
+  );
+  const truncationRequiredCreator = "a".repeat(40);
+  const truncationRequiredBaseOnly = {
+    ...expected,
+    creatorUsername: truncationRequiredCreator,
+    aliases: [generatedProjectAlias],
+  };
+  assert.equal(
+    assertOnlyExpectedVercelGeneratedAliases(
+      truncationRequiredBaseOnly,
+      "governance",
+    ),
+    truncationRequiredBaseOnly,
+  );
+  const truncatedAuthorAlias = `${`governancementoorg-${truncationRequiredCreator}-mentolabs`.slice(0, 63)}.vercel.app`;
+  assert.throws(
+    () =>
+      assertOnlyExpectedVercelGeneratedAliases(
+        {
+          ...truncationRequiredBaseOnly,
+          aliases: [generatedProjectAlias, truncatedAuthorAlias].sort(),
+        },
+        "governance",
+      ),
+    /generated-alias topology mismatch/,
+  );
 
   assert.throws(
     () =>
@@ -720,7 +886,28 @@ test("ordinary production targets pin reviewed generated project aliases", () =>
       ui: "uimentoorg-mentolabs.vercel.app",
     },
   );
+  assert.deepEqual(
+    Object.fromEntries(
+      ["governance", "reserve", "ui"].map((target) => [
+        target,
+        {
+          projectSlug: PRODUCTION_SHADOW_TARGETS[target].generatedProjectSlug,
+          scopeSlug: PRODUCTION_SHADOW_TARGETS[target].generatedScopeSlug,
+        },
+      ]),
+    ),
+    {
+      governance: {
+        projectSlug: "governancementoorg",
+        scopeSlug: "mentolabs",
+      },
+      reserve: { projectSlug: "reservementoorg", scopeSlug: "mentolabs" },
+      ui: { projectSlug: "uimentoorg", scopeSlug: "mentolabs" },
+    },
+  );
   assert.equal(PRODUCTION_SHADOW_TARGETS.app.generatedProjectAlias, null);
+  assert.equal(PRODUCTION_SHADOW_TARGETS.app.generatedProjectSlug, null);
+  assert.equal(PRODUCTION_SHADOW_TARGETS.app.generatedScopeSlug, null);
 });
 
 test("custom-v3 pull selects the custom target without a preview-only branch override", () => {
