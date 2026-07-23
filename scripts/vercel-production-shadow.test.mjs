@@ -533,7 +533,7 @@ test("pinned CLI build and deploy arguments bind each literal project and target
   assert.doesNotMatch(mainDeploy.join(" "), /promote|rollback|alias set/);
 });
 
-test("trusted repo mapping and app-root output are exact for all four targets", () => {
+test("repo-linked settings use exact repo identity for all four targets", () => {
   for (const [target, contract] of Object.entries(PRODUCTION_SHADOW_TARGETS)) {
     const directory = mkdtempSync(join(tmpdir(), `shadow-${target}-`));
     const projectId = `prj_${target}123`;
@@ -560,8 +560,6 @@ test("trusted repo mapping and app-root output are exact for all four targets", 
       writeFileSync(
         join(appVercel, "project.json"),
         JSON.stringify({
-          orgId,
-          projectId,
           settings: { rootDirectory: contract.rootDirectory },
         }),
       );
@@ -576,14 +574,14 @@ test("trusted repo mapping and app-root output are exact for all four targets", 
           cliVersion: "56.2.0",
         }),
       );
-      assert.equal(
+      assert.deepEqual(
         assertPulledProductionShadowProject({
           repoRoot: directory,
           logicalTarget: target,
           orgId,
           projectId,
-        }).settings.rootDirectory,
-        contract.rootDirectory,
+        }),
+        { settings: { rootDirectory: contract.rootDirectory } },
       );
       assert.equal(
         assertProductionShadowOutput({
@@ -633,8 +631,6 @@ test("runner pull staging, candidate copy, and upload proof reject external refe
       writeFileSync(
         join(appState, "project.json"),
         JSON.stringify({
-          orgId,
-          projectId,
           settings: { rootDirectory: contract.rootDirectory },
         }),
         { mode: 0o600 },
@@ -654,15 +650,15 @@ test("runner pull staging, candidate copy, and upload proof reject external refe
       );
       writeFileSync(rawEnvironmentPath, rawEnvironment, { mode: 0o600 });
       const rawEnvironmentBefore = lstatSync(rawEnvironmentPath);
-      assert.equal(
+      assert.deepEqual(
         assertProductionShadowPullStaging({
           runnerTemp,
           stagingRoot,
           logicalTarget: target,
           orgId,
           projectId,
-        }).projectId,
-        projectId,
+        }),
+        { settings: { rootDirectory: contract.rootDirectory } },
       );
 
       mkdirSync(join(candidateRoot, contract.rootDirectory), {
@@ -935,8 +931,6 @@ test("Vercel pull inherits a private umask and restores the runner umask", () =>
         writeFileSync(
           join(appState, "project.json"),
           JSON.stringify({
-            orgId,
-            projectId,
             settings: { rootDirectory: contract.rootDirectory },
           }),
         );
@@ -949,15 +943,15 @@ test("Vercel pull inherits a private umask and restores the runner umask", () =>
     });
     assert.equal(result, "pulled");
     assert.equal(process.umask(), priorUmask);
-    assert.equal(
+    assert.deepEqual(
       assertProductionShadowPullStaging({
         runnerTemp,
         stagingRoot,
         logicalTarget,
         orgId,
         projectId,
-      }).projectId,
-      projectId,
+      }),
+      { settings: { rootDirectory: contract.rootDirectory } },
     );
   } finally {
     process.umask(priorUmask);
@@ -998,8 +992,6 @@ test("handoff enforces distinct candidate and runner ownership contracts", () =>
     writeFileSync(
       join(stagedAppState, "project.json"),
       JSON.stringify({
-        orgId,
-        projectId,
         settings: { rootDirectory: contract.rootDirectory },
       }),
       { mode: 0o600 },
@@ -1259,6 +1251,12 @@ test("raw Git-object materialization rejects gitlinks before writing", () => {
 });
 
 test("trusted builds reject every post-build project-link mutation before deploy", () => {
+  const updateRepoProject = (directory, update) => {
+    const linkPath = join(directory, ".vercel", "repo.json");
+    const link = JSON.parse(readFileSync(linkPath, "utf8"));
+    update(link.projects[0]);
+    writeFileSync(linkPath, JSON.stringify(link));
+  };
   const mutations = [
     {
       name: "missing repo link",
@@ -1267,43 +1265,49 @@ test("trusted builds reject every post-build project-link mutation before deploy
     },
     {
       name: "wrong organization",
-      apply: ({ projectPath, project }) =>
-        writeFileSync(
-          projectPath,
-          JSON.stringify({ ...project, orgId: "team_other123" }),
-        ),
-      error: /project identity does not match the literal target/,
+      apply: ({ directory }) =>
+        updateRepoProject(directory, (project) => {
+          project.orgId = "team_other123";
+        }),
+      error: /Repo-level Vercel mapping does not match the literal target/,
     },
     {
       name: "missing organization",
-      apply: ({ projectPath, project }) =>
-        writeFileSync(
-          projectPath,
-          JSON.stringify({
-            projectId: project.projectId,
-            settings: project.settings,
-          }),
-        ),
-      error: /project identity does not match the literal target/,
+      apply: ({ directory }) =>
+        updateRepoProject(directory, (project) => {
+          delete project.orgId;
+        }),
+      error: /Repo-level Vercel mapping does not match the literal target/,
     },
     {
       name: "wrong project",
-      apply: ({ projectPath, project }) =>
-        writeFileSync(
-          projectPath,
-          JSON.stringify({ ...project, projectId: "prj_other123" }),
-        ),
-      error: /project identity does not match the literal target/,
+      apply: ({ directory }) =>
+        updateRepoProject(directory, (project) => {
+          project.id = "prj_other123";
+        }),
+      error: /Repo-level Vercel mapping does not match the literal target/,
     },
     {
       name: "missing project",
+      apply: ({ directory }) =>
+        updateRepoProject(directory, (project) => {
+          delete project.id;
+        }),
+      error: /Repo-level Vercel mapping does not match the literal target/,
+    },
+    ...[
+      ["projectId", "prj_duplicate123"],
+      ["orgId", "team_duplicate123"],
+      ["projectName", "duplicate.mento.org"],
+    ].map(([name, value]) => ({
+      name: `standalone ${name}`,
       apply: ({ projectPath, project }) =>
         writeFileSync(
           projectPath,
-          JSON.stringify({ orgId: project.orgId, settings: project.settings }),
+          JSON.stringify({ ...project, [name]: value }),
         ),
-      error: /project identity does not match the literal target/,
-    },
+      error: /repo-linked Vercel project file must contain only settings/,
+    })),
     {
       name: "wrong Root Directory",
       apply: ({ projectPath, project }) =>
@@ -1330,8 +1334,6 @@ test("trusted builds reject every post-build project-link mutation before deploy
       const output = join(appVercel, "output");
       const projectPath = join(appVercel, "project.json");
       const project = {
-        orgId,
-        projectId,
         settings: { rootDirectory: contract.rootDirectory },
       };
       const operations = [];

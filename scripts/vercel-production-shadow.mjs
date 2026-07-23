@@ -1663,9 +1663,12 @@ export function assertPulledProductionShadowProject({
       "Pulled Vercel Root Directory does not match the literal target",
     );
   }
-  if (project.projectId !== projectId || project.orgId !== orgId) {
+  if (
+    Object.keys(project).length !== 1 ||
+    !Object.hasOwn(project, "settings")
+  ) {
     throw new Error(
-      "Pulled Vercel project identity does not match the literal target",
+      "Pulled repo-linked Vercel project file must contain only settings",
     );
   }
   return project;

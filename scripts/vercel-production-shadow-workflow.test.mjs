@@ -474,6 +474,41 @@ test("sanitized Vercel build child receives the exact Git identity tuple", () =>
   }
 });
 
+test("every repo-linked pull validates local and remote project identity before build", () => {
+  for (const target of ["app", "governance", "reserve", "ui"]) {
+    const targetLabel = target === "ui" ? "UI" : target;
+    const validation = stepNamed(
+      target,
+      `Validate ${targetLabel} project link and Root Directory`,
+    );
+    const commands = validation.run.split("\n").map((line) => line.trim());
+    assert.ok(
+      commands.includes(
+        '"${{ steps.runtime.outputs.node-bin }}" scripts/vercel-production-shadow.mjs validate-pull-staging',
+      ),
+      `${target} must validate the exact local repo link`,
+    );
+    assert.ok(
+      commands.includes(
+        '"${{ steps.runtime.outputs.node-bin }}" scripts/vercel-deployment-state.mjs project --project-id "$VERCEL_PROJECT_ID" --project-name ' +
+          `${target}.mento.org --root-directory apps/${target}.mento.org`,
+      ),
+      `${target} must validate the literal remote project`,
+    );
+    assert.equal(
+      validation.env.VERCEL_PROJECT_ID,
+      `\${{ vars.VERCEL_PROJECT_ID_${target.toUpperCase()} }}`,
+    );
+    const buildIndex = workflow.jobs[target].steps.findIndex(
+      (step) => step.uses === "./.github/actions/vercel-candidate-build",
+    );
+    assert.ok(
+      workflow.jobs[target].steps.indexOf(validation) < buildIndex,
+      `${target} project validation must precede candidate execution`,
+    );
+  }
+});
+
 test("ordinary targets use isolated builds, runner-owned handoff, and fresh smoke", () => {
   for (const target of ["governance", "reserve", "ui"]) {
     const source = jobSource(target);

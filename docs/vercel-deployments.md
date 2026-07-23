@@ -246,9 +246,13 @@ The production-shadow workflow uses a separate runner-owned staging boundary.
 monorepo root, but first materializes a trusted root `.vercel/repo.json` mapping
 and selects the literal project with `--project`. Pinned CLI 56.2.0 then writes
 the pulled environment and project settings below `apps/<target>/.vercel`, so
-the checker passes the literal `apps/<target>` directory. Both the local mapping
-and the project's configured Root Directory are verified, with the latter also
-checked through the Vercel project API. The checker loads
+the checker passes the literal `apps/<target>` directory. In this repo-linked
+mode, identity lives only in the exact root `.vercel/repo.json` mapping;
+app-root `project.json` must be settings-only and must not duplicate standalone
+project, organization, or project-name identity. The controller verifies that
+mapping and the configured Root Directory locally, then the following read-only
+Vercel project API check independently verifies the literal project ID, name,
+and Root Directory. The checker loads
 `$PROJECT_DIRECTORY/.vercel/.env.<environment>.local`, then overlays explicit
 workflow constants and scoped GitHub secrets so they take precedence. A missing
 or invalid pulled file fails closed. Its machine-readable inventory is available
