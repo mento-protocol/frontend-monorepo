@@ -4,8 +4,10 @@ import { test } from "node:test";
 
 import {
   assertBrowserDeploymentIdentity,
+  createBrowserDeploymentIdentityMonitor,
   createBrowserFailureMonitor,
   loadTrustedChromium,
+  readSettledBrowserDeploymentIdentity,
   runBrowserSmoke,
   validateBrowserSmokeInput,
 } from "./vercel-preview-browser-smoke.mjs";
@@ -70,15 +72,27 @@ class FakePage extends EventEmitter {
     return this.currentUrl;
   }
 
-  emitAssetRequest(reference) {
-    const request = this.startAssetRequest(reference);
+  emitAssetRequest(reference, options) {
+    const request = this.startAssetRequest(reference, options);
     this.emit("requestfinished", request);
   }
 
-  startAssetRequest(reference) {
+  startAssetRequest(
+    reference,
+    {
+      redirectedFrom = null,
+      resourceType = reference.endsWith(".css")
+        ? "stylesheet"
+        : reference.includes(".css?")
+          ? "stylesheet"
+          : "script",
+    } = {},
+  ) {
     const request = {
       failure: () => ({ errorText: "net::ERR_FAILED" }),
       method: () => "GET",
+      redirectedFrom: () => redirectedFrom,
+      resourceType: () => resourceType,
       url: () => reference,
     };
     this.emit("request", request);
@@ -292,6 +306,156 @@ test("browser identity rejects missing, mixed, duplicate, or cross-origin eviden
       ),
     );
   }
+});
+
+test("browser identity monitor exposes settled defensive evidence", async () => {
+  const page = new EventEmitter();
+  const monitor = createBrowserDeploymentIdentityMonitor(
+    page,
+    new URL(INPUT.deploymentUrl).origin,
+  );
+  const references = [
+    [
+      `${INPUT.deploymentUrl}/_next/static/app.js?dpl=${NEXT_DEPLOYMENT_ID}`,
+      "script",
+    ],
+    [
+      `${INPUT.deploymentUrl}/_next/static/app.css?dpl=${NEXT_DEPLOYMENT_ID}`,
+      "stylesheet",
+    ],
+  ];
+  for (const [reference, resourceType] of references) {
+    const request = {
+      redirectedFrom: () => null,
+      resourceType: () => resourceType,
+      url: () => reference,
+    };
+    page.emit("request", request);
+    page.emit("requestfinished", request);
+  }
+  await monitor.waitForIdle(1_000);
+
+  const evidence = monitor.evidence(NEXT_DEPLOYMENT_ID, null);
+  assert.deepEqual(evidence, {
+    htmlDeploymentId: null,
+    assetReferences: references.map(([reference]) => reference),
+  });
+  evidence.assetReferences.push("https://attacker.example/chunk.js");
+  assert.deepEqual(
+    monitor.evidence(NEXT_DEPLOYMENT_ID, null).assetReferences,
+    references.map(([reference]) => reference),
+  );
+});
+
+test("browser identity monitor rejects fetch and image suffix spoofs", async () => {
+  const page = new EventEmitter();
+  const monitor = createBrowserDeploymentIdentityMonitor(
+    page,
+    new URL(INPUT.deploymentUrl).origin,
+  );
+  for (const [suffix, resourceType] of [
+    ["fake.js", "fetch"],
+    ["fake.css", "image"],
+  ]) {
+    const request = {
+      redirectedFrom: () => null,
+      resourceType: () => resourceType,
+      url: () =>
+        `${INPUT.deploymentUrl}/_next/static/${suffix}?dpl=${NEXT_DEPLOYMENT_ID}`,
+    };
+    page.emit("request", request);
+    page.emit("requestfinished", request);
+  }
+  await monitor.waitForIdle(1_000);
+
+  assert.throws(
+    () => monitor.evidence(NEXT_DEPLOYMENT_ID, null),
+    /request types are missing or invalid/,
+  );
+  assert.throws(
+    () => monitor.assertExpected(NEXT_DEPLOYMENT_ID, null),
+    /request types are missing or invalid/,
+  );
+});
+
+test("browser identity monitor rejects a cross-origin static redirect", async () => {
+  const page = new EventEmitter();
+  const monitor = createBrowserDeploymentIdentityMonitor(
+    page,
+    new URL(INPUT.deploymentUrl).origin,
+  );
+  const original = {
+    redirectedFrom: () => null,
+    resourceType: () => "script",
+    url: () =>
+      `${INPUT.deploymentUrl}/_next/static/app.js?dpl=${NEXT_DEPLOYMENT_ID}`,
+  };
+  const redirected = {
+    redirectedFrom: () => original,
+    resourceType: () => "script",
+    url: () => "https://assets.example.invalid/app.js",
+  };
+  page.emit("request", original);
+  page.emit("requestfinished", original);
+  page.emit("request", redirected);
+  page.emit("requestfinished", redirected);
+  await monitor.waitForIdle(1_000);
+
+  assert.throws(
+    () => monitor.evidence(NEXT_DEPLOYMENT_ID, null),
+    /redirected outside its immutable identity/,
+  );
+});
+
+test("settled browser identity waits for a request started during the DOM read", async () => {
+  const page = new EventEmitter();
+  const monitor = createBrowserDeploymentIdentityMonitor(
+    page,
+    new URL(INPUT.deploymentUrl).origin,
+  );
+  let requestFinished = false;
+  for (const [suffix, resourceType] of [
+    ["app.js", "script"],
+    ["app.css", "stylesheet"],
+  ]) {
+    const request = {
+      redirectedFrom: () => null,
+      resourceType: () => resourceType,
+      url: () =>
+        `${INPUT.deploymentUrl}/_next/static/${suffix}?dpl=${NEXT_DEPLOYMENT_ID}`,
+    };
+    page.emit("request", request);
+    page.emit("requestfinished", request);
+  }
+  page.locator = (selector) => {
+    assert.equal(selector, "html");
+    return {
+      getAttribute: async (attribute) => {
+        assert.equal(attribute, "data-dpl-id");
+        const request = {
+          redirectedFrom: () => null,
+          resourceType: () => "script",
+          url: () =>
+            `${INPUT.deploymentUrl}/_next/static/late.js?dpl=${NEXT_DEPLOYMENT_ID}`,
+        };
+        page.emit("request", request);
+        setTimeout(() => {
+          requestFinished = true;
+          page.emit("requestfinished", request);
+        }, 10);
+        return null;
+      },
+    };
+  };
+
+  const evidence = await readSettledBrowserDeploymentIdentity({
+    page,
+    monitor,
+    expectedDeploymentId: NEXT_DEPLOYMENT_ID,
+    timeoutMs: 1_000,
+  });
+  assert.equal(requestFinished, true);
+  assert.equal(evidence.assetReferences.length, 3);
 });
 
 test("trusted checkout resolves its own pinned Playwright package", async () => {

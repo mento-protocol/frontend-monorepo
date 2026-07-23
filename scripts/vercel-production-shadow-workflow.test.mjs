@@ -1484,10 +1484,17 @@ test("fresh smoke jobs resolve the Playwright config from the filtered workspace
   }
 });
 
-test("production-shadow smoke waits for hydration before target interaction", () => {
+test("production-shadow smoke settles deployment identity around hydration and interaction", () => {
   const spec = readFileSync(
     new URL(
       "../apps/app.mento.org/e2e/production-shadow/smoke.spec.ts",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const browserIdentitySource = readFileSync(
+    new URL(
+      "../apps/ui.mento.org/e2e/vercel-preview-browser-smoke.mjs",
       import.meta.url,
     ),
     "utf8",
@@ -1498,10 +1505,58 @@ test("production-shadow smoke waits for hydration before target interaction", ()
   const targetInteractionIndex = spec.indexOf(
     "await verifyTarget(page, target, url.origin);",
   );
+  const serverIdentityIndex = spec.indexOf(
+    "assertProductionShadowServerIdentity(",
+  );
+  const firstHydratedIdentityIndex = spec.indexOf(
+    "await assertHydratedDeploymentIdentity({",
+    hydrationWaitIndex,
+  );
+  const finalHydratedIdentityIndex = spec.lastIndexOf(
+    "await assertHydratedDeploymentIdentity({",
+  );
 
   assert.notEqual(hydrationWaitIndex, -1);
   assert.notEqual(targetInteractionIndex, -1);
+  assert.notEqual(serverIdentityIndex, -1);
+  assert.notEqual(firstHydratedIdentityIndex, -1);
+  assert.notEqual(finalHydratedIdentityIndex, -1);
+  assert.ok(serverIdentityIndex < hydrationWaitIndex);
   assert.ok(hydrationWaitIndex < targetInteractionIndex);
+  assert.ok(hydrationWaitIndex < firstHydratedIdentityIndex);
+  assert.ok(firstHydratedIdentityIndex < targetInteractionIndex);
+  assert.ok(targetInteractionIndex < finalHydratedIdentityIndex);
+  assert.match(spec, /await \(response as Response\)\.text\(\)/);
+  assert.match(spec, /assertProductionShadowHydratedIdentity/);
+  assert.match(spec, /target === "ui"/);
+  assert.match(spec, /createBrowserDeploymentIdentityMonitor/);
+  assert.match(spec, /readSettledBrowserDeploymentIdentity/);
+  assert.match(spec, /monitor: uiIdentityMonitor/);
+
+  const helperStart = browserIdentitySource.indexOf(
+    "export async function readSettledBrowserDeploymentIdentity",
+  );
+  const preReadWait = browserIdentitySource.indexOf(
+    "await monitor.waitForIdle(timeoutMs);",
+    helperStart,
+  );
+  const domRead = browserIdentitySource.indexOf(
+    '.getAttribute("data-dpl-id");',
+    preReadWait,
+  );
+  const postReadWait = browserIdentitySource.indexOf(
+    "await monitor.waitForIdle(timeoutMs);",
+    domRead,
+  );
+  const evidence = browserIdentitySource.indexOf(
+    "return monitor.evidence(expectedDeploymentId, htmlDeploymentId);",
+    postReadWait,
+  );
+  assert.ok(helperStart >= 0);
+  assert.ok(helperStart < preReadWait);
+  assert.ok(preReadWait < domRead);
+  assert.ok(domRead < postReadWait);
+  assert.ok(postReadWait < evidence);
 });
 
 test("all external action references remain immutable full SHA pins", () => {

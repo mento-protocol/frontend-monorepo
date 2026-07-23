@@ -216,11 +216,51 @@ export function assertBrowserDeploymentIdentity(
   }
 }
 
-function createBrowserDeploymentIdentityMonitor(page, expectedOrigin) {
-  const assetReferences = [];
+function assertTypedBrowserDeploymentIdentity(
+  assetRequests,
+  htmlDeploymentId,
+  expectedDeploymentId,
+  expectedOrigin,
+) {
+  const assetReferences = assetRequests.map((request) => request.reference);
+  assertBrowserDeploymentIdentity(
+    { htmlDeploymentId, assetReferences },
+    expectedDeploymentId,
+    expectedOrigin,
+  );
+
+  let javaScriptAsset = false;
+  let styleAsset = false;
+  for (const request of assetRequests) {
+    if (
+      !request ||
+      typeof request !== "object" ||
+      typeof request.resourceType !== "string"
+    ) {
+      throw new Error(
+        "Browser-loaded Next.js asset request types are missing or invalid",
+      );
+    }
+    const url = new URL(request.reference);
+    javaScriptAsset ||=
+      request.resourceType === "script" && url.pathname.endsWith(".js");
+    styleAsset ||=
+      request.resourceType === "stylesheet" && url.pathname.endsWith(".css");
+  }
+  if (!javaScriptAsset || !styleAsset) {
+    throw new Error(
+      "Browser-loaded Next.js asset request types are missing or invalid",
+    );
+  }
+  return assetReferences;
+}
+
+export function createBrowserDeploymentIdentityMonitor(page, expectedOrigin) {
+  const assetRequests = [];
   const activeRequests = new Set();
   const activityWaiters = new Set();
   let overflow = false;
+  let redirectViolation = false;
 
   function signalActivity() {
     for (const resolve of activityWaiters) {
@@ -246,26 +286,75 @@ function createBrowserDeploymentIdentityMonitor(page, expectedOrigin) {
     });
   }
 
+  function redirectedFromNextStatic(request) {
+    const seen = new Set();
+    let ancestor;
+    try {
+      ancestor = request.redirectedFrom?.() ?? null;
+    } catch {
+      redirectViolation = true;
+      return false;
+    }
+    while (ancestor) {
+      if (seen.has(ancestor) || seen.size >= 20) {
+        redirectViolation = true;
+        return false;
+      }
+      seen.add(ancestor);
+      try {
+        const url = new URL(ancestor.url());
+        if (
+          url.origin === expectedOrigin &&
+          url.pathname.startsWith("/_next/static/")
+        ) {
+          return true;
+        }
+        ancestor = ancestor.redirectedFrom?.() ?? null;
+      } catch {
+        redirectViolation = true;
+        return false;
+      }
+    }
+    return false;
+  }
+
   page.on("request", (request) => {
     let url;
     try {
       url = new URL(request.url());
     } catch {
+      if (redirectedFromNextStatic(request)) {
+        redirectViolation = true;
+        activeRequests.add(request);
+        signalActivity();
+      }
       return;
     }
-    if (
-      url.origin !== expectedOrigin ||
-      !url.pathname.startsWith("/_next/static/")
-    ) {
+    const isNextStatic =
+      url.origin === expectedOrigin &&
+      url.pathname.startsWith("/_next/static/");
+    const redirectedFromStatic = redirectedFromNextStatic(request);
+    if (!isNextStatic && !redirectedFromStatic) {
       return;
     }
-    if (assetReferences.length >= MAX_NEXT_STATIC_ASSET_REQUESTS) {
+    activeRequests.add(request);
+    if (!isNextStatic) {
+      redirectViolation = true;
+      signalActivity();
+      return;
+    }
+    if (assetRequests.length >= MAX_NEXT_STATIC_ASSET_REQUESTS) {
       overflow = true;
       signalActivity();
       return;
     }
-    assetReferences.push(url.toString());
-    activeRequests.add(request);
+    let resourceType = null;
+    try {
+      resourceType = request.resourceType();
+    } catch {
+      // The evidence assertion below rejects missing request types.
+    }
+    assetRequests.push({ reference: url.toString(), resourceType });
     signalActivity();
   });
 
@@ -276,6 +365,34 @@ function createBrowserDeploymentIdentityMonitor(page, expectedOrigin) {
   };
   page.on("requestfinished", finishRequest);
   page.on("requestfailed", finishRequest);
+
+  function evidence(expectedDeploymentId, htmlDeploymentId) {
+    if (overflow) {
+      throw new Error(
+        "Browser-loaded Next.js asset identity evidence exceeded its limit",
+      );
+    }
+    if (activeRequests.size > 0) {
+      throw new Error(
+        "Browser-loaded Next.js asset identity evidence is not settled",
+      );
+    }
+    if (redirectViolation) {
+      throw new Error(
+        "Browser-loaded Next.js asset redirected outside its immutable identity",
+      );
+    }
+    const assetReferences = assertTypedBrowserDeploymentIdentity(
+      assetRequests,
+      htmlDeploymentId,
+      expectedDeploymentId,
+      expectedOrigin,
+    );
+    return {
+      htmlDeploymentId,
+      assetReferences: [...assetReferences],
+    };
+  }
 
   return {
     async waitForIdle(timeoutMs) {
@@ -315,18 +432,24 @@ function createBrowserDeploymentIdentityMonitor(page, expectedOrigin) {
       }
     },
     assertExpected(expectedDeploymentId, htmlDeploymentId) {
-      if (overflow) {
-        throw new Error(
-          "Browser-loaded Next.js asset identity evidence exceeded its limit",
-        );
-      }
-      assertBrowserDeploymentIdentity(
-        { htmlDeploymentId, assetReferences },
-        expectedDeploymentId,
-        expectedOrigin,
-      );
+      evidence(expectedDeploymentId, htmlDeploymentId);
     },
+    evidence,
   };
+}
+
+export async function readSettledBrowserDeploymentIdentity({
+  page,
+  monitor,
+  expectedDeploymentId,
+  timeoutMs,
+}) {
+  await monitor.waitForIdle(timeoutMs);
+  const htmlDeploymentId = await page
+    .locator("html")
+    .getAttribute("data-dpl-id");
+  await monitor.waitForIdle(timeoutMs);
+  return monitor.evidence(expectedDeploymentId, htmlDeploymentId);
 }
 
 export async function runBrowserSmoke({
@@ -374,14 +497,12 @@ export async function runBrowserSmoke({
       .getByRole("heading", { name: "Basic Components", exact: true })
       .waitFor({ state: "visible" });
     await page.waitForLoadState("load");
-    await deploymentIdentityMonitor.waitForIdle(timeoutMs);
-    const renderedDeploymentId = await page
-      .locator("html")
-      .getAttribute("data-dpl-id");
-    deploymentIdentityMonitor.assertExpected(
-      validated.nextDeploymentId,
-      renderedDeploymentId,
-    );
+    await readSettledBrowserDeploymentIdentity({
+      page,
+      monitor: deploymentIdentityMonitor,
+      expectedDeploymentId: validated.nextDeploymentId,
+      timeoutMs,
+    });
 
     await page
       .getByPlaceholder("Search components...", { exact: true })
@@ -410,14 +531,12 @@ export async function runBrowserSmoke({
         "Browser smoke interaction did not remain updated after hydration",
       );
     }
-    const finalRenderedDeploymentId = await page
-      .locator("html")
-      .getAttribute("data-dpl-id");
-    await deploymentIdentityMonitor.waitForIdle(timeoutMs);
-    deploymentIdentityMonitor.assertExpected(
-      validated.nextDeploymentId,
-      finalRenderedDeploymentId,
-    );
+    await readSettledBrowserDeploymentIdentity({
+      page,
+      monitor: deploymentIdentityMonitor,
+      expectedDeploymentId: validated.nextDeploymentId,
+      timeoutMs,
+    });
     monitor.assertClean();
     return {
       deploymentUrl: validated.deploymentUrl,

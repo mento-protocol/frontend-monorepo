@@ -381,10 +381,12 @@ test("common HTTP smoke still requires representative JavaScript and CSS assets"
 
 test("common HTTP smoke fails closed on missing headers and mixed deployment assets", async () => {
   const values = controllerTuple("ui");
-  const html = `<main data-dpl-id="${values.nextDeploymentId}"><h1>Basic Components</h1></main>
-    <script src="/_next/static/app.js?dpl=${values.nextDeploymentId}"></script>
-    <link rel="stylesheet" href="/_next/static/app.css?dpl=wrong">
-    <link rel="preload" href="/_next/static/font.woff2?dpl=${values.nextDeploymentId}">`;
+  const html = `<html data-dpl-id="${values.nextDeploymentId}"><body>
+      <main><h1>Basic Components</h1></main>
+      <script src="/_next/static/app.js?dpl=${values.nextDeploymentId}"></script>
+      <link rel="stylesheet" href="/_next/static/app.css?dpl=wrong">
+      <link rel="preload" href="/_next/static/font.woff2?dpl=${values.nextDeploymentId}">
+    </body></html>`;
   const response = (headers) => async (url) =>
     new URL(url).pathname.startsWith("/_next/static/")
       ? fakeResponse(url, "asset")
@@ -415,9 +417,11 @@ test("UI common HTTP smoke requires the exact server-rendered deployment identit
       return fakeResponse(parsed, "asset");
     return fakeResponse(
       parsed,
-      `<main ${deploymentMarker}><h1>Basic Components</h1></main>
-        <script src="/_next/static/app.js?dpl=${values.nextDeploymentId}"></script>
-        <link rel="stylesheet" href="/_next/static/app.css?dpl=${values.nextDeploymentId}">`,
+      `<html ${deploymentMarker}><body>
+          <main><h1>Basic Components</h1></main>
+          <script src="/_next/static/app.js?dpl=${values.nextDeploymentId}"></script>
+          <link rel="stylesheet" href="/_next/static/app.css?dpl=${values.nextDeploymentId}">
+        </body></html>`,
       {
         headers: {
           "content-security-policy": "frame-ancestors 'none'",
@@ -438,6 +442,23 @@ test("UI common HTTP smoke requires the exact server-rendered deployment identit
       fetchImplementation: response('data-dpl-id="m-ui-wrongwrongwrong12"'),
     }),
     /HTML does not carry only the expected build deployment ID/,
+  );
+  await assert.rejects(
+    smokePreviewHttp({
+      values,
+      fetchImplementation: response(
+        `x-data-dpl-id="${values.nextDeploymentId}"`,
+      ),
+    }),
+    /HTML does not carry only the expected build deployment ID/,
+  );
+  await assert.doesNotReject(
+    smokePreviewHttp({
+      values,
+      fetchImplementation: response(
+        `DATA-DPL-ID = '${values.nextDeploymentId}'`,
+      ),
+    }),
   );
 });
 

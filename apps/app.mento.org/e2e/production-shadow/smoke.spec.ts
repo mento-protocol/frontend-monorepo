@@ -6,6 +6,14 @@ import {
   assertProductionShadowOrigin,
   fulfillProductionShadowRequest,
 } from "./request-policy.mjs";
+import {
+  assertProductionShadowHydratedIdentity,
+  assertProductionShadowServerIdentity,
+} from "./deployment-identity.mjs";
+import {
+  createBrowserDeploymentIdentityMonitor,
+  readSettledBrowserDeploymentIdentity,
+} from "../../../ui.mento.org/e2e/vercel-preview-browser-smoke.mjs";
 
 const TARGETS = ["governance", "reserve", "ui"] as const;
 type Target = (typeof TARGETS)[number];
@@ -157,10 +165,55 @@ async function verifyTarget(page: Page, target: Target, origin: string) {
   expect(() => assertProductionShadowOrigin(page.url(), origin)).not.toThrow();
 }
 
+async function assertHydratedDeploymentIdentity({
+  page,
+  target,
+  expectedDeploymentId,
+  expectedOrigin,
+  uiIdentityMonitor,
+}: {
+  page: Page;
+  target: Target;
+  expectedDeploymentId: string;
+  expectedOrigin: string;
+  uiIdentityMonitor?: ReturnType<typeof createBrowserDeploymentIdentityMonitor>;
+}) {
+  let renderedDeploymentId: string | null;
+  let assetReferences: string[] = [];
+  if (target === "ui") {
+    if (!uiIdentityMonitor) {
+      throw new Error("UI deployment identity monitor is required");
+    }
+    const identity = await readSettledBrowserDeploymentIdentity({
+      page,
+      monitor: uiIdentityMonitor,
+      expectedDeploymentId,
+      timeoutMs: 30_000,
+    });
+    renderedDeploymentId = identity.htmlDeploymentId;
+    assetReferences = identity.assetReferences;
+  } else {
+    renderedDeploymentId = await page
+      .locator("html")
+      .getAttribute("data-dpl-id");
+  }
+  assertProductionShadowHydratedIdentity({
+    target,
+    expectedDeploymentId,
+    renderedDeploymentId,
+    assetReferences,
+    expectedOrigin,
+  });
+}
+
 test("staged production artifact is healthy, secure, and interactive", async ({
   page,
 }) => {
   const { target, url, expectedDeploymentId, expectedSha } = requiredInputs();
+  const uiIdentityMonitor =
+    target === "ui"
+      ? createBrowserDeploymentIdentityMonitor(page, url.origin)
+      : undefined;
   await page.route("**/*", async (route) => {
     await fulfillProductionShadowRequest({ route });
   });
@@ -177,18 +230,32 @@ test("staged production artifact is healthy, secure, and interactive", async ({
   ).not.toThrow();
   assertSecurityHeaders(response as Response);
   expect(response?.headers()["x-mento-deployment-sha"]).toBe(expectedSha);
-  await expect(page.locator("html")).toHaveAttribute(
-    "data-dpl-id",
+  assertProductionShadowServerIdentity(
+    await (response as Response).text(),
     expectedDeploymentId,
   );
 
   // Target controls are server rendered. Wait for deferred client scripts so
   // the first interaction cannot race React hydration.
   await page.waitForLoadState("load");
+  await assertHydratedDeploymentIdentity({
+    page,
+    target,
+    expectedDeploymentId,
+    expectedOrigin: url.origin,
+    uiIdentityMonitor,
+  });
   await verifyTarget(page, target, url.origin);
   await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => {
     // Live data polling may keep the network active. The tracked document,
     // script, stylesheet, page, and console failures remain authoritative.
+  });
+  await assertHydratedDeploymentIdentity({
+    page,
+    target,
+    expectedDeploymentId,
+    expectedOrigin: url.origin,
+    uiIdentityMonitor,
   });
 
   expect(errors.origins, "cross-origin main-frame navigations").toEqual([]);

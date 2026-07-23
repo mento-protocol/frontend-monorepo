@@ -73,6 +73,10 @@ import {
   assertProductionShadowOrigin,
   productionShadowRequestHeaders,
 } from "../apps/app.mento.org/e2e/production-shadow/request-policy.mjs";
+import {
+  assertProductionShadowHydratedIdentity,
+  assertProductionShadowServerIdentity,
+} from "../apps/app.mento.org/e2e/production-shadow/deployment-identity.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const productionShadowScript = fileURLToPath(
@@ -2901,6 +2905,103 @@ test("browser request policy rejects protection headers", () => {
       "https://governance-immutable.vercel.app",
     ),
   );
+});
+
+test("production-shadow identity keeps server HTML strict across hydration", () => {
+  const expectedDeploymentId = "m-ui-0123456789abcdef012";
+  const expectedOrigin = "https://ui-immutable.vercel.app";
+  const exactAssets = [
+    `${expectedOrigin}/_next/static/app.js?dpl=${expectedDeploymentId}`,
+    `${expectedOrigin}/_next/static/app.css?dpl=${expectedDeploymentId}`,
+  ];
+
+  assert.doesNotThrow(() =>
+    assertProductionShadowServerIdentity(
+      `<!DOCTYPE html>
+        <HTML lang=en DATA-DPL-ID = '${expectedDeploymentId}'>
+          <body data-dpl-id="ignored">
+            <script>const marker = 'data-dpl-id="ignored"'</script>
+          </body>
+        </HTML>`,
+      expectedDeploymentId,
+    ),
+  );
+  for (const html of [
+    "<html></html>",
+    '<html data-dpl-id="m-ui-fffffffffffffffffff"></html>',
+    `<html data-dpl-id=${expectedDeploymentId}></html>`,
+    `<html x-data-dpl-id="${expectedDeploymentId}"></html>`,
+    `<script>"<html data-dpl-id='${expectedDeploymentId}'>"</script><html data-dpl-id="${expectedDeploymentId}"></html>`,
+    `<html><body><script>const fake = 'data-dpl-id="${expectedDeploymentId}"'</script></body></html>`,
+    `<html data-dpl-id="${expectedDeploymentId}" DATA-DPL-ID="${expectedDeploymentId}"></html>`,
+    `<html data-dpl-id="${expectedDeploymentId}" data-dpl-id="m-ui-fffffffffffffffffff"></html>`,
+    `<!DOCTYPE html "><html data-dpl-id="m-ui-fffffffffffffffffff">"><html data-dpl-id="${expectedDeploymentId}"><body>x</body></html>`,
+    `<!-- opener --!><html data-dpl-id="m-ui-fffffffffffffffffff"><!-- --><html data-dpl-id="${expectedDeploymentId}"><body>x</body></html>`,
+    `<!DOCTYPE html><html foo=bar">junk" data-dpl-id="${expectedDeploymentId}"><body>x</body></html>`,
+  ]) {
+    assert.throws(
+      () => assertProductionShadowServerIdentity(html, expectedDeploymentId),
+      /server HTML does not carry only the expected build deployment ID/,
+    );
+  }
+
+  assert.doesNotThrow(() =>
+    assertProductionShadowHydratedIdentity({
+      target: "ui",
+      expectedDeploymentId,
+      renderedDeploymentId: null,
+      assetReferences: exactAssets,
+      expectedOrigin,
+    }),
+  );
+  assert.throws(
+    () =>
+      assertProductionShadowHydratedIdentity({
+        target: "ui",
+        expectedDeploymentId,
+        renderedDeploymentId: null,
+        assetReferences: [exactAssets[0]],
+        expectedOrigin,
+      }),
+    /asset identity evidence is missing or invalid/,
+  );
+  assert.throws(
+    () =>
+      assertProductionShadowHydratedIdentity({
+        target: "ui",
+        expectedDeploymentId,
+        renderedDeploymentId: null,
+        assetReferences: [
+          exactAssets[0],
+          `${expectedOrigin}/_next/static/app.css?dpl=m-ui-fffffffffffffffffff`,
+        ],
+        expectedOrigin,
+      }),
+    /do not carry only the expected deployment ID/,
+  );
+
+  for (const target of ["governance", "reserve"]) {
+    assert.doesNotThrow(() =>
+      assertProductionShadowHydratedIdentity({
+        target,
+        expectedDeploymentId,
+        renderedDeploymentId: expectedDeploymentId,
+        assetReferences: [],
+        expectedOrigin,
+      }),
+    );
+    assert.throws(
+      () =>
+        assertProductionShadowHydratedIdentity({
+          target,
+          expectedDeploymentId,
+          renderedDeploymentId: null,
+          assetReferences: exactAssets,
+          expectedOrigin,
+        }),
+      new RegExp(`Hydrated ${target} production-shadow page`),
+    );
+  }
 });
 
 test("stable final gate fails skipped, cancelled, or failed dependencies", () => {
