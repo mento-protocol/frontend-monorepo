@@ -374,38 +374,59 @@ function deriveProductionShadowBuildEnvironment({ logicalTarget, raw }) {
   };
 }
 
-function assertRunnerTempChild({
-  runnerTemp,
+export function assertProtectedIsolationChild({
+  isolationRoot,
   path,
   expectedName,
   expectedUid = process.getuid?.(),
   expectedGid = process.getgid?.(),
 }) {
-  requireString(runnerTemp, "Runner temporary directory");
+  requireString(isolationRoot, "Vercel isolation root");
   requireString(path, "Isolated path");
-  if (!isAbsolute(runnerTemp) || !isAbsolute(path)) {
-    throw new Error("Runner isolation paths must be absolute");
+  requireIdentifier(expectedName, "Expected isolated path name");
+  if (!isAbsolute(isolationRoot) || !isAbsolute(path)) {
+    throw new Error("Protected isolation paths must be absolute");
   }
-  const uid = numericIdentity(expectedUid, "Expected runner UID");
-  const gid = numericIdentity(expectedGid, "Expected runner GID");
-  const canonicalRunnerTemp = realpathSync(runnerTemp);
-  const runnerEntry = lstatSync(canonicalRunnerTemp);
+  const uid = numericIdentity(expectedUid, "Expected isolation owner UID");
+  const gid = numericIdentity(expectedGid, "Expected isolation owner GID");
+  const lexicalIsolationRoot = resolve(isolationRoot);
+  if (lexicalIsolationRoot !== isolationRoot) {
+    throw new Error("Vercel isolation root is not lexically canonical");
+  }
+  const isolationEntry = lstatSync(isolationRoot);
   if (
-    runnerEntry.isSymbolicLink() ||
-    !runnerEntry.isDirectory() ||
-    runnerEntry.uid !== uid ||
-    runnerEntry.gid !== gid ||
-    (runnerEntry.mode & 0o7022) !== 0
+    isolationEntry.isSymbolicLink() ||
+    !isolationEntry.isDirectory() ||
+    isolationEntry.uid !== uid ||
+    isolationEntry.gid !== gid ||
+    (isolationEntry.mode & 0o7777) !== 0o711
   ) {
-    throw new Error("Runner temporary directory is not protected");
+    throw new Error("Vercel isolation root is not protected");
+  }
+  const canonicalIsolationRoot = realpathSync(isolationRoot);
+  if (canonicalIsolationRoot !== isolationRoot) {
+    throw new Error("Vercel isolation root is not canonically stable");
+  }
+  const expectedPath = join(canonicalIsolationRoot, expectedName);
+  if (path !== expectedPath || basename(path) !== expectedName) {
+    throw new Error(
+      "Isolated path is not the expected protected-isolation direct child",
+    );
   }
   if (
-    basename(path) !== expectedName ||
-    realpathSync(dirname(path)) !== canonicalRunnerTemp
+    dirname(path) !== canonicalIsolationRoot ||
+    realpathSync(dirname(path)) !== canonicalIsolationRoot
   ) {
-    throw new Error("Isolated path is not the expected RUNNER_TEMP child");
+    throw new Error("Isolated path parent escaped the Vercel isolation root");
   }
-  return join(canonicalRunnerTemp, expectedName);
+  const pathEntry = optionalEntry(path);
+  if (pathEntry?.isSymbolicLink()) {
+    throw new Error("Isolated path must not be a symbolic link");
+  }
+  if (pathEntry && realpathSync(path) !== expectedPath) {
+    throw new Error("Isolated path is not canonically stable");
+  }
+  return expectedPath;
 }
 
 function rawGitEnvironment() {
@@ -603,7 +624,7 @@ function ensureMaterializedParent(root, components) {
 }
 
 export function materializeExactGitTree({
-  runnerTemp,
+  isolationRoot,
   sourceRoot,
   candidateRoot,
   commitSha,
@@ -621,8 +642,8 @@ export function materializeExactGitTree({
   if (!sourceEntry.isDirectory()) {
     throw new Error("Exact Git source must be a real directory");
   }
-  const canonicalCandidateRoot = assertRunnerTempChild({
-    runnerTemp,
+  const canonicalCandidateRoot = assertProtectedIsolationChild({
+    isolationRoot,
     path: candidateRoot,
     expectedName: CANDIDATE_SOURCE_DIRECTORY,
     expectedUid,
@@ -975,15 +996,15 @@ export function materializeProductionShadowLink({
 }
 
 export function prepareProductionShadowPullStaging({
-  runnerTemp,
+  isolationRoot,
   stagingRoot,
   logicalTarget,
   orgId,
   projectId,
 }) {
   const contract = targetContract(logicalTarget);
-  const canonicalStagingRoot = assertRunnerTempChild({
-    runnerTemp,
+  const canonicalStagingRoot = assertProtectedIsolationChild({
+    isolationRoot,
     path: stagingRoot,
     expectedName: PULL_STAGING_DIRECTORY,
   });
@@ -1008,7 +1029,7 @@ export function prepareProductionShadowPullStaging({
 }
 
 export function assertProductionShadowPullStaging({
-  runnerTemp,
+  isolationRoot,
   stagingRoot,
   logicalTarget,
   orgId,
@@ -1016,15 +1037,17 @@ export function assertProductionShadowPullStaging({
   expectedUid = process.getuid?.(),
   expectedGid = process.getgid?.(),
 }) {
-  const canonicalStagingRoot = assertRunnerTempChild({
-    runnerTemp,
+  const canonicalStagingRoot = assertProtectedIsolationChild({
+    isolationRoot,
     path: stagingRoot,
     expectedName: PULL_STAGING_DIRECTORY,
     expectedUid,
     expectedGid,
   });
   if (realpathSync(stagingRoot) !== canonicalStagingRoot) {
-    throw new Error("Production-shadow pull staging escaped RUNNER_TEMP");
+    throw new Error(
+      "Production-shadow pull staging escaped the Vercel isolation root",
+    );
   }
   assertExactFilesystemTree(
     canonicalStagingRoot,
@@ -1055,7 +1078,7 @@ function materializedProductionShadowEnvironmentEntries(logicalTarget) {
 }
 
 function inspectMaterializedProductionShadowBuildEnvironment({
-  runnerTemp,
+  isolationRoot,
   stagingRoot,
   materializationRoot,
   logicalTarget,
@@ -1067,7 +1090,7 @@ function inspectMaterializedProductionShadowBuildEnvironment({
   const uid = numericIdentity(expectedUid, "Expected runner UID");
   const gid = numericIdentity(expectedGid, "Expected runner GID");
   assertProductionShadowPullStaging({
-    runnerTemp,
+    isolationRoot,
     stagingRoot,
     logicalTarget,
     orgId,
@@ -1075,8 +1098,8 @@ function inspectMaterializedProductionShadowBuildEnvironment({
     expectedUid: uid,
     expectedGid: gid,
   });
-  const canonicalMaterializationRoot = assertRunnerTempChild({
-    runnerTemp,
+  const canonicalMaterializationRoot = assertProtectedIsolationChild({
+    isolationRoot,
     path: materializationRoot,
     expectedName: BUILD_ENVIRONMENT_DIRECTORY,
     expectedUid: uid,
@@ -1084,7 +1107,7 @@ function inspectMaterializedProductionShadowBuildEnvironment({
   });
   if (realpathSync(materializationRoot) !== canonicalMaterializationRoot) {
     throw new Error(
-      "Materialized production-shadow build environment escaped RUNNER_TEMP",
+      "Materialized production-shadow build environment escaped the Vercel isolation root",
     );
   }
   assertExactFilesystemTree(
@@ -1149,9 +1172,12 @@ function inspectMaterializedProductionShadowBuildEnvironment({
 }
 
 export function materializeProductionShadowBuildEnvironment({
-  runnerTemp,
+  isolationRoot,
   stagingRoot,
-  materializationRoot = join(resolve(runnerTemp), BUILD_ENVIRONMENT_DIRECTORY),
+  materializationRoot = join(
+    resolve(isolationRoot),
+    BUILD_ENVIRONMENT_DIRECTORY,
+  ),
   logicalTarget,
   orgId,
   projectId,
@@ -1161,7 +1187,7 @@ export function materializeProductionShadowBuildEnvironment({
   const uid = numericIdentity(expectedUid, "Expected runner UID");
   const gid = numericIdentity(expectedGid, "Expected runner GID");
   assertProductionShadowPullStaging({
-    runnerTemp,
+    isolationRoot,
     stagingRoot,
     logicalTarget,
     orgId,
@@ -1169,8 +1195,8 @@ export function materializeProductionShadowBuildEnvironment({
     expectedUid: uid,
     expectedGid: gid,
   });
-  const canonicalMaterializationRoot = assertRunnerTempChild({
-    runnerTemp,
+  const canonicalMaterializationRoot = assertProtectedIsolationChild({
+    isolationRoot,
     path: materializationRoot,
     expectedName: BUILD_ENVIRONMENT_DIRECTORY,
     expectedUid: uid,
@@ -1236,7 +1262,7 @@ export function materializeProductionShadowBuildEnvironment({
   chmodSync(environmentPath, 0o600);
 
   const inspected = inspectMaterializedProductionShadowBuildEnvironment({
-    runnerTemp,
+    isolationRoot,
     stagingRoot,
     materializationRoot: canonicalMaterializationRoot,
     logicalTarget,
@@ -1281,7 +1307,7 @@ export function assignProductionShadowMaterializationOwnership({
 }
 
 function assertCandidateRootComponents({
-  runnerTemp,
+  isolationRoot,
   candidateRoot,
   logicalTarget,
   buildUid,
@@ -1290,15 +1316,15 @@ function assertCandidateRootComponents({
   runnerGid,
 }) {
   const contract = targetContract(logicalTarget);
-  const canonicalCandidateRoot = assertRunnerTempChild({
-    runnerTemp,
+  const canonicalCandidateRoot = assertProtectedIsolationChild({
+    isolationRoot,
     path: candidateRoot,
     expectedName: CANDIDATE_SOURCE_DIRECTORY,
     expectedUid: runnerUid,
     expectedGid: runnerGid,
   });
   if (realpathSync(candidateRoot) !== canonicalCandidateRoot) {
-    throw new Error("Candidate source escaped RUNNER_TEMP");
+    throw new Error("Candidate source escaped the Vercel isolation root");
   }
   let current = canonicalCandidateRoot;
   for (const [path, label] of [
@@ -1322,7 +1348,7 @@ function assertCandidateRootComponents({
 }
 
 export function assertCandidateProductionShadowPull({
-  runnerTemp,
+  isolationRoot,
   candidateRoot,
   logicalTarget,
   orgId,
@@ -1337,7 +1363,7 @@ export function assertCandidateProductionShadowPull({
   const trustedUid = numericIdentity(runnerUid, "Runner UID");
   const trustedGid = numericIdentity(runnerGid, "Runner GID");
   const canonicalCandidateRoot = assertCandidateRootComponents({
-    runnerTemp,
+    isolationRoot,
     candidateRoot,
     logicalTarget,
     buildUid: candidateUid,
@@ -1403,7 +1429,7 @@ export function assertCandidateProductionShadowPull({
 }
 
 export function stageProductionShadowPullForCandidate({
-  runnerTemp,
+  isolationRoot,
   stagingRoot,
   candidateRoot,
   logicalTarget,
@@ -1419,11 +1445,11 @@ export function stageProductionShadowPullForCandidate({
   const trustedUid = numericIdentity(runnerUid, "Runner UID");
   const trustedGid = numericIdentity(runnerGid, "Runner GID");
   const materializationRoot = join(
-    resolve(runnerTemp),
+    resolve(isolationRoot),
     BUILD_ENVIRONMENT_DIRECTORY,
   );
   const materializedEnvironment = materializeProductionShadowBuildEnvironment({
-    runnerTemp,
+    isolationRoot,
     stagingRoot,
     materializationRoot,
     logicalTarget,
@@ -1433,7 +1459,7 @@ export function stageProductionShadowPullForCandidate({
     expectedGid: trustedGid,
   });
   const canonicalCandidateRoot = assertCandidateRootComponents({
-    runnerTemp,
+    isolationRoot,
     candidateRoot,
     logicalTarget,
     buildUid: candidateUid,
@@ -1478,7 +1504,7 @@ export function stageProductionShadowPullForCandidate({
   chownSync(candidateEnvironmentPath, candidateUid, candidateGid);
   chmodSync(candidateEnvironmentPath, 0o600);
   const candidateProject = assertCandidateProductionShadowPull({
-    runnerTemp,
+    isolationRoot,
     candidateRoot: canonicalCandidateRoot,
     logicalTarget,
     orgId,
@@ -1489,7 +1515,7 @@ export function stageProductionShadowPullForCandidate({
     runnerGid: trustedGid,
   });
   assertMaterializedProductionShadowBuildEnvironment({
-    runnerTemp,
+    isolationRoot,
     stagingRoot,
     materializationRoot,
     logicalTarget,
@@ -1916,7 +1942,7 @@ function normalizeRunnerOwnedHandoffTree(
 }
 
 export function createProductionShadowUploadHandoff({
-  runnerTemp,
+  isolationRoot,
   stagingRoot,
   candidateRoot,
   uploadRoot,
@@ -1944,8 +1970,20 @@ export function createProductionShadowUploadHandoff({
   const trustedUid = numericIdentity(runnerUid, "Runner UID");
   const trustedGid = numericIdentity(runnerGid, "Runner GID");
   const contract = targetContract(logicalTarget);
+  const canonicalCandidateRoot = assertProtectedIsolationChild({
+    isolationRoot,
+    path: candidateRoot,
+    expectedName: CANDIDATE_SOURCE_DIRECTORY,
+    expectedUid: trustedUid,
+    expectedGid: trustedGid,
+  });
+  if (realpathSync(candidateRoot) !== canonicalCandidateRoot) {
+    throw new Error(
+      "Candidate upload source escaped the Vercel isolation root",
+    );
+  }
   validateStaging({
-    runnerTemp,
+    isolationRoot,
     stagingRoot,
     logicalTarget,
     orgId,
@@ -1954,9 +1992,12 @@ export function createProductionShadowUploadHandoff({
     expectedGid: trustedGid,
   });
   validateMaterialized({
-    runnerTemp,
+    isolationRoot,
     stagingRoot,
-    materializationRoot: join(resolve(runnerTemp), BUILD_ENVIRONMENT_DIRECTORY),
+    materializationRoot: join(
+      resolve(isolationRoot),
+      BUILD_ENVIRONMENT_DIRECTORY,
+    ),
     logicalTarget,
     orgId,
     projectId,
@@ -1964,7 +2005,7 @@ export function createProductionShadowUploadHandoff({
     expectedGid: trustedGid,
   });
   validateCandidate({
-    repoRoot: candidateRoot,
+    repoRoot: canonicalCandidateRoot,
     logicalTarget,
     orgId,
     projectId,
@@ -1974,8 +2015,8 @@ export function createProductionShadowUploadHandoff({
     expectedGid: candidateGid,
     expectedProvenanceUid: trustedUid,
   });
-  const canonicalUploadRoot = assertRunnerTempChild({
-    runnerTemp,
+  const canonicalUploadRoot = assertProtectedIsolationChild({
+    isolationRoot,
     path: uploadRoot,
     expectedName: UPLOAD_SOURCE_DIRECTORY,
     expectedUid: trustedUid,
@@ -1996,7 +2037,7 @@ export function createProductionShadowUploadHandoff({
   });
   mkdirSync(uploadAppState, { mode: 0o755, recursive: true });
   copyTree(
-    join(candidateRoot, contract.rootDirectory, ".vercel", "output"),
+    join(canonicalCandidateRoot, contract.rootDirectory, ".vercel", "output"),
     join(uploadAppState, "output"),
     {
       dereference: false,
@@ -2633,7 +2674,7 @@ if (isCliEntrypoint()) {
     process.stdout.write("Trusted monorepo Vercel mapping written\n");
   } else if (command === "prepare-pull-staging") {
     prepareProductionShadowPullStaging({
-      runnerTemp: process.env.RUNNER_TEMP,
+      isolationRoot: process.env.VERCEL_ISOLATION_ROOT,
       stagingRoot: process.env.PULL_STAGING_PATH,
       logicalTarget: process.env.LOGICAL_TARGET,
       orgId: process.env.VERCEL_ORG_ID,
@@ -2649,7 +2690,7 @@ if (isCliEntrypoint()) {
     process.stdout.write("Target Vercel configuration pulled\n");
   } else if (command === "materialize-source") {
     materializeExactGitTree({
-      runnerTemp: process.env.RUNNER_TEMP,
+      isolationRoot: process.env.VERCEL_ISOLATION_ROOT,
       sourceRoot: process.env.SOURCE_PATH,
       candidateRoot: process.env.CANDIDATE_SOURCE_PATH,
       commitSha: process.env.DEPLOY_SHA,
@@ -2657,7 +2698,7 @@ if (isCliEntrypoint()) {
     process.stdout.write("Exact Git source materialized without filters\n");
   } else if (command === "validate-pull-staging") {
     assertProductionShadowPullStaging({
-      runnerTemp: process.env.RUNNER_TEMP,
+      isolationRoot: process.env.VERCEL_ISOLATION_ROOT,
       stagingRoot: process.env.PULL_STAGING_PATH,
       logicalTarget: process.env.LOGICAL_TARGET,
       orgId: process.env.VERCEL_ORG_ID,
@@ -2666,7 +2707,7 @@ if (isCliEntrypoint()) {
     process.stdout.write("Runner-owned Vercel pull staging verified\n");
   } else if (command === "stage-pull") {
     stageProductionShadowPullForCandidate({
-      runnerTemp: process.env.RUNNER_TEMP,
+      isolationRoot: process.env.VERCEL_ISOLATION_ROOT,
       stagingRoot: process.env.PULL_STAGING_PATH,
       candidateRoot: process.env.CANDIDATE_SOURCE_PATH,
       logicalTarget: process.env.LOGICAL_TARGET,
@@ -2680,7 +2721,7 @@ if (isCliEntrypoint()) {
     process.stdout.write("Runner-owned Vercel settings staged for candidate\n");
   } else if (command === "validate-candidate-pull") {
     assertCandidateProductionShadowPull({
-      runnerTemp: process.env.RUNNER_TEMP,
+      isolationRoot: process.env.VERCEL_ISOLATION_ROOT,
       candidateRoot: process.env.CANDIDATE_SOURCE_PATH,
       logicalTarget: process.env.LOGICAL_TARGET,
       orgId: process.env.VERCEL_ORG_ID,
@@ -2718,7 +2759,7 @@ if (isCliEntrypoint()) {
     process.stdout.write("Target prebuilt output created and verified\n");
   } else if (command === "create-handoff") {
     createProductionShadowUploadHandoff({
-      runnerTemp: process.env.RUNNER_TEMP,
+      isolationRoot: process.env.VERCEL_ISOLATION_ROOT,
       stagingRoot: process.env.PULL_STAGING_PATH,
       candidateRoot: process.env.CANDIDATE_SOURCE_PATH,
       uploadRoot: process.env.UPLOAD_SOURCE_PATH,

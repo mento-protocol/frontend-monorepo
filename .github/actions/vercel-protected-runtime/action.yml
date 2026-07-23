@@ -1,100 +1,561 @@
 name: Prepare protected Vercel runtime
-description: Install pinned Node, pnpm, and Vercel CLI files outside candidate control
+description: Prepare or remove a run- and target-bound runtime outside candidate control
 
 inputs:
+  operation:
+    description: Literal prepare or cleanup operation
+    required: false
+    default: prepare
+  logical-target:
+    description: Literal app, governance, reserve, or ui target
+    required: true
   controller-path:
-    description: Trusted workflow-controller checkout
-    required: true
+    description: Trusted workflow-controller checkout, required for prepare
+    required: false
   source-path:
-    description: Runner-owned exact-SHA source checkout used only for cache provenance
-    required: true
-  tools-path:
-    description: Fresh runner-owned path under RUNNER_TEMP for the pinned Vercel CLI
-    required: true
+    description: Runner-owned exact-SHA source checkout, required for prepare
+    required: false
 
 outputs:
+  runtime-root:
+    description: Root-owned run- and target-bound runtime root
+    value: ${{ steps.contract.outputs.runtime_root }}
+  isolation-root:
+    description: Runner-owned cross-identity work directory
+    value: ${{ steps.contract.outputs.isolation_root }}
+  runtime-marker:
+    description: Root-owned authenticated runtime marker
+    value: ${{ steps.contract.outputs.runtime_marker }}
+  tools-path:
+    description: Runner-owned protected Node, pnpm, and Vercel CLI root
+    value: ${{ steps.contract.outputs.tools_path }}
+  pull-staging-path:
+    description: Fixed runner-owned Vercel pull staging path
+    value: ${{ steps.contract.outputs.pull_staging_path }}
+  build-environment-path:
+    description: Fixed runner-owned derived build-environment path
+    value: ${{ steps.contract.outputs.build_environment_path }}
+  candidate-source-path:
+    description: Fixed candidate-owned exact-SHA source path
+    value: ${{ steps.contract.outputs.candidate_source_path }}
+  provenance-path:
+    description: Fixed runner-owned exact-SHA candidate provenance path
+    value: ${{ steps.contract.outputs.provenance_path }}
+  candidate-home-path:
+    description: Fixed candidate-owned home path
+    value: ${{ steps.contract.outputs.candidate_home_path }}
+  upload-source-path:
+    description: Fixed runner-owned immutable upload handoff path
+    value: ${{ steps.contract.outputs.upload_source_path }}
+  candidate-identity-marker:
+    description: Fixed runner-owned candidate identity marker
+    value: ${{ steps.contract.outputs.candidate_identity_marker }}
+  build-log-path:
+    description: Fixed runner-owned candidate build log path
+    value: ${{ steps.contract.outputs.build_log_path }}
   node-bin:
-    description: Canonical protected Node executable
+    description: Independent protected Node executable
     value: ${{ steps.runtime.outputs.node_bin }}
   pnpm-bin:
-    description: Canonical protected pnpm executable
+    description: Protected launcher for the pinned pnpm runtime
     value: ${{ steps.runtime.outputs.pnpm_bin }}
   vercel-cli:
-    description: Canonical protected Vercel CLI entry point
+    description: Protected pinned Vercel CLI entry point
     value: ${{ steps.runtime.outputs.vercel_cli }}
 
 runs:
   using: composite
   steps:
-    - name: Set up pinned pnpm
-      uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v4
-      with:
-        version: 10.34.4
+    - name: Resolve protected runtime contract
+      id: contract
+      shell: bash
+      env:
+        LOGICAL_TARGET: ${{ inputs.logical-target }}
+        OPERATION: ${{ inputs.operation }}
+      run: |
+        set -euo pipefail
+        case "$OPERATION" in
+          prepare|cleanup) ;;
+          *) echo "Protected runtime operation must be prepare or cleanup" >&2; exit 1 ;;
+        esac
+        case "$LOGICAL_TARGET" in
+          app|governance|reserve|ui) ;;
+          *) echo "Unknown protected runtime target" >&2; exit 1 ;;
+        esac
+        if [[ ! "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ ]] ||
+          [[ ! "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]; then
+          echo "GitHub runtime identity is invalid" >&2
+          exit 1
+        fi
+        runtime_root="/var/lib/mento-vercel-runtime-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$LOGICAL_TARGET"
+        isolation_root="$runtime_root/work"
+        runtime_marker="$runtime_root/.mento-vercel-runtime"
+        tools_path="$isolation_root/mento-vercel-trusted-tools"
+        {
+          echo "runtime_root=$runtime_root"
+          echo "isolation_root=$isolation_root"
+          echo "runtime_marker=$runtime_marker"
+          echo "tools_path=$tools_path"
+          echo "pull_staging_path=$isolation_root/mento-vercel-production-pull-staging"
+          echo "build_environment_path=$isolation_root/mento-vercel-production-build-environment"
+          echo "candidate_source_path=$isolation_root/mento-vercel-production-candidate-source"
+          echo "provenance_path=$isolation_root/mento-vercel-production-candidate-source.provenance.json"
+          echo "candidate_home_path=$isolation_root/mento-vercel-production-candidate-home"
+          echo "upload_source_path=$isolation_root/mento-vercel-production-upload-source"
+          echo "candidate_identity_marker=$isolation_root/mento-vercel-production-candidate-identity"
+          echo "build_log_path=$isolation_root/mento-vercel-production-$LOGICAL_TARGET-build.log"
+        } >> "$GITHUB_OUTPUT"
 
-    - name: Set up pinned Node.js and pnpm cache
-      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+    - name: Create protected cross-identity runtime root
+      if: ${{ inputs.operation == 'prepare' }}
+      shell: bash
+      env:
+        ISOLATION_ROOT: ${{ steps.contract.outputs.isolation_root }}
+        LOGICAL_TARGET: ${{ inputs.logical-target }}
+        RUNTIME_MARKER: ${{ steps.contract.outputs.runtime_marker }}
+        RUNTIME_ROOT: ${{ steps.contract.outputs.runtime_root }}
+      run: |
+        set -euo pipefail
+        umask 077
+        expected_root="/var/lib/mento-vercel-runtime-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$LOGICAL_TARGET"
+        if [ "$RUNTIME_ROOT" != "$expected_root" ] ||
+          [ "$ISOLATION_ROOT" != "$expected_root/work" ] ||
+          [ "$RUNTIME_MARKER" != "$expected_root/.mento-vercel-runtime" ]; then
+          echo "Protected runtime paths do not match the trusted identity" >&2
+          exit 1
+        fi
+        if [ -e "$RUNTIME_ROOT" ] || [ -L "$RUNTIME_ROOT" ]; then
+          echo "Protected runtime root must be fresh" >&2
+          exit 1
+        fi
+        for ancestor in / /var /var/lib; do
+          if [ ! -d "$ancestor" ] ||
+            [ -L "$ancestor" ] ||
+            [ "$(/usr/bin/realpath "$ancestor")" != "$ancestor" ] ||
+            [ "$(/usr/bin/stat -c %u "$ancestor")" != 0 ] ||
+            [ "$(/usr/bin/stat -c %g "$ancestor")" != 0 ]; then
+            echo "Protected runtime ancestor is not a real root-owned directory: $ancestor" >&2
+            exit 1
+          fi
+          mode="$((8#$(/usr/bin/stat -c %a "$ancestor")))"
+          if (( (mode & 07022) != 0 || (mode & 0001) == 0 )); then
+            echo "Protected runtime ancestor has unsafe permissions: $ancestor" >&2
+            exit 1
+          fi
+        done
+        sudo --non-interactive /usr/bin/install \
+          -d -o root -g root -m 0711 -- "$RUNTIME_ROOT"
+        sudo --non-interactive /usr/bin/install \
+          -d -o "$(/usr/bin/id -u)" -g "$(/usr/bin/id -g)" -m 0711 -- \
+          "$ISOLATION_ROOT"
+        /usr/bin/printf '%s\n' \
+          "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT:$LOGICAL_TARGET" |
+          sudo --non-interactive /usr/bin/tee "$RUNTIME_MARKER" >/dev/null
+        sudo --non-interactive /bin/chown root:root "$RUNTIME_MARKER"
+        sudo --non-interactive /bin/chmod 0400 "$RUNTIME_MARKER"
+        if [ ! -d "$RUNTIME_ROOT" ] ||
+          [ -L "$RUNTIME_ROOT" ] ||
+          [ "$(sudo --non-interactive /usr/bin/realpath "$RUNTIME_ROOT")" != "$RUNTIME_ROOT" ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %u "$RUNTIME_ROOT")" != 0 ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %g "$RUNTIME_ROOT")" != 0 ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %a "$RUNTIME_ROOT")" != 711 ] ||
+          [ ! -d "$ISOLATION_ROOT" ] ||
+          [ -L "$ISOLATION_ROOT" ] ||
+          [ "$(/usr/bin/realpath "$ISOLATION_ROOT")" != "$ISOLATION_ROOT" ] ||
+          [ "$(/usr/bin/stat -c %u "$ISOLATION_ROOT")" != "$(/usr/bin/id -u)" ] ||
+          [ "$(/usr/bin/stat -c %g "$ISOLATION_ROOT")" != "$(/usr/bin/id -g)" ] ||
+          [ "$(/usr/bin/stat -c %a "$ISOLATION_ROOT")" != 711 ] ||
+          [ ! -f "$RUNTIME_MARKER" ] ||
+          [ -L "$RUNTIME_MARKER" ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %u "$RUNTIME_MARKER")" != 0 ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %g "$RUNTIME_MARKER")" != 0 ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %a "$RUNTIME_MARKER")" != 400 ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %h "$RUNTIME_MARKER")" != 1 ] ||
+          [ "$(sudo --non-interactive /bin/cat "$RUNTIME_MARKER")" != "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT:$LOGICAL_TARGET" ]; then
+          echo "Protected runtime root was not created with the reviewed contract" >&2
+          exit 1
+        fi
+
+    - name: Set up pinned Node.js staging source
+      if: ${{ inputs.operation == 'prepare' }}
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
       with:
         node-version: 22
-        cache: pnpm
-        cache-dependency-path: ${{ inputs.source-path }}/pnpm-lock.yaml
+        package-manager-cache: false
 
-    - name: Materialize protected pinned Vercel CLI
+    - name: Materialize authenticated protected runtime
+      if: ${{ inputs.operation == 'prepare' }}
       id: runtime
       shell: bash
       env:
         CONTROLLER_PATH: ${{ inputs.controller-path }}
+        EXPECTED_PNPM_LINUX_X64_SHA256: e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193
+        ISOLATION_ROOT: ${{ steps.contract.outputs.isolation_root }}
         SOURCE_PATH: ${{ inputs.source-path }}
-        TRUSTED_VERCEL_TOOLS_PATH: ${{ inputs.tools-path }}
+        TOOLS_PATH: ${{ steps.contract.outputs.tools_path }}
       run: |
         set -euo pipefail
         umask 077
-        controller_path="$(realpath "$CONTROLLER_PATH")"
-        source_path="$(realpath "$SOURCE_PATH")"
-        case "$TRUSTED_VERCEL_TOOLS_PATH" in
-          "$RUNNER_TEMP"/mento-vercel-*) ;;
-          *) echo "Protected Vercel tools path is outside RUNNER_TEMP" >&2; exit 1 ;;
-        esac
-        if [ -e "$TRUSTED_VERCEL_TOOLS_PATH" ]; then
-          echo "Protected Vercel tools path must be fresh" >&2
+        if [ -z "$CONTROLLER_PATH" ] || [ -z "$SOURCE_PATH" ]; then
+          echo "Protected runtime prepare requires controller and source paths" >&2
           exit 1
         fi
-        /usr/bin/install -d -m 0755 "$TRUSTED_VERCEL_TOOLS_PATH"
-        node_bin="$(realpath "$(command -v node)")"
-        pnpm_bin="$(realpath "$(command -v pnpm)")"
-        for path in "$controller_path" "$source_path" "$node_bin" "$pnpm_bin"; do
-          if [ ! -e "$path" ] || [ -L "$path" ]; then
-            echo "Protected runtime prerequisite is missing or symbolic" >&2
+        controller_path="$(/usr/bin/realpath "$CONTROLLER_PATH")"
+        source_path="$(/usr/bin/realpath "$SOURCE_PATH")"
+        if [ -L "$CONTROLLER_PATH" ] || [ ! -d "$controller_path" ] ||
+          [ -L "$SOURCE_PATH" ] || [ ! -d "$source_path" ]; then
+          echo "Protected runtime source paths must be real directories" >&2
+          exit 1
+        fi
+        bootstrap_cache="$ISOLATION_ROOT/mento-vercel-npm-cache"
+        bootstrap_home="$ISOLATION_ROOT/mento-vercel-npm-home"
+        bootstrap_root="$ISOLATION_ROOT/mento-vercel-pnpm-bootstrap"
+        bootstrap_tmp="$ISOLATION_ROOT/mento-vercel-npm-tmp"
+        for path in \
+          "$bootstrap_cache" \
+          "$bootstrap_home" \
+          "$bootstrap_root" \
+          "$bootstrap_tmp" \
+          "$TOOLS_PATH"; do
+          if [ -e "$path" ] || [ -L "$path" ]; then
+            echo "Protected runtime staging path must be fresh: $path" >&2
             exit 1
           fi
         done
+        /usr/bin/install -d -m 0700 \
+          "$bootstrap_cache" \
+          "$bootstrap_home" \
+          "$bootstrap_tmp"
+        /usr/bin/install -m 0600 /dev/null \
+          "$bootstrap_home/global.npmrc"
+        /usr/bin/install -m 0600 /dev/null \
+          "$bootstrap_home/user.npmrc"
+
+        setup_node_bin="$(/usr/bin/realpath "$(type -P node)")"
+        setup_node_bin_dir="$(/usr/bin/dirname "$setup_node_bin")"
+        setup_node_root="$(/usr/bin/realpath "$setup_node_bin_dir/..")"
+        npm_cli="$(/usr/bin/realpath "$(type -P npm)")"
+        case "$npm_cli" in
+          "$setup_node_root"/*) ;;
+          *) echo "Pinned npm CLI escaped the setup-node tool root" >&2; exit 1 ;;
+        esac
+        if [ ! -f "$setup_node_bin" ] || [ -L "$setup_node_bin" ] ||
+          [ ! -f "$npm_cli" ] || [ -L "$npm_cli" ]; then
+          echo "Pinned Node/npm staging source is not a regular file" >&2
+          exit 1
+        fi
+        staged_bootstrap="$(
+          CONTROLLER_PATH="$controller_path" \
+          PNPM_BOOTSTRAP_PATH="$bootstrap_root" \
+          VERCEL_ISOLATION_ROOT="$ISOLATION_ROOT" \
+            "$setup_node_bin" \
+            "$controller_path/scripts/vercel-prebuilt-workflow.mjs" \
+            stage-pnpm-bootstrap
+        )"
+        if [ "$staged_bootstrap" != "$bootstrap_root" ]; then
+          echo "Pinned pnpm bootstrap escaped its fixed staging root" >&2
+          exit 1
+        fi
+        /usr/bin/env -i \
+          HOME="$bootstrap_home" \
+          HTTPS_PROXY="${HTTPS_PROXY:-}" \
+          HTTP_PROXY="${HTTP_PROXY:-}" \
+          LANG="${LANG:-C.UTF-8}" \
+          LC_ALL="${LC_ALL:-C.UTF-8}" \
+          NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-}" \
+          NO_PROXY="${NO_PROXY:-}" \
+          NPM_CONFIG_AUDIT=false \
+          NPM_CONFIG_CACHE="$bootstrap_cache" \
+          NPM_CONFIG_FUND=false \
+          NPM_CONFIG_GLOBALCONFIG="$bootstrap_home/global.npmrc" \
+          NPM_CONFIG_IGNORE_SCRIPTS=true \
+          NPM_CONFIG_REGISTRY=https://registry.npmjs.org/ \
+          NPM_CONFIG_UPDATE_NOTIFIER=false \
+          NPM_CONFIG_USERCONFIG="$bootstrap_home/user.npmrc" \
+          PATH="$setup_node_bin_dir:/usr/bin:/bin" \
+          SSL_CERT_FILE="${SSL_CERT_FILE:-}" \
+          TMPDIR="$bootstrap_tmp" \
+          "$setup_node_bin" "$npm_cli" ci \
+            --prefix "$bootstrap_root" \
+            --ignore-scripts \
+            --no-audit \
+            --no-fund \
+            --omit=dev
+        /bin/chmod -R a+rX,go-w "$bootstrap_root"
+        NODE_SOURCE_PATH="$setup_node_bin" \
+        PNPM_BOOTSTRAP_PATH="$bootstrap_root" \
+        VERCEL_ISOLATION_ROOT="$ISOLATION_ROOT" \
+        TRUSTED_VERCEL_TOOLS_PATH="$TOOLS_PATH" \
+          "$setup_node_bin" \
+          "$controller_path/scripts/vercel-prebuilt-workflow.mjs" \
+          stage-runtime
+
+        node_bin="$TOOLS_PATH/bin/node"
+        pnpm_bootstrap="$TOOLS_PATH/bootstrap-bin/pnpm"
+        if [ "$(/usr/bin/sha256sum "$pnpm_bootstrap" | /usr/bin/cut -d ' ' -f1)" != "$EXPECTED_PNPM_LINUX_X64_SHA256" ] ||
+          [ "$("$pnpm_bootstrap" --version)" != 10.34.4 ]; then
+          echo "Protected pnpm bootstrap does not match the reviewed release" >&2
+          exit 1
+        fi
+        pnpm_runtime_root="$(
+          CONTROLLER_PATH="$controller_path" \
+          TRUSTED_VERCEL_TOOLS_PATH="$TOOLS_PATH" \
+            "$node_bin" \
+            "$controller_path/scripts/vercel-prebuilt-workflow.mjs" \
+            stage-pnpm-runtime
+        )"
+        if [ "$pnpm_runtime_root" != "$TOOLS_PATH/pnpm-runtime" ]; then
+          echo "Pinned pnpm runtime escaped the protected tools root" >&2
+          exit 1
+        fi
         trusted_modules_dir="$(
-          /usr/bin/realpath -m \
-            --relative-to="$controller_path" \
-            "$TRUSTED_VERCEL_TOOLS_PATH/node_modules"
+          CONTROLLER_PATH="$controller_path" \
+          TRUSTED_VERCEL_TOOLS_PATH="$TOOLS_PATH" \
+            "$node_bin" \
+            "$controller_path/scripts/vercel-prebuilt-workflow.mjs" \
+            trusted-install-modules-dir
         )"
         if [ -z "$trusted_modules_dir" ] || [[ "$trusted_modules_dir" = /* ]]; then
-          echo "Protected pnpm modules path is not relative" >&2
+          echo "Protected Vercel modules path is not relative" >&2
           exit 1
         fi
         env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE \
           -u GITHUB_STEP_SUMMARY \
-          "$pnpm_bin" --dir "$controller_path" --filter frontend-monorepo install \
-          --frozen-lockfile \
-          --ignore-scripts \
-          --modules-dir "$trusted_modules_dir" \
-          --package-import-method copy \
-          --virtual-store-dir "$trusted_modules_dir/.pnpm"
-        /bin/chmod -R a+rX,go-w "$TRUSTED_VERCEL_TOOLS_PATH"
-        vercel_cli="$(realpath "$TRUSTED_VERCEL_TOOLS_PATH/node_modules/vercel/dist/index.js")"
+          NPM_CONFIG_MANAGE_PACKAGE_MANAGER_VERSIONS=false \
+          NPM_CONFIG_PACKAGE_MANAGER_STRICT_VERSION=false \
+          "$pnpm_bootstrap" --dir "$controller_path" --filter frontend-monorepo install \
+            --frozen-lockfile \
+            --ignore-scripts \
+            --modules-dir "$trusted_modules_dir" \
+            --package-import-method copy \
+            --virtual-store-dir "$trusted_modules_dir/.pnpm"
+        env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE \
+          -u GITHUB_STEP_SUMMARY \
+          NPM_CONFIG_MANAGE_PACKAGE_MANAGER_VERSIONS=false \
+          NPM_CONFIG_PACKAGE_MANAGER_STRICT_VERSION=false \
+          "$pnpm_bootstrap" --dir "$pnpm_runtime_root" install \
+            --frozen-lockfile \
+            --ignore-scripts \
+            --ignore-workspace \
+            --package-import-method copy
+        /bin/chmod -R a+rX,go-w "$TOOLS_PATH"
+        pnpm_bin="$(
+          TRUSTED_VERCEL_TOOLS_PATH="$TOOLS_PATH" \
+            "$node_bin" \
+            "$controller_path/scripts/vercel-prebuilt-workflow.mjs" \
+            stage-pnpm-launcher
+        )"
+        /bin/chmod -R a+rX,go-w "$TOOLS_PATH"
+        vercel_cli="$(
+          /usr/bin/realpath \
+            "$TOOLS_PATH/node_modules/vercel/dist/index.js"
+        )"
         case "$vercel_cli" in
-          "$TRUSTED_VERCEL_TOOLS_PATH"/*) ;;
-          *) echo "Pinned Vercel CLI escaped its protected directory" >&2; exit 1 ;;
+          "$TOOLS_PATH"/*) ;;
+          *) echo "Pinned Vercel CLI escaped the protected tools root" >&2; exit 1 ;;
         esac
-        if [ ! -f "$vercel_cli" ] || [ -L "$vercel_cli" ]; then
-          echo "Pinned Vercel CLI is not a regular file" >&2
+        while IFS= read -r -d '' link_path; do
+          link_target="$(/usr/bin/realpath "$link_path")"
+          case "$link_target" in
+            "$TOOLS_PATH"/*) ;;
+            *) echo "Protected runtime symbolic link escaped the tools root: $link_path" >&2; exit 1 ;;
+          esac
+        done < <(
+          /usr/bin/find "$TOOLS_PATH" -xdev -type l -print0
+        )
+        writable_entry="$(
+          /usr/bin/find "$TOOLS_PATH" \
+            -xdev \
+            \( -type f -o -type d \) \
+            -perm /0022 \
+            -print \
+            -quit
+        )"
+        if [ -n "$writable_entry" ]; then
+          echo "Protected runtime entry is group- or other-writable: $writable_entry" >&2
           exit 1
         fi
+        for directory in \
+          "$TOOLS_PATH" \
+          "$TOOLS_PATH/bin" \
+          "$TOOLS_PATH/bootstrap-bin" \
+          "$TOOLS_PATH/pnpm-runtime"; do
+          if [ ! -d "$directory" ] || [ -L "$directory" ] ||
+            [ "$(/usr/bin/stat -c %u "$directory")" != "$(/usr/bin/id -u)" ] ||
+            [ "$(/usr/bin/stat -c %g "$directory")" != "$(/usr/bin/id -g)" ] ||
+            (( 8#$(/usr/bin/stat -c %a "$directory") & 0022 )); then
+            echo "Protected runtime directory is unsafe: $directory" >&2
+            exit 1
+          fi
+        done
+        for executable in "$node_bin" "$pnpm_bin"; do
+          if [ ! -f "$executable" ] || [ -L "$executable" ] ||
+            [ "$(/usr/bin/stat -c %u "$executable")" != "$(/usr/bin/id -u)" ] ||
+            [ "$(/usr/bin/stat -c %g "$executable")" != "$(/usr/bin/id -g)" ] ||
+            [ "$(/usr/bin/stat -c %h "$executable")" != 1 ] ||
+            [ "$(/usr/bin/stat -c %a "$executable")" != 555 ]; then
+            echo "Protected runtime executable is unsafe: $executable" >&2
+            exit 1
+          fi
+        done
+        if [ ! -f "$vercel_cli" ] || [ -L "$vercel_cli" ] ||
+          [ "$(/usr/bin/stat -c %u "$vercel_cli")" != "$(/usr/bin/id -u)" ] ||
+          [ "$(/usr/bin/stat -c %h "$vercel_cli")" != 1 ] ||
+          (( 8#$(/usr/bin/stat -c %a "$vercel_cli") & 0022 )); then
+          echo "Pinned Vercel CLI entry point is unsafe" >&2
+          exit 1
+        fi
+        "$node_bin" "$controller_path/scripts/vercel-prebuilt.mjs" \
+          check-versions --repo-root "$source_path"
+        [ "$("$pnpm_bin" --version)" = 10.34.4 ]
         "$node_bin" "$vercel_cli" --version >/dev/null
-        echo "node_bin=$node_bin" >> "$GITHUB_OUTPUT"
-        echo "pnpm_bin=$pnpm_bin" >> "$GITHUB_OUTPUT"
-        echo "vercel_cli=$vercel_cli" >> "$GITHUB_OUTPUT"
+
+        /bin/rm -rf -- \
+          "$bootstrap_cache" \
+          "$bootstrap_home" \
+          "$bootstrap_root" \
+          "$bootstrap_tmp"
+        printf '%s\n' "$TOOLS_PATH/bin" >> "$GITHUB_PATH"
+        {
+          echo "node_bin=$node_bin"
+          echo "pnpm_bin=$pnpm_bin"
+          echo "vercel_cli=$vercel_cli"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Remove authenticated protected runtime
+      if: ${{ inputs.operation == 'cleanup' }}
+      shell: bash
+      env:
+        BUILD_ENVIRONMENT_PATH: ${{ steps.contract.outputs.build_environment_path }}
+        BUILD_LOG_PATH: ${{ steps.contract.outputs.build_log_path }}
+        CANDIDATE_HOME_PATH: ${{ steps.contract.outputs.candidate_home_path }}
+        CANDIDATE_IDENTITY_MARKER: ${{ steps.contract.outputs.candidate_identity_marker }}
+        CANDIDATE_SOURCE_PATH: ${{ steps.contract.outputs.candidate_source_path }}
+        ISOLATION_ROOT: ${{ steps.contract.outputs.isolation_root }}
+        LOGICAL_TARGET: ${{ inputs.logical-target }}
+        PULL_STAGING_PATH: ${{ steps.contract.outputs.pull_staging_path }}
+        RUNTIME_MARKER: ${{ steps.contract.outputs.runtime_marker }}
+        RUNTIME_ROOT: ${{ steps.contract.outputs.runtime_root }}
+        TOOLS_PATH: ${{ steps.contract.outputs.tools_path }}
+        UPLOAD_SOURCE_PATH: ${{ steps.contract.outputs.upload_source_path }}
+      run: |
+        set -euo pipefail
+        if [ ! -e "$RUNTIME_ROOT" ] && [ ! -L "$RUNTIME_ROOT" ]; then
+          echo "Protected runtime root was not created; skipping cleanup"
+          exit 0
+        fi
+        expected_root="/var/lib/mento-vercel-runtime-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$LOGICAL_TARGET"
+        if [ "$RUNTIME_ROOT" != "$expected_root" ] ||
+          [ "$ISOLATION_ROOT" != "$expected_root/work" ] ||
+          [ "$RUNTIME_MARKER" != "$expected_root/.mento-vercel-runtime" ]; then
+          echo "Refusing to clean unexpected protected runtime paths" >&2
+          exit 1
+        fi
+        for ancestor in / /var /var/lib; do
+          if [ ! -d "$ancestor" ] ||
+            [ -L "$ancestor" ] ||
+            [ "$(/usr/bin/realpath "$ancestor")" != "$ancestor" ] ||
+            [ "$(/usr/bin/stat -c %u "$ancestor")" != 0 ] ||
+            [ "$(/usr/bin/stat -c %g "$ancestor")" != 0 ]; then
+            echo "Protected runtime ancestor changed before cleanup: $ancestor" >&2
+            exit 1
+          fi
+          mode="$((8#$(/usr/bin/stat -c %a "$ancestor")))"
+          if (( (mode & 07022) != 0 || (mode & 0001) == 0 )); then
+            echo "Protected runtime ancestor permissions changed before cleanup: $ancestor" >&2
+            exit 1
+          fi
+        done
+        if [ ! -d "$RUNTIME_ROOT" ] ||
+          [ -L "$RUNTIME_ROOT" ] ||
+          [ "$(sudo --non-interactive /usr/bin/realpath "$RUNTIME_ROOT")" != "$RUNTIME_ROOT" ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %u "$RUNTIME_ROOT")" != 0 ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %g "$RUNTIME_ROOT")" != 0 ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %a "$RUNTIME_ROOT")" != 711 ] ||
+          [ ! -d "$ISOLATION_ROOT" ] ||
+          [ -L "$ISOLATION_ROOT" ] ||
+          [ "$(/usr/bin/realpath "$ISOLATION_ROOT")" != "$ISOLATION_ROOT" ] ||
+          [ "$(/usr/bin/stat -c %u "$ISOLATION_ROOT")" != "$(/usr/bin/id -u)" ] ||
+          [ "$(/usr/bin/stat -c %g "$ISOLATION_ROOT")" != "$(/usr/bin/id -g)" ] ||
+          [ "$(/usr/bin/stat -c %a "$ISOLATION_ROOT")" != 711 ] ||
+          [ ! -f "$RUNTIME_MARKER" ] ||
+          [ -L "$RUNTIME_MARKER" ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %u "$RUNTIME_MARKER")" != 0 ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %g "$RUNTIME_MARKER")" != 0 ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %a "$RUNTIME_MARKER")" != 400 ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %h "$RUNTIME_MARKER")" != 1 ] ||
+          [ "$(sudo --non-interactive /bin/cat "$RUNTIME_MARKER")" != "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT:$LOGICAL_TARGET" ]; then
+          echo "Protected runtime root failed cleanup authentication" >&2
+          exit 1
+        fi
+        top_entries="$(
+          sudo --non-interactive /usr/bin/find "$RUNTIME_ROOT" \
+            -mindepth 1 -maxdepth 1 -printf '%f\n' |
+            LC_ALL=C /usr/bin/sort
+        )"
+        if [ "$top_entries" != $'.mento-vercel-runtime\nwork' ]; then
+          echo "Protected runtime root contains unexpected top-level state" >&2
+          exit 1
+        fi
+        if /usr/bin/getent passwd mento-vercel-build >/dev/null; then
+          candidate_uid="$(/usr/bin/id -u mento-vercel-build)"
+          if sudo --non-interactive /usr/bin/pgrep -u "$candidate_uid" >/dev/null 2>&1; then
+            echo "Candidate processes survived before runtime cleanup" >&2
+          fi
+          echo "Candidate user survived before runtime cleanup" >&2
+          exit 1
+        fi
+        if /usr/bin/getent group mento-vercel-build >/dev/null ||
+          [ -e "$CANDIDATE_IDENTITY_MARKER" ] ||
+          [ -L "$CANDIDATE_IDENTITY_MARKER" ]; then
+          echo "Candidate execution boundary survived before runtime cleanup" >&2
+          exit 1
+        fi
+        while IFS= read -r entry; do
+          case "$entry" in
+            mento-vercel-trusted-tools|\
+            mento-vercel-npm-cache|\
+            mento-vercel-npm-home|\
+            mento-vercel-pnpm-bootstrap|\
+            mento-vercel-npm-tmp|\
+            mento-vercel-production-pull-staging|\
+            mento-vercel-production-build-environment|\
+            mento-vercel-production-candidate-source|\
+            mento-vercel-production-candidate-source.provenance.json|\
+            mento-vercel-production-candidate-home|\
+            mento-vercel-production-upload-source|\
+            mento-vercel-production-upload-source.provenance.json|\
+            "mento-vercel-production-$LOGICAL_TARGET-build.log") ;;
+            *) echo "Protected work root contains unexpected state: $entry" >&2; exit 1 ;;
+          esac
+        done < <(
+          sudo --non-interactive /usr/bin/find "$ISOLATION_ROOT" \
+            -mindepth 1 -maxdepth 1 -printf '%f\n' |
+            LC_ALL=C /usr/bin/sort
+        )
+        sudo --non-interactive /bin/rm \
+          -rf \
+          --one-file-system \
+          -- \
+          "$ISOLATION_ROOT/mento-vercel-npm-cache" \
+          "$ISOLATION_ROOT/mento-vercel-npm-home" \
+          "$ISOLATION_ROOT/mento-vercel-pnpm-bootstrap" \
+          "$ISOLATION_ROOT/mento-vercel-npm-tmp" \
+          "$TOOLS_PATH" \
+          "$PULL_STAGING_PATH" \
+          "$BUILD_ENVIRONMENT_PATH" \
+          "$CANDIDATE_SOURCE_PATH" \
+          "$CANDIDATE_HOME_PATH" \
+          "$UPLOAD_SOURCE_PATH"
+        sudo --non-interactive /bin/rm -f -- \
+          "${CANDIDATE_SOURCE_PATH}.provenance.json" \
+          "${UPLOAD_SOURCE_PATH}.provenance.json" \
+          "$BUILD_LOG_PATH"
+        sudo --non-interactive /bin/rmdir "$ISOLATION_ROOT"
+        sudo --non-interactive /bin/rm -f -- "$RUNTIME_MARKER"
+        sudo --non-interactive /bin/rmdir "$RUNTIME_ROOT"
+        if sudo --non-interactive /usr/bin/test -e "$RUNTIME_ROOT" ||
+          sudo --non-interactive /usr/bin/test -L "$RUNTIME_ROOT"; then
+          echo "Protected runtime root survived cleanup" >&2
+          exit 1
+        fi

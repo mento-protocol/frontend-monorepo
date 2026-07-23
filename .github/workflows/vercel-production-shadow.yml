@@ -180,9 +180,10 @@ jobs:
         id: runtime
         uses: ./.github/actions/vercel-protected-runtime
         with:
+          operation: prepare
+          logical-target: app
           controller-path: ${{ github.workspace }}
           source-path: ${{ github.workspace }}/source
-          tools-path: ${{ runner.temp }}/mento-vercel-production-tools
 
       - name: Verify pinned Vercel prerequisites
         run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-prebuilt.mjs check-versions --repo-root "$SOURCE_PATH"
@@ -190,8 +191,9 @@ jobs:
       - name: Prepare runner-owned app pull staging
         env:
           LOGICAL_TARGET: app
-          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          PULL_STAGING_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
+          SOURCE_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
+          VERCEL_ISOLATION_ROOT: ${{ steps.runtime.outputs.isolation-root }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_APP }}
         run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-production-shadow.mjs prepare-pull-staging
@@ -199,7 +201,7 @@ jobs:
       - name: Pull app custom-v3 configuration
         env:
           LOGICAL_TARGET: app
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          SOURCE_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
           TRUSTED_NODE_PATH: ${{ steps.runtime.outputs.node-bin }}
           TRUSTED_VERCEL_CLI_PATH: ${{ steps.runtime.outputs.vercel-cli }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
@@ -210,8 +212,9 @@ jobs:
       - name: Validate app project link and Root Directory
         env:
           LOGICAL_TARGET: app
-          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          PULL_STAGING_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
+          SOURCE_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
+          VERCEL_ISOLATION_ROOT: ${{ steps.runtime.outputs.isolation-root }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_APP }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
@@ -251,10 +254,18 @@ jobs:
         with:
           controller-path: ${{ github.workspace }}
           source-path: ${{ github.workspace }}/source
-          candidate-source-path: ${{ runner.temp }}/mento-vercel-production-candidate-source
-          candidate-home-path: ${{ runner.temp }}/mento-vercel-production-candidate-home
-          pull-staging-path: ${{ runner.temp }}/mento-vercel-production-pull-staging
-          upload-source-path: ${{ runner.temp }}/mento-vercel-production-upload-source
+          runtime-root: ${{ steps.runtime.outputs.runtime-root }}
+          isolation-root: ${{ steps.runtime.outputs.isolation-root }}
+          runtime-marker: ${{ steps.runtime.outputs.runtime-marker }}
+          tools-path: ${{ steps.runtime.outputs.tools-path }}
+          build-environment-path: ${{ steps.runtime.outputs.build-environment-path }}
+          candidate-source-path: ${{ steps.runtime.outputs.candidate-source-path }}
+          candidate-home-path: ${{ steps.runtime.outputs.candidate-home-path }}
+          pull-staging-path: ${{ steps.runtime.outputs.pull-staging-path }}
+          candidate-identity-marker: ${{ steps.runtime.outputs.candidate-identity-marker }}
+          build-log-path: ${{ steps.runtime.outputs.build-log-path }}
+          provenance-path: ${{ steps.runtime.outputs.provenance-path }}
+          upload-source-path: ${{ steps.runtime.outputs.upload-source-path }}
           node-bin: ${{ steps.runtime.outputs.node-bin }}
           pnpm-bin: ${{ steps.runtime.outputs.pnpm-bin }}
           vercel-cli: ${{ steps.runtime.outputs.vercel-cli }}
@@ -278,16 +289,23 @@ jobs:
           DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
           MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.identity.outputs.next_deployment_id }}
         run: |
-          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" app-proof --output "$RUNNER_TEMP/app-proof.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" app-proof --output "$RUNNER_TEMP/app-proof.json"
           set -o noclobber
           printf '["%s"]\n' "$RUNNER_TEMP/app-proof.json" > "$RUNNER_TEMP/evidence-files.json"
-          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" evidence --files "$RUNNER_TEMP/evidence-files.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" evidence --files "$RUNNER_TEMP/evidence-files.json"
 
       - name: Measure app job duration
         id: total
         env:
           STARTED_AT_MS: ${{ steps.timing.outputs.started_at_ms }}
         run: echo "total_duration_ms=$(($(date +%s%3N) - STARTED_AT_MS))" >> "$GITHUB_OUTPUT"
+
+      - name: Remove authenticated app runtime
+        if: ${{ always() }}
+        uses: ./.github/actions/vercel-protected-runtime
+        with:
+          operation: cleanup
+          logical-target: app
 
   governance:
     name: Stage governance production
@@ -335,23 +353,25 @@ jobs:
         id: runtime
         uses: ./.github/actions/vercel-protected-runtime
         with:
+          operation: prepare
+          logical-target: governance
           controller-path: ${{ github.workspace }}
           source-path: ${{ github.workspace }}/source
-          tools-path: ${{ runner.temp }}/mento-vercel-production-tools
       - name: Verify pinned Vercel prerequisites
         run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-prebuilt.mjs check-versions --repo-root "$SOURCE_PATH"
       - name: Prepare runner-owned governance pull staging
         env:
           LOGICAL_TARGET: governance
-          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          PULL_STAGING_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
+          SOURCE_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
+          VERCEL_ISOLATION_ROOT: ${{ steps.runtime.outputs.isolation-root }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
         run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-production-shadow.mjs prepare-pull-staging
       - name: Pull governance production configuration
         env:
           LOGICAL_TARGET: governance
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          SOURCE_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
           TRUSTED_NODE_PATH: ${{ steps.runtime.outputs.node-bin }}
           TRUSTED_VERCEL_CLI_PATH: ${{ steps.runtime.outputs.vercel-cli }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
@@ -361,8 +381,9 @@ jobs:
       - name: Validate governance project link and Root Directory
         env:
           LOGICAL_TARGET: governance
-          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          PULL_STAGING_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
+          SOURCE_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
+          VERCEL_ISOLATION_ROOT: ${{ steps.runtime.outputs.isolation-root }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
@@ -402,10 +423,18 @@ jobs:
         with:
           controller-path: ${{ github.workspace }}
           source-path: ${{ github.workspace }}/source
-          candidate-source-path: ${{ runner.temp }}/mento-vercel-production-candidate-source
-          candidate-home-path: ${{ runner.temp }}/mento-vercel-production-candidate-home
-          pull-staging-path: ${{ runner.temp }}/mento-vercel-production-pull-staging
-          upload-source-path: ${{ runner.temp }}/mento-vercel-production-upload-source
+          runtime-root: ${{ steps.runtime.outputs.runtime-root }}
+          isolation-root: ${{ steps.runtime.outputs.isolation-root }}
+          runtime-marker: ${{ steps.runtime.outputs.runtime-marker }}
+          tools-path: ${{ steps.runtime.outputs.tools-path }}
+          build-environment-path: ${{ steps.runtime.outputs.build-environment-path }}
+          candidate-source-path: ${{ steps.runtime.outputs.candidate-source-path }}
+          candidate-home-path: ${{ steps.runtime.outputs.candidate-home-path }}
+          pull-staging-path: ${{ steps.runtime.outputs.pull-staging-path }}
+          candidate-identity-marker: ${{ steps.runtime.outputs.candidate-identity-marker }}
+          build-log-path: ${{ steps.runtime.outputs.build-log-path }}
+          provenance-path: ${{ steps.runtime.outputs.provenance-path }}
+          upload-source-path: ${{ steps.runtime.outputs.upload-source-path }}
           node-bin: ${{ steps.runtime.outputs.node-bin }}
           pnpm-bin: ${{ steps.runtime.outputs.pnpm-bin }}
           vercel-cli: ${{ steps.runtime.outputs.vercel-cli }}
@@ -428,13 +457,13 @@ jobs:
         env:
           DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
           LOGICAL_TARGET: governance
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-upload-source
+          SOURCE_PATH: ${{ steps.runtime.outputs.upload-source-path }}
           TRUSTED_NODE_PATH: ${{ steps.runtime.outputs.node-bin }}
           TRUSTED_VERCEL_CLI_PATH: ${{ steps.runtime.outputs.vercel-cli }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
-        run: node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" deploy --expected "$RUNNER_TEMP/governance-expected.json"
+        run: ${{ steps.runtime.outputs.node-bin }} "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" deploy --expected "$RUNNER_TEMP/governance-expected.json"
       - name: Fail read-only on protected alias drift after governance deploy
         if: ${{ always() && steps.build.outcome == 'success' && steps.trusted.outcome == 'success' }}
         env:
@@ -442,7 +471,7 @@ jobs:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
         run: >-
-          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs"
           check-aliases
       - name: Prove every protected mapping remains unchanged
         env:
@@ -458,9 +487,9 @@ jobs:
           umask 077
           set -o noclobber
           printf '%s\n' "$BASELINE_JSON" > "$RUNNER_TEMP/governance-compare-baseline.json"
-          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" create-spec --output "$RUNNER_TEMP/protected-spec.json"
-          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" snapshot --spec "$RUNNER_TEMP/protected-spec.json" --output "$RUNNER_TEMP/current.json"
-          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" compare --before "$RUNNER_TEMP/governance-compare-baseline.json" --after "$RUNNER_TEMP/current.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" create-spec --output "$RUNNER_TEMP/protected-spec.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" snapshot --spec "$RUNNER_TEMP/protected-spec.json" --output "$RUNNER_TEMP/current.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" compare --before "$RUNNER_TEMP/governance-compare-baseline.json" --after "$RUNNER_TEMP/current.json"
       - name: Verify governance deployment provenance and readiness
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
@@ -469,21 +498,29 @@ jobs:
           verified=false
           for attempt in {1..12}; do
             echo "Verifying governance deployment (attempt $attempt/12)"
-            if node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" deployment --expected "$RUNNER_TEMP/governance-expected.json" --output "$RUNNER_TEMP/governance-state.json"; then verified=true; break; fi
+            if "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" deployment --expected "$RUNNER_TEMP/governance-expected.json" --output "$RUNNER_TEMP/governance-state.json"; then verified=true; break; fi
             sleep 5
           done
           "$verified"
-          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" assert-unaliased --input "$RUNNER_TEMP/governance-state.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" assert-unaliased --input "$RUNNER_TEMP/governance-state.json"
       - name: Scan governance canonical evidence
         run: |
           set -o noclobber
           printf '["%s","%s"]\n' "$RUNNER_TEMP/governance-state.json" "$RUNNER_TEMP/current.json" > "$RUNNER_TEMP/evidence-files.json"
-          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" evidence --files "$RUNNER_TEMP/evidence-files.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" evidence --files "$RUNNER_TEMP/evidence-files.json"
       - name: Measure governance job duration
         id: total
         env:
           STARTED_AT_MS: ${{ steps.timing.outputs.started_at_ms }}
         run: echo "total_duration_ms=$(($(date +%s%3N) - STARTED_AT_MS))" >> "$GITHUB_OUTPUT"
+
+      - name: Remove authenticated governance runtime
+        if: ${{ always() }}
+        uses: ./.github/actions/vercel-protected-runtime
+        with:
+          operation: cleanup
+          logical-target: governance
+
   reserve:
     name: Stage reserve production
     needs: [preflight, baseline, governance, smoke-governance]
@@ -530,23 +567,25 @@ jobs:
         id: runtime
         uses: ./.github/actions/vercel-protected-runtime
         with:
+          operation: prepare
+          logical-target: reserve
           controller-path: ${{ github.workspace }}
           source-path: ${{ github.workspace }}/source
-          tools-path: ${{ runner.temp }}/mento-vercel-production-tools
       - name: Verify pinned Vercel prerequisites
         run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-prebuilt.mjs check-versions --repo-root "$SOURCE_PATH"
       - name: Prepare runner-owned reserve pull staging
         env:
           LOGICAL_TARGET: reserve
-          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          PULL_STAGING_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
+          SOURCE_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
+          VERCEL_ISOLATION_ROOT: ${{ steps.runtime.outputs.isolation-root }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
         run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-production-shadow.mjs prepare-pull-staging
       - name: Pull reserve production configuration
         env:
           LOGICAL_TARGET: reserve
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          SOURCE_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
           TRUSTED_NODE_PATH: ${{ steps.runtime.outputs.node-bin }}
           TRUSTED_VERCEL_CLI_PATH: ${{ steps.runtime.outputs.vercel-cli }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
@@ -556,8 +595,9 @@ jobs:
       - name: Validate reserve project link and Root Directory
         env:
           LOGICAL_TARGET: reserve
-          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          PULL_STAGING_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
+          SOURCE_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
+          VERCEL_ISOLATION_ROOT: ${{ steps.runtime.outputs.isolation-root }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
@@ -596,10 +636,18 @@ jobs:
         with:
           controller-path: ${{ github.workspace }}
           source-path: ${{ github.workspace }}/source
-          candidate-source-path: ${{ runner.temp }}/mento-vercel-production-candidate-source
-          candidate-home-path: ${{ runner.temp }}/mento-vercel-production-candidate-home
-          pull-staging-path: ${{ runner.temp }}/mento-vercel-production-pull-staging
-          upload-source-path: ${{ runner.temp }}/mento-vercel-production-upload-source
+          runtime-root: ${{ steps.runtime.outputs.runtime-root }}
+          isolation-root: ${{ steps.runtime.outputs.isolation-root }}
+          runtime-marker: ${{ steps.runtime.outputs.runtime-marker }}
+          tools-path: ${{ steps.runtime.outputs.tools-path }}
+          build-environment-path: ${{ steps.runtime.outputs.build-environment-path }}
+          candidate-source-path: ${{ steps.runtime.outputs.candidate-source-path }}
+          candidate-home-path: ${{ steps.runtime.outputs.candidate-home-path }}
+          pull-staging-path: ${{ steps.runtime.outputs.pull-staging-path }}
+          candidate-identity-marker: ${{ steps.runtime.outputs.candidate-identity-marker }}
+          build-log-path: ${{ steps.runtime.outputs.build-log-path }}
+          provenance-path: ${{ steps.runtime.outputs.provenance-path }}
+          upload-source-path: ${{ steps.runtime.outputs.upload-source-path }}
           node-bin: ${{ steps.runtime.outputs.node-bin }}
           pnpm-bin: ${{ steps.runtime.outputs.pnpm-bin }}
           vercel-cli: ${{ steps.runtime.outputs.vercel-cli }}
@@ -622,13 +670,13 @@ jobs:
         env:
           DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
           LOGICAL_TARGET: reserve
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-upload-source
+          SOURCE_PATH: ${{ steps.runtime.outputs.upload-source-path }}
           TRUSTED_NODE_PATH: ${{ steps.runtime.outputs.node-bin }}
           TRUSTED_VERCEL_CLI_PATH: ${{ steps.runtime.outputs.vercel-cli }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
-        run: node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" deploy --expected "$RUNNER_TEMP/reserve-expected.json"
+        run: ${{ steps.runtime.outputs.node-bin }} "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" deploy --expected "$RUNNER_TEMP/reserve-expected.json"
       - name: Fail read-only on protected alias drift after reserve deploy
         if: ${{ always() && steps.build.outcome == 'success' && steps.trusted.outcome == 'success' }}
         env:
@@ -636,7 +684,7 @@ jobs:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
         run: >-
-          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs"
           check-aliases
       - name: Prove every protected mapping remains unchanged
         env:
@@ -652,9 +700,9 @@ jobs:
           umask 077
           set -o noclobber
           printf '%s\n' "$BASELINE_JSON" > "$RUNNER_TEMP/reserve-compare-baseline.json"
-          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" create-spec --output "$RUNNER_TEMP/protected-spec.json"
-          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" snapshot --spec "$RUNNER_TEMP/protected-spec.json" --output "$RUNNER_TEMP/current.json"
-          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" compare --before "$RUNNER_TEMP/reserve-compare-baseline.json" --after "$RUNNER_TEMP/current.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" create-spec --output "$RUNNER_TEMP/protected-spec.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" snapshot --spec "$RUNNER_TEMP/protected-spec.json" --output "$RUNNER_TEMP/current.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" compare --before "$RUNNER_TEMP/reserve-compare-baseline.json" --after "$RUNNER_TEMP/current.json"
       - name: Verify reserve deployment provenance and readiness
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
@@ -663,21 +711,29 @@ jobs:
           verified=false
           for attempt in {1..12}; do
             echo "Verifying reserve deployment (attempt $attempt/12)"
-            if node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" deployment --expected "$RUNNER_TEMP/reserve-expected.json" --output "$RUNNER_TEMP/reserve-state.json"; then verified=true; break; fi
+            if "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" deployment --expected "$RUNNER_TEMP/reserve-expected.json" --output "$RUNNER_TEMP/reserve-state.json"; then verified=true; break; fi
             sleep 5
           done
           "$verified"
-          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" assert-unaliased --input "$RUNNER_TEMP/reserve-state.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" assert-unaliased --input "$RUNNER_TEMP/reserve-state.json"
       - name: Scan reserve canonical evidence
         run: |
           set -o noclobber
           printf '["%s","%s"]\n' "$RUNNER_TEMP/reserve-state.json" "$RUNNER_TEMP/current.json" > "$RUNNER_TEMP/evidence-files.json"
-          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" evidence --files "$RUNNER_TEMP/evidence-files.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" evidence --files "$RUNNER_TEMP/evidence-files.json"
       - name: Measure reserve job duration
         id: total
         env:
           STARTED_AT_MS: ${{ steps.timing.outputs.started_at_ms }}
         run: echo "total_duration_ms=$(($(date +%s%3N) - STARTED_AT_MS))" >> "$GITHUB_OUTPUT"
+
+      - name: Remove authenticated reserve runtime
+        if: ${{ always() }}
+        uses: ./.github/actions/vercel-protected-runtime
+        with:
+          operation: cleanup
+          logical-target: reserve
+
   ui:
     name: Stage UI production
     needs: [preflight, baseline, governance, reserve, smoke-reserve]
@@ -724,23 +780,25 @@ jobs:
         id: runtime
         uses: ./.github/actions/vercel-protected-runtime
         with:
+          operation: prepare
+          logical-target: ui
           controller-path: ${{ github.workspace }}
           source-path: ${{ github.workspace }}/source
-          tools-path: ${{ runner.temp }}/mento-vercel-production-tools
       - name: Verify pinned Vercel prerequisites
         run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-prebuilt.mjs check-versions --repo-root "$SOURCE_PATH"
       - name: Prepare runner-owned UI pull staging
         env:
           LOGICAL_TARGET: ui
-          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          PULL_STAGING_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
+          SOURCE_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
+          VERCEL_ISOLATION_ROOT: ${{ steps.runtime.outputs.isolation-root }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_UI }}
         run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-production-shadow.mjs prepare-pull-staging
       - name: Pull UI production configuration
         env:
           LOGICAL_TARGET: ui
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          SOURCE_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
           TRUSTED_NODE_PATH: ${{ steps.runtime.outputs.node-bin }}
           TRUSTED_VERCEL_CLI_PATH: ${{ steps.runtime.outputs.vercel-cli }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
@@ -750,8 +808,9 @@ jobs:
       - name: Validate UI project link and Root Directory
         env:
           LOGICAL_TARGET: ui
-          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-pull-staging
+          PULL_STAGING_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
+          SOURCE_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
+          VERCEL_ISOLATION_ROOT: ${{ steps.runtime.outputs.isolation-root }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_UI }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
@@ -789,10 +848,18 @@ jobs:
         with:
           controller-path: ${{ github.workspace }}
           source-path: ${{ github.workspace }}/source
-          candidate-source-path: ${{ runner.temp }}/mento-vercel-production-candidate-source
-          candidate-home-path: ${{ runner.temp }}/mento-vercel-production-candidate-home
-          pull-staging-path: ${{ runner.temp }}/mento-vercel-production-pull-staging
-          upload-source-path: ${{ runner.temp }}/mento-vercel-production-upload-source
+          runtime-root: ${{ steps.runtime.outputs.runtime-root }}
+          isolation-root: ${{ steps.runtime.outputs.isolation-root }}
+          runtime-marker: ${{ steps.runtime.outputs.runtime-marker }}
+          tools-path: ${{ steps.runtime.outputs.tools-path }}
+          build-environment-path: ${{ steps.runtime.outputs.build-environment-path }}
+          candidate-source-path: ${{ steps.runtime.outputs.candidate-source-path }}
+          candidate-home-path: ${{ steps.runtime.outputs.candidate-home-path }}
+          pull-staging-path: ${{ steps.runtime.outputs.pull-staging-path }}
+          candidate-identity-marker: ${{ steps.runtime.outputs.candidate-identity-marker }}
+          build-log-path: ${{ steps.runtime.outputs.build-log-path }}
+          provenance-path: ${{ steps.runtime.outputs.provenance-path }}
+          upload-source-path: ${{ steps.runtime.outputs.upload-source-path }}
           node-bin: ${{ steps.runtime.outputs.node-bin }}
           pnpm-bin: ${{ steps.runtime.outputs.pnpm-bin }}
           vercel-cli: ${{ steps.runtime.outputs.vercel-cli }}
@@ -815,13 +882,13 @@ jobs:
         env:
           DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
           LOGICAL_TARGET: ui
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-production-upload-source
+          SOURCE_PATH: ${{ steps.runtime.outputs.upload-source-path }}
           TRUSTED_NODE_PATH: ${{ steps.runtime.outputs.node-bin }}
           TRUSTED_VERCEL_CLI_PATH: ${{ steps.runtime.outputs.vercel-cli }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_UI }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
-        run: node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" deploy --expected "$RUNNER_TEMP/ui-expected.json"
+        run: ${{ steps.runtime.outputs.node-bin }} "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" deploy --expected "$RUNNER_TEMP/ui-expected.json"
       - name: Fail read-only on protected alias drift after UI deploy
         if: ${{ always() && steps.build.outcome == 'success' && steps.trusted.outcome == 'success' }}
         env:
@@ -829,7 +896,7 @@ jobs:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
         run: >-
-          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs"
           check-aliases
       - name: Prove every protected mapping remains unchanged
         env:
@@ -845,9 +912,9 @@ jobs:
           umask 077
           set -o noclobber
           printf '%s\n' "$BASELINE_JSON" > "$RUNNER_TEMP/ui-compare-baseline.json"
-          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" create-spec --output "$RUNNER_TEMP/protected-spec.json"
-          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" snapshot --spec "$RUNNER_TEMP/protected-spec.json" --output "$RUNNER_TEMP/current.json"
-          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" compare --before "$RUNNER_TEMP/ui-compare-baseline.json" --after "$RUNNER_TEMP/current.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" create-spec --output "$RUNNER_TEMP/protected-spec.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" snapshot --spec "$RUNNER_TEMP/protected-spec.json" --output "$RUNNER_TEMP/current.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" compare --before "$RUNNER_TEMP/ui-compare-baseline.json" --after "$RUNNER_TEMP/current.json"
       - name: Verify UI deployment provenance and readiness
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
@@ -856,21 +923,28 @@ jobs:
           verified=false
           for attempt in {1..12}; do
             echo "Verifying UI deployment (attempt $attempt/12)"
-            if node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" deployment --expected "$RUNNER_TEMP/ui-expected.json" --output "$RUNNER_TEMP/ui-state.json"; then verified=true; break; fi
+            if "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" deployment --expected "$RUNNER_TEMP/ui-expected.json" --output "$RUNNER_TEMP/ui-state.json"; then verified=true; break; fi
             sleep 5
           done
           "$verified"
-          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" assert-unaliased --input "$RUNNER_TEMP/ui-state.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" assert-unaliased --input "$RUNNER_TEMP/ui-state.json"
       - name: Scan UI canonical evidence
         run: |
           set -o noclobber
           printf '["%s","%s"]\n' "$RUNNER_TEMP/ui-state.json" "$RUNNER_TEMP/current.json" > "$RUNNER_TEMP/evidence-files.json"
-          node "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" evidence --files "$RUNNER_TEMP/evidence-files.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" evidence --files "$RUNNER_TEMP/evidence-files.json"
       - name: Measure UI job duration
         id: total
         env:
           STARTED_AT_MS: ${{ steps.timing.outputs.started_at_ms }}
         run: echo "total_duration_ms=$(($(date +%s%3N) - STARTED_AT_MS))" >> "$GITHUB_OUTPUT"
+
+      - name: Remove authenticated UI runtime
+        if: ${{ always() }}
+        uses: ./.github/actions/vercel-protected-runtime
+        with:
+          operation: cleanup
+          logical-target: ui
 
   smoke-governance:
     name: Smoke governance from fresh trusted state
