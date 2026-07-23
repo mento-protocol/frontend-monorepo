@@ -3,7 +3,10 @@ import { Buffer } from "node:buffer";
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
+  cpSync,
   existsSync,
+  lchownSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -15,7 +18,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import process from "node:process";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -99,6 +102,54 @@ function defaultPulledEnvironment(logicalTarget) {
             : `fixture-${requirement.name.toLowerCase()}`,
       ]),
   );
+}
+
+function writeStandaloneFunctionConfig(functionDirectory, additional = {}) {
+  mkdirSync(functionDirectory, { recursive: true });
+  writeFileSync(
+    join(functionDirectory, ".vc-config.json"),
+    JSON.stringify({
+      runtime: "nodejs22.x",
+      handler: "index.js",
+      ...additional,
+    }),
+  );
+}
+
+function productionOutputFixture(logicalTarget = "governance") {
+  const directory = mkdtempSync(
+    join(tmpdir(), `shadow-output-${logicalTarget}-`),
+  );
+  const deploymentId = `m-${logicalTarget}-0123456789abcdef012`;
+  const outputDirectory = join(
+    directory,
+    PRODUCTION_SHADOW_TARGETS[logicalTarget].rootDirectory,
+    ".vercel",
+    "output",
+  );
+  mkdirSync(join(outputDirectory, "static", "nested"), { recursive: true });
+  writeFileSync(
+    join(outputDirectory, "config.json"),
+    JSON.stringify({ version: 3, deploymentId }),
+  );
+  writeFileSync(
+    join(outputDirectory, "builds.json"),
+    JSON.stringify({
+      target: logicalTarget === "app" ? "v3" : "production",
+      cliVersion: "56.2.0",
+    }),
+  );
+  return {
+    cleanup: () => rmSync(directory, { force: true, recursive: true }),
+    deploymentId,
+    directory,
+    options: {
+      repoRoot: directory,
+      logicalTarget,
+      deploymentId,
+    },
+    outputDirectory,
+  };
 }
 
 test("materialized environment ownership is assigned to the runner identity", () => {
@@ -719,6 +770,325 @@ test("repo-linked settings use exact repo identity for all four targets", () => 
   }
 });
 
+test("production output accepts contained Vercel function aliases", () => {
+  const fixture = productionOutputFixture();
+  try {
+    const functionsDirectory = join(fixture.outputDirectory, "functions");
+    const parentFunction = join(functionsDirectory, "parent.func");
+    const nestedFunctionsDirectory = join(functionsDirectory, "nested");
+    writeStandaloneFunctionConfig(parentFunction);
+    mkdirSync(nestedFunctionsDirectory, { recursive: true });
+    writeFileSync(join(parentFunction, "index.js"), "export {};\n");
+    symlinkSync(
+      "../parent.func",
+      join(nestedFunctionsDirectory, "prerender.func"),
+    );
+    assert.equal(
+      assertProductionShadowOutput(fixture.options),
+      fixture.outputDirectory,
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("production output accepts contained standalone dependency links", () => {
+  const fixture = productionOutputFixture();
+  try {
+    const functionDirectory = join(
+      fixture.outputDirectory,
+      "functions",
+      "api.func",
+    );
+    const packageDirectory = join(
+      functionDirectory,
+      "node_modules",
+      ".pnpm",
+      "package@1.0.0",
+      "node_modules",
+      "package",
+    );
+    const packageLink = join(functionDirectory, "node_modules", "package");
+    writeStandaloneFunctionConfig(functionDirectory, { filePathMap: {} });
+    mkdirSync(packageDirectory, { recursive: true });
+    writeFileSync(join(packageDirectory, "index.js"), "export {};\n");
+    symlinkSync(relative(dirname(packageLink), packageDirectory), packageLink);
+    const unusedPackageLinkDirectory = join(
+      functionDirectory,
+      "node_modules",
+      ".pnpm",
+      "node_modules",
+    );
+    mkdirSync(unusedPackageLinkDirectory, { recursive: true });
+    symlinkSync(
+      "../semver@6.3.1/node_modules/semver",
+      join(unusedPackageLinkDirectory, "semver"),
+    );
+    assert.equal(
+      assertProductionShadowOutput(fixture.options),
+      fixture.outputDirectory,
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("production output rejects unsafe symlink and filesystem classes", () => {
+  const mutateCases = [
+    {
+      name: "absolute function link",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(functionsDirectory, { recursive: true });
+        symlinkSync(
+          join(outputDirectory, "static", "nested"),
+          join(functionsDirectory, "absolute.func"),
+        );
+      },
+    },
+    {
+      name: "non-function link outside functions",
+      mutate: ({ outputDirectory }) =>
+        symlinkSync(
+          "nested",
+          join(outputDirectory, "static", "contained-link"),
+        ),
+    },
+    {
+      name: "function link to an external output subtree",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        const outsideFunction = join(outputDirectory, "static", "outside.func");
+        writeStandaloneFunctionConfig(outsideFunction);
+        mkdirSync(functionsDirectory, { recursive: true });
+        symlinkSync(
+          "../static/outside.func",
+          join(functionsDirectory, "outside.func"),
+        );
+      },
+    },
+    {
+      name: "escaping relative function link",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        const path = join(functionsDirectory, "escape.func");
+        mkdirSync(functionsDirectory, { recursive: true });
+        symlinkSync(relative(dirname(path), "/etc/passwd"), path);
+      },
+    },
+    {
+      name: "broken function link",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(functionsDirectory, { recursive: true });
+        symlinkSync("missing.func", join(functionsDirectory, "broken.func"));
+      },
+    },
+    {
+      name: "cyclic function links",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(functionsDirectory, { recursive: true });
+        symlinkSync("cycle-b.func", join(functionsDirectory, "cycle-a.func"));
+        symlinkSync("cycle-a.func", join(functionsDirectory, "cycle-b.func"));
+      },
+    },
+    {
+      name: "function link to a file",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(functionsDirectory, { recursive: true });
+        writeFileSync(join(functionsDirectory, "target.func"), "not a dir");
+        symlinkSync("target.func", join(functionsDirectory, "alias.func"));
+      },
+    },
+    {
+      name: "chained function links",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        writeStandaloneFunctionConfig(join(functionsDirectory, "target.func"));
+        symlinkSync("target.func", join(functionsDirectory, "first.func"));
+        symlinkSync("first.func", join(functionsDirectory, "second.func"));
+      },
+    },
+    {
+      name: "function dependency link to an ancestor",
+      mutate: ({ outputDirectory }) => {
+        const functionDirectory = join(
+          outputDirectory,
+          "functions",
+          "parent.func",
+        );
+        const nestedDirectory = join(functionDirectory, "nested");
+        writeStandaloneFunctionConfig(functionDirectory);
+        mkdirSync(nestedDirectory, { recursive: true });
+        symlinkSync("..", join(nestedDirectory, "ancestor"));
+      },
+    },
+    {
+      name: "self-referential function link",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(functionsDirectory, { recursive: true });
+        symlinkSync("self.func", join(functionsDirectory, "self.func"));
+      },
+    },
+    {
+      name: "output-root function link",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(functionsDirectory, { recursive: true });
+        symlinkSync("..", join(functionsDirectory, "root.func"));
+      },
+    },
+    {
+      name: "linked Vercel function config",
+      mutate: ({ outputDirectory }) => {
+        const functionDirectory = join(
+          outputDirectory,
+          "functions",
+          "api.func",
+        );
+        mkdirSync(functionDirectory, { recursive: true });
+        writeFileSync(
+          join(functionDirectory, "config-target.json"),
+          JSON.stringify({ runtime: "nodejs22.x", handler: "index.js" }),
+        );
+        symlinkSync(
+          "config-target.json",
+          join(functionDirectory, ".vc-config.json"),
+        );
+      },
+    },
+    {
+      name: "absolute dependency link",
+      mutate: ({ outputDirectory }) => {
+        const functionDirectory = join(
+          outputDirectory,
+          "functions",
+          "api.func",
+        );
+        writeStandaloneFunctionConfig(functionDirectory);
+        mkdirSync(join(functionDirectory, "node_modules"), { recursive: true });
+        symlinkSync(
+          "/etc/passwd",
+          join(functionDirectory, "node_modules", "package"),
+        );
+      },
+    },
+    {
+      name: "dependency link escaping its function",
+      mutate: ({ outputDirectory }) => {
+        const functionDirectory = join(
+          outputDirectory,
+          "functions",
+          "api.func",
+        );
+        const packageLink = join(functionDirectory, "node_modules", "package");
+        writeStandaloneFunctionConfig(functionDirectory);
+        mkdirSync(dirname(packageLink), { recursive: true });
+        symlinkSync(
+          relative(dirname(packageLink), outputDirectory),
+          packageLink,
+        );
+      },
+    },
+    {
+      name: "chained dependency links",
+      mutate: ({ outputDirectory }) => {
+        const functionDirectory = join(
+          outputDirectory,
+          "functions",
+          "api.func",
+        );
+        const packageDirectory = join(functionDirectory, "node_modules");
+        writeStandaloneFunctionConfig(functionDirectory);
+        mkdirSync(join(packageDirectory, "target"), { recursive: true });
+        symlinkSync("target", join(packageDirectory, "first"));
+        symlinkSync("first", join(packageDirectory, "second"));
+      },
+    },
+    {
+      name: "dependency link escapes nearest nested function",
+      mutate: ({ outputDirectory }) => {
+        const outerFunction = join(outputDirectory, "functions", "outer.func");
+        const innerFunction = join(outerFunction, "inner.func");
+        const outerTarget = join(outerFunction, "node_modules", "target");
+        const innerLink = join(innerFunction, "node_modules", "package");
+        writeStandaloneFunctionConfig(outerFunction);
+        writeStandaloneFunctionConfig(innerFunction);
+        mkdirSync(outerTarget, { recursive: true });
+        mkdirSync(dirname(innerLink), { recursive: true });
+        symlinkSync(relative(dirname(innerLink), outerTarget), innerLink);
+      },
+    },
+    {
+      name: "control-character link target",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(functionsDirectory, { recursive: true });
+        symlinkSync("target\n.func", join(functionsDirectory, "control.func"));
+      },
+    },
+    {
+      name: "special filesystem node",
+      mutate: ({ outputDirectory }) =>
+        execFileSync("mkfifo", [join(outputDirectory, "static", "pipe")]),
+    },
+    {
+      name: "hard-linked file",
+      mutate: ({ outputDirectory }) =>
+        linkSync(
+          join(outputDirectory, "config.json"),
+          join(outputDirectory, "static", "hardlink"),
+        ),
+    },
+    {
+      name: "world-writable directory",
+      mutate: ({ outputDirectory }) =>
+        chmodSync(join(outputDirectory, "static"), 0o777),
+    },
+  ];
+  for (const mutation of mutateCases) {
+    const fixture = productionOutputFixture();
+    try {
+      mutation.mutate(fixture);
+      assert.throws(
+        () => assertProductionShadowOutput(fixture.options),
+        undefined,
+        mutation.name,
+      );
+    } finally {
+      fixture.cleanup();
+    }
+  }
+});
+
+test("production output rejects every unsafe filePathMap shape", () => {
+  for (const filePathMap of [
+    null,
+    [],
+    {
+      "node_modules/@opentelemetry/api/context.js":
+        "node_modules/.pnpm/@opentelemetry+api@1.9.0/context.js",
+    },
+  ]) {
+    const fixture = productionOutputFixture();
+    try {
+      writeStandaloneFunctionConfig(
+        join(fixture.outputDirectory, "functions", "api.func"),
+        { filePathMap },
+      );
+      assert.throws(
+        () => assertProductionShadowOutput(fixture.options),
+        /external function file references/,
+      );
+    } finally {
+      fixture.cleanup();
+    }
+  }
+});
+
 test("runner pull staging, candidate copy, and upload proof reject external references", () => {
   for (const [target, contract] of Object.entries(PRODUCTION_SHADOW_TARGETS)) {
     const isolationRoot = realpathSync(
@@ -1112,7 +1482,9 @@ test("handoff enforces distinct candidate and runner ownership contracts", () =>
   const candidateUid = runnerUid + 10_000;
   const candidateGid = runnerGid + 10_000;
   const ownershipChanges = [];
+  const linkOwnershipChanges = [];
   const candidateValidations = [];
+  let copyOptions;
   try {
     chmodSync(isolationRoot, 0o711);
     prepareProductionShadowPullStaging({
@@ -1153,6 +1525,27 @@ test("handoff enforces distinct candidate and runner ownership contracts", () =>
       JSON.stringify({ target: "production", cliVersion: "56.2.0" }),
       { mode: 0o600 },
     );
+    const functionsDirectory = join(candidateOutput, "functions");
+    const targetFunction = join(functionsDirectory, "target.func");
+    const nestedFunctionsDirectory = join(functionsDirectory, "nested");
+    writeStandaloneFunctionConfig(targetFunction, { filePathMap: {} });
+    writeFileSync(join(targetFunction, "index.js"), "export {};\n");
+    mkdirSync(nestedFunctionsDirectory, { recursive: true });
+    const functionAlias = join(nestedFunctionsDirectory, "alias.func");
+    symlinkSync("../target.func", functionAlias);
+    const packageDirectory = join(
+      targetFunction,
+      "node_modules",
+      ".pnpm",
+      "package@1.0.0",
+      "node_modules",
+      "package",
+    );
+    const packageLink = join(targetFunction, "node_modules", "package");
+    mkdirSync(packageDirectory, { recursive: true });
+    writeFileSync(join(packageDirectory, "index.js"), "export {};\n");
+    const packageTarget = relative(dirname(packageLink), packageDirectory);
+    symlinkSync(packageTarget, packageLink);
 
     const result = createProductionShadowUploadHandoff({
       isolationRoot,
@@ -1168,8 +1561,21 @@ test("handoff enforces distinct candidate and runner ownership contracts", () =>
       buildGid: candidateGid,
       runnerUid,
       runnerGid,
+      changeLinkOwner: (path, uid, gid) => {
+        assert.equal(lstatSync(path).isSymbolicLink(), true);
+        linkOwnershipChanges.push({ path, uid, gid });
+        lchownSync(path, uid, gid);
+      },
+      changeMode: (path, mode) => {
+        assert.equal(lstatSync(path).isSymbolicLink(), false);
+        chmodSync(path, mode);
+      },
       changeOwner: (path, uid, gid) => {
         ownershipChanges.push({ path, uid, gid });
+      },
+      copyTree: (source, destination, options) => {
+        copyOptions = options;
+        cpSync(source, destination, options);
       },
       validateCandidate: (values) => {
         candidateValidations.push(values);
@@ -1182,6 +1588,8 @@ test("handoff enforces distinct candidate and runner ownership contracts", () =>
     assert.equal(candidateValidations[0].expectedUid, candidateUid);
     assert.equal(candidateValidations[0].expectedGid, candidateGid);
     assert.equal(candidateValidations[0].expectedProvenanceUid, runnerUid);
+    assert.equal(copyOptions.dereference, false);
+    assert.equal(copyOptions.verbatimSymlinks, true);
     assert.ok(ownershipChanges.length >= 8);
     assert.ok(
       ownershipChanges.some(({ path }) => path.endsWith("config.json")),
@@ -1193,9 +1601,189 @@ test("handoff enforces distinct candidate and runner ownership contracts", () =>
       assert.equal(ownership.uid, runnerUid);
       assert.equal(ownership.gid, runnerGid);
     }
+    assert.deepEqual(
+      linkOwnershipChanges.map(({ path }) => relative(uploadRoot, path)).sort(),
+      [
+        join(
+          contract.rootDirectory,
+          ".vercel",
+          "output",
+          "functions",
+          "nested",
+          "alias.func",
+        ),
+        join(
+          contract.rootDirectory,
+          ".vercel",
+          "output",
+          "functions",
+          "target.func",
+          "node_modules",
+          "package",
+        ),
+      ].sort(),
+    );
+    for (const ownership of linkOwnershipChanges) {
+      assert.equal(ownership.uid, runnerUid);
+      assert.equal(ownership.gid, runnerGid);
+      assert.equal(
+        ownershipChanges.some(({ path }) => path === ownership.path),
+        false,
+      );
+    }
+    const copiedOutput = join(
+      uploadRoot,
+      contract.rootDirectory,
+      ".vercel",
+      "output",
+    );
+    assert.equal(
+      readlinkSync(join(copiedOutput, "functions", "nested", "alias.func")),
+      "../target.func",
+    );
+    assert.equal(
+      readlinkSync(
+        join(
+          copiedOutput,
+          "functions",
+          "target.func",
+          "node_modules",
+          "package",
+        ),
+      ),
+      packageTarget,
+    );
+    rmSync(candidateRoot, { force: true, recursive: true });
+    assert.equal(
+      assertProductionShadowReadyForUpload({
+        repoRoot: uploadRoot,
+        logicalTarget,
+        orgId,
+        projectId,
+        deploymentId,
+        deploySha: SHA,
+      }),
+      copiedOutput,
+    );
     assert.equal(result.uid, runnerUid);
     assert.equal(result.gid, runnerGid);
     assert.equal(result.sourceRoot, realpathSync(uploadRoot));
+  } finally {
+    rmSync(isolationRoot, { recursive: true, force: true });
+  }
+});
+
+test("handoff final validation rejects a copied-link tamper", () => {
+  const isolationRoot = realpathSync(
+    mkdtempSync(join(tmpdir(), "shadow-handoff-tamper-")),
+  );
+  const stagingRoot = join(
+    isolationRoot,
+    "mento-vercel-production-pull-staging",
+  );
+  const candidateRoot = join(
+    isolationRoot,
+    "mento-vercel-production-candidate-source",
+  );
+  const uploadRoot = join(
+    isolationRoot,
+    "mento-vercel-production-upload-source",
+  );
+  const logicalTarget = "ui";
+  const contract = PRODUCTION_SHADOW_TARGETS[logicalTarget];
+  const orgId = "team_fixture123";
+  const projectId = "prj_ui123";
+  const deploymentId = "m-ui-0123456789abcdef012";
+  let finalValidationCalls = 0;
+  try {
+    chmodSync(isolationRoot, 0o711);
+    mkdirSync(stagingRoot, { mode: 0o700 });
+    materializeProductionShadowLink({
+      repoRoot: stagingRoot,
+      logicalTarget,
+      orgId,
+      projectId,
+    });
+    const stagedAppState = join(stagingRoot, contract.rootDirectory, ".vercel");
+    mkdirSync(stagedAppState, { mode: 0o700, recursive: true });
+    writeFileSync(
+      join(stagedAppState, "project.json"),
+      JSON.stringify({
+        settings: { rootDirectory: contract.rootDirectory },
+      }),
+      { mode: 0o600 },
+    );
+    const candidateOutput = join(
+      candidateRoot,
+      contract.rootDirectory,
+      ".vercel",
+      "output",
+    );
+    mkdirSync(candidateOutput, { mode: 0o700, recursive: true });
+    writeFileSync(
+      join(candidateOutput, "config.json"),
+      JSON.stringify({ version: 3, deploymentId }),
+      { mode: 0o600 },
+    );
+    writeFileSync(
+      join(candidateOutput, "builds.json"),
+      JSON.stringify({ target: "production", cliVersion: "56.2.0" }),
+      { mode: 0o600 },
+    );
+    const targetFunction = join(candidateOutput, "functions", "target.func");
+    writeStandaloneFunctionConfig(targetFunction);
+    const candidateAlias = join(
+      candidateOutput,
+      "functions",
+      "nested",
+      "alias.func",
+    );
+    mkdirSync(dirname(candidateAlias), { recursive: true });
+    symlinkSync("../target.func", candidateAlias);
+
+    assert.throws(
+      () =>
+        createProductionShadowUploadHandoff({
+          isolationRoot,
+          stagingRoot,
+          candidateRoot,
+          uploadRoot,
+          logicalTarget,
+          orgId,
+          projectId,
+          deploymentId,
+          deploySha: SHA,
+          buildUid: process.getuid(),
+          buildGid: process.getgid(),
+          runnerUid: process.getuid(),
+          runnerGid: process.getgid(),
+          copyTree: (source, destination, options) => {
+            cpSync(source, destination, options);
+            const copiedAlias = join(
+              destination,
+              "functions",
+              "nested",
+              "alias.func",
+            );
+            rmSync(copiedAlias);
+            symlinkSync("/etc/passwd", copiedAlias);
+          },
+          validateCandidate: ({ repoRoot }) =>
+            assertProductionShadowOutput({
+              repoRoot,
+              logicalTarget,
+              deploymentId,
+            }),
+          validateMaterialized: () => {},
+          validateStaging: () => {},
+          validateUpload: (values) => {
+            finalValidationCalls += 1;
+            return assertProductionShadowReadyForUpload(values);
+          },
+        }),
+      /unsupported symbolic link/,
+    );
+    assert.equal(finalValidationCalls, 1);
   } finally {
     rmSync(isolationRoot, { recursive: true, force: true });
   }

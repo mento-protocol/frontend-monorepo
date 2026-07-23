@@ -14,6 +14,7 @@ import {
   existsSync,
   fchmodSync,
   fstatSync,
+  lchownSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -39,6 +40,7 @@ import { fileURLToPath } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 
 import { assertPrebuiltDeploymentId } from "./vercel-prebuilt.mjs";
+import { assertSafeOutputTree } from "./vercel-output-validator.mjs";
 import {
   parseVercelPulledEnvironment,
   selectVercelPulledEnvironment,
@@ -74,7 +76,6 @@ const MAX_SOURCE_TREE_BYTES = 16 * 1_024 * 1_024;
 const MAX_SOURCE_TOTAL_BYTES = 128 * 1_024 * 1_024;
 const MAX_PULLED_ENVIRONMENT_BYTES = 16 * 1_024 * 1_024;
 const MAX_MATERIALIZED_ENVIRONMENT_BYTES = 1_024 * 1_024;
-const MAX_PREBUILT_CONFIG_BYTES = 1_024 * 1_024;
 const VERCEL_CLI_ENVIRONMENT_NAMES = Object.freeze([
   "CI",
   "HTTP_PROXY",
@@ -1718,40 +1719,10 @@ export function assertProductionShadowOutput({
   const buildsPath = join(outputDirectory, "builds.json");
   const uid = numericIdentity(expectedUid, "Expected output UID");
   const gid = numericIdentity(expectedGid, "Expected output GID");
-  const pending = [outputDirectory];
-  let entries = 0;
-  while (pending.length > 0) {
-    const path = pending.pop();
-    const entry = lstatSync(path);
-    entries += 1;
-    if (entries > 250_000) {
-      throw new Error("Prebuilt output contains too many filesystem entries");
-    }
-    if (entry.uid !== uid || entry.gid !== gid) {
-      throw new Error(
-        "Prebuilt output contains an entry with unsafe ownership",
-      );
-    }
-    if (
-      uid === process.getuid?.() &&
-      ((entry.mode & 0o022) !== 0 || (entry.mode & 0o7000) !== 0)
-    ) {
-      throw new Error("Runner-owned prebuilt output has unsafe permissions");
-    }
-    if (entry.isSymbolicLink()) {
-      throw new Error("Prebuilt output contains a symbolic link");
-    }
-    if (entry.isDirectory()) {
-      for (const child of readdirSync(path)) pending.push(join(path, child));
-    } else if (
-      !entry.isFile() ||
-      (uid === process.getuid?.() && entry.nlink !== 1)
-    ) {
-      throw new Error("Prebuilt output contains a special or hard-linked file");
-    } else {
-      assertStandaloneVercelConfig(path, entry);
-    }
-  }
+  assertSafeOutputTree(outputDirectory, {
+    expectedUid: uid,
+    expectedGid: gid,
+  });
   if (!lstatSync(configPath).isFile() || !lstatSync(buildsPath).isFile()) {
     throw new Error("Prebuilt app-root output is missing a required file");
   }
@@ -1829,34 +1800,6 @@ function assertOwnedMappingFile(path, uid, gid, label) {
   }
 }
 
-function assertStandaloneVercelConfig(path, entry) {
-  if (basename(path) !== ".vc-config.json") return;
-  if (entry.size > MAX_PREBUILT_CONFIG_BYTES) {
-    throw new Error("Prebuilt output contains an oversized function config");
-  }
-  let config;
-  try {
-    config = JSON.parse(readFileSync(path, "utf8"));
-  } catch {
-    throw new Error("Prebuilt output contains an invalid function config");
-  }
-  if (!config || typeof config !== "object" || Array.isArray(config)) {
-    throw new Error("Prebuilt output contains an invalid function config");
-  }
-  if (!Object.hasOwn(config, "filePathMap")) return;
-  const { filePathMap } = config;
-  if (
-    !filePathMap ||
-    typeof filePathMap !== "object" ||
-    Array.isArray(filePathMap) ||
-    Object.keys(filePathMap).length > 0
-  ) {
-    throw new Error(
-      "Prebuilt output contains external function file references",
-    );
-  }
-}
-
 export function assertProductionShadowReadyForUpload({
   repoRoot,
   logicalTarget,
@@ -1911,6 +1854,7 @@ function normalizeRunnerOwnedHandoffTree(
   {
     changeMode = chmodSync,
     changeOwner = chownSync,
+    changeLinkOwner = lchownSync,
     inspect = lstatSync,
     list = readdirSync,
   } = {},
@@ -1925,7 +1869,8 @@ function normalizeRunnerOwnedHandoffTree(
       throw new Error("Upload handoff contains too many filesystem entries");
     }
     if (entry.isSymbolicLink()) {
-      throw new Error("Upload handoff contains a symbolic link");
+      changeLinkOwner(path, uid, gid);
+      continue;
     }
     if (entry.isDirectory()) {
       changeOwner(path, uid, gid);
@@ -1958,6 +1903,7 @@ export function createProductionShadowUploadHandoff({
   copyTree = cpSync,
   changeMode = chmodSync,
   changeOwner = chownSync,
+  changeLinkOwner = lchownSync,
   inspect = lstatSync,
   list = readdirSync,
   validateCandidate = assertProductionShadowReadyForUpload,
@@ -2045,6 +1991,7 @@ export function createProductionShadowUploadHandoff({
       force: false,
       preserveTimestamps: true,
       recursive: true,
+      verbatimSymlinks: true,
     },
   );
   for (const relativePath of [
@@ -2060,6 +2007,7 @@ export function createProductionShadowUploadHandoff({
   normalizeRunnerOwnedHandoffTree(canonicalUploadRoot, trustedUid, trustedGid, {
     changeMode,
     changeOwner,
+    changeLinkOwner,
     inspect,
     list,
   });
