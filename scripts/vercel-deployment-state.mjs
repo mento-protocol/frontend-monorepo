@@ -25,6 +25,7 @@ export const CANONICAL_STATE_KEYS = Object.freeze([
   "alias",
   "deploymentId",
   "deploymentUrl",
+  "creatorUsername",
   "projectId",
   "projectName",
   "readyState",
@@ -35,6 +36,8 @@ export const CANONICAL_STATE_KEYS = Object.freeze([
 ]);
 
 const CANONICAL_GIT_KEYS = ["org", "repo", "ref", "sha"];
+const CREATOR_USERNAME_PATTERN =
+  /^(?=.{1,63}$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const CLI_OPTIONS = Object.freeze({
   compare: Object.freeze(["before", "after"]),
   deployment: Object.freeze(["expected", "output"]),
@@ -111,6 +114,23 @@ function consistentString(label, candidates, { pattern } = {}) {
     throw new Error(`Deployment ${label} is malformed`);
   }
   return distinct[0];
+}
+
+function canonicalizeCreatorUsername(deploymentResponse) {
+  const creator = deploymentResponse.creator;
+  if (creator === undefined || creator === null) return null;
+  if (typeof creator !== "object" || Array.isArray(creator)) {
+    throw new Error("Deployment creator is malformed");
+  }
+  if (creator.username === undefined || creator.username === null) return null;
+  if (typeof creator.username !== "string" || creator.username.length === 0) {
+    throw new Error("Deployment creator username is malformed");
+  }
+  const username = creator.username.toLowerCase();
+  if (!CREATOR_USERNAME_PATTERN.test(username)) {
+    throw new Error("Deployment creator username is malformed");
+  }
+  return username;
 }
 
 function canonicalizeAliasLookup(alias, response) {
@@ -225,6 +245,7 @@ export function canonicalizeDeploymentState({
     aliasResponse?.deployment?.id,
   ]);
   const deploymentUrl = canonicalizeDeploymentUrl(deploymentResponse.url);
+  const creatorUsername = canonicalizeCreatorUsername(deploymentResponse);
   const projectId = consistentString("project ID", [
     deploymentResponse.projectId,
     deploymentResponse.project?.id,
@@ -299,6 +320,7 @@ export function canonicalizeDeploymentState({
     alias: canonicalAlias,
     deploymentId,
     deploymentUrl,
+    creatorUsername,
     projectId,
     projectName,
     readyState,
@@ -335,6 +357,16 @@ export function assertCanonicalOutput(value) {
       canonicalizeDeploymentUrl(state.deploymentUrl) !== state.deploymentUrl
     ) {
       throw new Error("Canonical deployment URL is malformed");
+    }
+    if (
+      canonicalizeCreatorUsername({
+        creator:
+          state.creatorUsername === null
+            ? null
+            : { username: state.creatorUsername },
+      }) !== state.creatorUsername
+    ) {
+      throw new Error("Canonical deployment creator username is malformed");
     }
     requireIdentifier(state.projectId, "Canonical project ID");
     requireIdentifier(state.projectName, "Canonical project name");

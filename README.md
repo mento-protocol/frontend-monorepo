@@ -501,9 +501,10 @@ The repository is set up with GitHub Actions for CI:
   without deploying it and upload Governance, Reserve, and UI production
   artifacts without custom production domains. Each staged ordinary
   deployment exposes its immutable hostname through the deployment URL/state
-  identity, while Vercel's provider alias list contains only the reviewed
-  generated project/team alias. The upload implicitly moves that generated system
-  alias, while the workflow performs no explicit alias, promote,
+  identity. Vercel's provider alias list must contain the reviewed base
+  project/team alias and may also contain one exact creator-scoped alias derived
+  from the canonical deployment `creator.username`. The upload implicitly moves
+  those generated system aliases, while the workflow performs no explicit alias, promote,
   environment-configuration, ownership, or protected/custom production-domain
   mutation. Its exact-SHA contract, read-only protected-domain drift checks,
   guarded manual operator recovery, and direct smoke are documented in the same
