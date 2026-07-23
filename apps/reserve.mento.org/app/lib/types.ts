@@ -2,6 +2,7 @@
 export enum Chain {
   CELO = "celo",
   ETHEREUM = "ethereum",
+  POLYGON = "polygon",
   BITCOIN = "bitcoin",
   MONAD = "monad",
 }

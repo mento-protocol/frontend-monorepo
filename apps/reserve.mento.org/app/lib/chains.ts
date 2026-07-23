@@ -1,6 +1,7 @@
 const CHAIN_LABEL: Record<string, string> = {
   celo: "Celo",
   ethereum: "Ethereum",
+  polygon: "Polygon",
   monad: "Monad",
   bitcoin: "Bitcoin",
 };
@@ -8,6 +9,7 @@ const CHAIN_LABEL: Record<string, string> = {
 export const CHAIN_ICON: Record<string, string> = {
   celo: "/chains/celo.svg",
   ethereum: "/tokens/ETH.svg",
+  polygon: "/chains/polygon.svg",
   monad: "/chains/monad.svg",
   bitcoin: "/tokens/BTC.svg",
 };
