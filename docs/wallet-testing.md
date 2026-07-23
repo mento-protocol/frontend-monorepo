@@ -271,12 +271,12 @@ interaction, fails critical document/script/style responses from any origin,
 keeps the main frame on the exact immutable origin throughout, requires the raw
 server response's leading `<html>` start tag to contain exactly one quoted
 expected `data-dpl-id`, and binds the `X-Mento-Deployment-Sha` response header
-to the exact commit. Governance and Reserve must retain the expected marker
-after hydration. For UI, the smoke accepts the server-injected marker being
-absent after hydration only when every observed same-origin Next.js static
-request carries exactly one expected `?dpl=` value, Playwright observed actual
-script and stylesheet request types, and no static asset redirected outside the
-same immutable identity.
+to the exact commit. For Governance, Reserve, and UI, the smoke accepts the
+server-injected marker being absent after hydration only when every observed
+same-origin Next.js static request carries exactly one expected `?dpl=` value,
+Playwright observed actual script and stylesheet request types, no static asset
+redirected outside the same immutable identity, and no conflicting marker
+remained in the live DOM.
 No deployment-protection bypass is supplied; the request policy rejects any
 ambient protection header and handles every redirect as a new browser request.
 The real two-origin Chromium regression is

@@ -291,11 +291,13 @@ function fakeResponse(url, body, { status = 200, headers = {} } = {}) {
 test("common HTTP smoke checks target marker, headers, assets, and controller build identity", async () => {
   const values = controllerTuple("reserve");
   const requested = [];
-  const html = `<title>Mento Reserve</title>
+  const html = `<html data-dpl-id="${values.nextDeploymentId}"><body>
+    <title>Mento Reserve</title>
     <script src="/_next/static/app.js?dpl=${values.nextDeploymentId}"></script>
     <link rel="stylesheet" href="/_next/static/app.css?dpl=${values.nextDeploymentId}">
     <link rel="preload" href="/_next/static/font.woff2?dpl=${values.nextDeploymentId}">
-    <img src="/_next/static/media/graph.webp?dpl=${values.nextDeploymentId}">`;
+    <img src="/_next/static/media/graph.webp?dpl=${values.nextDeploymentId}">
+  </body></html>`;
   const fetchImplementation = async (url) => {
     const parsed = new URL(url);
     requested.push(parsed.toString());
@@ -363,7 +365,7 @@ test("common HTTP smoke still requires representative JavaScript and CSS assets"
     smokePreviewHttp({
       values,
       fetchImplementation: response(
-        `<title>Mento Reserve</title><link rel="stylesheet" href="/_next/static/app.css?dpl=${values.nextDeploymentId}">`,
+        `<html data-dpl-id="${values.nextDeploymentId}"><body><title>Mento Reserve</title><link rel="stylesheet" href="/_next/static/app.css?dpl=${values.nextDeploymentId}"></body></html>`,
       ),
     }),
     /representative \.js asset/,
@@ -372,7 +374,7 @@ test("common HTTP smoke still requires representative JavaScript and CSS assets"
     smokePreviewHttp({
       values,
       fetchImplementation: response(
-        `<title>Mento Reserve</title><script src="/_next/static/app.js?dpl=${values.nextDeploymentId}"></script>`,
+        `<html data-dpl-id="${values.nextDeploymentId}"><body><title>Mento Reserve</title><script src="/_next/static/app.js?dpl=${values.nextDeploymentId}"></script></body></html>`,
       ),
     }),
     /representative \.css asset/,
@@ -409,57 +411,68 @@ test("common HTTP smoke fails closed on missing headers and mixed deployment ass
   );
 });
 
-test("UI common HTTP smoke requires the exact server-rendered deployment identity", async () => {
-  const values = controllerTuple("ui");
-  const response = (deploymentMarker) => async (url) => {
-    const parsed = new URL(url);
-    if (parsed.pathname.startsWith("/_next/static/"))
-      return fakeResponse(parsed, "asset");
-    return fakeResponse(
-      parsed,
-      `<html ${deploymentMarker}><body>
-          <main><h1>Basic Components</h1></main>
+test("custom-ID Governance, Reserve, and UI HTTP smoke require exact server-rendered identity", async () => {
+  for (const target of ["governance", "reserve", "ui"]) {
+    const values = controllerTuple(target);
+    const documentMarker = {
+      governance: "Mento Governance",
+      reserve: "Mento Reserve",
+      ui: "Basic Components",
+    }[target];
+    const response = (deploymentMarker) => async (url) => {
+      const parsed = new URL(url);
+      if (parsed.pathname.startsWith("/_next/static/"))
+        return fakeResponse(parsed, "asset");
+      return fakeResponse(
+        parsed,
+        `<html ${deploymentMarker}><body>
+          <main><h1>${documentMarker}</h1></main>
           <script src="/_next/static/app.js?dpl=${values.nextDeploymentId}"></script>
           <link rel="stylesheet" href="/_next/static/app.css?dpl=${values.nextDeploymentId}">
         </body></html>`,
-      {
-        headers: {
-          "content-security-policy": "frame-ancestors 'none'",
-          "x-frame-options": "DENY",
-          "x-content-type-options": "nosniff",
+        {
+          headers: {
+            "content-security-policy": "frame-ancestors 'none'",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+          },
         },
-      },
-    );
-  };
+      );
+    };
 
-  await assert.rejects(
-    smokePreviewHttp({ values, fetchImplementation: response("") }),
-    /HTML does not carry only the expected build deployment ID/,
-  );
-  await assert.rejects(
-    smokePreviewHttp({
-      values,
-      fetchImplementation: response('data-dpl-id="m-ui-wrongwrongwrong12"'),
-    }),
-    /HTML does not carry only the expected build deployment ID/,
-  );
-  await assert.rejects(
-    smokePreviewHttp({
-      values,
-      fetchImplementation: response(
-        `x-data-dpl-id="${values.nextDeploymentId}"`,
+    await assert.rejects(
+      smokePreviewHttp({ values, fetchImplementation: response("") }),
+      new RegExp(
+        `${target} preview HTML does not carry only the expected build deployment ID`,
       ),
-    }),
-    /HTML does not carry only the expected build deployment ID/,
-  );
-  await assert.doesNotReject(
-    smokePreviewHttp({
-      values,
-      fetchImplementation: response(
-        `DATA-DPL-ID = '${values.nextDeploymentId}'`,
-      ),
-    }),
-  );
+    );
+    await assert.rejects(
+      smokePreviewHttp({
+        values,
+        fetchImplementation: response(
+          `data-dpl-id="m-${target}-fffffffffffffffffff"`,
+        ),
+      }),
+      /HTML does not carry only the expected build deployment ID/,
+    );
+    await assert.rejects(
+      smokePreviewHttp({
+        values,
+        fetchImplementation: response(
+          `x-data-dpl-id="${values.nextDeploymentId}"`,
+        ),
+      }),
+      /HTML does not carry only the expected build deployment ID/,
+    );
+    await assert.doesNotReject(
+      smokePreviewHttp({
+        values,
+        fetchImplementation: response(
+          `DATA-DPL-ID = '${values.nextDeploymentId}'`,
+        ),
+      }),
+    );
+  }
 });
 
 test("common HTTP smoke rejects representative assets redirected off the immutable origin", async () => {

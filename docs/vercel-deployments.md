@@ -671,13 +671,13 @@ responses with status 400 or higher from any origin, the exact custom Next
 build ID, and the exact deployed SHA from the build-bound
 `X-Mento-Deployment-Sha` response header. The raw server response's leading
 `<html>` start tag must contain exactly one quoted, case-insensitive
-`data-dpl-id` attribute with the expected value. Governance and Reserve must
-retain that exact marker in the hydrated DOM. For UI, the smoke accepts React
-removing the server-injected marker during hydration only when every observed
-same-origin `/_next/static/` request carries exactly one matching `?dpl=` value
-and Playwright classified representative requests as a JavaScript script and a
-CSS stylesheet. A static-asset redirect must retain the same immutable origin
-and identity. The UI identity monitor waits for all observed static requests to
+`data-dpl-id` attribute with the expected value. For Governance, Reserve, and
+UI, the smoke accepts React removing the server-injected marker during
+hydration only when every observed same-origin `/_next/static/` request carries
+exactly one matching `?dpl=` value and Playwright classified representative
+requests as a JavaScript script and a CSS stylesheet. Any retained conflicting
+marker fails. A static-asset redirect must retain the same immutable origin and
+identity. The shared identity monitor waits for all observed static requests to
 finish and for a quiet window both before and after reading the DOM marker, then
 checks before and after the interaction so late chunks cannot introduce a mixed
 build. No deployment-protection header is supplied. The request policy
@@ -1232,6 +1232,16 @@ console/page errors, and same-origin failures, then runs the target interaction:
 - Reserve: Overview data plus Supply tab and URL/state transition;
 - UI: exact build/asset identity, navigation, and hydrated control interaction.
 
+For controller-built Governance and Reserve previews, the HTTP phase requires
+the raw response's leading `<html>` start tag to carry exactly one quoted
+expected `data-dpl-id`. Their browser phase then uses the same settled,
+typed-resource proof as UI: a missing hydrated marker is accepted only when
+every observed same-origin Next.js static request carries exactly one expected
+`?dpl=`, representative requests are actual scripts and stylesheets, and no
+static asset redirects outside the immutable origin. Any retained conflicting
+marker fails. Native rollback previews do not claim a custom deployment ID and
+keep their existing identity-free adapter contract.
+
 The transitional `.github/workflows/preview-smoke.yml` native adapter classifies
 only exact successful `Preview – app.mento.org` and
 `Preview – governance.mento.org` events created by Vercel's fixed bot identity
@@ -1742,25 +1752,27 @@ pass the complete controller-bound tuple to
 `.github/workflows/_vercel-preview-smoke.yml`; the old embedded UI-only HTTP and
 parallel browser paths no longer exist. The reusable workflow runs in the
 pinned Playwright container and keeps the common bounded
-HTTP/header/static-asset checks before the trusted UI deployment-identity
-browser flow renders the showcase, searches and navigates to a second route,
-changes a form control, and fails on page/console errors or failed same-origin
-requests and responses. The HTTP phase verifies the server-rendered marker on
-the leading `<html>` start tag; after hydration, the browser phase requires
-every loaded same-origin `/_next/static/` asset to carry exactly the expected
-`?dpl=` value, requires actual script and stylesheet request types, rejects a
-static asset redirected outside that immutable identity, and rejects any
+HTTP/header/static-asset checks before the target browser flow. Governance and
+Reserve use their existing interaction smoke plus the shared deployment
+identity monitor; UI renders the showcase, searches and navigates to a second
+route, and changes a form control. The HTTP phase verifies the server-rendered
+marker on the leading `<html>` start tag for controller-built Governance,
+Reserve, and UI previews. After hydration, those three paths require every
+loaded same-origin `/_next/static/` asset to carry exactly the expected
+`?dpl=` value, require actual script and stylesheet request types, reject a
+static asset redirected outside that immutable identity, and reject any
 conflicting retained HTML deployment marker. Request monitoring remains active
-through the second-route interaction, so dynamically loaded chunks cannot
-escape the same identity check. The controller waits for all observed static
-requests to finish and for a quiet window after each DOM marker read before its
-identity assertion. This preserves fail-closed deployment-identity proof when
-React reconciles the server-injected HTML attribute out of the live DOM. Chrome
-also waits for the initial page load before changing controlled inputs, then
-rechecks the changed form control after the hydration/interaction settle. Its
-dependency graph comes from the trusted workflow checkout, candidate lifecycle
-scripts stay disabled, and no Vercel or Turbo credential is present in the
-smoke job. The worker appends a durable non-terminal upload evidence entry;
+through each target interaction, so dynamically loaded chunks cannot escape
+the same identity check. The controller waits for all observed static requests
+to finish and for a quiet window after each DOM marker read before its identity
+assertion. This preserves fail-closed deployment-identity proof when React
+reconciles the server-injected HTML attribute out of the live DOM. Native
+rollback previews carry no custom deployment ID and keep their existing smoke
+contract. Chrome also waits for the initial page load before changing
+controlled inputs, then rechecks the interaction after the hydration settle.
+Its dependency graph comes from the trusted workflow checkout, candidate
+lifecycle scripts stay disabled, and no Vercel or Turbo credential is present
+in the smoke job. The worker appends a durable non-terminal upload evidence entry;
 the completed-run recovery re-queries the run, Deployment, and statuses before
 appending the terminal result entry. Cancellation before Deployment creation
 creates/reuses the canonical Deployment and immediately closes it as `error`.
