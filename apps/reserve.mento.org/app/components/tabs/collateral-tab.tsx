@@ -59,6 +59,7 @@ const PEG_META: Record<Peg, { label: string; accent: string; color: string }> =
 const CHAIN_COLOR: Record<string, string> = {
   celo: "#FBCC5C",
   ethereum: "#627EEA",
+  polygon: "#8247E5",
   bitcoin: "#F7931A",
   monad: "#7006FC",
 };
