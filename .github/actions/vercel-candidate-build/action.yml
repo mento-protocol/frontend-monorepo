@@ -364,10 +364,35 @@ runs:
           echo "Candidate can traverse protected path: $RUNNER_TEMP" >&2
           exit 1
         fi
+        sudo --non-interactive /usr/bin/install \
+          -d -o "$build_uid" -g "$build_gid" -m 0700 \
+          "$CANDIDATE_HOME_PATH" \
+          "$CANDIDATE_HOME_PATH/cache" \
+          "$CANDIDATE_HOME_PATH/config" \
+          "$CANDIDATE_HOME_PATH/data" \
+          "$CANDIDATE_HOME_PATH/pnpm-store" \
+          "$CANDIDATE_HOME_PATH/tmp"
+        for candidate_home_entry in \
+          "$CANDIDATE_HOME_PATH" \
+          "$CANDIDATE_HOME_PATH/cache" \
+          "$CANDIDATE_HOME_PATH/config" \
+          "$CANDIDATE_HOME_PATH/data" \
+          "$CANDIDATE_HOME_PATH/pnpm-store" \
+          "$CANDIDATE_HOME_PATH/tmp"; do
+          if ! sudo --non-interactive /usr/bin/test -d "$candidate_home_entry" ||
+            sudo --non-interactive /usr/bin/test -L "$candidate_home_entry" ||
+            [ "$(sudo --non-interactive /usr/bin/realpath "$candidate_home_entry")" != "$candidate_home_entry" ] ||
+            [ "$(sudo --non-interactive /usr/bin/stat -c %u "$candidate_home_entry")" != "$build_uid" ] ||
+            [ "$(sudo --non-interactive /usr/bin/stat -c %g "$candidate_home_entry")" != "$build_gid" ] ||
+            [ "$(sudo --non-interactive /usr/bin/stat -c %a "$candidate_home_entry")" != 700 ]; then
+            echo "Candidate home entry is unsafe: $candidate_home_entry" >&2
+            exit 1
+          fi
+        done
         safe_path="$(/usr/bin/dirname "$NODE_BIN"):/usr/local/bin:/usr/bin:/bin"
         candidate_probe() {
           sudo --non-interactive /usr/bin/env -i \
-            HOME=/nonexistent \
+            HOME="$CANDIDATE_HOME_PATH" \
             LANG=C \
             LC_ALL=C \
             PATH="$safe_path" \
@@ -377,7 +402,7 @@ runs:
             --clear-groups \
             --no-new-privs \
             -- \
-            "$@"
+            /usr/bin/env --chdir="$CANDIDATE_HOME_PATH" -- "$@"
         }
         if ! candidate_probe "$NODE_BIN" --version >/dev/null; then
           echo "Candidate cannot execute protected path: $NODE_BIN" >&2
@@ -399,14 +424,6 @@ runs:
           materialize-source
         sudo --non-interactive /bin/chown \
           -R --no-dereference "$build_uid:$build_gid" "$CANDIDATE_SOURCE_PATH"
-        sudo --non-interactive /usr/bin/install \
-          -d -o "$build_uid" -g "$build_gid" -m 0700 \
-          "$CANDIDATE_HOME_PATH" \
-          "$CANDIDATE_HOME_PATH/cache" \
-          "$CANDIDATE_HOME_PATH/config" \
-          "$CANDIDATE_HOME_PATH/data" \
-          "$CANDIDATE_HOME_PATH/pnpm-store" \
-          "$CANDIDATE_HOME_PATH/tmp"
         printf '{"commitSha":"%s"}\n' "$DEPLOY_SHA" > "$PROVENANCE_PATH"
         /bin/chmod 0600 "$PROVENANCE_PATH"
         echo "build_uid=$build_uid" >> "$GITHUB_OUTPUT"
@@ -465,6 +482,7 @@ runs:
           --clear-groups \
           --no-new-privs \
           -- \
+          /usr/bin/env --chdir="$CANDIDATE_HOME_PATH" -- \
           "$PNPM_BIN" --dir "$CANDIDATE_SOURCE_PATH" install \
           --frozen-lockfile \
           --ignore-scripts \

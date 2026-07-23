@@ -629,6 +629,82 @@ test("candidate execution seals command files and rejects hosted tool paths", ()
   );
 });
 
+test("candidate pnpm commands enter an authenticated readable cwd after privilege drop", () => {
+  const isolation = candidateAction.runs.steps.find(
+    (step) => step.name === "Prepare isolated exact-SHA candidate source",
+  );
+  const install = candidateAction.runs.steps.find(
+    (step) => step.name === "Install frozen dependencies as candidate",
+  );
+  assert.ok(isolation);
+  assert.ok(install);
+
+  const homeCreationIndex = isolation.run.indexOf(
+    "sudo --non-interactive /usr/bin/install",
+  );
+  const probeDefinitionIndex = isolation.run.indexOf("candidate_probe() {");
+  assert.ok(
+    homeCreationIndex >= 0 && homeCreationIndex < probeDefinitionIndex,
+    "candidate home must exist before protected runtime probes",
+  );
+  assert.match(isolation.run, /for candidate_home_entry in/);
+  assert.match(
+    isolation.run,
+    /sudo --non-interactive \/usr\/bin\/test -d "\$candidate_home_entry"/,
+  );
+  assert.match(
+    isolation.run,
+    /stat -c %u "\$candidate_home_entry"\)" != "\$build_uid"/,
+  );
+  assert.match(
+    isolation.run,
+    /stat -c %g "\$candidate_home_entry"\)" != "\$build_gid"/,
+  );
+  assert.match(isolation.run, /stat -c %a "\$candidate_home_entry"\)" != 700/);
+
+  const firstProbeIndex = isolation.run.indexOf(
+    'if ! candidate_probe "$NODE_BIN"',
+    probeDefinitionIndex,
+  );
+  assert.ok(
+    firstProbeIndex > probeDefinitionIndex,
+    "candidate Node probe must remain behind the cwd-pinning wrapper",
+  );
+  assert.match(isolation.run, /candidate_probe "\$PNPM_BIN" --version/);
+  const probeSource = isolation.run.slice(
+    probeDefinitionIndex,
+    firstProbeIndex,
+  );
+  const probeSetprivIndex = probeSource.indexOf("/usr/bin/setpriv");
+  const probeChdirIndex = probeSource.indexOf(
+    '/usr/bin/env --chdir="$CANDIDATE_HOME_PATH" -- "$@"',
+  );
+  assert.match(probeSource, /HOME="\$CANDIDATE_HOME_PATH"/);
+  assert.doesNotMatch(probeSource, /HOME=\/nonexistent/);
+  assert.ok(
+    probeSetprivIndex >= 0 && probeSetprivIndex < probeChdirIndex,
+    "candidate probe must change cwd after dropping privileges",
+  );
+
+  const installSetprivIndex = install.run.indexOf("/usr/bin/setpriv");
+  const installChdirIndex = install.run.indexOf(
+    '/usr/bin/env --chdir="$CANDIDATE_HOME_PATH" --',
+  );
+  const installPnpmIndex = install.run.indexOf(
+    '"$PNPM_BIN" --dir "$CANDIDATE_SOURCE_PATH" install',
+  );
+  assert.ok(
+    installSetprivIndex >= 0 &&
+      installSetprivIndex < installChdirIndex &&
+      installChdirIndex < installPnpmIndex,
+    "candidate install must enter its readable home after dropping privileges",
+  );
+  assert.doesNotMatch(
+    isolation.run,
+    /(?:chmod|chown|setfacl)[^\n]*(?:GITHUB_WORKSPACE|CONTROLLER_PATH|SOURCE_PATH)/,
+  );
+});
+
 test("fresh smoke jobs never reuse candidate dependencies or command files", () => {
   for (const target of ["governance", "reserve", "ui"]) {
     const job = workflow.jobs[`smoke-${target}`];
