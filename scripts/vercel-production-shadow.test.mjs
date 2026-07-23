@@ -491,7 +491,7 @@ test("pinned CLI build and deploy arguments bind each literal project and target
       deploySha: SHA,
       transaction: `123-1-${target}`,
     });
-    assert.deepEqual(deploy.slice(0, 10), [
+    assert.deepEqual(deploy, [
       "deploy",
       "--prebuilt",
       "--prod",
@@ -502,11 +502,16 @@ test("pinned CLI build and deploy arguments bind each literal project and target
       "--project",
       `prj_${target}123`,
       "--meta",
+      "githubCommitOrg=mento-protocol",
+      "--meta",
+      "githubCommitRepo=frontend-monorepo",
+      "--meta",
+      "githubCommitRef=main",
+      "--meta",
+      `githubCommitSha=${SHA}`,
+      "--meta",
+      `mentoTransaction=123-1-${target}`,
     ]);
-    assert.match(
-      deploy.join(" "),
-      new RegExp(`mentoTransaction=123-1-${target}`),
-    );
     assert.doesNotMatch(deploy.join(" "), /--token|githubDeployment|promote/);
   }
   assert.throws(() =>

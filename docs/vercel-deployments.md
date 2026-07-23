@@ -258,7 +258,10 @@ Production-shadow pulls intentionally omit `--git-branch`: pinned CLI 56.2.0
 accepts that option only with the `preview` target. `--environment v3` or
 `--environment production` selects the exact custom or production
 configuration; the guarded source SHA, `VERCEL_GIT_COMMIT_REF=main`, and deploy
-metadata carry exact-main provenance independently.
+metadata carry exact-main provenance independently. Those are raw, explicit Git
+identity and provenance fields; they do not claim Vercel provider-linked
+branch-domain behavior. `githubDeployment=1` remains intentionally forbidden by
+the issue contract.
 
 ```bash
 node scripts/vercel-build-environment.mjs inventory \

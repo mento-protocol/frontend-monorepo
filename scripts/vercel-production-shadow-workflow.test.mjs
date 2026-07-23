@@ -414,6 +414,28 @@ test("all credential-bearing jobs use the dedicated non-Deployment environment",
   assert.doesNotMatch(workflowSource, /github-deployment|deployments\/\{/i);
 });
 
+test("every target build receives the exact-main Git identity tuple", () => {
+  const expectedIdentity = {
+    VERCEL_GIT_COMMIT_REF: "main",
+    VERCEL_GIT_COMMIT_SHA: "${{ needs.preflight.outputs.deploy_sha }}",
+    VERCEL_GIT_PROVIDER: "github",
+    VERCEL_GIT_REPO_OWNER: "mento-protocol",
+    VERCEL_GIT_REPO_SLUG: "frontend-monorepo",
+  };
+  for (const target of ["app", "governance", "reserve", "ui"]) {
+    const build = workflow.jobs[target].steps.find(
+      (step) => step.uses === "./.github/actions/vercel-candidate-build",
+    );
+    assert.ok(build, `missing ${target} candidate build`);
+    assert.deepEqual(
+      Object.fromEntries(
+        Object.keys(expectedIdentity).map((name) => [name, build.env[name]]),
+      ),
+      expectedIdentity,
+    );
+  }
+});
+
 test("ordinary targets use isolated builds, runner-owned handoff, and fresh smoke", () => {
   for (const target of ["governance", "reserve", "ui"]) {
     const source = jobSource(target);
