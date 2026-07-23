@@ -56,18 +56,23 @@ the structural test in the same PR. Never execute a triggering head SHA from
 this privileged `workflow_run` workflow.
 
 `.github/workflows/vercel-production-shadow.yml` is manual-only and
-non-activating. Candidate dependency installation and builds must run under its
-dedicated UID boundary with exact protected tools, private-umask runner-owned
-pull staging, raw Git-object materialization of the exact commit (never
-archive/checkout filters), and a runner-owned verified output handoff. Browser
-smoke must use a fresh trusted checkout and dependencies, never candidate
-`node_modules`; tear down every candidate boundary before upload or later
-production-token checks. Keep all build-boundary state below the target-scoped,
-authenticated `/var/lib/mento-vercel-runtime-<run>-<attempt>-<target>/work`
-root, seal `RUNNER_TEMP` to runner-owned mode `0700` before candidate execution,
-and reauthenticate and remove the exact runtime in a final `if: always()` step.
-Preserve App custom `v3` as build-only, preserve the App `v2` alias, and keep
-Governance, Reserve, and UI deployments unaliased.
+non-promoting. Ordinary uploads implicitly move the target's reviewed generated
+project/team alias, but the workflow issues no explicit alias assignment, promotion,
+environment-configuration, ownership, or protected-domain mutation. Candidate
+dependency installation and builds must run under its dedicated UID boundary
+with exact protected tools, private-umask runner-owned pull staging, raw
+Git-object materialization of the exact commit (never archive/checkout filters),
+and a runner-owned verified output handoff. Browser smoke must use a fresh
+trusted checkout and dependencies, never candidate `node_modules`; tear down
+every candidate boundary before upload or later production-token checks. Keep
+all build-boundary state below the target-scoped, authenticated
+`/var/lib/mento-vercel-runtime-<run>-<attempt>-<target>/work` root, seal
+`RUNNER_TEMP` to runner-owned mode `0700` before candidate execution, and
+reauthenticate and remove the exact runtime in a final `if: always()` step.
+Preserve App custom `v3` as build-only and preserve the App `v2` alias.
+Governance, Reserve, and UI uploads must avoid custom production domains and
+contain exactly the immutable deployment hostname plus the target's reviewed
+literal Vercel-generated project/team alias.
 Every candidate Vercel build must use `--standalone`; reject invalid, oversized,
 or non-empty-`filePathMap` `.vc-config.json` files before handoff and again on
 the runner-owned upload tree.

@@ -176,15 +176,25 @@ definition after the exact `CI/CD` run and exact `Build and Test` job succeed
 for the deployment SHA. It rechecks that the candidate is still current `main`
 before the transaction and immediately before and after every public mutation.
 
-Governance, reserve, and UI are built as unaliased staged production
-deployments, inspected, and runtime/browser verified before any domain moves.
-They are then promoted sequentially by exact immutable deployment ID. The app
-`v3` prebuilt candidate is built and verified under custom-environment semantics
-before mutation, but `vercel deploy --prebuilt --target=v3` runs last because
-that upload is itself the activation mutation when attached `v3` domains move.
-The controller then verifies every reviewed alias and assigns only those that do
-not already point to the exact deployment as intended. `--prod` and
-`vercel promote` are forbidden for the app `main -> v3` path.
+Governance, reserve, and UI are built as staged production deployments without
+custom production domains, inspected, and runtime/browser verified before any
+protected or custom production domain moves. In the reviewed CI topology, each
+staged deployment has its immutable hostname and one literal project/team alias
+confirmed from the read-only observed public topology. The controller requires
+exactly those two target-bound aliases, rejects any protected or extra alias,
+and fails safely if Vercel changes that topology.
+The ordinary upload implicitly moves that generated system alias, so the
+controller treats staging as a limited public-routing mutation: it rechecks
+current `main`, journals the intended upload, verifies the resulting immutable
+deployment and generated-alias topology, and retains the transaction evidence
+before continuing. The deployments are then promoted sequentially by exact
+immutable deployment ID. The app `v3` prebuilt candidate is built and verified
+under custom-environment semantics before its app-v3 activation mutation, but
+`vercel deploy --prebuilt --target=v3` runs last because that upload is itself
+the activation mutation when attached `v3` domains move. The controller then
+verifies every reviewed alias and assigns only those that do not already point
+to the exact deployment as intended. `--prod` and `vercel promote` are
+forbidden for the app `main -> v3` path.
 
 Before mutation, the controller records the exact prior deployment and every
 protected alias for every selected target. It journals intent before each
@@ -219,8 +229,8 @@ with explicit compensation.
 
 Vercel Git remains authoritative until each Actions path has shadow or pilot
 evidence. Preview paths cut over before `main`; the three ordinary production
-targets prove no-domain staging, and app `v3` proves its activation semantics,
-before the final reviewed ownership change.
+targets prove staging without protected/custom-domain promotion, and app `v3`
+proves its activation semantics, before the final reviewed ownership change.
 
 The current version-controlled preview map assigns App, Governance, Reserve,
 and UI to GitHub Actions. App's configuration change was accepted after its
@@ -304,7 +314,8 @@ chosen first-plus-latest controller removes only superseded intermediate work.
 Rejected. Allowing Vercel Git and Actions to deploy the same target would create
 duplicate cost, competing GitHub Deployments, and races over aliases/domains.
 Dual execution is allowed only during a bounded non-authoritative pilot or
-shadow proof where exactly one path can serve public traffic.
+shadow proof where exactly one path owns protected and custom production
+traffic.
 
 ### GitHub-hosted prebuilt uploads
 

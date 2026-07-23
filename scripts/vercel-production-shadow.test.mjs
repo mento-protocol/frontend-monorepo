@@ -33,10 +33,10 @@ import {
   assertProductionShadowOutput,
   assertProductionShadowPullStaging,
   assertProductionShadowReadyForUpload,
+  assertOnlyExpectedVercelGeneratedAliases,
   assertProtectedAliasesUnchanged,
   assertPulledProductionShadowProject,
   assertRequiredVariableNames,
-  assertUnaliasedProductionShadowDeployment,
   assignProductionShadowMaterializationOwnership,
   buildProductionShadowArtifact,
   buildProductionShadowBuildArguments,
@@ -559,7 +559,7 @@ test("deployment expectation fixes production provenance and exact SHA", () => {
   );
 });
 
-test("staged production state permits only its immutable deployment hostname", () => {
+test("staged production state permits only its immutable and literal generated aliases", () => {
   const unexpected = JSON.parse(
     readFileSync(
       new URL(
@@ -569,33 +569,139 @@ test("staged production state permits only its immutable deployment hostname", (
       "utf8",
     ),
   );
-  assert.throws(
-    () => assertUnaliasedProductionShadowDeployment(unexpected),
-    /unexpected alias/,
+  const immutableHostname = new URL(unexpected.deploymentUrl).hostname;
+  const generatedProjectAlias =
+    PRODUCTION_SHADOW_TARGETS.governance.generatedProjectAlias;
+  const expectedAliases = [immutableHostname, generatedProjectAlias].sort();
+  const expected = {
+    ...unexpected,
+    aliases: expectedAliases,
+  };
+  assert.equal(
+    assertOnlyExpectedVercelGeneratedAliases(expected, "governance"),
+    expected,
   );
 
-  const immutableHostname = new URL(unexpected.deploymentUrl).hostname;
-  const unaliased = {
-    ...unexpected,
-    aliases: [immutableHostname],
-  };
-  assert.equal(assertUnaliasedProductionShadowDeployment(unaliased), unaliased);
+  const unexpectedAliasSets = [
+    unexpected.aliases,
+    [immutableHostname],
+    [generatedProjectAlias],
+    [],
+    ...[
+      "governance.mento.org",
+      "governancementoorg-git-main-mentolabs.vercel.app",
+      "governancementoorg.vercel.app",
+    ].map((extraAlias) =>
+      [immutableHostname, generatedProjectAlias, extraAlias].sort(),
+    ),
+    [
+      immutableHostname,
+      PRODUCTION_SHADOW_TARGETS.reserve.generatedProjectAlias,
+    ].sort(),
+  ];
+  for (const aliases of unexpectedAliasSets) {
+    assert.throws(
+      () =>
+        assertOnlyExpectedVercelGeneratedAliases(
+          {
+            ...expected,
+            aliases,
+          },
+          "governance",
+        ),
+      /only expected Vercel-generated aliases/,
+    );
+  }
+
+  for (const aliases of [
+    [immutableHostname, immutableHostname, generatedProjectAlias],
+    [...expectedAliases].reverse(),
+    [immutableHostname, generatedProjectAlias.toUpperCase()].sort(),
+  ]) {
+    assert.throws(
+      () =>
+        assertOnlyExpectedVercelGeneratedAliases(
+          {
+            ...expected,
+            aliases,
+          },
+          "governance",
+        ),
+      /aliases are malformed/,
+    );
+  }
+
   assert.throws(
     () =>
-      assertUnaliasedProductionShadowDeployment({
-        ...unaliased,
-        aliases: [],
-      }),
-    /unexpected alias/,
+      assertOnlyExpectedVercelGeneratedAliases(
+        {
+          ...expected,
+          alias: "governance.mento.org",
+        },
+        "governance",
+      ),
+    /only expected Vercel-generated aliases/,
   );
   assert.throws(
     () =>
-      assertUnaliasedProductionShadowDeployment({
-        ...unaliased,
-        alias: "governance.mento.org",
-      }),
-    /unexpected alias/,
+      assertOnlyExpectedVercelGeneratedAliases(
+        {
+          ...expected,
+          projectName: "reserve.mento.org",
+        },
+        "governance",
+      ),
+    /project does not match literal target/,
   );
+  assert.throws(
+    () =>
+      assertOnlyExpectedVercelGeneratedAliases(
+        {
+          ...expected,
+          target: null,
+          customEnvironmentSlug: "v3",
+        },
+        "governance",
+      ),
+    /not an ordinary production deployment/,
+  );
+  assert.throws(
+    () => assertOnlyExpectedVercelGeneratedAliases(expected, "app"),
+    /does not support production generated-alias verification/,
+  );
+  assert.throws(
+    () => assertOnlyExpectedVercelGeneratedAliases(expected, "unknown"),
+    /Unknown production-shadow target/,
+  );
+  assert.throws(
+    () =>
+      assertOnlyExpectedVercelGeneratedAliases(
+        [
+          {
+            ...expected,
+          },
+        ],
+        "governance",
+      ),
+    /exactly one deployment/,
+  );
+});
+
+test("ordinary production targets pin reviewed generated project aliases", () => {
+  assert.deepEqual(
+    Object.fromEntries(
+      ["governance", "reserve", "ui"].map((target) => [
+        target,
+        PRODUCTION_SHADOW_TARGETS[target].generatedProjectAlias,
+      ]),
+    ),
+    {
+      governance: "governancementoorg-mentolabs.vercel.app",
+      reserve: "reservementoorg-mentolabs.vercel.app",
+      ui: "uimentoorg-mentolabs.vercel.app",
+    },
+  );
+  assert.equal(PRODUCTION_SHADOW_TARGETS.app.generatedProjectAlias, null);
 });
 
 test("custom-v3 pull selects the custom target without a preview-only branch override", () => {

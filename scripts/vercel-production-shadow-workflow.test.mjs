@@ -8,6 +8,7 @@ import {
   buildProductionShadowBuildArguments,
   buildProductionShadowDeployArguments,
   buildProductionShadowPullArguments,
+  PRODUCTION_SHADOW_TARGETS,
 } from "./vercel-production-shadow.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
@@ -963,7 +964,12 @@ test("ordinary targets use isolated builds, runner-owned handoff, and fresh smok
     );
     assert.match(source, /vercel-deployment-state\.mjs"? deployment/);
     assert.match(source, /vercel-deployment-state\.mjs"? compare/);
-    assert.match(source, /vercel-production-shadow\.mjs"? assert-unaliased/);
+    assert.match(
+      source,
+      new RegExp(
+        `vercel-production-shadow\\.mjs"? assert-generated-aliases --target ${target}`,
+      ),
+    );
     assert.match(source, /check-versions --repo-root "\$SOURCE_PATH"/);
     assert.doesNotMatch(source, /playwright (?:install|test)/);
 
@@ -973,6 +979,21 @@ test("ordinary targets use isolated builds, runner-owned handoff, and fresh smok
     assert.match(smokeSource, /PRODUCTION_SHADOW_EXPECTED_DEPLOYMENT_ID/);
     assert.match(smokeSource, /PRODUCTION_SHADOW_EXPECTED_SHA/);
     assert.equal(workflow.jobs[`smoke-${target}`].needs.includes(target), true);
+    const directSmoke = stepNamed(
+      `smoke-${target}`,
+      `Run direct ${target === "ui" ? "UI" : target} production-shadow smoke`,
+    );
+    assert.equal(
+      directSmoke.env.PRODUCTION_SHADOW_URL,
+      `\${{ needs.${target}.outputs.deployment_url }}`,
+    );
+    assert.equal(
+      smokeSource.includes(
+        PRODUCTION_SHADOW_TARGETS[target].generatedProjectAlias,
+      ),
+      false,
+      `${target} smoke must use only the immutable deployment URL`,
+    );
 
     const projectId = `prj_${target}123`;
     assert.deepEqual(
@@ -1027,7 +1048,7 @@ test("ordinary uploads stop forward mutation after any prior drift failure", () 
     const targetLabel = target === "ui" ? "UI" : target;
     const upload = stepNamed(
       target,
-      `Upload unchanged ${targetLabel} output without domains`,
+      `Upload unchanged ${targetLabel} output without custom production domains`,
     );
     const drift = stepNamed(
       target,
@@ -1372,7 +1393,9 @@ test("every deploy is immediately checked for drift without automatic repair", (
     const stateIndex = steps.findIndex(
       (step) =>
         step.name?.startsWith("Verify ") &&
-        step.name.endsWith(" deployment provenance and readiness"),
+        step.name.endsWith(
+          " deployment provenance, readiness, and generated aliases",
+        ),
     );
     assert.ok(deployIndex < deployIndex + 1);
     assert.ok(deployIndex + 1 < compareIndex);
