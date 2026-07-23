@@ -33,9 +33,12 @@ Vercel Git integration remains the production deployment owner.
 
 ## Pinned prerequisites
 
-- Vercel CLI: exactly `56.2.0` in the root `devDependencies`. The project owner
-  approved the dependency as part of delivering the epic. The stable npm version
-  was re-queried on 2026-07-14 before it was pinned.
+- Vercel CLI: exactly `56.2.0` in the root `devDependencies` and the standalone
+  `scripts/vercel-cli-runtime/package.json` dependency. The root dependency
+  remains available for reviewed operator commands; protected production-shadow
+  jobs install only the standalone runtime. The project owner approved the
+  dependency as part of delivering the epic. The stable npm version was
+  re-queried on 2026-07-14 before it was pinned.
 - Resolved Next.js: `16.2.11` in `pnpm-lock.yaml`.
 
 Both exceed Vercel's custom deployment-ID prerequisites: Next.js newer than
@@ -419,6 +422,25 @@ command uses that protected copy. A final `if: always()` cleanup
 reauthenticates the root and marker before removing the exact target-scoped
 runtime after upload and evidence work; it refuses ambiguous or unexpected
 state.
+
+The protected production-shadow Vercel CLI is a standalone frozen install.
+Trusted controller code first requires its manifest to contain only
+`vercel@56.2.0`, requires its `pnpm.overrides` object to equal the root security
+overrides, and binds every byte of
+`scripts/vercel-cli-runtime/pnpm-lock.yaml` to a reviewed SHA-256. It copies the
+manifest and lockfile as independent runner-owned `0444`, single-link files
+under `$TOOLS_PATH/vercel-cli-runtime`; CI never generates or updates that
+lockfile. The protected pnpm runtime installs there with `--frozen-lockfile`,
+`--ignore-scripts`, `--ignore-workspace`, and `--package-import-method copy`.
+It does not install or filter the root workspace, so `workspace:` dependencies
+cannot create links back into the controller checkout. After installation, the
+action requires the package name/version, CLI path, ownership, permissions, and
+link counts to match the fixed contract, then rejects every symbolic link whose
+resolved target escapes `$TOOLS_PATH`. The standalone lock receives the same
+registry/integrity lint as the root lock. Its dedicated OSV policy contains
+only the two reviewed package-name false positives for Vercel's unrelated
+`sandbox` CLI dependency, so root application suppressions cannot mask a
+standalone CLI vulnerability.
 
 The raw Vercel-pulled `.env.<target>.local` remains private and runner-owned.
 Before staging settings into candidate storage, the trusted controller parses

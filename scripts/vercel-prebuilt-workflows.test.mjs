@@ -308,8 +308,17 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
     read("scripts/vercel-pnpm-runtime/package.json"),
   );
   const runtimeLock = parse(read("scripts/vercel-pnpm-runtime/pnpm-lock.yaml"));
+  const vercelCliRuntimeManifest = JSON.parse(
+    read("scripts/vercel-cli-runtime/package.json"),
+  );
+  const vercelCliRuntimeLock = parse(
+    read("scripts/vercel-cli-runtime/pnpm-lock.yaml"),
+  );
   const rootOsvConfig = read("osv-scanner.toml");
   const runtimeOsvConfig = read("scripts/vercel-pnpm-runtime/osv-scanner.toml");
+  const vercelCliRuntimeOsvConfig = read(
+    "scripts/vercel-cli-runtime/osv-scanner.toml",
+  );
   const nodeSetup = steps.find(
     ({ name }) =>
       name === "Set up pinned Node.js without package-manager cache",
@@ -344,7 +353,7 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
   assert.equal(manifest.packageManager, "pnpm@10.34.4");
   assert.equal(
     manifest.scripts["supply-chain:lockfile-lint"],
-    "node scripts/lockfile-lint.mjs && LOCKFILE_LINT_ROOT=scripts/vercel-pnpm-runtime node scripts/lockfile-lint.mjs",
+    "node scripts/lockfile-lint.mjs && LOCKFILE_LINT_ROOT=scripts/vercel-pnpm-runtime node scripts/lockfile-lint.mjs && LOCKFILE_LINT_ROOT=scripts/vercel-cli-runtime node scripts/lockfile-lint.mjs",
   );
   assert.deepEqual(bootstrapManifest.dependencies, {
     "@pnpm/linux-x64": "10.34.4",
@@ -366,6 +375,20 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
   assert.deepEqual(Object.keys(runtimeLock.packages), ["pnpm@10.34.4"]);
   assert.deepEqual(Object.keys(runtimeLock.snapshots), ["pnpm@10.34.4"]);
   assert.equal(runtimeLock.importers["."].dependencies.pnpm.version, "10.34.4");
+  assert.deepEqual(vercelCliRuntimeManifest.dependencies, {
+    vercel: "56.2.0",
+  });
+  assert.equal(vercelCliRuntimeManifest.scripts, undefined);
+  assert.deepEqual(
+    vercelCliRuntimeManifest.pnpm.overrides,
+    manifest.pnpm.overrides,
+  );
+  assert.equal(manifest.devDependencies.vercel, "56.2.0");
+  assert.equal(
+    vercelCliRuntimeLock.importers["."].dependencies.vercel.specifier,
+    "56.2.0",
+  );
+  assert.ok(vercelCliRuntimeLock.packages["vercel@56.2.0"]);
   assert.doesNotMatch(rootOsvConfig, /GHSA-gj8w-mvpf-x27x/);
   assert.match(
     supplyChain.jobs.osv.with["scan-args"],
@@ -378,6 +401,24 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
   assert.match(
     supplyChain.jobs["osv-pnpm-runtime"].with["scan-args"],
     /--config=scripts\/vercel-pnpm-runtime\/osv-scanner\.toml[\s\S]*--lockfile=scripts\/vercel-pnpm-runtime\/pnpm-lock\.yaml/,
+  );
+  assert.match(
+    supplyChain.jobs["osv-vercel-cli-runtime"].with["scan-args"],
+    /--config=scripts\/vercel-cli-runtime\/osv-scanner\.toml[\s\S]*--lockfile=scripts\/vercel-cli-runtime\/pnpm-lock\.yaml/,
+  );
+  assert.deepEqual(
+    [...vercelCliRuntimeOsvConfig.matchAll(/^id = "([^"]+)"$/gm)].map(
+      ([, id]) => id,
+    ),
+    ["GHSA-fm4j-4xhm-xpwx", "GHSA-gc25-3vc5-2jf9"],
+  );
+  assert.equal(
+    (vercelCliRuntimeOsvConfig.match(/^\[\[IgnoredVulns\]\]$/gm) ?? []).length,
+    2,
+  );
+  assert.doesNotMatch(
+    vercelCliRuntimeOsvConfig,
+    /GHSA-(?!fm4j-4xhm-xpwx|gc25-3vc5-2jf9)/,
   );
   assert.equal(
     supplyChain.jobs["osv-pnpm-bootstrap"].with["scan-args"].trim(),
@@ -416,6 +457,7 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
   assert.deepEqual(trunkOsvIgnore.paths, [
     "pnpm-lock.yaml",
     "scripts/vercel-pnpm-bootstrap/package-lock.json",
+    "scripts/vercel-cli-runtime/pnpm-lock.yaml",
     "scripts/vercel-pnpm-runtime/pnpm-lock.yaml",
   ]);
   assert.equal(

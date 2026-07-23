@@ -1,0 +1,15 @@
+# Vercel's CLI dependency graph contains npm package `sandbox@3.4.0`, which is
+# unrelated to the legacy gf3/sandbox evaluator covered by these advisories.
+# Production deployment workflows never invoke Vercel's sandbox subcommand.
+# Keep these package-name false positives scoped to this standalone CLI lock so
+# root application suppressions cannot mask a CLI vulnerability.
+
+[[IgnoredVulns]]
+id = "GHSA-fm4j-4xhm-xpwx"
+ignoreUntil = 2026-10-14T00:00:00Z
+reason = "False positive from npm package-name reuse: advisory targets legacy gf3/sandbox <=0.8.2; sandbox@3.4.0 is Vercel's unrelated CLI and this repo never invokes its sandbox command."
+
+[[IgnoredVulns]]
+id = "GHSA-gc25-3vc5-2jf9"
+ignoreUntil = 2026-10-14T00:00:00Z
+reason = "False positive from npm package-name reuse: advisory targets legacy gf3/sandbox <=0.8.2; sandbox@3.4.0 is Vercel's unrelated CLI and this repo never invokes its sandbox command."

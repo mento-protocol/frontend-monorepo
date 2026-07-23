@@ -71,6 +71,9 @@ Governance, Reserve, and UI deployments unaliased.
 Every candidate Vercel build must use `--standalone`; reject invalid, oversized,
 or non-empty-`filePathMap` `.vc-config.json` files before handoff and again on
 the runner-owned upload tree.
+The protected Vercel CLI must come only from the exact standalone manifest and
+lockfile under `scripts/vercel-cli-runtime`; never install it through the root
+workspace, admit workspace links, or weaken recursive symlink containment.
 Never copy a raw Vercel-pulled `.env.*.local` into candidate storage. One-way
 materialize only the exact `vercel-pull` allowlist, prove the raw source is
 unchanged, reassert candidate canonical bytes, and remove raw pull and derived

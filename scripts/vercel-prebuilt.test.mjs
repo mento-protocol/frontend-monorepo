@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
+  copyFileSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -46,6 +47,20 @@ function deploymentId(overrides = {}) {
     runAttempt: "1",
     ...overrides,
   });
+}
+
+function createVersionContractFixture() {
+  const fixtureRoot = mkdtempSync(join(tmpdir(), "vercel-versions-"));
+  const runtimeRoot = join(fixtureRoot, "scripts", "vercel-cli-runtime");
+  mkdirSync(runtimeRoot, { recursive: true });
+  for (const file of ["package.json", "pnpm-lock.yaml"]) {
+    copyFileSync(join(repoRoot, file), join(fixtureRoot, file));
+    copyFileSync(
+      join(repoRoot, "scripts", "vercel-cli-runtime", file),
+      join(runtimeRoot, file),
+    );
+  }
+  return fixtureRoot;
 }
 
 test("generated IDs satisfy every Vercel constraint for every target", () => {
@@ -144,12 +159,81 @@ test("prebuilt assertion rejects missing, malformed, or mismatched output", () =
 });
 
 test("resolved Next.js and exact Vercel CLI satisfy custom-ID prerequisites", () => {
-  assert.deepEqual(assertDeploymentIdPrerequisites(repoRoot), {
+  const expected = {
     next: "16.2.11",
     vercel: "56.2.0",
-  });
+    vercelCliRuntime: {
+      lockfileSha256:
+        "505674eac656c26fce2fe912a2b14228f8f4f3edd4b3d6d7b0f2c9f08c276d76",
+      vercel: "56.2.0",
+    },
+  };
+  assert.deepEqual(assertDeploymentIdPrerequisites(repoRoot), expected);
+  assert.deepEqual(
+    JSON.parse(
+      execFileSync(
+        process.execPath,
+        [scriptPath, "check-versions", "--repo-root", repoRoot],
+        { encoding: "utf8" },
+      ),
+    ),
+    expected,
+  );
   assert.equal(isVersionGreaterThan("16.2.10", "16.2.0-canary.15"), true);
   assert.equal(isVersionGreaterThan("56.2.0", "50.3.3"), true);
+});
+
+test("version check rejects standalone pin, override, and lockfile drift", () => {
+  const cases = [
+    {
+      expected: /runtime manifest is not exact/,
+      mutate(fixtureRoot) {
+        const path = join(
+          fixtureRoot,
+          "scripts",
+          "vercel-cli-runtime",
+          "package.json",
+        );
+        const packageMetadata = JSON.parse(readFileSync(path, "utf8"));
+        packageMetadata.dependencies.vercel = "56.2.1";
+        writeFileSync(path, `${JSON.stringify(packageMetadata, null, 2)}\n`);
+      },
+    },
+    {
+      expected: /runtime manifest is not exact/,
+      mutate(fixtureRoot) {
+        const path = join(fixtureRoot, "package.json");
+        const packageMetadata = JSON.parse(readFileSync(path, "utf8"));
+        packageMetadata.pnpm.overrides["axios@<1.18.0"] = ">=1.18.1";
+        writeFileSync(path, `${JSON.stringify(packageMetadata, null, 2)}\n`);
+      },
+    },
+    {
+      expected: /runtime lockfile is not exact/,
+      mutate(fixtureRoot) {
+        const path = join(
+          fixtureRoot,
+          "scripts",
+          "vercel-cli-runtime",
+          "pnpm-lock.yaml",
+        );
+        writeFileSync(path, `${readFileSync(path, "utf8")}\n`);
+      },
+    },
+  ];
+
+  for (const fixtureCase of cases) {
+    const fixtureRoot = createVersionContractFixture();
+    try {
+      fixtureCase.mutate(fixtureRoot);
+      assert.throws(
+        () => assertDeploymentIdPrerequisites(fixtureRoot),
+        fixtureCase.expected,
+      );
+    } finally {
+      rmSync(fixtureRoot, { force: true, recursive: true });
+    }
+  }
 });
 
 test("all Next apps use the shared sharp output-tracing workaround", () => {

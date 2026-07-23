@@ -6,6 +6,8 @@ import process from "node:process";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { assertVercelCliRuntimeContract } from "./vercel-cli-runtime-contract.mjs";
+
 export const CUSTOM_DEPLOYMENT_ID_ENV = "MENTO_NEXT_DEPLOYMENT_ID";
 export const VERCEL_TARGETS = ["app", "governance", "reserve", "ui"];
 
@@ -160,7 +162,23 @@ export function assertDeploymentIdPrerequisites(repoRoot) {
     throw new Error("Pinned Vercel CLI is too old for custom deployment IDs");
   }
 
-  return { next: nextVersion, vercel: vercelVersion };
+  const vercelCliRuntime = assertVercelCliRuntimeContract({
+    rootPackageJsonPath: join(repoRoot, "package.json"),
+    packageJsonPath: join(
+      repoRoot,
+      "scripts",
+      "vercel-cli-runtime",
+      "package.json",
+    ),
+    lockfilePath: join(
+      repoRoot,
+      "scripts",
+      "vercel-cli-runtime",
+      "pnpm-lock.yaml",
+    ),
+  });
+
+  return { next: nextVersion, vercel: vercelVersion, vercelCliRuntime };
 }
 
 function parseArguments(argv) {
