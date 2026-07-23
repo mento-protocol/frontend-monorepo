@@ -414,6 +414,66 @@ test("all credential-bearing jobs use the dedicated non-Deployment environment",
   assert.doesNotMatch(workflowSource, /github-deployment|deployments\/\{/i);
 });
 
+test("every target build receives the exact-main Git identity tuple", () => {
+  const expectedIdentity = {
+    VERCEL_GIT_COMMIT_REF: "main",
+    VERCEL_GIT_COMMIT_SHA: "${{ needs.preflight.outputs.deploy_sha }}",
+    VERCEL_GIT_PROVIDER: "github",
+    VERCEL_GIT_REPO_OWNER: "mento-protocol",
+    VERCEL_GIT_REPO_SLUG: "frontend-monorepo",
+  };
+  for (const target of ["app", "governance", "reserve", "ui"]) {
+    const build = workflow.jobs[target].steps.find(
+      (step) => step.uses === "./.github/actions/vercel-candidate-build",
+    );
+    assert.ok(build, `missing ${target} candidate build`);
+    assert.deepEqual(
+      Object.fromEntries(
+        Object.keys(expectedIdentity).map((name) => [name, build.env[name]]),
+      ),
+      expectedIdentity,
+    );
+  }
+});
+
+test("sanitized Vercel build child receives the exact Git identity tuple", () => {
+  const build = candidateAction.runs.steps.find(
+    (step) => step.name === "Build prebuilt output as candidate",
+  );
+  assert.ok(build, "missing candidate Vercel build step");
+  const cliInvocation =
+    '"$NODE_BIN" "$TRUSTED_VERCEL_CLI_PATH" "${build_arguments[@]}"';
+  const invocationIndex = build.run.indexOf(cliInvocation);
+  assert.notEqual(invocationIndex, -1, "missing pinned Vercel CLI invocation");
+  const environmentIndex = build.run.lastIndexOf(
+    "sudo --non-interactive /usr/bin/env -i",
+    invocationIndex,
+  );
+  assert.notEqual(
+    environmentIndex,
+    -1,
+    "missing sanitized Vercel CLI environment",
+  );
+  const child = build.run.slice(
+    environmentIndex,
+    invocationIndex + cliInvocation.length,
+  );
+  assert.equal((child.match(/\/usr\/bin\/env -i/g) ?? []).length, 1);
+  assert.match(child, /\/usr\/bin\/setpriv/);
+  for (const assignment of [
+    'VERCEL_GIT_COMMIT_REF="${VERCEL_GIT_COMMIT_REF:-main}"',
+    'VERCEL_GIT_COMMIT_SHA="$DEPLOY_SHA"',
+    'VERCEL_GIT_PROVIDER="${VERCEL_GIT_PROVIDER:-github}"',
+    'VERCEL_GIT_REPO_OWNER="${VERCEL_GIT_REPO_OWNER:-mento-protocol}"',
+    'VERCEL_GIT_REPO_SLUG="${VERCEL_GIT_REPO_SLUG:-frontend-monorepo}"',
+  ]) {
+    assert.ok(
+      child.split("\n").some((line) => line.trim() === `${assignment} \\`),
+      `sanitized Vercel build child is missing ${assignment.split("=")[0]}`,
+    );
+  }
+});
+
 test("ordinary targets use isolated builds, runner-owned handoff, and fresh smoke", () => {
   for (const target of ["governance", "reserve", "ui"]) {
     const source = jobSource(target);
@@ -461,16 +521,7 @@ test("ordinary targets use isolated builds, runner-owned handoff, and fresh smok
     const projectId = `prj_${target}123`;
     assert.deepEqual(
       buildProductionShadowPullArguments({ logicalTarget: target, projectId }),
-      [
-        "pull",
-        "--yes",
-        "--environment",
-        "production",
-        "--git-branch",
-        "main",
-        "--project",
-        projectId,
-      ],
+      ["pull", "--yes", "--environment", "production", "--project", projectId],
     );
     assert.deepEqual(
       buildProductionShadowBuildArguments({ logicalTarget: target, projectId }),
@@ -575,16 +626,7 @@ test("app Outcome B has no reachable deploy or production command", () => {
       logicalTarget: "app",
       projectId: "prj_app123",
     }),
-    [
-      "pull",
-      "--yes",
-      "--environment",
-      "v3",
-      "--git-branch",
-      "main",
-      "--project",
-      "prj_app123",
-    ],
+    ["pull", "--yes", "--environment", "v3", "--project", "prj_app123"],
   );
   assert.deepEqual(
     buildProductionShadowBuildArguments({

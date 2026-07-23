@@ -425,23 +425,36 @@ test("staged production state permits only its immutable deployment hostname", (
   );
 });
 
-test("pinned CLI arguments bind each literal project and monorepo target", () => {
+test("custom-v3 pull selects the custom target without a preview-only branch override", () => {
   assert.deepEqual(
     buildProductionShadowPullArguments({
       logicalTarget: "app",
       projectId: "prj_app123",
     }),
-    [
-      "pull",
-      "--yes",
-      "--environment",
-      "v3",
-      "--git-branch",
-      "main",
-      "--project",
-      "prj_app123",
-    ],
+    ["pull", "--yes", "--environment", "v3", "--project", "prj_app123"],
   );
+});
+
+test("production pull selects production without a preview-only branch override", () => {
+  for (const target of ["governance", "reserve", "ui"]) {
+    assert.deepEqual(
+      buildProductionShadowPullArguments({
+        logicalTarget: target,
+        projectId: `prj_${target}123`,
+      }),
+      [
+        "pull",
+        "--yes",
+        "--environment",
+        "production",
+        "--project",
+        `prj_${target}123`,
+      ],
+    );
+  }
+});
+
+test("pinned CLI build and deploy arguments bind each literal project and target", () => {
   assert.deepEqual(
     buildProductionShadowBuildArguments({
       logicalTarget: "app",
@@ -458,22 +471,6 @@ test("pinned CLI arguments bind each literal project and monorepo target", () =>
     ],
   );
   for (const target of ["governance", "reserve", "ui"]) {
-    assert.deepEqual(
-      buildProductionShadowPullArguments({
-        logicalTarget: target,
-        projectId: `prj_${target}123`,
-      }),
-      [
-        "pull",
-        "--yes",
-        "--environment",
-        "production",
-        "--git-branch",
-        "main",
-        "--project",
-        `prj_${target}123`,
-      ],
-    );
     assert.deepEqual(
       buildProductionShadowBuildArguments({
         logicalTarget: target,
@@ -494,7 +491,7 @@ test("pinned CLI arguments bind each literal project and monorepo target", () =>
       deploySha: SHA,
       transaction: `123-1-${target}`,
     });
-    assert.deepEqual(deploy.slice(0, 10), [
+    assert.deepEqual(deploy, [
       "deploy",
       "--prebuilt",
       "--prod",
@@ -505,11 +502,16 @@ test("pinned CLI arguments bind each literal project and monorepo target", () =>
       "--project",
       `prj_${target}123`,
       "--meta",
+      "githubCommitOrg=mento-protocol",
+      "--meta",
+      "githubCommitRepo=frontend-monorepo",
+      "--meta",
+      "githubCommitRef=main",
+      "--meta",
+      `githubCommitSha=${SHA}`,
+      "--meta",
+      `mentoTransaction=123-1-${target}`,
     ]);
-    assert.match(
-      deploy.join(" "),
-      new RegExp(`mentoTransaction=123-1-${target}`),
-    );
     assert.doesNotMatch(deploy.join(" "), /--token|githubDeployment|promote/);
   }
   assert.throws(() =>
