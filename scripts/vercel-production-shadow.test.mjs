@@ -559,7 +559,7 @@ test("deployment expectation fixes production provenance and exact SHA", () => {
   );
 });
 
-test("staged production state permits only its immutable and literal generated aliases", () => {
+test("run 30034411210 keeps immutable identity separate from the provider alias list", () => {
   const unexpected = JSON.parse(
     readFileSync(
       new URL(
@@ -569,13 +569,30 @@ test("staged production state permits only its immutable and literal generated a
       "utf8",
     ),
   );
-  const immutableHostname = new URL(unexpected.deploymentUrl).hostname;
+  const observedTopology = JSON.parse(
+    readFileSync(
+      new URL(
+        "./fixtures/vercel-production-shadow/run-30034411210-governance-topology.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  assert.equal(observedTopology.runId, 30034411210);
+  assert.equal(observedTopology.target, "governance");
+  const immutableHostname = new URL(observedTopology.deploymentUrl).hostname;
   const generatedProjectAlias =
     PRODUCTION_SHADOW_TARGETS.governance.generatedProjectAlias;
-  const expectedAliases = [immutableHostname, generatedProjectAlias].sort();
+  assert.deepEqual(observedTopology.generatedAliases, [generatedProjectAlias]);
   const expected = {
     ...unexpected,
-    aliases: expectedAliases,
+    alias: immutableHostname,
+    deploymentUrl: observedTopology.deploymentUrl,
+    git: {
+      ...unexpected.git,
+      sha: observedTopology.sourceSha,
+    },
+    aliases: observedTopology.generatedAliases,
   };
   assert.equal(
     assertOnlyExpectedVercelGeneratedAliases(expected, "governance"),
@@ -585,19 +602,14 @@ test("staged production state permits only its immutable and literal generated a
   const unexpectedAliasSets = [
     unexpected.aliases,
     [immutableHostname],
-    [generatedProjectAlias],
     [],
     ...[
       "governance.mento.org",
       "governancementoorg-git-main-mentolabs.vercel.app",
       "governancementoorg.vercel.app",
-    ].map((extraAlias) =>
-      [immutableHostname, generatedProjectAlias, extraAlias].sort(),
-    ),
-    [
-      immutableHostname,
-      PRODUCTION_SHADOW_TARGETS.reserve.generatedProjectAlias,
-    ].sort(),
+    ].map((extraAlias) => [generatedProjectAlias, extraAlias].sort()),
+    [immutableHostname, generatedProjectAlias].sort(),
+    [PRODUCTION_SHADOW_TARGETS.reserve.generatedProjectAlias],
   ];
   for (const aliases of unexpectedAliasSets) {
     assert.throws(
@@ -609,14 +621,19 @@ test("staged production state permits only its immutable and literal generated a
           },
           "governance",
         ),
-      /only expected Vercel-generated aliases/,
+      (error) => {
+        assert.equal(
+          error.message,
+          `Staged governance production generated-alias topology mismatch: expected ${JSON.stringify([generatedProjectAlias])}; actual ${JSON.stringify(aliases)}`,
+        );
+        return true;
+      },
     );
   }
 
   for (const aliases of [
-    [immutableHostname, immutableHostname, generatedProjectAlias],
-    [...expectedAliases].reverse(),
-    [immutableHostname, generatedProjectAlias.toUpperCase()].sort(),
+    [generatedProjectAlias, generatedProjectAlias],
+    [generatedProjectAlias.toUpperCase()],
   ]) {
     assert.throws(
       () =>
@@ -640,7 +657,9 @@ test("staged production state permits only its immutable and literal generated a
         },
         "governance",
       ),
-    /only expected Vercel-generated aliases/,
+    {
+      message: `Staged governance production immutable hostname mismatch: expected ${immutableHostname} from deploymentUrl; actual governance.mento.org`,
+    },
   );
   assert.throws(
     () =>

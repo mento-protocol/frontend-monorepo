@@ -1394,7 +1394,7 @@ test("every deploy is immediately checked for drift without automatic repair", (
       (step) =>
         step.name?.startsWith("Verify ") &&
         step.name.endsWith(
-          " deployment provenance, readiness, and generated aliases",
+          " deployment provenance, readiness, immutable URL and generated alias",
         ),
     );
     assert.ok(deployIndex < deployIndex + 1);

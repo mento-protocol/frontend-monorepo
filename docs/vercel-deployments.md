@@ -526,19 +526,20 @@ runner:    vercel deploy --prebuilt --prod --skip-domain --archive=tgz --format=
 
 `--skip-domain` suppresses custom production-domain assignment. In this reviewed
 team/project topology, confirmed by read-only checks of the observed public
-routes, the Vercel CLI still assigns the deployment's immutable hostname and an
-unavoidable generated project/team alias; it offers no supported
-zero-generated-alias mode. The controller binds that generated alias to each
-literal target:
+routes, Vercel exposes the immutable deployment hostname as deployment
+identity, while the provider alias list still contains an unavoidable generated
+project/team alias; the CLI offers no supported zero-generated-alias mode. The
+controller binds that generated alias to each literal target:
 
 - Governance: `governancementoorg-mentolabs.vercel.app`
 - Reserve: `reservementoorg-mentolabs.vercel.app`
 - UI: `uimentoorg-mentolabs.vercel.app`
 
-Any missing immutable or generated alias, protected/custom domain, branch or
-global alias, wrong-target alias, or malformed canonical hostname evidence fails
-closed. The read-only state inspector normalizes and deduplicates raw provider
-aliases; persisted canonical evidence must remain deduplicated and sorted.
+Any immutable deployment identity mismatch, missing generated alias,
+protected/custom domain, branch or global alias, wrong-target alias, or
+malformed canonical hostname evidence fails closed. The read-only state
+inspector normalizes and deduplicates raw provider aliases; persisted canonical
+evidence must remain deduplicated and sorted.
 Protected-domain before/after equality remains the decisive proof that the
 upload did not activate protected/custom production traffic. A future
 provider-generated alias topology must fail first and receive a reviewed
@@ -564,13 +565,14 @@ project state and prebuilt output must exist below the matching
 The uploaded `apps/<target>/.vercel/output` is the exact output whose custom
 Next deployment ID was asserted and copied into the runner-owned handoff. It is
 never transferred as a GitHub artifact.
-Each immutable URL must prove the literal project, `production` target, `READY`
-state, exact repository/ref/SHA metadata, and an alias set containing exactly
-its immutable deployment hostname plus the target's reviewed generated
-project/team alias before smoke begins. Smoke and browser verification use only
-the immutable deployment URL; the generated alias is state evidence, never the
-runtime test endpoint. The browser then proves critical security headers, a
-stable page marker, and a target-specific non-transaction interaction.
+Each staged state must prove the literal project, `production` target, `READY`
+state, exact repository/ref/SHA metadata, and an `alias` equal to the immutable
+hostname in `deploymentUrl`. Its provider-reported alias set must contain
+exactly the target's reviewed generated project/team alias before smoke begins.
+Smoke and browser verification use only the immutable deployment URL; the
+generated alias is state evidence, never the runtime test endpoint. The browser
+then proves critical security headers, a stable page marker, and a
+target-specific non-transaction interaction.
 Protected alias mappings are compared after each upload and once again at the
 end. Once the candidate build boundary and fresh trusted-controller checkout
 both succeed, an always-run read-only check executes immediately after every

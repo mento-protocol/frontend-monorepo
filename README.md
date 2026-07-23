@@ -499,13 +499,15 @@ The repository is set up with GitHub Actions for CI:
 
   The manual `Vercel Production Shadow` workflow can build App custom `v3`
   without deploying it and upload Governance, Reserve, and UI production
-  artifacts without custom production domains. Each staged ordinary deployment
-  has only its immutable hostname and reviewed Vercel-generated project/team
-  alias. The upload implicitly moves that generated system alias, while the
-  workflow performs no explicit alias, promote, environment-configuration,
-  ownership, or protected/custom production-domain mutation. Its exact-SHA
-  contract, read-only protected-domain drift checks, guarded manual operator
-  recovery, and direct smoke are documented in the same runbook.
+  artifacts without custom production domains. Each staged ordinary
+  deployment exposes its immutable hostname through the deployment URL/state
+  identity, while Vercel's provider alias list contains only the reviewed
+  generated project/team alias. The upload implicitly moves that generated system
+  alias, while the workflow performs no explicit alias, promote,
+  environment-configuration, ownership, or protected/custom production-domain
+  mutation. Its exact-SHA contract, read-only protected-domain drift checks,
+  guarded manual operator recovery, and direct smoke are documented in the same
+  runbook.
 
 Dependency-installing jobs use `.github/actions/pnpm-install`, which pins the
 Node/pnpm bootstrap, relies on `actions/setup-node` as the single pnpm-store

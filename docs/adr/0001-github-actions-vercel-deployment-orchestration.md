@@ -3,7 +3,7 @@ title: GitHub Actions owns Vercel build and deployment orchestration; Vercel rem
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-07-22
+last_verified: 2026-07-23
 scope: ci/deployment
 date: 2026-07
 ---
@@ -179,10 +179,11 @@ before the transaction and immediately before and after every public mutation.
 Governance, reserve, and UI are built as staged production deployments without
 custom production domains, inspected, and runtime/browser verified before any
 protected or custom production domain moves. In the reviewed CI topology, each
-staged deployment has its immutable hostname and one literal project/team alias
-confirmed from the read-only observed public topology. The controller requires
-exactly those two target-bound aliases, rejects any protected or extra alias,
-and fails safely if Vercel changes that topology.
+staged deployment exposes its immutable hostname through the deployment
+URL/state identity, while Vercel's provider alias list contains one literal
+project/team alias confirmed from the read-only observed public topology. The
+controller requires that exact identity and target-bound alias, rejects any
+protected or extra alias, and fails safely if Vercel changes that topology.
 The ordinary upload implicitly moves that generated system alias, so the
 controller treats staging as a limited public-routing mutation: it rechecks
 current `main`, journals the intended upload, verifies the resulting immutable
