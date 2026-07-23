@@ -254,6 +254,12 @@ workflow constants and scoped GitHub secrets so they take precedence. A missing
 or invalid pulled file fails closed. Its machine-readable inventory is available
 directly:
 
+Production-shadow pulls intentionally omit `--git-branch`: pinned CLI 56.2.0
+accepts that option only with the `preview` target. `--environment v3` or
+`--environment production` selects the exact custom or production
+configuration; the guarded source SHA, `VERCEL_GIT_COMMIT_REF=main`, and deploy
+metadata carry exact-main provenance independently.
+
 ```bash
 node scripts/vercel-build-environment.mjs inventory \
   --target "$TARGET" \

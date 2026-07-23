@@ -461,16 +461,7 @@ test("ordinary targets use isolated builds, runner-owned handoff, and fresh smok
     const projectId = `prj_${target}123`;
     assert.deepEqual(
       buildProductionShadowPullArguments({ logicalTarget: target, projectId }),
-      [
-        "pull",
-        "--yes",
-        "--environment",
-        "production",
-        "--git-branch",
-        "main",
-        "--project",
-        projectId,
-      ],
+      ["pull", "--yes", "--environment", "production", "--project", projectId],
     );
     assert.deepEqual(
       buildProductionShadowBuildArguments({ logicalTarget: target, projectId }),
@@ -575,16 +566,7 @@ test("app Outcome B has no reachable deploy or production command", () => {
       logicalTarget: "app",
       projectId: "prj_app123",
     }),
-    [
-      "pull",
-      "--yes",
-      "--environment",
-      "v3",
-      "--git-branch",
-      "main",
-      "--project",
-      "prj_app123",
-    ],
+    ["pull", "--yes", "--environment", "v3", "--project", "prj_app123"],
   );
   assert.deepEqual(
     buildProductionShadowBuildArguments({

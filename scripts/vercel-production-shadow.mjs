@@ -1532,13 +1532,14 @@ export function buildProductionShadowPullArguments({
   projectId,
 }) {
   const contract = targetContract(logicalTarget);
+  // Pinned Vercel CLI accepts a Git branch only for preview pulls. Production
+  // and custom-environment selection is carried entirely by --environment;
+  // exact-main provenance is supplied separately to build and deploy.
   return [
     "pull",
     "--yes",
     "--environment",
     contract.pullEnvironment,
-    "--git-branch",
-    "main",
     "--project",
     requireIdentifier(projectId, "Vercel project ID"),
   ];
