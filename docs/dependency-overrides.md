@@ -14,6 +14,66 @@ sync is a requirement, not a suggestion — a catalog bump for an overridden
 package is silently defeated otherwise (this happened to `zod`; see the table
 below).
 
+## Standalone Vercel CLI override mirror
+
+The protected production-shadow jobs install Vercel from the standalone
+`scripts/vercel-cli-runtime` package instead of the root workspace. Its
+`pnpm.overrides` object must remain deeply equal to the root
+`package.json` object so the protected CLI receives the same security
+resolutions. Its only dependency must remain the same exact Vercel version as
+the root `devDependencies.vercel` pin.
+
+After changing the root Vercel pin or any root override, update this protected
+runtime in the same PR:
+
+1. Mirror the root Vercel pin and complete override object into the standalone
+   manifest. If the Vercel version changed, also update
+   `PINNED_VERCEL_CLI_VERSION` in
+   `scripts/vercel-cli-runtime-contract.mjs`; the production-shadow structural
+   tests identify every remaining reviewed version assertion that must change:
+
+   ```bash
+   node --input-type=module -e '
+   import { readFile, writeFile } from "node:fs/promises";
+   const root = JSON.parse(await readFile("package.json", "utf8"));
+   const path = "scripts/vercel-cli-runtime/package.json";
+   const runtime = JSON.parse(await readFile(path, "utf8"));
+   runtime.dependencies.vercel = root.devDependencies.vercel;
+   runtime.pnpm.overrides = root.pnpm.overrides;
+   await writeFile(path, `${JSON.stringify(runtime, null, 2)}\n`);
+   '
+   ```
+
+2. Regenerate only the standalone lockfile, outside workspace resolution:
+
+   ```bash
+   pnpm --dir scripts/vercel-cli-runtime install \
+     --lockfile-only \
+     --ignore-scripts \
+     --ignore-workspace
+   ```
+
+3. Review the lockfile diff, calculate its exact digest, and replace
+   `PINNED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256` in
+   `scripts/vercel-cli-runtime-contract.mjs`:
+
+   ```bash
+   shasum -a 256 scripts/vercel-cli-runtime/pnpm-lock.yaml
+   ```
+
+4. Verify the root/standalone pins, exact manifest, override mirror, reviewed
+   lockfile digest, and registry-only lockfile policy:
+
+   ```bash
+   pnpm vercel:versions:check
+   pnpm vercel:production-shadow:test
+   pnpm supply-chain:lockfile-lint
+   ```
+
+Never run a general workspace install to regenerate this lockfile. That would
+allow workspace links into a runtime whose isolation depends on a standalone
+registry-only graph.
+
 ## Wormhole Connect (`@wormhole-foundation/wormhole-connect`)
 
 `app.mento.org` uses Wormhole Connect only for the `/bridge` route. The widget

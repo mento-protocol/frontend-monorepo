@@ -44,6 +44,10 @@ import {
   generateVercelDeploymentId,
 } from "./vercel-prebuilt.mjs";
 import {
+  assertVercelCliRuntimeContract,
+  PINNED_VERCEL_CLI_VERSION,
+} from "./vercel-cli-runtime-contract.mjs";
+import {
   parseVercelPulledEnvironment,
   selectVercelPulledEnvironment,
   serializeVercelPulledEnvironment,
@@ -109,6 +113,7 @@ const CANDIDATE_SOURCE_DIRECTORY = "mento-vercel-candidate-source";
 const TRUSTED_TOOLS_DIRECTORY = "mento-vercel-trusted-tools";
 const PNPM_BOOTSTRAP_DIRECTORY = "mento-vercel-pnpm-bootstrap";
 const PNPM_RUNTIME_DIRECTORY = "pnpm-runtime";
+const VERCEL_CLI_RUNTIME_DIRECTORY = "vercel-cli-runtime";
 const PINNED_PNPM_VERSION = "10.34.4";
 const PINNED_PNPM_BOOTSTRAP_LOCKFILE_SHA256 =
   "1f8083495d03d348edb41b529f266807173860558b346128ae63f29f2f331c4d";
@@ -2225,6 +2230,290 @@ export function stageTrustedPnpmRuntimeManifest({ controllerRoot, toolsRoot }) {
   }
 }
 
+function validatePinnedVercelCliRuntimeFiles({
+  rootPackageJsonPath,
+  packageJsonPath,
+  lockfilePath,
+}) {
+  return assertVercelCliRuntimeContract({
+    rootPackageJsonPath,
+    packageJsonPath,
+    lockfilePath,
+  });
+}
+
+export function stageTrustedVercelCliRuntimeManifest({
+  controllerRoot,
+  toolsRoot,
+}) {
+  requiredText(controllerRoot, "Trusted controller path");
+  requiredText(toolsRoot, "Trusted Vercel tools path");
+  if (!isAbsolute(controllerRoot) || !isAbsolute(toolsRoot)) {
+    throw new Error("Trusted Vercel CLI runtime paths must be absolute");
+  }
+
+  const currentUid = process.getuid?.();
+  const currentGid = process.getgid?.();
+  if (currentUid === undefined || currentGid === undefined) {
+    throw new Error("Trusted Vercel CLI runtime requires a POSIX identity");
+  }
+  const canonicalControllerRoot = realpathSync(controllerRoot);
+  const canonicalToolsRoot = realpathSync(toolsRoot);
+  assertProtectedRuntimeEntry(canonicalControllerRoot, {
+    directory: true,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  assertProtectedRuntimeEntry(canonicalToolsRoot, {
+    directory: true,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  const toolsFromController = relative(
+    canonicalControllerRoot,
+    canonicalToolsRoot,
+  );
+  if (
+    toolsFromController !== ".." &&
+    !toolsFromController.startsWith(`..${sep}`)
+  ) {
+    throw new Error("Trusted Vercel CLI runtime must be outside the checkout");
+  }
+
+  const rootPackageJson = assertProtectedRuntimeDescendant({
+    root: canonicalControllerRoot,
+    path: join(canonicalControllerRoot, "package.json"),
+    directory: false,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  const sourceRoot = join(
+    canonicalControllerRoot,
+    "scripts",
+    VERCEL_CLI_RUNTIME_DIRECTORY,
+  );
+  assertProtectedRuntimeDescendant({
+    root: canonicalControllerRoot,
+    path: sourceRoot,
+    directory: true,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  const sourcePackageJson = assertProtectedRuntimeDescendant({
+    root: canonicalControllerRoot,
+    path: join(sourceRoot, "package.json"),
+    directory: false,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  const sourceLockfile = assertProtectedRuntimeDescendant({
+    root: canonicalControllerRoot,
+    path: join(sourceRoot, "pnpm-lock.yaml"),
+    directory: false,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  validatePinnedVercelCliRuntimeFiles({
+    rootPackageJsonPath: rootPackageJson.path,
+    packageJsonPath: sourcePackageJson.path,
+    lockfilePath: sourceLockfile.path,
+  });
+
+  const runtimeRoot = join(canonicalToolsRoot, VERCEL_CLI_RUNTIME_DIRECTORY);
+  if (optionalEntry(runtimeRoot)) {
+    throw new Error("Trusted Vercel CLI runtime destination must be fresh");
+  }
+  let created = false;
+  try {
+    mkdirSync(runtimeRoot, { mode: 0o755 });
+    created = true;
+    chmodSync(runtimeRoot, 0o755);
+    assertProtectedRuntimeEntry(runtimeRoot, {
+      directory: true,
+      expectedUid: currentUid,
+      expectedGid: currentGid,
+    });
+    for (const [name, source] of [
+      ["package.json", sourcePackageJson],
+      ["pnpm-lock.yaml", sourceLockfile],
+    ]) {
+      const destination = join(runtimeRoot, name);
+      copyFileSync(source.path, destination, fsConstants.COPYFILE_EXCL);
+      chmodSync(destination, 0o444);
+      const destinationEntry = assertProtectedRuntimeEntry(destination, {
+        directory: false,
+        expectedUid: currentUid,
+        expectedGid: currentGid,
+      });
+      if (
+        realpathSync(destination) !== destination ||
+        (destinationEntry.dev === source.entry.dev &&
+          destinationEntry.ino === source.entry.ino)
+      ) {
+        throw new Error("Trusted Vercel CLI runtime copy is not independent");
+      }
+    }
+    validatePinnedVercelCliRuntimeFiles({
+      rootPackageJsonPath: rootPackageJson.path,
+      packageJsonPath: join(runtimeRoot, "package.json"),
+      lockfilePath: join(runtimeRoot, "pnpm-lock.yaml"),
+    });
+    return runtimeRoot;
+  } catch (error) {
+    if (created) rmSync(runtimeRoot, { force: true, recursive: true });
+    throw error;
+  }
+}
+
+export function trustedStandaloneVercelCliPath({ controllerRoot, toolsRoot }) {
+  requiredText(controllerRoot, "Trusted controller path");
+  requiredText(toolsRoot, "Trusted Vercel tools path");
+  if (!isAbsolute(controllerRoot) || !isAbsolute(toolsRoot)) {
+    throw new Error("Trusted Vercel CLI paths must be absolute");
+  }
+
+  const currentUid = process.getuid?.();
+  const currentGid = process.getgid?.();
+  if (currentUid === undefined || currentGid === undefined) {
+    throw new Error("Trusted Vercel CLI requires a POSIX identity");
+  }
+  const canonicalControllerRoot = realpathSync(controllerRoot);
+  const canonicalToolsRoot = realpathSync(toolsRoot);
+  assertProtectedRuntimeEntry(canonicalControllerRoot, {
+    directory: true,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  assertProtectedRuntimeEntry(canonicalToolsRoot, {
+    directory: true,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  const toolsFromController = relative(
+    canonicalControllerRoot,
+    canonicalToolsRoot,
+  );
+  if (
+    toolsFromController !== ".." &&
+    !toolsFromController.startsWith(`..${sep}`)
+  ) {
+    throw new Error("Trusted Vercel CLI tools must be outside the checkout");
+  }
+
+  const rootPackageJson = assertProtectedRuntimeDescendant({
+    root: canonicalControllerRoot,
+    path: join(canonicalControllerRoot, "package.json"),
+    directory: false,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  const runtimeRoot = join(canonicalToolsRoot, VERCEL_CLI_RUNTIME_DIRECTORY);
+  assertProtectedRuntimeDescendant({
+    root: canonicalToolsRoot,
+    path: runtimeRoot,
+    directory: true,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  const runtimePackageJson = assertProtectedRuntimeDescendant({
+    root: canonicalToolsRoot,
+    path: join(runtimeRoot, "package.json"),
+    directory: false,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  const runtimeLockfile = assertProtectedRuntimeDescendant({
+    root: canonicalToolsRoot,
+    path: join(runtimeRoot, "pnpm-lock.yaml"),
+    directory: false,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  if (
+    (runtimePackageJson.entry.mode & 0o777) !== 0o444 ||
+    (runtimeLockfile.entry.mode & 0o777) !== 0o444
+  ) {
+    throw new Error("Trusted Vercel CLI runtime contract is writable");
+  }
+  validatePinnedVercelCliRuntimeFiles({
+    rootPackageJsonPath: rootPackageJson.path,
+    packageJsonPath: runtimePackageJson.path,
+    lockfilePath: runtimeLockfile.path,
+  });
+
+  const virtualStoreRoot = join(runtimeRoot, "node_modules", ".pnpm");
+  assertProtectedRuntimeDescendant({
+    root: canonicalToolsRoot,
+    path: virtualStoreRoot,
+    directory: true,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  const packageLinkPath = join(runtimeRoot, "node_modules", "vercel");
+  const packageLink = lstatSync(packageLinkPath);
+  const packageLinkTarget = readlinkSync(packageLinkPath);
+  const canonicalPackageRoot = realpathSync(packageLinkPath);
+  const packageFromVirtualStore = relative(
+    realpathSync(virtualStoreRoot),
+    canonicalPackageRoot,
+  );
+  if (
+    !packageLink.isSymbolicLink() ||
+    packageLink.uid !== currentUid ||
+    packageLink.gid !== currentGid ||
+    packageLink.nlink !== 1 ||
+    isAbsolute(packageLinkTarget) ||
+    hasControlCharacters(packageLinkTarget) ||
+    packageLinkTarget !==
+      relative(dirname(packageLinkPath), canonicalPackageRoot) ||
+    !/^vercel@56\.2\.0(?:_[^/]+)?\/node_modules\/vercel$/u.test(
+      packageFromVirtualStore,
+    )
+  ) {
+    throw new Error("Trusted Vercel CLI package link is not exact");
+  }
+  assertProtectedRuntimeDescendant({
+    root: canonicalToolsRoot,
+    path: canonicalPackageRoot,
+    directory: true,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+
+  const installedPackageJsonPath = join(canonicalPackageRoot, "package.json");
+  const cliPath = join(canonicalPackageRoot, "dist", "index.js");
+  for (const path of [installedPackageJsonPath, cliPath]) {
+    if (lstatSync(path).isSymbolicLink() || realpathSync(path) !== path) {
+      throw new Error("Trusted Vercel CLI path is not a real file");
+    }
+  }
+  const installedPackageJson = assertProtectedRuntimeDescendant({
+    root: canonicalToolsRoot,
+    path: installedPackageJsonPath,
+    directory: false,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  const cli = assertProtectedRuntimeDescendant({
+    root: canonicalToolsRoot,
+    path: cliPath,
+    directory: false,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  const installedPackageMetadata = JSON.parse(
+    readFileSync(installedPackageJson.path, "utf8"),
+  );
+  if (
+    installedPackageMetadata.name !== "vercel" ||
+    installedPackageMetadata.version !== PINNED_VERCEL_CLI_VERSION ||
+    !cli.entry.isFile()
+  ) {
+    throw new Error("Trusted Vercel CLI is not the pinned release");
+  }
+  return cli.path;
+}
+
 export function stageTrustedPnpmLauncher({ toolsRoot }) {
   requiredText(toolsRoot, "Trusted Vercel tools path");
   if (!isAbsolute(toolsRoot)) {
@@ -2325,7 +2614,7 @@ export function stageTrustedPnpmLauncher({ toolsRoot }) {
   return launcher.path;
 }
 
-export function trustedPnpmInstallLayout({ controllerRoot, toolsRoot }) {
+function trustedPnpmInstallLayout({ controllerRoot, toolsRoot }) {
   requiredText(controllerRoot, "Trusted controller path");
   requiredText(toolsRoot, "Trusted Vercel tools path");
   if (!isAbsolute(controllerRoot) || !isAbsolute(toolsRoot)) {
@@ -3804,9 +4093,27 @@ function stageTrustedPnpmRuntimeManifestFromEnvironment() {
   );
 }
 
+function stageTrustedVercelCliRuntimeManifestFromEnvironment() {
+  process.stdout.write(
+    `${stageTrustedVercelCliRuntimeManifest({
+      controllerRoot: process.env.CONTROLLER_PATH,
+      toolsRoot: process.env.TRUSTED_VERCEL_TOOLS_PATH,
+    })}\n`,
+  );
+}
+
 function stageTrustedPnpmLauncherFromEnvironment() {
   process.stdout.write(
     `${stageTrustedPnpmLauncher({
+      toolsRoot: process.env.TRUSTED_VERCEL_TOOLS_PATH,
+    })}\n`,
+  );
+}
+
+function trustedStandaloneVercelCliPathFromEnvironment() {
+  process.stdout.write(
+    `${trustedStandaloneVercelCliPath({
+      controllerRoot: process.env.CONTROLLER_PATH,
       toolsRoot: process.env.TRUSTED_VERCEL_TOOLS_PATH,
     })}\n`,
   );
@@ -3829,8 +4136,12 @@ if (isCliEntrypoint()) {
   else if (command === "stage-runtime") stageTrustedRuntimeFromEnvironment();
   else if (command === "stage-pnpm-runtime")
     stageTrustedPnpmRuntimeManifestFromEnvironment();
+  else if (command === "stage-vercel-cli-runtime")
+    stageTrustedVercelCliRuntimeManifestFromEnvironment();
   else if (command === "stage-pnpm-launcher")
     stageTrustedPnpmLauncherFromEnvironment();
+  else if (command === "trusted-standalone-vercel-cli-path")
+    trustedStandaloneVercelCliPathFromEnvironment();
   else if (command === "prepare-link") prepareLinkFromEnvironment();
   else if (command === "prepare-pull-staging")
     preparePullStagingFromEnvironment();
@@ -3858,7 +4169,7 @@ if (isCliEntrypoint()) {
   else if (command === "total") totalFromEnvironment();
   else {
     throw new Error(
-      "Usage: vercel-prebuilt-workflow.mjs prepare|validate-source|materialize-source|stage-runtime|stage-pnpm-bootstrap|stage-pnpm-runtime|stage-pnpm-launcher|prepare-link|prepare-pull-staging|pull|validate-pull|validate-pull-staging|materialize-build-environment|validate-materialized-build-environment|stage-pull|validate-candidate-pull|build|assert-output|trusted-install-modules-dir|deploy|verify|total",
+      "Usage: vercel-prebuilt-workflow.mjs prepare|validate-source|materialize-source|stage-runtime|stage-pnpm-bootstrap|stage-pnpm-runtime|stage-vercel-cli-runtime|stage-pnpm-launcher|trusted-standalone-vercel-cli-path|prepare-link|prepare-pull-staging|pull|validate-pull|validate-pull-staging|materialize-build-environment|validate-materialized-build-environment|stage-pull|validate-candidate-pull|build|assert-output|trusted-install-modules-dir|deploy|verify|total",
     );
   }
 }

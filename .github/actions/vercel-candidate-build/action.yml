@@ -342,8 +342,9 @@ runs:
           "$PULL_STAGING_PATH" \
           "$TOOLS_PATH" \
           "$TOOLS_PATH/bin" \
-          "$TOOLS_PATH/node_modules" \
           "$TOOLS_PATH/pnpm-runtime" \
+          "$TOOLS_PATH/vercel-cli-runtime/node_modules" \
+          "$TOOLS_PATH/vercel-cli-runtime/node_modules/.pnpm" \
           "$NODE_BIN" \
           "$PNPM_BIN" \
           "$TRUSTED_VERCEL_CLI_PATH"; do

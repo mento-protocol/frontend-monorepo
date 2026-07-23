@@ -2,7 +2,7 @@ name: Supply Chain
 
 # Dependency supply-chain gates, decoupled from trunk so the pre-push hook
 # never blocks on lockfile CVEs (see .trunk/trunk.yaml — osv-scanner ignores
-# the dependency lockfiles). Five jobs:
+# the dependency lockfiles). Six jobs:
 #
 #   1. osv              — osv-scanner against the application lockfile, reading
 #                         the repository-wide osv-scanner.toml.
@@ -10,19 +10,22 @@ name: Supply Chain
 #                         trusted-tool lockfile. Its config contains only the
 #                         short-lived pnpm metadata correction, so that advisory
 #                         cannot mask a vulnerable pnpm elsewhere in the repo.
-#   3. osv-pnpm-bootstrap — scans the exact npm-locked Linux bootstrap artifact
+#   3. osv-vercel-cli-runtime — scans the standalone Vercel CLI lockfile with
+#                               only its two package-name false positives.
+#   4. osv-pnpm-bootstrap — scans the exact npm-locked Linux bootstrap artifact
 #                           without sharing the pnpm-runtime suppression.
 #                           All scans run on every PR + a daily cron (24h
 #                           disclosure backstop for new CVEs and expired ignores).
-#   4. lockfile-lint    — sha512 integrity + registry-poisoning gate, plus a
+#   5. lockfile-lint    — sha512 integrity + registry-poisoning gate, plus a
 #                         real Linux npm-ci proof for the bootstrap lock.
-#   5. version-skew     — every cataloged dep is "catalog:" or the exact catalog
+#   6. version-skew     — every cataloged dep is "catalog:" or the exact catalog
 #                         version (no silent drift off the shared catalog).
 #
-# Suppressions live in osv-scanner.toml. Advisories suppressed across configured
-# scanners must stay in sync with the `allow-ghsas` list in
+# Repository-wide suppressions live in osv-scanner.toml. Advisories suppressed
+# across configured scanners must stay in sync with the `allow-ghsas` list in
 # dependency-review.yml and its expiry. Scanner-specific metadata false
-# positives remain OSV-only, with source evidence and a short `ignoreUntil`.
+# positives remain OSV-only beside their exact lockfile, with source evidence
+# and a short `ignoreUntil`.
 #
 # No path filter on `pull_request`: the osv job is meant to be a required check,
 # and a path-filtered required check that gets skipped sits "pending" forever
@@ -78,6 +81,19 @@ jobs:
       scan-args: |-
         --config=scripts/vercel-pnpm-runtime/osv-scanner.toml
         --lockfile=scripts/vercel-pnpm-runtime/pnpm-lock.yaml
+      upload-sarif: ${{ github.event_name != 'pull_request' }}
+
+  osv-vercel-cli-runtime:
+    name: osv-scanner (standalone Vercel CLI runtime)
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+    with:
+      scan-args: |-
+        --config=scripts/vercel-cli-runtime/osv-scanner.toml
+        --lockfile=scripts/vercel-cli-runtime/pnpm-lock.yaml
       upload-sarif: ${{ github.event_name != 'pull_request' }}
 
   osv-pnpm-bootstrap:

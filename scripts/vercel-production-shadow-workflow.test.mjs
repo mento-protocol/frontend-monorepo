@@ -41,6 +41,12 @@ const protectedRuntimeAction = parse(protectedRuntimeActionSource);
 const rootPackage = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 );
+const vercelCliRuntimePackage = JSON.parse(
+  readFileSync(
+    new URL("../scripts/vercel-cli-runtime/package.json", import.meta.url),
+    "utf8",
+  ),
+);
 
 function jobSource(name) {
   const nextJob = /^ {2}[a-z0-9-]+:\n/gm;
@@ -344,6 +350,77 @@ test("protected build runtime uses the repository package-manager version", () =
   assert.match(
     protectedRuntimeActionSource,
     /node_bin="\$TOOLS_PATH\/bin\/node"/,
+  );
+});
+
+test("protected build runtime installs the exact standalone Vercel CLI without workspace links", () => {
+  const runtime = protectedRuntimeAction.runs.steps.find(
+    (step) => step.name === "Materialize authenticated protected runtime",
+  );
+  assert.ok(runtime);
+  const runtimeBlock = runtime.run;
+  assert.deepEqual(vercelCliRuntimePackage.dependencies, {
+    vercel: "56.2.0",
+  });
+  assert.equal(rootPackage.devDependencies.vercel, "56.2.0");
+  assert.deepEqual(
+    vercelCliRuntimePackage.pnpm.overrides,
+    rootPackage.pnpm.overrides,
+  );
+  assert.equal(vercelCliRuntimePackage.scripts, undefined);
+  assert.doesNotMatch(runtimeBlock, /--filter frontend-monorepo/);
+  assert.doesNotMatch(runtimeBlock, /trusted-install-modules-dir/);
+  assert.doesNotMatch(
+    runtimeBlock,
+    /\$TOOLS_PATH\/node_modules\/vercel\/dist\/index\.js/,
+  );
+  assert.match(runtimeBlock, /stage-vercel-cli-runtime/);
+  assert.match(
+    runtimeBlock,
+    /"\$pnpm_bin" --dir "\$vercel_runtime_root" install \\\n\s+--frozen-lockfile \\\n\s+--ignore-scripts \\\n\s+--ignore-workspace \\\n\s+--package-import-method copy/,
+  );
+  assert.match(runtimeBlock, /trusted-standalone-vercel-cli-path/);
+  assert.match(
+    runtimeBlock,
+    /\$TOOLS_PATH\/vercel-cli-runtime\/node_modules\/\.pnpm\/.*\/node_modules\/vercel\/dist\/index\.js/,
+  );
+  assert.match(runtimeBlock, /\$TOOLS_PATH\/vercel-cli-runtime\/package\.json/);
+  assert.match(
+    runtimeBlock,
+    /\$TOOLS_PATH\/vercel-cli-runtime\/pnpm-lock\.yaml/,
+  );
+  assert.match(runtimeBlock, /stat -c %h "\$immutable_file"\)" != 1/);
+  assert.match(runtimeBlock, /stat -c %a "\$immutable_file"\)" != 444/);
+  assert.match(runtimeBlock, /stat -c %h "\$installed_file"\)" != 1/);
+  assert.match(
+    runtimeBlock,
+    /"\$\("\$node_bin" "\$vercel_cli" --version\)" = 56\.2\.0/,
+  );
+  assert.ok(
+    runtimeBlock.indexOf("stage-vercel-cli-runtime") <
+      runtimeBlock.indexOf('"$pnpm_bin" --dir "$vercel_runtime_root" install'),
+  );
+  assert.ok(
+    runtimeBlock.indexOf('"$pnpm_bin" --dir "$vercel_runtime_root" install') <
+      runtimeBlock.indexOf('/usr/bin/find "$TOOLS_PATH" -xdev -type l'),
+  );
+  assert.doesNotMatch(runtimeBlock, /--lockfile-only|--no-frozen-lockfile/);
+});
+
+test("candidate cannot write either standalone Vercel dependency root", () => {
+  const isolation = candidateAction.runs.steps.find(
+    (step) => step.name === "Prepare isolated exact-SHA candidate source",
+  );
+  assert.ok(isolation);
+  const isolationBlock = isolation.run;
+  assert.doesNotMatch(isolationBlock, /"\$TOOLS_PATH\/node_modules"\s*\\/);
+  assert.match(
+    isolationBlock,
+    /"\$TOOLS_PATH\/vercel-cli-runtime\/node_modules"\s*\\/,
+  );
+  assert.match(
+    isolationBlock,
+    /"\$TOOLS_PATH\/vercel-cli-runtime\/node_modules\/\.pnpm"\s*\\/,
   );
 });
 

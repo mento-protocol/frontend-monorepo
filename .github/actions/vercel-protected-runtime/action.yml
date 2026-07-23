@@ -308,27 +308,17 @@ runs:
           echo "Pinned pnpm runtime escaped the protected tools root" >&2
           exit 1
         fi
-        trusted_modules_dir="$(
+        vercel_runtime_root="$(
           CONTROLLER_PATH="$controller_path" \
           TRUSTED_VERCEL_TOOLS_PATH="$TOOLS_PATH" \
             "$node_bin" \
             "$controller_path/scripts/vercel-prebuilt-workflow.mjs" \
-            trusted-install-modules-dir
+            stage-vercel-cli-runtime
         )"
-        if [ -z "$trusted_modules_dir" ] || [[ "$trusted_modules_dir" = /* ]]; then
-          echo "Protected Vercel modules path is not relative" >&2
+        if [ "$vercel_runtime_root" != "$TOOLS_PATH/vercel-cli-runtime" ]; then
+          echo "Pinned Vercel CLI runtime escaped the protected tools root" >&2
           exit 1
         fi
-        env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE \
-          -u GITHUB_STEP_SUMMARY \
-          NPM_CONFIG_MANAGE_PACKAGE_MANAGER_VERSIONS=false \
-          NPM_CONFIG_PACKAGE_MANAGER_STRICT_VERSION=false \
-          "$pnpm_bootstrap" --dir "$controller_path" --filter frontend-monorepo install \
-            --frozen-lockfile \
-            --ignore-scripts \
-            --modules-dir "$trusted_modules_dir" \
-            --package-import-method copy \
-            --virtual-store-dir "$trusted_modules_dir/.pnpm"
         env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE \
           -u GITHUB_STEP_SUMMARY \
           NPM_CONFIG_MANAGE_PACKAGE_MANAGER_VERSIONS=false \
@@ -345,14 +335,26 @@ runs:
             "$controller_path/scripts/vercel-prebuilt-workflow.mjs" \
             stage-pnpm-launcher
         )"
+        env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE \
+          -u GITHUB_STEP_SUMMARY \
+          NPM_CONFIG_MANAGE_PACKAGE_MANAGER_VERSIONS=false \
+          NPM_CONFIG_PACKAGE_MANAGER_STRICT_VERSION=false \
+          "$pnpm_bin" --dir "$vercel_runtime_root" install \
+            --frozen-lockfile \
+            --ignore-scripts \
+            --ignore-workspace \
+            --package-import-method copy
         /bin/chmod -R a+rX,go-w "$TOOLS_PATH"
         vercel_cli="$(
-          /usr/bin/realpath \
-            "$TOOLS_PATH/node_modules/vercel/dist/index.js"
+          CONTROLLER_PATH="$controller_path" \
+          TRUSTED_VERCEL_TOOLS_PATH="$TOOLS_PATH" \
+            "$node_bin" \
+            "$controller_path/scripts/vercel-prebuilt-workflow.mjs" \
+            trusted-standalone-vercel-cli-path
         )"
         case "$vercel_cli" in
-          "$TOOLS_PATH"/*) ;;
-          *) echo "Pinned Vercel CLI escaped the protected tools root" >&2; exit 1 ;;
+          "$TOOLS_PATH/vercel-cli-runtime/node_modules/.pnpm/"*/node_modules/vercel/dist/index.js) ;;
+          *) echo "Pinned Vercel CLI escaped its standalone protected runtime" >&2; exit 1 ;;
         esac
         while IFS= read -r -d '' link_path; do
           link_target="$(/usr/bin/realpath "$link_path")"
@@ -379,12 +381,26 @@ runs:
           "$TOOLS_PATH" \
           "$TOOLS_PATH/bin" \
           "$TOOLS_PATH/bootstrap-bin" \
-          "$TOOLS_PATH/pnpm-runtime"; do
+          "$TOOLS_PATH/pnpm-runtime" \
+          "$TOOLS_PATH/vercel-cli-runtime"; do
           if [ ! -d "$directory" ] || [ -L "$directory" ] ||
             [ "$(/usr/bin/stat -c %u "$directory")" != "$(/usr/bin/id -u)" ] ||
             [ "$(/usr/bin/stat -c %g "$directory")" != "$(/usr/bin/id -g)" ] ||
             (( 8#$(/usr/bin/stat -c %a "$directory") & 0022 )); then
             echo "Protected runtime directory is unsafe: $directory" >&2
+            exit 1
+          fi
+        done
+        for immutable_file in \
+          "$TOOLS_PATH/vercel-cli-runtime/package.json" \
+          "$TOOLS_PATH/vercel-cli-runtime/pnpm-lock.yaml"; do
+          if [ ! -f "$immutable_file" ] || [ -L "$immutable_file" ] ||
+            [ "$(/usr/bin/realpath "$immutable_file")" != "$immutable_file" ] ||
+            [ "$(/usr/bin/stat -c %u "$immutable_file")" != "$(/usr/bin/id -u)" ] ||
+            [ "$(/usr/bin/stat -c %g "$immutable_file")" != "$(/usr/bin/id -g)" ] ||
+            [ "$(/usr/bin/stat -c %h "$immutable_file")" != 1 ] ||
+            [ "$(/usr/bin/stat -c %a "$immutable_file")" != 444 ]; then
+            echo "Pinned Vercel CLI runtime contract is unsafe: $immutable_file" >&2
             exit 1
           fi
         done
@@ -398,17 +414,24 @@ runs:
             exit 1
           fi
         done
-        if [ ! -f "$vercel_cli" ] || [ -L "$vercel_cli" ] ||
-          [ "$(/usr/bin/stat -c %u "$vercel_cli")" != "$(/usr/bin/id -u)" ] ||
-          [ "$(/usr/bin/stat -c %h "$vercel_cli")" != 1 ] ||
-          (( 8#$(/usr/bin/stat -c %a "$vercel_cli") & 0022 )); then
-          echo "Pinned Vercel CLI entry point is unsafe" >&2
-          exit 1
-        fi
+        vercel_package="$(
+          /usr/bin/realpath "$(/usr/bin/dirname "$vercel_cli")/../package.json"
+        )"
+        for installed_file in "$vercel_package" "$vercel_cli"; do
+          if [ ! -f "$installed_file" ] || [ -L "$installed_file" ] ||
+            [ "$(/usr/bin/realpath "$installed_file")" != "$installed_file" ] ||
+            [ "$(/usr/bin/stat -c %u "$installed_file")" != "$(/usr/bin/id -u)" ] ||
+            [ "$(/usr/bin/stat -c %g "$installed_file")" != "$(/usr/bin/id -g)" ] ||
+            [ "$(/usr/bin/stat -c %h "$installed_file")" != 1 ] ||
+            (( 8#$(/usr/bin/stat -c %a "$installed_file") & 0022 )); then
+            echo "Pinned Vercel CLI package file is unsafe: $installed_file" >&2
+            exit 1
+          fi
+        done
         "$node_bin" "$controller_path/scripts/vercel-prebuilt.mjs" \
           check-versions --repo-root "$source_path"
         [ "$("$pnpm_bin" --version)" = 10.34.4 ]
-        "$node_bin" "$vercel_cli" --version >/dev/null
+        [ "$("$node_bin" "$vercel_cli" --version)" = 56.2.0 ]
 
         /bin/rm -rf -- \
           "$bootstrap_cache" \
