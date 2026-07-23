@@ -182,6 +182,9 @@ test("staged production artifact is healthy, secure, and interactive", async ({
     expectedDeploymentId,
   );
 
+  // Target controls are server rendered. Wait for deferred client scripts so
+  // the first interaction cannot race React hydration.
+  await page.waitForLoadState("load");
   await verifyTarget(page, target, url.origin);
   await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => {
     // Live data polling may keep the network active. The tracked document,
