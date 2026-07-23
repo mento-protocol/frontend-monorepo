@@ -170,33 +170,26 @@ async function assertHydratedDeploymentIdentity({
   target,
   expectedDeploymentId,
   expectedOrigin,
-  uiIdentityMonitor,
+  deploymentIdentityMonitor,
 }: {
   page: Page;
   target: Target;
   expectedDeploymentId: string;
   expectedOrigin: string;
-  uiIdentityMonitor?: ReturnType<typeof createBrowserDeploymentIdentityMonitor>;
+  deploymentIdentityMonitor: ReturnType<
+    typeof createBrowserDeploymentIdentityMonitor
+  >;
 }) {
-  let renderedDeploymentId: string | null;
-  let assetReferences: string[] = [];
-  if (target === "ui") {
-    if (!uiIdentityMonitor) {
-      throw new Error("UI deployment identity monitor is required");
-    }
-    const identity = await readSettledBrowserDeploymentIdentity({
+  if (!deploymentIdentityMonitor) {
+    throw new Error(`${target} deployment identity monitor is required`);
+  }
+  const { htmlDeploymentId: renderedDeploymentId, assetReferences } =
+    await readSettledBrowserDeploymentIdentity({
       page,
-      monitor: uiIdentityMonitor,
+      monitor: deploymentIdentityMonitor,
       expectedDeploymentId,
       timeoutMs: 30_000,
     });
-    renderedDeploymentId = identity.htmlDeploymentId;
-    assetReferences = identity.assetReferences;
-  } else {
-    renderedDeploymentId = await page
-      .locator("html")
-      .getAttribute("data-dpl-id");
-  }
   assertProductionShadowHydratedIdentity({
     target,
     expectedDeploymentId,
@@ -210,10 +203,10 @@ test("staged production artifact is healthy, secure, and interactive", async ({
   page,
 }) => {
   const { target, url, expectedDeploymentId, expectedSha } = requiredInputs();
-  const uiIdentityMonitor =
-    target === "ui"
-      ? createBrowserDeploymentIdentityMonitor(page, url.origin)
-      : undefined;
+  const deploymentIdentityMonitor = createBrowserDeploymentIdentityMonitor(
+    page,
+    url.origin,
+  );
   await page.route("**/*", async (route) => {
     await fulfillProductionShadowRequest({ route });
   });
@@ -243,7 +236,7 @@ test("staged production artifact is healthy, secure, and interactive", async ({
     target,
     expectedDeploymentId,
     expectedOrigin: url.origin,
-    uiIdentityMonitor,
+    deploymentIdentityMonitor,
   });
   await verifyTarget(page, target, url.origin);
   await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => {
@@ -255,7 +248,7 @@ test("staged production artifact is healthy, secure, and interactive", async ({
     target,
     expectedDeploymentId,
     expectedOrigin: url.origin,
-    uiIdentityMonitor,
+    deploymentIdentityMonitor,
   });
 
   expect(errors.origins, "cross-origin main-frame navigations").toEqual([]);

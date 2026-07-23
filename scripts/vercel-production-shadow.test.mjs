@@ -2907,7 +2907,7 @@ test("browser request policy rejects protection headers", () => {
   );
 });
 
-test("production-shadow identity keeps server HTML strict across hydration", () => {
+test("production-shadow identity keeps server HTML strict and uses settled asset proof after hydration", () => {
   const expectedDeploymentId = "m-ui-0123456789abcdef012";
   const expectedOrigin = "https://ui-immutable.vercel.app";
   const exactAssets = [
@@ -2945,48 +2945,13 @@ test("production-shadow identity keeps server HTML strict across hydration", () 
     );
   }
 
-  assert.doesNotThrow(() =>
-    assertProductionShadowHydratedIdentity({
-      target: "ui",
-      expectedDeploymentId,
-      renderedDeploymentId: null,
-      assetReferences: exactAssets,
-      expectedOrigin,
-    }),
-  );
-  assert.throws(
-    () =>
-      assertProductionShadowHydratedIdentity({
-        target: "ui",
-        expectedDeploymentId,
-        renderedDeploymentId: null,
-        assetReferences: [exactAssets[0]],
-        expectedOrigin,
-      }),
-    /asset identity evidence is missing or invalid/,
-  );
-  assert.throws(
-    () =>
-      assertProductionShadowHydratedIdentity({
-        target: "ui",
-        expectedDeploymentId,
-        renderedDeploymentId: null,
-        assetReferences: [
-          exactAssets[0],
-          `${expectedOrigin}/_next/static/app.css?dpl=m-ui-fffffffffffffffffff`,
-        ],
-        expectedOrigin,
-      }),
-    /do not carry only the expected deployment ID/,
-  );
-
-  for (const target of ["governance", "reserve"]) {
+  for (const target of ["governance", "reserve", "ui"]) {
     assert.doesNotThrow(() =>
       assertProductionShadowHydratedIdentity({
         target,
         expectedDeploymentId,
-        renderedDeploymentId: expectedDeploymentId,
-        assetReferences: [],
+        renderedDeploymentId: null,
+        assetReferences: exactAssets,
         expectedOrigin,
       }),
     );
@@ -2995,11 +2960,46 @@ test("production-shadow identity keeps server HTML strict across hydration", () 
         assertProductionShadowHydratedIdentity({
           target,
           expectedDeploymentId,
-          renderedDeploymentId: null,
+          renderedDeploymentId: "m-ui-fffffffffffffffffff",
           assetReferences: exactAssets,
           expectedOrigin,
         }),
-      new RegExp(`Hydrated ${target} production-shadow page`),
+      /conflicting deployment ID/,
+    );
+    for (const assetReferences of [
+      [exactAssets[0]],
+      [exactAssets[0], `${expectedOrigin}/_next/static/app.css`],
+      [
+        exactAssets[0],
+        `${expectedOrigin}/_next/static/app.css?dpl=m-ui-fffffffffffffffffff`,
+      ],
+      [
+        exactAssets[0],
+        `${expectedOrigin}/_next/static/app.css?dpl=${expectedDeploymentId}&dpl=${expectedDeploymentId}`,
+      ],
+      [
+        exactAssets[0],
+        `https://assets.example.invalid/_next/static/app.css?dpl=${expectedDeploymentId}`,
+      ],
+    ]) {
+      assert.throws(() =>
+        assertProductionShadowHydratedIdentity({
+          target,
+          expectedDeploymentId,
+          renderedDeploymentId: null,
+          assetReferences,
+          expectedOrigin,
+        }),
+      );
+    }
+    assert.doesNotThrow(() =>
+      assertProductionShadowHydratedIdentity({
+        target,
+        expectedDeploymentId,
+        renderedDeploymentId: expectedDeploymentId,
+        assetReferences: exactAssets,
+        expectedOrigin,
+      }),
     );
   }
 });

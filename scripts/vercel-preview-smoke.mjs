@@ -603,11 +603,15 @@ function representativeAssets(html, baseUrl) {
   return [script, style, ...optionalAssets];
 }
 
-function requireUiHtmlDeploymentIdentity(html, expectedDeploymentId) {
+function requireCustomHtmlDeploymentIdentity(
+  target,
+  html,
+  expectedDeploymentId,
+) {
   assertHtmlDocumentDeploymentIdentity(
     html,
     expectedDeploymentId,
-    "UI preview HTML does not carry only the expected build deployment ID",
+    `${target} preview HTML does not carry only the expected build deployment ID`,
   );
 }
 
@@ -637,8 +641,15 @@ export async function smokePreviewHttp({
     ),
     "Preview did not render a target-specific document marker",
   );
-  if (tuple.logicalTarget === "ui") {
-    requireUiHtmlDeploymentIdentity(html, tuple.nextDeploymentId);
+  if (
+    tuple.nextDeploymentId &&
+    ["governance", "reserve", "ui"].includes(tuple.logicalTarget)
+  ) {
+    requireCustomHtmlDeploymentIdentity(
+      tuple.logicalTarget,
+      html,
+      tuple.nextDeploymentId,
+    );
   }
   const assets = representativeAssets(html, baseUrl);
   for (const asset of assets) {

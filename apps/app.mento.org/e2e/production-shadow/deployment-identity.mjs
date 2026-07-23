@@ -28,20 +28,12 @@ export function assertProductionShadowHydratedIdentity({
   expectedOrigin,
 }) {
   requireTarget(target);
-  if (target === "ui") {
-    assertBrowserDeploymentIdentity(
-      {
-        htmlDeploymentId: renderedDeploymentId,
-        assetReferences,
-      },
-      expectedDeploymentId,
-      expectedOrigin,
-    );
-    return;
-  }
-  if (renderedDeploymentId !== expectedDeploymentId) {
-    throw new Error(
-      `Hydrated ${target} production-shadow page does not carry the expected build deployment ID`,
-    );
-  }
+  assertBrowserDeploymentIdentity(
+    {
+      htmlDeploymentId: renderedDeploymentId,
+      assetReferences,
+    },
+    expectedDeploymentId,
+    expectedOrigin,
+  );
 }

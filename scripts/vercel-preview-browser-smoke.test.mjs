@@ -11,9 +11,15 @@ import {
 
 const repoRoot = new URL("../", import.meta.url).pathname;
 const SHA = "0123456789abcdef0123456789abcdef01234567";
+const CUSTOM_ID_GENERIC_TARGETS = ["governance", "reserve"];
 
 function controllerTuple(target) {
-  const deploymentUrl = `https://${target === "reserve" ? "reservemento" : "appmento"}-abc123-mentolabs.vercel.app/`;
+  const hostname = {
+    app: "appmento",
+    governance: "governancemento",
+    reserve: "reservemento",
+  }[target];
+  const deploymentUrl = `https://${hostname}-abc123-mentolabs.vercel.app/`;
   return {
     logicalTarget: target,
     deploymentUrl,
@@ -40,11 +46,24 @@ function controllerTuple(target) {
 }
 
 class FakePage extends EventEmitter {
-  constructor(values, { afterInteraction, competingNavigation = false } = {}) {
+  constructor(
+    values,
+    {
+      afterInteraction,
+      assetRequests,
+      competingNavigation = false,
+      htmlDeploymentId = values.nextDeploymentId,
+      onHtmlDeploymentIdRead,
+    } = {},
+  ) {
     super();
     this.values = values;
     this.afterInteraction = afterInteraction;
+    this.assetRequests = assetRequests;
     this.competingNavigation = competingNavigation;
+    this.htmlDeploymentId = htmlDeploymentId;
+    this.onHtmlDeploymentIdRead = onHtmlDeploymentIdRead;
+    this.htmlDeploymentIdReads = 0;
     this.currentUrl = values.deploymentUrl;
     this.loadComplete = false;
     this.supplySelected = false;
@@ -61,15 +80,22 @@ class FakePage extends EventEmitter {
 
   async goto(url, options) {
     this.calls.push(["goto", url, options]);
-    for (const path of [
-      "/_next/static/app.js",
-      "/_next/static/app.css",
-      "/_next/static/font.woff2",
-    ]) {
-      this.emit("response", {
-        url: () => new URL(path, url).toString(),
-        status: () => 200,
-      });
+    const assetRequests = this.assetRequests ?? [
+      {
+        path: `/_next/static/app.js?dpl=${this.values.nextDeploymentId}`,
+        resourceType: "script",
+      },
+      {
+        path: `/_next/static/app.css?dpl=${this.values.nextDeploymentId}`,
+        resourceType: "stylesheet",
+      },
+      {
+        path: `/_next/static/font.woff2?dpl=${this.values.nextDeploymentId}`,
+        resourceType: "font",
+      },
+    ];
+    for (const request of assetRequests) {
+      this.emitAssetRequest(new URL(request.path, url).toString(), request);
     }
     return {
       ok: () => true,
@@ -82,11 +108,57 @@ class FakePage extends EventEmitter {
     };
   }
 
+  emitAssetRequest(
+    reference,
+    { redirectedFrom = null, resourceType = "script" } = {},
+  ) {
+    const request = this.startAssetRequest(reference, {
+      redirectedFrom,
+      resourceType,
+    });
+    this.finishAssetRequest(request);
+    return request;
+  }
+
+  startAssetRequest(
+    reference,
+    { redirectedFrom = null, resourceType = "script" } = {},
+  ) {
+    const request = {
+      failure: () => ({ errorText: "net::ERR_FAILED" }),
+      method: () => "GET",
+      redirectedFrom: () => redirectedFrom,
+      resourceType: () => resourceType,
+      url: () => reference,
+    };
+    this.emit("request", request);
+    this.emit("response", {
+      request: () => request,
+      url: () => reference,
+      status: () => 200,
+    });
+    return request;
+  }
+
+  finishAssetRequest(request) {
+    this.emit("requestfinished", request);
+  }
+
   url() {
     return this.currentUrl;
   }
 
   locator(selector) {
+    if (selector === "html") {
+      return {
+        getAttribute: async (attribute) => {
+          assert.equal(attribute, "data-dpl-id");
+          this.htmlDeploymentIdReads += 1;
+          this.onHtmlDeploymentIdRead?.(this, this.htmlDeploymentIdReads);
+          return this.htmlDeploymentId;
+        },
+      };
+    }
     assert.equal(selector, "body");
     return {
       waitFor: async (options) => {
@@ -308,6 +380,159 @@ test("App browser smoke uses system Chrome when explicitly requested", async () 
     "wallet-flow-runs-in-the-target-specific-suite",
   );
   assert.ok(page.calls.some(([name]) => name === "body"));
+});
+
+test("custom-ID Governance and Reserve accept exact typed assets after hydration removes the marker", async () => {
+  for (const target of CUSTOM_ID_GENERIC_TARGETS) {
+    const values = controllerTuple(target);
+    const page = new FakePage(values, { htmlDeploymentId: null });
+    const fake = fakeChromium(page);
+
+    const result = await runBrowserSmoke({
+      chromium: fake.chromium,
+      values,
+    });
+
+    assert.equal(result.logicalTarget, target);
+    assert.equal(fake.state.closed, true);
+  }
+});
+
+test("custom-ID Governance and Reserve reject conflicting hydrated markers", async () => {
+  for (const target of CUSTOM_ID_GENERIC_TARGETS) {
+    const values = controllerTuple(target);
+    const fake = fakeChromium(
+      new FakePage(values, {
+        htmlDeploymentId: `m-${target}-${"f".repeat(19)}`,
+      }),
+    );
+
+    await assert.rejects(
+      runBrowserSmoke({ chromium: fake.chromium, values }),
+      /conflicting deployment ID/,
+    );
+    assert.equal(fake.state.closed, true);
+  }
+});
+
+test("custom-ID Governance and Reserve reject wrong, missing, or duplicate asset deployment IDs", async () => {
+  for (const target of CUSTOM_ID_GENERIC_TARGETS) {
+    const values = controllerTuple(target);
+    const invalidJavaScriptPaths = [
+      `/_next/static/app.js?dpl=m-${target}-${"f".repeat(19)}`,
+      "/_next/static/app.js",
+      `/_next/static/app.js?dpl=${values.nextDeploymentId}&dpl=${values.nextDeploymentId}`,
+    ];
+    for (const path of invalidJavaScriptPaths) {
+      const fake = fakeChromium(
+        new FakePage(values, {
+          htmlDeploymentId: null,
+          assetRequests: [
+            { path, resourceType: "script" },
+            {
+              path: `/_next/static/app.css?dpl=${values.nextDeploymentId}`,
+              resourceType: "stylesheet",
+            },
+          ],
+        }),
+      );
+
+      await assert.rejects(
+        runBrowserSmoke({ chromium: fake.chromium, values }),
+        /do not carry only the expected deployment ID/,
+      );
+      assert.equal(fake.state.closed, true);
+    }
+  }
+});
+
+test("custom-ID Governance and Reserve reject resource-type suffix spoofs", async () => {
+  for (const target of CUSTOM_ID_GENERIC_TARGETS) {
+    const values = controllerTuple(target);
+    const fake = fakeChromium(
+      new FakePage(values, {
+        htmlDeploymentId: null,
+        assetRequests: [
+          {
+            path: `/_next/static/app.js?dpl=${values.nextDeploymentId}`,
+            resourceType: "fetch",
+          },
+          {
+            path: `/_next/static/app.css?dpl=${values.nextDeploymentId}`,
+            resourceType: "image",
+          },
+        ],
+      }),
+    );
+
+    await assert.rejects(
+      runBrowserSmoke({ chromium: fake.chromium, values }),
+      /request types are missing or invalid/,
+    );
+    assert.equal(fake.state.closed, true);
+  }
+});
+
+test("custom-ID Governance and Reserve reject late static asset redirects outside the immutable origin", async () => {
+  for (const target of CUSTOM_ID_GENERIC_TARGETS) {
+    const values = controllerTuple(target);
+    const page = new FakePage(values, {
+      htmlDeploymentId: null,
+      afterInteraction(currentPage) {
+        const original = currentPage.emitAssetRequest(
+          new URL(
+            `/_next/static/late.js?dpl=${values.nextDeploymentId}`,
+            values.deploymentUrl,
+          ).toString(),
+        );
+        currentPage.emitAssetRequest("https://assets.example.invalid/late.js", {
+          redirectedFrom: original,
+        });
+      },
+    });
+    const fake = fakeChromium(page);
+
+    await assert.rejects(
+      runBrowserSmoke({ chromium: fake.chromium, values }),
+      /redirected outside its immutable identity/,
+    );
+    assert.equal(fake.state.closed, true);
+  }
+});
+
+test("custom-ID Governance and Reserve settle requests started during the hydrated marker read", async () => {
+  for (const target of CUSTOM_ID_GENERIC_TARGETS) {
+    const values = controllerTuple(target);
+    const page = new FakePage(values, {
+      htmlDeploymentId: null,
+      onHtmlDeploymentIdRead(currentPage, readCount) {
+        if (readCount !== 1) return;
+        const request = currentPage.startAssetRequest(
+          new URL(
+            `/_next/static/late.js?dpl=${values.nextDeploymentId}`,
+            values.deploymentUrl,
+          ).toString(),
+        );
+        setTimeout(() => {
+          currentPage.calls.push(["race-asset-finished"]);
+          currentPage.finishAssetRequest(request);
+        }, 10);
+      },
+    });
+    const fake = fakeChromium(page);
+
+    await runBrowserSmoke({ chromium: fake.chromium, values });
+
+    const requestFinishedIndex = page.calls.findIndex(
+      ([name]) => name === "race-asset-finished",
+    );
+    const interactionIndex = page.calls.findIndex(([name]) =>
+      target === "reserve" ? name === "supply-click" : name === "body",
+    );
+    assert.ok(requestFinishedIndex >= 0);
+    assert.ok(interactionIndex > requestFinishedIndex);
+    assert.equal(fake.state.closed, true);
+  }
 });
 
 test("browser failure monitor fails on console, page, and same-origin asset errors", () => {

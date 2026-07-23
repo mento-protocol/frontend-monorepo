@@ -5,6 +5,10 @@ import { join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import {
+  createBrowserDeploymentIdentityMonitor,
+  readSettledBrowserDeploymentIdentity,
+} from "../apps/ui.mento.org/e2e/vercel-preview-browser-smoke.mjs";
 import { validatePreviewSmokeTuple } from "./vercel-preview-smoke.mjs";
 
 const MAXIMUM_FAILURES = 100;
@@ -192,6 +196,12 @@ export async function runBrowserSmoke({
     page.setDefaultTimeout(timeoutMs);
     page.setDefaultNavigationTimeout(timeoutMs);
     const monitor = createBrowserFailureMonitor(page, baseUrl.origin);
+    const deploymentIdentityMonitor =
+      (tuple.logicalTarget === "governance" ||
+        tuple.logicalTarget === "reserve") &&
+      tuple.nextDeploymentId
+        ? createBrowserDeploymentIdentityMonitor(page, baseUrl.origin)
+        : undefined;
     const response = await page.goto(baseUrl.toString(), {
       waitUntil: "domcontentloaded",
     });
@@ -207,6 +217,14 @@ export async function runBrowserSmoke({
     // The tab shell is server rendered. Wait for all deferred client scripts
     // before clicking so the first interaction cannot race React hydration.
     await page.waitForLoadState("load");
+    if (deploymentIdentityMonitor) {
+      await readSettledBrowserDeploymentIdentity({
+        page,
+        monitor: deploymentIdentityMonitor,
+        expectedDeploymentId: tuple.nextDeploymentId,
+        timeoutMs,
+      });
+    }
     const interaction = await runTargetInteraction(
       page,
       tuple.logicalTarget,
@@ -228,6 +246,14 @@ export async function runBrowserSmoke({
       throw new Error(
         "Reserve Supply tab state did not persist after interaction settle",
       );
+    }
+    if (deploymentIdentityMonitor) {
+      await readSettledBrowserDeploymentIdentity({
+        page,
+        monitor: deploymentIdentityMonitor,
+        expectedDeploymentId: tuple.nextDeploymentId,
+        timeoutMs,
+      });
     }
     monitor.assertClean();
     return {

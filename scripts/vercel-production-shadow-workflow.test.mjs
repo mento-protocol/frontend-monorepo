@@ -1528,10 +1528,9 @@ test("production-shadow smoke settles deployment identity around hydration and i
   assert.ok(targetInteractionIndex < finalHydratedIdentityIndex);
   assert.match(spec, /await \(response as Response\)\.text\(\)/);
   assert.match(spec, /assertProductionShadowHydratedIdentity/);
-  assert.match(spec, /target === "ui"/);
   assert.match(spec, /createBrowserDeploymentIdentityMonitor/);
   assert.match(spec, /readSettledBrowserDeploymentIdentity/);
-  assert.match(spec, /monitor: uiIdentityMonitor/);
+  assert.match(spec, /monitor: deploymentIdentityMonitor/);
 
   const helperStart = browserIdentitySource.indexOf(
     "export async function readSettledBrowserDeploymentIdentity",
@@ -1623,7 +1622,7 @@ test("shadow smoke strips protection headers and disables traces", () => {
   assert.match(spec, /PRODUCTION_SHADOW_EXPECTED_SHA|expectedSha/);
   assert.match(workflowSource, /PRODUCTION_SHADOW_EXPECTED_SHA/);
   assert.match(spec, /x-mento-deployment-sha/);
-  assert.match(spec, /data-dpl-id/);
+  assert.match(spec, /assertProductionShadowServerIdentity/);
   assert.match(spec, /My Voting Power/);
   assert.match(spec, /Supply/);
   assert.match(spec, /Search components/);
