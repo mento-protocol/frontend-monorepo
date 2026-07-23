@@ -3,6 +3,7 @@ import { makeVar, type TypePolicy } from "@apollo/client/cache";
 import {
   ProposalState,
   ProposalSupport,
+  ProposalMetadata,
   ProposalVotes,
   Scalars,
   VoteCast,
@@ -23,7 +24,7 @@ export const ProposalPolicy: TypePolicy = {
       },
     },
     metadata: {
-      read(_, { readField }): { title: string; description: string } {
+      read(_, { readField }): ProposalMetadata {
         const rawMetadata = readField<string>("description") || "";
         let metadata;
         try {
@@ -36,6 +37,7 @@ export const ProposalPolicy: TypePolicy = {
         }
 
         return {
+          __typename: "ProposalMetadata",
           title: metadata.title || "Missing title",
           description: metadata.description || "Missing description",
         };
@@ -67,17 +69,29 @@ export const ProposalPolicy: TypePolicy = {
             switch (support) {
               case 0: // AGAINST
                 acc.against.total += weight;
-                acc.against.participants.push({ address, weight });
+                acc.against.participants.push({
+                  __typename: "Participant",
+                  address,
+                  weight,
+                });
                 break;
 
               case 1: // FOR
                 acc.for.total += weight;
-                acc.for.participants.push({ address, weight });
+                acc.for.participants.push({
+                  __typename: "Participant",
+                  address,
+                  weight,
+                });
                 break;
 
               case 2: // ABSTAIN
                 acc.abstain.total += weight;
-                acc.abstain.participants.push({ address, weight });
+                acc.abstain.participants.push({
+                  __typename: "Participant",
+                  address,
+                  weight,
+                });
                 break;
 
               default:
@@ -88,9 +102,22 @@ export const ProposalPolicy: TypePolicy = {
             return acc;
           },
           {
-            for: { participants: [], total: 0n },
-            against: { participants: [], total: 0n },
-            abstain: { participants: [], total: 0n },
+            __typename: "ProposalVotes",
+            for: {
+              __typename: "VoteType",
+              participants: [],
+              total: 0n,
+            },
+            against: {
+              __typename: "VoteType",
+              participants: [],
+              total: 0n,
+            },
+            abstain: {
+              __typename: "VoteType",
+              participants: [],
+              total: 0n,
+            },
             total: 0n,
           },
         );
