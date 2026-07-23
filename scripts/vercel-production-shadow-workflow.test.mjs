@@ -840,6 +840,52 @@ test("sanitized Vercel build child receives the exact Git identity tuple", () =>
   }
 });
 
+test("candidate build forces trusted Vercel monorepo support", () => {
+  const build = candidateAction.runs.steps.find(
+    (step) => step.name === "Build prebuilt output as candidate",
+  );
+  assert.ok(build, "missing candidate Vercel build step");
+  assert.equal(build.env.VERCEL_BUILD_MONOREPO_SUPPORT, "1");
+  assert.equal(
+    Object.hasOwn(candidateAction.inputs, "vercel-build-monorepo-support"),
+    false,
+    "candidate callers must not override the trusted constant",
+  );
+
+  const cliInvocation =
+    '"$NODE_BIN" "$TRUSTED_VERCEL_CLI_PATH" "${build_arguments[@]}"';
+  const invocationIndex = build.run.indexOf(cliInvocation);
+  assert.notEqual(invocationIndex, -1, "missing pinned Vercel CLI invocation");
+  const environmentIndex = build.run.lastIndexOf(
+    "sudo --non-interactive /usr/bin/env -i",
+    invocationIndex,
+  );
+  assert.notEqual(
+    environmentIndex,
+    -1,
+    "missing sanitized Vercel CLI environment",
+  );
+  const child = build.run.slice(
+    environmentIndex,
+    invocationIndex + cliInvocation.length,
+  );
+  assert.equal(
+    child
+      .split("\n")
+      .filter(
+        (line) =>
+          line.trim() ===
+          'VERCEL_BUILD_MONOREPO_SUPPORT="$VERCEL_BUILD_MONOREPO_SUPPORT" \\',
+      ).length,
+    1,
+  );
+  assert.doesNotMatch(
+    child,
+    /VERCEL_BUILD_MONOREPO_SUPPORT="\$\{VERCEL_BUILD_MONOREPO_SUPPORT[:-]/,
+    "candidate environment must not supply a fallback or override",
+  );
+});
+
 test("every repo-linked pull validates local and remote project identity before build", () => {
   for (const target of ["app", "governance", "reserve", "ui"]) {
     const targetLabel = target === "ui" ? "UI" : target;

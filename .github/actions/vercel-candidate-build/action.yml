@@ -552,6 +552,7 @@ runs:
         NODE_BIN: ${{ inputs.node-bin }}
         PNPM_BIN: ${{ inputs.pnpm-bin }}
         TRUSTED_VERCEL_CLI_PATH: ${{ inputs.vercel-cli }}
+        VERCEL_BUILD_MONOREPO_SUPPORT: "1"
         VERCEL_ORG_ID: ${{ inputs.vercel-org-id }}
         VERCEL_PROJECT_ID: ${{ inputs.vercel-project-id }}
       run: |
@@ -620,6 +621,7 @@ runs:
           TURBO_TEAM="${TURBO_TEAM:-}" \
           TURBO_TOKEN="${TURBO_TOKEN:-}" \
           VERCEL="${VERCEL:-1}" \
+          VERCEL_BUILD_MONOREPO_SUPPORT="$VERCEL_BUILD_MONOREPO_SUPPORT" \
           VERCEL_ENV="${VERCEL_ENV:-}" \
           VERCEL_GIT_COMMIT_REF="${VERCEL_GIT_COMMIT_REF:-main}" \
           VERCEL_GIT_COMMIT_SHA="$DEPLOY_SHA" \
