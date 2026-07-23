@@ -27,9 +27,11 @@ per-target `shadow` or `github` mode live together in
 guards, and ownership tests import or structurally verify that source; do not
 copy a second ownership table into executable code.
 
-The guarded manual production-shadow pilot does not activate a domain or change
-deployment ownership. Until the later production cutover issues ship, the
-Vercel Git integration remains the production deployment owner.
+The guarded manual production-shadow pilot does not promote or mutate a
+protected/custom production domain or deployment ownership. Each ordinary
+upload implicitly moves the target's reviewed generated project/team alias.
+Until the later production cutover issues ship, the Vercel Git integration
+remains the protected/custom production deployment owner.
 
 ## Pinned prerequisites
 
@@ -361,7 +363,9 @@ them, and a Vercel Sensitive value must never be assumed to appear in
 ## Manual production-shadow pilot
 
 `.github/workflows/vercel-production-shadow.yml` is a manual-only,
-non-activating pilot. Dispatch it from `main` with:
+non-promoting pilot. Its ordinary uploads implicitly move the reviewed generated
+system aliases but do not move protected/custom production domains. Dispatch it
+from `main` with:
 
 - `deploy_sha`: a full 40-character commit SHA that exactly equals the fetched
   `refs/remotes/origin/main` tip;
@@ -520,6 +524,26 @@ runner:    validate -> immutable handoff -> destroy candidate boundary
 runner:    vercel deploy --prebuilt --prod --skip-domain --archive=tgz --format=json
 ```
 
+`--skip-domain` suppresses custom production-domain assignment. In this reviewed
+team/project topology, confirmed by read-only checks of the observed public
+routes, the Vercel CLI still assigns the deployment's immutable hostname and an
+unavoidable generated project/team alias; it offers no supported
+zero-generated-alias mode. The controller binds that generated alias to each
+literal target:
+
+- Governance: `governancementoorg-mentolabs.vercel.app`
+- Reserve: `reservementoorg-mentolabs.vercel.app`
+- UI: `uimentoorg-mentolabs.vercel.app`
+
+Any missing immutable or generated alias, protected/custom domain, branch or
+global alias, wrong-target alias, or malformed canonical hostname evidence fails
+closed. The read-only state inspector normalizes and deduplicates raw provider
+aliases; persisted canonical evidence must remain deduplicated and sorted.
+Protected-domain before/after equality remains the decisive proof that the
+upload did not activate protected/custom production traffic. A future
+provider-generated alias topology must fail first and receive a reviewed
+contract update rather than being accepted implicitly.
+
 Each command is launched at the monorepo root with an explicit literal
 `--project` argument. The controller removes `VERCEL_ORG_ID` and
 `VERCEL_PROJECT_ID` only from the CLI child environment after validating them
@@ -541,21 +565,23 @@ The uploaded `apps/<target>/.vercel/output` is the exact output whose custom
 Next deployment ID was asserted and copied into the runner-owned handoff. It is
 never transferred as a GitHub artifact.
 Each immutable URL must prove the literal project, `production` target, `READY`
-state, exact repository/ref/SHA metadata, and an alias set containing only its
-immutable deployment hostname before smoke begins. The browser then proves
-critical security headers, a stable page marker, and a target-specific
-non-transaction interaction. Protected alias
-mappings are compared after each upload and once again at the end. Once the
-candidate build boundary and fresh trusted-controller checkout both succeed, an
-always-run read-only check executes immediately after every deploy attempt,
-including failed deploy attempts, before state polling, Chromium installation,
-or smoke checks. Candidate-boundary or trusted-checkout failure never exposes
-the production token to this check. Any drift fails the run without executing
-an alias, deploy, promotion, or rollback command. The failure contains only
-canonical alias plus before/current deployment IDs and immutable URLs, followed
-by manual operator instructions. The final all-target comparison has its own
-fresh trusted checkout and likewise cannot receive the production token when
-that checkout fails.
+state, exact repository/ref/SHA metadata, and an alias set containing exactly
+its immutable deployment hostname plus the target's reviewed generated
+project/team alias before smoke begins. Smoke and browser verification use only
+the immutable deployment URL; the generated alias is state evidence, never the
+runtime test endpoint. The browser then proves critical security headers, a
+stable page marker, and a target-specific non-transaction interaction.
+Protected alias mappings are compared after each upload and once again at the
+end. Once the candidate build boundary and fresh trusted-controller checkout
+both succeed, an always-run read-only check executes immediately after every
+deploy attempt, including failed deploy attempts, before state polling,
+Chromium installation, or smoke checks. Candidate-boundary or trusted-checkout
+failure never exposes the production token to this check. Any drift fails the
+run without executing an alias, deploy, promotion, or rollback command. The
+failure contains only canonical alias plus before/current deployment IDs and
+immutable URLs, followed by manual operator instructions. The final all-target
+comparison has its own fresh trusted checkout and likewise cannot receive the
+production token when that checkout fails.
 
 On drift, stop all forward work. Confirm the change is not an intentional or
 concurrent activation, re-resolve every affected alias, and require it still to
@@ -634,8 +660,10 @@ artifacts bounded.
 Do not run the manual pilot until the required GitHub Environment, repository
 variables, production token, mirrored build-variable names, and reviewed app-v3
 alias list are confirmed present. The workflow itself performs no Vercel Git
-setting change, domain activation, promotion, or cleanup of a serving
-deployment.
+setting, explicit alias, promotion, environment-configuration, ownership,
+protected/custom production-domain, or serving-deployment cleanup command. Each
+ordinary deploy still performs the bounded implicit movement of its reviewed
+generated system alias.
 
 Each candidate build must emit exactly one canonical Turbo
 `Cached: X cached, Y total` line. Missing, duplicate, malformed, or impossible
@@ -672,10 +700,13 @@ loopback origins and the Playwright-pinned Chromium to prove a cross-origin
 redirect cannot inherit a protection header.
 
 The test commands above perform no Vercel API call, build upload, deployment,
-alias mutation, environment mutation, or Git-ownership change. The manual
-production-shadow workflow described above does use read-only Vercel API checks
-and stages non-activating ordinary-project deployments; it still performs no
-alias mutation, environment mutation, or Git-ownership change.
+alias mutation, environment-configuration mutation, or Git-ownership change. The
+manual production-shadow workflow described above does use read-only Vercel API
+checks and stages ordinary-project deployments without promoting
+protected/custom production domains. Each upload implicitly moves the target's
+reviewed generated system alias; the workflow performs no explicit alias
+assignment, promotion, environment-configuration, ownership, or
+protected/custom production-domain mutation.
 
 ## Cost validation preparation
 

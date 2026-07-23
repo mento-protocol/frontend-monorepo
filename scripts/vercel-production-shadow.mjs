@@ -96,12 +96,14 @@ export const PRODUCTION_SHADOW_TARGETS = {
     pullEnvironment: "v3",
     buildArguments: ["build", "--yes", "--standalone", "--target", "v3"],
     deployArguments: null,
+    generatedProjectAlias: null,
   },
   governance: {
     projectName: "governance.mento.org",
     rootDirectory: "apps/governance.mento.org",
     pullEnvironment: "production",
     buildArguments: ["build", "--yes", "--standalone", "--prod"],
+    generatedProjectAlias: "governancementoorg-mentolabs.vercel.app",
     deployArguments: [
       "deploy",
       "--prebuilt",
@@ -117,6 +119,7 @@ export const PRODUCTION_SHADOW_TARGETS = {
     rootDirectory: "apps/reserve.mento.org",
     pullEnvironment: "production",
     buildArguments: ["build", "--yes", "--standalone", "--prod"],
+    generatedProjectAlias: "reservementoorg-mentolabs.vercel.app",
     deployArguments: [
       "deploy",
       "--prebuilt",
@@ -132,6 +135,7 @@ export const PRODUCTION_SHADOW_TARGETS = {
     rootDirectory: "apps/ui.mento.org",
     pullEnvironment: "production",
     buildArguments: ["build", "--yes", "--standalone", "--prod"],
+    generatedProjectAlias: "uimentoorg-mentolabs.vercel.app",
     deployArguments: [
       "deploy",
       "--prebuilt",
@@ -2194,20 +2198,39 @@ export function createDeploymentExpectation({
   };
 }
 
-export function assertUnaliasedProductionShadowDeployment(state) {
+export function assertOnlyExpectedVercelGeneratedAliases(state, logicalTarget) {
   assertCanonicalOutput(state);
   if (Array.isArray(state)) {
     throw new Error(
       "Staged deployment state must describe exactly one deployment",
     );
   }
+  const contract = targetContract(logicalTarget);
+  const generatedProjectAlias = contract.generatedProjectAlias;
+  if (generatedProjectAlias === null) {
+    throw new Error(
+      "Target does not support production generated-alias verification",
+    );
+  }
+  if (canonicalizeHostname(generatedProjectAlias) !== generatedProjectAlias) {
+    throw new Error("Reviewed generated project alias is malformed");
+  }
+  if (state.projectName !== contract.projectName) {
+    throw new Error("Staged deployment project does not match literal target");
+  }
+  if (state.target !== "production" || state.customEnvironmentSlug !== null) {
+    throw new Error(
+      "Staged deployment is not an ordinary production deployment",
+    );
+  }
   const immutableHostname = new URL(state.deploymentUrl).hostname;
+  const expectedAliases = [immutableHostname, generatedProjectAlias].sort();
   if (
     state.alias !== immutableHostname ||
-    JSON.stringify(state.aliases) !== JSON.stringify([immutableHostname])
+    JSON.stringify(state.aliases) !== JSON.stringify(expectedAliases)
   ) {
     throw new Error(
-      "Staged production deployment received an unexpected alias",
+      "Staged production deployment does not have only expected Vercel-generated aliases",
     );
   }
   return state;
@@ -2780,11 +2803,14 @@ if (isCliEntrypoint()) {
       }),
     );
     process.stdout.write("App v3 build-only Outcome B verified\n");
-  } else if (command === "assert-unaliased") {
-    assertUnaliasedProductionShadowDeployment(
+  } else if (command === "assert-generated-aliases") {
+    assertOnlyExpectedVercelGeneratedAliases(
       readJson(options.input, "Staged deployment state"),
+      options.target,
     );
-    process.stdout.write("Staged production deployment is unaliased\n");
+    process.stdout.write(
+      "Staged production deployment has only expected Vercel-generated aliases\n",
+    );
   } else if (command === "evidence") {
     assertEvidenceFiles(readJson(options.files, "Evidence file list"));
     process.stdout.write("Canonical evidence scan passed\n");
@@ -2870,7 +2896,7 @@ if (isCliEntrypoint()) {
     process.stdout.write("Protected host health checks passed\n");
   } else {
     throw new Error(
-      "Usage: vercel-production-shadow.mjs validate-context|validate-source|create-spec|prepare-link|prepare-pull-staging|pull|materialize-source|validate-pull-staging|stage-pull|validate-candidate-pull|validate-pull|check-build-inputs|build|create-handoff|assert-output|deploy|app-proof|assert-unaliased|evidence|check-aliases|final|emit-output|cache-summary|summary|health",
+      "Usage: vercel-production-shadow.mjs validate-context|validate-source|create-spec|prepare-link|prepare-pull-staging|pull|materialize-source|validate-pull-staging|stage-pull|validate-candidate-pull|validate-pull|check-build-inputs|build|create-handoff|assert-output|deploy|app-proof|assert-generated-aliases|evidence|check-aliases|final|emit-output|cache-summary|summary|health",
     );
   }
 }

@@ -1,8 +1,11 @@
 name: Vercel Production Shadow
 
-# Manual, non-activating production pilot. Ordinary projects upload unaliased
-# production artifacts; app custom v3 is build-only because the pinned CLI has
-# no documented no-alias custom-environment deploy.
+# Manual, non-promoting production pilot. Ordinary uploads avoid protected and
+# custom production domains, but implicitly move the target's reviewed generated
+# project/team alias. The workflow issues no explicit alias assignment,
+# promotion, environment-configuration, ownership, or protected-domain
+# mutation. App custom v3 is build-only because the pinned CLI has no documented
+# non-activating custom-environment deploy.
 #checkov:skip=CKV_GHA_7:Immutable SHA and reviewed alias inputs are mandatory for this manual pilot.
 on:
   workflow_dispatch:
@@ -452,7 +455,7 @@ jobs:
           path: trusted-after-build
           persist-credentials: false
           ref: ${{ needs.preflight.outputs.deploy_sha }}
-      - name: Upload unchanged governance output without domains
+      - name: Upload unchanged governance output without custom production domains
         id: deploy
         env:
           DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
@@ -490,7 +493,7 @@ jobs:
           "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" create-spec --output "$RUNNER_TEMP/protected-spec.json"
           "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" snapshot --spec "$RUNNER_TEMP/protected-spec.json" --output "$RUNNER_TEMP/current.json"
           "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" compare --before "$RUNNER_TEMP/governance-compare-baseline.json" --after "$RUNNER_TEMP/current.json"
-      - name: Verify governance deployment provenance and readiness
+      - name: Verify governance deployment provenance, readiness, and generated aliases
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
@@ -502,7 +505,7 @@ jobs:
             sleep 5
           done
           "$verified"
-          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" assert-unaliased --input "$RUNNER_TEMP/governance-state.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" assert-generated-aliases --target governance --input "$RUNNER_TEMP/governance-state.json"
       - name: Scan governance canonical evidence
         run: |
           set -o noclobber
@@ -665,7 +668,7 @@ jobs:
           path: trusted-after-build
           persist-credentials: false
           ref: ${{ needs.preflight.outputs.deploy_sha }}
-      - name: Upload unchanged reserve output without domains
+      - name: Upload unchanged reserve output without custom production domains
         id: deploy
         env:
           DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
@@ -703,7 +706,7 @@ jobs:
           "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" create-spec --output "$RUNNER_TEMP/protected-spec.json"
           "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" snapshot --spec "$RUNNER_TEMP/protected-spec.json" --output "$RUNNER_TEMP/current.json"
           "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" compare --before "$RUNNER_TEMP/reserve-compare-baseline.json" --after "$RUNNER_TEMP/current.json"
-      - name: Verify reserve deployment provenance and readiness
+      - name: Verify reserve deployment provenance, readiness, and generated aliases
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
@@ -715,7 +718,7 @@ jobs:
             sleep 5
           done
           "$verified"
-          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" assert-unaliased --input "$RUNNER_TEMP/reserve-state.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" assert-generated-aliases --target reserve --input "$RUNNER_TEMP/reserve-state.json"
       - name: Scan reserve canonical evidence
         run: |
           set -o noclobber
@@ -877,7 +880,7 @@ jobs:
           path: trusted-after-build
           persist-credentials: false
           ref: ${{ needs.preflight.outputs.deploy_sha }}
-      - name: Upload unchanged UI output without domains
+      - name: Upload unchanged UI output without custom production domains
         id: deploy
         env:
           DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
@@ -915,7 +918,7 @@ jobs:
           "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" create-spec --output "$RUNNER_TEMP/protected-spec.json"
           "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" snapshot --spec "$RUNNER_TEMP/protected-spec.json" --output "$RUNNER_TEMP/current.json"
           "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" compare --before "$RUNNER_TEMP/ui-compare-baseline.json" --after "$RUNNER_TEMP/current.json"
-      - name: Verify UI deployment provenance and readiness
+      - name: Verify UI deployment provenance, readiness, and generated aliases
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
@@ -927,7 +930,7 @@ jobs:
             sleep 5
           done
           "$verified"
-          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" assert-unaliased --input "$RUNNER_TEMP/ui-state.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" assert-generated-aliases --target ui --input "$RUNNER_TEMP/ui-state.json"
       - name: Scan UI canonical evidence
         run: |
           set -o noclobber
