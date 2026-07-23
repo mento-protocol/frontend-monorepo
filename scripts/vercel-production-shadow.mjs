@@ -2224,13 +2224,15 @@ export function assertOnlyExpectedVercelGeneratedAliases(state, logicalTarget) {
     );
   }
   const immutableHostname = new URL(state.deploymentUrl).hostname;
-  const expectedAliases = [immutableHostname, generatedProjectAlias].sort();
-  if (
-    state.alias !== immutableHostname ||
-    JSON.stringify(state.aliases) !== JSON.stringify(expectedAliases)
-  ) {
+  if (state.alias !== immutableHostname) {
     throw new Error(
-      "Staged production deployment does not have only expected Vercel-generated aliases",
+      `Staged ${logicalTarget} production immutable hostname mismatch: expected ${immutableHostname} from deploymentUrl; actual ${state.alias}`,
+    );
+  }
+  const expectedAliases = [generatedProjectAlias];
+  if (JSON.stringify(state.aliases) !== JSON.stringify(expectedAliases)) {
+    throw new Error(
+      `Staged ${logicalTarget} production generated-alias topology mismatch: expected ${JSON.stringify(expectedAliases)}; actual ${JSON.stringify(state.aliases)}`,
     );
   }
   return state;
@@ -2809,7 +2811,7 @@ if (isCliEntrypoint()) {
       options.target,
     );
     process.stdout.write(
-      "Staged production deployment has only expected Vercel-generated aliases\n",
+      "Staged production deployment identity and generated-alias topology verified\n",
     );
   } else if (command === "evidence") {
     assertEvidenceFiles(readJson(options.files, "Evidence file list"));

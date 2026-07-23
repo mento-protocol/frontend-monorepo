@@ -493,7 +493,7 @@ jobs:
           "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" create-spec --output "$RUNNER_TEMP/protected-spec.json"
           "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" snapshot --spec "$RUNNER_TEMP/protected-spec.json" --output "$RUNNER_TEMP/current.json"
           "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" compare --before "$RUNNER_TEMP/governance-compare-baseline.json" --after "$RUNNER_TEMP/current.json"
-      - name: Verify governance deployment provenance, readiness, and generated aliases
+      - name: Verify governance deployment provenance, readiness, immutable URL and generated alias
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
@@ -706,7 +706,7 @@ jobs:
           "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" create-spec --output "$RUNNER_TEMP/protected-spec.json"
           "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" snapshot --spec "$RUNNER_TEMP/protected-spec.json" --output "$RUNNER_TEMP/current.json"
           "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" compare --before "$RUNNER_TEMP/reserve-compare-baseline.json" --after "$RUNNER_TEMP/current.json"
-      - name: Verify reserve deployment provenance, readiness, and generated aliases
+      - name: Verify reserve deployment provenance, readiness, immutable URL and generated alias
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
@@ -918,7 +918,7 @@ jobs:
           "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" create-spec --output "$RUNNER_TEMP/protected-spec.json"
           "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" snapshot --spec "$RUNNER_TEMP/protected-spec.json" --output "$RUNNER_TEMP/current.json"
           "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" compare --before "$RUNNER_TEMP/ui-compare-baseline.json" --after "$RUNNER_TEMP/current.json"
-      - name: Verify UI deployment provenance, readiness, and generated aliases
+      - name: Verify UI deployment provenance, readiness, immutable URL and generated alias
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}

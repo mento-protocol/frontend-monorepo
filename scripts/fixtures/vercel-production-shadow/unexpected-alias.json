@@ -13,5 +13,5 @@
     "ref": "main",
     "sha": "0123456789abcdef0123456789abcdef01234567"
   },
-  "aliases": ["governance-immutable.vercel.app", "governance.mento.org"]
+  "aliases": ["governance.mento.org", "governancementoorg-mentolabs.vercel.app"]
 }

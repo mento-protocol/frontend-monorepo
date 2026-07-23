@@ -21,7 +21,7 @@
   "aliasesResponse": {
     "aliases": [
       { "alias": "governance.mento.org" },
-      { "alias": "governance-immutable.vercel.app" }
+      { "alias": "governancementoorg-mentolabs.vercel.app" }
     ]
   },
   "expected": {

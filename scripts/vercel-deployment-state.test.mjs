@@ -75,7 +75,10 @@ test("ordinary production fixture emits only canonical allowlisted state", () =>
       ref: "main",
       sha: "0123456789abcdef0123456789abcdef01234567",
     },
-    aliases: ["governance-immutable.vercel.app", "governance.mento.org"],
+    aliases: [
+      "governance.mento.org",
+      "governancementoorg-mentolabs.vercel.app",
+    ],
   });
 });
 
@@ -268,8 +271,8 @@ test("wrong or malformed deployment environments fail closed", () => {
 
 test("aliases are canonicalized, deduplicated, sorted, and validated", () => {
   assert.deepEqual(canonicalizeAliases(fixture("duplicate-aliases.json")), [
-    "governance-immutable.vercel.app",
     "governance.mento.org",
+    "governancementoorg-mentolabs.vercel.app",
   ]);
   assert.throws(
     () => canonicalizeAliases(fixture("malformed-aliases.json")),

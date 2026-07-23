@@ -71,7 +71,8 @@ all build-boundary state below the target-scoped, authenticated
 reauthenticate and remove the exact runtime in a final `if: always()` step.
 Preserve App custom `v3` as build-only and preserve the App `v2` alias.
 Governance, Reserve, and UI uploads must avoid custom production domains and
-contain exactly the immutable deployment hostname plus the target's reviewed
+must expose the immutable deployment hostname through the deployment URL/state
+identity while the provider alias list contains exactly the target's reviewed
 literal Vercel-generated project/team alias.
 Every candidate Vercel build must use `--standalone`; reject invalid, oversized,
 or non-empty-`filePathMap` `.vc-config.json` files before handoff and again on
