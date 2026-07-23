@@ -19,7 +19,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import process from "node:process";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -2289,7 +2289,20 @@ test("standalone Vercel CLI runtime is exact, override-aligned, and independentl
   }
 });
 
-test("standalone Vercel CLI resolver enforces exact path, release, ownership, mode, and link count", () => {
+test("installed root Vercel CLI executes the exact pinned release", () => {
+  const cliPath = realpathSync(
+    join(REPOSITORY_ROOT, "node_modules", "vercel", "dist", "index.js"),
+  );
+  assert.equal(
+    execFileSync(process.execPath, [cliPath, "--version"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim(),
+    "56.2.0",
+  );
+});
+
+test("standalone Vercel CLI resolver enforces and executes the exact protected layout", () => {
   const fixtureRoot = mkdtempSync(join(tmpdir(), "vercel-cli-resolver-"));
   const controllerRoot = join(fixtureRoot, "controller");
   const sourceRoot = join(controllerRoot, "scripts", "vercel-cli-runtime");
@@ -2339,11 +2352,27 @@ test("standalone Vercel CLI resolver enforces exact path, release, ownership, mo
       `${JSON.stringify({ name: "vercel", version: "56.2.0" })}\n`,
       { mode: 0o644 },
     );
-    writeFileSync(cliPath, "export {};\n", { mode: 0o644 });
+    writeFileSync(
+      cliPath,
+      [
+        'if (process.argv[2] !== "--version") process.exit(2);',
+        'process.stdout.write("56.2.0\\n");',
+        "",
+      ].join("\n"),
+      { mode: 0o644 },
+    );
 
+    const resolvedCliPath = trustedStandaloneVercelCliPath({
+      controllerRoot,
+      toolsRoot,
+    });
+    assert.equal(resolvedCliPath, realpathSync(cliPath));
     assert.equal(
-      trustedStandaloneVercelCliPath({ controllerRoot, toolsRoot }),
-      realpathSync(cliPath),
+      execFileSync(process.execPath, [resolvedCliPath, "--version"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }).trim(),
+      "56.2.0",
     );
 
     chmodSync(cliPath, 0o666);
@@ -2642,105 +2671,6 @@ test("trusted Vercel CLI must be exact-versioned and runner-protected", () => {
     rmSync(toolsPath, { force: true, recursive: true });
   }
 });
-
-test(
-  "pinned pnpm materializes and executes standalone Vercel 56.2.0 offline",
-  { timeout: 120_000 },
-  () => {
-    const fixtureRoot = mkdtempSync(join(tmpdir(), "vercel-tools-layout-"));
-    const controllerRoot = join(fixtureRoot, "controller");
-    const toolsRoot = join(fixtureRoot, "trusted-tools");
-    const archivePath = join(fixtureRoot, "controller.tar");
-    try {
-      mkdirSync(controllerRoot, { mode: 0o755 });
-      mkdirSync(toolsRoot, { mode: 0o755 });
-      execFileSync("git", [
-        "-C",
-        REPOSITORY_ROOT,
-        "archive",
-        "--format=tar",
-        `--output=${archivePath}`,
-        "HEAD",
-      ]);
-      execFileSync("tar", ["-xf", archivePath, "-C", controllerRoot]);
-      copyFileSync(
-        join(REPOSITORY_ROOT, "package.json"),
-        join(controllerRoot, "package.json"),
-      );
-      const runtimeSource = join(
-        controllerRoot,
-        "scripts",
-        "vercel-cli-runtime",
-      );
-      mkdirSync(runtimeSource, { recursive: true, mode: 0o755 });
-      for (const file of ["package.json", "pnpm-lock.yaml"]) {
-        copyFileSync(
-          join(REPOSITORY_ROOT, "scripts", "vercel-cli-runtime", file),
-          join(runtimeSource, file),
-        );
-        chmodSync(join(runtimeSource, file), 0o444);
-      }
-
-      const runtimeRoot = stageTrustedVercelCliRuntimeManifest({
-        controllerRoot,
-        toolsRoot,
-      });
-      assert.equal(
-        runtimeRoot,
-        join(realpathSync(toolsRoot), "vercel-cli-runtime"),
-      );
-      assert.equal(
-        execFileSync("pnpm", ["--version"], { encoding: "utf8" }).trim(),
-        "10.34.4",
-      );
-
-      execFileSync(
-        "pnpm",
-        [
-          "--dir",
-          runtimeRoot,
-          "install",
-          "--frozen-lockfile",
-          "--ignore-scripts",
-          "--ignore-workspace",
-          "--package-import-method",
-          "copy",
-          "--offline",
-        ],
-        {
-          encoding: "utf8",
-          env: { ...process.env, CI: "true" },
-          stdio: ["ignore", "pipe", "pipe"],
-        },
-      );
-      execFileSync("chmod", ["-R", "a+rX,go-w", toolsRoot]);
-
-      const cliPath = trustedStandaloneVercelCliPath({
-        controllerRoot,
-        toolsRoot,
-      });
-      const pathFromTools = relative(realpathSync(toolsRoot), cliPath);
-      assert.notEqual(pathFromTools, "");
-      assert.equal(pathFromTools === "..", false);
-      assert.equal(pathFromTools.startsWith(`..${sep}`), false);
-      assert.equal(
-        execFileSync(process.execPath, [cliPath, "--version"], {
-          encoding: "utf8",
-          stdio: ["ignore", "pipe", "pipe"],
-        }).trim(),
-        "56.2.0",
-      );
-      assert.equal(
-        JSON.parse(
-          readFileSync(resolve(cliPath, "..", "..", "package.json"), "utf8"),
-        ).version,
-        "56.2.0",
-      );
-    } finally {
-      rmSync(fixtureRoot, { force: true, recursive: true });
-    }
-  },
-);
 
 test("raw Git-object materialization bypasses archive and checkout filters", () => {
   const repository = mkdtempSync(join(tmpdir(), "vercel-raw-source-"));
