@@ -8,17 +8,41 @@ inputs:
   source-path:
     description: Runner-owned exact-SHA source checkout
     required: true
+  runtime-root:
+    description: Root-owned run- and target-bound protected runtime root
+    required: true
+  isolation-root:
+    description: Runner-owned protected work root
+    required: true
+  runtime-marker:
+    description: Root-owned protected runtime identity marker
+    required: true
+  tools-path:
+    description: Runner-owned protected runtime tools root
+    required: true
+  build-environment-path:
+    description: Fixed runner-owned materialized build-environment path
+    required: true
   candidate-source-path:
-    description: Fresh candidate-owned source path under RUNNER_TEMP
+    description: Fresh candidate-owned source path under the protected work root
+    required: true
+  provenance-path:
+    description: Fixed runner-owned exact-SHA provenance path
     required: true
   candidate-home-path:
-    description: Fresh candidate-owned HOME path under RUNNER_TEMP
+    description: Fresh candidate-owned HOME path under the protected work root
     required: true
   pull-staging-path:
-    description: Validated runner-owned Vercel pull staging under RUNNER_TEMP
+    description: Validated runner-owned Vercel pull staging under the protected work root
     required: true
   upload-source-path:
-    description: Fresh runner-owned upload handoff under RUNNER_TEMP
+    description: Fresh runner-owned upload handoff under the protected work root
+    required: true
+  candidate-identity-marker:
+    description: Fixed runner-owned pending or bound candidate identity marker
+    required: true
+  build-log-path:
+    description: Fixed runner-owned candidate build log path
     required: true
   node-bin:
     description: Canonical protected Node executable
@@ -73,13 +97,16 @@ runs:
       env:
         CONTROLLER_PATH: ${{ inputs.controller-path }}
         EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected-root-directory }}
+        ISOLATION_ROOT: ${{ inputs.isolation-root }}
         LOGICAL_TARGET: ${{ inputs.logical-target }}
         MENTO_NEXT_DEPLOYMENT_ID: ${{ inputs.next-deployment-id }}
         NODE_BIN: ${{ inputs.node-bin }}
         PULL_STAGING_PATH: ${{ inputs.pull-staging-path }}
       run: |
         set -euo pipefail
-        "$NODE_BIN" "$CONTROLLER_PATH/scripts/vercel-production-shadow.mjs" check-build-inputs
+        VERCEL_ISOLATION_ROOT="$ISOLATION_ROOT" \
+          "$NODE_BIN" "$CONTROLLER_PATH/scripts/vercel-production-shadow.mjs" \
+          check-build-inputs
         case "$LOGICAL_TARGET" in
           app) build_environment=v3 ;;
           governance|reserve|ui) build_environment=production ;;
@@ -95,31 +122,182 @@ runs:
       id: isolation
       shell: bash
       env:
+        BUILD_ENVIRONMENT_PATH: ${{ inputs.build-environment-path }}
+        BUILD_LOG_PATH: ${{ inputs.build-log-path }}
         CANDIDATE_HOME_PATH: ${{ inputs.candidate-home-path }}
+        CANDIDATE_IDENTITY_MARKER: ${{ inputs.candidate-identity-marker }}
         CANDIDATE_SOURCE_PATH: ${{ inputs.candidate-source-path }}
         CONTROLLER_PATH: ${{ inputs.controller-path }}
         DEPLOY_SHA: ${{ inputs.deploy-sha }}
+        ISOLATION_ROOT: ${{ inputs.isolation-root }}
+        LOGICAL_TARGET: ${{ inputs.logical-target }}
         NODE_BIN: ${{ inputs.node-bin }}
         PNPM_BIN: ${{ inputs.pnpm-bin }}
+        PROVENANCE_PATH: ${{ inputs.provenance-path }}
+        PULL_STAGING_PATH: ${{ inputs.pull-staging-path }}
+        RUNTIME_MARKER: ${{ inputs.runtime-marker }}
+        RUNTIME_ROOT: ${{ inputs.runtime-root }}
         SOURCE_PATH: ${{ inputs.source-path }}
+        TOOLS_PATH: ${{ inputs.tools-path }}
         TRUSTED_VERCEL_CLI_PATH: ${{ inputs.vercel-cli }}
+        UPLOAD_SOURCE_PATH: ${{ inputs.upload-source-path }}
       run: |
         set -euo pipefail
         umask 077
+        runner_uid="$(/usr/bin/id -u)"
+        runner_gid="$(/usr/bin/id -g)"
+        expected_runtime_root="/var/lib/mento-vercel-runtime-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$LOGICAL_TARGET"
+        expected_marker="$expected_runtime_root/.mento-vercel-runtime"
+        expected_isolation_root="$expected_runtime_root/work"
+        case "$LOGICAL_TARGET" in
+          app|governance|reserve|ui) ;;
+          *) echo "Unknown production-shadow target" >&2; exit 1 ;;
+        esac
+        if [[ ! "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ ]] ||
+          [[ ! "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]; then
+          echo "GitHub runtime identity is invalid" >&2
+          exit 1
+        fi
+        if [ "$RUNTIME_ROOT" != "$expected_runtime_root" ] ||
+          [ "$ISOLATION_ROOT" != "$expected_isolation_root" ] ||
+          [ "$RUNTIME_MARKER" != "$expected_marker" ] ||
+          [ "$TOOLS_PATH" != "$ISOLATION_ROOT/mento-vercel-trusted-tools" ] ||
+          [ "$PULL_STAGING_PATH" != "$ISOLATION_ROOT/mento-vercel-production-pull-staging" ] ||
+          [ "$BUILD_ENVIRONMENT_PATH" != "$ISOLATION_ROOT/mento-vercel-production-build-environment" ] ||
+          [ "$CANDIDATE_SOURCE_PATH" != "$ISOLATION_ROOT/mento-vercel-production-candidate-source" ] ||
+          [ "$PROVENANCE_PATH" != "$CANDIDATE_SOURCE_PATH.provenance.json" ] ||
+          [ "$CANDIDATE_HOME_PATH" != "$ISOLATION_ROOT/mento-vercel-production-candidate-home" ] ||
+          [ "$UPLOAD_SOURCE_PATH" != "$ISOLATION_ROOT/mento-vercel-production-upload-source" ] ||
+          [ "$CANDIDATE_IDENTITY_MARKER" != "$ISOLATION_ROOT/mento-vercel-production-candidate-identity" ] ||
+          [ "$BUILD_LOG_PATH" != "$ISOLATION_ROOT/mento-vercel-production-$LOGICAL_TARGET-build.log" ]; then
+          echo "Candidate runtime paths do not match the protected fixed contract" >&2
+          exit 1
+        fi
+        for ancestor in / /var /var/lib; do
+          if [ ! -d "$ancestor" ] ||
+            [ -L "$ancestor" ] ||
+            [ "$(/usr/bin/realpath "$ancestor")" != "$ancestor" ] ||
+            [ "$(/usr/bin/stat -c %u "$ancestor")" != 0 ] ||
+            [ "$(/usr/bin/stat -c %g "$ancestor")" != 0 ]; then
+            echo "Candidate runtime ancestor is not a canonical root-owned directory: $ancestor" >&2
+            exit 1
+          fi
+          ancestor_mode="$((8#$(/usr/bin/stat -c %a "$ancestor")))"
+          if (( (ancestor_mode & 0022) != 0 )); then
+            echo "Candidate runtime ancestor is group- or other-writable: $ancestor" >&2
+            exit 1
+          fi
+        done
+        if [ ! -d "$RUNTIME_ROOT" ] ||
+          [ -L "$RUNTIME_ROOT" ] ||
+          [ "$(sudo --non-interactive /usr/bin/realpath "$RUNTIME_ROOT")" != "$RUNTIME_ROOT" ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %u "$RUNTIME_ROOT")" != 0 ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %g "$RUNTIME_ROOT")" != 0 ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %a "$RUNTIME_ROOT")" != 711 ] ||
+          [ ! -f "$RUNTIME_MARKER" ] ||
+          [ -L "$RUNTIME_MARKER" ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %u "$RUNTIME_MARKER")" != 0 ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %g "$RUNTIME_MARKER")" != 0 ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %a "$RUNTIME_MARKER")" != 400 ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %h "$RUNTIME_MARKER")" != 1 ] ||
+          [ "$(sudo --non-interactive /bin/cat "$RUNTIME_MARKER")" != "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT:$LOGICAL_TARGET" ] ||
+          [ ! -d "$ISOLATION_ROOT" ] ||
+          [ -L "$ISOLATION_ROOT" ] ||
+          [ "$(/usr/bin/realpath "$ISOLATION_ROOT")" != "$ISOLATION_ROOT" ] ||
+          [ "$(/usr/bin/stat -c %u "$ISOLATION_ROOT")" != "$runner_uid" ] ||
+          [ "$(/usr/bin/stat -c %g "$ISOLATION_ROOT")" != "$runner_gid" ] ||
+          [ "$(/usr/bin/stat -c %a "$ISOLATION_ROOT")" != 711 ]; then
+          echo "Protected candidate runtime identity changed before user creation" >&2
+          exit 1
+        fi
+        while IFS= read -r -d '' entry; do
+          case "$entry" in
+            "$TOOLS_PATH"|"$PULL_STAGING_PATH") ;;
+            *) echo "Unexpected protected work entry before candidate creation: $entry" >&2; exit 1 ;;
+          esac
+        done < <(/usr/bin/find "$ISOLATION_ROOT" -mindepth 1 -maxdepth 1 -print0)
+        if [ ! -d "$TOOLS_PATH" ] || [ -L "$TOOLS_PATH" ] ||
+          [ "$(/usr/bin/realpath "$TOOLS_PATH")" != "$TOOLS_PATH" ] ||
+          [ ! -d "$PULL_STAGING_PATH" ] || [ -L "$PULL_STAGING_PATH" ] ||
+          [ "$(/usr/bin/realpath "$PULL_STAGING_PATH")" != "$PULL_STAGING_PATH" ]; then
+          echo "Protected tools and pull staging must be canonical directories" >&2
+          exit 1
+        fi
+        for fresh_path in \
+          "$BUILD_ENVIRONMENT_PATH" \
+          "$CANDIDATE_SOURCE_PATH" \
+          "$CANDIDATE_HOME_PATH" \
+          "$UPLOAD_SOURCE_PATH" \
+          "$CANDIDATE_IDENTITY_MARKER" \
+          "$BUILD_LOG_PATH" \
+          "$PROVENANCE_PATH"; do
+          if [ -e "$fresh_path" ] || [ -L "$fresh_path" ]; then
+            echo "Candidate runtime path must be fresh: $fresh_path" >&2
+            exit 1
+          fi
+        done
+        if [ -z "${RUNNER_TEMP:-}" ] || [[ "$RUNNER_TEMP" != /* ]] ||
+          [ ! -d "$RUNNER_TEMP" ] || [ -L "$RUNNER_TEMP" ] ||
+          [ "$(/usr/bin/realpath "$RUNNER_TEMP")" != "$RUNNER_TEMP" ] ||
+          [ "$(/usr/bin/stat -c %u "$RUNNER_TEMP")" != "$runner_uid" ] ||
+          [ "$(/usr/bin/stat -c %g "$RUNNER_TEMP")" != "$runner_gid" ]; then
+          echo "RUNNER_TEMP is not a canonical runner-owned directory" >&2
+          exit 1
+        fi
+        runner_temp_identity="$(
+          /usr/bin/stat -c '%d:%i:%u:%g' "$RUNNER_TEMP"
+        )"
+        /bin/chmod 0700 "$RUNNER_TEMP"
+        if [ -L "$RUNNER_TEMP" ] ||
+          [ "$(/usr/bin/realpath "$RUNNER_TEMP")" != "$RUNNER_TEMP" ] ||
+          [ "$(/usr/bin/stat -c '%d:%i:%u:%g' "$RUNNER_TEMP")" != "$runner_temp_identity" ] ||
+          [ "$(/usr/bin/stat -c %a "$RUNNER_TEMP")" != 700 ]; then
+          echo "RUNNER_TEMP identity or ownership changed while it was sealed" >&2
+          exit 1
+        fi
+        if [ "$NODE_BIN" != "$TOOLS_PATH/bin/node" ] ||
+          [ "$PNPM_BIN" != "$TOOLS_PATH/bin/pnpm" ]; then
+          echo "Protected Node or pnpm path is not the fixed staged executable" >&2
+          exit 1
+        fi
+        for protected_binary in "$NODE_BIN" "$PNPM_BIN"; do
+          if [ ! -f "$protected_binary" ] || [ -L "$protected_binary" ] ||
+            [ "$(/usr/bin/realpath "$protected_binary")" != "$protected_binary" ] ||
+            [ "$(/usr/bin/stat -c %u "$protected_binary")" != "$runner_uid" ] ||
+            [ "$(/usr/bin/stat -c %g "$protected_binary")" != "$runner_gid" ] ||
+            [ "$(/usr/bin/stat -c %h "$protected_binary")" != 1 ] ||
+            [ "$(/usr/bin/stat -c %a "$protected_binary")" != 555 ]; then
+            echo "Protected runtime executable changed: $protected_binary" >&2
+            exit 1
+          fi
+        done
+        if [ ! -f "$TRUSTED_VERCEL_CLI_PATH" ] ||
+          [ -L "$TRUSTED_VERCEL_CLI_PATH" ] ||
+          [ "$(/usr/bin/realpath "$TRUSTED_VERCEL_CLI_PATH")" != "$TRUSTED_VERCEL_CLI_PATH" ] ||
+          [ "$(/usr/bin/stat -c %u "$TRUSTED_VERCEL_CLI_PATH")" != "$runner_uid" ] ||
+          [ "$(/usr/bin/stat -c %g "$TRUSTED_VERCEL_CLI_PATH")" != "$runner_gid" ] ||
+          [ "$(/usr/bin/stat -c %h "$TRUSTED_VERCEL_CLI_PATH")" != 1 ]; then
+          echo "Protected Vercel CLI entry point changed" >&2
+          exit 1
+        fi
+        case "$TRUSTED_VERCEL_CLI_PATH" in
+          "$TOOLS_PATH"/*) ;;
+          *) echo "Protected Vercel CLI escaped the tools root" >&2; exit 1 ;;
+        esac
+        for protected_tool in "$TOOLS_PATH" "$NODE_BIN" "$PNPM_BIN" "$TRUSTED_VERCEL_CLI_PATH"; do
+          case "$protected_tool" in
+            /opt|/opt/*) echo "Candidate runtime must not depend on /opt: $protected_tool" >&2; exit 1 ;;
+          esac
+        done
         build_user=mento-vercel-build
-        identity_marker="$RUNNER_TEMP/mento-vercel-production-candidate-identity"
         if /usr/bin/getent passwd "$build_user" >/dev/null || /usr/bin/getent group "$build_user" >/dev/null; then
           echo "Dedicated candidate identity already exists" >&2
           exit 1
         fi
-        if [ -e "$identity_marker" ] || [ -L "$identity_marker" ]; then
-          echo "Candidate identity marker must be fresh" >&2
-          exit 1
-        fi
         set -o noclobber
-        printf 'pending\n' > "$identity_marker"
+        printf 'pending\n' > "$CANDIDATE_IDENTITY_MARKER"
         set +o noclobber
-        /bin/chmod 0600 "$identity_marker"
+        /bin/chmod 0600 "$CANDIDATE_IDENTITY_MARKER"
         sudo --non-interactive /usr/sbin/useradd \
           --system \
           --no-create-home \
@@ -129,8 +307,12 @@ runs:
           "$build_user"
         build_uid="$(/usr/bin/id -u "$build_user")"
         build_gid="$(/usr/bin/id -g "$build_user")"
-        printf '%s:%s\n' "$build_uid" "$build_gid" > "$identity_marker"
-        /bin/chmod 0600 "$identity_marker"
+        printf '%s:%s\n' "$build_uid" "$build_gid" > "$CANDIDATE_IDENTITY_MARKER"
+        /bin/chmod 0600 "$CANDIDATE_IDENTITY_MARKER"
+        if [ "$build_uid" = "$runner_uid" ] || [ "$build_gid" = "$runner_gid" ]; then
+          echo "Dedicated candidate identity overlaps the runner identity" >&2
+          exit 1
+        fi
         if sudo --non-interactive /usr/bin/pgrep -u "$build_uid" >/dev/null 2>&1; then
           echo "Dedicated candidate identity unexpectedly owns a process" >&2
           exit 1
@@ -146,6 +328,10 @@ runs:
             /usr/bin/test -w "$1"
         }
         for protected_path in \
+          /var/lib \
+          "$RUNTIME_ROOT" \
+          "$RUNTIME_MARKER" \
+          "$ISOLATION_ROOT" \
           "$GITHUB_WORKSPACE" \
           "$CONTROLLER_PATH" \
           "$RUNNER_TEMP" \
@@ -153,23 +339,61 @@ runs:
           "$SOURCE_PATH/.git" \
           "$SOURCE_PATH/package.json" \
           "$SOURCE_PATH/pnpm-lock.yaml" \
+          "$PULL_STAGING_PATH" \
+          "$TOOLS_PATH" \
+          "$TOOLS_PATH/bin" \
+          "$TOOLS_PATH/node_modules" \
+          "$TOOLS_PATH/pnpm-runtime" \
           "$NODE_BIN" \
           "$PNPM_BIN" \
           "$TRUSTED_VERCEL_CLI_PATH"; do
           if [ ! -e "$protected_path" ] || candidate_can_write "$protected_path"; then
-            echo "Candidate can modify a protected runner path" >&2
+            echo "Candidate can modify protected path: $protected_path" >&2
             exit 1
           fi
         done
-        case "$CANDIDATE_SOURCE_PATH:$CANDIDATE_HOME_PATH" in
-          "$RUNNER_TEMP"/mento-vercel-*:"$RUNNER_TEMP"/mento-vercel-*) ;;
-          *) echo "Candidate isolation path is outside RUNNER_TEMP" >&2; exit 1 ;;
-        esac
-        if [ -e "$CANDIDATE_SOURCE_PATH" ] || [ -e "$CANDIDATE_HOME_PATH" ]; then
-          echo "Candidate isolation paths must be fresh" >&2
+        if sudo --non-interactive /usr/bin/env -i PATH=/usr/bin:/bin \
+          /usr/bin/setpriv \
+          --reuid="$build_uid" \
+          --regid="$build_gid" \
+          --clear-groups \
+          --no-new-privs \
+          -- \
+          /usr/bin/test -x "$RUNNER_TEMP"; then
+          echo "Candidate can traverse protected path: $RUNNER_TEMP" >&2
           exit 1
         fi
-        "$NODE_BIN" \
+        safe_path="$(/usr/bin/dirname "$NODE_BIN"):/usr/local/bin:/usr/bin:/bin"
+        candidate_probe() {
+          sudo --non-interactive /usr/bin/env -i \
+            HOME=/nonexistent \
+            LANG=C \
+            LC_ALL=C \
+            PATH="$safe_path" \
+            /usr/bin/setpriv \
+            --reuid="$build_uid" \
+            --regid="$build_gid" \
+            --clear-groups \
+            --no-new-privs \
+            -- \
+            "$@"
+        }
+        if ! candidate_probe "$NODE_BIN" --version >/dev/null; then
+          echo "Candidate cannot execute protected path: $NODE_BIN" >&2
+          exit 1
+        fi
+        if ! candidate_probe "$PNPM_BIN" --version |
+          /usr/bin/grep -Fxq "10.34.4"; then
+          echo "Candidate cannot execute protected path: $PNPM_BIN" >&2
+          exit 1
+        fi
+        if ! candidate_probe \
+          "$NODE_BIN" "$TRUSTED_VERCEL_CLI_PATH" --version >/dev/null; then
+          echo "Candidate cannot execute protected path: $TRUSTED_VERCEL_CLI_PATH" >&2
+          exit 1
+        fi
+        VERCEL_ISOLATION_ROOT="$ISOLATION_ROOT" \
+          "$NODE_BIN" \
           "$CONTROLLER_PATH/scripts/vercel-production-shadow.mjs" \
           materialize-source
         sudo --non-interactive /bin/chown \
@@ -182,8 +406,8 @@ runs:
           "$CANDIDATE_HOME_PATH/data" \
           "$CANDIDATE_HOME_PATH/pnpm-store" \
           "$CANDIDATE_HOME_PATH/tmp"
-        printf '{"commitSha":"%s"}\n' "$DEPLOY_SHA" > "${CANDIDATE_SOURCE_PATH}.provenance.json"
-        /bin/chmod 0600 "${CANDIDATE_SOURCE_PATH}.provenance.json"
+        printf '{"commitSha":"%s"}\n' "$DEPLOY_SHA" > "$PROVENANCE_PATH"
+        /bin/chmod 0600 "$PROVENANCE_PATH"
         echo "build_uid=$build_uid" >> "$GITHUB_OUTPUT"
         echo "build_gid=$build_gid" >> "$GITHUB_OUTPUT"
 
@@ -260,6 +484,7 @@ runs:
         CANDIDATE_SOURCE_PATH: ${{ inputs.candidate-source-path }}
         CONTROLLER_PATH: ${{ inputs.controller-path }}
         EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected-root-directory }}
+        ISOLATION_ROOT: ${{ inputs.isolation-root }}
         LOGICAL_TARGET: ${{ inputs.logical-target }}
         MENTO_NEXT_DEPLOYMENT_ID: ${{ inputs.next-deployment-id }}
         NODE_BIN: ${{ inputs.node-bin }}
@@ -277,12 +502,12 @@ runs:
           BUILD_UID="$BUILD_UID" \
           CANDIDATE_SOURCE_PATH="$CANDIDATE_SOURCE_PATH" \
           EXPECTED_ROOT_DIRECTORY="$EXPECTED_ROOT_DIRECTORY" \
+          VERCEL_ISOLATION_ROOT="$ISOLATION_ROOT" \
           LOGICAL_TARGET="$LOGICAL_TARGET" \
           PATH="$(dirname "$NODE_BIN"):/usr/bin:/bin" \
           PULL_STAGING_GID="$(id -g)" \
           PULL_STAGING_PATH="$PULL_STAGING_PATH" \
           PULL_STAGING_UID="$(id -u)" \
-          RUNNER_TEMP="$RUNNER_TEMP" \
           VERCEL_ORG_ID="$VERCEL_ORG_ID" \
           VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
           "$NODE_BIN" "$CONTROLLER_PATH/scripts/vercel-production-shadow.mjs" stage-pull
@@ -297,11 +522,13 @@ runs:
       env:
         BUILD_GID: ${{ steps.isolation.outputs.build_gid }}
         BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
+        BUILD_LOG_PATH: ${{ inputs.build-log-path }}
         CANDIDATE_HOME_PATH: ${{ inputs.candidate-home-path }}
         CANDIDATE_SOURCE_PATH: ${{ inputs.candidate-source-path }}
         CONTROLLER_PATH: ${{ inputs.controller-path }}
         DEPLOY_SHA: ${{ inputs.deploy-sha }}
         EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected-root-directory }}
+        ISOLATION_ROOT: ${{ inputs.isolation-root }}
         LOGICAL_TARGET: ${{ inputs.logical-target }}
         NODE_BIN: ${{ inputs.node-bin }}
         PNPM_BIN: ${{ inputs.pnpm-bin }}
@@ -335,7 +562,7 @@ runs:
           PATH="$(dirname "$NODE_BIN"):/usr/bin:/bin" \
           PULL_STAGING_GID="$(id -g)" \
           PULL_STAGING_UID="$(id -u)" \
-          RUNNER_TEMP="$RUNNER_TEMP" \
+          VERCEL_ISOLATION_ROOT="$ISOLATION_ROOT" \
           VERCEL_ORG_ID="$VERCEL_ORG_ID" \
           VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
           "$NODE_BIN" "$CONTROLLER_PATH/scripts/vercel-production-shadow.mjs" validate-candidate-pull
@@ -344,10 +571,9 @@ runs:
           governance|reserve|ui) build_arguments=(build --yes --standalone --prod --project "$VERCEL_PROJECT_ID") ;;
           *) echo "Unknown production-shadow target" >&2; exit 1 ;;
         esac
-        safe_path="$(dirname "$NODE_BIN"):$(dirname "$PNPM_BIN"):/usr/local/bin:/usr/bin:/bin"
+        safe_path="$(dirname "$NODE_BIN"):/usr/local/bin:/usr/bin:/bin"
         started_at_ms="$(date +%s%3N)"
-        build_log="$RUNNER_TEMP/mento-vercel-production-${LOGICAL_TARGET}-build.log"
-        if [ -e "$build_log" ] || [ -L "$build_log" ]; then
+        if [ -e "$BUILD_LOG_PATH" ] || [ -L "$BUILD_LOG_PATH" ]; then
           echo "Candidate build log path must be fresh" >&2
           exit 1
         fi
@@ -392,7 +618,7 @@ runs:
           --no-new-privs \
           -- \
           "$NODE_BIN" "$TRUSTED_VERCEL_CLI_PATH" "${build_arguments[@]}" \
-          2>&1 | /usr/bin/tee "$build_log"
+          2>&1 | /usr/bin/tee "$BUILD_LOG_PATH"
         pipeline_status=("${PIPESTATUS[@]}")
         candidate_status="${pipeline_status[0]}"
         tee_status="${pipeline_status[1]}"
@@ -402,9 +628,10 @@ runs:
         command_token=""
         if [ "$tee_status" -ne 0 ]; then exit "$tee_status"; fi
         if [ "$candidate_status" -ne 0 ]; then exit "$candidate_status"; fi
-        "$NODE_BIN" "$CONTROLLER_PATH/scripts/vercel-production-shadow.mjs" \
-          cache-summary --input "$build_log"
-        /bin/rm -f "$build_log"
+        VERCEL_ISOLATION_ROOT="$ISOLATION_ROOT" \
+          "$NODE_BIN" "$CONTROLLER_PATH/scripts/vercel-production-shadow.mjs" \
+          cache-summary --input "$BUILD_LOG_PATH"
+        /bin/rm -f -- "$BUILD_LOG_PATH"
         trap - EXIT
         echo "build_duration_ms=$(($(date +%s%3N) - started_at_ms))" >> "$GITHUB_OUTPUT"
 
@@ -417,6 +644,7 @@ runs:
         CONTROLLER_PATH: ${{ inputs.controller-path }}
         DEPLOY_SHA: ${{ inputs.deploy-sha }}
         EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected-root-directory }}
+        ISOLATION_ROOT: ${{ inputs.isolation-root }}
         LOGICAL_TARGET: ${{ inputs.logical-target }}
         MENTO_NEXT_DEPLOYMENT_ID: ${{ inputs.next-deployment-id }}
         NODE_BIN: ${{ inputs.node-bin }}
@@ -438,6 +666,7 @@ runs:
           MENTO_NEXT_DEPLOYMENT_ID="$MENTO_NEXT_DEPLOYMENT_ID" \
           PATH="$(dirname "$NODE_BIN"):/usr/bin:/bin" \
           SOURCE_PATH="$CANDIDATE_SOURCE_PATH" \
+          VERCEL_ISOLATION_ROOT="$ISOLATION_ROOT" \
           VERCEL_ORG_ID="$VERCEL_ORG_ID" \
           VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
           "$NODE_BIN" "$CONTROLLER_PATH/scripts/vercel-production-shadow.mjs" assert-output
@@ -451,6 +680,7 @@ runs:
         CANDIDATE_SOURCE_PATH: ${{ inputs.candidate-source-path }}
         CONTROLLER_PATH: ${{ inputs.controller-path }}
         DEPLOY_SHA: ${{ inputs.deploy-sha }}
+        ISOLATION_ROOT: ${{ inputs.isolation-root }}
         LOGICAL_TARGET: ${{ inputs.logical-target }}
         MENTO_NEXT_DEPLOYMENT_ID: ${{ inputs.next-deployment-id }}
         NODE_BIN: ${{ inputs.node-bin }}
@@ -477,9 +707,9 @@ runs:
           MENTO_NEXT_DEPLOYMENT_ID="$MENTO_NEXT_DEPLOYMENT_ID" \
           PULL_STAGING_PATH="$PULL_STAGING_PATH" \
           RUNNER_GID="$runner_gid" \
-          RUNNER_TEMP="$RUNNER_TEMP" \
           RUNNER_UID="$runner_uid" \
           UPLOAD_SOURCE_PATH="$UPLOAD_SOURCE_PATH" \
+          VERCEL_ISOLATION_ROOT="$ISOLATION_ROOT" \
           VERCEL_ORG_ID="$VERCEL_ORG_ID" \
           VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
           "$NODE_BIN" \
@@ -492,87 +722,235 @@ runs:
       if: always()
       shell: bash
       env:
+        BUILD_ENVIRONMENT_PATH: ${{ inputs.build-environment-path }}
+        BUILD_LOG_PATH: ${{ inputs.build-log-path }}
         CANDIDATE_HOME_PATH: ${{ inputs.candidate-home-path }}
+        CANDIDATE_IDENTITY_MARKER: ${{ inputs.candidate-identity-marker }}
         CANDIDATE_SOURCE_PATH: ${{ inputs.candidate-source-path }}
+        ISOLATION_ROOT: ${{ inputs.isolation-root }}
+        LOGICAL_TARGET: ${{ inputs.logical-target }}
+        PROVENANCE_PATH: ${{ inputs.provenance-path }}
         PULL_STAGING_PATH: ${{ inputs.pull-staging-path }}
+        RUNTIME_MARKER: ${{ inputs.runtime-marker }}
+        RUNTIME_ROOT: ${{ inputs.runtime-root }}
+        TOOLS_PATH: ${{ inputs.tools-path }}
+        UPLOAD_SOURCE_PATH: ${{ inputs.upload-source-path }}
       run: |
         set -euo pipefail
-        identity_marker="$RUNNER_TEMP/mento-vercel-production-candidate-identity"
-        if [ -e "$identity_marker" ] || [ -L "$identity_marker" ]; then
-          if [ -L "$identity_marker" ] || [ ! -f "$identity_marker" ] || \
-            [ "$(/usr/bin/stat -c '%u' "$identity_marker")" != "$(id -u)" ] || \
-            [ "$(/usr/bin/stat -c '%g' "$identity_marker")" != "$(id -g)" ] || \
-            [ "$(/usr/bin/stat -c '%h' "$identity_marker")" != 1 ] || \
-            [ "$(/usr/bin/stat -c '%a' "$identity_marker")" != 600 ]; then
+        runner_uid="$(/usr/bin/id -u)"
+        runner_gid="$(/usr/bin/id -g)"
+        expected_runtime_root="/var/lib/mento-vercel-runtime-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$LOGICAL_TARGET"
+        case "$LOGICAL_TARGET" in
+          app|governance|reserve|ui) ;;
+          *) echo "Unknown production-shadow target during candidate cleanup" >&2; exit 1 ;;
+        esac
+        if [[ ! "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ ]] ||
+          [[ ! "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]] ||
+          [ "$RUNTIME_ROOT" != "$expected_runtime_root" ] ||
+          [ "$ISOLATION_ROOT" != "$RUNTIME_ROOT/work" ] ||
+          [ "$RUNTIME_MARKER" != "$RUNTIME_ROOT/.mento-vercel-runtime" ] ||
+          [ "$TOOLS_PATH" != "$ISOLATION_ROOT/mento-vercel-trusted-tools" ] ||
+          [ "$BUILD_ENVIRONMENT_PATH" != "$ISOLATION_ROOT/mento-vercel-production-build-environment" ] ||
+          [ "$CANDIDATE_HOME_PATH" != "$ISOLATION_ROOT/mento-vercel-production-candidate-home" ] ||
+          [ "$CANDIDATE_IDENTITY_MARKER" != "$ISOLATION_ROOT/mento-vercel-production-candidate-identity" ] ||
+          [ "$CANDIDATE_SOURCE_PATH" != "$ISOLATION_ROOT/mento-vercel-production-candidate-source" ] ||
+          [ "$PROVENANCE_PATH" != "$CANDIDATE_SOURCE_PATH.provenance.json" ] ||
+          [ "$PULL_STAGING_PATH" != "$ISOLATION_ROOT/mento-vercel-production-pull-staging" ] ||
+          [ "$UPLOAD_SOURCE_PATH" != "$ISOLATION_ROOT/mento-vercel-production-upload-source" ] ||
+          [ "$BUILD_LOG_PATH" != "$ISOLATION_ROOT/mento-vercel-production-$LOGICAL_TARGET-build.log" ]; then
+          echo "Candidate cleanup paths do not match the protected fixed contract" >&2
+          exit 1
+        fi
+        upload_provenance_path="$UPLOAD_SOURCE_PATH.provenance.json"
+        for ancestor in / /var /var/lib; do
+          if [ ! -d "$ancestor" ] ||
+            [ -L "$ancestor" ] ||
+            [ "$(/usr/bin/realpath "$ancestor")" != "$ancestor" ] ||
+            [ "$(/usr/bin/stat -c %u "$ancestor")" != 0 ] ||
+            [ "$(/usr/bin/stat -c %g "$ancestor")" != 0 ]; then
+            echo "Candidate cleanup ancestor changed: $ancestor" >&2
+            exit 1
+          fi
+          ancestor_mode="$((8#$(/usr/bin/stat -c %a "$ancestor")))"
+          if (( (ancestor_mode & 0022) != 0 )); then
+            echo "Candidate cleanup ancestor is writable: $ancestor" >&2
+            exit 1
+          fi
+        done
+        if [ ! -d "$RUNTIME_ROOT" ] ||
+          [ -L "$RUNTIME_ROOT" ] ||
+          [ "$(sudo --non-interactive /usr/bin/realpath "$RUNTIME_ROOT")" != "$RUNTIME_ROOT" ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %u "$RUNTIME_ROOT")" != 0 ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %g "$RUNTIME_ROOT")" != 0 ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %a "$RUNTIME_ROOT")" != 711 ] ||
+          [ ! -f "$RUNTIME_MARKER" ] ||
+          [ -L "$RUNTIME_MARKER" ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %u "$RUNTIME_MARKER")" != 0 ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %g "$RUNTIME_MARKER")" != 0 ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %a "$RUNTIME_MARKER")" != 400 ] ||
+          [ "$(sudo --non-interactive /usr/bin/stat -c %h "$RUNTIME_MARKER")" != 1 ] ||
+          [ "$(sudo --non-interactive /bin/cat "$RUNTIME_MARKER")" != "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT:$LOGICAL_TARGET" ] ||
+          [ ! -d "$ISOLATION_ROOT" ] ||
+          [ -L "$ISOLATION_ROOT" ] ||
+          [ "$(/usr/bin/realpath "$ISOLATION_ROOT")" != "$ISOLATION_ROOT" ] ||
+          [ "$(/usr/bin/stat -c %u "$ISOLATION_ROOT")" != "$runner_uid" ] ||
+          [ "$(/usr/bin/stat -c %g "$ISOLATION_ROOT")" != "$runner_gid" ] ||
+          [ "$(/usr/bin/stat -c %a "$ISOLATION_ROOT")" != 711 ]; then
+          echo "Protected runtime identity changed before candidate teardown" >&2
+          exit 1
+        fi
+        while IFS= read -r -d '' entry; do
+          case "$entry" in
+            "$TOOLS_PATH"|"$UPLOAD_SOURCE_PATH"|"$upload_provenance_path"|\
+            "$BUILD_ENVIRONMENT_PATH"|"$BUILD_LOG_PATH"|\
+            "$CANDIDATE_HOME_PATH"|"$CANDIDATE_IDENTITY_MARKER"|"$CANDIDATE_SOURCE_PATH"|\
+            "$PROVENANCE_PATH"|"$PULL_STAGING_PATH") ;;
+            *) echo "Unexpected protected work entry during candidate cleanup: $entry" >&2; exit 1 ;;
+          esac
+        done < <(/usr/bin/find "$ISOLATION_ROOT" -mindepth 1 -maxdepth 1 -print0)
+
+        build_user=mento-vercel-build
+        kill_candidate_uid() {
+          local uid="$1"
+          sudo --non-interactive /usr/bin/pkill -KILL -u "$uid" >/dev/null 2>&1 || true
+          for _ in $(/usr/bin/seq 1 50); do
+            if ! sudo --non-interactive /usr/bin/pgrep -u "$uid" >/dev/null 2>&1; then
+              return 0
+            fi
+            /bin/sleep 0.1
+          done
+          sudo --non-interactive /usr/bin/pgrep -a -u "$uid" >&2 || true
+          echo "Candidate processes survived final boundary teardown" >&2
+          return 1
+        }
+        validate_group() {
+          local expected_gid="$1"
+          local group_entry group_name group_password group_gid group_members
+          group_entry="$(/usr/bin/getent group "$build_user")"
+          IFS=: read -r group_name group_password group_gid group_members <<< "$group_entry"
+          if [ "$group_name" != "$build_user" ] ||
+            [[ ! "$group_gid" =~ ^[0-9]+$ ]] ||
+            [ -n "$group_members" ] ||
+            { [ -n "$expected_gid" ] && [ "$group_gid" != "$expected_gid" ]; }; then
+            echo "Candidate group changed during teardown" >&2
+            exit 1
+          fi
+          printf '%s\n' "$group_gid"
+        }
+        validate_user() {
+          local expected_uid="$1"
+          local expected_gid="$2"
+          local passwd_entry user_name user_password user_uid user_gid user_gecos user_home user_shell
+          passwd_entry="$(/usr/bin/getent passwd "$build_user")"
+          IFS=: read -r user_name user_password user_uid user_gid user_gecos user_home user_shell <<< "$passwd_entry"
+          if [ "$user_name" != "$build_user" ] ||
+            [[ ! "$user_uid" =~ ^[0-9]+$ ]] ||
+            [[ ! "$user_gid" =~ ^[0-9]+$ ]] ||
+            [ "$user_uid" = "$runner_uid" ] ||
+            [ "$user_gid" = "$runner_gid" ] ||
+            [ "$user_home" != /nonexistent ] ||
+            [ "$user_shell" != /usr/sbin/nologin ] ||
+            { [ -n "$expected_uid" ] && [ "$user_uid" != "$expected_uid" ]; } ||
+            { [ -n "$expected_gid" ] && [ "$user_gid" != "$expected_gid" ]; }; then
+            echo "Candidate user changed during teardown" >&2
+            exit 1
+          fi
+          printf '%s:%s\n' "$user_uid" "$user_gid"
+        }
+
+        if [ -e "$CANDIDATE_IDENTITY_MARKER" ] ||
+          [ -L "$CANDIDATE_IDENTITY_MARKER" ]; then
+          if [ -L "$CANDIDATE_IDENTITY_MARKER" ] ||
+            [ ! -f "$CANDIDATE_IDENTITY_MARKER" ] ||
+            [ "$(/usr/bin/stat -c %u "$CANDIDATE_IDENTITY_MARKER")" != "$runner_uid" ] ||
+            [ "$(/usr/bin/stat -c %g "$CANDIDATE_IDENTITY_MARKER")" != "$runner_gid" ] ||
+            [ "$(/usr/bin/stat -c %h "$CANDIDATE_IDENTITY_MARKER")" != 1 ] ||
+            [ "$(/usr/bin/stat -c %a "$CANDIDATE_IDENTITY_MARKER")" != 600 ]; then
             echo "Candidate identity marker is unsafe" >&2
             exit 1
           fi
-          identity="$(< "$identity_marker")"
+          identity="$(< "$CANDIDATE_IDENTITY_MARKER")"
           if [ "$identity" = pending ]; then
-            if /usr/bin/getent passwd mento-vercel-build >/dev/null || \
-              /usr/bin/getent group mento-vercel-build >/dev/null; then
-              echo "Candidate identity ownership was not bound before teardown" >&2
-              exit 1
+            if /usr/bin/getent passwd "$build_user" >/dev/null; then
+              user_identity="$(validate_user "" "")"
+              build_uid="${user_identity%%:*}"
+              build_gid="${user_identity##*:}"
+              if /usr/bin/getent group "$build_user" >/dev/null; then
+                validate_group "$build_gid" >/dev/null
+              fi
+              kill_candidate_uid "$build_uid"
+              sudo --non-interactive /usr/sbin/userdel "$build_user"
             fi
-            /bin/rm -f -- "$identity_marker"
+            if /usr/bin/getent group "$build_user" >/dev/null; then
+              validate_group "" >/dev/null
+              sudo --non-interactive /usr/sbin/groupdel "$build_user"
+            fi
           elif [[ "$identity" =~ ^([0-9]+):([0-9]+)$ ]]; then
             build_uid="${BASH_REMATCH[1]}"
             build_gid="${BASH_REMATCH[2]}"
-            if ! /usr/bin/getent passwd mento-vercel-build >/dev/null || \
-              ! /usr/bin/getent group mento-vercel-build >/dev/null || \
-              [ "$(/usr/bin/id -u mento-vercel-build)" != "$build_uid" ] || \
-              [ "$(/usr/bin/id -g mento-vercel-build)" != "$build_gid" ] || \
-              [ "$(/usr/bin/getent group mento-vercel-build | /usr/bin/cut -d: -f3)" != "$build_gid" ]; then
+            if ! /usr/bin/getent passwd "$build_user" >/dev/null ||
+              ! /usr/bin/getent group "$build_user" >/dev/null; then
               echo "Candidate identity no longer matches its runner-owned marker" >&2
               exit 1
             fi
-            sudo --non-interactive /usr/bin/pkill -KILL -u "$build_uid" >/dev/null 2>&1 || true
-            for _ in $(/usr/bin/seq 1 50); do
-              if ! sudo --non-interactive /usr/bin/pgrep -u "$build_uid" >/dev/null 2>&1; then break; fi
-              /bin/sleep 0.1
-            done
-            if sudo --non-interactive /usr/bin/pgrep -u "$build_uid" >/dev/null 2>&1; then
-              sudo --non-interactive /usr/bin/pgrep -a -u "$build_uid" >&2 || true
-              echo "Candidate processes survived final boundary teardown" >&2
-              exit 1
+            validate_user "$build_uid" "$build_gid" >/dev/null
+            validate_group "$build_gid" >/dev/null
+            kill_candidate_uid "$build_uid"
+            sudo --non-interactive /usr/sbin/userdel "$build_user"
+            if /usr/bin/getent group "$build_user" >/dev/null; then
+              validate_group "$build_gid" >/dev/null
+              sudo --non-interactive /usr/sbin/groupdel "$build_user"
             fi
-            sudo --non-interactive /usr/sbin/userdel mento-vercel-build
-            if /usr/bin/getent group mento-vercel-build >/dev/null; then
-              if [ "$(/usr/bin/getent group mento-vercel-build | /usr/bin/cut -d: -f3)" != "$build_gid" ]; then
-                echo "Candidate group changed during teardown" >&2
-                exit 1
-              fi
-              sudo --non-interactive /usr/sbin/groupdel mento-vercel-build
-            fi
-            /bin/rm -f -- "$identity_marker"
           else
             echo "Candidate identity marker is malformed" >&2
             exit 1
           fi
+          /bin/rm -f -- "$CANDIDATE_IDENTITY_MARKER"
+        elif /usr/bin/getent passwd "$build_user" >/dev/null ||
+          /usr/bin/getent group "$build_user" >/dev/null; then
+          echo "Candidate identity exists without its runner-owned marker" >&2
+          exit 1
         fi
-        materialized_environment_path="$RUNNER_TEMP/mento-vercel-production-build-environment"
-        for path in "$CANDIDATE_HOME_PATH" "$CANDIDATE_SOURCE_PATH" "$PULL_STAGING_PATH" "$materialized_environment_path"; do
-          case "$path" in
-            "$RUNNER_TEMP"/mento-vercel-*) ;;
-            *) echo "Refusing to clean an unexpected path" >&2; exit 1 ;;
-          esac
-        done
-        sudo --non-interactive /bin/rm -rf -- \
+        if /usr/bin/getent passwd "$build_user" >/dev/null ||
+          /usr/bin/getent group "$build_user" >/dev/null ||
+          [ -e "$CANDIDATE_IDENTITY_MARKER" ] ||
+          [ -L "$CANDIDATE_IDENTITY_MARKER" ]; then
+          echo "Candidate identity survived final boundary teardown" >&2
+          exit 1
+        fi
+        sudo --non-interactive /bin/rm -rf --one-file-system -- \
           "$CANDIDATE_HOME_PATH" \
           "$CANDIDATE_SOURCE_PATH" \
           "$PULL_STAGING_PATH" \
-          "$materialized_environment_path"
-        /bin/rm -f -- "${CANDIDATE_SOURCE_PATH}.provenance.json"
+          "$BUILD_ENVIRONMENT_PATH"
+        sudo --non-interactive /bin/rm -f -- \
+          "$BUILD_LOG_PATH" \
+          "$PROVENANCE_PATH"
+        for removed_path in \
+          "$BUILD_ENVIRONMENT_PATH" \
+          "$BUILD_LOG_PATH" \
+          "$CANDIDATE_HOME_PATH" \
+          "$CANDIDATE_IDENTITY_MARKER" \
+          "$CANDIDATE_SOURCE_PATH" \
+          "$PROVENANCE_PATH" \
+          "$PULL_STAGING_PATH"; do
+          if [ -e "$removed_path" ] || [ -L "$removed_path" ]; then
+            echo "Candidate cleanup did not remove exact path: $removed_path" >&2
+            exit 1
+          fi
+        done
 
     - name: Assert immutable runner-owned upload handoff
       if: steps.build.outcome == 'success' && steps.handoff.outcome == 'success'
       shell: bash
       env:
+        CANDIDATE_IDENTITY_MARKER: ${{ inputs.candidate-identity-marker }}
         CONTROLLER_PATH: ${{ inputs.controller-path }}
         DEPLOY_SHA: ${{ inputs.deploy-sha }}
         EXPECTED_OUTPUT_GID: ${{ steps.handoff.outputs.upload_gid }}
         EXPECTED_OUTPUT_UID: ${{ steps.handoff.outputs.upload_uid }}
         EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected-root-directory }}
+        ISOLATION_ROOT: ${{ inputs.isolation-root }}
         LOGICAL_TARGET: ${{ inputs.logical-target }}
         MENTO_NEXT_DEPLOYMENT_ID: ${{ inputs.next-deployment-id }}
         NODE_BIN: ${{ inputs.node-bin }}
@@ -581,8 +959,8 @@ runs:
         VERCEL_PROJECT_ID: ${{ inputs.vercel-project-id }}
       run: |
         set -euo pipefail
-        if [ -e "$RUNNER_TEMP/mento-vercel-production-candidate-identity" ] || \
-          [ -L "$RUNNER_TEMP/mento-vercel-production-candidate-identity" ] || \
+        if [ -e "$CANDIDATE_IDENTITY_MARKER" ] || \
+          [ -L "$CANDIDATE_IDENTITY_MARKER" ] || \
           /usr/bin/getent passwd mento-vercel-build >/dev/null || \
           /usr/bin/getent group mento-vercel-build >/dev/null; then
           echo "Candidate identity survived the upload handoff" >&2
@@ -596,6 +974,7 @@ runs:
         LOGICAL_TARGET="$LOGICAL_TARGET" \
         MENTO_NEXT_DEPLOYMENT_ID="$MENTO_NEXT_DEPLOYMENT_ID" \
         SOURCE_PATH="$SOURCE_PATH" \
+        VERCEL_ISOLATION_ROOT="$ISOLATION_ROOT" \
         VERCEL_ORG_ID="$VERCEL_ORG_ID" \
         VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
           "$NODE_BIN" "$CONTROLLER_PATH/scripts/vercel-production-shadow.mjs" assert-output

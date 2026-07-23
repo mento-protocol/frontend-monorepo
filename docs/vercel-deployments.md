@@ -397,6 +397,29 @@ with the production token under a private `077` umask into a fresh runner-owned
 staging tree, and validates that tree's complete file set, ownership, project
 mapping, and Root Directory.
 
+Each target job derives a distinct authenticated runtime from the immutable
+Actions identity:
+`/var/lib/mento-vercel-runtime-<run-id>-<run-attempt>-<target>`. The outer
+directory and its readiness marker are root-owned; the marker binds the exact
+run ID, attempt, and literal target. Its `work/` child is a runner-owned `0711`
+isolation root. Protected tools, pull staging, one-way build-environment
+materialization, candidate source and home, and the verified upload handoff use
+reviewed fixed children of that root. None of this build-boundary state lives
+under `RUNNER_TEMP`.
+
+Before the dedicated candidate UID starts, the candidate-build action seals
+`RUNNER_TEMP` to runner-owned mode `0700` and proves the directory remains
+canonical. This keeps GitHub command files such as `GITHUB_ENV`,
+`GITHUB_OUTPUT`, `GITHUB_PATH`, `GITHUB_STATE`, and `GITHUB_STEP_SUMMARY`
+outside candidate traversal even if the hosted image originally created the
+temporary root with broader permissions. Setup-provided Node and package
+manager paths are staging inputs only: the action copies and verifies the
+executables under the authenticated runtime, and every post-candidate Node
+command uses that protected copy. A final `if: always()` cleanup
+reauthenticates the root and marker before removing the exact target-scoped
+runtime after upload and evidence work; it refuses ambiguous or unexpected
+state.
+
 The raw Vercel-pulled `.env.<target>.local` remains private and runner-owned.
 Before staging settings into candidate storage, the trusted controller parses
 that file, selects only the target/environment variables classified
@@ -421,9 +444,10 @@ installation and `vercel build` run through `env -i` plus `setpriv` with an
 isolated HOME, temporary directory, XDG directories, pnpm store, and an
 allowlisted PATH containing the exact protected executables. Lifecycle scripts
 are disabled. The action first proves that this UID cannot write the workspace,
-trusted controller, runner temp root, immutable checkout, lockfile, or protected
-runtime. GitHub command-file paths and the production Vercel token are absent
-from candidate processes. A UID-wide
+trusted controller, sealed runner temporary root, immutable checkout, lockfile,
+authenticated runtime root, work directory, or protected tools. GitHub
+command-file paths and the production Vercel token are absent from candidate
+processes. A UID-wide
 kill and process check runs after install, after build, before handoff, and
 during final teardown; teardown deletes the account only when its live UID/GID
 still matches that marker.

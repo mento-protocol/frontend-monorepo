@@ -30,15 +30,14 @@ const candidateActionSource = readFileSync(
   "utf8",
 );
 const candidateAction = parse(candidateActionSource);
-const protectedRuntimeAction = parse(
-  readFileSync(
-    new URL(
-      "../.github/actions/vercel-protected-runtime/action.yml",
-      import.meta.url,
-    ),
-    "utf8",
+const protectedRuntimeActionSource = readFileSync(
+  new URL(
+    "../.github/actions/vercel-protected-runtime/action.yml",
+    import.meta.url,
   ),
+  "utf8",
 );
+const protectedRuntimeAction = parse(protectedRuntimeActionSource);
 const rootPackage = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 );
@@ -213,8 +212,14 @@ test("candidate source cannot replace trusted controllers or runner state", () =
     const build = job.steps[installIndex];
     assert.equal(build.id, "build");
     assert.equal(build.with["logical-target"], name);
-    assert.match(build.with["candidate-source-path"], /runner\.temp/);
-    assert.match(build.with["upload-source-path"], /runner\.temp/);
+    assert.equal(
+      build.with["candidate-source-path"],
+      "${{ steps.runtime.outputs.candidate-source-path }}",
+    );
+    assert.equal(
+      build.with["upload-source-path"],
+      "${{ steps.runtime.outputs.upload-source-path }}",
+    );
     const restoredAfterBuild = job.steps[installIndex + 1];
     assert.equal(
       restoredAfterBuild.name,
@@ -330,12 +335,220 @@ test("trusted pnpm action installs and caches the fresh smoke tree", () => {
 });
 
 test("protected build runtime uses the repository package-manager version", () => {
-  const setup = protectedRuntimeAction.runs.steps.find((step) =>
-    step.uses?.startsWith("pnpm/action-setup@"),
+  const pinnedVersion = rootPackage.packageManager.replace(/^pnpm@/, "");
+  assert.doesNotMatch(protectedRuntimeActionSource, /pnpm\/action-setup@/);
+  assert.match(
+    protectedRuntimeActionSource,
+    new RegExp(`pnpm_bootstrap.*--version.*${pinnedVersion}`, "s"),
   );
-  assert.equal(
-    setup.with.version,
-    rootPackage.packageManager.replace(/^pnpm@/, ""),
+  assert.match(
+    protectedRuntimeActionSource,
+    /node_bin="\$TOOLS_PATH\/bin\/node"/,
+  );
+});
+
+test("each target uses one authenticated run-scoped runtime and always cleans it", () => {
+  const expectedRuntimeOutputs = [
+    "runtime-root",
+    "isolation-root",
+    "runtime-marker",
+    "tools-path",
+    "node-bin",
+    "pnpm-bin",
+    "vercel-cli",
+    "pull-staging-path",
+    "build-environment-path",
+    "candidate-source-path",
+    "provenance-path",
+    "candidate-home-path",
+    "candidate-identity-marker",
+    "build-log-path",
+    "upload-source-path",
+  ];
+  assert.deepEqual(
+    Object.keys(protectedRuntimeAction.outputs).sort(),
+    expectedRuntimeOutputs.sort(),
+  );
+  assert.match(
+    protectedRuntimeActionSource,
+    /\/var\/lib\/mento-vercel-runtime-\$GITHUB_RUN_ID-\$GITHUB_RUN_ATTEMPT-\$LOGICAL_TARGET/,
+  );
+  assert.doesNotMatch(
+    workflowSource,
+    /\$\{\{ runner\.temp \}\}\/mento-vercel-production-/,
+  );
+  assert.doesNotMatch(
+    candidateActionSource,
+    /\$RUNNER_TEMP\/mento-vercel-production-/,
+  );
+  assert.doesNotMatch(
+    protectedRuntimeActionSource,
+    /\$RUNNER_TEMP\/mento-vercel-production-/,
+  );
+
+  for (const target of ["app", "governance", "reserve", "ui"]) {
+    const steps = workflow.jobs[target].steps;
+    const runtimeCalls = steps.filter(
+      (step) => step.uses === "./.github/actions/vercel-protected-runtime",
+    );
+    assert.equal(runtimeCalls.length, 2, `${target} runtime action count`);
+    const [prepare, cleanup] = runtimeCalls;
+    assert.equal(prepare.id, "runtime");
+    assert.deepEqual(prepare.with, {
+      operation: "prepare",
+      "logical-target": target,
+      "controller-path": "${{ github.workspace }}",
+      "source-path": "${{ github.workspace }}/source",
+    });
+    assert.equal(cleanup, steps.at(-1), `${target} cleanup must be job-final`);
+    assert.equal(cleanup.if, "${{ always() }}");
+    assert.deepEqual(cleanup.with, {
+      operation: "cleanup",
+      "logical-target": target,
+    });
+
+    const targetLabel = target === "ui" ? "UI" : target;
+    const preparePull = steps.find(
+      (step) =>
+        step.name === `Prepare runner-owned ${targetLabel} pull staging`,
+    );
+    const validatePull = steps.find(
+      (step) =>
+        step.name === `Validate ${targetLabel} project link and Root Directory`,
+    );
+    for (const step of [preparePull, validatePull]) {
+      assert.equal(
+        step.env.VERCEL_ISOLATION_ROOT,
+        "${{ steps.runtime.outputs.isolation-root }}",
+      );
+      assert.equal(
+        step.env.PULL_STAGING_PATH,
+        "${{ steps.runtime.outputs.pull-staging-path }}",
+      );
+      assert.equal(
+        step.env.SOURCE_PATH,
+        "${{ steps.runtime.outputs.pull-staging-path }}",
+      );
+    }
+
+    const build = steps.find(
+      (step) => step.uses === "./.github/actions/vercel-candidate-build",
+    );
+    for (const name of [
+      "runtime-root",
+      "isolation-root",
+      "runtime-marker",
+      "tools-path",
+      "build-environment-path",
+      "candidate-source-path",
+      "candidate-home-path",
+      "pull-staging-path",
+      "candidate-identity-marker",
+      "build-log-path",
+      "provenance-path",
+      "upload-source-path",
+    ]) {
+      assert.equal(
+        build.with[name],
+        `\${{ steps.runtime.outputs.${name} }}`,
+        `${target} ${name}`,
+      );
+    }
+    assert.doesNotMatch(
+      jobSource(target),
+      /\$\{\{ runner\.temp \}\}\/mento-vercel-production-(?:tools|pull-staging|candidate|build-environment|upload-source)/,
+    );
+  }
+});
+
+test("trusted post-candidate commands use only protected runtime Node", () => {
+  for (const target of ["app", "governance", "reserve", "ui"]) {
+    const steps = workflow.jobs[target].steps;
+    const buildIndex = steps.findIndex(
+      (step) => step.uses === "./.github/actions/vercel-candidate-build",
+    );
+    assert.notEqual(buildIndex, -1);
+    for (const step of steps.slice(buildIndex + 1)) {
+      const run = step.run ?? "";
+      if (!run.includes("$TRUSTED_POST_BUILD_PATH/scripts/")) continue;
+      assert.match(
+        run,
+        /\$\{\{ steps\.runtime\.outputs\.node-bin \}\}/,
+        `${target} post-candidate command must use protected Node`,
+      );
+      assert.doesNotMatch(
+        run,
+        /(?:^|\s)node "\$TRUSTED_POST_BUILD_PATH/,
+        `${target} must not fall back to setup-node after candidate execution`,
+      );
+    }
+  }
+});
+
+test("protected runtime creation and cleanup authenticate the exact target root", () => {
+  const create = protectedRuntimeAction.runs.steps.find(
+    (step) => step.name === "Create protected cross-identity runtime root",
+  );
+  const cleanup = protectedRuntimeAction.runs.steps.find(
+    (step) => step.name === "Remove authenticated protected runtime",
+  );
+  assert.equal(create.if, "${{ inputs.operation == 'prepare' }}");
+  assert.equal(cleanup.if, "${{ inputs.operation == 'cleanup' }}");
+  for (const step of [create, cleanup]) {
+    assert.match(
+      step.run,
+      /\/var\/lib\/mento-vercel-runtime-\$GITHUB_RUN_ID-\$GITHUB_RUN_ATTEMPT-\$LOGICAL_TARGET/,
+    );
+    assert.match(
+      step.run,
+      /GITHUB_RUN_ID:\$GITHUB_RUN_ATTEMPT:\$LOGICAL_TARGET/,
+    );
+    assert.match(step.run, /for ancestor in \/ \/var \/var\/lib/);
+    assert.match(step.run, /stat -c %u/);
+    assert.match(step.run, /stat -c %g/);
+    assert.match(step.run, /stat -c %a/);
+  }
+  assert.match(create.run, /-o root -g root -m 0711/);
+  assert.match(create.run, /-m 0711[\s\\]+--[\s\\]+"\$ISOLATION_ROOT"/);
+  assert.match(create.run, /chmod 0400 "\$RUNTIME_MARKER"/);
+  assert.match(create.run, /stat -c %h "\$RUNTIME_MARKER"/);
+  assert.match(cleanup.run, /stat -c %h "\$RUNTIME_MARKER"/);
+  assert.match(cleanup.run, /failed cleanup authentication/);
+  assert.match(cleanup.run, /contains unexpected top-level state/);
+  assert.match(cleanup.run, /work root contains unexpected state/);
+  assert.match(cleanup.run, /Protected runtime root survived cleanup/);
+  assert.doesNotMatch(cleanup.run, /(?:^|\s)node(?:\s|$)/m);
+});
+
+test("candidate execution seals command files and rejects hosted tool paths", () => {
+  const isolation = candidateAction.runs.steps.find(
+    (step) => step.name === "Prepare isolated exact-SHA candidate source",
+  );
+  const sealIndex = isolation.run.indexOf('/bin/chmod 0700 "$RUNNER_TEMP"');
+  const identityIndex = isolation.run.indexOf("/usr/sbin/useradd", sealIndex);
+  assert.ok(sealIndex >= 0 && sealIndex < identityIndex);
+  assert.match(
+    isolation.run,
+    /RUNNER_TEMP is not a canonical runner-owned directory/,
+  );
+  assert.match(isolation.run, /stat -c '%d:%i:%u:%g' "\$RUNNER_TEMP"/);
+  assert.match(isolation.run, /stat -c %a "\$RUNNER_TEMP"\)" != 700/);
+  assert.match(
+    isolation.run,
+    /Candidate can traverse protected path: \$RUNNER_TEMP/,
+  );
+  assert.match(
+    isolation.run,
+    /\[ "\$NODE_BIN" != "\$TOOLS_PATH\/bin\/node" \]/,
+  );
+  assert.match(isolation.run, /Candidate runtime must not depend on \/opt/);
+  assert.match(
+    isolation.run,
+    /"\$SOURCE_PATH\/pnpm-lock\.yaml"[\s\\]+"\$PULL_STAGING_PATH"[\s\\]+"\$TOOLS_PATH"/,
+  );
+  assert.doesNotMatch(
+    candidateActionSource,
+    /\$RUNNER_TEMP\/mento-vercel-production-/,
   );
 });
 
@@ -537,9 +750,18 @@ test("ordinary targets use isolated builds, runner-owned handoff, and fresh smok
       build.with["expected-root-directory"],
       `apps/${target}.mento.org`,
     );
-    assert.match(build.with["candidate-source-path"], /runner\.temp/);
-    assert.match(build.with["pull-staging-path"], /runner\.temp/);
-    assert.match(build.with["upload-source-path"], /runner\.temp/);
+    assert.equal(
+      build.with["candidate-source-path"],
+      "${{ steps.runtime.outputs.candidate-source-path }}",
+    );
+    assert.equal(
+      build.with["pull-staging-path"],
+      "${{ steps.runtime.outputs.pull-staging-path }}",
+    );
+    assert.equal(
+      build.with["upload-source-path"],
+      "${{ steps.runtime.outputs.upload-source-path }}",
+    );
     assert.match(source, /vercel-deployment-state\.mjs"? deployment/);
     assert.match(source, /vercel-deployment-state\.mjs"? compare/);
     assert.match(source, /vercel-production-shadow\.mjs"? assert-unaliased/);
@@ -642,7 +864,10 @@ test("app Outcome B has no reachable deploy or production command", () => {
   assert.equal(build.uses, "./.github/actions/vercel-candidate-build");
   assert.equal(build.with["logical-target"], "app");
   assert.equal(build.with["expected-root-directory"], "apps/app.mento.org");
-  assert.match(build.with["upload-source-path"], /runner\.temp/);
+  assert.equal(
+    build.with["upload-source-path"],
+    "${{ steps.runtime.outputs.upload-source-path }}",
+  );
   assert.match(source, /NEXT_PUBLIC_VERCEL_ENV: preview/);
   assert.match(source, /VERCEL_ENV: preview/);
   assert.match(source, /VERCEL_TARGET_ENV: v3/);
@@ -747,7 +972,15 @@ test("candidate builds are standalone and external references fail before handof
     (step) => step.name === "Remove candidate execution boundary",
   );
   assert.match(cleanup.run, /mento-vercel-production-build-environment/);
-  assert.match(cleanup.run, /"\$materialized_environment_path"/);
+  assert.match(cleanup.run, /"\$BUILD_ENVIRONMENT_PATH"/);
+  assert.match(cleanup.run, /"\$PROVENANCE_PATH"/);
+  assert.match(
+    cleanup.run,
+    /upload_provenance_path="\$UPLOAD_SOURCE_PATH\.provenance\.json"/,
+  );
+  assert.match(cleanup.run, /"\$upload_provenance_path"/);
+  assert.doesNotMatch(cleanup.run, /rm[\s\S]{0,300}"\$TOOLS_PATH"/);
+  assert.doesNotMatch(cleanup.run, /rm[\s\S]{0,300}"\$UPLOAD_SOURCE_PATH"/);
 });
 
 test("build-variable scopes preserve production Sentry behavior", () => {
@@ -802,7 +1035,7 @@ test("build-variable scopes preserve production Sentry behavior", () => {
   );
   assert.match(
     validation.run,
-    /vercel-production-shadow\.mjs" check-build-inputs/,
+    /vercel-production-shadow\.mjs"[\s\\]+check-build-inputs/,
   );
   assert.match(validation.run, /vercel-build-environment\.mjs/);
   assert.match(
@@ -830,9 +1063,9 @@ test("build-variable scopes preserve production Sentry behavior", () => {
     candidateBuild.run,
     /"\$NODE_BIN" "\$TRUSTED_VERCEL_CLI_PATH" "\$\{build_arguments\[@\]\}"/,
   );
-  assert.match(candidateBuild.run, /\/usr\/bin\/tee "\$build_log"/);
+  assert.match(candidateBuild.run, /\/usr\/bin\/tee "\$BUILD_LOG_PATH"/);
   assert.match(candidateBuild.run, /PIPESTATUS/);
-  assert.match(candidateBuild.run, /cache-summary --input "\$build_log"/);
+  assert.match(candidateBuild.run, /cache-summary --input "\$BUILD_LOG_PATH"/);
   assert.equal(
     candidateAction.outputs.turbo_cache_hits.value,
     "${{ steps.build.outputs.turbo_cache_hits }}",

@@ -25,6 +25,7 @@ import {
   assertCandidateProductionShadowPull,
   assertFinalJobResults,
   assertMaterializedProductionShadowBuildEnvironment,
+  assertProtectedIsolationChild,
   assertProductionShadowBuildInputs,
   assertProductionShadowOutput,
   assertProductionShadowPullStaging,
@@ -122,6 +123,127 @@ test("materialized environment ownership is assigned to the runner identity", ()
       gid: 5_678,
     },
   ]);
+});
+
+test("protected isolation paths require one canonical, owned direct child", () => {
+  const container = realpathSync(
+    mkdtempSync(join(tmpdir(), "shadow-isolation-contract-")),
+  );
+  const isolationRoot = join(container, "work");
+  const expectedName = "mento-vercel-production-pull-staging";
+  const expectedPath = join(isolationRoot, expectedName);
+  const uid = process.getuid();
+  const gid = process.getgid();
+  try {
+    mkdirSync(isolationRoot, { mode: 0o711 });
+    chmodSync(isolationRoot, 0o711);
+    assert.equal(
+      assertProtectedIsolationChild({
+        isolationRoot,
+        path: expectedPath,
+        expectedName,
+      }),
+      expectedPath,
+    );
+
+    for (const path of [
+      join(container, expectedName),
+      join(isolationRoot, "nested", expectedName),
+      `${isolationRoot}/nested/../${expectedName}`,
+      join(isolationRoot, "wrong-name"),
+    ]) {
+      assert.throws(
+        () =>
+          assertProtectedIsolationChild({
+            isolationRoot,
+            path,
+            expectedName,
+          }),
+        /direct child/,
+      );
+    }
+    assert.throws(
+      () =>
+        assertProtectedIsolationChild({
+          isolationRoot: `${isolationRoot}/.`,
+          path: expectedPath,
+          expectedName,
+        }),
+      /lexically canonical/,
+    );
+    assert.throws(
+      () =>
+        assertProtectedIsolationChild({
+          isolationRoot,
+          path: expectedPath,
+          expectedName,
+          expectedUid: uid + 1,
+        }),
+      /not protected/,
+    );
+    assert.throws(
+      () =>
+        assertProtectedIsolationChild({
+          isolationRoot,
+          path: expectedPath,
+          expectedName,
+          expectedGid: gid + 1,
+        }),
+      /not protected/,
+    );
+    chmodSync(isolationRoot, 0o700);
+    assert.throws(
+      () =>
+        assertProtectedIsolationChild({
+          isolationRoot,
+          path: expectedPath,
+          expectedName,
+        }),
+      /not protected/,
+    );
+    chmodSync(isolationRoot, 0o711);
+
+    const external = join(container, "external");
+    mkdirSync(external, { mode: 0o700 });
+    symlinkSync(external, expectedPath);
+    assert.throws(
+      () =>
+        assertProtectedIsolationChild({
+          isolationRoot,
+          path: expectedPath,
+          expectedName,
+        }),
+      /symbolic link/,
+    );
+    rmSync(expectedPath);
+
+    const linkedRoot = join(container, "linked-work");
+    symlinkSync(isolationRoot, linkedRoot);
+    assert.throws(
+      () =>
+        assertProtectedIsolationChild({
+          isolationRoot: linkedRoot,
+          path: join(linkedRoot, expectedName),
+          expectedName,
+        }),
+      /not protected/,
+    );
+  } finally {
+    rmSync(container, { recursive: true, force: true });
+  }
+});
+
+test("build-boundary CLI commands use the protected isolation root", () => {
+  const script = readFileSync(productionShadowScript, "utf8");
+  assert.equal(
+    script.match(/isolationRoot:\s*process\.env\.VERCEL_ISOLATION_ROOT/g)
+      ?.length,
+    6,
+  );
+  assert.doesNotMatch(
+    script,
+    /(?:runnerTemp|isolationRoot):\s*process\.env\.RUNNER_TEMP/,
+  );
 });
 
 test("dispatch context accepts only canonical main and immutable SHA", () => {
@@ -599,28 +721,28 @@ test("repo-linked settings use exact repo identity for all four targets", () => 
 
 test("runner pull staging, candidate copy, and upload proof reject external references", () => {
   for (const [target, contract] of Object.entries(PRODUCTION_SHADOW_TARGETS)) {
-    const runnerTemp = mkdtempSync(
-      join(tmpdir(), `shadow-boundary-${target}-`),
+    const isolationRoot = realpathSync(
+      mkdtempSync(join(tmpdir(), `shadow-boundary-${target}-`)),
     );
     const stagingRoot = join(
-      runnerTemp,
+      isolationRoot,
       "mento-vercel-production-pull-staging",
     );
     const candidateRoot = join(
-      runnerTemp,
+      isolationRoot,
       "mento-vercel-production-candidate-source",
     );
     const uploadRoot = join(
-      runnerTemp,
+      isolationRoot,
       "mento-vercel-production-upload-source",
     );
     const orgId = "team_fixture123";
     const projectId = `prj_${target}123`;
     const deploymentId = `m-${target}-0123456789abcdef012`;
     try {
-      chmodSync(runnerTemp, 0o700);
+      chmodSync(isolationRoot, 0o711);
       prepareProductionShadowPullStaging({
-        runnerTemp,
+        isolationRoot,
         stagingRoot,
         logicalTarget: target,
         orgId,
@@ -652,7 +774,7 @@ test("runner pull staging, candidate copy, and upload proof reject external refe
       const rawEnvironmentBefore = lstatSync(rawEnvironmentPath);
       assert.deepEqual(
         assertProductionShadowPullStaging({
-          runnerTemp,
+          isolationRoot,
           stagingRoot,
           logicalTarget: target,
           orgId,
@@ -666,7 +788,7 @@ test("runner pull staging, candidate copy, and upload proof reject external refe
         mode: 0o700,
       });
       stageProductionShadowPullForCandidate({
-        runnerTemp,
+        isolationRoot,
         stagingRoot,
         candidateRoot,
         logicalTarget: target,
@@ -717,7 +839,7 @@ test("runner pull staging, candidate copy, and upload proof reject external refe
         assert.doesNotMatch(candidateEnvironment, new RegExp(forbidden));
       }
       const materializationRoot = join(
-        runnerTemp,
+        isolationRoot,
         "mento-vercel-production-build-environment",
       );
       const materializedEnvironmentPath = join(
@@ -741,7 +863,7 @@ test("runner pull staging, candidate copy, and upload proof reject external refe
         assert.throws(
           () =>
             assertCandidateProductionShadowPull({
-              runnerTemp,
+              isolationRoot,
               candidateRoot,
               logicalTarget: target,
               orgId,
@@ -763,7 +885,7 @@ test("runner pull staging, candidate copy, and upload proof reject external refe
         assert.throws(
           () =>
             assertMaterializedProductionShadowBuildEnvironment({
-              runnerTemp,
+              isolationRoot,
               stagingRoot,
               materializationRoot,
               logicalTarget: target,
@@ -841,7 +963,7 @@ test("runner pull staging, candidate copy, and upload proof reject external refe
         assert.throws(
           () =>
             createProductionShadowUploadHandoff({
-              runnerTemp,
+              isolationRoot,
               stagingRoot,
               candidateRoot,
               uploadRoot,
@@ -884,7 +1006,7 @@ test("runner pull staging, candidate copy, and upload proof reject external refe
       assert.throws(
         () =>
           assertProductionShadowPullStaging({
-            runnerTemp,
+            isolationRoot,
             stagingRoot,
             logicalTarget: target,
             orgId,
@@ -893,23 +1015,28 @@ test("runner pull staging, candidate copy, and upload proof reject external refe
         /unexpected filesystem entry/,
       );
     } finally {
-      rmSync(runnerTemp, { recursive: true, force: true });
+      rmSync(isolationRoot, { recursive: true, force: true });
     }
   }
 });
 
 test("Vercel pull inherits a private umask and restores the runner umask", () => {
-  const runnerTemp = mkdtempSync(join(tmpdir(), "shadow-pull-umask-"));
-  const stagingRoot = join(runnerTemp, "mento-vercel-production-pull-staging");
+  const isolationRoot = realpathSync(
+    mkdtempSync(join(tmpdir(), "shadow-pull-umask-")),
+  );
+  const stagingRoot = join(
+    isolationRoot,
+    "mento-vercel-production-pull-staging",
+  );
   const logicalTarget = "ui";
   const contract = PRODUCTION_SHADOW_TARGETS[logicalTarget];
   const orgId = "team_fixture123";
   const projectId = "prj_ui123";
   const priorUmask = process.umask();
   try {
-    chmodSync(runnerTemp, 0o700);
+    chmodSync(isolationRoot, 0o711);
     prepareProductionShadowPullStaging({
-      runnerTemp,
+      isolationRoot,
       stagingRoot,
       logicalTarget,
       orgId,
@@ -945,7 +1072,7 @@ test("Vercel pull inherits a private umask and restores the runner umask", () =>
     assert.equal(process.umask(), priorUmask);
     assert.deepEqual(
       assertProductionShadowPullStaging({
-        runnerTemp,
+        isolationRoot,
         stagingRoot,
         logicalTarget,
         orgId,
@@ -955,18 +1082,26 @@ test("Vercel pull inherits a private umask and restores the runner umask", () =>
     );
   } finally {
     process.umask(priorUmask);
-    rmSync(runnerTemp, { recursive: true, force: true });
+    rmSync(isolationRoot, { recursive: true, force: true });
   }
 });
 
 test("handoff enforces distinct candidate and runner ownership contracts", () => {
-  const runnerTemp = mkdtempSync(join(tmpdir(), "shadow-handoff-owner-"));
-  const stagingRoot = join(runnerTemp, "mento-vercel-production-pull-staging");
+  const isolationRoot = realpathSync(
+    mkdtempSync(join(tmpdir(), "shadow-handoff-owner-")),
+  );
+  const stagingRoot = join(
+    isolationRoot,
+    "mento-vercel-production-pull-staging",
+  );
   const candidateRoot = join(
-    runnerTemp,
+    isolationRoot,
     "mento-vercel-production-candidate-source",
   );
-  const uploadRoot = join(runnerTemp, "mento-vercel-production-upload-source");
+  const uploadRoot = join(
+    isolationRoot,
+    "mento-vercel-production-upload-source",
+  );
   const logicalTarget = "ui";
   const contract = PRODUCTION_SHADOW_TARGETS[logicalTarget];
   const orgId = "team_fixture123";
@@ -979,9 +1114,9 @@ test("handoff enforces distinct candidate and runner ownership contracts", () =>
   const ownershipChanges = [];
   const candidateValidations = [];
   try {
-    chmodSync(runnerTemp, 0o700);
+    chmodSync(isolationRoot, 0o711);
     prepareProductionShadowPullStaging({
-      runnerTemp,
+      isolationRoot,
       stagingRoot,
       logicalTarget,
       orgId,
@@ -1020,7 +1155,7 @@ test("handoff enforces distinct candidate and runner ownership contracts", () =>
     );
 
     const result = createProductionShadowUploadHandoff({
-      runnerTemp,
+      isolationRoot,
       stagingRoot,
       candidateRoot,
       uploadRoot,
@@ -1062,22 +1197,24 @@ test("handoff enforces distinct candidate and runner ownership contracts", () =>
     assert.equal(result.gid, runnerGid);
     assert.equal(result.sourceRoot, realpathSync(uploadRoot));
   } finally {
-    rmSync(runnerTemp, { recursive: true, force: true });
+    rmSync(isolationRoot, { recursive: true, force: true });
   }
 });
 
 test("raw Git-object materialization bypasses archive and checkout filters", () => {
   const repository = mkdtempSync(join(tmpdir(), "shadow-raw-source-"));
-  const runnerTemp = mkdtempSync(join(tmpdir(), "shadow-raw-runner-"));
+  const isolationRoot = realpathSync(
+    mkdtempSync(join(tmpdir(), "shadow-raw-isolation-")),
+  );
   const candidate = join(
-    runnerTemp,
+    isolationRoot,
     "mento-vercel-production-candidate-source",
   );
   const checkoutCandidate = mkdtempSync(
     join(tmpdir(), "shadow-filtered-candidate-"),
   );
   try {
-    chmodSync(runnerTemp, 0o700);
+    chmodSync(isolationRoot, 0o711);
     execFileSync("git", ["init", "--quiet"], { cwd: repository });
     writeFileSync(
       join(repository, ".gitattributes"),
@@ -1118,7 +1255,7 @@ test("raw Git-object materialization bypasses archive and checkout filters", () 
     }).trim();
 
     const result = materializeExactGitTree({
-      runnerTemp,
+      isolationRoot,
       sourceRoot: repository,
       candidateRoot: candidate,
       commitSha,
@@ -1163,7 +1300,7 @@ test("raw Git-object materialization bypasses archive and checkout filters", () 
     assert.throws(
       () =>
         materializeExactGitTree({
-          runnerTemp,
+          isolationRoot,
           sourceRoot: repository,
           candidateRoot: candidate,
           commitSha,
@@ -1172,20 +1309,22 @@ test("raw Git-object materialization bypasses archive and checkout filters", () 
     );
   } finally {
     rmSync(repository, { force: true, recursive: true });
-    rmSync(runnerTemp, { force: true, recursive: true });
+    rmSync(isolationRoot, { force: true, recursive: true });
     rmSync(checkoutCandidate, { force: true, recursive: true });
   }
 });
 
 test("raw Git-object materialization rejects gitlinks before writing", () => {
   const repository = mkdtempSync(join(tmpdir(), "shadow-gitlink-source-"));
-  const runnerTemp = mkdtempSync(join(tmpdir(), "shadow-gitlink-runner-"));
+  const isolationRoot = realpathSync(
+    mkdtempSync(join(tmpdir(), "shadow-gitlink-isolation-")),
+  );
   const candidate = join(
-    runnerTemp,
+    isolationRoot,
     "mento-vercel-production-candidate-source",
   );
   try {
-    chmodSync(runnerTemp, 0o700);
+    chmodSync(isolationRoot, 0o711);
     execFileSync("git", ["init", "--quiet"], { cwd: repository });
     writeFileSync(join(repository, "plain.txt"), "plain\n");
     execFileSync("git", ["add", "."], { cwd: repository });
@@ -1236,7 +1375,7 @@ test("raw Git-object materialization rejects gitlinks before writing", () => {
     assert.throws(
       () =>
         materializeExactGitTree({
-          runnerTemp,
+          isolationRoot,
           sourceRoot: repository,
           candidateRoot: candidate,
           commitSha: gitlinkCommit,
@@ -1246,7 +1385,7 @@ test("raw Git-object materialization rejects gitlinks before writing", () => {
     assert.equal(existsSync(candidate), false);
   } finally {
     rmSync(repository, { force: true, recursive: true });
-    rmSync(runnerTemp, { force: true, recursive: true });
+    rmSync(isolationRoot, { force: true, recursive: true });
   }
 });
 
