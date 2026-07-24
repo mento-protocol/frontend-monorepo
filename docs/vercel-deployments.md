@@ -185,13 +185,15 @@ The only successful coordinator/recovery pairs are:
 
 For a durable outcome, `recover-main-deployment` derives the exact artifact
 identity with `journal-name` rather than trusting coordinator outputs, downloads
-that attempt's journal, validates its canonical bytes and positive artifact ID,
-and returns `verified-no-mutation`. In PR A, the job cannot execute Vercel
-mutation commands. A coordinator runner failure with no downloadable artifact
-can produce the diagnostic `not-found-after-runner-failure`, but the final
-sentinel never accepts that as successful recovery. `Vercel Main Deployment`
-inspects the literal full graph and fails if a selected build, journal, shadow
-proof, recovery decision, or required skip has an unexpected outcome.
+that attempt's journal, validates its canonical identity and bytes, and returns
+`verified-no-mutation`. The coordinator already required a positive artifact ID
+before it could publish either durable outcome. In PR A, the recovery job cannot
+execute Vercel mutation commands. A coordinator runner failure with no
+downloadable artifact can produce the diagnostic
+`not-found-after-runner-failure`, but the final sentinel never accepts that as
+successful recovery. `Vercel Main Deployment` inspects the literal full graph
+and fails if a selected build, journal, shadow proof, recovery decision, or
+required skip has an unexpected outcome.
 
 These PR-A mutation prohibitions are version-controlled structural invariants:
 
