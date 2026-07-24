@@ -437,6 +437,9 @@ function canonicalOperation(operation, journal) {
     operation.target === "legacy-app"
       ? journal.candidates.app
       : journal.candidates[operation.target];
+  if (expectedCandidate === null) {
+    throw new Error("Operation target was not selected for this transaction");
+  }
   if (
     candidateDeploymentId !== null &&
     expectedCandidate?.deploymentId !== null &&
@@ -1151,6 +1154,7 @@ export function assertMainTransactionJournalHistory(
     const appendedEvents =
       journal.operations.length - previous.operations.length;
     const candidateChanged = !sameJson(previous.candidates, journal.candidates);
+    let expected;
     if (appendedEvents === 0) {
       const isCandidateAttachment =
         candidateChanged && journal.status === previous.status;
@@ -1160,31 +1164,69 @@ export function assertMainTransactionJournalHistory(
       if (!isCandidateAttachment && !isStatusOnlyTransition) {
         throw new Error("Journal snapshot did not append one legal event");
       }
-      continue;
-    }
-    if (appendedEvents !== 1) {
+      if (isCandidateAttachment) {
+        expected = attachDiscoveredAppCandidate(previous, {
+          deploymentId: journal.candidates.app.deploymentId,
+          deploymentUrl: journal.candidates.app.deploymentUrl,
+          ...journal.candidates.app.discovery,
+        });
+      } else if (journal.status === "committed") {
+        expected = markMainTransactionCommitted(previous);
+      } else {
+        if (
+          ["recovered", "manual_intervention"].includes(journal.status) &&
+          !canonical
+            .slice(0, index)
+            .some((snapshot) => snapshot.status === "recovering")
+        ) {
+          throw new Error(
+            "Terminal recovery status requires a recovering snapshot",
+          );
+        }
+        expected = appendStatus(previous, journal.status);
+      }
+    } else if (appendedEvents !== 1) {
       throw new Error("Journal snapshot batched operation events");
+    } else {
+      const appended = journal.operations.at(-1);
+      if (appended.state === "started") {
+        if (candidateChanged) {
+          throw new Error("Operation start cannot change staged candidates");
+        }
+        expected = startMainTransactionOperation(previous, {
+          type: appended.type,
+          target: appended.target,
+          alias: appended.alias,
+        });
+      } else if (appended.state === "command_returned") {
+        expected = recordMainTransactionCommandReturned(previous, {
+          operationId: appended.operationId,
+          outcome: appended.commandOutcome,
+          candidate: candidateChanged
+            ? {
+                deploymentId: journal.candidates.app.deploymentId,
+                deploymentUrl: journal.candidates.app.deploymentUrl,
+                ...journal.candidates.app.discovery,
+              }
+            : null,
+        });
+      } else if (appended.state === "verified") {
+        if (candidateChanged) {
+          throw new Error(
+            "Operation verification cannot change staged candidates",
+          );
+        }
+        expected = recordMainTransactionVerified(previous, {
+          operationId: appended.operationId,
+          mappingState: appended.mappingState,
+          rollbackState: appended.rollbackState,
+        });
+      } else {
+        throw new Error("Journal appended an unsupported operation event");
+      }
     }
-    const appended = journal.operations.at(-1);
-    if (journal.status !== appended.state) {
-      throw new Error("Journal status does not match its appended operation");
-    }
-    const expectedPreviousStatuses = {
-      started: new Set(["prepared", "verified", "recovering"]),
-      command_returned: new Set(["started"]),
-      verified: new Set(["command_returned"]),
-    };
-    if (!expectedPreviousStatuses[appended.state].has(previous.status)) {
-      throw new Error("Journal operation append is invalid for its status");
-    }
-    if (
-      candidateChanged &&
-      (appended.type !== "app_v3_deploy" ||
-        appended.state !== "command_returned")
-    ) {
-      throw new Error(
-        "App candidate attachment must accompany its command-return event",
-      );
+    if (!sameJson(expected, journal)) {
+      throw new Error("Journal snapshot differs from its legal helper append");
     }
   }
   return canonical;
@@ -2170,6 +2212,28 @@ export async function executeMainTransactionRecovery({
       requireFreshness: false,
     });
     lastDurableJournal = highest;
+  }
+  if (canonicalPlan.decision === "recover") {
+    for (const entry of canonicalPlan.actions) {
+      let inspected;
+      try {
+        inspected = await inspectMapping(clone(entry), {
+          phase: "recovery-final",
+          transactionId: highest.transactionId,
+        });
+      } catch {
+        inspected = null;
+      }
+      if (inspected?.mappingState !== "prior") {
+        throw new MainTransactionError(
+          "Recovered mapping no longer matches the captured prior",
+          {
+            code: "RECOVERY_VERIFICATION_FAILED",
+            journal: highest,
+          },
+        );
+      }
+    }
   }
   highest = appendStatus(
     highest,

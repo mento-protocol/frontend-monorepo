@@ -431,10 +431,13 @@ test("operation event fields must match the constructor state", () => {
 
 test("adjacent journal snapshots append exactly one helper-legal event", () => {
   const initial = preparedForTargets(["governance"], { app: "known" });
-  const { started, returned } = transitionSuccessfulOperation(initial, {
-    type: "promote",
-    target: "governance",
-  });
+  const { started, returned, verified } = transitionSuccessfulOperation(
+    initial,
+    {
+      type: "promote",
+      target: "governance",
+    },
+  );
   assert.throws(
     () =>
       assertMainTransactionJournalHistory([
@@ -449,7 +452,7 @@ test("adjacent journal snapshots append exactly one helper-legal event", () => {
         initial,
         { ...started, status: "command_returned" },
       ]),
-    /status does not match/,
+    /differs from its legal helper append/,
   );
 
   const appInitial = preparedForTargets(["app"]);
@@ -470,6 +473,64 @@ test("adjacent journal snapshots append exactly one helper-legal event", () => {
       ]),
     /did not append one legal event/,
   );
+
+  const duplicate = {
+    ...verified,
+    sequence: verified.sequence + 1,
+    status: "started",
+    operations: [
+      ...verified.operations,
+      {
+        ...started.operations[0],
+        operationId: "op-0002",
+      },
+    ],
+  };
+  assert.throws(
+    () =>
+      assertMainTransactionJournalHistory([
+        initial,
+        started,
+        returned,
+        verified,
+        duplicate,
+      ]),
+    /already recorded/,
+  );
+});
+
+test("forged terminal artifacts cannot bypass transaction recovery", () => {
+  const selected = preparedForTargets(["governance"], { app: "known" });
+  assert.throws(
+    () =>
+      decideMainTransactionRecovery([
+        selected,
+        { ...selected, sequence: 1, status: "committed" },
+      ]),
+    /incomplete operations/,
+  );
+
+  const { started, returned, verified } = transitionSuccessfulOperation(
+    selected,
+    { type: "promote", target: "governance" },
+  );
+  for (const status of ["recovered", "manual_intervention"]) {
+    assert.throws(
+      () =>
+        decideMainTransactionRecovery([
+          selected,
+          started,
+          returned,
+          verified,
+          {
+            ...verified,
+            sequence: verified.sequence + 1,
+            status,
+          },
+        ]),
+      /requires a recovering snapshot/,
+    );
+  }
 });
 
 test("commit requires one verified forward operation for every selected candidate", () => {
@@ -548,6 +609,14 @@ test("duplicate forward mutations are rejected after a verified attempt", () => 
         target: "governance",
       }),
     /already recorded/,
+  );
+  assert.throws(
+    () =>
+      startMainTransactionOperation(preparedForTargets([], { app: "known" }), {
+        type: "app_v3_deploy",
+        target: "app",
+      }),
+    /not selected/,
   );
 
   const appDeploy = transitionSuccessfulOperation(
@@ -1066,7 +1135,9 @@ test("ordinary recovery is planned and executed in reverse activation order", as
     restoreLegacyAlias: async () => {
       throw new Error("unreachable");
     },
-    inspectMapping: async () => ({ mappingState: "candidate" }),
+    inspectMapping: async (_entry, context) => ({
+      mappingState: context.phase === "recovery-final" ? "prior" : "candidate",
+    }),
     verifyMapping: async (entry) => {
       calls.push(`verify:${entry.target}`);
       return { mappingState: "prior" };
@@ -1204,15 +1275,21 @@ test("forged recovery action fields never reach inspection or mutation adapters"
 test("every recovery upload failure exposes only the last durable journal", async () => {
   const plan = plannedOrdinaryRecovery();
   const expectedDurable = [
-    { offset: 0, status: "verified", mutations: 0 },
-    { offset: 1, status: "recovering", mutations: 0 },
-    { offset: 2, status: "started", mutations: 1 },
-    { offset: 3, status: "command_returned", mutations: 1 },
-    { offset: 4, status: "verified", mutations: 1 },
+    { offset: 0, status: "verified", mutations: 0, finalInspections: 0 },
+    { offset: 1, status: "recovering", mutations: 0, finalInspections: 0 },
+    { offset: 2, status: "started", mutations: 1, finalInspections: 0 },
+    {
+      offset: 3,
+      status: "command_returned",
+      mutations: 1,
+      finalInspections: 0,
+    },
+    { offset: 4, status: "verified", mutations: 1, finalInspections: 1 },
   ];
   for (const [index, expected] of expectedDurable.entries()) {
     let attempts = 0;
     let mutations = 0;
+    let finalInspections = 0;
     await assert.rejects(
       executeMainTransactionRecovery({
         plan,
@@ -1231,7 +1308,13 @@ test("every recovery upload failure exposes only the last durable journal", asyn
           mutations += 1;
           return { outcome: "success" };
         },
-        inspectMapping: async () => ({ mappingState: "candidate" }),
+        inspectMapping: async (_entry, context) => ({
+          mappingState: (() => {
+            if (context.phase !== "recovery-final") return "candidate";
+            finalInspections += 1;
+            return "prior";
+          })(),
+        }),
         verifyMapping: async () => ({ mappingState: "prior" }),
       }),
       (error) => {
@@ -1245,7 +1328,41 @@ test("every recovery upload failure exposes only the last durable journal", asyn
       },
     );
     assert.equal(mutations, expected.mutations);
+    assert.equal(finalInspections, expected.finalInspections);
   }
+});
+
+test("a noop that moves after planning cannot be recorded as recovered", async () => {
+  const initial = preparedForTargets(["governance"], { app: "known" });
+  const transitions = transitionSuccessfulOperation(initial, {
+    type: "promote",
+    target: "governance",
+  });
+  const plan = planMainTransactionRecovery({
+    journal: transitions.verified,
+    currentMappings: currentMappings(transitions.verified),
+  });
+  assert.equal(plan.actions[0].kind, "verified_noop");
+  const uploads = [];
+  await assert.rejects(
+    executeMainTransactionRecovery({
+      plan,
+      uploadJournal: acknowledgedUploader(uploads),
+      inspectMapping: async (_entry, context) => ({
+        mappingState:
+          context.phase === "recovery-final" ? "candidate" : "prior",
+      }),
+    }),
+    (error) => {
+      assert.equal(error.code, "RECOVERY_VERIFICATION_FAILED");
+      assert.equal(error.journal.status, "recovering");
+      return true;
+    },
+  );
+  assert.deepEqual(
+    uploads.map((entry) => entry.status),
+    ["recovering"],
+  );
 });
 
 test("app discovery and recovery-start uploads retain the prior durable snapshot", async () => {
