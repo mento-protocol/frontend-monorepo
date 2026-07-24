@@ -164,7 +164,7 @@ test("resolved Next.js and exact Vercel CLI satisfy custom-ID prerequisites", ()
     vercel: "56.2.0",
     vercelCliRuntime: {
       lockfileSha256:
-        "505674eac656c26fce2fe912a2b14228f8f4f3edd4b3d6d7b0f2c9f08c276d76",
+        "884e3c4186c9d5faee0e6cf710b112e7e60cdae5d46be13da1b2b0ae9cf11eb0",
       vercel: "56.2.0",
     },
   };
