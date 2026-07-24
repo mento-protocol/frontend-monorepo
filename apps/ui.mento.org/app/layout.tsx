@@ -6,7 +6,7 @@ import localFont from "next/font/local";
 
 import { AppShell } from "./components/app-shell";
 
-// Vendored locally (was next/font/google) so the production build is hermetic:
+// Vendored locally instead of next/font/google so the production build is hermetic:
 // no build-time Google Fonts fetch that could silently fall back to a different
 // metric and shift every glyph — the #1 source of visual-regression flake.
 const inter = localFont({
