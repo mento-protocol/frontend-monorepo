@@ -23,6 +23,7 @@ import {
   isVersionGreaterThan,
   VERCEL_TARGETS,
 } from "./vercel-prebuilt.mjs";
+import { assertVercelCliRuntimeContract } from "./vercel-cli-runtime-contract.mjs";
 import {
   assertSharpOutputTrace,
   isSharpManifestPath,
@@ -38,6 +39,14 @@ const scriptPath = fileURLToPath(
   new URL("./vercel-prebuilt.mjs", import.meta.url),
 );
 const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567";
+const CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
+  "505674eac656c26fce2fe912a2b14228f8f4f3edd4b3d6d7b0f2c9f08c276d76";
+const NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
+  "884e3c4186c9d5faee0e6cf710b112e7e60cdae5d46be13da1b2b0ae9cf11eb0";
+const REVIEWED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 = new Set([
+  CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
+  NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
+]);
 
 function deploymentId(overrides = {}) {
   return generateVercelDeploymentId({
@@ -61,6 +70,93 @@ function createVersionContractFixture() {
     );
   }
   return fixtureRoot;
+}
+
+function toNextVercelCliRuntimeLockfile(lockfile) {
+  return lockfile
+    .replace(
+      "  '@opentelemetry/core@<2.8.0': '>=2.8.0'",
+      "  '@mysten/sui': 1.45.2\n  '@opentelemetry/core@<2.8.0': '>=2.8.0'",
+    )
+    .replace("  postcss@<8.5.10: '>=8.5.10'", "  postcss@<8.5.18: 8.5.18")
+    .replace("  tar@>=7.0.0 <7.5.16: 7.5.20", "  tar@>=7.0.0 <7.5.21: 7.5.21")
+    .replace(
+      "  vite@>=7.0.0 <7.3.5: 7.3.5",
+      "  valibot@>=1.0.0 <1.4.2: 1.4.2\n  vite@>=7.0.0 <7.3.5: 7.3.5",
+    )
+    .replace(
+      "  tar@7.5.20:\n    resolution: {integrity: sha512-9FcyK4PA6+WbzlTM9WhQm6vB5W7cP7dUiPsv1g7YDwEQnQ1CGpK3MGlKk/ITVWMk05kHZuBhmVhiv8LZoy/PFQ==}",
+      "  tar@7.5.21:\n    resolution: {integrity: sha512-XdhtCvlMywwxpCW8YEq3lOXBJpUPTR2OHHcwLPO3HwsJqOHa2Ok/oJ7ruGzp+JrKoRPVCzJwAdEjqLW/vNRPHA==}",
+    )
+    .replaceAll("      tar: 7.5.20", "      tar: 7.5.21")
+    .replace(
+      "  tar@7.5.20:\n    dependencies:",
+      "  tar@7.5.21:\n    dependencies:",
+    );
+}
+
+function toCurrentVercelCliRuntimeLockfile(lockfile) {
+  return lockfile
+    .replace("  '@mysten/sui': 1.45.2\n", "")
+    .replace("  postcss@<8.5.18: 8.5.18", "  postcss@<8.5.10: '>=8.5.10'")
+    .replace("  tar@>=7.0.0 <7.5.21: 7.5.21", "  tar@>=7.0.0 <7.5.16: 7.5.20")
+    .replace("  valibot@>=1.0.0 <1.4.2: 1.4.2\n", "")
+    .replace(
+      "  tar@7.5.21:\n    resolution: {integrity: sha512-XdhtCvlMywwxpCW8YEq3lOXBJpUPTR2OHHcwLPO3HwsJqOHa2Ok/oJ7ruGzp+JrKoRPVCzJwAdEjqLW/vNRPHA==}",
+      "  tar@7.5.20:\n    resolution: {integrity: sha512-9FcyK4PA6+WbzlTM9WhQm6vB5W7cP7dUiPsv1g7YDwEQnQ1CGpK3MGlKk/ITVWMk05kHZuBhmVhiv8LZoy/PFQ==}",
+    )
+    .replaceAll("      tar: 7.5.21", "      tar: 7.5.20")
+    .replace(
+      "  tar@7.5.21:\n    dependencies:",
+      "  tar@7.5.20:\n    dependencies:",
+    );
+}
+
+function toNextVercelCliRuntimeOverrides(overrides) {
+  const next = {
+    ...overrides,
+    "@mysten/sui": "1.45.2",
+    "postcss@<8.5.18": "8.5.18",
+    "tar@>=7.0.0 <7.5.21": "7.5.21",
+    "valibot@>=1.0.0 <1.4.2": "1.4.2",
+  };
+  delete next["postcss@<8.5.10"];
+  delete next["tar@>=7.0.0 <7.5.16"];
+  return next;
+}
+
+function toCurrentVercelCliRuntimeOverrides(overrides) {
+  const current = {
+    ...overrides,
+    "postcss@<8.5.10": ">=8.5.10",
+    "tar@>=7.0.0 <7.5.16": "7.5.20",
+  };
+  delete current["@mysten/sui"];
+  delete current["postcss@<8.5.18"];
+  delete current["tar@>=7.0.0 <7.5.21"];
+  delete current["valibot@>=1.0.0 <1.4.2"];
+  return current;
+}
+
+function writeVercelCliRuntimeOverrides({
+  rootPackageJsonPath,
+  packageJsonPath,
+  overrides,
+}) {
+  const rootPackageMetadata = JSON.parse(
+    readFileSync(rootPackageJsonPath, "utf8"),
+  );
+  const packageMetadata = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+  rootPackageMetadata.pnpm.overrides = overrides;
+  packageMetadata.pnpm.overrides = overrides;
+  writeFileSync(
+    rootPackageJsonPath,
+    `${JSON.stringify(rootPackageMetadata, null, 2)}\n`,
+  );
+  writeFileSync(
+    packageJsonPath,
+    `${JSON.stringify(packageMetadata, null, 2)}\n`,
+  );
 }
 
 test("generated IDs satisfy every Vercel constraint for every target", () => {
@@ -159,16 +255,21 @@ test("prebuilt assertion rejects missing, malformed, or mismatched output", () =
 });
 
 test("resolved Next.js and exact Vercel CLI satisfy custom-ID prerequisites", () => {
+  const prerequisites = assertDeploymentIdPrerequisites(repoRoot);
   const expected = {
     next: "16.2.11",
     vercel: "56.2.0",
     vercelCliRuntime: {
-      lockfileSha256:
-        "505674eac656c26fce2fe912a2b14228f8f4f3edd4b3d6d7b0f2c9f08c276d76",
+      lockfileSha256: prerequisites.vercelCliRuntime.lockfileSha256,
       vercel: "56.2.0",
     },
   };
-  assert.deepEqual(assertDeploymentIdPrerequisites(repoRoot), expected);
+  assert.ok(
+    REVIEWED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256.has(
+      prerequisites.vercelCliRuntime.lockfileSha256,
+    ),
+  );
+  assert.deepEqual(prerequisites, expected);
   assert.deepEqual(
     JSON.parse(
       execFileSync(
@@ -181,6 +282,109 @@ test("resolved Next.js and exact Vercel CLI satisfy custom-ID prerequisites", ()
   );
   assert.equal(isVersionGreaterThan("16.2.10", "16.2.0-canary.15"), true);
   assert.equal(isVersionGreaterThan("56.2.0", "50.3.3"), true);
+});
+
+test("trusted controller accepts only the reviewed Vercel CLI runtime lockfile rotation", () => {
+  const fixtureRoot = createVersionContractFixture();
+  const packageJsonPath = join(
+    fixtureRoot,
+    "scripts",
+    "vercel-cli-runtime",
+    "package.json",
+  );
+  const lockfilePath = join(
+    fixtureRoot,
+    "scripts",
+    "vercel-cli-runtime",
+    "pnpm-lock.yaml",
+  );
+  const contractPaths = {
+    rootPackageJsonPath: join(fixtureRoot, "package.json"),
+    packageJsonPath,
+    lockfilePath,
+  };
+  try {
+    const repositoryLockfile = readFileSync(lockfilePath, "utf8");
+    const repositoryRootOverrides = JSON.parse(
+      readFileSync(contractPaths.rootPackageJsonPath, "utf8"),
+    ).pnpm.overrides;
+    const repositoryDigest =
+      assertVercelCliRuntimeContract(contractPaths).lockfileSha256;
+    assert.ok(
+      REVIEWED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256.has(repositoryDigest),
+    );
+    const reviewedCurrentLockfile =
+      repositoryDigest === CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256
+        ? repositoryLockfile
+        : toCurrentVercelCliRuntimeLockfile(repositoryLockfile);
+    const reviewedNextLockfile =
+      repositoryDigest === NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256
+        ? repositoryLockfile
+        : toNextVercelCliRuntimeLockfile(repositoryLockfile);
+
+    assert.equal(
+      toCurrentVercelCliRuntimeLockfile(reviewedNextLockfile),
+      reviewedCurrentLockfile,
+    );
+    assert.equal(
+      toNextVercelCliRuntimeLockfile(reviewedCurrentLockfile),
+      reviewedNextLockfile,
+    );
+
+    const reviewedCurrentOverrides = toCurrentVercelCliRuntimeOverrides(
+      repositoryRootOverrides,
+    );
+    const reviewedNextOverrides = toNextVercelCliRuntimeOverrides(
+      repositoryRootOverrides,
+    );
+
+    writeVercelCliRuntimeOverrides({
+      ...contractPaths,
+      overrides: reviewedCurrentOverrides,
+    });
+    writeFileSync(lockfilePath, reviewedCurrentLockfile);
+    assert.equal(
+      assertVercelCliRuntimeContract(contractPaths).lockfileSha256,
+      CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
+    );
+
+    writeVercelCliRuntimeOverrides({
+      ...contractPaths,
+      overrides: reviewedNextOverrides,
+    });
+    writeFileSync(lockfilePath, reviewedNextLockfile);
+    assert.equal(
+      assertVercelCliRuntimeContract(contractPaths).lockfileSha256,
+      NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
+    );
+
+    for (const [overrides, lockfile] of [
+      [reviewedCurrentOverrides, reviewedNextLockfile],
+      [reviewedNextOverrides, reviewedCurrentLockfile],
+    ]) {
+      writeVercelCliRuntimeOverrides({ ...contractPaths, overrides });
+      writeFileSync(lockfilePath, lockfile);
+      assert.throws(
+        () => assertVercelCliRuntimeContract(contractPaths),
+        /lockfile and overrides are not an approved pair/,
+      );
+    }
+
+    writeVercelCliRuntimeOverrides({
+      ...contractPaths,
+      overrides: reviewedNextOverrides,
+    });
+    writeFileSync(
+      lockfilePath,
+      `${reviewedNextLockfile}\n# unreviewed digest\n`,
+    );
+    assert.throws(
+      () => assertVercelCliRuntimeContract(contractPaths),
+      /runtime lockfile is not exact/,
+    );
+  } finally {
+    rmSync(fixtureRoot, { force: true, recursive: true });
+  }
 });
 
 test("version check rejects standalone pin, override, and lockfile drift", () => {
