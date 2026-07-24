@@ -81,7 +81,7 @@ function allProtectedStates() {
       ref: "v2",
       sha: "9999999999999999999999999999999999999999",
     },
-    aliases: ["v2-app.mento.org"],
+    aliases: ["appmento-git-v2-mentolabs.vercel.app", "v2-app.mento.org"],
   });
   return states.sort((left, right) => left.alias.localeCompare(right.alias));
 }
@@ -1059,8 +1059,42 @@ test("protected rollback identity remains stable while ordinary generated aliase
   assert.throws(() =>
     plan({ legacyAliases: ["appmento-git-v2-mentolabs.vercel.app"] }),
   );
+  const creatorAlias = "appmento-fixture-author-mentolabs.vercel.app";
+  assert.doesNotThrow(() =>
+    plan({ legacyAliases: [...legacyAliases, creatorAlias].sort() }),
+  );
+  for (const reservedCreator of ["git-main", "env-v3"]) {
+    const legacy = legacySnapshot();
+    legacy[0].creatorUsername = reservedCreator;
+    legacy[0].aliases = [
+      ...legacyAliases,
+      `appmento-${reservedCreator}-mentolabs.vercel.app`,
+    ].sort();
+    assert.throws(() =>
+      createMainDeploymentPlan({
+        mode: MAIN_DEPLOYMENT_MODE,
+        deploySha: SHA,
+        projectIds,
+        planningSnapshot: planningSnapshot(),
+        legacySnapshot: legacy,
+        upstream: upstream(),
+        gitAdapter: gitAdapter(),
+        runPlanner: ({ base, head }) => ({
+          base,
+          head,
+          deployments: ["app"],
+          reason: "affected-packages",
+        }),
+      }),
+    );
+  }
   for (const unexpectedAlias of [
     "unexpected.mento.org",
+    "appmento-git-main-mentolabs.vercel.app",
+    "appmento-git-v2-other.vercel.app",
+    "other-project-git-v2-mentolabs.vercel.app",
+    "appmento-other-author-mentolabs.vercel.app",
+    "appmento-mentolabs.vercel.app",
     "vercel.app",
     "notvercel.app",
     "safe.vercel.app.attacker.example",
