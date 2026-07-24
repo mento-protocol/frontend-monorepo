@@ -315,10 +315,26 @@ for (const [name, mutate, expectedReason, expectedServedSha] of [
     null,
   ],
   [
+    "sanitized missing",
+    (input) => {
+      for (const state of input.priorStates.app.states) state.git = null;
+    },
+    "served-git-metadata-missing",
+    null,
+  ],
+  [
     "malformed",
     (input) => {
       input.priorStates.app.states[0].git.sha = "main";
       input.priorStates.app.states[1].git.sha = "main";
+    },
+    "served-git-metadata-malformed",
+    null,
+  ],
+  [
+    "sanitized malformed",
+    (input) => {
+      for (const state of input.priorStates.app.states) state.git = {};
     },
     "served-git-metadata-malformed",
     null,
