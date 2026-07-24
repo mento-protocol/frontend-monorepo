@@ -1059,11 +1059,18 @@ test("protected rollback identity remains stable while ordinary generated aliase
   assert.throws(() =>
     plan({ legacyAliases: ["appmento-git-v2-mentolabs.vercel.app"] }),
   );
-  assert.throws(() =>
-    plan({
-      legacyAliases: ["unexpected.mento.org", "v2-app.mento.org"],
-    }),
-  );
+  for (const unexpectedAlias of [
+    "unexpected.mento.org",
+    "vercel.app",
+    "notvercel.app",
+    "safe.vercel.app.attacker.example",
+  ]) {
+    assert.throws(() =>
+      plan({
+        legacyAliases: [unexpectedAlias, "v2-app.mento.org"].sort(),
+      }),
+    );
+  }
   const deploymentPlan = plan();
   assert.deepEqual(
     assertProtectedSnapshotMatchesPlan({

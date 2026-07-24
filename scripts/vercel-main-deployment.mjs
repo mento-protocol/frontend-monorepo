@@ -380,6 +380,13 @@ function canonicalPrior(value, label) {
   };
 }
 
+function isVercelGeneratedAlias(alias) {
+  const labels = alias.split(".");
+  return (
+    labels.length >= 3 && labels.at(-2) === "vercel" && labels.at(-1) === "app"
+  );
+}
+
 function legacyPriorFromSnapshot(snapshot, projectId) {
   const states = snapshot.filter((state) => state.alias === LEGACY_ALIAS);
   if (states.length !== 1) {
@@ -395,9 +402,9 @@ function legacyPriorFromSnapshot(snapshot, projectId) {
     state.git.repo !== "frontend-monorepo" ||
     state.git.ref !== "v2" ||
     state.readyState !== "READY" ||
-    !state.aliases.includes(LEGACY_ALIAS) ||
+    !state.aliases.some((alias) => alias === LEGACY_ALIAS) ||
     state.aliases.some(
-      (alias) => alias !== LEGACY_ALIAS && !alias.endsWith(".vercel.app"),
+      (alias) => alias !== LEGACY_ALIAS && !isVercelGeneratedAlias(alias),
     )
   ) {
     throw new Error("Legacy app rollback state is ambiguous");
