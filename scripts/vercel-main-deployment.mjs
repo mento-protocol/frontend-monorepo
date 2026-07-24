@@ -106,14 +106,9 @@ const VERIFICATION_KEYS = Object.freeze([
   "protectedMappings",
 ]);
 const LEGACY_ALIAS = "v2-app.mento.org";
-const LEGACY_GENERATED_PROJECT_SLUG = "appmento";
 const LEGACY_GENERATED_BRANCH_SLUG = "git-v2";
 const LEGACY_GENERATED_SCOPE_SLUG = "mentolabs";
-const LEGACY_GENERATED_BRANCH_ALIAS = `${LEGACY_GENERATED_PROJECT_SLUG}-${LEGACY_GENERATED_BRANCH_SLUG}-${LEGACY_GENERATED_SCOPE_SLUG}.vercel.app`;
-const RESERVED_GENERATED_ALIAS_CREATOR_PREFIXES = Object.freeze([
-  "git-",
-  "env-",
-]);
+const LEGACY_GENERATED_BRANCH_ALIAS = `appmentoorg-${LEGACY_GENERATED_BRANCH_SLUG}-${LEGACY_GENERATED_SCOPE_SLUG}.vercel.app`;
 const MAX_JSON_BYTES = 256 * 1024;
 const APP_BUILD_PROOF_SCHEMA = "vercel-main-app-build:v1";
 const CLI_COMMAND_OPTIONS = Object.freeze({
@@ -388,23 +383,18 @@ function canonicalPrior(value, label) {
   };
 }
 
-function allowedLegacyGeneratedAliasTopologies(creatorUsername) {
-  const branchTopology = [LEGACY_ALIAS, LEGACY_GENERATED_BRANCH_ALIAS].sort();
-  if (
-    creatorUsername === null ||
-    RESERVED_GENERATED_ALIAS_CREATOR_PREFIXES.some((prefix) =>
-      creatorUsername.startsWith(prefix),
-    )
-  ) {
-    return [branchTopology];
+function allowedLegacyGeneratedAliasTopologies(deploymentUrl) {
+  const immutableHostname = new URL(canonicalizeDeploymentUrl(deploymentUrl))
+    .hostname;
+  const aliases = [
+    LEGACY_ALIAS,
+    LEGACY_GENERATED_BRANCH_ALIAS,
+    immutableHostname,
+  ].sort();
+  if (new Set(aliases).size !== aliases.length) {
+    throw new Error("Legacy app rollback state is ambiguous");
   }
-
-  const creatorLabel = `${LEGACY_GENERATED_PROJECT_SLUG}-${creatorUsername}-${LEGACY_GENERATED_SCOPE_SLUG}`;
-  if (creatorLabel.length > 63) return [branchTopology];
-
-  const creatorAlias = canonicalizeHostname(`${creatorLabel}.vercel.app`);
-  if (creatorAlias === LEGACY_GENERATED_BRANCH_ALIAS) return [branchTopology];
-  return [branchTopology, [...branchTopology, creatorAlias].sort()];
+  return [aliases];
 }
 
 function legacyPriorFromSnapshot(snapshot, projectId) {
@@ -413,7 +403,10 @@ function legacyPriorFromSnapshot(snapshot, projectId) {
     throw new Error("Legacy app rollback state is ambiguous");
   }
   const state = states[0];
-  if (
+  const allowedAliasTopologies = allowedLegacyGeneratedAliasTopologies(
+    state.deploymentUrl,
+  );
+  const legacyIdentityIsAmbiguous =
     state.projectId !== projectId ||
     state.projectName !== "app.mento.org" ||
     state.target !== "production" ||
@@ -421,13 +414,19 @@ function legacyPriorFromSnapshot(snapshot, projectId) {
     state.git.org !== "mento-protocol" ||
     state.git.repo !== "frontend-monorepo" ||
     state.git.ref !== "v2" ||
-    state.readyState !== "READY" ||
-    !allowedLegacyGeneratedAliasTopologies(state.creatorUsername).some(
+    state.readyState !== "READY";
+  if (legacyIdentityIsAmbiguous) {
+    throw new Error("Legacy app rollback state is ambiguous");
+  }
+  if (
+    !allowedAliasTopologies.some(
       (expectedAliases) =>
         JSON.stringify(state.aliases) === JSON.stringify(expectedAliases),
     )
   ) {
-    throw new Error("Legacy app rollback state is ambiguous");
+    throw new Error(
+      `Legacy app generated-alias topology mismatch: ${JSON.stringify({ actualAliases: state.aliases, creatorUsername: state.creatorUsername, expectedAliasTopologies: allowedAliasTopologies })}`,
+    );
   }
   return canonicalPrior(
     {
