@@ -16,8 +16,9 @@ below).
 
 ## Standalone Vercel CLI override mirror
 
-The protected production-shadow jobs install Vercel from the standalone
-`scripts/vercel-cli-runtime` package instead of the root workspace. Its
+The protected production-shadow and automatic main-deployment jobs install
+Vercel from the standalone `scripts/vercel-cli-runtime` package instead of the
+root workspace. Its
 `pnpm.overrides` object must remain deeply equal to the root
 `package.json` object so the protected CLI receives the same security
 resolutions. Its only dependency must remain the same exact Vercel version as
@@ -29,7 +30,7 @@ runtime in the same PR:
 1. Mirror the root Vercel pin and complete override object into the standalone
    manifest. If the Vercel version changed, also update
    `PINNED_VERCEL_CLI_VERSION` in
-   `scripts/vercel-cli-runtime-contract.mjs`; the production-shadow structural
+   `scripts/vercel-cli-runtime-contract.mjs`; the Vercel workflow structural
    tests identify every remaining reviewed version assertion that must change:
 
    ```bash
@@ -67,6 +68,7 @@ runtime in the same PR:
    ```bash
    pnpm vercel:versions:check
    pnpm vercel:production-shadow:test
+   pnpm vercel:workflow:test
    pnpm supply-chain:lockfile-lint
    ```
 

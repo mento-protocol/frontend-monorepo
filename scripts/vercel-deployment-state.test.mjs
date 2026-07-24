@@ -17,20 +17,28 @@ import { fileURLToPath } from "node:url";
 
 import {
   CANONICAL_STATE_KEYS,
+  MAIN_PLANNING_SNAPSHOT_SCHEMA,
   VercelStateClient,
+  assertAppTransactionCandidateOutput,
   assertCanonicalOutput,
+  assertMainPlanningSnapshot,
   assertSnapshotSpec,
   canonicalizeAliasMapping,
+  canonicalizeAppTransactionCandidate,
   canonicalizeAliases,
   canonicalizeDeploymentState,
+  canonicalizeMainPlanningDeploymentState,
   canonicalizeDeploymentUrl,
   canonicalizeHostname,
+  captureMainPlanningSnapshot,
   captureProtectedSnapshot,
   compareProtectedSnapshots,
   parseArguments,
   renderCliFailure,
   runCli,
+  writeAppTransactionCandidate,
   writeCanonicalJson,
+  writeMainPlanningSnapshot,
 } from "./vercel-deployment-state.mjs";
 
 const fixtureDirectory = new URL(
@@ -44,6 +52,15 @@ function fixture(name) {
 
 function canonicalizeFixture(value) {
   return canonicalizeDeploymentState({
+    aliasResponse: value.aliasResponse,
+    deploymentResponse: value.deploymentResponse,
+    aliasesResponse: value.aliasesResponse,
+    expected: value.expected,
+  });
+}
+
+function canonicalizePlanningFixture(value) {
+  return canonicalizeMainPlanningDeploymentState({
     aliasResponse: value.aliasResponse,
     deploymentResponse: value.deploymentResponse,
     aliasesResponse: value.aliasesResponse,
@@ -90,6 +107,272 @@ test("custom v3 fixture proves slug independently from target", () => {
   assert.equal(state.alias, "app.mento.org");
 });
 
+test("main planning capture sanitizes Git ambiguity without weakening rollback identity", () => {
+  const production = fixture("valid-production.json");
+  const valid = canonicalizePlanningFixture(production);
+  assert.deepEqual(valid.git, {
+    org: "mento-protocol",
+    repo: "frontend-monorepo",
+    ref: "main",
+    sha: "0123456789abcdef0123456789abcdef01234567",
+  });
+
+  const missing = canonicalizePlanningFixture({
+    ...production,
+    deploymentResponse: {
+      ...production.deploymentResponse,
+      meta: {
+        protectionBypass: "test-sensitive-value-never-output",
+      },
+    },
+  });
+  assert.equal(missing.git, null);
+  assert.doesNotMatch(
+    JSON.stringify(missing),
+    /protectionBypass|test-sensitive-value-never-output/,
+  );
+
+  for (const meta of [
+    {
+      githubCommitOrg: "mento-protocol",
+      githubCommitRepo: "frontend-monorepo",
+      githubCommitRef: "main",
+    },
+    {
+      githubCommitOrg: "mento-protocol",
+      githubCommitRepo: "frontend-monorepo",
+      githubCommitRef: "main",
+      githubCommitSha: "not-a-sha",
+    },
+    {
+      githubCommitOrg: "unsafe value",
+      githubCommitRepo: "frontend-monorepo",
+      githubCommitRef: "main",
+      githubCommitSha: "0123456789abcdef0123456789abcdef01234567",
+    },
+  ]) {
+    const malformed = canonicalizePlanningFixture({
+      ...production,
+      deploymentResponse: {
+        ...production.deploymentResponse,
+        meta,
+      },
+    });
+    assert.deepEqual(malformed.git, {});
+  }
+
+  const conflictingRawSources = canonicalizePlanningFixture({
+    ...production,
+    deploymentResponse: {
+      ...production.deploymentResponse,
+      gitSource: {
+        org: "different-org",
+        repo: "frontend-monorepo",
+        ref: "main",
+        sha: "0123456789abcdef0123456789abcdef01234567",
+      },
+    },
+  });
+  assert.deepEqual(conflictingRawSources.git, {});
+
+  const wrongSource = canonicalizePlanningFixture({
+    ...production,
+    deploymentResponse: {
+      ...production.deploymentResponse,
+      meta: {
+        ...production.deploymentResponse.meta,
+        githubCommitOrg: "other-org",
+      },
+    },
+  });
+  assert.deepEqual(wrongSource.git, {
+    org: "other-org",
+    repo: "frontend-monorepo",
+    ref: "main",
+    sha: "0123456789abcdef0123456789abcdef01234567",
+  });
+});
+
+test("main planning capture keeps every non-Git activation-state check strict", () => {
+  const production = fixture("valid-production.json");
+  const scenarios = [
+    {
+      label: "deployment ID",
+      mutate(value) {
+        value.deploymentResponse.id = "dpl_other123";
+      },
+    },
+    {
+      label: "URL",
+      mutate(value) {
+        value.deploymentResponse.url = "https://example.com";
+      },
+    },
+    {
+      label: "project",
+      mutate(value) {
+        value.deploymentResponse.projectId = "prj_other123";
+      },
+    },
+    {
+      label: "name",
+      mutate(value) {
+        value.deploymentResponse.name = "reserve.mento.org";
+      },
+    },
+    {
+      label: "readiness",
+      mutate(value) {
+        value.deploymentResponse.readyState = "BUILDING";
+      },
+    },
+    {
+      label: "target",
+      mutate(value) {
+        value.deploymentResponse.target = "preview";
+      },
+    },
+    {
+      label: "creator",
+      mutate(value) {
+        value.deploymentResponse.creator.username = "unsafe user";
+      },
+    },
+    {
+      label: "aliases",
+      mutate(value) {
+        value.aliasesResponse.aliases = [{ alias: "other.mento.org" }];
+      },
+    },
+  ];
+  for (const scenario of scenarios) {
+    const input = structuredClone(production);
+    scenario.mutate(input);
+    assert.throws(
+      () => canonicalizePlanningFixture(input),
+      undefined,
+      scenario.label,
+    );
+  }
+});
+
+test("main planning snapshot preserves cross-alias valid Git conflicts for planner classification", async () => {
+  const base = canonicalizePlanningFixture(fixture("valid-production.json"));
+  const aliases = [
+    "governance.mento.org",
+    "governancementoorg-mentolabs.vercel.app",
+  ];
+  const states = await captureMainPlanningSnapshot(
+    {
+      mainPlanningAliasState: async (entry) => ({
+        ...base,
+        alias: entry.alias,
+        git:
+          entry.alias === aliases[0]
+            ? base.git
+            : {
+                ...base.git,
+                sha: "abcdef0123456789abcdef0123456789abcdef01",
+              },
+      }),
+    },
+    aliases.map((alias) => ({
+      alias,
+      ...fixture("valid-production.json").expected,
+    })),
+  );
+  assert.equal(states.schema, MAIN_PLANNING_SNAPSHOT_SCHEMA);
+  assert.equal(states.states.length, 2);
+  assert.notDeepEqual(states.states[0].git, states.states[1].git);
+  assert.deepEqual(assertMainPlanningSnapshot(states), states);
+});
+
+test("main planning snapshot rejects rollback, alias-set, and mapping-race ambiguity", async () => {
+  const production = fixture("valid-production.json");
+  const base = canonicalizePlanningFixture(production);
+  const aliases = [
+    "governance.mento.org",
+    "governancementoorg-mentolabs.vercel.app",
+  ];
+  const spec = aliases.map((alias) => ({
+    alias,
+    ...production.expected,
+  }));
+  await assert.rejects(
+    () =>
+      captureMainPlanningSnapshot(
+        {
+          mainPlanningAliasState: async (entry) => ({
+            ...base,
+            alias: entry.alias,
+            deploymentId:
+              entry.alias === aliases[0] ? base.deploymentId : "dpl_other123",
+          }),
+        },
+        spec,
+      ),
+    /do not share one rollback deployment/,
+  );
+  await assert.rejects(
+    () =>
+      captureMainPlanningSnapshot(
+        {
+          mainPlanningAliasState: async (entry) => ({
+            ...base,
+            alias: entry.alias,
+            aliases:
+              entry.alias === aliases[0]
+                ? base.aliases
+                : ["governancementoorg-mentolabs.vercel.app"],
+          }),
+        },
+        spec,
+      ),
+    /alias sets conflict/,
+  );
+
+  const client = new VercelStateClient({
+    token: "fixture-token",
+    teamId: "team_fixture123",
+    fetchImplementation: async () => {
+      throw new Error("unused");
+    },
+  });
+  let lookups = 0;
+  client.resolveAlias = async (alias) => ({
+    ...production.aliasResponse,
+    alias,
+    deploymentId: ++lookups === 1 ? "dpl_governance123" : "dpl_concurrent123",
+  });
+  client.inspectDeployment = async () => production.deploymentResponse;
+  client.listDeploymentAliases = async () => production.aliasesResponse;
+  await assert.rejects(
+    () => client.mainPlanningAliasState(spec[0]),
+    /changed during inspection/,
+  );
+
+  const appFixture = fixture("valid-custom-v3.json");
+  const appBase = canonicalizePlanningFixture(appFixture);
+  const appAliases = [
+    "app.mento.org",
+    "appmentoorg-env-v3-mentolabs.vercel.app",
+  ];
+  await assert.rejects(
+    () =>
+      captureMainPlanningSnapshot(
+        {
+          mainPlanningAliasState: async (entry) => ({
+            ...appBase,
+            alias: entry.alias,
+            aliases: [...appBase.aliases, "unexpected-v3.mento.org"].sort(),
+          }),
+        },
+        appAliases.map((alias) => ({ alias, ...appFixture.expected })),
+      ),
+    /do not exactly match the reviewed set/,
+  );
+});
+
 test("minimal alias mapping exposes only read-only drift fields", () => {
   const production = fixture("valid-production.json");
   const mapping = canonicalizeAliasMapping({
@@ -113,6 +396,238 @@ test("minimal alias mapping exposes only read-only drift fields", () => {
   assert.doesNotMatch(
     JSON.stringify(mapping),
     /test-value-not-printed|buildEnv/,
+  );
+});
+
+function appCandidateFixture(overrides = {}) {
+  const app = fixture("valid-custom-v3.json");
+  const expected = {
+    projectId: "prj_app123",
+    projectName: "app.mento.org",
+    deploySha: "abcdef0123456789abcdef0123456789abcdef01",
+    runId: "800",
+    runAttempt: "3",
+    transactionId: "main-0123456789abcdef0123456789abcdef",
+    customEnvironmentSlug: "v3",
+    nextDeploymentId: "m-app-0123456789abcdef012",
+  };
+  return {
+    expected: { ...expected, ...(overrides.expected ?? {}) },
+    deploymentResponse: {
+      ...app.deploymentResponse,
+      meta: {
+        ...app.deploymentResponse.meta,
+        mentoTransactionId: expected.transactionId,
+        mentoRunId: expected.runId,
+        mentoRunAttempt: expected.runAttempt,
+        mentoNextDeploymentId: expected.nextDeploymentId,
+        protectionBypass: "test-sensitive-value-never-output",
+        ...(overrides.meta ?? {}),
+      },
+      ...(overrides.deploymentResponse ?? {}),
+    },
+  };
+}
+
+test("App transaction candidate is exact, canonical, and redacted", () => {
+  const input = appCandidateFixture();
+  const result = canonicalizeAppTransactionCandidate(input);
+  assert.deepEqual(result, {
+    deploymentId: "dpl_appv3abc",
+    deploymentUrl: "https://app-v3-immutable.vercel.app",
+    projectId: "prj_app123",
+    projectName: "app.mento.org",
+    deploySha: "abcdef0123456789abcdef0123456789abcdef01",
+    runId: "800",
+    runAttempt: "3",
+    transactionId: "main-0123456789abcdef0123456789abcdef",
+    customEnvironmentSlug: "v3",
+  });
+  assert.deepEqual(assertAppTransactionCandidateOutput(result), result);
+  assert.doesNotMatch(
+    JSON.stringify(result),
+    /nextDeploymentId|protectionBypass|test-sensitive-value-never-output/,
+  );
+});
+
+test("App transaction candidate rejects same SHA and transaction with wrong run or attempt", () => {
+  for (const meta of [
+    { mentoRunId: "801" },
+    { mentoRunAttempt: "4" },
+    { mentoNextDeploymentId: "m-app-different123" },
+  ]) {
+    assert.throws(
+      () => canonicalizeAppTransactionCandidate(appCandidateFixture({ meta })),
+      /identity does not match/,
+    );
+  }
+});
+
+test("App transaction candidate discovery uses filtered bounded pagination and exact inspection", async () => {
+  const input = appCandidateFixture();
+  const requests = [];
+  const client = new VercelStateClient({
+    token: "fixture-token",
+    teamId: "team_fixture123",
+    fetchImplementation: async () => {
+      throw new Error("unused");
+    },
+  });
+  client.requestWithRetry = async (path) => {
+    requests.push(path);
+    if (path.startsWith("/v6/deployments")) {
+      const url = new URL(path, "https://api.vercel.com");
+      assert.equal(url.searchParams.get("projectId"), "prj_app123");
+      assert.equal(url.searchParams.get("target"), "v3");
+      assert.equal(
+        url.searchParams.get("meta-mentoTransactionId"),
+        input.expected.transactionId,
+      );
+      if (url.searchParams.get("until") === null) {
+        return {
+          deployments: [{ uid: "dpl_appv3abc" }],
+          pagination: { next: 12345 },
+        };
+      }
+      assert.equal(url.searchParams.get("until"), "12345");
+      return { deployments: [], pagination: { next: null } };
+    }
+    assert.equal(path, "/v13/deployments/dpl_appv3abc?withGitRepoInfo=true");
+    return input.deploymentResponse;
+  };
+  const result = await client.discoverAppTransactionCandidate(input.expected);
+  assert.equal(result.deploymentId, "dpl_appv3abc");
+  assert.equal(requests.length, 3);
+
+  let attempts = 0;
+  const retryClient = new VercelStateClient({
+    token: "fixture-token",
+    teamId: "team_fixture123",
+    fetchImplementation: async () => {
+      throw new Error("unused");
+    },
+  });
+  retryClient.request = async () => {
+    attempts += 1;
+    if (attempts < 3) throw new Error("transient");
+    return { ok: true };
+  };
+  assert.deepEqual(
+    await retryClient.requestWithRetry("/read-only", { attempts: 3 }),
+    { ok: true },
+  );
+  assert.equal(attempts, 3);
+});
+
+test("App discovery stabilizes zero and exact pending candidates within a bounded window", async () => {
+  const input = appCandidateFixture();
+  const client = new VercelStateClient({
+    token: "fixture-token",
+    teamId: "team_fixture123",
+    fetchImplementation: async () => {
+      throw new Error("unused");
+    },
+  });
+  let lists = 0;
+  let inspections = 0;
+  const sleeps = [];
+  client.listAppTransactionDeploymentIds = async () => {
+    lists += 1;
+    return lists === 1 ? [] : ["dpl_appv3abc"];
+  };
+  client.requestWithRetry = async () => {
+    inspections += 1;
+    return {
+      ...input.deploymentResponse,
+      readyState: inspections === 1 ? "BUILDING" : "READY",
+    };
+  };
+  const result = await client.discoverAppTransactionCandidate(input.expected, {
+    maximumAttempts: 4,
+    stabilizationDelayMs: 5,
+    sleepImplementation: async (milliseconds) => sleeps.push(milliseconds),
+  });
+  assert.equal(result.deploymentId, "dpl_appv3abc");
+  assert.equal(lists, 3);
+  assert.equal(inspections, 2);
+  assert.deepEqual(sleeps, [5, 5]);
+
+  inspections = 0;
+  client.listAppTransactionDeploymentIds = async () => ["dpl_appv3abc"];
+  client.requestWithRetry = async () => ({
+    ...input.deploymentResponse,
+    readyState: "BUILDING",
+    meta: {
+      ...input.deploymentResponse.meta,
+      mentoRunAttempt: "wrong",
+    },
+  });
+  await assert.rejects(
+    () =>
+      client.discoverAppTransactionCandidate(input.expected, {
+        maximumAttempts: 4,
+        stabilizationDelayMs: 0,
+        sleepImplementation: async () => {
+          assert.fail("identity mismatch must not retry");
+        },
+      }),
+    /identity does not match/,
+  );
+});
+
+test("App transaction candidate discovery fails closed on zero, multiple, and unbounded pages", async () => {
+  const input = appCandidateFixture();
+  const client = new VercelStateClient({
+    token: "fixture-token",
+    teamId: "team_fixture123",
+    fetchImplementation: async () => {
+      throw new Error("unused");
+    },
+  });
+  client.listAppTransactionDeploymentIds = async () => [];
+  await assert.rejects(
+    () =>
+      client.discoverAppTransactionCandidate(input.expected, {
+        maximumAttempts: 1,
+        sleepImplementation: async () => {},
+        stabilizationDelayMs: 0,
+      }),
+    /did not stabilize/,
+  );
+
+  client.listAppTransactionDeploymentIds = async () => [
+    "dpl_appv3abc",
+    "dpl_appv3def",
+  ];
+  client.requestWithRetry = async (path) => ({
+    ...input.deploymentResponse,
+    id: path.includes("dpl_appv3def") ? "dpl_appv3def" : "dpl_appv3abc",
+    url: path.includes("dpl_appv3def")
+      ? "app-v3-other.vercel.app"
+      : "app-v3-immutable.vercel.app",
+  });
+  await assert.rejects(
+    () => client.discoverAppTransactionCandidate(input.expected),
+    /exactly one match; received 2/,
+  );
+
+  const paginatedClient = new VercelStateClient({
+    token: "fixture-token",
+    teamId: "team_fixture123",
+    fetchImplementation: async () => {
+      throw new Error("unused");
+    },
+  });
+  paginatedClient.requestWithRetry = async () => ({
+    deployments: [],
+    pagination: { next: 12345 },
+  });
+  await assert.rejects(
+    () =>
+      paginatedClient.listAppTransactionDeploymentIds(input.expected, {
+        maximumPages: 2,
+      }),
+    /cursor is malformed|bounded limit/,
   );
 });
 
@@ -529,7 +1044,15 @@ test("protected snapshot comparison detects every mapping change", () => {
 
 test("CLI parser accepts only each command's exact option set", () => {
   const cases = [
+    [
+      "app-candidate",
+      "--expected",
+      "expected.json",
+      "--output",
+      "candidate.json",
+    ],
     ["compare", "--before", "before.json", "--after", "after.json"],
+    ["planning-snapshot", "--spec", "spec.json", "--output", "snapshot.json"],
     ["snapshot", "--spec", "spec.json", "--output", "snapshot.json"],
     [
       "deployment",
@@ -700,6 +1223,52 @@ test("private canonical output is exclusive, mode 0600, and symlink-safe", (t) =
   assert.throws(
     () => writeCanonicalJson("relative.json", state, { runnerTemp: directory }),
     /path is missing or unsafe/,
+  );
+});
+
+test("planning snapshots and App candidates use distinct validated private writers", (t) => {
+  const directory = privateTestDirectory(t);
+  const planningState = canonicalizePlanningFixture(
+    fixture("valid-production.json"),
+  );
+  const planning = {
+    schema: MAIN_PLANNING_SNAPSHOT_SCHEMA,
+    states: [planningState],
+  };
+  const candidate = canonicalizeAppTransactionCandidate(appCandidateFixture());
+  const planningPath = join(directory, "planning.json");
+  const candidatePath = join(directory, "candidate.json");
+  writeMainPlanningSnapshot(planningPath, planning, {
+    runnerTemp: directory,
+  });
+  writeAppTransactionCandidate(candidatePath, candidate, {
+    runnerTemp: directory,
+  });
+  assert.equal(
+    readFileSync(planningPath, "utf8"),
+    `${JSON.stringify(planning)}\n`,
+  );
+  assert.equal(
+    readFileSync(candidatePath, "utf8"),
+    `${JSON.stringify(candidate)}\n`,
+  );
+  assert.throws(
+    () =>
+      writeMainPlanningSnapshot(
+        join(directory, "bad-planning.json"),
+        { schema: MAIN_PLANNING_SNAPSHOT_SCHEMA, states: [candidate] },
+        { runnerTemp: directory },
+      ),
+    /planning deployment state/,
+  );
+  assert.throws(
+    () =>
+      writeAppTransactionCandidate(
+        join(directory, "bad-candidate.json"),
+        planning,
+        { runnerTemp: directory },
+      ),
+    /App transaction candidate/,
   );
 });
 

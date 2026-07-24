@@ -159,6 +159,7 @@ test("the notifier is loop-safe, secretless, and least privilege", () => {
     ".github/workflows/quality-budgets.yml",
     ".github/workflows/scorecard.yml",
     ".github/workflows/supply-chain.yml",
+    ".github/workflows/vercel-main-deployment.yml",
     ".github/workflows/vercel-production-shadow.yml",
     ".github/workflows/visual.yml",
   ].map((path) => /^name: (.+)$/m.exec(read(path))?.[1]);
@@ -167,6 +168,7 @@ test("the notifier is loop-safe, secretless, and least privilege", () => {
   assert.match(workflow, /^ {2}workflow_run:$/m);
   assert.match(workflow, /^ {6}- Quality Budgets$/m);
   assert.match(workflow, /^ {6}- Supply Chain$/m);
+  assert.match(workflow, /^ {6}- Vercel Main Deployment$/m);
   assert.match(workflow, /^ {6}- Vercel Production Shadow$/m);
   assert.ok(
     monitoredNames.every(Boolean),
@@ -190,6 +192,16 @@ test("the notifier is loop-safe, secretless, and least privilege", () => {
     workflow,
     /^ {4}concurrency:\n {6}group: ci-failure-\$\{\{ github\.event\.workflow_run\.workflow_id \}\}\n {6}cancel-in-progress: false$/m,
   );
+  const handledEvents =
+    /contains\(fromJSON\('(\[[^']+\])'\), github\.event\.workflow_run\.event\)/.exec(
+      workflow,
+    )?.[1];
+  assert.deepEqual(JSON.parse(handledEvents ?? "[]"), [
+    "push",
+    "schedule",
+    "workflow_dispatch",
+    "workflow_run",
+  ]);
   const handledConclusions =
     /contains\(fromJSON\('(\[[^']+\])'\), github\.event\.workflow_run\.conclusion\)/.exec(
       workflow,
@@ -204,6 +216,10 @@ test("the notifier is loop-safe, secretless, and least privilege", () => {
   assert.match(workflow, /^ {6}actions: read$/m);
   assert.match(workflow, /^ {6}issues: write$/m);
   assert.match(workflow, /workflow_run\.name == 'Publish UI Package'/);
+  assert.match(
+    workflow,
+    /workflow_run\.event == 'workflow_run' &&\n {10}github\.event\.workflow_run\.name == 'Vercel Main Deployment' &&\n {10}github\.event\.workflow_run\.head_branch == github\.event\.repository\.default_branch &&\n {10}github\.event\.workflow_run\.head_repository\.full_name == github\.repository/,
+  );
   assert.match(
     workflow,
     /workflow_run\.event == 'schedule' \|\|\n {8}\(\n {10}github\.event\.workflow_run\.event == 'push'/,

@@ -1,0 +1,9 @@
+{
+  "base": "success-rerun-attempt.json",
+  "job_overrides": {
+    "run_attempt": 1,
+    "id": 90000000004,
+    "url": "https://api.github.com/repos/mento-protocol/frontend-monorepo/actions/jobs/90000000004",
+    "html_url": "https://github.com/mento-protocol/frontend-monorepo/actions/runs/40000000002/job/90000000004"
+  }
+}

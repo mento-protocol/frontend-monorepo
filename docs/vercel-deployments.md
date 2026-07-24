@@ -5,18 +5,24 @@ four-target preview controller used by the GitHub Actions deployment migration t
 [issue #515](https://github.com/mento-protocol/frontend-monorepo/issues/515).
 The ownership boundary and its trade-offs are recorded in
 [ADR 0001](adr/0001-github-actions-vercel-deployment-orchestration.md).
-The v2 controller builds App, Governance, Reserve, and UI independently from one
-target-ordered plan. All four ordinary branch-preview paths are GitHub-only;
-App completed the last exact-head and fresh post-merge canary gates in PRs
+The preview v2 controller builds App, Governance, Reserve, and UI independently
+from one target-ordered plan. All four ordinary branch-preview paths are
+GitHub-only. App completed the last exact-head and fresh post-merge canary gates
+in PRs
 [#609](https://github.com/mento-protocol/frontend-monorepo/pull/609) and
 [#610](https://github.com/mento-protocol/frontend-monorepo/pull/610).
-Until the production cutover in
-[#522](https://github.com/mento-protocol/frontend-monorepo/issues/522), Vercel
-Git continues to own every main and production deployment, including App's
-`main -> v3` path, plus the legacy App `v2 -> production` path. App's custom
-`v3` deployment semantics are unchanged.
+The separate automatic `Vercel Main Deployment` workflow now runs its PR-A
+proof in literal `shadow` mode after successful `main` CI. It plans from the
+SHA each public target actually serves, stages and verifies selected ordinary
+targets, builds selected App `v3` output without deploying it, and proves the
+transaction handoff without moving protected domains. Vercel Git therefore
+continues to own every public `main` deployment during PR A, including App's
+`main -> v3` path, while the legacy App `v2 -> production` path remains native.
+PR B of
+[#522](https://github.com/mento-protocol/frontend-monorepo/issues/522) is the
+separate reviewed ownership cutover.
 
-The automatic controller's version-controlled
+The automatic preview controller's version-controlled
 `VERCEL_PREVIEW_CONTROLLER_MODE` is `active` in this ownership state. The only
 other accepted value is `observe-only`, which records receipts, recovers or
 retires already-persisted dispatch ownership, and publishes a truthful
@@ -27,21 +33,357 @@ per-target `shadow` or `github` mode live together in
 guards, and ownership tests import or structurally verify that source; do not
 copy a second ownership table into executable code.
 
-The guarded manual production-shadow pilot does not promote or mutate a
-protected/custom production domain or deployment ownership. Each ordinary
-upload implicitly moves the target's reviewed base generated project/team alias
-and may also move Vercel's exact creator-scoped generated alias.
-Until the later production cutover issues ship, the Vercel Git integration
-remains the protected/custom production deployment owner.
+The guarded manual production-shadow pilot remains an operator tool. Like the
+automatic PR-A shadow path, it does not promote or mutate a protected/custom
+production domain or deployment ownership. Each ordinary upload implicitly
+moves the target's reviewed base generated project/team alias and may also move
+Vercel's exact creator-scoped generated alias.
+
+## Automatic main shadow proof
+
+`.github/workflows/vercel-main-deployment.yml`, named
+`Vercel Main Deployment`, is the automatic PR-A proof for
+[#522](https://github.com/mento-protocol/frontend-monorepo/issues/522). A
+completed successful `CI/CD` push run on `main` starts it through
+`workflow_run`. Its concurrency group keeps an in-progress run and at most one
+pending run; ordering is never trusted for correctness.
+
+The workflow has these literal jobs:
+
+1. `wait-for-ci`;
+2. `plan-main-deployments`;
+3. `stage-governance`;
+4. `stage-reserve`;
+5. `stage-ui`;
+6. `activate-and-verify`;
+7. `recover-main-deployment`;
+8. job ID `result`, whose literal check name is `Vercel Main Deployment`.
+
+The Node controller is `scripts/vercel-main-deployment.mjs`. Its reviewed
+subcommands are `validate-context`, `validate-source`, `create-spec`, `plan`,
+`freshness`, `revalidate-prior`, `app-build-proof`,
+`app-candidate-expectation`, `stage-result`, `validate-stages`,
+`prepare-journal`, `journal-name`, `run-shadow`, `recover-shadow`, `final`, and
+`evidence`. Keep orchestration in YAML and validation, canonicalization,
+journal construction, and outcome decisions in tested Node code.
+`app-candidate-expectation` is reserved for the later active cutover and
+recovery path; the PR-A shadow YAML does not invoke it.
+
+### Exact upstream attempt and source gate
+
+`wait-for-ci` is token-free with respect to Vercel. It sets `DEPLOY_SHA` only
+from `github.event.workflow_run.head_sha` and validates the event plus GitHub
+API record with `scripts/vercel-main-ci-attempt.mjs`. The accepted run must:
+
+- belong to `mento-protocol/frontend-monorepo`;
+- be the completed successful `CI/CD` push workflow at
+  `.github/workflows/ci.yml` on branch `main`;
+- identify the exact event run ID, run attempt, and lowercase 40-character
+  `DEPLOY_SHA`;
+- return exactly one literal `Build and Test` job from the
+  attempt-specific, fully paginated jobs endpoint, and that job must have
+  concluded `success`.
+
+The job then requires `github.workflow_ref` to identify
+`.github/workflows/vercel-main-deployment.yml` on `refs/heads/main`,
+`github.workflow_sha == DEPLOY_SHA`, checked-out `HEAD == DEPLOY_SHA`, and
+`DEPLOY_SHA` reachable from freshly fetched `refs/heads/main`. A mismatched
+workflow definition or superseded definition exits before any Vercel
+environment or credential is available. The gate records only the upstream run
+URL and attempt, exact `Build and Test` job URL, and `DEPLOY_SHA`.
+
+### Served-SHA planning and prior-state handoff
+
+`plan-main-deployments` reads canonical protected state for App, Governance,
+Reserve, UI, and legacy App v2. It requires each reviewed alias set to resolve
+consistently to one expected project, ready deployment, environment, and
+healthy public surface. It also records the exact prior deployment ID, immutable
+URL, aliases, and served Git SHA in one redacted handoff.
+
+For Governance, Reserve, and UI, that protected runtime and rollback mapping
+contains only the literal public custom domain. Generated project/team and
+creator-scoped aliases are not protected aliases or rollback inputs. They are
+candidate-verification evidence because `--prod --skip-domain` necessarily
+moves them.
+
+Planning compares each target's served SHA with `DEPLOY_SHA`; it does not use
+the triggering push's `before` field. Outside the PR-A native-shadow fallback,
+an exact served-SHA match skips that target. Otherwise the repository planner
+evaluates the complete `served SHA..DEPLOY_SHA` range, which accumulates changes
+hidden by coalesced workflow runs. Proven non-runtime changes skip. Missing,
+malformed, non-ancestral, wrong-source, or otherwise ambiguous planning metadata
+selects the affected target so uncertainty cannot suppress a deployment.
+Ambiguous alias ownership, project, environment, prior deployment, health, or
+rollback state aborts the whole transaction because selecting more targets
+cannot make compensation safe.
+
+In shadow mode, native Vercel may already serve `DEPLOY_SHA` before this
+workflow reaches planning. The planner then uses the first parent as the
+comparison base so PR A can still exercise the affected-target path. If it
+cannot resolve that parent safely, it selects the target.
+
+### Credential and build boundary
+
+Every job that can receive `VERCEL_TOKEN_PRODUCTION`, a mirrored build secret,
+or an automation-bypass value declares:
+
+```yaml
+environment:
+  name: vercel-cli-production
+  deployment: false
+```
+
+Never reference the generic `Production` environment. Map the production token
+only as a step-scoped `VERCEL_TOKEN`; never put it in a command argument. Expose
+each mirrored build secret only to the literal target build step that consumes
+it. App `v3` explicitly receives an empty `SENTRY_AUTH_TOKEN`. Missing
+configuration fails by variable name. Automation must never inspect 1Password
+or another credential store.
+
+The three ordinary stage jobs use production build semantics and
+`vercel deploy --prebuilt --prod --skip-domain`. They reuse the protected #521
+candidate UID/runtime boundary, inspect exact deployment state, recheck drift,
+and run the credential-free production-shadow browser smoke against the
+immutable staged URL in the same job. These uploads may move only the reviewed
+generated Vercel system aliases described below. Those aliases are evidence of
+the candidate upload, never runtime-smoke endpoints or rollback mappings. The
+uploads cannot move protected or custom production domains.
+
+App has no stage job because its custom `v3` upload is activation. If App is
+selected, `activate-and-verify` performs `vercel pull` plus the protected
+custom-`v3` build and output validation in place, but stops before
+`vercel deploy --prebuilt --target=v3`. App therefore has no PR-A candidate URL
+or staged runtime smoke.
+
+### Shadow transaction and recovery proof
+
+`activate-and-verify` uses `if: always()` and validates that every selected
+ordinary stage succeeded and every unselected stage skipped. Before App
+preparation or transaction handoff, it performs a bounded remote-`main` check
+and revalidates the captured prior mappings. If `main` advanced before the
+journal, the terminal coordinator outcome is `superseded-before-journal`. No
+journal exists, recovery returns `not-required`, and the retained newer workflow
+run owns convergence.
+
+For a current SHA, the coordinator creates the exact prepared journal bytes and
+canonical artifact name, uploads that single redacted journal with seven-day
+retention, and requires a positive artifact ID before proceeding.
+`run-shadow` then performs a second bounded freshness check. If `main` advanced
+after the upload, it returns `superseded-after-journal`, with recovery-decision
+reason `superseded-before-mutation`. Otherwise it returns `shadow-prepared`
+after verify-only callbacks. It cannot call promotion, public App `v3`
+deployment, alias assignment, rollback, or recovery mutation code.
+
+The only successful coordinator/recovery pairs are:
+
+| Coordinator outcome         | Durable journal | Recovery outcome       |
+| --------------------------- | --------------- | ---------------------- |
+| `no-target`                 | no              | `not-required`         |
+| `superseded-before-journal` | no              | `not-required`         |
+| `superseded-after-journal`  | yes             | `verified-no-mutation` |
+| `shadow-prepared`           | yes             | `verified-no-mutation` |
+
+For a durable outcome, `recover-main-deployment` derives the exact artifact
+identity with `journal-name` rather than trusting coordinator outputs, downloads
+that attempt's journal, validates its canonical schema, identity, and history,
+and returns `verified-no-mutation`. The coordinator already validated the exact
+uploaded bytes and required a positive artifact ID before it could publish
+either durable outcome. In PR A, the recovery job cannot execute Vercel mutation
+commands. A coordinator runner failure with no downloadable artifact can
+produce the diagnostic
+`not-found-after-runner-failure`, but the final sentinel never accepts that as
+successful recovery. `Vercel Main Deployment` inspects the literal full graph
+and fails if a selected build, journal, shadow proof, recovery decision, or
+required skip has an unexpected outcome.
+
+These PR-A mutation prohibitions are version-controlled structural invariants:
+
+- no `vercel promote`;
+- no `vercel alias set`;
+- no `vercel rollback`;
+- no `vercel deploy --prebuilt --target=v3`;
+- no protected/custom production-domain movement;
+- no Vercel Git ownership change;
+- no active-mode transaction or compensating-recovery callback.
+
+Ordinary `--prod --skip-domain` staging remains intentionally reachable because
+that is the canary PR A must prove.
+
+### PR-A canary and copy-safe diagnostics
+
+The `result` job evaluates the complete graph without ending the job, then
+writes and uploads one canonical redacted report before it returns the terminal
+result. A safe graph uses schema `vercel-main-evidence:v1`; any failed gate,
+planner, stage, coordinator, recovery, or final validation uses the separate
+`vercel-main-failure-evidence:v1` schema. Failure evidence records only trusted
+run identity, valid SHA values when available, whether planner output existed,
+the literal job-result graph, and the shadow invariant of zero public-serving
+mutation commands. It never parses or embeds an unavailable or malformed plan.
+The job fails only after the failure report is uploaded, so the diagnostic
+artifact survives without weakening the sentinel.
+
+Both paths append their canonical redacted report to `$GITHUB_STEP_SUMMARY` and
+upload the exact JSON as artifact
+`vercel-main-evidence-${run_id}-${run_attempt}` with 14-day retention. Link the
+first merged PR-A run and artifact on issue #522 or its PR; do not embed observed
+IDs in this canonical runbook. The evidence contains only:
+
+- downstream workflow run ID, attempt, URL, and exact workflow-definition SHA;
+- upstream run ID/attempt, `Build and Test` URL/conclusion, and `DEPLOY_SHA`;
+- each target's canonical prior deployment ID/URL, public aliases, served SHA,
+  planner range, reason, and selected/skipped outcome;
+- the independently verified legacy App v2 deployment, alias, ref, SHA, state,
+  and health;
+- each selected ordinary staged deployment ID/URL plus canonical state,
+  immutable browser/runtime/security, and protected-mapping results;
+- App build result and validated deterministic Next deployment ID, without a
+  Vercel deployment ID or URL;
+- coordinator outcome; journal name, ID, sequence, status, and transaction ID
+  when durable; and the recovery outcome;
+- both freshness decisions, per-target and coordinator durations, and Turbo
+  cache hits/misses;
+- an empty ordinary rollback-state target set;
+- a zero count for public-serving activation, alias, promotion, rollback, and
+  recovery commands.
+
+Use these copy-safe diagnostics:
+
+```bash
+gh run view <run-id> \
+  --repo mento-protocol/frontend-monorepo \
+  --attempt <run-attempt>
+
+gh run view <run-id> \
+  --repo mento-protocol/frontend-monorepo \
+  --job <failed-job-id> \
+  --log-failed
+```
+
+Copy only the allowlisted summary fields above. Never attach raw GitHub or
+Vercel API bodies, pulled `.env` files, `.vercel/output`, cookies, tokens,
+bypass values, environment dumps, or unreviewed workflow artifacts.
+
+### PR-B ownership cutover and runtime proof
+
+PR B is a separate reviewed change after PR A's automatic shadow canary is
+accepted. It changes the controller from literal `shadow` to `active` and
+changes Vercel Git ownership in the same commit:
+
+- Governance, Reserve, and UI:
+  `git.deploymentEnabled` becomes `{"**": false}`;
+- App: `git.deploymentEnabled` becomes
+  `{"**": false, "v2": true}`.
+
+Do not enable active mode before those exact ownership changes, and do not
+disable native `main` while the workflow remains shadow-only. App `v2` remains
+native in both configurations.
+
+Active mode reuses the prepared transaction and journal identity. It stages and
+verifies Governance, Reserve, and UI, builds App `v3`, then mutates targets
+sequentially from exact immutable IDs. Before every command it uploads a
+`started` journal; after the command it inspects exact public mapping and
+uploads the verified next sequence. Governance, Reserve, and UI use
+`vercel promote <exact-staged-id-or-url>`. App activates last with
+`vercel deploy --prebuilt --target=v3`, then verifies or restores each reviewed
+v3 alias independently. `--prod`, `--skip-domain`, and `vercel promote` remain
+forbidden for App.
+
+After active-mode activation, run the credential-free public smoke for every
+selected target with its literal URL:
+
+| `LOGICAL_TARGET` | `PUBLIC_URL`                    |
+| ---------------- | ------------------------------- |
+| `app`            | `https://app.mento.org/`        |
+| `governance`     | `https://governance.mento.org/` |
+| `reserve`        | `https://reserve.mento.org/`    |
+| `ui`             | `https://ui.mento.org/`         |
+
+```bash
+LOGICAL_TARGET=<app|governance|reserve|ui> \
+PUBLIC_URL=<matching-literal-url-above> \
+DEPLOY_SHA=<lowercase-40-character-sha> \
+node scripts/vercel-main-runtime.mjs
+```
+
+The checker binds `X-Mento-Deployment-Sha` and the required security headers,
+requires successful same-origin document/script/style/font resources, and
+rejects page and console errors, failed critical static resources from any
+origin, and failed same-origin fetch/XHR traffic outside its narrow optional
+telemetry exception. It exercises Governance voting-power navigation, Reserve
+Overview data and Supply state, and UI search, navigation, and checkbox state.
+App uses the real production wallet list: MetaMask and WalletConnect must be
+visible, the E2E Test Wallet must be absent, and no preview/mock-wallet
+local-storage flag may exist.
+
+Record PR-B observed deployment IDs, mappings, mutation sequences, public smoke
+results, native-duplicate proof, and legacy-v2 evidence on PR B or issue #522.
+Do not paste observed IDs into this runbook.
+
+### Exact rollback and native-owner restoration
+
+Recovery always starts from the highest valid journal for the exact repository,
+SHA, run ID, run attempt, and transaction ID. It inspects the current mapping
+before acting. Mapping already at the captured prior is a no-op; mapping at the
+candidate or partially moved is restored in reverse mutation order; an
+unexpected operator-owned mapping stops for manual review.
+
+For each ordinary target that moved, run the journal's exact command:
+
+```text
+vercel rollback <captured-prior-id-or-url>
+```
+
+Then bounded-wait for readiness, inspect every reviewed public custom domain,
+verify the exact captured prior ID, run the public browser smoke, and record
+that the project entered rollback state. Never substitute `latest`.
+
+For App `v3`, restore every reviewed intended alias independently:
+
+```text
+vercel alias set <captured-prior-v3-immutable-url> <reviewed-v3-alias>
+```
+
+Verify every alias, then independently prove that `v2-app.mento.org` still maps
+to its captured ready production deployment with repository
+`mento-protocol/frontend-monorepo`, ref `v2`, and the captured legacy SHA. The
+normal transaction never stages, deploys, promotes, or aliases legacy v2.
+Emergency legacy restoration may point only its reviewed alias to that exact
+captured legacy deployment.
+
+If GitHub activation must remain disabled after an incident, restore one owner
+in this order:
+
+1. In one reviewed recovery PR, set the controller back to literal `shadow` and
+   restore native `main` configuration together:
+   Governance/Reserve/UI use `{"**": false, "main": true}`; App uses
+   `{"**": false, "main": true, "v2": true}`.
+2. Keep the automatic workflow enabled only in shadow mode. Prove its exact CI
+   gate, planning, staging, and no-mutation result while native Vercel owns
+   public `main`.
+3. For an ordinary project in rollback state, capture the recovery PR's exact
+   unaliased native deployment and run
+   `vercel promote <exact-native-canary-id-or-url>` to exit rollback state.
+4. Verify that exact canary on the public domain with deployment state and
+   browser smoke.
+5. Push a second reviewed target-local canary and prove native Vercel Git moves
+   the domain automatically.
+6. Only then retire the GitHub path for that target or leave it explicitly in
+   shadow mode.
+7. Verify App `main -> v3` and `v2 -> production` independently. Never use App
+   production or `--prod` for `main`.
+
+Restoring only `vercel.json` is insufficient after `vercel rollback`; the exact
+promote/canary sequence proves native automatic ownership has resumed.
 
 ## Pinned prerequisites
 
 - Vercel CLI: exactly `56.2.0` in the root `devDependencies` and the standalone
   `scripts/vercel-cli-runtime/package.json` dependency. The root dependency
-  remains available for reviewed operator commands; protected production-shadow
-  jobs install only the standalone runtime. The project owner approved the
-  dependency as part of delivering the epic. The stable npm version was
-  re-queried on 2026-07-14 before it was pinned.
+  remains available for reviewed operator commands; protected
+  production-shadow and main-deployment jobs install only the standalone
+  runtime. The project owner approved the dependency as part of delivering the
+  epic. The stable npm version was re-queried on 2026-07-14 before it was
+  pinned.
 - Resolved Next.js: `16.2.11` in `pnpm-lock.yaml`.
 
 Both exceed Vercel's custom deployment-ID prerequisites: Next.js newer than
@@ -191,8 +533,8 @@ unverified artifact, or pass an invented deployment-ID option to
 
 Vercel system variables are injected on Vercel's builders, but a local
 `vercel build` used for a prebuilt deployment does not receive those platform
-values automatically. The future workflow must restore the following safe
-constants before validating and building:
+values automatically. GitHub-built preview, production-shadow, and main
+workflows restore the following safe constants before validating and building:
 
 | Deployment environment | `VERCEL_ENV` | `VERCEL_TARGET_ENV` | `NEXT_PUBLIC_VERCEL_ENV` |
 | ---------------------- | ------------ | ------------------- | ------------------------ |
@@ -325,13 +667,16 @@ prerequisite.
 
 The following Vercel build-value mirrors come from issue #517:
 
+- `vercel-cli-production` environment secret `VERCEL_TOKEN_PRODUCTION`: the
+  production-scoped Vercel credential used only as step-scoped
+  `VERCEL_TOKEN`. It is separately revocable from the preview credential.
 - Repository secret `ETHERSCAN_API_KEY`: governance trusted previews only.
 - `vercel-cli-production` environment secret `ETHERSCAN_API_KEY`: governance
   production build step only.
 - `vercel-cli-production` environment secret `SENTRY_AUTH_TOKEN`: expose only
-  to the governance or reserve production build step that consumes it. If app
-  production is ever migrated separately, scope it to that app step as well.
-- Standard previews and app `v3`: no `SENTRY_AUTH_TOKEN`.
+  to the governance or reserve production build step that consumes it.
+- Standard previews and App custom `v3`: no `SENTRY_AUTH_TOKEN`; the automatic
+  main App build sets it explicitly to the empty string.
 
 The automatic preview controller additionally requires repository Actions
 secret `GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN`. Create a fine-grained GitHub
@@ -726,10 +1071,13 @@ all target/environment classifications, canonical alias mappings, guarded
 rollback evidence, exclusive private-file output, and redaction-safe
 missing-variable and API-error handling. The production-shadow command adds
 canonical Vercel state fixtures, read-only protected mapping failures, workflow
-structure, and direct runtime-smoke structure. Those commands are offline and
-do not contact or mutate Vercel. The separate routing regression starts two
-loopback origins and the Playwright-pinned Chromium to prove a cross-origin
-redirect cannot inherit a protection header.
+structure, and direct runtime-smoke structure. `vercel:workflow:test` also
+covers exact-attempt main CI, served-SHA planning, state discovery,
+transaction/recovery, public runtime, controller, and automatic-workflow
+structure. Those commands are offline and do not contact or mutate Vercel. The
+separate routing
+regression starts two loopback origins and the Playwright-pinned Chromium to
+prove a cross-origin redirect cannot inherit a protection header.
 
 The test commands above perform no Vercel API call, build upload, deployment,
 alias mutation, environment-configuration mutation, or Git-ownership change. The
@@ -2030,8 +2378,9 @@ did not edit a Vercel project configuration. In the initial ownership map,
 GitHub Actions was the sole automatic branch-preview owner for `ui`; `app`,
 `governance`, and `reserve` remained in shadow mode so their native Vercel and
 GitHub-built previews ran together. All four ordinary preview paths are now
-GitHub-owned. Main and production deployments remain native for every target
-until #522, and App `v2` remains native throughout this epic.
+GitHub-owned. Public main deployments remain native during #522's automatic
+PR-A shadow proof; PR B replaces only those native `main` paths. App `v2`
+remains native throughout this epic.
 
 After the v2 bootstrap, the rollout exercised one runtime-affecting PR per
 target before a single PR that affects multiple targets. For every canary, it

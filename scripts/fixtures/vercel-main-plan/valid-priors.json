@@ -1,0 +1,135 @@
+{
+  "mode": "shadow",
+  "deploySha": "dddddddddddddddddddddddddddddddddddddddd",
+  "firstParent": "cccccccccccccccccccccccccccccccccccccccc",
+  "projectIds": {
+    "app": "prj_app123",
+    "governance": "prj_governance123",
+    "reserve": "prj_reserve123",
+    "ui": "prj_ui123"
+  },
+  "priorStates": {
+    "app": {
+      "health": "passed",
+      "states": [
+        {
+          "alias": "app.mento.org",
+          "deploymentId": "dpl_appA123",
+          "deploymentUrl": "https://app-main-a.vercel.app",
+          "creatorUsername": "fixture-author",
+          "projectId": "prj_app123",
+          "projectName": "app.mento.org",
+          "readyState": "READY",
+          "target": null,
+          "customEnvironmentSlug": "v3",
+          "git": {
+            "org": "mento-protocol",
+            "repo": "frontend-monorepo",
+            "ref": "main",
+            "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "aliases": [
+            "app.mento.org",
+            "appmentoorg-env-v3-mentolabs.vercel.app"
+          ]
+        },
+        {
+          "alias": "appmentoorg-env-v3-mentolabs.vercel.app",
+          "deploymentId": "dpl_appA123",
+          "deploymentUrl": "https://app-main-a.vercel.app",
+          "creatorUsername": "fixture-author",
+          "projectId": "prj_app123",
+          "projectName": "app.mento.org",
+          "readyState": "READY",
+          "target": null,
+          "customEnvironmentSlug": "v3",
+          "git": {
+            "org": "mento-protocol",
+            "repo": "frontend-monorepo",
+            "ref": "main",
+            "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "aliases": [
+            "app.mento.org",
+            "appmentoorg-env-v3-mentolabs.vercel.app"
+          ]
+        }
+      ]
+    },
+    "governance": {
+      "health": "passed",
+      "states": [
+        {
+          "alias": "governance.mento.org",
+          "deploymentId": "dpl_governanceB123",
+          "deploymentUrl": "https://governance-main-b.vercel.app",
+          "creatorUsername": "fixture-author",
+          "projectId": "prj_governance123",
+          "projectName": "governance.mento.org",
+          "readyState": "READY",
+          "target": "production",
+          "customEnvironmentSlug": null,
+          "git": {
+            "org": "mento-protocol",
+            "repo": "frontend-monorepo",
+            "ref": "main",
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "aliases": [
+            "governance.mento.org",
+            "governancementoorg-mentolabs.vercel.app"
+          ]
+        }
+      ]
+    },
+    "reserve": {
+      "health": "passed",
+      "states": [
+        {
+          "alias": "reserve.mento.org",
+          "deploymentId": "dpl_reserveB123",
+          "deploymentUrl": "https://reserve-main-b.vercel.app",
+          "creatorUsername": "fixture-author",
+          "projectId": "prj_reserve123",
+          "projectName": "reserve.mento.org",
+          "readyState": "READY",
+          "target": "production",
+          "customEnvironmentSlug": null,
+          "git": {
+            "org": "mento-protocol",
+            "repo": "frontend-monorepo",
+            "ref": "main",
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "aliases": [
+            "reserve.mento.org",
+            "reservementoorg-mentolabs.vercel.app"
+          ]
+        }
+      ]
+    },
+    "ui": {
+      "health": "passed",
+      "states": [
+        {
+          "alias": "ui.mento.org",
+          "deploymentId": "dpl_uiC123",
+          "deploymentUrl": "https://ui-main-c.vercel.app",
+          "creatorUsername": "fixture-author",
+          "projectId": "prj_ui123",
+          "projectName": "ui.mento.org",
+          "readyState": "READY",
+          "target": "production",
+          "customEnvironmentSlug": null,
+          "git": {
+            "org": "mento-protocol",
+            "repo": "frontend-monorepo",
+            "ref": "main",
+            "sha": "cccccccccccccccccccccccccccccccccccccccc"
+          },
+          "aliases": ["ui.mento.org", "uimentoorg-mentolabs.vercel.app"]
+        }
+      ]
+    }
+  }
+}

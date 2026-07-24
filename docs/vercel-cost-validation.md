@@ -4,7 +4,15 @@ This runbook prepares the measurement and closeout work tracked in [issue
 #523](https://github.com/mento-protocol/frontend-monorepo/issues/523). It does
 not start the observation window, query Vercel or GitHub, change a deployment,
 or remove migration scaffolding. The observation window starts only after the
-four-target preview and main cutover in issue #522 is complete.
+four-target preview and PR-B main ownership cutover in issue #522 is complete.
+Automatic PR-A `Vercel Main Deployment` shadow runs are canary evidence, not
+post-cutover observations. Each shadow run writes a canonical redacted job
+summary and uploads
+`vercel-main-evidence-${run_id}-${run_attempt}` for 14 days before returning its
+terminal result. Successful runs contain build, deploy, runner, and Turbo-cache
+measurements; failed runs contain only the redacted failure graph. Successful
+shadow measurements help diagnose the canary, but they remain log-duration
+evidence rather than invoice-grade Build CPU allocation.
 
 The repository provides a deterministic, network-free analyzer:
 
@@ -174,12 +182,14 @@ cannot reuse the same provider evidence for its baseline and post-cutover split.
 5. Classify app deployments as migrated PR preview, migrated `main -> v3`,
    preserved native `v2 -> production`, or manual/unknown. Keep v2 visible and
    apply the invoice-grade attribution limitation above.
-6. Build a GitHub Actions census from the final preview and main workflows:
-   standard-runner minutes, larger-runner minutes, artifact and cache GB-hours,
-   queue/build/deploy durations, failures, reruns, and Turbo cache hits/misses.
-   Record whether the repository stayed public for the entire interval. Use the
-   final workflow inventory from #519 and #522 rather than names proposed before
-   those changes merge.
+6. Build a GitHub Actions census from the final preview workflow inventory
+   (`Vercel Preview Intake`, `Vercel Preview Controller`,
+   `Vercel Preview Worker`, and their reusable build/smoke workflows) plus
+   `Vercel Main Deployment`: standard-runner minutes, larger-runner minutes,
+   artifact and cache GB-hours, queue/build/deploy durations, failures, reruns,
+   and Turbo cache hits/misses. Record whether the repository stayed public for
+   the entire interval. Use the final workflow inventory from #519 and #522
+   rather than names proposed before those changes merge.
    Re-check the current [GitHub Actions billing documentation](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
    when closing #523. The analyzer requires a public repository for the whole
    interval and zero larger-runner minutes; it never assumes artifact or cache

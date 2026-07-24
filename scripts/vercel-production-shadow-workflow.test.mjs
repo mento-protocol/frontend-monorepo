@@ -1636,7 +1636,7 @@ test("shadow smoke strips protection headers and disables traces", () => {
   assert.match(redirectRegression, /chromium\.launch/);
   assert.match(redirectRegression, /received\.source, \[undefined\]/);
   assert.match(redirectRegression, /received\.destination, \[undefined\]/);
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of ["app", "governance", "reserve", "ui"]) {
     const nextConfig = readFileSync(
       new URL(`../apps/${target}.mento.org/next.config.ts`, import.meta.url),
       "utf8",

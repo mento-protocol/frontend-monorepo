@@ -1,4 +1,9 @@
-const TRACKED_EVENTS = new Set(["push", "schedule", "workflow_dispatch"]);
+const TRACKED_EVENTS = new Set([
+  "push",
+  "schedule",
+  "workflow_dispatch",
+  "workflow_run",
+]);
 const FAILURE_CONCLUSIONS = new Set([
   "action_required",
   "failure",
@@ -7,6 +12,7 @@ const FAILURE_CONCLUSIONS = new Set([
 ]);
 const NOTIFIER_WORKFLOW_NAME = "CI Failure Notifier";
 const TAG_PUSH_WORKFLOW_NAMES = new Set(["Publish UI Package"]);
+const OPERATIONAL_WORKFLOW_RUN_NAMES = new Set(["Vercel Main Deployment"]);
 
 function runPosition(run) {
   return [run.run_number ?? 0, run.run_attempt ?? 1];
@@ -80,7 +86,7 @@ function recoveryBody(existingBody, run, targetRef) {
   ].join("\n");
 }
 
-function isRelevantRun(run, defaultBranch) {
+function isRelevantRun(run, defaultBranch, repositoryFullName) {
   const isOperationalPush =
     run.event === "push" &&
     (run.head_branch === defaultBranch ||
@@ -88,7 +94,11 @@ function isRelevantRun(run, defaultBranch) {
   const isOperationalRun =
     run.event === "schedule" ||
     isOperationalPush ||
-    (run.event === "workflow_dispatch" && run.head_branch === defaultBranch);
+    (run.event === "workflow_dispatch" && run.head_branch === defaultBranch) ||
+    (run.event === "workflow_run" &&
+      OPERATIONAL_WORKFLOW_RUN_NAMES.has(run.name) &&
+      run.head_branch === defaultBranch &&
+      run.head_repository?.full_name === repositoryFullName);
 
   return (
     TRACKED_EVENTS.has(run.event) &&
@@ -148,13 +158,18 @@ async function listCompletedWorkflowRuns(
   return runs;
 }
 
-function findLatestDecisiveRun(runs, defaultBranch, partition) {
+function findLatestDecisiveRun(
+  runs,
+  defaultBranch,
+  repositoryFullName,
+  partition,
+) {
   const seen = new Set();
 
   return runs
     .filter(
       (candidate) =>
-        isRelevantRun(candidate, defaultBranch) &&
+        isRelevantRun(candidate, defaultBranch, repositoryFullName) &&
         isDecisiveRun(candidate) &&
         partitionIdentity(candidate, defaultBranch) === partition,
     )
@@ -171,8 +186,13 @@ export async function reconcileCiFailureIssue({ github, context, core }) {
   const run = context.payload.workflow_run;
   const defaultBranch = context.payload.repository.default_branch;
   const repo = context.repo;
+  const repositoryFullName = `${repo.owner}/${repo.repo}`;
 
-  if (!run || !defaultBranch || !isRelevantRun(run, defaultBranch)) {
+  if (
+    !run ||
+    !defaultBranch ||
+    !isRelevantRun(run, defaultBranch, repositoryFullName)
+  ) {
     core?.info(
       "Ignoring a non-default-branch or non-operational workflow run.",
     );
@@ -194,6 +214,7 @@ export async function reconcileCiFailureIssue({ github, context, core }) {
   const effectiveRun = findLatestDecisiveRun(
     [run, ...completedRuns],
     defaultBranch,
+    repositoryFullName,
     partition,
   );
   if (!effectiveRun) {

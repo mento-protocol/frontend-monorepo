@@ -54,7 +54,7 @@
     "vercel:primitives:test": "node --test scripts/plan-vercel-deployments.test.mjs scripts/vercel-build-environment.test.mjs scripts/vercel-prebuilt.test.mjs",
     "vercel:production-shadow:test": "node --test scripts/vercel-deployment-state.test.mjs scripts/vercel-production-shadow.test.mjs scripts/vercel-production-shadow-workflow.test.mjs",
     "vercel:versions:check": "node scripts/vercel-prebuilt.mjs check-versions",
-    "vercel:workflow:test": "node --test scripts/github-deployment.test.mjs scripts/vercel-prebuilt-workflow.test.mjs scripts/vercel-prebuilt-workflows.test.mjs apps/ui.mento.org/e2e/vercel-preview-browser-smoke.test.mjs"
+    "vercel:workflow:test": "node --test scripts/github-deployment.test.mjs scripts/vercel-prebuilt-workflow.test.mjs scripts/vercel-prebuilt-workflows.test.mjs scripts/vercel-main-ci-attempt.test.mjs scripts/vercel-main-plan.test.mjs scripts/vercel-main-transaction.test.mjs scripts/vercel-main-runtime.test.mjs scripts/vercel-main-deployment.test.mjs scripts/vercel-main-deployment-workflow.test.mjs apps/ui.mento.org/e2e/vercel-preview-browser-smoke.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "catalog:",

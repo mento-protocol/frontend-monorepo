@@ -55,6 +55,27 @@ When adding or renaming an operational workflow, update its static allowlist and
 the structural test in the same PR. Never execute a triggering head SHA from
 this privileged `workflow_run` workflow.
 
+`.github/workflows/vercel-main-deployment.yml` automatically consumes only the
+exact successful `CI/CD` `main` attempt and runs in literal `shadow` mode until
+the separately reviewed production cutover. Its token-free gate must bind the
+event run/attempt, literal `Build and Test` job, workflow definition, checked-out
+source, and `DEPLOY_SHA` before any job can use `vercel-cli-production`.
+Planning starts from each target's actual served SHA. Ambiguous path planning
+selects a target; ambiguous protected state aborts the whole run. Governance,
+Reserve, and UI may stage only with `--prod --skip-domain`; App custom `v3`
+remains build-only. For each ordinary target, the public custom domain is the
+only protected runtime and rollback alias; generated project/team and
+creator-scoped aliases may move during staging and are candidate evidence only.
+Shadow mode must never reach promote, alias, rollback, App deployment,
+ownership-change, or compensating-mutation callbacks. Its only terminal
+coordinator outcomes are `no-target`, `superseded-before-journal`,
+`superseded-after-journal`, and `shadow-prepared`; only the latter two require
+`verified-no-mutation` recovery. The final job writes one canonical redacted
+summary and `vercel-main-evidence-${run_id}-${run_attempt}` artifact. Keep App
+`v2` native and independently verify its exact captured mapping. The PR-A
+canary, PR-B cutover, public runtime proof, journal, recovery, and native-owner
+restoration contract lives in `docs/vercel-deployments.md`.
+
 `.github/workflows/vercel-production-shadow.yml` is manual-only and
 non-promoting. Ordinary uploads implicitly move the target's reviewed generated
 base project/team alias and may also move Vercel's exact creator-scoped alias,
