@@ -451,11 +451,21 @@ function barePage(origin) {
   return { frame, page };
 }
 
-function emitResponse(page, origin, resourceType, status = 200) {
+function emitResponse(
+  page,
+  origin,
+  resourceType,
+  status = 200,
+  { method = "GET", path = `/asset-${resourceType}` } = {},
+) {
   page.emit("response", {
-    request: () => ({ resourceType: () => resourceType }),
+    request: () => ({
+      method: () => method,
+      resourceType: () => resourceType,
+      url: () => new URL(path, origin).toString(),
+    }),
     status: () => status,
-    url: () => `${origin}/asset-${resourceType}`,
+    url: () => new URL(path, origin).toString(),
   });
 }
 
@@ -497,7 +507,28 @@ test("monitor fails on page, console, origin, request, and response errors", () 
   );
 });
 
-test("monitor ignores only unrelated traffic and superseded same-origin RSC aborts", () => {
+test("monitor rejects failed critical static resources from any origin", () => {
+  const origin = "https://app.mento.org";
+  const { page } = barePage(origin);
+  const monitor = createMainRuntimeMonitor(page, origin);
+  primeRequiredResources(page, origin);
+  page.emit("requestfailed", {
+    failure: () => ({ errorText: "net::ERR_FAILED" }),
+    method: () => "GET",
+    resourceType: () => "script",
+    url: () => "https://cdn.example/app.js",
+  });
+  emitResponse(page, "https://fonts.example", "font", 503);
+
+  assert.throws(
+    () => monitor.assertClean(),
+    (error) =>
+      error.message.includes("cross-origin script request failed") &&
+      error.message.includes("cross-origin font response failed"),
+  );
+});
+
+test("monitor ignores only optional traffic and superseded same-origin RSC aborts", () => {
   const origin = "https://reserve.mento.org";
   const { page } = barePage(origin);
   const monitor = createMainRuntimeMonitor(page, origin);
@@ -517,9 +548,10 @@ test("monitor ignores only unrelated traffic and superseded same-origin RSC abor
   page.emit("requestfailed", {
     failure: () => ({ errorText: "net::ERR_FAILED" }),
     method: () => "GET",
-    resourceType: () => "script",
-    url: () => "https://third-party.example/script.js",
+    resourceType: () => "fetch",
+    url: () => "https://third-party.example/optional-data",
   });
+  emitResponse(page, "https://third-party.example", "xhr", 503);
   assert.doesNotThrow(() => monitor.assertClean());
 
   page.emit("requestfailed", {
@@ -529,6 +561,73 @@ test("monitor ignores only unrelated traffic and superseded same-origin RSC abor
     url: () => `${origin}/_next/static/app.js`,
   });
   assert.throws(() => monitor.assertClean(), /script request failed/);
+});
+
+test("monitor narrowly ignores the exact same-origin Sentry tunnel failure", () => {
+  const origin = "https://reserve.mento.org";
+  const { page } = barePage(origin);
+  const monitor = createMainRuntimeMonitor(page, origin);
+  primeRequiredResources(page, origin);
+  const monitoringUrl = `${origin}/monitoring?o=123&p=456&r=us`;
+  page.emit("requestfailed", {
+    failure: () => ({ errorText: "net::ERR_FAILED" }),
+    method: () => "POST",
+    resourceType: () => "fetch",
+    url: () => monitoringUrl,
+  });
+  emitResponse(page, origin, "xhr", 429, {
+    method: "POST",
+    path: "/monitoring?o=123&p=456&r=us",
+  });
+  page.emit("console", {
+    location: () => ({ url: monitoringUrl }),
+    text: () =>
+      "Failed to load resource: the server responded with a status of 429 ()",
+    type: () => "error",
+  });
+
+  assert.doesNotThrow(() => monitor.assertClean());
+});
+
+test("monitor rejects every near miss around the optional telemetry exception", () => {
+  const origin = "https://reserve.mento.org";
+  const { page } = barePage(origin);
+  const monitor = createMainRuntimeMonitor(page, origin);
+  primeRequiredResources(page, origin);
+  page.emit("requestfailed", {
+    failure: () => ({ errorText: "net::ERR_FAILED" }),
+    method: () => "GET",
+    resourceType: () => "fetch",
+    url: () => `${origin}/monitoring`,
+  });
+  page.emit("requestfailed", {
+    failure: () => ({ errorText: "net::ERR_FAILED" }),
+    method: () => "POST",
+    resourceType: () => "xhr",
+    url: () => `${origin}/monitoring/other`,
+  });
+  page.emit("console", {
+    location: () => ({ url: `${origin}/another-path` }),
+    text: () =>
+      "Failed to load resource: the server responded with a status of 429 ()",
+    type: () => "error",
+  });
+  page.emit("console", {
+    location: () => ({ url: `${origin}/monitoring` }),
+    text: () => "Sentry application error",
+    type: () => "error",
+  });
+
+  assert.throws(
+    () => monitor.assertClean(),
+    (error) =>
+      error.message.includes("GET https://reserve.mento.org/monitoring") &&
+      error.message.includes(
+        "POST https://reserve.mento.org/monitoring/other",
+      ) &&
+      error.message.includes("another-path") &&
+      error.message.includes("Sentry application error"),
+  );
 });
 
 test("monitor requires successful same-origin documents, scripts, styles, and fonts", async () => {

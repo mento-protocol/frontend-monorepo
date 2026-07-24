@@ -17,6 +17,7 @@ const CRITICAL_RESOURCE_TYPES = new Set([
   "stylesheet",
   "xhr",
 ]);
+const SAME_ORIGIN_ONLY_RESOURCE_TYPES = new Set(["fetch", "xhr"]);
 const REQUIRED_RESOURCE_TYPES = ["document", "font", "script", "stylesheet"];
 
 export const MAIN_RUNTIME_TARGETS = Object.freeze({
@@ -151,6 +152,38 @@ function expectedNextNavigationAbort(request, expectedOrigin) {
   }
 }
 
+function isOptionalTelemetryUrl(value, expectedOrigin) {
+  try {
+    const url = new URL(value);
+    return (
+      url.origin === expectedOrigin &&
+      url.pathname === "/monitoring" &&
+      url.hash === ""
+    );
+  } catch {
+    return false;
+  }
+}
+
+function expectedOptionalTelemetryFailure(request, expectedOrigin) {
+  const resourceType = request.resourceType();
+  return (
+    SAME_ORIGIN_ONLY_RESOURCE_TYPES.has(resourceType) &&
+    request.method() === "POST" &&
+    isOptionalTelemetryUrl(request.url(), expectedOrigin)
+  );
+}
+
+function expectedOptionalTelemetryConsoleError(message, expectedOrigin) {
+  const location = message.location?.();
+  return (
+    isOptionalTelemetryUrl(location?.url, expectedOrigin) &&
+    /^Failed to load resource: the server responded with a status of [45][0-9]{2} \(\)$/.test(
+      message.text(),
+    )
+  );
+}
+
 export function createMainRuntimeMonitor(page, expectedOrigin) {
   const failures = [];
   const successfulResources = {
@@ -170,6 +203,7 @@ export function createMainRuntimeMonitor(page, expectedOrigin) {
   });
   page.on("console", (message) => {
     if (message.type() !== "error") return;
+    if (expectedOptionalTelemetryConsoleError(message, expectedOrigin)) return;
     const location = message.location?.();
     const suffix = location?.url ? ` (${concise(location.url)})` : "";
     record(`console error: ${concise(message.text())}${suffix}`);
@@ -181,12 +215,19 @@ export function createMainRuntimeMonitor(page, expectedOrigin) {
     }
   });
   page.on("requestfailed", (request) => {
-    if (!sameOrigin(request.url(), expectedOrigin)) return;
     const resourceType = request.resourceType();
     if (!CRITICAL_RESOURCE_TYPES.has(resourceType)) return;
+    const requestIsSameOrigin = sameOrigin(request.url(), expectedOrigin);
+    if (
+      SAME_ORIGIN_ONLY_RESOURCE_TYPES.has(resourceType) &&
+      !requestIsSameOrigin
+    ) {
+      return;
+    }
+    if (expectedOptionalTelemetryFailure(request, expectedOrigin)) return;
     if (expectedNextNavigationAbort(request, expectedOrigin)) return;
     record(
-      `same-origin ${resourceType} request failed: ${concise(
+      `${requestIsSameOrigin ? "same-origin" : "cross-origin"} ${resourceType} request failed: ${concise(
         request.method(),
       )} ${concise(request.url())} (${concise(
         request.failure()?.errorText ?? "unknown error",
@@ -194,18 +235,30 @@ export function createMainRuntimeMonitor(page, expectedOrigin) {
     );
   });
   page.on("response", (response) => {
-    if (!sameOrigin(response.url(), expectedOrigin)) return;
-    const resourceType = response.request().resourceType();
+    const request = response.request();
+    const resourceType = request.resourceType();
     if (!CRITICAL_RESOURCE_TYPES.has(resourceType)) return;
+    const responseIsSameOrigin = sameOrigin(response.url(), expectedOrigin);
+    if (
+      SAME_ORIGIN_ONLY_RESOURCE_TYPES.has(resourceType) &&
+      !responseIsSameOrigin
+    ) {
+      return;
+    }
+    if (expectedOptionalTelemetryFailure(request, expectedOrigin)) return;
     if (response.status() >= 400) {
       record(
-        `same-origin ${resourceType} response failed: HTTP ${response.status()} ${concise(
+        `${responseIsSameOrigin ? "same-origin" : "cross-origin"} ${resourceType} response failed: HTTP ${response.status()} ${concise(
           response.url(),
         )}`,
       );
       return;
     }
-    if (response.status() >= 200 && response.status() < 300) {
+    if (
+      responseIsSameOrigin &&
+      response.status() >= 200 &&
+      response.status() < 300
+    ) {
       successfulResources[resourceType] += 1;
     }
   });
