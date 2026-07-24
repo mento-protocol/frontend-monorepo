@@ -519,6 +519,67 @@ test("App transaction candidate discovery uses filtered bounded pagination and e
   assert.equal(attempts, 3);
 });
 
+test("canonical Vercel state reads retry transient failures and fail closed after bounded persistent failures", async () => {
+  const reads = [
+    {
+      name: "alias lookup",
+      path: "/v4/aliases/governance.mento.org",
+      invoke: (client) => client.resolveAlias("governance.mento.org"),
+    },
+    {
+      name: "deployment inspection",
+      path: "/v13/deployments/dpl_governance123",
+      invoke: (client) => client.inspectDeployment("dpl_governance123"),
+    },
+    {
+      name: "deployment alias listing",
+      path: "/v2/deployments/dpl_governance123/aliases",
+      invoke: (client) => client.listDeploymentAliases("dpl_governance123"),
+    },
+    {
+      name: "project inspection",
+      path: "/v9/projects/prj_governance123",
+      invoke: (client) => client.inspectProject("prj_governance123"),
+    },
+  ];
+
+  for (const read of reads) {
+    let transientCalls = 0;
+    const transientClient = new VercelStateClient({
+      token: "fixture-token",
+      teamId: "team_fixture123",
+      fetchImplementation: async (input, init) => {
+        transientCalls += 1;
+        const url = new URL(input);
+        assert.equal(url.pathname, read.path, read.name);
+        assert.equal(url.searchParams.get("teamId"), "team_fixture123");
+        assert.equal(init.method, "GET");
+        assert.equal(init.redirect, "error");
+        if (transientCalls < 3) throw new Error("transient transport failure");
+        return { ok: true, json: async () => ({ ok: true }) };
+      },
+    });
+    assert.deepEqual(await read.invoke(transientClient), { ok: true });
+    assert.equal(transientCalls, 3, `${read.name} must retry twice`);
+
+    let persistentCalls = 0;
+    const persistentClient = new VercelStateClient({
+      token: "fixture-token",
+      teamId: "team_fixture123",
+      fetchImplementation: async () => {
+        persistentCalls += 1;
+        throw new Error("persistent transport failure");
+      },
+    });
+    await assert.rejects(
+      () => read.invoke(persistentClient),
+      /Vercel API request failed/,
+      `${read.name} must fail closed after the bounded retry limit`,
+    );
+    assert.equal(persistentCalls, 3, `${read.name} must make at most 3 reads`);
+  }
+});
+
 test("App discovery stabilizes zero and exact pending candidates within a bounded window", async () => {
   const input = appCandidateFixture();
   const client = new VercelStateClient({
