@@ -202,15 +202,17 @@ test("planner captures tolerant main evidence and strict legacy rollback state",
   assert.equal(runtime.env, undefined);
   assert.doesNotMatch(JSON.stringify(runtime), /VERCEL_TOKEN|secrets\.VERCEL/);
   assert.equal(pnpmInstallAction.inputs["ignore-scripts"].default, "false");
-  const noLifecycleInstall = pnpmInstallAction.runs.steps.find(
-    (step) => step.name === "Install dependencies without lifecycle scripts",
+  const isolatedInstall = pnpmInstallAction.runs.steps.find(
+    (step) =>
+      step.name ===
+      "Install dependencies without lifecycle scripts or pnpmfile hooks",
   );
-  assert.deepEqual(noLifecycleInstall, {
-    name: "Install dependencies without lifecycle scripts",
+  assert.deepEqual(isolatedInstall, {
+    name: "Install dependencies without lifecycle scripts or pnpmfile hooks",
     if: "inputs.ignore-scripts == 'true'",
     shell: "bash",
     "working-directory": "${{ inputs.working-directory }}",
-    run: "env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE -u GITHUB_STEP_SUMMARY pnpm install --frozen-lockfile --ignore-scripts",
+    run: "env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE -u GITHUB_STEP_SUMMARY pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile",
   });
   const ordinaryInstall = pnpmInstallAction.runs.steps.find(
     (step) => step.name === "Install dependencies",
