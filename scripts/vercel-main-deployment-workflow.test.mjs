@@ -9,6 +9,13 @@ const workflowSource = readFileSync(
   "utf8",
 );
 const workflow = parse(workflowSource);
+const candidateActionSource = readFileSync(
+  new URL(
+    "../.github/actions/vercel-candidate-build/action.yml",
+    import.meta.url,
+  ),
+  "utf8",
+);
 
 const CHECKOUT = "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0";
 const UPLOAD =
@@ -337,7 +344,11 @@ test("coordinator revalidates, builds App only, durably journals, and stays muta
   );
   assert.equal(appBuild.env.VERCEL_ENV, "preview");
   assert.equal(appBuild.env.VERCEL_TARGET_ENV, "v3");
-  assert.equal(appBuild.env.SENTRY_AUTH_TOKEN, "");
+  assert.equal(Object.hasOwn(appBuild.env, "SENTRY_AUTH_TOKEN"), false);
+  assert.match(
+    candidateActionSource,
+    /SENTRY_AUTH_TOKEN="\$\{SENTRY_AUTH_TOKEN:-\}"/,
+  );
   const restore = stepNamed(
     name,
     "Restore fresh trusted transaction controller",

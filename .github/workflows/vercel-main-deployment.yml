@@ -1091,7 +1091,6 @@ jobs:
           LOGICAL_TARGET: app
           MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.app-identity.outputs.next_deployment_id }}
           NEXT_PUBLIC_VERCEL_ENV: preview
-          SENTRY_AUTH_TOKEN: ""
           TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
           TURBO_TEAM: ${{ vars.TURBO_TEAM }}
           TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}

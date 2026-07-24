@@ -136,9 +136,10 @@ environment:
 Never reference the generic `Production` environment. Map the production token
 only as a step-scoped `VERCEL_TOKEN`; never put it in a command argument. Expose
 each mirrored build secret only to the literal target build step that consumes
-it. App `v3` explicitly receives an empty `SENTRY_AUTH_TOKEN`. Missing
-configuration fails by variable name. Automation must never inspect 1Password
-or another credential store.
+it. The App `v3` composite caller omits `SENTRY_AUTH_TOKEN`; only its isolated
+child build materializes an explicit empty override. Missing configuration fails
+by variable name. Automation must never inspect 1Password or another credential
+store.
 
 The three ordinary stage jobs use production build semantics and
 `vercel deploy --prebuilt --prod --skip-domain`. They reuse the protected #521
