@@ -112,6 +112,53 @@ function toCurrentVercelCliRuntimeLockfile(lockfile) {
     );
 }
 
+function toNextVercelCliRuntimeOverrides(overrides) {
+  const next = {
+    ...overrides,
+    "@mysten/sui": "1.45.2",
+    "postcss@<8.5.18": "8.5.18",
+    "tar@>=7.0.0 <7.5.21": "7.5.21",
+    "valibot@>=1.0.0 <1.4.2": "1.4.2",
+  };
+  delete next["postcss@<8.5.10"];
+  delete next["tar@>=7.0.0 <7.5.16"];
+  return next;
+}
+
+function toCurrentVercelCliRuntimeOverrides(overrides) {
+  const current = {
+    ...overrides,
+    "postcss@<8.5.10": ">=8.5.10",
+    "tar@>=7.0.0 <7.5.16": "7.5.20",
+  };
+  delete current["@mysten/sui"];
+  delete current["postcss@<8.5.18"];
+  delete current["tar@>=7.0.0 <7.5.21"];
+  delete current["valibot@>=1.0.0 <1.4.2"];
+  return current;
+}
+
+function writeVercelCliRuntimeOverrides({
+  rootPackageJsonPath,
+  packageJsonPath,
+  overrides,
+}) {
+  const rootPackageMetadata = JSON.parse(
+    readFileSync(rootPackageJsonPath, "utf8"),
+  );
+  const packageMetadata = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+  rootPackageMetadata.pnpm.overrides = overrides;
+  packageMetadata.pnpm.overrides = overrides;
+  writeFileSync(
+    rootPackageJsonPath,
+    `${JSON.stringify(rootPackageMetadata, null, 2)}\n`,
+  );
+  writeFileSync(
+    packageJsonPath,
+    `${JSON.stringify(packageMetadata, null, 2)}\n`,
+  );
+}
+
 test("generated IDs satisfy every Vercel constraint for every target", () => {
   for (const target of VERCEL_TARGETS) {
     const value = deploymentId({ target });
@@ -258,6 +305,9 @@ test("trusted controller accepts only the reviewed Vercel CLI runtime lockfile r
   };
   try {
     const repositoryLockfile = readFileSync(lockfilePath, "utf8");
+    const repositoryRootOverrides = JSON.parse(
+      readFileSync(contractPaths.rootPackageJsonPath, "utf8"),
+    ).pnpm.overrides;
     const repositoryDigest =
       assertVercelCliRuntimeContract(contractPaths).lockfileSha256;
     assert.ok(
@@ -281,18 +331,49 @@ test("trusted controller accepts only the reviewed Vercel CLI runtime lockfile r
       reviewedNextLockfile,
     );
 
+    const reviewedCurrentOverrides = toCurrentVercelCliRuntimeOverrides(
+      repositoryRootOverrides,
+    );
+    const reviewedNextOverrides = toNextVercelCliRuntimeOverrides(
+      repositoryRootOverrides,
+    );
+
+    writeVercelCliRuntimeOverrides({
+      ...contractPaths,
+      overrides: reviewedCurrentOverrides,
+    });
     writeFileSync(lockfilePath, reviewedCurrentLockfile);
     assert.equal(
       assertVercelCliRuntimeContract(contractPaths).lockfileSha256,
       CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
     );
 
+    writeVercelCliRuntimeOverrides({
+      ...contractPaths,
+      overrides: reviewedNextOverrides,
+    });
     writeFileSync(lockfilePath, reviewedNextLockfile);
     assert.equal(
       assertVercelCliRuntimeContract(contractPaths).lockfileSha256,
       NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
     );
 
+    for (const [overrides, lockfile] of [
+      [reviewedCurrentOverrides, reviewedNextLockfile],
+      [reviewedNextOverrides, reviewedCurrentLockfile],
+    ]) {
+      writeVercelCliRuntimeOverrides({ ...contractPaths, overrides });
+      writeFileSync(lockfilePath, lockfile);
+      assert.throws(
+        () => assertVercelCliRuntimeContract(contractPaths),
+        /lockfile and overrides are not an approved pair/,
+      );
+    }
+
+    writeVercelCliRuntimeOverrides({
+      ...contractPaths,
+      overrides: reviewedNextOverrides,
+    });
     writeFileSync(
       lockfilePath,
       `${reviewedNextLockfile}\n# unreviewed digest\n`,
