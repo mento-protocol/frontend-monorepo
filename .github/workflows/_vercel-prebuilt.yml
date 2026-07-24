@@ -619,6 +619,7 @@ jobs:
             "$pnpm_bootstrap" --dir "$GITHUB_WORKSPACE/controller" --filter frontend-monorepo install \
               --frozen-lockfile \
               --ignore-scripts \
+              --ignore-pnpmfile \
               --modules-dir "$trusted_modules_dir" \
               --package-import-method copy \
               --virtual-store-dir "$trusted_modules_dir/.pnpm"

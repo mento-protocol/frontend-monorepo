@@ -2964,10 +2964,8 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   );
   assert.match(
     isolationBlock,
-    /"\$pnpm_bootstrap" --dir "\$GITHUB_WORKSPACE\/controller" --filter frontend-monorepo install/,
+    /"\$pnpm_bootstrap" --dir "\$GITHUB_WORKSPACE\/controller" --filter frontend-monorepo install \\\n\s+--frozen-lockfile \\\n\s+--ignore-scripts \\\n\s+--ignore-pnpmfile \\\n\s+--modules-dir "\$trusted_modules_dir"/,
   );
-  assert.match(isolationBlock, /--frozen-lockfile/);
-  assert.match(isolationBlock, /--ignore-scripts/);
   assert.match(isolationBlock, /--package-import-method copy/);
   assert.doesNotMatch(isolationBlock, /PNPM_ACTION_DEST|PNPM_BIN_DEST/);
   assert.doesNotMatch(isolationBlock, /\bstage-runtime\b/);

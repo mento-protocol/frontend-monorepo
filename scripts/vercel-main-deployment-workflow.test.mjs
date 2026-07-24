@@ -16,6 +16,11 @@ const candidateActionSource = readFileSync(
   ),
   "utf8",
 );
+const pnpmInstallActionSource = readFileSync(
+  new URL("../.github/actions/pnpm-install/action.yml", import.meta.url),
+  "utf8",
+);
+const pnpmInstallAction = parse(pnpmInstallActionSource);
 
 const CHECKOUT = "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0";
 const UPLOAD =
@@ -174,6 +179,11 @@ test("planner captures tolerant main evidence and strict legacy rollback state",
     "plan-main-deployments",
     "Verify reviewed public aliases are healthy",
   );
+  const source = stepIncluding("plan-main-deployments", "validate-source");
+  const runtime = stepNamed(
+    "plan-main-deployments",
+    "Install exact main planner runtime",
+  );
   assert.equal(
     planning.env.VERCEL_TOKEN,
     "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
@@ -184,13 +194,48 @@ test("planner captures tolerant main evidence and strict legacy rollback state",
   );
   assert.match(select.run, /--planning-snapshot/);
   assert.match(select.run, /--legacy-snapshot/);
+  assert.equal(runtime.uses, "./.github/actions/pnpm-install");
+  assert.deepEqual(runtime.with, {
+    "working-directory": "source",
+    "ignore-scripts": "true",
+  });
+  assert.equal(runtime.env, undefined);
+  assert.doesNotMatch(JSON.stringify(runtime), /VERCEL_TOKEN|secrets\.VERCEL/);
+  assert.equal(pnpmInstallAction.inputs["ignore-scripts"].default, "false");
+  const isolatedInstall = pnpmInstallAction.runs.steps.find(
+    (step) =>
+      step.name ===
+      "Install dependencies without lifecycle scripts or pnpmfile hooks",
+  );
+  assert.deepEqual(isolatedInstall, {
+    name: "Install dependencies without lifecycle scripts or pnpmfile hooks",
+    if: "inputs.ignore-scripts == 'true'",
+    shell: "bash",
+    "working-directory": "${{ inputs.working-directory }}",
+    run: "env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE -u GITHUB_STEP_SUMMARY pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile",
+  });
+  const ordinaryInstall = pnpmInstallAction.runs.steps.find(
+    (step) => step.name === "Install dependencies",
+  );
+  assert.deepEqual(ordinaryInstall, {
+    name: "Install dependencies",
+    if: "inputs.ignore-scripts != 'true'",
+    shell: "bash",
+    "working-directory": "${{ inputs.working-directory }}",
+    run: "env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE -u GITHUB_STEP_SUMMARY pnpm install --frozen-lockfile",
+  });
+  assert.match(
+    pnpmInstallActionSource,
+    /cache-dependency-path:\s+\$\{\{ inputs\.working-directory \}\}\/pnpm-lock\.yaml/,
+  );
   assert.match(health.run, /health --spec "\$RUNNER_TEMP\/main-spec\.json"/);
   assert.match(health.run, /health --spec "\$RUNNER_TEMP\/legacy-spec\.json"/);
-  assert.ok(job.steps.indexOf(health) < job.steps.indexOf(select));
-  assert.match(
-    stepIncluding("plan-main-deployments", "validate-source").run,
-    /fetch --no-tags origin/,
-  );
+  assert.ok(job.steps.indexOf(source) < job.steps.indexOf(runtime));
+  assert.ok(job.steps.indexOf(runtime) < job.steps.indexOf(planning));
+  assert.ok(job.steps.indexOf(runtime) < job.steps.indexOf(legacy));
+  assert.ok(job.steps.indexOf(runtime) < job.steps.indexOf(health));
+  assert.ok(job.steps.indexOf(runtime) < job.steps.indexOf(select));
+  assert.match(source.run, /fetch --no-tags origin/);
 });
 
 test("each ordinary lane visibly binds one literal project, build, deploy, smoke, and handoff contract", () => {

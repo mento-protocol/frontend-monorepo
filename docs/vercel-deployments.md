@@ -117,6 +117,20 @@ Ambiguous alias ownership, project, environment, prior deployment, health, or
 rollback state aborts the whole transaction because selecting more targets
 cannot make compensation safe.
 
+Immediately after validating the exact checked-out successful-main source, the
+controller installs it with the repository's pinned Node/pnpm installer and its
+frozen lockfile, before capturing protected or rollback state. The production
+Vercel token remains scoped to those later snapshot steps and is unavailable to
+the dependency install. The plan step writes a GitHub summary containing only
+selected targets, served-SHA ranges, and selection reasons; it intentionally
+excludes project IDs, protected snapshots, deployment URLs, and credentials.
+
+This planner install disables lifecycle scripts and `.pnpmfile.cjs` hooks. It
+uses the shared action's lockfile-keyed pnpm-store cache, not a restored
+`node_modules` tree; `pnpm install --frozen-lockfile --ignore-scripts
+--ignore-pnpmfile` still validates the source dependency graph. Do not move
+`VERCEL_TOKEN` to the job or install-step environment to optimize this path.
+
 In shadow mode, native Vercel may already serve `DEPLOY_SHA` before this
 workflow reaches planning. The planner then uses the first parent as the
 comparison base so PR A can still exercise the affected-target path. If it
@@ -1273,12 +1287,13 @@ candidate build, before output assertion, upload, and inspection.
 
 The Vercel CLI was a separate trusted tool install. Pinned pnpm `10.34.4` read
 the main controller's exact `package.json` and frozen `pnpm-lock.yaml`, disabled
-lifecycle scripts, and copied packages into a runner-owned directory outside
-the checkout. Its `--modules-dir` and `--virtual-store-dir` values are validated
-relative paths from the controller to that directory; pnpm treats an absolute
-`--modules-dir` as project-relative and would otherwise materialize the CLI at
-the wrong path. The zero-network fixture requires the already-hydrated package
-store with `--offline`; it cannot contact the registry to repair missing data.
+lifecycle scripts and `.pnpmfile.cjs` hooks, and copied packages into a
+runner-owned directory outside the checkout. Its `--modules-dir` and
+`--virtual-store-dir` values are validated relative paths from the controller
+to that directory; pnpm treats an absolute `--modules-dir` as project-relative
+and would otherwise materialize the CLI at the wrong path. The zero-network
+fixture requires the already-hydrated package store with `--offline`; it cannot
+contact the registry to repair missing data.
 The hosted setup-node location is treated only as a trusted staging input
 because runner-image permissions can make that original path writable by the
 isolated candidate UID. The credentialed build job does not use
