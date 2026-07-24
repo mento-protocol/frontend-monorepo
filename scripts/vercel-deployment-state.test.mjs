@@ -519,6 +519,62 @@ test("App transaction candidate discovery uses filtered bounded pagination and e
   assert.equal(attempts, 3);
 });
 
+test("App discovery stabilizes zero and exact pending candidates within a bounded window", async () => {
+  const input = appCandidateFixture();
+  const client = new VercelStateClient({
+    token: "fixture-token",
+    teamId: "team_fixture123",
+    fetchImplementation: async () => {
+      throw new Error("unused");
+    },
+  });
+  let lists = 0;
+  let inspections = 0;
+  const sleeps = [];
+  client.listAppTransactionDeploymentIds = async () => {
+    lists += 1;
+    return lists === 1 ? [] : ["dpl_appv3abc"];
+  };
+  client.requestWithRetry = async () => {
+    inspections += 1;
+    return {
+      ...input.deploymentResponse,
+      readyState: inspections === 1 ? "BUILDING" : "READY",
+    };
+  };
+  const result = await client.discoverAppTransactionCandidate(input.expected, {
+    maximumAttempts: 4,
+    stabilizationDelayMs: 5,
+    sleepImplementation: async (milliseconds) => sleeps.push(milliseconds),
+  });
+  assert.equal(result.deploymentId, "dpl_appv3abc");
+  assert.equal(lists, 3);
+  assert.equal(inspections, 2);
+  assert.deepEqual(sleeps, [5, 5]);
+
+  inspections = 0;
+  client.listAppTransactionDeploymentIds = async () => ["dpl_appv3abc"];
+  client.requestWithRetry = async () => ({
+    ...input.deploymentResponse,
+    readyState: "BUILDING",
+    meta: {
+      ...input.deploymentResponse.meta,
+      mentoRunAttempt: "wrong",
+    },
+  });
+  await assert.rejects(
+    () =>
+      client.discoverAppTransactionCandidate(input.expected, {
+        maximumAttempts: 4,
+        stabilizationDelayMs: 0,
+        sleepImplementation: async () => {
+          assert.fail("identity mismatch must not retry");
+        },
+      }),
+    /identity does not match/,
+  );
+});
+
 test("App transaction candidate discovery fails closed on zero, multiple, and unbounded pages", async () => {
   const input = appCandidateFixture();
   const client = new VercelStateClient({
@@ -530,8 +586,13 @@ test("App transaction candidate discovery fails closed on zero, multiple, and un
   });
   client.listAppTransactionDeploymentIds = async () => [];
   await assert.rejects(
-    () => client.discoverAppTransactionCandidate(input.expected),
-    /exactly one match; received 0/,
+    () =>
+      client.discoverAppTransactionCandidate(input.expected, {
+        maximumAttempts: 1,
+        sleepImplementation: async () => {},
+        stabilizationDelayMs: 0,
+      }),
+    /did not stabilize/,
   );
 
   client.listAppTransactionDeploymentIds = async () => [

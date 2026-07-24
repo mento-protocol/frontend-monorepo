@@ -70,6 +70,17 @@ const CLI_OPTIONS = Object.freeze({
   project: Object.freeze(["project-id", "project-name", "root-directory"]),
   snapshot: Object.freeze(["spec", "output"]),
 });
+const APP_CANDIDATE_PENDING_STATES = new Set([
+  "BUILDING",
+  "INITIALIZING",
+  "QUEUED",
+]);
+
+function sleep(milliseconds) {
+  return new Promise((resolvePromise) => {
+    setTimeout(resolvePromise, milliseconds);
+  });
+}
 
 class CanonicalDriftError extends Error {}
 
@@ -976,27 +987,64 @@ export class VercelStateClient {
     throw new Error("App candidate pagination exceeded its bounded limit");
   }
 
-  async discoverAppTransactionCandidate(expected) {
+  async discoverAppTransactionCandidate(
+    expected,
+    {
+      maximumAttempts = 6,
+      sleepImplementation = sleep,
+      stabilizationDelayMs = 2_000,
+    } = {},
+  ) {
     const expectation = canonicalAppTransactionExpectation(expected);
-    const ids = await this.listAppTransactionDeploymentIds(expectation);
-    const matches = [];
-    for (const id of ids) {
-      const deploymentResponse = await this.requestWithRetry(
-        `/v13/deployments/${encodeURIComponent(id)}?withGitRepoInfo=true`,
-      );
-      matches.push(
+    if (
+      !Number.isSafeInteger(maximumAttempts) ||
+      maximumAttempts < 1 ||
+      maximumAttempts > 10 ||
+      typeof sleepImplementation !== "function" ||
+      !Number.isSafeInteger(stabilizationDelayMs) ||
+      stabilizationDelayMs < 0 ||
+      stabilizationDelayMs > 10_000
+    ) {
+      throw new Error("App candidate stabilization limits are malformed");
+    }
+    for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+      const ids = await this.listAppTransactionDeploymentIds(expectation);
+      if (ids.length > 1) {
+        throw new Error(
+          `App transaction candidate discovery requires exactly one match; received ${ids.length}`,
+        );
+      }
+      if (ids.length === 1) {
+        const deploymentResponse = await this.requestWithRetry(
+          `/v13/deployments/${encodeURIComponent(ids[0])}?withGitRepoInfo=true`,
+        );
+        const readyState = consistentString("readiness", [
+          deploymentResponse?.readyState,
+        ]);
+        if (readyState === "READY") {
+          return canonicalizeAppTransactionCandidate({
+            deploymentResponse,
+            expected: expectation,
+          });
+        }
+        if (!APP_CANDIDATE_PENDING_STATES.has(readyState)) {
+          throw new Error("App transaction candidate did not become READY");
+        }
         canonicalizeAppTransactionCandidate({
-          deploymentResponse,
+          deploymentResponse: {
+            ...deploymentResponse,
+            readyState: "READY",
+          },
           expected: expectation,
-        }),
-      );
+        });
+      }
+      if (attempt < maximumAttempts) {
+        await sleepImplementation(stabilizationDelayMs);
+      }
     }
-    if (matches.length !== 1) {
-      throw new Error(
-        `App transaction candidate discovery requires exactly one match; received ${matches.length}`,
-      );
-    }
-    return matches[0];
+    throw new Error(
+      "App transaction candidate did not stabilize within the bounded window",
+    );
   }
 
   async canonicalAliasState(spec) {
