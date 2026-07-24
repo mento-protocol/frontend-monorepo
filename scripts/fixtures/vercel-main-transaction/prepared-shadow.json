@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "repository": "mento-protocol/frontend-monorepo",
+  "deploySha": "0123456789abcdef0123456789abcdef01234567",
+  "runId": "987654321",
+  "runAttempt": "2",
+  "transactionId": "main-6cddb358375c408df694966a3b498246",
+  "mode": "shadow",
+  "sequence": 0,
+  "status": "prepared",
+  "prior": {
+    "app": {
+      "deploymentId": "dpl_appPrior123",
+      "deploymentUrl": "https://app-prior.vercel.app",
+      "aliases": ["app.mento.org", "appmentoorg-env-v3-mentolabs.vercel.app"]
+    },
+    "governance": {
+      "deploymentId": "dpl_governancePrior123",
+      "deploymentUrl": "https://governance-prior.vercel.app",
+      "aliases": [
+        "governance.mento.org",
+        "governancementoorg-mentolabs.vercel.app"
+      ]
+    },
+    "reserve": {
+      "deploymentId": "dpl_reservePrior123",
+      "deploymentUrl": "https://reserve-prior.vercel.app",
+      "aliases": ["reserve.mento.org", "reservementoorg-mentolabs.vercel.app"]
+    },
+    "ui": {
+      "deploymentId": "dpl_uiPrior123",
+      "deploymentUrl": "https://ui-prior.vercel.app",
+      "aliases": ["ui.mento.org", "uimentoorg-mentolabs.vercel.app"]
+    },
+    "legacy-app": {
+      "deploymentId": "dpl_legacyPrior123",
+      "deploymentUrl": "https://legacy-prior.vercel.app",
+      "aliases": ["v2-app.mento.org"]
+    }
+  },
+  "candidates": {
+    "app": {
+      "deploymentId": null,
+      "deploymentUrl": null,
+      "aliases": ["app.mento.org", "appmentoorg-env-v3-mentolabs.vercel.app"],
+      "discovery": {
+        "projectId": "prj_app123",
+        "projectName": "app.mento.org",
+        "deploySha": "0123456789abcdef0123456789abcdef01234567",
+        "runId": "987654321",
+        "runAttempt": "2",
+        "transactionId": "main-6cddb358375c408df694966a3b498246",
+        "customEnvironmentSlug": "v3"
+      }
+    },
+    "governance": {
+      "deploymentId": "dpl_governanceCandidate123",
+      "deploymentUrl": "https://governance-candidate.vercel.app",
+      "aliases": [
+        "governance.mento.org",
+        "governancementoorg-mentolabs.vercel.app"
+      ],
+      "discovery": null
+    },
+    "reserve": {
+      "deploymentId": "dpl_reserveCandidate123",
+      "deploymentUrl": "https://reserve-candidate.vercel.app",
+      "aliases": ["reserve.mento.org", "reservementoorg-mentolabs.vercel.app"],
+      "discovery": null
+    },
+    "ui": {
+      "deploymentId": "dpl_uiCandidate123",
+      "deploymentUrl": "https://ui-candidate.vercel.app",
+      "aliases": ["ui.mento.org", "uimentoorg-mentolabs.vercel.app"],
+      "discovery": null
+    }
+  },
+  "operations": []
+}
