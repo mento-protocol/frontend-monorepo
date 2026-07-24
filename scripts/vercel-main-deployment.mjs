@@ -395,7 +395,10 @@ function legacyPriorFromSnapshot(snapshot, projectId) {
     state.git.repo !== "frontend-monorepo" ||
     state.git.ref !== "v2" ||
     state.readyState !== "READY" ||
-    JSON.stringify(state.aliases) !== JSON.stringify([LEGACY_ALIAS])
+    !state.aliases.includes(LEGACY_ALIAS) ||
+    state.aliases.some(
+      (alias) => alias !== LEGACY_ALIAS && !alias.endsWith(".vercel.app"),
+    )
   ) {
     throw new Error("Legacy app rollback state is ambiguous");
   }
