@@ -401,7 +401,15 @@ test("runner-failure recovery derives the exact artifact and final result is fai
     "activate-and-verify",
     "recover-main-deployment",
   ]);
+  const checkout = finalJob.steps.find(
+    (step) => step.name === "Check out trusted final controller",
+  );
+  assert.equal(checkout.if, "${{ always() }}");
+  assert.equal(checkout.with.ref, "${{ github.workflow_sha }}");
   const sentinel = stepIncluding("result", "vercel-main-deployment.mjs final");
+  assert.equal(sentinel.id, "final-verdict");
+  assert.equal(sentinel.if, "${{ always() }}");
+  assert.equal(sentinel["continue-on-error"], true);
   assert.equal(
     sentinel.env.COORDINATOR_RESULT,
     "${{ needs.activate-and-verify.result }}",
@@ -413,6 +421,11 @@ test("runner-failure recovery derives the exact artifact and final result is fai
   const evidence = stepIncluding(
     "result",
     "vercel-main-deployment.mjs evidence",
+  );
+  assert.equal(evidence.id, "success-evidence");
+  assert.equal(
+    evidence.if,
+    "${{ always() && steps.final-verdict.outcome == 'success' }}",
   );
   assert.ok(
     finalJob.steps.indexOf(sentinel) < finalJob.steps.indexOf(evidence),
@@ -452,18 +465,65 @@ test("runner-failure recovery derives the exact artifact and final result is fai
     evidence.env.RECOVERY_OUTCOME,
     "${{ needs.recover-main-deployment.outputs.outcome }}",
   );
+  const failureEvidence = stepIncluding(
+    "result",
+    "vercel-main-deployment.mjs failure-evidence",
+  );
+  assert.equal(failureEvidence.id, "failure-evidence");
+  assert.equal(
+    failureEvidence.if,
+    "${{ always() && steps.final-verdict.outcome != 'success' }}",
+  );
+  assert.equal(
+    failureEvidence.env.EVENT_HEAD_SHA,
+    "${{ github.event.workflow_run.head_sha }}",
+  );
+  assert.equal(
+    failureEvidence.env.GITHUB_WORKFLOW_SHA,
+    "${{ github.workflow_sha }}",
+  );
+  assert.equal(
+    failureEvidence.env.WAIT_FOR_CI_RESULT,
+    "${{ needs.wait-for-ci.result }}",
+  );
+  assert.equal(
+    failureEvidence.env.RECOVERY_RESULT,
+    "${{ needs.recover-main-deployment.result }}",
+  );
   const artifact = finalJob.steps.find(
     (step) => step.name === "Upload canonical redacted PR-A evidence",
   );
   assert.ok(
     finalJob.steps.indexOf(evidence) < finalJob.steps.indexOf(artifact),
   );
+  assert.ok(
+    finalJob.steps.indexOf(failureEvidence) < finalJob.steps.indexOf(artifact),
+  );
+  assert.equal(artifact.if, "${{ always() }}");
   assert.equal(artifact.uses, UPLOAD);
   assert.equal(artifact.with["if-no-files-found"], "error");
   assert.equal(artifact.with["retention-days"], 14);
   assert.equal(
     artifact.with.path,
     "${{ runner.temp }}/vercel-main-evidence.json",
+  );
+  const terminalFailure = finalJob.steps.find(
+    (step) => step.name === "Fail after publishing an unsafe final result",
+  );
+  assert.ok(
+    finalJob.steps.indexOf(artifact) < finalJob.steps.indexOf(terminalFailure),
+  );
+  assert.equal(
+    terminalFailure.if,
+    "${{ always() && steps.final-verdict.outcome != 'success' }}",
+  );
+  assert.match(terminalFailure.run, /exit 1/);
+  assert.equal(
+    finalJob.steps.some(
+      (step) =>
+        step.name === "Fail when the trusted gate or planner did not succeed",
+    ),
+    false,
   );
 });
 

@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import {
   MAIN_DEPLOYMENT_MODE,
   MAIN_DEPLOYMENT_SCHEMA,
+  MAIN_FAILURE_EVIDENCE_SCHEMA,
   MAIN_STAGE_SCHEMA,
   assertMainDeploymentHandoff,
   assertMainFinalResults,
@@ -22,6 +23,7 @@ import {
   createMainAppTransactionMetadata,
   createMainDeploymentPlan,
   createMainDeploymentEvidence,
+  createMainDeploymentFailureEvidence,
   createMainJournalArtifactIdentity,
   createMainWorkflowRunUrl,
   createMainLegacyAliasSpec,
@@ -33,6 +35,7 @@ import {
   readRemoteMainSha,
   recoverMainShadowTransaction,
   renderMainDeploymentEvidence,
+  renderMainDeploymentFailureEvidence,
   runMainShadowTransaction,
   validateMainDeploymentSource,
   validateMainStageJobs,
@@ -251,6 +254,7 @@ test("controller CLI accepts only each command's exact non-duplicated options", 
     ["validate-source"],
     ["create-spec", "--scope", "main", "--output", "/tmp/spec.json"],
     ["evidence", "--output", "/tmp/evidence.json"],
+    ["failure-evidence", "--output", "/tmp/failure-evidence.json"],
     [
       "plan",
       "--planning-snapshot",
@@ -504,6 +508,93 @@ test("canonical evidence records planning, candidates, timings, cache, journal, 
   );
 });
 
+test("failure evidence records the complete redacted job graph without parsing planner output", () => {
+  const jobs = {
+    waitForCi: "success",
+    plan: "success",
+    stageGovernance: "failure",
+    stageReserve: "cancelled",
+    stageUi: "skipped",
+    coordinator: "skipped",
+    recovery: "success",
+  };
+  const evidence = createMainDeploymentFailureEvidence({
+    eventHeadSha: SHA,
+    verifiedDeploySha: SHA,
+    planOutput: '{"token":"must-not-be-embedded"',
+    jobs,
+    workflowDefinitionSha: SHA,
+    runId: "800",
+    runAttempt: "3",
+    workflowRunUrl: WORKFLOW_RUN_URL,
+  });
+  assert.equal(evidence.schema, MAIN_FAILURE_EVIDENCE_SCHEMA);
+  assert.equal(evidence.outcome, "failed");
+  assert.equal(evidence.eventHeadSha, SHA);
+  assert.equal(evidence.verifiedDeploySha, SHA);
+  assert.equal(evidence.planOutputPresent, true);
+  assert.deepEqual(evidence.jobs, jobs);
+  assert.equal(evidence.publicServingMutationCommands, 0);
+  assert.doesNotMatch(JSON.stringify(evidence), /must-not-be-embedded|token/);
+  const summary = renderMainDeploymentFailureEvidence(evidence);
+  assert.match(summary, /Vercel main deployment failure evidence/);
+  assert.match(summary, /stageGovernance \| `failure`/);
+  assert.match(summary, /does not authorize activation/);
+  assert.match(
+    summary,
+    /Public-serving activation, alias, promotion, rollback, and recovery commands: `0`/,
+  );
+
+  const unavailable = createMainDeploymentFailureEvidence({
+    eventHeadSha: "malformed",
+    verifiedDeploySha: SHA,
+    planOutput: "",
+    jobs: {
+      waitForCi: "failure",
+      plan: "skipped",
+      stageGovernance: "skipped",
+      stageReserve: "skipped",
+      stageUi: "skipped",
+      coordinator: "skipped",
+      recovery: "success",
+    },
+    workflowDefinitionSha: SHA,
+    runId: "800",
+    runAttempt: "3",
+    workflowRunUrl: WORKFLOW_RUN_URL,
+  });
+  assert.equal(unavailable.eventHeadSha, null);
+  assert.equal(unavailable.verifiedDeploySha, null);
+  assert.equal(unavailable.planOutputPresent, false);
+  assert.match(
+    renderMainDeploymentFailureEvidence(unavailable),
+    /Verified deploy SHA: unavailable/,
+  );
+
+  assert.throws(
+    () =>
+      createMainDeploymentFailureEvidence({
+        eventHeadSha: SHA,
+        verifiedDeploySha: SHA,
+        planOutput: "",
+        jobs: { ...jobs, plan: "unknown" },
+        workflowDefinitionSha: SHA,
+        runId: "800",
+        runAttempt: "3",
+        workflowRunUrl: WORKFLOW_RUN_URL,
+      }),
+    /Failure evidence job results is invalid for plan/,
+  );
+  assert.throws(
+    () =>
+      renderMainDeploymentFailureEvidence({
+        ...evidence,
+        rawResponse: { token: "forbidden" },
+      }),
+    /forbidden or missing fields/,
+  );
+});
+
 test("canonical evidence accepts no-target and superseded-before-journal outcomes without invented artifacts", () => {
   for (const { deploymentPlan, outcome } of [
     { deploymentPlan: plan({ deployments: [] }), outcome: "no-target" },
@@ -646,6 +737,68 @@ test("evidence CLI entrypoint writes canonical run JSON and summary from the exa
       rendered,
       /Freshness barriers: before App preparation `fresh`; before transaction `fresh`/,
     );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("failure-evidence CLI writes one canonical report when the planner output is unavailable", () => {
+  const directory = mkdtempSync(
+    join(tmpdir(), "vercel-main-failure-evidence-"),
+  );
+  try {
+    const output = join(directory, "evidence.json");
+    const summary = join(directory, "summary.md");
+    writeFileSync(summary, "", { encoding: "utf8", mode: 0o600 });
+    const result = spawnSync(
+      process.execPath,
+      [
+        fileURLToPath(new URL("./vercel-main-deployment.mjs", import.meta.url)),
+        "failure-evidence",
+        "--output",
+        output,
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          EVENT_HEAD_SHA: SHA,
+          DEPLOY_SHA: "",
+          PLAN_JSON: "",
+          GITHUB_WORKFLOW_SHA: SHA,
+          GITHUB_RUN_ID: "800",
+          GITHUB_RUN_ATTEMPT: "3",
+          GITHUB_SERVER_URL: "https://github.com",
+          GITHUB_REPOSITORY: "mento-protocol/frontend-monorepo",
+          GITHUB_STEP_SUMMARY: summary,
+          WAIT_FOR_CI_RESULT: "failure",
+          PLAN_RESULT: "skipped",
+          STAGE_GOVERNANCE_RESULT: "skipped",
+          STAGE_RESERVE_RESULT: "skipped",
+          STAGE_UI_RESULT: "skipped",
+          COORDINATOR_RESULT: "skipped",
+          RECOVERY_RESULT: "success",
+        },
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const evidence = JSON.parse(readFileSync(output, "utf8"));
+    assert.equal(evidence.schema, MAIN_FAILURE_EVIDENCE_SCHEMA);
+    assert.equal(evidence.eventHeadSha, SHA);
+    assert.equal(evidence.verifiedDeploySha, null);
+    assert.equal(evidence.planOutputPresent, false);
+    assert.deepEqual(evidence.jobs, {
+      waitForCi: "failure",
+      plan: "skipped",
+      stageGovernance: "skipped",
+      stageReserve: "skipped",
+      stageUi: "skipped",
+      coordinator: "skipped",
+      recovery: "success",
+    });
+    const rendered = readFileSync(summary, "utf8");
+    assert.match(rendered, /Planner output: unavailable/);
+    assert.match(rendered, /waitForCi \| `failure`/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

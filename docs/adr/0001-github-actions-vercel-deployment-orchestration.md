@@ -258,9 +258,11 @@ Vercel Git remains the only public `main` activation owner during this proof.
 The coordinator reports exactly `no-target`, `superseded-before-journal`,
 `superseded-after-journal`, or `shadow-prepared`. A durable journal exists only
 for the latter two outcomes, which require `verified-no-mutation`; the other two
-require `not-required`. After the final sentinel accepts that matrix, the
-workflow writes a canonical redacted job summary and uploads
-`vercel-main-evidence-${run_id}-${run_attempt}` for 14 days.
+require `not-required`. The final job validates that matrix without ending the
+job, writes either the full success evidence or a minimal redacted failure
+graph, uploads
+`vercel-main-evidence-${run_id}-${run_attempt}` for 14 days, and only then
+returns the terminal result.
 
 PR B is the separate reviewed cutover. It enables active mutation and disables
 the replaced native `main` paths in the same commit. App always retains

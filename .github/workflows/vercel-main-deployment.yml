@@ -1312,28 +1312,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Fail when the trusted gate or planner did not succeed
-        if: >-
-          needs.wait-for-ci.result != 'success' ||
-          needs.plan-main-deployments.result != 'success'
-        run: |
-          echo "The exact upstream CI gate or main planner did not succeed" >&2
-          exit 1
-
       - name: Check out trusted final controller
-        if: >-
-          needs.wait-for-ci.result == 'success' &&
-          needs.plan-main-deployments.result == 'success'
+        if: ${{ always() }}
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 1
           persist-credentials: false
-          ref: ${{ needs.wait-for-ci.outputs.deploy_sha }}
+          ref: ${{ github.workflow_sha }}
 
       - name: Enforce one safe final result
-        if: >-
-          needs.wait-for-ci.result == 'success' &&
-          needs.plan-main-deployments.result == 'success'
+        id: final-verdict
+        if: ${{ always() }}
+        continue-on-error: true
         env:
           PLAN_JSON: ${{ needs.plan-main-deployments.outputs.plan }}
           WAIT_FOR_CI_RESULT: ${{ needs.wait-for-ci.result }}
@@ -1348,6 +1338,8 @@ jobs:
         run: node scripts/vercel-main-deployment.mjs final
 
       - name: Write canonical redacted PR-A evidence
+        id: success-evidence
+        if: ${{ always() && steps.final-verdict.outcome == 'success' }}
         env:
           PLAN_JSON: ${{ needs.plan-main-deployments.outputs.plan }}
           EVIDENCE_GOVERNANCE_RESULT: ${{ needs.stage-governance.result }}
@@ -1389,10 +1381,36 @@ jobs:
           node scripts/vercel-main-deployment.mjs evidence
           --output "$RUNNER_TEMP/vercel-main-evidence.json"
 
+      - name: Write canonical redacted PR-A failure evidence
+        id: failure-evidence
+        if: ${{ always() && steps.final-verdict.outcome != 'success' }}
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          DEPLOY_SHA: ${{ needs.wait-for-ci.outputs.deploy_sha }}
+          PLAN_JSON: ${{ needs.plan-main-deployments.outputs.plan }}
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          WAIT_FOR_CI_RESULT: ${{ needs.wait-for-ci.result }}
+          PLAN_RESULT: ${{ needs.plan-main-deployments.result }}
+          STAGE_GOVERNANCE_RESULT: ${{ needs.stage-governance.result }}
+          STAGE_RESERVE_RESULT: ${{ needs.stage-reserve.result }}
+          STAGE_UI_RESULT: ${{ needs.stage-ui.result }}
+          COORDINATOR_RESULT: ${{ needs.activate-and-verify.result }}
+          RECOVERY_RESULT: ${{ needs.recover-main-deployment.result }}
+        run: >-
+          node scripts/vercel-main-deployment.mjs failure-evidence
+          --output "$RUNNER_TEMP/vercel-main-evidence.json"
+
       - name: Upload canonical redacted PR-A evidence
+        if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: vercel-main-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/vercel-main-evidence.json
           if-no-files-found: error
           retention-days: 14
+
+      - name: Fail after publishing an unsafe final result
+        if: ${{ always() && steps.final-verdict.outcome != 'success' }}
+        run: |
+          echo "The Vercel main deployment graph did not reach a safe final result" >&2
+          exit 1

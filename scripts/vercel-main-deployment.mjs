@@ -41,6 +41,7 @@ import { generateVercelDeploymentId } from "./vercel-prebuilt.mjs";
 export const MAIN_DEPLOYMENT_SCHEMA = "vercel-main-deployment:v1";
 export const MAIN_STAGE_SCHEMA = "vercel-main-stage:v1";
 export const MAIN_EVIDENCE_SCHEMA = "vercel-main-evidence:v1";
+export const MAIN_FAILURE_EVIDENCE_SCHEMA = "vercel-main-failure-evidence:v1";
 export const MAIN_DEPLOYMENT_MODE = MAIN_TRANSACTION_MODE;
 export const MAIN_DEPLOYMENT_WORKFLOW =
   ".github/workflows/vercel-main-deployment.yml";
@@ -56,6 +57,15 @@ const ID_PATTERN = /^[A-Za-z0-9._-]+$/;
 const DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
 const POSITIVE_ID_PATTERN = /^[1-9][0-9]*$/;
 const JOB_RESULTS = new Set(["success", "failure", "cancelled", "skipped"]);
+const FINAL_JOB_KEYS = Object.freeze([
+  "waitForCi",
+  "plan",
+  "stageGovernance",
+  "stageReserve",
+  "stageUi",
+  "coordinator",
+  "recovery",
+]);
 const PLAN_KEYS = Object.freeze([
   "schema",
   "mode",
@@ -103,6 +113,7 @@ const CLI_COMMAND_OPTIONS = Object.freeze({
   "app-candidate-expectation": Object.freeze(["journal", "output"]),
   "create-spec": Object.freeze(["output", "scope"]),
   evidence: Object.freeze(["output"]),
+  "failure-evidence": Object.freeze(["output"]),
   final: Object.freeze([]),
   freshness: Object.freeze([]),
   "journal-name": Object.freeze([]),
@@ -1248,6 +1259,73 @@ function canonicalEvidenceMetrics(value, label, { deploy = true } = {}) {
   };
 }
 
+function canonicalFinalJobResults(jobs, label = "Main final job results") {
+  assertExactKeys(jobs, FINAL_JOB_KEYS, label);
+  return Object.fromEntries(
+    FINAL_JOB_KEYS.map((name) => {
+      const result = jobs[name];
+      if (!JOB_RESULTS.has(result)) {
+        throw new Error(`${label} is invalid for ${name}`);
+      }
+      return [name, result];
+    }),
+  );
+}
+
+function canonicalOptionalSha(value) {
+  return typeof value === "string" && SHA_PATTERN.test(value) ? value : null;
+}
+
+export function createMainDeploymentFailureEvidence({
+  eventHeadSha,
+  verifiedDeploySha,
+  planOutput,
+  jobs,
+  workflowDefinitionSha,
+  runId,
+  runAttempt,
+  workflowRunUrl,
+}) {
+  const expectedRunId = requirePositiveId(runId, "Failure evidence run ID");
+  const expectedRunAttempt = requirePositiveId(
+    runAttempt,
+    "Failure evidence run attempt",
+  );
+  const expectedWorkflowRunUrl = createMainWorkflowRunUrl({
+    serverUrl: "https://github.com",
+    repository: MAIN_TRANSACTION_REPOSITORY,
+    runId: expectedRunId,
+  });
+  if (workflowRunUrl !== expectedWorkflowRunUrl) {
+    throw new Error("Failure evidence workflow run URL is invalid");
+  }
+  const canonicalJobs = canonicalFinalJobResults(
+    jobs,
+    "Failure evidence job results",
+  );
+  return {
+    schema: MAIN_FAILURE_EVIDENCE_SCHEMA,
+    mode: MAIN_DEPLOYMENT_MODE,
+    repository: MAIN_TRANSACTION_REPOSITORY,
+    eventHeadSha: canonicalOptionalSha(eventHeadSha),
+    verifiedDeploySha:
+      canonicalJobs.waitForCi === "success"
+        ? canonicalOptionalSha(verifiedDeploySha)
+        : null,
+    workflowDefinitionSha: requireSha(
+      workflowDefinitionSha,
+      "Failure evidence workflow definition SHA",
+    ),
+    runId: expectedRunId,
+    runAttempt: expectedRunAttempt,
+    workflowRunUrl: expectedWorkflowRunUrl,
+    planOutputPresent: typeof planOutput === "string" && planOutput.length > 0,
+    jobs: canonicalJobs,
+    publicServingMutationCommands: 0,
+    outcome: "failed",
+  };
+}
+
 export function createMainDeploymentEvidence({
   plan,
   stages,
@@ -1543,6 +1621,90 @@ export function renderMainDeploymentEvidence(evidence) {
   return lines.join("\n");
 }
 
+export function renderMainDeploymentFailureEvidence(evidence) {
+  assertExactKeys(
+    evidence,
+    [
+      "eventHeadSha",
+      "jobs",
+      "mode",
+      "outcome",
+      "planOutputPresent",
+      "publicServingMutationCommands",
+      "repository",
+      "runAttempt",
+      "runId",
+      "schema",
+      "verifiedDeploySha",
+      "workflowDefinitionSha",
+      "workflowRunUrl",
+    ],
+    "Main deployment failure evidence",
+  );
+  if (
+    evidence.schema !== MAIN_FAILURE_EVIDENCE_SCHEMA ||
+    evidence.mode !== MAIN_DEPLOYMENT_MODE ||
+    evidence.repository !== MAIN_TRANSACTION_REPOSITORY ||
+    evidence.outcome !== "failed" ||
+    typeof evidence.planOutputPresent !== "boolean" ||
+    evidence.publicServingMutationCommands !== 0
+  ) {
+    throw new Error("Main deployment failure evidence is malformed");
+  }
+  const jobs = canonicalFinalJobResults(
+    evidence.jobs,
+    "Failure evidence job results",
+  );
+  const runUrl = createMainWorkflowRunUrl({
+    serverUrl: "https://github.com",
+    repository: evidence.repository,
+    runId: evidence.runId,
+  });
+  if (
+    evidence.workflowRunUrl !== runUrl ||
+    requirePositiveId(evidence.runAttempt, "Failure evidence run attempt") !==
+      evidence.runAttempt ||
+    requireSha(
+      evidence.workflowDefinitionSha,
+      "Failure evidence workflow definition SHA",
+    ) !== evidence.workflowDefinitionSha ||
+    (evidence.eventHeadSha !== null &&
+      canonicalOptionalSha(evidence.eventHeadSha) !== evidence.eventHeadSha) ||
+    (evidence.verifiedDeploySha !== null &&
+      canonicalOptionalSha(evidence.verifiedDeploySha) !==
+        evidence.verifiedDeploySha)
+  ) {
+    throw new Error("Main deployment failure evidence is malformed");
+  }
+  return [
+    "### Vercel main deployment failure evidence",
+    "",
+    `- Downstream workflow: [run ${evidence.runId}, attempt ${evidence.runAttempt}](${evidence.workflowRunUrl})`,
+    `- Workflow definition SHA: \`${evidence.workflowDefinitionSha}\``,
+    `- Event head SHA: ${
+      evidence.eventHeadSha ? `\`${evidence.eventHeadSha}\`` : "unavailable"
+    }`,
+    `- Verified deploy SHA: ${
+      evidence.verifiedDeploySha
+        ? `\`${evidence.verifiedDeploySha}\``
+        : "unavailable"
+    }`,
+    `- Planner output: ${
+      evidence.planOutputPresent ? "present but not embedded" : "unavailable"
+    }`,
+    "",
+    "#### Final job graph",
+    "",
+    "| Job | Result |",
+    "|---|---|",
+    ...FINAL_JOB_KEYS.map((name) => `| ${name} | \`${jobs[name]}\` |`),
+    "",
+    "- Public-serving activation, alias, promotion, rollback, and recovery commands: `0`",
+    "- Outcome: `failed`; this report does not authorize activation.",
+    "",
+  ].join("\n");
+}
+
 export function assertMainFinalResults({
   plan,
   jobs,
@@ -1550,26 +1712,12 @@ export function assertMainFinalResults({
   recoveryOutcome,
 }) {
   const handoff = assertMainDeploymentHandoff(plan);
-  const expectedJobKeys = [
-    "waitForCi",
-    "plan",
-    "stageGovernance",
-    "stageReserve",
-    "stageUi",
-    "coordinator",
-    "recovery",
-  ];
-  assertExactKeys(jobs, expectedJobKeys, "Main final job results");
-  for (const [name, result] of Object.entries(jobs)) {
-    if (!JOB_RESULTS.has(result)) {
-      throw new Error(`Main final job result is invalid for ${name}`);
-    }
-  }
+  const canonicalJobs = canonicalFinalJobResults(jobs);
   if (
-    jobs.waitForCi !== "success" ||
-    jobs.plan !== "success" ||
-    jobs.coordinator !== "success" ||
-    jobs.recovery !== "success"
+    canonicalJobs.waitForCi !== "success" ||
+    canonicalJobs.plan !== "success" ||
+    canonicalJobs.coordinator !== "success" ||
+    canonicalJobs.recovery !== "success"
   ) {
     throw new Error("A required main deployment job did not succeed");
   }
@@ -1583,7 +1731,7 @@ export function assertMainFinalResults({
     const expected = handoff.planning.plan.includes(target)
       ? "success"
       : "skipped";
-    if (jobs[jobName] !== expected) {
+    if (canonicalJobs[jobName] !== expected) {
       throw new Error(`Final stage result is invalid for ${target}`);
     }
   }
@@ -1680,6 +1828,18 @@ function stageJobsFromEnvironment(values) {
       result: values.STAGE_UI_RESULT,
       handoff: parseOptional(values.STAGE_UI_HANDOFF, "UI stage handoff"),
     },
+  };
+}
+
+function finalJobsFromEnvironment(values) {
+  return {
+    waitForCi: values.WAIT_FOR_CI_RESULT,
+    plan: values.PLAN_RESULT,
+    stageGovernance: values.STAGE_GOVERNANCE_RESULT,
+    stageReserve: values.STAGE_RESERVE_RESULT,
+    stageUi: values.STAGE_UI_RESULT,
+    coordinator: values.COORDINATOR_RESULT,
+    recovery: values.RECOVERY_RESULT,
   };
 }
 
@@ -1795,6 +1955,31 @@ async function runCli({ argv = process.argv.slice(2), values = process.env }) {
     appendFileSync(
       values.GITHUB_STEP_SUMMARY,
       renderMainDeploymentEvidence(evidence),
+    );
+    return;
+  }
+  if (command === "failure-evidence") {
+    const evidence = createMainDeploymentFailureEvidence({
+      eventHeadSha: values.EVENT_HEAD_SHA,
+      verifiedDeploySha: values.DEPLOY_SHA,
+      planOutput: values.PLAN_JSON,
+      jobs: finalJobsFromEnvironment(values),
+      workflowDefinitionSha: values.GITHUB_WORKFLOW_SHA,
+      runId: values.GITHUB_RUN_ID,
+      runAttempt: values.GITHUB_RUN_ATTEMPT,
+      workflowRunUrl: createMainWorkflowRunUrl({
+        serverUrl: values.GITHUB_SERVER_URL,
+        repository: values.GITHUB_REPOSITORY,
+        runId: values.GITHUB_RUN_ID,
+      }),
+    });
+    writeCanonicalJson(options.output, evidence);
+    if (!values.GITHUB_STEP_SUMMARY) {
+      throw new Error("GITHUB_STEP_SUMMARY is required");
+    }
+    appendFileSync(
+      values.GITHUB_STEP_SUMMARY,
+      renderMainDeploymentFailureEvidence(evidence),
     );
     return;
   }
@@ -1962,15 +2147,7 @@ async function runCli({ argv = process.argv.slice(2), values = process.env }) {
   if (command === "final") {
     const result = assertMainFinalResults({
       plan: parseJson(values.PLAN_JSON, "Main deployment plan"),
-      jobs: {
-        waitForCi: values.WAIT_FOR_CI_RESULT,
-        plan: values.PLAN_RESULT,
-        stageGovernance: values.STAGE_GOVERNANCE_RESULT,
-        stageReserve: values.STAGE_RESERVE_RESULT,
-        stageUi: values.STAGE_UI_RESULT,
-        coordinator: values.COORDINATOR_RESULT,
-        recovery: values.RECOVERY_RESULT,
-      },
+      jobs: finalJobsFromEnvironment(values),
       coordinatorOutcome: values.COORDINATOR_OUTCOME,
       recoveryOutcome: values.RECOVERY_OUTCOME,
     });

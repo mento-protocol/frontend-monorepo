@@ -6,12 +6,13 @@ not start the observation window, query Vercel or GitHub, change a deployment,
 or remove migration scaffolding. The observation window starts only after the
 four-target preview and PR-B main ownership cutover in issue #522 is complete.
 Automatic PR-A `Vercel Main Deployment` shadow runs are canary evidence, not
-post-cutover observations.
-After its final sentinel succeeds, each shadow run writes a canonical redacted
-job summary and uploads
-`vercel-main-evidence-${run_id}-${run_attempt}` for 14 days. Its build, deploy,
-runner, and Turbo-cache measurements help diagnose the canary, but they remain
-log-duration evidence rather than invoice-grade Build CPU allocation.
+post-cutover observations. Each shadow run writes a canonical redacted job
+summary and uploads
+`vercel-main-evidence-${run_id}-${run_attempt}` for 14 days before returning its
+terminal result. Successful runs contain build, deploy, runner, and Turbo-cache
+measurements; failed runs contain only the redacted failure graph. Successful
+shadow measurements help diagnose the canary, but they remain log-duration
+evidence rather than invoice-grade Build CPU allocation.
 
 The repository provides a deterministic, network-free analyzer:
 

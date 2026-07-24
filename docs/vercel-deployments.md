@@ -211,9 +211,19 @@ that is the canary PR A must prove.
 
 ### PR-A canary and copy-safe diagnostics
 
-After the final sentinel succeeds, the `result` job runs `evidence`, appends one
-canonical redacted report to `$GITHUB_STEP_SUMMARY`, and uploads the exact JSON
-as artifact
+The `result` job evaluates the complete graph without ending the job, then
+writes and uploads one canonical redacted report before it returns the terminal
+result. A safe graph uses schema `vercel-main-evidence:v1`; any failed gate,
+planner, stage, coordinator, recovery, or final validation uses the separate
+`vercel-main-failure-evidence:v1` schema. Failure evidence records only trusted
+run identity, valid SHA values when available, whether planner output existed,
+the literal job-result graph, and the shadow invariant of zero public-serving
+mutation commands. It never parses or embeds an unavailable or malformed plan.
+The job fails only after the failure report is uploaded, so the diagnostic
+artifact survives without weakening the sentinel.
+
+Both paths append their canonical redacted report to `$GITHUB_STEP_SUMMARY` and
+upload the exact JSON as artifact
 `vercel-main-evidence-${run_id}-${run_attempt}` with 14-day retention. Link the
 first merged PR-A run and artifact on issue #522 or its PR; do not embed observed
 IDs in this canonical runbook. The evidence contains only:
