@@ -250,9 +250,7 @@ The legacy v2 proof requires exactly four canonical API aliases: the protected
 `v2-app.mento.org` alias, the exact Vercel Git branch alias
 `appmentoorg-git-v2-mentolabs.vercel.app`, the exact scope alias
 `appmentoorg-mentolabs.vercel.app`, and the exact project-default alias
-`appmentoorg.vercel.app`. Read-only Vercel API evidence from automatic run
-`30086024459` on 24 July 2026 reported that complete sorted alias set and
-creator username `chapati`.
+`appmentoorg.vercel.app`.
 
 The canonical `deploymentUrl` is immutable deployment identity, not an API
 alias: its hostname is never added to or derived into the alias topology. The
