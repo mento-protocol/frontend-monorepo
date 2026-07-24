@@ -106,6 +106,14 @@ const VERIFICATION_KEYS = Object.freeze([
   "protectedMappings",
 ]);
 const LEGACY_ALIAS = "v2-app.mento.org";
+const LEGACY_GENERATED_PROJECT_SLUG = "appmento";
+const LEGACY_GENERATED_BRANCH_SLUG = "git-v2";
+const LEGACY_GENERATED_SCOPE_SLUG = "mentolabs";
+const LEGACY_GENERATED_BRANCH_ALIAS = `${LEGACY_GENERATED_PROJECT_SLUG}-${LEGACY_GENERATED_BRANCH_SLUG}-${LEGACY_GENERATED_SCOPE_SLUG}.vercel.app`;
+const RESERVED_GENERATED_ALIAS_CREATOR_PREFIXES = Object.freeze([
+  "git-",
+  "env-",
+]);
 const MAX_JSON_BYTES = 256 * 1024;
 const APP_BUILD_PROOF_SCHEMA = "vercel-main-app-build:v1";
 const CLI_COMMAND_OPTIONS = Object.freeze({
@@ -380,6 +388,25 @@ function canonicalPrior(value, label) {
   };
 }
 
+function allowedLegacyGeneratedAliasTopologies(creatorUsername) {
+  const branchTopology = [LEGACY_ALIAS, LEGACY_GENERATED_BRANCH_ALIAS].sort();
+  if (
+    creatorUsername === null ||
+    RESERVED_GENERATED_ALIAS_CREATOR_PREFIXES.some((prefix) =>
+      creatorUsername.startsWith(prefix),
+    )
+  ) {
+    return [branchTopology];
+  }
+
+  const creatorLabel = `${LEGACY_GENERATED_PROJECT_SLUG}-${creatorUsername}-${LEGACY_GENERATED_SCOPE_SLUG}`;
+  if (creatorLabel.length > 63) return [branchTopology];
+
+  const creatorAlias = canonicalizeHostname(`${creatorLabel}.vercel.app`);
+  if (creatorAlias === LEGACY_GENERATED_BRANCH_ALIAS) return [branchTopology];
+  return [branchTopology, [...branchTopology, creatorAlias].sort()];
+}
+
 function legacyPriorFromSnapshot(snapshot, projectId) {
   const states = snapshot.filter((state) => state.alias === LEGACY_ALIAS);
   if (states.length !== 1) {
@@ -395,7 +422,10 @@ function legacyPriorFromSnapshot(snapshot, projectId) {
     state.git.repo !== "frontend-monorepo" ||
     state.git.ref !== "v2" ||
     state.readyState !== "READY" ||
-    JSON.stringify(state.aliases) !== JSON.stringify([LEGACY_ALIAS])
+    !allowedLegacyGeneratedAliasTopologies(state.creatorUsername).some(
+      (expectedAliases) =>
+        JSON.stringify(state.aliases) === JSON.stringify(expectedAliases),
+    )
   ) {
     throw new Error("Legacy app rollback state is ambiguous");
   }

@@ -246,6 +246,15 @@ IDs in this canonical runbook. The evidence contains only:
 - a zero count for public-serving activation, alias, promotion, rollback, and
   recovery commands.
 
+The legacy v2 proof requires the protected `v2-app.mento.org` alias and the
+exact Vercel Git branch alias
+`appmento-git-v2-mentolabs.vercel.app`. It permits at most one additional
+creator alias derived exactly as
+`appmento-<creator-username>-mentolabs.vercel.app` from the same deployment's
+canonical creator metadata. Creator names in Vercel's reserved `git-` or `env-`
+alias namespaces cannot authorize that optional alias. Any other project,
+branch, team, creator, or custom-domain alias fails before staging.
+
 Use these copy-safe diagnostics:
 
 ```bash

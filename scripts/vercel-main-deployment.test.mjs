@@ -81,7 +81,7 @@ function allProtectedStates() {
       ref: "v2",
       sha: "9999999999999999999999999999999999999999",
     },
-    aliases: ["v2-app.mento.org"],
+    aliases: ["appmento-git-v2-mentolabs.vercel.app", "v2-app.mento.org"],
   });
   return states.sort((left, right) => left.alias.localeCompare(right.alias));
 }
@@ -126,13 +126,18 @@ function upstream() {
   };
 }
 
-function plan({ deployments = ["app", "governance", "reserve", "ui"] } = {}) {
+function plan({
+  deployments = ["app", "governance", "reserve", "ui"],
+  legacyAliases = null,
+} = {}) {
+  const legacy = legacySnapshot();
+  if (legacyAliases !== null) legacy[0].aliases = legacyAliases;
   return createMainDeploymentPlan({
     mode: MAIN_DEPLOYMENT_MODE,
     deploySha: SHA,
     projectIds,
     planningSnapshot: planningSnapshot(),
-    legacySnapshot: legacySnapshot(),
+    legacySnapshot: legacy,
     upstream: upstream(),
     gitAdapter: gitAdapter(),
     runPlanner: ({ base, head }) => ({
@@ -1043,6 +1048,63 @@ test("selected stages must succeed and unselected stages must be skipped", () =>
 });
 
 test("protected rollback identity remains stable while ordinary generated aliases move", () => {
+  const legacyAliases = [
+    "appmento-git-v2-mentolabs.vercel.app",
+    "v2-app.mento.org",
+  ];
+  const deploymentPlanWithGeneratedLegacyAlias = plan({ legacyAliases });
+  assert.deepEqual(deploymentPlanWithGeneratedLegacyAlias.legacyPrior.aliases, [
+    "v2-app.mento.org",
+  ]);
+  assert.throws(() =>
+    plan({ legacyAliases: ["appmento-git-v2-mentolabs.vercel.app"] }),
+  );
+  const creatorAlias = "appmento-fixture-author-mentolabs.vercel.app";
+  assert.doesNotThrow(() =>
+    plan({ legacyAliases: [...legacyAliases, creatorAlias].sort() }),
+  );
+  for (const reservedCreator of ["git-main", "env-v3"]) {
+    const legacy = legacySnapshot();
+    legacy[0].creatorUsername = reservedCreator;
+    legacy[0].aliases = [
+      ...legacyAliases,
+      `appmento-${reservedCreator}-mentolabs.vercel.app`,
+    ].sort();
+    assert.throws(() =>
+      createMainDeploymentPlan({
+        mode: MAIN_DEPLOYMENT_MODE,
+        deploySha: SHA,
+        projectIds,
+        planningSnapshot: planningSnapshot(),
+        legacySnapshot: legacy,
+        upstream: upstream(),
+        gitAdapter: gitAdapter(),
+        runPlanner: ({ base, head }) => ({
+          base,
+          head,
+          deployments: ["app"],
+          reason: "affected-packages",
+        }),
+      }),
+    );
+  }
+  for (const unexpectedAlias of [
+    "unexpected.mento.org",
+    "appmento-git-main-mentolabs.vercel.app",
+    "appmento-git-v2-other.vercel.app",
+    "other-project-git-v2-mentolabs.vercel.app",
+    "appmento-other-author-mentolabs.vercel.app",
+    "appmento-mentolabs.vercel.app",
+    "vercel.app",
+    "notvercel.app",
+    "safe.vercel.app.attacker.example",
+  ]) {
+    assert.throws(() =>
+      plan({
+        legacyAliases: [unexpectedAlias, "v2-app.mento.org"].sort(),
+      }),
+    );
+  }
   const deploymentPlan = plan();
   assert.deepEqual(
     assertProtectedSnapshotMatchesPlan({
@@ -1112,18 +1174,42 @@ test("protected rollback identity remains stable while ordinary generated aliase
       legacySnapshot: legacySnapshot(),
     }),
   );
-  const legacyAliasDrift = structuredClone(legacySnapshot());
-  legacyAliasDrift[0].aliases = [
-    "v2-app.mento.org",
-    "unexpected-legacy-alias.vercel.app",
-  ];
+  const legacyGeneratedAliases = structuredClone(legacySnapshot());
+  legacyGeneratedAliases[0].aliases = legacyAliases;
+  assert.doesNotThrow(() =>
+    assertProtectedSnapshotMatchesPlan({
+      plan: deploymentPlanWithGeneratedLegacyAlias,
+      planningSnapshot: planningSnapshot(),
+      legacySnapshot: legacyGeneratedAliases,
+    }),
+  );
+  const missingLegacyAlias = structuredClone(legacySnapshot());
+  missingLegacyAlias[0].aliases = ["appmento-git-v2-mentolabs.vercel.app"];
   assert.throws(() =>
     assertProtectedSnapshotMatchesPlan({
       plan: deploymentPlan,
       planningSnapshot: planningSnapshot(),
-      legacySnapshot: legacyAliasDrift,
+      legacySnapshot: missingLegacyAlias,
     }),
   );
+  for (const mutate of [
+    (state) => {
+      state.deploymentId = "dpl_operatorMove123";
+    },
+    (state) => {
+      state.aliases = ["appmento-git-v2-other.vercel.app", "v2-app.mento.org"];
+    },
+  ]) {
+    const changed = structuredClone(legacyGeneratedAliases);
+    mutate(changed[0]);
+    assert.throws(() =>
+      assertProtectedSnapshotMatchesPlan({
+        plan: deploymentPlanWithGeneratedLegacyAlias,
+        planningSnapshot: planningSnapshot(),
+        legacySnapshot: changed,
+      }),
+    );
+  }
   for (const mutate of [
     (state) => {
       state.deploymentId = "dpl_operatorMove123";
