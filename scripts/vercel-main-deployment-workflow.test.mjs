@@ -20,6 +20,7 @@ const pnpmInstallActionSource = readFileSync(
   new URL("../.github/actions/pnpm-install/action.yml", import.meta.url),
   "utf8",
 );
+const pnpmInstallAction = parse(pnpmInstallActionSource);
 
 const CHECKOUT = "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0";
 const UPLOAD =
@@ -194,10 +195,33 @@ test("planner captures tolerant main evidence and strict legacy rollback state",
   assert.match(select.run, /--planning-snapshot/);
   assert.match(select.run, /--legacy-snapshot/);
   assert.equal(runtime.uses, "./.github/actions/pnpm-install");
-  assert.deepEqual(runtime.with, { "working-directory": "source" });
+  assert.deepEqual(runtime.with, {
+    "working-directory": "source",
+    "ignore-scripts": "true",
+  });
   assert.equal(runtime.env, undefined);
   assert.doesNotMatch(JSON.stringify(runtime), /VERCEL_TOKEN|secrets\.VERCEL/);
-  assert.match(pnpmInstallActionSource, /pnpm install --frozen-lockfile/);
+  assert.equal(pnpmInstallAction.inputs["ignore-scripts"].default, "false");
+  const noLifecycleInstall = pnpmInstallAction.runs.steps.find(
+    (step) => step.name === "Install dependencies without lifecycle scripts",
+  );
+  assert.deepEqual(noLifecycleInstall, {
+    name: "Install dependencies without lifecycle scripts",
+    if: "inputs.ignore-scripts == 'true'",
+    shell: "bash",
+    "working-directory": "${{ inputs.working-directory }}",
+    run: "env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE -u GITHUB_STEP_SUMMARY pnpm install --frozen-lockfile --ignore-scripts",
+  });
+  const ordinaryInstall = pnpmInstallAction.runs.steps.find(
+    (step) => step.name === "Install dependencies",
+  );
+  assert.deepEqual(ordinaryInstall, {
+    name: "Install dependencies",
+    if: "inputs.ignore-scripts != 'true'",
+    shell: "bash",
+    "working-directory": "${{ inputs.working-directory }}",
+    run: "env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE -u GITHUB_STEP_SUMMARY pnpm install --frozen-lockfile",
+  });
   assert.match(
     pnpmInstallActionSource,
     /cache-dependency-path:\s+\$\{\{ inputs\.working-directory \}\}\/pnpm-lock\.yaml/,

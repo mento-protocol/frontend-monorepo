@@ -125,11 +125,10 @@ the dependency install. The plan step writes a GitHub summary containing only
 selected targets, served-SHA ranges, and selection reasons; it intentionally
 excludes project IDs, protected snapshots, deployment URLs, and credentials.
 
-This install may run the exact main source's normal lifecycle scripts because
-that SHA has already passed the verified upstream CI install/build gate. It
-uses the shared action's lockfile-keyed pnpm-store cache, not a restored
-`node_modules` tree; `pnpm install --frozen-lockfile` still validates the
-source dependency graph. Do not move `VERCEL_TOKEN` to the job or install-step
+This planner install disables lifecycle scripts. It uses the shared action's
+lockfile-keyed pnpm-store cache, not a restored `node_modules` tree;
+`pnpm install --frozen-lockfile --ignore-scripts` still validates the source
+dependency graph. Do not move `VERCEL_TOKEN` to the job or install-step
 environment to optimize this path.
 
 In shadow mode, native Vercel may already serve `DEPLOY_SHA` before this
