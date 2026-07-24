@@ -1,0 +1,13 @@
+{
+  "base": "success-first-attempt.json",
+  "job_pages": [
+    {
+      "job_indexes": [0],
+      "total_count": 2
+    },
+    {
+      "job_indexes": [1],
+      "total_count": 2
+    }
+  ]
+}

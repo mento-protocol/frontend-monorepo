@@ -1,0 +1,81 @@
+{
+  "event": {
+    "action": "completed",
+    "repository": {
+      "full_name": "mento-protocol/frontend-monorepo"
+    },
+    "workflow_run": {
+      "id": 40000000001,
+      "run_attempt": 1,
+      "name": "CI/CD",
+      "path": ".github/workflows/ci.yml",
+      "event": "push",
+      "head_branch": "main",
+      "head_sha": "0123456789abcdef0123456789abcdef01234567",
+      "status": "completed",
+      "conclusion": "success",
+      "repository": {
+        "full_name": "mento-protocol/frontend-monorepo"
+      },
+      "head_repository": {
+        "full_name": "mento-protocol/frontend-monorepo"
+      },
+      "url": "https://api.github.com/repos/mento-protocol/frontend-monorepo/actions/runs/40000000001",
+      "html_url": "https://github.com/mento-protocol/frontend-monorepo/actions/runs/40000000001"
+    }
+  },
+  "run": {
+    "id": 40000000001,
+    "run_attempt": 1,
+    "name": "CI/CD",
+    "path": ".github/workflows/ci.yml",
+    "event": "push",
+    "head_branch": "main",
+    "head_sha": "0123456789abcdef0123456789abcdef01234567",
+    "status": "completed",
+    "conclusion": "success",
+    "repository": {
+      "full_name": "mento-protocol/frontend-monorepo"
+    },
+    "head_repository": {
+      "full_name": "mento-protocol/frontend-monorepo"
+    },
+    "url": "https://api.github.com/repos/mento-protocol/frontend-monorepo/actions/runs/40000000001",
+    "html_url": "https://github.com/mento-protocol/frontend-monorepo/actions/runs/40000000001"
+  },
+  "job_pages": [
+    {
+      "total_count": 2,
+      "jobs": [
+        {
+          "id": 90000000001,
+          "run_id": 40000000001,
+          "run_attempt": 1,
+          "workflow_name": "CI/CD",
+          "head_branch": "main",
+          "head_sha": "0123456789abcdef0123456789abcdef01234567",
+          "name": "Build",
+          "run_url": "https://api.github.com/repos/mento-protocol/frontend-monorepo/actions/runs/40000000001",
+          "url": "https://api.github.com/repos/mento-protocol/frontend-monorepo/actions/jobs/90000000001",
+          "html_url": "https://github.com/mento-protocol/frontend-monorepo/actions/runs/40000000001/job/90000000001",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 90000000002,
+          "run_id": 40000000001,
+          "run_attempt": 1,
+          "workflow_name": "CI/CD",
+          "head_branch": "main",
+          "head_sha": "0123456789abcdef0123456789abcdef01234567",
+          "name": "Build and Test",
+          "run_url": "https://api.github.com/repos/mento-protocol/frontend-monorepo/actions/runs/40000000001",
+          "url": "https://api.github.com/repos/mento-protocol/frontend-monorepo/actions/jobs/90000000002",
+          "html_url": "https://github.com/mento-protocol/frontend-monorepo/actions/runs/40000000001/job/90000000002",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ]
+    }
+  ]
+}

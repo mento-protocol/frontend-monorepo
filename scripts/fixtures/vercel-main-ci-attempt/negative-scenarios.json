@@ -1,0 +1,54 @@
+{
+  "duplicate-sentinel": {
+    "target": "jobs",
+    "property": "name",
+    "value": "Build and Test"
+  },
+  "missing-sentinel": {
+    "target": "sentinel",
+    "property": "name",
+    "value": "Release sentinel"
+  },
+  "wrong-workflow-path": {
+    "target": "event-and-run",
+    "property": "path",
+    "value": ".github/workflows/not-ci.yml"
+  },
+  "wrong-repository": {
+    "target": "event-and-run-repositories",
+    "property": "full_name",
+    "value": "attacker/frontend-monorepo"
+  },
+  "wrong-sha": {
+    "target": "event-and-run",
+    "property": "head_sha",
+    "value": "ffffffffffffffffffffffffffffffffffffffff"
+  },
+  "wrong-branch": {
+    "target": "event-and-run-and-jobs",
+    "property": "head_branch",
+    "value": "feature"
+  },
+  "wrong-event": {
+    "target": "event-and-run",
+    "property": "event",
+    "value": "pull_request"
+  },
+  "wrong-conclusion": {
+    "target": "event-and-run",
+    "property": "conclusion",
+    "value": "cancelled"
+  },
+  "api-failure": {
+    "fault": "http-500"
+  },
+  "timeout": {
+    "fault": "timeout"
+  },
+  "cancellation": {
+    "fault": "abort"
+  },
+  "malformed-response": {
+    "fault": "invalid-json"
+  }
+}
