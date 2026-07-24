@@ -109,6 +109,16 @@ const LEGACY_ALIAS = "v2-app.mento.org";
 const LEGACY_GENERATED_BRANCH_SLUG = "git-v2";
 const LEGACY_GENERATED_SCOPE_SLUG = "mentolabs";
 const LEGACY_GENERATED_BRANCH_ALIAS = `appmentoorg-${LEGACY_GENERATED_BRANCH_SLUG}-${LEGACY_GENERATED_SCOPE_SLUG}.vercel.app`;
+const LEGACY_GENERATED_SCOPE_ALIAS = `appmentoorg-${LEGACY_GENERATED_SCOPE_SLUG}.vercel.app`;
+const LEGACY_GENERATED_PROJECT_DEFAULT_ALIAS = "appmentoorg.vercel.app";
+const LEGACY_REQUIRED_ALIAS_TOPOLOGY = Object.freeze(
+  [
+    LEGACY_ALIAS,
+    LEGACY_GENERATED_BRANCH_ALIAS,
+    LEGACY_GENERATED_SCOPE_ALIAS,
+    LEGACY_GENERATED_PROJECT_DEFAULT_ALIAS,
+  ].sort(),
+);
 const MAX_JSON_BYTES = 256 * 1024;
 const APP_BUILD_PROOF_SCHEMA = "vercel-main-app-build:v1";
 const CLI_COMMAND_OPTIONS = Object.freeze({
@@ -383,29 +393,12 @@ function canonicalPrior(value, label) {
   };
 }
 
-function allowedLegacyGeneratedAliasTopologies(deploymentUrl) {
-  const immutableHostname = new URL(canonicalizeDeploymentUrl(deploymentUrl))
-    .hostname;
-  const aliases = [
-    LEGACY_ALIAS,
-    LEGACY_GENERATED_BRANCH_ALIAS,
-    immutableHostname,
-  ].sort();
-  if (new Set(aliases).size !== aliases.length) {
-    throw new Error("Legacy app rollback state is ambiguous");
-  }
-  return [aliases];
-}
-
 function legacyPriorFromSnapshot(snapshot, projectId) {
   const states = snapshot.filter((state) => state.alias === LEGACY_ALIAS);
   if (states.length !== 1) {
     throw new Error("Legacy app rollback state is ambiguous");
   }
   const state = states[0];
-  const allowedAliasTopologies = allowedLegacyGeneratedAliasTopologies(
-    state.deploymentUrl,
-  );
   const legacyIdentityIsAmbiguous =
     state.projectId !== projectId ||
     state.projectName !== "app.mento.org" ||
@@ -419,13 +412,11 @@ function legacyPriorFromSnapshot(snapshot, projectId) {
     throw new Error("Legacy app rollback state is ambiguous");
   }
   if (
-    !allowedAliasTopologies.some(
-      (expectedAliases) =>
-        JSON.stringify(state.aliases) === JSON.stringify(expectedAliases),
-    )
+    JSON.stringify(state.aliases) !==
+    JSON.stringify(LEGACY_REQUIRED_ALIAS_TOPOLOGY)
   ) {
     throw new Error(
-      `Legacy app generated-alias topology mismatch: ${JSON.stringify({ actualAliases: state.aliases, creatorUsername: state.creatorUsername, expectedAliasTopologies: allowedAliasTopologies })}`,
+      `Legacy app generated-alias topology mismatch: ${JSON.stringify({ actualAliases: state.aliases, creatorUsername: state.creatorUsername, expectedAliasTopologies: [LEGACY_REQUIRED_ALIAS_TOPOLOGY] })}`,
     );
   }
   return canonicalPrior(

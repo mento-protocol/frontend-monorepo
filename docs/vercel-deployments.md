@@ -246,13 +246,19 @@ IDs in this canonical runbook. The evidence contains only:
 - a zero count for public-serving activation, alias, promotion, rollback, and
   recovery commands.
 
-The legacy v2 proof requires exactly three canonical aliases: the protected
+The legacy v2 proof requires exactly four canonical API aliases: the protected
 `v2-app.mento.org` alias, the exact Vercel Git branch alias
-`appmentoorg-git-v2-mentolabs.vercel.app`, and the immutable hostname derived
-exactly from that state's canonical `deploymentUrl`. The controller does not
-authorize creator aliases, a guessed deployment hostname, another project,
-branch, scope, team, or custom-domain alias. Any topology difference fails
-before staging.
+`appmentoorg-git-v2-mentolabs.vercel.app`, the exact scope alias
+`appmentoorg-mentolabs.vercel.app`, and the exact project-default alias
+`appmentoorg.vercel.app`. Read-only Vercel API evidence from automatic run
+`30086024459` on 24 July 2026 reported that complete sorted alias set and
+creator username `chapati`.
+
+The canonical `deploymentUrl` is immutable deployment identity, not an API
+alias: its hostname is never added to or derived into the alias topology. The
+controller does not authorize creator aliases, arbitrary immutable hosts, or
+another project, branch, scope, default, suffix, team, or custom-domain alias.
+Any topology difference fails before staging.
 
 If only that generated-alias topology is rejected, the diagnostic contains only
 the canonical actual aliases, the canonical creator username (or `null`), and
