@@ -115,6 +115,15 @@ jobs:
           git -C "$SOURCE_PATH" fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
           node scripts/vercel-main-deployment.mjs validate-source
 
+      # This source is the exact successful main SHA proved above and already
+      # passed the upstream CI install/build. Its lifecycle scripts receive no
+      # Vercel token. The shared action's cache is pnpm's lockfile-keyed store,
+      # while its frozen install verifies the exact dependency graph for Turbo.
+      - name: Install exact main planner runtime
+        uses: ./.github/actions/pnpm-install
+        with:
+          working-directory: source
+
       - name: Materialize reviewed main and legacy specifications
         run: |
           node scripts/vercel-main-deployment.mjs create-spec --scope main --output "$RUNNER_TEMP/main-spec.json"

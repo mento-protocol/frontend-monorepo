@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
@@ -33,6 +39,7 @@ import {
   createPreparedMainJournal,
   parseMainDeploymentArguments,
   readRemoteMainSha,
+  renderMainDeploymentPlan,
   recoverMainShadowTransaction,
   renderMainDeploymentEvidence,
   renderMainDeploymentFailureEvidence,
@@ -516,6 +523,148 @@ test("canonical evidence records planning, candidates, timings, cache, journal, 
       }),
     /forbidden or missing fields/,
   );
+});
+
+test("planning summary exposes only target selection and served-SHA reasoning", () => {
+  const deploymentPlan = plan();
+  const summary = renderMainDeploymentPlan(deploymentPlan);
+  assert.match(summary, /Vercel main deployment plan/);
+  assert.match(
+    summary,
+    /Selected targets: `app`, `governance`, `reserve`, `ui`/,
+  );
+  assert.match(summary, /Served-SHA ranges and selection reasons/);
+  assert.match(summary, /affected-packages/);
+  for (const projectId of Object.values(deploymentPlan.projectIds)) {
+    assert.doesNotMatch(summary, new RegExp(projectId));
+  }
+  for (const state of deploymentPlan.protectedSnapshot.states) {
+    assert.doesNotMatch(summary, new RegExp(state.deploymentId));
+    assert.doesNotMatch(
+      summary,
+      new RegExp(state.deploymentUrl.replaceAll(".", "\\.")),
+    );
+    for (const alias of state.aliases) {
+      assert.doesNotMatch(summary, new RegExp(alias.replaceAll(".", "\\.")));
+    }
+  }
+  assert.doesNotMatch(summary, /vercel-main-planning-snapshot|VERCEL_TOKEN/);
+});
+
+test("plan CLI writes a redacted planning summary without protected state or credentials", () => {
+  const directory = mkdtempSync(join(tmpdir(), "vercel-main-plan-summary-"));
+  try {
+    const source = join(directory, "source");
+    mkdirSync(source);
+    const runGit = (argumentsList) => {
+      const result = spawnSync("git", argumentsList, {
+        cwd: source,
+        encoding: "utf8",
+      });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    writeFileSync(join(source, "README.md"), "base\n", {
+      encoding: "utf8",
+    });
+    runGit(["init"]);
+    runGit(["config", "user.email", "test@example.com"]);
+    runGit(["config", "user.name", "Test User"]);
+    runGit(["add", "README.md"]);
+    runGit(["commit", "-m", "base"]);
+    const base = runGit(["rev-parse", "HEAD"]);
+    writeFileSync(join(source, "README.md"), "base\nhead\n", {
+      encoding: "utf8",
+    });
+    runGit(["add", "README.md"]);
+    runGit(["commit", "-m", "head"]);
+    const head = runGit(["rev-parse", "HEAD"]);
+
+    const ids = {
+      app: "prj_planSummaryApp",
+      governance: "prj_planSummaryGovernance",
+      reserve: "prj_planSummaryReserve",
+      ui: "prj_planSummaryUi",
+    };
+    const mainSnapshot = planningSnapshot();
+    for (const state of mainSnapshot.states) {
+      const target = state.projectName.split(".")[0];
+      state.projectId = ids[target];
+      state.git.sha = base;
+    }
+    const rollbackSnapshot = legacySnapshot();
+    rollbackSnapshot[0].projectId = ids.app;
+    const planningSnapshotPath = join(directory, "planning.json");
+    const legacySnapshotPath = join(directory, "legacy.json");
+    const planPath = join(directory, "plan.json");
+    const outputPath = join(directory, "output.env");
+    const summaryPath = join(directory, "summary.md");
+    writeFileSync(planningSnapshotPath, JSON.stringify(mainSnapshot), "utf8");
+    writeFileSync(legacySnapshotPath, JSON.stringify(rollbackSnapshot), "utf8");
+    writeFileSync(outputPath, "", "utf8");
+    writeFileSync(summaryPath, "", "utf8");
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        fileURLToPath(new URL("./vercel-main-deployment.mjs", import.meta.url)),
+        "plan",
+        "--planning-snapshot",
+        planningSnapshotPath,
+        "--legacy-snapshot",
+        legacySnapshotPath,
+        "--output",
+        planPath,
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          BUILD_AND_TEST_JOB_URL:
+            "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123456/job/654321",
+          DEPLOY_SHA: head,
+          GITHUB_OUTPUT: outputPath,
+          GITHUB_STEP_SUMMARY: summaryPath,
+          SOURCE_PATH: source,
+          UPSTREAM_RUN_ATTEMPT: "2",
+          UPSTREAM_RUN_ID: "123456",
+          UPSTREAM_RUN_URL:
+            "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123456",
+          VERCEL_MAIN_MODE: MAIN_DEPLOYMENT_MODE,
+          VERCEL_PROJECT_ID_APP: ids.app,
+          VERCEL_PROJECT_ID_GOVERNANCE: ids.governance,
+          VERCEL_PROJECT_ID_RESERVE: ids.reserve,
+          VERCEL_PROJECT_ID_UI: ids.ui,
+          VERCEL_TOKEN: "vercel-token-must-not-appear",
+        },
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const planOutput = readFileSync(planPath, "utf8");
+    const summary = readFileSync(summaryPath, "utf8");
+    assert.match(planOutput, /prj_planSummaryApp/);
+    assert.match(summary, /Selected targets: none/);
+    assert.match(summary, /non-runtime-only/);
+    for (const projectId of Object.values(ids)) {
+      assert.doesNotMatch(summary, new RegExp(projectId));
+    }
+    for (const state of mainSnapshot.states) {
+      assert.doesNotMatch(summary, new RegExp(state.deploymentId));
+      assert.doesNotMatch(
+        summary,
+        new RegExp(state.deploymentUrl.replaceAll(".", "\\.")),
+      );
+      for (const alias of state.aliases) {
+        assert.doesNotMatch(summary, new RegExp(alias.replaceAll(".", "\\.")));
+      }
+    }
+    assert.doesNotMatch(
+      summary,
+      /vercel-main-planning-snapshot|vercel-token-must-not-appear|VERCEL_TOKEN/,
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("failure evidence records the complete redacted job graph without parsing planner output", () => {

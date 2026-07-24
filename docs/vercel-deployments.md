@@ -117,6 +117,21 @@ Ambiguous alias ownership, project, environment, prior deployment, health, or
 rollback state aborts the whole transaction because selecting more targets
 cannot make compensation safe.
 
+Immediately after validating the exact checked-out successful-main source, the
+controller installs it with the repository's pinned Node/pnpm installer and its
+frozen lockfile, before capturing protected or rollback state. The production
+Vercel token remains scoped to those later snapshot steps and is unavailable to
+the dependency install. The plan step writes a GitHub summary containing only
+selected targets, served-SHA ranges, and selection reasons; it intentionally
+excludes project IDs, protected snapshots, deployment URLs, and credentials.
+
+This install may run the exact main source's normal lifecycle scripts because
+that SHA has already passed the verified upstream CI install/build gate. It
+uses the shared action's lockfile-keyed pnpm-store cache, not a restored
+`node_modules` tree; `pnpm install --frozen-lockfile` still validates the
+source dependency graph. Do not move `VERCEL_TOKEN` to the job or install-step
+environment to optimize this path.
+
 In shadow mode, native Vercel may already serve `DEPLOY_SHA` before this
 workflow reaches planning. The planner then uses the first parent as the
 comparison base so PR A can still exercise the affected-target path. If it
