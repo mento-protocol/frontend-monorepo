@@ -891,7 +891,7 @@ export class VercelStateClient {
 
   async resolveAlias(alias) {
     const hostname = canonicalizeHostname(alias);
-    return this.request(`/v4/aliases/${encodeURIComponent(hostname)}`);
+    return this.requestWithRetry(`/v4/aliases/${encodeURIComponent(hostname)}`);
   }
 
   async inspectDeployment(idOrUrl) {
@@ -904,17 +904,19 @@ export class VercelStateClient {
       API_ORIGIN,
     );
     url.searchParams.set("withGitRepoInfo", "true");
-    return this.request(`${url.pathname}${url.search}`);
+    return this.requestWithRetry(`${url.pathname}${url.search}`);
   }
 
   async listDeploymentAliases(deploymentId) {
     const id = requireIdentifier(deploymentId, "Vercel deployment ID");
-    return this.request(`/v2/deployments/${encodeURIComponent(id)}/aliases`);
+    return this.requestWithRetry(
+      `/v2/deployments/${encodeURIComponent(id)}/aliases`,
+    );
   }
 
   async inspectProject(projectId) {
     const id = requireIdentifier(projectId, "Vercel project ID");
-    return this.request(`/v9/projects/${encodeURIComponent(id)}`);
+    return this.requestWithRetry(`/v9/projects/${encodeURIComponent(id)}`);
   }
 
   async listAppTransactionDeploymentIds(expected, { maximumPages = 5 } = {}) {
