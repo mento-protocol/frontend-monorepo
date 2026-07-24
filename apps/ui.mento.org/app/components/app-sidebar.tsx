@@ -35,7 +35,7 @@ import {
   SidebarMenuSubItem,
 } from "@mento-protocol/ui";
 
-// Component categories with their pages and individual components
+// Component categories, their page routes, and their individual components.
 const componentCategories = [
   {
     title: "Basic Components",
