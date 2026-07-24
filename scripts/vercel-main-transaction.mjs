@@ -48,9 +48,6 @@ const OPERATION_STATES = Object.freeze([
   "started",
   "command_returned",
   "verified",
-  "recovering",
-  "recovered",
-  "manual_intervention",
 ]);
 const COMMAND_OUTCOMES = Object.freeze([null, "success", "unknown"]);
 const MAPPING_STATES = Object.freeze([
@@ -121,6 +118,24 @@ const APP_CANDIDATE_MATCH_KEYS = Object.freeze([
   "runAttempt",
   "transactionId",
   "customEnvironmentSlug",
+]);
+const RECOVERY_PLAN_KEYS = Object.freeze([
+  "decision",
+  "reason",
+  "journal",
+  "actions",
+  "rollbackStateTargets",
+  "forceFailure",
+  "discoveredAppCandidate",
+]);
+const RECOVERY_ACTION_BASE_KEYS = Object.freeze([
+  "kind",
+  "target",
+  "operationId",
+  "priorDeploymentId",
+  "priorDeploymentUrl",
+  "candidateDeploymentId",
+  "candidateDeploymentUrl",
 ]);
 
 export class MainTransactionError extends Error {
@@ -443,10 +458,36 @@ function canonicalOperation(operation, journal) {
     throw new Error("Operation rollback state is unsupported");
   }
   if (
-    operation.rollbackState === "entered" &&
-    operation.type !== "ordinary_rollback"
+    (operation.state === "started" &&
+      (operation.commandOutcome !== null ||
+        operation.mappingState !== null ||
+        operation.rollbackState !== null)) ||
+    (operation.state === "command_returned" &&
+      (operation.commandOutcome === null ||
+        operation.mappingState !== null ||
+        operation.rollbackState !== null)) ||
+    (operation.state === "verified" &&
+      (operation.commandOutcome === null || operation.mappingState === null))
   ) {
-    throw new Error("Only an ordinary rollback may enter rollback state");
+    throw new Error("Operation fields are inconsistent with its state");
+  }
+  if (
+    operation.rollbackState === "entered" &&
+    (operation.type !== "ordinary_rollback" ||
+      operation.state !== "verified" ||
+      operation.mappingState !== "prior")
+  ) {
+    throw new Error(
+      "Rollback marker requires a verified ordinary rollback at prior",
+    );
+  }
+  if (
+    operation.type === "ordinary_rollback" &&
+    operation.state === "verified" &&
+    operation.mappingState === "prior" &&
+    operation.rollbackState !== "entered"
+  ) {
+    throw new Error("Verified ordinary rollback must enter rollback state");
   }
   return {
     operationId,
@@ -532,25 +573,9 @@ function canonicalOperations(operations, journal) {
       throw new Error("Every journal operation must begin with started");
     }
     const allowedTransitions = {
-      started: new Set([
-        "command_returned",
-        "recovering",
-        "manual_intervention",
-      ]),
-      command_returned: new Set([
-        "verified",
-        "recovering",
-        "manual_intervention",
-      ]),
-      verified: new Set(["recovering", "recovered", "manual_intervention"]),
-      recovering: new Set([
-        "command_returned",
-        "verified",
-        "recovered",
-        "manual_intervention",
-      ]),
-      recovered: new Set(),
-      manual_intervention: new Set(),
+      started: new Set(["command_returned"]),
+      command_returned: new Set(["verified"]),
+      verified: new Set(),
     };
     for (let stateIndex = 1; stateIndex < states.length; stateIndex += 1) {
       if (!allowedTransitions[states[stateIndex - 1]].has(states[stateIndex])) {
@@ -641,47 +666,21 @@ function validateCandidateEvolution(previous, current) {
   }
 }
 
-function statusTransitionAllowed(previous, current) {
+function statusOnlyTransitionAllowed(previous, current) {
   const transitions = {
-    prepared: new Set([
-      "prepared",
-      "started",
-      "committed",
-      "recovering",
-      "recovered",
-      "manual_intervention",
-    ]),
-    started: new Set([
-      "started",
-      "command_returned",
-      "recovering",
-      "manual_intervention",
-    ]),
-    command_returned: new Set([
-      "command_returned",
-      "verified",
-      "recovering",
-      "manual_intervention",
-    ]),
+    prepared: new Set(["committed"]),
+    started: new Set(["recovering"]),
+    command_returned: new Set(["recovering"]),
     verified: new Set([
-      "verified",
-      "started",
       "committed",
       "recovering",
       "recovered",
       "manual_intervention",
     ]),
-    committed: new Set(["committed"]),
-    recovering: new Set([
-      "started",
-      "command_returned",
-      "verified",
-      "recovering",
-      "recovered",
-      "manual_intervention",
-    ]),
-    recovered: new Set(["recovered"]),
-    manual_intervention: new Set(["manual_intervention"]),
+    committed: new Set(),
+    recovering: new Set(["recovered", "manual_intervention"]),
+    recovered: new Set(),
+    manual_intervention: new Set(),
   };
   return transitions[previous].has(current);
 }
@@ -871,7 +870,8 @@ export async function persistMainTransactionJournal(journal, uploadJournal) {
   if (
     !receipt ||
     receipt.acknowledged !== true ||
-    receipt.artifactName !== artifactName
+    receipt.artifactName !== artifactName ||
+    !NUMERIC_ID_PATTERN.test(String(receipt.artifactId ?? ""))
   ) {
     throw new MainTransactionError(
       "Journal artifact upload was not acknowledged",
@@ -893,6 +893,24 @@ export function startMainTransactionOperation(journal, intent) {
     throw new Error("Operation type is unsupported");
   }
   const resolved = operationIntent(canonical, intent);
+  const forwardStarts = startedForwardOperations(canonical);
+  if (
+    (resolved.type === "promote" &&
+      forwardStarts.some(
+        (operation) =>
+          operation.type === "promote" && operation.target === resolved.target,
+      )) ||
+    (resolved.type === "app_v3_deploy" &&
+      forwardStarts.some((operation) => operation.type === "app_v3_deploy")) ||
+    (resolved.type === "app_alias_set" &&
+      forwardStarts.some(
+        (operation) =>
+          operation.type === "app_alias_set" &&
+          operation.alias === resolved.alias,
+      ))
+  ) {
+    throw new Error("Forward transaction operation is already recorded");
+  }
   const startedCount = canonical.operations.filter(
     (operation) => operation.state === "started",
   ).length;
@@ -916,7 +934,7 @@ export function recordMainTransactionCommandReturned(
 ) {
   let canonical = assertMainTransactionJournal(journal);
   const previous = lastOperationEvent(canonical, operationId);
-  if (!["started", "recovering"].includes(previous.state)) {
+  if (previous.state !== "started") {
     throw new Error("Operation is not waiting for a command result");
   }
   if (!["success", "unknown"].includes(outcome)) {
@@ -971,7 +989,7 @@ export function recordMainTransactionVerified(
 ) {
   const canonical = assertMainTransactionJournal(journal);
   const previous = lastOperationEvent(canonical, operationId);
-  if (!["command_returned", "recovering"].includes(previous.state)) {
+  if (previous.state !== "command_returned") {
     throw new Error("Operation command has not returned");
   }
   if (!MAPPING_STATES.includes(mappingState) || mappingState === null) {
@@ -1130,8 +1148,43 @@ export function assertMainTransactionJournalHistory(
     ) {
       throw new Error("Journal operation history was rewritten");
     }
-    if (!statusTransitionAllowed(previous.status, journal.status)) {
-      throw new Error("Journal status transition is invalid");
+    const appendedEvents =
+      journal.operations.length - previous.operations.length;
+    const candidateChanged = !sameJson(previous.candidates, journal.candidates);
+    if (appendedEvents === 0) {
+      const isCandidateAttachment =
+        candidateChanged && journal.status === previous.status;
+      const isStatusOnlyTransition =
+        !candidateChanged &&
+        statusOnlyTransitionAllowed(previous.status, journal.status);
+      if (!isCandidateAttachment && !isStatusOnlyTransition) {
+        throw new Error("Journal snapshot did not append one legal event");
+      }
+      continue;
+    }
+    if (appendedEvents !== 1) {
+      throw new Error("Journal snapshot batched operation events");
+    }
+    const appended = journal.operations.at(-1);
+    if (journal.status !== appended.state) {
+      throw new Error("Journal status does not match its appended operation");
+    }
+    const expectedPreviousStatuses = {
+      started: new Set(["prepared", "verified", "recovering"]),
+      command_returned: new Set(["started"]),
+      verified: new Set(["command_returned"]),
+    };
+    if (!expectedPreviousStatuses[appended.state].has(previous.status)) {
+      throw new Error("Journal operation append is invalid for its status");
+    }
+    if (
+      candidateChanged &&
+      (appended.type !== "app_v3_deploy" ||
+        appended.state !== "command_returned")
+    ) {
+      throw new Error(
+        "App candidate attachment must accompany its command-return event",
+      );
     }
   }
   return canonical;
@@ -1184,8 +1237,36 @@ function decideRecoveryFromJournal(journal) {
 export function markMainTransactionCommitted(journal) {
   const canonical = assertMainTransactionJournal(journal);
   if (canonical.status === "committed") return canonical;
+  const selectedOperations = [
+    ...ORDINARY_TARGETS.filter(
+      (target) => canonical.candidates[target] !== null,
+    ).map((target) => ({ target, type: "promote" })),
+    ...(canonical.candidates.app === null
+      ? []
+      : [{ target: "app", type: "app_v3_deploy" }]),
+  ];
+  // App alias completeness is owned by the final protected-mapping verifier.
+  // The journal commit gate binds the selected immutable deployment itself.
+  const selectedOperationsVerified = selectedOperations.every(
+    ({ target, type }) => {
+      if (
+        type === "app_v3_deploy" &&
+        canonical.candidates.app.deploymentId === null
+      ) {
+        return false;
+      }
+      const operation = startedForwardOperations(canonical).find(
+        (entry) => entry.type === type && entry.target === target,
+      );
+      return (
+        operation !== undefined &&
+        isOperationVerified(canonical, operation.operationId)
+      );
+    },
+  );
   if (
     !["prepared", "verified"].includes(canonical.status) ||
+    !selectedOperationsVerified ||
     startedForwardOperations(canonical).some(
       (operation) => !isOperationVerified(canonical, operation.operationId),
     )
@@ -1234,15 +1315,21 @@ function canonicalAllCurrentMappings(journal, currentMappings) {
   return canonicalCurrentMappings(currentMappings, aliases);
 }
 
-function action(kind, operation, additional = {}) {
+function action(kind, journal, operation, additional = {}) {
+  const target = additional.target ?? operation.target;
+  const prior = journal.prior[target];
+  const candidate =
+    target === "legacy-app"
+      ? journal.candidates.app
+      : journal.candidates[target];
   return {
     kind,
-    target: operation.target,
+    target,
     operationId: operation.operationId,
-    priorDeploymentId: operation.priorDeploymentId,
-    priorDeploymentUrl: operation.priorDeploymentUrl,
-    candidateDeploymentId: operation.candidateDeploymentId,
-    candidateDeploymentUrl: operation.candidateDeploymentUrl,
+    priorDeploymentId: prior.deploymentId,
+    priorDeploymentUrl: prior.deploymentUrl,
+    candidateDeploymentId: candidate?.deploymentId ?? null,
+    candidateDeploymentUrl: candidate?.deploymentUrl ?? null,
     ...additional,
   };
 }
@@ -1264,6 +1351,7 @@ export function planMainTransactionRecovery({
       actions: [],
       rollbackStateTargets: [],
       forceFailure: false,
+      discoveredAppCandidate: null,
     };
   }
   const mappings = canonicalAllCurrentMappings(canonical, currentMappings);
@@ -1305,6 +1393,10 @@ export function planMainTransactionRecovery({
       }
     }
   }
+  const recoveryJournal =
+    discoveredAppCandidate === null
+      ? canonical
+      : attachDiscoveredAppCandidate(canonical, discoveredAppCandidate);
   const actions = [];
   const handledOrdinaryTargets = new Set();
   const handledAppAliases = new Set();
@@ -1327,11 +1419,13 @@ export function planMainTransactionRecovery({
       });
       if (mappingState === "prior") {
         actions.push(
-          action("verified_noop", operation, { mappingState: "prior" }),
+          action("verified_noop", recoveryJournal, operation, {
+            mappingState: "prior",
+          }),
         );
       } else if (mappingState === "candidate") {
         actions.push(
-          action("ordinary_rollback", operation, {
+          action("ordinary_rollback", recoveryJournal, operation, {
             aliases: canonical.prior[operation.target].aliases,
             entersRollbackState: true,
           }),
@@ -1339,7 +1433,9 @@ export function planMainTransactionRecovery({
       } else {
         manual = true;
         actions.push(
-          action("manual_intervention", operation, { mappingState }),
+          action("manual_intervention", recoveryJournal, operation, {
+            mappingState,
+          }),
         );
       }
       continue;
@@ -1352,7 +1448,7 @@ export function planMainTransactionRecovery({
       const mapping = mappings.get(operation.alias);
       if (sameDeployment(mapping, canonical.prior.app)) {
         actions.push(
-          action("verified_noop", operation, {
+          action("verified_noop", recoveryJournal, operation, {
             alias: operation.alias,
             mappingState: "prior",
           }),
@@ -1362,16 +1458,14 @@ export function planMainTransactionRecovery({
         sameDeployment(mapping, appCandidate)
       ) {
         actions.push(
-          action("app_alias_restore", operation, {
+          action("app_alias_restore", recoveryJournal, operation, {
             alias: operation.alias,
-            candidateDeploymentId: appCandidate.deploymentId,
-            candidateDeploymentUrl: appCandidate.deploymentUrl,
           }),
         );
       } else {
         manual = true;
         actions.push(
-          action("manual_intervention", operation, {
+          action("manual_intervention", recoveryJournal, operation, {
             alias: operation.alias,
             mappingState: "unexpected",
           }),
@@ -1386,7 +1480,7 @@ export function planMainTransactionRecovery({
         const mapping = mappings.get(alias);
         if (sameDeployment(mapping, canonical.prior.app)) {
           actions.push(
-            action("verified_noop", operation, {
+            action("verified_noop", recoveryJournal, operation, {
               alias,
               mappingState: "prior",
             }),
@@ -1396,16 +1490,14 @@ export function planMainTransactionRecovery({
           sameDeployment(mapping, appCandidate)
         ) {
           actions.push(
-            action("app_alias_restore", operation, {
+            action("app_alias_restore", recoveryJournal, operation, {
               alias,
-              candidateDeploymentId: appCandidate.deploymentId,
-              candidateDeploymentUrl: appCandidate.deploymentUrl,
             }),
           );
         } else {
           manual = true;
           actions.push(
-            action("manual_intervention", operation, {
+            action("manual_intervention", recoveryJournal, operation, {
               alias,
               mappingState: "unexpected",
             }),
@@ -1418,7 +1510,7 @@ export function planMainTransactionRecovery({
           const mapping = mappings.get(alias);
           if (sameDeployment(mapping, canonical.prior["legacy-app"])) {
             actions.push(
-              action("verified_noop", operation, {
+              action("verified_noop", recoveryJournal, operation, {
                 target: "legacy-app",
                 alias,
                 mappingState: "prior",
@@ -1430,19 +1522,15 @@ export function planMainTransactionRecovery({
           ) {
             emergencyLegacyRestore = true;
             actions.push(
-              action("legacy_emergency_restore", operation, {
+              action("legacy_emergency_restore", recoveryJournal, operation, {
                 target: "legacy-app",
                 alias,
-                priorDeploymentId: canonical.prior["legacy-app"].deploymentId,
-                priorDeploymentUrl: canonical.prior["legacy-app"].deploymentUrl,
-                candidateDeploymentId: appCandidate.deploymentId,
-                candidateDeploymentUrl: appCandidate.deploymentUrl,
               }),
             );
           } else {
             manual = true;
             actions.push(
-              action("manual_intervention", operation, {
+              action("manual_intervention", recoveryJournal, operation, {
                 target: "legacy-app",
                 alias,
                 mappingState: "unexpected",
@@ -1466,6 +1554,268 @@ export function planMainTransactionRecovery({
       .filter((entry) => entry.kind === "ordinary_rollback")
       .map((entry) => entry.target),
     forceFailure: true, // Recovery never converts a failed activation into a green release.
+    discoveredAppCandidate,
+  };
+}
+
+function recoveryActionSlots(journal) {
+  const slots = [];
+  const handledOrdinaryTargets = new Set();
+  const handledAppAliases = new Set();
+  let legacyHandled = false;
+  for (const operation of [...startedForwardOperations(journal)].reverse()) {
+    if (operation.type === "promote") {
+      if (handledOrdinaryTargets.has(operation.target)) continue;
+      handledOrdinaryTargets.add(operation.target);
+      slots.push({
+        category: "ordinary",
+        target: operation.target,
+        alias: null,
+        operation,
+      });
+      continue;
+    }
+    if (
+      operation.type === "app_alias_set" &&
+      !handledAppAliases.has(operation.alias)
+    ) {
+      handledAppAliases.add(operation.alias);
+      slots.push({
+        category: "app",
+        target: "app",
+        alias: operation.alias,
+        operation,
+      });
+      continue;
+    }
+    if (operation.type !== "app_v3_deploy") continue;
+    for (const alias of [...journal.prior.app.aliases].reverse()) {
+      if (handledAppAliases.has(alias)) continue;
+      handledAppAliases.add(alias);
+      slots.push({
+        category: "app",
+        target: "app",
+        alias,
+        operation,
+      });
+    }
+    if (legacyHandled) continue;
+    legacyHandled = true;
+    for (const alias of journal.prior["legacy-app"].aliases) {
+      slots.push({
+        category: "legacy",
+        target: "legacy-app",
+        alias,
+        operation,
+      });
+    }
+  }
+  return slots;
+}
+
+function canonicalRecoveryAction(entry, slot, journal, index) {
+  const label = `Recovery action ${index + 1}`;
+  const allowedKinds = {
+    ordinary: new Set([
+      "verified_noop",
+      "manual_intervention",
+      "ordinary_rollback",
+    ]),
+    app: new Set(["verified_noop", "manual_intervention", "app_alias_restore"]),
+    legacy: new Set([
+      "verified_noop",
+      "manual_intervention",
+      "legacy_emergency_restore",
+    ]),
+  };
+  if (!allowedKinds[slot.category].has(entry?.kind)) {
+    throw new Error(`${label} kind does not match its recovery slot`);
+  }
+  const hasAlias = slot.alias !== null;
+  const expectedKeys =
+    entry.kind === "ordinary_rollback"
+      ? [...RECOVERY_ACTION_BASE_KEYS, "aliases", "entersRollbackState"]
+      : entry.kind === "app_alias_restore" ||
+          entry.kind === "legacy_emergency_restore"
+        ? [...RECOVERY_ACTION_BASE_KEYS, "alias"]
+        : [
+            ...RECOVERY_ACTION_BASE_KEYS,
+            ...(hasAlias ? ["alias"] : []),
+            "mappingState",
+          ];
+  assertExactKeys(entry, expectedKeys, label);
+
+  const expected = action(entry.kind, journal, slot.operation, {
+    target: slot.target,
+  });
+  for (const key of RECOVERY_ACTION_BASE_KEYS.slice(1)) {
+    if (entry[key] !== expected[key]) {
+      throw new Error(`${label} ${key} differs from the journal`);
+    }
+  }
+  if (hasAlias && entry.alias !== slot.alias) {
+    throw new Error(`${label} alias differs from the recovery order`);
+  }
+
+  if (entry.kind === "ordinary_rollback") {
+    if (
+      !sameJson(entry.aliases, journal.prior[slot.target].aliases) ||
+      entry.entersRollbackState !== true
+    ) {
+      throw new Error(`${label} rollback contract is malformed`);
+    }
+    return {
+      ...expected,
+      aliases: [...journal.prior[slot.target].aliases],
+      entersRollbackState: true,
+    };
+  }
+  if (
+    entry.kind === "app_alias_restore" ||
+    entry.kind === "legacy_emergency_restore"
+  ) {
+    if (expected.candidateDeploymentId === null) {
+      throw new Error(`${label} cannot restore an unknown app candidate`);
+    }
+    return { ...expected, alias: slot.alias };
+  }
+
+  const allowedMappingStates =
+    entry.kind === "verified_noop"
+      ? new Set(["prior"])
+      : slot.category === "ordinary"
+        ? new Set(["partial", "unexpected"])
+        : new Set(["unexpected"]);
+  if (!allowedMappingStates.has(entry.mappingState)) {
+    throw new Error(`${label} mapping state is inconsistent with its kind`);
+  }
+  return {
+    ...expected,
+    ...(hasAlias ? { alias: slot.alias } : {}),
+    mappingState: entry.mappingState,
+  };
+}
+
+function assertMainTransactionRecoveryPlan(plan) {
+  assertExactKeys(plan, RECOVERY_PLAN_KEYS, "Main transaction recovery plan");
+  const journal = assertMainTransactionJournal(plan.journal);
+  const recoveryDecision = decideRecoveryFromJournal(journal);
+  if (recoveryDecision.decision !== "recover") {
+    if (
+      plan.decision !== recoveryDecision.decision ||
+      plan.reason !== recoveryDecision.reason ||
+      !Array.isArray(plan.actions) ||
+      plan.actions.length !== 0 ||
+      !Array.isArray(plan.rollbackStateTargets) ||
+      plan.rollbackStateTargets.length !== 0 ||
+      plan.forceFailure !== false ||
+      plan.discoveredAppCandidate !== null
+    ) {
+      throw new Error(
+        "Recovery plan does not match the journal recovery decision",
+      );
+    }
+    return {
+      decision: recoveryDecision.decision,
+      reason: recoveryDecision.reason,
+      journal,
+      actions: [],
+      rollbackStateTargets: [],
+      forceFailure: false,
+      discoveredAppCandidate: null,
+    };
+  }
+
+  let effectiveJournal = journal;
+  let discoveredAppCandidate = null;
+  if (plan.discoveredAppCandidate !== null) {
+    if (journal.candidates.app?.deploymentId !== null) {
+      throw new Error("Known app candidate must not be rediscovered");
+    }
+    effectiveJournal = attachDiscoveredAppCandidate(
+      journal,
+      plan.discoveredAppCandidate,
+    );
+    discoveredAppCandidate = {
+      deploymentId: effectiveJournal.candidates.app.deploymentId,
+      deploymentUrl: effectiveJournal.candidates.app.deploymentUrl,
+      ...effectiveJournal.candidates.app.discovery,
+    };
+  }
+
+  const isAmbiguousAppCandidate =
+    plan.decision === "manual_intervention" &&
+    plan.reason === "app-candidate-ambiguous-after-mapping-moved" &&
+    Array.isArray(plan.actions) &&
+    plan.actions.length === 0;
+  if (isAmbiguousAppCandidate) {
+    const unknownStartedApp =
+      journal.candidates.app?.deploymentId === null &&
+      startedForwardOperations(journal).some(
+        (operation) => operation.type === "app_v3_deploy",
+      );
+    if (
+      !unknownStartedApp ||
+      !Array.isArray(plan.rollbackStateTargets) ||
+      plan.rollbackStateTargets.length !== 0 ||
+      plan.forceFailure !== true ||
+      plan.discoveredAppCandidate !== null
+    ) {
+      throw new Error("Ambiguous app recovery plan is malformed");
+    }
+    return {
+      decision: "manual_intervention",
+      reason: "app-candidate-ambiguous-after-mapping-moved",
+      journal,
+      actions: [],
+      rollbackStateTargets: [],
+      forceFailure: true,
+      discoveredAppCandidate: null,
+    };
+  }
+
+  if (!Array.isArray(plan.actions)) {
+    throw new Error("Recovery plan actions are malformed");
+  }
+  const slots = recoveryActionSlots(journal);
+  if (plan.actions.length !== slots.length) {
+    throw new Error("Recovery plan actions do not cover the journal exactly");
+  }
+  const actions = plan.actions.map((entry, index) =>
+    canonicalRecoveryAction(entry, slots[index], effectiveJournal, index),
+  );
+  const rollbackStateTargets = actions
+    .filter((entry) => entry.kind === "ordinary_rollback")
+    .map((entry) => entry.target);
+  if (!sameJson(plan.rollbackStateTargets, rollbackStateTargets)) {
+    throw new Error("Recovery rollback-state targets are malformed");
+  }
+  const hasManualAction = actions.some(
+    (entry) => entry.kind === "manual_intervention",
+  );
+  const hasLegacyEmergency = actions.some(
+    (entry) => entry.kind === "legacy_emergency_restore",
+  );
+  const decision = hasManualAction ? "manual_intervention" : "recover";
+  const reason = hasManualAction
+    ? "unexpected-protected-mapping"
+    : hasLegacyEmergency
+      ? "legacy-alias-moved-to-transaction-candidate"
+      : "started-operations-require-verification-or-recovery";
+  if (
+    plan.decision !== decision ||
+    plan.reason !== reason ||
+    plan.forceFailure !== true
+  ) {
+    throw new Error("Recovery plan outcome is inconsistent with its actions");
+  }
+  return {
+    decision,
+    reason,
+    journal,
+    actions,
+    rollbackStateTargets,
+    forceFailure: true,
     discoveredAppCandidate,
   };
 }
@@ -1511,6 +1861,22 @@ export async function executeJournaledMainMutation({
   requireFreshness = true,
 }) {
   let highest = assertMainTransactionJournal(journal);
+  let lastDurableJournal = highest;
+  const persistNext = async (next) => {
+    try {
+      const persisted = await persistMainTransactionJournal(
+        next,
+        uploadJournal,
+      );
+      lastDurableJournal = persisted;
+      return persisted;
+    } catch (error) {
+      if (error instanceof MainTransactionError) {
+        error.journal = lastDurableJournal;
+      }
+      throw error;
+    }
+  };
   if (typeof executeMutation !== "function") {
     throw new Error("Mutation adapter is required");
   }
@@ -1564,8 +1930,7 @@ export async function executeJournaledMainMutation({
   }
   await assertPreMutationState("pre-operation");
   highest = startMainTransactionOperation(highest, intent);
-  highest = await persistMainTransactionJournal(highest, uploadJournal);
-  const durableStartedJournal = highest;
+  highest = await persistNext(highest);
   const operationId = highest.operations.at(-1).operationId;
   if (requireFreshness) {
     try {
@@ -1596,15 +1961,7 @@ export async function executeJournaledMainMutation({
     outcome,
     candidate: commandResult?.candidate ?? null,
   });
-  try {
-    highest = await persistMainTransactionJournal(highest, uploadJournal);
-  } catch (error) {
-    if (error instanceof MainTransactionError) {
-      // Only the started snapshot is guaranteed durable when this upload fails.
-      error.journal = durableStartedJournal;
-    }
-    throw error;
-  }
+  highest = await persistNext(highest);
   let freshnessError = null;
   if (requireFreshness) {
     try {
@@ -1634,7 +1991,7 @@ export async function executeJournaledMainMutation({
         ? "entered"
         : null,
   });
-  highest = await persistMainTransactionJournal(highest, uploadJournal);
+  highest = await persistNext(highest);
   if (
     freshnessError ||
     outcome === "unknown" ||
@@ -1688,32 +2045,46 @@ export async function executeMainTransactionRecovery({
   inspectMapping,
   verifyMapping,
 }) {
-  let highest = assertMainTransactionJournal(plan?.journal);
-  if (!["recover", "manual_intervention"].includes(plan?.decision)) {
+  const canonicalPlan = assertMainTransactionRecoveryPlan(plan);
+  let highest = canonicalPlan.journal;
+  if (
+    !["recover", "manual_intervention"].includes(canonicalPlan.decision) ||
+    canonicalPlan.forceFailure === false
+  ) {
     return highest;
   }
+  let lastDurableJournal = highest;
+  const persistNext = async (next) => {
+    try {
+      const persisted = await persistMainTransactionJournal(
+        next,
+        uploadJournal,
+      );
+      lastDurableJournal = persisted;
+      return persisted;
+    } catch (error) {
+      if (error instanceof MainTransactionError) {
+        error.journal = lastDurableJournal;
+      }
+      throw error;
+    }
+  };
   const mutationKinds = new Set([
     "ordinary_rollback",
     "app_alias_restore",
     "legacy_emergency_restore",
   ]);
   if (
-    !Array.isArray(plan.actions) ||
-    plan.actions.some(
-      (entry) =>
-        !["verified_noop", "manual_intervention", ...mutationKinds].includes(
-          entry?.kind,
-        ),
-    )
+    canonicalPlan.actions.length > 0 &&
+    typeof inspectMapping !== "function"
   ) {
-    throw new Error("Recovery plan actions are malformed");
+    throw new Error("Recovery mapping inspection adapter is required");
   }
   if (
-    plan.actions.some((entry) => mutationKinds.has(entry.kind)) &&
-    (typeof inspectMapping !== "function" ||
-      typeof verifyMapping !== "function")
+    canonicalPlan.actions.some((entry) => mutationKinds.has(entry.kind)) &&
+    typeof verifyMapping !== "function"
   ) {
-    throw new Error("Recovery mapping adapters are required");
+    throw new Error("Recovery mapping verification adapter is required");
   }
   for (const [kind, adapter] of [
     ["ordinary_rollback", ordinaryRollback],
@@ -1721,25 +2092,62 @@ export async function executeMainTransactionRecovery({
     ["legacy_emergency_restore", restoreLegacyAlias],
   ]) {
     if (
-      plan.actions.some((entry) => entry.kind === kind) &&
+      canonicalPlan.actions.some((entry) => entry.kind === kind) &&
       typeof adapter !== "function"
     ) {
       throw new Error(`Recovery adapter for ${kind} is required`);
     }
   }
+  for (const entry of canonicalPlan.actions) {
+    let inspected;
+    try {
+      inspected = await inspectMapping(clone(entry), {
+        phase: "recovery-plan",
+        transactionId: highest.transactionId,
+      });
+    } catch {
+      inspected = null;
+    }
+    const mappingState = inspected?.mappingState;
+    const expectedKind =
+      mappingState === "prior"
+        ? "verified_noop"
+        : mappingState === "candidate"
+          ? entry.target === "legacy-app"
+            ? "legacy_emergency_restore"
+            : entry.target === "app"
+              ? "app_alias_restore"
+              : "ordinary_rollback"
+          : ["partial", "unexpected"].includes(mappingState)
+            ? "manual_intervention"
+            : null;
+    if (
+      entry.kind !== expectedKind ||
+      (entry.kind === "manual_intervention" &&
+        entry.mappingState !== mappingState)
+    ) {
+      throw new MainTransactionError(
+        "Recovery plan no longer matches protected mappings",
+        {
+          code: "PROTECTED_MAPPING_DRIFT",
+          journal: highest,
+        },
+      );
+    }
+  }
   if (
-    plan.discoveredAppCandidate &&
+    canonicalPlan.discoveredAppCandidate &&
     highest.candidates.app?.deploymentId === null
   ) {
     highest = attachDiscoveredAppCandidate(
       highest,
-      plan.discoveredAppCandidate,
+      canonicalPlan.discoveredAppCandidate,
     );
-    highest = await persistMainTransactionJournal(highest, uploadJournal);
+    highest = await persistNext(highest);
   }
   highest = appendStatus(highest, "recovering");
-  highest = await persistMainTransactionJournal(highest, uploadJournal);
-  for (const entry of plan.actions) {
+  highest = await persistNext(highest);
+  for (const entry of canonicalPlan.actions) {
     if (entry.kind === "verified_noop") continue;
     if (entry.kind === "manual_intervention") {
       continue;
@@ -1761,14 +2169,15 @@ export async function executeMainTransactionRecovery({
       verifyMapping: (context) => verifyMapping(clone(entry), context),
       requireFreshness: false,
     });
+    lastDurableJournal = highest;
   }
   highest = appendStatus(
     highest,
-    plan.decision === "manual_intervention"
+    canonicalPlan.decision === "manual_intervention"
       ? "manual_intervention"
       : "recovered",
   );
-  return persistMainTransactionJournal(highest, uploadJournal);
+  return persistNext(highest);
 }
 
 export async function runMainTransaction({

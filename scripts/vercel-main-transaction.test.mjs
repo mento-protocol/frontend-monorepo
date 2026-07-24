@@ -59,18 +59,9 @@ function priorState() {
       "app.mento.org",
       "appmentoorg-env-v3-mentolabs.vercel.app",
     ]),
-    governance: deploymentRecord("governance", [
-      "governance.mento.org",
-      "governancementoorg-mentolabs.vercel.app",
-    ]),
-    reserve: deploymentRecord("reserve", [
-      "reserve.mento.org",
-      "reservementoorg-mentolabs.vercel.app",
-    ]),
-    ui: deploymentRecord("ui", [
-      "ui.mento.org",
-      "uimentoorg-mentolabs.vercel.app",
-    ]),
+    governance: deploymentRecord("governance", ["governance.mento.org"]),
+    reserve: deploymentRecord("reserve", ["reserve.mento.org"]),
+    ui: deploymentRecord("ui", ["ui.mento.org"]),
     "legacy-app": deploymentRecord("legacy", ["v2-app.mento.org"]),
   };
 }
@@ -115,6 +106,20 @@ function prepared(options = {}) {
   });
 }
 
+function preparedForTargets(targets, options = {}) {
+  const selected = new Set(targets);
+  const candidates = candidateState(options);
+  for (const target of ["app", "governance", "reserve", "ui"]) {
+    if (!selected.has(target)) candidates[target] = null;
+  }
+  return createPreparedMainTransactionJournal({
+    ...identity,
+    mode: options.mode ?? "active",
+    prior: priorState(),
+    candidates,
+  });
+}
+
 function appCandidateMatch(overrides = {}) {
   return {
     deploymentId: "dpl_appCandidate123",
@@ -151,7 +156,11 @@ function acknowledgedUploader(log = []) {
       retentionDays,
       journal,
     });
-    return { acknowledged: true, artifactName };
+    return {
+      acknowledged: true,
+      artifactName,
+      artifactId: String(1000 + journal.sequence),
+    };
   };
 }
 
@@ -170,6 +179,28 @@ function transitionSuccessfulOperation(journal, intent) {
       mappingState: "candidate",
     }),
   };
+}
+
+function plannedOrdinaryRecovery(targets = ["governance"]) {
+  let highest = prepared({ app: "known" });
+  for (const target of targets) {
+    highest = transitionSuccessfulOperation(highest, {
+      type: "promote",
+      target,
+    }).verified;
+  }
+  const overrides = Object.fromEntries(
+    targets.flatMap((target) =>
+      highest.prior[target].aliases.map((alias) => [
+        alias,
+        highest.candidates[target],
+      ]),
+    ),
+  );
+  return planMainTransactionRecovery({
+    journal: highest,
+    currentMappings: currentMappings(highest, overrides),
+  });
 }
 
 test("transaction ID is deterministic and binds only immutable run identity", () => {
@@ -264,7 +295,7 @@ test("static fixture remains compatible with the canonical journal schema", () =
 });
 
 test("operation snapshots form an append-only monotonic history", () => {
-  const initial = prepared({ app: "known" });
+  const initial = preparedForTargets(["governance"], { app: "known" });
   const { started, returned, verified } = transitionSuccessfulOperation(
     initial,
     { type: "promote", target: "governance" },
@@ -324,6 +355,228 @@ test("operation snapshots form an append-only monotonic history", () => {
         ),
       }),
     /command outcome changed/,
+  );
+});
+
+test("operation event fields must match the constructor state", () => {
+  const initial = preparedForTargets(["governance"], { app: "known" });
+  const { started, returned, verified } = transitionSuccessfulOperation(
+    initial,
+    { type: "promote", target: "governance" },
+  );
+  const cases = [
+    {
+      journal: {
+        ...started,
+        operations: [
+          {
+            ...started.operations[0],
+            commandOutcome: "success",
+          },
+        ],
+      },
+      pattern: /fields are inconsistent/,
+    },
+    {
+      journal: {
+        ...returned,
+        operations: returned.operations.map((operation, index) =>
+          index === returned.operations.length - 1
+            ? { ...operation, mappingState: "candidate" }
+            : operation,
+        ),
+      },
+      pattern: /fields are inconsistent/,
+    },
+    {
+      journal: {
+        ...verified,
+        operations: verified.operations.map((operation, index) =>
+          index === verified.operations.length - 1
+            ? { ...operation, mappingState: null }
+            : operation,
+        ),
+      },
+      pattern: /fields are inconsistent/,
+    },
+    {
+      journal: {
+        ...verified,
+        operations: verified.operations.map((operation, index) =>
+          index === verified.operations.length - 1
+            ? { ...operation, rollbackState: "entered" }
+            : operation,
+        ),
+      },
+      pattern: /Rollback marker requires/,
+    },
+    {
+      journal: {
+        ...started,
+        status: "recovering",
+        operations: [
+          {
+            ...started.operations[0],
+            state: "recovering",
+          },
+        ],
+      },
+      pattern: /state is unsupported/,
+    },
+  ];
+  for (const { journal, pattern } of cases) {
+    assert.throws(() => assertMainTransactionJournal(journal), pattern);
+  }
+});
+
+test("adjacent journal snapshots append exactly one helper-legal event", () => {
+  const initial = preparedForTargets(["governance"], { app: "known" });
+  const { started, returned } = transitionSuccessfulOperation(initial, {
+    type: "promote",
+    target: "governance",
+  });
+  assert.throws(
+    () =>
+      assertMainTransactionJournalHistory([
+        initial,
+        { ...returned, sequence: 1 },
+      ]),
+    /batched operation events/,
+  );
+  assert.throws(
+    () =>
+      assertMainTransactionJournalHistory([
+        initial,
+        { ...started, status: "command_returned" },
+      ]),
+    /status does not match/,
+  );
+
+  const appInitial = preparedForTargets(["app"]);
+  const appStarted = startMainTransactionOperation(appInitial, {
+    type: "app_v3_deploy",
+    target: "app",
+  });
+  const attached = attachDiscoveredAppCandidate(
+    appStarted,
+    appCandidateMatch(),
+  );
+  assert.throws(
+    () =>
+      assertMainTransactionJournalHistory([
+        appInitial,
+        appStarted,
+        { ...attached, status: "recovering" },
+      ]),
+    /did not append one legal event/,
+  );
+});
+
+test("commit requires one verified forward operation for every selected candidate", () => {
+  const selected = preparedForTargets(["governance", "reserve"], {
+    app: "known",
+  });
+  assert.throws(
+    () => markMainTransactionCommitted(selected),
+    /incomplete operations/,
+  );
+
+  const governanceVerified = transitionSuccessfulOperation(selected, {
+    type: "promote",
+    target: "governance",
+  }).verified;
+  assert.throws(
+    () => markMainTransactionCommitted(governanceVerified),
+    /incomplete operations/,
+  );
+
+  let fullyVerified = preparedForTargets(
+    ["app", "governance", "reserve", "ui"],
+    { app: "known" },
+  );
+  for (const intent of [
+    { type: "promote", target: "governance" },
+    { type: "promote", target: "reserve" },
+    { type: "promote", target: "ui" },
+    { type: "app_v3_deploy", target: "app" },
+  ]) {
+    fullyVerified = transitionSuccessfulOperation(
+      fullyVerified,
+      intent,
+    ).verified;
+  }
+  assert.equal(markMainTransactionCommitted(fullyVerified).status, "committed");
+});
+
+test("selected app commit requires its exact candidate discovery", () => {
+  const selected = preparedForTargets(["app"]);
+  const verifiedWithoutCandidate = transitionSuccessfulOperation(selected, {
+    type: "app_v3_deploy",
+    target: "app",
+  }).verified;
+  assert.equal(verifiedWithoutCandidate.candidates.app.deploymentId, null);
+  assert.throws(
+    () => markMainTransactionCommitted(verifiedWithoutCandidate),
+    /incomplete operations/,
+  );
+});
+
+test("app alias completeness is a final mapping-verification boundary", () => {
+  const selected = preparedForTargets(["app"], { app: "known" });
+  const appVerified = transitionSuccessfulOperation(selected, {
+    type: "app_v3_deploy",
+    target: "app",
+  }).verified;
+  assert.equal(
+    appVerified.operations.some(
+      (operation) => operation.type === "app_alias_set",
+    ),
+    false,
+  );
+  assert.equal(markMainTransactionCommitted(appVerified).status, "committed");
+});
+
+test("duplicate forward mutations are rejected after a verified attempt", () => {
+  const ordinary = transitionSuccessfulOperation(
+    preparedForTargets(["governance"], { app: "known" }),
+    { type: "promote", target: "governance" },
+  ).verified;
+  assert.throws(
+    () =>
+      startMainTransactionOperation(ordinary, {
+        type: "promote",
+        target: "governance",
+      }),
+    /already recorded/,
+  );
+
+  const appDeploy = transitionSuccessfulOperation(
+    preparedForTargets(["app"], { app: "known" }),
+    { type: "app_v3_deploy", target: "app" },
+  ).verified;
+  assert.throws(
+    () =>
+      startMainTransactionOperation(appDeploy, {
+        type: "app_v3_deploy",
+        target: "app",
+      }),
+    /already recorded/,
+  );
+
+  const alias = appDeploy.prior.app.aliases[0];
+  const aliasVerified = transitionSuccessfulOperation(appDeploy, {
+    type: "app_alias_set",
+    target: "app",
+    alias,
+  }).verified;
+  assert.throws(
+    () =>
+      startMainTransactionOperation(aliasVerified, {
+        type: "app_alias_set",
+        target: "app",
+        alias,
+      }),
+    /already recorded/,
   );
 });
 
@@ -394,12 +647,34 @@ test("journal upload acknowledgement is exact and uses seven-day retention", asy
     persistMainTransactionJournal(journal, async ({ artifactName }) => ({
       acknowledged: true,
       artifactName: `${artifactName}-wrong`,
+      artifactId: "1000",
     })),
     (error) =>
       error instanceof MainTransactionError &&
       error.code === "JOURNAL_UPLOAD_NOT_ACKNOWLEDGED",
   );
 });
+
+for (const [name, artifactId] of [
+  ["missing", undefined],
+  ["zero", "0"],
+  ["negative", "-1"],
+  ["non-numeric", "artifact-123"],
+]) {
+  test(`journal upload rejects a ${name} immutable artifact ID`, async () => {
+    const journal = prepared();
+    await assert.rejects(
+      persistMainTransactionJournal(journal, async ({ artifactName }) => ({
+        acknowledged: true,
+        artifactName,
+        ...(artifactId === undefined ? {} : { artifactId }),
+      })),
+      (error) =>
+        error instanceof MainTransactionError &&
+        error.code === "JOURNAL_UPLOAD_NOT_ACKNOWLEDGED",
+    );
+  });
+}
 
 test("started journal is durably acknowledged before mutation callback", async () => {
   const events = [];
@@ -408,7 +683,11 @@ test("started journal is durably acknowledged before mutation callback", async (
     intent: { type: "promote", target: "governance" },
     uploadJournal: async (payload) => {
       events.push(`upload:${payload.journal.status}`);
-      return { acknowledged: true, artifactName: payload.artifactName };
+      return {
+        acknowledged: true,
+        artifactName: payload.artifactName,
+        artifactId: String(1000 + payload.journal.sequence),
+      };
     },
     assertFreshness: async ({ phase }) => {
       events.push(`fresh:${phase}`);
@@ -464,6 +743,49 @@ test("upload failure prevents mutation and leaves only prior durable state", asy
       error.code === "JOURNAL_UPLOAD_FAILED",
   );
   assert.equal(mutations, 0);
+});
+
+test("every forward upload failure exposes only the last durable journal", async () => {
+  const expectedDurable = [
+    { sequence: 0, status: "prepared", mutations: 0 },
+    { sequence: 1, status: "started", mutations: 1 },
+    { sequence: 2, status: "command_returned", mutations: 1 },
+  ];
+  for (const [index, expected] of expectedDurable.entries()) {
+    let attempts = 0;
+    let mutations = 0;
+    await assert.rejects(
+      executeJournaledMainMutation({
+        journal: prepared({ app: "known" }),
+        intent: { type: "promote", target: "governance" },
+        uploadJournal: async ({ artifactName, journal }) => {
+          attempts += 1;
+          if (attempts === index + 1) {
+            throw new Error("artifact upload interrupted");
+          }
+          return {
+            acknowledged: true,
+            artifactName,
+            artifactId: String(1000 + journal.sequence),
+          };
+        },
+        assertFreshness: async () => ({ sha: SHA }),
+        executeMutation: async () => {
+          mutations += 1;
+          return { outcome: "success" };
+        },
+        inspectMutationState: async () => ({ mappingState: "prior" }),
+        verifyMapping: async () => ({ mappingState: "candidate" }),
+      }),
+      (error) => {
+        assert.equal(error.code, "JOURNAL_UPLOAD_FAILED");
+        assert.equal(error.journal.sequence, expected.sequence);
+        assert.equal(error.journal.status, expected.status);
+        return true;
+      },
+    );
+    assert.equal(mutations, expected.mutations);
+  }
 });
 
 test("main advancing before an operation performs no mutation", async () => {
@@ -657,8 +979,8 @@ test("a cancellation after started persistence is recoverable by a separate job"
 
 test("mapping classifier distinguishes prior, candidate, partial, and unexpected", () => {
   const journal = prepared({ app: "known" });
-  const prior = journal.prior.governance;
-  const candidate = journal.candidates.governance;
+  const prior = journal.prior.app;
+  const candidate = journal.candidates.app;
   const aliases = prior.aliases;
   const classify = (records) =>
     classifyMainTransactionMapping({
@@ -772,7 +1094,210 @@ test("ordinary recovery is planned and executed in reverse activation order", as
   );
 });
 
-test("partial ordinary movement preserves possible operator intervention", () => {
+test("forged recovery action fields never reach inspection or mutation adapters", async () => {
+  const basePlan = plannedOrdinaryRecovery(["governance", "reserve"]);
+  const mutations = [
+    ["target", (plan) => (plan.actions[0].target = "governance")],
+    ["operation ID", (plan) => (plan.actions[0].operationId = "op-0001")],
+    [
+      "prior deployment ID",
+      (plan) => (plan.actions[0].priorDeploymentId = "dpl_attackerPrior123"),
+    ],
+    [
+      "prior deployment URL",
+      (plan) =>
+        (plan.actions[0].priorDeploymentUrl =
+          "https://attacker-prior.vercel.app"),
+    ],
+    [
+      "candidate deployment ID",
+      (plan) =>
+        (plan.actions[0].candidateDeploymentId = "dpl_attackerCandidate123"),
+    ],
+    [
+      "candidate deployment URL",
+      (plan) =>
+        (plan.actions[0].candidateDeploymentUrl =
+          "https://attacker-candidate.vercel.app"),
+    ],
+    ["action order", (plan) => plan.actions.reverse()],
+    ["action kind", (plan) => (plan.actions[0].kind = "verified_noop")],
+    ["extra field", (plan) => (plan.actions[0].operator = "attacker")],
+    ["missing field", (plan) => delete plan.actions[0].candidateDeploymentUrl],
+    [
+      "rollback aliases",
+      (plan) => (plan.actions[0].aliases = ["attacker.mento.org"]),
+    ],
+    [
+      "rollback marker",
+      (plan) => (plan.actions[0].entersRollbackState = false),
+    ],
+  ];
+  for (const [name, tamper] of mutations) {
+    const plan = structuredClone(basePlan);
+    tamper(plan);
+    let inspections = 0;
+    let adapterCalls = 0;
+    let uploads = 0;
+    await assert.rejects(
+      executeMainTransactionRecovery({
+        plan,
+        uploadJournal: async () => {
+          uploads += 1;
+        },
+        ordinaryRollback: async () => {
+          adapterCalls += 1;
+        },
+        restoreAppAlias: async () => {
+          adapterCalls += 1;
+        },
+        restoreLegacyAlias: async () => {
+          adapterCalls += 1;
+        },
+        inspectMapping: async () => {
+          inspections += 1;
+          return { mappingState: "candidate" };
+        },
+        verifyMapping: async () => ({ mappingState: "prior" }),
+      }),
+      undefined,
+      name,
+    );
+    assert.equal(inspections, 0, name);
+    assert.equal(adapterCalls, 0, name);
+    assert.equal(uploads, 0, name);
+  }
+
+  const appStarted = startMainTransactionOperation(
+    preparedForTargets(["app"], { app: "known" }),
+    { type: "app_v3_deploy", target: "app" },
+  );
+  const movedAlias = appStarted.prior.app.aliases[0];
+  const appPlan = planMainTransactionRecovery({
+    journal: appStarted,
+    currentMappings: currentMappings(appStarted, {
+      [movedAlias]: appStarted.candidates.app,
+    }),
+  });
+  const restore = appPlan.actions.find(
+    (entry) => entry.kind === "app_alias_restore",
+  );
+  restore.alias = appStarted.prior.app.aliases.find(
+    (alias) => alias !== movedAlias,
+  );
+  let appInspections = 0;
+  await assert.rejects(
+    executeMainTransactionRecovery({
+      plan: appPlan,
+      uploadJournal: acknowledgedUploader(),
+      restoreAppAlias: async () => ({ outcome: "success" }),
+      inspectMapping: async () => {
+        appInspections += 1;
+        return { mappingState: "candidate" };
+      },
+      verifyMapping: async () => ({ mappingState: "prior" }),
+    }),
+  );
+  assert.equal(appInspections, 0);
+});
+
+test("every recovery upload failure exposes only the last durable journal", async () => {
+  const plan = plannedOrdinaryRecovery();
+  const expectedDurable = [
+    { offset: 0, status: "verified", mutations: 0 },
+    { offset: 1, status: "recovering", mutations: 0 },
+    { offset: 2, status: "started", mutations: 1 },
+    { offset: 3, status: "command_returned", mutations: 1 },
+    { offset: 4, status: "verified", mutations: 1 },
+  ];
+  for (const [index, expected] of expectedDurable.entries()) {
+    let attempts = 0;
+    let mutations = 0;
+    await assert.rejects(
+      executeMainTransactionRecovery({
+        plan,
+        uploadJournal: async ({ artifactName, journal }) => {
+          attempts += 1;
+          if (attempts === index + 1) {
+            throw new Error("artifact upload interrupted");
+          }
+          return {
+            acknowledged: true,
+            artifactName,
+            artifactId: String(2000 + journal.sequence),
+          };
+        },
+        ordinaryRollback: async () => {
+          mutations += 1;
+          return { outcome: "success" };
+        },
+        inspectMapping: async () => ({ mappingState: "candidate" }),
+        verifyMapping: async () => ({ mappingState: "prior" }),
+      }),
+      (error) => {
+        assert.equal(error.code, "JOURNAL_UPLOAD_FAILED");
+        assert.equal(
+          error.journal.sequence,
+          plan.journal.sequence + expected.offset,
+        );
+        assert.equal(error.journal.status, expected.status);
+        return true;
+      },
+    );
+    assert.equal(mutations, expected.mutations);
+  }
+});
+
+test("app discovery and recovery-start uploads retain the prior durable snapshot", async () => {
+  const started = startMainTransactionOperation(preparedForTargets(["app"]), {
+    type: "app_v3_deploy",
+    target: "app",
+  });
+  const movedAlias = started.prior.app.aliases[0];
+  const plan = planMainTransactionRecovery({
+    journal: started,
+    currentMappings: currentMappings(started, {
+      [movedAlias]: {
+        deploymentId: "dpl_appCandidate123",
+        deploymentUrl: "https://app-candidate.vercel.app",
+      },
+    }),
+    appCandidateMatches: [appCandidateMatch()],
+  });
+  for (const [failAt, expected] of [
+    [1, { sequence: started.sequence, status: "started" }],
+    [2, { sequence: started.sequence + 1, status: "started" }],
+  ]) {
+    let attempts = 0;
+    await assert.rejects(
+      executeMainTransactionRecovery({
+        plan,
+        uploadJournal: async ({ artifactName, journal }) => {
+          attempts += 1;
+          if (attempts === failAt) throw new Error("upload interrupted");
+          return {
+            acknowledged: true,
+            artifactName,
+            artifactId: String(3000 + journal.sequence),
+          };
+        },
+        restoreAppAlias: async () => ({ outcome: "success" }),
+        inspectMapping: async (entry) => ({
+          mappingState: entry.kind === "verified_noop" ? "prior" : "candidate",
+        }),
+        verifyMapping: async () => ({ mappingState: "prior" }),
+      }),
+      (error) => {
+        assert.equal(error.code, "JOURNAL_UPLOAD_FAILED");
+        assert.equal(error.journal.sequence, expected.sequence);
+        assert.equal(error.journal.status, expected.status);
+        return true;
+      },
+    );
+  }
+});
+
+test("unexpected ordinary movement preserves possible operator intervention", () => {
   const initial = prepared({ app: "known" });
   const { started } = transitionSuccessfulOperation(initial, {
     type: "promote",
@@ -782,13 +1307,15 @@ test("partial ordinary movement preserves possible operator intervention", () =>
   const plan = planMainTransactionRecovery({
     journal: started,
     currentMappings: currentMappings(started, {
-      [aliases[0]]: started.prior.governance,
-      [aliases[1]]: started.candidates.governance,
+      [aliases[0]]: {
+        deploymentId: "dpl_operator123",
+        deploymentUrl: "https://operator.vercel.app",
+      },
     }),
   });
   assert.equal(plan.decision, "manual_intervention");
   assert.equal(plan.actions[0].kind, "manual_intervention");
-  assert.equal(plan.actions[0].mappingState, "partial");
+  assert.equal(plan.actions[0].mappingState, "unexpected");
 });
 
 test("manual intervention on one target does not skip safe reverse recovery elsewhere", async () => {
@@ -826,7 +1353,10 @@ test("manual intervention on one target does not skip safe reverse recovery else
       calls.push(entry.target);
       return { outcome: "success" };
     },
-    inspectMapping: async () => ({ mappingState: "candidate" }),
+    inspectMapping: async (entry) => ({
+      mappingState:
+        entry.kind === "manual_intervention" ? "unexpected" : "candidate",
+    }),
     verifyMapping: async () => ({ mappingState: "prior" }),
   });
   assert.deepEqual(calls, ["reserve"]);
@@ -991,7 +1521,7 @@ test("legacy v2 is untouched normally and restored only from the exact app candi
 });
 
 test("recovered and committed histories bypass repeat recovery", () => {
-  const initial = prepared({ app: "known" });
+  const initial = preparedForTargets([], { app: "known" });
   const committed = markMainTransactionCommitted(initial);
   assert.equal(
     decideMainTransactionRecovery([initial, committed]).decision,
@@ -1018,7 +1548,11 @@ test("shadow execution exercises preparation, freshness, persistence, and recove
     },
     uploadJournal: async (payload) => {
       events.push(`upload:${payload.journal.status}`);
-      return { acknowledged: true, artifactName: payload.artifactName };
+      return {
+        acknowledged: true,
+        artifactName: payload.artifactName,
+        artifactId: String(1000 + payload.journal.sequence),
+      };
     },
     inspectRecoveryState: async ({ decision }) => {
       events.push(`recovery:${decision}`);

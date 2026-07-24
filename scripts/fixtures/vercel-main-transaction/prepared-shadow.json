@@ -17,20 +17,17 @@
     "governance": {
       "deploymentId": "dpl_governancePrior123",
       "deploymentUrl": "https://governance-prior.vercel.app",
-      "aliases": [
-        "governance.mento.org",
-        "governancementoorg-mentolabs.vercel.app"
-      ]
+      "aliases": ["governance.mento.org"]
     },
     "reserve": {
       "deploymentId": "dpl_reservePrior123",
       "deploymentUrl": "https://reserve-prior.vercel.app",
-      "aliases": ["reserve.mento.org", "reservementoorg-mentolabs.vercel.app"]
+      "aliases": ["reserve.mento.org"]
     },
     "ui": {
       "deploymentId": "dpl_uiPrior123",
       "deploymentUrl": "https://ui-prior.vercel.app",
-      "aliases": ["ui.mento.org", "uimentoorg-mentolabs.vercel.app"]
+      "aliases": ["ui.mento.org"]
     },
     "legacy-app": {
       "deploymentId": "dpl_legacyPrior123",
@@ -56,22 +53,19 @@
     "governance": {
       "deploymentId": "dpl_governanceCandidate123",
       "deploymentUrl": "https://governance-candidate.vercel.app",
-      "aliases": [
-        "governance.mento.org",
-        "governancementoorg-mentolabs.vercel.app"
-      ],
+      "aliases": ["governance.mento.org"],
       "discovery": null
     },
     "reserve": {
       "deploymentId": "dpl_reserveCandidate123",
       "deploymentUrl": "https://reserve-candidate.vercel.app",
-      "aliases": ["reserve.mento.org", "reservementoorg-mentolabs.vercel.app"],
+      "aliases": ["reserve.mento.org"],
       "discovery": null
     },
     "ui": {
       "deploymentId": "dpl_uiCandidate123",
       "deploymentUrl": "https://ui-candidate.vercel.app",
-      "aliases": ["ui.mento.org", "uimentoorg-mentolabs.vercel.app"],
+      "aliases": ["ui.mento.org"],
       "discovery": null
     }
   },
