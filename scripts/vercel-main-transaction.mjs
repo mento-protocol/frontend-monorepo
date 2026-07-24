@@ -7,7 +7,7 @@ import {
   canonicalizeHostname,
 } from "./vercel-deployment-state.mjs";
 
-export const MAIN_TRANSACTION_SCHEMA = 1;
+const MAIN_TRANSACTION_SCHEMA = 1;
 export const MAIN_TRANSACTION_REPOSITORY = "mento-protocol/frontend-monorepo";
 export const MAIN_TRANSACTION_MODE = "shadow";
 

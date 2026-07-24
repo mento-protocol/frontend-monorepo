@@ -7,10 +7,9 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const MAIN_DEPLOYMENT_REPOSITORY = "mento-protocol/frontend-monorepo";
-export const MAIN_DEPLOYMENT_UPSTREAM_WORKFLOW = "CI/CD";
-export const MAIN_DEPLOYMENT_UPSTREAM_WORKFLOW_PATH =
-  ".github/workflows/ci.yml";
-export const MAIN_DEPLOYMENT_SENTINEL_JOB = "Build and Test";
+const MAIN_DEPLOYMENT_UPSTREAM_WORKFLOW = "CI/CD";
+const MAIN_DEPLOYMENT_UPSTREAM_WORKFLOW_PATH = ".github/workflows/ci.yml";
+const MAIN_DEPLOYMENT_SENTINEL_JOB = "Build and Test";
 
 const GITHUB_API_ORIGIN = "https://api.github.com";
 const GITHUB_WEB_ORIGIN = "https://github.com";
