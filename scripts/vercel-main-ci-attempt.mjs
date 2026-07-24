@@ -573,10 +573,8 @@ export function formatMainCiAttemptSummary(result) {
   return [
     "### Verified upstream CI attempt",
     "",
-    `- Upstream run ID: \`${result.upstream_run_id}\``,
     `- Upstream run attempt: \`${result.upstream_run_attempt}\``,
     `- Upstream run URL: ${result.upstream_run_url}`,
-    `- Build and Test job ID: \`${result.build_and_test_job_id}\``,
     `- Build and Test job URL: ${result.build_and_test_job_url}`,
     `- DEPLOY_SHA: \`${result.deploy_sha}\``,
     "",

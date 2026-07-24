@@ -673,8 +673,20 @@ test("environment CLI API writes only canonical outputs and summary evidence", a
     }
     assert.equal(outputs.includes(TOKEN), false);
     assert.equal(summary, formatMainCiAttemptSummary(result));
+    assert.equal(
+      summary,
+      [
+        "### Verified upstream CI attempt",
+        "",
+        `- Upstream run attempt: \`${result.upstream_run_attempt}\``,
+        `- Upstream run URL: ${result.upstream_run_url}`,
+        `- Build and Test job URL: ${result.build_and_test_job_url}`,
+        `- DEPLOY_SHA: \`${result.deploy_sha}\``,
+        "",
+      ].join("\n"),
+    );
+    assert.doesNotMatch(summary, /Upstream run ID|Build and Test job ID/);
     assert.equal(summary.includes(TOKEN), false);
-    assert.match(summary, /Verified upstream CI attempt/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
