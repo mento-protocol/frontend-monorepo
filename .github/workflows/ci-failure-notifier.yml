@@ -11,6 +11,7 @@ on:
       - Quality Budgets
       - Scorecard supply-chain security
       - Supply Chain
+      - Vercel Main Deployment
       - Vercel Production Shadow
       - Visual Regression
     types: [completed]
@@ -22,7 +23,7 @@ jobs:
   reconcile-issue:
     name: reconcile failure issue
     if: >-
-      contains(fromJSON('["push", "schedule", "workflow_dispatch"]'), github.event.workflow_run.event) &&
+      contains(fromJSON('["push", "schedule", "workflow_dispatch", "workflow_run"]'), github.event.workflow_run.event) &&
       contains(fromJSON('["success", "action_required", "failure", "startup_failure", "timed_out"]'), github.event.workflow_run.conclusion) &&
       (
         github.event.workflow_run.event == 'schedule' ||
@@ -36,6 +37,12 @@ jobs:
         (
           github.event.workflow_run.event == 'workflow_dispatch' &&
           github.event.workflow_run.head_branch == github.event.repository.default_branch
+        ) ||
+        (
+          github.event.workflow_run.event == 'workflow_run' &&
+          github.event.workflow_run.name == 'Vercel Main Deployment' &&
+          github.event.workflow_run.head_branch == github.event.repository.default_branch &&
+          github.event.workflow_run.head_repository.full_name == github.repository
         )
       )
     concurrency:

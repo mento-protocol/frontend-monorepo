@@ -18,11 +18,22 @@ function workflowRun(overrides = {}) {
     html_url:
       "https://github.com/mento-protocol/frontend-monorepo/actions/runs/1234",
     head_branch: "main",
+    head_repository: {
+      full_name: "mento-protocol/frontend-monorepo",
+    },
     event: "push",
     status: "completed",
     conclusion: "failure",
     ...overrides,
   };
+}
+
+function mainDeploymentRun(overrides = {}) {
+  return workflowRun({
+    name: "Vercel Main Deployment",
+    event: "workflow_run",
+    ...overrides,
+  });
 }
 
 function managedIssue(overrides = {}) {
@@ -306,6 +317,87 @@ test("exposes the manual trigger in the incident title", async () => {
     calls.create[0].title,
     "CI: Quality Budgets is failing (main; workflow_dispatch)",
   );
+});
+
+test("opens and updates the managed main-deployment workflow_run issue", async () => {
+  const firstFailure = mainDeploymentRun({ run_number: 30 });
+  const openedHarness = harness({ run: firstFailure });
+  const opened = await reconcileCiFailureIssue(openedHarness);
+  assert.deepEqual(opened, { action: "opened", issueNumber: 91 });
+  assert.equal(
+    openedHarness.calls.create[0].title,
+    "CI: Vercel Main Deployment is failing (main; workflow_run)",
+  );
+  assert.match(
+    openedHarness.calls.create[0].body,
+    /managed-ci-failure:77:workflow_run:main/,
+  );
+
+  const repeatedFailure = mainDeploymentRun({ run_number: 31 });
+  const existing = managedIssue({
+    body: `failure\n\n${managedMarker("workflow_run")}`,
+  });
+  const updatedHarness = harness({
+    run: repeatedFailure,
+    issues: [existing],
+  });
+  const updated = await reconcileCiFailureIssue(updatedHarness);
+  assert.deepEqual(updated, { action: "updated", issueNumber: 42 });
+  assert.equal(updatedHarness.calls.update[0].state, "open");
+  assert.match(updatedHarness.calls.update[0].body, /run #31/);
+});
+
+test("a later main-deployment workflow_run success closes only its partition", async () => {
+  const success = mainDeploymentRun({
+    conclusion: "success",
+    run_number: 32,
+  });
+  const existing = managedIssue({
+    body: `failure\n\n${managedMarker("workflow_run")}`,
+  });
+  const { github, context, calls } = harness({
+    run: success,
+    issues: [existing],
+  });
+  const result = await reconcileCiFailureIssue({ github, context });
+  assert.deepEqual(result, { action: "closed", issueNumber: 42 });
+  assert.equal(calls.update[0].state, "closed");
+  assert.match(calls.update[0].body, /run #32/);
+});
+
+test("workflow_run monitoring rejects unrelated workflows, wrong branches, and forks", async () => {
+  for (const run of [
+    workflowRun({ event: "workflow_run", name: "Quality Budgets" }),
+    mainDeploymentRun({ head_branch: "feature/example" }),
+    mainDeploymentRun({
+      head_repository: { full_name: "contributor/frontend-monorepo" },
+    }),
+  ]) {
+    const { github, context, calls } = harness({ run });
+    const result = await reconcileCiFailureIssue({ github, context });
+    assert.deepEqual(result, { action: "ignored", reason: "untracked-run" });
+    assert.equal(calls.listRuns, 0);
+    assert.equal(calls.listIssues, 0);
+  }
+});
+
+test("a cross-event success cannot close a workflow_run failure", async () => {
+  const pushSuccess = workflowRun({
+    name: "Vercel Main Deployment",
+    event: "push",
+    conclusion: "success",
+    run_number: 33,
+  });
+  const existing = managedIssue({
+    body: `failure\n\n${managedMarker("workflow_run")}`,
+  });
+  const { github, context, calls } = harness({
+    run: pushSuccess,
+    issues: [existing],
+  });
+  const result = await reconcileCiFailureIssue({ github, context });
+  assert.deepEqual(result, { action: "ignored", reason: "nothing-to-close" });
+  assert.equal(calls.update.length, 0);
 });
 
 test("a manual success does not close a scheduled failure issue", async () => {
