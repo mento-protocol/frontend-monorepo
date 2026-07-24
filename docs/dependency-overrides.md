@@ -54,13 +54,20 @@ runtime in the same PR:
      --ignore-workspace
    ```
 
-3. Review the lockfile diff, calculate its exact digest, and replace
-   `PINNED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256` in
-   `scripts/vercel-cli-runtime-contract.mjs`:
+3. Review the lockfile diff and calculate its exact digest:
 
    ```bash
    shasum -a 256 scripts/vercel-cli-runtime/pnpm-lock.yaml
    ```
+
+   Rotate the digest in two PRs. First, land a trusted default-branch
+   controller change that adds the reviewed next digest to the literal
+   allowlist in `scripts/vercel-cli-runtime-contract.mjs`; it must continue to
+   accept the current digest and must never read an allowlist from candidate or
+   PR-authored source. Then land the lockfile change in #645, keeping the
+   manifest's exact `vercel@56.2.0` pin and all registry-only checks intact.
+   Immediately after #645 merges, remove the former digest from the controller
+   allowlist and restore the single-digest contract.
 
 4. Verify the root/standalone pins, exact manifest, override mirror, reviewed
    lockfile digest, and registry-only lockfile policy:

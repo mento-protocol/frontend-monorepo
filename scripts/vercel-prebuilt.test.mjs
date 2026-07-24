@@ -23,6 +23,7 @@ import {
   isVersionGreaterThan,
   VERCEL_TARGETS,
 } from "./vercel-prebuilt.mjs";
+import { assertVercelCliRuntimeContract } from "./vercel-cli-runtime-contract.mjs";
 import {
   assertSharpOutputTrace,
   isSharpManifestPath,
@@ -181,6 +182,71 @@ test("resolved Next.js and exact Vercel CLI satisfy custom-ID prerequisites", ()
   );
   assert.equal(isVersionGreaterThan("16.2.10", "16.2.0-canary.15"), true);
   assert.equal(isVersionGreaterThan("56.2.0", "50.3.3"), true);
+});
+
+test("trusted controller accepts only the reviewed Vercel CLI runtime lockfile rotation", () => {
+  const fixtureRoot = createVersionContractFixture();
+  const packageJsonPath = join(
+    fixtureRoot,
+    "scripts",
+    "vercel-cli-runtime",
+    "package.json",
+  );
+  const lockfilePath = join(
+    fixtureRoot,
+    "scripts",
+    "vercel-cli-runtime",
+    "pnpm-lock.yaml",
+  );
+  const contractPaths = {
+    rootPackageJsonPath: join(fixtureRoot, "package.json"),
+    packageJsonPath,
+    lockfilePath,
+  };
+  try {
+    assert.equal(
+      assertVercelCliRuntimeContract(contractPaths).lockfileSha256,
+      "505674eac656c26fce2fe912a2b14228f8f4f3edd4b3d6d7b0f2c9f08c276d76",
+    );
+
+    const reviewedNextLockfile = readFileSync(lockfilePath, "utf8")
+      .replace(
+        "  '@opentelemetry/core@<2.8.0': '>=2.8.0'",
+        "  '@mysten/sui': 1.45.2\n  '@opentelemetry/core@<2.8.0': '>=2.8.0'",
+      )
+      .replace("  postcss@<8.5.10: '>=8.5.10'", "  postcss@<8.5.18: 8.5.18")
+      .replace("  tar@>=7.0.0 <7.5.16: 7.5.20", "  tar@>=7.0.0 <7.5.21: 7.5.21")
+      .replace(
+        "  vite@>=7.0.0 <7.3.5: 7.3.5",
+        "  valibot@>=1.0.0 <1.4.2: 1.4.2\n  vite@>=7.0.0 <7.3.5: 7.3.5",
+      )
+      .replace(
+        "  tar@7.5.20:\n    resolution: {integrity: sha512-9FcyK4PA6+WbzlTM9WhQm6vB5W7cP7dUiPsv1g7YDwEQnQ1CGpK3MGlKk/ITVWMk05kHZuBhmVhiv8LZoy/PFQ==}",
+        "  tar@7.5.21:\n    resolution: {integrity: sha512-XdhtCvlMywwxpCW8YEq3lOXBJpUPTR2OHHcwLPO3HwsJqOHa2Ok/oJ7ruGzp+JrKoRPVCzJwAdEjqLW/vNRPHA==}",
+      )
+      .replace("      tar: 7.5.20", "      tar: 7.5.21")
+      .replace("      tar: 7.5.20", "      tar: 7.5.21")
+      .replace(
+        "  tar@7.5.20:\n    dependencies:",
+        "  tar@7.5.21:\n    dependencies:",
+      );
+    writeFileSync(lockfilePath, reviewedNextLockfile);
+    assert.equal(
+      assertVercelCliRuntimeContract(contractPaths).lockfileSha256,
+      "884e3c4186c9d5faee0e6cf710b112e7e60cdae5d46be13da1b2b0ae9cf11eb0",
+    );
+
+    writeFileSync(
+      lockfilePath,
+      `${reviewedNextLockfile}\n# unreviewed digest\n`,
+    );
+    assert.throws(
+      () => assertVercelCliRuntimeContract(contractPaths),
+      /runtime lockfile is not exact/,
+    );
+  } finally {
+    rmSync(fixtureRoot, { force: true, recursive: true });
+  }
 });
 
 test("version check rejects standalone pin, override, and lockfile drift", () => {

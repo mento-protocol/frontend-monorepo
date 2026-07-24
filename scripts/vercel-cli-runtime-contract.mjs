@@ -3,8 +3,12 @@ import { readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 
 export const PINNED_VERCEL_CLI_VERSION = "56.2.0";
-const PINNED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
-  "505674eac656c26fce2fe912a2b14228f8f4f3edd4b3d6d7b0f2c9f08c276d76";
+// This reviewed controller-owned allowlist permits the one-way lockfile
+// rotation in #645. It must never be read from candidate source or PR input.
+const TRUSTED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 = new Set([
+  "505674eac656c26fce2fe912a2b14228f8f4f3edd4b3d6d7b0f2c9f08c276d76",
+  "884e3c4186c9d5faee0e6cf710b112e7e60cdae5d46be13da1b2b0ae9cf11eb0",
+]);
 
 function hasExactObjectKeys(value, expectedKeys) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -63,7 +67,7 @@ export function assertVercelCliRuntimeContract({
   const lockfileDigest = createHash("sha256")
     .update(lockfileContents)
     .digest("hex");
-  if (lockfileDigest !== PINNED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256) {
+  if (!TRUSTED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256.has(lockfileDigest)) {
     throw new Error("Trusted Vercel CLI runtime lockfile is not exact");
   }
   const lockfileText = lockfileContents.toString("utf8");
