@@ -3,14 +3,15 @@ title: GitHub Actions owns Vercel build and deployment orchestration; Vercel rem
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-07-23
+last_verified: 2026-07-24
 scope: ci/deployment
 date: 2026-07
 ---
 
 # ADR 0001 — GitHub Actions owns Vercel build and deployment orchestration; Vercel remains hosting and runtime
 
-**Status:** Accepted (Jul 2026); phased rollout in progress.
+**Status:** Accepted (Jul 2026); previews cut over, automatic main shadow
+rollout in progress, and main activation pending.
 **Scope:** ci/deployment
 
 ## Context
@@ -189,22 +190,24 @@ author, or other extra aliases and fails safely if Vercel changes that
 topology. A `git-*` creator can use the base-only form, but cannot authorize the
 ambiguous author/branch hostname; the same rule reserves `env-*` against
 custom-environment aliases. The ordinary upload implicitly moves those generated
-system aliases, so the
-controller treats staging as a limited public-routing mutation: it rechecks
-current `main`, journals the intended upload, verifies the resulting immutable
-deployment and generated-alias topology, and retains the transaction evidence
-before continuing. The deployments are then promoted sequentially by exact
-immutable deployment ID. The app `v3` prebuilt candidate is built and verified
-under custom-environment semantics before its app-v3 activation mutation, but
-`vercel deploy --prebuilt --target=v3` runs last because that upload is itself
-the activation mutation when attached `v3` domains move. The controller then
-verifies every reviewed alias and assigns only those that do not already point
-to the exact deployment as intended. `--prod` and `vercel promote` are
+system aliases, so the controller treats staging as a limited public-routing
+mutation: it rechecks current `main`, journals the intended upload, verifies the
+resulting immutable deployment and generated-alias topology, and retains the
+transaction evidence before continuing. The deployments are then promoted
+sequentially by exact immutable deployment ID. The app `v3` prebuilt candidate
+is built and verified under custom-environment semantics before its app-v3
+activation mutation, but `vercel deploy --prebuilt --target=v3` runs last
+because that upload is itself the activation mutation when attached `v3`
+domains move. The controller then verifies every reviewed alias and assigns only
+those that do not already point to the exact deployment as intended. The three
+ordinary public custom domains are the only protected runtime and rollback
+aliases; generated project/team and creator-scoped aliases are
+candidate-verification evidence only. `--prod` and `vercel promote` are
 forbidden for the app `main -> v3` path.
 
 Before mutation, the controller records the exact prior deployment and every
-protected alias for every selected target. It journals intent before each
-command and verifies the observed mapping afterward. Stale-main detection,
+protected public alias for every selected target. It journals intent before
+each command and verifies the observed mapping afterward. Stale-main detection,
 failure, cancellation, timeout, or unknown command outcome initiates
 reverse-order compensation to that captured set. Unexpected operator-owned
 mappings stop for manual review rather than being overwritten. The design does
@@ -242,9 +245,27 @@ The current version-controlled preview map assigns App, Governance, Reserve,
 and UI to GitHub Actions. App's configuration change was accepted after its
 exact-head PR #609 and fresh post-merge PR #610 canaries passed, following the
 earlier Governance post-merge canary. Ordinary native branch previews are now
-disabled for every target. Until #522, Vercel Git still owns App's `main -> v3`
-and legacy `v2 -> production` paths as well as every other main/production
-deployment; custom-`v3` semantics do not change in this preview step.
+disabled for every target.
+
+PR A of #522 adds a separate automatic `Vercel Main Deployment` workflow in
+literal `shadow` mode. It authenticates the exact successful upstream CI
+attempt, plans from each target's actual served SHA, stages and browser-smokes
+selected ordinary production candidates, builds selected App custom-`v3`
+output without uploading it, and verifies the durable transaction/recovery
+handoff. Shadow mode structurally cannot promote, deploy App `v3`, assign an
+alias, roll back, run a recovery mutation, or change Vercel Git ownership.
+Vercel Git remains the only public `main` activation owner during this proof.
+The coordinator reports exactly `no-target`, `superseded-before-journal`,
+`superseded-after-journal`, or `shadow-prepared`. A durable journal exists only
+for the latter two outcomes, which require `verified-no-mutation`; the other two
+require `not-required`. After the final sentinel accepts that matrix, the
+workflow writes a canonical redacted job summary and uploads
+`vercel-main-evidence-${run_id}-${run_attempt}` for 14 days.
+
+PR B is the separate reviewed cutover. It enables active mutation and disables
+the replaced native `main` paths in the same commit. App always retains
+`v2: true`; legacy `v2 -> production` remains Vercel-Git-owned and is verified
+independently before and after activation or recovery.
 
 `git.deploymentEnabled` branch rules disable only replaced native paths. The app
 configuration always retains `v2: true`. Outside a bounded shadow canary or
@@ -371,18 +392,18 @@ failure of the hosting/runtime platform.
 
 ### Tracked rollout
 
-Status at decision adoption on 2026-07-15:
+Rollout status reverified on 2026-07-24:
 
 | Issue                                                                  | Responsibility                                                 | Adoption status                                            |
 | ---------------------------------------------------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------- |
 | [#515](https://github.com/mento-protocol/frontend-monorepo/issues/515) | Epic and non-negotiable behavior                               | Open; rollout owner                                        |
 | [#516](https://github.com/mento-protocol/frontend-monorepo/issues/516) | Planner, deployment ID, environment primitives                 | Complete                                                   |
-| [#517](https://github.com/mento-protocol/frontend-monorepo/issues/517) | Maintainer-provisioned credentials and mapping                 | Open                                                       |
-| [#518](https://github.com/mento-protocol/frontend-monorepo/issues/518) | Manual no-cutover UI pilot and cost go/no-go                   | Open; pilot implementation merged, live acceptance pending |
-| [#519](https://github.com/mento-protocol/frontend-monorepo/issues/519) | Automatic UI previews and durable batching                     | Open                                                       |
-| [#520](https://github.com/mento-protocol/frontend-monorepo/issues/520) | App, governance, and reserve preview cutover                   | Open                                                       |
-| [#521](https://github.com/mento-protocol/frontend-monorepo/issues/521) | Main shadow proof and app `v3` semantics                       | Open                                                       |
-| [#522](https://github.com/mento-protocol/frontend-monorepo/issues/522) | Main transaction, cutover, rollback, and app `v2` preservation | Open                                                       |
+| [#517](https://github.com/mento-protocol/frontend-monorepo/issues/517) | Maintainer-provisioned credentials and mapping                 | Complete                                                   |
+| [#518](https://github.com/mento-protocol/frontend-monorepo/issues/518) | Manual no-cutover UI pilot and cost go/no-go                   | Complete                                                   |
+| [#519](https://github.com/mento-protocol/frontend-monorepo/issues/519) | Automatic UI previews and durable batching                     | Complete                                                   |
+| [#520](https://github.com/mento-protocol/frontend-monorepo/issues/520) | App, governance, and reserve preview cutover                   | Complete                                                   |
+| [#521](https://github.com/mento-protocol/frontend-monorepo/issues/521) | Main shadow proof and app `v3` semantics                       | Complete                                                   |
+| [#522](https://github.com/mento-protocol/frontend-monorepo/issues/522) | Main transaction, cutover, rollback, and app `v2` preservation | Open; automatic PR-A shadow proof, then PR-B cutover       |
 | [#523](https://github.com/mento-protocol/frontend-monorepo/issues/523) | Observation, savings proof, and migration cleanup              | Open; analyzer preparation merged, observation not started |
 
 Merged implementation evidence:
@@ -398,6 +419,14 @@ Merged implementation evidence:
 - [PR #528](https://github.com/mento-protocol/frontend-monorepo/pull/528) —
   public-safe cost-analysis tooling in preparation for #523; it does not start
   the observation window.
+- [PR #604](https://github.com/mento-protocol/frontend-monorepo/pull/604) and
+  [PR #609](https://github.com/mento-protocol/frontend-monorepo/pull/609) —
+  final Governance and App preview-ownership cutovers; all four ordinary
+  previews are now GitHub-owned.
+- [PR #616](https://github.com/mento-protocol/frontend-monorepo/pull/616) and
+  [PR #620](https://github.com/mento-protocol/frontend-monorepo/pull/620) —
+  repo-linked Vercel settings validation and isolated production-shadow
+  runtime, completing #521's protected main prerequisites.
 
 Canonical repository evidence:
 
@@ -410,6 +439,10 @@ Canonical repository evidence:
 - `.github/workflows/vercel-prebuilt-pilot.yml` and
   `.github/workflows/_vercel-prebuilt.yml` — merged manual pilot path, not an
   automatic cutover.
+- `.github/workflows/vercel-main-deployment.yml`,
+  `scripts/vercel-main-deployment.mjs`, and the exact-attempt, served-SHA,
+  transaction, and runtime helpers — automatic PR-A main shadow proof and the
+  tested PR-B activation/recovery contract.
 - [`docs/vercel-cost-validation.md`](../vercel-cost-validation.md) — private
   evidence boundary and public aggregate acceptance calculations.
 

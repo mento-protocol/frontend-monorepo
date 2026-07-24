@@ -286,6 +286,40 @@ the mock wallet and is not a replacement for the team-preview smoke above. See
 gates around it, including the independent Vercel state check that proves the
 exact repository, ref, and SHA before browser smoke starts.
 
+After the separately reviewed main activation, public-domain verification uses
+the credential-free main runtime smoke:
+
+```bash
+LOGICAL_TARGET=app \
+PUBLIC_URL=https://app.mento.org/ \
+DEPLOY_SHA=<lowercase-40-character-sha> \
+node scripts/vercel-main-runtime.mjs
+```
+
+Use the corresponding literal reviewed URL for `governance`, `reserve`, or
+`ui`; arbitrary URLs are rejected. The smoke binds the public response's exact
+`X-Mento-Deployment-Sha` and required security headers, observes successful
+same-origin document/script/style/font loads, rejects browser and console
+errors, failed critical static resources from any origin, and failed
+same-origin fetch/XHR traffic outside its narrow optional telemetry exception.
+It also performs one target-specific safe interaction.
+
+For Governance, Reserve, and UI, these literal public custom domains are the
+only protected runtime and rollback aliases. Generated Vercel aliases are
+candidate-verification evidence, not public-smoke or rollback endpoints.
+
+The App path is deliberately different from preview smoke. It first proves
+that `mento_e2e_wallet`, `mento_e2e_eager_connect`, and `mento_use_fork` are
+absent from local storage, then opens the real production wallet list. MetaMask
+and WalletConnect must be visible and the E2E Test Wallet must be absent. Never
+set a mock-wallet or fork flag to make a public production smoke pass.
+
+PR-A main shadow mode does not call this public smoke because Vercel Git still
+owns the public domains; it uses immutable production-shadow smoke for staged
+Governance, Reserve, and UI candidates and keeps App `v3` build-only. PR B runs
+the public smoke after each exact activation. The full transaction and recovery
+order is in `docs/vercel-deployments.md`.
+
 ## Activation flags
 
 Two equivalent activation paths. Env vars are read at build/dev-server start;

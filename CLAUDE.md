@@ -59,7 +59,7 @@ pnpm fork:seed:monad                 # Monad sibling of fork:seed (Reserve colla
 pnpm pr:description:test             # Test the required PR-description format validator
 pnpm vercel:deployment-state:test    # Test canonical read-only Vercel state and alias-drift evidence
 pnpm vercel:primitives:test          # Test affected planning, custom deployment IDs, and build-env contracts
-pnpm vercel:workflow:test            # Test the manual prebuilt pilot, REST lifecycle, CLI args, and HTTP/browser smoke
+pnpm vercel:workflow:test            # Test manual and automatic Vercel workflows, exact-main gating, transactions, and smoke
 pnpm vercel:preview:test             # Test preview state plus reusable smoke trust, native-adapter, and Git-ownership boundaries
 pnpm vercel:production-shadow:test   # Test state allowlisting, shadow helpers, and workflow invariants
 pnpm --filter app.mento.org test:production-shadow:routing  # Prove bypass headers do not cross Chromium redirects
@@ -149,6 +149,18 @@ canary, cutover, and rollback contract is in `docs/vercel-deployments.md`.
 Manual staged production URLs use the separate target-aware
 `test:production-shadow` command documented in `docs/vercel-deployments.md`; it
 never enables the mock wallet.
+
+The automatic `.github/workflows/vercel-main-deployment.yml` path runs only
+from the exact successful `CI/CD` attempt for `main`. PR A is literal `shadow`
+mode: Governance, Reserve, and UI may stage and smoke immutable production
+candidates, while App custom `v3` is build-only. Promote, alias, rollback, App
+deployment, recovery mutation, and Vercel Git ownership changes must remain
+unreachable until the separately reviewed PR-B cutover. Planning uses the SHA
+each public target actually serves, and every credential-bearing job uses only
+`vercel-cli-production` with `deployment: false`. The exact-attempt gate,
+journal, canonical redacted evidence artifact, public runtime smoke, App
+real-wallet check, rollback, and native-owner restoration procedures are in
+`docs/vercel-deployments.md`.
 
 ## Coding Conventions
 

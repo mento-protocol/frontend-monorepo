@@ -143,7 +143,7 @@ pnpm vercel:primitives:test
 # Test canonical read-only Vercel state and guarded alias-drift evidence
 pnpm vercel:deployment-state:test
 
-# Test the manual UI prebuilt workflow, GitHub Deployment lifecycle, and smoke controller
+# Test manual and automatic Vercel workflows, exact-main gating, transactions, and smoke
 pnpm vercel:workflow:test
 
 # Test preview state, reusable smoke trust, native-adapter, and Git ownership
@@ -468,14 +468,20 @@ The repository is set up with GitHub Actions for CI:
   post-merge canary gates in [PR #609](https://github.com/mento-protocol/frontend-monorepo/pull/609)
   and [PR #610](https://github.com/mento-protocol/frontend-monorepo/pull/610),
   respectively. Ordinary pull requests therefore have no native Vercel branch
-  preview path. Until the production cutover in
+  preview path. The automatic `Vercel Main Deployment` workflow now runs in
+  literal `shadow` mode to prove exact-attempt gating, served-SHA planning,
+  ordinary-target staging, App custom-`v3` build output, and the transaction
+  recovery handoff.
+  It cannot move a protected domain or change deployment ownership. Vercel Git
+  therefore still owns every public `main` deployment during PR A of
   [issue #522](https://github.com/mento-protocol/frontend-monorepo/issues/522),
-  Vercel Git still owns every `main`/production deployment, including App's
-  `main -> v3` path, and the legacy App `v2 -> production` path remains native;
-  App's custom `v3` deployment semantics are unchanged.
-  The version-controlled controller mode is `active`; per-target ownership and
-  exact expected Vercel configurations are executable invariants. The trusted
-  controller reads every selected target's bounded exact-head Vercel
+  including App's `main -> v3` path. The legacy App
+  `v2 -> production` path remains native. PR B enables activation and disables
+  only the replaced native `main` paths in one separately reviewed change.
+  The version-controlled preview-controller mode is `active`; per-target
+  preview ownership and exact expected Vercel configurations are executable
+  invariants. The trusted preview controller reads every selected target's
+  bounded exact-head Vercel
   configuration and rechecks it before dispatch. An exact native configuration
   suppresses GitHub dispatch only for a target whose canonical ownership mode
   is `github`; unknown or contradictory configuration fails closed.
@@ -509,6 +515,22 @@ The repository is set up with GitHub Actions for CI:
   mutation. Its exact-SHA contract, read-only protected-domain drift checks,
   guarded manual operator recovery, and direct smoke are documented in the same
   runbook.
+
+  `Vercel Main Deployment` starts only after the exact successful `CI/CD`
+  `main` attempt and literal `Build and Test` job. It plans from each target's
+  currently served SHA, so coalesced pushes cannot omit an affected change.
+  Governance, Reserve, and UI stage immutable production candidates with
+  `--prod --skip-domain` and run direct browser smoke. App custom `v3` remains
+  build-only because its upload is activation. The three public custom domains
+  are the ordinary targets' only protected runtime and rollback aliases;
+  generated Vercel aliases are candidate evidence only. A durable redacted
+  journal proves the handoff and recovery decision; PR-A shadow mode
+  structurally forbids promotion, alias assignment, rollback, App deployment,
+  and recovery mutation. The final job writes one canonical redacted step
+  summary and 14-day evidence artifact. See the main-shadow and PR-B sections of
+  [`docs/vercel-deployments.md`](docs/vercel-deployments.md) for the exact
+  operator evidence, public runtime proof, and rollback/native-owner restoration
+  order.
 
 Dependency-installing jobs use `.github/actions/pnpm-install`, which pins the
 Node/pnpm bootstrap, relies on `actions/setup-node` as the single pnpm-store
