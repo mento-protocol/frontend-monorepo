@@ -78,25 +78,19 @@ export const MAIN_TARGET_CONTRACTS = Object.freeze({
     target: null,
   }),
   governance: Object.freeze({
-    aliases: Object.freeze([
-      "governance.mento.org",
-      "governancementoorg-mentolabs.vercel.app",
-    ]),
+    aliases: Object.freeze(["governance.mento.org"]),
     customEnvironmentSlug: null,
     projectName: "governance.mento.org",
     target: "production",
   }),
   reserve: Object.freeze({
-    aliases: Object.freeze([
-      "reserve.mento.org",
-      "reservementoorg-mentolabs.vercel.app",
-    ]),
+    aliases: Object.freeze(["reserve.mento.org"]),
     customEnvironmentSlug: null,
     projectName: "reserve.mento.org",
     target: "production",
   }),
   ui: Object.freeze({
-    aliases: Object.freeze(["ui.mento.org", "uimentoorg-mentolabs.vercel.app"]),
+    aliases: Object.freeze(["ui.mento.org"]),
     customEnvironmentSlug: null,
     projectName: "ui.mento.org",
     target: "production",

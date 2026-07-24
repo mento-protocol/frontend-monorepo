@@ -651,7 +651,9 @@ const activationAmbiguities = [
     target: "reserve",
     code: "alias-set-ambiguous",
     mutate(input) {
-      input.priorStates.reserve.states[1].alias = "reserve.mento.org";
+      input.priorStates.reserve.states.push(
+        structuredClone(input.priorStates.reserve.states[0]),
+      );
     },
   },
   {
@@ -659,18 +661,17 @@ const activationAmbiguities = [
     target: "ui",
     code: "alias-set-ambiguous",
     mutate(input) {
-      input.priorStates.ui.states[1].alias = "unexpected.vercel.app";
+      input.priorStates.ui.states[0].alias = "unexpected.vercel.app";
     },
   },
   {
-    name: "deployment alias disagreement",
+    name: "malformed deployment alias set",
     target: "governance",
     code: "alias-set-ambiguous",
     mutate(input) {
-      input.priorStates.governance.states[1].aliases = [
+      input.priorStates.governance.states[0].aliases = [
         "governance.mento.org",
-        "governancementoorg-mentolabs.vercel.app",
-        "unexpected.vercel.app",
+        "governance.mento.org",
       ];
     },
   },
@@ -687,7 +688,7 @@ const activationAmbiguities = [
     target: "reserve",
     code: "project-identity-ambiguous",
     mutate(input) {
-      input.priorStates.reserve.states[1].projectName = "other-project";
+      input.priorStates.reserve.states[0].projectName = "other-project";
     },
   },
   {
@@ -724,10 +725,10 @@ const activationAmbiguities = [
   },
   {
     name: "conflicting rollback deployment ID",
-    target: "ui",
+    target: "app",
     code: "rollback-target-ambiguous",
     mutate(input) {
-      input.priorStates.ui.states[1].deploymentId = "dpl_other123";
+      input.priorStates.app.states[1].deploymentId = "dpl_other123";
     },
   },
   {
