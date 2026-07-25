@@ -45,6 +45,7 @@ import {
 } from "./vercel-prebuilt.mjs";
 import {
   assertVercelCliRuntimeContract,
+  BRACE_EXPANSION_RUNTIME_PATCH_PATH,
   PINNED_VERCEL_CLI_VERSION,
 } from "./vercel-cli-runtime-contract.mjs";
 import {
@@ -2237,17 +2238,87 @@ function validatePinnedVercelCliRuntimeFiles({
   rootPackageJsonPath,
   packageJsonPath,
   lockfilePath,
+  patchFilePath,
+  trustedRuntimeStates,
 }) {
   return assertVercelCliRuntimeContract({
     rootPackageJsonPath,
     packageJsonPath,
     lockfilePath,
+    patchFilePath,
+    trustedRuntimeStates,
   });
+}
+
+function protectedVercelCliRuntimePatchArtifact({
+  runtimeRoot,
+  expectedUid,
+  expectedGid,
+}) {
+  const patchesRoot = join(runtimeRoot, "patches");
+  if (optionalEntry(patchesRoot) === undefined) return undefined;
+  assertProtectedRuntimeEntry(patchesRoot, {
+    directory: true,
+    expectedUid,
+    expectedGid,
+  });
+  const protectedPatchesRoot = assertProtectedRuntimeDescendant({
+    root: runtimeRoot,
+    path: patchesRoot,
+    directory: true,
+    expectedUid,
+    expectedGid,
+  });
+  const patchFilePath = join(runtimeRoot, BRACE_EXPANSION_RUNTIME_PATCH_PATH);
+  if (optionalEntry(patchFilePath) !== undefined) {
+    assertProtectedRuntimeEntry(patchFilePath, {
+      directory: false,
+      expectedUid,
+      expectedGid,
+    });
+  }
+  return {
+    patchesRoot: protectedPatchesRoot.path,
+    patchFile:
+      optionalEntry(patchFilePath) === undefined
+        ? undefined
+        : assertProtectedRuntimeDescendant({
+            root: runtimeRoot,
+            path: patchFilePath,
+            directory: false,
+            expectedUid,
+            expectedGid,
+          }),
+  };
+}
+
+function assertExactVercelCliRuntimePatchArtifact({
+  patchArtifact,
+  patchRequired,
+}) {
+  if (!patchRequired) {
+    if (patchArtifact !== undefined) {
+      throw new Error("Trusted Vercel CLI runtime patch is unexpected");
+    }
+    return undefined;
+  }
+  if (patchArtifact?.patchFile === undefined) {
+    throw new Error("Trusted Vercel CLI runtime patch is missing");
+  }
+  const entries = readdirSync(patchArtifact.patchesRoot).toSorted();
+  if (
+    entries.length !== 1 ||
+    entries[0] !== BRACE_EXPANSION_RUNTIME_PATCH_PATH.split("/").at(-1)
+  ) {
+    throw new Error("Trusted Vercel CLI runtime patch artifacts are not exact");
+  }
+  return patchArtifact.patchFile;
 }
 
 export function stageTrustedVercelCliRuntimeManifest({
   controllerRoot,
   toolsRoot,
+  runtimeContractStates,
 }) {
   requiredText(controllerRoot, "Trusted controller path");
   requiredText(toolsRoot, "Trusted Vercel tools path");
@@ -2316,10 +2387,21 @@ export function stageTrustedVercelCliRuntimeManifest({
     expectedUid: currentUid,
     expectedGid: currentGid,
   });
-  validatePinnedVercelCliRuntimeFiles({
+  const sourcePatchArtifact = protectedVercelCliRuntimePatchArtifact({
+    runtimeRoot: sourceRoot,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  const sourceContract = validatePinnedVercelCliRuntimeFiles({
     rootPackageJsonPath: rootPackageJson.path,
     packageJsonPath: sourcePackageJson.path,
     lockfilePath: sourceLockfile.path,
+    patchFilePath: sourcePatchArtifact?.patchFile?.path,
+    trustedRuntimeStates: runtimeContractStates,
+  });
+  const sourcePatchFile = assertExactVercelCliRuntimePatchArtifact({
+    patchArtifact: sourcePatchArtifact,
+    patchRequired: sourceContract.patchRequired,
   });
 
   const runtimeRoot = join(canonicalToolsRoot, VERCEL_CLI_RUNTIME_DIRECTORY);
@@ -2339,8 +2421,12 @@ export function stageTrustedVercelCliRuntimeManifest({
     for (const [name, source] of [
       ["package.json", sourcePackageJson],
       ["pnpm-lock.yaml", sourceLockfile],
+      ...(sourcePatchFile === undefined
+        ? []
+        : [[BRACE_EXPANSION_RUNTIME_PATCH_PATH, sourcePatchFile]]),
     ]) {
       const destination = join(runtimeRoot, name);
+      mkdirSync(dirname(destination), { recursive: true, mode: 0o755 });
       copyFileSync(source.path, destination, fsConstants.COPYFILE_EXCL);
       chmodSync(destination, 0o444);
       const destinationEntry = assertProtectedRuntimeEntry(destination, {
@@ -2356,10 +2442,21 @@ export function stageTrustedVercelCliRuntimeManifest({
         throw new Error("Trusted Vercel CLI runtime copy is not independent");
       }
     }
-    validatePinnedVercelCliRuntimeFiles({
+    const runtimePatchArtifact = protectedVercelCliRuntimePatchArtifact({
+      runtimeRoot,
+      expectedUid: currentUid,
+      expectedGid: currentGid,
+    });
+    const runtimeContract = validatePinnedVercelCliRuntimeFiles({
       rootPackageJsonPath: rootPackageJson.path,
       packageJsonPath: join(runtimeRoot, "package.json"),
       lockfilePath: join(runtimeRoot, "pnpm-lock.yaml"),
+      patchFilePath: runtimePatchArtifact?.patchFile?.path,
+      trustedRuntimeStates: runtimeContractStates,
+    });
+    assertExactVercelCliRuntimePatchArtifact({
+      patchArtifact: runtimePatchArtifact,
+      patchRequired: runtimeContract.patchRequired,
     });
     return runtimeRoot;
   } catch (error) {
@@ -2438,10 +2535,20 @@ export function trustedStandaloneVercelCliPath({ controllerRoot, toolsRoot }) {
   ) {
     throw new Error("Trusted Vercel CLI runtime contract is writable");
   }
-  validatePinnedVercelCliRuntimeFiles({
+  const runtimePatchArtifact = protectedVercelCliRuntimePatchArtifact({
+    runtimeRoot,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  const runtimeContract = validatePinnedVercelCliRuntimeFiles({
     rootPackageJsonPath: rootPackageJson.path,
     packageJsonPath: runtimePackageJson.path,
     lockfilePath: runtimeLockfile.path,
+    patchFilePath: runtimePatchArtifact?.patchFile?.path,
+  });
+  assertExactVercelCliRuntimePatchArtifact({
+    patchArtifact: runtimePatchArtifact,
+    patchRequired: runtimeContract.patchRequired,
   });
 
   const virtualStoreRoot = join(runtimeRoot, "node_modules", ".pnpm");
