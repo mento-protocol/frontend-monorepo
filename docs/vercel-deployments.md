@@ -810,6 +810,18 @@ only the two reviewed package-name false positives for Vercel's unrelated
 `sandbox` CLI dependency, so root application suppressions cannot mask a
 standalone CLI vulnerability.
 
+For the two-PR manifest and lockfile rotation before #645, the trusted
+default-branch controller has a literal temporary mapping from each current or
+reviewed-next lockfile SHA-256 to the SHA-256 of its matching canonical, sorted
+root override object. The standalone manifest must exactly mirror that root
+override state, so old-lock/new-manifest and new-lock/old-manifest hybrids
+reject. Candidate source cannot supply or extend this mapping. The ordinary
+current-main manifest and lockfile pair therefore continues to verify until
+#645 changes both; then remove the old digest/override pair immediately so the
+controller returns to a single-pair binding. The manifest's exact
+`vercel@56.2.0` pin and every other lockfile check remain in force throughout
+the rotation.
+
 The raw Vercel-pulled `.env.<target>.local` remains private and runner-owned.
 Before staging settings into candidate storage, the trusted controller parses
 that file, selects only the target/environment variables classified

@@ -54,13 +54,23 @@ runtime in the same PR:
      --ignore-workspace
    ```
 
-3. Review the lockfile diff, calculate its exact digest, and replace
-   `PINNED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256` in
-   `scripts/vercel-cli-runtime-contract.mjs`:
+3. Review the lockfile diff and calculate its exact digest:
 
    ```bash
    shasum -a 256 scripts/vercel-cli-runtime/pnpm-lock.yaml
    ```
+
+   Rotate the manifest and lockfile state in two PRs. First, land a trusted
+   default-branch controller change that maps each reviewed current/next
+   lockfile digest to the SHA-256 of its matching canonical, sorted root
+   override object. The standalone manifest must remain an exact mirror of
+   that root state, and cross-paired old-lock/new-manifest or
+   new-lock/old-manifest hybrids must reject. Candidate or PR-authored source
+   must never supply or extend this mapping. Then land the matching manifest
+   and lockfile state in #645, keeping the manifest's exact `vercel@56.2.0`
+   pin and all registry-only checks intact. Immediately after #645 merges,
+   remove the former digest/override pair from the controller mapping and
+   restore the single-pair contract.
 
 4. Verify the root/standalone pins, exact manifest, override mirror, reviewed
    lockfile digest, and registry-only lockfile policy:
