@@ -44,9 +44,12 @@ const CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
   "505674eac656c26fce2fe912a2b14228f8f4f3edd4b3d6d7b0f2c9f08c276d76";
 const NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
   "884e3c4186c9d5faee0e6cf710b112e7e60cdae5d46be13da1b2b0ae9cf11eb0";
+const BRACE_EXPANSION_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
+  "190bccb28051d5c006825163f9f589588c74f9bb1ed96e1afcfed6ede16560f4";
 const REVIEWED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 = new Set([
   CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
   NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
+  BRACE_EXPANSION_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
 ]);
 
 function deploymentId(overrides = {}) {
@@ -70,7 +73,38 @@ function createVersionContractFixture() {
       join(runtimeRoot, file),
     );
   }
+  const patchDirectory = join(runtimeRoot, "patches");
+  mkdirSync(patchDirectory);
+  copyFileSync(
+    join(
+      repoRoot,
+      "scripts",
+      "vercel-cli-runtime",
+      "patches",
+      "brace-expansion@2.1.2.patch",
+    ),
+    join(patchDirectory, "brace-expansion@2.1.2.patch"),
+  );
   return fixtureRoot;
+}
+
+function toUnpatchedVercelCliRuntimeLockfile(lockfile) {
+  return lockfile
+    .replace("  brace-expansion@>=5 <5.0.8: 5.0.8\n", "")
+    .replace(
+      "\npatchedDependencies:\n  brace-expansion@2.1.2:\n    hash: 5d7a425f992e872546ea180bccc67f32848a1537176001c007cac001ff8be3b1\n    path: patches/brace-expansion@2.1.2.patch\n",
+      "",
+    )
+    .replaceAll(
+      "2.1.2(patch_hash=5d7a425f992e872546ea180bccc67f32848a1537176001c007cac001ff8be3b1)",
+      "2.1.2",
+    );
+}
+
+function toUnpatchedVercelCliRuntimeOverrides(overrides) {
+  const unpatched = { ...overrides };
+  delete unpatched["brace-expansion@>=5 <5.0.8"];
+  return unpatched;
 }
 
 function toNextVercelCliRuntimeLockfile(lockfile) {
@@ -111,19 +145,6 @@ function toCurrentVercelCliRuntimeLockfile(lockfile) {
       "  tar@7.5.21:\n    dependencies:",
       "  tar@7.5.20:\n    dependencies:",
     );
-}
-
-function toNextVercelCliRuntimeOverrides(overrides) {
-  const next = {
-    ...overrides,
-    "@mysten/sui": "1.45.2",
-    "postcss@<8.5.18": "8.5.18",
-    "tar@>=7.0.0 <7.5.21": "7.5.21",
-    "valibot@>=1.0.0 <1.4.2": "1.4.2",
-  };
-  delete next["postcss@<8.5.10"];
-  delete next["tar@>=7.0.0 <7.5.16"];
-  return next;
 }
 
 function toCurrentVercelCliRuntimeOverrides(overrides) {
@@ -278,7 +299,7 @@ test("resolved Next.js and exact Vercel CLI satisfy custom-ID prerequisites", ()
     vercel: "56.2.0",
     vercelCliRuntime: {
       lockfileSha256: prerequisites.vercelCliRuntime.lockfileSha256,
-      patchRequired: false,
+      patchRequired: true,
       vercel: "56.2.0",
     },
   };
@@ -321,24 +342,30 @@ test("trusted controller accepts only the reviewed Vercel CLI runtime lockfile r
     packageJsonPath,
     lockfilePath,
   };
+  const patchPath = join(
+    fixtureRoot,
+    "scripts",
+    "vercel-cli-runtime",
+    "patches",
+    "brace-expansion@2.1.2.patch",
+  );
   try {
     const repositoryLockfile = readFileSync(lockfilePath, "utf8");
     const repositoryRootOverrides = JSON.parse(
       readFileSync(contractPaths.rootPackageJsonPath, "utf8"),
     ).pnpm.overrides;
-    const repositoryDigest =
-      assertVercelCliRuntimeContract(contractPaths).lockfileSha256;
-    assert.ok(
-      REVIEWED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256.has(repositoryDigest),
+    const repositoryDigest = assertVercelCliRuntimeContract({
+      ...contractPaths,
+      patchFilePath: patchPath,
+    }).lockfileSha256;
+    assert.equal(
+      repositoryDigest,
+      BRACE_EXPANSION_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
     );
-    const reviewedCurrentLockfile =
-      repositoryDigest === CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256
-        ? repositoryLockfile
-        : toCurrentVercelCliRuntimeLockfile(repositoryLockfile);
     const reviewedNextLockfile =
-      repositoryDigest === NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256
-        ? repositoryLockfile
-        : toNextVercelCliRuntimeLockfile(repositoryLockfile);
+      toUnpatchedVercelCliRuntimeLockfile(repositoryLockfile);
+    const reviewedCurrentLockfile =
+      toCurrentVercelCliRuntimeLockfile(reviewedNextLockfile);
 
     assert.equal(
       toCurrentVercelCliRuntimeLockfile(reviewedNextLockfile),
@@ -349,11 +376,11 @@ test("trusted controller accepts only the reviewed Vercel CLI runtime lockfile r
       reviewedNextLockfile,
     );
 
-    const reviewedCurrentOverrides = toCurrentVercelCliRuntimeOverrides(
+    const reviewedNextOverrides = toUnpatchedVercelCliRuntimeOverrides(
       repositoryRootOverrides,
     );
-    const reviewedNextOverrides = toNextVercelCliRuntimeOverrides(
-      repositoryRootOverrides,
+    const reviewedCurrentOverrides = toCurrentVercelCliRuntimeOverrides(
+      reviewedNextOverrides,
     );
     const prePatchStates = [
       {
@@ -365,6 +392,22 @@ test("trusted controller accepts only the reviewed Vercel CLI runtime lockfile r
         overridesSha256: canonicalOverrideSha256(reviewedNextOverrides),
       },
     ];
+
+    const rootPackage = JSON.parse(
+      readFileSync(contractPaths.rootPackageJsonPath, "utf8"),
+    );
+    const runtimePackage = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+    delete rootPackage.pnpm.patchedDependencies;
+    delete runtimePackage.pnpm.patchedDependencies;
+    writeFileSync(
+      contractPaths.rootPackageJsonPath,
+      `${JSON.stringify(rootPackage, null, 2)}\n`,
+    );
+    writeFileSync(
+      packageJsonPath,
+      `${JSON.stringify(runtimePackage, null, 2)}\n`,
+    );
+    rmSync(patchPath);
 
     writeVercelCliRuntimeOverrides({
       ...contractPaths,
@@ -417,7 +460,7 @@ test("trusted controller accepts only the reviewed Vercel CLI runtime lockfile r
       /runtime lockfile is not exact/,
     );
 
-    const patchPath = join(
+    const fixturePatchPath = join(
       fixtureRoot,
       "scripts",
       "vercel-cli-runtime",
@@ -428,7 +471,7 @@ test("trusted controller accepts only the reviewed Vercel CLI runtime lockfile r
       recursive: true,
     });
     const patchContents = "diff --git a/index.js b/index.js\n";
-    writeFileSync(patchPath, patchContents);
+    writeFileSync(fixturePatchPath, patchContents);
     const patchedRootPackage = JSON.parse(
       readFileSync(contractPaths.rootPackageJsonPath, "utf8"),
     );
@@ -472,7 +515,7 @@ test("trusted controller accepts only the reviewed Vercel CLI runtime lockfile r
     assert.deepEqual(
       assertVercelCliRuntimeContract({
         ...contractPaths,
-        patchFilePath: patchPath,
+        patchFilePath: fixturePatchPath,
         trustedRuntimeStates: patchedStates,
       }),
       {
@@ -499,7 +542,7 @@ test("trusted controller accepts only the reviewed Vercel CLI runtime lockfile r
       () =>
         assertVercelCliRuntimeContract({
           ...contractPaths,
-          patchFilePath: patchPath,
+          patchFilePath: fixturePatchPath,
           trustedRuntimeStates: patchedStates,
         }),
       /runtime manifest is not exact/,

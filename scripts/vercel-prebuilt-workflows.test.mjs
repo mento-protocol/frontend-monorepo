@@ -355,6 +355,11 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
     manifest.scripts["supply-chain:lockfile-lint"],
     "node scripts/lockfile-lint.mjs && LOCKFILE_LINT_ROOT=scripts/vercel-pnpm-runtime node scripts/lockfile-lint.mjs && LOCKFILE_LINT_ROOT=scripts/vercel-cli-runtime node scripts/lockfile-lint.mjs",
   );
+  assert.match(
+    manifest.scripts["supply-chain:lockfile-lint:test"],
+    /scripts\/brace-expansion-regression\.test\.mjs/,
+  );
+  assert.match(manifest.scripts.test, /pnpm supply-chain:lockfile-lint:test/);
   assert.deepEqual(bootstrapManifest.dependencies, {
     "@pnpm/linux-x64": "10.34.4",
   });

@@ -2145,10 +2145,28 @@ test("standalone Vercel CLI runtime is exact, override-aligned, and independentl
       );
       chmodSync(join(sourceRoot, file), 0o444);
     }
+    const patchPath = join(
+      sourceRoot,
+      "patches",
+      "brace-expansion@2.1.2.patch",
+    );
+    mkdirSync(dirname(patchPath), { recursive: true });
+    copyFileSync(
+      join(
+        REPOSITORY_ROOT,
+        "scripts",
+        "vercel-cli-runtime",
+        "patches",
+        "brace-expansion@2.1.2.patch",
+      ),
+      patchPath,
+    );
+    chmodSync(patchPath, 0o444);
     for (const path of [
       controllerRoot,
       join(controllerRoot, "scripts"),
       sourceRoot,
+      dirname(patchPath),
       toolsRoot,
     ]) {
       chmodSync(path, 0o755);
@@ -2162,7 +2180,11 @@ test("standalone Vercel CLI runtime is exact, override-aligned, and independentl
       runtimeRoot,
       join(realpathSync(toolsRoot), "vercel-cli-runtime"),
     );
-    for (const file of ["package.json", "pnpm-lock.yaml"]) {
+    for (const file of [
+      "package.json",
+      "pnpm-lock.yaml",
+      "patches/brace-expansion@2.1.2.patch",
+    ]) {
       const source = join(sourceRoot, file);
       const destination = join(runtimeRoot, file);
       const sourceEntry = lstatSync(source);
@@ -2526,10 +2548,28 @@ test("standalone Vercel CLI resolver enforces and executes the exact protected l
       );
       chmodSync(join(sourceRoot, file), 0o444);
     }
+    const patchPath = join(
+      sourceRoot,
+      "patches",
+      "brace-expansion@2.1.2.patch",
+    );
+    mkdirSync(dirname(patchPath), { recursive: true });
+    copyFileSync(
+      join(
+        REPOSITORY_ROOT,
+        "scripts",
+        "vercel-cli-runtime",
+        "patches",
+        "brace-expansion@2.1.2.patch",
+      ),
+      patchPath,
+    );
+    chmodSync(patchPath, 0o444);
     for (const path of [
       controllerRoot,
       join(controllerRoot, "scripts"),
       sourceRoot,
+      dirname(patchPath),
       toolsRoot,
     ]) {
       chmodSync(path, 0o755);

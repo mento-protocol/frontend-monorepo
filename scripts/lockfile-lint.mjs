@@ -19,6 +19,11 @@
  *      reject every actually affected pnpm package version explicitly. This
  *      keeps the narrowly scoped scanner correction from masking a downgrade.
  *
+ *   4. brace-expansion advisory guard: the OSV correction for the reviewed
+ *      2.1.2 backport is advisory-wide. Reject every affected <=5.0.7 release
+ *      unless it is exactly 2.1.2 with the reviewed patch declaration and
+ *      patched snapshot, so the correction cannot mask a future 3.x/4.x entry.
+ *
  * Ported from monitoring-monorepo. Frontend adaptations:
  *   - The override-floor gate (monitoring's gate 3) is intentionally omitted:
  *     30 of frontend's pnpm.overrides deliberately use `>=patched` floor
@@ -37,6 +42,11 @@
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve, join, relative } from "node:path";
 import process from "node:process";
+
+import {
+  BRACE_EXPANSION_PATCH_SHA256,
+  BRACE_EXPANSION_RUNTIME_PATCH_PATH,
+} from "./vercel-cli-runtime-contract.mjs";
 
 // ROOT defaults to cwd so the script works from any worktree root without
 // path-hardcoding. Tests override via LOCKFILE_LINT_ROOT env var so they can
@@ -139,11 +149,90 @@ const packagesSection =
         snapshotsSectionStart !== -1 ? snapshotsSectionStart : undefined,
       )
     : "";
+const snapshotsSection =
+  snapshotsSectionStart !== -1
+    ? lockfileText.slice(snapshotsSectionStart + "\nsnapshots:\n".length)
+    : "";
 
 if (!packagesSection.trim()) {
   // An empty packages section is only valid for a completely empty monorepo.
   fail("pnpm-lock.yaml has an empty `packages:` section — unexpected.");
   process.exit(1);
+}
+
+// The scanner configuration can suppress only an advisory ID, not one package
+// version. GHSA-mh99-v99m-4gvg affects brace-expansion through 5.0.7, while
+// this repository corrects only 2.1.2 with a reviewed local patch and upgrades
+// native v5 consumers to 5.0.8. Bind the suppression to that exact lock state.
+const braceExpansionVersions = new Set(
+  [
+    ...packagesSection.matchAll(/^ {2}'?brace-expansion@([^':\s(]+)'?:\s*$/gm),
+  ].map((entry) => entry[1]),
+);
+const patchedDependenciesStart = lockfileText.indexOf(
+  "\npatchedDependencies:\n",
+);
+const importersStart =
+  patchedDependenciesStart === -1
+    ? -1
+    : lockfileText.indexOf("\nimporters:\n", patchedDependenciesStart);
+const patchedDependenciesSection =
+  patchedDependenciesStart !== -1 && importersStart !== -1
+    ? lockfileText.slice(
+        patchedDependenciesStart + "\npatchedDependencies:\n".length,
+        importersStart,
+      )
+    : "";
+const reviewedPatchEntries = [
+  ...patchedDependenciesSection.matchAll(
+    /^ {2}brace-expansion@2\.1\.2:\n {4}hash: ([0-9a-f]{64})\n {4}path: (\S+)\s*$/gm,
+  ),
+];
+const reviewedPatchPaths = new Set([
+  BRACE_EXPANSION_RUNTIME_PATCH_PATH,
+  `scripts/vercel-cli-runtime/${BRACE_EXPANSION_RUNTIME_PATCH_PATH}`,
+]);
+const hasReviewedBraceExpansionPatch =
+  reviewedPatchEntries.length === 1 &&
+  reviewedPatchEntries[0][1] === BRACE_EXPANSION_PATCH_SHA256 &&
+  reviewedPatchPaths.has(reviewedPatchEntries[0][2]);
+const braceExpansionSnapshots = [
+  ...snapshotsSection.matchAll(
+    /^ {2}'?brace-expansion@([^':\s(]+)(?:\(patch_hash=([0-9a-f]{64})\))?'?:[ \t]*(?:\{\})?[ \t]*$/gm,
+  ),
+].map((entry) => ({ patchSha256: entry[2], version: entry[1] }));
+
+/**
+ * Treat a non-stable version as affected so a prerelease cannot bypass the
+ * advisory guard without an explicit review.
+ * @param {string} version
+ */
+function isAffectedBraceExpansionVersion(version) {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+  if (!match) return true;
+  const value = match.slice(1).map(Number);
+  const fixed = [5, 0, 8];
+  for (let index = 0; index < value.length; index++) {
+    if (value[index] !== fixed[index]) return value[index] < fixed[index];
+  }
+  return false;
+}
+
+for (const version of braceExpansionVersions) {
+  if (!isAffectedBraceExpansionVersion(version)) continue;
+  const versionSnapshots = braceExpansionSnapshots.filter(
+    (entry) => entry.version === version,
+  );
+  const isReviewedPatchedState =
+    version === "2.1.2" &&
+    hasReviewedBraceExpansionPatch &&
+    versionSnapshots.length === 1 &&
+    versionSnapshots[0].patchSha256 === BRACE_EXPANSION_PATCH_SHA256;
+  if (!isReviewedPatchedState) {
+    fail(
+      `brace-expansion ${version} is affected by GHSA-mh99-v99m-4gvg and is not the exact reviewed patched 2.1.2 state; require fixed >=5.0.8 or the reviewed 2.1.2 patch.`,
+    );
+  }
 }
 
 // ── 2. Integrity validation ───────────────────────────────────────────────────

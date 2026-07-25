@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
+import process from "node:process";
 import { test } from "node:test";
 
 const pnpmDirectory = join(process.cwd(), "node_modules", ".pnpm");

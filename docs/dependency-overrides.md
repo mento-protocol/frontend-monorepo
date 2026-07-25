@@ -122,6 +122,12 @@ hardlinked, drifted, or writable patch artifact. Keep both existing unpatched
 runtime states during the transition; remove them only in the reviewed cleanup
 after the patched state is serving on `main`.
 
+The root `pnpm test` chain runs `pnpm supply-chain:lockfile-lint:test` after
+installing dependencies. This exercises the patched 2.1.2 behavior in hosted
+CI. The lockfile lint also rejects every affected brace-expansion release
+through 5.0.7 unless the lock contains the exact reviewed patched 2.1.2 state,
+so the advisory-wide OSV correction cannot hide a future 3.x or 4.x entry.
+
 ## Wormhole Connect (`@wormhole-foundation/wormhole-connect`)
 
 `app.mento.org` uses Wormhole Connect only for the `/bridge` route. The widget
@@ -139,7 +145,7 @@ TSX, or app config imports of those packages in `apps/app.mento.org`. Do not
 remove them independently, and do not start using them directly in Mento UI
 code.
 
-As of the 2026-07-21 remediation, `osv-scanner.toml` has 21 ignored
+As of the 2026-07-25 remediation, `osv-scanner.toml` has 22 ignored
 vulnerability blocks, and 12 blocks mention the Wormhole Connect dependency
 chain in the reason or surrounding comments. That cluster is currently
 protobufjs including `@protobufjs/utf8` (11 blocks) and uuid (1 block). Axios
