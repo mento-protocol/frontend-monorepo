@@ -38,7 +38,7 @@
     "quality:coverage": "turbo run test:coverage --filter=app.mento.org --filter=governance.mento.org --filter=@mento-protocol/ui --filter=@repo/web3",
     "rebuild": "pnpm run clean && turbo run build",
     "supply-chain:lockfile-lint": "node scripts/lockfile-lint.mjs && LOCKFILE_LINT_ROOT=scripts/vercel-pnpm-runtime node scripts/lockfile-lint.mjs && LOCKFILE_LINT_ROOT=scripts/vercel-cli-runtime node scripts/lockfile-lint.mjs",
-    "supply-chain:lockfile-lint:test": "node scripts/lockfile-lint.test.mjs",
+    "supply-chain:lockfile-lint:test": "node --test scripts/lockfile-lint.test.mjs scripts/brace-expansion-regression.test.mjs",
     "supply-chain:version-skew": "node scripts/version-skew-check.mjs",
     "supply-chain:version-skew:test": "node scripts/version-skew-check.test.mjs",
     "test": "pnpm adr:check:test && pnpm vercel:primitives:test && pnpm vercel:deployment-state:test && pnpm vercel:production-shadow:test && pnpm vercel:workflow:test && pnpm vercel:preview:test && pnpm vercel:cost:test && turbo run test",
@@ -93,6 +93,7 @@
       "axios@<1.18.0": ">=1.18.0",
       "basic-ftp@<5.3.1": "5.3.1",
       "bn.js@>=5.0.0 <5.2.3": ">=5.2.3",
+      "brace-expansion@>=5 <5.0.8": "5.0.8",
       "brace-expansion@<2.1.2": "2.1.2",
       "color-string@<1.5.5": ">=1.5.5",
       "defu@<6.1.5": ">=6.1.5",
@@ -144,6 +145,9 @@
       "yaml@>=2.0.0 <2.8.3": ">=2.8.3",
       "yaml@<1.10.3": ">=1.10.3 <2",
       "zod": "^4.4.3"
+    },
+    "patchedDependencies": {
+      "brace-expansion@2.1.2": "scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch"
     },
     "packageExtensions": {
       "@hookform/resolvers@5.2.2": {

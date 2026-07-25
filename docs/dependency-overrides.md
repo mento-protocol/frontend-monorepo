@@ -24,6 +24,15 @@ root workspace. Its
 resolutions. Its only dependency must remain the same exact Vercel version as
 the root `devDependencies.vercel` pin.
 
+The two manifests also mirror the `brace-expansion@2.1.2` local patch while
+keeping a single reviewed artifact at
+`scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch`: the root
+`pnpm.patchedDependencies` entry uses that repository-relative path and the
+standalone runtime entry uses `patches/brace-expansion@2.1.2.patch`. The patch
+backports juliangruber/brace-expansion commit `a1bd339`'s CVE-2026-14257 total
+expansion-length bound without forcing legacy minimatch consumers onto the
+incompatible 5.x CommonJS/API line.
+
 After changing the root Vercel pin or any root override, update this protected
 runtime in the same PR:
 
@@ -41,6 +50,9 @@ runtime in the same PR:
    const runtime = JSON.parse(await readFile(path, "utf8"));
    runtime.dependencies.vercel = root.devDependencies.vercel;
    runtime.pnpm.overrides = root.pnpm.overrides;
+   runtime.pnpm.patchedDependencies = {
+     "brace-expansion@2.1.2": "patches/brace-expansion@2.1.2.patch",
+   };
    await writeFile(path, `${JSON.stringify(runtime, null, 2)}\n`);
    '
    ```
@@ -126,10 +138,16 @@ Most entries in `pnpm.overrides` are range-scoped CVE floors, e.g.:
 "axios@<1.18.0": ">=1.18.0"
 ```
 
-`brace-expansion` is also conditional: `"brace-expansion@<2.1.2": "2.1.2"`
-only rewrites vulnerable versions below `2.1.2`. Remove it once
-`pnpm why -r brace-expansion` shows that every consumer resolves a patched
-version without the override.
+`brace-expansion` has two conditional floors: `"brace-expansion@<2.1.2":
+"2.1.2"` retains the legacy v2-compatible floor, and
+`"brace-expansion@>=5 <5.0.8": "5.0.8"` upgrades only vulnerable native v5
+consumers. `brace-expansion@2.1.2` itself is locally patched at
+`scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch` with the
+total-expansion-length cap from juliangruber/brace-expansion commit `a1bd339`.
+Remove the patch and its scoped OSV suppressions when no v2 consumer remains
+or an upstream fixed v2 release can replace it; remove each range override
+once `pnpm why -r brace-expansion` shows its affected consumers resolving a
+fixed version without the override.
 
 These self-expire: once every dependency graph naturally resolves a version
 inside the target range, the override becomes a no-op and can be deleted
@@ -147,6 +165,7 @@ no longer applies.
 
 | Override                | Reason                                                                                                                                                                                                                                                                                | Added in                                                                                          | Removal condition                                                                                                                                                         |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@mysten/sui`           | Pins the Sui SDK release selected by the July 2026 OSV remediation.                                                                                                                                                                                                                   | `ddf02828`                                                                                        | Remove when all transitive Sui consumers converge on a safe release without a root-wide pin.                                                                              |
 | `@tanstack/query-core`  | Dedupe/pin alongside `@tanstack/react-query` — `query-core` must match the pinned `react-query` version.                                                                                                                                                                              | `92facd3` (PR #356)                                                                               | Same condition as `@tanstack/react-query` below — bump both together.                                                                                                     |
 | `@tanstack/react-query` | Compatibility pin. Releases past `5.90.16` caused a production QueryClient context split in `app.mento.org` (see README).                                                                                                                                                             | `54e1ee6`, version pinned to exact `5.90.16` in `92facd3` (PR #356)                               | Once a newer release is production-built and browser-verified on the swap and pools routes (README), bump the catalog and this override together.                         |
 | `esbuild`               | Pin a patched `esbuild` for production build safety.                                                                                                                                                                                                                                  | `793a187` (as a floor), tightened to an exact pin in `92facd3` (PR #356)                          | Once the transitive `esbuild` resolved by the build toolchain (tsup, vite, etc.) is `>=0.28.1` by default.                                                                |

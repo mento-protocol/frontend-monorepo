@@ -794,7 +794,8 @@ state.
 The protected production-shadow Vercel CLI is a standalone frozen install.
 Trusted controller code first requires its manifest to contain only
 `vercel@56.2.0`, requires its `pnpm.overrides` object to equal the root security
-overrides, and binds every byte of
+overrides, requires its `brace-expansion@2.1.2` patch entry to use the shared
+reviewed artifact with its runtime-relative path, and binds every byte of
 `scripts/vercel-cli-runtime/pnpm-lock.yaml` to a reviewed SHA-256. It copies the
 manifest and lockfile as independent runner-owned `0444`, single-link files
 under `$TOOLS_PATH/vercel-cli-runtime`; CI never generates or updates that
@@ -806,9 +807,11 @@ action requires the package name/version, CLI path, ownership, permissions, and
 link counts to match the fixed contract, then rejects every symbolic link whose
 resolved target escapes `$TOOLS_PATH`. The standalone lock receives the same
 registry/integrity lint as the root lock. Its dedicated OSV policy contains
-only the two reviewed package-name false positives for Vercel's unrelated
-`sandbox` CLI dependency, so root application suppressions cannot mask a
-standalone CLI vulnerability.
+the two reviewed package-name false positives for Vercel's unrelated `sandbox`
+CLI dependency plus the short-lived GHSA-mh99-v99m-4gvg suppression for the
+locally patched `brace-expansion@2.1.2` CVE-2026-14257 backport. The latter
+expires when the patch can be removed, so root application suppressions cannot
+mask a standalone CLI vulnerability.
 
 For the two-PR manifest and lockfile rotation before #645, the trusted
 default-branch controller has a literal temporary mapping from each current or

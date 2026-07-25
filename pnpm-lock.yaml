@@ -120,6 +120,7 @@ overrides:
   basic-ftp@<5.3.1: 5.3.1
   bn.js@>=5.0.0 <5.2.3: '>=5.2.3'
   brace-expansion@<2.1.2: 2.1.2
+  brace-expansion@>=5 <5.0.8: 5.0.8
   color-string@<1.5.5: '>=1.5.5'
   defu@<6.1.5: '>=6.1.5'
   diff@<5.2.0: '>=5.2.0'
@@ -172,6 +173,11 @@ overrides:
   zod: ^4.4.3
 
 packageExtensionsChecksum: sha256-6HWoSaFsGJy3iPnqtfclkrqfmAo7vnHbY4ulU8b+A5M=
+
+patchedDependencies:
+  brace-expansion@2.1.2:
+    hash: 5d7a425f992e872546ea180bccc67f32848a1537176001c007cac001ff8be3b1
+    path: scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch
 
 importers:
 
@@ -8359,9 +8365,9 @@ packages:
   brace-expansion@2.1.2:
     resolution: {integrity: sha512-w5JZcKgdhDOgOwm8H+KgbosopHMuGcl6qbulwjtz3SM7I7P3yW1eAjzMPLrIE+NQ9vjgANKHWeMHnrT0OXW1oA==}
 
-  brace-expansion@5.0.7:
-    resolution: {integrity: sha512-7oFy703dxfY3/NLxC1fh2SUCQ0H9rmAY+5EpDVfXjUTTs+HEwR2nYaqLv+GWcTsumwxPfiz6CzCNkwXwBUwqCA==}
-    engines: {node: 18 || 20 || >=22}
+  brace-expansion@5.0.8:
+    resolution: {integrity: sha512-JZyDyq3D4AUifKTPOB7DELf6XsB3WdPuNxCtob1vFXPsSXhdAiHBWJ/tJ8HAc9aH84BK+5JFZLNkJKx3G9kzQg==}
+    engines: {node: 20 || >=22}
 
   braces@3.0.3:
     resolution: {integrity: sha512-yQbXgO/OSZVD2IsiLlro+7Hf6Q18EJrKSEsdoMzKePKXct3gvD8oLcOQdIzGupr5Fj+EDe8gO/lxc1BzfMpxvA==}
@@ -25243,11 +25249,11 @@ snapshots:
 
   bowser@2.13.1: {}
 
-  brace-expansion@2.1.2:
+  brace-expansion@2.1.2(patch_hash=5d7a425f992e872546ea180bccc67f32848a1537176001c007cac001ff8be3b1):
     dependencies:
       balanced-match: 1.0.2
 
-  brace-expansion@5.0.7:
+  brace-expansion@5.0.8:
     dependencies:
       balanced-match: 4.0.4
 
@@ -28668,19 +28674,19 @@ snapshots:
 
   minimatch@10.2.5:
     dependencies:
-      brace-expansion: 5.0.7
+      brace-expansion: 5.0.8
 
   minimatch@3.1.2:
     dependencies:
-      brace-expansion: 2.1.2
+      brace-expansion: 2.1.2(patch_hash=5d7a425f992e872546ea180bccc67f32848a1537176001c007cac001ff8be3b1)
 
   minimatch@3.1.5:
     dependencies:
-      brace-expansion: 2.1.2
+      brace-expansion: 2.1.2(patch_hash=5d7a425f992e872546ea180bccc67f32848a1537176001c007cac001ff8be3b1)
 
   minimatch@9.0.5:
     dependencies:
-      brace-expansion: 2.1.2
+      brace-expansion: 2.1.2(patch_hash=5d7a425f992e872546ea180bccc67f32848a1537176001c007cac001ff8be3b1)
 
   minimist@1.2.8: {}
 

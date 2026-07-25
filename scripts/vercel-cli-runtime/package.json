@@ -23,6 +23,7 @@
       "axios@<1.18.0": ">=1.18.0",
       "basic-ftp@<5.3.1": "5.3.1",
       "bn.js@>=5.0.0 <5.2.3": ">=5.2.3",
+      "brace-expansion@>=5 <5.0.8": "5.0.8",
       "brace-expansion@<2.1.2": "2.1.2",
       "color-string@<1.5.5": ">=1.5.5",
       "defu@<6.1.5": ">=6.1.5",
@@ -74,6 +75,9 @@
       "yaml@>=2.0.0 <2.8.3": ">=2.8.3",
       "yaml@<1.10.3": ">=1.10.3 <2",
       "zod": "^4.4.3"
+    },
+    "patchedDependencies": {
+      "brace-expansion@2.1.2": "patches/brace-expansion@2.1.2.patch"
     }
   }
 }
