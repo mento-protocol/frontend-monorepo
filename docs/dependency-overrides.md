@@ -98,6 +98,30 @@ Never run a general workspace install to regenerate this lockfile. That would
 allow workspace links into a runtime whose isolation depends on a standalone
 registry-only graph.
 
+### Reviewed brace-expansion patch rotation
+
+The controller has one reviewed successor state for the
+`brace-expansion@2.1.2` patch. Its three SHA-256 constants in
+`scripts/vercel-cli-runtime-contract.mjs` bind the standalone lockfile,
+canonical sorted root override object, and patch bytes. Replace all three
+together for any later reviewed patch revision; never generalize this into a
+candidate-provided allowlist.
+
+The later runtime-state PR must add exactly these matching entries together:
+
+- Root `pnpm.patchedDependencies`:
+  `brace-expansion@2.1.2: scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch`.
+- Standalone runtime `pnpm.patchedDependencies`:
+  `brace-expansion@2.1.2: patches/brace-expansion@2.1.2.patch`.
+- One regular, single-link patch file at
+  `scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch`.
+
+Protected staging copies that patch into the runtime as an independent `0444`
+file before frozen pnpm installation. It rejects a missing, extra, linked,
+hardlinked, drifted, or writable patch artifact. Keep both existing unpatched
+runtime states during the transition; remove them only in the reviewed cleanup
+after the patched state is serving on `main`.
+
 ## Wormhole Connect (`@wormhole-foundation/wormhole-connect`)
 
 `app.mento.org` uses Wormhole Connect only for the `/bridge` route. The widget
