@@ -140,8 +140,9 @@ workflow only for exact native Vercel App/Governance successes created during
 a bounded target-local rollback; it performs no status lookup or reuse and
 receives no deployment credential. Ordinary previews for all four targets are
 GitHub-owned and do not use this adapter. The adapter remains temporarily for
-rollback proof and is removed only in #523 cleanup, after the #522 production
-cutover and required observation period. GitHub-built workers call the reusable
+rollback proof and is removed only in #523 cleanup after the required
+observation period. A target-local `main` rollback does not change preview
+ownership. GitHub-built workers call the reusable
 workflow directly because a `GITHUB_TOKEN` Deployment status is evidence, not
 a downstream trigger contract. The automatic exact-SHA controller, bootstrap,
 canary, cutover, and rollback contract is in `docs/vercel-deployments.md`.
@@ -151,16 +152,22 @@ Manual staged production URLs use the separate target-aware
 never enables the mock wallet.
 
 The automatic `.github/workflows/vercel-main-deployment.yml` path runs only
-from the exact successful `CI/CD` attempt for `main`. PR A is literal `shadow`
-mode: Governance, Reserve, and UI may stage and smoke immutable production
-candidates, while App custom `v3` is build-only. Promote, alias, rollback, App
-deployment, recovery mutation, and Vercel Git ownership changes must remain
-unreachable until the separately reviewed PR-B cutover. Planning uses the SHA
-each public target actually serves, and every credential-bearing job uses only
-`vercel-cli-production` with `deployment: false`. The exact-attempt gate,
-journal, canonical redacted evidence artifact, public runtime smoke, App
-real-wallet check, rollback, and native-owner restoration procedures are in
-`docs/vercel-deployments.md`.
+from the exact successful `CI/CD` attempt for `main`. Its global mode is
+`active`, and the current per-target `mainOwnershipMode` map assigns App,
+Governance, Reserve, and UI to `github`. Planning emits
+`vercel-main-plan:v2`: all selected targets stage or build, `activeTargets`
+mutate public mappings, and `shadowTargets` prove the same candidates without
+public mutation. Governance, Reserve, and UI promote exact staged deployments;
+App deploys its verified custom `v3` output and verifies or assigns only the
+reviewed aliases. Legacy App `v2 -> production` remains native. Planning uses
+the SHA each public target actually serves, and every credential-bearing job
+uses only `vercel-cli-production` with `deployment: false`. The exact-attempt
+gate, repeated freshness checks, durable journal, active duplicate census,
+canonical redacted evidence, public runtime smoke, App real-wallet check,
+target-local main rollback, and separate full-native restoration procedures
+are in `docs/vercel-deployments.md`. Ordinary previews remain GitHub-owned
+during either rollback procedure. The removed Governance QA environment is not
+part of the deployment topology.
 
 ## Coding Conventions
 

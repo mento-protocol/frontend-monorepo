@@ -15,6 +15,7 @@ import {
   decideMainTransactionRecovery,
   executeJournaledMainMutation,
   executeMainTransactionRecovery,
+  finishMainTransactionRecovery,
   mainTransactionJournalArtifactName,
   markMainTransactionCommitted,
   persistMainTransactionJournal,
@@ -25,6 +26,7 @@ import {
   runMainTransaction,
   selectHighestMainTransactionJournal,
   startMainTransactionOperation,
+  startMainTransactionRecovery,
 } from "./vercel-main-transaction.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
@@ -161,6 +163,109 @@ function acknowledgedUploader(log = []) {
       artifactName,
       artifactId: String(1000 + journal.sequence),
     };
+  };
+}
+
+function activeMutationHarness({
+  appAliasesMovedByDeploy = [],
+  unexpectedAppAliasAfterDeploy = null,
+  onProtectedInspection,
+} = {}) {
+  const prior = priorState();
+  const candidates = candidateState();
+  const knownAppCandidate = candidateState({ app: "known" }).app;
+  const events = [];
+  const mappings = new Map(
+    Object.values(prior).flatMap((record) =>
+      record.aliases.map((alias) => [alias, mapping(alias, record)]),
+    ),
+  );
+  let appDeployed = false;
+
+  const operationMappingState = (context) => {
+    const operation = context.operation ?? context.intent;
+    if (operation.type === "app_v3_deploy") {
+      return appDeployed ? "candidate" : "prior";
+    }
+    const target = operation.target;
+    const aliases =
+      operation.alias === null || operation.alias === undefined
+        ? prior[target].aliases
+        : [operation.alias];
+    return classifyMainTransactionMapping({
+      aliases,
+      currentMappings: aliases.map((alias) => mappings.get(alias)),
+      prior: prior[target],
+      candidate: target === "app" ? knownAppCandidate : candidates[target],
+    });
+  };
+
+  return {
+    prior,
+    candidates,
+    events,
+    mappings,
+    mutationAdapters: {
+      promote: async ({ operation }) => {
+        events.push(`mutate:${operation.type}:${operation.target}`);
+        for (const alias of prior[operation.target].aliases) {
+          mappings.set(alias, mapping(alias, candidates[operation.target]));
+        }
+        return { outcome: "success" };
+      },
+      deployAppV3: async ({ operation }) => {
+        events.push(`mutate:${operation.type}:${operation.target}`);
+        appDeployed = true;
+        const movedAliases =
+          appAliasesMovedByDeploy === "all"
+            ? prior.app.aliases
+            : appAliasesMovedByDeploy;
+        for (const alias of movedAliases) {
+          mappings.set(alias, mapping(alias, knownAppCandidate));
+        }
+        if (unexpectedAppAliasAfterDeploy !== null) {
+          mappings.set(
+            unexpectedAppAliasAfterDeploy,
+            mapping(unexpectedAppAliasAfterDeploy, {
+              deploymentId: "dpl_operator123",
+              deploymentUrl: "https://operator.vercel.app",
+            }),
+          );
+        }
+        return {
+          outcome: "success",
+          candidate: appCandidateMatch(),
+        };
+      },
+      assignAlias: async ({ operation }) => {
+        events.push(
+          `mutate:${operation.type}:${operation.target}:${operation.alias}`,
+        );
+        mappings.set(
+          operation.alias,
+          mapping(operation.alias, knownAppCandidate),
+        );
+        return { outcome: "success" };
+      },
+      inspectMapping: async (context) => ({
+        mappingState: operationMappingState(context),
+      }),
+      verifyMapping: async (context) => ({
+        mappingState: operationMappingState(context),
+      }),
+      inspectProtectedMappings: async (context) => {
+        await onProtectedInspection?.({
+          ...context,
+          mappings,
+          prior,
+          candidates,
+          knownAppCandidate,
+        });
+        return {
+          currentMappings: [...mappings.values()],
+        };
+      },
+    },
   };
 }
 
@@ -531,6 +636,133 @@ test("forged terminal artifacts cannot bypass transaction recovery", () => {
       /requires a recovering snapshot/,
     );
   }
+});
+
+test("recovery status helpers expose one legal durable transition at a time", () => {
+  const selected = preparedForTargets(["governance"], { app: "known" });
+  const forwardTransition = transitionSuccessfulOperation(selected, {
+    type: "promote",
+    target: "governance",
+  });
+  const forward = forwardTransition.verified;
+  const recovering = startMainTransactionRecovery(forward);
+  assert.equal(recovering.status, "recovering");
+  assert.equal(recovering.sequence, forward.sequence + 1);
+
+  const rollbackStarted = startMainTransactionOperation(recovering, {
+    type: "ordinary_rollback",
+    target: "governance",
+  });
+  assert.throws(
+    () => finishMainTransactionRecovery(rollbackStarted),
+    /cannot finish/,
+  );
+  const rollbackReturned = recordMainTransactionCommandReturned(
+    rollbackStarted,
+    {
+      operationId: rollbackStarted.operations.at(-1).operationId,
+      outcome: "success",
+    },
+  );
+  const rollbackVerified = recordMainTransactionVerified(rollbackReturned, {
+    operationId: rollbackReturned.operations.at(-1).operationId,
+    mappingState: "prior",
+    rollbackState: "entered",
+  });
+  const recovered = finishMainTransactionRecovery(rollbackVerified);
+  assert.equal(recovered.status, "recovered");
+  assert.equal(recovered.sequence, rollbackVerified.sequence + 1);
+  assert.deepEqual(
+    assertMainTransactionJournalHistory([
+      selected,
+      forwardTransition.started,
+      forwardTransition.returned,
+      forwardTransition.verified,
+      recovering,
+      rollbackStarted,
+      rollbackReturned,
+      rollbackVerified,
+      recovered,
+    ]).at(-1),
+    recovered,
+  );
+});
+
+test("recovery status helpers reject recovery-free and repeated terminals", () => {
+  const selected = preparedForTargets(["governance"], { app: "known" });
+  assert.throws(
+    () => startMainTransactionRecovery(selected),
+    /does not require/,
+  );
+  const forward = transitionSuccessfulOperation(selected, {
+    type: "promote",
+    target: "governance",
+  }).verified;
+  assert.throws(
+    () => finishMainTransactionRecovery(forward),
+    /was not started/,
+  );
+  const terminal = finishMainTransactionRecovery(
+    startMainTransactionRecovery(forward),
+    { manualIntervention: true },
+  );
+  assert.equal(terminal.status, "manual_intervention");
+  assert.throws(() => finishMainTransactionRecovery(terminal), /cannot finish/);
+});
+
+test("operation starts are phase-gated before any mutation descriptor exists", () => {
+  const selected = preparedForTargets(["governance", "reserve"], {
+    app: "known",
+  });
+  assert.throws(
+    () =>
+      startMainTransactionOperation(selected, {
+        type: "ordinary_rollback",
+        target: "governance",
+      }),
+    /not allowed in this transaction phase/,
+  );
+
+  const governanceForward = transitionSuccessfulOperation(selected, {
+    type: "promote",
+    target: "governance",
+  }).verified;
+  const forward = transitionSuccessfulOperation(governanceForward, {
+    type: "promote",
+    target: "reserve",
+  }).verified;
+  const recovering = startMainTransactionRecovery(forward);
+  assert.throws(
+    () =>
+      startMainTransactionOperation(recovering, {
+        type: "promote",
+        target: "governance",
+      }),
+    /not allowed in this transaction phase/,
+  );
+
+  const rollbackStarted = startMainTransactionOperation(recovering, {
+    type: "ordinary_rollback",
+    target: "governance",
+  });
+  const rollbackReturned = recordMainTransactionCommandReturned(
+    rollbackStarted,
+    {
+      operationId: rollbackStarted.operations.at(-1).operationId,
+      outcome: "success",
+    },
+  );
+  const rollbackVerified = recordMainTransactionVerified(rollbackReturned, {
+    operationId: rollbackReturned.operations.at(-1).operationId,
+    mappingState: "prior",
+    rollbackState: "entered",
+  });
+  assert.doesNotThrow(() =>
+    startMainTransactionOperation(rollbackVerified, {
+      type: "ordinary_rollback",
+      target: "reserve",
+    }),
+  );
 });
 
 test("commit requires one verified forward operation for every selected candidate", () => {
@@ -1712,8 +1944,331 @@ test("shadow transaction superseded at start persists nothing", async () => {
   assert.equal(uploads, 0);
 });
 
-test("active mode and every mutation callback remain unreachable in PR A", async () => {
-  let callbacks = 0;
+test("active mode promotes ordinary targets sequentially and activates App last", async () => {
+  const harness = activeMutationHarness();
+  const events = harness.events;
+  const freshness = [];
+  const result = await runMainTransaction({
+    mode: "active",
+    identity,
+    prior: harness.prior,
+    candidates: harness.candidates,
+    assertFreshness: async ({ phase }) => {
+      freshness.push(phase);
+      return { sha: SHA };
+    },
+    uploadJournal: async ({ artifactName, journal }) => {
+      events.push(
+        `upload:${journal.status}:${journal.operations.at(-1)?.operationId ?? "none"}`,
+      );
+      return {
+        acknowledged: true,
+        artifactName,
+        artifactId: String(4000 + journal.sequence),
+      };
+    },
+    mutationAdapters: harness.mutationAdapters,
+  });
+
+  assert.equal(result.outcome, "active-committed");
+  assert.equal(result.journal.status, "committed");
+  assert.equal(result.mutationCallbacksCalled, 6);
+  assert.deepEqual(
+    result.journal.operations
+      .filter((operation) => operation.state === "started")
+      .map((operation) => [operation.type, operation.target, operation.alias]),
+    [
+      ["promote", "governance", null],
+      ["promote", "reserve", null],
+      ["promote", "ui", null],
+      ["app_v3_deploy", "app", null],
+      ["app_alias_set", "app", "app.mento.org"],
+      ["app_alias_set", "app", "appmentoorg-env-v3-mentolabs.vercel.app"],
+    ],
+  );
+  assert.deepEqual(
+    events.filter((event) => event.startsWith("mutate:")),
+    [
+      "mutate:promote:governance",
+      "mutate:promote:reserve",
+      "mutate:promote:ui",
+      "mutate:app_v3_deploy:app",
+      "mutate:app_alias_set:app:app.mento.org",
+      "mutate:app_alias_set:app:appmentoorg-env-v3-mentolabs.vercel.app",
+    ],
+  );
+  for (const [index, event] of events.entries()) {
+    if (!event.startsWith("mutate:")) continue;
+    assert.match(events[index - 1], /^upload:started:op-[0-9]{4}$/);
+  }
+  assert.equal(events[0], "upload:prepared:none");
+  assert.match(events.at(-1), /^upload:committed:op-[0-9]{4}$/);
+  assert.equal(freshness.filter((phase) => phase === "pre-command").length, 6);
+  assert.equal(freshness.at(-1), "transaction-commit");
+  assert.equal(
+    result.journal.candidates.app.deploymentId,
+    "dpl_appCandidate123",
+  );
+  assert.deepEqual(result.recoveryDecision, {
+    decision: "bypass",
+    reason: "committed",
+  });
+});
+
+test("active mode treats App aliases already moved by v3 deployment as verified noops", async () => {
+  const harness = activeMutationHarness({
+    appAliasesMovedByDeploy: "all",
+  });
+  const result = await runMainTransaction({
+    mode: "active",
+    identity,
+    prior: harness.prior,
+    candidates: harness.candidates,
+    assertFreshness: async () => ({ sha: SHA }),
+    uploadJournal: acknowledgedUploader(),
+    mutationAdapters: harness.mutationAdapters,
+  });
+
+  assert.equal(result.journal.status, "committed");
+  assert.equal(result.mutationCallbacksCalled, 4);
+  assert.equal(
+    result.journal.operations.some(
+      (operation) => operation.type === "app_alias_set",
+    ),
+    false,
+  );
+  assert.deepEqual(
+    harness.events.filter((event) => event.startsWith("mutate:")),
+    [
+      "mutate:promote:governance",
+      "mutate:promote:reserve",
+      "mutate:promote:ui",
+      "mutate:app_v3_deploy:app",
+    ],
+  );
+});
+
+test("active mode assigns only the reviewed App alias still at prior", async () => {
+  const harness = activeMutationHarness({
+    appAliasesMovedByDeploy: ["app.mento.org"],
+  });
+  const baseVerifyMapping = harness.mutationAdapters.verifyMapping;
+  let verifiedAppDeployment = null;
+  const result = await runMainTransaction({
+    mode: "active",
+    identity,
+    prior: harness.prior,
+    candidates: harness.candidates,
+    assertFreshness: async () => ({ sha: SHA }),
+    uploadJournal: acknowledgedUploader(),
+    mutationAdapters: {
+      ...harness.mutationAdapters,
+      verifyMapping: async (context) => {
+        if (context.operation.type === "app_v3_deploy") {
+          verifiedAppDeployment = {
+            deploymentId: context.operation.candidateDeploymentId,
+            deploymentUrl: context.operation.candidateDeploymentUrl,
+            readyState: "READY",
+          };
+          assert.deepEqual(
+            harness.mappings.get("app.mento.org"),
+            mapping("app.mento.org", candidateState({ app: "known" }).app),
+          );
+          assert.deepEqual(
+            harness.mappings.get("appmentoorg-env-v3-mentolabs.vercel.app"),
+            mapping(
+              "appmentoorg-env-v3-mentolabs.vercel.app",
+              harness.prior.app,
+            ),
+          );
+          return { mappingState: "candidate" };
+        }
+        return baseVerifyMapping(context);
+      },
+    },
+  });
+
+  assert.equal(result.journal.status, "committed");
+  assert.equal(result.mutationCallbacksCalled, 5);
+  assert.deepEqual(verifiedAppDeployment, {
+    deploymentId: "dpl_appCandidate123",
+    deploymentUrl: "https://app-candidate.vercel.app",
+    readyState: "READY",
+  });
+  assert.deepEqual(
+    result.journal.operations
+      .filter(
+        (operation) =>
+          operation.type === "app_alias_set" && operation.state === "started",
+      )
+      .map((operation) => operation.alias),
+    ["appmentoorg-env-v3-mentolabs.vercel.app"],
+  );
+  assert.deepEqual(
+    harness.events.filter((event) => event.startsWith("mutate:app_alias_set")),
+    ["mutate:app_alias_set:app:appmentoorg-env-v3-mentolabs.vercel.app"],
+  );
+});
+
+test("active mode rejects an unexpected reviewed App alias before journaling or command", async () => {
+  const harness = activeMutationHarness({
+    unexpectedAppAliasAfterDeploy: "app.mento.org",
+  });
+  const uploads = [];
+
+  await assert.rejects(
+    runMainTransaction({
+      mode: "active",
+      identity,
+      prior: harness.prior,
+      candidates: harness.candidates,
+      assertFreshness: async () => ({ sha: SHA }),
+      uploadJournal: acknowledgedUploader(uploads),
+      mutationAdapters: harness.mutationAdapters,
+    }),
+    (error) => {
+      assert.ok(error instanceof MainTransactionError);
+      assert.equal(error.code, "PROTECTED_MAPPING_DRIFT");
+      assert.equal(error.journal.status, "verified");
+      assert.equal(error.journal.operations.at(-1).type, "app_v3_deploy");
+      return true;
+    },
+  );
+  assert.equal(
+    harness.events.some((event) => event.startsWith("mutate:app_alias_set")),
+    false,
+  );
+  assert.equal(
+    uploads.some(({ journal }) =>
+      journal.operations.some(
+        (operation) => operation.type === "app_alias_set",
+      ),
+    ),
+    false,
+  );
+});
+
+test("active mode hands an incomplete durable history to recovery without replay", async () => {
+  const initial = preparedForTargets(["governance"], { app: "known" });
+  const started = startMainTransactionOperation(initial, {
+    type: "promote",
+    target: "governance",
+  });
+  const harness = activeMutationHarness();
+  let uploads = 0;
+  const recoveryDecisions = [];
+
+  await assert.rejects(
+    runMainTransaction({
+      mode: "active",
+      identity,
+      prior: initial.prior,
+      candidates: initial.candidates,
+      existingJournals: [initial, started],
+      assertFreshness: async () => ({ sha: SHA }),
+      uploadJournal: async () => {
+        uploads += 1;
+      },
+      inspectRecoveryState: async (decision) => {
+        recoveryDecisions.push(decision);
+      },
+      mutationAdapters: harness.mutationAdapters,
+    }),
+    (error) => {
+      assert.ok(error instanceof MainTransactionError);
+      assert.equal(error.code, "RECOVERY_REQUIRED");
+      assert.equal(error.journal.status, "started");
+      return true;
+    },
+  );
+  assert.equal(uploads, 0);
+  assert.deepEqual(
+    recoveryDecisions.map(({ decision, reason }) => [decision, reason]),
+    [["recover", "incomplete-mutation-journal"]],
+  );
+  assert.deepEqual(
+    harness.events.filter((event) => event.startsWith("mutate:")),
+    [],
+  );
+});
+
+test("active mode stops at the next freshness barrier and preserves the last durable operation", async () => {
+  const harness = activeMutationHarness();
+  const uploads = [];
+  let preOperations = 0;
+
+  await assert.rejects(
+    runMainTransaction({
+      mode: "active",
+      identity,
+      prior: harness.prior,
+      candidates: harness.candidates,
+      assertFreshness: async ({ phase }) => {
+        if (phase === "pre-operation") {
+          preOperations += 1;
+          if (preOperations === 2) return { sha: OTHER_SHA };
+        }
+        return { sha: SHA };
+      },
+      uploadJournal: acknowledgedUploader(uploads),
+      mutationAdapters: harness.mutationAdapters,
+    }),
+    (error) => {
+      assert.ok(error instanceof MainTransactionError);
+      assert.equal(error.code, "SUPERSEDED_DURING_MUTATION");
+      assert.equal(error.journal.status, "verified");
+      assert.equal(error.journal.operations.at(-1).target, "governance");
+      return true;
+    },
+  );
+  assert.deepEqual(
+    harness.events.filter((event) => event.startsWith("mutate:")),
+    ["mutate:promote:governance"],
+  );
+  assert.equal(uploads.at(-1).status, "verified");
+});
+
+test("active mode never commits when final legacy v2 mapping changed", async () => {
+  const harness = activeMutationHarness({
+    onProtectedInspection: ({ phase, mappings, prior }) => {
+      if (phase !== "transaction-commit") return;
+      const alias = prior["legacy-app"].aliases[0];
+      mappings.set(
+        alias,
+        mapping(alias, {
+          deploymentId: "dpl_operator123",
+          deploymentUrl: "https://operator.vercel.app",
+        }),
+      );
+    },
+  });
+  const uploads = [];
+
+  await assert.rejects(
+    runMainTransaction({
+      mode: "active",
+      identity,
+      prior: harness.prior,
+      candidates: harness.candidates,
+      assertFreshness: async () => ({ sha: SHA }),
+      uploadJournal: acknowledgedUploader(uploads),
+      mutationAdapters: harness.mutationAdapters,
+    }),
+    (error) => {
+      assert.ok(error instanceof MainTransactionError);
+      assert.equal(error.code, "LEGACY_V2_INVARIANT_FAILED");
+      assert.equal(error.journal.status, "verified");
+      return true;
+    },
+  );
+  assert.equal(
+    uploads.some((entry) => entry.status === "committed"),
+    false,
+  );
+});
+
+test("active mode requires every selected forward and verification adapter before persistence", async () => {
+  let uploads = 0;
   await assert.rejects(
     runMainTransaction({
       mode: "active",
@@ -1721,14 +2276,12 @@ test("active mode and every mutation callback remain unreachable in PR A", async
       prior: priorState(),
       candidates: candidateState(),
       assertFreshness: async () => ({ sha: SHA }),
-      uploadJournal: acknowledgedUploader(),
-      mutationAdapters: {
-        promote: () => {
-          callbacks += 1;
-        },
+      uploadJournal: async () => {
+        uploads += 1;
       },
+      mutationAdapters: {},
     }),
-    /unreachable in PR A/,
+    /Mutation adapter promote is required/,
   );
-  assert.equal(callbacks, 0);
+  assert.equal(uploads, 0);
 });

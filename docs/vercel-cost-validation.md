@@ -4,9 +4,11 @@ This runbook prepares the measurement and closeout work tracked in [issue
 #523](https://github.com/mento-protocol/frontend-monorepo/issues/523). It does
 not start the observation window, query Vercel or GitHub, change a deployment,
 or remove migration scaffolding. The observation window starts only after the
-four-target preview and PR-B main ownership cutover in issue #522 is complete.
-Automatic PR-A `Vercel Main Deployment` shadow runs are canary evidence, not
-post-cutover observations. Each shadow run writes a canonical redacted job
+four-target preview ownership and active-main cutover in issue #522 have live
+runtime and ownership proof. The checked-in active topology alone does not
+start the window or mark #522 complete. Historical automatic PR-A
+`Vercel Main Deployment` shadow runs are canary evidence, not post-cutover
+observations. Each historical shadow run writes a canonical redacted job
 summary and uploads
 `vercel-main-evidence-${run_id}-${run_attempt}` for 14 days before returning its
 terminal result. Successful runs contain build, deploy, runner, and Turbo-cache
@@ -198,8 +200,9 @@ cannot reuse the same provider evidence for its baseline and post-cutover split.
    anomaly. For PR pushes, record first-preview coverage, planner selection,
    first-plus-latest behavior, deployed SHA, native duplicates, smoke/E2E, and
    sentinel result. For main pushes, record exact-SHA CI gate, planner bases and
-   range, selected targets, stale-main decision, activation/recovery result,
-   domain SHA, native duplicates, and v2 health.
+   range, the complete `vercel-main-plan:v2` ownership map and
+   staged/active/shadow partitions, stale-main decision, activation/recovery
+   result, domain SHA, the active duplicate census, and v2 health.
 8. Populate `.vercel-cost-evidence/manifest.json` and its referenced aggregate,
    FOCUS, provider, derived-attribution, and deployment-census files using the
    synthetic [`manifest.json`](../scripts/fixtures/vercel-cost-analysis/manifest.json)
@@ -262,10 +265,12 @@ The post-cutover record also contains:
 - explicit rollback-procedure verification.
 
 The top-level `closeout` checklist records disposition of the manual pilot,
-shadow/canary scaffolding, legacy `deployment_status` handling, migration-only
-logging, docs drift, and final verification. Until every item is true, the
-measurement can pass only as `observationPass`; `closeoutPass` and the final
-`pass` remain false and `reportStage` remains `observation-only`.
+PR-A-only global-shadow/canary scaffolding, legacy `deployment_status` handling,
+migration-only logging, docs drift, and final verification. It does not permit
+removing the target-local main `shadow` ownership mode required for rollback.
+Until every item is true, the measurement can pass only as
+`observationPass`; `closeoutPass` and the final `pass` remain false and
+`reportStage` remains `observation-only`.
 
 Derive every opportunity and completion count from the private observation
 ledger rather than entering a blanket success value:
@@ -379,7 +384,9 @@ analysis passes, diff the merged #519-#522 implementation and remove only items
 proven migration-only:
 
 - manual pilot workflow if the production runbook fully supersedes it;
-- shadow/canary-only mode and fixtures;
+- PR-A-only global-shadow canary workflow branches and fixtures, while
+  preserving the target-local main `shadow` ownership mode and full-native
+  rollback contract;
 - legacy `deployment_status` preview-smoke handling only when no surviving
   native path consumes it;
 - duplicate migration-only logs while retaining stable deployment summaries.

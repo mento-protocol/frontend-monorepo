@@ -1,23 +1,23 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { createActiveDeploymentStateProof } from "./vercel-deployment-state.mjs";
 import {
+  MAIN_ACTIVE_DEPLOYMENT_MODE,
+  MAIN_ACTIVE_EVIDENCE_SCHEMA,
+  MAIN_ACTIVE_FAILURE_EVIDENCE_SCHEMA,
   MAIN_DEPLOYMENT_MODE,
   MAIN_DEPLOYMENT_SCHEMA,
   MAIN_FAILURE_EVIDENCE_SCHEMA,
+  MAIN_OWNERSHIP_MODES,
   MAIN_STAGE_SCHEMA,
+  assertMainActiveJournalHistory,
   assertMainDeploymentHandoff,
   assertMainFinalResults,
   assertMainStageResult,
@@ -27,6 +27,15 @@ import {
   createMainAppBuildProof,
   createMainAppCandidateExpectation,
   createMainAppTransactionMetadata,
+  createMainActiveDeploymentEvidence,
+  createMainActiveFreshness,
+  createMainActiveAliasMappingSet,
+  createMainActiveDeploymentStateSpec,
+  createMainActiveDeploymentFailureEvidence,
+  createMainActiveJournalHistoryIdentity,
+  createMainActivePlanning,
+  createMainActivePublicSmokes,
+  createMainActiveTransactionInputs,
   createMainDeploymentPlan,
   createMainDeploymentEvidence,
   createMainDeploymentFailureEvidence,
@@ -36,21 +45,31 @@ import {
   createMainProtectedAliasSpec,
   createMainStageResult,
   createMainTransactionInputs,
+  createPreparedMainActiveJournal,
   createPreparedMainJournal,
+  evaluateMainActiveFinalResults,
   parseMainDeploymentArguments,
+  planMainActiveRecovery,
   readRemoteMainSha,
-  renderMainDeploymentPlan,
   recoverMainShadowTransaction,
+  renderMainActiveDeploymentEvidence,
+  renderMainActiveDeploymentFailureEvidence,
   renderMainDeploymentEvidence,
   renderMainDeploymentFailureEvidence,
+  runMainActiveRecovery,
+  runMainActiveTransaction,
+  runMainDeploymentCli,
   runMainShadowTransaction,
   validateMainDeploymentSource,
   validateMainStageJobs,
   validateMainWorkflowContext,
 } from "./vercel-main-deployment.mjs";
 import {
+  attachDiscoveredAppCandidate,
+  classifyMainTransactionMapping,
   createMainTransactionId,
   mainTransactionJournalArtifactName,
+  startMainTransactionOperation,
 } from "./vercel-main-transaction.mjs";
 import { generateVercelDeploymentId } from "./vercel-prebuilt.mjs";
 
@@ -140,16 +159,23 @@ function upstream() {
 
 function plan({
   deployments = ["app", "governance", "reserve", "ui"],
-  legacyAliases = null,
+  mode = MAIN_DEPLOYMENT_MODE,
+  mainOwnershipMode = Object.fromEntries(
+    ["app", "governance", "reserve", "ui"].map((target) => [
+      target,
+      mode === MAIN_ACTIVE_DEPLOYMENT_MODE
+        ? MAIN_OWNERSHIP_MODES.GITHUB
+        : MAIN_OWNERSHIP_MODES.SHADOW,
+    ]),
+  ),
 } = {}) {
-  const legacy = legacySnapshot();
-  if (legacyAliases !== null) legacy[0].aliases = legacyAliases;
   return createMainDeploymentPlan({
-    mode: MAIN_DEPLOYMENT_MODE,
+    mode,
+    mainOwnershipMode,
     deploySha: SHA,
     projectIds,
     planningSnapshot: planningSnapshot(),
-    legacySnapshot: legacy,
+    legacySnapshot: legacySnapshot(),
     upstream: upstream(),
     gitAdapter: gitAdapter(),
     runPlanner: ({ base, head }) => ({
@@ -160,6 +186,20 @@ function plan({
         deployments.length === 0 ? "non-runtime-only" : "affected-packages",
     }),
   });
+}
+
+function activePlan(options = {}) {
+  return plan({ ...options, mode: MAIN_ACTIVE_DEPLOYMENT_MODE });
+}
+
+function ownership(overrides = {}) {
+  return {
+    app: MAIN_OWNERSHIP_MODES.GITHUB,
+    governance: MAIN_OWNERSHIP_MODES.GITHUB,
+    reserve: MAIN_OWNERSHIP_MODES.GITHUB,
+    ui: MAIN_OWNERSHIP_MODES.GITHUB,
+    ...overrides,
+  };
 }
 
 function stagedState(target) {
@@ -204,7 +244,7 @@ function stageResult(target, deploymentPlan = plan()) {
 function stageJobs(deploymentPlan = plan()) {
   return Object.fromEntries(
     ["governance", "reserve", "ui"].map((target) => {
-      const selected = deploymentPlan.planning.plan.includes(target);
+      const selected = deploymentPlan.planning.stagedTargets.includes(target);
       return [
         target,
         {
@@ -229,6 +269,249 @@ function appProof() {
       runAttempt: "3",
     }),
   });
+}
+
+function mapping(alias, deployment) {
+  return {
+    alias,
+    deploymentId: deployment.deploymentId,
+    deploymentUrl: deployment.deploymentUrl,
+  };
+}
+
+function activeHarness({
+  deploymentPlan = null,
+  ownershipMap = ownership(),
+  appAliasesMovedByDeploy = [],
+} = {}) {
+  const reviewedPlan =
+    deploymentPlan ?? activePlan({ mainOwnershipMode: ownershipMap });
+  const inputs = createMainActiveTransactionInputs({
+    plan: reviewedPlan,
+    stageJobs: stageJobs(reviewedPlan),
+    appBuildProof: reviewedPlan.planning.stagedTargets.includes("app")
+      ? appProof()
+      : null,
+    runId: "800",
+    runAttempt: "3",
+  });
+  const mappings = new Map(
+    Object.values(inputs.prior).flatMap((record) =>
+      record.aliases.map((alias) => [alias, mapping(alias, record)]),
+    ),
+  );
+  const journalHistory = [];
+  let appDeployed = false;
+  const appCandidate =
+    inputs.candidates.app === null
+      ? null
+      : {
+          deploymentId: "dpl_appCandidate123",
+          deploymentUrl: "https://app-candidate.vercel.app",
+          ...inputs.candidates.app.discovery,
+        };
+  const appCandidateMapping =
+    appCandidate === null
+      ? null
+      : {
+          ...appCandidate,
+          aliases: [...inputs.prior.app.aliases],
+        };
+  const candidateFor = (target) =>
+    target === "app" ? appCandidateMapping : inputs.candidates[target];
+  const mappingState = (context) => {
+    const operation = context.operation ?? context.intent;
+    if (operation.type === "app_v3_deploy") {
+      return appDeployed ? "candidate" : "prior";
+    }
+    const aliases = operation.alias
+      ? [operation.alias]
+      : inputs.prior[operation.target].aliases;
+    return classifyMainTransactionMapping({
+      aliases,
+      currentMappings: aliases.map((alias) => mappings.get(alias)),
+      prior: inputs.prior[operation.target],
+      candidate: candidateFor(operation.target),
+    });
+  };
+  const adapters = {
+    assertFreshness: async () => ({ sha: SHA }),
+    uploadJournal: async ({ artifactName, journal }) => {
+      journalHistory.push(structuredClone(journal));
+      return {
+        acknowledged: true,
+        artifactName,
+        artifactId: String(5000 + journal.sequence),
+      };
+    },
+    promote: async ({ operation }) => {
+      for (const alias of inputs.prior[operation.target].aliases) {
+        mappings.set(
+          alias,
+          mapping(alias, inputs.candidates[operation.target]),
+        );
+      }
+      return { outcome: "success" };
+    },
+    deployAppV3: async () => {
+      appDeployed = true;
+      for (const alias of appAliasesMovedByDeploy) {
+        mappings.set(alias, mapping(alias, appCandidate));
+      }
+      return { outcome: "success", candidate: appCandidate };
+    },
+    assignAlias: async ({ operation }) => {
+      mappings.set(operation.alias, mapping(operation.alias, appCandidate));
+      return { outcome: "success" };
+    },
+    inspectMapping: async (context) => ({
+      mappingState: mappingState(context),
+    }),
+    verifyMapping: async (context) => ({
+      mappingState: mappingState(context),
+    }),
+    inspectProtectedMappings: async () => ({
+      currentMappings: [...mappings.values()],
+    }),
+  };
+  return {
+    adapters,
+    appBuildProof: reviewedPlan.planning.stagedTargets.includes("app")
+      ? appProof()
+      : null,
+    inputs,
+    journalHistory,
+    mappings,
+    ownershipMap,
+    plan: reviewedPlan,
+    stageJobs: stageJobs(reviewedPlan),
+  };
+}
+
+function activeFinalMappings(harness) {
+  return [...harness.mappings.values()];
+}
+
+function activePublicSmokes(planning) {
+  const urls = {
+    app: "https://app.mento.org/",
+    governance: "https://governance.mento.org/",
+    reserve: "https://reserve.mento.org/",
+    ui: "https://ui.mento.org/",
+  };
+  return Object.fromEntries(
+    Object.keys(urls).map((target) => [
+      target,
+      planning.activeTargets.includes(target)
+        ? { publicUrl: urls[target], servedSha: SHA, status: "passed" }
+        : { publicUrl: urls[target], servedSha: null, status: "not-required" },
+    ]),
+  );
+}
+
+function activeStateProof({
+  deploymentPlan,
+  journalHistory,
+  jobs,
+  runId,
+  runAttempt,
+}) {
+  const spec = createMainActiveDeploymentStateSpec({
+    plan: deploymentPlan,
+    journalHistory,
+    stageJobs: jobs,
+    runId,
+    runAttempt,
+  });
+  const deployments = Object.fromEntries(
+    Object.entries(spec.projects).map(([target, project]) => {
+      if (project.deploymentId === null) return [target, []];
+      return [
+        target,
+        [
+          {
+            deploymentId: project.deploymentId,
+            response: {
+              id: project.deploymentId,
+              url: project.deploymentUrl,
+              projectId: project.projectId,
+              name: project.projectName,
+              readyState: "READY",
+              target: project.target,
+              customEnvironment:
+                project.customEnvironmentSlug === null
+                  ? null
+                  : { slug: project.customEnvironmentSlug },
+              source: "cli",
+              meta: {
+                githubCommitOrg: "mento-protocol",
+                githubCommitRepo: "frontend-monorepo",
+                githubCommitRef: "main",
+                githubCommitSha: spec.deploySha,
+                ...(target === "app"
+                  ? {
+                      mentoTransactionId: spec.transactionId,
+                      mentoRunId: spec.runId,
+                      mentoRunAttempt: spec.runAttempt,
+                      mentoNextDeploymentId: "nextBuild123",
+                    }
+                  : {
+                      mentoTransaction: `${spec.runId}-${spec.runAttempt}-${target}`,
+                    }),
+              },
+              git: {
+                org: "mento-protocol",
+                repo: "frontend-monorepo",
+                ref: "main",
+                sha: spec.deploySha,
+              },
+            },
+          },
+        ],
+      ];
+    }),
+  );
+  return createActiveDeploymentStateProof({
+    spec,
+    deployments,
+    legacyV2: {
+      source: "git",
+      state: {
+        alias: spec.legacyAppV2.alias,
+        deploymentId: spec.legacyAppV2.deployment,
+        deploymentUrl: spec.legacyAppV2.deploymentUrl,
+        creatorUsername: null,
+        projectId: spec.legacyAppV2.projectId,
+        projectName: spec.legacyAppV2.projectName,
+        readyState: "READY",
+        target: "production",
+        customEnvironmentSlug: null,
+        git: { ...spec.legacyAppV2.git },
+        aliases: [spec.legacyAppV2.alias],
+      },
+    },
+  });
+}
+
+function activeJobs(deploymentPlan, overrides = {}) {
+  return {
+    waitForCi: "success",
+    plan: "success",
+    stageGovernance: deploymentPlan.planning.stagedTargets.includes(
+      "governance",
+    )
+      ? "success"
+      : "skipped",
+    stageReserve: deploymentPlan.planning.stagedTargets.includes("reserve")
+      ? "success"
+      : "skipped",
+    stageUi: deploymentPlan.planning.stagedTargets.includes("ui")
+      ? "success"
+      : "skipped",
+    coordinator: "success",
+    recovery: "success",
+    ...overrides,
+  };
 }
 
 test("protected spec binds every reviewed main alias and legacy v2", () => {
@@ -267,6 +550,237 @@ test("protected spec binds every reviewed main alias and legacy v2", () => {
 
 test("controller CLI accepts only each command's exact non-duplicated options", () => {
   const valid = [
+    ["active-journal-identity"],
+    ["active-freshness", "--output", "/tmp/freshness.json"],
+    [
+      "active-journal-receipt",
+      "--artifact-id",
+      "123",
+      "--artifact-name",
+      "artifact",
+      "--journal",
+      "/tmp/journal.json",
+      "--output",
+      "/tmp/receipt.json",
+    ],
+    ["active-event-initialize", "--output", "/tmp/event.json"],
+    [
+      "active-command-descriptor",
+      "--authorization",
+      "/tmp/authorization.json",
+      "--output",
+      "/tmp/command.json",
+    ],
+    ["active-app-candidate-matches-none", "--output", "/tmp/matches.json"],
+    [
+      "active-app-candidate-matches-one",
+      "--candidate",
+      "/tmp/candidate.json",
+      "--output",
+      "/tmp/matches.json",
+    ],
+    [
+      "active-app-deployment",
+      "--state",
+      "/tmp/state.json",
+      "--output",
+      "/tmp/deployment.json",
+    ],
+    ...["dispatch", "authorize"].map((kind) => [
+      `active-event-${kind}`,
+      "--current-mappings",
+      "/tmp/mappings.json",
+      "--freshness",
+      "/tmp/freshness.json",
+      "--output",
+      "/tmp/event.json",
+      "--receipt",
+      "/tmp/receipt.json",
+    ]),
+    [
+      "active-event-command-returned",
+      "--authorization",
+      "/tmp/authorization.json",
+      "--output",
+      "/tmp/event.json",
+      "--receipt",
+      "/tmp/receipt.json",
+      "--result",
+      "/tmp/result.json",
+    ],
+    [
+      "active-event-verify",
+      "--authorization",
+      "/tmp/authorization.json",
+      "--current-mappings",
+      "/tmp/mappings.json",
+      "--freshness",
+      "/tmp/freshness.json",
+      "--output",
+      "/tmp/event.json",
+      "--receipt",
+      "/tmp/receipt.json",
+    ],
+    [
+      "active-event-verify-app",
+      "--app-candidate-matches",
+      "/tmp/matches.json",
+      "--app-deployment",
+      "/tmp/deployment.json",
+      "--authorization",
+      "/tmp/authorization.json",
+      "--current-mappings",
+      "/tmp/mappings.json",
+      "--freshness",
+      "/tmp/freshness.json",
+      "--output",
+      "/tmp/event.json",
+      "--receipt",
+      "/tmp/receipt.json",
+    ],
+    [
+      "active-event-finalize",
+      "--current-mappings",
+      "/tmp/mappings.json",
+      "--freshness",
+      "/tmp/freshness.json",
+      "--output",
+      "/tmp/event.json",
+      "--public-smokes",
+      "/tmp/smokes.json",
+      "--receipt",
+      "/tmp/receipt.json",
+      "--state-proof",
+      "/tmp/state-proof.json",
+    ],
+    [
+      "active-recovery-event-initialize",
+      "--output",
+      "/tmp/event.json",
+      "--receipt",
+      "/tmp/receipt.json",
+    ],
+    ...["dispatch", "authorize", "verify"].map((kind) => [
+      `active-recovery-event-${kind}`,
+      "--current-mappings",
+      "/tmp/mappings.json",
+      "--output",
+      "/tmp/event.json",
+      "--receipt",
+      "/tmp/receipt.json",
+    ]),
+    [
+      "active-recovery-event-command-returned",
+      "--authorization",
+      "/tmp/authorization.json",
+      "--output",
+      "/tmp/event.json",
+      "--receipt",
+      "/tmp/receipt.json",
+      "--result",
+      "/tmp/result.json",
+    ],
+    [
+      "active-journal-history",
+      "--artifacts",
+      "/tmp/artifacts",
+      "--output",
+      "/tmp/history.json",
+    ],
+    [
+      "active-state-spec",
+      "--journal-history",
+      "/tmp/history.json",
+      "--output",
+      "/tmp/state-spec.json",
+    ],
+    [
+      "active-mapping-spec",
+      "--journal-history",
+      "/tmp/history.json",
+      "--output",
+      "/tmp/mapping-spec.json",
+    ],
+    [
+      "active-public-smokes",
+      "--app",
+      "/tmp/app.json",
+      "--governance",
+      "/tmp/governance.json",
+      "--output",
+      "/tmp/smokes.json",
+      "--reserve",
+      "/tmp/reserve.json",
+      "--ui",
+      "/tmp/ui.json",
+    ],
+    [
+      "active-public-smoke-target",
+      "--output",
+      "/tmp/app-smoke.json",
+      "--served-sha",
+      SHA,
+      "--status",
+      "passed",
+      "--target",
+      "app",
+    ],
+    [
+      "run-active",
+      "--event",
+      "/tmp/event.json",
+      "--journal-history",
+      "/tmp/history.json",
+      "--journal-output",
+      "/tmp/journal.json",
+      "--output",
+      "/tmp/active.json",
+    ],
+    [
+      "plan-active-recovery",
+      "--journal-history",
+      "/tmp/history.json",
+      "--current-mappings",
+      "/tmp/mappings.json",
+      "--app-candidate-matches",
+      "/tmp/app-matches.json",
+      "--output",
+      "/tmp/recovery-plan.json",
+    ],
+    [
+      "run-active-recovery",
+      "--event",
+      "/tmp/recovery-event.json",
+      "--journal-history",
+      "/tmp/history.json",
+      "--journal-output",
+      "/tmp/recovery-journal.json",
+      "--plan",
+      "/tmp/recovery-plan.json",
+      "--output",
+      "/tmp/recovery.json",
+    ],
+    ["final-active"],
+    [
+      "active-evidence",
+      "--journal-history",
+      "/tmp/history.json",
+      "--final-mappings",
+      "/tmp/mappings.json",
+      "--output",
+      "/tmp/evidence.json",
+      "--state-proof",
+      "/tmp/state-proof.json",
+    ],
+    [
+      "active-failure-evidence",
+      "--journal-history",
+      "/tmp/history.json",
+      "--output",
+      "/tmp/failure.json",
+      "--state-proof",
+      "/tmp/state-proof.json",
+    ],
     ["validate-context"],
     ["validate-source"],
     ["create-spec", "--scope", "main", "--output", "/tmp/spec.json"],
@@ -332,6 +846,149 @@ test("controller CLI accepts only each command's exact non-duplicated options", 
     ["freshness", "extra"],
   ]) {
     assert.throws(() => parseMainDeploymentArguments(argv));
+  }
+});
+
+test("run-active CLI dispatches one reducer event and writes one optional journal", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "vercel-main-active-cli-"));
+  try {
+    const reviewedPlan = activePlan({ deployments: ["governance"] });
+    const jobs = stageJobs(reviewedPlan);
+    const eventPath = join(directory, "event.json");
+    const historyPath = join(directory, "history.json");
+    const outputPath = join(directory, "transition.json");
+    const journalPath = join(directory, "journal.json");
+    const githubOutput = join(directory, "github-output.txt");
+    await runMainDeploymentCli({
+      argv: ["active-event-initialize", "--output", eventPath],
+      values: {},
+    });
+    writeFileSync(historyPath, "[]\n");
+    const result = await runMainDeploymentCli({
+      argv: [
+        "run-active",
+        "--event",
+        eventPath,
+        "--journal-history",
+        historyPath,
+        "--journal-output",
+        journalPath,
+        "--output",
+        outputPath,
+      ],
+      values: {
+        PLAN_JSON: JSON.stringify(reviewedPlan),
+        GITHUB_OUTPUT: githubOutput,
+        GITHUB_RUN_ID: "800",
+        GITHUB_RUN_ATTEMPT: "3",
+        STAGE_GOVERNANCE_RESULT: jobs.governance.result,
+        STAGE_GOVERNANCE_HANDOFF: JSON.stringify(jobs.governance.handoff),
+        STAGE_RESERVE_RESULT: jobs.reserve.result,
+        STAGE_RESERVE_HANDOFF: "",
+        STAGE_UI_RESULT: jobs.ui.result,
+        STAGE_UI_HANDOFF: "",
+        VERCEL_PROJECT_ID_APP: projectIds.app,
+        VERCEL_PROJECT_ID_GOVERNANCE: projectIds.governance,
+        VERCEL_PROJECT_ID_RESERVE: projectIds.reserve,
+        VERCEL_PROJECT_ID_UI: projectIds.ui,
+      },
+    });
+    assert.equal(result.transitionKind, "journal");
+    assert.equal(result.journal.sequence, 0);
+    assert.equal(
+      JSON.parse(readFileSync(journalPath, "utf8")).status,
+      "prepared",
+    );
+    assert.equal(
+      Object.hasOwn(JSON.parse(readFileSync(outputPath, "utf8")), "journal"),
+      false,
+    );
+    assert.match(
+      readFileSync(githubOutput, "utf8"),
+      /transition_kind=journal[\s\S]*next_action=upload-journal/,
+    );
+
+    const receiptPath = join(directory, "receipt.json");
+    await runMainDeploymentCli({
+      argv: [
+        "active-journal-receipt",
+        "--artifact-id",
+        "12345",
+        "--artifact-name",
+        mainTransactionJournalArtifactName(result.journal),
+        "--journal",
+        journalPath,
+        "--output",
+        receiptPath,
+      ],
+      values: { GITHUB_OUTPUT: githubOutput },
+    });
+    const mappingsPath = join(directory, "mappings.json");
+    const freshnessPath = join(directory, "freshness.json");
+    writeFileSync(
+      freshnessPath,
+      `${JSON.stringify(
+        createMainActiveFreshness({ deploySha: SHA, observedSha: SHA }),
+      )}\n`,
+    );
+    writeFileSync(
+      mappingsPath,
+      `${JSON.stringify(
+        Object.values(result.journal.prior).flatMap((captured) =>
+          captured.aliases.map((alias) => mapping(alias, captured)),
+        ),
+      )}\n`,
+    );
+    const dispatchEventPath = join(directory, "dispatch-event.json");
+    await runMainDeploymentCli({
+      argv: [
+        "active-event-dispatch",
+        "--current-mappings",
+        mappingsPath,
+        "--freshness",
+        freshnessPath,
+        "--output",
+        dispatchEventPath,
+        "--receipt",
+        receiptPath,
+      ],
+      values: {},
+    });
+    writeFileSync(historyPath, `${JSON.stringify([result.journal])}\n`);
+    const dispatchJournalPath = join(directory, "dispatch-journal.json");
+    const dispatch = await runMainDeploymentCli({
+      argv: [
+        "run-active",
+        "--event",
+        dispatchEventPath,
+        "--journal-history",
+        historyPath,
+        "--journal-output",
+        dispatchJournalPath,
+        "--output",
+        join(directory, "dispatch-transition.json"),
+      ],
+      values: {
+        PLAN_JSON: JSON.stringify(reviewedPlan),
+        GITHUB_OUTPUT: githubOutput,
+        GITHUB_RUN_ID: "800",
+        GITHUB_RUN_ATTEMPT: "3",
+        STAGE_GOVERNANCE_RESULT: jobs.governance.result,
+        STAGE_GOVERNANCE_HANDOFF: JSON.stringify(jobs.governance.handoff),
+        STAGE_RESERVE_RESULT: jobs.reserve.result,
+        STAGE_RESERVE_HANDOFF: "",
+        STAGE_UI_RESULT: jobs.ui.result,
+        STAGE_UI_HANDOFF: "",
+        VERCEL_PROJECT_ID_APP: projectIds.app,
+        VERCEL_PROJECT_ID_GOVERNANCE: projectIds.governance,
+        VERCEL_PROJECT_ID_RESERVE: projectIds.reserve,
+        VERCEL_PROJECT_ID_UI: projectIds.ui,
+      },
+    });
+    assert.equal(dispatch.journal.status, "started");
+    assert.equal(dispatch.afterUploadAction, "authorize");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 
@@ -523,148 +1180,6 @@ test("canonical evidence records planning, candidates, timings, cache, journal, 
       }),
     /forbidden or missing fields/,
   );
-});
-
-test("planning summary exposes only target selection and served-SHA reasoning", () => {
-  const deploymentPlan = plan();
-  const summary = renderMainDeploymentPlan(deploymentPlan);
-  assert.match(summary, /Vercel main deployment plan/);
-  assert.match(
-    summary,
-    /Selected targets: `app`, `governance`, `reserve`, `ui`/,
-  );
-  assert.match(summary, /Served-SHA ranges and selection reasons/);
-  assert.match(summary, /affected-packages/);
-  for (const projectId of Object.values(deploymentPlan.projectIds)) {
-    assert.doesNotMatch(summary, new RegExp(projectId));
-  }
-  for (const state of deploymentPlan.protectedSnapshot.states) {
-    assert.doesNotMatch(summary, new RegExp(state.deploymentId));
-    assert.doesNotMatch(
-      summary,
-      new RegExp(state.deploymentUrl.replaceAll(".", "\\.")),
-    );
-    for (const alias of state.aliases) {
-      assert.doesNotMatch(summary, new RegExp(alias.replaceAll(".", "\\.")));
-    }
-  }
-  assert.doesNotMatch(summary, /vercel-main-planning-snapshot|VERCEL_TOKEN/);
-});
-
-test("plan CLI writes a redacted planning summary without protected state or credentials", () => {
-  const directory = mkdtempSync(join(tmpdir(), "vercel-main-plan-summary-"));
-  try {
-    const source = join(directory, "source");
-    mkdirSync(source);
-    const runGit = (argumentsList) => {
-      const result = spawnSync("git", argumentsList, {
-        cwd: source,
-        encoding: "utf8",
-      });
-      assert.equal(result.status, 0, result.stderr);
-      return result.stdout.trim();
-    };
-    writeFileSync(join(source, "README.md"), "base\n", {
-      encoding: "utf8",
-    });
-    runGit(["init"]);
-    runGit(["config", "user.email", "test@example.com"]);
-    runGit(["config", "user.name", "Test User"]);
-    runGit(["add", "README.md"]);
-    runGit(["commit", "-m", "base"]);
-    const base = runGit(["rev-parse", "HEAD"]);
-    writeFileSync(join(source, "README.md"), "base\nhead\n", {
-      encoding: "utf8",
-    });
-    runGit(["add", "README.md"]);
-    runGit(["commit", "-m", "head"]);
-    const head = runGit(["rev-parse", "HEAD"]);
-
-    const ids = {
-      app: "prj_planSummaryApp",
-      governance: "prj_planSummaryGovernance",
-      reserve: "prj_planSummaryReserve",
-      ui: "prj_planSummaryUi",
-    };
-    const mainSnapshot = planningSnapshot();
-    for (const state of mainSnapshot.states) {
-      const target = state.projectName.split(".")[0];
-      state.projectId = ids[target];
-      state.git.sha = base;
-    }
-    const rollbackSnapshot = legacySnapshot();
-    rollbackSnapshot[0].projectId = ids.app;
-    const planningSnapshotPath = join(directory, "planning.json");
-    const legacySnapshotPath = join(directory, "legacy.json");
-    const planPath = join(directory, "plan.json");
-    const outputPath = join(directory, "output.env");
-    const summaryPath = join(directory, "summary.md");
-    writeFileSync(planningSnapshotPath, JSON.stringify(mainSnapshot), "utf8");
-    writeFileSync(legacySnapshotPath, JSON.stringify(rollbackSnapshot), "utf8");
-    writeFileSync(outputPath, "", "utf8");
-    writeFileSync(summaryPath, "", "utf8");
-
-    const result = spawnSync(
-      process.execPath,
-      [
-        fileURLToPath(new URL("./vercel-main-deployment.mjs", import.meta.url)),
-        "plan",
-        "--planning-snapshot",
-        planningSnapshotPath,
-        "--legacy-snapshot",
-        legacySnapshotPath,
-        "--output",
-        planPath,
-      ],
-      {
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          BUILD_AND_TEST_JOB_URL:
-            "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123456/job/654321",
-          DEPLOY_SHA: head,
-          GITHUB_OUTPUT: outputPath,
-          GITHUB_STEP_SUMMARY: summaryPath,
-          SOURCE_PATH: source,
-          UPSTREAM_RUN_ATTEMPT: "2",
-          UPSTREAM_RUN_ID: "123456",
-          UPSTREAM_RUN_URL:
-            "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123456",
-          VERCEL_MAIN_MODE: MAIN_DEPLOYMENT_MODE,
-          VERCEL_PROJECT_ID_APP: ids.app,
-          VERCEL_PROJECT_ID_GOVERNANCE: ids.governance,
-          VERCEL_PROJECT_ID_RESERVE: ids.reserve,
-          VERCEL_PROJECT_ID_UI: ids.ui,
-          VERCEL_TOKEN: "vercel-token-must-not-appear",
-        },
-      },
-    );
-    assert.equal(result.status, 0, result.stderr);
-    const planOutput = readFileSync(planPath, "utf8");
-    const summary = readFileSync(summaryPath, "utf8");
-    assert.match(planOutput, /prj_planSummaryApp/);
-    assert.match(summary, /Selected targets: none/);
-    assert.match(summary, /non-runtime-only/);
-    for (const projectId of Object.values(ids)) {
-      assert.doesNotMatch(summary, new RegExp(projectId));
-    }
-    for (const state of mainSnapshot.states) {
-      assert.doesNotMatch(summary, new RegExp(state.deploymentId));
-      assert.doesNotMatch(
-        summary,
-        new RegExp(state.deploymentUrl.replaceAll(".", "\\.")),
-      );
-      for (const alias of state.aliases) {
-        assert.doesNotMatch(summary, new RegExp(alias.replaceAll(".", "\\.")));
-      }
-    }
-    assert.doesNotMatch(
-      summary,
-      /vercel-main-planning-snapshot|vercel-token-must-not-appear|VERCEL_TOKEN/,
-    );
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
 });
 
 test("failure evidence records the complete redacted job graph without parsing planner output", () => {
@@ -1052,6 +1567,12 @@ for (const [name, mutate, reason] of [
     mutate(snapshot);
     const result = createMainDeploymentPlan({
       mode: MAIN_DEPLOYMENT_MODE,
+      mainOwnershipMode: ownership({
+        app: MAIN_OWNERSHIP_MODES.SHADOW,
+        governance: MAIN_OWNERSHIP_MODES.SHADOW,
+        reserve: MAIN_OWNERSHIP_MODES.SHADOW,
+        ui: MAIN_OWNERSHIP_MODES.SHADOW,
+      }),
       deploySha: SHA,
       projectIds,
       planningSnapshot: snapshot,
@@ -1202,60 +1723,34 @@ test("selected stages must succeed and unselected stages must be skipped", () =>
 });
 
 test("protected rollback identity remains stable while ordinary generated aliases move", () => {
-  const legacyAliases = [
-    "appmentoorg-git-v2-mentolabs.vercel.app",
-    "appmentoorg-mentolabs.vercel.app",
-    "appmentoorg.vercel.app",
-    "v2-app.mento.org",
-  ];
-  const deploymentPlanWithGeneratedLegacyAlias = plan({ legacyAliases });
-  assert.deepEqual(deploymentPlanWithGeneratedLegacyAlias.legacyPrior.aliases, [
-    "v2-app.mento.org",
-  ]);
-  for (const aliases of [
-    // Missing protected, branch, scope, or project-default aliases.
-    ...legacyAliases.map((missing) =>
-      legacyAliases.filter((alias) => alias !== missing),
-    ),
-    // Wrong project, branch, scope, project default, or DNS suffix.
-    legacyAliases.map((alias) =>
-      alias === "appmentoorg-git-v2-mentolabs.vercel.app"
-        ? "otherproject-git-v2-mentolabs.vercel.app"
-        : alias,
-    ),
-    legacyAliases.map((alias) =>
-      alias === "appmentoorg-git-v2-mentolabs.vercel.app"
-        ? "appmentoorg-git-main-mentolabs.vercel.app"
-        : alias,
-    ),
-    legacyAliases.map((alias) =>
-      alias === "appmentoorg-mentolabs.vercel.app"
-        ? "appmentoorg-other.vercel.app"
-        : alias,
-    ),
-    legacyAliases.map((alias) =>
-      alias === "appmentoorg.vercel.app" ? "appmento.vercel.app" : alias,
-    ),
-    legacyAliases.map((alias) =>
-      alias === "appmentoorg.vercel.app"
-        ? "appmentoorg.vercel.app.attacker.example"
-        : alias,
-    ),
-    // Creator aliases and immutable deployment hosts are not API aliases.
-    [...legacyAliases, "appmentoorg-chapati-mentolabs.vercel.app"],
-    [
-      "appmento-jbhj7crjl-mentolabs.vercel.app",
-      "appmentoorg-git-v2-mentolabs.vercel.app",
-      "appmentoorg-mentolabs.vercel.app",
-      "v2-app.mento.org",
-    ],
-  ]) {
-    assert.throws(
-      () => plan({ legacyAliases: aliases.toSorted() }),
-      /Legacy app generated-alias topology mismatch/,
-    );
-  }
   const deploymentPlan = plan();
+  const incompleteLegacyTopology = legacySnapshot();
+  incompleteLegacyTopology[0].aliases = ["v2-app.mento.org"];
+  assert.throws(
+    () =>
+      createMainDeploymentPlan({
+        mode: MAIN_DEPLOYMENT_MODE,
+        mainOwnershipMode: ownership({
+          app: MAIN_OWNERSHIP_MODES.SHADOW,
+          governance: MAIN_OWNERSHIP_MODES.SHADOW,
+          reserve: MAIN_OWNERSHIP_MODES.SHADOW,
+          ui: MAIN_OWNERSHIP_MODES.SHADOW,
+        }),
+        deploySha: SHA,
+        projectIds,
+        planningSnapshot: planningSnapshot(),
+        legacySnapshot: incompleteLegacyTopology,
+        upstream: upstream(),
+        gitAdapter: gitAdapter(),
+        runPlanner: ({ base, head }) => ({
+          base,
+          head,
+          deployments: ["app"],
+          reason: "affected-packages",
+        }),
+      }),
+    /Legacy app generated-alias topology mismatch/,
+  );
   assert.deepEqual(
     assertProtectedSnapshotMatchesPlan({
       plan: deploymentPlan,
@@ -1324,51 +1819,18 @@ test("protected rollback identity remains stable while ordinary generated aliase
       legacySnapshot: legacySnapshot(),
     }),
   );
-  const legacyGeneratedAliases = structuredClone(legacySnapshot());
-  legacyGeneratedAliases[0].aliases = legacyAliases;
-  assert.doesNotThrow(() =>
-    assertProtectedSnapshotMatchesPlan({
-      plan: deploymentPlanWithGeneratedLegacyAlias,
-      planningSnapshot: planningSnapshot(),
-      legacySnapshot: legacyGeneratedAliases,
-    }),
-  );
-  const missingLegacyAlias = structuredClone(legacySnapshot());
-  missingLegacyAlias[0].aliases = [
-    "appmentoorg-git-v2-mentolabs.vercel.app",
-    "appmentoorg-mentolabs.vercel.app",
-    "appmentoorg.vercel.app",
+  const legacyAliasDrift = structuredClone(legacySnapshot());
+  legacyAliasDrift[0].aliases = [
+    "v2-app.mento.org",
+    "unexpected-legacy-alias.vercel.app",
   ];
   assert.throws(() =>
     assertProtectedSnapshotMatchesPlan({
       plan: deploymentPlan,
       planningSnapshot: planningSnapshot(),
-      legacySnapshot: missingLegacyAlias,
+      legacySnapshot: legacyAliasDrift,
     }),
   );
-  for (const mutate of [
-    (state) => {
-      state.deploymentId = "dpl_operatorMove123";
-    },
-    (state) => {
-      state.aliases = [
-        "appmentoorg-git-v2-other.vercel.app",
-        "appmentoorg-mentolabs.vercel.app",
-        "appmentoorg.vercel.app",
-        "v2-app.mento.org",
-      ];
-    },
-  ]) {
-    const changed = structuredClone(legacyGeneratedAliases);
-    mutate(changed[0]);
-    assert.throws(() =>
-      assertProtectedSnapshotMatchesPlan({
-        plan: deploymentPlanWithGeneratedLegacyAlias,
-        planningSnapshot: planningSnapshot(),
-        legacySnapshot: changed,
-      }),
-    );
-  }
   for (const mutate of [
     (state) => {
       state.deploymentId = "dpl_operatorMove123";
@@ -1408,6 +1870,12 @@ test("protected rollback identity remains stable while ordinary generated aliase
     }
     const ambiguityPlan = createMainDeploymentPlan({
       mode: MAIN_DEPLOYMENT_MODE,
+      mainOwnershipMode: ownership({
+        app: MAIN_OWNERSHIP_MODES.SHADOW,
+        governance: MAIN_OWNERSHIP_MODES.SHADOW,
+        reserve: MAIN_OWNERSHIP_MODES.SHADOW,
+        ui: MAIN_OWNERSHIP_MODES.SHADOW,
+      }),
       deploySha: SHA,
       projectIds,
       planningSnapshot: captured,
@@ -1470,92 +1938,6 @@ test("remote-main freshness uses one bounded exact ls-remote ref", () => {
         spawn: () => ({ status: 1, stdout: "" }),
       }),
     /could not be proven/,
-  );
-});
-
-test("legacy generated-alias topology mismatch is a copy-safe diagnostic", () => {
-  const legacy = legacySnapshot();
-  legacy[0].aliases = [
-    "appmentoorg-git-v2-mentolabs.vercel.app",
-    "appmentoorg-mentolabs.vercel.app",
-    "appmentoorg-unexpected-mentolabs.vercel.app",
-    "appmentoorg.vercel.app",
-    "v2-app.mento.org",
-  ].sort();
-  let error;
-  try {
-    createMainDeploymentPlan({
-      mode: MAIN_DEPLOYMENT_MODE,
-      deploySha: SHA,
-      projectIds,
-      planningSnapshot: planningSnapshot(),
-      legacySnapshot: legacy,
-      upstream: upstream(),
-      gitAdapter: gitAdapter(),
-      runPlanner: ({ base, head }) => ({
-        base,
-        head,
-        deployments: ["app"],
-        reason: "affected-packages",
-      }),
-    });
-  } catch (caught) {
-    error = caught;
-  }
-  assert.ok(error instanceof Error);
-  assert.equal(
-    error.message,
-    'Legacy app generated-alias topology mismatch: {"actualAliases":["appmentoorg-git-v2-mentolabs.vercel.app","appmentoorg-mentolabs.vercel.app","appmentoorg-unexpected-mentolabs.vercel.app","appmentoorg.vercel.app","v2-app.mento.org"],"creatorUsername":"chapati","expectedAliasTopologies":[["appmentoorg-git-v2-mentolabs.vercel.app","appmentoorg-mentolabs.vercel.app","appmentoorg.vercel.app","v2-app.mento.org"]]}',
-  );
-  for (const rawValue of [
-    "dpl_legacyV2123",
-    "https://appmento-jbhj7crjl-mentolabs.vercel.app",
-    projectIds.app,
-    "9999999999999999999999999999999999999999",
-  ]) {
-    assert.doesNotMatch(error.message, new RegExp(rawValue));
-  }
-
-  const alternateCreator = legacySnapshot();
-  alternateCreator[0].creatorUsername = "other-author";
-  assert.doesNotThrow(() =>
-    createMainDeploymentPlan({
-      mode: MAIN_DEPLOYMENT_MODE,
-      deploySha: SHA,
-      projectIds,
-      planningSnapshot: planningSnapshot(),
-      legacySnapshot: alternateCreator,
-      upstream: upstream(),
-      gitAdapter: gitAdapter(),
-      runPlanner: ({ base, head }) => ({
-        base,
-        head,
-        deployments: ["app"],
-        reason: "affected-packages",
-      }),
-    }),
-  );
-
-  const wrongProject = legacySnapshot();
-  wrongProject[0].projectId = "prj_wrongProject123";
-  assert.throws(
-    () =>
-      createMainDeploymentPlan({
-        mode: MAIN_DEPLOYMENT_MODE,
-        deploySha: SHA,
-        projectIds,
-        planningSnapshot: planningSnapshot(),
-        legacySnapshot: wrongProject,
-        upstream: upstream(),
-        gitAdapter: gitAdapter(),
-        runPlanner: ({ base, head }) => ({
-          base,
-          head,
-          deployments: ["app"],
-          reason: "affected-packages",
-        }),
-      }),
-    /Legacy app rollback state is ambiguous/,
   );
 });
 
@@ -1831,4 +2213,666 @@ test("shadow recovery remains verify-only and final sentinel accepts only safe P
       }),
     /not recovery-verified/,
   );
+});
+
+test("active planning stages shadow-owned targets without making them forward candidates", () => {
+  const mainOwnershipMode = ownership({
+    governance: MAIN_OWNERSHIP_MODES.SHADOW,
+  });
+  const deploymentPlan = activePlan({ mainOwnershipMode });
+  const planning = createMainActivePlanning({
+    plan: deploymentPlan,
+  });
+  assert.deepEqual(planning.stagedTargets, [
+    "app",
+    "governance",
+    "reserve",
+    "ui",
+  ]);
+  assert.deepEqual(planning.activeTargets, ["app", "reserve", "ui"]);
+  assert.deepEqual(planning.shadowTargets, ["governance"]);
+
+  const inputs = createMainActiveTransactionInputs({
+    plan: deploymentPlan,
+    stageJobs: stageJobs(deploymentPlan),
+    appBuildProof: appProof(),
+    runId: "800",
+    runAttempt: "3",
+  });
+  assert.equal(inputs.candidates.governance, null);
+  assert.notEqual(inputs.candidates.reserve, null);
+  assert.deepEqual(
+    createPreparedMainActiveJournal({
+      plan: deploymentPlan,
+      stageJobs: stageJobs(deploymentPlan),
+      appBuildProof: appProof(),
+      runId: "800",
+      runAttempt: "3",
+    }).candidates,
+    inputs.candidates,
+  );
+  assert.throws(
+    () =>
+      createMainActivePlanning({
+        plan: {
+          ...deploymentPlan,
+          planning: {
+            ...deploymentPlan.planning,
+            mainOwnershipMode: {
+              ...mainOwnershipMode,
+              app: "active",
+            },
+          },
+        },
+      }),
+    /app main ownership mode must be github or shadow/,
+  );
+});
+
+test("active state spec binds the highest journal and exact stage handoffs", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "vercel-main-state-spec-"));
+  try {
+    const deploymentPlan = activePlan({
+      mainOwnershipMode: ownership({
+        reserve: MAIN_OWNERSHIP_MODES.SHADOW,
+      }),
+    });
+    const jobs = stageJobs(deploymentPlan);
+    const prepared = createPreparedMainActiveJournal({
+      plan: deploymentPlan,
+      stageJobs: jobs,
+      appBuildProof: appProof(),
+      runId: "800",
+      runAttempt: "3",
+    });
+    const highest = attachDiscoveredAppCandidate(prepared, {
+      deploymentId: "dpl_appCandidate123",
+      deploymentUrl: "https://app-candidate.vercel.app",
+      ...prepared.candidates.app.discovery,
+    });
+    const expected = createMainActiveDeploymentStateSpec({
+      plan: deploymentPlan,
+      journalHistory: [prepared, highest],
+      stageJobs: jobs,
+      runId: "800",
+      runAttempt: "3",
+    });
+    assert.equal(expected.schema, "vercel-active-deployment-state-spec:v2");
+    assert.deepEqual(expected.activeTargets, ["app", "governance", "ui"]);
+    assert.deepEqual(expected.shadowTargets, ["reserve"]);
+    assert.equal(expected.projects.app.deploymentId, "dpl_appCandidate123");
+    assert.equal(
+      expected.projects.reserve.deploymentId,
+      jobs.reserve.handoff.candidate.deploymentId,
+    );
+    assert.equal(
+      expected.projects.reserve.expectedDisposition,
+      "githubShadowStage",
+    );
+    assert.equal(
+      expected.legacyAppV2.deployment,
+      deploymentPlan.legacySnapshot[0].deploymentId,
+    );
+    assert.deepEqual(
+      createMainActiveAliasMappingSet({
+        plan: deploymentPlan,
+        journalHistory: [prepared, highest],
+        runId: "800",
+        runAttempt: "3",
+      }).aliases,
+      [
+        "app.mento.org",
+        "appmentoorg-env-v3-mentolabs.vercel.app",
+        "governance.mento.org",
+        "reserve.mento.org",
+        "ui.mento.org",
+        "v2-app.mento.org",
+      ],
+    );
+    assert.throws(
+      () =>
+        createMainActiveDeploymentStateSpec({
+          plan: deploymentPlan,
+          journalHistory: [prepared],
+          stageJobs: jobs,
+          runId: "800",
+          runAttempt: "3",
+        }),
+      /app candidate is incomplete or inconsistent/,
+    );
+
+    const journalHistoryPath = join(directory, "journal-history.json");
+    const outputPath = join(directory, "state-spec.json");
+    const githubOutput = join(directory, "github-output.txt");
+    writeFileSync(
+      journalHistoryPath,
+      `${JSON.stringify([prepared, highest])}\n`,
+    );
+    const actual = await runMainDeploymentCli({
+      argv: [
+        "active-state-spec",
+        "--journal-history",
+        journalHistoryPath,
+        "--output",
+        outputPath,
+      ],
+      values: {
+        PLAN_JSON: JSON.stringify(deploymentPlan),
+        STAGE_GOVERNANCE_RESULT: jobs.governance.result,
+        STAGE_GOVERNANCE_HANDOFF: JSON.stringify(jobs.governance.handoff),
+        STAGE_RESERVE_RESULT: jobs.reserve.result,
+        STAGE_RESERVE_HANDOFF: JSON.stringify(jobs.reserve.handoff),
+        STAGE_UI_RESULT: jobs.ui.result,
+        STAGE_UI_HANDOFF: JSON.stringify(jobs.ui.handoff),
+        GITHUB_RUN_ID: "800",
+        GITHUB_RUN_ATTEMPT: "3",
+        GITHUB_OUTPUT: githubOutput,
+      },
+    });
+    assert.deepEqual(actual, expected);
+    assert.deepEqual(JSON.parse(readFileSync(outputPath, "utf8")), expected);
+    assert.match(
+      readFileSync(githubOutput, "utf8"),
+      /transaction_id=main-[a-f0-9]{32}/,
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("active public smoke materializer derives exact target records from the plan", () => {
+  const deploymentPlan = activePlan({
+    mainOwnershipMode: ownership({ reserve: MAIN_OWNERSHIP_MODES.SHADOW }),
+  });
+  const targetResults = Object.fromEntries(
+    ["app", "governance", "reserve", "ui"].map((target) => [
+      target,
+      deploymentPlan.planning.activeTargets.includes(target)
+        ? { status: "passed", servedSha: SHA }
+        : { status: "not-required", servedSha: null },
+    ]),
+  );
+  const smokes = createMainActivePublicSmokes({
+    plan: deploymentPlan,
+    targetResults,
+  });
+  assert.deepEqual(smokes.reserve, {
+    publicUrl: "https://reserve.mento.org/",
+    servedSha: null,
+    status: "not-required",
+  });
+  assert.throws(
+    () =>
+      createMainActivePublicSmokes({
+        plan: deploymentPlan,
+        targetResults: {
+          ...targetResults,
+          reserve: { status: "passed", servedSha: SHA },
+        },
+      }),
+    /reserve smoke result is inconsistent/,
+  );
+});
+
+test("active controller commits exact ordered mutations and emits canonical redacted evidence", async () => {
+  const harness = activeHarness();
+  const result = await runMainActiveTransaction({
+    plan: harness.plan,
+    stageJobs: harness.stageJobs,
+    appBuildProof: harness.appBuildProof,
+    runId: "800",
+    runAttempt: "3",
+    journalHistory: [],
+    adapters: harness.adapters,
+  });
+  assert.equal(result.outcome, "active-committed");
+  assert.equal(result.highestJournalStatus, "committed");
+  assert.equal(result.publicServingMutationCommands, 6);
+  assert.deepEqual(
+    result.journal.operations
+      .filter((operation) => operation.state === "verified")
+      .map((operation) => [operation.type, operation.target, operation.alias]),
+    [
+      ["promote", "governance", null],
+      ["promote", "reserve", null],
+      ["promote", "ui", null],
+      ["app_v3_deploy", "app", null],
+      ["app_alias_set", "app", "app.mento.org"],
+      ["app_alias_set", "app", "appmentoorg-env-v3-mentolabs.vercel.app"],
+    ],
+  );
+
+  const evidence = createMainActiveDeploymentEvidence({
+    plan: harness.plan,
+    journalHistory: result.journalHistory,
+    freshness: result.freshness,
+    finalMappings: activeFinalMappings(harness),
+    publicSmokes: activePublicSmokes(result),
+    stateProof: activeStateProof({
+      deploymentPlan: harness.plan,
+      journal: result.journal,
+      journalHistory: result.journalHistory,
+      jobs: harness.stageJobs,
+      runId: "800",
+      runAttempt: "3",
+    }),
+    rollbackStateTargets: [],
+    publicServingMutationCommands: result.publicServingMutationCommands,
+    recoveryOutcome: "not-required",
+    runId: "800",
+    runAttempt: "3",
+    workflowRunUrl: WORKFLOW_RUN_URL,
+  });
+  assert.equal(evidence.schema, MAIN_ACTIVE_EVIDENCE_SCHEMA);
+  assert.equal(evidence.journal.highestStatus, "committed");
+  assert.equal(evidence.orderedVerifiedOperations.length, 6);
+  assert.equal(evidence.finalMappings.length, 6);
+  assert.equal(
+    evidence.stateProofSummary.proofSchema,
+    "vercel-active-deployment-state-proof:v2",
+  );
+  assert.deepEqual(evidence.recovery.rollbackStateTargets, []);
+  assert.match(
+    renderMainActiveDeploymentEvidence(evidence),
+    /Public-serving mutation commands: `6`/,
+  );
+  assert.doesNotMatch(JSON.stringify(evidence), /token|cookie|environment/i);
+  assert.throws(
+    () =>
+      createMainActiveDeploymentEvidence({
+        plan: harness.plan,
+        journalHistory: result.journalHistory,
+        freshness: result.freshness,
+        finalMappings: activeFinalMappings(harness),
+        publicSmokes: {
+          ...activePublicSmokes(result),
+          app: {
+            ...activePublicSmokes(result).app,
+            token: "must-not-survive",
+          },
+        },
+        stateProof: activeStateProof({
+          deploymentPlan: harness.plan,
+          journal: result.journal,
+          journalHistory: result.journalHistory,
+          jobs: harness.stageJobs,
+          runId: "800",
+          runAttempt: "3",
+        }),
+        rollbackStateTargets: [],
+        publicServingMutationCommands: 6,
+        recoveryOutcome: "not-required",
+        runId: "800",
+        runAttempt: "3",
+        workflowRunUrl: WORKFLOW_RUN_URL,
+      }),
+    /forbidden or missing fields/,
+  );
+});
+
+test("active App deployment safely skips zero, one, or two aliases it already moved", async () => {
+  const appAliases = [
+    "app.mento.org",
+    "appmentoorg-env-v3-mentolabs.vercel.app",
+  ];
+  for (const [movedAliases, expectedCommands] of [
+    [[], 6],
+    [[appAliases[0]], 5],
+    [appAliases, 4],
+  ]) {
+    const harness = activeHarness({ appAliasesMovedByDeploy: movedAliases });
+    const result = await runMainActiveTransaction({
+      plan: harness.plan,
+      stageJobs: harness.stageJobs,
+      appBuildProof: harness.appBuildProof,
+      runId: "800",
+      runAttempt: "3",
+      journalHistory: [],
+      adapters: harness.adapters,
+    });
+    assert.equal(result.outcome, "active-committed");
+    assert.equal(result.publicServingMutationCommands, expectedCommands);
+    assert.equal(
+      result.journal.operations.filter(
+        (operation) =>
+          operation.type === "app_alias_set" && operation.state === "verified",
+      ).length,
+      appAliases.length - movedAliases.length,
+      `moved aliases: ${movedAliases.length}`,
+    );
+  }
+});
+
+test("active controller keeps mixed shadow targets out of public mutation and evidence", async () => {
+  const harness = activeHarness({
+    ownershipMap: ownership({
+      governance: MAIN_OWNERSHIP_MODES.SHADOW,
+    }),
+  });
+  const result = await runMainActiveTransaction({
+    plan: harness.plan,
+    stageJobs: harness.stageJobs,
+    appBuildProof: harness.appBuildProof,
+    runId: "800",
+    runAttempt: "3",
+    journalHistory: [],
+    adapters: harness.adapters,
+  });
+  assert.deepEqual(result.shadowTargets, ["governance"]);
+  assert.equal(result.publicServingMutationCommands, 5);
+  assert.equal(
+    result.journal.operations.some(
+      (operation) =>
+        operation.type === "promote" && operation.target === "governance",
+    ),
+    false,
+  );
+  assert.deepEqual(
+    harness.mappings.get("governance.mento.org"),
+    mapping("governance.mento.org", harness.inputs.prior.governance),
+  );
+  assert.deepEqual(activePublicSmokes(result).governance, {
+    publicUrl: "https://governance.mento.org/",
+    servedSha: null,
+    status: "not-required",
+  });
+});
+
+test("active journal identity rejects missing and ambiguous artifact histories", () => {
+  const identity = createMainActiveJournalHistoryIdentity({
+    deploySha: SHA,
+    runId: "800",
+    runAttempt: "3",
+  });
+  assert.equal(identity.mode, "active");
+  assert.match(
+    identity.artifactPrefix,
+    new RegExp(`^vercel-main-journal-${identity.transactionId}-$`),
+  );
+  assert.throws(
+    () =>
+      assertMainActiveJournalHistory({
+        journals: [],
+        deploySha: SHA,
+        runId: "800",
+        runAttempt: "3",
+      }),
+    /non-empty array/,
+  );
+  const prepared = createPreparedMainActiveJournal({
+    plan: activePlan(),
+    stageJobs: stageJobs(activePlan()),
+    appBuildProof: appProof(),
+    runId: "800",
+    runAttempt: "3",
+  });
+  assert.throws(
+    () =>
+      assertMainActiveJournalHistory({
+        journals: [prepared, prepared],
+        deploySha: SHA,
+        runId: "800",
+        runAttempt: "3",
+      }),
+    /missing or duplicated/,
+  );
+  assert.throws(
+    () =>
+      assertMainActiveJournalHistory({
+        journals: [{ ...prepared, mode: "shadow" }],
+        deploySha: SHA,
+        runId: "800",
+        runAttempt: "3",
+      }),
+    /mode/,
+  );
+});
+
+test("active recovery planning and execution hand off exact reverse mutations and stay release-failing", async () => {
+  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const prepared = createPreparedMainActiveJournal({
+    plan: deploymentPlan,
+    stageJobs: stageJobs(deploymentPlan),
+    appBuildProof: null,
+    runId: "800",
+    runAttempt: "3",
+  });
+  const started = startMainTransactionOperation(prepared, {
+    type: "promote",
+    target: "governance",
+  });
+  let mappingState = "candidate";
+  const currentMappings = Object.values(started.prior).flatMap((record) =>
+    record.aliases.map((alias) =>
+      mapping(
+        alias,
+        alias === "governance.mento.org"
+          ? started.candidates.governance
+          : record,
+      ),
+    ),
+  );
+  const recoveryPlan = planMainActiveRecovery({
+    journalHistory: [prepared, started],
+    deploySha: SHA,
+    runId: "800",
+    runAttempt: "3",
+    currentMappings,
+    appCandidateMatches: [],
+  });
+  assert.equal(recoveryPlan.decision, "recover");
+  assert.deepEqual(recoveryPlan.rollbackStateTargets, ["governance"]);
+  assert.equal(recoveryPlan.forceFailure, true);
+
+  const result = await runMainActiveRecovery({
+    recoveryPlan,
+    adapters: {
+      uploadJournal: async ({ artifactName, journal }) => ({
+        acknowledged: true,
+        artifactName,
+        artifactId: String(7000 + journal.sequence),
+      }),
+      inspectMapping: async () => ({ mappingState }),
+      ordinaryRollback: async () => {
+        mappingState = "prior";
+        return { outcome: "success" };
+      },
+      verifyMapping: async () => ({ mappingState }),
+    },
+  });
+  assert.equal(result.outcome, "recovered");
+  assert.equal(result.publicServingMutationCommands, 1);
+  assert.equal(result.forceReleaseFailure, true);
+  assert.equal(result.journal.status, "recovered");
+
+  const verdict = evaluateMainActiveFinalResults({
+    plan: deploymentPlan,
+    jobs: activeJobs(deploymentPlan, { coordinator: "failure" }),
+    coordinatorOutcome: "active-failed",
+    recoveryOutcome: "recovered",
+  });
+  assert.deepEqual(verdict, {
+    releaseOutcome: "failure",
+    evidenceKind: "failure",
+    failAfterEvidence: true,
+    reason: "activation-recovered",
+  });
+});
+
+test("active final-result matrix preserves safe noops and fails every recovery outcome after evidence", () => {
+  const deploymentPlan = activePlan();
+  const cases = [
+    ["active-committed", "not-required", {}, "success"],
+    ["no-target", "not-required", {}, "success"],
+    ["superseded-before-journal", "not-required", {}, "success"],
+    [
+      "active-failed",
+      "verified-no-mutation",
+      { coordinator: "failure" },
+      "failure",
+    ],
+    ["active-failed", "recovered", { coordinator: "failure" }, "failure"],
+    [
+      "active-failed",
+      "manual-intervention",
+      { coordinator: "failure" },
+      "failure",
+    ],
+    [
+      "active-failed",
+      "recovery-failed",
+      { coordinator: "failure", recovery: "failure" },
+      "failure",
+    ],
+    [
+      "active-failed",
+      "not-found-after-runner-failure",
+      { coordinator: "failure" },
+      "failure",
+    ],
+  ];
+  for (const [
+    coordinatorOutcome,
+    recoveryOutcome,
+    jobOverrides,
+    expected,
+  ] of cases) {
+    const verdict = evaluateMainActiveFinalResults({
+      plan: deploymentPlan,
+      jobs: activeJobs(deploymentPlan, jobOverrides),
+      coordinatorOutcome,
+      recoveryOutcome,
+    });
+    assert.equal(
+      verdict.releaseOutcome,
+      expected,
+      `${coordinatorOutcome}/${recoveryOutcome}`,
+    );
+    assert.equal(verdict.failAfterEvidence, expected === "failure");
+  }
+  assert.equal(
+    evaluateMainActiveFinalResults({
+      plan: deploymentPlan,
+      jobs: activeJobs(deploymentPlan, { stageUi: "failure" }),
+      coordinatorOutcome: "active-committed",
+      recoveryOutcome: "not-required",
+    }).releaseOutcome,
+    "failure",
+  );
+});
+
+test("active failure evidence never claims zero after a mutation may have started and redacts raw plan output", () => {
+  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const prepared = createPreparedMainActiveJournal({
+    plan: deploymentPlan,
+    stageJobs: stageJobs(deploymentPlan),
+    appBuildProof: null,
+    runId: "800",
+    runAttempt: "3",
+  });
+  const started = startMainTransactionOperation(prepared, {
+    type: "promote",
+    target: "governance",
+  });
+  const base = {
+    eventHeadSha: SHA,
+    verifiedDeploySha: SHA,
+    planOutput: "VERCEL_TOKEN=must-not-survive",
+    jobs: activeJobs(deploymentPlan, { coordinator: "failure" }),
+    workflowDefinitionSha: SHA,
+    runId: "800",
+    runAttempt: "3",
+    workflowRunUrl: WORKFLOW_RUN_URL,
+    mainOwnershipMode: ownership(),
+    journalHistory: [prepared, started],
+    freshness: [
+      { phase: "transaction-start", status: "fresh" },
+      { phase: "pre-command", status: "superseded" },
+    ],
+    rollbackStateTargets: [],
+    coordinatorOutcome: "active-failed",
+    recoveryOutcome: "verified-no-mutation",
+    errorCode: "SUPERSEDED_DURING_MUTATION",
+  };
+  assert.throws(
+    () =>
+      createMainActiveDeploymentFailureEvidence({
+        ...base,
+        publicServingMutationCommands: 0,
+      }),
+    /understates possible public mutations/,
+  );
+  const evidence = createMainActiveDeploymentFailureEvidence({
+    ...base,
+    publicServingMutationCommands: 1,
+  });
+  assert.equal(evidence.schema, MAIN_ACTIVE_FAILURE_EVIDENCE_SCHEMA);
+  assert.equal(evidence.journal.historyStatus, "valid");
+  assert.equal(evidence.journal.highestSequence, 1);
+  assert.equal(evidence.publicServingMutationCommands, 1);
+  assert.doesNotMatch(
+    JSON.stringify(evidence),
+    /must-not-survive|VERCEL_TOKEN/,
+  );
+  assert.match(
+    renderMainActiveDeploymentFailureEvidence(evidence),
+    /Public-serving mutation commands: `1`/,
+  );
+
+  const ambiguous = createMainActiveDeploymentFailureEvidence({
+    ...base,
+    journalHistory: [prepared, prepared],
+    publicServingMutationCommands: 0,
+    errorCode: "JOURNAL_HISTORY_AMBIGUOUS",
+  });
+  assert.equal(ambiguous.journal.historyStatus, "ambiguous");
+  const missing = createMainActiveDeploymentFailureEvidence({
+    ...base,
+    journalHistory: [],
+    publicServingMutationCommands: 0,
+    errorCode: "JOURNAL_HISTORY_MISSING",
+  });
+  assert.equal(missing.journal.historyStatus, "missing");
+
+  const unavailableAfterRecovery = createMainActiveDeploymentFailureEvidence({
+    ...base,
+    journalHistory: [],
+    publicServingMutationCommands: 12,
+    recoveryOutcome: "recovered",
+    errorCode: "JOURNAL_HISTORY_UNAVAILABLE_AFTER_RECOVERY",
+  });
+  assert.equal(unavailableAfterRecovery.journal.historyStatus, "missing");
+  assert.equal(unavailableAfterRecovery.recoveryOutcome, "recovered");
+  assert.equal(unavailableAfterRecovery.publicServingMutationCommands, 12);
+});
+
+test("final-active CLI exposes fail-after-evidence without ending evidence production", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "vercel-main-active-final-"));
+  try {
+    const output = join(directory, "github-output");
+    writeFileSync(output, "");
+    const deploymentPlan = activePlan();
+    const result = await runMainDeploymentCli({
+      argv: ["final-active"],
+      values: {
+        PLAN_JSON: JSON.stringify(deploymentPlan),
+        WAIT_FOR_CI_RESULT: "success",
+        PLAN_RESULT: "success",
+        STAGE_GOVERNANCE_RESULT: "success",
+        STAGE_RESERVE_RESULT: "success",
+        STAGE_UI_RESULT: "success",
+        COORDINATOR_RESULT: "failure",
+        COORDINATOR_OUTCOME: "active-failed",
+        RECOVERY_RESULT: "success",
+        RECOVERY_OUTCOME: "manual-intervention",
+        GITHUB_OUTPUT: output,
+      },
+    });
+    assert.equal(result.releaseOutcome, "failure");
+    assert.equal(result.failAfterEvidence, true);
+    assert.match(readFileSync(output, "utf8"), /fail_after_evidence=true/);
+    assert.match(readFileSync(output, "utf8"), /evidence_kind=failure/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

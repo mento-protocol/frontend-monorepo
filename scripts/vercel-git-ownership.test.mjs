@@ -4,6 +4,7 @@ import { test } from "node:test";
 
 import { parse } from "yaml";
 import {
+  MAIN_OWNERSHIP_MODES,
   PREVIEW_OWNERSHIP_MODES,
   PREVIEW_TARGET_CONFIG,
   PREVIEW_TARGETS,
@@ -18,6 +19,13 @@ const controller = parse(
       "../.github/workflows/vercel-preview-controller.yml",
       import.meta.url,
     ),
+    "utf8",
+  ),
+);
+
+const mainDeployment = parse(
+  readFileSync(
+    new URL("../.github/workflows/vercel-main-deployment.yml", import.meta.url),
     "utf8",
   ),
 );
@@ -49,6 +57,31 @@ function assertControllerMode(controllerMode) {
   );
 }
 
+function mainOwnershipConfiguration(targetConfiguration) {
+  if (targetConfiguration.mainOwnershipMode === MAIN_OWNERSHIP_MODES.GITHUB) {
+    return targetConfiguration.activeVercelConfiguration;
+  }
+  if (targetConfiguration.mainOwnershipMode === MAIN_OWNERSHIP_MODES.SHADOW) {
+    return targetConfiguration.mainShadowVercelConfiguration;
+  }
+  throw new Error("Main ownership mode must match a reviewed exact state");
+}
+
+function assertMainWorkflowOwnershipModes(workflowMode, targetConfigurations) {
+  if (!["active", "shadow"].includes(workflowMode)) {
+    throw new Error("Main workflow mode must match a reviewed exact state");
+  }
+  if (
+    workflowMode === "shadow" &&
+    targetConfigurations.some(
+      ({ mainOwnershipMode }) =>
+        mainOwnershipMode !== MAIN_OWNERSHIP_MODES.SHADOW,
+    )
+  ) {
+    throw new Error("Shadow workflow requires every main owner to be native");
+  }
+}
+
 test("repository pairs every target with its canonical exact ownership configuration", () => {
   assertControllerMode(controller.env.VERCEL_PREVIEW_CONTROLLER_MODE);
   for (const target of PREVIEW_TARGETS) {
@@ -61,21 +94,109 @@ test("repository pairs every target with its canonical exact ownership configura
   }
 });
 
-test("every target exposes reviewed, distinct native and GitHub ownership states", () => {
+test("main workflow mode and per-target Git ownership change atomically", () => {
+  assertMainWorkflowOwnershipModes(
+    mainDeployment.env.VERCEL_MAIN_MODE,
+    Object.values(PREVIEW_TARGET_CONFIG),
+  );
   for (const target of PREVIEW_TARGETS) {
-    const { githubVercelConfiguration, nativeVercelConfiguration } =
-      PREVIEW_TARGET_CONFIG[target];
-    assert.notDeepEqual(githubVercelConfiguration, nativeVercelConfiguration);
+    const targetConfiguration = PREVIEW_TARGET_CONFIG[target];
+    const expectedGitHubConfiguration =
+      mainOwnershipConfiguration(targetConfiguration);
+    assert.equal(
+      targetConfiguration.githubVercelConfiguration,
+      expectedGitHubConfiguration,
+    );
+    const expectedTrackedConfiguration =
+      targetConfiguration.ownershipMode === PREVIEW_OWNERSHIP_MODES.GITHUB
+        ? expectedGitHubConfiguration
+        : targetConfiguration.nativeVercelConfiguration;
+    assertExactOwnership(configuration(target), expectedTrackedConfiguration);
+  }
+  assert.throws(
+    () =>
+      mainOwnershipConfiguration({
+        ...PREVIEW_TARGET_CONFIG.app,
+        mainOwnershipMode: "active",
+      }),
+    /Main ownership mode must match a reviewed exact state/,
+  );
+  assert.doesNotThrow(() =>
+    assertMainWorkflowOwnershipModes("active", [
+      {
+        mainOwnershipMode: MAIN_OWNERSHIP_MODES.GITHUB,
+      },
+      {
+        mainOwnershipMode: MAIN_OWNERSHIP_MODES.SHADOW,
+      },
+    ]),
+  );
+  assert.doesNotThrow(() =>
+    assertMainWorkflowOwnershipModes("shadow", [
+      {
+        mainOwnershipMode: MAIN_OWNERSHIP_MODES.SHADOW,
+      },
+    ]),
+  );
+  assert.throws(
+    () =>
+      assertMainWorkflowOwnershipModes("shadow", [
+        {
+          mainOwnershipMode: MAIN_OWNERSHIP_MODES.GITHUB,
+        },
+      ]),
+    /Shadow workflow requires every main owner to be native/,
+  );
+  assert.throws(
+    () => assertMainWorkflowOwnershipModes("observe-only", []),
+    /Main workflow mode must match a reviewed exact state/,
+  );
+});
+
+test("every target exposes reviewed active, main-shadow, and native ownership states", () => {
+  for (const target of PREVIEW_TARGETS) {
+    const {
+      activeVercelConfiguration,
+      mainShadowVercelConfiguration,
+      nativeVercelConfiguration,
+    } = PREVIEW_TARGET_CONFIG[target];
+    assert.notDeepEqual(
+      activeVercelConfiguration,
+      mainShadowVercelConfiguration,
+    );
+    assert.notDeepEqual(activeVercelConfiguration, nativeVercelConfiguration);
+    assert.notDeepEqual(
+      mainShadowVercelConfiguration,
+      nativeVercelConfiguration,
+    );
     assertExactOwnership(
-      structuredClone(githubVercelConfiguration),
-      githubVercelConfiguration,
+      structuredClone(activeVercelConfiguration),
+      activeVercelConfiguration,
+    );
+    assertExactOwnership(
+      structuredClone(mainShadowVercelConfiguration),
+      mainShadowVercelConfiguration,
     );
     assertExactOwnership(
       structuredClone(nativeVercelConfiguration),
       nativeVercelConfiguration,
     );
-    assert.equal(githubVercelConfiguration.git.deploymentEnabled["**"], false);
-    assert.equal(githubVercelConfiguration.git.deploymentEnabled.main, true);
+    if (target === "app") {
+      assert.equal(
+        activeVercelConfiguration.git.deploymentEnabled["**"],
+        false,
+      );
+    } else {
+      assert.equal(activeVercelConfiguration.git.deploymentEnabled, false);
+    }
+    assert.equal(
+      mainShadowVercelConfiguration.git.deploymentEnabled["**"],
+      false,
+    );
+    assert.equal(
+      mainShadowVercelConfiguration.git.deploymentEnabled.main,
+      true,
+    );
     assert.equal(
       nativeVercelConfiguration.git.deploymentEnabled["dependabot/**"],
       false,
@@ -87,18 +208,36 @@ test("every target exposes reviewed, distinct native and GitHub ownership states
   );
 });
 
-test("ownership configurations keep only their reviewed branch exceptions", () => {
+test("active ownership disables every native branch except App v2", () => {
   assert.deepEqual(
-    PREVIEW_TARGET_CONFIG.app.githubVercelConfiguration.git.deploymentEnabled,
+    PREVIEW_TARGET_CONFIG.app.activeVercelConfiguration.git.deploymentEnabled,
+    { "**": false, v2: true },
+  );
+  for (const target of ["governance", "reserve", "ui"]) {
+    assert.equal(
+      PREVIEW_TARGET_CONFIG[target].activeVercelConfiguration.git
+        .deploymentEnabled,
+      false,
+    );
+  }
+});
+
+test("main-shadow rollback keeps previews GitHub-owned and main native", () => {
+  assert.deepEqual(
+    PREVIEW_TARGET_CONFIG.app.mainShadowVercelConfiguration.git
+      .deploymentEnabled,
     { "**": false, main: true, v2: true },
   );
   for (const target of ["governance", "reserve", "ui"]) {
     assert.deepEqual(
-      PREVIEW_TARGET_CONFIG[target].githubVercelConfiguration.git
+      PREVIEW_TARGET_CONFIG[target].mainShadowVercelConfiguration.git
         .deploymentEnabled,
       { "**": false, main: true },
     );
   }
+});
+
+test("full native rollback keeps only the Dependabot exclusion", () => {
   for (const target of PREVIEW_TARGETS) {
     assert.deepEqual(
       PREVIEW_TARGET_CONFIG[target].nativeVercelConfiguration.git
@@ -122,6 +261,22 @@ test("current rollout keeps every branch-preview target GitHub-only", () => {
       (target) =>
         PREVIEW_TARGET_CONFIG[target].ownershipMode ===
         PREVIEW_OWNERSHIP_MODES.GITHUB,
+    ),
+    PREVIEW_TARGETS,
+  );
+  assert.deepEqual(
+    PREVIEW_TARGETS.filter(
+      (target) =>
+        PREVIEW_TARGET_CONFIG[target].mainOwnershipMode ===
+        MAIN_OWNERSHIP_MODES.SHADOW,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    PREVIEW_TARGETS.filter(
+      (target) =>
+        PREVIEW_TARGET_CONFIG[target].mainOwnershipMode ===
+        MAIN_OWNERSHIP_MODES.GITHUB,
     ),
     PREVIEW_TARGETS,
   );

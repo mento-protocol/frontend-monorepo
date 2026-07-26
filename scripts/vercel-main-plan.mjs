@@ -8,6 +8,10 @@ import {
   canonicalizeDeploymentUrl,
   canonicalizeHostname,
 } from "./vercel-deployment-state.mjs";
+import {
+  MAIN_OWNERSHIP_MODES,
+  PREVIEW_TARGET_CONFIG,
+} from "./vercel-preview-targets.mjs";
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9._-]+$/;
@@ -66,6 +70,15 @@ export const MAIN_DEPLOYMENT_MODES = Object.freeze({
   ACTIVE: "active",
   SHADOW: "shadow",
 });
+
+export const CURRENT_MAIN_OWNERSHIP_MODE = Object.freeze(
+  Object.fromEntries(
+    MAIN_DEPLOYMENT_TARGETS.map((target) => [
+      target,
+      PREVIEW_TARGET_CONFIG[target].mainOwnershipMode,
+    ]),
+  ),
+);
 
 export const MAIN_TARGET_CONTRACTS = Object.freeze({
   app: Object.freeze({
@@ -188,6 +201,38 @@ function assertTargetObject(value, label) {
   ) {
     throw new Error(`${label} must contain exactly the four main targets`);
   }
+}
+
+export function partitionMainOwnership({ mode, mainOwnershipMode }) {
+  const canonicalMode = requireMode(mode);
+  assertTargetObject(mainOwnershipMode, "Main ownership mode");
+  const canonicalMap = {};
+  for (const target of MAIN_DEPLOYMENT_TARGETS) {
+    const ownershipMode = mainOwnershipMode[target];
+    if (!Object.values(MAIN_OWNERSHIP_MODES).includes(ownershipMode)) {
+      throw new Error(`${target} main ownership mode must be github or shadow`);
+    }
+    canonicalMap[target] = ownershipMode;
+  }
+  const githubTargets = MAIN_DEPLOYMENT_TARGETS.filter(
+    (target) => canonicalMap[target] === MAIN_OWNERSHIP_MODES.GITHUB,
+  );
+  const shadowTargets = MAIN_DEPLOYMENT_TARGETS.filter(
+    (target) => canonicalMap[target] === MAIN_OWNERSHIP_MODES.SHADOW,
+  );
+  if (
+    canonicalMode === MAIN_DEPLOYMENT_MODES.SHADOW &&
+    githubTargets.length > 0
+  ) {
+    throw new Error(
+      "Global shadow mode requires all four targets to use shadow ownership",
+    );
+  }
+  return {
+    mainOwnershipMode: canonicalMap,
+    githubTargets,
+    shadowTargets,
+  };
 }
 
 function canonicalizeReviewedAliases(aliases, target) {
@@ -677,19 +722,66 @@ function exactOutputKeys(value, keys, label) {
 export function assertMainDeploymentPlan(plan) {
   exactOutputKeys(
     plan,
-    ["deploySha", "mode", "plan", "priors", "ranges", "reasons", "schema"],
+    [
+      "activeTargets",
+      "deploySha",
+      "mainOwnershipMode",
+      "mode",
+      "plan",
+      "priors",
+      "ranges",
+      "reasons",
+      "schema",
+      "stagedTargets",
+      "shadowTargets",
+    ],
     "Main deployment plan",
   );
-  if (plan.schema !== "vercel-main-plan:v1") {
+  if (plan.schema !== "vercel-main-plan:v2") {
     throw new Error("Main deployment plan schema is invalid");
   }
-  requireMode(plan.mode);
+  const mode = requireMode(plan.mode);
   requireSha(plan.deploySha, "Main deployment plan SHA");
   if (
     !Array.isArray(plan.plan) ||
     JSON.stringify(stableTargets(plan.plan)) !== JSON.stringify(plan.plan)
   ) {
     throw new Error("Main deployment final plan is malformed");
+  }
+  const ownership = partitionMainOwnership({
+    mode,
+    mainOwnershipMode: plan.mainOwnershipMode,
+  });
+  if (
+    JSON.stringify(ownership.mainOwnershipMode) !==
+    JSON.stringify(plan.mainOwnershipMode)
+  ) {
+    throw new Error("Main deployment ownership is malformed");
+  }
+  if (
+    !Array.isArray(plan.stagedTargets) ||
+    !Array.isArray(plan.activeTargets) ||
+    !Array.isArray(plan.shadowTargets) ||
+    JSON.stringify(plan.stagedTargets) !== JSON.stringify(plan.plan) ||
+    JSON.stringify(stableTargets(plan.activeTargets)) !==
+      JSON.stringify(plan.activeTargets) ||
+    JSON.stringify(stableTargets(plan.shadowTargets)) !==
+      JSON.stringify(plan.shadowTargets) ||
+    plan.activeTargets.some(
+      (target) =>
+        !plan.plan.includes(target) ||
+        !ownership.githubTargets.includes(target),
+    ) ||
+    plan.shadowTargets.some(
+      (target) =>
+        !plan.plan.includes(target) ||
+        !ownership.shadowTargets.includes(target),
+    ) ||
+    JSON.stringify(
+      stableTargets([...plan.activeTargets, ...plan.shadowTargets]),
+    ) !== JSON.stringify(plan.plan)
+  ) {
+    throw new Error("Main deployment ownership plan is malformed");
   }
   if (
     !Array.isArray(plan.priors) ||
@@ -773,6 +865,7 @@ export function assertMainDeploymentPlan(plan) {
 
 export function planMainDeployments({
   mode,
+  mainOwnershipMode,
   deploySha,
   projectIds,
   priorStates,
@@ -782,6 +875,10 @@ export function planMainDeployments({
     planVercelDeployments({ repoRoot, base, head }),
 }) {
   const canonicalMode = requireMode(mode);
+  const ownership = partitionMainOwnership({
+    mode: canonicalMode,
+    mainOwnershipMode,
+  });
   const canonicalDeploySha = requireSha(deploySha, "DEPLOY_SHA");
   assertTargetObject(projectIds, "Main project IDs");
   assertTargetObject(priorStates, "Main prior states");
@@ -855,7 +952,14 @@ export function planMainDeployments({
     groupedBases.set(proof.base, targets);
   }
 
-  const alreadyCurrentTargets = [];
+  const alreadyCurrentTargets = new Set(
+    groupedBases.get(canonicalDeploySha) ?? [],
+  );
+  const alreadyCurrentShadowTargets = new Set(
+    [...alreadyCurrentTargets].filter((target) =>
+      ownership.shadowTargets.includes(target),
+    ),
+  );
   for (const [base, targets] of groupedBases) {
     if (base === canonicalDeploySha) {
       ranges.push({
@@ -866,7 +970,6 @@ export function planMainDeployments({
         deployments: [],
         reason: "served-sha-already-current",
       });
-      alreadyCurrentTargets.push(...targets);
       continue;
     }
     const result = executePlannerRange({
@@ -878,14 +981,12 @@ export function planMainDeployments({
     });
     ranges.push(result.range);
     for (const target of result.range.deployments) {
+      if (alreadyCurrentTargets.has(target)) continue;
       addSelection(target, result.selectionReason, base);
     }
   }
 
-  if (
-    canonicalMode === MAIN_DEPLOYMENT_MODES.SHADOW &&
-    alreadyCurrentTargets.length > 0
-  ) {
+  if (alreadyCurrentShadowTargets.size > 0) {
     let firstParent;
     try {
       firstParent = proveFirstParent({
@@ -897,11 +998,11 @@ export function planMainDeployments({
         kind: "shadow-first-parent",
         base: null,
         head: canonicalDeploySha,
-        targets: stableTargets(alreadyCurrentTargets),
-        deployments: [...MAIN_DEPLOYMENT_TARGETS],
+        targets: stableTargets(alreadyCurrentShadowTargets),
+        deployments: ownership.shadowTargets,
         reason: "shadow-first-parent-unresolved",
       });
-      for (const target of MAIN_DEPLOYMENT_TARGETS) {
+      for (const target of ownership.shadowTargets) {
         addSelection(target, "shadow-first-parent-unresolved");
       }
       firstParent = null;
@@ -911,20 +1012,32 @@ export function planMainDeployments({
         kind: "shadow-first-parent",
         base: firstParent,
         head: canonicalDeploySha,
-        targets: stableTargets(alreadyCurrentTargets),
+        targets: stableTargets(alreadyCurrentShadowTargets),
         runPlanner,
       });
       ranges.push(result.range);
       for (const target of result.range.deployments) {
-        addSelection(target, "shadow-native-already-current", firstParent);
+        if (ownership.shadowTargets.includes(target)) {
+          addSelection(target, "shadow-native-already-current", firstParent);
+        }
       }
     }
   }
 
+  const stagedTargets = stableTargets(selected);
   const plan = {
-    schema: "vercel-main-plan:v1",
+    schema: "vercel-main-plan:v2",
     mode: canonicalMode,
     deploySha: canonicalDeploySha,
+    mainOwnershipMode: ownership.mainOwnershipMode,
+    plan: [...stagedTargets],
+    stagedTargets: [...stagedTargets],
+    activeTargets: stagedTargets.filter((target) =>
+      ownership.githubTargets.includes(target),
+    ),
+    shadowTargets: stagedTargets.filter((target) =>
+      ownership.shadowTargets.includes(target),
+    ),
     priors: normalized.map((entry) => entry.prior),
     ranges,
     reasons: reasons.toSorted((left, right) => {
@@ -936,7 +1049,6 @@ export function planMainDeployments({
       if (reasonOrder !== 0) return reasonOrder;
       return (left.base ?? "").localeCompare(right.base ?? "");
     }),
-    plan: stableTargets(selected),
   };
   return assertMainDeploymentPlan(plan);
 }

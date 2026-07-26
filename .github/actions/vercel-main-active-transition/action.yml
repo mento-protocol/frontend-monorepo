@@ -1,0 +1,339 @@
+name: Advance one durable active main transition
+description: Statically advance one reviewed active Vercel mutation through journaled reducer phases
+
+inputs:
+  app-verification:
+    required: true
+    description: Whether this fixed turn is the App v3 deployment turn
+  controller-path:
+    required: true
+    description: Fresh trusted controller checkout
+  journal-directory:
+    required: true
+    description: Runner-owned append-only journal directory
+  operation-cwd:
+    required: true
+    description: Reviewed working directory for the one authorized command
+  slot:
+    required: true
+    description: Literal static transition slot
+  vercel-cli:
+    required: true
+    description: Reviewed Vercel CLI entrypoint
+
+runs:
+  using: composite
+  steps:
+    - name: Dispatch the next reviewed mutation intent
+      id: dispatch
+      shell: bash
+      env:
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        JOURNAL_DIRECTORY: ${{ inputs.journal-directory }}
+        SLOT: ${{ inputs.slot }}
+        VERCEL_ORG_ID: ${{ env.VERCEL_ORG_ID }}
+        VERCEL_TOKEN: ${{ env.VERCEL_TOKEN }}
+      run: |
+        set -euo pipefail
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-freshness --output "$RUNNER_TEMP/active-$SLOT-dispatch-freshness.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-mapping-spec --journal-history "$JOURNAL_DIRECTORY/current-history.json" --output "$RUNNER_TEMP/active-$SLOT-dispatch-mapping-spec.json"
+        node "$CONTROLLER_PATH/scripts/vercel-deployment-state.mjs" alias-mappings --spec "$RUNNER_TEMP/active-$SLOT-dispatch-mapping-spec.json" --output "$RUNNER_TEMP/active-$SLOT-dispatch-mappings.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-event-dispatch --receipt "$JOURNAL_DIRECTORY/current-receipt.json" --freshness "$RUNNER_TEMP/active-$SLOT-dispatch-freshness.json" --current-mappings "$RUNNER_TEMP/active-$SLOT-dispatch-mappings.json" --output "$RUNNER_TEMP/active-$SLOT-dispatch-event.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" run-active --event "$RUNNER_TEMP/active-$SLOT-dispatch-event.json" --journal-history "$JOURNAL_DIRECTORY/current-history.json" --journal-output "$RUNNER_TEMP/active-$SLOT-started.json" --output "$RUNNER_TEMP/active-$SLOT-started-transition.json"
+
+    - name: Require one expected forward dispatch result
+      id: dispatch-result
+      if: steps.dispatch.outcome == 'success'
+      shell: bash
+      env:
+        AFTER_UPLOAD_ACTION: ${{ steps.dispatch.outputs.after_upload_action }}
+        JOURNAL_ARTIFACT_NAME: ${{ steps.dispatch.outputs.journal_artifact_name }}
+        NEXT_ACTION: ${{ steps.dispatch.outputs.next_action }}
+        TRANSITION_KIND: ${{ steps.dispatch.outputs.transition_kind }}
+      run: |
+        set -euo pipefail
+        if [ "$TRANSITION_KIND" = journal ] &&
+          [ "$NEXT_ACTION" = upload-journal ] &&
+          [ "$AFTER_UPLOAD_ACTION" = authorize ] &&
+          [ "$JOURNAL_ARTIFACT_NAME" != none ]; then
+          exit 0
+        fi
+        if [ "$TRANSITION_KIND" = await-final-proof ] &&
+          [ "$NEXT_ACTION" = collect-final-proof ] &&
+          [ "$AFTER_UPLOAD_ACTION" = none ] &&
+          [ "$JOURNAL_ARTIFACT_NAME" = none ]; then
+          exit 0
+        fi
+        echo "Active forward dispatch did not produce an expected durable transition" >&2
+        exit 1
+
+    - name: Upload the durable started snapshot
+      id: upload-started
+      if: >-
+        steps.dispatch-result.outcome == 'success' &&
+        steps.dispatch.outputs.transition_kind == 'journal'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ steps.dispatch.outputs.journal_artifact_name }}
+        path: ${{ runner.temp }}/active-${{ inputs.slot }}-started.json
+        if-no-files-found: error
+        retention-days: 7
+
+    - name: Checkpoint the uploaded started snapshot
+      id: checkpoint-started
+      if: steps.upload-started.outcome == 'success'
+      shell: bash
+      env:
+        ARTIFACT_ID: ${{ steps.upload-started.outputs.artifact-id }}
+        ARTIFACT_NAME: ${{ steps.dispatch.outputs.journal_artifact_name }}
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        JOURNAL_DIRECTORY: ${{ inputs.journal-directory }}
+        SLOT: ${{ inputs.slot }}
+      run: |
+        set -euo pipefail
+        install -d -m 0700 "$JOURNAL_DIRECTORY/$ARTIFACT_NAME"
+        install -m 0600 "$RUNNER_TEMP/active-$SLOT-started.json" "$JOURNAL_DIRECTORY/$ARTIFACT_NAME/main-journal.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-journal-history --artifacts "$JOURNAL_DIRECTORY" --output "$RUNNER_TEMP/active-$SLOT-started-history.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-journal-receipt --journal "$RUNNER_TEMP/active-$SLOT-started.json" --artifact-name "$ARTIFACT_NAME" --artifact-id "$ARTIFACT_ID" --output "$RUNNER_TEMP/active-$SLOT-started-receipt.json"
+        install -m 0600 "$RUNNER_TEMP/active-$SLOT-started-history.json" "$JOURNAL_DIRECTORY/current-history.json"
+        install -m 0600 "$RUNNER_TEMP/active-$SLOT-started.json" "$JOURNAL_DIRECTORY/current-journal.json"
+        install -m 0600 "$RUNNER_TEMP/active-$SLOT-started-receipt.json" "$JOURNAL_DIRECTORY/current-receipt.json"
+
+    - name: Recheck freshness and authorize the one command
+      id: authorize
+      if: steps.checkpoint-started.outcome == 'success'
+      shell: bash
+      env:
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        JOURNAL_DIRECTORY: ${{ inputs.journal-directory }}
+        SLOT: ${{ inputs.slot }}
+        VERCEL_ORG_ID: ${{ env.VERCEL_ORG_ID }}
+        VERCEL_TOKEN: ${{ env.VERCEL_TOKEN }}
+      run: |
+        set -euo pipefail
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-freshness --output "$RUNNER_TEMP/active-$SLOT-authorize-freshness.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-mapping-spec --journal-history "$JOURNAL_DIRECTORY/current-history.json" --output "$RUNNER_TEMP/active-$SLOT-authorize-mapping-spec.json"
+        node "$CONTROLLER_PATH/scripts/vercel-deployment-state.mjs" alias-mappings --spec "$RUNNER_TEMP/active-$SLOT-authorize-mapping-spec.json" --output "$RUNNER_TEMP/active-$SLOT-authorize-mappings.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-event-authorize --receipt "$JOURNAL_DIRECTORY/current-receipt.json" --freshness "$RUNNER_TEMP/active-$SLOT-authorize-freshness.json" --current-mappings "$RUNNER_TEMP/active-$SLOT-authorize-mappings.json" --output "$RUNNER_TEMP/active-$SLOT-authorize-event.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" run-active --event "$RUNNER_TEMP/active-$SLOT-authorize-event.json" --journal-history "$JOURNAL_DIRECTORY/current-history.json" --journal-output "$RUNNER_TEMP/active-$SLOT-authorize-journal.json" --output "$RUNNER_TEMP/active-$SLOT-authorize-transition.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-command-descriptor --authorization "$RUNNER_TEMP/active-$SLOT-authorize-transition.json" --output "$RUNNER_TEMP/active-$SLOT-command.json"
+
+    - name: Execute only the durably authorized Vercel command
+      id: execute
+      if: steps.authorize.outcome == 'success'
+      shell: bash
+      env:
+        RUNNER_TEMP: ${{ runner.temp }}
+        SOURCE_PATH: ${{ inputs.operation-cwd }}
+        TRUSTED_VERCEL_CLI_PATH: ${{ inputs.vercel-cli }}
+      run: >-
+        node ${{ inputs.controller-path }}/scripts/vercel-main-active-cli.mjs
+        execute --descriptor "$RUNNER_TEMP/active-${{ inputs.slot }}-command.json"
+        --output "$RUNNER_TEMP/active-${{ inputs.slot }}-command-result.json"
+
+    - name: Persist the command-returned snapshot
+      id: returned
+      if: steps.execute.outcome == 'success'
+      shell: bash
+      env:
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        JOURNAL_DIRECTORY: ${{ inputs.journal-directory }}
+        SLOT: ${{ inputs.slot }}
+      run: |
+        set -euo pipefail
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-event-command-returned --authorization "$RUNNER_TEMP/active-$SLOT-authorize-transition.json" --receipt "$JOURNAL_DIRECTORY/current-receipt.json" --result "$RUNNER_TEMP/active-$SLOT-command-result.json" --output "$RUNNER_TEMP/active-$SLOT-returned-event.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" run-active --event "$RUNNER_TEMP/active-$SLOT-returned-event.json" --journal-history "$JOURNAL_DIRECTORY/current-history.json" --journal-output "$RUNNER_TEMP/active-$SLOT-returned.json" --output "$RUNNER_TEMP/active-$SLOT-returned-transition.json"
+
+    - name: Require the durable command-returned transition
+      id: returned-result
+      if: steps.returned.outcome == 'success'
+      shell: bash
+      env:
+        AFTER_UPLOAD_ACTION: ${{ steps.returned.outputs.after_upload_action }}
+        JOURNAL_ARTIFACT_NAME: ${{ steps.returned.outputs.journal_artifact_name }}
+        NEXT_ACTION: ${{ steps.returned.outputs.next_action }}
+        TRANSITION_KIND: ${{ steps.returned.outputs.transition_kind }}
+      run: |
+        set -euo pipefail
+        test "$TRANSITION_KIND" = journal
+        test "$NEXT_ACTION" = upload-journal
+        test "$AFTER_UPLOAD_ACTION" = verify
+        test "$JOURNAL_ARTIFACT_NAME" != none
+
+    - name: Upload the durable command-returned snapshot
+      id: upload-returned
+      if: steps.returned-result.outcome == 'success'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ steps.returned.outputs.journal_artifact_name }}
+        path: ${{ runner.temp }}/active-${{ inputs.slot }}-returned.json
+        if-no-files-found: error
+        retention-days: 7
+
+    - name: Checkpoint the uploaded command-returned snapshot
+      id: checkpoint-returned
+      if: steps.upload-returned.outcome == 'success'
+      shell: bash
+      env:
+        ARTIFACT_ID: ${{ steps.upload-returned.outputs.artifact-id }}
+        ARTIFACT_NAME: ${{ steps.returned.outputs.journal_artifact_name }}
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        JOURNAL_DIRECTORY: ${{ inputs.journal-directory }}
+        SLOT: ${{ inputs.slot }}
+      run: |
+        set -euo pipefail
+        install -d -m 0700 "$JOURNAL_DIRECTORY/$ARTIFACT_NAME"
+        install -m 0600 "$RUNNER_TEMP/active-$SLOT-returned.json" "$JOURNAL_DIRECTORY/$ARTIFACT_NAME/main-journal.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-journal-history --artifacts "$JOURNAL_DIRECTORY" --output "$RUNNER_TEMP/active-$SLOT-returned-history.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-journal-receipt --journal "$RUNNER_TEMP/active-$SLOT-returned.json" --artifact-name "$ARTIFACT_NAME" --artifact-id "$ARTIFACT_ID" --output "$RUNNER_TEMP/active-$SLOT-returned-receipt.json"
+        install -m 0600 "$RUNNER_TEMP/active-$SLOT-returned-history.json" "$JOURNAL_DIRECTORY/current-history.json"
+        install -m 0600 "$RUNNER_TEMP/active-$SLOT-returned.json" "$JOURNAL_DIRECTORY/current-journal.json"
+        install -m 0600 "$RUNNER_TEMP/active-$SLOT-returned-receipt.json" "$JOURNAL_DIRECTORY/current-receipt.json"
+
+    - name: Independently verify the resulting mapping
+      id: verify
+      if: steps.checkpoint-returned.outcome == 'success'
+      shell: bash
+      env:
+        APP_VERIFICATION: ${{ inputs.app-verification }}
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        JOURNAL_DIRECTORY: ${{ inputs.journal-directory }}
+        RUNNER_TEMP: ${{ runner.temp }}
+        SLOT: ${{ inputs.slot }}
+        VERCEL_ORG_ID: ${{ env.VERCEL_ORG_ID }}
+        VERCEL_TOKEN: ${{ env.VERCEL_TOKEN }}
+      run: |
+        set -euo pipefail
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-freshness --output "$RUNNER_TEMP/active-$SLOT-verify-freshness.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-mapping-spec --journal-history "$JOURNAL_DIRECTORY/current-history.json" --output "$RUNNER_TEMP/active-$SLOT-verify-mapping-spec.json"
+        node "$CONTROLLER_PATH/scripts/vercel-deployment-state.mjs" alias-mappings --spec "$RUNNER_TEMP/active-$SLOT-verify-mapping-spec.json" --output "$RUNNER_TEMP/active-$SLOT-verify-mappings.json"
+        if [ "$APP_VERIFICATION" = true ]; then
+          node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" app-candidate-expectation --journal "$JOURNAL_DIRECTORY/current-journal.json" --output "$RUNNER_TEMP/active-$SLOT-app-expectation.json"
+          node "$CONTROLLER_PATH/scripts/vercel-main-active-cli.mjs" app-candidate --expectation "$RUNNER_TEMP/active-$SLOT-app-expectation.json" --command-result "$RUNNER_TEMP/active-$SLOT-command-result.json" --output "$RUNNER_TEMP/active-$SLOT-app-resolution.json"
+          node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-app-candidate-matches-one --candidate "$RUNNER_TEMP/active-$SLOT-app-resolution.json" --output "$RUNNER_TEMP/active-$SLOT-app-matches.json"
+          node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-app-deployment --state "$RUNNER_TEMP/active-$SLOT-app-resolution.json" --output "$RUNNER_TEMP/active-$SLOT-app-deployment.json"
+          node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-event-verify-app --authorization "$RUNNER_TEMP/active-$SLOT-authorize-transition.json" --receipt "$JOURNAL_DIRECTORY/current-receipt.json" --freshness "$RUNNER_TEMP/active-$SLOT-verify-freshness.json" --current-mappings "$RUNNER_TEMP/active-$SLOT-verify-mappings.json" --app-candidate-matches "$RUNNER_TEMP/active-$SLOT-app-matches.json" --app-deployment "$RUNNER_TEMP/active-$SLOT-app-deployment.json" --output "$RUNNER_TEMP/active-$SLOT-verify-event.json"
+        else
+          node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-event-verify --authorization "$RUNNER_TEMP/active-$SLOT-authorize-transition.json" --receipt "$JOURNAL_DIRECTORY/current-receipt.json" --freshness "$RUNNER_TEMP/active-$SLOT-verify-freshness.json" --current-mappings "$RUNNER_TEMP/active-$SLOT-verify-mappings.json" --output "$RUNNER_TEMP/active-$SLOT-verify-event.json"
+        fi
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" run-active --event "$RUNNER_TEMP/active-$SLOT-verify-event.json" --journal-history "$JOURNAL_DIRECTORY/current-history.json" --journal-output "$RUNNER_TEMP/active-$SLOT-verified.json" --output "$RUNNER_TEMP/active-$SLOT-verified-transition.json"
+
+    - name: Require the durable verified transition
+      id: verify-result
+      if: steps.verify.outcome == 'success'
+      shell: bash
+      env:
+        AFTER_UPLOAD_ACTION: ${{ steps.verify.outputs.after_upload_action }}
+        JOURNAL_ARTIFACT_NAME: ${{ steps.verify.outputs.journal_artifact_name }}
+        NEXT_ACTION: ${{ steps.verify.outputs.next_action }}
+        TRANSITION_KIND: ${{ steps.verify.outputs.transition_kind }}
+      run: |
+        set -euo pipefail
+        test "$TRANSITION_KIND" = journal
+        test "$NEXT_ACTION" = upload-journal
+        test "$JOURNAL_ARTIFACT_NAME" != none
+        case "$AFTER_UPLOAD_ACTION" in
+          dispatch|recover|verify) ;;
+          *) exit 1 ;;
+        esac
+
+    - name: Upload the durable verified snapshot
+      id: upload-verified
+      if: steps.verify-result.outcome == 'success'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ steps.verify.outputs.journal_artifact_name }}
+        path: ${{ runner.temp }}/active-${{ inputs.slot }}-verified.json
+        if-no-files-found: error
+        retention-days: 7
+
+    - name: Checkpoint the uploaded verified snapshot
+      id: checkpoint-verified
+      if: steps.upload-verified.outcome == 'success'
+      shell: bash
+      env:
+        ARTIFACT_ID: ${{ steps.upload-verified.outputs.artifact-id }}
+        ARTIFACT_NAME: ${{ steps.verify.outputs.journal_artifact_name }}
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        JOURNAL_DIRECTORY: ${{ inputs.journal-directory }}
+        SLOT: ${{ inputs.slot }}
+      run: |
+        set -euo pipefail
+        install -d -m 0700 "$JOURNAL_DIRECTORY/$ARTIFACT_NAME"
+        install -m 0600 "$RUNNER_TEMP/active-$SLOT-verified.json" "$JOURNAL_DIRECTORY/$ARTIFACT_NAME/main-journal.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-journal-history --artifacts "$JOURNAL_DIRECTORY" --output "$RUNNER_TEMP/active-$SLOT-verified-history.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-journal-receipt --journal "$RUNNER_TEMP/active-$SLOT-verified.json" --artifact-name "$ARTIFACT_NAME" --artifact-id "$ARTIFACT_ID" --output "$RUNNER_TEMP/active-$SLOT-verified-receipt.json"
+        install -m 0600 "$RUNNER_TEMP/active-$SLOT-verified-history.json" "$JOURNAL_DIRECTORY/current-history.json"
+        install -m 0600 "$RUNNER_TEMP/active-$SLOT-verified.json" "$JOURNAL_DIRECTORY/current-journal.json"
+        install -m 0600 "$RUNNER_TEMP/active-$SLOT-verified-receipt.json" "$JOURNAL_DIRECTORY/current-receipt.json"
+
+    - name: Independently reverify a discovered App candidate
+      id: reverify
+      if: >-
+        steps.checkpoint-verified.outcome == 'success' &&
+        steps.verify.outputs.after_upload_action == 'verify'
+      shell: bash
+      env:
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        JOURNAL_DIRECTORY: ${{ inputs.journal-directory }}
+        RUNNER_TEMP: ${{ runner.temp }}
+        SLOT: ${{ inputs.slot }}
+        VERCEL_ORG_ID: ${{ env.VERCEL_ORG_ID }}
+        VERCEL_TOKEN: ${{ env.VERCEL_TOKEN }}
+      run: |
+        set -euo pipefail
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-freshness --output "$RUNNER_TEMP/active-$SLOT-reverify-freshness.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-mapping-spec --journal-history "$JOURNAL_DIRECTORY/current-history.json" --output "$RUNNER_TEMP/active-$SLOT-reverify-mapping-spec.json"
+        node "$CONTROLLER_PATH/scripts/vercel-deployment-state.mjs" alias-mappings --spec "$RUNNER_TEMP/active-$SLOT-reverify-mapping-spec.json" --output "$RUNNER_TEMP/active-$SLOT-reverify-mappings.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" app-candidate-expectation --journal "$JOURNAL_DIRECTORY/current-journal.json" --output "$RUNNER_TEMP/active-$SLOT-reverify-app-expectation.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-active-cli.mjs" app-candidate --expectation "$RUNNER_TEMP/active-$SLOT-reverify-app-expectation.json" --command-result "$RUNNER_TEMP/active-$SLOT-command-result.json" --output "$RUNNER_TEMP/active-$SLOT-reverify-app-resolution.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-app-candidate-matches-one --candidate "$RUNNER_TEMP/active-$SLOT-reverify-app-resolution.json" --output "$RUNNER_TEMP/active-$SLOT-reverify-app-matches.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-app-deployment --state "$RUNNER_TEMP/active-$SLOT-reverify-app-resolution.json" --output "$RUNNER_TEMP/active-$SLOT-reverify-app-deployment.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-event-verify-app --authorization "$RUNNER_TEMP/active-$SLOT-authorize-transition.json" --receipt "$JOURNAL_DIRECTORY/current-receipt.json" --freshness "$RUNNER_TEMP/active-$SLOT-reverify-freshness.json" --current-mappings "$RUNNER_TEMP/active-$SLOT-reverify-mappings.json" --app-candidate-matches "$RUNNER_TEMP/active-$SLOT-reverify-app-matches.json" --app-deployment "$RUNNER_TEMP/active-$SLOT-reverify-app-deployment.json" --output "$RUNNER_TEMP/active-$SLOT-reverify-event.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" run-active --event "$RUNNER_TEMP/active-$SLOT-reverify-event.json" --journal-history "$JOURNAL_DIRECTORY/current-history.json" --journal-output "$RUNNER_TEMP/active-$SLOT-reverified.json" --output "$RUNNER_TEMP/active-$SLOT-reverified-transition.json"
+
+    - name: Require the durable reverified App transition
+      id: reverify-result
+      if: steps.reverify.outcome == 'success'
+      shell: bash
+      env:
+        AFTER_UPLOAD_ACTION: ${{ steps.reverify.outputs.after_upload_action }}
+        JOURNAL_ARTIFACT_NAME: ${{ steps.reverify.outputs.journal_artifact_name }}
+        NEXT_ACTION: ${{ steps.reverify.outputs.next_action }}
+        TRANSITION_KIND: ${{ steps.reverify.outputs.transition_kind }}
+      run: |
+        set -euo pipefail
+        test "$TRANSITION_KIND" = journal
+        test "$NEXT_ACTION" = upload-journal
+        test "$AFTER_UPLOAD_ACTION" = recover
+        test "$JOURNAL_ARTIFACT_NAME" != none
+
+    - name: Upload the durable reverified App snapshot
+      id: upload-reverified
+      if: steps.reverify-result.outcome == 'success'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ steps.reverify.outputs.journal_artifact_name }}
+        path: ${{ runner.temp }}/active-${{ inputs.slot }}-reverified.json
+        if-no-files-found: error
+        retention-days: 7
+
+    - name: Checkpoint the uploaded reverified App snapshot
+      id: checkpoint-reverified
+      if: steps.upload-reverified.outcome == 'success'
+      shell: bash
+      env:
+        ARTIFACT_ID: ${{ steps.upload-reverified.outputs.artifact-id }}
+        ARTIFACT_NAME: ${{ steps.reverify.outputs.journal_artifact_name }}
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        JOURNAL_DIRECTORY: ${{ inputs.journal-directory }}
+        SLOT: ${{ inputs.slot }}
+      run: |
+        set -euo pipefail
+        install -d -m 0700 "$JOURNAL_DIRECTORY/$ARTIFACT_NAME"
+        install -m 0600 "$RUNNER_TEMP/active-$SLOT-reverified.json" "$JOURNAL_DIRECTORY/$ARTIFACT_NAME/main-journal.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-journal-history --artifacts "$JOURNAL_DIRECTORY" --output "$RUNNER_TEMP/active-$SLOT-reverified-history.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-journal-receipt --journal "$RUNNER_TEMP/active-$SLOT-reverified.json" --artifact-name "$ARTIFACT_NAME" --artifact-id "$ARTIFACT_ID" --output "$RUNNER_TEMP/active-$SLOT-reverified-receipt.json"
+        install -m 0600 "$RUNNER_TEMP/active-$SLOT-reverified-history.json" "$JOURNAL_DIRECTORY/current-history.json"
+        install -m 0600 "$RUNNER_TEMP/active-$SLOT-reverified.json" "$JOURNAL_DIRECTORY/current-journal.json"
+        install -m 0600 "$RUNNER_TEMP/active-$SLOT-reverified-receipt.json" "$JOURNAL_DIRECTORY/current-receipt.json"

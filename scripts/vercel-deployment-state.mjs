@@ -37,8 +37,121 @@ export const CANONICAL_STATE_KEYS = Object.freeze([
 
 export const MAIN_PLANNING_SNAPSHOT_SCHEMA = "vercel-main-planning-snapshot:v1";
 export const MAIN_PLANNING_SNAPSHOT_KEYS = Object.freeze(["schema", "states"]);
+export const ACTIVE_DEPLOYMENT_STATE_SPEC_SCHEMA =
+  "vercel-active-deployment-state-spec:v2";
+export const ACTIVE_DEPLOYMENT_STATE_PROOF_SCHEMA =
+  "vercel-active-deployment-state-proof:v2";
+export const ACTIVE_ALIAS_MAPPING_SET_SCHEMA =
+  "vercel-active-alias-mapping-set:v1";
 
 const CANONICAL_GIT_KEYS = ["org", "repo", "ref", "sha"];
+const ACTIVE_STATE_TARGETS = Object.freeze([
+  "app",
+  "governance",
+  "reserve",
+  "ui",
+]);
+const ACTIVE_PROTECTED_ALIASES = Object.freeze([
+  "app.mento.org",
+  "appmentoorg-env-v3-mentolabs.vercel.app",
+  "governance.mento.org",
+  "reserve.mento.org",
+  "ui.mento.org",
+  "v2-app.mento.org",
+]);
+const ACTIVE_STATE_SPEC_KEYS = Object.freeze([
+  "schema",
+  "deploySha",
+  "runId",
+  "runAttempt",
+  "transactionId",
+  "mainOwnershipMode",
+  "stagedTargets",
+  "activeTargets",
+  "shadowTargets",
+  "projects",
+  "legacyAppV2",
+]);
+const ACTIVE_STATE_PROJECT_SPEC_KEYS = Object.freeze([
+  "projectId",
+  "projectName",
+  "expectedDisposition",
+  "deploymentId",
+  "deploymentUrl",
+  "target",
+  "customEnvironmentSlug",
+]);
+const ACTIVE_STATE_LEGACY_SPEC_KEYS = Object.freeze([
+  "alias",
+  "deployment",
+  "deploymentUrl",
+  "projectId",
+  "projectName",
+  "readyState",
+  "target",
+  "customEnvironmentSlug",
+  "git",
+]);
+const ACTIVE_STATE_PROOF_KEYS = Object.freeze([
+  "schema",
+  "outcome",
+  "deploySha",
+  "runId",
+  "runAttempt",
+  "transactionId",
+  "mainOwnershipMode",
+  "stagedTargets",
+  "activeTargets",
+  "shadowTargets",
+  "projects",
+  "legacyAppV2",
+]);
+const ACTIVE_STATE_PROJECT_PROOF_KEYS = Object.freeze([
+  "projectId",
+  "projectName",
+  "target",
+  "customEnvironmentSlug",
+  "mainOwnershipMode",
+  "expectedDisposition",
+  "expectedDeploymentId",
+  "expectedDeploymentUrl",
+  "counts",
+  "ids",
+  "records",
+]);
+const ACTIVE_STATE_RECORD_KEYS = Object.freeze([
+  "deploymentId",
+  "deploymentUrl",
+  "projectId",
+  "projectName",
+  "readyState",
+  "target",
+  "customEnvironmentSlug",
+  "git",
+  "source",
+  "workflowMetadataMatches",
+]);
+const ACTIVE_STATE_CLASSIFICATIONS = Object.freeze([
+  "githubPrebuilt",
+  "githubShadowStage",
+  "nativeGitOwner",
+  "nativeGitDuplicates",
+  "manualDuplicates",
+  "unknown",
+  "legacyV2",
+]);
+const ACTIVE_STATE_LEGACY_PROOF_KEYS = Object.freeze([
+  "alias",
+  "deploymentId",
+  "deploymentUrl",
+  "projectId",
+  "projectName",
+  "readyState",
+  "target",
+  "customEnvironmentSlug",
+  "git",
+  "ownership",
+]);
 const APP_TRANSACTION_CANDIDATE_KEYS = Object.freeze([
   "deploymentId",
   "deploymentUrl",
@@ -63,6 +176,8 @@ const APP_TRANSACTION_EXPECTATION_KEYS = Object.freeze([
 const CREATOR_USERNAME_PATTERN =
   /^(?=.{1,63}$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const CLI_OPTIONS = Object.freeze({
+  "active-proof": Object.freeze(["spec", "output"]),
+  "alias-mappings": Object.freeze(["spec", "output"]),
   "app-candidate": Object.freeze(["expected", "output"]),
   compare: Object.freeze(["before", "after"]),
   deployment: Object.freeze(["expected", "output"]),
@@ -219,6 +334,71 @@ function canonicalizeGit(raw) {
       { pattern: SHA_PATTERN },
     ).toLowerCase(),
   };
+}
+
+function canonicalizeInventoryGitSha(raw, label) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(`${label} is malformed`);
+  }
+  const sources = [
+    ["metadata", raw.meta],
+    ["Git source", raw.gitSource],
+    ["Git repository", raw.gitRepo],
+    ["Git repository", raw.gitRepository],
+  ];
+  for (const [sourceLabel, source] of sources) {
+    if (
+      source !== undefined &&
+      source !== null &&
+      (typeof source !== "object" || Array.isArray(source))
+    ) {
+      throw new Error(`${label} ${sourceLabel} is malformed`);
+    }
+  }
+  const candidates = [
+    raw.meta?.githubCommitSha,
+    raw.gitSource?.sha,
+    raw.gitRepo?.sha,
+    raw.gitRepository?.sha,
+  ].filter((value) => value !== undefined && value !== null);
+  if (candidates.length === 0) return null;
+  return consistentString("Git SHA", candidates, {
+    pattern: SHA_PATTERN,
+  }).toLowerCase();
+}
+
+function assertExactShaDeploymentInspection({
+  deployment,
+  deploymentId,
+  projectId,
+  deploySha,
+}) {
+  if (
+    !deployment ||
+    typeof deployment !== "object" ||
+    Array.isArray(deployment) ||
+    requireDeploymentId(
+      consistentString("ID", [deployment.id, deployment.uid]),
+      "Active state inspected deployment ID",
+    ) !== deploymentId ||
+    consistentString("project ID", [
+      deployment.projectId,
+      deployment.project?.id,
+    ]) !== projectId
+  ) {
+    throw new Error("Active state inspected deployment is malformed");
+  }
+  if (
+    canonicalizeInventoryGitSha(
+      deployment,
+      "Active state inspected deployment",
+    ) !== deploySha
+  ) {
+    throw new Error(
+      "Active state inspected deployment SHA does not match census",
+    );
+  }
+  return deployment;
 }
 
 function planningGitCandidates(raw) {
@@ -865,7 +1045,9 @@ export class VercelStateClient {
         response.status <= 599
           ? response.status
           : "unknown";
-      throw new Error(`Vercel API request failed with HTTP ${status}`);
+      const error = new Error(`Vercel API request failed with HTTP ${status}`);
+      if (status === 429) error.status = status;
+      throw error;
     }
     try {
       return await response.json();
@@ -883,6 +1065,10 @@ export class VercelStateClient {
       try {
         return await this.request(path);
       } catch (error) {
+        // Retrying a rate-limited request immediately consumes the same
+        // endpoint budget and can turn one bounded census into a burst. The
+        // caller must fail closed and start a fresh, bounded capture later.
+        if (error?.status === 429) throw error;
         lastError = error;
       }
     }
@@ -989,6 +1175,66 @@ export class VercelStateClient {
     throw new Error("App candidate pagination exceeded its bounded limit");
   }
 
+  async listExactShaDeploymentIds({ projectId, deploySha }) {
+    const canonicalProjectId = requireIdentifier(
+      projectId,
+      "Active state project ID",
+    );
+    if (
+      typeof deploySha !== "string" ||
+      !SHA_PATTERN.test(deploySha) ||
+      deploySha !== deploySha.toLowerCase()
+    ) {
+      throw new Error("Active state deploy SHA is malformed");
+    }
+    const seenIds = new Set();
+    const url = new URL("/v7/deployments", API_ORIGIN);
+    url.searchParams.set("projectId", canonicalProjectId);
+    url.searchParams.set("sha", deploySha);
+    // A project can prove at most its expected GitHub deployment plus one
+    // observational native Git owner. A third result can never prove and must
+    // not trigger an unbounded detail scan.
+    url.searchParams.set("limit", "3");
+    const response = await this.requestWithRetry(
+      `${url.pathname}${url.search}`,
+    );
+    if (
+      !response ||
+      typeof response !== "object" ||
+      Array.isArray(response) ||
+      !Array.isArray(response.deployments) ||
+      !response.pagination ||
+      typeof response.pagination !== "object" ||
+      Array.isArray(response.pagination) ||
+      !Object.hasOwn(response.pagination, "next")
+    ) {
+      throw new Error("Active state deployment list is malformed");
+    }
+    if (response.pagination.next !== null || response.deployments.length > 2) {
+      throw new Error(
+        "Active state exact-SHA census exceeded its bounded limit",
+      );
+    }
+    for (const summary of response.deployments) {
+      if (!summary || typeof summary !== "object" || Array.isArray(summary)) {
+        throw new Error("Active state deployment summary is malformed");
+      }
+      const id = requireDeploymentId(
+        consistentString("ID", [summary.uid, summary.id]),
+        "Active state deployment ID",
+      );
+      if (
+        seenIds.has(id) ||
+        consistentString("project ID", [summary.projectId]) !==
+          canonicalProjectId
+      ) {
+        throw new Error("Active state deployment list is ambiguous");
+      }
+      seenIds.add(id);
+    }
+    return [...seenIds].sort();
+  }
+
   async discoverAppTransactionCandidate(
     expected,
     {
@@ -1077,6 +1323,59 @@ export class VercelStateClient {
       aliasesResponse,
       expected: spec,
     });
+  }
+
+  async canonicalLegacyV2State(spec) {
+    assertStateExpectation(spec, { requireDeployment: true });
+    if (
+      spec.alias !== "v2-app.mento.org" ||
+      spec.projectName !== "app.mento.org" ||
+      spec.target !== "production" ||
+      spec.customEnvironmentSlug !== null ||
+      spec.git?.org !== "mento-protocol" ||
+      spec.git?.repo !== "frontend-monorepo" ||
+      spec.git?.ref !== "v2"
+    ) {
+      throw new Error("Legacy App v2 expectation is malformed");
+    }
+    const aliasResponse = await this.resolveAlias(spec.alias);
+    const lookup = canonicalizeAliasLookup(spec.alias, aliasResponse);
+    if (
+      lookup.deploymentId !== spec.deployment ||
+      lookup.projectId !== spec.projectId
+    ) {
+      throw new Error("Legacy App v2 alias mapping does not match");
+    }
+    const deploymentResponse = await this.inspectDeployment(
+      lookup.deploymentId,
+    );
+    const aliasesResponse = await this.listDeploymentAliases(
+      lookup.deploymentId,
+    );
+    const confirmedAliasResponse = await this.resolveAlias(spec.alias);
+    const confirmedLookup = canonicalizeAliasLookup(
+      spec.alias,
+      confirmedAliasResponse,
+    );
+    if (
+      confirmedLookup.deploymentId !== lookup.deploymentId ||
+      confirmedLookup.projectId !== lookup.projectId
+    ) {
+      throw new Error("Legacy App v2 alias mapping changed during inspection");
+    }
+    if (deploymentResponse?.source !== "git") {
+      throw new Error("Legacy App v2 ownership is unproven");
+    }
+    return {
+      source: "git",
+      state: canonicalizeDeploymentState({
+        alias: spec.alias,
+        aliasResponse: confirmedAliasResponse,
+        deploymentResponse,
+        aliasesResponse,
+        expected: spec,
+      }),
+    };
   }
 
   async mainPlanningAliasState(spec) {
@@ -1189,6 +1488,53 @@ export async function captureAliasMappings(client, aliases) {
   return mappings.sort((left, right) => left.alias.localeCompare(right.alias));
 }
 
+export function assertActiveAliasMappingSet(value) {
+  assertExactKeys(value, ["aliases", "schema"], "Active alias mapping set");
+  if (
+    value.schema !== ACTIVE_ALIAS_MAPPING_SET_SCHEMA ||
+    !Array.isArray(value.aliases) ||
+    JSON.stringify(value.aliases) !== JSON.stringify(ACTIVE_PROTECTED_ALIASES)
+  ) {
+    throw new Error("Active alias mapping set is malformed");
+  }
+  return value;
+}
+
+export function assertActiveAliasMappings(value) {
+  if (
+    !Array.isArray(value) ||
+    value.length !== ACTIVE_PROTECTED_ALIASES.length
+  ) {
+    throw new Error("Active alias mappings are malformed");
+  }
+  const mappings = value.map((entry, index) => {
+    assertExactKeys(
+      entry,
+      ["alias", "deploymentId", "deploymentUrl"],
+      `Active alias mapping ${index + 1}`,
+    );
+    return {
+      alias: canonicalizeHostname(entry.alias),
+      deploymentId: requireDeploymentId(
+        entry.deploymentId,
+        `Active alias mapping ${index + 1} deployment ID`,
+      ),
+      deploymentUrl: canonicalizeDeploymentUrl(entry.deploymentUrl),
+    };
+  });
+  if (
+    JSON.stringify(mappings.map((mapping) => mapping.alias).toSorted()) !==
+    JSON.stringify(ACTIVE_PROTECTED_ALIASES)
+  ) {
+    throw new Error(
+      "Active alias mappings do not exactly cover protected aliases",
+    );
+  }
+  return mappings.toSorted((left, right) =>
+    left.alias.localeCompare(right.alias),
+  );
+}
+
 function assertStateExpectation(expected, { requireDeployment = false } = {}) {
   if (!expected || typeof expected !== "object" || Array.isArray(expected)) {
     throw new Error("Deployment expectation is malformed");
@@ -1253,6 +1599,1001 @@ export function assertSnapshotSpec(spec) {
     assertStateExpectation(entry);
   }
   return spec;
+}
+
+function requireDeploymentId(value, label) {
+  const deploymentId = requireIdentifier(value, label);
+  if (!/^dpl_[A-Za-z0-9]+$/.test(deploymentId)) {
+    throw new Error(`${label} is missing or malformed`);
+  }
+  return deploymentId;
+}
+
+function requirePositiveIdentifier(value, label) {
+  if (typeof value !== "string" || !/^[1-9][0-9]*$/.test(value)) {
+    throw new Error(`${label} is missing or malformed`);
+  }
+  return value;
+}
+
+function activeProjectEnvironment(target) {
+  return target === "app"
+    ? { target: null, customEnvironmentSlug: "v3" }
+    : { target: "production", customEnvironmentSlug: null };
+}
+
+function canonicalActiveStateTargets(value, label) {
+  if (
+    !Array.isArray(value) ||
+    value.some((target) => !ACTIVE_STATE_TARGETS.includes(target)) ||
+    new Set(value).size !== value.length
+  ) {
+    throw new Error(`${label} are malformed`);
+  }
+  const ordered = value.toSorted(
+    (left, right) =>
+      ACTIVE_STATE_TARGETS.indexOf(left) - ACTIVE_STATE_TARGETS.indexOf(right),
+  );
+  if (JSON.stringify(ordered) !== JSON.stringify(value)) {
+    throw new Error(`${label} are not canonical`);
+  }
+  return value;
+}
+
+function plannedDispositionForTarget(
+  logicalTarget,
+  activeTargets,
+  shadowTargets,
+) {
+  if (activeTargets.includes(logicalTarget)) return "githubPrebuilt";
+  if (logicalTarget !== "app" && shadowTargets.includes(logicalTarget)) {
+    return "githubShadowStage";
+  }
+  return null;
+}
+
+function canonicalMainOwnershipMode(value) {
+  assertExactKeys(value, ACTIVE_STATE_TARGETS, "Main ownership mode");
+  for (const logicalTarget of ACTIVE_STATE_TARGETS) {
+    if (!["github", "shadow"].includes(value[logicalTarget])) {
+      throw new Error("Main ownership mode is malformed");
+    }
+  }
+  return value;
+}
+
+export function assertActiveDeploymentStateSpec(spec) {
+  assertExactKeys(spec, ACTIVE_STATE_SPEC_KEYS, "Active deployment state spec");
+  if (
+    spec.schema !== ACTIVE_DEPLOYMENT_STATE_SPEC_SCHEMA ||
+    typeof spec.deploySha !== "string" ||
+    !SHA_PATTERN.test(spec.deploySha) ||
+    spec.deploySha !== spec.deploySha.toLowerCase() ||
+    typeof spec.transactionId !== "string" ||
+    !/^main-[a-f0-9]{32}$/.test(spec.transactionId)
+  ) {
+    throw new Error("Active deployment state spec identity is malformed");
+  }
+  requirePositiveIdentifier(spec.runId, "Planned active state run ID");
+  requirePositiveIdentifier(
+    spec.runAttempt,
+    "Planned active state run attempt",
+  );
+  const stagedTargets = canonicalActiveStateTargets(
+    spec.stagedTargets,
+    "Planned staged targets",
+  );
+  const activeTargets = canonicalActiveStateTargets(
+    spec.activeTargets,
+    "Planned active targets",
+  );
+  const shadowTargets = canonicalActiveStateTargets(
+    spec.shadowTargets,
+    "Planned shadow targets",
+  );
+  const mainOwnershipMode = canonicalMainOwnershipMode(spec.mainOwnershipMode);
+  if (
+    activeTargets.some((target) => shadowTargets.includes(target)) ||
+    activeTargets.some((target) => mainOwnershipMode[target] !== "github") ||
+    shadowTargets.some((target) => mainOwnershipMode[target] !== "shadow") ||
+    JSON.stringify(
+      [...activeTargets, ...shadowTargets].toSorted(
+        (left, right) =>
+          ACTIVE_STATE_TARGETS.indexOf(left) -
+          ACTIVE_STATE_TARGETS.indexOf(right),
+      ),
+    ) !== JSON.stringify(stagedTargets)
+  ) {
+    throw new Error("Planned active deployment target partition is malformed");
+  }
+  assertExactKeys(
+    spec.projects,
+    ACTIVE_STATE_TARGETS,
+    "Active deployment state projects",
+  );
+  const projectIds = new Set();
+  const deploymentIds = new Set();
+  const deploymentUrls = new Set();
+  for (const logicalTarget of ACTIVE_STATE_TARGETS) {
+    const project = spec.projects[logicalTarget];
+    assertExactKeys(
+      project,
+      ACTIVE_STATE_PROJECT_SPEC_KEYS,
+      `${logicalTarget} planned active deployment state project`,
+    );
+    const expectedEnvironment = activeProjectEnvironment(logicalTarget);
+    const projectId = requireIdentifier(
+      project.projectId,
+      `${logicalTarget} planned active project ID`,
+    );
+    const expectedDisposition = plannedDispositionForTarget(
+      logicalTarget,
+      activeTargets,
+      shadowTargets,
+    );
+    let deploymentId = null;
+    let deploymentUrl = null;
+    if (expectedDisposition === null) {
+      if (project.deploymentId !== null || project.deploymentUrl !== null) {
+        throw new Error(
+          `${logicalTarget} planned active deployment expectation is malformed`,
+        );
+      }
+    } else {
+      deploymentId = requireDeploymentId(
+        project.deploymentId,
+        `${logicalTarget} planned active deployment ID`,
+      );
+      deploymentUrl = canonicalizeDeploymentUrl(project.deploymentUrl);
+    }
+    if (
+      project.projectName !== `${logicalTarget}.mento.org` ||
+      project.expectedDisposition !== expectedDisposition ||
+      project.deploymentUrl !== deploymentUrl ||
+      project.target !== expectedEnvironment.target ||
+      project.customEnvironmentSlug !==
+        expectedEnvironment.customEnvironmentSlug ||
+      projectIds.has(projectId) ||
+      (deploymentId !== null && deploymentIds.has(deploymentId)) ||
+      (deploymentUrl !== null && deploymentUrls.has(deploymentUrl))
+    ) {
+      throw new Error(
+        `${logicalTarget} planned active deployment state project is malformed`,
+      );
+    }
+    projectIds.add(projectId);
+    if (deploymentId !== null) deploymentIds.add(deploymentId);
+    if (deploymentUrl !== null) deploymentUrls.add(deploymentUrl);
+  }
+  assertExactKeys(
+    spec.legacyAppV2,
+    ACTIVE_STATE_LEGACY_SPEC_KEYS,
+    "Legacy App v2 state",
+  );
+  assertStateExpectation(spec.legacyAppV2, { requireDeployment: true });
+  const legacyDeploymentId = requireDeploymentId(
+    spec.legacyAppV2.deployment,
+    "Legacy App v2 deployment ID",
+  );
+  const legacyDeploymentUrl = canonicalizeDeploymentUrl(
+    spec.legacyAppV2.deploymentUrl,
+  );
+  if (
+    spec.legacyAppV2.alias !== "v2-app.mento.org" ||
+    spec.legacyAppV2.projectId !== spec.projects.app.projectId ||
+    spec.legacyAppV2.projectName !== "app.mento.org" ||
+    spec.legacyAppV2.readyState !== "READY" ||
+    spec.legacyAppV2.target !== "production" ||
+    spec.legacyAppV2.customEnvironmentSlug !== null ||
+    spec.legacyAppV2.git.org !== "mento-protocol" ||
+    spec.legacyAppV2.git.repo !== "frontend-monorepo" ||
+    spec.legacyAppV2.git.ref !== "v2" ||
+    typeof spec.legacyAppV2.git.sha !== "string" ||
+    !SHA_PATTERN.test(spec.legacyAppV2.git.sha) ||
+    spec.legacyAppV2.git.sha !== spec.legacyAppV2.git.sha.toLowerCase() ||
+    legacyDeploymentUrl !== spec.legacyAppV2.deploymentUrl ||
+    deploymentIds.has(legacyDeploymentId) ||
+    deploymentUrls.has(legacyDeploymentUrl)
+  ) {
+    throw new Error("Legacy App v2 state is malformed");
+  }
+  return spec;
+}
+
+function canonicalActiveDeploymentIdentity(entry) {
+  if (
+    !entry ||
+    typeof entry !== "object" ||
+    Array.isArray(entry) ||
+    !Object.hasOwn(entry, "deploymentId") ||
+    !Object.hasOwn(entry, "response")
+  ) {
+    throw new Error("Active deployment inspection entry is malformed");
+  }
+  const requestedId = requireDeploymentId(
+    entry.deploymentId,
+    "Active deployment requested ID",
+  );
+  const raw = entry.response;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  try {
+    const deploymentId = requireDeploymentId(
+      consistentString("ID", [raw.id, raw.uid]),
+      "Active deployment ID",
+    );
+    if (deploymentId !== requestedId) return null;
+    const deploymentUrl = canonicalizeDeploymentUrl(raw.url);
+    const projectId = consistentString("project ID", [
+      raw.projectId,
+      raw.project?.id,
+    ]);
+    const projectName = consistentString("project name", [
+      raw.name,
+      raw.project?.name,
+    ]);
+    const readyState = consistentString("readiness", [raw.readyState]);
+    const target = raw.target ?? null;
+    if (
+      target !== null &&
+      (typeof target !== "string" || target.length === 0)
+    ) {
+      return null;
+    }
+    let customEnvironmentSlug = null;
+    if (raw.customEnvironment !== undefined && raw.customEnvironment !== null) {
+      if (
+        typeof raw.customEnvironment !== "object" ||
+        Array.isArray(raw.customEnvironment) ||
+        typeof raw.customEnvironment.slug !== "string" ||
+        raw.customEnvironment.slug.length === 0
+      ) {
+        return null;
+      }
+      customEnvironmentSlug = raw.customEnvironment.slug;
+    }
+    const git = canonicalizeGit(raw);
+    const source =
+      typeof raw.source === "string" && /^[a-z][a-z-]*$/.test(raw.source)
+        ? raw.source
+        : null;
+    const meta =
+      raw.meta && typeof raw.meta === "object" && !Array.isArray(raw.meta)
+        ? raw.meta
+        : null;
+    return {
+      deploymentId,
+      deploymentUrl,
+      projectId,
+      projectName,
+      readyState,
+      target,
+      customEnvironmentSlug,
+      git,
+      source,
+      meta,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function matchesActiveProjectIdentity(identity, project, deploySha) {
+  return (
+    identity !== null &&
+    identity.projectId === project.projectId &&
+    identity.projectName === project.projectName &&
+    identity.readyState === "READY" &&
+    identity.target === project.target &&
+    identity.customEnvironmentSlug === project.customEnvironmentSlug &&
+    identity.git.org === "mento-protocol" &&
+    identity.git.repo === "frontend-monorepo" &&
+    identity.git.ref === "main" &&
+    identity.git.sha === deploySha
+  );
+}
+
+function hasExpectedGitHubMetadata(identity, logicalTarget, spec) {
+  if (
+    identity.source !== "cli" ||
+    identity.meta === null ||
+    Object.hasOwn(identity.meta, "githubDeployment")
+  ) {
+    return false;
+  }
+  if (logicalTarget === "app") {
+    return (
+      identity.meta.mentoTransactionId === spec.transactionId &&
+      identity.meta.mentoRunId === spec.runId &&
+      identity.meta.mentoRunAttempt === spec.runAttempt &&
+      typeof identity.meta.mentoNextDeploymentId === "string" &&
+      /^(?!dpl_)[A-Za-z0-9_-]{1,32}$/.test(identity.meta.mentoNextDeploymentId)
+    );
+  }
+  return (
+    identity.meta.mentoTransaction ===
+    `${spec.runId}-${spec.runAttempt}-${logicalTarget}`
+  );
+}
+
+function canonicalActiveDeploymentRecord(
+  requestedId,
+  identity,
+  logicalTarget,
+  spec,
+) {
+  return {
+    deploymentId: requestedId,
+    deploymentUrl: identity?.deploymentUrl ?? null,
+    projectId: identity?.projectId ?? null,
+    projectName: identity?.projectName ?? null,
+    readyState: identity?.readyState ?? null,
+    target: identity?.target ?? null,
+    customEnvironmentSlug: identity?.customEnvironmentSlug ?? null,
+    git: identity === null ? null : { ...identity.git },
+    source: identity?.source ?? null,
+    workflowMetadataMatches:
+      identity !== null &&
+      hasExpectedGitHubMetadata(identity, logicalTarget, spec),
+  };
+}
+
+function matchesLegacyV2Identity(identity, legacy) {
+  return (
+    identity !== null &&
+    identity.deploymentId === legacy.deployment &&
+    identity.deploymentUrl === legacy.deploymentUrl &&
+    identity.projectId === legacy.projectId &&
+    identity.projectName === legacy.projectName &&
+    identity.readyState === "READY" &&
+    identity.target === "production" &&
+    identity.customEnvironmentSlug === null &&
+    identity.git.org === "mento-protocol" &&
+    identity.git.repo === "frontend-monorepo" &&
+    identity.git.ref === "v2" &&
+    identity.git.sha === legacy.git.sha &&
+    identity.source === "git"
+  );
+}
+
+function canonicalLegacyV2Proof(spec, legacyV2) {
+  if (
+    !legacyV2 ||
+    typeof legacyV2 !== "object" ||
+    Array.isArray(legacyV2) ||
+    legacyV2.source !== "git"
+  ) {
+    throw new Error("Legacy App v2 state is unproven");
+  }
+  const state = assertCanonicalOutput(legacyV2.state);
+  if (
+    state.alias !== spec.alias ||
+    state.deploymentId !== spec.deployment ||
+    state.deploymentUrl !== spec.deploymentUrl ||
+    state.projectId !== spec.projectId ||
+    state.projectName !== spec.projectName ||
+    state.readyState !== "READY" ||
+    state.target !== "production" ||
+    state.customEnvironmentSlug !== null ||
+    state.git.org !== "mento-protocol" ||
+    state.git.repo !== "frontend-monorepo" ||
+    state.git.ref !== "v2" ||
+    state.git.sha !== spec.git.sha
+  ) {
+    throw new Error("Legacy App v2 state is unproven");
+  }
+  return {
+    alias: state.alias,
+    deploymentId: state.deploymentId,
+    deploymentUrl: state.deploymentUrl,
+    projectId: state.projectId,
+    projectName: state.projectName,
+    readyState: state.readyState,
+    target: state.target,
+    customEnvironmentSlug: state.customEnvironmentSlug,
+    git: { ...state.git },
+    ownership: "native-vercel-git",
+  };
+}
+
+function sortedUniqueIds(values, label) {
+  if (
+    !Array.isArray(values) ||
+    values.some(
+      (value) => typeof value !== "string" || !/^dpl_[A-Za-z0-9]+$/.test(value),
+    ) ||
+    new Set(values).size !== values.length
+  ) {
+    throw new Error(`${label} is malformed`);
+  }
+  const sorted = values.toSorted();
+  if (JSON.stringify(sorted) !== JSON.stringify(values)) {
+    throw new Error(`${label} is not canonical`);
+  }
+  return values;
+}
+
+export function createActiveDeploymentStateProof({
+  spec,
+  deployments,
+  legacyV2,
+}) {
+  const canonicalSpec = assertActiveDeploymentStateSpec(spec);
+  assertExactKeys(
+    deployments,
+    ACTIVE_STATE_TARGETS,
+    "Active deployment inspections",
+  );
+  const projects = {};
+  for (const logicalTarget of ACTIVE_STATE_TARGETS) {
+    const project = canonicalSpec.projects[logicalTarget];
+    const entries = deployments[logicalTarget];
+    if (!Array.isArray(entries)) {
+      throw new Error(
+        `${logicalTarget} active deployment inspections are malformed`,
+      );
+    }
+    const ids = Object.fromEntries(
+      ACTIVE_STATE_CLASSIFICATIONS.map((classification) => [
+        classification,
+        [],
+      ]),
+    );
+    const records = Object.fromEntries(
+      ACTIVE_STATE_CLASSIFICATIONS.map((classification) => [
+        classification,
+        [],
+      ]),
+    );
+    const seenIds = new Set();
+    for (const entry of entries) {
+      const requestedId = requireDeploymentId(
+        entry?.deploymentId,
+        `${logicalTarget} active deployment requested ID`,
+      );
+      if (seenIds.has(requestedId)) {
+        throw new Error(
+          `${logicalTarget} active deployment inspection is ambiguous`,
+        );
+      }
+      seenIds.add(requestedId);
+      const identity = canonicalActiveDeploymentIdentity(entry);
+      let classification = "unknown";
+      if (
+        logicalTarget === "app" &&
+        requestedId === canonicalSpec.legacyAppV2.deployment &&
+        matchesLegacyV2Identity(identity, canonicalSpec.legacyAppV2)
+      ) {
+        classification = "legacyV2";
+      } else if (
+        matchesActiveProjectIdentity(identity, project, canonicalSpec.deploySha)
+      ) {
+        if (
+          identity.deploymentId === project.deploymentId &&
+          identity.deploymentUrl === project.deploymentUrl &&
+          hasExpectedGitHubMetadata(identity, logicalTarget, canonicalSpec)
+        ) {
+          classification = project.expectedDisposition;
+        } else if (identity.source === "git") {
+          classification = "nativeGitOwner";
+        } else if (
+          identity.source === "cli" &&
+          identity.meta !== null &&
+          !Object.hasOwn(identity.meta, "githubDeployment")
+        ) {
+          classification = "manualDuplicates";
+        }
+      }
+      records[classification].push(
+        canonicalActiveDeploymentRecord(
+          requestedId,
+          identity,
+          logicalTarget,
+          canonicalSpec,
+        ),
+      );
+    }
+    const nativeGitRecords = records.nativeGitOwner.toSorted((left, right) =>
+      left.deploymentId.localeCompare(right.deploymentId),
+    );
+    records.nativeGitOwner =
+      canonicalSpec.mainOwnershipMode[logicalTarget] === "shadow"
+        ? nativeGitRecords.slice(0, 1)
+        : [];
+    records.nativeGitDuplicates.push(
+      ...(canonicalSpec.mainOwnershipMode[logicalTarget] === "shadow"
+        ? nativeGitRecords.slice(1)
+        : nativeGitRecords),
+    );
+    for (const classification of ACTIVE_STATE_CLASSIFICATIONS) {
+      records[classification].sort((left, right) =>
+        left.deploymentId.localeCompare(right.deploymentId),
+      );
+      ids[classification] = records[classification].map(
+        ({ deploymentId }) => deploymentId,
+      );
+    }
+    const counts = {
+      scanned: entries.length,
+      ...Object.fromEntries(
+        ACTIVE_STATE_CLASSIFICATIONS.map((classification) => [
+          classification,
+          ids[classification].length,
+        ]),
+      ),
+    };
+    projects[logicalTarget] = {
+      projectId: project.projectId,
+      projectName: project.projectName,
+      target: project.target,
+      customEnvironmentSlug: project.customEnvironmentSlug,
+      mainOwnershipMode: canonicalSpec.mainOwnershipMode[logicalTarget],
+      expectedDisposition: project.expectedDisposition,
+      expectedDeploymentId: project.deploymentId,
+      expectedDeploymentUrl: project.deploymentUrl,
+      counts,
+      ids,
+      records,
+    };
+  }
+  const proven = ACTIVE_STATE_TARGETS.every((logicalTarget) => {
+    const { counts, ids } = projects[logicalTarget];
+    const project = canonicalSpec.projects[logicalTarget];
+    return (
+      counts.githubPrebuilt ===
+        (project.expectedDisposition === "githubPrebuilt" ? 1 : 0) &&
+      (project.expectedDisposition !== "githubPrebuilt" ||
+        ids.githubPrebuilt[0] === project.deploymentId) &&
+      counts.githubShadowStage ===
+        (project.expectedDisposition === "githubShadowStage" ? 1 : 0) &&
+      (project.expectedDisposition !== "githubShadowStage" ||
+        ids.githubShadowStage[0] === project.deploymentId) &&
+      counts.nativeGitOwner <=
+        (canonicalSpec.mainOwnershipMode[logicalTarget] === "shadow" ? 1 : 0) &&
+      counts.nativeGitDuplicates === 0 &&
+      counts.manualDuplicates === 0 &&
+      counts.unknown === 0
+    );
+  });
+  return assertActiveDeploymentStateProof({
+    schema: ACTIVE_DEPLOYMENT_STATE_PROOF_SCHEMA,
+    outcome: proven ? "proven" : "unproven",
+    deploySha: canonicalSpec.deploySha,
+    runId: canonicalSpec.runId,
+    runAttempt: canonicalSpec.runAttempt,
+    transactionId: canonicalSpec.transactionId,
+    mainOwnershipMode: { ...canonicalSpec.mainOwnershipMode },
+    stagedTargets: [...canonicalSpec.stagedTargets],
+    activeTargets: [...canonicalSpec.activeTargets],
+    shadowTargets: [...canonicalSpec.shadowTargets],
+    projects,
+    legacyAppV2: canonicalLegacyV2Proof(canonicalSpec.legacyAppV2, legacyV2),
+  });
+}
+
+function assertActiveDeploymentRecord(record, label) {
+  assertExactKeys(record, ACTIVE_STATE_RECORD_KEYS, label);
+  requireDeploymentId(record.deploymentId, `${label} deployment ID`);
+  if (
+    record.deploymentUrl !== null &&
+    canonicalizeDeploymentUrl(record.deploymentUrl) !== record.deploymentUrl
+  ) {
+    throw new Error(`${label} deployment URL is malformed`);
+  }
+  for (const [field, value] of [
+    ["project ID", record.projectId],
+    ["project name", record.projectName],
+    ["readiness", record.readyState],
+  ]) {
+    if (value !== null) requireIdentifier(value, `${label} ${field}`);
+  }
+  if (
+    (record.target !== null &&
+      (typeof record.target !== "string" || record.target.length === 0)) ||
+    (record.customEnvironmentSlug !== null &&
+      (typeof record.customEnvironmentSlug !== "string" ||
+        record.customEnvironmentSlug.length === 0)) ||
+    (record.source !== null &&
+      (typeof record.source !== "string" ||
+        !/^[a-z][a-z-]*$/.test(record.source))) ||
+    typeof record.workflowMetadataMatches !== "boolean"
+  ) {
+    throw new Error(`${label} identity is malformed`);
+  }
+  if (record.git !== null) {
+    assertExactKeys(record.git, CANONICAL_GIT_KEYS, `${label} Git identity`);
+    if (
+      record.git.org !== "mento-protocol" ||
+      record.git.repo !== "frontend-monorepo" ||
+      typeof record.git.ref !== "string" ||
+      record.git.ref.length === 0 ||
+      typeof record.git.sha !== "string" ||
+      !SHA_PATTERN.test(record.git.sha) ||
+      record.git.sha !== record.git.sha.toLowerCase()
+    ) {
+      throw new Error(`${label} Git identity is malformed`);
+    }
+  }
+  return record;
+}
+
+function recordMatchesActiveProject(record, project, deploySha) {
+  return (
+    record.deploymentUrl !== null &&
+    record.projectId === project.projectId &&
+    record.projectName === project.projectName &&
+    record.readyState === "READY" &&
+    record.target === project.target &&
+    record.customEnvironmentSlug === project.customEnvironmentSlug &&
+    record.git?.org === "mento-protocol" &&
+    record.git.repo === "frontend-monorepo" &&
+    record.git.ref === "main" &&
+    record.git.sha === deploySha
+  );
+}
+
+export function assertActiveDeploymentStateProof(value) {
+  assertExactKeys(
+    value,
+    ACTIVE_STATE_PROOF_KEYS,
+    "Active deployment state proof",
+  );
+  if (
+    value.schema !== ACTIVE_DEPLOYMENT_STATE_PROOF_SCHEMA ||
+    !["proven", "unproven"].includes(value.outcome) ||
+    typeof value.deploySha !== "string" ||
+    !SHA_PATTERN.test(value.deploySha) ||
+    value.deploySha !== value.deploySha.toLowerCase() ||
+    typeof value.transactionId !== "string" ||
+    !/^main-[a-f0-9]{32}$/.test(value.transactionId)
+  ) {
+    throw new Error("Active deployment state proof identity is malformed");
+  }
+  requirePositiveIdentifier(value.runId, "Active proof run ID");
+  requirePositiveIdentifier(value.runAttempt, "Active proof run attempt");
+  const mainOwnershipMode = canonicalMainOwnershipMode(value.mainOwnershipMode);
+  const stagedTargets = canonicalActiveStateTargets(
+    value.stagedTargets,
+    "Active proof staged targets",
+  );
+  const activeTargets = canonicalActiveStateTargets(
+    value.activeTargets,
+    "Active proof active targets",
+  );
+  const shadowTargets = canonicalActiveStateTargets(
+    value.shadowTargets,
+    "Active proof shadow targets",
+  );
+  if (
+    activeTargets.some((target) => mainOwnershipMode[target] !== "github") ||
+    shadowTargets.some((target) => mainOwnershipMode[target] !== "shadow") ||
+    activeTargets.some((target) => shadowTargets.includes(target)) ||
+    JSON.stringify(
+      [...activeTargets, ...shadowTargets].toSorted(
+        (left, right) =>
+          ACTIVE_STATE_TARGETS.indexOf(left) -
+          ACTIVE_STATE_TARGETS.indexOf(right),
+      ),
+    ) !== JSON.stringify(stagedTargets)
+  ) {
+    throw new Error("Active deployment proof target partition is malformed");
+  }
+  assertExactKeys(
+    value.projects,
+    ACTIVE_STATE_TARGETS,
+    "Active deployment state proof projects",
+  );
+  let proven = true;
+  const projectIds = new Set();
+  const expectedDeploymentIds = new Set();
+  const expectedDeploymentUrls = new Set();
+  const classifiedDeploymentIds = new Set();
+  for (const logicalTarget of ACTIVE_STATE_TARGETS) {
+    const project = value.projects[logicalTarget];
+    assertExactKeys(
+      project,
+      ACTIVE_STATE_PROJECT_PROOF_KEYS,
+      `${logicalTarget} active deployment state proof`,
+    );
+    const expectedEnvironment = activeProjectEnvironment(logicalTarget);
+    const expectedDisposition = plannedDispositionForTarget(
+      logicalTarget,
+      activeTargets,
+      shadowTargets,
+    );
+    const projectId = requireIdentifier(
+      project.projectId,
+      `${logicalTarget} active proof project ID`,
+    );
+    let expectedDeploymentId = null;
+    let expectedDeploymentUrl = null;
+    if (expectedDisposition === null) {
+      if (
+        project.expectedDeploymentId !== null ||
+        project.expectedDeploymentUrl !== null
+      ) {
+        throw new Error(
+          `${logicalTarget} active deployment state proof expectation is malformed`,
+        );
+      }
+    } else {
+      expectedDeploymentId = requireDeploymentId(
+        project.expectedDeploymentId,
+        `${logicalTarget} active proof deployment ID`,
+      );
+      expectedDeploymentUrl = canonicalizeDeploymentUrl(
+        project.expectedDeploymentUrl,
+      );
+    }
+    if (
+      project.projectName !== `${logicalTarget}.mento.org` ||
+      project.target !== expectedEnvironment.target ||
+      project.customEnvironmentSlug !==
+        expectedEnvironment.customEnvironmentSlug ||
+      project.mainOwnershipMode !== mainOwnershipMode[logicalTarget] ||
+      project.expectedDisposition !== expectedDisposition ||
+      expectedDeploymentUrl !== project.expectedDeploymentUrl ||
+      projectIds.has(projectId) ||
+      (expectedDeploymentId !== null &&
+        expectedDeploymentIds.has(expectedDeploymentId)) ||
+      (expectedDeploymentUrl !== null &&
+        expectedDeploymentUrls.has(expectedDeploymentUrl))
+    ) {
+      throw new Error(
+        `${logicalTarget} active deployment state proof is malformed`,
+      );
+    }
+    projectIds.add(projectId);
+    if (expectedDeploymentId !== null) {
+      expectedDeploymentIds.add(expectedDeploymentId);
+    }
+    if (expectedDeploymentUrl !== null) {
+      expectedDeploymentUrls.add(expectedDeploymentUrl);
+    }
+    assertExactKeys(
+      project.ids,
+      ACTIVE_STATE_CLASSIFICATIONS,
+      `${logicalTarget} active deployment state proof IDs`,
+    );
+    assertExactKeys(
+      project.records,
+      ACTIVE_STATE_CLASSIFICATIONS,
+      `${logicalTarget} active deployment state proof records`,
+    );
+    for (const classification of ACTIVE_STATE_CLASSIFICATIONS) {
+      sortedUniqueIds(
+        project.ids[classification],
+        `${logicalTarget} ${classification} deployment IDs`,
+      );
+      if (!Array.isArray(project.records[classification])) {
+        throw new Error(
+          `${logicalTarget} ${classification} deployment records are malformed`,
+        );
+      }
+      const recordIds = project.records[classification].map(
+        (record, index) =>
+          assertActiveDeploymentRecord(
+            record,
+            `${logicalTarget} ${classification} deployment record ${index}`,
+          ).deploymentId,
+      );
+      if (
+        JSON.stringify(recordIds) !==
+        JSON.stringify(project.ids[classification])
+      ) {
+        throw new Error(
+          `${logicalTarget} ${classification} deployment records conflict`,
+        );
+      }
+      for (const record of project.records[classification]) {
+        if (classifiedDeploymentIds.has(record.deploymentId)) {
+          throw new Error("Active deployment proof classifies an ID twice");
+        }
+        classifiedDeploymentIds.add(record.deploymentId);
+        if (
+          classification !== "unknown" &&
+          classification !== "legacyV2" &&
+          !recordMatchesActiveProject(record, project, value.deploySha)
+        ) {
+          throw new Error(
+            `${logicalTarget} ${classification} deployment record is malformed`,
+          );
+        }
+        if (
+          (["githubPrebuilt", "githubShadowStage"].includes(classification) &&
+            (record.deploymentId !== expectedDeploymentId ||
+              record.deploymentUrl !== expectedDeploymentUrl ||
+              record.source !== "cli" ||
+              record.workflowMetadataMatches !== true)) ||
+          (["nativeGitOwner", "nativeGitDuplicates"].includes(classification) &&
+            record.source !== "git") ||
+          (classification === "manualDuplicates" && record.source !== "cli") ||
+          (classification === "legacyV2" &&
+            (logicalTarget !== "app" ||
+              record.deploymentId !== value.legacyAppV2.deploymentId ||
+              record.source !== "git"))
+        ) {
+          throw new Error(
+            `${logicalTarget} ${classification} deployment classification is malformed`,
+          );
+        }
+      }
+    }
+    assertExactKeys(
+      project.counts,
+      ["scanned", ...ACTIVE_STATE_CLASSIFICATIONS],
+      `${logicalTarget} active deployment state proof counts`,
+    );
+    for (const classification of ACTIVE_STATE_CLASSIFICATIONS) {
+      if (
+        project.counts[classification] !== project.ids[classification].length
+      ) {
+        throw new Error(
+          `${logicalTarget} active deployment state proof counts conflict`,
+        );
+      }
+    }
+    if (
+      !Number.isSafeInteger(project.counts.scanned) ||
+      project.counts.scanned < 0 ||
+      project.counts.scanned !==
+        ACTIVE_STATE_CLASSIFICATIONS.reduce(
+          (total, classification) => total + project.counts[classification],
+          0,
+        )
+    ) {
+      throw new Error(
+        `${logicalTarget} active deployment state proof count is malformed`,
+      );
+    }
+    // Native same-SHA ownership is observational. It is allowed only under
+    // shadow ownership and never satisfies the required GitHub disposition
+    // or the separate protected-mapping proof.
+    proven &&=
+      project.counts.githubPrebuilt ===
+        (expectedDisposition === "githubPrebuilt" ? 1 : 0) &&
+      (expectedDisposition !== "githubPrebuilt" ||
+        project.ids.githubPrebuilt[0] === expectedDeploymentId) &&
+      project.counts.githubShadowStage ===
+        (expectedDisposition === "githubShadowStage" ? 1 : 0) &&
+      (expectedDisposition !== "githubShadowStage" ||
+        project.ids.githubShadowStage[0] === expectedDeploymentId) &&
+      project.counts.nativeGitOwner <=
+        (mainOwnershipMode[logicalTarget] === "shadow" ? 1 : 0) &&
+      project.counts.nativeGitDuplicates === 0 &&
+      project.counts.manualDuplicates === 0 &&
+      project.counts.unknown === 0;
+  }
+  assertExactKeys(
+    value.legacyAppV2,
+    ACTIVE_STATE_LEGACY_PROOF_KEYS,
+    "Legacy App v2 proof",
+  );
+  assertCanonicalOutput({
+    alias: value.legacyAppV2.alias,
+    deploymentId: value.legacyAppV2.deploymentId,
+    deploymentUrl: value.legacyAppV2.deploymentUrl,
+    creatorUsername: null,
+    projectId: value.legacyAppV2.projectId,
+    projectName: value.legacyAppV2.projectName,
+    readyState: value.legacyAppV2.readyState,
+    target: value.legacyAppV2.target,
+    customEnvironmentSlug: value.legacyAppV2.customEnvironmentSlug,
+    git: value.legacyAppV2.git,
+    aliases: [value.legacyAppV2.alias],
+  });
+  requireDeploymentId(
+    value.legacyAppV2.deploymentId,
+    "Legacy App v2 proof deployment ID",
+  );
+  if (
+    value.legacyAppV2.alias !== "v2-app.mento.org" ||
+    value.legacyAppV2.projectId !== value.projects.app.projectId ||
+    value.legacyAppV2.projectName !== "app.mento.org" ||
+    value.legacyAppV2.readyState !== "READY" ||
+    value.legacyAppV2.target !== "production" ||
+    value.legacyAppV2.customEnvironmentSlug !== null ||
+    value.legacyAppV2.git.org !== "mento-protocol" ||
+    value.legacyAppV2.git.repo !== "frontend-monorepo" ||
+    value.legacyAppV2.git.ref !== "v2" ||
+    value.legacyAppV2.ownership !== "native-vercel-git" ||
+    expectedDeploymentIds.has(value.legacyAppV2.deploymentId) ||
+    expectedDeploymentUrls.has(value.legacyAppV2.deploymentUrl) ||
+    value.projects.app.ids.legacyV2.some(
+      (deploymentId) => deploymentId !== value.legacyAppV2.deploymentId,
+    ) ||
+    value.projects.app.records.legacyV2.some(
+      (record) =>
+        record.deploymentId !== value.legacyAppV2.deploymentId ||
+        record.deploymentUrl !== value.legacyAppV2.deploymentUrl ||
+        record.projectId !== value.legacyAppV2.projectId ||
+        record.projectName !== value.legacyAppV2.projectName ||
+        record.readyState !== value.legacyAppV2.readyState ||
+        record.target !== value.legacyAppV2.target ||
+        record.customEnvironmentSlug !==
+          value.legacyAppV2.customEnvironmentSlug ||
+        JSON.stringify(record.git) !== JSON.stringify(value.legacyAppV2.git) ||
+        record.source !== "git" ||
+        record.workflowMetadataMatches !== false,
+    ) ||
+    ACTIVE_STATE_TARGETS.filter((target) => target !== "app").some(
+      (target) =>
+        value.projects[target].ids.legacyV2.length !== 0 ||
+        value.projects[target].records.legacyV2.length !== 0,
+    ) ||
+    value.outcome !== (proven ? "proven" : "unproven")
+  ) {
+    throw new Error("Active deployment state proof outcome is malformed");
+  }
+  return value;
+}
+
+export async function captureActiveDeploymentStateProof(client, spec) {
+  const canonicalSpec = assertActiveDeploymentStateSpec(spec);
+  if (
+    !client ||
+    typeof client.listExactShaDeploymentIds !== "function" ||
+    typeof client.inspectDeployment !== "function" ||
+    typeof client.canonicalLegacyV2State !== "function"
+  ) {
+    throw new Error("Active deployment state client is malformed");
+  }
+  const captureInventory = async (label) => {
+    const inventory = {};
+    for (const logicalTarget of ACTIVE_STATE_TARGETS) {
+      inventory[logicalTarget] = sortedUniqueIds(
+        await client.listExactShaDeploymentIds({
+          projectId: canonicalSpec.projects[logicalTarget].projectId,
+          deploySha: canonicalSpec.deploySha,
+        }),
+        `${logicalTarget} ${label}`,
+      );
+    }
+    return inventory;
+  };
+  const assertInventoryUnchanged = (expected, actual) => {
+    if (
+      ACTIVE_STATE_TARGETS.some(
+        (logicalTarget) =>
+          JSON.stringify(actual[logicalTarget]) !==
+          JSON.stringify(expected[logicalTarget]),
+      )
+    ) {
+      throw new Error("Active deployment set changed during inspection");
+    }
+  };
+  const listedBefore = await captureInventory("active deployment listing");
+  const deployments = {};
+  for (const logicalTarget of ACTIVE_STATE_TARGETS) {
+    deployments[logicalTarget] = [];
+    for (const deploymentId of listedBefore[logicalTarget]) {
+      const response = assertExactShaDeploymentInspection({
+        deployment: await client.inspectDeployment(deploymentId),
+        deploymentId,
+        projectId: canonicalSpec.projects[logicalTarget].projectId,
+        deploySha: canonicalSpec.deploySha,
+      });
+      deployments[logicalTarget].push({
+        deploymentId,
+        response,
+      });
+    }
+  }
+  const legacyV2 = await client.canonicalLegacyV2State(
+    canonicalSpec.legacyAppV2,
+  );
+  const listedAfter = await captureInventory(
+    "confirmed active deployment listing",
+  );
+  assertInventoryUnchanged(listedBefore, listedAfter);
+  const stabilized = await captureInventory(
+    "stabilized active deployment listing",
+  );
+  assertInventoryUnchanged(listedAfter, stabilized);
+  return createActiveDeploymentStateProof({
+    spec: canonicalSpec,
+    deployments,
+    legacyV2,
+  });
 }
 
 export async function captureMainPlanningSnapshot(client, spec) {
@@ -1598,6 +2939,33 @@ export function writeAppTransactionCandidate(path, value, options = {}) {
   );
 }
 
+export function writeActiveDeploymentStateProof(path, value, options = {}) {
+  return writeValidatedPrivateJson(
+    path,
+    value,
+    assertActiveDeploymentStateProof,
+    options,
+  );
+}
+
+export function writeActiveAliasMappings(path, value, options = {}) {
+  return writeValidatedPrivateJson(
+    path,
+    value,
+    assertActiveAliasMappings,
+    options,
+  );
+}
+
+export function writeActiveAliasMappingSet(path, value, options = {}) {
+  return writeValidatedPrivateJson(
+    path,
+    value,
+    assertActiveAliasMappingSet,
+    options,
+  );
+}
+
 function createClient(env, clientFactory) {
   return clientFactory({
     token: env.VERCEL_TOKEN,
@@ -1623,7 +2991,34 @@ export async function runCli({
   }
 
   const client = createClient(env, clientFactory);
-  if (command === "snapshot") {
+  if (command === "active-proof") {
+    const result = await captureActiveDeploymentStateProof(
+      client,
+      readJson(options.spec, "Active deployment state specification"),
+    );
+    writeActiveDeploymentStateProof(options.output, result, {
+      runnerTemp: env.RUNNER_TEMP,
+    });
+    if (result.outcome !== "proven") {
+      throw new Error("Active deployment state is unproven");
+    }
+    stdout.write("Canonical active deployment state proof written\n");
+  } else if (command === "alias-mappings") {
+    const spec = assertActiveAliasMappingSet(
+      readJson(options.spec, "Active alias mapping specification"),
+    );
+    const result = assertActiveAliasMappings(
+      (await captureAliasMappings(client, spec.aliases)).map((mapping) => ({
+        alias: mapping.alias,
+        deploymentId: mapping.deploymentId,
+        deploymentUrl: mapping.deploymentUrl,
+      })),
+    );
+    writeActiveAliasMappings(options.output, result, {
+      runnerTemp: env.RUNNER_TEMP,
+    });
+    stdout.write("Canonical active alias mappings written\n");
+  } else if (command === "snapshot") {
     const result = await captureProtectedSnapshot(
       client,
       readJson(options.spec, "Protected alias specification"),

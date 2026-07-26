@@ -57,14 +57,12 @@ const SHA = Object.fromEntries(
   ]),
 );
 const UI_VERCEL_CONFIGURATION_PATH = "apps/ui.mento.org/vercel.json";
-const GITHUB_OWNED_UI_VERCEL_CONFIGURATION = {
-  $schema: "https://openapi.vercel.sh/vercel.json",
-  git: { deploymentEnabled: { "**": false, main: true } },
-};
-const NATIVE_OWNED_UI_VERCEL_CONFIGURATION = {
-  $schema: "https://openapi.vercel.sh/vercel.json",
-  git: { deploymentEnabled: { "dependabot/**": false } },
-};
+const GITHUB_OWNED_UI_VERCEL_CONFIGURATION = structuredClone(
+  PREVIEW_TARGET_CONFIG.ui.githubVercelConfiguration,
+);
+const NATIVE_OWNED_UI_VERCEL_CONFIGURATION = structuredClone(
+  PREVIEW_TARGET_CONFIG.ui.nativeVercelConfiguration,
+);
 const workerDispatchClients = new WeakMap();
 
 function reconcilePreview(options) {

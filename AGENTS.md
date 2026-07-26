@@ -56,25 +56,38 @@ the structural test in the same PR. Never execute a triggering head SHA from
 this privileged `workflow_run` workflow.
 
 `.github/workflows/vercel-main-deployment.yml` automatically consumes only the
-exact successful `CI/CD` `main` attempt and runs in literal `shadow` mode until
-the separately reviewed production cutover. Its token-free gate must bind the
-event run/attempt, literal `Build and Test` job, workflow definition, checked-out
-source, and `DEPLOY_SHA` before any job can use `vercel-cli-production`.
-Planning starts from each target's actual served SHA. Ambiguous path planning
-selects a target; ambiguous protected state aborts the whole run. Governance,
-Reserve, and UI may stage only with `--prod --skip-domain`; App custom `v3`
-remains build-only. For each ordinary target, the public custom domain is the
-only protected runtime and rollback alias; generated project/team and
-creator-scoped aliases may move during staging and are candidate evidence only.
-Shadow mode must never reach promote, alias, rollback, App deployment,
-ownership-change, or compensating-mutation callbacks. Its only terminal
-coordinator outcomes are `no-target`, `superseded-before-journal`,
-`superseded-after-journal`, and `shadow-prepared`; only the latter two require
-`verified-no-mutation` recovery. The final job writes one canonical redacted
-summary and `vercel-main-evidence-${run_id}-${run_attempt}` artifact. Keep App
-`v2` native and independently verify its exact captured mapping. The PR-A
-canary, PR-B cutover, public runtime proof, journal, recovery, and native-owner
-restoration contract lives in `docs/vercel-deployments.md`.
+exact successful `CI/CD` `main` attempt and runs with the global controller in
+`active` mode. Its token-free gate must bind the event run/attempt, literal
+`Build and Test` job, workflow definition, checked-out source, and `DEPLOY_SHA`
+before any job can use `vercel-cli-production`. Planning starts from each
+target's actual served SHA. The strict `vercel-main-plan:v2` handoff contains
+the canonical four-target `mainOwnershipMode` map and deterministic
+`stagedTargets`, `activeTargets`, and `shadowTargets` partitions. The current
+map assigns all four targets to `github`; global `shadow` is valid only when all
+four targets are `shadow`. Ambiguous path planning selects a target; ambiguous
+ownership or protected state aborts the whole run.
+
+Every selected Governance, Reserve, and UI target stages and verifies an
+immutable candidate with `--prod --skip-domain`. Only an `activeTargets` member
+may mutate its public mapping: ordinary targets promote the exact staged
+deployment, while App deploys the verified custom-`v3` output and verifies or
+assigns only its reviewed aliases. App's legacy `v2 -> production` path remains
+native and is verified independently. Before and after each public mutation,
+the controller rechecks freshness and protected state and persists the next
+durable journal transition. Recovery restores exact captured mappings in
+reverse mutation order and treats unknown operator-owned state as manual
+intervention. The final evidence includes an active duplicate-deployment census
+and fails if native Vercel also attempted a replaced `main` path.
+
+Target-local main rollback restores only that target's reviewed native `main`
+configuration and changes only its `mainOwnershipMode` to `shadow`; ordinary
+previews remain GitHub-owned. A full-native rollback is a separate coordinated
+procedure. For ordinary targets, the public custom domain is the only protected
+runtime and rollback alias; generated project/team and creator-scoped aliases
+are candidate evidence only. Keep App `v2` native and never recreate the removed
+Governance QA environment. The historical PR-A canary, active transaction,
+public runtime proof, journal, recovery, target-local rollback, and full-native
+restoration contracts live in `docs/vercel-deployments.md`.
 
 `.github/workflows/vercel-production-shadow.yml` is manual-only and
 non-promoting. Ordinary uploads implicitly move the target's reviewed generated

@@ -1,5 +1,11 @@
 {
   "mode": "shadow",
+  "mainOwnershipMode": {
+    "app": "shadow",
+    "governance": "shadow",
+    "reserve": "shadow",
+    "ui": "shadow"
+  },
   "deploySha": "dddddddddddddddddddddddddddddddddddddddd",
   "firstParent": "cccccccccccccccccccccccccccccccccccccccc",
   "projectIds": {

@@ -1,9 +1,8 @@
 name: Vercel Main Deployment
 
-# PR A runs the complete main-deployment control plane in literal shadow mode.
-# Ordinary targets may upload immutable candidates with `--prod --skip-domain`,
-# which advances only their generated Vercel project aliases. The workflow does
-# not promote App v3, assign a public alias, or invoke any rollback adapter.
+# PR B runs the main-deployment control plane in literal active mode. Vercel Git
+# `main` ownership is disabled atomically in the four tracked project
+# configurations, while App's legacy `v2` branch remains native.
 on:
   workflow_run:
     workflows: [CI/CD]
@@ -15,7 +14,8 @@ permissions:
   actions: read
 
 env:
-  VERCEL_MAIN_MODE: shadow
+  VERCEL_MAIN_MODE: active
+  MAIN_OWNERSHIP_MODE_JSON: '{"app":"github","governance":"github","reserve":"github","ui":"github"}'
   SOURCE_PATH: source
   TRUSTED_POST_BUILD_PATH: trusted-after-build
 
@@ -939,7 +939,7 @@ jobs:
           logical-target: ui
 
   activate-and-verify:
-    name: Prepare shadow transaction
+    name: Activate GitHub-owned main deployments
     if: ${{ always() }}
     needs:
       - wait-for-ci
@@ -954,9 +954,9 @@ jobs:
       deployment: false # trunk-ignore(actionlint/syntax-check): Pinned actionlint has not learned GitHub's deployment key.
     outputs:
       outcome: ${{ steps.outcome.outputs.outcome }}
-      artifact_name: ${{ steps.journal.outputs.artifact_name }}
-      artifact_id: ${{ steps.journal-upload.outputs.artifact-id }}
-      transaction_id: ${{ steps.journal.outputs.transaction_id }}
+      artifact_name: ${{ steps.active-initialize.outputs.journal_artifact_name }}
+      artifact_id: ${{ steps.active-initial-upload.outputs.artifact-id }}
+      transaction_id: ${{ steps.active-initialize.outputs.transaction_id }}
       app_next_deployment_id: ${{ steps.app-identity.outputs.next_deployment_id }}
       app_build_duration_ms: ${{ steps.app-build.outputs.build_duration_ms }}
       app_turbo_cache_hits: ${{ steps.app-build.outputs.turbo_cache_hits }}
@@ -1033,10 +1033,13 @@ jobs:
         id: app-timing
         run: echo "started_at_ms=$(date +%s%3N)" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare protected App build runtime
+      - name: Prepare protected active-operation runtime
         if: >-
           steps.freshness.outputs.status == 'fresh' &&
-          contains(fromJSON(needs.plan-main-deployments.outputs.targets), 'app')
+          (contains(fromJSON(needs.plan-main-deployments.outputs.targets), 'app') ||
+          contains(fromJSON(needs.plan-main-deployments.outputs.targets), 'governance') ||
+          contains(fromJSON(needs.plan-main-deployments.outputs.targets), 'reserve') ||
+          contains(fromJSON(needs.plan-main-deployments.outputs.targets), 'ui'))
         id: app-runtime
         uses: ./.github/actions/vercel-protected-runtime
         with:
@@ -1165,35 +1168,309 @@ jobs:
           STARTED_AT_MS: ${{ steps.app-timing.outputs.started_at_ms }}
         run: echo "total_duration_ms=$(($(date +%s%3N) - STARTED_AT_MS))" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare exact immutable transaction journal
-        if: steps.freshness.outputs.status == 'fresh'
-        id: journal
+      - name: Persist the immutable App build proof for active transitions
+        if: steps.app-proof.outcome == 'success'
         env:
           APP_BUILD_PROOF: ${{ steps.app-proof.outputs.proof }}
-        run: >-
-          node trusted-coordinator/scripts/vercel-main-deployment.mjs
-          prepare-journal --output "$RUNNER_TEMP/main-journal.json"
+        run: printf 'APP_BUILD_PROOF=%s\n' "$APP_BUILD_PROOF" >> "$GITHUB_ENV"
 
-      - name: Upload prepared transaction journal
-        if: steps.journal.outcome == 'success'
-        id: journal-upload
+      - name: Initialize an empty active journal history
+        if: >-
+          steps.freshness.outputs.status == 'fresh' &&
+          (contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'app') ||
+          contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'governance') ||
+          contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'reserve') ||
+          contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'ui'))
+        run: |
+          install -d -m 0700 "$RUNNER_TEMP/vercel-main-active-journals"
+          printf '[]\n' > "$RUNNER_TEMP/vercel-main-active-journals/current-history.json"
+
+      - name: Create the durable active journal
+        if: >-
+          steps.freshness.outputs.status == 'fresh' &&
+          (contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'app') ||
+          contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'governance') ||
+          contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'reserve') ||
+          contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'ui'))
+        id: active-initialize
+        run: |
+          node trusted-coordinator/scripts/vercel-main-deployment.mjs active-event-initialize --output "$RUNNER_TEMP/active-initialize-event.json"
+          node trusted-coordinator/scripts/vercel-main-deployment.mjs run-active --event "$RUNNER_TEMP/active-initialize-event.json" --journal-history "$RUNNER_TEMP/vercel-main-active-journals/current-history.json" --journal-output "$RUNNER_TEMP/active-initialize-journal.json" --output "$RUNNER_TEMP/active-initialize-transition.json"
+
+      - name: Upload the prepared active journal
+        if: steps.active-initialize.outcome == 'success'
+        id: active-initial-upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ steps.journal.outputs.artifact_name }}
-          path: ${{ runner.temp }}/main-journal.json
+          name: ${{ steps.active-initialize.outputs.journal_artifact_name }}
+          path: ${{ runner.temp }}/active-initialize-journal.json
           if-no-files-found: error
           retention-days: 7
 
-      - name: Exercise shadow transaction and second freshness gate
-        if: steps.journal-upload.outcome == 'success'
-        id: shadow
+      - name: Checkpoint the uploaded prepared active journal
+        if: steps.active-initial-upload.outcome == 'success'
         env:
-          APP_BUILD_PROOF: ${{ steps.app-proof.outputs.proof }}
-          JOURNAL_ARTIFACT_ID: ${{ steps.journal-upload.outputs.artifact-id }}
-          JOURNAL_ARTIFACT_NAME: ${{ steps.journal.outputs.artifact_name }}
+          ARTIFACT_ID: ${{ steps.active-initial-upload.outputs.artifact-id }}
+          ARTIFACT_NAME: ${{ steps.active-initialize.outputs.journal_artifact_name }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 "$RUNNER_TEMP/vercel-main-active-journals/$ARTIFACT_NAME"
+          install -m 0600 "$RUNNER_TEMP/active-initialize-journal.json" "$RUNNER_TEMP/vercel-main-active-journals/$ARTIFACT_NAME/main-journal.json"
+          node trusted-coordinator/scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/vercel-main-active-journals" --output "$RUNNER_TEMP/active-initialize-history.json"
+          node trusted-coordinator/scripts/vercel-main-deployment.mjs active-journal-receipt --journal "$RUNNER_TEMP/active-initialize-journal.json" --artifact-name "$ARTIFACT_NAME" --artifact-id "$ARTIFACT_ID" --output "$RUNNER_TEMP/active-initialize-receipt.json"
+          install -m 0600 "$RUNNER_TEMP/active-initialize-history.json" "$RUNNER_TEMP/vercel-main-active-journals/current-history.json"
+          install -m 0600 "$RUNNER_TEMP/active-initialize-journal.json" "$RUNNER_TEMP/vercel-main-active-journals/current-journal.json"
+          install -m 0600 "$RUNNER_TEMP/active-initialize-receipt.json" "$RUNNER_TEMP/vercel-main-active-journals/current-receipt.json"
+
+      - name: Advance Governance promotion through durable active transitions
+        if: >-
+          steps.active-initial-upload.outcome == 'success' &&
+          contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'governance')
+        uses: ./.github/actions/vercel-main-active-transition
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        with:
+          app-verification: "false"
+          controller-path: ${{ github.workspace }}/trusted-coordinator
+          journal-directory: ${{ runner.temp }}/vercel-main-active-journals
+          operation-cwd: ${{ github.workspace }}/source
+          slot: governance
+          vercel-cli: ${{ steps.app-runtime.outputs.vercel-cli }}
+
+      - name: Advance Reserve promotion through durable active transitions
+        if: >-
+          steps.active-initial-upload.outcome == 'success' &&
+          contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'reserve')
+        uses: ./.github/actions/vercel-main-active-transition
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        with:
+          app-verification: "false"
+          controller-path: ${{ github.workspace }}/trusted-coordinator
+          journal-directory: ${{ runner.temp }}/vercel-main-active-journals
+          operation-cwd: ${{ github.workspace }}/source
+          slot: reserve
+          vercel-cli: ${{ steps.app-runtime.outputs.vercel-cli }}
+
+      - name: Advance UI promotion through durable active transitions
+        if: >-
+          steps.active-initial-upload.outcome == 'success' &&
+          contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'ui')
+        uses: ./.github/actions/vercel-main-active-transition
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        with:
+          app-verification: "false"
+          controller-path: ${{ github.workspace }}/trusted-coordinator
+          journal-directory: ${{ runner.temp }}/vercel-main-active-journals
+          operation-cwd: ${{ github.workspace }}/source
+          slot: ui
+          vercel-cli: ${{ steps.app-runtime.outputs.vercel-cli }}
+
+      - name: Advance App v3 deployment through durable active transitions
+        if: >-
+          steps.active-initial-upload.outcome == 'success' &&
+          contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'app')
+        uses: ./.github/actions/vercel-main-active-transition
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        with:
+          app-verification: "true"
+          controller-path: ${{ github.workspace }}/trusted-coordinator
+          journal-directory: ${{ runner.temp }}/vercel-main-active-journals
+          operation-cwd: ${{ steps.app-runtime.outputs.upload-source-path }}
+          slot: app-deploy
+          vercel-cli: ${{ steps.app-runtime.outputs.vercel-cli }}
+
+      - name: Advance App public alias through durable active transitions
+        if: >-
+          steps.active-initial-upload.outcome == 'success' &&
+          contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'app')
+        uses: ./.github/actions/vercel-main-active-transition
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        with:
+          app-verification: "false"
+          controller-path: ${{ github.workspace }}/trusted-coordinator
+          journal-directory: ${{ runner.temp }}/vercel-main-active-journals
+          operation-cwd: ${{ github.workspace }}/source
+          slot: app-public-alias
+          vercel-cli: ${{ steps.app-runtime.outputs.vercel-cli }}
+
+      - name: Advance App generated alias through durable active transitions
+        if: >-
+          steps.active-initial-upload.outcome == 'success' &&
+          contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'app')
+        uses: ./.github/actions/vercel-main-active-transition
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        with:
+          app-verification: "false"
+          controller-path: ${{ github.workspace }}/trusted-coordinator
+          journal-directory: ${{ runner.temp }}/vercel-main-active-journals
+          operation-cwd: ${{ github.workspace }}/source
+          slot: app-generated-alias
+          vercel-cli: ${{ steps.app-runtime.outputs.vercel-cli }}
+
+      - name: Smoke selected App public deployment
+        if: contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'app')
+        env:
+          LOGICAL_TARGET: app
+          PUBLIC_URL: https://app.mento.org/
+        run: node trusted-coordinator/scripts/vercel-main-runtime.mjs
+
+      - name: Record selected App public smoke
+        if: contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'app')
         run: >-
-          node trusted-coordinator/scripts/vercel-main-deployment.mjs
-          run-shadow --journal "$RUNNER_TEMP/main-journal.json"
+          node trusted-coordinator/scripts/vercel-main-deployment.mjs active-public-smoke-target
+          --target app --status passed --served-sha "$DEPLOY_SHA"
+          --output "$RUNNER_TEMP/active-smoke-app.json"
+
+      - name: Record unselected App public smoke
+        if: "!contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'app')"
+        run: >-
+          node trusted-coordinator/scripts/vercel-main-deployment.mjs active-public-smoke-target
+          --target app --status not-required --served-sha none
+          --output "$RUNNER_TEMP/active-smoke-app.json"
+
+      - name: Smoke selected Governance public deployment
+        if: contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'governance')
+        env:
+          LOGICAL_TARGET: governance
+          PUBLIC_URL: https://governance.mento.org/
+        run: node trusted-coordinator/scripts/vercel-main-runtime.mjs
+
+      - name: Record selected Governance public smoke
+        if: contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'governance')
+        run: >-
+          node trusted-coordinator/scripts/vercel-main-deployment.mjs active-public-smoke-target
+          --target governance --status passed --served-sha "$DEPLOY_SHA"
+          --output "$RUNNER_TEMP/active-smoke-governance.json"
+
+      - name: Record unselected Governance public smoke
+        if: "!contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'governance')"
+        run: >-
+          node trusted-coordinator/scripts/vercel-main-deployment.mjs active-public-smoke-target
+          --target governance --status not-required --served-sha none
+          --output "$RUNNER_TEMP/active-smoke-governance.json"
+
+      - name: Smoke selected Reserve public deployment
+        if: contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'reserve')
+        env:
+          LOGICAL_TARGET: reserve
+          PUBLIC_URL: https://reserve.mento.org/
+        run: node trusted-coordinator/scripts/vercel-main-runtime.mjs
+
+      - name: Record selected Reserve public smoke
+        if: contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'reserve')
+        run: >-
+          node trusted-coordinator/scripts/vercel-main-deployment.mjs active-public-smoke-target
+          --target reserve --status passed --served-sha "$DEPLOY_SHA"
+          --output "$RUNNER_TEMP/active-smoke-reserve.json"
+
+      - name: Record unselected Reserve public smoke
+        if: "!contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'reserve')"
+        run: >-
+          node trusted-coordinator/scripts/vercel-main-deployment.mjs active-public-smoke-target
+          --target reserve --status not-required --served-sha none
+          --output "$RUNNER_TEMP/active-smoke-reserve.json"
+
+      - name: Smoke selected UI public deployment
+        if: contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'ui')
+        env:
+          LOGICAL_TARGET: ui
+          PUBLIC_URL: https://ui.mento.org/
+        run: node trusted-coordinator/scripts/vercel-main-runtime.mjs
+
+      - name: Record selected UI public smoke
+        if: contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'ui')
+        run: >-
+          node trusted-coordinator/scripts/vercel-main-deployment.mjs active-public-smoke-target
+          --target ui --status passed --served-sha "$DEPLOY_SHA"
+          --output "$RUNNER_TEMP/active-smoke-ui.json"
+
+      - name: Record unselected UI public smoke
+        if: "!contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'ui')"
+        run: >-
+          node trusted-coordinator/scripts/vercel-main-deployment.mjs active-public-smoke-target
+          --target ui --status not-required --served-sha none
+          --output "$RUNNER_TEMP/active-smoke-ui.json"
+
+      - name: Finalize active state, public smokes, and duplicate census
+        if: >-
+          steps.active-initial-upload.outcome == 'success' &&
+          (contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'app') ||
+          contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'governance') ||
+          contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'reserve') ||
+          contains(fromJSON(needs.plan-main-deployments.outputs.plan).activeTargets, 'ui'))
+        id: active-finalize
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: |
+          set -euo pipefail
+          node trusted-coordinator/scripts/vercel-main-deployment.mjs active-public-smokes --app "$RUNNER_TEMP/active-smoke-app.json" --governance "$RUNNER_TEMP/active-smoke-governance.json" --reserve "$RUNNER_TEMP/active-smoke-reserve.json" --ui "$RUNNER_TEMP/active-smoke-ui.json" --output "$RUNNER_TEMP/active-public-smokes.json"
+          node trusted-coordinator/scripts/vercel-main-deployment.mjs active-state-spec --journal-history "$RUNNER_TEMP/vercel-main-active-journals/current-history.json" --output "$RUNNER_TEMP/active-state-spec.json"
+          node trusted-coordinator/scripts/vercel-deployment-state.mjs active-proof --spec "$RUNNER_TEMP/active-state-spec.json" --output "$RUNNER_TEMP/active-state-proof.json"
+          node trusted-coordinator/scripts/vercel-main-deployment.mjs active-mapping-spec --journal-history "$RUNNER_TEMP/vercel-main-active-journals/current-history.json" --output "$RUNNER_TEMP/active-final-mapping-spec.json"
+          node trusted-coordinator/scripts/vercel-deployment-state.mjs alias-mappings --spec "$RUNNER_TEMP/active-final-mapping-spec.json" --output "$RUNNER_TEMP/active-final-mappings.json"
+          node trusted-coordinator/scripts/vercel-main-deployment.mjs active-freshness --output "$RUNNER_TEMP/active-final-freshness.json"
+          node trusted-coordinator/scripts/vercel-main-deployment.mjs active-event-finalize --receipt "$RUNNER_TEMP/vercel-main-active-journals/current-receipt.json" --freshness "$RUNNER_TEMP/active-final-freshness.json" --current-mappings "$RUNNER_TEMP/active-final-mappings.json" --public-smokes "$RUNNER_TEMP/active-public-smokes.json" --state-proof "$RUNNER_TEMP/active-state-proof.json" --output "$RUNNER_TEMP/active-finalize-event.json"
+          node trusted-coordinator/scripts/vercel-main-deployment.mjs run-active --event "$RUNNER_TEMP/active-finalize-event.json" --journal-history "$RUNNER_TEMP/vercel-main-active-journals/current-history.json" --journal-output "$RUNNER_TEMP/active-final-journal.json" --output "$RUNNER_TEMP/active-final-transition.json"
+
+      - name: Upload the committed active journal
+        if: steps.active-finalize.outcome == 'success'
+        id: active-final-upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.active-finalize.outputs.journal_artifact_name }}
+          path: ${{ runner.temp }}/active-final-journal.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Checkpoint the committed active journal
+        if: steps.active-final-upload.outcome == 'success'
+        env:
+          ARTIFACT_ID: ${{ steps.active-final-upload.outputs.artifact-id }}
+          ARTIFACT_NAME: ${{ steps.active-finalize.outputs.journal_artifact_name }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 "$RUNNER_TEMP/vercel-main-active-journals/$ARTIFACT_NAME"
+          install -m 0600 "$RUNNER_TEMP/active-final-journal.json" "$RUNNER_TEMP/vercel-main-active-journals/$ARTIFACT_NAME/main-journal.json"
+          node trusted-coordinator/scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/vercel-main-active-journals" --output "$RUNNER_TEMP/active-final-history.json"
+          node trusted-coordinator/scripts/vercel-main-deployment.mjs active-journal-receipt --journal "$RUNNER_TEMP/active-final-journal.json" --artifact-name "$ARTIFACT_NAME" --artifact-id "$ARTIFACT_ID" --output "$RUNNER_TEMP/active-final-receipt.json"
+          install -m 0600 "$RUNNER_TEMP/active-final-history.json" "$RUNNER_TEMP/vercel-main-active-journals/current-history.json"
+          install -m 0600 "$RUNNER_TEMP/active-final-journal.json" "$RUNNER_TEMP/vercel-main-active-journals/current-journal.json"
+          install -m 0600 "$RUNNER_TEMP/active-final-receipt.json" "$RUNNER_TEMP/vercel-main-active-journals/current-receipt.json"
+
+      - name: Write canonical redacted active deployment evidence
+        if: steps.active-final-upload.outcome == 'success'
+        env:
+          ACTIVE_FRESHNESS_JSON: '[{"phase":"transaction-start","status":"fresh"},{"phase":"transaction-commit","status":"fresh"}]'
+          ACTIVE_PUBLIC_SMOKES_FILE: ${{ runner.temp }}/active-public-smokes.json
+          PUBLIC_SERVING_MUTATION_COMMANDS: ${{ steps.active-finalize.outputs.confirmed_mutation_commands }}
+          RECOVERY_OUTCOME: not-required
+          ROLLBACK_STATE_TARGETS_JSON: "[]"
+        run: |
+          set -euo pipefail
+          ACTIVE_PUBLIC_SMOKES_JSON="$(<"$ACTIVE_PUBLIC_SMOKES_FILE")"
+          export ACTIVE_PUBLIC_SMOKES_JSON
+          node trusted-coordinator/scripts/vercel-main-deployment.mjs active-evidence --final-mappings "$RUNNER_TEMP/active-final-mappings.json" --journal-history "$RUNNER_TEMP/vercel-main-active-journals/current-history.json" --state-proof "$RUNNER_TEMP/active-state-proof.json" --output "$RUNNER_TEMP/vercel-main-evidence.json"
+
+      - name: Upload active evidence for final result publication
+        if: steps.active-final-upload.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vercel-main-active-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/vercel-main-evidence.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Measure coordinator runner duration
         if: ${{ always() }}
@@ -1208,17 +1485,16 @@ jobs:
         env:
           PLANNING_OUTCOME: ${{ steps.stages.outputs.outcome }}
           FRESHNESS_STATUS: ${{ steps.freshness.outputs.status }}
-          SHADOW_OUTCOME: ${{ steps.shadow.outputs.outcome }}
+          ACTIVE_FINAL_OUTCOME: ${{ steps.active-final-upload.outcome }}
         run: |
           if [ "$PLANNING_OUTCOME" = "no-target" ]; then
             echo "outcome=no-target" >> "$GITHUB_OUTPUT"
           elif [ "$FRESHNESS_STATUS" = "superseded" ]; then
             echo "outcome=superseded-before-journal" >> "$GITHUB_OUTPUT"
-          elif [ -n "$SHADOW_OUTCOME" ]; then
-            echo "outcome=$SHADOW_OUTCOME" >> "$GITHUB_OUTPUT"
+          elif [ "$ACTIVE_FINAL_OUTCOME" = success ]; then
+            echo "outcome=active-committed" >> "$GITHUB_OUTPUT"
           else
-            echo "Coordinator did not produce a safe shadow outcome" >&2
-            exit 1
+            echo "outcome=active-failed" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Remove authenticated App runtime
@@ -1229,7 +1505,7 @@ jobs:
           logical-target: app
 
   recover-main-deployment:
-    name: Verify durable shadow recovery
+    name: Recover durable active deployment journal
     if: ${{ always() }}
     needs:
       - wait-for-ci
@@ -1239,7 +1515,7 @@ jobs:
       - stage-ui
       - activate-and-verify
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 24
     environment:
       name: vercel-cli-production
       deployment: false # trunk-ignore(actionlint/syntax-check): Pinned actionlint has not learned GitHub's deployment key.
@@ -1248,6 +1524,7 @@ jobs:
     env:
       DEPLOY_SHA: ${{ needs.wait-for-ci.outputs.deploy_sha }}
       PLAN_JSON: ${{ needs.plan-main-deployments.outputs.plan }}
+      VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
     steps:
       - name: Check out trusted recovery controller
         if: >-
@@ -1259,30 +1536,325 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.wait-for-ci.outputs.deploy_sha }}
 
-      - name: Derive exact journal name without coordinator outputs
+      - name: Derive exact active journal identity without coordinator outputs
         if: >-
           needs.wait-for-ci.result == 'success' &&
           needs.plan-main-deployments.result == 'success' &&
           needs.activate-and-verify.outputs.outcome != 'no-target' &&
           needs.activate-and-verify.outputs.outcome != 'superseded-before-journal'
-        id: journal-name
-        run: node scripts/vercel-main-deployment.mjs journal-name
+        id: journal-identity
+        run: node scripts/vercel-main-deployment.mjs active-journal-identity
 
-      - name: Download this attempt's exact prepared journal
-        if: steps.journal-name.outcome == 'success'
+      - name: Download every exact active journal snapshot without merging
+        if: steps.journal-identity.outcome == 'success'
         id: journal-download
         continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: ${{ steps.journal-name.outputs.artifact_name }}
+          pattern: ${{ steps.journal-identity.outputs.artifact_prefix }}*
           path: ${{ runner.temp }}/main-recovery
+          merge-multiple: false
 
-      - name: Verify shadow recovery from durable journal
+      - name: Validate the highest exact active journal history
         if: steps.journal-download.outcome == 'success'
-        id: recover
+        id: journal-history
         run: >-
-          node scripts/vercel-main-deployment.mjs recover-shadow
-          --journal "$RUNNER_TEMP/main-recovery/main-journal.json"
+          node scripts/vercel-main-deployment.mjs active-journal-history
+          --artifacts "$RUNNER_TEMP/main-recovery"
+          --output "$RUNNER_TEMP/main-recovery-history.json"
+
+      - name: Check out exact recovery source
+        if: >-
+          steps.journal-history.outcome == 'success' &&
+          needs.activate-and-verify.outputs.outcome != 'active-committed'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          path: source
+          persist-credentials: false
+          ref: ${{ needs.wait-for-ci.outputs.deploy_sha }}
+
+      - name: Prove exact recovery source
+        if: >-
+          steps.journal-history.outcome == 'success' &&
+          needs.activate-and-verify.outputs.outcome != 'active-committed'
+        env:
+          GITHUB_WORKFLOW_SHA: ${{ needs.wait-for-ci.outputs.deploy_sha }}
+        run: |
+          git -C "$SOURCE_PATH" fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          node scripts/vercel-main-deployment.mjs validate-source
+
+      - name: Prepare protected recovery runtime
+        if: >-
+          steps.journal-history.outcome == 'success' &&
+          needs.activate-and-verify.outputs.outcome != 'active-committed'
+        id: recovery-runtime
+        uses: ./.github/actions/vercel-protected-runtime
+        with:
+          operation: prepare
+          logical-target: app
+          controller-path: ${{ github.workspace }}
+          source-path: ${{ github.workspace }}/source
+
+      - name: Materialize active recovery history and assess App candidate discovery
+        if: >-
+          steps.journal-history.outcome == 'success' &&
+          needs.activate-and-verify.outputs.outcome != 'active-committed'
+        id: recovery-preflight
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 "$RUNNER_TEMP/main-recovery-current"
+          install -m 0600 "$RUNNER_TEMP/main-recovery-history.json" "$RUNNER_TEMP/main-recovery-current/current-history.json"
+          install -m 0600 "$RUNNER_TEMP/main-recovery/${{ steps.journal-history.outputs.highest_artifact_name }}/main-journal.json" "$RUNNER_TEMP/main-recovery-current/current-journal.json"
+          node scripts/vercel-main-deployment.mjs active-journal-receipt --journal "$RUNNER_TEMP/main-recovery-current/current-journal.json" --artifact-name "${{ steps.journal-history.outputs.highest_artifact_name }}" --artifact-id 1 --output "$RUNNER_TEMP/main-recovery-current/current-receipt.json"
+          node scripts/vercel-main-deployment.mjs active-mapping-spec --journal-history "$RUNNER_TEMP/main-recovery-current/current-history.json" --output "$RUNNER_TEMP/main-recovery-mapping-spec.json"
+          node scripts/vercel-deployment-state.mjs alias-mappings --spec "$RUNNER_TEMP/main-recovery-mapping-spec.json" --output "$RUNNER_TEMP/main-recovery-mappings.json"
+          node scripts/vercel-main-deployment.mjs active-app-candidate-matches-none --output "$RUNNER_TEMP/main-recovery-app-matches.json"
+          node scripts/vercel-main-deployment.mjs plan-active-recovery --journal-history "$RUNNER_TEMP/main-recovery-current/current-history.json" --current-mappings "$RUNNER_TEMP/main-recovery-mappings.json" --app-candidate-matches "$RUNNER_TEMP/main-recovery-app-matches.json" --output "$RUNNER_TEMP/main-recovery-preflight.json"
+
+      - name: Materialize exact App recovery candidate expectation
+        if: >-
+          steps.recovery-preflight.outputs.reason ==
+          'app-candidate-ambiguous-after-mapping-moved'
+        id: recovery-app-expectation
+        run: >-
+          node scripts/vercel-main-deployment.mjs app-candidate-expectation
+          --journal "$RUNNER_TEMP/main-recovery-current/current-journal.json"
+          --output "$RUNNER_TEMP/main-recovery-app-expectation.json"
+
+      - name: Discover one exact moved App recovery candidate
+        if: steps.recovery-app-expectation.outcome == 'success'
+        id: recovery-app-candidate
+        continue-on-error: true
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: >-
+          node scripts/vercel-deployment-state.mjs app-candidate
+          --expected "$RUNNER_TEMP/main-recovery-app-expectation.json"
+          --output "$RUNNER_TEMP/main-recovery-app-candidate.json"
+
+      - name: Materialize exact App recovery candidate matches
+        if: steps.recovery-preflight.outcome == 'success'
+        id: recovery-app-matches
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.recovery-app-candidate.outcome }}" = success ]; then
+            node scripts/vercel-main-deployment.mjs active-app-candidate-matches-one --candidate "$RUNNER_TEMP/main-recovery-app-candidate.json" --output "$RUNNER_TEMP/main-recovery-app-matches.json"
+          else
+            node scripts/vercel-main-deployment.mjs active-app-candidate-matches-none --output "$RUNNER_TEMP/main-recovery-app-matches.json"
+          fi
+
+      - name: Materialize exact active recovery plan
+        if: steps.recovery-app-matches.outcome == 'success'
+        id: recovery-plan
+        run: >-
+          node scripts/vercel-main-deployment.mjs plan-active-recovery
+          --journal-history "$RUNNER_TEMP/main-recovery-current/current-history.json"
+          --current-mappings "$RUNNER_TEMP/main-recovery-mappings.json"
+          --app-candidate-matches "$RUNNER_TEMP/main-recovery-app-matches.json"
+          --output "$RUNNER_TEMP/main-recovery-plan.json"
+
+      - name: Initialize the durable active recovery journal
+        if: steps.recovery-plan.outcome == 'success'
+        id: recovery-initialize
+        run: |
+          node scripts/vercel-main-deployment.mjs active-recovery-event-initialize --receipt "$RUNNER_TEMP/main-recovery-current/current-receipt.json" --output "$RUNNER_TEMP/main-recovery-initialize-event.json"
+          node scripts/vercel-main-deployment.mjs run-active-recovery --plan "$RUNNER_TEMP/main-recovery-plan.json" --event "$RUNNER_TEMP/main-recovery-initialize-event.json" --journal-history "$RUNNER_TEMP/main-recovery-current/current-history.json" --journal-output "$RUNNER_TEMP/main-recovery-initialize-journal.json" --output "$RUNNER_TEMP/main-recovery-initialize-transition.json"
+
+      - name: Upload initialized active recovery journal
+        if: steps.recovery-initialize.outputs.journal_artifact_name != 'none'
+        id: recovery-initialize-upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.recovery-initialize.outputs.journal_artifact_name }}
+          path: ${{ runner.temp }}/main-recovery-initialize-journal.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Checkpoint initialized active recovery journal
+        if: steps.recovery-initialize-upload.outcome == 'success'
+        id: recovery-initialize-checkpoint
+        env:
+          ARTIFACT_ID: ${{ steps.recovery-initialize-upload.outputs.artifact-id }}
+          ARTIFACT_NAME: ${{ steps.recovery-initialize.outputs.journal_artifact_name }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 "$RUNNER_TEMP/main-recovery-current/$ARTIFACT_NAME"
+          install -m 0600 "$RUNNER_TEMP/main-recovery-initialize-journal.json" "$RUNNER_TEMP/main-recovery-current/$ARTIFACT_NAME/main-journal.json"
+          node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/main-recovery-current" --output "$RUNNER_TEMP/main-recovery-initialize-history.json"
+          node scripts/vercel-main-deployment.mjs active-journal-receipt --journal "$RUNNER_TEMP/main-recovery-initialize-journal.json" --artifact-name "$ARTIFACT_NAME" --artifact-id "$ARTIFACT_ID" --output "$RUNNER_TEMP/main-recovery-initialize-receipt.json"
+          install -m 0600 "$RUNNER_TEMP/main-recovery-initialize-history.json" "$RUNNER_TEMP/main-recovery-current/current-history.json"
+          install -m 0600 "$RUNNER_TEMP/main-recovery-initialize-journal.json" "$RUNNER_TEMP/main-recovery-current/current-journal.json"
+          install -m 0600 "$RUNNER_TEMP/main-recovery-initialize-receipt.json" "$RUNNER_TEMP/main-recovery-current/current-receipt.json"
+
+      - name: Initialize recovery after checkpointing discovered App candidate
+        if: >-
+          steps.recovery-initialize-checkpoint.outcome == 'success' &&
+          steps.recovery-initialize.outputs.after_upload_action == 'initialize'
+        id: recovery-reinitialize
+        run: |
+          node scripts/vercel-main-deployment.mjs active-recovery-event-initialize --receipt "$RUNNER_TEMP/main-recovery-current/current-receipt.json" --output "$RUNNER_TEMP/main-recovery-reinitialize-event.json"
+          node scripts/vercel-main-deployment.mjs run-active-recovery --plan "$RUNNER_TEMP/main-recovery-plan.json" --event "$RUNNER_TEMP/main-recovery-reinitialize-event.json" --journal-history "$RUNNER_TEMP/main-recovery-current/current-history.json" --journal-output "$RUNNER_TEMP/main-recovery-reinitialize-journal.json" --output "$RUNNER_TEMP/main-recovery-reinitialize-transition.json"
+
+      - name: Upload reinitialized active recovery journal
+        if: steps.recovery-reinitialize.outputs.journal_artifact_name != 'none'
+        id: recovery-reinitialize-upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.recovery-reinitialize.outputs.journal_artifact_name }}
+          path: ${{ runner.temp }}/main-recovery-reinitialize-journal.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Checkpoint reinitialized active recovery journal
+        if: steps.recovery-reinitialize-upload.outcome == 'success'
+        id: recovery-reinitialize-checkpoint
+        env:
+          ARTIFACT_ID: ${{ steps.recovery-reinitialize-upload.outputs.artifact-id }}
+          ARTIFACT_NAME: ${{ steps.recovery-reinitialize.outputs.journal_artifact_name }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 "$RUNNER_TEMP/main-recovery-current/$ARTIFACT_NAME"
+          install -m 0600 "$RUNNER_TEMP/main-recovery-reinitialize-journal.json" "$RUNNER_TEMP/main-recovery-current/$ARTIFACT_NAME/main-journal.json"
+          node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/main-recovery-current" --output "$RUNNER_TEMP/main-recovery-reinitialize-history.json"
+          node scripts/vercel-main-deployment.mjs active-journal-receipt --journal "$RUNNER_TEMP/main-recovery-reinitialize-journal.json" --artifact-name "$ARTIFACT_NAME" --artifact-id "$ARTIFACT_ID" --output "$RUNNER_TEMP/main-recovery-reinitialize-receipt.json"
+          install -m 0600 "$RUNNER_TEMP/main-recovery-reinitialize-history.json" "$RUNNER_TEMP/main-recovery-current/current-history.json"
+          install -m 0600 "$RUNNER_TEMP/main-recovery-reinitialize-journal.json" "$RUNNER_TEMP/main-recovery-current/current-journal.json"
+          install -m 0600 "$RUNNER_TEMP/main-recovery-reinitialize-receipt.json" "$RUNNER_TEMP/main-recovery-current/current-receipt.json"
+
+      - name: Reverse recovery turn 1
+        if: >-
+          steps.recovery-initialize-checkpoint.outcome == 'success' &&
+          (steps.recovery-initialize.outputs.after_upload_action == 'dispatch' ||
+          steps.recovery-reinitialize-checkpoint.outcome == 'success')
+        uses: ./.github/actions/vercel-main-active-recovery-transition
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        with:
+          controller-path: ${{ github.workspace }}
+          journal-directory: ${{ runner.temp }}/main-recovery-current
+          operation-cwd: ${{ github.workspace }}/source
+          recovery-plan: ${{ runner.temp }}/main-recovery-plan.json
+          slot: "1"
+          vercel-cli: ${{ steps.recovery-runtime.outputs.vercel-cli }}
+
+      - name: Reverse recovery turn 2
+        if: >-
+          steps.recovery-initialize-checkpoint.outcome == 'success' &&
+          (steps.recovery-initialize.outputs.after_upload_action == 'dispatch' ||
+          steps.recovery-reinitialize-checkpoint.outcome == 'success')
+        uses: ./.github/actions/vercel-main-active-recovery-transition
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        with:
+          controller-path: ${{ github.workspace }}
+          journal-directory: ${{ runner.temp }}/main-recovery-current
+          operation-cwd: ${{ github.workspace }}/source
+          recovery-plan: ${{ runner.temp }}/main-recovery-plan.json
+          slot: "2"
+          vercel-cli: ${{ steps.recovery-runtime.outputs.vercel-cli }}
+
+      - name: Reverse recovery turn 3
+        if: >-
+          steps.recovery-initialize-checkpoint.outcome == 'success' &&
+          (steps.recovery-initialize.outputs.after_upload_action == 'dispatch' ||
+          steps.recovery-reinitialize-checkpoint.outcome == 'success')
+        uses: ./.github/actions/vercel-main-active-recovery-transition
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        with:
+          controller-path: ${{ github.workspace }}
+          journal-directory: ${{ runner.temp }}/main-recovery-current
+          operation-cwd: ${{ github.workspace }}/source
+          recovery-plan: ${{ runner.temp }}/main-recovery-plan.json
+          slot: "3"
+          vercel-cli: ${{ steps.recovery-runtime.outputs.vercel-cli }}
+
+      - name: Reverse recovery turn 4
+        if: >-
+          steps.recovery-initialize-checkpoint.outcome == 'success' &&
+          (steps.recovery-initialize.outputs.after_upload_action == 'dispatch' ||
+          steps.recovery-reinitialize-checkpoint.outcome == 'success')
+        uses: ./.github/actions/vercel-main-active-recovery-transition
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        with:
+          controller-path: ${{ github.workspace }}
+          journal-directory: ${{ runner.temp }}/main-recovery-current
+          operation-cwd: ${{ github.workspace }}/source
+          recovery-plan: ${{ runner.temp }}/main-recovery-plan.json
+          slot: "4"
+          vercel-cli: ${{ steps.recovery-runtime.outputs.vercel-cli }}
+
+      - name: Reverse recovery turn 5
+        if: >-
+          steps.recovery-initialize-checkpoint.outcome == 'success' &&
+          (steps.recovery-initialize.outputs.after_upload_action == 'dispatch' ||
+          steps.recovery-reinitialize-checkpoint.outcome == 'success')
+        uses: ./.github/actions/vercel-main-active-recovery-transition
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        with:
+          controller-path: ${{ github.workspace }}
+          journal-directory: ${{ runner.temp }}/main-recovery-current
+          operation-cwd: ${{ github.workspace }}/source
+          recovery-plan: ${{ runner.temp }}/main-recovery-plan.json
+          slot: "5"
+          vercel-cli: ${{ steps.recovery-runtime.outputs.vercel-cli }}
+
+      - name: Reverse recovery turn 6
+        if: >-
+          steps.recovery-initialize-checkpoint.outcome == 'success' &&
+          (steps.recovery-initialize.outputs.after_upload_action == 'dispatch' ||
+          steps.recovery-reinitialize-checkpoint.outcome == 'success')
+        uses: ./.github/actions/vercel-main-active-recovery-transition
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        with:
+          controller-path: ${{ github.workspace }}
+          journal-directory: ${{ runner.temp }}/main-recovery-current
+          operation-cwd: ${{ github.workspace }}/source
+          recovery-plan: ${{ runner.temp }}/main-recovery-plan.json
+          slot: "6"
+          vercel-cli: ${{ steps.recovery-runtime.outputs.vercel-cli }}
+
+      - name: Finalize reverse recovery after all bounded turns
+        if: >-
+          steps.recovery-initialize-checkpoint.outcome == 'success' &&
+          (steps.recovery-initialize.outputs.after_upload_action == 'dispatch' ||
+          steps.recovery-reinitialize-checkpoint.outcome == 'success')
+        uses: ./.github/actions/vercel-main-active-recovery-transition
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        with:
+          controller-path: ${{ github.workspace }}
+          journal-directory: ${{ runner.temp }}/main-recovery-current
+          operation-cwd: ${{ github.workspace }}/source
+          recovery-plan: ${{ runner.temp }}/main-recovery-plan.json
+          slot: final
+          vercel-cli: ${{ steps.recovery-runtime.outputs.vercel-cli }}
+
+      - name: Read the terminal durable recovery status
+        if: >-
+          steps.recovery-initialize-checkpoint.outcome == 'success' &&
+          (steps.recovery-initialize.outputs.after_upload_action == 'dispatch' ||
+          steps.recovery-reinitialize-checkpoint.outcome == 'success')
+        id: recovery-terminal
+        run: >-
+          node scripts/vercel-main-deployment.mjs active-journal-history
+          --artifacts "$RUNNER_TEMP/main-recovery-current"
+          --output "$RUNNER_TEMP/main-recovery-terminal-history.json"
 
       - name: Publish one canonical recovery outcome
         if: ${{ always() }}
@@ -1291,21 +1863,34 @@ jobs:
           COORDINATOR_OUTCOME: ${{ needs.activate-and-verify.outputs.outcome }}
           COORDINATOR_RESULT: ${{ needs.activate-and-verify.result }}
           DOWNLOAD_OUTCOME: ${{ steps.journal-download.outcome }}
-          RECOVERY_OUTCOME: ${{ steps.recover.outputs.outcome }}
+          HISTORY_OUTCOME: ${{ steps.journal-history.outcome }}
+          RECOVERY_STATUS: ${{ steps.recovery-terminal.outputs.highest_status }}
         run: |
           if [ "$COORDINATOR_OUTCOME" = "no-target" ] ||
             [ "$COORDINATOR_OUTCOME" = "superseded-before-journal" ]; then
             echo "outcome=not-required" >> "$GITHUB_OUTPUT"
-          elif [ "$DOWNLOAD_OUTCOME" = "success" ] &&
-            [ "$RECOVERY_OUTCOME" = "verified-no-mutation" ]; then
-            echo "outcome=verified-no-mutation" >> "$GITHUB_OUTPUT"
+          elif [ "$COORDINATOR_OUTCOME" = "active-committed" ] &&
+            [ "$HISTORY_OUTCOME" = "success" ]; then
+            echo "outcome=not-required" >> "$GITHUB_OUTPUT"
+          elif [ "$RECOVERY_STATUS" = "recovered" ]; then
+            echo "outcome=recovered" >> "$GITHUB_OUTPUT"
+          elif [ "$RECOVERY_STATUS" = "manual_intervention" ]; then
+            echo "outcome=manual-intervention" >> "$GITHUB_OUTPUT"
+          elif [ "$HISTORY_OUTCOME" = "success" ]; then
+            echo "outcome=recovery-failed" >> "$GITHUB_OUTPUT"
           elif [ "$COORDINATOR_RESULT" != "success" ] &&
             [ "$DOWNLOAD_OUTCOME" != "success" ]; then
             echo "outcome=not-found-after-runner-failure" >> "$GITHUB_OUTPUT"
           else
-            echo "Durable shadow journal was not recovery-verified" >&2
-            exit 1
+            echo "outcome=not-found-after-runner-failure" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Remove authenticated recovery runtime
+        if: ${{ always() }}
+        uses: ./.github/actions/vercel-protected-runtime
+        with:
+          operation: cleanup
+          logical-target: app
 
   result:
     name: Vercel Main Deployment
@@ -1329,7 +1914,7 @@ jobs:
           persist-credentials: false
           ref: ${{ github.workflow_sha }}
 
-      - name: Enforce one safe final result
+      - name: Enforce one active final result
         id: final-verdict
         if: ${{ always() }}
         continue-on-error: true
@@ -1344,53 +1929,64 @@ jobs:
           COORDINATOR_OUTCOME: ${{ needs.activate-and-verify.outputs.outcome }}
           RECOVERY_RESULT: ${{ needs.recover-main-deployment.result }}
           RECOVERY_OUTCOME: ${{ needs.recover-main-deployment.outputs.outcome }}
-        run: node scripts/vercel-main-deployment.mjs final
+        run: node scripts/vercel-main-deployment.mjs final-active
 
-      - name: Write canonical redacted PR-A evidence
-        id: success-evidence
-        if: ${{ always() && steps.final-verdict.outcome == 'success' }}
+      - name: Download canonical active success evidence
+        if: ${{ always() && steps.final-verdict.outcome == 'success' && needs.activate-and-verify.outputs.outcome == 'active-committed' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: vercel-main-active-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}
+
+      - name: Download every active journal snapshot for failure evidence
+        if: ${{ always() && steps.final-verdict.outcome != 'success' }}
+        id: final-journal-download
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: vercel-main-journal-*
+          path: ${{ runner.temp }}/main-final-journals
+          merge-multiple: false
+
+      - name: Validate active journal history for failure evidence
+        if: ${{ steps.final-journal-download.outcome == 'success' }}
+        id: final-journal-history
+        continue-on-error: true
         env:
-          PLAN_JSON: ${{ needs.plan-main-deployments.outputs.plan }}
-          EVIDENCE_GOVERNANCE_RESULT: ${{ needs.stage-governance.result }}
-          EVIDENCE_GOVERNANCE_HANDOFF: ${{ needs.stage-governance.outputs.handoff }}
-          EVIDENCE_GOVERNANCE_NEXT_DEPLOYMENT_ID: ${{ needs.stage-governance.outputs.next_deployment_id }}
-          EVIDENCE_GOVERNANCE_BUILD_DURATION_MS: ${{ needs.stage-governance.outputs.build_duration_ms }}
-          EVIDENCE_GOVERNANCE_DEPLOY_DURATION_MS: ${{ needs.stage-governance.outputs.deploy_duration_ms }}
-          EVIDENCE_GOVERNANCE_TOTAL_DURATION_MS: ${{ needs.stage-governance.outputs.total_duration_ms }}
-          EVIDENCE_GOVERNANCE_TURBO_CACHE_HITS: ${{ needs.stage-governance.outputs.turbo_cache_hits }}
-          EVIDENCE_GOVERNANCE_TURBO_CACHE_MISSES: ${{ needs.stage-governance.outputs.turbo_cache_misses }}
-          EVIDENCE_RESERVE_RESULT: ${{ needs.stage-reserve.result }}
-          EVIDENCE_RESERVE_HANDOFF: ${{ needs.stage-reserve.outputs.handoff }}
-          EVIDENCE_RESERVE_NEXT_DEPLOYMENT_ID: ${{ needs.stage-reserve.outputs.next_deployment_id }}
-          EVIDENCE_RESERVE_BUILD_DURATION_MS: ${{ needs.stage-reserve.outputs.build_duration_ms }}
-          EVIDENCE_RESERVE_DEPLOY_DURATION_MS: ${{ needs.stage-reserve.outputs.deploy_duration_ms }}
-          EVIDENCE_RESERVE_TOTAL_DURATION_MS: ${{ needs.stage-reserve.outputs.total_duration_ms }}
-          EVIDENCE_RESERVE_TURBO_CACHE_HITS: ${{ needs.stage-reserve.outputs.turbo_cache_hits }}
-          EVIDENCE_RESERVE_TURBO_CACHE_MISSES: ${{ needs.stage-reserve.outputs.turbo_cache_misses }}
-          EVIDENCE_UI_RESULT: ${{ needs.stage-ui.result }}
-          EVIDENCE_UI_HANDOFF: ${{ needs.stage-ui.outputs.handoff }}
-          EVIDENCE_UI_NEXT_DEPLOYMENT_ID: ${{ needs.stage-ui.outputs.next_deployment_id }}
-          EVIDENCE_UI_BUILD_DURATION_MS: ${{ needs.stage-ui.outputs.build_duration_ms }}
-          EVIDENCE_UI_DEPLOY_DURATION_MS: ${{ needs.stage-ui.outputs.deploy_duration_ms }}
-          EVIDENCE_UI_TOTAL_DURATION_MS: ${{ needs.stage-ui.outputs.total_duration_ms }}
-          EVIDENCE_UI_TURBO_CACHE_HITS: ${{ needs.stage-ui.outputs.turbo_cache_hits }}
-          EVIDENCE_UI_TURBO_CACHE_MISSES: ${{ needs.stage-ui.outputs.turbo_cache_misses }}
-          EVIDENCE_APP_NEXT_DEPLOYMENT_ID: ${{ needs.activate-and-verify.outputs.app_next_deployment_id }}
-          EVIDENCE_APP_BUILD_DURATION_MS: ${{ needs.activate-and-verify.outputs.app_build_duration_ms }}
-          EVIDENCE_APP_TOTAL_DURATION_MS: ${{ needs.activate-and-verify.outputs.app_total_duration_ms }}
-          EVIDENCE_APP_TURBO_CACHE_HITS: ${{ needs.activate-and-verify.outputs.app_turbo_cache_hits }}
-          EVIDENCE_APP_TURBO_CACHE_MISSES: ${{ needs.activate-and-verify.outputs.app_turbo_cache_misses }}
-          COORDINATOR_OUTCOME: ${{ needs.activate-and-verify.outputs.outcome }}
-          COORDINATOR_TOTAL_DURATION_MS: ${{ needs.activate-and-verify.outputs.total_duration_ms }}
-          TRANSACTION_ID: ${{ needs.activate-and-verify.outputs.transaction_id }}
-          JOURNAL_ARTIFACT_NAME: ${{ needs.activate-and-verify.outputs.artifact_name }}
-          JOURNAL_ARTIFACT_ID: ${{ needs.activate-and-verify.outputs.artifact_id }}
-          RECOVERY_OUTCOME: ${{ needs.recover-main-deployment.outputs.outcome }}
+          DEPLOY_SHA: ${{ needs.wait-for-ci.outputs.deploy_sha }}
         run: >-
-          node scripts/vercel-main-deployment.mjs evidence
-          --output "$RUNNER_TEMP/vercel-main-evidence.json"
+          node scripts/vercel-main-deployment.mjs active-journal-history
+          --artifacts "$RUNNER_TEMP/main-final-journals"
+          --output "$RUNNER_TEMP/main-final-journal-history.json"
 
-      - name: Write canonical redacted PR-A failure evidence
+      - name: Write active safe-noop audit evidence
+        id: success-evidence
+        if: ${{ always() && steps.final-verdict.outcome == 'success' && needs.activate-and-verify.outputs.outcome != 'active-committed' }}
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          DEPLOY_SHA: ${{ needs.wait-for-ci.outputs.deploy_sha }}
+          PLAN_JSON: ${{ needs.plan-main-deployments.outputs.plan }}
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          WAIT_FOR_CI_RESULT: ${{ needs.wait-for-ci.result }}
+          PLAN_RESULT: ${{ needs.plan-main-deployments.result }}
+          STAGE_GOVERNANCE_RESULT: ${{ needs.stage-governance.result }}
+          STAGE_RESERVE_RESULT: ${{ needs.stage-reserve.result }}
+          STAGE_UI_RESULT: ${{ needs.stage-ui.result }}
+          COORDINATOR_RESULT: ${{ needs.activate-and-verify.result }}
+          RECOVERY_RESULT: ${{ needs.recover-main-deployment.result }}
+          COORDINATOR_OUTCOME: ${{ needs.activate-and-verify.outputs.outcome }}
+          RECOVERY_OUTCOME: ${{ needs.recover-main-deployment.outputs.outcome }}
+          ACTIVE_FRESHNESS_JSON: "[]"
+          ROLLBACK_STATE_TARGETS_JSON: "[]"
+          PUBLIC_SERVING_MUTATION_COMMANDS: "0"
+          ACTIVE_ERROR_CODE: SAFE_NOOP
+        run: |
+          set -euo pipefail
+          printf '[]\n' > "$RUNNER_TEMP/active-noop-journal-history.json"
+          printf 'null\n' > "$RUNNER_TEMP/active-noop-state-proof.json"
+          node scripts/vercel-main-deployment.mjs active-failure-evidence --journal-history "$RUNNER_TEMP/active-noop-journal-history.json" --state-proof "$RUNNER_TEMP/active-noop-state-proof.json" --output "$RUNNER_TEMP/vercel-main-evidence.json"
+
+      - name: Write canonical active failure evidence
         id: failure-evidence
         if: ${{ always() && steps.final-verdict.outcome != 'success' }}
         env:
@@ -1405,9 +2001,26 @@ jobs:
           STAGE_UI_RESULT: ${{ needs.stage-ui.result }}
           COORDINATOR_RESULT: ${{ needs.activate-and-verify.result }}
           RECOVERY_RESULT: ${{ needs.recover-main-deployment.result }}
-        run: >-
-          node scripts/vercel-main-deployment.mjs failure-evidence
-          --output "$RUNNER_TEMP/vercel-main-evidence.json"
+          COORDINATOR_OUTCOME: ${{ needs.activate-and-verify.outputs.outcome }}
+          RECOVERY_OUTCOME: ${{ needs.recover-main-deployment.outputs.outcome }}
+          ACTIVE_FRESHNESS_JSON: "[]"
+          ROLLBACK_STATE_TARGETS_JSON: "[]"
+          HISTORY_OUTCOME: ${{ steps.final-journal-history.outcome }}
+          POSSIBLE_MUTATION_COMMANDS: ${{ steps.final-journal-history.outputs.possible_mutation_commands }}
+          ACTIVE_ERROR_CODE: ACTIVE_FINAL_FAILURE
+        run: |
+          set -euo pipefail
+          if [ "$HISTORY_OUTCOME" = success ]; then
+            install -m 0600 "$RUNNER_TEMP/main-final-journal-history.json" "$RUNNER_TEMP/active-failure-journal-history.json"
+            printf 'PUBLIC_SERVING_MUTATION_COMMANDS=%s\n' "$POSSIBLE_MUTATION_COMMANDS" >> "$GITHUB_ENV"
+            export PUBLIC_SERVING_MUTATION_COMMANDS="$POSSIBLE_MUTATION_COMMANDS"
+          else
+            printf '[]\n' > "$RUNNER_TEMP/active-failure-journal-history.json"
+            printf 'PUBLIC_SERVING_MUTATION_COMMANDS=12\n' >> "$GITHUB_ENV"
+            export PUBLIC_SERVING_MUTATION_COMMANDS=12
+          fi
+          printf 'null\n' > "$RUNNER_TEMP/active-failure-state-proof.json"
+          node scripts/vercel-main-deployment.mjs active-failure-evidence --journal-history "$RUNNER_TEMP/active-failure-journal-history.json" --state-proof "$RUNNER_TEMP/active-failure-state-proof.json" --output "$RUNNER_TEMP/vercel-main-evidence.json"
 
       - name: Upload canonical redacted PR-A evidence
         if: ${{ always() }}
