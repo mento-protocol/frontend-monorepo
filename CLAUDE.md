@@ -142,7 +142,8 @@ receives no deployment credential. Ordinary previews for all four targets are
 GitHub-owned and do not use this adapter. The adapter remains temporarily for
 rollback proof and is removed only in #523 cleanup after the required
 observation period. A target-local `main` rollback does not change preview
-ownership. GitHub-built workers call the reusable
+ownership, and a target-local preview rollback uses native-preview/GitHub-main
+branch rules so it does not change main ownership. GitHub-built workers call the reusable
 workflow directly because a `GITHUB_TOKEN` Deployment status is evidence, not
 a downstream trigger contract. The automatic exact-SHA controller, bootstrap,
 canary, cutover, and rollback contract is in `docs/vercel-deployments.md`.

@@ -81,8 +81,10 @@ and fails if native Vercel also attempted a replaced `main` path.
 
 Target-local main rollback restores only that target's reviewed native `main`
 configuration and changes only its `mainOwnershipMode` to `shadow`; ordinary
-previews remain GitHub-owned. A full-native rollback is a separate coordinated
-procedure. For ordinary targets, the public custom domain is the only protected
+previews remain GitHub-owned. Target-local preview rollback uses the exact
+native-preview/GitHub-main branch rules and does not restore native `main`. A
+full-native rollback is a separate coordinated procedure. For ordinary
+targets, the public custom domain is the only protected
 runtime and rollback alias; generated project/team and creator-scoped aliases
 are candidate evidence only. Keep App `v2` native and never recreate the removed
 Governance QA environment. The historical PR-A canary, active transaction,

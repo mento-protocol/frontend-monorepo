@@ -489,9 +489,13 @@ The repository is set up with GitHub Actions for CI:
   preview ownership and exact expected Vercel configurations are executable
   invariants. The trusted preview controller reads every selected target's
   bounded exact-head Vercel
-  configuration and rechecks it before dispatch. An exact native configuration
-  suppresses GitHub dispatch only for a target whose canonical ownership mode
-  is `github`; unknown or contradictory configuration fails closed.
+  configuration and rechecks it before dispatch. Its four-state model combines
+  preview and main ownership independently: GitHub/GitHub,
+  GitHub/native-main, native-preview/GitHub-main, or fully native. The
+  native-preview/GitHub-main state disables `main` while leaving unspecified
+  preview branches enabled, so a target-local preview rollback cannot recreate
+  a native main deployment. Unknown or contradictory configuration fails
+  closed.
   During rollback, `Vercel Preview` proves owner selection and journal drain
   only; native Vercel deployment status and browser evidence separately prove
   that the preview works. The native `deployment_status` smoke adapter remains
@@ -501,8 +505,9 @@ The repository is set up with GitHub Actions for CI:
   [issue #523](https://github.com/mento-protocol/frontend-monorepo/issues/523),
   after the required observation period. A target-local main rollback restores
   only the target's native `main` path and changes only its main ownership mode
-  to `shadow`; previews remain GitHub-owned. Full-native restoration is a
-  separate coordinated rollback. See
+  to `shadow`; previews remain GitHub-owned. A target-local preview rollback
+  changes only preview ownership and preserves GitHub-owned `main`.
+  Full-native restoration is a separate coordinated rollback. See
   [ADR 0001](docs/adr/0001-github-actions-vercel-deployment-orchestration.md)
   for the accepted ownership boundary,
   [ADR 0002](docs/adr/0002-single-comment-preview-controller-journal.md) for

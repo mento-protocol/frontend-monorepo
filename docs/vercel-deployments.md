@@ -195,10 +195,17 @@ It checks the remote `main` SHA before preparing the transaction. If `main`
 advanced before any durable intent or public mutation, the newer workflow owns
 convergence and the current run exits without activation.
 
-For a current SHA, the workflow creates a canonical prepared journal, uploads
-the exact bytes under their sequence-derived artifact name, and requires a
-positive artifact ID before it can continue. Every forward operation follows
-the same durable sequence:
+For a current SHA whose selected targets are all in `shadowTargets`, the
+coordinator records the explicit successful `shadow-prepared` outcome after
+validating their stage/build evidence. It creates no active journal, skips
+active recovery as `not-required`, and issues no public mutation. This is the
+target-local main rollback path when no selected GitHub-owned target also needs
+activation.
+
+When at least one selected target is in `activeTargets`, the workflow creates a
+canonical prepared journal, uploads the exact bytes under their
+sequence-derived artifact name, and requires a positive artifact ID before it
+can continue. Every forward operation follows the same durable sequence:
 
 1. recheck remote `main` freshness and the protected mapping;
 2. append and upload the operation's `started` journal transition;
@@ -227,10 +234,12 @@ does not accept a raw Vercel command or target name. This keeps the
 upload-before-mutation boundary visible in the workflow while avoiding shell
 iteration over targets.
 
-The recovery job derives journal artifact identities instead of trusting
-coordinator outputs, downloads the complete attempt-scoped sequence, validates
-its canonical identity and gap-free history, and selects the highest valid
-snapshot. A prepared transaction with no started mutation is
+For `no-target`, `superseded-before-journal`, and the active controller's
+no-active-target `shadow-prepared` outcome, recovery is explicitly
+`not-required`. Otherwise the recovery job derives journal artifact identities
+instead of trusting coordinator outputs, downloads the complete attempt-scoped
+sequence, validates its canonical identity and gap-free history, and selects
+the highest valid snapshot. A prepared transaction with no started mutation is
 `verified-no-mutation`. Any started or uncertain operation is inspected and
 either verified as already restored or compensated in reverse mutation order
 to the exact captured prior mapping. An unexpected operator-owned mapping
@@ -332,6 +341,21 @@ The checked-in ownership configuration keeps the controller in literal
 The canonical `mainOwnershipMode` map assigns all four targets to `github`.
 Tests accept only that pairing or a reviewed rollback pairing described below.
 App `v2` remains native in every configuration.
+
+Preview and main Vercel Git ownership are independent per target. Vercel treats
+an unspecified branch as enabled and creates a deployment when any matching
+rule is `true`. The executable model therefore accepts exactly four states:
+
+| Preview owner | Main owner | Exact branch-rule shape                                                                                   |
+| ------------- | ---------- | --------------------------------------------------------------------------------------------------------- |
+| GitHub        | GitHub     | Disable all branches; App explicitly keeps `v2: true`                                                     |
+| GitHub        | Native     | Disable `**`, enable `main`; App also enables `v2`                                                        |
+| Native        | GitHub     | Disable `main` and `dependabot/**`, leave other preview branches enabled; App explicitly keeps `v2: true` |
+| Native        | Native     | Disable only `dependabot/**`; App explicitly keeps `v2: true`                                             |
+
+Changing either owner requires the matching exact `vercel.json` state in the
+same reviewed commit. A preview rollback must not restore native `main`; a main
+rollback must not restore ordinary native previews.
 
 Active mode reuses the prepared transaction and journal identity. It stages and
 verifies Governance, Reserve, and UI, builds App `v3`, then mutates targets
@@ -2536,10 +2560,13 @@ owner and follow-up action; repository-wide duplicate prevention was not claimed
 while an unaccounted stale branch could still request a native preview.
 
 For rollback, first establish a coordinated no-push window and drain controller
-and worker ownership for the target. Atomically restore both its canonical
-native Vercel configuration and `shadow` ownership mode, then require an exact
-head native deployment plus browser proof before accepting the rollback. Never
-split the configuration and ownership edits across merges.
+and worker ownership for the target. Atomically restore its canonical
+native-preview configuration and `shadow` preview ownership mode while
+preserving that target's current main owner. With the current GitHub-owned main
+map, this is the native-preview/GitHub-main state whose exact rules appear in
+each rollback procedure below. Then require an exact-head native deployment
+plus browser proof before accepting the rollback. Never split the configuration
+and ownership edits across merges.
 
 ### Reserve Vercel Git cutover
 
@@ -2636,12 +2663,15 @@ In one reviewed rollback PR, restore
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "git": {
     "deploymentEnabled": {
-      "dependabot/**": false
+      "dependabot/**": false,
+      "main": false
     }
   }
 }
 ```
 
+`main: false` preserves GitHub as Reserve's automatic main owner while
+unspecified ordinary branches return to native preview ownership.
 In that same commit, change only the Reserve entry in
 `scripts/vercel-preview-targets.mjs` back to:
 
@@ -2768,12 +2798,15 @@ In one reviewed rollback PR, restore
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "git": {
     "deploymentEnabled": {
-      "dependabot/**": false
+      "dependabot/**": false,
+      "main": false
     }
   }
 }
 ```
 
+`main: false` preserves GitHub as Governance's automatic main owner while
+unspecified ordinary branches return to native preview ownership.
 In that same commit, change only the Governance entry in
 `scripts/vercel-preview-targets.mjs` back to:
 
@@ -2933,12 +2966,16 @@ to:
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "git": {
     "deploymentEnabled": {
-      "dependabot/**": false
+      "dependabot/**": false,
+      "main": false,
+      "v2": true
     }
   }
 }
 ```
 
+`main: false` preserves GitHub as App `main -> v3` owner, while `v2: true`
+keeps the independent legacy `v2 -> production` path native.
 In that same commit, change only the App entry in
 `scripts/vercel-preview-targets.mjs` back to:
 
@@ -3057,12 +3094,15 @@ UI rollback is target-local. One reviewed PR must atomically restore
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "git": {
     "deploymentEnabled": {
-      "dependabot/**": false
+      "dependabot/**": false,
+      "main": false
     }
   }
 }
 ```
 
+`main: false` preserves GitHub as UI's automatic main owner while unspecified
+ordinary branches return to native preview ownership.
 In that same commit, change only the UI entry in
 `scripts/vercel-preview-targets.mjs` back to:
 

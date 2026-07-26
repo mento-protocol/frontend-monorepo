@@ -1013,6 +1013,7 @@ export function validateMainStageJobs({ plan, jobs, runId, runAttempt }) {
   return {
     outcome:
       handoff.planning.stagedTargets.length === 0 ? "no-target" : "eligible",
+    activeTargetCount: handoff.planning.activeTargets.length,
     stages: results,
   };
 }
@@ -3318,7 +3319,10 @@ export function evaluateMainActiveFinalResults({
     return result("success", "active-committed");
   }
   if (
-    ["no-target", "superseded-before-journal"].includes(coordinator) &&
+    ((coordinator === "shadow-prepared" &&
+      handoff.planning.stagedTargets.length > 0 &&
+      handoff.planning.activeTargets.length === 0) ||
+      ["no-target", "superseded-before-journal"].includes(coordinator)) &&
     canonicalJobs.coordinator === "success" &&
     canonicalJobs.recovery === "success" &&
     recovery === "not-required"
@@ -4380,6 +4384,11 @@ export async function runMainDeploymentCli({
       runAttempt: values.GITHUB_RUN_ATTEMPT,
     });
     appendOutput(values.GITHUB_OUTPUT, "outcome", result.outcome);
+    appendOutput(
+      values.GITHUB_OUTPUT,
+      "active_target_count",
+      String(result.activeTargetCount),
+    );
     return;
   }
   if (command === "prepare-journal") {

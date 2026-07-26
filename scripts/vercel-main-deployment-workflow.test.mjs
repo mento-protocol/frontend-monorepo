@@ -394,6 +394,36 @@ test("active coordinator uses the reducer and statically unrolls every forward t
   assert.doesNotMatch(workflowSource, /run-shadow|recover-shadow/);
 });
 
+test("fresh shadow-only target plans publish success without active journal recovery", () => {
+  const coordinatorOutcome = step(
+    "activate-and-verify",
+    "Publish one canonical coordinator outcome",
+  );
+  assert.equal(
+    coordinatorOutcome.env.ACTIVE_TARGET_COUNT,
+    "${{ steps.stages.outputs.active_target_count }}",
+  );
+  assert.match(coordinatorOutcome.run, /FRESHNESS_STATUS" = "fresh"/);
+  assert.match(coordinatorOutcome.run, /ACTIVE_TARGET_COUNT" = "0"/);
+  assert.match(coordinatorOutcome.run, /outcome=shadow-prepared/);
+  assert.ok(
+    coordinatorOutcome.run.indexOf("outcome=shadow-prepared") <
+      coordinatorOutcome.run.indexOf("outcome=active-failed"),
+  );
+
+  const recoveryIdentity = step(
+    "recover-main-deployment",
+    "Derive exact active journal identity without coordinator outputs",
+  );
+  assert.match(recoveryIdentity.if, /outcome != 'shadow-prepared'/);
+  const recoveryOutcome = step(
+    "recover-main-deployment",
+    "Publish one canonical recovery outcome",
+  );
+  assert.match(recoveryOutcome.run, /COORDINATOR_OUTCOME" = "shadow-prepared"/);
+  assert.match(recoveryOutcome.run, /outcome=not-required/);
+});
+
 test("forward transition checkpoints and reverifies a discovered App candidate before recovery", () => {
   assert.equal(stepsUsing(forwardAction.runs.steps, UPLOAD).length, 4);
   assert.match(forwardActionSource, /active-event-dispatch/);

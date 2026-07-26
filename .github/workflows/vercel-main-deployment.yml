@@ -1499,6 +1499,7 @@ jobs:
         if: ${{ always() }}
         id: outcome
         env:
+          ACTIVE_TARGET_COUNT: ${{ steps.stages.outputs.active_target_count }}
           PLANNING_OUTCOME: ${{ steps.stages.outputs.outcome }}
           FRESHNESS_STATUS: ${{ steps.freshness.outputs.status }}
           ACTIVE_FINAL_OUTCOME: ${{ steps.active-final-upload.outcome }}
@@ -1507,6 +1508,9 @@ jobs:
             echo "outcome=no-target" >> "$GITHUB_OUTPUT"
           elif [ "$FRESHNESS_STATUS" = "superseded" ]; then
             echo "outcome=superseded-before-journal" >> "$GITHUB_OUTPUT"
+          elif [ "$FRESHNESS_STATUS" = "fresh" ] &&
+            [ "$ACTIVE_TARGET_COUNT" = "0" ]; then
+            echo "outcome=shadow-prepared" >> "$GITHUB_OUTPUT"
           elif [ "$ACTIVE_FINAL_OUTCOME" = success ]; then
             echo "outcome=active-committed" >> "$GITHUB_OUTPUT"
           else
@@ -1557,7 +1561,8 @@ jobs:
           needs.wait-for-ci.result == 'success' &&
           needs.plan-main-deployments.result == 'success' &&
           needs.activate-and-verify.outputs.outcome != 'no-target' &&
-          needs.activate-and-verify.outputs.outcome != 'superseded-before-journal'
+          needs.activate-and-verify.outputs.outcome != 'superseded-before-journal' &&
+          needs.activate-and-verify.outputs.outcome != 'shadow-prepared'
         id: journal-identity
         run: node scripts/vercel-main-deployment.mjs active-journal-identity
 
@@ -1883,7 +1888,8 @@ jobs:
           RECOVERY_STATUS: ${{ steps.recovery-terminal.outputs.highest_status }}
         run: |
           if [ "$COORDINATOR_OUTCOME" = "no-target" ] ||
-            [ "$COORDINATOR_OUTCOME" = "superseded-before-journal" ]; then
+            [ "$COORDINATOR_OUTCOME" = "superseded-before-journal" ] ||
+            [ "$COORDINATOR_OUTCOME" = "shadow-prepared" ]; then
             echo "outcome=not-required" >> "$GITHUB_OUTPUT"
           elif [ "$COORDINATOR_OUTCOME" = "active-committed" ] &&
             [ "$HISTORY_OUTCOME" = "success" ]; then

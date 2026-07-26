@@ -1676,15 +1676,14 @@ test("stage handoffs contain only canonical candidate identity and completed ver
 
 test("selected stages must succeed and unselected stages must be skipped", () => {
   const selected = plan({ deployments: ["governance"] });
-  assert.equal(
-    validateMainStageJobs({
-      plan: selected,
-      jobs: stageJobs(selected),
-      runId: "800",
-      runAttempt: "3",
-    }).outcome,
-    "eligible",
-  );
+  const selectedValidation = validateMainStageJobs({
+    plan: selected,
+    jobs: stageJobs(selected),
+    runId: "800",
+    runAttempt: "3",
+  });
+  assert.equal(selectedValidation.outcome, "eligible");
+  assert.equal(selectedValidation.activeTargetCount, 0);
   assert.throws(
     () =>
       validateMainStageJobs({
@@ -1715,15 +1714,14 @@ test("selected stages must succeed and unselected stages must be skipped", () =>
     /was not cleanly skipped/,
   );
   const noTargets = plan({ deployments: [] });
-  assert.equal(
-    validateMainStageJobs({
-      plan: noTargets,
-      jobs: stageJobs(noTargets),
-      runId: "800",
-      runAttempt: "3",
-    }).outcome,
-    "no-target",
-  );
+  const noTargetValidation = validateMainStageJobs({
+    plan: noTargets,
+    jobs: stageJobs(noTargets),
+    runId: "800",
+    runAttempt: "3",
+  });
+  assert.equal(noTargetValidation.outcome, "no-target");
+  assert.equal(noTargetValidation.activeTargetCount, 0);
 });
 
 test("protected rollback identity remains stable while ordinary generated aliases move", () => {
@@ -2848,6 +2846,42 @@ test("active final-result matrix preserves safe noops and fails every recovery o
       recoveryOutcome: "not-required",
     }).releaseOutcome,
     "failure",
+  );
+});
+
+test("active final result accepts a staged target-local main rollback with no active targets", () => {
+  const deploymentPlan = activePlan({
+    deployments: ["governance"],
+    mainOwnershipMode: ownership({
+      governance: MAIN_OWNERSHIP_MODES.SHADOW,
+    }),
+  });
+  assert.deepEqual(deploymentPlan.planning.stagedTargets, ["governance"]);
+  assert.deepEqual(deploymentPlan.planning.activeTargets, []);
+  assert.deepEqual(deploymentPlan.planning.shadowTargets, ["governance"]);
+  assert.deepEqual(
+    evaluateMainActiveFinalResults({
+      plan: deploymentPlan,
+      jobs: activeJobs(deploymentPlan),
+      coordinatorOutcome: "shadow-prepared",
+      recoveryOutcome: "not-required",
+    }),
+    {
+      releaseOutcome: "success",
+      evidenceKind: "success",
+      failAfterEvidence: false,
+      reason: "shadow-prepared",
+    },
+  );
+  const contradictoryPlan = activePlan({ deployments: ["governance"] });
+  assert.equal(
+    evaluateMainActiveFinalResults({
+      plan: contradictoryPlan,
+      jobs: activeJobs(contradictoryPlan),
+      coordinatorOutcome: "shadow-prepared",
+      recoveryOutcome: "not-required",
+    }).reason,
+    "unexpected-active-job-graph",
   );
 });
 

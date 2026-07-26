@@ -19,6 +19,7 @@ import {
   dependabotIntakeRunName,
   normalizePlannerResult,
   parseWorkerRunName,
+  previewOwnerForVercelConfiguration,
   publishDependabotUnsupported,
   postWorkerRecoveryError,
   prepareBootstrap,
@@ -43,7 +44,6 @@ import {
 } from "./vercel-preview-controller.mjs";
 import { validateGitBranch } from "./vercel-prebuilt-workflow.mjs";
 import {
-  PREVIEW_OWNERSHIP_MODES,
   PREVIEW_TARGET_CONFIG,
   PREVIEW_TARGETS,
 } from "./vercel-preview-targets.mjs";
@@ -58,12 +58,36 @@ const SHA = Object.fromEntries(
 );
 const UI_VERCEL_CONFIGURATION_PATH = "apps/ui.mento.org/vercel.json";
 const GITHUB_OWNED_UI_VERCEL_CONFIGURATION = structuredClone(
-  PREVIEW_TARGET_CONFIG.ui.githubVercelConfiguration,
+  PREVIEW_TARGET_CONFIG.ui.trackedVercelConfiguration,
 );
 const NATIVE_OWNED_UI_VERCEL_CONFIGURATION = structuredClone(
-  PREVIEW_TARGET_CONFIG.ui.nativeVercelConfiguration,
+  PREVIEW_TARGET_CONFIG.ui.previewShadowVercelConfiguration,
 );
 const workerDispatchClients = new WeakMap();
+
+test("preview owner classification accepts both exact main states independently", () => {
+  for (const target of PREVIEW_TARGETS) {
+    const targetConfiguration = PREVIEW_TARGET_CONFIG[target];
+    for (const field of [
+      "activeVercelConfiguration",
+      "mainShadowVercelConfiguration",
+    ]) {
+      assert.equal(
+        previewOwnerForVercelConfiguration(target, targetConfiguration[field]),
+        "github-actions",
+      );
+    }
+    for (const field of [
+      "previewShadowVercelConfiguration",
+      "nativeVercelConfiguration",
+    ]) {
+      assert.equal(
+        previewOwnerForVercelConfiguration(target, targetConfiguration[field]),
+        "native-vercel",
+      );
+    }
+  }
+});
 
 function reconcilePreview(options) {
   const workerDispatchGithub = Object.hasOwn(options, "workerDispatchGithub")
@@ -3902,11 +3926,8 @@ function fakeGitHub({
             const targetConfiguration = PREVIEW_TARGET_CONFIG[target];
             const configuration =
               allCandidateTargetsNative && request.ref !== SHA.E
-                ? targetConfiguration.nativeVercelConfiguration
-                : targetConfiguration.ownershipMode ===
-                    PREVIEW_OWNERSHIP_MODES.GITHUB
-                  ? targetConfiguration.githubVercelConfiguration
-                  : targetConfiguration.nativeVercelConfiguration;
+                ? targetConfiguration.previewShadowVercelConfiguration
+                : targetConfiguration.trackedVercelConfiguration;
             const text = `${JSON.stringify(configuration, null, 2)}\n`;
             const content = Buffer.from(text, "utf8");
             return {

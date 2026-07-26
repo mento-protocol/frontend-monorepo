@@ -245,7 +245,9 @@ or use a lossy shared concurrency group, and has no PAT or Vercel credential.
 It is retained only for rollback proof and is removed during #523 cleanup after
 the required observation period; its presence does not enable ordinary native
 branch previews. Target-local or full-native `main` rollback does not change
-this GitHub preview ownership.
+this GitHub preview ownership. Conversely, a target-local preview rollback uses
+the exact native-preview/GitHub-main branch rules and does not restore native
+main ownership.
 
 Run the wallet-specific portion locally against any live App or Governance
 preview URL:

@@ -299,14 +299,25 @@ already-proven GitHub-owned targets remain available. The recovered target then
 proves both its native path and GitHub shadow canary before another cutover.
 Preview ownership remains GitHub-owned throughout this main-only rollback.
 
-That boundary is executable per target:
+Preview ownership is an independent axis. The executable model has four exact
+states per target: GitHub preview/GitHub main, GitHub preview/native main,
+native preview/GitHub main, and fully native. Because Vercel enables unspecified
+branches by default, the native-preview/GitHub-main state explicitly sets
+`main: false` and `dependabot/**: false` while leaving ordinary preview branches
+unspecified; App also explicitly retains `v2: true`. A target-local preview
+rollback therefore cannot re-enable native main or create duplicate main
+ownership.
+
+That two-axis boundary is executable per target:
 `scripts/vercel-git-ownership.test.mjs` accepts only each target's exact
-canonical configuration paired with its reviewed ownership mode. A full-native
-main rollback is separate: one reviewed change restores all four native `main`
-branch rules and sets all four main ownership entries to `shadow`; only that
-all-shadow map may use global `shadow` mode. Main-owner rollback does not change
-the GitHub-owned preview map. The preview controller's `observe-only` mode is a
-separate coordinated preview shutdown and is not a main target-local rollback.
+canonical configuration paired with both reviewed ownership modes. A
+full-native main rollback is separate: one reviewed change restores all four
+native `main` branch rules and sets all four main ownership entries to
+`shadow`; only that all-shadow map may use global `shadow` mode. Main-owner
+rollback does not change the GitHub-owned preview map, and preview-owner
+rollback does not change the GitHub-owned main map. The preview controller's
+`observe-only` mode is a separate coordinated preview shutdown and is not a
+main target-local rollback.
 
 Ordinary targets recover with exact captured deployment IDs and verify every
 domain after rollback. App `v3` recovers each reviewed alias independently to
