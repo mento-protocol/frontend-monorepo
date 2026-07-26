@@ -126,7 +126,9 @@ The root `pnpm test` chain runs `pnpm supply-chain:lockfile-lint:test` after
 installing dependencies. This exercises the patched 2.1.2 behavior in hosted
 CI. The lockfile lint also rejects every affected brace-expansion release
 through 5.0.7 unless the lock contains the exact reviewed patched 2.1.2 state,
-so the advisory-wide OSV correction cannot hide a future 3.x or 4.x entry.
+including the expected regular, single-link patch artifact with its reviewed
+SHA-256. It inspects pnpm alias entries too, so the advisory-wide OSV correction
+cannot hide a future direct or aliased 3.x or 4.x entry.
 
 ## Wormhole Connect (`@wormhole-foundation/wormhole-connect`)
 

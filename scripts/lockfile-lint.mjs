@@ -39,8 +39,15 @@
  * CI: .github/workflows/supply-chain.yml
  */
 
-import { readFileSync, existsSync, readdirSync } from "node:fs";
-import { resolve, join, relative } from "node:path";
+import { createHash } from "node:crypto";
+import {
+  readFileSync,
+  existsSync,
+  lstatSync,
+  readdirSync,
+  realpathSync,
+} from "node:fs";
+import { resolve, join, relative, isAbsolute, sep } from "node:path";
 import process from "node:process";
 
 import {
@@ -164,11 +171,119 @@ if (!packagesSection.trim()) {
 // version. GHSA-mh99-v99m-4gvg affects brace-expansion through 5.0.7, while
 // this repository corrects only 2.1.2 with a reviewed local patch and upgrades
 // native v5 consumers to 5.0.8. Bind the suppression to that exact lock state.
-const braceExpansionVersions = new Set(
-  [
-    ...packagesSection.matchAll(/^ {2}'?brace-expansion@([^':\s(]+)'?:\s*$/gm),
-  ].map((entry) => entry[1]),
-);
+/**
+ * Decode the YAML scalar forms pnpm can use for top-level lockfile keys.
+ * JSON decoding covers JSON-compatible double-quoted escapes, including
+ * Unicode escapes. Fail closed on YAML-only double-quoted escapes because pnpm
+ * does not emit them and accepting an undecoded name could hide an advisory.
+ * @param {string} rawKey
+ * @returns {string | null}
+ */
+function decodeLockfileKey(rawKey) {
+  if (/^(?:!|&|\*|<<$)/.test(rawKey)) {
+    fail(`Unsupported YAML node property in lockfile key: ${rawKey}`);
+    return null;
+  }
+
+  const startsSingle = rawKey.startsWith("'");
+  const endsSingle = rawKey.endsWith("'");
+  if (startsSingle || endsSingle) {
+    if (!startsSingle || !endsSingle) {
+      fail(`Malformed single-quoted lockfile key: ${rawKey}`);
+      return null;
+    }
+    return rawKey.slice(1, -1).replaceAll("''", "'");
+  }
+
+  const startsDouble = rawKey.startsWith('"');
+  const endsDouble = rawKey.endsWith('"');
+  if (startsDouble || endsDouble) {
+    if (!startsDouble || !endsDouble) {
+      fail(`Malformed double-quoted lockfile key: ${rawKey}`);
+      return null;
+    }
+    try {
+      const decoded = JSON.parse(rawKey);
+      if (typeof decoded !== "string") throw new Error("not a string");
+      return decoded;
+    } catch {
+      fail(`Unsupported double-quoted lockfile key: ${rawKey}`);
+      return null;
+    }
+  }
+
+  return rawKey;
+}
+
+/**
+ * Extract decoded keys from pnpm's canonical generated section shape.
+ * Package entries must put the value on following indented lines. Snapshot
+ * entries may instead use the one canonical inline empty value (`{}`). Reject
+ * comments, alternate indentation, flow values, and complex/multiline keys so
+ * YAML syntax cannot shift the semantic key boundary away from this parser.
+ * @param {string} section
+ * @param {{allowInlineEmpty: boolean; name: string}} options
+ * @returns {string[]}
+ */
+function extractTopLevelLockfileKeys(section, { allowInlineEmpty, name }) {
+  const keys = [];
+  for (const line of section.split("\n")) {
+    if (line.trim() === "") continue;
+    if (!line.startsWith("  ")) {
+      fail(`Noncanonical ${name} section structure.`);
+      continue;
+    }
+    if (line.startsWith("    ")) continue;
+
+    const content = line.slice(2).trimEnd();
+    if (
+      content.startsWith(" ") ||
+      content.startsWith("\t") ||
+      content.includes("#") ||
+      content.startsWith("?")
+    ) {
+      fail(`Noncanonical top-level ${name} entry.`);
+      continue;
+    }
+
+    const inlineEmpty = allowInlineEmpty
+      ? /^(.*):[ \t]+\{\}$/.exec(content)
+      : null;
+    let rawKey;
+    if (inlineEmpty !== null) {
+      rawKey = inlineEmpty[1].trimEnd();
+    } else if (content.endsWith(":") && !/:[ \t]+\S/.test(content)) {
+      rawKey = content.slice(0, -1).trimEnd();
+    } else {
+      fail(`Noncanonical top-level ${name} entry.`);
+      continue;
+    }
+
+    if (rawKey === "") {
+      fail(`Empty top-level ${name} key.`);
+      continue;
+    }
+    const decoded = decodeLockfileKey(rawKey);
+    if (decoded !== null) keys.push(decoded);
+  }
+  return keys;
+}
+
+const packageKeys = extractTopLevelLockfileKeys(packagesSection, {
+  allowInlineEmpty: false,
+  name: "packages",
+});
+const snapshotKeys = extractTopLevelLockfileKeys(snapshotsSection, {
+  allowInlineEmpty: true,
+  name: "snapshots",
+});
+const braceExpansionVersions = new Set();
+for (const key of packageKeys) {
+  const direct = /^brace-expansion@([^\s(]+)$/.exec(key);
+  const alias = /^.+@npm:brace-expansion@([^\s(]+)$/.exec(key);
+  const version = direct?.[1] ?? alias?.[1];
+  if (version !== undefined) braceExpansionVersions.add(version);
+}
 const patchedDependenciesStart = lockfileText.indexOf(
   "\npatchedDependencies:\n",
 );
@@ -192,15 +307,48 @@ const reviewedPatchPaths = new Set([
   BRACE_EXPANSION_RUNTIME_PATCH_PATH,
   `scripts/vercel-cli-runtime/${BRACE_EXPANSION_RUNTIME_PATCH_PATH}`,
 ]);
-const hasReviewedBraceExpansionPatch =
-  reviewedPatchEntries.length === 1 &&
-  reviewedPatchEntries[0][1] === BRACE_EXPANSION_PATCH_SHA256 &&
-  reviewedPatchPaths.has(reviewedPatchEntries[0][2]);
-const braceExpansionSnapshots = [
-  ...snapshotsSection.matchAll(
-    /^ {2}'?brace-expansion@([^':\s(]+)(?:\(patch_hash=([0-9a-f]{64})\))?'?:[ \t]*(?:\{\})?[ \t]*$/gm,
-  ),
-].map((entry) => ({ patchSha256: entry[2], version: entry[1] }));
+
+function hasExactReviewedBraceExpansionPatch() {
+  if (
+    reviewedPatchEntries.length !== 1 ||
+    reviewedPatchEntries[0][1] !== BRACE_EXPANSION_PATCH_SHA256 ||
+    !reviewedPatchPaths.has(reviewedPatchEntries[0][2])
+  ) {
+    return false;
+  }
+  const patchPath = resolve(ROOT, reviewedPatchEntries[0][2]);
+  try {
+    const patchEntry = lstatSync(patchPath);
+    const canonicalRoot = realpathSync(ROOT);
+    const canonicalPatch = realpathSync(patchPath);
+    const patchFromRoot = relative(canonicalRoot, canonicalPatch);
+    if (
+      patchEntry.isSymbolicLink() ||
+      !patchEntry.isFile() ||
+      patchEntry.nlink !== 1 ||
+      patchFromRoot === "" ||
+      patchFromRoot === ".." ||
+      patchFromRoot.startsWith(`..${sep}`) ||
+      isAbsolute(patchFromRoot)
+    ) {
+      return false;
+    }
+    return (
+      createHash("sha256")
+        .update(readFileSync(canonicalPatch))
+        .digest("hex") === BRACE_EXPANSION_PATCH_SHA256
+    );
+  } catch {
+    return false;
+  }
+}
+
+const hasReviewedBraceExpansionPatch = hasExactReviewedBraceExpansionPatch();
+const braceExpansionSnapshots = snapshotKeys.flatMap((key) => {
+  const match =
+    /^brace-expansion@([^\s(]+)(?:\(patch_hash=([0-9a-f]{64})\))?$/.exec(key);
+  return match === null ? [] : [{ patchSha256: match[2], version: match[1] }];
+});
 
 /**
  * Treat a non-stable version as affected so a prerelease cannot bypass the
