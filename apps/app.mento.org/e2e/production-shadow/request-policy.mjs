@@ -22,6 +22,10 @@ export async function fulfillProductionShadowRequest({ route }) {
   await route.fulfill({ response });
 }
 
+export async function drainProductionShadowRequestRoutes({ page }) {
+  await page.unrouteAll({ behavior: "wait" });
+}
+
 export function assertProductionShadowOrigin(value, allowedOrigin) {
   if (new URL(value).origin !== new URL(allowedOrigin).origin) {
     throw new Error("Production-shadow navigation left its immutable origin");

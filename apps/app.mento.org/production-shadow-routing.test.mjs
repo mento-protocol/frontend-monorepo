@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { test } from "node:test";
+import { setImmediate } from "node:timers";
 
 import { chromium } from "@playwright/test";
 
-import { fulfillProductionShadowRequest } from "./e2e/production-shadow/request-policy.mjs";
+import {
+  drainProductionShadowRequestRoutes,
+  fulfillProductionShadowRequest,
+} from "./e2e/production-shadow/request-policy.mjs";
 import defaultConfig from "./playwright.config.ts";
 import productionShadowConfig from "./playwright.production-shadow.config.ts";
 
@@ -30,6 +34,14 @@ function origin(server) {
   const address = server.address();
   assert.ok(address && typeof address === "object");
   return `http://127.0.0.1:${address.port}`;
+}
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((resolver) => {
+    resolve = resolver;
+  });
+  return { promise, resolve };
 }
 
 test("only the dedicated config collects production-shadow smoke specs", () => {
@@ -114,6 +126,70 @@ test(
     } finally {
       await browser?.close();
       await Promise.all([close(source), close(destination)]);
+    }
+  },
+);
+
+test(
+  "production-shadow teardown waits for an in-flight route fetch",
+  { timeout: 30_000 },
+  async () => {
+    const requestStarted = deferred();
+    const releaseResponse = deferred();
+    const server = createServer(async (request, response) => {
+      if (request.url === "/slow") {
+        requestStarted.resolve();
+        await releaseResponse.promise;
+        response.writeHead(200, { "content-type": "text/plain" });
+        response.end("complete");
+        return;
+      }
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end("<!doctype html><title>source</title>");
+    });
+    await listen(server);
+    const serverOrigin = origin(server);
+
+    let browser;
+    let requestOutcome;
+    try {
+      browser = await chromium.launch({ headless: true });
+      const page = await browser.newPage();
+      await page.route("**/*", async (route) => {
+        await fulfillProductionShadowRequest({ route });
+      });
+      await page.goto(serverOrigin, { waitUntil: "domcontentloaded" });
+
+      requestOutcome = page
+        .evaluate(async (url) => {
+          const response = await fetch(url);
+          return response.text();
+        }, `${serverOrigin}/slow`)
+        .then(
+          (value) => ({ value }),
+          (error) => ({ error }),
+        );
+      await requestStarted.promise;
+
+      let teardownFinished = false;
+      const teardown = drainProductionShadowRequestRoutes({ page }).then(() => {
+        teardownFinished = true;
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(
+        teardownFinished,
+        false,
+        "teardown must wait while route.fetch is still active",
+      );
+
+      releaseResponse.resolve();
+      await teardown;
+      assert.deepEqual(await requestOutcome, { value: "complete" });
+    } finally {
+      releaseResponse.resolve();
+      await requestOutcome;
+      await browser?.close();
+      await close(server);
     }
   },
 );

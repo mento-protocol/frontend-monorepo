@@ -4,6 +4,7 @@ import { expect, test, type Page, type Response } from "@playwright/test";
 
 import {
   assertProductionShadowOrigin,
+  drainProductionShadowRequestRoutes,
   fulfillProductionShadowRequest,
 } from "./request-policy.mjs";
 import {
@@ -198,6 +199,13 @@ async function assertHydratedDeploymentIdentity({
     expectedOrigin,
   });
 }
+
+test.afterEach(async ({ page }) => {
+  // Live integrations may start a request after the final assertion. Drain
+  // every route callback before Playwright tears down Route/APIResponse
+  // objects, or an in-flight route.fetch() is reported as a post-test error.
+  await drainProductionShadowRequestRoutes({ page });
+});
 
 test("staged production artifact is healthy, secure, and interactive", async ({
   page,
