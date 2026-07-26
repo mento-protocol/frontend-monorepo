@@ -262,6 +262,17 @@ test(
       base = head;
       head = appendFixtureChange(
         directory,
+        "apps/ui.mento.org/app/page.tsx",
+        "ui-local fixture",
+      );
+      assert.deepEqual(
+        planVercelDeployments({ repoRoot: directory, base, head }).deployments,
+        ["ui"],
+      );
+
+      base = head;
+      head = appendFixtureChange(
+        directory,
         "packages/ui/src/index.ts",
         "shared UI fixture",
       );

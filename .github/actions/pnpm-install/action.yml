@@ -21,6 +21,10 @@ inputs:
     description: Repository directory containing package.json and pnpm-lock.yaml
     required: false
     default: .
+  ignore-scripts:
+    description: Whether to disable package lifecycle scripts and pnpmfile hooks during installation
+    required: false
+    default: "false"
 
 runs:
   using: composite
@@ -45,7 +49,16 @@ runs:
         package-manager-cache: false
         registry-url: ${{ inputs.registry-url }}
 
+    - name: Install dependencies without lifecycle scripts or pnpmfile hooks
+      if: inputs.ignore-scripts == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: >-
+        env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE
+        -u GITHUB_STEP_SUMMARY pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
+
     - name: Install dependencies
+      if: inputs.ignore-scripts != 'true'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       run: >-

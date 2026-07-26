@@ -326,10 +326,15 @@ test("trusted pnpm action installs and caches the fresh smoke tree", () => {
     setup.with["cache-dependency-path"],
     "${{ inputs.working-directory }}/pnpm-lock.yaml",
   );
-  const install = action.runs.steps.find((step) =>
-    step.run?.includes("pnpm install --frozen-lockfile"),
+  const isolatedInstall = action.runs.steps.find(
+    (step) =>
+      step.name ===
+      "Install dependencies without lifecycle scripts or pnpmfile hooks",
   );
-  assert.equal(install["working-directory"], "${{ inputs.working-directory }}");
+  assert.equal(
+    isolatedInstall["working-directory"],
+    "${{ inputs.working-directory }}",
+  );
   for (const name of [
     "GITHUB_ENV",
     "GITHUB_OUTPUT",
@@ -337,8 +342,9 @@ test("trusted pnpm action installs and caches the fresh smoke tree", () => {
     "GITHUB_STATE",
     "GITHUB_STEP_SUMMARY",
   ]) {
-    assert.match(install.run, new RegExp(`-u ${name}`));
+    assert.match(isolatedInstall.run, new RegExp(`-u ${name}`));
   }
+  assert.match(isolatedInstall.run, /--ignore-scripts --ignore-pnpmfile/);
 });
 
 test("protected build runtime uses the repository package-manager version", () => {

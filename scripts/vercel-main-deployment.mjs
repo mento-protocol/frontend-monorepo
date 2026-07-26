@@ -1557,6 +1557,41 @@ export function createMainDeploymentEvidence({
   };
 }
 
+export function renderMainDeploymentPlan(handoff) {
+  const plan = assertMainDeploymentHandoff(handoff).planning;
+  return [
+    "### Vercel main deployment plan",
+    "",
+    `- DEPLOY_SHA: \`${plan.deploySha}\``,
+    `- Selected targets: ${
+      plan.plan.length === 0
+        ? "none"
+        : plan.plan.map((target) => `\`${target}\``).join(", ")
+    }`,
+    "",
+    "#### Served-SHA ranges and selection reasons",
+    "",
+    "| Kind | Base → head | Source targets | Selected packages | Reason |",
+    "|---|---|---|---|---|",
+    ...plan.ranges.map(
+      (range) =>
+        `| ${range.kind} | ${
+          range.base ? `\`${range.base}\`` : "unknown"
+        } → \`${range.head}\` | ${range.targets.join(", ")} | ${
+          range.deployments.join(", ") || "none"
+        } | \`${range.reason}\` |`,
+    ),
+    "",
+    ...plan.reasons.map(
+      (reason) =>
+        `- \`${reason.target}\`: \`${reason.reason}\`${
+          reason.base ? ` from \`${reason.base}\`` : ""
+        }`,
+    ),
+    "",
+  ].join("\n");
+}
+
 export function renderMainDeploymentEvidence(evidence) {
   if (!isPlainObject(evidence) || evidence.schema !== MAIN_EVIDENCE_SCHEMA) {
     throw new Error("Main deployment evidence is malformed");
@@ -2030,6 +2065,13 @@ async function runCli({ argv = process.argv.slice(2), values = process.env }) {
       values.GITHUB_OUTPUT,
       "targets",
       JSON.stringify(result.planning.plan),
+    );
+    if (!values.GITHUB_STEP_SUMMARY) {
+      throw new Error("GITHUB_STEP_SUMMARY is required");
+    }
+    appendFileSync(
+      values.GITHUB_STEP_SUMMARY,
+      renderMainDeploymentPlan(result),
     );
     return;
   }
