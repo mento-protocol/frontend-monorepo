@@ -19,6 +19,12 @@
  *      reject every actually affected pnpm package version explicitly. This
  *      keeps the narrowly scoped scanner correction from masking a downgrade.
  *
+ *   4. brace-expansion advisory guard: the OSV correction for the reviewed
+ *      2.1.2 backport is advisory-wide. Reject every affected <=5.0.7 release
+ *      unless it is exactly 2.1.2 with the reviewed patch declaration and
+ *      patched snapshot. Check each direct or aliased occurrence, so the
+ *      correction cannot mask a future 3.x/4.x entry or an unpatched alias.
+ *
  * Ported from monitoring-monorepo. Frontend adaptations:
  *   - The override-floor gate (monitoring's gate 3) is intentionally omitted:
  *     30 of frontend's pnpm.overrides deliberately use `>=patched` floor
@@ -34,9 +40,21 @@
  * CI: .github/workflows/supply-chain.yml
  */
 
-import { readFileSync, existsSync, readdirSync } from "node:fs";
-import { resolve, join, relative } from "node:path";
+import { createHash } from "node:crypto";
+import {
+  readFileSync,
+  existsSync,
+  lstatSync,
+  readdirSync,
+  realpathSync,
+} from "node:fs";
+import { resolve, join, relative, isAbsolute, sep } from "node:path";
 import process from "node:process";
+
+import {
+  BRACE_EXPANSION_PATCH_SHA256,
+  BRACE_EXPANSION_RUNTIME_PATCH_PATH,
+} from "./vercel-cli-runtime-contract.mjs";
 
 // ROOT defaults to cwd so the script works from any worktree root without
 // path-hardcoding. Tests override via LOCKFILE_LINT_ROOT env var so they can
@@ -139,11 +157,295 @@ const packagesSection =
         snapshotsSectionStart !== -1 ? snapshotsSectionStart : undefined,
       )
     : "";
+const snapshotsSection =
+  snapshotsSectionStart !== -1
+    ? lockfileText.slice(snapshotsSectionStart + "\nsnapshots:\n".length)
+    : "";
 
 if (!packagesSection.trim()) {
   // An empty packages section is only valid for a completely empty monorepo.
   fail("pnpm-lock.yaml has an empty `packages:` section — unexpected.");
   process.exit(1);
+}
+
+// The scanner configuration can suppress only an advisory ID, not one package
+// version. GHSA-mh99-v99m-4gvg affects brace-expansion through 5.0.7, while
+// this repository corrects only 2.1.2 with a reviewed local patch and upgrades
+// native v5 consumers to 5.0.8. Bind the suppression to that exact lock state.
+/**
+ * Decode the YAML scalar forms pnpm can use for top-level lockfile keys.
+ * JSON decoding covers JSON-compatible double-quoted escapes, including
+ * Unicode escapes. Fail closed on YAML-only double-quoted escapes because pnpm
+ * does not emit them and accepting an undecoded name could hide an advisory.
+ * @param {string} rawKey
+ * @returns {string | null}
+ */
+function decodeLockfileKey(rawKey) {
+  if (/^(?:!|&|\*|<<$)/.test(rawKey)) {
+    fail(`Unsupported YAML node property in lockfile key: ${rawKey}`);
+    return null;
+  }
+
+  const startsSingle = rawKey.startsWith("'");
+  const endsSingle = rawKey.endsWith("'");
+  if (startsSingle || endsSingle) {
+    if (!startsSingle || !endsSingle) {
+      fail(`Malformed single-quoted lockfile key: ${rawKey}`);
+      return null;
+    }
+    return rawKey.slice(1, -1).replaceAll("''", "'");
+  }
+
+  const startsDouble = rawKey.startsWith('"');
+  const endsDouble = rawKey.endsWith('"');
+  if (startsDouble || endsDouble) {
+    if (!startsDouble || !endsDouble) {
+      fail(`Malformed double-quoted lockfile key: ${rawKey}`);
+      return null;
+    }
+    try {
+      const decoded = JSON.parse(rawKey);
+      if (typeof decoded !== "string") throw new Error("not a string");
+      return decoded;
+    } catch {
+      fail(`Unsupported double-quoted lockfile key: ${rawKey}`);
+      return null;
+    }
+  }
+
+  return rawKey;
+}
+
+/**
+ * Extract decoded keys from pnpm's canonical generated section shape.
+ * Package entries must put the value on following indented lines. Snapshot
+ * entries may instead use the one canonical inline empty value (`{}`). Reject
+ * comments, alternate indentation, flow values, and complex/multiline keys so
+ * YAML syntax cannot shift the semantic key boundary away from this parser.
+ * @param {string} section
+ * @param {{allowInlineEmpty: boolean; name: string}} options
+ * @returns {string[]}
+ */
+function extractTopLevelLockfileKeys(section, { allowInlineEmpty, name }) {
+  const keys = [];
+  for (const line of section.split("\n")) {
+    if (line.trim() === "") continue;
+    if (!line.startsWith("  ")) {
+      fail(`Noncanonical ${name} section structure.`);
+      continue;
+    }
+    if (line.startsWith("    ")) continue;
+
+    const content = line.slice(2).trimEnd();
+    if (
+      content.startsWith(" ") ||
+      content.startsWith("\t") ||
+      content.includes("#") ||
+      content.startsWith("?")
+    ) {
+      fail(`Noncanonical top-level ${name} entry.`);
+      continue;
+    }
+
+    const inlineEmpty = allowInlineEmpty
+      ? /^(.*):[ \t]+\{\}$/.exec(content)
+      : null;
+    let rawKey;
+    if (inlineEmpty !== null) {
+      rawKey = inlineEmpty[1].trimEnd();
+    } else if (content.endsWith(":") && !/:[ \t]+\S/.test(content)) {
+      rawKey = content.slice(0, -1).trimEnd();
+    } else {
+      fail(`Noncanonical top-level ${name} entry.`);
+      continue;
+    }
+
+    if (rawKey === "") {
+      fail(`Empty top-level ${name} key.`);
+      continue;
+    }
+    const decoded = decodeLockfileKey(rawKey);
+    if (decoded !== null) keys.push(decoded);
+  }
+  return keys;
+}
+
+const packageKeys = extractTopLevelLockfileKeys(packagesSection, {
+  allowInlineEmpty: false,
+  name: "packages",
+});
+const snapshotKeys = extractTopLevelLockfileKeys(snapshotsSection, {
+  allowInlineEmpty: true,
+  name: "snapshots",
+});
+/**
+ * Parse a direct or pnpm-aliased brace-expansion lockfile key. The occurrence
+ * identity binds a package entry to its corresponding snapshot, preventing a
+ * reviewed direct snapshot from authorizing a separate alias occurrence.
+ * @param {string} key
+ * @param {{allowPatchHash: boolean}} options
+ * @returns {{identity: string; patchSha256?: string; version: string} | null}
+ */
+function parseBraceExpansionOccurrence(key, { allowPatchHash }) {
+  const patchHash = allowPatchHash
+    ? "(?:\\(patch_hash=([0-9a-f]{64})\\))?"
+    : "";
+  const match = new RegExp(
+    `^(brace-expansion|.+@npm:brace-expansion)@([^\\s(]+)${patchHash}$`,
+  ).exec(key);
+  if (match === null) return null;
+  return {
+    identity: match[1],
+    patchSha256: match[3],
+    version: match[2],
+  };
+}
+
+const braceExpansionPackages = packageKeys.flatMap((key) => {
+  const occurrence = parseBraceExpansionOccurrence(key, {
+    allowPatchHash: false,
+  });
+  return occurrence === null ? [] : [occurrence];
+});
+const patchedDependenciesStart = lockfileText.indexOf(
+  "\npatchedDependencies:\n",
+);
+const importersStart =
+  patchedDependenciesStart === -1
+    ? -1
+    : lockfileText.indexOf("\nimporters:\n", patchedDependenciesStart);
+const patchedDependenciesSection =
+  patchedDependenciesStart !== -1 && importersStart !== -1
+    ? lockfileText.slice(
+        patchedDependenciesStart + "\npatchedDependencies:\n".length,
+        importersStart,
+      )
+    : "";
+const reviewedPatchEntries = [
+  ...patchedDependenciesSection.matchAll(
+    /^ {2}brace-expansion@2\.1\.2:\n {4}hash: ([0-9a-f]{64})\n {4}path: (\S+)\s*$/gm,
+  ),
+];
+const reviewedPatchPaths = new Set([
+  BRACE_EXPANSION_RUNTIME_PATCH_PATH,
+  `scripts/vercel-cli-runtime/${BRACE_EXPANSION_RUNTIME_PATCH_PATH}`,
+]);
+
+function hasExactReviewedBraceExpansionPatch() {
+  if (
+    reviewedPatchEntries.length !== 1 ||
+    reviewedPatchEntries[0][1] !== BRACE_EXPANSION_PATCH_SHA256 ||
+    !reviewedPatchPaths.has(reviewedPatchEntries[0][2])
+  ) {
+    return false;
+  }
+  const patchPath = resolve(ROOT, reviewedPatchEntries[0][2]);
+  try {
+    const patchEntry = lstatSync(patchPath);
+    const canonicalRoot = realpathSync(ROOT);
+    const canonicalPatch = realpathSync(patchPath);
+    const patchFromRoot = relative(canonicalRoot, canonicalPatch);
+    if (
+      patchEntry.isSymbolicLink() ||
+      !patchEntry.isFile() ||
+      patchEntry.nlink !== 1 ||
+      patchFromRoot === "" ||
+      patchFromRoot === ".." ||
+      patchFromRoot.startsWith(`..${sep}`) ||
+      isAbsolute(patchFromRoot)
+    ) {
+      return false;
+    }
+    return (
+      createHash("sha256")
+        .update(readFileSync(canonicalPatch))
+        .digest("hex") === BRACE_EXPANSION_PATCH_SHA256
+    );
+  } catch {
+    return false;
+  }
+}
+
+const hasReviewedBraceExpansionPatch = hasExactReviewedBraceExpansionPatch();
+const braceExpansionSnapshots = snapshotKeys.flatMap((key) => {
+  const occurrence = parseBraceExpansionOccurrence(key, {
+    allowPatchHash: true,
+  });
+  return occurrence === null ? [] : [occurrence];
+});
+
+/**
+ * Treat a non-stable version as affected so a prerelease cannot bypass the
+ * advisory guard without an explicit review.
+ * @param {string} version
+ */
+function isAffectedBraceExpansionVersion(version) {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+  if (!match) return true;
+  const value = match.slice(1).map(Number);
+  const fixed = [5, 0, 8];
+  for (let index = 0; index < value.length; index++) {
+    if (value[index] !== fixed[index]) return value[index] < fixed[index];
+  }
+  return false;
+}
+
+/**
+ * @param {{identity: string; version: string}} occurrence
+ * @param {Array<{identity: string; patchSha256?: string; version: string}>} snapshots
+ */
+function isExactReviewedBraceExpansionPackage(occurrence, snapshots) {
+  const matchingSnapshots = snapshots.filter(
+    (snapshot) =>
+      snapshot.identity === occurrence.identity &&
+      snapshot.version === occurrence.version,
+  );
+  return (
+    occurrence.version === "2.1.2" &&
+    hasReviewedBraceExpansionPatch &&
+    matchingSnapshots.length === 1 &&
+    matchingSnapshots[0].patchSha256 === BRACE_EXPANSION_PATCH_SHA256
+  );
+}
+
+/**
+ * @param {{identity: string; patchSha256?: string; version: string}} occurrence
+ * @param {Array<{identity: string; version: string}>} packages
+ */
+function isExactReviewedBraceExpansionSnapshot(occurrence, packages) {
+  const matchingPackages = packages.filter(
+    (pkg) =>
+      pkg.identity === occurrence.identity &&
+      pkg.version === occurrence.version,
+  );
+  return (
+    occurrence.version === "2.1.2" &&
+    hasReviewedBraceExpansionPatch &&
+    occurrence.patchSha256 === BRACE_EXPANSION_PATCH_SHA256 &&
+    matchingPackages.length === 1
+  );
+}
+
+for (const occurrence of braceExpansionPackages) {
+  if (!isAffectedBraceExpansionVersion(occurrence.version)) continue;
+  if (
+    !isExactReviewedBraceExpansionPackage(occurrence, braceExpansionSnapshots)
+  ) {
+    fail(
+      `brace-expansion ${occurrence.version} is affected by GHSA-mh99-v99m-4gvg and is not the exact reviewed patched 2.1.2 state; require fixed >=5.0.8 or the reviewed 2.1.2 patch.`,
+    );
+  }
+}
+
+for (const occurrence of braceExpansionSnapshots) {
+  if (!isAffectedBraceExpansionVersion(occurrence.version)) continue;
+  if (
+    !isExactReviewedBraceExpansionSnapshot(occurrence, braceExpansionPackages)
+  ) {
+    fail(
+      `brace-expansion ${occurrence.version} is affected by GHSA-mh99-v99m-4gvg and is not the exact reviewed patched 2.1.2 state; require fixed >=5.0.8 or the reviewed 2.1.2 patch.`,
+    );
+  }
 }
 
 // ── 2. Integrity validation ───────────────────────────────────────────────────

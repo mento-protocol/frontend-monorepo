@@ -355,6 +355,11 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
     manifest.scripts["supply-chain:lockfile-lint"],
     "node scripts/lockfile-lint.mjs && LOCKFILE_LINT_ROOT=scripts/vercel-pnpm-runtime node scripts/lockfile-lint.mjs && LOCKFILE_LINT_ROOT=scripts/vercel-cli-runtime node scripts/lockfile-lint.mjs",
   );
+  assert.match(
+    manifest.scripts["supply-chain:lockfile-lint:test"],
+    /scripts\/brace-expansion-regression\.test\.mjs/,
+  );
+  assert.match(manifest.scripts.test, /pnpm supply-chain:lockfile-lint:test/);
   assert.deepEqual(bootstrapManifest.dependencies, {
     "@pnpm/linux-x64": "10.34.4",
   });
@@ -391,6 +396,10 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
   assert.ok(vercelCliRuntimeLock.packages["vercel@56.2.0"]);
   assert.doesNotMatch(rootOsvConfig, /GHSA-gj8w-mvpf-x27x/);
   assert.match(
+    rootOsvConfig,
+    /GHSA-mh99-v99m-4gvg[\s\S]*ignoreUntil = 2026-08-16T00:00:00Z/,
+  );
+  assert.match(
     supplyChain.jobs.osv.with["scan-args"],
     /--config=osv-scanner\.toml[\s\S]*--lockfile=pnpm-lock\.yaml/,
   );
@@ -410,15 +419,19 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
     [...vercelCliRuntimeOsvConfig.matchAll(/^id = "([^"]+)"$/gm)].map(
       ([, id]) => id,
     ),
-    ["GHSA-fm4j-4xhm-xpwx", "GHSA-gc25-3vc5-2jf9"],
+    ["GHSA-fm4j-4xhm-xpwx", "GHSA-gc25-3vc5-2jf9", "GHSA-mh99-v99m-4gvg"],
   );
   assert.equal(
     (vercelCliRuntimeOsvConfig.match(/^\[\[IgnoredVulns\]\]$/gm) ?? []).length,
-    2,
+    3,
   );
   assert.doesNotMatch(
     vercelCliRuntimeOsvConfig,
-    /GHSA-(?!fm4j-4xhm-xpwx|gc25-3vc5-2jf9)/,
+    /GHSA-(?!fm4j-4xhm-xpwx|gc25-3vc5-2jf9|mh99-v99m-4gvg)/,
+  );
+  assert.match(
+    vercelCliRuntimeOsvConfig,
+    /GHSA-mh99-v99m-4gvg[\s\S]*ignoreUntil = 2026-08-16T00:00:00Z/,
   );
   assert.equal(
     supplyChain.jobs["osv-pnpm-bootstrap"].with["scan-args"].trim(),
