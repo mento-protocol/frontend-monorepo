@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { test } from "node:test";
+import { setImmediate } from "node:timers";
 
 import { chromium } from "@playwright/test";
 
-import { fulfillProductionShadowRequest } from "./e2e/production-shadow/request-policy.mjs";
+import {
+  drainProductionShadowRequestRoutes,
+  fulfillProductionShadowRequest,
+} from "./e2e/production-shadow/request-policy.mjs";
 import defaultConfig from "./playwright.config.ts";
 import productionShadowConfig from "./playwright.production-shadow.config.ts";
 
@@ -30,6 +34,14 @@ function origin(server) {
   const address = server.address();
   assert.ok(address && typeof address === "object");
   return `http://127.0.0.1:${address.port}`;
+}
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((resolver) => {
+    resolve = resolver;
+  });
+  return { promise, resolve };
 }
 
 test("only the dedicated config collects production-shadow smoke specs", () => {
@@ -114,6 +126,96 @@ test(
     } finally {
       await browser?.close();
       await Promise.all([close(source), close(destination)]);
+    }
+  },
+);
+
+test(
+  "production-shadow teardown exposes a late critical response before assertions",
+  { timeout: 30_000 },
+  async () => {
+    const requestStarted = deferred();
+    const releaseResponse = deferred();
+    const server = createServer(async (request, response) => {
+      if (request.url === "/slow.js") {
+        requestStarted.resolve();
+        await releaseResponse.promise;
+        response.writeHead(503, { "content-type": "text/javascript" });
+        response.end("throw new Error('unavailable')");
+        return;
+      }
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end("<!doctype html><title>source</title>");
+    });
+    await listen(server);
+    const serverOrigin = origin(server);
+
+    let browser;
+    let requestOutcome;
+    try {
+      browser = await chromium.launch({ headless: true });
+      const page = await browser.newPage();
+      const criticalResponses = [];
+      page.on("response", (response) => {
+        if (
+          response.request().resourceType() === "script" &&
+          response.status() >= 400
+        ) {
+          criticalResponses.push(
+            `script ${response.url()} HTTP ${response.status()}`,
+          );
+        }
+      });
+      await page.route("**/*", async (route) => {
+        await fulfillProductionShadowRequest({ route });
+      });
+      await page.goto(serverOrigin, { waitUntil: "domcontentloaded" });
+
+      requestOutcome = page
+        .evaluate(
+          (url) =>
+            new Promise((resolve) => {
+              const script = document.createElement("script");
+              script.src = url;
+              script.addEventListener("load", () => resolve("loaded"), {
+                once: true,
+              });
+              script.addEventListener("error", () => resolve("failed"), {
+                once: true,
+              });
+              document.head.append(script);
+            }),
+          `${serverOrigin}/slow.js`,
+        )
+        .then(
+          (value) => ({ value }),
+          (error) => ({ error }),
+        );
+      await requestStarted.promise;
+
+      let teardownFinished = false;
+      const teardown = drainProductionShadowRequestRoutes({ page }).then(() => {
+        teardownFinished = true;
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(
+        teardownFinished,
+        false,
+        "teardown must wait while route.fetch is still active",
+      );
+
+      releaseResponse.resolve();
+      await teardown;
+      assert.deepEqual(criticalResponses, [
+        `script ${serverOrigin}/slow.js HTTP 503`,
+      ]);
+      await requestOutcome;
+      await drainProductionShadowRequestRoutes({ page });
+    } finally {
+      releaseResponse.resolve();
+      await requestOutcome;
+      await browser?.close();
+      await close(server);
     }
   },
 );
