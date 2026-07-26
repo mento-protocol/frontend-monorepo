@@ -1650,10 +1650,21 @@ test("shadow smoke strips protection headers and disables traces", () => {
   assert.match(requestPolicy, /route\.fetch/);
   assert.match(requestPolicy, /maxRedirects: 0/);
   assert.match(requestPolicy, /route\.fulfill/);
+  assert.match(spec, /test\.afterEach/);
+  assert.match(spec, /drainProductionShadowRequestRoutes/);
+  assert.match(
+    spec,
+    /await drainProductionShadowRequestRoutes\(\{ page \}\);\s+expect\(errors\.origins/,
+  );
+  assert.match(requestPolicy, /page\.unrouteAll\(\{ behavior: "wait" \}\)/);
+  assert.match(requestPolicy, /page\.evaluate\(\(\) => undefined\)/);
   assert.match(redirectRegression, /createServer/);
   assert.match(redirectRegression, /chromium\.launch/);
   assert.match(redirectRegression, /received\.source, \[undefined\]/);
   assert.match(redirectRegression, /received\.destination, \[undefined\]/);
+  assert.match(redirectRegression, /late critical response/);
+  assert.match(redirectRegression, /releaseResponse/);
+  assert.match(redirectRegression, /criticalResponses/);
   for (const target of ["app", "governance", "reserve", "ui"]) {
     const nextConfig = readFileSync(
       new URL(`../apps/${target}.mento.org/next.config.ts`, import.meta.url),
