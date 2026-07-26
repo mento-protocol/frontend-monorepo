@@ -5,23 +5,26 @@ import {
   createRuntimeErrorLedger,
   displayUrl,
   formatConsoleError,
+  formatCriticalRequestFailure,
   hasAuthoritativeRuntimeErrors,
+  recordCrossOriginFrame,
   recordRuntimeResponse,
 } from "./runtime-errors.mjs";
 
-test("URL diagnostics remove credentials, query tokens, and fragments", () => {
+test("URL diagnostics expose only the safe origin", () => {
   assert.equal(
     displayUrl(
       "https://alice:secret@reserve.example.invalid:8443/api/reserve?token=abc&signature=def#private",
     ),
-    "https://reserve.example.invalid:8443/api/reserve",
+    "https://reserve.example.invalid:8443",
   );
 });
 
-test("URL diagnostics replace malformed or non-HTTP URLs without echoing them", () => {
+test("URL diagnostics replace malformed, non-HTTP, and oversized URLs without echoing them", () => {
   for (const value of [
     "not a url?token=secret",
     "javascript:alert('secret')",
+    `https://reserve.example.invalid/${"secret".repeat(2_000)}`,
   ]) {
     assert.equal(displayUrl(value), "[invalid URL]");
   }
@@ -33,7 +36,7 @@ test("console diagnostics include a source URL when Chromium provides one", () =
       text: () => "Failed to load resource",
       location: () => ({ url: "https://reserve.example.invalid/api/reserve" }),
     }),
-    "Failed to load resource (https://reserve.example.invalid/api/reserve)",
+    "Failed to load resource (https://reserve.example.invalid)",
   );
 });
 
@@ -47,7 +50,7 @@ test("console source diagnostics use the sanitized URL display", () => {
 
   assert.equal(
     diagnostic,
-    "Failed to load resource (https://reserve.example.invalid/api)",
+    "Failed to load resource (https://reserve.example.invalid)",
   );
   assert.doesNotMatch(diagnostic, /secret|token|private/);
 });
@@ -71,7 +74,7 @@ test("a fetch 429 is retained as diagnostics without becoming authoritative", ()
   });
 
   assert.deepEqual(ledger.responseDiagnostics, [
-    "fetch https://reserve.example.invalid/api/reserve HTTP 429",
+    "fetch https://reserve.example.invalid HTTP 429",
   ]);
   assert.deepEqual(ledger.responses, []);
   assert.equal(hasAuthoritativeRuntimeErrors(ledger), false);
@@ -87,8 +90,31 @@ test("HTTP response diagnostics use the sanitized URL display", () => {
   });
 
   assert.deepEqual(ledger.responseDiagnostics, [
-    "fetch https://reserve.example.invalid/api/reserve HTTP 429",
+    "fetch https://reserve.example.invalid HTTP 429",
   ]);
+});
+
+test("frame and request ledgers use the bounded URL display", () => {
+  const ledger = createRuntimeErrorLedger();
+  const secretUrl =
+    "https://alice:secret@reserve.example.invalid/private-token?signature=abc#fragment";
+  recordCrossOriginFrame(ledger, secretUrl);
+  ledger.requests.push(
+    formatCriticalRequestFailure({
+      resourceType: () => "script",
+      url: () => secretUrl,
+      failure: () => ({ errorText: "net::ERR_FAILED" }),
+    }),
+  );
+
+  assert.deepEqual(ledger.origins, ["https://reserve.example.invalid"]);
+  assert.deepEqual(ledger.requests, [
+    "script https://reserve.example.invalid net::ERR_FAILED",
+  ]);
+  assert.doesNotMatch(
+    JSON.stringify(ledger),
+    /secret|token|signature|fragment/,
+  );
 });
 
 test("a script 429 remains an authoritative smoke failure", () => {
@@ -100,7 +126,7 @@ test("a script 429 remains an authoritative smoke failure", () => {
   });
 
   assert.deepEqual(ledger.responses, [
-    "script https://reserve.example.invalid/_next/static/app.js HTTP 429",
+    "script https://reserve.example.invalid HTTP 429",
   ]);
   assert.equal(hasAuthoritativeRuntimeErrors(ledger), true);
 });

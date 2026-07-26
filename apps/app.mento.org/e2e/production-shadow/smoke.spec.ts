@@ -18,7 +18,9 @@ import {
 import {
   createRuntimeErrorLedger,
   formatConsoleError,
+  formatCriticalRequestFailure,
   hasAuthoritativeRuntimeErrors,
+  recordCrossOriginFrame,
   recordRuntimeResponse,
 } from "./runtime-errors.mjs";
 
@@ -87,15 +89,13 @@ function observeRuntimeErrors(page: Page, origin: string): RuntimeErrors {
     try {
       assertProductionShadowOrigin(frame.url(), origin);
     } catch {
-      errors.origins.push(frame.url());
+      recordCrossOriginFrame(errors, frame.url());
     }
   });
   page.on("requestfailed", (request) => {
     const resourceType = request.resourceType();
     if (["document", "script", "stylesheet"].includes(resourceType)) {
-      errors.requests.push(
-        `${resourceType} ${request.url()} ${request.failure()?.errorText ?? "failed"}`,
-      );
+      errors.requests.push(formatCriticalRequestFailure(request));
     }
   });
   page.on("response", (response) => {
