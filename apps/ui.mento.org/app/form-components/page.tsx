@@ -189,6 +189,7 @@ export default function FormComponentsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {/* This example leaves parent state unchanged to show Datepicker's internal interaction. */}
             <Datepicker
               value={DATEPICKER_DEFAULT_DATE}
               onChange={() => {}}
