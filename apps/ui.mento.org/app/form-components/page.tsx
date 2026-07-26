@@ -189,6 +189,7 @@ export default function FormComponentsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {/* This showcase keeps Datepicker read-only so its display stays stable. */}
             <Datepicker
               value={DATEPICKER_DEFAULT_DATE}
               onChange={() => {}}
