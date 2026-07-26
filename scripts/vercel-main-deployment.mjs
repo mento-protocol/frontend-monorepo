@@ -67,6 +67,8 @@ export const MAIN_STAGE_SCHEMA = "vercel-main-stage:v1";
 export const MAIN_EVIDENCE_SCHEMA = "vercel-main-evidence:v1";
 export const MAIN_FAILURE_EVIDENCE_SCHEMA = "vercel-main-failure-evidence:v1";
 export const MAIN_ACTIVE_EVIDENCE_SCHEMA = "vercel-main-active-evidence:v1";
+export const MAIN_ACTIVE_SAFE_NOOP_EVIDENCE_SCHEMA =
+  "vercel-main-active-safe-noop-evidence:v1";
 export const MAIN_ACTIVE_FAILURE_EVIDENCE_SCHEMA =
   "vercel-main-active-failure-evidence:v1";
 export const MAIN_DEPLOYMENT_MODE = MAIN_TRANSACTION_MODE;
@@ -219,6 +221,7 @@ const CLI_COMMAND_OPTIONS = Object.freeze({
     "output",
     "state-proof",
   ]),
+  "active-safe-noop-evidence": Object.freeze(["output"]),
   "active-journal-history": Object.freeze(["artifacts", "output"]),
   "active-journal-identity": Object.freeze([]),
   "active-journal-receipt": Object.freeze([
@@ -3344,6 +3347,117 @@ export function evaluateMainActiveFinalResults({
   return result("failure", "unexpected-active-job-graph");
 }
 
+export function createMainActiveSafeNoopEvidence({
+  plan,
+  jobs,
+  coordinatorOutcome,
+  recoveryOutcome,
+  verifiedDeploySha,
+  workflowDefinitionSha,
+  runId,
+  runAttempt,
+  workflowRunUrl,
+}) {
+  const handoff = assertMainDeploymentHandoff(plan);
+  const canonicalJobs = canonicalFinalJobResults(
+    jobs,
+    "Active safe-noop evidence job results",
+  );
+  const verdict = evaluateMainActiveFinalResults({
+    plan: handoff,
+    jobs: canonicalJobs,
+    coordinatorOutcome,
+    recoveryOutcome,
+  });
+  if (
+    verdict.releaseOutcome !== "success" ||
+    verdict.evidenceKind !== "success" ||
+    verdict.failAfterEvidence ||
+    verdict.reason === "active-committed"
+  ) {
+    throw new Error("Active safe-noop evidence requires a safe no-op verdict");
+  }
+  const deploySha = requireSha(
+    verifiedDeploySha,
+    "Active safe-noop deployment SHA",
+  );
+  if (deploySha !== handoff.deploySha) {
+    throw new Error("Active safe-noop deployment SHA does not match the plan");
+  }
+  const definitionSha = requireSha(
+    workflowDefinitionSha,
+    "Active safe-noop workflow definition SHA",
+  );
+  if (definitionSha !== handoff.deploySha) {
+    throw new Error(
+      "Active safe-noop workflow definition SHA does not match the plan",
+    );
+  }
+  const expectedRunId = requirePositiveId(
+    runId,
+    "Active safe-noop evidence run ID",
+  );
+  const expectedRunAttempt = requirePositiveId(
+    runAttempt,
+    "Active safe-noop evidence run attempt",
+  );
+  const expectedWorkflowRunUrl = createMainWorkflowRunUrl({
+    serverUrl: "https://github.com",
+    repository: MAIN_TRANSACTION_REPOSITORY,
+    runId: expectedRunId,
+  });
+  if (workflowRunUrl !== expectedWorkflowRunUrl) {
+    throw new Error("Active safe-noop evidence workflow run URL is invalid");
+  }
+  return {
+    schema: MAIN_ACTIVE_SAFE_NOOP_EVIDENCE_SCHEMA,
+    mode: MAIN_ACTIVE_DEPLOYMENT_MODE,
+    repository: MAIN_TRANSACTION_REPOSITORY,
+    deploySha,
+    workflowDefinitionSha: definitionSha,
+    runId: expectedRunId,
+    runAttempt: expectedRunAttempt,
+    workflowRunUrl: expectedWorkflowRunUrl,
+    planning: createMainActivePlanning({ plan: handoff }),
+    jobs: canonicalJobs,
+    coordinatorOutcome,
+    recoveryOutcome,
+    publicServingMutationCommands: 0,
+    outcome: "success",
+    reason: verdict.reason,
+  };
+}
+
+export function renderMainActiveSafeNoopEvidence(evidence) {
+  if (
+    !isPlainObject(evidence) ||
+    evidence.schema !== MAIN_ACTIVE_SAFE_NOOP_EVIDENCE_SCHEMA ||
+    evidence.outcome !== "success" ||
+    !["no-target", "superseded-before-journal", "shadow-prepared"].includes(
+      evidence.reason,
+    ) ||
+    evidence.publicServingMutationCommands !== 0
+  ) {
+    throw new Error("Active safe-noop evidence is malformed");
+  }
+  const targets = (value) =>
+    value.map((target) => `\`${target}\``).join(", ") || "none";
+  return [
+    "### Vercel main active safe-noop evidence",
+    "",
+    `- DEPLOY_SHA: \`${evidence.deploySha}\``,
+    `- Downstream workflow: [run ${evidence.runId}, attempt ${evidence.runAttempt}](${evidence.workflowRunUrl})`,
+    `- Outcome: \`success\` (\`${evidence.reason}\`)`,
+    `- Staged targets: ${targets(evidence.planning.stagedTargets)}`,
+    `- GitHub-owned active targets: ${targets(evidence.planning.activeTargets)}`,
+    `- Native-owned shadow targets: ${targets(evidence.planning.shadowTargets)}`,
+    `- Coordinator: \`${evidence.coordinatorOutcome}\`; recovery: \`${evidence.recoveryOutcome}\``,
+    "- Active journal: `not-required`",
+    "- Public-serving mutation commands: `0`",
+    "",
+  ].join("\n");
+}
+
 export function parseMainDeploymentArguments(argv) {
   if (!Array.isArray(argv) || !Object.hasOwn(CLI_COMMAND_OPTIONS, argv[0])) {
     throw new Error("Main deployment command is missing or unsupported");
@@ -4090,6 +4204,28 @@ export async function runMainDeploymentCli({
       `Vercel active final result: ${result.releaseOutcome} (${result.reason})\n`,
     );
     return result;
+  }
+  if (command === "active-safe-noop-evidence") {
+    const evidence = createMainActiveSafeNoopEvidence({
+      plan: parseJson(values.PLAN_JSON, "Main deployment plan"),
+      jobs: finalJobsFromEnvironment(values),
+      coordinatorOutcome: values.COORDINATOR_OUTCOME,
+      recoveryOutcome: values.RECOVERY_OUTCOME,
+      verifiedDeploySha: values.DEPLOY_SHA,
+      workflowDefinitionSha: values.GITHUB_WORKFLOW_SHA,
+      runId: values.GITHUB_RUN_ID,
+      runAttempt: values.GITHUB_RUN_ATTEMPT,
+      workflowRunUrl: activeWorkflowRunUrlFromEnvironment(values),
+    });
+    writeCanonicalJson(options.output, evidence);
+    if (!values.GITHUB_STEP_SUMMARY) {
+      throw new Error("GITHUB_STEP_SUMMARY is required");
+    }
+    appendFileSync(
+      values.GITHUB_STEP_SUMMARY,
+      renderMainActiveSafeNoopEvidence(evidence),
+    );
+    return evidence;
   }
   if (command === "active-evidence") {
     const evidence = createMainActiveDeploymentEvidence({

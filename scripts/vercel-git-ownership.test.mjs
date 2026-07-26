@@ -99,6 +99,17 @@ test("repository pairs every target with its canonical exact ownership configura
 });
 
 test("main workflow mode and both per-target Git owners change atomically", () => {
+  const workflowMainOwnership = JSON.parse(
+    mainDeployment.env.MAIN_OWNERSHIP_MODE_JSON,
+  );
+  const modeledMainOwnership = Object.fromEntries(
+    PREVIEW_TARGETS.map((target) => [
+      target,
+      PREVIEW_TARGET_CONFIG[target].mainOwnershipMode,
+    ]),
+  );
+  assert.deepEqual(Object.keys(workflowMainOwnership), PREVIEW_TARGETS);
+  assert.deepEqual(workflowMainOwnership, modeledMainOwnership);
   assertMainWorkflowOwnershipModes(
     mainDeployment.env.VERCEL_MAIN_MODE,
     Object.values(PREVIEW_TARGET_CONFIG),

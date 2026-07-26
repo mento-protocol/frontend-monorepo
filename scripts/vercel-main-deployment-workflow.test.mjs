@@ -667,32 +667,62 @@ test("recovery discovers an exact App candidate only after mapped App movement a
   }
 });
 
-test("result uses the active final sentinel and fails only after evidence publication", () => {
+test("result selects canonical evidence from verdict outputs and fails only after publication", () => {
   const sentinel = step("result", "Enforce one active final result");
   assert.match(sentinel.run, /final-active/);
   assert.equal(sentinel["continue-on-error"], true);
+  const activeSuccess = step(
+    "result",
+    "Download canonical active success evidence",
+  );
+  const safeNoop = step("result", "Write canonical active safe-noop evidence");
+  for (const selected of [activeSuccess, safeNoop]) {
+    assert.match(selected.if, /final-verdict\.outcome == 'success'/);
+    assert.match(
+      selected.if,
+      /final-verdict\.outputs\.release_outcome == 'success'/,
+    );
+    assert.match(
+      selected.if,
+      /final-verdict\.outputs\.evidence_kind == 'success'/,
+    );
+    assert.match(
+      selected.if,
+      /final-verdict\.outputs\.fail_after_evidence == 'false'/,
+    );
+  }
+  assert.match(safeNoop.run, /active-safe-noop-evidence/);
+  assert.doesNotMatch(safeNoop.run, /active-failure-evidence/);
   const artifact = step("result", "Upload canonical redacted PR-A evidence");
   assert.equal(artifact.uses, UPLOAD);
-  assert.equal(
-    step(
-      "result",
-      "Download every active journal snapshot for failure evidence",
-    ).with["merge-multiple"],
-    false,
+  const journalDownload = step(
+    "result",
+    "Download every active journal snapshot for failure evidence",
   );
-  assert.match(
-    step("result", "Write active safe-noop audit evidence").run,
-    /active-failure-evidence/,
-  );
-  assert.match(
-    step("result", "Write canonical active failure evidence").run,
-    /active-failure-evidence/,
-  );
-  assert.match(
-    step("result", "Write canonical active failure evidence").run,
-    /PUBLIC_SERVING_MUTATION_COMMANDS=12/,
+  assert.equal(journalDownload.with["merge-multiple"], false);
+  const failureEvidence = step(
+    "result",
+    "Write canonical active failure evidence",
   );
   const fail = step("result", "Fail after publishing an unsafe final result");
+  for (const selected of [journalDownload, failureEvidence, fail]) {
+    assert.match(selected.if, /final-verdict\.outcome != 'success'/);
+    assert.match(
+      selected.if,
+      /final-verdict\.outputs\.release_outcome != 'success'/,
+    );
+    assert.match(
+      selected.if,
+      /final-verdict\.outputs\.evidence_kind != 'success'/,
+    );
+    assert.match(
+      selected.if,
+      /final-verdict\.outputs\.fail_after_evidence != 'false'/,
+    );
+  }
+  assert.equal(failureEvidence.if, fail.if);
+  assert.match(failureEvidence.run, /active-failure-evidence/);
+  assert.match(failureEvidence.run, /PUBLIC_SERVING_MUTATION_COMMANDS=12/);
   assert.match(fail.run, /exit 1/);
 });
 

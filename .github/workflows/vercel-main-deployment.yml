@@ -1954,14 +1954,25 @@ jobs:
         run: node scripts/vercel-main-deployment.mjs final-active
 
       - name: Download canonical active success evidence
-        if: ${{ always() && steps.final-verdict.outcome == 'success' && needs.activate-and-verify.outputs.outcome == 'active-committed' }}
+        if: >-
+          always() &&
+          steps.final-verdict.outcome == 'success' &&
+          steps.final-verdict.outputs.release_outcome == 'success' &&
+          steps.final-verdict.outputs.evidence_kind == 'success' &&
+          steps.final-verdict.outputs.fail_after_evidence == 'false' &&
+          needs.activate-and-verify.outputs.outcome == 'active-committed'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: vercel-main-active-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}
 
       - name: Download every active journal snapshot for failure evidence
-        if: ${{ always() && steps.final-verdict.outcome != 'success' }}
+        if: >-
+          always() &&
+          (steps.final-verdict.outcome != 'success' ||
+          steps.final-verdict.outputs.release_outcome != 'success' ||
+          steps.final-verdict.outputs.evidence_kind != 'success' ||
+          steps.final-verdict.outputs.fail_after_evidence != 'false')
         id: final-journal-download
         continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -1981,11 +1992,16 @@ jobs:
           --artifacts "$RUNNER_TEMP/main-final-journals"
           --output "$RUNNER_TEMP/main-final-journal-history.json"
 
-      - name: Write active safe-noop audit evidence
+      - name: Write canonical active safe-noop evidence
         id: success-evidence
-        if: ${{ always() && steps.final-verdict.outcome == 'success' && needs.activate-and-verify.outputs.outcome != 'active-committed' }}
+        if: >-
+          always() &&
+          steps.final-verdict.outcome == 'success' &&
+          steps.final-verdict.outputs.release_outcome == 'success' &&
+          steps.final-verdict.outputs.evidence_kind == 'success' &&
+          steps.final-verdict.outputs.fail_after_evidence == 'false' &&
+          needs.activate-and-verify.outputs.outcome != 'active-committed'
         env:
-          EVENT_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           DEPLOY_SHA: ${{ needs.wait-for-ci.outputs.deploy_sha }}
           PLAN_JSON: ${{ needs.plan-main-deployments.outputs.plan }}
           GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
@@ -1998,19 +2014,18 @@ jobs:
           RECOVERY_RESULT: ${{ needs.recover-main-deployment.result }}
           COORDINATOR_OUTCOME: ${{ needs.activate-and-verify.outputs.outcome }}
           RECOVERY_OUTCOME: ${{ needs.recover-main-deployment.outputs.outcome }}
-          ACTIVE_FRESHNESS_JSON: "[]"
-          ROLLBACK_STATE_TARGETS_JSON: "[]"
-          PUBLIC_SERVING_MUTATION_COMMANDS: "0"
-          ACTIVE_ERROR_CODE: SAFE_NOOP
-        run: |
-          set -euo pipefail
-          printf '[]\n' > "$RUNNER_TEMP/active-noop-journal-history.json"
-          printf 'null\n' > "$RUNNER_TEMP/active-noop-state-proof.json"
-          node scripts/vercel-main-deployment.mjs active-failure-evidence --journal-history "$RUNNER_TEMP/active-noop-journal-history.json" --state-proof "$RUNNER_TEMP/active-noop-state-proof.json" --output "$RUNNER_TEMP/vercel-main-evidence.json"
+        run: >-
+          node scripts/vercel-main-deployment.mjs active-safe-noop-evidence
+          --output "$RUNNER_TEMP/vercel-main-evidence.json"
 
       - name: Write canonical active failure evidence
         id: failure-evidence
-        if: ${{ always() && steps.final-verdict.outcome != 'success' }}
+        if: >-
+          always() &&
+          (steps.final-verdict.outcome != 'success' ||
+          steps.final-verdict.outputs.release_outcome != 'success' ||
+          steps.final-verdict.outputs.evidence_kind != 'success' ||
+          steps.final-verdict.outputs.fail_after_evidence != 'false')
         env:
           EVENT_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           DEPLOY_SHA: ${{ needs.wait-for-ci.outputs.deploy_sha }}
@@ -2054,7 +2069,12 @@ jobs:
           retention-days: 14
 
       - name: Fail after publishing an unsafe final result
-        if: ${{ always() && steps.final-verdict.outcome != 'success' }}
+        if: >-
+          always() &&
+          (steps.final-verdict.outcome != 'success' ||
+          steps.final-verdict.outputs.release_outcome != 'success' ||
+          steps.final-verdict.outputs.evidence_kind != 'success' ||
+          steps.final-verdict.outputs.fail_after_evidence != 'false')
         run: |
           echo "The Vercel main deployment graph did not reach a safe final result" >&2
           exit 1

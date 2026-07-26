@@ -16,6 +16,7 @@ import {
   MAIN_ACTIVE_DEPLOYMENT_MODE,
   MAIN_ACTIVE_EVIDENCE_SCHEMA,
   MAIN_ACTIVE_FAILURE_EVIDENCE_SCHEMA,
+  MAIN_ACTIVE_SAFE_NOOP_EVIDENCE_SCHEMA,
   MAIN_DEPLOYMENT_MODE,
   MAIN_DEPLOYMENT_SCHEMA,
   MAIN_FAILURE_EVIDENCE_SCHEMA,
@@ -36,6 +37,7 @@ import {
   createMainActiveAliasMappingSet,
   createMainActiveDeploymentStateSpec,
   createMainActiveDeploymentFailureEvidence,
+  createMainActiveSafeNoopEvidence,
   createMainActiveJournalHistoryIdentity,
   createMainActivePlanning,
   createMainActivePublicSmokes,
@@ -58,6 +60,7 @@ import {
   recoverMainShadowTransaction,
   renderMainActiveDeploymentEvidence,
   renderMainActiveDeploymentFailureEvidence,
+  renderMainActiveSafeNoopEvidence,
   renderMainDeploymentEvidence,
   renderMainDeploymentFailureEvidence,
   runMainActiveRecovery,
@@ -785,6 +788,7 @@ test("controller CLI accepts only each command's exact non-duplicated options", 
       "--state-proof",
       "/tmp/state-proof.json",
     ],
+    ["active-safe-noop-evidence", "--output", "/tmp/safe-noop-evidence.json"],
     ["validate-context"],
     ["validate-source"],
     ["create-spec", "--scope", "main", "--output", "/tmp/spec.json"],
@@ -2885,6 +2889,49 @@ test("active final result accepts a staged target-local main rollback with no ac
   );
 });
 
+test("active safe-noop evidence records target-local shadow success without failure semantics", () => {
+  const deploymentPlan = activePlan({
+    deployments: ["governance"],
+    mainOwnershipMode: ownership({
+      governance: MAIN_OWNERSHIP_MODES.SHADOW,
+    }),
+  });
+  const evidence = createMainActiveSafeNoopEvidence({
+    plan: deploymentPlan,
+    jobs: activeJobs(deploymentPlan),
+    coordinatorOutcome: "shadow-prepared",
+    recoveryOutcome: "not-required",
+    verifiedDeploySha: SHA,
+    workflowDefinitionSha: SHA,
+    runId: "800",
+    runAttempt: "3",
+    workflowRunUrl: WORKFLOW_RUN_URL,
+  });
+  assert.equal(evidence.schema, MAIN_ACTIVE_SAFE_NOOP_EVIDENCE_SCHEMA);
+  assert.equal(evidence.outcome, "success");
+  assert.equal(evidence.reason, "shadow-prepared");
+  assert.equal(evidence.publicServingMutationCommands, 0);
+  assert.deepEqual(evidence.planning.stagedTargets, ["governance"]);
+  assert.deepEqual(evidence.planning.activeTargets, []);
+  assert.deepEqual(evidence.planning.shadowTargets, ["governance"]);
+  assert.equal(Object.hasOwn(evidence, "journal"), false);
+  const summary = renderMainActiveSafeNoopEvidence(evidence);
+  assert.match(summary, /active safe-noop evidence/);
+  assert.match(summary, /Outcome: `success` \(`shadow-prepared`\)/);
+  assert.match(summary, /Active journal: `not-required`/);
+  assert.doesNotMatch(summary, /failure/i);
+  assert.throws(
+    () =>
+      createMainActiveSafeNoopEvidence({
+        ...evidence,
+        plan: activePlan({ deployments: ["governance"] }),
+        jobs: activeJobs(activePlan({ deployments: ["governance"] })),
+        coordinatorOutcome: "active-committed",
+      }),
+    /requires a safe no-op verdict/,
+  );
+});
+
 test("active failure evidence never claims zero after a mutation may have started and redacts raw plan output", () => {
   const deploymentPlan = activePlan({ deployments: ["governance"] });
   const prepared = createPreparedMainActiveJournal({
@@ -2970,6 +3017,75 @@ test("active failure evidence never claims zero after a mutation may have starte
   assert.equal(unavailableAfterRecovery.publicServingMutationCommands, 12);
 });
 
+test("final-active CLI and safe-noop renderer publish target-local shadow success", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "vercel-main-active-noop-"));
+  try {
+    const githubOutput = join(directory, "github-output");
+    const evidenceOutput = join(directory, "evidence.json");
+    const summary = join(directory, "summary.md");
+    writeFileSync(githubOutput, "");
+    writeFileSync(summary, "");
+    const deploymentPlan = activePlan({
+      deployments: ["governance"],
+      mainOwnershipMode: ownership({
+        governance: MAIN_OWNERSHIP_MODES.SHADOW,
+      }),
+    });
+    const values = {
+      PLAN_JSON: JSON.stringify(deploymentPlan),
+      WAIT_FOR_CI_RESULT: "success",
+      PLAN_RESULT: "success",
+      STAGE_GOVERNANCE_RESULT: "success",
+      STAGE_RESERVE_RESULT: "skipped",
+      STAGE_UI_RESULT: "skipped",
+      COORDINATOR_RESULT: "success",
+      COORDINATOR_OUTCOME: "shadow-prepared",
+      RECOVERY_RESULT: "success",
+      RECOVERY_OUTCOME: "not-required",
+      DEPLOY_SHA: SHA,
+      GITHUB_WORKFLOW_SHA: SHA,
+      GITHUB_RUN_ID: "800",
+      GITHUB_RUN_ATTEMPT: "3",
+      GITHUB_SERVER_URL: "https://github.com",
+      GITHUB_REPOSITORY: "mento-protocol/frontend-monorepo",
+      GITHUB_OUTPUT: githubOutput,
+      GITHUB_STEP_SUMMARY: summary,
+    };
+    const verdict = await runMainDeploymentCli({
+      argv: ["final-active"],
+      values,
+    });
+    assert.deepEqual(verdict, {
+      releaseOutcome: "success",
+      evidenceKind: "success",
+      failAfterEvidence: false,
+      reason: "shadow-prepared",
+    });
+    assert.match(readFileSync(githubOutput, "utf8"), /release_outcome=success/);
+    assert.match(readFileSync(githubOutput, "utf8"), /evidence_kind=success/);
+    assert.match(
+      readFileSync(githubOutput, "utf8"),
+      /fail_after_evidence=false/,
+    );
+
+    const evidence = await runMainDeploymentCli({
+      argv: ["active-safe-noop-evidence", "--output", evidenceOutput],
+      values,
+    });
+    assert.equal(evidence.schema, MAIN_ACTIVE_SAFE_NOOP_EVIDENCE_SCHEMA);
+    assert.equal(evidence.outcome, "success");
+    assert.equal(evidence.reason, "shadow-prepared");
+    assert.deepEqual(
+      JSON.parse(readFileSync(evidenceOutput, "utf8")),
+      evidence,
+    );
+    assert.match(readFileSync(summary, "utf8"), /active safe-noop evidence/);
+    assert.doesNotMatch(readFileSync(summary, "utf8"), /failure/i);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("final-active CLI exposes fail-after-evidence without ending evidence production", async () => {
   const directory = mkdtempSync(join(tmpdir(), "vercel-main-active-final-"));
   try {
@@ -2994,8 +3110,46 @@ test("final-active CLI exposes fail-after-evidence without ending evidence produ
     });
     assert.equal(result.releaseOutcome, "failure");
     assert.equal(result.failAfterEvidence, true);
+    assert.match(readFileSync(output, "utf8"), /release_outcome=failure/);
     assert.match(readFileSync(output, "utf8"), /fail_after_evidence=true/);
     assert.match(readFileSync(output, "utf8"), /evidence_kind=failure/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("final-active CLI process fails closed when the evaluator throws", () => {
+  const directory = mkdtempSync(join(tmpdir(), "vercel-main-active-throw-"));
+  try {
+    const output = join(directory, "github-output");
+    writeFileSync(output, "");
+    const result = spawnSync(
+      process.execPath,
+      [
+        fileURLToPath(new URL("./vercel-main-deployment.mjs", import.meta.url)),
+        "final-active",
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PLAN_JSON: "{",
+          WAIT_FOR_CI_RESULT: "success",
+          PLAN_RESULT: "success",
+          STAGE_GOVERNANCE_RESULT: "success",
+          STAGE_RESERVE_RESULT: "success",
+          STAGE_UI_RESULT: "success",
+          COORDINATOR_RESULT: "success",
+          COORDINATOR_OUTCOME: "active-committed",
+          RECOVERY_RESULT: "success",
+          RECOVERY_OUTCOME: "not-required",
+          GITHUB_OUTPUT: output,
+        },
+      },
+    );
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Main deployment plan is not valid JSON/);
+    assert.equal(readFileSync(output, "utf8"), "");
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

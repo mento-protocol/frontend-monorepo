@@ -257,6 +257,18 @@ or mismatched candidates remain manual intervention. Recovery, manual
 intervention, a missing journal after a possible mutation, and recovery failure
 all fail the release after publishing redacted evidence.
 
+The final result evaluator emits the canonical `release_outcome`,
+`evidence_kind`, and `fail_after_evidence` outputs before evidence selection.
+An `active-committed` success downloads the committed
+`vercel-main-active-evidence:v1` report. A successful `no-target`,
+`superseded-before-journal`, or `shadow-prepared` no-op runs
+`active-safe-noop-evidence` and publishes
+`vercel-main-active-safe-noop-evidence:v1` with outcome `success`, no active
+journal, and zero public-serving mutation commands. An unsafe verdict publishes
+`vercel-main-active-failure-evidence:v1` before failing. If the evaluator itself
+throws or emits an incomplete result, the same downstream gates fail closed
+instead of treating the process outcome as deployment success.
+
 ### Historical PR-A shadow canary and copy-safe diagnostics
 
 The `result` job evaluates the complete graph without ending the job, then
@@ -2999,11 +3011,12 @@ controller selection and journal drain only; it is not native deployment or
 browser evidence. After merge, rebase a fresh App-runtime canary onto the
 restored `main`, bootstrap or reconcile its v2 journal through the documented
 operator events if required, and prove both native-preview recovery and the
-expected GitHub shadow canary. Separately prove that native App `main` and `v2`
-remain healthy and that custom `v3` semantics did not change. Keep App in
-shadow mode until a new independently reviewed cutover repeats the full
-acceptance matrix. Never touch Governance, Reserve, UI, production domains, or
-recreate Governance QA as part of this rollback.
+expected GitHub shadow canary. Independently prove the GitHub-owned App
+`main -> v3` path and the native App `v2 -> production` path remain healthy. A
+native preview for the rollback head is not evidence for either release path.
+Keep App in shadow mode until a new independently reviewed cutover repeats the
+full acceptance matrix. Never touch Governance, Reserve, UI, production domains,
+or recreate Governance QA as part of this rollback.
 
 ### Phase A canary evidence template
 
