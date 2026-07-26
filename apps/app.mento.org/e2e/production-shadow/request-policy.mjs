@@ -22,6 +22,14 @@ export async function fulfillProductionShadowRequest({ route }) {
   await route.fulfill({ response });
 }
 
+export async function drainProductionShadowRequestRoutes({ page }) {
+  await page.unrouteAll({ behavior: "wait" });
+  // route.fulfill() can resolve before Playwright dispatches the matching
+  // page-level response event. A browser-protocol round trip orders those
+  // events before the caller inspects its runtime-error ledger.
+  await page.evaluate(() => undefined);
+}
+
 export function assertProductionShadowOrigin(value, allowedOrigin) {
   if (new URL(value).origin !== new URL(allowedOrigin).origin) {
     throw new Error("Production-shadow navigation left its immutable origin");
