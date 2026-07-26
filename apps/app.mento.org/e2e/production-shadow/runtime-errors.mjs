@@ -15,9 +15,25 @@ export function createRuntimeErrorLedger() {
   };
 }
 
+export function displayUrl(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return "[invalid URL]";
+    }
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return "[invalid URL]";
+  }
+}
+
 export function formatConsoleError(message) {
   const location = message.location?.();
-  const suffix = location?.url ? ` (${concise(location.url)})` : "";
+  const suffix = location?.url ? ` (${displayUrl(location.url)})` : "";
   return `${concise(message.text())}${suffix}`;
 }
 
@@ -26,7 +42,7 @@ export function recordRuntimeResponse(ledger, response) {
   if (status < 400) return;
 
   const resourceType = response.request().resourceType();
-  const detail = `${resourceType} ${concise(response.url())} HTTP ${status}`;
+  const detail = `${resourceType} ${displayUrl(response.url())} HTTP ${status}`;
   ledger.responseDiagnostics.push(detail);
   if (CRITICAL_RESOURCE_TYPES.has(resourceType)) ledger.responses.push(detail);
 }
