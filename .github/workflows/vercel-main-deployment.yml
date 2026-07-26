@@ -1053,7 +1053,9 @@ jobs:
         run: ${{ steps.app-runtime.outputs.node-bin }} scripts/vercel-prebuilt.mjs check-versions --repo-root "$SOURCE_PATH"
 
       - name: Prepare runner-owned App pull staging
-        if: steps.app-runtime.outcome == 'success'
+        if: >-
+          steps.app-runtime.outcome == 'success' &&
+          contains(fromJSON(needs.plan-main-deployments.outputs.targets), 'app')
         env:
           LOGICAL_TARGET: app
           PULL_STAGING_PATH: ${{ steps.app-runtime.outputs.pull-staging-path }}
@@ -1064,7 +1066,9 @@ jobs:
         run: ${{ steps.app-runtime.outputs.node-bin }} scripts/vercel-production-shadow.mjs prepare-pull-staging
 
       - name: Pull App custom-v3 configuration
-        if: steps.app-runtime.outcome == 'success'
+        if: >-
+          steps.app-runtime.outcome == 'success' &&
+          contains(fromJSON(needs.plan-main-deployments.outputs.targets), 'app')
         env:
           LOGICAL_TARGET: app
           SOURCE_PATH: ${{ steps.app-runtime.outputs.pull-staging-path }}
@@ -1076,7 +1080,9 @@ jobs:
         run: ${{ steps.app-runtime.outputs.node-bin }} scripts/vercel-production-shadow.mjs pull
 
       - name: Validate App custom-v3 project and Root Directory
-        if: steps.app-runtime.outcome == 'success'
+        if: >-
+          steps.app-runtime.outcome == 'success' &&
+          contains(fromJSON(needs.plan-main-deployments.outputs.targets), 'app')
         env:
           LOGICAL_TARGET: app
           PULL_STAGING_PATH: ${{ steps.app-runtime.outputs.pull-staging-path }}
@@ -1090,14 +1096,18 @@ jobs:
           "${{ steps.app-runtime.outputs.node-bin }}" scripts/vercel-deployment-state.mjs project --project-id "$VERCEL_PROJECT_ID" --project-name app.mento.org --root-directory apps/app.mento.org
 
       - name: Generate exact App custom deployment identity
-        if: steps.app-runtime.outcome == 'success'
+        if: >-
+          steps.app-runtime.outcome == 'success' &&
+          contains(fromJSON(needs.plan-main-deployments.outputs.targets), 'app')
         id: app-identity
         run: |
           next_deployment_id="$("${{ steps.app-runtime.outputs.node-bin }}" scripts/vercel-prebuilt.mjs deployment-id --target app --sha "$DEPLOY_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT")"
           echo "next_deployment_id=$next_deployment_id" >> "$GITHUB_OUTPUT"
 
       - name: Build App custom-v3 candidate without deployment
-        if: steps.app-runtime.outcome == 'success'
+        if: >-
+          steps.app-runtime.outcome == 'success' &&
+          contains(fromJSON(needs.plan-main-deployments.outputs.targets), 'app')
         id: app-build
         env:
           CI: 1
@@ -1153,7 +1163,9 @@ jobs:
           ref: ${{ needs.wait-for-ci.outputs.deploy_sha }}
 
       - name: Record exact App build-only proof
-        if: steps.app-build.outcome == 'success'
+        if: >-
+          steps.app-build.outcome == 'success' &&
+          contains(fromJSON(needs.plan-main-deployments.outputs.targets), 'app')
         id: app-proof
         env:
           MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.app-identity.outputs.next_deployment_id }}
@@ -1162,14 +1174,18 @@ jobs:
           app-build-proof --output "$RUNNER_TEMP/app-build-proof.json"
 
       - name: Measure App runner duration
-        if: steps.app-proof.outcome == 'success'
+        if: >-
+          steps.app-proof.outcome == 'success' &&
+          contains(fromJSON(needs.plan-main-deployments.outputs.targets), 'app')
         id: app-total
         env:
           STARTED_AT_MS: ${{ steps.app-timing.outputs.started_at_ms }}
         run: echo "total_duration_ms=$(($(date +%s%3N) - STARTED_AT_MS))" >> "$GITHUB_OUTPUT"
 
       - name: Persist the immutable App build proof for active transitions
-        if: steps.app-proof.outcome == 'success'
+        if: >-
+          steps.app-proof.outcome == 'success' &&
+          contains(fromJSON(needs.plan-main-deployments.outputs.targets), 'app')
         env:
           APP_BUILD_PROOF: ${{ steps.app-proof.outputs.proof }}
         run: printf 'APP_BUILD_PROOF=%s\n' "$APP_BUILD_PROOF" >> "$GITHUB_ENV"

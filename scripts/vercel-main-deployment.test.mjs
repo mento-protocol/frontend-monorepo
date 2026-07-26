@@ -9,6 +9,10 @@ import { fileURLToPath } from "node:url";
 
 import { createActiveDeploymentStateProof } from "./vercel-deployment-state.mjs";
 import {
+  MAIN_ACTIVE_EVENT_SCHEMA,
+  reduceMainActiveTransition,
+} from "./vercel-main-active-controller.mjs";
+import {
   MAIN_ACTIVE_DEPLOYMENT_MODE,
   MAIN_ACTIVE_EVIDENCE_SCHEMA,
   MAIN_ACTIVE_FAILURE_EVIDENCE_SCHEMA,
@@ -2412,6 +2416,92 @@ test("active public smoke materializer derives exact target records from the pla
       }),
     /reserve smoke result is inconsistent/,
   );
+});
+
+test("governance-only smoke materialization pipes through finalization and evidence unchanged", async () => {
+  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const harness = activeHarness({ deploymentPlan });
+  assert.equal(harness.appBuildProof, null);
+  assert.equal(harness.inputs.candidates.app, null);
+
+  const transaction = await runMainActiveTransaction({
+    plan: deploymentPlan,
+    stageJobs: harness.stageJobs,
+    appBuildProof: null,
+    runId: "800",
+    runAttempt: "3",
+    journalHistory: [],
+    adapters: harness.adapters,
+  });
+  const history = transaction.journalHistory.slice(0, -1);
+  const highest = history.at(-1);
+  assert.equal(highest.status, "verified");
+
+  const publicSmokes = createMainActivePublicSmokes({
+    plan: deploymentPlan,
+    targetResults: Object.fromEntries(
+      ["app", "governance", "reserve", "ui"].map((target) => [
+        target,
+        target === "governance"
+          ? { status: "passed", servedSha: SHA }
+          : { status: "not-required", servedSha: null },
+      ]),
+    ),
+  });
+  assert.deepEqual(publicSmokes.app, {
+    publicUrl: "https://app.mento.org/",
+    servedSha: null,
+    status: "not-required",
+  });
+
+  const stateProof = activeStateProof({
+    deploymentPlan,
+    journalHistory: history,
+    jobs: harness.stageJobs,
+    runId: "800",
+    runAttempt: "3",
+  });
+  const finalized = reduceMainActiveTransition({
+    preparedJournal: history[0],
+    activeTargets: ["governance"],
+    shadowTargets: [],
+    stagedCandidates: harness.inputs.stagedCandidates,
+    mainOwnershipMode: harness.ownershipMap,
+    projectIds,
+    history,
+    event: {
+      schema: MAIN_ACTIVE_EVENT_SCHEMA,
+      kind: "finalize",
+      uploadReceipt: {
+        acknowledged: true,
+        artifactName: mainTransactionJournalArtifactName(highest),
+        artifactId: "91919",
+        transactionId: highest.transactionId,
+        sequence: highest.sequence,
+      },
+      freshSha: SHA,
+      currentMappings: activeFinalMappings(harness),
+      publicSmokes,
+      stateProof,
+    },
+  });
+  assert.equal(finalized.journal.status, "committed");
+
+  const evidence = createMainActiveDeploymentEvidence({
+    plan: deploymentPlan,
+    journalHistory: [...history, finalized.journal],
+    freshness: transaction.freshness,
+    finalMappings: activeFinalMappings(harness),
+    publicSmokes,
+    stateProof,
+    rollbackStateTargets: [],
+    publicServingMutationCommands: finalized.confirmedMutationCommands,
+    recoveryOutcome: "not-required",
+    runId: "800",
+    runAttempt: "3",
+    workflowRunUrl: WORKFLOW_RUN_URL,
+  });
+  assert.deepEqual(evidence.publicSmokes, publicSmokes);
 });
 
 test("active controller commits exact ordered mutations and emits canonical redacted evidence", async () => {

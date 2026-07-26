@@ -366,7 +366,11 @@ function publicSmokes(activeTargets) {
             publicUrl: `https://${target === "app" ? "app" : target}.mento.org/`,
             servedSha: SHA,
           }
-        : { status: "not-required", publicUrl: null, servedSha: null },
+        : {
+            status: "not-required",
+            publicUrl: `https://${target === "app" ? "app" : target}.mento.org/`,
+            servedSha: null,
+          },
     ]),
   );
 }

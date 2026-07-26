@@ -319,6 +319,44 @@ test("ordinary stage contracts bind one literal project, trusted source, build, 
   }
 });
 
+test("governance-only activation keeps the shared runtime but skips every App build-only step", () => {
+  const appTargetGuard =
+    "contains(fromJSON(needs.plan-main-deployments.outputs.targets), 'app')";
+  const governanceTargetGuard =
+    "contains(fromJSON(needs.plan-main-deployments.outputs.targets), 'governance')";
+  const sharedRuntime = step(
+    "activate-and-verify",
+    "Prepare protected active-operation runtime",
+  );
+  assert.match(
+    sharedRuntime.if,
+    /steps\.freshness\.outputs\.status == 'fresh'/,
+  );
+  assert.ok(sharedRuntime.if.includes(appTargetGuard));
+  assert.ok(sharedRuntime.if.includes(governanceTargetGuard));
+  assert.equal(
+    step("activate-and-verify", "Verify pinned App prerequisites").if,
+    "steps.app-runtime.outcome == 'success'",
+  );
+
+  for (const name of [
+    "Start App runner timing",
+    "Prepare runner-owned App pull staging",
+    "Pull App custom-v3 configuration",
+    "Validate App custom-v3 project and Root Directory",
+    "Generate exact App custom deployment identity",
+    "Build App custom-v3 candidate without deployment",
+    "Record exact App build-only proof",
+    "Measure App runner duration",
+    "Persist the immutable App build proof for active transitions",
+  ]) {
+    assert.ok(
+      step("activate-and-verify", name).if.includes(appTargetGuard),
+      `${name} must stay gated to App selections`,
+    );
+  }
+});
+
 test("active coordinator uses the reducer and statically unrolls every forward turn", () => {
   const coordinator = workflow.jobs["activate-and-verify"];
   assert.deepEqual(coordinator.needs, [

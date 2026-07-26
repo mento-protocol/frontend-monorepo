@@ -779,7 +779,7 @@ function canonicalPublicSmokes(journal, planning, value) {
       }
       if (
         entry.status !== "not-required" ||
-        entry.publicUrl !== null ||
+        entry.publicUrl !== PUBLIC_URLS[target] ||
         entry.servedSha !== null
       ) {
         throw new Error(`Unselected public smoke ${target} is malformed`);
