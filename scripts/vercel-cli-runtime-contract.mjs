@@ -12,11 +12,11 @@ const BRACE_EXPANSION_ROOT_PATCH_PATH =
 // This one reviewed successor binds the runtime lockfile, override object, and
 // patch bytes. Replace all three together for any later reviewed patch update.
 const NEXT_BRACE_EXPANSION_RUNTIME_LOCKFILE_SHA256 =
-  "34a95c137dde8278ee54abf81f2c3cc54effc40f25c95f28a4fba80a8225d982";
+  "e9e0ff7ace696462de55c55644c4c4b743b9458636dea6bd5b8498d5601ecf3e";
 const NEXT_BRACE_EXPANSION_RUNTIME_OVERRIDE_SHA256 =
   "2a30c91c2e6d82386113535d8a0d03e3faeb2d4af0bc032b9200719e036b490a";
 export const BRACE_EXPANSION_PATCH_SHA256 =
-  "36cc1afb1cde27a55fa0d111d0134cb5f1eee9201b0ded7990e0b3654113f24b";
+  "ba16c58317a7384674583eba75e1ea611f7173c8ce7dfad3bce294e02f15271c";
 
 // This reviewed controller-owned state permits the one-way runtime rotation
 // only with its matching canonical override and, when present, patch state. It

@@ -45,6 +45,7 @@ test("patched brace-expansion 2.1.2 preserves minimatch v3 behavior", () => {
     "src/test/b.js",
   ]);
   assert.deepEqual(braceExpansion("{a,b}{c},}"), ["ac}", "bc}"]);
+  assert.deepEqual(braceExpansion("{a,b}{c},}", { max: 2 }), ["ac}", "bc}"]);
   assert.deepEqual(braceExpansion("{a,b}{,c}"), ["a", "ac", "b", "bc"]);
   assert.equal(minimatch("src/lib/a.js", "src/{app,lib}/?.js"), true);
   assert.equal(minimatch("src/test/a.js", "src/{app,lib}/?.js"), false);
@@ -106,4 +107,78 @@ test("patched brace-expansion bounds chained output length and count", () => {
     0,
     `nested comma arms exceeded the shared budget:\n${constrained.stderr}`,
   );
+});
+
+test("patched brace-expansion applies caps while retaining sequences", () => {
+  const braceExpansionPackage = installedPackage("brace-expansion", "2.1.2", {
+    patched: true,
+  });
+  const braceExpansion = createRequire(
+    join(braceExpansionPackage, "package.json"),
+  )(braceExpansionPackage);
+
+  // An empty top-level alternative is discarded, so it must not consume the
+  // caller's count budget before the non-empty arm is considered.
+  assert.deepEqual(braceExpansion("{,a}"), ["a"]);
+  assert.deepEqual(braceExpansion("{,a}", { max: 1 }), ["a"]);
+  assert.deepEqual(braceExpansion("x{,a}", { max: 1 }), ["x"]);
+  assert.deepEqual(braceExpansion("{,a}{,a}", { max: 1 }), ["a"]);
+  assert.deepEqual(braceExpansion("{a,{,a}}", { max: 2 }), ["a", "a"]);
+  assert.deepEqual(braceExpansion("{,a}{,a}{,a}", { max: 3 }), ["a", "a", "a"]);
+  assert.deepEqual(braceExpansion("{,a}{,a}{a,}", { max: 3 }), [
+    "a",
+    "aa",
+    "aa",
+  ]);
+  assert.deepEqual(braceExpansion("{,a}{a,}{,a}", { max: 3 }), [
+    "a",
+    "aa",
+    "aa",
+  ]);
+
+  // The padded strings are deliberately much wider than the retained budget.
+  // Without a sequence-local length check, the pre-combine array exceeds the
+  // constrained heap even though final output is capped at 4 KiB.
+  const constrained = spawnSync(
+    process.execPath,
+    [
+      "--max-old-space-size=32",
+      "-e",
+      `
+        const braceExpansion = require(process.argv[1]);
+        const zeros = "0".repeat(1_023);
+        const expansions = braceExpansion(
+          \`{\${zeros}1..\${zeros}99999}\`,
+          { max: 100_000, maxLength: 4_096 },
+        );
+        if (expansions.length !== 3) process.exit(1);
+        if (expansions.some((expansion) => expansion.length !== 1_028)) {
+          process.exit(1);
+        }
+      `,
+      braceExpansionPackage,
+    ],
+    {
+      encoding: "utf8",
+      timeout: 10_000,
+    },
+  );
+  assert.equal(
+    constrained.status,
+    0,
+    `padded sequence exceeded the remaining length budget:\n${constrained.stderr}`,
+  );
+});
+
+test("patched brace-expansion preserves literal output when max is zero", () => {
+  const braceExpansionPackage = installedPackage("brace-expansion", "2.1.2", {
+    patched: true,
+  });
+  const braceExpansion = createRequire(
+    join(braceExpansionPackage, "package.json"),
+  )(braceExpansionPackage);
+
+  for (const literal of ["a", "a{b}", "a{b}c", "{}", "{a}"]) {
+    assert.deepEqual(braceExpansion(literal, { max: 0 }), [literal]);
+  }
 });

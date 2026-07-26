@@ -176,7 +176,7 @@ packageExtensionsChecksum: sha256-6HWoSaFsGJy3iPnqtfclkrqfmAo7vnHbY4ulU8b+A5M=
 
 patchedDependencies:
   brace-expansion@2.1.2:
-    hash: 36cc1afb1cde27a55fa0d111d0134cb5f1eee9201b0ded7990e0b3654113f24b
+    hash: ba16c58317a7384674583eba75e1ea611f7173c8ce7dfad3bce294e02f15271c
     path: scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch
 
 importers:
@@ -25249,7 +25249,7 @@ snapshots:
 
   bowser@2.13.1: {}
 
-  brace-expansion@2.1.2(patch_hash=36cc1afb1cde27a55fa0d111d0134cb5f1eee9201b0ded7990e0b3654113f24b):
+  brace-expansion@2.1.2(patch_hash=ba16c58317a7384674583eba75e1ea611f7173c8ce7dfad3bce294e02f15271c):
     dependencies:
       balanced-match: 1.0.2
 
@@ -28678,15 +28678,15 @@ snapshots:
 
   minimatch@3.1.2:
     dependencies:
-      brace-expansion: 2.1.2(patch_hash=36cc1afb1cde27a55fa0d111d0134cb5f1eee9201b0ded7990e0b3654113f24b)
+      brace-expansion: 2.1.2(patch_hash=ba16c58317a7384674583eba75e1ea611f7173c8ce7dfad3bce294e02f15271c)
 
   minimatch@3.1.5:
     dependencies:
-      brace-expansion: 2.1.2(patch_hash=36cc1afb1cde27a55fa0d111d0134cb5f1eee9201b0ded7990e0b3654113f24b)
+      brace-expansion: 2.1.2(patch_hash=ba16c58317a7384674583eba75e1ea611f7173c8ce7dfad3bce294e02f15271c)
 
   minimatch@9.0.5:
     dependencies:
-      brace-expansion: 2.1.2(patch_hash=36cc1afb1cde27a55fa0d111d0134cb5f1eee9201b0ded7990e0b3654113f24b)
+      brace-expansion: 2.1.2(patch_hash=ba16c58317a7384674583eba75e1ea611f7173c8ce7dfad3bce294e02f15271c)
 
   minimist@1.2.8: {}
 

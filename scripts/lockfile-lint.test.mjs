@@ -731,6 +731,33 @@ test("rejects vulnerable brace-expansion versions behind pnpm aliases", () => {
   );
 });
 
+test("rejects an unpatched aliased 2.1.2 snapshot beside the reviewed direct snapshot", () => {
+  const directPatched = makeBraceExpansionLockfile({
+    patched: true,
+    versions: ["2.1.2"],
+  });
+  const lockfile = directPatched
+    .replace(
+      "\nsnapshots:\n",
+      `\n  brace-expansion-old@npm:brace-expansion@2.1.2:\n    resolution: {integrity: ${VALID_SHA512}}\n\nsnapshots:\n`,
+    )
+    .replace(
+      `\n  brace-expansion@2.1.2(patch_hash=${BRACE_EXPANSION_PATCH_SHA256}): {}\n`,
+      `\n  brace-expansion@2.1.2(patch_hash=${BRACE_EXPANSION_PATCH_SHA256}): {}\n\n  brace-expansion-old@npm:brace-expansion@2.1.2: {}\n`,
+    );
+  const { exitCode, stdout, stderr } = run(lockfile, {
+    [REVIEWED_BRACE_EXPANSION_PATCH_PATH]: REVIEWED_BRACE_EXPANSION_PATCH,
+  });
+  assert(
+    exitCode !== 0,
+    `Expected unpatched alias snapshot to fail, got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+  assert(
+    stderr.includes("brace-expansion 2.1.2 is affected"),
+    `expected aliased 2.1.2 advisory failure: ${stderr}`,
+  );
+});
+
 // 18b. A remote tarball that is NOT on the allowlist (not @metamask/jazzicon)
 // and has no integrity hash must FAIL — the exemption is name-scoped, so an
 // arbitrary integrity-less remote tarball cannot slip through.

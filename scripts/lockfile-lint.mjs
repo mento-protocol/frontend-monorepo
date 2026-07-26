@@ -22,7 +22,8 @@
  *   4. brace-expansion advisory guard: the OSV correction for the reviewed
  *      2.1.2 backport is advisory-wide. Reject every affected <=5.0.7 release
  *      unless it is exactly 2.1.2 with the reviewed patch declaration and
- *      patched snapshot, so the correction cannot mask a future 3.x/4.x entry.
+ *      patched snapshot. Check each direct or aliased occurrence, so the
+ *      correction cannot mask a future 3.x/4.x entry or an unpatched alias.
  *
  * Ported from monitoring-monorepo. Frontend adaptations:
  *   - The override-floor gate (monitoring's gate 3) is intentionally omitted:
@@ -277,13 +278,35 @@ const snapshotKeys = extractTopLevelLockfileKeys(snapshotsSection, {
   allowInlineEmpty: true,
   name: "snapshots",
 });
-const braceExpansionVersions = new Set();
-for (const key of packageKeys) {
-  const direct = /^brace-expansion@([^\s(]+)$/.exec(key);
-  const alias = /^.+@npm:brace-expansion@([^\s(]+)$/.exec(key);
-  const version = direct?.[1] ?? alias?.[1];
-  if (version !== undefined) braceExpansionVersions.add(version);
+/**
+ * Parse a direct or pnpm-aliased brace-expansion lockfile key. The occurrence
+ * identity binds a package entry to its corresponding snapshot, preventing a
+ * reviewed direct snapshot from authorizing a separate alias occurrence.
+ * @param {string} key
+ * @param {{allowPatchHash: boolean}} options
+ * @returns {{identity: string; patchSha256?: string; version: string} | null}
+ */
+function parseBraceExpansionOccurrence(key, { allowPatchHash }) {
+  const patchHash = allowPatchHash
+    ? "(?:\\(patch_hash=([0-9a-f]{64})\\))?"
+    : "";
+  const match = new RegExp(
+    `^(brace-expansion|.+@npm:brace-expansion)@([^\\s(]+)${patchHash}$`,
+  ).exec(key);
+  if (match === null) return null;
+  return {
+    identity: match[1],
+    patchSha256: match[3],
+    version: match[2],
+  };
 }
+
+const braceExpansionPackages = packageKeys.flatMap((key) => {
+  const occurrence = parseBraceExpansionOccurrence(key, {
+    allowPatchHash: false,
+  });
+  return occurrence === null ? [] : [occurrence];
+});
 const patchedDependenciesStart = lockfileText.indexOf(
   "\npatchedDependencies:\n",
 );
@@ -345,9 +368,10 @@ function hasExactReviewedBraceExpansionPatch() {
 
 const hasReviewedBraceExpansionPatch = hasExactReviewedBraceExpansionPatch();
 const braceExpansionSnapshots = snapshotKeys.flatMap((key) => {
-  const match =
-    /^brace-expansion@([^\s(]+)(?:\(patch_hash=([0-9a-f]{64})\))?$/.exec(key);
-  return match === null ? [] : [{ patchSha256: match[2], version: match[1] }];
+  const occurrence = parseBraceExpansionOccurrence(key, {
+    allowPatchHash: true,
+  });
+  return occurrence === null ? [] : [occurrence];
 });
 
 /**
@@ -366,19 +390,60 @@ function isAffectedBraceExpansionVersion(version) {
   return false;
 }
 
-for (const version of braceExpansionVersions) {
-  if (!isAffectedBraceExpansionVersion(version)) continue;
-  const versionSnapshots = braceExpansionSnapshots.filter(
-    (entry) => entry.version === version,
+/**
+ * @param {{identity: string; version: string}} occurrence
+ * @param {Array<{identity: string; patchSha256?: string; version: string}>} snapshots
+ */
+function isExactReviewedBraceExpansionPackage(occurrence, snapshots) {
+  const matchingSnapshots = snapshots.filter(
+    (snapshot) =>
+      snapshot.identity === occurrence.identity &&
+      snapshot.version === occurrence.version,
   );
-  const isReviewedPatchedState =
-    version === "2.1.2" &&
+  return (
+    occurrence.version === "2.1.2" &&
     hasReviewedBraceExpansionPatch &&
-    versionSnapshots.length === 1 &&
-    versionSnapshots[0].patchSha256 === BRACE_EXPANSION_PATCH_SHA256;
-  if (!isReviewedPatchedState) {
+    matchingSnapshots.length === 1 &&
+    matchingSnapshots[0].patchSha256 === BRACE_EXPANSION_PATCH_SHA256
+  );
+}
+
+/**
+ * @param {{identity: string; patchSha256?: string; version: string}} occurrence
+ * @param {Array<{identity: string; version: string}>} packages
+ */
+function isExactReviewedBraceExpansionSnapshot(occurrence, packages) {
+  const matchingPackages = packages.filter(
+    (pkg) =>
+      pkg.identity === occurrence.identity &&
+      pkg.version === occurrence.version,
+  );
+  return (
+    occurrence.version === "2.1.2" &&
+    hasReviewedBraceExpansionPatch &&
+    occurrence.patchSha256 === BRACE_EXPANSION_PATCH_SHA256 &&
+    matchingPackages.length === 1
+  );
+}
+
+for (const occurrence of braceExpansionPackages) {
+  if (!isAffectedBraceExpansionVersion(occurrence.version)) continue;
+  if (
+    !isExactReviewedBraceExpansionPackage(occurrence, braceExpansionSnapshots)
+  ) {
     fail(
-      `brace-expansion ${version} is affected by GHSA-mh99-v99m-4gvg and is not the exact reviewed patched 2.1.2 state; require fixed >=5.0.8 or the reviewed 2.1.2 patch.`,
+      `brace-expansion ${occurrence.version} is affected by GHSA-mh99-v99m-4gvg and is not the exact reviewed patched 2.1.2 state; require fixed >=5.0.8 or the reviewed 2.1.2 patch.`,
+    );
+  }
+}
+
+for (const occurrence of braceExpansionSnapshots) {
+  if (!isAffectedBraceExpansionVersion(occurrence.version)) continue;
+  if (
+    !isExactReviewedBraceExpansionSnapshot(occurrence, braceExpansionPackages)
+  ) {
+    fail(
+      `brace-expansion ${occurrence.version} is affected by GHSA-mh99-v99m-4gvg and is not the exact reviewed patched 2.1.2 state; require fixed >=5.0.8 or the reviewed 2.1.2 patch.`,
     );
   }
 }

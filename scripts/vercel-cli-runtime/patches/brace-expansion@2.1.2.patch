@@ -30,23 +30,22 @@ index b8a519513f31c05e68eeb4d6929f8a151137f55c..ea1e362b7d0323295b01edd8d2d14e16
  }
  
  function embrace(str) {
-@@ -95,27 +98,99 @@ function gte(i, y) {
+@@ -95,27 +98,100 @@ function gte(i, y) {
    return i >= y;
  }
  
 -function expand(str, max, isTop) {
 -  var expansions = [];
-+// Build every acc + pre + value combination, limiting both result count and
-+// the total characters retained in the accumulator. `max` alone limits the
-+// count, but chained groups can otherwise make every retained result grow
-+// without bound (CVE-2026-14257).
-+function combine(acc, pre, values, max, maxLength, dropEmpties) {
++// Build each current-group × post combination while limiting result count and
++// total retained characters. `max` alone limits count, but chained groups can
++// otherwise make every retained result grow without bound (CVE-2026-14257).
++function combine(pre, values, post, max, maxLength, dropEmpties) {
 +  var out = [];
 +  var length = 0;
-+  for (var a = 0; a < acc.length; a++) {
-+    for (var v = 0; v < values.length; v++) {
++  for (var v = 0; v < values.length; v++) {
++    for (var p = 0; p < post.length; p++) {
 +      if (out.length >= max) return out;
-+      var expansion = acc[a] + pre + values[v];
++      var expansion = pre + values[v] + post[p];
 +      // Bash drops empty results only for a top-level comma group.
 +      if (dropEmpties && !expansion) continue;
 +      if (length + expansion.length > maxLength) return out;
@@ -57,15 +56,10 @@ index b8a519513f31c05e68eeb4d6929f8a151137f55c..ea1e362b7d0323295b01edd8d2d14e16
 +  return out;
 +}
 +
-+function finish(prefixAcc, acc, max, maxLength) {
-+  return prefixAcc === null
-+    ? acc
-+    : combine(prefixAcc, '', acc, max, maxLength, false);
-+}
-+
-+function expandSequence(body, isAlphaSequence, max) {
++function expandSequence(body, isAlphaSequence, max, maxLength) {
 +  var n = body.split(/\.\./);
 +  var N = [];
++  var length = 0;
 +  var x = numeric(n[0]);
 +  var y = numeric(n[1]);
 +  var width = Math.max(n[0].length, n[1].length);
@@ -90,25 +84,29 @@ index b8a519513f31c05e68eeb4d6929f8a151137f55c..ea1e362b7d0323295b01edd8d2d14e16
 +      if (pad) {
 +        var need = width - c.length;
 +        if (need > 0) {
++          // Check before allocating the padding string. A large width can
++          // otherwise retain a huge sequence array before combine applies
++          // the total expansion-length cap.
++          if (length + c.length + need > maxLength) break;
 +          var z = new Array(need + 1).join('0');
 +          if (i < 0) c = '-' + z + c.slice(1);
 +          else c = z + c;
 +        }
 +      }
 +    }
++    if (length + c.length > maxLength) break;
 +    N.push(c);
++    length += c.length;
 +  }
 +  return N;
 +}
 +
 +function expand(str, max, maxLength, isTop) {
-+  // Expand top-level brace groups left-to-right, keeping just one accumulator.
-+  // This keeps the native stack depth constant and bounds the retained output
-+  // by maxLength regardless of how many groups are chained.
-+  var acc = [''];
-+  var prefixAcc = null;
-+  var dropEmpties = false;
-+  var firstGroup = true;
++  // Collect groups iteratively, then combine right-to-left so the post-first
++  // traversal remains compatible without recursive stack growth.
++  var groups = [];
++  var tail;
++  var topGroup = isTop ? 0 : -1;
  
 -  // The `{a},b}` rewrite below restarts expansion on a rewritten string with
 -  // the same `max` and `isTop = true`. Loop instead of recursing so a long run
@@ -117,8 +115,8 @@ index b8a519513f31c05e68eeb4d6929f8a151137f55c..ea1e362b7d0323295b01edd8d2d14e16
      const m = balanced('{', '}', str)
 -    if (!m) return [str]
 +    if (!m) {
-+      acc = combine(acc, str, [''], max, maxLength, dropEmpties);
-+      return finish(prefixAcc, acc, max, maxLength);
++      tail = str;
++      break;
 +    }
  
      // no need to expand pre, since it is guaranteed to be free of brace-sets
@@ -132,33 +130,28 @@ index b8a519513f31c05e68eeb4d6929f8a151137f55c..ea1e362b7d0323295b01edd8d2d14e16
 -        expansions.push(expansion)
 -      }
 -      return expansions
-+      acc = combine(
-+        acc, pre + '{' + m.body + '}', [''], max, maxLength,
-+        dropEmpties && !m.post.length
-+      );
-+      firstGroup = false;
-+      if (!m.post.length) break;
++      groups.push({
++        pre: pre,
++        values: ['{' + m.body + '}'],
++        dropEmpties: false,
++      });
++      if (!m.post.length) {
++        tail = '';
++        break;
++      }
 +      str = m.post;
 +      continue;
      }
  
      var isNumericSequence = /^-?\d+\.\.-?\d+(?:\.\.-?\d+)?$/.test(m.body);
-@@ -129,89 +204,62 @@ function expand(str, max, isTop) {
+@@ -129,89 +205,86 @@ function expand(str, max, isTop) {
          isTop = true;
-+        if (!firstGroup) {
-+          prefixAcc = finish(prefixAcc, acc, max, maxLength);
-+          acc = [''];
-+          dropEmpties = false;
-+          firstGroup = true;
-+        }
++        topGroup = groups.length;
          continue;
        }
 -      return [str];
-+      acc = combine(
-+        acc, pre + '{' + m.body + '}' + m.post, [''], max,
-+        maxLength, dropEmpties
-+      );
-+      return finish(prefixAcc, acc, max, maxLength);
++      tail = pre + '{' + m.body + '}' + m.post;
++      break;
      }
  
 -    // Only expand post once we know this brace set actually expands. Computing
@@ -168,15 +161,10 @@ index b8a519513f31c05e68eeb4d6929f8a151137f55c..ea1e362b7d0323295b01edd8d2d14e16
 -    const post =
 -      m.post.length ? expand(m.post, max, false) : ['']
 -    var n;
-+    if (firstGroup) {
-+      dropEmpties = isTop && !isSequence;
-+      firstGroup = false;
-+    }
-+
-+    var values;
++    var values = null;
      if (isSequence) {
 -      n = m.body.split(/\.\./);
-+      values = expandSequence(m.body, isAlphaSequence, max);
++      values = expandSequence(m.body, isAlphaSequence, max, maxLength);
      } else {
 -      n = parseCommaParts(m.body);
 +      var n = parseCommaParts(m.body);
@@ -231,32 +219,53 @@ index b8a519513f31c05e68eeb4d6929f8a151137f55c..ea1e362b7d0323295b01edd8d2d14e16
 -                c = z + c;
 -            }
 -          }
-+          acc = combine(
-+            acc, pre + n[0], [''], max, maxLength,
-+            dropEmpties && !m.post.length
-+          );
-+          if (!m.post.length) break;
-+          str = m.post;
-+          continue;
++          values = n;
          }
 -        N.push(c);
        }
 -    } else {
 -      N = [];
 -
-+      values = [];
-+      var valuesLength = 0;
++      if (!values) {
++        values = [];
++        var valuesLength = 0;
++        var preserveTopLevelChoices =
++          groups.length === topGroup && !isSequence && !pre;
++        var emptyValues = 0;
++        var nonEmptyValues = 0;
++        // Empty final top-level alternatives are discarded by combine. Keep
++        // bounded budgets for both classes until the post is known, so empty
++        // choices cannot hide later non-empty choices under a count cap.
++        var discardEmptyTopLevelValues =
++          preserveTopLevelChoices && !m.post.length;
        for (var j = 0; j < n.length; j++) {
 -        N.push.apply(N, expand(n[j], max, false));
-+        var remainingMax = max - values.length;
-+        if (remainingMax <= 0) break;
++        var remainingMax = preserveTopLevelChoices
++          ? max
++          : max - values.length;
++        if (preserveTopLevelChoices) {
++          if (
++            (discardEmptyTopLevelValues || emptyValues >= max) &&
++            nonEmptyValues >= max
++          ) break;
++        } else if (remainingMax <= 0) {
++          break;
++        }
 +        var remainingLength = Math.max(maxLength - valuesLength, 0);
 +        var arm = expand(n[j], remainingMax, remainingLength, false);
 +        for (var k = 0; k < arm.length; k++) {
++          if (discardEmptyTopLevelValues && !arm[k]) continue;
++          if (preserveTopLevelChoices) {
++            if (!arm[k] && emptyValues >= max) continue;
++            if (arm[k] && nonEmptyValues >= max) continue;
++          }
 +          values.push(arm[k]);
 +          valuesLength += arm[k].length;
++          if (arm[k]) nonEmptyValues++;
++          else emptyValues++;
 +        }
        }
++      }
      }
  
 -    for (var j = 0; j < N.length; j++) {
@@ -268,12 +277,28 @@ index b8a519513f31c05e68eeb4d6929f8a151137f55c..ea1e362b7d0323295b01edd8d2d14e16
 -    }
 -
 -    return expansions;
-+    acc = combine(
-+      acc, pre, values, max, maxLength, dropEmpties && !m.post.length
-+    );
-+    if (!m.post.length) break;
++    groups.push({
++      pre: pre,
++      values: values,
++      dropEmpties: groups.length === topGroup && !isSequence,
++    });
++    if (!m.post.length) {
++      tail = '';
++      break;
++    }
 +    str = m.post;
    }
 +
-+  return finish(prefixAcc, acc, max, maxLength);
++  var expansions = [tail];
++  for (var group = groups.length - 1; group >= 0; group--) {
++    expansions = combine(
++      groups[group].pre,
++      groups[group].values,
++      expansions,
++      max,
++      maxLength,
++      groups[group].dropEmpties,
++    );
++  }
++  return expansions;
  }
