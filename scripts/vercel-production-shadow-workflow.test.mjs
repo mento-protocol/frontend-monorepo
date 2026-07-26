@@ -1654,8 +1654,9 @@ test("shadow smoke strips protection headers and disables traces", () => {
   assert.match(spec, /drainProductionShadowRequestRoutes/);
   assert.match(
     spec,
-    /await drainProductionShadowRequestRoutes\(\{ page \}\);\s+expect\(errors\.origins/,
+    /await drainProductionShadowRequestRoutes\(\{ page \}\);\s+if \(\s+hasAuthoritativeRuntimeErrors\(errors\)/,
   );
+  assert.match(spec, /Browser HTTP diagnostics/);
   assert.match(requestPolicy, /page\.unrouteAll\(\{ behavior: "wait" \}\)/);
   assert.match(requestPolicy, /page\.evaluate\(\(\) => undefined\)/);
   assert.match(redirectRegression, /createServer/);
