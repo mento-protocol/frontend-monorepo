@@ -3,12 +3,23 @@ const MAXIMUM_URL_INPUT_LENGTH = 2_048;
 const INVALID_URL_DISPLAY = "[invalid URL]";
 const URL_TOKEN_PATTERN = /[a-z][a-z0-9+.-]*:(?!:)\S+/giu;
 
+/**
+ * @typedef {object} RuntimeErrorLedger
+ * @property {string[]} console
+ * @property {string[]} origins
+ * @property {string[]} page
+ * @property {string[]} requests
+ * @property {string[]} responses
+ * @property {string[]} responseDiagnostics
+ */
+
 function concise(value) {
   return String(value).replaceAll(/\s+/g, " ").trim().slice(0, 500);
 }
 
 export function createRuntimeErrorLedger() {
-  return {
+  /** @type {RuntimeErrorLedger} */
+  const ledger = {
     console: [],
     origins: [],
     page: [],
@@ -16,6 +27,7 @@ export function createRuntimeErrorLedger() {
     responses: [],
     responseDiagnostics: [],
   };
+  return ledger;
 }
 
 export function displayUrl(value) {
