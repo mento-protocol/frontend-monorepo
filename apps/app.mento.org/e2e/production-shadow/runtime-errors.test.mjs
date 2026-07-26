@@ -9,6 +9,7 @@ import {
   hasAuthoritativeRuntimeErrors,
   recordCrossOriginFrame,
   recordRuntimeResponse,
+  sanitizeDiagnosticText,
 } from "./runtime-errors.mjs";
 
 test("URL diagnostics expose only the safe origin", () => {
@@ -65,6 +66,41 @@ test("console diagnostics remain useful when Chromium omits a source URL", () =>
   );
 });
 
+test("console text diagnostics redact credential-bearing URL substrings", () => {
+  const diagnostic = formatConsoleError({
+    text: () =>
+      "Fetch failed at https://alice:secret@reserve.example.invalid/private?token=abc#fragment",
+    location: () => ({}),
+  });
+
+  assert.equal(diagnostic, "Fetch failed at https://reserve.example.invalid");
+  assert.doesNotMatch(diagnostic, /alice|secret|private|token|fragment/);
+});
+
+test("page error diagnostics redact URL substrings before ledger insertion", () => {
+  const diagnostic = sanitizeDiagnosticText(
+    "Unhandled rejection from https://reserve.example.invalid/private?bypass=secret",
+  );
+
+  assert.equal(
+    diagnostic,
+    "Unhandled rejection from https://reserve.example.invalid",
+  );
+  assert.doesNotMatch(diagnostic, /private|bypass|secret/);
+});
+
+test("arbitrary URL schemes and prefixed protocols cannot bypass redaction", () => {
+  for (const value of [
+    "prefixhttps://alice:secret@reserve.example.invalid/private?token=abc",
+    "ftp://alice:secret@reserve.example.invalid/private?token=abc",
+    "mailto:alice@reserve.example.invalid?token=abc",
+  ]) {
+    const diagnostic = sanitizeDiagnosticText(`Failed at ${value}`);
+    assert.equal(diagnostic, "Failed at [invalid URL]");
+    assert.doesNotMatch(diagnostic, /alice|secret|private|token/);
+  }
+});
+
 test("a fetch 429 is retained as diagnostics without becoming authoritative", () => {
   const ledger = createRuntimeErrorLedger();
   recordRuntimeResponse(ledger, {
@@ -115,6 +151,23 @@ test("frame and request ledgers use the bounded URL display", () => {
     JSON.stringify(ledger),
     /secret|token|signature|fragment/,
   );
+});
+
+test("request error text cannot bypass URL redaction", () => {
+  const diagnostic = formatCriticalRequestFailure({
+    resourceType: () => "script",
+    url: () => "https://reserve.example.invalid/app.js",
+    failure: () => ({
+      errorText:
+        "net::ERR_FAILED https://alice:secret@reserve.example.invalid/private?token=abc",
+    }),
+  });
+
+  assert.equal(
+    diagnostic,
+    "script https://reserve.example.invalid net::ERR_FAILED https://reserve.example.invalid",
+  );
+  assert.doesNotMatch(diagnostic, /alice|secret|private|token/);
 });
 
 test("a script 429 remains an authoritative smoke failure", () => {

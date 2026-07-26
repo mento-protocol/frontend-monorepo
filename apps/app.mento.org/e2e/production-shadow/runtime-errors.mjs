@@ -1,6 +1,7 @@
 const CRITICAL_RESOURCE_TYPES = new Set(["document", "script", "stylesheet"]);
 const MAXIMUM_URL_INPUT_LENGTH = 2_048;
 const INVALID_URL_DISPLAY = "[invalid URL]";
+const URL_TOKEN_PATTERN = /[a-z][a-z0-9+.-]*:(?!:)\S+/giu;
 
 function concise(value) {
   return String(value).replaceAll(/\s+/g, " ").trim().slice(0, 500);
@@ -36,10 +37,21 @@ export function displayUrl(value) {
   }
 }
 
+export function sanitizeDiagnosticText(value) {
+  return concise(
+    String(value).replaceAll(URL_TOKEN_PATTERN, (token) => {
+      const candidate = token.toLowerCase().startsWith("blob:")
+        ? token.slice("blob:".length)
+        : token;
+      return displayUrl(candidate);
+    }),
+  );
+}
+
 export function formatConsoleError(message) {
   const location = message.location?.();
   const suffix = location?.url ? ` (${displayUrl(location.url)})` : "";
-  return `${concise(message.text())}${suffix}`;
+  return `${sanitizeDiagnosticText(message.text())}${suffix}`;
 }
 
 export function recordRuntimeResponse(ledger, response) {
@@ -57,9 +69,9 @@ export function recordCrossOriginFrame(ledger, frameUrl) {
 }
 
 export function formatCriticalRequestFailure(request) {
-  return `${request.resourceType()} ${displayUrl(request.url())} ${concise(
-    request.failure()?.errorText ?? "failed",
-  )}`;
+  return `${request.resourceType()} ${displayUrl(
+    request.url(),
+  )} ${sanitizeDiagnosticText(request.failure()?.errorText ?? "failed")}`;
 }
 
 export function hasAuthoritativeRuntimeErrors(ledger) {

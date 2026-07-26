@@ -22,6 +22,7 @@ import {
   hasAuthoritativeRuntimeErrors,
   recordCrossOriginFrame,
   recordRuntimeResponse,
+  sanitizeDiagnosticText,
 } from "./runtime-errors.mjs";
 
 const TARGETS = ["governance", "reserve", "ui"] as const;
@@ -83,7 +84,9 @@ function observeRuntimeErrors(page: Page, origin: string): RuntimeErrors {
     if (message.type() === "error")
       errors.console.push(formatConsoleError(message));
   });
-  page.on("pageerror", (error) => errors.page.push(error.message));
+  page.on("pageerror", (error) =>
+    errors.page.push(sanitizeDiagnosticText(error.message)),
+  );
   page.on("framenavigated", (frame) => {
     if (frame !== page.mainFrame() || frame.url() === "about:blank") return;
     try {
