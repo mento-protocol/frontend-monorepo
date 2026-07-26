@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
@@ -43,6 +44,8 @@ test("patched brace-expansion 2.1.2 preserves minimatch v3 behavior", () => {
     "src/test/a.js",
     "src/test/b.js",
   ]);
+  assert.deepEqual(braceExpansion("{a,b}{c},}"), ["ac}", "bc}"]);
+  assert.deepEqual(braceExpansion("{a,b}{,c}"), ["a", "ac", "b", "bc"]);
   assert.equal(minimatch("src/lib/a.js", "src/{app,lib}/?.js"), true);
   assert.equal(minimatch("src/test/a.js", "src/{app,lib}/?.js"), false);
 });
@@ -72,4 +75,35 @@ test("patched brace-expansion bounds chained output length and count", () => {
   });
   assert.equal(explicit.length, 3);
   assert.ok(totalLength(explicit) <= 100);
+
+  // Each nested comma arm can reach the explicit cap by itself. Run many arms
+  // under a constrained heap so retaining one full capped array per arm fails
+  // deterministically, while a shared remaining budget completes.
+  const constrained = spawnSync(
+    process.execPath,
+    [
+      "--max-old-space-size=32",
+      "-e",
+      `
+        const braceExpansion = require(process.argv[1]);
+        const arm = "{,a}".repeat(14);
+        const pattern = \`{\${Array.from({ length: 200 }, () => arm).join(",")}}\`;
+        const expansions = braceExpansion(pattern, {
+          max: 10_000,
+          maxLength: 400_000,
+        });
+        if (expansions.length === 0 || expansions.length > 10_000) process.exit(1);
+      `,
+      braceExpansionPackage,
+    ],
+    {
+      encoding: "utf8",
+      timeout: 10_000,
+    },
+  );
+  assert.equal(
+    constrained.status,
+    0,
+    `nested comma arms exceeded the shared budget:\n${constrained.stderr}`,
+  );
 });

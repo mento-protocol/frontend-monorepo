@@ -75,7 +75,7 @@ overrides:
 
 patchedDependencies:
   brace-expansion@2.1.2:
-    hash: 5d7a425f992e872546ea180bccc67f32848a1537176001c007cac001ff8be3b1
+    hash: 36cc1afb1cde27a55fa0d111d0134cb5f1eee9201b0ded7990e0b3654113f24b
     path: patches/brace-expansion@2.1.2.patch
 
 importers:
@@ -2340,7 +2340,7 @@ snapshots:
     dependencies:
       file-uri-to-path: 1.0.0
 
-  brace-expansion@2.1.2(patch_hash=5d7a425f992e872546ea180bccc67f32848a1537176001c007cac001ff8be3b1):
+  brace-expansion@2.1.2(patch_hash=36cc1afb1cde27a55fa0d111d0134cb5f1eee9201b0ded7990e0b3654113f24b):
     dependencies:
       balanced-match: 1.0.2
 
@@ -2701,7 +2701,7 @@ snapshots:
 
   minimatch@3.1.5:
     dependencies:
-      brace-expansion: 2.1.2(patch_hash=5d7a425f992e872546ea180bccc67f32848a1537176001c007cac001ff8be3b1)
+      brace-expansion: 2.1.2(patch_hash=36cc1afb1cde27a55fa0d111d0134cb5f1eee9201b0ded7990e0b3654113f24b)
 
   minipass@7.1.3: {}
 

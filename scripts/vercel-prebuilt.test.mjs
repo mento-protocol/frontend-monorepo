@@ -45,7 +45,7 @@ const CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
 const NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
   "884e3c4186c9d5faee0e6cf710b112e7e60cdae5d46be13da1b2b0ae9cf11eb0";
 const BRACE_EXPANSION_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
-  "190bccb28051d5c006825163f9f589588c74f9bb1ed96e1afcfed6ede16560f4";
+  "34a95c137dde8278ee54abf81f2c3cc54effc40f25c95f28a4fba80a8225d982";
 const REVIEWED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 = new Set([
   CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
   NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
@@ -92,11 +92,11 @@ function toUnpatchedVercelCliRuntimeLockfile(lockfile) {
   return lockfile
     .replace("  brace-expansion@>=5 <5.0.8: 5.0.8\n", "")
     .replace(
-      "\npatchedDependencies:\n  brace-expansion@2.1.2:\n    hash: 5d7a425f992e872546ea180bccc67f32848a1537176001c007cac001ff8be3b1\n    path: patches/brace-expansion@2.1.2.patch\n",
+      "\npatchedDependencies:\n  brace-expansion@2.1.2:\n    hash: 36cc1afb1cde27a55fa0d111d0134cb5f1eee9201b0ded7990e0b3654113f24b\n    path: patches/brace-expansion@2.1.2.patch\n",
       "",
     )
     .replaceAll(
-      "2.1.2(patch_hash=5d7a425f992e872546ea180bccc67f32848a1537176001c007cac001ff8be3b1)",
+      "2.1.2(patch_hash=36cc1afb1cde27a55fa0d111d0134cb5f1eee9201b0ded7990e0b3654113f24b)",
       "2.1.2",
     );
 }

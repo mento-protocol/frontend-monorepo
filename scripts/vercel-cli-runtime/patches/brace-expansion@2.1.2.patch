@@ -30,7 +30,7 @@ index b8a519513f31c05e68eeb4d6929f8a151137f55c..ea1e362b7d0323295b01edd8d2d14e16
  }
  
  function embrace(str) {
-@@ -95,27 +98,89 @@ function gte(i, y) {
+@@ -95,27 +98,99 @@ function gte(i, y) {
    return i >= y;
  }
  
@@ -55,6 +55,12 @@ index b8a519513f31c05e68eeb4d6929f8a151137f55c..ea1e362b7d0323295b01edd8d2d14e16
 +    }
 +  }
 +  return out;
++}
++
++function finish(prefixAcc, acc, max, maxLength) {
++  return prefixAcc === null
++    ? acc
++    : combine(prefixAcc, '', acc, max, maxLength, false);
 +}
 +
 +function expandSequence(body, isAlphaSequence, max) {
@@ -100,6 +106,7 @@ index b8a519513f31c05e68eeb4d6929f8a151137f55c..ea1e362b7d0323295b01edd8d2d14e16
 +  // This keeps the native stack depth constant and bounds the retained output
 +  // by maxLength regardless of how many groups are chained.
 +  var acc = [''];
++  var prefixAcc = null;
 +  var dropEmpties = false;
 +  var firstGroup = true;
  
@@ -109,7 +116,10 @@ index b8a519513f31c05e68eeb4d6929f8a151137f55c..ea1e362b7d0323295b01edd8d2d14e16
    for (;;) {
      const m = balanced('{', '}', str)
 -    if (!m) return [str]
-+    if (!m) return combine(acc, str, [''], max, maxLength, dropEmpties);
++    if (!m) {
++      acc = combine(acc, str, [''], max, maxLength, dropEmpties);
++      return finish(prefixAcc, acc, max, maxLength);
++    }
  
      // no need to expand pre, since it is guaranteed to be free of brace-sets
      const pre = m.pre
@@ -133,15 +143,22 @@ index b8a519513f31c05e68eeb4d6929f8a151137f55c..ea1e362b7d0323295b01edd8d2d14e16
      }
  
      var isNumericSequence = /^-?\d+\.\.-?\d+(?:\.\.-?\d+)?$/.test(m.body);
-@@ -129,89 +194,47 @@ function expand(str, max, isTop) {
+@@ -129,89 +204,62 @@ function expand(str, max, isTop) {
          isTop = true;
++        if (!firstGroup) {
++          prefixAcc = finish(prefixAcc, acc, max, maxLength);
++          acc = [''];
++          dropEmpties = false;
++          firstGroup = true;
++        }
          continue;
        }
 -      return [str];
-+      return combine(
++      acc = combine(
 +        acc, pre + '{' + m.body + '}' + m.post, [''], max,
 +        maxLength, dropEmpties
 +      );
++      return finish(prefixAcc, acc, max, maxLength);
      }
  
 -    // Only expand post once we know this brace set actually expands. Computing
@@ -228,9 +245,17 @@ index b8a519513f31c05e68eeb4d6929f8a151137f55c..ea1e362b7d0323295b01edd8d2d14e16
 -      N = [];
 -
 +      values = [];
++      var valuesLength = 0;
        for (var j = 0; j < n.length; j++) {
 -        N.push.apply(N, expand(n[j], max, false));
-+        values.push.apply(values, expand(n[j], max, maxLength, false));
++        var remainingMax = max - values.length;
++        if (remainingMax <= 0) break;
++        var remainingLength = Math.max(maxLength - valuesLength, 0);
++        var arm = expand(n[j], remainingMax, remainingLength, false);
++        for (var k = 0; k < arm.length; k++) {
++          values.push(arm[k]);
++          valuesLength += arm[k].length;
++        }
        }
      }
  
@@ -250,5 +275,5 @@ index b8a519513f31c05e68eeb4d6929f8a151137f55c..ea1e362b7d0323295b01edd8d2d14e16
 +    str = m.post;
    }
 +
-+  return acc;
++  return finish(prefixAcc, acc, max, maxLength);
  }
