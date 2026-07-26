@@ -8,6 +8,7 @@ import {
 import { CustomAppSidebar } from "./app-sidebar";
 import { ThemeProvider } from "next-themes";
 
+// ThemeProvider owns the document class so every showcase route shares one color-mode contract.
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <ThemeProvider
