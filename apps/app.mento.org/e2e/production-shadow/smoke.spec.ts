@@ -4,6 +4,7 @@ import { expect, test, type Page, type Response } from "@playwright/test";
 
 import {
   assertProductionShadowOrigin,
+  drainProductionShadowRequestRoutes,
   fulfillProductionShadowRequest,
 } from "./request-policy.mjs";
 import {
@@ -199,6 +200,13 @@ async function assertHydratedDeploymentIdentity({
   });
 }
 
+test.afterEach(async ({ page }) => {
+  // Keep a teardown fallback for failures that exit the test before its
+  // explicit drain. Otherwise an in-flight route.fetch() becomes a post-test
+  // error while Playwright destroys Route/APIResponse objects.
+  await drainProductionShadowRequestRoutes({ page });
+});
+
 test("staged production artifact is healthy, secure, and interactive", async ({
   page,
 }) => {
@@ -251,6 +259,10 @@ test("staged production artifact is healthy, secure, and interactive", async ({
     deploymentIdentityMonitor,
   });
 
+  // Finish any route callback that was already in flight before inspecting
+  // the runtime-error ledger. A critical response can arrive while this waits,
+  // and must be included in the assertions below.
+  await drainProductionShadowRequestRoutes({ page });
   expect(errors.origins, "cross-origin main-frame navigations").toEqual([]);
   expect(errors.page, "uncaught page errors").toEqual([]);
   expect(
