@@ -24,6 +24,15 @@ root workspace. Its
 resolutions. Its only dependency must remain the same exact Vercel version as
 the root `devDependencies.vercel` pin.
 
+The two manifests also mirror the `brace-expansion@2.1.2` local patch while
+keeping a single reviewed artifact at
+`scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch`: the root
+`pnpm.patchedDependencies` entry uses that repository-relative path and the
+standalone runtime entry uses `patches/brace-expansion@2.1.2.patch`. The patch
+backports juliangruber/brace-expansion commit `a1bd339`'s CVE-2026-14257 total
+expansion-length bound without forcing legacy minimatch consumers onto the
+incompatible 5.x CommonJS/API line.
+
 After changing the root Vercel pin or any root override, update this protected
 runtime in the same PR:
 
@@ -41,6 +50,9 @@ runtime in the same PR:
    const runtime = JSON.parse(await readFile(path, "utf8"));
    runtime.dependencies.vercel = root.devDependencies.vercel;
    runtime.pnpm.overrides = root.pnpm.overrides;
+   runtime.pnpm.patchedDependencies = {
+     "brace-expansion@2.1.2": "patches/brace-expansion@2.1.2.patch",
+   };
    await writeFile(path, `${JSON.stringify(runtime, null, 2)}\n`);
    '
    ```
@@ -54,13 +66,23 @@ runtime in the same PR:
      --ignore-workspace
    ```
 
-3. Review the lockfile diff, calculate its exact digest, and replace
-   `PINNED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256` in
-   `scripts/vercel-cli-runtime-contract.mjs`:
+3. Review the lockfile diff and calculate its exact digest:
 
    ```bash
    shasum -a 256 scripts/vercel-cli-runtime/pnpm-lock.yaml
    ```
+
+   Rotate the manifest and lockfile state in two PRs. First, land a trusted
+   default-branch controller change that maps each reviewed current/next
+   lockfile digest to the SHA-256 of its matching canonical, sorted root
+   override object. The standalone manifest must remain an exact mirror of
+   that root state, and cross-paired old-lock/new-manifest or
+   new-lock/old-manifest hybrids must reject. Candidate or PR-authored source
+   must never supply or extend this mapping. Then land the matching manifest
+   and lockfile state in #645, keeping the manifest's exact `vercel@56.2.0`
+   pin and all registry-only checks intact. Immediately after #645 merges,
+   remove the former digest/override pair from the controller mapping and
+   restore the single-pair contract.
 
 4. Verify the root/standalone pins, exact manifest, override mirror, reviewed
    lockfile digest, and registry-only lockfile policy:
@@ -75,6 +97,38 @@ runtime in the same PR:
 Never run a general workspace install to regenerate this lockfile. That would
 allow workspace links into a runtime whose isolation depends on a standalone
 registry-only graph.
+
+### Reviewed brace-expansion patch rotation
+
+The controller has one reviewed successor state for the
+`brace-expansion@2.1.2` patch. Its three SHA-256 constants in
+`scripts/vercel-cli-runtime-contract.mjs` bind the standalone lockfile,
+canonical sorted root override object, and patch bytes. Replace all three
+together for any later reviewed patch revision; never generalize this into a
+candidate-provided allowlist.
+
+The later runtime-state PR must add exactly these matching entries together:
+
+- Root `pnpm.patchedDependencies`:
+  `brace-expansion@2.1.2: scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch`.
+- Standalone runtime `pnpm.patchedDependencies`:
+  `brace-expansion@2.1.2: patches/brace-expansion@2.1.2.patch`.
+- One regular, single-link patch file at
+  `scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch`.
+
+Protected staging copies that patch into the runtime as an independent `0444`
+file before frozen pnpm installation. It rejects a missing, extra, linked,
+hardlinked, drifted, or writable patch artifact. Keep both existing unpatched
+runtime states during the transition; remove them only in the reviewed cleanup
+after the patched state is serving on `main`.
+
+The root `pnpm test` chain runs `pnpm supply-chain:lockfile-lint:test` after
+installing dependencies. This exercises the patched 2.1.2 behavior in hosted
+CI. The lockfile lint also rejects every affected brace-expansion release
+through 5.0.7 unless the lock contains the exact reviewed patched 2.1.2 state,
+including the expected regular, single-link patch artifact with its reviewed
+SHA-256. It inspects pnpm alias entries too, so the advisory-wide OSV correction
+cannot hide a future direct or aliased 3.x or 4.x entry.
 
 ## Wormhole Connect (`@wormhole-foundation/wormhole-connect`)
 
@@ -93,7 +147,7 @@ TSX, or app config imports of those packages in `apps/app.mento.org`. Do not
 remove them independently, and do not start using them directly in Mento UI
 code.
 
-As of the 2026-07-21 remediation, `osv-scanner.toml` has 21 ignored
+As of the 2026-07-25 remediation, `osv-scanner.toml` has 22 ignored
 vulnerability blocks, and 12 blocks mention the Wormhole Connect dependency
 chain in the reason or surrounding comments. That cluster is currently
 protobufjs including `@protobufjs/utf8` (11 blocks) and uuid (1 block). Axios
@@ -116,10 +170,16 @@ Most entries in `pnpm.overrides` are range-scoped CVE floors, e.g.:
 "axios@<1.18.0": ">=1.18.0"
 ```
 
-`brace-expansion` is also conditional: `"brace-expansion@<2.1.2": "2.1.2"`
-only rewrites vulnerable versions below `2.1.2`. Remove it once
-`pnpm why -r brace-expansion` shows that every consumer resolves a patched
-version without the override.
+`brace-expansion` has two conditional floors: `"brace-expansion@<2.1.2":
+"2.1.2"` retains the legacy v2-compatible floor, and
+`"brace-expansion@>=5 <5.0.8": "5.0.8"` upgrades only vulnerable native v5
+consumers. `brace-expansion@2.1.2` itself is locally patched at
+`scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch` with the
+total-expansion-length cap from juliangruber/brace-expansion commit `a1bd339`.
+Remove the patch and its scoped OSV suppressions when no v2 consumer remains
+or an upstream fixed v2 release can replace it; remove each range override
+once `pnpm why -r brace-expansion` shows its affected consumers resolving a
+fixed version without the override.
 
 These self-expire: once every dependency graph naturally resolves a version
 inside the target range, the override becomes a no-op and can be deleted
@@ -137,6 +197,7 @@ no longer applies.
 
 | Override                | Reason                                                                                                                                                                                                                                                                                | Added in                                                                                          | Removal condition                                                                                                                                                         |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@mysten/sui`           | Pins the Sui SDK release selected by the July 2026 OSV remediation.                                                                                                                                                                                                                   | `ddf02828`                                                                                        | Remove when all transitive Sui consumers converge on a safe release without a root-wide pin.                                                                              |
 | `@tanstack/query-core`  | Dedupe/pin alongside `@tanstack/react-query` — `query-core` must match the pinned `react-query` version.                                                                                                                                                                              | `92facd3` (PR #356)                                                                               | Same condition as `@tanstack/react-query` below — bump both together.                                                                                                     |
 | `@tanstack/react-query` | Compatibility pin. Releases past `5.90.16` caused a production QueryClient context split in `app.mento.org` (see README).                                                                                                                                                             | `54e1ee6`, version pinned to exact `5.90.16` in `92facd3` (PR #356)                               | Once a newer release is production-built and browser-verified on the swap and pools routes (README), bump the catalog and this override together.                         |
 | `esbuild`               | Pin a patched `esbuild` for production build safety.                                                                                                                                                                                                                                  | `793a187` (as a floor), tightened to an exact pin in `92facd3` (PR #356)                          | Once the transitive `esbuild` resolved by the build toolchain (tsup, vite, etc.) is `>=0.28.1` by default.                                                                |

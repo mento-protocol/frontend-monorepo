@@ -1,0 +1,303 @@
+diff --git a/index.js b/index.js
+index b8a519513f31c05e68eeb4d6929f8a151137f55c..1272c705389b104b703a2f807ee091ed716f8032 100644
+--- a/index.js
++++ b/index.js
+@@ -7,6 +7,8 @@ var escOpen = '\0OPEN'+Math.random()+'\0';
+ var escClose = '\0CLOSE'+Math.random()+'\0';
+ var escComma = '\0COMMA'+Math.random()+'\0';
+ var escPeriod = '\0PERIOD'+Math.random()+'\0';
++var EXPANSION_MAX = 100000;
++var EXPANSION_MAX_LENGTH = 4000000;
+ 
+ function numeric(str) {
+   return parseInt(str, 10) == str
+@@ -66,7 +68,8 @@ function expandTop(str, options) {
+     return [];
+ 
+   options = options || {};
+-  var max = options.max == null ? Infinity : options.max;
++  var max = options.max == null ? EXPANSION_MAX : options.max;
++  var maxLength = options.maxLength == null ? EXPANSION_MAX_LENGTH : options.maxLength;
+ 
+   // I don't know why Bash 4.3 does this, but it does.
+   // Anything starting with {} will have the first two bytes preserved
+@@ -78,7 +81,7 @@ function expandTop(str, options) {
+     str = '\\{\\}' + str.substr(2);
+   }
+ 
+-  return expand(escapeBraces(str), max, true).map(unescapeBraces);
++  return expand(escapeBraces(str), max, maxLength, true).map(unescapeBraces);
+ }
+ 
+ function embrace(str) {
+@@ -95,27 +98,109 @@ function gte(i, y) {
+   return i >= y;
+ }
+ 
+-function expand(str, max, isTop) {
+-  var expansions = [];
++// Build each current-group × post combination while limiting result count and
++// total retained characters. Group values are created only during this reverse
++// pass, so a chain cannot retain one max-sized array per outer group.
++function combine(pre, values, post, max, maxLength, dropEmpties) {
++  // The empty first value reproduces an already saturated suffix. Later values
++  // are unreachable under the count cap, so avoid rebuilding the same array.
++  if (
++    !dropEmpties &&
++    pre === '' &&
++    values[0] === '' &&
++    post.length === max
++  ) {
++    return post;
++  }
++  var out = [];
++  var length = 0;
++  for (var v = 0; v < values.length; v++) {
++    for (var p = 0; p < post.length; p++) {
++      if (out.length >= max) return out;
++      var expansion = pre + values[v] + post[p];
++      if (dropEmpties && !expansion) continue;
++      if (length + expansion.length > maxLength) return out;
++      out.push(expansion);
++      length += expansion.length;
++    }
++  }
++  return out;
++}
++
++function expandSequence(body, isAlphaSequence, max, maxLength) {
++  var n = body.split(/\.\./);
++  var N = [];
++  var length = 0;
++  var x = numeric(n[0]);
++  var y = numeric(n[1]);
++  var width = Math.max(n[0].length, n[1].length);
++  var incr = n.length == 3
++    ? Math.max(Math.abs(numeric(n[2])), 1)
++    : 1;
++  var test = lte;
++  var reverse = y < x;
++  if (reverse) {
++    incr *= -1;
++    test = gte;
++  }
++  var pad = n.some(isPadded);
++
++  for (var i = x; test(i, y) && N.length < max; i += incr) {
++    var c;
++    if (isAlphaSequence) {
++      c = String.fromCharCode(i);
++      if (c === '\\') c = '';
++    } else {
++      c = String(i);
++      if (pad) {
++        var need = width - c.length;
++        if (need > 0) {
++          // Check before allocating the padding string. A large width can
++          // otherwise retain a huge sequence array before combine applies
++          // the total expansion-length cap.
++          if (length + c.length + need > maxLength) break;
++          var z = new Array(need + 1).join('0');
++          if (i < 0) c = '-' + z + c.slice(1);
++          else c = z + c;
++        }
++      }
++    }
++    if (length + c.length > maxLength) break;
++    N.push(c);
++    length += c.length;
++  }
++  return N;
++}
++
++function expand(str, max, maxLength, isTop) {
++  // Retain only group descriptors while scanning. Expand each descriptor just
++  // before combining it with its already-expanded suffix.
++  var groups = [];
++  var tail;
++  var topGroup = isTop ? 0 : -1;
+ 
+-  // The `{a},b}` rewrite below restarts expansion on a rewritten string with
+-  // the same `max` and `isTop = true`. Loop instead of recursing so a long run
+-  // of non-expanding `{}` groups can't exhaust the call stack.
+   for (;;) {
+     const m = balanced('{', '}', str)
+-    if (!m) return [str]
++    if (!m) {
++      tail = str;
++      break;
++    }
+ 
+     // no need to expand pre, since it is guaranteed to be free of brace-sets
+     const pre = m.pre
+ 
+     if (/\$$/.test(m.pre)) {
+-      const post =
+-        m.post.length ? expand(m.post, max, false) : ['']
+-      for (let k = 0; k < post.length && k < max; k++) {
+-        const expansion = pre + '{' + m.body + '}' + post[k]
+-        expansions.push(expansion)
+-      }
+-      return expansions
++      groups.push({
++        pre: pre,
++        body: m.body,
++        literal: true,
++      });
++      if (!m.post.length) {
++        tail = '';
++        break;
++      }
++      str = m.post;
++      continue;
+     }
+ 
+     var isNumericSequence = /^-?\d+\.\.-?\d+(?:\.\.-?\d+)?$/.test(m.body);
+@@ -129,89 +204,66 @@ function expand(str, max, isTop) {
+         isTop = true;
++        topGroup = groups.length;
+         continue;
+       }
+-      return [str];
++      tail = pre + '{' + m.body + '}' + m.post;
++      break;
+     }
+ 
+-    // Only expand post once we know this brace set actually expands. Computing
+-    // it before the early returns above expanded post a second time on every
+-    // non-expanding `{}`, which is what made inputs like `a{},{},{}...` blow up
+-    // exponentially.
+-    const post =
+-      m.post.length ? expand(m.post, max, false) : ['']
+-    var n;
++    groups.push({
++      pre: pre,
++      body: m.body,
++      isSequence: isSequence,
++      isAlphaSequence: isAlphaSequence,
++      dropEmpties: groups.length === topGroup && !isSequence,
++    });
++    if (!m.post.length) {
++      tail = '';
++      break;
++    }
++    str = m.post;
++    continue;
++
+-    if (isSequence) {
+-      n = m.body.split(/\.\./);
+-    } else {
+-      n = parseCommaParts(m.body);
+-      if (n.length === 1) {
+-        // x{{a,b}}y ==> x{a}y x{b}y
+-        n = expand(n[0], max, false).map(embrace);
+-        if (n.length === 1) {
+-          return post.map(function(p) {
+-            return m.pre + n[0] + p;
+-          });
+-        }
+-      }
+-    }
+-
+-    // at this point, n is the parts, and we know it's not a comma set
+-    // with a single entry.
+-    var N;
+-
+-    if (isSequence) {
+-      var x = numeric(n[0]);
+-      var y = numeric(n[1]);
+-      var width = Math.max(n[0].length, n[1].length)
+-      var incr = n.length == 3
+-        ? Math.max(Math.abs(numeric(n[2])), 1)
+-        : 1;
+-      var test = lte;
+-      var reverse = y < x;
+-      if (reverse) {
+-        incr *= -1;
+-        test = gte;
+-      }
+-      var pad = n.some(isPadded);
+-
+-      N = [];
+-
+-      for (var i = x; test(i, y) && N.length < max; i += incr) {
+-        var c;
+-        if (isAlphaSequence) {
+-          c = String.fromCharCode(i);
+-          if (c === '\\')
+-            c = '';
+-        } else {
+-          c = String(i);
+-          if (pad) {
+-            var need = width - c.length;
+-            if (need > 0) {
+-              var z = new Array(need + 1).join('0');
+-              if (i < 0)
+-                c = '-' + z + c.slice(1);
+-              else
+-                c = z + c;
+-            }
+-          }
+-        }
+-        N.push(c);
+-      }
+-    } else {
+-      N = [];
+-
+-      for (var j = 0; j < n.length; j++) {
+-        N.push.apply(N, expand(n[j], max, false));
+-      }
+-    }
+ 
+-    for (var j = 0; j < N.length; j++) {
+-      for (var k = 0; k < post.length && expansions.length < max; k++) {
+-        var expansion = pre + N[j] + post[k];
+-        if (!isTop || isSequence || expansion)
+-          expansions.push(expansion);
+-      }
+-    }
+-
+-    return expansions;
+   }
++
++  var expansions = [tail];
++  for (var group = groups.length - 1; group >= 0; group--) {
++    var descriptor = groups[group];
++    var values = null;
++    if (descriptor.literal) {
++      values = ['{' + descriptor.body + '}'];
++    } else if (descriptor.isSequence) {
++      values = expandSequence(descriptor.body, descriptor.isAlphaSequence, max, maxLength);
++    } else {
++      var n = parseCommaParts(descriptor.body);
++      if (n.length === 1) {
++        n = expand(n[0], max, maxLength, false).map(embrace);
++        if (n.length === 1) values = n;
++      }
++      if (!values) {
++        values = [];
++        var valuesLength = 0;
++        var preserveTopLevelChoices = group === topGroup && !descriptor.pre;
++        var emptyValues = 0;
++        var nonEmptyValues = 0;
++        for (var j = 0; j < n.length; j++) {
++          if (!preserveTopLevelChoices && values.length >= max) break;
++          var arm = expand(n[j], preserveTopLevelChoices ? max : max - values.length, Math.max(maxLength - valuesLength, 0), false);
++          for (var k = 0; k < arm.length; k++) {
++            if (preserveTopLevelChoices) {
++              if (!arm[k] && emptyValues >= max) continue;
++              if (arm[k] && nonEmptyValues >= max) continue;
++            } else if (values.length >= max) break;
++            if (valuesLength + arm[k].length > maxLength) break;
++            values.push(arm[k]);
++            valuesLength += arm[k].length;
++            if (arm[k]) nonEmptyValues++;
++            else emptyValues++;
++          }
++        }
++      }
++    }
++    expansions = combine(descriptor.pre, values, expansions, max, maxLength, descriptor.dropEmpties);
++  }
++  return expansions;
+ }

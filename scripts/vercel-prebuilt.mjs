@@ -140,7 +140,10 @@ export function readResolvedNextVersion(lockfile) {
   return match[1];
 }
 
-export function assertDeploymentIdPrerequisites(repoRoot) {
+export function assertDeploymentIdPrerequisites(
+  repoRoot,
+  { runtimeContractStates } = {},
+) {
   const packageJson = JSON.parse(
     readFileSync(join(repoRoot, "package.json"), "utf8"),
   );
@@ -176,6 +179,16 @@ export function assertDeploymentIdPrerequisites(repoRoot) {
       "vercel-cli-runtime",
       "pnpm-lock.yaml",
     ),
+    patchFilePath: Object.hasOwn(packageJson.pnpm ?? {}, "patchedDependencies")
+      ? join(
+          repoRoot,
+          "scripts",
+          "vercel-cli-runtime",
+          "patches",
+          "brace-expansion@2.1.2.patch",
+        )
+      : undefined,
+    trustedRuntimeStates: runtimeContractStates,
   });
 
   return { next: nextVersion, vercel: vercelVersion, vercelCliRuntime };
