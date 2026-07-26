@@ -189,7 +189,7 @@ export default function FormComponentsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {/* This showcase keeps Datepicker read-only so its display stays stable. */}
+            {/* This example leaves parent state unchanged to show Datepicker's internal interaction. */}
             <Datepicker
               value={DATEPICKER_DEFAULT_DATE}
               onChange={() => {}}
