@@ -131,17 +131,17 @@ test(
 );
 
 test(
-  "production-shadow teardown waits for an in-flight route fetch",
+  "production-shadow teardown exposes a late critical response before assertions",
   { timeout: 30_000 },
   async () => {
     const requestStarted = deferred();
     const releaseResponse = deferred();
     const server = createServer(async (request, response) => {
-      if (request.url === "/slow") {
+      if (request.url === "/slow.js") {
         requestStarted.resolve();
         await releaseResponse.promise;
-        response.writeHead(200, { "content-type": "text/plain" });
-        response.end("complete");
+        response.writeHead(503, { "content-type": "text/javascript" });
+        response.end("throw new Error('unavailable')");
         return;
       }
       response.writeHead(200, { "content-type": "text/html" });
@@ -155,16 +155,38 @@ test(
     try {
       browser = await chromium.launch({ headless: true });
       const page = await browser.newPage();
+      const criticalResponses = [];
+      page.on("response", (response) => {
+        if (
+          response.request().resourceType() === "script" &&
+          response.status() >= 400
+        ) {
+          criticalResponses.push(
+            `script ${response.url()} HTTP ${response.status()}`,
+          );
+        }
+      });
       await page.route("**/*", async (route) => {
         await fulfillProductionShadowRequest({ route });
       });
       await page.goto(serverOrigin, { waitUntil: "domcontentloaded" });
 
       requestOutcome = page
-        .evaluate(async (url) => {
-          const response = await fetch(url);
-          return response.text();
-        }, `${serverOrigin}/slow`)
+        .evaluate(
+          (url) =>
+            new Promise((resolve) => {
+              const script = document.createElement("script");
+              script.src = url;
+              script.addEventListener("load", () => resolve("loaded"), {
+                once: true,
+              });
+              script.addEventListener("error", () => resolve("failed"), {
+                once: true,
+              });
+              document.head.append(script);
+            }),
+          `${serverOrigin}/slow.js`,
+        )
         .then(
           (value) => ({ value }),
           (error) => ({ error }),
@@ -184,7 +206,11 @@ test(
 
       releaseResponse.resolve();
       await teardown;
-      assert.deepEqual(await requestOutcome, { value: "complete" });
+      assert.deepEqual(criticalResponses, [
+        `script ${serverOrigin}/slow.js HTTP 503`,
+      ]);
+      await requestOutcome;
+      await drainProductionShadowRequestRoutes({ page });
     } finally {
       releaseResponse.resolve();
       await requestOutcome;

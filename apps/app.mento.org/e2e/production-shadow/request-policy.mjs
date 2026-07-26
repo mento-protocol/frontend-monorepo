@@ -24,6 +24,10 @@ export async function fulfillProductionShadowRequest({ route }) {
 
 export async function drainProductionShadowRequestRoutes({ page }) {
   await page.unrouteAll({ behavior: "wait" });
+  // route.fulfill() can resolve before Playwright dispatches the matching
+  // page-level response event. A browser-protocol round trip orders those
+  // events before the caller inspects its runtime-error ledger.
+  await page.evaluate(() => undefined);
 }
 
 export function assertProductionShadowOrigin(value, allowedOrigin) {

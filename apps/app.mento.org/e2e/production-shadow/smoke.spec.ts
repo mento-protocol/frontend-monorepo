@@ -201,9 +201,9 @@ async function assertHydratedDeploymentIdentity({
 }
 
 test.afterEach(async ({ page }) => {
-  // Live integrations may start a request after the final assertion. Drain
-  // every route callback before Playwright tears down Route/APIResponse
-  // objects, or an in-flight route.fetch() is reported as a post-test error.
+  // Keep a teardown fallback for failures that exit the test before its
+  // explicit drain. Otherwise an in-flight route.fetch() becomes a post-test
+  // error while Playwright destroys Route/APIResponse objects.
   await drainProductionShadowRequestRoutes({ page });
 });
 
@@ -259,6 +259,10 @@ test("staged production artifact is healthy, secure, and interactive", async ({
     deploymentIdentityMonitor,
   });
 
+  // Finish any route callback that was already in flight before inspecting
+  // the runtime-error ledger. A critical response can arrive while this waits,
+  // and must be included in the assertions below.
+  await drainProductionShadowRequestRoutes({ page });
   expect(errors.origins, "cross-origin main-frame navigations").toEqual([]);
   expect(errors.page, "uncaught page errors").toEqual([]);
   expect(
