@@ -101,8 +101,10 @@ dispatches; already-created workers and their recovery remain operable through
 the primary client.
 
 A target-local ownership rollback keeps the controller `active`, atomically
-restores only that target's native Vercel Git configuration and `shadow` mode,
-and leaves the dispatch credential available for other GitHub-owned targets.
+restores only that target's native-preview/GitHub-main Vercel Git configuration
+and `shadow` preview mode, and leaves the dispatch credential available for
+other GitHub-owned targets. The explicit `main: false` rule prevents that
+preview rollback from restoring native main deployment ownership.
 An App rollback therefore leaves Governance, Reserve, and UI GitHub-owned; a
 Governance rollback leaves App, Reserve, and UI GitHub-owned. Neither revokes
 the shared dispatch path nor recreates the deleted Governance QA environment. A

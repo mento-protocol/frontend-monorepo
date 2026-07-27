@@ -140,8 +140,10 @@ workflow only for exact native Vercel App/Governance successes created during
 a bounded target-local rollback; it performs no status lookup or reuse and
 receives no deployment credential. Ordinary previews for all four targets are
 GitHub-owned and do not use this adapter. The adapter remains temporarily for
-rollback proof and is removed only in #523 cleanup, after the #522 production
-cutover and required observation period. GitHub-built workers call the reusable
+rollback proof and is removed only in #523 cleanup after the required
+observation period. A target-local `main` rollback does not change preview
+ownership, and a target-local preview rollback uses native-preview/GitHub-main
+branch rules so it does not change main ownership. GitHub-built workers call the reusable
 workflow directly because a `GITHUB_TOKEN` Deployment status is evidence, not
 a downstream trigger contract. The automatic exact-SHA controller, bootstrap,
 canary, cutover, and rollback contract is in `docs/vercel-deployments.md`.
@@ -151,16 +153,39 @@ Manual staged production URLs use the separate target-aware
 never enables the mock wallet.
 
 The automatic `.github/workflows/vercel-main-deployment.yml` path runs only
-from the exact successful `CI/CD` attempt for `main`. PR A is literal `shadow`
-mode: Governance, Reserve, and UI may stage and smoke immutable production
-candidates, while App custom `v3` is build-only. Promote, alias, rollback, App
-deployment, recovery mutation, and Vercel Git ownership changes must remain
-unreachable until the separately reviewed PR-B cutover. Planning uses the SHA
-each public target actually serves, and every credential-bearing job uses only
-`vercel-cli-production` with `deployment: false`. The exact-attempt gate,
-journal, canonical redacted evidence artifact, public runtime smoke, App
-real-wallet check, rollback, and native-owner restoration procedures are in
-`docs/vercel-deployments.md`.
+from the exact successful `CI/CD` attempt for `main`. Its global mode is
+`active`, and the current per-target `mainOwnershipMode` map assigns App,
+Governance, Reserve, and UI to `github`. Planning emits
+`vercel-main-plan:v2`: all selected targets stage or build, `activeTargets`
+mutate public mappings, and `shadowTargets` prove the same candidates without
+public mutation. Governance, Reserve, and UI promote exact staged deployments;
+App deploys its verified custom `v3` output and verifies or assigns only the
+reviewed aliases. Legacy App `v2 -> production` remains native. Planning uses
+the SHA each public target actually serves, and every credential-bearing job
+uses only `vercel-cli-production` with `deployment: false`. The exact-attempt
+gate, repeated freshness checks, durable journal, active duplicate census,
+canonical redacted evidence, public runtime smoke, App real-wallet check,
+target-local main rollback, and separate full-native restoration procedures
+are in `docs/vercel-deployments.md`. Ordinary previews remain GitHub-owned
+during either rollback procedure. The removed Governance QA environment is not
+part of the deployment topology.
+
+Active-main release identity is stable across downstream reruns: it binds
+repository, exact SHA, and validated upstream CI run ID; target-specific
+candidate identity adds the target. The provider-side stable release manifest
+is the sole durable cross-attempt authority. Mutation transaction IDs and
+journals remain downstream run-and-attempt scoped. Before planning, a later
+attempt reconciles provider mappings and candidates with that manifest. It
+reuses a completed release, or restores an inherited partial release through a
+fresh current-attempt journal before new planning. It never resumes a prior
+journal or treats GitHub artifacts as cross-attempt authority. The compact
+terminal receipt and evidence are the only final-verdict handoff and support
+final-only reruns. A completed release emits `current-release-verified` only
+after fresh mapping, census/state, raw public-runtime-smoke, legacy `v2`, and
+freshness proof; it creates no journal and executes no public mutation. App
+shadow preparation is build-only terminal evidence and never creates a provider
+deployment. Ambiguous or incomplete provider state fails closed before
+production work continues.
 
 ## Coding Conventions
 

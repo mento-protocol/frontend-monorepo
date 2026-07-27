@@ -1,31 +1,198 @@
 {
-  "schema": 1,
+  "schema": 3,
   "repository": "mento-protocol/frontend-monorepo",
-  "deploySha": "0123456789abcdef0123456789abcdef01234567",
+  "deploySha": "abcdef0123456789abcdef0123456789abcdef01",
   "runId": "987654321",
   "runAttempt": "2",
-  "transactionId": "main-6cddb358375c408df694966a3b498246",
-  "mode": "shadow",
+  "transactionId": "main-3cc21c9dc55f0c8b6de89837e1b191d7",
+  "mode": "active",
   "sequence": 0,
   "status": "prepared",
+  "release": {
+    "schema": "vercel-main-release-manifest:v1",
+    "repository": "mento-protocol/frontend-monorepo",
+    "releaseId": "mr-92e57318148798973a8f067a",
+    "deploySha": "abcdef0123456789abcdef0123456789abcdef01",
+    "upstreamRunId": "700",
+    "mode": "active",
+    "mainOwnershipMode": {
+      "app": "github",
+      "governance": "github",
+      "reserve": "github",
+      "ui": "github"
+    },
+    "stagedTargets": ["governance", "reserve", "ui", "app"],
+    "activeTargets": ["governance", "reserve", "ui", "app"],
+    "originalPriors": {
+      "governance": {
+        "deploymentId": "dpl_governanceprior123",
+        "deploymentUrl": "https://governance-prior.vercel.app",
+        "aliases": ["governance.mento.org"],
+        "projectId": "prj_governance123",
+        "projectName": "governance.mento.org",
+        "readyState": "READY",
+        "target": "production",
+        "customEnvironmentSlug": null,
+        "planningLeaves": [
+          {
+            "alias": "governance.mento.org",
+            "deploymentId": "dpl_governanceprior123",
+            "deploymentUrl": "https://governance-prior.vercel.app",
+            "aliases": ["governance.mento.org"],
+            "projectId": "prj_governance123",
+            "projectName": "governance.mento.org",
+            "readyState": "READY",
+            "target": "production",
+            "customEnvironmentSlug": null,
+            "git": {
+              "status": "complete",
+              "org": "mento-protocol",
+              "repo": "frontend-monorepo",
+              "ref": "main",
+              "sha": "1111111111111111111111111111111111111111"
+            }
+          }
+        ],
+        "servedSha": "1111111111111111111111111111111111111111"
+      },
+      "reserve": {
+        "deploymentId": "dpl_reserveprior123",
+        "deploymentUrl": "https://reserve-prior.vercel.app",
+        "aliases": ["reserve.mento.org"],
+        "projectId": "prj_reserve123",
+        "projectName": "reserve.mento.org",
+        "readyState": "READY",
+        "target": "production",
+        "customEnvironmentSlug": null,
+        "planningLeaves": [
+          {
+            "alias": "reserve.mento.org",
+            "deploymentId": "dpl_reserveprior123",
+            "deploymentUrl": "https://reserve-prior.vercel.app",
+            "aliases": ["reserve.mento.org"],
+            "projectId": "prj_reserve123",
+            "projectName": "reserve.mento.org",
+            "readyState": "READY",
+            "target": "production",
+            "customEnvironmentSlug": null,
+            "git": {
+              "status": "complete",
+              "org": "mento-protocol",
+              "repo": "frontend-monorepo",
+              "ref": "main",
+              "sha": "1111111111111111111111111111111111111111"
+            }
+          }
+        ],
+        "servedSha": "1111111111111111111111111111111111111111"
+      },
+      "ui": {
+        "deploymentId": "dpl_uiprior123",
+        "deploymentUrl": "https://ui-prior.vercel.app",
+        "aliases": ["ui.mento.org"],
+        "projectId": "prj_ui123",
+        "projectName": "ui.mento.org",
+        "readyState": "READY",
+        "target": "production",
+        "customEnvironmentSlug": null,
+        "planningLeaves": [
+          {
+            "alias": "ui.mento.org",
+            "deploymentId": "dpl_uiprior123",
+            "deploymentUrl": "https://ui-prior.vercel.app",
+            "aliases": ["ui.mento.org"],
+            "projectId": "prj_ui123",
+            "projectName": "ui.mento.org",
+            "readyState": "READY",
+            "target": "production",
+            "customEnvironmentSlug": null,
+            "git": {
+              "status": "complete",
+              "org": "mento-protocol",
+              "repo": "frontend-monorepo",
+              "ref": "main",
+              "sha": "1111111111111111111111111111111111111111"
+            }
+          }
+        ],
+        "servedSha": "1111111111111111111111111111111111111111"
+      },
+      "app": {
+        "deploymentId": "dpl_appprior123",
+        "deploymentUrl": "https://app-prior.vercel.app",
+        "aliases": ["app.mento.org", "appmentoorg-env-v3-mentolabs.vercel.app"],
+        "projectId": "prj_app123",
+        "projectName": "app.mento.org",
+        "readyState": "READY",
+        "target": null,
+        "customEnvironmentSlug": "v3",
+        "planningLeaves": [
+          {
+            "alias": "app.mento.org",
+            "deploymentId": "dpl_appprior123",
+            "deploymentUrl": "https://app-prior.vercel.app",
+            "aliases": [
+              "app.mento.org",
+              "appmentoorg-env-v3-mentolabs.vercel.app"
+            ],
+            "projectId": "prj_app123",
+            "projectName": "app.mento.org",
+            "readyState": "READY",
+            "target": null,
+            "customEnvironmentSlug": "v3",
+            "git": {
+              "status": "complete",
+              "org": "mento-protocol",
+              "repo": "frontend-monorepo",
+              "ref": "main",
+              "sha": "1111111111111111111111111111111111111111"
+            }
+          },
+          {
+            "alias": "appmentoorg-env-v3-mentolabs.vercel.app",
+            "deploymentId": "dpl_appprior123",
+            "deploymentUrl": "https://app-prior.vercel.app",
+            "aliases": [
+              "app.mento.org",
+              "appmentoorg-env-v3-mentolabs.vercel.app"
+            ],
+            "projectId": "prj_app123",
+            "projectName": "app.mento.org",
+            "readyState": "READY",
+            "target": null,
+            "customEnvironmentSlug": "v3",
+            "git": {
+              "status": "complete",
+              "org": "mento-protocol",
+              "repo": "frontend-monorepo",
+              "ref": "main",
+              "sha": "1111111111111111111111111111111111111111"
+            }
+          }
+        ],
+        "servedSha": "1111111111111111111111111111111111111111"
+      }
+    },
+    "releasePlanDigest": "8bbabcf401244465791e263becf8db0c0dff2f392a6abcd610cb06b63274f974"
+  },
   "prior": {
     "app": {
-      "deploymentId": "dpl_appPrior123",
+      "deploymentId": "dpl_appprior123",
       "deploymentUrl": "https://app-prior.vercel.app",
       "aliases": ["app.mento.org", "appmentoorg-env-v3-mentolabs.vercel.app"]
     },
     "governance": {
-      "deploymentId": "dpl_governancePrior123",
+      "deploymentId": "dpl_governanceprior123",
       "deploymentUrl": "https://governance-prior.vercel.app",
       "aliases": ["governance.mento.org"]
     },
     "reserve": {
-      "deploymentId": "dpl_reservePrior123",
+      "deploymentId": "dpl_reserveprior123",
       "deploymentUrl": "https://reserve-prior.vercel.app",
       "aliases": ["reserve.mento.org"]
     },
     "ui": {
-      "deploymentId": "dpl_uiPrior123",
+      "deploymentId": "dpl_uiprior123",
       "deploymentUrl": "https://ui-prior.vercel.app",
       "aliases": ["ui.mento.org"]
     },
@@ -35,38 +202,144 @@
       "aliases": ["v2-app.mento.org"]
     }
   },
+  "startMappings": {
+    "app": [
+      {
+        "alias": "app.mento.org",
+        "deploymentId": "dpl_appprior123",
+        "deploymentUrl": "https://app-prior.vercel.app"
+      },
+      {
+        "alias": "appmentoorg-env-v3-mentolabs.vercel.app",
+        "deploymentId": "dpl_appprior123",
+        "deploymentUrl": "https://app-prior.vercel.app"
+      }
+    ],
+    "governance": [
+      {
+        "alias": "governance.mento.org",
+        "deploymentId": "dpl_governanceprior123",
+        "deploymentUrl": "https://governance-prior.vercel.app"
+      }
+    ],
+    "reserve": [
+      {
+        "alias": "reserve.mento.org",
+        "deploymentId": "dpl_reserveprior123",
+        "deploymentUrl": "https://reserve-prior.vercel.app"
+      }
+    ],
+    "ui": [
+      {
+        "alias": "ui.mento.org",
+        "deploymentId": "dpl_uiprior123",
+        "deploymentUrl": "https://ui-prior.vercel.app"
+      }
+    ],
+    "legacy-app": [
+      {
+        "alias": "v2-app.mento.org",
+        "deploymentId": "dpl_legacyPrior123",
+        "deploymentUrl": "https://legacy-prior.vercel.app"
+      }
+    ]
+  },
   "candidates": {
     "app": {
-      "deploymentId": null,
-      "deploymentUrl": null,
+      "deploymentId": "dpl_appcandidate123",
+      "deploymentUrl": "https://app-candidate.vercel.app",
       "aliases": ["app.mento.org", "appmentoorg-env-v3-mentolabs.vercel.app"],
       "discovery": {
+        "releaseId": "mr-92e57318148798973a8f067a",
+        "candidateId": "candidate-app-700",
         "projectId": "prj_app123",
         "projectName": "app.mento.org",
-        "deploySha": "0123456789abcdef0123456789abcdef01234567",
-        "runId": "987654321",
-        "runAttempt": "2",
-        "transactionId": "main-6cddb358375c408df694966a3b498246",
-        "customEnvironmentSlug": "v3"
+        "deploySha": "abcdef0123456789abcdef0123456789abcdef01",
+        "target": "app",
+        "customEnvironmentSlug": "v3",
+        "immutableSmoke": {
+          "immutableUrl": "https://app-candidate.vercel.app",
+          "servedSha": "abcdef0123456789abcdef0123456789abcdef01",
+          "status": "passed"
+        },
+        "metrics": {
+          "buildDurationMs": null,
+          "deploymentDurationMs": null,
+          "cacheHit": null
+        }
       }
     },
     "governance": {
-      "deploymentId": "dpl_governanceCandidate123",
+      "deploymentId": "dpl_governancecandidate123",
       "deploymentUrl": "https://governance-candidate.vercel.app",
       "aliases": ["governance.mento.org"],
-      "discovery": null
+      "discovery": {
+        "releaseId": "mr-92e57318148798973a8f067a",
+        "candidateId": "candidate-governance-700",
+        "projectId": "prj_governance123",
+        "projectName": "governance.mento.org",
+        "deploySha": "abcdef0123456789abcdef0123456789abcdef01",
+        "target": "governance",
+        "customEnvironmentSlug": null,
+        "immutableSmoke": {
+          "immutableUrl": "https://governance-candidate.vercel.app",
+          "servedSha": "abcdef0123456789abcdef0123456789abcdef01",
+          "status": "passed"
+        },
+        "metrics": {
+          "buildDurationMs": null,
+          "deploymentDurationMs": null,
+          "cacheHit": null
+        }
+      }
     },
     "reserve": {
-      "deploymentId": "dpl_reserveCandidate123",
+      "deploymentId": "dpl_reservecandidate123",
       "deploymentUrl": "https://reserve-candidate.vercel.app",
       "aliases": ["reserve.mento.org"],
-      "discovery": null
+      "discovery": {
+        "releaseId": "mr-92e57318148798973a8f067a",
+        "candidateId": "candidate-reserve-700",
+        "projectId": "prj_reserve123",
+        "projectName": "reserve.mento.org",
+        "deploySha": "abcdef0123456789abcdef0123456789abcdef01",
+        "target": "reserve",
+        "customEnvironmentSlug": null,
+        "immutableSmoke": {
+          "immutableUrl": "https://reserve-candidate.vercel.app",
+          "servedSha": "abcdef0123456789abcdef0123456789abcdef01",
+          "status": "passed"
+        },
+        "metrics": {
+          "buildDurationMs": null,
+          "deploymentDurationMs": null,
+          "cacheHit": null
+        }
+      }
     },
     "ui": {
-      "deploymentId": "dpl_uiCandidate123",
+      "deploymentId": "dpl_uicandidate123",
       "deploymentUrl": "https://ui-candidate.vercel.app",
       "aliases": ["ui.mento.org"],
-      "discovery": null
+      "discovery": {
+        "releaseId": "mr-92e57318148798973a8f067a",
+        "candidateId": "candidate-ui-700",
+        "projectId": "prj_ui123",
+        "projectName": "ui.mento.org",
+        "deploySha": "abcdef0123456789abcdef0123456789abcdef01",
+        "target": "ui",
+        "customEnvironmentSlug": null,
+        "immutableSmoke": {
+          "immutableUrl": "https://ui-candidate.vercel.app",
+          "servedSha": "abcdef0123456789abcdef0123456789abcdef01",
+          "status": "passed"
+        },
+        "metrics": {
+          "buildDurationMs": null,
+          "deploymentDurationMs": null,
+          "cacheHit": null
+        }
+      }
     }
   },
   "operations": []

@@ -1,0 +1,334 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import {
+  assertMainReleaseExecution,
+  createMainReleaseExecution,
+  createMainReleaseSelection,
+  decodeMainReleaseExecution,
+  digestMainReleaseExecution,
+  encodeMainReleaseExecution,
+} from "./vercel-main-release-execution.mjs";
+import { createMainReleaseManifest } from "./vercel-main-release-reconciliation.mjs";
+
+const SHA = "a".repeat(40);
+const PRIOR_SHA = "b".repeat(40);
+const V2_SHA = "c".repeat(40);
+const TARGETS = ["app", "governance", "reserve", "ui"];
+const RELEASE_ORDER = ["governance", "reserve", "ui", "app"];
+
+function plan(stagedTargets = TARGETS) {
+  const selected = TARGETS.filter((target) => stagedTargets.includes(target));
+  return {
+    schema: "vercel-main-plan:v2",
+    mode: "active",
+    deploySha: SHA,
+    mainOwnershipMode: Object.fromEntries(
+      TARGETS.map((target) => [target, "github"]),
+    ),
+    plan: [...selected],
+    stagedTargets: [...selected],
+    activeTargets: [...selected],
+    shadowTargets: [],
+    priors: TARGETS.map((target) => ({
+      target,
+      aliases:
+        target === "app"
+          ? ["app.mento.org", "appmentoorg-env-v3-mentolabs.vercel.app"]
+          : [`${target}.mento.org`],
+      deploymentId: `dpl_${target}Prior123`,
+      deploymentUrl: `https://${target}-prior.vercel.app`,
+      servedSha: PRIOR_SHA,
+    })),
+    ranges: [],
+    reasons: [],
+  };
+}
+
+function originalPriors(planning) {
+  return Object.fromEntries(
+    RELEASE_ORDER.map((target) =>
+      planning.priors.find((prior) => prior.target === target),
+    ).map((prior) => [
+      prior.target,
+      {
+        deploymentId: prior.deploymentId,
+        deploymentUrl: prior.deploymentUrl,
+        aliases: prior.aliases,
+        projectId: `prj_${prior.target}`,
+        projectName: `${prior.target}.mento.org`,
+        readyState: "READY",
+        target: prior.target === "app" ? null : "production",
+        customEnvironmentSlug: prior.target === "app" ? "v3" : null,
+        planningLeaves: prior.aliases.map((alias) => ({
+          alias,
+          deploymentId: prior.deploymentId,
+          deploymentUrl: prior.deploymentUrl,
+          aliases: prior.aliases,
+          projectId: `prj_${prior.target}`,
+          projectName: `${prior.target}.mento.org`,
+          readyState: "READY",
+          target: prior.target === "app" ? null : "production",
+          customEnvironmentSlug: prior.target === "app" ? "v3" : null,
+          git: {
+            status: "complete",
+            org: "mento-protocol",
+            repo: "frontend-monorepo",
+            ref: "main",
+            sha: PRIOR_SHA,
+          },
+        })),
+        servedSha: PRIOR_SHA,
+      },
+    ]),
+  );
+}
+
+function manifest(stagedTargets = TARGETS) {
+  const planning = plan(stagedTargets);
+  return createMainReleaseManifest({
+    upstreamRunId: "123",
+    plan: planning,
+    originalPriors: originalPriors(planning),
+  });
+}
+
+function legacyAppV2() {
+  return {
+    alias: "v2-app.mento.org",
+    deploymentId: "dpl_legacyV2Prior123",
+    deploymentUrl: "https://legacy-v2-prior.vercel.app",
+    creatorUsername: "mentolabs",
+    projectId: "prj_app",
+    projectName: "app.mento.org",
+    readyState: "READY",
+    target: "production",
+    customEnvironmentSlug: null,
+    git: {
+      org: "mento-protocol",
+      repo: "frontend-monorepo",
+      ref: "v2",
+      sha: V2_SHA,
+    },
+    aliases: [
+      "appmentoorg-git-v2-mentolabs.vercel.app",
+      "appmentoorg-mentolabs.vercel.app",
+      "appmentoorg.vercel.app",
+      "v2-app.mento.org",
+    ],
+  };
+}
+
+function execution(stagedTargets = TARGETS) {
+  const release = manifest(stagedTargets);
+  const legacy = legacyAppV2();
+  return createMainReleaseExecution({
+    decision:
+      stagedTargets.length === 0
+        ? "capture-new-baseline"
+        : "resume-existing-release",
+    reason:
+      stagedTargets.length === 0
+        ? "no-mapped-release-metadata"
+        : "current-main-release-is-an-interrupted-prefix",
+    manifest: release,
+    upstream: {
+      runId: "123",
+      runAttempt: "2",
+      runUrl:
+        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123",
+      buildAndTestJobUrl:
+        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123/job/456",
+    },
+    legacyAppV2: legacy,
+    selection: createMainReleaseSelection({
+      providerDiscoveryDigest: "c".repeat(64),
+      planningSnapshotDigest: "d".repeat(64),
+      legacyAppV2: legacy,
+      projectIds: Object.fromEntries(
+        RELEASE_ORDER.map((target) => [target, `prj_${target}`]),
+      ),
+      mode: release.mode,
+      mainOwnershipMode: release.mainOwnershipMode,
+      selectedManifest: release,
+    }),
+  });
+}
+
+test("release execution derives its entire operational projection from the stable manifest", () => {
+  const value = execution(["governance", "app"]);
+  assert.deepEqual(value.projection, {
+    projectIds: {
+      governance: "prj_governance",
+      reserve: "prj_reserve",
+      ui: "prj_ui",
+      app: "prj_app",
+    },
+    stagedTargets: ["governance", "app"],
+    activeTargets: ["governance", "app"],
+    shadowTargets: [],
+    noTarget: false,
+  });
+  assert.equal(value.upstream.runId, value.manifest.upstreamRunId);
+});
+
+test("no-target is represented by one manifest-derived execution without candidate state", () => {
+  const value = execution([]);
+  assert.equal(value.projection.noTarget, true);
+  assert.deepEqual(value.projection.stagedTargets, []);
+  assert.deepEqual(value.projection.activeTargets, []);
+});
+
+test("execution encoding is canonical and identity-bound", () => {
+  const value = execution(["reserve"]);
+  const encoded = encodeMainReleaseExecution(value);
+  assert.deepEqual(
+    decodeMainReleaseExecution(encoded, {
+      deploySha: SHA,
+      upstreamRunId: "123",
+      releaseId: value.manifest.releaseId,
+    }),
+    value,
+  );
+  assert.match(digestMainReleaseExecution(value), /^[a-f0-9]{64}$/);
+  assert.throws(
+    () =>
+      decodeMainReleaseExecution(encoded, {
+        deploySha: "e".repeat(40),
+      }),
+    /expected SHA/,
+  );
+});
+
+test("execution rejects an altered projection, selection, or current upstream", () => {
+  const value = execution(["ui"]);
+  assert.throws(
+    () =>
+      assertMainReleaseExecution({
+        ...value,
+        projection: { ...value.projection, noTarget: true },
+      }),
+    /projection differs/,
+  );
+  assert.throws(
+    () =>
+      assertMainReleaseExecution({
+        ...value,
+        selection: {
+          ...value.selection,
+          planningSnapshotDigest: "invalid",
+        },
+      }),
+    /planning snapshot digest/,
+  );
+  assert.throws(
+    () =>
+      assertMainReleaseExecution({
+        ...value,
+        upstream: { ...value.upstream, runId: "124" },
+      }),
+    /stable manifest/,
+  );
+});
+
+test("execution selection binds discovery, projects, manifest, ownership, and legacy", () => {
+  const value = execution(["governance"]);
+  for (const selection of [
+    { ...value.selection, providerDiscoveryDigest: "invalid" },
+    {
+      ...value.selection,
+      projectIds: {
+        ...value.selection.projectIds,
+        governance: "prj_other",
+      },
+    },
+    {
+      ...value.selection,
+      mode: "shadow",
+    },
+    {
+      ...value.selection,
+      mainOwnershipMode: {
+        ...value.selection.mainOwnershipMode,
+        ui: "shadow",
+      },
+    },
+    {
+      ...value.selection,
+      selectedManifest: {
+        ...value.selection.selectedManifest,
+        releasePlanDigest: "e".repeat(64),
+      },
+    },
+    {
+      ...value.selection,
+      legacyAppV2Digest: "f".repeat(64),
+    },
+  ]) {
+    assert.throws(
+      () => assertMainReleaseExecution({ ...value, selection }),
+      /selection|manifest/,
+    );
+  }
+});
+
+test("execution binds both upstream URLs to the exact repository run", () => {
+  const value = execution(["governance"]);
+  for (const upstream of [
+    {
+      ...value.upstream,
+      runUrl: "https://github.com/other/frontend-monorepo/actions/runs/123",
+    },
+    {
+      ...value.upstream,
+      runUrl:
+        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/124",
+    },
+    {
+      ...value.upstream,
+      buildAndTestJobUrl:
+        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/124/job/456",
+    },
+    {
+      ...value.upstream,
+      buildAndTestJobUrl:
+        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123/job/0",
+    },
+    {
+      ...value.upstream,
+      buildAndTestJobUrl:
+        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123/job/456?attempt=2",
+    },
+  ]) {
+    assert.throws(
+      () => assertMainReleaseExecution({ ...value, upstream }),
+      /exact repository run|malformed/,
+    );
+  }
+});
+
+test("execution rejects stale or malformed legacy v2 state", () => {
+  const value = execution(["app"]);
+  assert.throws(
+    () =>
+      assertMainReleaseExecution({
+        ...value,
+        legacyAppV2: {
+          ...value.legacyAppV2,
+          git: { ...value.legacyAppV2.git, ref: "main" },
+        },
+      }),
+    /legacy App v2/,
+  );
+  assert.throws(
+    () =>
+      assertMainReleaseExecution({
+        ...value,
+        legacyAppV2: {
+          ...value.legacyAppV2,
+          deploymentId: value.manifest.originalPriors.app.deploymentId,
+        },
+      }),
+    /legacy App v2/,
+  );
+});

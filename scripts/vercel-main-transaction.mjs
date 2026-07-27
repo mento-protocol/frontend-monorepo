@@ -6,8 +6,17 @@ import {
   canonicalizeDeploymentUrl,
   canonicalizeHostname,
 } from "./vercel-deployment-state.mjs";
+import {
+  assertMainReleaseManifest,
+  MAIN_RELEASE_ACTIVATION_ORDER,
+  reconcileMainRelease,
+} from "./vercel-main-release-reconciliation.mjs";
+import {
+  assertMainCandidateReceipt,
+  createMainCandidateIntent,
+} from "./vercel-main-candidate.mjs";
 
-const MAIN_TRANSACTION_SCHEMA = 1;
+const MAIN_TRANSACTION_SCHEMA = 3;
 export const MAIN_TRANSACTION_REPOSITORY = "mento-protocol/frontend-monorepo";
 export const MAIN_TRANSACTION_MODE = "shadow";
 
@@ -15,7 +24,6 @@ const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const NUMERIC_ID_PATTERN = /^[1-9][0-9]*$/;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9._-]+$/;
 const DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
-const TRANSACTION_ID_PATTERN = /^main-[a-f0-9]{32}$/;
 const ORDINARY_TARGETS = Object.freeze(["governance", "reserve", "ui"]);
 const PROTECTED_TARGETS = Object.freeze([
   "app",
@@ -40,6 +48,16 @@ const OPERATION_TYPES = Object.freeze([
   "promote",
   "app_v3_deploy",
   "app_alias_set",
+  "ordinary_rollback",
+  "app_alias_restore",
+  "legacy_emergency_restore",
+]);
+const FORWARD_OPERATION_TYPES = new Set([
+  "promote",
+  "app_v3_deploy",
+  "app_alias_set",
+]);
+const RECOVERY_OPERATION_TYPES = new Set([
   "ordinary_rollback",
   "app_alias_restore",
   "legacy_emergency_restore",
@@ -69,7 +87,9 @@ const JOURNAL_KEYS = Object.freeze([
   "mode",
   "sequence",
   "status",
+  "release",
   "prior",
+  "startMappings",
   "candidates",
   "operations",
 ]);
@@ -81,13 +101,15 @@ const CANDIDATE_KEYS = Object.freeze([
   "discovery",
 ]);
 const DISCOVERY_KEYS = Object.freeze([
+  "releaseId",
+  "candidateId",
   "projectId",
   "projectName",
   "deploySha",
-  "runId",
-  "runAttempt",
-  "transactionId",
+  "target",
   "customEnvironmentSlug",
+  "immutableSmoke",
+  "metrics",
 ]);
 const OPERATION_KEYS = Object.freeze([
   "operationId",
@@ -114,10 +136,19 @@ const APP_CANDIDATE_MATCH_KEYS = Object.freeze([
   "projectId",
   "projectName",
   "deploySha",
-  "runId",
-  "runAttempt",
-  "transactionId",
+  "releaseId",
+  "candidateId",
+  "target",
   "customEnvironmentSlug",
+  "immutableSmoke",
+  "metrics",
+]);
+const START_MAPPING_TARGETS = Object.freeze([
+  "app",
+  "governance",
+  "reserve",
+  "ui",
+  "legacy-app",
 ]);
 const RECOVERY_PLAN_KEYS = Object.freeze([
   "decision",
@@ -127,6 +158,14 @@ const RECOVERY_PLAN_KEYS = Object.freeze([
   "rollbackStateTargets",
   "forceFailure",
   "discoveredAppCandidate",
+]);
+const INHERITED_RECOVERY_PLAN_KEYS = Object.freeze([
+  "decision",
+  "reason",
+  "journal",
+  "reconciliation",
+  "actions",
+  "rollbackAuthority",
 ]);
 const RECOVERY_ACTION_BASE_KEYS = Object.freeze([
   "kind",
@@ -213,9 +252,58 @@ function canonicalPriorRecord(record, label) {
   };
 }
 
-function canonicalDiscovery(discovery, identity, label) {
+function canonicalSmoke(value, label, deploySha) {
+  assertOrderedExactKeys(value, ["immutableUrl", "servedSha", "status"], label);
+  const immutableUrl = canonicalizeDeploymentUrl(value.immutableUrl);
+  const servedSha = requireString(
+    value.servedSha,
+    `${label} served SHA`,
+    SHA_PATTERN,
+  );
+  if (servedSha !== deploySha || value.status !== "passed") {
+    throw new Error(`${label} does not prove the candidate SHA`);
+  }
+  return { immutableUrl, servedSha, status: "passed" };
+}
+
+function canonicalMetrics(value, label) {
+  assertOrderedExactKeys(
+    value,
+    ["buildDurationMs", "deploymentDurationMs", "cacheHit"],
+    label,
+  );
+  for (const key of ["buildDurationMs", "deploymentDurationMs", "cacheHit"]) {
+    if (value[key] !== null) {
+      throw new Error(`${label} must remain null for a reused candidate`);
+    }
+  }
+  return { buildDurationMs: null, deploymentDurationMs: null, cacheHit: null };
+}
+
+function canonicalDiscovery(
+  discovery,
+  release,
+  target,
+  label,
+  { pendingApp = false } = {},
+) {
   assertExactKeys(discovery, DISCOVERY_KEYS, label);
+  const expected = release.originalPriors[target];
+  const environment =
+    target === "app"
+      ? { target: "app", customEnvironmentSlug: "v3" }
+      : { target, customEnvironmentSlug: null };
   const canonical = {
+    releaseId: requireString(
+      discovery.releaseId,
+      `${label} release ID`,
+      IDENTIFIER_PATTERN,
+    ),
+    candidateId: requireString(
+      discovery.candidateId,
+      `${label} candidate ID`,
+      IDENTIFIER_PATTERN,
+    ),
     projectId: requireString(
       discovery.projectId,
       `${label} project ID`,
@@ -231,30 +319,32 @@ function canonicalDiscovery(discovery, identity, label) {
       `${label} deploy SHA`,
       SHA_PATTERN,
     ),
-    runId: requireNumericId(discovery.runId, `${label} run ID`),
-    runAttempt: requireNumericId(discovery.runAttempt, `${label} run attempt`),
-    transactionId: requireString(
-      discovery.transactionId,
-      `${label} transaction ID`,
-      TRANSACTION_ID_PATTERN,
-    ),
+    target: discovery.target,
     customEnvironmentSlug: discovery.customEnvironmentSlug,
+    immutableSmoke:
+      pendingApp && discovery.immutableSmoke === null
+        ? null
+        : canonicalSmoke(
+            discovery.immutableSmoke,
+            `${label} immutable smoke`,
+            release.deploySha,
+          ),
+    metrics: canonicalMetrics(discovery.metrics, `${label} reuse metrics`),
   };
-  if (canonical.customEnvironmentSlug !== "v3") {
-    throw new Error(`${label} custom environment must be v3`);
-  }
   if (
-    canonical.deploySha !== identity.deploySha ||
-    canonical.runId !== identity.runId ||
-    canonical.runAttempt !== identity.runAttempt ||
-    canonical.transactionId !== identity.transactionId
+    canonical.releaseId !== release.releaseId ||
+    canonical.deploySha !== release.deploySha ||
+    canonical.projectId !== expected.projectId ||
+    canonical.projectName !== expected.projectName ||
+    canonical.target !== environment.target ||
+    canonical.customEnvironmentSlug !== environment.customEnvironmentSlug
   ) {
-    throw new Error(`${label} does not match the journal identity`);
+    throw new Error(`${label} does not match stable provider identity`);
   }
   return canonical;
 }
 
-function canonicalCandidateRecord(record, target, identity, prior) {
+function canonicalCandidateRecord(record, target, release, prior) {
   if (record === null) return null;
   const label = `Candidate ${target}`;
   assertExactKeys(record, CANDIDATE_KEYS, label);
@@ -272,11 +362,14 @@ function canonicalCandidateRecord(record, target, identity, prior) {
   if (target !== "app" && deploymentId === null) {
     throw new Error(`${label} must identify the staged deployment`);
   }
-  if (target === "app" && record.discovery === null) {
-    throw new Error("Candidate app discovery metadata is required");
+  if (deploymentId !== null && record.discovery === null) {
+    throw new Error(`${label} stable provider metadata is required`);
   }
-  if (target !== "app" && record.discovery !== null) {
-    throw new Error(`${label} must not contain app discovery metadata`);
+  if (target === "app" && record.discovery === null) {
+    throw new Error("Candidate app stable provider metadata is required");
+  }
+  if (target !== "app" && deploymentId === null) {
+    throw new Error(`${label} must identify the staged deployment`);
   }
   const aliases = canonicalAliases(record.aliases, `${label} aliases`);
   if (JSON.stringify(aliases) !== JSON.stringify(prior.aliases)) {
@@ -287,9 +380,17 @@ function canonicalCandidateRecord(record, target, identity, prior) {
     deploymentUrl,
     aliases,
     discovery:
-      target === "app"
-        ? canonicalDiscovery(record.discovery, identity, `${label} discovery`)
-        : null,
+      record.discovery === null
+        ? null
+        : canonicalDiscovery(
+            record.discovery,
+            release,
+            target,
+            `${label} discovery`,
+            {
+              pendingApp: target === "app" && deploymentId === null,
+            },
+          ),
   };
 }
 
@@ -334,23 +435,107 @@ function canonicalPrior(prior) {
   return canonical;
 }
 
-function canonicalCandidates(candidates, identity, prior) {
+function canonicalCandidates(candidates, release, prior) {
   assertOrderedExactKeys(
     candidates,
     CANDIDATE_TARGETS,
     "Journal candidate state",
   );
-  return Object.fromEntries(
+  const canonical = Object.fromEntries(
     CANDIDATE_TARGETS.map((target) => [
       target,
       canonicalCandidateRecord(
         candidates[target],
         target,
-        identity,
+        release,
         prior[target],
       ),
     ]),
   );
+  for (const target of CANDIDATE_TARGETS) {
+    if (!release.activeTargets.includes(target) && canonical[target] !== null) {
+      throw new Error("Journal retains a candidate for an unselected target");
+    }
+  }
+  return canonical;
+}
+
+function canonicalStartMappings(startMappings, prior) {
+  assertOrderedExactKeys(
+    startMappings,
+    START_MAPPING_TARGETS,
+    "Journal start mappings",
+  );
+  const canonical = Object.fromEntries(
+    START_MAPPING_TARGETS.map((target) => [
+      target,
+      [
+        ...canonicalCurrentMappings(
+          startMappings[target],
+          prior[target].aliases,
+        ).values(),
+      ].sort((left, right) => left.alias.localeCompare(right.alias)),
+    ]),
+  );
+  for (const mapping of canonical["legacy-app"]) {
+    if (!sameDeployment(mapping, prior["legacy-app"])) {
+      throw new Error(
+        "Legacy App start mapping must be the fresh captured prior",
+      );
+    }
+  }
+  return canonical;
+}
+
+function assertJournalReleaseBindings({
+  release,
+  mode,
+  deploySha,
+  prior,
+  candidates,
+  startMappings,
+}) {
+  if (release.mode !== mode) {
+    throw new Error("Journal mode conflicts with the durable release manifest");
+  }
+  if (release.deploySha !== deploySha) {
+    throw new Error("Journal SHA conflicts with the durable release manifest");
+  }
+  for (const target of MAIN_RELEASE_ACTIVATION_ORDER) {
+    const releasePrior = release.originalPriors[target];
+    const journalPrior = prior[target];
+    if (
+      journalPrior.deploymentId !== releasePrior.deploymentId ||
+      journalPrior.deploymentUrl !== releasePrior.deploymentUrl ||
+      !sameJson(journalPrior.aliases, releasePrior.aliases)
+    ) {
+      throw new Error(
+        "Journal prior conflicts with the durable release manifest",
+      );
+    }
+  }
+  const reconciliationCandidates = Object.fromEntries(
+    release.stagedTargets.map((target) => [
+      target,
+      candidates[target] === null || candidates[target].deploymentId === null
+        ? null
+        : {
+            deploymentId: candidates[target].deploymentId,
+            deploymentUrl: candidates[target].deploymentUrl,
+            manifest: release,
+          },
+    ]),
+  );
+  reconcileMainRelease({
+    manifest: release,
+    candidates: reconciliationCandidates,
+    currentMappings: Object.fromEntries(
+      MAIN_RELEASE_ACTIVATION_ORDER.map((target) => [
+        target,
+        startMappings[target],
+      ]),
+    ),
+  });
 }
 
 function assertOperationTarget(type, target, alias, journal) {
@@ -654,6 +839,21 @@ function validateCandidateEvolution(previous, current) {
     }
     const before = previous.app;
     const after = current.app;
+    const discoveryAttached =
+      before?.discovery !== null &&
+      after?.discovery !== null &&
+      before.discovery.immutableSmoke === null &&
+      after.discovery.immutableSmoke !== null &&
+      sameJson(
+        {
+          ...before.discovery,
+          immutableSmoke: null,
+        },
+        {
+          ...after.discovery,
+          immutableSmoke: null,
+        },
+      );
     if (
       before === null ||
       after === null ||
@@ -662,7 +862,7 @@ function validateCandidateEvolution(previous, current) {
       after.deploymentId === null ||
       after.deploymentUrl === null ||
       !sameJson(before.aliases, after.aliases) ||
-      !sameJson(before.discovery, after.discovery)
+      (!sameJson(before.discovery, after.discovery) && !discoveryAttached)
     ) {
       throw new Error("App candidate evolution is not monotonic");
     }
@@ -671,7 +871,7 @@ function validateCandidateEvolution(previous, current) {
 
 function statusOnlyTransitionAllowed(previous, current) {
   const transitions = {
-    prepared: new Set(["committed"]),
+    prepared: new Set(["committed", "recovering"]),
     started: new Set(["recovering"]),
     command_returned: new Set(["recovering"]),
     verified: new Set([
@@ -777,7 +977,9 @@ export function createPreparedMainTransactionJournal({
   runId,
   runAttempt,
   mode,
+  release,
   prior,
+  startMappings,
   candidates,
 }) {
   const identity = canonicalIdentity({
@@ -787,7 +989,25 @@ export function createPreparedMainTransactionJournal({
     runAttempt,
   });
   if (!MODES.includes(mode)) throw new Error("Journal mode is unsupported");
+  const canonicalRelease = assertMainReleaseManifest(release);
   const canonicalPriorState = canonicalPrior(prior);
+  const canonicalStartState = canonicalStartMappings(
+    startMappings,
+    canonicalPriorState,
+  );
+  const canonicalCandidateState = canonicalCandidates(
+    candidates,
+    canonicalRelease,
+    canonicalPriorState,
+  );
+  assertJournalReleaseBindings({
+    release: canonicalRelease,
+    mode,
+    deploySha: identity.deploySha,
+    prior: canonicalPriorState,
+    candidates: canonicalCandidateState,
+    startMappings: canonicalStartState,
+  });
   const journal = {
     schema: MAIN_TRANSACTION_SCHEMA,
     repository: identity.repository,
@@ -798,8 +1018,10 @@ export function createPreparedMainTransactionJournal({
     mode,
     sequence: 0,
     status: "prepared",
+    release: canonicalRelease,
     prior: canonicalPriorState,
-    candidates: canonicalCandidates(candidates, identity, canonicalPriorState),
+    startMappings: canonicalStartState,
+    candidates: canonicalCandidateState,
     operations: [],
   };
   return assertMainTransactionJournal(journal);
@@ -821,6 +1043,8 @@ export function assertMainTransactionJournal(journal, expected = {}) {
     throw new Error("Journal status is unsupported");
   }
   const prior = canonicalPrior(journal.prior);
+  const release = assertMainReleaseManifest(journal.release);
+  const startMappings = canonicalStartMappings(journal.startMappings, prior);
   const canonical = {
     schema: journal.schema,
     repository: identity.repository,
@@ -831,10 +1055,13 @@ export function assertMainTransactionJournal(journal, expected = {}) {
     mode: journal.mode,
     sequence: journal.sequence,
     status: journal.status,
+    release,
     prior,
-    candidates: canonicalCandidates(journal.candidates, identity, prior),
+    startMappings,
+    candidates: canonicalCandidates(journal.candidates, release, prior),
     operations: [],
   };
+  assertJournalReleaseBindings(canonical);
   canonical.operations = canonicalOperations(journal.operations, canonical);
   for (const [key, expectedValue] of Object.entries(expected)) {
     if (!Object.hasOwn(canonical, key) || canonical[key] !== expectedValue) {
@@ -842,6 +1069,130 @@ export function assertMainTransactionJournal(journal, expected = {}) {
     }
   }
   return canonical;
+}
+
+// This is deliberately a pure planner. The coordinator must re-observe
+// provider mappings immediately before applying these actions and create a
+// fresh current-attempt recovery journal. GitHub artifacts are not authority
+// for inherited state.
+export function planInheritedMainTransactionRecovery({ journal, reason }) {
+  const canonical = assertMainTransactionJournal(journal);
+  if (
+    ![
+      "main-stale-before-forward",
+      "suffix-preparation-failed-before-forward",
+      "forward-operation-failed",
+    ].includes(reason)
+  ) {
+    throw new Error("Inherited recovery reason is unsupported");
+  }
+  const candidates = Object.fromEntries(
+    canonical.release.stagedTargets.map((target) => [
+      target,
+      canonical.candidates[target] === null
+        ? null
+        : {
+            deploymentId: canonical.candidates[target].deploymentId,
+            deploymentUrl: canonical.candidates[target].deploymentUrl,
+            manifest: canonical.release,
+          },
+    ]),
+  );
+  const reconciliation = reconcileMainRelease({
+    manifest: canonical.release,
+    candidates,
+    currentMappings: Object.fromEntries(
+      MAIN_RELEASE_ACTIVATION_ORDER.map((target) => [
+        target,
+        canonical.startMappings[target],
+      ]),
+    ),
+  });
+  if (reconciliation.allCandidate) {
+    return {
+      decision: "verify-noop",
+      reason: "all-candidate-without-current-mutation",
+      journal: canonical,
+      reconciliation,
+      actions: [],
+      rollbackAuthority: { targets: [], aliases: [] },
+    };
+  }
+  if (reconciliation.inheritedCandidateTargets.length === 0) {
+    return {
+      decision: "no-inherited-recovery",
+      reason: "all-prior",
+      journal: canonical,
+      reconciliation,
+      actions: [],
+      rollbackAuthority: { targets: [], aliases: [] },
+    };
+  }
+  const inheritedTargets = reconciliation.targets.filter(
+    ({ state }) => state === "candidate" || state === "mixed",
+  );
+  const actions = [];
+  for (const observed of [...inheritedTargets].reverse()) {
+    const { target, state, startMappings } = observed;
+    const candidate = canonical.candidates[target];
+    if (target === "app") {
+      for (const start of [...startMappings].reverse()) {
+        if (start.state !== "candidate") continue;
+        actions.push({
+          kind: "app_alias_restore",
+          target,
+          alias: start.alias,
+          priorDeploymentId: canonical.prior.app.deploymentId,
+          priorDeploymentUrl: canonical.prior.app.deploymentUrl,
+          candidateDeploymentId: candidate.deploymentId,
+          candidateDeploymentUrl: candidate.deploymentUrl,
+        });
+      }
+      continue;
+    }
+    if (state !== "candidate") {
+      throw new Error("Inherited ordinary recovery state is unsupported");
+    }
+    actions.push({
+      kind: "ordinary_rollback",
+      target,
+      aliases: [...canonical.prior[target].aliases],
+      priorDeploymentId: canonical.prior[target].deploymentId,
+      priorDeploymentUrl: canonical.prior[target].deploymentUrl,
+      candidateDeploymentId: candidate.deploymentId,
+      candidateDeploymentUrl: candidate.deploymentUrl,
+    });
+  }
+  return {
+    decision: "restore-inherited",
+    reason,
+    journal: canonical,
+    reconciliation,
+    actions,
+    rollbackAuthority: {
+      targets: inheritedTargets.map(({ target }) => target),
+      aliases: [...reconciliation.inheritedCandidateAliases].sort(),
+    },
+  };
+}
+
+export function assertMainInheritedTransactionRecoveryPlan(plan) {
+  assertExactKeys(
+    plan,
+    INHERITED_RECOVERY_PLAN_KEYS,
+    "Inherited main transaction recovery plan",
+  );
+  if (plan.decision !== "restore-inherited") {
+    throw new Error("Inherited recovery plan is not executable");
+  }
+  const expected = planInheritedMainTransactionRecovery({
+    journal: plan.journal,
+    reason: plan.reason,
+  });
+  if (!sameJson(plan, expected)) {
+    throw new Error("Inherited recovery plan differs from the canonical plan");
+  }
+  return expected;
 }
 
 export function mainTransactionJournalArtifactName(journal) {
@@ -894,6 +1245,19 @@ export function startMainTransactionOperation(journal, intent) {
   }
   if (!OPERATION_TYPES.includes(intent?.type)) {
     throw new Error("Operation type is unsupported");
+  }
+  const recoveryPhase =
+    canonical.status === "recovering" ||
+    canonical.operations.some(
+      (operation) =>
+        operation.state === "started" &&
+        RECOVERY_OPERATION_TYPES.has(operation.type),
+    );
+  if (
+    (recoveryPhase && !RECOVERY_OPERATION_TYPES.has(intent.type)) ||
+    (!recoveryPhase && !FORWARD_OPERATION_TYPES.has(intent.type))
+  ) {
+    throw new Error("Operation type is not allowed in this transaction phase");
   }
   const resolved = operationIntent(canonical, intent);
   const forwardStarts = startedForwardOperations(canonical);
@@ -1037,6 +1401,75 @@ export function attachDiscoveredAppCandidate(journal, match) {
   });
 }
 
+function expectedAppCandidateIntent(journal) {
+  return createMainCandidateIntent({
+    target: "app",
+    deploySha: journal.release.deploySha,
+    upstreamRunId: journal.release.upstreamRunId,
+    originRunId: journal.runId,
+    originAttempt: journal.runAttempt,
+    originTransactionId: journal.transactionId,
+    projectId: journal.release.originalPriors.app.projectId,
+    projectName: journal.release.originalPriors.app.projectName,
+    releaseManifest: journal.release,
+  });
+}
+
+export function attachMainTransactionAppCandidateReceipt(journal, rawReceipt) {
+  const canonical = assertMainTransactionJournal(journal);
+  const app = canonical.candidates.app;
+  if (app === null) {
+    throw new Error("The transaction did not prepare an app candidate");
+  }
+  const receipt = assertMainCandidateReceipt(
+    rawReceipt,
+    expectedAppCandidateIntent(canonical),
+  );
+  const candidate = {
+    deploymentId: receipt.candidate.deploymentId,
+    deploymentUrl: receipt.candidate.deploymentUrl,
+    aliases: app.aliases,
+    discovery: {
+      releaseId: receipt.intent.releaseId,
+      candidateId: receipt.intent.candidateId,
+      projectId: receipt.candidate.projectId,
+      projectName: receipt.candidate.projectName,
+      deploySha: receipt.intent.deploySha,
+      target: "app",
+      customEnvironmentSlug: receipt.intent.environment.customEnvironmentSlug,
+      immutableSmoke: receipt.immutableSmoke,
+      metrics: receipt.metrics,
+    },
+  };
+  if (app.deploymentId !== null) {
+    if (!sameJson(app, candidate)) {
+      throw new Error("App candidate receipt conflicts with the journal");
+    }
+    return canonical;
+  }
+  if (
+    app.discovery.immutableSmoke !== null ||
+    !sameJson(
+      {
+        ...app.discovery,
+        immutableSmoke: null,
+      },
+      {
+        ...candidate.discovery,
+        immutableSmoke: null,
+      },
+    )
+  ) {
+    throw new Error("App candidate receipt conflicts with stable intent");
+  }
+  return nextJournal(canonical, {
+    candidates: {
+      ...canonical.candidates,
+      app: candidate,
+    },
+  });
+}
+
 function canonicalizeAppCandidateMatch(match, discovery) {
   assertExactKeys(match, APP_CANDIDATE_MATCH_KEYS, "App candidate match");
   const canonical = {
@@ -1060,17 +1493,31 @@ function canonicalizeAppCandidateMatch(match, discovery) {
       "App candidate deploy SHA",
       SHA_PATTERN,
     ),
-    runId: requireNumericId(match.runId, "App candidate run ID"),
-    runAttempt: requireNumericId(match.runAttempt, "App candidate run attempt"),
-    transactionId: requireString(
-      match.transactionId,
-      "App candidate transaction ID",
-      TRANSACTION_ID_PATTERN,
+    releaseId: requireString(
+      match.releaseId,
+      "App candidate release ID",
+      IDENTIFIER_PATTERN,
     ),
+    candidateId: requireString(
+      match.candidateId,
+      "App candidate ID",
+      IDENTIFIER_PATTERN,
+    ),
+    target: match.target,
     customEnvironmentSlug: match.customEnvironmentSlug,
+    immutableSmoke: canonicalSmoke(
+      match.immutableSmoke,
+      "App candidate immutable smoke",
+      discovery.deploySha,
+    ),
+    metrics: canonicalMetrics(match.metrics, "App candidate reuse metrics"),
   };
   for (const key of DISCOVERY_KEYS) {
-    if (canonical[key] !== discovery[key]) {
+    const matches =
+      key === "immutableSmoke" || key === "metrics"
+        ? sameJson(canonical[key], discovery[key])
+        : canonical[key] === discovery[key];
+    if (!matches) {
       throw new Error(`App candidate ${key} does not match discovery metadata`);
     }
   }
@@ -1142,6 +1589,12 @@ export function assertMainTransactionJournalHistory(
     if (!sameJson(previous.prior, journal.prior)) {
       throw new Error("Journal prior state changed across history");
     }
+    if (!sameJson(previous.release, journal.release)) {
+      throw new Error("Journal release manifest changed across history");
+    }
+    if (!sameJson(previous.startMappings, journal.startMappings)) {
+      throw new Error("Journal start mappings changed across history");
+    }
     validateCandidateEvolution(previous.candidates, journal.candidates);
     if (
       !sameJson(
@@ -1165,10 +1618,8 @@ export function assertMainTransactionJournalHistory(
         throw new Error("Journal snapshot did not append one legal event");
       }
       if (isCandidateAttachment) {
-        expected = attachDiscoveredAppCandidate(previous, {
-          deploymentId: journal.candidates.app.deploymentId,
-          deploymentUrl: journal.candidates.app.deploymentUrl,
-          ...journal.candidates.app.discovery,
+        expected = nextJournal(previous, {
+          candidates: journal.candidates,
         });
       } else if (journal.status === "committed") {
         expected = markMainTransactionCommitted(previous);
@@ -1279,11 +1730,25 @@ function decideRecoveryFromJournal(journal) {
 export function markMainTransactionCommitted(journal) {
   const canonical = assertMainTransactionJournal(journal);
   if (canonical.status === "committed") return canonical;
+  const ordinaryOperations = ORDINARY_TARGETS.map((target) => {
+    const candidate = canonical.candidates[target];
+    if (candidate === null) return null;
+    const state = classifyMainTransactionMapping({
+      aliases: canonical.prior[target].aliases,
+      currentMappings: canonical.startMappings[target],
+      prior: canonical.prior[target],
+      candidate,
+    });
+    if (state === "candidate") return null;
+    if (state === "prior") return { target, type: "promote" };
+    throw new Error(
+      "Transaction cannot commit from an unsupported start mapping",
+    );
+  }).filter((operation) => operation !== null);
   const selectedOperations = [
-    ...ORDINARY_TARGETS.filter(
-      (target) => canonical.candidates[target] !== null,
-    ).map((target) => ({ target, type: "promote" })),
-    ...(canonical.candidates.app === null
+    ...ordinaryOperations,
+    ...(canonical.candidates.app === null ||
+    canonical.candidates.app.deploymentId !== null
       ? []
       : [{ target: "app", type: "app_v3_deploy" }]),
   ];
@@ -1738,7 +2203,7 @@ function canonicalRecoveryAction(entry, slot, journal, index) {
   };
 }
 
-function assertMainTransactionRecoveryPlan(plan) {
+export function assertMainTransactionRecoveryPlan(plan) {
   assertExactKeys(plan, RECOVERY_PLAN_KEYS, "Main transaction recovery plan");
   const journal = assertMainTransactionJournal(plan.journal);
   const recoveryDecision = decideRecoveryFromJournal(journal);
@@ -1860,6 +2325,95 @@ function assertMainTransactionRecoveryPlan(plan) {
     forceFailure: true,
     discoveredAppCandidate,
   };
+}
+
+export function startMainTransactionRecovery(journal) {
+  const canonical = assertMainTransactionJournal(journal);
+  if (decideRecoveryFromJournal(canonical).decision !== "recover") {
+    throw new Error("Journal does not require transaction recovery");
+  }
+  if (
+    ["recovering", "recovered", "manual_intervention"].includes(
+      canonical.status,
+    )
+  ) {
+    throw new Error("Journal cannot start transaction recovery in this state");
+  }
+  return appendStatus(canonical, "recovering");
+}
+
+export function startInheritedMainTransactionRecovery({
+  journal,
+  recoveryPlan,
+}) {
+  const canonical = assertMainTransactionJournal(journal);
+  const plan = assertMainInheritedTransactionRecoveryPlan(recoveryPlan);
+  if (!sameJson(canonical, plan.journal)) {
+    throw new Error(
+      "Current-attempt journal differs from its inherited recovery plan",
+    );
+  }
+  if (canonical.status !== "prepared" || canonical.operations.length !== 0) {
+    throw new Error(
+      "Inherited recovery requires a fresh prepared current-attempt journal",
+    );
+  }
+  if (plan.actions.length === 0) {
+    throw new Error(
+      "Inherited recovery plan has no authorized restore actions",
+    );
+  }
+  return appendStatus(canonical, "recovering");
+}
+
+export function finishMainTransactionRecovery(
+  journal,
+  { manualIntervention = false } = {},
+) {
+  const canonical = assertMainTransactionJournal(journal);
+  if (!["recovering", "verified"].includes(canonical.status)) {
+    throw new Error("Journal cannot finish transaction recovery in this state");
+  }
+  const recoveryStarts = canonical.operations.filter(
+    (operation) =>
+      operation.state === "started" &&
+      RECOVERY_OPERATION_TYPES.has(operation.type),
+  );
+  if (canonical.status !== "recovering" && recoveryStarts.length === 0) {
+    throw new Error("Transaction recovery was not started");
+  }
+  const firstRecoveryIndex = canonical.operations.findIndex(
+    (operation) =>
+      operation.state === "started" &&
+      RECOVERY_OPERATION_TYPES.has(operation.type),
+  );
+  if (
+    firstRecoveryIndex >= 0 &&
+    canonical.operations
+      .slice(firstRecoveryIndex)
+      .some(
+        (operation) =>
+          operation.state === "started" &&
+          !RECOVERY_OPERATION_TYPES.has(operation.type),
+      )
+  ) {
+    throw new Error("Forward mutation cannot start during recovery");
+  }
+  for (const operation of recoveryStarts) {
+    const last = lastOperationEvent(canonical, operation.operationId);
+    if (
+      last.state !== "verified" ||
+      last.commandOutcome !== "success" ||
+      last.mappingState !== "prior" ||
+      (last.type === "ordinary_rollback" && last.rollbackState !== "entered")
+    ) {
+      throw new Error("Transaction recovery contains an incomplete operation");
+    }
+  }
+  return appendStatus(
+    canonical,
+    manualIntervention ? "manual_intervention" : "recovered",
+  );
 }
 
 async function assertFresh(assertFreshness, phase, journal) {
@@ -2187,7 +2741,7 @@ export async function executeMainTransactionRecovery({
     );
     highest = await persistNext(highest);
   }
-  highest = appendStatus(highest, "recovering");
+  highest = startMainTransactionRecovery(highest);
   highest = await persistNext(highest);
   for (const entry of canonicalPlan.actions) {
     if (entry.kind === "verified_noop") continue;
@@ -2235,40 +2789,33 @@ export async function executeMainTransactionRecovery({
       }
     }
   }
-  highest = appendStatus(
-    highest,
-    canonicalPlan.decision === "manual_intervention"
-      ? "manual_intervention"
-      : "recovered",
-  );
+  highest = finishMainTransactionRecovery(highest, {
+    manualIntervention: canonicalPlan.decision === "manual_intervention",
+  });
   return persistNext(highest);
 }
 
-export async function runMainTransaction({
-  mode = MAIN_TRANSACTION_MODE,
-  identity,
-  prior,
-  candidates,
-  existingJournals = [],
-  assertFreshness,
-  uploadJournal,
-  inspectRecoveryState,
-  mutationAdapters = {},
-}) {
-  if (mode !== "shadow") {
-    throw new Error(
-      "Active Vercel main transaction execution is unreachable in PR A",
-    );
+const MAIN_MUTATION_ADAPTERS = Object.freeze([
+  "promote",
+  "deployAppV3",
+  "assignAlias",
+  "inspectMapping",
+  "verifyMapping",
+  "inspectProtectedMappings",
+  "ordinaryRollback",
+  "restoreAppAlias",
+  "restoreLegacyAlias",
+]);
+
+function validateMainMutationAdapters(mutationAdapters) {
+  if (
+    !mutationAdapters ||
+    typeof mutationAdapters !== "object" ||
+    Array.isArray(mutationAdapters)
+  ) {
+    throw new Error("Mutation adapters are malformed");
   }
-  const forbiddenAdapters = [
-    "promote",
-    "deployAppV3",
-    "assignAlias",
-    "ordinaryRollback",
-    "restoreAppAlias",
-    "restoreLegacyAlias",
-  ];
-  for (const name of forbiddenAdapters) {
+  for (const name of MAIN_MUTATION_ADAPTERS) {
     if (
       Object.hasOwn(mutationAdapters, name) &&
       typeof mutationAdapters[name] !== "function"
@@ -2276,12 +2823,164 @@ export async function runMainTransaction({
       throw new Error(`Mutation adapter ${name} is malformed`);
     }
   }
+}
+
+function requireMainMutationAdapter(mutationAdapters, name) {
+  const adapter = mutationAdapters[name];
+  if (typeof adapter !== "function") {
+    throw new Error(`Mutation adapter ${name} is required`);
+  }
+  return adapter;
+}
+
+async function inspectActiveProtectedMappings({
+  journal,
+  inspectProtectedMappings,
+  phase,
+}) {
+  let inspection;
+  try {
+    inspection = await inspectProtectedMappings({
+      phase,
+      deploySha: journal.deploySha,
+      transactionId: journal.transactionId,
+      journal: clone(journal),
+    });
+    assertExactKeys(
+      inspection,
+      ["currentMappings"],
+      "Protected mapping inspection",
+    );
+    return canonicalAllCurrentMappings(journal, inspection.currentMappings);
+  } catch {
+    throw new MainTransactionError(
+      "Complete protected mapping state is unproven",
+      {
+        code: "PROTECTED_MAPPING_DRIFT",
+        journal,
+      },
+    );
+  }
+}
+
+async function assertLegacyV2Invariant({
+  journal,
+  inspectProtectedMappings,
+  phase,
+}) {
+  const mappings = await inspectActiveProtectedMappings({
+    journal,
+    inspectProtectedMappings,
+    phase,
+  });
+  const legacy = journal.prior["legacy-app"];
+  if (
+    legacy.aliases.some((alias) => !sameDeployment(mappings.get(alias), legacy))
+  ) {
+    throw new MainTransactionError(
+      "Legacy App v2 mapping differs from its captured prior",
+      {
+        code: "LEGACY_V2_INVARIANT_FAILED",
+        journal,
+      },
+    );
+  }
+}
+
+async function assertActiveFinalMappings({
+  journal,
+  inspectProtectedMappings,
+}) {
+  const mappings = await inspectActiveProtectedMappings({
+    journal,
+    inspectProtectedMappings,
+    phase: "transaction-commit",
+  });
+  for (const target of PROTECTED_TARGETS) {
+    const expected =
+      target === "legacy-app" || journal.candidates[target] === null
+        ? journal.prior[target]
+        : journal.candidates[target];
+    if (
+      expected?.deploymentId === null ||
+      journal.prior[target].aliases.some(
+        (alias) => !sameDeployment(mappings.get(alias), expected),
+      )
+    ) {
+      throw new MainTransactionError(
+        "Final protected mappings do not match the transaction",
+        {
+          code:
+            target === "legacy-app"
+              ? "LEGACY_V2_INVARIANT_FAILED"
+              : "FINAL_MAPPING_VERIFICATION_FAILED",
+          journal,
+        },
+      );
+    }
+  }
+}
+
+export async function runMainTransaction({
+  mode = MAIN_TRANSACTION_MODE,
+  identity,
+  release,
+  prior,
+  startMappings,
+  candidates,
+  existingJournals = [],
+  assertFreshness,
+  uploadJournal,
+  inspectRecoveryState,
+  mutationAdapters = {},
+}) {
+  if (!MODES.includes(mode)) throw new Error("Transaction mode is unsupported");
+  validateMainMutationAdapters(mutationAdapters);
   const prepared = createPreparedMainTransactionJournal({
     ...identity,
     mode,
+    release,
     prior,
+    startMappings,
     candidates,
   });
+  const selectedOrdinaryTargets = ORDINARY_TARGETS.filter(
+    (target) => prepared.candidates[target] !== null,
+  );
+  const appSelected = prepared.candidates.app !== null;
+  const appRequiresDeploy =
+    appSelected && prepared.candidates.app.deploymentId === null;
+  let promote;
+  let deployAppV3;
+  let assignAlias;
+  let inspectMapping;
+  let verifyMapping;
+  let inspectProtectedMappings;
+  if (mode === "active") {
+    if (selectedOrdinaryTargets.length > 0) {
+      promote = requireMainMutationAdapter(mutationAdapters, "promote");
+    }
+    if (appRequiresDeploy) {
+      deployAppV3 = requireMainMutationAdapter(mutationAdapters, "deployAppV3");
+    }
+    if (appSelected) {
+      assignAlias = requireMainMutationAdapter(mutationAdapters, "assignAlias");
+    }
+    if (selectedOrdinaryTargets.length > 0 || appSelected) {
+      inspectMapping = requireMainMutationAdapter(
+        mutationAdapters,
+        "inspectMapping",
+      );
+      verifyMapping = requireMainMutationAdapter(
+        mutationAdapters,
+        "verifyMapping",
+      );
+    }
+    inspectProtectedMappings = requireMainMutationAdapter(
+      mutationAdapters,
+      "inspectProtectedMappings",
+    );
+  }
   await assertFresh(assertFreshness, "transaction-start", prepared);
   let journals;
   let persisted;
@@ -2295,7 +2994,7 @@ export async function runMainTransaction({
       runId: prepared.runId,
       runAttempt: prepared.runAttempt,
       transactionId: prepared.transactionId,
-      mode: "shadow",
+      mode,
     });
     if (!sameJson(journals[0], prepared)) {
       throw new Error(
@@ -2310,7 +3009,7 @@ export async function runMainTransaction({
     runId: persisted.runId,
     runAttempt: persisted.runAttempt,
     transactionId: persisted.transactionId,
-    mode: "shadow",
+    mode,
   });
   if (typeof inspectRecoveryState === "function") {
     await inspectRecoveryState({
@@ -2319,14 +3018,168 @@ export async function runMainTransaction({
       transactionId: persisted.transactionId,
     });
   }
+  if (mode === "shadow") {
+    return {
+      mode,
+      outcome: "shadow-prepared",
+      journal: persisted,
+      recoveryDecision: {
+        decision: decision.decision,
+        reason: decision.reason,
+      },
+      mutationCallbacksCalled: 0,
+    };
+  }
+
+  if (decision.decision === "bypass" && decision.reason === "committed") {
+    await assertActiveFinalMappings({
+      journal: persisted,
+      inspectProtectedMappings,
+    });
+    return {
+      mode,
+      outcome: "active-committed",
+      journal: persisted,
+      recoveryDecision: {
+        decision: decision.decision,
+        reason: decision.reason,
+      },
+      mutationCallbacksCalled: 0,
+    };
+  }
+  if (decision.decision !== "verify-only") {
+    throw new MainTransactionError(
+      "Existing transaction requires recovery before activation can continue",
+      {
+        code:
+          decision.decision === "manual_intervention"
+            ? "MANUAL_INTERVENTION_REQUIRED"
+            : decision.reason === "already-recovered"
+              ? "TRANSACTION_ALREADY_RECOVERED"
+              : "RECOVERY_REQUIRED",
+        journal: persisted,
+      },
+    );
+  }
+
+  let highest = persisted;
+  let lastDurableJournal = highest;
+  let mutationCallbacksCalled = 0;
+  const persistNext = async (next) => {
+    try {
+      const durable = await persistMainTransactionJournal(next, uploadJournal);
+      lastDurableJournal = durable;
+      return durable;
+    } catch (error) {
+      if (error instanceof MainTransactionError) {
+        error.journal = lastDurableJournal;
+      }
+      throw error;
+    }
+  };
+  const executeActiveMutation = async ({
+    intent,
+    executeMutation,
+    allowedPreMutationStates = ["prior"],
+  }) => {
+    const operationJournal = highest;
+    highest = await executeJournaledMainMutation({
+      journal: operationJournal,
+      intent,
+      uploadJournal,
+      assertFreshness,
+      allowedPreMutationStates,
+      inspectMutationState: async (context) => {
+        await assertLegacyV2Invariant({
+          journal: operationJournal,
+          inspectProtectedMappings,
+          phase: `${intent.type}:${context.phase}`,
+        });
+        return inspectMapping(context);
+      },
+      executeMutation: async (context) => {
+        mutationCallbacksCalled += 1;
+        return executeMutation(context);
+      },
+      verifyMapping: async (context) => {
+        await assertLegacyV2Invariant({
+          journal: operationJournal,
+          inspectProtectedMappings,
+          phase: `${intent.type}:post-command`,
+        });
+        return verifyMapping(context);
+      },
+    });
+    lastDurableJournal = highest;
+  };
+
+  for (const target of selectedOrdinaryTargets) {
+    await executeActiveMutation({
+      intent: { type: "promote", target },
+      executeMutation: promote,
+    });
+  }
+  if (appSelected) {
+    // For app_v3_deploy, mappingState "candidate" means the adapter verified
+    // the exact bound deployment ID/URL is READY. Reviewed aliases are
+    // deliberately excluded here and reconciled independently below because
+    // Vercel may move all, some, or none of them as part of the deployment.
+    if (appRequiresDeploy) {
+      await executeActiveMutation({
+        intent: { type: "app_v3_deploy", target: "app" },
+        executeMutation: deployAppV3,
+      });
+    }
+    for (const alias of highest.prior.app.aliases) {
+      const intent = { type: "app_alias_set", target: "app", alias };
+      await assertFresh(assertFreshness, "pre-alias", highest);
+      await assertLegacyV2Invariant({
+        journal: highest,
+        inspectProtectedMappings,
+        phase: "app_alias_set:selection",
+      });
+      let aliasState;
+      try {
+        const inspection = await inspectMapping({
+          phase: "alias-selection",
+          intent: clone(intent),
+          transactionId: highest.transactionId,
+        });
+        aliasState = inspection?.mappingState;
+      } catch {
+        aliasState = "unknown";
+      }
+      if (aliasState === "candidate") continue;
+      if (aliasState !== "prior") {
+        throw new MainTransactionError(
+          "Reviewed App v3 alias is neither at prior nor candidate",
+          {
+            code: "PROTECTED_MAPPING_DRIFT",
+            journal: highest,
+          },
+        );
+      }
+      await executeActiveMutation({
+        intent,
+        executeMutation: assignAlias,
+      });
+    }
+  }
+
+  await assertFresh(assertFreshness, "transaction-commit", highest);
+  await assertActiveFinalMappings({
+    journal: highest,
+    inspectProtectedMappings,
+  });
+  highest = await persistNext(markMainTransactionCommitted(highest));
   return {
     mode,
-    outcome: "shadow-prepared",
-    journal: persisted,
+    outcome: "active-committed",
+    journal: highest,
     recoveryDecision: {
-      decision: decision.decision,
-      reason: decision.reason,
+      decision: "bypass",
+      reason: "committed",
     },
-    mutationCallbacksCalled: 0,
+    mutationCallbacksCalled,
   };
 }

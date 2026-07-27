@@ -468,23 +468,49 @@ The repository is set up with GitHub Actions for CI:
   post-merge canary gates in [PR #609](https://github.com/mento-protocol/frontend-monorepo/pull/609)
   and [PR #610](https://github.com/mento-protocol/frontend-monorepo/pull/610),
   respectively. Ordinary pull requests therefore have no native Vercel branch
-  preview path. The automatic `Vercel Main Deployment` workflow now runs in
-  literal `shadow` mode to prove exact-attempt gating, served-SHA planning,
-  ordinary-target staging, App custom-`v3` build output, and the transaction
-  recovery handoff.
-  It cannot move a protected domain or change deployment ownership. Vercel Git
-  therefore still owns every public `main` deployment during PR A of
-  [issue #522](https://github.com/mento-protocol/frontend-monorepo/issues/522),
-  including App's `main -> v3` path. The legacy App
-  `v2 -> production` path remains native. PR B enables activation and disables
-  only the replaced native `main` paths in one separately reviewed change.
+  preview path. GitHub Actions is also the configured automatic `main` owner
+  for all four targets. The automatic `Vercel Main Deployment` workflow runs
+  in global `active` mode after the exact successful `CI/CD` attempt, with all
+  four per-target `mainOwnershipMode` values set to `github`. Governance,
+  Reserve, and UI stage, verify, and promote exact immutable deployments. App
+  builds and deploys its custom `v3` output, then verifies or assigns only its
+  reviewed aliases. The legacy App `v2 -> production` path remains native and
+  is checked independently. The removed Governance QA environment is not part
+  of this topology.
+
+  Main planning uses strict `vercel-main-plan:v2` evidence. `stagedTargets`
+  contains every selected target, while deterministic `activeTargets` and
+  `shadowTargets` partitions decide which selected targets may mutate public
+  mappings. Missing, extra, malformed, or contradictory ownership state fails
+  closed. Exact-attempt binding, repeated freshness checks, durable journal
+  transitions, reverse-order recovery, public smoke, and an active
+  duplicate-deployment census protect each release.
+  Before planning, a later attempt reconciles provider mappings and candidates
+  against the stable release manifest. The manifest binds repository, SHA,
+  validated upstream CI run, candidate identities, and captured rollback priors;
+  it is the sole durable cross-attempt authority. Mutation journals remain
+  run-and-attempt scoped. A complete release is reused after fresh provider
+  validation. An interrupted prefix is restored through a fresh
+  current-attempt journal before new planning. No prior journal is resumed and
+  GitHub artifacts do not authorize cross-attempt work. The compact terminal
+  receipt and evidence are the only final-verdict handoff and support
+  final-only reruns. A completed release emits `current-release-verified` only
+  after fresh mapping, census/state, raw public-runtime-smoke, legacy `v2`, and
+  freshness proof; it creates no journal and executes no public mutation. App
+  shadow preparation is build-only terminal evidence, never a provider
+  deployment. Ambiguous, conflicting, or incomplete provider state fails closed
+  before production work continues.
   The version-controlled preview-controller mode is `active`; per-target
   preview ownership and exact expected Vercel configurations are executable
   invariants. The trusted preview controller reads every selected target's
   bounded exact-head Vercel
-  configuration and rechecks it before dispatch. An exact native configuration
-  suppresses GitHub dispatch only for a target whose canonical ownership mode
-  is `github`; unknown or contradictory configuration fails closed.
+  configuration and rechecks it before dispatch. Its four-state model combines
+  preview and main ownership independently: GitHub/GitHub,
+  GitHub/native-main, native-preview/GitHub-main, or fully native. The
+  native-preview/GitHub-main state disables `main` while leaving unspecified
+  preview branches enabled, so a target-local preview rollback cannot recreate
+  a native main deployment. Unknown or contradictory configuration fails
+  closed.
   During rollback, `Vercel Preview` proves owner selection and journal drain
   only; native Vercel deployment status and browser evidence separately prove
   that the preview works. The native `deployment_status` smoke adapter remains
@@ -492,16 +518,22 @@ The repository is set up with GitHub Actions for CI:
   that ordinary native branch previews remain enabled. Its removal is deferred
   to the migration cleanup in
   [issue #523](https://github.com/mento-protocol/frontend-monorepo/issues/523),
-  after the #522 production cutover and required observation period. See
+  after the required observation period. A target-local main rollback restores
+  only the target's native `main` path and changes only its main ownership mode
+  to `shadow`; previews remain GitHub-owned. A target-local preview rollback
+  changes only preview ownership and preserves GitHub-owned `main`.
+  Full-native restoration is a separate coordinated rollback. See
   [ADR 0001](docs/adr/0001-github-actions-vercel-deployment-orchestration.md)
   for the accepted ownership boundary,
   [ADR 0002](docs/adr/0002-single-comment-preview-controller-journal.md) for
   the journal persistence and clean-cutover decision,
   [ADR 0003](docs/adr/0003-preview-worker-dispatch-authentication.md) for the
   worker-dispatch authentication boundary, and
+  [ADR 0005](docs/adr/0005-stable-main-release-identity-and-rerun-admission.md)
+  for stable release identity and provider-side rerun reconciliation, and
   [`docs/vercel-deployments.md`](docs/vercel-deployments.md) for the four-target
-  v2 bootstrap, activation canaries, per-target cutover, and rollback
-  procedures.
+  preview controller, active main transaction, historical shadow canary, and
+  rollback procedures.
 
   The manual `Vercel Production Shadow` workflow can build App custom `v3`
   without deploying it and upload Governance, Reserve, and UI production
@@ -520,17 +552,18 @@ The repository is set up with GitHub Actions for CI:
   `main` attempt and literal `Build and Test` job. It plans from each target's
   currently served SHA, so coalesced pushes cannot omit an affected change.
   Governance, Reserve, and UI stage immutable production candidates with
-  `--prod --skip-domain` and run direct browser smoke. App custom `v3` remains
-  build-only because its upload is activation. The three public custom domains
-  are the ordinary targets' only protected runtime and rollback aliases;
-  generated Vercel aliases are candidate evidence only. A durable redacted
-  journal proves the handoff and recovery decision; PR-A shadow mode
-  structurally forbids promotion, alias assignment, rollback, App deployment,
-  and recovery mutation. The final job writes one canonical redacted step
-  summary and 14-day evidence artifact. See the main-shadow and PR-B sections of
+  `--prod --skip-domain` and run direct browser smoke before exact promotion.
+  App custom `v3` remains build-only until its activation turn because its
+  upload moves attached `v3` domains; the controller then deploys the verified
+  output and reconciles every reviewed alias. The three ordinary public custom
+  domains are their only protected runtime and rollback aliases; generated
+  Vercel aliases are candidate evidence only. A durable redacted journal
+  records intent and verified state around every public mutation. The final
+  evidence also proves whether any replaced native `main` path attempted a
+  duplicate deployment. See the active-main and rollback sections of
   [`docs/vercel-deployments.md`](docs/vercel-deployments.md) for the exact
-  operator evidence, public runtime proof, and rollback/native-owner restoration
-  order.
+  operator evidence, public runtime proof, target-local rollback, and
+  full-native restoration order.
 
 Dependency-installing jobs use `.github/actions/pnpm-install`, which pins the
 Node/pnpm bootstrap, relies on `actions/setup-node` as the single pnpm-store

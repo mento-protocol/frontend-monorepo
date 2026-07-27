@@ -213,6 +213,43 @@ async function settle(page: Page, theme: Theme): Promise<void> {
   });
 }
 
+// Argos only runs its fixed-position stabilizer when `fullPage` is explicit;
+// its computed Page default is not propagated into the stabilization context.
+// After that stabilizer rewrites the fixed Next Image to absolute, give the
+// decoded image and Chromium compositor several paints so a screenshot cannot
+// capture partially repainted image tiles.
+async function stabilizeArgosFullPageCapture(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const background = document.querySelector('img[alt="Mento Background"]');
+    if (
+      !(background instanceof HTMLImageElement) ||
+      getComputedStyle(background).position !== "absolute"
+    ) {
+      throw new Error(
+        "Argos did not stabilize the fixed App background for full-page capture",
+      );
+    }
+
+    await Promise.all(
+      Array.from(document.images).map(async (image) => {
+        if (!image.complete || image.naturalWidth === 0) return;
+        try {
+          await image.decode();
+        } catch {
+          // Argos separately fails closed on incomplete images. A completed
+          // image can still reject decode() for formats Chromium already drew.
+        }
+      }),
+    );
+
+    const frame = () =>
+      new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    for (let index = 0; index < 4; index += 1) {
+      await frame();
+    }
+  });
+}
+
 export async function snapshotPage(
   page: Page,
   url: string,
@@ -232,7 +269,10 @@ export async function snapshotPage(
     // The just-mounted content may pull its own webfonts/icons in.
     await page.evaluate(() => document.fonts.ready);
   }
-  await argosScreenshot(page, name);
+  await argosScreenshot(page, name, {
+    fullPage: true,
+    beforeScreenshot: () => stabilizeArgosFullPageCapture(page),
+  });
 }
 
 export { base as test };

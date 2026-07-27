@@ -16,10 +16,19 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA,
+  ACTIVE_ALIAS_MAPPING_SET_SCHEMA,
+  ACTIVE_DEPLOYMENT_STATE_PROOF_SCHEMA,
+  ACTIVE_DEPLOYMENT_STATE_SPEC_SCHEMA,
   CANONICAL_STATE_KEYS,
   MAIN_PLANNING_SNAPSHOT_SCHEMA,
   VercelStateClient,
   assertAppTransactionCandidateOutput,
+  assertActiveAliasMappingSpec,
+  assertActiveDeploymentStateProof,
+  assertActiveAliasMappingSet,
+  assertActiveAliasMappings,
+  assertActiveDeploymentStateSpec,
   assertCanonicalOutput,
   assertMainPlanningSnapshot,
   assertSnapshotSpec,
@@ -31,15 +40,27 @@ import {
   canonicalizeDeploymentUrl,
   canonicalizeHostname,
   captureMainPlanningSnapshot,
+  captureActiveDeploymentStateProof,
   captureProtectedSnapshot,
   compareProtectedSnapshots,
+  createActiveDeploymentStateProof,
   parseArguments,
   renderCliFailure,
   runCli,
   writeAppTransactionCandidate,
+  writeActiveDeploymentStateProof,
   writeCanonicalJson,
   writeMainPlanningSnapshot,
 } from "./vercel-deployment-state.mjs";
+import {
+  createMainCandidateIntent,
+  createMainCandidateVercelMetadata,
+} from "./vercel-main-candidate.mjs";
+import { MAIN_TARGET_CONTRACTS } from "./vercel-main-plan.mjs";
+import {
+  MAIN_RELEASE_ACTIVATION_ORDER,
+  createMainReleaseManifest,
+} from "./vercel-main-release-reconciliation.mjs";
 
 const fixtureDirectory = new URL(
   "./fixtures/vercel-deployment-state/",
@@ -72,6 +93,244 @@ function privateTestDirectory(testContext) {
   const directory = mkdtempSync(join(process.cwd(), ".vercel-state-test-"));
   testContext.after(() => rmSync(directory, { force: true, recursive: true }));
   return directory;
+}
+
+function activeReleaseManifest({ deploySha, projects }) {
+  const priorSha = "b".repeat(40);
+  const targets = ["app", "governance", "reserve", "ui"];
+  const plan = {
+    schema: "vercel-main-plan:v2",
+    mode: "active",
+    mainOwnershipMode: Object.fromEntries(
+      targets.map((target) => [target, "github"]),
+    ),
+    deploySha,
+    stagedTargets: targets,
+    activeTargets: targets,
+    shadowTargets: [],
+    plan: targets,
+    priors: targets.map((target) => ({
+      target,
+      deploymentId: `dpl_${target}Prior123`,
+      deploymentUrl: `https://${target}-prior.vercel.app`,
+      aliases: [...MAIN_TARGET_CONTRACTS[target].aliases].sort(),
+      servedSha: priorSha,
+    })),
+    ranges: [
+      {
+        base: priorSha,
+        head: deploySha,
+        kind: "served",
+        reason: "global-build-input",
+        targets,
+        deployments: targets,
+      },
+    ],
+    reasons: targets.map((target) => ({
+      target,
+      base: priorSha,
+      reason: "global-build-input",
+    })),
+  };
+  const originalPriors = Object.fromEntries(
+    MAIN_RELEASE_ACTIVATION_ORDER.map((target) => {
+      const contract = MAIN_TARGET_CONTRACTS[target];
+      const aliases = [...contract.aliases].sort();
+      const prior = {
+        deploymentId: `dpl_${target}Prior123`,
+        deploymentUrl: `https://${target}-prior.vercel.app`,
+        aliases,
+        projectId: projects[target].projectId,
+        projectName: projects[target].projectName,
+        readyState: "READY",
+        target: contract.target,
+        customEnvironmentSlug: contract.customEnvironmentSlug,
+      };
+      return [
+        target,
+        {
+          ...prior,
+          planningLeaves: aliases.map((alias) => ({
+            alias,
+            ...prior,
+            git: {
+              status: "complete",
+              org: "mento-protocol",
+              repo: "frontend-monorepo",
+              ref: "main",
+              sha: priorSha,
+            },
+          })),
+          servedSha: priorSha,
+        },
+      ];
+    }),
+  );
+  return createMainReleaseManifest({
+    upstreamRunId: "54321",
+    plan,
+    originalPriors,
+  });
+}
+
+function activeStateSpec() {
+  const deploySha = "abcdef0123456789abcdef0123456789abcdef01";
+  const projects = {
+    app: {
+      projectId: "prj_appactive123",
+      projectName: "app.mento.org",
+      expectedDisposition: "githubPrebuilt",
+      deploymentId: "dpl_appactive123",
+      deploymentUrl: "https://app-active-immutable.vercel.app",
+      target: null,
+      customEnvironmentSlug: "v3",
+    },
+    governance: {
+      projectId: "prj_governanceactive123",
+      projectName: "governance.mento.org",
+      expectedDisposition: "githubPrebuilt",
+      deploymentId: "dpl_governanceactive123",
+      deploymentUrl: "https://governance-active-immutable.vercel.app",
+      target: "production",
+      customEnvironmentSlug: null,
+    },
+    reserve: {
+      projectId: "prj_reserveactive123",
+      projectName: "reserve.mento.org",
+      expectedDisposition: "githubPrebuilt",
+      deploymentId: "dpl_reserveactive123",
+      deploymentUrl: "https://reserve-active-immutable.vercel.app",
+      target: "production",
+      customEnvironmentSlug: null,
+    },
+    ui: {
+      projectId: "prj_uiactive123",
+      projectName: "ui.mento.org",
+      expectedDisposition: "githubPrebuilt",
+      deploymentId: "dpl_uiactive123",
+      deploymentUrl: "https://ui-active-immutable.vercel.app",
+      target: "production",
+      customEnvironmentSlug: null,
+    },
+  };
+  return {
+    schema: ACTIVE_DEPLOYMENT_STATE_SPEC_SCHEMA,
+    deploySha,
+    runId: "12345",
+    runAttempt: "2",
+    transactionId: "main-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    releaseManifest: activeReleaseManifest({ deploySha, projects }),
+    mainOwnershipMode: {
+      app: "github",
+      governance: "github",
+      reserve: "github",
+      ui: "github",
+    },
+    stagedTargets: ["app", "governance", "reserve", "ui"],
+    activeTargets: ["app", "governance", "reserve", "ui"],
+    shadowTargets: [],
+    projects,
+    legacyAppV2: {
+      alias: "v2-app.mento.org",
+      deployment: "dpl_legacyappv2",
+      deploymentUrl: "https://app-v2-immutable.vercel.app",
+      projectId: "prj_appactive123",
+      projectName: "app.mento.org",
+      readyState: "READY",
+      target: "production",
+      customEnvironmentSlug: null,
+      git: {
+        org: "mento-protocol",
+        repo: "frontend-monorepo",
+        ref: "v2",
+        sha: "1111111111111111111111111111111111111111",
+      },
+    },
+  };
+}
+
+function activeDeploymentResponse(
+  spec,
+  logicalTarget,
+  {
+    deploymentId = spec.projects[logicalTarget].deploymentId,
+    deploymentUrl = spec.projects[logicalTarget].deploymentUrl,
+    source = "cli",
+    meta = {},
+  } = {},
+) {
+  const project = spec.projects[logicalTarget];
+  const workflowMeta = createMainCandidateVercelMetadata({
+    intent: createMainCandidateIntent({
+      target: logicalTarget,
+      deploySha: spec.deploySha,
+      upstreamRunId: spec.releaseManifest.upstreamRunId,
+      originRunId: spec.runId,
+      originAttempt: spec.runAttempt,
+      originTransactionId: spec.transactionId,
+      projectId: project.projectId,
+      projectName: project.projectName,
+      releaseManifest: spec.releaseManifest,
+    }),
+  });
+  return {
+    id: deploymentId,
+    url: deploymentUrl,
+    projectId: project.projectId,
+    name: project.projectName,
+    readyState: "READY",
+    target: project.target,
+    customEnvironment:
+      project.customEnvironmentSlug === null
+        ? null
+        : { slug: project.customEnvironmentSlug },
+    source,
+    meta: {
+      githubCommitOrg: "mento-protocol",
+      githubCommitRepo: "frontend-monorepo",
+      githubCommitRef: "main",
+      githubCommitSha: spec.deploySha,
+      ...workflowMeta,
+      ...meta,
+    },
+  };
+}
+
+function activeDeploymentInspections(spec) {
+  return Object.fromEntries(
+    Object.keys(spec.projects).map((logicalTarget) => {
+      const deploymentId = spec.projects[logicalTarget].deploymentId;
+      return [
+        logicalTarget,
+        [
+          {
+            deploymentId,
+            response: activeDeploymentResponse(spec, logicalTarget),
+          },
+        ],
+      ];
+    }),
+  );
+}
+
+function legacyAppV2Proof(spec) {
+  const legacy = spec.legacyAppV2;
+  return {
+    source: "git",
+    state: {
+      alias: legacy.alias,
+      deploymentId: legacy.deployment,
+      deploymentUrl: legacy.deploymentUrl,
+      creatorUsername: null,
+      projectId: legacy.projectId,
+      projectName: legacy.projectName,
+      readyState: legacy.readyState,
+      target: legacy.target,
+      customEnvironmentSlug: legacy.customEnvironmentSlug,
+      git: { ...legacy.git },
+      aliases: [legacy.alias],
+    },
+  };
 }
 
 test("ordinary production fixture emits only canonical allowlisted state", () => {
@@ -399,6 +658,161 @@ test("minimal alias mapping exposes only read-only drift fields", () => {
   );
 });
 
+test("active alias mapping set captures exactly every protected alias", () => {
+  const spec = {
+    schema: ACTIVE_ALIAS_MAPPING_SET_SCHEMA,
+    aliases: [
+      "app.mento.org",
+      "appmentoorg-env-v3-mentolabs.vercel.app",
+      "appmentoorg-git-v2-mentolabs.vercel.app",
+      "appmentoorg-mentolabs.vercel.app",
+      "appmentoorg.vercel.app",
+      "governance.mento.org",
+      "reserve.mento.org",
+      "ui.mento.org",
+      "v2-app.mento.org",
+    ],
+  };
+  assert.equal(assertActiveAliasMappingSet(spec), spec);
+  const mappings = assertActiveAliasMappings(
+    spec.aliases.map((alias, index) => ({
+      alias,
+      deploymentId: `dpl_active${index}123`,
+      deploymentUrl: `https://active-${index}.vercel.app`,
+    })),
+  );
+  assert.equal(mappings.length, 9);
+  assert.throws(
+    () =>
+      assertActiveAliasMappingSet({ ...spec, aliases: spec.aliases.slice(1) }),
+    /mapping set is malformed/,
+  );
+  assert.throws(
+    () => assertActiveAliasMappings(mappings.slice(1)),
+    /mappings are malformed/,
+  );
+});
+
+test("dynamic active alias mapping spec binds every capture to its exact project", async (t) => {
+  const directory = privateTestDirectory(t);
+  const spec = {
+    schema: ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA,
+    bindings: [
+      {
+        alias: "app.mento.org",
+        projectId: "prj_app123",
+        target: "app",
+      },
+      {
+        alias: "v2-app.mento.org",
+        projectId: "prj_app123",
+        target: "legacy-app",
+      },
+    ],
+  };
+  assert.deepEqual(assertActiveAliasMappingSpec(spec), spec);
+  assert.throws(
+    () =>
+      assertActiveAliasMappingSpec({
+        ...spec,
+        bindings: [],
+      }),
+    /malformed/,
+  );
+  assert.throws(
+    () =>
+      assertActiveAliasMappingSpec({
+        ...spec,
+        bindings: [...spec.bindings, spec.bindings[1]],
+      }),
+    /ambiguous/,
+  );
+  assert.throws(
+    () =>
+      assertActiveAliasMappingSpec({
+        ...spec,
+        bindings: [{ ...spec.bindings[0], target: "unknown" }],
+      }),
+    /ambiguous/,
+  );
+
+  const specPath = join(directory, "mapping-spec.json");
+  const outputPath = join(directory, "mappings.json");
+  writeFileSync(specPath, JSON.stringify(spec), { mode: 0o600 });
+  const mappings = new Map([
+    [
+      "app.mento.org",
+      {
+        alias: "app.mento.org",
+        deploymentId: "dpl_appCurrent123",
+        deploymentUrl: "https://app-current.vercel.app",
+        projectId: "prj_app123",
+      },
+    ],
+    [
+      "v2-app.mento.org",
+      {
+        alias: "v2-app.mento.org",
+        deploymentId: "dpl_appLegacy123",
+        deploymentUrl: "https://app-legacy.vercel.app",
+        projectId: "prj_app123",
+      },
+    ],
+  ]);
+  await runCli({
+    argv: ["alias-mappings", "--spec", specPath, "--output", outputPath],
+    env: {
+      RUNNER_TEMP: directory,
+      VERCEL_ORG_ID: "team_active123",
+      VERCEL_TOKEN: "active-mapping-token-never-output",
+    },
+    clientFactory: () => ({
+      aliasMapping: async (alias) => mappings.get(alias),
+    }),
+  });
+  assert.deepEqual(JSON.parse(readFileSync(outputPath, "utf8")), [
+    {
+      alias: "app.mento.org",
+      deploymentId: "dpl_appCurrent123",
+      deploymentUrl: "https://app-current.vercel.app",
+    },
+    {
+      alias: "v2-app.mento.org",
+      deploymentId: "dpl_appLegacy123",
+      deploymentUrl: "https://app-legacy.vercel.app",
+      projectId: "prj_app123",
+    },
+  ]);
+  assert.equal(statSync(outputPath).mode & 0o777, 0o600);
+
+  const wrongProjectOutput = join(directory, "wrong-project.json");
+  await assert.rejects(
+    () =>
+      runCli({
+        argv: [
+          "alias-mappings",
+          "--spec",
+          specPath,
+          "--output",
+          wrongProjectOutput,
+        ],
+        env: {
+          RUNNER_TEMP: directory,
+          VERCEL_ORG_ID: "team_active123",
+          VERCEL_TOKEN: "active-mapping-token-never-output",
+        },
+        clientFactory: () => ({
+          aliasMapping: async (alias) => ({
+            ...mappings.get(alias),
+            projectId:
+              alias === "v2-app.mento.org" ? "prj_wrong123" : "prj_app123",
+          }),
+        }),
+      }),
+    /conflicts with its spec/,
+  );
+});
+
 function appCandidateFixture(overrides = {}) {
   const app = fixture("valid-custom-v3.json");
   const expected = {
@@ -517,6 +931,21 @@ test("App transaction candidate discovery uses filtered bounded pagination and e
     { ok: true },
   );
   assert.equal(attempts, 3);
+
+  let rateLimitedCalls = 0;
+  const rateLimitedClient = new VercelStateClient({
+    token: "fixture-token",
+    teamId: "team_fixture123",
+    fetchImplementation: async () => {
+      rateLimitedCalls += 1;
+      return { ok: false, status: 429 };
+    },
+  });
+  await assert.rejects(
+    () => rateLimitedClient.requestWithRetry("/read-only", { attempts: 3 }),
+    /HTTP 429/,
+  );
+  assert.equal(rateLimitedCalls, 1);
 });
 
 test("canonical Vercel state reads retry transient failures and fail closed after bounded persistent failures", async () => {
@@ -1105,6 +1534,7 @@ test("protected snapshot comparison detects every mapping change", () => {
 
 test("CLI parser accepts only each command's exact option set", () => {
   const cases = [
+    ["active-proof", "--spec", "spec.json", "--output", "proof.json"],
     [
       "app-candidate",
       "--expected",
@@ -1710,5 +2140,846 @@ test("reviewed custom-v3 aliases exactly equal the current two-alias topology", 
         { alias: "unexpected-v3.mento.org", ...expected },
       ]),
     /do not exactly match the deployment alias set/,
+  );
+});
+
+test("active deployment proof binds every GitHub prebuilt and keeps legacy App v2 separate", () => {
+  const spec = activeStateSpec();
+  assert.equal(assertActiveDeploymentStateSpec(spec), spec);
+  const proof = createActiveDeploymentStateProof({
+    spec,
+    deployments: activeDeploymentInspections(spec),
+    legacyV2: legacyAppV2Proof(spec),
+  });
+
+  assert.equal(proof.schema, ACTIVE_DEPLOYMENT_STATE_PROOF_SCHEMA);
+  assert.equal(proof.outcome, "proven");
+  for (const logicalTarget of Object.keys(spec.projects)) {
+    assert.deepEqual(proof.projects[logicalTarget].counts, {
+      scanned: 1,
+      githubPrebuilt: 1,
+      githubShadowStage: 0,
+      nativeGitOwner: 0,
+      nativeGitDuplicates: 0,
+      manualDuplicates: 0,
+      unknown: 0,
+      legacyV2: 0,
+    });
+    assert.deepEqual(proof.projects[logicalTarget].ids.githubPrebuilt, [
+      spec.projects[logicalTarget].deploymentId,
+    ]);
+  }
+  assert.equal(proof.legacyAppV2.ownership, "native-vercel-git");
+  assert.equal(proof.legacyAppV2.git.ref, "v2");
+  assert.doesNotMatch(
+    JSON.stringify(proof),
+    /meta|protectionBypass|token-never-output|rawResponse/,
+  );
+  assert.equal(assertActiveDeploymentStateProof(proof), proof);
+});
+
+test("active deployment proof accepts a stable candidate from an earlier audit attempt", () => {
+  const spec = activeStateSpec();
+  const deployments = activeDeploymentInspections(spec);
+  const response = deployments.governance[0].response;
+  for (const key of Object.keys(response.meta)) {
+    if (key.startsWith("mento")) delete response.meta[key];
+  }
+  Object.assign(
+    response.meta,
+    createMainCandidateVercelMetadata({
+      intent: createMainCandidateIntent({
+        target: "governance",
+        deploySha: spec.deploySha,
+        upstreamRunId: spec.releaseManifest.upstreamRunId,
+        originRunId: "12344",
+        originAttempt: "1",
+        originTransactionId: "main-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        projectId: spec.projects.governance.projectId,
+        projectName: spec.projects.governance.projectName,
+        releaseManifest: spec.releaseManifest,
+      }),
+    }),
+  );
+
+  const proof = createActiveDeploymentStateProof({
+    spec,
+    deployments,
+    legacyV2: legacyAppV2Proof(spec),
+  });
+
+  assert.equal(proof.outcome, "proven");
+  assert.deepEqual(proof.projects.governance.ids.githubPrebuilt, [
+    spec.projects.governance.deploymentId,
+  ]);
+});
+
+test("active deployment proof rejects retired and mismatched candidate metadata", () => {
+  const spec = activeStateSpec();
+  const classify = (mutate) => {
+    const deployments = activeDeploymentInspections(spec);
+    const entry = deployments.governance[0];
+    mutate(entry.response);
+    const proof = createActiveDeploymentStateProof({
+      spec,
+      deployments,
+      legacyV2: legacyAppV2Proof(spec),
+    });
+    assert.equal(proof.outcome, "unproven");
+    assert.deepEqual(proof.projects.governance.ids.githubPrebuilt, []);
+    assert.deepEqual(proof.projects.governance.ids.manualDuplicates, [
+      spec.projects.governance.deploymentId,
+    ]);
+  };
+
+  classify((response) => {
+    for (const key of Object.keys(response.meta)) {
+      if (key.startsWith("mento")) delete response.meta[key];
+    }
+    response.meta.mentoTransaction = `${spec.runId}-${spec.runAttempt}-governance`;
+  });
+  classify((response) => {
+    response.meta.mentoReleaseId = "mr-000000000000000000000000";
+  });
+  classify((response) => {
+    response.meta.mentoTransaction = "retired-metadata-must-not-be-accepted";
+  });
+  classify((response) => {
+    for (const key of Object.keys(response.meta)) {
+      if (key.startsWith("mento")) delete response.meta[key];
+    }
+    const reserve = spec.projects.reserve;
+    Object.assign(
+      response.meta,
+      createMainCandidateVercelMetadata({
+        intent: createMainCandidateIntent({
+          target: "reserve",
+          deploySha: spec.deploySha,
+          upstreamRunId: spec.releaseManifest.upstreamRunId,
+          originRunId: spec.runId,
+          originAttempt: spec.runAttempt,
+          originTransactionId: spec.transactionId,
+          projectId: reserve.projectId,
+          projectName: reserve.projectName,
+          releaseManifest: spec.releaseManifest,
+        }),
+      }),
+    );
+  });
+
+  const wrongManifestProject = structuredClone(spec);
+  wrongManifestProject.releaseManifest.originalPriors.governance.projectId =
+    "prj_wrongproject123";
+  assert.throws(
+    () => assertActiveDeploymentStateSpec(wrongManifestProject),
+    /conflicts/,
+  );
+  const wrongManifestTarget = structuredClone(spec);
+  wrongManifestTarget.releaseManifest.stagedTargets = [
+    "governance",
+    "reserve",
+    "ui",
+  ];
+  wrongManifestTarget.releaseManifest.activeTargets = [
+    "governance",
+    "reserve",
+    "ui",
+  ];
+  assert.throws(
+    () => assertActiveDeploymentStateSpec(wrongManifestTarget),
+    /release manifest conflicts with state identity/,
+  );
+});
+
+test("active deployment proof classifies native, manual, and unknown duplicates without treating v2 as a duplicate", () => {
+  const spec = activeStateSpec();
+  const deployments = activeDeploymentInspections(spec);
+  const project = spec.projects.app;
+  deployments.app.push(
+    {
+      deploymentId: "dpl_appnative456",
+      response: activeDeploymentResponse(spec, "app", {
+        deploymentId: "dpl_appnative456",
+        deploymentUrl: "https://app-native-duplicate.vercel.app",
+        source: "git",
+      }),
+    },
+    {
+      deploymentId: "dpl_appmanual456",
+      response: activeDeploymentResponse(spec, "app", {
+        deploymentId: "dpl_appmanual456",
+        deploymentUrl: "https://app-manual-duplicate.vercel.app",
+      }),
+    },
+    {
+      deploymentId: "dpl_appunknown456",
+      response: {
+        id: "dpl_appunknown456",
+        url: "app-unknown-duplicate.vercel.app",
+        projectId: project.projectId,
+        name: project.projectName,
+        readyState: "READY",
+        target: null,
+        customEnvironment: { slug: "v3" },
+        source: "cli",
+        meta: {
+          githubCommitOrg: "mento-protocol",
+          githubCommitRepo: "frontend-monorepo",
+          githubCommitRef: "main",
+        },
+      },
+    },
+    {
+      deploymentId: spec.legacyAppV2.deployment,
+      response: {
+        id: spec.legacyAppV2.deployment,
+        url: spec.legacyAppV2.deploymentUrl,
+        projectId: spec.legacyAppV2.projectId,
+        name: spec.legacyAppV2.projectName,
+        readyState: "READY",
+        target: "production",
+        customEnvironment: null,
+        source: "git",
+        meta: {
+          githubCommitOrg: "mento-protocol",
+          githubCommitRepo: "frontend-monorepo",
+          githubCommitRef: "v2",
+          githubCommitSha: spec.legacyAppV2.git.sha,
+        },
+      },
+    },
+  );
+
+  const proof = createActiveDeploymentStateProof({
+    spec,
+    deployments,
+    legacyV2: legacyAppV2Proof(spec),
+  });
+  assert.equal(proof.outcome, "unproven");
+  assert.deepEqual(proof.projects.app.counts, {
+    scanned: 5,
+    githubPrebuilt: 1,
+    githubShadowStage: 0,
+    nativeGitOwner: 0,
+    nativeGitDuplicates: 1,
+    manualDuplicates: 1,
+    unknown: 1,
+    legacyV2: 1,
+  });
+  assert.deepEqual(proof.projects.app.ids.nativeGitDuplicates, [
+    "dpl_appnative456",
+  ]);
+  assert.deepEqual(proof.projects.app.ids.manualDuplicates, [
+    "dpl_appmanual456",
+  ]);
+  assert.deepEqual(proof.projects.app.ids.unknown, ["dpl_appunknown456"]);
+  assert.deepEqual(proof.projects.app.ids.legacyV2, [
+    spec.legacyAppV2.deployment,
+  ]);
+
+  const onlyLegacy = activeDeploymentInspections(spec);
+  onlyLegacy.app.push(deployments.app.at(-1));
+  assert.equal(
+    createActiveDeploymentStateProof({
+      spec,
+      deployments: onlyLegacy,
+      legacyV2: legacyAppV2Proof(spec),
+    }).outcome,
+    "proven",
+  );
+});
+
+test("active deployment state validation rejects ambiguity and noncanonical or expanded evidence", () => {
+  const spec = activeStateSpec();
+  const noncanonical = structuredClone(spec);
+  noncanonical.projects.app.deploymentUrl += "/";
+  assert.throws(
+    () => assertActiveDeploymentStateSpec(noncanonical),
+    /project is malformed/,
+  );
+  const collidingLegacy = structuredClone(spec);
+  collidingLegacy.legacyAppV2.deployment =
+    spec.projects.governance.deploymentId;
+  assert.throws(
+    () => assertActiveDeploymentStateSpec(collidingLegacy),
+    /Legacy App v2 state is malformed/,
+  );
+
+  const duplicateInspection = activeDeploymentInspections(spec);
+  duplicateInspection.ui.push(duplicateInspection.ui[0]);
+  assert.throws(
+    () =>
+      createActiveDeploymentStateProof({
+        spec,
+        deployments: duplicateInspection,
+        legacyV2: legacyAppV2Proof(spec),
+      }),
+    /ambiguous/,
+  );
+
+  const proof = createActiveDeploymentStateProof({
+    spec,
+    deployments: activeDeploymentInspections(spec),
+    legacyV2: legacyAppV2Proof(spec),
+  });
+  assert.throws(
+    () => assertActiveDeploymentStateProof({ ...proof, rawResponse: {} }),
+    /forbidden fields/,
+  );
+  const tampered = structuredClone(proof);
+  tampered.projects.reserve.counts.scanned = 2;
+  assert.throws(
+    () => assertActiveDeploymentStateProof(tampered),
+    /count is malformed/,
+  );
+  const collidingUrl = structuredClone(proof);
+  collidingUrl.projects.ui.expectedDeploymentUrl =
+    proof.projects.governance.expectedDeploymentUrl;
+  assert.throws(
+    () => assertActiveDeploymentStateProof(collidingUrl),
+    /proof is malformed/,
+  );
+  const foreignLegacy = structuredClone(proof);
+  foreignLegacy.projects.reserve.ids.legacyV2.push("dpl_foreignlegacy123");
+  foreignLegacy.projects.reserve.counts.legacyV2 += 1;
+  foreignLegacy.projects.reserve.counts.scanned += 1;
+  assert.throws(
+    () => assertActiveDeploymentStateProof(foreignLegacy),
+    /legacyV2 deployment records conflict/,
+  );
+});
+
+test("active deployment proof fails closed for missing or mismatched expected deployments", () => {
+  const spec = activeStateSpec();
+  const scenarios = [
+    {
+      label: "missing",
+      mutate(entries) {
+        entries.length = 0;
+      },
+    },
+    {
+      label: "project",
+      mutate(entries) {
+        entries[0].response.projectId = "prj_wrong123";
+      },
+    },
+    {
+      label: "ref",
+      mutate(entries) {
+        entries[0].response.meta.githubCommitRef = "feature";
+      },
+    },
+    {
+      label: "SHA",
+      mutate(entries) {
+        entries[0].response.meta.githubCommitSha =
+          "2222222222222222222222222222222222222222";
+      },
+    },
+    {
+      label: "environment",
+      mutate(entries) {
+        entries[0].response.customEnvironment.slug = "preview";
+      },
+    },
+    {
+      label: "readiness",
+      mutate(entries) {
+        entries[0].response.readyState = "BUILDING";
+      },
+    },
+    {
+      label: "workflow metadata",
+      classification: "manualDuplicates",
+      mutate(entries) {
+        entries[0].response.meta.mentoRunAttempt = "3";
+      },
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    const deployments = activeDeploymentInspections(spec);
+    scenario.mutate(deployments.app);
+    const proof = createActiveDeploymentStateProof({
+      spec,
+      deployments,
+      legacyV2: legacyAppV2Proof(spec),
+    });
+    assert.equal(proof.outcome, "unproven", scenario.label);
+    if (scenario.label === "missing") {
+      assert.equal(proof.projects.app.counts.scanned, 0);
+      assert.equal(proof.projects.app.counts.unknown, 0);
+    } else if (scenario.classification === "manualDuplicates") {
+      assert.equal(proof.projects.app.counts.manualDuplicates, 1);
+    } else {
+      assert.equal(proof.projects.app.counts.unknown, 1, scenario.label);
+    }
+    assert.equal(proof.projects.app.counts.githubPrebuilt, 0, scenario.label);
+  }
+});
+
+test("exact-SHA deployment listing uses a bounded v7 SHA census without detail reads", async () => {
+  const spec = activeStateSpec();
+  const requests = [];
+  const client = new VercelStateClient({
+    token: "active-proof-token-never-output",
+    teamId: "team_active123",
+    fetchImplementation: async (url) => {
+      requests.push(url);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          deployments: [
+            {
+              uid: "dpl_second123",
+              projectId: spec.projects.app.projectId,
+              // Listing metadata is optional and must not make an unrelated
+              // malformed field turn into a detail-read amplification path.
+              meta: "ignored-summary-metadata",
+            },
+            {
+              id: "dpl_first123",
+              projectId: spec.projects.app.projectId,
+            },
+          ],
+          pagination: { next: null },
+        }),
+      };
+    },
+  });
+  assert.deepEqual(
+    await client.listExactShaDeploymentIds({
+      projectId: spec.projects.app.projectId,
+      deploySha: spec.deploySha,
+    }),
+    ["dpl_first123", "dpl_second123"],
+  );
+  assert.equal(requests.length, 1);
+  const [request] = requests;
+  assert.equal(request.pathname, "/v7/deployments");
+  assert.equal(
+    request.searchParams.get("projectId"),
+    spec.projects.app.projectId,
+  );
+  assert.equal(request.searchParams.get("sha"), spec.deploySha);
+  assert.equal(request.searchParams.get("limit"), "3");
+  assert.equal(request.searchParams.has("meta-githubCommitSha"), false);
+  assert.equal(request.searchParams.has("target"), false);
+  assert.equal(request.searchParams.has("until"), false);
+  assert.equal(request.searchParams.get("teamId"), "team_active123");
+  assert.doesNotMatch(
+    requests.map(String).join("\n"),
+    /active-proof-token-never-output/,
+  );
+
+  const malformed = new VercelStateClient({
+    token: "test-token",
+    teamId: "team_active123",
+    fetchImplementation: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ deployments: [], pagination: {} }),
+    }),
+  });
+  await assert.rejects(
+    () =>
+      malformed.listExactShaDeploymentIds({
+        projectId: spec.projects.app.projectId,
+        deploySha: spec.deploySha,
+      }),
+    /list is malformed/,
+  );
+});
+
+test("exact-SHA deployment listing rejects malformed, duplicate, and over-bound census results", async () => {
+  const spec = activeStateSpec();
+  const expectation = {
+    projectId: spec.projects.app.projectId,
+    deploySha: spec.deploySha,
+  };
+  const candidate = (id) => ({
+    id,
+    projectId: spec.projects.app.projectId,
+  });
+  const clientFor = (response) =>
+    new VercelStateClient({
+      token: "test-token",
+      teamId: "team_active123",
+      fetchImplementation: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => response,
+      }),
+    });
+
+  for (const [response, message] of [
+    [{ deployments: [], pagination: {} }, /deployment list is malformed/],
+    [
+      { deployments: [], pagination: { next: "123" } },
+      /census exceeded its bounded limit/,
+    ],
+    [
+      {
+        deployments: [
+          candidate("dpl_one123"),
+          candidate("dpl_two123"),
+          candidate("dpl_three123"),
+        ],
+        pagination: { next: null },
+      },
+      /census exceeded its bounded limit/,
+    ],
+    [
+      {
+        deployments: [
+          candidate("dpl_duplicate123"),
+          candidate("dpl_duplicate123"),
+        ],
+        pagination: { next: null },
+      },
+      /list is ambiguous/,
+    ],
+    [
+      {
+        deployments: [{ id: "dpl_wrongproject123", projectId: "prj_wrong123" }],
+        pagination: { next: null },
+      },
+      /list is ambiguous/,
+    ],
+  ]) {
+    await assert.rejects(
+      () =>
+        clientFor(structuredClone(response)).listExactShaDeploymentIds(
+          expectation,
+        ),
+      message,
+    );
+  }
+});
+
+test("active deployment capture rejects a changing paginated set and otherwise emits a pure proof", async () => {
+  const spec = activeStateSpec();
+  const responses = Object.fromEntries(
+    Object.keys(spec.projects).map((logicalTarget) => [
+      spec.projects[logicalTarget].deploymentId,
+      activeDeploymentResponse(spec, logicalTarget),
+    ]),
+  );
+  const listCalls = new Map();
+  const client = {
+    async listExactShaDeploymentIds({ projectId, deploySha }) {
+      assert.equal(deploySha, spec.deploySha);
+      const logicalTarget = Object.keys(spec.projects).find(
+        (target) => spec.projects[target].projectId === projectId,
+      );
+      listCalls.set(logicalTarget, (listCalls.get(logicalTarget) ?? 0) + 1);
+      return [spec.projects[logicalTarget].deploymentId];
+    },
+    async inspectDeployment(deploymentId) {
+      return responses[deploymentId];
+    },
+    async canonicalLegacyV2State(expected) {
+      assert.deepEqual(expected, spec.legacyAppV2);
+      return legacyAppV2Proof(spec);
+    },
+  };
+  assert.equal(
+    (await captureActiveDeploymentStateProof(client, spec)).outcome,
+    "proven",
+  );
+  assert.deepEqual(Object.fromEntries(listCalls), {
+    app: 3,
+    governance: 3,
+    reserve: 3,
+    ui: 3,
+  });
+
+  const racingClient = {
+    ...client,
+    async listExactShaDeploymentIds({ projectId }) {
+      const logicalTarget = Object.keys(spec.projects).find(
+        (target) => spec.projects[target].projectId === projectId,
+      );
+      const calls = (listCalls.get(`race-${logicalTarget}`) ?? 0) + 1;
+      listCalls.set(`race-${logicalTarget}`, calls);
+      return calls === 2 && logicalTarget === "app"
+        ? [spec.projects.app.deploymentId, "dpl_concurrent123"]
+        : [spec.projects[logicalTarget].deploymentId];
+    },
+  };
+  await assert.rejects(
+    () => captureActiveDeploymentStateProof(racingClient, spec),
+    /changed during inspection/,
+  );
+});
+
+test("active deployment capture verifies detail-only Git source SHA fields once", async () => {
+  const spec = activeStateSpec();
+  const responses = Object.fromEntries(
+    Object.keys(spec.projects).map((logicalTarget) => [
+      spec.projects[logicalTarget].deploymentId,
+      activeDeploymentResponse(spec, logicalTarget),
+    ]),
+  );
+  delete responses[spec.projects.app.deploymentId].meta.githubCommitSha;
+  responses[spec.projects.app.deploymentId].gitSource = {
+    sha: spec.deploySha,
+  };
+  delete responses[spec.projects.governance.deploymentId].meta.githubCommitSha;
+  responses[spec.projects.governance.deploymentId].gitRepo = {
+    sha: spec.deploySha,
+  };
+  const inspectionCalls = new Map();
+  const client = {
+    async listExactShaDeploymentIds({ projectId, deploySha }) {
+      assert.equal(deploySha, spec.deploySha);
+      const logicalTarget = Object.keys(spec.projects).find(
+        (target) => spec.projects[target].projectId === projectId,
+      );
+      return [spec.projects[logicalTarget].deploymentId];
+    },
+    async inspectDeployment(deploymentId) {
+      inspectionCalls.set(
+        deploymentId,
+        (inspectionCalls.get(deploymentId) ?? 0) + 1,
+      );
+      return responses[deploymentId];
+    },
+    async canonicalLegacyV2State() {
+      return legacyAppV2Proof(spec);
+    },
+  };
+  assert.equal(
+    (await captureActiveDeploymentStateProof(client, spec)).outcome,
+    "proven",
+  );
+  assert.deepEqual(
+    Object.fromEntries(inspectionCalls),
+    Object.fromEntries(
+      Object.values(spec.projects).map((project) => [project.deploymentId, 1]),
+    ),
+  );
+
+  const mismatched = structuredClone(responses);
+  mismatched[spec.projects.app.deploymentId].gitSource.sha =
+    "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+  await assert.rejects(
+    () =>
+      captureActiveDeploymentStateProof(
+        {
+          ...client,
+          inspectDeployment: async (deploymentId) => mismatched[deploymentId],
+        },
+        spec,
+      ),
+    /SHA does not match census/,
+  );
+});
+
+test("legacy App v2 proof rejects alias, source, ref, and mapping drift", async () => {
+  const spec = activeStateSpec();
+  const legacy = spec.legacyAppV2;
+  const clientFor = ({
+    source = "git",
+    ref = "v2",
+    firstDeployment = legacy.deployment,
+    race = false,
+  } = {}) => {
+    let aliasReads = 0;
+    return new VercelStateClient({
+      token: "legacy-token-never-output",
+      teamId: "team_active123",
+      fetchImplementation: async (url) => {
+        let body;
+        if (url.pathname === "/v4/aliases/v2-app.mento.org") {
+          aliasReads += 1;
+          body = {
+            alias: legacy.alias,
+            deploymentId:
+              race && aliasReads === 2
+                ? "dpl_legacyconcurrent"
+                : firstDeployment,
+            projectId: legacy.projectId,
+          };
+        } else if (url.pathname === `/v13/deployments/${legacy.deployment}`) {
+          body = {
+            id: legacy.deployment,
+            url: legacy.deploymentUrl,
+            projectId: legacy.projectId,
+            name: legacy.projectName,
+            readyState: "READY",
+            target: "production",
+            customEnvironment: null,
+            source,
+            meta: {
+              githubCommitOrg: "mento-protocol",
+              githubCommitRepo: "frontend-monorepo",
+              githubCommitRef: ref,
+              githubCommitSha: legacy.git.sha,
+              secretMetadata: "legacy-secret-never-output",
+            },
+          };
+        } else if (
+          url.pathname === `/v2/deployments/${legacy.deployment}/aliases`
+        ) {
+          body = { aliases: [{ alias: legacy.alias }] };
+        }
+        return {
+          ok: body !== undefined,
+          status: body === undefined ? 404 : 200,
+          json: async () => body,
+        };
+      },
+    });
+  };
+
+  const result = await clientFor().canonicalLegacyV2State(legacy);
+  assert.deepEqual(result, legacyAppV2Proof(spec));
+  assert.doesNotMatch(JSON.stringify(result), /legacy-secret-never-output/);
+
+  const wrongAlias = { ...legacy, alias: "app.mento.org" };
+  await assert.rejects(
+    () => clientFor().canonicalLegacyV2State(wrongAlias),
+    /expectation is malformed/,
+  );
+  await assert.rejects(
+    () => clientFor({ source: "cli" }).canonicalLegacyV2State(legacy),
+    /ownership is unproven/,
+  );
+  await assert.rejects(
+    () => clientFor({ ref: "main" }).canonicalLegacyV2State(legacy),
+    /Unexpected deployment Git ref/,
+  );
+  await assert.rejects(
+    () =>
+      clientFor({
+        firstDeployment: "dpl_legacywrong",
+      }).canonicalLegacyV2State(legacy),
+    /mapping does not match/,
+  );
+  await assert.rejects(
+    () => clientFor({ race: true }).canonicalLegacyV2State(legacy),
+    /changed during inspection/,
+  );
+});
+
+test("active-proof CLI reads credentials only from env and writes a private proven artifact", async (t) => {
+  const directory = privateTestDirectory(t);
+  const spec = activeStateSpec();
+  const specPath = join(directory, "active-spec.json");
+  const outputPath = join(directory, "active-proof.json");
+  writeFileSync(specPath, JSON.stringify(spec), { mode: 0o600 });
+  const responses = Object.fromEntries(
+    Object.keys(spec.projects).map((logicalTarget) => [
+      spec.projects[logicalTarget].deploymentId,
+      activeDeploymentResponse(spec, logicalTarget),
+    ]),
+  );
+  let stdout = "";
+  await runCli({
+    argv: ["active-proof", "--spec", specPath, "--output", outputPath],
+    env: {
+      RUNNER_TEMP: directory,
+      VERCEL_ORG_ID: "team_active123",
+      VERCEL_TOKEN: "active-cli-token-never-output",
+    },
+    stdout: { write: (value) => (stdout += value) },
+    clientFactory: ({ token, teamId }) => {
+      assert.equal(token, "active-cli-token-never-output");
+      assert.equal(teamId, "team_active123");
+      return {
+        listExactShaDeploymentIds: async ({ projectId }) => {
+          const project = Object.values(spec.projects).find(
+            (entry) => entry.projectId === projectId,
+          );
+          return [project.deploymentId];
+        },
+        inspectDeployment: async (deploymentId) => responses[deploymentId],
+        canonicalLegacyV2State: async () => legacyAppV2Proof(spec),
+      };
+    },
+  });
+  const proof = JSON.parse(readFileSync(outputPath, "utf8"));
+  assert.equal(proof.outcome, "proven");
+  assert.equal(statSync(outputPath).mode & 0o777, 0o600);
+  assert.equal(stdout, "Canonical active deployment state proof written\n");
+  assert.doesNotMatch(
+    `${stdout}${JSON.stringify(proof)}`,
+    /active-cli-token-never-output/,
+  );
+
+  const secondOutput = join(directory, "direct-write.json");
+  writeActiveDeploymentStateProof(secondOutput, proof, {
+    runnerTemp: directory,
+  });
+  assert.equal(statSync(secondOutput).mode & 0o777, 0o600);
+});
+
+test("active-proof CLI writes canonical duplicate evidence before failing unproven", async (t) => {
+  const directory = privateTestDirectory(t);
+  const spec = activeStateSpec();
+  const specPath = join(directory, "active-spec.json");
+  const outputPath = join(directory, "unproven-proof.json");
+  writeFileSync(specPath, JSON.stringify(spec), { mode: 0o600 });
+  const duplicateId = "dpl_governancenative999";
+  const responses = Object.fromEntries(
+    Object.keys(spec.projects).map((logicalTarget) => [
+      spec.projects[logicalTarget].deploymentId,
+      activeDeploymentResponse(spec, logicalTarget),
+    ]),
+  );
+  responses[duplicateId] = activeDeploymentResponse(spec, "governance", {
+    deploymentId: duplicateId,
+    deploymentUrl: "https://governance-native-duplicate.vercel.app",
+    source: "git",
+    meta: {
+      protectionBypass: "raw-secret-never-output",
+    },
+  });
+  let stdout = "";
+  await assert.rejects(
+    () =>
+      runCli({
+        argv: ["active-proof", "--spec", specPath, "--output", outputPath],
+        env: {
+          RUNNER_TEMP: directory,
+          VERCEL_ORG_ID: "team_active123",
+          VERCEL_TOKEN: "unproven-cli-token-never-output",
+        },
+        stdout: { write: (value) => (stdout += value) },
+        clientFactory: () => ({
+          listExactShaDeploymentIds: async ({ projectId }) => {
+            const logicalTarget = Object.keys(spec.projects).find(
+              (target) => spec.projects[target].projectId === projectId,
+            );
+            return logicalTarget === "governance"
+              ? [spec.projects.governance.deploymentId, duplicateId].sort()
+              : [spec.projects[logicalTarget].deploymentId];
+          },
+          inspectDeployment: async (deploymentId) => responses[deploymentId],
+          canonicalLegacyV2State: async () => legacyAppV2Proof(spec),
+        }),
+      }),
+    /unproven/,
+  );
+  const proofText = readFileSync(outputPath, "utf8");
+  const proof = JSON.parse(proofText);
+  assert.equal(proof.outcome, "unproven");
+  assert.deepEqual(proof.projects.governance.ids.nativeGitDuplicates, [
+    duplicateId,
+  ]);
+  assert.equal(statSync(outputPath).mode & 0o777, 0o600);
+  assert.equal(stdout, "");
+  assert.doesNotMatch(
+    proofText,
+    /raw-secret-never-output|protectionBypass|unproven-cli-token-never-output/,
+  );
+  assert.equal(
+    renderCliFailure(
+      new Error("unproven-cli-token-never-output raw-secret-never-output"),
+    ),
+    "Vercel deployment state command failed\n",
   );
 });

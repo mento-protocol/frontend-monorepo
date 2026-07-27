@@ -101,7 +101,18 @@ test("repository pairs every target with its canonical exact ownership configura
   }
 });
 
-test("main shadow requires every owner to be native; active permits target-local rollback", () => {
+test("main ownership stays paired with config; active permits target-local rollback", () => {
+  const workflowMainOwnership = JSON.parse(
+    mainDeployment.env.MAIN_OWNERSHIP_MODE_JSON,
+  );
+  const modeledMainOwnership = Object.fromEntries(
+    PREVIEW_TARGETS.map((target) => [
+      target,
+      PREVIEW_TARGET_CONFIG[target].mainOwnershipMode,
+    ]),
+  );
+  assert.deepEqual(Object.keys(workflowMainOwnership), PREVIEW_TARGETS);
+  assert.deepEqual(workflowMainOwnership, modeledMainOwnership);
   assertMainWorkflowOwnershipModes(
     mainDeployment.env.VERCEL_MAIN_MODE,
     Object.values(PREVIEW_TARGET_CONFIG),
@@ -261,8 +272,12 @@ test("preview-shadow rollback keeps native previews and GitHub-owned main indepe
   }
 });
 
-test("full native rollback keeps only the Dependabot exclusion", () => {
-  for (const target of PREVIEW_TARGETS) {
+test("full native rollback keeps the Dependabot exclusion and App v2", () => {
+  assert.deepEqual(
+    PREVIEW_TARGET_CONFIG.app.nativeVercelConfiguration.git.deploymentEnabled,
+    { "dependabot/**": false, v2: true },
+  );
+  for (const target of ["governance", "reserve", "ui"]) {
     assert.deepEqual(
       PREVIEW_TARGET_CONFIG[target].nativeVercelConfiguration.git
         .deploymentEnabled,
@@ -294,7 +309,7 @@ test("current rollout keeps every branch-preview target GitHub-only", () => {
         PREVIEW_TARGET_CONFIG[target].mainOwnershipMode ===
         MAIN_OWNERSHIP_MODES.SHADOW,
     ),
-    PREVIEW_TARGETS,
+    [],
   );
   assert.deepEqual(
     PREVIEW_TARGETS.filter(
@@ -302,7 +317,7 @@ test("current rollout keeps every branch-preview target GitHub-only", () => {
         PREVIEW_TARGET_CONFIG[target].mainOwnershipMode ===
         MAIN_OWNERSHIP_MODES.GITHUB,
     ),
-    [],
+    PREVIEW_TARGETS,
   );
   assert.equal(controller.env.VERCEL_PREVIEW_CONTROLLER_MODE, "active");
 });

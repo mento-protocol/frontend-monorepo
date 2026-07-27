@@ -235,17 +235,19 @@ connect only on an allowlisted team preview host.
 
 GitHub-built workers call the reusable workflow directly before posting a
 successful canonical Deployment status. Ordinary previews for App, Governance,
-Reserve, and UI are now GitHub-owned. Before App cutover,
-`.github/workflows/preview-smoke.yml` handled App's native shadow-preview
-events; after cutover, both App and Governance enter it only during bounded
-target-local rollback. The adapter accepts only the exact Vercel bot, exact
-`Preview – <project>` environment, successful status, empty native Deployment
-payload, and exact project-slug team hostname. Every qualifying event runs the
-full smoke; the adapter does not query or reuse earlier statuses or use a lossy
-shared concurrency group, and has no PAT or Vercel credential. It is retained
-only for rollback proof and is removed during #523 cleanup after the #522
-production cutover and required observation period; its presence does not
-enable ordinary native branch previews.
+Reserve, and UI are GitHub-owned. App and Governance enter the transitional
+`.github/workflows/preview-smoke.yml` native adapter only during bounded
+target-local preview rollback. The adapter accepts only the exact Vercel bot,
+exact `Preview – <project>` environment, successful status, empty native
+Deployment payload, and exact project-slug team hostname. Every qualifying
+event runs the full smoke; the adapter does not query or reuse earlier statuses
+or use a lossy shared concurrency group, and has no PAT or Vercel credential.
+It is retained only for rollback proof and is removed during #523 cleanup after
+the required observation period; its presence does not enable ordinary native
+branch previews. Target-local or full-native `main` rollback does not change
+this GitHub preview ownership. Conversely, a target-local preview rollback uses
+the exact native-preview/GitHub-main branch rules and does not restore native
+main ownership.
 
 Run the wallet-specific portion locally against any live App or Governance
 preview URL:
@@ -286,8 +288,8 @@ the mock wallet and is not a replacement for the team-preview smoke above. See
 gates around it, including the independent Vercel state check that proves the
 exact repository, ref, and SHA before browser smoke starts.
 
-After the separately reviewed main activation, public-domain verification uses
-the credential-free main runtime smoke:
+Active main deployments use the credential-free main runtime smoke after each
+exact public activation:
 
 ```bash
 LOGICAL_TARGET=app \
@@ -314,11 +316,12 @@ absent from local storage, then opens the real production wallet list. MetaMask
 and WalletConnect must be visible and the E2E Test Wallet must be absent. Never
 set a mock-wallet or fork flag to make a public production smoke pass.
 
-PR-A main shadow mode does not call this public smoke because Vercel Git still
-owns the public domains; it uses immutable production-shadow smoke for staged
-Governance, Reserve, and UI candidates and keeps App `v3` build-only. PR B runs
-the public smoke after each exact activation. The full transaction and recovery
-order is in `docs/vercel-deployments.md`.
+The historical PR-A main shadow canary did not call this public smoke because
+Vercel Git still owned the public domains; it used immutable production-shadow
+smoke for staged Governance, Reserve, and UI candidates and kept App `v3`
+build-only. The active workflow runs the public smoke after every exact
+activation. The full journal, transaction, recovery, target-local ownership
+rollback, and full-native rollback order is in `docs/vercel-deployments.md`.
 
 ## Activation flags
 

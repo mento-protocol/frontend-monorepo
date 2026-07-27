@@ -1,0 +1,259 @@
+name: Advance one durable active recovery transition
+description: Advance one exact current-attempt reverse-order recovery turn
+
+inputs:
+  controller-path:
+    required: true
+  journal-directory:
+    required: true
+  operation-cwd:
+    required: true
+  recovery-plan:
+    required: true
+  slot:
+    required: true
+  vercel-cli:
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Dispatch from fresh protected mappings
+      id: dispatch
+      shell: bash
+      env:
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        JOURNAL_DIRECTORY: ${{ inputs.journal-directory }}
+        RECOVERY_PLAN: ${{ inputs.recovery-plan }}
+        SLOT: ${{ inputs.slot }}
+        VERCEL_ORG_ID: ${{ env.VERCEL_ORG_ID }}
+        VERCEL_TOKEN: ${{ env.VERCEL_TOKEN }}
+      run: |
+        set -euo pipefail
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-recovery-mapping-spec --journal-history "$JOURNAL_DIRECTORY/current-history.json" --output "$RUNNER_TEMP/recovery-$SLOT-dispatch-spec.json"
+        node "$CONTROLLER_PATH/scripts/vercel-deployment-state.mjs" alias-mappings --spec "$RUNNER_TEMP/recovery-$SLOT-dispatch-spec.json" --output "$RUNNER_TEMP/recovery-$SLOT-dispatch-mappings.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-recovery-event-dispatch --receipt "$JOURNAL_DIRECTORY/current-receipt.json" --current-mappings "$RUNNER_TEMP/recovery-$SLOT-dispatch-mappings.json" --output "$RUNNER_TEMP/recovery-$SLOT-dispatch-event.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" run-active-recovery --plan "$RECOVERY_PLAN" --event "$RUNNER_TEMP/recovery-$SLOT-dispatch-event.json" --journal-history "$JOURNAL_DIRECTORY/current-history.json" --journal-output "$RUNNER_TEMP/recovery-$SLOT-started.json" --output "$RUNNER_TEMP/recovery-$SLOT-dispatch-transition.json"
+
+    - name: Require a recoverable intent or terminal recovery journal
+      id: dispatch-result
+      if: steps.dispatch.outcome == 'success'
+      shell: bash
+      env:
+        AFTER_UPLOAD_ACTION: ${{ steps.dispatch.outputs.after_upload_action }}
+        ARTIFACT_NAME: ${{ steps.dispatch.outputs.journal_artifact_name }}
+        NEXT_ACTION: ${{ steps.dispatch.outputs.next_action }}
+        TRANSITION_KIND: ${{ steps.dispatch.outputs.transition_kind }}
+      run: |
+        set -euo pipefail
+        test "$TRANSITION_KIND" = journal
+        test "$NEXT_ACTION" = upload-journal
+        test "$ARTIFACT_NAME" != none
+        case "$AFTER_UPLOAD_ACTION" in
+          authorize|continue-after-recovery|fail-after-evidence) ;;
+          *) exit 1 ;;
+        esac
+
+    - name: Stage recovery intent under its canonical artifact basename
+      if: steps.dispatch-result.outcome == 'success'
+      shell: bash
+      env:
+        SLOT: ${{ inputs.slot }}
+      run: |
+        set -euo pipefail
+        install -d -m 0700 "$RUNNER_TEMP/recovery-$SLOT-started-artifact"
+        install -m 0600 "$RUNNER_TEMP/recovery-$SLOT-started.json" "$RUNNER_TEMP/recovery-$SLOT-started-artifact/main-journal.json"
+
+    - name: Upload recovery intent before mutation
+      id: upload-started
+      if: steps.dispatch-result.outcome == 'success'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ steps.dispatch.outputs.journal_artifact_name }}
+        path: ${{ runner.temp }}/recovery-${{ inputs.slot }}-started-artifact/main-journal.json
+        if-no-files-found: error
+        retention-days: 7
+
+    - name: Checkpoint the dispatched recovery journal
+      id: checkpoint-started
+      if: steps.upload-started.outcome == 'success'
+      shell: bash
+      env:
+        ARTIFACT_ID: ${{ steps.upload-started.outputs.artifact-id }}
+        ARTIFACT_NAME: ${{ steps.dispatch.outputs.journal_artifact_name }}
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        JOURNAL_DIRECTORY: ${{ inputs.journal-directory }}
+        SLOT: ${{ inputs.slot }}
+      run: |
+        set -euo pipefail
+        install -d -m 0700 "$JOURNAL_DIRECTORY/$ARTIFACT_NAME"
+        install -m 0600 "$RUNNER_TEMP/recovery-$SLOT-started.json" "$JOURNAL_DIRECTORY/$ARTIFACT_NAME/main-journal.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-journal-history --artifacts "$JOURNAL_DIRECTORY" --output "$RUNNER_TEMP/recovery-$SLOT-started-history.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-journal-receipt --journal "$RUNNER_TEMP/recovery-$SLOT-started.json" --artifact-name "$ARTIFACT_NAME" --artifact-id "$ARTIFACT_ID" --output "$RUNNER_TEMP/recovery-$SLOT-started-receipt.json"
+        install -m 0600 "$RUNNER_TEMP/recovery-$SLOT-started-history.json" "$JOURNAL_DIRECTORY/current-history.json"
+        install -m 0600 "$RUNNER_TEMP/recovery-$SLOT-started.json" "$JOURNAL_DIRECTORY/current-journal.json"
+        install -m 0600 "$RUNNER_TEMP/recovery-$SLOT-started-receipt.json" "$JOURNAL_DIRECTORY/current-receipt.json"
+
+    - name: Authorize from fresh protected mappings
+      id: authorize
+      if: >-
+        steps.checkpoint-started.outcome == 'success' &&
+        steps.dispatch.outputs.after_upload_action == 'authorize'
+      shell: bash
+      env:
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        JOURNAL_DIRECTORY: ${{ inputs.journal-directory }}
+        RECOVERY_PLAN: ${{ inputs.recovery-plan }}
+        SLOT: ${{ inputs.slot }}
+        VERCEL_ORG_ID: ${{ env.VERCEL_ORG_ID }}
+        VERCEL_TOKEN: ${{ env.VERCEL_TOKEN }}
+      run: |
+        set -euo pipefail
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-recovery-mapping-spec --journal-history "$JOURNAL_DIRECTORY/current-history.json" --output "$RUNNER_TEMP/recovery-$SLOT-authorize-spec.json"
+        node "$CONTROLLER_PATH/scripts/vercel-deployment-state.mjs" alias-mappings --spec "$RUNNER_TEMP/recovery-$SLOT-authorize-spec.json" --output "$RUNNER_TEMP/recovery-$SLOT-authorize-mappings.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-recovery-event-authorize --receipt "$JOURNAL_DIRECTORY/current-receipt.json" --current-mappings "$RUNNER_TEMP/recovery-$SLOT-authorize-mappings.json" --output "$RUNNER_TEMP/recovery-$SLOT-authorize-event.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" run-active-recovery --plan "$RECOVERY_PLAN" --event "$RUNNER_TEMP/recovery-$SLOT-authorize-event.json" --journal-history "$JOURNAL_DIRECTORY/current-history.json" --journal-output "$RUNNER_TEMP/recovery-$SLOT-authorize-journal.json" --output "$RUNNER_TEMP/recovery-$SLOT-authorize-transition.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-command-descriptor --authorization "$RUNNER_TEMP/recovery-$SLOT-authorize-transition.json" --output "$RUNNER_TEMP/recovery-$SLOT-command.json"
+
+    - name: Execute only the durably authorized reverse command
+      id: execute
+      if: steps.authorize.outcome == 'success'
+      shell: bash
+      env:
+        RUNNER_TEMP: ${{ runner.temp }}
+        SOURCE_PATH: ${{ inputs.operation-cwd }}
+        TRUSTED_VERCEL_CLI_PATH: ${{ inputs.vercel-cli }}
+      run: >-
+        node ${{ inputs.controller-path }}/scripts/vercel-main-active-cli.mjs
+        execute --descriptor "$RUNNER_TEMP/recovery-${{ inputs.slot }}-command.json"
+        --output "$RUNNER_TEMP/recovery-${{ inputs.slot }}-command-result.json"
+
+    - name: Persist the reverse command return
+      id: returned
+      if: steps.execute.outcome == 'success'
+      shell: bash
+      env:
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        JOURNAL_DIRECTORY: ${{ inputs.journal-directory }}
+        RECOVERY_PLAN: ${{ inputs.recovery-plan }}
+        SLOT: ${{ inputs.slot }}
+      run: |
+        set -euo pipefail
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-recovery-event-command-returned --authorization "$RUNNER_TEMP/recovery-$SLOT-authorize-transition.json" --receipt "$JOURNAL_DIRECTORY/current-receipt.json" --result "$RUNNER_TEMP/recovery-$SLOT-command-result.json" --output "$RUNNER_TEMP/recovery-$SLOT-returned-event.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" run-active-recovery --plan "$RECOVERY_PLAN" --event "$RUNNER_TEMP/recovery-$SLOT-returned-event.json" --journal-history "$JOURNAL_DIRECTORY/current-history.json" --journal-output "$RUNNER_TEMP/recovery-$SLOT-returned.json" --output "$RUNNER_TEMP/recovery-$SLOT-returned-transition.json"
+
+    - name: Stage the command-returned recovery journal under its canonical artifact basename
+      if: steps.returned.outcome == 'success'
+      shell: bash
+      env:
+        SLOT: ${{ inputs.slot }}
+      run: |
+        set -euo pipefail
+        install -d -m 0700 "$RUNNER_TEMP/recovery-$SLOT-returned-artifact"
+        install -m 0600 "$RUNNER_TEMP/recovery-$SLOT-returned.json" "$RUNNER_TEMP/recovery-$SLOT-returned-artifact/main-journal.json"
+
+    - name: Upload the command-returned recovery journal
+      id: upload-returned
+      if: steps.returned.outcome == 'success'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ steps.returned.outputs.journal_artifact_name }}
+        path: ${{ runner.temp }}/recovery-${{ inputs.slot }}-returned-artifact/main-journal.json
+        if-no-files-found: error
+        retention-days: 7
+
+    - name: Checkpoint the command-returned recovery journal
+      id: checkpoint-returned
+      if: steps.upload-returned.outcome == 'success'
+      shell: bash
+      env:
+        ARTIFACT_ID: ${{ steps.upload-returned.outputs.artifact-id }}
+        ARTIFACT_NAME: ${{ steps.returned.outputs.journal_artifact_name }}
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        JOURNAL_DIRECTORY: ${{ inputs.journal-directory }}
+        SLOT: ${{ inputs.slot }}
+      run: |
+        set -euo pipefail
+        install -d -m 0700 "$JOURNAL_DIRECTORY/$ARTIFACT_NAME"
+        install -m 0600 "$RUNNER_TEMP/recovery-$SLOT-returned.json" "$JOURNAL_DIRECTORY/$ARTIFACT_NAME/main-journal.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-journal-history --artifacts "$JOURNAL_DIRECTORY" --output "$RUNNER_TEMP/recovery-$SLOT-returned-history.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-journal-receipt --journal "$RUNNER_TEMP/recovery-$SLOT-returned.json" --artifact-name "$ARTIFACT_NAME" --artifact-id "$ARTIFACT_ID" --output "$RUNNER_TEMP/recovery-$SLOT-returned-receipt.json"
+        install -m 0600 "$RUNNER_TEMP/recovery-$SLOT-returned-history.json" "$JOURNAL_DIRECTORY/current-history.json"
+        install -m 0600 "$RUNNER_TEMP/recovery-$SLOT-returned.json" "$JOURNAL_DIRECTORY/current-journal.json"
+        install -m 0600 "$RUNNER_TEMP/recovery-$SLOT-returned-receipt.json" "$JOURNAL_DIRECTORY/current-receipt.json"
+
+    - name: Verify from fresh protected mappings
+      id: verify
+      if: steps.checkpoint-returned.outcome == 'success'
+      shell: bash
+      env:
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        JOURNAL_DIRECTORY: ${{ inputs.journal-directory }}
+        RECOVERY_PLAN: ${{ inputs.recovery-plan }}
+        SLOT: ${{ inputs.slot }}
+        VERCEL_ORG_ID: ${{ env.VERCEL_ORG_ID }}
+        VERCEL_TOKEN: ${{ env.VERCEL_TOKEN }}
+      run: |
+        set -euo pipefail
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-recovery-mapping-spec --journal-history "$JOURNAL_DIRECTORY/current-history.json" --output "$RUNNER_TEMP/recovery-$SLOT-verify-spec.json"
+        node "$CONTROLLER_PATH/scripts/vercel-deployment-state.mjs" alias-mappings --spec "$RUNNER_TEMP/recovery-$SLOT-verify-spec.json" --output "$RUNNER_TEMP/recovery-$SLOT-verify-mappings.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-recovery-event-verify --receipt "$JOURNAL_DIRECTORY/current-receipt.json" --current-mappings "$RUNNER_TEMP/recovery-$SLOT-verify-mappings.json" --output "$RUNNER_TEMP/recovery-$SLOT-verify-event.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" run-active-recovery --plan "$RECOVERY_PLAN" --event "$RUNNER_TEMP/recovery-$SLOT-verify-event.json" --journal-history "$JOURNAL_DIRECTORY/current-history.json" --journal-output "$RUNNER_TEMP/recovery-$SLOT-verified.json" --output "$RUNNER_TEMP/recovery-$SLOT-verified-transition.json"
+
+    - name: Require a continued or terminal verified recovery journal
+      id: verify-result
+      if: steps.verify.outcome == 'success'
+      shell: bash
+      env:
+        AFTER_UPLOAD_ACTION: ${{ steps.verify.outputs.after_upload_action }}
+        ARTIFACT_NAME: ${{ steps.verify.outputs.journal_artifact_name }}
+        NEXT_ACTION: ${{ steps.verify.outputs.next_action }}
+        TRANSITION_KIND: ${{ steps.verify.outputs.transition_kind }}
+      run: |
+        set -euo pipefail
+        test "$TRANSITION_KIND" = journal
+        test "$NEXT_ACTION" = upload-journal
+        test "$ARTIFACT_NAME" != none
+        case "$AFTER_UPLOAD_ACTION" in
+          dispatch|continue-after-recovery|fail-after-evidence) ;;
+          *) exit 1 ;;
+        esac
+
+    - name: Stage the verified recovery journal under its canonical artifact basename
+      if: steps.verify-result.outcome == 'success'
+      shell: bash
+      env:
+        SLOT: ${{ inputs.slot }}
+      run: |
+        set -euo pipefail
+        install -d -m 0700 "$RUNNER_TEMP/recovery-$SLOT-verified-artifact"
+        install -m 0600 "$RUNNER_TEMP/recovery-$SLOT-verified.json" "$RUNNER_TEMP/recovery-$SLOT-verified-artifact/main-journal.json"
+
+    - name: Upload the verified recovery journal
+      id: upload-verified
+      if: steps.verify-result.outcome == 'success'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ steps.verify.outputs.journal_artifact_name }}
+        path: ${{ runner.temp }}/recovery-${{ inputs.slot }}-verified-artifact/main-journal.json
+        if-no-files-found: error
+        retention-days: 7
+
+    - name: Checkpoint the verified or terminal recovery journal
+      if: steps.upload-verified.outcome == 'success'
+      shell: bash
+      env:
+        ARTIFACT_ID: ${{ steps.upload-verified.outputs.artifact-id }}
+        ARTIFACT_NAME: ${{ steps.verify.outputs.journal_artifact_name }}
+        CONTROLLER_PATH: ${{ inputs.controller-path }}
+        JOURNAL_DIRECTORY: ${{ inputs.journal-directory }}
+        SLOT: ${{ inputs.slot }}
+      run: |
+        set -euo pipefail
+        install -d -m 0700 "$JOURNAL_DIRECTORY/$ARTIFACT_NAME"
+        install -m 0600 "$RUNNER_TEMP/recovery-$SLOT-verified.json" "$JOURNAL_DIRECTORY/$ARTIFACT_NAME/main-journal.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-journal-history --artifacts "$JOURNAL_DIRECTORY" --output "$RUNNER_TEMP/recovery-$SLOT-verified-history.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-journal-receipt --journal "$RUNNER_TEMP/recovery-$SLOT-verified.json" --artifact-name "$ARTIFACT_NAME" --artifact-id "$ARTIFACT_ID" --output "$RUNNER_TEMP/recovery-$SLOT-verified-receipt.json"
+        install -m 0600 "$RUNNER_TEMP/recovery-$SLOT-verified-history.json" "$JOURNAL_DIRECTORY/current-history.json"
+        install -m 0600 "$RUNNER_TEMP/recovery-$SLOT-verified.json" "$JOURNAL_DIRECTORY/current-journal.json"
+        install -m 0600 "$RUNNER_TEMP/recovery-$SLOT-verified-receipt.json" "$JOURNAL_DIRECTORY/current-receipt.json"

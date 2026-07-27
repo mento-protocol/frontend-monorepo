@@ -2523,6 +2523,10 @@ test("installed root Vercel CLI executes the exact pinned release", () => {
   assert.equal(
     execFileSync(process.execPath, [cliPath, "--version"], {
       encoding: "utf8",
+      env: {
+        ...process.env,
+        NO_UPDATE_NOTIFIER: "1",
+      },
       stdio: ["ignore", "pipe", "pipe"],
     }).trim(),
     "56.2.0",

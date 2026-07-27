@@ -53,6 +53,7 @@ import {
   captureAliasMappings,
   VercelStateClient,
 } from "./vercel-deployment-state.mjs";
+import { canonicalizeMainCandidateVercelMetadata } from "./vercel-main-candidate.mjs";
 
 const SHA_PATTERN = /^[A-Fa-f0-9]{40}$/;
 const DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
@@ -1634,6 +1635,7 @@ export function buildProductionShadowDeployArguments({
   projectId,
   deploySha,
   transaction,
+  candidateMetadata = null,
 }) {
   const contract = targetContract(logicalTarget);
   if (contract.deployArguments === null) {
@@ -1644,21 +1646,38 @@ export function buildProductionShadowDeployArguments({
     "Deployment SHA",
     SHA_PATTERN,
   ).toLowerCase();
-  const safeTransaction = requireString(
-    transaction,
-    "Production-shadow transaction",
-    /^(?:[1-9][0-9]*-[1-9][0-9]*-(?:governance|reserve|ui)|main-[0-9a-f]{40}-[1-9][0-9]*-[1-9][0-9]*)$/,
-  );
+  const project = requireIdentifier(projectId, "Vercel project ID");
+  const stableMetadata =
+    candidateMetadata === null
+      ? [
+          `mentoTransaction=${requireString(
+            transaction,
+            "Production-shadow transaction",
+            /^(?:[1-9][0-9]*-[1-9][0-9]*-(?:governance|reserve|ui)|main-[0-9a-f]{40}-[1-9][0-9]*-[1-9][0-9]*)$/,
+          )}`,
+        ]
+      : Object.entries(candidateMetadata)
+          .filter(([key]) => key.startsWith("mento"))
+          .map(([key, value]) => `${key}=${value}`);
   if (
-    !safeTransaction.startsWith("main-") &&
-    !safeTransaction.endsWith(`-${logicalTarget}`)
+    candidateMetadata === null &&
+    !stableMetadata[0].endsWith(`-${logicalTarget}`) &&
+    !stableMetadata[0].startsWith("mentoTransaction=main-")
   ) {
     throw new Error("Production-shadow transaction target is inconsistent");
+  }
+  if (candidateMetadata !== null) {
+    canonicalizeMainCandidateVercelMetadata(candidateMetadata, {
+      target: logicalTarget,
+      projectId: project,
+      projectName: contract.projectName,
+      deploySha: sha,
+    });
   }
   return assertSafeProductionShadowArguments([
     ...contract.deployArguments,
     "--project",
-    requireIdentifier(projectId, "Vercel project ID"),
+    project,
     "--meta",
     "githubCommitOrg=mento-protocol",
     "--meta",
@@ -1667,8 +1686,7 @@ export function buildProductionShadowDeployArguments({
     "githubCommitRef=main",
     "--meta",
     `githubCommitSha=${sha}`,
-    "--meta",
-    `mentoTransaction=${safeTransaction}`,
+    ...stableMetadata.flatMap((entry) => ["--meta", entry]),
   ]);
 }
 
@@ -2188,11 +2206,11 @@ export function createDeploymentExpectation({
   projectId,
   projectName,
   sha,
-  transaction,
+  transaction = null,
   target = "production",
   customEnvironmentSlug = null,
 }) {
-  return {
+  const expectation = {
     deployment: requireString(
       deployment,
       "Vercel deployment ID",
@@ -2204,15 +2222,67 @@ export function createDeploymentExpectation({
     readyState: "READY",
     target,
     customEnvironmentSlug,
-    transaction: requireString(
-      transaction,
-      "Workflow transaction",
-      /^(?:[1-9][0-9]*-[1-9][0-9]*-(?:governance|reserve|ui)|main-[0-9a-f]{40}-[1-9][0-9]*-[1-9][0-9]*)$/,
-    ),
     git: {
       ...expectedGit("main"),
       sha: requireString(sha, "Deployment SHA", SHA_PATTERN).toLowerCase(),
     },
+  };
+  if (transaction !== null) {
+    expectation.transaction = requireString(
+      transaction,
+      "Workflow transaction",
+      /^(?:[1-9][0-9]*-[1-9][0-9]*-(?:governance|reserve|ui)|main-[0-9a-f]{40}-[1-9][0-9]*-[1-9][0-9]*)$/,
+    );
+  }
+  return expectation;
+}
+
+export function deployProductionShadowCandidate({
+  repoRoot,
+  logicalTarget,
+  projectId,
+  deploySha,
+  runId,
+  runAttempt,
+  candidateMetadata = null,
+  executeVercel = runProductionShadowVercel,
+}) {
+  const transaction =
+    candidateMetadata === null
+      ? `${requireString(runId, "GitHub run ID", /^[1-9][0-9]*$/)}-${requireString(
+          runAttempt,
+          "GitHub run attempt",
+          /^[1-9][0-9]*$/,
+        )}-${logicalTarget}`
+      : null;
+  const raw = executeVercel({
+    repoRoot,
+    argumentsList: buildProductionShadowDeployArguments({
+      logicalTarget,
+      projectId,
+      deploySha,
+      transaction,
+      candidateMetadata,
+    }),
+    captureStdout: true,
+  });
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("Vercel deploy output is malformed");
+  }
+  const deployment = parseDeployOutput(parsed);
+  return {
+    deployment,
+    expectation: createDeploymentExpectation({
+      deployment: deployment.deploymentId,
+      deploymentUrl: deployment.deploymentUrl,
+      projectId,
+      projectName: targetContract(logicalTarget).projectName,
+      sha: deploySha,
+      transaction,
+    }),
   };
 }
 
@@ -2814,39 +2884,23 @@ if (isCliEntrypoint()) {
     process.stdout.write("Production-shadow upload handoff verified\n");
   } else if (command === "deploy") {
     const logicalTarget = process.env.LOGICAL_TARGET;
-    const transaction = `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}-${logicalTarget}`;
+    const candidateMetadata = options["candidate-metadata"]
+      ? readJson(options["candidate-metadata"], "Main candidate metadata")
+      : null;
     const startedAt = Date.now();
-    const raw = runProductionShadowVercel({
+    const { deployment, expectation } = deployProductionShadowCandidate({
       repoRoot: trustedSourcePath(),
-      argumentsList: buildProductionShadowDeployArguments({
-        logicalTarget,
-        projectId: process.env.VERCEL_PROJECT_ID,
-        deploySha: process.env.DEPLOY_SHA,
-        transaction,
-      }),
-      captureStdout: true,
+      logicalTarget,
+      projectId: process.env.VERCEL_PROJECT_ID,
+      deploySha: process.env.DEPLOY_SHA,
+      runId: process.env.GITHUB_RUN_ID,
+      runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+      candidateMetadata,
     });
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      throw new Error("Vercel deploy output is malformed");
-    }
-    const result = parseDeployOutput(parsed);
-    appendOutput("vercel_deployment_id", result.deploymentId);
-    appendOutput("vercel_deployment_url", result.deploymentUrl);
+    appendOutput("vercel_deployment_id", deployment.deploymentId);
+    appendOutput("vercel_deployment_url", deployment.deploymentUrl);
     appendOutput("deploy_duration_ms", String(Date.now() - startedAt));
-    writePrivateJson(
-      options.expected,
-      createDeploymentExpectation({
-        deployment: result.deploymentId,
-        deploymentUrl: result.deploymentUrl,
-        projectId: process.env.VERCEL_PROJECT_ID,
-        projectName: targetContract(logicalTarget).projectName,
-        sha: process.env.DEPLOY_SHA,
-        transaction,
-      }),
-    );
+    writePrivateJson(options.expected, expectation);
     process.stdout.write("Canonical deployment identity written\n");
   } else if (command === "app-proof") {
     writePrivateJson(

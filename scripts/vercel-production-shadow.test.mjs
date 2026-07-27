@@ -46,6 +46,7 @@ import {
   createDeploymentExpectation,
   createProtectedAliasSpec,
   createProductionShadowUploadHandoff,
+  deployProductionShadowCandidate,
   environmentForTrustedChild,
   environmentForVercelCli,
   fetchWithOriginBoundRedirects,
@@ -77,11 +78,104 @@ import {
   assertProductionShadowHydratedIdentity,
   assertProductionShadowServerIdentity,
 } from "../apps/app.mento.org/e2e/production-shadow/deployment-identity.mjs";
+import { MAIN_TARGET_CONTRACTS } from "./vercel-main-plan.mjs";
+import { createMainReleaseManifest } from "./vercel-main-release-reconciliation.mjs";
+import {
+  createMainCandidateIntent,
+  createMainCandidateVercelMetadata,
+} from "./vercel-main-candidate.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
+const TRANSACTION_ID = "main-0123456789abcdef0123456789abcdef";
 const productionShadowScript = fileURLToPath(
   new URL("./vercel-production-shadow.mjs", import.meta.url),
 );
+
+function ordinaryCandidateMetadata(overrides = {}) {
+  const targets = ["app", "governance", "reserve", "ui"];
+  const priorSha = "1111111111111111111111111111111111111111";
+  const plan = {
+    schema: "vercel-main-plan:v2",
+    mode: "active",
+    deploySha: SHA,
+    mainOwnershipMode: Object.fromEntries(
+      targets.map((target) => [target, "github"]),
+    ),
+    stagedTargets: ["governance"],
+    activeTargets: ["governance"],
+    shadowTargets: [],
+    plan: ["governance"],
+    priors: targets.map((target) => ({
+      target,
+      deploymentId: `dpl_${target}Prior123`,
+      deploymentUrl: `https://${target}-prior.vercel.app`,
+      aliases: [...MAIN_TARGET_CONTRACTS[target].aliases],
+      servedSha: priorSha,
+    })),
+    ranges: [
+      {
+        base: priorSha,
+        head: SHA,
+        kind: "served",
+        reason: "global-build-input",
+        targets,
+        deployments: ["governance"],
+      },
+    ],
+    reasons: [
+      { target: "governance", base: priorSha, reason: "global-build-input" },
+    ],
+  };
+  const releaseManifest = createMainReleaseManifest({
+    upstreamRunId: "700",
+    plan,
+    originalPriors: Object.fromEntries(
+      ["governance", "reserve", "ui", "app"].map((target) => {
+        const contract = MAIN_TARGET_CONTRACTS[target];
+        const aliases = [...contract.aliases].sort();
+        const prior = {
+          deploymentId: `dpl_${target}Prior123`,
+          deploymentUrl: `https://${target}-prior.vercel.app`,
+          aliases,
+          projectId: `prj_${target}123`,
+          projectName: contract.projectName,
+          readyState: "READY",
+          target: contract.target,
+          customEnvironmentSlug: contract.customEnvironmentSlug,
+        };
+        return [
+          target,
+          {
+            ...prior,
+            planningLeaves: aliases.map((alias) => ({
+              alias,
+              ...prior,
+              git: {
+                status: "complete",
+                org: "mento-protocol",
+                repo: "frontend-monorepo",
+                ref: "main",
+                sha: priorSha,
+              },
+            })),
+            servedSha: priorSha,
+          },
+        ];
+      }),
+    ),
+  });
+  const intent = createMainCandidateIntent({
+    target: "governance",
+    deploySha: SHA,
+    upstreamRunId: "700",
+    originRunId: overrides.originRunId ?? "7654321",
+    originAttempt: overrides.originAttempt ?? "2",
+    originTransactionId: overrides.originTransactionId ?? TRANSACTION_ID,
+    projectId: "prj_governance123",
+    releaseManifest,
+  });
+  return createMainCandidateVercelMetadata({ intent });
+}
 
 function projectIds() {
   return {
@@ -1020,6 +1114,93 @@ test("pinned CLI build and deploy arguments bind each literal project and target
   });
   assert.match(mainDeploy.join(" "), new RegExp(mainTransaction));
   assert.doesNotMatch(mainDeploy.join(" "), /promote|rollback|alias set/);
+});
+
+test("ordinary stage deploy emits its complete canonical candidate metadata", () => {
+  const metadata = ordinaryCandidateMetadata();
+  const deploy = buildProductionShadowDeployArguments({
+    logicalTarget: "governance",
+    projectId: "prj_governance123",
+    deploySha: SHA,
+    candidateMetadata: metadata,
+  });
+  assert.deepEqual(deploy, [
+    "deploy",
+    "--prebuilt",
+    "--prod",
+    "--skip-domain",
+    "--archive=tgz",
+    "--format=json",
+    "--yes",
+    "--project",
+    "prj_governance123",
+    "--meta",
+    "githubCommitOrg=mento-protocol",
+    "--meta",
+    "githubCommitRepo=frontend-monorepo",
+    "--meta",
+    "githubCommitRef=main",
+    "--meta",
+    `githubCommitSha=${SHA}`,
+    ...Object.entries(metadata)
+      .map(([key, value]) => ["--meta", `${key}=${value}`])
+      .flat(),
+  ]);
+  assert.equal(
+    deploy.some((entry) => entry.startsWith("mentoTransaction=")),
+    false,
+  );
+  assert.doesNotMatch(
+    deploy.join(" "),
+    /--token|githubDeployment|raw provider response/,
+  );
+  assert.throws(
+    () =>
+      buildProductionShadowDeployArguments({
+        logicalTarget: "governance",
+        projectId: "prj_governance123",
+        deploySha: SHA,
+        candidateMetadata: { ...metadata, mentoUnexpected: "forged" },
+      }),
+    /unsupported fields/,
+  );
+});
+
+test("ordinary deploy entrypoint plumbing passes stable metadata and drops attempt transaction", () => {
+  const metadata = ordinaryCandidateMetadata();
+  let invocation;
+  const result = deployProductionShadowCandidate({
+    repoRoot: "/trusted/upload",
+    logicalTarget: "governance",
+    projectId: "prj_governance123",
+    deploySha: SHA,
+    runId: "123",
+    runAttempt: "4",
+    candidateMetadata: metadata,
+    executeVercel: (value) => {
+      invocation = value;
+      return JSON.stringify({
+        status: "ok",
+        deployment: {
+          id: "dpl_governanceCandidate123",
+          url: "governance-candidate.vercel.app",
+        },
+      });
+    },
+  });
+  assert.equal(invocation.repoRoot, "/trusted/upload");
+  assert.equal(invocation.captureStdout, true);
+  for (const [key, value] of Object.entries(metadata)) {
+    assert.ok(invocation.argumentsList.includes(`${key}=${value}`));
+  }
+  assert.equal(
+    invocation.argumentsList.some((entry) =>
+      entry.startsWith("mentoTransaction="),
+    ),
+    false,
+  );
+  assert.equal(Object.hasOwn(result.expectation, "transaction"), false);
+  assert.equal(result.deployment.deploymentId, "dpl_governanceCandidate123");
 });
 
 test("repo-linked settings use exact repo identity for all four targets", () => {

@@ -15,17 +15,20 @@ import {
   createBrowserDeploymentIdentityMonitor,
   readSettledBrowserDeploymentIdentity,
 } from "../../../ui.mento.org/e2e/vercel-preview-browser-smoke.mjs";
+import {
+  createRuntimeErrorLedger,
+  formatConsoleError,
+  formatCriticalRequestFailure,
+  hasAuthoritativeRuntimeErrors,
+  recordCrossOriginFrame,
+  recordRuntimeResponse,
+  sanitizeDiagnosticText,
+} from "./runtime-errors.mjs";
 
 const TARGETS = ["governance", "reserve", "ui"] as const;
 type Target = (typeof TARGETS)[number];
 
-interface RuntimeErrors {
-  console: string[];
-  origins: string[];
-  page: string[];
-  requests: string[];
-  responses: string[];
-}
+type RuntimeErrors = ReturnType<typeof createRuntimeErrorLedger>;
 
 function requiredInputs() {
   const target = process.env.PRODUCTION_SHADOW_TARGET;
@@ -76,43 +79,30 @@ function requiredInputs() {
 }
 
 function observeRuntimeErrors(page: Page, origin: string): RuntimeErrors {
-  const errors: RuntimeErrors = {
-    console: [],
-    origins: [],
-    page: [],
-    requests: [],
-    responses: [],
-  };
+  const errors = createRuntimeErrorLedger();
   page.on("console", (message) => {
-    if (message.type() === "error") errors.console.push(message.text());
+    if (message.type() === "error")
+      errors.console.push(formatConsoleError(message));
   });
-  page.on("pageerror", (error) => errors.page.push(error.message));
+  page.on("pageerror", (error) =>
+    errors.page.push(sanitizeDiagnosticText(error.message)),
+  );
   page.on("framenavigated", (frame) => {
     if (frame !== page.mainFrame() || frame.url() === "about:blank") return;
     try {
       assertProductionShadowOrigin(frame.url(), origin);
     } catch {
-      errors.origins.push(frame.url());
+      recordCrossOriginFrame(errors, frame.url());
     }
   });
   page.on("requestfailed", (request) => {
     const resourceType = request.resourceType();
     if (["document", "script", "stylesheet"].includes(resourceType)) {
-      errors.requests.push(
-        `${resourceType} ${request.url()} ${request.failure()?.errorText ?? "failed"}`,
-      );
+      errors.requests.push(formatCriticalRequestFailure(request));
     }
   });
   page.on("response", (response) => {
-    const resourceType = response.request().resourceType();
-    if (
-      ["document", "script", "stylesheet"].includes(resourceType) &&
-      response.status() >= 400
-    ) {
-      errors.responses.push(
-        `${resourceType} ${response.url()} HTTP ${response.status()}`,
-      );
-    }
+    if (response.status() >= 400) recordRuntimeResponse(errors, response);
   });
   return errors;
 }
@@ -263,6 +253,14 @@ test("staged production artifact is healthy, secure, and interactive", async ({
   // the runtime-error ledger. A critical response can arrive while this waits,
   // and must be included in the assertions below.
   await drainProductionShadowRequestRoutes({ page });
+  if (
+    hasAuthoritativeRuntimeErrors(errors) &&
+    errors.responseDiagnostics.length > 0
+  ) {
+    console.error(
+      `Browser HTTP diagnostics:\n- ${errors.responseDiagnostics.join("\n- ")}`,
+    );
+  }
   expect(errors.origins, "cross-origin main-frame navigations").toEqual([]);
   expect(errors.page, "uncaught page errors").toEqual([]);
   expect(

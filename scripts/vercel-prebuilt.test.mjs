@@ -21,6 +21,8 @@ import {
   assertValidDeploymentId,
   CUSTOM_DEPLOYMENT_ID_ENV,
   generateVercelDeploymentId,
+  generateVercelMainCandidateDeploymentId,
+  generateVercelMainReleaseId,
   isVersionGreaterThan,
   VERCEL_TARGETS,
 } from "./vercel-prebuilt.mjs";
@@ -220,6 +222,43 @@ test("generated IDs differ across target, SHA, run, and rerun attempt", () => {
     deploymentId({ runAttempt: "2" }),
   ];
   assert.equal(new Set([baseline, ...variants]).size, variants.length + 1);
+});
+
+test("stable release and candidate IDs survive reruns but stay source-bound", () => {
+  const input = {
+    repository: "mento-protocol/frontend-monorepo",
+    commitSha: COMMIT_SHA,
+    upstreamRunId: "123456789",
+  };
+  const release = generateVercelMainReleaseId(input);
+  const appCandidate = generateVercelMainCandidateDeploymentId({
+    ...input,
+    target: "app",
+  });
+  const uiCandidate = generateVercelMainCandidateDeploymentId({
+    ...input,
+    target: "ui",
+  });
+  assert.equal(release, generateVercelMainReleaseId(input));
+  assert.equal(
+    appCandidate,
+    generateVercelMainCandidateDeploymentId({ ...input, target: "app" }),
+  );
+  assert.notEqual(appCandidate, uiCandidate);
+  assert.notEqual(
+    release,
+    generateVercelMainReleaseId({ ...input, upstreamRunId: "123456790" }),
+  );
+  assert.notEqual(
+    appCandidate,
+    generateVercelMainCandidateDeploymentId({
+      ...input,
+      commitSha: `1${COMMIT_SHA.slice(1)}`,
+      target: "app",
+    }),
+  );
+  assert.equal(assertValidDeploymentId(release), release);
+  assert.equal(assertValidDeploymentId(appCandidate), appCandidate);
 });
 
 test("deployment ID input validation rejects mutable or malformed identity", () => {
