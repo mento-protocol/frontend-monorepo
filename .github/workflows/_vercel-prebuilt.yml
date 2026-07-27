@@ -147,7 +147,7 @@ jobs:
       VERCEL_RUNTIME_ROOT: /var/lib/mento-vercel-runtime-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Check out trusted workflow controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           path: controller
@@ -155,7 +155,7 @@ jobs:
           ref: ${{ github.workflow_sha }}
 
       - name: Check out exact deployment source and full history
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           path: source
@@ -836,7 +836,7 @@ jobs:
           fi
 
       - name: Restore trusted controller after source installation
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           clean: true
           fetch-depth: 1
@@ -1188,7 +1188,7 @@ jobs:
           echo "build_duration_ms=$(($(date +%s%3N) - started_at_ms))" >> "$GITHUB_OUTPUT"
 
       - name: Restore trusted controller after source build
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           clean: true
           fetch-depth: 1
@@ -1621,7 +1621,7 @@ jobs:
       total_duration_ms: ${{ steps.total.outputs.total_duration_ms }}
     steps:
       - name: Check out trusted lifecycle controller only
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           path: controller

@@ -44,7 +44,7 @@ jobs:
         run: echo "started_at_ms=$(date +%s%3N)" >> "$GITHUB_OUTPUT"
 
       - name: Check out trusted workflow controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -56,7 +56,7 @@ jobs:
         run: node scripts/vercel-production-shadow.mjs validate-context
 
       - name: Check out exact requested source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           path: source
@@ -84,14 +84,14 @@ jobs:
       snapshot: ${{ steps.emit.outputs.snapshot }}
     steps:
       - name: Check out trusted workflow controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
           ref: ${{ needs.preflight.outputs.deploy_sha }}
 
       - name: Check out exact deployment source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           path: source
@@ -157,14 +157,14 @@ jobs:
         run: echo "started_at_ms=$(date +%s%3N)" >> "$GITHUB_OUTPUT"
 
       - name: Check out trusted workflow controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
           ref: ${{ needs.preflight.outputs.deploy_sha }}
 
       - name: Check out exact deployment source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           path: source
@@ -280,7 +280,7 @@ jobs:
           vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_APP }}
 
       - name: Restore trusted controller after candidate build
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           path: trusted-after-build
@@ -333,13 +333,13 @@ jobs:
         run: echo "started_at_ms=$(date +%s%3N)" >> "$GITHUB_OUTPUT"
 
       - name: Check out trusted workflow controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
           ref: ${{ needs.preflight.outputs.deploy_sha }}
       - name: Check out exact deployment source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           path: source
@@ -449,7 +449,7 @@ jobs:
           vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
       - name: Restore trusted controller after candidate build
         id: trusted
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           path: trusted-after-build
@@ -547,13 +547,13 @@ jobs:
         run: echo "started_at_ms=$(date +%s%3N)" >> "$GITHUB_OUTPUT"
 
       - name: Check out trusted workflow controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
           ref: ${{ needs.preflight.outputs.deploy_sha }}
       - name: Check out exact deployment source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           path: source
@@ -662,7 +662,7 @@ jobs:
           vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
       - name: Restore trusted controller after candidate build
         id: trusted
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           path: trusted-after-build
@@ -760,13 +760,13 @@ jobs:
         run: echo "started_at_ms=$(date +%s%3N)" >> "$GITHUB_OUTPUT"
 
       - name: Check out trusted workflow controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
           ref: ${{ needs.preflight.outputs.deploy_sha }}
       - name: Check out exact deployment source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           path: source
@@ -874,7 +874,7 @@ jobs:
           vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_UI }}
       - name: Restore trusted controller after candidate build
         id: trusted
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           path: trusted-after-build
@@ -956,7 +956,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out fresh trusted governance smoke source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -1002,7 +1002,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out fresh trusted reserve smoke source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -1048,7 +1048,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out fresh trusted UI smoke source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -1108,7 +1108,7 @@ jobs:
     steps:
       - name: Check out trusted workflow controller
         id: trusted
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
