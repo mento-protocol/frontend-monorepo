@@ -776,6 +776,7 @@ jobs:
       UPSTREAM_RUN_ID: ${{ needs.wait-for-ci.outputs.upstream_run_id }}
       UPSTREAM_RUN_ATTEMPT: ${{ needs.wait-for-ci.outputs.upstream_run_attempt }}
       MAIN_RELEASE_EXECUTION: ${{ needs.prepare-release.outputs.execution }}
+      LOGICAL_TARGET: governance
       VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
       VERCEL_PROJECT_ID_GOVERNANCE: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
     steps:
@@ -979,6 +980,7 @@ jobs:
       UPSTREAM_RUN_ID: ${{ needs.wait-for-ci.outputs.upstream_run_id }}
       UPSTREAM_RUN_ATTEMPT: ${{ needs.wait-for-ci.outputs.upstream_run_attempt }}
       MAIN_RELEASE_EXECUTION: ${{ needs.prepare-release.outputs.execution }}
+      LOGICAL_TARGET: reserve
       VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
       VERCEL_PROJECT_ID_RESERVE: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
     steps:
@@ -1181,6 +1183,7 @@ jobs:
       UPSTREAM_RUN_ID: ${{ needs.wait-for-ci.outputs.upstream_run_id }}
       UPSTREAM_RUN_ATTEMPT: ${{ needs.wait-for-ci.outputs.upstream_run_attempt }}
       MAIN_RELEASE_EXECUTION: ${{ needs.prepare-release.outputs.execution }}
+      LOGICAL_TARGET: ui
       VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_UI }}
       VERCEL_PROJECT_ID_UI: ${{ vars.VERCEL_PROJECT_ID_UI }}
     steps:
@@ -2786,14 +2789,17 @@ jobs:
         id: final-active
         if: ${{ always() && needs.prepare-release.result == 'success' }}
         env:
-          COORDINATOR_OUTCOME: ${{ needs.activate-and-verify.outputs.outcome }}
+          COORDINATOR_OUTCOME: ${{ needs.activate-and-verify.outputs.outcome || needs.recover-main-deployment.outputs.outcome }}
           COORDINATOR_RESULT: ${{ needs.activate-and-verify.result }}
+          DEPLOY_SHA: ${{ needs.wait-for-ci.outputs.deploy_sha }}
           PLAN_RESULT: ${{ needs.prepare-release.result }}
           RECOVERY_OUTCOME: ${{ needs.recover-main-deployment.outputs.outcome || 'not-required' }}
           RECOVERY_RESULT: ${{ needs.recover-main-deployment.result }}
           STAGE_GOVERNANCE_RESULT: ${{ needs.stage-governance.result }}
           STAGE_RESERVE_RESULT: ${{ needs.stage-reserve.result }}
           STAGE_UI_RESULT: ${{ needs.stage-ui.result }}
+          UPSTREAM_RUN_ATTEMPT: ${{ needs.wait-for-ci.outputs.upstream_run_attempt }}
+          UPSTREAM_RUN_ID: ${{ needs.wait-for-ci.outputs.upstream_run_id }}
           WAIT_FOR_CI_RESULT: ${{ needs.wait-for-ci.result }}
         run: >-
           node scripts/vercel-main-deployment.mjs final-active

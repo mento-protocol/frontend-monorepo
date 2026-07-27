@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import process from "node:process";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
 import {
@@ -30,6 +41,9 @@ const recovery = parse(recoverySource);
 const deploymentDocs = read("docs/vercel-deployments.md");
 const deploymentSource = read("scripts/vercel-main-deployment.mjs");
 const terminalReceiptSource = read("scripts/vercel-main-terminal-receipt.mjs");
+const productionShadowCli = fileURLToPath(
+  new URL("./vercel-production-shadow.mjs", import.meta.url),
+);
 const pnpmInstallAction = parse(
   read(".github/actions/pnpm-install/action.yml"),
 );
@@ -1407,6 +1421,7 @@ test("ordinary stages retain protected runtime isolation and create-only uploads
       workflow.jobs[job].if,
       `always() && !cancelled() && needs.wait-for-ci.result == 'success' && needs.prepare-release.result == 'success' && contains(fromJSON(needs.prepare-release.outputs.targets), '${target}')`,
     );
+    assert.equal(workflow.jobs[job].env.LOGICAL_TARGET, target);
     assert.equal(workflow.jobs[job].env.VERCEL_TOKEN, undefined);
     assert.ok(
       checkouts.some(
@@ -1531,6 +1546,59 @@ test("ordinary stages retain protected runtime isolation and create-only uploads
     const diagnostics = named(job, "browser diagnostics on failure");
     assert.equal(diagnostics.uses, UPLOAD_PIN);
     assert.doesNotMatch(JSON.stringify(workflow.jobs[job]), /\.vercel\/output/);
+  }
+});
+
+test("ordinary stage job targets reach the production-shadow CLI at runtime", () => {
+  const contracts = {
+    governance: "apps/governance.mento.org",
+    reserve: "apps/reserve.mento.org",
+    ui: "apps/ui.mento.org",
+  };
+  for (const [target, rootDirectory] of Object.entries(contracts)) {
+    const isolationRoot = realpathSync(
+      mkdtempSync(join(tmpdir(), `vercel-main-stage-${target}-`)),
+    );
+    const stagingRoot = join(
+      isolationRoot,
+      "mento-vercel-production-pull-staging",
+    );
+    const projectId = `prj_${target}123`;
+    const orgId = "team_fixture123";
+    try {
+      chmodSync(isolationRoot, 0o711);
+      const result = spawnSync(
+        process.execPath,
+        [productionShadowCli, "prepare-pull-staging"],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            LOGICAL_TARGET: workflow.jobs[`stage-${target}`].env.LOGICAL_TARGET,
+            PULL_STAGING_PATH: stagingRoot,
+            VERCEL_ISOLATION_ROOT: isolationRoot,
+            VERCEL_ORG_ID: orgId,
+            VERCEL_PROJECT_ID: projectId,
+          },
+        },
+      );
+      assert.equal(result.status, 0, `${target}: ${result.stderr}`);
+      assert.equal(
+        result.stdout,
+        "Runner-owned Vercel pull staging prepared\n",
+      );
+      assert.deepEqual(
+        JSON.parse(
+          readFileSync(join(stagingRoot, ".vercel", "repo.json"), "utf8"),
+        ),
+        {
+          remoteName: "origin",
+          projects: [{ id: projectId, directory: rootDirectory, orgId }],
+        },
+      );
+    } finally {
+      rmSync(isolationRoot, { recursive: true, force: true });
+    }
   }
 });
 
@@ -1900,12 +1968,28 @@ test("result restores the compact handoff then fails closed from the literal fin
   const finalActive = command("result", "final-active");
   assert.match(finalActive.run, /final-active[\s\S]*--execution/);
   assert.equal(
+    finalActive.env.DEPLOY_SHA,
+    "${{ needs.wait-for-ci.outputs.deploy_sha }}",
+  );
+  assert.equal(
+    finalActive.env.UPSTREAM_RUN_ID,
+    "${{ needs.wait-for-ci.outputs.upstream_run_id }}",
+  );
+  assert.equal(
+    finalActive.env.UPSTREAM_RUN_ATTEMPT,
+    "${{ needs.wait-for-ci.outputs.upstream_run_attempt }}",
+  );
+  assert.equal(
     finalActive.env.WAIT_FOR_CI_RESULT,
     "${{ needs.wait-for-ci.result }}",
   );
   assert.equal(
     finalActive.env.PLAN_RESULT,
     "${{ needs.prepare-release.result }}",
+  );
+  assert.equal(
+    finalActive.env.COORDINATOR_OUTCOME,
+    "${{ needs.activate-and-verify.outputs.outcome || needs.recover-main-deployment.outputs.outcome }}",
   );
   assert.equal(
     finalActive.env.STAGE_GOVERNANCE_RESULT,
