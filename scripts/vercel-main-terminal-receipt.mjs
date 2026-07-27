@@ -1,14 +1,13 @@
 import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 
-export const MAIN_TERMINAL_RECEIPT_SCHEMA = "vercel-main-terminal-receipt:v3";
-export const MAIN_TERMINAL_RECEIPT_REPOSITORY =
-  "mento-protocol/frontend-monorepo";
+const MAIN_TERMINAL_RECEIPT_SCHEMA = "vercel-main-terminal-receipt:v3";
+const MAIN_TERMINAL_RECEIPT_REPOSITORY = "mento-protocol/frontend-monorepo";
 
 // GitHub permits much larger job outputs. Keep the durable handoff deliberately
 // small so its size stays auditable and cannot become a second artifact channel.
 export const MAIN_TERMINAL_RECEIPT_MAX_ENCODED_BYTES = 32 * 1024;
-export const MAIN_TERMINAL_EVIDENCE_SCHEMA = "vercel-main-terminal-evidence:v3";
+const MAIN_TERMINAL_EVIDENCE_SCHEMA = "vercel-main-terminal-evidence:v3";
 export const MAIN_TERMINAL_EVIDENCE_MAX_ENCODED_BYTES = 64 * 1024;
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/;

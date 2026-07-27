@@ -13,10 +13,10 @@ import {
 } from "./vercel-deployment-url.mjs";
 import { generateVercelMainReleaseId } from "./vercel-prebuilt.mjs";
 
-export const MAIN_RELEASE_MANIFEST_SCHEMA = "vercel-main-release-manifest:v1";
-export const MAIN_RELEASE_RECONCILIATION_SCHEMA =
+const MAIN_RELEASE_MANIFEST_SCHEMA = "vercel-main-release-manifest:v1";
+const MAIN_RELEASE_RECONCILIATION_SCHEMA =
   "vercel-main-release-reconciliation:v1";
-export const MAIN_PREPLAN_RECONCILIATION_SCHEMA =
+const MAIN_PREPLAN_RECONCILIATION_SCHEMA =
   "vercel-main-preplan-reconciliation:v1";
 export const MAIN_RELEASE_ACTIVATION_ORDER = Object.freeze([
   "governance",

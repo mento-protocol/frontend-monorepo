@@ -11,9 +11,9 @@ import {
   assertMainReleaseManifest,
 } from "./vercel-main-release-reconciliation.mjs";
 
-export const MAIN_RELEASE_EXECUTION_SCHEMA = "vercel-main-release-execution:v1";
-export const MAIN_RELEASE_SELECTION_SCHEMA = "vercel-main-release-selection:v1";
-export const MAIN_RELEASE_EXECUTION_MAX_ENCODED_BYTES = 64 * 1024;
+const MAIN_RELEASE_EXECUTION_SCHEMA = "vercel-main-release-execution:v1";
+const MAIN_RELEASE_SELECTION_SCHEMA = "vercel-main-release-selection:v1";
+const MAIN_RELEASE_EXECUTION_MAX_ENCODED_BYTES = 64 * 1024;
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const POSITIVE_ID_PATTERN = /^[1-9][0-9]*$/;

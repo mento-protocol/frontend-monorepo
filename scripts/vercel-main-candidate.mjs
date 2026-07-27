@@ -6,20 +6,19 @@ import { assertMainReleaseManifest } from "./vercel-main-release-reconciliation.
 import { generateVercelMainCandidateDeploymentId } from "./vercel-prebuilt.mjs";
 import { canonicalizeDeploymentUrl } from "./vercel-deployment-url.mjs";
 
-export const MAIN_CANDIDATE_INTENT_SCHEMA = "vercel-main-candidate-intent:v3";
-export const MAIN_CANDIDATE_RECEIPT_SCHEMA = "vercel-main-candidate-receipt:v3";
+const MAIN_CANDIDATE_INTENT_SCHEMA = "vercel-main-candidate-intent:v3";
+const MAIN_CANDIDATE_RECEIPT_SCHEMA = "vercel-main-candidate-receipt:v3";
 export const MAIN_CANDIDATE_RESOLUTION_SCHEMA =
   "vercel-main-candidate-resolution:v3";
-export const MAIN_CANDIDATE_REPOSITORY = "mento-protocol/frontend-monorepo";
-export const MAIN_CANDIDATE_METADATA_SCHEMA =
-  "vercel-main-candidate-metadata:v3";
-export const MAIN_CANDIDATE_MANIFEST_ENCODING = "deflate-raw-base64url:v1";
+const MAIN_CANDIDATE_REPOSITORY = "mento-protocol/frontend-monorepo";
+const MAIN_CANDIDATE_METADATA_SCHEMA = "vercel-main-candidate-metadata:v3";
+const MAIN_CANDIDATE_MANIFEST_ENCODING = "deflate-raw-base64url:v1";
 export const MAIN_CANDIDATE_MANIFEST_CHUNK_BYTES = 512;
 export const MAIN_CANDIDATE_MAX_MANIFEST_CHUNKS = 12;
-export const MAIN_CANDIDATE_MAX_MANIFEST_BYTES = 16_384;
+const MAIN_CANDIDATE_MAX_MANIFEST_BYTES = 16_384;
 export const MAIN_CANDIDATE_MAX_METADATA_BYTES = 8192;
-export const MAIN_CANDIDATE_RECEIPT_MAX_ENCODED_BYTES = 32 * 1024;
-export const MAIN_CANDIDATE_TARGETS = Object.freeze([
+const MAIN_CANDIDATE_RECEIPT_MAX_ENCODED_BYTES = 32 * 1024;
+const MAIN_CANDIDATE_TARGETS = Object.freeze([
   "app",
   "governance",
   "reserve",

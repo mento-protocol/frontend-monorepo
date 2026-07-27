@@ -4,7 +4,6 @@ import {
   assertMainCandidateProviderCandidate,
   assertMainCandidateReceipt,
   assertMainCandidateResolution,
-  createMainCandidateIntent,
   createMainCandidateReceipt,
   resolveMainCandidateProviderState,
 } from "./vercel-main-candidate.mjs";
@@ -18,10 +17,9 @@ import {
   assertMainReleaseManifest,
 } from "./vercel-main-release-reconciliation.mjs";
 
-export const MAIN_CANDIDATE_PREFLIGHT_SCHEMA =
-  "vercel-main-candidate-preflight:v1";
-export const MAIN_CANDIDATE_HANDOFF_SCHEMA = "vercel-main-candidate-handoff:v1";
-export const MAIN_PREPLAN_CANDIDATE_DISCOVERY_SCHEMA =
+const MAIN_CANDIDATE_PREFLIGHT_SCHEMA = "vercel-main-candidate-preflight:v1";
+const MAIN_CANDIDATE_HANDOFF_SCHEMA = "vercel-main-candidate-handoff:v1";
+const MAIN_PREPLAN_CANDIDATE_DISCOVERY_SCHEMA =
   "vercel-main-preplan-candidate-discovery:v1";
 
 const EMPTY_REUSE_METRICS = Object.freeze({
@@ -188,11 +186,6 @@ export async function discoverMainPreplanCandidateReleases({
   };
 }
 
-export function prepareMainCandidateIntent(value) {
-  const intent = createMainCandidateIntent(value);
-  return { intent };
-}
-
 export async function preflightMainCandidateProvider({ intent, provider }) {
   const canonicalIntent = assertMainCandidateIntent(intent);
   if (
@@ -342,7 +335,7 @@ export async function resolveMainCandidateHandoff({
   };
 }
 
-export function createMainCandidateCreateHandoff({ intent }) {
+function createMainCandidateCreateHandoff({ intent }) {
   const canonicalIntent = assertMainCandidateIntent(intent);
   return {
     schema: MAIN_CANDIDATE_HANDOFF_SCHEMA,

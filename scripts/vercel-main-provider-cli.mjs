@@ -60,8 +60,7 @@ export const MAIN_PROVIDER_CLI_MAX_JSON_BYTES = 256 * 1024;
 export const MAIN_PREPLAN_HANDOFF_MAX_ENCODED_BYTES = 64 * 1024;
 export const MAIN_CANONICAL_MAPPINGS_SCHEMA =
   "vercel-main-canonical-mappings:v1";
-export const MAIN_PROVIDER_DISCOVERY_SCHEMA =
-  "vercel-main-provider-discovery:v1";
+const MAIN_PROVIDER_DISCOVERY_SCHEMA = "vercel-main-provider-discovery:v1";
 
 const PROJECT_TARGETS = Object.freeze(["app", "governance", "reserve", "ui"]);
 const LEGACY_ALIAS = "v2-app.mento.org";
@@ -784,7 +783,7 @@ export function decodeMainPreplanHandoff(
   });
 }
 
-export async function smokeMainCandidateUrl({
+async function smokeMainCandidateUrl({
   intent,
   candidate,
   fetchImpl = globalThis.fetch,
