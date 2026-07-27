@@ -198,8 +198,10 @@ runs:
         set -euo pipefail
         install -d -m 0700 "$JOURNAL_DIRECTORY/$ARTIFACT_NAME"
         install -m 0600 "$RUNNER_TEMP/active-$SLOT-returned.json" "$JOURNAL_DIRECTORY/$ARTIFACT_NAME/main-journal.json"
-        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-journal-history --artifacts "$JOURNAL_DIRECTORY" --output "$JOURNAL_DIRECTORY/current-history.json"
-        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-journal-receipt --journal "$RUNNER_TEMP/active-$SLOT-returned.json" --artifact-name "$ARTIFACT_NAME" --artifact-id "$ARTIFACT_ID" --output "$JOURNAL_DIRECTORY/current-receipt.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-journal-history --artifacts "$JOURNAL_DIRECTORY" --output "$RUNNER_TEMP/active-$SLOT-returned-history.json"
+        node "$CONTROLLER_PATH/scripts/vercel-main-deployment.mjs" active-journal-receipt --journal "$RUNNER_TEMP/active-$SLOT-returned.json" --artifact-name "$ARTIFACT_NAME" --artifact-id "$ARTIFACT_ID" --output "$RUNNER_TEMP/active-$SLOT-returned-receipt.json"
+        install -m 0600 "$RUNNER_TEMP/active-$SLOT-returned-history.json" "$JOURNAL_DIRECTORY/current-history.json"
+        install -m 0600 "$RUNNER_TEMP/active-$SLOT-returned-receipt.json" "$JOURNAL_DIRECTORY/current-receipt.json"
 
     - name: Finalize the authorized App provider candidate
       id: app-finalize

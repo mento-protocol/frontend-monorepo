@@ -2251,9 +2251,12 @@ export function createMainActiveRecoveryDeploymentStateSpec({
       "Active recovery state spec execution does not match journal release",
     );
   }
-  const active = [...release.activeTargets];
-  const shadow = release.stagedTargets.filter(
-    (target) => !active.includes(target),
+  const active = STAGE_BARRIER_TARGETS.filter((target) =>
+    release.activeTargets.includes(target),
+  );
+  const shadow = STAGE_BARRIER_TARGETS.filter(
+    (target) =>
+      release.stagedTargets.includes(target) && !active.includes(target),
   );
   const legacy = releaseExecution.legacyAppV2;
   const capturedLegacy = highest.prior["legacy-app"];
@@ -2281,11 +2284,21 @@ export function createMainActiveRecoveryDeploymentStateSpec({
       const isActive = active.includes(target);
       const isShadow = shadow.includes(target);
       const candidate = highest.candidates[target];
+      const recoveredPriorApp =
+        target === "app" &&
+        isActive &&
+        candidate !== null &&
+        candidate.deploymentId === null &&
+        candidate.deploymentUrl === null &&
+        !highest.operations.some(
+          (operation) => operation.type === "app_v3_deploy",
+        );
       if (
         (isActive || (isShadow && target !== "app")) &&
         (candidate === null ||
           candidate.deploymentId === null ||
-          candidate.deploymentUrl === null)
+          candidate.deploymentUrl === null) &&
+        !recoveredPriorApp
       ) {
         throw new Error(
           `Active recovery state spec ${target} candidate is incomplete`,
@@ -2302,11 +2315,13 @@ export function createMainActiveRecoveryDeploymentStateSpec({
         {
           projectId: prior.projectId,
           projectName: `${target}.mento.org`,
-          expectedDisposition: isActive
-            ? "githubPrebuilt"
-            : isShadow && target !== "app"
-              ? "githubShadowStage"
-              : null,
+          expectedDisposition: recoveredPriorApp
+            ? "recoveredPrior"
+            : isActive
+              ? "githubPrebuilt"
+              : isShadow && target !== "app"
+                ? "githubShadowStage"
+                : null,
           deploymentId: candidate?.deploymentId ?? null,
           deploymentUrl: candidate?.deploymentUrl ?? null,
           target: target === "app" ? null : "production",
@@ -2323,7 +2338,9 @@ export function createMainActiveRecoveryDeploymentStateSpec({
     transactionId: highest.transactionId,
     releaseManifest: release,
     mainOwnershipMode: release.mainOwnershipMode,
-    stagedTargets: [...release.stagedTargets],
+    stagedTargets: STAGE_BARRIER_TARGETS.filter((target) =>
+      release.stagedTargets.includes(target),
+    ),
     activeTargets: active,
     shadowTargets: shadow,
     projects,

@@ -1771,6 +1771,41 @@ function plannedDispositionForTarget(
   return null;
 }
 
+// A recovery journal may prove that App's v3 deployment was never started.
+// This is deliberately App-only: ordinary targets always have a staged
+// candidate before activation, and an App deploy that was started is unknown
+// until its immutable candidate is discovered.
+function expectedActiveStateDisposition({
+  logicalTarget,
+  activeTargets,
+  shadowTargets,
+  project,
+}) {
+  const planned = plannedDispositionForTarget(
+    logicalTarget,
+    activeTargets,
+    shadowTargets,
+  );
+  if (project.expectedDisposition !== "recoveredPrior") return planned;
+  const deploymentId = Object.hasOwn(project, "deploymentId")
+    ? project.deploymentId
+    : project.expectedDeploymentId;
+  const deploymentUrl = Object.hasOwn(project, "deploymentUrl")
+    ? project.deploymentUrl
+    : project.expectedDeploymentUrl;
+  if (
+    logicalTarget !== "app" ||
+    planned !== "githubPrebuilt" ||
+    deploymentId !== null ||
+    deploymentUrl !== null
+  ) {
+    throw new Error(
+      `${logicalTarget} recovered-prior deployment expectation is malformed`,
+    );
+  }
+  return "recoveredPrior";
+}
+
 function canonicalMainOwnershipMode(value) {
   assertExactKeys(value, ACTIVE_STATE_TARGETS, "Main ownership mode");
   for (const logicalTarget of ACTIVE_STATE_TARGETS) {
@@ -1890,14 +1925,18 @@ export function assertActiveDeploymentStateSpec(spec) {
       project.projectId,
       `${logicalTarget} planned active project ID`,
     );
-    const expectedDisposition = plannedDispositionForTarget(
+    const expectedDisposition = expectedActiveStateDisposition({
       logicalTarget,
       activeTargets,
       shadowTargets,
-    );
+      project,
+    });
     let deploymentId = null;
     let deploymentUrl = null;
-    if (expectedDisposition === null) {
+    if (
+      expectedDisposition === null ||
+      expectedDisposition === "recoveredPrior"
+    ) {
       if (project.deploymentId !== null || project.deploymentUrl !== null) {
         throw new Error(
           `${logicalTarget} planned active deployment expectation is malformed`,
@@ -2545,11 +2584,12 @@ export function assertActiveDeploymentStateProof(value) {
       `${logicalTarget} active deployment state proof`,
     );
     const expectedEnvironment = activeProjectEnvironment(logicalTarget);
-    const expectedDisposition = plannedDispositionForTarget(
+    const expectedDisposition = expectedActiveStateDisposition({
       logicalTarget,
       activeTargets,
       shadowTargets,
-    );
+      project,
+    });
     const projectId = requireIdentifier(
       project.projectId,
       `${logicalTarget} active proof project ID`,
@@ -2574,7 +2614,10 @@ export function assertActiveDeploymentStateProof(value) {
         `${logicalTarget} active proof prior served SHA is malformed`,
       );
     }
-    if (expectedDisposition === null) {
+    if (
+      expectedDisposition === null ||
+      expectedDisposition === "recoveredPrior"
+    ) {
       if (
         project.expectedDeploymentId !== null ||
         project.expectedDeploymentUrl !== null

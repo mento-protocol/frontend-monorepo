@@ -696,6 +696,7 @@ function activeStateProof({
   jobs,
   runId,
   runAttempt,
+  additionalDeployments = {},
 }) {
   const spec =
     suppliedSpec ??
@@ -708,7 +709,8 @@ function activeStateProof({
     });
   const deployments = Object.fromEntries(
     Object.entries(spec.projects).map(([target, project]) => {
-      if (project.deploymentId === null) return [target, []];
+      const additional = additionalDeployments[target] ?? [];
+      if (project.deploymentId === null) return [target, [...additional]];
       return [
         target,
         [
@@ -753,6 +755,7 @@ function activeStateProof({
               },
             },
           },
+          ...additional,
         ],
       ];
     }),
@@ -5719,6 +5722,189 @@ test("active recovery planning and execution hand off exact reverse mutations an
     failAfterEvidence: true,
     reason: "activation-recovered",
   });
+});
+
+test("active recovery terminalizes the prior App only when its v3 deploy never started", async () => {
+  const deploymentPlan = activePlan({ deployments: ["app", "governance"] });
+  const prepared = createPreparedMainActiveJournal({
+    plan: deploymentPlan,
+    stageJobs: stageJobs(deploymentPlan),
+    appBuildProof: appProof(deploymentPlan),
+    runId: "800",
+    runAttempt: "3",
+  });
+  const started = startMainTransactionOperation(prepared, {
+    type: "promote",
+    target: "governance",
+  });
+  const currentMappings = Object.values(started.prior).flatMap((prior) =>
+    prior.aliases.map((alias) =>
+      mapping(
+        alias,
+        alias === "governance.mento.org"
+          ? started.candidates.governance
+          : prior,
+      ),
+    ),
+  );
+  const recoveryPlan = planMainActiveRecovery({
+    journalHistory: [prepared, started],
+    deploySha: SHA,
+    runId: "800",
+    runAttempt: "3",
+    currentMappings,
+    appCandidateMatches: [],
+  });
+  let mappingState = "candidate";
+  const result = await runMainActiveRecovery({
+    recoveryPlan,
+    adapters: {
+      uploadJournal: async ({ artifactName, journal }) => ({
+        acknowledged: true,
+        artifactName,
+        artifactId: String(8000 + journal.sequence),
+      }),
+      inspectMapping: async () => ({ mappingState }),
+      ordinaryRollback: async () => {
+        mappingState = "prior";
+        return { outcome: "success" };
+      },
+      verifyMapping: async () => ({ mappingState }),
+    },
+  });
+  assert.equal(result.journal.status, "recovered");
+  const execution = releaseExecutionForPlan(deploymentPlan);
+  const history = activeHistoryDocument([
+    prepared,
+    started,
+    ...result.uploadedJournals,
+  ]);
+  const spec = createMainActiveRecoveryDeploymentStateSpec({
+    execution,
+    journalHistory: history,
+    runId: "800",
+    runAttempt: "3",
+  });
+  assert.equal(spec.projects.app.expectedDisposition, "recoveredPrior");
+  assert.equal(spec.projects.app.deploymentId, null);
+  const stateProof = activeStateProof({ spec });
+  assert.equal(stateProof.outcome, "proven");
+
+  const priorMappings = Object.values(result.journal.prior).flatMap((prior) =>
+    prior.aliases.map((alias) => mapping(alias, prior)),
+  );
+  const artifacts = createMainActiveTerminalArtifacts({
+    execution,
+    outcome: "recovered",
+    journalHistory: history,
+    finalMappings: providerMappings(execution, priorMappings),
+    publicSmokes: priorPublicSmokes(execution),
+    stateProof,
+    finalCensus: stateProof,
+    freshLegacyV2: deploymentPlan.legacySnapshot,
+    freshness: null,
+    runId: "800",
+    runAttempt: "3",
+  });
+  assert.equal(artifacts.evidence.recoveryOutcome, "recovered");
+  assert.equal(artifacts.proofs.outcome, "recovered");
+  assert.equal(
+    artifacts.proofs.stateProof.artifact.projects.app.expectedDisposition,
+    "recoveredPrior",
+  );
+  assert.ok(
+    priorMappings.every(({ alias, deploymentId, deploymentUrl }) => {
+      const target = Object.values(result.journal.prior).find((prior) =>
+        prior.aliases.includes(alias),
+      );
+      return (
+        target?.deploymentId === deploymentId &&
+        target.deploymentUrl === deploymentUrl
+      );
+    }),
+  );
+
+  const unexpectedAppCandidateProof = activeStateProof({
+    spec,
+    additionalDeployments: {
+      app: [
+        {
+          deploymentId: "dpl_unexpectedapp123",
+          response: {
+            id: "dpl_unexpectedapp123",
+            url: "https://unexpected-app.vercel.app",
+            projectId: spec.projects.app.projectId,
+            name: spec.projects.app.projectName,
+            readyState: "READY",
+            target: null,
+            customEnvironment: { slug: "v3" },
+            source: "cli",
+            meta: {
+              githubCommitOrg: "mento-protocol",
+              githubCommitRepo: "frontend-monorepo",
+              githubCommitRef: "main",
+              githubCommitSha: spec.deploySha,
+            },
+          },
+        },
+      ],
+    },
+  });
+  assert.equal(unexpectedAppCandidateProof.outcome, "unproven");
+  assert.equal(
+    unexpectedAppCandidateProof.projects.app.counts.manualDuplicates,
+    1,
+  );
+  assert.throws(
+    () =>
+      createMainActiveTerminalArtifacts({
+        execution,
+        outcome: "recovered",
+        journalHistory: history,
+        finalMappings: providerMappings(execution, priorMappings),
+        publicSmokes: priorPublicSmokes(execution),
+        stateProof: unexpectedAppCandidateProof,
+        finalCensus: unexpectedAppCandidateProof,
+        freshLegacyV2: deploymentPlan.legacySnapshot,
+        freshness: null,
+        runId: "800",
+        runAttempt: "3",
+      }),
+    /not proven/,
+  );
+
+  const governanceReturned = recordMainTransactionCommandReturned(started, {
+    operationId: started.operations.at(-1).operationId,
+    outcome: "success",
+  });
+  const governanceVerified = recordMainTransactionVerified(governanceReturned, {
+    operationId: started.operations.at(-1).operationId,
+    mappingState: "candidate",
+  });
+  const appDeployStarted = startMainTransactionOperation(governanceVerified, {
+    type: "app_v3_deploy",
+    target: "app",
+  });
+  const unsafeRecovering = startMainTransactionRecovery(appDeployStarted);
+  const unsafeRecovered = finishMainTransactionRecovery(unsafeRecovering);
+  assert.throws(
+    () =>
+      createMainActiveRecoveryDeploymentStateSpec({
+        execution,
+        journalHistory: activeHistoryDocument([
+          prepared,
+          started,
+          governanceReturned,
+          governanceVerified,
+          appDeployStarted,
+          unsafeRecovering,
+          unsafeRecovered,
+        ]),
+        runId: "800",
+        runAttempt: "3",
+      }),
+    /app candidate is incomplete/,
+  );
 });
 
 test("active recovery public-smoke materializer accepts only exact runtime results", async () => {

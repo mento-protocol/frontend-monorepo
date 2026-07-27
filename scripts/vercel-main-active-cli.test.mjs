@@ -334,7 +334,11 @@ test("execute validates the descriptor and passes the token only through a filte
     `process.argv.splice(1, 0, ${JSON.stringify(env.TRUSTED_VERCEL_CLI_PATH)}); await import(${JSON.stringify(env.TRUSTED_VERCEL_CLI_PATH)});`,
   );
   assert.equal(calls[0].argumentsList[4], "--");
-  assert.deepEqual(calls[0].argumentsList.slice(5), command.arguments);
+  assert.deepEqual(calls[0].argumentsList.slice(5), [
+    ...command.arguments,
+    "--scope",
+    env.VERCEL_ORG_ID,
+  ]);
   assert.equal(Number.isInteger(calls[0].spawnOptions.stdio[3]), true);
   assert.ok(calls[0].spawnOptions.stdio[3] >= 3);
   assert.equal(calls[0].spawnOptions.cwd, env.SOURCE_PATH);
@@ -419,7 +423,10 @@ test("fd loader runs the pinned Vercel ESM entrypoint", () => {
       cliPath,
       cliFileDescriptor: descriptor,
       workingDirectory: process.cwd(),
-      environment: { VERCEL_TOKEN: TOKEN },
+      environment: {
+        VERCEL_ORG_ID: "team_mainactive123",
+        VERCEL_TOKEN: TOKEN,
+      },
       nodeExecutable: process.execPath,
       spawn: (executable, argumentsList, spawnOptions) => {
         const child = spawnSync(
