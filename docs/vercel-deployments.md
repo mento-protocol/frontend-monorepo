@@ -281,6 +281,13 @@ provider candidate from that manifest after fresh inspection and smoke. Provider
 metadata that lacks the canonical manifest, a matching URL, a matching custom
 identifier, or zero/multiple provider candidates is insufficient.
 
+The candidate HTTP smoke reads the immutable deployment root directly for App,
+Governance, and Reserve. UI reads `/basic-components` on that same immutable
+host because its root intentionally redirects there. Each request uses manual
+redirect handling and requires an exact same-URL 2xx response with the expected
+`X-Mento-Deployment-Sha`; the candidate receipt continues to record the root
+immutable deployment URL.
+
 App has no separate staged Vercel deployment because its custom `v3` upload is
 itself activation. When App is selected, the workflow performs `vercel pull`
 plus the protected custom-`v3` build and output validation before the

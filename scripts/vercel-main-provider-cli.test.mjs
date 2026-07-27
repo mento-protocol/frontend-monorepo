@@ -1364,13 +1364,75 @@ test("inherited ordinary candidate finalization uses the fixed served-prior alia
   }
 });
 
-test("candidate smoke performs one exact-origin no-redirect SHA-bound HTTP read", async (t) => {
+test("candidate smoke uses the target's direct immutable route and preserves the SHA-bound receipt URL", async (t) => {
   const context = testContext(t);
-  const intent = candidateIntent();
+  for (const target of ["app", "governance", "reserve", "ui"]) {
+    const intent = candidateIntent(target);
+    const response = deploymentResponse(intent);
+    const intentPath = writeJson(
+      context.directory,
+      `${target}-intent.json`,
+      intent,
+    );
+    const output = join(context.directory, `${target}-candidate-smoke.json`);
+    let cancelled = false;
+    const stateClientFactory = () => ({
+      requestWithRetry: async () => ({
+        deployments: [{ uid: response.id }],
+        pagination: { next: null },
+      }),
+      inspectDeployment: async () => response,
+      listDeploymentAliases: async () => ({ aliases: [] }),
+    });
+    const expectedUrl = new URL(
+      target === "ui" ? "/basic-components" : "/",
+      `https://${response.url}`,
+    ).toString();
+    const result = await runMainProviderCli({
+      argv: ["candidate-smoke", "--intent", intentPath, "--output", output],
+      env: context.env,
+      stdout: context.stdout,
+      stateClientFactory,
+      fetchImpl: async (url, options) => {
+        assert.equal(url, expectedUrl, target);
+        assert.equal(options.method, "GET");
+        assert.equal(options.redirect, "manual");
+        return {
+          status: 200,
+          redirected: false,
+          url,
+          headers: {
+            get: (name) =>
+              name === "x-mento-deployment-sha" ? intent.deploySha : null,
+          },
+          body: {
+            cancel: async () => {
+              cancelled = true;
+            },
+          },
+        };
+      },
+    });
+    assert.deepEqual(result, {
+      immutableUrl: `https://${response.url}`,
+      servedSha: intent.deploySha,
+      status: "passed",
+    });
+    assert.equal(cancelled, true, target);
+    assert.deepEqual(readJson(output), result);
+    assert.equal(
+      readFileSync(context.githubOutput, "utf8"),
+      `deployment_id=${response.id}\n`,
+    );
+    writeFileSync(context.githubOutput, "", { mode: 0o600 });
+  }
+});
+
+test("candidate smoke fails closed for UI redirects, host or path changes, SHA mismatches, and non-2xx responses", async (t) => {
+  const context = testContext(t);
+  const intent = candidateIntent("ui");
   const response = deploymentResponse(intent);
   const intentPath = writeJson(context.directory, "intent.json", intent);
-  const output = join(context.directory, "candidate-smoke.json");
-  let cancelled = false;
   const stateClientFactory = () => ({
     requestWithRetry: async () => ({
       deployments: [{ uid: response.id }],
@@ -1379,47 +1441,12 @@ test("candidate smoke performs one exact-origin no-redirect SHA-bound HTTP read"
     inspectDeployment: async () => response,
     listDeploymentAliases: async () => ({ aliases: [] }),
   });
-  const fetchImpl = async (url, options) => {
-    assert.equal(url, new URL(`https://${response.url}`).toString());
-    assert.equal(options.method, "GET");
-    assert.equal(options.redirect, "manual");
-    return {
-      status: 200,
-      redirected: false,
-      url,
-      headers: {
-        get: (name) =>
-          name === "x-mento-deployment-sha" ? intent.deploySha : null,
-      },
-      body: {
-        cancel: async () => {
-          cancelled = true;
-        },
-      },
-    };
-  };
-  const result = await runMainProviderCli({
-    argv: ["candidate-smoke", "--intent", intentPath, "--output", output],
-    env: context.env,
-    stdout: context.stdout,
-    stateClientFactory,
-    fetchImpl,
-  });
-  assert.deepEqual(result, {
-    immutableUrl: `https://${response.url}`,
-    servedSha: intent.deploySha,
-    status: "passed",
-  });
-  assert.equal(cancelled, true);
-  assert.deepEqual(readJson(output), result);
-  assert.equal(
-    readFileSync(context.githubOutput, "utf8"),
-    `deployment_id=${response.id}\n`,
-  );
 
   for (const [name, patch] of [
-    ["redirect", { status: 307, redirected: false }],
-    ["wrong-origin", { url: "https://attacker.example/" }],
+    ["redirect", { status: 307 }],
+    ["followed-redirect", { redirected: true }],
+    ["wrong-host", { url: "https://attacker.example/basic-components" }],
+    ["wrong-path", { url: `https://${response.url}/form-components` }],
     [
       "wrong-sha",
       {
@@ -1428,6 +1455,7 @@ test("candidate smoke performs one exact-origin no-redirect SHA-bound HTTP read"
         },
       },
     ],
+    ["bad-status", { status: 503 }],
   ]) {
     await assert.rejects(
       () =>
