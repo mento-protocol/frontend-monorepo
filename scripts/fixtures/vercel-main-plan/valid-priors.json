@@ -83,7 +83,9 @@
           },
           "aliases": [
             "governance.mento.org",
-            "governancementoorg-mentolabs.vercel.app"
+            "governancementoorg-git-main-mentolabs.vercel.app",
+            "governancementoorg-mentolabs.vercel.app",
+            "governancementoorg.vercel.app"
           ]
         }
       ]
@@ -109,7 +111,9 @@
           },
           "aliases": [
             "reserve.mento.org",
-            "reservementoorg-mentolabs.vercel.app"
+            "reservementoorg-git-main-mentolabs.vercel.app",
+            "reservementoorg-mentolabs.vercel.app",
+            "reservementoorg.vercel.app"
           ]
         }
       ]
@@ -133,7 +137,12 @@
             "ref": "main",
             "sha": "cccccccccccccccccccccccccccccccccccccccc"
           },
-          "aliases": ["ui.mento.org", "uimentoorg-mentolabs.vercel.app"]
+          "aliases": [
+            "ui.mento.org",
+            "uimentoorg-git-main-mentolabs.vercel.app",
+            "uimentoorg-mentolabs.vercel.app",
+            "uimentoorg.vercel.app"
+          ]
         }
       ]
     }

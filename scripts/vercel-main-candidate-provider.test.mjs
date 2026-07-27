@@ -391,6 +391,7 @@ test("automatic inherited ordinary finalization requires its protected alias and
     let validHandoff;
     for (const residualAliases of subsets([
       contract.generatedProjectAlias,
+      contract.generatedProjectDefaultAlias,
       generatedCreatorAlias(target),
       contract.generatedGitMainAlias,
     ])) {
