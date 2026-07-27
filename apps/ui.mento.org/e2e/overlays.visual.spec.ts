@@ -94,6 +94,12 @@ for (const overlay of OVERLAYS) {
       await argosScreenshot(
         page,
         `overlay-${overlay.name}-${theme}-${testInfo.project.name}`,
+        {
+          // Argos converts fixed elements to absolute for full-page capture
+          // after our initial wait. Re-stabilize the fixed Radix popper at the
+          // post-mutation seam before Playwright records pixels.
+          beforeScreenshot: () => stabilizeOverlay(page),
+        },
       );
     });
   }
