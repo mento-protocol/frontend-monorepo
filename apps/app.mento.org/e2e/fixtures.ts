@@ -213,13 +213,23 @@ async function settle(page: Page, theme: Theme): Promise<void> {
   });
 }
 
-// Argos rewrites fixed-position elements to absolute immediately before a
-// full-page screenshot. That happens after settle(), and the App background is
-// a fixed Next Image. Give the decoded image and Chromium compositor several
-// paints after Argos's rewrite so a screenshot cannot capture partially
-// repainted image tiles.
+// Argos only runs its fixed-position stabilizer when `fullPage` is explicit;
+// its computed Page default is not propagated into the stabilization context.
+// After that stabilizer rewrites the fixed Next Image to absolute, give the
+// decoded image and Chromium compositor several paints so a screenshot cannot
+// capture partially repainted image tiles.
 async function stabilizeArgosFullPageCapture(page: Page): Promise<void> {
   await page.evaluate(async () => {
+    const background = document.querySelector('img[alt="Mento Background"]');
+    if (
+      !(background instanceof HTMLImageElement) ||
+      getComputedStyle(background).position !== "absolute"
+    ) {
+      throw new Error(
+        "Argos did not stabilize the fixed App background for full-page capture",
+      );
+    }
+
     await Promise.all(
       Array.from(document.images).map(async (image) => {
         if (!image.complete || image.naturalWidth === 0) return;
@@ -260,6 +270,7 @@ export async function snapshotPage(
     await page.evaluate(() => document.fonts.ready);
   }
   await argosScreenshot(page, name, {
+    fullPage: true,
     beforeScreenshot: () => stabilizeArgosFullPageCapture(page),
   });
 }
