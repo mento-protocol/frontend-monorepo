@@ -42,6 +42,7 @@ import {
   renderMainProviderCliFailure,
   reviewedRunnerTemp,
   runMainProviderCli,
+  writeMainPreplanDecisionOutputs,
   writePrivateJson,
 } from "./vercel-main-provider-cli.mjs";
 
@@ -525,6 +526,7 @@ test("preplan discovery groups mapped manifests and marks unowned mappings rollb
 
 test("preplan decision binds current SHA and upstream run to one exact release ID", async (t) => {
   const context = testContext(t);
+  chmodSync(context.githubOutput, 0o644);
   const snapshot = planningSnapshot();
   const planningPath = writeJson(context.directory, "planning.json", snapshot);
   const legacyPath = writeJson(
@@ -603,6 +605,7 @@ test("preplan decision binds current SHA and upstream run to one exact release I
       "",
     ].join("\n"),
   );
+  assert.equal(statSync(context.githubOutput).mode & 0o777, 0o600);
   assert.deepEqual(readJson(output), result);
 
   const encoded = encodeMainPreplanHandoff(result, {
@@ -696,6 +699,52 @@ test("preplan materialization accepts only inherited restore and exposes ordered
     nextDeploySha: SHA,
     nextUpstreamRunId: "700",
   });
+  const completeCandidates = Object.fromEntries(
+    ["governance", "reserve", "ui", "app"].map((target) => [
+      target,
+      {
+        deploymentId: `dpl_${target}MaximumShape123`,
+        deploymentUrl: `https://${target}-maximum-shape.vercel.app`,
+        manifest: inherited,
+      },
+    ]),
+  );
+  const maximumShapeDecision = decideMainPreplanReconciliation({
+    nextDeploySha: SHA,
+    nextUpstreamRunId: "700",
+    candidateReleases: [
+      {
+        manifest: inherited,
+        candidates: completeCandidates,
+      },
+    ],
+    currentMappings: Object.fromEntries(
+      ["governance", "reserve", "ui", "app"].map((target) => [
+        target,
+        inherited.originalPriors[target].aliases.map((alias) => ({
+          alias,
+          deploymentId: completeCandidates[target].deploymentId,
+          deploymentUrl: completeCandidates[target].deploymentUrl,
+        })),
+      ]),
+    ),
+    rollbackOnlyTargets: [],
+  });
+  const maximumShapeHandoff = encodeMainPreplanHandoff(maximumShapeDecision, {
+    nextDeploySha: SHA,
+    nextUpstreamRunId: "700",
+  });
+  assert.ok(
+    Buffer.byteLength(maximumShapeHandoff, "utf8") <=
+      MAIN_PREPLAN_HANDOFF_MAX_ENCODED_BYTES,
+  );
+  assert.deepEqual(
+    decodeMainPreplanHandoff(maximumShapeHandoff, {
+      nextDeploySha: SHA,
+      nextUpstreamRunId: "700",
+    }),
+    maximumShapeDecision,
+  );
   const output = join(context.directory, "restore-before-planning.json");
   await runMainProviderCli({
     argv: ["preplan-materialize", "--output", output],
@@ -707,6 +756,79 @@ test("preplan materialization accepts only inherited restore and exposes ordered
     readFileSync(context.githubOutput, "utf8"),
     'inherited_candidate_targets=["governance"]\n',
   );
+});
+
+test("post-census preplan output failures are typed, non-retryable, and value-free", (t) => {
+  const context = testContext(t);
+  const result = {
+    schema: "vercel-main-preplan-reconciliation:v2",
+    decision: "capture-new-baseline",
+    reason: "no-mapped-release-metadata",
+    rollbackOnlyTargets: [],
+    reconciliation: null,
+    rollbackAuthorization: null,
+  };
+  const output = join(context.directory, "decision.json");
+  const secret = `${context.env.VERCEL_TOKEN} /private/provider/path`;
+  const cases = [
+    [
+      "preplan-handoff-encode-failed",
+      {
+        encodeMainPreplanHandoff: () => {
+          throw new Error(secret);
+        },
+        writePrivateJson: assert.fail,
+        appendGithubOutputs: assert.fail,
+      },
+    ],
+    [
+      "preplan-private-output-write-failed",
+      {
+        encodeMainPreplanHandoff: () => "safe-handoff",
+        writePrivateJson: () => {
+          throw new Error(secret);
+        },
+        appendGithubOutputs: assert.fail,
+      },
+    ],
+    [
+      "preplan-github-output-append-failed",
+      {
+        encodeMainPreplanHandoff: () => "safe-handoff",
+        writePrivateJson: () => undefined,
+        appendGithubOutputs: () => {
+          throw new Error(secret);
+        },
+      },
+    ],
+  ];
+
+  for (const [failureCode, operations] of cases) {
+    let error;
+    try {
+      writeMainPreplanDecisionOutputs({
+        output,
+        result,
+        releaseId: "release_fixture",
+        runnerTemp: context.directory,
+        env: context.env,
+        operations,
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    assert.ok(error instanceof Error);
+    assert.equal(
+      renderMainProviderCliFailure(error),
+      `Vercel main provider command failed (${failureCode})\n`,
+    );
+    assert.equal(mainProviderCliFailureExitCode(error), 1);
+    assert.doesNotMatch(
+      renderMainProviderCliFailure(error),
+      /test-secret-token|private\/provider\/path/,
+    );
+  }
+  assert.throws(() => statSync(output), /ENOENT/);
 });
 
 test("preplan decision rejects alias drift after discovery before baseline or rollback authorization", async (t) => {
@@ -1409,10 +1531,18 @@ test("private bridge IO rejects noncanonical, permissive, oversized, and existin
   );
 
   chmodSync(context.githubOutput, 0o644);
-  assert.throws(
-    () => appendGithubOutputs(context.env, { result: "value" }),
-    /could not be written safely/,
-  );
+  appendGithubOutputs(context.env, { result: "value" });
+  assert.equal(readFileSync(context.githubOutput, "utf8"), "result=value\n");
+  assert.equal(statSync(context.githubOutput).mode & 0o777, 0o600);
+  writeFileSync(context.githubOutput, "", { mode: 0o600 });
+  for (const mode of [0o664, 0o666]) {
+    chmodSync(context.githubOutput, mode);
+    assert.throws(
+      () => appendGithubOutputs(context.env, { result: "value" }),
+      /could not be written safely/,
+    );
+    assert.equal(statSync(context.githubOutput).mode & 0o777, mode);
+  }
   chmodSync(context.githubOutput, 0o600);
   writeFileSync(
     context.githubOutput,

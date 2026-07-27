@@ -129,7 +129,13 @@ function canonicalUpstream(value, manifest) {
       "Main release execution upstream run differs from its stable manifest",
     );
   }
-  const expectedRunUrl = `https://github.com/mento-protocol/frontend-monorepo/actions/runs/${runId}`;
+  const runAttempt = requireString(
+    String(value.runAttempt),
+    "Main release execution upstream run attempt",
+    POSITIVE_ID_PATTERN,
+  );
+  const expectedJobUrlPrefix = `https://github.com/mento-protocol/frontend-monorepo/actions/runs/${runId}`;
+  const expectedRunUrl = `${expectedJobUrlPrefix}/attempts/${runAttempt}`;
   const runUrl = requireGithubUrl(
     value.runUrl,
     "Main release execution upstream run URL",
@@ -141,7 +147,7 @@ function canonicalUpstream(value, manifest) {
   if (
     runUrl !== expectedRunUrl ||
     !new RegExp(
-      `^${expectedRunUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/job/[1-9][0-9]*$`,
+      `^${expectedJobUrlPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/job/[1-9][0-9]*$`,
     ).test(buildAndTestJobUrl)
   ) {
     throw new Error(
@@ -150,11 +156,7 @@ function canonicalUpstream(value, manifest) {
   }
   return {
     runId,
-    runAttempt: requireString(
-      String(value.runAttempt),
-      "Main release execution upstream run attempt",
-      POSITIVE_ID_PATTERN,
-    ),
+    runAttempt,
     runUrl,
     buildAndTestJobUrl,
   };

@@ -136,7 +136,7 @@ function execution(stagedTargets = TARGETS) {
       runId: "123",
       runAttempt: "2",
       runUrl:
-        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123",
+        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123/attempts/2",
       buildAndTestJobUrl:
         "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123/job/456",
     },
@@ -326,7 +326,7 @@ test("capture-new execution binds the fresh rollback-only set exactly", () => {
   );
 });
 
-test("execution binds both upstream URLs to the exact repository run", () => {
+test("execution binds both upstream URLs to the exact repository run and attempt", () => {
   const value = execution(["governance"]);
   for (const upstream of [
     {
@@ -337,6 +337,16 @@ test("execution binds both upstream URLs to the exact repository run", () => {
       ...value.upstream,
       runUrl:
         "https://github.com/mento-protocol/frontend-monorepo/actions/runs/124",
+    },
+    {
+      ...value.upstream,
+      runUrl:
+        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123",
+    },
+    {
+      ...value.upstream,
+      runUrl:
+        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123/attempts/3",
     },
     {
       ...value.upstream,
