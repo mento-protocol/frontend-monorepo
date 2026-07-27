@@ -131,7 +131,7 @@ function originalPrior({ target, states, planned }) {
         alias: state.alias,
         deploymentId: state.deploymentId,
         deploymentUrl: state.deploymentUrl,
-        aliases: [...state.aliases],
+        aliases: [...planned.aliases].sort(),
         projectId: state.projectId,
         projectName: state.projectName,
         readyState: state.readyState,

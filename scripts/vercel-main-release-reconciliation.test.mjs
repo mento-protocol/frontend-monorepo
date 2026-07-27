@@ -323,6 +323,13 @@ test("release manifest binds the canonical planner result and all four rollback 
     () => assertMainReleaseManifest(tamperedPrior),
     /reviewed topology/,
   );
+  const tamperedPlanningAliases = structuredClone(first);
+  tamperedPlanningAliases.originalPriors.governance.planningLeaves[0].aliases =
+    ["governance.mento.org", "governancementoorg-mentolabs.vercel.app"];
+  assert.throws(
+    () => assertMainReleaseManifest(tamperedPlanningAliases),
+    /reviewed topology/,
+  );
 
   const forgedMalformed = structuredClone(first);
   forgedMalformed.originalPriors.app.planningLeaves[0].git = {
