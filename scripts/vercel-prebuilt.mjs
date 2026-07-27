@@ -12,6 +12,7 @@ export const CUSTOM_DEPLOYMENT_ID_ENV = "MENTO_NEXT_DEPLOYMENT_ID";
 export const VERCEL_TARGETS = ["app", "governance", "reserve", "ui"];
 
 const DEPLOYMENT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
 export function assertValidDeploymentId(deploymentId) {
   if (typeof deploymentId !== "string" || deploymentId.length === 0) {
@@ -33,6 +34,66 @@ function assertPositiveInteger(value, label) {
   if (typeof value !== "string" || !/^[1-9][0-9]*$/.test(value)) {
     throw new Error(`${label} must be a positive integer string`);
   }
+  return value;
+}
+
+function assertRepository(repository) {
+  if (typeof repository !== "string" || !REPOSITORY_PATTERN.test(repository)) {
+    throw new Error("Repository must be an owner/name identifier");
+  }
+  return repository;
+}
+
+function assertCommitSha(commitSha) {
+  if (
+    typeof commitSha !== "string" ||
+    !/^[A-Fa-f0-9]{40,64}$/.test(commitSha)
+  ) {
+    throw new Error("Commit SHA must be an immutable 40- or 64-digit hex SHA");
+  }
+  return commitSha.toLowerCase();
+}
+
+function stableDigest(parts) {
+  return createHash("sha256").update(parts.join("\u0000")).digest("hex");
+}
+
+// A release identifies the immutable source and validated upstream CI run. It
+// survives downstream workflow reruns, unlike mutation transaction IDs and
+// journal IDs.
+export function generateVercelMainReleaseId({
+  repository,
+  commitSha,
+  upstreamRunId,
+}) {
+  const digest = stableDigest([
+    "vercel-main-release:v1",
+    assertRepository(repository),
+    assertCommitSha(commitSha),
+    assertPositiveInteger(upstreamRunId, "Upstream run ID"),
+  ]);
+  return assertValidDeploymentId(`mr-${digest.slice(0, 24)}`);
+}
+
+// This is the Next/Vercel custom deployment ID for a release candidate. It
+// deliberately excludes runAttempt so a retry can discover one candidate.
+export function generateVercelMainCandidateDeploymentId({
+  repository,
+  target,
+  commitSha,
+  upstreamRunId,
+}) {
+  if (!VERCEL_TARGETS.includes(target)) {
+    throw new Error(`Unknown Vercel target: ${String(target)}`);
+  }
+  const digest = stableDigest([
+    "vercel-main-candidate:v1",
+    assertRepository(repository),
+    target,
+    assertCommitSha(commitSha),
+    assertPositiveInteger(upstreamRunId, "Upstream run ID"),
+  ]);
+  return assertValidDeploymentId(`mr-${target}-${digest.slice(0, 18)}`);
 }
 
 export function generateVercelDeploymentId({
@@ -44,18 +105,11 @@ export function generateVercelDeploymentId({
   if (!VERCEL_TARGETS.includes(target)) {
     throw new Error(`Unknown Vercel target: ${String(target)}`);
   }
-  if (
-    typeof commitSha !== "string" ||
-    !/^[A-Fa-f0-9]{40,64}$/.test(commitSha)
-  ) {
-    throw new Error("Commit SHA must be an immutable 40- or 64-digit hex SHA");
-  }
+  const canonicalCommitSha = assertCommitSha(commitSha);
   assertPositiveInteger(runId, "Run ID");
   assertPositiveInteger(runAttempt, "Run attempt");
 
-  const digest = createHash("sha256")
-    .update([target, commitSha.toLowerCase(), runId, runAttempt].join("\u0000"))
-    .digest("hex");
+  const digest = stableDigest([target, canonicalCommitSha, runId, runAttempt]);
   return assertValidDeploymentId(`m-${target}-${digest.slice(0, 19)}`);
 }
 
@@ -224,6 +278,23 @@ if (isCliEntrypoint()) {
         runAttempt: options["run-attempt"],
       })}\n`,
     );
+  } else if (command === "main-release-id") {
+    process.stdout.write(
+      `${generateVercelMainReleaseId({
+        repository: options.repository,
+        commitSha: options.sha,
+        upstreamRunId: options["upstream-run-id"],
+      })}\n`,
+    );
+  } else if (command === "main-candidate-deployment-id") {
+    process.stdout.write(
+      `${generateVercelMainCandidateDeploymentId({
+        repository: options.repository,
+        target: options.target,
+        commitSha: options.sha,
+        upstreamRunId: options["upstream-run-id"],
+      })}\n`,
+    );
   } else if (command === "assert-output") {
     assertPrebuiltDeploymentId(
       resolve(options.output ?? ".vercel/output"),
@@ -240,7 +311,7 @@ if (isCliEntrypoint()) {
     );
   } else {
     throw new Error(
-      "Usage: vercel-prebuilt.mjs deployment-id|assert-output|check-versions",
+      "Usage: vercel-prebuilt.mjs deployment-id|main-release-id|main-candidate-deployment-id|assert-output|check-versions",
     );
   }
 }

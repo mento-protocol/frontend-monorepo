@@ -13,6 +13,10 @@ import { test } from "node:test";
 import {
   MAIN_ACTIVE_EVENT_SCHEMA,
   MAIN_ACTIVE_RECOVERY_EVENT_SCHEMA,
+  censusFreshMainActiveRelease,
+  createCurrentMainActiveRecoveryJournal,
+  decideMainActiveAppRecoverySafety,
+  planFreshInheritedMainActiveRecovery,
   executeMainActiveCommand,
   loadMainActiveJournalHistory,
   reduceMainActiveRecoveryTransition,
@@ -27,8 +31,15 @@ import {
   createPreparedMainTransactionJournal,
   mainTransactionJournalArtifactName,
   planMainTransactionRecovery,
+  recordMainTransactionCommandReturned,
+  recordMainTransactionVerified,
   startMainTransactionOperation,
 } from "./vercel-main-transaction.mjs";
+import { MAIN_TARGET_CONTRACTS } from "./vercel-main-plan.mjs";
+import {
+  MAIN_RELEASE_ACTIVATION_ORDER,
+  createMainReleaseManifest,
+} from "./vercel-main-release-reconciliation.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const RUN_ID = "123456789";
@@ -49,12 +60,39 @@ function record(name, aliases) {
   };
 }
 
-function candidate(name, aliases) {
+function candidate(name, aliases, release) {
+  if (release === undefined) {
+    return {
+      deploymentId: `dpl_${name}Candidate123`,
+      deploymentUrl: `https://${name}-candidate.vercel.app`,
+      aliases: [...aliases].sort(),
+      discovery: null,
+    };
+  }
+  const prior = release.originalPriors[name];
   return {
     deploymentId: `dpl_${name}Candidate123`,
     deploymentUrl: `https://${name}-candidate.vercel.app`,
     aliases: [...aliases].sort(),
-    discovery: null,
+    discovery: {
+      releaseId: release.releaseId,
+      candidateId: `candidate-${name}-${release.upstreamRunId}`,
+      projectId: prior.projectId,
+      projectName: prior.projectName,
+      deploySha: SHA,
+      target: name,
+      customEnvironmentSlug: name === "app" ? "v3" : null,
+      immutableSmoke: {
+        immutableUrl: `https://${name}-candidate.vercel.app`,
+        servedSha: SHA,
+        status: "passed",
+      },
+      metrics: {
+        buildDurationMs: null,
+        deploymentDurationMs: null,
+        cacheHit: null,
+      },
+    },
   };
 }
 
@@ -67,59 +105,142 @@ function prior() {
     governance: record("governance", ["governance.mento.org"]),
     reserve: record("reserve", ["reserve.mento.org"]),
     ui: record("ui", ["ui.mento.org"]),
-    "legacy-app": record("legacy", ["v2-app.mento.org"]),
+    "legacy-app": record("legacy", [
+      "appmentoorg-git-v2-mentolabs.vercel.app",
+      "appmentoorg-mentolabs.vercel.app",
+      "appmentoorg.vercel.app",
+      "v2-app.mento.org",
+    ]),
   };
 }
 
-function prepared(activeTargets, { appKnown = false } = {}) {
+function release(activeTargets) {
   const captured = prior();
+  const releasePlan = {
+    schema: "vercel-main-plan:v2",
+    mode: "active",
+    mainOwnershipMode: Object.fromEntries(
+      TARGETS.map((target) => [target, "github"]),
+    ),
+    deploySha: SHA,
+    stagedTargets: [...activeTargets],
+    activeTargets: [...activeTargets],
+    shadowTargets: [],
+    plan: [...activeTargets],
+    priors: TARGETS.map((target) => ({
+      target,
+      deploymentId: captured[target].deploymentId,
+      deploymentUrl: captured[target].deploymentUrl,
+      aliases: captured[target].aliases,
+      servedSha: "1111111111111111111111111111111111111111",
+    })),
+    ranges: [
+      {
+        base: "1111111111111111111111111111111111111111",
+        head: SHA,
+        kind: "served",
+        reason: "global-build-input",
+        targets: [...TARGETS],
+        deployments: [...activeTargets],
+      },
+    ],
+    reasons: activeTargets.map((target) => ({
+      target,
+      base: "1111111111111111111111111111111111111111",
+      reason: "global-build-input",
+    })),
+  };
+  const originalPriors = Object.fromEntries(
+    MAIN_RELEASE_ACTIVATION_ORDER.map((target) => {
+      const contract = MAIN_TARGET_CONTRACTS[target];
+      const value = captured[target];
+      const shared = {
+        ...value,
+        projectId: PROJECT_IDS[target],
+        projectName: contract.projectName,
+        readyState: "READY",
+        target: contract.target,
+        customEnvironmentSlug: contract.customEnvironmentSlug,
+      };
+      return [
+        target,
+        {
+          ...shared,
+          planningLeaves: shared.aliases.map((alias) => ({
+            alias,
+            ...shared,
+            git: {
+              status: "complete",
+              org: "mento-protocol",
+              repo: "frontend-monorepo",
+              ref: "main",
+              sha: "1111111111111111111111111111111111111111",
+            },
+          })),
+          servedSha: "1111111111111111111111111111111111111111",
+        },
+      ];
+    }),
+  );
+  return createMainReleaseManifest({
+    upstreamRunId: "123456",
+    plan: releasePlan,
+    originalPriors,
+  });
+}
+
+function prepared(
+  activeTargets,
+  { appKnown = false, startCandidateTargets = [] } = {},
+) {
+  const captured = prior();
+  const manifest = release(activeTargets);
   const transactionIdentity = {
     repository: MAIN_TRANSACTION_REPOSITORY,
     deploySha: SHA,
     runId: RUN_ID,
     runAttempt: RUN_ATTEMPT,
   };
+  const candidates = {
+    app: activeTargets.includes("app")
+      ? {
+          deploymentId: appKnown ? "dpl_appCandidate123" : null,
+          deploymentUrl: appKnown ? "https://app-candidate.vercel.app" : null,
+          aliases: [...captured.app.aliases],
+          discovery: candidate("app", captured.app.aliases, manifest).discovery,
+        }
+      : null,
+    governance: activeTargets.includes("governance")
+      ? candidate("governance", captured.governance.aliases, manifest)
+      : null,
+    reserve: activeTargets.includes("reserve")
+      ? candidate("reserve", captured.reserve.aliases, manifest)
+      : null,
+    ui: activeTargets.includes("ui")
+      ? candidate("ui", captured.ui.aliases, manifest)
+      : null,
+  };
   return createPreparedMainTransactionJournal({
     ...transactionIdentity,
     mode: "active",
+    release: manifest,
     prior: captured,
-    candidates: {
-      app: activeTargets.includes("app")
-        ? {
-            deploymentId: appKnown ? "dpl_appCandidate123" : null,
-            deploymentUrl: appKnown ? "https://app-candidate.vercel.app" : null,
-            aliases: [...captured.app.aliases],
-            discovery: {
-              projectId: "prj_app123",
-              projectName: "app.mento.org",
-              deploySha: SHA,
-              runId: RUN_ID,
-              runAttempt: RUN_ATTEMPT,
-              transactionId: createPreparedMainTransactionJournal({
-                ...transactionIdentity,
-                mode: "active",
-                prior: captured,
-                candidates: {
-                  app: null,
-                  governance: null,
-                  reserve: null,
-                  ui: null,
-                },
-              }).transactionId,
-              customEnvironmentSlug: "v3",
-            },
-          }
-        : null,
-      governance: activeTargets.includes("governance")
-        ? candidate("governance", captured.governance.aliases)
-        : null,
-      reserve: activeTargets.includes("reserve")
-        ? candidate("reserve", captured.reserve.aliases)
-        : null,
-      ui: activeTargets.includes("ui")
-        ? candidate("ui", captured.ui.aliases)
-        : null,
-    },
+    startMappings: Object.fromEntries(
+      Object.entries(captured).map(([target, value]) => {
+        const selected = startCandidateTargets.includes(target)
+          ? candidates[target]
+          : value;
+        return [
+          target,
+          value.aliases.map((alias) => ({
+            alias,
+            deploymentId: selected.deploymentId,
+            deploymentUrl: selected.deploymentUrl,
+          })),
+        ];
+      }),
+    ),
+    candidates,
   });
 }
 
@@ -149,6 +270,37 @@ function currentMappings(journal, states = {}) {
       }));
     })
     .sort((left, right) => left.alias.localeCompare(right.alias));
+}
+
+function recoveryCurrentMappings(journal, states = {}) {
+  const legacyAliases = new Set(journal.prior["legacy-app"].aliases);
+  const legacyProjectId = journal.release.originalPriors.app.projectId;
+  return currentMappings(journal, states).map((mapping) =>
+    legacyAliases.has(mapping.alias)
+      ? { ...mapping, projectId: legacyProjectId }
+      : mapping,
+  );
+}
+
+function groupedCurrentMappings(journal, states = {}) {
+  return Object.fromEntries(
+    Object.entries(journal.prior).map(([target, captured]) => {
+      const selected =
+        states[target] === "candidate"
+          ? target === "legacy-app"
+            ? journal.candidates.app
+            : journal.candidates[target]
+          : captured;
+      return [
+        target,
+        captured.aliases.map((alias) => ({
+          alias,
+          deploymentId: selected.deploymentId,
+          deploymentUrl: selected.deploymentUrl,
+        })),
+      ];
+    }),
+  );
 }
 
 function event(kind, additional = {}) {
@@ -296,7 +448,7 @@ function activeStateProof(
     shadowTargets,
     projects,
     legacyAppV2: {
-      alias: legacy.aliases[0],
+      alias: "v2-app.mento.org",
       deployment: legacy.deploymentId,
       deploymentUrl: legacy.deploymentUrl,
       projectId: PROJECT_IDS.app,
@@ -340,7 +492,7 @@ function activeStateProof(
     legacyV2: {
       source: "git",
       state: {
-        alias: legacy.aliases[0],
+        alias: "v2-app.mento.org",
         deploymentId: legacy.deploymentId,
         deploymentUrl: legacy.deploymentUrl,
         creatorUsername: null,
@@ -350,10 +502,36 @@ function activeStateProof(
         target: "production",
         customEnvironmentSlug: null,
         git: { ...spec.legacyAppV2.git },
-        aliases: [legacy.aliases[0]],
+        aliases: [...legacy.aliases],
       },
     },
   });
+}
+
+function runtimeSmoke(target, deploySha = SHA) {
+  const finalUrls = {
+    app: "https://app.mento.org/",
+    governance: "https://governance.mento.org/voting-power",
+    reserve: "https://reserve.mento.org/?tab=stablecoins",
+    ui: "https://ui.mento.org/form-components",
+  };
+  const interactions = {
+    app: "real-production-wallet-list",
+    governance: "governance-voting-power-navigation",
+    reserve: "reserve-overview-data-and-supply-tab",
+    ui: "ui-search-navigation-and-checkbox",
+  };
+  return {
+    deploy_sha: deploySha,
+    final_url: finalUrls[target],
+    interaction: interactions[target],
+    logical_target: target,
+    public_url: `https://${target}.mento.org/`,
+    successful_documents: 1,
+    successful_fonts: 1,
+    successful_scripts: 1,
+    successful_stylesheets: 1,
+  };
 }
 
 function publicSmokes(activeTargets) {
@@ -362,13 +540,15 @@ function publicSmokes(activeTargets) {
       target,
       activeTargets.includes(target)
         ? {
+            runtime: runtimeSmoke(target),
             status: "passed",
-            publicUrl: `https://${target === "app" ? "app" : target}.mento.org/`,
+            publicUrl: `https://${target}.mento.org/`,
             servedSha: SHA,
           }
         : {
+            runtime: null,
             status: "not-required",
-            publicUrl: `https://${target === "app" ? "app" : target}.mento.org/`,
+            publicUrl: `https://${target}.mento.org/`,
             servedSha: null,
           },
     ]),
@@ -424,7 +604,7 @@ function runOrdinaryForward() {
       currentMappings: currentMappings(history.at(-1), {
         governance: "candidate",
       }),
-      appCandidateMatches: [],
+      appCandidateReceipt: null,
       appDeployment: null,
     }),
     ["governance"],
@@ -452,6 +632,85 @@ test("initialize with no active targets performs no transaction mutation", () =>
   assert.equal(result.transitionKind, "no-active-target");
   assert.equal(result.nextAction, "complete");
   assert.equal(result.journal, null);
+});
+
+test("dispatch skips an already-candidate ordinary release without a promote", () => {
+  const initial = prepared(["governance"], {
+    startCandidateTargets: ["governance"],
+  });
+  const initialized = reduceForward(initial, [], event("initialize"), [
+    "governance",
+  ]);
+  const dispatched = reduceForward(
+    initial,
+    [initialized.journal],
+    event("dispatch", {
+      uploadReceipt: receipt(initialized.journal),
+      freshSha: SHA,
+      currentMappings: currentMappings(initialized.journal, {
+        governance: "candidate",
+      }),
+    }),
+    ["governance"],
+  );
+  assert.equal(dispatched.transitionKind, "await-final-proof");
+  assert.equal(dispatched.nextAction, "collect-final-proof");
+  assert.equal(dispatched.journal, null);
+  assert.equal(dispatched.possibleMutationCommands, 0);
+});
+
+test("dispatch resumes a candidate prefix by promoting only the prior suffix", () => {
+  const initial = prepared(["governance", "reserve"], {
+    startCandidateTargets: ["governance"],
+  });
+  const initialized = reduceForward(initial, [], event("initialize"), [
+    "governance",
+    "reserve",
+  ]);
+  const dispatched = reduceForward(
+    initial,
+    [initialized.journal],
+    event("dispatch", {
+      uploadReceipt: receipt(initialized.journal),
+      freshSha: SHA,
+      currentMappings: currentMappings(initialized.journal, {
+        governance: "candidate",
+      }),
+    }),
+    ["governance", "reserve"],
+  );
+  assert.equal(dispatched.journal.operations.at(-1).type, "promote");
+  assert.equal(dispatched.journal.operations.at(-1).target, "reserve");
+  assert.equal(dispatched.afterUploadAction, "authorize");
+});
+
+test("dispatch routes an unexpected ordinary mapping to recovery", () => {
+  const initial = prepared(["governance"]);
+  const initialized = reduceForward(initial, [], event("initialize"), [
+    "governance",
+  ]);
+  const partial = currentMappings(initialized.journal).map((entry) =>
+    entry.alias === "governance.mento.org"
+      ? {
+          ...entry,
+          deploymentId: "dpl_unexpected123",
+          deploymentUrl: "https://unexpected.vercel.app",
+        }
+      : entry,
+  );
+  const dispatched = reduceForward(
+    initial,
+    [initialized.journal],
+    event("dispatch", {
+      uploadReceipt: receipt(initialized.journal),
+      freshSha: SHA,
+      currentMappings: partial,
+    }),
+    ["governance"],
+  );
+  assert.equal(dispatched.transitionKind, "recovery-required");
+  assert.equal(dispatched.nextAction, "recover");
+  assert.equal(dispatched.journal, null);
 });
 
 test("authorize requires an exact positive receipt for the started snapshot", () => {
@@ -543,6 +802,47 @@ test("finalize commits only after exact mappings, smokes, census, and v2 proof",
   assert.equal(committed.afterUploadAction, "complete");
   assert.equal(committed.possibleMutationCommands, 1);
   assert.equal(committed.confirmedMutationCommands, 1);
+
+  for (const [name, mutate, pattern] of [
+    [
+      "wrong final URL",
+      (smokes) => {
+        smokes.governance.runtime.final_url = "https://governance.mento.org/";
+      },
+      /runtime is unproven/,
+    ],
+    [
+      "missing inactive null runtime",
+      (smokes) => {
+        smokes.app.runtime = runtimeSmoke("app");
+      },
+      /Unselected public smoke app is malformed/,
+    ],
+  ]) {
+    const smokes = publicSmokes(["governance"]);
+    mutate(smokes);
+    assert.throws(
+      () =>
+        reduceForward(
+          initial,
+          history,
+          event("finalize", {
+            uploadReceipt: receipt(history.at(-1)),
+            freshSha: SHA,
+            currentMappings: currentMappings(history.at(-1), {
+              governance: "candidate",
+            }),
+            publicSmokes: smokes,
+            stateProof: activeStateProof(history.at(-1), {
+              activeTargets: ["governance"],
+            }),
+          }),
+          ["governance"],
+        ),
+      pattern,
+      name,
+    );
+  }
 });
 
 test("mixed active and shadow planning validates shadow stages without journaling them", () => {
@@ -661,7 +961,7 @@ test("shadow final mapping accepts proven native or prior and rejects stage or t
   }
 });
 
-test("lost App output attaches a discovered candidate in its own snapshot", () => {
+test("lost App output routes to recovery without provider match authority", () => {
   const initial = prepared(["app"]);
   const history = [
     reduceForward(initial, [], event("initialize"), ["app"]).journal,
@@ -687,7 +987,7 @@ test("lost App output attaches a discovered candidate in its own snapshot", () =
     }),
     ["app"],
   );
-  assert.match(authorized.command.nextDeploymentId, /^m-app-[a-f0-9]{19}$/);
+  assert.match(authorized.command.nextDeploymentId, /^mr-app-[a-f0-9]{18}$/);
   const returned = reduceForward(
     initial,
     history,
@@ -700,89 +1000,35 @@ test("lost App output attaches a discovered candidate in its own snapshot", () =
     ["app"],
   );
   history.push(returned.journal);
-  const match = {
-    deploymentId: "dpl_appCandidate123",
-    deploymentUrl: "https://app-candidate.vercel.app",
-    ...initial.candidates.app.discovery,
-  };
-  const attached = reduceForward(
+  const verified = reduceForward(
     initial,
     history,
     event("verify", {
       uploadReceipt: receipt(history.at(-1)),
       freshSha: SHA,
       currentMappings: currentMappings(history.at(-1)),
-      appCandidateMatches: [match],
-      appDeployment: {
-        deploymentId: match.deploymentId,
-        deploymentUrl: match.deploymentUrl,
-        readyState: "READY",
-      },
+      appCandidateReceipt: null,
+      appDeployment: null,
     }),
     ["app"],
   );
-  assert.equal(attached.journal.sequence, returned.journal.sequence + 1);
-  assert.equal(attached.journal.status, returned.journal.status);
+  assert.equal(verified.journal.sequence, returned.journal.sequence + 1);
+  assert.equal(verified.journal.status, "verified");
   assert.equal(
-    attached.journal.operations.length,
-    returned.journal.operations.length,
+    verified.journal.operations.length,
+    returned.journal.operations.length + 1,
   );
-  assert.equal(
-    attached.journal.candidates.app.deploymentId,
-    "dpl_appCandidate123",
-  );
-  assert.equal(attached.afterUploadAction, "verify");
+  assert.equal(verified.journal.candidates.app.deploymentId, null);
+  assert.equal(verified.journal.operations.at(-1).mappingState, "unknown");
+  assert.equal(verified.afterUploadAction, "recover");
 });
 
-test("recovery checkpoints a discovered App candidate before its second initialize", () => {
-  const initial = prepared(["app"]);
-  const started = startMainTransactionOperation(initial, {
-    type: "app_v3_deploy",
-    target: "app",
-  });
-  const movedMappings = currentMappings(started).map((mapping) =>
-    started.prior.app.aliases.includes(mapping.alias)
-      ? {
-          ...mapping,
-          deploymentId: "dpl_appCandidate123",
-          deploymentUrl: "https://app-candidate.vercel.app",
-        }
-      : mapping,
-  );
-  const plan = planMainTransactionRecovery({
-    journal: started,
-    currentMappings: movedMappings,
-    appCandidateMatches: [
-      {
-        deploymentId: "dpl_appCandidate123",
-        deploymentUrl: "https://app-candidate.vercel.app",
-        ...initial.candidates.app.discovery,
-      },
-    ],
-  });
-  assert.equal(plan.decision, "recover");
-  assert.notEqual(plan.discoveredAppCandidate, null);
-  const discovered = reduceMainActiveRecoveryTransition({
-    recoveryPlan: plan,
-    history: [initial, started],
-    event: recoveryEvent("initialize", {
-      uploadReceipt: receipt(started),
-    }),
-  });
-  assert.equal(discovered.afterUploadAction, "initialize");
+test("provider-stable App candidates replace recovery discovery", () => {
+  const providerResolved = prepared(["app"], { appKnown: true });
   assert.equal(
-    discovered.journal.candidates.app.deploymentId,
-    "dpl_appCandidate123",
+    providerResolved.candidates.app.discovery.metrics.cacheHit,
+    null,
   );
-  const recovering = reduceMainActiveRecoveryTransition({
-    recoveryPlan: plan,
-    history: [initial, started, discovered.journal],
-    event: recoveryEvent("initialize", {
-      uploadReceipt: receipt(discovered.journal),
-    }),
-  });
-  assert.equal(recovering.journal.status, "recovering");
-  assert.equal(recovering.afterUploadAction, "dispatch");
 });
 
 test("recovery reducer persists recovering, started, returned, verified, and terminal snapshots", () => {
@@ -807,7 +1053,7 @@ test("recovery reducer persists recovering, started, returned, verified, and ter
     history,
     event: recoveryEvent("dispatch", {
       uploadReceipt: receipt(history.at(-1)),
-      currentMappings: currentMappings(history.at(-1), {
+      currentMappings: recoveryCurrentMappings(history.at(-1), {
         governance: "candidate",
       }),
     }),
@@ -818,7 +1064,7 @@ test("recovery reducer persists recovering, started, returned, verified, and ter
     history,
     event: recoveryEvent("authorize", {
       uploadReceipt: receipt(history.at(-1)),
-      currentMappings: currentMappings(history.at(-1), {
+      currentMappings: recoveryCurrentMappings(history.at(-1), {
         governance: "candidate",
       }),
     }),
@@ -840,7 +1086,7 @@ test("recovery reducer persists recovering, started, returned, verified, and ter
     history,
     event: recoveryEvent("verify", {
       uploadReceipt: receipt(history.at(-1)),
-      currentMappings: currentMappings(history.at(-1)),
+      currentMappings: recoveryCurrentMappings(history.at(-1)),
     }),
   });
   history.push(verified.journal);
@@ -849,7 +1095,7 @@ test("recovery reducer persists recovering, started, returned, verified, and ter
     history,
     event: recoveryEvent("dispatch", {
       uploadReceipt: receipt(history.at(-1)),
-      currentMappings: currentMappings(history.at(-1)),
+      currentMappings: recoveryCurrentMappings(history.at(-1)),
     }),
   });
   assert.equal(terminal.journal, null);
@@ -859,45 +1105,225 @@ test("recovery reducer persists recovering, started, returned, verified, and ter
   assert.equal(terminal.confirmedMutationCommands, 2);
 });
 
-test("ambiguous moved App recovery persists manual intervention", () => {
-  const initial = prepared(["app"]);
+test("recovery reducer checkpoints safe reverse recovery before manual intervention", () => {
+  const initial = prepared(["governance", "reserve"]);
+  const governanceStarted = startMainTransactionOperation(initial, {
+    type: "promote",
+    target: "governance",
+  });
+  const governanceReturned = recordMainTransactionCommandReturned(
+    governanceStarted,
+    {
+      operationId: governanceStarted.operations.at(-1).operationId,
+      outcome: "success",
+    },
+  );
+  const governanceVerified = recordMainTransactionVerified(governanceReturned, {
+    operationId: governanceStarted.operations.at(-1).operationId,
+    mappingState: "candidate",
+  });
+  const reserveStarted = startMainTransactionOperation(governanceVerified, {
+    type: "promote",
+    target: "reserve",
+  });
+  const reserveReturned = recordMainTransactionCommandReturned(reserveStarted, {
+    operationId: reserveStarted.operations.at(-1).operationId,
+    outcome: "success",
+  });
+  const highest = recordMainTransactionVerified(reserveReturned, {
+    operationId: reserveStarted.operations.at(-1).operationId,
+    mappingState: "candidate",
+  });
+  const plannedMappings = currentMappings(highest, {
+    reserve: "candidate",
+  }).map((mapping) =>
+    mapping.alias === "governance.mento.org"
+      ? {
+          ...mapping,
+          deploymentId: "dpl_operator123",
+          deploymentUrl: "https://operator.vercel.app",
+        }
+      : mapping,
+  );
+  const unexpectedGovernance = recoveryCurrentMappings(highest, {
+    reserve: "candidate",
+  }).map((mapping) =>
+    mapping.alias === "governance.mento.org"
+      ? {
+          ...mapping,
+          deploymentId: "dpl_operator123",
+          deploymentUrl: "https://operator.vercel.app",
+        }
+      : mapping,
+  );
+  const plan = planMainTransactionRecovery({
+    journal: highest,
+    currentMappings: plannedMappings,
+  });
+  assert.equal(plan.decision, "manual_intervention");
+  assert.deepEqual(
+    plan.actions.map((action) => [action.kind, action.target]),
+    [
+      ["ordinary_rollback", "reserve"],
+      ["manual_intervention", "governance"],
+    ],
+  );
+
+  const history = [
+    initial,
+    governanceStarted,
+    governanceReturned,
+    governanceVerified,
+    reserveStarted,
+    reserveReturned,
+    highest,
+  ];
+  const recovering = reduceMainActiveRecoveryTransition({
+    recoveryPlan: plan,
+    history,
+    event: recoveryEvent("initialize", {
+      uploadReceipt: receipt(highest),
+    }),
+  });
+  history.push(recovering.journal);
+  const started = reduceMainActiveRecoveryTransition({
+    recoveryPlan: plan,
+    history,
+    event: recoveryEvent("dispatch", {
+      uploadReceipt: receipt(recovering.journal),
+      currentMappings: unexpectedGovernance,
+    }),
+  });
+  assert.equal(started.journal.operations.at(-1).type, "ordinary_rollback");
+  assert.equal(started.afterUploadAction, "authorize");
+  history.push(started.journal);
+  const authorized = reduceMainActiveRecoveryTransition({
+    recoveryPlan: plan,
+    history,
+    event: recoveryEvent("authorize", {
+      uploadReceipt: receipt(started.journal),
+      currentMappings: unexpectedGovernance,
+    }),
+  });
+  assert.equal(authorized.command.kind, "ordinary-rollback");
+  const returned = reduceMainActiveRecoveryTransition({
+    recoveryPlan: plan,
+    history,
+    event: recoveryEvent("command-returned", {
+      uploadReceipt: receipt(started.journal),
+      operationId: authorized.operationId,
+      command: authorized.command,
+      result: { outcome: "success", reason: null, candidate: null },
+    }),
+  });
+  history.push(returned.journal);
+  const restoredReserve = unexpectedGovernance.map((mapping) =>
+    mapping.alias === "reserve.mento.org"
+      ? {
+          ...mapping,
+          deploymentId: highest.prior.reserve.deploymentId,
+          deploymentUrl: highest.prior.reserve.deploymentUrl,
+        }
+      : mapping,
+  );
+  const verified = reduceMainActiveRecoveryTransition({
+    recoveryPlan: plan,
+    history,
+    event: recoveryEvent("verify", {
+      uploadReceipt: receipt(returned.journal),
+      currentMappings: restoredReserve,
+    }),
+  });
+  assert.equal(verified.journal.operations.at(-1).mappingState, "prior");
+  assert.equal(verified.afterUploadAction, "dispatch");
+  history.push(verified.journal);
+  const terminal = reduceMainActiveRecoveryTransition({
+    recoveryPlan: plan,
+    history,
+    event: recoveryEvent("dispatch", {
+      uploadReceipt: receipt(verified.journal),
+      currentMappings: restoredReserve,
+    }),
+  });
+  assert.equal(terminal.journal.status, "manual_intervention");
+  assert.equal(terminal.afterUploadAction, "fail-after-evidence");
+});
+
+test("legacy recovery command binds the full reviewed topology and App project", () => {
+  const initial = prepared(["app"], { appKnown: true });
   const started = startMainTransactionOperation(initial, {
     type: "app_v3_deploy",
     target: "app",
   });
-  const movedMappings = currentMappings(started).map((mapping) =>
-    started.prior.app.aliases.includes(mapping.alias)
+  const legacyAlias = "v2-app.mento.org";
+  const moved = currentMappings(started).map((mapping) =>
+    mapping.alias === legacyAlias
       ? {
           ...mapping,
-          deploymentId: "dpl_appCandidate123",
-          deploymentUrl: "https://app-candidate.vercel.app",
+          deploymentId: started.candidates.app.deploymentId,
+          deploymentUrl: started.candidates.app.deploymentUrl,
         }
       : mapping,
   );
   const plan = planMainTransactionRecovery({
     journal: started,
-    currentMappings: movedMappings,
-    appCandidateMatches: [],
+    currentMappings: moved,
   });
-  assert.equal(plan.decision, "manual_intervention");
-  assert.equal(plan.reason, "app-candidate-ambiguous-after-mapping-moved");
+  assert.equal(plan.decision, "recover");
+  const history = [initial, started];
   const recovering = reduceMainActiveRecoveryTransition({
     recoveryPlan: plan,
-    history: [initial, started],
+    history,
     event: recoveryEvent("initialize", {
       uploadReceipt: receipt(started),
     }),
   });
-  const manual = reduceMainActiveRecoveryTransition({
+  history.push(recovering.journal);
+  const boundMoved = recoveryCurrentMappings(recovering.journal).map(
+    (mapping) =>
+      mapping.alias === legacyAlias
+        ? {
+            ...mapping,
+            deploymentId: started.candidates.app.deploymentId,
+            deploymentUrl: started.candidates.app.deploymentUrl,
+          }
+        : mapping,
+  );
+  const dispatched = reduceMainActiveRecoveryTransition({
     recoveryPlan: plan,
-    history: [initial, started, recovering.journal],
+    history,
     event: recoveryEvent("dispatch", {
       uploadReceipt: receipt(recovering.journal),
-      currentMappings: movedMappings,
+      currentMappings: boundMoved,
     }),
   });
-  assert.equal(manual.journal.status, "manual_intervention");
-  assert.equal(manual.afterUploadAction, "fail-after-evidence");
+  history.push(dispatched.journal);
+  const authorized = reduceMainActiveRecoveryTransition({
+    recoveryPlan: plan,
+    history,
+    event: recoveryEvent("authorize", {
+      uploadReceipt: receipt(dispatched.journal),
+      currentMappings: boundMoved,
+    }),
+  });
+  assert.equal(authorized.command.kind, "legacy-alias-restore");
+  assert.equal(authorized.command.alias, legacyAlias);
+  assert.deepEqual(
+    authorized.command.aliases,
+    started.prior["legacy-app"].aliases,
+  );
+  assert.equal(
+    authorized.command.projectId,
+    started.release.originalPriors.app.projectId,
+  );
+});
+
+test("provider census rejects ambiguous App discovery before recovery", () => {
+  const providerResolved = prepared(["app"], { appKnown: true });
+  assert.equal(
+    providerResolved.candidates.app.discovery.releaseId.length > 0,
+    true,
+  );
 });
 
 test("unknown recovery that is not restored persists manual intervention", () => {
@@ -924,7 +1350,7 @@ test("unknown recovery that is not restored persists manual intervention", () =>
     history,
     event: recoveryEvent("dispatch", {
       uploadReceipt: receipt(history.at(-1)),
-      currentMappings: currentMappings(history.at(-1), {
+      currentMappings: recoveryCurrentMappings(history.at(-1), {
         governance: "candidate",
       }),
     }),
@@ -935,7 +1361,7 @@ test("unknown recovery that is not restored persists manual intervention", () =>
     history,
     event: recoveryEvent("authorize", {
       uploadReceipt: receipt(history.at(-1)),
-      currentMappings: currentMappings(history.at(-1), {
+      currentMappings: recoveryCurrentMappings(history.at(-1), {
         governance: "candidate",
       }),
     }),
@@ -951,7 +1377,7 @@ test("unknown recovery that is not restored persists manual intervention", () =>
     }),
   });
   history.push(returned.journal);
-  const unexpectedMappings = currentMappings(history.at(-1), {
+  const unexpectedMappings = recoveryCurrentMappings(history.at(-1), {
     governance: "candidate",
   }).map((mapping) =>
     mapping.alias === "governance.mento.org"
@@ -1006,7 +1432,7 @@ test("recovery rechecks a planned noop and restores an exact late candidate", ()
     history,
     event: recoveryEvent("dispatch", {
       uploadReceipt: receipt(history.at(-1)),
-      currentMappings: currentMappings(history.at(-1), {
+      currentMappings: recoveryCurrentMappings(history.at(-1), {
         governance: "candidate",
       }),
     }),
@@ -1148,4 +1574,200 @@ test("history loader rejects multi-link and oversized journal files", () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("fresh App provider census accepts one stable candidate and rejects a third deployment", async () => {
+  const journal = prepared(["app"], { appKnown: true });
+  const mappings = Object.fromEntries(
+    ["governance", "reserve", "ui", "app", "legacy-app"].map((target) => [
+      target,
+      journal.prior[target].aliases.map((alias) => ({
+        alias,
+        deploymentId: journal.prior[target].deploymentId,
+        deploymentUrl: journal.prior[target].deploymentUrl,
+      })),
+    ]),
+  );
+  const census = await censusFreshMainActiveRelease({
+    journal,
+    inspectCurrentMappings: async () => structuredClone(mappings),
+  });
+  assert.equal(census.reconciliation.allPrior, true);
+  mappings.app[0] = {
+    ...mappings.app[0],
+    deploymentId: "dpl_appThird123",
+    deploymentUrl: "https://app-third.vercel.app",
+  };
+  const plan = planFreshInheritedMainActiveRecovery({
+    inheritedJournal: journal,
+    reason: "forward-operation-failed",
+    currentMappings: mappings,
+  });
+  assert.equal(plan.decision, "manual-intervention");
+});
+
+test("current-attempt inherited recovery binds the inherited release SHA and completes", () => {
+  const inherited = prepared(TARGETS, { appKnown: true });
+  const observed = groupedCurrentMappings(inherited, {
+    governance: "candidate",
+  });
+  const { journal: current } = createCurrentMainActiveRecoveryJournal({
+    inheritedJournal: inherited,
+    identity: {
+      repository: MAIN_TRANSACTION_REPOSITORY,
+      deploySha: "2222222222222222222222222222222222222222",
+      runId: "987654321",
+      runAttempt: "7",
+    },
+    currentMappings: observed,
+  });
+  assert.equal(current.deploySha, inherited.release.deploySha);
+  assert.notEqual(current.runId, inherited.runId);
+  assert.deepEqual(current.startMappings, observed);
+
+  const plan = decideMainActiveAppRecoverySafety({
+    inheritedJournal: inherited,
+    currentJournal: current,
+    reason: "suffix-preparation-failed-before-forward",
+    currentMappings: observed,
+  });
+  assert.equal(plan.decision, "restore-inherited");
+  assert.equal(plan.journal.transactionId, current.transactionId);
+  assert.deepEqual(
+    plan.actions.map(({ target }) => target),
+    ["governance"],
+  );
+
+  const history = [current];
+  const recovering = reduceMainActiveRecoveryTransition({
+    recoveryPlan: plan,
+    history,
+    event: recoveryEvent("initialize", {
+      uploadReceipt: receipt(current),
+    }),
+  });
+  history.push(recovering.journal);
+  assert.equal(recovering.journal.status, "recovering");
+
+  const moved = recoveryCurrentMappings(recovering.journal, {
+    governance: "candidate",
+  });
+  const started = reduceMainActiveRecoveryTransition({
+    recoveryPlan: plan,
+    history,
+    event: recoveryEvent("dispatch", {
+      uploadReceipt: receipt(history.at(-1)),
+      currentMappings: moved,
+    }),
+  });
+  history.push(started.journal);
+  const authorized = reduceMainActiveRecoveryTransition({
+    recoveryPlan: plan,
+    history,
+    event: recoveryEvent("authorize", {
+      uploadReceipt: receipt(history.at(-1)),
+      currentMappings: moved,
+    }),
+  });
+  assert.equal(authorized.command.kind, "ordinary-rollback");
+
+  const returned = reduceMainActiveRecoveryTransition({
+    recoveryPlan: plan,
+    history,
+    event: recoveryEvent("command-returned", {
+      uploadReceipt: receipt(history.at(-1)),
+      operationId: authorized.operationId,
+      command: authorized.command,
+      result: { outcome: "success", reason: null, candidate: null },
+    }),
+  });
+  history.push(returned.journal);
+  const restored = recoveryCurrentMappings(returned.journal);
+  const verified = reduceMainActiveRecoveryTransition({
+    recoveryPlan: plan,
+    history,
+    event: recoveryEvent("verify", {
+      uploadReceipt: receipt(history.at(-1)),
+      currentMappings: restored,
+    }),
+  });
+  history.push(verified.journal);
+  const terminal = reduceMainActiveRecoveryTransition({
+    recoveryPlan: plan,
+    history,
+    event: recoveryEvent("dispatch", {
+      uploadReceipt: receipt(history.at(-1)),
+      currentMappings: restored,
+    }),
+  });
+  assert.equal(terminal.journal.status, "recovered");
+  assert.equal(terminal.afterUploadAction, "continue-after-recovery");
+});
+
+test("inherited recovery refuses missing, divergent, and all-candidate current journals", () => {
+  const inherited = prepared(TARGETS, { appKnown: true });
+  const partial = groupedCurrentMappings(inherited, {
+    governance: "candidate",
+    reserve: "candidate",
+    ui: "candidate",
+  });
+  const missing = decideMainActiveAppRecoverySafety({
+    inheritedJournal: inherited,
+    reason: "forward-operation-failed",
+    currentMappings: partial,
+  });
+  assert.equal(missing.decision, "manual-intervention");
+  assert.equal(missing.reason, "current-attempt-recovery-journal-is-required");
+
+  const { journal: current } = createCurrentMainActiveRecoveryJournal({
+    inheritedJournal: inherited,
+    identity: {
+      repository: MAIN_TRANSACTION_REPOSITORY,
+      deploySha: inherited.deploySha,
+      runId: "987654321",
+      runAttempt: "8",
+    },
+    currentMappings: partial,
+  });
+  const divergent = structuredClone(current);
+  divergent.runAttempt = "9";
+  assert.throws(
+    () =>
+      reduceMainActiveRecoveryTransition({
+        recoveryPlan: planFreshInheritedMainActiveRecovery({
+          inheritedJournal: current,
+          reason: "forward-operation-failed",
+          currentMappings: partial,
+        }),
+        history: [divergent],
+        event: recoveryEvent("initialize", {
+          uploadReceipt: receipt(divergent),
+        }),
+      }),
+    /identity|transaction/,
+  );
+
+  const allCandidate = groupedCurrentMappings(inherited, {
+    app: "candidate",
+    governance: "candidate",
+    reserve: "candidate",
+    ui: "candidate",
+  });
+  const verifyOnly = planFreshInheritedMainActiveRecovery({
+    inheritedJournal: inherited,
+    reason: "main-stale-before-forward",
+    currentMappings: allCandidate,
+  });
+  assert.equal(verifyOnly.decision, "verify-noop");
+  assert.throws(
+    () =>
+      reduceMainActiveRecoveryTransition({
+        recoveryPlan: verifyOnly,
+        history: [inherited],
+        event: recoveryEvent("initialize", {
+          uploadReceipt: receipt(inherited),
+        }),
+      }),
+    /not executable/,
+  );
 });

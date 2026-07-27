@@ -6,12 +6,14 @@ import {
   MAIN_TRANSACTION_MODE,
   MAIN_TRANSACTION_REPOSITORY,
   MainTransactionError,
+  assertMainInheritedTransactionRecoveryPlan,
   assertMainTransactionJournal,
   assertMainTransactionJournalHistory,
   attachDiscoveredAppCandidate,
+  attachMainTransactionAppCandidateReceipt,
   classifyMainTransactionMapping,
   createMainTransactionId,
-  createPreparedMainTransactionJournal,
+  createPreparedMainTransactionJournal as createPreparedMainTransactionJournalImpl,
   decideMainTransactionRecovery,
   executeJournaledMainMutation,
   executeMainTransactionRecovery,
@@ -19,15 +21,28 @@ import {
   mainTransactionJournalArtifactName,
   markMainTransactionCommitted,
   persistMainTransactionJournal,
+  planInheritedMainTransactionRecovery,
   planMainTransactionRecovery,
   recordMainTransactionCommandReturned,
   recordMainTransactionVerified,
   resolveUniqueAppTransactionCandidate,
-  runMainTransaction,
+  runMainTransaction as runMainTransactionImpl,
   selectHighestMainTransactionJournal,
   startMainTransactionOperation,
+  startInheritedMainTransactionRecovery,
   startMainTransactionRecovery,
 } from "./vercel-main-transaction.mjs";
+import { MAIN_TARGET_CONTRACTS } from "./vercel-main-plan.mjs";
+import {
+  createMainReleaseManifest,
+  MAIN_RELEASE_ACTIVATION_ORDER,
+} from "./vercel-main-release-reconciliation.mjs";
+import {
+  canonicalizeMainCandidateVercelMetadata,
+  createMainCandidateIntent,
+  createMainCandidateReceipt,
+  createMainCandidateVercelMetadata,
+} from "./vercel-main-candidate.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const OTHER_SHA = "abcdef0123456789abcdef0123456789abcdef01";
@@ -37,6 +52,7 @@ const identity = Object.freeze({
   runId: "987654321",
   runAttempt: "2",
 });
+const TARGET_ORDER = Object.freeze(["app", "governance", "reserve", "ui"]);
 
 function deploymentRecord(name, aliases) {
   return {
@@ -46,12 +62,123 @@ function deploymentRecord(name, aliases) {
   };
 }
 
-function candidateRecord(name, aliases) {
+function releasePrior(target) {
+  const contract = MAIN_TARGET_CONTRACTS[target];
+  const aliases = [...contract.aliases].sort();
+  const shared = {
+    deploymentId: `dpl_${target}Prior123`,
+    deploymentUrl: `https://${target}-prior.vercel.app`,
+    aliases,
+    projectId: `prj_${target}123`,
+    projectName: contract.projectName,
+    readyState: "READY",
+    target: contract.target,
+    customEnvironmentSlug: contract.customEnvironmentSlug,
+  };
+  return {
+    ...shared,
+    planningLeaves: aliases.map((alias) => ({
+      alias,
+      ...shared,
+      git: {
+        status: "complete",
+        org: "mento-protocol",
+        repo: "frontend-monorepo",
+        ref: "main",
+        sha: OTHER_SHA,
+      },
+    })),
+    servedSha: OTHER_SHA,
+  };
+}
+
+function releasePlan(activeTargets = TARGET_ORDER, mode = "active") {
+  const active =
+    mode === "shadow"
+      ? []
+      : TARGET_ORDER.filter((target) => activeTargets.includes(target));
+  const shadow = TARGET_ORDER.filter((target) => !active.includes(target));
+  return {
+    schema: "vercel-main-plan:v2",
+    mode,
+    mainOwnershipMode: Object.fromEntries(
+      TARGET_ORDER.map((target) => [
+        target,
+        active.includes(target) ? "github" : "shadow",
+      ]),
+    ),
+    deploySha: SHA,
+    stagedTargets: [...TARGET_ORDER],
+    activeTargets: active,
+    shadowTargets: shadow,
+    plan: [...TARGET_ORDER],
+    priors: TARGET_ORDER.map((target) => ({
+      target,
+      deploymentId: `dpl_${target}Prior123`,
+      deploymentUrl: `https://${target}-prior.vercel.app`,
+      aliases: [...MAIN_TARGET_CONTRACTS[target].aliases],
+      servedSha: OTHER_SHA,
+    })),
+    ranges: [
+      {
+        base: OTHER_SHA,
+        head: SHA,
+        kind: "served",
+        reason: "global-build-input",
+        targets: [...TARGET_ORDER],
+        deployments: [...TARGET_ORDER],
+      },
+    ],
+    reasons: TARGET_ORDER.map((target) => ({
+      target,
+      base: OTHER_SHA,
+      reason: "global-build-input",
+    })),
+  };
+}
+
+function releaseForTargets(activeTargets = TARGET_ORDER, mode = "active") {
+  return createMainReleaseManifest({
+    upstreamRunId: "700",
+    plan: releasePlan(activeTargets, mode),
+    originalPriors: Object.fromEntries(
+      MAIN_RELEASE_ACTIVATION_ORDER.map((target) => [
+        target,
+        releasePrior(target),
+      ]),
+    ),
+  });
+}
+
+function candidateDiscovery(target, releaseManifest) {
+  const prior = releaseManifest.originalPriors[target];
+  return {
+    releaseId: releaseManifest.releaseId,
+    candidateId: `candidate-${target}-700`,
+    projectId: prior.projectId,
+    projectName: prior.projectName,
+    deploySha: SHA,
+    target,
+    customEnvironmentSlug: target === "app" ? "v3" : null,
+    immutableSmoke: {
+      immutableUrl: `https://${target}-candidate.vercel.app`,
+      servedSha: SHA,
+      status: "passed",
+    },
+    metrics: {
+      buildDurationMs: null,
+      deploymentDurationMs: null,
+      cacheHit: null,
+    },
+  };
+}
+
+function candidateRecord(name, aliases, releaseManifest) {
   return {
     deploymentId: `dpl_${name}Candidate123`,
     deploymentUrl: `https://${name}-candidate.vercel.app`,
     aliases: [...aliases].sort(),
-    discovery: null,
+    discovery: candidateDiscovery(name, releaseManifest),
   };
 }
 
@@ -68,56 +195,108 @@ function priorState() {
   };
 }
 
-function appDiscovery() {
-  return {
-    projectId: "prj_app123",
-    projectName: "app.mento.org",
-    deploySha: SHA,
-    runId: identity.runId,
-    runAttempt: identity.runAttempt,
-    transactionId: createMainTransactionId(identity),
-    customEnvironmentSlug: "v3",
-  };
+function appDiscovery(releaseManifest = releaseForTargets()) {
+  return candidateDiscovery("app", releaseManifest);
 }
 
-function candidateState({ app = "unknown" } = {}) {
+function candidateState(
+  { app = "unknown" } = {},
+  activeTargets = TARGET_ORDER,
+  mode = "active",
+) {
   const prior = priorState();
+  const releaseManifest = releaseForTargets(activeTargets, mode);
+  const selected = new Set(mode === "shadow" ? [] : activeTargets);
   return {
     app:
-      app === null
+      app === null || !selected.has("app")
         ? null
         : {
             deploymentId: app === "known" ? "dpl_appCandidate123" : null,
             deploymentUrl:
               app === "known" ? "https://app-candidate.vercel.app" : null,
             aliases: [...prior.app.aliases],
-            discovery: appDiscovery(),
+            discovery: appDiscovery(releaseManifest),
           },
-    governance: candidateRecord("governance", prior.governance.aliases),
-    reserve: candidateRecord("reserve", prior.reserve.aliases),
-    ui: candidateRecord("ui", prior.ui.aliases),
+    governance: selected.has("governance")
+      ? candidateRecord("governance", prior.governance.aliases, releaseManifest)
+      : null,
+    reserve: selected.has("reserve")
+      ? candidateRecord("reserve", prior.reserve.aliases, releaseManifest)
+      : null,
+    ui: selected.has("ui")
+      ? candidateRecord("ui", prior.ui.aliases, releaseManifest)
+      : null,
   };
 }
 
+function startMappingsAtPrior(prior) {
+  return Object.fromEntries(
+    Object.entries(prior).map(([target, record]) => [
+      target,
+      record.aliases.map((alias) => mapping(alias, record)),
+    ]),
+  );
+}
+
+function selectedTargets(candidates, mode) {
+  return mode === "shadow"
+    ? []
+    : TARGET_ORDER.filter((target) => candidates[target] !== null);
+}
+
+function createPreparedMainTransactionJournal(options) {
+  const mode = options.mode ?? "active";
+  const release =
+    options.release ??
+    releaseForTargets(selectedTargets(options.candidates, mode), mode);
+  return createPreparedMainTransactionJournalImpl({
+    ...options,
+    mode,
+    release,
+    startMappings: options.startMappings ?? startMappingsAtPrior(options.prior),
+  });
+}
+
+function runMainTransaction(options) {
+  const mode = options.mode ?? MAIN_TRANSACTION_MODE;
+  const candidates =
+    mode === "shadow"
+      ? { app: null, governance: null, reserve: null, ui: null }
+      : options.candidates;
+  const release =
+    options.release ??
+    releaseForTargets(selectedTargets(candidates, mode), mode);
+  return runMainTransactionImpl({
+    ...options,
+    mode,
+    release,
+    candidates,
+    startMappings: options.startMappings ?? startMappingsAtPrior(options.prior),
+  });
+}
+
 function prepared(options = {}) {
+  const mode = options.mode ?? "active";
+  const activeTargets = mode === "shadow" ? [] : TARGET_ORDER;
   return createPreparedMainTransactionJournal({
     ...identity,
-    mode: options.mode ?? "active",
+    mode,
     prior: priorState(),
-    candidates: candidateState(options),
+    candidates: candidateState(options, activeTargets, mode),
   });
 }
 
 function preparedForTargets(targets, options = {}) {
-  const selected = new Set(targets);
-  const candidates = candidateState(options);
-  for (const target of ["app", "governance", "reserve", "ui"]) {
-    if (!selected.has(target)) candidates[target] = null;
-  }
+  const mode = options.mode ?? "active";
+  const candidates = candidateState(options, targets, mode);
+  const prior = options.prior ?? priorState();
+  const startMappings = options.startMappings ?? startMappingsAtPrior(prior);
   return createPreparedMainTransactionJournal({
     ...identity,
-    mode: options.mode ?? "active",
-    prior: priorState(),
+    mode,
+    prior,
+    startMappings,
     candidates,
   });
 }
@@ -129,6 +308,106 @@ function appCandidateMatch(overrides = {}) {
     ...appDiscovery(),
     ...overrides,
   };
+}
+
+function appCandidateReceipt({
+  releaseManifest = releaseForTargets(["app"]),
+  immutableSmoke = {
+    immutableUrl: "https://app-candidate.vercel.app",
+    servedSha: SHA,
+    status: "passed",
+  },
+} = {}) {
+  const intent = createMainCandidateIntent({
+    target: "app",
+    deploySha: releaseManifest.deploySha,
+    upstreamRunId: releaseManifest.upstreamRunId,
+    originRunId: identity.runId,
+    originAttempt: identity.runAttempt,
+    originTransactionId: createMainTransactionId(identity),
+    projectId: releaseManifest.originalPriors.app.projectId,
+    projectName: releaseManifest.originalPriors.app.projectName,
+    releaseManifest,
+  });
+  const metadata = canonicalizeMainCandidateVercelMetadata(
+    createMainCandidateVercelMetadata({ intent }),
+    {
+      target: "app",
+      deploySha: intent.deploySha,
+      projectId: intent.projectId,
+      projectName: intent.projectName,
+    },
+  );
+  return createMainCandidateReceipt({
+    intent,
+    candidate: {
+      deploymentId: "dpl_appCandidate123",
+      deploymentUrl: "https://app-candidate.vercel.app",
+      projectId: intent.projectId,
+      projectName: intent.projectName,
+      readyState: "READY",
+      target: null,
+      customEnvironmentSlug: "v3",
+      source: "cli",
+      git: {
+        org: "mento-protocol",
+        repo: "frontend-monorepo",
+        ref: "main",
+        sha: intent.deploySha,
+      },
+      metadata,
+    },
+    immutableSmoke,
+  });
+}
+
+function preparedPendingApp() {
+  const release = releaseForTargets(["app"]);
+  const prior = priorState();
+  const intent = createMainCandidateIntent({
+    target: "app",
+    deploySha: release.deploySha,
+    upstreamRunId: release.upstreamRunId,
+    originRunId: identity.runId,
+    originAttempt: identity.runAttempt,
+    originTransactionId: createMainTransactionId(identity),
+    projectId: release.originalPriors.app.projectId,
+    projectName: release.originalPriors.app.projectName,
+    releaseManifest: release,
+  });
+  const discovery = {
+    releaseId: intent.releaseId,
+    candidateId: intent.candidateId,
+    projectId: intent.projectId,
+    projectName: intent.projectName,
+    deploySha: intent.deploySha,
+    target: "app",
+    customEnvironmentSlug: intent.environment.customEnvironmentSlug,
+    immutableSmoke: null,
+    metrics: {
+      buildDurationMs: null,
+      deploymentDurationMs: null,
+      cacheHit: null,
+    },
+  };
+  return createPreparedMainTransactionJournalImpl({
+    ...identity,
+    mode: "active",
+    release,
+    prior,
+    startMappings: startMappingsAtPrior(prior),
+    candidates: {
+      app: {
+        deploymentId: null,
+        deploymentUrl: null,
+        aliases: prior.app.aliases,
+        discovery,
+      },
+      governance: null,
+      reserve: null,
+      ui: null,
+    },
+  });
 }
 
 function mapping(alias, record) {
@@ -332,7 +611,7 @@ test("transaction ID is deterministic and binds only immutable run identity", ()
 
 test("prepared journal is canonical, redacted, and names an immutable artifact", () => {
   const journal = prepared();
-  assert.equal(journal.schema, 1);
+  assert.equal(journal.schema, 3);
   assert.equal(journal.sequence, 0);
   assert.equal(journal.status, "prepared");
   assert.equal(journal.runId, identity.runId);
@@ -374,12 +653,12 @@ test("prepared journal is canonical, redacted, and names an immutable artifact",
             ...candidateState().app,
             discovery: {
               ...appDiscovery(),
-              transactionId: "main-00000000000000000000000000000000",
+              releaseId: "mr-wrong-release",
             },
           },
         },
       }),
-    /does not match the journal identity/,
+    /does not match stable provider identity/,
   );
 });
 
@@ -394,7 +673,7 @@ test("static fixture remains compatible with the canonical journal schema", () =
     ),
   );
   const canonical = assertMainTransactionJournal(fixture);
-  assert.equal(canonical.mode, "shadow");
+  assert.equal(canonical.mode, "active");
   assert.equal(canonical.status, "prepared");
   assert.equal(canonical.transactionId, createMainTransactionId(canonical));
 });
@@ -799,6 +1078,37 @@ test("commit requires one verified forward operation for every selected candidat
     ).verified;
   }
   assert.equal(markMainTransactionCommitted(fullyVerified).status, "committed");
+});
+
+test("commit requires mutations only for ordinary targets that started at prior", () => {
+  const prior = priorState();
+  const candidates = candidateState({ app: "known" }, [
+    "governance",
+    "reserve",
+  ]);
+  const startMappings = startMappingsAtPrior(prior);
+  startMappings.governance = prior.governance.aliases.map((alias) =>
+    mapping(alias, candidates.governance),
+  );
+  const selected = preparedForTargets(["governance", "reserve"], {
+    app: "known",
+    prior,
+    startMappings,
+  });
+  const reserveVerified = transitionSuccessfulOperation(selected, {
+    type: "promote",
+    target: "reserve",
+  }).verified;
+  assert.equal(
+    reserveVerified.operations.some(
+      (operation) => operation.target === "governance",
+    ),
+    false,
+  );
+  assert.equal(
+    markMainTransactionCommitted(reserveVerified).status,
+    "committed",
+  );
 });
 
 test("selected app commit requires its exact candidate discovery", () => {
@@ -2284,4 +2594,403 @@ test("active mode requires every selected forward and verification adapter befor
     /Mutation adapter promote is required/,
   );
   assert.equal(uploads, 0);
+});
+
+function preparedWithCandidatePrefix(prefix) {
+  const prior = priorState();
+  const candidates = candidateState({ app: "known" });
+  const activationOrder = ["governance", "reserve", "ui", "app"];
+  const inherited = new Set(activationOrder.slice(0, prefix));
+  const startMappings = Object.fromEntries(
+    Object.entries(prior).map(([target, record]) => [
+      target,
+      record.aliases.map((alias) =>
+        mapping(alias, inherited.has(target) ? candidates[target] : record),
+      ),
+    ]),
+  );
+  return createPreparedMainTransactionJournalImpl({
+    ...identity,
+    mode: "active",
+    release: releaseForTargets(),
+    prior,
+    startMappings,
+    candidates,
+  });
+}
+
+test("v3 journal binds durable release, all-five priors, and exact start mappings", () => {
+  const journal = prepared();
+  assert.equal(journal.schema, 3);
+  assert.equal(journal.release.deploySha, journal.deploySha);
+  assert.deepEqual(Object.keys(journal.prior), [
+    "app",
+    "governance",
+    "reserve",
+    "ui",
+    "legacy-app",
+  ]);
+  assert.deepEqual(
+    Object.keys(journal.startMappings),
+    Object.keys(journal.prior),
+  );
+  assert.equal(journal.candidates.app.deploymentId, null);
+});
+
+test("v3 history freezes release and start mappings", () => {
+  const initial = preparedForTargets(["governance"], { app: "known" });
+  const started = startMainTransactionOperation(initial, {
+    type: "promote",
+    target: "governance",
+  });
+  const changedRelease = structuredClone(started);
+  changedRelease.release.releasePlanDigest = "0".repeat(64);
+  assert.throws(
+    () => assertMainTransactionJournalHistory([initial, changedRelease]),
+    /release|manifest|identity/,
+  );
+  const changedStart = structuredClone(started);
+  changedStart.startMappings.governance[0].deploymentId = "dpl_operator123";
+  assert.throws(
+    () => assertMainTransactionJournalHistory([initial, changedStart]),
+    /mapping|start/,
+  );
+});
+
+test("fresh App placeholder remains valid until exact provider discovery", () => {
+  const initial = preparedForTargets(["app"]);
+  assert.equal(initial.candidates.app.deploymentId, null);
+  const resolved = attachDiscoveredAppCandidate(initial, appCandidateMatch());
+  assert.equal(resolved.candidates.app.deploymentId, "dpl_appCandidate123");
+  const tampered = appCandidateMatch({
+    immutableSmoke: {
+      ...appCandidateMatch().immutableSmoke,
+      servedSha: OTHER_SHA,
+    },
+  });
+  assert.throws(
+    () => attachDiscoveredAppCandidate(initial, tampered),
+    /immutable smoke|does not prove/,
+  );
+});
+
+test("pending App stable intent attaches one exact finalized receipt monotonically", () => {
+  const initial = preparedPendingApp();
+  assert.equal(initial.candidates.app.deploymentId, null);
+  assert.equal(initial.candidates.app.discovery.immutableSmoke, null);
+  const receipt = appCandidateReceipt({ releaseManifest: initial.release });
+  const attached = attachMainTransactionAppCandidateReceipt(initial, receipt);
+  assert.equal(attached.sequence, initial.sequence + 1);
+  assert.equal(
+    attached.candidates.app.deploymentId,
+    receipt.candidate.deploymentId,
+  );
+  assert.deepEqual(
+    attached.candidates.app.discovery.immutableSmoke,
+    receipt.immutableSmoke,
+  );
+  assert.deepEqual(
+    assertMainTransactionJournalHistory([initial, attached]).at(-1),
+    attached,
+  );
+  assert.deepEqual(
+    attachMainTransactionAppCandidateReceipt(attached, receipt),
+    attached,
+  );
+});
+
+test("pending App receipt attachment rejects stable intent, candidate, and smoke mismatch", () => {
+  const initial = preparedPendingApp();
+  const receipt = appCandidateReceipt({ releaseManifest: initial.release });
+  const cases = [
+    {
+      ...receipt,
+      intent: {
+        ...receipt.intent,
+        originRunId: "999",
+      },
+    },
+    {
+      ...receipt,
+      candidate: {
+        ...receipt.candidate,
+        projectId: "prj_other123",
+      },
+    },
+    {
+      ...receipt,
+      immutableSmoke: {
+        ...receipt.immutableSmoke,
+        servedSha: OTHER_SHA,
+      },
+    },
+  ];
+  for (const value of cases) {
+    assert.throws(
+      () => attachMainTransactionAppCandidateReceipt(initial, value),
+      /intent|candidate|smoke|digest|conflict/,
+    );
+  }
+});
+
+test("runner loss around App deploy never authorizes aliases before finalized receipt", () => {
+  const initial = preparedPendingApp();
+  assert.throws(
+    () =>
+      startMainTransactionOperation(initial, {
+        type: "app_alias_set",
+        target: "app",
+        alias: initial.prior.app.aliases[0],
+      }),
+    /candidate|app_v3_deploy/,
+  );
+  const started = startMainTransactionOperation(initial, {
+    type: "app_v3_deploy",
+    target: "app",
+  });
+  assert.equal(
+    decideMainTransactionRecovery([initial, started]).decision,
+    "recover",
+  );
+  const returnedWithoutReceipt = recordMainTransactionCommandReturned(started, {
+    operationId: started.operations.at(-1).operationId,
+    outcome: "success",
+  });
+  assert.equal(returnedWithoutReceipt.candidates.app.deploymentId, null);
+  assert.equal(
+    decideMainTransactionRecovery([initial, started, returnedWithoutReceipt])
+      .decision,
+    "recover",
+  );
+  assert.throws(
+    () =>
+      startMainTransactionOperation(returnedWithoutReceipt, {
+        type: "app_alias_set",
+        target: "app",
+        alias: initial.prior.app.aliases[0],
+      }),
+    /state|candidate/,
+  );
+  const checkpointed = attachMainTransactionAppCandidateReceipt(
+    returnedWithoutReceipt,
+    appCandidateReceipt({ releaseManifest: initial.release }),
+  );
+  assert.equal(
+    checkpointed.candidates.app.discovery.immutableSmoke.status,
+    "passed",
+  );
+  assert.deepEqual(
+    assertMainTransactionJournalHistory([
+      initial,
+      started,
+      returnedWithoutReceipt,
+      checkpointed,
+    ]).at(-1),
+    checkpointed,
+  );
+});
+
+test("known provider App candidate skips deploy but still reconciles aliases", async () => {
+  const harness = activeMutationHarness();
+  const candidates = candidateState({ app: "known" }, ["app"]);
+  const result = await runMainTransaction({
+    mode: "active",
+    identity,
+    prior: harness.prior,
+    candidates,
+    assertFreshness: async () => ({ sha: SHA }),
+    uploadJournal: acknowledgedUploader(),
+    mutationAdapters: harness.mutationAdapters,
+  });
+  assert.equal(result.outcome, "active-committed");
+  assert.equal(
+    harness.events.some((entry) => entry === "mutate:app_v3_deploy:app"),
+    false,
+  );
+  assert.deepEqual(
+    harness.events.filter((entry) => entry.startsWith("mutate:app_alias_set")),
+    [
+      "mutate:app_alias_set:app:app.mento.org",
+      "mutate:app_alias_set:app:appmentoorg-env-v3-mentolabs.vercel.app",
+    ],
+  );
+});
+
+test("v3 release reconciliation rejects non-prefix inherited mappings", () => {
+  const journal = preparedWithCandidatePrefix(1);
+  const invalid = structuredClone(journal);
+  invalid.startMappings.ui = invalid.startMappings.ui.map((entry) =>
+    mapping(entry.alias, invalid.candidates.ui),
+  );
+  assert.throws(
+    () => assertMainTransactionJournal(invalid),
+    /activation prefix/,
+  );
+});
+
+test("fresh legacy v2 capture may differ across current attempts", () => {
+  const release = releaseForTargets(["governance"]);
+  const makeJournal = (deploymentId) => {
+    const prior = priorState();
+    prior["legacy-app"] = {
+      ...prior["legacy-app"],
+      deploymentId,
+    };
+    return createPreparedMainTransactionJournalImpl({
+      ...identity,
+      mode: "active",
+      release,
+      prior,
+      startMappings: startMappingsAtPrior(prior),
+      candidates: candidateState({ app: null }, ["governance"]),
+    });
+  };
+  const first = makeJournal("dpl_legacyFirst123");
+  const second = makeJournal("dpl_legacySecond123");
+  assert.notEqual(
+    first.prior["legacy-app"].deploymentId,
+    second.prior["legacy-app"].deploymentId,
+  );
+  assert.equal(first.release.releaseId, second.release.releaseId);
+});
+
+test("one, two, and three inherited targets receive reverse recovery authority", () => {
+  for (const prefix of [1, 2, 3]) {
+    const journal = preparedWithCandidatePrefix(prefix);
+    const plan = planInheritedMainTransactionRecovery({
+      journal,
+      reason: "suffix-preparation-failed-before-forward",
+    });
+    assert.equal(plan.decision, "restore-inherited");
+    assert.deepEqual(
+      plan.rollbackAuthority.targets,
+      ["governance", "reserve", "ui"].slice(0, prefix),
+    );
+    assert.deepEqual(
+      plan.actions.map(({ target }) => target),
+      ["governance", "reserve", "ui"].slice(0, prefix).reverse(),
+    );
+    assert.deepEqual(assertMainInheritedTransactionRecoveryPlan(plan), plan);
+    const recovering = startInheritedMainTransactionRecovery({
+      journal,
+      recoveryPlan: plan,
+    });
+    assert.equal(recovering.status, "recovering");
+    assert.deepEqual(
+      assertMainTransactionJournalHistory([journal, recovering]).at(-1),
+      recovering,
+    );
+  }
+});
+
+test("inherited recovery binds the fresh journal and untampered restore plan", () => {
+  const journal = preparedWithCandidatePrefix(2);
+  const plan = planInheritedMainTransactionRecovery({
+    journal,
+    reason: "forward-operation-failed",
+  });
+  const tampered = structuredClone(plan);
+  tampered.actions.reverse();
+  assert.throws(
+    () => assertMainInheritedTransactionRecoveryPlan(tampered),
+    /canonical plan/,
+  );
+  assert.throws(
+    () =>
+      startInheritedMainTransactionRecovery({
+        journal: preparedWithCandidatePrefix(1),
+        recoveryPlan: plan,
+      }),
+    /differs/,
+  );
+  const alreadyStarted = startInheritedMainTransactionRecovery({
+    journal,
+    recoveryPlan: plan,
+  });
+  assert.throws(
+    () =>
+      startInheritedMainTransactionRecovery({
+        journal: alreadyStarted,
+        recoveryPlan: plan,
+      }),
+    /differs|fresh prepared/,
+  );
+});
+
+test("mixed App inheritance restores only moved aliases before earlier targets", () => {
+  const journal = structuredClone(preparedWithCandidatePrefix(3));
+  const alias = journal.startMappings.app[0].alias;
+  journal.startMappings.app[0] = mapping(alias, journal.candidates.app);
+  const plan = planInheritedMainTransactionRecovery({
+    journal,
+    reason: "main-stale-before-forward",
+  });
+  assert.equal(plan.decision, "restore-inherited");
+  assert.deepEqual(plan.rollbackAuthority.targets, [
+    "governance",
+    "reserve",
+    "ui",
+    "app",
+  ]);
+  assert.deepEqual(
+    plan.actions.map(({ target }) => target),
+    ["app", "ui", "reserve", "governance"],
+  );
+  assert.deepEqual(
+    plan.actions
+      .filter(({ target }) => target === "app")
+      .map((action) => action.alias),
+    [alias],
+  );
+});
+
+test("all-candidate reader is verify-only without rollback authority", () => {
+  const plan = planInheritedMainTransactionRecovery({
+    journal: preparedWithCandidatePrefix(4),
+    reason: "main-stale-before-forward",
+  });
+  assert.equal(plan.decision, "verify-noop");
+  assert.deepEqual(plan.actions, []);
+  assert.deepEqual(plan.rollbackAuthority, { targets: [], aliases: [] });
+  assert.throws(
+    () => assertMainInheritedTransactionRecoveryPlan(plan),
+    /not executable/,
+  );
+  assert.throws(
+    () =>
+      startInheritedMainTransactionRecovery({
+        journal: plan.journal,
+        recoveryPlan: plan,
+      }),
+    /not executable/,
+  );
+});
+
+test("raw transaction wrapper requires and preserves v3 release bindings", async () => {
+  const release = releaseForTargets([], "shadow");
+  const prior = priorState();
+  const startMappings = startMappingsAtPrior(prior);
+  const input = {
+    mode: "shadow",
+    identity,
+    release,
+    prior,
+    startMappings,
+    candidates: { app: null, governance: null, reserve: null, ui: null },
+    assertFreshness: async () => ({ sha: SHA }),
+    uploadJournal: acknowledgedUploader(),
+  };
+  const result = await runMainTransactionImpl(input);
+  assert.deepEqual(result.journal.release, release);
+  assert.deepEqual(result.journal.startMappings, startMappings);
+  await assert.rejects(
+    runMainTransactionImpl({ ...input, release: undefined }),
+    /manifest|malformed/,
+  );
+  const tampered = structuredClone(startMappings);
+  tampered.reserve[0].deploymentId = "dpl_operator123";
+  await assert.rejects(
+    runMainTransactionImpl({ ...input, startMappings: tampered }),
+    /mapping/,
+  );
 });

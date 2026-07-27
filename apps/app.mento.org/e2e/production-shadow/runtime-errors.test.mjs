@@ -12,10 +12,23 @@ import {
   sanitizeDiagnosticText,
 } from "./runtime-errors.mjs";
 
+function credentialedUrl(path, { scheme = "https", prefix = "" } = {}) {
+  return [
+    prefix,
+    scheme,
+    "://",
+    "alice",
+    ":",
+    "secret",
+    "@reserve.example.invalid",
+    path,
+  ].join("");
+}
+
 test("URL diagnostics expose only the safe origin", () => {
   assert.equal(
     displayUrl(
-      "https://alice:secret@reserve.example.invalid:8443/api/reserve?token=abc&signature=def#private",
+      credentialedUrl(":8443/api/reserve?token=abc&signature=def#private"),
     ),
     "https://reserve.example.invalid:8443",
   );
@@ -45,7 +58,7 @@ test("console source diagnostics use the sanitized URL display", () => {
   const diagnostic = formatConsoleError({
     text: () => "Failed to load resource",
     location: () => ({
-      url: "https://alice:secret@reserve.example.invalid/api?token=abc#private",
+      url: credentialedUrl("/api?token=abc#private"),
     }),
   });
 
@@ -69,7 +82,7 @@ test("console diagnostics remain useful when Chromium omits a source URL", () =>
 test("console text diagnostics redact credential-bearing URL substrings", () => {
   const diagnostic = formatConsoleError({
     text: () =>
-      "Fetch failed at https://alice:secret@reserve.example.invalid/private?token=abc#fragment",
+      `Fetch failed at ${credentialedUrl("/private?token=abc#fragment")}`,
     location: () => ({}),
   });
 
@@ -91,8 +104,8 @@ test("page error diagnostics redact URL substrings before ledger insertion", () 
 
 test("arbitrary URL schemes and prefixed protocols cannot bypass redaction", () => {
   for (const value of [
-    "prefixhttps://alice:secret@reserve.example.invalid/private?token=abc",
-    "ftp://alice:secret@reserve.example.invalid/private?token=abc",
+    credentialedUrl("/private?token=abc", { prefix: "prefix" }),
+    credentialedUrl("/private?token=abc", { scheme: "ftp" }),
     "mailto:alice@reserve.example.invalid?token=abc",
   ]) {
     const diagnostic = sanitizeDiagnosticText(`Failed at ${value}`);
@@ -120,8 +133,7 @@ test("HTTP response diagnostics use the sanitized URL display", () => {
   const ledger = createRuntimeErrorLedger();
   recordRuntimeResponse(ledger, {
     status: () => 429,
-    url: () =>
-      "https://alice:secret@reserve.example.invalid/api/reserve?token=abc#private",
+    url: () => credentialedUrl("/api/reserve?token=abc#private"),
     request: () => ({ resourceType: () => "fetch" }),
   });
 
@@ -132,8 +144,7 @@ test("HTTP response diagnostics use the sanitized URL display", () => {
 
 test("frame and request ledgers use the bounded URL display", () => {
   const ledger = createRuntimeErrorLedger();
-  const secretUrl =
-    "https://alice:secret@reserve.example.invalid/private-token?signature=abc#fragment";
+  const secretUrl = credentialedUrl("/private-token?signature=abc#fragment");
   recordCrossOriginFrame(ledger, secretUrl);
   ledger.requests.push(
     formatCriticalRequestFailure({
@@ -158,8 +169,7 @@ test("request error text cannot bypass URL redaction", () => {
     resourceType: () => "script",
     url: () => "https://reserve.example.invalid/app.js",
     failure: () => ({
-      errorText:
-        "net::ERR_FAILED https://alice:secret@reserve.example.invalid/private?token=abc",
+      errorText: `net::ERR_FAILED ${credentialedUrl("/private?token=abc")}`,
     }),
   });
 

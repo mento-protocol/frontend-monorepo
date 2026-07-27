@@ -6,8 +6,17 @@ import {
   canonicalizeDeploymentUrl,
   canonicalizeHostname,
 } from "./vercel-deployment-state.mjs";
+import {
+  assertMainReleaseManifest,
+  MAIN_RELEASE_ACTIVATION_ORDER,
+  reconcileMainRelease,
+} from "./vercel-main-release-reconciliation.mjs";
+import {
+  assertMainCandidateReceipt,
+  createMainCandidateIntent,
+} from "./vercel-main-candidate.mjs";
 
-const MAIN_TRANSACTION_SCHEMA = 1;
+const MAIN_TRANSACTION_SCHEMA = 3;
 export const MAIN_TRANSACTION_REPOSITORY = "mento-protocol/frontend-monorepo";
 export const MAIN_TRANSACTION_MODE = "shadow";
 
@@ -15,7 +24,6 @@ const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const NUMERIC_ID_PATTERN = /^[1-9][0-9]*$/;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9._-]+$/;
 const DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
-const TRANSACTION_ID_PATTERN = /^main-[a-f0-9]{32}$/;
 const ORDINARY_TARGETS = Object.freeze(["governance", "reserve", "ui"]);
 const PROTECTED_TARGETS = Object.freeze([
   "app",
@@ -79,7 +87,9 @@ const JOURNAL_KEYS = Object.freeze([
   "mode",
   "sequence",
   "status",
+  "release",
   "prior",
+  "startMappings",
   "candidates",
   "operations",
 ]);
@@ -91,13 +101,15 @@ const CANDIDATE_KEYS = Object.freeze([
   "discovery",
 ]);
 const DISCOVERY_KEYS = Object.freeze([
+  "releaseId",
+  "candidateId",
   "projectId",
   "projectName",
   "deploySha",
-  "runId",
-  "runAttempt",
-  "transactionId",
+  "target",
   "customEnvironmentSlug",
+  "immutableSmoke",
+  "metrics",
 ]);
 const OPERATION_KEYS = Object.freeze([
   "operationId",
@@ -124,10 +136,19 @@ const APP_CANDIDATE_MATCH_KEYS = Object.freeze([
   "projectId",
   "projectName",
   "deploySha",
-  "runId",
-  "runAttempt",
-  "transactionId",
+  "releaseId",
+  "candidateId",
+  "target",
   "customEnvironmentSlug",
+  "immutableSmoke",
+  "metrics",
+]);
+const START_MAPPING_TARGETS = Object.freeze([
+  "app",
+  "governance",
+  "reserve",
+  "ui",
+  "legacy-app",
 ]);
 const RECOVERY_PLAN_KEYS = Object.freeze([
   "decision",
@@ -137,6 +158,14 @@ const RECOVERY_PLAN_KEYS = Object.freeze([
   "rollbackStateTargets",
   "forceFailure",
   "discoveredAppCandidate",
+]);
+const INHERITED_RECOVERY_PLAN_KEYS = Object.freeze([
+  "decision",
+  "reason",
+  "journal",
+  "reconciliation",
+  "actions",
+  "rollbackAuthority",
 ]);
 const RECOVERY_ACTION_BASE_KEYS = Object.freeze([
   "kind",
@@ -223,9 +252,58 @@ function canonicalPriorRecord(record, label) {
   };
 }
 
-function canonicalDiscovery(discovery, identity, label) {
+function canonicalSmoke(value, label, deploySha) {
+  assertOrderedExactKeys(value, ["immutableUrl", "servedSha", "status"], label);
+  const immutableUrl = canonicalizeDeploymentUrl(value.immutableUrl);
+  const servedSha = requireString(
+    value.servedSha,
+    `${label} served SHA`,
+    SHA_PATTERN,
+  );
+  if (servedSha !== deploySha || value.status !== "passed") {
+    throw new Error(`${label} does not prove the candidate SHA`);
+  }
+  return { immutableUrl, servedSha, status: "passed" };
+}
+
+function canonicalMetrics(value, label) {
+  assertOrderedExactKeys(
+    value,
+    ["buildDurationMs", "deploymentDurationMs", "cacheHit"],
+    label,
+  );
+  for (const key of ["buildDurationMs", "deploymentDurationMs", "cacheHit"]) {
+    if (value[key] !== null) {
+      throw new Error(`${label} must remain null for a reused candidate`);
+    }
+  }
+  return { buildDurationMs: null, deploymentDurationMs: null, cacheHit: null };
+}
+
+function canonicalDiscovery(
+  discovery,
+  release,
+  target,
+  label,
+  { pendingApp = false } = {},
+) {
   assertExactKeys(discovery, DISCOVERY_KEYS, label);
+  const expected = release.originalPriors[target];
+  const environment =
+    target === "app"
+      ? { target: "app", customEnvironmentSlug: "v3" }
+      : { target, customEnvironmentSlug: null };
   const canonical = {
+    releaseId: requireString(
+      discovery.releaseId,
+      `${label} release ID`,
+      IDENTIFIER_PATTERN,
+    ),
+    candidateId: requireString(
+      discovery.candidateId,
+      `${label} candidate ID`,
+      IDENTIFIER_PATTERN,
+    ),
     projectId: requireString(
       discovery.projectId,
       `${label} project ID`,
@@ -241,30 +319,32 @@ function canonicalDiscovery(discovery, identity, label) {
       `${label} deploy SHA`,
       SHA_PATTERN,
     ),
-    runId: requireNumericId(discovery.runId, `${label} run ID`),
-    runAttempt: requireNumericId(discovery.runAttempt, `${label} run attempt`),
-    transactionId: requireString(
-      discovery.transactionId,
-      `${label} transaction ID`,
-      TRANSACTION_ID_PATTERN,
-    ),
+    target: discovery.target,
     customEnvironmentSlug: discovery.customEnvironmentSlug,
+    immutableSmoke:
+      pendingApp && discovery.immutableSmoke === null
+        ? null
+        : canonicalSmoke(
+            discovery.immutableSmoke,
+            `${label} immutable smoke`,
+            release.deploySha,
+          ),
+    metrics: canonicalMetrics(discovery.metrics, `${label} reuse metrics`),
   };
-  if (canonical.customEnvironmentSlug !== "v3") {
-    throw new Error(`${label} custom environment must be v3`);
-  }
   if (
-    canonical.deploySha !== identity.deploySha ||
-    canonical.runId !== identity.runId ||
-    canonical.runAttempt !== identity.runAttempt ||
-    canonical.transactionId !== identity.transactionId
+    canonical.releaseId !== release.releaseId ||
+    canonical.deploySha !== release.deploySha ||
+    canonical.projectId !== expected.projectId ||
+    canonical.projectName !== expected.projectName ||
+    canonical.target !== environment.target ||
+    canonical.customEnvironmentSlug !== environment.customEnvironmentSlug
   ) {
-    throw new Error(`${label} does not match the journal identity`);
+    throw new Error(`${label} does not match stable provider identity`);
   }
   return canonical;
 }
 
-function canonicalCandidateRecord(record, target, identity, prior) {
+function canonicalCandidateRecord(record, target, release, prior) {
   if (record === null) return null;
   const label = `Candidate ${target}`;
   assertExactKeys(record, CANDIDATE_KEYS, label);
@@ -282,11 +362,14 @@ function canonicalCandidateRecord(record, target, identity, prior) {
   if (target !== "app" && deploymentId === null) {
     throw new Error(`${label} must identify the staged deployment`);
   }
-  if (target === "app" && record.discovery === null) {
-    throw new Error("Candidate app discovery metadata is required");
+  if (deploymentId !== null && record.discovery === null) {
+    throw new Error(`${label} stable provider metadata is required`);
   }
-  if (target !== "app" && record.discovery !== null) {
-    throw new Error(`${label} must not contain app discovery metadata`);
+  if (target === "app" && record.discovery === null) {
+    throw new Error("Candidate app stable provider metadata is required");
+  }
+  if (target !== "app" && deploymentId === null) {
+    throw new Error(`${label} must identify the staged deployment`);
   }
   const aliases = canonicalAliases(record.aliases, `${label} aliases`);
   if (JSON.stringify(aliases) !== JSON.stringify(prior.aliases)) {
@@ -297,9 +380,17 @@ function canonicalCandidateRecord(record, target, identity, prior) {
     deploymentUrl,
     aliases,
     discovery:
-      target === "app"
-        ? canonicalDiscovery(record.discovery, identity, `${label} discovery`)
-        : null,
+      record.discovery === null
+        ? null
+        : canonicalDiscovery(
+            record.discovery,
+            release,
+            target,
+            `${label} discovery`,
+            {
+              pendingApp: target === "app" && deploymentId === null,
+            },
+          ),
   };
 }
 
@@ -344,23 +435,107 @@ function canonicalPrior(prior) {
   return canonical;
 }
 
-function canonicalCandidates(candidates, identity, prior) {
+function canonicalCandidates(candidates, release, prior) {
   assertOrderedExactKeys(
     candidates,
     CANDIDATE_TARGETS,
     "Journal candidate state",
   );
-  return Object.fromEntries(
+  const canonical = Object.fromEntries(
     CANDIDATE_TARGETS.map((target) => [
       target,
       canonicalCandidateRecord(
         candidates[target],
         target,
-        identity,
+        release,
         prior[target],
       ),
     ]),
   );
+  for (const target of CANDIDATE_TARGETS) {
+    if (!release.activeTargets.includes(target) && canonical[target] !== null) {
+      throw new Error("Journal retains a candidate for an unselected target");
+    }
+  }
+  return canonical;
+}
+
+function canonicalStartMappings(startMappings, prior) {
+  assertOrderedExactKeys(
+    startMappings,
+    START_MAPPING_TARGETS,
+    "Journal start mappings",
+  );
+  const canonical = Object.fromEntries(
+    START_MAPPING_TARGETS.map((target) => [
+      target,
+      [
+        ...canonicalCurrentMappings(
+          startMappings[target],
+          prior[target].aliases,
+        ).values(),
+      ].sort((left, right) => left.alias.localeCompare(right.alias)),
+    ]),
+  );
+  for (const mapping of canonical["legacy-app"]) {
+    if (!sameDeployment(mapping, prior["legacy-app"])) {
+      throw new Error(
+        "Legacy App start mapping must be the fresh captured prior",
+      );
+    }
+  }
+  return canonical;
+}
+
+function assertJournalReleaseBindings({
+  release,
+  mode,
+  deploySha,
+  prior,
+  candidates,
+  startMappings,
+}) {
+  if (release.mode !== mode) {
+    throw new Error("Journal mode conflicts with the durable release manifest");
+  }
+  if (release.deploySha !== deploySha) {
+    throw new Error("Journal SHA conflicts with the durable release manifest");
+  }
+  for (const target of MAIN_RELEASE_ACTIVATION_ORDER) {
+    const releasePrior = release.originalPriors[target];
+    const journalPrior = prior[target];
+    if (
+      journalPrior.deploymentId !== releasePrior.deploymentId ||
+      journalPrior.deploymentUrl !== releasePrior.deploymentUrl ||
+      !sameJson(journalPrior.aliases, releasePrior.aliases)
+    ) {
+      throw new Error(
+        "Journal prior conflicts with the durable release manifest",
+      );
+    }
+  }
+  const reconciliationCandidates = Object.fromEntries(
+    release.stagedTargets.map((target) => [
+      target,
+      candidates[target] === null || candidates[target].deploymentId === null
+        ? null
+        : {
+            deploymentId: candidates[target].deploymentId,
+            deploymentUrl: candidates[target].deploymentUrl,
+            manifest: release,
+          },
+    ]),
+  );
+  reconcileMainRelease({
+    manifest: release,
+    candidates: reconciliationCandidates,
+    currentMappings: Object.fromEntries(
+      MAIN_RELEASE_ACTIVATION_ORDER.map((target) => [
+        target,
+        startMappings[target],
+      ]),
+    ),
+  });
 }
 
 function assertOperationTarget(type, target, alias, journal) {
@@ -664,6 +839,21 @@ function validateCandidateEvolution(previous, current) {
     }
     const before = previous.app;
     const after = current.app;
+    const discoveryAttached =
+      before?.discovery !== null &&
+      after?.discovery !== null &&
+      before.discovery.immutableSmoke === null &&
+      after.discovery.immutableSmoke !== null &&
+      sameJson(
+        {
+          ...before.discovery,
+          immutableSmoke: null,
+        },
+        {
+          ...after.discovery,
+          immutableSmoke: null,
+        },
+      );
     if (
       before === null ||
       after === null ||
@@ -672,7 +862,7 @@ function validateCandidateEvolution(previous, current) {
       after.deploymentId === null ||
       after.deploymentUrl === null ||
       !sameJson(before.aliases, after.aliases) ||
-      !sameJson(before.discovery, after.discovery)
+      (!sameJson(before.discovery, after.discovery) && !discoveryAttached)
     ) {
       throw new Error("App candidate evolution is not monotonic");
     }
@@ -681,7 +871,7 @@ function validateCandidateEvolution(previous, current) {
 
 function statusOnlyTransitionAllowed(previous, current) {
   const transitions = {
-    prepared: new Set(["committed"]),
+    prepared: new Set(["committed", "recovering"]),
     started: new Set(["recovering"]),
     command_returned: new Set(["recovering"]),
     verified: new Set([
@@ -787,7 +977,9 @@ export function createPreparedMainTransactionJournal({
   runId,
   runAttempt,
   mode,
+  release,
   prior,
+  startMappings,
   candidates,
 }) {
   const identity = canonicalIdentity({
@@ -797,7 +989,25 @@ export function createPreparedMainTransactionJournal({
     runAttempt,
   });
   if (!MODES.includes(mode)) throw new Error("Journal mode is unsupported");
+  const canonicalRelease = assertMainReleaseManifest(release);
   const canonicalPriorState = canonicalPrior(prior);
+  const canonicalStartState = canonicalStartMappings(
+    startMappings,
+    canonicalPriorState,
+  );
+  const canonicalCandidateState = canonicalCandidates(
+    candidates,
+    canonicalRelease,
+    canonicalPriorState,
+  );
+  assertJournalReleaseBindings({
+    release: canonicalRelease,
+    mode,
+    deploySha: identity.deploySha,
+    prior: canonicalPriorState,
+    candidates: canonicalCandidateState,
+    startMappings: canonicalStartState,
+  });
   const journal = {
     schema: MAIN_TRANSACTION_SCHEMA,
     repository: identity.repository,
@@ -808,8 +1018,10 @@ export function createPreparedMainTransactionJournal({
     mode,
     sequence: 0,
     status: "prepared",
+    release: canonicalRelease,
     prior: canonicalPriorState,
-    candidates: canonicalCandidates(candidates, identity, canonicalPriorState),
+    startMappings: canonicalStartState,
+    candidates: canonicalCandidateState,
     operations: [],
   };
   return assertMainTransactionJournal(journal);
@@ -831,6 +1043,8 @@ export function assertMainTransactionJournal(journal, expected = {}) {
     throw new Error("Journal status is unsupported");
   }
   const prior = canonicalPrior(journal.prior);
+  const release = assertMainReleaseManifest(journal.release);
+  const startMappings = canonicalStartMappings(journal.startMappings, prior);
   const canonical = {
     schema: journal.schema,
     repository: identity.repository,
@@ -841,10 +1055,13 @@ export function assertMainTransactionJournal(journal, expected = {}) {
     mode: journal.mode,
     sequence: journal.sequence,
     status: journal.status,
+    release,
     prior,
-    candidates: canonicalCandidates(journal.candidates, identity, prior),
+    startMappings,
+    candidates: canonicalCandidates(journal.candidates, release, prior),
     operations: [],
   };
+  assertJournalReleaseBindings(canonical);
   canonical.operations = canonicalOperations(journal.operations, canonical);
   for (const [key, expectedValue] of Object.entries(expected)) {
     if (!Object.hasOwn(canonical, key) || canonical[key] !== expectedValue) {
@@ -852,6 +1069,130 @@ export function assertMainTransactionJournal(journal, expected = {}) {
     }
   }
   return canonical;
+}
+
+// This is deliberately a pure planner. The coordinator must re-observe
+// provider mappings immediately before applying these actions and create a
+// fresh current-attempt recovery journal. GitHub artifacts are not authority
+// for inherited state.
+export function planInheritedMainTransactionRecovery({ journal, reason }) {
+  const canonical = assertMainTransactionJournal(journal);
+  if (
+    ![
+      "main-stale-before-forward",
+      "suffix-preparation-failed-before-forward",
+      "forward-operation-failed",
+    ].includes(reason)
+  ) {
+    throw new Error("Inherited recovery reason is unsupported");
+  }
+  const candidates = Object.fromEntries(
+    canonical.release.stagedTargets.map((target) => [
+      target,
+      canonical.candidates[target] === null
+        ? null
+        : {
+            deploymentId: canonical.candidates[target].deploymentId,
+            deploymentUrl: canonical.candidates[target].deploymentUrl,
+            manifest: canonical.release,
+          },
+    ]),
+  );
+  const reconciliation = reconcileMainRelease({
+    manifest: canonical.release,
+    candidates,
+    currentMappings: Object.fromEntries(
+      MAIN_RELEASE_ACTIVATION_ORDER.map((target) => [
+        target,
+        canonical.startMappings[target],
+      ]),
+    ),
+  });
+  if (reconciliation.allCandidate) {
+    return {
+      decision: "verify-noop",
+      reason: "all-candidate-without-current-mutation",
+      journal: canonical,
+      reconciliation,
+      actions: [],
+      rollbackAuthority: { targets: [], aliases: [] },
+    };
+  }
+  if (reconciliation.inheritedCandidateTargets.length === 0) {
+    return {
+      decision: "no-inherited-recovery",
+      reason: "all-prior",
+      journal: canonical,
+      reconciliation,
+      actions: [],
+      rollbackAuthority: { targets: [], aliases: [] },
+    };
+  }
+  const inheritedTargets = reconciliation.targets.filter(
+    ({ state }) => state === "candidate" || state === "mixed",
+  );
+  const actions = [];
+  for (const observed of [...inheritedTargets].reverse()) {
+    const { target, state, startMappings } = observed;
+    const candidate = canonical.candidates[target];
+    if (target === "app") {
+      for (const start of [...startMappings].reverse()) {
+        if (start.state !== "candidate") continue;
+        actions.push({
+          kind: "app_alias_restore",
+          target,
+          alias: start.alias,
+          priorDeploymentId: canonical.prior.app.deploymentId,
+          priorDeploymentUrl: canonical.prior.app.deploymentUrl,
+          candidateDeploymentId: candidate.deploymentId,
+          candidateDeploymentUrl: candidate.deploymentUrl,
+        });
+      }
+      continue;
+    }
+    if (state !== "candidate") {
+      throw new Error("Inherited ordinary recovery state is unsupported");
+    }
+    actions.push({
+      kind: "ordinary_rollback",
+      target,
+      aliases: [...canonical.prior[target].aliases],
+      priorDeploymentId: canonical.prior[target].deploymentId,
+      priorDeploymentUrl: canonical.prior[target].deploymentUrl,
+      candidateDeploymentId: candidate.deploymentId,
+      candidateDeploymentUrl: candidate.deploymentUrl,
+    });
+  }
+  return {
+    decision: "restore-inherited",
+    reason,
+    journal: canonical,
+    reconciliation,
+    actions,
+    rollbackAuthority: {
+      targets: inheritedTargets.map(({ target }) => target),
+      aliases: [...reconciliation.inheritedCandidateAliases].sort(),
+    },
+  };
+}
+
+export function assertMainInheritedTransactionRecoveryPlan(plan) {
+  assertExactKeys(
+    plan,
+    INHERITED_RECOVERY_PLAN_KEYS,
+    "Inherited main transaction recovery plan",
+  );
+  if (plan.decision !== "restore-inherited") {
+    throw new Error("Inherited recovery plan is not executable");
+  }
+  const expected = planInheritedMainTransactionRecovery({
+    journal: plan.journal,
+    reason: plan.reason,
+  });
+  if (!sameJson(plan, expected)) {
+    throw new Error("Inherited recovery plan differs from the canonical plan");
+  }
+  return expected;
 }
 
 export function mainTransactionJournalArtifactName(journal) {
@@ -1060,6 +1401,75 @@ export function attachDiscoveredAppCandidate(journal, match) {
   });
 }
 
+function expectedAppCandidateIntent(journal) {
+  return createMainCandidateIntent({
+    target: "app",
+    deploySha: journal.release.deploySha,
+    upstreamRunId: journal.release.upstreamRunId,
+    originRunId: journal.runId,
+    originAttempt: journal.runAttempt,
+    originTransactionId: journal.transactionId,
+    projectId: journal.release.originalPriors.app.projectId,
+    projectName: journal.release.originalPriors.app.projectName,
+    releaseManifest: journal.release,
+  });
+}
+
+export function attachMainTransactionAppCandidateReceipt(journal, rawReceipt) {
+  const canonical = assertMainTransactionJournal(journal);
+  const app = canonical.candidates.app;
+  if (app === null) {
+    throw new Error("The transaction did not prepare an app candidate");
+  }
+  const receipt = assertMainCandidateReceipt(
+    rawReceipt,
+    expectedAppCandidateIntent(canonical),
+  );
+  const candidate = {
+    deploymentId: receipt.candidate.deploymentId,
+    deploymentUrl: receipt.candidate.deploymentUrl,
+    aliases: app.aliases,
+    discovery: {
+      releaseId: receipt.intent.releaseId,
+      candidateId: receipt.intent.candidateId,
+      projectId: receipt.candidate.projectId,
+      projectName: receipt.candidate.projectName,
+      deploySha: receipt.intent.deploySha,
+      target: "app",
+      customEnvironmentSlug: receipt.intent.environment.customEnvironmentSlug,
+      immutableSmoke: receipt.immutableSmoke,
+      metrics: receipt.metrics,
+    },
+  };
+  if (app.deploymentId !== null) {
+    if (!sameJson(app, candidate)) {
+      throw new Error("App candidate receipt conflicts with the journal");
+    }
+    return canonical;
+  }
+  if (
+    app.discovery.immutableSmoke !== null ||
+    !sameJson(
+      {
+        ...app.discovery,
+        immutableSmoke: null,
+      },
+      {
+        ...candidate.discovery,
+        immutableSmoke: null,
+      },
+    )
+  ) {
+    throw new Error("App candidate receipt conflicts with stable intent");
+  }
+  return nextJournal(canonical, {
+    candidates: {
+      ...canonical.candidates,
+      app: candidate,
+    },
+  });
+}
+
 function canonicalizeAppCandidateMatch(match, discovery) {
   assertExactKeys(match, APP_CANDIDATE_MATCH_KEYS, "App candidate match");
   const canonical = {
@@ -1083,17 +1493,31 @@ function canonicalizeAppCandidateMatch(match, discovery) {
       "App candidate deploy SHA",
       SHA_PATTERN,
     ),
-    runId: requireNumericId(match.runId, "App candidate run ID"),
-    runAttempt: requireNumericId(match.runAttempt, "App candidate run attempt"),
-    transactionId: requireString(
-      match.transactionId,
-      "App candidate transaction ID",
-      TRANSACTION_ID_PATTERN,
+    releaseId: requireString(
+      match.releaseId,
+      "App candidate release ID",
+      IDENTIFIER_PATTERN,
     ),
+    candidateId: requireString(
+      match.candidateId,
+      "App candidate ID",
+      IDENTIFIER_PATTERN,
+    ),
+    target: match.target,
     customEnvironmentSlug: match.customEnvironmentSlug,
+    immutableSmoke: canonicalSmoke(
+      match.immutableSmoke,
+      "App candidate immutable smoke",
+      discovery.deploySha,
+    ),
+    metrics: canonicalMetrics(match.metrics, "App candidate reuse metrics"),
   };
   for (const key of DISCOVERY_KEYS) {
-    if (canonical[key] !== discovery[key]) {
+    const matches =
+      key === "immutableSmoke" || key === "metrics"
+        ? sameJson(canonical[key], discovery[key])
+        : canonical[key] === discovery[key];
+    if (!matches) {
       throw new Error(`App candidate ${key} does not match discovery metadata`);
     }
   }
@@ -1165,6 +1589,12 @@ export function assertMainTransactionJournalHistory(
     if (!sameJson(previous.prior, journal.prior)) {
       throw new Error("Journal prior state changed across history");
     }
+    if (!sameJson(previous.release, journal.release)) {
+      throw new Error("Journal release manifest changed across history");
+    }
+    if (!sameJson(previous.startMappings, journal.startMappings)) {
+      throw new Error("Journal start mappings changed across history");
+    }
     validateCandidateEvolution(previous.candidates, journal.candidates);
     if (
       !sameJson(
@@ -1188,10 +1618,8 @@ export function assertMainTransactionJournalHistory(
         throw new Error("Journal snapshot did not append one legal event");
       }
       if (isCandidateAttachment) {
-        expected = attachDiscoveredAppCandidate(previous, {
-          deploymentId: journal.candidates.app.deploymentId,
-          deploymentUrl: journal.candidates.app.deploymentUrl,
-          ...journal.candidates.app.discovery,
+        expected = nextJournal(previous, {
+          candidates: journal.candidates,
         });
       } else if (journal.status === "committed") {
         expected = markMainTransactionCommitted(previous);
@@ -1302,11 +1730,25 @@ function decideRecoveryFromJournal(journal) {
 export function markMainTransactionCommitted(journal) {
   const canonical = assertMainTransactionJournal(journal);
   if (canonical.status === "committed") return canonical;
+  const ordinaryOperations = ORDINARY_TARGETS.map((target) => {
+    const candidate = canonical.candidates[target];
+    if (candidate === null) return null;
+    const state = classifyMainTransactionMapping({
+      aliases: canonical.prior[target].aliases,
+      currentMappings: canonical.startMappings[target],
+      prior: canonical.prior[target],
+      candidate,
+    });
+    if (state === "candidate") return null;
+    if (state === "prior") return { target, type: "promote" };
+    throw new Error(
+      "Transaction cannot commit from an unsupported start mapping",
+    );
+  }).filter((operation) => operation !== null);
   const selectedOperations = [
-    ...ORDINARY_TARGETS.filter(
-      (target) => canonical.candidates[target] !== null,
-    ).map((target) => ({ target, type: "promote" })),
-    ...(canonical.candidates.app === null
+    ...ordinaryOperations,
+    ...(canonical.candidates.app === null ||
+    canonical.candidates.app.deploymentId !== null
       ? []
       : [{ target: "app", type: "app_v3_deploy" }]),
   ];
@@ -1900,6 +2342,30 @@ export function startMainTransactionRecovery(journal) {
   return appendStatus(canonical, "recovering");
 }
 
+export function startInheritedMainTransactionRecovery({
+  journal,
+  recoveryPlan,
+}) {
+  const canonical = assertMainTransactionJournal(journal);
+  const plan = assertMainInheritedTransactionRecoveryPlan(recoveryPlan);
+  if (!sameJson(canonical, plan.journal)) {
+    throw new Error(
+      "Current-attempt journal differs from its inherited recovery plan",
+    );
+  }
+  if (canonical.status !== "prepared" || canonical.operations.length !== 0) {
+    throw new Error(
+      "Inherited recovery requires a fresh prepared current-attempt journal",
+    );
+  }
+  if (plan.actions.length === 0) {
+    throw new Error(
+      "Inherited recovery plan has no authorized restore actions",
+    );
+  }
+  return appendStatus(canonical, "recovering");
+}
+
 export function finishMainTransactionRecovery(
   journal,
   { manualIntervention = false } = {},
@@ -2458,7 +2924,9 @@ async function assertActiveFinalMappings({
 export async function runMainTransaction({
   mode = MAIN_TRANSACTION_MODE,
   identity,
+  release,
   prior,
+  startMappings,
   candidates,
   existingJournals = [],
   assertFreshness,
@@ -2471,13 +2939,17 @@ export async function runMainTransaction({
   const prepared = createPreparedMainTransactionJournal({
     ...identity,
     mode,
+    release,
     prior,
+    startMappings,
     candidates,
   });
   const selectedOrdinaryTargets = ORDINARY_TARGETS.filter(
     (target) => prepared.candidates[target] !== null,
   );
   const appSelected = prepared.candidates.app !== null;
+  const appRequiresDeploy =
+    appSelected && prepared.candidates.app.deploymentId === null;
   let promote;
   let deployAppV3;
   let assignAlias;
@@ -2488,8 +2960,10 @@ export async function runMainTransaction({
     if (selectedOrdinaryTargets.length > 0) {
       promote = requireMainMutationAdapter(mutationAdapters, "promote");
     }
-    if (appSelected) {
+    if (appRequiresDeploy) {
       deployAppV3 = requireMainMutationAdapter(mutationAdapters, "deployAppV3");
+    }
+    if (appSelected) {
       assignAlias = requireMainMutationAdapter(mutationAdapters, "assignAlias");
     }
     if (selectedOrdinaryTargets.length > 0 || appSelected) {
@@ -2650,10 +3124,12 @@ export async function runMainTransaction({
     // the exact bound deployment ID/URL is READY. Reviewed aliases are
     // deliberately excluded here and reconciled independently below because
     // Vercel may move all, some, or none of them as part of the deployment.
-    await executeActiveMutation({
-      intent: { type: "app_v3_deploy", target: "app" },
-      executeMutation: deployAppV3,
-    });
+    if (appRequiresDeploy) {
+      await executeActiveMutation({
+        intent: { type: "app_v3_deploy", target: "app" },
+        executeMutation: deployAppV3,
+      });
+    }
     for (const alias of highest.prior.app.aliases) {
       const intent = { type: "app_alias_set", target: "app", alias };
       await assertFresh(assertFreshness, "pre-alias", highest);

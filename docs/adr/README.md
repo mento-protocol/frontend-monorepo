@@ -45,3 +45,4 @@ adds a high-signal surface without a numbered ADR.
 | [0002](0002-single-comment-preview-controller-journal.md)        | One canonical pull-request comment stores the preview controller journal                  |
 | [0003](0003-preview-worker-dispatch-authentication.md)           | A dedicated repository-scoped credential dispatches preview workers                       |
 | [0004](0004-one-way-vercel-build-environment-materialization.md) | Preview candidates receive only a one-way exact allowlist of Vercel-pulled variables      |
+| [0005](0005-stable-main-release-identity-and-rerun-admission.md) | Stable provider release manifests reconcile reruns; mutations remain attempt-scoped       |

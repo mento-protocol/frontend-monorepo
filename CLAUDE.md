@@ -170,6 +170,23 @@ are in `docs/vercel-deployments.md`. Ordinary previews remain GitHub-owned
 during either rollback procedure. The removed Governance QA environment is not
 part of the deployment topology.
 
+Active-main release identity is stable across downstream reruns: it binds
+repository, exact SHA, and validated upstream CI run ID; target-specific
+candidate identity adds the target. The provider-side stable release manifest
+is the sole durable cross-attempt authority. Mutation transaction IDs and
+journals remain downstream run-and-attempt scoped. Before planning, a later
+attempt reconciles provider mappings and candidates with that manifest. It
+reuses a completed release, or restores an inherited partial release through a
+fresh current-attempt journal before new planning. It never resumes a prior
+journal or treats GitHub artifacts as cross-attempt authority. The compact
+terminal receipt and evidence are the only final-verdict handoff and support
+final-only reruns. A completed release emits `current-release-verified` only
+after fresh mapping, census/state, raw public-runtime-smoke, legacy `v2`, and
+freshness proof; it creates no journal and executes no public mutation. App
+shadow preparation is build-only terminal evidence and never creates a provider
+deployment. Ambiguous or incomplete provider state fails closed before
+production work continues.
+
 ## Coding Conventions
 
 - **Naming:** PascalCase for components, camelCase for variables/functions

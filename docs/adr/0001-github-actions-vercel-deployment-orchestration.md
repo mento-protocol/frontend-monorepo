@@ -100,6 +100,13 @@ they remain charged, and artifact/cache storage is measured separately rather
 than described as free. A future repository visibility or billing-policy change
 requires re-evaluation.
 
+ADR 0005 amends the active-main rerun contract: stable release identity and
+target-specific candidate identity are distinct from the attempt-derived
+mutation and journal identity described here. This historical ADR remains
+accepted; the newer ADR defines
+provider-side manifest reconciliation, current-attempt recovery, and terminal
+receipt handoff without changing the original per-attempt statement.
+
 ### Preview controller
 
 A same-repository, non-Dependabot pull request that changes a runtime target

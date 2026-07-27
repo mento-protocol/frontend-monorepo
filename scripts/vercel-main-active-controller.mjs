@@ -4,20 +4,27 @@ import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
 import {
+  assertMainInheritedTransactionRecoveryPlan,
   assertMainTransactionJournal,
   assertMainTransactionJournalHistory,
   assertMainTransactionRecoveryPlan,
-  attachDiscoveredAppCandidate,
+  attachMainTransactionAppCandidateReceipt,
+  createPreparedMainTransactionJournal,
   classifyMainTransactionMapping,
   finishMainTransactionRecovery,
   mainTransactionJournalArtifactName,
   markMainTransactionCommitted,
   recordMainTransactionCommandReturned,
   recordMainTransactionVerified,
-  resolveUniqueAppTransactionCandidate,
+  planInheritedMainTransactionRecovery,
   startMainTransactionOperation,
+  startInheritedMainTransactionRecovery,
   startMainTransactionRecovery,
 } from "./vercel-main-transaction.mjs";
+import {
+  assertMainReleaseManifest,
+  reconcileMainRelease,
+} from "./vercel-main-release-reconciliation.mjs";
 import {
   assertMainActiveCommandDescriptor,
   assertMainActiveCommandResult,
@@ -33,7 +40,11 @@ import {
   canonicalizeDeploymentUrl,
   canonicalizeHostname,
 } from "./vercel-deployment-state.mjs";
-import { generateVercelDeploymentId } from "./vercel-prebuilt.mjs";
+import { generateVercelMainCandidateDeploymentId } from "./vercel-prebuilt.mjs";
+import {
+  createMainCandidateIntent,
+  createMainCandidateVercelMetadata,
+} from "./vercel-main-candidate.mjs";
 
 export const MAIN_ACTIVE_EVENT_SCHEMA = "vercel-main-active-event:v1";
 export const MAIN_ACTIVE_RECOVERY_EVENT_SCHEMA =
@@ -74,6 +85,29 @@ const PUBLIC_URLS = Object.freeze({
   reserve: "https://reserve.mento.org/",
   ui: "https://ui.mento.org/",
 });
+const ACTIVE_RUNTIME_RESULT_KEYS = Object.freeze([
+  "deploy_sha",
+  "final_url",
+  "interaction",
+  "logical_target",
+  "public_url",
+  "successful_documents",
+  "successful_fonts",
+  "successful_scripts",
+  "successful_stylesheets",
+]);
+const ACTIVE_RUNTIME_FINAL_PATHS = Object.freeze({
+  app: "/",
+  governance: "/voting-power",
+  reserve: "/?tab=stablecoins",
+  ui: "/form-components",
+});
+const ACTIVE_RUNTIME_INTERACTIONS = Object.freeze({
+  app: "real-production-wallet-list",
+  governance: "governance-voting-power-navigation",
+  reserve: "reserve-overview-data-and-supply-tab",
+  ui: "ui-search-navigation-and-checkbox",
+});
 
 function clone(value) {
   return structuredClone(value);
@@ -110,6 +144,48 @@ function requireString(value, label, pattern) {
 
 function requireSha(value, label) {
   return requireString(value, label, SHA_PATTERN);
+}
+
+function canonicalRuntimeSmoke(value, target, deploySha) {
+  assertExactKeys(
+    value,
+    ACTIVE_RUNTIME_RESULT_KEYS,
+    `Active public smoke ${target} runtime`,
+  );
+  const expectedFinalUrl = new URL(
+    ACTIVE_RUNTIME_FINAL_PATHS[target],
+    PUBLIC_URLS[target],
+  ).toString();
+  if (
+    value.deploy_sha !== deploySha ||
+    value.logical_target !== target ||
+    value.public_url !== PUBLIC_URLS[target] ||
+    value.final_url !== expectedFinalUrl ||
+    value.interaction !== ACTIVE_RUNTIME_INTERACTIONS[target]
+  ) {
+    throw new Error(`Active public smoke ${target} runtime is unproven`);
+  }
+  for (const field of [
+    "successful_documents",
+    "successful_fonts",
+    "successful_scripts",
+    "successful_stylesheets",
+  ]) {
+    if (!Number.isSafeInteger(value[field]) || value[field] < 1) {
+      throw new Error(`Active public smoke ${target} runtime is incomplete`);
+    }
+  }
+  return {
+    deploy_sha: value.deploy_sha,
+    final_url: value.final_url,
+    interaction: value.interaction,
+    logical_target: value.logical_target,
+    public_url: value.public_url,
+    successful_documents: value.successful_documents,
+    successful_fonts: value.successful_fonts,
+    successful_scripts: value.successful_scripts,
+    successful_stylesheets: value.successful_stylesheets,
+  };
 }
 
 function requireDeploymentId(value, label) {
@@ -301,21 +377,40 @@ function assertFreshSha(value, journal) {
   }
 }
 
-function canonicalCurrentMappings(journal, value) {
+function canonicalCurrentMappings(
+  journal,
+  value,
+  { requireLegacyProjectBinding = false } = {},
+) {
   if (!Array.isArray(value)) {
     throw new Error("Current protected mappings must be an array");
   }
   const expectedAliases = PROTECTED_TARGETS.flatMap(
     (target) => journal.prior[target].aliases,
   ).sort();
+  const legacyAliases = new Set(journal.prior["legacy-app"].aliases);
+  const legacyProjectId = journal.release.originalPriors.app.projectId;
   const canonical = value.map((mapping, index) => {
+    const hasProjectId = Object.hasOwn(mapping ?? {}, "projectId");
     assertExactKeys(
       mapping,
-      ["alias", "deploymentId", "deploymentUrl"],
+      hasProjectId
+        ? ["alias", "deploymentId", "deploymentUrl", "projectId"]
+        : ["alias", "deploymentId", "deploymentUrl"],
       `Current protected mapping ${index + 1}`,
     );
+    const alias = canonicalizeHostname(mapping.alias);
+    const legacy = legacyAliases.has(alias);
+    if (
+      (hasProjectId && (!legacy || mapping.projectId !== legacyProjectId)) ||
+      (requireLegacyProjectBinding && legacy && !hasProjectId)
+    ) {
+      throw new Error(
+        "Current legacy App mapping project binding is inconsistent",
+      );
+    }
     return {
-      alias: canonicalizeHostname(mapping.alias),
+      alias,
       deploymentId: requireDeploymentId(
         mapping.deploymentId,
         `Current protected mapping ${index + 1} deployment ID`,
@@ -544,7 +639,7 @@ function canonicalForwardEvent(event) {
       "uploadReceipt",
       "freshSha",
       "currentMappings",
-      "appCandidateMatches",
+      "appCandidateReceipt",
       "appDeployment",
     ],
     finalize: [
@@ -581,7 +676,10 @@ function canonicalForwardEvent(event) {
   }
   if (
     event.kind === "verify" &&
-    (!Array.isArray(event.appCandidateMatches) ||
+    (!(
+      event.appCandidateReceipt === null ||
+      isPlainObject(event.appCandidateReceipt)
+    ) ||
       !(event.appDeployment === null || isPlainObject(event.appDeployment)))
   ) {
     throw new Error("Active verification event is malformed");
@@ -609,18 +707,33 @@ function commandForOperation(journal, operation) {
   }
   if (operation.type === "app_v3_deploy") {
     const discovery = journal.candidates.app.discovery;
+    const nextDeploymentId = generateVercelMainCandidateDeploymentId({
+      target: "app",
+      commitSha: journal.deploySha,
+      upstreamRunId: journal.release.upstreamRunId,
+      repository: journal.repository,
+    });
+    const candidateMetadata = createMainCandidateVercelMetadata({
+      intent: createMainCandidateIntent({
+        target: "app",
+        deploySha: journal.deploySha,
+        upstreamRunId: journal.release.upstreamRunId,
+        originRunId: journal.runId,
+        originAttempt: journal.runAttempt,
+        originTransactionId: journal.transactionId,
+        projectId: discovery.projectId,
+        projectName: discovery.projectName,
+        releaseManifest: journal.release,
+      }),
+    });
     return buildMainActiveAppDeployCommand({
       projectId: discovery.projectId,
       deploySha: journal.deploySha,
       runId: journal.runId,
       runAttempt: journal.runAttempt,
       transactionId: journal.transactionId,
-      nextDeploymentId: generateVercelDeploymentId({
-        target: "app",
-        commitSha: journal.deploySha,
-        runId: journal.runId,
-        runAttempt: journal.runAttempt,
-      }),
+      nextDeploymentId,
+      candidateMetadata,
     });
   }
   if (operation.type === "app_alias_set") {
@@ -647,6 +760,8 @@ function commandForOperation(journal, operation) {
   if (operation.type === "legacy_emergency_restore") {
     return buildMainActiveLegacyAliasRestoreCommand({
       alias: operation.alias,
+      aliases: journal.prior["legacy-app"].aliases,
+      projectId: journal.release.originalPriors.app.projectId,
       deploymentId: operation.priorDeploymentId,
       deploymentUrl: operation.priorDeploymentUrl,
     });
@@ -701,13 +816,26 @@ function nextForwardIntent(journal, currentMappings) {
   for (const target of ORDINARY_TARGETS) {
     if (journal.candidates[target] === null) continue;
     const intent = { type: "promote", target };
-    if (matchingForwardStart(journal, intent) === undefined) {
+    const existing = matchingForwardStart(journal, intent);
+    const state = mappingState(journal, currentMappings, target);
+    // A stable release identity may resume after another attempt already
+    // promoted a prefix. Current provider mappings, rather than the absence of
+    // a current-attempt journal operation, determine whether this target still
+    // needs a mutation.
+    if (state === "candidate") {
+      continue;
+    }
+    if (state === "prior" && existing === undefined) {
       return { kind: "intent", intent };
     }
+    return { kind: "recovery-required" };
   }
   if (journal.candidates.app !== null) {
     const deployIntent = { type: "app_v3_deploy", target: "app" };
-    if (matchingForwardStart(journal, deployIntent) === undefined) {
+    if (
+      journal.candidates.app.deploymentId === null &&
+      matchingForwardStart(journal, deployIntent) === undefined
+    ) {
       return { kind: "intent", intent: deployIntent };
     }
     if (journal.candidates.app.deploymentId === null) {
@@ -723,22 +851,6 @@ function nextForwardIntent(journal, currentMappings) {
     }
   }
   return { kind: "complete" };
-}
-
-function canonicalAppMatches(journal, matches) {
-  if (!Array.isArray(matches)) {
-    throw new Error("App candidate matches must be an array");
-  }
-  if (matches.length === 0) return [];
-  if (matches.length > 1) return clone(matches);
-  const resolved = resolveUniqueAppTransactionCandidate(journal, matches);
-  return [
-    {
-      deploymentId: resolved.deploymentId,
-      deploymentUrl: resolved.deploymentUrl,
-      ...journal.candidates.app.discovery,
-    },
-  ];
 }
 
 function verifyAppDeployment(journal, appDeployment) {
@@ -763,7 +875,7 @@ function canonicalPublicSmokes(journal, planning, value) {
       const entry = value[target];
       assertExactKeys(
         entry,
-        ["status", "publicUrl", "servedSha"],
+        ["runtime", "status", "publicUrl", "servedSha"],
         `Active public smoke ${target}`,
       );
       const selected = planning.activeTargets.includes(target);
@@ -775,12 +887,23 @@ function canonicalPublicSmokes(journal, planning, value) {
         ) {
           throw new Error(`Active public smoke ${target} is unproven`);
         }
-        return [target, clone(entry)];
+        return [
+          target,
+          {
+            ...clone(entry),
+            runtime: canonicalRuntimeSmoke(
+              entry.runtime,
+              target,
+              journal.deploySha,
+            ),
+          },
+        ];
       }
       if (
         entry.status !== "not-required" ||
         entry.publicUrl !== PUBLIC_URLS[target] ||
-        entry.servedSha !== null
+        entry.servedSha !== null ||
+        entry.runtime !== null
       ) {
         throw new Error(`Unselected public smoke ${target} is malformed`);
       }
@@ -837,7 +960,7 @@ function canonicalStateProof(journal, planning, value) {
   }
   const legacy = journal.prior["legacy-app"];
   if (
-    proof.legacyAppV2.alias !== legacy.aliases[0] ||
+    !legacy.aliases.includes(proof.legacyAppV2.alias) ||
     proof.legacyAppV2.deploymentId !== legacy.deploymentId ||
     proof.legacyAppV2.deploymentUrl !== legacy.deploymentUrl ||
     proof.legacyAppV2.projectId !== planning.projectIds.app
@@ -1041,31 +1164,36 @@ export function reduceMainActiveTransition({
       operation.type === "app_v3_deploy" &&
       highest.candidates.app.deploymentId === null
     ) {
-      const matches = canonicalAppMatches(highest, input.appCandidateMatches);
-      if (matches.length === 1) {
-        return journalTransition(
-          attachDiscoveredAppCandidate(highest, matches[0]),
-          "verify",
-        );
+      if (input.appCandidateReceipt === null) {
+        const unknown = recordMainTransactionVerified(highest, {
+          operationId: operation.operationId,
+          mappingState: "unknown",
+        });
+        return journalTransition(unknown, "recover");
       }
-      const unknown = recordMainTransactionVerified(highest, {
-        operationId: operation.operationId,
-        mappingState: "unknown",
-      });
-      return journalTransition(unknown, "recover");
+      // A provider census can only observe state. The exact current-attempt
+      // receipt is the authority that turns the pending App intent into a
+      // candidate, including the immutable smoke, before aliases can move.
+      return journalTransition(
+        attachMainTransactionAppCandidateReceipt(
+          highest,
+          input.appCandidateReceipt,
+        ),
+        "verify",
+      );
     }
     if (
       operation.type !== "app_v3_deploy" &&
-      (!Array.isArray(input.appCandidateMatches) ||
-        input.appCandidateMatches.length !== 0 ||
-        input.appDeployment !== null)
+      (input.appCandidateReceipt !== null || input.appDeployment !== null)
     ) {
       throw new Error("Non-App verification contains App-only fields");
     }
     let state;
     if (operation.type === "app_v3_deploy") {
-      if (!Array.isArray(input.appCandidateMatches)) {
-        throw new Error("App candidate matches must be an array");
+      if (input.appCandidateReceipt !== null) {
+        throw new Error(
+          "Known App candidate verification cannot attach a receipt",
+        );
       }
       state = verifyAppDeployment(highest, input.appDeployment)
         ? "candidate"
@@ -1235,9 +1363,6 @@ function recoveryMappingState(journal, currentMappings, operation) {
 }
 
 function nextRecoveryAction(journal, plan, currentMappings) {
-  if (plan.decision === "manual_intervention") {
-    return { kind: "manual" };
-  }
   const latest = lastEvents(journal);
   for (const action of plan.actions) {
     const live = liveRecoveryIntent(action, journal, currentMappings);
@@ -1270,12 +1395,29 @@ function nextRecoveryAction(journal, plan, currentMappings) {
   return { kind: "complete" };
 }
 
+function canonicalActiveRecoveryPlan(recoveryPlan) {
+  const inherited =
+    isPlainObject(recoveryPlan) &&
+    Object.hasOwn(recoveryPlan, "reconciliation") &&
+    Object.hasOwn(recoveryPlan, "rollbackAuthority");
+  return inherited
+    ? {
+        kind: "inherited",
+        plan: assertMainInheritedTransactionRecoveryPlan(recoveryPlan),
+      }
+    : {
+        kind: "failed-activation",
+        plan: assertMainTransactionRecoveryPlan(recoveryPlan),
+      };
+}
+
 export function reduceMainActiveRecoveryTransition({
   recoveryPlan,
   history,
   event,
 }) {
-  const plan = assertMainTransactionRecoveryPlan(recoveryPlan);
+  const canonicalPlan = canonicalActiveRecoveryPlan(recoveryPlan);
+  const { plan } = canonicalPlan;
   const input = canonicalRecoveryEvent(event);
   const journals = canonicalHistoryInput(history);
   if (journals.length === 0) {
@@ -1291,7 +1433,10 @@ export function reduceMainActiveRecoveryTransition({
   });
   let highest = canonicalHistory.at(-1);
   canonicalReceipt(input.uploadReceipt, highest);
-  if (!["recover", "manual_intervention"].includes(plan.decision)) {
+  if (
+    canonicalPlan.kind === "failed-activation" &&
+    !["recover", "manual_intervention"].includes(plan.decision)
+  ) {
     return noJournalTransition(
       highest,
       "recovery-not-required",
@@ -1299,17 +1444,14 @@ export function reduceMainActiveRecoveryTransition({
     );
   }
   if (input.kind === "initialize") {
-    if (
-      plan.discoveredAppCandidate !== null &&
-      highest.candidates.app?.deploymentId === null
-    ) {
-      return journalTransition(
-        attachDiscoveredAppCandidate(highest, plan.discoveredAppCandidate),
-        "initialize",
-      );
-    }
     if (highest.status !== "recovering") {
-      highest = startMainTransactionRecovery(highest);
+      highest =
+        canonicalPlan.kind === "inherited"
+          ? startInheritedMainTransactionRecovery({
+              journal: highest,
+              recoveryPlan: plan,
+            })
+          : startMainTransactionRecovery(highest);
       return journalTransition(highest, "dispatch");
     }
     return noJournalTransition(highest, "recovery-ready", "dispatch");
@@ -1318,6 +1460,7 @@ export function reduceMainActiveRecoveryTransition({
     const currentMappings = canonicalCurrentMappings(
       highest,
       input.currentMappings,
+      { requireLegacyProjectBinding: true },
     );
     if (input.kind === "dispatch") {
       const next = nextRecoveryAction(highest, plan, currentMappings);
@@ -1338,7 +1481,12 @@ export function reduceMainActiveRecoveryTransition({
       if (next.kind === "complete") {
         try {
           const terminal = finishMainTransactionRecovery(highest);
-          return journalTransition(terminal, "fail-after-evidence");
+          return journalTransition(
+            terminal,
+            canonicalPlan.kind === "inherited"
+              ? "continue-after-recovery"
+              : "fail-after-evidence",
+          );
         } catch {
           return noJournalTransition(
             highest,
@@ -1399,6 +1547,7 @@ export function reduceMainActiveRecoveryTransition({
   const currentMappings = canonicalCurrentMappings(
     highest,
     input.currentMappings,
+    { requireLegacyProjectBinding: true },
   );
   const operation = requireLatestOperation(
     highest,
@@ -1415,6 +1564,289 @@ export function reduceMainActiveRecoveryTransition({
         : null,
   });
   return journalTransition(verified, "dispatch");
+}
+
+function releaseCandidatesFromJournal(journal) {
+  return Object.fromEntries(
+    journal.release.stagedTargets.map((target) => {
+      const candidate = journal.candidates[target];
+      return [
+        target,
+        candidate === null
+          ? null
+          : {
+              deploymentId: candidate.deploymentId,
+              deploymentUrl: candidate.deploymentUrl,
+              manifest: journal.release,
+            },
+      ];
+    }),
+  );
+}
+
+function releaseMappingsFromJournal(journal, currentMappings) {
+  if (!currentMappings || typeof currentMappings !== "object") {
+    throw new Error("Fresh release mappings are required");
+  }
+  return Object.fromEntries(
+    ["governance", "reserve", "ui", "app"].map((target) => [
+      target,
+      currentMappings[target],
+    ]),
+  );
+}
+
+function sameSnapshot(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+// Stable candidate metadata identifies a release. Fresh provider mappings decide
+// whether it is safe to mutate it. This intentionally has no artifact input.
+export function reconcileFreshMainActiveRelease({ journal, currentMappings }) {
+  const canonicalJournal = assertMainTransactionJournal(journal);
+  const manifest = assertMainReleaseManifest(canonicalJournal.release);
+  return reconcileMainRelease({
+    manifest,
+    candidates: releaseCandidatesFromJournal(canonicalJournal),
+    currentMappings: releaseMappingsFromJournal(
+      canonicalJournal,
+      currentMappings,
+    ),
+  });
+}
+
+// Take two provider snapshots so a changing mapping set cannot become recovery
+// authority between inspection and journal creation.
+export async function censusFreshMainActiveRelease({
+  journal,
+  inspectCurrentMappings,
+}) {
+  if (typeof inspectCurrentMappings !== "function") {
+    throw new Error("Fresh release mapping inspector is required");
+  }
+  const first = await inspectCurrentMappings();
+  const firstReconciliation = reconcileFreshMainActiveRelease({
+    journal,
+    currentMappings: first,
+  });
+  const second = await inspectCurrentMappings();
+  const secondReconciliation = reconcileFreshMainActiveRelease({
+    journal,
+    currentMappings: second,
+  });
+  if (
+    !sameSnapshot(
+      firstReconciliation.observedTargets,
+      secondReconciliation.observedTargets,
+    )
+  ) {
+    throw new Error("Fresh release mapping census changed");
+  }
+  return { currentMappings: second, reconciliation: secondReconciliation };
+}
+
+function releasePriorFromManifest(manifest) {
+  return Object.fromEntries(
+    ["app", "governance", "reserve", "ui"].map((target) => {
+      const prior = manifest.originalPriors[target];
+      return [
+        target,
+        {
+          deploymentId: prior.deploymentId,
+          deploymentUrl: prior.deploymentUrl,
+          aliases: prior.aliases,
+        },
+      ];
+    }),
+  );
+}
+
+function currentLegacyPrior(currentMappings) {
+  const mappings = currentMappings?.["legacy-app"];
+  if (!Array.isArray(mappings) || mappings.length === 0) {
+    throw new Error("Fresh legacy App v2 mapping is required");
+  }
+  const aliases = mappings.map((mapping) => mapping.alias).toSorted();
+  const deploymentIds = new Set(
+    mappings.map((mapping) => mapping.deploymentId),
+  );
+  const deploymentUrls = new Set(
+    mappings.map((mapping) => mapping.deploymentUrl),
+  );
+  if (deploymentIds.size !== 1 || deploymentUrls.size !== 1) {
+    throw new Error("Fresh legacy App v2 mapping is inconsistent");
+  }
+  return {
+    deploymentId: [...deploymentIds][0],
+    deploymentUrl: [...deploymentUrls][0],
+    aliases,
+  };
+}
+
+// A recovery attempt has a new downstream identity and captures its own v2
+// baseline before any restore command. The manifest remains stable identity;
+// this journal is the only mutation authority for the current attempt.
+export function createCurrentMainActiveRecoveryJournal({
+  inheritedJournal,
+  identity,
+  currentMappings,
+}) {
+  const inherited = assertMainTransactionJournal(inheritedJournal);
+  const reconciliation = reconcileFreshMainActiveRelease({
+    journal: inherited,
+    currentMappings,
+  });
+  const release = assertMainReleaseManifest(inherited.release);
+  const prior = {
+    ...releasePriorFromManifest(release),
+    "legacy-app": currentLegacyPrior(currentMappings),
+  };
+  const recovery = createPreparedMainTransactionJournal({
+    ...identity,
+    deploySha: release.deploySha,
+    mode: inherited.mode,
+    release,
+    prior,
+    startMappings: currentMappings,
+    candidates: inherited.candidates,
+  });
+  return { journal: recovery, reconciliation };
+}
+
+// Reconciliation is deliberately performed against fresh mappings before the
+// pure transaction planner sees them. A complete candidate release is proof to
+// verify only; a reader may never roll it back.
+export function planFreshInheritedMainActiveRecovery({
+  inheritedJournal,
+  reason,
+  currentMappings,
+}) {
+  const inherited = assertMainTransactionJournal(inheritedJournal);
+  let reconciliation;
+  try {
+    reconciliation = reconcileFreshMainActiveRelease({
+      journal: inherited,
+      currentMappings,
+    });
+  } catch (error) {
+    return {
+      decision: "manual-intervention",
+      reason: "fresh-provider-census-is-not-a-known-release-frontier",
+      error: error instanceof Error ? error.message : String(error),
+      reconciliation: null,
+      actions: [],
+    };
+  }
+  // The inherited planner is pure. Rebase only its provider-observed start
+  // mappings; never treat an older artifact snapshot as current authority.
+  const rebased = assertMainTransactionJournal({
+    ...inherited,
+    startMappings: currentMappings,
+  });
+  const plan = planInheritedMainTransactionRecovery({
+    journal: rebased,
+    reason,
+  });
+  return { ...plan, reconciliation };
+}
+
+// App has two protected environments. A moved v3 mapping is recoverable only
+// when this current attempt first captured the v2 mapping. An unmapped third
+// deployment or a candidate left by another attempt stops for manual work.
+export function decideMainActiveAppRecoverySafety({
+  inheritedJournal,
+  currentJournal = null,
+  reason,
+  currentMappings,
+}) {
+  const inherited = assertMainTransactionJournal(inheritedJournal);
+  const inheritedPlan = planFreshInheritedMainActiveRecovery({
+    inheritedJournal,
+    reason,
+    currentMappings,
+  });
+  if (
+    inheritedPlan.decision === "manual-intervention" ||
+    inheritedPlan.decision === "verify-noop" ||
+    inheritedPlan.decision === "no-inherited-recovery"
+  ) {
+    return inheritedPlan;
+  }
+  if (currentJournal === null) {
+    return {
+      decision: "manual-intervention",
+      reason: "current-attempt-recovery-journal-is-required",
+      reconciliation: inheritedPlan.reconciliation,
+      actions: [],
+    };
+  }
+
+  let current;
+  try {
+    current = assertMainTransactionJournal(currentJournal);
+    if (
+      current.status !== "prepared" ||
+      current.operations.length !== 0 ||
+      !sameSnapshot(current.release, inherited.release) ||
+      !sameSnapshot(current.candidates, inherited.candidates) ||
+      !sameSnapshot(current.startMappings, currentMappings)
+    ) {
+      throw new Error(
+        "Current recovery journal does not bind the fresh inherited release census",
+      );
+    }
+  } catch (error) {
+    return {
+      decision: "manual-intervention",
+      reason: "current-attempt-recovery-journal-is-not-safe",
+      error: error instanceof Error ? error.message : String(error),
+      reconciliation: inheritedPlan.reconciliation,
+      actions: [],
+    };
+  }
+
+  const plan = planFreshInheritedMainActiveRecovery({
+    inheritedJournal: current,
+    reason,
+    currentMappings,
+  });
+  if (
+    plan.decision !== "restore-inherited" ||
+    !sameSnapshot(plan.reconciliation, inheritedPlan.reconciliation)
+  ) {
+    return {
+      decision: "manual-intervention",
+      reason: "current-attempt-recovery-plan-diverged",
+      reconciliation: inheritedPlan.reconciliation,
+      actions: [],
+    };
+  }
+  const app = plan.reconciliation.observedTargets.find(
+    (target) => target.target === "app",
+  );
+  if (app?.state === "prior") return plan;
+  try {
+    const capturedLegacy = current.prior["legacy-app"];
+    const observedLegacy = currentMappings["legacy-app"];
+    if (!sameSnapshot(observedLegacy, current.startMappings["legacy-app"])) {
+      throw new Error("Current attempt legacy v2 mapping changed");
+    }
+    if (
+      capturedLegacy.deploymentId !==
+      current.startMappings["legacy-app"][0].deploymentId
+    ) {
+      throw new Error("Current attempt did not capture legacy v2");
+    }
+  } catch (error) {
+    return {
+      decision: "manual-intervention",
+      reason: "app-v3-recovery-journal-is-not-safe",
+      error: error instanceof Error ? error.message : String(error),
+      reconciliation: plan.reconciliation,
+      actions: [],
+    };
+  }
+  return plan;
 }
 
 export async function executeMainActiveCommand({ command, adapter }) {

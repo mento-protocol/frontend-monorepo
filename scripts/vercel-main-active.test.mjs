@@ -5,6 +5,7 @@ import {
   MAIN_ACTIVE_APP_ALIASES,
   MAIN_ACTIVE_COMMAND_TIMEOUT_MS,
   MAIN_ACTIVE_LEGACY_ALIAS,
+  MAIN_ACTIVE_LEGACY_ALIASES,
   MAIN_ACTIVE_ORDINARY_TARGETS,
   MainActiveAdapterError,
   assertMainActiveCommandDescriptor,
@@ -14,6 +15,7 @@ import {
   buildMainActiveAppAliasSetSequence,
   buildMainActiveAppDeployCommand,
   buildMainActiveLegacyAliasRestoreCommand,
+  buildMainActiveLegacyAliasRestoreSequence,
   buildMainActivePromotionCommand,
   buildMainActivePromotionSequence,
   buildMainActiveRollbackCommand,
@@ -22,11 +24,22 @@ import {
   runMainActiveVercelCommand,
   verifyMainActiveMapping,
 } from "./vercel-main-active.mjs";
+import { MAIN_TARGET_CONTRACTS } from "./vercel-main-plan.mjs";
+import { createMainReleaseManifest } from "./vercel-main-release-reconciliation.mjs";
+import {
+  createMainCandidateIntent,
+  createMainCandidateVercelMetadata,
+} from "./vercel-main-candidate.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const TRANSACTION_ID = "main-0123456789abcdef0123456789abcdef";
 const TOKEN = ["test", "redaction", "sentinel"].join("-");
 const APP_PROJECT_ID = "prj_app123";
+const LEGACY_PROJECT_ID = "prj_app123";
+const LEGACY_PRIOR = Object.freeze({
+  deploymentId: "dpl_LegacyPrior123",
+  deploymentUrl: "https://legacy-prior.vercel.app",
+});
 const APP_CANDIDATE = Object.freeze({
   deploymentId: "dpl_AppCandidate123",
   deploymentUrl: "https://app-candidate.vercel.app",
@@ -44,7 +57,97 @@ const ORDINARY_PRIOR = Object.freeze({
   deploymentUrl: "https://ui-prior.vercel.app",
 });
 
+function appCandidateMetadata(overrides = {}) {
+  const {
+    originRunId = "7654321",
+    originAttempt = "2",
+    originTransactionId = TRANSACTION_ID,
+  } = overrides;
+  const targets = ["app", "governance", "reserve", "ui"];
+  const priorSha = "1111111111111111111111111111111111111111";
+  const plan = {
+    schema: "vercel-main-plan:v2",
+    mode: "active",
+    deploySha: SHA,
+    mainOwnershipMode: Object.fromEntries(
+      targets.map((target) => [target, "github"]),
+    ),
+    stagedTargets: ["app"],
+    activeTargets: ["app"],
+    shadowTargets: [],
+    plan: ["app"],
+    priors: targets.map((target) => ({
+      target,
+      deploymentId: `dpl_${target}Prior123`,
+      deploymentUrl: `https://${target}-prior.vercel.app`,
+      aliases: [...MAIN_TARGET_CONTRACTS[target].aliases],
+      servedSha: priorSha,
+    })),
+    ranges: [
+      {
+        base: priorSha,
+        head: SHA,
+        kind: "served",
+        reason: "global-build-input",
+        targets,
+        deployments: ["app"],
+      },
+    ],
+    reasons: [{ target: "app", base: priorSha, reason: "global-build-input" }],
+  };
+  const releaseManifest = createMainReleaseManifest({
+    upstreamRunId: "700",
+    plan,
+    originalPriors: Object.fromEntries(
+      ["governance", "reserve", "ui", "app"].map((target) => {
+        const contract = MAIN_TARGET_CONTRACTS[target];
+        const aliases = [...contract.aliases].sort();
+        const prior = {
+          deploymentId: `dpl_${target}Prior123`,
+          deploymentUrl: `https://${target}-prior.vercel.app`,
+          aliases,
+          projectId: target === "app" ? APP_PROJECT_ID : `prj_${target}123`,
+          projectName: contract.projectName,
+          readyState: "READY",
+          target: contract.target,
+          customEnvironmentSlug: contract.customEnvironmentSlug,
+        };
+        return [
+          target,
+          {
+            ...prior,
+            planningLeaves: aliases.map((alias) => ({
+              alias,
+              ...prior,
+              git: {
+                status: "complete",
+                org: "mento-protocol",
+                repo: "frontend-monorepo",
+                ref: "main",
+                sha: priorSha,
+              },
+            })),
+            servedSha: priorSha,
+          },
+        ];
+      }),
+    ),
+  });
+  const intent = createMainCandidateIntent({
+    target: "app",
+    deploySha: SHA,
+    upstreamRunId: "700",
+    originRunId,
+    originAttempt,
+    originTransactionId,
+    projectId: APP_PROJECT_ID,
+    releaseManifest,
+  });
+  return createMainCandidateVercelMetadata({ intent });
+}
+
 function appExpectation(overrides = {}) {
+  const metadata = appCandidateMetadata();
   return {
     projectId: APP_PROJECT_ID,
     projectName: "app.mento.org",
@@ -53,7 +156,8 @@ function appExpectation(overrides = {}) {
     runAttempt: "2",
     transactionId: TRANSACTION_ID,
     customEnvironmentSlug: "v3",
-    nextDeploymentId: "appMainAbc123",
+    nextDeploymentId: metadata.mentoNextDeploymentId,
+    candidateMetadata: metadata,
     ...overrides,
   };
 }
@@ -67,6 +171,7 @@ function appDeployCommand(overrides = {}) {
     runAttempt: expectation.runAttempt,
     transactionId: expectation.transactionId,
     nextDeploymentId: expectation.nextDeploymentId,
+    candidateMetadata: expectation.candidateMetadata,
   });
 }
 
@@ -132,9 +237,16 @@ test("reviewed target and alias order is literal and immutable", () => {
     "appmentoorg-env-v3-mentolabs.vercel.app",
   ]);
   assert.equal(MAIN_ACTIVE_LEGACY_ALIAS, "v2-app.mento.org");
+  assert.deepEqual(MAIN_ACTIVE_LEGACY_ALIASES, [
+    "appmentoorg-git-v2-mentolabs.vercel.app",
+    "appmentoorg-mentolabs.vercel.app",
+    "appmentoorg.vercel.app",
+    "v2-app.mento.org",
+  ]);
   assert.equal(MAIN_ACTIVE_COMMAND_TIMEOUT_MS, 120_000);
   assert.equal(Object.isFrozen(MAIN_ACTIVE_ORDINARY_TARGETS), true);
   assert.equal(Object.isFrozen(MAIN_ACTIVE_APP_ALIASES), true);
+  assert.equal(Object.isFrozen(MAIN_ACTIVE_LEGACY_ALIASES), true);
 });
 
 test("ordinary promotion sequence is always governance, reserve, ui", () => {
@@ -233,6 +345,7 @@ test("promotion builder accepts only an exact ordinary deployment identity", () 
 
 test("App command is the exact custom-v3 prebuilt deploy with reviewed metadata", () => {
   const command = appDeployCommand();
+  const metadata = appCandidateMetadata();
   assert.deepEqual(command.arguments, [
     "deploy",
     "--prebuilt",
@@ -250,20 +363,21 @@ test("App command is the exact custom-v3 prebuilt deploy with reviewed metadata"
     "githubCommitRef=main",
     "--meta",
     `githubCommitSha=${SHA}`,
-    "--meta",
-    "mentoRunId=7654321",
-    "--meta",
-    "mentoRunAttempt=2",
-    "--meta",
-    `mentoTransactionId=${TRANSACTION_ID}`,
-    "--meta",
-    "mentoNextDeploymentId=appMainAbc123",
+    ...Object.entries(metadata)
+      .map(([key, value]) => ["--meta", `${key}=${value}`])
+      .flat(),
   ]);
   assert.equal(command.target, "app");
-  assert.equal(command.arguments.length, 24);
+  assert.equal(command.arguments.length, 16 + Object.keys(metadata).length * 2);
   assert.equal(
     command.arguments.filter((argument) => argument === "--meta").length,
-    8,
+    4 + Object.keys(metadata).length,
+  );
+  assert.equal(command.arguments.includes(`mentoRunId=7654321`), false);
+  assert.equal(command.arguments.includes(`mentoRunAttempt=2`), false);
+  assert.equal(
+    command.arguments.includes(`mentoTransactionId=${TRANSACTION_ID}`),
+    false,
   );
   assert.equal(command.arguments.includes("--prod"), false);
   assert.equal(command.arguments.includes("--skip-domain"), false);
@@ -297,6 +411,80 @@ test("App deploy rejects malformed or non-reviewed transaction identity", () => 
   assert.throws(
     () => assertMainActiveCommandDescriptor(altered),
     /descriptor was altered/,
+  );
+});
+
+test("App deploy requires one bounded canonical stable metadata fixture", () => {
+  const metadata = appCandidateMetadata();
+  assert.throws(
+    () =>
+      appDeployCommand({
+        candidateMetadata: {
+          ...metadata,
+          mentoNextDeploymentId: "mr-app-forged",
+        },
+      }),
+    /stable fields conflict/,
+  );
+  const missing = { ...metadata };
+  delete missing.mentoReleaseManifestChunk0;
+  assert.throws(
+    () => appDeployCommand({ candidateMetadata: missing }),
+    /manifest chunk|incomplete/,
+  );
+  assert.throws(
+    () =>
+      appDeployCommand({
+        candidateMetadata: { ...metadata, mentoUnsupported: "forged" },
+      }),
+    /unsupported fields/,
+  );
+  assert.throws(
+    () =>
+      appDeployCommand({
+        candidateMetadata: { ...metadata, githubDeployment: "forbidden" },
+      }),
+    /GitHub-owned/,
+  );
+  assert.throws(
+    () =>
+      appDeployCommand({
+        candidateMetadata: {
+          ...metadata,
+          mentoReleaseManifestChunk0: "x".repeat(8_193),
+        },
+      }),
+    /bounded size/,
+  );
+});
+
+test("App reruns retain stable candidate metadata and change only audit origin", () => {
+  const first = appCandidateMetadata();
+  const second = appCandidateMetadata({
+    originRunId: "7654322",
+    originAttempt: "3",
+    originTransactionId: "main-abcdefabcdefabcdefabcdefabcdefab",
+  });
+  const auditKeys = new Set([
+    "mentoOriginRunId",
+    "mentoOriginRunAttempt",
+    "mentoOriginTransactionId",
+  ]);
+  assert.deepEqual(
+    Object.fromEntries(
+      Object.entries(first).filter(([key]) => !auditKeys.has(key)),
+    ),
+    Object.fromEntries(
+      Object.entries(second).filter(([key]) => !auditKeys.has(key)),
+    ),
+  );
+  assert.notDeepEqual(
+    Object.fromEntries(
+      Object.entries(first).filter(([key]) => auditKeys.has(key)),
+    ),
+    Object.fromEntries(
+      Object.entries(second).filter(([key]) => auditKeys.has(key)),
+    ),
   );
 });
 
@@ -356,25 +544,97 @@ test("recovery builders use only captured exact prior identities", () => {
     "app-alias-restore",
   );
 
-  const legacy = buildMainActiveLegacyAliasRestoreCommand({
-    alias: MAIN_ACTIVE_LEGACY_ALIAS,
-    deploymentId: "dpl_LegacyPrior123",
-    deploymentUrl: "https://legacy-prior.vercel.app",
+  const legacyRestores = buildMainActiveLegacyAliasRestoreSequence({
+    aliases: [...MAIN_ACTIVE_LEGACY_ALIASES],
+    projectId: LEGACY_PROJECT_ID,
+    ...LEGACY_PRIOR,
   });
-  assert.deepEqual(legacy.arguments, [
-    "alias",
-    "set",
-    "https://legacy-prior.vercel.app",
-    MAIN_ACTIVE_LEGACY_ALIAS,
-  ]);
+  assert.deepEqual(
+    legacyRestores.map(({ alias }) => alias),
+    MAIN_ACTIVE_LEGACY_ALIASES,
+  );
+  for (const legacy of legacyRestores) {
+    assert.deepEqual(legacy.arguments, [
+      "alias",
+      "set",
+      LEGACY_PRIOR.deploymentUrl,
+      legacy.alias,
+    ]);
+    assert.deepEqual(legacy.aliases, MAIN_ACTIVE_LEGACY_ALIASES);
+    assert.equal(legacy.projectId, LEGACY_PROJECT_ID);
+    assert.equal(Object.isFrozen(legacy.aliases), true);
+    assert.deepEqual(assertMainActiveCommandDescriptor(legacy), legacy);
+  }
   assert.throws(
     () =>
       buildMainActiveLegacyAliasRestoreCommand({
         alias: "app.mento.org",
-        deploymentId: "dpl_LegacyPrior123",
-        deploymentUrl: "https://legacy-prior.vercel.app",
+        aliases: [...MAIN_ACTIVE_LEGACY_ALIASES],
+        projectId: LEGACY_PROJECT_ID,
+        ...LEGACY_PRIOR,
       }),
     /not allowlisted/,
+  );
+});
+
+test("legacy compensation requires the complete reviewed topology and cannot become a cutover mutation", () => {
+  const exact = {
+    aliases: [...MAIN_ACTIVE_LEGACY_ALIASES],
+    projectId: LEGACY_PROJECT_ID,
+    ...LEGACY_PRIOR,
+  };
+  for (const aliases of [
+    MAIN_ACTIVE_LEGACY_ALIASES.slice(1),
+    [...MAIN_ACTIVE_LEGACY_ALIASES, "unexpected.mento.org"],
+    [...MAIN_ACTIVE_LEGACY_ALIASES, MAIN_ACTIVE_LEGACY_ALIAS],
+    [...MAIN_ACTIVE_LEGACY_ALIASES].reverse(),
+  ]) {
+    assert.throws(
+      () =>
+        buildMainActiveLegacyAliasRestoreSequence({
+          ...exact,
+          aliases,
+        }),
+      /exactly match the reviewed v2 topology/,
+    );
+  }
+  assert.throws(
+    () =>
+      buildMainActiveLegacyAliasRestoreSequence({
+        ...exact,
+        projectId: "not a project id",
+      }),
+    /project ID is malformed/,
+  );
+
+  for (const builder of [
+    buildMainActivePromotionCommand,
+    buildMainActiveRollbackCommand,
+  ]) {
+    assert.throws(
+      () =>
+        builder({
+          target: "legacy-app",
+          ...LEGACY_PRIOR,
+        }),
+      /Ordinary target is not allowlisted/,
+    );
+  }
+
+  const restore = buildMainActiveLegacyAliasRestoreCommand({
+    alias: MAIN_ACTIVE_LEGACY_ALIASES[0],
+    ...exact,
+  });
+  for (const forbidden of ["deploy", "promote", "rollback", "--prod"]) {
+    assert.equal(restore.arguments.includes(forbidden), false);
+  }
+  assert.throws(
+    () =>
+      assertMainActiveCommandDescriptor({
+        ...restore,
+        arguments: ["promote", LEGACY_PRIOR.deploymentId, "--yes"],
+      }),
+    /descriptor was altered/,
   );
 });
 
@@ -611,7 +871,9 @@ test("exact READY App candidate discovery resolves an unknown command outcome", 
       return canonicalAppCandidate();
     },
   });
-  assert.deepEqual(seen, [appExpectation()]);
+  const expectation = { ...appExpectation() };
+  delete expectation.candidateMetadata;
+  assert.deepEqual(seen, [expectation]);
   assert.deepEqual(resolved, {
     commandOutcome: "unknown",
     candidate: canonicalAppCandidate(),
@@ -727,6 +989,84 @@ test("partial App aliases can be inspected independently for per-alias decisions
       captureMappings,
     }),
     /not allowlisted/,
+  );
+});
+
+test("legacy verification binds every reviewed alias to the exact App project", async () => {
+  const input = {
+    target: "legacy-app",
+    aliases: [...MAIN_ACTIVE_LEGACY_ALIASES],
+    projectId: LEGACY_PROJECT_ID,
+    priorDeployment: LEGACY_PRIOR,
+    candidateDeployment: APP_CANDIDATE,
+  };
+  const capturePrior = async (aliases) =>
+    aliases.map((alias) => mapping(alias, LEGACY_PRIOR, LEGACY_PROJECT_ID));
+  const inspection = await inspectMainActiveMapping({
+    ...input,
+    captureMappings: capturePrior,
+  });
+  assert.equal(inspection.mappingState, "prior");
+  assert.deepEqual(
+    inspection.mappings,
+    MAIN_ACTIVE_LEGACY_ALIASES.map((alias) => ({
+      alias,
+      ...LEGACY_PRIOR,
+      projectId: LEGACY_PROJECT_ID,
+    })),
+  );
+  const verified = await verifyMainActiveMapping({
+    ...input,
+    expectedMappingState: "prior",
+    captureMappings: capturePrior,
+  });
+  assert.equal(verified.mappingState, "prior");
+
+  for (const aliases of [
+    MAIN_ACTIVE_LEGACY_ALIASES.slice(1),
+    [...MAIN_ACTIVE_LEGACY_ALIASES, "unexpected.mento.org"],
+    [...MAIN_ACTIVE_LEGACY_ALIASES, MAIN_ACTIVE_LEGACY_ALIAS],
+  ]) {
+    await assert.rejects(
+      inspectMainActiveMapping({
+        ...input,
+        aliases,
+        captureMappings: capturePrior,
+      }),
+      /exactly match the reviewed v2 topology/,
+    );
+  }
+  await assert.rejects(
+    inspectMainActiveMapping({
+      ...input,
+      captureMappings: async (aliases) =>
+        aliases.map((alias) => mapping(alias, LEGACY_PRIOR, "prj_foreign123")),
+    }),
+    /Protected mapping inspection failed closed/,
+  );
+  await assert.rejects(
+    inspectMainActiveMapping({
+      ...input,
+      captureMappings: async (aliases) =>
+        aliases
+          .slice(1)
+          .map((alias) => mapping(alias, LEGACY_PRIOR, LEGACY_PROJECT_ID)),
+    }),
+    /Protected mapping inspection failed closed/,
+  );
+
+  const foreign = {
+    deploymentId: "dpl_ForeignLegacy123",
+    deploymentUrl: "https://foreign-legacy.vercel.app",
+  };
+  await assert.rejects(
+    verifyMainActiveMapping({
+      ...input,
+      expectedMappingState: "prior",
+      captureMappings: async (aliases) =>
+        aliases.map((alias) => mapping(alias, foreign, LEGACY_PROJECT_ID)),
+    }),
+    /verification failed \(unexpected\)/,
   );
 });
 

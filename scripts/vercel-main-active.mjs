@@ -12,6 +12,7 @@ import {
   assertAppTransactionCandidateOutput,
 } from "./vercel-deployment-state.mjs";
 import { classifyMainTransactionMapping } from "./vercel-main-transaction.mjs";
+import { canonicalizeMainCandidateVercelMetadata } from "./vercel-main-candidate.mjs";
 
 const DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9._-]+$/;
@@ -36,6 +37,12 @@ export const MAIN_ACTIVE_APP_ALIASES = Object.freeze([
   "appmentoorg-env-v3-mentolabs.vercel.app",
 ]);
 export const MAIN_ACTIVE_LEGACY_ALIAS = "v2-app.mento.org";
+export const MAIN_ACTIVE_LEGACY_ALIASES = Object.freeze([
+  "appmentoorg-git-v2-mentolabs.vercel.app",
+  "appmentoorg-mentolabs.vercel.app",
+  "appmentoorg.vercel.app",
+  MAIN_ACTIVE_LEGACY_ALIAS,
+]);
 export const MAIN_ACTIVE_COMMAND_TIMEOUT_MS = 120_000;
 
 const TARGET_ALIASES = Object.freeze({
@@ -43,7 +50,7 @@ const TARGET_ALIASES = Object.freeze({
   governance: Object.freeze(["governance.mento.org"]),
   reserve: Object.freeze(["reserve.mento.org"]),
   ui: Object.freeze(["ui.mento.org"]),
-  "legacy-app": Object.freeze([MAIN_ACTIVE_LEGACY_ALIAS]),
+  "legacy-app": MAIN_ACTIVE_LEGACY_ALIASES,
 });
 
 const COMMAND_ENVIRONMENT_NAMES = Object.freeze([
@@ -77,12 +84,23 @@ const APP_DEPLOY_KEYS = Object.freeze([
   "runAttempt",
   "transactionId",
   "nextDeploymentId",
+  "candidateMetadata",
   "arguments",
 ]);
 const ALIAS_KEYS = Object.freeze([
   "kind",
   "target",
   "alias",
+  "deploymentId",
+  "deploymentUrl",
+  "arguments",
+]);
+const LEGACY_ALIAS_KEYS = Object.freeze([
+  "kind",
+  "target",
+  "alias",
+  "aliases",
+  "projectId",
   "deploymentId",
   "deploymentUrl",
   "arguments",
@@ -215,8 +233,46 @@ function requireAlias(value, allowed, label) {
 }
 
 function freezeCommand(command) {
+  if (Array.isArray(command.aliases)) Object.freeze(command.aliases);
   Object.freeze(command.arguments);
   return Object.freeze(command);
+}
+
+function canonicalLegacyTopology(aliases, projectId) {
+  if (!Array.isArray(aliases)) {
+    throw new MainActiveAdapterError(
+      "Legacy app aliases must be an array",
+      "MAIN_ACTIVE_INPUT_REJECTED",
+    );
+  }
+  const canonicalAliases = aliases.map((alias) => {
+    try {
+      return canonicalizeHostname(alias);
+    } catch {
+      throw new MainActiveAdapterError(
+        "Legacy app alias is malformed",
+        "MAIN_ACTIVE_INPUT_REJECTED",
+      );
+    }
+  });
+  if (
+    new Set(canonicalAliases).size !== canonicalAliases.length ||
+    JSON.stringify(canonicalAliases) !==
+      JSON.stringify(MAIN_ACTIVE_LEGACY_ALIASES)
+  ) {
+    throw new MainActiveAdapterError(
+      "Legacy app aliases must exactly match the reviewed v2 topology",
+      "MAIN_ACTIVE_INPUT_REJECTED",
+    );
+  }
+  return {
+    aliases: Object.freeze([...canonicalAliases]),
+    projectId: requireString(
+      projectId,
+      "Legacy app project ID",
+      IDENTIFIER_PATTERN,
+    ),
+  };
 }
 
 function canonicalDeploymentIdentity(value, label) {
@@ -290,25 +346,35 @@ export function buildMainActivePromotionSequence(entries) {
 }
 
 function canonicalAppExpectation(value) {
-  assertExactKeys(value, APP_EXPECTATION_KEYS, "App candidate expectation");
+  const expectation = { ...value };
+  delete expectation.candidateMetadata;
+  assertExactKeys(
+    expectation,
+    APP_EXPECTATION_KEYS,
+    "App candidate expectation",
+  );
   const canonical = {
     projectId: requireString(
-      value.projectId,
+      expectation.projectId,
       "App project ID",
       IDENTIFIER_PATTERN,
     ),
-    projectName: value.projectName,
-    deploySha: requireString(value.deploySha, "App deploy SHA", SHA_PATTERN),
-    runId: requirePositiveId(value.runId, "App run ID"),
-    runAttempt: requirePositiveId(value.runAttempt, "App run attempt"),
+    projectName: expectation.projectName,
+    deploySha: requireString(
+      expectation.deploySha,
+      "App deploy SHA",
+      SHA_PATTERN,
+    ),
+    runId: requirePositiveId(expectation.runId, "App run ID"),
+    runAttempt: requirePositiveId(expectation.runAttempt, "App run attempt"),
     transactionId: requireString(
-      value.transactionId,
+      expectation.transactionId,
       "App transaction ID",
       TRANSACTION_ID_PATTERN,
     ),
-    customEnvironmentSlug: value.customEnvironmentSlug,
+    customEnvironmentSlug: expectation.customEnvironmentSlug,
     nextDeploymentId: requireString(
-      value.nextDeploymentId,
+      expectation.nextDeploymentId,
       "App custom Next deployment ID",
       NEXT_DEPLOYMENT_ID_PATTERN,
     ),
@@ -335,23 +401,40 @@ export function buildMainActiveAppDeployCommand(options) {
       "runAttempt",
       "transactionId",
       "nextDeploymentId",
+      "candidateMetadata",
     ],
     "App deploy input",
   );
+  const { candidateMetadata: rawCandidateMetadata, ...expectationInput } =
+    options;
   const expectation = canonicalAppExpectation({
-    ...options,
+    ...expectationInput,
     projectName: "app.mento.org",
     customEnvironmentSlug: "v3",
   });
-  const metadata = [
+  const canonicalCandidateMetadata = canonicalizeMainCandidateVercelMetadata(
+    rawCandidateMetadata,
+    {
+      target: "app",
+      projectId: expectation.projectId,
+      projectName: "app.mento.org",
+      deploySha: expectation.deploySha,
+    },
+  );
+  if (canonicalCandidateMetadata.candidateId !== expectation.nextDeploymentId) {
+    throw new MainActiveAdapterError(
+      "App stable candidate ID differs from the custom deployment ID",
+      "MAIN_ACTIVE_INPUT_REJECTED",
+    );
+  }
+  const metadata = Object.entries(rawCandidateMetadata)
+    .filter(([key]) => key.startsWith("mento"))
+    .map(([key, value]) => `${key}=${value}`);
+  const gitMetadata = [
     "githubCommitOrg=mento-protocol",
     "githubCommitRepo=frontend-monorepo",
     "githubCommitRef=main",
     `githubCommitSha=${expectation.deploySha}`,
-    `mentoRunId=${expectation.runId}`,
-    `mentoRunAttempt=${expectation.runAttempt}`,
-    `mentoTransactionId=${expectation.transactionId}`,
-    `mentoNextDeploymentId=${expectation.nextDeploymentId}`,
   ];
   const argumentsList = [
     "deploy",
@@ -362,6 +445,7 @@ export function buildMainActiveAppDeployCommand(options) {
     "--yes",
     "--project",
     expectation.projectId,
+    ...gitMetadata.flatMap((entry) => ["--meta", entry]),
     ...metadata.flatMap((entry) => ["--meta", entry]),
   ];
   return freezeCommand({
@@ -373,6 +457,7 @@ export function buildMainActiveAppDeployCommand(options) {
     runAttempt: expectation.runAttempt,
     transactionId: expectation.transactionId,
     nextDeploymentId: expectation.nextDeploymentId,
+    candidateMetadata: Object.freeze({ ...rawCandidateMetadata }),
     arguments: argumentsList,
   });
 }
@@ -381,6 +466,8 @@ function buildAliasCommand({
   kind,
   target,
   alias,
+  aliases,
+  projectId,
   deploymentId,
   deploymentUrl,
 }) {
@@ -388,10 +475,18 @@ function buildAliasCommand({
     { deploymentId, deploymentUrl },
     "Alias deployment",
   );
+  const binding =
+    aliases === undefined
+      ? {}
+      : {
+          aliases: [...aliases],
+          projectId,
+        };
   return freezeCommand({
     kind,
     target,
     alias,
+    ...binding,
     ...identity,
     arguments: ["alias", "set", identity.deploymentUrl, alias],
   });
@@ -478,20 +573,35 @@ export function buildMainActiveAppAliasRestoreSequence(options) {
 export function buildMainActiveLegacyAliasRestoreCommand(options) {
   assertExactKeys(
     options,
-    ["alias", "deploymentId", "deploymentUrl"],
+    ["alias", "aliases", "projectId", "deploymentId", "deploymentUrl"],
     "Legacy alias restore input",
   );
+  const topology = canonicalLegacyTopology(options.aliases, options.projectId);
   return buildAliasCommand({
     kind: "legacy-alias-restore",
     target: "legacy-app",
-    alias: requireAlias(
-      options.alias,
-      [MAIN_ACTIVE_LEGACY_ALIAS],
-      "Legacy app alias",
-    ),
+    alias: requireAlias(options.alias, topology.aliases, "Legacy app alias"),
     deploymentId: options.deploymentId,
     deploymentUrl: options.deploymentUrl,
+    ...topology,
   });
+}
+
+export function buildMainActiveLegacyAliasRestoreSequence(options) {
+  assertExactKeys(
+    options,
+    ["aliases", "projectId", "deploymentId", "deploymentUrl"],
+    "Legacy alias restore sequence input",
+  );
+  const topology = canonicalLegacyTopology(options.aliases, options.projectId);
+  return Object.freeze(
+    topology.aliases.map((alias) =>
+      buildMainActiveLegacyAliasRestoreCommand({
+        alias,
+        ...options,
+      }),
+    ),
+  );
 }
 
 function sameJson(left, right) {
@@ -548,6 +658,7 @@ export function assertMainActiveCommandDescriptor(value) {
       runAttempt: value.runAttempt,
       transactionId: value.transactionId,
       nextDeploymentId: value.nextDeploymentId,
+      candidateMetadata: value.candidateMetadata,
     });
   } else if (value.kind === "ordinary-rollback") {
     assertExactKeys(value, PROMOTION_KEYS, "Rollback command");
@@ -556,11 +667,16 @@ export function assertMainActiveCommandDescriptor(value) {
       deploymentId: value.deploymentId,
       deploymentUrl: value.deploymentUrl,
     });
-  } else if (
-    ["app-alias-set", "app-alias-restore", "legacy-alias-restore"].includes(
-      value.kind,
-    )
-  ) {
+  } else if (value.kind === "legacy-alias-restore") {
+    assertExactKeys(value, LEGACY_ALIAS_KEYS, "Legacy alias command");
+    expected = buildMainActiveLegacyAliasRestoreCommand({
+      alias: value.alias,
+      aliases: value.aliases,
+      projectId: value.projectId,
+      deploymentId: value.deploymentId,
+      deploymentUrl: value.deploymentUrl,
+    });
+  } else if (["app-alias-set", "app-alias-restore"].includes(value.kind)) {
     assertExactKeys(value, ALIAS_KEYS, "Alias command");
     const input = {
       alias: value.alias,
@@ -570,9 +686,7 @@ export function assertMainActiveCommandDescriptor(value) {
     expected =
       value.kind === "app-alias-set"
         ? buildMainActiveAppAliasSetCommand(input)
-        : value.kind === "app-alias-restore"
-          ? buildMainActiveAppAliasRestoreCommand(input)
-          : buildMainActiveLegacyAliasRestoreCommand(input);
+        : buildMainActiveAppAliasRestoreCommand(input);
   } else {
     throw new MainActiveAdapterError(
       "Vercel command kind is not allowlisted",
@@ -923,7 +1037,7 @@ export async function resolveMainActiveAppCandidate({
   });
 }
 
-function canonicalMapping(value) {
+function canonicalMapping(value, expectedProjectId = null) {
   const keys = Object.keys(value ?? {});
   if (
     !hasExactKeys(value, MAPPING_KEYS) &&
@@ -938,11 +1052,20 @@ function canonicalMapping(value) {
   ) {
     throw new Error("project ID");
   }
-  return {
+  if (
+    expectedProjectId !== null &&
+    (!keys.includes("projectId") || value.projectId !== expectedProjectId)
+  ) {
+    throw new Error("project binding");
+  }
+  const mapping = {
     alias: canonicalizeHostname(value.alias),
     deploymentId: requireDeploymentId(value.deploymentId),
     deploymentUrl: requireDeploymentUrl(value.deploymentUrl),
   };
+  return expectedProjectId === null
+    ? mapping
+    : { ...mapping, projectId: expectedProjectId };
 }
 
 function reviewedMappingAliases(target, aliases) {
@@ -973,6 +1096,7 @@ function reviewedMappingAliases(target, aliases) {
 export async function inspectMainActiveMapping({
   target,
   aliases: requestedAliases,
+  projectId,
   priorDeployment,
   candidateDeployment,
   captureMappings,
@@ -989,17 +1113,37 @@ export async function inspectMainActiveMapping({
       "MAIN_ACTIVE_MAPPING_FAILED",
     );
   }
-  const aliases = reviewedMappingAliases(canonicalTarget, requestedAliases);
+  let expectedProjectId = null;
+  let aliases;
+  if (canonicalTarget === "legacy-app") {
+    const topology = canonicalLegacyTopology(requestedAliases, projectId);
+    aliases = [...topology.aliases];
+    expectedProjectId = topology.projectId;
+  } else {
+    if (projectId !== undefined) {
+      throw new MainActiveAdapterError(
+        "Only legacy mapping inspection accepts a project binding",
+        "MAIN_ACTIVE_INPUT_REJECTED",
+      );
+    }
+    aliases = reviewedMappingAliases(canonicalTarget, requestedAliases);
+  }
   let mappings;
   try {
     const captured = await captureMappings(Object.freeze([...aliases]));
     if (!Array.isArray(captured)) throw new Error("mapping array");
     mappings = captured
-      .map(canonicalMapping)
+      .map((mapping) => canonicalMapping(mapping, expectedProjectId))
       .sort((left, right) => left.alias.localeCompare(right.alias));
     const mappingState = classifyMainTransactionMapping({
       aliases,
-      currentMappings: mappings,
+      currentMappings: mappings.map(
+        ({ alias, deploymentId, deploymentUrl }) => ({
+          alias,
+          deploymentId,
+          deploymentUrl,
+        }),
+      ),
       prior: { ...prior, aliases },
       candidate: { ...candidate, aliases },
     });
@@ -1021,6 +1165,7 @@ export async function inspectMainActiveMapping({
 export async function verifyMainActiveMapping({
   target,
   aliases,
+  projectId,
   priorDeployment,
   candidateDeployment,
   expectedMappingState,
@@ -1035,6 +1180,7 @@ export async function verifyMainActiveMapping({
   const inspection = await inspectMainActiveMapping({
     target,
     aliases,
+    projectId,
     priorDeployment,
     candidateDeployment,
     captureMappings,

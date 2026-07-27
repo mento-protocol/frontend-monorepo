@@ -67,6 +67,18 @@ map assigns all four targets to `github`; global `shadow` is valid only when all
 four targets are `shadow`. Ambiguous path planning selects a target; ambiguous
 ownership or protected state aborts the whole run.
 
+Release identity is stable across reruns—repository, exact SHA, and validated
+upstream CI run ID—and the target-specific candidate identity adds the target.
+The provider-side stable release manifest is the sole durable cross-attempt
+authority. Mutation transaction IDs and journals remain downstream
+run-and-attempt scoped. Before planning, a later attempt reconciles the
+provider's protected mappings and candidates against that manifest. It either
+reuses a complete release or, for an interrupted prefix, restores the inherited
+state through a fresh current-attempt journal before new planning can proceed.
+It never resumes or treats a prior attempt's journal artifact as cross-attempt
+authority. Ambiguous, conflicting, or incomplete provider state fails closed
+before the release continues.
+
 Every selected Governance, Reserve, and UI target stages and verifies an
 immutable candidate with `--prod --skip-domain`. Only an `activeTargets` member
 may mutate its public mapping: ordinary targets promote the exact staged
@@ -78,6 +90,18 @@ durable journal transition. Recovery restores exact captured mappings in
 reverse mutation order and treats unknown operator-owned state as manual
 intervention. The final evidence includes an active duplicate-deployment census
 and fails if native Vercel also attempted a replaced `main` path.
+
+Ordinary reruns reuse only the exact stable candidate identified by the release
+manifest, one provider candidate, and fresh deployment inspection/smoke. A
+complete release takes the journal-free `current-release-verified` route: it
+rechecks current mappings, deployment census/state, raw public runtime smokes,
+fresh legacy App `v2`, and freshness without replaying a mutation. An
+interrupted release uses a new current-attempt journal and current
+protected-state snapshot. App shadow preparation is build-only terminal
+evidence, never a provider deployment. The terminal receipt and evidence are
+the only compact final-verdict handoff and support final-only reruns. A release
+identity is evidence lookup only; it never authorizes a prior attempt's
+mutation sequence.
 
 Target-local main rollback restores only that target's reviewed native `main`
 configuration and changes only its `mainOwnershipMode` to `shadow`; ordinary

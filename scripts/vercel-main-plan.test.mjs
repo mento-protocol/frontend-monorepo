@@ -923,6 +923,47 @@ test("active mode has no first-parent fallback for an already-current target", (
   ]);
 });
 
+test("cross-run ordinary planning no-ops a candidate already serving the exact SHA", () => {
+  const input = fixture();
+  input.mode = "active";
+  input.mainOwnershipMode = ownershipMode("github");
+  setAllTargetShas(input, input.deploySha);
+  const { plan } = runFixture(input);
+  assert.deepEqual(plan.activeTargets, []);
+  assert.equal(
+    plan.ranges.some(
+      (range) =>
+        range.reason === "served-sha-already-current" &&
+        range.targets.includes("governance"),
+    ),
+    true,
+  );
+});
+
+test("cross-run ordinary planning selects the exact candidate when the prior mapping is unchanged", () => {
+  const input = fixture();
+  input.mode = "active";
+  input.mainOwnershipMode = ownershipMode("github");
+  setAllTargetShas(input, input.deploySha);
+  const priorSha = "a".repeat(40);
+  setTargetSha(input, "governance", priorSha);
+  const planner = createPlannerFixture(
+    new Map([
+      [
+        priorSha,
+        plannerOutput(
+          priorSha,
+          input.deploySha,
+          ["governance"],
+          "affected-packages",
+        ),
+      ],
+    ]),
+  );
+  const { plan } = runFixture(input, { planner });
+  assert.deepEqual(plan.activeTargets, ["governance"]);
+});
+
 test("active mode applies the first-parent fallback only to already-current shadow ownership", () => {
   const input = fixture();
   input.mode = "active";

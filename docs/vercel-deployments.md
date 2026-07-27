@@ -77,6 +77,38 @@ workflow definition or superseded definition exits before any Vercel
 environment or credential is available. The gate records only the upstream run
 URL and attempt, exact `Build and Test` job URL, and `DEPLOY_SHA`.
 
+`provider-preplan` is the first credential-bearing main-release job. It captures
+the reviewed protected mappings and legacy App `v2` snapshot, then discovers
+provider candidates that carry canonical stable release manifests. The exact-CI
+source gate remains token-free with respect to Vercel; there is no GitHub
+artifact or prior-attempt gate between it and provider reconciliation.
+
+The provider-side stable release manifest is the sole durable cross-attempt
+authority. It binds repository, release ID, `DEPLOY_SHA`, validated upstream
+run, ownership mode, staged and active targets, release-plan digest, and every
+captured protected rollback prior. A provider census must be complete and
+stable, each candidate must carry one exact canonical manifest, and the current
+protected mappings must form one canonical release prefix. Missing, ambiguous,
+conflicting, malformed, non-prefix, or incomplete provider state fails closed.
+GitHub artifacts and prior job history are not alternate cross-attempt
+authority.
+
+The reconciliation decision is made before ordinary planning:
+
+- `verify-existing-release` fully re-verifies a complete matching release and
+  reuses it through the journal-free `current-release-verified` terminal route;
+- `resume-existing-release` continues a matching interrupted prefix through a
+  fresh current-attempt journal;
+- `restore-before-planning` restores an older interrupted prefix through a
+  fresh current-attempt journal before a new baseline is captured; and
+- `capture-new-baseline` starts only when no mapped release explains the
+  protected state or a completed older release is the baseline.
+
+No prior attempt's journal is resumed or used to authorize a later attempt.
+Each attempt owns only its current journal, transaction IDs, snapshots, and
+recovery. Do not infer safety from artifact retention, an empty download
+directory, or GitHub's rerun count.
+
 ### Served-SHA planning and prior-state handoff
 
 The planning job reads canonical protected state for App, Governance, Reserve,
@@ -112,6 +144,14 @@ Vercel. They are disjoint, and their canonical ordered union equals
 map for target-local rollback. Global `shadow` is valid only when all four map
 entries are `shadow`. The checked-in configuration is global `active` with all
 four entries set to `github`.
+
+Active-main release ID is derived from repository, `DEPLOY_SHA`, and validated
+upstream `CI/CD` run ID. Target-specific candidate ID is `releaseId + target`.
+Both are deliberately separate from downstream run-and-attempt transaction
+identity. The candidate ID and provider-side release manifest remain stable when
+rerunning the downstream controller or creating a new controller run for the
+same validated upstream CI run. They are evidence lookup only and never
+authorize a public mutation.
 
 For Governance, Reserve, and UI, that protected runtime and rollback mapping
 contains only the literal public custom domain. Generated project/team and
@@ -178,14 +218,32 @@ generated Vercel system aliases described below. Those aliases are evidence of
 the candidate upload, never runtime-smoke endpoints or rollback mappings. The
 uploads cannot move protected or custom production domains.
 
+Before an ordinary upload, the trusted controller writes exact candidate intent
+bound to the stable candidate ID, source SHA, validated upstream run, target,
+and release manifest. After deployment inspection and immutable smoke, it
+writes the matching candidate receipt. A later attempt may reuse only one exact
+provider candidate from that manifest after fresh inspection and smoke. Provider
+metadata that lacks the canonical manifest, a matching URL, a matching custom
+identifier, or zero/multiple provider candidates is insufficient.
+
 App has no separate staged Vercel deployment because its custom `v3` upload is
 itself activation. When App is selected, the workflow performs `vercel pull`
 plus the protected custom-`v3` build and output validation before the
-transaction. If App is in `shadowTargets`, it stops there. If App is in
+transaction. If App is in `shadowTargets`, it stops there and binds the
+build-only preparation into terminal evidence; it never creates a provider
+deployment. If App is in
 `activeTargets`, its activation turn runs
 `vercel deploy --prebuilt --target=v3`, discovers the unique deployment bound
 to the journal identity, and verifies or assigns only the reviewed `v3`
 aliases. App never uses `--prod`, `--skip-domain`, or `vercel promote`.
+
+App candidate reuse is narrower because its `v3` deployment can move protected
+generated aliases. The current coordinator must reconcile the candidate with
+the stable release manifest, re-inspect and re-smoke it, and seed a new
+current-attempt prepared journal with its exact discovered state before aliases
+can proceed. It may skip only the duplicate `app_v3_deploy` operation. It must
+not resume a prior journal's mutation sequence or accept raw Vercel metadata as
+proof.
 
 ### Active transaction, durable journal, and recovery
 
@@ -195,12 +253,28 @@ It checks the remote `main` SHA before preparing the transaction. If `main`
 advanced before any durable intent or public mutation, the newer workflow owns
 convergence and the current run exits without activation.
 
+The release ID and target-specific candidate ID used to find a reusable
+candidate are stable across downstream reruns. The provider-side stable release
+manifest is the sole durable cross-attempt authority. The journal transaction
+ID, every journal artifact name, and every mutation authorization remain bound
+to this downstream `GITHUB_RUN_ID` and `GITHUB_RUN_ATTEMPT`. A rerun therefore
+creates and owns its own journal; it does not continue a prior attempt's
+journal even when it reuses a candidate.
+
 For a current SHA whose selected targets are all in `shadowTargets`, the
 coordinator records the explicit successful `shadow-prepared` outcome after
 validating their stage/build evidence. It creates no active journal, skips
 active recovery as `not-required`, and issues no public mutation. This is the
 target-local main rollback path when no selected GitHub-owned target also needs
 activation.
+
+For `verify-existing-release`, the coordinator takes the separate successful
+`current-release-verified` route. It creates no journal and executes no public
+mutation. It still captures fresh final mappings, the active deployment
+census/state, raw runtime-smoke results, legacy App `v2`, and remote-`main`
+freshness before emitting terminal evidence. Inactive runtime-smoke inputs are
+literal JSON `null`; active inputs remain the raw runtime results for canonical
+validation.
 
 When at least one selected target is in `activeTargets`, the workflow creates a
 canonical prepared journal, uploads the exact bytes under their
@@ -257,17 +331,24 @@ or mismatched candidates remain manual intervention. Recovery, manual
 intervention, a missing journal after a possible mutation, and recovery failure
 all fail the release after publishing redacted evidence.
 
-The final result evaluator emits the canonical `release_outcome`,
-`evidence_kind`, and `fail_after_evidence` outputs before evidence selection.
-An `active-committed` success downloads the committed
-`vercel-main-active-evidence:v1` report. A successful `no-target`,
-`superseded-before-journal`, or `shadow-prepared` no-op runs
-`active-safe-noop-evidence` and publishes
-`vercel-main-active-safe-noop-evidence:v1` with outcome `success`, no active
-journal, and zero public-serving mutation commands. An unsafe verdict publishes
-`vercel-main-active-failure-evidence:v1` before failing. If the evaluator itself
-throws or emits an incomplete result, the same downstream gates fail closed
-instead of treating the process outcome as deployment success.
+If provider reconciliation cannot establish one safe manifest and canonical
+mapping prefix, do not delete or recreate evidence. Inspect the live protected
+state and use the current-attempt recovery contract where the reconciliation
+decision permits it. Otherwise follow the target-local or full-native rollback
+procedure, verify the protected mappings, and begin a new release only from a
+new validated upstream CI run. Do not create a GitHub-artifact or prior-journal
+fallback path.
+
+The terminal producer emits one canonical, redacted terminal receipt and
+terminal evidence before the `result` job selects the final outcome. They bind
+the release manifest and execution digests, final mapping and duplicate census,
+public smoke, legacy App `v2` proof, affected operations, and terminal journal
+status. They are deliberately bounded compact values, not another artifact
+channel. The `result` job restores only these values for final evaluation; a
+final-only rerun does the same. It never downloads verdict artifacts, resumes a
+prior journal, or reconstructs a final verdict from earlier attempts. An absent,
+malformed, mismatched, or incomplete receipt/evidence pair fails closed instead
+of treating the process outcome as deployment success.
 
 ### Historical PR-A shadow canary and copy-safe diagnostics
 
@@ -605,7 +686,7 @@ Never check out or import classifier code from the pull-request head into this
 trusted planner process. Fetch enough history to resolve both exact commits
 before calling it. A missing base is a full-deploy plan, not an empty plan.
 
-## Custom Next.js deployment IDs
+## Custom Next.js deployment IDs and stable active-main release identity
 
 Every prebuilt deployment attempt gets one ID derived from four immutable
 inputs:
@@ -629,6 +710,14 @@ export MENTO_NEXT_DEPLOYMENT_ID
 The result is deterministic for the same four inputs, differs between targets
 and reruns, is at most 32 characters, uses only Vercel's supported character
 set, and never begins with the reserved `dpl_` prefix.
+
+Manual shadow and pilot workflows retain that per-attempt Next.js deployment ID
+as build provenance. Active-main uses the target-specific candidate ID
+(`releaseId + target`) for its Next.js deployment ID across downstream reruns;
+release ID is repository, exact SHA, and validated upstream CI run ID. The
+downstream run-and-attempt key continues to identify each active-main journal
+and public mutation. Do not substitute a candidate identity for mutation
+authorization.
 
 All four `next.config.ts` files map `MENTO_NEXT_DEPLOYMENT_ID` to Next.js's
 `deploymentId` option and disable Next.js's runtime deployment-ID override only

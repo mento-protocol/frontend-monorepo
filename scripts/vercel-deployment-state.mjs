@@ -43,6 +43,8 @@ export const ACTIVE_DEPLOYMENT_STATE_PROOF_SCHEMA =
   "vercel-active-deployment-state-proof:v2";
 export const ACTIVE_ALIAS_MAPPING_SET_SCHEMA =
   "vercel-active-alias-mapping-set:v1";
+export const ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA =
+  "vercel-active-alias-mapping-spec:v2";
 
 const CANONICAL_GIT_KEYS = ["org", "repo", "ref", "sha"];
 const ACTIVE_STATE_TARGETS = Object.freeze([
@@ -54,10 +56,20 @@ const ACTIVE_STATE_TARGETS = Object.freeze([
 const ACTIVE_PROTECTED_ALIASES = Object.freeze([
   "app.mento.org",
   "appmentoorg-env-v3-mentolabs.vercel.app",
+  "appmentoorg-git-v2-mentolabs.vercel.app",
+  "appmentoorg-mentolabs.vercel.app",
+  "appmentoorg.vercel.app",
   "governance.mento.org",
   "reserve.mento.org",
   "ui.mento.org",
   "v2-app.mento.org",
+]);
+const ACTIVE_MAPPING_TARGETS = Object.freeze([
+  "app",
+  "governance",
+  "reserve",
+  "ui",
+  "legacy-app",
 ]);
 const ACTIVE_STATE_SPEC_KEYS = Object.freeze([
   "schema",
@@ -1498,6 +1510,105 @@ export function assertActiveAliasMappingSet(value) {
     throw new Error("Active alias mapping set is malformed");
   }
   return value;
+}
+
+export function assertActiveAliasMappingSpec(value) {
+  assertExactKeys(
+    value,
+    ["bindings", "schema"],
+    "Active alias mapping specification",
+  );
+  if (
+    value.schema !== ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA ||
+    !Array.isArray(value.bindings) ||
+    value.bindings.length === 0
+  ) {
+    throw new Error("Active alias mapping specification is malformed");
+  }
+  const aliases = new Set();
+  const bindings = value.bindings.map((binding, index) => {
+    assertExactKeys(
+      binding,
+      ["alias", "projectId", "target"],
+      `Active alias mapping binding ${index + 1}`,
+    );
+    const alias = canonicalizeHostname(binding.alias);
+    const projectId = requireIdentifier(
+      binding.projectId,
+      `Active alias mapping binding ${index + 1} project ID`,
+    );
+    if (
+      !ACTIVE_MAPPING_TARGETS.includes(binding.target) ||
+      aliases.has(alias)
+    ) {
+      throw new Error("Active alias mapping bindings are ambiguous");
+    }
+    aliases.add(alias);
+    return { alias, projectId, target: binding.target };
+  });
+  const canonical = bindings.toSorted((left, right) =>
+    left.alias.localeCompare(right.alias),
+  );
+  if (JSON.stringify(bindings) !== JSON.stringify(canonical)) {
+    throw new Error("Active alias mapping bindings are not canonical");
+  }
+  return {
+    schema: ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA,
+    bindings: canonical,
+  };
+}
+
+function assertBoundActiveAliasMappings(value, spec) {
+  const canonicalSpec = assertActiveAliasMappingSpec(spec);
+  if (!Array.isArray(value) || value.length !== canonicalSpec.bindings.length) {
+    throw new Error("Bound active alias mappings are incomplete");
+  }
+  const expectedByAlias = new Map(
+    canonicalSpec.bindings.map((binding) => [binding.alias, binding]),
+  );
+  const seen = new Set();
+  const mappings = value.map((entry, index) => {
+    const alias = canonicalizeHostname(entry?.alias);
+    const expected = expectedByAlias.get(alias);
+    const hasProjectId = Object.hasOwn(entry ?? {}, "projectId");
+    assertExactKeys(
+      entry,
+      hasProjectId
+        ? ["alias", "deploymentId", "deploymentUrl", "projectId"]
+        : ["alias", "deploymentId", "deploymentUrl"],
+      `Bound active alias mapping ${index + 1}`,
+    );
+    if (
+      expected === undefined ||
+      seen.has(alias) ||
+      (!hasProjectId && expected.target === "legacy-app") ||
+      (hasProjectId &&
+        requireIdentifier(
+          entry.projectId,
+          `Bound active alias mapping ${index + 1} project ID`,
+        ) !== expected.projectId)
+    ) {
+      throw new Error("Bound active alias mapping conflicts with its spec");
+    }
+    seen.add(alias);
+    const mapping = {
+      alias,
+      deploymentId: requireDeploymentId(
+        entry.deploymentId,
+        `Bound active alias mapping ${index + 1} deployment ID`,
+      ),
+      deploymentUrl: canonicalizeDeploymentUrl(entry.deploymentUrl),
+    };
+    return expected.target === "legacy-app"
+      ? { ...mapping, projectId: expected.projectId }
+      : mapping;
+  });
+  if (seen.size !== expectedByAlias.size) {
+    throw new Error("Bound active alias mappings are incomplete");
+  }
+  return mappings.toSorted((left, right) =>
+    left.alias.localeCompare(right.alias),
+  );
 }
 
 export function assertActiveAliasMappings(value) {
@@ -3004,19 +3115,39 @@ export async function runCli({
     }
     stdout.write("Canonical active deployment state proof written\n");
   } else if (command === "alias-mappings") {
-    const spec = assertActiveAliasMappingSet(
-      readJson(options.spec, "Active alias mapping specification"),
+    const rawSpec = readJson(
+      options.spec,
+      "Active alias mapping specification",
     );
-    const result = assertActiveAliasMappings(
-      (await captureAliasMappings(client, spec.aliases)).map((mapping) => ({
-        alias: mapping.alias,
-        deploymentId: mapping.deploymentId,
-        deploymentUrl: mapping.deploymentUrl,
-      })),
+    const dynamic = rawSpec?.schema === ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA;
+    const spec = dynamic
+      ? assertActiveAliasMappingSpec(rawSpec)
+      : assertActiveAliasMappingSet(rawSpec);
+    const captured = await captureAliasMappings(
+      client,
+      dynamic ? spec.bindings.map(({ alias }) => alias) : spec.aliases,
     );
-    writeActiveAliasMappings(options.output, result, {
-      runnerTemp: env.RUNNER_TEMP,
-    });
+    const result = dynamic
+      ? assertBoundActiveAliasMappings(captured, spec)
+      : assertActiveAliasMappings(
+          captured.map((mapping) => ({
+            alias: mapping.alias,
+            deploymentId: mapping.deploymentId,
+            deploymentUrl: mapping.deploymentUrl,
+          })),
+        );
+    if (dynamic) {
+      writeValidatedPrivateJson(
+        options.output,
+        result,
+        (value) => assertBoundActiveAliasMappings(value, spec),
+        { runnerTemp: env.RUNNER_TEMP },
+      );
+    } else {
+      writeActiveAliasMappings(options.output, result, {
+        runnerTemp: env.RUNNER_TEMP,
+      });
+    }
     stdout.write("Canonical active alias mappings written\n");
   } else if (command === "snapshot") {
     const result = await captureProtectedSnapshot(

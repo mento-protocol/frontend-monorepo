@@ -33,6 +33,12 @@ import {
   buildMainActivePromotionCommand,
   runMainActiveVercelCommand,
 } from "./vercel-main-active.mjs";
+import { MAIN_TARGET_CONTRACTS } from "./vercel-main-plan.mjs";
+import { createMainReleaseManifest } from "./vercel-main-release-reconciliation.mjs";
+import {
+  createMainCandidateIntent,
+  createMainCandidateVercelMetadata,
+} from "./vercel-main-candidate.mjs";
 
 const TOKEN = ["test", "main", "active", "token", "never", "output"].join("-");
 const DEPLOY_SHA = "0123456789abcdef0123456789abcdef01234567";
@@ -44,6 +50,91 @@ const CANDIDATE = Object.freeze({
   deploymentId: "dpl_Candidate123",
   deploymentUrl: "https://candidate-main.vercel.app",
 });
+
+function appCandidateMetadata() {
+  const targets = ["app", "governance", "reserve", "ui"];
+  const priorSha = "1111111111111111111111111111111111111111";
+  const plan = {
+    schema: "vercel-main-plan:v2",
+    mode: "active",
+    deploySha: DEPLOY_SHA,
+    mainOwnershipMode: Object.fromEntries(
+      targets.map((target) => [target, "github"]),
+    ),
+    stagedTargets: ["app"],
+    activeTargets: ["app"],
+    shadowTargets: [],
+    plan: ["app"],
+    priors: targets.map((target) => ({
+      target,
+      deploymentId: `dpl_${target}Prior123`,
+      deploymentUrl: `https://${target}-prior.vercel.app`,
+      aliases: [...MAIN_TARGET_CONTRACTS[target].aliases],
+      servedSha: priorSha,
+    })),
+    ranges: [
+      {
+        base: priorSha,
+        head: DEPLOY_SHA,
+        kind: "served",
+        reason: "global-build-input",
+        targets,
+        deployments: ["app"],
+      },
+    ],
+    reasons: [{ target: "app", base: priorSha, reason: "global-build-input" }],
+  };
+  const releaseManifest = createMainReleaseManifest({
+    upstreamRunId: "700",
+    plan,
+    originalPriors: Object.fromEntries(
+      ["governance", "reserve", "ui", "app"].map((target) => {
+        const contract = MAIN_TARGET_CONTRACTS[target];
+        const aliases = [...contract.aliases].sort();
+        const prior = {
+          deploymentId: `dpl_${target}Prior123`,
+          deploymentUrl: `https://${target}-prior.vercel.app`,
+          aliases,
+          projectId: `prj_${target}123`,
+          projectName: contract.projectName,
+          readyState: "READY",
+          target: contract.target,
+          customEnvironmentSlug: contract.customEnvironmentSlug,
+        };
+        return [
+          target,
+          {
+            ...prior,
+            planningLeaves: aliases.map((alias) => ({
+              alias,
+              ...prior,
+              git: {
+                status: "complete",
+                org: "mento-protocol",
+                repo: "frontend-monorepo",
+                ref: "main",
+                sha: priorSha,
+              },
+            })),
+            servedSha: priorSha,
+          },
+        ];
+      }),
+    ),
+  });
+  return createMainCandidateVercelMetadata({
+    intent: createMainCandidateIntent({
+      target: "app",
+      deploySha: DEPLOY_SHA,
+      upstreamRunId: "700",
+      originRunId: "1234",
+      originAttempt: "2",
+      originTransactionId: "main-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      projectId: "prj_app123",
+      releaseManifest,
+    }),
+  });
+}
 
 function privateTestDirectory(testContext) {
   const directory = mkdtempSync(join(process.cwd(), ".main-active-cli-test-"));
@@ -78,6 +169,7 @@ function executionEnvironment(directory, overrides = {}) {
 }
 
 function appExpectation() {
+  const candidateMetadata = appCandidateMetadata();
   return {
     projectId: "prj_app123",
     projectName: "app.mento.org",
@@ -86,7 +178,8 @@ function appExpectation() {
     runAttempt: "2",
     transactionId: "main-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     customEnvironmentSlug: "v3",
-    nextDeploymentId: "nextApp123",
+    nextDeploymentId: candidateMetadata.mentoNextDeploymentId,
+    candidateMetadata,
   };
 }
 
@@ -99,6 +192,7 @@ function appCommand() {
     runAttempt: expectation.runAttempt,
     transactionId: expectation.transactionId,
     nextDeploymentId: expectation.nextDeploymentId,
+    candidateMetadata: expectation.candidateMetadata,
   });
 }
 
@@ -797,7 +891,9 @@ test("App candidate resolves an unknown command through one exact canonical disc
     }),
   });
 
-  assert.deepEqual(seen, [appExpectation()]);
+  const canonicalExpectation = { ...appExpectation() };
+  delete canonicalExpectation.candidateMetadata;
+  assert.deepEqual(seen, [canonicalExpectation]);
   assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), {
     commandOutcome: "unknown",
     candidate: appCandidate(),

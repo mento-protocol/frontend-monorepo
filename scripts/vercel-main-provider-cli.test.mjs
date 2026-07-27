@@ -1,0 +1,1247 @@
+import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
+import {
+  chmodSync,
+  linkSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import test from "node:test";
+
+import {
+  createMainCandidateIntent,
+  createMainCandidateVercelMetadata,
+  decodeMainCandidateReceipt,
+} from "./vercel-main-candidate.mjs";
+import {
+  createMainReleaseManifest,
+  decideMainPreplanReconciliation,
+} from "./vercel-main-release-reconciliation.mjs";
+import { planMainDeployments } from "./vercel-main-plan.mjs";
+import { generateVercelMainReleaseId } from "./vercel-prebuilt.mjs";
+import {
+  appendGithubOutputs,
+  createMainCanonicalMappings,
+  decodeMainPreplanHandoff,
+  encodeMainPreplanHandoff,
+  MAIN_PROVIDER_CLI_MAX_JSON_BYTES,
+  MAIN_PREPLAN_HANDOFF_MAX_ENCODED_BYTES,
+  readPrivateJson,
+  renderMainProviderCliFailure,
+  reviewedRunnerTemp,
+  runMainProviderCli,
+  writePrivateJson,
+} from "./vercel-main-provider-cli.mjs";
+
+const fixtureUrl = new URL(
+  "./fixtures/vercel-main-plan/valid-priors.json",
+  import.meta.url,
+);
+const SHA = "d".repeat(40);
+const PRIOR_SHA = "a".repeat(40);
+
+function fixtureInput() {
+  const input = JSON.parse(readFileSync(fixtureUrl, "utf8"));
+  for (const target of ["app", "governance", "reserve", "ui"]) {
+    for (const state of input.priorStates[target].states) {
+      state.git.sha = PRIOR_SHA;
+    }
+  }
+  return input;
+}
+
+function releaseManifest({
+  deploySha = SHA,
+  upstreamRunId = "700",
+  active = false,
+} = {}) {
+  const input = fixtureInput();
+  input.deploySha = deploySha;
+  if (active) {
+    input.mode = "active";
+    input.mainOwnershipMode = {
+      app: "github",
+      governance: "github",
+      reserve: "github",
+      ui: "github",
+    };
+  }
+  const plan = planMainDeployments({
+    mode: input.mode,
+    mainOwnershipMode: input.mainOwnershipMode,
+    deploySha,
+    projectIds: input.projectIds,
+    priorStates: input.priorStates,
+    gitAdapter: {
+      firstParent: () => input.firstParent,
+      isAncestor: () => true,
+      resolveCommit: (sha) => sha,
+    },
+    runPlanner: ({ base, head }) => ({
+      base,
+      head,
+      deployments: ["app", "governance", "reserve", "ui"],
+      reason: "global-build-input",
+    }),
+  });
+  const originalPriors = Object.fromEntries(
+    ["governance", "reserve", "ui", "app"].map((target) => {
+      const state = input.priorStates[target].states[0];
+      const prior = plan.priors.find((entry) => entry.target === target);
+      return [
+        target,
+        {
+          deploymentId: prior.deploymentId,
+          deploymentUrl: prior.deploymentUrl,
+          aliases: prior.aliases,
+          projectId: state.projectId,
+          projectName: state.projectName,
+          readyState: "READY",
+          target: state.target,
+          customEnvironmentSlug: state.customEnvironmentSlug,
+          planningLeaves: input.priorStates[target].states.map((leaf) => ({
+            alias: leaf.alias,
+            deploymentId: prior.deploymentId,
+            deploymentUrl: prior.deploymentUrl,
+            aliases: prior.aliases,
+            projectId: state.projectId,
+            projectName: state.projectName,
+            readyState: "READY",
+            target: state.target,
+            customEnvironmentSlug: state.customEnvironmentSlug,
+            git: { status: "complete", ...leaf.git },
+          })),
+          servedSha: prior.servedSha,
+        },
+      ];
+    }),
+  );
+  return createMainReleaseManifest({ upstreamRunId, plan, originalPriors });
+}
+
+function candidateIntent(target = "ui") {
+  const manifest = releaseManifest();
+  return createMainCandidateIntent({
+    target,
+    deploySha: manifest.deploySha,
+    upstreamRunId: manifest.upstreamRunId,
+    originRunId: "800",
+    originAttempt: "1",
+    originTransactionId: "main-0123456789abcdef0123456789abcdef",
+    projectId: manifest.originalPriors[target].projectId,
+    releaseManifest: manifest,
+  });
+}
+
+function planningSnapshot(patches = {}) {
+  const input = fixtureInput();
+  const states = Object.values(input.priorStates)
+    .flatMap(({ states: entries }) => entries)
+    .map((state) => ({
+      ...state,
+      ...(patches[state.alias] ?? {}),
+    }))
+    .sort((left, right) => left.alias.localeCompare(right.alias));
+  return { schema: "vercel-main-planning-snapshot:v1", states };
+}
+
+function legacySnapshot() {
+  return [
+    {
+      alias: "v2-app.mento.org",
+      deploymentId: "dpl_legacyV2A123",
+      deploymentUrl: "https://app-v2.vercel.app",
+      creatorUsername: "fixture-author",
+      projectId: "prj_app123",
+      projectName: "app.mento.org",
+      readyState: "READY",
+      target: "production",
+      customEnvironmentSlug: null,
+      git: {
+        org: "mento-protocol",
+        repo: "frontend-monorepo",
+        ref: "v2",
+        sha: "b".repeat(40),
+      },
+      aliases: [
+        "appmentoorg-git-v2-mentolabs.vercel.app",
+        "appmentoorg-mentolabs.vercel.app",
+        "appmentoorg.vercel.app",
+        "v2-app.mento.org",
+      ],
+    },
+  ];
+}
+
+function projectIds() {
+  return fixtureInput().projectIds;
+}
+
+function testContext(t) {
+  const directory = realpathSync(
+    mkdtempSync(join(tmpdir(), "main-provider-cli-")),
+  );
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const fileCommands = join(directory, "_runner_file_commands");
+  mkdirSync(fileCommands, { mode: 0o700 });
+  const githubOutput = join(fileCommands, "set_output_fixture");
+  writeFileSync(githubOutput, "", { mode: 0o600 });
+  chmodSync(githubOutput, 0o600);
+  const values = projectIds();
+  const env = {
+    RUNNER_TEMP: directory,
+    GITHUB_OUTPUT: githubOutput,
+    VERCEL_TOKEN: "test-secret-token",
+    VERCEL_ORG_ID: "team_fixture",
+    VERCEL_PROJECT_ID_APP: values.app,
+    VERCEL_PROJECT_ID_GOVERNANCE: values.governance,
+    VERCEL_PROJECT_ID_RESERVE: values.reserve,
+    VERCEL_PROJECT_ID_UI: values.ui,
+    DEPLOY_SHA: SHA,
+    UPSTREAM_RUN_ID: "700",
+  };
+  const stdout = {
+    value: "",
+    write(chunk) {
+      this.value += chunk;
+    },
+  };
+  return { directory, env, githubOutput, stdout };
+}
+
+function writeJson(directory, name, value) {
+  const path = join(directory, name);
+  writeFileSync(path, `${JSON.stringify(value)}\n`, { mode: 0o600 });
+  chmodSync(path, 0o600);
+  return path;
+}
+
+function readJson(path) {
+  return JSON.parse(readFileSync(path, "utf8"));
+}
+
+function planningStateClient(
+  firstSnapshot,
+  secondSnapshot = firstSnapshot,
+  firstLegacySnapshot = legacySnapshot(),
+  secondLegacySnapshot = firstLegacySnapshot,
+) {
+  let calls = 0;
+  let legacyCalls = 0;
+  return {
+    mainPlanningAliasState: async ({ alias }) => {
+      const source =
+        calls < firstSnapshot.states.length ? firstSnapshot : secondSnapshot;
+      calls += 1;
+      return structuredClone(
+        source.states.find((state) => state.alias === alias),
+      );
+    },
+    canonicalLegacyV2State: async () => {
+      const source =
+        legacyCalls === 0 ? firstLegacySnapshot : secondLegacySnapshot;
+      legacyCalls += 1;
+      return { source: "git", state: structuredClone(source[0]) };
+    },
+    calls: () => calls,
+    legacyCalls: () => legacyCalls,
+  };
+}
+
+function deploymentResponse(intent, id = "dpl_candidate0123456789") {
+  return {
+    id,
+    url: `${intent.target}-candidate.vercel.app`,
+    projectId: intent.projectId,
+    name: intent.projectName,
+    readyState: "READY",
+    target: intent.environment.target,
+    customEnvironment:
+      intent.environment.customEnvironmentSlug === null
+        ? undefined
+        : { slug: intent.environment.customEnvironmentSlug },
+    source: "cli",
+    creator: { uid: "user_fixture123", username: "fixture-author" },
+    meta: {
+      githubCommitOrg: "mento-protocol",
+      githubCommitRepo: "frontend-monorepo",
+      githubCommitRef: "main",
+      githubCommitSha: intent.deploySha,
+      ...createMainCandidateVercelMetadata({ intent }),
+    },
+  };
+}
+
+test("canonical mappings preserve all reviewed aliases and optional fresh legacy v2", async (t) => {
+  const context = testContext(t);
+  const expected = createMainCanonicalMappings({
+    planningSnapshot: planningSnapshot(),
+    projectIds: projectIds(),
+    legacySnapshot: legacySnapshot(),
+  });
+  assert.deepEqual(Object.keys(expected.mappings), [
+    "governance",
+    "reserve",
+    "ui",
+    "app",
+    "legacy-app",
+  ]);
+  assert.deepEqual(
+    expected.mappings.app.map(({ alias }) => alias),
+    ["app.mento.org", "appmentoorg-env-v3-mentolabs.vercel.app"],
+  );
+  assert.deepEqual(expected.mappings["legacy-app"], [
+    {
+      alias: "appmentoorg-git-v2-mentolabs.vercel.app",
+      deploymentId: "dpl_legacyV2A123",
+      deploymentUrl: "https://app-v2.vercel.app",
+    },
+    {
+      alias: "appmentoorg-mentolabs.vercel.app",
+      deploymentId: "dpl_legacyV2A123",
+      deploymentUrl: "https://app-v2.vercel.app",
+    },
+    {
+      alias: "appmentoorg.vercel.app",
+      deploymentId: "dpl_legacyV2A123",
+      deploymentUrl: "https://app-v2.vercel.app",
+    },
+    {
+      alias: "v2-app.mento.org",
+      deploymentId: "dpl_legacyV2A123",
+      deploymentUrl: "https://app-v2.vercel.app",
+    },
+  ]);
+
+  const planningPath = writeJson(
+    context.directory,
+    "planning.json",
+    planningSnapshot(),
+  );
+  const legacyPath = writeJson(
+    context.directory,
+    "legacy.json",
+    legacySnapshot(),
+  );
+  const output = join(context.directory, "mappings.json");
+  await runMainProviderCli({
+    argv: [
+      "canonical-mappings",
+      "--planning-snapshot",
+      planningPath,
+      "--legacy-snapshot",
+      legacyPath,
+      "--output",
+      output,
+    ],
+    env: context.env,
+    stdout: context.stdout,
+  });
+  assert.deepEqual(readJson(output), expected);
+  assert.equal(statSync(output).mode & 0o777, 0o600);
+
+  const wrongProject = planningSnapshot({
+    "ui.mento.org": { projectId: "prj_wrong" },
+  });
+  assert.throws(
+    () =>
+      createMainCanonicalMappings({
+        planningSnapshot: wrongProject,
+        projectIds: projectIds(),
+      }),
+    /identity conflicts/,
+  );
+  const wrongTopology = planningSnapshot({
+    "app.mento.org": { deploymentId: "dpl_other123" },
+  });
+  assert.throws(
+    () =>
+      createMainCanonicalMappings({
+        planningSnapshot: wrongTopology,
+        projectIds: projectIds(),
+      }),
+    /topology conflicts/,
+  );
+  assert.throws(
+    () =>
+      createMainCanonicalMappings({
+        planningSnapshot: planningSnapshot({
+          "ui.mento.org": { deploymentId: "not-a-deployment-id" },
+        }),
+        projectIds: projectIds(),
+      }),
+    /deployment ID is malformed/,
+  );
+  const malformedLegacy = legacySnapshot();
+  malformedLegacy[0].deploymentId = "legacy-id";
+  assert.throws(
+    () =>
+      createMainCanonicalMappings({
+        planningSnapshot: planningSnapshot(),
+        projectIds: projectIds(),
+        legacySnapshot: malformedLegacy,
+      }),
+    /deployment ID is malformed/,
+  );
+});
+
+test("preplan discovery groups multiple mapped manifests and ignores native mappings", async (t) => {
+  const context = testContext(t);
+  const first = releaseManifest({
+    deploySha: "c".repeat(40),
+    upstreamRunId: "699",
+  });
+  const second = releaseManifest({ deploySha: SHA, upstreamRunId: "700" });
+  const snapshot = planningSnapshot({
+    "governance.mento.org": {
+      deploymentId: "dpl_governanceCandidate123",
+      deploymentUrl: "https://governance-candidate.vercel.app",
+    },
+    "reserve.mento.org": {
+      deploymentId: "dpl_reserveCandidate123",
+      deploymentUrl: "https://reserve-candidate.vercel.app",
+    },
+  });
+  const planningPath = writeJson(context.directory, "planning.json", snapshot);
+  const legacyPath = writeJson(
+    context.directory,
+    "legacy.json",
+    legacySnapshot(),
+  );
+  const projectsPath = writeJson(
+    context.directory,
+    "projects.json",
+    projectIds(),
+  );
+  const output = join(context.directory, "discovery.json");
+  const providerFactory = ({ client, intent }) => {
+    assert.equal(client.kind, "fake-client");
+    assert.equal(
+      intent,
+      undefined,
+      "pre-plan discovery must not use a current intent",
+    );
+    return {
+      inspectMappedCandidate: async ({ deploymentId }) => ({
+        canonicalState: {},
+        metadata:
+          deploymentId === "dpl_governanceCandidate123"
+            ? { releaseManifest: first }
+            : deploymentId === "dpl_reserveCandidate123"
+              ? { releaseManifest: second }
+              : null,
+      }),
+      resolveReleaseCandidate: async ({ manifest, target }) => {
+        const selectedTarget =
+          manifest.releaseId === first.releaseId ? "governance" : "reserve";
+        return target === selectedTarget
+          ? {
+              intent: {},
+              candidate: {
+                deploymentId: `dpl_${target}Candidate123`,
+                deploymentUrl: `https://${target}-candidate.vercel.app`,
+              },
+            }
+          : null;
+      },
+    };
+  };
+  const result = await runMainProviderCli({
+    argv: [
+      "preplan-discover",
+      "--planning-snapshot",
+      planningPath,
+      "--legacy-snapshot",
+      legacyPath,
+      "--project-ids",
+      projectsPath,
+      "--output",
+      output,
+    ],
+    env: context.env,
+    stdout: context.stdout,
+    stateClientFactory: ({ token, teamId }) => {
+      assert.equal(token, context.env.VERCEL_TOKEN);
+      assert.equal(teamId, context.env.VERCEL_ORG_ID);
+      return { kind: "fake-client" };
+    },
+    providerFactory,
+  });
+  assert.deepEqual(
+    result.discovery.candidateReleases.map(
+      ({ manifest }) => manifest.releaseId,
+    ),
+    [first.releaseId, second.releaseId].sort(),
+  );
+  assert.equal(readJson(output).discovery.candidateReleases.length, 2);
+  assert.deepEqual(result.projectIds, projectIds());
+  assert.match(result.planningSnapshotDigest, /^[a-f0-9]{64}$/);
+  assert.doesNotMatch(
+    context.stdout.value,
+    /test-secret-token|releaseManifest/,
+  );
+});
+
+test("preplan decision binds current SHA and upstream run to one exact release ID", async (t) => {
+  const context = testContext(t);
+  const snapshot = planningSnapshot();
+  const planningPath = writeJson(context.directory, "planning.json", snapshot);
+  const legacyPath = writeJson(
+    context.directory,
+    "legacy.json",
+    legacySnapshot(),
+  );
+  const projectsPath = writeJson(
+    context.directory,
+    "projects.json",
+    projectIds(),
+  );
+  const discoveryPath = join(context.directory, "discovery.json");
+  await runMainProviderCli({
+    argv: [
+      "preplan-discover",
+      "--planning-snapshot",
+      planningPath,
+      "--legacy-snapshot",
+      legacyPath,
+      "--project-ids",
+      projectsPath,
+      "--output",
+      discoveryPath,
+    ],
+    env: context.env,
+    stdout: context.stdout,
+    stateClientFactory: () => ({ kind: "discovery-client" }),
+    providerFactory: () => ({
+      inspectMappedCandidate: async () => ({
+        canonicalState: {},
+        metadata: null,
+      }),
+      resolveReleaseCandidate: async () =>
+        assert.fail("native mappings have no release candidates"),
+    }),
+  });
+  const output = join(context.directory, "decision.json");
+  const liveClient = planningStateClient(snapshot);
+  const result = await runMainProviderCli({
+    argv: [
+      "preplan-decide",
+      "--discovery",
+      discoveryPath,
+      "--planning-snapshot",
+      planningPath,
+      "--legacy-snapshot",
+      legacyPath,
+      "--output",
+      output,
+    ],
+    env: context.env,
+    stdout: context.stdout,
+    stateClientFactory: () => liveClient,
+  });
+  assert.equal(liveClient.calls(), snapshot.states.length * 2);
+  assert.equal(liveClient.legacyCalls(), 2);
+  assert.equal(result.decision, "capture-new-baseline");
+  const expectedReleaseId = generateVercelMainReleaseId({
+    repository: "mento-protocol/frontend-monorepo",
+    commitSha: SHA,
+    upstreamRunId: "700",
+  });
+  assert.equal(
+    readFileSync(context.githubOutput, "utf8"),
+    [
+      "decision=capture-new-baseline",
+      "reason=no-mapped-release-metadata",
+      `release_id=${expectedReleaseId}`,
+      `handoff=${encodeMainPreplanHandoff(result, {
+        nextDeploySha: SHA,
+        nextUpstreamRunId: "700",
+      })}`,
+      "",
+    ].join("\n"),
+  );
+  assert.deepEqual(readJson(output), result);
+
+  const encoded = encodeMainPreplanHandoff(result, {
+    nextDeploySha: SHA,
+    nextUpstreamRunId: "700",
+  });
+  assert.ok(
+    Buffer.byteLength(encoded, "utf8") < MAIN_PREPLAN_HANDOFF_MAX_ENCODED_BYTES,
+  );
+  assert.deepEqual(
+    decodeMainPreplanHandoff(encoded, {
+      nextDeploySha: SHA,
+      nextUpstreamRunId: "700",
+    }),
+    result,
+  );
+  const materialized = join(context.directory, "materialized.json");
+  await assert.rejects(
+    () =>
+      runMainProviderCli({
+        argv: ["preplan-materialize", "--output", materialized],
+        env: { ...context.env, MAIN_PREPLAN_HANDOFF: encoded },
+        stdout: context.stdout,
+      }),
+    /Only restore-before-planning/,
+  );
+  assert.throws(() => readFileSync(materialized), /ENOENT/);
+  await assert.rejects(
+    () =>
+      runMainProviderCli({
+        argv: [
+          "preplan-materialize",
+          "--output",
+          join(context.directory, "tampered-materialized.json"),
+        ],
+        env: {
+          ...context.env,
+          MAIN_PREPLAN_HANDOFF: `${encoded.slice(0, -1)}A`,
+        },
+        stdout: context.stdout,
+      }),
+    /decode|canonical|inconsistent|malformed/,
+  );
+});
+
+test("preplan materialization accepts only inherited restore and exposes ordered active targets", async (t) => {
+  const context = testContext(t);
+  const inherited = releaseManifest({
+    deploySha: "c".repeat(40),
+    upstreamRunId: "699",
+    active: true,
+  });
+  const governanceCandidate = {
+    deploymentId: "dpl_governanceInherited123",
+    deploymentUrl: "https://governance-inherited.vercel.app",
+    manifest: inherited,
+  };
+  const currentMappings = Object.fromEntries(
+    ["governance", "reserve", "ui", "app"].map((target) => {
+      const prior = inherited.originalPriors[target];
+      const current = target === "governance" ? governanceCandidate : prior;
+      return [
+        target,
+        prior.aliases.map((alias) => ({
+          alias,
+          deploymentId: current.deploymentId,
+          deploymentUrl: current.deploymentUrl,
+        })),
+      ];
+    }),
+  );
+  const decision = decideMainPreplanReconciliation({
+    nextDeploySha: SHA,
+    nextUpstreamRunId: "700",
+    candidateReleases: [
+      {
+        manifest: inherited,
+        candidates: {
+          governance: governanceCandidate,
+          reserve: null,
+          ui: null,
+          app: null,
+        },
+      },
+    ],
+    currentMappings,
+  });
+  assert.equal(decision.decision, "restore-before-planning");
+  const encoded = encodeMainPreplanHandoff(decision, {
+    nextDeploySha: SHA,
+    nextUpstreamRunId: "700",
+  });
+  const output = join(context.directory, "restore-before-planning.json");
+  await runMainProviderCli({
+    argv: ["preplan-materialize", "--output", output],
+    env: { ...context.env, MAIN_PREPLAN_HANDOFF: encoded },
+    stdout: context.stdout,
+  });
+  assert.deepEqual(readJson(output), decision);
+  assert.equal(
+    readFileSync(context.githubOutput, "utf8"),
+    'inherited_candidate_targets=["governance"]\n',
+  );
+});
+
+test("preplan decision rejects alias drift after discovery before baseline or rollback authorization", async (t) => {
+  const context = testContext(t);
+  const original = planningSnapshot();
+  const planningPath = writeJson(context.directory, "planning.json", original);
+  const legacyPath = writeJson(
+    context.directory,
+    "legacy.json",
+    legacySnapshot(),
+  );
+  const projectsPath = writeJson(
+    context.directory,
+    "projects.json",
+    projectIds(),
+  );
+  const discoveryPath = join(context.directory, "discovery.json");
+  await runMainProviderCli({
+    argv: [
+      "preplan-discover",
+      "--planning-snapshot",
+      planningPath,
+      "--legacy-snapshot",
+      legacyPath,
+      "--project-ids",
+      projectsPath,
+      "--output",
+      discoveryPath,
+    ],
+    env: context.env,
+    stdout: context.stdout,
+    stateClientFactory: () => ({ kind: "discovery-client" }),
+    providerFactory: () => ({
+      inspectMappedCandidate: async () => ({
+        canonicalState: {},
+        metadata: null,
+      }),
+      resolveReleaseCandidate: async () => null,
+    }),
+  });
+  const changed = planningSnapshot({
+    "ui.mento.org": {
+      deploymentId: "dpl_changedAfterDiscovery123",
+      deploymentUrl: "https://changed-after-discovery.vercel.app",
+    },
+  });
+  for (const client of [
+    planningStateClient(changed),
+    planningStateClient(original, changed),
+  ]) {
+    const output = join(
+      context.directory,
+      `decision-drift-${client.calls()}.json`,
+    );
+    await assert.rejects(
+      () =>
+        runMainProviderCli({
+          argv: [
+            "preplan-decide",
+            "--discovery",
+            discoveryPath,
+            "--planning-snapshot",
+            planningPath,
+            "--legacy-snapshot",
+            legacyPath,
+            "--output",
+            output,
+          ],
+          env: context.env,
+          stdout: context.stdout,
+          stateClientFactory: () => client,
+        }),
+      /changed between discovery and decision/,
+    );
+    assert.throws(() => statSync(output));
+  }
+  const changedLegacy = legacySnapshot();
+  changedLegacy[0] = {
+    ...changedLegacy[0],
+    deploymentId: "dpl_changedLegacyV2A123",
+    deploymentUrl: "https://changed-legacy-v2.vercel.app",
+  };
+  const changedLegacyPath = writeJson(
+    context.directory,
+    "legacy-changed.json",
+    changedLegacy,
+  );
+  await assert.rejects(
+    () =>
+      runMainProviderCli({
+        argv: [
+          "preplan-decide",
+          "--discovery",
+          discoveryPath,
+          "--planning-snapshot",
+          planningPath,
+          "--legacy-snapshot",
+          changedLegacyPath,
+          "--output",
+          join(context.directory, "legacy-drift.json"),
+        ],
+        env: context.env,
+        stdout: context.stdout,
+        stateClientFactory: () => planningStateClient(original),
+      }),
+    /Legacy v2 mapping changed/,
+  );
+  assert.equal(readFileSync(context.githubOutput, "utf8"), "");
+
+  const liveLegacyDrift = planningStateClient(
+    original,
+    original,
+    legacySnapshot(),
+    changedLegacy,
+  );
+  await assert.rejects(
+    () =>
+      runMainProviderCli({
+        argv: [
+          "preplan-decide",
+          "--discovery",
+          discoveryPath,
+          "--planning-snapshot",
+          planningPath,
+          "--legacy-snapshot",
+          legacyPath,
+          "--output",
+          join(context.directory, "live-legacy-drift.json"),
+        ],
+        env: context.env,
+        stdout: context.stdout,
+        stateClientFactory: () => liveLegacyDrift,
+      }),
+    /Legacy v2 mapping changed between discovery and decision/,
+  );
+});
+
+test("candidate preflight performs a stable double census and emits create", async (t) => {
+  const context = testContext(t);
+  const intent = candidateIntent();
+  const intentPath = writeJson(context.directory, "intent.json", intent);
+  const output = join(context.directory, "preflight.json");
+  let lists = 0;
+  const result = await runMainProviderCli({
+    argv: ["candidate-preflight", "--intent", intentPath, "--output", output],
+    env: context.env,
+    stdout: context.stdout,
+    stateClientFactory: () => ({
+      requestWithRetry: async () => {
+        lists += 1;
+        return { deployments: [], pagination: { next: null } };
+      },
+    }),
+  });
+  assert.equal(lists, 2);
+  assert.equal(result.outcome, "create-if-zero");
+  assert.equal(readFileSync(context.githubOutput, "utf8"), "action=create\n");
+
+  const driftOutput = join(context.directory, "drift.json");
+  let driftLists = 0;
+  await assert.rejects(
+    () =>
+      runMainProviderCli({
+        argv: [
+          "candidate-preflight",
+          "--intent",
+          intentPath,
+          "--output",
+          driftOutput,
+        ],
+        env: {
+          ...context.env,
+          GITHUB_OUTPUT: join(context.directory, "other-gh-output"),
+        },
+        stdout: context.stdout,
+        stateClientFactory: () => ({
+          requestWithRetry: async () => {
+            driftLists += 1;
+            return {
+              deployments:
+                driftLists === 1 ? [] : [{ uid: "dpl_candidate0123456789" }],
+              pagination: { next: null },
+            };
+          },
+        }),
+      }),
+    /census changed/,
+  );
+  assert.equal(statSync(output).mode & 0o777, 0o600);
+  assert.throws(() => statSync(driftOutput));
+});
+
+test("candidate finalization reuses one fresh candidate and rejects smoke mismatch", async (t) => {
+  const context = testContext(t);
+  const intent = candidateIntent();
+  const response = deploymentResponse(intent);
+  const intentPath = writeJson(context.directory, "intent.json", intent);
+  const smokePath = writeJson(context.directory, "smoke.json", {
+    immutableUrl: response.url,
+    servedSha: intent.deploySha,
+    status: "passed",
+  });
+  const output = join(context.directory, "handoff.json");
+  const stateClientFactory = () => ({
+    requestWithRetry: async () => ({
+      deployments: [{ uid: response.id }],
+      pagination: { next: null },
+    }),
+    inspectDeployment: async () => response,
+    listDeploymentAliases: async () => ({ aliases: [] }),
+  });
+  const result = await runMainProviderCli({
+    argv: [
+      "candidate-finalize",
+      "--intent",
+      intentPath,
+      "--smoke",
+      smokePath,
+      "--output",
+      output,
+    ],
+    env: context.env,
+    stdout: context.stdout,
+    stateClientFactory,
+  });
+  assert.equal(result.action, "reuse");
+  const outputs = Object.fromEntries(
+    readFileSync(context.githubOutput, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => {
+        const index = line.indexOf("=");
+        return [line.slice(0, index), line.slice(index + 1)];
+      }),
+  );
+  assert.equal(outputs.action, "reuse");
+  assert.equal(outputs.deployment_id, response.id);
+  assert.deepEqual(
+    decodeMainCandidateReceipt(outputs.receipt, intent),
+    result.receipt,
+  );
+  assert.equal(
+    readJson(output).receipt.immutableSmoke.servedSha,
+    intent.deploySha,
+  );
+
+  const badSmokePath = writeJson(context.directory, "bad-smoke.json", {
+    immutableUrl: response.url,
+    servedSha: "e".repeat(40),
+    status: "passed",
+  });
+  await assert.rejects(
+    () =>
+      runMainProviderCli({
+        argv: [
+          "candidate-finalize",
+          "--intent",
+          intentPath,
+          "--smoke",
+          badSmokePath,
+          "--output",
+          join(context.directory, "bad-handoff.json"),
+        ],
+        env: context.env,
+        stdout: context.stdout,
+        stateClientFactory,
+      }),
+    /resolution blocked/,
+  );
+});
+
+test("candidate smoke performs one exact-origin no-redirect SHA-bound HTTP read", async (t) => {
+  const context = testContext(t);
+  const intent = candidateIntent();
+  const response = deploymentResponse(intent);
+  const intentPath = writeJson(context.directory, "intent.json", intent);
+  const output = join(context.directory, "candidate-smoke.json");
+  let cancelled = false;
+  const stateClientFactory = () => ({
+    requestWithRetry: async () => ({
+      deployments: [{ uid: response.id }],
+      pagination: { next: null },
+    }),
+    inspectDeployment: async () => response,
+    listDeploymentAliases: async () => ({ aliases: [] }),
+  });
+  const fetchImpl = async (url, options) => {
+    assert.equal(url, new URL(`https://${response.url}`).toString());
+    assert.equal(options.method, "GET");
+    assert.equal(options.redirect, "manual");
+    return {
+      status: 200,
+      redirected: false,
+      url,
+      headers: {
+        get: (name) =>
+          name === "x-mento-deployment-sha" ? intent.deploySha : null,
+      },
+      body: {
+        cancel: async () => {
+          cancelled = true;
+        },
+      },
+    };
+  };
+  const result = await runMainProviderCli({
+    argv: ["candidate-smoke", "--intent", intentPath, "--output", output],
+    env: context.env,
+    stdout: context.stdout,
+    stateClientFactory,
+    fetchImpl,
+  });
+  assert.deepEqual(result, {
+    immutableUrl: `https://${response.url}`,
+    servedSha: intent.deploySha,
+    status: "passed",
+  });
+  assert.equal(cancelled, true);
+  assert.deepEqual(readJson(output), result);
+  assert.equal(
+    readFileSync(context.githubOutput, "utf8"),
+    `deployment_id=${response.id}\n`,
+  );
+
+  for (const [name, patch] of [
+    ["redirect", { status: 307, redirected: false }],
+    ["wrong-origin", { url: "https://attacker.example/" }],
+    [
+      "wrong-sha",
+      {
+        headers: {
+          get: () => "e".repeat(40),
+        },
+      },
+    ],
+  ]) {
+    await assert.rejects(
+      () =>
+        runMainProviderCli({
+          argv: [
+            "candidate-smoke",
+            "--intent",
+            intentPath,
+            "--output",
+            join(context.directory, `${name}.json`),
+          ],
+          env: context.env,
+          stdout: context.stdout,
+          stateClientFactory,
+          fetchImpl: async (url) => ({
+            status: 200,
+            redirected: false,
+            url,
+            headers: { get: () => intent.deploySha },
+            ...patch,
+          }),
+        }),
+      /HTTP smoke/,
+    );
+  }
+});
+
+test("CLI rejects malformed arguments, token options, and non-private paths without leaking secrets", async (t) => {
+  const context = testContext(t);
+  const planningPath = writeJson(
+    context.directory,
+    "planning.json",
+    planningSnapshot(),
+  );
+  for (const argv of [
+    ["candidate-preflight", "--token", context.env.VERCEL_TOKEN],
+    ["candidate-preflight", "--intent"],
+    ["unknown", "--output", join(context.directory, "x.json")],
+  ]) {
+    await assert.rejects(
+      () =>
+        runMainProviderCli({
+          argv,
+          env: context.env,
+          stdout: context.stdout,
+        }),
+      /missing|unsupported|malformed/,
+    );
+  }
+  await assert.rejects(
+    () =>
+      runMainProviderCli({
+        argv: [
+          "canonical-mappings",
+          "--planning-snapshot",
+          planningPath,
+          "--output",
+          join(tmpdir(), "outside-main-provider.json"),
+        ],
+        env: context.env,
+        stdout: context.stdout,
+      }),
+    /path is missing or unsafe/,
+  );
+  assert.doesNotMatch(context.stdout.value, /test-secret-token/);
+  assert.equal(
+    renderMainProviderCliFailure(new Error(context.env.VERCEL_TOKEN)),
+    "Vercel main provider command failed\n",
+  );
+});
+
+test("private inputs and nested GitHub outputs reject hardlinks and symlinks", async (t) => {
+  const context = testContext(t);
+  const intent = candidateIntent();
+  const intentPath = writeJson(context.directory, "intent.json", intent);
+  const linkedIntent = join(context.directory, "linked-intent.json");
+  linkSync(intentPath, linkedIntent);
+  await assert.rejects(
+    () =>
+      runMainProviderCli({
+        argv: [
+          "candidate-preflight",
+          "--intent",
+          linkedIntent,
+          "--output",
+          join(context.directory, "linked-input-result.json"),
+        ],
+        env: context.env,
+        stdout: context.stdout,
+      }),
+    /missing, unsafe, or malformed/,
+  );
+  unlinkSync(linkedIntent);
+  const symlinkedIntent = join(context.directory, "symlinked-intent.json");
+  symlinkSync(intentPath, symlinkedIntent);
+  await assert.rejects(
+    () =>
+      runMainProviderCli({
+        argv: [
+          "candidate-preflight",
+          "--intent",
+          symlinkedIntent,
+          "--output",
+          join(context.directory, "symlinked-input-result.json"),
+        ],
+        env: context.env,
+        stdout: context.stdout,
+      }),
+    /missing, unsafe, or malformed/,
+  );
+
+  const commandDirectory = dirname(context.githubOutput);
+  const outputSource = join(context.directory, "github-output-source");
+  writeFileSync(outputSource, "", { mode: 0o600 });
+  const hardlinkedOutput = join(commandDirectory, "set_output_hardlink");
+  linkSync(outputSource, hardlinkedOutput);
+  const stateClientFactory = () => ({
+    requestWithRetry: async () => ({
+      deployments: [],
+      pagination: { next: null },
+    }),
+  });
+  await assert.rejects(
+    () =>
+      runMainProviderCli({
+        argv: [
+          "candidate-preflight",
+          "--intent",
+          intentPath,
+          "--output",
+          join(context.directory, "hardlink-output-result.json"),
+        ],
+        env: { ...context.env, GITHUB_OUTPUT: hardlinkedOutput },
+        stdout: context.stdout,
+        stateClientFactory,
+      }),
+    /GITHUB_OUTPUT could not be written safely/,
+  );
+
+  const symlinkedOutput = join(commandDirectory, "set_output_symlink");
+  symlinkSync(outputSource, symlinkedOutput);
+  await assert.rejects(
+    () =>
+      runMainProviderCli({
+        argv: [
+          "candidate-preflight",
+          "--intent",
+          intentPath,
+          "--output",
+          join(context.directory, "symlink-output-result.json"),
+        ],
+        env: { ...context.env, GITHUB_OUTPUT: symlinkedOutput },
+        stdout: context.stdout,
+        stateClientFactory,
+      }),
+    /GITHUB_OUTPUT could not be written safely/,
+  );
+  assert.equal(readFileSync(outputSource, "utf8"), "");
+});
+
+test("private bridge IO rejects noncanonical, permissive, oversized, and existing paths", (t) => {
+  const context = testContext(t);
+  const input = writeJson(context.directory, "input.json", { value: true });
+
+  assert.deepEqual(readPrivateJson(input, "input", context.directory), {
+    value: true,
+  });
+  assert.throws(
+    () =>
+      readPrivateJson(
+        `${context.directory}//input.json`,
+        "input",
+        context.directory,
+      ),
+    /path is missing or unsafe/,
+  );
+  chmodSync(input, 0o644);
+  assert.throws(
+    () => readPrivateJson(input, "input", context.directory),
+    /unsafe/,
+  );
+  chmodSync(input, 0o600);
+
+  const oversized = join(context.directory, "oversized.json");
+  writeFileSync(oversized, "x".repeat(MAIN_PROVIDER_CLI_MAX_JSON_BYTES + 1), {
+    mode: 0o600,
+  });
+  assert.throws(
+    () => readPrivateJson(oversized, "oversized", context.directory),
+    /missing, unsafe, or malformed/,
+  );
+
+  const existingOutput = join(context.directory, "existing-output.json");
+  writeFileSync(existingOutput, "{}\n", { mode: 0o600 });
+  assert.throws(
+    () => writePrivateJson(existingOutput, { value: true }, context.directory),
+    /could not be written safely/,
+  );
+  assert.equal(readFileSync(existingOutput, "utf8"), "{}\n");
+
+  assert.throws(
+    () => reviewedRunnerTemp(`${context.directory}/.`),
+    /RUNNER_TEMP is missing or unsafe/,
+  );
+  const linkedRoot = join(context.directory, "linked-root");
+  symlinkSync(context.directory, linkedRoot);
+  assert.throws(
+    () => reviewedRunnerTemp(linkedRoot),
+    /RUNNER_TEMP is missing or unsafe/,
+  );
+
+  chmodSync(context.githubOutput, 0o644);
+  assert.throws(
+    () => appendGithubOutputs(context.env, { result: "value" }),
+    /could not be written safely/,
+  );
+  chmodSync(context.githubOutput, 0o600);
+  writeFileSync(
+    context.githubOutput,
+    "x".repeat(MAIN_PROVIDER_CLI_MAX_JSON_BYTES),
+    { mode: 0o600 },
+  );
+  assert.throws(
+    () => appendGithubOutputs(context.env, { result: "value" }),
+    /could not be written safely/,
+  );
+  assert.throws(
+    () =>
+      appendGithubOutputs(
+        {
+          ...context.env,
+          GITHUB_OUTPUT: join(tmpdir(), "outside-github-output"),
+        },
+        { result: "value" },
+      ),
+    /path is missing or unsafe/,
+  );
+});

@@ -485,6 +485,21 @@ The repository is set up with GitHub Actions for CI:
   closed. Exact-attempt binding, repeated freshness checks, durable journal
   transitions, reverse-order recovery, public smoke, and an active
   duplicate-deployment census protect each release.
+  Before planning, a later attempt reconciles provider mappings and candidates
+  against the stable release manifest. The manifest binds repository, SHA,
+  validated upstream CI run, candidate identities, and captured rollback priors;
+  it is the sole durable cross-attempt authority. Mutation journals remain
+  run-and-attempt scoped. A complete release is reused after fresh provider
+  validation. An interrupted prefix is restored through a fresh
+  current-attempt journal before new planning. No prior journal is resumed and
+  GitHub artifacts do not authorize cross-attempt work. The compact terminal
+  receipt and evidence are the only final-verdict handoff and support
+  final-only reruns. A completed release emits `current-release-verified` only
+  after fresh mapping, census/state, raw public-runtime-smoke, legacy `v2`, and
+  freshness proof; it creates no journal and executes no public mutation. App
+  shadow preparation is build-only terminal evidence, never a provider
+  deployment. Ambiguous, conflicting, or incomplete provider state fails closed
+  before production work continues.
   The version-controlled preview-controller mode is `active`; per-target
   preview ownership and exact expected Vercel configurations are executable
   invariants. The trusted preview controller reads every selected target's
@@ -514,6 +529,8 @@ The repository is set up with GitHub Actions for CI:
   the journal persistence and clean-cutover decision,
   [ADR 0003](docs/adr/0003-preview-worker-dispatch-authentication.md) for the
   worker-dispatch authentication boundary, and
+  [ADR 0005](docs/adr/0005-stable-main-release-identity-and-rerun-admission.md)
+  for stable release identity and provider-side rerun reconciliation, and
   [`docs/vercel-deployments.md`](docs/vercel-deployments.md) for the four-target
   preview controller, active main transaction, historical shadow canary, and
   rollback procedures.

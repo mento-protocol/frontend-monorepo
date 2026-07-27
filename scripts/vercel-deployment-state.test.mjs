@@ -16,6 +16,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA,
   ACTIVE_ALIAS_MAPPING_SET_SCHEMA,
   ACTIVE_DEPLOYMENT_STATE_PROOF_SCHEMA,
   ACTIVE_DEPLOYMENT_STATE_SPEC_SCHEMA,
@@ -23,6 +24,7 @@ import {
   MAIN_PLANNING_SNAPSHOT_SCHEMA,
   VercelStateClient,
   assertAppTransactionCandidateOutput,
+  assertActiveAliasMappingSpec,
   assertActiveDeploymentStateProof,
   assertActiveAliasMappingSet,
   assertActiveAliasMappings,
@@ -571,6 +573,9 @@ test("active alias mapping set captures exactly every protected alias", () => {
     aliases: [
       "app.mento.org",
       "appmentoorg-env-v3-mentolabs.vercel.app",
+      "appmentoorg-git-v2-mentolabs.vercel.app",
+      "appmentoorg-mentolabs.vercel.app",
+      "appmentoorg.vercel.app",
       "governance.mento.org",
       "reserve.mento.org",
       "ui.mento.org",
@@ -585,7 +590,7 @@ test("active alias mapping set captures exactly every protected alias", () => {
       deploymentUrl: `https://active-${index}.vercel.app`,
     })),
   );
-  assert.equal(mappings.length, 6);
+  assert.equal(mappings.length, 9);
   assert.throws(
     () =>
       assertActiveAliasMappingSet({ ...spec, aliases: spec.aliases.slice(1) }),
@@ -594,6 +599,126 @@ test("active alias mapping set captures exactly every protected alias", () => {
   assert.throws(
     () => assertActiveAliasMappings(mappings.slice(1)),
     /mappings are malformed/,
+  );
+});
+
+test("dynamic active alias mapping spec binds every capture to its exact project", async (t) => {
+  const directory = privateTestDirectory(t);
+  const spec = {
+    schema: ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA,
+    bindings: [
+      {
+        alias: "app.mento.org",
+        projectId: "prj_app123",
+        target: "app",
+      },
+      {
+        alias: "v2-app.mento.org",
+        projectId: "prj_app123",
+        target: "legacy-app",
+      },
+    ],
+  };
+  assert.deepEqual(assertActiveAliasMappingSpec(spec), spec);
+  assert.throws(
+    () =>
+      assertActiveAliasMappingSpec({
+        ...spec,
+        bindings: [],
+      }),
+    /malformed/,
+  );
+  assert.throws(
+    () =>
+      assertActiveAliasMappingSpec({
+        ...spec,
+        bindings: [...spec.bindings, spec.bindings[1]],
+      }),
+    /ambiguous/,
+  );
+  assert.throws(
+    () =>
+      assertActiveAliasMappingSpec({
+        ...spec,
+        bindings: [{ ...spec.bindings[0], target: "unknown" }],
+      }),
+    /ambiguous/,
+  );
+
+  const specPath = join(directory, "mapping-spec.json");
+  const outputPath = join(directory, "mappings.json");
+  writeFileSync(specPath, JSON.stringify(spec), { mode: 0o600 });
+  const mappings = new Map([
+    [
+      "app.mento.org",
+      {
+        alias: "app.mento.org",
+        deploymentId: "dpl_appCurrent123",
+        deploymentUrl: "https://app-current.vercel.app",
+        projectId: "prj_app123",
+      },
+    ],
+    [
+      "v2-app.mento.org",
+      {
+        alias: "v2-app.mento.org",
+        deploymentId: "dpl_appLegacy123",
+        deploymentUrl: "https://app-legacy.vercel.app",
+        projectId: "prj_app123",
+      },
+    ],
+  ]);
+  await runCli({
+    argv: ["alias-mappings", "--spec", specPath, "--output", outputPath],
+    env: {
+      RUNNER_TEMP: directory,
+      VERCEL_ORG_ID: "team_active123",
+      VERCEL_TOKEN: "active-mapping-token-never-output",
+    },
+    clientFactory: () => ({
+      aliasMapping: async (alias) => mappings.get(alias),
+    }),
+  });
+  assert.deepEqual(JSON.parse(readFileSync(outputPath, "utf8")), [
+    {
+      alias: "app.mento.org",
+      deploymentId: "dpl_appCurrent123",
+      deploymentUrl: "https://app-current.vercel.app",
+    },
+    {
+      alias: "v2-app.mento.org",
+      deploymentId: "dpl_appLegacy123",
+      deploymentUrl: "https://app-legacy.vercel.app",
+      projectId: "prj_app123",
+    },
+  ]);
+  assert.equal(statSync(outputPath).mode & 0o777, 0o600);
+
+  const wrongProjectOutput = join(directory, "wrong-project.json");
+  await assert.rejects(
+    () =>
+      runCli({
+        argv: [
+          "alias-mappings",
+          "--spec",
+          specPath,
+          "--output",
+          wrongProjectOutput,
+        ],
+        env: {
+          RUNNER_TEMP: directory,
+          VERCEL_ORG_ID: "team_active123",
+          VERCEL_TOKEN: "active-mapping-token-never-output",
+        },
+        clientFactory: () => ({
+          aliasMapping: async (alias) => ({
+            ...mappings.get(alias),
+            projectId:
+              alias === "v2-app.mento.org" ? "prj_wrong123" : "prj_app123",
+          }),
+        }),
+      }),
+    /conflicts with its spec/,
   );
 });
 
