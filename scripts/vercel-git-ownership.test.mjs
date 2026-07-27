@@ -258,12 +258,8 @@ test("preview-shadow rollback keeps native previews and GitHub-owned main indepe
   }
 });
 
-test("full native rollback keeps the Dependabot exclusion and App v2", () => {
-  assert.deepEqual(
-    PREVIEW_TARGET_CONFIG.app.nativeVercelConfiguration.git.deploymentEnabled,
-    { "dependabot/**": false, v2: true },
-  );
-  for (const target of ["governance", "reserve", "ui"]) {
+test("full native rollback keeps only the Dependabot exclusion", () => {
+  for (const target of PREVIEW_TARGETS) {
     assert.deepEqual(
       PREVIEW_TARGET_CONFIG[target].nativeVercelConfiguration.git
         .deploymentEnabled,

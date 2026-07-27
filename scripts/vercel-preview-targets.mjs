@@ -15,16 +15,6 @@ const NATIVE_VERCEL_CONFIGURATION = Object.freeze({
   }),
 });
 
-const APP_NATIVE_VERCEL_CONFIGURATION = Object.freeze({
-  $schema: "https://openapi.vercel.sh/vercel.json",
-  git: Object.freeze({
-    deploymentEnabled: Object.freeze({
-      "dependabot/**": false,
-      v2: true,
-    }),
-  }),
-});
-
 const ACTIVE_GITHUB_VERCEL_CONFIGURATION = Object.freeze({
   $schema: "https://openapi.vercel.sh/vercel.json",
   git: Object.freeze({
@@ -152,7 +142,7 @@ export const PREVIEW_TARGET_CONFIG = Object.freeze({
     mainShadowVercelConfiguration: APP_MAIN_SHADOW_GITHUB_VERCEL_CONFIGURATION,
     previewShadowVercelConfiguration:
       APP_PREVIEW_SHADOW_GITHUB_MAIN_VERCEL_CONFIGURATION,
-    nativeVercelConfiguration: APP_NATIVE_VERCEL_CONFIGURATION,
+    nativeVercelConfiguration: NATIVE_VERCEL_CONFIGURATION,
   }),
   governance: targetConfiguration({
     logicalTarget: "governance",

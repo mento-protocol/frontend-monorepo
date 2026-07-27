@@ -302,7 +302,7 @@ accepted. It changes the controller from literal `shadow` to `active` and
 changes Vercel Git ownership in the same commit:
 
 - Governance, Reserve, and UI:
-  `git.deploymentEnabled` becomes `{"**": false}`;
+  `git.deploymentEnabled` becomes the boolean `false`;
 - App: `git.deploymentEnabled` becomes
   `{"**": false, "v2": true}`.
 
