@@ -19,6 +19,7 @@ const IDENTIFIER_PATTERN = /^[A-Za-z0-9._-]+$/;
 const NEXT_DEPLOYMENT_ID_PATTERN = /^(?!dpl_)[A-Za-z0-9_-]{1,32}$/;
 const POSITIVE_ID_PATTERN = /^[1-9][0-9]*$/;
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
+const TEAM_ID_PATTERN = /^team_[A-Za-z0-9]+$/;
 const TRANSACTION_ID_PATTERN = /^main-[a-f0-9]{32}$/;
 const MAX_COMMAND_OUTPUT_BYTES = 64 * 1024;
 const MAX_COMMAND_TIMEOUT_MS = 180_000;
@@ -745,6 +746,12 @@ function environmentForCommand(environment) {
     }
     filtered[name] = value;
   }
+  if (!TEAM_ID_PATTERN.test(filtered.VERCEL_ORG_ID ?? "")) {
+    throw new MainActiveAdapterError(
+      "VERCEL_ORG_ID is missing or malformed",
+      "MAIN_ACTIVE_COMMAND_REJECTED",
+    );
+  }
   return filtered;
 }
 
@@ -876,6 +883,8 @@ export function runMainActiveVercelCommand({
         inheritedCliEvaluation(cliPath),
         "--",
         ...canonicalCommand.arguments,
+        "--scope",
+        commandEnvironment.VERCEL_ORG_ID,
       ],
       {
         cwd: workingDirectory,

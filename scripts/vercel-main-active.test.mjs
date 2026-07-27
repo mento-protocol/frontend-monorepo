@@ -655,6 +655,14 @@ test("descriptor allowlist rejects token arguments and forged commands", () => {
     () =>
       assertMainActiveCommandDescriptor({
         ...command,
+        arguments: [...command.arguments, "--scope", "team_attacker"],
+      }),
+    /descriptor was altered/,
+  );
+  assert.throws(
+    () =>
+      assertMainActiveCommandDescriptor({
+        ...command,
         kind: "project-remove",
       }),
     /kind is not allowlisted/,
@@ -699,7 +707,11 @@ test("runner sends the token only through a filtered process environment", () =>
     'process.argv.splice(1, 0, "/trusted/vercel/dist/vc.js"); await import("/trusted/vercel/dist/vc.js");',
   );
   assert.equal(calls[0].argumentsList[4], "--");
-  assert.deepEqual(calls[0].argumentsList.slice(5), command.arguments);
+  assert.deepEqual(calls[0].argumentsList.slice(5), [
+    ...command.arguments,
+    "--scope",
+    "team_mento",
+  ]);
   assert.equal(calls[0].argumentsList.includes(TOKEN), false);
   assert.equal(
     calls[0].argumentsList.some((argument) => argument.startsWith("--token")),
@@ -708,6 +720,33 @@ test("runner sends the token only through a filtered process environment", () =>
   assert.equal(calls[0].options.env.VERCEL_TOKEN, TOKEN);
   assert.equal(Object.hasOwn(calls[0].options.env, "SENTRY_AUTH_TOKEN"), false);
   assert.equal(calls[0].options.timeout, MAIN_ACTIVE_COMMAND_TIMEOUT_MS);
+});
+
+test("runner requires a canonical Vercel team ID before binding command scope", () => {
+  const command = buildMainActivePromotionCommand({
+    target: "ui",
+    ...ORDINARY_CANDIDATE,
+  });
+  let calls = 0;
+  for (const VERCEL_ORG_ID of [
+    undefined,
+    "mento",
+    "team_bad-id",
+    "team_bad\n",
+  ]) {
+    assert.throws(
+      () =>
+        runCommand(
+          command,
+          () => {
+            calls += 1;
+          },
+          { VERCEL_ORG_ID },
+        ),
+      /VERCEL_ORG_ID is missing or malformed/,
+    );
+  }
+  assert.equal(calls, 0);
 });
 
 test("nonzero, timeout, and thrown execution outcomes stay unknown and redacted", () => {

@@ -18,9 +18,10 @@ import { mainTransactionJournalArtifactName } from "./vercel-main-transaction.mj
 
 const read = (path) =>
   readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
-const action = parse(
-  read(".github/actions/vercel-main-active-transition/action.yml"),
+const actionSource = read(
+  ".github/actions/vercel-main-active-transition/action.yml",
 );
+const action = parse(actionSource);
 const preparedFixture = JSON.parse(
   read("scripts/fixtures/vercel-main-transaction/prepared-shadow.json"),
 );
@@ -285,6 +286,53 @@ test("ordinary mappings remain a one-turn verification", () => {
   assert.equal(verified.journal.status, "verified");
   assert.equal(verified.journal.operations.at(-1).state, "verified");
   assert.equal(verified.afterUploadAction, "dispatch");
+});
+
+test("active checkpoints stage canonical files before replacing pre-existing destinations", () => {
+  const checkpoints = [
+    ["checkpoint-started", "started"],
+    ["checkpoint-returned", "returned"],
+    ["checkpoint-verified", "verified"],
+    ["checkpoint-app-verified", "app-verified"],
+  ];
+
+  for (const [checkpointId, checkpointName] of checkpoints) {
+    const checkpoint = action.runs.steps.find(
+      (step) => step.id === checkpointId,
+    );
+    const tempPrefix = `\\$RUNNER_TEMP/active-\\$SLOT-${checkpointName}`;
+
+    assert.ok(checkpoint, `missing ${checkpointId}`);
+    assert.match(
+      checkpoint.run,
+      new RegExp(
+        `active-journal-history .*--output "${tempPrefix}-history\\.json"`,
+      ),
+    );
+    assert.match(
+      checkpoint.run,
+      new RegExp(
+        `active-journal-receipt .*--output "${tempPrefix}-receipt\\.json"`,
+      ),
+    );
+    assert.match(
+      checkpoint.run,
+      new RegExp(
+        `install -m 0600 "${tempPrefix}-history\\.json" "\\$JOURNAL_DIRECTORY/current-history\\.json"`,
+      ),
+    );
+    assert.match(
+      checkpoint.run,
+      new RegExp(
+        `install -m 0600 "${tempPrefix}-receipt\\.json" "\\$JOURNAL_DIRECTORY/current-receipt\\.json"`,
+      ),
+    );
+  }
+
+  assert.doesNotMatch(
+    actionSource,
+    /active-journal-(?:history|receipt)[^\n]*--output "\$JOURNAL_DIRECTORY\/current-(?:history|receipt)\.json"/,
+  );
 });
 
 test("the composite checkpoints the App attachment before a receipt-free second turn", () => {

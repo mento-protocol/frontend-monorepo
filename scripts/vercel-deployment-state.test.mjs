@@ -262,6 +262,59 @@ function activeStateSpec({ rollbackOnly = false } = {}) {
   };
 }
 
+test("recovered-prior App state accepts no candidate and rejects an unexpected one", () => {
+  const spec = activeStateSpec();
+  spec.projects.app = {
+    ...spec.projects.app,
+    expectedDisposition: "recoveredPrior",
+    deploymentId: null,
+    deploymentUrl: null,
+  };
+  const emptyCandidateSet = activeDeploymentInspections(spec);
+  emptyCandidateSet.app = [];
+  const recovered = createActiveDeploymentStateProof({
+    spec,
+    deployments: emptyCandidateSet,
+    legacyV2: legacyAppV2Proof(spec),
+  });
+  assert.equal(recovered.outcome, "proven");
+  assert.equal(recovered.projects.app.counts.scanned, 0);
+
+  const unexpectedCandidateSet = activeDeploymentInspections(spec);
+  unexpectedCandidateSet.app = [];
+  unexpectedCandidateSet.app.push({
+    deploymentId: "dpl_unexpectedapp123",
+    response: activeDeploymentResponse(spec, "app", {
+      deploymentId: "dpl_unexpectedapp123",
+      deploymentUrl: "https://unexpected-app.vercel.app",
+    }),
+  });
+  const unexpected = createActiveDeploymentStateProof({
+    spec,
+    deployments: unexpectedCandidateSet,
+    legacyV2: legacyAppV2Proof(spec),
+  });
+  assert.equal(unexpected.outcome, "unproven");
+  assert.equal(unexpected.projects.app.counts.manualDuplicates, 1);
+
+  const invalidTarget = structuredClone(spec);
+  invalidTarget.projects.governance = {
+    ...invalidTarget.projects.governance,
+    expectedDisposition: "recoveredPrior",
+    deploymentId: null,
+    deploymentUrl: null,
+  };
+  assert.throws(
+    () =>
+      createActiveDeploymentStateProof({
+        spec: invalidTarget,
+        deployments: activeDeploymentInspections(invalidTarget),
+        legacyV2: legacyAppV2Proof(invalidTarget),
+      }),
+    /governance recovered-prior deployment expectation is malformed/,
+  );
+});
+
 function activeDeploymentResponse(
   spec,
   logicalTarget,

@@ -353,6 +353,9 @@ Governance, Reserve, and UI use
 `vercel promote <exact-staged-id-or-url>` in canonical target order. App runs
 last because `vercel deploy --prebuilt --target=v3` can move attached custom
 domains; the controller then reconciles each reviewed alias independently.
+The protected executor binds every Vercel mutation to the validated
+`VERCEL_ORG_ID` with the CLI's explicit `--scope` option; the durable command
+descriptor cannot supply or override that runner-owned scope.
 Targets in `shadowTargets` use the same staged/build verification but never
 enter the mutation list. After all active operations and public smokes pass,
 the controller persists the committed journal state.
@@ -392,6 +395,15 @@ recovery uses the bounded exact transaction-metadata census; zero, multiple,
 or mismatched candidates remain manual intervention. Recovery, manual
 intervention, a missing journal after a possible mutation, and recovery failure
 all fail the release after publishing redacted evidence.
+
+If a recovered journal proves that App's `app_v3_deploy` operation never
+started and its prepared candidate still has no deployment identity, the final
+state specification records App as `recoveredPrior`. That narrow state expects
+no App candidate while still requiring the exact-SHA census to contain no
+unknown or manual duplicate deployment, the captured protected mappings to
+resolve to every prior, and the restored public runtime smoke. A started App
+deploy or any discovered App candidate remains incomplete and cannot use this
+path.
 
 If provider reconciliation cannot establish one safe manifest and canonical
 mapping prefix, do not delete or recreate evidence. Inspect the live protected
@@ -526,7 +538,9 @@ sequentially from exact immutable IDs. Before every command it uploads a
 uploads the verified next sequence. Governance, Reserve, and UI use
 `vercel promote <exact-staged-id-or-url>`. App activates last with
 `vercel deploy --prebuilt --target=v3`, then verifies or restores each reviewed
-v3 alias independently. `--prod`, `--skip-domain`, and `vercel promote` remain
+v3 alias independently. The executor adds the validated runner-owned
+`VERCEL_ORG_ID` as the exact CLI `--scope`; command descriptors cannot select a
+different account. `--prod`, `--skip-domain`, and `vercel promote` remain
 forbidden for App.
 
 After active-mode activation, run the credential-free public smoke for every
