@@ -734,6 +734,9 @@ test("active coordinator validates stage handoffs and prepares App without deplo
     "stage-reserve",
     "stage-ui",
   ]);
+  assert.match(coordinator.if, /^always\(\)/);
+  assert.match(coordinator.if, /!cancelled\(\)/);
+  assert.match(coordinator.if, /needs\.prepare-release\.result == 'success'/);
   assert.equal(coordinator["timeout-minutes"], 60);
   assert.deepEqual(coordinator.environment, {
     name: "vercel-cli-production",
