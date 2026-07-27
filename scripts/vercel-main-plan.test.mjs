@@ -11,6 +11,7 @@ import {
   partitionMainOwnership,
   planMainDeployments,
 } from "./vercel-main-plan.mjs";
+import { PRODUCTION_GENERATED_ALIAS_CONTRACTS } from "./vercel-production-generated-aliases.mjs";
 
 const fixtureUrl = new URL(
   "./fixtures/vercel-main-plan/valid-priors.json",
@@ -1175,6 +1176,23 @@ test("a malformed shadow fallback plan selects its current-base target and keeps
   });
 });
 
+test("ordinary priors accept the reviewed base and exact fixture-creator alias", () => {
+  const input = fixture();
+  const generatedContract = PRODUCTION_GENERATED_ALIAS_CONTRACTS.governance;
+  input.priorStates.governance.states[0].aliases = [
+    "governance.mento.org",
+    generatedContract.generatedProjectAlias,
+    `${generatedContract.generatedProjectSlug}-fixture-author-${generatedContract.generatedScopeSlug}.vercel.app`,
+  ].toSorted();
+
+  const { plan } = runFixture(input);
+
+  assert.deepEqual(
+    plan.priors.find(({ target }) => target === "governance").aliases,
+    ["governance.mento.org"],
+  );
+});
+
 const activationAmbiguities = [
   {
     name: "missing protected alias",
@@ -1211,6 +1229,56 @@ const activationAmbiguities = [
         "governance.mento.org",
         "governance.mento.org",
       ];
+    },
+  },
+  {
+    name: "missing generated base alias",
+    target: "governance",
+    code: "alias-set-ambiguous",
+    mutate(input) {
+      input.priorStates.governance.states[0].aliases = ["governance.mento.org"];
+    },
+  },
+  {
+    name: "unknown generated alias",
+    target: "governance",
+    code: "alias-set-ambiguous",
+    mutate(input) {
+      input.priorStates.governance.states[0].aliases.push("attacker.invalid");
+      input.priorStates.governance.states[0].aliases.sort();
+    },
+  },
+  {
+    name: "operator-scoped alias",
+    target: "governance",
+    code: "alias-set-ambiguous",
+    mutate(input) {
+      input.priorStates.governance.states[0].aliases.push(
+        "governancementoorg-operator-mentolabs.vercel.app",
+      );
+      input.priorStates.governance.states[0].aliases.sort();
+    },
+  },
+  {
+    name: "custom alias",
+    target: "governance",
+    code: "alias-set-ambiguous",
+    mutate(input) {
+      input.priorStates.governance.states[0].aliases.push(
+        "governance-preview.mento.org",
+      );
+      input.priorStates.governance.states[0].aliases.sort();
+    },
+  },
+  {
+    name: "creator near-miss alias",
+    target: "governance",
+    code: "alias-set-ambiguous",
+    mutate(input) {
+      input.priorStates.governance.states[0].aliases.push(
+        "governancementoorg-fixture-author2-mentolabs.vercel.app",
+      );
+      input.priorStates.governance.states[0].aliases.sort();
     },
   },
   {

@@ -54,6 +54,10 @@ import {
   VercelStateClient,
 } from "./vercel-deployment-state.mjs";
 import { canonicalizeMainCandidateVercelMetadata } from "./vercel-main-candidate.mjs";
+import {
+  assertOnlyExpectedProductionGeneratedAliases,
+  PRODUCTION_GENERATED_ALIAS_CONTRACTS,
+} from "./vercel-production-generated-aliases.mjs";
 
 const SHA_PATTERN = /^[A-Fa-f0-9]{40}$/;
 const DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
@@ -77,10 +81,6 @@ const MAX_SOURCE_TREE_BYTES = 16 * 1_024 * 1_024;
 const MAX_SOURCE_TOTAL_BYTES = 128 * 1_024 * 1_024;
 const MAX_PULLED_ENVIRONMENT_BYTES = 16 * 1_024 * 1_024;
 const MAX_MATERIALIZED_ENVIRONMENT_BYTES = 1_024 * 1_024;
-const RESERVED_GENERATED_ALIAS_CREATOR_PREFIXES = Object.freeze([
-  "env-",
-  "git-",
-]);
 const VERCEL_CLI_ENVIRONMENT_NAMES = Object.freeze([
   "CI",
   "HTTP_PROXY",
@@ -110,9 +110,7 @@ export const PRODUCTION_SHADOW_TARGETS = {
     rootDirectory: "apps/governance.mento.org",
     pullEnvironment: "production",
     buildArguments: ["build", "--yes", "--standalone", "--prod"],
-    generatedProjectAlias: "governancementoorg-mentolabs.vercel.app",
-    generatedProjectSlug: "governancementoorg",
-    generatedScopeSlug: "mentolabs",
+    ...PRODUCTION_GENERATED_ALIAS_CONTRACTS.governance,
     deployArguments: [
       "deploy",
       "--prebuilt",
@@ -128,9 +126,7 @@ export const PRODUCTION_SHADOW_TARGETS = {
     rootDirectory: "apps/reserve.mento.org",
     pullEnvironment: "production",
     buildArguments: ["build", "--yes", "--standalone", "--prod"],
-    generatedProjectAlias: "reservementoorg-mentolabs.vercel.app",
-    generatedProjectSlug: "reservementoorg",
-    generatedScopeSlug: "mentolabs",
+    ...PRODUCTION_GENERATED_ALIAS_CONTRACTS.reserve,
     deployArguments: [
       "deploy",
       "--prebuilt",
@@ -146,9 +142,7 @@ export const PRODUCTION_SHADOW_TARGETS = {
     rootDirectory: "apps/ui.mento.org",
     pullEnvironment: "production",
     buildArguments: ["build", "--yes", "--standalone", "--prod"],
-    generatedProjectAlias: "uimentoorg-mentolabs.vercel.app",
-    generatedProjectSlug: "uimentoorg",
-    generatedScopeSlug: "mentolabs",
+    ...PRODUCTION_GENERATED_ALIAS_CONTRACTS.ui,
     deployArguments: [
       "deploy",
       "--prebuilt",
@@ -182,12 +176,6 @@ function targetContract(logicalTarget) {
     );
   }
   return PRODUCTION_SHADOW_TARGETS[logicalTarget];
-}
-
-function creatorUsesReservedGeneratedAliasNamespace(creatorUsername) {
-  return RESERVED_GENERATED_ALIAS_CREATOR_PREFIXES.some((prefix) =>
-    creatorUsername.startsWith(prefix),
-  );
 }
 
 function numericIdentity(value, label) {
@@ -2294,24 +2282,10 @@ export function assertOnlyExpectedVercelGeneratedAliases(state, logicalTarget) {
     );
   }
   const contract = targetContract(logicalTarget);
-  const generatedProjectAlias = contract.generatedProjectAlias;
-  const generatedProjectSlug = contract.generatedProjectSlug;
-  const generatedScopeSlug = contract.generatedScopeSlug;
-  if (
-    generatedProjectAlias === null ||
-    generatedProjectSlug === null ||
-    generatedScopeSlug === null
-  ) {
+  if (contract.generatedProjectAlias === null) {
     throw new Error(
       "Target does not support production generated-alias verification",
     );
-  }
-  if (
-    canonicalizeHostname(generatedProjectAlias) !== generatedProjectAlias ||
-    generatedProjectAlias !==
-      `${generatedProjectSlug}-${generatedScopeSlug}.vercel.app`
-  ) {
-    throw new Error("Reviewed generated project alias is malformed");
   }
   if (state.projectName !== contract.projectName) {
     throw new Error("Staged deployment project does not match literal target");
@@ -2332,31 +2306,11 @@ export function assertOnlyExpectedVercelGeneratedAliases(state, logicalTarget) {
       `Staged ${logicalTarget} production immutable hostname must remain separate from the provider alias list`,
     );
   }
-  const allowedTopologies = [[generatedProjectAlias]];
-  if (
-    state.creatorUsername !== null &&
-    !creatorUsesReservedGeneratedAliasNamespace(state.creatorUsername)
-  ) {
-    const authorLabel = `${generatedProjectSlug}-${state.creatorUsername}-${generatedScopeSlug}`;
-    if (authorLabel.length <= 63) {
-      const generatedAuthorAlias = canonicalizeHostname(
-        `${authorLabel}.vercel.app`,
-      );
-      allowedTopologies.push(
-        [generatedProjectAlias, generatedAuthorAlias].sort(),
-      );
-    }
-  }
-  if (
-    !allowedTopologies.some(
-      (expectedAliases) =>
-        JSON.stringify(state.aliases) === JSON.stringify(expectedAliases),
-    )
-  ) {
-    throw new Error(
-      `Staged ${logicalTarget} production generated-alias topology mismatch: expected one of ${JSON.stringify(allowedTopologies)}; actual ${JSON.stringify(state.aliases)}`,
-    );
-  }
+  assertOnlyExpectedProductionGeneratedAliases({
+    aliases: state.aliases,
+    creatorUsername: state.creatorUsername,
+    logicalTarget,
+  });
   return state;
 }
 

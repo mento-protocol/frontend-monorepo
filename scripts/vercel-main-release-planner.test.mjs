@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { MAIN_TARGET_CONTRACTS } from "./vercel-main-plan.mjs";
 import { createMainReleaseBaseline } from "./vercel-main-release-planner.mjs";
 import { recomputeMainReleasePlan } from "./vercel-main-release-reconciliation.mjs";
+import { PRODUCTION_GENERATED_ALIAS_CONTRACTS } from "./vercel-production-generated-aliases.mjs";
 
 const HEAD = "a".repeat(40);
 const BASE = "b".repeat(40);
@@ -40,7 +41,13 @@ function state(target, alias, git = {}) {
       sha: BASE,
       ...git,
     },
-    aliases: [...ALIASES[target]].sort(),
+    aliases:
+      target === "app"
+        ? [...ALIASES[target]].sort()
+        : [
+            ...ALIASES[target],
+            PRODUCTION_GENERATED_ALIAS_CONTRACTS[target].generatedProjectAlias,
+          ].toSorted(),
   };
 }
 

@@ -16,6 +16,7 @@ import {
   MAIN_TARGET_CONTRACTS,
   planMainDeployments,
 } from "./vercel-main-plan.mjs";
+import { PRODUCTION_GENERATED_ALIAS_CONTRACTS } from "./vercel-production-generated-aliases.mjs";
 
 const SHA = "abcdef0123456789abcdef0123456789abcdef01";
 const PRIOR_SHA = "1111111111111111111111111111111111111111";
@@ -223,7 +224,15 @@ function plannerInputs(originalPriors) {
             target: leaf.target,
             customEnvironmentSlug: leaf.customEnvironmentSlug,
             git: rawPlanningGit(leaf.git),
-            aliases: [...leaf.aliases],
+            aliases:
+              target === "app"
+                ? [...leaf.aliases]
+                : [
+                    ...leaf.aliases,
+                    PRODUCTION_GENERATED_ALIAS_CONTRACTS[target]
+                      .generatedProjectAlias,
+                  ].toSorted(),
+            creatorUsername: null,
           })),
         },
       ]),
