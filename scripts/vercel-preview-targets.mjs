@@ -3,6 +3,11 @@ export const PREVIEW_OWNERSHIP_MODES = Object.freeze({
   SHADOW: "shadow",
 });
 
+export const MAIN_OWNERSHIP_MODES = Object.freeze({
+  GITHUB: "github",
+  SHADOW: "shadow",
+});
+
 const NATIVE_VERCEL_CONFIGURATION = Object.freeze({
   $schema: "https://openapi.vercel.sh/vercel.json",
   git: Object.freeze({
@@ -10,59 +15,185 @@ const NATIVE_VERCEL_CONFIGURATION = Object.freeze({
   }),
 });
 
-const GITHUB_VERCEL_CONFIGURATION = Object.freeze({
+const APP_NATIVE_VERCEL_CONFIGURATION = Object.freeze({
+  $schema: "https://openapi.vercel.sh/vercel.json",
+  git: Object.freeze({
+    deploymentEnabled: Object.freeze({
+      "dependabot/**": false,
+      v2: true,
+    }),
+  }),
+});
+
+const ACTIVE_GITHUB_VERCEL_CONFIGURATION = Object.freeze({
+  $schema: "https://openapi.vercel.sh/vercel.json",
+  git: Object.freeze({
+    deploymentEnabled: false,
+  }),
+});
+
+const APP_ACTIVE_GITHUB_VERCEL_CONFIGURATION = Object.freeze({
+  $schema: "https://openapi.vercel.sh/vercel.json",
+  git: Object.freeze({
+    deploymentEnabled: Object.freeze({ "**": false, v2: true }),
+  }),
+});
+
+const MAIN_SHADOW_GITHUB_VERCEL_CONFIGURATION = Object.freeze({
   $schema: "https://openapi.vercel.sh/vercel.json",
   git: Object.freeze({
     deploymentEnabled: Object.freeze({ "**": false, main: true }),
   }),
 });
 
-const APP_GITHUB_VERCEL_CONFIGURATION = Object.freeze({
+const APP_MAIN_SHADOW_GITHUB_VERCEL_CONFIGURATION = Object.freeze({
   $schema: "https://openapi.vercel.sh/vercel.json",
   git: Object.freeze({
     deploymentEnabled: Object.freeze({ "**": false, main: true, v2: true }),
   }),
 });
 
+const PREVIEW_SHADOW_GITHUB_MAIN_VERCEL_CONFIGURATION = Object.freeze({
+  $schema: "https://openapi.vercel.sh/vercel.json",
+  git: Object.freeze({
+    deploymentEnabled: Object.freeze({
+      "dependabot/**": false,
+      main: false,
+    }),
+  }),
+});
+
+const APP_PREVIEW_SHADOW_GITHUB_MAIN_VERCEL_CONFIGURATION = Object.freeze({
+  $schema: "https://openapi.vercel.sh/vercel.json",
+  git: Object.freeze({
+    deploymentEnabled: Object.freeze({
+      "dependabot/**": false,
+      main: false,
+      v2: true,
+    }),
+  }),
+});
+
+export function vercelConfigurationForOwnership({
+  previewOwnershipMode,
+  mainOwnershipMode,
+  active,
+  mainShadow,
+  previewShadow,
+  native,
+}) {
+  if (previewOwnershipMode === PREVIEW_OWNERSHIP_MODES.GITHUB) {
+    if (mainOwnershipMode === MAIN_OWNERSHIP_MODES.GITHUB) {
+      return active;
+    }
+    if (mainOwnershipMode === MAIN_OWNERSHIP_MODES.SHADOW) {
+      return mainShadow;
+    }
+  }
+  if (previewOwnershipMode === PREVIEW_OWNERSHIP_MODES.SHADOW) {
+    if (mainOwnershipMode === MAIN_OWNERSHIP_MODES.GITHUB) {
+      return previewShadow;
+    }
+    if (mainOwnershipMode === MAIN_OWNERSHIP_MODES.SHADOW) {
+      return native;
+    }
+  }
+  throw new Error(
+    "Preview and main ownership modes must match a reviewed exact state",
+  );
+}
+
+function targetConfiguration({
+  logicalTarget,
+  workspacePackage,
+  expectedRootDirectory,
+  projectVariable,
+  ownershipMode,
+  mainOwnershipMode,
+  vercelConfigurationPath,
+  activeVercelConfiguration,
+  mainShadowVercelConfiguration,
+  previewShadowVercelConfiguration,
+  nativeVercelConfiguration,
+}) {
+  return Object.freeze({
+    logicalTarget,
+    workspacePackage,
+    expectedRootDirectory,
+    projectVariable,
+    ownershipMode,
+    mainOwnershipMode,
+    vercelConfigurationPath,
+    activeVercelConfiguration,
+    mainShadowVercelConfiguration,
+    previewShadowVercelConfiguration,
+    nativeVercelConfiguration,
+    trackedVercelConfiguration: vercelConfigurationForOwnership({
+      previewOwnershipMode: ownershipMode,
+      mainOwnershipMode,
+      active: activeVercelConfiguration,
+      mainShadow: mainShadowVercelConfiguration,
+      previewShadow: previewShadowVercelConfiguration,
+      native: nativeVercelConfiguration,
+    }),
+  });
+}
+
 export const PREVIEW_TARGET_CONFIG = Object.freeze({
-  app: Object.freeze({
+  app: targetConfiguration({
     logicalTarget: "app",
     workspacePackage: "app.mento.org",
     expectedRootDirectory: "apps/app.mento.org",
     projectVariable: "VERCEL_PROJECT_ID_APP",
     ownershipMode: PREVIEW_OWNERSHIP_MODES.GITHUB,
+    mainOwnershipMode: MAIN_OWNERSHIP_MODES.SHADOW,
     vercelConfigurationPath: "apps/app.mento.org/vercel.json",
-    githubVercelConfiguration: APP_GITHUB_VERCEL_CONFIGURATION,
-    nativeVercelConfiguration: NATIVE_VERCEL_CONFIGURATION,
+    activeVercelConfiguration: APP_ACTIVE_GITHUB_VERCEL_CONFIGURATION,
+    mainShadowVercelConfiguration: APP_MAIN_SHADOW_GITHUB_VERCEL_CONFIGURATION,
+    previewShadowVercelConfiguration:
+      APP_PREVIEW_SHADOW_GITHUB_MAIN_VERCEL_CONFIGURATION,
+    nativeVercelConfiguration: APP_NATIVE_VERCEL_CONFIGURATION,
   }),
-  governance: Object.freeze({
+  governance: targetConfiguration({
     logicalTarget: "governance",
     workspacePackage: "governance.mento.org",
     expectedRootDirectory: "apps/governance.mento.org",
     projectVariable: "VERCEL_PROJECT_ID_GOVERNANCE",
     ownershipMode: PREVIEW_OWNERSHIP_MODES.GITHUB,
+    mainOwnershipMode: MAIN_OWNERSHIP_MODES.SHADOW,
     vercelConfigurationPath: "apps/governance.mento.org/vercel.json",
-    githubVercelConfiguration: GITHUB_VERCEL_CONFIGURATION,
+    activeVercelConfiguration: ACTIVE_GITHUB_VERCEL_CONFIGURATION,
+    mainShadowVercelConfiguration: MAIN_SHADOW_GITHUB_VERCEL_CONFIGURATION,
+    previewShadowVercelConfiguration:
+      PREVIEW_SHADOW_GITHUB_MAIN_VERCEL_CONFIGURATION,
     nativeVercelConfiguration: NATIVE_VERCEL_CONFIGURATION,
   }),
-  reserve: Object.freeze({
+  reserve: targetConfiguration({
     logicalTarget: "reserve",
     workspacePackage: "reserve.mento.org",
     expectedRootDirectory: "apps/reserve.mento.org",
     projectVariable: "VERCEL_PROJECT_ID_RESERVE",
     ownershipMode: PREVIEW_OWNERSHIP_MODES.GITHUB,
+    mainOwnershipMode: MAIN_OWNERSHIP_MODES.SHADOW,
     vercelConfigurationPath: "apps/reserve.mento.org/vercel.json",
-    githubVercelConfiguration: GITHUB_VERCEL_CONFIGURATION,
+    activeVercelConfiguration: ACTIVE_GITHUB_VERCEL_CONFIGURATION,
+    mainShadowVercelConfiguration: MAIN_SHADOW_GITHUB_VERCEL_CONFIGURATION,
+    previewShadowVercelConfiguration:
+      PREVIEW_SHADOW_GITHUB_MAIN_VERCEL_CONFIGURATION,
     nativeVercelConfiguration: NATIVE_VERCEL_CONFIGURATION,
   }),
-  ui: Object.freeze({
+  ui: targetConfiguration({
     logicalTarget: "ui",
     workspacePackage: "ui.mento.org",
     expectedRootDirectory: "apps/ui.mento.org",
     projectVariable: "VERCEL_PROJECT_ID_UI",
     ownershipMode: PREVIEW_OWNERSHIP_MODES.GITHUB,
+    mainOwnershipMode: MAIN_OWNERSHIP_MODES.SHADOW,
     vercelConfigurationPath: "apps/ui.mento.org/vercel.json",
-    githubVercelConfiguration: GITHUB_VERCEL_CONFIGURATION,
+    activeVercelConfiguration: ACTIVE_GITHUB_VERCEL_CONFIGURATION,
+    mainShadowVercelConfiguration: MAIN_SHADOW_GITHUB_VERCEL_CONFIGURATION,
+    previewShadowVercelConfiguration:
+      PREVIEW_SHADOW_GITHUB_MAIN_VERCEL_CONFIGURATION,
     nativeVercelConfiguration: NATIVE_VERCEL_CONFIGURATION,
   }),
 });

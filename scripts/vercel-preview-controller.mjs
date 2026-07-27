@@ -3759,15 +3759,26 @@ async function previewOwnerAtSha(github, context, target, sha) {
   } catch {
     throw new Error(`Candidate ${target} Vercel configuration is malformed`);
   }
+  return previewOwnerForVercelConfiguration(target, configuration);
+}
+
+export function previewOwnerForVercelConfiguration(target, configuration) {
+  const targetConfiguration = previewTargetConfig(target);
   plainObject(configuration, `Candidate ${target} Vercel configuration`);
   const candidate = canonicalJson(configuration);
   if (
-    candidate === canonicalJson(targetConfiguration.githubVercelConfiguration)
+    [
+      targetConfiguration.activeVercelConfiguration,
+      targetConfiguration.mainShadowVercelConfiguration,
+    ].some((expected) => candidate === canonicalJson(expected))
   ) {
     return PREVIEW_OWNER_GITHUB;
   }
   if (
-    candidate === canonicalJson(targetConfiguration.nativeVercelConfiguration)
+    [
+      targetConfiguration.previewShadowVercelConfiguration,
+      targetConfiguration.nativeVercelConfiguration,
+    ].some((expected) => candidate === canonicalJson(expected))
   ) {
     return PREVIEW_OWNER_NATIVE;
   }
