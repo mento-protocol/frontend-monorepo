@@ -57,6 +57,7 @@ import { canonicalizeMainCandidateVercelMetadata } from "./vercel-main-candidate
 import {
   assertOnlyExpectedProductionGeneratedAliases,
   PRODUCTION_GENERATED_ALIAS_CONTRACTS,
+  PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES,
 } from "./vercel-production-generated-aliases.mjs";
 
 const SHA_PATTERN = /^[A-Fa-f0-9]{40}$/;
@@ -2310,6 +2311,7 @@ export function assertOnlyExpectedVercelGeneratedAliases(state, logicalTarget) {
     aliases: state.aliases,
     creatorUsername: state.creatorUsername,
     logicalTarget,
+    mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.CANDIDATE,
   });
   return state;
 }

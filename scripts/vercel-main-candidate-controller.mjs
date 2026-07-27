@@ -12,11 +12,18 @@ import {
   canonicalizeDeploymentUrl,
   canonicalizeHostname,
 } from "./vercel-deployment-state.mjs";
-import { MAIN_DEPLOYMENT_TARGETS } from "./vercel-main-plan.mjs";
+import {
+  MAIN_DEPLOYMENT_TARGETS,
+  MAIN_TARGET_CONTRACTS,
+} from "./vercel-main-plan.mjs";
 import {
   MAIN_RELEASE_ACTIVATION_ORDER,
   assertMainReleaseManifest,
 } from "./vercel-main-release-reconciliation.mjs";
+import {
+  assertOnlyExpectedProductionGeneratedAliases,
+  PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES,
+} from "./vercel-production-generated-aliases.mjs";
 
 const MAIN_CANDIDATE_PREFLIGHT_SCHEMA = "vercel-main-candidate-preflight:v1";
 const MAIN_CANDIDATE_HANDOFF_SCHEMA = "vercel-main-candidate-handoff:v1";
@@ -28,6 +35,16 @@ const EMPTY_REUSE_METRICS = Object.freeze({
   deploymentDurationMs: null,
   cacheHit: null,
 });
+
+function assertAliasTopologyTarget(intent, aliasTopologyMode) {
+  if (
+    aliasTopologyMode ===
+      PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR &&
+    intent.target === "app"
+  ) {
+    throw new Error("Served-prior candidate finalization excludes App");
+  }
+}
 
 function exactKeys(value, keys, label) {
   if (
@@ -283,12 +300,12 @@ export function assertMainCandidatePreflight(value) {
   };
 }
 
-export async function resolveMainCandidateHandoff({
-  intent,
-  provider,
-  smokeCandidate,
-}) {
+async function resolveMainCandidateHandoffForAliasTopology(
+  { intent, provider, smokeCandidate },
+  aliasTopologyMode,
+) {
   const canonicalIntent = assertMainCandidateIntent(intent);
+  assertAliasTopologyTarget(canonicalIntent, aliasTopologyMode);
   if (
     !provider ||
     typeof provider.listCandidateDeploymentIds !== "function" ||
@@ -318,18 +335,12 @@ export async function resolveMainCandidateHandoff({
   });
   if (typeof provider.inspectCandidateState !== "function")
     throw new Error("Main candidate canonical-state provider is required");
-  const canonicalState = assertCanonicalOutput(
+  const canonicalState = assertMainCandidateCanonicalState(
     await provider.inspectCandidateState(receipt.candidate.deploymentId),
+    canonicalIntent,
+    receipt.candidate,
+    aliasTopologyMode,
   );
-  if (
-    canonicalState.deploymentId !== receipt.candidate.deploymentId ||
-    canonicalState.deploymentUrl !== receipt.candidate.deploymentUrl ||
-    canonicalState.projectId !== canonicalIntent.projectId ||
-    canonicalState.projectName !== canonicalIntent.projectName ||
-    canonicalState.git.sha !== canonicalIntent.deploySha
-  ) {
-    throw new Error("Main candidate canonical state conflicts with receipt");
-  }
   return {
     schema: MAIN_CANDIDATE_HANDOFF_SCHEMA,
     action: "reuse",
@@ -341,6 +352,20 @@ export async function resolveMainCandidateHandoff({
     immutableSmoke: receipt.immutableSmoke,
     metrics: { ...EMPTY_REUSE_METRICS },
   };
+}
+
+export async function resolveMainCandidateHandoff(options) {
+  return resolveMainCandidateHandoffForAliasTopology(
+    options,
+    PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.CANDIDATE,
+  );
+}
+
+export async function resolveMainServedPriorCandidateHandoff(options) {
+  return resolveMainCandidateHandoffForAliasTopology(
+    options,
+    PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
+  );
 }
 
 function createMainCandidateCreateHandoff({ intent }) {
@@ -358,7 +383,65 @@ function createMainCandidateCreateHandoff({ intent }) {
   };
 }
 
-export function assertMainCandidateHandoff(value) {
+function assertMainCandidateCanonicalState(
+  value,
+  intent,
+  candidate,
+  aliasTopologyMode,
+) {
+  const canonicalState = assertCanonicalOutput(value);
+  if (
+    canonicalState.deploymentId !== candidate.deploymentId ||
+    canonicalState.deploymentUrl !== candidate.deploymentUrl ||
+    canonicalState.projectId !== intent.projectId ||
+    canonicalState.projectName !== intent.projectName ||
+    canonicalState.target !== intent.environment.target ||
+    canonicalState.customEnvironmentSlug !==
+      intent.environment.customEnvironmentSlug ||
+    canonicalState.git.sha !== intent.deploySha
+  ) {
+    throw new Error("Main candidate canonical state conflicts with receipt");
+  }
+  if (intent.target !== "app") {
+    const immutableHostname = new URL(canonicalState.deploymentUrl).hostname;
+    if (
+      canonicalState.alias !== immutableHostname ||
+      canonicalState.aliases.includes(immutableHostname)
+    ) {
+      throw new Error(
+        "Main candidate canonical state violates immutable-host separation",
+      );
+    }
+    let generatedAliases = canonicalState.aliases;
+    if (
+      aliasTopologyMode ===
+      PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR
+    ) {
+      const protectedAliases = MAIN_TARGET_CONTRACTS[intent.target].aliases;
+      if (
+        protectedAliases.some(
+          (alias) => !canonicalState.aliases.includes(alias),
+        )
+      ) {
+        throw new Error(
+          "Served-prior candidate canonical state is missing its reviewed protected alias",
+        );
+      }
+      generatedAliases = canonicalState.aliases.filter(
+        (alias) => !protectedAliases.includes(alias),
+      );
+    }
+    assertOnlyExpectedProductionGeneratedAliases({
+      aliases: generatedAliases,
+      creatorUsername: canonicalState.creatorUsername,
+      logicalTarget: intent.target,
+      mode: aliasTopologyMode,
+    });
+  }
+  return canonicalState;
+}
+
+function assertMainCandidateHandoffForAliasTopology(value, aliasTopologyMode) {
   exactKeys(
     value,
     [
@@ -375,6 +458,7 @@ export function assertMainCandidateHandoff(value) {
     "Main candidate handoff",
   );
   const intent = assertMainCandidateIntent(value.intent);
+  assertAliasTopologyTarget(intent, aliasTopologyMode);
   if (
     value.schema !== MAIN_CANDIDATE_HANDOFF_SCHEMA ||
     JSON.stringify(value.metrics) !== JSON.stringify(EMPTY_REUSE_METRICS)
@@ -394,13 +478,18 @@ export function assertMainCandidateHandoff(value) {
   if (value.action !== "reuse" || value.executionMode !== "reuse")
     throw new Error("Reuse main candidate handoff is malformed");
   const receipt = assertMainCandidateReceipt(value.receipt, intent);
-  const canonicalState = assertCanonicalOutput(value.canonicalState);
   if (
     JSON.stringify(value.candidate) !== JSON.stringify(receipt.candidate) ||
     JSON.stringify(value.immutableSmoke) !==
       JSON.stringify(receipt.immutableSmoke)
   )
     throw new Error("Reuse main candidate handoff conflicts with receipt");
+  const canonicalState = assertMainCandidateCanonicalState(
+    value.canonicalState,
+    intent,
+    receipt.candidate,
+    aliasTopologyMode,
+  );
   return {
     ...value,
     intent,
@@ -410,4 +499,18 @@ export function assertMainCandidateHandoff(value) {
     immutableSmoke: receipt.immutableSmoke,
     metrics: { ...EMPTY_REUSE_METRICS },
   };
+}
+
+export function assertMainCandidateHandoff(value) {
+  return assertMainCandidateHandoffForAliasTopology(
+    value,
+    PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.CANDIDATE,
+  );
+}
+
+export function assertMainServedPriorCandidateHandoff(value) {
+  return assertMainCandidateHandoffForAliasTopology(
+    value,
+    PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
+  );
 }

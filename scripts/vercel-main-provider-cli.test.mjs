@@ -26,7 +26,11 @@ import {
   createMainReleaseManifest,
   decideMainPreplanReconciliation,
 } from "./vercel-main-release-reconciliation.mjs";
-import { planMainDeployments } from "./vercel-main-plan.mjs";
+import {
+  MAIN_TARGET_CONTRACTS,
+  planMainDeployments,
+} from "./vercel-main-plan.mjs";
+import { PRODUCTION_GENERATED_ALIAS_CONTRACTS } from "./vercel-production-generated-aliases.mjs";
 import { generateVercelMainReleaseId } from "./vercel-prebuilt.mjs";
 import {
   appendGithubOutputs,
@@ -297,6 +301,18 @@ function deploymentResponse(intent, id = "dpl_candidate0123456789") {
       ...createMainCandidateVercelMetadata({ intent }),
     },
   };
+}
+
+function generatedCreatorAlias(target, creatorUsername = "fixture-author") {
+  const { generatedProjectSlug, generatedScopeSlug } =
+    PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
+  return `${generatedProjectSlug}-${creatorUsername}-${generatedScopeSlug}.vercel.app`;
+}
+
+function aliasSubsets(values) {
+  return Array.from({ length: 2 ** values.length }, (_, mask) =>
+    values.filter((_, index) => (mask & (1 << index)) !== 0).toSorted(),
+  );
 }
 
 test("canonical mappings preserve all reviewed aliases and optional fresh legacy v2", async (t) => {
@@ -1149,7 +1165,13 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
       pagination: { next: null },
     }),
     inspectDeployment: async () => response,
-    listDeploymentAliases: async () => ({ aliases: [] }),
+    listDeploymentAliases: async () => ({
+      aliases: [
+        {
+          alias: PRODUCTION_GENERATED_ALIAS_CONTRACTS.ui.generatedProjectAlias,
+        },
+      ],
+    }),
   });
   const result = await runMainProviderCli({
     argv: [
@@ -1186,6 +1208,32 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
     intent.deploySha,
   );
 
+  await assert.rejects(
+    () =>
+      runMainProviderCli({
+        argv: [
+          "candidate-finalize",
+          "--intent",
+          intentPath,
+          "--smoke",
+          smokePath,
+          "--output",
+          join(context.directory, "missing-base-handoff.json"),
+        ],
+        env: context.env,
+        stdout: context.stdout,
+        stateClientFactory: () => ({
+          requestWithRetry: async () => ({
+            deployments: [{ uid: response.id }],
+            pagination: { next: null },
+          }),
+          inspectDeployment: async () => response,
+          listDeploymentAliases: async () => ({ aliases: [] }),
+        }),
+      }),
+    /candidate generated-alias topology mismatch/,
+  );
+
   const badSmokePath = writeJson(context.directory, "bad-smoke.json", {
     immutableUrl: response.url,
     servedSha: "e".repeat(40),
@@ -1209,6 +1257,110 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
       }),
     /resolution blocked/,
   );
+});
+
+test("inherited ordinary candidate finalization uses the fixed served-prior alias contract", async (t) => {
+  const context = testContext(t);
+  for (const target of ["governance", "reserve", "ui"]) {
+    const intent = candidateIntent(target);
+    const response = deploymentResponse(intent);
+    const intentPath = writeJson(
+      context.directory,
+      `${target}-inherited-intent.json`,
+      intent,
+    );
+    const smokePath = writeJson(
+      context.directory,
+      `${target}-inherited-smoke.json`,
+      {
+        immutableUrl: response.url,
+        servedSha: intent.deploySha,
+        status: "passed",
+      },
+    );
+    const stateClientFactory = (aliases) => () => ({
+      requestWithRetry: async () => ({
+        deployments: [{ uid: response.id }],
+        pagination: { next: null },
+      }),
+      inspectDeployment: async () => response,
+      listDeploymentAliases: async () => ({
+        aliases: aliases.map((alias) => ({ alias })),
+      }),
+    });
+    const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
+    const protectedAlias = MAIN_TARGET_CONTRACTS[target].aliases[0];
+    for (const [index, residualAliases] of aliasSubsets([
+      contract.generatedProjectAlias,
+      generatedCreatorAlias(target),
+      contract.generatedGitMainAlias,
+    ]).entries()) {
+      const aliases = [protectedAlias, ...residualAliases].toSorted();
+      writeFileSync(context.githubOutput, "", { mode: 0o600 });
+      chmodSync(context.githubOutput, 0o600);
+      const result = await runMainProviderCli({
+        argv: [
+          "candidate-finalize-inherited",
+          "--intent",
+          intentPath,
+          "--smoke",
+          smokePath,
+          "--output",
+          join(context.directory, `${target}-subset-${index}-handoff.json`),
+        ],
+        env: context.env,
+        stdout: context.stdout,
+        stateClientFactory: stateClientFactory(aliases),
+      });
+      assert.equal(result.action, "reuse");
+      assert.deepEqual(result.canonicalState.aliases, aliases);
+    }
+    const otherTarget = target === "governance" ? "reserve" : "governance";
+    for (const [name, aliases, expected] of [
+      [
+        "missing-protected",
+        [contract.generatedProjectAlias],
+        /missing its reviewed protected alias/,
+      ],
+      [
+        "wrong-protected",
+        [MAIN_TARGET_CONTRACTS[otherTarget].aliases[0]],
+        /missing its reviewed protected alias/,
+      ],
+      [
+        "custom-protected",
+        [`${target}-preview.mento.org`],
+        /missing its reviewed protected alias/,
+      ],
+      [
+        "unknown-residual",
+        [protectedAlias, `${target}-unknown.vercel.app`].toSorted(),
+        /served-prior generated-alias topology mismatch/,
+      ],
+    ]) {
+      writeFileSync(context.githubOutput, "", { mode: 0o600 });
+      chmodSync(context.githubOutput, 0o600);
+      await assert.rejects(
+        () =>
+          runMainProviderCli({
+            argv: [
+              "candidate-finalize-inherited",
+              "--intent",
+              intentPath,
+              "--smoke",
+              smokePath,
+              "--output",
+              join(context.directory, `${target}-${name}-handoff.json`),
+            ],
+            env: context.env,
+            stdout: context.stdout,
+            stateClientFactory: stateClientFactory(aliases),
+          }),
+        expected,
+        `${target}: ${name}`,
+      );
+    }
+  }
 });
 
 test("candidate smoke performs one exact-origin no-redirect SHA-bound HTTP read", async (t) => {

@@ -202,9 +202,14 @@ authorize a public mutation.
 
 For Governance, Reserve, and UI, that protected runtime and rollback mapping
 contains only the literal public custom domain. Generated project/team and
-creator-scoped aliases are not protected aliases or rollback inputs. They are
-candidate-verification evidence because `--prod --skip-domain` necessarily
-moves them.
+creator-scoped aliases are not protected aliases or rollback inputs. A fresh
+ordinary candidate must expose the required project/scope alias and may also
+expose only its exact canonical creator alias. An already-served prior may
+instead retain any canonical subset of those aliases plus the target's exact
+native-Git `main` branch alias, because later CLI or native-Git deployments can
+move generated aliases while the protected domain stays on that prior. The
+planner validates and then discards this provider evidence; project-default,
+custom, wrong-target, and unknown aliases fail closed.
 
 Planning compares each target's served SHA with `DEPLOY_SHA`; it does not use
 the triggering push's `before` field. For a GitHub-owned target, an exact
@@ -1203,6 +1208,31 @@ branch or global alias, wrong-target alias, second author alias, immutable
 hostname in the alias list, or malformed canonical evidence fails closed. The
 read-only state inspector normalizes and deduplicates raw provider aliases;
 persisted canonical evidence must remain deduplicated and sorted.
+
+That base-required topology applies to a newly staged or automatically reused
+ordinary candidate. Served-prior planning uses a separate finite contract
+because generated aliases can move independently of the protected custom
+domain. For Governance, Reserve, and UI, a served deployment may retain any
+canonical subset of its reviewed base project/scope alias, its exact canonical
+creator alias when that name is safe, and its literal native-Git `main` alias:
+
+- Governance: `governancementoorg-git-main-mentolabs.vercel.app`
+- Reserve: `reservementoorg-git-main-mentolabs.vercel.app`
+- UI: `uimentoorg-git-main-mentolabs.vercel.app`
+
+After validating that finite set, the planner removes all generated-alias
+evidence from the canonical prior. None of these aliases is a protected mapping
+or rollback input. A project-default `project.vercel.app` form, another Git
+branch, a custom or wrong-target alias, a creator near miss, an unknown alias,
+or duplicate or unsorted canonical evidence fails closed.
+For `restore-before-planning`, the workflow calls
+`candidate-finalize-inherited`, which is fixed to this served-prior mode only
+for inherited Governance, Reserve, and UI recovery. Ordinary
+`candidate-finalize` remains base-required, and inherited App remains on its
+custom `v3` path. The inherited finalizer requires the target's exact protected
+public alias in the deployment's full alias list, removes that reviewed alias,
+then validates the remaining generated aliases against the finite served-prior
+set.
 Protected-domain before/after equality remains the decisive proof that the
 upload did not activate protected/custom production traffic. A future
 provider-generated alias topology must fail first and receive a reviewed

@@ -37,9 +37,11 @@ import {
 import {
   assertMainCandidateHandoff,
   assertMainCandidatePreflight,
+  assertMainServedPriorCandidateHandoff,
   discoverMainPreplanCandidateReleases,
   preflightMainCandidateProvider,
   resolveMainCandidateHandoff,
+  resolveMainServedPriorCandidateHandoff,
 } from "./vercel-main-candidate-controller.mjs";
 import {
   assertMainCandidateIntent,
@@ -94,6 +96,7 @@ const CLI_OPTIONS = Object.freeze({
   "candidate-preflight": Object.freeze(["intent", "output"]),
   "candidate-smoke": Object.freeze(["intent", "output"]),
   "candidate-finalize": Object.freeze(["intent", "smoke", "output"]),
+  "candidate-finalize-inherited": Object.freeze(["intent", "smoke", "output"]),
 });
 const OPTIONAL_OPTIONS = Object.freeze({
   "canonical-mappings": new Set(["legacy-snapshot"]),
@@ -1310,8 +1313,15 @@ export async function runMainProviderCli({
     "Main candidate immutable smoke",
     runnerTemp,
   );
-  const result = assertMainCandidateHandoff(
-    await resolveMainCandidateHandoff({
+  const inherited = command === "candidate-finalize-inherited";
+  const resolveHandoff = inherited
+    ? resolveMainServedPriorCandidateHandoff
+    : resolveMainCandidateHandoff;
+  const assertHandoff = inherited
+    ? assertMainServedPriorCandidateHandoff
+    : assertMainCandidateHandoff;
+  const result = assertHandoff(
+    await resolveHandoff({
       intent,
       provider,
       smokeCandidate: async () => smoke,

@@ -98,6 +98,21 @@ function productionSnapshot() {
   };
 }
 
+function ordinaryGeneratedAliasSubsets(target) {
+  const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
+  return [
+    contract.generatedProjectAlias,
+    `${contract.generatedProjectSlug}-fixture-author-${contract.generatedScopeSlug}.vercel.app`,
+    contract.generatedGitMainAlias,
+  ].reduce(
+    (subsets, alias) => [
+      ...subsets,
+      ...subsets.map((subset) => [...subset, alias].toSorted()),
+    ],
+    [[]],
+  );
+}
+
 function productionBaseline(planningSnapshot = productionSnapshot()) {
   const gitAdapter = {
     resolveCommit: (sha) => sha,
@@ -157,6 +172,41 @@ test("baseline canonicalizes production generated-alias supersets and recomputes
     recomputeMainReleasePlan({ manifest, gitAdapter, runPlanner }),
     planning,
   );
+});
+
+test("baseline accepts every finite ordinary generated-alias subset and recomputes exactly", () => {
+  for (const target of ["governance", "reserve", "ui"]) {
+    for (const generatedAliases of ordinaryGeneratedAliasSubsets(target)) {
+      const census = productionSnapshot();
+      for (const state of census.states.filter(
+        ({ projectName }) =>
+          projectName === MAIN_TARGET_CONTRACTS[target].projectName,
+      )) {
+        state.aliases = [
+          ...MAIN_TARGET_CONTRACTS[target].aliases,
+          ...generatedAliases,
+        ].toSorted();
+      }
+
+      const { manifest, planning, gitAdapter, runPlanner } =
+        productionBaseline(census);
+      const first = recomputeMainReleasePlan({
+        manifest,
+        gitAdapter,
+        runPlanner,
+      });
+      const second = recomputeMainReleasePlan({
+        manifest,
+        gitAdapter,
+        runPlanner,
+      });
+      const label = `${target}: ${JSON.stringify(generatedAliases)}`;
+      assert.deepEqual(first, planning, label);
+      assert.deepEqual(second, planning, label);
+      assert.equal(JSON.stringify(first), JSON.stringify(planning), label);
+      assert.equal(JSON.stringify(second), JSON.stringify(first), label);
+    }
+  }
 });
 
 test("production-shaped baseline alias supersets remain fail-closed", () => {

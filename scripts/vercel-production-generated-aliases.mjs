@@ -6,20 +6,28 @@ const RESERVED_CREATOR_PREFIXES = Object.freeze(["env-", "git-"]);
 
 export const PRODUCTION_GENERATED_ALIAS_CONTRACTS = Object.freeze({
   governance: Object.freeze({
+    generatedGitMainAlias: "governancementoorg-git-main-mentolabs.vercel.app",
     generatedProjectAlias: "governancementoorg-mentolabs.vercel.app",
     generatedProjectSlug: "governancementoorg",
     generatedScopeSlug: "mentolabs",
   }),
   reserve: Object.freeze({
+    generatedGitMainAlias: "reservementoorg-git-main-mentolabs.vercel.app",
     generatedProjectAlias: "reservementoorg-mentolabs.vercel.app",
     generatedProjectSlug: "reservementoorg",
     generatedScopeSlug: "mentolabs",
   }),
   ui: Object.freeze({
+    generatedGitMainAlias: "uimentoorg-git-main-mentolabs.vercel.app",
     generatedProjectAlias: "uimentoorg-mentolabs.vercel.app",
     generatedProjectSlug: "uimentoorg",
     generatedScopeSlug: "mentolabs",
   }),
+});
+
+export const PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES = Object.freeze({
+  CANDIDATE: "candidate",
+  SERVED_PRIOR: "served-prior",
 });
 
 function targetContract(logicalTarget) {
@@ -51,9 +59,15 @@ export function assertOnlyExpectedProductionGeneratedAliases({
   aliases,
   creatorUsername,
   logicalTarget,
+  mode,
 }) {
   const contract = targetContract(logicalTarget);
   assertCanonicalCreatorUsername(creatorUsername);
+  if (
+    !Object.values(PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES).includes(mode)
+  ) {
+    throw new Error("Production generated-alias topology mode is malformed");
+  }
   if (!Array.isArray(aliases)) {
     throw new Error("Production generated-alias topology is malformed");
   }
@@ -72,9 +86,16 @@ export function assertOnlyExpectedProductionGeneratedAliases({
     throw new Error("Production generated-alias topology is malformed");
   }
 
-  const { generatedProjectAlias, generatedProjectSlug, generatedScopeSlug } =
-    contract;
+  const {
+    generatedGitMainAlias,
+    generatedProjectAlias,
+    generatedProjectSlug,
+    generatedScopeSlug,
+  } = contract;
   if (
+    canonicalizeHostname(generatedGitMainAlias) !== generatedGitMainAlias ||
+    generatedGitMainAlias !==
+      `${generatedProjectSlug}-git-main-${generatedScopeSlug}.vercel.app` ||
     canonicalizeHostname(generatedProjectAlias) !== generatedProjectAlias ||
     generatedProjectAlias !==
       `${generatedProjectSlug}-${generatedScopeSlug}.vercel.app`
@@ -82,29 +103,35 @@ export function assertOnlyExpectedProductionGeneratedAliases({
     throw new Error("Reviewed generated project alias is malformed");
   }
 
-  const allowedTopologies = [[generatedProjectAlias]];
+  const allowedCreatorAliases = [];
   if (
     creatorUsername !== null &&
     !creatorUsesReservedNamespace(creatorUsername)
   ) {
     const authorLabel = `${generatedProjectSlug}-${creatorUsername}-${generatedScopeSlug}`;
     if (authorLabel.length <= 63) {
-      allowedTopologies.push(
-        [
-          generatedProjectAlias,
-          canonicalizeHostname(`${authorLabel}.vercel.app`),
-        ].toSorted(),
+      allowedCreatorAliases.push(
+        canonicalizeHostname(`${authorLabel}.vercel.app`),
       );
     }
   }
-  if (
-    !allowedTopologies.some(
-      (expectedAliases) =>
-        JSON.stringify(canonicalAliases) === JSON.stringify(expectedAliases),
-    )
-  ) {
+
+  const allowedAliases =
+    mode === PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR
+      ? new Set([
+          generatedGitMainAlias,
+          generatedProjectAlias,
+          ...allowedCreatorAliases,
+        ])
+      : new Set([generatedProjectAlias, ...allowedCreatorAliases]);
+  const topologyMatches =
+    mode === PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR
+      ? canonicalAliases.every((alias) => allowedAliases.has(alias))
+      : canonicalAliases.includes(generatedProjectAlias) &&
+        canonicalAliases.every((alias) => allowedAliases.has(alias));
+  if (!topologyMatches) {
     throw new Error(
-      `Production ${logicalTarget} generated-alias topology mismatch: expected one of ${JSON.stringify(allowedTopologies)}; actual ${JSON.stringify(canonicalAliases)}`,
+      `Production ${logicalTarget} ${mode} generated-alias topology mismatch: allowed ${JSON.stringify([...allowedAliases].toSorted())}; actual ${JSON.stringify(canonicalAliases)}`,
     );
   }
   return canonicalAliases;

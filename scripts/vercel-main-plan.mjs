@@ -12,7 +12,10 @@ import {
   MAIN_OWNERSHIP_MODES,
   PREVIEW_TARGET_CONFIG,
 } from "./vercel-preview-targets.mjs";
-import { assertOnlyExpectedProductionGeneratedAliases } from "./vercel-production-generated-aliases.mjs";
+import {
+  assertOnlyExpectedProductionGeneratedAliases,
+  PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES,
+} from "./vercel-production-generated-aliases.mjs";
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9._-]+$/;
@@ -294,6 +297,7 @@ function canonicalizeOptionalDeploymentAliases(value, target, creatorUsername) {
         aliases: sorted.filter((alias) => !reviewedAliases.has(alias)),
         creatorUsername,
         logicalTarget: target,
+        mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
       });
     } catch {
       activationError(target, "alias-set-ambiguous");
