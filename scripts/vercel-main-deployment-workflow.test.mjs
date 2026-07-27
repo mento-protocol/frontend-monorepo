@@ -171,6 +171,28 @@ test("provider preplan captures both reviewed snapshots then discovers and decid
   );
 });
 
+test("project ID files are materialized privately before shell redirection", () => {
+  const writers = Object.entries(workflow.jobs).flatMap(([jobName, job]) =>
+    (job.steps ?? [])
+      .filter((step) => step.run?.includes('> "$RUNNER_TEMP/projects.json"'))
+      .map((step) => ({ jobName, run: step.run })),
+  );
+
+  assert.deepEqual(
+    writers.map(({ jobName }) => jobName),
+    ["provider-preplan", "prepare-release"],
+  );
+  for (const { jobName, run } of writers) {
+    const privateUmask = run.indexOf("umask 077");
+    const projectIdsRedirect = run.indexOf('> "$RUNNER_TEMP/projects.json"');
+    assert.notEqual(privateUmask, -1, `${jobName} must set a private umask`);
+    assert.ok(
+      privateUmask < projectIdsRedirect,
+      `${jobName} must set its private umask before writing project IDs`,
+    );
+  }
+});
+
 test("preplan installs the admitted source without lifecycle scripts before protected state access", () => {
   const install = steps("provider-preplan").find(
     (step) => step.uses === "./.github/actions/pnpm-install",

@@ -118,6 +118,7 @@ jobs:
           node scripts/vercel-main-deployment.mjs create-spec --scope legacy --output "$RUNNER_TEMP/legacy-spec.json"
           node scripts/vercel-deployment-state.mjs planning-snapshot --spec "$RUNNER_TEMP/main-spec.json" --output "$RUNNER_TEMP/planning.json"
           node scripts/vercel-deployment-state.mjs snapshot --spec "$RUNNER_TEMP/legacy-spec.json" --output "$RUNNER_TEMP/legacy.json"
+          umask 077
           jq -n --arg app "$VERCEL_PROJECT_ID_APP" --arg governance "$VERCEL_PROJECT_ID_GOVERNANCE" --arg reserve "$VERCEL_PROJECT_ID_RESERVE" --arg ui "$VERCEL_PROJECT_ID_UI" '{app:$app,governance:$governance,reserve:$reserve,ui:$ui}' > "$RUNNER_TEMP/projects.json"
       - name: Discover protected provider candidates
         env:
@@ -687,6 +688,7 @@ jobs:
         run: |
           node scripts/vercel-main-deployment.mjs create-spec --scope main --output "$RUNNER_TEMP/main-spec.json"
           node scripts/vercel-main-deployment.mjs create-spec --scope legacy --output "$RUNNER_TEMP/legacy-spec.json"
+          umask 077
           jq -n --arg app "$VERCEL_PROJECT_ID_APP" --arg governance "$VERCEL_PROJECT_ID_GOVERNANCE" --arg reserve "$VERCEL_PROJECT_ID_RESERVE" --arg ui "$VERCEL_PROJECT_ID_UI" '{app:$app,governance:$governance,reserve:$reserve,ui:$ui}' > "$RUNNER_TEMP/projects.json"
       - name: Capture wholly fresh main and full legacy snapshots
         env:
