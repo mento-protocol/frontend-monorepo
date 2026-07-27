@@ -83,6 +83,19 @@ provider candidates that carry canonical stable release manifests. The exact-CI
 source gate remains token-free with respect to Vercel; there is no GitHub
 artifact or prior-attempt gate between it and provider reconciliation.
 
+One observation epoch captures the complete main and legacy snapshots,
+rediscovers provider candidates, and decides from two fresh sequential main
+censuses plus two fresh sequential legacy `v2` proofs. If that decision reports
+typed planning or legacy state drift, the job discards the epoch and repeats
+that whole sequence once. Every read, digest, and candidate check therefore
+comes from the same epoch. A second drift, HTTP 429, malformed response,
+transport failure, or any candidate/reconciliation ambiguity fails closed
+without another epoch. A failed command prints only an allowlisted
+classification such as `planning-census-read-timeout`,
+`planning-census-unstable`, `planning-census-stale`, or
+`preplan-reconciliation-failed`; it never prints a request path, provider
+response, project or deployment identity, or credential.
+
 The provider-side stable release manifest is the sole durable cross-attempt
 authority. It binds repository, release ID, `DEPLOY_SHA`, validated upstream
 run, ownership mode, staged and active targets, release-plan digest, and every

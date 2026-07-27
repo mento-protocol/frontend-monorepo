@@ -34,7 +34,9 @@ import {
   createMainCanonicalMappings,
   decodeMainPreplanHandoff,
   encodeMainPreplanHandoff,
+  mainProviderCliFailureExitCode,
   MAIN_PROVIDER_CLI_MAX_JSON_BYTES,
+  MAIN_PROVIDER_CLI_RETRY_EXIT_CODE,
   MAIN_PREPLAN_HANDOFF_MAX_ENCODED_BYTES,
   readPrivateJson,
   renderMainProviderCliFailure,
@@ -229,6 +231,16 @@ function writeJson(directory, name, value) {
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
+}
+
+async function captureRejection(operation, pattern) {
+  try {
+    await operation();
+  } catch (error) {
+    assert.match(error.message, pattern);
+    return error;
+  }
+  assert.fail("Expected operation to reject");
 }
 
 function planningStateClient(
@@ -743,15 +755,15 @@ test("preplan decision rejects alias drift after discovery before baseline or ro
       deploymentUrl: "https://changed-after-discovery.vercel.app",
     },
   });
-  for (const client of [
-    planningStateClient(changed),
-    planningStateClient(original, changed),
+  for (const [client, failureCode] of [
+    [planningStateClient(changed), "planning-census-stale"],
+    [planningStateClient(original, changed), "planning-census-unstable"],
   ]) {
     const output = join(
       context.directory,
       `decision-drift-${client.calls()}.json`,
     );
-    await assert.rejects(
+    const planningDriftError = await captureRejection(
       () =>
         runMainProviderCli({
           argv: [
@@ -769,10 +781,103 @@ test("preplan decision rejects alias drift after discovery before baseline or ro
           stdout: context.stdout,
           stateClientFactory: () => client,
         }),
-      /changed between discovery and decision/,
+      /Vercel provider census failed/,
     );
     assert.throws(() => statSync(output));
+    assert.equal(
+      renderMainProviderCliFailure(planningDriftError),
+      `Vercel main provider command failed (${failureCode})\n`,
+    );
+    assert.equal(
+      mainProviderCliFailureExitCode(planningDriftError),
+      MAIN_PROVIDER_CLI_RETRY_EXIT_CODE,
+    );
+    assert.equal(readFileSync(context.githubOutput, "utf8"), "");
   }
+
+  const timeoutError = new Error(
+    `${context.env.VERCEL_TOKEN} prj_private123 /v13/deployments/private`,
+  );
+  timeoutError.code = "VERCEL_API_READ_TIMEOUT";
+  const planningTimeoutError = await captureRejection(
+    () =>
+      runMainProviderCli({
+        argv: [
+          "preplan-decide",
+          "--discovery",
+          discoveryPath,
+          "--planning-snapshot",
+          planningPath,
+          "--legacy-snapshot",
+          legacyPath,
+          "--output",
+          join(context.directory, "planning-timeout.json"),
+        ],
+        env: context.env,
+        stdout: context.stdout,
+        stateClientFactory: () => ({
+          mainPlanningAliasState: async () => {
+            throw timeoutError;
+          },
+        }),
+      }),
+    /Vercel provider census failed/,
+  );
+  assert.equal(
+    renderMainProviderCliFailure(planningTimeoutError),
+    "Vercel main provider command failed (planning-census-read-timeout)\n",
+  );
+  assert.doesNotMatch(
+    renderMainProviderCliFailure(planningTimeoutError),
+    /test-secret-token|prj_private123|v13|deployments|private/,
+  );
+  assert.equal(mainProviderCliFailureExitCode(planningTimeoutError), 1);
+
+  const reconciliationOutput = join(
+    context.directory,
+    "reconciliation-failure.json",
+  );
+  const reconciliationError = await captureRejection(
+    () =>
+      runMainProviderCli({
+        argv: [
+          "preplan-decide",
+          "--discovery",
+          discoveryPath,
+          "--planning-snapshot",
+          planningPath,
+          "--legacy-snapshot",
+          legacyPath,
+          "--output",
+          reconciliationOutput,
+        ],
+        env: { ...context.env, DEPLOY_SHA: context.env.VERCEL_TOKEN },
+        stdout: context.stdout,
+        stateClientFactory: () => planningStateClient(original),
+      }),
+    /Vercel preplan reconciliation failed/,
+  );
+  assert.throws(() => statSync(reconciliationOutput));
+  assert.equal(
+    renderMainProviderCliFailure(reconciliationError),
+    "Vercel main provider command failed (preplan-reconciliation-failed)\n",
+  );
+  assert.equal(mainProviderCliFailureExitCode(reconciliationError), 1);
+  assert.equal(readFileSync(context.githubOutput, "utf8"), "");
+
+  const secretSemanticError = new Error(
+    `${context.env.VERCEL_TOKEN} prj_private123 /private/provider/path`,
+  );
+  secretSemanticError.mainProviderFailureCode = "preplan-reconciliation-failed";
+  assert.equal(
+    renderMainProviderCliFailure(secretSemanticError),
+    "Vercel main provider command failed (preplan-reconciliation-failed)\n",
+  );
+  assert.doesNotMatch(
+    renderMainProviderCliFailure(secretSemanticError),
+    /test-secret-token|prj_private123|\/private\/provider\/path/,
+  );
+
   const changedLegacy = legacySnapshot();
   changedLegacy[0] = {
     ...changedLegacy[0],
@@ -806,32 +911,48 @@ test("preplan decision rejects alias drift after discovery before baseline or ro
   );
   assert.equal(readFileSync(context.githubOutput, "utf8"), "");
 
-  const liveLegacyDrift = planningStateClient(
-    original,
-    original,
-    legacySnapshot(),
-    changedLegacy,
-  );
-  await assert.rejects(
-    () =>
-      runMainProviderCli({
-        argv: [
-          "preplan-decide",
-          "--discovery",
-          discoveryPath,
-          "--planning-snapshot",
-          planningPath,
-          "--legacy-snapshot",
-          legacyPath,
-          "--output",
-          join(context.directory, "live-legacy-drift.json"),
-        ],
-        env: context.env,
-        stdout: context.stdout,
-        stateClientFactory: () => liveLegacyDrift,
-      }),
-    /Legacy v2 mapping changed between discovery and decision/,
-  );
+  for (const [client, failureCode] of [
+    [
+      planningStateClient(original, original, legacySnapshot(), changedLegacy),
+      "legacy-census-unstable",
+    ],
+    [
+      planningStateClient(original, original, changedLegacy, changedLegacy),
+      "legacy-census-stale",
+    ],
+  ]) {
+    const output = join(context.directory, `${failureCode}-decision.json`);
+    const legacyDriftError = await captureRejection(
+      () =>
+        runMainProviderCli({
+          argv: [
+            "preplan-decide",
+            "--discovery",
+            discoveryPath,
+            "--planning-snapshot",
+            planningPath,
+            "--legacy-snapshot",
+            legacyPath,
+            "--output",
+            output,
+          ],
+          env: context.env,
+          stdout: context.stdout,
+          stateClientFactory: () => client,
+        }),
+      /Vercel provider census failed/,
+    );
+    assert.throws(() => statSync(output));
+    assert.equal(
+      renderMainProviderCliFailure(legacyDriftError),
+      `Vercel main provider command failed (${failureCode})\n`,
+    );
+    assert.equal(
+      mainProviderCliFailureExitCode(legacyDriftError),
+      MAIN_PROVIDER_CLI_RETRY_EXIT_CODE,
+    );
+    assert.equal(readFileSync(context.githubOutput, "utf8"), "");
+  }
 });
 
 test("candidate preflight performs a stable double census and emits create", async (t) => {
@@ -1100,6 +1221,10 @@ test("CLI rejects malformed arguments, token options, and non-private paths with
   assert.equal(
     renderMainProviderCliFailure(new Error(context.env.VERCEL_TOKEN)),
     "Vercel main provider command failed\n",
+  );
+  assert.equal(
+    mainProviderCliFailureExitCode(new Error(context.env.VERCEL_TOKEN)),
+    1,
   );
 });
 

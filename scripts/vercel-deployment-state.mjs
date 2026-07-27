@@ -1024,6 +1024,7 @@ export class VercelStateClient {
 
   async request(path) {
     let response;
+    const signal = AbortSignal.timeout(15_000);
     try {
       response = await this.fetchImplementation(
         appendTeamId(path, this.teamId),
@@ -1034,14 +1035,23 @@ export class VercelStateClient {
             Authorization: `Bearer ${this.token}`,
             "Content-Type": "application/json",
           },
-          signal: AbortSignal.timeout(15_000),
+          signal,
         },
       );
     } catch {
-      throw new Error("Vercel API request failed");
+      const timedOut = signal.aborted && signal.reason?.name === "TimeoutError";
+      const error = new Error(
+        timedOut ? "Vercel API request timed out" : "Vercel API request failed",
+      );
+      error.code = timedOut
+        ? "VERCEL_API_READ_TIMEOUT"
+        : "VERCEL_API_READ_TRANSPORT";
+      throw error;
     }
     if (!response || typeof response.ok !== "boolean") {
-      throw new Error("Vercel API returned a malformed response");
+      const error = new Error("Vercel API returned a malformed response");
+      error.code = "VERCEL_API_READ_MALFORMED";
+      throw error;
     }
     if (!response.ok) {
       // API error bodies can include environment or protection data. Never
@@ -1053,13 +1063,19 @@ export class VercelStateClient {
           ? response.status
           : "unknown";
       const error = new Error(`Vercel API request failed with HTTP ${status}`);
+      error.code =
+        status === 429
+          ? "VERCEL_API_READ_RATE_LIMITED"
+          : "VERCEL_API_READ_HTTP";
       if (status === 429) error.status = status;
       throw error;
     }
     try {
       return await response.json();
     } catch {
-      throw new Error("Vercel API returned malformed JSON");
+      const error = new Error("Vercel API returned malformed JSON");
+      error.code = "VERCEL_API_READ_MALFORMED";
+      throw error;
     }
   }
 

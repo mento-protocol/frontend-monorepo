@@ -956,7 +956,11 @@ test("App transaction candidate discovery uses filtered bounded pagination and e
   });
   await assert.rejects(
     () => rateLimitedClient.requestWithRetry("/read-only", { attempts: 3 }),
-    /HTTP 429/,
+    (error) => {
+      assert.match(error.message, /HTTP 429/);
+      assert.equal(error.code, "VERCEL_API_READ_RATE_LIMITED");
+      return true;
+    },
   );
   assert.equal(rateLimitedCalls, 1);
 });
@@ -1015,7 +1019,11 @@ test("canonical Vercel state reads retry transient failures and fail closed afte
     });
     await assert.rejects(
       () => read.invoke(persistentClient),
-      /Vercel API request failed/,
+      (error) => {
+        assert.match(error.message, /Vercel API request failed/);
+        assert.equal(error.code, "VERCEL_API_READ_TRANSPORT");
+        return true;
+      },
       `${read.name} must fail closed after the bounded retry limit`,
     );
     assert.equal(persistentCalls, 3, `${read.name} must make at most 3 reads`);

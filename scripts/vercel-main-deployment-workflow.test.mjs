@@ -147,7 +147,7 @@ test("workflow admission keeps immutable controller and exact source isolation",
   );
 });
 
-test("provider preplan captures both reviewed snapshots then discovers and decides", () => {
+test("provider preplan retries only typed drift with one wholly fresh observation epoch", () => {
   const job = workflow.jobs["provider-preplan"];
   assert.deepEqual(job.needs, ["wait-for-ci"]);
   assert.equal(job["timeout-minutes"], 20);
@@ -161,12 +161,36 @@ test("provider preplan captures both reviewed snapshots then discovers and decid
     command("provider-preplan", "preplan-discover").run,
     /--planning-snapshot .*--legacy-snapshot/,
   );
+  const decision = command("provider-preplan", "preplan-decide");
+  assert.equal((decision.run.match(/preplan-decide/g) ?? []).length, 2);
   assert.match(
-    command("provider-preplan", "preplan-decide").run,
-    /preplan-decide/,
+    decision.run,
+    new RegExp(
+      `preplan\\.json" \\|\\| status=\\$\\?[\\s\\S]*` +
+        `if \\[ "\\$status" -eq 0 \\]; then[\\s\\S]*exit 0[\\s\\S]*` +
+        `if \\[ "\\$status" -ne 75 \\]; then[\\s\\S]*` +
+        `exit "\\$status"[\\s\\S]*planning-snapshot`,
+    ),
   );
+  assert.doesNotMatch(decision.run, /\b(?:for|while|until)\b/);
+  assert.match(
+    decision.run,
+    /planning-snapshot[\s\S]*planning-retry\.json[\s\S]*snapshot[\s\S]*legacy-retry\.json[\s\S]*preplan-discover[\s\S]*discovery-retry\.json[\s\S]*preplan-decide[\s\S]*preplan-retry\.json/,
+  );
+  for (const [retryFile, expectedReferences] of Object.entries({
+    "planning-retry.json": 3,
+    "legacy-retry.json": 3,
+    "discovery-retry.json": 2,
+    "preplan-retry.json": 1,
+  })) {
+    assert.equal(
+      (decision.run.match(new RegExp(retryFile.replace(".", "\\."), "g")) ?? [])
+        .length,
+      expectedReferences,
+    );
+  }
   assert.equal(
-    command("provider-preplan", "preplan-decide").env.VERCEL_TOKEN,
+    decision.env.VERCEL_TOKEN,
     "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
   );
 });

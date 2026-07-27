@@ -133,10 +133,37 @@ jobs:
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
-        run: >-
-          node scripts/vercel-main-provider-cli.mjs preplan-decide --discovery "$RUNNER_TEMP/discovery.json"
-          --planning-snapshot "$RUNNER_TEMP/planning.json" --legacy-snapshot "$RUNNER_TEMP/legacy.json"
-          --output "$RUNNER_TEMP/preplan.json"
+        run: |
+          status=0
+          node scripts/vercel-main-provider-cli.mjs preplan-decide \
+            --discovery "$RUNNER_TEMP/discovery.json" \
+            --planning-snapshot "$RUNNER_TEMP/planning.json" \
+            --legacy-snapshot "$RUNNER_TEMP/legacy.json" \
+            --output "$RUNNER_TEMP/preplan.json" || status=$?
+          if [ "$status" -eq 0 ]; then
+            exit 0
+          fi
+          if [ "$status" -ne 75 ]; then
+            exit "$status"
+          fi
+
+          echo "Provider state changed during the decision census; repeating one complete observation epoch."
+          node scripts/vercel-deployment-state.mjs planning-snapshot \
+            --spec "$RUNNER_TEMP/main-spec.json" \
+            --output "$RUNNER_TEMP/planning-retry.json"
+          node scripts/vercel-deployment-state.mjs snapshot \
+            --spec "$RUNNER_TEMP/legacy-spec.json" \
+            --output "$RUNNER_TEMP/legacy-retry.json"
+          node scripts/vercel-main-provider-cli.mjs preplan-discover \
+            --planning-snapshot "$RUNNER_TEMP/planning-retry.json" \
+            --legacy-snapshot "$RUNNER_TEMP/legacy-retry.json" \
+            --project-ids "$RUNNER_TEMP/projects.json" \
+            --output "$RUNNER_TEMP/discovery-retry.json"
+          node scripts/vercel-main-provider-cli.mjs preplan-decide \
+            --discovery "$RUNNER_TEMP/discovery-retry.json" \
+            --planning-snapshot "$RUNNER_TEMP/planning-retry.json" \
+            --legacy-snapshot "$RUNNER_TEMP/legacy-retry.json" \
+            --output "$RUNNER_TEMP/preplan-retry.json"
 
   restore-inherited-release:
     name: Restore inherited active release into this attempt

@@ -61,6 +61,7 @@ import { generateVercelMainReleaseId } from "./vercel-prebuilt.mjs";
 
 export const MAIN_PROVIDER_CLI_MAX_JSON_BYTES = 256 * 1024;
 export const MAIN_PREPLAN_HANDOFF_MAX_ENCODED_BYTES = 64 * 1024;
+export const MAIN_PROVIDER_CLI_RETRY_EXIT_CODE = 75;
 export const MAIN_CANONICAL_MAPPINGS_SCHEMA =
   "vercel-main-canonical-mappings:v1";
 const MAIN_PROVIDER_DISCOVERY_SCHEMA = "vercel-main-provider-discovery:v2";
@@ -103,6 +104,38 @@ const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const POSITIVE_ID_PATTERN = /^[1-9][0-9]*$/;
 const DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
 const PROJECT_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
+const VERCEL_READ_FAILURE_KINDS = new Map([
+  ["VERCEL_API_READ_TIMEOUT", "read-timeout"],
+  ["VERCEL_API_READ_TRANSPORT", "read-transport"],
+  ["VERCEL_API_READ_RATE_LIMITED", "read-rate-limited"],
+  ["VERCEL_API_READ_HTTP", "read-http"],
+  ["VERCEL_API_READ_MALFORMED", "read-malformed"],
+]);
+const SAFE_MAIN_PROVIDER_FAILURE_CODES = new Set([
+  ...["planning-census", "legacy-census"].flatMap((stage) => [
+    `${stage}-read-timeout`,
+    `${stage}-read-transport`,
+    `${stage}-read-rate-limited`,
+    `${stage}-read-http`,
+    `${stage}-read-malformed`,
+    `${stage}-unstable`,
+    `${stage}-stale`,
+    `${stage}-failed`,
+  ]),
+  "preplan-reconciliation-failed",
+]);
+const RETRYABLE_MAIN_PROVIDER_FAILURE_CODES = new Set([
+  "planning-census-unstable",
+  "planning-census-stale",
+  "legacy-census-unstable",
+  "legacy-census-stale",
+]);
+const MAIN_PROVIDER_OBSERVATION_FAILURE = Object.freeze({
+  planningUnstable: "planning-census-unstable",
+  planningStale: "planning-census-stale",
+  legacyUnstable: "legacy-census-unstable",
+  legacyStale: "legacy-census-stale",
+});
 
 function isPlainObject(value) {
   return (
@@ -708,6 +741,46 @@ async function captureLivePlanningSnapshot(client, projectIds) {
   });
 }
 
+function classifyProviderCensusFailure(stage, error) {
+  const readFailure = VERCEL_READ_FAILURE_KINDS.get(error?.code);
+  const typedObservationFailure =
+    RETRYABLE_MAIN_PROVIDER_FAILURE_CODES.has(error?.mainProviderFailureCode) &&
+    error.mainProviderFailureCode.startsWith(`${stage}-`)
+      ? error.mainProviderFailureCode
+      : null;
+  const classified = new Error("Vercel provider census failed");
+  classified.mainProviderFailureCode =
+    typedObservationFailure ?? `${stage}-${readFailure ?? "failed"}`;
+  return classified;
+}
+
+function providerObservationFailure(failureCode, message) {
+  if (!RETRYABLE_MAIN_PROVIDER_FAILURE_CODES.has(failureCode)) {
+    throw new Error("Main provider observation failure code is malformed");
+  }
+  const error = new Error(message);
+  error.mainProviderFailureCode = failureCode;
+  return error;
+}
+
+async function runClassifiedProviderCensus(stage, capture) {
+  try {
+    return await capture();
+  } catch (error) {
+    throw classifyProviderCensusFailure(stage, error);
+  }
+}
+
+function runClassifiedProviderReconciliation(reconcile) {
+  try {
+    return reconcile();
+  } catch {
+    const classified = new Error("Vercel preplan reconciliation failed");
+    classified.mainProviderFailureCode = "preplan-reconciliation-failed";
+    throw classified;
+  }
+}
+
 async function captureStableBoundPlanningSnapshot({
   client,
   projectIds,
@@ -715,11 +788,15 @@ async function captureStableBoundPlanningSnapshot({
 }) {
   const first = await captureLivePlanningSnapshot(client, projectIds);
   const second = await captureLivePlanningSnapshot(client, projectIds);
-  if (
-    JSON.stringify(first) !== JSON.stringify(second) ||
-    planningSnapshotDigest(second) !== expectedDigest
-  ) {
-    throw new Error(
+  if (JSON.stringify(first) !== JSON.stringify(second)) {
+    throw providerObservationFailure(
+      MAIN_PROVIDER_OBSERVATION_FAILURE.planningUnstable,
+      "Main planning aliases changed during decision census",
+    );
+  }
+  if (planningSnapshotDigest(second) !== expectedDigest) {
+    throw providerObservationFailure(
+      MAIN_PROVIDER_OBSERVATION_FAILURE.planningStale,
       "Main planning aliases changed between discovery and decision",
     );
   }
@@ -752,11 +829,17 @@ async function captureStableBoundLegacyV2Snapshot({
   };
   const first = await capture();
   const second = await capture();
-  if (
-    JSON.stringify(first) !== JSON.stringify(second) ||
-    digestMainLegacyV2Snapshot(second) !== expectedDigest
-  ) {
-    throw new Error("Legacy v2 mapping changed between discovery and decision");
+  if (JSON.stringify(first) !== JSON.stringify(second)) {
+    throw providerObservationFailure(
+      MAIN_PROVIDER_OBSERVATION_FAILURE.legacyUnstable,
+      "Legacy v2 mapping changed during decision census",
+    );
+  }
+  if (digestMainLegacyV2Snapshot(second) !== expectedDigest) {
+    throw providerObservationFailure(
+      MAIN_PROVIDER_OBSERVATION_FAILURE.legacyStale,
+      "Legacy v2 mapping changed between discovery and decision",
+    );
   }
   return second;
 }
@@ -1033,45 +1116,58 @@ export async function runMainProviderCli({
       token: env.VERCEL_TOKEN,
       teamId: env.VERCEL_ORG_ID,
     });
-    const freshSnapshot = await captureStableBoundPlanningSnapshot({
-      client: liveClient,
-      projectIds: projects,
-      expectedDigest: discovery.planningSnapshotDigest,
-    });
-    const freshLegacySnapshot = await captureStableBoundLegacyV2Snapshot({
-      client: liveClient,
-      legacySnapshot: suppliedLegacySnapshot,
-      expectedDigest: discovery.legacyAppV2Digest,
-    });
-    const { mappings: allMappings } = createMainCanonicalMappings({
-      planningSnapshot: freshSnapshot,
-      projectIds: projects,
-      legacySnapshot: freshLegacySnapshot,
-    });
-    const currentMappings = Object.fromEntries(
-      MAIN_RELEASE_ACTIVATION_ORDER.map((target) => [
-        target,
-        allMappings[target],
-      ]),
+    const freshSnapshot = await runClassifiedProviderCensus(
+      "planning-census",
+      () =>
+        captureStableBoundPlanningSnapshot({
+          client: liveClient,
+          projectIds: projects,
+          expectedDigest: discovery.planningSnapshotDigest,
+        }),
     );
-    const nextReleaseId = expectedNextReleaseId(env);
-    const result = assertMainPreplanReconciliation(
-      decideMainPreplanReconciliation({
-        nextDeploySha: env.DEPLOY_SHA,
-        nextUpstreamRunId: env.UPSTREAM_RUN_ID,
-        candidateReleases: discovery.discovery.candidateReleases,
-        currentMappings,
-        rollbackOnlyTargets: discovery.discovery.rollbackOnlyTargets,
-      }),
-      {
-        nextDeploySha: env.DEPLOY_SHA,
-        nextUpstreamRunId: env.UPSTREAM_RUN_ID,
-      },
+    const freshLegacySnapshot = await runClassifiedProviderCensus(
+      "legacy-census",
+      () =>
+        captureStableBoundLegacyV2Snapshot({
+          client: liveClient,
+          legacySnapshot: suppliedLegacySnapshot,
+          expectedDigest: discovery.legacyAppV2Digest,
+        }),
     );
-    const releaseId =
-      result.decision === "restore-before-planning"
-        ? result.reconciliation.manifest.releaseId
-        : nextReleaseId;
+    const { result, releaseId } = runClassifiedProviderReconciliation(() => {
+      const { mappings: allMappings } = createMainCanonicalMappings({
+        planningSnapshot: freshSnapshot,
+        projectIds: projects,
+        legacySnapshot: freshLegacySnapshot,
+      });
+      const currentMappings = Object.fromEntries(
+        MAIN_RELEASE_ACTIVATION_ORDER.map((target) => [
+          target,
+          allMappings[target],
+        ]),
+      );
+      const nextReleaseId = expectedNextReleaseId(env);
+      const decision = assertMainPreplanReconciliation(
+        decideMainPreplanReconciliation({
+          nextDeploySha: env.DEPLOY_SHA,
+          nextUpstreamRunId: env.UPSTREAM_RUN_ID,
+          candidateReleases: discovery.discovery.candidateReleases,
+          currentMappings,
+          rollbackOnlyTargets: discovery.discovery.rollbackOnlyTargets,
+        }),
+        {
+          nextDeploySha: env.DEPLOY_SHA,
+          nextUpstreamRunId: env.UPSTREAM_RUN_ID,
+        },
+      );
+      return {
+        result: decision,
+        releaseId:
+          decision.decision === "restore-before-planning"
+            ? decision.reconciliation.manifest.releaseId
+            : nextReleaseId,
+      };
+    });
     writePrivateJson(options.output, result, runnerTemp);
     appendGithubOutputs(env, {
       decision: result.decision,
@@ -1151,8 +1247,23 @@ export async function runMainProviderCli({
   return result;
 }
 
-export function renderMainProviderCliFailure() {
+export function renderMainProviderCliFailure(error) {
+  const failureCode = error?.mainProviderFailureCode;
+  if (
+    typeof failureCode === "string" &&
+    SAFE_MAIN_PROVIDER_FAILURE_CODES.has(failureCode)
+  ) {
+    return `Vercel main provider command failed (${failureCode})\n`;
+  }
   return "Vercel main provider command failed\n";
+}
+
+export function mainProviderCliFailureExitCode(error) {
+  return RETRYABLE_MAIN_PROVIDER_FAILURE_CODES.has(
+    error?.mainProviderFailureCode,
+  )
+    ? MAIN_PROVIDER_CLI_RETRY_EXIT_CODE
+    : 1;
 }
 
 function isCliEntrypoint() {
@@ -1165,8 +1276,8 @@ function isCliEntrypoint() {
 if (isCliEntrypoint()) {
   try {
     await runMainProviderCli({ argv: process.argv.slice(2) });
-  } catch {
-    process.stderr.write(renderMainProviderCliFailure());
-    process.exitCode = 1;
+  } catch (error) {
+    process.stderr.write(renderMainProviderCliFailure(error));
+    process.exitCode = mainProviderCliFailureExitCode(error);
   }
 }
