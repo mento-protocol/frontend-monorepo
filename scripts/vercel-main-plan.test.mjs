@@ -132,6 +132,7 @@ function ordinaryGeneratedAliasSubsets(target) {
   const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
   const values = [
     contract.generatedProjectAlias,
+    contract.generatedProjectDefaultAlias,
     `${contract.generatedProjectSlug}-fixture-author-${contract.generatedScopeSlug}.vercel.app`,
     contract.generatedGitMainAlias,
   ];
@@ -1359,12 +1360,12 @@ const activationAmbiguities = [
     },
   },
   {
-    name: "project-default alias",
+    name: "project-default near-miss alias",
     target: "governance",
     code: "alias-set-ambiguous",
     mutate(input) {
       input.priorStates.governance.states[0].aliases.push(
-        "governancementoorg.vercel.app",
+        "governancementoorg2.vercel.app",
       );
       input.priorStates.governance.states[0].aliases.sort();
     },

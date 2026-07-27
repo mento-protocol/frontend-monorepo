@@ -7,18 +7,21 @@ const RESERVED_CREATOR_PREFIXES = Object.freeze(["env-", "git-"]);
 export const PRODUCTION_GENERATED_ALIAS_CONTRACTS = Object.freeze({
   governance: Object.freeze({
     generatedGitMainAlias: "governancementoorg-git-main-mentolabs.vercel.app",
+    generatedProjectDefaultAlias: "governancementoorg.vercel.app",
     generatedProjectAlias: "governancementoorg-mentolabs.vercel.app",
     generatedProjectSlug: "governancementoorg",
     generatedScopeSlug: "mentolabs",
   }),
   reserve: Object.freeze({
     generatedGitMainAlias: "reservementoorg-git-main-mentolabs.vercel.app",
+    generatedProjectDefaultAlias: "reservementoorg.vercel.app",
     generatedProjectAlias: "reservementoorg-mentolabs.vercel.app",
     generatedProjectSlug: "reservementoorg",
     generatedScopeSlug: "mentolabs",
   }),
   ui: Object.freeze({
     generatedGitMainAlias: "uimentoorg-git-main-mentolabs.vercel.app",
+    generatedProjectDefaultAlias: "uimentoorg.vercel.app",
     generatedProjectAlias: "uimentoorg-mentolabs.vercel.app",
     generatedProjectSlug: "uimentoorg",
     generatedScopeSlug: "mentolabs",
@@ -88,6 +91,7 @@ export function assertOnlyExpectedProductionGeneratedAliases({
 
   const {
     generatedGitMainAlias,
+    generatedProjectDefaultAlias,
     generatedProjectAlias,
     generatedProjectSlug,
     generatedScopeSlug,
@@ -96,6 +100,9 @@ export function assertOnlyExpectedProductionGeneratedAliases({
     canonicalizeHostname(generatedGitMainAlias) !== generatedGitMainAlias ||
     generatedGitMainAlias !==
       `${generatedProjectSlug}-git-main-${generatedScopeSlug}.vercel.app` ||
+    canonicalizeHostname(generatedProjectDefaultAlias) !==
+      generatedProjectDefaultAlias ||
+    generatedProjectDefaultAlias !== `${generatedProjectSlug}.vercel.app` ||
     canonicalizeHostname(generatedProjectAlias) !== generatedProjectAlias ||
     generatedProjectAlias !==
       `${generatedProjectSlug}-${generatedScopeSlug}.vercel.app`
@@ -120,6 +127,7 @@ export function assertOnlyExpectedProductionGeneratedAliases({
     mode === PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR
       ? new Set([
           generatedGitMainAlias,
+          generatedProjectDefaultAlias,
           generatedProjectAlias,
           ...allowedCreatorAliases,
         ])

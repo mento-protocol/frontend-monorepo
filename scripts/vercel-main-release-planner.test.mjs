@@ -102,6 +102,7 @@ function ordinaryGeneratedAliasSubsets(target) {
   const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
   return [
     contract.generatedProjectAlias,
+    contract.generatedProjectDefaultAlias,
     `${contract.generatedProjectSlug}-fixture-author-${contract.generatedScopeSlug}.vercel.app`,
     contract.generatedGitMainAlias,
   ].reduce(
@@ -172,6 +173,22 @@ test("baseline canonicalizes production generated-alias supersets and recomputes
     recomputeMainReleasePlan({ manifest, gitAdapter, runPlanner }),
     planning,
   );
+});
+
+test("production fixture matches the observed native-Git generated-alias topology", () => {
+  for (const target of ["governance", "reserve", "ui"]) {
+    const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
+    assert.deepEqual(
+      PRODUCTION_PRIORS.priorStates[target].states[0].aliases,
+      [
+        ...MAIN_TARGET_CONTRACTS[target].aliases,
+        contract.generatedGitMainAlias,
+        contract.generatedProjectAlias,
+        contract.generatedProjectDefaultAlias,
+      ].toSorted(),
+      target,
+    );
+  }
 });
 
 test("baseline accepts every finite ordinary generated-alias subset and recomputes exactly", () => {

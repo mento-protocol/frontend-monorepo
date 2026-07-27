@@ -32,6 +32,7 @@ test("served-prior mode accepts every exact reviewed generated-alias subset", ()
     const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[logicalTarget];
     for (const aliases of subsets([
       contract.generatedProjectAlias,
+      contract.generatedProjectDefaultAlias,
       creatorAlias(logicalTarget),
       contract.generatedGitMainAlias,
     ])) {
@@ -92,10 +93,6 @@ test("served-prior mode rejects aliases outside the finite reviewed set", () => 
       ],
     ],
     [
-      "unreviewed project-default alias",
-      [`${contract.generatedProjectSlug}.vercel.app`],
-    ],
-    [
       "duplicate",
       [contract.generatedProjectAlias, contract.generatedProjectAlias],
     ],
@@ -124,9 +121,14 @@ test("candidate mode rejects missing-base and non-candidate generated aliases", 
     ["empty", []],
     ["creator only", [creatorAlias("governance")]],
     ["git-main only", [contract.generatedGitMainAlias]],
+    ["project-default only", [contract.generatedProjectDefaultAlias]],
     [
       "base plus git-main",
       [contract.generatedGitMainAlias, contract.generatedProjectAlias],
+    ],
+    [
+      "base plus project-default",
+      [contract.generatedProjectAlias, contract.generatedProjectDefaultAlias],
     ],
     [
       "unreviewed Git branch",

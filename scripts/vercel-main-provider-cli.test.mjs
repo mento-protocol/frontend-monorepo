@@ -1292,6 +1292,7 @@ test("inherited ordinary candidate finalization uses the fixed served-prior alia
     const protectedAlias = MAIN_TARGET_CONTRACTS[target].aliases[0];
     for (const [index, residualAliases] of aliasSubsets([
       contract.generatedProjectAlias,
+      contract.generatedProjectDefaultAlias,
       generatedCreatorAlias(target),
       contract.generatedGitMainAlias,
     ]).entries()) {
