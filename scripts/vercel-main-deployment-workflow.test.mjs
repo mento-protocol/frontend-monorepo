@@ -684,6 +684,7 @@ test("ordinary targets materialize execution and use create-or-reuse provider ha
     const stage = workflow.jobs[job];
     assert.equal(stage["timeout-minutes"], 50);
     assert.match(stage.if, /^always\(\)/, `${target} stage status override`);
+    assert.match(stage.if, /!cancelled\(\)/, `${target} cancellation guard`);
     assert.match(
       stage.if,
       /needs\.wait-for-ci\.result == 'success'/,
@@ -1401,7 +1402,7 @@ test("ordinary stages retain protected runtime isolation and create-only uploads
     const checkouts = checkoutSteps(job);
     assert.equal(
       workflow.jobs[job].if,
-      `always() && needs.wait-for-ci.result == 'success' && needs.prepare-release.result == 'success' && contains(fromJSON(needs.prepare-release.outputs.targets), '${target}')`,
+      `always() && !cancelled() && needs.wait-for-ci.result == 'success' && needs.prepare-release.result == 'success' && contains(fromJSON(needs.prepare-release.outputs.targets), '${target}')`,
     );
     assert.equal(workflow.jobs[job].env.VERCEL_TOKEN, undefined);
     assert.ok(

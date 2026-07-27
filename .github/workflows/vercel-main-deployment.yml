@@ -760,7 +760,7 @@ jobs:
     # Override GitHub's implicit success() so that skipped ancestor cannot poison
     # a selected stage after the release has been materialized successfully.
     if: >-
-      always() && needs.wait-for-ci.result == 'success' &&
+      always() && !cancelled() && needs.wait-for-ci.result == 'success' &&
       needs.prepare-release.result == 'success' &&
       contains(fromJSON(needs.prepare-release.outputs.targets), 'governance')
     runs-on: ubuntu-latest
@@ -963,7 +963,7 @@ jobs:
     name: Stage reserve candidate
     needs: [wait-for-ci, prepare-release]
     if: >-
-      always() && needs.wait-for-ci.result == 'success' &&
+      always() && !cancelled() && needs.wait-for-ci.result == 'success' &&
       needs.prepare-release.result == 'success' &&
       contains(fromJSON(needs.prepare-release.outputs.targets), 'reserve')
     runs-on: ubuntu-latest
@@ -1165,7 +1165,7 @@ jobs:
     name: Stage UI candidate
     needs: [wait-for-ci, prepare-release]
     if: >-
-      always() && needs.wait-for-ci.result == 'success' &&
+      always() && !cancelled() && needs.wait-for-ci.result == 'success' &&
       needs.prepare-release.result == 'success' &&
       contains(fromJSON(needs.prepare-release.outputs.targets), 'ui')
     runs-on: ubuntu-latest
