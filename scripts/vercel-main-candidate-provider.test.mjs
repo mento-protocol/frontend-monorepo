@@ -29,6 +29,7 @@ function releaseManifest() {
     deploySha: input.deploySha,
     projectIds: input.projectIds,
     priorStates: input.priorStates,
+    rollbackOnlyTargets: [],
     gitAdapter: {
       firstParent: () => input.firstParent,
       isAncestor: () => true,
@@ -397,6 +398,37 @@ test("mapped inspection admits unmarked priors regardless of optional provider s
           ? { target: null, customEnvironmentSlug: "v3" }
           : { target: "production", customEnvironmentSlug: null },
       );
+    }
+  }
+});
+
+test("unmarked mappings that self-report the reviewed SHA remain rollback-only", async () => {
+  const reviewedSha = "e".repeat(40);
+  for (const target of ["governance", "reserve", "ui", "app"]) {
+    for (const source of [undefined, "git", "cli", "redeploy"]) {
+      const oldIntent = intent(target);
+      const response = deploymentResponse(oldIntent);
+      if (source === undefined) delete response.source;
+      else response.source = source;
+      for (const key of Object.keys(response.meta)) {
+        if (key.startsWith("mento")) delete response.meta[key];
+      }
+      response.meta.githubCommitSha = reviewedSha;
+      const provider = createMainCandidateVercelProvider({
+        client: {
+          requestWithRetry: async () =>
+            assert.fail("mapped inspection does not list"),
+          inspectDeployment: async () => response,
+          listDeploymentAliases: async () => ({ aliases: [] }),
+        },
+      });
+      const mapped = await provider.inspectMappedCandidate({
+        deploymentId: response.id,
+        target,
+        projectId: oldIntent.projectId,
+      });
+      assert.equal(mapped.metadata, null);
+      assert.equal(mapped.canonicalState.git.sha, reviewedSha);
     }
   }
 });

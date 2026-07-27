@@ -55,6 +55,7 @@ const SELECTION_REASONS = new Set([
   "served-git-metadata-wrong-source",
   "served-git-sha-not-ancestor",
   "served-git-sha-unresolvable",
+  "served-mapping-rollback-only",
   "shadow-first-parent-unresolved",
   "shadow-native-already-current",
 ]);
@@ -869,6 +870,7 @@ export function planMainDeployments({
   deploySha,
   projectIds,
   priorStates,
+  rollbackOnlyTargets,
   repoRoot = process.cwd(),
   gitAdapter = createMainPlanGitAdapter({ repoRoot }),
   runPlanner = ({ base, head }) =>
@@ -880,6 +882,14 @@ export function planMainDeployments({
     mainOwnershipMode,
   });
   const canonicalDeploySha = requireSha(deploySha, "DEPLOY_SHA");
+  if (
+    !Array.isArray(rollbackOnlyTargets) ||
+    JSON.stringify(stableTargets(rollbackOnlyTargets)) !==
+      JSON.stringify(rollbackOnlyTargets)
+  ) {
+    throw new Error("Main rollback-only targets are malformed");
+  }
+  const rollbackOnly = new Set(rollbackOnlyTargets);
   assertTargetObject(projectIds, "Main project IDs");
   assertTargetObject(priorStates, "Main prior states");
   if (typeof runPlanner !== "function") {
@@ -930,6 +940,14 @@ export function planMainDeployments({
   }
 
   for (const entry of normalized) {
+    if (rollbackOnly.has(entry.target)) {
+      addSelection(
+        entry.target,
+        "served-mapping-rollback-only",
+        entry.prior.servedSha,
+      );
+      continue;
+    }
     if (entry.planningGit.reason !== null) {
       addSelection(
         entry.target,

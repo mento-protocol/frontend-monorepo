@@ -95,8 +95,12 @@ function privateTestDirectory(testContext) {
   return directory;
 }
 
-function activeReleaseManifest({ deploySha, projects }) {
-  const priorSha = "b".repeat(40);
+function activeReleaseManifest({
+  deploySha,
+  projects,
+  priorSha = "b".repeat(40),
+  rollbackOnly = false,
+}) {
   const targets = ["app", "governance", "reserve", "ui"];
   const plan = {
     schema: "vercel-main-plan:v2",
@@ -116,20 +120,24 @@ function activeReleaseManifest({ deploySha, projects }) {
       aliases: [...MAIN_TARGET_CONTRACTS[target].aliases].sort(),
       servedSha: priorSha,
     })),
-    ranges: [
-      {
-        base: priorSha,
-        head: deploySha,
-        kind: "served",
-        reason: "global-build-input",
-        targets,
-        deployments: targets,
-      },
-    ],
+    ranges: rollbackOnly
+      ? []
+      : [
+          {
+            base: priorSha,
+            head: deploySha,
+            kind: "served",
+            reason: "global-build-input",
+            targets,
+            deployments: targets,
+          },
+        ],
     reasons: targets.map((target) => ({
       target,
       base: priorSha,
-      reason: "global-build-input",
+      reason: rollbackOnly
+        ? "served-mapping-rollback-only"
+        : "global-build-input",
     })),
   };
   const originalPriors = Object.fromEntries(
@@ -173,7 +181,7 @@ function activeReleaseManifest({ deploySha, projects }) {
   });
 }
 
-function activeStateSpec() {
+function activeStateSpec({ rollbackOnly = false } = {}) {
   const deploySha = "abcdef0123456789abcdef0123456789abcdef01";
   const projects = {
     app: {
@@ -219,7 +227,12 @@ function activeStateSpec() {
     runId: "12345",
     runAttempt: "2",
     transactionId: "main-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    releaseManifest: activeReleaseManifest({ deploySha, projects }),
+    releaseManifest: activeReleaseManifest({
+      deploySha,
+      projects,
+      priorSha: rollbackOnly ? deploySha : undefined,
+      rollbackOnly,
+    }),
     mainOwnershipMode: {
       app: "github",
       governance: "github",
@@ -316,7 +329,7 @@ function activeDeploymentInspections(spec) {
 function legacyAppV2Proof(spec) {
   const legacy = spec.legacyAppV2;
   return {
-    source: "git",
+    ownership: "native-vercel-git",
     state: {
       alias: legacy.alias,
       deploymentId: legacy.deployment,
@@ -2178,6 +2191,179 @@ test("active deployment proof binds every GitHub prebuilt and keeps legacy App v
   assert.equal(assertActiveDeploymentStateProof(proof), proof);
 });
 
+test("first-cutover proof accepts source-free candidates and the exact same-SHA rollback prior", () => {
+  for (const candidateSource of [undefined, "git", "cli", "redeploy"]) {
+    for (const priorSource of [undefined, "git", "cli", "redeploy"]) {
+      const spec = activeStateSpec({ rollbackOnly: true });
+      const deployments = activeDeploymentInspections(spec);
+      deployments.governance[0].response.source = candidateSource;
+      const prior = spec.releaseManifest.originalPriors.governance;
+      const priorResponse = activeDeploymentResponse(spec, "governance", {
+        deploymentId: prior.deploymentId,
+        deploymentUrl: prior.deploymentUrl,
+        source: priorSource,
+      });
+      for (const key of Object.keys(priorResponse.meta)) {
+        if (key.startsWith("mento")) delete priorResponse.meta[key];
+      }
+      deployments.governance.push({
+        deploymentId: prior.deploymentId,
+        response: priorResponse,
+      });
+      const proof = createActiveDeploymentStateProof({
+        spec,
+        deployments,
+        legacyV2: legacyAppV2Proof(spec),
+      });
+      assert.equal(
+        proof.outcome,
+        "proven",
+        `candidate=${candidateSource} prior=${priorSource}`,
+      );
+      assert.deepEqual(proof.projects.governance.ids.nativeGitDuplicates, [
+        prior.deploymentId,
+      ]);
+      assert.equal(
+        proof.projects.governance.records.githubPrebuilt[0]
+          .workflowMetadataMatches,
+        true,
+      );
+      assert.equal(
+        proof.projects.governance.priorDeploymentId,
+        prior.deploymentId,
+      );
+      assert.equal(
+        proof.projects.governance.priorDeploymentUrl,
+        prior.deploymentUrl,
+      );
+      assert.equal(proof.projects.governance.priorServedSha, spec.deploySha);
+    }
+  }
+
+  const gitTelemetryCases = [
+    {
+      label: "wrong organization",
+      mutate(response) {
+        response.meta.githubCommitOrg = "foreign-org";
+      },
+      expectedPriorGit: {
+        org: "foreign-org",
+        repo: "frontend-monorepo",
+        ref: "main",
+      },
+    },
+    {
+      label: "wrong ref",
+      mutate(response) {
+        response.meta.githubCommitRef = "feature";
+      },
+      expectedPriorGit: {
+        org: "mento-protocol",
+        repo: "frontend-monorepo",
+        ref: "feature",
+      },
+    },
+    {
+      label: "missing organization and ref",
+      mutate(response) {
+        delete response.meta.githubCommitOrg;
+        delete response.meta.githubCommitRef;
+      },
+      expectedPriorGit: {
+        org: null,
+        repo: null,
+        ref: null,
+      },
+    },
+    {
+      label: "conflicting organization",
+      mutate(response, spec) {
+        response.gitSource = {
+          org: "foreign-org",
+          repo: "frontend-monorepo",
+          ref: "main",
+          sha: spec.deploySha,
+        };
+      },
+      expectedPriorGit: {
+        org: null,
+        repo: null,
+        ref: null,
+      },
+    },
+  ];
+  for (const telemetryCase of gitTelemetryCases) {
+    const spec = activeStateSpec({ rollbackOnly: true });
+    const prior = spec.releaseManifest.originalPriors.governance;
+    const priorResponse = activeDeploymentResponse(spec, "governance", {
+      deploymentId: prior.deploymentId,
+      deploymentUrl: prior.deploymentUrl,
+    });
+    for (const key of Object.keys(priorResponse.meta)) {
+      if (key.startsWith("mento")) delete priorResponse.meta[key];
+    }
+    telemetryCase.mutate(priorResponse, spec);
+    const deployments = activeDeploymentInspections(spec);
+    deployments.governance.push({
+      deploymentId: prior.deploymentId,
+      response: priorResponse,
+    });
+    const proof = createActiveDeploymentStateProof({
+      spec,
+      deployments,
+      legacyV2: legacyAppV2Proof(spec),
+    });
+    assert.equal(proof.outcome, "proven", telemetryCase.label);
+    assert.deepEqual(
+      proof.projects.governance.records.nativeGitDuplicates[0].git,
+      {
+        ...telemetryCase.expectedPriorGit,
+        sha: spec.deploySha,
+      },
+      telemetryCase.label,
+    );
+
+    const candidateDeployments = activeDeploymentInspections(spec);
+    telemetryCase.mutate(candidateDeployments.governance[0].response, spec);
+    const candidateProof = createActiveDeploymentStateProof({
+      spec,
+      deployments: candidateDeployments,
+      legacyV2: legacyAppV2Proof(spec),
+    });
+    assert.equal(candidateProof.outcome, "unproven", telemetryCase.label);
+    assert.deepEqual(
+      candidateProof.projects.governance.ids.githubPrebuilt,
+      [],
+      telemetryCase.label,
+    );
+    assert.deepEqual(
+      candidateProof.projects.governance.ids.manualDuplicates,
+      [spec.projects.governance.deploymentId],
+      telemetryCase.label,
+    );
+  }
+
+  const spec = activeStateSpec({ rollbackOnly: true });
+  const deployments = activeDeploymentInspections(spec);
+  deployments.governance.push({
+    deploymentId: "dpl_governanceSpoofedPrior123",
+    response: activeDeploymentResponse(spec, "governance", {
+      deploymentId: "dpl_governanceSpoofedPrior123",
+      deploymentUrl: "https://governance-spoofed-prior.vercel.app",
+      source: "git",
+    }),
+  });
+  const proof = createActiveDeploymentStateProof({
+    spec,
+    deployments,
+    legacyV2: legacyAppV2Proof(spec),
+  });
+  assert.equal(proof.outcome, "unproven");
+  assert.deepEqual(proof.projects.governance.ids.manualDuplicates, [
+    "dpl_governanceSpoofedPrior123",
+  ]);
+});
+
 test("active deployment proof accepts a stable candidate from an earlier audit attempt", () => {
   const spec = activeStateSpec();
   const deployments = activeDeploymentInspections(spec);
@@ -2291,7 +2477,7 @@ test("active deployment proof rejects retired and mismatched candidate metadata"
   );
 });
 
-test("active deployment proof classifies native, manual, and unknown duplicates without treating v2 as a duplicate", () => {
+test("active deployment proof treats non-prior same-SHA identities as duplicates regardless of source", () => {
   const spec = activeStateSpec();
   const deployments = activeDeploymentInspections(spec);
   const project = spec.projects.app;
@@ -2317,6 +2503,7 @@ test("active deployment proof classifies native, manual, and unknown duplicates 
         id: "dpl_appunknown456",
         url: "app-unknown-duplicate.vercel.app",
         projectId: project.projectId,
+        project: { id: "prj_conflictingproject123" },
         name: project.projectName,
         readyState: "READY",
         target: null,
@@ -2326,25 +2513,7 @@ test("active deployment proof classifies native, manual, and unknown duplicates 
           githubCommitOrg: "mento-protocol",
           githubCommitRepo: "frontend-monorepo",
           githubCommitRef: "main",
-        },
-      },
-    },
-    {
-      deploymentId: spec.legacyAppV2.deployment,
-      response: {
-        id: spec.legacyAppV2.deployment,
-        url: spec.legacyAppV2.deploymentUrl,
-        projectId: spec.legacyAppV2.projectId,
-        name: spec.legacyAppV2.projectName,
-        readyState: "READY",
-        target: "production",
-        customEnvironment: null,
-        source: "git",
-        meta: {
-          githubCommitOrg: "mento-protocol",
-          githubCommitRepo: "frontend-monorepo",
-          githubCommitRef: "v2",
-          githubCommitSha: spec.legacyAppV2.git.sha,
+          githubCommitSha: spec.deploySha,
         },
       },
     },
@@ -2357,36 +2526,21 @@ test("active deployment proof classifies native, manual, and unknown duplicates 
   });
   assert.equal(proof.outcome, "unproven");
   assert.deepEqual(proof.projects.app.counts, {
-    scanned: 5,
+    scanned: 4,
     githubPrebuilt: 1,
     githubShadowStage: 0,
     nativeGitOwner: 0,
-    nativeGitDuplicates: 1,
-    manualDuplicates: 1,
+    nativeGitDuplicates: 0,
+    manualDuplicates: 2,
     unknown: 1,
-    legacyV2: 1,
+    legacyV2: 0,
   });
-  assert.deepEqual(proof.projects.app.ids.nativeGitDuplicates, [
-    "dpl_appnative456",
-  ]);
   assert.deepEqual(proof.projects.app.ids.manualDuplicates, [
     "dpl_appmanual456",
+    "dpl_appnative456",
   ]);
   assert.deepEqual(proof.projects.app.ids.unknown, ["dpl_appunknown456"]);
-  assert.deepEqual(proof.projects.app.ids.legacyV2, [
-    spec.legacyAppV2.deployment,
-  ]);
-
-  const onlyLegacy = activeDeploymentInspections(spec);
-  onlyLegacy.app.push(deployments.app.at(-1));
-  assert.equal(
-    createActiveDeploymentStateProof({
-      spec,
-      deployments: onlyLegacy,
-      legacyV2: legacyAppV2Proof(spec),
-    }).outcome,
-    "proven",
-  );
+  assert.deepEqual(proof.projects.app.ids.legacyV2, []);
 });
 
 test("active deployment state validation rejects ambiguity and noncanonical or expanded evidence", () => {
@@ -2466,15 +2620,9 @@ test("active deployment proof fails closed for missing or mismatched expected de
     },
     {
       label: "ref",
+      classification: "manualDuplicates",
       mutate(entries) {
         entries[0].response.meta.githubCommitRef = "feature";
-      },
-    },
-    {
-      label: "SHA",
-      mutate(entries) {
-        entries[0].response.meta.githubCommitSha =
-          "2222222222222222222222222222222222222222";
       },
     },
     {
@@ -2516,6 +2664,46 @@ test("active deployment proof fails closed for missing or mismatched expected de
       assert.equal(proof.projects.app.counts.unknown, 1, scenario.label);
     }
     assert.equal(proof.projects.app.counts.githubPrebuilt, 0, scenario.label);
+  }
+
+  for (const [label, mutate] of [
+    [
+      "missing SHA",
+      (response) => {
+        delete response.meta.githubCommitSha;
+      },
+    ],
+    [
+      "mismatched SHA",
+      (response) => {
+        response.meta.githubCommitSha =
+          "2222222222222222222222222222222222222222";
+      },
+    ],
+    [
+      "conflicting SHA",
+      (response) => {
+        response.gitSource = {
+          org: "mento-protocol",
+          repo: "frontend-monorepo",
+          ref: "main",
+          sha: "2222222222222222222222222222222222222222",
+        };
+      },
+    ],
+  ]) {
+    const deployments = activeDeploymentInspections(spec);
+    mutate(deployments.app[0].response);
+    assert.throws(
+      () =>
+        createActiveDeploymentStateProof({
+          spec,
+          deployments,
+          legacyV2: legacyAppV2Proof(spec),
+        }),
+      /Git SHA|SHA does not match census/,
+      label,
+    );
   }
 });
 
@@ -2778,7 +2966,7 @@ test("active deployment capture verifies detail-only Git source SHA fields once"
   );
 });
 
-test("legacy App v2 proof rejects alias, source, ref, and mapping drift", async () => {
+test("legacy App v2 proof ignores source telemetry but rejects identity and mapping drift", async () => {
   const spec = activeStateSpec();
   const legacy = spec.legacyAppV2;
   const clientFor = ({
@@ -2835,18 +3023,16 @@ test("legacy App v2 proof rejects alias, source, ref, and mapping drift", async 
     });
   };
 
-  const result = await clientFor().canonicalLegacyV2State(legacy);
-  assert.deepEqual(result, legacyAppV2Proof(spec));
-  assert.doesNotMatch(JSON.stringify(result), /legacy-secret-never-output/);
+  for (const source of [undefined, "git", "cli", "redeploy"]) {
+    const result = await clientFor({ source }).canonicalLegacyV2State(legacy);
+    assert.deepEqual(result, legacyAppV2Proof(spec));
+    assert.doesNotMatch(JSON.stringify(result), /legacy-secret-never-output/);
+  }
 
   const wrongAlias = { ...legacy, alias: "app.mento.org" };
   await assert.rejects(
     () => clientFor().canonicalLegacyV2State(wrongAlias),
     /expectation is malformed/,
-  );
-  await assert.rejects(
-    () => clientFor({ source: "cli" }).canonicalLegacyV2State(legacy),
-    /ownership is unproven/,
   );
   await assert.rejects(
     () => clientFor({ ref: "main" }).canonicalLegacyV2State(legacy),
@@ -2967,7 +3153,7 @@ test("active-proof CLI writes canonical duplicate evidence before failing unprov
   const proofText = readFileSync(outputPath, "utf8");
   const proof = JSON.parse(proofText);
   assert.equal(proof.outcome, "unproven");
-  assert.deepEqual(proof.projects.governance.ids.nativeGitDuplicates, [
+  assert.deepEqual(proof.projects.governance.ids.manualDuplicates, [
     duplicateId,
   ]);
   assert.equal(statSync(outputPath).mode & 0o777, 0o600);

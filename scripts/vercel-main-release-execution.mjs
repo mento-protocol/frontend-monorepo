@@ -10,9 +10,10 @@ import {
   MAIN_RELEASE_ACTIVATION_ORDER,
   assertMainReleaseManifest,
 } from "./vercel-main-release-reconciliation.mjs";
+import { MAIN_DEPLOYMENT_TARGETS } from "./vercel-main-plan.mjs";
 
-const MAIN_RELEASE_EXECUTION_SCHEMA = "vercel-main-release-execution:v1";
-const MAIN_RELEASE_SELECTION_SCHEMA = "vercel-main-release-selection:v1";
+const MAIN_RELEASE_EXECUTION_SCHEMA = "vercel-main-release-execution:v2";
+const MAIN_RELEASE_SELECTION_SCHEMA = "vercel-main-release-selection:v2";
 const MAIN_RELEASE_EXECUTION_MAX_ENCODED_BYTES = 64 * 1024;
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
@@ -42,6 +43,7 @@ const SELECTION_KEYS = Object.freeze([
   "schema",
   "providerDiscoveryDigest",
   "planningSnapshotDigest",
+  "rollbackOnlyTargets",
   "legacyAppV2Digest",
   "projectIds",
   "mode",
@@ -186,6 +188,27 @@ function digest(value) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+function canonicalRollbackOnlyTargets(value) {
+  if (
+    !Array.isArray(value) ||
+    value.some((target) => !MAIN_DEPLOYMENT_TARGETS.includes(target)) ||
+    new Set(value).size !== value.length
+  ) {
+    throw new Error(
+      "Main release selection rollback-only targets are malformed",
+    );
+  }
+  const canonical = MAIN_DEPLOYMENT_TARGETS.filter((target) =>
+    value.includes(target),
+  );
+  if (JSON.stringify(canonical) !== JSON.stringify(value)) {
+    throw new Error(
+      "Main release selection rollback-only targets are not canonical",
+    );
+  }
+  return canonical;
+}
+
 function canonicalSelection(value, manifest, legacyAppV2) {
   assertExactKeys(value, SELECTION_KEYS, "Main release selection");
   if (value.schema !== MAIN_RELEASE_SELECTION_SCHEMA) {
@@ -209,6 +232,9 @@ function canonicalSelection(value, manifest, legacyAppV2) {
       }
       return [target, projectId];
     }),
+  );
+  const rollbackOnlyTargets = canonicalRollbackOnlyTargets(
+    value.rollbackOnlyTargets,
   );
   if (
     !isPlainObject(value.projectIds) ||
@@ -235,6 +261,7 @@ function canonicalSelection(value, manifest, legacyAppV2) {
       "Main release selection planning snapshot digest",
       DIGEST_PATTERN,
     ),
+    rollbackOnlyTargets,
     legacyAppV2Digest: value.legacyAppV2Digest,
     projectIds,
     mode: manifest.mode,
@@ -246,6 +273,7 @@ function canonicalSelection(value, manifest, legacyAppV2) {
 export function createMainReleaseSelection({
   providerDiscoveryDigest,
   planningSnapshotDigest,
+  rollbackOnlyTargets,
   legacyAppV2,
   projectIds,
   mode,
@@ -259,6 +287,7 @@ export function createMainReleaseSelection({
       schema: MAIN_RELEASE_SELECTION_SCHEMA,
       providerDiscoveryDigest,
       planningSnapshotDigest,
+      rollbackOnlyTargets,
       legacyAppV2Digest: digest(legacy),
       projectIds,
       mode,
@@ -268,6 +297,26 @@ export function createMainReleaseSelection({
     manifest,
     legacy,
   );
+}
+
+function assertSelectionRollbackCoverage(decision, manifest, selection) {
+  const missing = selection.rollbackOnlyTargets.filter(
+    (target) => !manifest.stagedTargets.includes(target),
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `Main release selection omits fresh rollback-only targets: ${missing.join(", ")}`,
+    );
+  }
+  if (
+    decision === "capture-new-baseline" &&
+    JSON.stringify(selection.rollbackOnlyTargets) !==
+      JSON.stringify(manifest.rollbackOnlyTargets)
+  ) {
+    throw new Error(
+      "New main release manifest conflicts with fresh rollback-only targets",
+    );
+  }
 }
 
 function projectionFromManifest(manifest) {
@@ -340,6 +389,8 @@ export function assertMainReleaseExecution(value, expected = {}) {
   const manifest = assertMainReleaseManifest(value.manifest);
   const selected = canonicalDecision(value.decision, value.reason);
   const legacyAppV2 = canonicalLegacyAppV2(value.legacyAppV2, manifest);
+  const selection = canonicalSelection(value.selection, manifest, legacyAppV2);
+  assertSelectionRollbackCoverage(selected.decision, manifest, selection);
   const canonical = {
     schema: MAIN_RELEASE_EXECUTION_SCHEMA,
     decision: selected.decision,
@@ -347,7 +398,7 @@ export function assertMainReleaseExecution(value, expected = {}) {
     manifest,
     upstream: canonicalUpstream(value.upstream, manifest),
     legacyAppV2,
-    selection: canonicalSelection(value.selection, manifest, legacyAppV2),
+    selection,
     projection: canonicalProjection(value.projection, manifest),
   };
   if (

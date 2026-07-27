@@ -53,14 +53,17 @@ import {
   assertMainPreplanReconciliation,
   decideMainPreplanReconciliation,
 } from "./vercel-main-release-reconciliation.mjs";
-import { MAIN_TARGET_CONTRACTS } from "./vercel-main-plan.mjs";
+import {
+  MAIN_DEPLOYMENT_TARGETS,
+  MAIN_TARGET_CONTRACTS,
+} from "./vercel-main-plan.mjs";
 import { generateVercelMainReleaseId } from "./vercel-prebuilt.mjs";
 
 export const MAIN_PROVIDER_CLI_MAX_JSON_BYTES = 256 * 1024;
 export const MAIN_PREPLAN_HANDOFF_MAX_ENCODED_BYTES = 64 * 1024;
 export const MAIN_CANONICAL_MAPPINGS_SCHEMA =
   "vercel-main-canonical-mappings:v1";
-const MAIN_PROVIDER_DISCOVERY_SCHEMA = "vercel-main-provider-discovery:v1";
+const MAIN_PROVIDER_DISCOVERY_SCHEMA = "vercel-main-provider-discovery:v2";
 
 const PROJECT_TARGETS = Object.freeze(["app", "governance", "reserve", "ui"]);
 const LEGACY_ALIAS = "v2-app.mento.org";
@@ -94,7 +97,7 @@ const CLI_OPTIONS = Object.freeze({
 const OPTIONAL_OPTIONS = Object.freeze({
   "canonical-mappings": new Set(["legacy-snapshot"]),
 });
-const DISCOVERY_SCHEMA = "vercel-main-preplan-candidate-discovery:v1";
+const DISCOVERY_SCHEMA = "vercel-main-preplan-candidate-discovery:v2";
 const DIGEST_PATTERN = /^[a-f0-9]{64}$/;
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const POSITIVE_ID_PATTERN = /^[1-9][0-9]*$/;
@@ -273,11 +276,17 @@ export function createMainCanonicalMappings({
 function assertDiscovery(value) {
   assertExactKeys(
     value,
-    ["schema", "candidateReleases"],
+    ["schema", "rollbackOnlyTargets", "candidateReleases"],
     "Main pre-plan candidate discovery",
   );
   if (
     value.schema !== DISCOVERY_SCHEMA ||
+    !Array.isArray(value.rollbackOnlyTargets) ||
+    JSON.stringify(
+      MAIN_DEPLOYMENT_TARGETS.filter((target) =>
+        value.rollbackOnlyTargets.includes(target),
+      ),
+    ) !== JSON.stringify(value.rollbackOnlyTargets) ||
     !Array.isArray(value.candidateReleases)
   ) {
     throw new Error("Main pre-plan candidate discovery is malformed");
@@ -479,10 +488,18 @@ function containedPath(path, runnerTemp, label) {
   return path;
 }
 
-export function readPrivateJson(path, label, runnerTemp) {
+export function readPrivateJson(
+  path,
+  label,
+  runnerTemp,
+  maxBytes = MAIN_PROVIDER_CLI_MAX_JSON_BYTES,
+) {
   const inputPath = privatePath(path, runnerTemp, label);
   let descriptor;
   try {
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) {
+      throw new Error("unsafe");
+    }
     descriptor = openSync(inputPath, constants.O_RDONLY | constants.O_NOFOLLOW);
     const stats = fstatSync(descriptor);
     const pathStats = lstatSync(inputPath);
@@ -494,7 +511,7 @@ export function readPrivateJson(path, label, runnerTemp) {
       stats.ino !== pathStats.ino ||
       (stats.mode & 0o077) !== 0 ||
       stats.size < 2 ||
-      stats.size > MAIN_PROVIDER_CLI_MAX_JSON_BYTES
+      stats.size > maxBytes
     ) {
       throw new Error("unsafe");
     }
@@ -506,11 +523,18 @@ export function readPrivateJson(path, label, runnerTemp) {
   }
 }
 
-export function writePrivateJson(path, value, runnerTemp) {
+export function writePrivateJson(
+  path,
+  value,
+  runnerTemp,
+  maxBytes = MAIN_PROVIDER_CLI_MAX_JSON_BYTES,
+) {
   const outputPath = privatePath(path, runnerTemp, "Main provider output");
   const serialized = `${JSON.stringify(value)}\n`;
   if (
-    Buffer.byteLength(serialized, "utf8") > MAIN_PROVIDER_CLI_MAX_JSON_BYTES
+    !Number.isSafeInteger(maxBytes) ||
+    maxBytes < 1 ||
+    Buffer.byteLength(serialized, "utf8") > maxBytes
   ) {
     throw new Error("Main provider output exceeds its size bound");
   }
@@ -713,11 +737,15 @@ async function captureStableBoundLegacyV2Snapshot({
   const expectation = legacyV2Expectation(legacySnapshot);
   const capture = async () => {
     const proof = await client.canonicalLegacyV2State(expectation);
-    if (
-      !isPlainObject(proof) ||
-      proof.source !== "git" ||
-      !Object.hasOwn(proof, "state")
-    ) {
+    if (!isPlainObject(proof)) {
+      throw new Error("Fresh legacy v2 state proof is malformed");
+    }
+    assertExactKeys(
+      proof,
+      ["ownership", "state"],
+      "Fresh legacy v2 state proof",
+    );
+    if (proof.ownership !== "native-vercel-git") {
       throw new Error("Fresh legacy v2 state proof is malformed");
     }
     return assertCanonicalOutput([proof.state]);
@@ -1033,6 +1061,7 @@ export async function runMainProviderCli({
         nextUpstreamRunId: env.UPSTREAM_RUN_ID,
         candidateReleases: discovery.discovery.candidateReleases,
         currentMappings,
+        rollbackOnlyTargets: discovery.discovery.rollbackOnlyTargets,
       }),
       {
         nextDeploySha: env.DEPLOY_SHA,

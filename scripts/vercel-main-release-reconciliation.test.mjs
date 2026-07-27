@@ -298,6 +298,7 @@ test("release manifest binds the canonical planner result and all four rollback 
   assert.deepEqual(first, second);
   assert.deepEqual(first.stagedTargets, ["governance", "reserve", "ui", "app"]);
   assert.deepEqual(first.activeTargets, first.stagedTargets);
+  assert.deepEqual(first.rollbackOnlyTargets, []);
   assert.deepEqual(assertMainReleaseManifest(first), first);
   assert.equal(Object.hasOwn(first, "plan"), false);
   assert.equal(
@@ -344,6 +345,69 @@ test("release manifest binds the canonical planner result and all four rollback 
   );
 });
 
+test("rollback-only targets persist canonically and reproduce the forced plan", () => {
+  const originalPriors = Object.fromEntries(
+    MAIN_RELEASE_ACTIVATION_ORDER.map((target) => [
+      target,
+      prior(target, {
+        git: gitEvidence({ sha: target === "app" ? SHA : PRIOR_SHA }),
+        servedSha: target === "app" ? SHA : PRIOR_SHA,
+      }),
+    ]),
+  );
+  const { projectIds, priorStates } = plannerInputs(originalPriors);
+  const gitAdapter = {
+    firstParent() {
+      return "b".repeat(40);
+    },
+    isAncestor() {
+      return true;
+    },
+    resolveCommit(sha) {
+      return sha;
+    },
+  };
+  const runPlanner = () =>
+    assert.fail("rollback-only targets must bypass path-aware planning");
+  const releasePlan = planMainDeployments({
+    mode: "active",
+    mainOwnershipMode: {
+      app: "github",
+      governance: "github",
+      reserve: "github",
+      ui: "github",
+    },
+    deploySha: SHA,
+    projectIds,
+    priorStates,
+    rollbackOnlyTargets: [...TARGET_ORDER],
+    gitAdapter,
+    runPlanner,
+  });
+  const releaseManifest = createMainReleaseManifest({
+    upstreamRunId: "700",
+    plan: releasePlan,
+    originalPriors,
+  });
+  assert.equal(releaseManifest.schema, "vercel-main-release-manifest:v2");
+  assert.deepEqual(releaseManifest.rollbackOnlyTargets, [...TARGET_ORDER]);
+  assert.deepEqual(
+    recomputeMainReleasePlan({
+      manifest: releaseManifest,
+      gitAdapter,
+      runPlanner,
+    }),
+    releasePlan,
+  );
+
+  const noncanonical = structuredClone(releaseManifest);
+  noncanonical.rollbackOnlyTargets = ["governance", "app"];
+  assert.throws(
+    () => assertMainReleaseManifest(noncanonical),
+    /rollback-only targets is not canonical/,
+  );
+});
+
 test("no-target plan keeps an exact empty release identity and recomputes", () => {
   const originalPriors = Object.fromEntries(
     MAIN_RELEASE_ACTIVATION_ORDER.map((target) => [target, prior(target)]),
@@ -377,6 +441,7 @@ test("no-target plan keeps an exact empty release identity and recomputes", () =
     deploySha: SHA,
     projectIds,
     priorStates,
+    rollbackOnlyTargets: [],
     gitAdapter,
     runPlanner,
   });
@@ -388,6 +453,7 @@ test("no-target plan keeps an exact empty release identity and recomputes", () =
   });
   assert.deepEqual(noTargetManifest.stagedTargets, []);
   assert.deepEqual(noTargetManifest.activeTargets, []);
+  assert.deepEqual(noTargetManifest.rollbackOnlyTargets, []);
   assert.deepEqual(
     assertMainReleaseManifest(noTargetManifest),
     noTargetManifest,
@@ -539,6 +605,7 @@ for (const [name, appGit, servedSha, plannerSelectsApp] of [
       deploySha: SHA,
       projectIds,
       priorStates,
+      rollbackOnlyTargets: [],
       gitAdapter,
       runPlanner,
     });
@@ -817,6 +884,7 @@ for (const inheritedCount of [1, 2, 3]) {
       nextUpstreamRunId: "800",
       candidateReleases: [candidateRelease(state)],
       currentMappings: state.currentMappings,
+      rollbackOnlyTargets: [],
     });
     assert.equal(decision.decision, "restore-before-planning");
     assert.equal(
@@ -838,6 +906,7 @@ test("pre-plan inspection resumes the same interrupted release and accepts a com
       nextUpstreamRunId: "700",
       candidateReleases: [candidateRelease(partial)],
       currentMappings: partial.currentMappings,
+      rollbackOnlyTargets: [],
     }).decision,
     "resume-existing-release",
   );
@@ -847,6 +916,7 @@ test("pre-plan inspection resumes the same interrupted release and accepts a com
       nextUpstreamRunId: "701",
       candidateReleases: [candidateRelease(partial)],
       currentMappings: partial.currentMappings,
+      rollbackOnlyTargets: [],
     }).decision,
     "restore-before-planning",
   );
@@ -858,6 +928,7 @@ test("pre-plan inspection resumes the same interrupted release and accepts a com
       nextUpstreamRunId: "800",
       candidateReleases: [candidateRelease(complete)],
       currentMappings: complete.currentMappings,
+      rollbackOnlyTargets: [],
     }).decision,
     "capture-new-baseline",
   );
@@ -867,8 +938,84 @@ test("pre-plan inspection resumes the same interrupted release and accepts a com
       nextUpstreamRunId: "701",
       candidateReleases: [candidateRelease(complete)],
       currentMappings: complete.currentMappings,
+      rollbackOnlyTargets: [],
     }).decision,
     "capture-new-baseline",
+  );
+});
+
+test("same-release reuse requires every fresh rollback-only target to be staged", () => {
+  const verifyState = releaseState({
+    selected: ["governance"],
+    candidateCount: 1,
+  });
+  assert.throws(
+    () =>
+      decideMainPreplanReconciliation({
+        nextDeploySha: SHA,
+        nextUpstreamRunId: "700",
+        candidateReleases: [candidateRelease(verifyState)],
+        currentMappings: verifyState.currentMappings,
+        rollbackOnlyTargets: ["ui"],
+      }),
+    /omits fresh rollback-only targets: ui/,
+  );
+
+  const resumeState = releaseState({
+    selected: ["governance", "reserve"],
+    candidateCount: 1,
+  });
+  assert.throws(
+    () =>
+      decideMainPreplanReconciliation({
+        nextDeploySha: SHA,
+        nextUpstreamRunId: "700",
+        candidateReleases: [candidateRelease(resumeState)],
+        currentMappings: resumeState.currentMappings,
+        rollbackOnlyTargets: ["ui"],
+      }),
+    /omits fresh rollback-only targets: ui/,
+  );
+  const covered = decideMainPreplanReconciliation({
+    nextDeploySha: SHA,
+    nextUpstreamRunId: "700",
+    candidateReleases: [candidateRelease(resumeState)],
+    currentMappings: resumeState.currentMappings,
+    rollbackOnlyTargets: ["reserve"],
+  });
+  assert.equal(covered.decision, "resume-existing-release");
+  assert.deepEqual(covered.rollbackOnlyTargets, ["reserve"]);
+});
+
+test("fresh uncovered targets preserve safe older-release recovery decisions", () => {
+  const olderComplete = releaseState({
+    selected: ["governance"],
+    candidateCount: 1,
+  });
+  assert.equal(
+    decideMainPreplanReconciliation({
+      nextDeploySha: "2222222222222222222222222222222222222222",
+      nextUpstreamRunId: "800",
+      candidateReleases: [candidateRelease(olderComplete)],
+      currentMappings: olderComplete.currentMappings,
+      rollbackOnlyTargets: ["ui"],
+    }).decision,
+    "capture-new-baseline",
+  );
+
+  const olderPartial = releaseState({
+    selected: ["governance", "reserve"],
+    candidateCount: 1,
+  });
+  assert.equal(
+    decideMainPreplanReconciliation({
+      nextDeploySha: "2222222222222222222222222222222222222222",
+      nextUpstreamRunId: "800",
+      candidateReleases: [candidateRelease(olderPartial)],
+      currentMappings: olderPartial.currentMappings,
+      rollbackOnlyTargets: ["ui"],
+    }).decision,
+    "restore-before-planning",
   );
 });
 
@@ -879,6 +1026,7 @@ test("pre-plan inspection restores an older mixed App frontier", () => {
     nextUpstreamRunId: "800",
     candidateReleases: [candidateRelease(state)],
     currentMappings: state.currentMappings,
+    rollbackOnlyTargets: [],
   });
   assert.equal(decision.decision, "restore-before-planning");
   assert.deepEqual(decision.rollbackAuthorization.targets, [
@@ -962,6 +1110,7 @@ test("pre-plan inspection selects the unique partial frontier across completed p
       },
     ],
     currentMappings,
+    rollbackOnlyTargets: [],
   });
   assert.equal(decision.decision, "restore-before-planning");
   assert.equal(

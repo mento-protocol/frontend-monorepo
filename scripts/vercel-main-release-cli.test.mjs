@@ -52,7 +52,10 @@ const PRIOR_SHA = "b".repeat(40);
 const TARGETS = ["app", "governance", "reserve", "ui"];
 const RELEASE_ORDER = ["governance", "reserve", "ui", "app"];
 
-function planning(stagedTargets = ["app", "governance"]) {
+function planning(
+  stagedTargets = ["app", "governance"],
+  rollbackOnlyTargets = [],
+) {
   return {
     schema: "vercel-main-plan:v2",
     mode: "active",
@@ -75,15 +78,20 @@ function planning(stagedTargets = ["app", "governance"]) {
       servedSha: PRIOR_SHA,
     })),
     ranges: [],
-    reasons: [],
+    reasons: rollbackOnlyTargets.map((target) => ({
+      target,
+      base: PRIOR_SHA,
+      reason: "served-mapping-rollback-only",
+    })),
   };
 }
 
 function manifest(
   stagedTargets = ["app", "governance"],
   upstreamRunId = "123",
+  rollbackOnlyTargets = [],
 ) {
-  const plan = planning(stagedTargets);
+  const plan = planning(stagedTargets, rollbackOnlyTargets);
   const priors = Object.fromEntries(
     RELEASE_ORDER.map((target) => {
       const prior = plan.priors.find((entry) => entry.target === target);
@@ -199,9 +207,10 @@ function preplan(releaseManifest, decision = "resume-existing-release") {
     currentMappings,
   });
   return {
-    schema: "vercel-main-preplan-reconciliation:v1",
+    schema: "vercel-main-preplan-reconciliation:v2",
     decision,
     reason,
+    rollbackOnlyTargets: [],
     reconciliation,
     rollbackAuthorization: null,
   };
@@ -256,10 +265,14 @@ function planningSnapshot(
   };
 }
 
-function discovery(releaseManifest, snapshot, { empty = false } = {}) {
+function discovery(
+  releaseManifest,
+  snapshot,
+  { empty = false, rollbackOnlyTargets = [] } = {},
+) {
   const legacyState = legacy()[0];
   return {
-    schema: "vercel-main-provider-discovery:v1",
+    schema: "vercel-main-provider-discovery:v2",
     planningSnapshotDigest: createHash("sha256")
       .update(JSON.stringify(snapshot))
       .digest("hex"),
@@ -273,7 +286,8 @@ function discovery(releaseManifest, snapshot, { empty = false } = {}) {
       ui: "prj_ui",
     },
     discovery: {
-      schema: "vercel-main-preplan-candidate-discovery:v1",
+      schema: "vercel-main-preplan-candidate-discovery:v2",
+      rollbackOnlyTargets,
       candidateReleases: empty ? [] : [candidateRelease(releaseManifest)],
     },
   };
@@ -327,6 +341,7 @@ function executionFor(releaseManifest) {
     selection: createMainReleaseSelection({
       providerDiscoveryDigest: "c".repeat(64),
       planningSnapshotDigest: "d".repeat(64),
+      rollbackOnlyTargets: releaseManifest.rollbackOnlyTargets,
       legacyAppV2: legacyState,
       projectIds: Object.fromEntries(
         RELEASE_ORDER.map((target) => [target, `prj_${target}`]),
@@ -515,7 +530,7 @@ function currentReleaseFixture() {
     spec: stateSpec,
     deployments,
     legacyV2: {
-      source: "git",
+      ownership: "native-vercel-git",
       state: {
         alias: stateSpec.legacyAppV2.alias,
         deploymentId: stateSpec.legacyAppV2.deployment,
@@ -659,6 +674,41 @@ test("execution consumes the exact provider manifest without a new baseline", as
   assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), value);
 });
 
+test("execution rejects same-release reuse that omits a fresh rollback-only target", async (t) => {
+  const directory = realpathSync(
+    mkdtempSync(join(tmpdir(), "main-release-rollback-coverage-")),
+  );
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+
+  for (const [name, stagedTargets, decision] of [
+    ["verify", ["governance"], "verify-existing-release"],
+    ["resume", ["governance", "reserve"], "resume-existing-release"],
+  ]) {
+    const release = manifest(stagedTargets);
+    const census = planningSnapshot(release, decision);
+    const preplanValue = {
+      ...preplan(release, decision),
+      rollbackOnlyTargets: ["ui"],
+    };
+    await assert.rejects(
+      runMainReleaseCli({
+        argv: executionArguments(directory, {
+          release,
+          census,
+          preplanValue,
+          discoveryValue: discovery(release, census, {
+            rollbackOnlyTargets: ["ui"],
+          }),
+          suffix: `-${name}`,
+        }),
+        env: environment(directory),
+      }),
+      /omits fresh rollback-only targets: ui/,
+      name,
+    );
+  }
+});
+
 test("existing release execution rejects a replacement baseline", async (t) => {
   const directory = realpathSync(
     mkdtempSync(join(tmpdir(), "main-release-cli-")),
@@ -694,12 +744,13 @@ test("only capture-new execution invokes the baseline planner", async (t) => {
     mkdtempSync(join(tmpdir(), "main-release-cli-")),
   );
   t.after(() => rmSync(directory, { recursive: true, force: true }));
-  const release = manifest();
+  const release = manifest(TARGETS, "123", TARGETS);
   const census = planningSnapshot(release);
   const capturePreplan = {
-    schema: "vercel-main-preplan-reconciliation:v1",
+    schema: "vercel-main-preplan-reconciliation:v2",
     decision: "capture-new-baseline",
     reason: "no-mapped-release-metadata",
+    rollbackOnlyTargets: ["app", "governance", "reserve", "ui"],
     reconciliation: null,
     rollbackAuthorization: null,
   };
@@ -709,12 +760,21 @@ test("only capture-new execution invokes the baseline planner", async (t) => {
       release,
       census,
       preplanValue: capturePreplan,
-      discoveryValue: discovery(release, census, { empty: true }),
+      discoveryValue: discovery(release, census, {
+        empty: true,
+        rollbackOnlyTargets: ["app", "governance", "reserve", "ui"],
+      }),
     }),
     env: environment(directory),
     baselineFactory: (options) => {
       captured += 1;
       assert.deepEqual(options.planningSnapshot, census);
+      assert.deepEqual(options.rollbackOnlyTargets, [
+        "app",
+        "governance",
+        "reserve",
+        "ui",
+      ]);
       return { manifest: release };
     },
   });
@@ -915,6 +975,7 @@ test("release CLI rejects linked private inputs and outputs", async (t) => {
     selection: createMainReleaseSelection({
       providerDiscoveryDigest: "c".repeat(64),
       planningSnapshotDigest: "d".repeat(64),
+      rollbackOnlyTargets: release.rollbackOnlyTargets,
       legacyAppV2: legacy()[0],
       projectIds: Object.fromEntries(
         RELEASE_ORDER.map((target) => [target, `prj_${target}`]),
@@ -961,6 +1022,7 @@ test("materialize binds retained output to the exact SHA and upstream run", asyn
     selection: createMainReleaseSelection({
       providerDiscoveryDigest: "c".repeat(64),
       planningSnapshotDigest: "d".repeat(64),
+      rollbackOnlyTargets: release.rollbackOnlyTargets,
       legacyAppV2: legacyState,
       projectIds: Object.fromEntries(
         RELEASE_ORDER.map((target) => [target, `prj_${target}`]),
@@ -1179,6 +1241,7 @@ test("inherited recovery requires current-attempt receipts only for moved candid
     nextUpstreamRunId: "123",
     candidateReleases: [candidateRelease(release)],
     currentMappings,
+    rollbackOnlyTargets: [],
   });
   assert.equal(inheritedPreplan.decision, "restore-before-planning");
   assert.deepEqual(inheritedPreplan.rollbackAuthorization.targets, [
@@ -1636,6 +1699,7 @@ test("forward journal uses only asserted execution, fresh mappings, and current-
     selection: createMainReleaseSelection({
       providerDiscoveryDigest: "c".repeat(64),
       planningSnapshotDigest: "d".repeat(64),
+      rollbackOnlyTargets: release.rollbackOnlyTargets,
       legacyAppV2: legacyState,
       projectIds: Object.fromEntries(
         RELEASE_ORDER.map((target) => [target, `prj_${target}`]),
@@ -1734,6 +1798,7 @@ test("inherited recovery journal binds a partial prefix to current-attempt recei
     nextUpstreamRunId: "123",
     candidateReleases: [candidateRelease(release)],
     currentMappings,
+    rollbackOnlyTargets: [],
   });
   assert.equal(inheritedPreplan.decision, "restore-before-planning");
   assert.deepEqual(inheritedPreplan.rollbackAuthorization.targets, [

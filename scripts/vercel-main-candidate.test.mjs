@@ -51,6 +51,7 @@ function planContext() {
     deploySha: input.deploySha,
     projectIds: input.projectIds,
     priorStates: input.priorStates,
+    rollbackOnlyTargets: [],
     gitAdapter,
     runPlanner: ({ base, head }) => ({
       base,

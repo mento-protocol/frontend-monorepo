@@ -93,9 +93,14 @@ function createPlannerFixture(responses = new Map()) {
   };
 }
 
-function runFixture(input, options = {}) {
-  const git = options.git ?? createGitFixture(input);
-  const planner = options.planner ?? createPlannerFixture();
+function runFixture(
+  input,
+  {
+    git = createGitFixture(input),
+    planner = createPlannerFixture(),
+    rollbackOnlyTargets = [],
+  } = {},
+) {
   return {
     git,
     planner,
@@ -105,6 +110,7 @@ function runFixture(input, options = {}) {
       deploySha: input.deploySha,
       projectIds: input.projectIds,
       priorStates: input.priorStates,
+      rollbackOnlyTargets,
       gitAdapter: git.adapter,
       runPlanner: planner.runPlanner,
     }),
@@ -923,6 +929,132 @@ test("active mode has no first-parent fallback for an already-current target", (
   ]);
 });
 
+test("rollback-only mappings force selection before SHA and path-aware planning", () => {
+  const cases = [
+    {
+      name: "exact-current",
+      mutate(input) {
+        setTargetSha(input, "governance", input.deploySha);
+      },
+      servedSha(input) {
+        return input.deploySha;
+      },
+    },
+    {
+      name: "ancestor-with-no-runtime-diff",
+      mutate(input) {
+        setTargetSha(input, "governance", "a".repeat(40));
+      },
+      servedSha() {
+        return "a".repeat(40);
+      },
+    },
+    {
+      name: "missing-git",
+      mutate(input) {
+        for (const state of input.priorStates.governance.states) {
+          delete state.git;
+        }
+      },
+      servedSha() {
+        return null;
+      },
+    },
+    {
+      name: "malformed-git",
+      mutate(input) {
+        for (const state of input.priorStates.governance.states) {
+          state.git.sha = "not-a-sha";
+        }
+      },
+      servedSha() {
+        return null;
+      },
+    },
+  ];
+  for (const scenario of cases) {
+    const input = fixture();
+    input.mode = "active";
+    input.mainOwnershipMode = ownershipMode("github");
+    setAllTargetShas(input, input.deploySha);
+    scenario.mutate(input);
+    const { plan, planner } = runFixture(input, {
+      rollbackOnlyTargets: ["governance"],
+    });
+    assert.deepEqual(
+      plan.activeTargets,
+      ["governance"],
+      `${scenario.name} must remain selected`,
+    );
+    assert.deepEqual(plan.reasons, [
+      {
+        target: "governance",
+        reason: "served-mapping-rollback-only",
+        base: scenario.servedSha(input),
+      },
+    ]);
+    assert.equal(
+      planner.calls.length,
+      0,
+      `${scenario.name} must bypass path-aware planning`,
+    );
+    assert.deepEqual(
+      plan.priors.find(({ target }) => target === "governance"),
+      {
+        target: "governance",
+        aliases: ["governance.mento.org"],
+        deploymentId: input.priorStates.governance.states[0].deploymentId,
+        deploymentUrl: input.priorStates.governance.states[0].deploymentUrl,
+        servedSha: scenario.servedSha(input),
+      },
+      `${scenario.name} must preserve the exact rollback prior`,
+    );
+  }
+});
+
+test("all-four first-cutover rollback priors use canonical target order", () => {
+  const input = fixture();
+  input.mode = "active";
+  input.mainOwnershipMode = ownershipMode("github");
+  setAllTargetShas(input, input.deploySha);
+  const { plan, planner } = runFixture(input, {
+    rollbackOnlyTargets: [...MAIN_DEPLOYMENT_TARGETS],
+  });
+  assert.deepEqual(plan.stagedTargets, [...MAIN_DEPLOYMENT_TARGETS]);
+  assert.deepEqual(plan.activeTargets, [...MAIN_DEPLOYMENT_TARGETS]);
+  assert.deepEqual(
+    plan.reasons.map(({ reason }) => reason),
+    MAIN_DEPLOYMENT_TARGETS.map(() => "served-mapping-rollback-only"),
+  );
+  assert.equal(planner.calls.length, 0);
+});
+
+test("rollback-only target input rejects unknown, duplicate, or noncanonical values", () => {
+  const input = fixture();
+  for (const rollbackOnlyTargets of [
+    undefined,
+    ["unknown"],
+    ["app", "app"],
+    ["ui", "app"],
+    "app",
+  ]) {
+    assert.throws(
+      () =>
+        planMainDeployments({
+          mode: input.mode,
+          mainOwnershipMode: input.mainOwnershipMode,
+          deploySha: input.deploySha,
+          projectIds: input.projectIds,
+          priorStates: input.priorStates,
+          rollbackOnlyTargets,
+          gitAdapter: createGitFixture(input).adapter,
+          runPlanner: () => assert.fail("planner must remain inert"),
+        }),
+      /rollback-only targets are malformed/,
+    );
+  }
+});
+
 test("cross-run ordinary planning no-ops a candidate already serving the exact SHA", () => {
   const input = fixture();
   input.mode = "active";
@@ -1199,6 +1331,7 @@ for (const scenario of activationAmbiguities) {
           deploySha: input.deploySha,
           projectIds: input.projectIds,
           priorStates: input.priorStates,
+          rollbackOnlyTargets: [],
           gitAdapter,
           runPlanner: () => {
             plannerCalled = true;
@@ -1236,6 +1369,7 @@ test("invalid global input fails before any served-range planning", () => {
         deploySha: input.deploySha,
         projectIds: input.projectIds,
         priorStates: input.priorStates,
+        rollbackOnlyTargets: [],
         gitAdapter: createGitFixture(input).adapter,
         runPlanner: () => assert.fail("planner must remain inert"),
         ...override,

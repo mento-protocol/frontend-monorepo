@@ -934,6 +934,7 @@ function canonicalStateProof(journal, planning, value) {
   }
   for (const target of DEPLOYMENT_TARGETS) {
     const project = proof.projects[target];
+    const originalPrior = journal.release.originalPriors[target];
     const active = planning.activeTargets.includes(target);
     const shadowStage =
       target !== "app" && planning.shadowTargets.includes(target);
@@ -951,7 +952,10 @@ function canonicalStateProof(journal, planning, value) {
       project.projectId !== planning.projectIds[target] ||
       project.expectedDisposition !== disposition ||
       project.expectedDeploymentId !== (expected?.deploymentId ?? null) ||
-      project.expectedDeploymentUrl !== (expected?.deploymentUrl ?? null)
+      project.expectedDeploymentUrl !== (expected?.deploymentUrl ?? null) ||
+      project.priorDeploymentId !== originalPrior.deploymentId ||
+      project.priorDeploymentUrl !== originalPrior.deploymentUrl ||
+      project.priorServedSha !== originalPrior.servedSha
     ) {
       throw new Error(
         `Active deployment state proof ${target} expectation is inconsistent`,

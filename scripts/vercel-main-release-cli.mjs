@@ -39,6 +39,8 @@ import {
   createMainInheritedRecoveryJournal,
 } from "./vercel-main-release-journal.mjs";
 import {
+  MAIN_ACTIVE_JOURNAL_HISTORY_MAX_JSON_BYTES,
+  MAIN_ACTIVE_TERMINAL_PROOFS_MAX_JSON_BYTES,
   createMainActiveTerminalArtifacts,
   createMainTerminalStageResults,
 } from "./vercel-main-deployment.mjs";
@@ -466,6 +468,7 @@ export async function runMainReleaseCli({
         options["journal-history"],
         "Main terminal journal history",
         runnerTemp,
+        MAIN_ACTIVE_JOURNAL_HISTORY_MAX_JSON_BYTES,
       ),
       finalMappings: readPrivateJson(
         options["final-mappings"],
@@ -509,7 +512,12 @@ export async function runMainReleaseCli({
       artifacts.evidence,
       runnerTemp,
     );
-    writePrivateJson(options["proofs-output"], artifacts.proofs, runnerTemp);
+    writePrivateJson(
+      options["proofs-output"],
+      artifacts.proofs,
+      runnerTemp,
+      MAIN_ACTIVE_TERMINAL_PROOFS_MAX_JSON_BYTES,
+    );
     return artifacts;
   }
 
@@ -660,6 +668,7 @@ export async function runMainReleaseCli({
         currentMappings[target],
       ]),
     ),
+    rollbackOnlyTargets: discovery.discovery.rollbackOnlyTargets,
   });
   if (JSON.stringify(recomputedPreplan) !== JSON.stringify(preplan)) {
     throw new Error(
@@ -678,6 +687,7 @@ export async function runMainReleaseCli({
         upstreamRunId: identity.upstreamRunId,
         projectIds,
         planningSnapshot,
+        rollbackOnlyTargets: discovery.discovery.rollbackOnlyTargets,
         repoRoot: env.SOURCE_PATH,
       })
     ).manifest;
@@ -693,6 +703,7 @@ export async function runMainReleaseCli({
   const selection = createMainReleaseSelection({
     providerDiscoveryDigest: digest(discovery),
     planningSnapshotDigest: discovery.planningSnapshotDigest,
+    rollbackOnlyTargets: discovery.discovery.rollbackOnlyTargets,
     legacyAppV2,
     projectIds: Object.fromEntries(
       ["governance", "reserve", "ui", "app"].map((target) => [

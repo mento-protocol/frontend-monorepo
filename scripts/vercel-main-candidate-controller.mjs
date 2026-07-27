@@ -12,6 +12,7 @@ import {
   canonicalizeDeploymentUrl,
   canonicalizeHostname,
 } from "./vercel-deployment-state.mjs";
+import { MAIN_DEPLOYMENT_TARGETS } from "./vercel-main-plan.mjs";
 import {
   MAIN_RELEASE_ACTIVATION_ORDER,
   assertMainReleaseManifest,
@@ -20,7 +21,7 @@ import {
 const MAIN_CANDIDATE_PREFLIGHT_SCHEMA = "vercel-main-candidate-preflight:v1";
 const MAIN_CANDIDATE_HANDOFF_SCHEMA = "vercel-main-candidate-handoff:v1";
 const MAIN_PREPLAN_CANDIDATE_DISCOVERY_SCHEMA =
-  "vercel-main-preplan-candidate-discovery:v1";
+  "vercel-main-preplan-candidate-discovery:v2";
 
 const EMPTY_REUSE_METRICS = Object.freeze({
   buildDurationMs: null,
@@ -133,6 +134,7 @@ export async function discoverMainPreplanCandidateReleases({
     throw new Error("Main pre-plan candidate provider is required");
   }
   const manifests = new Map();
+  const rollbackOnlyTargets = new Set();
   for (const target of MAIN_RELEASE_ACTIVATION_ORDER) {
     const deploymentIds = [
       ...new Set(mappings[target].map(({ deploymentId }) => deploymentId)),
@@ -143,7 +145,10 @@ export async function discoverMainPreplanCandidateReleases({
         target,
         projectId: projects[target],
       });
-      if (mapped.metadata === null) continue;
+      if (mapped.metadata === null) {
+        rollbackOnlyTargets.add(target);
+        continue;
+      }
       const manifest = assertMainReleaseManifest(
         mapped.metadata.releaseManifest,
       );
@@ -182,6 +187,9 @@ export async function discoverMainPreplanCandidateReleases({
   }
   return {
     schema: MAIN_PREPLAN_CANDIDATE_DISCOVERY_SCHEMA,
+    rollbackOnlyTargets: MAIN_DEPLOYMENT_TARGETS.filter((target) =>
+      rollbackOnlyTargets.has(target),
+    ),
     candidateReleases,
   };
 }

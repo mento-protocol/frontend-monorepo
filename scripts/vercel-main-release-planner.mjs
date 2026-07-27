@@ -151,6 +151,7 @@ export function createMainReleaseBaseline({
   upstreamRunId,
   projectIds,
   planningSnapshot,
+  rollbackOnlyTargets,
   repoRoot,
   gitAdapter,
   runPlanner,
@@ -168,6 +169,7 @@ export function createMainReleaseBaseline({
     mainOwnershipMode,
     deploySha,
     projectIds: projects,
+    rollbackOnlyTargets,
     priorStates: Object.fromEntries(
       MAIN_DEPLOYMENT_TARGETS.map((target) => [
         target,

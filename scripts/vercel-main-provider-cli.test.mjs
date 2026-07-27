@@ -30,6 +30,7 @@ import { planMainDeployments } from "./vercel-main-plan.mjs";
 import { generateVercelMainReleaseId } from "./vercel-prebuilt.mjs";
 import {
   appendGithubOutputs,
+  assertMainProviderDiscovery,
   createMainCanonicalMappings,
   decodeMainPreplanHandoff,
   encodeMainPreplanHandoff,
@@ -81,6 +82,7 @@ function releaseManifest({
     deploySha,
     projectIds: input.projectIds,
     priorStates: input.priorStates,
+    rollbackOnlyTargets: [],
     gitAdapter: {
       firstParent: () => input.firstParent,
       isAncestor: () => true,
@@ -250,7 +252,10 @@ function planningStateClient(
       const source =
         legacyCalls === 0 ? firstLegacySnapshot : secondLegacySnapshot;
       legacyCalls += 1;
-      return { source: "git", state: structuredClone(source[0]) };
+      return {
+        ownership: "native-vercel-git",
+        state: structuredClone(source[0]),
+      };
     },
     calls: () => calls,
     legacyCalls: () => legacyCalls,
@@ -394,7 +399,7 @@ test("canonical mappings preserve all reviewed aliases and optional fresh legacy
   );
 });
 
-test("preplan discovery groups multiple mapped manifests and ignores native mappings", async (t) => {
+test("preplan discovery groups mapped manifests and marks unowned mappings rollback-only", async (t) => {
   const context = testContext(t);
   const first = releaseManifest({
     deploySha: "c".repeat(40),
@@ -431,15 +436,17 @@ test("preplan discovery groups multiple mapped manifests and ignores native mapp
       "pre-plan discovery must not use a current intent",
     );
     return {
-      inspectMappedCandidate: async ({ deploymentId }) => ({
-        canonicalState: {},
-        metadata:
-          deploymentId === "dpl_governanceCandidate123"
-            ? { releaseManifest: first }
-            : deploymentId === "dpl_reserveCandidate123"
-              ? { releaseManifest: second }
-              : null,
-      }),
+      inspectMappedCandidate: async ({ deploymentId }) => {
+        return {
+          canonicalState: {},
+          metadata:
+            deploymentId === "dpl_governanceCandidate123"
+              ? { releaseManifest: first }
+              : deploymentId === "dpl_reserveCandidate123"
+                ? { releaseManifest: second }
+                : null,
+        };
+      },
       resolveReleaseCandidate: async ({ manifest, target }) => {
         const selectedTarget =
           manifest.releaseId === first.releaseId ? "governance" : "reserve";
@@ -483,6 +490,19 @@ test("preplan discovery groups multiple mapped manifests and ignores native mapp
     [first.releaseId, second.releaseId].sort(),
   );
   assert.equal(readJson(output).discovery.candidateReleases.length, 2);
+  assert.deepEqual(result.discovery.rollbackOnlyTargets, ["app", "ui"]);
+  for (const rollbackOnlyTargets of [
+    ["ui", "app"],
+    ["app", "app"],
+    ["unknown"],
+  ]) {
+    const malformed = structuredClone(result);
+    malformed.discovery.rollbackOnlyTargets = rollbackOnlyTargets;
+    assert.throws(
+      () => assertMainProviderDiscovery(malformed),
+      /candidate discovery is malformed/,
+    );
+  }
   assert.deepEqual(result.projectIds, projectIds());
   assert.match(result.planningSnapshotDigest, /^[a-f0-9]{64}$/);
   assert.doesNotMatch(
@@ -522,10 +542,12 @@ test("preplan decision binds current SHA and upstream run to one exact release I
     stdout: context.stdout,
     stateClientFactory: () => ({ kind: "discovery-client" }),
     providerFactory: () => ({
-      inspectMappedCandidate: async () => ({
-        canonicalState: {},
-        metadata: null,
-      }),
+      inspectMappedCandidate: async () => {
+        return {
+          canonicalState: {},
+          metadata: null,
+        };
+      },
       resolveReleaseCandidate: async () =>
         assert.fail("native mappings have no release candidates"),
     }),
@@ -655,6 +677,7 @@ test("preplan materialization accepts only inherited restore and exposes ordered
       },
     ],
     currentMappings,
+    rollbackOnlyTargets: [],
   });
   assert.equal(decision.decision, "restore-before-planning");
   const encoded = encodeMainPreplanHandoff(decision, {
@@ -705,10 +728,12 @@ test("preplan decision rejects alias drift after discovery before baseline or ro
     stdout: context.stdout,
     stateClientFactory: () => ({ kind: "discovery-client" }),
     providerFactory: () => ({
-      inspectMappedCandidate: async () => ({
-        canonicalState: {},
-        metadata: null,
-      }),
+      inspectMappedCandidate: async () => {
+        return {
+          canonicalState: {},
+          metadata: null,
+        };
+      },
       resolveReleaseCandidate: async () => null,
     }),
   });
@@ -1206,6 +1231,46 @@ test("private bridge IO rejects noncanonical, permissive, oversized, and existin
     /could not be written safely/,
   );
   assert.equal(readFileSync(existingOutput, "utf8"), "{}\n");
+
+  const extendedLimit = MAIN_PROVIDER_CLI_MAX_JSON_BYTES * 4;
+  const serializedEnvelopeBytes = Buffer.byteLength(
+    `${JSON.stringify({ value: "" })}\n`,
+    "utf8",
+  );
+  const extendedValue = {
+    value: "x".repeat(extendedLimit - serializedEnvelopeBytes),
+  };
+  const extendedOutput = join(context.directory, "extended-output.json");
+  writePrivateJson(
+    extendedOutput,
+    extendedValue,
+    context.directory,
+    extendedLimit,
+  );
+  assert.equal(statSync(extendedOutput).size, extendedLimit);
+  assert.equal(
+    readPrivateJson(
+      extendedOutput,
+      "extended input",
+      context.directory,
+      extendedLimit,
+    ).value.length,
+    extendedValue.value.length,
+  );
+  assert.throws(
+    () => readPrivateJson(extendedOutput, "extended input", context.directory),
+    /missing, unsafe, or malformed/,
+  );
+  assert.throws(
+    () =>
+      writePrivateJson(
+        join(context.directory, "oversized-extended-output.json"),
+        { value: `${extendedValue.value}x` },
+        context.directory,
+        extendedLimit,
+      ),
+    /exceeds its size bound/,
+  );
 
   assert.throws(
     () => reviewedRunnerTemp(`${context.directory}/.`),
