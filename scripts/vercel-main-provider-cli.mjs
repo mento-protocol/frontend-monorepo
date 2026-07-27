@@ -69,6 +69,9 @@ export const MAIN_CANONICAL_MAPPINGS_SCHEMA =
 const MAIN_PROVIDER_DISCOVERY_SCHEMA = "vercel-main-provider-discovery:v2";
 
 const PROJECT_TARGETS = Object.freeze(["app", "governance", "reserve", "ui"]);
+const MAIN_CANDIDATE_SMOKE_PATHS = Object.freeze({
+  ui: "/basic-components",
+});
 const LEGACY_ALIAS = "v2-app.mento.org";
 const LEGACY_ALIASES = Object.freeze(
   [
@@ -1009,9 +1012,13 @@ async function smokeMainCandidateUrl({
   ) {
     throw new Error("Main candidate immutable URL is outside Vercel");
   }
+  const smokeUrl = new URL(
+    MAIN_CANDIDATE_SMOKE_PATHS[canonicalIntent.target] ?? "/",
+    url,
+  );
   let response;
   try {
-    response = await fetchImpl(url.toString(), {
+    response = await fetchImpl(smokeUrl.toString(), {
       method: "GET",
       redirect: "manual",
       signal: AbortSignal.timeout(15_000),
@@ -1026,7 +1033,7 @@ async function smokeMainCandidateUrl({
   try {
     responseUrl =
       typeof response?.url === "string"
-        ? canonicalizeDeploymentUrl(response.url)
+        ? new URL(response.url).toString()
         : null;
   } catch {
     responseUrl = null;
@@ -1037,7 +1044,7 @@ async function smokeMainCandidateUrl({
     response.status < 200 ||
     response.status >= 300 ||
     response.redirected !== false ||
-    responseUrl !== canonicalCandidate.deploymentUrl ||
+    responseUrl !== smokeUrl.toString() ||
     servedSha !== canonicalIntent.deploySha
   ) {
     throw new Error("Main candidate immutable HTTP smoke is inconsistent");
