@@ -756,7 +756,13 @@ jobs:
   stage-governance:
     name: Stage governance candidate
     needs: [wait-for-ci, prepare-release]
-    if: contains(fromJSON(needs.prepare-release.outputs.targets), 'governance')
+    # `prepare-release` can succeed through its explicit skipped-restore route.
+    # Override GitHub's implicit success() so that skipped ancestor cannot poison
+    # a selected stage after the release has been materialized successfully.
+    if: >-
+      always() && needs.wait-for-ci.result == 'success' &&
+      needs.prepare-release.result == 'success' &&
+      contains(fromJSON(needs.prepare-release.outputs.targets), 'governance')
     runs-on: ubuntu-latest
     timeout-minutes: 50
     environment:
@@ -956,7 +962,10 @@ jobs:
   stage-reserve:
     name: Stage reserve candidate
     needs: [wait-for-ci, prepare-release]
-    if: contains(fromJSON(needs.prepare-release.outputs.targets), 'reserve')
+    if: >-
+      always() && needs.wait-for-ci.result == 'success' &&
+      needs.prepare-release.result == 'success' &&
+      contains(fromJSON(needs.prepare-release.outputs.targets), 'reserve')
     runs-on: ubuntu-latest
     timeout-minutes: 50
     environment:
@@ -1155,7 +1164,10 @@ jobs:
   stage-ui:
     name: Stage UI candidate
     needs: [wait-for-ci, prepare-release]
-    if: contains(fromJSON(needs.prepare-release.outputs.targets), 'ui')
+    if: >-
+      always() && needs.wait-for-ci.result == 'success' &&
+      needs.prepare-release.result == 'success' &&
+      contains(fromJSON(needs.prepare-release.outputs.targets), 'ui')
     runs-on: ubuntu-latest
     timeout-minutes: 50
     environment:
@@ -2165,6 +2177,10 @@ jobs:
       UPSTREAM_RUN_URL: ${{ needs.wait-for-ci.outputs.upstream_run_url }}
       BUILD_AND_TEST_JOB_URL: ${{ needs.wait-for-ci.outputs.build_and_test_job_url }}
       MAIN_RELEASE_EXECUTION: ${{ needs.prepare-release.outputs.execution }}
+      VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
+      VERCEL_PROJECT_ID_GOVERNANCE: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
+      VERCEL_PROJECT_ID_RESERVE: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
+      VERCEL_PROJECT_ID_UI: ${{ vars.VERCEL_PROJECT_ID_UI }}
     steps:
       - name: Check out immutable recovery controller
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
