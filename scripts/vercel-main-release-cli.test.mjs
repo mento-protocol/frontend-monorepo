@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   closeSync,
@@ -14,9 +15,17 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import process from "node:process";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
-import { runMainReleaseCli } from "./vercel-main-release-cli.mjs";
+import {
+  MAIN_RELEASE_EXECUTION_DIAGNOSTIC_CODES,
+  renderMainReleaseCliFailure,
+  renderMainReleaseExecutionCliFailure,
+  runMainReleaseCli,
+  runMainReleaseCliEntrypoint,
+} from "./vercel-main-release-cli.mjs";
 import {
   canonicalizeMainCandidateVercelMetadata,
   createMainCandidateIntent,
@@ -51,6 +60,9 @@ const SHA = "a".repeat(40);
 const PRIOR_SHA = "b".repeat(40);
 const TARGETS = ["app", "governance", "reserve", "ui"];
 const RELEASE_ORDER = ["governance", "reserve", "ui", "app"];
+const RELEASE_CLI_PATH = fileURLToPath(
+  new URL("./vercel-main-release-cli.mjs", import.meta.url),
+);
 
 function planning(
   stagedTargets = ["app", "governance"],
@@ -630,6 +642,266 @@ function executionArguments(
   ];
 }
 
+test("execution diagnostics use an exhaustive fixed allowlist", () => {
+  const expected = {
+    input: "main-release-execution-input",
+    preplan: "main-release-execution-preplan",
+    discovery: "main-release-execution-discovery",
+    "planning-snapshot": "main-release-execution-planning-snapshot",
+    "project-census": "main-release-execution-project-census",
+    legacy: "main-release-execution-legacy",
+    "canonical-mappings": "main-release-execution-canonical-mappings",
+    "preplan-recompute": "main-release-execution-preplan-recompute",
+    ownership: "main-release-execution-ownership",
+    "baseline-source-git": "main-release-execution-baseline-source-git",
+    "baseline-prior-app": "main-release-execution-baseline-prior-app",
+    "baseline-prior-governance":
+      "main-release-execution-baseline-prior-governance",
+    "baseline-prior-reserve": "main-release-execution-baseline-prior-reserve",
+    "baseline-prior-ui": "main-release-execution-baseline-prior-ui",
+    "baseline-planner-range": "main-release-execution-baseline-planner-range",
+    "baseline-manifest": "main-release-execution-baseline-manifest",
+    "baseline-unknown": "main-release-execution-baseline-unknown",
+    "manifest-assertion": "main-release-execution-manifest-assertion",
+    selection: "main-release-execution-selection",
+    "execution-assembly": "main-release-execution-assembly",
+    "private-output": "main-release-execution-private-output",
+    "execution-encode": "main-release-execution-encode",
+    "github-output": "main-release-execution-github-output",
+  };
+  assert.deepEqual(MAIN_RELEASE_EXECUTION_DIAGNOSTIC_CODES, expected);
+  for (const [phase, code] of Object.entries(expected)) {
+    assert.equal(
+      renderMainReleaseExecutionCliFailure(phase),
+      `Vercel main release execution failed phase=${phase} code=${code}\n`,
+    );
+  }
+  assert.equal(
+    renderMainReleaseCliFailure(),
+    "Vercel main release command failed\n",
+  );
+});
+
+test("execution entrypoint emits one fixed secret-free line for injected failures", async () => {
+  const secret = "secret-value-never-print";
+  for (const phase of Object.keys(MAIN_RELEASE_EXECUTION_DIAGNOSTIC_CODES)) {
+    let stderr = "";
+    const status = await runMainReleaseCliEntrypoint({
+      argv: ["execution"],
+      writeStderr: (line) => {
+        stderr += line;
+      },
+      run: ({ executionDiagnostics }) => {
+        executionDiagnostics.mark(phase);
+        throw new Error(secret);
+      },
+    });
+    assert.equal(status, 1, phase);
+    assert.equal(stderr, renderMainReleaseExecutionCliFailure(phase), phase);
+    assert.doesNotMatch(stderr, new RegExp(secret), phase);
+  }
+});
+
+test("real execution failures report the phase reached by the entrypoint", async (t) => {
+  const directory = realpathSync(
+    mkdtempSync(join(tmpdir(), "main-release-cli-real-diagnostics-")),
+  );
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const release = manifest();
+  const census = planningSnapshot(release);
+  const providerDiscovery = discovery(release, census);
+  const changedLegacy = legacy();
+  changedLegacy[0] = {
+    ...changedLegacy[0],
+    deploymentId: "dpl_changedLegacyV2Prior123",
+    deploymentUrl: "https://changed-legacy-v2-prior.vercel.app",
+  };
+  const cases = [
+    {
+      phase: "discovery",
+      inputs: { discoveryValue: {} },
+    },
+    {
+      phase: "planning-snapshot",
+      inputs: { census: {}, discoveryValue: providerDiscovery },
+    },
+    {
+      phase: "project-census",
+      mutateEnvironment(env) {
+        env.VERCEL_PROJECT_ID_UI = "prj_other";
+      },
+    },
+    {
+      phase: "legacy",
+      inputs: { legacyValue: changedLegacy },
+    },
+    {
+      phase: "preplan-recompute",
+      inputs: {
+        discoveryValue: discovery(release, census, { empty: true }),
+      },
+    },
+    {
+      phase: "manifest-assertion",
+      mutateEnvironment(env) {
+        env.MAIN_OWNERSHIP_MODE_JSON =
+          '{"app":"shadow","governance":"github","reserve":"github","ui":"github"}';
+      },
+    },
+    {
+      phase: "private-output",
+      mutateArguments(argv) {
+        writeFileSync(argv.at(-1), "{}\n", { mode: 0o600 });
+      },
+    },
+    {
+      phase: "github-output",
+      mutateEnvironment(env) {
+        env.GITHUB_OUTPUT = join(directory, "missing-github-output");
+      },
+    },
+  ];
+  for (const [index, scenario] of cases.entries()) {
+    const inputs = {
+      release,
+      census,
+      suffix: `-${index}`,
+      ...scenario.inputs,
+    };
+    const argv = executionArguments(directory, inputs);
+    const env = environment(directory);
+    scenario.mutateArguments?.(argv);
+    scenario.mutateEnvironment?.(env);
+    let stderr = "";
+    const status = await runMainReleaseCliEntrypoint({
+      argv,
+      env,
+      writeStderr: (line) => {
+        stderr += line;
+      },
+    });
+    assert.equal(status, 1, scenario.phase);
+    assert.equal(
+      stderr,
+      renderMainReleaseExecutionCliFailure(scenario.phase),
+      scenario.phase,
+    );
+  }
+});
+
+test("CLI entrypoint does not leak execution input paths or environment values", (t) => {
+  const directory = realpathSync(
+    mkdtempSync(join(tmpdir(), "main-release-cli-secret-")),
+  );
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const secret = "do-not-print-this-secret";
+  const env = {
+    ...process.env,
+    ...environment(directory),
+    RUNNER_TEMP: directory,
+    MAIN_RELEASE_PRIVATE_TEST_SECRET: secret,
+  };
+  const result = spawnSync(
+    process.execPath,
+    [
+      RELEASE_CLI_PATH,
+      "execution",
+      "--preplan",
+      join(directory, `${secret}-preplan.json`),
+      "--discovery",
+      join(directory, "discovery.json"),
+      "--planning-snapshot",
+      join(directory, "planning.json"),
+      "--legacy-snapshot",
+      join(directory, "legacy.json"),
+      "--output",
+      join(directory, "execution.json"),
+    ],
+    { encoding: "utf8", env },
+  );
+  assert.equal(result.status, 1);
+  assert.equal(result.stderr, renderMainReleaseExecutionCliFailure("preplan"));
+  assert.doesNotMatch(result.stderr, new RegExp(secret));
+  assert.doesNotMatch(result.stderr, new RegExp(directory));
+});
+
+test("non-execution CLI failures retain the generic diagnostic", async () => {
+  let stderr = "";
+  const status = await runMainReleaseCliEntrypoint({
+    argv: ["materialize", "--output", "missing.json"],
+    env: {},
+    writeStderr: (line) => {
+      stderr += line;
+    },
+  });
+  assert.equal(status, 1);
+  assert.equal(stderr, renderMainReleaseCliFailure());
+});
+
+test("baseline failures map known invariants to fixed diagnostics without replacing errors", async (t) => {
+  const directory = realpathSync(
+    mkdtempSync(join(tmpdir(), "main-release-cli-baseline-diagnostics-")),
+  );
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const release = manifest(TARGETS, "123", TARGETS);
+  const census = planningSnapshot(release);
+  const capturePreplan = {
+    schema: "vercel-main-preplan-reconciliation:v2",
+    decision: "capture-new-baseline",
+    reason: "no-mapped-release-metadata",
+    rollbackOnlyTargets: [...TARGETS],
+    reconciliation: null,
+    rollbackAuthorization: null,
+  };
+  const argv = executionArguments(directory, {
+    release,
+    census,
+    preplanValue: capturePreplan,
+    discoveryValue: discovery(release, census, {
+      empty: true,
+      rollbackOnlyTargets: [...TARGETS],
+    }),
+  });
+  const cases = [
+    ["DEPLOY_SHA cannot be resolved", "baseline-source-git"],
+    ["Main release baseline app state is incomplete", "baseline-prior-app"],
+    ["Main deployment planner range is malformed", "baseline-planner-range"],
+    ["Main release manifest schema is unsupported", "baseline-manifest"],
+    ["unclassified baseline failure", "baseline-unknown"],
+  ];
+  for (const [message, phase] of cases) {
+    const failure = new Error(message);
+    let stderr = "";
+    const status = await runMainReleaseCliEntrypoint({
+      argv,
+      env: environment(directory),
+      writeStderr: (line) => {
+        stderr += line;
+      },
+      run: (options) =>
+        runMainReleaseCli({
+          ...options,
+          baselineFactory: () => {
+            throw failure;
+          },
+        }),
+    });
+    assert.equal(status, 1, message);
+    assert.equal(stderr, renderMainReleaseExecutionCliFailure(phase), message);
+    await assert.rejects(
+      runMainReleaseCli({
+        argv,
+        env: environment(directory),
+        baselineFactory: () => {
+          throw failure;
+        },
+      }),
+      (error) => error === failure,
+      message,
+    );
+  }
+});
+
 test("execution consumes the exact provider manifest without a new baseline", async (t) => {
   const directory = realpathSync(
     mkdtempSync(join(tmpdir(), "main-release-cli-")),
@@ -672,6 +944,40 @@ test("execution consumes the exact provider manifest without a new baseline", as
     value,
   );
   assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), value);
+});
+
+test("execution rejects missing or malformed upstream attempt and URL handoff values", async (t) => {
+  const directory = realpathSync(
+    mkdtempSync(join(tmpdir(), "main-release-cli-upstream-handoff-")),
+  );
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const release = manifest();
+  const census = planningSnapshot(release);
+  const cases = [
+    ["UPSTREAM_RUN_ATTEMPT", undefined],
+    ["UPSTREAM_RUN_ATTEMPT", "not-an-attempt"],
+    ["UPSTREAM_RUN_URL", undefined],
+    ["UPSTREAM_RUN_URL", "https://example.invalid/private"],
+    ["BUILD_AND_TEST_JOB_URL", undefined],
+    ["BUILD_AND_TEST_JOB_URL", "https://example.invalid/private"],
+  ];
+  for (const [index, [name, value]] of cases.entries()) {
+    const env = environment(directory);
+    if (value === undefined) delete env[name];
+    else env[name] = value;
+    await assert.rejects(
+      runMainReleaseCli({
+        argv: executionArguments(directory, {
+          release,
+          census,
+          suffix: `-${index}`,
+        }),
+        env,
+      }),
+      /upstream .* malformed|build job URL is malformed/,
+      `${name}=${value}`,
+    );
+  }
 });
 
 test("execution rejects same-release reuse that omits a fresh rollback-only target", async (t) => {
