@@ -58,6 +58,7 @@ function baseline(planningSnapshot = snapshot()) {
       TARGETS.map((target) => [target, `prj_${target}`]),
     ),
     planningSnapshot,
+    rollbackOnlyTargets: [],
     gitAdapter: {
       resolveCommit: (sha) => sha,
       isAncestor: () => true,

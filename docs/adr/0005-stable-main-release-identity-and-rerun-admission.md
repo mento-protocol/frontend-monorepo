@@ -44,9 +44,11 @@ repository + DEPLOY_SHA + validated upstream CI/CD run ID
 
 The target-specific candidate ID is `releaseId + target`. Before a release can
 mutate a protected mapping, the planner creates the canonical stable release
-manifest. It binds the release and candidate identities, exact source and
+manifest. It binds the release and candidate identities, exact source SHA and
 upstream provenance, selected and active targets, ownership mode, and the
-captured protected rollback priors. The provider stores that manifest with its
+captured protected rollback priors. It also binds `rollbackOnlyTargets`: every
+protected mapping that lacked complete canonical Mento candidate metadata when
+the baseline was captured. The provider stores that manifest with its
 candidates. It is the sole durable cross-attempt authority.
 
 The release and candidate IDs survive both a rerun of the downstream controller
@@ -77,6 +79,19 @@ planning.
   Ambiguous, non-prefix, conflicting, incomplete, or unverified provider state
   fails closed.
 
+Every unmarked protected mapping in a new baseline is rollback-only regardless
+of its optional Vercel `source`, Git metadata, or served SHA. The planner forces
+each rollback-only target into the staged set before served-SHA and path-aware
+planning. Its exact deployment ID, URL, project, environment, and served SHA
+remain compensation authority only. Complete canonical Mento metadata and the
+exact stable release manifest are the only evidence that can authorize an
+already-current GitHub candidate. Fresh discovery binds the rollback-only set
+into both preplan reconciliation and release execution. Same-release verify or
+resume may proceed only when the manifest already stages every freshly
+rollback-only target; a new baseline must persist exactly the discovered set.
+The legacy planning command has no candidate census, so it conservatively
+selects every target.
+
 No prior journal is resumed. Each workflow attempt creates and owns only its
 current-attempt journal; its transaction IDs, artifacts, snapshots, and
 recovery are attempt-scoped. A stable release identity is evidence lookup, not
@@ -86,7 +101,14 @@ Candidate reuse still requires one exact provider candidate and fresh
 inspection and immutable smoke. App `v3` remains restrictive because its upload
 can move protected generated aliases: its current-attempt journal records the
 discovered candidate and current mappings before aliases may proceed. Legacy App
-`v2 -> production` remains native and independently verified.
+`v2 -> production` remains independently verified through exact deployment,
+project, environment, ref, SHA, and alias-topology identity. Vercel's optional
+`source` value is telemetry only for both current and legacy deployments.
+Likewise, optional Git organization, repository, and ref fields cannot reject
+the exact manifest-bound rollback prior in the final census: its inspected
+response SHA remains mandatory and must equal the manifest-bound served SHA.
+Candidate admission still requires canonical
+`mento-protocol/frontend-monorepo@main` Git identity.
 
 When App belongs to `shadowTargets`, its protected custom-`v3` preparation is
 build-only terminal evidence. It never creates a provider deployment or gains
@@ -100,6 +122,11 @@ manifest, execution, final mapping, duplicate census, smoke, and terminal
 journal status while remaining redacted and size-bounded. A final-only rerun
 restores that terminal handoff; it does not download artifacts to reconstruct a
 verdict or infer a release from a prior journal.
+
+Generic JSON bridge documents retain a 256 KiB ceiling. Only complete active
+journal history and terminal proofs use dedicated 1 MiB ceilings, sized for the
+bounded maximum of six forward and nine recovery operations. The compact
+terminal receipt and evidence retain their separate smaller bounds.
 
 ## Alternatives considered
 
@@ -130,8 +157,15 @@ release. Replaying mutations adds risk without changing the public result.
   durable cross-attempt source of truth.
 - Every attempt has an independently auditable journal and recovery boundary.
 - An inherited partial release is restored before a new baseline can be planned.
+- An unmarked protected mapping always forces reviewed GitHub preparation before
+  it can become eligible for an already-current no-op. Only active-owned targets
+  replace the public mapping.
 - A completed release is reused after fresh reconciliation rather than rebuilt
   or mutated again.
+- The final duplicate census may observe at most the exact manifest-bound
+  same-SHA original prior alongside the canonical candidate. Separate mapping
+  proof must show the candidate owns every protected alias; any other same-SHA
+  deployment fails closed.
 - Final-only reruns use the terminal receipt/evidence handoff only.
 - Missing, conflicting, or ambiguous provider evidence stops the release rather
   than selecting a guess. Operators use the documented recovery and rollback

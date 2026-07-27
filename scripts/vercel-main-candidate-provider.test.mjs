@@ -29,6 +29,7 @@ function releaseManifest() {
     deploySha: input.deploySha,
     projectIds: input.projectIds,
     priorStates: input.priorStates,
+    rollbackOnlyTargets: [],
     gitAdapter: {
       firstParent: () => input.firstParent,
       isAncestor: () => true,
@@ -364,14 +365,80 @@ test("mapped inspection binds its observed project to the manifest rollback prio
   );
 });
 
-test("mapped inspection admits native Git deployments for every live main environment only when no candidate markers exist", async () => {
+test("mapped inspection admits unmarked priors regardless of optional provider source", async () => {
   for (const target of ["governance", "reserve", "ui", "app"]) {
-    const oldIntent = intent(target);
-    const response = deploymentResponse(oldIntent);
-    response.source = "git";
-    for (const key of Object.keys(response.meta)) {
-      if (key.startsWith("mento")) delete response.meta[key];
+    for (const source of [undefined, "git", "cli", "redeploy"]) {
+      const oldIntent = intent(target);
+      const response = deploymentResponse(oldIntent);
+      if (source === undefined) delete response.source;
+      else response.source = source;
+      for (const key of Object.keys(response.meta)) {
+        if (key.startsWith("mento")) delete response.meta[key];
+      }
+      const provider = createMainCandidateVercelProvider({
+        client: {
+          requestWithRetry: async () =>
+            assert.fail("mapped inspection does not list"),
+          inspectDeployment: async () => response,
+          listDeploymentAliases: async () => ({ aliases: [] }),
+        },
+      });
+      const mapped = await provider.inspectMappedCandidate({
+        deploymentId: response.id,
+        target,
+        projectId: oldIntent.projectId,
+      });
+      assert.equal(mapped.metadata, null);
+      assert.deepEqual(
+        {
+          target: mapped.canonicalState.target,
+          customEnvironmentSlug: mapped.canonicalState.customEnvironmentSlug,
+        },
+        target === "app"
+          ? { target: null, customEnvironmentSlug: "v3" }
+          : { target: "production", customEnvironmentSlug: null },
+      );
     }
+  }
+});
+
+test("unmarked mappings that self-report the reviewed SHA remain rollback-only", async () => {
+  const reviewedSha = "e".repeat(40);
+  for (const target of ["governance", "reserve", "ui", "app"]) {
+    for (const source of [undefined, "git", "cli", "redeploy"]) {
+      const oldIntent = intent(target);
+      const response = deploymentResponse(oldIntent);
+      if (source === undefined) delete response.source;
+      else response.source = source;
+      for (const key of Object.keys(response.meta)) {
+        if (key.startsWith("mento")) delete response.meta[key];
+      }
+      response.meta.githubCommitSha = reviewedSha;
+      const provider = createMainCandidateVercelProvider({
+        client: {
+          requestWithRetry: async () =>
+            assert.fail("mapped inspection does not list"),
+          inspectDeployment: async () => response,
+          listDeploymentAliases: async () => ({ aliases: [] }),
+        },
+      });
+      const mapped = await provider.inspectMappedCandidate({
+        deploymentId: response.id,
+        target,
+        projectId: oldIntent.projectId,
+      });
+      assert.equal(mapped.metadata, null);
+      assert.equal(mapped.canonicalState.git.sha, reviewedSha);
+    }
+  }
+});
+
+test("mapped inspection admits complete Mento candidates regardless of optional provider source", async () => {
+  const currentIntent = intent("ui");
+  for (const source of [undefined, "git", "cli", "redeploy"]) {
+    const response = deploymentResponse(currentIntent);
+    if (source === undefined) delete response.source;
+    else response.source = source;
     const provider = createMainCandidateVercelProvider({
       client: {
         requestWithRetry: async () =>
@@ -382,30 +449,79 @@ test("mapped inspection admits native Git deployments for every live main enviro
     });
     const mapped = await provider.inspectMappedCandidate({
       deploymentId: response.id,
-      target,
-      projectId: oldIntent.projectId,
+      target: "ui",
+      projectId: currentIntent.projectId,
     });
-    assert.equal(mapped.metadata, null);
-    assert.deepEqual(
-      {
-        target: mapped.canonicalState.target,
-        customEnvironmentSlug: mapped.canonicalState.customEnvironmentSlug,
-      },
-      target === "app"
-        ? { target: null, customEnvironmentSlug: "v3" }
-        : { target: "production", customEnvironmentSlug: null },
+    assert.equal(mapped.metadata.candidateId, currentIntent.candidateId);
+    assert.equal(
+      mapped.metadata.releaseManifest.releaseId,
+      currentIntent.releaseId,
     );
   }
 });
 
-test("mapped inspection rejects non-Git native deployment sources", async () => {
-  const currentIntent = intent("reserve");
-  for (const source of ["cli", "manual", "unknown", undefined]) {
+test("candidate inspection and release reuse ignore optional provider source", async () => {
+  const currentIntent = intent("ui");
+  for (const source of [undefined, "git", "cli", "redeploy"]) {
     const response = deploymentResponse(currentIntent);
-    response.source = source;
-    for (const key of Object.keys(response.meta)) {
-      if (key.startsWith("mento")) delete response.meta[key];
-    }
+    if (source === undefined) delete response.source;
+    else response.source = source;
+    const provider = createMainCandidateVercelProvider({
+      intent: currentIntent,
+      client: {
+        requestWithRetry: async () => ({
+          deployments: [{ uid: response.id }],
+          pagination: { next: null },
+        }),
+        inspectDeployment: async () => response,
+        listDeploymentAliases: async () => ({ aliases: [] }),
+      },
+    });
+    const state = await provider.inspectCandidateState(response.id);
+    assert.equal(state.git.sha, currentIntent.deploySha);
+    const candidate = await provider.inspectCandidate(response.id);
+    assert.equal(candidate.metadata.candidateId, currentIntent.candidateId);
+    const resolved = await provider.resolveReleaseCandidate({
+      manifest: currentIntent.releaseManifest,
+      target: "ui",
+      projectId: currentIntent.projectId,
+    });
+    assert.equal(resolved.candidate.deploymentId, response.id);
+    assert.equal(resolved.intent.digest, currentIntent.digest);
+  }
+});
+
+test("optional provider source does not bypass canonical mapped identity", async () => {
+  const currentIntent = intent("reserve");
+  for (const [patch, error] of [
+    [
+      (response) => {
+        response.readyState = "BUILDING";
+      },
+      /Unexpected deployment readiness/,
+    ],
+    [
+      (response) => {
+        response.projectId = "prj_wrong";
+      },
+      /Unexpected deployment project ID/,
+    ],
+    [
+      (response) => {
+        response.target = "preview";
+      },
+      /Unexpected deployment target/,
+    ],
+    [
+      (response) => {
+        delete response.meta.githubCommitRepo;
+      },
+      /Main candidate SHA is malformed/,
+    ],
+  ]) {
+    const response = deploymentResponse(currentIntent);
+    response.source = "redeploy";
+    patch(response);
     const provider = createMainCandidateVercelProvider({
       client: {
         requestWithRetry: async () =>
@@ -421,60 +537,8 @@ test("mapped inspection rejects non-Git native deployment sources", async () => 
           target: "reserve",
           projectId: currentIntent.projectId,
         }),
-      /native mapped deployment source is not Git/,
+      error,
     );
-  }
-});
-
-test("mapped inspection keeps Mento-marked candidates CLI-only", async () => {
-  const currentIntent = intent("ui");
-  const response = deploymentResponse(currentIntent);
-  response.source = "git";
-  const provider = createMainCandidateVercelProvider({
-    client: {
-      requestWithRetry: async () =>
-        assert.fail("mapped inspection does not list"),
-      inspectDeployment: async () => response,
-      listDeploymentAliases: async () => ({ aliases: [] }),
-    },
-  });
-  await assert.rejects(
-    () =>
-      provider.inspectMappedCandidate({
-        deploymentId: response.id,
-        target: "ui",
-        projectId: currentIntent.projectId,
-      }),
-    /candidate Vercel source is not CLI/,
-  );
-});
-
-test("candidate inspection and release reuse remain CLI-only", async () => {
-  const currentIntent = intent("ui");
-  const response = deploymentResponse(currentIntent);
-  response.source = "git";
-  const provider = createMainCandidateVercelProvider({
-    intent: currentIntent,
-    client: {
-      requestWithRetry: async () => ({
-        deployments: [{ uid: response.id }],
-        pagination: { next: null },
-      }),
-      inspectDeployment: async () => response,
-      listDeploymentAliases: async () => ({ aliases: [] }),
-    },
-  });
-  for (const inspect of [
-    () => provider.inspectCandidateState(response.id),
-    () => provider.inspectCandidate(response.id),
-    () =>
-      provider.resolveReleaseCandidate({
-        manifest: currentIntent.releaseManifest,
-        target: "ui",
-        projectId: currentIntent.projectId,
-      }),
-  ]) {
-    await assert.rejects(inspect, /candidate Vercel source is not CLI/);
   }
 });
 

@@ -31,6 +31,7 @@ function intent() {
     deploySha: input.deploySha,
     projectIds: input.projectIds,
     priorStates: input.priorStates,
+    rollbackOnlyTargets: [],
     gitAdapter: {
       firstParent: () => input.firstParent,
       isAncestor: () => true,
@@ -228,6 +229,8 @@ test("pre-plan discovery expands mapped release metadata into exact staged candi
       },
     },
   });
+  assert.equal(result.schema, "vercel-main-preplan-candidate-discovery:v2");
+  assert.deepEqual(result.rollbackOnlyTargets, ["app", "reserve", "ui"]);
   assert.equal(result.candidateReleases.length, 1);
   assert.deepEqual(
     Object.keys(result.candidateReleases[0].candidates),
@@ -241,17 +244,19 @@ test("pre-plan discovery expands mapped release metadata into exact staged candi
   );
 });
 
-test("pre-plan discovery ignores fully native mappings", async () => {
+test("pre-plan discovery marks every fully native mapping rollback-only", async () => {
   const manifest = intent().releaseManifest;
   let resolutions = 0;
   const result = await discoverMainPreplanCandidateReleases({
     currentMappings: mappingsFromManifest(manifest),
     projectIds: projectIdsFromManifest(manifest),
     provider: {
-      inspectMappedCandidate: async () => ({
-        canonicalState: {},
-        metadata: null,
-      }),
+      inspectMappedCandidate: async () => {
+        return {
+          canonicalState: {},
+          metadata: null,
+        };
+      },
       resolveReleaseCandidate: async () => {
         resolutions += 1;
         return null;
@@ -259,5 +264,11 @@ test("pre-plan discovery ignores fully native mappings", async () => {
     },
   });
   assert.deepEqual(result.candidateReleases, []);
+  assert.deepEqual(result.rollbackOnlyTargets, [
+    "app",
+    "governance",
+    "reserve",
+    "ui",
+  ]);
   assert.equal(resolutions, 0);
 });

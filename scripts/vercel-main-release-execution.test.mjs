@@ -144,6 +144,7 @@ function execution(stagedTargets = TARGETS) {
     selection: createMainReleaseSelection({
       providerDiscoveryDigest: "c".repeat(64),
       planningSnapshotDigest: "d".repeat(64),
+      rollbackOnlyTargets: release.rollbackOnlyTargets,
       legacyAppV2: legacy,
       projectIds: Object.fromEntries(
         RELEASE_ORDER.map((target) => [target, `prj_${target}`]),
@@ -270,6 +271,59 @@ test("execution selection binds discovery, projects, manifest, ownership, and le
       /selection|manifest/,
     );
   }
+});
+
+test("execution rechecks fresh rollback-only coverage for reuse", () => {
+  const value = execution(["governance"]);
+  for (const [decision, reason] of [
+    [
+      "resume-existing-release",
+      "current-main-release-is-an-interrupted-prefix",
+    ],
+    ["verify-existing-release", "current-main-release-already-complete"],
+  ]) {
+    assert.throws(
+      () =>
+        assertMainReleaseExecution({
+          ...value,
+          decision,
+          reason,
+          selection: {
+            ...value.selection,
+            rollbackOnlyTargets: ["ui"],
+          },
+        }),
+      /omits fresh rollback-only targets: ui/,
+      decision,
+    );
+  }
+  assert.deepEqual(
+    assertMainReleaseExecution({
+      ...value,
+      selection: {
+        ...value.selection,
+        rollbackOnlyTargets: ["governance"],
+      },
+    }).selection.rollbackOnlyTargets,
+    ["governance"],
+  );
+});
+
+test("capture-new execution binds the fresh rollback-only set exactly", () => {
+  const value = execution(["governance"]);
+  assert.throws(
+    () =>
+      assertMainReleaseExecution({
+        ...value,
+        decision: "capture-new-baseline",
+        reason: "no-mapped-release-metadata",
+        selection: {
+          ...value.selection,
+          rollbackOnlyTargets: ["governance"],
+        },
+      }),
+    /manifest conflicts with fresh rollback-only targets/,
+  );
 });
 
 test("execution binds both upstream URLs to the exact repository run", () => {

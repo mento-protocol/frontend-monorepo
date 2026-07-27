@@ -46,7 +46,7 @@ export const MAIN_PLANNING_SNAPSHOT_KEYS = Object.freeze(["schema", "states"]);
 export const ACTIVE_DEPLOYMENT_STATE_SPEC_SCHEMA =
   "vercel-active-deployment-state-spec:v3";
 export const ACTIVE_DEPLOYMENT_STATE_PROOF_SCHEMA =
-  "vercel-active-deployment-state-proof:v3";
+  "vercel-active-deployment-state-proof:v4";
 export const ACTIVE_ALIAS_MAPPING_SET_SCHEMA =
   "vercel-active-alias-mapping-set:v1";
 export const ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA =
@@ -134,6 +134,9 @@ const ACTIVE_STATE_PROJECT_PROOF_KEYS = Object.freeze([
   "expectedDisposition",
   "expectedDeploymentId",
   "expectedDeploymentUrl",
+  "priorDeploymentId",
+  "priorDeploymentUrl",
+  "priorServedSha",
   "counts",
   "ids",
   "records",
@@ -439,6 +442,29 @@ function canonicalizeMainPlanningGit(raw) {
   }
   canonical.sha = canonical.sha.toLowerCase();
   return canonical;
+}
+
+function canonicalizeActiveCensusGit(raw, deploySha) {
+  const sha = canonicalizeInventoryGitSha(
+    raw,
+    "Active state inspected deployment",
+  );
+  if (sha === null || sha !== deploySha) {
+    throw new Error(
+      "Active state inspected deployment SHA does not match census",
+    );
+  }
+  const observed = canonicalizeMainPlanningGit(raw);
+  const hasCompleteObservedIdentity =
+    observed !== null &&
+    Object.keys(observed).length === CANONICAL_GIT_KEYS.length &&
+    observed.sha === sha;
+  return {
+    org: hasCompleteObservedIdentity ? observed.org : null,
+    repo: hasCompleteObservedIdentity ? observed.repo : null,
+    ref: hasCompleteObservedIdentity ? observed.ref : null,
+    sha,
+  };
 }
 
 function assertExpected(actual, expected, label) {
@@ -1344,11 +1370,8 @@ export class VercelStateClient {
     ) {
       throw new Error("Legacy App v2 alias mapping changed during inspection");
     }
-    if (deploymentResponse?.source !== "git") {
-      throw new Error("Legacy App v2 ownership is unproven");
-    }
     return {
-      source: "git",
+      ownership: "native-vercel-git",
       state: canonicalizeDeploymentState({
         alias: spec.alias,
         aliasResponse: confirmedAliasResponse,
@@ -1934,7 +1957,7 @@ export function assertActiveDeploymentStateSpec(spec) {
   return spec;
 }
 
-function canonicalActiveDeploymentIdentity(entry) {
+function canonicalActiveDeploymentIdentity(entry, deploySha) {
   if (
     !entry ||
     typeof entry !== "object" ||
@@ -1949,7 +1972,22 @@ function canonicalActiveDeploymentIdentity(entry) {
     "Active deployment requested ID",
   );
   const raw = entry.response;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Active state inspected deployment is malformed");
+  }
+  const git = canonicalizeActiveCensusGit(raw, deploySha);
+  const malformedIdentity = {
+    deploymentId: null,
+    deploymentUrl: null,
+    projectId: null,
+    projectName: null,
+    readyState: null,
+    target: null,
+    customEnvironmentSlug: null,
+    git,
+    source: null,
+    meta: null,
+  };
   try {
     const deploymentId = requireDeploymentId(
       consistentString("ID", [raw.id, raw.uid]),
@@ -1985,7 +2023,6 @@ function canonicalActiveDeploymentIdentity(entry) {
       }
       customEnvironmentSlug = raw.customEnvironment.slug;
     }
-    const git = canonicalizeGit(raw);
     const source =
       typeof raw.source === "string" && /^[a-z][a-z-]*$/.test(raw.source)
         ? raw.source
@@ -2007,11 +2044,11 @@ function canonicalActiveDeploymentIdentity(entry) {
       meta,
     };
   } catch {
-    return null;
+    return malformedIdentity;
   }
 }
 
-function matchesActiveProjectIdentity(identity, project, deploySha) {
+function matchesActiveProjectTopology(identity, project, deploySha) {
   return (
     identity !== null &&
     identity.projectId === project.projectId &&
@@ -2019,6 +2056,13 @@ function matchesActiveProjectIdentity(identity, project, deploySha) {
     identity.readyState === "READY" &&
     identity.target === project.target &&
     identity.customEnvironmentSlug === project.customEnvironmentSlug &&
+    identity.git.sha === deploySha
+  );
+}
+
+function matchesCanonicalMainCandidate(identity, project, deploySha) {
+  return (
+    matchesActiveProjectTopology(identity, project, deploySha) &&
     identity.git.org === "mento-protocol" &&
     identity.git.repo === "frontend-monorepo" &&
     identity.git.ref === "main" &&
@@ -2028,7 +2072,6 @@ function matchesActiveProjectIdentity(identity, project, deploySha) {
 
 function hasExpectedGitHubMetadata(identity, logicalTarget, spec) {
   if (
-    identity.source !== "cli" ||
     identity.meta === null ||
     Object.hasOwn(identity.meta, "githubDeployment")
   ) {
@@ -2086,18 +2129,20 @@ function matchesLegacyV2Identity(identity, legacy) {
     identity.git.org === "mento-protocol" &&
     identity.git.repo === "frontend-monorepo" &&
     identity.git.ref === "v2" &&
-    identity.git.sha === legacy.git.sha &&
-    identity.source === "git"
+    identity.git.sha === legacy.git.sha
   );
 }
 
 function canonicalLegacyV2Proof(spec, legacyV2) {
-  if (
-    !legacyV2 ||
-    typeof legacyV2 !== "object" ||
-    Array.isArray(legacyV2) ||
-    legacyV2.source !== "git"
-  ) {
+  if (!legacyV2 || typeof legacyV2 !== "object" || Array.isArray(legacyV2)) {
+    throw new Error("Legacy App v2 state is unproven");
+  }
+  assertExactKeys(
+    legacyV2,
+    ["ownership", "state"],
+    "Legacy App v2 capture proof",
+  );
+  if (legacyV2.ownership !== "native-vercel-git") {
     throw new Error("Legacy App v2 state is unproven");
   }
   const state = assertCanonicalOutput(legacyV2.state);
@@ -2129,6 +2174,25 @@ function canonicalLegacyV2Proof(spec, legacyV2) {
     git: { ...state.git },
     ownership: "native-vercel-git",
   };
+}
+
+function matchesReleaseRollbackPrior(identity, logicalTarget, spec) {
+  const prior = spec.releaseManifest.originalPriors[logicalTarget];
+  const project = spec.projects[logicalTarget];
+  return (
+    identity !== null &&
+    prior.servedSha === spec.deploySha &&
+    identity.deploymentId === prior.deploymentId &&
+    identity.deploymentUrl === prior.deploymentUrl &&
+    identity.projectId === prior.projectId &&
+    identity.projectName === prior.projectName &&
+    identity.projectId === project.projectId &&
+    identity.projectName === project.projectName &&
+    identity.readyState === "READY" &&
+    identity.target === project.target &&
+    identity.customEnvironmentSlug === project.customEnvironmentSlug &&
+    identity.git.sha === prior.servedSha
+  );
 }
 
 function sortedUniqueIds(values, label) {
@@ -2192,7 +2256,10 @@ export function createActiveDeploymentStateProof({
         );
       }
       seenIds.add(requestedId);
-      const identity = canonicalActiveDeploymentIdentity(entry);
+      const identity = canonicalActiveDeploymentIdentity(
+        entry,
+        canonicalSpec.deploySha,
+      );
       let classification = "unknown";
       if (
         logicalTarget === "app" &&
@@ -2201,21 +2268,27 @@ export function createActiveDeploymentStateProof({
       ) {
         classification = "legacyV2";
       } else if (
-        matchesActiveProjectIdentity(identity, project, canonicalSpec.deploySha)
+        matchesActiveProjectTopology(identity, project, canonicalSpec.deploySha)
       ) {
         if (
+          matchesCanonicalMainCandidate(
+            identity,
+            project,
+            canonicalSpec.deploySha,
+          ) &&
           identity.deploymentId === project.deploymentId &&
           identity.deploymentUrl === project.deploymentUrl &&
           hasExpectedGitHubMetadata(identity, logicalTarget, canonicalSpec)
         ) {
           classification = project.expectedDisposition;
-        } else if (identity.source === "git") {
-          classification = "nativeGitOwner";
         } else if (
-          identity.source === "cli" &&
-          identity.meta !== null &&
-          !Object.hasOwn(identity.meta, "githubDeployment")
+          matchesReleaseRollbackPrior(identity, logicalTarget, canonicalSpec)
         ) {
+          classification =
+            canonicalSpec.mainOwnershipMode[logicalTarget] === "shadow"
+              ? "nativeGitOwner"
+              : "nativeGitDuplicates";
+        } else {
           classification = "manualDuplicates";
         }
       }
@@ -2266,6 +2339,14 @@ export function createActiveDeploymentStateProof({
       expectedDisposition: project.expectedDisposition,
       expectedDeploymentId: project.deploymentId,
       expectedDeploymentUrl: project.deploymentUrl,
+      priorDeploymentId:
+        canonicalSpec.releaseManifest.originalPriors[logicalTarget]
+          .deploymentId,
+      priorDeploymentUrl:
+        canonicalSpec.releaseManifest.originalPriors[logicalTarget]
+          .deploymentUrl,
+      priorServedSha:
+        canonicalSpec.releaseManifest.originalPriors[logicalTarget].servedSha,
       counts,
       ids,
       records,
@@ -2285,7 +2366,8 @@ export function createActiveDeploymentStateProof({
         ids.githubShadowStage[0] === project.deploymentId) &&
       counts.nativeGitOwner <=
         (canonicalSpec.mainOwnershipMode[logicalTarget] === "shadow" ? 1 : 0) &&
-      counts.nativeGitDuplicates === 0 &&
+      counts.nativeGitDuplicates <=
+        (canonicalSpec.mainOwnershipMode[logicalTarget] === "github" ? 1 : 0) &&
       counts.manualDuplicates === 0 &&
       counts.unknown === 0
     );
@@ -2335,24 +2417,31 @@ function assertActiveDeploymentRecord(record, label) {
   ) {
     throw new Error(`${label} identity is malformed`);
   }
-  if (record.git !== null) {
-    assertExactKeys(record.git, CANONICAL_GIT_KEYS, `${label} Git identity`);
-    if (
-      record.git.org !== "mento-protocol" ||
-      record.git.repo !== "frontend-monorepo" ||
-      typeof record.git.ref !== "string" ||
-      record.git.ref.length === 0 ||
-      typeof record.git.sha !== "string" ||
-      !SHA_PATTERN.test(record.git.sha) ||
-      record.git.sha !== record.git.sha.toLowerCase()
-    ) {
-      throw new Error(`${label} Git identity is malformed`);
-    }
+  if (record.git === null) {
+    throw new Error(`${label} Git identity is missing`);
+  }
+  assertExactKeys(record.git, CANONICAL_GIT_KEYS, `${label} Git identity`);
+  if (
+    (record.git.org !== null &&
+      (typeof record.git.org !== "string" ||
+        !/^[A-Za-z0-9._-]+$/.test(record.git.org))) ||
+    (record.git.repo !== null &&
+      (typeof record.git.repo !== "string" ||
+        !/^[A-Za-z0-9._-]+$/.test(record.git.repo))) ||
+    (record.git.ref !== null &&
+      (typeof record.git.ref !== "string" ||
+        !/^[A-Za-z0-9._/-]+$/.test(record.git.ref) ||
+        record.git.ref.includes(".."))) ||
+    typeof record.git.sha !== "string" ||
+    !SHA_PATTERN.test(record.git.sha) ||
+    record.git.sha !== record.git.sha.toLowerCase()
+  ) {
+    throw new Error(`${label} Git identity is malformed`);
   }
   return record;
 }
 
-function recordMatchesActiveProject(record, project, deploySha) {
+function recordMatchesActiveProjectTopology(record, project, deploySha) {
   return (
     record.deploymentUrl !== null &&
     record.projectId === project.projectId &&
@@ -2360,6 +2449,13 @@ function recordMatchesActiveProject(record, project, deploySha) {
     record.readyState === "READY" &&
     record.target === project.target &&
     record.customEnvironmentSlug === project.customEnvironmentSlug &&
+    record.git.sha === deploySha
+  );
+}
+
+function recordMatchesCanonicalMainCandidate(record, project, deploySha) {
+  return (
+    recordMatchesActiveProjectTopology(record, project, deploySha) &&
     record.git?.org === "mento-protocol" &&
     record.git.repo === "frontend-monorepo" &&
     record.git.ref === "main" &&
@@ -2422,6 +2518,8 @@ export function assertActiveDeploymentStateProof(value) {
   const projectIds = new Set();
   const expectedDeploymentIds = new Set();
   const expectedDeploymentUrls = new Set();
+  const priorDeploymentIds = new Set();
+  const priorDeploymentUrls = new Set();
   const classifiedDeploymentIds = new Set();
   for (const logicalTarget of ACTIVE_STATE_TARGETS) {
     const project = value.projects[logicalTarget];
@@ -2442,6 +2540,24 @@ export function assertActiveDeploymentStateProof(value) {
     );
     let expectedDeploymentId = null;
     let expectedDeploymentUrl = null;
+    const priorDeploymentId = requireDeploymentId(
+      project.priorDeploymentId,
+      `${logicalTarget} active proof prior deployment ID`,
+    );
+    const priorDeploymentUrl = canonicalizeDeploymentUrl(
+      project.priorDeploymentUrl,
+    );
+    const priorServedSha = project.priorServedSha;
+    if (
+      priorServedSha !== null &&
+      (typeof priorServedSha !== "string" ||
+        !SHA_PATTERN.test(priorServedSha) ||
+        priorServedSha !== priorServedSha.toLowerCase())
+    ) {
+      throw new Error(
+        `${logicalTarget} active proof prior served SHA is malformed`,
+      );
+    }
     if (expectedDisposition === null) {
       if (
         project.expectedDeploymentId !== null ||
@@ -2468,17 +2584,24 @@ export function assertActiveDeploymentStateProof(value) {
       project.mainOwnershipMode !== mainOwnershipMode[logicalTarget] ||
       project.expectedDisposition !== expectedDisposition ||
       expectedDeploymentUrl !== project.expectedDeploymentUrl ||
+      priorDeploymentUrl !== project.priorDeploymentUrl ||
       projectIds.has(projectId) ||
+      priorDeploymentIds.has(priorDeploymentId) ||
+      priorDeploymentUrls.has(priorDeploymentUrl) ||
       (expectedDeploymentId !== null &&
-        expectedDeploymentIds.has(expectedDeploymentId)) ||
+        (expectedDeploymentIds.has(expectedDeploymentId) ||
+          expectedDeploymentId === priorDeploymentId)) ||
       (expectedDeploymentUrl !== null &&
-        expectedDeploymentUrls.has(expectedDeploymentUrl))
+        (expectedDeploymentUrls.has(expectedDeploymentUrl) ||
+          expectedDeploymentUrl === priorDeploymentUrl))
     ) {
       throw new Error(
         `${logicalTarget} active deployment state proof is malformed`,
       );
     }
     projectIds.add(projectId);
+    priorDeploymentIds.add(priorDeploymentId);
+    priorDeploymentUrls.add(priorDeploymentUrl);
     if (expectedDeploymentId !== null) {
       expectedDeploymentIds.add(expectedDeploymentId);
     }
@@ -2528,7 +2651,7 @@ export function assertActiveDeploymentStateProof(value) {
         if (
           classification !== "unknown" &&
           classification !== "legacyV2" &&
-          !recordMatchesActiveProject(record, project, value.deploySha)
+          !recordMatchesActiveProjectTopology(record, project, value.deploySha)
         ) {
           throw new Error(
             `${logicalTarget} ${classification} deployment record is malformed`,
@@ -2538,15 +2661,25 @@ export function assertActiveDeploymentStateProof(value) {
           (["githubPrebuilt", "githubShadowStage"].includes(classification) &&
             (record.deploymentId !== expectedDeploymentId ||
               record.deploymentUrl !== expectedDeploymentUrl ||
-              record.source !== "cli" ||
+              !recordMatchesCanonicalMainCandidate(
+                record,
+                project,
+                value.deploySha,
+              ) ||
               record.workflowMetadataMatches !== true)) ||
-          (["nativeGitOwner", "nativeGitDuplicates"].includes(classification) &&
-            record.source !== "git") ||
-          (classification === "manualDuplicates" && record.source !== "cli") ||
+          (classification === "nativeGitOwner" &&
+            (mainOwnershipMode[logicalTarget] !== "shadow" ||
+              priorServedSha !== value.deploySha ||
+              record.deploymentId !== priorDeploymentId ||
+              record.deploymentUrl !== priorDeploymentUrl)) ||
+          (classification === "nativeGitDuplicates" &&
+            (mainOwnershipMode[logicalTarget] !== "github" ||
+              priorServedSha !== value.deploySha ||
+              record.deploymentId !== priorDeploymentId ||
+              record.deploymentUrl !== priorDeploymentUrl)) ||
           (classification === "legacyV2" &&
             (logicalTarget !== "app" ||
-              record.deploymentId !== value.legacyAppV2.deploymentId ||
-              record.source !== "git"))
+              record.deploymentId !== value.legacyAppV2.deploymentId))
         ) {
           throw new Error(
             `${logicalTarget} ${classification} deployment classification is malformed`,
@@ -2581,8 +2714,8 @@ export function assertActiveDeploymentStateProof(value) {
         `${logicalTarget} active deployment state proof count is malformed`,
       );
     }
-    // Native same-SHA ownership is observational. It is allowed only under
-    // shadow ownership and never satisfies the required GitHub disposition
+    // An exact manifest-bound rollback prior may remain in the same-SHA census
+    // after replacement. It never satisfies the required GitHub disposition
     // or the separate protected-mapping proof.
     proven &&=
       project.counts.githubPrebuilt ===
@@ -2595,7 +2728,8 @@ export function assertActiveDeploymentStateProof(value) {
         project.ids.githubShadowStage[0] === expectedDeploymentId) &&
       project.counts.nativeGitOwner <=
         (mainOwnershipMode[logicalTarget] === "shadow" ? 1 : 0) &&
-      project.counts.nativeGitDuplicates === 0 &&
+      project.counts.nativeGitDuplicates <=
+        (mainOwnershipMode[logicalTarget] === "github" ? 1 : 0) &&
       project.counts.manualDuplicates === 0 &&
       project.counts.unknown === 0;
   }
@@ -2648,7 +2782,6 @@ export function assertActiveDeploymentStateProof(value) {
         record.customEnvironmentSlug !==
           value.legacyAppV2.customEnvironmentSlug ||
         JSON.stringify(record.git) !== JSON.stringify(value.legacyAppV2.git) ||
-        record.source !== "git" ||
         record.workflowMetadataMatches !== false,
     ) ||
     ACTIVE_STATE_TARGETS.filter((target) => target !== "app").some(

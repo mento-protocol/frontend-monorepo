@@ -25,7 +25,9 @@ import {
   MAIN_ACTIVE_CURRENT_RELEASE_EVIDENCE_SCHEMA,
   MAIN_ACTIVE_EVIDENCE_SCHEMA,
   MAIN_ACTIVE_FAILURE_EVIDENCE_SCHEMA,
+  MAIN_ACTIVE_JOURNAL_HISTORY_MAX_JSON_BYTES,
   MAIN_ACTIVE_SAFE_NOOP_EVIDENCE_SCHEMA,
+  MAIN_ACTIVE_TERMINAL_PROOFS_MAX_JSON_BYTES,
   MAIN_ACTIVE_TERMINAL_PROOFS_SCHEMA,
   MAIN_DEPLOYMENT_MODE,
   MAIN_DEPLOYMENT_SCHEMA,
@@ -125,6 +127,7 @@ import {
   generateVercelDeploymentId,
   generateVercelMainCandidateDeploymentId,
 } from "./vercel-prebuilt.mjs";
+import { MAIN_DEPLOYMENT_TARGETS } from "./vercel-main-plan.mjs";
 
 const SHA = "dddddddddddddddddddddddddddddddddddddddd";
 const OTHER_SHA = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
@@ -233,6 +236,7 @@ function plan({
     projectIds,
     planningSnapshot: planningSnapshot(),
     legacySnapshot: legacySnapshot(),
+    rollbackOnlyTargets: [],
     upstream: upstream(),
     gitAdapter: gitAdapter(),
     runPlanner: ({ base, head }) => ({
@@ -306,6 +310,7 @@ function releaseExecutionForPlan(deploymentPlan) {
   const selection = createMainReleaseSelection({
     providerDiscoveryDigest: "f".repeat(64),
     planningSnapshotDigest: "e".repeat(64),
+    rollbackOnlyTargets: manifest.rollbackOnlyTargets,
     legacyAppV2,
     projectIds: Object.fromEntries(
       ["governance", "reserve", "ui", "app"].map((target) => [
@@ -756,7 +761,7 @@ function activeStateProof({
     spec,
     deployments,
     legacyV2: {
-      source: "git",
+      ownership: "native-vercel-git",
       state: {
         alias: spec.legacyAppV2.alias,
         deploymentId: spec.legacyAppV2.deployment,
@@ -2297,6 +2302,91 @@ test("plan handoff binds upstream receipt, protected state, served-SHA plan, and
   );
 });
 
+test("legacy plan CLI conservatively selects every rollback-only main target", () => {
+  const directory = mkdtempSync(join(tmpdir(), "vercel-main-plan-"));
+  try {
+    const sourcePath = fileURLToPath(new URL("..", import.meta.url));
+    const head = spawnSync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
+      cwd: sourcePath,
+      encoding: "utf8",
+    });
+    assert.equal(head.status, 0, head.stderr);
+
+    const planPath = join(directory, "plan.json");
+    const planningSnapshotPath = join(directory, "planning-snapshot.json");
+    const legacySnapshotPath = join(directory, "legacy-snapshot.json");
+    const githubOutput = join(directory, "github-output");
+    writeFileSync(planningSnapshotPath, JSON.stringify(planningSnapshot()));
+    writeFileSync(legacySnapshotPath, JSON.stringify(legacySnapshot()));
+    writeFileSync(githubOutput, "");
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        fileURLToPath(new URL("./vercel-main-deployment.mjs", import.meta.url)),
+        "plan",
+        "--planning-snapshot",
+        planningSnapshotPath,
+        "--legacy-snapshot",
+        legacySnapshotPath,
+        "--output",
+        planPath,
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          VERCEL_MAIN_MODE: MAIN_ACTIVE_DEPLOYMENT_MODE,
+          MAIN_OWNERSHIP_MODE_JSON: JSON.stringify(
+            Object.fromEntries(
+              MAIN_DEPLOYMENT_TARGETS.map((target) => [
+                target,
+                MAIN_OWNERSHIP_MODES.GITHUB,
+              ]),
+            ),
+          ),
+          DEPLOY_SHA: head.stdout.trim(),
+          VERCEL_PROJECT_ID_APP: projectIds.app,
+          VERCEL_PROJECT_ID_GOVERNANCE: projectIds.governance,
+          VERCEL_PROJECT_ID_RESERVE: projectIds.reserve,
+          VERCEL_PROJECT_ID_UI: projectIds.ui,
+          UPSTREAM_RUN_ID: "123456",
+          UPSTREAM_RUN_ATTEMPT: "2",
+          UPSTREAM_RUN_URL:
+            "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123456",
+          BUILD_AND_TEST_JOB_URL:
+            "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123456/job/654321",
+          SOURCE_PATH: sourcePath,
+          GITHUB_OUTPUT: githubOutput,
+        },
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+
+    const handoff = JSON.parse(readFileSync(planPath, "utf8"));
+    assert.deepEqual(handoff.planning.plan, [...MAIN_DEPLOYMENT_TARGETS]);
+    assert.deepEqual(handoff.planning.stagedTargets, [
+      ...MAIN_DEPLOYMENT_TARGETS,
+    ]);
+    assert.deepEqual(handoff.planning.activeTargets, [
+      ...MAIN_DEPLOYMENT_TARGETS,
+    ]);
+    assert.deepEqual(handoff.planning.shadowTargets, []);
+    assert.deepEqual(
+      handoff.planning.reasons,
+      MAIN_DEPLOYMENT_TARGETS.map((target) => ({
+        target,
+        reason: "served-mapping-rollback-only",
+        base: handoff.planning.priors.find((prior) => prior.target === target)
+          .servedSha,
+      })),
+    );
+    assert.deepEqual(handoff.planning.ranges, []);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 for (const [name, mutate, reason] of [
   [
     "missing Git",
@@ -2367,6 +2457,7 @@ for (const [name, mutate, reason] of [
       projectIds,
       planningSnapshot: snapshot,
       legacySnapshot: legacySnapshot(),
+      rollbackOnlyTargets: [],
       upstream: upstream(),
       gitAdapter: gitAdapter(),
       runPlanner: ({ base, head }) => ({
@@ -2528,6 +2619,7 @@ test("protected rollback identity remains stable while ordinary generated aliase
         projectIds,
         planningSnapshot: planningSnapshot(),
         legacySnapshot: incompleteLegacyTopology,
+        rollbackOnlyTargets: [],
         upstream: upstream(),
         gitAdapter: gitAdapter(),
         runPlanner: ({ base, head }) => ({
@@ -2668,6 +2760,7 @@ test("protected rollback identity remains stable while ordinary generated aliase
       projectIds,
       planningSnapshot: captured,
       legacySnapshot: legacySnapshot(),
+      rollbackOnlyTargets: [],
       upstream: upstream(),
       gitAdapter: gitAdapter(),
       runPlanner: ({ base, head }) => ({
@@ -3306,7 +3399,7 @@ test("active controller commits exact ordered mutations and emits canonical reda
   assert.equal(evidence.finalMappings.length, 9);
   assert.equal(
     evidence.stateProofSummary.proofSchema,
-    "vercel-active-deployment-state-proof:v3",
+    "vercel-active-deployment-state-proof:v4",
   );
   assert.deepEqual(evidence.recovery.rollbackStateTargets, []);
   assert.match(
@@ -3397,6 +3490,29 @@ test("execution-bound terminal artifacts derive committed and verified-noop proo
   assert.deepEqual(
     assertMainActiveTerminalProofs(committedArtifacts.proofs).journal.artifact,
     committed.journalHistory,
+  );
+  const tamperedPriorProof = structuredClone(committedTerminalStateProof);
+  tamperedPriorProof.deploymentStateProof.projects.governance.priorDeploymentId =
+    "dpl_otherGovernancePrior123";
+  assert.throws(
+    () =>
+      createMainActiveTerminalArtifacts({
+        execution: committedExecution,
+        outcome: "active-committed",
+        journalHistory: activeHistoryDocument(committed.journalHistory),
+        finalMappings: providerMappings(
+          committedExecution,
+          activeFinalMappings(committedHarness),
+        ),
+        publicSmokes: activePublicSmokes(committed),
+        stateProof: tamperedPriorProof,
+        finalCensus: tamperedPriorProof,
+        freshLegacyV2: committedHarness.plan.legacySnapshot,
+        freshness: null,
+        runId: "800",
+        runAttempt: "3",
+      }),
+    /deployment state proof prior conflicts/,
   );
 
   const noopPlan = activePlan({ deployments: ["governance"] });
@@ -4217,6 +4333,12 @@ test("terminal evidence CLI creates a bounded receipt and restores committed evi
       stateProof,
       execution,
     });
+    const canonicalProofJson = `${JSON.stringify(proofs)}\n`;
+    const canonicalProofBytes = Buffer.byteLength(canonicalProofJson, "utf8");
+    assert.ok(
+      canonicalProofBytes <= MAIN_ACTIVE_TERMINAL_PROOFS_MAX_JSON_BYTES,
+      `canonical terminal proofs use ${canonicalProofBytes} bytes`,
+    );
     assert.equal(
       assertMainActiveTerminalProofs(proofs).outcome,
       "active-committed",
@@ -4259,6 +4381,101 @@ test("terminal evidence CLI creates a bounded receipt and restores committed evi
           repository: "mento-protocol/frontend-monorepo",
         }),
       /final census proof conflicts with canonical evidence/,
+    );
+
+    let recoveryJournal = startMainTransactionRecovery(
+      transaction.journalHistory.at(-2),
+    );
+    const maximalRecoveryHistory = [
+      ...transaction.journalHistory.slice(0, -1),
+      recoveryJournal,
+    ];
+    const maximalRecoveryIntents = [
+      ...["governance", "reserve", "ui"].map((target) => ({
+        type: "ordinary_rollback",
+        target,
+        alias: null,
+      })),
+      ...recoveryJournal.prior.app.aliases.map((alias) => ({
+        type: "app_alias_restore",
+        target: "app",
+        alias,
+      })),
+      ...recoveryJournal.prior["legacy-app"].aliases.map((alias) => ({
+        type: "legacy_emergency_restore",
+        target: "legacy-app",
+        alias,
+      })),
+    ];
+    for (const intent of maximalRecoveryIntents) {
+      recoveryJournal = startMainTransactionOperation(recoveryJournal, intent);
+      maximalRecoveryHistory.push(recoveryJournal);
+      const operationId = recoveryJournal.operations.at(-1).operationId;
+      recoveryJournal = recordMainTransactionCommandReturned(recoveryJournal, {
+        operationId,
+        outcome: "success",
+      });
+      maximalRecoveryHistory.push(recoveryJournal);
+      recoveryJournal = recordMainTransactionVerified(recoveryJournal, {
+        operationId,
+        mappingState: "prior",
+        rollbackState: intent.type === "ordinary_rollback" ? "entered" : null,
+      });
+      maximalRecoveryHistory.push(recoveryJournal);
+    }
+    recoveryJournal = finishMainTransactionRecovery(recoveryJournal);
+    maximalRecoveryHistory.push(recoveryJournal);
+    assertMainActiveJournalHistory({
+      journals: maximalRecoveryHistory,
+      deploySha: SHA,
+      runId: "800",
+      runAttempt: "3",
+    });
+    const maximalHistoryDocument = activeHistoryDocument(
+      maximalRecoveryHistory,
+    );
+    const maximalHistoryJson = `${JSON.stringify(maximalHistoryDocument)}\n`;
+    const maximalHistoryBytes = Buffer.byteLength(maximalHistoryJson, "utf8");
+    assert.ok(
+      maximalHistoryBytes > 256 * 1024,
+      `maximal journal history unexpectedly uses only ${maximalHistoryBytes} bytes`,
+    );
+    assert.ok(
+      maximalHistoryBytes <= MAIN_ACTIVE_JOURNAL_HISTORY_MAX_JSON_BYTES,
+      `maximal journal history uses ${maximalHistoryBytes} bytes`,
+    );
+    const maximalPriorMappings = Object.values(recoveryJournal.prior).flatMap(
+      (prior) => prior.aliases.map((alias) => mapping(alias, prior)),
+    );
+    const maximalRecoveryStateProof = activeStateProof({
+      deploymentPlan: harness.plan,
+      journalHistory: maximalRecoveryHistory,
+      jobs: harness.stageJobs,
+      runId: "800",
+      runAttempt: "3",
+    });
+    const maximalRecoveryArtifacts = createMainActiveTerminalArtifacts({
+      execution,
+      outcome: "recovered",
+      journalHistory: maximalHistoryDocument,
+      finalMappings: providerMappings(execution, maximalPriorMappings),
+      publicSmokes: priorPublicSmokes(execution),
+      stateProof: maximalRecoveryStateProof,
+      finalCensus: maximalRecoveryStateProof,
+      freshLegacyV2: harness.plan.legacySnapshot,
+      freshness: null,
+      runId: "800",
+      runAttempt: "3",
+    });
+    const maximalProofJson = `${JSON.stringify(maximalRecoveryArtifacts.proofs)}\n`;
+    const maximalProofBytes = Buffer.byteLength(maximalProofJson, "utf8");
+    assert.ok(
+      maximalProofBytes > 512 * 1024,
+      `maximal recovery proofs unexpectedly use only ${maximalProofBytes} bytes`,
+    );
+    assert.ok(
+      maximalProofBytes <= MAIN_ACTIVE_TERMINAL_PROOFS_MAX_JSON_BYTES,
+      `maximal recovery proofs use ${maximalProofBytes} bytes`,
     );
 
     const executionPath = join(directory, "execution.json");
@@ -4324,6 +4541,160 @@ test("terminal evidence CLI creates a bounded receipt and restores committed evi
     assert.ok(Buffer.byteLength(createResult.encodedEvidence) < 64 * 1024);
     assert.equal(statSync(receiptPath).mode & 0o777, 0o600);
     assert.equal(statSync(terminalEvidencePath).mode & 0o777, 0o600);
+    const maximalHistoryPath = join(directory, "maximal-journal-history.json");
+    writeFileSync(maximalHistoryPath, maximalHistoryJson);
+    await runMainDeploymentCli({
+      argv: [
+        "active-recovery-mapping-spec",
+        "--journal-history",
+        maximalHistoryPath,
+        "--output",
+        join(directory, "maximal-recovery-mapping-spec.json"),
+      ],
+      values: {
+        DEPLOY_SHA: SHA,
+        GITHUB_RUN_ID: "800",
+        GITHUB_RUN_ATTEMPT: "3",
+      },
+    });
+    const oversizedHistoryPath = join(
+      directory,
+      "oversized-journal-history.json",
+    );
+    writeFileSync(
+      oversizedHistoryPath,
+      `${maximalHistoryJson}${" ".repeat(
+        MAIN_ACTIVE_JOURNAL_HISTORY_MAX_JSON_BYTES - maximalHistoryBytes + 1,
+      )}`,
+    );
+    await assert.rejects(
+      runMainDeploymentCli({
+        argv: [
+          "active-recovery-mapping-spec",
+          "--journal-history",
+          oversizedHistoryPath,
+          "--output",
+          join(directory, "oversized-recovery-mapping-spec.json"),
+        ],
+        values: {
+          DEPLOY_SHA: SHA,
+          GITHUB_RUN_ID: "800",
+          GITHUB_RUN_ATTEMPT: "3",
+        },
+      }),
+      /Active recovery mapping-spec journal history exceeds its size limit/,
+    );
+    const maximalProofPath = join(directory, "maximal-recovery-proofs.json");
+    const maximalEvidencePath = join(
+      directory,
+      "maximal-recovery-active-evidence.json",
+    );
+    writeFileSync(maximalProofPath, maximalProofJson);
+    writeFileSync(
+      maximalEvidencePath,
+      `${JSON.stringify(maximalRecoveryArtifacts.evidence)}\n`,
+    );
+    const maximalGithubOutput = join(
+      directory,
+      "github-output-maximal-recovery",
+    );
+    writeFileSync(maximalGithubOutput, "");
+    const maximalCreateResult = await runMainDeploymentCli({
+      argv: [
+        "terminal-evidence-create",
+        "--active-evidence",
+        maximalEvidencePath,
+        "--evidence-output",
+        join(directory, "maximal-recovery-terminal-evidence.json"),
+        "--execution",
+        executionPath,
+        "--manifest",
+        manifestPath,
+        "--proofs",
+        maximalProofPath,
+        "--receipt-output",
+        join(directory, "maximal-recovery-receipt.json"),
+      ],
+      values: {
+        DEPLOY_SHA: SHA,
+        UPSTREAM_RUN_ID: "123456",
+        UPSTREAM_RUN_ATTEMPT: "2",
+        GITHUB_RUN_ID: "800",
+        GITHUB_RUN_ATTEMPT: "3",
+        GITHUB_REPOSITORY: "mento-protocol/frontend-monorepo",
+        GITHUB_OUTPUT: maximalGithubOutput,
+      },
+    });
+    assert.equal(maximalCreateResult.receipt.outcome, "recovered");
+    const boundaryProofPath = join(directory, "proofs-at-size-limit.json");
+    const boundaryBytes =
+      MAIN_ACTIVE_TERMINAL_PROOFS_MAX_JSON_BYTES - maximalProofBytes;
+    writeFileSync(
+      boundaryProofPath,
+      `${maximalProofJson}${" ".repeat(boundaryBytes)}`,
+    );
+    const boundaryGithubOutput = join(directory, "github-output-at-size-limit");
+    writeFileSync(boundaryGithubOutput, "");
+    await runMainDeploymentCli({
+      argv: [
+        "terminal-evidence-create",
+        "--active-evidence",
+        maximalEvidencePath,
+        "--evidence-output",
+        join(directory, "terminal-evidence-at-size-limit.json"),
+        "--execution",
+        executionPath,
+        "--manifest",
+        manifestPath,
+        "--proofs",
+        boundaryProofPath,
+        "--receipt-output",
+        join(directory, "receipt-at-size-limit.json"),
+      ],
+      values: {
+        DEPLOY_SHA: SHA,
+        UPSTREAM_RUN_ID: "123456",
+        UPSTREAM_RUN_ATTEMPT: "2",
+        GITHUB_RUN_ID: "800",
+        GITHUB_RUN_ATTEMPT: "3",
+        GITHUB_REPOSITORY: "mento-protocol/frontend-monorepo",
+        GITHUB_OUTPUT: boundaryGithubOutput,
+      },
+    });
+    const oversizedProofPath = join(directory, "proofs-over-size-limit.json");
+    writeFileSync(
+      oversizedProofPath,
+      `${maximalProofJson}${" ".repeat(boundaryBytes + 1)}`,
+    );
+    await assert.rejects(
+      runMainDeploymentCli({
+        argv: [
+          "terminal-evidence-create",
+          "--active-evidence",
+          maximalEvidencePath,
+          "--evidence-output",
+          join(directory, "terminal-evidence-over-size-limit.json"),
+          "--execution",
+          executionPath,
+          "--manifest",
+          manifestPath,
+          "--proofs",
+          oversizedProofPath,
+          "--receipt-output",
+          join(directory, "receipt-over-size-limit.json"),
+        ],
+        values: {
+          DEPLOY_SHA: SHA,
+          UPSTREAM_RUN_ID: "123456",
+          UPSTREAM_RUN_ATTEMPT: "2",
+          GITHUB_RUN_ID: "800",
+          GITHUB_RUN_ATTEMPT: "3",
+          GITHUB_REPOSITORY: "mento-protocol/frontend-monorepo",
+          GITHUB_OUTPUT: boundaryGithubOutput,
+        },
+      }),
+      /Canonical active terminal proofs exceeds its size limit/,
+    );
     const outputs = Object.fromEntries(
       readFileSync(githubOutput, "utf8")
         .trim()
@@ -4398,6 +4769,7 @@ test("terminal evidence CLI creates a bounded receipt and restores committed evi
     const changedLegacySelection = createMainReleaseSelection({
       providerDiscoveryDigest: execution.selection.providerDiscoveryDigest,
       planningSnapshotDigest: execution.selection.planningSnapshotDigest,
+      rollbackOnlyTargets: execution.selection.rollbackOnlyTargets,
       legacyAppV2: changedLegacyAppV2,
       projectIds: execution.selection.projectIds,
       mode: execution.selection.mode,

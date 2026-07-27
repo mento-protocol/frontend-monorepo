@@ -13,11 +13,11 @@ import {
 } from "./vercel-deployment-url.mjs";
 import { generateVercelMainReleaseId } from "./vercel-prebuilt.mjs";
 
-const MAIN_RELEASE_MANIFEST_SCHEMA = "vercel-main-release-manifest:v1";
+const MAIN_RELEASE_MANIFEST_SCHEMA = "vercel-main-release-manifest:v2";
 const MAIN_RELEASE_RECONCILIATION_SCHEMA =
   "vercel-main-release-reconciliation:v1";
 const MAIN_PREPLAN_RECONCILIATION_SCHEMA =
-  "vercel-main-preplan-reconciliation:v1";
+  "vercel-main-preplan-reconciliation:v2";
 export const MAIN_RELEASE_ACTIVATION_ORDER = Object.freeze([
   "governance",
   "reserve",
@@ -40,6 +40,7 @@ const MANIFEST_KEYS = Object.freeze([
   "mainOwnershipMode",
   "stagedTargets",
   "activeTargets",
+  "rollbackOnlyTargets",
   "originalPriors",
   "releasePlanDigest",
 ]);
@@ -91,6 +92,7 @@ const PREPLAN_KEYS = Object.freeze([
   "schema",
   "decision",
   "reason",
+  "rollbackOnlyTargets",
   "reconciliation",
   "rollbackAuthorization",
 ]);
@@ -131,6 +133,34 @@ function canonicalTargets(value, label, { allowEmpty = false } = {}) {
     throw new Error(`${label} is not canonical`);
   }
   return canonical;
+}
+
+function canonicalRollbackOnlyTargets(value, label) {
+  if (
+    !Array.isArray(value) ||
+    value.some((target) => !MAIN_DEPLOYMENT_TARGETS.includes(target)) ||
+    new Set(value).size !== value.length
+  ) {
+    throw new Error(`${label} is malformed`);
+  }
+  const canonical = MAIN_DEPLOYMENT_TARGETS.filter((target) =>
+    value.includes(target),
+  );
+  if (JSON.stringify(value) !== JSON.stringify(canonical)) {
+    throw new Error(`${label} is not canonical`);
+  }
+  return canonical;
+}
+
+function assertFreshRollbackCoverage(manifest, rollbackOnlyTargets) {
+  const missing = rollbackOnlyTargets.filter(
+    (target) => !manifest.stagedTargets.includes(target),
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `Current main release omits fresh rollback-only targets: ${missing.join(", ")}`,
+    );
+  }
 }
 
 function canonicalOwnership(mode, mainOwnershipMode) {
@@ -364,6 +394,13 @@ export function createMainReleaseManifest({
   const canonicalActiveTargets = MAIN_RELEASE_ACTIVATION_ORDER.filter(
     (target) => canonicalPlan.activeTargets.includes(target),
   );
+  const rollbackOnlyTargets = MAIN_DEPLOYMENT_TARGETS.filter((target) =>
+    canonicalPlan.reasons.some(
+      (reason) =>
+        reason.target === target &&
+        reason.reason === "served-mapping-rollback-only",
+    ),
+  );
   const ownership = canonicalOwnership(
     canonicalPlan.mode,
     canonicalPlan.mainOwnershipMode,
@@ -378,6 +415,13 @@ export function createMainReleaseManifest({
       canonicalActiveTargets,
       "Main release manifest active targets",
     );
+  }
+  if (
+    rollbackOnlyTargets.some(
+      (target) => !canonicalStagedTargets.includes(target),
+    )
+  ) {
+    throw new Error("Main release rollback-only targets were not staged");
   }
   assertExactKeys(
     originalPriors,
@@ -423,6 +467,7 @@ export function createMainReleaseManifest({
     mainOwnershipMode: ownership.mainOwnershipMode,
     stagedTargets: canonicalStagedTargets,
     activeTargets: canonicalActiveTargets,
+    rollbackOnlyTargets,
     originalPriors: canonicalPriors,
     releasePlanDigest: digest(canonicalPlan),
   };
@@ -471,9 +516,14 @@ export function assertMainReleaseManifest(value) {
   const shadowTargets = stagedTargets.filter(
     (target) => !activeTargets.includes(target),
   );
+  const rollbackOnlyTargets = canonicalRollbackOnlyTargets(
+    value.rollbackOnlyTargets,
+    "Main release manifest rollback-only targets",
+  );
   if (
     activeTargets.some((target) => !ownership.githubTargets.includes(target)) ||
-    shadowTargets.some((target) => !ownership.shadowTargets.includes(target))
+    shadowTargets.some((target) => !ownership.shadowTargets.includes(target)) ||
+    rollbackOnlyTargets.some((target) => !stagedTargets.includes(target))
   ) {
     throw new Error("Main release manifest target ownership conflicts");
   }
@@ -513,6 +563,7 @@ export function assertMainReleaseManifest(value) {
     mainOwnershipMode: ownership.mainOwnershipMode,
     stagedTargets,
     activeTargets,
+    rollbackOnlyTargets,
     originalPriors,
     releasePlanDigest: value.releasePlanDigest,
   };
@@ -572,6 +623,7 @@ export function recomputeMainReleasePlan({
     deploySha: manifest.deploySha,
     projectIds,
     priorStates,
+    rollbackOnlyTargets: manifest.rollbackOnlyTargets,
     ...(repoRoot === undefined ? {} : { repoRoot }),
     ...(gitAdapter === undefined ? {} : { gitAdapter }),
     ...(runPlanner === undefined ? {} : { runPlanner }),
@@ -799,6 +851,7 @@ export function decideMainPreplanReconciliation({
   nextUpstreamRunId,
   candidateReleases,
   currentMappings,
+  rollbackOnlyTargets,
 }) {
   const canonicalNextSha = requireString(
     nextDeploySha,
@@ -815,6 +868,10 @@ export function decideMainPreplanReconciliation({
     commitSha: canonicalNextSha,
     upstreamRunId: canonicalNextUpstreamRunId,
   });
+  const canonicalRollbackOnly = canonicalRollbackOnlyTargets(
+    rollbackOnlyTargets,
+    "Fresh main rollback-only targets",
+  );
   assertExactKeys(
     currentMappings,
     MAIN_RELEASE_ACTIVATION_ORDER,
@@ -828,6 +885,7 @@ export function decideMainPreplanReconciliation({
       schema: MAIN_PREPLAN_RECONCILIATION_SCHEMA,
       decision: "capture-new-baseline",
       reason: "no-mapped-release-metadata",
+      rollbackOnlyTargets: canonicalRollbackOnly,
       reconciliation: null,
       rollbackAuthorization: null,
     };
@@ -866,6 +924,9 @@ export function decideMainPreplanReconciliation({
   const [reconciliation] = compatible;
   const { manifest } = reconciliation;
   const sameRelease = manifest.releaseId === expectedReleaseId;
+  if (sameRelease) {
+    assertFreshRollbackCoverage(manifest, canonicalRollbackOnly);
+  }
   if (reconciliation.allCandidate) {
     return {
       schema: MAIN_PREPLAN_RECONCILIATION_SCHEMA,
@@ -875,6 +936,7 @@ export function decideMainPreplanReconciliation({
       reason: sameRelease
         ? "current-main-release-already-complete"
         : "older-mapped-release-is-complete",
+      rollbackOnlyTargets: canonicalRollbackOnly,
       reconciliation,
       rollbackAuthorization: null,
     };
@@ -884,6 +946,7 @@ export function decideMainPreplanReconciliation({
       schema: MAIN_PREPLAN_RECONCILIATION_SCHEMA,
       decision: "resume-existing-release",
       reason: "current-main-release-is-an-interrupted-prefix",
+      rollbackOnlyTargets: canonicalRollbackOnly,
       reconciliation,
       rollbackAuthorization: null,
     };
@@ -892,6 +955,7 @@ export function decideMainPreplanReconciliation({
     schema: MAIN_PREPLAN_RECONCILIATION_SCHEMA,
     decision: "restore-before-planning",
     reason: "older-main-release-is-an-interrupted-prefix",
+    rollbackOnlyTargets: canonicalRollbackOnly,
     reconciliation,
     rollbackAuthorization: createInheritedRollbackAuthorization({
       reconciliation,
@@ -957,6 +1021,10 @@ export function assertMainPreplanReconciliation(
       POSITIVE_ID_PATTERN,
     ),
   });
+  const rollbackOnlyTargets = canonicalRollbackOnlyTargets(
+    value.rollbackOnlyTargets,
+    "Main pre-plan rollback-only targets",
+  );
   const reconciliation = canonicalEmbeddedReconciliation(value.reconciliation);
   let decision;
   let reason;
@@ -971,6 +1039,9 @@ export function assertMainPreplanReconciliation(
       );
     }
     const sameRelease = reconciliation.manifest.releaseId === expectedReleaseId;
+    if (sameRelease) {
+      assertFreshRollbackCoverage(reconciliation.manifest, rollbackOnlyTargets);
+    }
     if (reconciliation.allCandidate) {
       decision = sameRelease
         ? "verify-existing-release"
@@ -1002,6 +1073,7 @@ export function assertMainPreplanReconciliation(
     schema: MAIN_PREPLAN_RECONCILIATION_SCHEMA,
     decision,
     reason,
+    rollbackOnlyTargets,
     reconciliation,
     rollbackAuthorization,
   };

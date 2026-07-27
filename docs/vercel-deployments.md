@@ -93,6 +93,29 @@ conflicting, malformed, non-prefix, or incomplete provider state fails closed.
 GitHub artifacts and prior job history are not alternate cross-attempt
 authority.
 
+Vercel's optional deployment `source` field is diagnostic telemetry, not
+ownership authority. Every protected mapping without complete canonical Mento
+candidate metadata is rollback-only for a new baseline, regardless of its
+reported source, Git metadata, or served SHA. Provider discovery and the stable
+release manifest retain the exact rollback-only target set and its deployment
+ID, URL, project, environment, and served SHA for compensation. The planner
+selects those targets before served-SHA and path-aware planning, so an unmarked
+mapping cannot suppress reviewed GitHub preparation even when it reports
+`DEPLOY_SHA` or an ancestor with no runtime changes. Active-owned targets then
+replace the mapping; shadow-owned targets retain their non-mutation contract.
+Fresh discovery binds the rollback-only set into the preplan and execution
+artifacts. Same-release verify or resume is rejected if its manifest does not
+already stage every freshly rollback-only target, while a new baseline must
+persist exactly the discovered set. The standalone legacy planning command has
+no candidate census and therefore conservatively selects all four targets.
+
+Only complete canonical Mento candidate metadata and the exact stable release
+manifest can authorize an already-current GitHub candidate. The final census
+may observe the exact manifest-bound original prior, but that prior never
+authorizes a public GitHub mapping. Legacy App `v2` uses a separate continuity
+proof bound to its exact deployment ID, URL, project, environment, ref, SHA, and
+reviewed alias topology; its optional `source` value remains diagnostic.
+
 The reconciliation decision is made before ordinary planning:
 
 - `verify-existing-release` fully re-verifies a complete matching release and
@@ -166,6 +189,8 @@ the complete `served SHA..DEPLOY_SHA` range, which accumulates changes hidden by
 coalesced workflow runs. Proven non-runtime changes skip. Missing, malformed,
 non-ancestral, wrong-source, or otherwise ambiguous planning metadata selects
 the affected target so uncertainty cannot suppress a deployment.
+The stable manifest's `rollbackOnlyTargets` are selected before this comparison
+and cannot take either no-op path.
 Ambiguous alias ownership, project, environment, prior deployment, health, or
 rollback state aborts the whole transaction because selecting more targets
 cannot make compensation safe.
@@ -317,14 +342,14 @@ the highest valid snapshot. A prepared transaction with no started mutation is
 `verified-no-mutation`. Any started or uncertain operation is inspected and
 either verified as already restored or compensated in reverse mutation order
 to the exact captured prior mapping. An unexpected operator-owned mapping
-records manual intervention instead of overwriting it. The four legacy aliases
-remain exact topology-validation evidence; the durable recovery prior retains
-only the protected `v2-app.mento.org` alias. The workflow therefore has six
-static recovery turns for the maximum three ordinary, two App-alias, and one
-protected legacy-alias transitions, followed by one final terminalization
-invocation. The 24-minute job bound reserves 14 minutes for all seven composite
-invocations at the 120-second command limit and 10 minutes for checkout, API
-reads, journal artifacts, and cleanup. If an App v3 command returned an unknown
+records manual intervention instead of overwriting it. All four legacy aliases
+remain exact topology-validation and durable recovery evidence. The workflow
+therefore has nine static recovery turns for the maximum three ordinary, two
+App-alias, and four legacy-alias transitions, followed by one final
+terminalization invocation. The 24-minute job bound reserves 20 minutes for all
+ten composite invocations at the 120-second command limit and 4 minutes for
+checkout, API reads, journal artifacts, and cleanup. If an App v3 command
+returned an unknown
 result and the captured mappings show possible movement,
 recovery uses the bounded exact transaction-metadata census; zero, multiple,
 or mismatched candidates remain manual intervention. Recovery, manual
@@ -349,6 +374,13 @@ final-only rerun does the same. It never downloads verdict artifacts, resumes a
 prior journal, or reconstructs a final verdict from earlier attempts. An absent,
 malformed, mismatched, or incomplete receipt/evidence pair fails closed instead
 of treating the process outcome as deployment success.
+
+Generic JSON bridge inputs and outputs remain capped at 256 KiB. Full active
+journal history and terminal proofs alone use dedicated 1 MiB ceilings. That
+bound admits the structurally limited 15-operation transaction envelope: six
+forward operations plus three ordinary, two App-alias, and four legacy-alias
+recovery operations. It does not widen single-journal, provider-discovery, plan,
+mapping, smoke, or other workflow inputs.
 
 ### Historical PR-A shadow canary and copy-safe diagnostics
 
@@ -488,13 +520,26 @@ visible, the E2E Test Wallet must be absent, and no preview/mock-wallet
 local-storage flag may exist.
 
 After activation, the final evidence performs an active duplicate census for
-every selected target. It binds the inspected deployment attempts to the exact
-target, `DEPLOY_SHA`, source, and relevant release interval. A native Vercel
-attempt for a replaced `main` path is an ownership violation even if the public
-domain ultimately points to the GitHub-built candidate. App's independently
-allowlisted `v2 -> production` activity is reported separately and is not a
-duplicate `main -> v3` attempt. Missing, incomplete, ambiguous, or positive
-duplicate evidence fails the release.
+every selected target. It binds the exact candidate and original-prior
+deployment IDs and URLs, project, environment, `DEPLOY_SHA`, stable release
+manifest, and relevant release interval. Vercel's optional `source` value is
+retained only as telemetry and cannot admit or reject an attempt.
+
+For a GitHub-owned target, the census may contain the canonical candidate and
+at most the exact manifest-bound same-SHA original prior. The separate protected
+mapping proof must still show that the candidate owns every reviewed public
+alias; the historical prior never authorizes that mapping. Any different or
+third same-SHA deployment is an unexpected duplicate and fails the release.
+The prior match uses its bound deployment ID, URL, project, environment, and a
+freshly inspected response SHA equal to `DEPLOY_SHA`; optional Git organization,
+repository, ref, and `source` fields are telemetry and cannot reject that exact
+prior. Candidate classification still requires canonical
+`mento-protocol/frontend-monorepo@main` Git identity and exact Mento metadata.
+For a shadow-owned target, the exact bound prior may remain the public owner
+while the staged candidate is verified without mutation. App's independently
+verified `v2 -> production` identity is reported separately and is not a
+duplicate `main -> v3` attempt. Missing, incomplete, or ambiguous evidence
+fails the release.
 
 Record PR-B observed deployment IDs, mappings, mutation sequences, public smoke
 results, native-duplicate proof, and legacy-v2 evidence on PR B or issue #522.

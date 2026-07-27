@@ -512,7 +512,7 @@ function activeStateProof(
     spec,
     deployments,
     legacyV2: {
-      source: "git",
+      ownership: "native-vercel-git",
       state: {
         alias: "v2-app.mento.org",
         deploymentId: legacy.deploymentId,
@@ -825,6 +825,30 @@ test("finalize commits only after exact mappings, smokes, census, and v2 proof",
   assert.equal(committed.possibleMutationCommands, 1);
   assert.equal(committed.confirmedMutationCommands, 1);
 
+  const tamperedPriorProof = activeStateProof(history.at(-1), {
+    activeTargets: ["governance"],
+  });
+  tamperedPriorProof.projects.governance.priorDeploymentId =
+    "dpl_otherGovernancePrior123";
+  assert.throws(
+    () =>
+      reduceForward(
+        initial,
+        history,
+        event("finalize", {
+          uploadReceipt: receipt(history.at(-1)),
+          freshSha: SHA,
+          currentMappings: currentMappings(history.at(-1), {
+            governance: "candidate",
+          }),
+          publicSmokes: publicSmokes(["governance"]),
+          stateProof: tamperedPriorProof,
+        }),
+        ["governance"],
+      ),
+    /governance expectation is inconsistent/,
+  );
+
   for (const [name, mutate, pattern] of [
     [
       "wrong final URL",
@@ -913,7 +937,7 @@ test("mixed active and shadow planning validates shadow stages without journalin
   );
 });
 
-test("shadow final mapping accepts proven native or prior and rejects stage or third deployment", () => {
+test("shadow final mapping accepts the bound prior and rejects unbound same-SHA identities", () => {
   const { initial, history } = runOrdinaryForward();
   const stagedCandidates = {
     app: null,
@@ -936,7 +960,6 @@ test("shadow final mapping accepts proven native or prior and rejects stage or t
     shadowTargets: ["reserve"],
     stagedCandidates,
     mainOwnershipMode,
-    nativeOwners: { reserve: nativeReserve },
   });
   const finalize = (reserveDeployment) => {
     const mappings = currentMappings(history.at(-1), {
@@ -967,9 +990,9 @@ test("shadow final mapping accepts proven native or prior and rejects stage or t
       }),
     });
   };
-  assert.equal(finalize(nativeReserve).journal.status, "committed");
   assert.equal(finalize(initial.prior.reserve).journal.status, "committed");
   for (const forbidden of [
+    nativeReserve,
     stagedCandidates.reserve,
     {
       deploymentId: "dpl_reserveUnexpected123",

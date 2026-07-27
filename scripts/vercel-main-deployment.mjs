@@ -209,6 +209,8 @@ export const MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS =
   MAIN_TARGET_CONTRACTS.app.aliases.length +
   MAIN_DURABLE_LEGACY_RECOVERY_ALIASES.length;
 const MAX_JSON_BYTES = 256 * 1024;
+export const MAIN_ACTIVE_JOURNAL_HISTORY_MAX_JSON_BYTES = 1024 * 1024;
+export const MAIN_ACTIVE_TERMINAL_PROOFS_MAX_JSON_BYTES = 1024 * 1024;
 const APP_BUILD_PROOF_SCHEMA = "vercel-main-app-build:v2";
 const CLI_COMMAND_OPTIONS = Object.freeze({
   "active-event-authorize": Object.freeze([
@@ -519,9 +521,9 @@ function parseJson(raw, label) {
   }
 }
 
-function readJson(path, label) {
+function readJson(path, label, maxBytes = MAX_JSON_BYTES) {
   const raw = readFileSync(path);
-  if (raw.byteLength > MAX_JSON_BYTES) {
+  if (raw.byteLength > maxBytes) {
     throw new Error(`${label} exceeds its size limit`);
   }
   try {
@@ -529,6 +531,10 @@ function readJson(path, label) {
   } catch {
     throw new Error(`${label} is not valid JSON`);
   }
+}
+
+function readActiveJournalHistory(path, label) {
+  return readJson(path, label, MAIN_ACTIVE_JOURNAL_HISTORY_MAX_JSON_BYTES);
 }
 
 function writeCanonicalJson(path, value) {
@@ -820,6 +826,7 @@ export function createMainDeploymentPlan({
   projectIds,
   planningSnapshot,
   legacySnapshot,
+  rollbackOnlyTargets,
   upstream,
   repoRoot = process.cwd(),
   gitAdapter,
@@ -850,6 +857,7 @@ export function createMainDeploymentPlan({
     deploySha: sha,
     projectIds: ids,
     priorStates,
+    rollbackOnlyTargets,
     repoRoot,
     ...(gitAdapter ? { gitAdapter } : {}),
     ...(runPlanner ? { runPlanner } : {}),
@@ -2571,6 +2579,17 @@ function canonicalTerminalStateProof(value, { execution, runId, runAttempt }) {
         "Main terminal deployment state proof identity conflicts",
       );
     }
+    for (const target of MAIN_DEPLOYMENT_TARGETS) {
+      const project = deploymentStateProof.projects[target];
+      const prior = current.execution.manifest.originalPriors[target];
+      if (
+        project.priorDeploymentId !== prior.deploymentId ||
+        project.priorDeploymentUrl !== prior.deploymentUrl ||
+        project.priorServedSha !== prior.servedSha
+      ) {
+        throw new Error("Main terminal deployment state proof prior conflicts");
+      }
+    }
   }
   assertExactKeys(
     value.currentReleaseCandidates,
@@ -4088,6 +4107,7 @@ function summarizeActiveDeploymentStateProof(
     shadowTargets,
     projectIds = null,
     expectedDeploymentIds = null,
+    originalPriors = null,
     legacyState = null,
     requireProven = false,
   },
@@ -4118,11 +4138,17 @@ function summarizeActiveDeploymentStateProof(
   }
   for (const target of MAIN_DEPLOYMENT_TARGETS) {
     const project = proof.projects[target];
+    const originalPrior = originalPriors?.[target];
     if (
       (projectIds !== null && project.projectId !== projectIds[target]) ||
       (expectedDeploymentIds !== null &&
         expectedDeploymentIds[target] !== undefined &&
-        project.expectedDeploymentId !== expectedDeploymentIds[target])
+        project.expectedDeploymentId !== expectedDeploymentIds[target]) ||
+      (originalPriors !== null &&
+        (originalPrior === undefined ||
+          project.priorDeploymentId !== originalPrior.deploymentId ||
+          project.priorDeploymentUrl !== originalPrior.deploymentUrl ||
+          project.priorServedSha !== originalPrior.servedSha))
     ) {
       throw new Error(
         "Active deployment state proof does not match the release plan",
@@ -4281,6 +4307,9 @@ export function createMainActiveDeploymentEvidence({
             ? undefined
             : null,
       ]),
+    ),
+    originalPriors: Object.fromEntries(
+      handoff.planning.priors.map((prior) => [prior.target, prior]),
     ),
     legacyState: handoff.legacySnapshot[0],
     requireProven: true,
@@ -5488,6 +5517,7 @@ function canonicalCompleteTerminalStateProof({
     projectIds: execution.projection.projectIds,
     expectedDeploymentIds:
       expectedCandidateIds ?? terminalExpectedCandidateIds(highest, planning),
+    originalPriors: execution.manifest.originalPriors,
     legacyState: execution.legacyAppV2,
     requireProven: true,
   });
@@ -5968,6 +5998,7 @@ export function createMainActiveTerminalArtifacts({
         shadowTargets: planning.shadowTargets,
         projectIds: releaseExecution.projection.projectIds,
         expectedDeploymentIds,
+        originalPriors: manifest.originalPriors,
         legacyState: releaseExecution.legacyAppV2,
         requireProven: true,
       },
@@ -6253,6 +6284,7 @@ export function createMainActiveTerminalArtifacts({
               runAttempt: canonicalRunAttempt,
               transactionId: highest.transactionId,
               mainOwnershipMode: planning.mainOwnershipMode,
+              originalPriors: manifest.originalPriors,
             });
             return stateProof;
           })()
@@ -6335,6 +6367,7 @@ export function createMainActiveTerminalArtifacts({
               highest,
               planning,
             ),
+            originalPriors: manifest.originalPriors,
             legacyState: releaseExecution.legacyAppV2,
             requireProven: true,
           },
@@ -6649,7 +6682,7 @@ function canonicalNestedStateProofSummary(
     "Nested active state proof summary",
   );
   if (
-    value.proofSchema !== "vercel-active-deployment-state-proof:v3" ||
+    value.proofSchema !== "vercel-active-deployment-state-proof:v4" ||
     !["proven", "unproven"].includes(value.outcome) ||
     (requireProven && value.outcome !== "proven") ||
     value.transactionId !== transactionId
@@ -7617,6 +7650,7 @@ function assertTerminalStateProofMatchesEvidence({
                 : null,
           ]),
         ),
+        originalPriors: execution.manifest.originalPriors,
         legacyState: execution.legacyAppV2,
         requireProven: true,
       })
@@ -7626,6 +7660,7 @@ function assertTerminalStateProofMatchesEvidence({
         runAttempt: evidence.runAttempt,
         transactionId,
         mainOwnershipMode: evidence.mainOwnershipMode,
+        originalPriors: execution.manifest.originalPriors,
       });
   assertSameJson(
     summary,
@@ -8390,7 +8425,11 @@ export async function runMainDeploymentCli({
         options.execution,
         "Canonical main release execution",
       ),
-      proofs: readJson(options.proofs, "Canonical active terminal proofs"),
+      proofs: readJson(
+        options.proofs,
+        "Canonical active terminal proofs",
+        MAIN_ACTIVE_TERMINAL_PROOFS_MAX_JSON_BYTES,
+      ),
       deploySha: values.DEPLOY_SHA,
       upstreamRunId: values.UPSTREAM_RUN_ID,
       upstreamRunAttempt: values.UPSTREAM_RUN_ATTEMPT,
@@ -8674,7 +8713,7 @@ export async function runMainDeploymentCli({
     const spec = createMainCurrentActiveDeploymentStateSpec({
       execution: readJson(options.execution, "Main release execution"),
       barrier: readJson(options["stage-barrier"], "Current main stage barrier"),
-      journalHistory: readJson(
+      journalHistory: readActiveJournalHistory(
         options["journal-history"],
         "Active state spec journal history",
       ),
@@ -8722,7 +8761,7 @@ export async function runMainDeploymentCli({
   }
   if (command === "active-recovery-mapping-spec") {
     const spec = createMainActiveRecoveryMappingSpec({
-      journalHistory: readJson(
+      journalHistory: readActiveJournalHistory(
         options["journal-history"],
         "Active recovery mapping-spec journal history",
       ),
@@ -8734,7 +8773,7 @@ export async function runMainDeploymentCli({
   }
   if (command === "active-recovery-canonical-mappings") {
     const mappings = createMainActiveRecoveryCanonicalMappings({
-      journalHistory: readJson(
+      journalHistory: readActiveJournalHistory(
         options["journal-history"],
         "Active recovery canonical-mappings journal history",
       ),
@@ -8750,7 +8789,7 @@ export async function runMainDeploymentCli({
   }
   if (command === "active-recovery-state-spec") {
     const spec = createMainActiveRecoveryDeploymentStateSpec({
-      journalHistory: readJson(
+      journalHistory: readActiveJournalHistory(
         options["journal-history"],
         "Active recovery state-spec journal history",
       ),
@@ -8779,7 +8818,7 @@ export async function runMainDeploymentCli({
     const spec = createMainCurrentActiveAliasMappingSet({
       execution: readJson(options.execution, "Main release execution"),
       barrier: readJson(options["stage-barrier"], "Current main stage barrier"),
-      journalHistory: readJson(
+      journalHistory: readActiveJournalHistory(
         options["journal-history"],
         "Active mapping set journal history",
       ),
@@ -8846,7 +8885,10 @@ export async function runMainDeploymentCli({
       preparedJournal,
       ...inputs.planning,
       history: activeJournalArray(
-        readJson(options["journal-history"], "Active journal history"),
+        readActiveJournalHistory(
+          options["journal-history"],
+          "Active journal history",
+        ),
         "Active journal history",
       ),
       event: readJson(options.event, "Active transition event"),
@@ -8861,7 +8903,10 @@ export async function runMainDeploymentCli({
   if (command === "plan-active-recovery") {
     const recoveryPlan = planMainActiveRecovery({
       journalHistory: activeJournalArray(
-        readJson(options["journal-history"], "Active recovery journal history"),
+        readActiveJournalHistory(
+          options["journal-history"],
+          "Active recovery journal history",
+        ),
         "Active recovery journal history",
       ),
       deploySha: values.DEPLOY_SHA,
@@ -8894,7 +8939,10 @@ export async function runMainDeploymentCli({
     const result = reduceMainActiveRecoveryTransition({
       recoveryPlan: readJson(options.plan, "Active recovery plan"),
       history: activeJournalArray(
-        readJson(options["journal-history"], "Active recovery journal history"),
+        readActiveJournalHistory(
+          options["journal-history"],
+          "Active recovery journal history",
+        ),
         "Active recovery journal history",
       ),
       event: readJson(options.event, "Active recovery transition event"),
@@ -8957,7 +9005,10 @@ export async function runMainDeploymentCli({
     const evidence = createMainActiveDeploymentEvidence({
       plan: parseJson(values.PLAN_JSON, "Main deployment plan"),
       journalHistory: activeJournalArray(
-        readJson(options["journal-history"], "Active evidence journal history"),
+        readActiveJournalHistory(
+          options["journal-history"],
+          "Active evidence journal history",
+        ),
         "Active evidence journal history",
       ),
       freshness: parseJson(
@@ -9008,7 +9059,10 @@ export async function runMainDeploymentCli({
       workflowRunUrl: activeWorkflowRunUrlFromEnvironment(values),
       mainOwnershipMode: mainOwnershipModeFromEnvironment(values),
       journalHistory: activeJournalArray(
-        readJson(options["journal-history"], "Active failure journal history"),
+        readActiveJournalHistory(
+          options["journal-history"],
+          "Active failure journal history",
+        ),
         "Active failure journal history",
       ),
       freshness: parseJson(
@@ -9148,6 +9202,7 @@ export async function runMainDeploymentCli({
         options["legacy-snapshot"],
         "Legacy app snapshot",
       ),
+      rollbackOnlyTargets: MAIN_DEPLOYMENT_TARGETS,
       upstream: {
         runId: values.UPSTREAM_RUN_ID,
         runAttempt: values.UPSTREAM_RUN_ATTEMPT,

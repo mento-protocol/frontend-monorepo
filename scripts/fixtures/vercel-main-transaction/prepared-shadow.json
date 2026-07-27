@@ -9,7 +9,7 @@
   "sequence": 0,
   "status": "prepared",
   "release": {
-    "schema": "vercel-main-release-manifest:v1",
+    "schema": "vercel-main-release-manifest:v2",
     "repository": "mento-protocol/frontend-monorepo",
     "releaseId": "mr-92e57318148798973a8f067a",
     "deploySha": "abcdef0123456789abcdef0123456789abcdef01",
@@ -23,6 +23,7 @@
     },
     "stagedTargets": ["governance", "reserve", "ui", "app"],
     "activeTargets": ["governance", "reserve", "ui", "app"],
+    "rollbackOnlyTargets": [],
     "originalPriors": {
       "governance": {
         "deploymentId": "dpl_governanceprior123",
