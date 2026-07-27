@@ -364,12 +364,72 @@ test("mapped inspection binds its observed project to the manifest rollback prio
   );
 });
 
-test("mapped App v3 inspection admits a native deployment only when no candidate markers exist", async () => {
-  const oldIntent = intent("app");
-  const response = deploymentResponse(oldIntent);
-  for (const key of Object.keys(response.meta)) {
-    if (key.startsWith("mento")) delete response.meta[key];
+test("mapped inspection admits native Git deployments for every live main environment only when no candidate markers exist", async () => {
+  for (const target of ["governance", "reserve", "ui", "app"]) {
+    const oldIntent = intent(target);
+    const response = deploymentResponse(oldIntent);
+    response.source = "git";
+    for (const key of Object.keys(response.meta)) {
+      if (key.startsWith("mento")) delete response.meta[key];
+    }
+    const provider = createMainCandidateVercelProvider({
+      client: {
+        requestWithRetry: async () =>
+          assert.fail("mapped inspection does not list"),
+        inspectDeployment: async () => response,
+        listDeploymentAliases: async () => ({ aliases: [] }),
+      },
+    });
+    const mapped = await provider.inspectMappedCandidate({
+      deploymentId: response.id,
+      target,
+      projectId: oldIntent.projectId,
+    });
+    assert.equal(mapped.metadata, null);
+    assert.deepEqual(
+      {
+        target: mapped.canonicalState.target,
+        customEnvironmentSlug: mapped.canonicalState.customEnvironmentSlug,
+      },
+      target === "app"
+        ? { target: null, customEnvironmentSlug: "v3" }
+        : { target: "production", customEnvironmentSlug: null },
+    );
   }
+});
+
+test("mapped inspection rejects non-Git native deployment sources", async () => {
+  const currentIntent = intent("reserve");
+  for (const source of ["cli", "manual", "unknown", undefined]) {
+    const response = deploymentResponse(currentIntent);
+    response.source = source;
+    for (const key of Object.keys(response.meta)) {
+      if (key.startsWith("mento")) delete response.meta[key];
+    }
+    const provider = createMainCandidateVercelProvider({
+      client: {
+        requestWithRetry: async () =>
+          assert.fail("mapped inspection does not list"),
+        inspectDeployment: async () => response,
+        listDeploymentAliases: async () => ({ aliases: [] }),
+      },
+    });
+    await assert.rejects(
+      () =>
+        provider.inspectMappedCandidate({
+          deploymentId: response.id,
+          target: "reserve",
+          projectId: currentIntent.projectId,
+        }),
+      /native mapped deployment source is not Git/,
+    );
+  }
+});
+
+test("mapped inspection keeps Mento-marked candidates CLI-only", async () => {
+  const currentIntent = intent("ui");
+  const response = deploymentResponse(currentIntent);
+  response.source = "git";
   const provider = createMainCandidateVercelProvider({
     client: {
       requestWithRetry: async () =>
@@ -378,13 +438,44 @@ test("mapped App v3 inspection admits a native deployment only when no candidate
       listDeploymentAliases: async () => ({ aliases: [] }),
     },
   });
-  const mapped = await provider.inspectMappedCandidate({
-    deploymentId: response.id,
-    target: "app",
-    projectId: oldIntent.projectId,
+  await assert.rejects(
+    () =>
+      provider.inspectMappedCandidate({
+        deploymentId: response.id,
+        target: "ui",
+        projectId: currentIntent.projectId,
+      }),
+    /candidate Vercel source is not CLI/,
+  );
+});
+
+test("candidate inspection and release reuse remain CLI-only", async () => {
+  const currentIntent = intent("ui");
+  const response = deploymentResponse(currentIntent);
+  response.source = "git";
+  const provider = createMainCandidateVercelProvider({
+    intent: currentIntent,
+    client: {
+      requestWithRetry: async () => ({
+        deployments: [{ uid: response.id }],
+        pagination: { next: null },
+      }),
+      inspectDeployment: async () => response,
+      listDeploymentAliases: async () => ({ aliases: [] }),
+    },
   });
-  assert.equal(mapped.metadata, null);
-  assert.equal(mapped.canonicalState.customEnvironmentSlug, "v3");
+  for (const inspect of [
+    () => provider.inspectCandidateState(response.id),
+    () => provider.inspectCandidate(response.id),
+    () =>
+      provider.resolveReleaseCandidate({
+        manifest: currentIntent.releaseManifest,
+        target: "ui",
+        projectId: currentIntent.projectId,
+      }),
+  ]) {
+    await assert.rejects(inspect, /candidate Vercel source is not CLI/);
+  }
 });
 
 test("mapped inspection rejects partial or unknown Mento candidate metadata instead of treating it as native", async () => {

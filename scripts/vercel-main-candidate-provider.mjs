@@ -111,11 +111,8 @@ export function createMainCandidateVercelProvider({ client, intent }) {
     });
   }
 
-  async function inspectCandidateRecord(id, expected) {
+  async function inspectDeploymentRecord(id, expected) {
     const deploymentResponse = await client.inspectDeployment(id);
-    if (deploymentResponse?.source !== "cli") {
-      throw new Error("Main candidate Vercel source is not CLI");
-    }
     const aliasesResponse = await client.listDeploymentAliases(id);
     const state = canonicalizeMainPlanningDeploymentState({
       deploymentResponse,
@@ -128,7 +125,19 @@ export function createMainCandidateVercelProvider({ client, intent }) {
         customEnvironmentSlug: expected.environment.customEnvironmentSlug,
       },
     });
-    return { state, rawMetadata: deploymentResponse.meta };
+    return {
+      state,
+      rawMetadata: deploymentResponse.meta,
+      source: deploymentResponse.source,
+    };
+  }
+
+  async function inspectCandidateRecord(id, expected) {
+    const record = await inspectDeploymentRecord(id, expected);
+    if (record.source !== "cli") {
+      throw new Error("Main candidate Vercel source is not CLI");
+    }
+    return record;
   }
 
   async function inspectCandidateState(id) {
@@ -191,9 +200,18 @@ export function createMainCandidateVercelProvider({ client, intent }) {
           ? { target: null, customEnvironmentSlug: "v3" }
           : { target: "production", customEnvironmentSlug: null },
     };
-    const { state, rawMetadata } = await inspectCandidateRecord(id, expected);
+    const { state, rawMetadata, source } = await inspectDeploymentRecord(
+      id,
+      expected,
+    );
     if (!hasReservedCandidateMetadata(rawMetadata)) {
+      if (source !== "git") {
+        throw new Error("Main native mapped deployment source is not Git");
+      }
       return { canonicalState: state, metadata: null };
+    }
+    if (source !== "cli") {
+      throw new Error("Main candidate Vercel source is not CLI");
     }
     if (rawMetadata.mentoCandidateSchema === undefined) {
       throw new Error("Main mapped candidate metadata is partial");
