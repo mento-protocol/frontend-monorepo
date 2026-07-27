@@ -681,8 +681,27 @@ test("release preparation starts only after inherited recovery and replans from 
 test("ordinary targets materialize execution and use create-or-reuse provider handoffs", () => {
   for (const target of ["governance", "reserve", "ui"]) {
     const job = `stage-${target}`;
-    assert.equal(workflow.jobs[job]["timeout-minutes"], 50);
-    assert.notEqual(workflow.jobs[job].if, undefined, `${target} stage route`);
+    const stage = workflow.jobs[job];
+    assert.equal(stage["timeout-minutes"], 50);
+    assert.match(stage.if, /^always\(\)/, `${target} stage status override`);
+    assert.match(stage.if, /!cancelled\(\)/, `${target} cancellation guard`);
+    assert.match(
+      stage.if,
+      /needs\.wait-for-ci\.result == 'success'/,
+      `${target} exact-CI admission`,
+    );
+    assert.match(
+      stage.if,
+      /needs\.prepare-release\.result == 'success'/,
+      `${target} release preparation`,
+    );
+    assert.match(
+      stage.if,
+      new RegExp(
+        `contains\\(fromJSON\\(needs\\.prepare-release\\.outputs\\.targets\\), '${target}'\\)`,
+      ),
+      `${target} selection`,
+    );
     assert.match(
       command(job, "materialize --output").run,
       /release-cli\.mjs materialize/,
@@ -715,6 +734,9 @@ test("active coordinator validates stage handoffs and prepares App without deplo
     "stage-reserve",
     "stage-ui",
   ]);
+  assert.match(coordinator.if, /^always\(\)/);
+  assert.match(coordinator.if, /!cancelled\(\)/);
+  assert.match(coordinator.if, /needs\.prepare-release\.result == 'success'/);
   assert.equal(coordinator["timeout-minutes"], 60);
   assert.deepEqual(coordinator.environment, {
     name: "vercel-cli-production",
@@ -913,6 +935,12 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
   assert.match(recoveryJob.if, /^always\(\)/);
   assert.match(recoveryJob.if, /prepare-release\.result == 'success'/);
   assert.match(recoveryJob.if, /activate-and-verify\.result != 'success'/);
+  for (const target of ["APP", "GOVERNANCE", "RESERVE", "UI"]) {
+    assert.equal(
+      recoveryJob.env[`VERCEL_PROJECT_ID_${target}`],
+      `\${{ vars.VERCEL_PROJECT_ID_${target} }}`,
+    );
+  }
   const controller = checkoutSteps("recover-main-deployment").find(
     (step) => step.with.path === undefined,
   );
@@ -1377,7 +1405,7 @@ test("ordinary stages retain protected runtime isolation and create-only uploads
     const checkouts = checkoutSteps(job);
     assert.equal(
       workflow.jobs[job].if,
-      `contains(fromJSON(needs.prepare-release.outputs.targets), '${target}')`,
+      `always() && !cancelled() && needs.wait-for-ci.result == 'success' && needs.prepare-release.result == 'success' && contains(fromJSON(needs.prepare-release.outputs.targets), '${target}')`,
     );
     assert.equal(workflow.jobs[job].env.VERCEL_TOKEN, undefined);
     assert.ok(
