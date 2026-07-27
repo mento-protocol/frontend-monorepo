@@ -128,16 +128,7 @@ export function createMainCandidateVercelProvider({ client, intent }) {
     return {
       state,
       rawMetadata: deploymentResponse.meta,
-      source: deploymentResponse.source,
     };
-  }
-
-  async function inspectCandidateRecord(id, expected) {
-    const record = await inspectDeploymentRecord(id, expected);
-    if (record.source !== "cli") {
-      throw new Error("Main candidate Vercel source is not CLI");
-    }
-    return record;
   }
 
   async function inspectCandidateState(id) {
@@ -146,7 +137,7 @@ export function createMainCandidateVercelProvider({ client, intent }) {
         "Main candidate provider intent is required for inspection",
       );
     }
-    return (await inspectCandidateRecord(id, canonicalIntent)).state;
+    return (await inspectDeploymentRecord(id, canonicalIntent)).state;
   }
 
   async function inspectCandidate(id) {
@@ -155,7 +146,7 @@ export function createMainCandidateVercelProvider({ client, intent }) {
         "Main candidate provider intent is required for inspection",
       );
     }
-    const { state, rawMetadata } = await inspectCandidateRecord(
+    const { state, rawMetadata } = await inspectDeploymentRecord(
       id,
       canonicalIntent,
     );
@@ -200,18 +191,9 @@ export function createMainCandidateVercelProvider({ client, intent }) {
           ? { target: null, customEnvironmentSlug: "v3" }
           : { target: "production", customEnvironmentSlug: null },
     };
-    const { state, rawMetadata, source } = await inspectDeploymentRecord(
-      id,
-      expected,
-    );
+    const { state, rawMetadata } = await inspectDeploymentRecord(id, expected);
     if (!hasReservedCandidateMetadata(rawMetadata)) {
-      if (source !== "git") {
-        throw new Error("Main native mapped deployment source is not Git");
-      }
       return { canonicalState: state, metadata: null };
-    }
-    if (source !== "cli") {
-      throw new Error("Main candidate Vercel source is not CLI");
     }
     if (rawMetadata.mentoCandidateSchema === undefined) {
       throw new Error("Main mapped candidate metadata is partial");
@@ -279,7 +261,7 @@ export function createMainCandidateVercelProvider({ client, intent }) {
           ? { target: null, customEnvironmentSlug: "v3" }
           : { target: "production", customEnvironmentSlug: null },
     };
-    const { state, rawMetadata } = await inspectCandidateRecord(
+    const { state, rawMetadata } = await inspectDeploymentRecord(
       firstIds[0],
       expected,
     );
