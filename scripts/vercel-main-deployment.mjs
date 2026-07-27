@@ -4620,6 +4620,33 @@ export function renderMainCurrentReleaseVerificationEvidence(evidence) {
   ].join("\n");
 }
 
+export function renderMainActivePreparationFailureEvidence(evidence) {
+  if (
+    !isPlainObject(evidence) ||
+    evidence.schema !== MAIN_ACTIVE_PREPARATION_FAILURE_EVIDENCE_SCHEMA ||
+    evidence.outcome !== "failed" ||
+    evidence.reason !== "preparation-failed-before-journal" ||
+    evidence.publicServingMutationCommands !== 0 ||
+    !isPlainObject(evidence.stageResults) ||
+    !isPlainObject(evidence.stageResults.results)
+  ) {
+    throw new Error("Active preparation failure evidence is malformed");
+  }
+  return [
+    "### Vercel main active preparation failure evidence",
+    "",
+    `- DEPLOY_SHA: \`${evidence.deploySha}\``,
+    `- Downstream workflow: [run ${evidence.runId}, attempt ${evidence.runAttempt}](${evidence.workflowRunUrl})`,
+    `- Stage results: ${MAIN_DEPLOYMENT_TARGETS.map(
+      (target) => `\`${target}:${evidence.stageResults.results[target]}\``,
+    ).join(", ")}; \`coordinator:${evidence.stageResults.coordinatorResult}\``,
+    "- Active journal: `not-created`",
+    "- Public-serving mutation commands: `0`",
+    "- Outcome: `failed` before the forward journal; this attempt authorized no public mapping mutation.",
+    "",
+  ].join("\n");
+}
+
 export function renderMainActiveDeploymentFailureEvidence(evidence) {
   if (
     !isPlainObject(evidence) ||
@@ -8470,9 +8497,12 @@ export async function runMainDeploymentCli({
           : result.artifact.schema ===
               MAIN_ACTIVE_CURRENT_RELEASE_EVIDENCE_SCHEMA
             ? renderMainCurrentReleaseVerificationEvidence
-            : result.artifact.schema === MAIN_ACTIVE_SAFE_NOOP_EVIDENCE_SCHEMA
-              ? renderMainActiveSafeNoopEvidence
-              : renderMainActiveDeploymentFailureEvidence;
+            : result.artifact.schema ===
+                MAIN_ACTIVE_PREPARATION_FAILURE_EVIDENCE_SCHEMA
+              ? renderMainActivePreparationFailureEvidence
+              : result.artifact.schema === MAIN_ACTIVE_SAFE_NOOP_EVIDENCE_SCHEMA
+                ? renderMainActiveSafeNoopEvidence
+                : renderMainActiveDeploymentFailureEvidence;
       appendFileSync(values.GITHUB_STEP_SUMMARY, render(result.artifact));
     }
     return result;

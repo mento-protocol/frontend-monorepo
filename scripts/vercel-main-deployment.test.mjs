@@ -4291,6 +4291,102 @@ test("preparation failure terminal artifacts bind exact target results without p
   );
 });
 
+test("terminal evidence restore renders preparation failure evidence", async () => {
+  const directory = mkdtempSync(
+    join(tmpdir(), "vercel-main-preparation-failure-restore-"),
+  );
+  try {
+    const deploymentPlan = activePlan();
+    const execution = releaseExecutionForPlan(deploymentPlan);
+    const artifacts = createMainActiveTerminalArtifacts({
+      execution,
+      outcome: "preparation-failed-before-journal",
+      journalHistory: [],
+      finalMappings: null,
+      publicSmokes: null,
+      stateProof: null,
+      finalCensus: null,
+      freshLegacyV2: deploymentPlan.legacySnapshot,
+      freshness: null,
+      stageResults: {
+        schema: "vercel-main-stage-results:v2",
+        deploySha: SHA,
+        runId: "800",
+        runAttempt: "3",
+        results: {
+          app: "skipped",
+          governance: "failure",
+          reserve: "failure",
+          ui: "failure",
+        },
+        coordinatorResult: "failure",
+      },
+      runId: "800",
+      runAttempt: "3",
+    });
+    const terminal = createMainActiveTerminalHandoff({
+      activeEvidence: artifacts.evidence,
+      releaseManifest: execution.manifest,
+      execution,
+      proofs: artifacts.proofs,
+      deploySha: SHA,
+      upstreamRunId: "123456",
+      upstreamRunAttempt: "2",
+      workflowRunId: "800",
+      producerRunAttempt: "3",
+      repository: "mento-protocol/frontend-monorepo",
+    });
+    const executionPath = join(directory, "execution.json");
+    const manifestPath = join(directory, "manifest.json");
+    const evidencePath = join(directory, "evidence.json");
+    const summaryPath = join(directory, "summary.md");
+    writeFileSync(executionPath, JSON.stringify(execution));
+    writeFileSync(manifestPath, JSON.stringify(execution.manifest));
+    writeFileSync(summaryPath, "");
+
+    const restored = await runMainDeploymentCli({
+      argv: [
+        "terminal-evidence-restore",
+        "--evidence",
+        terminal.encodedEvidence,
+        "--execution",
+        executionPath,
+        "--manifest",
+        manifestPath,
+        "--output",
+        evidencePath,
+        "--receipt",
+        terminal.encodedReceipt,
+      ],
+      values: {
+        DEPLOY_SHA: SHA,
+        UPSTREAM_RUN_ID: "123456",
+        UPSTREAM_RUN_ATTEMPT: "2",
+        GITHUB_RUN_ID: "800",
+        GITHUB_RUN_ATTEMPT: "4",
+        GITHUB_REPOSITORY: "mento-protocol/frontend-monorepo",
+        GITHUB_STEP_SUMMARY: summaryPath,
+      },
+    });
+
+    assert.deepEqual(restored.artifact, artifacts.evidence);
+    assert.deepEqual(
+      JSON.parse(readFileSync(evidencePath, "utf8")),
+      artifacts.evidence,
+    );
+    const summary = readFileSync(summaryPath, "utf8");
+    assert.match(
+      summary,
+      /^### Vercel main active preparation failure evidence/m,
+    );
+    assert.match(summary, /`governance:failure`/);
+    assert.match(summary, /Public-serving mutation commands: `0`/);
+    assert.doesNotMatch(summary, /active deployment failure evidence/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("terminal evidence CLI creates a bounded receipt and restores committed evidence on a later attempt", async () => {
   const directory = mkdtempSync(join(tmpdir(), "vercel-main-terminal-"));
   try {
@@ -6443,6 +6539,34 @@ test("final-active CLI exposes fail-after-evidence without ending evidence produ
     assert.match(readFileSync(output, "utf8"), /release_outcome=failure/);
     assert.match(readFileSync(output, "utf8"), /fail_after_evidence=true/);
     assert.match(readFileSync(output, "utf8"), /evidence_kind=failure/);
+
+    writeFileSync(output, "");
+    const preparationFailure = await runMainDeploymentCli({
+      argv: ["final-active", "--execution", executionPath],
+      values: {
+        WAIT_FOR_CI_RESULT: "success",
+        PLAN_RESULT: "success",
+        STAGE_GOVERNANCE_RESULT: "failure",
+        STAGE_RESERVE_RESULT: "failure",
+        STAGE_UI_RESULT: "failure",
+        COORDINATOR_RESULT: "failure",
+        COORDINATOR_OUTCOME: "preparation-failed-before-journal",
+        RECOVERY_RESULT: "failure",
+        RECOVERY_OUTCOME: "preparation-failed-before-journal",
+        DEPLOY_SHA: SHA,
+        UPSTREAM_RUN_ID: "123456",
+        UPSTREAM_RUN_ATTEMPT: "2",
+        GITHUB_RUN_ID: "800",
+        GITHUB_RUN_ATTEMPT: "3",
+        GITHUB_REPOSITORY: "mento-protocol/frontend-monorepo",
+        GITHUB_OUTPUT: output,
+      },
+    });
+    assert.equal(preparationFailure.releaseOutcome, "failure");
+    assert.equal(preparationFailure.failAfterEvidence, true);
+    assert.equal(preparationFailure.reason, "stage-governance-invalid");
+    assert.match(readFileSync(output, "utf8"), /release_outcome=failure/);
+    assert.match(readFileSync(output, "utf8"), /fail_after_evidence=true/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
