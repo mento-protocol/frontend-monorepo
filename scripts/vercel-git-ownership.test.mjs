@@ -73,6 +73,9 @@ function ownershipConfiguration(
   });
 }
 
+// Active permits a mixed map for target-local rollback. The main planner
+// partitions GitHub-owned targets for mutation and native-owned targets for
+// shadow preparation; shadow mode requires every target to remain native-owned.
 function assertMainWorkflowOwnershipModes(workflowMode, targetConfigurations) {
   if (!["active", "shadow"].includes(workflowMode)) {
     throw new Error("Main workflow mode must match a reviewed exact state");
@@ -98,7 +101,7 @@ test("repository pairs every target with its canonical exact ownership configura
   }
 });
 
-test("main workflow mode and both per-target Git owners change atomically", () => {
+test("main shadow requires every owner to be native; active permits target-local rollback", () => {
   assertMainWorkflowOwnershipModes(
     mainDeployment.env.VERCEL_MAIN_MODE,
     Object.values(PREVIEW_TARGET_CONFIG),
