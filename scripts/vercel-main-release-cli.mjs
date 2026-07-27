@@ -53,6 +53,81 @@ import {
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const POSITIVE_ID_PATTERN = /^[1-9][0-9]*$/;
 const TARGETS = ["app", "governance", "reserve", "ui"];
+const EXECUTION_DIAGNOSTIC_PHASES = Object.freeze({
+  INPUT: "input",
+  PREPLAN: "preplan",
+  DISCOVERY: "discovery",
+  PLANNING_SNAPSHOT: "planning-snapshot",
+  PROJECT_CENSUS: "project-census",
+  LEGACY: "legacy",
+  CANONICAL_MAPPINGS: "canonical-mappings",
+  PREPLAN_RECOMPUTE: "preplan-recompute",
+  OWNERSHIP: "ownership",
+  BASELINE_SOURCE_GIT: "baseline-source-git",
+  BASELINE_PRIOR_APP: "baseline-prior-app",
+  BASELINE_PRIOR_GOVERNANCE: "baseline-prior-governance",
+  BASELINE_PRIOR_RESERVE: "baseline-prior-reserve",
+  BASELINE_PRIOR_UI: "baseline-prior-ui",
+  BASELINE_PLANNER_RANGE: "baseline-planner-range",
+  BASELINE_MANIFEST: "baseline-manifest",
+  BASELINE_UNKNOWN: "baseline-unknown",
+  MANIFEST_ASSERTION: "manifest-assertion",
+  SELECTION: "selection",
+  EXECUTION_ASSEMBLY: "execution-assembly",
+  PRIVATE_OUTPUT: "private-output",
+  EXECUTION_ENCODE: "execution-encode",
+  GITHUB_OUTPUT: "github-output",
+});
+
+export const MAIN_RELEASE_EXECUTION_DIAGNOSTIC_CODES = Object.freeze({
+  [EXECUTION_DIAGNOSTIC_PHASES.INPUT]: "main-release-execution-input",
+  [EXECUTION_DIAGNOSTIC_PHASES.PREPLAN]: "main-release-execution-preplan",
+  [EXECUTION_DIAGNOSTIC_PHASES.DISCOVERY]: "main-release-execution-discovery",
+  [EXECUTION_DIAGNOSTIC_PHASES.PLANNING_SNAPSHOT]:
+    "main-release-execution-planning-snapshot",
+  [EXECUTION_DIAGNOSTIC_PHASES.PROJECT_CENSUS]:
+    "main-release-execution-project-census",
+  [EXECUTION_DIAGNOSTIC_PHASES.LEGACY]: "main-release-execution-legacy",
+  [EXECUTION_DIAGNOSTIC_PHASES.CANONICAL_MAPPINGS]:
+    "main-release-execution-canonical-mappings",
+  [EXECUTION_DIAGNOSTIC_PHASES.PREPLAN_RECOMPUTE]:
+    "main-release-execution-preplan-recompute",
+  [EXECUTION_DIAGNOSTIC_PHASES.OWNERSHIP]: "main-release-execution-ownership",
+  [EXECUTION_DIAGNOSTIC_PHASES.BASELINE_SOURCE_GIT]:
+    "main-release-execution-baseline-source-git",
+  [EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_APP]:
+    "main-release-execution-baseline-prior-app",
+  [EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_GOVERNANCE]:
+    "main-release-execution-baseline-prior-governance",
+  [EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_RESERVE]:
+    "main-release-execution-baseline-prior-reserve",
+  [EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_UI]:
+    "main-release-execution-baseline-prior-ui",
+  [EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PLANNER_RANGE]:
+    "main-release-execution-baseline-planner-range",
+  [EXECUTION_DIAGNOSTIC_PHASES.BASELINE_MANIFEST]:
+    "main-release-execution-baseline-manifest",
+  [EXECUTION_DIAGNOSTIC_PHASES.BASELINE_UNKNOWN]:
+    "main-release-execution-baseline-unknown",
+  [EXECUTION_DIAGNOSTIC_PHASES.MANIFEST_ASSERTION]:
+    "main-release-execution-manifest-assertion",
+  [EXECUTION_DIAGNOSTIC_PHASES.SELECTION]: "main-release-execution-selection",
+  [EXECUTION_DIAGNOSTIC_PHASES.EXECUTION_ASSEMBLY]:
+    "main-release-execution-assembly",
+  [EXECUTION_DIAGNOSTIC_PHASES.PRIVATE_OUTPUT]:
+    "main-release-execution-private-output",
+  [EXECUTION_DIAGNOSTIC_PHASES.EXECUTION_ENCODE]:
+    "main-release-execution-encode",
+  [EXECUTION_DIAGNOSTIC_PHASES.GITHUB_OUTPUT]:
+    "main-release-execution-github-output",
+});
+
+const BASELINE_PRIOR_PHASE_BY_TARGET = Object.freeze({
+  app: EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_APP,
+  governance: EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_GOVERNANCE,
+  reserve: EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_RESERVE,
+  ui: EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_UI,
+});
 const OPTIONS = Object.freeze({
   "candidate-receipts": Object.freeze([
     "app",
@@ -118,6 +193,70 @@ const OPTIONS = Object.freeze({
     "state-proof",
   ]),
 });
+
+function createExecutionDiagnostics() {
+  let phase = EXECUTION_DIAGNOSTIC_PHASES.INPUT;
+  return Object.freeze({
+    mark(nextPhase) {
+      if (!Object.hasOwn(MAIN_RELEASE_EXECUTION_DIAGNOSTIC_CODES, nextPhase)) {
+        throw new Error(
+          "Main release execution diagnostic phase is unsupported",
+        );
+      }
+      phase = nextPhase;
+    },
+    current() {
+      return phase;
+    },
+  });
+}
+
+function markExecutionPhase(diagnostics, phase) {
+  diagnostics?.mark(phase);
+}
+
+function baselineFailurePhase(error) {
+  const target =
+    error !== null &&
+    typeof error === "object" &&
+    Object.hasOwn(error, "target") &&
+    typeof error.target === "string"
+      ? error.target
+      : null;
+  if (
+    target !== null &&
+    Object.hasOwn(BASELINE_PRIOR_PHASE_BY_TARGET, target)
+  ) {
+    return BASELINE_PRIOR_PHASE_BY_TARGET[target];
+  }
+  const message = error instanceof Error ? error.message : "";
+  if (
+    /DEPLOY_SHA cannot be resolved|DEPLOY_SHA did not resolve exactly|Git proof failed|Git ancestry proof failed|First-parent proof failed/.test(
+      message,
+    )
+  ) {
+    return EXECUTION_DIAGNOSTIC_PHASES.BASELINE_SOURCE_GIT;
+  }
+  const priorTarget = TARGETS.find((targetName) =>
+    new RegExp(
+      `Main release baseline ${targetName} (state is incomplete|prior is ambiguous)`,
+    ).test(message),
+  );
+  if (priorTarget !== undefined) {
+    return BASELINE_PRIOR_PHASE_BY_TARGET[priorTarget];
+  }
+  if (
+    /planner|Main deployment plan|Main deployment range|Main deployment final plan/.test(
+      message,
+    )
+  ) {
+    return EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PLANNER_RANGE;
+  }
+  if (/Main release manifest|original prior/.test(message)) {
+    return EXECUTION_DIAGNOSTIC_PHASES.BASELINE_MANIFEST;
+  }
+  return EXECUTION_DIAGNOSTIC_PHASES.BASELINE_UNKNOWN;
+}
 
 function parseArguments(argv) {
   if (!Array.isArray(argv) || !Object.hasOwn(OPTIONS, argv[0])) {
@@ -372,7 +511,9 @@ export async function runMainReleaseCli({
   argv = process.argv.slice(2),
   env = process.env,
   baselineFactory = createMainReleaseBaseline,
+  executionDiagnostics = null,
 } = {}) {
+  markExecutionPhase(executionDiagnostics, EXECUTION_DIAGNOSTIC_PHASES.INPUT);
   const { command, options } = parseArguments(argv);
   const identity = requireEnvironment(env);
   const runnerTemp = reviewedRunnerTemp(env.RUNNER_TEMP);
@@ -604,6 +745,7 @@ export async function runMainReleaseCli({
     return result;
   }
 
+  markExecutionPhase(executionDiagnostics, EXECUTION_DIAGNOSTIC_PHASES.PREPLAN);
   const preplan = assertMainPreplanReconciliation(
     readPrivateJson(
       options.preplan,
@@ -620,8 +762,16 @@ export async function runMainReleaseCli({
       "Inherited release recovery must finish before execution creation",
     );
   }
+  markExecutionPhase(
+    executionDiagnostics,
+    EXECUTION_DIAGNOSTIC_PHASES.DISCOVERY,
+  );
   const discovery = assertMainProviderDiscovery(
     readPrivateJson(options.discovery, "Main provider discovery", runnerTemp),
+  );
+  markExecutionPhase(
+    executionDiagnostics,
+    EXECUTION_DIAGNOSTIC_PHASES.PLANNING_SNAPSHOT,
   );
   const planningSnapshot = assertMainPlanningSnapshot(
     readPrivateJson(
@@ -629,6 +779,10 @@ export async function runMainReleaseCli({
       "Main release planning snapshot",
       runnerTemp,
     ),
+  );
+  markExecutionPhase(
+    executionDiagnostics,
+    EXECUTION_DIAGNOSTIC_PHASES.PROJECT_CENSUS,
   );
   const projectIds = projectIdsFromEnvironment(env);
   if (
@@ -639,6 +793,7 @@ export async function runMainReleaseCli({
       "Main release provider discovery conflicts with the supplied census",
     );
   }
+  markExecutionPhase(executionDiagnostics, EXECUTION_DIAGNOSTIC_PHASES.LEGACY);
   const legacyAppV2 = exactLegacyState(
     readPrivateJson(
       options["legacy-snapshot"],
@@ -653,11 +808,19 @@ export async function runMainReleaseCli({
       "Main release legacy v2 state changed after provider discovery",
     );
   }
+  markExecutionPhase(
+    executionDiagnostics,
+    EXECUTION_DIAGNOSTIC_PHASES.CANONICAL_MAPPINGS,
+  );
   const currentMappings = createMainCanonicalMappings({
     planningSnapshot,
     projectIds,
     legacySnapshot: [legacyAppV2],
   }).mappings;
+  markExecutionPhase(
+    executionDiagnostics,
+    EXECUTION_DIAGNOSTIC_PHASES.PREPLAN_RECOMPUTE,
+  );
   const recomputedPreplan = decideMainPreplanReconciliation({
     nextDeploySha: identity.deploySha,
     nextUpstreamRunId: identity.upstreamRunId,
@@ -675,31 +838,48 @@ export async function runMainReleaseCli({
       "Main release pre-plan decision conflicts with provider discovery",
     );
   }
+  markExecutionPhase(
+    executionDiagnostics,
+    EXECUTION_DIAGNOSTIC_PHASES.OWNERSHIP,
+  );
   const mode = env.VERCEL_MAIN_MODE;
   const mainOwnershipMode = ownershipFromEnvironment(env);
   let manifest;
   if (preplan.decision === "capture-new-baseline") {
-    manifest = (
-      await baselineFactory({
-        mode,
-        mainOwnershipMode,
-        deploySha: identity.deploySha,
-        upstreamRunId: identity.upstreamRunId,
-        projectIds,
-        planningSnapshot,
-        rollbackOnlyTargets: discovery.discovery.rollbackOnlyTargets,
-        repoRoot: env.SOURCE_PATH,
-      })
-    ).manifest;
+    try {
+      manifest = (
+        await baselineFactory({
+          mode,
+          mainOwnershipMode,
+          deploySha: identity.deploySha,
+          upstreamRunId: identity.upstreamRunId,
+          projectIds,
+          planningSnapshot,
+          rollbackOnlyTargets: discovery.discovery.rollbackOnlyTargets,
+          repoRoot: env.SOURCE_PATH,
+        })
+      ).manifest;
+    } catch (error) {
+      markExecutionPhase(executionDiagnostics, baselineFailurePhase(error));
+      throw error;
+    }
   } else {
     manifest = preplan.reconciliation?.manifest;
   }
+  markExecutionPhase(
+    executionDiagnostics,
+    EXECUTION_DIAGNOSTIC_PHASES.MANIFEST_ASSERTION,
+  );
   assertManifestEnvironment({
     manifest,
     mode,
     mainOwnershipMode,
     projectIds,
   });
+  markExecutionPhase(
+    executionDiagnostics,
+    EXECUTION_DIAGNOSTIC_PHASES.SELECTION,
+  );
   const selection = createMainReleaseSelection({
     providerDiscoveryDigest: digest(discovery),
     planningSnapshotDigest: discovery.planningSnapshotDigest,
@@ -715,6 +895,10 @@ export async function runMainReleaseCli({
     mainOwnershipMode,
     selectedManifest: manifest,
   });
+  markExecutionPhase(
+    executionDiagnostics,
+    EXECUTION_DIAGNOSTIC_PHASES.EXECUTION_ASSEMBLY,
+  );
   const execution = createMainReleaseExecution({
     decision: preplan.decision,
     reason: preplan.reason,
@@ -724,9 +908,22 @@ export async function runMainReleaseCli({
     selection,
   });
   const canonical = assertMainReleaseExecution(execution, identity);
+  markExecutionPhase(
+    executionDiagnostics,
+    EXECUTION_DIAGNOSTIC_PHASES.PRIVATE_OUTPUT,
+  );
   writePrivateJson(options.output, canonical, runnerTemp);
+  markExecutionPhase(
+    executionDiagnostics,
+    EXECUTION_DIAGNOSTIC_PHASES.EXECUTION_ENCODE,
+  );
+  const encodedExecution = encodeMainReleaseExecution(canonical, identity);
+  markExecutionPhase(
+    executionDiagnostics,
+    EXECUTION_DIAGNOSTIC_PHASES.GITHUB_OUTPUT,
+  );
   appendGithubOutputs(env, {
-    execution: encodeMainReleaseExecution(canonical, identity),
+    execution: encodedExecution,
     decision: canonical.decision,
     release_id: canonical.manifest.releaseId,
     targets: JSON.stringify(canonical.projection.stagedTargets),
@@ -742,6 +939,35 @@ export function renderMainReleaseCliFailure() {
   return "Vercel main release command failed\n";
 }
 
+export function renderMainReleaseExecutionCliFailure(phase) {
+  const code = MAIN_RELEASE_EXECUTION_DIAGNOSTIC_CODES[phase];
+  if (code === undefined) {
+    throw new Error("Main release execution diagnostic phase is unsupported");
+  }
+  return `Vercel main release execution failed phase=${phase} code=${code}\n`;
+}
+
+export async function runMainReleaseCliEntrypoint({
+  argv = process.argv.slice(2),
+  env = process.env,
+  writeStderr = (line) => process.stderr.write(line),
+  run = runMainReleaseCli,
+} = {}) {
+  const diagnostics =
+    argv[0] === "execution" ? createExecutionDiagnostics() : null;
+  try {
+    await run({ argv, env, executionDiagnostics: diagnostics });
+    return 0;
+  } catch {
+    writeStderr(
+      diagnostics === null
+        ? renderMainReleaseCliFailure()
+        : renderMainReleaseExecutionCliFailure(diagnostics.current()),
+    );
+    return 1;
+  }
+}
+
 function isCliEntrypoint() {
   return (
     process.argv[1] !== undefined &&
@@ -750,10 +976,5 @@ function isCliEntrypoint() {
 }
 
 if (isCliEntrypoint()) {
-  try {
-    await runMainReleaseCli();
-  } catch {
-    process.stderr.write(renderMainReleaseCliFailure());
-    process.exitCode = 1;
-  }
+  process.exitCode = await runMainReleaseCliEntrypoint();
 }

@@ -510,6 +510,26 @@ test("release preparation starts only after inherited recovery and replans from 
     deployment: false,
   });
   assert.equal(job.env.MAIN_PREPLAN_HANDOFF, undefined);
+  assert.deepEqual(
+    Object.fromEntries(
+      [
+        "DEPLOY_SHA",
+        "UPSTREAM_RUN_ID",
+        "UPSTREAM_RUN_ATTEMPT",
+        "UPSTREAM_RUN_URL",
+        "BUILD_AND_TEST_JOB_URL",
+      ].map((name) => [name, job.env[name]]),
+    ),
+    {
+      DEPLOY_SHA: "${{ needs.wait-for-ci.outputs.deploy_sha }}",
+      UPSTREAM_RUN_ID: "${{ needs.wait-for-ci.outputs.upstream_run_id }}",
+      UPSTREAM_RUN_ATTEMPT:
+        "${{ needs.wait-for-ci.outputs.upstream_run_attempt }}",
+      UPSTREAM_RUN_URL: "${{ needs.wait-for-ci.outputs.upstream_run_url }}",
+      BUILD_AND_TEST_JOB_URL:
+        "${{ needs.wait-for-ci.outputs.build_and_test_job_url }}",
+    },
+  );
 
   const checkouts = checkoutSteps(jobName);
   assert.equal(checkouts.length, 2);
