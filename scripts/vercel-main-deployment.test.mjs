@@ -211,7 +211,7 @@ function upstream() {
     runId: "123456",
     runAttempt: "2",
     runUrl:
-      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123456",
+      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123456/attempts/2",
     buildAndTestJobUrl:
       "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123456/job/654321",
   };
@@ -2353,7 +2353,7 @@ test("legacy plan CLI conservatively selects every rollback-only main target", (
           UPSTREAM_RUN_ID: "123456",
           UPSTREAM_RUN_ATTEMPT: "2",
           UPSTREAM_RUN_URL:
-            "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123456",
+            "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123456/attempts/2",
           BUILD_AND_TEST_JOB_URL:
             "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123456/job/654321",
           SOURCE_PATH: sourcePath,
@@ -4802,7 +4802,12 @@ test("terminal evidence CLI creates a bounded receipt and restores committed evi
       [
         {
           ...execution,
-          upstream: { ...execution.upstream, runAttempt: "3" },
+          upstream: {
+            ...execution.upstream,
+            runAttempt: "3",
+            runUrl:
+              "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123456/attempts/3",
+          },
         },
         "3",
       ],

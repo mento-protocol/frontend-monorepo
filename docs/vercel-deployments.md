@@ -74,8 +74,10 @@ The job then requires `github.workflow_ref` to identify
 `github.workflow_sha == DEPLOY_SHA`, checked-out `HEAD == DEPLOY_SHA`, and
 `DEPLOY_SHA` reachable from freshly fetched `refs/heads/main`. A mismatched
 workflow definition or superseded definition exits before any Vercel
-environment or credential is available. The gate records only the upstream run
-URL and attempt, exact `Build and Test` job URL, and `DEPLOY_SHA`.
+environment or credential is available. The gate records only the
+attempt-qualified upstream run URL, exact `Build and Test` job URL, and
+`DEPLOY_SHA`; release execution validates the attempt suffix against the
+separately admitted run attempt.
 
 `provider-preplan` is the first credential-bearing main-release job. It captures
 the reviewed protected mappings and legacy App `v2` snapshot, then discovers

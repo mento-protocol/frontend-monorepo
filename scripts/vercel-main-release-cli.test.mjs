@@ -302,7 +302,7 @@ function environment(directory) {
     UPSTREAM_RUN_ID: "123",
     UPSTREAM_RUN_ATTEMPT: "2",
     UPSTREAM_RUN_URL:
-      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123",
+      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123/attempts/2",
     BUILD_AND_TEST_JOB_URL:
       "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123/job/456",
     VERCEL_MAIN_MODE: "active",
@@ -334,7 +334,7 @@ function executionFor(releaseManifest) {
     upstream: {
       runId: releaseManifest.upstreamRunId,
       runAttempt: "2",
-      runUrl: `https://github.com/mento-protocol/frontend-monorepo/actions/runs/${releaseManifest.upstreamRunId}`,
+      runUrl: `https://github.com/mento-protocol/frontend-monorepo/actions/runs/${releaseManifest.upstreamRunId}/attempts/2`,
       buildAndTestJobUrl: `https://github.com/mento-protocol/frontend-monorepo/actions/runs/${releaseManifest.upstreamRunId}/job/456`,
     },
     legacyAppV2: legacyState,
@@ -967,7 +967,7 @@ test("release CLI rejects linked private inputs and outputs", async (t) => {
       runId: "123",
       runAttempt: "2",
       runUrl:
-        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123",
+        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123/attempts/2",
       buildAndTestJobUrl:
         "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123/job/456",
     },
@@ -1014,7 +1014,7 @@ test("materialize binds retained output to the exact SHA and upstream run", asyn
       runId: "123",
       runAttempt: "2",
       runUrl:
-        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123",
+        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123/attempts/2",
       buildAndTestJobUrl:
         "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123/job/456",
     },
@@ -1691,7 +1691,7 @@ test("forward journal uses only asserted execution, fresh mappings, and current-
       runId: "123",
       runAttempt: "2",
       runUrl:
-        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123",
+        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123/attempts/2",
       buildAndTestJobUrl:
         "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123/job/456",
     },
