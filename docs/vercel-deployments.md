@@ -92,9 +92,18 @@ comes from the same epoch. A second drift, HTTP 429, malformed response,
 transport failure, or any candidate/reconciliation ambiguity fails closed
 without another epoch. A failed command prints only an allowlisted
 classification such as `planning-census-read-timeout`,
-`planning-census-unstable`, `planning-census-stale`, or
-`preplan-reconciliation-failed`; it never prints a request path, provider
-response, project or deployment identity, or credential.
+`planning-census-unstable`, `planning-census-stale`,
+`preplan-reconciliation-failed`, `preplan-private-output-write-failed`,
+`preplan-handoff-encode-failed`, or `preplan-github-output-append-failed`; it
+never prints a request path, provider response, project or deployment identity,
+or credential. The failure classifications are value-free. Before the preplan
+command appends its GitHub job outputs, it opens the existing command file
+without following links, requires one regular single-link inode with mode
+exactly `0600` or GitHub's `0644` default, seals the open descriptor to `0600`,
+then rechecks the same inode, its single link, non-symlink path, exact mode, and
+size both before and after the append. Group- or other-writable files, links,
+identity changes observed during validation, and oversized command files fail
+closed.
 
 The provider-side stable release manifest is the sole durable cross-attempt
 authority. It binds repository, release ID, `DEPLOY_SHA`, validated upstream
