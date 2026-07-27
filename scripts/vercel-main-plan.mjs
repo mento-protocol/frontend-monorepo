@@ -12,6 +12,10 @@ import {
   MAIN_OWNERSHIP_MODES,
   PREVIEW_TARGET_CONFIG,
 } from "./vercel-preview-targets.mjs";
+import {
+  assertOnlyExpectedProductionGeneratedAliases,
+  PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES,
+} from "./vercel-production-generated-aliases.mjs";
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9._-]+$/;
@@ -256,7 +260,7 @@ function canonicalizeReviewedAliases(aliases, target) {
   return normalized;
 }
 
-function canonicalizeOptionalDeploymentAliases(value, target) {
+function canonicalizeOptionalDeploymentAliases(value, target, creatorUsername) {
   if (value === undefined) return null;
   if (!Array.isArray(value)) {
     activationError(target, "alias-set-ambiguous");
@@ -285,6 +289,19 @@ function canonicalizeOptionalDeploymentAliases(value, target) {
       JSON.stringify([...MAIN_TARGET_CONTRACTS.app.aliases].toSorted())
   ) {
     activationError(target, "alias-set-ambiguous");
+  }
+  if (target !== "app") {
+    const reviewedAliases = new Set(MAIN_TARGET_CONTRACTS[target].aliases);
+    try {
+      assertOnlyExpectedProductionGeneratedAliases({
+        aliases: sorted.filter((alias) => !reviewedAliases.has(alias)),
+        creatorUsername,
+        logicalTarget: target,
+        mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
+      });
+    } catch {
+      activationError(target, "alias-set-ambiguous");
+    }
   }
   return sorted;
 }
@@ -426,6 +443,7 @@ function canonicalizePriorGroup({ target, group, projectId }) {
     const aliases = canonicalizeOptionalDeploymentAliases(
       state.aliases,
       target,
+      state.creatorUsername,
     );
     if (aliases !== null) {
       if (

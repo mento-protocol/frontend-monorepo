@@ -43,6 +43,7 @@ import {
   decideMainPreplanReconciliation,
   reconcileMainRelease,
 } from "./vercel-main-release-reconciliation.mjs";
+import { createMainReleaseBaseline } from "./vercel-main-release-planner.mjs";
 import { createMainCanonicalMappings } from "./vercel-main-provider-cli.mjs";
 import {
   createMainTransactionId,
@@ -62,6 +63,12 @@ const TARGETS = ["app", "governance", "reserve", "ui"];
 const RELEASE_ORDER = ["governance", "reserve", "ui", "app"];
 const RELEASE_CLI_PATH = fileURLToPath(
   new URL("./vercel-main-release-cli.mjs", import.meta.url),
+);
+const PRODUCTION_PRIORS = JSON.parse(
+  readFileSync(
+    new URL("./fixtures/vercel-main-plan/valid-priors.json", import.meta.url),
+    "utf8",
+  ),
 );
 
 function planning(
@@ -1086,6 +1093,64 @@ test("only capture-new execution invokes the baseline planner", async (t) => {
   });
   assert.equal(captured, 1);
   assert.equal(value.decision, "capture-new-baseline");
+});
+
+test("capture-new execution accepts production generated-alias supersets", async (t) => {
+  const directory = realpathSync(
+    mkdtempSync(join(tmpdir(), "main-release-cli-production-aliases-")),
+  );
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const release = manifest(TARGETS, "123", TARGETS);
+  const census = planningSnapshot(release);
+  for (const target of ["governance", "reserve", "ui"]) {
+    const aliases = PRODUCTION_PRIORS.priorStates[target].states[0].aliases;
+    for (const state of census.states.filter(
+      ({ projectName }) => projectName === `${target}.mento.org`,
+    )) {
+      state.aliases = [...aliases];
+    }
+  }
+  const capturePreplan = {
+    schema: "vercel-main-preplan-reconciliation:v2",
+    decision: "capture-new-baseline",
+    reason: "no-mapped-release-metadata",
+    rollbackOnlyTargets: [...TARGETS],
+    reconciliation: null,
+    rollbackAuthorization: null,
+  };
+  const value = await runMainReleaseCli({
+    argv: executionArguments(directory, {
+      release,
+      census,
+      preplanValue: capturePreplan,
+      discoveryValue: discovery(release, census, {
+        empty: true,
+        rollbackOnlyTargets: [...TARGETS],
+      }),
+    }),
+    env: environment(directory),
+    baselineFactory: (options) =>
+      createMainReleaseBaseline({
+        ...options,
+        gitAdapter: {
+          resolveCommit: (sha) => sha,
+          isAncestor: () => true,
+          firstParent: () => PRIOR_SHA,
+        },
+        runPlanner: () =>
+          assert.fail("rollback-only baselines must bypass path planning"),
+      }),
+  });
+  assert.equal(value.decision, "capture-new-baseline");
+  for (const target of TARGETS) {
+    const prior = value.manifest.originalPriors[target];
+    assert.ok(
+      prior.planningLeaves.every(
+        ({ aliases }) =>
+          JSON.stringify(aliases) === JSON.stringify(prior.aliases),
+      ),
+    );
+  }
 });
 
 test("execution rejects provider evidence that does not select the supplied release", async (t) => {

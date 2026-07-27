@@ -4,12 +4,22 @@ import { test } from "node:test";
 
 import {
   createMainCandidateIntent,
+  createMainCandidateReceipt,
   createMainCandidateVercelMetadata,
 } from "./vercel-main-candidate.mjs";
-import { resolveMainCandidateHandoff } from "./vercel-main-candidate-controller.mjs";
+import {
+  assertMainCandidateHandoff,
+  assertMainServedPriorCandidateHandoff,
+  resolveMainCandidateHandoff,
+  resolveMainServedPriorCandidateHandoff,
+} from "./vercel-main-candidate-controller.mjs";
 import { createMainCandidateVercelProvider } from "./vercel-main-candidate-provider.mjs";
 import { createMainReleaseManifest } from "./vercel-main-release-reconciliation.mjs";
-import { planMainDeployments } from "./vercel-main-plan.mjs";
+import {
+  MAIN_TARGET_CONTRACTS,
+  planMainDeployments,
+} from "./vercel-main-plan.mjs";
+import { PRODUCTION_GENERATED_ALIAS_CONTRACTS } from "./vercel-production-generated-aliases.mjs";
 
 const fixtureUrl = new URL(
   "./fixtures/vercel-main-plan/valid-priors.json",
@@ -97,11 +107,15 @@ function intent(target = "ui") {
 
 function deploymentResponse(
   currentIntent,
-  { id = "dpl_0123456789abcdef", githubDeployment = false } = {},
+  {
+    id = "dpl_0123456789abcdef",
+    githubDeployment = false,
+    url = `${currentIntent.target}-candidate.vercel.app`,
+  } = {},
 ) {
   return {
     id,
-    url: `${currentIntent.target}-candidate.vercel.app`,
+    url,
     projectId: currentIntent.projectId,
     name: currentIntent.projectName,
     readyState: "READY",
@@ -121,6 +135,56 @@ function deploymentResponse(
       ...(githubDeployment ? { githubDeployment: "1" } : {}),
     },
   };
+}
+
+function deploymentAliases(aliases) {
+  return { aliases: aliases.map((alias) => ({ alias })) };
+}
+
+function generatedCreatorAlias(target, creatorUsername = "chapati") {
+  const { generatedProjectSlug, generatedScopeSlug } =
+    PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
+  return `${generatedProjectSlug}-${creatorUsername}-${generatedScopeSlug}.vercel.app`;
+}
+
+function subsets(values) {
+  return Array.from({ length: 2 ** values.length }, (_, mask) =>
+    values.filter((_, index) => (mask & (1 << index)) !== 0).toSorted(),
+  );
+}
+
+async function resolveHandoff(
+  target,
+  aliases,
+  { deploymentUrl, servedPrior = false } = {},
+) {
+  const currentIntent = intent(target);
+  const response = deploymentResponse(currentIntent, {
+    ...(deploymentUrl === undefined ? {} : { url: deploymentUrl }),
+  });
+  const provider = createMainCandidateVercelProvider({
+    intent: currentIntent,
+    client: {
+      requestWithRetry: async () => ({
+        deployments: [{ uid: response.id }],
+        pagination: { next: null },
+      }),
+      inspectDeployment: async () => response,
+      listDeploymentAliases: async () => deploymentAliases(aliases),
+    },
+  });
+  const resolve = servedPrior
+    ? resolveMainServedPriorCandidateHandoff
+    : resolveMainCandidateHandoff;
+  return resolve({
+    intent: currentIntent,
+    provider,
+    smokeCandidate: async (candidate) => ({
+      immutableUrl: candidate.deploymentUrl,
+      servedSha: currentIntent.deploySha,
+      status: "passed",
+    }),
+  });
 }
 
 test("provider lists a complete bounded project and stable-identity census", async () => {
@@ -199,6 +263,8 @@ test("provider returns every unique candidate from a complete paginated census",
 test("unbound provider callbacks resolve a raw-metadata candidate without artifact authority", async () => {
   const currentIntent = intent();
   const response = deploymentResponse(currentIntent);
+  const generatedProjectAlias =
+    PRODUCTION_GENERATED_ALIAS_CONTRACTS.ui.generatedProjectAlias;
   const provider = createMainCandidateVercelProvider({
     intent: currentIntent,
     client: {
@@ -207,7 +273,8 @@ test("unbound provider callbacks resolve a raw-metadata candidate without artifa
         pagination: { next: null },
       }),
       inspectDeployment: async () => response,
-      listDeploymentAliases: async () => ({ aliases: [] }),
+      listDeploymentAliases: async () =>
+        deploymentAliases([generatedProjectAlias]),
     },
   });
   const handoff = await resolveMainCandidateHandoff({
@@ -226,6 +293,299 @@ test("unbound provider callbacks resolve a raw-metadata candidate without artifa
     deploymentDurationMs: null,
     cacheHit: null,
   });
+});
+
+test("automatic ordinary candidate finalization requires the base and permits the exact creator alias", async () => {
+  for (const target of ["governance", "reserve", "ui"]) {
+    const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
+    for (const aliases of [
+      [contract.generatedProjectAlias],
+      [
+        contract.generatedProjectAlias,
+        generatedCreatorAlias(target),
+      ].toSorted(),
+    ]) {
+      const handoff = await resolveHandoff(target, aliases);
+      assert.equal(handoff.action, "reuse");
+      assert.deepEqual(handoff.canonicalState.aliases, aliases);
+      assert.deepEqual(assertMainCandidateHandoff(handoff), handoff);
+    }
+  }
+});
+
+test("automatic ordinary candidate finalization rejects non-candidate alias topologies", async () => {
+  for (const target of ["governance", "reserve", "ui"]) {
+    const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
+    const otherTarget = target === "governance" ? "reserve" : "governance";
+    for (const [
+      name,
+      aliases,
+      expected = /candidate generated-alias topology mismatch/,
+    ] of [
+      ["empty", []],
+      ["creator only", [generatedCreatorAlias(target)]],
+      ["git-main only", [contract.generatedGitMainAlias]],
+      [
+        "base plus git-main",
+        [contract.generatedGitMainAlias, contract.generatedProjectAlias],
+      ],
+      [
+        "unreviewed Git branch",
+        [
+          contract.generatedProjectAlias,
+          `${contract.generatedProjectSlug}-git-feature-${contract.generatedScopeSlug}.vercel.app`,
+        ].toSorted(),
+      ],
+      [
+        "custom",
+        [
+          contract.generatedProjectAlias,
+          `${target}-preview.mento.org`,
+        ].toSorted(),
+      ],
+      [
+        "immutable hostname",
+        [
+          contract.generatedProjectAlias,
+          `${target}-candidate.vercel.app`,
+        ].toSorted(),
+        /immutable-host separation/,
+      ],
+      [
+        "wrong target",
+        [
+          contract.generatedProjectAlias,
+          PRODUCTION_GENERATED_ALIAS_CONTRACTS[otherTarget]
+            .generatedProjectAlias,
+        ].toSorted(),
+      ],
+      [
+        "creator near miss",
+        [
+          contract.generatedProjectAlias,
+          generatedCreatorAlias(target, "chapati2"),
+        ].toSorted(),
+      ],
+      [
+        "project-default",
+        [
+          contract.generatedProjectAlias,
+          `${contract.generatedProjectSlug}.vercel.app`,
+        ].toSorted(),
+      ],
+    ]) {
+      await assert.rejects(
+        () => resolveHandoff(target, aliases),
+        expected,
+        `${target}: ${name}`,
+      );
+    }
+  }
+});
+
+test("automatic inherited ordinary finalization requires its protected alias and accepts every generated residual subset", async () => {
+  for (const target of ["governance", "reserve", "ui"]) {
+    const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
+    const otherTarget = target === "governance" ? "reserve" : "governance";
+    const protectedAlias = MAIN_TARGET_CONTRACTS[target].aliases[0];
+    let validHandoff;
+    for (const residualAliases of subsets([
+      contract.generatedProjectAlias,
+      generatedCreatorAlias(target),
+      contract.generatedGitMainAlias,
+    ])) {
+      const aliases = [protectedAlias, ...residualAliases].toSorted();
+      const handoff = await resolveHandoff(target, aliases, {
+        servedPrior: true,
+      });
+      validHandoff = handoff;
+      assert.deepEqual(handoff.canonicalState.aliases, aliases);
+      assert.deepEqual(assertMainServedPriorCandidateHandoff(handoff), handoff);
+      assert.deepEqual(
+        assertMainServedPriorCandidateHandoff(
+          JSON.parse(JSON.stringify(handoff)),
+        ),
+        handoff,
+      );
+    }
+    for (const [name, aliases, expected] of [
+      [
+        "missing protected alias",
+        [contract.generatedProjectAlias],
+        /missing its reviewed protected alias/,
+      ],
+      [
+        "wrong protected alias",
+        [
+          MAIN_TARGET_CONTRACTS[otherTarget].aliases[0],
+          contract.generatedProjectAlias,
+        ].toSorted(),
+        /missing its reviewed protected alias/,
+      ],
+      [
+        "custom protected alias",
+        [
+          `${target}-preview.mento.org`,
+          contract.generatedProjectAlias,
+        ].toSorted(),
+        /missing its reviewed protected alias/,
+      ],
+      [
+        "unknown generated residual",
+        [protectedAlias, `${target}-unknown.vercel.app`].toSorted(),
+        /served-prior generated-alias topology mismatch/,
+      ],
+    ]) {
+      await assert.rejects(
+        () => resolveHandoff(target, aliases, { servedPrior: true }),
+        expected,
+        `${target}: live ${name}`,
+      );
+      const serialized = structuredClone(validHandoff);
+      serialized.canonicalState.aliases = aliases;
+      assert.throws(
+        () => assertMainServedPriorCandidateHandoff(serialized),
+        expected,
+        `${target}: serialized ${name}`,
+      );
+    }
+  }
+});
+
+test("automatic ordinary finalization keeps the immutable hostname outside generated aliases", async () => {
+  for (const target of ["governance", "reserve", "ui"]) {
+    const generatedProjectAlias =
+      PRODUCTION_GENERATED_ALIAS_CONTRACTS[target].generatedProjectAlias;
+    await assert.rejects(
+      () =>
+        resolveHandoff(target, [generatedProjectAlias], {
+          deploymentUrl: generatedProjectAlias,
+        }),
+      /immutable-host separation/,
+      target,
+    );
+  }
+});
+
+test("deserialized ordinary candidate handoffs recheck the exact alias topology", async () => {
+  for (const target of ["governance", "reserve", "ui"]) {
+    const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
+    const handoff = await resolveHandoff(target, [
+      contract.generatedProjectAlias,
+    ]);
+    for (const [
+      name,
+      aliases,
+      expected = /candidate generated-alias topology mismatch/,
+    ] of [
+      ["empty", []],
+      ["creator only", [generatedCreatorAlias(target)]],
+      [
+        "git-main",
+        [contract.generatedGitMainAlias, contract.generatedProjectAlias],
+      ],
+      [
+        "custom",
+        [
+          contract.generatedProjectAlias,
+          `${target}-preview.mento.org`,
+        ].toSorted(),
+      ],
+      [
+        "immutable hostname",
+        [
+          contract.generatedProjectAlias,
+          `${target}-candidate.vercel.app`,
+        ].toSorted(),
+        /immutable-host separation/,
+      ],
+    ]) {
+      const serialized = structuredClone(handoff);
+      serialized.canonicalState.aliases = aliases;
+      assert.throws(
+        () => assertMainCandidateHandoff(serialized),
+        expected,
+        `${target}: ${name}`,
+      );
+    }
+  }
+});
+
+test("deserialized ordinary handoffs reject mutable generated aliases as the immutable hostname", async () => {
+  for (const target of ["governance", "reserve", "ui"]) {
+    const generatedProjectAlias =
+      PRODUCTION_GENERATED_ALIAS_CONTRACTS[target].generatedProjectAlias;
+    const handoff = await resolveHandoff(target, [generatedProjectAlias]);
+    const serialized = structuredClone(handoff);
+    const deploymentUrl = `https://${generatedProjectAlias}`;
+    const candidate = {
+      ...serialized.candidate,
+      deploymentUrl,
+    };
+    const immutableSmoke = {
+      ...serialized.immutableSmoke,
+      immutableUrl: deploymentUrl,
+    };
+    const receipt = createMainCandidateReceipt({
+      intent: serialized.intent,
+      candidate,
+      immutableSmoke,
+    });
+    serialized.candidate = receipt.candidate;
+    serialized.receipt = receipt;
+    serialized.immutableSmoke = receipt.immutableSmoke;
+    serialized.canonicalState.deploymentUrl = deploymentUrl;
+    serialized.canonicalState.alias = generatedProjectAlias;
+    assert.throws(
+      () => assertMainCandidateHandoff(serialized),
+      /immutable-host separation/,
+      target,
+    );
+  }
+});
+
+test("App candidate finalization remains on the custom-v3 contract path", async () => {
+  const handoff = await resolveHandoff("app", []);
+  assert.equal(handoff.intent.target, "app");
+  assert.deepEqual(handoff.canonicalState.aliases, []);
+  assert.deepEqual(assertMainCandidateHandoff(handoff), handoff);
+});
+
+test("served-prior finalization rejects App before zero-census resolution or create-handoff assertion", async () => {
+  const currentIntent = intent("app");
+  let listCalls = 0;
+  const provider = {
+    listCandidateDeploymentIds: async () => {
+      listCalls += 1;
+      return { deploymentIds: [], complete: true };
+    },
+    inspectCandidate: async () =>
+      assert.fail("zero-census App inspection must not run"),
+  };
+  await assert.rejects(
+    () =>
+      resolveMainServedPriorCandidateHandoff({
+        intent: currentIntent,
+        provider,
+        smokeCandidate: async () =>
+          assert.fail("zero-census App smoke must not run"),
+      }),
+    /excludes App/,
+  );
+  assert.equal(listCalls, 0);
+
+  const createHandoff = await resolveMainCandidateHandoff({
+    intent: currentIntent,
+    provider,
+    smokeCandidate: async () =>
+      assert.fail("zero-census App smoke must not run"),
+  });
+  assert.equal(createHandoff.action, "create");
+  assert.equal(listCalls, 2);
+  assert.throws(
+    () => assertMainServedPriorCandidateHandoff(createHandoff),
+    /excludes App/,
+  );
 });
 
 test("pre-plan mapped inspection reconstructs an older App v3 candidate without a current intent", async () => {

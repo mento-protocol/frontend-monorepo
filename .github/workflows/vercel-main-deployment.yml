@@ -246,7 +246,7 @@ jobs:
         run: |
           test "${{ steps.inherited-governance-preflight.outputs.action }}" = reuse
           node scripts/vercel-main-provider-cli.mjs candidate-smoke --intent "$RUNNER_TEMP/inherited-governance-intent.json" --output "$RUNNER_TEMP/inherited-governance-smoke.json"
-          node scripts/vercel-main-provider-cli.mjs candidate-finalize --intent "$RUNNER_TEMP/inherited-governance-intent.json" --smoke "$RUNNER_TEMP/inherited-governance-smoke.json" --output "$RUNNER_TEMP/inherited-governance-receipt.json"
+          node scripts/vercel-main-provider-cli.mjs candidate-finalize-inherited --intent "$RUNNER_TEMP/inherited-governance-intent.json" --smoke "$RUNNER_TEMP/inherited-governance-smoke.json" --output "$RUNNER_TEMP/inherited-governance-receipt.json"
       - name: Create inherited reserve candidate intent
         if: contains(fromJSON(steps.inherited.outputs.inherited_candidate_targets), 'reserve')
         run: >-
@@ -272,7 +272,7 @@ jobs:
         run: |
           test "${{ steps.inherited-reserve-preflight.outputs.action }}" = reuse
           node scripts/vercel-main-provider-cli.mjs candidate-smoke --intent "$RUNNER_TEMP/inherited-reserve-intent.json" --output "$RUNNER_TEMP/inherited-reserve-smoke.json"
-          node scripts/vercel-main-provider-cli.mjs candidate-finalize --intent "$RUNNER_TEMP/inherited-reserve-intent.json" --smoke "$RUNNER_TEMP/inherited-reserve-smoke.json" --output "$RUNNER_TEMP/inherited-reserve-receipt.json"
+          node scripts/vercel-main-provider-cli.mjs candidate-finalize-inherited --intent "$RUNNER_TEMP/inherited-reserve-intent.json" --smoke "$RUNNER_TEMP/inherited-reserve-smoke.json" --output "$RUNNER_TEMP/inherited-reserve-receipt.json"
       - name: Create inherited UI candidate intent
         if: contains(fromJSON(steps.inherited.outputs.inherited_candidate_targets), 'ui')
         run: >-
@@ -298,7 +298,7 @@ jobs:
         run: |
           test "${{ steps.inherited-ui-preflight.outputs.action }}" = reuse
           node scripts/vercel-main-provider-cli.mjs candidate-smoke --intent "$RUNNER_TEMP/inherited-ui-intent.json" --output "$RUNNER_TEMP/inherited-ui-smoke.json"
-          node scripts/vercel-main-provider-cli.mjs candidate-finalize --intent "$RUNNER_TEMP/inherited-ui-intent.json" --smoke "$RUNNER_TEMP/inherited-ui-smoke.json" --output "$RUNNER_TEMP/inherited-ui-receipt.json"
+          node scripts/vercel-main-provider-cli.mjs candidate-finalize-inherited --intent "$RUNNER_TEMP/inherited-ui-intent.json" --smoke "$RUNNER_TEMP/inherited-ui-smoke.json" --output "$RUNNER_TEMP/inherited-ui-receipt.json"
       - name: Create inherited App candidate intent
         if: contains(fromJSON(steps.inherited.outputs.inherited_candidate_targets), 'app')
         run: >-

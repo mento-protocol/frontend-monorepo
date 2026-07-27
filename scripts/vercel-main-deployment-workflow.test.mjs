@@ -322,7 +322,20 @@ test("inherited restoration proves and validates reuse before a durable bounded 
         `steps\\.inherited-${target}-preflight\\.outputs\\.action.*= reuse`,
       ),
     );
-    assert.match(finalize.run, /candidate-smoke[\s\S]*candidate-finalize/);
+    const finalizeCommand =
+      target === "app" ? "candidate-finalize" : "candidate-finalize-inherited";
+    assert.match(
+      finalize.run,
+      new RegExp(
+        `candidate-smoke[\\s\\S]*vercel-main-provider-cli\\.mjs ${finalizeCommand} --intent`,
+      ),
+    );
+    if (target !== "app") {
+      assert.doesNotMatch(
+        finalize.run,
+        /vercel-main-provider-cli\.mjs candidate-finalize --intent/,
+      );
+    }
     assert.ok(jobSteps.indexOf(intent) < jobSteps.indexOf(preflight));
     assert.ok(jobSteps.indexOf(preflight) < jobSteps.indexOf(finalize));
     assert.ok(jobSteps.indexOf(finalize) < jobSteps.indexOf(strictReceipts));
@@ -479,6 +492,57 @@ test("inherited restoration proves and validates reuse before a durable bounded 
   assert.ok(jobSteps.indexOf(finalHead) < jobSteps.indexOf(requireRecovered));
   assert.ok(jobSteps.indexOf(requireRecovered) < jobSteps.indexOf(cleanup));
   assert.ok(jobSteps.indexOf(cleanup) < jobSteps.indexOf(outcome));
+});
+
+test("only inherited ordinary restoration uses inherited candidate finalization", () => {
+  const inheritedFinalizers = Object.entries(workflow.jobs).flatMap(
+    ([jobName, job]) =>
+      (job.steps ?? [])
+        .filter((step) =>
+          step.run?.includes(
+            "vercel-main-provider-cli.mjs candidate-finalize-inherited ",
+          ),
+        )
+        .map((step) => ({ jobName, id: step.id })),
+  );
+  assert.deepEqual(inheritedFinalizers, [
+    {
+      jobName: "restore-inherited-release",
+      id: "inherited-governance-finalize",
+    },
+    {
+      jobName: "restore-inherited-release",
+      id: "inherited-reserve-finalize",
+    },
+    {
+      jobName: "restore-inherited-release",
+      id: "inherited-ui-finalize",
+    },
+  ]);
+  assert.doesNotMatch(
+    `${forwardSource}\n${recoverySource}`,
+    /candidate-finalize-inherited/,
+  );
+  assert.doesNotMatch(workflowSource, /--alias-topology-mode/);
+
+  for (const target of ["governance", "reserve", "ui"]) {
+    const finalize = command(`stage-${target}`, "candidate-finalize");
+    assert.match(
+      finalize.run,
+      /vercel-main-provider-cli\.mjs candidate-finalize --intent/,
+    );
+    assert.doesNotMatch(finalize.run, /candidate-finalize-inherited/);
+  }
+  assert.match(
+    workflow.jobs["restore-inherited-release"].steps.find(
+      (step) => step.id === "inherited-app-finalize",
+    ).run,
+    /vercel-main-provider-cli\.mjs candidate-finalize --intent/,
+  );
+  assert.match(
+    named("activate-and-verify", "only a reused App candidate").run,
+    /vercel-main-provider-cli\.mjs candidate-finalize --intent/,
+  );
 });
 
 test("release preparation starts only after inherited recovery and replans from fresh state", () => {

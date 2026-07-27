@@ -16,6 +16,7 @@ import {
   MAIN_TARGET_CONTRACTS,
   planMainDeployments,
 } from "./vercel-main-plan.mjs";
+import { PRODUCTION_GENERATED_ALIAS_CONTRACTS } from "./vercel-production-generated-aliases.mjs";
 
 const SHA = "abcdef0123456789abcdef0123456789abcdef01";
 const PRIOR_SHA = "1111111111111111111111111111111111111111";
@@ -223,7 +224,15 @@ function plannerInputs(originalPriors) {
             target: leaf.target,
             customEnvironmentSlug: leaf.customEnvironmentSlug,
             git: rawPlanningGit(leaf.git),
-            aliases: [...leaf.aliases],
+            aliases:
+              target === "app"
+                ? [...leaf.aliases]
+                : [
+                    ...leaf.aliases,
+                    PRODUCTION_GENERATED_ALIAS_CONTRACTS[target]
+                      .generatedProjectAlias,
+                  ].toSorted(),
+            creatorUsername: null,
           })),
         },
       ]),
@@ -321,6 +330,13 @@ test("release manifest binds the canonical planner result and all four rollback 
   tamperedPrior.originalPriors.reserve.aliases = ["attacker.example"];
   assert.throws(
     () => assertMainReleaseManifest(tamperedPrior),
+    /reviewed topology/,
+  );
+  const tamperedPlanningAliases = structuredClone(first);
+  tamperedPlanningAliases.originalPriors.governance.planningLeaves[0].aliases =
+    ["governance.mento.org", "governancementoorg-mentolabs.vercel.app"];
+  assert.throws(
+    () => assertMainReleaseManifest(tamperedPlanningAliases),
     /reviewed topology/,
   );
 

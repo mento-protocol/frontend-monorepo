@@ -611,7 +611,6 @@ export function recomputeMainReleasePlan({
             target: leaf.target,
             customEnvironmentSlug: leaf.customEnvironmentSlug,
             git: planningGitForRecompute(leaf.git),
-            aliases: [...leaf.aliases],
           })),
         },
       ];

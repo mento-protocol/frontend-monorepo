@@ -7,10 +7,12 @@ import {
   assertMainDeploymentPlan,
   createMainPlanGitAdapter,
   MAIN_DEPLOYMENT_TARGETS,
+  MAIN_TARGET_CONTRACTS,
   MainActivationStateError,
   partitionMainOwnership,
   planMainDeployments,
 } from "./vercel-main-plan.mjs";
+import { PRODUCTION_GENERATED_ALIAS_CONTRACTS } from "./vercel-production-generated-aliases.mjs";
 
 const fixtureUrl = new URL(
   "./fixtures/vercel-main-plan/valid-priors.json",
@@ -124,6 +126,22 @@ function assertActivationError(callback, target, code) {
     assert.equal(error.code, code);
     return true;
   });
+}
+
+function ordinaryGeneratedAliasSubsets(target) {
+  const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
+  const values = [
+    contract.generatedProjectAlias,
+    `${contract.generatedProjectSlug}-fixture-author-${contract.generatedScopeSlug}.vercel.app`,
+    contract.generatedGitMainAlias,
+  ];
+  return values.reduce(
+    (subsets, alias) => [
+      ...subsets,
+      ...subsets.map((subset) => [...subset, alias].toSorted()),
+    ],
+    [[]],
+  );
 }
 
 test("checked-in ownership is all GitHub and partitions deterministically", () => {
@@ -1175,6 +1193,69 @@ test("a malformed shadow fallback plan selects its current-base target and keeps
   });
 });
 
+test("ordinary served priors accept every finite reviewed generated-alias subset", () => {
+  for (const target of ["governance", "reserve", "ui"]) {
+    for (const generatedAliases of ordinaryGeneratedAliasSubsets(target)) {
+      const input = fixture();
+      input.priorStates[target].states[0].aliases = [
+        ...MAIN_TARGET_CONTRACTS[target].aliases,
+        ...generatedAliases,
+      ].toSorted();
+      const { plan } = runFixture(input);
+      assert.deepEqual(
+        plan.priors.find((prior) => prior.target === target).aliases,
+        [...MAIN_TARGET_CONTRACTS[target].aliases],
+        `${target}: ${JSON.stringify(generatedAliases)}`,
+      );
+    }
+  }
+});
+
+test("native git-main served priors remain selectable in active, shadow, and rollback-only planning", () => {
+  for (const target of ["governance", "reserve", "ui"]) {
+    for (const context of ["active", "shadow", "rollback-only"]) {
+      const input = fixture();
+      input.priorStates[target].states[0].aliases = [
+        ...MAIN_TARGET_CONTRACTS[target].aliases,
+        PRODUCTION_GENERATED_ALIAS_CONTRACTS[target].generatedGitMainAlias,
+      ].toSorted();
+      const servedSha = input.priorStates[target].states[0].git.sha;
+      const options = {};
+      if (context !== "shadow") {
+        input.mode = "active";
+        input.mainOwnershipMode = ownershipMode("github");
+      }
+      if (context === "rollback-only") {
+        setAllTargetShas(input, input.deploySha);
+        options.rollbackOnlyTargets = [target];
+      } else {
+        options.planner = createPlannerFixture(
+          new Map([
+            [
+              servedSha,
+              plannerOutput(
+                servedSha,
+                input.deploySha,
+                [target],
+                "affected-packages",
+              ),
+            ],
+          ]),
+        );
+      }
+
+      const { plan } = runFixture(input, options);
+      const selectedTargets =
+        context === "shadow" ? plan.shadowTargets : plan.activeTargets;
+      assert.ok(selectedTargets.includes(target), `${target}: ${context}`);
+      assert.deepEqual(
+        plan.priors.find((prior) => prior.target === target).aliases,
+        [...MAIN_TARGET_CONTRACTS[target].aliases],
+      );
+    }
+  }
+});
+
 const activationAmbiguities = [
   {
     name: "missing protected alias",
@@ -1211,6 +1292,81 @@ const activationAmbiguities = [
         "governance.mento.org",
         "governance.mento.org",
       ];
+    },
+  },
+  {
+    name: "unknown generated alias",
+    target: "governance",
+    code: "alias-set-ambiguous",
+    mutate(input) {
+      input.priorStates.governance.states[0].aliases.push("attacker.invalid");
+      input.priorStates.governance.states[0].aliases.sort();
+    },
+  },
+  {
+    name: "wrong-target generated alias",
+    target: "governance",
+    code: "alias-set-ambiguous",
+    mutate(input) {
+      input.priorStates.governance.states[0].aliases.push(
+        PRODUCTION_GENERATED_ALIAS_CONTRACTS.reserve.generatedProjectAlias,
+      );
+      input.priorStates.governance.states[0].aliases.sort();
+    },
+  },
+  {
+    name: "operator-scoped alias",
+    target: "governance",
+    code: "alias-set-ambiguous",
+    mutate(input) {
+      input.priorStates.governance.states[0].aliases.push(
+        "governancementoorg-operator-mentolabs.vercel.app",
+      );
+      input.priorStates.governance.states[0].aliases.sort();
+    },
+  },
+  {
+    name: "custom alias",
+    target: "governance",
+    code: "alias-set-ambiguous",
+    mutate(input) {
+      input.priorStates.governance.states[0].aliases.push(
+        "governance-preview.mento.org",
+      );
+      input.priorStates.governance.states[0].aliases.sort();
+    },
+  },
+  {
+    name: "creator near-miss alias",
+    target: "governance",
+    code: "alias-set-ambiguous",
+    mutate(input) {
+      input.priorStates.governance.states[0].aliases.push(
+        "governancementoorg-fixture-author2-mentolabs.vercel.app",
+      );
+      input.priorStates.governance.states[0].aliases.sort();
+    },
+  },
+  {
+    name: "git branch near-miss alias",
+    target: "governance",
+    code: "alias-set-ambiguous",
+    mutate(input) {
+      input.priorStates.governance.states[0].aliases.push(
+        "governancementoorg-git-feature-mentolabs.vercel.app",
+      );
+      input.priorStates.governance.states[0].aliases.sort();
+    },
+  },
+  {
+    name: "project-default alias",
+    target: "governance",
+    code: "alias-set-ambiguous",
+    mutate(input) {
+      input.priorStates.governance.states[0].aliases.push(
+        "governancementoorg.vercel.app",
+      );
+      input.priorStates.governance.states[0].aliases.sort();
     },
   },
   {
