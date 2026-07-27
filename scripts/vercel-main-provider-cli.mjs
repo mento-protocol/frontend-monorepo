@@ -111,6 +111,11 @@ const VERCEL_READ_FAILURE_KINDS = new Map([
   ["VERCEL_API_READ_HTTP", "read-http"],
   ["VERCEL_API_READ_MALFORMED", "read-malformed"],
 ]);
+const PREPLAN_POST_CENSUS_FAILURE_CODES = new Set([
+  "preplan-private-output-write-failed",
+  "preplan-handoff-encode-failed",
+  "preplan-github-output-append-failed",
+]);
 const SAFE_MAIN_PROVIDER_FAILURE_CODES = new Set([
   ...["planning-census", "legacy-census"].flatMap((stage) => [
     `${stage}-read-timeout`,
@@ -123,6 +128,7 @@ const SAFE_MAIN_PROVIDER_FAILURE_CODES = new Set([
     `${stage}-failed`,
   ]),
   "preplan-reconciliation-failed",
+  ...PREPLAN_POST_CENSUS_FAILURE_CODES,
 ]);
 const RETRYABLE_MAIN_PROVIDER_FAILURE_CODES = new Set([
   "planning-census-unstable",
@@ -669,13 +675,44 @@ export function appendGithubOutputs(env, values) {
       pathStats.isSymbolicLink() ||
       stats.dev !== pathStats.dev ||
       stats.ino !== pathStats.ino ||
-      (stats.mode & 0o077) !== 0 ||
+      ![0o600, 0o644].includes(stats.mode & 0o7777) ||
       stats.size + serializedBytes > MAIN_PROVIDER_CLI_MAX_JSON_BYTES
+    ) {
+      throw new Error("unsafe");
+    }
+    fchmodSync(descriptor, 0o600);
+    const sealedStats = fstatSync(descriptor);
+    const sealedPathStats = lstatSync(outputPath);
+    if (
+      !sealedStats.isFile() ||
+      sealedStats.nlink !== 1 ||
+      sealedPathStats.nlink !== 1 ||
+      sealedPathStats.isSymbolicLink() ||
+      sealedStats.dev !== sealedPathStats.dev ||
+      sealedStats.ino !== sealedPathStats.ino ||
+      (sealedStats.mode & 0o7777) !== 0o600 ||
+      (sealedPathStats.mode & 0o7777) !== 0o600 ||
+      sealedStats.size + serializedBytes > MAIN_PROVIDER_CLI_MAX_JSON_BYTES
     ) {
       throw new Error("unsafe");
     }
     writeFileSync(descriptor, serialized);
     fsyncSync(descriptor);
+    const committedStats = fstatSync(descriptor);
+    const committedPathStats = lstatSync(outputPath);
+    if (
+      !committedStats.isFile() ||
+      committedStats.nlink !== 1 ||
+      committedPathStats.nlink !== 1 ||
+      committedPathStats.isSymbolicLink() ||
+      committedStats.dev !== committedPathStats.dev ||
+      committedStats.ino !== committedPathStats.ino ||
+      (committedStats.mode & 0o7777) !== 0o600 ||
+      (committedPathStats.mode & 0o7777) !== 0o600 ||
+      committedStats.size > MAIN_PROVIDER_CLI_MAX_JSON_BYTES
+    ) {
+      throw new Error("unsafe");
+    }
   } catch {
     throw new Error("GITHUB_OUTPUT could not be written safely");
   } finally {
@@ -777,6 +814,19 @@ function runClassifiedProviderReconciliation(reconcile) {
   } catch {
     const classified = new Error("Vercel preplan reconciliation failed");
     classified.mainProviderFailureCode = "preplan-reconciliation-failed";
+    throw classified;
+  }
+}
+
+function runClassifiedPreplanPostCensusOperation(failureCode, operation) {
+  if (!PREPLAN_POST_CENSUS_FAILURE_CODES.has(failureCode)) {
+    throw new Error("Main provider post-census failure code is malformed");
+  }
+  try {
+    return operation();
+  } catch {
+    const classified = new Error("Vercel preplan post-census operation failed");
+    classified.mainProviderFailureCode = failureCode;
     throw classified;
   }
 }
@@ -892,6 +942,42 @@ export function decodeMainPreplanHandoff(
     nextDeploySha,
     nextUpstreamRunId,
   });
+}
+
+export function writeMainPreplanDecisionOutputs({
+  output,
+  result,
+  releaseId,
+  runnerTemp,
+  env,
+  operations = {
+    writePrivateJson,
+    encodeMainPreplanHandoff,
+    appendGithubOutputs,
+  },
+}) {
+  const handoff = runClassifiedPreplanPostCensusOperation(
+    "preplan-handoff-encode-failed",
+    () =>
+      operations.encodeMainPreplanHandoff(result, {
+        nextDeploySha: env.DEPLOY_SHA,
+        nextUpstreamRunId: env.UPSTREAM_RUN_ID,
+      }),
+  );
+  runClassifiedPreplanPostCensusOperation(
+    "preplan-private-output-write-failed",
+    () => operations.writePrivateJson(output, result, runnerTemp),
+  );
+  runClassifiedPreplanPostCensusOperation(
+    "preplan-github-output-append-failed",
+    () =>
+      operations.appendGithubOutputs(env, {
+        decision: result.decision,
+        reason: result.reason,
+        release_id: releaseId,
+        handoff,
+      }),
+  );
 }
 
 async function smokeMainCandidateUrl({
@@ -1168,15 +1254,12 @@ export async function runMainProviderCli({
             : nextReleaseId,
       };
     });
-    writePrivateJson(options.output, result, runnerTemp);
-    appendGithubOutputs(env, {
-      decision: result.decision,
-      reason: result.reason,
-      release_id: releaseId,
-      handoff: encodeMainPreplanHandoff(result, {
-        nextDeploySha: env.DEPLOY_SHA,
-        nextUpstreamRunId: env.UPSTREAM_RUN_ID,
-      }),
+    writeMainPreplanDecisionOutputs({
+      output: options.output,
+      result,
+      releaseId,
+      runnerTemp,
+      env,
     });
     stdout.write("Canonical pre-plan reconciliation decision written\n");
     return result;
