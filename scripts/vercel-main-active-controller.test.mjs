@@ -40,6 +40,10 @@ import {
   MAIN_RELEASE_ACTIVATION_ORDER,
   createMainReleaseManifest,
 } from "./vercel-main-release-reconciliation.mjs";
+import {
+  createMainCandidateIntent,
+  createMainCandidateVercelMetadata,
+} from "./vercel-main-candidate.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const RUN_ID = "123456789";
@@ -114,19 +118,29 @@ function prior() {
   };
 }
 
-function release(activeTargets) {
+function release(
+  activeTargets,
+  {
+    shadowTargets = [],
+    mainOwnershipMode = Object.fromEntries(
+      TARGETS.map((target) => [target, "github"]),
+    ),
+  } = {},
+) {
   const captured = prior();
+  const stagedTargets = TARGETS.filter(
+    (target) =>
+      activeTargets.includes(target) || shadowTargets.includes(target),
+  );
   const releasePlan = {
     schema: "vercel-main-plan:v2",
     mode: "active",
-    mainOwnershipMode: Object.fromEntries(
-      TARGETS.map((target) => [target, "github"]),
-    ),
+    mainOwnershipMode,
     deploySha: SHA,
-    stagedTargets: [...activeTargets],
+    stagedTargets,
     activeTargets: [...activeTargets],
-    shadowTargets: [],
-    plan: [...activeTargets],
+    shadowTargets: [...shadowTargets],
+    plan: stagedTargets,
     priors: TARGETS.map((target) => ({
       target,
       deploymentId: captured[target].deploymentId,
@@ -141,10 +155,10 @@ function release(activeTargets) {
         kind: "served",
         reason: "global-build-input",
         targets: [...TARGETS],
-        deployments: [...activeTargets],
+        deployments: stagedTargets,
       },
     ],
-    reasons: activeTargets.map((target) => ({
+    reasons: stagedTargets.map((target) => ({
       target,
       base: "1111111111111111111111111111111111111111",
       reason: "global-build-input",
@@ -368,16 +382,19 @@ function activeStateResponse(
         githubCommitRef: "main",
         githubCommitSha: spec.deploySha,
         ...(source === "cli"
-          ? target === "app"
-            ? {
-                mentoTransactionId: spec.transactionId,
-                mentoRunId: spec.runId,
-                mentoRunAttempt: spec.runAttempt,
-                mentoNextDeploymentId: "nextBuild123",
-              }
-            : {
-                mentoTransaction: `${spec.runId}-${spec.runAttempt}-${target}`,
-              }
+          ? createMainCandidateVercelMetadata({
+              intent: createMainCandidateIntent({
+                target,
+                deploySha: spec.deploySha,
+                upstreamRunId: spec.releaseManifest.upstreamRunId,
+                originRunId: spec.runId,
+                originAttempt: spec.runAttempt,
+                originTransactionId: spec.transactionId,
+                projectId: project.projectId,
+                projectName: project.projectName,
+                releaseManifest: spec.releaseManifest,
+              }),
+            })
           : {}),
       },
       git: {
@@ -436,12 +453,17 @@ function activeStateProof(
     }),
   );
   const legacy = journal.prior["legacy-app"];
+  const releaseManifest = release(activeTargets, {
+    shadowTargets,
+    mainOwnershipMode,
+  });
   const spec = {
     schema: ACTIVE_DEPLOYMENT_STATE_SPEC_SCHEMA,
     deploySha: journal.deploySha,
     runId: journal.runId,
     runAttempt: journal.runAttempt,
     transactionId: journal.transactionId,
+    releaseManifest,
     mainOwnershipMode,
     stagedTargets,
     activeTargets,

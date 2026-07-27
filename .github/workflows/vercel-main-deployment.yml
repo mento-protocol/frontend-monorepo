@@ -827,7 +827,7 @@ jobs:
         run: node scripts/vercel-main-provider-cli.mjs candidate-preflight --intent "$RUNNER_TEMP/intent.json" --output "$RUNNER_TEMP/preflight.json"
       - name: Materialize governance candidate metadata
         if: steps.preflight.outputs.action == 'create'
-        run: node scripts/vercel-main-deployment.mjs candidate-metadata --intent "$RUNNER_TEMP/intent.json" --output "$RUNNER_TEMP/governance-expected.json"
+        run: node scripts/vercel-main-deployment.mjs candidate-metadata --intent "$RUNNER_TEMP/intent.json" --output "$RUNNER_TEMP/governance-candidate-metadata.json"
       - name: Build and upload governance only when candidate creation is authorized
         id: build
         if: steps.preflight.outputs.action == 'create'
@@ -894,7 +894,7 @@ jobs:
             VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
             VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
           }
-        run: ${{ steps.runtime.outputs.node-bin }} "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" deploy --expected "$RUNNER_TEMP/governance-expected.json"
+        run: ${{ steps.runtime.outputs.node-bin }} "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" deploy --candidate-metadata "$RUNNER_TEMP/governance-candidate-metadata.json" --expected "$RUNNER_TEMP/governance-deployment-expectation.json"
       - name: Freshly smoke and finalize governance candidate
         id: finalize
         env:
@@ -1027,7 +1027,7 @@ jobs:
         run: node scripts/vercel-main-provider-cli.mjs candidate-preflight --intent "$RUNNER_TEMP/intent.json" --output "$RUNNER_TEMP/preflight.json"
       - name: Materialize reserve candidate metadata
         if: steps.preflight.outputs.action == 'create'
-        run: node scripts/vercel-main-deployment.mjs candidate-metadata --intent "$RUNNER_TEMP/intent.json" --output "$RUNNER_TEMP/reserve-expected.json"
+        run: node scripts/vercel-main-deployment.mjs candidate-metadata --intent "$RUNNER_TEMP/intent.json" --output "$RUNNER_TEMP/reserve-candidate-metadata.json"
       - name: Build and upload reserve only when candidate creation is authorized
         id: build
         if: steps.preflight.outputs.action == 'create'
@@ -1093,7 +1093,7 @@ jobs:
             VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
             VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
           }
-        run: ${{ steps.runtime.outputs.node-bin }} "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" deploy --expected "$RUNNER_TEMP/reserve-expected.json"
+        run: ${{ steps.runtime.outputs.node-bin }} "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" deploy --candidate-metadata "$RUNNER_TEMP/reserve-candidate-metadata.json" --expected "$RUNNER_TEMP/reserve-deployment-expectation.json"
       - name: Freshly smoke and finalize reserve candidate
         id: finalize
         env:
@@ -1226,7 +1226,7 @@ jobs:
         run: node scripts/vercel-main-provider-cli.mjs candidate-preflight --intent "$RUNNER_TEMP/intent.json" --output "$RUNNER_TEMP/preflight.json"
       - name: Materialize UI candidate metadata
         if: steps.preflight.outputs.action == 'create'
-        run: node scripts/vercel-main-deployment.mjs candidate-metadata --intent "$RUNNER_TEMP/intent.json" --output "$RUNNER_TEMP/ui-expected.json"
+        run: node scripts/vercel-main-deployment.mjs candidate-metadata --intent "$RUNNER_TEMP/intent.json" --output "$RUNNER_TEMP/ui-candidate-metadata.json"
       - name: Build and upload UI only when candidate creation is authorized
         id: build
         if: steps.preflight.outputs.action == 'create'
@@ -1291,7 +1291,7 @@ jobs:
             VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
             VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
           }
-        run: ${{ steps.runtime.outputs.node-bin }} "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" deploy --expected "$RUNNER_TEMP/ui-expected.json"
+        run: ${{ steps.runtime.outputs.node-bin }} "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" deploy --candidate-metadata "$RUNNER_TEMP/ui-candidate-metadata.json" --expected "$RUNNER_TEMP/ui-deployment-expectation.json"
       - name: Freshly smoke and finalize UI candidate
         id: finalize
         env:

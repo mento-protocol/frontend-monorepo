@@ -7,7 +7,7 @@ import { planVercelDeployments } from "./plan-vercel-deployments.mjs";
 import {
   canonicalizeDeploymentUrl,
   canonicalizeHostname,
-} from "./vercel-deployment-state.mjs";
+} from "./vercel-deployment-url.mjs";
 import {
   MAIN_OWNERSHIP_MODES,
   PREVIEW_TARGET_CONFIG,

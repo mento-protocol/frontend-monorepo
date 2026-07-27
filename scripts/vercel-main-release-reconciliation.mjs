@@ -10,7 +10,7 @@ import {
 import {
   canonicalizeDeploymentUrl,
   canonicalizeHostname,
-} from "./vercel-deployment-state.mjs";
+} from "./vercel-deployment-url.mjs";
 import { generateVercelMainReleaseId } from "./vercel-prebuilt.mjs";
 
 export const MAIN_RELEASE_MANIFEST_SCHEMA = "vercel-main-release-manifest:v1";

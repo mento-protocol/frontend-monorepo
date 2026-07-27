@@ -1936,6 +1936,7 @@ export function createMainCurrentActiveDeploymentStateSpec({
     runId: current.identity.runId,
     runAttempt: current.identity.runAttempt,
     transactionId: highest.transactionId,
+    releaseManifest: current.execution.manifest,
     mainOwnershipMode: current.execution.manifest.mainOwnershipMode,
     stagedTargets: staged,
     activeTargets: active,
@@ -1974,6 +1975,7 @@ export function createMainCurrentReleaseVerifiedDeploymentStateSpec({
     runId: current.identity.runId,
     runAttempt: current.identity.runAttempt,
     transactionId: createMainTransactionId(current.identity),
+    releaseManifest: current.execution.manifest,
     mainOwnershipMode: current.execution.manifest.mainOwnershipMode,
     stagedTargets: current.execution.projection.stagedTargets,
     activeTargets: current.execution.projection.activeTargets,
@@ -2311,6 +2313,7 @@ export function createMainActiveRecoveryDeploymentStateSpec({
     runId: highest.runId,
     runAttempt: highest.runAttempt,
     transactionId: highest.transactionId,
+    releaseManifest: release,
     mainOwnershipMode: release.mainOwnershipMode,
     stagedTargets: [...release.stagedTargets],
     activeTargets: active,
@@ -2747,6 +2750,7 @@ export function createMainActiveDeploymentStateSpec({
     runId: canonicalJournal.runId,
     runAttempt: canonicalJournal.runAttempt,
     transactionId: canonicalJournal.transactionId,
+    releaseManifest: releaseManifestFromHandoff(handoff),
     mainOwnershipMode: planning.mainOwnershipMode,
     stagedTargets: planning.stagedTargets,
     activeTargets: planning.activeTargets,
@@ -6645,7 +6649,7 @@ function canonicalNestedStateProofSummary(
     "Nested active state proof summary",
   );
   if (
-    value.proofSchema !== "vercel-active-deployment-state-proof:v2" ||
+    value.proofSchema !== "vercel-active-deployment-state-proof:v3" ||
     !["proven", "unproven"].includes(value.outcome) ||
     (requireProven && value.outcome !== "proven") ||
     value.transactionId !== transactionId

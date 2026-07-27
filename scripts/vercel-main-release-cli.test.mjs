@@ -485,7 +485,19 @@ function currentReleaseFixture() {
                 githubCommitRef: "main",
                 githubCommitRepo: "frontend-monorepo",
                 githubCommitSha: SHA,
-                mentoTransaction: "800-3-governance",
+                ...createMainCandidateVercelMetadata({
+                  intent: createMainCandidateIntent({
+                    target,
+                    deploySha: stateSpec.deploySha,
+                    upstreamRunId: stateSpec.releaseManifest.upstreamRunId,
+                    originRunId: stateSpec.runId,
+                    originAttempt: stateSpec.runAttempt,
+                    originTransactionId: stateSpec.transactionId,
+                    projectId: project.projectId,
+                    projectName: project.projectName,
+                    releaseManifest: stateSpec.releaseManifest,
+                  }),
+                }),
               },
               git: {
                 org: "mento-protocol",

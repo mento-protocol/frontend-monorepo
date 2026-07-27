@@ -4,7 +4,7 @@ import { deflateRawSync, inflateRawSync } from "node:zlib";
 
 import { assertMainReleaseManifest } from "./vercel-main-release-reconciliation.mjs";
 import { generateVercelMainCandidateDeploymentId } from "./vercel-prebuilt.mjs";
-import { canonicalizeDeploymentUrl } from "./vercel-deployment-state.mjs";
+import { canonicalizeDeploymentUrl } from "./vercel-deployment-url.mjs";
 
 export const MAIN_CANDIDATE_INTENT_SCHEMA = "vercel-main-candidate-intent:v3";
 export const MAIN_CANDIDATE_RECEIPT_SCHEMA = "vercel-main-candidate-receipt:v3";

@@ -726,16 +726,19 @@ function activeStateProof({
                 githubCommitRepo: "frontend-monorepo",
                 githubCommitRef: "main",
                 githubCommitSha: spec.deploySha,
-                ...(target === "app"
-                  ? {
-                      mentoTransactionId: spec.transactionId,
-                      mentoRunId: spec.runId,
-                      mentoRunAttempt: spec.runAttempt,
-                      mentoNextDeploymentId: "nextBuild123",
-                    }
-                  : {
-                      mentoTransaction: `${spec.runId}-${spec.runAttempt}-${target}`,
-                    }),
+                ...createMainCandidateVercelMetadata({
+                  intent: createMainCandidateIntent({
+                    target,
+                    deploySha: spec.deploySha,
+                    upstreamRunId: spec.releaseManifest.upstreamRunId,
+                    originRunId: spec.runId,
+                    originAttempt: spec.runAttempt,
+                    originTransactionId: spec.transactionId,
+                    projectId: project.projectId,
+                    projectName: project.projectName,
+                    releaseManifest: spec.releaseManifest,
+                  }),
+                }),
               },
               git: {
                 org: "mento-protocol",
@@ -3067,7 +3070,7 @@ test("active state spec binds the highest journal and exact stage handoffs", asy
       runId: "800",
       runAttempt: "3",
     });
-    assert.equal(expected.schema, "vercel-active-deployment-state-spec:v2");
+    assert.equal(expected.schema, "vercel-active-deployment-state-spec:v3");
     assert.deepEqual(expected.activeTargets, ["app", "governance", "ui"]);
     assert.deepEqual(expected.shadowTargets, ["reserve"]);
     assert.equal(expected.projects.app.deploymentId, "dpl_appCandidate123");
@@ -3303,7 +3306,7 @@ test("active controller commits exact ordered mutations and emits canonical reda
   assert.equal(evidence.finalMappings.length, 9);
   assert.equal(
     evidence.stateProofSummary.proofSchema,
-    "vercel-active-deployment-state-proof:v2",
+    "vercel-active-deployment-state-proof:v3",
   );
   assert.deepEqual(evidence.recovery.rollbackStateTargets, []);
   assert.match(
@@ -5192,7 +5195,7 @@ test("active recovery planning and execution hand off exact reverse mutations an
   });
   assert.equal(
     recoveryStateSpec.schema,
-    "vercel-active-deployment-state-spec:v2",
+    "vercel-active-deployment-state-spec:v3",
   );
   assert.equal(recoveryStateSpec.transactionId, started.transactionId);
   assert.deepEqual(recoveryStateSpec.activeTargets, ["governance"]);

@@ -52,6 +52,15 @@ import {
   writeCanonicalJson,
   writeMainPlanningSnapshot,
 } from "./vercel-deployment-state.mjs";
+import {
+  createMainCandidateIntent,
+  createMainCandidateVercelMetadata,
+} from "./vercel-main-candidate.mjs";
+import { MAIN_TARGET_CONTRACTS } from "./vercel-main-plan.mjs";
+import {
+  MAIN_RELEASE_ACTIVATION_ORDER,
+  createMainReleaseManifest,
+} from "./vercel-main-release-reconciliation.mjs";
 
 const fixtureDirectory = new URL(
   "./fixtures/vercel-deployment-state/",
@@ -86,14 +95,131 @@ function privateTestDirectory(testContext) {
   return directory;
 }
 
+function activeReleaseManifest({ deploySha, projects }) {
+  const priorSha = "b".repeat(40);
+  const targets = ["app", "governance", "reserve", "ui"];
+  const plan = {
+    schema: "vercel-main-plan:v2",
+    mode: "active",
+    mainOwnershipMode: Object.fromEntries(
+      targets.map((target) => [target, "github"]),
+    ),
+    deploySha,
+    stagedTargets: targets,
+    activeTargets: targets,
+    shadowTargets: [],
+    plan: targets,
+    priors: targets.map((target) => ({
+      target,
+      deploymentId: `dpl_${target}Prior123`,
+      deploymentUrl: `https://${target}-prior.vercel.app`,
+      aliases: [...MAIN_TARGET_CONTRACTS[target].aliases].sort(),
+      servedSha: priorSha,
+    })),
+    ranges: [
+      {
+        base: priorSha,
+        head: deploySha,
+        kind: "served",
+        reason: "global-build-input",
+        targets,
+        deployments: targets,
+      },
+    ],
+    reasons: targets.map((target) => ({
+      target,
+      base: priorSha,
+      reason: "global-build-input",
+    })),
+  };
+  const originalPriors = Object.fromEntries(
+    MAIN_RELEASE_ACTIVATION_ORDER.map((target) => {
+      const contract = MAIN_TARGET_CONTRACTS[target];
+      const aliases = [...contract.aliases].sort();
+      const prior = {
+        deploymentId: `dpl_${target}Prior123`,
+        deploymentUrl: `https://${target}-prior.vercel.app`,
+        aliases,
+        projectId: projects[target].projectId,
+        projectName: projects[target].projectName,
+        readyState: "READY",
+        target: contract.target,
+        customEnvironmentSlug: contract.customEnvironmentSlug,
+      };
+      return [
+        target,
+        {
+          ...prior,
+          planningLeaves: aliases.map((alias) => ({
+            alias,
+            ...prior,
+            git: {
+              status: "complete",
+              org: "mento-protocol",
+              repo: "frontend-monorepo",
+              ref: "main",
+              sha: priorSha,
+            },
+          })),
+          servedSha: priorSha,
+        },
+      ];
+    }),
+  );
+  return createMainReleaseManifest({
+    upstreamRunId: "54321",
+    plan,
+    originalPriors,
+  });
+}
+
 function activeStateSpec() {
   const deploySha = "abcdef0123456789abcdef0123456789abcdef01";
+  const projects = {
+    app: {
+      projectId: "prj_appactive123",
+      projectName: "app.mento.org",
+      expectedDisposition: "githubPrebuilt",
+      deploymentId: "dpl_appactive123",
+      deploymentUrl: "https://app-active-immutable.vercel.app",
+      target: null,
+      customEnvironmentSlug: "v3",
+    },
+    governance: {
+      projectId: "prj_governanceactive123",
+      projectName: "governance.mento.org",
+      expectedDisposition: "githubPrebuilt",
+      deploymentId: "dpl_governanceactive123",
+      deploymentUrl: "https://governance-active-immutable.vercel.app",
+      target: "production",
+      customEnvironmentSlug: null,
+    },
+    reserve: {
+      projectId: "prj_reserveactive123",
+      projectName: "reserve.mento.org",
+      expectedDisposition: "githubPrebuilt",
+      deploymentId: "dpl_reserveactive123",
+      deploymentUrl: "https://reserve-active-immutable.vercel.app",
+      target: "production",
+      customEnvironmentSlug: null,
+    },
+    ui: {
+      projectId: "prj_uiactive123",
+      projectName: "ui.mento.org",
+      expectedDisposition: "githubPrebuilt",
+      deploymentId: "dpl_uiactive123",
+      deploymentUrl: "https://ui-active-immutable.vercel.app",
+      target: "production",
+      customEnvironmentSlug: null,
+    },
+  };
   return {
     schema: ACTIVE_DEPLOYMENT_STATE_SPEC_SCHEMA,
     deploySha,
     runId: "12345",
     runAttempt: "2",
     transactionId: "main-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    releaseManifest: activeReleaseManifest({ deploySha, projects }),
     mainOwnershipMode: {
       app: "github",
       governance: "github",
@@ -103,44 +229,7 @@ function activeStateSpec() {
     stagedTargets: ["app", "governance", "reserve", "ui"],
     activeTargets: ["app", "governance", "reserve", "ui"],
     shadowTargets: [],
-    projects: {
-      app: {
-        projectId: "prj_appactive123",
-        projectName: "app.mento.org",
-        expectedDisposition: "githubPrebuilt",
-        deploymentId: "dpl_appactive123",
-        deploymentUrl: "https://app-active-immutable.vercel.app",
-        target: null,
-        customEnvironmentSlug: "v3",
-      },
-      governance: {
-        projectId: "prj_governanceactive123",
-        projectName: "governance.mento.org",
-        expectedDisposition: "githubPrebuilt",
-        deploymentId: "dpl_governanceactive123",
-        deploymentUrl: "https://governance-active-immutable.vercel.app",
-        target: "production",
-        customEnvironmentSlug: null,
-      },
-      reserve: {
-        projectId: "prj_reserveactive123",
-        projectName: "reserve.mento.org",
-        expectedDisposition: "githubPrebuilt",
-        deploymentId: "dpl_reserveactive123",
-        deploymentUrl: "https://reserve-active-immutable.vercel.app",
-        target: "production",
-        customEnvironmentSlug: null,
-      },
-      ui: {
-        projectId: "prj_uiactive123",
-        projectName: "ui.mento.org",
-        expectedDisposition: "githubPrebuilt",
-        deploymentId: "dpl_uiactive123",
-        deploymentUrl: "https://ui-active-immutable.vercel.app",
-        target: "production",
-        customEnvironmentSlug: null,
-      },
-    },
+    projects,
     legacyAppV2: {
       alias: "v2-app.mento.org",
       deployment: "dpl_legacyappv2",
@@ -171,17 +260,19 @@ function activeDeploymentResponse(
   } = {},
 ) {
   const project = spec.projects[logicalTarget];
-  const workflowMeta =
-    logicalTarget === "app"
-      ? {
-          mentoTransactionId: spec.transactionId,
-          mentoRunId: spec.runId,
-          mentoRunAttempt: spec.runAttempt,
-          mentoNextDeploymentId: "nextBuild123",
-        }
-      : {
-          mentoTransaction: `${spec.runId}-${spec.runAttempt}-${logicalTarget}`,
-        };
+  const workflowMeta = createMainCandidateVercelMetadata({
+    intent: createMainCandidateIntent({
+      target: logicalTarget,
+      deploySha: spec.deploySha,
+      upstreamRunId: spec.releaseManifest.upstreamRunId,
+      originRunId: spec.runId,
+      originAttempt: spec.runAttempt,
+      originTransactionId: spec.transactionId,
+      projectId: project.projectId,
+      projectName: project.projectName,
+      releaseManifest: spec.releaseManifest,
+    }),
+  });
   return {
     id: deploymentId,
     url: deploymentUrl,
@@ -2085,6 +2176,119 @@ test("active deployment proof binds every GitHub prebuilt and keeps legacy App v
     /meta|protectionBypass|token-never-output|rawResponse/,
   );
   assert.equal(assertActiveDeploymentStateProof(proof), proof);
+});
+
+test("active deployment proof accepts a stable candidate from an earlier audit attempt", () => {
+  const spec = activeStateSpec();
+  const deployments = activeDeploymentInspections(spec);
+  const response = deployments.governance[0].response;
+  for (const key of Object.keys(response.meta)) {
+    if (key.startsWith("mento")) delete response.meta[key];
+  }
+  Object.assign(
+    response.meta,
+    createMainCandidateVercelMetadata({
+      intent: createMainCandidateIntent({
+        target: "governance",
+        deploySha: spec.deploySha,
+        upstreamRunId: spec.releaseManifest.upstreamRunId,
+        originRunId: "12344",
+        originAttempt: "1",
+        originTransactionId: "main-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        projectId: spec.projects.governance.projectId,
+        projectName: spec.projects.governance.projectName,
+        releaseManifest: spec.releaseManifest,
+      }),
+    }),
+  );
+
+  const proof = createActiveDeploymentStateProof({
+    spec,
+    deployments,
+    legacyV2: legacyAppV2Proof(spec),
+  });
+
+  assert.equal(proof.outcome, "proven");
+  assert.deepEqual(proof.projects.governance.ids.githubPrebuilt, [
+    spec.projects.governance.deploymentId,
+  ]);
+});
+
+test("active deployment proof rejects retired and mismatched candidate metadata", () => {
+  const spec = activeStateSpec();
+  const classify = (mutate) => {
+    const deployments = activeDeploymentInspections(spec);
+    const entry = deployments.governance[0];
+    mutate(entry.response);
+    const proof = createActiveDeploymentStateProof({
+      spec,
+      deployments,
+      legacyV2: legacyAppV2Proof(spec),
+    });
+    assert.equal(proof.outcome, "unproven");
+    assert.deepEqual(proof.projects.governance.ids.githubPrebuilt, []);
+    assert.deepEqual(proof.projects.governance.ids.manualDuplicates, [
+      spec.projects.governance.deploymentId,
+    ]);
+  };
+
+  classify((response) => {
+    for (const key of Object.keys(response.meta)) {
+      if (key.startsWith("mento")) delete response.meta[key];
+    }
+    response.meta.mentoTransaction = `${spec.runId}-${spec.runAttempt}-governance`;
+  });
+  classify((response) => {
+    response.meta.mentoReleaseId = "mr-000000000000000000000000";
+  });
+  classify((response) => {
+    response.meta.mentoTransaction = "retired-metadata-must-not-be-accepted";
+  });
+  classify((response) => {
+    for (const key of Object.keys(response.meta)) {
+      if (key.startsWith("mento")) delete response.meta[key];
+    }
+    const reserve = spec.projects.reserve;
+    Object.assign(
+      response.meta,
+      createMainCandidateVercelMetadata({
+        intent: createMainCandidateIntent({
+          target: "reserve",
+          deploySha: spec.deploySha,
+          upstreamRunId: spec.releaseManifest.upstreamRunId,
+          originRunId: spec.runId,
+          originAttempt: spec.runAttempt,
+          originTransactionId: spec.transactionId,
+          projectId: reserve.projectId,
+          projectName: reserve.projectName,
+          releaseManifest: spec.releaseManifest,
+        }),
+      }),
+    );
+  });
+
+  const wrongManifestProject = structuredClone(spec);
+  wrongManifestProject.releaseManifest.originalPriors.governance.projectId =
+    "prj_wrongproject123";
+  assert.throws(
+    () => assertActiveDeploymentStateSpec(wrongManifestProject),
+    /conflicts/,
+  );
+  const wrongManifestTarget = structuredClone(spec);
+  wrongManifestTarget.releaseManifest.stagedTargets = [
+    "governance",
+    "reserve",
+    "ui",
+  ];
+  wrongManifestTarget.releaseManifest.activeTargets = [
+    "governance",
+    "reserve",
+    "ui",
+  ];
+  assert.throws(
+    () => assertActiveDeploymentStateSpec(wrongManifestTarget),
+    /release manifest conflicts with state identity/,
+  );
 });
 
 test("active deployment proof classifies native, manual, and unknown duplicates without treating v2 as a duplicate", () => {

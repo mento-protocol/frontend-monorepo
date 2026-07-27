@@ -1319,7 +1319,34 @@ test("ordinary stages retain protected runtime isolation and create-only uploads
     assert.equal(deploy.if, "steps.preflight.outputs.action == 'create'");
     assert.match(
       deploy.run,
-      /vercel-production-shadow\.mjs" deploy --expected/,
+      /vercel-production-shadow\.mjs" deploy --candidate-metadata/,
+    );
+    const candidateMetadata = named(
+      job,
+      `Materialize ${label} candidate metadata`,
+    );
+    const candidateMetadataPath = `\\"\\$RUNNER_TEMP/${target}-candidate-metadata\\.json\\"`;
+    const deploymentExpectationPath = `\\"\\$RUNNER_TEMP/${target}-deployment-expectation\\.json\\"`;
+    assert.match(
+      candidateMetadata.run,
+      new RegExp(
+        `candidate-metadata --intent "\\$RUNNER_TEMP/intent\\.json" --output ${candidateMetadataPath}`,
+      ),
+    );
+    assert.match(
+      deploy.run,
+      new RegExp(
+        `--candidate-metadata ${candidateMetadataPath} --expected ${deploymentExpectationPath}`,
+      ),
+    );
+    assert.doesNotMatch(
+      deploy.run,
+      new RegExp(`--expected ${candidateMetadataPath}`),
+    );
+    assert.doesNotMatch(candidateMetadata.run, /deployment-expectation/);
+    assert.doesNotMatch(
+      JSON.stringify(workflow.jobs[job]),
+      new RegExp(`\\$RUNNER_TEMP/${target}-expected\\.json`),
     );
     assert.equal(
       deploy.env.VERCEL_TOKEN,
@@ -1336,7 +1363,10 @@ test("ordinary stages retain protected runtime isolation and create-only uploads
     assert.ok(jobSteps.indexOf(intent) < jobSteps.indexOf(runtime));
     assert.ok(jobSteps.indexOf(runtime) < jobSteps.indexOf(rootCheck));
     assert.ok(jobSteps.indexOf(rootCheck) < jobSteps.indexOf(preflight));
-    assert.ok(jobSteps.indexOf(preflight) < jobSteps.indexOf(build));
+    assert.ok(
+      jobSteps.indexOf(preflight) < jobSteps.indexOf(candidateMetadata),
+    );
+    assert.ok(jobSteps.indexOf(candidateMetadata) < jobSteps.indexOf(build));
     assert.ok(jobSteps.indexOf(build) < jobSteps.indexOf(deploy));
     assert.ok(jobSteps.indexOf(deploy) < jobSteps.indexOf(finalize));
     assert.equal(jobSteps.at(-1), cleanup);

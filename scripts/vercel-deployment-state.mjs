@@ -15,11 +15,17 @@ import {
 import process from "node:process";
 import { dirname, isAbsolute, parse, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  canonicalizeDeploymentUrl,
+  canonicalizeHostname,
+} from "./vercel-deployment-url.mjs";
+import { canonicalizeMainCandidateVercelMetadata } from "./vercel-main-candidate.mjs";
+import { assertMainReleaseManifest } from "./vercel-main-release-reconciliation.mjs";
+
+export { canonicalizeDeploymentUrl, canonicalizeHostname };
 
 const API_ORIGIN = "https://api.vercel.com";
 const SHA_PATTERN = /^[A-Fa-f0-9]{40}$/;
-const HOSTNAME_PATTERN =
-  /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 export const CANONICAL_STATE_KEYS = Object.freeze([
   "alias",
@@ -38,9 +44,9 @@ export const CANONICAL_STATE_KEYS = Object.freeze([
 export const MAIN_PLANNING_SNAPSHOT_SCHEMA = "vercel-main-planning-snapshot:v1";
 export const MAIN_PLANNING_SNAPSHOT_KEYS = Object.freeze(["schema", "states"]);
 export const ACTIVE_DEPLOYMENT_STATE_SPEC_SCHEMA =
-  "vercel-active-deployment-state-spec:v2";
+  "vercel-active-deployment-state-spec:v3";
 export const ACTIVE_DEPLOYMENT_STATE_PROOF_SCHEMA =
-  "vercel-active-deployment-state-proof:v2";
+  "vercel-active-deployment-state-proof:v3";
 export const ACTIVE_ALIAS_MAPPING_SET_SCHEMA =
   "vercel-active-alias-mapping-set:v1";
 export const ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA =
@@ -77,6 +83,7 @@ const ACTIVE_STATE_SPEC_KEYS = Object.freeze([
   "runId",
   "runAttempt",
   "transactionId",
+  "releaseManifest",
   "mainOwnershipMode",
   "stagedTargets",
   "activeTargets",
@@ -210,44 +217,6 @@ function sleep(milliseconds) {
 }
 
 class CanonicalDriftError extends Error {}
-
-export function canonicalizeHostname(value) {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error("Alias hostname is required");
-  }
-  const hasScheme = value.includes("://");
-  let hostname;
-  try {
-    const url = new URL(hasScheme ? value : `https://${value}`);
-    if (
-      url.protocol !== "https:" ||
-      url.username !== "" ||
-      url.password !== "" ||
-      url.port !== "" ||
-      url.pathname !== "/" ||
-      url.search !== "" ||
-      url.hash !== ""
-    ) {
-      throw new Error("Alias URL contains forbidden components");
-    }
-    hostname = url.hostname;
-  } catch {
-    throw new Error("Alias hostname is malformed");
-  }
-  hostname = hostname.toLowerCase().replace(/\.$/, "");
-  if (!HOSTNAME_PATTERN.test(hostname)) {
-    throw new Error("Alias hostname is malformed");
-  }
-  return hostname;
-}
-
-export function canonicalizeDeploymentUrl(value) {
-  const hostname = canonicalizeHostname(value);
-  if (!hostname.endsWith(".vercel.app")) {
-    throw new Error("Deployment URL must use an immutable vercel.app host");
-  }
-  return `https://${hostname}`;
-}
 
 export function canonicalizeAliases(response) {
   if (!response || !Array.isArray(response.aliases)) {
@@ -1773,6 +1742,51 @@ function canonicalMainOwnershipMode(value) {
   return value;
 }
 
+function assertActiveReleaseManifestBinding({
+  releaseManifest,
+  deploySha,
+  mainOwnershipMode,
+  stagedTargets,
+  activeTargets,
+  projects,
+  label,
+}) {
+  const manifest = assertMainReleaseManifest(releaseManifest);
+  const shadowTargets = manifest.stagedTargets.filter(
+    (target) => !manifest.activeTargets.includes(target),
+  );
+  const normalizeTargets = (targets) =>
+    ACTIVE_STATE_TARGETS.filter((target) => targets.includes(target));
+  if (
+    JSON.stringify(manifest) !== JSON.stringify(releaseManifest) ||
+    manifest.deploySha !== deploySha ||
+    JSON.stringify(manifest.mainOwnershipMode) !==
+      JSON.stringify(mainOwnershipMode) ||
+    JSON.stringify(normalizeTargets(manifest.stagedTargets)) !==
+      JSON.stringify(stagedTargets) ||
+    JSON.stringify(normalizeTargets(manifest.activeTargets)) !==
+      JSON.stringify(activeTargets) ||
+    JSON.stringify(normalizeTargets(shadowTargets)) !==
+      JSON.stringify(
+        stagedTargets.filter((target) => !activeTargets.includes(target)),
+      )
+  ) {
+    throw new Error(`${label} release manifest conflicts with state identity`);
+  }
+  for (const logicalTarget of ACTIVE_STATE_TARGETS) {
+    const prior = manifest.originalPriors[logicalTarget];
+    const project = projects[logicalTarget];
+    if (
+      project === undefined ||
+      prior.projectId !== project.projectId ||
+      prior.projectName !== project.projectName
+    ) {
+      throw new Error(`${label} release manifest project identity conflicts`);
+    }
+  }
+  return manifest;
+}
+
 export function assertActiveDeploymentStateSpec(spec) {
   assertExactKeys(spec, ACTIVE_STATE_SPEC_KEYS, "Active deployment state spec");
   if (
@@ -1876,6 +1890,15 @@ export function assertActiveDeploymentStateSpec(spec) {
     if (deploymentId !== null) deploymentIds.add(deploymentId);
     if (deploymentUrl !== null) deploymentUrls.add(deploymentUrl);
   }
+  assertActiveReleaseManifestBinding({
+    releaseManifest: spec.releaseManifest,
+    deploySha: spec.deploySha,
+    mainOwnershipMode,
+    stagedTargets,
+    activeTargets,
+    projects: spec.projects,
+    label: "Active deployment state spec",
+  });
   assertExactKeys(
     spec.legacyAppV2,
     ACTIVE_STATE_LEGACY_SPEC_KEYS,
@@ -2011,19 +2034,21 @@ function hasExpectedGitHubMetadata(identity, logicalTarget, spec) {
   ) {
     return false;
   }
-  if (logicalTarget === "app") {
+  const project = spec.projects[logicalTarget];
+  try {
+    const metadata = canonicalizeMainCandidateVercelMetadata(identity.meta, {
+      target: logicalTarget,
+      deploySha: spec.deploySha,
+      projectId: project.projectId,
+      projectName: project.projectName,
+    });
     return (
-      identity.meta.mentoTransactionId === spec.transactionId &&
-      identity.meta.mentoRunId === spec.runId &&
-      identity.meta.mentoRunAttempt === spec.runAttempt &&
-      typeof identity.meta.mentoNextDeploymentId === "string" &&
-      /^(?!dpl_)[A-Za-z0-9_-]{1,32}$/.test(identity.meta.mentoNextDeploymentId)
+      JSON.stringify(metadata.releaseManifest) ===
+      JSON.stringify(spec.releaseManifest)
     );
+  } catch {
+    return false;
   }
-  return (
-    identity.meta.mentoTransaction ===
-    `${spec.runId}-${spec.runAttempt}-${logicalTarget}`
-  );
 }
 
 function canonicalActiveDeploymentRecord(
