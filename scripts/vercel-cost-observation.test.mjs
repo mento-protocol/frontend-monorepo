@@ -935,6 +935,38 @@ test("init creates an idempotent private interval and rejects conflicts", () => 
   );
 });
 
+test("init accepts exactly one leading pnpm script separator", () => {
+  const cwd = workspace();
+  const sink = output();
+  const result = runVercelCostObservation({
+    argv: ["--", "init", "--start", START, "--end", END],
+    cwd,
+    now: () => new Date(INITIALIZED_AT),
+    gh: fakeGh(boundaryRoutes()),
+    stdout: sink.stream,
+  });
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(JSON.parse(sink.read()).command, "init");
+  assert.equal(
+    JSON.parse(
+      readFileSync(join(observationRoot(cwd), "interval.json"), "utf8"),
+    ).startUtc,
+    START,
+  );
+  assert.throws(
+    () =>
+      runVercelCostObservation({
+        argv: ["--", "--", "init", "--start", START, "--end", END],
+        cwd: workspace(),
+        now: () => new Date(INITIALIZED_AT),
+        gh: fakeGh(boundaryRoutes()),
+        stdout: output().stream,
+      }),
+    /Observation command is unsupported/,
+  );
+});
+
 test("init leaves no boundary evidence when capture finishes after start", () => {
   const cwd = workspace();
   let nowCalls = 0;
