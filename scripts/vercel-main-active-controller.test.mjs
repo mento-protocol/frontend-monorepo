@@ -615,7 +615,7 @@ function activeStateProof(
 
 function runtimeSmoke(target, deploySha = SHA) {
   const finalUrls = {
-    app: "https://app.mento.org/",
+    app: "https://app.mento.org/swap/celo",
     governance: "https://governance.mento.org/voting-power",
     reserve: "https://reserve.mento.org/?tab=stablecoins",
     ui: "https://ui.mento.org/form-components",

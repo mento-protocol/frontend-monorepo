@@ -23,8 +23,8 @@ const REQUIRED_RESOURCE_TYPES = ["document", "font", "script", "stylesheet"];
 export const MAIN_RUNTIME_TARGETS = Object.freeze({
   app: Object.freeze({
     publicUrl: "https://app.mento.org/",
-    landingPath: "/",
-    finalPath: "/",
+    landingPath: "/swap/celo",
+    finalPath: "/swap/celo",
     interaction: "real-production-wallet-list",
   }),
   governance: Object.freeze({
@@ -471,9 +471,11 @@ export async function runMainRuntimeSmoke({
       response && response.ok(),
       `Main runtime navigation failed with HTTP ${response?.status() ?? "unknown"}`,
     );
+    const expectedLandingUrl = new URL(config.landingPath, publicUrl);
+    await page.waitForURL(expectedLandingUrl.toString());
     assertExactPageLocation(
       page,
-      new URL(config.landingPath, publicUrl),
+      expectedLandingUrl,
       `${input.logicalTarget} public landing URL`,
     );
     assertMainRuntimeSecurityHeaders(response.headers(), input.deploySha);
