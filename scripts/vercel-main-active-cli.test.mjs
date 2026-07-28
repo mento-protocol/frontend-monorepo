@@ -293,7 +293,9 @@ test("execute validates the descriptor and passes the token only through a filte
   });
   const descriptor = writePrivateJson(directory, "descriptor.json", command);
   const output = join(directory, "result.json");
-  const env = executionEnvironment(directory);
+  const env = executionEnvironment(directory, {
+    VERCEL_PROJECT_ID: "prj_untrusted",
+  });
   const calls = [];
   let stdout = "";
 
@@ -343,6 +345,14 @@ test("execute validates the descriptor and passes the token only through a filte
   assert.ok(calls[0].spawnOptions.stdio[3] >= 3);
   assert.equal(calls[0].spawnOptions.cwd, env.SOURCE_PATH);
   assert.equal(calls[0].spawnOptions.env.VERCEL_TOKEN, TOKEN);
+  assert.equal(
+    Object.hasOwn(calls[0].spawnOptions.env, "VERCEL_ORG_ID"),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(calls[0].spawnOptions.env, "VERCEL_PROJECT_ID"),
+    false,
+  );
   assert.equal(
     Object.hasOwn(calls[0].spawnOptions.env, "SENTRY_AUTH_TOKEN"),
     false,

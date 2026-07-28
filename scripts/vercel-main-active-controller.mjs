@@ -1368,10 +1368,14 @@ function recoveryMappingState(journal, currentMappings, operation) {
 
 function nextRecoveryAction(journal, plan, currentMappings) {
   const latest = lastEvents(journal);
+  let manualInterventionRequired = false;
   for (const action of plan.actions) {
     const live = liveRecoveryIntent(action, journal, currentMappings);
     if (live.kind === "noop") continue;
-    if (live.kind === "manual") return { kind: "manual" };
+    if (live.kind === "manual") {
+      manualInterventionRequired = true;
+      continue;
+    }
     const start = matchingRecoveryStart(journal, live.intent);
     if (start === null) {
       const intent = live.intent;
@@ -1385,7 +1389,10 @@ function nextRecoveryAction(journal, plan, currentMappings) {
               intent.target,
             );
       if (state === "prior") continue;
-      if (state !== "candidate") return { kind: "manual" };
+      if (state !== "candidate") {
+        manualInterventionRequired = true;
+        continue;
+      }
       return { kind: "intent", intent };
     }
     const last = latest.get(start.operationId);
@@ -1393,10 +1400,12 @@ function nextRecoveryAction(journal, plan, currentMappings) {
       throw new Error("A recovery operation is already in progress");
     }
     if (last.mappingState !== "prior") {
-      return { kind: "manual" };
+      manualInterventionRequired = true;
     }
   }
-  return { kind: "complete" };
+  return {
+    kind: manualInterventionRequired ? "manual" : "complete",
+  };
 }
 
 function canonicalActiveRecoveryPlan(recoveryPlan) {
@@ -1484,7 +1493,11 @@ export function reduceMainActiveRecoveryTransition({
       }
       if (next.kind === "complete") {
         try {
-          const terminal = finishMainTransactionRecovery(highest);
+          const terminal = finishMainTransactionRecovery(highest, {
+            manualIntervention:
+              canonicalPlan.kind === "failed-activation" &&
+              plan.decision === "manual_intervention",
+          });
           return journalTransition(
             terminal,
             canonicalPlan.kind === "inherited"

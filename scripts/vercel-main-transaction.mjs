@@ -1868,6 +1868,7 @@ export function planMainTransactionRecovery({
   );
   let appCandidate = canonical.candidates.app;
   let discoveredAppCandidate = null;
+  let appCandidateAmbiguous = false;
   if (appWasStarted && appCandidate?.deploymentId === null) {
     const appAliasesMoved = canonical.prior.app.aliases.some(
       (alias) => !sameDeployment(mappings.get(alias), canonical.prior.app),
@@ -1888,15 +1889,9 @@ export function planMainTransactionRecovery({
           ...appCandidate.discovery,
         };
       } catch {
-        return {
-          decision: "manual_intervention",
-          reason: "app-candidate-ambiguous-after-mapping-moved",
-          journal: canonical,
-          actions: [],
-          rollbackStateTargets: [],
-          forceFailure: true,
-          discoveredAppCandidate: null,
-        };
+        // Preserve the uncertain App mapping for manual intervention, but
+        // continue planning independent, exact ordinary-target compensation.
+        appCandidateAmbiguous = true;
       }
     }
   }
@@ -1904,6 +1899,10 @@ export function planMainTransactionRecovery({
     discoveredAppCandidate === null
       ? canonical
       : attachDiscoveredAppCandidate(canonical, discoveredAppCandidate);
+  const appCandidateUnresolved =
+    appWasStarted &&
+    recoveryJournal.candidates.app?.deploymentId === null &&
+    discoveredAppCandidate === null;
   const actions = [];
   const handledOrdinaryTargets = new Set();
   const handledAppAliases = new Set();
@@ -2049,12 +2048,18 @@ export function planMainTransactionRecovery({
     }
   }
   return {
-    decision: manual ? "manual_intervention" : "recover",
-    reason: manual
-      ? "unexpected-protected-mapping"
-      : emergencyLegacyRestore
-        ? "legacy-alias-moved-to-transaction-candidate"
-        : "started-operations-require-verification-or-recovery",
+    decision:
+      manual || appCandidateUnresolved ? "manual_intervention" : "recover",
+    reason:
+      manual || appCandidateUnresolved
+        ? appCandidateAmbiguous
+          ? "app-candidate-ambiguous-after-mapping-moved"
+          : manual
+            ? "unexpected-protected-mapping"
+            : "app-candidate-unresolved-after-start"
+        : emergencyLegacyRestore
+          ? "legacy-alias-moved-to-transaction-candidate"
+          : "started-operations-require-verification-or-recovery",
     journal: canonical,
     actions,
     rollbackStateTargets: actions
@@ -2250,37 +2255,6 @@ export function assertMainTransactionRecoveryPlan(plan) {
     };
   }
 
-  const isAmbiguousAppCandidate =
-    plan.decision === "manual_intervention" &&
-    plan.reason === "app-candidate-ambiguous-after-mapping-moved" &&
-    Array.isArray(plan.actions) &&
-    plan.actions.length === 0;
-  if (isAmbiguousAppCandidate) {
-    const unknownStartedApp =
-      journal.candidates.app?.deploymentId === null &&
-      startedForwardOperations(journal).some(
-        (operation) => operation.type === "app_v3_deploy",
-      );
-    if (
-      !unknownStartedApp ||
-      !Array.isArray(plan.rollbackStateTargets) ||
-      plan.rollbackStateTargets.length !== 0 ||
-      plan.forceFailure !== true ||
-      plan.discoveredAppCandidate !== null
-    ) {
-      throw new Error("Ambiguous app recovery plan is malformed");
-    }
-    return {
-      decision: "manual_intervention",
-      reason: "app-candidate-ambiguous-after-mapping-moved",
-      journal,
-      actions: [],
-      rollbackStateTargets: [],
-      forceFailure: true,
-      discoveredAppCandidate: null,
-    };
-  }
-
   if (!Array.isArray(plan.actions)) {
     throw new Error("Recovery plan actions are malformed");
   }
@@ -2300,15 +2274,36 @@ export function assertMainTransactionRecoveryPlan(plan) {
   const hasManualAction = actions.some(
     (entry) => entry.kind === "manual_intervention",
   );
+  const hasUnresolvedStartedApp =
+    discoveredAppCandidate === null &&
+    journal.candidates.app?.deploymentId === null &&
+    startedForwardOperations(journal).some(
+      (operation) => operation.type === "app_v3_deploy",
+    );
+  const hasAmbiguousAppAction =
+    hasUnresolvedStartedApp &&
+    actions.some(
+      (entry) =>
+        entry.kind === "manual_intervention" &&
+        (entry.target === "app" || entry.target === "legacy-app"),
+    );
   const hasLegacyEmergency = actions.some(
     (entry) => entry.kind === "legacy_emergency_restore",
   );
-  const decision = hasManualAction ? "manual_intervention" : "recover";
-  const reason = hasManualAction
-    ? "unexpected-protected-mapping"
-    : hasLegacyEmergency
-      ? "legacy-alias-moved-to-transaction-candidate"
-      : "started-operations-require-verification-or-recovery";
+  const decision =
+    hasManualAction || hasUnresolvedStartedApp
+      ? "manual_intervention"
+      : "recover";
+  const reason =
+    hasManualAction || hasUnresolvedStartedApp
+      ? hasAmbiguousAppAction
+        ? "app-candidate-ambiguous-after-mapping-moved"
+        : hasManualAction
+          ? "unexpected-protected-mapping"
+          : "app-candidate-unresolved-after-start"
+      : hasLegacyEmergency
+        ? "legacy-alias-moved-to-transaction-candidate"
+        : "started-operations-require-verification-or-recovery";
   if (
     plan.decision !== decision ||
     plan.reason !== reason ||

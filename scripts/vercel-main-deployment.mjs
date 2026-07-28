@@ -2284,15 +2284,16 @@ export function createMainActiveRecoveryDeploymentStateSpec({
       const isActive = active.includes(target);
       const isShadow = shadow.includes(target);
       const candidate = highest.candidates[target];
+      const appDeployStarted = highest.operations.some(
+        (operation) => operation.type === "app_v3_deploy",
+      );
       const recoveredPriorApp =
         target === "app" &&
         isActive &&
         candidate !== null &&
         candidate.deploymentId === null &&
         candidate.deploymentUrl === null &&
-        !highest.operations.some(
-          (operation) => operation.type === "app_v3_deploy",
-        );
+        (!appDeployStarted || highest.status === "manual_intervention");
       if (
         (isActive || (isShadow && target !== "app")) &&
         (candidate === null ||

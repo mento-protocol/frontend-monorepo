@@ -683,15 +683,19 @@ test("runner sends the token only through a filtered process environment", () =>
     target: "ui",
     ...ORDINARY_CANDIDATE,
   });
-  const result = runCommand(command, (executable, argumentsList, options) => {
-    calls.push({ executable, argumentsList, options });
-    return {
-      status: 0,
-      signal: null,
-      stdout: "promotion complete",
-      stderr: "",
-    };
-  });
+  const result = runCommand(
+    command,
+    (executable, argumentsList, options) => {
+      calls.push({ executable, argumentsList, options });
+      return {
+        status: 0,
+        signal: null,
+        stdout: "promotion complete",
+        stderr: "",
+      };
+    },
+    { VERCEL_PROJECT_ID: "prj_untrusted" },
+  );
   assert.deepEqual(result, {
     outcome: "success",
     reason: null,
@@ -718,6 +722,8 @@ test("runner sends the token only through a filtered process environment", () =>
     false,
   );
   assert.equal(calls[0].options.env.VERCEL_TOKEN, TOKEN);
+  assert.equal(Object.hasOwn(calls[0].options.env, "VERCEL_ORG_ID"), false);
+  assert.equal(Object.hasOwn(calls[0].options.env, "VERCEL_PROJECT_ID"), false);
   assert.equal(Object.hasOwn(calls[0].options.env, "SENTRY_AUTH_TOKEN"), false);
   assert.equal(calls[0].options.timeout, MAIN_ACTIVE_COMMAND_TIMEOUT_MS);
 });

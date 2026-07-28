@@ -5724,7 +5724,7 @@ test("active recovery planning and execution hand off exact reverse mutations an
   });
 });
 
-test("active recovery terminalizes the prior App only when its v3 deploy never started", async () => {
+test("active recovery terminal evidence handles unstarted and unresolved App candidates", async () => {
   const deploymentPlan = activePlan({ deployments: ["app", "governance"] });
   const prepared = createPreparedMainActiveJournal({
     plan: deploymentPlan,
@@ -5885,6 +5885,77 @@ test("active recovery terminalizes the prior App only when its v3 deploy never s
     type: "app_v3_deploy",
     target: "app",
   });
+  const manualRecovering = startMainTransactionRecovery(appDeployStarted);
+  const manualTerminal = finishMainTransactionRecovery(manualRecovering, {
+    manualIntervention: true,
+  });
+  const manualHistory = activeHistoryDocument([
+    prepared,
+    started,
+    governanceReturned,
+    governanceVerified,
+    appDeployStarted,
+    manualRecovering,
+    manualTerminal,
+  ]);
+  const manualSpec = createMainActiveRecoveryDeploymentStateSpec({
+    execution,
+    journalHistory: manualHistory,
+    runId: "800",
+    runAttempt: "3",
+  });
+  assert.equal(manualSpec.projects.app.expectedDisposition, "recoveredPrior");
+  assert.equal(manualSpec.projects.app.deploymentId, null);
+  const manualStateProof = activeStateProof({ spec: manualSpec });
+  assert.equal(manualStateProof.outcome, "proven");
+  const manualArtifacts = createMainActiveTerminalArtifacts({
+    execution,
+    outcome: "manual-intervention",
+    journalHistory: manualHistory,
+    finalMappings: providerMappings(execution, currentMappings),
+    publicSmokes: null,
+    stateProof: manualStateProof,
+    finalCensus: manualStateProof,
+    freshLegacyV2: deploymentPlan.legacySnapshot,
+    freshness: null,
+    runId: "800",
+    runAttempt: "3",
+  });
+  assert.equal(manualArtifacts.evidence.recoveryOutcome, "manual-intervention");
+  assert.equal(manualArtifacts.proofs.outcome, "manual-intervention");
+
+  const manualUnknownCandidateProof = activeStateProof({
+    spec: manualSpec,
+    additionalDeployments: {
+      app: [
+        {
+          deploymentId: "dpl_unresolvedapp123",
+          response: {
+            id: "dpl_unresolvedapp123",
+            url: "https://unresolved-app.vercel.app",
+            projectId: manualSpec.projects.app.projectId,
+            name: manualSpec.projects.app.projectName,
+            readyState: "READY",
+            target: null,
+            customEnvironment: { slug: "v3" },
+            source: "cli",
+            meta: {
+              githubCommitOrg: "mento-protocol",
+              githubCommitRepo: "frontend-monorepo",
+              githubCommitRef: "main",
+              githubCommitSha: manualSpec.deploySha,
+            },
+          },
+        },
+      ],
+    },
+  });
+  assert.equal(manualUnknownCandidateProof.outcome, "unproven");
+  assert.equal(
+    manualUnknownCandidateProof.projects.app.counts.manualDuplicates,
+    1,
+  );
+
   const unsafeRecovering = startMainTransactionRecovery(appDeployStarted);
   const unsafeRecovered = finishMainTransactionRecovery(unsafeRecovering);
   assert.throws(
@@ -5904,6 +5975,145 @@ test("active recovery terminalizes the prior App only when its v3 deploy never s
         runAttempt: "3",
       }),
     /app candidate is incomplete/,
+  );
+});
+
+test("unknown App controller recovery produces fail-closed terminal evidence after safe ordinary rollbacks", async () => {
+  const deploymentPlan = activePlan();
+  const execution = releaseExecutionForPlan(deploymentPlan);
+  const prepared = createPreparedMainActiveJournal({
+    plan: deploymentPlan,
+    stageJobs: stageJobs(deploymentPlan),
+    appBuildProof: appProof(deploymentPlan),
+    runId: "800",
+    runAttempt: "3",
+  });
+  const forwardHistory = [prepared];
+  let highest = prepared;
+  for (const target of ["governance", "reserve", "ui"]) {
+    const started = startMainTransactionOperation(highest, {
+      type: "promote",
+      target,
+    });
+    forwardHistory.push(started);
+    const returned = recordMainTransactionCommandReturned(started, {
+      operationId: started.operations.at(-1).operationId,
+      outcome: "success",
+    });
+    forwardHistory.push(returned);
+    highest = recordMainTransactionVerified(returned, {
+      operationId: started.operations.at(-1).operationId,
+      mappingState: "candidate",
+    });
+    forwardHistory.push(highest);
+  }
+  const appStarted = startMainTransactionOperation(highest, {
+    type: "app_v3_deploy",
+    target: "app",
+  });
+  forwardHistory.push(appStarted);
+  highest = recordMainTransactionCommandReturned(appStarted, {
+    operationId: appStarted.operations.at(-1).operationId,
+    outcome: "unknown",
+  });
+  forwardHistory.push(highest);
+
+  const mappingStates = {
+    app: "prior",
+    governance: "candidate",
+    "legacy-app": "prior",
+    reserve: "candidate",
+    ui: "candidate",
+  };
+  const currentMappings = Object.entries(highest.prior).flatMap(
+    ([target, prior]) =>
+      prior.aliases.map((alias) =>
+        mapping(
+          alias,
+          mappingStates[target] === "candidate"
+            ? highest.candidates[target]
+            : prior,
+        ),
+      ),
+  );
+  const recoveryPlan = planMainActiveRecovery({
+    journalHistory: forwardHistory,
+    deploySha: SHA,
+    runId: "800",
+    runAttempt: "3",
+    currentMappings,
+  });
+  assert.equal(recoveryPlan.decision, "manual_intervention");
+  assert.equal(recoveryPlan.reason, "app-candidate-unresolved-after-start");
+
+  const rollbackOrder = [];
+  const result = await runMainActiveRecovery({
+    recoveryPlan,
+    adapters: {
+      uploadJournal: async ({ artifactName, journal }) => ({
+        acknowledged: true,
+        artifactName,
+        artifactId: String(9000 + journal.sequence),
+      }),
+      inspectMapping: async ({ target }) => ({
+        mappingState: mappingStates[target],
+      }),
+      ordinaryRollback: async ({ target }) => {
+        rollbackOrder.push(target);
+        mappingStates[target] = "prior";
+        return { outcome: "success" };
+      },
+      verifyMapping: async ({ target }) => ({
+        mappingState: mappingStates[target],
+      }),
+    },
+  });
+  assert.equal(result.outcome, "manual-intervention");
+  assert.equal(result.journal.status, "manual_intervention");
+  assert.equal(result.publicServingMutationCommands, 3);
+  assert.deepEqual(rollbackOrder, ["ui", "reserve", "governance"]);
+
+  const history = activeHistoryDocument([
+    ...forwardHistory,
+    ...result.uploadedJournals,
+  ]);
+  const spec = createMainActiveRecoveryDeploymentStateSpec({
+    execution,
+    journalHistory: history,
+    runId: "800",
+    runAttempt: "3",
+  });
+  assert.equal(spec.projects.app.expectedDisposition, "recoveredPrior");
+  assert.equal(spec.projects.app.deploymentId, null);
+  const stateProof = activeStateProof({ spec });
+  assert.equal(stateProof.outcome, "proven");
+
+  const priorMappings = Object.values(result.journal.prior).flatMap((prior) =>
+    prior.aliases.map((alias) => mapping(alias, prior)),
+  );
+  const artifacts = createMainActiveTerminalArtifacts({
+    execution,
+    outcome: "manual-intervention",
+    journalHistory: history,
+    finalMappings: providerMappings(execution, priorMappings),
+    publicSmokes: null,
+    stateProof,
+    finalCensus: stateProof,
+    freshLegacyV2: deploymentPlan.legacySnapshot,
+    freshness: null,
+    runId: "800",
+    runAttempt: "3",
+  });
+  assert.equal(artifacts.evidence.recoveryOutcome, "manual-intervention");
+  assert.equal(artifacts.proofs.outcome, "manual-intervention");
+  assert.deepEqual(artifacts.proofs.rollbackTargets, [
+    "governance",
+    "reserve",
+    "ui",
+  ]);
+  assert.equal(
+    artifacts.proofs.stateProof.artifact.projects.app.expectedDisposition,
+    "recoveredPrior",
   );
 });
 

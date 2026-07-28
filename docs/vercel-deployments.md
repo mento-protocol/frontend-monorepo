@@ -392,7 +392,13 @@ checkout, API reads, journal artifacts, and cleanup. If an App v3 command
 returned an unknown
 result and the captured mappings show possible movement,
 recovery uses the bounded exact transaction-metadata census; zero, multiple,
-or mismatched candidates remain manual intervention. Recovery, manual
+or mismatched candidates leave App untouched and require manual intervention.
+A started App deploy with no durable candidate identity also remains manual
+when every App and legacy mapping still resolves to its captured prior; prior
+mappings alone cannot prove that the provider created no detached candidate.
+App uncertainty does not skip independent compensation: the controller still
+restores exact Governance, Reserve, and UI candidate mappings in reverse
+activation order before it terminalizes manual intervention. Recovery, manual
 intervention, a missing journal after a possible mutation, and recovery failure
 all fail the release after publishing redacted evidence.
 
@@ -402,8 +408,11 @@ state specification records App as `recoveredPrior`. That narrow state expects
 no App candidate while still requiring the exact-SHA census to contain no
 unknown or manual duplicate deployment, the captured protected mappings to
 resolve to every prior, and the restored public runtime smoke. A started App
-deploy or any discovered App candidate remains incomplete and cannot use this
-path.
+deploy with no candidate identity remains incomplete for a recovered journal
+and cannot use this path. A manual-intervention journal may use the same
+zero-candidate expectation only to publish fail-closed terminal evidence: any
+observed App candidate makes that state proof unproven and never upgrades the
+manual outcome to recovered.
 
 If provider reconciliation cannot establish one safe manifest and canonical
 mapping prefix, do not delete or recreate evidence. Inspect the live protected

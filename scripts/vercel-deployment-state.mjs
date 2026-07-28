@@ -1771,10 +1771,12 @@ function plannedDispositionForTarget(
   return null;
 }
 
-// A recovery journal may prove that App's v3 deployment was never started.
-// This is deliberately App-only: ordinary targets always have a staged
-// candidate before activation, and an App deploy that was started is unknown
-// until its immutable candidate is discovered.
+// App recovery evidence may carry a zero-candidate recoveredPrior expectation
+// when its v3 deploy never started or when a manual-intervention terminal cannot
+// prove whether a started command created a detached candidate. In the latter
+// case this is fail-closed evidence, not proof that no candidate exists: any
+// matching candidate makes the state proof unproven. Ordinary targets always
+// have an exact staged candidate before activation.
 function expectedActiveStateDisposition({
   logicalTarget,
   activeTargets,
