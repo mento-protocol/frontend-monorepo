@@ -2303,6 +2303,7 @@ jobs:
           node scripts/vercel-main-deployment.mjs active-journal-receipt --journal "$RUNNER_TEMP/current-attempt-journals/$ARTIFACT_NAME/main-journal.json" --artifact-name "$ARTIFACT_NAME" --artifact-id "$ARTIFACT_ID" --output "$RUNNER_TEMP/current-attempt-journals/current-receipt.json"
           install -m 0600 "$RUNNER_TEMP/current-attempt-journals/$ARTIFACT_NAME/main-journal.json" "$RUNNER_TEMP/current-attempt-journals/current-journal.json"
       - name: Derive and capture full recovery mappings from journal history
+        id: recovery-mappings
         if: steps.journal-presence.outputs.has_journal == 'true'
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
@@ -2324,8 +2325,55 @@ jobs:
         run: |
           node scripts/vercel-main-deployment.mjs active-recovery-event-initialize --receipt "$RUNNER_TEMP/current-attempt-journals/current-receipt.json" --output "$RUNNER_TEMP/recovery-initialize-event.json"
           node scripts/vercel-main-deployment.mjs run-active-recovery --plan "$RUNNER_TEMP/recovery-plan.json" --event "$RUNNER_TEMP/recovery-initialize-event.json" --journal-history "$RUNNER_TEMP/current-attempt-journals/current-history.json" --journal-output "$RUNNER_TEMP/recovery-initialized-journal.json" --output "$RUNNER_TEMP/recovery-initialize-transition.json"
+      - name: Classify recovery preparation failure or non-journal result
+        id: recovery-failed
+        if: >-
+          always() && !cancelled() &&
+          steps.journal-presence.outputs.has_journal == 'true' &&
+          (steps.recovery-mappings.outcome == 'failure' ||
+          steps.recovery-plan.outcome == 'failure' ||
+          steps.initialize.outcome == 'failure' ||
+          (steps.initialize.outcome == 'success' &&
+          (steps.initialize.outputs.transition_kind == 'recovery-not-required' ||
+          steps.initialize.outputs.transition_kind == 'recovery-ready')))
+        env:
+          AFTER_UPLOAD_ACTION: ${{ steps.initialize.outputs.after_upload_action }}
+          ARTIFACT_NAME: ${{ steps.initialize.outputs.journal_artifact_name }}
+          HIGHEST_STATUS: ${{ steps.journal-history.outputs.highest_status }}
+          INITIALIZE_OUTCOME: ${{ steps.initialize.outcome }}
+          NEXT_ACTION: ${{ steps.initialize.outputs.next_action }}
+          RECOVERY_MAPPINGS_OUTCOME: ${{ steps.recovery-mappings.outcome }}
+          RECOVERY_PLAN_OUTCOME: ${{ steps.recovery-plan.outcome }}
+          TRANSITION_KIND: ${{ steps.initialize.outputs.transition_kind }}
+        run: |
+          set -euo pipefail
+          if [ "$RECOVERY_MAPPINGS_OUTCOME" = failure ] || [ "$RECOVERY_PLAN_OUTCOME" = failure ] || [ "$INITIALIZE_OUTCOME" = failure ]; then
+            echo 'outcome=recovery-failed' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          test "$INITIALIZE_OUTCOME" = success
+          test "$AFTER_UPLOAD_ACTION" = none
+          test "$ARTIFACT_NAME" = none
+          case "$TRANSITION_KIND" in
+            recovery-not-required)
+              test "$NEXT_ACTION" = fail-after-evidence
+              case "$HIGHEST_STATUS" in
+                recovered|manual_intervention)
+                  install -m 0600 "$RUNNER_TEMP/current-attempt-journals/current-history.json" "$RUNNER_TEMP/recovered-history.json"
+                  echo 'outcome=terminal-bypass' >> "$GITHUB_OUTPUT"
+                  echo "terminal_status=$HIGHEST_STATUS" >> "$GITHUB_OUTPUT"
+                  exit 0
+                  ;;
+              esac
+              ;;
+            recovery-ready) test "$NEXT_ACTION" = dispatch ;;
+            *) exit 1 ;;
+          esac
+          echo 'outcome=recovery-failed' >> "$GITHUB_OUTPUT"
       - name: Require initialized recovery journal checkpoint
-        if: steps.journal-presence.outputs.has_journal == 'true'
+        if: >-
+          steps.journal-presence.outputs.has_journal == 'true' &&
+          steps.initialize.outputs.transition_kind == 'journal'
         env:
           AFTER_UPLOAD_ACTION: ${{ steps.initialize.outputs.after_upload_action }}
           ARTIFACT_NAME: ${{ steps.initialize.outputs.journal_artifact_name }}
@@ -2338,14 +2386,18 @@ jobs:
           test "$AFTER_UPLOAD_ACTION" = dispatch
           test "$ARTIFACT_NAME" != none
       - name: Stage initialized recovery journal under its canonical artifact basename
-        if: steps.journal-presence.outputs.has_journal == 'true'
+        if: >-
+          steps.journal-presence.outputs.has_journal == 'true' &&
+          steps.initialize.outputs.transition_kind == 'journal'
         run: |
           set -euo pipefail
           install -d -m 0700 "$RUNNER_TEMP/recovery-initialized-artifact"
           install -m 0600 "$RUNNER_TEMP/recovery-initialized-journal.json" "$RUNNER_TEMP/recovery-initialized-artifact/main-journal.json"
       - name: Upload initialized recovery journal
         id: upload-initialized
-        if: steps.journal-presence.outputs.has_journal == 'true'
+        if: >-
+          steps.journal-presence.outputs.has_journal == 'true' &&
+          steps.initialize.outputs.transition_kind == 'journal'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.initialize.outputs.journal_artifact_name }}
@@ -2353,7 +2405,9 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Checkpoint initialized recovery journal
-        if: steps.journal-presence.outputs.has_journal == 'true'
+        if: >-
+          steps.journal-presence.outputs.has_journal == 'true' &&
+          steps.initialize.outputs.transition_kind == 'journal'
         env:
           ARTIFACT_ID: ${{ steps.upload-initialized.outputs.artifact-id }}
           ARTIFACT_NAME: ${{ steps.initialize.outputs.journal_artifact_name }}
@@ -2367,7 +2421,9 @@ jobs:
           install -m 0600 "$RUNNER_TEMP/recovery-initialized-journal.json" "$RUNNER_TEMP/current-attempt-journals/current-journal.json"
           install -m 0600 "$RUNNER_TEMP/recovery-initialized-receipt.json" "$RUNNER_TEMP/current-attempt-journals/current-receipt.json"
       - name: Restore bounded recovery transition 1
-        if: steps.journal-presence.outputs.has_journal == 'true'
+        if: >-
+          steps.journal-presence.outputs.has_journal == 'true' &&
+          steps.initialize.outputs.transition_kind == 'journal'
         uses: ./.github/actions/vercel-main-active-recovery-transition
         env:
           {
@@ -2385,10 +2441,10 @@ jobs:
           }
       - name: Inspect recovery head 1
         id: recovery-head-1
-        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && !failure() && !cancelled() }}
+        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && !failure() && !cancelled() }}
         run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/current-attempt-journals" --output "$RUNNER_TEMP/recovery-head-1.json"
       - name: Restore bounded recovery transition 2
-        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.recovery-head-1.outputs.highest_status != 'recovered' && steps.recovery-head-1.outputs.highest_status != 'manual_intervention' }}
+        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && steps.recovery-head-1.outputs.highest_status != 'recovered' && steps.recovery-head-1.outputs.highest_status != 'manual_intervention' }}
         uses: ./.github/actions/vercel-main-active-recovery-transition
         env:
           {
@@ -2406,10 +2462,10 @@ jobs:
           }
       - name: Inspect recovery head 2
         id: recovery-head-2
-        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && !failure() && !cancelled() }}
+        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && !failure() && !cancelled() }}
         run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/current-attempt-journals" --output "$RUNNER_TEMP/recovery-head-2.json"
       - name: Restore bounded recovery transition 3
-        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.recovery-head-2.outputs.highest_status != 'recovered' && steps.recovery-head-2.outputs.highest_status != 'manual_intervention' }}
+        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && steps.recovery-head-2.outputs.highest_status != 'recovered' && steps.recovery-head-2.outputs.highest_status != 'manual_intervention' }}
         uses: ./.github/actions/vercel-main-active-recovery-transition
         env:
           {
@@ -2427,10 +2483,10 @@ jobs:
           }
       - name: Inspect recovery head 3
         id: recovery-head-3
-        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && !failure() && !cancelled() }}
+        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && !failure() && !cancelled() }}
         run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/current-attempt-journals" --output "$RUNNER_TEMP/recovery-head-3.json"
       - name: Restore bounded recovery transition 4
-        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.recovery-head-3.outputs.highest_status != 'recovered' && steps.recovery-head-3.outputs.highest_status != 'manual_intervention' }}
+        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && steps.recovery-head-3.outputs.highest_status != 'recovered' && steps.recovery-head-3.outputs.highest_status != 'manual_intervention' }}
         uses: ./.github/actions/vercel-main-active-recovery-transition
         env:
           {
@@ -2448,10 +2504,10 @@ jobs:
           }
       - name: Inspect recovery head 4
         id: recovery-head-4
-        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && !failure() && !cancelled() }}
+        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && !failure() && !cancelled() }}
         run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/current-attempt-journals" --output "$RUNNER_TEMP/recovery-head-4.json"
       - name: Restore bounded recovery transition 5
-        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.recovery-head-4.outputs.highest_status != 'recovered' && steps.recovery-head-4.outputs.highest_status != 'manual_intervention' }}
+        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && steps.recovery-head-4.outputs.highest_status != 'recovered' && steps.recovery-head-4.outputs.highest_status != 'manual_intervention' }}
         uses: ./.github/actions/vercel-main-active-recovery-transition
         env:
           {
@@ -2469,10 +2525,10 @@ jobs:
           }
       - name: Inspect recovery head 5
         id: recovery-head-5
-        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && !failure() && !cancelled() }}
+        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && !failure() && !cancelled() }}
         run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/current-attempt-journals" --output "$RUNNER_TEMP/recovery-head-5.json"
       - name: Restore bounded recovery transition 6
-        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.recovery-head-5.outputs.highest_status != 'recovered' && steps.recovery-head-5.outputs.highest_status != 'manual_intervention' }}
+        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && steps.recovery-head-5.outputs.highest_status != 'recovered' && steps.recovery-head-5.outputs.highest_status != 'manual_intervention' }}
         uses: ./.github/actions/vercel-main-active-recovery-transition
         env:
           {
@@ -2490,10 +2546,10 @@ jobs:
           }
       - name: Inspect recovery head 6
         id: recovery-head-6
-        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && !failure() && !cancelled() }}
+        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && !failure() && !cancelled() }}
         run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/current-attempt-journals" --output "$RUNNER_TEMP/recovery-head-6.json"
       - name: Restore bounded recovery transition 7
-        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.recovery-head-6.outputs.highest_status != 'recovered' && steps.recovery-head-6.outputs.highest_status != 'manual_intervention' }}
+        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && steps.recovery-head-6.outputs.highest_status != 'recovered' && steps.recovery-head-6.outputs.highest_status != 'manual_intervention' }}
         uses: ./.github/actions/vercel-main-active-recovery-transition
         env:
           {
@@ -2511,10 +2567,10 @@ jobs:
           }
       - name: Inspect recovery head 7
         id: recovery-head-7
-        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && !failure() && !cancelled() }}
+        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && !failure() && !cancelled() }}
         run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/current-attempt-journals" --output "$RUNNER_TEMP/recovery-head-7.json"
       - name: Restore bounded recovery transition 8
-        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.recovery-head-7.outputs.highest_status != 'recovered' && steps.recovery-head-7.outputs.highest_status != 'manual_intervention' }}
+        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && steps.recovery-head-7.outputs.highest_status != 'recovered' && steps.recovery-head-7.outputs.highest_status != 'manual_intervention' }}
         uses: ./.github/actions/vercel-main-active-recovery-transition
         env:
           {
@@ -2532,10 +2588,10 @@ jobs:
           }
       - name: Inspect recovery head 8
         id: recovery-head-8
-        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && !failure() && !cancelled() }}
+        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && !failure() && !cancelled() }}
         run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/current-attempt-journals" --output "$RUNNER_TEMP/recovery-head-8.json"
       - name: Restore bounded recovery transition 9
-        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.recovery-head-8.outputs.highest_status != 'recovered' && steps.recovery-head-8.outputs.highest_status != 'manual_intervention' }}
+        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && steps.recovery-head-8.outputs.highest_status != 'recovered' && steps.recovery-head-8.outputs.highest_status != 'manual_intervention' }}
         uses: ./.github/actions/vercel-main-active-recovery-transition
         env:
           {
@@ -2553,10 +2609,10 @@ jobs:
           }
       - name: Inspect recovery head 9
         id: recovery-head-9
-        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && !failure() && !cancelled() }}
+        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && !failure() && !cancelled() }}
         run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/current-attempt-journals" --output "$RUNNER_TEMP/recovery-head-9.json"
       - name: Restore terminal recovery transition 10
-        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.recovery-head-9.outputs.highest_status != 'recovered' && steps.recovery-head-9.outputs.highest_status != 'manual_intervention' }}
+        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && steps.recovery-head-9.outputs.highest_status != 'recovered' && steps.recovery-head-9.outputs.highest_status != 'manual_intervention' }}
         uses: ./.github/actions/vercel-main-active-recovery-transition
         env:
           {
@@ -2574,14 +2630,17 @@ jobs:
           }
       - name: Read final current-attempt recovery head
         id: recovered-head
-        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && !failure() && !cancelled() }}
+        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && !failure() && !cancelled() }}
         run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/current-attempt-journals" --output "$RUNNER_TEMP/recovered-history.json"
       - name: Require a recovered or manual terminal recovery journal
         id: recovery-terminal
-        if: steps.journal-presence.outputs.has_journal == 'true'
+        if: >-
+          steps.journal-presence.outputs.has_journal == 'true' &&
+          (steps.initialize.outputs.transition_kind == 'journal' ||
+          steps.recovery-failed.outputs.outcome == 'terminal-bypass')
         env:
           {
-            RECOVERY_STATUS: "${{ steps.recovered-head.outputs.highest_status }}",
+            RECOVERY_STATUS: "${{ steps.recovery-failed.outputs.terminal_status || steps.recovered-head.outputs.highest_status }}",
           }
         run: |
           set -euo pipefail
@@ -2591,6 +2650,13 @@ jobs:
             *) exit 1 ;;
           esac
       - name: Capture fresh full legacy proof
+        if: >-
+          always() && !cancelled() &&
+          steps.journal-presence.outcome == 'success' &&
+          (steps.journal-presence.outputs.has_journal != 'true' ||
+          steps.recovery-failed.outputs.outcome == 'recovery-failed' ||
+          steps.recovery-failed.outputs.outcome == 'terminal-bypass' ||
+          (steps.initialize.outputs.transition_kind == 'journal' && !failure()))
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
@@ -2598,6 +2664,12 @@ jobs:
           node scripts/vercel-deployment-state.mjs snapshot
           --spec "$RUNNER_TEMP/legacy-spec.json"
           --output "$RUNNER_TEMP/recovery-final-legacy.json"
+      - name: Materialize recovery-failed terminal artifacts without a recovery journal
+        id: recovery-failed-terminal
+        if: ${{ always() && !cancelled() && steps.recovery-failed.outputs.outcome == 'recovery-failed' }}
+        run: |
+          node scripts/vercel-main-release-cli.mjs terminal-artifacts --active-evidence-output "$RUNNER_TEMP/recovery-evidence.json" --execution "$RUNNER_TEMP/execution.json" --final-census "$RUNNER_TEMP/null.json" --final-mappings "$RUNNER_TEMP/null.json" --freshness "$RUNNER_TEMP/null.json" --journal-history "$RUNNER_TEMP/current-attempt-journals/current-history.json" --legacy-v2 "$RUNNER_TEMP/recovery-final-legacy.json" --outcome recovery-failed --proofs-output "$RUNNER_TEMP/recovery-proofs.json" --public-smokes "$RUNNER_TEMP/null.json" --stage-results "$RUNNER_TEMP/null.json" --state-proof "$RUNNER_TEMP/null.json"
+          echo 'outcome=recovery-failed' >> "$GITHUB_OUTPUT"
       - name: Materialize preparation failure terminal artifacts without a journal
         id: preparation-failure-terminal
         if: steps.journal-presence.outputs.has_journal != 'true'
@@ -2701,7 +2773,7 @@ jobs:
           echo "outcome=$TERMINAL_OUTCOME" >> "$GITHUB_OUTPUT"
       - name: Publish recovery terminal producer outputs
         id: terminal
-        if: ${{ always() && !cancelled() && (steps.preparation-failure-terminal.outcome == 'success' || steps.recovered-terminal.outcome == 'success') }}
+        if: ${{ always() && !cancelled() && (steps.preparation-failure-terminal.outcome == 'success' || steps.recovery-failed-terminal.outcome == 'success' || steps.recovered-terminal.outcome == 'success') }}
         run: >-
           node scripts/vercel-main-deployment.mjs terminal-evidence-create
           --manifest "$RUNNER_TEMP/manifest.json" --execution "$RUNNER_TEMP/execution.json"
@@ -2712,12 +2784,12 @@ jobs:
         if: ${{ always() && steps.terminal.outcome == 'success' }}
         env:
           {
-            TERMINAL_OUTCOME: "${{ steps.preparation-failure-terminal.outputs.outcome || steps.recovered-terminal.outputs.outcome }}",
+            TERMINAL_OUTCOME: "${{ steps.preparation-failure-terminal.outputs.outcome || steps.recovery-failed-terminal.outputs.outcome || steps.recovered-terminal.outputs.outcome }}",
           }
         run: |
           set -euo pipefail
           case "$TERMINAL_OUTCOME" in
-            recovered|manual-intervention|preparation-failed-before-journal) ;;
+            recovered|manual-intervention|recovery-failed|preparation-failed-before-journal) ;;
             *) exit 1 ;;
           esac
           echo "outcome=$TERMINAL_OUTCOME" >> "$GITHUB_OUTPUT"
@@ -2726,7 +2798,7 @@ jobs:
         env: { TERMINAL_OUTCOME: "${{ steps.outcome.outputs.outcome }}" }
         run: |
           case "$TERMINAL_OUTCOME" in
-            recovered|manual-intervention|preparation-failed-before-journal) exit 1 ;;
+            recovered|manual-intervention|recovery-failed|preparation-failed-before-journal) exit 1 ;;
             *) exit 1 ;;
           esac
       - name: Remove authenticated recovery runtime

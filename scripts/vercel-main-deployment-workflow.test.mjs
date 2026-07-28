@@ -1085,6 +1085,15 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
     command("recover-main-deployment", "plan-active-recovery").run,
     /current-history[\s\S]*recovery-start-mappings/,
   );
+  const recoveryMappings = named(
+    "recover-main-deployment",
+    "Derive and capture full recovery mappings from journal history",
+  );
+  assert.equal(recoveryMappings.id, "recovery-mappings");
+  assert.equal(
+    command("recover-main-deployment", "plan-active-recovery").id,
+    "recovery-plan",
+  );
   const initialize = named(
     "recover-main-deployment",
     "Initialize durable current-attempt recovery journal",
@@ -1093,6 +1102,79 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
     initialize.run,
     /active-recovery-event-initialize[\s\S]*run-active-recovery/,
   );
+  const classifyRecoveryFailure = named(
+    "recover-main-deployment",
+    "Classify recovery preparation failure or non-journal result",
+  );
+  assert.match(classifyRecoveryFailure.if, /always\(\)[\s\S]*!cancelled\(\)/);
+  assert.match(
+    classifyRecoveryFailure.if,
+    /steps\.journal-presence\.outputs\.has_journal == 'true'/,
+  );
+  assert.match(
+    classifyRecoveryFailure.if,
+    /steps\.recovery-mappings\.outcome == 'failure'/,
+  );
+  assert.match(
+    classifyRecoveryFailure.if,
+    /steps\.recovery-plan\.outcome == 'failure'/,
+  );
+  assert.match(
+    classifyRecoveryFailure.if,
+    /steps\.initialize\.outcome == 'failure'/,
+  );
+  assert.match(
+    classifyRecoveryFailure.if,
+    /steps\.initialize\.outcome == 'success'[\s\S]*transition_kind == 'recovery-not-required'/,
+  );
+  assert.match(
+    classifyRecoveryFailure.if,
+    /steps\.initialize\.outcome == 'success'[\s\S]*transition_kind == 'recovery-ready'/,
+  );
+  assert.match(
+    classifyRecoveryFailure.run,
+    /RECOVERY_MAPPINGS_OUTCOME[\s\S]*= failure[\s\S]*RECOVERY_PLAN_OUTCOME[\s\S]*= failure[\s\S]*INITIALIZE_OUTCOME[\s\S]*= failure[\s\S]*outcome=recovery-failed[\s\S]*exit 0/,
+  );
+  assert.match(
+    classifyRecoveryFailure.run,
+    /AFTER_UPLOAD_ACTION[\s\S]*none[\s\S]*ARTIFACT_NAME[\s\S]*none[\s\S]*recovery-not-required\)[\s\S]*NEXT_ACTION[\s\S]*fail-after-evidence[\s\S]*HIGHEST_STATUS[\s\S]*recovered\|manual_intervention[\s\S]*current-history\.json[\s\S]*recovered-history\.json[\s\S]*outcome=terminal-bypass[\s\S]*terminal_status=[\s\S]*exit 0[\s\S]*recovery-ready\) test "\$NEXT_ACTION" = dispatch[\s\S]*outcome=recovery-failed/,
+  );
+  assert.match(
+    classifyRecoveryFailure.env.HIGHEST_STATUS,
+    /steps\.journal-history\.outputs\.highest_status/,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(classifyRecoveryFailure),
+    /VERCEL_(?:ORG_ID|TOKEN)|vercel-main-active-recovery-transition/,
+  );
+  const initializedJournalSteps = [
+    named(
+      "recover-main-deployment",
+      "Require initialized recovery journal checkpoint",
+    ),
+    named(
+      "recover-main-deployment",
+      "Stage initialized recovery journal under its canonical artifact basename",
+    ),
+    named("recover-main-deployment", "Upload initialized recovery journal"),
+    named("recover-main-deployment", "Checkpoint initialized recovery journal"),
+    ...steps("recover-main-deployment").filter(
+      (step) =>
+        step.name?.startsWith("Inspect recovery head") ||
+        step.name === "Read final current-attempt recovery head" ||
+        step.name ===
+          "Require a recovered or manual terminal recovery journal" ||
+        step.uses ===
+          "./.github/actions/vercel-main-active-recovery-transition",
+    ),
+  ];
+  for (const step of initializedJournalSteps) {
+    assert.match(
+      step.if,
+      /steps\.initialize\.outputs\.transition_kind == 'journal'/,
+      step.name ?? step.uses,
+    );
+  }
   assert.ok(
     steps("recover-main-deployment").some(
       (step) =>
@@ -1119,6 +1201,16 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
     ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
   );
   for (const transition of transitions) {
+    assert.match(
+      transition.if,
+      /steps\.initialize\.outputs\.transition_kind == 'journal'/,
+      transition.name ?? transition.uses,
+    );
+    assert.doesNotMatch(
+      transition.if,
+      /recovery-ready|terminal-bypass/,
+      transition.name ?? transition.uses,
+    );
     assert.equal(
       transition.with["operation-cwd"],
       "${{ github.workspace }}/source",
@@ -1132,6 +1224,18 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
     named("recover-main-deployment", "recovered or manual terminal").run,
     /recovered[\s\S]*manual_intervention/,
   );
+  const recoveryTerminal = named(
+    "recover-main-deployment",
+    "Require a recovered or manual terminal recovery journal",
+  );
+  assert.match(
+    recoveryTerminal.if,
+    /steps\.recovery-failed\.outputs\.outcome == 'terminal-bypass'/,
+  );
+  assert.match(
+    recoveryTerminal.env.RECOVERY_STATUS,
+    /steps\.recovery-failed\.outputs\.terminal_status[\s\S]*steps\.recovered-head\.outputs\.highest_status/,
+  );
   const preparationFailure = named(
     "recover-main-deployment",
     "preparation failure terminal artifacts",
@@ -1144,7 +1248,47 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
     preparationFailure.run,
     /terminal-stage-results[\s\S]*--app-result[\s\S]*--coordinator-result[\s\S]*preparation-stage-results/,
   );
+  assert.match(
+    preparationFailure.if,
+    /steps\.journal-presence\.outputs\.has_journal != 'true'/,
+  );
   assert.doesNotMatch(preparationFailure.run, /vercel-main-stage-results:v1/);
+  const recoveryFailedTerminal = named(
+    "recover-main-deployment",
+    "recovery-failed terminal artifacts",
+  );
+  assert.match(recoveryFailedTerminal.if, /always\(\)[\s\S]*!cancelled\(\)/);
+  assert.match(
+    recoveryFailedTerminal.if,
+    /steps\.recovery-failed\.outputs\.outcome == 'recovery-failed'/,
+  );
+  assert.doesNotMatch(recoveryFailedTerminal.if, /terminal-bypass/);
+  assert.match(
+    recoveryFailedTerminal.run,
+    /terminal-artifacts[\s\S]*--journal-history[\s\S]*current-history[\s\S]*--legacy-v2[\s\S]*recovery-final-legacy[\s\S]*--outcome recovery-failed/,
+  );
+  assert.match(
+    recoveryFailedTerminal.run,
+    /--final-census[\s\S]*null\.json[\s\S]*--final-mappings[\s\S]*null\.json[\s\S]*--freshness[\s\S]*null\.json[\s\S]*--public-smokes[\s\S]*null\.json[\s\S]*--stage-results[\s\S]*null\.json[\s\S]*--state-proof[\s\S]*null\.json/,
+  );
+  assert.match(recoveryFailedTerminal.run, /outcome=recovery-failed/);
+  assert.doesNotMatch(
+    JSON.stringify(recoveryFailedTerminal),
+    /VERCEL_(?:ORG_ID|TOKEN)|vercel-main-active-recovery-transition/,
+  );
+  const freshLegacyProof = named(
+    "recover-main-deployment",
+    "Capture fresh full legacy proof",
+  );
+  assert.match(freshLegacyProof.if, /always\(\)[\s\S]*!cancelled\(\)/);
+  assert.match(
+    freshLegacyProof.if,
+    /steps\.recovery-failed\.outputs\.outcome == 'recovery-failed'/,
+  );
+  assert.match(
+    freshLegacyProof.if,
+    /steps\.recovery-failed\.outputs\.outcome == 'terminal-bypass'/,
+  );
   assert.match(
     command("recover-main-deployment", "active-recovery-state-spec").run,
     /--execution[\s\S]*recovered-history/,
@@ -1180,7 +1324,26 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
       "recover-main-deployment",
       "Fail after recording recovery terminal evidence",
     ).run,
-    /recovered\|manual-intervention\|preparation-failed-before-journal[\s\S]*exit 1/,
+    /recovered\|manual-intervention\|recovery-failed\|preparation-failed-before-journal[\s\S]*exit 1/,
+  );
+  assert.match(
+    named("recover-main-deployment", "Publish recovery outcome").env
+      .TERMINAL_OUTCOME,
+    /steps\.recovery-failed-terminal\.outputs\.outcome/,
+  );
+  const recoveryStepNames = steps("recover-main-deployment").map(
+    (step) => step.name,
+  );
+  assert.ok(
+    recoveryStepNames.indexOf(
+      "Materialize recovery-failed terminal artifacts without a recovery journal",
+    ) < recoveryStepNames.indexOf("Publish recovery terminal producer outputs"),
+  );
+  assert.ok(
+    recoveryStepNames.indexOf("Publish recovery terminal producer outputs") <
+      recoveryStepNames.indexOf(
+        "Fail after recording recovery terminal evidence",
+      ),
   );
   const cleanup = named(
     "recover-main-deployment",

@@ -21,8 +21,10 @@ import { fileURLToPath } from "node:url";
 
 import {
   MAIN_RELEASE_EXECUTION_DIAGNOSTIC_CODES,
+  MAIN_RELEASE_TERMINAL_ARTIFACT_DIAGNOSTIC_CODES,
   renderMainReleaseCliFailure,
   renderMainReleaseExecutionCliFailure,
+  renderMainReleaseTerminalArtifactCliFailure,
   runMainReleaseCli,
   runMainReleaseCliEntrypoint,
 } from "./vercel-main-release-cli.mjs";
@@ -689,6 +691,22 @@ test("execution diagnostics use an exhaustive fixed allowlist", () => {
   );
 });
 
+test("terminal artifact diagnostics use an exhaustive fixed allowlist", () => {
+  const expected = {
+    "read-inputs": "main-release-terminal-artifacts-read-inputs",
+    "create-artifacts": "main-release-terminal-artifacts-create-artifacts",
+    "evidence-write": "main-release-terminal-artifacts-evidence-write",
+    "proofs-write": "main-release-terminal-artifacts-proofs-write",
+  };
+  assert.deepEqual(MAIN_RELEASE_TERMINAL_ARTIFACT_DIAGNOSTIC_CODES, expected);
+  for (const [phase, code] of Object.entries(expected)) {
+    assert.equal(
+      renderMainReleaseTerminalArtifactCliFailure(phase),
+      `Vercel main release terminal artifacts failed phase=${phase} code=${code}\n`,
+    );
+  }
+});
+
 test("execution entrypoint emits one fixed secret-free line for injected failures", async () => {
   const secret = "secret-value-never-print";
   for (const phase of Object.keys(MAIN_RELEASE_EXECUTION_DIAGNOSTIC_CODES)) {
@@ -705,6 +723,32 @@ test("execution entrypoint emits one fixed secret-free line for injected failure
     });
     assert.equal(status, 1, phase);
     assert.equal(stderr, renderMainReleaseExecutionCliFailure(phase), phase);
+    assert.doesNotMatch(stderr, new RegExp(secret), phase);
+  }
+});
+
+test("terminal artifact entrypoint emits one fixed secret-free line for injected failures", async () => {
+  const secret = "secret-value-never-print";
+  for (const phase of Object.keys(
+    MAIN_RELEASE_TERMINAL_ARTIFACT_DIAGNOSTIC_CODES,
+  )) {
+    let stderr = "";
+    const status = await runMainReleaseCliEntrypoint({
+      argv: ["terminal-artifacts"],
+      writeStderr: (line) => {
+        stderr += line;
+      },
+      run: ({ terminalArtifactDiagnostics }) => {
+        terminalArtifactDiagnostics.mark(phase);
+        throw new Error(secret);
+      },
+    });
+    assert.equal(status, 1, phase);
+    assert.equal(
+      stderr,
+      renderMainReleaseTerminalArtifactCliFailure(phase),
+      phase,
+    );
     assert.doesNotMatch(stderr, new RegExp(secret), phase);
   }
 });
@@ -1761,10 +1805,12 @@ test("terminal artifact CLI writes execution-bound safe-noop evidence without pl
   const argumentsFor = ({
     legacyValue = [execution.legacyAppV2],
     legacyName = "terminal-legacy.json",
+    evidenceOutputPath = evidenceOutput,
+    proofsOutputPath = proofsOutput,
   } = {}) => [
     "terminal-artifacts",
     "--active-evidence-output",
-    evidenceOutput,
+    evidenceOutputPath,
     "--execution",
     write(directory, "terminal-execution.json", execution),
     "--final-census",
@@ -1780,7 +1826,7 @@ test("terminal artifact CLI writes execution-bound safe-noop evidence without pl
     "--outcome",
     "no-target",
     "--proofs-output",
-    proofsOutput,
+    proofsOutputPath,
     "--public-smokes",
     nullPath,
     "--stage-results",
@@ -1821,6 +1867,68 @@ test("terminal artifact CLI writes execution-bound safe-noop evidence without pl
       env: environment(directory),
     }),
     /fresh legacy v2 snapshot conflicts/,
+  );
+
+  const secret = "terminal-artifact-path-secret";
+  const assertEntrypointFailure = async (argv, phase) => {
+    let stderr = "";
+    const status = await runMainReleaseCliEntrypoint({
+      argv,
+      env: environment(directory),
+      writeStderr: (line) => {
+        stderr += line;
+      },
+    });
+    assert.equal(status, 1, phase);
+    assert.equal(stderr, renderMainReleaseTerminalArtifactCliFailure(phase));
+    assert.doesNotMatch(stderr, new RegExp(secret));
+  };
+  const malformedInput = argumentsFor({
+    evidenceOutputPath: join(directory, "malformed-input-evidence.json"),
+    proofsOutputPath: join(directory, "malformed-input-proofs.json"),
+  });
+  malformedInput[malformedInput.indexOf("--journal-history") + 1] = join(
+    directory,
+    `${secret}-missing-history.json`,
+  );
+  await assertEntrypointFailure(malformedInput, "read-inputs");
+  await assertEntrypointFailure(
+    argumentsFor({
+      evidenceOutputPath: join(directory, "create-evidence.json"),
+      proofsOutputPath: join(directory, "create-proofs.json"),
+      legacyValue: [
+        {
+          ...execution.legacyAppV2,
+          deploymentId: "dpl_wrongLegacy123",
+        },
+      ],
+      legacyName: "create-wrong-legacy.json",
+    }),
+    "create-artifacts",
+  );
+  const blockedEvidenceOutput = write(
+    directory,
+    `${secret}-blocked-evidence.json`,
+    { existing: true },
+  );
+  await assertEntrypointFailure(
+    argumentsFor({
+      evidenceOutputPath: blockedEvidenceOutput,
+      proofsOutputPath: join(directory, "evidence-write-proofs.json"),
+    }),
+    "evidence-write",
+  );
+  const blockedProofsOutput = write(
+    directory,
+    `${secret}-blocked-proofs.json`,
+    { existing: true },
+  );
+  await assertEntrypointFailure(
+    argumentsFor({
+      evidenceOutputPath: join(directory, "proofs-write-evidence.json"),
+      proofsOutputPath: blockedProofsOutput,
+    }),
+    "proofs-write",
   );
 });
 

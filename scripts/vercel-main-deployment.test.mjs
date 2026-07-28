@@ -112,6 +112,7 @@ import {
   attachDiscoveredAppCandidate,
   classifyMainTransactionMapping,
   finishMainTransactionRecovery,
+  markMainTransactionCommitted,
   mainTransactionJournalArtifactName,
   recordMainTransactionCommandReturned,
   recordMainTransactionVerified,
@@ -3445,6 +3446,225 @@ test("active controller commits exact ordered mutations and emits canonical reda
   );
 });
 
+test("production-shaped all-target terminal artifacts cover the five-operation committed journal", async () => {
+  const harness = activeHarness({
+    appAliasesMovedByDeploy: ["app.mento.org"],
+  });
+  const transaction = await runMainActiveTransaction({
+    plan: harness.plan,
+    stageJobs: harness.stageJobs,
+    appBuildProof: harness.appBuildProof,
+    runId: "800",
+    runAttempt: "3",
+    journalHistory: [],
+    adapters: harness.adapters,
+  });
+  const execution = releaseExecutionForPlan(harness.plan);
+  const appCommandReturnedIndex = transaction.journalHistory.findIndex(
+    (journal) =>
+      journal.operations.at(-1)?.type === "app_v3_deploy" &&
+      journal.operations.at(-1)?.state === "command_returned",
+  );
+  const appCommandReturned = structuredClone(
+    transaction.journalHistory[appCommandReturnedIndex],
+  );
+  const discoveredAppCandidate = {
+    deploymentId: appCommandReturned.candidates.app.deploymentId,
+    deploymentUrl: appCommandReturned.candidates.app.deploymentUrl,
+    ...appCommandReturned.candidates.app.discovery,
+  };
+  appCommandReturned.candidates.app.deploymentId = null;
+  appCommandReturned.candidates.app.deploymentUrl = null;
+  appCommandReturned.operations.at(-1).candidateDeploymentId = null;
+  appCommandReturned.operations.at(-1).candidateDeploymentUrl = null;
+  const appCandidateAttached = attachDiscoveredAppCandidate(
+    appCommandReturned,
+    discoveredAppCandidate,
+  );
+  const appOperationId = appCandidateAttached.operations.at(-1).operationId;
+  const appVerified = recordMainTransactionVerified(appCandidateAttached, {
+    operationId: appOperationId,
+    mappingState: "candidate",
+  });
+  const alias = "appmentoorg-env-v3-mentolabs.vercel.app";
+  const aliasStarted = startMainTransactionOperation(appVerified, {
+    type: "app_alias_set",
+    target: "app",
+    alias,
+  });
+  const aliasOperationId = aliasStarted.operations.at(-1).operationId;
+  const aliasReturned = recordMainTransactionCommandReturned(aliasStarted, {
+    operationId: aliasOperationId,
+    outcome: "success",
+  });
+  const aliasVerified = recordMainTransactionVerified(aliasReturned, {
+    operationId: aliasOperationId,
+    mappingState: "candidate",
+  });
+  const productionJournalHistory = [
+    ...transaction.journalHistory.slice(0, appCommandReturnedIndex),
+    appCommandReturned,
+    appCandidateAttached,
+    appVerified,
+    aliasStarted,
+    aliasReturned,
+    aliasVerified,
+    markMainTransactionCommitted(aliasVerified),
+  ];
+  for (let index = 1; index <= productionJournalHistory.length; index += 1) {
+    try {
+      assertMainActiveJournalHistory({
+        journals: productionJournalHistory.slice(0, index),
+        deploySha: SHA,
+        runId: "800",
+        runAttempt: "3",
+      });
+    } catch (error) {
+      throw new Error(
+        `production-shaped journal is invalid at snapshot ${index - 1}: ${error.message}`,
+      );
+    }
+  }
+  const stateProof = activeStateProof({
+    deploymentPlan: harness.plan,
+    journalHistory: productionJournalHistory,
+    jobs: harness.stageJobs,
+    runId: "800",
+    runAttempt: "3",
+  });
+  const completeStateProof = terminalStateProof({ execution, stateProof });
+  const artifacts = createMainActiveTerminalArtifacts({
+    execution,
+    outcome: "active-committed",
+    journalHistory: activeHistoryDocument(productionJournalHistory),
+    finalMappings: providerMappings(execution, activeFinalMappings(harness)),
+    publicSmokes: activePublicSmokes(transaction),
+    stateProof: completeStateProof,
+    finalCensus: completeStateProof,
+    freshLegacyV2: harness.plan.legacySnapshot,
+    freshness: null,
+    runId: "800",
+    runAttempt: "3",
+  });
+
+  assert.equal(transaction.publicServingMutationCommands, 5);
+  assert.equal(productionJournalHistory.length, 18);
+  assert.equal(productionJournalHistory.at(-1).sequence, 17);
+  assert.deepEqual(
+    transaction.journal.operations
+      .filter((operation) => operation.state === "verified")
+      .map((operation) => [operation.type, operation.target, operation.alias]),
+    [
+      ["promote", "governance", null],
+      ["promote", "reserve", null],
+      ["promote", "ui", null],
+      ["app_v3_deploy", "app", null],
+      ["app_alias_set", "app", "appmentoorg-env-v3-mentolabs.vercel.app"],
+    ],
+  );
+  assert.deepEqual(artifacts.evidence.planning.activeTargets, [
+    "app",
+    "governance",
+    "reserve",
+    "ui",
+  ]);
+  assert.deepEqual(Object.keys(artifacts.evidence.publicSmokes).sort(), [
+    "app",
+    "governance",
+    "reserve",
+    "ui",
+  ]);
+  assert.equal(artifacts.evidence.orderedVerifiedOperations.length, 5);
+  assert.equal(artifacts.proofs.mutationCount, 5);
+  assert.equal(artifacts.proofs.journal.artifact.length, 18);
+
+  const evidenceBytes = Buffer.byteLength(
+    `${JSON.stringify(artifacts.evidence)}\n`,
+    "utf8",
+  );
+  const proofBytes = Buffer.byteLength(
+    `${JSON.stringify(artifacts.proofs)}\n`,
+    "utf8",
+  );
+  assert.ok(
+    evidenceBytes <= 256 * 1024,
+    `production-shaped terminal evidence uses ${evidenceBytes} bytes`,
+  );
+  assert.ok(
+    proofBytes <= MAIN_ACTIVE_TERMINAL_PROOFS_MAX_JSON_BYTES,
+    `production-shaped terminal proofs use ${proofBytes} bytes`,
+  );
+
+  const recoveryFailedArtifacts = createMainActiveTerminalArtifacts({
+    execution,
+    outcome: "recovery-failed",
+    journalHistory: activeHistoryDocument(productionJournalHistory),
+    finalMappings: null,
+    publicSmokes: null,
+    stateProof: null,
+    finalCensus: null,
+    freshLegacyV2: harness.plan.legacySnapshot,
+    freshness: null,
+    stageResults: null,
+    runId: "800",
+    runAttempt: "3",
+  });
+  assert.equal(
+    recoveryFailedArtifacts.evidence.recoveryOutcome,
+    "recovery-failed",
+  );
+  assert.deepEqual(recoveryFailedArtifacts.evidence.jobs, {
+    waitForCi: "success",
+    plan: "success",
+    stageGovernance: "success",
+    stageReserve: "success",
+    stageUi: "success",
+    coordinator: "failure",
+    recovery: "failure",
+  });
+  assert.equal(recoveryFailedArtifacts.proofs.mutationCount, 5);
+  assert.equal(recoveryFailedArtifacts.proofs.journal.artifact.length, 18);
+
+  const recoveryFailedTerminal = createMainActiveTerminalHandoff({
+    activeEvidence: recoveryFailedArtifacts.evidence,
+    releaseManifest: execution.manifest,
+    execution,
+    proofs: recoveryFailedArtifacts.proofs,
+    deploySha: SHA,
+    upstreamRunId: "123456",
+    upstreamRunAttempt: "2",
+    workflowRunId: "800",
+    producerRunAttempt: "3",
+    repository: "mento-protocol/frontend-monorepo",
+  });
+  assert.equal(recoveryFailedTerminal.receipt.outcome, "recovery-failed");
+  assert.deepEqual(
+    restoreMainActiveTerminalEvidence({
+      encodedReceipt: recoveryFailedTerminal.encodedReceipt,
+      encodedEvidence: recoveryFailedTerminal.encodedEvidence,
+      releaseManifest: execution.manifest,
+      execution,
+      deploySha: SHA,
+      upstreamRunId: "123456",
+      upstreamRunAttempt: "2",
+      workflowRunId: "800",
+      finalRunAttempt: "4",
+      repository: "mento-protocol/frontend-monorepo",
+    }).artifact,
+    recoveryFailedArtifacts.evidence,
+  );
+  assert.ok(
+    Buffer.byteLength(recoveryFailedTerminal.encodedReceipt, "utf8") <
+      32 * 1024,
+    "production-shaped recovery-failed receipt exceeds the workflow output bound",
+  );
+  assert.ok(
+    Buffer.byteLength(recoveryFailedTerminal.encodedEvidence, "utf8") <
+      64 * 1024,
+    "production-shaped recovery-failed evidence exceeds the workflow output bound",
+  );
+});
+
 test("execution-bound terminal artifacts derive committed and verified-noop proof from provider evidence and the current journal", async () => {
   const committedHarness = activeHarness({
     deploymentPlan: activePlan({ deployments: ["governance"] }),
@@ -4036,6 +4256,196 @@ test("manual terminal handoff binds its affected-operation set to the exact curr
         repository: "mento-protocol/frontend-monorepo",
       }),
     /affected operations conflict with the journal/,
+  );
+});
+
+test("recovery-failed terminal artifacts preserve a durable journal without recovery claims", () => {
+  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const execution = releaseExecutionForPlan(deploymentPlan);
+  const prepared = createPreparedMainActiveJournal({
+    plan: deploymentPlan,
+    stageJobs: stageJobs(deploymentPlan),
+    appBuildProof: null,
+    runId: "800",
+    runAttempt: "3",
+  });
+  const started = startMainTransactionOperation(prepared, {
+    type: "promote",
+    target: "governance",
+  });
+  const returned = recordMainTransactionCommandReturned(started, {
+    operationId: started.operations.at(-1).operationId,
+    outcome: "success",
+  });
+  const verified = recordMainTransactionVerified(returned, {
+    operationId: returned.operations.at(-1).operationId,
+    mappingState: "candidate",
+  });
+  const committed = markMainTransactionCommitted(verified);
+  const recovering = startMainTransactionRecovery(started);
+  const cases = [
+    {
+      name: "prepared journal before a public-serving mutation",
+      history: [prepared],
+      expectedStarted: 0,
+      expectedStatus: "prepared",
+    },
+    {
+      name: "committed journal",
+      history: [prepared, started, returned, verified, committed],
+      expectedStarted: 1,
+      expectedStatus: "committed",
+    },
+    {
+      name: "durable nonterminal journal",
+      history: [prepared, started],
+      expectedStarted: 1,
+      expectedStatus: "started",
+    },
+    {
+      name: "recovering journal after a durable mutation start",
+      history: [prepared, started, recovering],
+      expectedStarted: 1,
+      expectedStatus: "recovering",
+    },
+  ];
+
+  for (const scenario of cases) {
+    const artifacts = createMainActiveTerminalArtifacts({
+      execution,
+      outcome: "recovery-failed",
+      journalHistory: activeHistoryDocument(scenario.history),
+      finalMappings: null,
+      publicSmokes: null,
+      stateProof: null,
+      finalCensus: null,
+      freshLegacyV2: deploymentPlan.legacySnapshot,
+      freshness: null,
+      stageResults: null,
+      runId: "800",
+      runAttempt: "3",
+    });
+    assert.equal(
+      artifacts.evidence.schema,
+      MAIN_ACTIVE_FAILURE_EVIDENCE_SCHEMA,
+    );
+    assert.equal(artifacts.evidence.recoveryOutcome, "recovery-failed");
+    assert.deepEqual(
+      artifacts.evidence.jobs,
+      {
+        waitForCi: "success",
+        plan: "success",
+        stageGovernance: "success",
+        stageReserve: "skipped",
+        stageUi: "skipped",
+        coordinator: "failure",
+        recovery: "failure",
+      },
+      scenario.name,
+    );
+    assert.equal(
+      artifacts.evidence.errorCode,
+      "RECOVERY_FAILED_AFTER_DURABLE_JOURNAL",
+    );
+    assert.equal(
+      artifacts.evidence.journal.highestStatus,
+      scenario.expectedStatus,
+      scenario.name,
+    );
+    assert.equal(
+      artifacts.evidence.publicServingMutationCommands,
+      scenario.expectedStarted,
+      scenario.name,
+    );
+    assert.equal(artifacts.proofs.outcome, "recovery-failed", scenario.name);
+    assert.equal(
+      artifacts.proofs.journal.status,
+      "recovery-failed",
+      scenario.name,
+    );
+    assert.deepEqual(artifacts.proofs.journal.artifact, scenario.history);
+    assert.equal(artifacts.proofs.mutationCount, scenario.expectedStarted);
+    assert.deepEqual(artifacts.proofs.rollbackTargets, []);
+    assert.deepEqual(artifacts.proofs.affectedOperations, []);
+    for (const proof of [
+      artifacts.proofs.finalMapping,
+      artifacts.proofs.finalCensus,
+      artifacts.proofs.stateProof,
+    ]) {
+      assert.equal(proof.status, "unsafe", scenario.name);
+      assert.deepEqual(proof.artifact, artifacts.evidence, scenario.name);
+    }
+
+    const terminal = createMainActiveTerminalHandoff({
+      activeEvidence: artifacts.evidence,
+      releaseManifest: execution.manifest,
+      execution,
+      proofs: artifacts.proofs,
+      deploySha: SHA,
+      upstreamRunId: "123456",
+      upstreamRunAttempt: "2",
+      workflowRunId: "800",
+      producerRunAttempt: "3",
+      repository: "mento-protocol/frontend-monorepo",
+    });
+    assert.equal(terminal.receipt.outcome, "recovery-failed", scenario.name);
+    assert.deepEqual(
+      restoreMainActiveTerminalEvidence({
+        encodedReceipt: terminal.encodedReceipt,
+        encodedEvidence: terminal.encodedEvidence,
+        releaseManifest: execution.manifest,
+        execution,
+        deploySha: SHA,
+        upstreamRunId: "123456",
+        upstreamRunAttempt: "2",
+        workflowRunId: "800",
+        finalRunAttempt: "4",
+        repository: "mento-protocol/frontend-monorepo",
+      }).artifact,
+      artifacts.evidence,
+      scenario.name,
+    );
+  }
+
+  const inputs = {
+    execution,
+    outcome: "recovery-failed",
+    journalHistory: activeHistoryDocument([prepared, started]),
+    finalMappings: null,
+    publicSmokes: null,
+    stateProof: null,
+    finalCensus: null,
+    freshLegacyV2: deploymentPlan.legacySnapshot,
+    freshness: null,
+    stageResults: null,
+    runId: "800",
+    runAttempt: "3",
+  };
+  assert.throws(
+    () => createMainActiveTerminalArtifacts({ ...inputs, journalHistory: [] }),
+    /requires a durable journal/,
+  );
+  for (const field of [
+    "finalMappings",
+    "publicSmokes",
+    "stateProof",
+    "finalCensus",
+    "freshness",
+    "stageResults",
+  ]) {
+    assert.throws(
+      () =>
+        createMainActiveTerminalArtifacts({
+          ...inputs,
+          [field]: { unexpected: true },
+        }),
+      /cannot contain provider or stage proof/,
+      field,
+    );
+  }
+  assert.throws(
+    () => createMainActiveTerminalArtifacts({ ...inputs, freshLegacyV2: null }),
+    /Canonical deployment state is malformed/,
   );
 });
 
@@ -5164,7 +5574,7 @@ test("terminal failure validation preserves manual-intervention journal semantic
     rollbackStateTargets: ["governance"],
     publicServingMutationCommands: 1,
     coordinatorOutcome: "active-failed",
-    recoveryOutcome: "recovery-failed",
+    recoveryOutcome: "manual-intervention",
     errorCode: "RECOVERY_FAILED",
   });
   assert.throws(

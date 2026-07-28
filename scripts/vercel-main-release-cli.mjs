@@ -122,6 +122,24 @@ export const MAIN_RELEASE_EXECUTION_DIAGNOSTIC_CODES = Object.freeze({
     "main-release-execution-github-output",
 });
 
+const TERMINAL_ARTIFACT_DIAGNOSTIC_PHASES = Object.freeze({
+  READ_INPUTS: "read-inputs",
+  CREATE_ARTIFACTS: "create-artifacts",
+  EVIDENCE_WRITE: "evidence-write",
+  PROOFS_WRITE: "proofs-write",
+});
+
+export const MAIN_RELEASE_TERMINAL_ARTIFACT_DIAGNOSTIC_CODES = Object.freeze({
+  [TERMINAL_ARTIFACT_DIAGNOSTIC_PHASES.READ_INPUTS]:
+    "main-release-terminal-artifacts-read-inputs",
+  [TERMINAL_ARTIFACT_DIAGNOSTIC_PHASES.CREATE_ARTIFACTS]:
+    "main-release-terminal-artifacts-create-artifacts",
+  [TERMINAL_ARTIFACT_DIAGNOSTIC_PHASES.EVIDENCE_WRITE]:
+    "main-release-terminal-artifacts-evidence-write",
+  [TERMINAL_ARTIFACT_DIAGNOSTIC_PHASES.PROOFS_WRITE]:
+    "main-release-terminal-artifacts-proofs-write",
+});
+
 const BASELINE_PRIOR_PHASE_BY_TARGET = Object.freeze({
   app: EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_APP,
   governance: EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_GOVERNANCE,
@@ -211,7 +229,33 @@ function createExecutionDiagnostics() {
   });
 }
 
+function createTerminalArtifactDiagnostics() {
+  let phase = TERMINAL_ARTIFACT_DIAGNOSTIC_PHASES.READ_INPUTS;
+  return Object.freeze({
+    mark(nextPhase) {
+      if (
+        !Object.hasOwn(
+          MAIN_RELEASE_TERMINAL_ARTIFACT_DIAGNOSTIC_CODES,
+          nextPhase,
+        )
+      ) {
+        throw new Error(
+          "Main release terminal artifact diagnostic phase is unsupported",
+        );
+      }
+      phase = nextPhase;
+    },
+    current() {
+      return phase;
+    },
+  });
+}
+
 function markExecutionPhase(diagnostics, phase) {
+  diagnostics?.mark(phase);
+}
+
+function markTerminalArtifactPhase(diagnostics, phase) {
   diagnostics?.mark(phase);
 }
 
@@ -512,8 +556,13 @@ export async function runMainReleaseCli({
   env = process.env,
   baselineFactory = createMainReleaseBaseline,
   executionDiagnostics = null,
+  terminalArtifactDiagnostics = null,
 } = {}) {
   markExecutionPhase(executionDiagnostics, EXECUTION_DIAGNOSTIC_PHASES.INPUT);
+  markTerminalArtifactPhase(
+    terminalArtifactDiagnostics,
+    TERMINAL_ARTIFACT_DIAGNOSTIC_PHASES.READ_INPUTS,
+  );
   const { command, options } = parseArguments(argv);
   const identity = requireEnvironment(env);
   const runnerTemp = reviewedRunnerTemp(env.RUNNER_TEMP);
@@ -602,9 +651,7 @@ export async function runMainReleaseCli({
       ),
       identity,
     );
-    const artifacts = createMainActiveTerminalArtifacts({
-      execution,
-      outcome: options.outcome,
+    const inputs = {
       journalHistory: readPrivateJson(
         options["journal-history"],
         "Main terminal journal history",
@@ -646,12 +693,29 @@ export async function runMainReleaseCli({
         "Main terminal stage results",
         runnerTemp,
       ),
+    };
+    markTerminalArtifactPhase(
+      terminalArtifactDiagnostics,
+      TERMINAL_ARTIFACT_DIAGNOSTIC_PHASES.CREATE_ARTIFACTS,
+    );
+    const artifacts = createMainActiveTerminalArtifacts({
+      execution,
+      outcome: options.outcome,
+      ...inputs,
       ...currentAttempt(env),
     });
+    markTerminalArtifactPhase(
+      terminalArtifactDiagnostics,
+      TERMINAL_ARTIFACT_DIAGNOSTIC_PHASES.EVIDENCE_WRITE,
+    );
     writePrivateJson(
       options["active-evidence-output"],
       artifacts.evidence,
       runnerTemp,
+    );
+    markTerminalArtifactPhase(
+      terminalArtifactDiagnostics,
+      TERMINAL_ARTIFACT_DIAGNOSTIC_PHASES.PROOFS_WRITE,
     );
     writePrivateJson(
       options["proofs-output"],
@@ -947,6 +1011,16 @@ export function renderMainReleaseExecutionCliFailure(phase) {
   return `Vercel main release execution failed phase=${phase} code=${code}\n`;
 }
 
+export function renderMainReleaseTerminalArtifactCliFailure(phase) {
+  const code = MAIN_RELEASE_TERMINAL_ARTIFACT_DIAGNOSTIC_CODES[phase];
+  if (code === undefined) {
+    throw new Error(
+      "Main release terminal artifact diagnostic phase is unsupported",
+    );
+  }
+  return `Vercel main release terminal artifacts failed phase=${phase} code=${code}\n`;
+}
+
 export async function runMainReleaseCliEntrypoint({
   argv = process.argv.slice(2),
   env = process.env,
@@ -955,13 +1029,26 @@ export async function runMainReleaseCliEntrypoint({
 } = {}) {
   const diagnostics =
     argv[0] === "execution" ? createExecutionDiagnostics() : null;
+  const terminalArtifactDiagnostics =
+    argv[0] === "terminal-artifacts"
+      ? createTerminalArtifactDiagnostics()
+      : null;
   try {
-    await run({ argv, env, executionDiagnostics: diagnostics });
+    await run({
+      argv,
+      env,
+      executionDiagnostics: diagnostics,
+      terminalArtifactDiagnostics,
+    });
     return 0;
   } catch {
     writeStderr(
       diagnostics === null
-        ? renderMainReleaseCliFailure()
+        ? terminalArtifactDiagnostics === null
+          ? renderMainReleaseCliFailure()
+          : renderMainReleaseTerminalArtifactCliFailure(
+              terminalArtifactDiagnostics.current(),
+            )
         : renderMainReleaseExecutionCliFailure(diagnostics.current()),
     );
     return 1;
