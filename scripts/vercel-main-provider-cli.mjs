@@ -74,6 +74,8 @@ const PROJECT_TARGETS = Object.freeze(["app", "governance", "reserve", "ui"]);
 const MAIN_CANDIDATE_SMOKE_PATHS = Object.freeze({
   ui: "/basic-components",
 });
+const MAIN_CANDIDATE_SMOKE_MAX_ATTEMPTS = 4;
+const MAIN_CANDIDATE_SMOKE_RETRY_DELAY_MS = 1_000;
 const LEGACY_ALIAS = "v2-app.mento.org";
 const LEGACY_ALIASES = Object.freeze(
   [
@@ -124,6 +126,10 @@ const PREPLAN_POST_CENSUS_FAILURE_CODES = new Set([
   "preplan-handoff-encode-failed",
   "preplan-github-output-append-failed",
 ]);
+const CANDIDATE_SMOKE_FAILURE_CODES = new Set([
+  "candidate-smoke-edge-transport-exhausted",
+  "candidate-smoke-edge-transient-exhausted",
+]);
 const SAFE_MAIN_PROVIDER_FAILURE_CODES = new Set([
   ...["planning-census", "legacy-census"].flatMap((stage) => [
     `${stage}-read-timeout`,
@@ -137,6 +143,7 @@ const SAFE_MAIN_PROVIDER_FAILURE_CODES = new Set([
   ]),
   "preplan-reconciliation-failed",
   ...PREPLAN_POST_CENSUS_FAILURE_CODES,
+  ...CANDIDATE_SMOKE_FAILURE_CODES,
 ]);
 const RETRYABLE_MAIN_PROVIDER_FAILURE_CODES = new Set([
   "planning-census-unstable",
@@ -1002,6 +1009,8 @@ async function smokeMainCandidateUrl({
   intent,
   candidate,
   fetchImpl = globalThis.fetch,
+  sleepImpl = (milliseconds) =>
+    new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds)),
 }) {
   const canonicalIntent = assertMainCandidateIntent(intent);
   const canonicalCandidate = assertMainCandidateProviderCandidate(
@@ -1010,6 +1019,11 @@ async function smokeMainCandidateUrl({
   );
   if (typeof fetchImpl !== "function") {
     throw new Error("Main candidate HTTP smoke implementation is required");
+  }
+  if (typeof sleepImpl !== "function") {
+    throw new Error(
+      "Main candidate HTTP smoke retry implementation is required",
+    );
   }
   const url = new URL(canonicalCandidate.deploymentUrl);
   if (
@@ -1028,47 +1042,94 @@ async function smokeMainCandidateUrl({
     MAIN_CANDIDATE_SMOKE_PATHS[canonicalIntent.target] ?? "/",
     url,
   );
-  let response;
-  try {
-    response = await fetchImpl(smokeUrl.toString(), {
-      method: "GET",
-      redirect: "manual",
-      signal: AbortSignal.timeout(15_000),
-      headers: {
-        "user-agent": "mento-vercel-main-candidate-smoke/1",
-      },
-    });
-  } catch {
-    throw new Error("Main candidate immutable HTTP smoke failed");
-  }
-  let responseUrl = null;
-  try {
-    responseUrl =
-      typeof response?.url === "string"
-        ? new URL(response.url).toString()
-        : null;
-  } catch {
-    responseUrl = null;
-  }
-  const servedSha = response?.headers?.get?.("x-mento-deployment-sha");
-  if (
-    !Number.isSafeInteger(response?.status) ||
-    response.status < 200 ||
-    response.status >= 300 ||
-    response.redirected !== false ||
-    responseUrl !== smokeUrl.toString() ||
-    servedSha !== canonicalIntent.deploySha
-  ) {
-    throw new Error("Main candidate immutable HTTP smoke is inconsistent");
-  }
-  if (typeof response.body?.cancel === "function") {
-    await response.body.cancel();
-  }
-  return {
-    immutableUrl: canonicalCandidate.deploymentUrl,
-    servedSha: canonicalIntent.deploySha,
-    status: "passed",
+  const exhaustedEdgeReadiness = (failureCode) => {
+    if (!CANDIDATE_SMOKE_FAILURE_CODES.has(failureCode)) {
+      throw new Error(
+        "Main candidate immutable HTTP smoke failure code is malformed",
+      );
+    }
+    const error = new Error("Main candidate immutable HTTP smoke failed");
+    error.mainProviderFailureCode = failureCode;
+    return error;
   };
+  for (
+    let attempt = 1;
+    attempt <= MAIN_CANDIDATE_SMOKE_MAX_ATTEMPTS;
+    attempt += 1
+  ) {
+    let response;
+    try {
+      response = await fetchImpl(smokeUrl.toString(), {
+        method: "GET",
+        redirect: "manual",
+        signal: AbortSignal.timeout(15_000),
+        headers: {
+          "user-agent": "mento-vercel-main-candidate-smoke/1",
+        },
+      });
+    } catch {
+      if (attempt === MAIN_CANDIDATE_SMOKE_MAX_ATTEMPTS) {
+        throw exhaustedEdgeReadiness(
+          "candidate-smoke-edge-transport-exhausted",
+        );
+      }
+      await sleepImpl(MAIN_CANDIDATE_SMOKE_RETRY_DELAY_MS);
+      continue;
+    }
+
+    let retryableStatus = false;
+    try {
+      let responseUrl = null;
+      try {
+        responseUrl =
+          typeof response?.url === "string"
+            ? new URL(response.url).toString()
+            : null;
+      } catch {
+        responseUrl = null;
+      }
+      if (
+        !Number.isSafeInteger(response?.status) ||
+        response.redirected !== false ||
+        responseUrl !== smokeUrl.toString()
+      ) {
+        throw new Error("Main candidate immutable HTTP smoke is inconsistent");
+      }
+      retryableStatus =
+        response.status === 404 ||
+        (response.status >= 500 && response.status < 600);
+      if (!retryableStatus) {
+        const servedSha = response.headers?.get?.("x-mento-deployment-sha");
+        if (
+          response.status < 200 ||
+          response.status >= 300 ||
+          servedSha !== canonicalIntent.deploySha
+        ) {
+          throw new Error(
+            "Main candidate immutable HTTP smoke is inconsistent",
+          );
+        }
+      }
+    } finally {
+      if (typeof response.body?.cancel === "function") {
+        await response.body.cancel();
+      }
+    }
+
+    if (!retryableStatus) {
+      return {
+        immutableUrl: canonicalCandidate.deploymentUrl,
+        servedSha: canonicalIntent.deploySha,
+        status: "passed",
+      };
+    }
+    if (attempt === MAIN_CANDIDATE_SMOKE_MAX_ATTEMPTS) {
+      throw exhaustedEdgeReadiness("candidate-smoke-edge-transient-exhausted");
+    }
+    await sleepImpl(MAIN_CANDIDATE_SMOKE_RETRY_DELAY_MS);
+  }
+
+  throw new Error("Main candidate immutable HTTP smoke failed");
 }
 
 export async function runMainProviderCli({
@@ -1081,6 +1142,7 @@ export async function runMainProviderCli({
       intent === undefined ? { client } : { client, intent },
     ),
   fetchImpl = globalThis.fetch,
+  sleepImpl,
 } = {}) {
   const { command, options } = parseArguments(argv);
   const runnerTemp = reviewedRunnerTemp(env.RUNNER_TEMP);
@@ -1319,6 +1381,7 @@ export async function runMainProviderCli({
       intent,
       candidate: preflight.candidate,
       fetchImpl,
+      sleepImpl,
     });
     writePrivateJson(options.output, result, runnerTemp);
     appendGithubOutputs(env, {
