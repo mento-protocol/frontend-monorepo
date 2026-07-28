@@ -2060,7 +2060,7 @@ test("app recovery restores only exact transaction-candidate aliases", () => {
   );
 });
 
-test("unknown app candidate is required only after an app mapping moved", () => {
+test("unknown App candidate remains manual with or without mapping movement", () => {
   const initial = prepared();
   const started = startMainTransactionOperation(initial, {
     type: "app_v3_deploy",
@@ -2071,7 +2071,8 @@ test("unknown app candidate is required only after an app mapping moved", () => 
     currentMappings: currentMappings(started),
     appCandidateMatches: [],
   });
-  assert.equal(priorPlan.decision, "recover");
+  assert.equal(priorPlan.decision, "manual_intervention");
+  assert.equal(priorPlan.reason, "app-candidate-unresolved-after-start");
   assert.ok(priorPlan.actions.every((entry) => entry.kind === "verified_noop"));
 
   const movedAlias = started.prior.app.aliases[0];
@@ -2098,6 +2099,7 @@ test("unknown app candidate is required only after an app mapping moved", () => 
     });
     assert.equal(plan.decision, "manual_intervention");
     assert.equal(plan.reason, "app-candidate-ambiguous-after-mapping-moved");
+    assert.ok(plan.actions.length > 0);
   }
   const unique = planMainTransactionRecovery({
     journal: started,
@@ -2109,6 +2111,61 @@ test("unknown app candidate is required only after an app mapping moved", () => 
     unique.actions.find((entry) => entry.alias === movedAlias).kind,
     "app_alias_restore",
   );
+});
+
+test("ambiguous App recovery retains safe ordinary rollback actions", () => {
+  let highest = prepared();
+  for (const target of ["governance", "reserve", "ui"]) {
+    highest = transitionSuccessfulOperation(highest, {
+      type: "promote",
+      target,
+    }).verified;
+  }
+  highest = startMainTransactionOperation(highest, {
+    type: "app_v3_deploy",
+    target: "app",
+  });
+  highest = recordMainTransactionCommandReturned(highest, {
+    operationId: highest.operations.at(-1).operationId,
+    outcome: "unknown",
+  });
+
+  const overrides = Object.fromEntries(
+    ["governance", "reserve", "ui"].flatMap((target) =>
+      highest.prior[target].aliases.map((alias) => [
+        alias,
+        highest.candidates[target],
+      ]),
+    ),
+  );
+  const movedAppAlias = highest.prior.app.aliases[1];
+  overrides[movedAppAlias] = {
+    deploymentId: "dpl_unresolvedApp123",
+    deploymentUrl: "https://unresolved-app.vercel.app",
+  };
+  const plan = planMainTransactionRecovery({
+    journal: highest,
+    currentMappings: currentMappings(highest, overrides),
+    appCandidateMatches: [],
+  });
+
+  assert.equal(plan.decision, "manual_intervention");
+  assert.equal(plan.reason, "app-candidate-ambiguous-after-mapping-moved");
+  assert.ok(
+    plan.actions.some(
+      (entry) =>
+        entry.kind === "manual_intervention" &&
+        entry.target === "app" &&
+        entry.alias === movedAppAlias,
+    ),
+  );
+  assert.deepEqual(
+    plan.actions
+      .filter((entry) => entry.kind === "ordinary_rollback")
+      .map((entry) => entry.target),
+    ["ui", "reserve", "governance"],
+  );
+  assert.deepEqual(plan.rollbackStateTargets, ["ui", "reserve", "governance"]);
 });
 
 test("unexpected app mapping is never overwritten", () => {

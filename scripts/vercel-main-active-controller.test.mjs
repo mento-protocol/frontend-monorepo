@@ -1294,6 +1294,149 @@ test("recovery reducer checkpoints safe reverse recovery before manual intervent
   assert.equal(terminal.afterUploadAction, "fail-after-evidence");
 });
 
+test("unknown App recovery compensates ordinary targets before manual intervention", () => {
+  for (const appMovesAfterPlanning of [false, true]) {
+    const initial = prepared(["app", "governance", "reserve", "ui"]);
+    const history = [initial];
+    let highest = initial;
+    for (const target of ["governance", "reserve", "ui"]) {
+      const started = startMainTransactionOperation(highest, {
+        type: "promote",
+        target,
+      });
+      history.push(started);
+      const returned = recordMainTransactionCommandReturned(started, {
+        operationId: started.operations.at(-1).operationId,
+        outcome: "success",
+      });
+      history.push(returned);
+      highest = recordMainTransactionVerified(returned, {
+        operationId: started.operations.at(-1).operationId,
+        mappingState: "candidate",
+      });
+      history.push(highest);
+    }
+    const appStarted = startMainTransactionOperation(highest, {
+      type: "app_v3_deploy",
+      target: "app",
+    });
+    history.push(appStarted);
+    highest = recordMainTransactionCommandReturned(appStarted, {
+      operationId: appStarted.operations.at(-1).operationId,
+      outcome: "unknown",
+    });
+    history.push(highest);
+
+    const ordinaryStates = {
+      governance: "candidate",
+      reserve: "candidate",
+      ui: "candidate",
+    };
+    const plan = planMainTransactionRecovery({
+      journal: highest,
+      currentMappings: currentMappings(highest, ordinaryStates),
+    });
+    assert.equal(plan.decision, "manual_intervention");
+    assert.equal(plan.reason, "app-candidate-unresolved-after-start");
+
+    const recovering = reduceMainActiveRecoveryTransition({
+      recoveryPlan: plan,
+      history,
+      event: recoveryEvent("initialize", {
+        uploadReceipt: receipt(highest),
+      }),
+    });
+    history.push(recovering.journal);
+
+    const movedAppAlias = highest.prior.app.aliases[1];
+    const liveMappings = () =>
+      recoveryCurrentMappings(history.at(-1), ordinaryStates).map((mapping) =>
+        appMovesAfterPlanning && mapping.alias === movedAppAlias
+          ? {
+              ...mapping,
+              deploymentId: "dpl_unresolvedApp123",
+              deploymentUrl: "https://unresolved-app.vercel.app",
+            }
+          : mapping,
+      );
+
+    for (const target of ["ui", "reserve", "governance"]) {
+      const started = reduceMainActiveRecoveryTransition({
+        recoveryPlan: plan,
+        history,
+        event: recoveryEvent("dispatch", {
+          uploadReceipt: receipt(history.at(-1)),
+          currentMappings: liveMappings(),
+        }),
+      });
+      assert.equal(started.journal.operations.at(-1).type, "ordinary_rollback");
+      assert.equal(started.journal.operations.at(-1).target, target);
+      history.push(started.journal);
+
+      const authorized = reduceMainActiveRecoveryTransition({
+        recoveryPlan: plan,
+        history,
+        event: recoveryEvent("authorize", {
+          uploadReceipt: receipt(history.at(-1)),
+          currentMappings: liveMappings(),
+        }),
+      });
+      const returned = reduceMainActiveRecoveryTransition({
+        recoveryPlan: plan,
+        history,
+        event: recoveryEvent("command-returned", {
+          uploadReceipt: receipt(history.at(-1)),
+          operationId: authorized.operationId,
+          command: authorized.command,
+          result: { outcome: "success", reason: null, candidate: null },
+        }),
+      });
+      history.push(returned.journal);
+
+      delete ordinaryStates[target];
+      const verified = reduceMainActiveRecoveryTransition({
+        recoveryPlan: plan,
+        history,
+        event: recoveryEvent("verify", {
+          uploadReceipt: receipt(history.at(-1)),
+          currentMappings: liveMappings(),
+        }),
+      });
+      assert.equal(verified.journal.operations.at(-1).mappingState, "prior");
+      history.push(verified.journal);
+    }
+
+    const terminal = reduceMainActiveRecoveryTransition({
+      recoveryPlan: plan,
+      history,
+      event: recoveryEvent("dispatch", {
+        uploadReceipt: receipt(history.at(-1)),
+        currentMappings: liveMappings(),
+      }),
+    });
+    assert.equal(terminal.journal.status, "manual_intervention");
+    assert.equal(terminal.afterUploadAction, "fail-after-evidence");
+    assert.deepEqual(
+      terminal.journal.operations
+        .filter(
+          (operation) =>
+            operation.type === "ordinary_rollback" &&
+            operation.state === "started",
+        )
+        .map((operation) => operation.target),
+      ["ui", "reserve", "governance"],
+    );
+    assert.equal(
+      terminal.journal.operations.some(
+        (operation) =>
+          operation.type === "app_alias_restore" ||
+          operation.type === "legacy_emergency_restore",
+      ),
+      false,
+    );
+  }
+});
+
 test("legacy recovery command binds the full reviewed topology and App project", () => {
   const initial = prepared(["app"], { appKnown: true });
   const started = startMainTransactionOperation(initial, {

@@ -871,6 +871,11 @@ export function runMainActiveVercelCommand({
     );
   }
   const commandEnvironment = environmentForCommand(environment);
+  const teamId = commandEnvironment.VERCEL_ORG_ID;
+  // Scope is explicit. A lone VERCEL_ORG_ID makes the Vercel CLI treat the
+  // environment as an incomplete project link instead of using the reviewed
+  // repo mapping for this target's nested prebuilt output.
+  delete commandEnvironment.VERCEL_ORG_ID;
   const loader = inheritedCliLoader(cliPath);
   let result;
   try {
@@ -884,7 +889,7 @@ export function runMainActiveVercelCommand({
         "--",
         ...canonicalCommand.arguments,
         "--scope",
-        commandEnvironment.VERCEL_ORG_ID,
+        teamId,
       ],
       {
         cwd: workingDirectory,
