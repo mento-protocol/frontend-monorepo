@@ -1133,21 +1133,16 @@ export function reduceMainActiveTransition({
       throw new Error("Command result does not bind the authorized operation");
     }
     const result = assertMainActiveCommandResult(input.result);
-    let candidate = null;
-    if (operation.type === "app_v3_deploy") {
-      if (result.candidate !== null) {
-        candidate = {
-          ...result.candidate,
-          ...highest.candidates.app.discovery,
-        };
-      }
-    } else if (result.candidate !== null) {
+    if (operation.type !== "app_v3_deploy" && result.candidate !== null) {
       throw new Error("Non-App command cannot report an App candidate");
     }
     const returned = recordMainTransactionCommandReturned(highest, {
       operationId: operation.operationId,
       outcome: result.outcome,
-      candidate,
+      // The App command result records only the deploy command outcome.
+      // The finalized receipt remains the sole authority for candidate identity
+      // and immutable smoke proof.
+      candidate: null,
     });
     return journalTransition(returned, "verify");
   }
