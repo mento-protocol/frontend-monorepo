@@ -11,6 +11,7 @@ import {
   decideMainReleaseReconciliation,
   recomputeMainReleasePlan,
   reconcileMainRelease,
+  reconcileMainReleaseForRecovery,
 } from "./vercel-main-release-reconciliation.mjs";
 import {
   MAIN_TARGET_CONTRACTS,
@@ -299,6 +300,15 @@ function candidateRelease(state) {
     manifest: state.manifest,
     candidates: state.candidates,
   };
+}
+
+function appRecoveryResidualState() {
+  const state = releaseState();
+  state.candidates.app = candidate("app", state.manifest);
+  state.currentMappings.app = state.manifest.originalPriors.app.aliases.map(
+    (alias) => mappingFor(alias, state.candidates.app),
+  );
+  return state;
 }
 
 test("release manifest binds the canonical planner result and all four rollback priors", () => {
@@ -784,7 +794,90 @@ test("App mixed mappings are accepted only at the activation frontier", () => {
   ]);
 });
 
-test("non-prefix, third-party, missing-candidate, and disagreeing-manifest states fail closed", () => {
+test("only a full terminal App candidate remains recoverable after at least one ordinary rollback", () => {
+  const state = appRecoveryResidualState();
+  assert.throws(() => reconcileMainRelease(state), /activation prefix/);
+  const reconciliation = reconcileMainReleaseForRecovery(state);
+  assert.deepEqual(
+    reconciliation.targets.map(({ target, state: targetState }) => [
+      target,
+      targetState,
+    ]),
+    [
+      ["governance", "prior"],
+      ["reserve", "prior"],
+      ["ui", "prior"],
+      ["app", "candidate"],
+    ],
+  );
+  assert.deepEqual(
+    createInheritedRollbackAuthorization({
+      reconciliation,
+      reason: "restore-inherited",
+    }),
+    {
+      reason: "restore-inherited",
+      targets: ["app"],
+      aliases: [...state.manifest.originalPriors.app.aliases].sort(),
+    },
+  );
+  assert.throws(
+    () =>
+      createInheritedRollbackAuthorization({
+        reconciliation,
+        reason: "first-forward-command",
+      }),
+    /activation prefix/,
+  );
+  for (const currentMain of [true, false]) {
+    for (const preparation of ["ready", "failed", "pending", "producer-live"]) {
+      assert.deepEqual(
+        decideMainReleaseReconciliation({
+          reconciliation,
+          currentMain,
+          preparation,
+        }),
+        {
+          decision: "restore-inherited",
+          rollbackInherited: true,
+          reason: "terminal-app-recovery-residual",
+        },
+        `${currentMain ? "current" : "stale"} main with ${preparation} preparation`,
+      );
+    }
+  }
+});
+
+test("an App-only active candidate is a complete release, not a recovery residual", () => {
+  const state = releaseState({ selected: ["app"], candidateCount: 1 });
+  const reconciliation = reconcileMainRelease(state);
+  assert.equal(reconciliation.allCandidate, true);
+  assert.deepEqual(reconciliation.inheritedCandidateTargets, ["app"]);
+
+  const matching = decideMainPreplanReconciliation({
+    nextDeploySha: state.manifest.deploySha,
+    nextUpstreamRunId: state.manifest.upstreamRunId,
+    candidateReleases: [candidateRelease(state)],
+    currentMappings: state.currentMappings,
+    rollbackOnlyTargets: [],
+  });
+  assert.equal(matching.decision, "verify-existing-release");
+  assert.equal(matching.reason, "current-main-release-already-complete");
+  assert.equal(matching.rollbackAuthorization, null);
+
+  const older = decideMainPreplanReconciliation({
+    nextDeploySha: "2222222222222222222222222222222222222222",
+    nextUpstreamRunId: "800",
+    candidateReleases: [candidateRelease(state)],
+    currentMappings: state.currentMappings,
+    rollbackOnlyTargets: [],
+  });
+  assert.equal(older.decision, "capture-new-baseline");
+  assert.equal(older.reason, "older-mapped-release-is-complete");
+  assert.equal(older.rollbackAuthorization, null);
+});
+
+test("unsupported non-prefix, third-party, missing-candidate, and disagreeing-manifest states fail closed", () => {
   const nonPrefix = releaseState({ candidateCount: 2 });
   nonPrefix.currentMappings.governance = [
     mapping("governance.mento.org", "governance", "prior"),
@@ -814,6 +907,34 @@ test("non-prefix, third-party, missing-candidate, and disagreeing-manifest state
   assert.throws(
     () => reconcileMainRelease(disagreeing),
     /disagree on their stable manifest/,
+  );
+
+  const ordinarySuffix = releaseState();
+  ordinarySuffix.candidates.reserve = candidate(
+    "reserve",
+    ordinarySuffix.manifest,
+  );
+  ordinarySuffix.currentMappings.reserve =
+    ordinarySuffix.manifest.originalPriors.reserve.aliases.map((alias) =>
+      mappingFor(alias, ordinarySuffix.candidates.reserve),
+    );
+  assert.throws(
+    () => reconcileMainRelease(ordinarySuffix),
+    /activation prefix/,
+  );
+
+  const mixedAppResidual = releaseState({ appMixed: true });
+  assert.throws(
+    () => reconcileMainRelease(mixedAppResidual),
+    /Mixed App mappings are outside the release frontier/,
+  );
+  assert.throws(
+    () => reconcileMainReleaseForRecovery(ordinarySuffix),
+    /activation prefix/,
+  );
+  assert.throws(
+    () => reconcileMainReleaseForRecovery(mixedAppResidual),
+    /Mixed App mappings are outside the release frontier/,
   );
 });
 
@@ -1057,6 +1178,41 @@ test("pre-plan inspection restores an older mixed App frontier", () => {
     "reserve.mento.org",
     "ui.mento.org",
   ]);
+});
+
+test("pre-plan restores the App-candidate-only residual for older and matching releases", () => {
+  const state = appRecoveryResidualState();
+  const cases = [
+    {
+      name: "older",
+      nextDeploySha: "2222222222222222222222222222222222222222",
+      nextUpstreamRunId: "800",
+      reason: "older-main-release-is-an-app-recovery-residual",
+    },
+    {
+      name: "matching",
+      nextDeploySha: state.manifest.deploySha,
+      nextUpstreamRunId: state.manifest.upstreamRunId,
+      reason: "current-main-release-is-an-app-recovery-residual",
+    },
+  ];
+
+  for (const current of cases) {
+    const decision = decideMainPreplanReconciliation({
+      nextDeploySha: current.nextDeploySha,
+      nextUpstreamRunId: current.nextUpstreamRunId,
+      candidateReleases: [candidateRelease(state)],
+      currentMappings: state.currentMappings,
+      rollbackOnlyTargets: [],
+    });
+    assert.equal(decision.decision, "restore-before-planning", current.name);
+    assert.equal(decision.reason, current.reason, current.name);
+    assert.deepEqual(decision.rollbackAuthorization, {
+      reason: "restore-inherited",
+      targets: ["app"],
+      aliases: [...state.manifest.originalPriors.app.aliases].sort(),
+    });
+  }
 });
 
 test("pre-plan inspection selects the unique partial frontier across completed path-aware releases", () => {

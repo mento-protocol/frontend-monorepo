@@ -732,7 +732,29 @@ function classifyTarget({ target, prior, candidate, mappings }) {
   };
 }
 
-function assertActivationPrefix(targets) {
+function isTerminalAppRecoveryResidual(targets) {
+  // A failed App command can leave its manifest-bound candidate mapped after
+  // recovery has already restored every ordinary target. That exact terminal
+  // shape is recoverable only by restoring App; it is never a forward prefix.
+  return (
+    targets.length > 1 &&
+    targets.at(-1)?.target === "app" &&
+    targets.at(-1)?.state === "candidate" &&
+    targets.slice(0, -1).every(({ state }) => state === "prior")
+  );
+}
+
+function assertActivationPrefix(
+  targets,
+  { allowTerminalAppRecoveryResidual = false } = {},
+) {
+  if (
+    allowTerminalAppRecoveryResidual &&
+    isTerminalAppRecoveryResidual(targets)
+  ) {
+    return;
+  }
+
   let reachedFrontier = false;
   for (const [index, target] of targets.entries()) {
     if (target.state === "candidate") {
@@ -756,11 +778,10 @@ function assertActivationPrefix(targets) {
   }
 }
 
-export function reconcileMainRelease({
-  manifest: rawManifest,
-  candidates,
-  currentMappings,
-}) {
+function reconcileMainReleaseWithPolicy(
+  { manifest: rawManifest, candidates, currentMappings },
+  { allowTerminalAppRecoveryResidual },
+) {
   const manifest = assertMainReleaseManifest(rawManifest);
   assertExactKeys(
     candidates,
@@ -818,7 +839,7 @@ export function reconcileMainRelease({
   const targets = observedTargets.filter(({ target }) =>
     manifest.activeTargets.includes(target),
   );
-  assertActivationPrefix(targets);
+  assertActivationPrefix(targets, { allowTerminalAppRecoveryResidual });
   const inheritedCandidateTargets = targets
     .filter(({ state }) => state === "candidate")
     .map(({ target }) => target);
@@ -843,6 +864,18 @@ export function reconcileMainRelease({
     allPrior,
     frontier,
   };
+}
+
+export function reconcileMainRelease(input) {
+  return reconcileMainReleaseWithPolicy(input, {
+    allowTerminalAppRecoveryResidual: false,
+  });
+}
+
+export function reconcileMainReleaseForRecovery(input) {
+  return reconcileMainReleaseWithPolicy(input, {
+    allowTerminalAppRecoveryResidual: true,
+  });
 }
 
 export function decideMainPreplanReconciliation({
@@ -903,7 +936,7 @@ export function decideMainPreplanReconciliation({
     }
     seenReleases.add(manifest.releaseId);
     try {
-      const reconciliation = reconcileMainRelease({
+      const reconciliation = reconcileMainReleaseForRecovery({
         manifest,
         candidates: release.candidates,
         currentMappings,
@@ -923,6 +956,9 @@ export function decideMainPreplanReconciliation({
   const [reconciliation] = compatible;
   const { manifest } = reconciliation;
   const sameRelease = manifest.releaseId === expectedReleaseId;
+  const terminalAppRecoveryResidual = isTerminalAppRecoveryResidual(
+    reconciliation.targets,
+  );
   if (sameRelease) {
     assertFreshRollbackCoverage(manifest, canonicalRollbackOnly);
   }
@@ -940,7 +976,7 @@ export function decideMainPreplanReconciliation({
       rollbackAuthorization: null,
     };
   }
-  if (sameRelease) {
+  if (sameRelease && !terminalAppRecoveryResidual) {
     return {
       schema: MAIN_PREPLAN_RECONCILIATION_SCHEMA,
       decision: "resume-existing-release",
@@ -953,7 +989,11 @@ export function decideMainPreplanReconciliation({
   return {
     schema: MAIN_PREPLAN_RECONCILIATION_SCHEMA,
     decision: "restore-before-planning",
-    reason: "older-main-release-is-an-interrupted-prefix",
+    reason: terminalAppRecoveryResidual
+      ? sameRelease
+        ? "current-main-release-is-an-app-recovery-residual"
+        : "older-main-release-is-an-app-recovery-residual"
+      : "older-main-release-is-an-interrupted-prefix",
     rollbackOnlyTargets: canonicalRollbackOnly,
     reconciliation,
     rollbackAuthorization: createInheritedRollbackAuthorization({
@@ -963,9 +1003,8 @@ export function decideMainPreplanReconciliation({
   };
 }
 
-function canonicalEmbeddedReconciliation(value) {
-  if (value === null) return null;
-  const canonical = reconcileMainRelease({
+function reconciliationInput(value) {
+  return {
     manifest: value?.manifest,
     candidates: Object.fromEntries(
       (value?.observedTargets ?? [])
@@ -992,7 +1031,12 @@ function canonicalEmbeddedReconciliation(value) {
         }),
       ]),
     ),
-  });
+  };
+}
+
+function canonicalEmbeddedReconciliation(value) {
+  if (value === null) return null;
+  const canonical = reconcileMainReleaseForRecovery(reconciliationInput(value));
   if (JSON.stringify(value) !== JSON.stringify(canonical)) {
     throw new Error("Pre-plan reconciliation is not canonical");
   }
@@ -1038,6 +1082,9 @@ export function assertMainPreplanReconciliation(
       );
     }
     const sameRelease = reconciliation.manifest.releaseId === expectedReleaseId;
+    const terminalAppRecoveryResidual = isTerminalAppRecoveryResidual(
+      reconciliation.targets,
+    );
     if (sameRelease) {
       assertFreshRollbackCoverage(reconciliation.manifest, rollbackOnlyTargets);
     }
@@ -1048,12 +1095,16 @@ export function assertMainPreplanReconciliation(
       reason = sameRelease
         ? "current-main-release-already-complete"
         : "older-mapped-release-is-complete";
-    } else if (sameRelease) {
+    } else if (sameRelease && !terminalAppRecoveryResidual) {
       decision = "resume-existing-release";
       reason = "current-main-release-is-an-interrupted-prefix";
     } else {
       decision = "restore-before-planning";
-      reason = "older-main-release-is-an-interrupted-prefix";
+      reason = terminalAppRecoveryResidual
+        ? sameRelease
+          ? "current-main-release-is-an-app-recovery-residual"
+          : "older-main-release-is-an-app-recovery-residual"
+        : "older-main-release-is-an-interrupted-prefix";
       rollbackAuthorization = createInheritedRollbackAuthorization({
         reconciliation,
         reason: "restore-inherited",
@@ -1089,34 +1140,9 @@ export function decideMainReleaseReconciliation({
   ) {
     throw new Error("Main release reconciliation is required");
   }
-  const canonical = reconcileMainRelease({
-    manifest: reconciliation.manifest,
-    candidates: Object.fromEntries(
-      reconciliation.observedTargets
-        .filter(({ target }) =>
-          reconciliation.manifest.stagedTargets.includes(target),
-        )
-        .map(({ target, candidate }) => [
-          target,
-          candidate === null
-            ? null
-            : {
-                deploymentId: candidate.deploymentId,
-                deploymentUrl: candidate.deploymentUrl,
-                manifest: candidate.manifest,
-              },
-        ]),
-    ),
-    currentMappings: Object.fromEntries(
-      reconciliation.observedTargets.map(({ target, startMappings }) => [
-        target,
-        startMappings.map(({ state: _state, ...mapping }) => {
-          void _state;
-          return mapping;
-        }),
-      ]),
-    ),
-  });
+  const canonical = reconcileMainReleaseForRecovery(
+    reconciliationInput(reconciliation),
+  );
   if (
     typeof currentMain !== "boolean" ||
     !PREPARATION_STATES.has(preparation)
@@ -1127,6 +1153,9 @@ export function decideMainReleaseReconciliation({
     !canonical.allPrior &&
     !canonical.allCandidate &&
     canonical.inheritedCandidateAliases.length > 0;
+  const terminalAppRecoveryResidual = isTerminalAppRecoveryResidual(
+    canonical.targets,
+  );
   if (canonical.allCandidate) {
     return {
       decision: currentMain ? "verify-noop" : "superseded-noop",
@@ -1134,6 +1163,13 @@ export function decideMainReleaseReconciliation({
       reason: currentMain
         ? "release-already-candidate"
         : "release-complete-before-main-advanced",
+    };
+  }
+  if (terminalAppRecoveryResidual) {
+    return {
+      decision: "restore-inherited",
+      rollbackInherited: true,
+      reason: "terminal-app-recovery-residual",
     };
   }
   if (!currentMain) {
@@ -1191,34 +1227,11 @@ export function createInheritedRollbackAuthorization({
   if (!["first-forward-command", "restore-inherited"].includes(reason)) {
     throw new Error("Inherited rollback authorization reason is unsupported");
   }
-  const canonical = reconcileMainRelease({
-    manifest: reconciliation.manifest,
-    candidates: Object.fromEntries(
-      reconciliation.observedTargets
-        .filter(({ target }) =>
-          reconciliation.manifest.stagedTargets.includes(target),
-        )
-        .map(({ target, candidate }) => [
-          target,
-          candidate === null
-            ? null
-            : {
-                deploymentId: candidate.deploymentId,
-                deploymentUrl: candidate.deploymentUrl,
-                manifest: candidate.manifest,
-              },
-        ]),
-    ),
-    currentMappings: Object.fromEntries(
-      reconciliation.observedTargets.map(({ target, startMappings }) => [
-        target,
-        startMappings.map(({ state: _state, ...mapping }) => {
-          void _state;
-          return mapping;
-        }),
-      ]),
-    ),
-  });
+  const input = reconciliationInput(reconciliation);
+  const canonical =
+    reason === "restore-inherited"
+      ? reconcileMainReleaseForRecovery(input)
+      : reconcileMainRelease(input);
   if (canonical.allCandidate && reason === "restore-inherited") {
     throw new Error(
       "A complete release cannot be auto-rolled back by a reader",

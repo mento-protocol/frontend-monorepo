@@ -667,6 +667,106 @@ test("preplan decision binds current SHA and upstream run to one exact release I
   );
 });
 
+test("preplan decision restores a manifest-bound App recovery residual", async (t) => {
+  const context = testContext(t);
+  const inherited = releaseManifest({
+    deploySha: "c".repeat(40),
+    upstreamRunId: "699",
+    active: true,
+  });
+  const appCandidate = {
+    deploymentId: "dpl_appRecoveryResidual123",
+    deploymentUrl: "https://app-recovery-residual.vercel.app",
+  };
+  const snapshot = planningSnapshot(
+    Object.fromEntries(
+      inherited.originalPriors.app.aliases.map((alias) => [
+        alias,
+        {
+          ...appCandidate,
+          git: {
+            org: "mento-protocol",
+            repo: "frontend-monorepo",
+            ref: "main",
+            sha: inherited.deploySha,
+          },
+        },
+      ]),
+    ),
+  );
+  const planningPath = writeJson(context.directory, "planning.json", snapshot);
+  const legacyPath = writeJson(
+    context.directory,
+    "legacy.json",
+    legacySnapshot(),
+  );
+  const projectsPath = writeJson(
+    context.directory,
+    "projects.json",
+    projectIds(),
+  );
+  const discoveryPath = join(context.directory, "discovery.json");
+  await runMainProviderCli({
+    argv: [
+      "preplan-discover",
+      "--planning-snapshot",
+      planningPath,
+      "--legacy-snapshot",
+      legacyPath,
+      "--project-ids",
+      projectsPath,
+      "--output",
+      discoveryPath,
+    ],
+    env: context.env,
+    stdout: context.stdout,
+    stateClientFactory: () => ({ kind: "discovery-client" }),
+    providerFactory: () => ({
+      inspectMappedCandidate: async ({ deploymentId, target }) => ({
+        canonicalState: {},
+        metadata:
+          target === "app" && deploymentId === appCandidate.deploymentId
+            ? { releaseManifest: inherited }
+            : null,
+      }),
+      resolveReleaseCandidate: async ({ manifest, target }) => {
+        assert.equal(manifest.releaseId, inherited.releaseId);
+        return target === "app"
+          ? { intent: {}, candidate: appCandidate }
+          : null;
+      },
+    }),
+  });
+
+  const output = join(context.directory, "decision.json");
+  const result = await runMainProviderCli({
+    argv: [
+      "preplan-decide",
+      "--discovery",
+      discoveryPath,
+      "--planning-snapshot",
+      planningPath,
+      "--legacy-snapshot",
+      legacyPath,
+      "--output",
+      output,
+    ],
+    env: context.env,
+    stdout: context.stdout,
+    stateClientFactory: () => planningStateClient(snapshot),
+  });
+
+  assert.equal(result.decision, "restore-before-planning");
+  assert.equal(result.reason, "older-main-release-is-an-app-recovery-residual");
+  assert.deepEqual(result.rollbackAuthorization, {
+    reason: "restore-inherited",
+    targets: ["app"],
+    aliases: inherited.originalPriors.app.aliases.toSorted(),
+  });
+  assert.deepEqual(result.rollbackOnlyTargets, ["governance", "reserve", "ui"]);
+  assert.deepEqual(readJson(output), result);
+});
+
 test("preplan materialization accepts only inherited restore and exposes ordered active targets", async (t) => {
   const context = testContext(t);
   const inherited = releaseManifest({

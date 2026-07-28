@@ -300,6 +300,7 @@ function createJournal({
   candidateReceipts,
   identity,
   pendingApp,
+  allowTerminalAppRecoveryResidual = false,
 }) {
   const mappings = canonicalMappings({
     value: currentMappings,
@@ -323,6 +324,7 @@ function createJournal({
       candidateReceipts,
       pendingApp,
     }),
+    allowTerminalAppRecoveryResidual,
   });
 }
 
@@ -385,6 +387,7 @@ export function createMainInheritedRecoveryJournal({
     candidateReceipts,
     identity,
     pendingApp: false,
+    allowTerminalAppRecoveryResidual: true,
   });
   const recoveryPlan = planInheritedMainTransactionRecovery({
     journal,

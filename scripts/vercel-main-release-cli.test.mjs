@@ -2146,6 +2146,102 @@ test("forward journal uses only asserted execution, fresh mappings, and current-
   );
 });
 
+test("an App-only residual creates only an inherited recovery journal", async (t) => {
+  const directory = realpathSync(
+    mkdtempSync(join(tmpdir(), "main-release-app-residual-journal-")),
+  );
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const release = manifest(TARGETS);
+  const legacyState = legacy()[0];
+  const mappings = createMainCanonicalMappings({
+    planningSnapshot: planningSnapshot(release),
+    projectIds: {
+      app: "prj_app",
+      governance: "prj_governance",
+      reserve: "prj_reserve",
+      ui: "prj_ui",
+    },
+    legacySnapshot: [legacyState],
+  });
+  for (const target of RELEASE_ORDER) {
+    const prior = release.originalPriors[target];
+    const deployment =
+      target === "app"
+        ? {
+            deploymentId: "dpl_appCandidate123",
+            deploymentUrl: "https://app-candidate.vercel.app",
+          }
+        : prior;
+    mappings.mappings[target] = prior.aliases.map((alias) => ({
+      alias,
+      deploymentId: deployment.deploymentId,
+      deploymentUrl: deployment.deploymentUrl,
+    }));
+  }
+  const candidateReceipts = Object.fromEntries(
+    TARGETS.map((target) => [target, currentAttemptReceipt(release, target)]),
+  );
+  const currentMappings = Object.fromEntries(
+    RELEASE_ORDER.map((target) => [target, mappings.mappings[target]]),
+  );
+  const inheritedPreplan = decideMainPreplanReconciliation({
+    nextDeploySha: SHA,
+    nextUpstreamRunId: release.upstreamRunId,
+    candidateReleases: [candidateRelease(release)],
+    currentMappings,
+    rollbackOnlyTargets: [],
+  });
+  assert.equal(inheritedPreplan.decision, "restore-before-planning");
+  assert.deepEqual(inheritedPreplan.rollbackAuthorization.targets, ["app"]);
+
+  await assert.rejects(
+    runMainReleaseCli({
+      argv: [
+        "forward-journal",
+        "--execution",
+        write(directory, "execution.json", executionFor(release)),
+        "--current-mappings",
+        write(directory, "forward-mappings.json", mappings),
+        "--candidate-receipts",
+        write(directory, "forward-receipts.json", candidateReceipts),
+        "--output",
+        join(directory, "forbidden-forward-journal.json"),
+      ],
+      env: environment(directory),
+    }),
+    /activation prefix/,
+  );
+
+  const result = await runMainReleaseCli({
+    argv: [
+      "inherited-recovery-journal",
+      "--preplan",
+      write(directory, "preplan.json", inheritedPreplan),
+      "--legacy-snapshot",
+      write(directory, "legacy.json", [legacyState]),
+      "--current-mappings",
+      write(directory, "recovery-mappings.json", mappings),
+      "--candidate-receipts",
+      write(directory, "recovery-receipts.json", candidateReceipts),
+      "--journal-output",
+      join(directory, "recovery-journal.json"),
+      "--plan-output",
+      join(directory, "recovery-plan.json"),
+    ],
+    env: environment(directory),
+  });
+  assert.deepEqual(
+    result.recoveryPlan.actions.map(({ kind, target, alias }) => ({
+      kind,
+      target,
+      alias,
+    })),
+    [...release.originalPriors.app.aliases]
+      .reverse()
+      .map((alias) => ({ kind: "app_alias_restore", target: "app", alias })),
+  );
+});
+
 test("inherited recovery journal binds a partial prefix to current-attempt receipts and exact outputs", async (t) => {
   const directory = realpathSync(
     mkdtempSync(join(tmpdir(), "main-release-inherited-journal-")),

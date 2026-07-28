@@ -21,6 +21,7 @@ import {
   loadMainActiveJournalHistory,
   reduceMainActiveRecoveryTransition,
   reduceMainActiveTransition,
+  reconcileFreshMainActiveRelease,
 } from "./vercel-main-active-controller.mjs";
 import {
   ACTIVE_DEPLOYMENT_STATE_SPEC_SCHEMA,
@@ -39,6 +40,7 @@ import { MAIN_TARGET_CONTRACTS } from "./vercel-main-plan.mjs";
 import {
   MAIN_RELEASE_ACTIVATION_ORDER,
   createMainReleaseManifest,
+  decideMainPreplanReconciliation,
 } from "./vercel-main-release-reconciliation.mjs";
 import {
   canonicalizeMainCandidateVercelMetadata,
@@ -1950,6 +1952,82 @@ test("fresh App provider census accepts one stable candidate and rejects a third
   assert.equal(plan.decision, "manual-intervention");
 });
 
+test("fresh forward reconciliation rejects an App-only recovery residual", () => {
+  const journal = prepared(TARGETS, { appKnown: true });
+  const mappings = groupedCurrentMappings(journal, { app: "candidate" });
+
+  assert.throws(
+    () =>
+      reconcileFreshMainActiveRelease({
+        journal,
+        currentMappings: mappings,
+      }),
+    /activation prefix/,
+  );
+
+  const recovery = planFreshInheritedMainActiveRecovery({
+    inheritedJournal: journal,
+    reason: "forward-operation-failed",
+    currentMappings: mappings,
+  });
+  assert.equal(recovery.decision, "restore-inherited");
+  assert.deepEqual(
+    recovery.actions.map(({ kind, alias }) => ({ kind, alias })),
+    [...journal.prior.app.aliases]
+      .reverse()
+      .map((alias) => ({ kind: "app_alias_restore", alias })),
+  );
+});
+
+test("forward dispatch and authorize reject a fresh App-only recovery residual", () => {
+  const initial = prepared(TARGETS, { appKnown: true });
+  const initialized = reduceForward(initial, [], event("initialize"), TARGETS);
+  const residual = currentMappings(initialized.journal, {
+    app: "candidate",
+  });
+
+  assert.throws(
+    () =>
+      reduceForward(
+        initial,
+        [initialized.journal],
+        event("dispatch", {
+          uploadReceipt: receipt(initialized.journal),
+          freshSha: SHA,
+          currentMappings: residual,
+        }),
+        TARGETS,
+      ),
+    /activation prefix/,
+  );
+
+  const dispatched = reduceForward(
+    initial,
+    [initialized.journal],
+    event("dispatch", {
+      uploadReceipt: receipt(initialized.journal),
+      freshSha: SHA,
+      currentMappings: currentMappings(initialized.journal),
+    }),
+    TARGETS,
+  );
+  assert.equal(dispatched.journal.operations.at(-1).target, "governance");
+  assert.throws(
+    () =>
+      reduceForward(
+        initial,
+        [initialized.journal, dispatched.journal],
+        event("authorize", {
+          uploadReceipt: receipt(dispatched.journal),
+          freshSha: SHA,
+          currentMappings: residual,
+        }),
+        TARGETS,
+      ),
+    /activation prefix/,
+  );
+});
+
 test("current-attempt inherited recovery binds the inherited release SHA and completes", () => {
   const inherited = prepared(TARGETS, { appKnown: true });
   const observed = groupedCurrentMappings(inherited, {
@@ -2046,6 +2124,126 @@ test("current-attempt inherited recovery binds the inherited release SHA and com
   });
   assert.equal(terminal.journal.status, "recovered");
   assert.equal(terminal.afterUploadAction, "continue-after-recovery");
+});
+
+test("App-only recovery residual restores both aliases before a fresh baseline", () => {
+  const inherited = prepared(TARGETS, { appKnown: true });
+  const observed = groupedCurrentMappings(inherited, { app: "candidate" });
+  const { journal: current } = createCurrentMainActiveRecoveryJournal({
+    inheritedJournal: inherited,
+    identity: {
+      repository: MAIN_TRANSACTION_REPOSITORY,
+      deploySha: "2222222222222222222222222222222222222222",
+      runId: "987654321",
+      runAttempt: "7",
+    },
+    currentMappings: observed,
+  });
+  const plan = decideMainActiveAppRecoverySafety({
+    inheritedJournal: inherited,
+    currentJournal: current,
+    reason: "forward-operation-failed",
+    currentMappings: observed,
+  });
+  assert.equal(plan.decision, "restore-inherited");
+  assert.deepEqual(
+    plan.actions.map(({ kind, alias }) => ({ kind, alias })),
+    [...inherited.prior.app.aliases]
+      .reverse()
+      .map((alias) => ({ kind: "app_alias_restore", alias })),
+  );
+
+  const history = [current];
+  const initialized = reduceMainActiveRecoveryTransition({
+    recoveryPlan: plan,
+    history,
+    event: recoveryEvent("initialize", {
+      uploadReceipt: receipt(current),
+    }),
+  });
+  history.push(initialized.journal);
+  const movedAliases = new Set(inherited.prior.app.aliases);
+  const liveMappings = () =>
+    recoveryCurrentMappings(history.at(-1)).map((mapping) =>
+      movedAliases.has(mapping.alias)
+        ? {
+            ...mapping,
+            deploymentId: history.at(-1).candidates.app.deploymentId,
+            deploymentUrl: history.at(-1).candidates.app.deploymentUrl,
+          }
+        : mapping,
+    );
+
+  for (const expectedAlias of [...inherited.prior.app.aliases].reverse()) {
+    const started = reduceMainActiveRecoveryTransition({
+      recoveryPlan: plan,
+      history,
+      event: recoveryEvent("dispatch", {
+        uploadReceipt: receipt(history.at(-1)),
+        currentMappings: liveMappings(),
+      }),
+    });
+    history.push(started.journal);
+    const authorized = reduceMainActiveRecoveryTransition({
+      recoveryPlan: plan,
+      history,
+      event: recoveryEvent("authorize", {
+        uploadReceipt: receipt(history.at(-1)),
+        currentMappings: liveMappings(),
+      }),
+    });
+    assert.equal(authorized.command.kind, "app-alias-restore");
+    assert.equal(authorized.command.alias, expectedAlias);
+
+    const returned = reduceMainActiveRecoveryTransition({
+      recoveryPlan: plan,
+      history,
+      event: recoveryEvent("command-returned", {
+        uploadReceipt: receipt(history.at(-1)),
+        operationId: authorized.operationId,
+        command: authorized.command,
+        result: { outcome: "success", reason: null, candidate: null },
+      }),
+    });
+    history.push(returned.journal);
+    movedAliases.delete(expectedAlias);
+    const verified = reduceMainActiveRecoveryTransition({
+      recoveryPlan: plan,
+      history,
+      event: recoveryEvent("verify", {
+        uploadReceipt: receipt(history.at(-1)),
+        currentMappings: liveMappings(),
+      }),
+    });
+    history.push(verified.journal);
+  }
+
+  const terminal = reduceMainActiveRecoveryTransition({
+    recoveryPlan: plan,
+    history,
+    event: recoveryEvent("dispatch", {
+      uploadReceipt: receipt(history.at(-1)),
+      currentMappings: liveMappings(),
+    }),
+  });
+  assert.equal(terminal.journal.status, "recovered");
+  assert.equal(terminal.afterUploadAction, "continue-after-recovery");
+
+  const recoveredMappings = groupedCurrentMappings(terminal.journal);
+  const next = decideMainPreplanReconciliation({
+    nextDeploySha: "2222222222222222222222222222222222222222",
+    nextUpstreamRunId: "987654321",
+    candidateReleases: [],
+    currentMappings: Object.fromEntries(
+      MAIN_RELEASE_ACTIVATION_ORDER.map((target) => [
+        target,
+        recoveredMappings[target],
+      ]),
+    ),
+    rollbackOnlyTargets: [],
+  });
+  assert.equal(next.decision, "capture-new-baseline");
+  assert.equal(next.reason, "no-mapped-release-metadata");
 });
 
 test("inherited recovery refuses missing, divergent, and all-candidate current journals", () => {

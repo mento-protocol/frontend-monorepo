@@ -490,16 +490,20 @@ The repository is set up with GitHub Actions for CI:
   validated upstream CI run, candidate identities, and captured rollback priors;
   it is the sole durable cross-attempt authority. Mutation journals remain
   run-and-attempt scoped. A complete release is reused after fresh provider
-  validation. An interrupted prefix is restored through a fresh
-  current-attempt journal before new planning. No prior journal is resumed and
-  GitHub artifacts do not authorize cross-attempt work. The compact terminal
-  receipt and evidence are the only final-verdict handoff and support
-  final-only reruns. A completed release emits `current-release-verified` only
-  after fresh mapping, census/state, raw public-runtime-smoke, legacy `v2`, and
-  freshness proof; it creates no journal and executes no public mutation. App
-  shadow preparation is build-only terminal evidence, never a provider
-  deployment. Ambiguous, conflicting, or incomplete provider state fails closed
-  before production work continues.
+  validation. An interrupted forward prefix is resumed or restored as
+  appropriate through a fresh current-attempt journal. The exact terminal App
+  recovery residual—at least one active non-App target with every such target
+  at its original prior, and every reviewed App alias at one manifest-bound
+  candidate—may restore App before new planning, but may never resume forward.
+  No prior journal is resumed and GitHub artifacts do not authorize
+  cross-attempt work. The compact terminal receipt and evidence are the only
+  final-verdict handoff and support final-only reruns. A completed release emits
+  `current-release-verified` only after fresh mapping, census/state, raw
+  public-runtime-smoke, legacy `v2`, and freshness proof; it creates no journal
+  and executes no public mutation. App shadow preparation is build-only terminal
+  evidence, never a provider deployment. Every other non-prefix, ambiguous,
+  conflicting, or incomplete provider state fails closed before production work
+  continues.
   The version-controlled preview-controller mode is `active`; per-target
   preview ownership and exact expected Vercel configurations are executable
   invariants. The trusted preview controller reads every selected target's

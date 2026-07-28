@@ -112,7 +112,11 @@ authority. It binds repository, release ID, `DEPLOY_SHA`, validated upstream
 run, ownership mode, staged and active targets, release-plan digest, and every
 captured protected rollback prior. A provider census must be complete and
 stable, each candidate must carry one exact canonical manifest, and the current
-protected mappings must form one canonical release prefix. Missing, ambiguous,
+protected mappings must form one canonical forward release prefix or the exact
+terminal App recovery residual: at least one active non-App target with every
+such target at its original prior, and every reviewed App alias at one canonical
+candidate. That residual authorizes `restore-before-planning`, even for the
+matching release; it never authorizes forward resumption. Missing, ambiguous,
 conflicting, malformed, non-prefix, or incomplete provider state fails closed.
 GitHub artifacts and prior job history are not alternate cross-attempt
 authority.
@@ -144,10 +148,11 @@ The reconciliation decision is made before ordinary planning:
 
 - `verify-existing-release` fully re-verifies a complete matching release and
   reuses it through the journal-free `current-release-verified` terminal route;
-- `resume-existing-release` continues a matching interrupted prefix through a
-  fresh current-attempt journal;
-- `restore-before-planning` restores an older interrupted prefix through a
-  fresh current-attempt journal before a new baseline is captured; and
+- `resume-existing-release` continues a matching interrupted forward prefix
+  through a fresh current-attempt journal;
+- `restore-before-planning` restores an older interrupted prefix, or the exact
+  terminal App recovery residual, through a fresh current-attempt journal before
+  a new baseline is captured; and
 - `capture-new-baseline` starts only when no mapped release explains the
   protected state or a completed older release is the baseline.
 
@@ -421,13 +426,13 @@ zero-candidate expectation only to publish fail-closed terminal evidence: any
 observed App candidate makes that state proof unproven and never upgrades the
 manual outcome to recovered.
 
-If provider reconciliation cannot establish one safe manifest and canonical
-mapping prefix, do not delete or recreate evidence. Inspect the live protected
-state and use the current-attempt recovery contract where the reconciliation
-decision permits it. Otherwise follow the target-local or full-native rollback
-procedure, verify the protected mappings, and begin a new release only from a
-new validated upstream CI run. Do not create a GitHub-artifact or prior-journal
-fallback path.
+If provider reconciliation cannot establish one safe manifest and either a
+canonical forward mapping prefix or the exact terminal App recovery residual,
+do not delete or recreate evidence. Inspect the live protected state and use
+the current-attempt recovery contract where the reconciliation decision permits
+it. Otherwise follow the target-local or full-native rollback procedure, verify
+the protected mappings, and begin a new release only from a new validated
+upstream CI run. Do not create a GitHub-artifact or prior-journal fallback path.
 
 The terminal producer emits one canonical, redacted terminal receipt and
 terminal evidence before the `result` job selects the final outcome. They bind
