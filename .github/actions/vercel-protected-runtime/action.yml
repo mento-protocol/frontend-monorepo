@@ -437,7 +437,7 @@ runs:
         "$node_bin" "$controller_path/scripts/vercel-prebuilt.mjs" \
           check-versions --repo-root "$source_path"
         [ "$("$pnpm_bin" --version)" = 10.34.4 ]
-        [ "$("$node_bin" "$vercel_cli" --version)" = 56.2.0 ]
+        [ "$("$node_bin" "$vercel_cli" --version)" = 56.4.1 ]
 
         /bin/rm -rf -- \
           "$bootstrap_cache" \

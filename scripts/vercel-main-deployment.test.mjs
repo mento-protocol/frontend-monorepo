@@ -103,6 +103,7 @@ import {
   runMainActiveTransaction,
   runMainDeploymentCli,
   runMainShadowTransaction,
+  validateMainDeploymentRecoverySource,
   validateMainDeploymentSource,
   validateMainStageJobs,
   validateMainWorkflowContext,
@@ -1236,6 +1237,7 @@ test("controller CLI accepts only each command's exact non-duplicated options", 
       "cmVjZWlwdA",
     ],
     ["validate-context"],
+    ["validate-recovery-source"],
     ["validate-source"],
     ["create-spec", "--scope", "main", "--output", "/tmp/spec.json"],
     ["evidence", "--output", "/tmp/evidence.json"],
@@ -2539,6 +2541,107 @@ test("workflow context and source proof bind the default-branch definition to DE
         execute: () => assert.fail("git must stay inert"),
       }),
     /GITHUB_WORKFLOW_SHA/,
+  );
+});
+
+test("recovery source CLI dispatches the ancestor-permitting validator", async () => {
+  await assert.rejects(
+    () =>
+      runMainDeploymentCli({
+        argv: ["validate-recovery-source"],
+        values: {},
+      }),
+    /DEPLOY_SHA/,
+  );
+});
+
+test("recovery source proof permits only a newer main descendant of the admitted SHA", () => {
+  const descendantCalls = [];
+  const descendantMain = (_command, args) => {
+    descendantCalls.push(args);
+    const gitArgs = args.slice(2);
+    if (
+      gitArgs[0] === "rev-parse" &&
+      gitArgs[1] === "refs/remotes/origin/main"
+    ) {
+      return `${OTHER_SHA}\n`;
+    }
+    if (gitArgs[0] === "rev-parse" && gitArgs[1] === "HEAD") {
+      return `${SHA}\n`;
+    }
+    return "";
+  };
+
+  assert.equal(
+    validateMainDeploymentRecoverySource({
+      repoRoot: "/trusted/source",
+      deploySha: SHA,
+      workflowSha: SHA,
+      execute: descendantMain,
+    }),
+    SHA,
+  );
+  assert.deepEqual(descendantCalls, [
+    ["-C", "/trusted/source", "cat-file", "-e", `${SHA}^{commit}`],
+    [
+      "-C",
+      "/trusted/source",
+      "merge-base",
+      "--is-ancestor",
+      SHA,
+      "refs/remotes/origin/main",
+    ],
+    ["-C", "/trusted/source", "rev-parse", "refs/remotes/origin/main"],
+    ["-C", "/trusted/source", "rev-parse", "HEAD"],
+  ]);
+  assert.throws(
+    () =>
+      validateMainDeploymentSource({
+        repoRoot: "/trusted/source",
+        deploySha: SHA,
+        workflowSha: SHA,
+        execute: descendantMain,
+      }),
+    /does not match fetched origin\/main/,
+  );
+  assert.throws(
+    () =>
+      validateMainDeploymentRecoverySource({
+        repoRoot: "/trusted/source",
+        deploySha: SHA,
+        workflowSha: OTHER_SHA,
+        execute: () => assert.fail("git must stay inert"),
+      }),
+    /GITHUB_WORKFLOW_SHA/,
+  );
+  assert.throws(
+    () =>
+      validateMainDeploymentRecoverySource({
+        repoRoot: "/trusted/source",
+        deploySha: SHA,
+        workflowSha: SHA,
+        execute(_command, args) {
+          if (args[2] === "merge-base") {
+            throw new Error("admitted SHA is unrelated to origin/main");
+          }
+          return "";
+        },
+      }),
+    /unrelated to origin\/main/,
+  );
+  assert.throws(
+    () =>
+      validateMainDeploymentRecoverySource({
+        repoRoot: "/trusted/source",
+        deploySha: SHA,
+        workflowSha: SHA,
+        execute(_command, args) {
+          const gitArgs = args.slice(2);
+          if (gitArgs[0] === "rev-parse") return `${OTHER_SHA}\n`;
+          return "";
+        },
+      }),
+    /Checked-out HEAD does not match DEPLOY_SHA/,
   );
 });
 

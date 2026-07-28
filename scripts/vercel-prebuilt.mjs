@@ -219,21 +219,28 @@ export function assertDeploymentIdPrerequisites(
     throw new Error("Pinned Vercel CLI is too old for custom deployment IDs");
   }
 
+  const runtimePackageJsonPath = join(
+    repoRoot,
+    "scripts",
+    "vercel-cli-runtime",
+    "package.json",
+  );
+  const runtimePackage = JSON.parse(
+    readFileSync(runtimePackageJsonPath, "utf8"),
+  );
   const vercelCliRuntime = assertVercelCliRuntimeContract({
     rootPackageJsonPath: join(repoRoot, "package.json"),
-    packageJsonPath: join(
-      repoRoot,
-      "scripts",
-      "vercel-cli-runtime",
-      "package.json",
-    ),
+    packageJsonPath: runtimePackageJsonPath,
     lockfilePath: join(
       repoRoot,
       "scripts",
       "vercel-cli-runtime",
       "pnpm-lock.yaml",
     ),
-    patchFilePath: Object.hasOwn(packageJson.pnpm ?? {}, "patchedDependencies")
+    patchFilePath: Object.hasOwn(
+      runtimePackage.pnpm ?? {},
+      "patchedDependencies",
+    )
       ? join(
           repoRoot,
           "scripts",

@@ -290,6 +290,8 @@ test("inherited restoration proves and validates reuse before a durable bounded 
     proof.env.GITHUB_WORKFLOW_SHA,
     "${{ needs.wait-for-ci.outputs.deploy_sha }}",
   );
+  assert.match(proof.run, /validate-recovery-source/);
+  assert.doesNotMatch(proof.run, /\bvalidate-source\b/);
   const install = named(jobName, "without lifecycle scripts");
   assert.deepEqual(install.with, {
     "working-directory": "source",
@@ -1008,7 +1010,14 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
   );
   assert.equal(controller.with.ref, "${{ github.workflow_sha }}");
   assert.equal(source.with.ref, "${{ needs.wait-for-ci.outputs.deploy_sha }}");
-  assert.match(sourceProof("recover-main-deployment").run, /validate-source/);
+  assert.match(
+    sourceProof("recover-main-deployment").run,
+    /validate-recovery-source/,
+  );
+  assert.doesNotMatch(
+    sourceProof("recover-main-deployment").run,
+    /\bvalidate-source\b/,
+  );
   assert.deepEqual(
     steps("recover-main-deployment").find(
       (step) => step.uses === "./.github/actions/pnpm-install",
@@ -1482,6 +1491,11 @@ test("every durable current-attempt journal upload has the canonical downloaded 
         continue;
       }
       count += 1;
+      assert.equal(
+        upload.with["retention-days"],
+        14,
+        `journal upload must outlive the observation window: ${groupName}/${upload.name}`,
+      );
       assert.match(
         upload.with.path,
         /-artifact\/main-journal\.json$/,
@@ -1758,6 +1772,7 @@ test("ordinary stages retain protected runtime isolation and create-only uploads
     assert.equal(jobSteps.at(-1), cleanup);
     const diagnostics = named(job, "browser diagnostics on failure");
     assert.equal(diagnostics.uses, UPLOAD_PIN);
+    assert.equal(diagnostics.with["retention-days"], 14);
     assert.doesNotMatch(JSON.stringify(workflow.jobs[job]), /\.vercel\/output/);
   }
 });

@@ -1,19 +1,42 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
-export const PINNED_VERCEL_CLI_VERSION = "56.2.0";
+export const PINNED_VERCEL_CLI_VERSION = "56.4.1";
+const PINNED_VERCEL_CLI_RUNTIME_DEPENDENCIES = Object.freeze({
+  "@vercel/backends": "0.8.25",
+  "@vercel/container": "0.0.5",
+  "@vercel/elysia": "0.1.102",
+  "@vercel/express": "0.1.116",
+  "@vercel/fastify": "0.1.105",
+  "@vercel/go": "3.10.2",
+  "@vercel/h3": "0.1.111",
+  "@vercel/hono": "0.2.105",
+  "@vercel/hydrogen": "1.4.0",
+  "@vercel/koa": "0.1.85",
+  "@vercel/nestjs": "0.2.106",
+  "@vercel/next": "4.20.4",
+  "@vercel/node": "5.8.26",
+  "@vercel/python": "6.51.0",
+  "@vercel/redwood": "2.5.0",
+  "@vercel/remix-builder": "5.9.1",
+  "@vercel/ruby": "2.5.1",
+  "@vercel/rust": "1.4.0",
+  "@vercel/static-build": "2.11.8",
+  vercel: PINNED_VERCEL_CLI_VERSION,
+});
 const BRACE_EXPANSION_PATCHED_DEPENDENCY = "brace-expansion@2.1.2";
 export const BRACE_EXPANSION_RUNTIME_PATCH_PATH =
   "patches/brace-expansion@2.1.2.patch";
 const BRACE_EXPANSION_ROOT_PATCH_PATH =
   "scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch";
 
-// This one reviewed successor binds the runtime lockfile, override object, and
-// patch bytes. Replace all three together for any later reviewed patch update.
-const NEXT_BRACE_EXPANSION_RUNTIME_LOCKFILE_SHA256 =
-  "773226619ef0f73252aa2921cc3cedb69908bc21f08362857df25ae9777c0ff3";
-const NEXT_BRACE_EXPANSION_RUNTIME_OVERRIDE_SHA256 =
+// This reviewed successor binds the regenerated runtime lockfile, override
+// object, and brace-expansion patch required by the direct builder graph.
+const NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
+  "a8341932863259f7abf6dd354911cf4b13beb15b77c98c763377fcfed13f279b";
+const NEXT_VERCEL_CLI_RUNTIME_OVERRIDE_SHA256 =
   "2a30c91c2e6d82386113535d8a0d03e3faeb2d4af0bc032b9200719e036b490a";
 export const BRACE_EXPANSION_PATCH_SHA256 =
   "7cf518c5d9dbf4290d0f48d3fa4673d4a163d0088d2d1294e417b9909c111833";
@@ -35,9 +58,10 @@ const TRUSTED_VERCEL_CLI_RUNTIME_STATES = Object.freeze([
       "0941482390a44f7e16c1f7182469e01162434f9e274059d53d6ebbef2ebed695",
   }),
   Object.freeze({
-    lockfileSha256: NEXT_BRACE_EXPANSION_RUNTIME_LOCKFILE_SHA256,
-    overridesSha256: NEXT_BRACE_EXPANSION_RUNTIME_OVERRIDE_SHA256,
+    lockfileSha256: NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
+    overridesSha256: NEXT_VERCEL_CLI_RUNTIME_OVERRIDE_SHA256,
     patchSha256: BRACE_EXPANSION_PATCH_SHA256,
+    rootPatchSha256: BRACE_EXPANSION_PATCH_SHA256,
   }),
 ]);
 
@@ -111,18 +135,21 @@ export function assertVercelCliRuntimeContract({
   if (trustedRuntimeState === undefined) {
     throw new Error("Trusted Vercel CLI runtime lockfile is not exact");
   }
-  const hasBraceExpansionPatch = trustedRuntimeState.patchSha256 !== undefined;
-  const expectedPnpmKeys = hasBraceExpansionPatch
+  const hasRuntimePatch = trustedRuntimeState.patchSha256 !== undefined;
+  const hasRootPatch = trustedRuntimeState.rootPatchSha256 !== undefined;
+  const expectedPnpmKeys = hasRuntimePatch
     ? ["overrides", "patchedDependencies"]
     : ["overrides"];
-  const expectedPatchedDependencies = hasBraceExpansionPatch
+  const expectedPatchedDependencies = hasRuntimePatch
     ? {
         [BRACE_EXPANSION_PATCHED_DEPENDENCY]:
           BRACE_EXPANSION_RUNTIME_PATCH_PATH,
       }
     : undefined;
-  const expectedRootPatchedDependencies = hasBraceExpansionPatch
-    ? { [BRACE_EXPANSION_PATCHED_DEPENDENCY]: BRACE_EXPANSION_ROOT_PATCH_PATH }
+  const expectedRootPatchedDependencies = hasRootPatch
+    ? {
+        [BRACE_EXPANSION_PATCHED_DEPENDENCY]: BRACE_EXPANSION_ROOT_PATCH_PATH,
+      }
     : undefined;
   if (
     !hasExactObjectKeys(packageMetadata, [
@@ -138,8 +165,14 @@ export function assertVercelCliRuntimeContract({
     packageMetadata.private !== true ||
     packageMetadata.description !==
       "Standalone pinned Vercel CLI runtime for protected GitHub Actions deployments" ||
-    !hasExactObjectKeys(packageMetadata.dependencies, ["vercel"]) ||
-    packageMetadata.dependencies.vercel !== PINNED_VERCEL_CLI_VERSION ||
+    !hasExactObjectKeys(
+      packageMetadata.dependencies,
+      Object.keys(PINNED_VERCEL_CLI_RUNTIME_DEPENDENCIES),
+    ) ||
+    !isDeepStrictEqual(
+      packageMetadata.dependencies,
+      PINNED_VERCEL_CLI_RUNTIME_DEPENDENCIES,
+    ) ||
     !hasExactObjectKeys(packageMetadata.pnpm, expectedPnpmKeys) ||
     !isDeepStrictEqual(packageMetadata.pnpm.overrides, rootOverrides) ||
     !isDeepStrictEqual(
@@ -158,7 +191,24 @@ export function assertVercelCliRuntimeContract({
       "Trusted Vercel CLI runtime lockfile and overrides are not an approved pair",
     );
   }
-  if (hasBraceExpansionPatch) {
+  if (hasRootPatch) {
+    let rootPatchDigest;
+    try {
+      rootPatchDigest = createHash("sha256")
+        .update(
+          readFileSync(
+            join(dirname(rootPackageJsonPath), BRACE_EXPANSION_ROOT_PATCH_PATH),
+          ),
+        )
+        .digest("hex");
+    } catch {
+      throw new Error("Trusted root brace-expansion patch is missing");
+    }
+    if (rootPatchDigest !== trustedRuntimeState.rootPatchSha256) {
+      throw new Error("Trusted root brace-expansion patch is not exact");
+    }
+  }
+  if (hasRuntimePatch) {
     if (typeof patchFilePath !== "string") {
       throw new Error("Trusted Vercel CLI runtime patch is missing");
     }
@@ -174,9 +224,10 @@ export function assertVercelCliRuntimeContract({
   const lockfileText = lockfileContents.toString("utf8");
   if (
     !lockfileText.startsWith("lockfileVersion: '9.0'\n") ||
-    !lockfileText.includes(
-      `\n  .:\n    dependencies:\n      vercel:\n        specifier: ${PINNED_VERCEL_CLI_VERSION}\n        version: ${PINNED_VERCEL_CLI_VERSION}`,
-    ) ||
+    !new RegExp(
+      `\\n      vercel:\\n        specifier: ${PINNED_VERCEL_CLI_VERSION}\\n        version: ${PINNED_VERCEL_CLI_VERSION}(?:\\(|\\n)`,
+      "u",
+    ).test(lockfileText) ||
     /(?:specifier|version):\s*(?:workspace:|link:|file:|git\+|github:)|\btarball:|\brepo:|\btype:\s*git\b/u.test(
       lockfileText,
     )
@@ -186,7 +237,7 @@ export function assertVercelCliRuntimeContract({
 
   return {
     lockfileSha256: lockfileDigest,
-    patchRequired: hasBraceExpansionPatch,
-    vercel: packageMetadata.dependencies.vercel,
+    patchRequired: hasRuntimePatch,
+    vercel: PINNED_VERCEL_CLI_RUNTIME_DEPENDENCIES.vercel,
   };
 }

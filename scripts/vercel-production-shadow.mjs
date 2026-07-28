@@ -840,11 +840,12 @@ export function validateDispatchContext({
   return requireString(deploySha, "deploy_sha", SHA_PATTERN).toLowerCase();
 }
 
-export function validateImmutableMainSource({
+function validateImmutableMainSourceWithPolicy({
   deploySha,
   workflowSha,
   sourcePath = process.cwd(),
   execute = execFileSync,
+  requireExactFetchedMain,
 }) {
   const normalizedSha = requireString(
     deploySha,
@@ -874,7 +875,7 @@ export function validateImmutableMainSource({
     "refs/remotes/origin/main",
   ]);
   const fetchedMain = run(["rev-parse", "refs/remotes/origin/main"]);
-  if (fetchedMain !== normalizedSha) {
+  if (requireExactFetchedMain && fetchedMain !== normalizedSha) {
     throw new Error("DEPLOY_SHA does not match fetched origin/main");
   }
   const head = run(["rev-parse", "HEAD"]);
@@ -882,6 +883,20 @@ export function validateImmutableMainSource({
     throw new Error("Checked-out HEAD does not match DEPLOY_SHA");
   }
   return normalizedSha;
+}
+
+export function validateImmutableMainSource(options) {
+  return validateImmutableMainSourceWithPolicy({
+    ...options,
+    requireExactFetchedMain: true,
+  });
+}
+
+export function validateImmutableMainRecoverySource(options) {
+  return validateImmutableMainSourceWithPolicy({
+    ...options,
+    requireExactFetchedMain: false,
+  });
 }
 
 export function parseTurboCacheSummary(log) {
@@ -1763,7 +1778,7 @@ export function assertProductionShadowOutput({
   }
   if (
     buildRecord.target !== expectedTarget ||
-    buildRecord.cliVersion !== "56.2.0"
+    buildRecord.cliVersion !== "56.4.1"
   ) {
     throw new Error("Prebuilt output target or Vercel CLI version is invalid");
   }
@@ -2443,7 +2458,7 @@ export function writePilotSummary({
     `- Workflow run: ${requireString(runUrl, "Workflow run URL")}`,
     `- Exact deployment SHA: \`${normalizedSha}\``,
     `- Whole workflow duration: ${totalWorkflowDuration} ms`,
-    "- Pinned Vercel CLI: `56.2.0`",
+    "- Pinned Vercel CLI: `56.4.1`",
     "- Project Root Directories verified: `apps/app.mento.org`, `apps/governance.mento.org`, `apps/reserve.mento.org`, `apps/ui.mento.org`",
     "",
     "| Target | Build target | Deployment ID / URL | Runtime/browser | Protected mappings | Turbo cache | Timing | Result |",

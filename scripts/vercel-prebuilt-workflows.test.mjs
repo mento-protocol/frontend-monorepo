@@ -381,19 +381,38 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
   assert.deepEqual(Object.keys(runtimeLock.snapshots), ["pnpm@10.34.4"]);
   assert.equal(runtimeLock.importers["."].dependencies.pnpm.version, "10.34.4");
   assert.deepEqual(vercelCliRuntimeManifest.dependencies, {
-    vercel: "56.2.0",
+    "@vercel/backends": "0.8.25",
+    "@vercel/container": "0.0.5",
+    "@vercel/elysia": "0.1.102",
+    "@vercel/express": "0.1.116",
+    "@vercel/fastify": "0.1.105",
+    "@vercel/go": "3.10.2",
+    "@vercel/h3": "0.1.111",
+    "@vercel/hono": "0.2.105",
+    "@vercel/hydrogen": "1.4.0",
+    "@vercel/koa": "0.1.85",
+    "@vercel/nestjs": "0.2.106",
+    "@vercel/next": "4.20.4",
+    "@vercel/node": "5.8.26",
+    "@vercel/python": "6.51.0",
+    "@vercel/redwood": "2.5.0",
+    "@vercel/remix-builder": "5.9.1",
+    "@vercel/ruby": "2.5.1",
+    "@vercel/rust": "1.4.0",
+    "@vercel/static-build": "2.11.8",
+    vercel: "56.4.1",
   });
   assert.equal(vercelCliRuntimeManifest.scripts, undefined);
   assert.deepEqual(
     vercelCliRuntimeManifest.pnpm.overrides,
     manifest.pnpm.overrides,
   );
-  assert.equal(manifest.devDependencies.vercel, "56.2.0");
+  assert.equal(manifest.devDependencies.vercel, "56.4.1");
   assert.equal(
     vercelCliRuntimeLock.importers["."].dependencies.vercel.specifier,
-    "56.2.0",
+    "56.4.1",
   );
-  assert.ok(vercelCliRuntimeLock.packages["vercel@56.2.0"]);
+  assert.ok(vercelCliRuntimeLock.packages["vercel@56.4.1"]);
   assert.doesNotMatch(rootOsvConfig, /GHSA-gj8w-mvpf-x27x/);
   assert.match(
     rootOsvConfig,
@@ -428,10 +447,6 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
   assert.doesNotMatch(
     vercelCliRuntimeOsvConfig,
     /GHSA-(?!fm4j-4xhm-xpwx|gc25-3vc5-2jf9|mh99-v99m-4gvg)/,
-  );
-  assert.match(
-    vercelCliRuntimeOsvConfig,
-    /GHSA-mh99-v99m-4gvg[\s\S]*ignoreUntil = 2026-08-16T00:00:00Z/,
   );
   assert.equal(
     supplyChain.jobs["osv-pnpm-bootstrap"].with["scan-args"].trim(),

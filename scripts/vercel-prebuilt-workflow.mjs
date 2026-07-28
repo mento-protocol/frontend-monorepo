@@ -1625,7 +1625,7 @@ export function environmentForVercelCli(environment, allowedNames = []) {
     if (value === undefined || value === "") continue;
     cliEnvironment[name] = requiredText(value, name, { maximum: 32_768 });
   }
-  // CLI 56.2.0 gives these variables precedence over repo.json and would lose
+  // CLI 56.4.1 gives these variables precedence over repo.json and would lose
   // the monorepo Root Directory mapping. The controller has already validated
   // the IDs and materialized them in the trusted repo link.
   delete cliEnvironment.VERCEL_ORG_ID;
@@ -2387,11 +2387,20 @@ export function stageTrustedVercelCliRuntimeManifest({
     expectedUid: currentUid,
     expectedGid: currentGid,
   });
-  const sourcePatchArtifact = protectedVercelCliRuntimePatchArtifact({
-    runtimeRoot: sourceRoot,
-    expectedUid: currentUid,
-    expectedGid: currentGid,
-  });
+  const sourceRuntimeManifest = JSON.parse(
+    readFileSync(sourcePackageJson.path, "utf8"),
+  );
+  const runtimePatchRequired = Object.hasOwn(
+    sourceRuntimeManifest.pnpm ?? {},
+    "patchedDependencies",
+  );
+  const sourcePatchArtifact = runtimePatchRequired
+    ? protectedVercelCliRuntimePatchArtifact({
+        runtimeRoot: sourceRoot,
+        expectedUid: currentUid,
+        expectedGid: currentGid,
+      })
+    : undefined;
   const sourceContract = validatePinnedVercelCliRuntimeFiles({
     rootPackageJsonPath: rootPackageJson.path,
     packageJsonPath: sourcePackageJson.path,
@@ -2576,7 +2585,7 @@ export function trustedStandaloneVercelCliPath({ controllerRoot, toolsRoot }) {
     hasControlCharacters(packageLinkTarget) ||
     packageLinkTarget !==
       relative(dirname(packageLinkPath), canonicalPackageRoot) ||
-    !/^vercel@56\.2\.0(?:_[^/]+)?\/node_modules\/vercel$/u.test(
+    !/^vercel@56\.4\.1(?:_[^/]+)?\/node_modules\/vercel$/u.test(
       packageFromVirtualStore,
     )
   ) {
@@ -2820,7 +2829,7 @@ export function trustedVercelCliPath(toolsPath) {
     !packageEntry.isFile() ||
     packageEntry.uid !== currentUid ||
     (packageEntry.mode & 0o022) !== 0 ||
-    JSON.parse(readFileSync(packagePath, "utf8")).version !== "56.2.0"
+    JSON.parse(readFileSync(packagePath, "utf8")).version !== "56.4.1"
   ) {
     throw new Error("Trusted Vercel CLI version is not the pinned release");
   }
@@ -3460,7 +3469,7 @@ export function assertPrebuiltOutput({
   } catch {
     throw new Error("Prebuilt output is missing its Vercel CLI build record");
   }
-  if (buildRecord.target !== "preview" || buildRecord.cliVersion !== "56.2.0") {
+  if (buildRecord.target !== "preview" || buildRecord.cliVersion !== "56.4.1") {
     throw new Error(
       "Prebuilt output target or pinned Vercel CLI version is invalid",
     );
