@@ -66,6 +66,7 @@ import {
   createMainActivePublicSmokes,
   createMainActiveTransactionInputs,
   createMainCurrentCandidateIntent,
+  createMainCurrentActiveDeploymentStateSpec,
   createMainCurrentReleaseVerifiedAliasMappingSet,
   createMainCurrentReleaseVerifiedDeploymentStateSpec,
   createMainCurrentActivePublicSmokes,
@@ -6306,6 +6307,142 @@ test("active recovery public-smoke materializer accepts only exact runtime resul
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("current state specs normalize a full release into active-state target order", () => {
+  const deploymentPlan = activePlan();
+  const execution = releaseExecutionForPlan(deploymentPlan);
+  assert.deepEqual(execution.projection.stagedTargets, [
+    "governance",
+    "reserve",
+    "ui",
+    "app",
+  ]);
+  const candidateReceipts = Object.fromEntries(
+    ["app", "governance", "reserve", "ui"].map((target) => [
+      target,
+      currentCandidateReceipt(execution, target),
+    ]),
+  );
+  const barrier = createMainStageBarrier({
+    execution,
+    candidateReceipts,
+    appPreparation: null,
+    runId: "800",
+    runAttempt: "3",
+  });
+  const prepared = createMainCurrentActiveInputs({
+    execution,
+    barrier,
+    currentMappings: currentCanonicalMappings(deploymentPlan),
+    runId: "800",
+    runAttempt: "3",
+  }).journal;
+  const activeSpec = createMainCurrentActiveDeploymentStateSpec({
+    execution,
+    barrier,
+    journalHistory: [prepared],
+    runId: "800",
+    runAttempt: "3",
+  });
+  assert.deepEqual(activeSpec.stagedTargets, [
+    "app",
+    "governance",
+    "reserve",
+    "ui",
+  ]);
+  assert.deepEqual(activeSpec.activeTargets, activeSpec.stagedTargets);
+  assert.deepEqual(activeSpec.shadowTargets, []);
+
+  const verifiedExecution = createMainReleaseExecution({
+    ...execution,
+    decision: "verify-existing-release",
+    reason: "current-main-release-already-complete",
+  });
+  const verifiedBarrier = createMainStageBarrier({
+    execution: verifiedExecution,
+    candidateReceipts: Object.fromEntries(
+      ["app", "governance", "reserve", "ui"].map((target) => [
+        target,
+        currentCandidateReceipt(verifiedExecution, target),
+      ]),
+    ),
+    appPreparation: null,
+    runId: "800",
+    runAttempt: "3",
+  });
+  const verifiedSpec = createMainCurrentReleaseVerifiedDeploymentStateSpec({
+    execution: verifiedExecution,
+    barrier: verifiedBarrier,
+    runId: "800",
+    runAttempt: "3",
+  });
+  assert.deepEqual(verifiedSpec.stagedTargets, activeSpec.stagedTargets);
+  assert.deepEqual(verifiedSpec.activeTargets, activeSpec.activeTargets);
+  assert.deepEqual(verifiedSpec.shadowTargets, activeSpec.shadowTargets);
+});
+
+test("current state specs normalize a mixed App and ordinary release", () => {
+  const deploymentPlan = activePlan({ deployments: ["app", "governance"] });
+  const execution = releaseExecutionForPlan(deploymentPlan);
+  assert.deepEqual(execution.projection.stagedTargets, ["governance", "app"]);
+  const candidateReceipts = {
+    app: currentCandidateReceipt(execution, "app"),
+    governance: currentCandidateReceipt(execution, "governance"),
+    reserve: null,
+    ui: null,
+  };
+  const barrier = createMainStageBarrier({
+    execution,
+    candidateReceipts,
+    appPreparation: null,
+    runId: "800",
+    runAttempt: "3",
+  });
+  const activeSpec = createMainCurrentActiveDeploymentStateSpec({
+    execution,
+    barrier,
+    journalHistory: [
+      createMainCurrentActiveInputs({
+        execution,
+        barrier,
+        currentMappings: currentCanonicalMappings(deploymentPlan),
+        runId: "800",
+        runAttempt: "3",
+      }).journal,
+    ],
+    runId: "800",
+    runAttempt: "3",
+  });
+  assert.deepEqual(activeSpec.stagedTargets, ["app", "governance"]);
+  assert.deepEqual(activeSpec.activeTargets, ["app", "governance"]);
+  assert.deepEqual(activeSpec.shadowTargets, []);
+
+  const verifiedExecution = createMainReleaseExecution({
+    ...execution,
+    decision: "verify-existing-release",
+    reason: "current-main-release-already-complete",
+  });
+  const verifiedSpec = createMainCurrentReleaseVerifiedDeploymentStateSpec({
+    execution: verifiedExecution,
+    barrier: createMainStageBarrier({
+      execution: verifiedExecution,
+      candidateReceipts: {
+        app: currentCandidateReceipt(verifiedExecution, "app"),
+        governance: currentCandidateReceipt(verifiedExecution, "governance"),
+        reserve: null,
+        ui: null,
+      },
+      appPreparation: null,
+      runId: "800",
+      runAttempt: "3",
+    }),
+    runId: "800",
+    runAttempt: "3",
+  });
+  assert.deepEqual(verifiedSpec.stagedTargets, activeSpec.stagedTargets);
+  assert.deepEqual(verifiedSpec.activeTargets, activeSpec.activeTargets);
+  assert.deepEqual(verifiedSpec.shadowTargets, activeSpec.shadowTargets);
 });
 
 test("current release verification is journal-free and binds its barrier candidates", () => {
