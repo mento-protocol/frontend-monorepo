@@ -42,6 +42,7 @@ import {
   MAIN_PROVIDER_CLI_MAX_JSON_BYTES,
   MAIN_PROVIDER_CLI_RETRY_EXIT_CODE,
   MAIN_PREPLAN_HANDOFF_MAX_ENCODED_BYTES,
+  MAIN_PREPLAN_HANDOFF_MAX_JSON_BYTES,
   readPrivateJson,
   renderMainProviderCliFailure,
   reviewedRunnerTemp,
@@ -56,6 +57,11 @@ const fixtureUrl = new URL(
 );
 const SHA = "d".repeat(40);
 const PRIOR_SHA = "a".repeat(40);
+const LINUX_MAX_ARG_STRING_BYTES = 128 * 1024;
+const MAIN_PREPLAN_HANDOFF_ENV_OVERHEAD_BYTES = Buffer.byteLength(
+  "MAIN_PREPLAN_HANDOFF=\0",
+  "utf8",
+);
 
 function fixtureInput() {
   const input = JSON.parse(readFileSync(fixtureUrl, "utf8"));
@@ -71,6 +77,7 @@ function releaseManifest({
   deploySha = SHA,
   upstreamRunId = "700",
   active = false,
+  productionIdPaddingBytes = 0,
 } = {}) {
   const input = fixtureInput();
   input.deploySha = deploySha;
@@ -82,6 +89,21 @@ function releaseManifest({
       reserve: "github",
       ui: "github",
     };
+  }
+  if (productionIdPaddingBytes > 0) {
+    for (const [target, prior] of Object.entries(input.priorStates)) {
+      for (const state of prior.states) {
+        state.deploymentId = `dpl_${target}${"A".repeat(productionIdPaddingBytes)}`;
+        state.deploymentUrl = `https://${target}mento-${"b".repeat(9)}-mentolabs.vercel.app`;
+        state.projectId = `prj_${target}${"C".repeat(productionIdPaddingBytes)}`;
+      }
+    }
+    input.projectIds = Object.fromEntries(
+      Object.entries(input.priorStates).map(([target, prior]) => [
+        target,
+        prior.states[0].projectId,
+      ]),
+    );
   }
   const plan = planMainDeployments({
     mode: input.mode,
@@ -135,6 +157,45 @@ function releaseManifest({
     }),
   );
   return createMainReleaseManifest({ upstreamRunId, plan, originalPriors });
+}
+
+function productionShapedDecision({ productionIdPaddingBytes = 26 } = {}) {
+  const manifest = releaseManifest({
+    active: true,
+    productionIdPaddingBytes,
+  });
+  const candidates = Object.fromEntries(
+    ["governance", "reserve", "ui", "app"].map((target) => [
+      target,
+      {
+        deploymentId: `dpl_${target}${"D".repeat(productionIdPaddingBytes)}`,
+        deploymentUrl: `https://${target}mento-${"e".repeat(9)}-mentolabs.vercel.app`,
+        manifest,
+      },
+    ]),
+  );
+  return decideMainPreplanReconciliation({
+    nextDeploySha: "e".repeat(40),
+    nextUpstreamRunId: "701",
+    candidateReleases: [{ manifest, candidates }],
+    currentMappings: Object.fromEntries(
+      ["governance", "reserve", "ui", "app"].map((target) => {
+        const current =
+          target === "app"
+            ? candidates[target]
+            : manifest.originalPriors[target];
+        return [
+          target,
+          manifest.originalPriors[target].aliases.map((alias) => ({
+            alias,
+            deploymentId: current.deploymentId,
+            deploymentUrl: current.deploymentUrl,
+          })),
+        ];
+      }),
+    ),
+    rollbackOnlyTargets: [],
+  });
 }
 
 function candidateIntent(target = "ui") {
@@ -860,6 +921,62 @@ test("preplan materialization accepts only inherited restore and exposes ordered
       nextUpstreamRunId: "700",
     }),
     maximumShapeDecision,
+  );
+  const productionShapeDecision = productionShapedDecision();
+  const productionShapeSerialized = JSON.stringify(productionShapeDecision);
+  assert.equal(productionShapeDecision.decision, "restore-before-planning");
+  assert.equal(
+    productionShapeDecision.reason,
+    "older-main-release-is-an-app-recovery-residual",
+  );
+  const productionShapeHandoff = encodeMainPreplanHandoff(
+    productionShapeDecision,
+    {
+      nextDeploySha: "e".repeat(40),
+      nextUpstreamRunId: "701",
+    },
+  );
+  assert.ok(
+    Buffer.byteLength(productionShapeSerialized, "utf8") > 49_152,
+    "production-shaped pre-plan must exceed the legacy 64 KiB base64url limit",
+  );
+  assert.ok(
+    Buffer.byteLength(productionShapeSerialized, "utf8") <=
+      MAIN_PREPLAN_HANDOFF_MAX_JSON_BYTES,
+  );
+  assert.ok(Buffer.byteLength(productionShapeHandoff, "utf8") > 64 * 1024);
+  assert.ok(
+    Buffer.byteLength(productionShapeHandoff, "utf8") <=
+      MAIN_PREPLAN_HANDOFF_MAX_ENCODED_BYTES,
+  );
+  assert.ok(
+    Math.ceil((MAIN_PREPLAN_HANDOFF_MAX_JSON_BYTES * 4) / 3) <=
+      MAIN_PREPLAN_HANDOFF_MAX_ENCODED_BYTES,
+    "every accepted JSON payload must fit the encoded handoff bound",
+  );
+  assert.ok(
+    MAIN_PREPLAN_HANDOFF_ENV_OVERHEAD_BYTES +
+      MAIN_PREPLAN_HANDOFF_MAX_ENCODED_BYTES <
+      LINUX_MAX_ARG_STRING_BYTES,
+    "the largest handoff must fit one Linux environment entry",
+  );
+  assert.deepEqual(
+    decodeMainPreplanHandoff(productionShapeHandoff, {
+      nextDeploySha: "e".repeat(40),
+      nextUpstreamRunId: "701",
+    }),
+    productionShapeDecision,
+  );
+  assert.throws(
+    () =>
+      encodeMainPreplanHandoff(
+        productionShapedDecision({ productionIdPaddingBytes: 2_500 }),
+        {
+          nextDeploySha: "e".repeat(40),
+          nextUpstreamRunId: "701",
+        },
+      ),
+    /JSON size bound/,
   );
   const output = join(context.directory, "restore-before-planning.json");
   await runMainProviderCli({

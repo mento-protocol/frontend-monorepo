@@ -62,7 +62,9 @@ import {
 import { generateVercelMainReleaseId } from "./vercel-prebuilt.mjs";
 
 export const MAIN_PROVIDER_CLI_MAX_JSON_BYTES = 256 * 1024;
-export const MAIN_PREPLAN_HANDOFF_MAX_ENCODED_BYTES = 64 * 1024;
+export const MAIN_PREPLAN_HANDOFF_MAX_JSON_BYTES = 95 * 1024;
+// Leave room for MAIN_PREPLAN_HANDOFF= and NUL below Linux MAX_ARG_STRLEN.
+export const MAIN_PREPLAN_HANDOFF_MAX_ENCODED_BYTES = 127 * 1024;
 export const MAIN_PROVIDER_CLI_RETRY_EXIT_CODE = 75;
 export const MAIN_CANONICAL_MAPPINGS_SCHEMA =
   "vercel-main-canonical-mappings:v1";
@@ -908,9 +910,13 @@ export function encodeMainPreplanHandoff(
     nextDeploySha,
     nextUpstreamRunId,
   });
-  const encoded = Buffer.from(JSON.stringify(canonical), "utf8").toString(
-    "base64url",
-  );
+  const serialized = JSON.stringify(canonical);
+  if (
+    Buffer.byteLength(serialized, "utf8") > MAIN_PREPLAN_HANDOFF_MAX_JSON_BYTES
+  ) {
+    throw new Error("Main pre-plan handoff exceeds its JSON size bound");
+  }
+  const encoded = Buffer.from(serialized, "utf8").toString("base64url");
   if (
     Buffer.byteLength(encoded, "utf8") > MAIN_PREPLAN_HANDOFF_MAX_ENCODED_BYTES
   ) {
@@ -937,6 +943,12 @@ export function decodeMainPreplanHandoff(
       throw new Error("noncanonical base64url");
     }
     const serialized = decoded.toString("utf8");
+    if (
+      Buffer.byteLength(serialized, "utf8") >
+      MAIN_PREPLAN_HANDOFF_MAX_JSON_BYTES
+    ) {
+      throw new Error("oversized JSON");
+    }
     parsed = JSON.parse(serialized);
     if (JSON.stringify(parsed) !== serialized) {
       throw new Error("noncanonical JSON");
