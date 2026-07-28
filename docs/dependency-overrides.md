@@ -123,6 +123,13 @@ shared application bundle. The route config in
 `@wormhole-foundation/wormhole-connect/ntt` subpath; that value import belongs
 to the bridge route chunk.
 
+The report-only CSP records the bridge's reviewed runtime egress in
+`apps/app.mento.org/app-report-only-csp.mjs`. Wormhole Connect and its route
+SDKs use `li.quest` for transfer analytics, `explorer-api.mayan.finance` for
+Mayan swap status, and `executor.labsapis.com` for NTT transaction status.
+Keep those entries exact and app-local. Do not authorize dependency-default RPC
+origins for chains outside the configured Celo, Monad, and Polygon routes.
+
 The app declares `@mui/icons-material`, `@mui/material`,
 `@mui/styled-engine`, `@mui/system`, `@emotion/react`, and `@emotion/styled`
 only to satisfy Wormhole Connect peer ranges. There are no direct TypeScript,

@@ -1,6 +1,7 @@
 import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 import { env } from "@/env.mjs";
+import { buildAppReportOnlyCsp } from "./app-report-only-csp.mjs";
 import {
   buildSecurityHeaders,
   originOf,
@@ -44,46 +45,13 @@ const rpcOverrideOrigins = [
   .map(originOf)
   .filter(Boolean);
 
-const connectSrc = [
-  "'self'",
-  "https://forno.celo.org",
-  "https://forno.celo-sepolia.celo-testnet.org",
-  "https://rpc.monad.xyz",
-  "https://testnet-rpc.monad.xyz",
-  "https://rpc3.monad.xyz",
-  "https://polygon.drpc.org",
-  "https://polygon-amoy.drpc.org",
-  "https://sepolia.base.org",
-  "https://api.studio.thegraph.com",
-  "https://api.coingecko.com",
-  "https://api.wormholescan.io",
-  "https://api.web3modal.org",
-  "https://*.walletconnect.com",
-  "wss://*.walletconnect.com",
-  "https://*.walletconnect.org",
-  "wss://*.walletconnect.org",
-  `https://${storageHostname}`,
-  ...rpcOverrideOrigins,
-];
-
 const reportUri = sentryCspReportUri(env.NEXT_PUBLIC_SENTRY_DSN_SWAP);
 
-const reportOnlyCsp = [
-  "default-src 'self'",
-  // 'unsafe-inline' 'unsafe-eval' are required by Next 15 + wagmi today.
-  // Tightening target: replace with per-request nonces/hashes in production.
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-  "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data: blob: https://${storageHostname}`,
-  "font-src 'self' data:",
-  `connect-src ${connectSrc.join(" ")}`,
-  "frame-src 'self' https://verify.walletconnect.com https://verify.walletconnect.org",
-  "worker-src 'self' blob:",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  ...(reportUri ? [`report-uri ${reportUri}`] : []),
-].join("; ");
+const reportOnlyCsp = buildAppReportOnlyCsp({
+  reportUri,
+  rpcOverrideOrigins,
+  storageHostname,
+});
 
 const nextConfig: NextConfig = {
   ...sharpOutputFileTracingConfig(import.meta.url),

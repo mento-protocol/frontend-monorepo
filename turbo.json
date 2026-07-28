@@ -6,7 +6,8 @@
     "NEXT_RUNTIME",
     "PREVIEW_URL",
     "SENTRY_DSN",
-    "VERCEL_ENV"
+    "VERCEL_ENV",
+    "VERCEL_TARGET_ENV"
   ],
   "tasks": {
     "build": {
