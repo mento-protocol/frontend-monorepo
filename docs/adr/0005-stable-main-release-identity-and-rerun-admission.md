@@ -3,7 +3,7 @@ title: Stable active-main release identity and provider-side rerun reconciliatio
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-07-27
+last_verified: 2026-07-28
 scope: ci/deployment/main-reruns
 date: 2026-07
 ---
@@ -77,11 +77,12 @@ planning.
   capture a baseline.
 - If either an older or matching release explains the exact terminal App
   recovery residual, the controller restores only App through a fresh
-  current-attempt journal before new planning. This residual requires every
-  active non-App target at its original prior and every reviewed App alias at
-  one manifest-bound candidate. It can occur when the App command moves aliases
-  before the controller checkpoints its return while recovery has already
-  restored the ordinary targets. It never authorizes forward resumption.
+  current-attempt journal before new planning. This residual requires at least
+  one active non-App target, every active non-App target at its original prior,
+  and every reviewed App alias at one manifest-bound candidate. It can occur
+  when the App command moves aliases before the controller checkpoints its
+  return while recovery has already restored the ordinary targets. It never
+  authorizes forward resumption.
 - If no mapped release explains the protected state, it captures a new baseline.
   Every other non-prefix, ambiguous, conflicting, incomplete, or unverified
   provider state fails closed.

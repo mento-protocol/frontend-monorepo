@@ -793,7 +793,7 @@ test("App mixed mappings are accepted only at the activation frontier", () => {
   ]);
 });
 
-test("only a full terminal App candidate remains recoverable after ordinary rollback", () => {
+test("only a full terminal App candidate remains recoverable after at least one ordinary rollback", () => {
   const state = appRecoveryResidualState();
   const reconciliation = reconcileMainRelease(state);
   assert.deepEqual(
@@ -819,6 +819,35 @@ test("only a full terminal App candidate remains recoverable after ordinary roll
       aliases: [...state.manifest.originalPriors.app.aliases].sort(),
     },
   );
+});
+
+test("an App-only active candidate is a complete release, not a recovery residual", () => {
+  const state = releaseState({ selected: ["app"], candidateCount: 1 });
+  const reconciliation = reconcileMainRelease(state);
+  assert.equal(reconciliation.allCandidate, true);
+  assert.deepEqual(reconciliation.inheritedCandidateTargets, ["app"]);
+
+  const matching = decideMainPreplanReconciliation({
+    nextDeploySha: state.manifest.deploySha,
+    nextUpstreamRunId: state.manifest.upstreamRunId,
+    candidateReleases: [candidateRelease(state)],
+    currentMappings: state.currentMappings,
+    rollbackOnlyTargets: [],
+  });
+  assert.equal(matching.decision, "verify-existing-release");
+  assert.equal(matching.reason, "current-main-release-already-complete");
+  assert.equal(matching.rollbackAuthorization, null);
+
+  const older = decideMainPreplanReconciliation({
+    nextDeploySha: "2222222222222222222222222222222222222222",
+    nextUpstreamRunId: "800",
+    candidateReleases: [candidateRelease(state)],
+    currentMappings: state.currentMappings,
+    rollbackOnlyTargets: [],
+  });
+  assert.equal(older.decision, "capture-new-baseline");
+  assert.equal(older.reason, "older-mapped-release-is-complete");
+  assert.equal(older.rollbackAuthorization, null);
 });
 
 test("unsupported non-prefix, third-party, missing-candidate, and disagreeing-manifest states fail closed", () => {
@@ -1116,7 +1145,7 @@ test("pre-plan inspection restores an older mixed App frontier", () => {
   ]);
 });
 
-test("pre-plan restores the App-only recovery residual for older and matching releases", () => {
+test("pre-plan restores the App-candidate-only residual for older and matching releases", () => {
   const state = appRecoveryResidualState();
   const cases = [
     {

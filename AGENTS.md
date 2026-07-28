@@ -76,12 +76,12 @@ provider's protected mappings and candidates against that manifest. It reuses
 a complete release, resumes or restores an interrupted forward prefix as
 appropriate, or restores the exact terminal App recovery residual through a
 fresh current-attempt journal before new planning can proceed. That residual
-requires every active non-App target at its original prior and every reviewed
-App alias at one manifest-bound candidate; it grants App restoration authority
-only and never forward resumption. It never resumes or treats a prior attempt's
-journal artifact as cross-attempt authority. Every other non-prefix,
-ambiguous, conflicting, or incomplete provider state fails closed before the
-release continues.
+requires at least one active non-App target, every active non-App target at its
+original prior, and every reviewed App alias at one manifest-bound candidate;
+it grants App restoration authority only and never forward resumption. It never
+resumes or treats a prior attempt's journal artifact as cross-attempt authority.
+Every other non-prefix, ambiguous, conflicting, or incomplete provider state
+fails closed before the release continues.
 
 Every selected Governance, Reserve, and UI target stages and verifies an
 immutable candidate with `--prod --skip-domain`. Only an `activeTargets` member

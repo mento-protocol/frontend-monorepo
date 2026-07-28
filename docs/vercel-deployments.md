@@ -113,12 +113,13 @@ run, ownership mode, staged and active targets, release-plan digest, and every
 captured protected rollback prior. A provider census must be complete and
 stable, each candidate must carry one exact canonical manifest, and the current
 protected mappings must form one canonical forward release prefix or the exact
-terminal App recovery residual: all active non-App targets at their original
-priors and every reviewed App alias at one canonical candidate. That residual
-authorizes `restore-before-planning`, even for the matching release; it never
-authorizes forward resumption. Missing, ambiguous, conflicting, malformed,
-non-prefix, or incomplete provider state fails closed. GitHub artifacts and
-prior job history are not alternate cross-attempt authority.
+terminal App recovery residual: at least one active non-App target with every
+such target at its original prior, and every reviewed App alias at one canonical
+candidate. That residual authorizes `restore-before-planning`, even for the
+matching release; it never authorizes forward resumption. Missing, ambiguous,
+conflicting, malformed, non-prefix, or incomplete provider state fails closed.
+GitHub artifacts and prior job history are not alternate cross-attempt
+authority.
 
 Vercel's optional deployment `source` field is diagnostic telemetry, not
 ownership authority. Every protected mapping without complete canonical Mento

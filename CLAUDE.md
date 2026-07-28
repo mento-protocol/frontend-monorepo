@@ -178,18 +178,18 @@ journals remain downstream run-and-attempt scoped. Before planning, a later
 attempt reconciles provider mappings and candidates with that manifest. It
 reuses a completed release, resumes or restores an interrupted forward prefix
 as appropriate, or restores the exact terminal App recovery residual through a
-fresh current-attempt journal before new planning. That residual requires every
-active non-App target at its original prior and every reviewed App alias at one
-manifest-bound candidate; it grants App restoration authority only and never
-forward resumption. It never resumes a prior journal or treats GitHub artifacts
-as cross-attempt authority. The compact terminal receipt and evidence are the
-only final-verdict handoff and support final-only reruns. A completed release
-emits `current-release-verified` only after fresh mapping, census/state, raw
-public-runtime-smoke, legacy `v2`, and freshness proof; it creates no journal
-and executes no public mutation. App shadow preparation is build-only terminal
-evidence and never creates a provider deployment. Every other non-prefix,
-ambiguous, conflicting, or incomplete provider state fails closed before
-production work continues.
+fresh current-attempt journal before new planning. That residual requires at
+least one active non-App target, every active non-App target at its original
+prior, and every reviewed App alias at one manifest-bound candidate; it grants
+App restoration authority only and never forward resumption. It never resumes a
+prior journal or treats GitHub artifacts as cross-attempt authority. The compact
+terminal receipt and evidence are the only final-verdict handoff and support
+final-only reruns. A completed release emits `current-release-verified` only
+after fresh mapping, census/state, raw public-runtime-smoke, legacy `v2`, and
+freshness proof; it creates no journal and executes no public mutation. App
+shadow preparation is build-only terminal evidence and never creates a provider
+deployment. Every other non-prefix, ambiguous, conflicting, or incomplete
+provider state fails closed before production work continues.
 
 ## Coding Conventions
 
