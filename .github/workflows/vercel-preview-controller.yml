@@ -31,7 +31,7 @@ jobs:
       pr_number: ${{ steps.request.outputs.pr_number }}
     steps:
       - name: Check out trusted controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           path: controller
@@ -69,7 +69,7 @@ jobs:
       plan_required: ${{ steps.snapshot.outputs.plan_required }}
     steps:
       - name: Check out trusted controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           path: controller
@@ -105,7 +105,7 @@ jobs:
       plan: ${{ steps.plan.outputs.plan }}
     steps:
       - name: Check out immutable trusted workflow source with full history
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           path: source
@@ -173,7 +173,7 @@ jobs:
       reconcile_required: ${{ steps.receipt.outputs.reconcile_required }}
     steps:
       - name: Check out trusted controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           path: controller
@@ -224,7 +224,7 @@ jobs:
       statuses: write
     steps:
       - name: Check out trusted controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           path: controller
@@ -276,7 +276,7 @@ jobs:
       plan_required: ${{ steps.snapshot.outputs.plan_required }}
     steps:
       - name: Check out trusted controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           path: controller
@@ -314,7 +314,7 @@ jobs:
       plan: ${{ steps.plan.outputs.plan }}
     steps:
       - name: Check out immutable trusted workflow source with full history
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           path: source
@@ -378,7 +378,7 @@ jobs:
       pr_number: ${{ steps.receipt.outputs.pr_number }}
     steps:
       - name: Check out trusted controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           path: controller
@@ -426,7 +426,7 @@ jobs:
       statuses: write
     steps:
       - name: Check out trusted controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           path: controller
@@ -478,7 +478,7 @@ jobs:
       statuses: write
     steps:
       - name: Check out trusted controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           path: controller
@@ -529,7 +529,7 @@ jobs:
       pr_number: ${{ steps.identity.outputs.pr_number }}
     steps:
       - name: Check out trusted controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           path: controller
@@ -565,7 +565,7 @@ jobs:
       statuses: write
     steps:
       - name: Check out trusted controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           path: controller
@@ -599,7 +599,7 @@ jobs:
       pr_number: ${{ steps.identity.outputs.pr_number }}
     steps:
       - name: Check out trusted controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           path: controller
@@ -637,7 +637,7 @@ jobs:
       statuses: write
     steps:
       - name: Check out trusted controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           path: controller

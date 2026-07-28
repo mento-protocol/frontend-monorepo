@@ -48,11 +48,11 @@ const pnpmInstallAction = parse(
   read(".github/actions/pnpm-install/action.yml"),
 );
 
-const CHECKOUT = "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0";
+const CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
 const UPLOAD_PIN =
   "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
 const DOWNLOAD_PIN =
-  "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093";
+  "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c";
 
 function steps(job) {
   return workflow.jobs[job].steps ?? [];

@@ -19,7 +19,6 @@ updates:
 
     labels:
       - dependencies
-      - automated
 
     commit-message:
       prefix: chore(deps)
@@ -121,8 +120,6 @@ updates:
 
     labels:
       - dependencies
-      - github-actions
-      - automated
 
     commit-message:
       prefix: chore(ci)

@@ -40,7 +40,7 @@ jobs:
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
       - name: Check out trusted workflow controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -53,7 +53,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/vercel-main-ci-attempt.mjs verify
       - name: Check out exact deployment source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           path: source
@@ -86,14 +86,14 @@ jobs:
       VERCEL_PROJECT_ID_RESERVE: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
       VERCEL_PROJECT_ID_UI: ${{ vars.VERCEL_PROJECT_ID_UI }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
             fetch-depth: 1,
             persist-credentials: false,
             ref: "${{ github.workflow_sha }}",
           }
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
             fetch-depth: 0,
@@ -189,7 +189,7 @@ jobs:
       VERCEL_PROJECT_ID_UI: ${{ vars.VERCEL_PROJECT_ID_UI }}
     steps:
       - name: Check out immutable inherited recovery controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
             fetch-depth: 1,
@@ -197,7 +197,7 @@ jobs:
             ref: "${{ github.workflow_sha }}",
           }
       - name: Check out exact admitted inherited recovery source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
             fetch-depth: 0,
@@ -696,7 +696,7 @@ jobs:
       VERCEL_PROJECT_ID_UI: ${{ vars.VERCEL_PROJECT_ID_UI }}
     steps:
       - name: Check out immutable release preparation controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
             fetch-depth: 1,
@@ -704,7 +704,7 @@ jobs:
             ref: "${{ github.workflow_sha }}",
           }
       - name: Check out exact admitted release preparation source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
             fetch-depth: 0,
@@ -791,7 +791,7 @@ jobs:
       VERCEL_PROJECT_ID_GOVERNANCE: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
     steps:
       - name: Check out trusted governance controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
             fetch-depth: 1,
@@ -799,7 +799,7 @@ jobs:
             ref: "${{ github.workflow_sha }}",
           }
       - name: Check out exact governance source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
             fetch-depth: 0,
@@ -922,7 +922,7 @@ jobs:
           vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
       - name: Restore trusted governance controller after build
         if: steps.preflight.outputs.action == 'create'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
             fetch-depth: 1,
@@ -995,7 +995,7 @@ jobs:
       VERCEL_PROJECT_ID_RESERVE: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
     steps:
       - name: Check out trusted reserve controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
             fetch-depth: 1,
@@ -1003,7 +1003,7 @@ jobs:
             ref: "${{ github.workflow_sha }}",
           }
       - name: Check out exact reserve source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
             fetch-depth: 0,
@@ -1125,7 +1125,7 @@ jobs:
           vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
       - name: Restore trusted reserve controller after build
         if: steps.preflight.outputs.action == 'create'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
             fetch-depth: 1,
@@ -1198,7 +1198,7 @@ jobs:
       VERCEL_PROJECT_ID_UI: ${{ vars.VERCEL_PROJECT_ID_UI }}
     steps:
       - name: Check out trusted UI controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
             fetch-depth: 1,
@@ -1206,7 +1206,7 @@ jobs:
             ref: "${{ github.workflow_sha }}",
           }
       - name: Check out exact UI source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
             fetch-depth: 0,
@@ -1327,7 +1327,7 @@ jobs:
           vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_UI }}
       - name: Restore trusted UI controller after build
         if: steps.preflight.outputs.action == 'create'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
             fetch-depth: 1,
@@ -1403,14 +1403,14 @@ jobs:
       VERCEL_PROJECT_ID_RESERVE: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
       VERCEL_PROJECT_ID_UI: ${{ vars.VERCEL_PROJECT_ID_UI }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
             fetch-depth: 1,
             persist-credentials: false,
             ref: "${{ github.workflow_sha }}",
           }
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
             fetch-depth: 0,
@@ -2199,7 +2199,7 @@ jobs:
       VERCEL_PROJECT_ID_UI: ${{ vars.VERCEL_PROJECT_ID_UI }}
     steps:
       - name: Check out immutable recovery controller
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
             fetch-depth: 1,
@@ -2207,7 +2207,7 @@ jobs:
             ref: "${{ github.workflow_sha }}",
           }
       - name: Check out exact admitted recovery source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
             fetch-depth: 0,
@@ -2249,7 +2249,7 @@ jobs:
         id: journal-identity
         run: node scripts/vercel-main-deployment.mjs active-journal-identity
       - name: Download only this run and attempt's journal artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           github-token: ${{ github.token }}
           pattern: ${{ steps.journal-identity.outputs.artifact_prefix }}*
@@ -2827,7 +2827,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
             fetch-depth: 1,
