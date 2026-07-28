@@ -19,10 +19,10 @@ test("allows the reviewed app and bridge origins in their required directives", 
     storageHostname: "storage.example",
   });
 
-  const connectSrc = directiveSources(csp, "connect-src");
-  const styleSrc = directiveSources(csp, "style-src");
-  const fontSrc = directiveSources(csp, "font-src");
-  const imgSrc = directiveSources(csp, "img-src");
+  const connectSrc = new Set(directiveSources(csp, "connect-src"));
+  const styleSrc = new Set(directiveSources(csp, "style-src"));
+  const fontSrc = new Set(directiveSources(csp, "font-src"));
+  const imgSrc = new Set(directiveSources(csp, "img-src"));
 
   for (const origin of [
     "https://li.quest",
@@ -32,16 +32,25 @@ test("allows the reviewed app and bridge origins in their required directives", 
     "wss://metamask-sdk.api.cx.metamask.io",
     "https://rpc.example",
   ]) {
-    assert.ok(connectSrc.includes(origin), `${origin} must be in connect-src`);
+    assert.equal(
+      connectSrc.has(origin),
+      true,
+      `${origin} must be in connect-src`,
+    );
   }
 
   assert.equal(
-    connectSrc.filter((source) => source === "https://rpc.example").length,
+    directiveSources(csp, "connect-src").filter(
+      (source) => source === "https://rpc.example",
+    ).length,
     1,
   );
-  assert.ok(styleSrc.includes("https://fonts.googleapis.com"));
-  assert.ok(fontSrc.includes("https://fonts.gstatic.com"));
-  assert.ok(imgSrc.includes("https://coin-images.coingecko.com"));
+  assert.equal(styleSrc.has("https://fonts.googleapis.com"), true);
+  assert.equal(fontSrc.has("https://fonts.gstatic.com"), true);
+  assert.equal(imgSrc.has("https://coin-images.coingecko.com"), true);
+  assert.equal(connectSrc.has("https://coin-images.coingecko.com"), false);
+  assert.equal(styleSrc.has("https://coin-images.coingecko.com"), false);
+  assert.equal(fontSrc.has("https://coin-images.coingecko.com"), false);
   assert.ok(csp.endsWith("report-uri https://sentry.example/security"));
 });
 
@@ -49,21 +58,34 @@ test("keeps unsupported chains and injected browser origins denied", () => {
   const csp = buildAppReportOnlyCsp({
     storageHostname: "storage.example",
   });
+  const allSources = new Set(
+    csp
+      .split(";")
+      .flatMap((directive) => directive.trim().split(/\s+/).slice(1)),
+  );
+  const directiveNames = new Set(
+    csp.split(";").map((directive) => directive.trim().split(/\s+/, 1)[0]),
+  );
 
   for (const deniedOrigin of [
-    "ethereum-rpc.publicnode.com",
-    "arbitrum-one-rpc.publicnode.com",
-    "scroll-rpc.publicnode.com",
-    "rpc-http.mezo.org",
-    "wallet.binance.com",
-    "api.trongrid.io",
-    "frontend-cdn.perplexity.ai",
-    "translate.google.com",
+    "https://ethereum-rpc.publicnode.com",
+    "https://arbitrum-one-rpc.publicnode.com",
+    "https://scroll-rpc.publicnode.com",
+    "https://jsonrpc-mezo.boar.network",
+    "https://rpc-http.mezo.org",
+    "https://wallet.binance.com",
+    "https://api.trongrid.io",
+    "https://frontend-cdn.perplexity.ai",
+    "https://translate.google.com",
+    "https://*.publicnode.com",
+    "https://*.metamask.io",
   ]) {
-    assert.doesNotMatch(csp, new RegExp(deniedOrigin.replaceAll(".", "\\.")));
+    assert.equal(
+      allSources.has(deniedOrigin),
+      false,
+      `${deniedOrigin} must stay out of the policy`,
+    );
   }
 
-  assert.doesNotMatch(csp, /https:\/\/\*\.publicnode\.com/);
-  assert.doesNotMatch(csp, /https:\/\/\*\.metamask\.io/);
-  assert.doesNotMatch(csp, /report-uri/);
+  assert.equal(directiveNames.has("report-uri"), false);
 });
