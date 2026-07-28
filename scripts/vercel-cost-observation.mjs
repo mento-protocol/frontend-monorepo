@@ -3867,11 +3867,10 @@ function auditObservation({ root, end, now }) {
 }
 
 function parseArguments(argv) {
-  invariant(
-    Array.isArray(argv) && argv.length > 0,
-    "Observation command is required",
-  );
-  const [command, ...rest] = argv;
+  invariant(Array.isArray(argv), "Observation command is required");
+  const normalizedArgv = argv[0] === "--" ? argv.slice(1) : argv;
+  invariant(normalizedArgv.length > 0, "Observation command is required");
+  const [command, ...rest] = normalizedArgv;
   invariant(
     [
       "init",
