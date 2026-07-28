@@ -290,6 +290,8 @@ test("inherited restoration proves and validates reuse before a durable bounded 
     proof.env.GITHUB_WORKFLOW_SHA,
     "${{ needs.wait-for-ci.outputs.deploy_sha }}",
   );
+  assert.match(proof.run, /validate-recovery-source/);
+  assert.doesNotMatch(proof.run, /\bvalidate-source\b/);
   const install = named(jobName, "without lifecycle scripts");
   assert.deepEqual(install.with, {
     "working-directory": "source",
@@ -1008,7 +1010,14 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
   );
   assert.equal(controller.with.ref, "${{ github.workflow_sha }}");
   assert.equal(source.with.ref, "${{ needs.wait-for-ci.outputs.deploy_sha }}");
-  assert.match(sourceProof("recover-main-deployment").run, /validate-source/);
+  assert.match(
+    sourceProof("recover-main-deployment").run,
+    /validate-recovery-source/,
+  );
+  assert.doesNotMatch(
+    sourceProof("recover-main-deployment").run,
+    /\bvalidate-source\b/,
+  );
   assert.deepEqual(
     steps("recover-main-deployment").find(
       (step) => step.uses === "./.github/actions/pnpm-install",

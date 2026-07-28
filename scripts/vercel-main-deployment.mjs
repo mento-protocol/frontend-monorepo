@@ -85,6 +85,7 @@ import {
 } from "./vercel-deployment-state.mjs";
 import {
   assertOnlyExpectedVercelGeneratedAliases,
+  validateImmutableMainRecoverySource,
   validateImmutableMainSource,
 } from "./vercel-production-shadow.mjs";
 import {
@@ -450,6 +451,7 @@ const CLI_COMMAND_OPTIONS = Object.freeze({
   "run-shadow": Object.freeze(["journal"]),
   "stage-result": Object.freeze(["output", "state"]),
   "validate-context": Object.freeze([]),
+  "validate-recovery-source": Object.freeze([]),
   "validate-source": Object.freeze([]),
   "validate-stages": Object.freeze([]),
 });
@@ -957,6 +959,20 @@ export function validateMainDeploymentSource({
   execute,
 }) {
   return validateImmutableMainSource({
+    sourcePath: repoRoot,
+    deploySha,
+    workflowSha,
+    ...(execute ? { execute } : {}),
+  });
+}
+
+export function validateMainDeploymentRecoverySource({
+  repoRoot,
+  deploySha,
+  workflowSha,
+  execute,
+}) {
+  return validateImmutableMainRecoverySource({
     sourcePath: repoRoot,
     deploySha,
     workflowSha,
@@ -9396,6 +9412,14 @@ export async function runMainDeploymentCli({
   }
   if (command === "validate-source") {
     validateMainDeploymentSource({
+      repoRoot: values.SOURCE_PATH,
+      deploySha: values.DEPLOY_SHA,
+      workflowSha: values.GITHUB_WORKFLOW_SHA,
+    });
+    return;
+  }
+  if (command === "validate-recovery-source") {
+    validateMainDeploymentRecoverySource({
       repoRoot: values.SOURCE_PATH,
       deploySha: values.DEPLOY_SHA,
       workflowSha: values.GITHUB_WORKFLOW_SHA,
