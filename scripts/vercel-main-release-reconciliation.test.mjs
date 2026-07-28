@@ -819,6 +819,23 @@ test("only a full terminal App candidate remains recoverable after at least one 
       aliases: [...state.manifest.originalPriors.app.aliases].sort(),
     },
   );
+  for (const currentMain of [true, false]) {
+    for (const preparation of ["ready", "failed", "pending", "producer-live"]) {
+      assert.deepEqual(
+        decideMainReleaseReconciliation({
+          reconciliation,
+          currentMain,
+          preparation,
+        }),
+        {
+          decision: "restore-inherited",
+          rollbackInherited: true,
+          reason: "terminal-app-recovery-residual",
+        },
+        `${currentMain ? "current" : "stale"} main with ${preparation} preparation`,
+      );
+    }
+  }
 });
 
 test("an App-only active candidate is a complete release, not a recovery residual", () => {

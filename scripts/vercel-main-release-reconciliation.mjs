@@ -1155,6 +1155,9 @@ export function decideMainReleaseReconciliation({
     !canonical.allPrior &&
     !canonical.allCandidate &&
     canonical.inheritedCandidateAliases.length > 0;
+  const terminalAppRecoveryResidual = isTerminalAppRecoveryResidual(
+    canonical.targets,
+  );
   if (canonical.allCandidate) {
     return {
       decision: currentMain ? "verify-noop" : "superseded-noop",
@@ -1162,6 +1165,13 @@ export function decideMainReleaseReconciliation({
       reason: currentMain
         ? "release-already-candidate"
         : "release-complete-before-main-advanced",
+    };
+  }
+  if (terminalAppRecoveryResidual) {
+    return {
+      decision: "restore-inherited",
+      rollbackInherited: true,
+      reason: "terminal-app-recovery-residual",
     };
   }
   if (!currentMain) {
