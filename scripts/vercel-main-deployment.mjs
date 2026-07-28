@@ -7538,6 +7538,10 @@ function finalJobsFromEnvironment(values) {
   };
 }
 
+function mainActiveJournalDeployShaFromEnvironment(values) {
+  return values.MAIN_ACTIVE_JOURNAL_DEPLOY_SHA ?? values.DEPLOY_SHA;
+}
+
 function finalActiveExecution(values, executionPath) {
   const deploySha = requireSha(
     values.DEPLOY_SHA,
@@ -8680,7 +8684,7 @@ export async function runMainDeploymentCli({
   }
   if (command === "active-journal-history") {
     const identity = createMainActiveJournalHistoryIdentity({
-      deploySha: values.DEPLOY_SHA,
+      deploySha: mainActiveJournalDeployShaFromEnvironment(values),
       runId: values.GITHUB_RUN_ID,
       runAttempt: values.GITHUB_RUN_ATTEMPT,
     });
@@ -8722,7 +8726,7 @@ export async function runMainDeploymentCli({
   }
   if (command === "active-journal-identity") {
     const identity = createMainActiveJournalHistoryIdentity({
-      deploySha: values.DEPLOY_SHA,
+      deploySha: mainActiveJournalDeployShaFromEnvironment(values),
       runId: values.GITHUB_RUN_ID,
       runAttempt: values.GITHUB_RUN_ATTEMPT,
     });

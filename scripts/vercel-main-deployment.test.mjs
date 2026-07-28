@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   mkdtempSync,
+  mkdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -5398,6 +5399,87 @@ test("active journal identity rejects missing and ambiguous artifact histories",
       }),
     /mode/,
   );
+});
+
+test("active journal CLI accepts an inherited release SHA only through its dedicated override", async () => {
+  const directory = mkdtempSync(
+    join(tmpdir(), "vercel-main-inherited-journal-"),
+  );
+  try {
+    const artifactsDirectory = join(directory, "journals");
+    const output = join(directory, "history.json");
+    const githubOutput = join(directory, "github-output");
+    const journal = createPreparedMainActiveJournal({
+      plan: activePlan(),
+      stageJobs: stageJobs(activePlan()),
+      appBuildProof: appProof(activePlan()),
+      runId: "800",
+      runAttempt: "3",
+    });
+    const artifactName = mainTransactionJournalArtifactName(journal);
+    mkdirSync(join(artifactsDirectory, artifactName), { recursive: true });
+    writeFileSync(
+      join(artifactsDirectory, artifactName, "main-journal.json"),
+      `${JSON.stringify(journal)}\n`,
+    );
+    writeFileSync(githubOutput, "");
+
+    const currentAttemptValues = {
+      DEPLOY_SHA: OTHER_SHA,
+      GITHUB_OUTPUT: githubOutput,
+      GITHUB_RUN_ID: "800",
+      GITHUB_RUN_ATTEMPT: "3",
+    };
+    const historyArguments = [
+      "active-journal-history",
+      "--artifacts",
+      artifactsDirectory,
+      "--output",
+      output,
+    ];
+
+    await assert.rejects(
+      runMainDeploymentCli({
+        argv: historyArguments,
+        values: currentAttemptValues,
+      }),
+      /No active journal artifacts match the transaction/,
+    );
+
+    const inheritedIdentity = await runMainDeploymentCli({
+      argv: ["active-journal-identity"],
+      values: {
+        ...currentAttemptValues,
+        MAIN_ACTIVE_JOURNAL_DEPLOY_SHA: SHA,
+      },
+    });
+    assert.equal(inheritedIdentity.deploySha, SHA);
+    assert.equal(inheritedIdentity.transactionId, journal.transactionId);
+
+    const history = await runMainDeploymentCli({
+      argv: historyArguments,
+      values: {
+        ...currentAttemptValues,
+        MAIN_ACTIVE_JOURNAL_DEPLOY_SHA: SHA,
+      },
+    });
+    assert.deepEqual(history.journals, [journal]);
+    assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), history);
+
+    await assert.rejects(
+      runMainDeploymentCli({
+        argv: historyArguments,
+        values: {
+          ...currentAttemptValues,
+          MAIN_ACTIVE_JOURNAL_DEPLOY_SHA: SHA,
+          GITHUB_RUN_ATTEMPT: "4",
+        },
+      }),
+      /No active journal artifacts match the transaction/,
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("active recovery planning and execution hand off exact reverse mutations and stay release-failing", async () => {
