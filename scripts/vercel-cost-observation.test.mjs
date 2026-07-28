@@ -1288,6 +1288,113 @@ test("capture-preview accepts a controller event for a non-main base", () => {
   assert.equal(result.exitCode, 0);
 });
 
+test("capture-preview keeps boundary facts selection-bound", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  const sourceEvent = fixture("preview-event.json");
+  const event = {
+    ...sourceEvent,
+    plan: {
+      ...sourceEvent.plan,
+      targets: ["ui"],
+      reason: "affected-packages",
+    },
+  };
+  const routes = previewRoutes(event);
+  const deploymentPages = routes.get(
+    `api --method GET --paginate --slurp repos/mento-protocol/frontend-monorepo/deployments?sha=${event.head_sha}&per_page=100`,
+  );
+  deploymentPages[0].push({
+    id: 7_991,
+    sha: event.head_sha,
+    ref: event.head_sha,
+    environment: `preview/ui/pr-${event.pr}`,
+    payload: { provenance: "unrelated-same-sha-deployment" },
+  });
+  routes.set(
+    "api --method GET --paginate --slurp repos/mento-protocol/frontend-monorepo/deployments/7991/statuses?per_page=100",
+    [
+      [
+        {
+          id: 7_992,
+          state: "inactive",
+          log_url: null,
+          environment_url: null,
+          created_at: "2026-08-05T00:00:30.000Z",
+          creator: { type: "Bot", login: "github-actions[bot]" },
+        },
+      ],
+    ],
+  );
+  const result = runVercelCostObservation({
+    argv: ["capture-preview", "--pr", "700", "--event-run-id", "9001"],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: fakeGh(routes),
+    stdout: output().stream,
+  });
+  assert.equal(result.exitCode, 0);
+  const capture = JSON.parse(
+    readFileSync(
+      join(observationRoot(cwd), "preview", "9001", "capture.json"),
+      "utf8",
+    ),
+  );
+  const rawDeployments = JSON.parse(
+    readFileSync(
+      join(observationRoot(cwd), "preview", "9001", "raw", "deployments.json"),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(
+    rawDeployments.map(({ deployment }) => String(deployment.id)),
+    ["7001", "7991"],
+  );
+  assert.equal(rawDeployments[1].statuses[0].state, "inactive");
+  assert.deepEqual(capture.canonicalDerivedFacts.githubDeploymentIds, ["7001"]);
+  assert.deepEqual(
+    capture.canonicalDerivedFacts.githubDeploymentTerminalStatuses.map(
+      ({ statusId, createdAtUtc }) => ({ statusId, createdAtUtc }),
+    ),
+    [
+      {
+        statusId: "7002",
+        createdAtUtc: "2026-07-29T01:03:00.000Z",
+      },
+    ],
+  );
+
+  seedAuditEligiblePreviewCaptures(cwd, 9);
+  const controllerRun = routes.get(
+    "api --method GET repos/mento-protocol/frontend-monorepo/actions/runs/9001",
+  );
+  const workerRun = routes.get(
+    "api --method GET repos/mento-protocol/frontend-monorepo/actions/runs/8001/attempts/1",
+  );
+  runVercelCostObservation({
+    argv: ["sample-github"],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: fakeGh(githubSampleRoutes({ runs: [controllerRun, workerRun] })),
+    stdout: output().stream,
+  });
+  const auditResult = runVercelCostObservation({
+    argv: ["audit", "--end", END],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: () => {
+      throw new Error("audit must remain offline");
+    },
+    stdout: output().stream,
+  });
+  assert.equal(auditResult.exitCode, 1);
+  const audit = JSON.parse(
+    readFileSync(join(observationRoot(cwd), "audit.json"), "utf8"),
+  );
+  assert.deepEqual(audit.inventory.endBoundaryStraddlerIds, []);
+  assert.equal(audit.gaps.includes("end-boundary-work-not-drained"), false);
+});
+
 test("capture-preview validates a controller-upgrade reselection chain", () => {
   const cwd = workspace();
   runInit(cwd);

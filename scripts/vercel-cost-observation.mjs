@@ -1233,6 +1233,7 @@ function validatePreviewDeployment({
     matchingStatuses.length === 1,
     "GitHub Deployment terminal status is missing or ambiguous",
   );
+  return matchingStatuses[0];
 }
 
 function validateTerminalPreviewReceipts({
@@ -1309,6 +1310,7 @@ function validateTerminalPreviewReceipts({
     deploymentsWithStatuses.map((item) => [String(item.deployment.id), item]),
   );
   const references = [];
+  const validatedDeploymentStatuses = [];
   for (const selection of selections) {
     const evidence = worker.evidence.filter(
       (entry) => entry.key_digest === selection.key_digest,
@@ -1378,11 +1380,15 @@ function validateTerminalPreviewReceipts({
         deployment !== undefined,
         "Preview result GitHub Deployment is missing",
       );
-      validatePreviewDeployment({
+      const status = validatePreviewDeployment({
         ...deployment,
         selection,
         evidence: receipt,
         result,
+      });
+      validatedDeploymentStatuses.push({
+        deploymentId: String(deployment.deployment.id),
+        status,
       });
       references.push({
         kind: "worker",
@@ -1399,9 +1405,22 @@ function validateTerminalPreviewReceipts({
     uniqueReferences.length === worker.references.length,
     "Preview worker references include unbound receipts",
   );
+  const uniqueDeploymentStatuses = new Map();
+  for (const pair of validatedDeploymentStatuses) {
+    const statusId = positiveId(pair.status.id, "Preview deployment status ID");
+    const prior = uniqueDeploymentStatuses.get(statusId);
+    invariant(
+      prior === undefined ||
+        (prior.deploymentId === pair.deploymentId &&
+          canonicalJson(prior.status) === canonicalJson(pair.status)),
+      "Preview deployment terminal status conflicts across selection receipts",
+    );
+    uniqueDeploymentStatuses.set(statusId, pair);
+  }
   return {
     references: uniqueReferences,
     currentSelections,
+    validatedDeploymentStatuses: [...uniqueDeploymentStatuses.values()],
   };
 }
 
@@ -1988,17 +2007,20 @@ function capturePreview({ root, pr, eventRunId, dependencies }) {
     const worker = relevantWorkerReferences(journal, selections);
     const decision = statusDecisionForEvent(journal, event);
     const sentinel = latestSentinelStatus(statuses);
-    const { references: validatedReferences, currentSelections } =
-      validateTerminalPreviewReceipts({
-        journal,
-        event,
-        selections,
-        worker,
-        decision,
-        sentinel,
-        controllerRun,
-        deploymentsWithStatuses,
-      });
+    const {
+      references: validatedReferences,
+      currentSelections,
+      validatedDeploymentStatuses,
+    } = validateTerminalPreviewReceipts({
+      journal,
+      event,
+      selections,
+      worker,
+      decision,
+      sentinel,
+      controllerRun,
+      deploymentsWithStatuses,
+    });
     const capturedWorkers = [];
     const capturedControllerSyntheticRuns = [];
 
@@ -2155,26 +2177,21 @@ function capturePreview({ root, pr, eventRunId, dependencies }) {
         ),
         capturedWorkers,
         capturedControllerSyntheticRuns,
-        githubDeploymentIds: deploymentsWithStatuses.map(({ deployment }) =>
-          String(deployment.id),
-        ),
-        githubDeploymentTerminalStatuses: deploymentsWithStatuses.flatMap(
-          ({ deployment, statuses: deploymentStatuses }) =>
-            deploymentStatuses
-              .filter((status) =>
-                ["success", "failure", "error", "inactive"].includes(
-                  status.state,
-                ),
-              )
-              .map((status) => ({
-                deploymentId: String(deployment.id),
-                statusId: positiveId(status.id, "Preview deployment status ID"),
-                state: status.state,
-                createdAtUtc: exactUtc(
-                  status.created_at,
-                  "Preview deployment status time",
-                ),
-              })),
+        githubDeploymentIds: [
+          ...new Set(
+            validatedDeploymentStatuses.map(({ deploymentId }) => deploymentId),
+          ),
+        ],
+        githubDeploymentTerminalStatuses: validatedDeploymentStatuses.map(
+          ({ deploymentId, status }) => ({
+            deploymentId,
+            statusId: positiveId(status.id, "Preview deployment status ID"),
+            state: status.state,
+            createdAtUtc: exactUtc(
+              status.created_at,
+              "Preview deployment status time",
+            ),
+          }),
         ),
         evidenceComplete,
       },
