@@ -5,6 +5,7 @@ import process from "node:process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { createBrowserDeploymentIdentityMonitor } from "../apps/ui.mento.org/e2e/vercel-preview-browser-smoke.mjs";
 import { loadTrustedChromium } from "./vercel-preview-browser-smoke.mjs";
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
@@ -389,7 +390,12 @@ async function interactWithReserve(page, origin) {
   );
 }
 
-async function interactWithUi(page, origin) {
+async function interactWithUi(
+  page,
+  origin,
+  deploymentIdentityMonitor,
+  timeoutMs,
+) {
   await page
     .getByRole("heading", { name: "Basic Components", exact: true })
     .waitFor({ state: "visible" });
@@ -408,6 +414,7 @@ async function interactWithUi(page, origin) {
     exact: true,
   });
   await checkbox.waitFor({ state: "visible" });
+  await deploymentIdentityMonitor.waitForIdle(timeoutMs);
   await checkbox.click();
   await page.waitForFunction(uiCheckboxStateMatches);
   invariant(
@@ -416,11 +423,17 @@ async function interactWithUi(page, origin) {
   );
 }
 
-async function runTargetInteraction(page, target, origin) {
+async function runTargetInteraction(
+  page,
+  target,
+  origin,
+  deploymentIdentityMonitor,
+  timeoutMs,
+) {
   if (target === "app") return interactWithApp(page);
   if (target === "governance") return interactWithGovernance(page, origin);
   if (target === "reserve") return interactWithReserve(page, origin);
-  return interactWithUi(page, origin);
+  return interactWithUi(page, origin, deploymentIdentityMonitor, timeoutMs);
 }
 
 function assertExactPageLocation(page, expectedUrl, label) {
@@ -464,6 +477,10 @@ export async function runMainRuntimeSmoke({
     page.setDefaultTimeout(timeoutMs);
     page.setDefaultNavigationTimeout(timeoutMs);
     const monitor = createMainRuntimeMonitor(page, publicUrl.origin);
+    const deploymentIdentityMonitor =
+      input.logicalTarget === "ui"
+        ? createBrowserDeploymentIdentityMonitor(page, publicUrl.origin)
+        : undefined;
     const response = await page.goto(publicUrl.toString(), {
       waitUntil: "domcontentloaded",
     });
@@ -481,7 +498,13 @@ export async function runMainRuntimeSmoke({
     assertMainRuntimeSecurityHeaders(response.headers(), input.deploySha);
 
     await page.waitForLoadState("load");
-    await runTargetInteraction(page, input.logicalTarget, publicUrl.origin);
+    await runTargetInteraction(
+      page,
+      input.logicalTarget,
+      publicUrl.origin,
+      deploymentIdentityMonitor,
+      timeoutMs,
+    );
     await page.waitForTimeout(500);
     const expectedFinalUrl = new URL(config.finalPath, publicUrl);
     if (input.logicalTarget === "reserve") {
