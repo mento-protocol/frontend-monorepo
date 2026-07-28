@@ -2544,6 +2544,17 @@ test("workflow context and source proof bind the default-branch definition to DE
   );
 });
 
+test("recovery source CLI dispatches the ancestor-permitting validator", async () => {
+  await assert.rejects(
+    () =>
+      runMainDeploymentCli({
+        argv: ["validate-recovery-source"],
+        values: {},
+      }),
+    /DEPLOY_SHA/,
+  );
+});
+
 test("recovery source proof permits only a newer main descendant of the admitted SHA", () => {
   const descendantCalls = [];
   const descendantMain = (_command, args) => {

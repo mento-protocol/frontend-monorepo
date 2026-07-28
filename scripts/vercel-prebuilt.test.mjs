@@ -43,11 +43,11 @@ const scriptPath = fileURLToPath(
 );
 const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567";
 const CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
-  "505674eac656c26fce2fe912a2b14228f8f4f3edd4b3d6d7b0f2c9f08c276d76";
+  "502ae12a4d142ee9766beae1a76a72532cefa913c9a8ab9b0d9052ceb92e6716";
 const NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
-  "884e3c4186c9d5faee0e6cf710b112e7e60cdae5d46be13da1b2b0ae9cf11eb0";
+  "581be03c45aa811202429a16fd7355fb6415d8cd2d194eb478ea6cfe117f165d";
 const BRACE_EXPANSION_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
-  "773226619ef0f73252aa2921cc3cedb69908bc21f08362857df25ae9777c0ff3";
+  "a8341932863259f7abf6dd354911cf4b13beb15b77c98c763377fcfed13f279b";
 const REVIEWED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 = new Set([
   CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
   NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
@@ -335,11 +335,11 @@ test("resolved Next.js and exact Vercel CLI satisfy custom-ID prerequisites", ()
   const prerequisites = assertDeploymentIdPrerequisites(repoRoot);
   const expected = {
     next: "16.2.11",
-    vercel: "56.2.0",
+    vercel: "56.4.1",
     vercelCliRuntime: {
       lockfileSha256: prerequisites.vercelCliRuntime.lockfileSha256,
       patchRequired: true,
-      vercel: "56.2.0",
+      vercel: "56.4.1",
     },
   };
   assert.ok(
@@ -359,7 +359,7 @@ test("resolved Next.js and exact Vercel CLI satisfy custom-ID prerequisites", ()
     expected,
   );
   assert.equal(isVersionGreaterThan("16.2.10", "16.2.0-canary.15"), true);
-  assert.equal(isVersionGreaterThan("56.2.0", "50.3.3"), true);
+  assert.equal(isVersionGreaterThan("56.4.1", "50.3.3"), true);
 });
 
 test("trusted controller accepts only the reviewed Vercel CLI runtime lockfile rotation", () => {
@@ -421,6 +421,14 @@ test("trusted controller accepts only the reviewed Vercel CLI runtime lockfile r
     const reviewedCurrentOverrides = toCurrentVercelCliRuntimeOverrides(
       reviewedNextOverrides,
     );
+    assert.equal(
+      sha256(reviewedCurrentLockfile),
+      CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
+    );
+    assert.equal(
+      sha256(reviewedNextLockfile),
+      NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
+    );
     const prePatchStates = [
       {
         lockfileSha256: CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
@@ -481,7 +489,11 @@ test("trusted controller accepts only the reviewed Vercel CLI runtime lockfile r
       writeVercelCliRuntimeOverrides({ ...contractPaths, overrides });
       writeFileSync(lockfilePath, lockfile);
       assert.throws(
-        () => assertVercelCliRuntimeContract(contractPaths),
+        () =>
+          assertVercelCliRuntimeContract({
+            ...contractPaths,
+            trustedRuntimeStates: prePatchStates,
+          }),
         /lockfile and overrides are not an approved pair/,
       );
     }
@@ -548,6 +560,7 @@ test("trusted controller accepts only the reviewed Vercel CLI runtime lockfile r
       {
         lockfileSha256: sha256(patchedLockfile),
         overridesSha256: canonicalOverrideSha256(reviewedNextOverrides),
+        rootPatchSha256: sha256(patchContents),
         patchSha256: sha256(patchContents),
       },
     ];
@@ -560,7 +573,7 @@ test("trusted controller accepts only the reviewed Vercel CLI runtime lockfile r
       {
         lockfileSha256: sha256(patchedLockfile),
         patchRequired: true,
-        vercel: "56.2.0",
+        vercel: "56.4.1",
       },
     );
     assert.equal(
