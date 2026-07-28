@@ -1906,6 +1906,24 @@ function currentStateProject({ current, barrier, target, candidate }) {
   ];
 }
 
+function currentStateProjection(current) {
+  // Release execution is canonical in activation order (Governance, Reserve,
+  // UI, App). Active deployment-state artifacts use the public-state order
+  // (App, Governance, Reserve, UI), so project the already-validated
+  // execution partitions into that contract order at this boundary.
+  return {
+    stagedTargets: STAGE_BARRIER_TARGETS.filter((target) =>
+      current.execution.projection.stagedTargets.includes(target),
+    ),
+    activeTargets: STAGE_BARRIER_TARGETS.filter((target) =>
+      current.execution.projection.activeTargets.includes(target),
+    ),
+    shadowTargets: STAGE_BARRIER_TARGETS.filter((target) =>
+      current.execution.projection.shadowTargets.includes(target),
+    ),
+  };
+}
+
 export function createMainCurrentActiveDeploymentStateSpec({
   execution,
   barrier,
@@ -1924,16 +1942,17 @@ export function createMainCurrentActiveDeploymentStateSpec({
     runId,
     runAttempt,
   });
-  const active = current.execution.projection.activeTargets;
-  const shadow = current.execution.projection.shadowTargets;
-  const staged = current.execution.projection.stagedTargets;
+  const { stagedTargets, activeTargets, shadowTargets } =
+    currentStateProjection(current);
   const projects = Object.fromEntries(
     STAGE_BARRIER_TARGETS.map((target) =>
       currentStateProject({
         current,
         barrier: canonicalBarrier,
         target,
-        candidate: active.includes(target) ? highest.candidates[target] : null,
+        candidate: activeTargets.includes(target)
+          ? highest.candidates[target]
+          : null,
       }),
     ),
   );
@@ -1946,9 +1965,9 @@ export function createMainCurrentActiveDeploymentStateSpec({
     transactionId: highest.transactionId,
     releaseManifest: current.execution.manifest,
     mainOwnershipMode: current.execution.manifest.mainOwnershipMode,
-    stagedTargets: staged,
-    activeTargets: active,
-    shadowTargets: shadow,
+    stagedTargets,
+    activeTargets,
+    shadowTargets,
     projects,
     legacyAppV2: {
       alias: legacy.alias,
@@ -1976,6 +1995,8 @@ export function createMainCurrentReleaseVerifiedDeploymentStateSpec({
     runId,
     runAttempt,
   });
+  const { stagedTargets, activeTargets, shadowTargets } =
+    currentStateProjection(current);
   const legacy = current.execution.legacyAppV2;
   return assertActiveDeploymentStateSpec({
     schema: ACTIVE_DEPLOYMENT_STATE_SPEC_SCHEMA,
@@ -1985,16 +2006,16 @@ export function createMainCurrentReleaseVerifiedDeploymentStateSpec({
     transactionId: createMainTransactionId(current.identity),
     releaseManifest: current.execution.manifest,
     mainOwnershipMode: current.execution.manifest.mainOwnershipMode,
-    stagedTargets: current.execution.projection.stagedTargets,
-    activeTargets: current.execution.projection.activeTargets,
-    shadowTargets: current.execution.projection.shadowTargets,
+    stagedTargets,
+    activeTargets,
+    shadowTargets,
     projects: Object.fromEntries(
       STAGE_BARRIER_TARGETS.map((target) =>
         currentStateProject({
           current,
           barrier: canonicalBarrier,
           target,
-          candidate: current.execution.projection.activeTargets.includes(target)
+          candidate: activeTargets.includes(target)
             ? canonicalBarrier.stages[target].receipt.candidate
             : null,
         }),
