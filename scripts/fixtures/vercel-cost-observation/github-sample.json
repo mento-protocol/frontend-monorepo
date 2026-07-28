@@ -1,0 +1,35 @@
+{
+  "repository": {
+    "private": false,
+    "visibility": "public"
+  },
+  "caches": {
+    "total_count": 1,
+    "actions_caches": [
+      {
+        "id": 71,
+        "ref": "refs/heads/main",
+        "key": "fixture-cache",
+        "size_in_bytes": 1024,
+        "created_at": "2026-07-29T00:10:00.000Z",
+        "last_accessed_at": "2026-07-29T01:10:00.000Z"
+      }
+    ]
+  },
+  "artifacts": {
+    "total_count": 1,
+    "artifacts": [
+      {
+        "id": 81,
+        "name": "fixture-artifact",
+        "size_in_bytes": 2048,
+        "expired": false,
+        "created_at": "2026-07-29T00:20:00.000Z",
+        "expires_at": "2026-08-12T00:20:00.000Z",
+        "workflow_run": {
+          "id": 9001
+        }
+      }
+    ]
+  }
+}
