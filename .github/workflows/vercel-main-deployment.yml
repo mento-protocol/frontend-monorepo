@@ -2339,6 +2339,7 @@ jobs:
         env:
           AFTER_UPLOAD_ACTION: ${{ steps.initialize.outputs.after_upload_action }}
           ARTIFACT_NAME: ${{ steps.initialize.outputs.journal_artifact_name }}
+          HIGHEST_STATUS: ${{ steps.journal-history.outputs.highest_status }}
           INITIALIZE_OUTCOME: ${{ steps.initialize.outcome }}
           NEXT_ACTION: ${{ steps.initialize.outputs.next_action }}
           RECOVERY_MAPPINGS_OUTCOME: ${{ steps.recovery-mappings.outcome }}
@@ -2351,13 +2352,23 @@ jobs:
             exit 0
           fi
           test "$INITIALIZE_OUTCOME" = success
+          test "$AFTER_UPLOAD_ACTION" = none
+          test "$ARTIFACT_NAME" = none
           case "$TRANSITION_KIND" in
-            recovery-not-required) test "$NEXT_ACTION" = fail-after-evidence ;;
+            recovery-not-required)
+              test "$NEXT_ACTION" = fail-after-evidence
+              case "$HIGHEST_STATUS" in
+                recovered|manual_intervention)
+                  install -m 0600 "$RUNNER_TEMP/current-attempt-journals/current-history.json" "$RUNNER_TEMP/recovered-history.json"
+                  echo 'outcome=terminal-bypass' >> "$GITHUB_OUTPUT"
+                  echo "terminal_status=$HIGHEST_STATUS" >> "$GITHUB_OUTPUT"
+                  exit 0
+                  ;;
+              esac
+              ;;
             recovery-ready) test "$NEXT_ACTION" = dispatch ;;
             *) exit 1 ;;
           esac
-          test "$AFTER_UPLOAD_ACTION" = none
-          test "$ARTIFACT_NAME" = none
           echo 'outcome=recovery-failed' >> "$GITHUB_OUTPUT"
       - name: Require initialized recovery journal checkpoint
         if: >-
@@ -2625,10 +2636,11 @@ jobs:
         id: recovery-terminal
         if: >-
           steps.journal-presence.outputs.has_journal == 'true' &&
-          steps.initialize.outputs.transition_kind == 'journal'
+          (steps.initialize.outputs.transition_kind == 'journal' ||
+          steps.recovery-failed.outputs.outcome == 'terminal-bypass')
         env:
           {
-            RECOVERY_STATUS: "${{ steps.recovered-head.outputs.highest_status }}",
+            RECOVERY_STATUS: "${{ steps.recovery-failed.outputs.terminal_status || steps.recovered-head.outputs.highest_status }}",
           }
         run: |
           set -euo pipefail
@@ -2643,6 +2655,7 @@ jobs:
           steps.journal-presence.outcome == 'success' &&
           (steps.journal-presence.outputs.has_journal != 'true' ||
           steps.recovery-failed.outputs.outcome == 'recovery-failed' ||
+          steps.recovery-failed.outputs.outcome == 'terminal-bypass' ||
           (steps.initialize.outputs.transition_kind == 'journal' && !failure()))
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}

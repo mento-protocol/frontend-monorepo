@@ -1137,7 +1137,11 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
   );
   assert.match(
     classifyRecoveryFailure.run,
-    /recovery-not-required\) test "\$NEXT_ACTION" = fail-after-evidence[\s\S]*recovery-ready\) test "\$NEXT_ACTION" = dispatch[\s\S]*AFTER_UPLOAD_ACTION[\s\S]*none[\s\S]*ARTIFACT_NAME[\s\S]*none[\s\S]*outcome=recovery-failed/,
+    /AFTER_UPLOAD_ACTION[\s\S]*none[\s\S]*ARTIFACT_NAME[\s\S]*none[\s\S]*recovery-not-required\)[\s\S]*NEXT_ACTION[\s\S]*fail-after-evidence[\s\S]*HIGHEST_STATUS[\s\S]*recovered\|manual_intervention[\s\S]*current-history\.json[\s\S]*recovered-history\.json[\s\S]*outcome=terminal-bypass[\s\S]*terminal_status=[\s\S]*exit 0[\s\S]*recovery-ready\) test "\$NEXT_ACTION" = dispatch[\s\S]*outcome=recovery-failed/,
+  );
+  assert.match(
+    classifyRecoveryFailure.env.HIGHEST_STATUS,
+    /steps\.journal-history\.outputs\.highest_status/,
   );
   assert.doesNotMatch(
     JSON.stringify(classifyRecoveryFailure),
@@ -1204,7 +1208,7 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
     );
     assert.doesNotMatch(
       transition.if,
-      /recovery-ready/,
+      /recovery-ready|terminal-bypass/,
       transition.name ?? transition.uses,
     );
     assert.equal(
@@ -1219,6 +1223,18 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
   assert.match(
     named("recover-main-deployment", "recovered or manual terminal").run,
     /recovered[\s\S]*manual_intervention/,
+  );
+  const recoveryTerminal = named(
+    "recover-main-deployment",
+    "Require a recovered or manual terminal recovery journal",
+  );
+  assert.match(
+    recoveryTerminal.if,
+    /steps\.recovery-failed\.outputs\.outcome == 'terminal-bypass'/,
+  );
+  assert.match(
+    recoveryTerminal.env.RECOVERY_STATUS,
+    /steps\.recovery-failed\.outputs\.terminal_status[\s\S]*steps\.recovered-head\.outputs\.highest_status/,
   );
   const preparationFailure = named(
     "recover-main-deployment",
@@ -1246,6 +1262,7 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
     recoveryFailedTerminal.if,
     /steps\.recovery-failed\.outputs\.outcome == 'recovery-failed'/,
   );
+  assert.doesNotMatch(recoveryFailedTerminal.if, /terminal-bypass/);
   assert.match(
     recoveryFailedTerminal.run,
     /terminal-artifacts[\s\S]*--journal-history[\s\S]*current-history[\s\S]*--legacy-v2[\s\S]*recovery-final-legacy[\s\S]*--outcome recovery-failed/,
@@ -1267,6 +1284,10 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
   assert.match(
     freshLegacyProof.if,
     /steps\.recovery-failed\.outputs\.outcome == 'recovery-failed'/,
+  );
+  assert.match(
+    freshLegacyProof.if,
+    /steps\.recovery-failed\.outputs\.outcome == 'terminal-bypass'/,
   );
   assert.match(
     command("recover-main-deployment", "active-recovery-state-spec").run,
