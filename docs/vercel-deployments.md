@@ -72,9 +72,9 @@ API record with `scripts/vercel-main-ci-attempt.mjs`. The accepted run must:
 The job then requires `github.workflow_ref` to identify
 `.github/workflows/vercel-main-deployment.yml` on `refs/heads/main`,
 `github.workflow_sha == DEPLOY_SHA`, checked-out `HEAD == DEPLOY_SHA`, and
-`DEPLOY_SHA` reachable from freshly fetched `refs/heads/main`. A mismatched
-workflow definition or superseded definition exits before any Vercel
-environment or credential is available. The gate records only the
+`DEPLOY_SHA` to be the freshly fetched `origin/main` tip after first proving
+ancestry. A mismatched workflow definition or superseded source exits before
+any Vercel environment or credential is available. The gate records only the
 attempt-qualified upstream run URL, exact `Build and Test` job URL, and
 `DEPLOY_SHA`; release execution validates the attempt suffix against the
 separately admitted run attempt.
@@ -405,6 +405,16 @@ returned an unknown
 result and the captured mappings show possible movement,
 recovery uses the bounded exact transaction-metadata census; zero, multiple,
 or mismatched candidates leave App untouched and require manual intervention.
+
+Every current-attempt or inherited recovery source proof still requires the
+admitted `DEPLOY_SHA` to exist, equal both the checked-out `HEAD` and
+`GITHUB_WORKFLOW_SHA`, and remain an ancestor of freshly fetched `origin/main`.
+Unlike forward admission, recovery deliberately permits `origin/main` to be a
+newer descendant. A later main push can therefore stop forward work without
+blocking compensation for an already-admitted transaction. An unrelated main
+history, workflow-SHA mismatch, or checked-out-HEAD mismatch still fails closed
+before any recovery step references provider credentials.
+
 A started App deploy with no durable candidate identity also remains manual
 when every App and legacy mapping still resolves to its captured prior; prior
 mappings alone cannot prove that the provider created no detached candidate.
@@ -1414,7 +1424,7 @@ rejects any ambient protection header, handles each redirect as a new browser
 request, and origin-checks main-frame navigation throughout the smoke and after
 every target interaction. HTTP readiness also uses manual redirects and rejects
 a cross-origin redirect. The fresh smoke job never links or executes candidate
-`node_modules`. Failure uploads only screenshots/video for seven days; tracing
+`node_modules`. Failure uploads only screenshots/video for fourteen days; tracing
 stays disabled to keep diagnostic artifacts bounded.
 
 Do not run the manual pilot until the required GitHub Environment, repository

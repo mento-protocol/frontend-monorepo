@@ -85,6 +85,7 @@ import {
 } from "./vercel-deployment-state.mjs";
 import {
   assertOnlyExpectedVercelGeneratedAliases,
+  validateImmutableMainRecoverySource,
   validateImmutableMainSource,
 } from "./vercel-production-shadow.mjs";
 import {
@@ -951,58 +952,32 @@ export function validateMainWorkflowContext({
   return sha;
 }
 
-function validateMainSource({
+export function validateMainDeploymentSource({
   repoRoot,
   deploySha,
   workflowSha,
   execute,
-  requireCurrentMain,
 }) {
-  const normalizedSha = requireString(
+  return validateImmutableMainSource({
+    sourcePath: repoRoot,
     deploySha,
-    "DEPLOY_SHA",
-    SHA_PATTERN,
-  ).toLowerCase();
-  const normalizedWorkflowSha = requireString(
     workflowSha,
-    "GITHUB_WORKFLOW_SHA",
-    SHA_PATTERN,
-  ).toLowerCase();
-  if (normalizedWorkflowSha !== normalizedSha) {
-    throw new Error("GITHUB_WORKFLOW_SHA does not match DEPLOY_SHA");
-  }
-  const run = (argumentsList) =>
-    (execute ?? execFileSync)(
-      "git",
-      ["-C", resolve(repoRoot), ...argumentsList],
-      { encoding: "utf8", stdio: "pipe" },
-    )
-      .trim()
-      .toLowerCase();
-  run(["cat-file", "-e", `${normalizedSha}^{commit}`]);
-  run([
-    "merge-base",
-    "--is-ancestor",
-    normalizedSha,
-    "refs/remotes/origin/main",
-  ]);
-  const fetchedMain = run(["rev-parse", "refs/remotes/origin/main"]);
-  if (requireCurrentMain && fetchedMain !== normalizedSha) {
-    throw new Error("DEPLOY_SHA does not match fetched origin/main");
-  }
-  const head = run(["rev-parse", "HEAD"]);
-  if (head !== normalizedSha) {
-    throw new Error("Checked-out HEAD does not match DEPLOY_SHA");
-  }
-  return normalizedSha;
+    ...(execute ? { execute } : {}),
+  });
 }
 
-export function validateMainDeploymentSource(options) {
-  return validateMainSource({ ...options, requireCurrentMain: true });
-}
-
-export function validateMainRecoverySource(options) {
-  return validateMainSource({ ...options, requireCurrentMain: false });
+export function validateMainDeploymentRecoverySource({
+  repoRoot,
+  deploySha,
+  workflowSha,
+  execute,
+}) {
+  return validateImmutableMainRecoverySource({
+    sourcePath: repoRoot,
+    deploySha,
+    workflowSha,
+    ...(execute ? { execute } : {}),
+  });
 }
 
 export function createMainStageResult({
@@ -9444,7 +9419,7 @@ export async function runMainDeploymentCli({
     return;
   }
   if (command === "validate-recovery-source") {
-    validateMainRecoverySource({
+    validateMainDeploymentRecoverySource({
       repoRoot: values.SOURCE_PATH,
       deploySha: values.DEPLOY_SHA,
       workflowSha: values.GITHUB_WORKFLOW_SHA,
