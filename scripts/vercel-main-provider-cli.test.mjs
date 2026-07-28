@@ -364,6 +364,38 @@ function deploymentResponse(intent, id = "dpl_candidate0123456789") {
   };
 }
 
+function candidateSmokeStateClient(response) {
+  return () => ({
+    requestWithRetry: async () => ({
+      deployments: [{ uid: response.id }],
+      pagination: { next: null },
+    }),
+    inspectDeployment: async () => response,
+    listDeploymentAliases: async () => ({ aliases: [] }),
+  });
+}
+
+function candidateSmokeHttpResponse({
+  url,
+  intent,
+  status = 200,
+  redirected = false,
+  servedSha = intent.deploySha,
+  onCancel = () => {},
+}) {
+  return {
+    status,
+    redirected,
+    url,
+    headers: {
+      get: (name) => (name === "x-mento-deployment-sha" ? servedSha : null),
+    },
+    body: {
+      cancel: async () => onCancel(),
+    },
+  };
+}
+
 function generatedCreatorAlias(target, creatorUsername = "fixture-author") {
   const { generatedProjectSlug, generatedScopeSlug } =
     PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
@@ -1649,6 +1681,186 @@ test("candidate smoke uses the target's direct immutable route and preserves the
   }
 });
 
+test("candidate smoke retries a timeout once before accepting the immutable candidate", async (t) => {
+  const context = testContext(t);
+  const intent = candidateIntent();
+  const response = deploymentResponse(intent);
+  const intentPath = writeJson(context.directory, "intent.json", intent);
+  const output = join(context.directory, "candidate-smoke.json");
+  const retryDelays = [];
+  let calls = 0;
+  let cancelled = 0;
+  const result = await runMainProviderCli({
+    argv: ["candidate-smoke", "--intent", intentPath, "--output", output],
+    env: context.env,
+    stdout: context.stdout,
+    stateClientFactory: candidateSmokeStateClient(response),
+    sleepImpl: async (milliseconds) => {
+      retryDelays.push(milliseconds);
+    },
+    fetchImpl: async (url) => {
+      calls += 1;
+      if (calls === 1) {
+        const error = new Error("candidate edge timed out");
+        error.name = "TimeoutError";
+        throw error;
+      }
+      return candidateSmokeHttpResponse({
+        url,
+        intent,
+        onCancel: () => {
+          cancelled += 1;
+        },
+      });
+    },
+  });
+
+  assert.equal(calls, 2);
+  assert.deepEqual(retryDelays, [1_000]);
+  assert.equal(cancelled, 1);
+  assert.equal(result.status, "passed");
+});
+
+test("candidate smoke retries transient edge statuses before accepting the immutable candidate", async (t) => {
+  const context = testContext(t);
+  const intent = candidateIntent();
+  const response = deploymentResponse(intent);
+  const intentPath = writeJson(context.directory, "intent.json", intent);
+
+  for (const transientStatus of [404, 503]) {
+    const retryDelays = [];
+    let calls = 0;
+    let cancelled = 0;
+    const result = await runMainProviderCli({
+      argv: [
+        "candidate-smoke",
+        "--intent",
+        intentPath,
+        "--output",
+        join(context.directory, `candidate-smoke-${transientStatus}.json`),
+      ],
+      env: context.env,
+      stdout: context.stdout,
+      stateClientFactory: candidateSmokeStateClient(response),
+      sleepImpl: async (milliseconds) => {
+        retryDelays.push(milliseconds);
+      },
+      fetchImpl: async (url) => {
+        calls += 1;
+        return candidateSmokeHttpResponse({
+          url,
+          intent,
+          status: calls === 1 ? transientStatus : 200,
+          onCancel: () => {
+            cancelled += 1;
+          },
+        });
+      },
+    });
+
+    assert.equal(calls, 2, String(transientStatus));
+    assert.deepEqual(retryDelays, [1_000], String(transientStatus));
+    assert.equal(cancelled, 2, String(transientStatus));
+    assert.equal(result.status, "passed", String(transientStatus));
+  }
+});
+
+test("candidate smoke fails after bounded transient retries and cancels every response body", async (t) => {
+  const context = testContext(t);
+  const intent = candidateIntent();
+  const response = deploymentResponse(intent);
+  const intentPath = writeJson(context.directory, "intent.json", intent);
+  const retryDelays = [];
+  let calls = 0;
+  let cancelled = 0;
+
+  const error = await captureRejection(
+    () =>
+      runMainProviderCli({
+        argv: [
+          "candidate-smoke",
+          "--intent",
+          intentPath,
+          "--output",
+          join(context.directory, "candidate-smoke.json"),
+        ],
+        env: context.env,
+        stdout: context.stdout,
+        stateClientFactory: candidateSmokeStateClient(response),
+        sleepImpl: async (milliseconds) => {
+          retryDelays.push(milliseconds);
+        },
+        fetchImpl: async (url) => {
+          calls += 1;
+          return candidateSmokeHttpResponse({
+            url,
+            intent,
+            status: 503,
+            onCancel: () => {
+              cancelled += 1;
+            },
+          });
+        },
+      }),
+    /HTTP smoke failed/,
+  );
+
+  assert.equal(calls, 4);
+  assert.deepEqual(retryDelays, [1_000, 1_000, 1_000]);
+  assert.equal(cancelled, 4);
+  assert.equal(
+    renderMainProviderCliFailure(error),
+    "Vercel main provider command failed (candidate-smoke-edge-transient-exhausted)\n",
+  );
+  assert.equal(mainProviderCliFailureExitCode(error), 1);
+});
+
+test("candidate smoke classifies exhausted transport retries without exposing transport details", async (t) => {
+  const context = testContext(t);
+  const intent = candidateIntent();
+  const response = deploymentResponse(intent);
+  const intentPath = writeJson(context.directory, "intent.json", intent);
+  const retryDelays = [];
+  let calls = 0;
+  const error = await captureRejection(
+    () =>
+      runMainProviderCli({
+        argv: [
+          "candidate-smoke",
+          "--intent",
+          intentPath,
+          "--output",
+          join(context.directory, "candidate-smoke.json"),
+        ],
+        env: context.env,
+        stdout: context.stdout,
+        stateClientFactory: candidateSmokeStateClient(response),
+        sleepImpl: async (milliseconds) => {
+          retryDelays.push(milliseconds);
+        },
+        fetchImpl: async () => {
+          calls += 1;
+          throw new Error(
+            `${context.env.VERCEL_TOKEN} private transport error`,
+          );
+        },
+      }),
+    /HTTP smoke failed/,
+  );
+
+  assert.equal(calls, 4);
+  assert.deepEqual(retryDelays, [1_000, 1_000, 1_000]);
+  assert.equal(
+    renderMainProviderCliFailure(error),
+    "Vercel main provider command failed (candidate-smoke-edge-transport-exhausted)\n",
+  );
+  assert.doesNotMatch(
+    renderMainProviderCliFailure(error),
+    /test-secret-token|private transport error/,
+  );
+  assert.equal(mainProviderCliFailureExitCode(error), 1);
+});
+
 test("candidate smoke fails closed for UI redirects, host or path changes, SHA mismatches, and non-2xx responses", async (t) => {
   const context = testContext(t);
   const intent = candidateIntent("ui");
@@ -1676,8 +1888,12 @@ test("candidate smoke fails closed for UI redirects, host or path changes, SHA m
         },
       },
     ],
-    ["bad-status", { status: 503 }],
+    ["bad-status", { status: 400 }],
+    ["rate-limited", { status: 429 }],
+    ["outside-http-status-range", { status: 600 }],
   ]) {
+    let calls = 0;
+    const retryDelays = [];
     await assert.rejects(
       () =>
         runMainProviderCli({
@@ -1691,16 +1907,24 @@ test("candidate smoke fails closed for UI redirects, host or path changes, SHA m
           env: context.env,
           stdout: context.stdout,
           stateClientFactory,
-          fetchImpl: async (url) => ({
-            status: 200,
-            redirected: false,
-            url,
-            headers: { get: () => intent.deploySha },
-            ...patch,
-          }),
+          sleepImpl: async (milliseconds) => {
+            retryDelays.push(milliseconds);
+          },
+          fetchImpl: async (url) => {
+            calls += 1;
+            return {
+              status: 200,
+              redirected: false,
+              url,
+              headers: { get: () => intent.deploySha },
+              ...patch,
+            };
+          },
         }),
       /HTTP smoke/,
     );
+    assert.equal(calls, 1, name);
+    assert.deepEqual(retryDelays, [], name);
   }
 });
 
