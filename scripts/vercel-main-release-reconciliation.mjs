@@ -732,7 +732,21 @@ function classifyTarget({ target, prior, candidate, mappings }) {
   };
 }
 
+function isTerminalAppRecoveryResidual(targets) {
+  // A failed App command can leave its manifest-bound candidate mapped after
+  // recovery has already restored every ordinary target. That exact terminal
+  // shape is recoverable only by restoring App; it is never a forward prefix.
+  return (
+    targets.length > 1 &&
+    targets.at(-1)?.target === "app" &&
+    targets.at(-1)?.state === "candidate" &&
+    targets.slice(0, -1).every(({ state }) => state === "prior")
+  );
+}
+
 function assertActivationPrefix(targets) {
+  if (isTerminalAppRecoveryResidual(targets)) return;
+
   let reachedFrontier = false;
   for (const [index, target] of targets.entries()) {
     if (target.state === "candidate") {
@@ -923,6 +937,9 @@ export function decideMainPreplanReconciliation({
   const [reconciliation] = compatible;
   const { manifest } = reconciliation;
   const sameRelease = manifest.releaseId === expectedReleaseId;
+  const terminalAppRecoveryResidual = isTerminalAppRecoveryResidual(
+    reconciliation.targets,
+  );
   if (sameRelease) {
     assertFreshRollbackCoverage(manifest, canonicalRollbackOnly);
   }
@@ -940,7 +957,7 @@ export function decideMainPreplanReconciliation({
       rollbackAuthorization: null,
     };
   }
-  if (sameRelease) {
+  if (sameRelease && !terminalAppRecoveryResidual) {
     return {
       schema: MAIN_PREPLAN_RECONCILIATION_SCHEMA,
       decision: "resume-existing-release",
@@ -953,7 +970,11 @@ export function decideMainPreplanReconciliation({
   return {
     schema: MAIN_PREPLAN_RECONCILIATION_SCHEMA,
     decision: "restore-before-planning",
-    reason: "older-main-release-is-an-interrupted-prefix",
+    reason: terminalAppRecoveryResidual
+      ? sameRelease
+        ? "current-main-release-is-an-app-recovery-residual"
+        : "older-main-release-is-an-app-recovery-residual"
+      : "older-main-release-is-an-interrupted-prefix",
     rollbackOnlyTargets: canonicalRollbackOnly,
     reconciliation,
     rollbackAuthorization: createInheritedRollbackAuthorization({
@@ -1038,6 +1059,9 @@ export function assertMainPreplanReconciliation(
       );
     }
     const sameRelease = reconciliation.manifest.releaseId === expectedReleaseId;
+    const terminalAppRecoveryResidual = isTerminalAppRecoveryResidual(
+      reconciliation.targets,
+    );
     if (sameRelease) {
       assertFreshRollbackCoverage(reconciliation.manifest, rollbackOnlyTargets);
     }
@@ -1048,12 +1072,16 @@ export function assertMainPreplanReconciliation(
       reason = sameRelease
         ? "current-main-release-already-complete"
         : "older-mapped-release-is-complete";
-    } else if (sameRelease) {
+    } else if (sameRelease && !terminalAppRecoveryResidual) {
       decision = "resume-existing-release";
       reason = "current-main-release-is-an-interrupted-prefix";
     } else {
       decision = "restore-before-planning";
-      reason = "older-main-release-is-an-interrupted-prefix";
+      reason = terminalAppRecoveryResidual
+        ? sameRelease
+          ? "current-main-release-is-an-app-recovery-residual"
+          : "older-main-release-is-an-app-recovery-residual"
+        : "older-main-release-is-an-interrupted-prefix";
       rollbackAuthorization = createInheritedRollbackAuthorization({
         reconciliation,
         reason: "restore-inherited",

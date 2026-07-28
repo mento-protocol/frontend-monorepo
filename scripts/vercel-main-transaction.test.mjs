@@ -3001,6 +3001,45 @@ test("mixed App inheritance restores only moved aliases before earlier targets",
   );
 });
 
+test("terminal App recovery residual restores both reviewed aliases only", () => {
+  const journal = structuredClone(preparedWithCandidatePrefix(0));
+  journal.startMappings.app = journal.startMappings.app.map(({ alias }) =>
+    mapping(alias, journal.candidates.app),
+  );
+
+  const plan = planInheritedMainTransactionRecovery({
+    journal,
+    reason: "forward-operation-failed",
+  });
+
+  assert.equal(plan.decision, "restore-inherited");
+  assert.deepEqual(plan.rollbackAuthority, {
+    targets: ["app"],
+    aliases: [...journal.prior.app.aliases].sort(),
+  });
+  assert.deepEqual(
+    plan.actions.map(({ kind, target, alias }) => ({ kind, target, alias })),
+    [...journal.prior.app.aliases]
+      .reverse()
+      .map((alias) => ({ kind: "app_alias_restore", target: "app", alias })),
+  );
+  assert.equal(
+    plan.actions.some(({ kind }) => kind === "ordinary_rollback"),
+    false,
+  );
+  assert.equal(
+    plan.actions.some(({ target }) => target === "legacy-app"),
+    false,
+  );
+  assert.deepEqual(assertMainInheritedTransactionRecoveryPlan(plan), plan);
+
+  const recovering = startInheritedMainTransactionRecovery({
+    journal,
+    recoveryPlan: plan,
+  });
+  assert.equal(recovering.status, "recovering");
+});
+
 test("all-candidate reader is verify-only without rollback authority", () => {
   const plan = planInheritedMainTransactionRecovery({
     journal: preparedWithCandidatePrefix(4),
