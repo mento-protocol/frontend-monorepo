@@ -11,6 +11,7 @@ import {
   decideMainReleaseReconciliation,
   recomputeMainReleasePlan,
   reconcileMainRelease,
+  reconcileMainReleaseForRecovery,
 } from "./vercel-main-release-reconciliation.mjs";
 import {
   MAIN_TARGET_CONTRACTS,
@@ -795,7 +796,8 @@ test("App mixed mappings are accepted only at the activation frontier", () => {
 
 test("only a full terminal App candidate remains recoverable after at least one ordinary rollback", () => {
   const state = appRecoveryResidualState();
-  const reconciliation = reconcileMainRelease(state);
+  assert.throws(() => reconcileMainRelease(state), /activation prefix/);
+  const reconciliation = reconcileMainReleaseForRecovery(state);
   assert.deepEqual(
     reconciliation.targets.map(({ target, state: targetState }) => [
       target,
@@ -818,6 +820,14 @@ test("only a full terminal App candidate remains recoverable after at least one 
       targets: ["app"],
       aliases: [...state.manifest.originalPriors.app.aliases].sort(),
     },
+  );
+  assert.throws(
+    () =>
+      createInheritedRollbackAuthorization({
+        reconciliation,
+        reason: "first-forward-command",
+      }),
+    /activation prefix/,
   );
   for (const currentMain of [true, false]) {
     for (const preparation of ["ready", "failed", "pending", "producer-live"]) {
@@ -916,6 +926,14 @@ test("unsupported non-prefix, third-party, missing-candidate, and disagreeing-ma
   const mixedAppResidual = releaseState({ appMixed: true });
   assert.throws(
     () => reconcileMainRelease(mixedAppResidual),
+    /Mixed App mappings are outside the release frontier/,
+  );
+  assert.throws(
+    () => reconcileMainReleaseForRecovery(ordinarySuffix),
+    /activation prefix/,
+  );
+  assert.throws(
+    () => reconcileMainReleaseForRecovery(mixedAppResidual),
     /Mixed App mappings are outside the release frontier/,
   );
 });

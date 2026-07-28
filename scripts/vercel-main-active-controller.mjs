@@ -22,8 +22,10 @@ import {
   startMainTransactionRecovery,
 } from "./vercel-main-transaction.mjs";
 import {
+  MAIN_RELEASE_ACTIVATION_ORDER,
   assertMainReleaseManifest,
   reconcileMainRelease,
+  reconcileMainReleaseForRecovery,
 } from "./vercel-main-release-reconciliation.mjs";
 import {
   assertMainActiveCommandDescriptor,
@@ -433,6 +435,41 @@ function canonicalCurrentMappings(
 function mappingsForAliases(currentMappings, aliases) {
   const selected = new Set(aliases);
   return currentMappings.filter((mapping) => selected.has(mapping.alias));
+}
+
+function groupedReleaseMappings(journal, currentMappings) {
+  return Object.fromEntries(
+    MAIN_RELEASE_ACTIVATION_ORDER.map((target) => [
+      target,
+      mappingsForAliases(currentMappings, journal.prior[target].aliases),
+    ]),
+  );
+}
+
+function assertForwardReleaseOrdering(journal, currentMappings) {
+  const grouped = groupedReleaseMappings(journal, currentMappings);
+  const onlyKnownReleaseMappings = MAIN_RELEASE_ACTIVATION_ORDER.every(
+    (target) => {
+      const prior = journal.prior[target];
+      const candidate = journal.candidates[target];
+      return grouped[target].every(
+        (mapping) =>
+          sameDeployment(mapping, prior) ||
+          (candidate !== null &&
+            candidate.deploymentId !== null &&
+            sameDeployment(mapping, candidate)),
+      );
+    },
+  );
+  // Unexpected provider identities follow the existing deterministic recovery
+  // route. When every leaf belongs to this release, the activation-order
+  // reconciler must reject any state that is not a forward prefix.
+  if (!onlyKnownReleaseMappings) return;
+  reconcileMainRelease({
+    manifest: journal.release,
+    candidates: releaseCandidatesFromJournal(journal),
+    currentMappings: grouped,
+  });
 }
 
 function mappingState(journal, currentMappings, target) {
@@ -1081,6 +1118,7 @@ export function reduceMainActiveTransition({
       highest,
       input.currentMappings,
     );
+    assertForwardReleaseOrdering(highest, currentMappings);
     assertLegacyPrior(highest, currentMappings);
     if (input.kind === "dispatch") {
       if (highest.status === "committed") {
@@ -1584,7 +1622,7 @@ function releaseCandidatesFromJournal(journal) {
       const candidate = journal.candidates[target];
       return [
         target,
-        candidate === null
+        candidate === null || candidate.deploymentId === null
           ? null
           : {
               deploymentId: candidate.deploymentId,
@@ -1618,6 +1656,22 @@ export function reconcileFreshMainActiveRelease({ journal, currentMappings }) {
   const canonicalJournal = assertMainTransactionJournal(journal);
   const manifest = assertMainReleaseManifest(canonicalJournal.release);
   return reconcileMainRelease({
+    manifest,
+    candidates: releaseCandidatesFromJournal(canonicalJournal),
+    currentMappings: releaseMappingsFromJournal(
+      canonicalJournal,
+      currentMappings,
+    ),
+  });
+}
+
+function reconcileFreshMainActiveReleaseForRecovery({
+  journal,
+  currentMappings,
+}) {
+  const canonicalJournal = assertMainTransactionJournal(journal);
+  const manifest = assertMainReleaseManifest(canonicalJournal.release);
+  return reconcileMainReleaseForRecovery({
     manifest,
     candidates: releaseCandidatesFromJournal(canonicalJournal),
     currentMappings: releaseMappingsFromJournal(
@@ -1704,7 +1758,7 @@ export function createCurrentMainActiveRecoveryJournal({
   currentMappings,
 }) {
   const inherited = assertMainTransactionJournal(inheritedJournal);
-  const reconciliation = reconcileFreshMainActiveRelease({
+  const reconciliation = reconcileFreshMainActiveReleaseForRecovery({
     journal: inherited,
     currentMappings,
   });
@@ -1721,6 +1775,7 @@ export function createCurrentMainActiveRecoveryJournal({
     prior,
     startMappings: currentMappings,
     candidates: inherited.candidates,
+    allowTerminalAppRecoveryResidual: true,
   });
   return { journal: recovery, reconciliation };
 }
@@ -1736,7 +1791,7 @@ export function planFreshInheritedMainActiveRecovery({
   const inherited = assertMainTransactionJournal(inheritedJournal);
   let reconciliation;
   try {
-    reconciliation = reconcileFreshMainActiveRelease({
+    reconciliation = reconcileFreshMainActiveReleaseForRecovery({
       journal: inherited,
       currentMappings,
     });

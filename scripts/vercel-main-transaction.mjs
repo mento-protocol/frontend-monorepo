@@ -10,6 +10,7 @@ import {
   assertMainReleaseManifest,
   MAIN_RELEASE_ACTIVATION_ORDER,
   reconcileMainRelease,
+  reconcileMainReleaseForRecovery,
 } from "./vercel-main-release-reconciliation.mjs";
 import {
   assertMainCandidateReceipt,
@@ -494,6 +495,7 @@ function assertJournalReleaseBindings({
   prior,
   candidates,
   startMappings,
+  allowTerminalAppRecoveryResidual = false,
 }) {
   if (release.mode !== mode) {
     throw new Error("Journal mode conflicts with the durable release manifest");
@@ -526,7 +528,10 @@ function assertJournalReleaseBindings({
           },
     ]),
   );
-  reconcileMainRelease({
+  const reconcile = allowTerminalAppRecoveryResidual
+    ? reconcileMainReleaseForRecovery
+    : reconcileMainRelease;
+  reconcile({
     manifest: release,
     candidates: reconciliationCandidates,
     currentMappings: Object.fromEntries(
@@ -981,6 +986,7 @@ export function createPreparedMainTransactionJournal({
   prior,
   startMappings,
   candidates,
+  allowTerminalAppRecoveryResidual = false,
 }) {
   const identity = canonicalIdentity({
     repository,
@@ -989,6 +995,9 @@ export function createPreparedMainTransactionJournal({
     runAttempt,
   });
   if (!MODES.includes(mode)) throw new Error("Journal mode is unsupported");
+  if (typeof allowTerminalAppRecoveryResidual !== "boolean") {
+    throw new Error("Journal recovery-only admission is malformed");
+  }
   const canonicalRelease = assertMainReleaseManifest(release);
   const canonicalPriorState = canonicalPrior(prior);
   const canonicalStartState = canonicalStartMappings(
@@ -1007,6 +1016,7 @@ export function createPreparedMainTransactionJournal({
     prior: canonicalPriorState,
     candidates: canonicalCandidateState,
     startMappings: canonicalStartState,
+    allowTerminalAppRecoveryResidual,
   });
   const journal = {
     schema: MAIN_TRANSACTION_SCHEMA,
@@ -1061,7 +1071,12 @@ export function assertMainTransactionJournal(journal, expected = {}) {
     candidates: canonicalCandidates(journal.candidates, release, prior),
     operations: [],
   };
-  assertJournalReleaseBindings(canonical);
+  // Existing journals can represent either a forward prefix or an inherited
+  // recovery-only App residual. Parsing grants no mutation authority.
+  assertJournalReleaseBindings({
+    ...canonical,
+    allowTerminalAppRecoveryResidual: true,
+  });
   canonical.operations = canonicalOperations(journal.operations, canonical);
   for (const [key, expectedValue] of Object.entries(expected)) {
     if (!Object.hasOwn(canonical, key) || canonical[key] !== expectedValue) {
@@ -1098,7 +1113,7 @@ export function planInheritedMainTransactionRecovery({ journal, reason }) {
           },
     ]),
   );
-  const reconciliation = reconcileMainRelease({
+  const reconciliation = reconcileMainReleaseForRecovery({
     manifest: canonical.release,
     candidates,
     currentMappings: Object.fromEntries(
@@ -1258,6 +1273,9 @@ export function startMainTransactionOperation(journal, intent) {
     (!recoveryPhase && !FORWARD_OPERATION_TYPES.has(intent.type))
   ) {
     throw new Error("Operation type is not allowed in this transaction phase");
+  }
+  if (!recoveryPhase) {
+    assertJournalReleaseBindings(canonical);
   }
   const resolved = operationIntent(canonical, intent);
   const forwardStarts = startedForwardOperations(canonical);

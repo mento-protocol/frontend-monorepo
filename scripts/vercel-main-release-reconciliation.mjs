@@ -744,8 +744,16 @@ function isTerminalAppRecoveryResidual(targets) {
   );
 }
 
-function assertActivationPrefix(targets) {
-  if (isTerminalAppRecoveryResidual(targets)) return;
+function assertActivationPrefix(
+  targets,
+  { allowTerminalAppRecoveryResidual = false } = {},
+) {
+  if (
+    allowTerminalAppRecoveryResidual &&
+    isTerminalAppRecoveryResidual(targets)
+  ) {
+    return;
+  }
 
   let reachedFrontier = false;
   for (const [index, target] of targets.entries()) {
@@ -770,11 +778,10 @@ function assertActivationPrefix(targets) {
   }
 }
 
-export function reconcileMainRelease({
-  manifest: rawManifest,
-  candidates,
-  currentMappings,
-}) {
+function reconcileMainReleaseWithPolicy(
+  { manifest: rawManifest, candidates, currentMappings },
+  { allowTerminalAppRecoveryResidual },
+) {
   const manifest = assertMainReleaseManifest(rawManifest);
   assertExactKeys(
     candidates,
@@ -832,7 +839,7 @@ export function reconcileMainRelease({
   const targets = observedTargets.filter(({ target }) =>
     manifest.activeTargets.includes(target),
   );
-  assertActivationPrefix(targets);
+  assertActivationPrefix(targets, { allowTerminalAppRecoveryResidual });
   const inheritedCandidateTargets = targets
     .filter(({ state }) => state === "candidate")
     .map(({ target }) => target);
@@ -857,6 +864,18 @@ export function reconcileMainRelease({
     allPrior,
     frontier,
   };
+}
+
+export function reconcileMainRelease(input) {
+  return reconcileMainReleaseWithPolicy(input, {
+    allowTerminalAppRecoveryResidual: false,
+  });
+}
+
+export function reconcileMainReleaseForRecovery(input) {
+  return reconcileMainReleaseWithPolicy(input, {
+    allowTerminalAppRecoveryResidual: true,
+  });
 }
 
 export function decideMainPreplanReconciliation({
@@ -917,7 +936,7 @@ export function decideMainPreplanReconciliation({
     }
     seenReleases.add(manifest.releaseId);
     try {
-      const reconciliation = reconcileMainRelease({
+      const reconciliation = reconcileMainReleaseForRecovery({
         manifest,
         candidates: release.candidates,
         currentMappings,
@@ -984,9 +1003,8 @@ export function decideMainPreplanReconciliation({
   };
 }
 
-function canonicalEmbeddedReconciliation(value) {
-  if (value === null) return null;
-  const canonical = reconcileMainRelease({
+function reconciliationInput(value) {
+  return {
     manifest: value?.manifest,
     candidates: Object.fromEntries(
       (value?.observedTargets ?? [])
@@ -1013,7 +1031,12 @@ function canonicalEmbeddedReconciliation(value) {
         }),
       ]),
     ),
-  });
+  };
+}
+
+function canonicalEmbeddedReconciliation(value) {
+  if (value === null) return null;
+  const canonical = reconcileMainReleaseForRecovery(reconciliationInput(value));
   if (JSON.stringify(value) !== JSON.stringify(canonical)) {
     throw new Error("Pre-plan reconciliation is not canonical");
   }
@@ -1117,34 +1140,9 @@ export function decideMainReleaseReconciliation({
   ) {
     throw new Error("Main release reconciliation is required");
   }
-  const canonical = reconcileMainRelease({
-    manifest: reconciliation.manifest,
-    candidates: Object.fromEntries(
-      reconciliation.observedTargets
-        .filter(({ target }) =>
-          reconciliation.manifest.stagedTargets.includes(target),
-        )
-        .map(({ target, candidate }) => [
-          target,
-          candidate === null
-            ? null
-            : {
-                deploymentId: candidate.deploymentId,
-                deploymentUrl: candidate.deploymentUrl,
-                manifest: candidate.manifest,
-              },
-        ]),
-    ),
-    currentMappings: Object.fromEntries(
-      reconciliation.observedTargets.map(({ target, startMappings }) => [
-        target,
-        startMappings.map(({ state: _state, ...mapping }) => {
-          void _state;
-          return mapping;
-        }),
-      ]),
-    ),
-  });
+  const canonical = reconcileMainReleaseForRecovery(
+    reconciliationInput(reconciliation),
+  );
   if (
     typeof currentMain !== "boolean" ||
     !PREPARATION_STATES.has(preparation)
@@ -1229,34 +1227,11 @@ export function createInheritedRollbackAuthorization({
   if (!["first-forward-command", "restore-inherited"].includes(reason)) {
     throw new Error("Inherited rollback authorization reason is unsupported");
   }
-  const canonical = reconcileMainRelease({
-    manifest: reconciliation.manifest,
-    candidates: Object.fromEntries(
-      reconciliation.observedTargets
-        .filter(({ target }) =>
-          reconciliation.manifest.stagedTargets.includes(target),
-        )
-        .map(({ target, candidate }) => [
-          target,
-          candidate === null
-            ? null
-            : {
-                deploymentId: candidate.deploymentId,
-                deploymentUrl: candidate.deploymentUrl,
-                manifest: candidate.manifest,
-              },
-        ]),
-    ),
-    currentMappings: Object.fromEntries(
-      reconciliation.observedTargets.map(({ target, startMappings }) => [
-        target,
-        startMappings.map(({ state: _state, ...mapping }) => {
-          void _state;
-          return mapping;
-        }),
-      ]),
-    ),
-  });
+  const input = reconciliationInput(reconciliation);
+  const canonical =
+    reason === "restore-inherited"
+      ? reconcileMainReleaseForRecovery(input)
+      : reconcileMainRelease(input);
   if (canonical.allCandidate && reason === "restore-inherited") {
     throw new Error(
       "A complete release cannot be auto-rolled back by a reader",

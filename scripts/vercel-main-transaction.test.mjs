@@ -3002,9 +3002,28 @@ test("mixed App inheritance restores only moved aliases before earlier targets",
 });
 
 test("terminal App recovery residual restores both reviewed aliases only", () => {
-  const journal = structuredClone(preparedWithCandidatePrefix(0));
+  const forwardBaseline = preparedWithCandidatePrefix(0);
+  const forgedForwardStart = startMainTransactionOperation(forwardBaseline, {
+    type: "promote",
+    target: "governance",
+  });
+  const journal = structuredClone(forwardBaseline);
   journal.startMappings.app = journal.startMappings.app.map(({ alias }) =>
     mapping(alias, journal.candidates.app),
+  );
+
+  assert.throws(
+    () =>
+      startMainTransactionOperation(journal, {
+        type: "promote",
+        target: "governance",
+      }),
+    /activation prefix/,
+  );
+  forgedForwardStart.startMappings.app = journal.startMappings.app;
+  assert.throws(
+    () => assertMainTransactionJournalHistory([journal, forgedForwardStart]),
+    /activation prefix/,
   );
 
   const plan = planInheritedMainTransactionRecovery({

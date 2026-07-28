@@ -21,6 +21,7 @@ import {
   loadMainActiveJournalHistory,
   reduceMainActiveRecoveryTransition,
   reduceMainActiveTransition,
+  reconcileFreshMainActiveRelease,
 } from "./vercel-main-active-controller.mjs";
 import {
   ACTIVE_DEPLOYMENT_STATE_SPEC_SCHEMA,
@@ -1949,6 +1950,82 @@ test("fresh App provider census accepts one stable candidate and rejects a third
     currentMappings: mappings,
   });
   assert.equal(plan.decision, "manual-intervention");
+});
+
+test("fresh forward reconciliation rejects an App-only recovery residual", () => {
+  const journal = prepared(TARGETS, { appKnown: true });
+  const mappings = groupedCurrentMappings(journal, { app: "candidate" });
+
+  assert.throws(
+    () =>
+      reconcileFreshMainActiveRelease({
+        journal,
+        currentMappings: mappings,
+      }),
+    /activation prefix/,
+  );
+
+  const recovery = planFreshInheritedMainActiveRecovery({
+    inheritedJournal: journal,
+    reason: "forward-operation-failed",
+    currentMappings: mappings,
+  });
+  assert.equal(recovery.decision, "restore-inherited");
+  assert.deepEqual(
+    recovery.actions.map(({ kind, alias }) => ({ kind, alias })),
+    [...journal.prior.app.aliases]
+      .reverse()
+      .map((alias) => ({ kind: "app_alias_restore", alias })),
+  );
+});
+
+test("forward dispatch and authorize reject a fresh App-only recovery residual", () => {
+  const initial = prepared(TARGETS, { appKnown: true });
+  const initialized = reduceForward(initial, [], event("initialize"), TARGETS);
+  const residual = currentMappings(initialized.journal, {
+    app: "candidate",
+  });
+
+  assert.throws(
+    () =>
+      reduceForward(
+        initial,
+        [initialized.journal],
+        event("dispatch", {
+          uploadReceipt: receipt(initialized.journal),
+          freshSha: SHA,
+          currentMappings: residual,
+        }),
+        TARGETS,
+      ),
+    /activation prefix/,
+  );
+
+  const dispatched = reduceForward(
+    initial,
+    [initialized.journal],
+    event("dispatch", {
+      uploadReceipt: receipt(initialized.journal),
+      freshSha: SHA,
+      currentMappings: currentMappings(initialized.journal),
+    }),
+    TARGETS,
+  );
+  assert.equal(dispatched.journal.operations.at(-1).target, "governance");
+  assert.throws(
+    () =>
+      reduceForward(
+        initial,
+        [initialized.journal, dispatched.journal],
+        event("authorize", {
+          uploadReceipt: receipt(dispatched.journal),
+          freshSha: SHA,
+          currentMappings: residual,
+        }),
+        TARGETS,
+      ),
+    /activation prefix/,
+  );
 });
 
 test("current-attempt inherited recovery binds the inherited release SHA and completes", () => {
