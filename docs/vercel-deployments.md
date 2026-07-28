@@ -414,6 +414,12 @@ activation order before it terminalizes manual intervention. Recovery, manual
 intervention, a missing journal after a possible mutation, and recovery failure
 all fail the release after publishing redacted evidence.
 
+If an exact current-attempt journal exists but recovery initialization cannot
+produce the next durable recovery snapshot, the workflow classifies the outcome
+as `recovery-failed`. It performs no recovery transition or provider mutation,
+then publishes terminal evidence bound to the unchanged canonical journal
+history and a fresh legacy App `v2` proof before failing the release.
+
 If a recovered journal proves that App's `app_v3_deploy` operation never
 started and its prepared candidate still has no deployment identity, the final
 state specification records App as `recoveredPrior`. That narrow state expects

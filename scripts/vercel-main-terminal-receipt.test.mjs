@@ -58,7 +58,10 @@ function receiptInput(outcome = "active-committed") {
   return {
     ...IDENTITY,
     producerRunAttempt: "2",
-    producerJob: "activate-and-verify",
+    producerJob:
+      outcome === "recovery-failed"
+        ? "recover-main-deployment"
+        : "activate-and-verify",
     evidenceDigest: DIGEST(`terminal-evidence:${outcome}`),
     outcome,
     finalMapping: proof(mapping, "mapping"),
@@ -66,7 +69,7 @@ function receiptInput(outcome = "active-committed") {
     stateProof: proof(state, "state"),
     publicSmoke: proof(smoke, "smoke"),
     freshLegacyV2: proof(legacy, "legacy"),
-    mutationCount: contract.mutations ?? contract.minMutations,
+    mutationCount: contract.mutations ?? contract.minMutations ?? 0,
     rollbackTargets: contract.rollback === "required" ? ["governance"] : [],
     affectedOperations:
       outcome === "manual-intervention" ? [affectedOperation()] : [],
@@ -117,6 +120,77 @@ test("every terminal receipt outcome has a strict proof and journal contract", (
   assert.throws(
     () => createMainTerminalReceipt(committed),
     /journal conflicts/,
+  );
+});
+
+test("recovery failure has a recovery-only, dynamic, tamper-evident terminal handoff", () => {
+  const input = receiptInput("recovery-failed");
+  input.producerJob = "recover-main-deployment";
+  input.mutationCount = 17;
+  const receipt = createMainTerminalReceipt(input);
+
+  assert.deepEqual(
+    [
+      receipt.finalMapping.status,
+      receipt.finalCensus.status,
+      receipt.stateProof.status,
+      receipt.publicSmoke.status,
+      receipt.freshLegacyV2.status,
+    ],
+    ["unsafe", "unsafe", "unsafe", "not-required", "passed"],
+  );
+  assert.deepEqual(receipt.journal, {
+    status: "recovery-failed",
+    digest: DIGEST("journal:recovery-failed"),
+  });
+  assert.equal(receipt.mutationCount, 17);
+  assert.deepEqual(receipt.rollbackTargets, []);
+  assert.deepEqual(receipt.affectedOperations, []);
+
+  assert.equal(
+    createMainTerminalReceipt({ ...input, mutationCount: 0 }).mutationCount,
+    0,
+  );
+  assert.throws(
+    () => createMainTerminalReceipt({ ...input, mutationCount: -1 }),
+    /mutation count is malformed/,
+  );
+
+  const encoded = encodeMainTerminalReceipt(receipt);
+  assert.deepEqual(decodeMainTerminalReceipt(encoded, IDENTITY), receipt);
+
+  const tampered = structuredClone(receipt);
+  tampered.mutationCount = 18;
+  const tamperedEncoded = Buffer.from(JSON.stringify(tampered)).toString(
+    "base64url",
+  );
+  assert.throws(
+    () => decodeMainTerminalReceipt(tamperedEncoded, IDENTITY),
+    /self digest does not match/,
+  );
+  assert.throws(
+    () =>
+      createMainTerminalReceipt({
+        ...input,
+        producerJob: "activate-and-verify",
+      }),
+    /requires the recovery producer job/,
+  );
+  assert.throws(
+    () =>
+      createMainTerminalReceipt({
+        ...input,
+        rollbackTargets: ["governance"],
+      }),
+    /forbids rollback targets/,
+  );
+  assert.throws(
+    () =>
+      createMainTerminalReceipt({
+        ...input,
+        affectedOperations: [affectedOperation()],
+      }),
+    /forbids affected operations/,
   );
 });
 

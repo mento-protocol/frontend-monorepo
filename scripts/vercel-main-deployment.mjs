@@ -5263,7 +5263,13 @@ function canonicalTerminalArtifact(value, label, depth = 0) {
 function canonicalTerminalProof(value, label, { journal = false } = {}) {
   assertExactKeys(value, ["status", "artifact"], label);
   const statuses = journal
-    ? ["committed", "recovered", "manual-intervention", "not-applicable"]
+    ? [
+        "committed",
+        "recovered",
+        "manual-intervention",
+        "recovery-failed",
+        "not-applicable",
+      ]
     : ["passed", "not-required", "superseded", "prepared", "unsafe"];
   if (!statuses.includes(value.status)) {
     throw new Error(`${label} status is malformed`);
@@ -5349,7 +5355,7 @@ export function assertMainActiveTerminalProofs(value) {
   const outcome = requireString(
     value.outcome,
     "Main active terminal outcome",
-    /^(?:active-committed|current-release-verified|recovered|verified-noop|no-target|superseded-before-journal|shadow-prepared|manual-intervention|preparation-failed-before-journal)$/,
+    /^(?:active-committed|current-release-verified|recovered|verified-noop|no-target|superseded-before-journal|shadow-prepared|manual-intervention|recovery-failed|preparation-failed-before-journal)$/,
   );
   const finalMapping = canonicalTerminalProof(
     value.finalMapping,
@@ -5841,6 +5847,7 @@ function terminalJobs(execution, outcome) {
     "recovered",
     "verified-noop",
     "manual-intervention",
+    "recovery-failed",
   ].includes(outcome);
   return {
     waitForCi: "success",
@@ -5855,7 +5862,9 @@ function terminalJobs(execution, outcome) {
       ? "success"
       : "skipped",
     coordinator: recoveryOutcome ? "failure" : "success",
-    recovery: outcome === "manual-intervention" ? "failure" : "success",
+    recovery: ["manual-intervention", "recovery-failed"].includes(outcome)
+      ? "failure"
+      : "success",
   };
 }
 
@@ -5902,6 +5911,7 @@ export function createMainActiveTerminalArtifacts({
       "superseded-before-journal",
       "shadow-prepared",
       "manual-intervention",
+      "recovery-failed",
       "preparation-failed-before-journal",
     ].includes(outcome)
   ) {
@@ -6297,6 +6307,67 @@ export function createMainActiveTerminalArtifacts({
         status: "not-applicable",
         artifact: null,
       }),
+    };
+  } else if (outcome === "recovery-failed") {
+    if (
+      stageResults !== null ||
+      finalMappings !== null ||
+      publicSmokes !== null ||
+      stateProof !== null ||
+      finalCensus !== null ||
+      freshness !== null
+    ) {
+      throw new Error(
+        "Terminal recovery failure cannot contain provider or stage proof",
+      );
+    }
+    if (history.length === 0) {
+      throw new Error("Terminal recovery failure requires a durable journal");
+    }
+    const highest = history.at(-1);
+    assertJournalMatchesActivePlanning(highest, planning);
+    if (
+      ![
+        "prepared",
+        "started",
+        "command_returned",
+        "verified",
+        "committed",
+        "recovering",
+      ].includes(highest.status)
+    ) {
+      throw new Error("Terminal recovery failure journal head is unsupported");
+    }
+    const counts = operationMutationCounts(highest);
+    evidence = createMainActiveDeploymentFailureEvidence({
+      eventHeadSha: manifest.deploySha,
+      verifiedDeploySha: manifest.deploySha,
+      planOutput: "execution-bound",
+      jobs: safeJobs,
+      workflowDefinitionSha: manifest.deploySha,
+      runId: canonicalRunId,
+      runAttempt: canonicalRunAttempt,
+      workflowRunUrl: terminalWorkflowRunUrl(canonicalRunId),
+      mainOwnershipMode: planning.mainOwnershipMode,
+      journalHistory: history,
+      publicServingMutationCommands: counts.started,
+      coordinatorOutcome: "active-failed",
+      recoveryOutcome: "recovery-failed",
+      errorCode: "RECOVERY_FAILED_AFTER_DURABLE_JOURNAL",
+    });
+    proofs = {
+      ...proofIdentity,
+      producerJob: "recover-main-deployment",
+      outcome,
+      finalMapping: terminalProof({ status: "unsafe", artifact: evidence }),
+      finalCensus: terminalProof({ status: "unsafe", artifact: evidence }),
+      stateProof: terminalProof({ status: "unsafe", artifact: evidence }),
+      publicSmoke: terminalProof({ status: "not-required", artifact: null }),
+      freshLegacyV2: terminalProof({ status: "passed", artifact: legacyState }),
+      mutationCount: counts.started,
+      rollbackTargets: [],
+      affectedOperations: [],
+      journal: terminalProof({ status: "recovery-failed", artifact: history }),
     };
   } else {
     if (stageResults !== null) {
@@ -6865,6 +6936,9 @@ function terminalOutcomeForActiveEvidence(evidence) {
     throw new Error("Nested active evidence schema is unsupported");
   }
   if (evidence.recoveryOutcome === "recovered") return "recovered";
+  if (evidence.recoveryOutcome === "recovery-failed") {
+    return "recovery-failed";
+  }
   if (
     evidence.recoveryOutcome === "verified-no-mutation" &&
     evidence.publicServingMutationCommands === 0
@@ -7471,6 +7545,23 @@ export function assertMainActiveTerminalEvidenceArtifact(
       "Manual-intervention evidence lacks a terminal unsafe journal",
     );
   }
+  if (
+    terminalOutcome === "recovery-failed" &&
+    (journal.historyStatus !== "valid" ||
+      ![
+        "prepared",
+        "started",
+        "command_returned",
+        "verified",
+        "committed",
+        "recovering",
+      ].includes(journal.highestStatus) ||
+      rollbackStateTargets.length !== 0 ||
+      recoveryOutcome !== "recovery-failed" ||
+      errorCode !== "RECOVERY_FAILED_AFTER_DURABLE_JOURNAL")
+  ) {
+    throw new Error("Recovery-failed evidence lacks a durable journal proof");
+  }
   return canonical;
 }
 
@@ -7867,6 +7958,28 @@ function assertMainActiveTerminalProofBindings({
       "Main terminal preparation failure proofs conflict with evidence",
     );
   }
+  if (proofs.outcome === "recovery-failed") {
+    if (
+      evidence.schema !== MAIN_ACTIVE_FAILURE_EVIDENCE_SCHEMA ||
+      evidence.recoveryOutcome !== "recovery-failed" ||
+      evidence.errorCode !== "RECOVERY_FAILED_AFTER_DURABLE_JOURNAL" ||
+      proofs.finalMapping.receipt.status !== "unsafe" ||
+      proofs.finalCensus.receipt.status !== "unsafe" ||
+      proofs.stateProof.receipt.status !== "unsafe" ||
+      !sameJson(proofs.finalMapping.artifact, evidence) ||
+      !sameJson(proofs.finalCensus.artifact, evidence) ||
+      !sameJson(proofs.stateProof.artifact, evidence) ||
+      proofs.publicSmoke.receipt.status !== "not-required" ||
+      proofs.publicSmoke.artifact !== null ||
+      proofs.journal.receipt.status !== "recovery-failed" ||
+      proofs.rollbackTargets.length !== 0 ||
+      proofs.affectedOperations.length !== 0
+    ) {
+      throw new Error(
+        "Recovery-failed terminal proofs conflict with failure evidence",
+      );
+    }
+  }
   assertFreshLegacyV2TerminalProof(proofs.freshLegacyV2.artifact, execution);
 
   if (evidence.finalMappings !== undefined && evidence.finalMappings !== null) {
@@ -8014,6 +8127,12 @@ function assertMainActiveTerminalProofBindings({
       throw new Error(
         "Main terminal affected operations conflict with the journal",
       );
+    }
+    if (
+      proofs.outcome === "recovery-failed" &&
+      operationMutationCounts(highest).started !== proofs.mutationCount
+    ) {
+      throw new Error("Recovery-failed terminal mutation count conflicts");
     }
   }
 }
