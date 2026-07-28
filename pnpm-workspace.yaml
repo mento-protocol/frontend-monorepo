@@ -33,7 +33,7 @@ catalog:
   tailwindcss: ^4.3.3
   tsup: ^8.5.1
   typescript: ^5.9.3
-  typescript-eslint: ^8.53.0
+  typescript-eslint: ^8.65.0
   viem: ^2.55.4
   wagmi: ^2.16.9
   zod: ^4.4.3
