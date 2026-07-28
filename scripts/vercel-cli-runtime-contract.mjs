@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 
-export const PINNED_VERCEL_CLI_VERSION = "56.2.0";
+export const PINNED_VERCEL_CLI_VERSION = "56.4.1";
 const BRACE_EXPANSION_PATCHED_DEPENDENCY = "brace-expansion@2.1.2";
 export const BRACE_EXPANSION_RUNTIME_PATCH_PATH =
   "patches/brace-expansion@2.1.2.patch";
@@ -12,7 +12,7 @@ const BRACE_EXPANSION_ROOT_PATCH_PATH =
 // This one reviewed successor binds the runtime lockfile, override object, and
 // patch bytes. Replace all three together for any later reviewed patch update.
 const NEXT_BRACE_EXPANSION_RUNTIME_LOCKFILE_SHA256 =
-  "773226619ef0f73252aa2921cc3cedb69908bc21f08362857df25ae9777c0ff3";
+  "c28925e49fa15cc2151f4b0b9179f721ebc03c28ba9a4350ab8e3782bf099a90";
 const NEXT_BRACE_EXPANSION_RUNTIME_OVERRIDE_SHA256 =
   "2a30c91c2e6d82386113535d8a0d03e3faeb2d4af0bc032b9200719e036b490a";
 export const BRACE_EXPANSION_PATCH_SHA256 =

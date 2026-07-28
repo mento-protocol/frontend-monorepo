@@ -335,11 +335,11 @@ test("resolved Next.js and exact Vercel CLI satisfy custom-ID prerequisites", ()
   const prerequisites = assertDeploymentIdPrerequisites(repoRoot);
   const expected = {
     next: "16.2.11",
-    vercel: "56.2.0",
+    vercel: "56.4.1",
     vercelCliRuntime: {
       lockfileSha256: prerequisites.vercelCliRuntime.lockfileSha256,
       patchRequired: true,
-      vercel: "56.2.0",
+      vercel: "56.4.1",
     },
   };
   assert.ok(
@@ -359,7 +359,7 @@ test("resolved Next.js and exact Vercel CLI satisfy custom-ID prerequisites", ()
     expected,
   );
   assert.equal(isVersionGreaterThan("16.2.10", "16.2.0-canary.15"), true);
-  assert.equal(isVersionGreaterThan("56.2.0", "50.3.3"), true);
+  assert.equal(isVersionGreaterThan("56.4.1", "50.3.3"), true);
 });
 
 test("trusted controller accepts only the reviewed Vercel CLI runtime lockfile rotation", () => {
@@ -560,7 +560,7 @@ test("trusted controller accepts only the reviewed Vercel CLI runtime lockfile r
       {
         lockfileSha256: sha256(patchedLockfile),
         patchRequired: true,
-        vercel: "56.2.0",
+        vercel: "56.4.1",
       },
     );
     assert.equal(

@@ -83,8 +83,8 @@ importers:
   .:
     dependencies:
       vercel:
-        specifier: 56.2.0
-        version: 56.2.0(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
+        specifier: 56.4.1
+        version: 56.4.1(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
 
 packages:
 
@@ -1553,7 +1553,7 @@ packages:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
     engines: {node: '>= 0.8'}
 
-  vercel@56.2.0:
+  vercel@56.4.1:
     resolution: {integrity: sha512-4k4WzaLhZuPuksw96qQbmXqEQvhEAwuZACDtL3aiF7Ys5XplRapidWBQAnXx6dYemj8Q7Nf8W8A43uhnJA49aQ==}
     engines: {node: '>= 18'}
     hasBin: true
@@ -3061,7 +3061,7 @@ snapshots:
 
   unpipe@1.0.0: {}
 
-  vercel@56.2.0(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2):
+  vercel@56.4.1(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2):
     dependencies:
       '@vercel/backends': 0.8.23(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
       '@vercel/blob': 2.4.0

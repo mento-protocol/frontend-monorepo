@@ -708,7 +708,7 @@ native Vercel:
 
 ## Pinned prerequisites
 
-- Vercel CLI: exactly `56.2.0` in the root `devDependencies` and the standalone
+- Vercel CLI: exactly `56.4.1` in the root `devDependencies` and the standalone
   `scripts/vercel-cli-runtime/package.json` dependency. The root dependency
   remains available for reviewed operator commands; protected
   production-shadow and main-deployment jobs install only the standalone
@@ -931,7 +931,7 @@ The production-shadow workflow uses a separate runner-owned staging boundary.
 `PROJECT_DIRECTORY` must be the directory in which the Vercel CLI writes its
 `.vercel` state. The production-shadow workflow launches the CLI from the
 monorepo root, but first materializes a trusted root `.vercel/repo.json` mapping
-and selects the literal project with `--project`. Pinned CLI 56.2.0 then writes
+and selects the literal project with `--project`. Pinned CLI 56.4.1 then writes
 the pulled environment and project settings below `apps/<target>/.vercel`, so
 the checker passes the literal `apps/<target>` directory. In this repo-linked
 mode, identity lives only in the exact root `.vercel/repo.json` mapping;
@@ -945,7 +945,7 @@ workflow constants and scoped GitHub secrets so they take precedence. A missing
 or invalid pulled file fails closed. Its machine-readable inventory is available
 directly:
 
-Production-shadow pulls intentionally omit `--git-branch`: pinned CLI 56.2.0
+Production-shadow pulls intentionally omit `--git-branch`: pinned CLI 56.4.1
 accepts that option only with the `preview` target. `--environment v3` or
 `--environment production` selects the exact custom or production
 configuration; the guarded source SHA, `VERCEL_GIT_COMMIT_REF=main`, and deploy
@@ -1114,7 +1114,7 @@ state.
 
 The protected production-shadow Vercel CLI is a standalone frozen install.
 Trusted controller code first requires its manifest to contain only
-`vercel@56.2.0`, requires its `pnpm.overrides` object to equal the root security
+`vercel@56.4.1`, requires its `pnpm.overrides` object to equal the root security
 overrides, requires its `brace-expansion@2.1.2` patch entry to use the shared
 reviewed artifact with its runtime-relative path, and binds every byte of
 `scripts/vercel-cli-runtime/pnpm-lock.yaml` to a reviewed SHA-256. It copies the
@@ -1143,7 +1143,7 @@ reject. Candidate source cannot supply or extend this mapping. The ordinary
 current-main manifest and lockfile pair therefore continues to verify until
 #645 changes both; then remove the old digest/override pair immediately so the
 controller returns to a single-pair binding. The manifest's exact
-`vercel@56.2.0` pin and every other lockfile check remain in force throughout
+`vercel@56.4.1` pin and every other lockfile check remain in force throughout
 the rotation.
 
 The raw Vercel-pulled `.env.<target>.local` remains private and runner-owned.
@@ -1296,7 +1296,7 @@ contract update rather than being accepted implicitly.
 Each command is launched at the monorepo root with an explicit literal
 `--project` argument. The controller removes `VERCEL_ORG_ID` and
 `VERCEL_PROJECT_ID` only from the CLI child environment after validating them
-and writing the trusted repo mapping; CLI 56.2.0 otherwise gives those variables
+and writing the trusted repo mapping; CLI 56.4.1 otherwise gives those variables
 precedence and loses the Root Directory. Authentication remains in the narrowly
 scoped `VERCEL_TOKEN` environment for API, pull, deploy, and alias-check steps,
 but
@@ -1727,7 +1727,7 @@ running it.
 Before any credentialed command, the worker proves the runtime root, its
 replacement-relevant parents, Node.js, pnpm, and the CLI are not candidate
 writable; it also proves the CLI resolves inside the protected directory, its
-package version is exactly `56.2.0`, and protected `node <cli> --version`
+package version is exactly `56.4.1`, and protected `node <cli> --version`
 executes successfully. It then switches to the dedicated candidate UID and
 executes the protected pnpm launcher once before materializing or running the
 selected source, proving that every isolation ancestor is searchable by that
@@ -1777,7 +1777,7 @@ The pinned Vercel CLI commands executed from monorepo-shaped roots. Before
 path under `$VERCEL_ISOLATION_ROOT`. That tree contains only real
 `apps/ui.mento.org` directory components and an ephemeral repo-level link built
 from trusted repository variables; it contains no checked-out candidate file.
-This lets CLI `56.2.0` resolve the configured UI Root Directory without giving
+This lets CLI `56.4.1` resolve the configured UI Root Directory without giving
 the token-bearing pull command a candidate-controlled write path. The pulled
 mapping and project-local state are:
 
@@ -1809,7 +1809,7 @@ stopped. These helpers may traverse and `lstat` the candidate-owned `0700` /
 staging tree. The internal `validate-candidate-pull` controller action exists
 for this privileged check and is not an operator-facing command. The
 controller validates the ID variables but deliberately withholds them from the
-Vercel CLI child process: CLI `56.2.0` otherwise gives those variables
+Vercel CLI child process: CLI `56.4.1` otherwise gives those variables
 precedence over `repo.json` and loses the monorepo Root Directory mapping.
 
 The credentialed worker ran this sequence in one standard `ubuntu-latest` job:
@@ -1879,7 +1879,7 @@ escaping links remain rejected. The trusted handoff preserves accepted links
 without dereferencing them and changes the link ownership explicitly before
 applying the same validation again immediately before upload.
 
-CLI `56.2.0` gates its local Root Directory monorepo defaults behind
+CLI `56.4.1` gates its local Root Directory monorepo defaults behind
 `VERCEL_BUILD_MONOREPO_SUPPORT=1`. The worker supplies that trusted constant to
 the clean candidate environment so the CLI activates its Turborepo default,
 `turbo run build`, for the Root Directory project. Turbo then included upstream

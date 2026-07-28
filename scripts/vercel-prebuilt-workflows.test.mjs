@@ -381,19 +381,19 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
   assert.deepEqual(Object.keys(runtimeLock.snapshots), ["pnpm@10.34.4"]);
   assert.equal(runtimeLock.importers["."].dependencies.pnpm.version, "10.34.4");
   assert.deepEqual(vercelCliRuntimeManifest.dependencies, {
-    vercel: "56.2.0",
+    vercel: "56.4.1",
   });
   assert.equal(vercelCliRuntimeManifest.scripts, undefined);
   assert.deepEqual(
     vercelCliRuntimeManifest.pnpm.overrides,
     manifest.pnpm.overrides,
   );
-  assert.equal(manifest.devDependencies.vercel, "56.2.0");
+  assert.equal(manifest.devDependencies.vercel, "56.4.1");
   assert.equal(
     vercelCliRuntimeLock.importers["."].dependencies.vercel.specifier,
-    "56.2.0",
+    "56.4.1",
   );
-  assert.ok(vercelCliRuntimeLock.packages["vercel@56.2.0"]);
+  assert.ok(vercelCliRuntimeLock.packages["vercel@56.4.1"]);
   assert.doesNotMatch(rootOsvConfig, /GHSA-gj8w-mvpf-x27x/);
   assert.match(
     rootOsvConfig,

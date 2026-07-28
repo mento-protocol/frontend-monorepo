@@ -4,7 +4,7 @@
   "private": true,
   "description": "Standalone pinned Vercel CLI runtime for protected GitHub Actions deployments",
   "dependencies": {
-    "vercel": "56.2.0"
+    "vercel": "56.4.1"
   },
   "pnpm": {
     "overrides": {

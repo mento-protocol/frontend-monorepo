@@ -367,9 +367,9 @@ test("protected build runtime installs the exact standalone Vercel CLI without w
   assert.ok(runtime);
   const runtimeBlock = runtime.run;
   assert.deepEqual(vercelCliRuntimePackage.dependencies, {
-    vercel: "56.2.0",
+    vercel: "56.4.1",
   });
-  assert.equal(rootPackage.devDependencies.vercel, "56.2.0");
+  assert.equal(rootPackage.devDependencies.vercel, "56.4.1");
   assert.deepEqual(
     vercelCliRuntimePackage.pnpm.overrides,
     rootPackage.pnpm.overrides,

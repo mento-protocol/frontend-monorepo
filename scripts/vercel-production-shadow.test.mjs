@@ -234,7 +234,7 @@ function productionOutputFixture(logicalTarget = "governance") {
     join(outputDirectory, "builds.json"),
     JSON.stringify({
       target: logicalTarget === "app" ? "v3" : "production",
-      cliVersion: "56.2.0",
+      cliVersion: "56.4.1",
     }),
   );
   return {
@@ -1241,7 +1241,7 @@ test("repo-linked settings use exact repo identity for all four targets", () => 
         join(output, "builds.json"),
         JSON.stringify({
           target: target === "app" ? "v3" : "production",
-          cliVersion: "56.2.0",
+          cliVersion: "56.4.1",
         }),
       );
       assert.deepEqual(
@@ -1781,7 +1781,7 @@ test("runner pull staging, candidate copy, and upload proof reject external refe
         join(output, "builds.json"),
         JSON.stringify({
           target: target === "app" ? "v3" : "production",
-          cliVersion: "56.2.0",
+          cliVersion: "56.4.1",
         }),
         { mode: 0o600 },
       );
@@ -2019,7 +2019,7 @@ test("handoff enforces distinct candidate and runner ownership contracts", () =>
     );
     writeFileSync(
       join(candidateOutput, "builds.json"),
-      JSON.stringify({ target: "production", cliVersion: "56.2.0" }),
+      JSON.stringify({ target: "production", cliVersion: "56.4.1" }),
       { mode: 0o600 },
     );
     const functionsDirectory = join(candidateOutput, "functions");
@@ -2224,7 +2224,7 @@ test("handoff final validation rejects a copied-link tamper", () => {
     );
     writeFileSync(
       join(candidateOutput, "builds.json"),
-      JSON.stringify({ target: "production", cliVersion: "56.2.0" }),
+      JSON.stringify({ target: "production", cliVersion: "56.4.1" }),
       { mode: 0o600 },
     );
     const targetFunction = join(candidateOutput, "functions", "target.func");
@@ -2578,7 +2578,7 @@ test("trusted builds reject every post-build project-link mutation before deploy
           join(output, "builds.json"),
           JSON.stringify({
             target: target === "app" ? "v3" : "production",
-            cliVersion: "56.2.0",
+            cliVersion: "56.4.1",
           }),
         );
 

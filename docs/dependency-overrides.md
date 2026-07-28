@@ -79,7 +79,7 @@ runtime in the same PR:
    that root state, and cross-paired old-lock/new-manifest or
    new-lock/old-manifest hybrids must reject. Candidate or PR-authored source
    must never supply or extend this mapping. Then land the matching manifest
-   and lockfile state in #645, keeping the manifest's exact `vercel@56.2.0`
+   and lockfile state in #645, keeping the manifest's exact `vercel@56.4.1`
    pin and all registry-only checks intact. Immediately after #645 merges,
    remove the former digest/override pair from the controller mapping and
    restore the single-pair contract.
