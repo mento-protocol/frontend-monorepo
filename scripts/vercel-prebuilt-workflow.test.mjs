@@ -2180,11 +2180,7 @@ test("standalone Vercel CLI runtime is exact, override-aligned, and independentl
       runtimeRoot,
       join(realpathSync(toolsRoot), "vercel-cli-runtime"),
     );
-    for (const file of [
-      "package.json",
-      "pnpm-lock.yaml",
-      "patches/brace-expansion@2.1.2.patch",
-    ]) {
+    for (const file of ["package.json", "pnpm-lock.yaml"]) {
       const source = join(sourceRoot, file);
       const destination = join(runtimeRoot, file);
       const sourceEntry = lstatSync(source);
@@ -2378,6 +2374,9 @@ test("patched standalone Vercel CLI runtime stages one immutable reviewed patch"
         overridesSha256: createHash("sha256")
           .update(canonicalOverrides)
           .digest("hex"),
+        rootPatchSha256: createHash("sha256")
+          .update(patchContents)
+          .digest("hex"),
         patchSha256: createHash("sha256").update(patchContents).digest("hex"),
       },
     ];
@@ -2482,7 +2481,7 @@ test("patched standalone Vercel CLI runtime stages one immutable reviewed patch"
           toolsRoot,
           runtimeContractStates,
         }),
-      /runtime patch is not exact/,
+      /root brace-expansion patch is not exact/,
     );
     chmodSync(patchPath, 0o644);
     writeFileSync(patchPath, patchContents);
@@ -2496,7 +2495,7 @@ test("patched standalone Vercel CLI runtime stages one immutable reviewed patch"
           toolsRoot,
           runtimeContractStates,
         }),
-      /runtime patch is missing/,
+      /root brace-expansion patch is missing/,
     );
     writeFileSync(patchPath, patchContents, { mode: 0o444 });
 
@@ -2586,7 +2585,7 @@ test("standalone Vercel CLI resolver enforces and executes the exact protected l
       runtimeRoot,
       "node_modules",
       ".pnpm",
-      "vercel@56.4.1_@emnapi+core@1.11.2_@emnapi+runtime@1.11.2",
+      "vercel@56.4.1",
       "node_modules",
       "vercel",
     );

@@ -2387,11 +2387,20 @@ export function stageTrustedVercelCliRuntimeManifest({
     expectedUid: currentUid,
     expectedGid: currentGid,
   });
-  const sourcePatchArtifact = protectedVercelCliRuntimePatchArtifact({
-    runtimeRoot: sourceRoot,
-    expectedUid: currentUid,
-    expectedGid: currentGid,
-  });
+  const sourceRuntimeManifest = JSON.parse(
+    readFileSync(sourcePackageJson.path, "utf8"),
+  );
+  const runtimePatchRequired = Object.hasOwn(
+    sourceRuntimeManifest.pnpm ?? {},
+    "patchedDependencies",
+  );
+  const sourcePatchArtifact = runtimePatchRequired
+    ? protectedVercelCliRuntimePatchArtifact({
+        runtimeRoot: sourceRoot,
+        expectedUid: currentUid,
+        expectedGid: currentGid,
+      })
+    : undefined;
   const sourceContract = validatePinnedVercelCliRuntimeFiles({
     rootPackageJsonPath: rootPackageJson.path,
     packageJsonPath: sourcePackageJson.path,
@@ -2576,7 +2585,7 @@ export function trustedStandaloneVercelCliPath({ controllerRoot, toolsRoot }) {
     hasControlCharacters(packageLinkTarget) ||
     packageLinkTarget !==
       relative(dirname(packageLinkPath), canonicalPackageRoot) ||
-    !/^vercel@56\.2\.0(?:_[^/]+)?\/node_modules\/vercel$/u.test(
+    !/^vercel@56\.4\.1(?:_[^/]+)?\/node_modules\/vercel$/u.test(
       packageFromVirtualStore,
     )
   ) {

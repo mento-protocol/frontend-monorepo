@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
 export const PINNED_VERCEL_CLI_VERSION = "56.4.1";
@@ -9,11 +10,11 @@ export const BRACE_EXPANSION_RUNTIME_PATCH_PATH =
 const BRACE_EXPANSION_ROOT_PATCH_PATH =
   "scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch";
 
-// This one reviewed successor binds the runtime lockfile, override object, and
-// patch bytes. Replace all three together for any later reviewed patch update.
-const NEXT_BRACE_EXPANSION_RUNTIME_LOCKFILE_SHA256 =
-  "c28925e49fa15cc2151f4b0b9179f721ebc03c28ba9a4350ab8e3782bf099a90";
-const NEXT_BRACE_EXPANSION_RUNTIME_OVERRIDE_SHA256 =
+// This reviewed successor binds the regenerated runtime lockfile and override
+// object. Its Vercel 56.4.1 graph no longer includes brace-expansion@2.1.2.
+const NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
+  "49f789a692dea62faf62fdaf0cdf6d89131d3fd1f5ac861ce59c257d0866e5e4";
+const NEXT_VERCEL_CLI_RUNTIME_OVERRIDE_SHA256 =
   "2a30c91c2e6d82386113535d8a0d03e3faeb2d4af0bc032b9200719e036b490a";
 export const BRACE_EXPANSION_PATCH_SHA256 =
   "7cf518c5d9dbf4290d0f48d3fa4673d4a163d0088d2d1294e417b9909c111833";
@@ -35,9 +36,9 @@ const TRUSTED_VERCEL_CLI_RUNTIME_STATES = Object.freeze([
       "0941482390a44f7e16c1f7182469e01162434f9e274059d53d6ebbef2ebed695",
   }),
   Object.freeze({
-    lockfileSha256: NEXT_BRACE_EXPANSION_RUNTIME_LOCKFILE_SHA256,
-    overridesSha256: NEXT_BRACE_EXPANSION_RUNTIME_OVERRIDE_SHA256,
-    patchSha256: BRACE_EXPANSION_PATCH_SHA256,
+    lockfileSha256: NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
+    overridesSha256: NEXT_VERCEL_CLI_RUNTIME_OVERRIDE_SHA256,
+    rootPatchSha256: BRACE_EXPANSION_PATCH_SHA256,
   }),
 ]);
 
@@ -111,18 +112,21 @@ export function assertVercelCliRuntimeContract({
   if (trustedRuntimeState === undefined) {
     throw new Error("Trusted Vercel CLI runtime lockfile is not exact");
   }
-  const hasBraceExpansionPatch = trustedRuntimeState.patchSha256 !== undefined;
-  const expectedPnpmKeys = hasBraceExpansionPatch
+  const hasRuntimePatch = trustedRuntimeState.patchSha256 !== undefined;
+  const hasRootPatch = trustedRuntimeState.rootPatchSha256 !== undefined;
+  const expectedPnpmKeys = hasRuntimePatch
     ? ["overrides", "patchedDependencies"]
     : ["overrides"];
-  const expectedPatchedDependencies = hasBraceExpansionPatch
+  const expectedPatchedDependencies = hasRuntimePatch
     ? {
         [BRACE_EXPANSION_PATCHED_DEPENDENCY]:
           BRACE_EXPANSION_RUNTIME_PATCH_PATH,
       }
     : undefined;
-  const expectedRootPatchedDependencies = hasBraceExpansionPatch
-    ? { [BRACE_EXPANSION_PATCHED_DEPENDENCY]: BRACE_EXPANSION_ROOT_PATCH_PATH }
+  const expectedRootPatchedDependencies = hasRootPatch
+    ? {
+        [BRACE_EXPANSION_PATCHED_DEPENDENCY]: BRACE_EXPANSION_ROOT_PATCH_PATH,
+      }
     : undefined;
   if (
     !hasExactObjectKeys(packageMetadata, [
@@ -158,7 +162,24 @@ export function assertVercelCliRuntimeContract({
       "Trusted Vercel CLI runtime lockfile and overrides are not an approved pair",
     );
   }
-  if (hasBraceExpansionPatch) {
+  if (hasRootPatch) {
+    let rootPatchDigest;
+    try {
+      rootPatchDigest = createHash("sha256")
+        .update(
+          readFileSync(
+            join(dirname(rootPackageJsonPath), BRACE_EXPANSION_ROOT_PATCH_PATH),
+          ),
+        )
+        .digest("hex");
+    } catch {
+      throw new Error("Trusted root brace-expansion patch is missing");
+    }
+    if (rootPatchDigest !== trustedRuntimeState.rootPatchSha256) {
+      throw new Error("Trusted root brace-expansion patch is not exact");
+    }
+  }
+  if (hasRuntimePatch) {
     if (typeof patchFilePath !== "string") {
       throw new Error("Trusted Vercel CLI runtime patch is missing");
     }
@@ -186,7 +207,7 @@ export function assertVercelCliRuntimeContract({
 
   return {
     lockfileSha256: lockfileDigest,
-    patchRequired: hasBraceExpansionPatch,
+    patchRequired: hasRuntimePatch,
     vercel: packageMetadata.dependencies.vercel,
   };
 }

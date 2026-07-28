@@ -24,14 +24,12 @@ root workspace. Its
 resolutions. Its only dependency must remain the same exact Vercel version as
 the root `devDependencies.vercel` pin.
 
-The two manifests also mirror the `brace-expansion@2.1.2` local patch while
-keeping a single reviewed artifact at
-`scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch`: the root
-`pnpm.patchedDependencies` entry uses that repository-relative path and the
-standalone runtime entry uses `patches/brace-expansion@2.1.2.patch`. The patch
-backports juliangruber/brace-expansion commit `a1bd339`'s CVE-2026-14257 total
-expansion-length bound without forcing legacy minimatch consumers onto the
-incompatible 5.x CommonJS/API line.
+The root workspace retains the reviewed `brace-expansion@2.1.2` patch at
+`scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch`. The
+regenerated Vercel 56.4.1 standalone graph has no v2 consumer, so its manifest
+and lockfile must not declare that unused patch. The controller verifies the
+root patch separately and permits a standalone patch only when the reviewed
+runtime lockfile state requires one.
 
 After changing the root Vercel pin or any root override, update this protected
 runtime in the same PR:
@@ -50,20 +48,19 @@ runtime in the same PR:
    const runtime = JSON.parse(await readFile(path, "utf8"));
    runtime.dependencies.vercel = root.devDependencies.vercel;
    runtime.pnpm.overrides = root.pnpm.overrides;
-   runtime.pnpm.patchedDependencies = {
-     "brace-expansion@2.1.2": "patches/brace-expansion@2.1.2.patch",
-   };
    await writeFile(path, `${JSON.stringify(runtime, null, 2)}\n`);
    '
    ```
 
-2. Regenerate only the standalone lockfile, outside workspace resolution:
+2. Regenerate only the standalone lockfile from a fresh isolated directory:
 
    ```bash
-   pnpm --dir scripts/vercel-cli-runtime install \
-     --lockfile-only \
-     --ignore-scripts \
-     --ignore-workspace
+   runtime_dir="$(mktemp -d)"
+   cp scripts/vercel-cli-runtime/package.json "$runtime_dir/package.json"
+   cp -R scripts/vercel-cli-runtime/patches "$runtime_dir/patches"
+   CI=true pnpm --dir "$runtime_dir" install --lockfile-only --ignore-scripts
+   mv "$runtime_dir/pnpm-lock.yaml" scripts/vercel-cli-runtime/pnpm-lock.yaml
+   rm -rf "$runtime_dir"
    ```
 
 3. Review the lockfile diff and calculate its exact digest:
@@ -98,29 +95,14 @@ Never run a general workspace install to regenerate this lockfile. That would
 allow workspace links into a runtime whose isolation depends on a standalone
 registry-only graph.
 
-### Reviewed brace-expansion patch rotation
+### Reviewed brace-expansion patch state
 
-The controller has one reviewed successor state for the
-`brace-expansion@2.1.2` patch. Its three SHA-256 constants in
-`scripts/vercel-cli-runtime-contract.mjs` bind the standalone lockfile,
-canonical sorted root override object, and patch bytes. Replace all three
-together for any later reviewed patch revision; never generalize this into a
-candidate-provided allowlist.
-
-The later runtime-state PR must add exactly these matching entries together:
-
-- Root `pnpm.patchedDependencies`:
-  `brace-expansion@2.1.2: scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch`.
-- Standalone runtime `pnpm.patchedDependencies`:
-  `brace-expansion@2.1.2: patches/brace-expansion@2.1.2.patch`.
-- One regular, single-link patch file at
-  `scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch`.
-
-Protected staging copies that patch into the runtime as an independent `0444`
-file before frozen pnpm installation. It rejects a missing, extra, linked,
-hardlinked, drifted, or writable patch artifact. Keep both existing unpatched
-runtime states during the transition; remove them only in the reviewed cleanup
-after the patched state is serving on `main`.
+The root `brace-expansion@2.1.2` patch remains bound to its reviewed SHA-256
+and repository-relative path. A future standalone graph may declare the same
+patch only when its generated lockfile contains a matching v2 consumer. In
+that case, add the runtime-relative manifest entry and update the reviewed
+runtime state so protected staging copies one regular, single-link `0444` patch
+file. Otherwise the runtime manifest and staged runtime must omit the patch.
 
 The root `pnpm test` chain runs `pnpm supply-chain:lockfile-lint:test` after
 installing dependencies. This exercises the patched 2.1.2 behavior in hosted

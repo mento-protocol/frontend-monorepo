@@ -1115,12 +1115,14 @@ state.
 The protected production-shadow Vercel CLI is a standalone frozen install.
 Trusted controller code first requires its manifest to contain only
 `vercel@56.4.1`, requires its `pnpm.overrides` object to equal the root security
-overrides, requires its `brace-expansion@2.1.2` patch entry to use the shared
-reviewed artifact with its runtime-relative path, and binds every byte of
-`scripts/vercel-cli-runtime/pnpm-lock.yaml` to a reviewed SHA-256. It copies the
-manifest and lockfile as independent runner-owned `0444`, single-link files
-under `$TOOLS_PATH/vercel-cli-runtime`; CI never generates or updates that
-lockfile. The protected pnpm runtime installs there with `--frozen-lockfile`,
+overrides, binds every byte of `scripts/vercel-cli-runtime/pnpm-lock.yaml` to a
+reviewed SHA-256, and separately verifies the root
+`brace-expansion@2.1.2` patch. The regenerated Vercel 56.4.1 runtime has no v2
+consumer, so it omits that patch; a future reviewed state stages it only when
+the runtime manifest and lockfile require it. It copies the manifest and
+lockfile as independent runner-owned `0444`, single-link files under
+`$TOOLS_PATH/vercel-cli-runtime`; CI never generates or updates that lockfile.
+The protected pnpm runtime installs there with `--frozen-lockfile`,
 `--ignore-scripts`, `--ignore-workspace`, and `--package-import-method copy`.
 It does not install or filter the root workspace, so `workspace:` dependencies
 cannot create links back into the controller checkout. After installation, the
@@ -1129,10 +1131,8 @@ link counts to match the fixed contract, then rejects every symbolic link whose
 resolved target escapes `$TOOLS_PATH`. The standalone lock receives the same
 registry/integrity lint as the root lock. Its dedicated OSV policy contains
 the two reviewed package-name false positives for Vercel's unrelated `sandbox`
-CLI dependency plus the short-lived GHSA-mh99-v99m-4gvg suppression for the
-locally patched `brace-expansion@2.1.2` CVE-2026-14257 backport. The latter
-expires when the patch can be removed, so root application suppressions cannot
-mask a standalone CLI vulnerability.
+CLI dependency. Root application suppressions cannot mask a standalone CLI
+vulnerability.
 
 For the two-PR manifest and lockfile rotation before #645, the trusted
 default-branch controller has a literal temporary mapping from each current or

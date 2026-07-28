@@ -419,19 +419,15 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
     [...vercelCliRuntimeOsvConfig.matchAll(/^id = "([^"]+)"$/gm)].map(
       ([, id]) => id,
     ),
-    ["GHSA-fm4j-4xhm-xpwx", "GHSA-gc25-3vc5-2jf9", "GHSA-mh99-v99m-4gvg"],
+    ["GHSA-fm4j-4xhm-xpwx", "GHSA-gc25-3vc5-2jf9"],
   );
   assert.equal(
     (vercelCliRuntimeOsvConfig.match(/^\[\[IgnoredVulns\]\]$/gm) ?? []).length,
-    3,
+    2,
   );
   assert.doesNotMatch(
     vercelCliRuntimeOsvConfig,
-    /GHSA-(?!fm4j-4xhm-xpwx|gc25-3vc5-2jf9|mh99-v99m-4gvg)/,
-  );
-  assert.match(
-    vercelCliRuntimeOsvConfig,
-    /GHSA-mh99-v99m-4gvg[\s\S]*ignoreUntil = 2026-08-16T00:00:00Z/,
+    /GHSA-(?!fm4j-4xhm-xpwx|gc25-3vc5-2jf9)/,
   );
   assert.equal(
     supplyChain.jobs["osv-pnpm-bootstrap"].with["scan-args"].trim(),

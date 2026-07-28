@@ -75,9 +75,6 @@
       "yaml@>=2.0.0 <2.8.3": ">=2.8.3",
       "yaml@<1.10.3": ">=1.10.3 <2",
       "zod": "^4.4.3"
-    },
-    "patchedDependencies": {
-      "brace-expansion@2.1.2": "patches/brace-expansion@2.1.2.patch"
     }
   }
 }

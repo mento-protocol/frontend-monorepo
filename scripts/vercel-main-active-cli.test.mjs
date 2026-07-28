@@ -445,7 +445,7 @@ test("fd loader runs the pinned Vercel ESM entrypoint", () => {
           spawnOptions,
         );
         assert.equal(child.status, 0, child.stderr);
-        assert.match(`${child.stdout}${child.stderr}`, /56\.2\.0/);
+        assert.match(`${child.stdout}${child.stderr}`, /56\.4\.1/);
         return child;
       },
     });

@@ -413,7 +413,7 @@ test("protected build runtime installs the exact standalone Vercel CLI without w
   assert.match(runtimeBlock, /stat -c %h "\$installed_file"\)" != 1/);
   assert.match(
     runtimeBlock,
-    /"\$\("\$node_bin" "\$vercel_cli" --version\)" = 56\.2\.0/,
+    /"\$\("\$node_bin" "\$vercel_cli" --version\)" = 56\.4\.1/,
   );
   assert.ok(
     runtimeBlock.indexOf("stage-vercel-cli-runtime") <
