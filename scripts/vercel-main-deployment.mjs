@@ -73,10 +73,8 @@ import {
 } from "./vercel-main-active-controller.mjs";
 import {
   ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA,
-  ACTIVE_ALIAS_MAPPING_SET_SCHEMA,
   ACTIVE_DEPLOYMENT_STATE_SPEC_SCHEMA,
   assertActiveAliasMappingSpec,
-  assertActiveAliasMappingSet,
   assertActiveDeploymentStateProof,
   assertActiveDeploymentStateSpec,
   assertCanonicalOutput,
@@ -84,7 +82,6 @@ import {
   assertSnapshotSpec,
   canonicalizeDeploymentUrl,
   canonicalizeHostname,
-  writeActiveAliasMappingSet,
 } from "./vercel-deployment-state.mjs";
 import {
   assertOnlyExpectedVercelGeneratedAliases,
@@ -117,6 +114,8 @@ export const MAIN_ACTIVE_PREPARATION_FAILURE_EVIDENCE_SCHEMA =
   "vercel-main-active-preparation-failure-evidence:v1";
 export const MAIN_ACTIVE_TERMINAL_PROOFS_SCHEMA =
   "vercel-main-active-terminal-proofs:v3";
+export const MAIN_CANONICAL_MAPPINGS_SCHEMA =
+  "vercel-main-canonical-mappings:v1";
 export const MAIN_STAGE_BARRIER_SCHEMA = "vercel-main-stage-barrier:v1";
 export const MAIN_TERMINAL_STATE_PROOF_SCHEMA =
   "vercel-main-terminal-state-proof:v1";
@@ -212,6 +211,13 @@ const MAX_JSON_BYTES = 256 * 1024;
 export const MAIN_ACTIVE_JOURNAL_HISTORY_MAX_JSON_BYTES = 1024 * 1024;
 export const MAIN_ACTIVE_TERMINAL_PROOFS_MAX_JSON_BYTES = 1024 * 1024;
 const APP_BUILD_PROOF_SCHEMA = "vercel-main-app-build:v2";
+const CANONICAL_MAPPING_TARGETS = Object.freeze([
+  "governance",
+  "reserve",
+  "ui",
+  "app",
+  "legacy-app",
+]);
 const CLI_COMMAND_OPTIONS = Object.freeze({
   "active-event-authorize": Object.freeze([
     "current-mappings",
@@ -307,6 +313,11 @@ const CLI_COMMAND_OPTIONS = Object.freeze({
   "active-recovery-mapping-spec": Object.freeze(["journal-history", "output"]),
   "active-recovery-canonical-mappings": Object.freeze([
     "journal-history",
+    "mappings",
+    "output",
+  ]),
+  "active-canonical-mappings": Object.freeze([
+    "mapping-spec",
     "mappings",
     "output",
   ]),
@@ -2035,32 +2046,64 @@ export function createMainCurrentReleaseVerifiedDeploymentStateSpec({
   });
 }
 
-export function createMainCurrentActiveAliasMappingSet({
+function createMainCanonicalAliasMappingSpec({ aliasesByTarget, projectIds }) {
+  assertExactKeys(
+    aliasesByTarget,
+    CANONICAL_MAPPING_TARGETS,
+    "Active canonical mapping aliases",
+  );
+  assertExactKeys(
+    projectIds,
+    CANONICAL_MAPPING_TARGETS,
+    "Active canonical mapping project IDs",
+  );
+  return assertActiveAliasMappingSpec({
+    schema: ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA,
+    bindings: CANONICAL_MAPPING_TARGETS.flatMap((target) => {
+      const aliases = aliasesByTarget[target];
+      if (!Array.isArray(aliases) || aliases.length === 0) {
+        throw new Error(
+          `Active canonical ${target} mapping aliases are invalid`,
+        );
+      }
+      const projectId = requireString(
+        projectIds[target],
+        `Active canonical ${target} mapping project ID`,
+      );
+      return aliases.map((alias) => ({ alias, projectId, target }));
+    }).toSorted((left, right) => left.alias.localeCompare(right.alias)),
+  });
+}
+
+export function createMainCurrentActiveAliasMappingSpec({
   execution,
   barrier,
   journalHistory,
   runId,
   runAttempt,
 }) {
-  const { highest } = currentActiveHistory({
+  const { current, highest } = currentActiveHistory({
     execution,
     barrier,
     journalHistory,
     runId,
     runAttempt,
   });
-  return assertActiveAliasMappingSet({
-    schema: ACTIVE_ALIAS_MAPPING_SET_SCHEMA,
-    aliases: [
-      ...STAGE_BARRIER_TARGETS.flatMap(
-        (target) => highest.prior[target].aliases,
-      ),
-      ...highest.prior["legacy-app"].aliases,
-    ].toSorted(),
+  return createMainCanonicalAliasMappingSpec({
+    aliasesByTarget: Object.fromEntries(
+      CANONICAL_MAPPING_TARGETS.map((target) => [
+        target,
+        highest.prior[target].aliases,
+      ]),
+    ),
+    projectIds: {
+      ...current.execution.projection.projectIds,
+      "legacy-app": current.execution.legacyAppV2.projectId,
+    },
   });
 }
 
-export function createMainCurrentReleaseVerifiedAliasMappingSet({
+export function createMainCurrentReleaseVerifiedAliasMappingSpec({
   execution,
   barrier,
   runId,
@@ -2072,14 +2115,18 @@ export function createMainCurrentReleaseVerifiedAliasMappingSet({
     runId,
     runAttempt,
   });
-  return assertActiveAliasMappingSet({
-    schema: ACTIVE_ALIAS_MAPPING_SET_SCHEMA,
-    aliases: [
-      ...STAGE_BARRIER_TARGETS.flatMap(
-        (target) => current.execution.manifest.originalPriors[target].aliases,
-      ),
-      ...current.execution.legacyAppV2.aliases,
-    ].toSorted(),
+  return createMainCanonicalAliasMappingSpec({
+    aliasesByTarget: {
+      governance: current.execution.manifest.originalPriors.governance.aliases,
+      reserve: current.execution.manifest.originalPriors.reserve.aliases,
+      ui: current.execution.manifest.originalPriors.ui.aliases,
+      app: current.execution.manifest.originalPriors.app.aliases,
+      "legacy-app": current.execution.legacyAppV2.aliases,
+    },
+    projectIds: {
+      ...current.execution.projection.projectIds,
+      "legacy-app": current.execution.legacyAppV2.projectId,
+    },
   });
 }
 
@@ -2151,24 +2198,24 @@ export function createMainActiveRecoveryMappingSpec({
   });
 }
 
-// The provider captures bound mappings as a flat alias list. Re-derive the
-// allowed bindings from the current-attempt journal before grouping that list
-// into the transaction's canonical target shape. This deliberately keeps
-// project IDs while validating the capture and removes them only from the
-// post-binding handoff consumed by terminal artifacts.
-export function createMainActiveRecoveryCanonicalMappings({
-  journalHistory,
-  mappings,
-  runId,
-  runAttempt,
-}) {
-  const spec = createMainActiveRecoveryMappingSpec({
-    journalHistory,
-    runId,
-    runAttempt,
-  });
+// The provider captures bound mappings as a flat alias list. Validate that
+// capture against an exact canonical binding specification before grouping it
+// into the transaction's canonical target shape. Project IDs remain only long
+// enough to bind legacy App mappings, then never enter terminal artifacts.
+export function createMainActiveCanonicalMappings({ mappingSpec, mappings }) {
+  const spec = assertActiveAliasMappingSpec(mappingSpec);
+  assertSameJson(mappingSpec, spec, "Active canonical mapping specification");
+  const targets = new Set(spec.bindings.map(({ target }) => target));
+  if (
+    targets.size !== CANONICAL_MAPPING_TARGETS.length ||
+    CANONICAL_MAPPING_TARGETS.some((target) => !targets.has(target))
+  ) {
+    throw new Error(
+      "Active canonical mapping specification target coverage is incomplete",
+    );
+  }
   if (!Array.isArray(mappings) || mappings.length !== spec.bindings.length) {
-    throw new Error("Active recovery bound mappings are incomplete");
+    throw new Error("Active canonical bound mappings are incomplete");
   }
   const bound = mappings.map((value, index) => {
     const binding = spec.bindings[index];
@@ -2178,12 +2225,12 @@ export function createMainActiveRecoveryCanonicalMappings({
       hasProjectId
         ? ["alias", "deploymentId", "deploymentUrl", "projectId"]
         : ["alias", "deploymentId", "deploymentUrl"],
-      `Active recovery bound mapping ${index + 1}`,
+      `Active canonical bound mapping ${index + 1}`,
     );
     const alias = canonicalizeHostname(value.alias);
     const deploymentId = requireString(
       value.deploymentId,
-      `Active recovery bound mapping ${index + 1} deployment ID`,
+      `Active canonical bound mapping ${index + 1} deployment ID`,
       DEPLOYMENT_ID_PATTERN,
     );
     const deploymentUrl = canonicalizeDeploymentUrl(value.deploymentUrl);
@@ -2195,11 +2242,11 @@ export function createMainActiveRecoveryCanonicalMappings({
         ? !hasProjectId ||
           requireString(
             value.projectId,
-            `Active recovery bound mapping ${index + 1} project ID`,
+            `Active canonical bound mapping ${index + 1} project ID`,
           ) !== binding.projectId
         : hasProjectId)
     ) {
-      throw new Error("Active recovery bound mapping conflicts with its spec");
+      throw new Error("Active canonical bound mapping conflicts with its spec");
     }
     return {
       alias,
@@ -2210,11 +2257,11 @@ export function createMainActiveRecoveryCanonicalMappings({
         : {}),
     };
   });
-  assertSameJson(mappings, bound, "Active recovery bound mappings");
+  assertSameJson(mappings, bound, "Active canonical bound mappings");
   return {
-    schema: "vercel-main-canonical-mappings:v1",
+    schema: MAIN_CANONICAL_MAPPINGS_SCHEMA,
     mappings: Object.fromEntries(
-      ["governance", "reserve", "ui", "app", "legacy-app"].map((target) => [
+      CANONICAL_MAPPING_TARGETS.map((target) => [
         target,
         spec.bindings
           .map((binding, index) => ({ binding, mapping: bound[index] }))
@@ -2227,6 +2274,24 @@ export function createMainActiveRecoveryCanonicalMappings({
       ]),
     ),
   };
+}
+
+// Recovery derives its canonical specification from the current-attempt
+// journal, then uses the same materializer as all other active paths.
+export function createMainActiveRecoveryCanonicalMappings({
+  journalHistory,
+  mappings,
+  runId,
+  runAttempt,
+}) {
+  return createMainActiveCanonicalMappings({
+    mappingSpec: createMainActiveRecoveryMappingSpec({
+      journalHistory,
+      runId,
+      runAttempt,
+    }),
+    mappings,
+  });
 }
 
 // Recovery has no stage barrier to trust. The exact execution supplies the
@@ -2828,7 +2893,7 @@ export function createMainActiveDeploymentStateSpec({
   });
 }
 
-export function createMainActiveAliasMappingSet({
+export function createMainActiveAliasMappingSpec({
   plan,
   journalHistory,
   runId,
@@ -2847,14 +2912,17 @@ export function createMainActiveAliasMappingSet({
   });
   const highest = history.at(-1);
   assertJournalMatchesActivePlanning(highest, planning);
-  return assertActiveAliasMappingSet({
-    schema: ACTIVE_ALIAS_MAPPING_SET_SCHEMA,
-    aliases: [
-      ...MAIN_DEPLOYMENT_TARGETS.flatMap(
-        (target) => highest.prior[target].aliases,
-      ),
-      ...highest.prior["legacy-app"].aliases,
-    ].toSorted(),
+  return createMainCanonicalAliasMappingSpec({
+    aliasesByTarget: Object.fromEntries(
+      CANONICAL_MAPPING_TARGETS.map((target) => [
+        target,
+        highest.prior[target].aliases,
+      ]),
+    ),
+    projectIds: {
+      ...handoff.projectIds,
+      "legacy-app": handoff.projectIds.app,
+    },
   });
 }
 
@@ -3919,24 +3987,43 @@ function canonicalFinalMappings(journal, value, { exact = true } = {}) {
   }
   const expectedByAlias = new Map();
   for (const target of ["app", "governance", "reserve", "ui", "legacy-app"]) {
-    const expected =
+    const mapping =
       target === "legacy-app" || journal.candidates[target] === null
         ? journal.prior[target]
         : journal.candidates[target];
     for (const alias of journal.prior[target].aliases) {
-      expectedByAlias.set(alias, expected);
+      expectedByAlias.set(alias, {
+        mapping,
+        projectId: journal.prior[target].projectId,
+        target,
+      });
     }
   }
   const seen = new Set();
   const canonical = value.map((entry, index) => {
+    const alias = canonicalizeHostname(entry?.alias);
+    const expected = expectedByAlias.get(alias);
+    if (expected === undefined || seen.has(alias)) {
+      throw new Error("Active final mappings contain an unknown alias");
+    }
+    const hasProjectId = Object.hasOwn(entry ?? {}, "projectId");
     assertExactKeys(
       entry,
-      ["alias", "deploymentId", "deploymentUrl"],
+      hasProjectId
+        ? ["alias", "deploymentId", "deploymentUrl", "projectId"]
+        : ["alias", "deploymentId", "deploymentUrl"],
       `Active final mapping ${index + 1}`,
     );
-    const alias = canonicalizeHostname(entry.alias);
-    if (!expectedByAlias.has(alias) || seen.has(alias)) {
-      throw new Error("Active final mappings contain an unknown alias");
+    if (
+      (expected.target === "legacy-app" &&
+        hasProjectId &&
+        requireString(
+          entry.projectId,
+          `Active final mapping ${alias} project ID`,
+        ) !== expected.projectId) ||
+      (expected.target !== "legacy-app" && hasProjectId)
+    ) {
+      throw new Error("Active final mapping project binding is invalid");
     }
     seen.add(alias);
     const mapping = {
@@ -3949,10 +4036,9 @@ function canonicalFinalMappings(journal, value, { exact = true } = {}) {
       deploymentUrl: canonicalizeDeploymentUrl(entry.deploymentUrl),
     };
     if (exact) {
-      const expected = expectedByAlias.get(alias);
       if (
-        mapping.deploymentId !== expected.deploymentId ||
-        mapping.deploymentUrl !== expected.deploymentUrl
+        mapping.deploymentId !== expected.mapping.deploymentId ||
+        mapping.deploymentUrl !== expected.mapping.deploymentUrl
       ) {
         throw new Error("Active final mapping differs from the transaction");
       }
@@ -8979,6 +9065,20 @@ export async function runMainDeploymentCli({
     writeCanonicalJson(options.output, mappings);
     return mappings;
   }
+  if (command === "active-canonical-mappings") {
+    const mappings = createMainActiveCanonicalMappings({
+      mappingSpec: readJson(
+        options["mapping-spec"],
+        "Active canonical mapping specification",
+      ),
+      mappings: readJson(
+        options.mappings,
+        "Active canonical bound provider mappings",
+      ),
+    });
+    writeCanonicalJson(options.output, mappings);
+    return mappings;
+  }
   if (command === "active-recovery-state-spec") {
     const spec = createMainActiveRecoveryDeploymentStateSpec({
       journalHistory: readActiveJournalHistory(
@@ -9007,7 +9107,7 @@ export async function runMainDeploymentCli({
     return smokes;
   }
   if (command === "active-mapping-spec") {
-    const spec = createMainCurrentActiveAliasMappingSet({
+    const spec = createMainCurrentActiveAliasMappingSpec({
       execution: readJson(options.execution, "Main release execution"),
       barrier: readJson(options["stage-barrier"], "Current main stage barrier"),
       journalHistory: readActiveJournalHistory(
@@ -9017,17 +9117,17 @@ export async function runMainDeploymentCli({
       runId: values.GITHUB_RUN_ID,
       runAttempt: values.GITHUB_RUN_ATTEMPT,
     });
-    writeActiveAliasMappingSet(options.output, spec);
+    writeCanonicalJson(options.output, spec);
     return spec;
   }
   if (command === "current-release-mapping-spec") {
-    const spec = createMainCurrentReleaseVerifiedAliasMappingSet({
+    const spec = createMainCurrentReleaseVerifiedAliasMappingSpec({
       execution: readJson(options.execution, "Main release execution"),
       barrier: readJson(options["stage-barrier"], "Current main stage barrier"),
       runId: values.GITHUB_RUN_ID,
       runAttempt: values.GITHUB_RUN_ATTEMPT,
     });
-    writeActiveAliasMappingSet(options.output, spec);
+    writeCanonicalJson(options.output, spec);
     return spec;
   }
   if (command === "active-public-smokes") {

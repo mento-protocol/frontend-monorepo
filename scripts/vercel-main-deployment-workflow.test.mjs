@@ -1263,9 +1263,14 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
     /steps\.recovery-failed\.outputs\.outcome == 'recovery-failed'/,
   );
   assert.doesNotMatch(recoveryFailedTerminal.if, /terminal-bypass/);
+  assert.match(recoveryFailedTerminal.run, /set -euo pipefail/);
   assert.match(
     recoveryFailedTerminal.run,
-    /terminal-artifacts[\s\S]*--journal-history[\s\S]*current-history[\s\S]*--legacy-v2[\s\S]*recovery-final-legacy[\s\S]*--outcome recovery-failed/,
+    /install -m 0600 "\$RUNNER_TEMP\/current-attempt-journals\/current-history\.json" "\$RUNNER_TEMP\/recovery-current-history\.json"[\s\S]*terminal-artifacts[\s\S]*--journal-history "\$RUNNER_TEMP\/recovery-current-history\.json"[\s\S]*--legacy-v2[\s\S]*recovery-final-legacy[\s\S]*--outcome recovery-failed/,
+  );
+  assert.doesNotMatch(
+    recoveryFailedTerminal.run,
+    /--journal-history "\$RUNNER_TEMP\/current-attempt-journals\/current-history\.json"/,
   );
   assert.match(
     recoveryFailedTerminal.run,
@@ -1964,7 +1969,18 @@ test("coordinator checkpoints the forward journal before six bounded mutations a
   assert.match(finalProof.run, /active-freshness/);
   assert.match(finalProof.run, /active-mapping-spec/);
   assert.match(finalProof.run, /current-release-mapping-spec/);
-  assert.match(finalProof.run, /alias-mappings/);
+  assert.match(
+    finalProof.run,
+    /alias-mappings[\s\S]*--output "\$RUNNER_TEMP\/final-mappings-raw\.json"/,
+  );
+  const canonicalFinalMappings = command(
+    coordinator,
+    "active-canonical-mappings",
+  );
+  assert.match(
+    canonicalFinalMappings.run,
+    /--mapping-spec "\$RUNNER_TEMP\/final-mapping-spec\.json"[\s\S]*--mappings "\$RUNNER_TEMP\/final-mappings-raw\.json"[\s\S]*--output "\$RUNNER_TEMP\/final-mappings\.json"/,
+  );
   assert.match(finalProof.run, /active-state-spec/);
   assert.match(finalProof.run, /current-release-state-spec/);
   assert.match(finalProof.run, /active-proof/);
@@ -1973,6 +1989,14 @@ test("coordinator checkpoints the forward journal before six bounded mutations a
   assert.match(
     finalize.run,
     /active-event-finalize[\s\S]*run-active[\s\S]*committed-journal/,
+  );
+  assert.match(
+    finalize.run,
+    /active-event-finalize[\s\S]*--current-mappings "\$RUNNER_TEMP\/final-mappings-raw\.json"/,
+  );
+  assert.doesNotMatch(
+    finalize.run,
+    /--current-mappings "\$RUNNER_TEMP\/final-mappings\.json"/,
   );
   assert.ok(jobSteps.indexOf(finalProof) < jobSteps.indexOf(finalize));
   assert.ok(jobSteps.indexOf(finalize) < jobSteps.indexOf(committedUpload));
@@ -1989,6 +2013,10 @@ test("coordinator checkpoints the forward journal before six bounded mutations a
   assert.match(
     terminalArtifacts.run,
     /--state-proof "\$RUNNER_TEMP\/terminal-state-proof\.json"/,
+  );
+  assert.match(
+    terminalArtifacts.run,
+    /--final-mappings "\$RUNNER_TEMP\/final-mappings\.json"/,
   );
   for (const input of [
     "--final-census",
@@ -2050,6 +2078,10 @@ test("a complete same-release re-verifies current state without a journal or pub
   assert.match(
     current.run,
     /--final-census "\$RUNNER_TEMP\/terminal-state-proof\.json"/,
+  );
+  assert.match(
+    current.run,
+    /--final-mappings "\$RUNNER_TEMP\/final-mappings\.json"/,
   );
   assert.match(
     current.run,

@@ -2028,7 +2028,8 @@ jobs:
               exit 1
               ;;
           esac
-          node scripts/vercel-deployment-state.mjs alias-mappings --spec "$RUNNER_TEMP/final-mapping-spec.json" --output "$RUNNER_TEMP/final-mappings.json"
+          node scripts/vercel-deployment-state.mjs alias-mappings --spec "$RUNNER_TEMP/final-mapping-spec.json" --output "$RUNNER_TEMP/final-mappings-raw.json"
+          node scripts/vercel-main-deployment.mjs active-canonical-mappings --mapping-spec "$RUNNER_TEMP/final-mapping-spec.json" --mappings "$RUNNER_TEMP/final-mappings-raw.json" --output "$RUNNER_TEMP/final-mappings.json"
           node scripts/vercel-deployment-state.mjs active-proof --spec "$RUNNER_TEMP/final-state-spec.json" --output "$RUNNER_TEMP/final-state-proof.json"
           node scripts/vercel-main-deployment.mjs active-terminal-state-proof --execution "$RUNNER_TEMP/execution.json" --stage-barrier "$RUNNER_TEMP/stage-barrier.json" --state-proof "$RUNNER_TEMP/final-state-proof.json" --output "$RUNNER_TEMP/terminal-state-proof.json"
           node scripts/vercel-deployment-state.mjs snapshot --spec "$RUNNER_TEMP/legacy-spec.json" --output "$RUNNER_TEMP/final-legacy.json"
@@ -2039,7 +2040,7 @@ jobs:
           needs.prepare-release.outputs.decision != 'verify-existing-release'
         id: finalize
         run: |
-          node scripts/vercel-main-deployment.mjs active-event-finalize --receipt "$RUNNER_TEMP/active-journals/current-receipt.json" --freshness "$RUNNER_TEMP/final-freshness.json" --current-mappings "$RUNNER_TEMP/final-mappings.json" --public-smokes "$RUNNER_TEMP/public-smokes.json" --state-proof "$RUNNER_TEMP/final-state-proof.json" --output "$RUNNER_TEMP/finalize-event.json"
+          node scripts/vercel-main-deployment.mjs active-event-finalize --receipt "$RUNNER_TEMP/active-journals/current-receipt.json" --freshness "$RUNNER_TEMP/final-freshness.json" --current-mappings "$RUNNER_TEMP/final-mappings-raw.json" --public-smokes "$RUNNER_TEMP/public-smokes.json" --state-proof "$RUNNER_TEMP/final-state-proof.json" --output "$RUNNER_TEMP/finalize-event.json"
           node scripts/vercel-main-deployment.mjs run-active --execution "$RUNNER_TEMP/execution.json" --stage-barrier "$RUNNER_TEMP/stage-barrier.json" --prepared-journal "$RUNNER_TEMP/prepared-journal.json" --event "$RUNNER_TEMP/finalize-event.json" --journal-history "$RUNNER_TEMP/active-journals/current-history.json" --journal-output "$RUNNER_TEMP/committed-journal.json" --output "$RUNNER_TEMP/finalize-transition.json"
       - name: Require a committed terminal journal transition
         if: >-
@@ -2668,7 +2669,9 @@ jobs:
         id: recovery-failed-terminal
         if: ${{ always() && !cancelled() && steps.recovery-failed.outputs.outcome == 'recovery-failed' }}
         run: |
-          node scripts/vercel-main-release-cli.mjs terminal-artifacts --active-evidence-output "$RUNNER_TEMP/recovery-evidence.json" --execution "$RUNNER_TEMP/execution.json" --final-census "$RUNNER_TEMP/null.json" --final-mappings "$RUNNER_TEMP/null.json" --freshness "$RUNNER_TEMP/null.json" --journal-history "$RUNNER_TEMP/current-attempt-journals/current-history.json" --legacy-v2 "$RUNNER_TEMP/recovery-final-legacy.json" --outcome recovery-failed --proofs-output "$RUNNER_TEMP/recovery-proofs.json" --public-smokes "$RUNNER_TEMP/null.json" --stage-results "$RUNNER_TEMP/null.json" --state-proof "$RUNNER_TEMP/null.json"
+          set -euo pipefail
+          install -m 0600 "$RUNNER_TEMP/current-attempt-journals/current-history.json" "$RUNNER_TEMP/recovery-current-history.json"
+          node scripts/vercel-main-release-cli.mjs terminal-artifacts --active-evidence-output "$RUNNER_TEMP/recovery-evidence.json" --execution "$RUNNER_TEMP/execution.json" --final-census "$RUNNER_TEMP/null.json" --final-mappings "$RUNNER_TEMP/null.json" --freshness "$RUNNER_TEMP/null.json" --journal-history "$RUNNER_TEMP/recovery-current-history.json" --legacy-v2 "$RUNNER_TEMP/recovery-final-legacy.json" --outcome recovery-failed --proofs-output "$RUNNER_TEMP/recovery-proofs.json" --public-smokes "$RUNNER_TEMP/null.json" --stage-results "$RUNNER_TEMP/null.json" --state-proof "$RUNNER_TEMP/null.json"
           echo 'outcome=recovery-failed' >> "$GITHUB_OUTPUT"
       - name: Materialize preparation failure terminal artifacts without a journal
         id: preparation-failure-terminal

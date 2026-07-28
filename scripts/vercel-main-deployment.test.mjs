@@ -16,7 +16,10 @@ import process from "node:process";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { createActiveDeploymentStateProof } from "./vercel-deployment-state.mjs";
+import {
+  ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA,
+  createActiveDeploymentStateProof,
+} from "./vercel-deployment-state.mjs";
 import {
   MAIN_ACTIVE_EVENT_SCHEMA,
   reduceMainActiveTransition,
@@ -49,7 +52,8 @@ import {
   createMainAppCandidateExpectation,
   createMainActiveDeploymentEvidence,
   createMainActiveFreshness,
-  createMainActiveAliasMappingSet,
+  createMainActiveCanonicalMappings,
+  createMainActiveAliasMappingSpec,
   createMainActiveRecoveryCanonicalMappings,
   createMainActiveRecoveryMappingSpec,
   createMainActiveRecoveryDeploymentStateSpec,
@@ -66,8 +70,9 @@ import {
   createMainActivePublicSmokes,
   createMainActiveTransactionInputs,
   createMainCurrentCandidateIntent,
+  createMainCurrentActiveAliasMappingSpec,
   createMainCurrentActiveDeploymentStateSpec,
-  createMainCurrentReleaseVerifiedAliasMappingSet,
+  createMainCurrentReleaseVerifiedAliasMappingSpec,
   createMainCurrentReleaseVerifiedDeploymentStateSpec,
   createMainCurrentActivePublicSmokes,
   createMainCurrentActiveInputs,
@@ -1094,6 +1099,15 @@ test("controller CLI accepts only each command's exact non-duplicated options", 
       "/tmp/mapping-spec.json",
       "--stage-barrier",
       "/tmp/stage-barrier.json",
+    ],
+    [
+      "active-canonical-mappings",
+      "--mapping-spec",
+      "/tmp/mapping-spec.json",
+      "--mappings",
+      "/tmp/mappings.json",
+      "--output",
+      "/tmp/canonical-mappings.json",
     ],
     [
       "active-public-smokes",
@@ -3186,12 +3200,12 @@ test("active state spec binds the highest journal and exact stage handoffs", asy
       deploymentPlan.legacySnapshot[0].deploymentId,
     );
     assert.deepEqual(
-      createMainActiveAliasMappingSet({
+      createMainActiveAliasMappingSpec({
         plan: deploymentPlan,
         journalHistory: [prepared, highest],
         runId: "800",
         runAttempt: "3",
-      }).aliases,
+      }).bindings.map(({ alias }) => alias),
       [
         "app.mento.org",
         "appmentoorg-env-v3-mentolabs.vercel.app",
@@ -3307,6 +3321,14 @@ test("governance-only smoke materialization pipes through finalization and evide
     runId: "800",
     runAttempt: "3",
   });
+  const boundFinalMappings = activeFinalMappings(harness).map((entry) =>
+    harness.inputs.prior["legacy-app"].aliases.includes(entry.alias)
+      ? {
+          ...entry,
+          projectId: harness.inputs.release.originalPriors.app.projectId,
+        }
+      : entry,
+  );
   const finalized = reduceMainActiveTransition({
     preparedJournal: history[0],
     activeTargets: ["governance"],
@@ -3326,7 +3348,7 @@ test("governance-only smoke materialization pipes through finalization and evide
         sequence: highest.sequence,
       },
       freshSha: SHA,
-      currentMappings: activeFinalMappings(harness),
+      currentMappings: boundFinalMappings,
       publicSmokes,
       stateProof,
     },
@@ -5893,6 +5915,341 @@ test("active journal CLI accepts an inherited release SHA only through its dedic
   }
 });
 
+test("active canonical mappings bind canonical active and current captures", async () => {
+  const activeSpec = {
+    schema: ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA,
+    bindings: [
+      { alias: "app.mento.org", projectId: "prj_app123", target: "app" },
+      {
+        alias: "governance.mento.org",
+        projectId: "prj_governance123",
+        target: "governance",
+      },
+      {
+        alias: "reserve.mento.org",
+        projectId: "prj_reserve123",
+        target: "reserve",
+      },
+      { alias: "ui.mento.org", projectId: "prj_ui123", target: "ui" },
+      {
+        alias: "v2-app.mento.org",
+        projectId: "prj_app123",
+        target: "legacy-app",
+      },
+    ],
+  };
+  const currentSpec = {
+    schema: ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA,
+    bindings: [
+      {
+        alias: "app.mento.org",
+        projectId: "prj_app456",
+        target: "app",
+      },
+      {
+        alias: "governance.mento.org",
+        projectId: "prj_governance456",
+        target: "governance",
+      },
+      {
+        alias: "reserve.mento.org",
+        projectId: "prj_reserve456",
+        target: "reserve",
+      },
+      { alias: "ui.mento.org", projectId: "prj_ui456", target: "ui" },
+      {
+        alias: "v2-app.mento.org",
+        projectId: "prj_app456",
+        target: "legacy-app",
+      },
+    ],
+  };
+  const mappingsFor = (spec, deploymentSuffix) =>
+    spec.bindings.map((binding, index) => ({
+      alias: binding.alias,
+      deploymentId: `dpl_${deploymentSuffix}${index + 1}`,
+      deploymentUrl: `https://deployment-${deploymentSuffix}-${index + 1}.vercel.app`,
+      ...(binding.target === "legacy-app"
+        ? { projectId: binding.projectId }
+        : {}),
+    }));
+  const activeMappings = mappingsFor(activeSpec, "active");
+  const currentMappings = mappingsFor(currentSpec, "current");
+  const expectedActive = {
+    schema: "vercel-main-canonical-mappings:v1",
+    mappings: {
+      governance: [activeMappings[1]],
+      reserve: [activeMappings[2]],
+      ui: [activeMappings[3]],
+      app: [activeMappings[0]],
+      "legacy-app": [
+        {
+          alias: activeMappings[4].alias,
+          deploymentId: activeMappings[4].deploymentId,
+          deploymentUrl: activeMappings[4].deploymentUrl,
+        },
+      ],
+    },
+  };
+  assert.deepEqual(
+    createMainActiveCanonicalMappings({
+      mappingSpec: activeSpec,
+      mappings: activeMappings,
+    }),
+    expectedActive,
+  );
+  assert.deepEqual(
+    createMainActiveCanonicalMappings({
+      mappingSpec: currentSpec,
+      mappings: currentMappings,
+    }),
+    {
+      schema: "vercel-main-canonical-mappings:v1",
+      mappings: {
+        governance: [currentMappings[1]],
+        reserve: [currentMappings[2]],
+        ui: [currentMappings[3]],
+        app: [currentMappings[0]],
+        "legacy-app": [
+          {
+            alias: currentMappings[4].alias,
+            deploymentId: currentMappings[4].deploymentId,
+            deploymentUrl: currentMappings[4].deploymentUrl,
+          },
+        ],
+      },
+    },
+  );
+
+  for (const [name, mappingSpec, mappings, pattern] of [
+    [
+      "malformed specification",
+      { schema: ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA, bindings: [] },
+      activeMappings,
+      /specification is malformed/,
+    ],
+    [
+      "missing capture",
+      activeSpec,
+      activeMappings.slice(1),
+      /bound mappings are incomplete/,
+    ],
+    [
+      "missing target",
+      {
+        ...activeSpec,
+        bindings: activeSpec.bindings.filter(
+          ({ target }) => target !== "legacy-app",
+        ),
+      },
+      activeMappings.filter(({ alias }) => alias !== "v2-app.mento.org"),
+      /target coverage is incomplete/,
+    ],
+    [
+      "duplicate capture",
+      activeSpec,
+      [...activeMappings.slice(0, -1), structuredClone(activeMappings[0])],
+      /conflicts with its spec/,
+    ],
+    [
+      "noncanonical capture order",
+      activeSpec,
+      [activeMappings[1], activeMappings[0], ...activeMappings.slice(2)],
+      /conflicts with its spec/,
+    ],
+    [
+      "legacy project mismatch",
+      activeSpec,
+      activeMappings.map((mapping) =>
+        mapping.alias === "v2-app.mento.org"
+          ? { ...mapping, projectId: "prj_wrong123" }
+          : mapping,
+      ),
+      /conflicts with its spec/,
+    ],
+    [
+      "ordinary project field",
+      activeSpec,
+      activeMappings.map((mapping) =>
+        mapping.alias === "app.mento.org"
+          ? { ...mapping, projectId: "prj_app123" }
+          : mapping,
+      ),
+      /conflicts with its spec/,
+    ],
+    [
+      "duplicate specification binding",
+      {
+        ...activeSpec,
+        bindings: [
+          activeSpec.bindings[0],
+          { ...activeSpec.bindings[0], target: "legacy-app" },
+          ...activeSpec.bindings.slice(2),
+        ],
+      },
+      activeMappings,
+      /bindings are ambiguous/,
+    ],
+  ]) {
+    assert.throws(
+      () => createMainActiveCanonicalMappings({ mappingSpec, mappings }),
+      pattern,
+      name,
+    );
+  }
+
+  const directory = mkdtempSync(
+    join(tmpdir(), "vercel-main-canonical-mappings-"),
+  );
+  try {
+    const specPath = join(directory, "current-mapping-spec.json");
+    const mappingsPath = join(directory, "current-mappings.json");
+    const outputPath = join(directory, "canonical-mappings.json");
+    writeFileSync(specPath, JSON.stringify(currentSpec));
+    writeFileSync(mappingsPath, JSON.stringify(currentMappings));
+    const materialized = await runMainDeploymentCli({
+      argv: [
+        "active-canonical-mappings",
+        "--mapping-spec",
+        specPath,
+        "--mappings",
+        mappingsPath,
+        "--output",
+        outputPath,
+      ],
+    });
+    assert.deepEqual(
+      JSON.parse(readFileSync(outputPath, "utf8")),
+      materialized,
+    );
+    assert.equal(
+      readFileSync(outputPath, "utf8"),
+      `${JSON.stringify(materialized)}\n`,
+    );
+    assert.deepEqual(
+      materialized,
+      createMainActiveCanonicalMappings({
+        mappingSpec: currentSpec,
+        mappings: currentMappings,
+      }),
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("active and current-release mapping-spec producers bind terminal captures", () => {
+  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const activeExecution = releaseExecutionForPlan(deploymentPlan);
+  const activeBarrier = createMainStageBarrier({
+    execution: activeExecution,
+    candidateReceipts: {
+      app: null,
+      governance: currentCandidateReceipt(activeExecution, "governance"),
+      reserve: null,
+      ui: null,
+    },
+    appPreparation: null,
+    runId: "800",
+    runAttempt: "3",
+  });
+  const activeJournal = createPreparedMainActiveJournal({
+    plan: deploymentPlan,
+    stageJobs: stageJobs(deploymentPlan),
+    appBuildProof: null,
+    runId: "800",
+    runAttempt: "3",
+  });
+  const currentExecution = createMainReleaseExecution({
+    decision: "verify-existing-release",
+    reason: "current-main-release-already-complete",
+    manifest: activeExecution.manifest,
+    upstream: activeExecution.upstream,
+    legacyAppV2: activeExecution.legacyAppV2,
+    selection: activeExecution.selection,
+  });
+  const currentBarrier = createMainStageBarrier({
+    execution: currentExecution,
+    candidateReceipts: {
+      app: null,
+      governance: currentCandidateReceipt(currentExecution, "governance"),
+      reserve: null,
+      ui: null,
+    },
+    appPreparation: null,
+    runId: "800",
+    runAttempt: "3",
+  });
+  const producers = [
+    [
+      "active",
+      createMainCurrentActiveAliasMappingSpec({
+        execution: activeExecution,
+        barrier: activeBarrier,
+        journalHistory: [activeJournal],
+        runId: "800",
+        runAttempt: "3",
+      }),
+    ],
+    [
+      "current release",
+      createMainCurrentReleaseVerifiedAliasMappingSpec({
+        execution: currentExecution,
+        barrier: currentBarrier,
+        runId: "800",
+        runAttempt: "3",
+      }),
+    ],
+  ];
+  for (const [name, spec] of producers) {
+    assert.equal(spec.schema, ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA, name);
+    assert.deepEqual(
+      new Set(spec.bindings.map(({ target }) => target)),
+      new Set(["governance", "reserve", "ui", "app", "legacy-app"]),
+      name,
+    );
+    const rawMappings = spec.bindings.map((binding, index) => ({
+      alias: binding.alias,
+      deploymentId: `dpl_mapping${index + 1}`,
+      deploymentUrl: `https://${name.replaceAll(" ", "-")}-${index + 1}.vercel.app`,
+      ...(binding.target === "legacy-app"
+        ? { projectId: binding.projectId }
+        : {}),
+    }));
+    const canonical = createMainActiveCanonicalMappings({
+      mappingSpec: spec,
+      mappings: rawMappings,
+    });
+    assert.deepEqual(canonical, {
+      schema: "vercel-main-canonical-mappings:v1",
+      mappings: Object.fromEntries(
+        ["governance", "reserve", "ui", "app", "legacy-app"].map((target) => [
+          target,
+          spec.bindings
+            .map((binding, index) => ({ binding, mapping: rawMappings[index] }))
+            .filter(({ binding }) => binding.target === target)
+            .map(({ mapping }) => ({
+              alias: mapping.alias,
+              deploymentId: mapping.deploymentId,
+              deploymentUrl: mapping.deploymentUrl,
+            })),
+        ]),
+      ),
+    });
+    const malformed = structuredClone(spec);
+    malformed.bindings[0].alias = "0.invalid.example";
+    assert.throws(
+      () =>
+        createMainActiveCanonicalMappings({
+          mappingSpec: malformed,
+          mappings: rawMappings,
+        }),
+      /conflicts with its spec/,
+      `${name} rejects a capture that no longer matches its binding`,
+    );
+  }
+});
+
 test("active recovery planning and execution hand off exact reverse mutations and stay release-failing", async () => {
   const deploymentPlan = activePlan({ deployments: ["governance"] });
   const prepared = createPreparedMainActiveJournal({
@@ -6899,13 +7256,16 @@ test("current release verification is journal-free and binds its barrier candida
     runId: "800",
     runAttempt: "3",
   });
-  const aliases = createMainCurrentReleaseVerifiedAliasMappingSet({
+  const aliases = createMainCurrentReleaseVerifiedAliasMappingSpec({
     execution,
     barrier,
     runId: "800",
     runAttempt: "3",
   });
-  assert.equal(aliases.aliases.includes("governance.mento.org"), true);
+  assert.equal(
+    aliases.bindings.some(({ alias }) => alias === "governance.mento.org"),
+    true,
+  );
   const mappings = Object.values(execution.manifest.originalPriors).flatMap(
     (prior) =>
       prior.aliases.map((alias) =>
