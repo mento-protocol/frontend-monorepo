@@ -94,7 +94,7 @@ class FakeLocator {
       return;
     }
     if (this.kind === "checkbox" && this.name === "Checkbox option") {
-      this.page.checkboxChecked = true;
+      this.page.checkboxChecked = this.page.uiRouteAssetFinished;
       return;
     }
     throw new Error(`Unexpected click: ${this.kind}/${this.name}`);
@@ -143,6 +143,7 @@ class FakePage extends EventEmitter {
       mockWalletVisible = false,
       omitResource,
       initialLanding,
+      delayedUiRouteAsset = false,
       waitForUrlNavigation,
       walletFlagsAbsent = true,
       wrongLanding,
@@ -156,6 +157,8 @@ class FakePage extends EventEmitter {
     this.mockWalletVisible = mockWalletVisible;
     this.omitResource = omitResource;
     this.initialLanding = initialLanding;
+    this.delayedUiRouteAsset = delayedUiRouteAsset;
+    this.uiRouteAssetFinished = !delayedUiRouteAsset;
     this.waitForUrlNavigation = waitForUrlNavigation;
     this.walletFlagsAbsent = walletFlagsAbsent;
     this.wrongLanding = wrongLanding;
@@ -200,6 +203,23 @@ class FakePage extends EventEmitter {
     this.currentUrl = new URL(path, this.config.publicUrl).toString();
     this.emit("framenavigated", this.frame);
     this.emit("response", this.response(`${path}?_rsc=fixture`, "fetch"));
+    if (
+      this.delayedUiRouteAsset &&
+      this.target === "ui" &&
+      path === "/form-components"
+    ) {
+      const request = {
+        redirectedFrom: () => null,
+        resourceType: () => "script",
+        url: () => `${this.config.publicUrl}_next/static/form-components.js`,
+      };
+      this.emit("request", request);
+      setTimeout(() => {
+        this.uiRouteAssetFinished = true;
+        this.calls.push(["route-asset-finished"]);
+        this.emit("requestfinished", request);
+      }, 0);
+    }
   }
 
   async goto(url, options) {
@@ -394,6 +414,26 @@ test("runs the literal interaction contract for all four public targets", async 
     assert.deepEqual(fake.state.contextOptions, { colorScheme: "dark" });
     assert.equal(fake.state.closed, true);
   }
+});
+
+test("UI waits for delayed same-origin route assets before its checkbox interaction", async () => {
+  const page = new FakePage("ui", { delayedUiRouteAsset: true });
+  await runMainRuntimeSmoke({
+    chromium: fakeChromium(page).chromium,
+    values: inputFor("ui"),
+  });
+  const routeAssetFinished = page.calls.findIndex(
+    ([operation]) => operation === "route-asset-finished",
+  );
+  const checkboxClick = page.calls.findIndex(
+    ([operation, kind, name]) =>
+      operation === "click" &&
+      kind === "checkbox" &&
+      name === "Checkbox option",
+  );
+  assert.ok(routeAssetFinished >= 0);
+  assert.ok(checkboxClick > routeAssetFinished);
+  assert.equal(page.checkboxChecked, true);
 });
 
 test("App proves real production wallets without enabling preview flags", async () => {
