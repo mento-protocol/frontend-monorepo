@@ -49,6 +49,13 @@ test("reusable preview smoke is workflow_call-only, secretless, and target-bound
     smoke.outputs.artifact_identity,
     /steps\.tuple\.outputs\.artifact_identity/,
   );
+  const diagnostics = smoke.steps.find(
+    ({ name }) =>
+      name === "Upload target-bound Playwright artifacts on failure",
+  );
+  assert.ok(diagnostics);
+  assert.equal(diagnostics.if, "failure()");
+  assert.equal(diagnostics.with["retention-days"], 14);
   assert.doesNotMatch(
     read(reusablePath),
     /secrets\.|github\.token|GITHUB_TOKEN|VERCEL_TOKEN|TURBO_TOKEN|SENTRY_AUTH_TOKEN|ETHERSCAN_API_KEY/,

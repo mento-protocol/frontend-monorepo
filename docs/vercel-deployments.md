@@ -1415,7 +1415,7 @@ rejects any ambient protection header, handles each redirect as a new browser
 request, and origin-checks main-frame navigation throughout the smoke and after
 every target interaction. HTTP readiness also uses manual redirects and rejects
 a cross-origin redirect. The fresh smoke job never links or executes candidate
-`node_modules`. Failure uploads only screenshots/video for seven days; tracing
+`node_modules`. Failure uploads only screenshots/video for fourteen days; tracing
 stays disabled to keep diagnostic artifacts bounded.
 
 Do not run the manual pilot until the required GitHub Environment, repository
