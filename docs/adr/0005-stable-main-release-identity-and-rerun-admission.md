@@ -75,9 +75,16 @@ planning.
   restores the inherited partial release into a fresh current-attempt journal.
   Only after that recovery reaches its terminal state may new-release planning
   capture a baseline.
+- If either an older or matching release explains the exact terminal App
+  recovery residual, the controller restores only App through a fresh
+  current-attempt journal before new planning. This residual requires every
+  active non-App target at its original prior and every reviewed App alias at
+  one manifest-bound candidate. It can occur when the App command moves aliases
+  before the controller checkpoints its return while recovery has already
+  restored the ordinary targets. It never authorizes forward resumption.
 - If no mapped release explains the protected state, it captures a new baseline.
-  Ambiguous, non-prefix, conflicting, incomplete, or unverified provider state
-  fails closed.
+  Every other non-prefix, ambiguous, conflicting, incomplete, or unverified
+  provider state fails closed.
 
 Every unmarked protected mapping in a new baseline is rollback-only regardless
 of its optional Vercel `source`, Git metadata, or served SHA. The planner forces
@@ -151,12 +158,23 @@ matching URL alone cannot prove a safe release state.
 Rejected. The provider reconciliation already establishes the completed
 release. Replaying mutations adds risk without changing the public result.
 
+### Require manual recovery for every non-prefix provider state
+
+Rejected. The terminal App recovery residual is fully explained by one
+canonical manifest, exact captured priors, and complete reviewed App aliases.
+Restricting automation to reverse-only App restoration preserves the same
+compensation authority while avoiding a manual alias rollback after a
+checkpoint failure. Partial App mappings, ordinary candidate suffixes, and
+every other non-prefix state still require manual intervention.
+
 ## Consequences
 
 - The provider-side release manifest, not GitHub artifact history, is the
   durable cross-attempt source of truth.
 - Every attempt has an independently auditable journal and recovery boundary.
 - An inherited partial release is restored before a new baseline can be planned.
+- The exact terminal App recovery residual may restore only App before a new
+  baseline; it never authorizes forward resumption.
 - An unmarked protected mapping always forces reviewed GitHub preparation before
   it can become eligible for an already-current no-op. Only active-owned targets
   replace the public mapping.

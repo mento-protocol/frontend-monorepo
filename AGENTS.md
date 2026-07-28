@@ -72,12 +72,16 @@ upstream CI run ID—and the target-specific candidate identity adds the target.
 The provider-side stable release manifest is the sole durable cross-attempt
 authority. Mutation transaction IDs and journals remain downstream
 run-and-attempt scoped. Before planning, a later attempt reconciles the
-provider's protected mappings and candidates against that manifest. It either
-reuses a complete release or, for an interrupted prefix, restores the inherited
-state through a fresh current-attempt journal before new planning can proceed.
-It never resumes or treats a prior attempt's journal artifact as cross-attempt
-authority. Ambiguous, conflicting, or incomplete provider state fails closed
-before the release continues.
+provider's protected mappings and candidates against that manifest. It reuses
+a complete release, resumes or restores an interrupted forward prefix as
+appropriate, or restores the exact terminal App recovery residual through a
+fresh current-attempt journal before new planning can proceed. That residual
+requires every active non-App target at its original prior and every reviewed
+App alias at one manifest-bound candidate; it grants App restoration authority
+only and never forward resumption. It never resumes or treats a prior attempt's
+journal artifact as cross-attempt authority. Every other non-prefix,
+ambiguous, conflicting, or incomplete provider state fails closed before the
+release continues.
 
 Every selected Governance, Reserve, and UI target stages and verifies an
 immutable candidate with `--prod --skip-domain`. Only an `activeTargets` member
