@@ -41,7 +41,9 @@ import {
   createMainReleaseManifest,
 } from "./vercel-main-release-reconciliation.mjs";
 import {
+  canonicalizeMainCandidateVercelMetadata,
   createMainCandidateIntent,
+  createMainCandidateReceipt,
   createMainCandidateVercelMetadata,
 } from "./vercel-main-candidate.mjs";
 
@@ -255,6 +257,85 @@ function prepared(
       }),
     ),
     candidates,
+  });
+}
+
+function preparedPendingApp() {
+  const initial = prepared(["app"]);
+  const intent = createMainCandidateIntent({
+    target: "app",
+    deploySha: initial.deploySha,
+    upstreamRunId: initial.release.upstreamRunId,
+    originRunId: initial.runId,
+    originAttempt: initial.runAttempt,
+    originTransactionId: initial.transactionId,
+    projectId: initial.release.originalPriors.app.projectId,
+    projectName: initial.release.originalPriors.app.projectName,
+    releaseManifest: initial.release,
+  });
+  return {
+    ...initial,
+    candidates: {
+      ...initial.candidates,
+      app: {
+        ...initial.candidates.app,
+        deploymentId: null,
+        deploymentUrl: null,
+        discovery: {
+          ...initial.candidates.app.discovery,
+          candidateId: intent.candidateId,
+          immutableSmoke: null,
+        },
+      },
+    },
+  };
+}
+
+function appCandidateReceipt(journal) {
+  const intent = createMainCandidateIntent({
+    target: "app",
+    deploySha: journal.deploySha,
+    upstreamRunId: journal.release.upstreamRunId,
+    originRunId: journal.runId,
+    originAttempt: journal.runAttempt,
+    originTransactionId: journal.transactionId,
+    projectId: journal.release.originalPriors.app.projectId,
+    projectName: journal.release.originalPriors.app.projectName,
+    releaseManifest: journal.release,
+  });
+  const metadata = canonicalizeMainCandidateVercelMetadata(
+    createMainCandidateVercelMetadata({ intent }),
+    {
+      target: "app",
+      deploySha: intent.deploySha,
+      projectId: intent.projectId,
+      projectName: intent.projectName,
+    },
+  );
+  return createMainCandidateReceipt({
+    intent,
+    candidate: {
+      deploymentId: "dpl_appCandidate123",
+      deploymentUrl: "https://app-candidate.vercel.app",
+      projectId: intent.projectId,
+      projectName: intent.projectName,
+      readyState: "READY",
+      target: null,
+      customEnvironmentSlug: "v3",
+      source: "cli",
+      git: {
+        org: "mento-protocol",
+        repo: "frontend-monorepo",
+        ref: "main",
+        sha: intent.deploySha,
+      },
+      metadata,
+    },
+    immutableSmoke: {
+      immutableUrl: "https://app-candidate.vercel.app",
+      servedSha: intent.deploySha,
+      status: "passed",
+    },
   });
 }
 
@@ -1066,6 +1147,81 @@ test("lost App output routes to recovery without provider match authority", () =
   assert.equal(verified.journal.candidates.app.deploymentId, null);
   assert.equal(verified.journal.operations.at(-1).mappingState, "unknown");
   assert.equal(verified.afterUploadAction, "recover");
+});
+
+test("App command output remains pending until the finalized receipt attaches candidate authority", () => {
+  const initial = preparedPendingApp();
+  const history = [
+    reduceForward(initial, [], event("initialize"), ["app"]).journal,
+  ];
+  const dispatched = reduceForward(
+    initial,
+    history,
+    event("dispatch", {
+      uploadReceipt: receipt(history.at(-1)),
+      freshSha: SHA,
+      currentMappings: currentMappings(history.at(-1)),
+    }),
+    ["app"],
+  );
+  history.push(dispatched.journal);
+  const authorized = reduceForward(
+    initial,
+    history,
+    event("authorize", {
+      uploadReceipt: receipt(history.at(-1)),
+      freshSha: SHA,
+      currentMappings: currentMappings(history.at(-1)),
+    }),
+    ["app"],
+  );
+  const returned = reduceForward(
+    initial,
+    history,
+    event("command-returned", {
+      uploadReceipt: receipt(history.at(-1)),
+      operationId: authorized.operationId,
+      command: authorized.command,
+      result: {
+        outcome: "success",
+        reason: null,
+        candidate: {
+          deploymentId: "dpl_appCliOutput123",
+          deploymentUrl: "https://app-cli-output.vercel.app",
+        },
+      },
+    }),
+    ["app"],
+  );
+  assert.equal(returned.journal.candidates.app.deploymentId, null);
+  assert.equal(returned.journal.candidates.app.discovery.immutableSmoke, null);
+  history.push(returned.journal);
+
+  const finalizedReceipt = appCandidateReceipt(initial);
+  const attached = reduceForward(
+    initial,
+    history,
+    event("verify", {
+      uploadReceipt: receipt(history.at(-1)),
+      freshSha: SHA,
+      currentMappings: currentMappings(history.at(-1)),
+      appCandidateReceipt: finalizedReceipt,
+      appDeployment: null,
+    }),
+    ["app"],
+  );
+  assert.equal(
+    attached.journal.candidates.app.deploymentId,
+    finalizedReceipt.candidate.deploymentId,
+  );
+  assert.equal(
+    attached.journal.candidates.app.deploymentUrl,
+    finalizedReceipt.candidate.deploymentUrl,
+  );
+  assert.deepEqual(
+    attached.journal.candidates.app.discovery.immutableSmoke,
+    finalizedReceipt.immutableSmoke,
+  );
 });
 
 test("provider-stable App candidates replace recovery discovery", () => {

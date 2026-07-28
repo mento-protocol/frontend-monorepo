@@ -155,7 +155,13 @@ function appCandidateReceipt(journal) {
   });
 }
 
-function driveToCommandReturn(initial, activeTargets) {
+function driveToCommandReturn(
+  initial,
+  activeTargets,
+  {
+    commandResult = { outcome: "success", reason: null, candidate: null },
+  } = {},
+) {
   const history = [];
   const initialized = reduce(
     initial,
@@ -192,19 +198,35 @@ function driveToCommandReturn(initial, activeTargets) {
       uploadReceipt: receipt(history.at(-1)),
       operationId: authorized.operationId,
       command: authorized.command,
-      result: { outcome: "success", reason: null, candidate: null },
+      result: commandResult,
     }),
     activeTargets,
   );
   history.push(returned.journal);
-  return { authorized, history };
+  return { authorized, returned, history };
 }
 
-test("App receipt attachment is durably followed by a receipt-free verification", () => {
+test("App command output stays pending until its receipt attaches canonical smoke", () => {
   const activeTargets = ["app"];
   const initial = preparedFor(activeTargets, { pendingApp: true });
-  const { history } = driveToCommandReturn(initial, activeTargets);
   const providerReceipt = appCandidateReceipt(initial);
+  const { history, returned } = driveToCommandReturn(initial, activeTargets, {
+    commandResult: {
+      outcome: "success",
+      reason: null,
+      candidate: {
+        deploymentId: "dpl_appCliOutput123",
+        deploymentUrl: "https://app-cli-output.vercel.app",
+      },
+    },
+  });
+
+  assert.equal(returned.journal.status, "command_returned");
+  assert.equal(returned.journal.operations.at(-1).state, "command_returned");
+  assert.equal(returned.journal.candidates.app.deploymentId, null);
+  assert.equal(returned.journal.candidates.app.deploymentUrl, null);
+  assert.equal(returned.journal.candidates.app.discovery.immutableSmoke, null);
+
   const appDeployment = {
     deploymentId: providerReceipt.candidate.deploymentId,
     deploymentUrl: providerReceipt.candidate.deploymentUrl,
@@ -228,6 +250,10 @@ test("App receipt attachment is durably followed by a receipt-free verification"
   assert.equal(
     attached.journal.candidates.app.deploymentId,
     "dpl_appCandidate123",
+  );
+  assert.deepEqual(
+    attached.journal.candidates.app.discovery.immutableSmoke,
+    providerReceipt.immutableSmoke,
   );
   assert.equal(attached.afterUploadAction, "verify");
   history.push(attached.journal);
