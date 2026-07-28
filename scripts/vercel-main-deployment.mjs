@@ -2372,7 +2372,7 @@ const ACTIVE_RUNTIME_RESULT_KEYS = Object.freeze([
 ]);
 
 const ACTIVE_RECOVERY_RUNTIME_FINAL_PATHS = Object.freeze({
-  app: "/",
+  app: "/swap/celo",
   governance: "/voting-power",
   reserve: "/?tab=stablecoins",
   ui: "/form-components",

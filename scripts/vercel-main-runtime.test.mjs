@@ -19,6 +19,12 @@ import {
 } from "./vercel-main-runtime.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
+const ACTUAL_LANDING_PATHS = Object.freeze({
+  app: "/swap/celo",
+  governance: "/",
+  reserve: "/",
+  ui: "/basic-components",
+});
 
 function securityHeaders(sha = SHA) {
   return {
@@ -136,6 +142,8 @@ class FakePage extends EventEmitter {
       headers = securityHeaders(),
       mockWalletVisible = false,
       omitResource,
+      initialLanding,
+      waitForUrlNavigation,
       walletFlagsAbsent = true,
       wrongLanding,
     } = {},
@@ -147,6 +155,8 @@ class FakePage extends EventEmitter {
     this.responseHeaders = headers;
     this.mockWalletVisible = mockWalletVisible;
     this.omitResource = omitResource;
+    this.initialLanding = initialLanding;
+    this.waitForUrlNavigation = waitForUrlNavigation;
     this.walletFlagsAbsent = walletFlagsAbsent;
     this.wrongLanding = wrongLanding;
     this.currentUrl = this.config.publicUrl;
@@ -195,7 +205,10 @@ class FakePage extends EventEmitter {
   async goto(url, options) {
     assert.equal(url, this.config.publicUrl);
     assert.deepEqual(options, { waitUntil: "domcontentloaded" });
-    const landingPath = this.wrongLanding ?? this.config.landingPath;
+    const landingPath =
+      this.wrongLanding ??
+      this.initialLanding ??
+      ACTUAL_LANDING_PATHS[this.target];
     this.currentUrl = new URL(landingPath, url).toString();
     this.emit("framenavigated", this.frame);
     const documentResponse = this.response(landingPath, "document");
@@ -245,7 +258,10 @@ class FakePage extends EventEmitter {
   async waitForURL(expected) {
     const expectedUrl =
       typeof expected === "string" ? expected : expected.toString();
-    assert.equal(this.currentUrl, expectedUrl);
+    if (this.waitForUrlNavigation !== undefined) {
+      this.navigate(this.waitForUrlNavigation);
+      this.waitForUrlNavigation = undefined;
+    }
     this.calls.push(["wait-url", expectedUrl]);
   }
 
@@ -319,6 +335,27 @@ test("hard-binds each logical target to its literal public URL and SHA", () => {
       /target|public URL mismatch|immutable lowercase/,
     );
   }
+});
+
+test("App public runtime verification follows the production root redirect", () => {
+  assert.equal(MAIN_RUNTIME_TARGETS.app.landingPath, "/swap/celo");
+  assert.equal(MAIN_RUNTIME_TARGETS.app.finalPath, "/swap/celo");
+});
+
+test("App waits for the client-side production root redirect", async () => {
+  const page = new FakePage("app", {
+    initialLanding: "/",
+    waitForUrlNavigation: "/swap/celo",
+  });
+  const result = await runMainRuntimeSmoke({
+    chromium: fakeChromium(page).chromium,
+    values: inputFor("app"),
+  });
+  assert.equal(result.final_url, "https://app.mento.org/swap/celo");
+  assert.deepEqual(
+    page.calls.find(([operation]) => operation === "wait-url"),
+    ["wait-url", "https://app.mento.org/swap/celo"],
+  );
 });
 
 test("requires the exact deployment SHA and complete security-header contract", () => {

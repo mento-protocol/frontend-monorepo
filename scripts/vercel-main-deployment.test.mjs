@@ -639,7 +639,7 @@ function activeFinalMappings(harness) {
 
 function runtimeSmoke(target, deploySha = SHA) {
   const finalPaths = {
-    app: "https://app.mento.org/",
+    app: "https://app.mento.org/swap/celo",
     governance: "https://governance.mento.org/voting-power",
     reserve: "https://reserve.mento.org/?tab=stablecoins",
     ui: "https://ui.mento.org/form-components",
@@ -6203,7 +6203,7 @@ test("active recovery public-smoke materializer accepts only exact runtime resul
   const deploymentPlan = activePlan({ deployments: ["governance"] });
   const execution = releaseExecutionForPlan(deploymentPlan);
   const finalPaths = {
-    app: "https://app.mento.org/",
+    app: "https://app.mento.org/swap/celo",
     governance: "https://governance.mento.org/voting-power",
     reserve: "https://reserve.mento.org/?tab=stablecoins",
     ui: "https://ui.mento.org/form-components",
