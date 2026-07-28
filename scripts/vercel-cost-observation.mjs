@@ -1929,7 +1929,7 @@ function capturePreview({ root, pr, eventRunId, dependencies }) {
     invariant(
       controllerRun.event === "pull_request_target" &&
         String(controllerRun.id) === controllerRunId &&
-        controllerRun.head_branch === "main" &&
+        controllerRun.head_branch === event.base_ref &&
         controllerRun.head_sha === event.trusted_base_sha,
       "Preview controller run is not the immutable PR event run",
     );

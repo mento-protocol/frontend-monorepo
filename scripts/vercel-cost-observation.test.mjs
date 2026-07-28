@@ -632,7 +632,7 @@ function previewRoutes(
     conclusion: "success",
     created_at: "2026-07-29T01:00:01.000Z",
     updated_at: "2026-07-29T01:04:00.000Z",
-    head_branch: "main",
+    head_branch: event.base_ref,
     head_sha: event.trusted_base_sha,
     html_url: `https://github.com/mento-protocol/frontend-monorepo/actions/runs/${event.event_run_id}`,
     display_title: controllerEventRunName({
@@ -1269,6 +1269,23 @@ test("capture-preview freezes the canonical v2 journal and raw GitHub facts", ()
           "github.com/mento-protocol/frontend-monorepo",
       ),
   );
+});
+
+test("capture-preview accepts a controller event for a non-main base", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  const event = {
+    ...fixture("preview-event.json"),
+    base_ref: "release/observation-fixture",
+  };
+  const result = runVercelCostObservation({
+    argv: ["capture-preview", "--pr", "700", "--event-run-id", "9001"],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: fakeGh(previewRoutes(event)),
+    stdout: output().stream,
+  });
+  assert.equal(result.exitCode, 0);
 });
 
 test("capture-preview validates a controller-upgrade reselection chain", () => {
