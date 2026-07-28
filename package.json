@@ -33,7 +33,7 @@
     "pr:description:check": "node scripts/check-pr-description.mjs",
     "pr:description:test": "node scripts/check-pr-description.test.mjs",
     "quality:budgets": "pnpm quality:budgets:test && pnpm quality:coverage && pnpm build && pnpm quality:bundle:check",
-    "quality:budgets:test": "node --test scripts/check-bundle-size.test.mjs scripts/ci-failure-issue.test.mjs scripts/quality-workflows.test.mjs",
+    "quality:budgets:test": "node --test scripts/check-bundle-size.test.mjs scripts/ci-failure-issue.test.mjs scripts/quality-workflows.test.mjs scripts/security-headers.test.mjs apps/app.mento.org/app-report-only-csp.test.mjs",
     "quality:bundle:check": "node scripts/check-bundle-size.mjs",
     "quality:coverage": "turbo run test:coverage --filter=app.mento.org --filter=governance.mento.org --filter=@mento-protocol/ui --filter=@repo/web3",
     "rebuild": "pnpm run clean && turbo run build",

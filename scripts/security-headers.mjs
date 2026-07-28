@@ -67,15 +67,16 @@ export function buildSecurityHeaders({ reportOnlyCsp } = {}) {
 }
 
 /**
- * Vercel injects the preview feedback widget from https://vercel.live on preview
- * deployments. Keep production CSP telemetry stricter while avoiding noisy
- * report-only violations during PR review.
+ * Vercel injects the preview feedback widget from https://vercel.live on
+ * standard preview deployments. Use the target environment because App's
+ * production-serving custom `v3` target deliberately builds with
+ * `VERCEL_ENV=preview`.
  *
  * @param {string | undefined} reportOnlyCsp
  * @returns {string | undefined}
  */
 function allowVercelLiveInPreview(reportOnlyCsp) {
-  if (!reportOnlyCsp || process.env.VERCEL_ENV !== "preview") {
+  if (!reportOnlyCsp || process.env.VERCEL_TARGET_ENV !== "preview") {
     return reportOnlyCsp;
   }
 
