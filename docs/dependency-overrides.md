@@ -21,15 +21,16 @@ Vercel from the standalone `scripts/vercel-cli-runtime` package instead of the
 root workspace. Its
 `pnpm.overrides` object must remain deeply equal to the root
 `package.json` object so the protected CLI receives the same security
-resolutions. Its only dependency must remain the same exact Vercel version as
-the root `devDependencies.vercel` pin.
+resolutions. It must pin that exact Vercel version plus every Vercel CLI builder
+peer as a direct dependency, so protected frozen installs never fetch builders
+outside the reviewed lockfile.
 
 The root workspace retains the reviewed `brace-expansion@2.1.2` patch at
-`scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch`. The
-regenerated Vercel 56.4.1 standalone graph has no v2 consumer, so its manifest
-and lockfile must not declare that unused patch. The controller verifies the
-root patch separately and permits a standalone patch only when the reviewed
-runtime lockfile state requires one.
+`scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch`. Its direct
+builder graph contains a v2 consumer, so the standalone manifest and lockfile
+must declare the same patch. The controller verifies both copies separately
+and stages the standalone patch only when the reviewed runtime lockfile state
+requires one.
 
 After changing the root Vercel pin or any root override, update this protected
 runtime in the same PR:

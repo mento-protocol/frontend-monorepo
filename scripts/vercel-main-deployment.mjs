@@ -450,6 +450,7 @@ const CLI_COMMAND_OPTIONS = Object.freeze({
   "run-shadow": Object.freeze(["journal"]),
   "stage-result": Object.freeze(["output", "state"]),
   "validate-context": Object.freeze([]),
+  "validate-recovery-source": Object.freeze([]),
   "validate-source": Object.freeze([]),
   "validate-stages": Object.freeze([]),
 });
@@ -950,18 +951,58 @@ export function validateMainWorkflowContext({
   return sha;
 }
 
-export function validateMainDeploymentSource({
+function validateMainSource({
   repoRoot,
   deploySha,
   workflowSha,
   execute,
+  requireCurrentMain,
 }) {
-  return validateImmutableMainSource({
-    sourcePath: repoRoot,
+  const normalizedSha = requireString(
     deploySha,
+    "DEPLOY_SHA",
+    SHA_PATTERN,
+  ).toLowerCase();
+  const normalizedWorkflowSha = requireString(
     workflowSha,
-    ...(execute ? { execute } : {}),
-  });
+    "GITHUB_WORKFLOW_SHA",
+    SHA_PATTERN,
+  ).toLowerCase();
+  if (normalizedWorkflowSha !== normalizedSha) {
+    throw new Error("GITHUB_WORKFLOW_SHA does not match DEPLOY_SHA");
+  }
+  const run = (argumentsList) =>
+    (execute ?? execFileSync)(
+      "git",
+      ["-C", resolve(repoRoot), ...argumentsList],
+      { encoding: "utf8", stdio: "pipe" },
+    )
+      .trim()
+      .toLowerCase();
+  run(["cat-file", "-e", `${normalizedSha}^{commit}`]);
+  run([
+    "merge-base",
+    "--is-ancestor",
+    normalizedSha,
+    "refs/remotes/origin/main",
+  ]);
+  const fetchedMain = run(["rev-parse", "refs/remotes/origin/main"]);
+  if (requireCurrentMain && fetchedMain !== normalizedSha) {
+    throw new Error("DEPLOY_SHA does not match fetched origin/main");
+  }
+  const head = run(["rev-parse", "HEAD"]);
+  if (head !== normalizedSha) {
+    throw new Error("Checked-out HEAD does not match DEPLOY_SHA");
+  }
+  return normalizedSha;
+}
+
+export function validateMainDeploymentSource(options) {
+  return validateMainSource({ ...options, requireCurrentMain: true });
+}
+
+export function validateMainRecoverySource(options) {
+  return validateMainSource({ ...options, requireCurrentMain: false });
 }
 
 export function createMainStageResult({
@@ -9396,6 +9437,14 @@ export async function runMainDeploymentCli({
   }
   if (command === "validate-source") {
     validateMainDeploymentSource({
+      repoRoot: values.SOURCE_PATH,
+      deploySha: values.DEPLOY_SHA,
+      workflowSha: values.GITHUB_WORKFLOW_SHA,
+    });
+    return;
+  }
+  if (command === "validate-recovery-source") {
+    validateMainRecoverySource({
       repoRoot: values.SOURCE_PATH,
       deploySha: values.DEPLOY_SHA,
       workflowSha: values.GITHUB_WORKFLOW_SHA,

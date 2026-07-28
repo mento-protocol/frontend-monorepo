@@ -104,6 +104,7 @@ import {
   runMainDeploymentCli,
   runMainShadowTransaction,
   validateMainDeploymentSource,
+  validateMainRecoverySource,
   validateMainStageJobs,
   validateMainWorkflowContext,
 } from "./vercel-main-deployment.mjs";
@@ -1236,6 +1237,7 @@ test("controller CLI accepts only each command's exact non-duplicated options", 
       "cmVjZWlwdA",
     ],
     ["validate-context"],
+    ["validate-recovery-source"],
     ["validate-source"],
     ["create-spec", "--scope", "main", "--output", "/tmp/spec.json"],
     ["evidence", "--output", "/tmp/evidence.json"],
@@ -2539,6 +2541,36 @@ test("workflow context and source proof bind the default-branch definition to DE
         execute: () => assert.fail("git must stay inert"),
       }),
     /GITHUB_WORKFLOW_SHA/,
+  );
+
+  const recoveryCalls = [];
+  assert.equal(
+    validateMainRecoverySource({
+      repoRoot: "/trusted/source",
+      deploySha: SHA,
+      workflowSha: SHA,
+      execute(command, args) {
+        recoveryCalls.push([command, args]);
+        const gitArgs = args.slice(2);
+        if (gitArgs[0] === "rev-parse") {
+          return `${gitArgs.at(-1) === "HEAD" ? SHA : OTHER_SHA}\n`;
+        }
+        return "";
+      },
+    }),
+    SHA,
+  );
+  assert.ok(recoveryCalls.some(([, args]) => args[2] === "merge-base"));
+});
+
+test("recovery source CLI dispatches the ancestor-permitting validator", async () => {
+  await assert.rejects(
+    () =>
+      runMainDeploymentCli({
+        argv: ["validate-recovery-source"],
+        values: {},
+      }),
+    /DEPLOY_SHA/,
   );
 });
 

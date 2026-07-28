@@ -1113,13 +1113,12 @@ runtime after upload and evidence work; it refuses ambiguous or unexpected
 state.
 
 The protected production-shadow Vercel CLI is a standalone frozen install.
-Trusted controller code first requires its manifest to contain only
-`vercel@56.4.1`, requires its `pnpm.overrides` object to equal the root security
-overrides, binds every byte of `scripts/vercel-cli-runtime/pnpm-lock.yaml` to a
-reviewed SHA-256, and separately verifies the root
-`brace-expansion@2.1.2` patch. The regenerated Vercel 56.4.1 runtime has no v2
-consumer, so it omits that patch; a future reviewed state stages it only when
-the runtime manifest and lockfile require it. It copies the manifest and
+Trusted controller code first requires its manifest to contain
+`vercel@56.4.1` and every CLI builder peer as exact direct dependencies,
+requires its `pnpm.overrides` object to equal the root security overrides,
+binds every byte of `scripts/vercel-cli-runtime/pnpm-lock.yaml` to a reviewed
+SHA-256, and separately verifies the root and standalone
+`brace-expansion@2.1.2` patch. It copies the manifest and
 lockfile as independent runner-owned `0444`, single-link files under
 `$TOOLS_PATH/vercel-cli-runtime`; CI never generates or updates that lockfile.
 The protected pnpm runtime installs there with `--frozen-lockfile`,

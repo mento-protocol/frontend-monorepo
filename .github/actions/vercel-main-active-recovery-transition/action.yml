@@ -72,7 +72,7 @@ runs:
         name: ${{ steps.dispatch.outputs.journal_artifact_name }}
         path: ${{ runner.temp }}/recovery-${{ inputs.slot }}-started-artifact/main-journal.json
         if-no-files-found: error
-        retention-days: 7
+        retention-days: 14
 
     - name: Checkpoint the dispatched recovery journal
       id: checkpoint-started
@@ -160,7 +160,7 @@ runs:
         name: ${{ steps.returned.outputs.journal_artifact_name }}
         path: ${{ runner.temp }}/recovery-${{ inputs.slot }}-returned-artifact/main-journal.json
         if-no-files-found: error
-        retention-days: 7
+        retention-days: 14
 
     - name: Checkpoint the command-returned recovery journal
       id: checkpoint-returned
@@ -237,7 +237,7 @@ runs:
         name: ${{ steps.verify.outputs.journal_artifact_name }}
         path: ${{ runner.temp }}/recovery-${{ inputs.slot }}-verified-artifact/main-journal.json
         if-no-files-found: error
-        retention-days: 7
+        retention-days: 14
 
     - name: Checkpoint the verified or terminal recovery journal
       if: steps.upload-verified.outcome == 'success'

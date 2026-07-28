@@ -290,6 +290,7 @@ test("inherited restoration proves and validates reuse before a durable bounded 
     proof.env.GITHUB_WORKFLOW_SHA,
     "${{ needs.wait-for-ci.outputs.deploy_sha }}",
   );
+  assert.match(proof.run, /validate-recovery-source/);
   const install = named(jobName, "without lifecycle scripts");
   assert.deepEqual(install.with, {
     "working-directory": "source",
@@ -1008,7 +1009,10 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
   );
   assert.equal(controller.with.ref, "${{ github.workflow_sha }}");
   assert.equal(source.with.ref, "${{ needs.wait-for-ci.outputs.deploy_sha }}");
-  assert.match(sourceProof("recover-main-deployment").run, /validate-source/);
+  assert.match(
+    sourceProof("recover-main-deployment").run,
+    /validate-recovery-source/,
+  );
   assert.deepEqual(
     steps("recover-main-deployment").find(
       (step) => step.uses === "./.github/actions/pnpm-install",
@@ -1482,6 +1486,11 @@ test("every durable current-attempt journal upload has the canonical downloaded 
         continue;
       }
       count += 1;
+      assert.equal(
+        upload.with["retention-days"],
+        14,
+        `journal upload must retain recovery evidence for 14 days: ${groupName}/${upload.name}`,
+      );
       assert.match(
         upload.with.path,
         /-artifact\/main-journal\.json$/,

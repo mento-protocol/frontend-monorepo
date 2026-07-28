@@ -43,11 +43,11 @@ const scriptPath = fileURLToPath(
 );
 const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567";
 const CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
-  "aff56363b321add73cf5afe6615c1ee947bfc427820402c2ceb89cab36179edd";
+  "502ae12a4d142ee9766beae1a76a72532cefa913c9a8ab9b0d9052ceb92e6716";
 const NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
-  "c59acf59a130c9184709750cf18463bfc152a964aec594af40eb1bc80898eb01";
+  "581be03c45aa811202429a16fd7355fb6415d8cd2d194eb478ea6cfe117f165d";
 const BRACE_EXPANSION_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
-  "49f789a692dea62faf62fdaf0cdf6d89131d3fd1f5ac861ce59c257d0866e5e4";
+  "a8341932863259f7abf6dd354911cf4b13beb15b77c98c763377fcfed13f279b";
 const REVIEWED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 = new Set([
   CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
   NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
@@ -338,7 +338,7 @@ test("resolved Next.js and exact Vercel CLI satisfy custom-ID prerequisites", ()
     vercel: "56.4.1",
     vercelCliRuntime: {
       lockfileSha256: prerequisites.vercelCliRuntime.lockfileSha256,
-      patchRequired: false,
+      patchRequired: true,
       vercel: "56.4.1",
     },
   };
@@ -395,6 +395,7 @@ test("trusted controller accepts only the reviewed Vercel CLI runtime lockfile r
     ).pnpm.overrides;
     const repositoryDigest = assertVercelCliRuntimeContract({
       ...contractPaths,
+      patchFilePath: patchPath,
     }).lockfileSha256;
     assert.equal(
       repositoryDigest,

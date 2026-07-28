@@ -381,6 +381,25 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
   assert.deepEqual(Object.keys(runtimeLock.snapshots), ["pnpm@10.34.4"]);
   assert.equal(runtimeLock.importers["."].dependencies.pnpm.version, "10.34.4");
   assert.deepEqual(vercelCliRuntimeManifest.dependencies, {
+    "@vercel/backends": "0.8.25",
+    "@vercel/container": "0.0.5",
+    "@vercel/elysia": "0.1.102",
+    "@vercel/express": "0.1.116",
+    "@vercel/fastify": "0.1.105",
+    "@vercel/go": "3.10.2",
+    "@vercel/h3": "0.1.111",
+    "@vercel/hono": "0.2.105",
+    "@vercel/hydrogen": "1.4.0",
+    "@vercel/koa": "0.1.85",
+    "@vercel/nestjs": "0.2.106",
+    "@vercel/next": "4.20.4",
+    "@vercel/node": "5.8.26",
+    "@vercel/python": "6.51.0",
+    "@vercel/redwood": "2.5.0",
+    "@vercel/remix-builder": "5.9.1",
+    "@vercel/ruby": "2.5.1",
+    "@vercel/rust": "1.4.0",
+    "@vercel/static-build": "2.11.8",
     vercel: "56.4.1",
   });
   assert.equal(vercelCliRuntimeManifest.scripts, undefined);
@@ -419,15 +438,15 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
     [...vercelCliRuntimeOsvConfig.matchAll(/^id = "([^"]+)"$/gm)].map(
       ([, id]) => id,
     ),
-    ["GHSA-fm4j-4xhm-xpwx", "GHSA-gc25-3vc5-2jf9"],
+    ["GHSA-fm4j-4xhm-xpwx", "GHSA-gc25-3vc5-2jf9", "GHSA-mh99-v99m-4gvg"],
   );
   assert.equal(
     (vercelCliRuntimeOsvConfig.match(/^\[\[IgnoredVulns\]\]$/gm) ?? []).length,
-    2,
+    3,
   );
   assert.doesNotMatch(
     vercelCliRuntimeOsvConfig,
-    /GHSA-(?!fm4j-4xhm-xpwx|gc25-3vc5-2jf9)/,
+    /GHSA-(?!fm4j-4xhm-xpwx|gc25-3vc5-2jf9|mh99-v99m-4gvg)/,
   );
   assert.equal(
     supplyChain.jobs["osv-pnpm-bootstrap"].with["scan-args"].trim(),
