@@ -62,8 +62,9 @@ import {
 import { generateVercelMainReleaseId } from "./vercel-prebuilt.mjs";
 
 export const MAIN_PROVIDER_CLI_MAX_JSON_BYTES = 256 * 1024;
-export const MAIN_PREPLAN_HANDOFF_MAX_JSON_BYTES = 96 * 1024;
-export const MAIN_PREPLAN_HANDOFF_MAX_ENCODED_BYTES = 128 * 1024;
+export const MAIN_PREPLAN_HANDOFF_MAX_JSON_BYTES = 95 * 1024;
+// Leave room for MAIN_PREPLAN_HANDOFF= and NUL below Linux MAX_ARG_STRLEN.
+export const MAIN_PREPLAN_HANDOFF_MAX_ENCODED_BYTES = 127 * 1024;
 export const MAIN_PROVIDER_CLI_RETRY_EXIT_CODE = 75;
 export const MAIN_CANONICAL_MAPPINGS_SCHEMA =
   "vercel-main-canonical-mappings:v1";

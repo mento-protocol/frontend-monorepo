@@ -57,6 +57,11 @@ const fixtureUrl = new URL(
 );
 const SHA = "d".repeat(40);
 const PRIOR_SHA = "a".repeat(40);
+const LINUX_MAX_ARG_STRING_BYTES = 128 * 1024;
+const MAIN_PREPLAN_HANDOFF_ENV_OVERHEAD_BYTES = Buffer.byteLength(
+  "MAIN_PREPLAN_HANDOFF=\0",
+  "utf8",
+);
 
 function fixtureInput() {
   const input = JSON.parse(readFileSync(fixtureUrl, "utf8"));
@@ -943,6 +948,17 @@ test("preplan materialization accepts only inherited restore and exposes ordered
   assert.ok(
     Buffer.byteLength(productionShapeHandoff, "utf8") <=
       MAIN_PREPLAN_HANDOFF_MAX_ENCODED_BYTES,
+  );
+  assert.ok(
+    Math.ceil((MAIN_PREPLAN_HANDOFF_MAX_JSON_BYTES * 4) / 3) <=
+      MAIN_PREPLAN_HANDOFF_MAX_ENCODED_BYTES,
+    "every accepted JSON payload must fit the encoded handoff bound",
+  );
+  assert.ok(
+    MAIN_PREPLAN_HANDOFF_ENV_OVERHEAD_BYTES +
+      MAIN_PREPLAN_HANDOFF_MAX_ENCODED_BYTES <
+      LINUX_MAX_ARG_STRING_BYTES,
+    "the largest handoff must fit one Linux environment entry",
   );
   assert.deepEqual(
     decodeMainPreplanHandoff(productionShapeHandoff, {
