@@ -210,7 +210,7 @@ jobs:
           { GITHUB_WORKFLOW_SHA: "${{ needs.wait-for-ci.outputs.deploy_sha }}" }
         run: |
           git -C "$SOURCE_PATH" fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          node scripts/vercel-main-deployment.mjs validate-source
+          node scripts/vercel-main-deployment.mjs validate-recovery-source
       - name: Install exact inherited recovery source without lifecycle scripts
         uses: ./.github/actions/pnpm-install
         with: { working-directory: source, ignore-scripts: "true" }
@@ -2220,7 +2220,7 @@ jobs:
           { GITHUB_WORKFLOW_SHA: "${{ needs.wait-for-ci.outputs.deploy_sha }}" }
         run: |
           git -C "$SOURCE_PATH" fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          node scripts/vercel-main-deployment.mjs validate-source
+          node scripts/vercel-main-deployment.mjs validate-recovery-source
       - name: Install exact recovery source without lifecycle scripts
         uses: ./.github/actions/pnpm-install
         with: { working-directory: source, ignore-scripts: "true" }
