@@ -156,6 +156,13 @@ Each attempt owns only its current journal, transaction IDs, snapshots, and
 recovery. Do not infer safety from artifact retention, an empty download
 directory, or GitHub's rerun count.
 
+For `restore-before-planning`, that fresh current-attempt journal keeps the
+interrupted release manifest's `DEPLOY_SHA` together with the current
+downstream run ID and attempt. The incoming release `DEPLOY_SHA` remains the
+source and planning identity. The restore job binds the validated interrupted
+release SHA only to active-journal history lookup so it cannot mistake the
+incoming release for the transaction being recovered.
+
 ### Served-SHA planning and prior-state handoff
 
 The planning job reads canonical protected state for App, Governance, Reserve,

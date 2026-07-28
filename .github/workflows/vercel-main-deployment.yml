@@ -217,6 +217,16 @@ jobs:
       - name: Materialize strict inherited recovery decision
         id: inherited
         run: node scripts/vercel-main-provider-cli.mjs preplan-materialize --output "$RUNNER_TEMP/inherited-preplan.json"
+      - name: Bind inherited journal deployment SHA
+        env:
+          INHERITED_JOURNAL_DEPLOY_SHA: ${{ steps.inherited.outputs.inherited_journal_deploy_sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$INHERITED_JOURNAL_DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Inherited journal deployment SHA must be lowercase hexadecimal" >&2
+            exit 1
+          fi
+          printf 'MAIN_ACTIVE_JOURNAL_DEPLOY_SHA=%s\n' "$INHERITED_JOURNAL_DEPLOY_SHA" >> "$GITHUB_ENV"
       - name: Materialize inherited mapping specifications
         run: |
           node scripts/vercel-main-deployment.mjs create-spec --scope main --output "$RUNNER_TEMP/main-spec.json"

@@ -1160,6 +1160,7 @@ export async function runMainProviderCli({
       inherited_candidate_targets: JSON.stringify(
         result.rollbackAuthorization.targets,
       ),
+      inherited_journal_deploy_sha: result.reconciliation.manifest.deploySha,
     });
     stdout.write("Canonical pre-plan handoff materialized\n");
     return result;

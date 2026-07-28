@@ -770,7 +770,11 @@ test("preplan materialization accepts only inherited restore and exposes ordered
   assert.deepEqual(readJson(output), decision);
   assert.equal(
     readFileSync(context.githubOutput, "utf8"),
-    'inherited_candidate_targets=["governance"]\n',
+    [
+      'inherited_candidate_targets=["governance"]',
+      `inherited_journal_deploy_sha=${inherited.deploySha}`,
+      "",
+    ].join("\n"),
   );
 });
 

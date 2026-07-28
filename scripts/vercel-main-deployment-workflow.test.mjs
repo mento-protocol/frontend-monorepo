@@ -308,6 +308,27 @@ test("inherited restoration proves and validates reuse before a durable bounded 
     inherited.run,
     /--output "\$RUNNER_TEMP\/inherited-preplan\.json"/,
   );
+  const journalDeploySha = named(
+    jobName,
+    "Bind inherited journal deployment SHA",
+  );
+  assert.deepEqual(journalDeploySha.env, {
+    INHERITED_JOURNAL_DEPLOY_SHA:
+      "${{ steps.inherited.outputs.inherited_journal_deploy_sha }}",
+  });
+  assert.match(
+    journalDeploySha.run,
+    /INHERITED_JOURNAL_DEPLOY_SHA" =~ \^\[0-9a-f\]\{40\}\$/,
+  );
+  assert.match(
+    journalDeploySha.run,
+    /MAIN_ACTIVE_JOURNAL_DEPLOY_SHA=%s\\n.*INHERITED_JOURNAL_DEPLOY_SHA.*GITHUB_ENV/,
+  );
+  assert.doesNotMatch(journalDeploySha.run, /(?:^|[^A-Z_])DEPLOY_SHA=/);
+  assert.equal(
+    jobSteps.indexOf(inherited) + 1,
+    jobSteps.indexOf(journalDeploySha),
+  );
   const mappingSpecs = named(jobName, "inherited mapping specifications");
   assert.match(mappingSpecs.run, /create-spec --scope main/);
   assert.match(mappingSpecs.run, /create-spec --scope legacy/);
@@ -392,6 +413,7 @@ test("inherited restoration proves and validates reuse before a durable bounded 
     journal.run,
     /--preplan[\s\S]*--legacy-snapshot[\s\S]*--current-mappings[\s\S]*--candidate-receipts[\s\S]*--journal-output[\s\S]*--plan-output/,
   );
+  assert.ok(jobSteps.indexOf(journalDeploySha) < jobSteps.indexOf(journal));
 
   const preparedUpload = named(
     jobName,
@@ -419,6 +441,9 @@ test("inherited restoration proves and validates reuse before a durable bounded 
   assert.ok(jobSteps.indexOf(journal) < jobSteps.indexOf(preparedUpload));
   assert.ok(
     jobSteps.indexOf(preparedUpload) < jobSteps.indexOf(preparedCheckpoint),
+  );
+  assert.ok(
+    jobSteps.indexOf(journalDeploySha) < jobSteps.indexOf(preparedCheckpoint),
   );
   assert.ok(jobSteps.indexOf(preparedCheckpoint) < jobSteps.indexOf(runtime));
 
@@ -472,6 +497,18 @@ test("inherited restoration proves and validates reuse before a durable bounded 
       "${{ steps.recovery-runtime.outputs.vercel-cli }}",
     );
   }
+  const inheritedHistorySteps = jobSteps.filter((step) =>
+    step.run?.includes("active-journal-history"),
+  );
+  assert.ok(inheritedHistorySteps.length > 0);
+  for (const history of inheritedHistorySteps) {
+    assert.ok(jobSteps.indexOf(journalDeploySha) < jobSteps.indexOf(history));
+  }
+  for (const transition of transitions) {
+    assert.ok(
+      jobSteps.indexOf(journalDeploySha) < jobSteps.indexOf(transition),
+    );
+  }
   assert.ok(
     jobSteps.indexOf(initializedCheckpoint) < jobSteps.indexOf(transitions[0]),
   );
@@ -506,6 +543,14 @@ test("inherited restoration proves and validates reuse before a durable bounded 
   assert.ok(jobSteps.indexOf(finalHead) < jobSteps.indexOf(requireRecovered));
   assert.ok(jobSteps.indexOf(requireRecovered) < jobSteps.indexOf(cleanup));
   assert.ok(jobSteps.indexOf(cleanup) < jobSteps.indexOf(outcome));
+  for (const [name, otherJob] of Object.entries(workflow.jobs)) {
+    if (name === jobName) continue;
+    assert.doesNotMatch(
+      JSON.stringify(otherJob),
+      /MAIN_ACTIVE_JOURNAL_DEPLOY_SHA/,
+      `${name} must not override the inherited journal deployment SHA`,
+    );
+  }
 });
 
 test("only inherited ordinary restoration uses inherited candidate finalization", () => {
