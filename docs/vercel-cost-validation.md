@@ -1,9 +1,10 @@
 # Vercel build-minute validation
 
-This runbook prepares the measurement and closeout work tracked in [issue
-#523](https://github.com/mento-protocol/frontend-monorepo/issues/523). It does
-not start the observation window, query Vercel or GitHub, change a deployment,
-or remove migration scaffolding. The observation window starts only after the
+This runbook defines the measurement and closeout work tracked in [issue
+#523](https://github.com/mento-protocol/frontend-monorepo/issues/523). The
+collector reads GitHub through the maintainer's logged-in `gh` session. It does
+not query Vercel, change a deployment, or remove migration scaffolding. The
+observation window starts only after the
 four-target preview ownership and active-main cutover in issue #522 have live
 runtime and ownership proof. The checked-in active topology alone does not
 start the window or mark #522 complete. Historical automatic PR-A
@@ -16,7 +17,159 @@ measurements; failed runs contain only the redacted failure graph. Successful
 shadow measurements help diagnose the canary, but they remain log-duration
 evidence rather than invoice-grade Build CPU allocation.
 
-The repository provides a deterministic, network-free analyzer:
+The repository provides a Vercel-credential-free GitHub evidence collector and a
+deterministic, network-free analyzer. Initialize the approved half-open
+observation interval before its start boundary:
+
+```bash
+pnpm vercel:cost:observe -- init \
+  --start 2026-07-29T00:00:00.000Z \
+  --end 2026-08-05T00:00:00.000Z
+```
+
+The collector writes only below the fixed ignored root
+`.vercel-cost-evidence/github-observation-v2/`. It requires a normal logged-in
+`gh` session, makes no Vercel request, accepts no token option, reads no token
+environment variable, and never prints captured response bodies. Every `gh`
+request is pinned to `github.com`; the subprocess receives only the narrow
+path, home/config, temporary-directory, and locale allowlist needed for the
+stored `gh` login. Vercel, 1Password, cloud-provider, proxy, and arbitrary host
+environment variables are neither read nor forwarded. It requires
+real mode-`0700` directories and single-link mode-`0600` files, rejects
+symlinks and paths outside the fixed root, and publishes a capture only after
+all raw files validate. One root operation lock serializes every mutation.
+Single files use fsynced temporary writes and atomic no-overwrite publication;
+capture directories are fsynced after publication, and a later locked command
+removes safely bounded staging trees left by a crashed process. Each capture
+has a separate seal over canonical
+`capture.json` bytes and the exact payload tree, so verification rejects
+changed, missing, and unlisted files. Repeating an identical capture verifies
+and returns the existing immutable record; a partial or conflicting record
+fails instead of being replaced. These local hashes detect accidental changes
+and unsynchronized edits. They do not protect against a local actor who can
+rewrite both the evidence and its seal; copy the completed private tree to an
+access-controlled immutable store for long-term provenance.
+The start record calls its visibility fact `publicAtCapture`: `init` runs
+before `startUtc`, so that observation cannot prove future visibility at the
+boundary. `interval.json` binds the canonical start-record digest, and each
+interval extension binds the preceding interval-chain digest.
+
+Capture each authoritative GitHub milestone promptly:
+
+```bash
+# Run after an opened/synchronize controller event settles, while its v2
+# journal receipts still exist.
+pnpm vercel:cost:observe -- capture-preview \
+  --pr <number> \
+  --event-run-id <pull_request_target-controller-run-id>
+
+# Run after every Vercel Main Deployment run settles. All run attempts are
+# retained, including failed or superseded attempts.
+pnpm vercel:cost:observe -- capture-main \
+  --run-id <vercel-main-deployment-run-id>
+
+# Run at useful checkpoints and once after the final end.
+pnpm vercel:cost:observe -- sample-github
+```
+
+`capture-preview` requires exactly one canonical
+`vercel-preview-journal:v2` comment owned by `github-actions[bot]`, correlates
+the immutable event receipt, controller run title, selections, referenced
+worker attempts, bot-owned final sentinel, commit statuses, and exact GitHub
+Deployment/status evidence, then seals every raw file. It publishes only after
+the event has a terminal decision and every planned target has a complete,
+selection-bound worker result. A pending, compacted-away, or ambiguous event
+fails without reserving its append-only destination; retry after reconciliation
+while the live event receipt still exists.
+
+`capture-main` records every run attempt, job list, combined log, artifact
+inventory, upstream CI run when a journal binds it, and every available
+`main-journal.json`. It validates canonical append-only journal histories
+before publishing them. A later rerun verifies the existing contiguous attempt
+prefix and atomically appends only the newly completed tail after rechecking
+the current attempt. GitHub's REST API does not expose job outputs or the
+step-summary payload that carries `vercel-main-terminal-evidence:v3`; the
+capture records that limitation explicitly instead of reconstructing terminal
+evidence from logs. The same boundary applies to provider deployment census,
+public-domain SHA probes, and legacy-v2 health. A failed early attempt can
+still have complete raw GitHub evidence even when no successful release
+terminal route ran. The audit counts those release-terminal anomalies
+separately instead of treating a fully captured failed attempt as missing.
+
+`sample-github` records repository visibility at the sample time, the relevant
+preview/main workflow inventory, job runner labels, pending runs, and
+point-in-time Actions cache and artifact storage. Run discovery queries each
+workflow and complete UTC day separately, falls back to hourly shards above
+GitHub's 1,000-result search cap, reconciles shard totals, and excludes the
+half-open end boundary. Each later sample re-queries the complete interval so
+its run/job coverage can backfill earlier complete UTC days. Cache, artifact,
+and repository-visibility values remain point-in-time snapshots and cannot be
+backfilled. The final audit therefore leaves continuous visibility,
+invoice-grade runner minutes, and storage GB-hours unresolved. Every sample
+also refreshes runs that were in flight when `init` captured the pre-start
+boundary. A run clears that boundary only when the terminal sample proves it
+completed strictly before `startUtc`. Each sample also discovers relevant
+workflow runs created in `[boundary.recordedAtUtc, startUtc)` with the same
+sharded query and unions them with the runs in flight during `init`; only runs
+from that complete union that actually cross `startUtc` fail the boundary
+drain check. Samples use the same atomically published
+and tree-sealed capture-directory format as preview and main evidence; the
+audit never trusts an unsealed sample JSON file.
+
+A run that crosses `startUtc` invalidates that start boundary; extending the
+end cannot repair it. Preserve the failed private tree outside the collector's
+fixed root for the audit trail, then initialize a clean tree with a later
+complete UTC-day start after all relevant workflows have drained.
+
+If the interval ends with fewer than ten eligible pushes, or work straddles its
+end boundary, extend it before auditing. Re-run `init` with the same start and a
+later complete UTC-day end:
+
+```bash
+pnpm vercel:cost:observe -- init \
+  --start 2026-07-29T00:00:00.000Z \
+  --end 2026-08-06T00:00:00.000Z
+```
+
+The collector appends an immutable
+`interval-extensions/<new-end>.json` record. Extensions must form a monotonic
+digest chain, cannot shrink the interval, and are rejected after the permanent
+freeze marker seals closeout.
+
+At the frozen end boundary, take a final sample and run:
+
+```bash
+pnpm vercel:cost:observe -- audit \
+  --end 2026-08-05T00:00:00.000Z
+```
+
+The offline audit requires complete cumulative run/job coverage for every UTC
+day and a terminal sample; one later sample may provide coverage for several
+earlier days. It inventories in-window controller and main runs against
+captures, verifies every capture seal, and reports missing, incomplete, or
+ambiguous evidence. A run observed in flight before the start fails only when
+the terminal sample cannot prove that it completed strictly before the start.
+Runs, jobs, deployment statuses, or sentinels that finish at or after the
+exclusive end are reported by explicit IDs and fail closeout; drain them and
+extend the interval instead of mixing billing denominators. A PR already open
+at the start counts toward the first-preview metric only when its boundary
+journal proves that no eligible push occurred before the window and its first
+eligible in-window `synchronize` receipt has `beforeSha` equal to the boundary
+head SHA. A mismatch is excluded and reported as ambiguous. The audit
+first runs a repairable GitHub-evidence preflight under the exclusive operation
+lock. Missing terminal coverage, captures, attempts, eligible opportunities,
+runner classification, public-visibility samples, or drained boundaries make
+the command fail without writing `freeze.json`, `audit.json`, or the analyzer
+fragment; collect the missing evidence or extend the interval and retry. Once
+that preflight is clean, the audit writes a permanent freeze marker, after
+which `init`, captures, and samples are rejected. It then deliberately writes
+`analyzer-postcutover-fragment.incomplete.json` and exits nonzero while
+provider, billing, runtime, burst, rollback, or final closeout fields remain
+unresolved. It never manufactures a passing analyzer aggregate. The audit is
+an immutable end-of-window record. A crash after the freeze can resume the
+same audit, but no later collection or interval extension is allowed.
+
+After the manual/private evidence joins that GitHub record, run the analyzer:
 
 ```bash
 pnpm vercel:cost:analyze \

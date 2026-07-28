@@ -158,7 +158,20 @@ pnpm --filter app.mento.org test:production-shadow:routing
 # Verify exact Next.js and Vercel CLI custom deployment-ID prerequisites
 pnpm vercel:versions:check
 
-# Test and run the redaction-safe Vercel build-minute closeout analyzer
+# Capture the private, append-only GitHub side of the #523 observation
+pnpm vercel:cost:observe -- init --start 2026-07-29T00:00:00.000Z --end 2026-08-05T00:00:00.000Z
+pnpm vercel:cost:observe -- capture-preview --pr <number> --event-run-id <controller-run-id>
+pnpm vercel:cost:observe -- capture-main --run-id <main-deployment-run-id>
+# Run at useful checkpoints and after the final end boundary
+pnpm vercel:cost:observe -- sample-github
+# Re-run init with the same start and a later end before audit if the window
+# needs more eligible pushes or has boundary-straddling work
+pnpm vercel:cost:observe -- init --start 2026-07-29T00:00:00.000Z --end 2026-08-06T00:00:00.000Z
+# Repairable GitHub gaps leave collection mutable; a clean audit preflight
+# permanently freezes this interval before writing the provider-join fragment.
+pnpm vercel:cost:observe -- audit --end <final-end-utc>
+
+# Test and run the private collector plus redaction-safe closeout analyzer
 pnpm vercel:cost:test
 pnpm vercel:cost:analyze --input .vercel-cost-evidence/manifest.json --format markdown
 ```
