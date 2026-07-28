@@ -43,11 +43,11 @@ const scriptPath = fileURLToPath(
 );
 const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567";
 const CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
-  "505674eac656c26fce2fe912a2b14228f8f4f3edd4b3d6d7b0f2c9f08c276d76";
+  "11374952345259c87e150e449a5400be3abed3be399900fc11a7ab6db0a329e0";
 const NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
-  "884e3c4186c9d5faee0e6cf710b112e7e60cdae5d46be13da1b2b0ae9cf11eb0";
+  "b28a9c338eb5e5a6a360be651bb5907cb1dc13e491faad2a853717b9b35cd27c";
 const BRACE_EXPANSION_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
-  "773226619ef0f73252aa2921cc3cedb69908bc21f08362857df25ae9777c0ff3";
+  "c28925e49fa15cc2151f4b0b9179f721ebc03c28ba9a4350ab8e3782bf099a90";
 const REVIEWED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 = new Set([
   CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
   NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
@@ -421,6 +421,14 @@ test("trusted controller accepts only the reviewed Vercel CLI runtime lockfile r
     const reviewedCurrentOverrides = toCurrentVercelCliRuntimeOverrides(
       reviewedNextOverrides,
     );
+    assert.equal(
+      sha256(reviewedCurrentLockfile),
+      CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
+    );
+    assert.equal(
+      sha256(reviewedNextLockfile),
+      NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
+    );
     const prePatchStates = [
       {
         lockfileSha256: CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
@@ -481,7 +489,11 @@ test("trusted controller accepts only the reviewed Vercel CLI runtime lockfile r
       writeVercelCliRuntimeOverrides({ ...contractPaths, overrides });
       writeFileSync(lockfilePath, lockfile);
       assert.throws(
-        () => assertVercelCliRuntimeContract(contractPaths),
+        () =>
+          assertVercelCliRuntimeContract({
+            ...contractPaths,
+            trustedRuntimeStates: prePatchStates,
+          }),
         /lockfile and overrides are not an approved pair/,
       );
     }
