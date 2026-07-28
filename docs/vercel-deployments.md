@@ -425,13 +425,13 @@ zero-candidate expectation only to publish fail-closed terminal evidence: any
 observed App candidate makes that state proof unproven and never upgrades the
 manual outcome to recovered.
 
-If provider reconciliation cannot establish one safe manifest and canonical
-mapping prefix, do not delete or recreate evidence. Inspect the live protected
-state and use the current-attempt recovery contract where the reconciliation
-decision permits it. Otherwise follow the target-local or full-native rollback
-procedure, verify the protected mappings, and begin a new release only from a
-new validated upstream CI run. Do not create a GitHub-artifact or prior-journal
-fallback path.
+If provider reconciliation cannot establish one safe manifest and either a
+canonical forward mapping prefix or the exact terminal App recovery residual,
+do not delete or recreate evidence. Inspect the live protected state and use
+the current-attempt recovery contract where the reconciliation decision permits
+it. Otherwise follow the target-local or full-native rollback procedure, verify
+the protected mappings, and begin a new release only from a new validated
+upstream CI run. Do not create a GitHub-artifact or prior-journal fallback path.
 
 The terminal producer emits one canonical, redacted terminal receipt and
 terminal evidence before the `result` job selects the final outcome. They bind

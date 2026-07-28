@@ -821,7 +821,7 @@ test("only a full terminal App candidate remains recoverable after ordinary roll
   );
 });
 
-test("non-prefix, third-party, missing-candidate, and disagreeing-manifest states fail closed", () => {
+test("unsupported non-prefix, third-party, missing-candidate, and disagreeing-manifest states fail closed", () => {
   const nonPrefix = releaseState({ candidateCount: 2 });
   nonPrefix.currentMappings.governance = [
     mapping("governance.mento.org", "governance", "prior"),

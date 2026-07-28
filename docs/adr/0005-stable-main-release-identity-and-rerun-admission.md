@@ -211,7 +211,8 @@ The implementation and tests are the current repository evidence:
 
 - `scripts/vercel-main-release-planner.mjs` and
   `scripts/vercel-main-release-reconciliation.mjs` — canonical manifest,
-  provider census, reconciliation, and inherited-prefix decisions;
+  provider census, reconciliation, inherited-prefix decisions, and terminal App
+  residual restoration;
 - `scripts/vercel-main-release-journal.mjs` and
   `scripts/vercel-main-release-execution.mjs` — fresh current-attempt journals
   and bounded execution handoffs;
