@@ -32,36 +32,38 @@ export const BRACE_EXPANSION_RUNTIME_PATCH_PATH =
 const BRACE_EXPANSION_ROOT_PATCH_PATH =
   "scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch";
 
-// This reviewed successor binds the regenerated runtime lockfile, override
-// object, and brace-expansion patch required by the direct builder graph.
-const NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
+// This reviewed pair binds the previous runtime lockfile, override object,
+// and brace-expansion patch required by the direct builder graph.
+const BRACE_EXPANSION_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
   "a8341932863259f7abf6dd354911cf4b13beb15b77c98c763377fcfed13f279b";
-const NEXT_VERCEL_CLI_RUNTIME_OVERRIDE_SHA256 =
+const BRACE_EXPANSION_VERCEL_CLI_RUNTIME_OVERRIDE_SHA256 =
   "2a30c91c2e6d82386113535d8a0d03e3faeb2d4af0bc032b9200719e036b490a";
 export const BRACE_EXPANSION_PATCH_SHA256 =
   "7cf518c5d9dbf4290d0f48d3fa4673d4a163d0088d2d1294e417b9909c111833";
+
+// This reviewed successor binds the 2026-08-05 security-floor rotation: it
+// raises the brace-expansion (GHSA-rgw5-rvv9-x895), fast-uri, hono,
+// ip-address, postcss, socket.io-parser, undici, and uuid override floors and
+// retires the local brace-expansion@2.1.2 patch, superseded by the upstream
+// fixed release 2.1.4.
+const NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
+  "5c70b093926a8ed722b9a912ea9b4f2a3996e373bde2118be9975baf93c8fa9e";
+const NEXT_VERCEL_CLI_RUNTIME_OVERRIDE_SHA256 =
+  "d97b2eead9f597f82f99ba4d2a4b8e0a883dad129190f17838838d0209693867";
 
 // This reviewed controller-owned state permits the one-way runtime rotation
 // only with its matching canonical override and, when present, patch state. It
 // must never be read from candidate source or PR input.
 const TRUSTED_VERCEL_CLI_RUNTIME_STATES = Object.freeze([
   Object.freeze({
-    lockfileSha256:
-      "505674eac656c26fce2fe912a2b14228f8f4f3edd4b3d6d7b0f2c9f08c276d76",
-    overridesSha256:
-      "1470e9d2fb8aefb32cd1cfa0f8e6b626663b8ac0de27b52f2e646240c1ece08e",
-  }),
-  Object.freeze({
-    lockfileSha256:
-      "884e3c4186c9d5faee0e6cf710b112e7e60cdae5d46be13da1b2b0ae9cf11eb0",
-    overridesSha256:
-      "0941482390a44f7e16c1f7182469e01162434f9e274059d53d6ebbef2ebed695",
+    lockfileSha256: BRACE_EXPANSION_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
+    overridesSha256: BRACE_EXPANSION_VERCEL_CLI_RUNTIME_OVERRIDE_SHA256,
+    patchSha256: BRACE_EXPANSION_PATCH_SHA256,
+    rootPatchSha256: BRACE_EXPANSION_PATCH_SHA256,
   }),
   Object.freeze({
     lockfileSha256: NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
     overridesSha256: NEXT_VERCEL_CLI_RUNTIME_OVERRIDE_SHA256,
-    patchSha256: BRACE_EXPANSION_PATCH_SHA256,
-    rootPatchSha256: BRACE_EXPANSION_PATCH_SHA256,
   }),
 ]);
 

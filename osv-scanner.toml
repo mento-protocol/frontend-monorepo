@@ -173,11 +173,6 @@ id = "GHSA-q6x5-8v7m-xcrf"
 ignoreUntil = 2026-12-01T00:00:00Z
 reason = "@protobufjs/utf8 overlong UTF-8 decoding; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available."
 
-[[IgnoredVulns]]
-id = "GHSA-v2v4-37r5-5v8g"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "ip-address XSS in Address6 HTML-emitting methods (Address6 HTML methods are not invoked from this app); transitive; no direct fix available."
-
 # --- New advisories surfaced 2026-05-19 (same transitive chains as the
 #     2026-05-15 batch above) ---
 
@@ -201,10 +196,3 @@ reason = "False positive from npm package-name reuse: advisory targets legacy gf
 id = "GHSA-gc25-3vc5-2jf9"
 ignoreUntil = 2026-10-14T00:00:00Z
 reason = "False positive from npm package-name reuse: advisory targets legacy gf3/sandbox <=0.8.2; sandbox@3.4.0 is Vercel's unrelated CLI and this repo never invokes its sandbox command."
-
-[[IgnoredVulns]]
-id = "GHSA-mh99-v99m-4gvg"
-# Remove when every brace-expansion 2.x consumer has moved off 2.1.2, or when
-# the local a1bd339 backport is replaced with an upstream fixed release.
-ignoreUntil = 2026-08-16T00:00:00Z
-reason = "brace-expansion@2.1.2 is locally patched with the juliangruber/brace-expansion a1bd339 CVE-2026-14257 total-expansion-length bound."
