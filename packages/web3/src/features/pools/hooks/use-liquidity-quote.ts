@@ -142,7 +142,7 @@ export function useLiquidityQuote({
 
       // The Router is authoritative: it applies the current reserve ratio and
       // can clip either desired amount. Everything downstream uses its result.
-      const [quote, lpBalance] = await Promise.all([
+      const [initialQuote, lpBalance] = await Promise.all([
         sdk.liquidity.quoteAddLiquidity(
           pool.poolAddr as Address,
           pool.token0.address as Address,
@@ -152,6 +152,24 @@ export function useLiquidityQuote({
         ),
         sdk.liquidity.getLPTokenBalance(pool.poolAddr, LP_TOTAL_SUPPLY_HOLDER),
       ]);
+
+      // A quote where the Router clipped amount0 is not a fixed point of its
+      // own math: fed back in (as the SDK's build step and addLiquidity itself
+      // both do), the Router re-derives amount1 as
+      // floor(amount0 * reserve1 / reserve0), up to reserve1/reserve0 wei
+      // below the quoted amount1. Re-quote once so the captured pair is
+      // exactly what executes on-chain — the add-liquidity form rejects any
+      // quote-vs-build drift beyond 1 wei as a pool-ratio change.
+      const quote =
+        initialQuote.amountA === amount0
+          ? initialQuote
+          : await sdk.liquidity.quoteAddLiquidity(
+              pool.poolAddr as Address,
+              pool.token0.address as Address,
+              initialQuote.amountA,
+              pool.token1.address as Address,
+              initialQuote.amountB,
+            );
 
       const token0Balance =
         request.kind === "max" ? request.token0Balance : quote.amountA;

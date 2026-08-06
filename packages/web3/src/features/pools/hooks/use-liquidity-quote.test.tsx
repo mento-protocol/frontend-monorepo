@@ -227,6 +227,73 @@ describe("useLiquidityQuote", () => {
     });
   });
 
+  it("re-quotes a clipped-amount0 MAX pair until it is a Router fixed point", async () => {
+    // reserve1/reserve0 = 333x, so the floor round-trip after an amount0 clip
+    // drops amount1 well past the form's 1-wei build-alignment tolerance.
+    liveReserves = [3n, 1_000n, 0n];
+
+    const { result } = renderHook(
+      () =>
+        useLiquidityQuote({
+          pool,
+          chainId: 143,
+          request: {
+            id: 5,
+            kind: "max",
+            token: 0,
+            token0Balance: 3n,
+            token1Balance: 900n,
+          },
+        }),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.data).toBeTruthy());
+
+    // First quote clips amount0: (3, 900) -> (2, 900). That pair is not what
+    // addLiquidity would execute, so the hook re-quotes it: (2, 900) -> (2, 666).
+    expect(mocks.quoteAddLiquidity).toHaveBeenCalledTimes(2);
+    expect(mocks.quoteAddLiquidity).toHaveBeenLastCalledWith(
+      pool.poolAddr,
+      pool.token0.address,
+      2n,
+      pool.token1.address,
+      900n,
+    );
+    expect(result.current.data).toMatchObject({
+      amountA: 2n,
+      amountB: 666n,
+      surplus0: 1n,
+      surplus1: 234n,
+    });
+  });
+
+  it("does not re-quote when the Router kept amount0 as passed", async () => {
+    const { result } = renderHook(
+      () =>
+        useLiquidityQuote({
+          pool,
+          chainId: 143,
+          request: {
+            id: 6,
+            kind: "max",
+            token: 0,
+            token0Balance: 1_000n,
+            token1Balance: 1_000n,
+          },
+        }),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.data).toBeTruthy());
+
+    expect(mocks.quoteAddLiquidity).toHaveBeenCalledTimes(1);
+    expect(result.current.data).toMatchObject({
+      amountA: 1_000n,
+      amountB: 500n,
+    });
+  });
+
   it("keeps a Router-clipped driver amount canonical", async () => {
     mocks.quoteAddLiquidity.mockResolvedValue({
       amountA: 8n * 10n ** 18n,
