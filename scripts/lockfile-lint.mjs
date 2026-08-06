@@ -40,21 +40,9 @@
  * CI: .github/workflows/supply-chain.yml
  */
 
-import { createHash } from "node:crypto";
-import {
-  readFileSync,
-  existsSync,
-  lstatSync,
-  readdirSync,
-  realpathSync,
-} from "node:fs";
-import { resolve, join, relative, isAbsolute, sep } from "node:path";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { resolve, join, relative } from "node:path";
 import process from "node:process";
-
-import {
-  BRACE_EXPANSION_PATCH_SHA256,
-  BRACE_EXPANSION_RUNTIME_PATCH_PATH,
-} from "./vercel-cli-runtime-contract.mjs";
 
 // ROOT defaults to cwd so the script works from any worktree root without
 // path-hardcoding. Tests override via LOCKFILE_LINT_ROOT env var so they can
@@ -326,53 +314,29 @@ const reviewedPatchEntries = [
     /^ {2}brace-expansion@2\.1\.2:\n {4}hash: ([0-9a-f]{64})\n {4}path: (\S+)\s*$/gm,
   ),
 ];
-const reviewedPatchPaths = new Set([
-  BRACE_EXPANSION_RUNTIME_PATCH_PATH,
-  `scripts/vercel-cli-runtime/${BRACE_EXPANSION_RUNTIME_PATCH_PATH}`,
-]);
-
-function hasExactReviewedBraceExpansionPatch() {
-  if (
-    reviewedPatchEntries.length !== 1 ||
-    reviewedPatchEntries[0][1] !== BRACE_EXPANSION_PATCH_SHA256 ||
-    !reviewedPatchPaths.has(reviewedPatchEntries[0][2])
-  ) {
-    return false;
-  }
-  const patchPath = resolve(ROOT, reviewedPatchEntries[0][2]);
-  try {
-    const patchEntry = lstatSync(patchPath);
-    const canonicalRoot = realpathSync(ROOT);
-    const canonicalPatch = realpathSync(patchPath);
-    const patchFromRoot = relative(canonicalRoot, canonicalPatch);
-    if (
-      patchEntry.isSymbolicLink() ||
-      !patchEntry.isFile() ||
-      patchEntry.nlink !== 1 ||
-      patchFromRoot === "" ||
-      patchFromRoot === ".." ||
-      patchFromRoot.startsWith(`..${sep}`) ||
-      isAbsolute(patchFromRoot)
-    ) {
-      return false;
-    }
-    return (
-      createHash("sha256")
-        .update(readFileSync(canonicalPatch))
-        .digest("hex") === BRACE_EXPANSION_PATCH_SHA256
-    );
-  } catch {
-    return false;
-  }
+// The retired local 2.1.2 patch must no longer appear in any lockfile; each
+// release line now has an upstream fixed release for both advisories.
+if (reviewedPatchEntries.length !== 0) {
+  fail(
+    "brace-expansion patchedDependencies entries are retired; require the upstream fixed releases (>=1.1.18, >=2.1.4, >=3.0.6, or >=5.0.9) instead.",
+  );
 }
 
-const hasReviewedBraceExpansionPatch = hasExactReviewedBraceExpansionPatch();
 const braceExpansionSnapshots = snapshotKeys.flatMap((key) => {
   const occurrence = parseBraceExpansionOccurrence(key, {
     allowPatchHash: true,
   });
   return occurrence === null ? [] : [occurrence];
 });
+
+// First upstream release per line fixing both GHSA-mh99-v99m-4gvg and
+// GHSA-rgw5-rvv9-x895. The 4.x line never received a fixed release.
+const FIXED_BRACE_EXPANSION_FLOORS = new Map([
+  [1, [1, 1, 18]],
+  [2, [2, 1, 4]],
+  [3, [3, 0, 6]],
+  [5, [5, 0, 9]],
+]);
 
 /**
  * Treat a non-stable version as affected so a prerelease cannot bypass the
@@ -383,67 +347,31 @@ function isAffectedBraceExpansionVersion(version) {
   const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
   if (!match) return true;
   const value = match.slice(1).map(Number);
-  const fixed = [5, 0, 8];
+  if (value[0] > 5) return false;
+  const fixed = FIXED_BRACE_EXPANSION_FLOORS.get(value[0]);
+  if (fixed === undefined) return true;
   for (let index = 0; index < value.length; index++) {
     if (value[index] !== fixed[index]) return value[index] < fixed[index];
   }
   return false;
 }
 
-/**
- * @param {{identity: string; version: string}} occurrence
- * @param {Array<{identity: string; patchSha256?: string; version: string}>} snapshots
- */
-function isExactReviewedBraceExpansionPackage(occurrence, snapshots) {
-  const matchingSnapshots = snapshots.filter(
-    (snapshot) =>
-      snapshot.identity === occurrence.identity &&
-      snapshot.version === occurrence.version,
-  );
-  return (
-    occurrence.version === "2.1.2" &&
-    hasReviewedBraceExpansionPatch &&
-    matchingSnapshots.length === 1 &&
-    matchingSnapshots[0].patchSha256 === BRACE_EXPANSION_PATCH_SHA256
-  );
-}
-
-/**
- * @param {{identity: string; patchSha256?: string; version: string}} occurrence
- * @param {Array<{identity: string; version: string}>} packages
- */
-function isExactReviewedBraceExpansionSnapshot(occurrence, packages) {
-  const matchingPackages = packages.filter(
-    (pkg) =>
-      pkg.identity === occurrence.identity &&
-      pkg.version === occurrence.version,
-  );
-  return (
-    occurrence.version === "2.1.2" &&
-    hasReviewedBraceExpansionPatch &&
-    occurrence.patchSha256 === BRACE_EXPANSION_PATCH_SHA256 &&
-    matchingPackages.length === 1
-  );
-}
-
 for (const occurrence of braceExpansionPackages) {
-  if (!isAffectedBraceExpansionVersion(occurrence.version)) continue;
-  if (
-    !isExactReviewedBraceExpansionPackage(occurrence, braceExpansionSnapshots)
-  ) {
+  if (isAffectedBraceExpansionVersion(occurrence.version)) {
     fail(
-      `brace-expansion ${occurrence.version} is affected by GHSA-mh99-v99m-4gvg and is not the exact reviewed patched 2.1.2 state; require fixed >=5.0.8 or the reviewed 2.1.2 patch.`,
+      `brace-expansion ${occurrence.version} is affected by GHSA-mh99-v99m-4gvg / GHSA-rgw5-rvv9-x895; require an upstream fixed release (>=1.1.18, >=2.1.4, >=3.0.6, or >=5.0.9).`,
     );
   }
 }
 
 for (const occurrence of braceExpansionSnapshots) {
-  if (!isAffectedBraceExpansionVersion(occurrence.version)) continue;
-  if (
-    !isExactReviewedBraceExpansionSnapshot(occurrence, braceExpansionPackages)
-  ) {
+  if (occurrence.patchSha256 !== undefined) {
     fail(
-      `brace-expansion ${occurrence.version} is affected by GHSA-mh99-v99m-4gvg and is not the exact reviewed patched 2.1.2 state; require fixed >=5.0.8 or the reviewed 2.1.2 patch.`,
+      `brace-expansion ${occurrence.version} snapshot carries a retired local patch declaration; require an unpatched upstream fixed release.`,
+    );
+  } else if (isAffectedBraceExpansionVersion(occurrence.version)) {
+    fail(
+      `brace-expansion ${occurrence.version} is affected by GHSA-mh99-v99m-4gvg / GHSA-rgw5-rvv9-x895; require an upstream fixed release (>=1.1.18, >=2.1.4, >=3.0.6, or >=5.0.9).`,
     );
   }
 }

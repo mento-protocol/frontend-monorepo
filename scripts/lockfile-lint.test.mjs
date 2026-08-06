@@ -17,7 +17,6 @@ import {
   mkdtempSync,
   writeFileSync,
   mkdirSync,
-  readFileSync,
   rmSync,
   symlinkSync,
 } from "node:fs";
@@ -62,15 +61,6 @@ const SCRIPT = new URL("./lockfile-lint.mjs", import.meta.url).pathname;
 /** A valid sha512 hash that passes the length + format check. */
 const VALID_SHA512 =
   "sha512-nhCBV3quEgesuf7c7KYfperqSS14T8bYuvJ8PcLJp6znkZpFc0AuW4qBtr8eKVyPPe/8RSr7sglCWPU5eaxwKQ==";
-const REVIEWED_BRACE_EXPANSION_PATCH = readFileSync(
-  new URL(
-    "./vercel-cli-runtime/patches/brace-expansion@2.1.2.patch",
-    import.meta.url,
-  ),
-  "utf8",
-);
-const REVIEWED_BRACE_EXPANSION_PATCH_PATH =
-  "scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch";
 
 /**
  * Builds a minimal pnpm v9 lockfile string.
@@ -478,33 +468,58 @@ test("accepts patched pnpm 10.34.4 under the scanner metadata correction", () =>
   );
 });
 
-test("accepts the exact reviewed patched brace-expansion 2.1.2 state", () => {
+test("accepts every per-line fixed brace-expansion release without a patch", () => {
   const { exitCode, stdout, stderr } = run(
-    makeBraceExpansionLockfile({ patched: true, versions: ["2.1.2"] }),
-    {
-      [REVIEWED_BRACE_EXPANSION_PATCH_PATH]: REVIEWED_BRACE_EXPANSION_PATCH,
-    },
+    makeBraceExpansionLockfile({
+      versions: ["1.1.18", "2.1.4", "3.0.6", "5.0.9"],
+    }),
   );
   assert(
     exitCode === 0,
-    `Expected reviewed patch to pass, got ${exitCode}\n${stdout}\n${stderr}`,
+    `Expected fixed releases to pass, got ${exitCode}\n${stdout}\n${stderr}`,
   );
 });
 
-test("accepts double-quoted reviewed brace-expansion package and snapshot keys", () => {
+test("rejects the retired patched brace-expansion 2.1.2 state", () => {
+  const { exitCode, stdout, stderr } = run(
+    makeBraceExpansionLockfile({ patched: true, versions: ["2.1.2"] }),
+  );
+  assert(
+    exitCode !== 0,
+    `Expected retired patch state to fail, got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+  assert(
+    stderr.includes("brace-expansion patchedDependencies entries are retired"),
+    `expected retired-patch failure: ${stderr}`,
+  );
+});
+
+test("rejects a retired patch hash on an otherwise fixed snapshot", () => {
+  const lockfile = makeBraceExpansionLockfile({ versions: ["2.1.4"] }).replace(
+    "\n  brace-expansion@2.1.4: {}\n",
+    `\n  brace-expansion@2.1.4(patch_hash=${BRACE_EXPANSION_PATCH_SHA256}): {}\n`,
+  );
+  const { exitCode, stdout, stderr } = run(lockfile);
+  assert(
+    exitCode !== 0,
+    `Expected patched snapshot to fail, got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+  assert(
+    stderr.includes("retired local patch declaration"),
+    `expected retired-snapshot failure: ${stderr}`,
+  );
+});
+
+test("accepts double-quoted fixed brace-expansion package and snapshot keys", () => {
   const { exitCode, stdout, stderr } = run(
     makeBraceExpansionLockfile({
-      patched: true,
       quote: '"',
-      versions: ["2.1.2"],
+      versions: ["2.1.4"],
     }),
-    {
-      [REVIEWED_BRACE_EXPANSION_PATCH_PATH]: REVIEWED_BRACE_EXPANSION_PATCH,
-    },
   );
   assert(
     exitCode === 0,
-    `Expected quoted reviewed patch to pass, got ${exitCode}\n${stdout}\n${stderr}`,
+    `Expected quoted fixed release to pass, got ${exitCode}\n${stdout}\n${stderr}`,
   );
 });
 
@@ -615,67 +630,20 @@ test("rejects comments after package entry separators", () => {
   );
 });
 
-test("rejects a reviewed brace-expansion declaration with a missing patch", () => {
-  const { exitCode, stdout, stderr } = run(
-    makeBraceExpansionLockfile({ patched: true, versions: ["2.1.2"] }),
-  );
-  assert(
-    exitCode !== 0,
-    `Expected missing patch to fail, got ${exitCode}\n${stdout}\n${stderr}`,
-  );
-  assert(
-    stderr.includes("is not the exact reviewed patched 2.1.2 state"),
-    `expected brace-expansion advisory failure: ${stderr}`,
-  );
-});
-
-test("rejects a reviewed brace-expansion declaration with a tampered patch", () => {
-  const { exitCode, stdout, stderr } = run(
-    makeBraceExpansionLockfile({ patched: true, versions: ["2.1.2"] }),
-    {
-      [REVIEWED_BRACE_EXPANSION_PATCH_PATH]: "tampered patch\n",
-    },
-  );
-  assert(
-    exitCode !== 0,
-    `Expected tampered patch to fail, got ${exitCode}\n${stdout}\n${stderr}`,
-  );
-  assert(
-    stderr.includes("is not the exact reviewed patched 2.1.2 state"),
-    `expected brace-expansion advisory failure: ${stderr}`,
-  );
-});
-
-test("rejects a reviewed brace-expansion declaration with a linked patch", () => {
-  const linkedPatchPath =
-    "scripts/vercel-cli-runtime/patches/reviewed-brace-expansion.patch";
-  const { exitCode, stdout, stderr } = run(
-    makeBraceExpansionLockfile({ patched: true, versions: ["2.1.2"] }),
-    {
-      [linkedPatchPath]: REVIEWED_BRACE_EXPANSION_PATCH,
-    },
-    {
-      [REVIEWED_BRACE_EXPANSION_PATCH_PATH]: "reviewed-brace-expansion.patch",
-    },
-  );
-  assert(
-    exitCode !== 0,
-    `Expected linked patch to fail, got ${exitCode}\n${stdout}\n${stderr}`,
-  );
-  assert(
-    stderr.includes("is not the exact reviewed patched 2.1.2 state"),
-    `expected brace-expansion advisory failure: ${stderr}`,
-  );
-});
-
-test("accepts fixed brace-expansion 5.0.8 without a local patch", () => {
-  const { exitCode, stdout, stderr } = run(
-    makeBraceExpansionLockfile({ versions: ["5.0.8"] }),
-  );
-  assert(
-    exitCode === 0,
-    `Expected fixed release to pass, got ${exitCode}\n${stdout}\n${stderr}`,
-  );
+test("rejects brace-expansion releases below their line's fixed floor", () => {
+  for (const version of ["1.1.17", "2.1.3", "3.0.5", "4.0.1", "5.0.8"]) {
+    const { exitCode, stdout, stderr } = run(
+      makeBraceExpansionLockfile({ versions: [version] }),
+    );
+    assert(
+      exitCode !== 0,
+      `Expected ${version} to fail, got ${exitCode}\n${stdout}\n${stderr}`,
+    );
+    assert(
+      stderr.includes(`brace-expansion ${version} is affected`),
+      `expected ${version} advisory failure: ${stderr}`,
+    );
+  }
 });
 
 test("rejects unpatched brace-expansion 2.1.2 under the advisory correction", () => {
@@ -687,20 +655,16 @@ test("rejects unpatched brace-expansion 2.1.2 under the advisory correction", ()
     `Expected unpatched 2.1.2 to fail, got ${exitCode}\n${stdout}\n${stderr}`,
   );
   assert(
-    stderr.includes("is not the exact reviewed patched 2.1.2 state"),
+    stderr.includes("brace-expansion 2.1.2 is affected"),
     `expected brace-expansion advisory failure: ${stderr}`,
   );
 });
 
-test("rejects vulnerable brace-expansion 3.x even beside the reviewed patch", () => {
+test("rejects vulnerable brace-expansion 3.x beside a fixed 2.x release", () => {
   const { exitCode, stdout, stderr } = run(
     makeBraceExpansionLockfile({
-      patched: true,
-      versions: ["2.1.2", "3.0.1"],
+      versions: ["2.1.4", "3.0.1"],
     }),
-    {
-      [REVIEWED_BRACE_EXPANSION_PATCH_PATH]: REVIEWED_BRACE_EXPANSION_PATCH,
-    },
   );
   assert(
     exitCode !== 0,
@@ -731,26 +695,20 @@ test("rejects vulnerable brace-expansion versions behind pnpm aliases", () => {
   );
 });
 
-test("rejects an unpatched aliased 2.1.2 snapshot beside the reviewed direct snapshot", () => {
-  const directPatched = makeBraceExpansionLockfile({
-    patched: true,
-    versions: ["2.1.2"],
-  });
-  const lockfile = directPatched
+test("rejects a vulnerable aliased 2.1.2 snapshot beside a fixed direct snapshot", () => {
+  const lockfile = makeBraceExpansionLockfile({ versions: ["2.1.4"] })
     .replace(
       "\nsnapshots:\n",
       `\n  brace-expansion-old@npm:brace-expansion@2.1.2:\n    resolution: {integrity: ${VALID_SHA512}}\n\nsnapshots:\n`,
     )
     .replace(
-      `\n  brace-expansion@2.1.2(patch_hash=${BRACE_EXPANSION_PATCH_SHA256}): {}\n`,
-      `\n  brace-expansion@2.1.2(patch_hash=${BRACE_EXPANSION_PATCH_SHA256}): {}\n\n  brace-expansion-old@npm:brace-expansion@2.1.2: {}\n`,
+      "\n  brace-expansion@2.1.4: {}\n",
+      `\n  brace-expansion@2.1.4: {}\n\n  brace-expansion-old@npm:brace-expansion@2.1.2: {}\n`,
     );
-  const { exitCode, stdout, stderr } = run(lockfile, {
-    [REVIEWED_BRACE_EXPANSION_PATCH_PATH]: REVIEWED_BRACE_EXPANSION_PATCH,
-  });
+  const { exitCode, stdout, stderr } = run(lockfile);
   assert(
     exitCode !== 0,
-    `Expected unpatched alias snapshot to fail, got ${exitCode}\n${stdout}\n${stderr}`,
+    `Expected vulnerable alias snapshot to fail, got ${exitCode}\n${stdout}\n${stderr}`,
   );
   assert(
     stderr.includes("brace-expansion 2.1.2 is affected"),
