@@ -48,8 +48,8 @@ const humanReview = workflow(humanReviewPath);
 
 const claudeAction =
   "anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b";
-const claudePluginMarketplace =
-  "https://github.com/anthropics/claude-code.git#2bb60696142b493eafaeacfe00eac51d16c50c4f";
+const claudePluginMarketplace = "./.claude-code-plugin-marketplace";
+const claudePluginMarketplaceRef = "2bb60696142b493eafaeacfe00eac51d16c50c4f";
 
 const forbiddenCandidateSurfaces =
   /actions\/(?:download-artifact|upload-artifact|cache)@|cache-dependency-path|gh pr checkout|git (?:checkout|switch|fetch)|node_modules|pnpm install|npm (?:ci|install)|yarn install/;
@@ -845,6 +845,23 @@ test("human Claude review cannot shadow the Dependabot review check", () => {
   assert.match(job.if, /head\.repo\.full_name == github\.repository/);
   assert.match(job.if, /pull_request\.user\.type == 'User'/);
   assert.equal(humanReview.jobs["claude-review"], undefined);
+
+  const marketplaceCheckout = job.steps.find(
+    (step) => step.name === "Checkout pinned Claude plugin marketplace",
+  );
+  assert.ok(marketplaceCheckout);
+  assert.equal(
+    marketplaceCheckout.uses,
+    "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+  );
+  assert.equal(marketplaceCheckout.with.repository, "anthropics/claude-code");
+  assert.equal(marketplaceCheckout.with.ref, claudePluginMarketplaceRef);
+  assert.equal(marketplaceCheckout.with.path, claudePluginMarketplace.slice(2));
+  assert.equal(marketplaceCheckout.with["persist-credentials"], false);
+  assert.deepEqual(
+    marketplaceCheckout.with["sparse-checkout"].trim().split("\n"),
+    [".claude-plugin", "plugins/code-review"],
+  );
 
   const review = job.steps.find((step) => step.uses === claudeAction);
   assert.ok(review);
