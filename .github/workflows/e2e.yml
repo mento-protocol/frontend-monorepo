@@ -243,7 +243,7 @@ jobs:
         uses: ./.github/actions/pnpm-install
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1.9.0
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
         with:
           version: v1.7.1 # anvil --celo requires foundry >= 1.4; pinned for determinism
           cache: false # we cache ~/.foundry/cache ourselves, keyed on the fork block
@@ -523,7 +523,7 @@ jobs:
         uses: ./.github/actions/pnpm-install
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1.9.0
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
         with:
           version: v1.7.1 # anvil --celo requires foundry >= 1.4; pinned for determinism
           cache: false # we cache ~/.foundry/cache ourselves, keyed on the fork block
@@ -796,7 +796,7 @@ jobs:
         uses: ./.github/actions/pnpm-install
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1.9.0
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
         with:
           version: v1.7.1 # pinned for determinism (matches the Celo jobs)
           cache: false # we cache ~/.foundry/cache ourselves, keyed on the fork block
