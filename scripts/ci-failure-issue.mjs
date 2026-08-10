@@ -1,5 +1,6 @@
 const TRACKED_EVENTS = new Set([
   "push",
+  "repository_dispatch",
   "schedule",
   "workflow_dispatch",
   "workflow_run",
@@ -12,7 +13,10 @@ const FAILURE_CONCLUSIONS = new Set([
 ]);
 const NOTIFIER_WORKFLOW_NAME = "CI Failure Notifier";
 const TAG_PUSH_WORKFLOW_NAMES = new Set(["Publish UI Package"]);
-const OPERATIONAL_WORKFLOW_RUN_NAMES = new Set(["Vercel Main Deployment"]);
+const DEPENDABOT_PROCESSOR_WORKFLOW_NAME = "Dependabot Processor";
+const VERCEL_MAIN_WORKFLOW_NAME = "Vercel Main Deployment";
+const DEPENDABOT_PROCESSOR_PR_TITLE =
+  /^Dependabot processor \| event=workflow_run \| receipt=dependabot-intake:v1 \| repository=mento-protocol\/frontend-monorepo \| pr=([1-9][0-9]*) \| sha=[0-9a-f]{40} \| action=(?:opened|synchronize|reopened) \| receipt=true$/;
 
 function runPosition(run) {
   return [run.run_number ?? 0, run.run_attempt ?? 1];
@@ -35,7 +39,23 @@ function runIdentity(run) {
   return `${runId}:${run.run_attempt ?? 1}`;
 }
 
+function dependabotProcessorPrTarget(run) {
+  if (
+    run.name !== DEPENDABOT_PROCESSOR_WORKFLOW_NAME ||
+    run.event !== "workflow_run"
+  ) {
+    return null;
+  }
+
+  const match = DEPENDABOT_PROCESSOR_PR_TITLE.exec(
+    String(run.display_title ?? ""),
+  );
+  return match ? `pr=${match[1]}` : null;
+}
+
 function targetRefFor(run, defaultBranch) {
+  const processorTarget = dependabotProcessorPrTarget(run);
+  if (processorTarget) return processorTarget;
   return (
     run.head_branch || (run.event === "push" ? "release tag" : defaultBranch)
   );
@@ -87,6 +107,7 @@ function recoveryBody(existingBody, run, targetRef) {
 }
 
 function isRelevantRun(run, defaultBranch, repositoryFullName) {
+  const processorTarget = dependabotProcessorPrTarget(run);
   const isOperationalPush =
     run.event === "push" &&
     (run.head_branch === defaultBranch ||
@@ -94,9 +115,11 @@ function isRelevantRun(run, defaultBranch, repositoryFullName) {
   const isOperationalRun =
     run.event === "schedule" ||
     isOperationalPush ||
+    (run.event === "repository_dispatch" &&
+      run.head_branch === defaultBranch) ||
     (run.event === "workflow_dispatch" && run.head_branch === defaultBranch) ||
     (run.event === "workflow_run" &&
-      OPERATIONAL_WORKFLOW_RUN_NAMES.has(run.name) &&
+      (run.name === VERCEL_MAIN_WORKFLOW_NAME || processorTarget !== null) &&
       run.head_branch === defaultBranch &&
       run.head_repository?.full_name === repositoryFullName);
 

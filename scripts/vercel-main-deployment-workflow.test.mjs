@@ -2290,6 +2290,65 @@ test("result restores the compact handoff then fails closed from the literal fin
   assert.match(terminalReceiptSource, /producer attempt exceeds final attempt/);
 });
 
+test("result publishes an exact-SHA Dependabot release proof before failing closed", () => {
+  const result = workflow.jobs.result;
+  assert.deepEqual(result.permissions, {
+    actions: "read",
+    checks: "write",
+    contents: "read",
+  });
+
+  const publish = named(
+    "result",
+    "Publish exact Dependabot post-merge verification",
+  );
+  assert.equal(
+    publish.if,
+    "${{ always() && needs.wait-for-ci.result == 'success' }}",
+  );
+  assert.equal(
+    publish.env.DEPLOY_SHA,
+    "${{ needs.wait-for-ci.outputs.deploy_sha }}",
+  );
+  assert.equal(
+    publish.env.RELEASE_OUTCOME,
+    "${{ steps.final-active.outputs.release_outcome }}",
+  );
+  assert.equal(
+    publish.env.RELEASE_REASON,
+    "${{ steps.final-active.outputs.reason }}",
+  );
+  assert.equal(
+    publish.env.TERMINAL_RESTORED,
+    "${{ steps.terminal-restore.outputs.terminal_restored }}",
+  );
+  assert.equal(publish.env.GH_TOKEN, "${{ github.token }}");
+  assert.match(publish.run, /\[0-9a-f\]\{40\}/);
+  assert.match(
+    publish.run,
+    /active-committed\|current-release-verified\|no-target/,
+  );
+  assert.match(publish.run, /TERMINAL_RESTORED.*true/s);
+  assert.match(publish.run, /RELEASE_OUTCOME.*success/s);
+  assert.match(publish.run, /FAIL_AFTER_EVIDENCE.*false/s);
+  assert.match(publish.run, /Dependabot Post-Merge Verification/);
+  assert.match(publish.run, /head_sha: \$deploy_sha/);
+  assert.match(publish.run, /gh api --method POST/);
+  assert.match(publish.run, /repos\/\$REPOSITORY\/check-runs/);
+  assert.doesNotMatch(
+    publish.run,
+    /--admin|recovered\||superseded\||shadow-prepared\|/,
+  );
+
+  const finalFailure = named(
+    "result",
+    "Fail after terminal evidence for an unsafe final graph",
+  );
+  assert.ok(
+    steps("result").indexOf(publish) < steps("result").indexOf(finalFailure),
+  );
+});
+
 test("legacy reducer constants and action pin boundaries stay covered while old artifact admission is gone", () => {
   assert.deepEqual(MAIN_LEGACY_REQUIRED_ALIAS_TOPOLOGY, [
     "appmentoorg-git-v2-mentolabs.vercel.app",

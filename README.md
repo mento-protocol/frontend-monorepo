@@ -35,7 +35,8 @@ frontend-monorepo/
 │   └── workflows/            # CI/CD workflows
 ├── .trunk/                   # Trunk CLI configuration and cache
 ├── docs/
-│   └── adr/                  # Architecture decision records and lifecycle
+│   ├── adr/                  # Architecture decision records and lifecycle
+│   └── dependabot-automation.md # Dependabot processor operator runbook
 ├── turbo.json                # Turborepo configuration
 └── pnpm-workspace.yaml       # PNPM workspace configuration
 ```
@@ -130,6 +131,12 @@ pnpm ci:action-pins
 
 # Run the action-pin scanner and REST materializer fixture suites
 pnpm ci:action-pins:test
+
+# Evaluate a saved Dependabot snapshot in observe mode (separator required)
+pnpm dependabot:process -- evaluate --input path/to/snapshot.json --mode observe
+
+# Test Dependabot policy, CLI, and trusted-workflow contracts without network access
+pnpm dependabot:process:test
 
 # Remind on newly added architecture-significant workflows/workspaces
 pnpm adr:check
@@ -355,6 +362,80 @@ To update a dependency version across the entire monorepo:
 
 All packages referencing `"react": "catalog:"` will automatically use the new version.
 
+#### Dependabot Processing
+
+Dependabot pull requests pass through a credentialless intake and a trusted
+default-branch processor. The processor classifies current exact-head evidence,
+distinguishes branch failures from failures already present on `main`, and
+serializes eligible merges through default-branch CI and release proof. Its
+rollout modes are `observe`, `assist`, and `merge`; missing or unknown modes
+always become `observe`.
+
+`merge` mode requires a separate repository-scoped GitHub App configured with
+the Actions variable `DEPENDABOT_PROCESSOR_MERGE_APP_CLIENT_ID` and Actions
+secret `DEPENDABOT_PROCESSOR_MERGE_APP_PRIVATE_KEY`. Its installation token has
+only `contents: write` and `pull-requests: write`, with no Actions, workflow, or
+deployment permission. The normal `GITHUB_TOKEN` continues to handle reads,
+checks, and approval but cannot merge. The App-authored merge lets the resulting
+`main` push start default-branch CI and Vercel post-merge proof. Missing App
+configuration fails `merge` closed; `observe` and `assist` still work. This App
+is separate from the future repair App.
+
+Dependabot's `claude-review` gate comes from the separate trusted-base
+`.github/workflows/dependabot-claude-review.yml` workflow, which reads the diff
+through GitHub APIs without checking out or executing candidate code. Human PRs
+continue to use the distinct `claude-review-human` check.
+
+Repair packets require valid structural identity, complete clear feedback, a
+current base, a complete current-head gate with no missing or pending evidence,
+a deterministic branch-attributed failure, and valid attempt lineage.
+Reprocessing the same head is idempotent; only a strict append-only successor
+consumes the prior attempt, and the limit is two. A human-applied repair may
+remain eligible for a second proposal but never regains automatic merge
+authority. Any observed `head_ref_force_pushed` issue event permanently removes
+automatic and repair-packet authority for that PR generation. Continue manually
+or recreate the PR; rewritten lineage cannot reset the two-attempt budget.
+
+Unresolved actionable threads block even on an older head. Resolved
+current-head threads need the exact repository reply; resolved older-head
+threads do not need another current-head reply. Malformed thread commit SHAs or
+envelopes block. Agents still reply to every PR review comment.
+
+Run the local processor and its network-free contract tests with:
+
+```bash
+pnpm dependabot:process -- evaluate --input path/to/snapshot.json --mode observe
+pnpm dependabot:process:test
+```
+
+The live repair/re-review/push path remains disabled until a dedicated,
+allowlisted, repository-scoped repair GitHub App is provisioned and integrated
+with intake and the Dependabot reviewer. Never reuse `GITHUB_TOKEN`, the
+preview worker-dispatch credential, or a deployment token. Native
+`AutoMergeRequest` state also fails closed: `observe` and `assist` suppress the
+processor check while any request is active; `merge` disables a sole matching
+request before any potentially merge-unblocking publication or approval, then
+collects a fresh full snapshot and proves the global lane empty. Other,
+multiple, or malformed requests block. Approval is bound to the full PR identity
+and its `updated_at` before and after approval. A failed post-approval,
+pre-merge gate dismisses the processor approval with the normal `GITHUB_TOKEN`
+while the PR remains open. That cleanup is compensating rather than atomic, so
+hard runner cancellation or death can strand an approval. Before any live run
+can publish a processor check or create an approval, it scans every open
+Dependabot PR. In every mode, it dismisses all independently exact, schema-valid
+current-head `APPROVED` `github-actions` processor reviews, including multiple
+approvals on one PR and approvals on unselected PRs. A bounded global rescan
+must prove that none remain. The controller then fully recollects the originally
+selected PRs against their prior expected heads and recollects global auto-merge
+state before evaluation. Any current-head `APPROVED` `github-actions` review
+that is not the exact processor envelope requires operator action. Malformed,
+incomplete, or capped evidence, dismissal failure, or rescan failure also fails
+closed before publication or mutation. Schema-valid old-head and `DISMISSED`
+processor reviews are informational state, not unknown-bot feedback. Residual
+API races after the final read remain. See the
+[Dependabot processing runbook](docs/dependabot-automation.md) and
+[ADR 0006](docs/adr/0006-dependabot-processing-controller.md).
+
 #### When to Use Catalog vs Direct Versions
 
 - **Use catalog (`"catalog:"`)**: For dependencies shared across multiple packages/apps (React, TypeScript, common utilities, etc.)
@@ -459,6 +540,17 @@ The repository is set up with GitHub Actions for CI:
   check enforces production-source coverage and gzip route limits. Its general
   CI failure notifier opens or updates one issue for an operational workflow
   failure and closes the issue after recovery.
+- **Dependabot processing**: A credentialless intake exposes only bounded PR
+  identity to a trusted `workflow_run` consumer. The separate
+  `dependabot-process` repository-dispatch event is an operator sweep with one
+  bounded scope field. The default-branch `Dependabot Processor` revalidates the
+  exact head, evaluates the full dependency gate, attributes base failures, and
+  handles one merge plus its exact-SHA release proof at a time. There is no
+  `workflow_dispatch` path. Unknown mode or evidence stays observe-only;
+  manual/veto policy can only remove authority. Intake-triggered failures are
+  partitioned by PR, while valid `receipt=false` skipped runs are ignored. See
+  [the operator runbook](docs/dependabot-automation.md) and
+  [ADR 0006](docs/adr/0006-dependabot-processing-controller.md).
 - **CD**: GitHub Actions automatically builds `app.mento.org`,
   `governance.mento.org`, `reserve.mento.org`, and `ui.mento.org` previews for
   trusted same-repository PRs with exact-SHA aggregate `Vercel Preview`

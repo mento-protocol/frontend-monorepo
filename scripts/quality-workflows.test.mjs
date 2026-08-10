@@ -154,6 +154,7 @@ test("the notifier is loop-safe, secretless, and least privilege", () => {
   const workflow = read(".github/workflows/ci-failure-notifier.yml");
   const monitoredNames = [
     ".github/workflows/ci.yml",
+    ".github/workflows/dependabot-process.yml",
     ".github/workflows/e2e.yml",
     ".github/workflows/publish-ui.yml",
     ".github/workflows/quality-budgets.yml",
@@ -167,6 +168,7 @@ test("the notifier is loop-safe, secretless, and least privilege", () => {
   assert.match(workflow, /^name: CI Failure Notifier$/m);
   assert.match(workflow, /^ {2}workflow_run:$/m);
   assert.match(workflow, /^ {6}- Quality Budgets$/m);
+  assert.match(workflow, /^ {6}- Dependabot Processor$/m);
   assert.match(workflow, /^ {6}- Supply Chain$/m);
   assert.match(workflow, /^ {6}- Vercel Main Deployment$/m);
   assert.match(workflow, /^ {6}- Vercel Production Shadow$/m);
@@ -190,7 +192,7 @@ test("the notifier is loop-safe, secretless, and least privilege", () => {
   assert.doesNotMatch(workflow, /^concurrency:/m);
   assert.match(
     workflow,
-    /^ {4}concurrency:\n {6}group: ci-failure-\$\{\{ github\.event\.workflow_run\.workflow_id \}\}\n {6}cancel-in-progress: false$/m,
+    /^ {4}concurrency:\n {6}group: ci-failure-\$\{\{ github\.event\.workflow_run\.workflow_id \}\}\n {6}cancel-in-progress: false\n {6}queue: max # trunk-ignore\(actionlint\/syntax-check\)$/m,
   );
   const handledEvents =
     /contains\(fromJSON\('(\[[^']+\])'\), github\.event\.workflow_run\.event\)/.exec(
@@ -198,6 +200,7 @@ test("the notifier is loop-safe, secretless, and least privilege", () => {
     )?.[1];
   assert.deepEqual(JSON.parse(handledEvents ?? "[]"), [
     "push",
+    "repository_dispatch",
     "schedule",
     "workflow_dispatch",
     "workflow_run",
@@ -216,9 +219,19 @@ test("the notifier is loop-safe, secretless, and least privilege", () => {
   assert.match(workflow, /^ {6}actions: read$/m);
   assert.match(workflow, /^ {6}issues: write$/m);
   assert.match(workflow, /workflow_run\.name == 'Publish UI Package'/);
+  assert.match(workflow, /workflow_run\.name == 'Vercel Main Deployment'/);
+  assert.match(workflow, /workflow_run\.name == 'Dependabot Processor'/);
   assert.match(
     workflow,
-    /workflow_run\.event == 'workflow_run' &&\n {10}github\.event\.workflow_run\.name == 'Vercel Main Deployment' &&\n {10}github\.event\.workflow_run\.head_branch == github\.event\.repository\.default_branch &&\n {10}github\.event\.workflow_run\.head_repository\.full_name == github\.repository/,
+    /startsWith\(github\.event\.workflow_run\.display_title, 'Dependabot processor \| event=workflow_run \| receipt=dependabot-intake:v1 \| repository=mento-protocol\/frontend-monorepo \| pr='\)/,
+  );
+  assert.match(
+    workflow,
+    /endsWith\(github\.event\.workflow_run\.display_title, 'receipt=true'\)/,
+  );
+  assert.match(
+    workflow,
+    /github\.event\.workflow_run\.head_branch == github\.event\.repository\.default_branch &&\n {10}github\.event\.workflow_run\.head_repository\.full_name == github\.repository/,
   );
   assert.match(
     workflow,
@@ -227,6 +240,10 @@ test("the notifier is loop-safe, secretless, and least privilege", () => {
   assert.match(
     workflow,
     /workflow_run\.event == 'workflow_dispatch' &&\n {10}github\.event\.workflow_run\.head_branch == github\.event\.repository\.default_branch/,
+  );
+  assert.match(
+    workflow,
+    /workflow_run\.event == 'repository_dispatch' &&\n {10}github\.event\.workflow_run\.head_branch == github\.event\.repository\.default_branch/,
   );
   assert.match(workflow, /ref: \$\{\{ github\.workflow_sha \}\}/);
   assert.doesNotMatch(workflow, /workflow_run\.head_sha/);
