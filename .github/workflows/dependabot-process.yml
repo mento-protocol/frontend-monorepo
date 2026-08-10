@@ -1,0 +1,313 @@
+name: Dependabot Processor
+
+# A valid intake exposes only bounded repository, PR, head, and event metadata.
+# Sweeps share one global target, while receipt=false intake completions remain
+# visibly non-targeted so the failure notifier can ignore their skipped runs.
+run-name: >-
+  ${{ github.event_name == 'workflow_run' && endsWith(github.event.workflow_run.display_title, 'receipt=true') && format('Dependabot processor | event=workflow_run | receipt={0}', github.event.workflow_run.display_title) || github.event_name != 'workflow_run' && format('Dependabot processor | event={0} | target=scope=open', github.event_name) || 'Dependabot processor | event=workflow_run | target=ignored' }}
+
+on:
+  workflow_run:
+    workflows: [Dependabot Intake]
+    types: [completed]
+  repository_dispatch:
+    types: [dependabot-process]
+  schedule:
+    # Reconcile checks that settle after the intake-triggered snapshot. :43
+    # avoids the high-load start of the hour and bounds unattended delay.
+    - cron: 43 * * * *
+
+# Every job replaces this deny-all default with only its required API scopes.
+permissions: {}
+
+env:
+  # Unknown and empty values are intentionally forwarded. The trusted core
+  # normalizes both to observe mode instead of widening authority in YAML.
+  DEPENDABOT_PROCESSOR_MODE: ${{ vars.DEPENDABOT_PROCESSOR_MODE }}
+
+# One queue owns all Dependabot decisions. A new intake never cancels an
+# in-flight approval or merge-admission revalidation.
+concurrency:
+  group: dependabot-processor
+  cancel-in-progress: false
+  queue: max # trunk-ignore(actionlint/syntax-check)
+
+jobs:
+  evaluate:
+    name: Evaluate current Dependabot state without write authority
+    if: >-
+      github.repository == 'mento-protocol/frontend-monorepo' &&
+      (
+        github.event_name == 'schedule' ||
+        (
+          github.event_name == 'repository_dispatch' &&
+          github.event.action == 'dependabot-process'
+        ) ||
+        (
+          github.event_name == 'workflow_run' &&
+          endsWith(github.event.workflow_run.display_title, 'receipt=true')
+        )
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      issues: read
+      pull-requests: read
+      statuses: read
+    outputs:
+      expected_head_sha: ${{ steps.target.outputs.expected_head_sha }}
+      pr_numbers: ${{ steps.target.outputs.pr_numbers }}
+    steps:
+      - name: Validate trigger and select a bounded target
+        id: target
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PATH: ${{ github.event_path }}
+          INTAKE_ACTOR_LOGIN: ${{ github.event.workflow_run.actor.login }}
+          INTAKE_ACTOR_TYPE: ${{ github.event.workflow_run.actor.type }}
+          INTAKE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          INTAKE_EVENT: ${{ github.event.workflow_run.event }}
+          INTAKE_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          INTAKE_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          INTAKE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          INTAKE_PATH: ${{ github.event.workflow_run.path }}
+          INTAKE_PULL_REQUESTS_JSON: ${{ toJson(github.event.workflow_run.pull_requests) }}
+          INTAKE_TITLE: ${{ github.event.workflow_run.display_title }}
+          INTAKE_TRIGGERING_ACTOR_LOGIN: ${{ github.event.workflow_run.triggering_actor.login }}
+          INTAKE_TRIGGERING_ACTOR_TYPE: ${{ github.event.workflow_run.triggering_actor.type }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$REPOSITORY" = "mento-protocol/frontend-monorepo"
+          test "$DEFAULT_BRANCH" = "main"
+
+          case "$EVENT_NAME" in
+            workflow_run)
+              test "$INTAKE_CONCLUSION" = "success"
+              test "$INTAKE_EVENT" = "pull_request_target"
+              test "$INTAKE_ACTOR_LOGIN" = "dependabot[bot]"
+              test "$INTAKE_ACTOR_TYPE" = "Bot"
+              if test -n "$INTAKE_TRIGGERING_ACTOR_LOGIN" || \
+                test -n "$INTAKE_TRIGGERING_ACTOR_TYPE"; then
+                test "$INTAKE_TRIGGERING_ACTOR_LOGIN" = "dependabot[bot]"
+                test "$INTAKE_TRIGGERING_ACTOR_TYPE" = "Bot"
+              fi
+              test "$INTAKE_HEAD_REPOSITORY" = "$REPOSITORY"
+              [[ "$INTAKE_HEAD_BRANCH" == dependabot/* ]]
+              [[ "$INTAKE_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+              case "$INTAKE_PATH" in
+                .github/workflows/dependabot-intake.yml|.github/workflows/dependabot-intake.yml@main) ;;
+                *) exit 1 ;;
+              esac
+              receipt_pattern='^dependabot-intake:v1 \| repository=mento-protocol/frontend-monorepo \| pr=([1-9][0-9]*) \| sha=([0-9a-f]{40}) \| action=(opened|synchronize|reopened) \| receipt=true$'
+              [[ "$INTAKE_TITLE" =~ $receipt_pattern ]]
+              receipt_pr_number="${BASH_REMATCH[1]}"
+              receipt_head_sha="${BASH_REMATCH[2]}"
+              test "$INTAKE_HEAD_SHA" = "$receipt_head_sha"
+              RECEIPT_HEAD_SHA="$receipt_head_sha" \
+                RECEIPT_PR_NUMBER="$receipt_pr_number" \
+                node --input-type=module --eval '
+                  const linked = JSON.parse(
+                    process.env.INTAKE_PULL_REQUESTS_JSON,
+                  );
+                  if (!Array.isArray(linked) || linked.length > 1) {
+                    throw new Error("Invalid intake linked-PR cardinality");
+                  }
+                  if (linked.length === 1) {
+                    const [pullRequest] = linked;
+                    if (
+                      pullRequest?.number !==
+                        Number(process.env.RECEIPT_PR_NUMBER) ||
+                      pullRequest?.head?.ref !==
+                        process.env.INTAKE_HEAD_BRANCH ||
+                      pullRequest?.head?.sha !==
+                        process.env.RECEIPT_HEAD_SHA ||
+                      pullRequest?.base?.ref !== "main"
+                    ) {
+                      throw new Error("Intake linked PR does not match receipt");
+                    }
+                  }
+                '
+              echo "pr_numbers=$receipt_pr_number" >> "$GITHUB_OUTPUT"
+              echo "expected_head_sha=$receipt_head_sha" >> "$GITHUB_OUTPUT"
+              ;;
+            repository_dispatch)
+              node --input-type=module --eval '
+                import { readFileSync } from "node:fs";
+
+                const payload = JSON.parse(
+                  readFileSync(process.env.EVENT_PATH, "utf8"),
+                );
+                const clientPayload = payload.client_payload;
+                if (
+                  payload.action !== "dependabot-process" ||
+                  clientPayload === null ||
+                  typeof clientPayload !== "object" ||
+                  Array.isArray(clientPayload) ||
+                  JSON.stringify(Object.keys(clientPayload).sort()) !==
+                    JSON.stringify(["scope"]) ||
+                  clientPayload.scope !== "open"
+                ) {
+                  throw new Error("Invalid dependabot-process dispatch envelope");
+                }
+              '
+              echo "pr_numbers=all" >> "$GITHUB_OUTPUT"
+              echo "expected_head_sha=" >> "$GITHUB_OUTPUT"
+              ;;
+            schedule)
+              echo "pr_numbers=all" >> "$GITHUB_OUTPUT"
+              echo "expected_head_sha=" >> "$GITHUB_OUTPUT"
+              ;;
+            *) exit 1 ;;
+          esac
+
+      - name: Materialize the processor from the exact trusted workflow SHA
+        id: processor
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]
+          trusted_root="$RUNNER_TEMP/dependabot-processor"
+          install -d -m 0700 "$trusted_root"
+          trusted_processor="$trusted_root/dependabot-processor.mjs"
+          resolved_sha="$(gh api "repos/$REPOSITORY/commits/$WORKFLOW_SHA" --jq .sha)"
+          test "$resolved_sha" = "$WORKFLOW_SHA"
+          gh api \
+            -H "Accept: application/vnd.github.raw+json" \
+            "repos/$REPOSITORY/contents/scripts/dependabot-processor.mjs?ref=$WORKFLOW_SHA" \
+            > "$trusted_processor"
+          test -s "$trusted_processor"
+          chmod 0500 "$trusted_processor"
+          echo "path=$trusted_processor" >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate live PR, check, baseline, and feedback state
+        shell: bash
+        env:
+          DEPENDABOT_PROCESSOR_GITHUB_TOKEN: ${{ github.token }}
+          EXPECTED_HEAD_SHA: ${{ steps.target.outputs.expected_head_sha }}
+          PROCESSOR_MODE: ${{ env.DEPENDABOT_PROCESSOR_MODE }}
+          PROCESSOR_PATH: ${{ steps.processor.outputs.path }}
+          PR_NUMBERS: ${{ steps.target.outputs.pr_numbers }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          arguments=(
+            evaluate
+            --live
+            --repo "$REPOSITORY"
+            --pr-numbers "$PR_NUMBERS"
+            --mode "$PROCESSOR_MODE"
+          )
+          if test -n "$EXPECTED_HEAD_SHA"; then
+            arguments+=(--expected-head-sha "$EXPECTED_HEAD_SHA")
+          fi
+          node "$PROCESSOR_PATH" "${arguments[@]}"
+
+  process:
+    name: Revalidate exact heads and apply the configured policy
+    needs: evaluate
+    if: needs.evaluate.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      checks: write
+      contents: read
+      issues: read
+      pull-requests: write
+      statuses: read
+    steps:
+      # This privileged job deliberately avoids checkout, artifacts, caches,
+      # package installation, and every candidate-controlled ref.
+      - name: Classify exact processor mode
+        id: mode
+        shell: bash
+        env:
+          RAW_PROCESSOR_MODE: ${{ env.DEPENDABOT_PROCESSOR_MODE }}
+        run: |
+          set -euo pipefail
+          if test "$RAW_PROCESSOR_MODE" = "merge"; then
+            echo "merge=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "merge=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Require merge App credentials in merge mode
+        if: fromJSON(steps.mode.outputs.merge)
+        shell: bash
+        env:
+          MERGE_APP_CLIENT_ID: ${{ vars.DEPENDABOT_PROCESSOR_MERGE_APP_CLIENT_ID }}
+          MERGE_APP_PRIVATE_KEY: ${{ secrets.DEPENDABOT_PROCESSOR_MERGE_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$MERGE_APP_CLIENT_ID"
+          test -n "$MERGE_APP_PRIVATE_KEY"
+
+      - name: Create repository-scoped merge token
+        id: merge-token
+        if: fromJSON(steps.mode.outputs.merge)
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ vars.DEPENDABOT_PROCESSOR_MERGE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.DEPENDABOT_PROCESSOR_MERGE_APP_PRIVATE_KEY }}
+          owner: mento-protocol
+          repositories: frontend-monorepo
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Materialize the processor from the exact trusted workflow SHA
+        id: processor
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]
+          trusted_root="$RUNNER_TEMP/dependabot-processor"
+          install -d -m 0700 "$trusted_root"
+          trusted_processor="$trusted_root/dependabot-processor.mjs"
+          resolved_sha="$(gh api "repos/$REPOSITORY/commits/$WORKFLOW_SHA" --jq .sha)"
+          test "$resolved_sha" = "$WORKFLOW_SHA"
+          gh api \
+            -H "Accept: application/vnd.github.raw+json" \
+            "repos/$REPOSITORY/contents/scripts/dependabot-processor.mjs?ref=$WORKFLOW_SHA" \
+            > "$trusted_processor"
+          test -s "$trusted_processor"
+          chmod 0500 "$trusted_processor"
+          echo "path=$trusted_processor" >> "$GITHUB_OUTPUT"
+
+      - name: Re-query exact heads and process the current sweep
+        shell: bash
+        env:
+          DEPENDABOT_PROCESSOR_GITHUB_TOKEN: ${{ github.token }}
+          DEPENDABOT_PROCESSOR_MERGE_TOKEN: ${{ steps.merge-token.outputs.token }}
+          EXPECTED_HEAD_SHA: ${{ needs.evaluate.outputs.expected_head_sha }}
+          PROCESSOR_MODE: ${{ env.DEPENDABOT_PROCESSOR_MODE }}
+          PROCESSOR_PATH: ${{ steps.processor.outputs.path }}
+          PR_NUMBERS: ${{ needs.evaluate.outputs.pr_numbers }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          arguments=(
+            process
+            --live
+            --publish-checks
+            --repo "$REPOSITORY"
+            --pr-numbers "$PR_NUMBERS"
+            --mode "$PROCESSOR_MODE"
+          )
+          if test -n "$EXPECTED_HEAD_SHA"; then
+            arguments+=(--expected-head-sha "$EXPECTED_HEAD_SHA")
+          fi
+          node "$PROCESSOR_PATH" "${arguments[@]}"

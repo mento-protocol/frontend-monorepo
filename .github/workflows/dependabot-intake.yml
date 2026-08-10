@@ -1,0 +1,50 @@
+name: Dependabot Intake
+
+# This title is the only handoff to the trusted follow-up workflow. It contains
+# immutable event metadata, not an artifact or data produced by candidate code.
+run-name: >-
+  ${{ format('dependabot-intake:v1 | repository={0} | pr={1} | sha={2} | action={3} | receipt={4}', github.repository, github.event.pull_request.number, github.event.pull_request.head.sha, github.event.action, github.event.pull_request.user.login == 'dependabot[bot]' && startsWith(github.event.pull_request.head.ref, 'dependabot/') && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == 'main') }}
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+# The intake receives no token capability. It never checks out or executes the
+# candidate, reads a secret, calls an API, or publishes an artifact.
+permissions: {}
+
+jobs:
+  validate-receipt:
+    name: Validate immutable Dependabot event metadata
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      startsWith(github.event.pull_request.head.ref, 'dependabot/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Validate the read-only intake receipt
+        shell: bash
+        env:
+          ACTION: ${{ github.event.action }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$REPOSITORY" = "mento-protocol/frontend-monorepo"
+          test "$AUTHOR" = "dependabot[bot]"
+          test "$HEAD_REPOSITORY" = "$REPOSITORY"
+          test "$DEFAULT_BRANCH" = "main"
+          test "$BASE_REF" = "main"
+          [[ "$HEAD_REF" == dependabot/* ]]
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          case "$ACTION" in
+            opened|synchronize|reopened) ;;
+            *) exit 1 ;;
+          esac

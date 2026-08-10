@@ -13,25 +13,14 @@ on:
 permissions: read-all
 
 jobs:
-  claude-review:
-    # Review same-repository human PRs AND Dependabot PRs — EXCEPT the
-    # github-actions tier. That tier is auto-merged (see
-    # dependabot-auto-merge.yml), and `gh pr merge --auto` waits only on the
-    # required checks, so this advisory review would land on an
-    # already-merged PR — decorative cost/noise. The npm tiers stay manual,
-    # so AI review there gives a human something to read before merging. Fork
-    # PRs cannot access the required OAuth secret and are skipped explicitly.
-    #
-    # REQUIRES `CLAUDE_CODE_OAUTH_TOKEN` in the *Dependabot* secrets store
-    # (Settings → Secrets and variables → Dependabot): Dependabot-triggered
-    # runs do NOT receive Actions secrets, so without it the action runs with
-    # an empty token and fails.
+  claude-review-human:
+    name: claude-review-human
+    # Dependabot reviews run from the separate authenticated workflow_run
+    # workflow. Keeping this job human-only prevents its skipped result from
+    # shadowing the exact-head `claude-review` evidence used by the processor.
     if: >-
-      github.event.pull_request.head.repo.full_name == github.repository
-      && (
-        github.event.pull_request.user.login != 'dependabot[bot]'
-        || !startsWith(github.head_ref, 'dependabot/github_actions/')
-      )
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.type == 'User'
 
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -48,17 +37,12 @@ jobs:
           fetch-depth: 1
 
       - name: Run Claude Code Review
-        id: claude-review
+        id: claude-review-human
         uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1.0.183
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          plugin_marketplaces: https://github.com/anthropics/claude-code.git
+          plugin_marketplaces: https://github.com/anthropics/claude-code.git#2bb60696142b493eafaeacfe00eac51d16c50c4f
           plugins: code-review@claude-code-plugins
           prompt: "/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
-          # Dependabot is a bot actor; with a `prompt` set the action runs in
-          # agent mode, whose checkHumanActor rejects bot-authored events
-          # unless the bot is allow-listed here. Scoped to dependabot[bot] so
-          # other bots still can't trigger a review.
-          allowed_bots: dependabot[bot]
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options

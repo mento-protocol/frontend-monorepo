@@ -85,8 +85,16 @@ that would mix server/build-cache artifacts into the browser budget.
 `.github/workflows/ci-failure-notifier.yml`. It ignores pull-request and feature
 branch runs; branch protection already surfaces those failures. It tracks
 default-branch `push`, `schedule`, and `workflow_dispatch` runs plus allowlisted
-release-tag `push` workflows. It partitions state by source workflow,
-operational trigger, and target ref, then:
+release-tag `push` workflows. Repository-dispatch monitoring is limited to the
+repository-owned `Dependabot Processor` run with the canonical default-branch
+open-sweep title; the trusted script revalidates that exact case-sensitive
+identity after the workflow-level gate. It also monitors repository-owned,
+default-branch `workflow_run` completions for `Vercel Main Deployment` and for
+`Dependabot Processor` runs whose case-sensitive title exactly matches a valid
+`receipt=true` intake identity. Valid `receipt=false` skipped runs are ignored.
+It partitions state by source workflow, operational trigger, and target ref;
+the target is the PR number for intake-driven processor runs and the branch or
+tag for other runs. It then:
 
 - opens one bot-authored, marker-keyed issue per partition on failure;
 - updates/reopens that same issue for repeated failures in the partition;
