@@ -25,7 +25,7 @@ overrides:
   color-string@<1.5.5: '>=1.5.5'
   defu@<6.1.5: '>=6.1.5'
   diff@<5.2.0: '>=5.2.0'
-  dompurify@<3.4.12: 3.4.12
+  dompurify@<3.4.13: 3.4.13
   esbuild: 0.28.1
   fast-uri@>=3.0.0 <3.1.5: 3.1.5
   flatted@<3.4.2: '>=3.4.2'
@@ -39,7 +39,7 @@ overrides:
   hono@<4.12.34: 4.12.34
   immutable@<3.8.0: '>=3.8.0'
   ip-address@<10.3.1: 10.3.1
-  js-yaml@<4.3.0: 4.3.0
+  js-yaml@<4.3.1: 4.3.1
   linkify-it@<5.0.2: 5.0.2
   linkifyjs: ^4.3.2
   lodash@<=4.17.23: '>=4.18.0'
@@ -47,6 +47,7 @@ overrides:
   markdown-it@<14.2.0: '>=14.2.0'
   mdast-util-to-hast: ^13.2.1
   minimatch@>=10.0.0 <10.2.4: '>=10.2.4'
+  nanoid@<3.3.17: 3.3.17
   next: ^16.2.11
   path-to-regexp@>=8.0.0 <8.4.0: 8.4.2
   path-to-regexp@>=6.0.0 <6.3.0: 6.3.0
@@ -64,9 +65,9 @@ overrides:
   tar@>=7.0.0 <7.5.21: 7.5.21
   tmp: '>=0.2.4'
   ua-parser-js@>=2.0.1 <2.0.10: '>=2.0.10'
-  uuid@<11.1.1: 11.1.1
-  undici@>=5.0.0 <6.28.0: 6.28.0
   undici@>=7.0.0 <7.29.0: 7.29.0
+  undici@>=5.0.0 <6.28.0: 6.28.0
+  uuid@<11.1.1: 11.1.1
   valibot@>=1.0.0 <1.4.2: 1.4.2
   vite@>=7.0.0 <7.3.5: 7.3.5
   wagmi: ^2.16.9
@@ -82,7 +83,7 @@ importers:
     dependencies:
       '@vercel/backends':
         specifier: 0.8.25
-        version: 0.8.25(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3)
+        version: 0.8.25(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
       '@vercel/container':
         specifier: 0.0.5
         version: 0.0.5
@@ -91,7 +92,7 @@ importers:
         version: 0.1.102
       '@vercel/express':
         specifier: 0.1.116
-        version: 0.1.116(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3)
+        version: 0.1.116(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
       '@vercel/fastify':
         specifier: 0.1.105
         version: 0.1.105
@@ -139,7 +140,7 @@ importers:
         version: 2.11.8
       vercel:
         specifier: 56.4.1
-        version: 56.4.1(@vercel/backends@0.8.25(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3))(@vercel/container@0.0.5)(@vercel/elysia@0.1.102)(@vercel/express@0.1.116(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3))(@vercel/fastify@0.1.105)(@vercel/go@3.10.2)(@vercel/h3@0.1.111)(@vercel/hono@0.2.105)(@vercel/hydrogen@1.4.0)(@vercel/koa@0.1.85)(@vercel/nestjs@0.2.106)(@vercel/next@4.20.4)(@vercel/node@5.8.26)(@vercel/python@6.51.0)(@vercel/redwood@2.5.0)(@vercel/remix-builder@5.9.1)(@vercel/ruby@2.5.1)(@vercel/rust@1.4.0)(@vercel/static-build@2.11.8)
+        version: 56.4.1(@vercel/backends@0.8.25(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3))(@vercel/container@0.0.5)(@vercel/elysia@0.1.102)(@vercel/express@0.1.116(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3))(@vercel/fastify@0.1.105)(@vercel/go@3.10.2)(@vercel/h3@0.1.111)(@vercel/hono@0.2.105)(@vercel/hydrogen@1.4.0)(@vercel/koa@0.1.85)(@vercel/nestjs@0.2.106)(@vercel/next@4.20.4)(@vercel/node@5.8.26)(@vercel/python@6.51.0)(@vercel/redwood@2.5.0)(@vercel/remix-builder@5.9.1)(@vercel/ruby@2.5.1)(@vercel/rust@1.4.0)(@vercel/static-build@2.11.8)
 
 packages:
 
@@ -166,14 +167,14 @@ packages:
     resolution: {integrity: sha512-0dEVyRLM/lG4gp1R/Ik5bfPl/1wX00xFwd5KcNH602tzBa09oF7pbTKETEhR1GjZ75K6OJnYFu8II2dyMhONMw==}
     engines: {node: '>=16'}
 
-  '@emnapi/core@2.0.0-alpha.3':
-    resolution: {integrity: sha512-AZypUeJ/yByuxyS7BlSNRDOMLMlROYtjYdIAuBmJssVz1UJDSeYxLrdizhXCFYhedC5bqd/ASy8EuNXbVVXp9g==}
+  '@emnapi/core@1.11.3':
+    resolution: {integrity: sha512-zLpS5asjEb7lq8jYLq37N6XKaE41DIexlY1rF/z4/tIl3wo13Sqm28fRyfIsKZD+NZ8mM5RoKkpW/rBcuoSZSg==}
 
-  '@emnapi/runtime@2.0.0-alpha.3':
-    resolution: {integrity: sha512-hFPAhMUjJD9BSyCANEISPOogeXC9Zo9ZQl7L6vKnaVsMkCtzznaW/naYypeyl0Gv5rYfWYsZbpixTMpjDJzQeA==}
+  '@emnapi/runtime@1.11.3':
+    resolution: {integrity: sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA==}
 
-  '@emnapi/wasi-threads@2.0.1':
-    resolution: {integrity: sha512-9DsSk+o5NBX0CCJT8s0EROGSGxjR/tKu6aBTaVyq+SjAEQH4XcdcRxPBRzsBLizTTJ49MJjF+jgu3qnO9GLQcQ==}
+  '@emnapi/wasi-threads@1.2.3':
+    resolution: {integrity: sha512-ELEBe8PsLvvJ6QMr0zLt8ffvOHW/dc1m3CEzNMg7aJUv3bMaoDtw2TXyDAwkYBuroxxuHEwhRTLJSe5sya547g==}
 
   '@esbuild/aix-ppc64@0.28.1':
     resolution: {integrity: sha512-Svl7tq8k/08+p6CXPpRjQ1fKX+1odH/BQbb48fV6fj3CWHhsoIOoY87w1oHXm0qEpkIK3ZfVgp0hed3XBXzXMQ==}
@@ -421,12 +422,12 @@ packages:
     resolution: {integrity: sha512-d0d4Oyxm+v980PEq1ZH2PmS6cvpMIRc17eYpiU47KgW+lzxklMu6+HOEOPmxrpnF/XQZ0+Q78I2mgMhbIIo/dg==}
     engines: {node: '>= 10'}
 
-  '@napi-rs/wasm-runtime@1.2.0':
-    resolution: {integrity: sha512-kDoONqMa+VnZ4vvvu/ZUurpJ4gkZU57e7g69qpNgWhYcZFPUHZM2CEMKm+cG6ufDVALbjMvfmMjFVqaK7uEMnA==}
+  '@napi-rs/wasm-runtime@1.2.2':
+    resolution: {integrity: sha512-JfB4kuJQjaoHuCTseIINHtHWeJnvgEcxjwA5t/Y00ZgaOO1Crz3fjT/p8kT28zA/Caz7oiUMn3d6H2yOVCVwuw==}
     engines: {node: ^20.19.0 || ^22.13.0 || >=23.5.0}
     peerDependencies:
-      '@emnapi/core': ^2.0.0-alpha.3
-      '@emnapi/runtime': ^2.0.0-alpha.3
+      '@emnapi/core': ^1.7.1 || ^2.0.0-alpha.3
+      '@emnapi/runtime': ^1.7.1 || ^2.0.0-alpha.3
 
   '@nodelib/fs.scandir@2.1.5':
     resolution: {integrity: sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==}
@@ -1053,8 +1054,8 @@ packages:
     resolution: {integrity: sha512-ts6Wi+2j3jQjqi70w5AlN8DFnkSwC+MqmxEzdEALB2qXZYV3X/b1CTfgPLGJNMeAWxdPfU8FO1ms3NUfaHCPYg==}
     engines: {node: '>=10'}
 
-  get-tsconfig@4.14.0:
-    resolution: {integrity: sha512-yTb+8DXzDREzgvYmh6s9vHsSVCHeC0G3PI5bEXNBHtmshPnO+S5O7qgLEOn0I5QvMy6kpZN8K1NKGyilLb93wA==}
+  get-tsconfig@4.14.1:
+    resolution: {integrity: sha512-Dz/6HxkrxgNehhxLVeyv8sad9UzF2xBVeaKBQNDfJ5XiSXmp2gTR0eO0RWiT2NCKS5aGP9jjkOMggTN90qU50A==}
 
   glob-parent@5.1.2:
     resolution: {integrity: sha512-AOIgSQCepiJYwP3ARnGx+5VnTu2HBYdzbGP45eLw1vr3zB3vZLeyed1sC9hnbcOc9/SrMyM5RPQrkGz4aS9Zow==}
@@ -1131,8 +1132,8 @@ packages:
   jose@6.2.3:
     resolution: {integrity: sha512-YYVDInQKFJfR/xa3ojUTl8c2KoTwiL1R5Wg9YCydwH0x0B9grbzlg5HC7mMjCtUJjbQ/YnGEZIhI5tCgfTb4Hw==}
 
-  js-yaml@4.3.0:
-    resolution: {integrity: sha512-1td788aAnnZ5qs7V2QIRl1owjtYpbKt749Y3xauqQgwIIGF/xXWz1wMTEBx5O3LK3lXLVuqXPdPxj2BoFHaW9Q==}
+  js-yaml@4.3.1:
+    resolution: {integrity: sha512-CY6crGq313MX8GkwvB7tzgp99vjQxY1++5y10/BKN/GUfHqWaOGQMNZkBvqSzsZKWk/ijwHlWzzkLulsGHhjWQ==}
     hasBin: true
 
   json-schema-to-ts@1.6.4:
@@ -1602,8 +1603,8 @@ packages:
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
 
-  ws@8.21.1:
-    resolution: {integrity: sha512-+0NTnW77fFN/DjQi6k/Sq/Yvk4Sgajw7urW8V+asjXnRgDs9gyGkdb7EzgfhA4goXsRIZKE28fzIXBHEzhuiWw==}
+  ws@8.21.3:
+    resolution: {integrity: sha512-201TZ/kPWxoPr/OKWjquZR1SWKXcvxdH+e1xrx89b3YbmzLMFCLfnaG1HFIgWzJOEWZ7MvpK++odZufgYR50Rw==}
     engines: {node: '>=10.0.0'}
     peerDependencies:
       bufferutil: ^4.0.1
@@ -1663,18 +1664,18 @@ snapshots:
     dependencies:
       '@edge-runtime/primitives': 4.1.0
 
-  '@emnapi/core@2.0.0-alpha.3':
+  '@emnapi/core@1.11.3':
     dependencies:
-      '@emnapi/wasi-threads': 2.0.1
+      '@emnapi/wasi-threads': 1.2.3
       tslib: 2.8.1
     optional: true
 
-  '@emnapi/runtime@2.0.0-alpha.3':
+  '@emnapi/runtime@1.11.3':
     dependencies:
       tslib: 2.8.1
     optional: true
 
-  '@emnapi/wasi-threads@2.0.1':
+  '@emnapi/wasi-threads@1.2.3':
     dependencies:
       tslib: 2.8.1
     optional: true
@@ -1825,10 +1826,10 @@ snapshots:
       '@napi-rs/keyring-win32-ia32-msvc': 1.2.0
       '@napi-rs/keyring-win32-x64-msvc': 1.2.0
 
-  '@napi-rs/wasm-runtime@1.2.0(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3)':
+  '@napi-rs/wasm-runtime@1.2.2(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)':
     dependencies:
-      '@emnapi/core': 2.0.0-alpha.3
-      '@emnapi/runtime': 2.0.0-alpha.3
+      '@emnapi/core': 1.11.3
+      '@emnapi/runtime': 1.11.3
       '@tybys/wasm-util': 0.10.3
     optional: true
 
@@ -1894,9 +1895,9 @@ snapshots:
   '@oxc-transform/binding-openharmony-arm64@0.111.0':
     optional: true
 
-  '@oxc-transform/binding-wasm32-wasi@0.111.0(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3)':
+  '@oxc-transform/binding-wasm32-wasi@0.111.0(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)':
     dependencies:
-      '@napi-rs/wasm-runtime': 1.2.0(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3)
+      '@napi-rs/wasm-runtime': 1.2.2(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -1943,9 +1944,9 @@ snapshots:
   '@rolldown/binding-openharmony-arm64@1.0.0-rc.1':
     optional: true
 
-  '@rolldown/binding-wasm32-wasi@1.0.0-rc.1(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3)':
+  '@rolldown/binding-wasm32-wasi@1.0.0-rc.1(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)':
     dependencies:
-      '@napi-rs/wasm-runtime': 1.2.0(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3)
+      '@napi-rs/wasm-runtime': 1.2.2(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -1989,7 +1990,7 @@ snapshots:
     dependencies:
       undici-types: 5.26.5
 
-  '@vercel/backends@0.8.25(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3)':
+  '@vercel/backends@0.8.25(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)':
     dependencies:
       '@vercel/build-utils': 13.34.0
       '@vercel/nft': 1.10.0
@@ -1997,10 +1998,10 @@ snapshots:
       execa: 3.2.0
       fs-extra: 11.1.0
       get-port: 5.1.1
-      oxc-transform: 0.111.0(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3)
+      oxc-transform: 0.111.0(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
       path-to-regexp: 8.4.2
       resolve.exports: 2.0.3
-      rolldown: 1.0.0-rc.1(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3)
+      rolldown: 1.0.0-rc.1(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
       srvx: 0.11.16
       ts-morph: 12.0.0
       tsx: 4.21.0
@@ -2026,9 +2027,9 @@ snapshots:
       cjs-module-lexer: 1.2.3
       es-module-lexer: 1.5.0
 
-  '@vercel/cervel@0.1.33(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3)':
+  '@vercel/cervel@0.1.33(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)':
     dependencies:
-      '@vercel/backends': 0.8.25(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3)
+      '@vercel/backends': 0.8.25(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -2064,9 +2065,9 @@ snapshots:
 
   '@vercel/error-utils@2.2.0': {}
 
-  '@vercel/express@0.1.116(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3)':
+  '@vercel/express@0.1.116(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)':
     dependencies:
-      '@vercel/cervel': 0.1.33(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3)
+      '@vercel/cervel': 0.1.33(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
       '@vercel/nft': 1.10.0
       '@vercel/node': 5.8.26
       '@vercel/static-config': 3.4.0
@@ -2239,7 +2240,7 @@ snapshots:
       '@bytecodealliance/preview2-shim': 0.17.6
       '@renovatebot/pep440': 4.2.1
       fs-extra: 11.1.1
-      js-yaml: 4.3.0
+      js-yaml: 4.3.1
       minimatch: 10.2.6
       smol-toml: 1.7.1
       zod: 4.4.3
@@ -2554,7 +2555,7 @@ snapshots:
 
   get-stream@6.0.1: {}
 
-  get-tsconfig@4.14.0:
+  get-tsconfig@4.14.1:
     dependencies:
       resolve-pkg-maps: 1.0.0
 
@@ -2621,7 +2622,7 @@ snapshots:
 
   jose@6.2.3: {}
 
-  js-yaml@4.3.0:
+  js-yaml@4.3.1:
     dependencies:
       argparse: 2.0.1
 
@@ -2739,7 +2740,7 @@ snapshots:
 
   os-paths@4.4.0: {}
 
-  oxc-transform@0.111.0(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3):
+  oxc-transform@0.111.0(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3):
     optionalDependencies:
       '@oxc-transform/binding-android-arm-eabi': 0.111.0
       '@oxc-transform/binding-android-arm64': 0.111.0
@@ -2757,7 +2758,7 @@ snapshots:
       '@oxc-transform/binding-linux-x64-gnu': 0.111.0
       '@oxc-transform/binding-linux-x64-musl': 0.111.0
       '@oxc-transform/binding-openharmony-arm64': 0.111.0
-      '@oxc-transform/binding-wasm32-wasi': 0.111.0(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3)
+      '@oxc-transform/binding-wasm32-wasi': 0.111.0(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
       '@oxc-transform/binding-win32-arm64-msvc': 0.111.0
       '@oxc-transform/binding-win32-ia32-msvc': 0.111.0
       '@oxc-transform/binding-win32-x64-msvc': 0.111.0
@@ -2824,7 +2825,7 @@ snapshots:
 
   reusify@1.1.0: {}
 
-  rolldown@1.0.0-rc.1(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3):
+  rolldown@1.0.0-rc.1(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3):
     dependencies:
       '@oxc-project/types': 0.110.0
       '@rolldown/pluginutils': 1.0.0-rc.1
@@ -2839,7 +2840,7 @@ snapshots:
       '@rolldown/binding-linux-x64-gnu': 1.0.0-rc.1
       '@rolldown/binding-linux-x64-musl': 1.0.0-rc.1
       '@rolldown/binding-openharmony-arm64': 1.0.0-rc.1
-      '@rolldown/binding-wasm32-wasi': 1.0.0-rc.1(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3)
+      '@rolldown/binding-wasm32-wasi': 1.0.0-rc.1(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
       '@rolldown/binding-win32-arm64-msvc': 1.0.0-rc.1
       '@rolldown/binding-win32-x64-msvc': 1.0.0-rc.1
     transitivePeerDependencies:
@@ -2857,7 +2858,7 @@ snapshots:
       '@vercel/sandbox': 2.4.0
       async-retry: 1.3.3
       debug: 4.4.3
-      ws: 8.21.1
+      ws: 8.21.3
       zod: 4.4.3
     transitivePeerDependencies:
       - bare-abort-controller
@@ -2969,7 +2970,7 @@ snapshots:
   tsx@4.21.0:
     dependencies:
       esbuild: 0.28.1
-      get-tsconfig: 4.14.0
+      get-tsconfig: 4.14.1
     optionalDependencies:
       fsevents: 2.3.3
 
@@ -2987,7 +2988,7 @@ snapshots:
 
   unpipe@1.0.0: {}
 
-  vercel@56.4.1(@vercel/backends@0.8.25(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3))(@vercel/container@0.0.5)(@vercel/elysia@0.1.102)(@vercel/express@0.1.116(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3))(@vercel/fastify@0.1.105)(@vercel/go@3.10.2)(@vercel/h3@0.1.111)(@vercel/hono@0.2.105)(@vercel/hydrogen@1.4.0)(@vercel/koa@0.1.85)(@vercel/nestjs@0.2.106)(@vercel/next@4.20.4)(@vercel/node@5.8.26)(@vercel/python@6.51.0)(@vercel/redwood@2.5.0)(@vercel/remix-builder@5.9.1)(@vercel/ruby@2.5.1)(@vercel/rust@1.4.0)(@vercel/static-build@2.11.8):
+  vercel@56.4.1(@vercel/backends@0.8.25(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3))(@vercel/container@0.0.5)(@vercel/elysia@0.1.102)(@vercel/express@0.1.116(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3))(@vercel/fastify@0.1.105)(@vercel/go@3.10.2)(@vercel/h3@0.1.111)(@vercel/hono@0.2.105)(@vercel/hydrogen@1.4.0)(@vercel/koa@0.1.85)(@vercel/nestjs@0.2.106)(@vercel/next@4.20.4)(@vercel/node@5.8.26)(@vercel/python@6.51.0)(@vercel/redwood@2.5.0)(@vercel/remix-builder@5.9.1)(@vercel/ruby@2.5.1)(@vercel/rust@1.4.0)(@vercel/static-build@2.11.8):
     dependencies:
       '@vercel/blob': 2.4.0
       '@vercel/build-utils': 13.34.0
@@ -3006,10 +3007,10 @@ snapshots:
       undici: 6.28.0
       zod: 4.4.3
     optionalDependencies:
-      '@vercel/backends': 0.8.25(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3)
+      '@vercel/backends': 0.8.25(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
       '@vercel/container': 0.0.5
       '@vercel/elysia': 0.1.102
-      '@vercel/express': 0.1.116(@emnapi/core@2.0.0-alpha.3)(@emnapi/runtime@2.0.0-alpha.3)
+      '@vercel/express': 0.1.116(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
       '@vercel/fastify': 0.1.105
       '@vercel/go': 3.10.2
       '@vercel/h3': 0.1.111
@@ -3048,7 +3049,7 @@ snapshots:
 
   wrappy@1.0.2: {}
 
-  ws@8.21.1: {}
+  ws@8.21.3: {}
 
   xdg-app-paths@5.1.0:
     dependencies:

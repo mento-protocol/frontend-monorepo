@@ -421,7 +421,8 @@ const LOCAL_SOURCE_ENTRY =
  * Remote HTTPS-tarball entries that pnpm v9 stores as
  * `resolution: {tarball: <url>}` with NO integrity hash, so they cannot satisfy
  * the sha512 gate. Pinned to the EXACT lockfile key (name + full URL incl.
- * commit) of the ONE known such dep — `@metamask/jazzicon` at commit 7a8df28.
+ * commit) of the ONE known such dep — `@metamask/jazzicon` at commit
+ * 7a8df28974b4e81129bfbe3cab76308b889032a6.
  *
  * Pinning the full URL (not just the package name) is deliberate: if the
  * catalog repoints jazzicon to another host or commit, the key changes, this
@@ -437,8 +438,9 @@ const LOCAL_SOURCE_ENTRY =
  */
 const REMOTE_TARBALL_ALLOWLIST = [
   {
-    key: "@metamask/jazzicon@https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28",
-    tarball: "https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28",
+    key: "@metamask/jazzicon@https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28974b4e81129bfbe3cab76308b889032a6",
+    tarball:
+      "https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28974b4e81129bfbe3cab76308b889032a6",
   },
 ];
 /** @param {string} s */

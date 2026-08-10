@@ -1127,8 +1127,9 @@ Trusted controller code first requires its manifest to contain
 `vercel@56.4.1` and every CLI builder peer as exact direct dependencies,
 requires its `pnpm.overrides` object to equal the root security overrides,
 binds every byte of `scripts/vercel-cli-runtime/pnpm-lock.yaml` to a reviewed
-SHA-256, and separately verifies the root and standalone
-`brace-expansion@2.1.2` patch. It copies the manifest and
+SHA-256, and rejects any patch state outside the exact reviewed legacy pair
+used during a two-PR rotation. The current runtime uses upstream fixed
+`brace-expansion@2.1.4` and has no local patch. It copies the manifest and
 lockfile as independent runner-owned `0444`, single-link files under
 `$TOOLS_PATH/vercel-cli-runtime`; CI never generates or updates that lockfile.
 The protected pnpm runtime installs there with `--frozen-lockfile`,
@@ -1143,15 +1144,16 @@ the two reviewed package-name false positives for Vercel's unrelated `sandbox`
 CLI dependency. Root application suppressions cannot mask a standalone CLI
 vulnerability.
 
-For the two-PR manifest and lockfile rotation before #645, the trusted
+For a two-PR manifest and lockfile rotation, the trusted
 default-branch controller has a literal temporary mapping from each current or
 reviewed-next lockfile SHA-256 to the SHA-256 of its matching canonical, sorted
 root override object. The standalone manifest must exactly mirror that root
 override state, so old-lock/new-manifest and new-lock/old-manifest hybrids
 reject. Candidate source cannot supply or extend this mapping. The ordinary
 current-main manifest and lockfile pair therefore continues to verify until
-#645 changes both; then remove the old digest/override pair immediately so the
-controller returns to a single-pair binding. The manifest's exact
+the payload PR changes both; then remove the old digest/override pair
+immediately in a cleanup PR so the controller returns to a single-pair binding.
+The manifest's exact
 `vercel@56.4.1` pin and every other lockfile check remain in force throughout
 the rotation.
 

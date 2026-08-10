@@ -413,8 +413,8 @@ test("passes when packages: contains a remote https tarball dependency without i
   const lockfile =
     `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n` +
     `  typescript@5.0.0:\n    resolution: {integrity: ${VALID_SHA512}}\n\n` +
-    `  '@metamask/jazzicon@https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28':\n` +
-    `    resolution: {gitHosted: true, tarball: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28}\n\n` +
+    `  '@metamask/jazzicon@https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28974b4e81129bfbe3cab76308b889032a6':\n` +
+    `    resolution: {gitHosted: true, tarball: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28974b4e81129bfbe3cab76308b889032a6}\n\n` +
     `snapshots:\n`;
   const { exitCode, stdout, stderr } = run(lockfile);
   assert(
@@ -430,8 +430,8 @@ test("passes when packages: contains a remote https tarball dependency without i
 test("fails when an allowlisted tarball resolution has an unknown field", () => {
   const lockfile =
     `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n` +
-    `  '@metamask/jazzicon@https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28':\n` +
-    `    resolution: {gitHosted: true, tarball: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28, registry: https://evil.example}\n\n` +
+    `  '@metamask/jazzicon@https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28974b4e81129bfbe3cab76308b889032a6':\n` +
+    `    resolution: {gitHosted: true, tarball: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28974b4e81129bfbe3cab76308b889032a6, registry: https://evil.example}\n\n` +
     `snapshots:\n`;
   const { exitCode, stdout, stderr } = run(lockfile);
   assert(
@@ -756,8 +756,8 @@ test("fails when an allowlisted tarball key has a tampered resolution URL", () =
   const lockfile =
     `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n` +
     `  typescript@5.0.0:\n    resolution: {integrity: ${VALID_SHA512}}\n\n` +
-    `  '@metamask/jazzicon@https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28':\n` +
-    `    resolution: {tarball: https://evil.example.com/x/tar.gz/7a8df28}\n\n` +
+    `  '@metamask/jazzicon@https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28974b4e81129bfbe3cab76308b889032a6':\n` +
+    `    resolution: {tarball: https://evil.example.com/x/tar.gz/7a8df28974b4e81129bfbe3cab76308b889032a6}\n\n` +
     `snapshots:\n`;
   const { exitCode, stdout, stderr } = run(lockfile);
   assert(

@@ -44,11 +44,11 @@ const scriptPath = fileURLToPath(
 const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567";
 // CURRENT is a reviewed synthetic predecessor derived from the repository
 // lockfile by the hono floor swap below; NEXT is the repository's actual
-// 2026-08-05 security-floor lockfile bound by the runtime contract.
+// August 2026 security-floor lockfile bound by the runtime contract.
 const CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
-  "18c68d51acb53f0de65979c8a69bdb524bb24babda0c3aaf4ef7fea23abf7daa";
+  "a38d9adafd7f6323130269637147bb6520c22466236b779cf01ddbf82072f20b";
 const NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
-  "5c70b093926a8ed722b9a912ea9b4f2a3996e373bde2118be9975baf93c8fa9e";
+  "83351216a20b4f2dd2bf22732b74d6a7448624ff53af14c7573354b0d8342d5e";
 const REVIEWED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 = new Set([
   CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
   NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
