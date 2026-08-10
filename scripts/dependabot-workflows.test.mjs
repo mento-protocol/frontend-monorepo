@@ -154,7 +154,7 @@ function runBashStep(step, env, eventPayload) {
         PATH: process.env.PATH,
         GITHUB_OUTPUT: githubOutput,
         ...env,
-        ...(eventPayload === undefined ? {} : { EVENT_PATH: eventPath }),
+        ...(eventPayload === undefined ? {} : { GITHUB_EVENT_PATH: eventPath }),
       },
     });
     return {
@@ -335,6 +335,10 @@ test("read-only evaluation authenticates every trigger before live collection", 
   );
   assert.ok(target);
   assert.match(target.run, /Object\.keys\(clientPayload\)\.sort\(\)/);
+  assert.match(target.run, /process\.env\.GITHUB_EVENT_PATH/);
+  assert.equal(Object.hasOwn(target.env, "EVENT_PATH"), false);
+  assert.equal(Object.hasOwn(target.env, "GITHUB_EVENT_PATH"), false);
+  assert.doesNotMatch(JSON.stringify(target.env), /github\.event_path/);
   assert.match(target.run, /\["scope"\]/);
   assert.doesNotMatch(target.run, /clientPayload\.(?:repository|schema)/);
   assert.match(target.run, /dependabot-intake:v1/);
@@ -401,6 +405,16 @@ test("processor accepts a live-shaped repository dispatch envelope", () => {
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.githubOutput, "pr_numbers=all\nexpected_head_sha=\n");
+});
+
+test("processor fails closed without the runner event path", () => {
+  const target = processor.jobs.evaluate.steps.find(
+    (step) => step.name === "Validate trigger and select a bounded target",
+  );
+  const result = runBashStep(target, liveRepositoryDispatchEnvironment());
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.githubOutput, "");
 });
 
 test("processor rejects malformed repository dispatch envelopes", () => {
