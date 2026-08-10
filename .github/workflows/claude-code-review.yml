@@ -36,12 +36,25 @@ jobs:
         with:
           fetch-depth: 1
 
+      # claude-code-action's plugin_marketplaces input rejects URLs with a
+      # #ref fragment (its validator requires the value to end in .git), so
+      # the marketplace is pinned by checking it out at the reviewed commit
+      # and passing the local path instead.
+      - name: Checkout pinned plugin marketplace
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: anthropics/claude-code
+          ref: 2bb60696142b493eafaeacfe00eac51d16c50c4f
+          path: .claude-plugin-marketplace
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Run Claude Code Review
         id: claude-review-human
         uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1.0.183
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          plugin_marketplaces: https://github.com/anthropics/claude-code.git#2bb60696142b493eafaeacfe00eac51d16c50c4f
+          plugin_marketplaces: ./.claude-plugin-marketplace
           plugins: code-review@claude-code-plugins
           prompt: "/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
