@@ -1,3 +1,105 @@
+## Short-lived bridge for the three-PR Vercel runtime trust rotation.
+##
+## PR #709 contains the reviewed fixed root and standalone runtime lockfiles,
+## but those bytes cannot deploy until this trusted-controller precursor lands.
+## Keep these ignores only long enough to merge this precursor; #709 removes
+## every fixable entry immediately when it lands.
+
+[[IgnoredVulns]]
+id = "GHSA-rgw5-rvv9-x895"
+ignoreUntil = 2026-08-17T00:00:00Z
+reason = "Temporary #709 trust-rotation bridge; the reviewed fixed brace-expansion lockfile cannot deploy until the exact successor pair is trusted on main."
+
+[[IgnoredVulns]]
+id = "GHSA-55q2-fjhq-7xh7"
+ignoreUntil = 2026-08-17T00:00:00Z
+reason = "Temporary #709 trust-rotation bridge; the reviewed fixed DOMPurify lockfile follows this precursor immediately."
+
+[[IgnoredVulns]]
+id = "GHSA-7p8r-x3mc-p8w7"
+ignoreUntil = 2026-08-17T00:00:00Z
+reason = "Temporary #709 trust-rotation bridge; the reviewed fixed fast-uri lockfile cannot deploy until the exact successor pair is trusted on main."
+
+[[IgnoredVulns]]
+id = "GHSA-54fx-42gc-7vw4"
+ignoreUntil = 2026-08-17T00:00:00Z
+reason = "Temporary #709 trust-rotation bridge; the reviewed fixed Hono lockfile cannot deploy until the exact successor pair is trusted on main."
+
+[[IgnoredVulns]]
+id = "GHSA-79qm-7rj5-m7r9"
+ignoreUntil = 2026-08-17T00:00:00Z
+reason = "Temporary #709 trust-rotation bridge; the reviewed fixed Hono lockfile cannot deploy until the exact successor pair is trusted on main."
+
+[[IgnoredVulns]]
+id = "GHSA-8j4g-w8fx-2239"
+ignoreUntil = 2026-08-17T00:00:00Z
+reason = "Temporary #709 trust-rotation bridge; the reviewed fixed Hono lockfile cannot deploy until the exact successor pair is trusted on main."
+
+[[IgnoredVulns]]
+id = "GHSA-f23p-vx2j-j53r"
+ignoreUntil = 2026-08-17T00:00:00Z
+reason = "Temporary #709 trust-rotation bridge; the reviewed fixed Hono lockfile cannot deploy until the exact successor pair is trusted on main."
+
+[[IgnoredVulns]]
+id = "GHSA-5p2g-fcmc-qvqq"
+ignoreUntil = 2026-08-17T00:00:00Z
+reason = "Temporary #709 trust-rotation bridge; image-size has no fixed release and #709 will replace this bridge with the reviewed disposition."
+
+[[IgnoredVulns]]
+id = "GHSA-w3rx-r6r6-pgpr"
+ignoreUntil = 2026-08-17T00:00:00Z
+reason = "Temporary #709 trust-rotation bridge; image-size has no fixed release and #709 will replace this bridge with the reviewed disposition."
+
+[[IgnoredVulns]]
+id = "GHSA-mwp4-54f8-5fhr"
+ignoreUntil = 2026-08-17T00:00:00Z
+reason = "Temporary #709 trust-rotation bridge; the reviewed fixed ip-address lockfile follows this precursor immediately."
+
+[[IgnoredVulns]]
+id = "GHSA-5p4m-2wfm-xmqj"
+ignoreUntil = 2026-08-17T00:00:00Z
+reason = "Temporary #709 trust-rotation bridge; the reviewed fixed js-yaml lockfile follows this precursor immediately."
+
+[[IgnoredVulns]]
+id = "GHSA-2v37-7h3g-55p8"
+ignoreUntil = 2026-08-17T00:00:00Z
+reason = "Temporary #709 trust-rotation bridge; the reviewed fixed nanoid lockfile follows this precursor immediately."
+
+[[IgnoredVulns]]
+id = "GHSA-fxqj-rqcc-2cmp"
+ignoreUntil = 2026-08-17T00:00:00Z
+reason = "Temporary #709 trust-rotation bridge; the reviewed fixed PostCSS lockfile cannot deploy until the exact successor pair is trusted on main."
+
+[[IgnoredVulns]]
+id = "GHSA-2m8v-j782-fhvr"
+ignoreUntil = 2026-08-17T00:00:00Z
+reason = "Temporary #709 trust-rotation bridge; the reviewed fixed socket.io-parser lockfile follows this precursor immediately."
+
+[[IgnoredVulns]]
+id = "GHSA-8xcm-r25x-g524"
+ignoreUntil = 2026-08-17T00:00:00Z
+reason = "Temporary #709 trust-rotation bridge; the reviewed fixed Undici lockfile cannot deploy until the exact successor pair is trusted on main."
+
+[[IgnoredVulns]]
+id = "GHSA-m8rv-5g2x-5cg5"
+ignoreUntil = 2026-08-17T00:00:00Z
+reason = "Temporary #709 trust-rotation bridge; the reviewed fixed Undici lockfile cannot deploy until the exact successor pair is trusted on main."
+
+[[IgnoredVulns]]
+id = "GHSA-v3r7-h72x-cjcm"
+ignoreUntil = 2026-08-17T00:00:00Z
+reason = "Temporary #709 trust-rotation bridge; the reviewed fixed Undici lockfile cannot deploy until the exact successor pair is trusted on main."
+
+[[IgnoredVulns]]
+id = "GHSA-4cwx-7wf7-3272"
+ignoreUntil = 2026-08-17T00:00:00Z
+reason = "Temporary #709 trust-rotation bridge; the reviewed fixed Undici lockfile cannot deploy until the exact successor pair is trusted on main."
+
+[[IgnoredVulns]]
+id = "GHSA-jr45-8vmc-qm54"
+ignoreUntil = 2026-08-17T00:00:00Z
+reason = "Temporary #709 trust-rotation bridge; the reviewed fixed Undici lockfile cannot deploy until the exact successor pair is trusted on main."
+
 [[IgnoredVulns]]
 id = "GHSA-3gc7-fjrx-p6mg"
 reason = "bigint-buffer vulnerability is in transitive deps; no direct fix available"
@@ -101,8 +203,8 @@ id = "GHSA-w5hq-g745-h8pq"
 # TODO: Re-evaluate at ignoreUntil — re-run the audit after any major
 # lockfile churn (e.g. new wallet SDK, upstream ESM migrations) to confirm
 # no new pre-14 uuid consumer has entered the tree on a vulnerable path.
-ignoreUntil = 2026-08-01T00:00:00Z
-reason = "uuid v3/v5/v6+buf advisory — unreachable (all 16 pre-14 consumers audited; none call v3, v6, or v5 with a buf argument); upgrade blocked by ESM-only uuid@14 vs CJS consumers."
+ignoreUntil = 2026-08-17T00:00:00Z
+reason = "Temporary #709 trust-rotation bridge; #709 replaces the expired unreachable-path exception with a reviewed fixed uuid lockfile."
 
 # ---------------------------------------------------------------------------
 # Batch added 2026-05-15 alongside the Trove Activity panel PR.

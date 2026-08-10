@@ -70,17 +70,17 @@ runtime in the same PR:
    shasum -a 256 scripts/vercel-cli-runtime/pnpm-lock.yaml
    ```
 
-   Rotate the manifest and lockfile state in two PRs. First, land a trusted
+   Rotate the manifest and lockfile state in a three-PR sequence. First, land a trusted
    default-branch controller change that maps each reviewed current/next
    lockfile digest to the SHA-256 of its matching canonical, sorted root
    override object. The standalone manifest must remain an exact mirror of
    that root state, and cross-paired old-lock/new-manifest or
    new-lock/old-manifest hybrids must reject. Candidate or PR-authored source
    must never supply or extend this mapping. Then land the matching manifest
-   and lockfile state in #645, keeping the manifest's exact `vercel@56.4.1`
-   pin and all registry-only checks intact. Immediately after #645 merges,
-   remove the former digest/override pair from the controller mapping and
-   restore the single-pair contract.
+   and lockfile state in a second PR, keeping the manifest's exact Vercel pin
+   and all registry-only checks intact. Immediately after that PR merges, use
+   a third cleanup PR to remove the former digest/override pair and restore the
+   single-pair contract.
 
 4. Verify the root/standalone pins, exact manifest, override mirror, reviewed
    lockfile digest, and registry-only lockfile policy:
