@@ -14,6 +14,8 @@ const FAILURE_CONCLUSIONS = new Set([
 const NOTIFIER_WORKFLOW_NAME = "CI Failure Notifier";
 const TAG_PUSH_WORKFLOW_NAMES = new Set(["Publish UI Package"]);
 const DEPENDABOT_PROCESSOR_WORKFLOW_NAME = "Dependabot Processor";
+const DEPENDABOT_PROCESSOR_SWEEP_TITLE =
+  "Dependabot processor | event=repository_dispatch | target=scope=open";
 const VERCEL_MAIN_WORKFLOW_NAME = "Vercel Main Deployment";
 const DEPENDABOT_PROCESSOR_PR_TITLE =
   /^Dependabot processor \| event=workflow_run \| receipt=dependabot-intake:v1 \| repository=mento-protocol\/frontend-monorepo \| pr=([1-9][0-9]*) \| sha=[0-9a-f]{40} \| action=(?:opened|synchronize|reopened) \| receipt=true$/;
@@ -51,6 +53,16 @@ function dependabotProcessorPrTarget(run) {
     String(run.display_title ?? ""),
   );
   return match ? `pr=${match[1]}` : null;
+}
+
+function isDependabotProcessorSweep(run, defaultBranch, repositoryFullName) {
+  return (
+    run.name === DEPENDABOT_PROCESSOR_WORKFLOW_NAME &&
+    run.event === "repository_dispatch" &&
+    run.display_title === DEPENDABOT_PROCESSOR_SWEEP_TITLE &&
+    run.head_branch === defaultBranch &&
+    run.head_repository?.full_name === repositoryFullName
+  );
 }
 
 function targetRefFor(run, defaultBranch) {
@@ -115,8 +127,7 @@ function isRelevantRun(run, defaultBranch, repositoryFullName) {
   const isOperationalRun =
     run.event === "schedule" ||
     isOperationalPush ||
-    (run.event === "repository_dispatch" &&
-      run.head_branch === defaultBranch) ||
+    isDependabotProcessorSweep(run, defaultBranch, repositoryFullName) ||
     (run.event === "workflow_dispatch" && run.head_branch === defaultBranch) ||
     (run.event === "workflow_run" &&
       (run.name === VERCEL_MAIN_WORKFLOW_NAME || processorTarget !== null) &&

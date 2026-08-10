@@ -51,6 +51,16 @@ function dependabotProcessorRun(overrides = {}) {
   });
 }
 
+function dependabotProcessorSweepRun(overrides = {}) {
+  return workflowRun({
+    name: "Dependabot Processor",
+    event: "repository_dispatch",
+    display_title:
+      "Dependabot processor | event=repository_dispatch | target=scope=open",
+    ...overrides,
+  });
+}
+
 function managedIssue(overrides = {}) {
   return {
     number: 42,
@@ -335,10 +345,7 @@ test("exposes the manual trigger in the incident title", async () => {
 });
 
 test("tracks repository-dispatch processor sweeps on the default branch", async () => {
-  const run = workflowRun({
-    name: "Dependabot Processor",
-    event: "repository_dispatch",
-  });
+  const run = dependabotProcessorSweepRun();
   const { github, context, calls } = harness({ run });
   const result = await reconcileCiFailureIssue({ github, context });
 
@@ -347,6 +354,31 @@ test("tracks repository-dispatch processor sweeps on the default branch", async 
     calls.create[0].title,
     "CI: Dependabot Processor is failing (main; repository_dispatch)",
   );
+});
+
+test("repository-dispatch monitoring rejects noncanonical processor sweeps", async () => {
+  for (const run of [
+    workflowRun({
+      event: "repository_dispatch",
+      display_title:
+        "Dependabot processor | event=repository_dispatch | target=scope=open",
+    }),
+    dependabotProcessorSweepRun({ display_title: "Dependabot processor" }),
+    dependabotProcessorSweepRun({
+      display_title:
+        "DEPENDABOT PROCESSOR | event=repository_dispatch | target=scope=open",
+    }),
+    dependabotProcessorSweepRun({ head_branch: "feature/example" }),
+    dependabotProcessorSweepRun({
+      head_repository: { full_name: "contributor/frontend-monorepo" },
+    }),
+  ]) {
+    const { github, context, calls } = harness({ run });
+    const result = await reconcileCiFailureIssue({ github, context });
+    assert.deepEqual(result, { action: "ignored", reason: "untracked-run" });
+    assert.equal(calls.listRuns, 0);
+    assert.equal(calls.listIssues, 0);
+  }
 });
 
 test("opens and updates the managed main-deployment workflow_run issue", async () => {

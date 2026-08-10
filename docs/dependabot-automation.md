@@ -656,7 +656,11 @@ The CI Failure Notifier tracks failures of the trusted processor. Intake-driven
 processor runs with a valid `receipt=true` identity are partitioned by PR, so a
 success for one Dependabot PR cannot close another PR's failure issue. Scheduled
 and `dependabot-process` sweep failures remain in their default-branch trigger
-partitions. Legitimate `receipt=false` intake completions are deliberately
+partitions. A repository-dispatch callback is admitted only when its workflow
+name, canonical open-sweep display title, default branch, and source repository
+all match the processor contract; the trusted notifier script revalidates the
+title with case-sensitive equality. Legitimate `receipt=false` intake
+completions are deliberately
 skipped and ignored by the notifier; they are not processor incidents.
 
 Treat a malformed dispatch or purported receipt, controller exception, API

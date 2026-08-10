@@ -243,7 +243,7 @@ test("the notifier is loop-safe, secretless, and least privilege", () => {
   );
   assert.match(
     workflow,
-    /workflow_run\.event == 'repository_dispatch' &&\n {10}github\.event\.workflow_run\.head_branch == github\.event\.repository\.default_branch/,
+    /workflow_run\.event == 'repository_dispatch' &&\n {10}github\.event\.workflow_run\.name == 'Dependabot Processor' &&\n {10}github\.event\.workflow_run\.display_title == 'Dependabot processor \| event=repository_dispatch \| target=scope=open' &&\n {10}github\.event\.workflow_run\.head_branch == github\.event\.repository\.default_branch &&\n {10}github\.event\.workflow_run\.head_repository\.full_name == github\.repository/,
   );
   assert.match(workflow, /ref: \$\{\{ github\.workflow_sha \}\}/);
   assert.doesNotMatch(workflow, /workflow_run\.head_sha/);

@@ -41,7 +41,10 @@ jobs:
         ) ||
         (
           github.event.workflow_run.event == 'repository_dispatch' &&
-          github.event.workflow_run.head_branch == github.event.repository.default_branch
+          github.event.workflow_run.name == 'Dependabot Processor' &&
+          github.event.workflow_run.display_title == 'Dependabot processor | event=repository_dispatch | target=scope=open' &&
+          github.event.workflow_run.head_branch == github.event.repository.default_branch &&
+          github.event.workflow_run.head_repository.full_name == github.repository
         ) ||
         (
           github.event.workflow_run.event == 'workflow_run' &&
