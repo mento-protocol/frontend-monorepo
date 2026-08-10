@@ -2272,7 +2272,76 @@ test("standalone Vercel CLI runtime is exact, override-aligned, and independentl
     writeFileSync(sourceLockfilePath, originalLockfile);
     chmodSync(sourceLockfilePath, 0o444);
 
-    const rootPackage = JSON.parse(readFileSync(rootPackagePath, "utf8"));
+    const patchedRuntimePackage = structuredClone(originalManifest);
+    patchedRuntimePackage.pnpm.patchedDependencies = {
+      "brace-expansion@2.1.2": "patches/brace-expansion@2.1.2.patch",
+    };
+    chmodSync(sourceManifestPath, 0o644);
+    writeFileSync(
+      sourceManifestPath,
+      `${JSON.stringify(patchedRuntimePackage, null, 2)}\n`,
+    );
+    chmodSync(sourceManifestPath, 0o444);
+    assert.throws(
+      () =>
+        stageTrustedVercelCliRuntimeManifest({
+          controllerRoot,
+          toolsRoot,
+        }),
+      /manifest is not exact/,
+    );
+    assert.equal(existsSync(runtimeRoot), false);
+    chmodSync(sourceManifestPath, 0o644);
+    writeFileSync(
+      sourceManifestPath,
+      `${JSON.stringify(originalManifest, null, 2)}\n`,
+    );
+    chmodSync(sourceManifestPath, 0o444);
+
+    const originalRootPackage = JSON.parse(
+      readFileSync(rootPackagePath, "utf8"),
+    );
+    const patchedRootPackage = structuredClone(originalRootPackage);
+    patchedRootPackage.pnpm.patchedDependencies = {
+      "brace-expansion@2.1.2":
+        "scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch",
+    };
+    writeFileSync(
+      rootPackagePath,
+      `${JSON.stringify(patchedRootPackage, null, 2)}\n`,
+    );
+    assert.throws(
+      () =>
+        stageTrustedVercelCliRuntimeManifest({
+          controllerRoot,
+          toolsRoot,
+        }),
+      /manifest is not exact/,
+    );
+    assert.equal(existsSync(runtimeRoot), false);
+    writeFileSync(
+      rootPackagePath,
+      `${JSON.stringify(originalRootPackage, null, 2)}\n`,
+    );
+
+    const retiredPatchDirectory = join(sourceRoot, "patches");
+    mkdirSync(retiredPatchDirectory, { mode: 0o755 });
+    writeFileSync(
+      join(retiredPatchDirectory, "brace-expansion@2.1.2.patch"),
+      "retired patch fixture\n",
+    );
+    assert.throws(
+      () =>
+        stageTrustedVercelCliRuntimeManifest({
+          controllerRoot,
+          toolsRoot,
+        }),
+      /patch artifacts are unexpected/,
+    );
+    assert.equal(existsSync(runtimeRoot), false);
+    rmSync(retiredPatchDirectory, { force: true, recursive: true });
+
+    const rootPackage = structuredClone(originalRootPackage);
     rootPackage.devDependencies.vercel = "56.2.1";
     writeFileSync(rootPackagePath, `${JSON.stringify(rootPackage, null, 2)}\n`);
     assert.throws(
@@ -2284,214 +2353,6 @@ test("standalone Vercel CLI runtime is exact, override-aligned, and independentl
       /root Vercel CLI contract is invalid/,
     );
     assert.equal(existsSync(runtimeRoot), false);
-  } finally {
-    rmSync(fixtureRoot, { force: true, recursive: true });
-  }
-});
-
-test("patched standalone Vercel CLI runtime stages one immutable reviewed patch", () => {
-  const fixtureRoot = mkdtempSync(join(tmpdir(), "vercel-cli-runtime-patch-"));
-  const controllerRoot = join(fixtureRoot, "controller");
-  const sourceRoot = join(controllerRoot, "scripts", "vercel-cli-runtime");
-  const toolsRoot = join(fixtureRoot, "trusted-tools");
-  const rootPackagePath = join(controllerRoot, "package.json");
-  const sourceManifestPath = join(sourceRoot, "package.json");
-  const sourceLockfilePath = join(sourceRoot, "pnpm-lock.yaml");
-  const patchDirectory = join(sourceRoot, "patches");
-  const patchPath = join(patchDirectory, "brace-expansion@2.1.2.patch");
-  const patchContents = "diff --git a/index.js b/index.js\n";
-  try {
-    mkdirSync(sourceRoot, { recursive: true });
-    mkdirSync(toolsRoot, { mode: 0o755 });
-    copyFileSync(join(REPOSITORY_ROOT, "package.json"), rootPackagePath);
-    for (const file of ["package.json", "pnpm-lock.yaml"]) {
-      copyFileSync(
-        join(REPOSITORY_ROOT, "scripts", "vercel-cli-runtime", file),
-        join(sourceRoot, file),
-      );
-      chmodSync(join(sourceRoot, file), 0o444);
-    }
-    mkdirSync(patchDirectory, { mode: 0o755 });
-    writeFileSync(patchPath, patchContents, { mode: 0o444 });
-    for (const path of [
-      controllerRoot,
-      join(controllerRoot, "scripts"),
-      sourceRoot,
-      patchDirectory,
-      toolsRoot,
-    ]) {
-      chmodSync(path, 0o755);
-    }
-
-    const rootPackage = JSON.parse(readFileSync(rootPackagePath, "utf8"));
-    const runtimePackage = JSON.parse(readFileSync(sourceManifestPath, "utf8"));
-    rootPackage.pnpm.patchedDependencies = {
-      "brace-expansion@2.1.2":
-        "scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch",
-    };
-    runtimePackage.pnpm.patchedDependencies = {
-      "brace-expansion@2.1.2": "patches/brace-expansion@2.1.2.patch",
-    };
-    const patchedLockfile = `${readFileSync(sourceLockfilePath, "utf8")}# patched fixture\n`;
-    chmodSync(sourceManifestPath, 0o644);
-    writeFileSync(sourceManifestPath, `${JSON.stringify(runtimePackage)}\n`);
-    chmodSync(sourceManifestPath, 0o444);
-    writeFileSync(rootPackagePath, `${JSON.stringify(rootPackage)}\n`);
-    chmodSync(sourceLockfilePath, 0o644);
-    writeFileSync(sourceLockfilePath, patchedLockfile);
-    chmodSync(sourceLockfilePath, 0o444);
-
-    const canonicalOverrides = JSON.stringify(
-      Object.fromEntries(
-        Object.entries(rootPackage.pnpm.overrides).toSorted(([left], [right]) =>
-          left.localeCompare(right),
-        ),
-      ),
-    );
-    const runtimeContractStates = [
-      {
-        lockfileSha256: createHash("sha256")
-          .update(patchedLockfile)
-          .digest("hex"),
-        overridesSha256: createHash("sha256")
-          .update(canonicalOverrides)
-          .digest("hex"),
-        rootPatchSha256: createHash("sha256")
-          .update(patchContents)
-          .digest("hex"),
-        patchSha256: createHash("sha256").update(patchContents).digest("hex"),
-      },
-    ];
-    const runtimeRoot = stageTrustedVercelCliRuntimeManifest({
-      controllerRoot,
-      toolsRoot,
-      runtimeContractStates,
-    });
-    const stagedPatchPath = join(
-      runtimeRoot,
-      "patches",
-      "brace-expansion@2.1.2.patch",
-    );
-    for (const [source, destination] of [
-      [sourceManifestPath, join(runtimeRoot, "package.json")],
-      [sourceLockfilePath, join(runtimeRoot, "pnpm-lock.yaml")],
-      [patchPath, stagedPatchPath],
-    ]) {
-      const sourceEntry = lstatSync(source);
-      const destinationEntry = lstatSync(destination);
-      assert.equal(destinationEntry.isFile(), true);
-      assert.equal(destinationEntry.isSymbolicLink(), false);
-      assert.equal(destinationEntry.mode & 0o777, 0o444);
-      assert.equal(destinationEntry.nlink, 1);
-      assert.notEqual(destinationEntry.ino, sourceEntry.ino);
-      assert.equal(
-        readFileSync(destination, "utf8"),
-        readFileSync(source, "utf8"),
-      );
-    }
-
-    rmSync(runtimeRoot, { force: true, recursive: true });
-    writeFileSync(join(patchDirectory, "extra.patch"), patchContents);
-    assert.throws(
-      () =>
-        stageTrustedVercelCliRuntimeManifest({
-          controllerRoot,
-          toolsRoot,
-          runtimeContractStates,
-        }),
-      /patch artifacts are not exact/,
-    );
-    rmSync(join(patchDirectory, "extra.patch"));
-
-    const externalPatch = join(fixtureRoot, "brace-expansion.patch");
-    writeFileSync(externalPatch, patchContents);
-    rmSync(patchPath);
-    symlinkSync(externalPatch, patchPath);
-    assert.throws(
-      () =>
-        stageTrustedVercelCliRuntimeManifest({
-          controllerRoot,
-          toolsRoot,
-          runtimeContractStates,
-        }),
-      /not runner-owned/,
-    );
-    rmSync(patchPath);
-    writeFileSync(patchPath, patchContents, { mode: 0o444 });
-
-    const inRootPatch = join(sourceRoot, "brace-expansion.patch-target");
-    writeFileSync(inRootPatch, patchContents, { mode: 0o444 });
-    rmSync(patchPath);
-    symlinkSync("../brace-expansion.patch-target", patchPath);
-    assert.throws(
-      () =>
-        stageTrustedVercelCliRuntimeManifest({
-          controllerRoot,
-          toolsRoot,
-          runtimeContractStates,
-        }),
-      /not runner-owned/,
-    );
-    rmSync(patchPath);
-    rmSync(inRootPatch);
-    writeFileSync(patchPath, patchContents, { mode: 0o444 });
-
-    const hardlinkSource = join(sourceRoot, "brace-expansion.patch-source");
-    writeFileSync(hardlinkSource, patchContents, { mode: 0o444 });
-    rmSync(patchPath);
-    linkSync(hardlinkSource, patchPath);
-    assert.throws(
-      () =>
-        stageTrustedVercelCliRuntimeManifest({
-          controllerRoot,
-          toolsRoot,
-          runtimeContractStates,
-        }),
-      /not runner-owned/,
-    );
-    rmSync(patchPath);
-    rmSync(hardlinkSource);
-    writeFileSync(patchPath, patchContents, { mode: 0o444 });
-
-    chmodSync(patchPath, 0o644);
-    writeFileSync(patchPath, `${patchContents}# drifted\n`);
-    chmodSync(patchPath, 0o444);
-    assert.throws(
-      () =>
-        stageTrustedVercelCliRuntimeManifest({
-          controllerRoot,
-          toolsRoot,
-          runtimeContractStates,
-        }),
-      /root brace-expansion patch is not exact/,
-    );
-    chmodSync(patchPath, 0o644);
-    writeFileSync(patchPath, patchContents);
-    chmodSync(patchPath, 0o444);
-
-    rmSync(patchPath);
-    assert.throws(
-      () =>
-        stageTrustedVercelCliRuntimeManifest({
-          controllerRoot,
-          toolsRoot,
-          runtimeContractStates,
-        }),
-      /root brace-expansion patch is missing/,
-    );
-    writeFileSync(patchPath, patchContents, { mode: 0o444 });
-
-    chmodSync(patchPath, 0o666);
-    assert.throws(
-      () =>
-        stageTrustedVercelCliRuntimeManifest({
-          controllerRoot,
-          toolsRoot,
-          runtimeContractStates,
-        }),
-      /not runner-owned/,
-    );
-    chmodSync(patchPath, 0o444);
   } finally {
     rmSync(fixtureRoot, { force: true, recursive: true });
   }

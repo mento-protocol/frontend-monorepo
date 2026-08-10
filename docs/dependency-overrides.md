@@ -26,10 +26,9 @@ peer as a direct dependency, so protected frozen installs never fetch builders
 outside the reviewed lockfile.
 
 The workspace and standalone runtime resolve legacy v2 consumers to upstream
-`brace-expansion@2.1.4`. The August 2026 rotation retired the former local
-2.1.2 patch. During a three-PR runtime rotation, the trusted controller can still
-recognize the exact previous patched state until the payload lands; it stages
-that patch only for the legacy lockfile/override pair.
+`brace-expansion@2.1.4`. The August 2026 rotation retired the former local 2.1.2
+patch. The trusted controller now accepts only the current patchless
+lockfile/override pair.
 
 After changing the root Vercel pin or any root override, update this protected
 runtime in the same PR:
@@ -68,8 +67,9 @@ runtime in the same PR:
    shasum -a 256 scripts/vercel-cli-runtime/pnpm-lock.yaml
    ```
 
-   Rotate the manifest and lockfile state in a three-PR sequence. First, land a trusted
-   default-branch controller change that maps each reviewed current/next
+   For a future rotation, change the manifest and lockfile state in a three-PR
+   sequence. First, land a trusted default-branch controller change that maps
+   each reviewed current/next
    lockfile digest to the SHA-256 of its matching canonical, sorted root
    override object. The standalone manifest must remain an exact mirror of
    that root state, and cross-paired old-lock/new-manifest or
@@ -102,10 +102,9 @@ manifest declares a local patch. The lockfile lint rejects patched-dependency
 metadata and every affected release, including pnpm aliases, so a broad OSV
 correction cannot hide a future direct or aliased vulnerable entry.
 
-The controller's temporary two-pair map may retain the exact former patched
-state only while the reviewed payload PR is open. Remove that legacy pair in
-the cleanup PR after the payload lands; do not restore the patch to either
-manifest.
+The controller's default contract contains only the current patchless pair.
+Retired patch metadata remains only in negative regression fixtures; do not
+restore the patch to either manifest.
 
 ## Wormhole Connect (`@wormhole-foundation/wormhole-connect`)
 

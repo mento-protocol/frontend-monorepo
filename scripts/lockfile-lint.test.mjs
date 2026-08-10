@@ -24,8 +24,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 
-import { BRACE_EXPANSION_PATCH_SHA256 } from "./vercel-cli-runtime-contract.mjs";
-
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 let passed = 0;
@@ -61,6 +59,10 @@ const SCRIPT = new URL("./lockfile-lint.mjs", import.meta.url).pathname;
 /** A valid sha512 hash that passes the length + format check. */
 const VALID_SHA512 =
   "sha512-nhCBV3quEgesuf7c7KYfperqSS14T8bYuvJ8PcLJp6znkZpFc0AuW4qBtr8eKVyPPe/8RSr7sglCWPU5eaxwKQ==";
+// Historical digest retained only to prove that the retired patch state stays
+// rejected. It is deliberately not part of the production runtime contract.
+const RETIRED_BRACE_EXPANSION_PATCH_SHA256 =
+  "7cf518c5d9dbf4290d0f48d3fa4673d4a163d0088d2d1294e417b9909c111833";
 
 /**
  * Builds a minimal pnpm v9 lockfile string.
@@ -93,7 +95,7 @@ function makeLockfile(pkgs) {
  */
 function makeBraceExpansionLockfile({ patched = false, quote = "", versions }) {
   const patchBlock = patched
-    ? `\npatchedDependencies:\n  brace-expansion@2.1.2:\n    hash: ${BRACE_EXPANSION_PATCH_SHA256}\n    path: scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch\n`
+    ? `\npatchedDependencies:\n  brace-expansion@2.1.2:\n    hash: ${RETIRED_BRACE_EXPANSION_PATCH_SHA256}\n    path: scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch\n`
     : "";
   const packages = versions
     .map(
@@ -105,7 +107,7 @@ function makeBraceExpansionLockfile({ patched = false, quote = "", versions }) {
     .map((version) => {
       const patchSuffix =
         patched && version === "2.1.2"
-          ? `(patch_hash=${BRACE_EXPANSION_PATCH_SHA256})`
+          ? `(patch_hash=${RETIRED_BRACE_EXPANSION_PATCH_SHA256})`
           : "";
       return `\n  ${quote}brace-expansion@${version}${patchSuffix}${quote}: {}\n`;
     })
@@ -497,7 +499,7 @@ test("rejects the retired patched brace-expansion 2.1.2 state", () => {
 test("rejects a retired patch hash on an otherwise fixed snapshot", () => {
   const lockfile = makeBraceExpansionLockfile({ versions: ["2.1.4"] }).replace(
     "\n  brace-expansion@2.1.4: {}\n",
-    `\n  brace-expansion@2.1.4(patch_hash=${BRACE_EXPANSION_PATCH_SHA256}): {}\n`,
+    `\n  brace-expansion@2.1.4(patch_hash=${RETIRED_BRACE_EXPANSION_PATCH_SHA256}): {}\n`,
   );
   const { exitCode, stdout, stderr } = run(lockfile);
   assert(

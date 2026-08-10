@@ -1126,11 +1126,15 @@ The protected production-shadow Vercel CLI is a standalone frozen install.
 Trusted controller code first requires its manifest to contain
 `vercel@56.4.1` and every CLI builder peer as exact direct dependencies,
 requires its `pnpm.overrides` object to equal the root security overrides,
-binds every byte of `scripts/vercel-cli-runtime/pnpm-lock.yaml` to a reviewed
-SHA-256, and rejects any patch state outside the exact reviewed legacy pair
-used during a three-PR rotation. The current runtime uses upstream fixed
-`brace-expansion@2.1.4` and has no local patch. It copies the manifest and
-lockfile as independent runner-owned `0444`, single-link files under
+binds every byte of `scripts/vercel-cli-runtime/pnpm-lock.yaml` to the reviewed
+SHA-256
+`83351216a20b4f2dd2bf22732b74d6a7448624ff53af14c7573354b0d8342d5e`,
+and binds the canonical root overrides to
+`d07212824ebc4b41e13f76d8d5da2aeba0ca6cd64379b15ad3a816c80ddfe68f`.
+The controller accepts only that pair and rejects all patched-dependency
+metadata and patch artifacts. The current runtime uses upstream fixed
+`brace-expansion@2.1.4`. It copies the manifest and lockfile as independent
+runner-owned `0444`, single-link files under
 `$TOOLS_PATH/vercel-cli-runtime`; CI never generates or updates that lockfile.
 The protected pnpm runtime installs there with `--frozen-lockfile`,
 `--ignore-scripts`, `--ignore-workspace`, and `--package-import-method copy`.
@@ -1144,7 +1148,7 @@ the two reviewed package-name false positives for Vercel's unrelated `sandbox`
 CLI dependency. Root application suppressions cannot mask a standalone CLI
 vulnerability.
 
-For a three-PR manifest and lockfile rotation, the trusted
+For a future three-PR manifest and lockfile rotation, the trusted
 default-branch controller has a literal temporary mapping from each current or
 reviewed-next lockfile SHA-256 to the SHA-256 of its matching canonical, sorted
 root override object. The standalone manifest must exactly mirror that root
