@@ -441,9 +441,14 @@ function liveMergeAdmissionFetch({ events = [], labels = [] } = {}) {
   };
 }
 
-test("unknown processor modes fail safe to observe", () => {
+test("only exact lowercase processor mode strings grant configured authority", () => {
+  assert.equal(normalizeProcessorMode("observe"), "observe");
   assert.equal(normalizeProcessorMode("merge"), "merge");
   assert.equal(normalizeProcessorMode("assist"), "assist");
+  assert.equal(normalizeProcessorMode("Merge"), "observe");
+  assert.equal(normalizeProcessorMode("MERGE"), "observe");
+  assert.equal(normalizeProcessorMode(" merge "), "observe");
+  assert.equal(normalizeProcessorMode(["merge"]), "observe");
   assert.equal(normalizeProcessorMode("future-mode"), "observe");
   assert.equal(normalizeProcessorMode(undefined), "observe");
 });

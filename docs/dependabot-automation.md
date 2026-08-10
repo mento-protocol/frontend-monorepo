@@ -120,11 +120,21 @@ pull-request, intake, schedule, and dispatch data cannot replace it.
 | `assist`  | Yes                         | Eligible PRs  | Disabled pending dedicated App integration | No                                         |
 | `merge`   | Yes                         | Eligible PRs  | Disabled pending dedicated App integration | Policy-eligible, exact-head green PRs only |
 
-An absent, misspelled, malformed, or otherwise unknown mode always becomes
+Only the exact lowercase strings `observe`, `assist`, and `merge` select those
+modes. Case variants, leading or trailing whitespace, non-string values, absent
+values, misspellings, and otherwise malformed or unknown values always become
 `observe`. Workflow-run and operator-sweep inputs cannot select a more powerful
 mode. Selecting `merge` also requires both merge App settings described above;
 missing configuration stops the trusted workflow before any merge mutation.
 `observe` and `assist` do not require those credentials.
+
+GitHub Actions expression string comparisons ignore case, so the workflow does
+not use expression equality to decide whether merge credentials are available.
+The first trusted process step compares the raw value with literal `merge`
+using case-sensitive shell equality and emits only a literal JSON boolean. The
+credential validation and token-minting steps consume that boolean through
+`fromJSON`; case or whitespace variants therefore receive no merge App secret
+or token and still reach the strict processor core as `observe`.
 
 Packet eligibility and automatic merge authority are separate. A human may
 apply a packet and the strict structural lineage may permit one more proposal,

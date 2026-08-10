@@ -381,6 +381,41 @@ test("both jobs materialize only the exact trusted processor source", () => {
   }
 });
 
+test("process job classifies exact merge mode with case-sensitive shell equality", () => {
+  const processJob = processor.jobs.process;
+  const mode = processJob.steps.find(
+    (step) => step.name === "Classify exact processor mode",
+  );
+  assert.ok(mode);
+  assert.equal(processJob.steps[0], mode);
+  assert.equal(mode.id, "mode");
+  assert.equal(mode.shell, "bash");
+  assert.deepEqual(mode.env, {
+    RAW_PROCESSOR_MODE: "${{ env.DEPENDABOT_PROCESSOR_MODE }}",
+  });
+  assert.equal(Object.hasOwn(mode, "uses"), false);
+  assert.doesNotMatch(JSON.stringify(mode), /secrets\.|github\.token/);
+  assert.match(mode.run, /test "\$RAW_PROCESSOR_MODE" = "merge"/);
+
+  for (const [rawMode, expectedMerge] of [
+    ["merge", true],
+    ["Merge", false],
+    ["MERGE", false],
+    [" merge ", false],
+    ["", false],
+    ["observe", false],
+    ["assist", false],
+  ]) {
+    const result = runBashStep(mode, { RAW_PROCESSOR_MODE: rawMode });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(
+      result.githubOutput,
+      `merge=${expectedMerge}\n`,
+      JSON.stringify(rawMode),
+    );
+  }
+});
+
 test("privileged processing revalidates without candidate code or data", () => {
   const processJob = processor.jobs.process;
   assert.equal(processJob.needs, "evaluate");
@@ -400,7 +435,7 @@ test("privileged processing revalidates without candidate code or data", () => {
   assert.ok(requireMergeCredentials);
   assert.equal(
     requireMergeCredentials.if,
-    "env.DEPENDABOT_PROCESSOR_MODE == 'merge'",
+    "fromJSON(steps.mode.outputs.merge)",
   );
   assert.deepEqual(requireMergeCredentials.env, {
     MERGE_APP_CLIENT_ID: "${{ vars.DEPENDABOT_PROCESSOR_MERGE_APP_CLIENT_ID }}",
@@ -418,7 +453,7 @@ test("privileged processing revalidates without candidate code or data", () => {
   );
   assert.ok(mergeToken);
   assert.equal(mergeToken.id, "merge-token");
-  assert.equal(mergeToken.if, "env.DEPENDABOT_PROCESSOR_MODE == 'merge'");
+  assert.equal(mergeToken.if, "fromJSON(steps.mode.outputs.merge)");
   assert.equal(
     mergeToken.uses,
     "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",

@@ -304,7 +304,7 @@ export const DEPENDABOT_PROCESSOR_HELP = `Usage:
   dependabot-processor.mjs process --input path|- [--repo owner/name] [--pr-numbers all|1,2] [--mode observe|assist|merge]
 
 Intake-triggered live runs may pass --expected-head-sha <40-hex-sha> with exactly one PR.
-Unknown modes fail safe to observe. Pure process mode never mutates GitHub.`;
+Only exact lowercase observe, assist, and merge modes are accepted; every other value fails safe to observe. Pure process mode never mutates GitHub.`;
 
 export const DEPENDABOT_CHECK_POLICY = Object.freeze(
   CHECK_POLICY_DEFINITIONS.map((definition) =>
@@ -424,10 +424,9 @@ function normalizeLabels(labels) {
 }
 
 export function normalizeProcessorMode(value) {
-  const normalized = String(value ?? "")
-    .trim()
-    .toLowerCase();
-  return PROCESSOR_MODES.has(normalized) ? normalized : "observe";
+  return typeof value === "string" && PROCESSOR_MODES.has(value)
+    ? value
+    : "observe";
 }
 
 function severityRank(updateType) {
