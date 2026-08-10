@@ -4,40 +4,6 @@
 # Keep these package-name false positives scoped to this standalone CLI lock so
 # root application suppressions cannot mask a CLI vulnerability.
 
-# Short-lived bridge for the three-PR Vercel runtime trust rotation. PR #709
-# contains the exact fixed runtime bytes authorized by this precursor and
-# removes these entries immediately when it lands.
-
-[[IgnoredVulns]]
-id = "GHSA-rgw5-rvv9-x895"
-ignoreUntil = 2026-08-17T00:00:00Z
-reason = "Temporary #709 trust-rotation bridge; the reviewed fixed brace-expansion runtime cannot deploy until its exact pair is trusted on main."
-
-[[IgnoredVulns]]
-id = "GHSA-7p8r-x3mc-p8w7"
-ignoreUntil = 2026-08-17T00:00:00Z
-reason = "Temporary #709 trust-rotation bridge; the reviewed fixed fast-uri runtime cannot deploy until its exact pair is trusted on main."
-
-[[IgnoredVulns]]
-id = "GHSA-5p4m-2wfm-xmqj"
-ignoreUntil = 2026-08-17T00:00:00Z
-reason = "Temporary #709 trust-rotation bridge; the reviewed fixed js-yaml runtime follows this precursor immediately."
-
-[[IgnoredVulns]]
-id = "GHSA-8xcm-r25x-g524"
-ignoreUntil = 2026-08-17T00:00:00Z
-reason = "Temporary #709 trust-rotation bridge; the reviewed fixed Undici runtime cannot deploy until its exact pair is trusted on main."
-
-[[IgnoredVulns]]
-id = "GHSA-m8rv-5g2x-5cg5"
-ignoreUntil = 2026-08-17T00:00:00Z
-reason = "Temporary #709 trust-rotation bridge; the reviewed fixed Undici runtime cannot deploy until its exact pair is trusted on main."
-
-[[IgnoredVulns]]
-id = "GHSA-v3r7-h72x-cjcm"
-ignoreUntil = 2026-08-17T00:00:00Z
-reason = "Temporary #709 trust-rotation bridge; the reviewed fixed Undici runtime cannot deploy until its exact pair is trusted on main."
-
 [[IgnoredVulns]]
 id = "GHSA-fm4j-4xhm-xpwx"
 ignoreUntil = 2026-10-14T00:00:00Z
@@ -47,10 +13,3 @@ reason = "False positive from npm package-name reuse: advisory targets legacy gf
 id = "GHSA-gc25-3vc5-2jf9"
 ignoreUntil = 2026-10-14T00:00:00Z
 reason = "False positive from npm package-name reuse: advisory targets legacy gf3/sandbox <=0.8.2; sandbox@3.4.0 is Vercel's unrelated CLI and this repo never invokes its sandbox command."
-
-[[IgnoredVulns]]
-id = "GHSA-mh99-v99m-4gvg"
-# Remove when the local brace-expansion@2.1.2 a1bd339 backport is no longer
-# needed, rather than carrying this isolated-runtime suppression forward.
-ignoreUntil = 2026-08-16T00:00:00Z
-reason = "brace-expansion@2.1.2 is locally patched with the juliangruber/brace-expansion a1bd339 CVE-2026-14257 total-expansion-length bound."

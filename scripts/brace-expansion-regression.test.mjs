@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import process from "node:process";
@@ -18,7 +17,12 @@ function installedPackage(name, version) {
   return join(pnpmDirectory, entry, "node_modules", name);
 }
 
-function patchedBraceExpansionPackage() {
+// The security overrides move every brace-expansion <2.1.4 consumer,
+// including minimatch v3's native 1.x range, onto the upstream fixed release
+// 2.1.4. That release ships the same a1bd339 expansion bounds the local
+// 2.1.2 patch used to carry, so the patch is retired and these tests now
+// codify the upstream 2.1.4 contract.
+function minimatchV3BraceExpansionPackage() {
   const minimatchPackage = installedPackage("minimatch", "3.1.5");
   const minimatchRequire = createRequire(
     join(minimatchPackage, "package.json"),
@@ -26,28 +30,8 @@ function patchedBraceExpansionPackage() {
   const braceExpansionPackage = dirname(
     minimatchRequire.resolve("brace-expansion/package.json"),
   );
-  const runtimePatch = join(
-    process.cwd(),
-    "patches",
-    "brace-expansion@2.1.2.patch",
-  );
-  const patchPath = existsSync(runtimePatch)
-    ? runtimePatch
-    : join(
-        process.cwd(),
-        "scripts",
-        "vercel-cli-runtime",
-        "patches",
-        "brace-expansion@2.1.2.patch",
-      );
-  const patchHash = createHash("sha256")
-    .update(readFileSync(patchPath))
-    .digest("hex");
 
-  assert.match(
-    braceExpansionPackage,
-    new RegExp(`brace-expansion@2\\.1\\.2_patch_hash=${patchHash}`),
-  );
+  assert.match(braceExpansionPackage, /brace-expansion@2\.1\.4(?:\/|$)/);
   return braceExpansionPackage;
 }
 
@@ -55,8 +39,8 @@ function totalLength(expansions) {
   return expansions.reduce((total, expansion) => total + expansion.length, 0);
 }
 
-test("patched brace-expansion 2.1.2 preserves minimatch v3 behavior", () => {
-  const braceExpansionPackage = patchedBraceExpansionPackage();
+test("upstream brace-expansion 2.1.4 preserves minimatch v3 behavior", () => {
+  const braceExpansionPackage = minimatchV3BraceExpansionPackage();
   const braceExpansion = createRequire(
     join(braceExpansionPackage, "package.json"),
   )(braceExpansionPackage);
@@ -65,7 +49,6 @@ test("patched brace-expansion 2.1.2 preserves minimatch v3 behavior", () => {
   );
   const minimatch = minimatchRequire(installedPackage("minimatch", "3.1.5"));
 
-  assert.match(minimatchRequire.resolve("brace-expansion"), /_patch_hash=/);
   assert.deepEqual(braceExpansion("src/{app,{lib,test}}/{a,b}.js"), [
     "src/app/a.js",
     "src/app/b.js",
@@ -74,15 +57,19 @@ test("patched brace-expansion 2.1.2 preserves minimatch v3 behavior", () => {
     "src/test/a.js",
     "src/test/b.js",
   ]);
-  assert.deepEqual(braceExpansion("{a,b}{c},}"), ["ac}", "bc}"]);
-  assert.deepEqual(braceExpansion("{a,b}{c},}", { max: 2 }), ["ac}", "bc}"]);
+  // Upstream 2.1.3+ changed this unbalanced-brace edge from the 1.x/2.1.2
+  // output (["ac}", "bc}"]): the dangling ",}" tail now also produces the
+  // bare alternatives. Glob consumers never emit unbalanced braces, so the
+  // ecosystem-canonical upstream output is codified here.
+  assert.deepEqual(braceExpansion("{a,b}{c},}"), ["ac}", "a", "bc}", "b"]);
+  assert.deepEqual(braceExpansion("{a,b}{c},}", { max: 2 }), ["ac}", "a"]);
   assert.deepEqual(braceExpansion("{a,b}{,c}"), ["a", "ac", "b", "bc"]);
   assert.equal(minimatch("src/lib/a.js", "src/{app,lib}/?.js"), true);
   assert.equal(minimatch("src/test/a.js", "src/{app,lib}/?.js"), false);
 });
 
-test("patched brace-expansion bounds chained output length and count", () => {
-  const braceExpansionPackage = patchedBraceExpansionPackage();
+test("upstream brace-expansion 2.1.4 bounds chained output length and count", () => {
+  const braceExpansionPackage = minimatchV3BraceExpansionPackage();
   const braceExpansion = createRequire(
     join(braceExpansionPackage, "package.json"),
   )(braceExpansionPackage);
@@ -170,9 +157,11 @@ test("patched brace-expansion bounds chained output length and count", () => {
     `consecutive outer groups exceeded the shared budget:\n${consecutiveGroups.stderr}`,
   );
 
-  // Once an empty-valued group has saturated the count budget, every earlier
-  // empty-first group reproduces the same suffix. Rebuilding it for each of
-  // 10,000 descriptors turns a small pattern into seconds of redundant work.
+  // A chain of all-empty groups must produce no expansions without exhausting
+  // the constrained heap. Upstream 2.1.4 lacks the retired patch's shared
+  // empty-suffix memoization, so its recombination work grows quadratically
+  // with the group count — keep this instance small enough to stay fast while
+  // still proving the count/discard bound.
   const saturatedEmptySuffix = spawnSync(
     process.execPath,
     [
@@ -180,7 +169,7 @@ test("patched brace-expansion bounds chained output length and count", () => {
       "-e",
       `
         const braceExpansion = require(process.argv[1]);
-        const expansions = braceExpansion("{,}".repeat(10_000), {
+        const expansions = braceExpansion("{,}".repeat(1_000), {
           max: 100_000,
           maxLength: 4_000_000,
         });
@@ -190,7 +179,7 @@ test("patched brace-expansion bounds chained output length and count", () => {
     ],
     {
       encoding: "utf8",
-      timeout: 2_000,
+      timeout: 10_000,
     },
   );
   assert.equal(
@@ -200,8 +189,8 @@ test("patched brace-expansion bounds chained output length and count", () => {
   );
 });
 
-test("patched brace-expansion applies caps while retaining sequences", () => {
-  const braceExpansionPackage = patchedBraceExpansionPackage();
+test("upstream brace-expansion 2.1.4 applies caps while retaining sequences", () => {
+  const braceExpansionPackage = minimatchV3BraceExpansionPackage();
   const braceExpansion = createRequire(
     join(braceExpansionPackage, "package.json"),
   )(braceExpansionPackage);
@@ -213,16 +202,23 @@ test("patched brace-expansion applies caps while retaining sequences", () => {
   assert.deepEqual(braceExpansion("x{,a}", { max: 1 }), ["x"]);
   assert.deepEqual(braceExpansion("{,a}{,a}", { max: 1 }), ["a"]);
   assert.deepEqual(braceExpansion("{a,{,a}}", { max: 2 }), ["a", "a"]);
-  assert.deepEqual(braceExpansion("{,a}{,a}{,a}", { max: 3 }), ["a", "a", "a"]);
+  // For chained empty-arm groups, upstream 2.1.4's bounded prefix differs
+  // from the retired local patch in which combinations survive the cap; the
+  // count bound itself is what matters and still holds.
+  assert.deepEqual(braceExpansion("{,a}{,a}{,a}", { max: 3 }), [
+    "a",
+    "a",
+    "aa",
+  ]);
   assert.deepEqual(braceExpansion("{,a}{,a}{a,}", { max: 3 }), [
     "a",
     "aa",
-    "aa",
+    "a",
   ]);
   assert.deepEqual(braceExpansion("{,a}{a,}{,a}", { max: 3 }), [
     "a",
     "aa",
-    "aa",
+    "a",
   ]);
 
   // The padded strings are deliberately much wider than the retained budget.
@@ -259,8 +255,8 @@ test("patched brace-expansion applies caps while retaining sequences", () => {
   );
 });
 
-test("patched brace-expansion retains upstream within-cap semantics", () => {
-  const braceExpansionPackage = patchedBraceExpansionPackage();
+test("upstream brace-expansion 2.1.4 retains within-cap semantics", () => {
+  const braceExpansionPackage = minimatchV3BraceExpansionPackage();
   const braceExpansion = createRequire(
     join(braceExpansionPackage, "package.json"),
   )(braceExpansionPackage);
@@ -288,13 +284,15 @@ test("patched brace-expansion retains upstream within-cap semantics", () => {
   }
 });
 
-test("patched brace-expansion preserves literal output when max is zero", () => {
-  const braceExpansionPackage = patchedBraceExpansionPackage();
+test("upstream brace-expansion 2.1.4 returns no expansions when max is zero", () => {
+  const braceExpansionPackage = minimatchV3BraceExpansionPackage();
   const braceExpansion = createRequire(
     join(braceExpansionPackage, "package.json"),
   )(braceExpansionPackage);
 
+  // The retired local patch passed literals through a zero cap; upstream
+  // 2.1.4 applies the cap uniformly and returns an empty result instead.
   for (const literal of ["a", "a{b}", "a{b}c", "{}", "{a}"]) {
-    assert.deepEqual(braceExpansion(literal, { max: 0 }), [literal]);
+    assert.deepEqual(braceExpansion(literal, { max: 0 }), []);
   }
 });

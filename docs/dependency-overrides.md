@@ -25,12 +25,11 @@ resolutions. It must pin that exact Vercel version plus every Vercel CLI builder
 peer as a direct dependency, so protected frozen installs never fetch builders
 outside the reviewed lockfile.
 
-The root workspace retains the reviewed `brace-expansion@2.1.2` patch at
-`scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch`. Its direct
-builder graph contains a v2 consumer, so the standalone manifest and lockfile
-must declare the same patch. The controller verifies both copies separately
-and stages the standalone patch only when the reviewed runtime lockfile state
-requires one.
+The workspace and standalone runtime resolve legacy v2 consumers to upstream
+`brace-expansion@2.1.4`. The August 2026 rotation retired the former local
+2.1.2 patch. During a three-PR runtime rotation, the trusted controller can still
+recognize the exact previous patched state until the payload lands; it stages
+that patch only for the legacy lockfile/override pair.
 
 After changing the root Vercel pin or any root override, update this protected
 runtime in the same PR:
@@ -58,7 +57,6 @@ runtime in the same PR:
    ```bash
    runtime_dir="$(mktemp -d)"
    cp scripts/vercel-cli-runtime/package.json "$runtime_dir/package.json"
-   cp -R scripts/vercel-cli-runtime/patches "$runtime_dir/patches"
    CI=true pnpm --dir "$runtime_dir" install --lockfile-only --ignore-scripts
    mv "$runtime_dir/pnpm-lock.yaml" scripts/vercel-cli-runtime/pnpm-lock.yaml
    rm -rf "$runtime_dir"
@@ -96,22 +94,18 @@ Never run a general workspace install to regenerate this lockfile. That would
 allow workspace links into a runtime whose isolation depends on a standalone
 registry-only graph.
 
-### Reviewed brace-expansion patch state
+### Reviewed brace-expansion state
 
-The root `brace-expansion@2.1.2` patch remains bound to its reviewed SHA-256
-and repository-relative path. A future standalone graph may declare the same
-patch only when its generated lockfile contains a matching v2 consumer. In
-that case, add the runtime-relative manifest entry and update the reviewed
-runtime state so protected staging copies one regular, single-link `0444` patch
-file. Otherwise the runtime manifest and staged runtime must omit the patch.
+The root and standalone manifests now require upstream fixed
+`brace-expansion@2.1.4` for v2 consumers and `5.0.9` for v5 consumers. Neither
+manifest declares a local patch. The lockfile lint rejects patched-dependency
+metadata and every affected release, including pnpm aliases, so a broad OSV
+correction cannot hide a future direct or aliased vulnerable entry.
 
-The root `pnpm test` chain runs `pnpm supply-chain:lockfile-lint:test` after
-installing dependencies. This exercises the patched 2.1.2 behavior in hosted
-CI. The lockfile lint also rejects every affected brace-expansion release
-through 5.0.7 unless the lock contains the exact reviewed patched 2.1.2 state,
-including the expected regular, single-link patch artifact with its reviewed
-SHA-256. It inspects pnpm alias entries too, so the advisory-wide OSV correction
-cannot hide a future direct or aliased 3.x or 4.x entry.
+The controller's temporary two-pair map may retain the exact former patched
+state only while the reviewed payload PR is open. Remove that legacy pair in
+the cleanup PR after the payload lands; do not restore the patch to either
+manifest.
 
 ## Wormhole Connect (`@wormhole-foundation/wormhole-connect`)
 
@@ -137,14 +131,13 @@ TSX, or app config imports of those packages in `apps/app.mento.org`. Do not
 remove them independently, and do not start using them directly in Mento UI
 code.
 
-As of the 2026-07-25 remediation, `osv-scanner.toml` has 22 ignored
-vulnerability blocks, and 12 blocks mention the Wormhole Connect dependency
-chain in the reason or surrounding comments. That cluster is currently
-protobufjs including `@protobufjs/utf8` (11 blocks) and uuid (1 block). Axios
-is no longer suppressed: the root override enforces `>=1.18.0` and the lockfile
-resolves 1.18.1, so future axios findings fail the scanner instead of being
-masked. Do not attribute the elliptic or bn.js suppressions to Wormhole; their
-documented chains are separate.
+As of the August 2026 remediation, `osv-scanner.toml` has 20 ignored
+vulnerability blocks, and 11 blocks document the Wormhole Connect dependency
+chain. That cluster is protobufjs including `@protobufjs/utf8`. Axios, valibot,
+ip-address, and uuid are no longer suppressed because reviewed override floors
+resolve fixed releases. Do not attribute the elliptic, bigint-buffer, or
+Metro-only image-size suppressions to Wormhole; their documented chains are
+separate.
 
 Removing Wormhole Connect is intentionally out of scope for this document. At
 the next quarterly dependency review, check `/bridge` traffic in Vercel
@@ -160,16 +153,11 @@ Most entries in `pnpm.overrides` are range-scoped CVE floors, e.g.:
 "axios@<1.18.0": ">=1.18.0"
 ```
 
-`brace-expansion` has two conditional floors: `"brace-expansion@<2.1.2":
-"2.1.2"` retains the legacy v2-compatible floor, and
-`"brace-expansion@>=5 <5.0.8": "5.0.8"` upgrades only vulnerable native v5
-consumers. `brace-expansion@2.1.2` itself is locally patched at
-`scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch` with the
-total-expansion-length cap from juliangruber/brace-expansion commit `a1bd339`.
-Remove the patch and its scoped OSV suppressions when no v2 consumer remains
-or an upstream fixed v2 release can replace it; remove each range override
-once `pnpm why -r brace-expansion` shows its affected consumers resolving a
-fixed version without the override.
+`brace-expansion` has two conditional floors: `"brace-expansion@<2.1.4":
+"2.1.4"` upgrades legacy v2 consumers to the upstream fixed release, and
+`"brace-expansion@>=5 <5.0.9": "5.0.9"` upgrades vulnerable native v5
+consumers. Remove each range override once `pnpm why -r brace-expansion` shows
+its affected consumers resolving a fixed version without the override.
 
 These self-expire: once every dependency graph naturally resolves a version
 inside the target range, the override becomes a no-op and can be deleted

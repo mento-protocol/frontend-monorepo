@@ -32,8 +32,8 @@ export const BRACE_EXPANSION_RUNTIME_PATCH_PATH =
 const BRACE_EXPANSION_ROOT_PATCH_PATH =
   "scripts/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch";
 
-// This reviewed pair binds the current runtime lockfile, override object, and
-// brace-expansion patch required by the direct builder graph.
+// This reviewed pair binds the previous runtime lockfile, override object,
+// and brace-expansion patch required by the direct builder graph.
 const BRACE_EXPANSION_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
   "a8341932863259f7abf6dd354911cf4b13beb15b77c98c763377fcfed13f279b";
 const BRACE_EXPANSION_VERCEL_CLI_RUNTIME_OVERRIDE_SHA256 =
