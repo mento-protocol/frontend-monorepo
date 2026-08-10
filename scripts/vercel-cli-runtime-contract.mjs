@@ -28,11 +28,12 @@ const PINNED_VERCEL_CLI_RUNTIME_DEPENDENCIES = Object.freeze({
 // This reviewed pair binds the current August 2026 security-floor runtime. It
 // raises the brace-expansion, DOMPurify, fast-uri, Hono, ip-address, js-yaml,
 // nanoid, PostCSS, socket.io-parser, Undici, and uuid floors and retires the
-// local brace-expansion@2.1.2 patch in favor of upstream 2.1.4.
+// local brace-expansion@2.1.2 patch in favor of upstream 2.1.4. Rotated for
+// the next override moving to ^16.2.12 alongside the catalog (PR #715).
 const PINNED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
-  "83351216a20b4f2dd2bf22732b74d6a7448624ff53af14c7573354b0d8342d5e";
+  "957ccb3b8431add07a144e77966b4a05733aaca6f21cd071c937861fc10189d4";
 const PINNED_VERCEL_CLI_RUNTIME_OVERRIDE_SHA256 =
-  "d07212824ebc4b41e13f76d8d5da2aeba0ca6cd64379b15ad3a816c80ddfe68f";
+  "301165d803f4cc7db4524ea3a7a02b33db772505c04fdc9025860b244bcb447b";
 
 function hasExactObjectKeys(value, expectedKeys) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
