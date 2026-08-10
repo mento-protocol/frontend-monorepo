@@ -41,14 +41,14 @@ const BRACE_EXPANSION_VERCEL_CLI_RUNTIME_OVERRIDE_SHA256 =
 export const BRACE_EXPANSION_PATCH_SHA256 =
   "7cf518c5d9dbf4290d0f48d3fa4673d4a163d0088d2d1294e417b9909c111833";
 
-// This reviewed successor binds the 2026-08 security-floor rotation: it
-// raises the brace-expansion (GHSA-rgw5-rvv9-x895), fast-uri, hono,
-// ip-address, postcss, socket.io-parser, undici, and uuid override floors and
-// retires the local brace-expansion@2.1.2 patch in favor of upstream 2.1.4.
+// This reviewed successor binds the August 2026 security-floor rotation. It
+// raises the brace-expansion, DOMPurify, fast-uri, Hono, ip-address, js-yaml,
+// nanoid, PostCSS, socket.io-parser, Undici, and uuid floors and retires the
+// local brace-expansion@2.1.2 patch in favor of upstream 2.1.4.
 const NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
-  "5c70b093926a8ed722b9a912ea9b4f2a3996e373bde2118be9975baf93c8fa9e";
+  "83351216a20b4f2dd2bf22732b74d6a7448624ff53af14c7573354b0d8342d5e";
 const NEXT_VERCEL_CLI_RUNTIME_OVERRIDE_SHA256 =
-  "d97b2eead9f597f82f99ba4d2a4b8e0a883dad129190f17838838d0209693867";
+  "d07212824ebc4b41e13f76d8d5da2aeba0ca6cd64379b15ad3a816c80ddfe68f";
 
 // This reviewed controller-owned state permits the one-way runtime rotation
 // only with its matching canonical override and, when present, patch state. It
