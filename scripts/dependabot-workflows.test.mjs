@@ -46,7 +46,7 @@ const dependabotReview = workflow(dependabotReviewPath);
 const humanReview = workflow(humanReviewPath);
 
 const claudeAction =
-  "anthropics/claude-code-action@fa7e2f0a29a126f0b81cdcf360561b36e44cf608";
+  "anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b";
 const claudePluginMarketplace =
   "https://github.com/anthropics/claude-code.git#2bb60696142b493eafaeacfe00eac51d16c50c4f";
 
