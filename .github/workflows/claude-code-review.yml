@@ -36,6 +36,15 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Reject candidate marketplace path collision
+        shell: bash
+        run: |
+          marketplace_path="$GITHUB_WORKSPACE/.claude-code-plugin-marketplace"
+          if [[ -e "$marketplace_path" || -L "$marketplace_path" ]]; then
+            echo "::error::Candidate content occupies the trusted marketplace path"
+            exit 1
+          fi
+
       - name: Checkout pinned Claude plugin marketplace
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -46,6 +55,16 @@ jobs:
             .claude-plugin
             plugins/code-review
           persist-credentials: false
+
+      - name: Verify pinned Claude plugin marketplace
+        shell: bash
+        env:
+          EXPECTED_MARKETPLACE_SHA: 2bb60696142b493eafaeacfe00eac51d16c50c4f
+        run: |
+          marketplace_path="$GITHUB_WORKSPACE/.claude-code-plugin-marketplace"
+          [[ -d "$marketplace_path" && ! -L "$marketplace_path" ]]
+          actual_sha="$(git -C "$marketplace_path" rev-parse HEAD)"
+          [[ "$actual_sha" == "$EXPECTED_MARKETPLACE_SHA" ]]
 
       - name: Run Claude Code Review
         id: claude-review-human

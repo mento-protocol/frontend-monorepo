@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -846,9 +848,20 @@ test("human Claude review cannot shadow the Dependabot review check", () => {
   assert.match(job.if, /pull_request\.user\.type == 'User'/);
   assert.equal(humanReview.jobs["claude-review"], undefined);
 
-  const marketplaceCheckout = job.steps.find(
+  const guardIndex = job.steps.findIndex(
+    (step) => step.name === "Reject candidate marketplace path collision",
+  );
+  const marketplaceCheckoutIndex = job.steps.findIndex(
     (step) => step.name === "Checkout pinned Claude plugin marketplace",
   );
+  assert.ok(guardIndex >= 0);
+  assert.equal(marketplaceCheckoutIndex, guardIndex + 1);
+  const marketplaceGuard = job.steps[guardIndex];
+  assert.match(marketplaceGuard.run, /GITHUB_WORKSPACE/);
+  assert.match(marketplaceGuard.run, /-e "\$marketplace_path"/);
+  assert.match(marketplaceGuard.run, /-L "\$marketplace_path"/);
+
+  const marketplaceCheckout = job.steps[marketplaceCheckoutIndex];
   assert.ok(marketplaceCheckout);
   assert.equal(
     marketplaceCheckout.uses,
@@ -863,10 +876,52 @@ test("human Claude review cannot shadow the Dependabot review check", () => {
     [".claude-plugin", "plugins/code-review"],
   );
 
+  const marketplaceVerification = job.steps[marketplaceCheckoutIndex + 1];
+  assert.equal(
+    marketplaceVerification.name,
+    "Verify pinned Claude plugin marketplace",
+  );
+  assert.equal(
+    marketplaceVerification.env.EXPECTED_MARKETPLACE_SHA,
+    claudePluginMarketplaceRef,
+  );
+  assert.match(marketplaceVerification.run, /! -L "\$marketplace_path"/);
+  assert.match(
+    marketplaceVerification.run,
+    /git -C "\$marketplace_path" rev-parse HEAD/,
+  );
+
   const review = job.steps.find((step) => step.uses === claudeAction);
   assert.ok(review);
   assert.equal(review.with.plugin_marketplaces, claudePluginMarketplace);
   assert.equal(Object.hasOwn(review.with, "allowed_bots"), false);
+});
+
+test("human Claude review rejects a candidate marketplace symlink", () => {
+  const guard = humanReview.jobs["claude-review-human"].steps.find(
+    (step) => step.name === "Reject candidate marketplace path collision",
+  );
+  assert.ok(guard);
+
+  const workspace = mkdtempSync(join(tmpdir(), "claude-review-workspace-"));
+  try {
+    const redirect = join(workspace, "redirect");
+    mkdirSync(redirect);
+    symlinkSync(
+      redirect,
+      join(workspace, claudePluginMarketplace.slice(2)),
+      "dir",
+    );
+    const result = spawnSync("bash", ["-c", guard.run], {
+      encoding: "utf8",
+      env: { PATH: process.env.PATH, GITHUB_WORKSPACE: workspace },
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stdout, /Candidate content occupies/);
+    assert.deepEqual(readdirSync(redirect), []);
+  } finally {
+    rmSync(workspace, { force: true, recursive: true });
+  }
 });
 
 test("the processor is the sole Dependabot merge authority", () => {
