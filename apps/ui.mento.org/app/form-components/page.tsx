@@ -38,7 +38,7 @@ export default function FormComponentsPage() {
   const [checkboxChecked, setCheckboxChecked] = useState(false);
   const [radioValue, setRadioValue] = useState("option1");
   const [selectValue, setSelectValue] = useState("");
-  const [date, setDate] = useState<Date | undefined>(new Date());
+  const [date, setDate] = useState<Date | undefined>(DATEPICKER_DEFAULT_DATE);
   const [coin, setCoin] = useState("CELO");
 
   return (
@@ -143,6 +143,7 @@ export default function FormComponentsPage() {
             <Calendar
               mode="single"
               selected={date}
+              defaultMonth={DATEPICKER_DEFAULT_DATE}
               onSelect={setDate}
               className="rounded-md border"
             />
