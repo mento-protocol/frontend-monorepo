@@ -395,10 +395,6 @@ runs:
           "$TOOLS_PATH/vercel-cli-runtime/package.json"
           "$TOOLS_PATH/vercel-cli-runtime/pnpm-lock.yaml"
         )
-        runtime_patch="$TOOLS_PATH/vercel-cli-runtime/patches/brace-expansion@2.1.2.patch"
-        if [ -e "$runtime_patch" ] || [ -L "$runtime_patch" ]; then
-          immutable_files+=("$runtime_patch")
-        fi
         for immutable_file in "${immutable_files[@]}"; do
           if [ ! -f "$immutable_file" ] || [ -L "$immutable_file" ] ||
             [ "$(/usr/bin/realpath "$immutable_file")" != "$immutable_file" ] ||
