@@ -4,7 +4,7 @@
 # Keep these package-name false positives scoped to this standalone CLI lock so
 # root application suppressions cannot mask a CLI vulnerability.
 
-# Short-lived bridge for the two-PR Vercel runtime trust rotation. PR #709
+# Short-lived bridge for the three-PR Vercel runtime trust rotation. PR #709
 # contains the exact fixed runtime bytes authorized by this precursor and
 # removes these entries immediately when it lands.
 

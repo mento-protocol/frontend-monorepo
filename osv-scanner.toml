@@ -1,4 +1,4 @@
-## Short-lived bridge for the two-PR Vercel runtime trust rotation.
+## Short-lived bridge for the three-PR Vercel runtime trust rotation.
 ##
 ## PR #709 contains the reviewed fixed root and standalone runtime lockfiles,
 ## but those bytes cannot deploy until this trusted-controller precursor lands.

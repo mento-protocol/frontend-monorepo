@@ -438,15 +438,25 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
     [...vercelCliRuntimeOsvConfig.matchAll(/^id = "([^"]+)"$/gm)].map(
       ([, id]) => id,
     ),
-    ["GHSA-fm4j-4xhm-xpwx", "GHSA-gc25-3vc5-2jf9", "GHSA-mh99-v99m-4gvg"],
+    [
+      "GHSA-rgw5-rvv9-x895",
+      "GHSA-7p8r-x3mc-p8w7",
+      "GHSA-5p4m-2wfm-xmqj",
+      "GHSA-8xcm-r25x-g524",
+      "GHSA-m8rv-5g2x-5cg5",
+      "GHSA-v3r7-h72x-cjcm",
+      "GHSA-fm4j-4xhm-xpwx",
+      "GHSA-gc25-3vc5-2jf9",
+      "GHSA-mh99-v99m-4gvg",
+    ],
   );
   assert.equal(
     (vercelCliRuntimeOsvConfig.match(/^\[\[IgnoredVulns\]\]$/gm) ?? []).length,
-    3,
+    9,
   );
   assert.doesNotMatch(
     vercelCliRuntimeOsvConfig,
-    /GHSA-(?!fm4j-4xhm-xpwx|gc25-3vc5-2jf9|mh99-v99m-4gvg)/,
+    /GHSA-(?!rgw5-rvv9-x895|7p8r-x3mc-p8w7|5p4m-2wfm-xmqj|8xcm-r25x-g524|m8rv-5g2x-5cg5|v3r7-h72x-cjcm|fm4j-4xhm-xpwx|gc25-3vc5-2jf9|mh99-v99m-4gvg)/,
   );
   assert.equal(
     supplyChain.jobs["osv-pnpm-bootstrap"].with["scan-args"].trim(),

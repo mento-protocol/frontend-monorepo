@@ -70,7 +70,7 @@ runtime in the same PR:
    shasum -a 256 scripts/vercel-cli-runtime/pnpm-lock.yaml
    ```
 
-   Rotate the manifest and lockfile state in two PRs. First, land a trusted
+   Rotate the manifest and lockfile state in a three-PR sequence. First, land a trusted
    default-branch controller change that maps each reviewed current/next
    lockfile digest to the SHA-256 of its matching canonical, sorted root
    override object. The standalone manifest must remain an exact mirror of
