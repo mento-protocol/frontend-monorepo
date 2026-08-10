@@ -42,7 +42,7 @@ const scriptPath = fileURLToPath(
 );
 const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567";
 const PINNED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
-  "83351216a20b4f2dd2bf22732b74d6a7448624ff53af14c7573354b0d8342d5e";
+  "957ccb3b8431add07a144e77966b4a05733aaca6f21cd071c937861fc10189d4";
 
 function deploymentId(overrides = {}) {
   return generateVercelDeploymentId({
@@ -203,7 +203,7 @@ test("prebuilt assertion rejects missing, malformed, or mismatched output", () =
 test("resolved Next.js and exact Vercel CLI satisfy custom-ID prerequisites", () => {
   const prerequisites = assertDeploymentIdPrerequisites(repoRoot);
   const expected = {
-    next: "16.2.11",
+    next: "16.2.12",
     vercel: "56.4.1",
     vercelCliRuntime: {
       lockfileSha256: prerequisites.vercelCliRuntime.lockfileSha256,
