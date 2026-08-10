@@ -147,7 +147,7 @@ overrides:
   mdast-util-to-hast: ^13.2.1
   minimatch@>=10.0.0 <10.2.4: '>=10.2.4'
   nanoid@<3.3.17: 3.3.17
-  next: ^16.2.11
+  next: ^16.2.12
   path-to-regexp@>=8.0.0 <8.4.0: 8.4.2
   path-to-regexp@>=6.0.0 <6.3.0: 6.3.0
   picomatch: 4.0.4
@@ -1003,7 +1003,7 @@ packages:
     resolution: {integrity: sha512-aNh16zlx5rrGtP946jW+O/J7OUyoSC0dxjicFIztiw/S5tQjNqZgqmlgtOXMn7zAR8qV9VOAiKjK5UROaN8iJg==}
     peerDependencies:
       '@apollo/client': ^4.0.0
-      next: ^16.2.11
+      next: ^16.2.12
       react: ^19
       rxjs: ^7.3.0
 
@@ -5199,7 +5199,7 @@ packages:
     resolution: {integrity: sha512-Vds/cKG3SJjmdRbjXMVKXUamYCxh3oxW69ytL9Bs5sUQTUwE+9Uu8R9cZ0+eGC/c3vrUoXMn5QYGh/h8+PyeJA==}
     engines: {node: '>=18'}
     peerDependencies:
-      next: ^16.2.11
+      next: ^16.2.12
 
   '@sentry/node-core@10.36.0':
     resolution: {integrity: sha512-3K2SJCPiQGQMYSVSF3GuPIAilJPlXOWxyvrmnxY9Zw3ZbXaLynhYCJ5TjL38hS7XoMby/0lN2fY/kbXH/GlNeg==}
@@ -7061,7 +7061,7 @@ packages:
     peerDependencies:
       '@remix-run/react': ^2
       '@sveltejs/kit': ^1 || ^2
-      next: ^16.2.11
+      next: ^16.2.12
       nuxt: '>= 3'
       react: ^18 || ^19 || ^19.0.0-rc
       svelte: '>= 4'
