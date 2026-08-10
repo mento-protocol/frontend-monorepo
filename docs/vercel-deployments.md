@@ -1128,7 +1128,7 @@ Trusted controller code first requires its manifest to contain
 requires its `pnpm.overrides` object to equal the root security overrides,
 binds every byte of `scripts/vercel-cli-runtime/pnpm-lock.yaml` to a reviewed
 SHA-256, and rejects any patch state outside the exact reviewed legacy pair
-used during a two-PR rotation. The current runtime uses upstream fixed
+used during a three-PR rotation. The current runtime uses upstream fixed
 `brace-expansion@2.1.4` and has no local patch. It copies the manifest and
 lockfile as independent runner-owned `0444`, single-link files under
 `$TOOLS_PATH/vercel-cli-runtime`; CI never generates or updates that lockfile.
@@ -1144,7 +1144,7 @@ the two reviewed package-name false positives for Vercel's unrelated `sandbox`
 CLI dependency. Root application suppressions cannot mask a standalone CLI
 vulnerability.
 
-For a two-PR manifest and lockfile rotation, the trusted
+For a three-PR manifest and lockfile rotation, the trusted
 default-branch controller has a literal temporary mapping from each current or
 reviewed-next lockfile SHA-256 to the SHA-256 of its matching canonical, sorted
 root override object. The standalone manifest must exactly mirror that root

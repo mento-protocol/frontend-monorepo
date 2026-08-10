@@ -27,7 +27,7 @@ outside the reviewed lockfile.
 
 The workspace and standalone runtime resolve legacy v2 consumers to upstream
 `brace-expansion@2.1.4`. The August 2026 rotation retired the former local
-2.1.2 patch. During a two-PR runtime rotation, the trusted controller can still
+2.1.2 patch. During a three-PR runtime rotation, the trusted controller can still
 recognize the exact previous patched state until the payload lands; it stages
 that patch only for the legacy lockfile/override pair.
 
@@ -68,7 +68,7 @@ runtime in the same PR:
    shasum -a 256 scripts/vercel-cli-runtime/pnpm-lock.yaml
    ```
 
-   Rotate the manifest and lockfile state in two PRs. First, land a trusted
+   Rotate the manifest and lockfile state in a three-PR sequence. First, land a trusted
    default-branch controller change that maps each reviewed current/next
    lockfile digest to the SHA-256 of its matching canonical, sorted root
    override object. The standalone manifest must remain an exact mirror of
