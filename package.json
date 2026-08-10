@@ -70,7 +70,7 @@
     "turbo": "^2.10.8",
     "typescript": "catalog:",
     "typescript-eslint": "catalog:",
-    "vercel": "56.5.0",
+    "vercel": "56.4.1",
     "yaml": "2.9.0"
   },
   "packageManager": "pnpm@10.34.4",
