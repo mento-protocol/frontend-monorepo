@@ -103,6 +103,30 @@ function fakeGh(routes, calls = []) {
   };
 }
 
+function githubWholeSecondTimestamps(value) {
+  if (typeof value === "string") return value.replace(/\.000Z$/, "Z");
+  if (Buffer.isBuffer(value)) return value;
+  if (Array.isArray(value)) return value.map(githubWholeSecondTimestamps);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        key,
+        githubWholeSecondTimestamps(entry),
+      ]),
+    );
+  }
+  return value;
+}
+
+function githubWholeSecondRoutes(routes) {
+  return new Map(
+    [...routes].map(([key, value]) => [
+      key,
+      githubWholeSecondTimestamps(value),
+    ]),
+  );
+}
+
 function boundaryRoutes({ openPulls = [], commentsByPr = new Map() } = {}) {
   const workflows = [
     "_vercel-prebuilt.yml",
@@ -1009,6 +1033,86 @@ test("init retries when an open PR head changes during journal capture", () => {
   );
 });
 
+test("init canonicalizes GitHub REST whole-second timestamps", () => {
+  const cwd = workspace();
+  const pull = {
+    number: 700,
+    head: { sha: "a".repeat(40) },
+    updated_at: "2026-07-28T23:30:00Z",
+  };
+
+  runInit(cwd, {
+    gh: fakeGh(boundaryRoutes({ openPulls: [pull] })),
+  });
+
+  const boundary = JSON.parse(
+    readFileSync(join(observationRoot(cwd), "boundary", "start.json"), "utf8"),
+  );
+  assert.equal(
+    boundary.openPullRequestJournals[0].updatedAtUtc,
+    "2026-07-28T23:30:00.000Z",
+  );
+});
+
+test("init accepts only the controller's two canonical admission orderings", () => {
+  const pull = {
+    number: 700,
+    head: { sha: "a".repeat(40) },
+    updated_at: "2026-07-28T23:30:00Z",
+  };
+  const canonical = createPreviewJournal({
+    pr: pull.number,
+    admission: {
+      schema: "vercel-preview-controller-admission:v1",
+      workflow_id: 100,
+      through_run_id: 200,
+      through_run_number: 300,
+    },
+  });
+  const { admission, ...withoutAdmission } = canonical;
+  const admissionLast = { ...withoutAdmission, admission };
+  const comment = {
+    id: 400,
+    user: { type: "Bot", login: "github-actions[bot]" },
+    body: renderPreviewJournalBody(admissionLast),
+  };
+  const commentsByPr = new Map([[pull.number, [comment]]]);
+  const acceptedWorkspace = workspace();
+
+  runInit(acceptedWorkspace, {
+    gh: fakeGh(boundaryRoutes({ openPulls: [pull], commentsByPr })),
+  });
+
+  const boundary = JSON.parse(
+    readFileSync(
+      join(observationRoot(acceptedWorkspace), "boundary", "start.json"),
+      "utf8",
+    ),
+  );
+  assert.equal(
+    boundary.openPullRequestJournals[0].journal.digest,
+    canonical.journal_digest,
+  );
+
+  const { schema, ...withoutSchema } = admissionLast;
+  const unsupportedOrderComment = {
+    ...comment,
+    body: renderPreviewJournalBody({ ...withoutSchema, schema }),
+  };
+  assert.throws(
+    () =>
+      runInit(workspace(), {
+        gh: fakeGh(
+          boundaryRoutes({
+            openPulls: [pull],
+            commentsByPr: new Map([[pull.number, [unsupportedOrderComment]]]),
+          }),
+        ),
+      }),
+    /Preview journal is not canonical/,
+  );
+});
+
 test("init recovers when the start boundary exists without its commit marker", () => {
   const cwd = workspace();
   runInit(cwd);
@@ -1301,6 +1405,30 @@ test("capture-preview freezes the canonical v2 journal and raw GitHub facts", ()
           "github.com/mento-protocol/frontend-monorepo",
       ),
   );
+});
+
+test("capture-preview normalizes whole-second GitHub REST timestamps", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  const result = runVercelCostObservation({
+    argv: ["capture-preview", "--pr", "700", "--event-run-id", "9001"],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: fakeGh(githubWholeSecondRoutes(previewRoutes())),
+    stdout: output().stream,
+  });
+
+  assert.equal(result.exitCode, 0);
+  const directory = join(observationRoot(cwd), "preview", "9001");
+  const capture = JSON.parse(
+    readFileSync(join(directory, "capture.json"), "utf8"),
+  );
+  const controllerRun = JSON.parse(
+    readFileSync(join(directory, "raw", "controller-run.json"), "utf8"),
+  );
+  assert.equal(capture.eventTimestampUtc, "2026-07-29T01:00:01.000Z");
+  assert.equal(controllerRun.created_at, "2026-07-29T01:00:01.000Z");
+  assert.equal(controllerRun.updated_at, "2026-07-29T01:04:00.000Z");
 });
 
 test("capture-preview accepts a controller event for a non-main base", () => {
@@ -2117,7 +2245,7 @@ test("a drained pre-start controller receipt excludes a carried PR first preview
   );
 });
 
-test("capture-main records every GitHub attempt and leaves provider probes unresolved", () => {
+test("capture-main normalizes whole-second GitHub timestamps and records every attempt", () => {
   const cwd = workspace();
   runInit(cwd);
   const run = {
@@ -2128,8 +2256,8 @@ test("capture-main records every GitHub attempt and leaves provider probes unres
     event: "workflow_run",
     status: "completed",
     conclusion: "success",
-    created_at: "2026-07-30T02:00:00.000Z",
-    updated_at: "2026-07-30T02:12:00.000Z",
+    created_at: "2026-07-30T02:00:00Z",
+    updated_at: "2026-07-30T02:12:00Z",
     head_branch: "main",
     head_sha: "c".repeat(40),
     html_url:
@@ -2160,8 +2288,8 @@ test("capture-main records every GitHub attempt and leaves provider probes unres
     event: "push",
     status: "completed",
     conclusion: "success",
-    created_at: "2026-07-30T01:40:00.000Z",
-    updated_at: "2026-07-30T01:59:00.000Z",
+    created_at: "2026-07-30T01:40:00Z",
+    updated_at: "2026-07-30T01:59:00Z",
     head_branch: "main",
     head_sha: "c".repeat(40),
     html_url:
@@ -2205,7 +2333,14 @@ test("capture-main records every GitHub attempt and leaves provider probes unres
   const capture = JSON.parse(
     readFileSync(join(directory, "capture.json"), "utf8"),
   );
+  const storedRun = JSON.parse(
+    readFileSync(join(directory, "raw", "run.json"), "utf8"),
+  );
   assert.equal(capture.schema, MAIN_CAPTURE_SCHEMA);
+  assert.equal(capture.eventTimestampUtc, "2026-07-30T02:00:00.000Z");
+  assert.equal(capture.runCompletedAtUtc, "2026-07-30T02:12:00.000Z");
+  assert.equal(storedRun.created_at, "2026-07-30T02:00:00.000Z");
+  assert.equal(storedRun.updated_at, "2026-07-30T02:12:00.000Z");
   assert.equal(capture.canonicalDerivedFacts.jobCount, 1);
   assert.equal(
     capture.canonicalDerivedFacts.terminalRoute.outcome,
@@ -2223,7 +2358,7 @@ test("capture-main records every GitHub attempt and leaves provider probes unres
   assertPrivateTree(directory);
 
   run.run_attempt = 2;
-  run.updated_at = "2026-07-30T02:20:00.000Z";
+  run.updated_at = "2026-07-30T02:20:00Z";
   routes.set(
     "api --method GET --paginate --slurp repos/mento-protocol/frontend-monorepo/actions/runs/9100/attempts/2/jobs?filter=all&per_page=100",
     [

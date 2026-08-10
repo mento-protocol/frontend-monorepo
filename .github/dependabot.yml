@@ -125,10 +125,36 @@ updates:
       prefix: chore(ci)
 
     groups:
-      github-actions:
+      github-actions-routine:
         applies-to: version-updates
         patterns:
           - "*"
+        exclude-patterns:
+          # These actions participate in dependency review, code scanning, or
+          # the processor's own trust boundary. Keep their updates isolated so
+          # one sensitive pin cannot lend authority to an otherwise routine
+          # grouped update.
+          - actions/create-github-app-token
+          - actions/dependency-review-action
+          - anthropics/*
+          - dependabot/*
+          - github/codeql-action*
+          - google/osv-scanner-action*
+          - ossf/scorecard-action
+        update-types:
+          - minor
+          - patch
+
+      github-actions-manual:
+        applies-to: version-updates
+        patterns:
+          - actions/create-github-app-token
+          - actions/dependency-review-action
+          - anthropics/*
+          - dependabot/*
+          - github/codeql-action*
+          - google/osv-scanner-action*
+          - ossf/scorecard-action
 
       github-actions-security:
         applies-to: security-updates

@@ -1,0 +1,530 @@
+name: Dependabot Claude Review
+
+# The reviewer run keeps the exact intake receipt in its own immutable display
+# title. The processor can therefore authenticate workflow/path provenance
+# without treating this workflow_run's default-branch head SHA as the PR head.
+run-name: >-
+  ${{ format('dependabot-claude-review:v1 | source={0}', github.event.workflow_run.display_title) }}
+
+on:
+  workflow_run:
+    workflows: [Dependabot Intake]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  preflight:
+    name: dependabot-claude-review-preflight
+    if: >-
+      github.repository == 'mento-protocol/frontend-monorepo' &&
+      endsWith(github.event.workflow_run.display_title, 'receipt=true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      head_ref: ${{ steps.intake.outputs.head_ref }}
+      head_sha: ${{ steps.intake.outputs.head_sha }}
+      identity_digest: ${{ steps.pr.outputs.identity_digest }}
+      pr_number: ${{ steps.intake.outputs.pr_number }}
+    steps:
+      # This first step has no token, secret, or third-party Action. It must
+      # authenticate the complete upstream envelope before a credential is
+      # passed to any command or Action.
+      - name: Authenticate the completed intake receipt
+        id: intake
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          INTAKE_ACTOR_LOGIN: ${{ github.event.workflow_run.actor.login }}
+          INTAKE_ACTOR_TYPE: ${{ github.event.workflow_run.actor.type }}
+          INTAKE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          INTAKE_EVENT: ${{ github.event.workflow_run.event }}
+          INTAKE_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          INTAKE_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          INTAKE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          INTAKE_PATH: ${{ github.event.workflow_run.path }}
+          INTAKE_PULL_REQUESTS_JSON: ${{ toJson(github.event.workflow_run.pull_requests) }}
+          INTAKE_TITLE: ${{ github.event.workflow_run.display_title }}
+          INTAKE_TRIGGERING_ACTOR_LOGIN: ${{ github.event.workflow_run.triggering_actor.login }}
+          INTAKE_TRIGGERING_ACTOR_TYPE: ${{ github.event.workflow_run.triggering_actor.type }}
+          INTAKE_WORKFLOW: ${{ github.event.workflow_run.name }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_ID: ${{ github.run_id }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          test "$REPOSITORY" = "mento-protocol/frontend-monorepo"
+          test "$DEFAULT_BRANCH" = "main"
+          test "$INTAKE_WORKFLOW" = "Dependabot Intake"
+          test "$INTAKE_CONCLUSION" = "success"
+          test "$INTAKE_EVENT" = "pull_request_target"
+          test "$INTAKE_ACTOR_LOGIN" = "dependabot[bot]"
+          test "$INTAKE_ACTOR_TYPE" = "Bot"
+          if test -n "$INTAKE_TRIGGERING_ACTOR_LOGIN" || \
+            test -n "$INTAKE_TRIGGERING_ACTOR_TYPE"; then
+            test "$INTAKE_TRIGGERING_ACTOR_LOGIN" = "dependabot[bot]"
+            test "$INTAKE_TRIGGERING_ACTOR_TYPE" = "Bot"
+          fi
+          test "$INTAKE_HEAD_REPOSITORY" = "$REPOSITORY"
+          [[ "$INTAKE_HEAD_BRANCH" == dependabot/* ]]
+          [[ "$INTAKE_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          case "$INTAKE_PATH" in
+            .github/workflows/dependabot-intake.yml|.github/workflows/dependabot-intake.yml@main) ;;
+            *) exit 1 ;;
+          esac
+
+          receipt_pattern='^dependabot-intake:v1 \| repository=mento-protocol/frontend-monorepo \| pr=([1-9][0-9]*) \| sha=([0-9a-f]{40}) \| action=(opened|synchronize|reopened) \| receipt=true$'
+          [[ "$INTAKE_TITLE" =~ $receipt_pattern ]]
+          pr_number="${BASH_REMATCH[1]}"
+          receipt_head_sha="${BASH_REMATCH[2]}"
+          test "$INTAKE_HEAD_SHA" = "$receipt_head_sha"
+          RECEIPT_HEAD_SHA="$receipt_head_sha" \
+            RECEIPT_PR_NUMBER="$pr_number" \
+            node --input-type=module --eval '
+              const linked = JSON.parse(process.env.INTAKE_PULL_REQUESTS_JSON);
+              if (!Array.isArray(linked) || linked.length > 1) {
+                throw new Error("Invalid intake linked-PR cardinality");
+              }
+              if (linked.length === 1) {
+                const [pullRequest] = linked;
+                if (
+                  pullRequest?.number !== Number(process.env.RECEIPT_PR_NUMBER) ||
+                  pullRequest?.head?.ref !== process.env.INTAKE_HEAD_BRANCH ||
+                  pullRequest?.head?.sha !== process.env.RECEIPT_HEAD_SHA ||
+                  pullRequest?.base?.ref !== "main"
+                ) {
+                  throw new Error("Intake linked PR does not match receipt");
+                }
+              }
+            '
+          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$INTAKE_HEAD_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$receipt_head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Query and bind the exact PR identity before review
+        id: pr
+        shell: bash
+        env:
+          EXPECTED_HEAD_REF: ${{ steps.intake.outputs.head_ref }}
+          EXPECTED_HEAD_SHA: ${{ steps.intake.outputs.head_sha }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.intake.outputs.pr_number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          snapshot="$RUNNER_TEMP/dependabot-review-pr-before.json"
+          gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" \
+            --jq '{id,node_id,number,state,draft,user:{login:.user.login,type:.user.type},head:{sha:.head.sha,ref:.head.ref,repo:{full_name:.head.repo.full_name}},base:{ref:.base.ref,repo:{full_name:.base.repo.full_name}}}' \
+            > "$snapshot"
+          identity_digest="$(node --input-type=module --eval '
+            import { createHash } from "node:crypto";
+            import { readFileSync } from "node:fs";
+
+            const snapshot = JSON.parse(readFileSync(process.argv[1], "utf8"));
+            const repository = process.env.REPOSITORY;
+            const prNumber = Number(process.env.PR_NUMBER);
+            const expectedHeadRef = process.env.EXPECTED_HEAD_REF;
+            const expectedHeadSha = process.env.EXPECTED_HEAD_SHA;
+            const fail = (message) => {
+              throw new Error(`Unsafe Dependabot review target: ${message}`);
+            };
+
+            if (snapshot.number !== prNumber) fail("PR number changed");
+            if (snapshot.state !== "open" || snapshot.draft !== false) {
+              fail("PR is not open and ready");
+            }
+            if (
+              snapshot.user?.login !== "dependabot[bot]" ||
+              snapshot.user?.type !== "Bot"
+            ) {
+              fail("PR author is not Dependabot");
+            }
+            if (
+              snapshot.head?.repo?.full_name !== repository ||
+              snapshot.base?.repo?.full_name !== repository
+            ) {
+              fail("PR is not repository-owned");
+            }
+            if (snapshot.head?.ref !== expectedHeadRef) {
+              fail("PR head branch no longer matches the intake run");
+            }
+            if (snapshot.base?.ref !== "main") fail("PR base is not main");
+            if (snapshot.head?.sha !== expectedHeadSha) {
+              fail("PR head no longer matches the intake receipt");
+            }
+
+            const canonicalIdentity = {
+              id: snapshot.id,
+              nodeId: snapshot.node_id,
+              number: snapshot.number,
+              state: snapshot.state,
+              draft: snapshot.draft,
+              authorLogin: snapshot.user.login,
+              authorType: snapshot.user.type,
+              headSha: snapshot.head.sha,
+              headRef: snapshot.head.ref,
+              headRepository: snapshot.head.repo.full_name,
+              baseRef: snapshot.base.ref,
+              baseRepository: snapshot.base.repo.full_name,
+            };
+            process.stdout.write(
+              createHash("sha256")
+                .update(JSON.stringify(canonicalIdentity))
+                .digest("hex"),
+            );
+          ' "$snapshot"
+          )"
+          [[ "$identity_digest" =~ ^[0-9a-f]{64}$ ]]
+
+          commit_snapshot="$RUNNER_TEMP/dependabot-review-commit.json"
+          gh api "repos/$REPOSITORY/commits/$EXPECTED_HEAD_SHA" \
+            --jq '{sha,author:{login:.author.login,type:.author.type},committer:{login:.committer.login,type:.committer.type},verification:{verified:.commit.verification.verified,reason:.commit.verification.reason}}' \
+            > "$commit_snapshot"
+          node --input-type=module --eval '
+            import { readFileSync } from "node:fs";
+
+            const commit = JSON.parse(readFileSync(process.argv[1], "utf8"));
+            const expectedHeadSha = process.env.EXPECTED_HEAD_SHA;
+            const dependabotCommitter =
+              commit.committer?.login === "dependabot[bot]" &&
+              commit.committer?.type === "Bot";
+            const webFlowCommitter =
+              commit.committer?.login === "web-flow" &&
+              commit.committer?.type === "User";
+            if (
+              commit.sha !== expectedHeadSha ||
+              commit.author?.login !== "dependabot[bot]" ||
+              commit.author?.type !== "Bot" ||
+              (!dependabotCommitter && !webFlowCommitter) ||
+              commit.verification?.verified !== true ||
+              commit.verification?.reason !== "valid"
+            ) {
+              throw new Error("PR head is not a verified Dependabot commit");
+            }
+          ' "$commit_snapshot"
+
+          echo "identity_digest=$identity_digest" >> "$GITHUB_OUTPUT"
+
+  review:
+    name: dependabot-claude-review-agent
+    needs: preflight
+    if: needs.preflight.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The explicit read-only GITHUB_TOKEN prevents the Action from exchanging
+    # OIDC for a broader Claude GitHub App token. The isolated publisher owns
+    # check proof, and this job cannot write repository or PR state.
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    outputs:
+      structured_output: ${{ steps.claude-review.outputs.structured_output }}
+    steps:
+      - name: Revalidate the exact PR identity immediately before review
+        shell: bash
+        env:
+          EXPECTED_HEAD_REF: ${{ needs.preflight.outputs.head_ref }}
+          EXPECTED_HEAD_SHA: ${{ needs.preflight.outputs.head_sha }}
+          EXPECTED_IDENTITY_DIGEST: ${{ needs.preflight.outputs.identity_digest }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.preflight.outputs.pr_number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          snapshot="$RUNNER_TEMP/dependabot-review-pr-immediate.json"
+          gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" \
+            --jq '{id,node_id,number,state,draft,user:{login:.user.login,type:.user.type},head:{sha:.head.sha,ref:.head.ref,repo:{full_name:.head.repo.full_name}},base:{ref:.base.ref,repo:{full_name:.base.repo.full_name}}}' \
+            > "$snapshot"
+          node --input-type=module --eval '
+            import { createHash } from "node:crypto";
+            import { readFileSync } from "node:fs";
+
+            const snapshot = JSON.parse(readFileSync(process.argv[1], "utf8"));
+            const repository = process.env.REPOSITORY;
+            const prNumber = Number(process.env.PR_NUMBER);
+            const expectedHeadRef = process.env.EXPECTED_HEAD_REF;
+            const expectedHeadSha = process.env.EXPECTED_HEAD_SHA;
+            const fail = (message) => {
+              throw new Error(`Dependabot review target moved: ${message}`);
+            };
+
+            if (snapshot.number !== prNumber) fail("PR number changed");
+            if (snapshot.state !== "open" || snapshot.draft !== false) {
+              fail("PR is not open and ready");
+            }
+            if (
+              snapshot.user?.login !== "dependabot[bot]" ||
+              snapshot.user?.type !== "Bot"
+            ) {
+              fail("PR author changed");
+            }
+            if (
+              snapshot.head?.repo?.full_name !== repository ||
+              snapshot.base?.repo?.full_name !== repository
+            ) {
+              fail("PR repository ownership changed");
+            }
+            if (snapshot.head?.ref !== expectedHeadRef) {
+              fail("PR head branch changed");
+            }
+            if (snapshot.base?.ref !== "main") fail("PR base changed");
+            if (snapshot.head?.sha !== expectedHeadSha) fail("PR head changed");
+
+            const canonicalIdentity = {
+              id: snapshot.id,
+              nodeId: snapshot.node_id,
+              number: snapshot.number,
+              state: snapshot.state,
+              draft: snapshot.draft,
+              authorLogin: snapshot.user.login,
+              authorType: snapshot.user.type,
+              headSha: snapshot.head.sha,
+              headRef: snapshot.head.ref,
+              headRepository: snapshot.head.repo.full_name,
+              baseRef: snapshot.base.ref,
+              baseRepository: snapshot.base.repo.full_name,
+            };
+            const digest = createHash("sha256")
+              .update(JSON.stringify(canonicalIdentity))
+              .digest("hex");
+            if (digest !== process.env.EXPECTED_IDENTITY_DIGEST) {
+              fail("PR identity digest changed");
+            }
+          ' "$snapshot"
+
+      - name: Check out the exact trusted workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Run Claude Code Review
+        id: claude-review
+        uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1.0.183
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          prompt: >-
+            Review the exact Dependabot pull request
+            ${{ github.repository }}/pull/${{ needs.preflight.outputs.pr_number }}
+            at head ${{ needs.preflight.outputs.head_sha }}. Read the diff only
+            through GitHub APIs. Complete the review even when the update is
+            automated, small, or appears trivial. Do not make any repository,
+            pull-request, issue, review, comment, check, or workflow mutation.
+            Return the requested structured result with concrete correctness,
+            security, compatibility, and test findings. A clean verdict means
+            the exact diff has no actionable findings.
+          allowed_bots: dependabot[bot]
+          claude_args: >-
+            --json-schema '{"type":"object","additionalProperties":false,"required":["schema","repository","pullRequestNumber","headSha","reviewCompleted","verdict","findings"],"properties":{"schema":{"const":"dependabot-claude-review-result:v1"},"repository":{"const":"mento-protocol/frontend-monorepo"},"pullRequestNumber":{"type":"integer","minimum":1},"headSha":{"type":"string","pattern":"^[0-9a-f]{40}$"},"reviewCompleted":{"type":"boolean"},"verdict":{"enum":["clean","findings"]},"findings":{"type":"array","maxItems":20,"items":{"type":"object","additionalProperties":false,"required":["title","path","line","summary"],"properties":{"title":{"type":"string","minLength":1,"maxLength":160},"path":{"type":"string","minLength":1,"maxLength":300},"line":{"type":"integer","minimum":1},"summary":{"type":"string","minLength":1,"maxLength":1000}}}}}}'
+
+  publish:
+    name: dependabot-claude-review-publisher
+    needs: [preflight, review]
+    if: ${{ always() && needs.preflight.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      checks: write
+      pull-requests: read
+    steps:
+      # This isolated job has no checkout, Claude Action, OAuth secret, or
+      # candidate surface. It alone can mint the authoritative exact-head check.
+      - name: Re-query the exact PR identity after review
+        id: postflight
+        shell: bash
+        env:
+          EXPECTED_HEAD_REF: ${{ needs.preflight.outputs.head_ref }}
+          EXPECTED_HEAD_SHA: ${{ needs.preflight.outputs.head_sha }}
+          EXPECTED_IDENTITY_DIGEST: ${{ needs.preflight.outputs.identity_digest }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.preflight.outputs.pr_number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -u
+          snapshot="$RUNNER_TEMP/dependabot-review-pr-after.json"
+          stable=false
+          if gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" \
+              --jq '{id,node_id,number,state,draft,user:{login:.user.login,type:.user.type},head:{sha:.head.sha,ref:.head.ref,repo:{full_name:.head.repo.full_name}},base:{ref:.base.ref,repo:{full_name:.base.repo.full_name}}}' \
+              > "$snapshot" && \
+            node --input-type=module --eval '
+              import { createHash } from "node:crypto";
+              import { readFileSync } from "node:fs";
+
+              const snapshot = JSON.parse(readFileSync(process.argv[1], "utf8"));
+              const repository = process.env.REPOSITORY;
+              const prNumber = Number(process.env.PR_NUMBER);
+              const expectedHeadRef = process.env.EXPECTED_HEAD_REF;
+              const expectedHeadSha = process.env.EXPECTED_HEAD_SHA;
+              const fail = (message) => {
+                throw new Error(`Dependabot review target moved: ${message}`);
+              };
+
+              if (snapshot.number !== prNumber) fail("PR number changed");
+              if (snapshot.state !== "open" || snapshot.draft !== false) {
+                fail("PR is not open and ready");
+              }
+              if (
+                snapshot.user?.login !== "dependabot[bot]" ||
+                snapshot.user?.type !== "Bot"
+              ) {
+                fail("PR author changed");
+              }
+              if (
+                snapshot.head?.repo?.full_name !== repository ||
+                snapshot.base?.repo?.full_name !== repository
+              ) {
+                fail("PR repository ownership changed");
+              }
+              if (snapshot.head?.ref !== expectedHeadRef) {
+                fail("PR head branch changed");
+              }
+              if (snapshot.base?.ref !== "main") fail("PR base changed");
+              if (snapshot.head?.sha !== expectedHeadSha) fail("PR head changed");
+
+              const canonicalIdentity = {
+                id: snapshot.id,
+                nodeId: snapshot.node_id,
+                number: snapshot.number,
+                state: snapshot.state,
+                draft: snapshot.draft,
+                authorLogin: snapshot.user.login,
+                authorType: snapshot.user.type,
+                headSha: snapshot.head.sha,
+                headRef: snapshot.head.ref,
+                headRepository: snapshot.head.repo.full_name,
+                baseRef: snapshot.base.ref,
+                baseRepository: snapshot.base.repo.full_name,
+              };
+              const digest = createHash("sha256")
+                .update(JSON.stringify(canonicalIdentity))
+                .digest("hex");
+              if (digest !== process.env.EXPECTED_IDENTITY_DIGEST) {
+                fail("PR identity digest changed");
+              }
+            ' "$snapshot"
+          then
+            stable=true
+          fi
+          echo "stable=$stable" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the exact-head Claude review check
+        if: ${{ always() }}
+        shell: bash
+        env:
+          CHECK_DETAILS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          CHECK_EXTERNAL_ID: dependabot-claude-review:v1:pr=${{ needs.preflight.outputs.pr_number }}:sha=${{ needs.preflight.outputs.head_sha }}:run=${{ github.run_id }}:attempt=${{ github.run_attempt }}
+          EXPECTED_HEAD_SHA: ${{ needs.preflight.outputs.head_sha }}
+          GH_TOKEN: ${{ github.token }}
+          POST_IDENTITY_STABLE: ${{ steps.postflight.outputs.stable }}
+          PR_NUMBER: ${{ needs.preflight.outputs.pr_number }}
+          REPOSITORY: ${{ github.repository }}
+          REVIEW_OUTPUT: ${{ needs.review.outputs.structured_output }}
+          REVIEW_RESULT: ${{ needs.review.result }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+
+          review_result_file="$RUNNER_TEMP/dependabot-claude-review-result.json"
+          valid_review=false
+          finding_count=0
+          if test "$REVIEW_RESULT" = "success"; then
+            printf '%s' "$REVIEW_OUTPUT" > "$review_result_file"
+            if jq -e \
+              --arg repository "$REPOSITORY" \
+              --arg headSha "$EXPECTED_HEAD_SHA" \
+              --argjson prNumber "$PR_NUMBER" \
+              '
+                type == "object" and
+                (keys | sort) == [
+                  "findings",
+                  "headSha",
+                  "pullRequestNumber",
+                  "repository",
+                  "reviewCompleted",
+                  "schema",
+                  "verdict"
+                ] and
+                .schema == "dependabot-claude-review-result:v1" and
+                .repository == $repository and
+                .pullRequestNumber == $prNumber and
+                (.pullRequestNumber | type == "number" and floor == .) and
+                .headSha == $headSha and
+                (.headSha | type == "string" and test("^[0-9a-f]{40}$")) and
+                (.reviewCompleted | type == "boolean") and
+                (.verdict == "clean" or .verdict == "findings") and
+                (.findings | type == "array" and length <= 20) and
+                all(.findings[];
+                  type == "object" and
+                  (keys | sort) == ["line", "path", "summary", "title"] and
+                  (.title | type == "string" and length >= 1 and length <= 160) and
+                  (.path | type == "string" and length >= 1 and length <= 300) and
+                  (.line | type == "number" and floor == . and . >= 1) and
+                  (.summary | type == "string" and length >= 1 and length <= 1000)
+                )
+              ' \
+              "$review_result_file" > /dev/null; then
+              valid_review=true
+              finding_count="$(jq -r '.findings | length' "$review_result_file")"
+            fi
+          fi
+
+          conclusion=failure
+          summary="Claude review failed, returned an invalid result, or the exact PR identity changed."
+          text="No validated review findings are available. Open the trusted reviewer run for failure diagnostics."
+          if test "$POST_IDENTITY_STABLE" = "true" && \
+            test "$valid_review" = "true" && \
+            jq -e \
+              '.reviewCompleted == true and .verdict == "clean" and (.findings | length) == 0' \
+              "$review_result_file" > /dev/null; then
+            conclusion=success
+            summary="Claude reviewed the exact stable PR head and returned no actionable findings."
+            text="The validated structured review completed with an empty findings array."
+          elif test "$valid_review" = "true" && \
+            jq -e '.reviewCompleted == true and .verdict == "findings"' \
+              "$review_result_file" > /dev/null; then
+            summary="Claude reviewed the exact PR head and returned $finding_count bounded finding(s)."
+            text="$(jq -r '
+              "Validated findings (one JSON object per line):\n\n" +
+              ([.findings[] | "    " + tojson] | join("\n"))
+            ' "$review_result_file")"
+          fi
+
+          request="$RUNNER_TEMP/dependabot-claude-review-check.json"
+          jq -n \
+            --arg conclusion "$conclusion" \
+            --arg detailsUrl "$CHECK_DETAILS_URL" \
+            --arg externalId "$CHECK_EXTERNAL_ID" \
+            --arg headSha "$EXPECTED_HEAD_SHA" \
+            --arg summary "$summary" \
+            --arg text "$text" \
+            '{
+              name: "claude-review",
+              head_sha: $headSha,
+              status: "completed",
+              conclusion: $conclusion,
+              details_url: $detailsUrl,
+              external_id: $externalId,
+              output: {
+                title: "Dependabot Claude review",
+                summary: $summary,
+                text: $text
+              }
+            }' > "$request"
+          gh api --method POST "repos/$REPOSITORY/check-runs" \
+            -H "Accept: application/vnd.github+json" \
+            --input "$request" \
+            --jq '{id,name,head_sha,status,conclusion,details_url,external_id}'
+
+          test "$conclusion" = "success"

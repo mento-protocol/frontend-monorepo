@@ -36,6 +36,31 @@ function mainDeploymentRun(overrides = {}) {
   });
 }
 
+function dependabotProcessorRun(overrides = {}) {
+  const { target = "pr=711", ...runOverrides } = overrides;
+  const targetValue = String(target).replace(/^pr=/, "");
+  const displayTitle =
+    target === "ignored"
+      ? "Dependabot processor | event=workflow_run | target=ignored"
+      : `Dependabot processor | event=workflow_run | receipt=dependabot-intake:v1 | repository=mento-protocol/frontend-monorepo | pr=${targetValue} | sha=${"a".repeat(40)} | action=synchronize | receipt=true`;
+  return workflowRun({
+    name: "Dependabot Processor",
+    event: "workflow_run",
+    display_title: displayTitle,
+    ...runOverrides,
+  });
+}
+
+function dependabotProcessorSweepRun(overrides = {}) {
+  return workflowRun({
+    name: "Dependabot Processor",
+    event: "repository_dispatch",
+    display_title:
+      "Dependabot processor | event=repository_dispatch | target=scope=open",
+    ...overrides,
+  });
+}
+
 function managedIssue(overrides = {}) {
   return {
     number: 42,
@@ -319,6 +344,43 @@ test("exposes the manual trigger in the incident title", async () => {
   );
 });
 
+test("tracks repository-dispatch processor sweeps on the default branch", async () => {
+  const run = dependabotProcessorSweepRun();
+  const { github, context, calls } = harness({ run });
+  const result = await reconcileCiFailureIssue({ github, context });
+
+  assert.deepEqual(result, { action: "opened", issueNumber: 91 });
+  assert.equal(
+    calls.create[0].title,
+    "CI: Dependabot Processor is failing (main; repository_dispatch)",
+  );
+});
+
+test("repository-dispatch monitoring rejects noncanonical processor sweeps", async () => {
+  for (const run of [
+    workflowRun({
+      event: "repository_dispatch",
+      display_title:
+        "Dependabot processor | event=repository_dispatch | target=scope=open",
+    }),
+    dependabotProcessorSweepRun({ display_title: "Dependabot processor" }),
+    dependabotProcessorSweepRun({
+      display_title:
+        "DEPENDABOT PROCESSOR | event=repository_dispatch | target=scope=open",
+    }),
+    dependabotProcessorSweepRun({ head_branch: "feature/example" }),
+    dependabotProcessorSweepRun({
+      head_repository: { full_name: "contributor/frontend-monorepo" },
+    }),
+  ]) {
+    const { github, context, calls } = harness({ run });
+    const result = await reconcileCiFailureIssue({ github, context });
+    assert.deepEqual(result, { action: "ignored", reason: "untracked-run" });
+    assert.equal(calls.listRuns, 0);
+    assert.equal(calls.listIssues, 0);
+  }
+});
+
 test("opens and updates the managed main-deployment workflow_run issue", async () => {
   const firstFailure = mainDeploymentRun({ run_number: 30 });
   const openedHarness = harness({ run: firstFailure });
@@ -365,10 +427,84 @@ test("a later main-deployment workflow_run success closes only its partition", a
   assert.match(calls.update[0].body, /run #32/);
 });
 
+test("tracks the trusted Dependabot processor workflow_run", async () => {
+  const run = dependabotProcessorRun({ run_number: 40 });
+  const { github, context, calls } = harness({ run });
+  const result = await reconcileCiFailureIssue({ github, context });
+
+  assert.deepEqual(result, { action: "opened", issueNumber: 91 });
+  assert.equal(
+    calls.create[0].title,
+    "CI: Dependabot Processor is failing (pr=711; workflow_run)",
+  );
+  assert.match(
+    calls.create[0].body,
+    /managed-ci-failure:77:workflow_run:pr%3D711/,
+  );
+});
+
+test("processor workflow_run recovery is partitioned by pull request", async () => {
+  const failure = dependabotProcessorRun({ run_number: 40, target: "pr=711" });
+  const otherSuccess = dependabotProcessorRun({
+    conclusion: "success",
+    run_number: 41,
+    target: "pr=712",
+  });
+  const matchingSuccess = dependabotProcessorRun({
+    conclusion: "success",
+    run_number: 42,
+    target: "pr=711",
+  });
+  const existing = managedIssue({
+    body: `failure\n\n${managedMarker("workflow_run", "pr=711")}`,
+  });
+
+  const otherHarness = harness({
+    run: otherSuccess,
+    issues: [existing],
+    latestRuns: [otherSuccess, failure],
+  });
+  const otherResult = await reconcileCiFailureIssue(otherHarness);
+  assert.deepEqual(otherResult, {
+    action: "ignored",
+    reason: "nothing-to-close",
+  });
+  assert.equal(otherHarness.calls.update.length, 0);
+
+  const matchingHarness = harness({
+    run: matchingSuccess,
+    issues: [existing],
+    latestRuns: [matchingSuccess, otherSuccess, failure],
+  });
+  const matchingResult = await reconcileCiFailureIssue(matchingHarness);
+  assert.deepEqual(matchingResult, { action: "closed", issueNumber: 42 });
+  assert.equal(matchingHarness.calls.update[0].state, "closed");
+});
+
+test("ignores processor workflow_run completions without one bounded PR target", async () => {
+  for (const run of [
+    dependabotProcessorRun({ target: "ignored" }),
+    dependabotProcessorRun({ target: "pr=0" }),
+    dependabotProcessorRun({ target: "pr=711-extra" }),
+    dependabotProcessorRun({
+      display_title:
+        "Dependabot processor | event=workflow_run | receipt=dependabot-intake:v1 | repository=other/repo | pr=711 | sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa | action=synchronize | receipt=true",
+    }),
+    dependabotProcessorRun({ display_title: "Dependabot processor" }),
+  ]) {
+    const { github, context, calls } = harness({ run });
+    const result = await reconcileCiFailureIssue({ github, context });
+    assert.deepEqual(result, { action: "ignored", reason: "untracked-run" });
+    assert.equal(calls.listRuns, 0);
+    assert.equal(calls.listIssues, 0);
+  }
+});
+
 test("workflow_run monitoring rejects unrelated workflows, wrong branches, and forks", async () => {
   for (const run of [
     workflowRun({ event: "workflow_run", name: "Quality Budgets" }),
     mainDeploymentRun({ head_branch: "feature/example" }),
+    dependabotProcessorRun({ head_branch: "feature/example" }),
     mainDeploymentRun({
       head_repository: { full_name: "contributor/frontend-monorepo" },
     }),

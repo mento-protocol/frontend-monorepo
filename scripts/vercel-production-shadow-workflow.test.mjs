@@ -415,14 +415,7 @@ test("protected build runtime installs the exact standalone Vercel CLI without w
     runtimeBlock,
     /\$TOOLS_PATH\/vercel-cli-runtime\/pnpm-lock\.yaml/,
   );
-  assert.match(
-    runtimeBlock,
-    /runtime_patch="\$TOOLS_PATH\/vercel-cli-runtime\/patches\/brace-expansion@2\.1\.2\.patch"/,
-  );
-  assert.match(
-    runtimeBlock,
-    /if \[ -e "\$runtime_patch" \] \|\| \[ -L "\$runtime_patch" \]; then\n\s+immutable_files\+=\("\$runtime_patch"\)/,
-  );
+  assert.doesNotMatch(runtimeBlock, /brace-expansion@2\.1\.2\.patch/);
   assert.match(
     runtimeBlock,
     /for immutable_file in "\$\{immutable_files\[@\]\}"/,

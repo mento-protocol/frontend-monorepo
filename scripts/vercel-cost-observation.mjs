@@ -147,6 +147,22 @@ function exactUtc(value, label) {
   return canonical;
 }
 
+function githubUtc(value, label) {
+  invariant(typeof value === "string", `${label} must be an ISO UTC timestamp`);
+  invariant(
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value),
+    `${label} must be a canonical GitHub ISO UTC timestamp`,
+  );
+  const milliseconds = Date.parse(value);
+  invariant(Number.isFinite(milliseconds), `${label} is not a timestamp`);
+  const canonical = new Date(milliseconds).toISOString();
+  invariant(
+    canonical === value || canonical.replace(/\.000Z$/, "Z") === value,
+    `${label} must be a canonical GitHub ISO UTC timestamp`,
+  );
+  return canonical;
+}
+
 function utcBoundary(value, label) {
   const canonical = exactUtc(value, label);
   invariant(
@@ -828,10 +844,14 @@ function terminalRun(run, expectedPath, label) {
     TERMINAL_RUN_CONCLUSIONS.has(run.conclusion),
     `${label} conclusion is not terminal`,
   );
-  exactUtc(run.created_at, `${label} creation time`);
-  exactUtc(run.updated_at, `${label} update time`);
+  const createdAtUtc = githubUtc(run.created_at, `${label} creation time`);
+  const updatedAtUtc = githubUtc(run.updated_at, `${label} update time`);
   positiveId(run.run_attempt, `${label} attempt`);
-  return run;
+  return {
+    ...run,
+    created_at: createdAtUtc,
+    updated_at: updatedAtUtc,
+  };
 }
 
 function withinInterval(timestamp, interval) {
@@ -996,9 +1016,17 @@ function parsePreviewJournalComment(comment, pr) {
       ? { admission: parsed.admission }
       : {}),
   });
+  const canonicalCandidates = [canonical];
+  if (Object.hasOwn(canonical, "admission")) {
+    const { admission, ...withoutAdmission } = canonical;
+    canonicalCandidates.push({ ...withoutAdmission, admission });
+  }
   invariant(
-    JSON.stringify(parsed) === JSON.stringify(canonical) &&
-      comment.body === renderPreviewJournalBody(canonical),
+    canonicalCandidates.some(
+      (candidate) =>
+        JSON.stringify(parsed) === JSON.stringify(candidate) &&
+        comment.body === renderPreviewJournalBody(candidate),
+    ),
     "Preview journal is not canonical",
   );
   return canonical;
@@ -1684,7 +1712,7 @@ function captureStartBoundary(
     openPullRequestJournals.push({
       pr: Number(pr),
       headSha,
-      updatedAtUtc: exactUtc(pull.updated_at, `Boundary PR ${pr} update time`),
+      updatedAtUtc: githubUtc(pull.updated_at, `Boundary PR ${pr} update time`),
       preBoundaryEligiblePushEvidence: preBoundaryEligiblePushEvidence(
         journal,
         headSha,
@@ -2025,17 +2053,20 @@ function capturePreview({ root, pr, eventRunId, dependencies }) {
     const capturedControllerSyntheticRuns = [];
 
     for (const reference of validatedReferences) {
-      const rawRun = fetchAttempt(
-        dependencies,
-        reference.runId,
-        reference.attempt,
-        "Preview referenced run",
-      );
       const expectedPath =
         reference.kind === "worker"
           ? ".github/workflows/vercel-preview-worker.yml"
           : ".github/workflows/vercel-preview-controller.yml";
-      terminalRun(rawRun, expectedPath, "Preview referenced run");
+      const rawRun = terminalRun(
+        fetchAttempt(
+          dependencies,
+          reference.runId,
+          reference.attempt,
+          "Preview referenced run",
+        ),
+        expectedPath,
+        "Preview referenced run",
+      );
       invariant(
         String(rawRun.id) === reference.runId &&
           Number(rawRun.run_attempt) === reference.attempt &&
@@ -2092,7 +2123,7 @@ function capturePreview({ root, pr, eventRunId, dependencies }) {
           sha: parsedTitle.sha,
           keyDigest: parsedTitle.keyDigest,
           conclusion: rawRun.conclusion,
-          completedAtUtc: exactUtc(
+          completedAtUtc: githubUtc(
             rawRun.updated_at,
             "Preview worker completion time",
           ),
@@ -2103,7 +2134,7 @@ function capturePreview({ root, pr, eventRunId, dependencies }) {
           attempt: reference.attempt,
           terminalReason: reference.result.terminal_reason,
           conclusion: rawRun.conclusion,
-          completedAtUtc: exactUtc(
+          completedAtUtc: githubUtc(
             rawRun.updated_at,
             "Preview controller synthetic completion time",
           ),
@@ -2136,7 +2167,7 @@ function capturePreview({ root, pr, eventRunId, dependencies }) {
         dependencies.now().toISOString(),
         "Preview capture time",
       ),
-      eventTimestampUtc: exactUtc(
+      eventTimestampUtc: githubUtc(
         controllerRun.created_at,
         "Preview event time",
       ),
@@ -2159,7 +2190,7 @@ function capturePreview({ root, pr, eventRunId, dependencies }) {
               id: positiveId(sentinel.id, "Preview status ID"),
               state: sentinel.state,
               targetUrl: sentinel.target_url ?? null,
-              updatedAtUtc: exactUtc(
+              updatedAtUtc: githubUtc(
                 sentinel.updated_at ?? sentinel.created_at,
                 "Preview status update time",
               ),
@@ -2187,7 +2218,7 @@ function capturePreview({ root, pr, eventRunId, dependencies }) {
             deploymentId,
             statusId: positiveId(status.id, "Preview deployment status ID"),
             state: status.state,
-            createdAtUtc: exactUtc(
+            createdAtUtc: githubUtc(
               status.created_at,
               "Preview deployment status time",
             ),
@@ -2472,11 +2503,13 @@ function captureMain({ root, runId, dependencies }) {
       attempt <= currentAttempt;
       attempt += 1
     ) {
-      const run =
+      const run = terminalRun(
         attempt === currentAttempt
           ? currentRun
-          : fetchAttempt(dependencies, mainRunId, attempt, "Main run");
-      terminalRun(run, MAIN_WORKFLOW_PATH, `Main run attempt ${attempt}`);
+          : fetchAttempt(dependencies, mainRunId, attempt, "Main run"),
+        MAIN_WORKFLOW_PATH,
+        `Main run attempt ${attempt}`,
+      );
       invariant(
         Number(run.run_attempt) === attempt,
         "Main attempt endpoint returned another attempt",
@@ -2718,11 +2751,11 @@ function captureMain({ root, runId, dependencies }) {
           dependencies.now().toISOString(),
           "Main capture time",
         ),
-        eventTimestampUtc: exactUtc(
+        eventTimestampUtc: githubUtc(
           attemptData.run.created_at,
           "Main run event time",
         ),
-        runCompletedAtUtc: exactUtc(
+        runCompletedAtUtc: githubUtc(
           attemptData.run.updated_at,
           "Main run completion time",
         ),
@@ -2818,8 +2851,8 @@ function compactRun(run) {
     event: run.event,
     status: run.status,
     conclusion: run.conclusion,
-    createdAtUtc: exactUtc(run.created_at, "Workflow run creation time"),
-    updatedAtUtc: exactUtc(run.updated_at, "Workflow run update time"),
+    createdAtUtc: githubUtc(run.created_at, "Workflow run creation time"),
+    updatedAtUtc: githubUtc(run.updated_at, "Workflow run update time"),
     headSha:
       typeof run.head_sha === "string" && SHA_PATTERN.test(run.head_sha)
         ? run.head_sha

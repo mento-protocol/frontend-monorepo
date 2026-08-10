@@ -1,3 +1,5 @@
+import { expect } from "@playwright/test";
+
 import { snapshotPage, test, type Theme } from "./fixtures";
 
 // These 6 data-free showcase pages mount the @mento-protocol/ui components in their
@@ -29,3 +31,20 @@ for (const { url, name } of PAGES) {
     });
   }
 }
+
+test("form components hydrates with a clock different from its build", async ({
+  page,
+}) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+
+  await page.clock.setFixedTime(new Date("2040-02-15T12:00:00.000Z"));
+  await page.goto("/form-components", { waitUntil: "domcontentloaded" });
+  await page.waitForLoadState("networkidle");
+
+  await expect(
+    page.getByRole("heading", { name: "Form Components", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("January 2026", { exact: true })).toBeVisible();
+  expect(pageErrors).toEqual([]);
+});
