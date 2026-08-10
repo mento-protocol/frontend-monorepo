@@ -7,6 +7,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -137,18 +138,23 @@ test("embedded workflow JavaScript parses before GitHub executes it", () => {
   }
 });
 
-function runBashStep(step, env) {
+function runBashStep(step, env, eventPayload) {
   const temporaryDirectory = mkdtempSync(
     join(tmpdir(), "dependabot-workflow-test-"),
   );
   const githubOutput = join(temporaryDirectory, "github-output");
+  const eventPath = join(temporaryDirectory, "event.json");
   try {
+    if (eventPayload !== undefined) {
+      writeFileSync(eventPath, JSON.stringify(eventPayload));
+    }
     const result = spawnSync("bash", ["-c", step.run], {
       encoding: "utf8",
       env: {
         PATH: process.env.PATH,
         GITHUB_OUTPUT: githubOutput,
         ...env,
+        ...(eventPayload === undefined ? {} : { EVENT_PATH: eventPath }),
       },
     });
     return {
@@ -189,6 +195,30 @@ function liveIntakeEnvironment(overrides = {}) {
     INTAKE_TRIGGERING_ACTOR_TYPE: "Bot",
     REPOSITORY: "mento-protocol/frontend-monorepo",
     ...overrides,
+  };
+}
+
+function liveRepositoryDispatchPayload(overrides = {}) {
+  return {
+    action: "dependabot-process",
+    client_payload: { scope: "open" },
+    repository: {
+      default_branch: "main",
+      full_name: "mento-protocol/frontend-monorepo",
+    },
+    sender: {
+      login: "mento-operator",
+      type: "User",
+    },
+    ...overrides,
+  };
+}
+
+function liveRepositoryDispatchEnvironment() {
+  return {
+    DEFAULT_BRANCH: "main",
+    EVENT_NAME: "repository_dispatch",
+    REPOSITORY: "mento-protocol/frontend-monorepo",
   };
 }
 
@@ -357,6 +387,56 @@ test("processor rejects an intake whose upstream head differs from its receipt",
 
   assert.notEqual(result.status, 0);
   assert.equal(result.githubOutput, "");
+});
+
+test("processor accepts a live-shaped repository dispatch envelope", () => {
+  const target = processor.jobs.evaluate.steps.find(
+    (step) => step.name === "Validate trigger and select a bounded target",
+  );
+  const result = runBashStep(
+    target,
+    liveRepositoryDispatchEnvironment(),
+    liveRepositoryDispatchPayload(),
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.githubOutput, "pr_numbers=all\nexpected_head_sha=\n");
+});
+
+test("processor rejects malformed repository dispatch envelopes", () => {
+  const target = processor.jobs.evaluate.steps.find(
+    (step) => step.name === "Validate trigger and select a bounded target",
+  );
+  const invalidPayloads = [
+    {
+      name: "extra client-payload key",
+      payload: liveRepositoryDispatchPayload({
+        client_payload: { scope: "open", mode: "merge" },
+      }),
+    },
+    {
+      name: "wrong scope",
+      payload: liveRepositoryDispatchPayload({
+        client_payload: { scope: "selected" },
+      }),
+    },
+    {
+      name: "wrong action",
+      payload: liveRepositoryDispatchPayload({
+        action: "dependabot-repair",
+      }),
+    },
+  ];
+
+  for (const { name, payload } of invalidPayloads) {
+    const result = runBashStep(
+      target,
+      liveRepositoryDispatchEnvironment(),
+      payload,
+    );
+    assert.notEqual(result.status, 0, name);
+    assert.equal(result.githubOutput, "", name);
+  }
 });
 
 test("both jobs materialize only the exact trusted processor source", () => {

@@ -114,6 +114,7 @@ function check(name, conclusion = "success", options = {}) {
     completedAt: options.completedAt ?? "2026-08-10T10:00:00Z",
     conclusion,
     creatorLogin: isStatus ? "github-actions[bot]" : undefined,
+    description: isStatus ? "Preview disabled for Dependabot PR" : undefined,
     detailsUrl: `https://github.com/${REPOSITORY}/actions/runs/${id}`,
     externalId: isClaudeReview
       ? `dependabot-claude-review:v1:pr=${pullRequestNumber}:sha=${headSha}:run=${id}:attempt=1`
@@ -125,7 +126,9 @@ function check(name, conclusion = "success", options = {}) {
     runAttempt: 1,
     runDisplayTitle: isClaudeReview
       ? `dependabot-claude-review:v1 | source=dependabot-intake:v1 | repository=${REPOSITORY} | pr=${pullRequestNumber} | sha=${headSha} | action=synchronize | receipt=true`
-      : undefined,
+      : isStatus
+        ? `Vercel preview intake | pr=${pullRequestNumber} | sha=${headSha} | action=synchronize`
+        : undefined,
     runHeadBranch: isClaudeReview ? "main" : undefined,
     runHeadSha: isClaudeReview ? MERGE_SHA : headSha,
     runId: id,
@@ -218,6 +221,10 @@ function cursorReview(commitSha = HEAD_SHA, issueCount = 1) {
     id: 21,
     state: "COMMENTED",
   };
+}
+
+function codexReviewBody(headSha = HEAD_SHA) {
+  return `\n### 💡 Codex Review\n\nHere are some automated review suggestions for this pull request.\n\n**Reviewed commit:** \`${headSha.slice(0, 10)}\`\n    \n\n<details> <summary>ℹ️ About Codex in GitHub</summary>\n<br/>\n\nConnector details.\n\n</details>`;
 }
 
 function snapshot(overrides = {}) {
@@ -985,6 +992,7 @@ test("accepts skipped E2E and VRT jobs only when their exact-head planners pass"
       visualApp: false,
       visualUi: false,
     },
+    pullRequestNumber: 123,
     repository: REPOSITORY,
   });
   assert.equal(accepted.state, "passing");
@@ -1006,6 +1014,7 @@ test("accepts skipped E2E and VRT jobs only when their exact-head planners pass"
       visualApp: false,
       visualUi: false,
     },
+    pullRequestNumber: 123,
     repository: REPOSITORY,
   });
   assert.equal(rejected.state, "failing");
@@ -1032,6 +1041,7 @@ test("rejects a skipped job when the trusted path planner selected that surface"
       visualApp: false,
       visualUi: false,
     },
+    pullRequestNumber: 123,
     repository: REPOSITORY,
   });
   const celo = result.policy.find(({ id }) => id === "e2e-celo");
@@ -1055,6 +1065,7 @@ test("fails closed on an unexpected check app, workflow, event, attempt, or sour
       baselineSha: BASE_SHA,
       checks,
       headSha: HEAD_SHA,
+      pullRequestNumber: 123,
       repository: REPOSITORY,
     });
     assert.equal(
@@ -1114,20 +1125,54 @@ test("accepts a live-shaped Vercel status only from the exact trusted Actions ru
     ...checks[index],
     appId: 0,
     creatorLogin: "github-actions[bot]",
+    description: "Preview disabled for Dependabot PR",
+    detailsUrl: `https://github.com/${REPOSITORY}/actions/runs/31421269407`,
+    id: 51_972_724_561,
     kind: "status",
     runHeadSha: HEAD_SHA,
+    runId: 31_421_269_407,
+    runDisplayTitle: `Vercel preview intake | pr=123 | sha=${HEAD_SHA} | action=edited`,
     workflowEvent: "pull_request_target",
     workflowPath: ".github/workflows/vercel-preview-intake.yml",
   };
   const result = evaluateDependabotChecks({
     checks,
     headSha: HEAD_SHA,
+    pullRequestNumber: 123,
     repository: REPOSITORY,
   });
   assert.equal(
     result.policy.find(({ id }) => id === "vercel-preview").state,
     "passing",
   );
+
+  for (const mutation of [
+    { creatorLogin: "vercel[bot]" },
+    { description: "Preview event durably recorded" },
+    {
+      detailsUrl: "https://appmento-rk7mrub6v-mentolabs.vercel.app/",
+    },
+    {
+      runDisplayTitle: `Vercel preview intake | pr=999 | sha=${HEAD_SHA} | action=edited`,
+    },
+    {
+      runDisplayTitle: `Vercel preview intake | pr=123 | sha=${OTHER_SHA} | action=edited`,
+    },
+  ]) {
+    const rejectedChecks = [...checks];
+    rejectedChecks[index] = { ...checks[index], ...mutation };
+    const rejected = evaluateDependabotChecks({
+      checks: rejectedChecks,
+      headSha: HEAD_SHA,
+      pullRequestNumber: 123,
+      repository: REPOSITORY,
+    });
+    assert.equal(
+      rejected.policy.find(({ id }) => id === "vercel-preview").state,
+      "failing",
+      JSON.stringify(mutation),
+    );
+  }
 });
 
 test("Vercel status selection follows status publication chronology and rejects provider URLs", () => {
@@ -1149,6 +1194,7 @@ test("Vercel status selection follows status publication chronology and rejects 
     baselineSha: BASE_SHA,
     checks,
     headSha: HEAD_SHA,
+    pullRequestNumber: 123,
     repository: REPOSITORY,
   });
   const preview = chronological.policy.find(
@@ -1168,6 +1214,7 @@ test("Vercel status selection follows status publication chronology and rejects 
   const provider = evaluateDependabotChecks({
     checks: providerChecks,
     headSha: HEAD_SHA,
+    pullRequestNumber: 123,
     repository: REPOSITORY,
   });
   assert.equal(
@@ -1192,6 +1239,7 @@ test("attributes an exact matching baseline failure separately from a branch fai
     baselineSha: BASE_SHA,
     checks,
     headSha: HEAD_SHA,
+    pullRequestNumber: 123,
     repository: REPOSITORY,
   });
   assert.deepEqual(result.failures, [
@@ -1303,6 +1351,100 @@ test("identity or feedback failure suppresses repair packets and publishes packe
     });
     assert.equal(published.length, 1);
     assert.equal(published[0].repairPacketIssued, false);
+  }
+});
+
+test("processor check publication is success-equivalent only for merge-safe dispositions", async () => {
+  const pending = snapshot({ checks: completeChecks().slice(0, -1) });
+  const failing = snapshot({
+    checks: completeChecks({ conclusions: { ci: "failure" } }),
+  });
+  const staleBase = snapshot();
+  staleBase.baseAncestry = {
+    ...staleBase.baseAncestry,
+    behindBy: 1,
+    currentBaseIsAncestor: false,
+    status: "diverged",
+  };
+  const manual = snapshot({
+    metadata: {
+      dependencyNames: ["next"],
+      immutableEvidence: { valid: true },
+      packageEcosystem: "npm",
+      updateType: "patch",
+    },
+  });
+  const vetoed = snapshot({ feedback: { maintainerVeto: true } });
+  const retry = snapshot({
+    checks: completeChecks({
+      conclusions: { "vercel-preview": "failure" },
+    }),
+  });
+  const baselineFailure = snapshot({
+    baseline: {
+      checks: [
+        ...completeChecks({
+          conclusions: { ci: "failure" },
+          headSha: BASE_SHA,
+        }),
+        postMergeReceipt(BASE_SHA),
+      ],
+      sha: BASE_SHA,
+    },
+    checks: completeChecks({ conclusions: { ci: "failure" } }),
+  });
+  const cases = [
+    {
+      expected: "ready-for-approval",
+      snapshot: snapshot(),
+      conclusion: "neutral",
+    },
+    { expected: "waiting-checks", snapshot: pending, conclusion: "failure" },
+    { expected: "repair-required", snapshot: failing, conclusion: "failure" },
+    {
+      expected: "waiting-base-update",
+      snapshot: staleBase,
+      conclusion: "failure",
+    },
+    { expected: "manual-review", snapshot: manual, conclusion: "failure" },
+    {
+      expected: "manual-veto-or-feedback",
+      snapshot: vetoed,
+      conclusion: "failure",
+    },
+    { expected: "waiting-retry", snapshot: retry, conclusion: "failure" },
+    {
+      expected: "waiting-baseline",
+      snapshot: baselineFailure,
+      conclusion: "failure",
+    },
+  ];
+
+  for (const testCase of cases) {
+    const published = [];
+    const result = await processDependabotSweep({
+      adapter: {
+        collectPullRequestSnapshot: async () => testCase.snapshot,
+        getOutstandingDependabotAutoMergeRequests: async () => [],
+        getOutstandingDependabotProcessorApprovals:
+          noOutstandingProcessorApprovals,
+        publishProcessorCheck: async (receipt) => published.push(receipt),
+      },
+      input: {
+        mode: "assist",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [testCase.snapshot],
+        repository: REPOSITORY,
+      },
+      publishChecks: true,
+    });
+    assert.equal(result.evaluations[0].disposition, testCase.expected);
+    assert.equal(published.length, 1);
+    assert.equal(
+      published[0].conclusion,
+      testCase.conclusion,
+      testCase.expected,
+    );
   }
 });
 
@@ -1630,6 +1772,10 @@ test("actionable Claude and Codex roots require one bounded actor- and commit-bo
       body: "Codex Review:\nOne inline finding follows.",
       login: "chatgpt-codex-connector",
     },
+    {
+      body: codexReviewBody(),
+      login: "chatgpt-codex-connector",
+    },
   ]) {
     const root = {
       actor: { association: "NONE", login, type: "Bot" },
@@ -1674,6 +1820,20 @@ test("actionable Claude and Codex roots require one bounded actor- and commit-bo
       [{ ...review, actor: { ...review.actor, login: "cursor" } }],
       [{ ...review, commitSha: OTHER_SHA }],
       [{ ...review, body: "x".repeat(50_001) }],
+      ...(body.startsWith("\n### 💡 Codex Review\n")
+        ? [
+            [{ ...review, body: codexReviewBody(OTHER_SHA) }],
+            [
+              {
+                ...review,
+                body: body.replace(
+                  "Here are some automated review suggestions",
+                  "Automated suggestions",
+                ),
+              },
+            ],
+          ]
+        : []),
     ]) {
       const blocked = classifyDependabotFeedback({
         headSha: HEAD_SHA,
@@ -2271,7 +2431,7 @@ test("repair lineage receipts reject wrong provenance, incomplete results, confl
       reason: "incomplete-repair-attempt-receipt",
     },
     {
-      check: { ...processorRepairReceipt(1), conclusion: "failure" },
+      check: { ...processorRepairReceipt(1), conclusion: "cancelled" },
       reason: "invalid-repair-attempt-receipt-conclusion",
     },
     {
@@ -2329,6 +2489,22 @@ test("repair lineage receipts reject wrong provenance, incomplete results, confl
   );
   assert.equal(successfulReceipt.repairAttempts.valid, true);
   assert.equal(successfulReceipt.repairAttempt, 1);
+
+  const nonAuthorizingReceipt = evaluateDependabotPullRequest(
+    snapshot({
+      checks: failingChecks,
+      repairHistoryChecks: [
+        { ...processorRepairReceipt(1), conclusion: "failure" },
+      ],
+    }),
+    { mode: "assist", repository: REPOSITORY },
+  );
+  assert.equal(nonAuthorizingReceipt.repairAttempts.valid, true);
+  assert.equal(nonAuthorizingReceipt.repairAttempt, 1);
+  assert.equal(
+    nonAuthorizingReceipt.repairAttempts.currentHeadPacketIssued,
+    true,
+  );
 
   const duplicate = evaluateDependabotPullRequest(
     snapshot({
@@ -2587,6 +2763,36 @@ test("post-merge verification rejects recovered, superseded, affected no-target,
       vercel,
     });
     assert.equal(result.verified, false, vercel.outcome);
+  }
+});
+
+test("post-merge verification requires explicit terminal Vercel evidence", () => {
+  const mainChecks = [
+    check("Build and Test", "success", { headSha: MERGE_SHA }),
+  ];
+  for (const vercel of [
+    { deploySha: MERGE_SHA, outcome: "active-committed" },
+    {
+      deploySha: MERGE_SHA,
+      outcome: "current-release-verified",
+      terminal: false,
+    },
+    { outcome: "active-committed", terminal: true },
+    { deploySha: MERGE_SHA, terminal: true },
+    {
+      deploySha: MERGE_SHA,
+      outcome: "no-target",
+      terminal: true,
+    },
+  ]) {
+    const result = verifyPostMergeOutcome({
+      expectedMergeSha: MERGE_SHA,
+      mainChecks,
+      mergeSha: MERGE_SHA,
+      repository: REPOSITORY,
+      vercel,
+    });
+    assert.equal(result.verified, false, JSON.stringify(vercel));
   }
 });
 
@@ -3818,6 +4024,61 @@ test("live check collection binds a check to its queried workflow repository", a
     repository: REPOSITORY,
   });
   assert.equal(result.policy.find(({ id }) => id === "ci").state, "passing");
+});
+
+test("live check collection authenticates the current Dependabot Vercel intake status envelope", async () => {
+  const runId = 31_421_269_407;
+  const statusId = 51_972_724_561;
+  const fetchImpl = async (url) => {
+    if (url.includes(`/repos/${REPOSITORY}/commits/${HEAD_SHA}/check-runs`)) {
+      return new Response(JSON.stringify({ check_runs: [] }), { status: 200 });
+    }
+    if (url.endsWith(`/repos/${REPOSITORY}/actions/runs/${runId}`)) {
+      return new Response(
+        JSON.stringify({
+          display_title: `Vercel preview intake | pr=123 | sha=${HEAD_SHA} | action=edited`,
+          event: "pull_request_target",
+          head_branch: "dependabot/npm_and_yarn/frontend-core-2f0c077f04",
+          head_sha: HEAD_SHA,
+          id: runId,
+          path: ".github/workflows/vercel-preview-intake.yml",
+          repository: { full_name: REPOSITORY },
+          run_attempt: 1,
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes(`/repos/${REPOSITORY}/commits/${HEAD_SHA}/statuses`)) {
+      return new Response(
+        JSON.stringify([
+          {
+            context: "Vercel Preview",
+            creator: { login: "github-actions[bot]", type: "Bot" },
+            description: "Preview disabled for Dependabot PR",
+            id: statusId,
+            state: "success",
+            target_url: `https://github.com/${REPOSITORY}/actions/runs/${runId}`,
+            updated_at: "2026-08-10T18:53:02Z",
+          },
+        ]),
+        { status: 200 },
+      );
+    }
+    assert.fail(`Unexpected request: ${url}`);
+  };
+  const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
+  const [status] = await adapter.getChecks(REPOSITORY, HEAD_SHA);
+  assert.equal(status.description, "Preview disabled for Dependabot PR");
+  const result = evaluateDependabotChecks({
+    checks: [status],
+    headSha: HEAD_SHA,
+    pullRequestNumber: 123,
+    repository: REPOSITORY,
+  });
+  assert.equal(
+    result.policy.find(({ id }) => id === "vercel-preview").state,
+    "passing",
+  );
 });
 
 test("live repair-history collection uses only the name-filtered check-run endpoint", async () => {

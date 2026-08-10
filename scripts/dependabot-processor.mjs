@@ -65,6 +65,14 @@ const CLAUDE_REVIEW_RECEIPT_PATTERN =
   /^dependabot-claude-review:v1 \| source=dependabot-intake:v1 \| repository=([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+) \| pr=([1-9][0-9]{0,9}) \| sha=([0-9a-f]{40}) \| action=(opened|synchronize|reopened) \| receipt=true$/;
 const CLAUDE_REVIEW_EXTERNAL_ID_PATTERN =
   /^dependabot-claude-review:v1:pr=([1-9][0-9]{0,9}):sha=([0-9a-f]{40}):run=([1-9][0-9]*):attempt=([1-9][0-9]*)$/;
+const VERCEL_PREVIEW_INTAKE_TITLE_PATTERN =
+  /^Vercel preview intake \| pr=([1-9][0-9]{0,9}) \| sha=([0-9a-f]{40}) \| action=(opened|edited|synchronize|reopened|closed)$/;
+const CODEX_REVIEW_HEADING = "### 💡 Codex Review";
+const SAFE_PROCESSOR_CHECK_DISPOSITIONS = new Set([
+  "merge-candidate",
+  "ready-for-approval",
+  "would-merge",
+]);
 const SENSITIVE_ACTION_PATTERN =
   /^actions\/create-github-app-token(?:\/|$)|(?:^|\/)(?:dependabot|claude|codex|copilot|codeql|osv|security|scorecard|harden-runner|trivy|snyk|attest|dependency-review)(?:[-/]|$)|(?:reviewer|review-action)/i;
 
@@ -1015,6 +1023,7 @@ function normalizeCheck(check, assumedHeadSha) {
   return {
     appId: Number(check?.appId ?? check?.app?.id ?? check?.source?.appId ?? 0),
     conclusion,
+    description: check?.description ?? null,
     detailsUrl:
       check?.detailsUrl ?? check?.details_url ?? check?.target_url ?? null,
     externalId:
@@ -1101,7 +1110,29 @@ function trustedCheckSource(
   if (!policy.events.includes(check.workflowEvent)) {
     return { reason: "unexpected-workflow-event", trusted: false };
   }
-  if (definition.id === "claude-review") {
+  if (definition.id === "vercel-preview") {
+    const title = VERCEL_PREVIEW_INTAKE_TITLE_PATTERN.exec(
+      String(check.runDisplayTitle ?? ""),
+    );
+    if (
+      check.description !== "Preview disabled for Dependabot PR" ||
+      !title ||
+      (pullRequestNumberValue !== null &&
+        Number(title[1]) !== pullRequestNumberValue) ||
+      title[2] !== headSha
+    ) {
+      return {
+        reason: "invalid-vercel-preview-intake-receipt",
+        trusted: false,
+      };
+    }
+    if (
+      check.detailsUrl !==
+      `https://github.com/${repository}/actions/runs/${check.runId}`
+    ) {
+      return { reason: "vercel-preview-run-url-mismatch", trusted: false };
+    }
+  } else if (definition.id === "claude-review") {
     const displayReceipt = CLAUDE_REVIEW_RECEIPT_PATTERN.exec(
       String(check.runDisplayTitle ?? ""),
     );
@@ -1337,7 +1368,13 @@ function processorApprovalBinding(review) {
     : null;
 }
 
-function reviewEnvelopeMatches({ actor, body, inlineRootCount }) {
+function reviewEnvelopeMatches({
+  actor,
+  body,
+  headSha,
+  inlineRootCount,
+  reviewCommitSha,
+}) {
   if (
     typeof body !== "string" ||
     body.length === 0 ||
@@ -1353,6 +1390,17 @@ function reviewEnvelopeMatches({ actor, body, inlineRootCount }) {
   if (actor.login === "chatgpt-codex-connector") {
     if (body.startsWith("Codex Review: Didn't find any major issues.")) {
       return inlineRootCount === 0;
+    }
+    if (body.startsWith(`\n${CODEX_REVIEW_HEADING}\n`)) {
+      const reviewedCommit =
+        /^\n### 💡 Codex Review\n\nHere are some automated review suggestions for this pull request\.\n\n\*\*Reviewed commit:\*\* `([0-9a-f]{10})`\n/.exec(
+          body,
+        );
+      return (
+        inlineRootCount > 0 &&
+        reviewCommitSha === headSha &&
+        reviewedCommit?.[1] === headSha.slice(0, 10)
+      );
     }
     return /^Codex Review:(?: |\n)/.test(body) && inlineRootCount > 0;
   }
@@ -1480,7 +1528,13 @@ export function classifyDependabotFeedback({
       state === "COMMENTED" &&
       SHA_PATTERN.test(review?.commitSha ?? "") &&
       ACTIONABLE_REVIEW_BOTS.has(actor.login) &&
-      reviewEnvelopeMatches({ actor, body, inlineRootCount })
+      reviewEnvelopeMatches({
+        actor,
+        body,
+        headSha,
+        inlineRootCount,
+        reviewCommitSha: review?.commitSha,
+      })
     ) {
       acceptedReviewEnvelopes.add(reviewId);
       continue;
@@ -1864,13 +1918,7 @@ function evaluateRepairAttemptGate({
       reasons.push("malformed-repair-attempt-receipt");
       continue;
     }
-    if (
-      (packetIssued &&
-        check.conclusion !== "neutral" &&
-        check.conclusion !== "success") ||
-      (!packetIssued &&
-        !new Set(["failure", "neutral", "success"]).has(check.conclusion))
-    ) {
+    if (!["failure", "neutral", "success"].includes(check.conclusion)) {
       reasons.push("invalid-repair-attempt-receipt-conclusion");
       continue;
     }
@@ -2487,7 +2535,7 @@ export function verifyPostMergeOutcome({
   const vercelOutcome = vercelOutcomeFromEvidence(vercel);
   const vercelSha = vercelShaFromEvidence(vercel);
   if (vercelSha !== expectedSha) reasons.push("vercel-deploy-sha-mismatch");
-  if (vercel?.terminal === false || vercel?.status === "in_progress") {
+  if (vercel?.terminal !== true || vercel?.status === "in_progress") {
     reasons.push("vercel-outcome-is-not-terminal");
   }
   if (vercelOutcome === "recovered") {
@@ -2780,6 +2828,7 @@ export function createLiveGitHubAdapter({
           ...(await workflowRunSource(repository, status.target_url)),
           creatorLogin: status.creator?.login,
           conclusion: status.state,
+          description: status.description,
           detailsUrl: status.target_url,
           headSha: sha,
           id: status.id,
@@ -4072,10 +4121,9 @@ export async function processDependabotSweep({
   ) {
     for (const result of evaluation.evaluations) {
       await adapter.publishProcessorCheck({
-        conclusion:
-          result.identity.valid && result.feedback.clear
-            ? "neutral"
-            : "failure",
+        conclusion: SAFE_PROCESSOR_CHECK_DISPOSITIONS.has(result.disposition)
+          ? "neutral"
+          : "failure",
         headSha: result.headSha,
         output: {
           summary: `Disposition: ${result.disposition}`,
