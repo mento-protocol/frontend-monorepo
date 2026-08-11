@@ -1633,7 +1633,8 @@ test("Dependabot reviewer accepts only authenticated native or prepared intake",
   });
   assert.deepEqual(review.permissions, {});
   const preflight = review.jobs.preflight;
-  assert.match(preflight.if, /Dependabot Prepared Head Intake/);
+  assert.match(preflight.if, /dependabot-prepared-head-intake\.yml/);
+  assert.doesNotMatch(preflight.if, /workflow_run\.name/);
   assert.match(preflight.if, /\|ok=true/);
   assert.deepEqual(preflight.permissions, {
     actions: "read",
@@ -1642,8 +1643,13 @@ test("Dependabot reviewer accepts only authenticated native or prepared intake",
     "pull-requests": "read",
   });
   const authentication = preflight.steps[0];
-  assert.match(authentication.run, /Dependabot Intake/);
-  assert.match(authentication.run, /Dependabot Prepared Head Intake/);
+  assert.match(authentication.run, /dependabot-intake\.yml/);
+  assert.match(authentication.run, /dependabot-prepared-head-intake\.yml/);
+  assert.equal(
+    authentication.env.INTAKE_PATH,
+    "${{ github.event.workflow_run.path }}",
+  );
+  assert.equal(Object.hasOwn(authentication.env, "INTAKE_WORKFLOW"), false);
   assert.match(authentication.run, /INTAKE_ACTOR_ID.*EXPECTED_PREPARE_BOT_ID/s);
   assert.match(authentication.run, /dependabot-prepared-head:v1/);
   assert.match(authentication.run, /operation_digest/);
@@ -1718,7 +1724,6 @@ test("prepared reviewer preflight authenticates and emits the actual compact rec
         INTAKE_TRIGGERING_ACTOR_ID: String(prepareBotId),
         INTAKE_TRIGGERING_ACTOR_LOGIN: prepareBotLogin,
         INTAKE_TRIGGERING_ACTOR_TYPE: "Bot",
-        INTAKE_WORKFLOW: "Dependabot Prepared Head Intake",
         PATH: process.env.PATH,
         REPOSITORY: repository,
         RUN_ATTEMPT: "1",

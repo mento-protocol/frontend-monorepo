@@ -20,12 +20,14 @@ jobs:
       github.repository == 'mento-protocol/frontend-monorepo' &&
       (
         (
-          github.event.workflow_run.name == 'Dependabot Intake' &&
+          (github.event.workflow_run.path == '.github/workflows/dependabot-intake.yml' ||
+           github.event.workflow_run.path == '.github/workflows/dependabot-intake.yml@main') &&
           startsWith(github.event.workflow_run.display_title, 'dependabot-intake:v1 | ') &&
           endsWith(github.event.workflow_run.display_title, 'receipt=true')
         ) ||
         (
-          github.event.workflow_run.name == 'Dependabot Prepared Head Intake' &&
+          (github.event.workflow_run.path == '.github/workflows/dependabot-prepared-head-intake.yml' ||
+           github.event.workflow_run.path == '.github/workflows/dependabot-prepared-head-intake.yml@main') &&
           startsWith(github.event.workflow_run.display_title, 'dependabot-prepared-head:v1|') &&
           endsWith(github.event.workflow_run.display_title, '|ok=true')
         )
@@ -73,7 +75,6 @@ jobs:
           INTAKE_TRIGGERING_ACTOR_LOGIN: ${{ github.event.workflow_run.triggering_actor.login }}
           INTAKE_TRIGGERING_ACTOR_ID: ${{ github.event.workflow_run.triggering_actor.id }}
           INTAKE_TRIGGERING_ACTOR_TYPE: ${{ github.event.workflow_run.triggering_actor.type }}
-          INTAKE_WORKFLOW: ${{ github.event.workflow_run.name }}
           REPOSITORY: ${{ github.repository }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
           RUN_ID: ${{ github.run_id }}
@@ -92,8 +93,8 @@ jobs:
           review_actor_login=""
           operation=""
           operation_check_id=""
-          case "$INTAKE_WORKFLOW" in
-            "Dependabot Intake")
+          case "$INTAKE_PATH" in
+            .github/workflows/dependabot-intake.yml|.github/workflows/dependabot-intake.yml@main)
               test "$INTAKE_EVENT" = "pull_request_target"
               test "$INTAKE_ACTOR_LOGIN" = "dependabot[bot]"
               test "$INTAKE_ACTOR_TYPE" = "Bot"
@@ -103,10 +104,6 @@ jobs:
                 test "$INTAKE_TRIGGERING_ACTOR_TYPE" = "Bot"
               fi
               [[ "$INTAKE_HEAD_BRANCH" == dependabot/* ]]
-              case "$INTAKE_PATH" in
-                .github/workflows/dependabot-intake.yml|.github/workflows/dependabot-intake.yml@main) ;;
-                *) exit 1 ;;
-              esac
 
               receipt_pattern='^dependabot-intake:v1 \| repository=mento-protocol/frontend-monorepo \| pr=([1-9][0-9]*) \| sha=([0-9a-f]{40}) \| action=(opened|synchronize|reopened) \| receipt=true$'
               [[ "$INTAKE_TITLE" =~ $receipt_pattern ]]
@@ -135,7 +132,7 @@ jobs:
               source_kind="dependabot"
               review_actor_login="dependabot[bot]"
               ;;
-            "Dependabot Prepared Head Intake")
+            .github/workflows/dependabot-prepared-head-intake.yml|.github/workflows/dependabot-prepared-head-intake.yml@main)
               test "$INTAKE_EVENT" = "repository_dispatch"
               [[ "$EXPECTED_PREPARE_APP_SLUG" =~ ^[a-z0-9][a-z0-9-]{0,99}$ ]]
               [[ "$EXPECTED_PREPARE_BOT_ID" =~ ^[1-9][0-9]*$ ]]
@@ -151,10 +148,6 @@ jobs:
                 test "$INTAKE_TRIGGERING_ACTOR_TYPE" = "Bot"
               fi
               test "$INTAKE_HEAD_BRANCH" = "main"
-              case "$INTAKE_PATH" in
-                .github/workflows/dependabot-prepared-head-intake.yml|.github/workflows/dependabot-prepared-head-intake.yml@main) ;;
-                *) exit 1 ;;
-              esac
 
               receipt_pattern='^dependabot-prepared-head:v1\|p=([1-9][0-9]{0,9})\|h=([0-9a-f]{40})\|o=([rp])\|c=([1-9][0-9]*)\|d=([0-9a-f]{64})\|ok=true$'
               [[ "$INTAKE_TITLE" =~ $receipt_pattern ]]
