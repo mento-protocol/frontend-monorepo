@@ -2323,6 +2323,10 @@ test("result publishes an exact-SHA Dependabot release proof before failing clos
     "${{ steps.terminal-restore.outputs.terminal_restored }}",
   );
   assert.equal(publish.env.GH_TOKEN, "${{ github.token }}");
+  assert.equal(
+    publish.env.RUN_URL,
+    "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+  );
   assert.match(publish.run, /\[0-9a-f\]\{40\}/);
   assert.match(
     publish.run,
@@ -2333,6 +2337,13 @@ test("result publishes an exact-SHA Dependabot release proof before failing clos
   assert.match(publish.run, /FAIL_AFTER_EVIDENCE.*false/s);
   assert.match(publish.run, /Dependabot Post-Merge Verification/);
   assert.match(publish.run, /head_sha: \$deploy_sha/);
+  assert.match(publish.run, /--arg details_url "\$RUN_URL"/);
+  assert.match(
+    publish.run,
+    /--arg external_id "dependabot-post-merge:\$\{\{ github\.run_id \}\}:\$\{\{ github\.run_attempt \}\}"/,
+  );
+  assert.match(publish.run, /details_url: \$details_url/);
+  assert.match(publish.run, /external_id: \$external_id/);
   assert.match(publish.run, /gh api --method POST/);
   assert.match(publish.run, /repos\/\$REPOSITORY\/check-runs/);
   assert.doesNotMatch(

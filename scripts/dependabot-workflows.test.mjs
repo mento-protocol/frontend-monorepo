@@ -51,6 +51,7 @@ const humanReview = workflow(humanReviewPath);
 const claudeAction =
   "anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b";
 const claudePluginMarketplace = "./.claude-code-plugin-marketplace";
+const claudeCodeReviewPlugin = `${claudePluginMarketplace}/plugins/code-review`;
 const claudePluginMarketplaceRef = "2bb60696142b493eafaeacfe00eac51d16c50c4f";
 
 const forbiddenCandidateSurfaces =
@@ -893,7 +894,12 @@ test("human Claude review cannot shadow the Dependabot review check", () => {
 
   const review = job.steps.find((step) => step.uses === claudeAction);
   assert.ok(review);
-  assert.equal(review.with.plugin_marketplaces, claudePluginMarketplace);
+  assert.equal(
+    review.with.claude_args,
+    `--plugin-dir ${claudeCodeReviewPlugin}`,
+  );
+  assert.equal(Object.hasOwn(review.with, "plugin_marketplaces"), false);
+  assert.equal(Object.hasOwn(review.with, "plugins"), false);
   assert.equal(Object.hasOwn(review.with, "allowed_bots"), false);
 });
 

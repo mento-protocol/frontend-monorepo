@@ -646,6 +646,33 @@ including one left by an earlier controller or operator.
 Because the Vercel controller admits only an exact successful `CI/CD` main run,
 missing or failed main CI cannot produce this receipt.
 
+The publisher submits the exact Actions run URL as `details_url` and the stable
+`dependabot-post-merge:<run-id>:<run-attempt>` envelope as `external_id`.
+GitHub's Checks API can later return the check's generated
+`/runs/<check-id>` self URL in `details_url` instead of that submitted Actions
+URL. Treat that value only as a GitHub representation of the exact check. For
+this one check name and exact check ID, resolve the workflow run and attempt
+only from the strict `external_id` envelope, then re-query the Actions run.
+Require the returned run ID and attempt to match the envelope and validate the
+expected repository, `.github/workflows/vercel-main-deployment.yml` path,
+`workflow_run` event, `main` head branch, independently returned `head_sha`
+against the exact current-main SHA, completed status, and successful
+conclusion. The workflow `head_sha` must be present; never substitute the
+check's head SHA. No other self URL, malformed envelope, pending or failed run,
+or mismatched run supplies release proof.
+
+When several raw exact-name, exact-head post-merge checks exist, select the
+newest one by its immutable GitHub check-run publication ID before resolving
+workflow provenance. Resolve and enrich only that selected check, so an
+unavailable obsolete run reference cannot block a newer receipt. Never fall
+back to an older success: failure to resolve the selected check, or a newer
+malformed, pending, failed, or untrusted receipt, blocks the lane. Every
+authority-bearing check collection or recollection must re-fetch the underlying
+workflow run because its attempt, status, and conclusion can change. A run
+lookup may be cached and deduplicated only within that single collection, and
+distinct run resolutions use bounded concurrency to prevent GitHub
+secondary-rate-limit bursts. No later collection may reuse the cache.
+
 If main CI or release proof fails, stop the dependency queue. Use the managed
 failure issue and deployment recovery runbook. Do not push to the merged
 Dependabot branch or merge the next update to test whether it masks the issue.
