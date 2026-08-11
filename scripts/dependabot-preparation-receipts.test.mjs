@@ -18,6 +18,7 @@ import {
   parseRepairRunTitle,
   parseCanonicalJson,
   rawDigest,
+  readCurrentDefaultBranchSha,
   repairIntentExternalId,
   sourceAttemptBinding,
   terminalActionConfiguration,
@@ -206,6 +207,13 @@ test("operation receipts bind exact identity, workflow run, and canonical digest
   assert.match(
     operationExternalId(requested),
     /^dependabot-refresh:v1:pr=731:head=[a-f0-9]{40}:state=requested:digest=[a-f0-9]{64}:run=998877:attempt=2$/,
+  );
+  assert.throws(
+    () =>
+      validateRefreshReceipt(
+        requestedRefreshReceipt({ previousBaseSha: baseSha }),
+      ),
+    /previous and current bases must be distinct/,
   );
 
   const repair = validateRepairReceipt(repairReceipt());
@@ -568,7 +576,7 @@ test("terminal retries re-authenticate a pre-ref packet and bound recovery 0 to 
   }
 });
 
-test("a terminal requested Refresh produces only the bounded next-process event", () => {
+test("a live-shaped terminal requested Refresh binds the historical PR base and current main", () => {
   const receipt = requestedRefreshReceipt();
   const check = {
     app: { id: 15368, slug: "github-actions" },
@@ -581,12 +589,13 @@ test("a terminal requested Refresh produces only the bounded next-process event"
     status: "completed",
   };
   const pull = {
-    base: { sha: baseSha },
+    base: { sha: receipt.previousBaseSha },
     head: { ref: receipt.headRef, sha: headSha },
     number: 731,
   };
   const action = createRequestedRefreshAction({
     check,
+    currentBaseSha: receipt.baseSha,
     pull,
     receipt,
     sourceRunId: 998877,
@@ -604,22 +613,110 @@ test("a terminal requested Refresh produces only the bounded next-process event"
   assert.equal(
     createRequestedRefreshAction({
       check,
-      pull: { ...pull, base: { sha: "c".repeat(40) } },
+      currentBaseSha: "c".repeat(40),
+      pull,
       receipt,
       sourceRunId: 998877,
     }),
     null,
-    "a terminal request for an obsolete base is inert",
+    "a terminal request becomes inert when current main moves",
+  );
+  assert.equal(
+    createRequestedRefreshAction({
+      check,
+      currentBaseSha: receipt.baseSha,
+      pull: { ...pull, base: { sha: "8".repeat(40) } },
+      receipt,
+      sourceRunId: 998877,
+    }),
+    null,
+    "a terminal request becomes inert when the PR historical base changes",
   );
   assert.throws(
     () =>
       createRequestedRefreshAction({
         check: { ...check, status: "in_progress" },
+        currentBaseSha: receipt.baseSha,
         pull,
         receipt,
         sourceRunId: 998877,
       }),
     /not exact/,
+  );
+  assert.throws(
+    () =>
+      createRequestedRefreshAction({
+        check: { ...check, head_sha: "7".repeat(40) },
+        currentBaseSha: receipt.baseSha,
+        pull,
+        receipt,
+        sourceRunId: 998877,
+      }),
+    /not exact/,
+    "a requested Refresh cannot move to a different head",
+  );
+  assert.throws(
+    () =>
+      createRequestedRefreshAction({
+        check,
+        currentBaseSha: "not-a-sha",
+        pull,
+        receipt,
+        sourceRunId: 998877,
+      }),
+    /current default-branch SHA is invalid/,
+  );
+});
+
+test("terminal Refresh dispatch reads the exact live default-branch ref", async () => {
+  const requestedPaths = [];
+  const currentBaseSha = await readCurrentDefaultBranchSha({
+    repositoryName: repository,
+    requestJson: async (path) => {
+      requestedPaths.push(path);
+      if (path === `/repos/${repository}`) {
+        return {
+          default_branch: "main",
+          full_name: repository,
+          id: 123,
+        };
+      }
+      assert.equal(path, `/repos/${repository}/git/ref/heads/main`);
+      return {
+        object: { sha: baseSha, type: "commit" },
+        ref: "refs/heads/main",
+        url: `https://api.github.com/repos/${repository}/git/refs/heads/main`,
+      };
+    },
+  });
+  assert.equal(currentBaseSha, baseSha);
+  assert.deepEqual(requestedPaths, [
+    `/repos/${repository}`,
+    `/repos/${repository}/git/ref/heads/main`,
+  ]);
+
+  await assert.rejects(
+    readCurrentDefaultBranchSha({
+      repositoryName: repository,
+      requestJson: async (path) =>
+        path === `/repos/${repository}`
+          ? { default_branch: "trunk", full_name: repository }
+          : assert.fail("a non-main default must not be dereferenced"),
+    }),
+    /default branch is not exact/,
+  );
+  await assert.rejects(
+    readCurrentDefaultBranchSha({
+      repositoryName: repository,
+      requestJson: async (path) =>
+        path === `/repos/${repository}`
+          ? { default_branch: "main", full_name: repository }
+          : {
+              object: { sha: baseSha, type: "tag" },
+              ref: "refs/heads/main",
+            },
+    }),
+    /reference is not exact/,
   );
 });
 

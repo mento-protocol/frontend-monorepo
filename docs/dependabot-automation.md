@@ -124,9 +124,11 @@ Prepare execution has explicit phases:
 - `request` may publish only a typed old-head Refresh request. It has no App
   credential or branch-write authority.
 - `mutate` may consume only a terminal trusted request from an earlier
-  Processor run and use a short-lived Prepare App token for the bounded branch
-  refresh. It cannot publish checks, approve, reply, resolve threads, or
-  publish ALL CLEAR.
+  Processor run. Before dispatch, the old PR base must still match the
+  receipt's `previousBaseSha`, while an independent live default-branch lookup
+  must match the receipt's `baseSha`. A short-lived Prepare App token then
+  performs the bounded branch refresh. It cannot publish checks, approve,
+  reply, resolve threads, or publish ALL CLEAR.
 - `finalize` rejects `DEPENDABOT_PROCESSOR_REPAIR_TOKEN`, cannot update a
   branch, recollects the exact head, and alone may clean stale processor
   approvals, post packet-bound replies, approve, and publish ALL CLEAR.

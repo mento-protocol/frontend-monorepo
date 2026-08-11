@@ -4031,6 +4031,7 @@ test("refresh preparation is split across request, mutate, and finalize phases",
   assert.deepEqual(updateInput, {
     expectedBaseSha: BASE_SHA,
     expectedHeadSha: HEAD_SHA,
+    expectedPreviousBaseSha: MERGE_SHA,
     pullRequestNumber: 123,
     repository: REPOSITORY,
   });
@@ -4815,6 +4816,151 @@ test("live adapters expose only their phase capability and contain no merge adap
       new RegExp(`${phase} phase must not receive a Dependabot repair token`),
     );
   }
+});
+
+test("live refresh mutation binds the historical PR base and current main before update-branch", async () => {
+  const operations = [];
+  const fetchImpl = async (url, options = {}) => {
+    const path = new URL(url).pathname;
+    if (path === `/repos/${REPOSITORY}/pulls/123`) {
+      operations.push("pull");
+      assert.equal(options.method, "GET");
+      assert.equal(options.headers.Authorization, "Bearer workflow-token");
+      return new Response(
+        JSON.stringify(
+          liveApprovalPullRequest({
+            base: {
+              ref: "main",
+              repo: { full_name: REPOSITORY },
+              sha: MERGE_SHA,
+            },
+          }),
+        ),
+        { status: 200 },
+      );
+    }
+    if (path === `/repos/${REPOSITORY}/git/ref/heads/main`) {
+      operations.push("main");
+      assert.equal(options.method, "GET");
+      assert.equal(options.headers.Authorization, "Bearer workflow-token");
+      return new Response(
+        JSON.stringify({
+          object: { sha: BASE_SHA, type: "commit" },
+          ref: "refs/heads/main",
+        }),
+        { status: 200 },
+      );
+    }
+    assert.equal(path, `/repos/${REPOSITORY}/pulls/123/update-branch`);
+    operations.push("update");
+    assert.equal(options.method, "PUT");
+    assert.equal(options.headers.Authorization, "Bearer prepare-app-token");
+    assert.deepEqual(JSON.parse(options.body), {
+      expected_head_sha: HEAD_SHA,
+    });
+    return new Response(JSON.stringify({ message: "Updating pull request" }), {
+      status: 202,
+    });
+  };
+  const adapter = createLiveGitHubAdapter({
+    fetchImpl,
+    phase: "mutate",
+    prepareAppSlug: PREPARE_ACTOR.appSlug,
+    prepareBotId: PREPARE_ACTOR.botId,
+    prepareBotLogin: PREPARE_ACTOR.botLogin,
+    repairToken: "prepare-app-token",
+    token: "workflow-token",
+  });
+  assert.deepEqual(
+    await adapter.requestPullRequestUpdateBranch({
+      expectedBaseSha: BASE_SHA,
+      expectedHeadSha: HEAD_SHA,
+      expectedPreviousBaseSha: MERGE_SHA,
+      pullRequestNumber: 123,
+      repository: REPOSITORY,
+    }),
+    { message: "Updating pull request" },
+  );
+  assert.deepEqual(operations, ["pull", "main", "update"]);
+});
+
+test("live refresh mutation rejects a changed historical base, head, or current main", async () => {
+  const attempt = async ({
+    liveBaseSha = MERGE_SHA,
+    liveHeadSha = HEAD_SHA,
+    liveMainSha = BASE_SHA,
+  }) => {
+    const operations = [];
+    const adapter = createLiveGitHubAdapter({
+      fetchImpl: async (url) => {
+        const path = new URL(url).pathname;
+        if (path === `/repos/${REPOSITORY}/pulls/123`) {
+          operations.push("pull");
+          return new Response(
+            JSON.stringify(
+              liveApprovalPullRequest({
+                base: {
+                  ref: "main",
+                  repo: { full_name: REPOSITORY },
+                  sha: liveBaseSha,
+                },
+                head: {
+                  ref: "dependabot/github_actions/github-actions-routine-123",
+                  repo: { full_name: REPOSITORY },
+                  sha: liveHeadSha,
+                },
+              }),
+            ),
+            { status: 200 },
+          );
+        }
+        if (path === `/repos/${REPOSITORY}/git/ref/heads/main`) {
+          operations.push("main");
+          return new Response(
+            JSON.stringify({
+              object: { sha: liveMainSha, type: "commit" },
+              ref: "refs/heads/main",
+            }),
+            { status: 200 },
+          );
+        }
+        operations.push("update");
+        return assert.fail("invalid refresh evidence reached update-branch");
+      },
+      phase: "mutate",
+      prepareAppSlug: PREPARE_ACTOR.appSlug,
+      prepareBotId: PREPARE_ACTOR.botId,
+      prepareBotLogin: PREPARE_ACTOR.botLogin,
+      repairToken: "prepare-app-token",
+      token: "workflow-token",
+    });
+    const promise = adapter.requestPullRequestUpdateBranch({
+      expectedBaseSha: BASE_SHA,
+      expectedHeadSha: HEAD_SHA,
+      expectedPreviousBaseSha: MERGE_SHA,
+      pullRequestNumber: 123,
+      repository: REPOSITORY,
+    });
+    return { operations, promise };
+  };
+
+  const previousBaseChanged = await attempt({ liveBaseSha: OTHER_SHA });
+  await assert.rejects(
+    previousBaseChanged.promise,
+    /changed before update-branch/,
+  );
+  assert.deepEqual(previousBaseChanged.operations, ["pull"]);
+
+  const headChanged = await attempt({ liveHeadSha: OTHER_SHA });
+  await assert.rejects(headChanged.promise, /changed before update-branch/);
+  assert.deepEqual(headChanged.operations, ["pull"]);
+
+  const mainChanged = await attempt({ liveMainSha: OTHER_SHA });
+  await assert.rejects(
+    mainChanged.promise,
+    /main changed before update-branch/,
+  );
+  assert.deepEqual(mainChanged.operations, ["pull", "main"]);
 });
 
 test("live approval brackets the exact full PR identity and returns its post-review update token", async () => {

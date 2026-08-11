@@ -5598,23 +5598,50 @@ export function createLiveGitHubAdapter({
     requestPullRequestUpdateBranch: async ({
       expectedBaseSha,
       expectedHeadSha,
+      expectedPreviousBaseSha,
       pullRequestNumber: number,
       repository,
     }) => {
+      const currentBaseSha = exactSha(
+        expectedBaseSha,
+        "Expected current base SHA",
+      );
+      const headSha = exactSha(expectedHeadSha, "Expected head SHA");
+      const previousBaseSha = exactSha(
+        expectedPreviousBaseSha,
+        "Expected previous base SHA",
+      );
+      invariant(
+        currentBaseSha !== previousBaseSha,
+        "Refresh requires distinct previous and current bases",
+      );
       const current = await getPullRequest(
         repository,
         pullRequestNumber(number),
       );
       invariant(
         current.state === "open" &&
-          current.head?.sha === exactSha(expectedHeadSha) &&
-          current.base?.sha === exactSha(expectedBaseSha),
+          current.head?.repo?.full_name === repository &&
+          current.head?.sha === headSha &&
+          current.base?.ref === "main" &&
+          current.base?.repo?.full_name === repository &&
+          current.base?.sha === previousBaseSha,
         `PR #${number} changed before update-branch`,
+      );
+      const mainReference = await request(
+        "GET",
+        `/repos/${repository}/git/ref/heads/main`,
+      );
+      invariant(
+        mainReference.data?.ref === "refs/heads/main" &&
+          mainReference.data?.object?.type === "commit" &&
+          mainReference.data.object.sha === currentBaseSha,
+        "main changed before update-branch",
       );
       const response = await requestWithRepairCredential(
         "PUT",
         `/repos/${repository}/pulls/${number}/update-branch`,
-        { body: { expected_head_sha: expectedHeadSha } },
+        { body: { expected_head_sha: headSha } },
       );
       return { message: response.data?.message ?? null };
     },
@@ -6163,6 +6190,7 @@ async function processMutatePhase({ adapter, evaluation }) {
   await adapter.requestPullRequestUpdateBranch({
     expectedBaseSha: pending.requestReceipt.baseSha,
     expectedHeadSha: result.headSha,
+    expectedPreviousBaseSha: pending.requestReceipt.previousBaseSha,
     pullRequestNumber: result.pullRequestNumber,
     repository: evaluation.repository,
   });
