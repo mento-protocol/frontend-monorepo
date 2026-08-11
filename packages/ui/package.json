@@ -99,7 +99,7 @@
     "@tailwindcss/cli": "^4.3.3",
     "@tailwindcss/postcss": "catalog:",
     "@testing-library/react": "^16.3.0",
-    "@turbo/gen": "^2.10.8",
+    "@turbo/gen": "^2.10.9",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitest/coverage-v8": "catalog:",
