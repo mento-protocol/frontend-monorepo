@@ -6121,10 +6121,12 @@ async function processRequestPhase({ adapter, evaluation, workflowContext }) {
     "Request phase is missing trusted prepare bot identity",
   );
   invariant(
-    SHA_PATTERN.test(result.base.currentBaseSha ?? "") &&
+    SHA_PATTERN.test(result.baseSha ?? "") &&
+      SHA_PATTERN.test(result.base.currentBaseSha ?? "") &&
       SHA_PATTERN.test(result.base.mergeBaseSha ?? "") &&
+      result.baseSha === result.base.mergeBaseSha &&
       result.base.currentBaseSha !== result.base.mergeBaseSha,
-    "Refresh request does not bind distinct old and current bases",
+    "Refresh request does not bind the recorded old base and distinct current base",
   );
   const receipt = {
     baseSha: result.base.currentBaseSha,
@@ -6134,7 +6136,7 @@ async function processRequestPhase({ adapter, evaluation, workflowContext }) {
     prepareAppSlug: actor.appSlug,
     prepareBotId: actor.botId,
     prepareBotLogin: actor.botLogin,
-    previousBaseSha: result.base.mergeBaseSha,
+    previousBaseSha: result.baseSha,
     pullRequestNumber: result.pullRequestNumber,
     repository: evaluation.repository,
     schema: DEPENDABOT_REFRESH_SCHEMA,
@@ -6184,6 +6186,7 @@ async function processMutatePhase({ adapter, evaluation }) {
     pending &&
       pending.requestReceipt.parentHeadSha === result.headSha &&
       pending.requestReceipt.baseSha === result.base.currentBaseSha &&
+      pending.requestReceipt.previousBaseSha === result.baseSha &&
       pending.requestReceipt.previousBaseSha === result.base.mergeBaseSha,
     "Mutate phase lacks an exact trusted current-head Refresh request",
   );

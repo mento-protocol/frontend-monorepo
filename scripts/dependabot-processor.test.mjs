@@ -561,6 +561,7 @@ function repairPendingSnapshotForPullRequest(
 
 function staleSnapshotForPullRequest(pullRequestNumber, headSha) {
   const current = snapshotForPullRequest(pullRequestNumber, headSha);
+  current.pullRequest.base.sha = MERGE_SHA;
   current.baseAncestry = {
     aheadBy: 1,
     baseCommitSha: BASE_SHA,
@@ -585,6 +586,13 @@ function staleSnapshot() {
       headSha: HEAD_SHA,
       mergeBaseSha: MERGE_SHA,
       status: "diverged",
+    },
+    pullRequest: {
+      base: {
+        ref: "main",
+        repo: { fullName: REPOSITORY },
+        sha: MERGE_SHA,
+      },
     },
   });
 }
@@ -4069,6 +4077,34 @@ test("refresh preparation is split across request, mutate, and finalize phases",
   assert.equal(completedReceipt.headSha, OTHER_SHA);
   assert.equal(completedReceipt.requestCheckId, requestCheck.id);
   assert.equal(completedReceipt.requestDigest, digest(requestedReceipt));
+});
+
+test("refresh request rejects a recorded base that differs from the compare merge base", async () => {
+  const stale = staleSnapshot();
+  stale.pullRequest.base.sha = OTHER_SHA;
+  let published = false;
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        prepareActor: PREPARE_ACTOR,
+        publishRefreshReceipt: async () => {
+          published = true;
+          return { id: 40_001 };
+        },
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [stale],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "request",
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /does not bind the recorded old base and distinct current base/,
+  );
+  assert.equal(published, false);
 });
 
 test("same-run or malformed Refresh evidence cannot reach the App update capability", async () => {
