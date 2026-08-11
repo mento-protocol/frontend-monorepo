@@ -110,6 +110,10 @@ whose payload is exactly `{"scope":"open"}`. There is no
 
 The schedule runs at minutes `3,13,23,33,43,53` to reconcile missed events.
 Immediate intake and review completions provide the normal low-latency path.
+Every downstream `workflow_run` gate identifies its source by the exact
+allowlisted workflow path. A custom `run-name` becomes the live run's `name`
+and `display_title`, so those dynamic fields authenticate only the typed receipt
+grammar and never select the source workflow.
 Every entry point materializes `scripts/dependabot-processor.mjs` and its
 `scripts/dependabot-preparation-receipts.mjs` validator dependency through the
 GitHub Contents API at the same exact `github.workflow_sha`; it never checks out
@@ -136,7 +140,7 @@ Prepare execution has explicit phases:
 intake through `workflow_run`. Before any token, secret, or Action:
 
 1. the first shell step authenticates upstream conclusion, event, actor ID,
-   actor login/type, workflow name/path, repository, compact receipt, run ID,
+   actor login/type, exact workflow path, repository, compact receipt, run ID,
    attempt, and workflow SHA;
 2. it re-queries the live open non-draft Dependabot PR and exact head; and
 3. for prepared heads it materializes

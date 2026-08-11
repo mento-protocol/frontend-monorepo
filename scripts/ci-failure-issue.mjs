@@ -13,12 +13,25 @@ const FAILURE_CONCLUSIONS = new Set([
 ]);
 const NOTIFIER_WORKFLOW_NAME = "CI Failure Notifier";
 const TAG_PUSH_WORKFLOW_NAMES = new Set(["Publish UI Package"]);
-const DEPENDABOT_PROCESSOR_WORKFLOW_NAME = "Dependabot Processor";
-const DEPENDABOT_REPAIR_WORKFLOW_NAME = "Dependabot Prepare Repair";
-const DEPENDABOT_PREPARED_DISPATCH_WORKFLOW_NAME =
-  "Dependabot Prepared Head Dispatch";
-const DEPENDABOT_PREPARED_INTAKE_WORKFLOW_NAME =
-  "Dependabot Prepared Head Intake";
+const DEPENDABOT_PROCESSOR_WORKFLOW_PATH =
+  ".github/workflows/dependabot-process.yml";
+const DEPENDABOT_REPAIR_WORKFLOW_PATH =
+  ".github/workflows/dependabot-prepare-repair.yml";
+const DEPENDABOT_PREPARED_DISPATCH_WORKFLOW_PATH =
+  ".github/workflows/dependabot-prepared-head-dispatch.yml";
+const DEPENDABOT_PREPARED_INTAKE_WORKFLOW_PATH =
+  ".github/workflows/dependabot-prepared-head-intake.yml";
+// GitHub exposes `run-name` through run.name for these workflows. The exact
+// repository path is the stable source identity; display_title carries data.
+const DEPENDABOT_WORKFLOW_NAMES_BY_PATH = new Map([
+  [DEPENDABOT_PROCESSOR_WORKFLOW_PATH, "Dependabot Processor"],
+  [DEPENDABOT_REPAIR_WORKFLOW_PATH, "Dependabot Prepare Repair"],
+  [
+    DEPENDABOT_PREPARED_DISPATCH_WORKFLOW_PATH,
+    "Dependabot Prepared Head Dispatch",
+  ],
+  [DEPENDABOT_PREPARED_INTAKE_WORKFLOW_PATH, "Dependabot Prepared Head Intake"],
+]);
 const DEPENDABOT_PROCESSOR_SWEEP_TITLE =
   "Dependabot processor | event=repository_dispatch | target=scope=open";
 const VERCEL_MAIN_WORKFLOW_NAME = "Vercel Main Deployment";
@@ -58,11 +71,15 @@ function runIdentity(run) {
   return `${runId}:${run.run_attempt ?? 1}`;
 }
 
+function workflowPathMatches(run, expectedPath) {
+  return run.path === expectedPath || run.path === `${expectedPath}@main`;
+}
+
 function dependabotAutomationPrTarget(run) {
   const title = String(run.display_title ?? "");
   let patterns = [];
   if (
-    run.name === DEPENDABOT_PROCESSOR_WORKFLOW_NAME &&
+    workflowPathMatches(run, DEPENDABOT_PROCESSOR_WORKFLOW_PATH) &&
     run.event === "workflow_run"
   ) {
     patterns = [
@@ -72,12 +89,12 @@ function dependabotAutomationPrTarget(run) {
       DEPENDABOT_PROCESSOR_PREPARED_REVIEW_TITLE,
     ];
   } else if (
-    run.name === DEPENDABOT_REPAIR_WORKFLOW_NAME &&
+    workflowPathMatches(run, DEPENDABOT_REPAIR_WORKFLOW_PATH) &&
     run.event === "repository_dispatch"
   ) {
     patterns = [DEPENDABOT_REPAIR_TITLE];
   } else if (
-    run.name === DEPENDABOT_PREPARED_INTAKE_WORKFLOW_NAME &&
+    workflowPathMatches(run, DEPENDABOT_PREPARED_INTAKE_WORKFLOW_PATH) &&
     run.event === "repository_dispatch"
   ) {
     patterns = [DEPENDABOT_PREPARED_INTAKE_TITLE];
@@ -88,7 +105,7 @@ function dependabotAutomationPrTarget(run) {
 
 function isDependabotProcessorSweep(run, defaultBranch, repositoryFullName) {
   return (
-    run.name === DEPENDABOT_PROCESSOR_WORKFLOW_NAME &&
+    workflowPathMatches(run, DEPENDABOT_PROCESSOR_WORKFLOW_PATH) &&
     run.event === "repository_dispatch" &&
     run.display_title === DEPENDABOT_PROCESSOR_SWEEP_TITLE &&
     run.head_branch === defaultBranch &&
@@ -118,16 +135,24 @@ function runLink(run) {
   return `[run #${run.run_number}, attempt ${run.run_attempt ?? 1}](${run.html_url})`;
 }
 
+function workflowNameFor(run) {
+  const path = String(run.path ?? "");
+  const canonicalPath = path.endsWith("@main") ? path.slice(0, -5) : path;
+  return DEPENDABOT_WORKFLOW_NAMES_BY_PATH.get(canonicalPath) ?? run.name;
+}
+
 function issueTitle(run, targetRef) {
-  return `CI: ${run.name} is failing (${targetRef}; ${run.event})`.slice(
+  const workflowName = workflowNameFor(run);
+  return `CI: ${workflowName} is failing (${targetRef}; ${run.event})`.slice(
     0,
     255,
   );
 }
 
 function failureBody(run, targetRef, marker) {
+  const workflowName = workflowNameFor(run);
   return [
-    `The **${run.name}** workflow failed for \`${targetRef}\`.`,
+    `The **${workflowName}** workflow failed for \`${targetRef}\`.`,
     "",
     `- Conclusion: \`${run.conclusion}\``,
     `- Trigger: \`${run.event}\``,
@@ -140,12 +165,13 @@ function failureBody(run, targetRef, marker) {
 }
 
 function recoveryBody(existingBody, run, targetRef) {
+  const workflowName = workflowNameFor(run);
   return [
     existingBody.trim(),
     "",
     "## Recovery",
     "",
-    `**${run.name}** recovered for \`${targetRef}\` in ${runLink(run)}.`,
+    `**${workflowName}** recovered for \`${targetRef}\` in ${runLink(run)}.`,
   ].join("\n");
 }
 
@@ -167,7 +193,7 @@ function isRelevantRun(run, defaultBranch, repositoryFullName) {
     (run.event === "workflow_run" &&
       (run.name === VERCEL_MAIN_WORKFLOW_NAME ||
         dependabotTarget !== null ||
-        (run.name === DEPENDABOT_PREPARED_DISPATCH_WORKFLOW_NAME &&
+        (workflowPathMatches(run, DEPENDABOT_PREPARED_DISPATCH_WORKFLOW_PATH) &&
           DEPENDABOT_PREPARED_DISPATCH_TITLE.test(
             String(run.display_title ?? ""),
           ))) &&

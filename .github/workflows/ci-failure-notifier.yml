@@ -46,18 +46,21 @@ jobs:
           github.event.workflow_run.event == 'repository_dispatch' &&
           (
             (
-              github.event.workflow_run.name == 'Dependabot Processor' &&
+              (github.event.workflow_run.path == '.github/workflows/dependabot-process.yml' ||
+               github.event.workflow_run.path == '.github/workflows/dependabot-process.yml@main') &&
               github.event.workflow_run.display_title == 'Dependabot processor | event=repository_dispatch | target=scope=open'
             ) ||
             (
-              github.event.workflow_run.name == 'Dependabot Prepare Repair' &&
+              (github.event.workflow_run.path == '.github/workflows/dependabot-prepare-repair.yml' ||
+               github.event.workflow_run.path == '.github/workflows/dependabot-prepare-repair.yml@main') &&
               (
                 startsWith(github.event.workflow_run.display_title, 'dependabot-repair:v1 | pr=') ||
                 startsWith(github.event.workflow_run.display_title, 'dependabot-repair-recover:v1 | pr=')
               )
             ) ||
             (
-              github.event.workflow_run.name == 'Dependabot Prepared Head Intake' &&
+              (github.event.workflow_run.path == '.github/workflows/dependabot-prepared-head-intake.yml' ||
+               github.event.workflow_run.path == '.github/workflows/dependabot-prepared-head-intake.yml@main') &&
               startsWith(github.event.workflow_run.display_title, 'dependabot-prepared-head:v1|p=') &&
               endsWith(github.event.workflow_run.display_title, '|ok=true')
             )
@@ -70,11 +73,13 @@ jobs:
           (
             github.event.workflow_run.name == 'Vercel Main Deployment' ||
             (
-              github.event.workflow_run.name == 'Dependabot Prepared Head Dispatch' &&
+              (github.event.workflow_run.path == '.github/workflows/dependabot-prepared-head-dispatch.yml' ||
+               github.event.workflow_run.path == '.github/workflows/dependabot-prepared-head-dispatch.yml@main') &&
               startsWith(github.event.workflow_run.display_title, 'dependabot-prepared-dispatch:v1 | source=')
             ) ||
             (
-              github.event.workflow_run.name == 'Dependabot Processor' &&
+              (github.event.workflow_run.path == '.github/workflows/dependabot-process.yml' ||
+               github.event.workflow_run.path == '.github/workflows/dependabot-process.yml@main') &&
               startsWith(github.event.workflow_run.display_title, 'Dependabot processor | event=workflow_run | receipt=')
             )
           ) &&

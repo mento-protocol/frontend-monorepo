@@ -90,8 +90,12 @@ canonical default-branch `Dependabot Processor` sweep and exact, bounded
 `Dependabot Prepare Repair` or `Dependabot Prepared Head Intake` titles. Repair
 monitoring includes both exact bounded normal and recovery titles with their
 infrastructure retry count. The trusted script revalidates each case-sensitive
-identity; malformed repair titles and prepared-intake `ok=false` skips are
-ignored. It also monitors
+identity. It binds each Dependabot source to its exact
+`.github/workflows/*.yml` path or exact `@main` form because GitHub exposes a custom `run-name` through
+`workflow_run.name`; the separately validated `display_title` carries the
+bounded receipt grammar. Malformed repair titles, path mismatches, and
+prepared-intake `ok=false` skips are ignored. Managed issue prose uses the
+canonical workflow name derived from that trusted path. It also monitors
 repository-owned, default-branch `workflow_run` completions for `Vercel Main
 Deployment`, `Dependabot Prepared Head Dispatch`, and `Dependabot Processor`
 runs whose title exactly carries a valid native-intake, prepared-intake, or

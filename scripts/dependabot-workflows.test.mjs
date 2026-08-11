@@ -210,7 +210,6 @@ function liveIntakeEnvironment(overrides = {}) {
     INTAKE_STATUS: "completed",
     INTAKE_RUN_ATTEMPT: "1",
     INTAKE_RUN_ID: "123456789",
-    INTAKE_WORKFLOW: "Dependabot Intake",
     EXPECTED_PREPARE_BOT_ID: "123456",
     EXPECTED_PREPARE_BOT_LOGIN: "mento-dependabot-prepare[bot]",
     REPOSITORY: "mento-protocol/frontend-monorepo",
@@ -348,19 +347,24 @@ test("read-only evaluation authenticates every trigger before live collection", 
     evaluate.if,
     /endsWith\(github\.event\.workflow_run\.display_title, 'receipt=true'\)/,
   );
-  assert.match(evaluate.if, /Dependabot Prepared Head Intake/);
-  assert.match(evaluate.if, /Dependabot Claude Review/);
+  assert.match(evaluate.if, /dependabot-prepared-head-intake\.yml/);
+  assert.match(evaluate.if, /dependabot-claude-review\.yml/);
   assert.match(evaluate.if, /github\.event\.action == 'dependabot-process'/);
   assert.doesNotMatch(evaluate.if, /client_payload/);
+  assert.doesNotMatch(evaluate.if, /workflow_run\.name/);
   assert.doesNotMatch(
     evaluate.if,
-    /workflow_run\.(?:path|event|conclusion|head_repository|head_branch)/,
+    /workflow_run\.(?:event|conclusion|head_repository|head_branch)/,
   );
+  assert.match(evaluate.if, /workflow_run\.path/);
 
   const target = evaluate.steps.find(
     (step) => step.name === "Validate trigger and select a bounded target",
   );
   assert.ok(target);
+  assert.equal(target.env.INTAKE_PATH, "${{ github.event.workflow_run.path }}");
+  assert.equal(Object.hasOwn(target.env, "INTAKE_WORKFLOW"), false);
+  assert.match(target.run, /case "\$INTAKE_PATH" in/);
   assert.match(target.run, /Object\.keys\(clientPayload\)\.sort\(\)/);
   assert.match(target.run, /process\.env\.GITHUB_EVENT_PATH/);
   assert.equal(Object.hasOwn(target.env, "EVENT_PATH"), false);
@@ -441,7 +445,6 @@ test("processor accepts an exact prepared-head intake completion", () => {
     INTAKE_PATH: ".github/workflows/dependabot-prepared-head-intake.yml",
     INTAKE_PULL_REQUESTS_JSON: "[]",
     INTAKE_TITLE: `dependabot-prepared-head:v1|p=701|h=${headSha}|o=p|c=321|d=${digest}|ok=true`,
-    INTAKE_WORKFLOW: "Dependabot Prepared Head Intake",
   });
 
   assert.equal(result.status, 0, result.stderr);
@@ -465,7 +468,6 @@ test("processor wakes on a failed exact Claude reviewer completion", () => {
     INTAKE_HEAD_SHA: "c".repeat(40),
     INTAKE_PATH: ".github/workflows/dependabot-claude-review.yml",
     INTAKE_TITLE: `dependabot-claude-review:v1 | source=dependabot-intake:v1 | repository=mento-protocol/frontend-monorepo | pr=701 | sha=${headSha} | action=synchronize | receipt=true`,
-    INTAKE_WORKFLOW: "Dependabot Claude Review",
   });
 
   assert.equal(result.status, 0, result.stderr);
@@ -1367,7 +1369,12 @@ test("terminal dispatch accepts successful Processor and exact terminal Repair o
   assert.deepEqual(preparedDispatch.permissions, {});
   const plan = preparedDispatch.jobs.plan;
   const dispatch = preparedDispatch.jobs.dispatch;
+  assert.doesNotMatch(read(preparedDispatchPath), /workflow_run\.name/);
+  assert.match(preparedDispatch["run-name"], /workflow_run\.path/);
   assert.match(plan.if, /workflow_run\.status == 'completed'/);
+  assert.match(plan.if, /dependabot-process\.yml/);
+  assert.match(plan.if, /dependabot-prepare-repair\.yml/);
+  assert.doesNotMatch(plan.if, /workflow_run\.name/);
   assert.match(plan.if, /workflow_run\.conclusion == 'success'/);
   assert.match(plan.if, /workflow_run\.conclusion == 'failure'/);
   assert.match(plan.if, /workflow_run\.conclusion == 'cancelled'/);
@@ -1398,7 +1405,22 @@ test("terminal dispatch accepts successful Processor and exact terminal Repair o
   );
   assert.match(plan.steps[0].run, /dependabot-repair-recover:v1/);
   assert.match(plan.steps[0].run, /retry=\[0-2\]/);
+  assert.equal(
+    plan.steps[0].env.SOURCE_PATH,
+    "${{ github.event.workflow_run.path }}",
+  );
+  assert.equal(Object.hasOwn(plan.steps[0].env, "SOURCE_WORKFLOW"), false);
+  assert.equal(
+    plan.steps.at(-1).env.SOURCE_PATH,
+    "${{ github.event.workflow_run.path }}",
+  );
+  assert.match(plan.steps.at(-1).run, /source_workflow="Dependabot Processor"/);
+  assert.match(
+    plan.steps.at(-1).run,
+    /source_workflow="Dependabot Prepare Repair"/,
+  );
   assert.match(plan.steps.at(-1).run, /terminal-dispatch-plan/);
+  assert.match(plan.steps.at(-1).run, /--source-workflow "\$source_workflow"/);
 
   const token = dispatch.steps[0];
   assert.equal(
@@ -1441,6 +1463,9 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
   assert.equal(preflightJob.name, "dependabot-claude-review-preflight");
   assert.match(preflightJob.if, /mento-protocol\/frontend-monorepo/);
   assert.match(preflightJob.if, /receipt=true/);
+  assert.match(preflightJob.if, /dependabot-intake\.yml/);
+  assert.match(preflightJob.if, /dependabot-prepared-head-intake\.yml/);
+  assert.doesNotMatch(preflightJob.if, /workflow_run\.name/);
   assert.deepEqual(preflightJob.permissions, {
     actions: "read",
     checks: "read",
@@ -1463,6 +1488,8 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
   assert.equal(intake.id, "intake");
   assert.equal(Object.hasOwn(intake, "uses"), false);
   assert.equal(Object.hasOwn(intake.env, "GH_TOKEN"), false);
+  assert.equal(Object.hasOwn(intake.env, "INTAKE_WORKFLOW"), false);
+  assert.equal(intake.env.INTAKE_PATH, "${{ github.event.workflow_run.path }}");
   assert.doesNotMatch(JSON.stringify(intake), /secrets\.|github\.token/);
   assert.match(intake.run, /INTAKE_CONCLUSION.*success/);
   assert.match(intake.run, /INTAKE_EVENT.*pull_request_target/);
@@ -1477,7 +1504,7 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
   assert.match(intake.run, /pullRequest\?\.head\?\.sha/);
   assert.match(intake.run, /dependabot-intake:v1/);
   assert.match(intake.run, /dependabot-intake\.yml@main/);
-  assert.match(intake.run, /Dependabot Prepared Head Intake/);
+  assert.match(intake.run, /dependabot-prepared-head-intake\.yml/);
   assert.match(intake.run, /dependabot-prepared-head:v1/);
   assert.match(intake.run, /EXPECTED_PREPARE_BOT_ID/);
 
@@ -1656,7 +1683,6 @@ test("Dependabot Claude review authenticates live upstream head metadata", () =>
   const intake = dependabotReview.jobs.preflight.steps[0];
   const result = runBashStep(intake, {
     ...liveIntakeEnvironment(),
-    INTAKE_WORKFLOW: "Dependabot Intake",
     RUN_ATTEMPT: "1",
     RUN_ID: "123456789",
     WORKFLOW_SHA: "c".repeat(40),
@@ -1677,7 +1703,6 @@ test("native Dependabot review needs no Prepare App configuration", () => {
       EXPECTED_PREPARE_BOT_ID: "",
       EXPECTED_PREPARE_BOT_LOGIN: "",
     }),
-    INTAKE_WORKFLOW: "Dependabot Intake",
     RUN_ATTEMPT: "1",
     RUN_ID: "123456789",
     WORKFLOW_SHA: "c".repeat(40),
@@ -1691,7 +1716,6 @@ test("Dependabot Claude review allows an omitted linked PR after receipt authent
   const intake = dependabotReview.jobs.preflight.steps[0];
   const result = runBashStep(intake, {
     ...liveIntakeEnvironment({ INTAKE_PULL_REQUESTS_JSON: "[]" }),
-    INTAKE_WORKFLOW: "Dependabot Intake",
     RUN_ATTEMPT: "1",
     RUN_ID: "123456789",
     WORKFLOW_SHA: "c".repeat(40),
@@ -1704,7 +1728,6 @@ test("Dependabot Claude review rejects an upstream head and receipt mismatch", (
   const intake = dependabotReview.jobs.preflight.steps[0];
   const result = runBashStep(intake, {
     ...liveIntakeEnvironment({ INTAKE_HEAD_SHA: "b".repeat(40) }),
-    INTAKE_WORKFLOW: "Dependabot Intake",
     RUN_ATTEMPT: "1",
     RUN_ID: "123456789",
     WORKFLOW_SHA: "c".repeat(40),
