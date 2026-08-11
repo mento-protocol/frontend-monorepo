@@ -2761,6 +2761,29 @@ test("a newer malformed post-merge check supersedes an older valid receipt and c
   );
 });
 
+test("an unordered post-merge receipt blocks fallback to an older valid publication", () => {
+  const current = snapshot();
+  current.baseline.checks.push({
+    ...postMergeReceipt(BASE_SHA),
+    completedAt: "2026-08-10T10:01:00Z",
+    id: 0,
+  });
+
+  const result = evaluateDependabotSweep({
+    mode: "merge",
+    pullRequests: [current],
+    repository: REPOSITORY,
+  });
+
+  assert.equal(result.serialization.ready, false);
+  assert.equal(result.serialization.reason, "invalid-post-merge-check-id");
+  assert.equal(result.mergeCandidate, null);
+  assert.equal(
+    result.evaluations[0].disposition,
+    "waiting-post-merge-verification",
+  );
+});
+
 test("an exact current auto-merge request re-enters the full gate", () => {
   const outstanding = snapshot({
     feedback: {

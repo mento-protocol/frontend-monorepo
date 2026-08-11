@@ -1092,6 +1092,8 @@ function compareChecks(left, right) {
 function comparePostMergeChecks(left, right) {
   const leftIdValid = Number.isSafeInteger(left.id) && left.id > 0;
   const rightIdValid = Number.isSafeInteger(right.id) && right.id > 0;
+  // Select unorderable exact-name/head evidence so it fails closed instead of
+  // letting an older valid publication authorize the merge lane.
   if (leftIdValid !== rightIdValid) return leftIdValid ? -1 : 1;
   const idComparison = left.id - right.id;
   if (idComparison !== 0) return idComparison;
