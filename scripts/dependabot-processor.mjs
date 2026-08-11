@@ -4,20 +4,24 @@
 
 import { readFileSync } from "node:fs";
 import process from "node:process";
-import { execFile as execFileCallback } from "node:child_process";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 
-export const DEPENDABOT_PROCESSOR_SCHEMA = "dependabot-processor:v1";
-export const DEPENDABOT_REPAIR_PACKET_SCHEMA = "dependabot-repair-packet:v1";
+import { validateProcessorRepairPacket } from "./dependabot-preparation-receipts.mjs";
+
+export const DEPENDABOT_PROCESSOR_SCHEMA = "dependabot-processor:v2";
+export const DEPENDABOT_REPAIR_PACKET_SCHEMA = "dependabot-repair-packet:v2";
 export const DEPENDABOT_POST_MERGE_SCHEMA = "dependabot-post-merge:v1";
+export const DEPENDABOT_REFRESH_SCHEMA = "dependabot-refresh:v1";
+export const DEPENDABOT_REPAIR_SCHEMA = "dependabot-repair:v1";
+export const DEPENDABOT_ALL_CLEAR_SCHEMA = "dependabot-all-clear:v1";
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const DEPENDABOT_LOGIN = "dependabot[bot]";
-const PROCESSOR_MODES = new Set(["observe", "assist", "merge"]);
+const PROCESSOR_MODES = new Set(["observe", "assist", "prepare"]);
+const PROCESSOR_PHASES = new Set(["request", "mutate", "finalize"]);
 const PASSING_CONCLUSIONS = new Set(["success"]);
 const PENDING_STATUSES = new Set([
   "expected",
@@ -48,6 +52,9 @@ const REVIEW_ENVELOPE_BODY_LIMIT = 50_000;
 const REPAIR_LINEAGE_COMMIT_LIMIT = 100;
 const REPAIR_LINEAGE_CHECK_CONCURRENCY = 4;
 const CHECK_SOURCE_RESOLUTION_CONCURRENCY = 8;
+const REFRESH_SUCCESSOR_POLL_ATTEMPTS = 5;
+const REFRESH_SUCCESSOR_POLL_INTERVAL_MS = 2_000;
+const GITHUB_WEB_FLOW_BOT_ID = 19_864_447;
 const PROCESSOR_APPROVAL_PULL_LIMIT = 100;
 const PROCESSOR_APPROVAL_REVIEW_LIMIT = 2_000;
 const PROCESSOR_APPROVAL_RESULT_LIMIT = 1_000;
@@ -60,25 +67,58 @@ const PULL_REQUEST_REVIEW_STATES = new Set([
   "PENDING",
 ]);
 const PROCESSOR_CHECK_NAME = "Dependabot Processor";
+const REFRESH_CHECK_NAME = "Dependabot Refresh";
+const REPAIR_CHECK_NAME = "Dependabot Repair";
+const ALL_CLEAR_CHECK_NAME = "Dependabot ALL CLEAR";
 const POST_MERGE_CHECK_NAME = "Dependabot Post-Merge Verification";
 const PROCESSOR_REPAIR_RECEIPT_PATTERN =
-  /^dependabot-processor:v1:pr=([1-9][0-9]{0,9}):head=([0-9a-f]{40}):mode=(observe|assist|merge):repair=([1-9][0-9]*):packet=(true|false)$/;
+  /^dependabot-processor:v2:pr=([1-9][0-9]{0,9}):head=([0-9a-f]{40}):mode=(observe|assist|prepare):repair=([1-9][0-9]*):packet=(true|false):digest=([0-9a-f]{64}|none):run=([1-9][0-9]*):attempt=([1-9][0-9]*)$/;
+const REFRESH_RECEIPT_PATTERN =
+  /^dependabot-refresh:v1:pr=([1-9][0-9]{0,9}):head=([0-9a-f]{40}):state=(requested|completed):digest=([0-9a-f]{64}):run=([1-9][0-9]*):attempt=([1-9][0-9]*)$/;
+const REPAIR_RECEIPT_PATTERN =
+  /^dependabot-repair:v1:pr=([1-9][0-9]{0,9}):head=([0-9a-f]{40}):attempt=([1-9][0-9]*):digest=([0-9a-f]{64}):run=([1-9][0-9]*):run_attempt=([1-9][0-9]*)$/;
+const ALL_CLEAR_RECEIPT_PATTERN =
+  /^dependabot-all-clear:v1:pr=([1-9][0-9]{0,9}):head=([0-9a-f]{40}):base=([0-9a-f]{40}):digest=([0-9a-f]{64}):run=([1-9][0-9]*):attempt=([1-9][0-9]*)$/;
 const POST_MERGE_EXTERNAL_ID_PATTERN =
   /^dependabot-post-merge:([1-9][0-9]*):([1-9][0-9]*)$/;
 const CLAUDE_REVIEW_RECEIPT_PATTERN =
   /^dependabot-claude-review:v1 \| source=dependabot-intake:v1 \| repository=([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+) \| pr=([1-9][0-9]{0,9}) \| sha=([0-9a-f]{40}) \| action=(opened|synchronize|reopened) \| receipt=true$/;
+const CLAUDE_PREPARED_REVIEW_RECEIPT_PATTERN =
+  /^dependabot-claude-review:v1 \| source=dependabot-prepared-head:v1\|p=([1-9][0-9]{0,9})\|h=([0-9a-f]{40})\|o=([rp])\|c=([1-9][0-9]*)\|d=([0-9a-f]{64})\|ok=true$/;
 const CLAUDE_REVIEW_EXTERNAL_ID_PATTERN =
   /^dependabot-claude-review:v1:pr=([1-9][0-9]{0,9}):sha=([0-9a-f]{40}):run=([1-9][0-9]*):attempt=([1-9][0-9]*)$/;
 const VERCEL_PREVIEW_INTAKE_TITLE_PATTERN =
   /^Vercel preview intake \| pr=([1-9][0-9]{0,9}) \| sha=([0-9a-f]{40}) \| action=(opened|edited|synchronize|reopened|closed)$/;
 const CODEX_REVIEW_HEADING = "### 💡 Codex Review";
 const SAFE_PROCESSOR_CHECK_DISPOSITIONS = new Set([
-  "merge-candidate",
-  "ready-for-approval",
-  "would-merge",
+  "prepare-candidate",
+  "refresh-pending",
+  "ready-for-human-review",
+  "eligible-observed",
+]);
+const PREPARE_LANE_DISPOSITIONS = new Set([
+  "feedback-remediation-required",
+  "prepare-candidate",
+  "refresh-pending",
+  "refresh-receipt-required",
+  "refresh-required",
+  "repair-pending",
+  "repair-required",
+]);
+const TERMINAL_PREPARATION_DISPOSITIONS = new Set([
+  "manual-repair-escalated",
+  "manual-repair-required",
+  "manual-review",
+  "manual-veto-or-feedback",
+  "rejected-identity",
 ]);
 const SENSITIVE_ACTION_PATTERN =
   /^actions\/create-github-app-token(?:\/|$)|(?:^|\/)(?:dependabot|claude|codex|copilot|codeql|osv|security|scorecard|harden-runner|trivy|snyk|attest|dependency-review)(?:[-/]|$)|(?:reviewer|review-action)/i;
+const PREPARATION_SENSITIVE_ACTION_PATTERN =
+  /(?:^|[/_.-])(?:auth|authentication|credential|credentials|deploy|deployment|login|oidc|permission|policy|token|workflow)(?:[/_.-]|$)/i;
+const AUTONOMOUS_REPAIR_FORBIDDEN_PATH_PATTERN =
+  /(?:^\.github\/|(?:^|[/_.-])(?:auth|authentication|credential|credentials|deploy|deployment|policy|runtime|security)(?:[/_.-]|$))/i;
+const RECEIPT_OUTPUT_LIMIT = 50_000;
 
 const CHECK_POLICY_DEFINITIONS = [
   {
@@ -309,14 +349,34 @@ const POST_MERGE_CHECK_DEFINITION = Object.freeze({
   names: [new RegExp(`^${POST_MERGE_CHECK_NAME}$`)],
 });
 
+const RECEIPT_SOURCE_POLICY = Object.freeze({
+  [PROCESSOR_CHECK_NAME]: {
+    events: ["repository_dispatch", "schedule", "workflow_run"],
+    workflowPaths: [".github/workflows/dependabot-process.yml"],
+  },
+  [REFRESH_CHECK_NAME]: {
+    events: ["repository_dispatch", "schedule", "workflow_run"],
+    workflowPaths: [".github/workflows/dependabot-process.yml"],
+  },
+  [REPAIR_CHECK_NAME]: {
+    events: ["repository_dispatch"],
+    workflowPaths: [".github/workflows/dependabot-prepare-repair.yml"],
+  },
+  [ALL_CLEAR_CHECK_NAME]: {
+    events: ["repository_dispatch", "schedule", "workflow_run"],
+    workflowPaths: [".github/workflows/dependabot-process.yml"],
+  },
+});
+
 export const DEPENDABOT_PROCESSOR_HELP = `Usage:
-  dependabot-processor.mjs evaluate --live --repo owner/name --pr-numbers all|1,2 [--mode observe|assist|merge]
-  dependabot-processor.mjs process --live --repo owner/name --pr-numbers all|1,2 [--mode observe|assist|merge] [--publish-checks]
-  dependabot-processor.mjs evaluate --input path|- [--repo owner/name] [--pr-numbers all|1,2] [--mode observe|assist|merge]
-  dependabot-processor.mjs process --input path|- [--repo owner/name] [--pr-numbers all|1,2] [--mode observe|assist|merge]
+  dependabot-processor.mjs evaluate --live --repo owner/name --pr-numbers all|1,2 [--mode observe|assist|prepare]
+  dependabot-processor.mjs process --live --repo owner/name --pr-numbers all|1,2 [--mode observe|assist|prepare] [--phase request|mutate|finalize] [--publish-checks]
+  dependabot-processor.mjs evaluate --input path|- [--repo owner/name] [--pr-numbers all|1,2] [--mode observe|assist|prepare]
+  dependabot-processor.mjs process --input path|- [--repo owner/name] [--pr-numbers all|1,2] [--mode observe|assist|prepare] [--phase finalize]
 
 Intake-triggered live runs may pass --expected-head-sha <40-hex-sha> with exactly one PR.
-Only exact lowercase observe, assist, and merge modes are accepted; every other value fails safe to observe. Pure process mode never mutates GitHub.`;
+Only exact lowercase observe, assist, and prepare modes are accepted; merge and every other value fail safe to observe.
+Prepare phases are separate capabilities: request may publish only a requested Refresh receipt, mutate may only consume that trusted receipt and request an exact-head branch update, and finalize rejects the repair token and cannot update a branch. Pure process mode never mutates GitHub.`;
 
 export const DEPENDABOT_CHECK_POLICY = Object.freeze(
   CHECK_POLICY_DEFINITIONS.map((definition) =>
@@ -377,6 +437,112 @@ function feedbackBodyDigest(value) {
     .digest("hex");
 }
 
+function canonicalDigest(value) {
+  return createHash("sha256").update(stableJson(value)).digest("hex");
+}
+
+function exactObjectKeys(value, expectedKeys) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    stableJson(Object.keys(value).sort()) ===
+      stableJson([...expectedKeys].sort())
+  );
+}
+
+function canonicalCheckJson(check) {
+  const outputText = check?.outputText ?? check?.output?.text ?? null;
+  if (
+    typeof outputText !== "string" ||
+    outputText.length === 0 ||
+    outputText.length > RECEIPT_OUTPUT_LIMIT
+  ) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(outputText);
+    return stableJson(parsed) === outputText ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function validPrepareActor(receipt) {
+  return (
+    typeof receipt?.prepareAppSlug === "string" &&
+    /^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/.test(receipt.prepareAppSlug) &&
+    Number.isSafeInteger(receipt?.prepareBotId) &&
+    receipt.prepareBotId > 0 &&
+    typeof receipt?.prepareBotLogin === "string" &&
+    normalizeLogin(receipt.prepareBotLogin) === `${receipt.prepareAppSlug}[bot]`
+  );
+}
+
+function trustedReceiptPublisher(check, repository) {
+  const normalized = normalizeCheck(check);
+  const policy = RECEIPT_SOURCE_POLICY[normalized.name];
+  if (
+    !policy ||
+    normalized.kind !== "check" ||
+    normalized.appId !== GITHUB_ACTIONS_APP_ID ||
+    normalized.sourceRepository !== repository ||
+    !policy.workflowPaths.includes(normalized.workflowPath) ||
+    !policy.events.includes(normalized.workflowEvent) ||
+    normalized.runHeadBranch !== "main" ||
+    !SHA_PATTERN.test(normalized.runHeadSha ?? "") ||
+    !Number.isSafeInteger(normalized.runId) ||
+    normalized.runId < 1 ||
+    !Number.isSafeInteger(normalized.runAttempt) ||
+    normalized.runAttempt < 1 ||
+    normalized.runStatus !== "completed" ||
+    normalized.runConclusion !== "success" ||
+    !new Set([
+      `https://github.com/${repository}/actions/runs/${normalized.runId}`,
+      `https://github.com/${repository}/runs/${normalized.id}`,
+    ]).has(normalized.detailsUrl)
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+function parseReceiptCheck({
+  check,
+  conclusion = "success",
+  externalPattern,
+  name,
+  repository,
+  schema,
+}) {
+  const normalized = trustedReceiptPublisher(check, repository);
+  if (
+    !normalized ||
+    normalized.name !== name ||
+    normalized.status !== "completed" ||
+    normalized.conclusion !== conclusion
+  ) {
+    return null;
+  }
+  const external = externalPattern.exec(String(normalized.externalId ?? ""));
+  const receipt = canonicalCheckJson(normalized);
+  if (
+    !external ||
+    !receipt ||
+    receipt.schema !== schema ||
+    canonicalDigest(receipt) !== external[4] ||
+    receipt.workflowRunId !== Number(external.at(-2)) ||
+    receipt.workflowRunAttempt !== Number(external.at(-1)) ||
+    receipt.workflowRunId !== normalized.runId ||
+    receipt.workflowRunAttempt !== normalized.runAttempt ||
+    !SHA_PATTERN.test(receipt.workflowSha ?? "") ||
+    receipt.workflowSha !== normalized.runHeadSha
+  ) {
+    return null;
+  }
+  return { check: normalized, external, receipt };
+}
+
 function feedbackActor({ association, login, type } = {}) {
   return {
     association: String(association ?? "").toUpperCase(),
@@ -407,6 +573,26 @@ function directMaintainerReply(body, headSha) {
   return /^Won't fix: .+/s.test(body);
 }
 
+function processorRemediationReply(body, headSha, threadId) {
+  const match = new RegExp(
+    `^Fixed in ([0-9a-f]{7,40}) — Addressed by authenticated Dependabot preparation\\.\\n\\n<!-- dependabot-remediation:v1 pr=([1-9][0-9]{0,9}) head=([0-9a-f]{40}) thread=([0-9a-f]{64}) packet=([0-9a-f]{64}) -->$`,
+  ).exec(String(body ?? ""));
+  if (
+    match === null ||
+    !headSha.startsWith(match[1]) ||
+    match[3] !== headSha ||
+    match[4] !== feedbackBodyDigest(String(threadId))
+  ) {
+    return null;
+  }
+  return {
+    headSha: match[3],
+    packetDigest: match[5],
+    pullRequestNumber: Number(match[2]),
+    threadDigest: match[4],
+  };
+}
+
 function boundedFeedbackBlocker(blocker) {
   return {
     bodyDigest: blocker.bodyDigest,
@@ -416,13 +602,113 @@ function boundedFeedbackBlocker(blocker) {
   };
 }
 
+function boundedActionableThread({ root, thread, trustedBotEnvelope }) {
+  const actor = feedbackActor(root?.actor);
+  const source =
+    actor.login === "chatgpt-codex-connector"
+      ? "codex"
+      : actor.login === "cursor"
+        ? "cursor"
+        : actor.login === "claude"
+          ? "claude"
+          : "check";
+  return {
+    bodyDigest: feedbackBodyDigest(String(root?.body ?? "")),
+    line:
+      Number.isSafeInteger(thread?.line) && thread.line > 0
+        ? thread.line
+        : null,
+    path:
+      typeof thread?.path === "string" && thread.path.length <= 300
+        ? thread.path
+        : null,
+    reviewCommitSha: SHA_PATTERN.test(root?.reviewCommitSha ?? "")
+      ? root.reviewCommitSha
+      : null,
+    reviewId:
+      Number.isSafeInteger(root?.reviewId) && root.reviewId > 0
+        ? root.reviewId
+        : null,
+    resolved: thread?.resolved === true,
+    rootCommentId:
+      Number.isSafeInteger(root?.id) && root.id > 0 ? root.id : null,
+    source,
+    threadId: String(thread?.id ?? "").slice(0, 200),
+    trustedBotEnvelope,
+  };
+}
+
 function trustedDependabotCommit(commit) {
-  const author = normalizeLogin(commit?.author?.login);
-  const committer = normalizeLogin(commit?.committer?.login);
+  const author = normalizeLogin(
+    commit?.authorLogin ?? commit?.author?.login ?? commit?.author,
+  );
+  const committer = normalizeLogin(
+    commit?.committerLogin ?? commit?.committer?.login ?? commit?.committer,
+  );
   return (
     author === DEPENDABOT_LOGIN &&
     (committer === DEPENDABOT_LOGIN || committer === "web-flow") &&
-    commit?.commit?.verification?.verified === true
+    (commit?.verified === true ||
+      commit?.commit?.verification?.verified === true)
+  );
+}
+
+function commitParentShas(commit) {
+  return (Array.isArray(commit?.parents) ? commit.parents : [])
+    .map((parent) => (typeof parent === "string" ? parent : parent?.sha))
+    .filter((sha) => SHA_PATTERN.test(sha ?? ""));
+}
+
+function normalizedCommitActor(commit, role) {
+  return {
+    id: Number(commit?.[`${role}Id`] ?? commit?.[role]?.id ?? 0),
+    login: normalizeLogin(
+      commit?.[`${role}Login`] ?? commit?.[role]?.login ?? commit?.[role],
+    ),
+    type: String(commit?.[`${role}Type`] ?? commit?.[role]?.type ?? ""),
+  };
+}
+
+function commitActorMatchesPrepareBot(commit, receipt, role) {
+  const actor = normalizedCommitActor(commit, role);
+  return (
+    actor.id === receipt.prepareBotId &&
+    actor.login === receipt.prepareBotLogin &&
+    actor.type === "Bot"
+  );
+}
+
+function commitMatchesPrepareBot(commit, receipt) {
+  return (
+    commitActorMatchesPrepareBot(commit, receipt, "author") &&
+    commitActorMatchesPrepareBot(commit, receipt, "committer")
+  );
+}
+
+function commitHasValidVerification(commit) {
+  return (
+    (commit?.verified === true ||
+      commit?.commit?.verification?.verified === true) &&
+    (commit?.verificationReason ?? commit?.commit?.verification?.reason) ===
+      "valid"
+  );
+}
+
+function commitMatchesAuthenticatedRefresh(commit, receipt) {
+  const committer = normalizedCommitActor(commit, "committer");
+  const exactPrepareCommitter = commitActorMatchesPrepareBot(
+    commit,
+    receipt,
+    "committer",
+  );
+  const exactWebFlowCommitter =
+    committer.id === GITHUB_WEB_FLOW_BOT_ID &&
+    committer.login === "web-flow" &&
+    committer.type === "User";
+  return (
+    commitActorMatchesPrepareBot(commit, receipt, "author") &&
+    (exactPrepareCommitter || exactWebFlowCommitter) &&
+    commitHasValidVerification(commit)
   );
 }
 
@@ -439,6 +725,38 @@ export function normalizeProcessorMode(value) {
   return typeof value === "string" && PROCESSOR_MODES.has(value)
     ? value
     : "observe";
+}
+
+export function normalizeProcessorPhase(value) {
+  if (value === undefined || value === null || value === "") return "finalize";
+  invariant(
+    typeof value === "string" && PROCESSOR_PHASES.has(value),
+    "Processor phase must be exactly request, mutate, or finalize",
+  );
+  return value;
+}
+
+function normalizeWorkflowContext(value = {}) {
+  const workflowRunId = Number(
+    value.workflowRunId ?? value.runId ?? process.env.GITHUB_RUN_ID,
+  );
+  const workflowRunAttempt = Number(
+    value.workflowRunAttempt ??
+      value.runAttempt ??
+      process.env.GITHUB_RUN_ATTEMPT,
+  );
+  const workflowSha =
+    value.workflowSha ?? value.sha ?? process.env.GITHUB_SHA ?? null;
+  invariant(
+    Number.isSafeInteger(workflowRunId) && workflowRunId > 0,
+    "Workflow run ID must be a positive safe integer",
+  );
+  invariant(
+    Number.isSafeInteger(workflowRunAttempt) && workflowRunAttempt > 0,
+    "Workflow run attempt must be a positive safe integer",
+  );
+  exactSha(workflowSha, "Workflow definition SHA");
+  return { workflowRunAttempt, workflowRunId, workflowSha };
 }
 
 function severityRank(updateType) {
@@ -607,25 +925,35 @@ export function deriveImmutableDependabotMetadata({
         /^\.github\/actions\/[^/]+\/action\.ya?ml$/.test(filename ?? "");
       return expectedPath && status !== "removed" && status !== "renamed";
     });
+  const seedCommitTrusted = trustedDependabotCommit(immutableCommit);
+  const currentHeadMatches =
+    currentCommit !== null &&
+    SHA_PATTERN.test(headSha ?? "") &&
+    currentCommit.sha === headSha;
+  const dependencyMetadataValid =
+    immutableCommit !== null &&
+    currentHeadMatches &&
+    seedCommitTrusted &&
+    metadata.dependencyNames.length > 0 &&
+    metadata.groupedUpdateIntegrity?.valid === true &&
+    metadata.updateType !== "unknown" &&
+    ["github-actions", "npm"].includes(metadata.packageEcosystem);
   metadata.immutableEvidence = {
     commitCount: commits.length,
+    currentHeadMatches,
+    dependencyMetadataValid,
     exactRoutineGroup,
     expectedActionFiles,
     repairCommitCount: Math.max(0, commits.length - 1),
     seedCommitSha: immutableCommit?.sha ?? null,
+    seedCommitTrusted,
     source: "dependabot-commit-message",
     valid:
-      immutableCommit !== null &&
-      currentCommit !== null &&
-      SHA_PATTERN.test(headSha ?? "") &&
-      currentCommit.sha === headSha &&
+      dependencyMetadataValid &&
       exactRoutineGroup &&
       expectedActionFiles &&
-      trustedDependabotCommit(immutableCommit) &&
       metadata.dependencyGroup === "github-actions-routine" &&
-      metadata.dependencyNames.length > 0 &&
-      metadata.groupedUpdateIntegrity?.valid === true &&
-      metadata.updateType !== "unknown",
+      metadata.updateType !== "major",
   };
   metadata.maintainerChanges = commits.some(
     (commit) => !trustedDependabotCommit(commit),
@@ -723,15 +1051,28 @@ export function classifyDependabotRisk(metadata = {}) {
   const sensitiveDependencies = dependencyNames.filter((name) =>
     SENSITIVE_ACTION_PATTERN.test(name),
   );
+  const preparationSensitiveDependencies = dependencyNames.filter(
+    (name) =>
+      SENSITIVE_ACTION_PATTERN.test(name) ||
+      PREPARATION_SENSITIVE_ACTION_PATTERN.test(name),
+  );
+  const verifiedDependencyEvidence =
+    metadata.immutableEvidence?.dependencyMetadataValid === true ||
+    (metadata.immutableEvidence?.valid === true &&
+      dependencyNames.length > 0 &&
+      updateType !== "unknown");
 
   if (packageEcosystem === "npm" || packageEcosystem === "npm_and_yarn") {
     return {
       autoApprovable: false,
       dependencyNames,
       packageEcosystem: "npm",
-      reason: "npm-updates-require-human-approval",
+      preparable: verifiedDependencyEvidence,
+      reason: verifiedDependencyEvidence
+        ? "verified-npm-update-requires-human-merge"
+        : "npm-metadata-is-not-immutable-and-verified",
       sensitiveDependencies: [],
-      tier: "manual-npm",
+      tier: verifiedDependencyEvidence ? "human-merge-npm" : "manual-npm",
       updateType,
     };
   }
@@ -743,6 +1084,7 @@ export function classifyDependabotRisk(metadata = {}) {
       autoApprovable: false,
       dependencyNames,
       packageEcosystem,
+      preparable: false,
       reason: "unknown-package-ecosystem",
       sensitiveDependencies,
       tier: "manual-unknown",
@@ -754,6 +1096,7 @@ export function classifyDependabotRisk(metadata = {}) {
       autoApprovable: false,
       dependencyNames,
       packageEcosystem: "github-actions",
+      preparable: false,
       reason: "action-metadata-is-not-immutable-and-verified",
       sensitiveDependencies,
       tier: "manual-unverified-action-metadata",
@@ -765,18 +1108,20 @@ export function classifyDependabotRisk(metadata = {}) {
       autoApprovable: false,
       dependencyNames,
       packageEcosystem: "github-actions",
+      preparable: false,
       reason: "missing-dependency-metadata",
       sensitiveDependencies,
       tier: "manual-unknown-action",
       updateType,
     };
   }
-  if (sensitiveDependencies.length > 0) {
+  if (preparationSensitiveDependencies.length > 0) {
     return {
       autoApprovable: false,
       dependencyNames,
       packageEcosystem: "github-actions",
-      reason: "self-reviewer-or-security-action",
+      preparable: false,
+      reason: "sensitive-auth-deployment-or-workflow-policy-action",
       sensitiveDependencies,
       tier: "manual-sensitive-action",
       updateType,
@@ -787,6 +1132,7 @@ export function classifyDependabotRisk(metadata = {}) {
       autoApprovable: false,
       dependencyNames,
       packageEcosystem: "github-actions",
+      preparable: true,
       reason: "only-action-patch-and-minor-updates-are-automatic",
       sensitiveDependencies,
       tier: "manual-action-major-or-unknown",
@@ -797,6 +1143,7 @@ export function classifyDependabotRisk(metadata = {}) {
     autoApprovable: true,
     dependencyNames,
     packageEcosystem: "github-actions",
+    preparable: true,
     reason: "safe-action-patch-or-minor",
     sensitiveDependencies,
     tier: "safe-actions-patch-minor",
@@ -841,11 +1188,22 @@ function normalizePullRequest(pullRequest) {
     labels: normalizeLabels(pullRequest?.labels),
     mergeCommitSha:
       pullRequest?.merge_commit_sha ?? pullRequest?.mergeCommitSha ?? null,
+    mergeable:
+      typeof pullRequest?.mergeable === "boolean"
+        ? pullRequest.mergeable
+        : null,
+    mergeStateStatus:
+      String(
+        pullRequest?.mergeStateStatus ?? pullRequest?.merge_state ?? "",
+      ).toUpperCase() || null,
     merged: Boolean(pullRequest?.merged ?? pullRequest?.mergedAt),
     nodeId: pullRequest?.node_id ?? pullRequest?.nodeId ?? pullRequest?.id,
     number: pullRequestNumber(pullRequest?.number),
     state: String(pullRequest?.state ?? "").toLowerCase(),
     title: pullRequest?.title ?? "",
+    reviewDecision:
+      String(pullRequest?.reviewDecision ?? "").toUpperCase() || null,
+    updatedAt: pullRequest?.updated_at ?? pullRequest?.updatedAt ?? null,
   };
 }
 
@@ -949,7 +1307,12 @@ export function validateDependabotPullRequestIdentity({
   const seedAuthorLogin = normalizeLogin(
     seedCommit?.authorLogin ?? seedCommit?.author?.login ?? seedCommit?.author,
   );
-  const repairCommitCount = Math.max(0, commitList.length - 1);
+  const successorCommitCount = Math.max(0, commitList.length - 1);
+  const repairCommitCount = Number.isSafeInteger(
+    repairAttempts?.repairCommitCount,
+  )
+    ? repairAttempts.repairCommitCount
+    : successorCommitCount;
   const hasNonDependabotRepairCommit = commitList.slice(1).some((commit) => {
     const login = normalizeLogin(
       commit?.authorLogin ?? commit?.author?.login ?? commit?.author,
@@ -959,7 +1322,9 @@ export function validateDependabotPullRequestIdentity({
   const computedMaintainerChanges =
     seedAuthorLogin !== DEPENDABOT_LOGIN || hasNonDependabotRepairCommit;
   const repairLineageValid =
-    repairCommitCount === 0 || repairAttempts?.repairLineageValid === true;
+    successorCommitCount === 0 || repairAttempts?.repairLineageValid === true;
+  const prepareLineageValid =
+    successorCommitCount === 0 || repairAttempts?.prepareLineageValid === true;
   if (seedAuthorLogin !== DEPENDABOT_LOGIN) {
     reasons.push("maintainer-changes-present");
   }
@@ -988,10 +1353,14 @@ export function validateDependabotPullRequestIdentity({
 
   return {
     automaticAuthority:
-      reasons.length === 0 && repairCommitCount === 0 && seedCommit !== null,
+      reasons.length === 0 && successorCommitCount === 0 && seedCommit !== null,
     automaticSeedHeadSha: seedCommit?.sha ?? null,
     headSha: normalized.headSha,
     number: normalized.number,
+    prepareAuthority:
+      reasons.length === 0 && prepareLineageValid && seedCommit !== null,
+    prepareLineageValid,
+    refreshCommitCount: repairAttempts?.refreshCommitCount ?? 0,
     repairCommitCount,
     repairLineageValid,
     reasons,
@@ -1043,6 +1412,9 @@ function normalizeCheck(check, assumedHeadSha) {
     headSha: check?.headSha ?? check?.head_sha ?? assumedHeadSha ?? null,
     id: Number(check?.id ?? 0),
     name,
+    outputSummary:
+      check?.outputSummary ?? check?.output?.summary ?? check?.summary ?? null,
+    outputText: check?.outputText ?? check?.output?.text ?? check?.text ?? null,
     creatorLogin: normalizeLogin(
       check?.creatorLogin ??
         check?.creator?.login ??
@@ -1070,6 +1442,291 @@ function normalizeCheck(check, assumedHeadSha) {
   };
 }
 
+export function parseDependabotProcessorReceipt(check, repository) {
+  const normalized = trustedReceiptPublisher(check, repository);
+  if (
+    !normalized ||
+    normalized.name !== PROCESSOR_CHECK_NAME ||
+    normalized.status !== "completed"
+  ) {
+    return null;
+  }
+  const external = PROCESSOR_REPAIR_RECEIPT_PATTERN.exec(
+    String(normalized.externalId ?? ""),
+  );
+  if (!external) return null;
+  const packetIssued = external[5] === "true";
+  const packet = packetIssued ? canonicalCheckJson(normalized) : null;
+  const packetDigest = external[6];
+  let packetValid = !packetIssued;
+  if (packetIssued && packet) {
+    try {
+      validateProcessorRepairPacket(packet);
+      packetValid = true;
+    } catch {
+      packetValid = false;
+    }
+  }
+  if (
+    normalized.runId !== Number(external[7]) ||
+    normalized.runAttempt !== Number(external[8]) ||
+    (packetIssued
+      ? normalized.conclusion !== "failure"
+      : !new Set(["failure", "neutral"]).has(normalized.conclusion)) ||
+    !packetValid ||
+    (packetIssued &&
+      (!packet ||
+        packet.schema !== DEPENDABOT_REPAIR_PACKET_SCHEMA ||
+        canonicalDigest(packet) !== packetDigest ||
+        packet.workflowRunId !== normalized.runId ||
+        packet.workflowRunAttempt !== normalized.runAttempt ||
+        packet.workflowSha !== normalized.runHeadSha ||
+        packet.repository !== repository ||
+        packet.pullRequestNumber !== Number(external[1]) ||
+        packet.headSha !== external[2] ||
+        packet.mode !== external[3] ||
+        packet.attemptNumber !== Number(external[4]))) ||
+    (!packetIssued && (packet !== null || packetDigest !== "none"))
+  ) {
+    return null;
+  }
+  return {
+    attempt: Number(external[4]),
+    check: normalized,
+    headSha: external[2],
+    mode: external[3],
+    packet,
+    packetDigest: packetIssued ? packetDigest : null,
+    packetIssued,
+    pullRequestNumber: Number(external[1]),
+  };
+}
+
+export function parseDependabotRefreshReceipt(check, repository) {
+  const parsed = parseReceiptCheck({
+    check,
+    externalPattern: REFRESH_RECEIPT_PATTERN,
+    name: REFRESH_CHECK_NAME,
+    repository,
+    schema: DEPENDABOT_REFRESH_SCHEMA,
+  });
+  if (!parsed) return null;
+  const { check: normalized, external, receipt } = parsed;
+  const commonKeys = [
+    "baseSha",
+    "headRef",
+    "headSha",
+    "parentHeadSha",
+    "prepareAppSlug",
+    "prepareBotId",
+    "prepareBotLogin",
+    "previousBaseSha",
+    "pullRequestNumber",
+    "repository",
+    "schema",
+    "state",
+    "workflowRunAttempt",
+    "workflowRunId",
+    "workflowSha",
+  ];
+  const completed = receipt.state === "completed";
+  const keys = completed
+    ? [...commonKeys, "requestCheckId", "requestDigest"]
+    : commonKeys;
+  if (
+    !exactObjectKeys(receipt, keys) ||
+    receipt.repository !== repository ||
+    receipt.pullRequestNumber !== Number(external[1]) ||
+    receipt.state !== external[3] ||
+    receipt.state !== (completed ? "completed" : "requested") ||
+    !String(receipt.headRef ?? "").startsWith("dependabot/") ||
+    !SHA_PATTERN.test(receipt.parentHeadSha ?? "") ||
+    !SHA_PATTERN.test(receipt.previousBaseSha ?? "") ||
+    !SHA_PATTERN.test(receipt.baseSha ?? "") ||
+    receipt.previousBaseSha === receipt.baseSha ||
+    !validPrepareActor(receipt) ||
+    (completed
+      ? !SHA_PATTERN.test(receipt.headSha ?? "") ||
+        receipt.headSha !== external[2] ||
+        receipt.headSha !== normalized.headSha ||
+        !Number.isSafeInteger(receipt.requestCheckId) ||
+        receipt.requestCheckId < 1 ||
+        !/^[0-9a-f]{64}$/.test(receipt.requestDigest ?? "")
+      : receipt.headSha !== null ||
+        receipt.parentHeadSha !== external[2] ||
+        receipt.parentHeadSha !== normalized.headSha)
+  ) {
+    return null;
+  }
+  return { check: normalized, receipt };
+}
+
+export function parseDependabotRepairReceipt(check, repository) {
+  const parsed = parseReceiptCheck({
+    check,
+    externalPattern: REPAIR_RECEIPT_PATTERN,
+    name: REPAIR_CHECK_NAME,
+    repository,
+    schema: DEPENDABOT_REPAIR_SCHEMA,
+  });
+  if (!parsed) return null;
+  const { check: normalized, external, receipt } = parsed;
+  if (
+    !exactObjectKeys(receipt, [
+      "attempt",
+      "baseSha",
+      "headRef",
+      "headSha",
+      "packetDigest",
+      "parentHeadSha",
+      "prepareAppSlug",
+      "prepareBotId",
+      "prepareBotLogin",
+      "processorCheckId",
+      "pullRequestNumber",
+      "repository",
+      "schema",
+      "state",
+      "workflowRunAttempt",
+      "workflowRunId",
+      "workflowSha",
+    ]) ||
+    receipt.state !== "completed" ||
+    receipt.repository !== repository ||
+    receipt.pullRequestNumber !== Number(external[1]) ||
+    receipt.headSha !== external[2] ||
+    receipt.headSha !== normalized.headSha ||
+    receipt.attempt !== Number(external[3]) ||
+    !String(receipt.headRef ?? "").startsWith("dependabot/") ||
+    !SHA_PATTERN.test(receipt.parentHeadSha ?? "") ||
+    !SHA_PATTERN.test(receipt.headSha ?? "") ||
+    !SHA_PATTERN.test(receipt.baseSha ?? "") ||
+    !/^[0-9a-f]{64}$/.test(receipt.packetDigest ?? "") ||
+    !Number.isSafeInteger(receipt.processorCheckId) ||
+    receipt.processorCheckId < 1 ||
+    !Number.isSafeInteger(receipt.attempt) ||
+    receipt.attempt < 1 ||
+    receipt.attempt > 2 ||
+    !validPrepareActor(receipt)
+  ) {
+    return null;
+  }
+  return { check: normalized, receipt };
+}
+
+export function parseDependabotAllClearReceipt(check, repository) {
+  const parsed = parseReceiptCheck({
+    check,
+    externalPattern: ALL_CLEAR_RECEIPT_PATTERN,
+    name: ALL_CLEAR_CHECK_NAME,
+    repository,
+    schema: DEPENDABOT_ALL_CLEAR_SCHEMA,
+  });
+  if (!parsed) return null;
+  const { check: normalized, external, receipt } = parsed;
+  if (
+    !exactObjectKeys(receipt, [
+      "autoMergeEnabled",
+      "baseSha",
+      "checksDigest",
+      "feedbackDigest",
+      "headRef",
+      "headSha",
+      "humanAction",
+      "mergeAuthorizedByAutomation",
+      "mergeStateStatus",
+      "mergeable",
+      "preparation",
+      "processorApprovalId",
+      "pullRequestNumber",
+      "repository",
+      "reviewDecision",
+      "riskTier",
+      "schema",
+      "updateType",
+      "workflowRunAttempt",
+      "workflowRunId",
+      "workflowSha",
+    ]) ||
+    receipt.repository !== repository ||
+    receipt.pullRequestNumber !== Number(external[1]) ||
+    receipt.headSha !== external[2] ||
+    receipt.headSha !== normalized.headSha ||
+    receipt.baseSha !== external[3] ||
+    !String(receipt.headRef ?? "").startsWith("dependabot/") ||
+    !SHA_PATTERN.test(receipt.headSha ?? "") ||
+    !SHA_PATTERN.test(receipt.baseSha ?? "") ||
+    !/^[0-9a-f]{64}$/.test(receipt.feedbackDigest ?? "") ||
+    !/^[0-9a-f]{64}$/.test(receipt.checksDigest ?? "") ||
+    !Number.isSafeInteger(receipt.processorApprovalId) ||
+    receipt.processorApprovalId < 1 ||
+    receipt.mergeable !== true ||
+    receipt.mergeStateStatus !== "CLEAN" ||
+    receipt.reviewDecision !== "APPROVED" ||
+    receipt.autoMergeEnabled !== false ||
+    receipt.humanAction !== "merge" ||
+    receipt.mergeAuthorizedByAutomation !== false ||
+    typeof receipt.riskTier !== "string" ||
+    receipt.riskTier.length === 0 ||
+    typeof receipt.updateType !== "string" ||
+    receipt.updateType.length === 0 ||
+    !validPreparationSummary(receipt.preparation)
+  ) {
+    return null;
+  }
+  return { check: normalized, receipt };
+}
+
+function validPreparationSummary(preparation) {
+  if (
+    preparation === null ||
+    typeof preparation !== "object" ||
+    !Array.isArray(preparation.operationDigests) ||
+    preparation.operationDigests.some(
+      (digest) => !/^[0-9a-f]{64}$/.test(digest),
+    ) ||
+    new Set(preparation.operationDigests).size !==
+      preparation.operationDigests.length ||
+    !Number.isSafeInteger(preparation.refreshCount) ||
+    preparation.refreshCount < 0 ||
+    !Number.isSafeInteger(preparation.repairCount) ||
+    preparation.repairCount < 0 ||
+    !SHA_PATTERN.test(preparation.seedHeadSha ?? "")
+  ) {
+    return false;
+  }
+  if (preparation.kind === "native") {
+    return (
+      exactObjectKeys(preparation, [
+        "kind",
+        "operationDigests",
+        "refreshCount",
+        "repairCount",
+        "seedHeadSha",
+      ]) &&
+      preparation.operationDigests.length === 0 &&
+      preparation.refreshCount === 0 &&
+      preparation.repairCount === 0
+    );
+  }
+  return (
+    preparation.kind === "prepared" &&
+    exactObjectKeys(preparation, [
+      "kind",
+      "operationDigests",
+      "prepareAppSlug",
+      "prepareBotId",
+      "prepareBotLogin",
+      "refreshCount",
+      "repairCount",
+      "seedHeadSha",
+    ]) &&
+    preparation.operationDigests.length ===
+      preparation.refreshCount + preparation.repairCount &&
+    validPrepareActor(preparation)
+  );
+}
+
 function compareChecks(left, right) {
   if (left.kind === "status" && right.kind === "status") {
     const timestampComparison = String(left.timestamp).localeCompare(
@@ -1094,6 +1751,15 @@ function comparePostMergeChecks(left, right) {
   const rightIdValid = Number.isSafeInteger(right.id) && right.id > 0;
   // Select unorderable exact-name/head evidence so it fails closed instead of
   // letting an older valid publication authorize the merge lane.
+  if (leftIdValid !== rightIdValid) return leftIdValid ? -1 : 1;
+  const idComparison = left.id - right.id;
+  if (idComparison !== 0) return idComparison;
+  return String(left.timestamp).localeCompare(String(right.timestamp));
+}
+
+function comparePolicyCheckRuns(left, right) {
+  const leftIdValid = Number.isSafeInteger(left.id) && left.id > 0;
+  const rightIdValid = Number.isSafeInteger(right.id) && right.id > 0;
   if (leftIdValid !== rightIdValid) return leftIdValid ? -1 : 1;
   const idComparison = left.id - right.id;
   if (idComparison !== 0) return idComparison;
@@ -1195,20 +1861,29 @@ function trustedCheckSource(
       return { reason: "post-merge-run-url-mismatch", trusted: false };
     }
   } else if (definition.id === "claude-review") {
-    const displayReceipt = CLAUDE_REVIEW_RECEIPT_PATTERN.exec(
-      String(check.runDisplayTitle ?? ""),
-    );
+    const displayTitle = String(check.runDisplayTitle ?? "");
+    const nativeDisplayReceipt =
+      CLAUDE_REVIEW_RECEIPT_PATTERN.exec(displayTitle);
+    const preparedDisplayReceipt =
+      CLAUDE_PREPARED_REVIEW_RECEIPT_PATTERN.exec(displayTitle);
     const externalReceipt = CLAUDE_REVIEW_EXTERNAL_ID_PATTERN.exec(
       String(check.externalId ?? ""),
     );
-    if (!displayReceipt || !externalReceipt) {
+    if (
+      (!nativeDisplayReceipt && !preparedDisplayReceipt) ||
+      !externalReceipt
+    ) {
       return { reason: "invalid-claude-review-receipt", trusted: false };
     }
-    const displayPullRequestNumber = Number(displayReceipt[2]);
+    const displayPullRequestNumber = Number(
+      nativeDisplayReceipt?.[2] ?? preparedDisplayReceipt?.[1],
+    );
+    const displayHeadSha =
+      nativeDisplayReceipt?.[3] ?? preparedDisplayReceipt?.[2];
     const externalPullRequestNumber = Number(externalReceipt[1]);
     if (
-      displayReceipt[1] !== repository ||
-      displayReceipt[3] !== headSha ||
+      (nativeDisplayReceipt && nativeDisplayReceipt[1] !== repository) ||
+      displayHeadSha !== headSha ||
       externalReceipt[2] !== headSha ||
       displayPullRequestNumber !== externalPullRequestNumber ||
       (pullRequestNumberValue !== null &&
@@ -1259,7 +1934,9 @@ export function selectLatestExactHeadCheck(checks, headSha, definition) {
   const compare =
     definition.id === "post-merge-verification"
       ? comparePostMergeChecks
-      : compareChecks;
+      : (CHECK_SOURCE_POLICY[definition.id]?.kind ?? "check") === "status"
+        ? compareChecks
+        : comparePolicyCheckRuns;
   const candidates = checks
     .map((check) => normalizeCheck(check))
     .filter(
@@ -1283,6 +1960,69 @@ function resultState(check) {
   if (PASSING_CONCLUSIONS.has(check.conclusion)) return "passing";
   if (check.conclusion === "skipped") return "skipped";
   return "failing";
+}
+
+function validatedClaudeFindings(
+  check,
+  { headSha, pullRequestNumber: number, repository },
+) {
+  if (!check || !Number.isSafeInteger(number) || number < 1) return [];
+  const result = canonicalCheckJson(check);
+  if (
+    !exactObjectKeys(result, [
+      "findings",
+      "headSha",
+      "pullRequestNumber",
+      "repository",
+      "reviewCompleted",
+      "schema",
+      "verdict",
+    ]) ||
+    result.schema !== "dependabot-claude-review-result:v1" ||
+    result.repository !== repository ||
+    result.pullRequestNumber !== number ||
+    result.headSha !== headSha ||
+    result.reviewCompleted !== true ||
+    result.verdict !== "findings" ||
+    !Array.isArray(result.findings) ||
+    result.findings.length < 1 ||
+    result.findings.length > 20
+  ) {
+    return [];
+  }
+  const findings = [];
+  for (const finding of result.findings) {
+    if (
+      !exactObjectKeys(finding, ["line", "path", "summary", "title"]) ||
+      typeof finding.title !== "string" ||
+      finding.title.length < 1 ||
+      finding.title.length > 160 ||
+      typeof finding.path !== "string" ||
+      finding.path.length < 1 ||
+      finding.path.length > 300 ||
+      finding.path.startsWith("/") ||
+      finding.path.split("/").includes("..") ||
+      !Number.isSafeInteger(finding.line) ||
+      finding.line < 1 ||
+      typeof finding.summary !== "string" ||
+      finding.summary.length < 1 ||
+      finding.summary.length > 1_000
+    ) {
+      return [];
+    }
+    const canonical = {
+      line: finding.line,
+      path: finding.path,
+      summary: finding.summary,
+      title: finding.title,
+    };
+    findings.push({
+      ...canonical,
+      id: canonicalDigest(canonical).slice(0, 24),
+      summaryDigest: feedbackBodyDigest(finding.summary),
+    });
+  }
+  return findings;
 }
 
 function evaluateChecksForSha(
@@ -1324,6 +2064,14 @@ function evaluateChecksForSha(
         reason = "unjustified-skip";
       }
     }
+    const findings =
+      definition.id === "claude-review" && state === "failing" && source.trusted
+        ? validatedClaudeFindings(check, {
+            headSha,
+            pullRequestNumber: pullRequestNumberValue,
+            repository,
+          })
+        : [];
     const result = {
       check: check
         ? {
@@ -1342,6 +2090,7 @@ function evaluateChecksForSha(
       id: definition.id,
       label: definition.label,
       failureAttribution: definition.failureAttribution ?? "deterministic",
+      findings,
       reason,
       source: source.reason,
       skippedBy: definition.skippedBy ?? null,
@@ -1389,13 +2138,16 @@ export function evaluateDependabotChecks({
     const baselineResult = baselineById.get(result.id);
     failures.push({
       attribution:
-        baselineResult?.state === "failing"
-          ? "baseline"
-          : baselineResult?.state === "passing"
-            ? result.failureAttribution === "external"
-              ? "non-deterministic"
-              : "branch"
-            : "unknown",
+        result.id === "claude-review" && result.findings.length > 0
+          ? "branch"
+          : baselineResult?.state === "failing"
+            ? "baseline"
+            : baselineResult?.state === "passing"
+              ? result.failureAttribution === "external"
+                ? "non-deterministic"
+                : "branch"
+              : "unknown",
+      findings: result.findings,
       id: result.id,
       name: result.check?.name ?? null,
       reason: result.reason,
@@ -1438,7 +2190,6 @@ function processorApprovalBinding(review) {
 function reviewEnvelopeMatches({
   actor,
   body,
-  headSha,
   inlineRootCount,
   reviewCommitSha,
 }) {
@@ -1465,8 +2216,7 @@ function reviewEnvelopeMatches({
         );
       return (
         inlineRootCount > 0 &&
-        reviewCommitSha === headSha &&
-        reviewedCommit?.[1] === headSha.slice(0, 10)
+        reviewedCommit?.[1] === reviewCommitSha.slice(0, 10)
       );
     }
     return /^Codex Review:(?: |\n)/.test(body) && inlineRootCount > 0;
@@ -1506,6 +2256,8 @@ export function classifyDependabotFeedback({
   let historicalProcessorApprovalCount = 0;
   let dismissedProcessorApprovalCount = 0;
   const currentProcessorApprovalIds = [];
+  const actionableThreads = [];
+  const remediationCandidates = [];
 
   const reviewsById = new Map();
   for (const review of reviews) {
@@ -1598,7 +2350,6 @@ export function classifyDependabotFeedback({
       reviewEnvelopeMatches({
         actor,
         body,
-        headSha,
         inlineRootCount,
         reviewCommitSha: review?.commitSha,
       })
@@ -1636,7 +2387,12 @@ export function classifyDependabotFeedback({
         });
       } else if (
         actor.type === "Bot" &&
-        !ACTIONABLE_REVIEW_BOTS.has(actor.login)
+        !ACTIONABLE_REVIEW_BOTS.has(actor.login) &&
+        !(
+          actor.login === "github-actions" &&
+          comment?.replyToId != null &&
+          processorRemediationReply(comment?.body, headSha, threadId) !== null
+        )
       ) {
         addBlocker({
           body: comment?.body,
@@ -1661,20 +2417,20 @@ export function classifyDependabotFeedback({
       trustedHuman(rootActor) ||
       (rootActor.type === "Bot" && ACTIONABLE_REVIEW_BOTS.has(rootActor.login));
     if (!actionable) continue;
-    actionableThreadCount += 1;
+    let trustedBotEnvelope = false;
     if (rootActor.type === "Bot") {
       const reviewId = String(root.reviewId ?? "");
       const parentReviews = reviewsById.get(reviewId) ?? [];
       const parent = parentReviews[0];
       const parentActor = feedbackActor(parent?.actor);
-      if (
-        parentReviews.length !== 1 ||
-        !acceptedReviewEnvelopes.has(reviewId) ||
-        parentActor.type !== "Bot" ||
-        parentActor.login !== rootActor.login ||
-        parent?.commitSha !== root.reviewCommitSha ||
-        !SHA_PATTERN.test(root.reviewCommitSha ?? "")
-      ) {
+      trustedBotEnvelope =
+        parentReviews.length === 1 &&
+        acceptedReviewEnvelopes.has(reviewId) &&
+        parentActor.type === "Bot" &&
+        parentActor.login === rootActor.login &&
+        parent?.commitSha === root.reviewCommitSha &&
+        SHA_PATTERN.test(root.reviewCommitSha ?? "");
+      if (!trustedBotEnvelope) {
         addBlocker({
           body: root.body,
           id: threadId,
@@ -1693,33 +2449,64 @@ export function classifyDependabotFeedback({
         surface: "thread",
       });
     }
-    if (!SHA_PATTERN.test(root.reviewCommitSha ?? "")) {
+    const reviewHeadBound = SHA_PATTERN.test(root.reviewCommitSha ?? "");
+    if (!reviewHeadBound) {
       addBlocker({
         body: root.body,
         id: threadId,
         reason: "missing-review-head-binding",
         surface: "thread",
       });
-      continue;
     }
-    if (thread?.resolved === true && root.reviewCommitSha !== headSha) continue;
-    const hasRequiredReply = comments.some((reply) => {
-      const actor = feedbackActor(reply?.actor);
-      return (
-        String(reply?.replyToId ?? "") === String(root.id) &&
-        String(reply?.createdAt ?? "") > String(root.createdAt ?? "") &&
-        trustedHuman(actor) &&
-        directMaintainerReply(String(reply?.body ?? ""), headSha)
-      );
-    });
-    if (!hasRequiredReply) {
-      unrepliedThreads += 1;
-      addBlocker({
-        body: root.body,
-        id: threadId,
-        reason: "unreplied-review-feedback",
-        surface: "thread",
+    const resolvedHistorical =
+      thread?.resolved === true &&
+      reviewHeadBound &&
+      root.reviewCommitSha !== headSha;
+    let hasRequiredReply = resolvedHistorical;
+    if (reviewHeadBound && !resolvedHistorical) {
+      hasRequiredReply = comments.some((reply) => {
+        const actor = feedbackActor(reply?.actor);
+        const remediation =
+          actor.type === "Bot" && actor.login === "github-actions"
+            ? processorRemediationReply(reply?.body, headSha, threadId)
+            : null;
+        if (
+          remediation &&
+          String(reply?.replyToId ?? "") === String(root.id) &&
+          String(reply?.createdAt ?? "") > String(root.createdAt ?? "")
+        ) {
+          remediationCandidates.push({
+            ...remediation,
+            rootCommentId: root.id,
+            threadId: String(threadId),
+          });
+        }
+        return (
+          String(reply?.replyToId ?? "") === String(root.id) &&
+          String(reply?.createdAt ?? "") > String(root.createdAt ?? "") &&
+          trustedHuman(actor) &&
+          directMaintainerReply(String(reply?.body ?? ""), headSha)
+        );
       });
+      if (!hasRequiredReply) {
+        unrepliedThreads += 1;
+        addBlocker({
+          body: root.body,
+          id: threadId,
+          reason: "unreplied-review-feedback",
+          surface: "thread",
+        });
+      }
+    }
+    const trustedBotNeedsAction =
+      trustedBotEnvelope && (unresolved || !hasRequiredReply);
+    if (!trustedBotEnvelope || trustedBotNeedsAction) {
+      actionableThreadCount += 1;
+    }
+    if (trustedBotNeedsAction) {
+      actionableThreads.push(
+        boundedActionableThread({ root, thread, trustedBotEnvelope }),
+      );
     }
   }
 
@@ -1771,6 +2558,7 @@ export function classifyDependabotFeedback({
   const reasons = [...new Set(blockers.map(({ reason }) => reason))];
   return {
     actionableThreadCount,
+    actionableThreads: actionableThreads.slice(0, FEEDBACK_BLOCKER_LIMIT),
     blockerCount: blockers.length,
     blockers: blockers.slice(0, FEEDBACK_BLOCKER_LIMIT),
     complete: !reasons.some((reason) =>
@@ -1789,6 +2577,10 @@ export function classifyDependabotFeedback({
     historicalProcessorApprovalCount,
     issueCommentCount: issueComments.length,
     reasons,
+    remediationCandidates: remediationCandidates.slice(
+      0,
+      FEEDBACK_BLOCKER_LIMIT,
+    ),
     reviewCount: reviews.length,
     threadCount: threads.length,
     unresolvedThreads,
@@ -1796,14 +2588,68 @@ export function classifyDependabotFeedback({
   };
 }
 
-export function evaluateFeedbackGate({ feedback = {}, pullRequest = {} } = {}) {
+export function evaluateFeedbackGate({
+  feedback = {},
+  pullRequest = {},
+  repairAttempts = null,
+} = {}) {
+  const normalizedPullRequest = normalizePullRequest(pullRequest);
   const labels = normalizeLabels([
     ...(pullRequest.labels ?? []),
     ...(feedback.labels ?? []),
   ]);
   const vetoLabels = labels.filter((label) => VETO_LABELS.has(label));
   const unresolvedThreads = Number(feedback.unresolvedThreads ?? 0);
-  const unrepliedThreads = Number(feedback.unrepliedThreads ?? 0);
+  const rawUnrepliedThreads = Number(feedback.unrepliedThreads ?? 0);
+  const currentProcessorApprovalCount = Number(
+    feedback.currentProcessorApprovalCount ?? 0,
+  );
+  const currentProcessorApprovalIds = Array.isArray(
+    feedback.currentProcessorApprovalIds,
+  )
+    ? feedback.currentProcessorApprovalIds.map(Number)
+    : [];
+  const currentProcessorApprovalInventoryValid =
+    Number.isSafeInteger(currentProcessorApprovalCount) &&
+    currentProcessorApprovalCount >= 0 &&
+    Array.isArray(feedback.currentProcessorApprovalIds ?? []) &&
+    currentProcessorApprovalIds.length === currentProcessorApprovalCount &&
+    currentProcessorApprovalIds.every(
+      (approvalId) => Number.isSafeInteger(approvalId) && approvalId > 0,
+    ) &&
+    new Set(currentProcessorApprovalIds).size ===
+      currentProcessorApprovalIds.length;
+  const latestAppliedRepair = repairAttempts?.latestAppliedRepair;
+  const packetThreadById = new Map(
+    (latestAppliedRepair?.packet?.feedbackThreads ?? []).map((thread) => [
+      String(thread.threadId),
+      thread,
+    ]),
+  );
+  const trustedRemediationThreads = new Set(
+    (Array.isArray(feedback.remediationCandidates)
+      ? feedback.remediationCandidates
+      : []
+    )
+      .filter((candidate) => {
+        const packetThread = packetThreadById.get(String(candidate?.threadId));
+        return (
+          latestAppliedRepair?.receipt !== null &&
+          latestAppliedRepair?.receipt !== undefined &&
+          candidate?.packetDigest === latestAppliedRepair.packetDigest &&
+          candidate?.pullRequestNumber === normalizedPullRequest.number &&
+          candidate?.headSha === normalizedPullRequest.headSha &&
+          packetThread?.commentId === candidate?.rootCommentId &&
+          candidate?.threadDigest ===
+            feedbackBodyDigest(String(candidate?.threadId))
+        );
+      })
+      .map(({ threadId }) => String(threadId)),
+  );
+  const unrepliedThreads =
+    Number.isInteger(rawUnrepliedThreads) && rawUnrepliedThreads >= 0
+      ? Math.max(0, rawUnrepliedThreads - trustedRemediationThreads.size)
+      : rawUnrepliedThreads;
   const reviewDecision = String(
     feedback.reviewDecision ?? pullRequest.reviewDecision ?? "",
   ).toUpperCase();
@@ -1829,9 +2675,11 @@ export function evaluateFeedbackGate({ feedback = {}, pullRequest = {} } = {}) {
   ]
     .sort()
     .slice(0, DURABLE_EVENT_EVIDENCE_LIMIT);
-  const reasons = [
-    ...(Array.isArray(feedback.reasons) ? feedback.reasons : []),
-  ];
+  const reasons = (
+    Array.isArray(feedback.reasons) ? feedback.reasons : []
+  ).filter(
+    (reason) => reason !== "unreplied-review-feedback" || unrepliedThreads > 0,
+  );
   if (feedback.complete === false) reasons.unshift("feedback-incomplete");
   if (!Number.isInteger(unresolvedThreads) || unresolvedThreads < 0) {
     reasons.push("invalid-unresolved-thread-count");
@@ -1842,6 +2690,9 @@ export function evaluateFeedbackGate({ feedback = {}, pullRequest = {} } = {}) {
     reasons.push("invalid-unreplied-thread-count");
   } else if (unrepliedThreads > 0) {
     reasons.push("unreplied-review-feedback");
+  }
+  if (!currentProcessorApprovalInventoryValid) {
+    reasons.push("invalid-current-processor-approval-inventory");
   }
   if (reviewDecision === "CHANGES_REQUESTED") {
     reasons.push("changes-requested");
@@ -1866,10 +2717,71 @@ export function evaluateFeedbackGate({ feedback = {}, pullRequest = {} } = {}) {
   }
   if (vetoLabels.length > 0) reasons.push("veto-label-present");
   const uniqueReasons = [...new Set(reasons)];
+  const rawActionableThreads = Array.isArray(feedback.actionableThreads)
+    ? feedback.actionableThreads.slice(0, FEEDBACK_BLOCKER_LIMIT)
+    : [];
+  const resolvedTrustedRemediationThreadIds = new Set(
+    rawActionableThreads
+      .filter((thread) => {
+        const threadId = String(thread?.threadId ?? "");
+        const packetThread = packetThreadById.get(threadId);
+        return (
+          thread?.resolved === true &&
+          thread?.trustedBotEnvelope === true &&
+          trustedRemediationThreads.has(threadId) &&
+          packetThread?.commentId === thread.rootCommentId &&
+          packetThread?.digest === thread.bodyDigest
+        );
+      })
+      .map(({ threadId }) => String(threadId)),
+  );
+  const actionableThreads = rawActionableThreads.filter(
+    ({ threadId }) =>
+      !resolvedTrustedRemediationThreadIds.has(String(threadId)),
+  );
+  const rawActionableThreadCount = Number(feedback.actionableThreadCount ?? 0);
+  const actionableThreadCount =
+    Number.isSafeInteger(rawActionableThreadCount) &&
+    rawActionableThreadCount >= resolvedTrustedRemediationThreadIds.size
+      ? rawActionableThreadCount - resolvedTrustedRemediationThreadIds.size
+      : rawActionableThreadCount;
+  const repairableReasonSet = new Set([
+    "unreplied-review-feedback",
+    "unresolved-review-feedback",
+  ]);
+  const repairable =
+    uniqueReasons.length > 0 &&
+    uniqueReasons.every((reason) => repairableReasonSet.has(reason)) &&
+    actionableThreads.length > 0 &&
+    actionableThreads.length === actionableThreadCount &&
+    actionableThreads.every(
+      (thread) =>
+        thread?.trustedBotEnvelope === true &&
+        typeof thread.threadId === "string" &&
+        thread.threadId.length > 0 &&
+        Number.isSafeInteger(thread.rootCommentId) &&
+        thread.rootCommentId > 0 &&
+        SHA_PATTERN.test(thread.reviewCommitSha ?? "") &&
+        /^[0-9a-f]{64}$/.test(thread.bodyDigest ?? ""),
+    );
   return {
+    actionableThreadCount,
+    actionableThreads,
     autoMergeEnabled: feedback.autoMergeEnabled === true,
     blockers: Array.isArray(feedback.blockers) ? feedback.blockers : [],
     clear: uniqueReasons.length === 0,
+    currentProcessorApprovalCount,
+    currentProcessorApprovalIds,
+    dismissedProcessorApprovalCount: Number(
+      feedback.dismissedProcessorApprovalCount ?? 0,
+    ),
+    digest: /^[0-9a-f]{64}$/.test(feedback.digest ?? "")
+      ? feedback.digest
+      : canonicalDigest({
+          actionableThreads,
+          blockers: Array.isArray(feedback.blockers) ? feedback.blockers : [],
+          reasons: uniqueReasons,
+        }),
     forcePushActors,
     forcePushCommitIds,
     forcePushEventCount:
@@ -1880,10 +2792,23 @@ export function evaluateFeedbackGate({ feedback = {}, pullRequest = {} } = {}) {
     forcePushed: feedback.forcePushed === true,
     humanClosed: feedback.humanClosed === true,
     humanReopened: feedback.humanReopened === true,
+    historicalProcessorApprovalCount: Number(
+      feedback.historicalProcessorApprovalCount ?? 0,
+    ),
     reasons: uniqueReasons,
+    repairable,
     reviewDecision: reviewDecision || null,
+    mergeStateStatus:
+      String(
+        feedback.mergeStateStatus ?? pullRequest.mergeStateStatus ?? "",
+      ).toUpperCase() || null,
+    mergeable:
+      typeof (feedback.mergeable ?? pullRequest.mergeable) === "boolean"
+        ? (feedback.mergeable ?? pullRequest.mergeable)
+        : null,
     unresolvedThreads,
     unrepliedThreads,
+    trustedRemediationThreads: [...trustedRemediationThreads].sort(),
     vetoLabels,
   };
 }
@@ -1891,19 +2816,21 @@ export function evaluateFeedbackGate({ feedback = {}, pullRequest = {} } = {}) {
 function evaluateRepairAttemptGate({
   checks = [],
   commits = [],
+  currentBaseSha,
   explicitRepairAttempt,
+  headRef,
   headSha,
+  mergeBaseSha,
+  prepareActor = null,
   pullRequestNumber: pullRequestNumberValue,
   repairHistoryChecks,
+  repository,
 }) {
   const hasLineageHistory = repairHistoryChecks !== undefined;
   const reasons = [];
-  const rawLineageHeadShas = (Array.isArray(commits) ? commits : []).map(
-    (commit) => commit?.sha,
-  );
-  const lineageHeadShas = [
-    ...new Set(rawLineageHeadShas.filter((sha) => SHA_PATTERN.test(sha ?? ""))),
-  ];
+  const commitList = Array.isArray(commits) ? commits : [];
+  const rawLineageHeadShas = commitList.map((commit) => commit?.sha);
+  const lineageHeadShas = [...new Set(rawLineageHeadShas)];
   if (
     lineageHeadShas.length !== rawLineageHeadShas.length ||
     rawLineageHeadShas.some((sha) => !SHA_PATTERN.test(sha ?? ""))
@@ -1917,101 +2844,288 @@ function evaluateRepairAttemptGate({
   if (hasLineageHistory && !lineageHeadShaSet.has(headSha)) {
     reasons.push("repair-history-current-head-not-in-lineage");
   }
-  const normalizedProcessorChecks = (
+  const unfilteredHistoryChecks = (
     hasLineageHistory
       ? Array.isArray(repairHistoryChecks)
         ? repairHistoryChecks
         : []
       : checks
-  )
-    .map((check) => ({
-      ...normalizeCheck(check, hasLineageHistory ? null : headSha),
-      receiptKindDeclared: check?.kind ?? check?.source?.kind ?? null,
-      receiptStatusDeclared: check?.status ?? null,
-    }))
-    .filter((check) => {
-      if (check.name === PROCESSOR_CHECK_NAME) return true;
-      if (hasLineageHistory) {
-        reasons.push("unexpected-repair-history-check-name");
-      }
-      return false;
-    });
-  const receiptsByHead = new Map(
-    lineageHeadShas.map((lineageHeadSha) => [lineageHeadSha, []]),
+  ).map((check) => normalizeCheck(check, hasLineageHistory ? null : headSha));
+  const knownReceiptNames = new Set([
+    PROCESSOR_CHECK_NAME,
+    REFRESH_CHECK_NAME,
+    REPAIR_CHECK_NAME,
+  ]);
+  if (
+    hasLineageHistory &&
+    unfilteredHistoryChecks.some((check) => !knownReceiptNames.has(check.name))
+  ) {
+    reasons.push("unexpected-repair-history-check-name");
+  }
+  const historyChecks = hasLineageHistory
+    ? unfilteredHistoryChecks
+    : unfilteredHistoryChecks.filter((check) =>
+        knownReceiptNames.has(check.name),
+      );
+  const processorReceiptsByHead = new Map(
+    lineageHeadShas.map((sha) => [sha, []]),
   );
-  const seenReceipts = new Set();
-  for (const check of normalizedProcessorChecks) {
+  const refreshReceiptsByHead = new Map(
+    lineageHeadShas.map((sha) => [sha, []]),
+  );
+  const repairReceiptsByHead = new Map(lineageHeadShas.map((sha) => [sha, []]));
+  const seenReceiptIds = new Set();
+  const currentHeadRefreshRequests = [];
+  const actorMatchesConfiguration = (receipt) => {
+    if (!prepareActor) return true;
+    return (
+      receipt.prepareAppSlug === prepareActor.appSlug &&
+      receipt.prepareBotId === prepareActor.botId &&
+      receipt.prepareBotLogin === prepareActor.botLogin
+    );
+  };
+  for (const check of historyChecks) {
     if (!SHA_PATTERN.test(check.headSha ?? "")) {
-      reasons.push("malformed-repair-attempt-receipt");
+      reasons.push("malformed-preparation-receipt-head");
       continue;
     }
     if (
       (hasLineageHistory && !lineageHeadShaSet.has(check.headSha)) ||
       (!hasLineageHistory && check.headSha !== headSha)
     ) {
-      reasons.push("repair-attempt-receipt-outside-lineage");
+      reasons.push("preparation-receipt-outside-lineage");
       continue;
     }
-    if (
-      check.appId !== GITHUB_ACTIONS_APP_ID ||
-      check.kind !== "check" ||
-      check.receiptKindDeclared !== "check"
-    ) {
-      reasons.push("untrusted-repair-attempt-receipt");
+    if (seenReceiptIds.has(check.id)) {
+      reasons.push("duplicate-preparation-receipt-id");
       continue;
     }
-    if (
-      check.status !== "completed" ||
-      String(check.receiptStatusDeclared).toLowerCase() !== "completed"
-    ) {
-      reasons.push("incomplete-repair-attempt-receipt");
+    seenReceiptIds.add(check.id);
+    if (check.name === PROCESSOR_CHECK_NAME) {
+      const parsed = parseDependabotProcessorReceipt(check, repository);
+      if (
+        !parsed ||
+        parsed.pullRequestNumber !== pullRequestNumberValue ||
+        parsed.headSha !== check.headSha ||
+        (parsed.packetIssued && parsed.mode === "observe")
+      ) {
+        reasons.push("malformed-processor-packet-receipt");
+      } else {
+        processorReceiptsByHead.get(check.headSha)?.push(parsed);
+      }
       continue;
     }
-    const receipt = PROCESSOR_REPAIR_RECEIPT_PATTERN.exec(
-      String(check.externalId ?? ""),
-    );
-    if (
-      !receipt ||
-      Number(receipt[1]) !== pullRequestNumberValue ||
-      receipt[2] !== check.headSha
-    ) {
-      reasons.push("malformed-repair-attempt-receipt");
+    if (check.name === REFRESH_CHECK_NAME) {
+      const parsed = parseDependabotRefreshReceipt(check, repository);
+      const external = REFRESH_RECEIPT_PATTERN.exec(
+        String(check.externalId ?? ""),
+      );
+      const claimsCurrentHeadRequest =
+        check.headSha === headSha && external?.[3] === "requested";
+      if (claimsCurrentHeadRequest) {
+        currentHeadRefreshRequests.push({ check, parsed });
+      }
+      if (
+        !parsed ||
+        parsed.receipt.pullRequestNumber !== pullRequestNumberValue ||
+        parsed.receipt.headRef !== headRef ||
+        !actorMatchesConfiguration(parsed.receipt)
+      ) {
+        if (!claimsCurrentHeadRequest) {
+          reasons.push("malformed-refresh-receipt");
+        }
+      } else {
+        refreshReceiptsByHead.get(check.headSha)?.push(parsed);
+      }
       continue;
     }
-    const receiptMode = receipt[3];
-    const attempt = Number(receipt[4]);
-    const packetIssued = receipt[5] === "true";
-    if (!Number.isSafeInteger(attempt) || attempt < 1) {
-      reasons.push("malformed-repair-attempt-receipt");
-      continue;
+    if (check.name === REPAIR_CHECK_NAME) {
+      const parsed = parseDependabotRepairReceipt(check, repository);
+      if (
+        !parsed ||
+        parsed.receipt.pullRequestNumber !== pullRequestNumberValue ||
+        parsed.receipt.headRef !== headRef ||
+        !actorMatchesConfiguration(parsed.receipt)
+      ) {
+        reasons.push("malformed-repair-receipt");
+      } else {
+        repairReceiptsByHead.get(check.headSha)?.push(parsed);
+      }
     }
-    if (!["failure", "neutral", "success"].includes(check.conclusion)) {
-      reasons.push("invalid-repair-attempt-receipt-conclusion");
-      continue;
-    }
-    if (packetIssued && receiptMode === "observe") {
-      reasons.push("observe-repair-attempt-receipt-issued-packet");
-      continue;
-    }
-    const receiptKey = `${check.headSha}:${receiptMode}:${attempt}:${packetIssued}`;
-    if (seenReceipts.has(receiptKey)) continue;
-    seenReceipts.add(receiptKey);
-    receiptsByHead.get(check.headSha)?.push({
-      attempt,
-      packetIssued,
-      receiptMode,
-    });
   }
   let consumedAttempts = 0;
+  let refreshCommitCount = 0;
+  let authenticatedRepairCommitCount = 0;
+  let manualRepairCommitCount = 0;
   let currentHeadPacketIssued = false;
   let issuedAttemptCount = 0;
-  for (const [index, lineageHeadSha] of lineageHeadShas.entries()) {
-    const receipts = receiptsByHead.get(lineageHeadSha) ?? [];
+  let latestAppliedRepair = null;
+  let pendingRefreshCompletion = null;
+  let pendingRefreshRequest = null;
+  let prepareLineageValid = true;
+  let preparationActor = null;
+  const operationDigests = [];
+  const bindPreparationActor = (receipt) => {
+    const actor = {
+      appSlug: receipt.prepareAppSlug,
+      botId: receipt.prepareBotId,
+      botLogin: receipt.prepareBotLogin,
+    };
+    if (
+      preparationActor &&
+      stableJson(preparationActor) !== stableJson(actor)
+    ) {
+      reasons.push("preparation-actor-changed");
+    } else {
+      preparationActor = actor;
+    }
+  };
+  for (let index = 1; index < commitList.length; index += 1) {
+    const parentCommit = commitList[index - 1];
+    const commit = commitList[index];
+    const parentHeadSha = parentCommit.sha;
+    const commitHeadSha = commit.sha;
+    const parentProcessorPackets = (
+      processorReceiptsByHead.get(parentHeadSha) ?? []
+    ).filter(({ packetIssued }) => packetIssued);
+    const refreshCompletions = (
+      refreshReceiptsByHead.get(commitHeadSha) ?? []
+    ).filter(({ receipt }) => receipt.state === "completed");
+    const repairCompletions = repairReceiptsByHead.get(commitHeadSha) ?? [];
+    if (refreshCompletions.length > 1 || repairCompletions.length > 1) {
+      reasons.push("ambiguous-preparation-transition-receipt");
+      continue;
+    }
+    if (refreshCompletions.length === 1 && repairCompletions.length === 1) {
+      reasons.push("conflicting-preparation-transition-receipts");
+      continue;
+    }
+    const [refreshCompletion] = refreshCompletions;
+    const matchingRequests = (
+      refreshReceiptsByHead.get(parentHeadSha) ?? []
+    ).filter(
+      ({ receipt }) =>
+        receipt.state === "requested" &&
+        receipt.parentHeadSha === parentHeadSha,
+    );
+    const selectedRequest = [...matchingRequests]
+      .sort((left, right) => left.check.id - right.check.id)
+      .at(-1);
+    if (refreshCompletion) {
+      const completed = refreshCompletion.receipt;
+      const request =
+        selectedRequest?.check.id === completed.requestCheckId &&
+        canonicalDigest(selectedRequest.receipt) === completed.requestDigest
+          ? selectedRequest
+          : null;
+      const parents = commitParentShas(commit);
+      const parentSet = new Set(parents);
+      if (
+        !request ||
+        completed.parentHeadSha !== parentHeadSha ||
+        completed.headSha !== commitHeadSha ||
+        completed.previousBaseSha !== request.receipt.previousBaseSha ||
+        completed.prepareAppSlug !== request.receipt.prepareAppSlug ||
+        completed.prepareBotId !== request.receipt.prepareBotId ||
+        completed.prepareBotLogin !== request.receipt.prepareBotLogin ||
+        parents.length !== 2 ||
+        parentSet.size !== 2 ||
+        parents[0] !== parentHeadSha ||
+        parents[1] !== completed.baseSha ||
+        !commitMatchesAuthenticatedRefresh(commit, completed)
+      ) {
+        reasons.push("invalid-refresh-transition");
+        continue;
+      }
+      refreshCommitCount += 1;
+      bindPreparationActor(completed);
+      operationDigests.push(canonicalDigest(completed));
+      continue;
+    }
+    const [repairCompletion] = repairCompletions;
+    if (repairCompletion) {
+      const completed = repairCompletion.receipt;
+      const processorReceipt = parentProcessorPackets.find(
+        ({ attempt, check, packetDigest }) =>
+          attempt === completed.attempt &&
+          check.id === completed.processorCheckId &&
+          packetDigest === completed.packetDigest,
+      );
+      const parents = commitParentShas(commit);
+      if (
+        !processorReceipt ||
+        completed.parentHeadSha !== parentHeadSha ||
+        completed.headSha !== commitHeadSha ||
+        completed.attempt !== consumedAttempts + 1 ||
+        parents.length !== 1 ||
+        parents[0] !== parentHeadSha ||
+        !commitMatchesPrepareBot(commit, completed) ||
+        !commitHasValidVerification(commit)
+      ) {
+        reasons.push("invalid-repair-transition");
+        continue;
+      }
+      consumedAttempts += 1;
+      authenticatedRepairCommitCount += 1;
+      bindPreparationActor(completed);
+      operationDigests.push(canonicalDigest(completed));
+      latestAppliedRepair = {
+        packet: processorReceipt.packet,
+        packetDigest: processorReceipt.packetDigest,
+        receipt: completed,
+      };
+      continue;
+    }
+    if (selectedRequest && index === commitList.length - 1) {
+      const { check, receipt } = selectedRequest;
+      const parents = commitParentShas(commit);
+      const parentSet = new Set(parents);
+      const appliedBaseSha = parents[1] ?? null;
+      if (
+        parents.length === 2 &&
+        parentSet.size === 2 &&
+        parents[0] === parentHeadSha &&
+        (appliedBaseSha === currentBaseSha ||
+          appliedBaseSha === mergeBaseSha) &&
+        commitMatchesAuthenticatedRefresh(commit, receipt)
+      ) {
+        pendingRefreshCompletion = {
+          appliedBaseSha,
+          headSha: commitHeadSha,
+          requestCheckId: check.id,
+          requestDigest: canonicalDigest(receipt),
+          requestReceipt: receipt,
+        };
+        bindPreparationActor(receipt);
+        continue;
+      }
+    }
     const expectedAttempt = consumedAttempts + 1;
+    const legacyPacket = parentProcessorPackets.find(
+      ({ attempt }) => attempt === expectedAttempt,
+    );
+    if (legacyPacket) {
+      consumedAttempts += 1;
+      manualRepairCommitCount += 1;
+      prepareLineageValid = false;
+      latestAppliedRepair = {
+        packet: legacyPacket.packet,
+        packetDigest: legacyPacket.packetDigest,
+        receipt: null,
+      };
+    } else {
+      reasons.push("preparation-lineage-commit-without-typed-receipt");
+    }
+  }
+  for (const [index, lineageHeadSha] of lineageHeadShas.entries()) {
+    const receipts = processorReceiptsByHead.get(lineageHeadSha) ?? [];
     const statedAttempts = new Set(receipts.map(({ attempt }) => attempt));
     if (
       statedAttempts.size > 1 ||
-      (statedAttempts.size === 1 && !statedAttempts.has(expectedAttempt))
+      [...statedAttempts].some(
+        (attempt) =>
+          !Number.isSafeInteger(attempt) || attempt < 1 || attempt > 2,
+      )
     ) {
       reasons.push("ambiguous-repair-attempt-history");
     }
@@ -2023,15 +3137,41 @@ function evaluateRepairAttemptGate({
     if (packetAttempts.size > 1) {
       reasons.push("ambiguous-repair-attempt-history");
     }
-    const packetIssued = packetAttempts.size === 1;
     const isCurrentHead = index === lineageHeadShas.length - 1;
-    if (!isCurrentHead && !packetIssued) {
-      reasons.push("repair-lineage-commit-without-parent-packet");
+    if (isCurrentHead) {
+      const invalidRequestId = currentHeadRefreshRequests.some(
+        ({ check }) => !Number.isSafeInteger(check.id) || check.id < 1,
+      );
+      const newestRequest = invalidRequestId
+        ? null
+        : [...currentHeadRefreshRequests]
+            .sort((left, right) => left.check.id - right.check.id)
+            .at(-1);
+      if (invalidRequestId || (newestRequest && !newestRequest.parsed)) {
+        reasons.push("malformed-current-refresh-request");
+      } else if (newestRequest) {
+        const { check, receipt } = newestRequest.parsed;
+        if (
+          receipt.baseSha === currentBaseSha &&
+          receipt.previousBaseSha === mergeBaseSha
+        ) {
+          pendingRefreshRequest = {
+            requestCheckId: check.id,
+            requestDigest: canonicalDigest(receipt),
+            requestReceipt: receipt,
+          };
+        }
+      }
     }
-    if (packetIssued) {
+    if (packetAttempts.size === 1) {
       issuedAttemptCount += 1;
-      if (isCurrentHead) currentHeadPacketIssued = true;
-      else consumedAttempts += 1;
+      if (isCurrentHead) {
+        if (packetAttempts.has(consumedAttempts + 1)) {
+          currentHeadPacketIssued = true;
+        } else {
+          reasons.push("current-head-packet-attempt-mismatch");
+        }
+      }
     }
   }
   if (!hasLineageHistory && lineageHeadShas.length > 1) {
@@ -2050,7 +3190,7 @@ function evaluateRepairAttemptGate({
     );
     repairAttempt = explicitRepairAttempt;
   }
-  return {
+  const packet = {
     attemptLimit: 2,
     consumedAttempts,
     currentAttempt: repairAttempt,
@@ -2059,13 +3199,27 @@ function evaluateRepairAttemptGate({
       ? "lineage-checks"
       : "current-checks-fallback",
     issuedAttemptCount,
+    latestAppliedRepair,
     lineageCommitCount: lineageHeadShas.length,
+    manualRepairCommitCount,
+    operationDigests,
+    pendingRefreshCompletion,
+    pendingRefreshRequest,
+    preparationActor,
+    preparationKind:
+      refreshCommitCount + authenticatedRepairCommitCount === 0
+        ? "native"
+        : "prepared",
+    prepareLineageValid: reasons.length === 0 && prepareLineageValid,
+    refreshCommitCount,
     reasons: [...new Set(reasons)],
-    receiptCheckCount: seenReceipts.size,
-    repairCommitCount: Math.max(0, lineageHeadShas.length - 1),
+    receiptCheckCount: seenReceiptIds.size,
+    repairCommitCount: authenticatedRepairCommitCount + manualRepairCommitCount,
+    authenticatedRepairCommitCount,
     repairLineageValid: reasons.length === 0,
     valid: reasons.length === 0,
   };
+  return packet;
 }
 
 function recommendedDisposition({
@@ -2078,9 +3232,21 @@ function recommendedDisposition({
   risk,
 }) {
   if (!identity.valid) return "rejected-identity";
-  if (!feedback.clear) return "manual-veto-or-feedback";
-  if (!base.current) return "waiting-base-update";
-  if (!risk.autoApprovable) return "manual-review";
+  const preparing = mode === "prepare";
+  if (!feedback.clear && !(preparing && feedback.repairable)) {
+    return "manual-veto-or-feedback";
+  }
+  if (preparing) {
+    if (!risk.preparable || !identity.prepareAuthority) return "manual-review";
+    if (repairAttempts.pendingRefreshCompletion) {
+      return "refresh-receipt-required";
+    }
+    if (repairAttempts.pendingRefreshRequest) return "refresh-pending";
+    if (!base.current) return "refresh-required";
+  } else {
+    if (!base.current) return "waiting-base-update";
+    if (!risk.autoApprovable) return "manual-review";
+  }
   if (checks.missing.length > 0 || checks.pending.length > 0) {
     return "waiting-checks";
   }
@@ -2095,26 +3261,86 @@ function recommendedDisposition({
       ({ attribution }) => attribution === "branch",
     );
     if (branchFailures.length === 0) return "waiting-baseline";
+    if (repairTouchesForbiddenPath({ checks, feedback })) {
+      return "manual-repair-required";
+    }
     if (!repairAttempts.valid || repairAttempts.currentAttempt > 2) {
       return "manual-repair-escalated";
     }
+    if (repairAttempts.currentHeadPacketIssued) return "repair-pending";
     return "repair-required";
   }
+  if (preparing && feedback.repairable) {
+    if (repairTouchesForbiddenPath({ checks, feedback })) {
+      return "manual-repair-required";
+    }
+    const packetThreads = new Set(
+      (repairAttempts.latestAppliedRepair?.packet?.feedbackThreads ?? []).map(
+        ({ threadId }) => threadId,
+      ),
+    );
+    const remediationReady =
+      packetThreads.size > 0 &&
+      feedback.actionableThreads.every(({ threadId }) =>
+        packetThreads.has(threadId),
+      );
+    if (remediationReady) return "feedback-remediation-required";
+    if (!repairAttempts.valid || repairAttempts.currentAttempt > 2) {
+      return "manual-repair-escalated";
+    }
+    if (repairAttempts.currentHeadPacketIssued) return "repair-pending";
+    return "repair-required";
+  }
+  if (preparing) return "prepare-candidate";
   if (!identity.automaticAuthority) return "manual-review";
-  if (mode === "merge") return "merge-candidate";
-  if (mode === "assist") return "ready-for-approval";
-  return "would-merge";
+  if (mode === "assist") return "ready-for-human-review";
+  return "eligible-observed";
+}
+
+function repairTouchesForbiddenPath({ checks = {}, feedback = {} }) {
+  return [
+    ...(checks.failures ?? []).flatMap(({ findings = [] }) =>
+      findings.map(({ path }) => path),
+    ),
+    ...(feedback.actionableThreads ?? []).map(({ path }) => path),
+  ].some(
+    (path) =>
+      typeof path !== "string" ||
+      path.length === 0 ||
+      AUTONOMOUS_REPAIR_FORBIDDEN_PATH_PATTERN.test(path),
+  );
 }
 
 export function createDependabotRepairPacket(evaluation) {
-  if (evaluation.mode === "observe") return null;
+  if (
+    evaluation.mode !== "prepare" ||
+    evaluation.disposition !== "repair-required"
+  ) {
+    return null;
+  }
+  const feedbackEligible =
+    evaluation.feedback?.clear === true ||
+    evaluation.feedback?.repairable === true;
+  const changedPaths = Array.isArray(evaluation.changedPaths)
+    ? evaluation.changedPaths
+    : [];
+  const forbiddenRepairEvidence =
+    changedPaths.some((path) =>
+      AUTONOMOUS_REPAIR_FORBIDDEN_PATH_PATTERN.test(path),
+    ) ||
+    repairTouchesForbiddenPath({
+      checks: evaluation.checks,
+      feedback: evaluation.feedback,
+    });
   if (
     evaluation.identity?.valid !== true ||
-    evaluation.feedback?.clear !== true ||
-    evaluation.feedback?.unrepliedThreads > 0 ||
+    evaluation.identity?.prepareAuthority !== true ||
+    evaluation.risk?.preparable !== true ||
+    !feedbackEligible ||
     evaluation.base?.current !== true ||
     evaluation.repairAttempts?.valid !== true ||
     evaluation.repairAttempt > 2 ||
+    forbiddenRepairEvidence ||
     evaluation.checks.missing.length > 0 ||
     evaluation.checks.pending.length > 0 ||
     evaluation.checks.failures.some(
@@ -2138,46 +3364,126 @@ export function createDependabotRepairPacket(evaluation) {
       };
     })
     .sort((left, right) => left.id.localeCompare(right.id));
-  if (branchFailures.length === 0) return null;
+  const findings = evaluation.checks.failures
+    .filter(({ attribution }) => attribution === "branch")
+    .flatMap((failure) =>
+      (failure.findings ?? []).map((finding) => {
+        const policyResult = evaluation.checks.policy.find(
+          ({ id }) => id === failure.id,
+        );
+        return {
+          checkId: Number.isSafeInteger(policyResult?.check?.id)
+            ? policyResult.check.id
+            : null,
+          digest: canonicalDigest({
+            line: finding.line,
+            path: finding.path,
+            summary: finding.summary,
+            title: finding.title,
+          }),
+          line: finding.line,
+          path: finding.path,
+          source: "claude",
+          sourceId: finding.id,
+          summary: finding.summary,
+          title: finding.title,
+        };
+      }),
+    )
+    .slice(0, 20);
+  const feedbackThreads = (evaluation.feedback?.actionableThreads ?? [])
+    .filter(
+      (thread) =>
+        typeof thread.path === "string" &&
+        thread.path.length > 0 &&
+        !AUTONOMOUS_REPAIR_FORBIDDEN_PATH_PATTERN.test(thread.path) &&
+        Number.isSafeInteger(thread.rootCommentId) &&
+        thread.rootCommentId > 0 &&
+        SHA_PATTERN.test(thread.reviewCommitSha ?? "") &&
+        new Set(["claude", "codex", "cursor"]).has(thread.source),
+    )
+    .map((thread) => ({
+      commentId: thread.rootCommentId,
+      commitSha: thread.reviewCommitSha,
+      digest: thread.bodyDigest,
+      line: thread.line,
+      path: thread.path,
+      source: thread.source,
+      threadId: thread.threadId,
+    }))
+    .slice(0, 20);
+  if (branchFailures.length === 0 && feedbackThreads.length === 0) return null;
   const isAction = evaluation.risk.packageEcosystem === "github-actions";
-  return {
+  const limits = isAction
+    ? {
+        maxAddedLines: 250,
+        maxBytes: 64 * 1024,
+        maxChanges: 8,
+        maxDeletedLines: 250,
+        maxFiles: 6,
+      }
+    : {
+        maxAddedLines: 600,
+        maxBytes: 64 * 1024,
+        maxChanges: 16,
+        maxDeletedLines: 600,
+        maxFiles: 8,
+      };
+  const workflowContext = evaluation.workflowContext ?? {};
+  const expectedBlobs = Array.isArray(evaluation.expectedBlobs)
+    ? evaluation.expectedBlobs
+    : [];
+  if (
+    !Number.isSafeInteger(workflowContext.workflowRunId) ||
+    workflowContext.workflowRunId < 1 ||
+    !Number.isSafeInteger(workflowContext.workflowRunAttempt) ||
+    workflowContext.workflowRunAttempt < 1 ||
+    !SHA_PATTERN.test(workflowContext.workflowSha ?? "") ||
+    expectedBlobs.length < 1 ||
+    expectedBlobs.length > 100 ||
+    expectedBlobs.some(
+      ({ mode, path, sha, type }) =>
+        typeof path !== "string" ||
+        path.length === 0 ||
+        !SHA_PATTERN.test(sha ?? "") ||
+        !new Set(["100644", "100755"]).has(mode) ||
+        type !== "blob",
+    )
+  ) {
+    return null;
+  }
+  const packet = {
     attemptLimit: 2,
     attemptNumber: evaluation.repairAttempt,
-    automatic:
-      evaluation.risk.autoApprovable &&
-      evaluation.identity?.automaticAuthority === true,
+    automatic: true,
     baseRef: evaluation.baseRef,
     baseSha: evaluation.baseSha,
     changedPaths: evaluation.changedPaths,
     dependencyGroup: evaluation.dependencyGroup,
     dependencyNames: evaluation.risk.dependencyNames,
     escalation: "manual-review",
+    expectedBlobs,
     failures: branchFailures,
-    forbiddenPaths: isAction
-      ? [
-          ".github/dependabot.yml",
-          ".github/CODEOWNERS",
-          "docs/vercel-deployments.md",
-          "scripts/vercel-main-*.mjs",
-        ]
-      : [
-          ".github/workflows/**",
-          ".github/actions/**",
-          ".github/dependabot.yml",
-          ".github/CODEOWNERS",
-          "docs/vercel-deployments.md",
-          "scripts/vercel-main-*.mjs",
-        ],
+    feedbackThreads,
+    findings,
+    forbiddenPaths: [
+      ".github/**",
+      "**/auth/**",
+      "**/deploy/**",
+      "**/deployment/**",
+      "**/policy/**",
+      "**/runtime/**",
+      "**/security/**",
+      "docs/vercel-deployments.md",
+      "scripts/vercel-main-*.mjs",
+    ],
     headSha: evaluation.headSha,
+    headRef: evaluation.headRef,
+    limits,
     mode: evaluation.mode,
     packageEcosystem: evaluation.risk.packageEcosystem,
     permittedPaths: isAction
-      ? [
-          ".github/workflows/**",
-          ".github/actions/**",
-          "scripts/check-github-action-pins.test.mjs",
-          "scripts/fixtures/action-pins/**",
-        ]
+      ? []
       : [
           "package.json",
           "pnpm-lock.yaml",
@@ -2187,12 +3493,11 @@ export function createDependabotRepairPacket(evaluation) {
           "patches/**",
         ],
     pullRequestNumber: evaluation.pullRequestNumber,
+    preparable: true,
     repository: evaluation.repository,
     requiredGateIds: CHECK_POLICY_DEFINITIONS.map(({ id }) => id),
     requireExactHead: true,
-    requireHumanApproval:
-      !evaluation.risk.autoApprovable ||
-      evaluation.identity?.automaticAuthority !== true,
+    requireHumanApproval: false,
     riskTier: evaluation.risk.tier,
     schema: DEPENDABOT_REPAIR_PACKET_SCHEMA,
     updateType: evaluation.risk.updateType,
@@ -2205,7 +3510,16 @@ export function createDependabotRepairPacket(evaluation) {
           "pnpm build",
           "pnpm quality:bundle:check",
         ],
+    workflowRunAttempt: workflowContext.workflowRunAttempt,
+    workflowRunId: workflowContext.workflowRunId,
+    workflowSha: workflowContext.workflowSha,
   };
+  try {
+    validateProcessorRepairPacket(packet);
+    return stableJson(packet).length <= RECEIPT_OUTPUT_LIMIT ? packet : null;
+  } catch {
+    return null;
+  }
 }
 
 export function evaluateDependabotPullRequest(snapshot, options = {}) {
@@ -2228,13 +3542,23 @@ export function evaluateDependabotPullRequest(snapshot, options = {}) {
   if (metadata.dependencyNames === undefined) {
     metadata.dependencyNames = parsedMetadata.dependencyNames;
   }
+  const base = evaluateCurrentBaseGate({
+    ancestry: snapshot.baseAncestry,
+    baselineSha: snapshot.baseline?.sha ?? snapshot.baselineSha ?? null,
+    pullRequest,
+  });
   const repairAttempts = evaluateRepairAttemptGate({
     checks: snapshot.checks ?? [],
     commits: snapshot.commits ?? [],
+    currentBaseSha: base.currentBaseSha,
     explicitRepairAttempt: snapshot.repairAttempt,
+    headRef: pullRequest.headRef,
     headSha: pullRequest.headSha,
+    mergeBaseSha: base.mergeBaseSha,
+    prepareActor: snapshot.prepareActor ?? null,
     pullRequestNumber: pullRequest.number,
     repairHistoryChecks: snapshot.repairHistoryChecks,
+    repository,
   });
   const structuralIdentity = validateDependabotPullRequestIdentity({
     commits: snapshot.commits ?? [],
@@ -2245,11 +3569,6 @@ export function evaluateDependabotPullRequest(snapshot, options = {}) {
     repository,
   });
   const risk = classifyDependabotRisk(metadata);
-  const base = evaluateCurrentBaseGate({
-    ancestry: snapshot.baseAncestry,
-    baselineSha: snapshot.baseline?.sha ?? snapshot.baselineSha ?? null,
-    pullRequest,
-  });
   const checks = SHA_PATTERN.test(pullRequest.headSha ?? "")
     ? evaluateDependabotChecks({
         baselineChecks:
@@ -2275,12 +3594,14 @@ export function evaluateDependabotPullRequest(snapshot, options = {}) {
   const feedback = evaluateFeedbackGate({
     feedback: snapshot.feedback,
     pullRequest: snapshot.pullRequest ?? snapshot,
+    repairAttempts,
   });
   const identity = feedback.forcePushed
     ? {
         ...structuralIdentity,
         automaticAuthority: false,
         automaticAuthorityReasons: ["pull-request-history-force-pushed"],
+        prepareAuthority: false,
       }
     : structuralIdentity;
   const disposition = recommendedDisposition({
@@ -2300,10 +3621,20 @@ export function evaluateDependabotPullRequest(snapshot, options = {}) {
       .map((file) => (typeof file === "string" ? file : file?.filename))
       .filter(Boolean)
       .sort(),
+    expectedBlobs: pullRequest.files
+      .map((file) => ({
+        mode: typeof file === "string" ? null : (file?.mode ?? null),
+        path: typeof file === "string" ? file : file?.filename,
+        sha: typeof file === "string" ? null : (file?.sha ?? null),
+        type: typeof file === "string" ? null : (file?.type ?? null),
+      }))
+      .filter(({ path }) => Boolean(path))
+      .sort((left, right) => left.path.localeCompare(right.path)),
     checks,
     disposition,
     feedback,
     headSha: pullRequest.headSha,
+    headRef: pullRequest.headRef,
     identity,
     dependencyGroup: metadata.dependencyGroup ?? null,
     mode,
@@ -2313,11 +3644,18 @@ export function evaluateDependabotPullRequest(snapshot, options = {}) {
     repairAttempts,
     risk,
     schema: DEPENDABOT_PROCESSOR_SCHEMA,
+    workflowContext:
+      options.workflowContext ?? snapshot.workflowContext ?? null,
   };
-  return {
-    ...evaluation,
-    repairPacket: createDependabotRepairPacket(evaluation),
-  };
+  const repairPacket = createDependabotRepairPacket(evaluation);
+  if (
+    evaluation.mode === "prepare" &&
+    evaluation.disposition === "repair-required" &&
+    repairPacket === null
+  ) {
+    evaluation.disposition = "manual-repair-required";
+  }
+  return { ...evaluation, repairPacket };
 }
 
 function summarizeEvaluations(evaluations) {
@@ -2328,8 +3666,8 @@ function summarizeEvaluations(evaluations) {
   }
   return {
     byDisposition,
-    mergeCandidates: evaluations.filter(
-      ({ disposition }) => disposition === "merge-candidate",
+    prepareCandidates: evaluations.filter(
+      ({ disposition }) => disposition === "prepare-candidate",
     ).length,
     total: evaluations.length,
   };
@@ -2390,12 +3728,13 @@ export function evaluateDependabotSweep(input) {
   const mode = normalizeProcessorMode(input.mode);
   const evaluations = (input.pullRequests ?? [])
     .map((snapshot) =>
-      evaluateDependabotPullRequest(snapshot, { mode, repository }),
+      evaluateDependabotPullRequest(snapshot, {
+        mode,
+        repository,
+        workflowContext: input.workflowContext ?? null,
+      }),
     )
     .sort((left, right) => left.pullRequestNumber - right.pullRequestNumber);
-  const eligible = evaluations.filter(
-    ({ disposition }) => disposition === "merge-candidate",
-  );
   const baselineSnapshots = (input.pullRequests ?? []).map((snapshot) => ({
     checks: snapshot.baseline?.checks ?? snapshot.baselineChecks ?? [],
     sha: snapshot.baseline?.sha ?? snapshot.baselineSha ?? null,
@@ -2451,66 +3790,136 @@ export function evaluateDependabotSweep(input) {
           : source.reason,
     };
   }
-  let eligibleForLane = eligible;
-  let outstandingLaneBlocked = false;
-  if (outstandingAutoMerge.ambiguous) {
+  const laneEligible =
+    mode === "prepare"
+      ? evaluations.filter(({ disposition }) =>
+          PREPARE_LANE_DISPOSITIONS.has(disposition),
+        )
+      : [];
+  const durablePreparationIncumbents =
+    mode === "prepare"
+      ? evaluations.filter((result) => {
+          if (TERMINAL_PREPARATION_DISPOSITIONS.has(result.disposition)) {
+            return false;
+          }
+          const attempts = result.repairAttempts;
+          return (
+            attempts?.valid === true &&
+            (attempts.pendingRefreshRequest !== null ||
+              attempts.pendingRefreshCompletion !== null ||
+              attempts.currentHeadPacketIssued === true ||
+              (attempts.preparationKind === "prepared" &&
+                attempts.prepareLineageValid === true))
+          );
+        })
+      : [];
+  const laneParticipants = [
+    ...new Set([...laneEligible, ...durablePreparationIncumbents]),
+  ];
+  const snapshotForResult = (result) =>
+    (input.pullRequests ?? []).find((snapshot) => {
+      const pullRequest = normalizePullRequest(
+        snapshot.pullRequest ?? snapshot,
+      );
+      return (
+        pullRequest.number === result.pullRequestNumber &&
+        pullRequest.headSha === result.headSha
+      );
+    });
+  const activeAuthorities =
+    mode === "prepare" &&
+    serialization.ready &&
+    !outstandingAutoMerge.ambiguous &&
+    outstandingAutoMerge.requests.length === 0
+      ? evaluations
+          .map((result) => ({
+            approval: activeAllClearAuthority({
+              repository,
+              result,
+              serialization,
+              snapshot: snapshotForResult(result),
+            }),
+            result,
+          }))
+          .filter(({ approval }) => approval !== null)
+      : [];
+  let prepareCandidate = null;
+  if (
+    mode === "prepare" &&
+    (outstandingAutoMerge.ambiguous || outstandingAutoMerge.requests.length > 0)
+  ) {
     serialization = {
       ...serialization,
       outstandingAutoMerge,
       ready: false,
-      reason: "outstanding-auto-merge-ambiguous",
+      reason: outstandingAutoMerge.ambiguous
+        ? "outstanding-auto-merge-ambiguous"
+        : "outstanding-native-auto-merge-request",
     };
-    eligibleForLane = [];
-    outstandingLaneBlocked = true;
-  } else if (outstandingAutoMerge.requests.length === 1) {
-    const [request] = outstandingAutoMerge.requests;
-    const matching = eligible.find(
-      ({ headSha, pullRequestNumber: number }) =>
-        number === request.pullRequestNumber && headSha === request.headSha,
-    );
+    for (const evaluation of laneParticipants) {
+      evaluation.disposition = "waiting-auto-merge-removal";
+      evaluation.repairPacket = null;
+    }
+  } else if (mode === "prepare" && activeAuthorities.length > 1) {
     serialization = {
       ...serialization,
-      outstandingAutoMerge,
-      outstandingPullRequestNumber: request.pullRequestNumber,
+      ready: false,
+      reason: "multiple-active-all-clear-authorities",
     };
-    if (matching) {
-      eligibleForLane = [matching];
-      if (serialization.ready) {
-        serialization.reason = "exact-candidate-auto-merge-reentry";
-      }
-    } else {
-      eligibleForLane = [];
-      serialization.ready = false;
-      serialization.reason = "outstanding-auto-merge-request";
-      outstandingLaneBlocked = true;
+    for (const evaluation of laneParticipants) {
+      evaluation.disposition = "waiting-prepare-serialization";
+      evaluation.repairPacket = null;
     }
-  }
-  const mergeCandidate =
-    serialization.ready && eligibleForLane[0]
-      ? {
-          headSha: eligibleForLane[0].headSha,
-          pullRequestNumber: eligibleForLane[0].pullRequestNumber,
-        }
-      : null;
-  if (!serialization.ready) {
-    for (const evaluation of eligible) {
-      evaluation.disposition = outstandingLaneBlocked
-        ? "waiting-merge-serialization"
-        : "waiting-post-merge-verification";
+  } else if (
+    mode === "prepare" &&
+    activeAuthorities.length === 0 &&
+    durablePreparationIncumbents.length > 1
+  ) {
+    serialization = {
+      ...serialization,
+      ready: false,
+      reason: "multiple-preparation-incumbents",
+    };
+    for (const evaluation of laneParticipants) {
+      evaluation.disposition = "waiting-prepare-serialization";
+      evaluation.repairPacket = null;
     }
-  } else {
-    for (const evaluation of eligible.filter(
-      ({ headSha, pullRequestNumber: number }) =>
-        number !== mergeCandidate?.pullRequestNumber ||
-        headSha !== mergeCandidate?.headSha,
+  } else if (mode === "prepare" && !serialization.ready) {
+    for (const evaluation of laneParticipants) {
+      evaluation.disposition = "waiting-post-merge-verification";
+      evaluation.repairPacket = null;
+    }
+  } else if (mode === "prepare" && laneParticipants.length > 0) {
+    const selected =
+      activeAuthorities[0]?.result ??
+      durablePreparationIncumbents[0] ??
+      laneEligible[0];
+    prepareCandidate = {
+      disposition: selected.disposition,
+      headSha: selected.headSha,
+      pullRequestNumber: selected.pullRequestNumber,
+    };
+    serialization = {
+      ...serialization,
+      selectedDisposition: selected.disposition,
+      selectedHeadSha: selected.headSha,
+      selectedPullRequestNumber: selected.pullRequestNumber,
+      ...(activeAuthorities.length === 1
+        ? { activeAllClearApprovalId: activeAuthorities[0].approval.approvalId }
+        : {}),
+    };
+    for (const evaluation of laneParticipants.filter(
+      (item) => item !== selected,
     )) {
-      evaluation.disposition = "waiting-merge-serialization";
+      evaluation.disposition = "waiting-prepare-serialization";
+      evaluation.repairPacket = null;
     }
   }
   return {
     evaluations,
-    mergeCandidate,
+    mergeCandidate: null,
     mode,
+    prepareCandidate,
     repository,
     schema: DEPENDABOT_PROCESSOR_SCHEMA,
     serialization,
@@ -2644,6 +4053,14 @@ function splitRepository(repository) {
   return { name, owner };
 }
 
+function workflowActionsRunUrl(repository, workflowRunId) {
+  invariant(
+    Number.isSafeInteger(workflowRunId) && workflowRunId > 0,
+    "Authority check workflow run ID must be a positive safe integer",
+  );
+  return `https://github.com/${repositoryName(repository)}/actions/runs/${workflowRunId}`;
+}
+
 export function requireStablePullRequestSnapshot(initial, final, number) {
   const identity = (pullRequest) => {
     const normalized = normalizePullRequest(pullRequest);
@@ -2738,8 +4155,11 @@ export function createLiveGitHubAdapter({
     "https://api.github.com/graphql",
   token = process.env.DEPENDABOT_PROCESSOR_GITHUB_TOKEN ??
     process.env.GITHUB_TOKEN,
-  mergeToken = process.env.DEPENDABOT_PROCESSOR_MERGE_TOKEN,
-  execFileImpl = promisify(execFileCallback),
+  phase = "finalize",
+  prepareAppSlug = process.env.DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG,
+  prepareBotId = Number(process.env.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID),
+  prepareBotLogin = process.env.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN,
+  repairToken = process.env.DEPENDABOT_PROCESSOR_REPAIR_TOKEN,
 } = {}) {
   invariant(
     typeof fetchImpl === "function",
@@ -2749,17 +4169,41 @@ export function createLiveGitHubAdapter({
     typeof token === "string" && token.length > 0,
     "GitHub token is required",
   );
+  invariant(PROCESSOR_PHASES.has(phase), "Processor phase must be explicit");
+  if (phase !== "mutate") {
+    invariant(
+      typeof repairToken !== "string" || repairToken.length === 0,
+      `${phase} phase must not receive a Dependabot repair token`,
+    );
+  }
 
-  const requireMergeCredential = () => {
+  const prepareActor = {
+    appSlug: prepareAppSlug,
+    botId: prepareBotId,
+    botLogin: normalizeLogin(prepareBotLogin),
+  };
+  const requireRepairCredential = () => {
     invariant(
-      typeof mergeToken === "string" && mergeToken.length > 0,
-      "A dedicated Dependabot processor merge token is required for merge mode",
+      phase === "mutate",
+      "Branch mutation is available only in mutate phase",
     );
     invariant(
-      mergeToken !== token,
-      "The Dependabot processor merge token must be distinct from the workflow GitHub token",
+      typeof repairToken === "string" && repairToken.length > 0,
+      "A dedicated Dependabot repair token is required for mutate phase",
     );
-    return mergeToken;
+    invariant(
+      repairToken !== token,
+      "The Dependabot repair token must be distinct from the workflow GitHub token",
+    );
+    invariant(
+      validPrepareActor({
+        prepareAppSlug: prepareActor.appSlug,
+        prepareBotId: prepareActor.botId,
+        prepareBotLogin: prepareActor.botLogin,
+      }),
+      "Trusted Dependabot prepare bot identity is required for mutate phase",
+    );
+    return repairToken;
   };
 
   const request = async (method, path, { body, accept } = {}) => {
@@ -2781,6 +4225,31 @@ export function createLiveGitHubAdapter({
       );
       error.status = response.status;
       throw error;
+    }
+    return {
+      data: response.status === 204 ? null : await response.json(),
+      link: response.headers.get("link"),
+    };
+  };
+
+  const requestWithRepairCredential = async (method, path, { body } = {}) => {
+    const credential = requireRepairCredential();
+    const response = await fetchImpl(`${apiUrl}${path}`, {
+      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${credential}`,
+        "Content-Type": "application/json",
+        "User-Agent": "mento-dependabot-prepare-mutation",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      method,
+    });
+    if (!response.ok) {
+      const responseText = await response.text();
+      throw new Error(
+        `GitHub prepare mutation ${method} ${path} failed with ${response.status}: ${responseText.slice(0, 500)}`,
+      );
     }
     return {
       data: response.status === 204 ? null : await response.json(),
@@ -2829,39 +4298,92 @@ export function createLiveGitHubAdapter({
   const getChecks = async (repository, sha) => {
     exactSha(sha);
     const workflowRunCache = new Map();
-    const workflowRunSource = async (url, check = {}) => {
-      const match = /\/actions\/runs\/([1-9][0-9]*)/.exec(String(url ?? ""));
-      const externalReceipt = POST_MERGE_EXTERNAL_ID_PATTERN.exec(
-        String(check.externalId ?? ""),
-      );
-      const exactPostMergeSelfUrl =
-        check.name === POST_MERGE_CHECK_NAME &&
-        Number.isSafeInteger(check.id) &&
-        check.id > 0 &&
-        url === `https://github.com/${repository}/runs/${check.id}`;
-      if (!match && (!exactPostMergeSelfUrl || !externalReceipt)) return null;
-      const runId = Number(match?.[1] ?? externalReceipt[1]);
-      if (!Number.isSafeInteger(runId) || runId < 1) return null;
-      if (!workflowRunCache.has(runId)) {
+    const receiptRunIdentity = (check) => {
+      const pattern =
+        check.name === PROCESSOR_CHECK_NAME
+          ? PROCESSOR_REPAIR_RECEIPT_PATTERN
+          : check.name === REFRESH_CHECK_NAME
+            ? REFRESH_RECEIPT_PATTERN
+            : check.name === REPAIR_CHECK_NAME
+              ? REPAIR_RECEIPT_PATTERN
+              : check.name === ALL_CLEAR_CHECK_NAME
+                ? ALL_CLEAR_RECEIPT_PATTERN
+                : check.name === POST_MERGE_CHECK_NAME
+                  ? POST_MERGE_EXTERNAL_ID_PATTERN
+                  : null;
+      const external = pattern?.exec(String(check.externalId ?? ""));
+      if (!external) return null;
+      if (check.name === POST_MERGE_CHECK_NAME) {
+        return { runAttempt: Number(external[2]), runId: Number(external[1]) };
+      }
+      return {
+        runAttempt: Number(external.at(-1)),
+        runId: Number(external.at(-2)),
+      };
+    };
+    const normalizeWorkflowRunSource = (data) => ({
+      runDisplayTitle: data.display_title,
+      runHeadBranch: data.head_branch,
+      runConclusion:
+        typeof data.conclusion === "string"
+          ? data.conclusion.toLowerCase()
+          : null,
+      sourceRepository: data.repository?.full_name,
+      runAttempt: data.run_attempt,
+      runHeadSha: data.head_sha ?? null,
+      runId: data.id,
+      runStatus:
+        typeof data.status === "string" ? data.status.toLowerCase() : null,
+      workflowEvent: data.event,
+      workflowPath: String(data.path ?? "").replace(/@.*$/, ""),
+    });
+    const cachedWorkflowRunSource = (repository, runId, runAttempt = null) => {
+      const cacheKey = `${runId}:${runAttempt ?? "latest"}`;
+      if (!workflowRunCache.has(cacheKey)) {
+        const path =
+          runAttempt === null
+            ? `/repos/${repository}/actions/runs/${runId}`
+            : `/repos/${repository}/actions/runs/${runId}/attempts/${runAttempt}`;
         workflowRunCache.set(
-          runId,
-          request("GET", `/repos/${repository}/actions/runs/${runId}`).then(
-            ({ data }) => ({
-              runDisplayTitle: data.display_title,
-              runHeadBranch: data.head_branch,
-              runConclusion: data.conclusion,
-              sourceRepository: data.repository?.full_name,
-              runAttempt: data.run_attempt,
-              runHeadSha: data.head_sha ?? null,
-              runId: data.id,
-              runStatus: data.status,
-              workflowEvent: data.event,
-              workflowPath: String(data.path ?? "").replace(/@.*$/, ""),
-            }),
+          cacheKey,
+          request("GET", path).then(({ data }) =>
+            normalizeWorkflowRunSource(data),
           ),
         );
       }
-      return workflowRunCache.get(runId);
+      return workflowRunCache.get(cacheKey);
+    };
+    const workflowRunSource = async (url, check = {}) => {
+      const match = /\/actions\/runs\/([1-9][0-9]*)/.exec(String(url ?? ""));
+      const externalReceipt = receiptRunIdentity(check);
+      const exactReceiptSelfUrl =
+        externalReceipt !== null &&
+        Number.isSafeInteger(check.id) &&
+        check.id > 0 &&
+        url === `https://github.com/${repository}/runs/${check.id}`;
+      if (!match && !exactReceiptSelfUrl) return null;
+      const runId = Number(match?.[1] ?? externalReceipt?.runId);
+      if (!Number.isSafeInteger(runId) || runId < 1) return null;
+      const latest = await cachedWorkflowRunSource(repository, runId);
+      const recordedAttempt =
+        externalReceipt?.runId === runId &&
+        Number.isSafeInteger(externalReceipt.runAttempt) &&
+        externalReceipt.runAttempt > 0
+          ? externalReceipt.runAttempt
+          : null;
+      if (recordedAttempt === null || latest.runAttempt === recordedAttempt) {
+        return latest;
+      }
+      const recorded = await cachedWorkflowRunSource(
+        repository,
+        runId,
+        recordedAttempt,
+      );
+      invariant(
+        recorded.runId === runId && recorded.runAttempt === recordedAttempt,
+        `GitHub workflow run ${runId} attempt ${recordedAttempt} response is invalid`,
+      );
+      return recorded;
     };
     const rawCheckRuns = [];
     let page = 1;
@@ -2906,6 +4428,8 @@ export function createLiveGitHubAdapter({
         headSha: run.head_sha,
         id: run.id,
         name: run.name,
+        outputSummary: run.output?.summary ?? null,
+        outputText: run.output?.text ?? null,
         startedAt: run.started_at,
         status: run.status,
         kind: "check",
@@ -2955,40 +4479,15 @@ export function createLiveGitHubAdapter({
 
   const getProcessorChecks = async (repository, sha) => {
     exactSha(sha);
-    const checkRuns = [];
-    let page = 1;
-    while (page <= 20) {
-      const response = await request(
-        "GET",
-        `/repos/${repository}/commits/${sha}/check-runs?check_name=${encodeURIComponent(PROCESSOR_CHECK_NAME)}&filter=all&per_page=100&page=${page}`,
-      );
-      const runs = response.data?.check_runs;
-      invariant(
-        Array.isArray(runs),
-        "GitHub processor check-runs response is invalid",
-      );
-      checkRuns.push(
-        ...runs.map((run) => ({
-          appId: run.app?.id,
-          completedAt: run.completed_at,
-          conclusion: run.conclusion,
-          externalId: run.external_id,
-          headSha: run.head_sha,
-          id: run.id,
-          kind: "check",
-          name: run.name,
-          startedAt: run.started_at,
-          status: run.status,
-        })),
-      );
-      if (runs.length < 100) break;
-      page += 1;
-    }
-    invariant(
-      page <= 20,
-      "GitHub processor check-run pagination limit exceeded",
+    return (await getChecks(repository, sha)).filter(
+      ({ kind, name }) =>
+        kind === "check" &&
+        new Set([
+          PROCESSOR_CHECK_NAME,
+          REFRESH_CHECK_NAME,
+          REPAIR_CHECK_NAME,
+        ]).has(name),
     );
-    return checkRuns;
   };
 
   const getFeedback = async (repository, number) => {
@@ -3001,6 +4500,7 @@ export function createLiveGitHubAdapter({
             headRefOid
             updatedAt
             isDraft
+            mergeable
             mergeStateStatus
             reviewDecision
             autoMergeRequest { enabledAt }
@@ -3009,6 +4509,8 @@ export function createLiveGitHubAdapter({
                 id
                 isResolved
                 isOutdated
+                line
+                path
                 comments(first: 100) {
                   totalCount
                   nodes {
@@ -3086,7 +4588,12 @@ export function createLiveGitHubAdapter({
             })),
             commentsTruncated,
             id: thread.id,
+            line:
+              Number.isSafeInteger(thread.line) && thread.line > 0
+                ? thread.line
+                : null,
             outdated: thread.isOutdated === true,
+            path: typeof thread.path === "string" ? thread.path : null,
             resolved: thread.isResolved === true,
           };
         }),
@@ -3161,6 +4668,12 @@ export function createLiveGitHubAdapter({
       digest,
       headSha: pullRequest.headRefOid,
       isDraft: pullRequest.isDraft,
+      mergeable:
+        pullRequest.mergeable === "MERGEABLE"
+          ? true
+          : pullRequest.mergeable === "CONFLICTING"
+            ? false
+            : null,
       mergeStateStatus: pullRequest.mergeStateStatus,
       nodeId: pullRequest.id,
       reviewDecision: pullRequest.reviewDecision,
@@ -3468,6 +4981,34 @@ export function createLiveGitHubAdapter({
     throw new Error("GitHub auto-merge request pagination limit exceeded");
   };
 
+  const getExpectedBlobs = async (repository, headSha, files) => {
+    const response = await request(
+      "GET",
+      `/repos/${repository}/git/trees/${exactSha(headSha)}?recursive=1`,
+    );
+    invariant(
+      response.data?.truncated === false && Array.isArray(response.data?.tree),
+      "GitHub head tree response is incomplete",
+    );
+    const byPath = new Map();
+    for (const entry of response.data.tree) {
+      if (byPath.has(entry.path)) {
+        throw new Error("GitHub head tree contains duplicate paths");
+      }
+      byPath.set(entry.path, entry);
+    }
+    return files.map((file) => {
+      const path = file?.filename;
+      const entry = byPath.get(path);
+      return {
+        mode: entry?.mode ?? null,
+        path,
+        sha: entry?.sha ?? null,
+        type: entry?.type ?? null,
+      };
+    });
+  };
+
   const collectPullRequestSnapshot = async (repository, number) => {
     const raw = await getPullRequest(repository, number);
     const [files, commits, initialFeedback] = await Promise.all([
@@ -3480,11 +5021,14 @@ export function createLiveGitHubAdapter({
       initialFeedback.headSha === headSha,
       `PR #${number} changed while feedback was collected`,
     );
-    const baseAncestry = await getCurrentBaseAncestry({
-      baseRef: raw.base.ref,
-      headSha,
-      repository,
-    });
+    const [baseAncestry, expectedBlobs] = await Promise.all([
+      getCurrentBaseAncestry({
+        baseRef: raw.base.ref,
+        headSha,
+        repository,
+      }),
+      getExpectedBlobs(repository, headSha, files),
+    ]);
     const baselineSha = baseAncestry.currentBaseSha;
     const commitHeadShas = [
       ...new Set(
@@ -3538,7 +5082,16 @@ export function createLiveGitHubAdapter({
       },
       body: finalRaw.body ?? "",
       draft: finalRaw.draft,
-      files: files.map(({ filename }) => filename),
+      files: files.map((file, index) => ({
+        additions: file.additions,
+        changes: file.changes,
+        deletions: file.deletions,
+        filename: file.filename,
+        mode: expectedBlobs[index]?.mode ?? null,
+        sha: expectedBlobs[index]?.sha ?? null,
+        status: file.status,
+        type: expectedBlobs[index]?.type ?? null,
+      })),
       head: {
         ref: finalRaw.head.ref,
         repo: { fullName: finalRaw.head.repo?.full_name },
@@ -3547,10 +5100,14 @@ export function createLiveGitHubAdapter({
       isCrossRepository:
         finalRaw.head.repo?.full_name !== finalRaw.base.repo?.full_name,
       labels: finalRaw.labels,
+      mergeable: feedback.mergeable ?? finalRaw.mergeable ?? null,
+      mergeStateStatus:
+        feedback.mergeStateStatus ?? finalRaw.mergeable_state ?? null,
       merge_commit_sha: finalRaw.merge_commit_sha,
       merged: finalRaw.merged,
       node_id: feedback.nodeId ?? finalRaw.node_id,
       number: finalRaw.number,
+      reviewDecision: feedback.reviewDecision ?? null,
       state: finalRaw.state,
       title: finalRaw.title,
       updated_at: finalRaw.updated_at,
@@ -3566,15 +5123,22 @@ export function createLiveGitHubAdapter({
       baseline: { checks: baselineChecks, sha: baselineSha },
       checks,
       commits: lineageCommits.map((commit) => ({
+        authorId: commit.author?.id ?? null,
         authorLogin: commit.author?.login,
+        authorType: commit.author?.type,
+        committerId: commit.committer?.id ?? null,
         committerLogin: commit.committer?.login,
+        committerType: commit.committer?.type,
         message: commit.commit?.message,
+        parents: (commit.parents ?? []).map(({ sha }) => sha),
         sha: commit.sha,
         verified: commit.commit?.verification?.verified === true,
+        verificationReason: commit.commit?.verification?.reason ?? null,
       })),
       expectedHeadSha: headSha,
       feedback: {
         actionableThreadCount: feedback.actionableThreadCount,
+        actionableThreads: feedback.actionableThreads,
         autoMergeEnabled: feedback.autoMergeEnabled,
         blockerCount: feedback.blockerCount,
         blockers: feedback.blockers,
@@ -3599,6 +5163,9 @@ export function createLiveGitHubAdapter({
         labels: normalizeLabels(finalRaw.labels),
         maintainerVeto:
           humanCloseEvidence.humanIntervened || humanCloseEvidence.forcePushed,
+        mergeable: feedback.mergeable,
+        mergeStateStatus: feedback.mergeStateStatus,
+        remediationCandidates: feedback.remediationCandidates,
         reasons: feedback.reasons,
         reviewDecision: feedback.reviewDecision,
         reviewCount: feedback.reviewCount,
@@ -3608,6 +5175,13 @@ export function createLiveGitHubAdapter({
         updatedAt: feedback.updatedAt,
       },
       metadata,
+      prepareActor: validPrepareActor({
+        prepareAppSlug: prepareActor.appSlug,
+        prepareBotId: prepareActor.botId,
+        prepareBotLogin: prepareActor.botLogin,
+      })
+        ? prepareActor
+        : null,
       pullRequest,
       repairHistoryChecks: repairHistoryCheckPages.flat(),
       repository,
@@ -3620,6 +5194,10 @@ export function createLiveGitHubAdapter({
     pullRequestNumber: number,
     repository,
   }) => {
+    invariant(
+      phase === "finalize",
+      "Auto-merge cleanup requires finalize phase",
+    );
     exactSha(headSha);
     pullRequestNumber(number);
     invariant(
@@ -3684,6 +5262,7 @@ export function createLiveGitHubAdapter({
     pullRequestNumber: number,
     repository,
   }) => {
+    invariant(phase === "finalize", "Approval cleanup requires finalize phase");
     pullRequestNumber(number);
     invariant(
       Number.isSafeInteger(approvalId) && approvalId > 0,
@@ -3739,13 +5318,45 @@ export function createLiveGitHubAdapter({
     return { dismissed: true, id: approvalId, state: "DISMISSED" };
   };
 
-  return {
+  const publishCompletedCheck = async ({
+    conclusion,
+    detailsUrl,
+    externalId,
+    headSha,
+    name,
+    output,
+    repository,
+  }) => {
+    invariant(
+      detailsUrl === null || typeof detailsUrl === "string",
+      `${name} publication requires an explicit authority URL or null`,
+    );
+    const response = await request("POST", `/repos/${repository}/check-runs`, {
+      body: {
+        conclusion,
+        ...(detailsUrl === null ? {} : { details_url: detailsUrl }),
+        external_id: externalId,
+        head_sha: exactSha(headSha),
+        name,
+        output,
+        status: "completed",
+      },
+    });
+    invariant(
+      Number.isSafeInteger(response.data?.id) && response.data.id > 0,
+      `${name} publication did not return a check ID`,
+    );
+    return { id: response.data.id, url: response.data.html_url };
+  };
+
+  const capabilities = {
     approvePullRequest: async ({
       approvalSnapshot,
       headSha,
       pullRequestNumber: number,
       repository,
     }) => {
+      invariant(phase === "finalize", "Approval requires finalize phase");
       const expected = approvalSnapshot?.pullRequest;
       invariant(expected, `PR #${number} approval snapshot is required`);
       invariant(
@@ -3811,106 +5422,6 @@ export function createLiveGitHubAdapter({
     collectPullRequestSnapshot,
     disablePullRequestAutoMerge,
     dismissPullRequestApproval,
-    mergePullRequest: async ({
-      headSha,
-      pullRequestNumber: number,
-      repository,
-    }) => {
-      const mergeCredential = requireMergeCredential();
-      const initial = await getPullRequest(repository, number);
-      invariant(initial.state === "open", `PR #${number} is no longer open`);
-      invariant(
-        initial.head.sha === headSha,
-        `PR #${number} head changed before merge`,
-      );
-      const [feedback, humanCloseEvidence, baseAncestry] = await Promise.all([
-        getFeedback(repository, number),
-        getHumanCloseEvidence(repository, number),
-        getCurrentBaseAncestry({
-          baseRef: initial.base.ref,
-          headSha,
-          repository,
-        }),
-      ]);
-      const current = await getPullRequest(repository, number);
-      requireStablePullRequestSnapshot(initial, current, number);
-      invariant(current.state === "open", `PR #${number} is no longer open`);
-      invariant(current.head.sha === headSha, `PR #${number} head changed`);
-      invariant(
-        feedback.headSha === headSha,
-        `PR #${number} head changed during merge admission`,
-      );
-      invariant(
-        feedback.complete === true,
-        `PR #${number} feedback is incomplete during merge admission`,
-      );
-      const finalFeedback = {
-        ...feedback,
-        forcePushActors: humanCloseEvidence.forcePushActors,
-        forcePushCommitIds: humanCloseEvidence.forcePushCommitIds,
-        forcePushEventCount: humanCloseEvidence.forcePushEventCount,
-        forcePushed: humanCloseEvidence.forcePushed,
-        humanCloseActors: humanCloseEvidence.humanCloseActors,
-        humanClosed: humanCloseEvidence.humanClosed,
-        humanIntervened: humanCloseEvidence.humanIntervened,
-        humanReopenActors: humanCloseEvidence.humanReopenActors,
-        humanReopened: humanCloseEvidence.humanReopened,
-        labels: normalizeLabels(current.labels),
-        maintainerVeto:
-          humanCloseEvidence.humanIntervened || humanCloseEvidence.forcePushed,
-      };
-      invariant(
-        evaluateFeedbackGate({
-          feedback: finalFeedback,
-          pullRequest: current,
-        }).clear,
-        `PR #${number} feedback changed during merge admission`,
-      );
-      const base = evaluateCurrentBaseGate({
-        ancestry: baseAncestry,
-        baselineSha: baseAncestry.currentBaseSha,
-        pullRequest: normalizePullRequest(current),
-      });
-      invariant(
-        base.current,
-        `PR #${number} is not based on the current main head`,
-      );
-      const globalRequests =
-        await getOutstandingDependabotAutoMergeRequests(repository);
-      const globalState = outstandingAutoMergeState(
-        { outstandingAutoMergeRequests: globalRequests },
-        [],
-      );
-      invariant(
-        !globalState.ambiguous && globalState.requests.length === 0,
-        `Repository auto-merge lane changed during merge admission`,
-      );
-      const mergeEnvironment = {
-        ...process.env,
-        GH_TOKEN: mergeCredential,
-      };
-      delete mergeEnvironment.DEPENDABOT_PROCESSOR_GITHUB_TOKEN;
-      delete mergeEnvironment.DEPENDABOT_PROCESSOR_MERGE_TOKEN;
-      delete mergeEnvironment.GITHUB_TOKEN;
-      const { stdout = "" } = await execFileImpl(
-        "gh",
-        [
-          "pr",
-          "merge",
-          String(number),
-          "--repo",
-          repository,
-          "--squash",
-          "--match-head-commit",
-          headSha,
-        ],
-        {
-          env: mergeEnvironment,
-          maxBuffer: 1_048_576,
-        },
-      );
-      return { output: stdout.trim() };
-    },
     getChecks,
     getFeedback,
     getHumanCloseEvidence,
@@ -3930,15 +5441,19 @@ export function createLiveGitHubAdapter({
     },
     getPullRequest,
     publishProcessorCheck: async ({
-      conclusion,
+      disposition,
       headSha,
       mode,
-      output,
       pullRequestNumber: number,
       repairAttempt,
-      repairPacketIssued,
+      repairPacket,
       repository,
+      workflowContext,
     }) => {
+      invariant(
+        phase === "finalize",
+        "Processor checks require finalize phase",
+      );
       exactSha(headSha);
       pullRequestNumber(number);
       invariant(
@@ -3950,27 +5465,213 @@ export function createLiveGitHubAdapter({
         "Processor check repair attempt must be a positive safe integer",
       );
       invariant(
-        mode !== "observe" || repairPacketIssued !== true,
+        mode !== "observe" || repairPacket === null,
         "Observe processor checks cannot issue repair packets",
+      );
+      invariant(
+        workflowContext !== null &&
+          typeof workflowContext === "object" &&
+          Object.hasOwn(workflowContext, "workflowRunId"),
+        "Processor check publication requires an explicit workflow run ID",
+      );
+      const context = normalizeWorkflowContext(workflowContext);
+      const packetIssued = repairPacket !== null;
+      if (packetIssued) {
+        invariant(
+          repairPacket.workflowRunId === context.workflowRunId &&
+            repairPacket.workflowRunAttempt === context.workflowRunAttempt &&
+            repairPacket.workflowSha === context.workflowSha,
+          "Repair packet workflow identity changed before publication",
+        );
+      }
+      const packetDigest = packetIssued
+        ? canonicalDigest(repairPacket)
+        : "none";
+      return publishCompletedCheck({
+        conclusion:
+          !packetIssued && SAFE_PROCESSOR_CHECK_DISPOSITIONS.has(disposition)
+            ? "neutral"
+            : "failure",
+        detailsUrl: workflowActionsRunUrl(repository, context.workflowRunId),
+        externalId: `${DEPENDABOT_PROCESSOR_SCHEMA}:pr=${number}:head=${headSha}:mode=${mode}:repair=${repairAttempt}:packet=${packetIssued}:digest=${packetDigest}:run=${context.workflowRunId}:attempt=${context.workflowRunAttempt}`,
+        headSha,
+        name: PROCESSOR_CHECK_NAME,
+        output: {
+          summary: `Disposition: ${disposition}`,
+          text: packetIssued ? stableJson(repairPacket) : undefined,
+          title: `Dependabot processor: ${disposition}`,
+        },
+        repository,
+      });
+    },
+    publishRefreshReceipt: async ({ receipt, repository }) => {
+      invariant(
+        (phase === "request" && receipt?.state === "requested") ||
+          (phase === "finalize" && receipt?.state === "completed"),
+        "Refresh receipt state is not authorized in this phase",
+      );
+      invariant(
+        receipt?.schema === DEPENDABOT_REFRESH_SCHEMA &&
+          receipt.repository === repository &&
+          validPrepareActor(receipt),
+        "Refresh receipt is invalid",
+      );
+      const headSha =
+        receipt.state === "requested" ? receipt.parentHeadSha : receipt.headSha;
+      const digest = canonicalDigest(receipt);
+      return publishCompletedCheck({
+        conclusion: "success",
+        detailsUrl: workflowActionsRunUrl(repository, receipt.workflowRunId),
+        externalId: `${DEPENDABOT_REFRESH_SCHEMA}:pr=${receipt.pullRequestNumber}:head=${headSha}:state=${receipt.state}:digest=${digest}:run=${receipt.workflowRunId}:attempt=${receipt.workflowRunAttempt}`,
+        headSha,
+        name: REFRESH_CHECK_NAME,
+        output: {
+          summary: `Refresh ${receipt.state}`,
+          text: stableJson(receipt),
+          title: `Dependabot refresh: ${receipt.state}`,
+        },
+        repository,
+      });
+    },
+    publishAllClear: async ({ receipt, repository }) => {
+      invariant(phase === "finalize", "ALL CLEAR requires finalize phase");
+      invariant(
+        receipt?.schema === DEPENDABOT_ALL_CLEAR_SCHEMA &&
+          receipt.repository === repository &&
+          validPreparationSummary(receipt.preparation),
+        "ALL CLEAR receipt is invalid",
+      );
+      const digest = canonicalDigest(receipt);
+      return publishCompletedCheck({
+        conclusion: "success",
+        detailsUrl: workflowActionsRunUrl(repository, receipt.workflowRunId),
+        externalId: `${DEPENDABOT_ALL_CLEAR_SCHEMA}:pr=${receipt.pullRequestNumber}:head=${receipt.headSha}:base=${receipt.baseSha}:digest=${digest}:run=${receipt.workflowRunId}:attempt=${receipt.workflowRunAttempt}`,
+        headSha: receipt.headSha,
+        name: ALL_CLEAR_CHECK_NAME,
+        output: {
+          summary: "Exact-head preparation is complete. Human action: Merge.",
+          text: stableJson(receipt),
+          title: "Dependabot ALL CLEAR",
+        },
+        repository,
+      });
+    },
+    publishAllClearInvalidation: async ({
+      headSha,
+      pullRequestNumber: number,
+      repository,
+    }) => {
+      invariant(
+        phase === "finalize",
+        "ALL CLEAR invalidation requires finalize phase",
+      );
+      return publishCompletedCheck({
+        conclusion: "failure",
+        detailsUrl: null,
+        externalId: `dependabot-all-clear-invalidated:v1:pr=${pullRequestNumber(number)}:head=${exactSha(headSha)}`,
+        headSha,
+        name: ALL_CLEAR_CHECK_NAME,
+        output: {
+          summary: "Reconciliation invalidated prior preparation authority.",
+          title: "Dependabot ALL CLEAR invalidated",
+        },
+        repository,
+      });
+    },
+    replyToReviewComment: async ({
+      body,
+      commentId,
+      pullRequestNumber: number,
+      repository,
+    }) => {
+      invariant(
+        phase === "finalize",
+        "Review remediation requires finalize phase",
       );
       const response = await request(
         "POST",
-        `/repos/${repository}/check-runs`,
-        {
-          body: {
-            conclusion,
-            external_id: `${DEPENDABOT_PROCESSOR_SCHEMA}:pr=${number}:head=${headSha}:mode=${mode}:repair=${repairAttempt}:packet=${repairPacketIssued === true}`,
-            head_sha: headSha,
-            name: PROCESSOR_CHECK_NAME,
-            output,
-            status: "completed",
-          },
-        },
+        `/repos/${repository}/pulls/${pullRequestNumber(number)}/comments/${commentId}/replies`,
+        { body: { body } },
       );
-      return { id: response.data.id, url: response.data.html_url };
+      return { id: response.data?.id };
     },
-    requireMergeCredential,
+    requestPullRequestUpdateBranch: async ({
+      expectedBaseSha,
+      expectedHeadSha,
+      pullRequestNumber: number,
+      repository,
+    }) => {
+      const current = await getPullRequest(
+        repository,
+        pullRequestNumber(number),
+      );
+      invariant(
+        current.state === "open" &&
+          current.head?.sha === exactSha(expectedHeadSha) &&
+          current.base?.sha === exactSha(expectedBaseSha),
+        `PR #${number} changed before update-branch`,
+      );
+      const response = await requestWithRepairCredential(
+        "PUT",
+        `/repos/${repository}/pulls/${number}/update-branch`,
+        { body: { expected_head_sha: expectedHeadSha } },
+      );
+      return { message: response.data?.message ?? null };
+    },
+    waitForRefreshSuccessor: () =>
+      new Promise((resolveDelay) => {
+        setTimeout(resolveDelay, REFRESH_SUCCESSOR_POLL_INTERVAL_MS);
+      }),
+    resolveReviewThread: async ({ threadId }) => {
+      invariant(
+        phase === "finalize",
+        "Review remediation requires finalize phase",
+      );
+      const mutation = `
+        mutation DependabotResolveReviewThread($threadId: ID!) {
+          resolveReviewThread(input: {threadId: $threadId}) {
+            thread { id isResolved }
+          }
+        }
+      `;
+      const data = await graphql(mutation, { threadId });
+      invariant(
+        data.resolveReviewThread?.thread?.id === threadId &&
+          data.resolveReviewThread.thread.isResolved === true,
+        "Review thread resolution response is invalid",
+      );
+      return { resolved: true, threadId };
+    },
+    prepareActor,
   };
+  if (phase === "request") {
+    return {
+      collectPullRequestSnapshot: capabilities.collectPullRequestSnapshot,
+      getOpenDependabotPullRequestNumbers:
+        capabilities.getOpenDependabotPullRequestNumbers,
+      getOutstandingDependabotAutoMergeRequests:
+        capabilities.getOutstandingDependabotAutoMergeRequests,
+      prepareActor: capabilities.prepareActor,
+      publishRefreshReceipt: capabilities.publishRefreshReceipt,
+    };
+  }
+  if (phase === "mutate") {
+    return {
+      collectPullRequestSnapshot: capabilities.collectPullRequestSnapshot,
+      getOpenDependabotPullRequestNumbers:
+        capabilities.getOpenDependabotPullRequestNumbers,
+      getOutstandingDependabotAutoMergeRequests:
+        capabilities.getOutstandingDependabotAutoMergeRequests,
+      prepareActor: capabilities.prepareActor,
+      requestPullRequestUpdateBranch:
+        capabilities.requestPullRequestUpdateBranch,
+      waitForRefreshSuccessor: capabilities.waitForRefreshSuccessor,
+    };
+  }
+  const finalizeCapabilities = { ...capabilities };
+  delete finalizeCapabilities.requestPullRequestUpdateBranch;
+  delete finalizeCapabilities.waitForRefreshSuccessor;
+  return finalizeCapabilities;
 }
 
 async function collectSweepInput({
@@ -3979,11 +5680,46 @@ async function collectSweepInput({
   mode,
   pullRequestNumbers,
   repository,
+  workflowContext = null,
 }) {
-  const numbers =
-    pullRequestNumbers === "all"
+  const targeted = pullRequestNumbers !== "all";
+  const requestedNumbers = targeted
+    ? [...new Set(pullRequestNumbers.map(pullRequestNumber))].sort(
+        (left, right) => left - right,
+      )
+    : null;
+  invariant(
+    !targeted || requestedNumbers.length > 0,
+    "PR number list cannot be empty",
+  );
+  let expectedTargetNumber = null;
+  if (expectedHeadSha !== null) {
+    exactSha(expectedHeadSha, "Expected intake head SHA");
+    invariant(
+      targeted && requestedNumbers.length === 1,
+      "--expected-head-sha requires exactly one requested pull request",
+    );
+    [expectedTargetNumber] = requestedNumbers;
+  }
+  const expandPrepareLane = mode === "prepare" && targeted;
+  const collectedNumbers =
+    !targeted || expandPrepareLane
       ? await adapter.getOpenDependabotPullRequestNumbers(repository)
-      : pullRequestNumbers;
+      : requestedNumbers;
+  const numbers = [...new Set(collectedNumbers.map(pullRequestNumber))].sort(
+    (left, right) => left - right,
+  );
+  invariant(
+    numbers.length <= PROCESSOR_APPROVAL_PULL_LIMIT &&
+      numbers.length === collectedNumbers.length,
+    "Open Dependabot PR collection is incomplete or ambiguous",
+  );
+  if (expandPrepareLane) {
+    invariant(
+      requestedNumbers.every((number) => numbers.includes(number)),
+      "Requested Dependabot PR is not open",
+    );
+  }
   invariant(
     typeof adapter.getOutstandingDependabotAutoMergeRequests === "function",
     "Live sweeps require repository-wide auto-merge visibility",
@@ -3991,19 +5727,14 @@ async function collectSweepInput({
   const outstandingAutoMergeRequests =
     await adapter.getOutstandingDependabotAutoMergeRequests(repository);
   const pullRequests = [];
-  if (expectedHeadSha !== null) {
-    exactSha(expectedHeadSha, "Expected intake head SHA");
-    invariant(
-      numbers.length === 1,
-      "--expected-head-sha requires exactly one pull request",
-    );
-  }
   for (const number of numbers) {
     const snapshot = await adapter.collectPullRequestSnapshot(
       repository,
       pullRequestNumber(number),
     );
-    if (expectedHeadSha !== null) snapshot.expectedHeadSha = expectedHeadSha;
+    if (number === expectedTargetNumber) {
+      snapshot.expectedHeadSha = expectedHeadSha;
+    }
     pullRequests.push(snapshot);
   }
   return {
@@ -4011,429 +5742,1031 @@ async function collectSweepInput({
     outstandingAutoMergeRequests,
     pullRequests,
     repository,
+    workflowContext,
   };
 }
 
-async function requireGlobalAutoMergeAdmission({
-  adapter,
-  allowMatchingCandidate = false,
-  candidate,
+function normalizeApprovalInventory(inventory) {
+  invariant(
+    Array.isArray(inventory) &&
+      inventory.length <= PROCESSOR_APPROVAL_RESULT_LIMIT,
+    "Repository-wide processor approval inventory is incomplete",
+  );
+  const normalized = inventory.map((approval) => ({
+    approvalId: approval?.approvalId,
+    headSha: approval?.headSha,
+    pullRequestNumber: approval?.pullRequestNumber,
+  }));
+  invariant(
+    normalized.every(
+      ({ approvalId, headSha, pullRequestNumber: number }) =>
+        Number.isSafeInteger(approvalId) &&
+        approvalId > 0 &&
+        SHA_PATTERN.test(headSha ?? "") &&
+        Number.isSafeInteger(number) &&
+        number > 0,
+    ) &&
+      new Set(normalized.map(({ approvalId }) => approvalId)).size ===
+        normalized.length,
+    "Repository-wide processor approval inventory is malformed",
+  );
+  return normalized.sort(
+    (left, right) =>
+      left.pullRequestNumber - right.pullRequestNumber ||
+      left.approvalId - right.approvalId,
+  );
+}
+
+function evaluationForCandidate(evaluation) {
+  const candidate = evaluation.prepareCandidate;
+  if (!candidate) return null;
+  return (
+    evaluation.evaluations.find(
+      ({ headSha, pullRequestNumber: number }) =>
+        number === candidate.pullRequestNumber && headSha === candidate.headSha,
+    ) ?? null
+  );
+}
+
+function preparationSummary(result) {
+  const attempts = result.repairAttempts;
+  const common = {
+    kind: attempts.preparationKind,
+    operationDigests: [...attempts.operationDigests],
+    refreshCount: attempts.refreshCommitCount,
+    repairCount: attempts.authenticatedRepairCommitCount,
+    seedHeadSha: result.identity.automaticSeedHeadSha,
+  };
+  if (common.kind === "native") return common;
+  invariant(
+    attempts.preparationActor !== null,
+    "Prepared lineage is missing its authenticated actor",
+  );
+  return {
+    ...common,
+    prepareAppSlug: attempts.preparationActor.appSlug,
+    prepareBotId: attempts.preparationActor.botId,
+    prepareBotLogin: attempts.preparationActor.botLogin,
+  };
+}
+
+function checksDigest(result) {
+  return canonicalDigest({
+    baselineSha: result.checks.baselineSha,
+    headSha: result.headSha,
+    policy: result.checks.policy,
+  });
+}
+
+function allClearReceiptMatchesResult({
+  approval,
+  receipt,
+  result,
+  serialization,
+}) {
+  if (!result || !receipt) return false;
+  return (
+    serialization.ready === true &&
+    result.disposition === "prepare-candidate" &&
+    result.base.current === true &&
+    result.checks.state === "passing" &&
+    result.checks.missing.length === 0 &&
+    result.checks.pending.length === 0 &&
+    result.feedback.clear === true &&
+    result.feedback.autoMergeEnabled === false &&
+    result.feedback.currentProcessorApprovalCount === 1 &&
+    result.feedback.currentProcessorApprovalIds.length === 1 &&
+    result.feedback.currentProcessorApprovalIds[0] === approval.approvalId &&
+    result.feedback.mergeable === true &&
+    result.feedback.mergeStateStatus === "CLEAN" &&
+    result.feedback.reviewDecision === "APPROVED" &&
+    receipt.pullRequestNumber === approval.pullRequestNumber &&
+    receipt.processorApprovalId === approval.approvalId &&
+    receipt.headSha === approval.headSha &&
+    receipt.baseSha === result.base.currentBaseSha &&
+    receipt.checksDigest === checksDigest(result) &&
+    receipt.feedbackDigest === result.feedback.digest &&
+    receipt.riskTier === result.risk.tier &&
+    receipt.updateType === result.risk.updateType &&
+    stableJson(receipt.preparation) === stableJson(preparationSummary(result))
+  );
+}
+
+function allClearReceiptMatches({ approval, evaluation, receipt }) {
+  const result = evaluationForCandidate(evaluation);
+  if (
+    !result ||
+    evaluation.prepareCandidate?.disposition !== "prepare-candidate"
+  ) {
+    return false;
+  }
+  return allClearReceiptMatchesResult({
+    approval,
+    receipt,
+    result,
+    serialization: evaluation.serialization,
+  });
+}
+
+function activeAllClearAuthority({
   repository,
+  result,
+  serialization,
+  snapshot,
+}) {
+  if (
+    result.feedback.currentProcessorApprovalCount !== 1 ||
+    result.feedback.currentProcessorApprovalIds.length !== 1
+  ) {
+    return null;
+  }
+  const approval = {
+    approvalId: result.feedback.currentProcessorApprovalIds[0],
+    headSha: result.headSha,
+    pullRequestNumber: result.pullRequestNumber,
+  };
+  const newest = newestExactHeadAllClear(snapshot, result.headSha);
+  const parsed =
+    !newest.malformed && newest.check
+      ? parseDependabotAllClearReceipt(newest.check, repository)
+      : null;
+  if (!parsed) return null;
+  try {
+    return allClearReceiptMatchesResult({
+      approval,
+      receipt: parsed.receipt,
+      result,
+      serialization,
+    })
+      ? approval
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function newestExactHeadAllClear(snapshot, headSha) {
+  const candidates = (snapshot?.checks ?? [])
+    .map((check) => normalizeCheck(check))
+    .filter(
+      (check) =>
+        check.name === ALL_CLEAR_CHECK_NAME && check.headSha === headSha,
+    );
+  if (candidates.length === 0) return { check: null, malformed: false };
+  const positive = candidates.filter(
+    ({ id }) => Number.isSafeInteger(id) && id > 0,
+  );
+  const uniqueIds = new Set(positive.map(({ id }) => id));
+  return {
+    check:
+      [...positive].sort((left, right) => left.id - right.id).at(-1) ?? null,
+    malformed:
+      positive.length !== candidates.length ||
+      uniqueIds.size !== positive.length,
+  };
+}
+
+function newestExactHeadProcessorCheck(snapshot, headSha) {
+  const candidates = (snapshot?.checks ?? [])
+    .map((check) => normalizeCheck(check))
+    .filter(
+      (check) =>
+        check.name === PROCESSOR_CHECK_NAME && check.headSha === headSha,
+    );
+  if (candidates.length === 0) return { check: null, malformed: false };
+  const positive = candidates.filter(
+    ({ id }) => Number.isSafeInteger(id) && id > 0,
+  );
+  return {
+    check:
+      [...positive].sort((left, right) => left.id - right.id).at(-1) ?? null,
+    malformed:
+      positive.length !== candidates.length ||
+      new Set(positive.map(({ id }) => id)).size !== positive.length,
+  };
+}
+
+function processorCheckAlreadyPublished({ evaluation, result, snapshot }) {
+  if (result.disposition === "repair-pending") return true;
+  const newest = newestExactHeadProcessorCheck(snapshot, result.headSha);
+  if (newest.malformed || !newest.check) return false;
+  const parsed = parseDependabotProcessorReceipt(
+    newest.check,
+    evaluation.repository,
+  );
+  if (!parsed) return false;
+  const packetIssued = result.repairPacket !== null;
+  const packetDigest = packetIssued
+    ? canonicalDigest(result.repairPacket)
+    : null;
+  return (
+    parsed.pullRequestNumber === result.pullRequestNumber &&
+    parsed.headSha === result.headSha &&
+    parsed.mode === evaluation.mode &&
+    parsed.attempt === result.repairAttempt &&
+    parsed.packetIssued === packetIssued &&
+    parsed.packetDigest === packetDigest &&
+    parsed.check.outputSummary === `Disposition: ${result.disposition}`
+  );
+}
+
+function isExactAllClearInvalidation(check, pullRequestNumberValue, headSha) {
+  return (
+    check !== null &&
+    check.appId === GITHUB_ACTIONS_APP_ID &&
+    check.status === "completed" &&
+    check.conclusion === "failure" &&
+    check.externalId ===
+      `dependabot-all-clear-invalidated:v1:pr=${pullRequestNumberValue}:head=${headSha}`
+  );
+}
+
+function hasCurrentTrustedAllClear({ approval, collected, evaluation }) {
+  const snapshot = (collected.pullRequests ?? []).find((candidateSnapshot) => {
+    const pullRequest = normalizePullRequest(
+      candidateSnapshot.pullRequest ?? candidateSnapshot,
+    );
+    return (
+      pullRequest.number === approval.pullRequestNumber &&
+      pullRequest.headSha === approval.headSha
+    );
+  });
+  const newest = newestExactHeadAllClear(snapshot, approval.headSha);
+  const parsed =
+    !newest.malformed && newest.check
+      ? parseDependabotAllClearReceipt(newest.check, evaluation.repository)
+      : null;
+  return (
+    parsed !== null &&
+    allClearReceiptMatches({
+      approval,
+      evaluation,
+      receipt: parsed.receipt,
+    })
+  );
+}
+
+function exactRefreshSuccessor(snapshot, expected) {
+  const pullRequest = normalizePullRequest(snapshot.pullRequest ?? snapshot);
+  invariant(
+    pullRequest.number === expected.pullRequestNumber &&
+      pullRequest.headRef === expected.headRef &&
+      pullRequest.headRepository === expected.repository &&
+      pullRequest.baseRepository === expected.repository &&
+      pullRequest.baseRef === "main" &&
+      SHA_PATTERN.test(pullRequest.baseSha ?? "") &&
+      snapshot.feedback?.forcePushed !== true,
+    `PR #${expected.pullRequestNumber} changed outside the requested refresh`,
+  );
+  if (pullRequest.headSha === expected.parentHeadSha) return null;
+  const commits = Array.isArray(snapshot.commits) ? snapshot.commits : [];
+  invariant(
+    commits.length >= 2 &&
+      commits.at(-2)?.sha === expected.parentHeadSha &&
+      commits.at(-1)?.sha === pullRequest.headSha,
+    `PR #${expected.pullRequestNumber} refresh has intervening commits`,
+  );
+  const parents = commitParentShas(commits.at(-1));
+  const appliedBaseSha = parents[1] ?? null;
+  const baseAncestry = snapshot.baseAncestry ?? {};
+  invariant(
+    parents.length === 2 &&
+      new Set(parents).size === 2 &&
+      parents[0] === expected.parentHeadSha &&
+      (appliedBaseSha === baseAncestry.currentBaseSha ||
+        appliedBaseSha === baseAncestry.mergeBaseSha) &&
+      commitMatchesAuthenticatedRefresh(
+        commits.at(-1),
+        expected.requestReceipt ?? expected,
+      ),
+    `PR #${expected.pullRequestNumber} refresh commit parents are invalid`,
+  );
+  return { appliedBaseSha, headSha: pullRequest.headSha };
+}
+
+async function recollectSelectedSweep({ adapter, collected, workflowContext }) {
+  const pullRequests = [];
+  for (const snapshot of collected.pullRequests ?? []) {
+    const selected = normalizePullRequest(snapshot.pullRequest ?? snapshot);
+    const refreshed = await adapter.collectPullRequestSnapshot(
+      collected.repository,
+      selected.number,
+    );
+    refreshed.expectedHeadSha = snapshot.expectedHeadSha ?? selected.headSha;
+    pullRequests.push(refreshed);
+  }
+  return {
+    ...collected,
+    outstandingAutoMergeRequests:
+      await adapter.getOutstandingDependabotAutoMergeRequests(
+        collected.repository,
+      ),
+    pullRequests,
+    workflowContext,
+  };
+}
+
+async function processRequestPhase({ adapter, evaluation, workflowContext }) {
+  invariant(
+    evaluation.mode === "prepare",
+    "Request phase requires prepare mode",
+  );
+  invariant(
+    typeof adapter.publishRefreshReceipt === "function" &&
+      typeof adapter.requestPullRequestUpdateBranch !== "function" &&
+      typeof adapter.publishProcessorCheck !== "function" &&
+      typeof adapter.approvePullRequest !== "function",
+    "Request adapter exposes an unsafe capability set",
+  );
+  const mutations = [];
+  const result = evaluationForCandidate(evaluation);
+  if (!result || result.disposition !== "refresh-required") {
+    return { ...evaluation, mutations, phase: "request" };
+  }
+  const actor = adapter.prepareActor;
+  invariant(
+    actor &&
+      validPrepareActor({
+        prepareAppSlug: actor.appSlug,
+        prepareBotId: actor.botId,
+        prepareBotLogin: actor.botLogin,
+      }),
+    "Request phase is missing trusted prepare bot identity",
+  );
+  invariant(
+    SHA_PATTERN.test(result.base.currentBaseSha ?? "") &&
+      SHA_PATTERN.test(result.base.mergeBaseSha ?? "") &&
+      result.base.currentBaseSha !== result.base.mergeBaseSha,
+    "Refresh request does not bind distinct old and current bases",
+  );
+  const receipt = {
+    baseSha: result.base.currentBaseSha,
+    headRef: result.headRef,
+    headSha: null,
+    parentHeadSha: result.headSha,
+    prepareAppSlug: actor.appSlug,
+    prepareBotId: actor.botId,
+    prepareBotLogin: actor.botLogin,
+    previousBaseSha: result.base.mergeBaseSha,
+    pullRequestNumber: result.pullRequestNumber,
+    repository: evaluation.repository,
+    schema: DEPENDABOT_REFRESH_SCHEMA,
+    state: "requested",
+    ...workflowContext,
+  };
+  const published = await adapter.publishRefreshReceipt({
+    receipt,
+    repository: evaluation.repository,
+  });
+  mutations.push({
+    headSha: result.headSha,
+    kind: "refresh-requested",
+    pullRequestNumber: result.pullRequestNumber,
+    requestCheckId: published.id,
+    requestDigest: canonicalDigest(receipt),
+  });
+  return { ...evaluation, mutations, phase: "request" };
+}
+
+async function processMutatePhase({ adapter, evaluation }) {
+  invariant(
+    evaluation.mode === "prepare",
+    "Mutate phase requires prepare mode",
+  );
+  invariant(
+    typeof adapter.requestPullRequestUpdateBranch === "function" &&
+      typeof adapter.collectPullRequestSnapshot === "function" &&
+      typeof adapter.publishRefreshReceipt !== "function" &&
+      typeof adapter.publishProcessorCheck !== "function" &&
+      typeof adapter.approvePullRequest !== "function" &&
+      typeof adapter.publishAllClear !== "function" &&
+      typeof adapter.publishAllClearInvalidation !== "function" &&
+      typeof adapter.dismissPullRequestApproval !== "function" &&
+      typeof adapter.disablePullRequestAutoMerge !== "function" &&
+      typeof adapter.replyToReviewComment !== "function" &&
+      typeof adapter.resolveReviewThread !== "function",
+    "Mutate adapter exposes an unsafe capability set",
+  );
+  const mutations = [];
+  const result = evaluationForCandidate(evaluation);
+  if (!result || result.disposition !== "refresh-pending") {
+    return { ...evaluation, mutations, phase: "mutate" };
+  }
+  const pending = result.repairAttempts.pendingRefreshRequest;
+  invariant(
+    pending &&
+      pending.requestReceipt.parentHeadSha === result.headSha &&
+      pending.requestReceipt.baseSha === result.base.currentBaseSha &&
+      pending.requestReceipt.previousBaseSha === result.base.mergeBaseSha,
+    "Mutate phase lacks an exact trusted current-head Refresh request",
+  );
+  await adapter.requestPullRequestUpdateBranch({
+    expectedBaseSha: pending.requestReceipt.baseSha,
+    expectedHeadSha: result.headSha,
+    pullRequestNumber: result.pullRequestNumber,
+    repository: evaluation.repository,
+  });
+  let successorHeadSha = null;
+  const expected = {
+    ...pending.requestReceipt,
+    repository: evaluation.repository,
+    requestReceipt: pending.requestReceipt,
+  };
+  for (
+    let attempt = 1;
+    attempt <= REFRESH_SUCCESSOR_POLL_ATTEMPTS;
+    attempt += 1
+  ) {
+    const snapshot = await adapter.collectPullRequestSnapshot(
+      evaluation.repository,
+      result.pullRequestNumber,
+    );
+    const successor = exactRefreshSuccessor(snapshot, expected);
+    successorHeadSha = successor?.headSha ?? null;
+    if (successor !== null) break;
+    if (
+      attempt < REFRESH_SUCCESSOR_POLL_ATTEMPTS &&
+      typeof adapter.waitForRefreshSuccessor === "function"
+    ) {
+      await adapter.waitForRefreshSuccessor();
+    }
+  }
+  mutations.push({
+    headSha: result.headSha,
+    kind: "refresh-update-requested",
+    pullRequestNumber: result.pullRequestNumber,
+    requestCheckId: pending.requestCheckId,
+    requestDigest: pending.requestDigest,
+    successorHeadSha,
+  });
+  return { ...evaluation, mutations, phase: "mutate" };
+}
+
+async function processFinalizePhase({
+  adapter,
+  collected: initialCollected,
+  evaluation: initialEvaluation,
+  publishChecks,
+  workflowContext,
 }) {
   invariant(
-    typeof adapter.getOutstandingDependabotAutoMergeRequests === "function",
-    "Merge mutations require repository-wide auto-merge visibility",
+    typeof adapter.requestPullRequestUpdateBranch !== "function",
+    "Finalize adapter exposes branch mutation capability",
   );
-  const requests =
-    await adapter.getOutstandingDependabotAutoMergeRequests(repository);
-  const state = outstandingAutoMergeState(
-    { outstandingAutoMergeRequests: requests },
-    [],
-  );
+  let collected = initialCollected;
+  let evaluation = initialEvaluation;
+  const mutations = [];
+  const canReconcileApprovals =
+    typeof adapter.getOutstandingDependabotProcessorApprovals === "function";
+  const authorityAddingFinalize =
+    publishChecks || evaluation.mode === "prepare";
   invariant(
-    !state.ambiguous,
-    `Repository auto-merge state is ambiguous: ${state.reasons.join(",")}`,
+    !authorityAddingFinalize || canReconcileApprovals,
+    "Authority-adding finalize requires global processor approval visibility",
   );
+  let approvals = canReconcileApprovals
+    ? normalizeApprovalInventory(
+        await adapter.getOutstandingDependabotProcessorApprovals(
+          evaluation.repository,
+        ),
+      )
+    : [];
+
+  if (evaluation.mode === "prepare" && approvals.length === 1) {
+    const [activeApproval] = approvals;
+    const alreadyCollected = (collected.pullRequests ?? []).some((snapshot) => {
+      const pullRequest = normalizePullRequest(
+        snapshot.pullRequest ?? snapshot,
+      );
+      return (
+        pullRequest.number === activeApproval.pullRequestNumber &&
+        pullRequest.headSha === activeApproval.headSha
+      );
+    });
+    if (!alreadyCollected) {
+      invariant(
+        typeof adapter.collectPullRequestSnapshot === "function" &&
+          typeof adapter.getOutstandingDependabotAutoMergeRequests ===
+            "function",
+        "Active ALL CLEAR reconciliation requires exact PR collection",
+      );
+      const activeSnapshot = await adapter.collectPullRequestSnapshot(
+        evaluation.repository,
+        activeApproval.pullRequestNumber,
+      );
+      const activePullRequest = normalizePullRequest(
+        activeSnapshot.pullRequest ?? activeSnapshot,
+      );
+      invariant(
+        activePullRequest.number === activeApproval.pullRequestNumber &&
+          activePullRequest.headSha === activeApproval.headSha,
+        "Repository-wide processor approval changed before ALL CLEAR collection",
+      );
+      activeSnapshot.expectedHeadSha = activeApproval.headSha;
+      collected = {
+        ...collected,
+        outstandingAutoMergeRequests:
+          await adapter.getOutstandingDependabotAutoMergeRequests(
+            evaluation.repository,
+          ),
+        pullRequests: [...(collected.pullRequests ?? []), activeSnapshot],
+        workflowContext,
+      };
+      evaluation = evaluateDependabotSweep(collected);
+    }
+  }
+
+  if (
+    evaluation.mode === "prepare" &&
+    approvals.length === 1 &&
+    hasCurrentTrustedAllClear({
+      approval: approvals[0],
+      collected,
+      evaluation,
+    })
+  ) {
+    const confirmationApprovals = normalizeApprovalInventory(
+      await adapter.getOutstandingDependabotProcessorApprovals(
+        evaluation.repository,
+      ),
+    );
+    const sameApproval =
+      confirmationApprovals.length === 1 &&
+      stableJson(confirmationApprovals[0]) === stableJson(approvals[0]);
+    if (sameApproval) {
+      collected = await recollectSelectedSweep({
+        adapter,
+        collected,
+        workflowContext,
+      });
+      evaluation = evaluateDependabotSweep(collected);
+      if (
+        hasCurrentTrustedAllClear({
+          approval: confirmationApprovals[0],
+          collected,
+          evaluation,
+        })
+      ) {
+        return {
+          ...evaluation,
+          mutations,
+          phase: "finalize",
+          processing: { enabled: true, reason: "already-all-clear" },
+        };
+      }
+    }
+    approvals = confirmationApprovals;
+  }
+
+  const invalidated = new Set();
+  const invalidate = async ({ headSha, pullRequestNumber: number }) => {
+    const key = `${number}:${headSha}`;
+    if (invalidated.has(key)) return;
+    invariant(
+      typeof adapter.publishAllClearInvalidation === "function",
+      "ALL CLEAR cleanup requires a finalize invalidation publisher",
+    );
+    await adapter.publishAllClearInvalidation({
+      headSha,
+      pullRequestNumber: number,
+      repository: evaluation.repository,
+    });
+    invalidated.add(key);
+    mutations.push({
+      headSha,
+      kind: "all-clear-invalidated",
+      pullRequestNumber: number,
+    });
+  };
+  for (const snapshot of collected.pullRequests ?? []) {
+    const pullRequest = normalizePullRequest(snapshot.pullRequest ?? snapshot);
+    const newestAllClear = newestExactHeadAllClear(
+      snapshot,
+      pullRequest.headSha,
+    );
+    const alreadyInvalidated =
+      !newestAllClear.malformed &&
+      isExactAllClearInvalidation(
+        newestAllClear.check,
+        pullRequest.number,
+        pullRequest.headSha,
+      );
+    if (
+      newestAllClear.malformed ||
+      (newestAllClear.check !== null && !alreadyInvalidated)
+    ) {
+      await invalidate({
+        headSha: pullRequest.headSha,
+        pullRequestNumber: pullRequest.number,
+      });
+    }
+  }
+  if (approvals.length > 0) {
+    invariant(
+      typeof adapter.dismissPullRequestApproval === "function",
+      "Approval reconciliation requires finalize dismissal capability",
+    );
+    for (const approval of approvals) {
+      await invalidate(approval);
+      await adapter.dismissPullRequestApproval({
+        approvalId: approval.approvalId,
+        pullRequestNumber: approval.pullRequestNumber,
+        repository: evaluation.repository,
+      });
+      mutations.push({
+        headSha: approval.headSha,
+        kind: "approval-dismissed",
+        pullRequestNumber: approval.pullRequestNumber,
+      });
+    }
+  }
+  if (authorityAddingFinalize) {
+    approvals = normalizeApprovalInventory(
+      await adapter.getOutstandingDependabotProcessorApprovals(
+        evaluation.repository,
+      ),
+    );
+    invariant(
+      approvals.length === 0,
+      "Repository-wide processor approvals changed during reconciliation",
+    );
+  }
+  if (authorityAddingFinalize || invalidated.size > 0) {
+    collected = await recollectSelectedSweep({
+      adapter,
+      collected,
+      workflowContext,
+    });
+    evaluation = evaluateDependabotSweep(collected);
+  }
+
+  const autoMerge = evaluation.serialization.outstandingAutoMerge;
   invariant(
-    state.requests.length === 0 ||
-      (allowMatchingCandidate &&
-        state.requests.length === 1 &&
-        state.requests[0].pullRequestNumber === candidate.pullRequestNumber &&
-        state.requests[0].headSha === candidate.headSha),
-    allowMatchingCandidate
-      ? `Another Dependabot auto-merge request occupies the repository lane`
-      : `The repository auto-merge lane must be empty before mutation`,
+    !autoMerge.ambiguous,
+    `Repository auto-merge evidence is ambiguous: ${autoMerge.reasons.join(",")}`,
   );
-  return state.requests;
+  if (autoMerge.requests.length === 1) {
+    invariant(
+      typeof adapter.disablePullRequestAutoMerge === "function",
+      "Native auto-merge cleanup requires finalize capability",
+    );
+    const [request] = autoMerge.requests;
+    await adapter.disablePullRequestAutoMerge({
+      headSha: request.headSha,
+      nodeId: request.nodeId,
+      pullRequestNumber: request.pullRequestNumber,
+      repository: evaluation.repository,
+    });
+    mutations.push({
+      headSha: request.headSha,
+      kind: "auto-merge-disabled",
+      pullRequestNumber: request.pullRequestNumber,
+    });
+    return { ...evaluation, mutations, phase: "finalize" };
+  }
+
+  const reconciledCandidate = evaluationForCandidate(evaluation);
+  if (reconciledCandidate?.disposition === "refresh-receipt-required") {
+    invariant(
+      typeof adapter.publishRefreshReceipt === "function",
+      "Finalize phase lacks completed Refresh receipt capability",
+    );
+    const pending = reconciledCandidate.repairAttempts.pendingRefreshCompletion;
+    invariant(pending, "Refresh completion evidence is missing");
+    const receipt = {
+      ...pending.requestReceipt,
+      baseSha: pending.appliedBaseSha,
+      headSha: reconciledCandidate.headSha,
+      requestCheckId: pending.requestCheckId,
+      requestDigest: pending.requestDigest,
+      state: "completed",
+      ...workflowContext,
+    };
+    await adapter.publishRefreshReceipt({
+      receipt,
+      repository: evaluation.repository,
+    });
+    mutations.push({
+      headSha: reconciledCandidate.headSha,
+      kind: "refresh-completed",
+      pullRequestNumber: reconciledCandidate.pullRequestNumber,
+    });
+    return { ...evaluation, mutations, phase: "finalize" };
+  }
+
+  if (publishChecks) {
+    invariant(
+      typeof adapter.publishProcessorCheck === "function",
+      "Finalize check publication capability is missing",
+    );
+    for (const result of evaluation.evaluations) {
+      const snapshot = (collected.pullRequests ?? []).find((candidate) => {
+        const pullRequest = normalizePullRequest(
+          candidate.pullRequest ?? candidate,
+        );
+        return (
+          pullRequest.number === result.pullRequestNumber &&
+          pullRequest.headSha === result.headSha
+        );
+      });
+      if (processorCheckAlreadyPublished({ evaluation, result, snapshot })) {
+        continue;
+      }
+      const published = await adapter.publishProcessorCheck({
+        disposition: result.disposition,
+        headSha: result.headSha,
+        mode: evaluation.mode,
+        pullRequestNumber: result.pullRequestNumber,
+        repairAttempt: result.repairAttempt,
+        repairPacket: result.repairPacket,
+        repository: evaluation.repository,
+        workflowContext,
+      });
+      mutations.push({
+        checkId: published.id,
+        headSha: result.headSha,
+        kind:
+          result.repairPacket === null
+            ? "processor-check-published"
+            : "repair-packet-published",
+        packetDigest:
+          result.repairPacket === null
+            ? null
+            : canonicalDigest(result.repairPacket),
+        pullRequestNumber: result.pullRequestNumber,
+      });
+    }
+  }
+
+  const result = evaluationForCandidate(evaluation);
+  if (evaluation.mode !== "prepare" || !result) {
+    return { ...evaluation, mutations, phase: "finalize" };
+  }
+  if (result.disposition === "feedback-remediation-required") {
+    const appliedRepair = result.repairAttempts.latestAppliedRepair;
+    invariant(
+      appliedRepair?.receipt && appliedRepair.packetDigest,
+      "Feedback remediation is missing typed repair lineage",
+    );
+    invariant(
+      typeof adapter.replyToReviewComment === "function" &&
+        typeof adapter.resolveReviewThread === "function",
+      "Feedback remediation capability is missing",
+    );
+    for (const thread of result.feedback.actionableThreads) {
+      const packetThread = appliedRepair.packet.feedbackThreads.find(
+        ({ threadId }) => threadId === thread.threadId,
+      );
+      invariant(
+        packetThread &&
+          packetThread.commentId === thread.rootCommentId &&
+          packetThread.digest === thread.bodyDigest,
+        "Feedback remediation thread changed after repair",
+      );
+      const alreadyReplied = result.feedback.trustedRemediationThreads.includes(
+        thread.threadId,
+      );
+      if (!alreadyReplied) {
+        const body = `Fixed in ${result.headSha.slice(0, 12)} — Addressed by authenticated Dependabot preparation.\n\n<!-- dependabot-remediation:v1 pr=${result.pullRequestNumber} head=${result.headSha} thread=${feedbackBodyDigest(thread.threadId)} packet=${appliedRepair.packetDigest} -->`;
+        await adapter.replyToReviewComment({
+          body,
+          commentId: thread.rootCommentId,
+          pullRequestNumber: result.pullRequestNumber,
+          repository: evaluation.repository,
+        });
+      }
+      await adapter.resolveReviewThread({ threadId: thread.threadId });
+      mutations.push({
+        headSha: result.headSha,
+        kind: alreadyReplied
+          ? "feedback-resolution-retried"
+          : "feedback-remediated",
+        pullRequestNumber: result.pullRequestNumber,
+        threadId: thread.threadId,
+      });
+    }
+    return { ...evaluation, mutations, phase: "finalize" };
+  }
+  if (result.disposition !== "prepare-candidate") {
+    return { ...evaluation, mutations, phase: "finalize" };
+  }
+  invariant(
+    publishChecks &&
+      typeof adapter.approvePullRequest === "function" &&
+      typeof adapter.publishAllClear === "function" &&
+      typeof adapter.dismissPullRequestApproval === "function",
+    "Prepare finalization requires bounded approval and ALL CLEAR capabilities",
+  );
+  let approval = null;
+  try {
+    const approvalSnapshot = (collected.pullRequests ?? []).find((snapshot) => {
+      const pullRequest = normalizePullRequest(
+        snapshot.pullRequest ?? snapshot,
+      );
+      return (
+        pullRequest.number === result.pullRequestNumber &&
+        pullRequest.headSha === result.headSha
+      );
+    });
+    invariant(approvalSnapshot, "Prepare candidate snapshot is missing");
+    approval = await adapter.approvePullRequest({
+      approvalSnapshot,
+      headSha: result.headSha,
+      pullRequestNumber: result.pullRequestNumber,
+      repository: evaluation.repository,
+    });
+    invariant(
+      Number.isSafeInteger(approval?.id) &&
+        approval.id > 0 &&
+        String(approval.state ?? "").toUpperCase() === "APPROVED",
+      "Processor approval response is invalid",
+    );
+    mutations.push({
+      approvalId: approval.id,
+      headSha: result.headSha,
+      kind: "approved",
+      pullRequestNumber: result.pullRequestNumber,
+    });
+    const postApprovalSnapshot = await adapter.collectPullRequestSnapshot(
+      evaluation.repository,
+      result.pullRequestNumber,
+    );
+    postApprovalSnapshot.expectedHeadSha = result.headSha;
+    const postApproval = evaluateDependabotSweep({
+      mode: "prepare",
+      outstandingAutoMergeRequests:
+        await adapter.getOutstandingDependabotAutoMergeRequests(
+          evaluation.repository,
+        ),
+      pullRequests: [postApprovalSnapshot],
+      repository: evaluation.repository,
+      workflowContext,
+    });
+    const admitted = evaluationForCandidate(postApproval);
+    const admissionEvidence = {
+      approvalId: approval.id,
+      autoMergeEnabled: admitted?.feedback.autoMergeEnabled ?? null,
+      baseCurrent: admitted?.base.current ?? null,
+      checkState: admitted?.checks.state ?? null,
+      disposition: admitted?.disposition ?? null,
+      feedbackClear: admitted?.feedback.clear ?? null,
+      headSha: admitted?.headSha ?? null,
+      mergeable: admitted?.feedback.mergeable ?? null,
+      mergeStateStatus: admitted?.feedback.mergeStateStatus ?? null,
+      missingChecks: admitted?.checks.missing ?? null,
+      pendingChecks: admitted?.checks.pending ?? null,
+      processorApprovalCount:
+        admitted?.feedback.currentProcessorApprovalCount ?? null,
+      processorApprovalIds:
+        admitted?.feedback.currentProcessorApprovalIds ?? null,
+      reviewDecision: admitted?.feedback.reviewDecision ?? null,
+    };
+    invariant(
+      admitted &&
+        admitted.disposition === "prepare-candidate" &&
+        admitted.headSha === result.headSha &&
+        admitted.base.current === true &&
+        admitted.checks.state === "passing" &&
+        admitted.checks.missing.length === 0 &&
+        admitted.checks.pending.length === 0 &&
+        admitted.feedback.clear === true &&
+        admitted.feedback.autoMergeEnabled === false &&
+        admitted.feedback.currentProcessorApprovalCount === 1 &&
+        admitted.feedback.currentProcessorApprovalIds.length === 1 &&
+        admitted.feedback.currentProcessorApprovalIds[0] === approval.id &&
+        admitted.feedback.mergeable === true &&
+        admitted.feedback.mergeStateStatus === "CLEAN" &&
+        admitted.feedback.reviewDecision === "APPROVED",
+      `PR #${result.pullRequestNumber} failed final ruleset admission: ${stableJson(admissionEvidence)}`,
+    );
+    const postApprovalInventory = normalizeApprovalInventory(
+      await adapter.getOutstandingDependabotProcessorApprovals(
+        evaluation.repository,
+      ),
+    );
+    invariant(
+      postApprovalInventory.length === 1 &&
+        postApprovalInventory[0].approvalId === approval.id &&
+        postApprovalInventory[0].pullRequestNumber ===
+          admitted.pullRequestNumber &&
+        postApprovalInventory[0].headSha === admitted.headSha,
+      "Repository-wide processor approval inventory changed before ALL CLEAR",
+    );
+    const receipt = {
+      autoMergeEnabled: false,
+      baseSha: admitted.base.currentBaseSha,
+      checksDigest: checksDigest(admitted),
+      feedbackDigest: admitted.feedback.digest,
+      headRef: admitted.headRef,
+      headSha: admitted.headSha,
+      humanAction: "merge",
+      mergeAuthorizedByAutomation: false,
+      mergeStateStatus: "CLEAN",
+      mergeable: true,
+      preparation: preparationSummary(admitted),
+      processorApprovalId: approval.id,
+      pullRequestNumber: admitted.pullRequestNumber,
+      repository: evaluation.repository,
+      reviewDecision: "APPROVED",
+      riskTier: admitted.risk.tier,
+      schema: DEPENDABOT_ALL_CLEAR_SCHEMA,
+      updateType: admitted.risk.updateType,
+      ...workflowContext,
+    };
+    const published = await adapter.publishAllClear({
+      receipt,
+      repository: evaluation.repository,
+    });
+    mutations.push({
+      approvalId: approval.id,
+      checkId: published.id,
+      headSha: admitted.headSha,
+      kind: "all-clear-published",
+      pullRequestNumber: admitted.pullRequestNumber,
+    });
+    return { ...postApproval, mutations, phase: "finalize" };
+  } catch (error) {
+    if (Number.isSafeInteger(approval?.id) && approval.id > 0) {
+      const cleanupErrors = [];
+      try {
+        await adapter.publishAllClearInvalidation({
+          headSha: result.headSha,
+          pullRequestNumber: result.pullRequestNumber,
+          repository: evaluation.repository,
+        });
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+      try {
+        await adapter.dismissPullRequestApproval({
+          approvalId: approval.id,
+          pullRequestNumber: result.pullRequestNumber,
+          repository: evaluation.repository,
+        });
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+      if (cleanupErrors.length > 0) {
+        throw new AggregateError(
+          [error, ...cleanupErrors],
+          `PR #${result.pullRequestNumber} finalization and cleanup failed`,
+        );
+      }
+    }
+    throw error;
+  }
 }
 
 export async function processDependabotSweep({
   adapter,
-  input,
   expectedHeadSha = null,
+  input,
   mode,
+  phase: requestedPhase,
   pullRequestNumbers = "all",
   publishChecks = false,
   repository,
+  workflowContext: requestedWorkflowContext = null,
 }) {
   invariant(adapter, "A GitHub adapter is required for processing");
+  const phase = normalizeProcessorPhase(requestedPhase);
+  const normalizedMode = normalizeProcessorMode(mode ?? input?.mode);
+  const needsWorkflowContext =
+    phase === "mutate" || publishChecks || normalizedMode === "prepare";
+  const workflowContext = needsWorkflowContext
+    ? normalizeWorkflowContext(
+        requestedWorkflowContext ?? input?.workflowContext ?? {},
+      )
+    : null;
   let collected =
     input ??
     (await collectSweepInput({
       adapter,
       expectedHeadSha,
-      mode: normalizeProcessorMode(mode),
+      mode: normalizedMode,
       pullRequestNumbers,
       repository: repositoryName(repository),
+      workflowContext,
     }));
-  const mutations = [];
-  let evaluation = evaluateDependabotSweep(collected);
-  if (
-    evaluation.mode === "merge" &&
-    evaluation.mergeCandidate &&
-    typeof adapter.requireMergeCredential === "function"
-  ) {
-    adapter.requireMergeCredential();
+  collected = {
+    ...collected,
+    mode: normalizedMode,
+    workflowContext: workflowContext ?? collected.workflowContext ?? null,
+  };
+  const evaluation = evaluateDependabotSweep(collected);
+  if (phase === "request") {
+    return processRequestPhase({ adapter, evaluation, workflowContext });
   }
-  const authorityAddingMutationPossible =
-    (publishChecks && typeof adapter.publishProcessorCheck === "function") ||
-    (evaluation.mode === "merge" && evaluation.mergeCandidate !== null);
-  if (authorityAddingMutationPossible) {
-    invariant(
-      typeof adapter.getOutstandingDependabotProcessorApprovals ===
-        "function" &&
-        typeof adapter.collectPullRequestSnapshot === "function" &&
-        typeof adapter.getOutstandingDependabotAutoMergeRequests === "function",
-      "Authority-adding mutations require complete trusted live revalidation adapters",
-    );
-    const normalizeApprovalInventory = (inventory) => {
-      invariant(
-        Array.isArray(inventory) &&
-          inventory.length <= PROCESSOR_APPROVAL_RESULT_LIMIT,
-        "Repository-wide processor approval inventory is incomplete",
-      );
-      const normalized = inventory.map((approval) => ({
-        approvalId: approval?.approvalId,
-        headSha: approval?.headSha,
-        pullRequestNumber: approval?.pullRequestNumber,
-      }));
-      invariant(
-        normalized.every(
-          ({ approvalId, headSha, pullRequestNumber: number }) =>
-            Number.isSafeInteger(approvalId) &&
-            approvalId > 0 &&
-            SHA_PATTERN.test(headSha ?? "") &&
-            Number.isSafeInteger(number) &&
-            number > 0,
-        ) &&
-          new Set(normalized.map(({ approvalId }) => approvalId)).size ===
-            normalized.length,
-        "Repository-wide processor approval inventory is malformed",
-      );
-      return normalized.sort(
-        (left, right) =>
-          left.pullRequestNumber - right.pullRequestNumber ||
-          left.approvalId - right.approvalId,
-      );
-    };
-    const staleApprovals = normalizeApprovalInventory(
-      await adapter.getOutstandingDependabotProcessorApprovals(
-        collected.repository,
-      ),
-    );
-    const dismissalErrors = [];
-    if (staleApprovals.length > 0) {
-      invariant(
-        typeof adapter.dismissPullRequestApproval === "function",
-        "Stale processor approval reconciliation requires a trusted dismissal adapter",
-      );
-      for (const stale of staleApprovals) {
-        try {
-          const dismissal = await adapter.dismissPullRequestApproval({
-            approvalId: stale.approvalId,
-            pullRequestNumber: stale.pullRequestNumber,
-            repository: collected.repository,
-          });
-          invariant(
-            dismissal?.dismissed === true ||
-              String(dismissal?.state ?? "").toLowerCase() !== "open",
-            `PR #${stale.pullRequestNumber} stale processor approval remained active`,
-          );
-          mutations.push({
-            headSha: stale.headSha,
-            kind: "approval-dismissed",
-            pullRequestNumber: stale.pullRequestNumber,
-          });
-        } catch (error) {
-          dismissalErrors.push(error);
-        }
-      }
-    }
-    const remainingApprovals = normalizeApprovalInventory(
-      await adapter.getOutstandingDependabotProcessorApprovals(
-        collected.repository,
-      ),
-    );
-    if (remainingApprovals.length > 0) {
-      const incomplete = new Error(
-        "Repository-wide processor approval inventory is not empty after reconciliation",
-      );
-      if (dismissalErrors.length > 0) {
-        throw new AggregateError(
-          [...dismissalErrors, incomplete],
-          "Repository-wide processor approval reconciliation failed",
-        );
-      }
-      throw incomplete;
-    }
-    const selectedTargets = new Map(
-      (collected.pullRequests ?? []).map((snapshot) => {
-        const pullRequest = normalizePullRequest(
-          snapshot.pullRequest ?? snapshot,
-        );
-        return [
-          pullRequest.number,
-          snapshot.expectedHeadSha ?? pullRequest.headSha,
-        ];
-      }),
-    );
-    invariant(
-      selectedTargets.size === (collected.pullRequests ?? []).length,
-      "Selected Dependabot PR evidence is ambiguous",
-    );
-    const refreshedPullRequests = [];
-    for (const [number, selectedExpectedHeadSha] of selectedTargets) {
-      const refreshed = await adapter.collectPullRequestSnapshot(
-        collected.repository,
-        number,
-      );
-      refreshed.expectedHeadSha = selectedExpectedHeadSha;
-      refreshedPullRequests.push(refreshed);
-    }
-    collected = {
-      ...collected,
-      outstandingAutoMergeRequests:
-        await adapter.getOutstandingDependabotAutoMergeRequests(
-          collected.repository,
-        ),
-      pullRequests: refreshedPullRequests,
-    };
-    evaluation = evaluateDependabotSweep(collected);
+  if (phase === "mutate") {
+    return processMutatePhase({ adapter, evaluation });
   }
-
-  let processorCheckPublicationAllowed = publishChecks;
-  if (publishChecks) {
-    invariant(
-      typeof adapter.getOutstandingDependabotAutoMergeRequests === "function",
-      "Processor check publication requires repository-wide auto-merge visibility",
-    );
-    const publicationRequests =
-      await adapter.getOutstandingDependabotAutoMergeRequests(
-        evaluation.repository,
-      );
-    const publicationState = outstandingAutoMergeState(
-      { outstandingAutoMergeRequests: publicationRequests },
-      [],
-    );
-    processorCheckPublicationAllowed =
-      !publicationState.ambiguous &&
-      publicationState.requests.length === 0 &&
-      !evaluation.serialization.outstandingAutoMerge.ambiguous &&
-      evaluation.serialization.outstandingAutoMerge.requests.length === 0 &&
-      evaluation.evaluations.every(
-        ({ feedback }) => feedback.autoMergeEnabled !== true,
-      );
-  }
-
-  if (
-    processorCheckPublicationAllowed &&
-    typeof adapter.publishProcessorCheck === "function"
-  ) {
-    for (const result of evaluation.evaluations) {
-      await adapter.publishProcessorCheck({
-        conclusion: SAFE_PROCESSOR_CHECK_DISPOSITIONS.has(result.disposition)
-          ? "neutral"
-          : "failure",
-        headSha: result.headSha,
-        output: {
-          summary: `Disposition: ${result.disposition}`,
-          title: `Dependabot processor: ${result.disposition}`,
-        },
-        mode: evaluation.mode,
-        pullRequestNumber: result.pullRequestNumber,
-        repairAttempt: result.repairAttempt,
-        repairPacketIssued: result.repairPacket !== null,
-        repository: evaluation.repository,
-      });
-      mutations.push({
-        headSha: result.headSha,
-        kind: "published-check",
-        pullRequestNumber: result.pullRequestNumber,
-      });
-    }
-  }
-
-  if (evaluation.mode === "merge" && evaluation.mergeCandidate) {
-    const candidate = evaluation.mergeCandidate;
-    let approvalSnapshot = await adapter.collectPullRequestSnapshot(
-      evaluation.repository,
-      candidate.pullRequestNumber,
-    );
-    approvalSnapshot.expectedHeadSha = candidate.headSha;
-    let preApprovalAutoMergeRequests = await requireGlobalAutoMergeAdmission({
-      adapter,
-      allowMatchingCandidate: true,
-      candidate,
-      repository: evaluation.repository,
-    });
-    let fresh = evaluateDependabotSweep({
-      mode: "merge",
-      outstandingAutoMergeRequests: preApprovalAutoMergeRequests,
-      pullRequests: [approvalSnapshot],
-      repository: evaluation.repository,
-    });
-    invariant(
-      fresh.mergeCandidate?.pullRequestNumber === candidate.pullRequestNumber &&
-        fresh.mergeCandidate?.headSha === candidate.headSha,
-      `PR #${candidate.pullRequestNumber} no longer satisfies merge policy`,
-    );
-    if (preApprovalAutoMergeRequests.length === 1) {
-      invariant(
-        typeof adapter.disablePullRequestAutoMerge === "function",
-        "Existing auto-merge requests require a trusted disable adapter",
-      );
-      const [request] = preApprovalAutoMergeRequests;
-      await adapter.disablePullRequestAutoMerge({
-        headSha: candidate.headSha,
-        nodeId: request.nodeId,
-        pullRequestNumber: candidate.pullRequestNumber,
-        repository: evaluation.repository,
-      });
-      mutations.push({
-        headSha: candidate.headSha,
-        kind: "auto-merge-disabled",
-        pullRequestNumber: candidate.pullRequestNumber,
-      });
-      approvalSnapshot = await adapter.collectPullRequestSnapshot(
-        evaluation.repository,
-        candidate.pullRequestNumber,
-      );
-      approvalSnapshot.expectedHeadSha = candidate.headSha;
-      invariant(
-        approvalSnapshot.feedback?.autoMergeEnabled === false,
-        `PR #${candidate.pullRequestNumber} still reports an active auto-merge request`,
-      );
-      preApprovalAutoMergeRequests = await requireGlobalAutoMergeAdmission({
-        adapter,
-        candidate,
-        repository: evaluation.repository,
-      });
-      fresh = evaluateDependabotSweep({
-        mode: "merge",
-        outstandingAutoMergeRequests: preApprovalAutoMergeRequests,
-        pullRequests: [approvalSnapshot],
-        repository: evaluation.repository,
-      });
-      invariant(
-        fresh.mergeCandidate?.pullRequestNumber ===
-          candidate.pullRequestNumber &&
-          fresh.mergeCandidate?.headSha === candidate.headSha,
-        `PR #${candidate.pullRequestNumber} no longer satisfies merge policy after auto-merge disable`,
-      );
-    } else {
-      invariant(
-        approvalSnapshot.feedback?.autoMergeEnabled !== true,
-        `PR #${candidate.pullRequestNumber} has inconsistent auto-merge evidence`,
-      );
-    }
-    await requireGlobalAutoMergeAdmission({
-      adapter,
-      candidate,
-      repository: evaluation.repository,
-    });
-    invariant(
-      approvalSnapshot.feedback?.currentProcessorApprovalCount === 0 &&
-        Array.isArray(approvalSnapshot.feedback?.currentProcessorApprovalIds) &&
-        approvalSnapshot.feedback.currentProcessorApprovalIds.length === 0,
-      `PR #${candidate.pullRequestNumber} already has a current processor approval`,
-    );
-    invariant(
-      typeof adapter.dismissPullRequestApproval === "function",
-      "Approval mutation requires a trusted approval-dismissal adapter",
-    );
-    let approval = null;
-    try {
-      approval = await adapter.approvePullRequest({
-        approvalSnapshot,
-        headSha: candidate.headSha,
-        pullRequestNumber: candidate.pullRequestNumber,
-        repository: evaluation.repository,
-      });
-      invariant(
-        Number.isSafeInteger(approval?.id) &&
-          approval.id > 0 &&
-          String(approval.state ?? "").toUpperCase() === "APPROVED" &&
-          typeof approval.updatedAt === "string" &&
-          approval.updatedAt.length > 0,
-        `PR #${candidate.pullRequestNumber} approval response is invalid`,
-      );
-      mutations.push({
-        headSha: candidate.headSha,
-        kind: "approved",
-        pullRequestNumber: candidate.pullRequestNumber,
-      });
-      const afterApproval = await adapter.collectPullRequestSnapshot(
-        evaluation.repository,
-        candidate.pullRequestNumber,
-      );
-      afterApproval.expectedHeadSha = candidate.headSha;
-      invariant(
-        afterApproval.pullRequest?.updated_at === approval.updatedAt,
-        `PR #${candidate.pullRequestNumber} changed after approval postflight`,
-      );
-      invariant(
-        afterApproval.feedback?.autoMergeEnabled !== true,
-        `PR #${candidate.pullRequestNumber} regained auto-merge before direct merge`,
-      );
-      invariant(
-        afterApproval.feedback?.currentProcessorApprovalCount === 1 &&
-          Array.isArray(afterApproval.feedback?.currentProcessorApprovalIds) &&
-          afterApproval.feedback.currentProcessorApprovalIds.length === 1 &&
-          afterApproval.feedback.currentProcessorApprovalIds[0] === approval.id,
-        `PR #${candidate.pullRequestNumber} processor approval postcondition failed`,
-      );
-      const preMergeAutoMergeRequests = await requireGlobalAutoMergeAdmission({
-        adapter,
-        candidate,
-        repository: evaluation.repository,
-      });
-      const admitted = evaluateDependabotSweep({
-        mode: "merge",
-        outstandingAutoMergeRequests: preMergeAutoMergeRequests,
-        pullRequests: [afterApproval],
-        repository: evaluation.repository,
-      });
-      invariant(
-        admitted.mergeCandidate?.pullRequestNumber ===
-          candidate.pullRequestNumber &&
-          admitted.mergeCandidate?.headSha === candidate.headSha,
-        `PR #${candidate.pullRequestNumber} changed after approval`,
-      );
-      await adapter.mergePullRequest({
-        headSha: candidate.headSha,
-        pullRequestNumber: candidate.pullRequestNumber,
-        repository: evaluation.repository,
-      });
-      mutations.push({
-        headSha: candidate.headSha,
-        kind: "merged",
-        pullRequestNumber: candidate.pullRequestNumber,
-      });
-    } catch (error) {
-      if (Number.isSafeInteger(approval?.id) && approval.id > 0) {
-        try {
-          const dismissal = await adapter.dismissPullRequestApproval({
-            approvalId: approval.id,
-            pullRequestNumber: candidate.pullRequestNumber,
-            repository: evaluation.repository,
-          });
-          invariant(
-            dismissal?.dismissed === true ||
-              String(dismissal?.state ?? "").toLowerCase() !== "open",
-            `PR #${candidate.pullRequestNumber} processor approval remained active`,
-          );
-        } catch (dismissalError) {
-          throw new AggregateError(
-            [error, dismissalError],
-            `PR #${candidate.pullRequestNumber} processing and approval dismissal both failed`,
-          );
-        }
-      }
-      throw error;
-    }
-  }
-
-  return { ...evaluation, mutations };
+  return processFinalizePhase({
+    adapter,
+    collected,
+    evaluation,
+    publishChecks,
+    workflowContext,
+  });
 }
 
 function parsePullRequestNumbers(value) {
@@ -4464,6 +6797,7 @@ function parseCliArguments(rawArguments) {
     "input",
     "live",
     "mode",
+    "phase",
     "pr-numbers",
     "publish-checks",
     "repo",
@@ -4535,6 +6869,9 @@ async function runCli() {
     return;
   }
   const requestedMode = options.mode ?? process.env.DEPENDABOT_PROCESSOR_MODE;
+  const phase = normalizeProcessorPhase(
+    options.phase ?? process.env.DEPENDABOT_PROCESSOR_PREPARE_PHASE,
+  );
   const repository =
     options.repo ??
     process.env.GITHUB_REPOSITORY ??
@@ -4550,20 +6887,26 @@ async function runCli() {
   let result;
   if (options.live) {
     const mode = normalizeProcessorMode(requestedMode);
-    const adapter = createLiveGitHubAdapter();
+    const workflowContext = normalizeWorkflowContext();
+    const adapter = createLiveGitHubAdapter({
+      phase: command === "process" ? phase : "finalize",
+    });
     const input = await collectSweepInput({
       adapter,
       expectedHeadSha,
       mode,
       pullRequestNumbers,
       repository: repositoryName(repository),
+      workflowContext,
     });
     result =
       command === "process"
         ? await processDependabotSweep({
             adapter,
             input,
+            phase,
             publishChecks: Boolean(options["publish-checks"]),
+            workflowContext,
           })
         : evaluateDependabotSweep(input);
   } else {
@@ -4591,6 +6934,7 @@ async function runCli() {
       result = {
         ...result,
         mutations: [],
+        phase,
         processing: {
           enabled: false,
           reason: "live-or-injected-adapter-required",

@@ -61,6 +61,36 @@ function dependabotProcessorSweepRun(overrides = {}) {
   });
 }
 
+function dependabotRepairRun(overrides = {}) {
+  const { pr = 711, recovery = false, retry = 0, ...runOverrides } = overrides;
+  return workflowRun({
+    name: "Dependabot Prepare Repair",
+    event: "repository_dispatch",
+    display_title: `dependabot-repair${recovery ? "-recover" : ""}:v1 | pr=${pr} | head=${"a".repeat(40)} | check=123 | digest=${"b".repeat(64)} | retry=${retry}`,
+    ...runOverrides,
+  });
+}
+
+function dependabotPreparedIntakeRun(overrides = {}) {
+  const { pr = 711, ...runOverrides } = overrides;
+  return workflowRun({
+    name: "Dependabot Prepared Head Intake",
+    event: "repository_dispatch",
+    display_title: `dependabot-prepared-head:v1|p=${pr}|h=${"a".repeat(40)}|o=p|c=123|d=${"b".repeat(64)}|ok=true`,
+    ...runOverrides,
+  });
+}
+
+function dependabotPreparedDispatchRun(overrides = {}) {
+  return workflowRun({
+    name: "Dependabot Prepared Head Dispatch",
+    event: "workflow_run",
+    display_title:
+      "dependabot-prepared-dispatch:v1 | source=Dependabot Prepare Repair | run=123 | attempt=1",
+    ...overrides,
+  });
+}
+
 function managedIssue(overrides = {}) {
   return {
     number: 42,
@@ -356,6 +386,57 @@ test("tracks repository-dispatch processor sweeps on the default branch", async 
   );
 });
 
+test("partitions repair, recovery, and prepared-intake incidents by exact pull request", async () => {
+  for (const run of [
+    dependabotRepairRun(),
+    dependabotRepairRun({ recovery: true, retry: 2 }),
+    dependabotPreparedIntakeRun(),
+  ]) {
+    const { github, context, calls } = harness({ run });
+    const result = await reconcileCiFailureIssue({ github, context });
+
+    assert.deepEqual(result, { action: "opened", issueNumber: 91 });
+    assert.match(calls.create[0].title, /\(pr=711; repository_dispatch\)$/);
+    assert.match(
+      calls.create[0].body,
+      /managed-ci-failure:77:repository_dispatch:pr%3D711/,
+    );
+  }
+});
+
+test("tracks an exact terminal prepared-head dispatcher failure", async () => {
+  const run = dependabotPreparedDispatchRun();
+  const { github, context, calls } = harness({ run });
+  const result = await reconcileCiFailureIssue({ github, context });
+
+  assert.deepEqual(result, { action: "opened", issueNumber: 91 });
+  assert.equal(
+    calls.create[0].title,
+    "CI: Dependabot Prepared Head Dispatch is failing (main; workflow_run)",
+  );
+});
+
+test("rejects malformed or deliberately skipped preparation workflow titles", async () => {
+  for (const run of [
+    dependabotRepairRun({
+      display_title: `dependabot-repair:v1 | pr=711 | head=${"a".repeat(40)} | check=123`,
+    }),
+    dependabotPreparedIntakeRun({
+      display_title: `dependabot-prepared-head:v1|p=711|h=${"a".repeat(40)}|o=p|c=123|d=${"b".repeat(64)}|ok=false`,
+    }),
+    dependabotPreparedDispatchRun({
+      display_title:
+        "dependabot-prepared-dispatch:v1 | source=unknown | run=123 | attempt=1",
+    }),
+  ]) {
+    const { github, context, calls } = harness({ run });
+    const result = await reconcileCiFailureIssue({ github, context });
+    assert.deepEqual(result, { action: "ignored", reason: "untracked-run" });
+    assert.equal(calls.listRuns, 0);
+    assert.equal(calls.listIssues, 0);
+  }
+});
+
 test("repository-dispatch monitoring rejects noncanonical processor sweeps", async () => {
   for (const run of [
     workflowRun({
@@ -441,6 +522,21 @@ test("tracks the trusted Dependabot processor workflow_run", async () => {
     calls.create[0].body,
     /managed-ci-failure:77:workflow_run:pr%3D711/,
   );
+});
+
+test("partitions prepared and reviewer processor callbacks by pull request", async () => {
+  const titles = [
+    `Dependabot processor | event=workflow_run | receipt=dependabot-prepared-head:v1|p=711|h=${"a".repeat(40)}|o=p|c=123|d=${"b".repeat(64)}|ok=true`,
+    `Dependabot processor | event=workflow_run | receipt=dependabot-claude-review:v1 | source=dependabot-intake:v1 | repository=mento-protocol/frontend-monorepo | pr=711 | sha=${"a".repeat(40)} | action=synchronize | receipt=true`,
+    `Dependabot processor | event=workflow_run | receipt=dependabot-claude-review:v1 | source=dependabot-prepared-head:v1|p=711|h=${"a".repeat(40)}|o=r|c=123|d=${"b".repeat(64)}|ok=true`,
+  ];
+  for (const display_title of titles) {
+    const run = dependabotProcessorRun({ display_title });
+    const { github, context, calls } = harness({ run });
+    const result = await reconcileCiFailureIssue({ github, context });
+    assert.deepEqual(result, { action: "opened", issueNumber: 91 });
+    assert.match(calls.create[0].title, /\(pr=711; workflow_run\)$/);
+  }
 });
 
 test("processor workflow_run recovery is partitioned by pull request", async () => {

@@ -1,0 +1,230 @@
+name: Dependabot Prepared Head Dispatch
+
+run-name: >-
+  ${{ format('dependabot-prepared-dispatch:v1 | source={0} | run={1} | attempt={2}', github.event.workflow_run.name, github.event.workflow_run.id, github.event.workflow_run.run_attempt) }}
+
+on:
+  workflow_run:
+    workflows: [Dependabot Processor, Dependabot Prepare Repair]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: dependabot-prepared-head-dispatch
+  cancel-in-progress: false
+  queue: max # trunk-ignore(actionlint/syntax-check)
+
+jobs:
+  plan:
+    name: Authenticate terminal source and select one bounded dispatch
+    if: >-
+      github.repository == 'mento-protocol/frontend-monorepo' &&
+      github.event.workflow_run.status == 'completed' &&
+      ((github.event.workflow_run.name == 'Dependabot Processor' &&
+        github.event.workflow_run.conclusion == 'success') ||
+       (github.event.workflow_run.name == 'Dependabot Prepare Repair' &&
+        (github.event.workflow_run.conclusion == 'success' ||
+         github.event.workflow_run.conclusion == 'action_required' ||
+         github.event.workflow_run.conclusion == 'failure' ||
+         github.event.workflow_run.conclusion == 'cancelled' ||
+         github.event.workflow_run.conclusion == 'startup_failure' ||
+         github.event.workflow_run.conclusion == 'timed_out')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      pull-requests: read
+    outputs:
+      actionable: ${{ steps.plan.outputs.actionable }}
+      event_type: ${{ steps.plan.outputs.event_type }}
+      payload_base64: ${{ steps.plan.outputs.payload_base64 }}
+    steps:
+      # Authenticate immutable workflow_run metadata before exposing a token.
+      - name: Authenticate the terminal upstream envelope
+        shell: bash
+        env:
+          EXPECTED_BOT_ID: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID }}
+          EXPECTED_BOT_LOGIN: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_ACTOR_ID: ${{ github.event.workflow_run.actor.id }}
+          SOURCE_ACTOR_LOGIN: ${{ github.event.workflow_run.actor.login }}
+          SOURCE_ACTOR_TYPE: ${{ github.event.workflow_run.actor.type }}
+          SOURCE_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          SOURCE_EVENT: ${{ github.event.workflow_run.event }}
+          SOURCE_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SOURCE_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_PATH: ${{ github.event.workflow_run.path }}
+          SOURCE_STATUS: ${{ github.event.workflow_run.status }}
+          SOURCE_TITLE: ${{ github.event.workflow_run.display_title }}
+          SOURCE_WORKFLOW: ${{ github.event.workflow_run.name }}
+        run: |
+          set -euo pipefail
+          test "$REPOSITORY" = "mento-protocol/frontend-monorepo"
+          test "$SOURCE_STATUS" = "completed"
+          test "$SOURCE_HEAD_REPOSITORY" = "$REPOSITORY"
+          test "$SOURCE_HEAD_BRANCH" = "main"
+          [[ "$SOURCE_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$SOURCE_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$SOURCE_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+
+          case "$SOURCE_WORKFLOW" in
+            "Dependabot Processor")
+              test "$SOURCE_CONCLUSION" = "success"
+              case "$SOURCE_PATH" in
+                .github/workflows/dependabot-process.yml|.github/workflows/dependabot-process.yml@main) ;;
+                *) exit 1 ;;
+              esac
+              case "$SOURCE_EVENT" in
+                workflow_run|repository_dispatch|schedule) ;;
+                *) exit 1 ;;
+              esac
+              [[ "$SOURCE_TITLE" =~ ^Dependabot\ processor\ \|\ event= ]]
+              ;;
+            "Dependabot Prepare Repair")
+              case "$SOURCE_PATH" in
+                .github/workflows/dependabot-prepare-repair.yml|.github/workflows/dependabot-prepare-repair.yml@main) ;;
+                *) exit 1 ;;
+              esac
+              test "$SOURCE_EVENT" = "repository_dispatch"
+              test "$SOURCE_ACTOR_ID" = "$EXPECTED_BOT_ID"
+              test "$SOURCE_ACTOR_LOGIN" = "$EXPECTED_BOT_LOGIN"
+              test "$SOURCE_ACTOR_TYPE" = "Bot"
+              case "$SOURCE_CONCLUSION" in
+                success|action_required|failure|cancelled|startup_failure|timed_out) ;;
+                *) exit 1 ;;
+              esac
+              if [[ ! "$SOURCE_TITLE" =~ ^dependabot-repair:v1\ \|\ pr=[1-9][0-9]*\ \|\ head=[0-9a-f]{40}\ \|\ check=[1-9][0-9]*\ \|\ digest=[0-9a-f]{64}\ \|\ retry=[0-2]$ ]] &&
+                [[ ! "$SOURCE_TITLE" =~ ^dependabot-repair-recover:v1\ \|\ pr=[1-9][0-9]*\ \|\ head=[0-9a-f]{40}\ \|\ check=[1-9][0-9]*\ \|\ digest=[0-9a-f]{64}\ \|\ retry=[0-2]$ ]]; then
+                exit 1
+              fi
+              ;;
+            *) exit 1 ;;
+          esac
+
+      - name: Materialize the trusted terminal dispatch planner
+        id: validator
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]
+          trusted_root="$RUNNER_TEMP/dependabot-preparation"
+          install -d -m 0700 "$trusted_root"
+          trusted_validator="$trusted_root/dependabot-preparation-receipts.mjs"
+          resolved_sha="$(gh api "repos/$REPOSITORY/commits/$WORKFLOW_SHA" --jq .sha)"
+          test "$resolved_sha" = "$WORKFLOW_SHA"
+          gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$REPOSITORY/contents/scripts/dependabot-preparation-receipts.mjs?ref=$WORKFLOW_SHA" \
+            > "$trusted_validator"
+          test -s "$trusted_validator"
+          chmod 0500 "$trusted_validator"
+          echo "path=$trusted_validator" >> "$GITHUB_OUTPUT"
+
+      - name: Select one exact receipt or repair packet
+        id: plan
+        shell: bash
+        env:
+          EXPECTED_APP_SLUG: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG }}
+          EXPECTED_BOT_ID: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID }}
+          EXPECTED_BOT_LOGIN: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_WORKFLOW: ${{ github.event.workflow_run.name }}
+          VALIDATOR_PATH: ${{ steps.validator.outputs.path }}
+        run: |
+          set -euo pipefail
+          node "$VALIDATOR_PATH" terminal-dispatch-plan \
+            --repository "$REPOSITORY" \
+            --source-workflow "$SOURCE_WORKFLOW" \
+            --source-run-id "$SOURCE_ID" \
+            --source-run-attempt "$SOURCE_ATTEMPT" \
+            --source-workflow-sha "$SOURCE_HEAD_SHA" \
+            --prepare-app-slug "$EXPECTED_APP_SLUG" \
+            --prepare-bot-id "$EXPECTED_BOT_ID" \
+            --prepare-bot-login "$EXPECTED_BOT_LOGIN" \
+            --github-output "$GITHUB_OUTPUT"
+
+  dispatch:
+    name: Emit one App-authenticated bounded repository dispatch
+    needs: plan
+    if: >-
+      needs.plan.result == 'success' &&
+      needs.plan.outputs.actionable == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Create repository-scoped dispatch token
+        id: dispatch-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY }}
+          owner: mento-protocol
+          repositories: frontend-monorepo
+          permission-contents: write
+
+      - name: Materialize the trusted terminal dispatcher
+        id: validator
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          trusted_root="$RUNNER_TEMP/dependabot-preparation"
+          install -d -m 0700 "$trusted_root"
+          trusted_validator="$trusted_root/dependabot-preparation-receipts.mjs"
+          resolved_sha="$(gh api "repos/$REPOSITORY/commits/$WORKFLOW_SHA" --jq .sha)"
+          test "$resolved_sha" = "$WORKFLOW_SHA"
+          gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$REPOSITORY/contents/scripts/dependabot-preparation-receipts.mjs?ref=$WORKFLOW_SHA" \
+            > "$trusted_validator"
+          test -s "$trusted_validator"
+          chmod 0500 "$trusted_validator"
+          echo "path=$trusted_validator" >> "$GITHUB_OUTPUT"
+
+      - name: Verify App identity and send the selected event
+        shell: bash
+        env:
+          ACTUAL_APP_SLUG: ${{ steps.dispatch-token.outputs.app-slug }}
+          ACTUAL_INSTALLATION_ID: ${{ steps.dispatch-token.outputs.installation-id }}
+          EVENT_TYPE: ${{ needs.plan.outputs.event_type }}
+          EXPECTED_APP_SLUG: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG }}
+          EXPECTED_BOT_ID: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID }}
+          EXPECTED_BOT_LOGIN: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN }}
+          GH_TOKEN: ${{ steps.dispatch-token.outputs.token }}
+          PAYLOAD_BASE64: ${{ needs.plan.outputs.payload_base64 }}
+          REPOSITORY: ${{ github.repository }}
+          VALIDATOR_PATH: ${{ steps.validator.outputs.path }}
+        run: |
+          set -euo pipefail
+          test "$ACTUAL_APP_SLUG" = "$EXPECTED_APP_SLUG"
+          [[ "$ACTUAL_INSTALLATION_ID" =~ ^[1-9][0-9]*$ ]]
+          IFS=$'\t' read -r bot_id bot_login bot_type < <(
+            gh api "users/$EXPECTED_BOT_LOGIN" --jq '[.id,.login,.type] | @tsv'
+          )
+          test "$bot_id" = "$EXPECTED_BOT_ID"
+          test "$bot_login" = "$EXPECTED_BOT_LOGIN"
+          test "$bot_type" = "Bot"
+          node "$VALIDATOR_PATH" dispatch-terminal-event \
+            --repository "$REPOSITORY" \
+            --event-type "$EVENT_TYPE" \
+            --payload-base64 "$PAYLOAD_BASE64"
