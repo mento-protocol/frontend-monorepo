@@ -108,7 +108,7 @@ function invariant(condition, message) {
     throw new Error(`Unsafe prepared-head review target: ${message}`);
 }
 
-export function canonicalizeReceipt(value) {
+function canonicalizeReceipt(value) {
   if (Array.isArray(value)) return value.map(canonicalizeReceipt);
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(
