@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -48,8 +50,8 @@ const humanReview = workflow(humanReviewPath);
 
 const claudeAction =
   "anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b";
-const claudePluginMarketplace =
-  "https://github.com/anthropics/claude-code.git#2bb60696142b493eafaeacfe00eac51d16c50c4f";
+const claudePluginMarketplace = "./.claude-code-plugin-marketplace";
+const claudePluginMarketplaceRef = "2bb60696142b493eafaeacfe00eac51d16c50c4f";
 
 const forbiddenCandidateSurfaces =
   /actions\/(?:download-artifact|upload-artifact|cache)@|cache-dependency-path|gh pr checkout|git (?:checkout|switch|fetch)|node_modules|pnpm install|npm (?:ci|install)|yarn install/;
@@ -154,7 +156,7 @@ function runBashStep(step, env, eventPayload) {
         PATH: process.env.PATH,
         GITHUB_OUTPUT: githubOutput,
         ...env,
-        ...(eventPayload === undefined ? {} : { EVENT_PATH: eventPath }),
+        ...(eventPayload === undefined ? {} : { GITHUB_EVENT_PATH: eventPath }),
       },
     });
     return {
@@ -335,6 +337,10 @@ test("read-only evaluation authenticates every trigger before live collection", 
   );
   assert.ok(target);
   assert.match(target.run, /Object\.keys\(clientPayload\)\.sort\(\)/);
+  assert.match(target.run, /process\.env\.GITHUB_EVENT_PATH/);
+  assert.equal(Object.hasOwn(target.env, "EVENT_PATH"), false);
+  assert.equal(Object.hasOwn(target.env, "GITHUB_EVENT_PATH"), false);
+  assert.doesNotMatch(JSON.stringify(target.env), /github\.event_path/);
   assert.match(target.run, /\["scope"\]/);
   assert.doesNotMatch(target.run, /clientPayload\.(?:repository|schema)/);
   assert.match(target.run, /dependabot-intake:v1/);
@@ -401,6 +407,16 @@ test("processor accepts a live-shaped repository dispatch envelope", () => {
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.githubOutput, "pr_numbers=all\nexpected_head_sha=\n");
+});
+
+test("processor fails closed without the runner event path", () => {
+  const target = processor.jobs.evaluate.steps.find(
+    (step) => step.name === "Validate trigger and select a bounded target",
+  );
+  const result = runBashStep(target, liveRepositoryDispatchEnvironment());
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.githubOutput, "");
 });
 
 test("processor rejects malformed repository dispatch envelopes", () => {
@@ -832,10 +848,80 @@ test("human Claude review cannot shadow the Dependabot review check", () => {
   assert.match(job.if, /pull_request\.user\.type == 'User'/);
   assert.equal(humanReview.jobs["claude-review"], undefined);
 
+  const guardIndex = job.steps.findIndex(
+    (step) => step.name === "Reject candidate marketplace path collision",
+  );
+  const marketplaceCheckoutIndex = job.steps.findIndex(
+    (step) => step.name === "Checkout pinned Claude plugin marketplace",
+  );
+  assert.ok(guardIndex >= 0);
+  assert.equal(marketplaceCheckoutIndex, guardIndex + 1);
+  const marketplaceGuard = job.steps[guardIndex];
+  assert.match(marketplaceGuard.run, /GITHUB_WORKSPACE/);
+  assert.match(marketplaceGuard.run, /-e "\$marketplace_path"/);
+  assert.match(marketplaceGuard.run, /-L "\$marketplace_path"/);
+
+  const marketplaceCheckout = job.steps[marketplaceCheckoutIndex];
+  assert.ok(marketplaceCheckout);
+  assert.equal(
+    marketplaceCheckout.uses,
+    "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+  );
+  assert.equal(marketplaceCheckout.with.repository, "anthropics/claude-code");
+  assert.equal(marketplaceCheckout.with.ref, claudePluginMarketplaceRef);
+  assert.equal(marketplaceCheckout.with.path, claudePluginMarketplace.slice(2));
+  assert.equal(marketplaceCheckout.with["persist-credentials"], false);
+  assert.deepEqual(
+    marketplaceCheckout.with["sparse-checkout"].trim().split("\n"),
+    [".claude-plugin", "plugins/code-review"],
+  );
+
+  const marketplaceVerification = job.steps[marketplaceCheckoutIndex + 1];
+  assert.equal(
+    marketplaceVerification.name,
+    "Verify pinned Claude plugin marketplace",
+  );
+  assert.equal(
+    marketplaceVerification.env.EXPECTED_MARKETPLACE_SHA,
+    claudePluginMarketplaceRef,
+  );
+  assert.match(marketplaceVerification.run, /! -L "\$marketplace_path"/);
+  assert.match(
+    marketplaceVerification.run,
+    /git -C "\$marketplace_path" rev-parse HEAD/,
+  );
+
   const review = job.steps.find((step) => step.uses === claudeAction);
   assert.ok(review);
   assert.equal(review.with.plugin_marketplaces, claudePluginMarketplace);
   assert.equal(Object.hasOwn(review.with, "allowed_bots"), false);
+});
+
+test("human Claude review rejects a candidate marketplace symlink", () => {
+  const guard = humanReview.jobs["claude-review-human"].steps.find(
+    (step) => step.name === "Reject candidate marketplace path collision",
+  );
+  assert.ok(guard);
+
+  const workspace = mkdtempSync(join(tmpdir(), "claude-review-workspace-"));
+  try {
+    const redirect = join(workspace, "redirect");
+    mkdirSync(redirect);
+    symlinkSync(
+      redirect,
+      join(workspace, claudePluginMarketplace.slice(2)),
+      "dir",
+    );
+    const result = spawnSync("bash", ["-c", guard.run], {
+      encoding: "utf8",
+      env: { PATH: process.env.PATH, GITHUB_WORKSPACE: workspace },
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stdout, /Candidate content occupies/);
+    assert.deepEqual(readdirSync(redirect), []);
+  } finally {
+    rmSync(workspace, { force: true, recursive: true });
+  }
 });
 
 test("the processor is the sole Dependabot merge authority", () => {
