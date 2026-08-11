@@ -14,11 +14,28 @@ const FAILURE_CONCLUSIONS = new Set([
 const NOTIFIER_WORKFLOW_NAME = "CI Failure Notifier";
 const TAG_PUSH_WORKFLOW_NAMES = new Set(["Publish UI Package"]);
 const DEPENDABOT_PROCESSOR_WORKFLOW_NAME = "Dependabot Processor";
+const DEPENDABOT_REPAIR_WORKFLOW_NAME = "Dependabot Prepare Repair";
+const DEPENDABOT_PREPARED_DISPATCH_WORKFLOW_NAME =
+  "Dependabot Prepared Head Dispatch";
+const DEPENDABOT_PREPARED_INTAKE_WORKFLOW_NAME =
+  "Dependabot Prepared Head Intake";
 const DEPENDABOT_PROCESSOR_SWEEP_TITLE =
   "Dependabot processor | event=repository_dispatch | target=scope=open";
 const VERCEL_MAIN_WORKFLOW_NAME = "Vercel Main Deployment";
 const DEPENDABOT_PROCESSOR_PR_TITLE =
-  /^Dependabot processor \| event=workflow_run \| receipt=dependabot-intake:v1 \| repository=mento-protocol\/frontend-monorepo \| pr=([1-9][0-9]*) \| sha=[0-9a-f]{40} \| action=(?:opened|synchronize|reopened) \| receipt=true$/;
+  /^Dependabot processor \| event=workflow_run \| receipt=dependabot-intake:v1 \| repository=mento-protocol\/frontend-monorepo \| pr=([1-9][0-9]{0,9}) \| sha=[0-9a-f]{40} \| action=(?:opened|synchronize|reopened) \| receipt=true$/;
+const DEPENDABOT_PROCESSOR_PREPARED_TITLE =
+  /^Dependabot processor \| event=workflow_run \| receipt=dependabot-prepared-head:v1\|p=([1-9][0-9]{0,9})\|h=[0-9a-f]{40}\|o=[rp]\|c=[1-9][0-9]*\|d=[0-9a-f]{64}\|ok=true$/;
+const DEPENDABOT_PROCESSOR_NATIVE_REVIEW_TITLE =
+  /^Dependabot processor \| event=workflow_run \| receipt=dependabot-claude-review:v1 \| source=dependabot-intake:v1 \| repository=mento-protocol\/frontend-monorepo \| pr=([1-9][0-9]{0,9}) \| sha=[0-9a-f]{40} \| action=(?:opened|synchronize|reopened) \| receipt=true$/;
+const DEPENDABOT_PROCESSOR_PREPARED_REVIEW_TITLE =
+  /^Dependabot processor \| event=workflow_run \| receipt=dependabot-claude-review:v1 \| source=dependabot-prepared-head:v1\|p=([1-9][0-9]{0,9})\|h=[0-9a-f]{40}\|o=[rp]\|c=[1-9][0-9]*\|d=[0-9a-f]{64}\|ok=true$/;
+const DEPENDABOT_REPAIR_TITLE =
+  /^dependabot-repair(?:-recover)?:v1 \| pr=([1-9][0-9]{0,9}) \| head=[0-9a-f]{40} \| check=[1-9][0-9]* \| digest=[0-9a-f]{64} \| retry=[0-2]$/;
+const DEPENDABOT_PREPARED_INTAKE_TITLE =
+  /^dependabot-prepared-head:v1\|p=([1-9][0-9]{0,9})\|h=[0-9a-f]{40}\|o=[rp]\|c=[1-9][0-9]*\|d=[0-9a-f]{64}\|ok=true$/;
+const DEPENDABOT_PREPARED_DISPATCH_TITLE =
+  /^dependabot-prepared-dispatch:v1 \| source=(?:Dependabot Processor|Dependabot Prepare Repair) \| run=[1-9][0-9]* \| attempt=[1-9][0-9]*$/;
 
 function runPosition(run) {
   return [run.run_number ?? 0, run.run_attempt ?? 1];
@@ -41,17 +58,31 @@ function runIdentity(run) {
   return `${runId}:${run.run_attempt ?? 1}`;
 }
 
-function dependabotProcessorPrTarget(run) {
+function dependabotAutomationPrTarget(run) {
+  const title = String(run.display_title ?? "");
+  let patterns = [];
   if (
-    run.name !== DEPENDABOT_PROCESSOR_WORKFLOW_NAME ||
-    run.event !== "workflow_run"
+    run.name === DEPENDABOT_PROCESSOR_WORKFLOW_NAME &&
+    run.event === "workflow_run"
   ) {
-    return null;
+    patterns = [
+      DEPENDABOT_PROCESSOR_PR_TITLE,
+      DEPENDABOT_PROCESSOR_PREPARED_TITLE,
+      DEPENDABOT_PROCESSOR_NATIVE_REVIEW_TITLE,
+      DEPENDABOT_PROCESSOR_PREPARED_REVIEW_TITLE,
+    ];
+  } else if (
+    run.name === DEPENDABOT_REPAIR_WORKFLOW_NAME &&
+    run.event === "repository_dispatch"
+  ) {
+    patterns = [DEPENDABOT_REPAIR_TITLE];
+  } else if (
+    run.name === DEPENDABOT_PREPARED_INTAKE_WORKFLOW_NAME &&
+    run.event === "repository_dispatch"
+  ) {
+    patterns = [DEPENDABOT_PREPARED_INTAKE_TITLE];
   }
-
-  const match = DEPENDABOT_PROCESSOR_PR_TITLE.exec(
-    String(run.display_title ?? ""),
-  );
+  const match = patterns.map((pattern) => pattern.exec(title)).find(Boolean);
   return match ? `pr=${match[1]}` : null;
 }
 
@@ -66,8 +97,8 @@ function isDependabotProcessorSweep(run, defaultBranch, repositoryFullName) {
 }
 
 function targetRefFor(run, defaultBranch) {
-  const processorTarget = dependabotProcessorPrTarget(run);
-  if (processorTarget) return processorTarget;
+  const dependabotTarget = dependabotAutomationPrTarget(run);
+  if (dependabotTarget) return dependabotTarget;
   return (
     run.head_branch || (run.event === "push" ? "release tag" : defaultBranch)
   );
@@ -119,7 +150,7 @@ function recoveryBody(existingBody, run, targetRef) {
 }
 
 function isRelevantRun(run, defaultBranch, repositoryFullName) {
-  const processorTarget = dependabotProcessorPrTarget(run);
+  const dependabotTarget = dependabotAutomationPrTarget(run);
   const isOperationalPush =
     run.event === "push" &&
     (run.head_branch === defaultBranch ||
@@ -128,9 +159,18 @@ function isRelevantRun(run, defaultBranch, repositoryFullName) {
     run.event === "schedule" ||
     isOperationalPush ||
     isDependabotProcessorSweep(run, defaultBranch, repositoryFullName) ||
+    (run.event === "repository_dispatch" &&
+      dependabotTarget !== null &&
+      run.head_branch === defaultBranch &&
+      run.head_repository?.full_name === repositoryFullName) ||
     (run.event === "workflow_dispatch" && run.head_branch === defaultBranch) ||
     (run.event === "workflow_run" &&
-      (run.name === VERCEL_MAIN_WORKFLOW_NAME || processorTarget !== null) &&
+      (run.name === VERCEL_MAIN_WORKFLOW_NAME ||
+        dependabotTarget !== null ||
+        (run.name === DEPENDABOT_PREPARED_DISPATCH_WORKFLOW_NAME &&
+          DEPENDABOT_PREPARED_DISPATCH_TITLE.test(
+            String(run.display_title ?? ""),
+          ))) &&
       run.head_branch === defaultBranch &&
       run.head_repository?.full_name === repositoryFullName);
 
