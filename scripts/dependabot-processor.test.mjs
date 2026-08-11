@@ -153,13 +153,17 @@ function postMergeReceipt(headSha = BASE_SHA) {
     completedAt: "2026-08-10T10:00:00Z",
     conclusion: "success",
     detailsUrl: `https://github.com/${REPOSITORY}/actions/runs/99`,
+    externalId: "dependabot-post-merge:99:1",
     headSha,
-    id: 99,
+    id: 100,
     kind: "check",
     name: "Dependabot Post-Merge Verification",
     runAttempt: 1,
+    runConclusion: "success",
+    runHeadBranch: "main",
     runHeadSha: headSha,
     runId: 99,
+    runStatus: "completed",
     sourceRepository: REPOSITORY,
     status: "completed",
     workflowEvent: "workflow_run",
@@ -297,6 +301,21 @@ function snapshot(overrides = {}) {
     ...overrides,
     feedback,
   };
+}
+
+function evaluateMergeSerializationReceipt(receipt) {
+  const current = snapshot();
+  current.baseline.checks = [
+    ...current.baseline.checks.filter(
+      ({ name }) => name !== "Dependabot Post-Merge Verification",
+    ),
+    receipt,
+  ];
+  return evaluateDependabotSweep({
+    mode: "merge",
+    pullRequests: [current],
+    repository: REPOSITORY,
+  });
 }
 
 function withCurrentProcessorApproval(current, approvalId = 7001) {
@@ -2627,6 +2646,121 @@ test("blocks merge serialization without an exact trusted main receipt", () => {
   );
 });
 
+test("post-merge serialization binds an exact Actions receipt to its trusted workflow run", () => {
+  const actionsReceipt = evaluateMergeSerializationReceipt(
+    postMergeReceipt(BASE_SHA),
+  );
+  assert.equal(actionsReceipt.serialization.ready, true);
+  assert.equal(
+    actionsReceipt.serialization.reason,
+    "exact-main-post-merge-receipt-passed",
+  );
+  assert.deepEqual(actionsReceipt.mergeCandidate, {
+    headSha: HEAD_SHA,
+    pullRequestNumber: 123,
+  });
+
+  const validReceipt = postMergeReceipt(BASE_SHA);
+  const cases = [
+    ["malformed external ID", { externalId: "dependabot-post-merge:invalid" }],
+    [
+      "mismatched external run ID",
+      { externalId: "dependabot-post-merge:100:1" },
+    ],
+    [
+      "mismatched external attempt",
+      { externalId: "dependabot-post-merge:99:2" },
+    ],
+    [
+      "wrong Actions run URL",
+      { detailsUrl: `https://github.com/${REPOSITORY}/actions/runs/100` },
+    ],
+    [
+      "wrong self check URL",
+      {
+        detailsUrl: `https://github.com/${REPOSITORY}/runs/101`,
+        id: 100,
+      },
+    ],
+    ["wrong source repository", { sourceRepository: "attacker/repository" }],
+    ["wrong workflow path", { workflowPath: ".github/workflows/ci.yml" }],
+    ["wrong workflow event", { workflowEvent: "push" }],
+    ["wrong workflow branch", { runHeadBranch: "release" }],
+    ["wrong workflow head", { runHeadSha: OTHER_SHA }],
+    ["wrong workflow attempt", { runAttempt: 2 }],
+    ["failed workflow run", { runConclusion: "failure" }],
+    [
+      "in-progress workflow run",
+      { runConclusion: null, runStatus: "in_progress" },
+    ],
+  ];
+  for (const [label, override] of cases) {
+    const result = evaluateMergeSerializationReceipt({
+      ...validReceipt,
+      ...override,
+    });
+    assert.equal(result.serialization.ready, false, label);
+    assert.equal(result.mergeCandidate, null, label);
+    assert.equal(
+      result.evaluations[0].disposition,
+      "waiting-post-merge-verification",
+      label,
+    );
+  }
+
+  const { runHeadSha: omittedRunHeadSha, ...withoutWorkflowHead } =
+    validReceipt;
+  assert.equal(omittedRunHeadSha, BASE_SHA);
+  const persistedWithoutWorkflowHead = JSON.parse(
+    stableJson(withoutWorkflowHead),
+  );
+  assert.equal(
+    Object.hasOwn(persistedWithoutWorkflowHead, "runHeadSha"),
+    false,
+  );
+  const omittedWorkflowHead = evaluateMergeSerializationReceipt(
+    persistedWithoutWorkflowHead,
+  );
+  assert.equal(omittedWorkflowHead.serialization.ready, false);
+  assert.equal(
+    omittedWorkflowHead.serialization.reason,
+    "untrusted-post-merge-source-ref",
+  );
+  assert.equal(omittedWorkflowHead.mergeCandidate, null);
+});
+
+test("a newer malformed post-merge check supersedes an older valid receipt and closes the lane", () => {
+  const current = snapshot();
+  current.baseline.checks.push({
+    appId: 15_368,
+    completedAt: "2026-08-10T10:01:00Z",
+    conclusion: "failure",
+    detailsUrl: `https://github.com/${REPOSITORY}/runs/101`,
+    externalId: "malformed",
+    headSha: BASE_SHA,
+    id: 101,
+    kind: "check",
+    name: "Dependabot Post-Merge Verification",
+    status: "completed",
+  });
+
+  const result = evaluateDependabotSweep({
+    mode: "merge",
+    pullRequests: [current],
+    repository: REPOSITORY,
+  });
+
+  assert.equal(result.serialization.ready, false);
+  assert.equal(result.serialization.reason, "unexpected-source-repository");
+  assert.equal(result.serialization.check.conclusion, "failure");
+  assert.equal(result.serialization.check.runId, 0);
+  assert.equal(result.mergeCandidate, null);
+  assert.equal(
+    result.evaluations[0].disposition,
+    "waiting-post-merge-verification",
+  );
+});
+
 test("an exact current auto-merge request re-enters the full gate", () => {
   const outstanding = snapshot({
     feedback: {
@@ -4024,6 +4158,463 @@ test("live check collection binds a check to its queried workflow repository", a
     repository: REPOSITORY,
   });
   assert.equal(result.policy.find(({ id }) => id === "ci").state, "passing");
+});
+
+test("live check collection bounds concurrent workflow-run enrichment for checks and statuses", async () => {
+  const checkCount = 12;
+  const statusCount = 12;
+  const firstWorkflowRunId = 31_471_141_700;
+  const firstStatusWorkflowRunId = firstWorkflowRunId + checkCount;
+  let activeWorkflowRunGets = 0;
+  let maxConcurrentWorkflowRunGets = 0;
+  let releaseScheduled = false;
+  let workflowRunGets = 0;
+  const pendingReleases = [];
+  const waitForCurrentWave = () =>
+    new Promise((resolve) => {
+      pendingReleases.push(resolve);
+      if (releaseScheduled) return;
+      releaseScheduled = true;
+      queueMicrotask(() => {
+        releaseScheduled = false;
+        const currentWave = pendingReleases.splice(0);
+        for (const release of currentWave) release();
+      });
+    });
+  const fetchImpl = async (url) => {
+    if (url.includes(`/repos/${REPOSITORY}/commits/${HEAD_SHA}/check-runs`)) {
+      return new Response(
+        JSON.stringify({
+          check_runs: Array.from({ length: checkCount }, (_, index) => {
+            const workflowRunId = firstWorkflowRunId + index;
+            return {
+              app: { id: 15_368 },
+              completed_at: "2026-08-11T08:24:00Z",
+              conclusion: "success",
+              details_url: `https://github.com/${REPOSITORY}/actions/runs/${workflowRunId}`,
+              head_sha: HEAD_SHA,
+              id: 93_713_691_500 + index,
+              name: `Workflow-backed check ${index}`,
+              started_at: "2026-08-11T08:23:59Z",
+              status: "completed",
+            };
+          }),
+        }),
+        { status: 200 },
+      );
+    }
+    const workflowRunMatch = /\/actions\/runs\/([1-9][0-9]*)$/.exec(url);
+    if (workflowRunMatch) {
+      const workflowRunId = Number(workflowRunMatch[1]);
+      workflowRunGets += 1;
+      activeWorkflowRunGets += 1;
+      maxConcurrentWorkflowRunGets = Math.max(
+        maxConcurrentWorkflowRunGets,
+        activeWorkflowRunGets,
+      );
+      await waitForCurrentWave();
+      activeWorkflowRunGets -= 1;
+      return new Response(
+        JSON.stringify({
+          conclusion: "success",
+          event: "pull_request",
+          head_branch: "dependabot/test",
+          head_sha: HEAD_SHA,
+          id: workflowRunId,
+          path: ".github/workflows/ci.yml",
+          repository: { full_name: REPOSITORY },
+          run_attempt: 1,
+          status: "completed",
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes(`/repos/${REPOSITORY}/commits/${HEAD_SHA}/statuses`)) {
+      return new Response(
+        JSON.stringify(
+          Array.from({ length: statusCount }, (_, index) => {
+            const workflowRunId = firstStatusWorkflowRunId + index;
+            return {
+              context: `Workflow-backed status ${index}`,
+              creator: { login: "github-actions[bot]" },
+              id: 93_713_691_600 + index,
+              state: "success",
+              target_url: `https://github.com/${REPOSITORY}/actions/runs/${workflowRunId}`,
+              updated_at: "2026-08-11T08:24:00Z",
+            };
+          }),
+        ),
+        { status: 200 },
+      );
+    }
+    assert.fail(`Unexpected request: ${url}`);
+  };
+  const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
+  const checks = await adapter.getChecks(REPOSITORY, HEAD_SHA);
+
+  assert.equal(checks.length, checkCount + statusCount);
+  assert.equal(workflowRunGets, checkCount + statusCount);
+  assert.equal(activeWorkflowRunGets, 0);
+  assert.ok(maxConcurrentWorkflowRunGets > 0);
+  assert.ok(maxConcurrentWorkflowRunGets <= 8);
+  assert.deepEqual(
+    checks.map(({ runId }) => runId),
+    [
+      ...Array.from(
+        { length: checkCount },
+        (_, index) => firstWorkflowRunId + index,
+      ),
+      ...Array.from(
+        { length: statusCount },
+        (_, index) => firstStatusWorkflowRunId + index,
+      ),
+    ],
+  );
+});
+
+test("live post-merge collection follows the durable external receipt when GitHub rewrites the check URL", async () => {
+  const checkRunId = 93_713_691_394;
+  const workflowRunId = 31_471_141_674;
+  const requestedWorkflowRuns = [];
+  const fetchImpl = async (url) => {
+    if (url.includes(`/repos/${REPOSITORY}/commits/${BASE_SHA}/check-runs`)) {
+      return new Response(
+        JSON.stringify({
+          check_runs: [
+            {
+              app: { id: 15_368 },
+              completed_at: "2026-08-11T08:20:00Z",
+              conclusion: "success",
+              details_url: `https://github.com/${REPOSITORY}/runs/${checkRunId}`,
+              external_id: `dependabot-post-merge:${workflowRunId}:1`,
+              head_sha: BASE_SHA,
+              id: checkRunId,
+              name: "Dependabot Post-Merge Verification",
+              started_at: "2026-08-11T08:19:59Z",
+              status: "completed",
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.endsWith(`/repos/${REPOSITORY}/actions/runs/${workflowRunId}`)) {
+      requestedWorkflowRuns.push(workflowRunId);
+      return new Response(
+        JSON.stringify({
+          conclusion: "success",
+          event: "workflow_run",
+          head_branch: "main",
+          head_sha: BASE_SHA,
+          id: workflowRunId,
+          path: ".github/workflows/vercel-main-deployment.yml",
+          repository: { full_name: REPOSITORY },
+          run_attempt: 1,
+          status: "completed",
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes(`/repos/${REPOSITORY}/commits/${BASE_SHA}/statuses`)) {
+      return new Response(JSON.stringify([]), { status: 200 });
+    }
+    assert.fail(`Unexpected request: ${url}`);
+  };
+  const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
+  const [receipt] = await adapter.getChecks(REPOSITORY, BASE_SHA);
+
+  assert.deepEqual(requestedWorkflowRuns, [workflowRunId]);
+  assert.equal(receipt.id, checkRunId);
+  assert.equal(
+    receipt.detailsUrl,
+    `https://github.com/${REPOSITORY}/runs/${checkRunId}`,
+  );
+  assert.equal(receipt.externalId, `dependabot-post-merge:${workflowRunId}:1`);
+  assert.equal(receipt.runId, workflowRunId);
+  assert.equal(receipt.runAttempt, 1);
+  assert.equal(receipt.runConclusion, "success");
+  assert.equal(receipt.runHeadBranch, "main");
+  assert.equal(receipt.runHeadSha, BASE_SHA);
+  assert.equal(receipt.sourceRepository, REPOSITORY);
+  assert.equal(receipt.runStatus, "completed");
+  assert.equal(receipt.workflowEvent, "workflow_run");
+  assert.equal(
+    receipt.workflowPath,
+    ".github/workflows/vercel-main-deployment.yml",
+  );
+
+  const result = evaluateMergeSerializationReceipt(receipt);
+  assert.equal(result.serialization.ready, true);
+  assert.deepEqual(result.serialization.check, {
+    conclusion: "success",
+    headSha: BASE_SHA,
+    name: "Dependabot Post-Merge Verification",
+    runAttempt: 1,
+    runId: workflowRunId,
+  });
+});
+
+test("live post-merge collection refetches mutable workflow-run state for every gate snapshot", async () => {
+  const checkRunId = 93_713_691_395;
+  const workflowRunId = 31_471_141_675;
+  let checkReads = 0;
+  let workflowRunReads = 0;
+  const fetchImpl = async (url) => {
+    if (url.includes(`/repos/${REPOSITORY}/commits/${BASE_SHA}/check-runs`)) {
+      checkReads += 1;
+      return new Response(
+        JSON.stringify({
+          check_runs: [
+            {
+              app: { id: 15_368 },
+              completed_at: "2026-08-11T08:21:00Z",
+              conclusion: "success",
+              details_url: `https://github.com/${REPOSITORY}/runs/${checkRunId}`,
+              external_id: `dependabot-post-merge:${workflowRunId}:1`,
+              head_sha: BASE_SHA,
+              id: checkRunId,
+              name: "Dependabot Post-Merge Verification",
+              started_at: "2026-08-11T08:20:59Z",
+              status: "completed",
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.endsWith(`/repos/${REPOSITORY}/actions/runs/${workflowRunId}`)) {
+      workflowRunReads += 1;
+      const completed = workflowRunReads === 1;
+      return new Response(
+        JSON.stringify({
+          conclusion: completed ? "success" : null,
+          event: "workflow_run",
+          head_branch: "main",
+          head_sha: BASE_SHA,
+          id: workflowRunId,
+          path: ".github/workflows/vercel-main-deployment.yml",
+          repository: { full_name: REPOSITORY },
+          run_attempt: 1,
+          status: completed ? "completed" : "in_progress",
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes(`/repos/${REPOSITORY}/commits/${BASE_SHA}/statuses`)) {
+      return new Response(JSON.stringify([]), { status: 200 });
+    }
+    assert.fail(`Unexpected request: ${url}`);
+  };
+  const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
+
+  const [firstReceipt] = await adapter.getChecks(REPOSITORY, BASE_SHA);
+  const firstResult = evaluateMergeSerializationReceipt(firstReceipt);
+  assert.equal(firstReceipt.runStatus, "completed");
+  assert.equal(firstReceipt.runConclusion, "success");
+  assert.equal(firstResult.serialization.ready, true);
+
+  const [secondReceipt] = await adapter.getChecks(REPOSITORY, BASE_SHA);
+  const secondResult = evaluateMergeSerializationReceipt(secondReceipt);
+  assert.equal(secondReceipt.runStatus, "in_progress");
+  assert.equal(secondReceipt.runConclusion, null);
+  assert.equal(secondResult.serialization.ready, false);
+  assert.equal(
+    secondResult.serialization.reason,
+    "post-merge-workflow-not-successful",
+  );
+  assert.equal(secondResult.mergeCandidate, null);
+  assert.equal(checkReads, 2);
+  assert.equal(workflowRunReads, 2);
+});
+
+test("live post-merge collection preserves an absent workflow head as null across stable JSON", async () => {
+  const cases = [
+    { explicitNull: false, label: "omitted" },
+    { explicitNull: true, label: "null" },
+  ];
+  let omittedReceipt = null;
+  for (const [index, testCase] of cases.entries()) {
+    const checkRunId = 93_713_691_400 + index;
+    const workflowRunId = 31_471_141_680 + index;
+    const fetchImpl = async (url) => {
+      if (url.includes(`/repos/${REPOSITORY}/commits/${BASE_SHA}/check-runs`)) {
+        return new Response(
+          JSON.stringify({
+            check_runs: [
+              {
+                app: { id: 15_368 },
+                completed_at: "2026-08-11T08:22:00Z",
+                conclusion: "success",
+                details_url: `https://github.com/${REPOSITORY}/runs/${checkRunId}`,
+                external_id: `dependabot-post-merge:${workflowRunId}:1`,
+                head_sha: BASE_SHA,
+                id: checkRunId,
+                name: "Dependabot Post-Merge Verification",
+                started_at: "2026-08-11T08:21:59Z",
+                status: "completed",
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith(`/repos/${REPOSITORY}/actions/runs/${workflowRunId}`)) {
+        const workflowRun = {
+          conclusion: "success",
+          event: "workflow_run",
+          head_branch: "main",
+          id: workflowRunId,
+          path: ".github/workflows/vercel-main-deployment.yml",
+          repository: { full_name: REPOSITORY },
+          run_attempt: 1,
+          status: "completed",
+        };
+        if (testCase.explicitNull) workflowRun.head_sha = null;
+        return new Response(JSON.stringify(workflowRun), { status: 200 });
+      }
+      if (url.includes(`/repos/${REPOSITORY}/commits/${BASE_SHA}/statuses`)) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      assert.fail(`Unexpected request: ${url}`);
+    };
+    const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
+    const [receipt] = await adapter.getChecks(REPOSITORY, BASE_SHA);
+
+    assert.equal(receipt.runHeadSha, null, testCase.label);
+    if (!testCase.explicitNull) omittedReceipt = receipt;
+    const result = evaluateMergeSerializationReceipt(receipt);
+    assert.equal(result.serialization.ready, false, testCase.label);
+    assert.equal(
+      result.serialization.reason,
+      "untrusted-post-merge-source-ref",
+      testCase.label,
+    );
+    assert.equal(result.mergeCandidate, null, testCase.label);
+  }
+
+  assert.notEqual(omittedReceipt, null);
+  const persistedReceipt = JSON.parse(stableJson(omittedReceipt));
+  assert.equal(persistedReceipt.runHeadSha, null);
+  const persistedResult = evaluateMergeSerializationReceipt(persistedReceipt);
+  assert.equal(persistedResult.serialization.ready, false);
+  assert.equal(
+    persistedResult.serialization.reason,
+    "untrusted-post-merge-source-ref",
+  );
+  assert.equal(persistedResult.mergeCandidate, null);
+});
+
+test("live post-merge collection dereferences only the newest exact receipt", async () => {
+  const olderCheckRunId = 93_713_691_410;
+  const olderWorkflowRunId = 31_471_141_690;
+  const newerCheckRunId = olderCheckRunId + 1;
+  const newerWorkflowRunId = olderWorkflowRunId + 1;
+  const checkRunPages = [];
+  const requestedWorkflowRuns = [];
+  const fetchImpl = async (url) => {
+    if (url.includes(`/repos/${REPOSITORY}/commits/${BASE_SHA}/check-runs`)) {
+      const page = Number(new URL(url).searchParams.get("page"));
+      checkRunPages.push(page);
+      const newerReceipt = {
+        app: { id: 15_368 },
+        completed_at: "2026-08-11T08:20:00Z",
+        conclusion: "success",
+        details_url: `https://github.com/${REPOSITORY}/runs/${newerCheckRunId}`,
+        external_id: `dependabot-post-merge:${newerWorkflowRunId}:1`,
+        head_sha: BASE_SHA,
+        id: newerCheckRunId,
+        name: "Dependabot Post-Merge Verification",
+        started_at: "2026-08-11T08:19:59Z",
+        status: "completed",
+      };
+      const olderReceipt = {
+        app: { id: 15_368 },
+        completed_at: "2026-08-11T08:23:00Z",
+        conclusion: "success",
+        details_url: `https://github.com/${REPOSITORY}/runs/${olderCheckRunId}`,
+        external_id: `dependabot-post-merge:${olderWorkflowRunId}:1`,
+        head_sha: BASE_SHA,
+        id: olderCheckRunId,
+        name: "Dependabot Post-Merge Verification",
+        started_at: "2026-08-11T08:22:59Z",
+        status: "completed",
+      };
+      const unrelatedChecks = Array.from({ length: 99 }, (_, index) => ({
+        app: { id: 15_368 },
+        completed_at: "2026-08-11T08:21:00Z",
+        conclusion: "success",
+        details_url: null,
+        head_sha: BASE_SHA,
+        id: 50_000 + index,
+        name: `Unrelated check ${index}`,
+        started_at: "2026-08-11T08:20:59Z",
+        status: "completed",
+      }));
+      const checkRuns =
+        page === 1
+          ? [newerReceipt, ...unrelatedChecks]
+          : page === 2
+            ? [olderReceipt]
+            : [];
+      return new Response(JSON.stringify({ check_runs: checkRuns }), {
+        status: 200,
+      });
+    }
+    if (
+      url.endsWith(`/repos/${REPOSITORY}/actions/runs/${olderWorkflowRunId}`)
+    ) {
+      requestedWorkflowRuns.push(olderWorkflowRunId);
+      return new Response(JSON.stringify({ message: "Not Found" }), {
+        status: 404,
+      });
+    }
+    if (
+      url.endsWith(`/repos/${REPOSITORY}/actions/runs/${newerWorkflowRunId}`)
+    ) {
+      requestedWorkflowRuns.push(newerWorkflowRunId);
+      return new Response(
+        JSON.stringify({
+          conclusion: "success",
+          event: "workflow_run",
+          head_branch: "main",
+          head_sha: BASE_SHA,
+          id: newerWorkflowRunId,
+          path: ".github/workflows/vercel-main-deployment.yml",
+          repository: { full_name: REPOSITORY },
+          run_attempt: 1,
+          status: "completed",
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes(`/repos/${REPOSITORY}/commits/${BASE_SHA}/statuses`)) {
+      return new Response(JSON.stringify([]), { status: 200 });
+    }
+    assert.fail(`Unexpected request: ${url}`);
+  };
+  const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
+  const receipts = await adapter.getChecks(REPOSITORY, BASE_SHA);
+
+  assert.deepEqual(checkRunPages, [1, 2]);
+  assert.deepEqual(requestedWorkflowRuns, [newerWorkflowRunId]);
+  const current = snapshot();
+  current.baseline.checks = [
+    ...current.baseline.checks.filter(
+      ({ name }) => name !== "Dependabot Post-Merge Verification",
+    ),
+    ...receipts,
+  ];
+  const result = evaluateDependabotSweep({
+    mode: "merge",
+    pullRequests: [current],
+    repository: REPOSITORY,
+  });
+  assert.equal(result.serialization.ready, true);
+  assert.equal(result.serialization.check.runId, newerWorkflowRunId);
+  assert.deepEqual(result.mergeCandidate, {
+    headSha: HEAD_SHA,
+    pullRequestNumber: 123,
+  });
 });
 
 test("live check collection authenticates the current Dependabot Vercel intake status envelope", async () => {

@@ -416,6 +416,31 @@ keeps subsequent automated dependency merges blocked and routes through the
 existing recovery and managed-failure process. It is never repaired by pushing
 more commits to the already-merged Dependabot branch.
 
+The Vercel result publisher binds the proof to its Actions run URL and strict
+`dependabot-post-merge:<run-id>:<run-attempt>` external ID. GitHub's Checks API
+can return the check's generated `/runs/<check-id>` self URL even though the
+publisher submitted the Actions URL. That self URL identifies only the exact
+check; it does not identify a trusted workflow run. The controller may resolve
+this exact post-merge check only through the external-ID run and attempt, then
+must re-query and validate the exact `Vercel Main Deployment` `workflow_run`:
+source repository, `.github/workflows/vercel-main-deployment.yml` path,
+`workflow_run` event, `main` head branch, exact current-main head SHA, run ID,
+run attempt, completed status, and successful conclusion. The independently
+queried workflow `head_sha` must be present and exact; the check head is never a
+fallback. Every malformed or mismatched URL, envelope, or workflow-run field,
+including a pending or failed run, fails closed.
+
+For duplicate raw exact-name, exact-head receipts, the controller chooses the
+newest immutable GitHub check-run publication ID before workflow provenance
+resolution and enriches only that check. An unavailable obsolete run reference
+therefore cannot block a newer receipt, while failure to resolve the selected
+newest receipt remains fail closed. A newer malformed or unsuccessful receipt
+blocks an older success. Each authority-bearing check collection or
+recollection re-fetches the mutable workflow-run attempt, status, and
+conclusion. Workflow-run caching and deduplication are scoped to one collection,
+and distinct run resolutions use bounded concurrency to prevent GitHub
+secondary-rate-limit bursts. The cache never crosses a recollection boundary.
+
 ## Alternatives considered
 
 ### Extend the former auto-merge workflow in place

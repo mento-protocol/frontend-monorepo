@@ -47,6 +47,7 @@ const REVIEW_THREAD_COMMENT_LIMIT = 100;
 const REVIEW_ENVELOPE_BODY_LIMIT = 50_000;
 const REPAIR_LINEAGE_COMMIT_LIMIT = 100;
 const REPAIR_LINEAGE_CHECK_CONCURRENCY = 4;
+const CHECK_SOURCE_RESOLUTION_CONCURRENCY = 8;
 const PROCESSOR_APPROVAL_PULL_LIMIT = 100;
 const PROCESSOR_APPROVAL_REVIEW_LIMIT = 2_000;
 const PROCESSOR_APPROVAL_RESULT_LIMIT = 1_000;
@@ -59,8 +60,11 @@ const PULL_REQUEST_REVIEW_STATES = new Set([
   "PENDING",
 ]);
 const PROCESSOR_CHECK_NAME = "Dependabot Processor";
+const POST_MERGE_CHECK_NAME = "Dependabot Post-Merge Verification";
 const PROCESSOR_REPAIR_RECEIPT_PATTERN =
   /^dependabot-processor:v1:pr=([1-9][0-9]{0,9}):head=([0-9a-f]{40}):mode=(observe|assist|merge):repair=([1-9][0-9]*):packet=(true|false)$/;
+const POST_MERGE_EXTERNAL_ID_PATTERN =
+  /^dependabot-post-merge:([1-9][0-9]*):([1-9][0-9]*)$/;
 const CLAUDE_REVIEW_RECEIPT_PATTERN =
   /^dependabot-claude-review:v1 \| source=dependabot-intake:v1 \| repository=([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+) \| pr=([1-9][0-9]{0,9}) \| sha=([0-9a-f]{40}) \| action=(opened|synchronize|reopened) \| receipt=true$/;
 const CLAUDE_REVIEW_EXTERNAL_ID_PATTERN =
@@ -302,7 +306,7 @@ const CHECK_SOURCE_POLICY = Object.freeze({
 const POST_MERGE_CHECK_DEFINITION = Object.freeze({
   id: "post-merge-verification",
   label: "Dependabot post-merge verification",
-  names: [/^Dependabot Post-Merge Verification$/],
+  names: [new RegExp(`^${POST_MERGE_CHECK_NAME}$`)],
 });
 
 export const DEPENDABOT_PROCESSOR_HELP = `Usage:
@@ -1020,6 +1024,11 @@ function normalizeCheck(check, assumedHeadSha) {
     check?.createdAt ??
     check?.created_at ??
     "";
+  const runHeadSha = Object.hasOwn(check ?? {}, "runHeadSha")
+    ? (check.runHeadSha ?? null)
+    : Object.hasOwn(check?.source ?? {}, "runHeadSha")
+      ? (check.source.runHeadSha ?? null)
+      : null;
   return {
     appId: Number(check?.appId ?? check?.app?.id ?? check?.source?.appId ?? 0),
     conclusion,
@@ -1043,12 +1052,13 @@ function normalizeCheck(check, assumedHeadSha) {
     runAttempt: Number(
       check?.runAttempt ?? check?.run_attempt ?? check?.source?.runAttempt ?? 0,
     ),
-    runHeadSha:
-      check?.runHeadSha ?? check?.source?.runHeadSha ?? check?.headSha ?? null,
+    runHeadSha,
     runHeadBranch: check?.runHeadBranch ?? check?.source?.runHeadBranch ?? null,
     runDisplayTitle:
       check?.runDisplayTitle ?? check?.source?.runDisplayTitle ?? null,
+    runConclusion: check?.runConclusion ?? check?.source?.runConclusion ?? null,
     runId: Number(check?.runId ?? check?.source?.runId ?? 0),
+    runStatus: check?.runStatus ?? check?.source?.runStatus ?? null,
     sourceRepository:
       check?.sourceRepository ?? check?.source?.repository ?? null,
     status,
@@ -1077,6 +1087,15 @@ function compareChecks(left, right) {
     String(right.timestamp),
   );
   return timestampComparison || left.id - right.id;
+}
+
+function comparePostMergeChecks(left, right) {
+  const leftIdValid = Number.isSafeInteger(left.id) && left.id > 0;
+  const rightIdValid = Number.isSafeInteger(right.id) && right.id > 0;
+  if (leftIdValid !== rightIdValid) return leftIdValid ? -1 : 1;
+  const idComparison = left.id - right.id;
+  if (idComparison !== 0) return idComparison;
+  return String(left.timestamp).localeCompare(String(right.timestamp));
 }
 
 function trustedCheckSource(
@@ -1132,6 +1151,47 @@ function trustedCheckSource(
     ) {
       return { reason: "vercel-preview-run-url-mismatch", trusted: false };
     }
+  } else if (definition.id === "post-merge-verification") {
+    const externalReceipt = POST_MERGE_EXTERNAL_ID_PATTERN.exec(
+      String(check.externalId ?? ""),
+    );
+    if (!externalReceipt) {
+      return { reason: "invalid-post-merge-receipt", trusted: false };
+    }
+    const externalRunId = Number(externalReceipt[1]);
+    const externalRunAttempt = Number(externalReceipt[2]);
+    if (
+      !Number.isSafeInteger(externalRunId) ||
+      externalRunId < 1 ||
+      !Number.isSafeInteger(externalRunAttempt) ||
+      externalRunAttempt < 1 ||
+      externalRunId !== check.runId ||
+      externalRunAttempt !== check.runAttempt
+    ) {
+      return {
+        reason: "post-merge-run-identity-mismatch",
+        trusted: false,
+      };
+    }
+    if (check.runHeadBranch !== "main" || check.runHeadSha !== headSha) {
+      return { reason: "untrusted-post-merge-source-ref", trusted: false };
+    }
+    if (check.runStatus !== "completed" || check.runConclusion !== "success") {
+      return {
+        reason: "post-merge-workflow-not-successful",
+        trusted: false,
+      };
+    }
+    if (!Number.isSafeInteger(check.id) || check.id < 1) {
+      return { reason: "invalid-post-merge-check-id", trusted: false };
+    }
+    const allowedDetailsUrls = new Set([
+      `https://github.com/${repository}/actions/runs/${check.runId}`,
+      `https://github.com/${repository}/runs/${check.id}`,
+    ]);
+    if (!allowedDetailsUrls.has(check.detailsUrl)) {
+      return { reason: "post-merge-run-url-mismatch", trusted: false };
+    }
   } else if (definition.id === "claude-review") {
     const displayReceipt = CLAUDE_REVIEW_RECEIPT_PATTERN.exec(
       String(check.runDisplayTitle ?? ""),
@@ -1183,6 +1243,7 @@ function trustedCheckSource(
     return { reason: "invalid-workflow-run-id", trusted: false };
   }
   if (
+    definition.id !== "post-merge-verification" &&
     check.detailsUrl &&
     !check.detailsUrl.includes(`/actions/runs/${check.runId}`)
   ) {
@@ -1193,6 +1254,10 @@ function trustedCheckSource(
 
 export function selectLatestExactHeadCheck(checks, headSha, definition) {
   exactSha(headSha, "Expected check head SHA");
+  const compare =
+    definition.id === "post-merge-verification"
+      ? comparePostMergeChecks
+      : compareChecks;
   const candidates = checks
     .map((check) => normalizeCheck(check))
     .filter(
@@ -1200,7 +1265,7 @@ export function selectLatestExactHeadCheck(checks, headSha, definition) {
         check.headSha === headSha &&
         definition.names.some((pattern) => pattern.test(check.name)),
     )
-    .sort(compareChecks);
+    .sort(compare);
   return candidates.at(-1) ?? null;
 }
 
@@ -2759,35 +2824,44 @@ export function createLiveGitHubAdapter({
     return payload.data;
   };
 
-  const workflowRunCache = new Map();
-  const workflowRunSource = async (repository, url) => {
-    const match = /\/actions\/runs\/([1-9][0-9]*)/.exec(String(url ?? ""));
-    if (!match) return null;
-    const runId = Number(match[1]);
-    const key = `${repository}:${runId}`;
-    if (!workflowRunCache.has(key)) {
-      workflowRunCache.set(
-        key,
-        request("GET", `/repos/${repository}/actions/runs/${runId}`).then(
-          ({ data }) => ({
-            runDisplayTitle: data.display_title,
-            runHeadBranch: data.head_branch,
-            sourceRepository: data.repository?.full_name,
-            runAttempt: data.run_attempt,
-            runHeadSha: data.head_sha,
-            runId: data.id,
-            workflowEvent: data.event,
-            workflowPath: String(data.path ?? "").replace(/@.*$/, ""),
-          }),
-        ),
-      );
-    }
-    return workflowRunCache.get(key);
-  };
-
   const getChecks = async (repository, sha) => {
     exactSha(sha);
-    const checkRuns = [];
+    const workflowRunCache = new Map();
+    const workflowRunSource = async (url, check = {}) => {
+      const match = /\/actions\/runs\/([1-9][0-9]*)/.exec(String(url ?? ""));
+      const externalReceipt = POST_MERGE_EXTERNAL_ID_PATTERN.exec(
+        String(check.externalId ?? ""),
+      );
+      const exactPostMergeSelfUrl =
+        check.name === POST_MERGE_CHECK_NAME &&
+        Number.isSafeInteger(check.id) &&
+        check.id > 0 &&
+        url === `https://github.com/${repository}/runs/${check.id}`;
+      if (!match && (!exactPostMergeSelfUrl || !externalReceipt)) return null;
+      const runId = Number(match?.[1] ?? externalReceipt[1]);
+      if (!Number.isSafeInteger(runId) || runId < 1) return null;
+      if (!workflowRunCache.has(runId)) {
+        workflowRunCache.set(
+          runId,
+          request("GET", `/repos/${repository}/actions/runs/${runId}`).then(
+            ({ data }) => ({
+              runDisplayTitle: data.display_title,
+              runHeadBranch: data.head_branch,
+              runConclusion: data.conclusion,
+              sourceRepository: data.repository?.full_name,
+              runAttempt: data.run_attempt,
+              runHeadSha: data.head_sha ?? null,
+              runId: data.id,
+              runStatus: data.status,
+              workflowEvent: data.event,
+              workflowPath: String(data.path ?? "").replace(/@.*$/, ""),
+            }),
+          ),
+        );
+      }
+      return workflowRunCache.get(runId);
+    };
+    const rawCheckRuns = [];
     let page = 1;
     while (page <= 20) {
       const response = await request(
@@ -2796,50 +2870,84 @@ export function createLiveGitHubAdapter({
       );
       const runs = response.data?.check_runs;
       invariant(Array.isArray(runs), "GitHub check-runs response is invalid");
-      checkRuns.push(
-        ...(await Promise.all(
-          runs.map(async (run) => ({
-            ...(await workflowRunSource(repository, run.details_url)),
-            appId: run.app?.id,
-            completedAt: run.completed_at,
-            conclusion: run.conclusion,
-            detailsUrl: run.details_url,
-            externalId: run.external_id,
-            headSha: run.head_sha,
-            id: run.id,
-            name: run.name,
-            startedAt: run.started_at,
-            status: run.status,
-            kind: "check",
-          })),
-        )),
-      );
+      rawCheckRuns.push(...runs);
       if (runs.length < 100) break;
       page += 1;
     }
     invariant(page <= 20, "GitHub check-run pagination limit exceeded");
+    const newestPostMergeCheck = selectLatestExactHeadCheck(
+      rawCheckRuns,
+      sha,
+      POST_MERGE_CHECK_DEFINITION,
+    );
+    const enrichCheckRun = async (run) => {
+      const isPostMergeCheck = run.name === POST_MERGE_CHECK_NAME;
+      const isSelectedPostMergeCheck =
+        isPostMergeCheck &&
+        run.head_sha === sha &&
+        Number(run.id) === newestPostMergeCheck?.id;
+      const source =
+        !isPostMergeCheck || isSelectedPostMergeCheck
+          ? await workflowRunSource(run.details_url, {
+              externalId: run.external_id,
+              id: Number(run.id),
+              name: run.name,
+            })
+          : null;
+      return {
+        ...source,
+        appId: run.app?.id,
+        completedAt: run.completed_at,
+        conclusion: run.conclusion,
+        detailsUrl: run.details_url,
+        externalId: run.external_id,
+        headSha: run.head_sha,
+        id: run.id,
+        name: run.name,
+        startedAt: run.started_at,
+        status: run.status,
+        kind: "check",
+      };
+    };
+    const mapWithSourceResolutionLimit = async (items, mapper) => {
+      const resolved = [];
+      for (
+        let index = 0;
+        index < items.length;
+        index += CHECK_SOURCE_RESOLUTION_CONCURRENCY
+      ) {
+        resolved.push(
+          ...(await Promise.all(
+            items
+              .slice(index, index + CHECK_SOURCE_RESOLUTION_CONCURRENCY)
+              .map(mapper),
+          )),
+        );
+      }
+      return resolved;
+    };
+    const checkRuns = await mapWithSourceResolutionLimit(
+      rawCheckRuns,
+      enrichCheckRun,
+    );
     const statuses = await paginate(
       `/repos/${repository}/commits/${sha}/statuses`,
     );
     return [
       ...checkRuns,
-      ...(await Promise.all(
-        statuses.map(async (status) => ({
-          ...(await workflowRunSource(repository, status.target_url)),
-          creatorLogin: status.creator?.login,
-          conclusion: status.state,
-          description: status.description,
-          detailsUrl: status.target_url,
-          headSha: sha,
-          id: status.id,
-          name: status.context,
-          kind: "status",
-          status: PENDING_STATUSES.has(status.state)
-            ? status.state
-            : "completed",
-          updatedAt: status.updated_at,
-        })),
-      )),
+      ...(await mapWithSourceResolutionLimit(statuses, async (status) => ({
+        ...(await workflowRunSource(status.target_url)),
+        creatorLogin: status.creator?.login,
+        conclusion: status.state,
+        description: status.description,
+        detailsUrl: status.target_url,
+        headSha: sha,
+        id: status.id,
+        name: status.context,
+        kind: "status",
+        status: PENDING_STATUSES.has(status.state) ? status.state : "completed",
+        updatedAt: status.updated_at,
+      }))),
     ];
   };
 
