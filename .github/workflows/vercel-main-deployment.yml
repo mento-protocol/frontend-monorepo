@@ -2700,18 +2700,33 @@ jobs:
       - name: Capture fresh final provider state and census
         id: recovery-final-state
         if: steps.recovery-terminal.outcome == 'success'
-        continue-on-error: true
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
-        run: >-
-          node scripts/vercel-deployment-state.mjs active-proof
-          --spec "$RUNNER_TEMP/recovery-final-state-spec.json"
-          --output "$RUNNER_TEMP/recovery-final-state-proof.json"
-      - name: Require a proven recovered provider state
-        if: steps.recovery-terminal.outputs.outcome == 'recovered'
+        run: |
+          set -euo pipefail
+          if node scripts/vercel-deployment-state.mjs active-proof --spec "$RUNNER_TEMP/recovery-final-state-spec.json" --output "$RUNNER_TEMP/recovery-final-state-proof.json" 2>"$RUNNER_TEMP/recovery-final-state.stderr"; then
+            echo 'census_outcome=proven' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          failure_line="$(<"$RUNNER_TEMP/recovery-final-state.stderr")"
+          case "$failure_line" in
+            'Vercel deployment state failed category=active-census-unproven') category=active-census-unproven ;;
+            'Vercel deployment state failed category=provider-read-timeout') category=provider-read-timeout ;;
+            'Vercel deployment state failed category=provider-read-transport') category=provider-read-transport ;;
+            'Vercel deployment state failed category=provider-read-rate-limited') category=provider-read-rate-limited ;;
+            'Vercel deployment state failed category=provider-read-http') category=provider-read-http ;;
+            'Vercel deployment state failed category=provider-read-malformed') category=provider-read-malformed ;;
+            'Vercel deployment state failed category=state-validation-failed') category=state-validation-failed ;;
+            *) exit 1 ;;
+          esac
+          node scripts/vercel-main-deployment.mjs active-census-failure --category "$category" --output "$RUNNER_TEMP/recovery-final-census-failure.json"
+          echo 'census_outcome=unproven' >> "$GITHUB_OUTPUT"
+      - name: Require a proven provider state unless recovered proof is preserved separately
+        if: steps.recovery-terminal.outputs.outcome == 'manual-intervention'
         run: |
           test "${{ steps.recovery-final-state.outcome }}" = success
+          test "${{ steps.recovery-final-state.outputs.census_outcome }}" = proven
           test -s "$RUNNER_TEMP/recovery-final-state-proof.json"
       - name: Capture fresh final recovery mappings
         if: steps.recovery-terminal.outcome == 'success'
@@ -2767,13 +2782,40 @@ jobs:
         id: recovered-terminal
         if: steps.recovery-terminal.outcome == 'success'
         env:
-          { TERMINAL_OUTCOME: "${{ steps.recovery-terminal.outputs.outcome }}" }
+          {
+            TERMINAL_OUTCOME: "${{ steps.recovery-terminal.outputs.outcome }}",
+            CENSUS_OUTCOME: "${{ steps.recovery-final-state.outputs.census_outcome }}",
+          }
         run: |
           set -euo pipefail
-          if [ "$TERMINAL_OUTCOME" = recovered ]; then public_smokes="$RUNNER_TEMP/recovery-public-smokes.json"; else public_smokes="$RUNNER_TEMP/null.json"; fi
-          test -s "$RUNNER_TEMP/recovery-final-state-proof.json"
-          node scripts/vercel-main-release-cli.mjs terminal-artifacts --active-evidence-output "$RUNNER_TEMP/recovery-evidence.json" --execution "$RUNNER_TEMP/execution.json" --final-census "$RUNNER_TEMP/recovery-final-state-proof.json" --final-mappings "$RUNNER_TEMP/recovery-final-mappings.json" --freshness "$RUNNER_TEMP/null.json" --journal-history "$RUNNER_TEMP/recovered-history.json" --legacy-v2 "$RUNNER_TEMP/recovery-final-legacy.json" --outcome "$TERMINAL_OUTCOME" --proofs-output "$RUNNER_TEMP/recovery-proofs.json" --public-smokes "$public_smokes" --stage-results "$RUNNER_TEMP/null.json" --state-proof "$RUNNER_TEMP/recovery-final-state-proof.json"
-          echo "outcome=$TERMINAL_OUTCOME" >> "$GITHUB_OUTPUT"
+          if [ "$TERMINAL_OUTCOME" = recovered ]; then
+            test -s "$RUNNER_TEMP/recovery-public-smokes.json"
+            test -s "$RUNNER_TEMP/recovery-final-mappings.json"
+            case "$CENSUS_OUTCOME" in
+              proven)
+                terminal_outcome=recovered
+                final_census="$RUNNER_TEMP/recovery-final-state-proof.json"
+                state_proof="$RUNNER_TEMP/recovery-final-state-proof.json"
+                test -s "$final_census"
+                ;;
+              unproven)
+                terminal_outcome=recovered-census-unproven
+                final_census="$RUNNER_TEMP/recovery-final-census-failure.json"
+                state_proof="$RUNNER_TEMP/null.json"
+                test -s "$final_census"
+                ;;
+              *) exit 1 ;;
+            esac
+            public_smokes="$RUNNER_TEMP/recovery-public-smokes.json"
+          else
+            terminal_outcome="$TERMINAL_OUTCOME"
+            final_census="$RUNNER_TEMP/recovery-final-state-proof.json"
+            state_proof="$RUNNER_TEMP/recovery-final-state-proof.json"
+            public_smokes="$RUNNER_TEMP/null.json"
+            test -s "$final_census"
+          fi
+          node scripts/vercel-main-release-cli.mjs terminal-artifacts --active-evidence-output "$RUNNER_TEMP/recovery-evidence.json" --execution "$RUNNER_TEMP/execution.json" --final-census "$final_census" --final-mappings "$RUNNER_TEMP/recovery-final-mappings.json" --freshness "$RUNNER_TEMP/null.json" --journal-history "$RUNNER_TEMP/recovered-history.json" --legacy-v2 "$RUNNER_TEMP/recovery-final-legacy.json" --outcome "$terminal_outcome" --proofs-output "$RUNNER_TEMP/recovery-proofs.json" --public-smokes "$public_smokes" --stage-results "$RUNNER_TEMP/null.json" --state-proof "$state_proof"
+          echo "outcome=$terminal_outcome" >> "$GITHUB_OUTPUT"
       - name: Publish recovery terminal producer outputs
         id: terminal
         if: ${{ always() && !cancelled() && (steps.preparation-failure-terminal.outcome == 'success' || steps.recovery-failed-terminal.outcome == 'success' || steps.recovered-terminal.outcome == 'success') }}
@@ -2792,7 +2834,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$TERMINAL_OUTCOME" in
-            recovered|manual-intervention|recovery-failed|preparation-failed-before-journal) ;;
+            recovered|recovered-census-unproven|manual-intervention|recovery-failed|preparation-failed-before-journal) ;;
             *) exit 1 ;;
           esac
           echo "outcome=$TERMINAL_OUTCOME" >> "$GITHUB_OUTPUT"
@@ -2801,7 +2843,7 @@ jobs:
         env: { TERMINAL_OUTCOME: "${{ steps.outcome.outputs.outcome }}" }
         run: |
           case "$TERMINAL_OUTCOME" in
-            recovered|manual-intervention|recovery-failed|preparation-failed-before-journal) exit 1 ;;
+            recovered|recovered-census-unproven|manual-intervention|recovery-failed|preparation-failed-before-journal) exit 1 ;;
             *) exit 1 ;;
           esac
       - name: Remove authenticated recovery runtime

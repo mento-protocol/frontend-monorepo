@@ -237,6 +237,13 @@ not also attempt any replaced `main` path for the exact target/SHA release.
 Legacy App `v2 -> production` activity is classified and verified separately
 instead of being mislabeled as a duplicate `main -> v3` deployment.
 
+If recovery has already restored and verified every protected prior mapping and
+credential-free runtime smoke, but the final duplicate census cannot be proven,
+the terminal evidence retains those verified facts with a bounded non-secret
+census-failure category. The release still fails as
+`recovered-census-unproven`; this outcome is not evidence that the duplicate
+census passed and never authorizes forward progress.
+
 ### Trust and credential boundary
 
 - Pull-request code is never executed by a credentialed
