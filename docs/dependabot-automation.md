@@ -172,12 +172,19 @@ the canonical receipt. A generic github-actions check, external ID alone,
 candidate comment, or configured actor assertion cannot establish lineage.
 
 The Claude job has only read permissions and checks out only the trusted
-workflow SHA. Its quoted tool allowlist admits only the exact bound
-repository-scoped `gh pr diff` command; it does not
-grant generic Bash, `gh api`, Git, curl, web, or GitHub MCP access. The job never
-downloads a candidate artifact, restores a candidate cache, installs candidate
-dependencies, or executes candidate code. Its exact bot allowlist contains
-only `dependabot[bot]` and the configured Prepare App bot login.
+workflow SHA. It restricts built-in tools to Bash, denies every MCP tool, and
+runs in `dontAsk` mode. A trusted `PreToolUse` guard authorizes one exact bound
+repository-scoped `gh pr diff` command per workflow run attempt and exits with a
+blocking result for every other Bash input, including suffixes, compound shell
+syntax, background execution, and malformed calls. The job therefore grants no
+generic Bash, `gh api`, Git, curl, web, or GitHub MCP access. It never downloads
+a candidate artifact, restores a candidate cache, installs candidate
+dependencies, or executes candidate code. A paired trusted `PostToolUse` guard
+binds the same command and tool-use ID, rejects interrupted, background,
+timed-out, empty, or persisted/truncated output, and seals a digest-bound
+completion receipt. A later no-token step requires that receipt, so a missing
+or failed diff cannot be upgraded by schema-valid model output. Its exact bot allowlist contains only
+`dependabot[bot]` and the configured Prepare App bot login.
 
 The isolated publisher has no Claude secret or checkout. For both clean and
 findings outcomes, `claude-review` check `output.text` is the exact canonical

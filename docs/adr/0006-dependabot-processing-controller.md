@@ -107,14 +107,19 @@ For prepared heads, the workflow materializes
   committer match the live configured App bot ID/login; and
 - a bounded operation chain rooted in a verified Dependabot seed.
 
-The Claude job checks out only the trusted workflow source. Its quoted tool
-allowlist admits only the exact bound repository-scoped `gh pr diff` command;
-it never restores candidate artifacts/caches, installs
-candidate dependencies, or executes candidate code. Its bot allowlist is the
-exact Dependabot login plus exact Prepare App bot login. The no-secret publisher
-writes canonical `dependabot-claude-review-result:v1` JSON for both clean and
-findings verdicts. A valid findings result is deterministic repair input; an
-Action, provider, schema, or infrastructure failure is retry-first.
+The Claude job checks out only the trusted workflow source. It restricts
+built-in tools to Bash, denies every MCP tool, and runs in `dontAsk` mode. A
+trusted `PreToolUse` guard authorizes one exact bound repository-scoped
+`gh pr diff` command per workflow run attempt and blocks every other Bash call.
+A paired `PostToolUse` guard seals the same successful, complete foreground
+diff result, and a later no-token step requires that receipt. Missing, failed,
+interrupted, empty, or persisted/truncated output is retry-first. The job never
+restores candidate artifacts/caches, installs candidate dependencies, or
+executes candidate code. Its bot allowlist is the exact Dependabot login
+plus exact Prepare App bot login. The no-secret publisher writes canonical
+`dependabot-claude-review-result:v1` JSON for both clean and findings verdicts.
+A valid findings result is deterministic repair input; an Action, provider,
+schema, or infrastructure failure is retry-first.
 
 ### Preparation eligibility is broader than automatic eligibility
 

@@ -1,6 +1,6 @@
 /* eslint-disable turbo/no-undeclared-env-vars -- The Bash-validator harness preserves the host executable search path. */
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -49,6 +49,9 @@ const preparedDispatchPath =
   ".github/workflows/dependabot-prepared-head-dispatch.yml";
 const dependabotReviewPath = ".github/workflows/dependabot-claude-review.yml";
 const humanReviewPath = ".github/workflows/claude-code-review.yml";
+const dependabotReviewToolGuardPath = fileURLToPath(
+  new URL("./dependabot-claude-review-tool-guard.mjs", import.meta.url),
+);
 const intake = workflow(intakePath);
 const processor = workflow(processorPath);
 const repair = workflow(repairPath);
@@ -1577,7 +1580,7 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
     "${{ steps.claude-review.outputs.structured_output }}",
   );
 
-  const [immediate, checkout, review] = reviewJob.steps;
+  const [immediate, checkout, review, verifyDiffRead] = reviewJob.steps;
   assert.equal(Object.hasOwn(immediate, "uses"), false);
   assert.equal(immediate.env.GH_TOKEN, "${{ github.token }}");
   assert.equal(
@@ -1621,25 +1624,86 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
   );
   assert.match(review.with.prompt, /Do not make any.*mutation/s);
   assert.match(review.with.claude_code_oauth_token, /secrets\./);
-  const allowedToolFlags = [
+  const settings = JSON.parse(review.with.settings);
+  assert.deepEqual(settings.env, {
+    BASH_MAX_OUTPUT_LENGTH: "150000",
+    DEPENDABOT_REVIEW_PR_NUMBER: "${{ needs.preflight.outputs.pr_number }}",
+    DEPENDABOT_REVIEW_REPOSITORY: "mento-protocol/frontend-monorepo",
+  });
+  assert.deepEqual(settings.hooks, {
+    PreToolUse: [
+      {
+        matcher: "Bash",
+        hooks: [
+          {
+            type: "command",
+            command:
+              'node "${{ github.workspace }}/scripts/dependabot-claude-review-tool-guard.mjs" || exit 2',
+            timeout: 5,
+          },
+        ],
+      },
+    ],
+    PostToolUse: [
+      {
+        matcher: "Bash",
+        hooks: [
+          {
+            type: "command",
+            command:
+              'node "${{ github.workspace }}/scripts/dependabot-claude-review-tool-guard.mjs" || exit 2',
+            timeout: 5,
+          },
+        ],
+      },
+    ],
+  });
+  const toolFlags = [
+    ...review.with.claude_args.matchAll(/--tools\s+"([^"]+)"/g),
+  ];
+  assert.deepEqual(
+    toolFlags.map((match) => match[1]),
+    ["Bash"],
+  );
+  const disallowedToolFlags = [
     ...review.with.claude_args.matchAll(
-      /--(?:allowedTools|allowed-tools)\s+"([^"]+)"/g,
+      /--(?:disallowedTools|disallowed-tools)\s+"([^"]+)"/g,
     ),
   ];
-  assert.equal(allowedToolFlags.length, 1);
-  assert.equal(
-    allowedToolFlags[0][1],
-    "Bash(gh pr diff ${{ needs.preflight.outputs.pr_number }} --repo ${{ github.repository }})",
+  assert.deepEqual(
+    disallowedToolFlags.map((match) => match[1]),
+    ["mcp__*"],
   );
-  assert.doesNotMatch(allowedToolFlags[0][1], /:\*|\s+\*/);
+  assert.match(review.with.claude_args, /--permission-mode\s+dontAsk/);
+  assert.match(review.with.claude_args, /--setting-sources\s+user/);
+  assert.match(review.with.claude_args, /--strict-mcp-config\b/);
   assert.doesNotMatch(
     review.with.claude_args,
-    /Bash\(gh api|Bash\(curl|Bash\(git|WebFetch|WebSearch|mcp__github__|--permission-mode\s+bypassPermissions|--dangerously-skip-permissions/,
+    /--(?:allowedTools|allowed-tools)\b/,
+  );
+  assert.doesNotMatch(
+    review.with.claude_args,
+    /Bash\(gh api|Bash\(curl|Bash\(git|WebFetch|WebSearch|mcp__github__|--permission-mode\s+bypassPermissions|--dangerously-skip-permissions|--tools\s+"[^"]*(?:Read|Edit|Write|Glob|Grep|Agent)/,
   );
   assert.match(review.with.claude_args, /--json-schema/);
   assert.match(review.with.claude_args, /dependabot-claude-review-result:v1/);
   assert.match(review.with.claude_args, /"maxItems":20/);
   assert.match(review.with.claude_args, /"additionalProperties":false/);
+
+  assert.equal(verifyDiffRead.name, "Require a completed exact diff read");
+  assert.equal(verifyDiffRead.if, "${{ always() }}");
+  assert.equal(
+    verifyDiffRead.env.DEPENDABOT_REVIEW_PR_NUMBER,
+    "${{ needs.preflight.outputs.pr_number }}",
+  );
+  assert.equal(
+    verifyDiffRead.env.DEPENDABOT_REVIEW_REPOSITORY,
+    "mento-protocol/frontend-monorepo",
+  );
+  assert.match(
+    verifyDiffRead.run,
+    /dependabot-claude-review-tool-guard\.mjs[\s\S]*--verify-completion/,
+  );
 
   assert.equal(publishJob.name, "dependabot-claude-review-publisher");
   assert.deepEqual(publishJob.needs, ["preflight", "review"]);
@@ -1709,6 +1773,345 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
   const raw = read(dependabotReviewPath);
   assert.doesNotMatch(raw, forbiddenCandidateSurfaces);
   assert.doesNotMatch(raw, /github\.event\.pull_request/);
+});
+
+test("Dependabot Claude review tool guard permits only the exact bound diff", async () => {
+  const environment = {
+    ...process.env,
+    DEPENDABOT_REVIEW_PR_NUMBER: "731",
+    DEPENDABOT_REVIEW_REPOSITORY: "mento-protocol/frontend-monorepo",
+    GITHUB_RUN_ATTEMPT: "1",
+    GITHUB_RUN_ID: "123456",
+    RUNNER_TEMP: mkdtempSync(join(tmpdir(), "dependabot-review-tool-")),
+  };
+  const exactInput = {
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_use_id: "toolu_01DependabotDiffRead",
+    tool_input: {
+      command: "gh pr diff 731 --repo mento-protocol/frontend-monorepo",
+      description: "Read the authenticated pull-request diff",
+      run_in_background: false,
+      timeout: 120_000,
+    },
+  };
+  const allowed = spawnSync(process.execPath, [dependabotReviewToolGuardPath], {
+    encoding: "utf8",
+    env: environment,
+    input: JSON.stringify(exactInput),
+  });
+  assert.equal(allowed.status, 0, allowed.stderr);
+  assert.deepEqual(JSON.parse(allowed.stdout), {
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "allow",
+      permissionDecisionReason:
+        "Exact receipt-bound Dependabot PR diff command",
+    },
+  });
+  const duplicate = spawnSync(
+    process.execPath,
+    [dependabotReviewToolGuardPath],
+    {
+      encoding: "utf8",
+      env: environment,
+      input: JSON.stringify(exactInput),
+    },
+  );
+  assert.equal(duplicate.status, 2);
+  assert.match(duplicate.stderr, /one permitted diff read/);
+
+  const postInput = {
+    ...exactInput,
+    hook_event_name: "PostToolUse",
+    tool_response: {
+      interrupted: false,
+      isImage: false,
+      noOutputExpected: false,
+      stderr: "",
+      stdout:
+        "diff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\n",
+    },
+  };
+  const completed = spawnSync(
+    process.execPath,
+    [dependabotReviewToolGuardPath],
+    {
+      encoding: "utf8",
+      env: environment,
+      input: JSON.stringify(postInput),
+    },
+  );
+  assert.equal(completed.status, 0, completed.stderr);
+  assert.equal(completed.stdout, "");
+  const verified = spawnSync(
+    process.execPath,
+    [dependabotReviewToolGuardPath, "--verify-completion"],
+    { encoding: "utf8", env: environment },
+  );
+  assert.equal(verified.status, 0, verified.stderr);
+  const duplicateCompletion = spawnSync(
+    process.execPath,
+    [dependabotReviewToolGuardPath],
+    {
+      encoding: "utf8",
+      env: environment,
+      input: JSON.stringify(postInput),
+    },
+  );
+  assert.equal(duplicateCompletion.status, 2);
+  assert.match(duplicateCompletion.stderr, /completion was already sealed/);
+
+  const parallelEnvironment = {
+    ...environment,
+    RUNNER_TEMP: mkdtempSync(join(tmpdir(), "dependabot-review-tool-race-")),
+  };
+  const runGuard = () =>
+    new Promise((resolve) => {
+      const child = spawn(process.execPath, [dependabotReviewToolGuardPath], {
+        env: parallelEnvironment,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      let stderr = "";
+      let stdout = "";
+      child.stderr.setEncoding("utf8");
+      child.stdout.setEncoding("utf8");
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk;
+      });
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk;
+      });
+      child.on("close", (status) => resolve({ status, stderr, stdout }));
+      child.stdin.end(JSON.stringify(exactInput));
+    });
+  const parallelResults = await Promise.all([runGuard(), runGuard()]);
+  assert.deepEqual(parallelResults.map(({ status }) => status).sort(), [0, 2]);
+  assert.equal(
+    parallelResults.filter(({ stdout }) =>
+      stdout.includes('"permissionDecision":"allow"'),
+    ).length,
+    1,
+  );
+  const verifyBeforeCompletion = spawnSync(
+    process.execPath,
+    [dependabotReviewToolGuardPath, "--verify-completion"],
+    { encoding: "utf8", env: parallelEnvironment },
+  );
+  assert.equal(verifyBeforeCompletion.status, 2);
+  assert.match(verifyBeforeCompletion.stderr, /completed diff-read marker/);
+
+  const runCompletionGuard = () =>
+    new Promise((resolve) => {
+      const child = spawn(process.execPath, [dependabotReviewToolGuardPath], {
+        env: parallelEnvironment,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      let stderr = "";
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk;
+      });
+      child.on("close", (status) => resolve({ status, stderr }));
+      child.stdin.end(JSON.stringify(postInput));
+    });
+  const parallelCompletionResults = await Promise.all([
+    runCompletionGuard(),
+    runCompletionGuard(),
+  ]);
+  assert.deepEqual(
+    parallelCompletionResults.map(({ status }) => status).sort(),
+    [0, 2],
+  );
+  const parallelVerified = spawnSync(
+    process.execPath,
+    [dependabotReviewToolGuardPath, "--verify-completion"],
+    { encoding: "utf8", env: parallelEnvironment },
+  );
+  assert.equal(parallelVerified.status, 0, parallelVerified.stderr);
+
+  const blockedInputs = [
+    {
+      ...exactInput,
+      tool_input: { command: ` ${exactInput.tool_input.command}` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `${exactInput.tool_input.command} ` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `${exactInput.tool_input.command} --patch` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `${exactInput.tool_input.command}; env` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `${exactInput.tool_input.command} && env` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `${exactInput.tool_input.command} || env` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `${exactInput.tool_input.command} | cat` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `${exactInput.tool_input.command} > /tmp/diff` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `${exactInput.tool_input.command} $(env)` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `${exactInput.tool_input.command} \`env\`` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `${exactInput.tool_input.command}\ncat .env` },
+    },
+    {
+      ...exactInput,
+      tool_input: {
+        command: "gh pr diff 732 --repo mento-protocol/frontend-monorepo",
+      },
+    },
+    {
+      ...exactInput,
+      tool_input: {
+        command: "gh pr diff 731 --repo attacker/example",
+      },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `command ${exactInput.tool_input.command}` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `GH_TOKEN=x ${exactInput.tool_input.command}` },
+    },
+    {
+      ...exactInput,
+      tool_input: {
+        command: exactInput.tool_input.command,
+        run_in_background: true,
+      },
+    },
+    {
+      ...exactInput,
+      tool_input: {
+        command: exactInput.tool_input.command,
+        timeout: 120_001,
+      },
+    },
+    {
+      ...exactInput,
+      tool_input: {
+        command: exactInput.tool_input.command,
+        description: "x".repeat(501),
+      },
+    },
+    {
+      ...exactInput,
+      tool_input: {
+        command: exactInput.tool_input.command,
+        dangerouslyDisableSandbox: true,
+      },
+    },
+    { ...exactInput, tool_name: "Read" },
+    { ...exactInput, hook_event_name: "PermissionRequest" },
+    { ...exactInput, hook_event_name: "PostToolUseFailure" },
+    {
+      ...postInput,
+      tool_use_id: "toolu_01DifferentDiffRead",
+    },
+    {
+      ...postInput,
+      tool_response: { ...postInput.tool_response, stdout: "" },
+    },
+    {
+      ...postInput,
+      tool_response: {
+        ...postInput.tool_response,
+        stdout: "not a unified diff",
+      },
+    },
+    {
+      ...postInput,
+      tool_response: { ...postInput.tool_response, interrupted: true },
+    },
+    {
+      ...postInput,
+      tool_response: {
+        ...postInput.tool_response,
+        persistedOutputPath: "/tmp/full-diff",
+        persistedOutputSize: 150_001,
+      },
+    },
+    {
+      ...postInput,
+      tool_response: {
+        ...postInput.tool_response,
+        backgroundTaskId: "task-1",
+      },
+    },
+    {
+      ...postInput,
+      tool_response: {
+        ...postInput.tool_response,
+        timedOutAfterMs: 120_000,
+      },
+    },
+  ];
+  for (const input of blockedInputs) {
+    const blocked = spawnSync(
+      process.execPath,
+      [dependabotReviewToolGuardPath],
+      {
+        encoding: "utf8",
+        env: environment,
+        input: JSON.stringify(input),
+      },
+    );
+    assert.equal(blocked.status, 2, JSON.stringify(input));
+    assert.match(blocked.stderr, /Blocked Dependabot review tool call/);
+  }
+
+  for (const [input, env] of [
+    ["not-json", environment],
+    [
+      JSON.stringify({
+        ...exactInput,
+        padding: "x".repeat(2_097_152),
+      }),
+      environment,
+    ],
+    [
+      JSON.stringify(exactInput),
+      { ...environment, DEPENDABOT_REVIEW_PR_NUMBER: "0731" },
+    ],
+    [
+      JSON.stringify(exactInput),
+      { ...environment, DEPENDABOT_REVIEW_REPOSITORY: "attacker/example" },
+    ],
+    [JSON.stringify(exactInput), { ...environment, GITHUB_RUN_ID: "0" }],
+    [JSON.stringify(exactInput), { ...environment, RUNNER_TEMP: "relative" }],
+  ]) {
+    const blocked = spawnSync(
+      process.execPath,
+      [dependabotReviewToolGuardPath],
+      { encoding: "utf8", env, input },
+    );
+    assert.equal(blocked.status, 2);
+    assert.match(blocked.stderr, /Blocked Dependabot review tool call/);
+  }
+  rmSync(environment.RUNNER_TEMP, { force: true, recursive: true });
+  rmSync(parallelEnvironment.RUNNER_TEMP, { force: true, recursive: true });
 });
 
 test("Dependabot Claude review authenticates live upstream head metadata", () => {
