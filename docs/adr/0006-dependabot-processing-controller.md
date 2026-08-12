@@ -66,8 +66,9 @@ CLEAR head.
 
 `.github/workflows/dependabot-intake.yml` remains the credentialless
 `dependabot-intake:v1` `pull_request_target` boundary. It accepts only the
-strict repository-owned Dependabot branch/head/base event and gains no token,
-secret, checkout, API, artifact, or dispatch capability.
+strict repository-owned Dependabot branch/head/base event from the exact
+Dependabot bot sender and gains no token, secret, checkout, API, artifact, or
+dispatch capability.
 
 `.github/workflows/dependabot-prepared-head-intake.yml` is a second
 credentialless boundary. It accepts only a

@@ -53,6 +53,7 @@ const REPAIR_LINEAGE_COMMIT_LIMIT = 100;
 const REPAIR_LINEAGE_CHECK_CONCURRENCY = 4;
 const CHECK_SOURCE_RESOLUTION_CONCURRENCY = 8;
 const REFRESH_SUCCESSOR_POLL_ATTEMPTS = 5;
+const REFRESH_SNAPSHOT_RACE_ATTEMPTS = 5;
 const REFRESH_SUCCESSOR_POLL_INTERVAL_MS = 2_000;
 const GITHUB_WEB_FLOW_BOT_ID = 19_864_447;
 const PROCESSOR_APPROVAL_PULL_LIMIT = 100;
@@ -395,6 +396,12 @@ export const DEPENDABOT_CHECK_POLICY = Object.freeze(
 
 function invariant(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+class PullRequestSnapshotChangedError extends Error {}
+
+function snapshotInvariant(condition, message) {
+  if (!condition) throw new PullRequestSnapshotChangedError(message);
 }
 
 function exactSha(value, label = "Commit SHA") {
@@ -4106,7 +4113,7 @@ export function requireStablePullRequestSnapshot(initial, final, number) {
     SHA_PATTERN.test(initialIdentity.headSha ?? "");
   const stable =
     complete && stableJson(initialIdentity) === stableJson(finalIdentity);
-  invariant(
+  snapshotInvariant(
     stable,
     `PR #${number} changed while its exact-head snapshot was collected`,
   );
@@ -4138,7 +4145,7 @@ export function requireStableFeedbackSnapshot(initial, final, number) {
     typeof initial?.updatedAt === "string" &&
     initial.updatedAt === final?.updatedAt &&
     initial.headSha === final?.headSha;
-  invariant(
+  snapshotInvariant(
     stable,
     `PR #${number} feedback changed while its exact-head snapshot was collected`,
   );
@@ -4548,7 +4555,7 @@ export function createLiveGitHubAdapter({
         threadQueryHead = pullRequest.headRefOid;
         threadQueryUpdatedAt = pullRequest.updatedAt;
       } else {
-        invariant(
+        snapshotInvariant(
           pullRequest.headRefOid === threadQueryHead &&
             pullRequest.updatedAt === threadQueryUpdatedAt,
           `PR #${number} feedback changed during thread pagination`,
@@ -5017,7 +5024,7 @@ export function createLiveGitHubAdapter({
       getFeedback(repository, number),
     ]);
     const headSha = exactSha(raw.head.sha, "PR head SHA");
-    invariant(
+    snapshotInvariant(
       initialFeedback.headSha === headSha,
       `PR #${number} changed while feedback was collected`,
     );
@@ -6203,20 +6210,31 @@ async function processMutatePhase({ adapter, evaluation }) {
     repository: evaluation.repository,
     requestReceipt: pending.requestReceipt,
   };
-  for (
-    let attempt = 1;
-    attempt <= REFRESH_SUCCESSOR_POLL_ATTEMPTS;
-    attempt += 1
-  ) {
-    const snapshot = await adapter.collectPullRequestSnapshot(
-      evaluation.repository,
-      result.pullRequestNumber,
-    );
+  let snapshotRaceAttempts = 0;
+  for (let stablePolls = 0; stablePolls < REFRESH_SUCCESSOR_POLL_ATTEMPTS; ) {
+    let snapshot;
+    try {
+      snapshot = await adapter.collectPullRequestSnapshot(
+        evaluation.repository,
+        result.pullRequestNumber,
+      );
+    } catch (error) {
+      if (!(error instanceof PullRequestSnapshotChangedError)) {
+        throw error;
+      }
+      snapshotRaceAttempts += 1;
+      if (snapshotRaceAttempts === REFRESH_SNAPSHOT_RACE_ATTEMPTS) throw error;
+      if (typeof adapter.waitForRefreshSuccessor === "function") {
+        await adapter.waitForRefreshSuccessor();
+      }
+      continue;
+    }
+    stablePolls += 1;
     const successor = exactRefreshSuccessor(snapshot, expected);
     successorHeadSha = successor?.headSha ?? null;
     if (successor !== null) break;
     if (
-      attempt < REFRESH_SUCCESSOR_POLL_ATTEMPTS &&
+      stablePolls < REFRESH_SUCCESSOR_POLL_ATTEMPTS &&
       typeof adapter.waitForRefreshSuccessor === "function"
     ) {
       await adapter.waitForRefreshSuccessor();

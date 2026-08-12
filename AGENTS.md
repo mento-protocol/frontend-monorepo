@@ -27,7 +27,7 @@ merges or enables native auto-merge. A maintainer performs the final squash
 merge only after the exact head has a successful `Dependabot ALL CLEAR` check.
 
 `.github/workflows/dependabot-intake.yml` remains the credentialless v1 boundary
-for Dependabot-authored heads. Prepared heads use the distinct credentialless
+for exact Dependabot-bot-sent native events. Prepared heads use the distinct credentialless
 `.github/workflows/dependabot-prepared-head-intake.yml` repository-dispatch
 boundary. That intake accepts only the exact Prepare App bot ID/login, exact App
 slug, nine-key bounded payload, and a digest-bound completed Refresh or Repair

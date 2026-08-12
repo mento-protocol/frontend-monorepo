@@ -373,7 +373,7 @@ repairs, re-review, satisfy receipt-bound feedback, create the ruleset-required
 processor approval, and publish `Dependabot ALL CLEAR`. It never merges or
 enables native auto-merge. A maintainer performs the final squash merge.
 
-Native Dependabot heads enter through the credentialless
+Native events from the exact Dependabot bot sender enter through the credentialless
 `.github/workflows/dependabot-intake.yml`. Refresh/Repair successors enter
 through the distinct credentialless
 `.github/workflows/dependabot-prepared-head-intake.yml`, which authenticates
