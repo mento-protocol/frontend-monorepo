@@ -2167,11 +2167,13 @@ The artifact binds the original event run ID, source journal digest, and a
 canonical event-scoped graph digest. It exists only to preserve
 cost-observation evidence after safe
 terminal compaction; it is never state, reconciliation, status, dispatch, or
-deployment authority. The private collector prefers the live journal and uses
-this artifact only when that exact event no longer remains live. Journal
-compaction keeps each marked event live until GitHub reports that exact,
-unexpired artifact. A workflow rerun reuses the existing immutable artifact
-instead of uploading another copy under the same event-run name.
+deployment authority. The private collector prefers this exact validated
+artifact whenever it exists and falls back to the live journal when it does
+not. This keeps a later push from making the retained live graph authoritative
+for an older settled event. Journal compaction keeps each marked event live
+until GitHub reports that exact, unexpired artifact. A workflow rerun reuses
+the existing immutable artifact instead of uploading another copy under the
+same event-run name.
 
 The journal's top-level `admission` cursor stores the active controller's
 numeric workflow ID plus the exact run ID and run number proven through. One

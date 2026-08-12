@@ -1056,7 +1056,12 @@ function eventReceiptFromJournal(
   return validateEventReceipt(candidates[0]);
 }
 
-function previewObservationArtifact(dependencies, controllerRunId, root) {
+function previewObservationArtifact(
+  dependencies,
+  controllerRunId,
+  root,
+  { required = true } = {},
+) {
   const artifactName = previewObservationArtifactName(controllerRunId);
   const artifacts = paginatedCollection(
     apiJson(
@@ -1069,10 +1074,13 @@ function previewObservationArtifact(dependencies, controllerRunId, root) {
     "Preview observation artifacts",
   );
   const artifact = selectPreviewObservationArtifact(artifacts, controllerRunId);
-  invariant(
-    artifact !== null,
-    "Preview observation receipt artifact is missing or ambiguous",
-  );
+  if (artifact === null) {
+    invariant(
+      !required,
+      "Preview observation receipt artifact is missing or ambiguous",
+    );
+    return null;
+  }
   const directory = join(
     root,
     `.stage-observation-receipt-${controllerRunId}-${process.pid}-${randomBytes(6).toString("hex")}`,
@@ -2026,14 +2034,12 @@ function capturePreview({ root, pr, eventRunId, dependencies }) {
     const liveEvent = eventReceiptFromJournal(liveJournal, controllerRunId, {
       allowMissing: true,
     });
-    const immutable =
-      liveEvent === null
-        ? previewObservationArtifact(
-            { ...dependencies, root },
-            controllerRunId,
-            root,
-          )
-        : null;
+    const immutable = previewObservationArtifact(
+      { ...dependencies, root },
+      controllerRunId,
+      root,
+      { required: liveEvent === null },
+    );
     const journal =
       immutable === null
         ? liveJournal

@@ -80,12 +80,13 @@ Deployment/status evidence, then seals every raw file. It publishes only after
 the event has a terminal decision and every planned target has a complete,
 selection-bound worker result. Each trusted receipt-producing controller run
 waits outside the journal-writer concurrency queue until that graph settles,
-then uploads one event-ID-bound Actions artifact for 14 days. The collector uses
-the live journal while the event remains there and downloads that immutable
-artifact only after safe journal compaction removes it. A pending event, an
-expired or missing artifact for a compacted event, or ambiguous evidence fails
-without reserving its append-only destination. Capture promptly after
-reconciliation and before the artifact expires.
+then uploads one event-ID-bound Actions artifact for 14 days. The collector
+prefers that exact validated artifact whenever it exists, including while a
+later push still leaves the event in the live journal, and falls back to the
+live journal when no artifact exists. A pending event, an expired or missing
+artifact for a compacted event, or ambiguous evidence fails without reserving
+its append-only destination. Capture promptly after reconciliation and before
+the artifact expires.
 
 `capture-main` records every run attempt, job list, combined log, artifact
 inventory, upstream CI run when a journal binds it, and every available

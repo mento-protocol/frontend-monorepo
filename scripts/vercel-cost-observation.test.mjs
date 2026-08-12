@@ -110,23 +110,31 @@ function fakeGh(routes, calls = []) {
   };
 }
 
-function addPreviewObservationArtifactRoute(routes, event, journal) {
+function addPreviewObservationArtifactRoute(
+  routes,
+  event,
+  journal,
+  { available = true } = {},
+) {
   const artifactName = `vercel-preview-observation-receipt-v1-${event.event_run_id}`;
   routes.set(
     `api --method GET --paginate --slurp repos/mento-protocol/frontend-monorepo/actions/runs/${event.event_run_id}/artifacts?per_page=100`,
     [
       {
-        artifacts: [
-          {
-            id: 90_001,
-            name: artifactName,
-            expired: false,
-            size_in_bytes: 1_024,
-          },
-        ],
+        artifacts: available
+          ? [
+              {
+                id: 90_001,
+                name: artifactName,
+                expired: false,
+                size_in_bytes: 1_024,
+              },
+            ]
+          : [],
       },
     ],
   );
+  if (!available) return;
   routes.set(
     `run download ${event.event_run_id} --repo mento-protocol/frontend-monorepo --name ${artifactName} --dir`,
     (args) => {
@@ -693,7 +701,7 @@ function reselectedPreviewJournalFixture(event) {
 
 function previewRoutes(
   event = fixture("preview-event.json"),
-  { mode = "complete", events = [event] } = {},
+  { mode = "complete", events = [event], observationArtifact = false } = {},
 ) {
   const fixtureState = previewJournalFixture(event, mode, events);
   const { journal } = fixtureState;
@@ -837,7 +845,9 @@ function previewRoutes(
       Buffer.from("fixture preview worker log\n"),
     );
   }
-  addPreviewObservationArtifactRoute(routes, event, journal);
+  addPreviewObservationArtifactRoute(routes, event, journal, {
+    available: observationArtifact,
+  });
   return routes;
 }
 
@@ -1466,7 +1476,7 @@ test("capture-preview freezes the canonical v2 journal and raw GitHub facts", ()
         args[0] === "api" &&
         args.some((value) => String(value).includes("/artifacts?per_page=100")),
     ),
-    false,
+    true,
   );
   assertPrivateTree(directory);
   assert.ok(calls.some((args) => args[0] === "auth"));
@@ -1815,7 +1825,7 @@ test("capture-preview recovers a compacted event from its immutable Actions arti
   const cwd = workspace();
   runInit(cwd);
   const event = fixture("preview-event.json");
-  const routes = previewRoutes(event);
+  const routes = previewRoutes(event, { observationArtifact: true });
   const compacted = compactPreviewJournal(
     previewJournalFixture(event, "complete").journal,
   );
@@ -1839,6 +1849,104 @@ test("capture-preview recovers a compacted event from its immutable Actions arti
     gh: fakeGh(routes),
     stdout: output().stream,
   });
+  assert.equal(result.exitCode, 0);
+  const directory = join(observationRoot(cwd), "preview", "9001");
+  const capture = JSON.parse(
+    readFileSync(join(directory, "capture.json"), "utf8"),
+  );
+  assert.equal(
+    capture.canonicalDerivedFacts.observationReceiptSource,
+    "actions-artifact",
+  );
+  assert.ok(
+    capture.files.some(
+      (file) => file.path === "raw/observation-receipt-artifact.json",
+    ),
+  );
+  assert.ok(
+    capture.files.some((file) => file.path === "raw/observation-receipt.json"),
+  );
+});
+
+test("capture-preview prefers an immutable artifact when a later push leaves the event live", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  const event = {
+    ...fixture("preview-event.json"),
+    plan: {
+      targets: ["ui"],
+      reason: "affected-packages",
+      base: "a".repeat(40),
+      head: "b".repeat(40),
+      planner_source_sha: "a".repeat(40),
+    },
+  };
+  const settled = previewJournalFixture(event, "complete");
+  const laterEvent = {
+    ...event,
+    event_run_id: 9_003,
+    event_run_number: 503,
+    event_action: "synchronize",
+    pr_updated_at: "2026-07-29T02:00:00.000Z",
+    before_sha: event.head_sha,
+    change_base_sha: event.head_sha,
+    head_sha: "c".repeat(40),
+    plan: {
+      ...event.plan,
+      base: event.head_sha,
+      head: "c".repeat(40),
+    },
+  };
+  const advanced = reconcileState({
+    events: [event, laterEvent],
+    results: settled.journal.receipts.results,
+    selections: settled.journal.receipts.selections,
+    pullRequest: pullFromEvent(laterEvent),
+    existingState: settled.journal.state,
+    controllerUrl:
+      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/9003",
+    expectedWorkflowSha: laterEvent.trusted_base_sha,
+  });
+  assert.equal(advanced.nextDispatches.length, 1);
+  assert.equal(
+    advanced.state.targets.ui.latest_desired_sha,
+    laterEvent.head_sha,
+  );
+  const retainedLiveJournal = createPreviewJournal({
+    pr: event.pr,
+    events: [event, laterEvent],
+    selections: settled.journal.receipts.selections,
+    workerEvidence: settled.journal.receipts.worker_evidence,
+    results: settled.journal.receipts.results,
+    state: advanced.state,
+  });
+  assert.ok(
+    retainedLiveJournal.receipts.events.some(
+      (candidate) => candidate.event_run_id === event.event_run_id,
+    ),
+  );
+
+  const routes = previewRoutes(event, { observationArtifact: true });
+  routes.set(
+    "api --method GET --paginate --slurp repos/mento-protocol/frontend-monorepo/issues/700/comments?per_page=100",
+    [
+      [
+        {
+          id: 301,
+          user: { type: "Bot", login: "github-actions[bot]" },
+          body: renderPreviewJournalBody(retainedLiveJournal),
+        },
+      ],
+    ],
+  );
+  const result = runVercelCostObservation({
+    argv: ["capture-preview", "--pr", "700", "--event-run-id", "9001"],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: fakeGh(routes),
+    stdout: output().stream,
+  });
+
   assert.equal(result.exitCode, 0);
   const directory = join(observationRoot(cwd), "preview", "9001");
   const capture = JSON.parse(
