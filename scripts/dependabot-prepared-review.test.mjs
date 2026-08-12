@@ -1674,11 +1674,94 @@ test("Dependabot reviewer accepts only authenticated native or prepared intake",
   const claude = review.jobs.review.steps.find(
     ({ name }) => name === "Run Claude Code Review",
   );
+  assert.deepEqual(review.jobs.review.permissions, {
+    contents: "read",
+    issues: "read",
+    "pull-requests": "read",
+  });
   assert.equal(
     claude.with.allowed_bots,
     "${{ needs.preflight.outputs.review_actor_login }}",
   );
   assert.notEqual(claude.with.allowed_bots, "*");
+  assert.match(
+    claude.with.prompt,
+    /gh pr diff.*needs\.preflight\.outputs\.pr_number.*--repo.*github\.repository/s,
+  );
+  assert.match(claude.with.prompt, /one plain-text document tool result/);
+  const settings = JSON.parse(claude.with.settings);
+  assert.deepEqual(settings.env, {
+    BASH_MAX_OUTPUT_LENGTH: "150000",
+    DEPENDABOT_REVIEW_PR_NUMBER: "${{ needs.preflight.outputs.pr_number }}",
+    DEPENDABOT_REVIEW_REPOSITORY: "mento-protocol/frontend-monorepo",
+  });
+  assert.deepEqual(settings.hooks, {
+    PreToolUse: [
+      {
+        matcher: "Bash",
+        hooks: [
+          {
+            type: "command",
+            command:
+              'node "${{ github.workspace }}/scripts/dependabot-claude-review-tool-guard.mjs" || exit 2',
+            timeout: 5,
+          },
+        ],
+      },
+    ],
+    PostToolUse: [
+      {
+        matcher: "Bash",
+        hooks: [
+          {
+            type: "command",
+            command:
+              'node "${{ github.workspace }}/scripts/dependabot-claude-review-tool-guard.mjs" || exit 2',
+            timeout: 5,
+          },
+        ],
+      },
+    ],
+  });
+  assert.deepEqual(
+    [...claude.with.claude_args.matchAll(/--tools\s+"([^"]+)"/g)].map(
+      (match) => match[1],
+    ),
+    ["Bash"],
+  );
+  assert.deepEqual(
+    [
+      ...claude.with.claude_args.matchAll(
+        /--(?:disallowedTools|disallowed-tools)\s+"([^"]+)"/g,
+      ),
+    ].map((match) => match[1]),
+    ["mcp__*"],
+  );
+  assert.match(claude.with.claude_args, /--permission-mode\s+dontAsk/);
+  assert.match(claude.with.claude_args, /--setting-sources\s+user/);
+  assert.match(claude.with.claude_args, /--strict-mcp-config\b/);
+  assert.doesNotMatch(
+    claude.with.claude_args,
+    /--(?:allowedTools|allowed-tools)\b/,
+  );
+  assert.doesNotMatch(
+    claude.with.claude_args,
+    /Bash\(gh api|Bash\(curl|Bash\(git|WebFetch|WebSearch|mcp__github__|--permission-mode\s+bypassPermissions|--dangerously-skip-permissions|--tools\s+"[^"]*(?:Read|Edit|Write|Glob|Grep|Agent)/,
+  );
+  const guard = read("scripts/dependabot-claude-review-tool-guard.mjs");
+  assert.match(guard, /dependabot-claude-review-tool-completed:v2/);
+  assert.match(guard, /hookEventName: "PostToolUse"/);
+  assert.match(guard, /updatedToolOutput:/);
+  assert.match(guard, /structuredContent:/);
+  assert.match(guard, /type: "document"/);
+  assert.match(guard, /media_type: "text\/plain"/);
+  assert.match(guard, /data: response\.stdout/);
+  const completion = review.jobs.review.steps.find(
+    ({ name }) => name === "Require a completed exact diff read",
+  );
+  assert.ok(completion);
+  assert.equal(completion.if, "${{ always() }}");
+  assert.match(completion.run, /--verify-completion/);
   const publish = review.jobs.publish.steps.find(
     ({ name }) => name === "Publish the exact-head Claude review check",
   );

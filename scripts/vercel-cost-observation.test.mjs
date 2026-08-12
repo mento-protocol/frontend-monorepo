@@ -92,7 +92,14 @@ function fakeGh(routes, calls = []) {
     calls.push([...args]);
     if (args[0] === "auth" && args[1] === "status") return Buffer.from("");
     const key = commandKey(args);
-    const response = routes.get(key);
+    let response = routes.get(key);
+    if (response === undefined) {
+      const prefix = [...routes.keys()].find(
+        (candidate) =>
+          candidate.endsWith(" --dir") && key.startsWith(`${candidate} `),
+      );
+      if (prefix) response = routes.get(prefix);
+    }
     if (response === undefined) {
       throw new Error(`Unexpected fake gh command: ${key}`);
     }
@@ -101,6 +108,66 @@ function fakeGh(routes, calls = []) {
       ? response
       : Buffer.from(JSON.stringify(response));
   };
+}
+
+function addPreviewObservationArtifactRoute(
+  routes,
+  event,
+  journal,
+  { available = true } = {},
+) {
+  const artifactName = `vercel-preview-observation-receipt-v1-${event.event_run_id}`;
+  routes.set(
+    `api --method GET --paginate --slurp repos/mento-protocol/frontend-monorepo/actions/runs/${event.event_run_id}/artifacts?per_page=100`,
+    [
+      {
+        artifacts: available
+          ? [
+              {
+                id: 90_001,
+                name: artifactName,
+                expired: false,
+                size_in_bytes: 1_024,
+              },
+            ]
+          : [],
+      },
+    ],
+  );
+  if (!available) return;
+  routes.set(
+    `run download ${event.event_run_id} --repo mento-protocol/frontend-monorepo --name ${artifactName} --dir`,
+    (args) => {
+      const directory = args.at(-1);
+      mkdirSync(directory, { recursive: true, mode: 0o700 });
+      chmodSync(directory, 0o700);
+      writeFileSync(
+        join(directory, "preview-observation-receipt.json"),
+        `${JSON.stringify(
+          {
+            schema: "vercel-preview-observation-receipt:v1",
+            repository: "mento-protocol/frontend-monorepo",
+            pr: journal.pr,
+            event_run_id: event.event_run_id,
+            journal_revision: journal.revision,
+            source_journal_digest: journal.journal_digest,
+            journal_digest: journal.journal_digest,
+            ...(Object.hasOwn(journal, "admission")
+              ? { admission: journal.admission }
+              : {}),
+            checkpoint: journal.checkpoint,
+            receipts: journal.receipts,
+            state: journal.state,
+          },
+          null,
+          2,
+        )}\n`,
+        { mode: 0o600 },
+      );
+      chmodSync(join(directory, "preview-observation-receipt.json"), 0o600);
+      return Buffer.from("");
+    },
+  );
 }
 
 function githubWholeSecondTimestamps(value) {
@@ -634,7 +701,7 @@ function reselectedPreviewJournalFixture(event) {
 
 function previewRoutes(
   event = fixture("preview-event.json"),
-  { mode = "complete", events = [event] } = {},
+  { mode = "complete", events = [event], observationArtifact = false } = {},
 ) {
   const fixtureState = previewJournalFixture(event, mode, events);
   const { journal } = fixtureState;
@@ -778,6 +845,9 @@ function previewRoutes(
       Buffer.from("fixture preview worker log\n"),
     );
   }
+  addPreviewObservationArtifactRoute(routes, event, journal, {
+    available: observationArtifact,
+  });
   return routes;
 }
 
@@ -925,6 +995,7 @@ function reselectedPreviewRoutes(
     "run view 9005 --repo mento-protocol/frontend-monorepo --attempt 1 --log",
     Buffer.from("fixture replacement worker log\n"),
   );
+  addPreviewObservationArtifactRoute(routes, event, fixtureState.journal);
   return { routes, fixtureState };
 }
 
@@ -1386,8 +1457,31 @@ test("capture-preview freezes the canonical v2 journal and raw GitHub facts", ()
     false,
   );
   assert.equal(capture.canonicalDerivedFacts.evidenceComplete, true);
+  assert.deepEqual(capture.unresolvedProviderFields, [
+    "vercelDeploymentCensus",
+    "nativeDuplicateClassification",
+    "buildCpuMinutes",
+  ]);
+  assert.equal(
+    capture.canonicalDerivedFacts.observationReceiptSource,
+    "live-journal",
+  );
   assert.ok(
     capture.files.some((file) => file.path === "raw/journal-comment.json"),
+  );
+  assert.equal(
+    capture.files.some((file) =>
+      file.path.startsWith("raw/observation-receipt"),
+    ),
+    false,
+  );
+  assert.equal(
+    calls.some(
+      (args) =>
+        args[0] === "api" &&
+        args.some((value) => String(value).includes("/artifacts?per_page=100")),
+    ),
+    true,
   );
   assertPrivateTree(directory);
   assert.ok(calls.some((args) => args[0] === "auth"));
@@ -1732,11 +1826,11 @@ test("capture-preview leaves no append-only capture while reconciliation is pend
   );
 });
 
-test("capture-preview rejects an event retained only by a checkpoint", () => {
+test("capture-preview recovers a compacted event from its immutable Actions artifact", () => {
   const cwd = workspace();
   runInit(cwd);
   const event = fixture("preview-event.json");
-  const routes = previewRoutes(event);
+  const routes = previewRoutes(event, { observationArtifact: true });
   const compacted = compactPreviewJournal(
     previewJournalFixture(event, "complete").journal,
   );
@@ -1753,6 +1847,158 @@ test("capture-preview rejects an event retained only by a checkpoint", () => {
       ],
     ],
   );
+  const result = runVercelCostObservation({
+    argv: ["capture-preview", "--pr", "700", "--event-run-id", "9001"],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: fakeGh(routes),
+    stdout: output().stream,
+  });
+  assert.equal(result.exitCode, 0);
+  const directory = join(observationRoot(cwd), "preview", "9001");
+  const capture = JSON.parse(
+    readFileSync(join(directory, "capture.json"), "utf8"),
+  );
+  assert.equal(
+    capture.canonicalDerivedFacts.observationReceiptSource,
+    "actions-artifact",
+  );
+  assert.ok(
+    capture.files.some(
+      (file) => file.path === "raw/observation-receipt-artifact.json",
+    ),
+  );
+  assert.ok(
+    capture.files.some((file) => file.path === "raw/observation-receipt.json"),
+  );
+});
+
+test("capture-preview prefers an immutable artifact when a later push leaves the event live", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  const event = {
+    ...fixture("preview-event.json"),
+    plan: {
+      targets: ["ui"],
+      reason: "affected-packages",
+      base: "a".repeat(40),
+      head: "b".repeat(40),
+      planner_source_sha: "a".repeat(40),
+    },
+  };
+  const settled = previewJournalFixture(event, "complete");
+  const laterEvent = {
+    ...event,
+    event_run_id: 9_003,
+    event_run_number: 503,
+    event_action: "synchronize",
+    pr_updated_at: "2026-07-29T02:00:00.000Z",
+    before_sha: event.head_sha,
+    change_base_sha: event.head_sha,
+    head_sha: "c".repeat(40),
+    plan: {
+      ...event.plan,
+      base: event.head_sha,
+      head: "c".repeat(40),
+    },
+  };
+  const advanced = reconcileState({
+    events: [event, laterEvent],
+    results: settled.journal.receipts.results,
+    selections: settled.journal.receipts.selections,
+    pullRequest: pullFromEvent(laterEvent),
+    existingState: settled.journal.state,
+    controllerUrl:
+      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/9003",
+    expectedWorkflowSha: laterEvent.trusted_base_sha,
+  });
+  assert.equal(advanced.nextDispatches.length, 1);
+  assert.equal(
+    advanced.state.targets.ui.latest_desired_sha,
+    laterEvent.head_sha,
+  );
+  const retainedLiveJournal = createPreviewJournal({
+    pr: event.pr,
+    events: [event, laterEvent],
+    selections: settled.journal.receipts.selections,
+    workerEvidence: settled.journal.receipts.worker_evidence,
+    results: settled.journal.receipts.results,
+    state: advanced.state,
+  });
+  assert.ok(
+    retainedLiveJournal.receipts.events.some(
+      (candidate) => candidate.event_run_id === event.event_run_id,
+    ),
+  );
+
+  const routes = previewRoutes(event, { observationArtifact: true });
+  routes.set(
+    "api --method GET --paginate --slurp repos/mento-protocol/frontend-monorepo/issues/700/comments?per_page=100",
+    [
+      [
+        {
+          id: 301,
+          user: { type: "Bot", login: "github-actions[bot]" },
+          body: renderPreviewJournalBody(retainedLiveJournal),
+        },
+      ],
+    ],
+  );
+  const result = runVercelCostObservation({
+    argv: ["capture-preview", "--pr", "700", "--event-run-id", "9001"],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: fakeGh(routes),
+    stdout: output().stream,
+  });
+
+  assert.equal(result.exitCode, 0);
+  const directory = join(observationRoot(cwd), "preview", "9001");
+  const capture = JSON.parse(
+    readFileSync(join(directory, "capture.json"), "utf8"),
+  );
+  assert.equal(
+    capture.canonicalDerivedFacts.observationReceiptSource,
+    "actions-artifact",
+  );
+  assert.ok(
+    capture.files.some(
+      (file) => file.path === "raw/observation-receipt-artifact.json",
+    ),
+  );
+  assert.ok(
+    capture.files.some((file) => file.path === "raw/observation-receipt.json"),
+  );
+});
+
+test("capture-preview fails closed when a compacted event has no retained artifact", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  const event = fixture("preview-event.json");
+  const routes = previewRoutes(event);
+  const compacted = compactPreviewJournal(
+    previewJournalFixture(event, "complete").journal,
+  );
+  routes.set(
+    "api --method GET --paginate --slurp repos/mento-protocol/frontend-monorepo/issues/700/comments?per_page=100",
+    [
+      [
+        {
+          id: 301,
+          user: { type: "Bot", login: "github-actions[bot]" },
+          body: renderPreviewJournalBody(compacted),
+        },
+      ],
+    ],
+  );
+  const artifactName = "vercel-preview-observation-receipt-v1-9001";
+  routes.set(
+    "api --method GET --paginate --slurp repos/mento-protocol/frontend-monorepo/actions/runs/9001/artifacts?per_page=100",
+    [{ artifacts: [] }],
+  );
+  routes.delete(
+    `run download 9001 --repo mento-protocol/frontend-monorepo --name ${artifactName} --dir`,
+  );
   assert.throws(
     () =>
       runVercelCostObservation({
@@ -1762,7 +2008,11 @@ test("capture-preview rejects an event retained only by a checkpoint", () => {
         gh: fakeGh(routes),
         stdout: output().stream,
       }),
-    /must remain in the live journal receipts/,
+    /receipt artifact is missing or ambiguous/,
+  );
+  assert.equal(
+    existsSync(join(observationRoot(cwd), "preview", "9001")),
+    false,
   );
 });
 
@@ -2347,6 +2597,13 @@ test("capture-main normalizes whole-second GitHub timestamps and records every a
     "no-target",
   );
   assert.equal(capture.canonicalDerivedFacts.githubEvidenceComplete, true);
+  assert.deepEqual(capture.unresolvedProviderFields, [
+    "publicRuntimeShaByTarget",
+    "activeDuplicateDeploymentCensus",
+    "legacyV2Health",
+    "vercelDeploymentCensus",
+    "buildCpuMinutes",
+  ]);
   assert.equal(
     capture.canonicalDerivedFacts.terminalEvidenceV3.validated,
     false,

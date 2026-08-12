@@ -455,16 +455,63 @@ jobs:
           prompt: >-
             Review the exact Dependabot pull request
             ${{ github.repository }}/pull/${{ needs.preflight.outputs.pr_number }}
-            at head ${{ needs.preflight.outputs.head_sha }}. Read the diff only
-            through GitHub APIs. Complete the review even when the update is
-            automated, small, or appears trivial. Do not make any repository,
-            pull-request, issue, review, comment, check, or workflow mutation.
+            at head ${{ needs.preflight.outputs.head_sha }}. Read the diff with
+            exactly `gh pr diff ${{ needs.preflight.outputs.pr_number }} --repo
+            ${{ github.repository }}`. The trusted PostToolUse guard delivers
+            the validated diff as one plain-text document tool result; review
+            every byte in that document. Complete the review even when the
+            update is automated, small, or appears trivial. Do not make any
+            repository, pull-request, issue, review, comment, check, or workflow mutation.
             Return the requested structured result with concrete correctness,
             security, compatibility, and test findings. A clean verdict means
             the exact diff has no actionable findings.
           allowed_bots: ${{ needs.preflight.outputs.review_actor_login }}
+          settings: |
+            {
+              "env": {
+                "BASH_MAX_OUTPUT_LENGTH": "150000",
+                "DEPENDABOT_REVIEW_PR_NUMBER": "${{ needs.preflight.outputs.pr_number }}",
+                "DEPENDABOT_REVIEW_REPOSITORY": "mento-protocol/frontend-monorepo"
+              },
+              "hooks": {
+                "PreToolUse": [{
+                  "matcher": "Bash",
+                  "hooks": [{
+                    "type": "command",
+                    "command": "node \"${{ github.workspace }}/scripts/dependabot-claude-review-tool-guard.mjs\" || exit 2",
+                    "timeout": 5
+                  }]
+                }],
+                "PostToolUse": [{
+                  "matcher": "Bash",
+                  "hooks": [{
+                    "type": "command",
+                    "command": "node \"${{ github.workspace }}/scripts/dependabot-claude-review-tool-guard.mjs\" || exit 2",
+                    "timeout": 5
+                  }]
+                }]
+              }
+            }
+          # allowedTools only auto-approves calls. Restrict availability with
+          # --tools; trusted hooks approve and receipt one exact diff read.
           claude_args: >-
+            --tools "Bash"
+            --disallowedTools "mcp__*"
+            --permission-mode dontAsk
+            --setting-sources user
+            --strict-mcp-config
             --json-schema '{"type":"object","additionalProperties":false,"required":["schema","repository","pullRequestNumber","headSha","reviewCompleted","verdict","findings"],"properties":{"schema":{"const":"dependabot-claude-review-result:v1"},"repository":{"const":"mento-protocol/frontend-monorepo"},"pullRequestNumber":{"type":"integer","minimum":1},"headSha":{"type":"string","pattern":"^[0-9a-f]{40}$"},"reviewCompleted":{"type":"boolean"},"verdict":{"enum":["clean","findings"]},"findings":{"type":"array","maxItems":20,"items":{"type":"object","additionalProperties":false,"required":["title","path","line","summary"],"properties":{"title":{"type":"string","minLength":1,"maxLength":160},"path":{"type":"string","minLength":1,"maxLength":300},"line":{"type":"integer","minimum":1},"summary":{"type":"string","minLength":1,"maxLength":1000}}}}}}'
+
+      - name: Require a completed exact diff read
+        if: ${{ always() }}
+        shell: bash
+        env:
+          DEPENDABOT_REVIEW_PR_NUMBER: ${{ needs.preflight.outputs.pr_number }}
+          DEPENDABOT_REVIEW_REPOSITORY: mento-protocol/frontend-monorepo
+        run: |
+          set -euo pipefail
+          node "$GITHUB_WORKSPACE/scripts/dependabot-claude-review-tool-guard.mjs" \
+            --verify-completion
 
   publish:
     name: dependabot-claude-review-publisher

@@ -53,6 +53,7 @@ const REPAIR_LINEAGE_COMMIT_LIMIT = 100;
 const REPAIR_LINEAGE_CHECK_CONCURRENCY = 4;
 const CHECK_SOURCE_RESOLUTION_CONCURRENCY = 8;
 const REFRESH_SUCCESSOR_POLL_ATTEMPTS = 5;
+const REFRESH_SNAPSHOT_RACE_ATTEMPTS = 5;
 const REFRESH_SUCCESSOR_POLL_INTERVAL_MS = 2_000;
 const GITHUB_WEB_FLOW_BOT_ID = 19_864_447;
 const PROCESSOR_APPROVAL_PULL_LIMIT = 100;
@@ -368,6 +369,22 @@ const RECEIPT_SOURCE_POLICY = Object.freeze({
   },
 });
 
+function checkNameRequiresWorkflowSource(name, kind) {
+  if (typeof name !== "string") return false;
+  if (
+    kind === "check" &&
+    (Object.hasOwn(RECEIPT_SOURCE_POLICY, name) ||
+      name === POST_MERGE_CHECK_NAME)
+  ) {
+    return true;
+  }
+  return CHECK_POLICY_DEFINITIONS.some(
+    (definition) =>
+      (CHECK_SOURCE_POLICY[definition.id]?.kind ?? "check") === kind &&
+      definition.names.some((pattern) => pattern.test(name)),
+  );
+}
+
 export const DEPENDABOT_PROCESSOR_HELP = `Usage:
   dependabot-processor.mjs evaluate --live --repo owner/name --pr-numbers all|1,2 [--mode observe|assist|prepare]
   dependabot-processor.mjs process --live --repo owner/name --pr-numbers all|1,2 [--mode observe|assist|prepare] [--phase request|mutate|finalize] [--publish-checks]
@@ -395,6 +412,12 @@ export const DEPENDABOT_CHECK_POLICY = Object.freeze(
 
 function invariant(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+class PullRequestSnapshotChangedError extends Error {}
+
+function snapshotInvariant(condition, message) {
+  if (!condition) throw new PullRequestSnapshotChangedError(message);
 }
 
 function exactSha(value, label = "Commit SHA") {
@@ -4106,7 +4129,7 @@ export function requireStablePullRequestSnapshot(initial, final, number) {
     SHA_PATTERN.test(initialIdentity.headSha ?? "");
   const stable =
     complete && stableJson(initialIdentity) === stableJson(finalIdentity);
-  invariant(
+  snapshotInvariant(
     stable,
     `PR #${number} changed while its exact-head snapshot was collected`,
   );
@@ -4138,7 +4161,7 @@ export function requireStableFeedbackSnapshot(initial, final, number) {
     typeof initial?.updatedAt === "string" &&
     initial.updatedAt === final?.updatedAt &&
     initial.headSha === final?.headSha;
-  invariant(
+  snapshotInvariant(
     stable,
     `PR #${number} feedback changed while its exact-head snapshot was collected`,
   );
@@ -4295,9 +4318,51 @@ export function createLiveGitHubAdapter({
     return payload.data;
   };
 
+  const workflowRunCache = new Map();
+  const normalizeWorkflowRunSource = (data) => ({
+    runDisplayTitle: data.display_title,
+    runHeadBranch: data.head_branch,
+    runConclusion:
+      typeof data.conclusion === "string"
+        ? data.conclusion.toLowerCase()
+        : null,
+    sourceRepository: data.repository?.full_name,
+    runAttempt: data.run_attempt,
+    runHeadSha: data.head_sha ?? null,
+    runId: data.id,
+    runStatus:
+      typeof data.status === "string" ? data.status.toLowerCase() : null,
+    workflowEvent: data.event,
+    workflowPath: String(data.path ?? "").replace(/@.*$/, ""),
+  });
+  const readWorkflowRunSource = (repository, runId, runAttempt = null) => {
+    const path =
+      runAttempt === null
+        ? `/repos/${repository}/actions/runs/${runId}`
+        : `/repos/${repository}/actions/runs/${runId}/attempts/${runAttempt}`;
+    return request("GET", path).then(({ data }) =>
+      normalizeWorkflowRunSource(data),
+    );
+  };
+  const cachedWorkflowRunSource = (
+    repository,
+    runId,
+    runAttempt = null,
+    { fresh = false } = {},
+  ) => {
+    if (fresh) return readWorkflowRunSource(repository, runId, runAttempt);
+    const cacheKey = `${repository}:${runId}:${runAttempt ?? "latest"}`;
+    if (!workflowRunCache.has(cacheKey)) {
+      workflowRunCache.set(
+        cacheKey,
+        readWorkflowRunSource(repository, runId, runAttempt),
+      );
+    }
+    return workflowRunCache.get(cacheKey);
+  };
+
   const getChecks = async (repository, sha) => {
     exactSha(sha);
-    const workflowRunCache = new Map();
     const receiptRunIdentity = (check) => {
       const pattern =
         check.name === PROCESSOR_CHECK_NAME
@@ -4321,39 +4386,11 @@ export function createLiveGitHubAdapter({
         runId: Number(external.at(-2)),
       };
     };
-    const normalizeWorkflowRunSource = (data) => ({
-      runDisplayTitle: data.display_title,
-      runHeadBranch: data.head_branch,
-      runConclusion:
-        typeof data.conclusion === "string"
-          ? data.conclusion.toLowerCase()
-          : null,
-      sourceRepository: data.repository?.full_name,
-      runAttempt: data.run_attempt,
-      runHeadSha: data.head_sha ?? null,
-      runId: data.id,
-      runStatus:
-        typeof data.status === "string" ? data.status.toLowerCase() : null,
-      workflowEvent: data.event,
-      workflowPath: String(data.path ?? "").replace(/@.*$/, ""),
-    });
-    const cachedWorkflowRunSource = (repository, runId, runAttempt = null) => {
-      const cacheKey = `${runId}:${runAttempt ?? "latest"}`;
-      if (!workflowRunCache.has(cacheKey)) {
-        const path =
-          runAttempt === null
-            ? `/repos/${repository}/actions/runs/${runId}`
-            : `/repos/${repository}/actions/runs/${runId}/attempts/${runAttempt}`;
-        workflowRunCache.set(
-          cacheKey,
-          request("GET", path).then(({ data }) =>
-            normalizeWorkflowRunSource(data),
-          ),
-        );
-      }
-      return workflowRunCache.get(cacheKey);
-    };
-    const workflowRunSource = async (url, check = {}) => {
+    const workflowRunSource = async (
+      url,
+      check = {},
+      { fresh = false } = {},
+    ) => {
       const match = /\/actions\/runs\/([1-9][0-9]*)/.exec(String(url ?? ""));
       const externalReceipt = receiptRunIdentity(check);
       const exactReceiptSelfUrl =
@@ -4364,7 +4401,9 @@ export function createLiveGitHubAdapter({
       if (!match && !exactReceiptSelfUrl) return null;
       const runId = Number(match?.[1] ?? externalReceipt?.runId);
       if (!Number.isSafeInteger(runId) || runId < 1) return null;
-      const latest = await cachedWorkflowRunSource(repository, runId);
+      const latest = await cachedWorkflowRunSource(repository, runId, null, {
+        fresh,
+      });
       const recordedAttempt =
         externalReceipt?.runId === runId &&
         Number.isSafeInteger(externalReceipt.runAttempt) &&
@@ -4410,13 +4449,24 @@ export function createLiveGitHubAdapter({
         isPostMergeCheck &&
         run.head_sha === sha &&
         Number(run.id) === newestPostMergeCheck?.id;
+      const requiresWorkflowSource = checkNameRequiresWorkflowSource(
+        run.name,
+        "check",
+      );
       const source =
-        !isPostMergeCheck || isSelectedPostMergeCheck
-          ? await workflowRunSource(run.details_url, {
-              externalId: run.external_id,
-              id: Number(run.id),
-              name: run.name,
-            })
+        requiresWorkflowSource &&
+        (!isPostMergeCheck || isSelectedPostMergeCheck)
+          ? await workflowRunSource(
+              run.details_url,
+              {
+                externalId: run.external_id,
+                id: Number(run.id),
+                name: run.name,
+              },
+              {
+                fresh: isSelectedPostMergeCheck,
+              },
+            )
           : null;
       return {
         ...source,
@@ -4462,7 +4512,9 @@ export function createLiveGitHubAdapter({
     return [
       ...checkRuns,
       ...(await mapWithSourceResolutionLimit(statuses, async (status) => ({
-        ...(await workflowRunSource(status.target_url)),
+        ...(checkNameRequiresWorkflowSource(status.context, "status")
+          ? await workflowRunSource(status.target_url)
+          : null),
         creatorLogin: status.creator?.login,
         conclusion: status.state,
         description: status.description,
@@ -4548,7 +4600,7 @@ export function createLiveGitHubAdapter({
         threadQueryHead = pullRequest.headRefOid;
         threadQueryUpdatedAt = pullRequest.updatedAt;
       } else {
-        invariant(
+        snapshotInvariant(
           pullRequest.headRefOid === threadQueryHead &&
             pullRequest.updatedAt === threadQueryUpdatedAt,
           `PR #${number} feedback changed during thread pagination`,
@@ -5017,7 +5069,7 @@ export function createLiveGitHubAdapter({
       getFeedback(repository, number),
     ]);
     const headSha = exactSha(raw.head.sha, "PR head SHA");
-    invariant(
+    snapshotInvariant(
       initialFeedback.headSha === headSha,
       `PR #${number} changed while feedback was collected`,
     );
@@ -6203,20 +6255,31 @@ async function processMutatePhase({ adapter, evaluation }) {
     repository: evaluation.repository,
     requestReceipt: pending.requestReceipt,
   };
-  for (
-    let attempt = 1;
-    attempt <= REFRESH_SUCCESSOR_POLL_ATTEMPTS;
-    attempt += 1
-  ) {
-    const snapshot = await adapter.collectPullRequestSnapshot(
-      evaluation.repository,
-      result.pullRequestNumber,
-    );
+  let snapshotRaceAttempts = 0;
+  for (let stablePolls = 0; stablePolls < REFRESH_SUCCESSOR_POLL_ATTEMPTS; ) {
+    let snapshot;
+    try {
+      snapshot = await adapter.collectPullRequestSnapshot(
+        evaluation.repository,
+        result.pullRequestNumber,
+      );
+    } catch (error) {
+      if (!(error instanceof PullRequestSnapshotChangedError)) {
+        throw error;
+      }
+      snapshotRaceAttempts += 1;
+      if (snapshotRaceAttempts === REFRESH_SNAPSHOT_RACE_ATTEMPTS) throw error;
+      if (typeof adapter.waitForRefreshSuccessor === "function") {
+        await adapter.waitForRefreshSuccessor();
+      }
+      continue;
+    }
+    stablePolls += 1;
     const successor = exactRefreshSuccessor(snapshot, expected);
     successorHeadSha = successor?.headSha ?? null;
     if (successor !== null) break;
     if (
-      attempt < REFRESH_SUCCESSOR_POLL_ATTEMPTS &&
+      stablePolls < REFRESH_SUCCESSOR_POLL_ATTEMPTS &&
       typeof adapter.waitForRefreshSuccessor === "function"
     ) {
       await adapter.waitForRefreshSuccessor();

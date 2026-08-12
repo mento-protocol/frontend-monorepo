@@ -175,11 +175,13 @@ pnpm vercel:cost:observe -- sample-github
 # needs more eligible pushes or has boundary-straddling work
 pnpm vercel:cost:observe -- init --start 2026-07-29T00:00:00.000Z --end 2026-08-06T00:00:00.000Z
 # Repairable GitHub gaps leave collection mutable; a clean audit preflight
-# permanently freezes this interval before writing the provider-join fragment.
+# permanently freezes this interval before writing the private evidence-join fragment.
 pnpm vercel:cost:observe -- audit --end <final-end-utc>
 
 # Test and run the private collector plus redaction-safe closeout analyzer
 pnpm vercel:cost:test
+# The analyzer uses the #523 target-mix formula only after complete baseline and
+# post deployment censuses prove zero legacy-v2, manual, or unknown attempts.
 pnpm vercel:cost:analyze --input .vercel-cost-evidence/manifest.json --format markdown
 ```
 
@@ -373,15 +375,24 @@ repairs, re-review, satisfy receipt-bound feedback, create the ruleset-required
 processor approval, and publish `Dependabot ALL CLEAR`. It never merges or
 enables native auto-merge. A maintainer performs the final squash merge.
 
-Native Dependabot heads enter through the credentialless
+Native events from the exact Dependabot bot sender enter through the credentialless
 `.github/workflows/dependabot-intake.yml`. Refresh/Repair successors enter
 through the distinct credentialless
 `.github/workflows/dependabot-prepared-head-intake.yml`, which authenticates
 the exact Prepare App bot, a bounded nine-key dispatch, and the completed
 operation receipt. `.github/workflows/dependabot-claude-review.yml` handles
-both sources without candidate checkout or execution. It reads the diff through
-GitHub APIs and emits canonical exact-head results; validated findings can feed
-a bounded repair, while reviewer infrastructure failure remains retry-first.
+both sources without candidate checkout or execution. Its read-only job
+restricts built-in tools to Bash, denies every MCP tool, and uses a trusted
+fail-closed `PreToolUse` guard to authorize one exact bound repository-scoped
+`gh pr diff` command per run attempt. A paired `PostToolUse` guard and a later
+no-token assertion require the same successful, complete foreground diff
+result. The post-hook seals the original bytes in a
+`dependabot-claude-review-tool-completed:v2` receipt, then delivers those exact
+bytes as one `text/plain` document tool result, bypassing Claude Code 2.1.220's
+30,000-character Bash text-result persistence. It emits canonical exact-head
+results; validated findings can feed a bounded repair, while a missing, failed,
+interrupted, empty, persisted/truncated, or otherwise invalid diff remains
+retry-first.
 
 The preparable tier includes verified npm updates, including grouped and major
 updates. Verified non-sensitive GitHub Actions updates may be refreshed and,

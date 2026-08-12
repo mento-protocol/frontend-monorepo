@@ -4079,6 +4079,190 @@ test("refresh preparation is split across request, mutate, and finalize phases",
   assert.equal(completedReceipt.requestDigest, digest(requestedReceipt));
 });
 
+test("refresh successor polling retries only bounded snapshot races after the ref moves", async () => {
+  const requestCheck = refreshReceiptCheck("requested");
+  const pending = staleSnapshot();
+  pending.repairHistoryChecks = [requestCheck];
+  const stableFeedback = {
+    digest: "a".repeat(64),
+    headSha: OTHER_SHA,
+    updatedAt: "2026-08-12T09:58:00Z",
+  };
+  let reads = 0;
+  let waits = 0;
+  const result = await processDependabotSweep({
+    adapter: {
+      collectPullRequestSnapshot: async () => {
+        reads += 1;
+        if (reads === 1) {
+          requireStableFeedbackSnapshot(
+            stableFeedback,
+            { ...stableFeedback, digest: "b".repeat(64) },
+            123,
+          );
+        }
+        return refreshedSnapshot({ repairHistoryChecks: [requestCheck] });
+      },
+      requestPullRequestUpdateBranch: async () => {},
+      waitForRefreshSuccessor: async () => {
+        waits += 1;
+      },
+    },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [pending],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "mutate",
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(reads, 2);
+  assert.equal(waits, 1);
+  assert.deepEqual(result.mutations, [
+    {
+      headSha: HEAD_SHA,
+      kind: "refresh-update-requested",
+      pullRequestNumber: 123,
+      requestCheckId: requestCheck.id,
+      requestDigest: digest(JSON.parse(requestCheck.outputText)),
+      successorHeadSha: OTHER_SHA,
+    },
+  ]);
+
+  reads = 0;
+  waits = 0;
+  const slowSuccessor = await processDependabotSweep({
+    adapter: {
+      collectPullRequestSnapshot: async () => {
+        reads += 1;
+        if (reads <= 4) return pending;
+        if (reads === 5) {
+          requireStableFeedbackSnapshot(
+            stableFeedback,
+            { ...stableFeedback, digest: "b".repeat(64) },
+            123,
+          );
+        }
+        return refreshedSnapshot({ repairHistoryChecks: [requestCheck] });
+      },
+      requestPullRequestUpdateBranch: async () => {},
+      waitForRefreshSuccessor: async () => {
+        waits += 1;
+      },
+    },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [pending],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "mutate",
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(reads, 6);
+  assert.equal(waits, 5);
+  assert.equal(
+    slowSuccessor.mutations[0].successorHeadSha,
+    OTHER_SHA,
+    "old-head polls must not consume the separate snapshot-race budget",
+  );
+
+  reads = 0;
+  waits = 0;
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        collectPullRequestSnapshot: async () => {
+          reads += 1;
+          requireStableFeedbackSnapshot(
+            stableFeedback,
+            { ...stableFeedback, updatedAt: `2026-08-12T09:58:0${reads}Z` },
+            123,
+          );
+        },
+        requestPullRequestUpdateBranch: async () => {},
+        waitForRefreshSuccessor: async () => {
+          waits += 1;
+        },
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [pending],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "mutate",
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /feedback changed while its exact-head snapshot was collected/,
+  );
+  assert.equal(reads, 5);
+  assert.equal(waits, 4);
+
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        collectPullRequestSnapshot: async () => {
+          throw new Error("GitHub API unavailable");
+        },
+        requestPullRequestUpdateBranch: async () => {},
+        waitForRefreshSuccessor: async () =>
+          assert.fail("arbitrary failures must not be retried"),
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [pending],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "mutate",
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /GitHub API unavailable/,
+  );
+
+  const badSuccessor = refreshedSnapshot({
+    repairHistoryChecks: [requestCheck],
+  });
+  badSuccessor.commits.at(-1).parents = [HEAD_SHA];
+  reads = 0;
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        collectPullRequestSnapshot: async () => {
+          reads += 1;
+          if (reads === 1) {
+            requireStableFeedbackSnapshot(
+              stableFeedback,
+              { ...stableFeedback, digest: "b".repeat(64) },
+              123,
+            );
+          }
+          return badSuccessor;
+        },
+        requestPullRequestUpdateBranch: async () => {},
+        waitForRefreshSuccessor: async () => {},
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [pending],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "mutate",
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /refresh commit parents are invalid/,
+  );
+  assert.equal(reads, 2);
+});
+
 test("refresh request rejects a recorded base that differs from the compare merge base", async () => {
   const stale = staleSnapshot();
   stale.pullRequest.base.sha = OTHER_SHA;
@@ -5275,6 +5459,7 @@ test("live approval dismissal is idempotent when GitHub already dismissed the re
 });
 
 test("live check collection binds a check to its queried workflow repository", async () => {
+  let workflowRunReads = 0;
   const fetchImpl = async (url) => {
     if (url.includes(`/repos/${REPOSITORY}/commits/${HEAD_SHA}/check-runs`)) {
       return new Response(
@@ -5297,6 +5482,7 @@ test("live check collection binds a check to its queried workflow repository", a
       );
     }
     if (url.endsWith(`/repos/${REPOSITORY}/actions/runs/99`)) {
+      workflowRunReads += 1;
       return new Response(
         JSON.stringify({
           event: "pull_request",
@@ -5324,11 +5510,151 @@ test("live check collection binds a check to its queried workflow repository", a
     repository: REPOSITORY,
   });
   assert.equal(result.policy.find(({ id }) => id === "ci").state, "passing");
+  assert.equal(workflowRunReads, 1);
+});
+
+test("live check collection skips workflow-run reads for irrelevant checks and statuses", async () => {
+  const fetchImpl = async (url) => {
+    if (url.includes(`/repos/${REPOSITORY}/commits/${HEAD_SHA}/check-runs`)) {
+      return new Response(
+        JSON.stringify({
+          check_runs: [
+            {
+              app: { id: 15_368 },
+              completed_at: "2026-08-10T00:01:00Z",
+              conclusion: "success",
+              details_url: `https://github.com/${REPOSITORY}/actions/runs/101`,
+              head_sha: HEAD_SHA,
+              id: 102,
+              name: "Trunk Check",
+              started_at: "2026-08-10T00:00:00Z",
+              status: "completed",
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes(`/repos/${REPOSITORY}/commits/${HEAD_SHA}/statuses`)) {
+      return new Response(
+        JSON.stringify([
+          {
+            context: "argos/summary",
+            creator: { login: "github-actions[bot]" },
+            id: 103,
+            state: "success",
+            target_url: `https://github.com/${REPOSITORY}/actions/runs/104`,
+            updated_at: "2026-08-10T00:01:00Z",
+          },
+        ]),
+        { status: 200 },
+      );
+    }
+    assert.fail(`Irrelevant evidence must not fetch its workflow run: ${url}`);
+  };
+  const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
+  const checks = await adapter.getChecks(REPOSITORY, HEAD_SHA);
+
+  assert.deepEqual(
+    checks.map(({ name, runId, sourceRepository, workflowPath }) => ({
+      name,
+      runId,
+      sourceRepository,
+      workflowPath,
+    })),
+    [
+      {
+        name: "Trunk Check",
+        runId: undefined,
+        sourceRepository: undefined,
+        workflowPath: undefined,
+      },
+      {
+        name: "argos/summary",
+        runId: undefined,
+        sourceRepository: undefined,
+        workflowPath: undefined,
+      },
+    ],
+  );
+});
+
+test("live check collection caches relevant workflow provenance across repeated collections", async () => {
+  let checkReads = 0;
+  let workflowRunReads = 0;
+  const fetchImpl = async (url) => {
+    if (url.includes(`/repos/${REPOSITORY}/commits/${HEAD_SHA}/check-runs`)) {
+      checkReads += 1;
+      return new Response(
+        JSON.stringify({
+          check_runs: [
+            {
+              app: { id: 15_368 },
+              completed_at: "2026-08-10T00:01:00Z",
+              conclusion: "success",
+              details_url: `https://github.com/${REPOSITORY}/actions/runs/105`,
+              head_sha: HEAD_SHA,
+              id: 106,
+              name: "Build and Test",
+              started_at: "2026-08-10T00:00:00Z",
+              status: "completed",
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.endsWith(`/repos/${REPOSITORY}/actions/runs/105`)) {
+      workflowRunReads += 1;
+      return new Response(
+        JSON.stringify({
+          conclusion: "success",
+          event: "pull_request",
+          head_branch: "dependabot/test",
+          head_sha: HEAD_SHA,
+          id: 105,
+          path: ".github/workflows/ci.yml",
+          repository: { full_name: REPOSITORY },
+          run_attempt: 1,
+          status: "completed",
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes(`/repos/${REPOSITORY}/commits/${HEAD_SHA}/statuses`)) {
+      return new Response(JSON.stringify([]), { status: 200 });
+    }
+    assert.fail(`Unexpected request: ${url}`);
+  };
+  const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
+
+  for (let collection = 0; collection < 2; collection += 1) {
+    const [check] = await adapter.getChecks(REPOSITORY, HEAD_SHA);
+    assert.equal(check.runId, 105);
+    assert.equal(check.sourceRepository, REPOSITORY);
+    assert.equal(check.workflowPath, ".github/workflows/ci.yml");
+  }
+  assert.equal(checkReads, 2);
+  assert.equal(workflowRunReads, 1);
 });
 
 test("live check collection bounds concurrent workflow-run enrichment for checks and statuses", async () => {
   const checkCount = 12;
   const statusCount = 12;
+  const relevantCheckNames = [
+    "Build and Test",
+    "Action Pin Policy",
+    "Action Pin Policy Source",
+    "dependency-review",
+    "osv-scanner / osv-scan",
+    "osv-scanner (trusted pnpm runtime) / osv-scan",
+    "osv-scanner (standalone Vercel CLI runtime) / osv-scan",
+    "osv-scanner (trusted pnpm bootstrap) / osv-scan",
+    "lockfile integrity + registry",
+    "catalog version-skew",
+    "coverage and production bundles",
+    "E2E Plan",
+  ];
   const firstWorkflowRunId = 31_471_141_700;
   const firstStatusWorkflowRunId = firstWorkflowRunId + checkCount;
   let activeWorkflowRunGets = 0;
@@ -5360,7 +5686,7 @@ test("live check collection bounds concurrent workflow-run enrichment for checks
               details_url: `https://github.com/${REPOSITORY}/actions/runs/${workflowRunId}`,
               head_sha: HEAD_SHA,
               id: 93_713_691_500 + index,
-              name: `Workflow-backed check ${index}`,
+              name: relevantCheckNames[index],
               started_at: "2026-08-11T08:23:59Z",
               status: "completed",
             };
@@ -5401,7 +5727,7 @@ test("live check collection bounds concurrent workflow-run enrichment for checks
           Array.from({ length: statusCount }, (_, index) => {
             const workflowRunId = firstStatusWorkflowRunId + index;
             return {
-              context: `Workflow-backed status ${index}`,
+              context: "Vercel Preview",
               creator: { login: "github-actions[bot]" },
               id: 93_713_691_600 + index,
               state: "success",
@@ -5493,7 +5819,7 @@ test("live typed receipt enrichment preserves historical attempts without cache 
               details_url: `https://github.com/${REPOSITORY}/actions/runs/${workflowRunId}`,
               head_sha: HEAD_SHA,
               id: 93_713_691_752,
-              name: "Current workflow-backed check",
+              name: "Build and Test",
               started_at: "2026-08-11T08:25:59Z",
               status: "completed",
             },
@@ -5565,8 +5891,6 @@ test("live typed receipt enrichment preserves historical attempts without cache 
     );
   }
   assert.deepEqual(requestedRunPaths, [
-    `/repos/${REPOSITORY}/actions/runs/${workflowRunId}`,
-    `/repos/${REPOSITORY}/actions/runs/${workflowRunId}/attempts/1`,
     `/repos/${REPOSITORY}/actions/runs/${workflowRunId}`,
     `/repos/${REPOSITORY}/actions/runs/${workflowRunId}/attempts/1`,
   ]);

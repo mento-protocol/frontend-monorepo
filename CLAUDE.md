@@ -46,13 +46,13 @@ pnpm dependabot:process -- evaluate --input path/to/snapshot.json --mode observe
 pnpm dependabot:process:test         # Test Dependabot policy, CLI, and trusted-workflow contracts
 pnpm adr:check                       # Advisory reminder for new architecture-significant workflows/workspaces
 pnpm adr:check:test                  # Test the offline ADR trigger and repository wiring
-pnpm vercel:cost:test                # Test private GitHub evidence capture plus redacted cost normalization and closeout gates
+pnpm vercel:cost:test                # Test private GitHub capture plus zero-exclusion target-mix normalization and closeout gates
 pnpm vercel:cost:observe -- init --start <UTC> --end <UTC>  # Initialize, or append a later pre-audit end to, the private #523 GitHub interval
-pnpm vercel:cost:observe -- capture-preview --pr <number> --event-run-id <id>  # Freeze one preview event before journal compaction
+pnpm vercel:cost:observe -- capture-preview --pr <number> --event-run-id <id>  # Freeze one preview event from the live journal or its 14-day receipt artifact
 pnpm vercel:cost:observe -- capture-main --run-id <id>  # Freeze every attempt, log, and available journal for one main release
 pnpm vercel:cost:observe -- sample-github  # Snapshot visibility, runs, runner labels, caches, and artifacts
-pnpm vercel:cost:observe -- audit --end <UTC>  # Preflight GitHub evidence; once clean, freeze and emit the incomplete provider-join fragment
-pnpm vercel:cost:analyze --input <private-evidence-manifest.json> --format markdown  # Reconcile raw private #523 evidence into a public-safe report
+pnpm vercel:cost:observe -- audit --end <UTC>  # Preflight GitHub evidence; once clean, freeze and emit the incomplete private evidence-join fragment
+pnpm vercel:cost:analyze --input <private-evidence-manifest.json> --format markdown  # Reconcile FOCUS project totals only after complete zero-exclusion censuses
 trunk check --fix                     # Lint with autofix
 trunk fmt                             # Format
 pnpm test                            # Run tests
@@ -168,8 +168,8 @@ case, and whitespace variants become `observe`. No processor path merges or
 enables auto-merge. A maintainer clicks Merge only while the exact head carries
 a successful `Dependabot ALL CLEAR` receipt.
 
-`.github/workflows/dependabot-intake.yml` remains the credentialless
-Dependabot-authored v1 event boundary. A Refresh or Repair successor uses
+`.github/workflows/dependabot-intake.yml` remains the credentialless v1 event
+boundary for exact Dependabot-bot senders. A Refresh or Repair successor uses
 `.github/workflows/dependabot-prepared-head-intake.yml`, whose strict
 `dependabot-prepared-head` repository dispatch accepts only the configured
 Prepare App bot ID/login, exact App slug, nine-key payload, and a completed
@@ -186,9 +186,18 @@ the exact-workflow-SHA `scripts/dependabot-prepared-review.mjs` helper fetches
 and validates canonical Refresh/Repair checks, terminal Actions run provenance,
 append-only parents, exact Prepare App bot repair commits, and the verified
 Dependabot seed. The read-only Claude job checks out only
-`github.workflow_sha`, reads candidate data through GitHub APIs, and never
-checks out, caches, installs, downloads, or executes candidate input. The
-publisher is isolated from the Claude secret. It writes canonical structured
+`github.workflow_sha`. It restricts built-in tools to Bash, denies every MCP
+tool, and uses a trusted fail-closed `PreToolUse` guard to authorize one exact
+bound repository-scoped `gh pr diff` command per run attempt. `dontAsk` mode
+and the guard block every other Bash call. A paired `PostToolUse` guard and a
+later no-token assertion require the same successful, complete foreground diff
+result. The post-hook seals the original bytes in a
+`dependabot-claude-review-tool-completed:v2` receipt, then delivers those exact
+bytes as one `text/plain` document tool result, bypassing Claude Code 2.1.220's
+30,000-character Bash text-result persistence. Missing, failed, interrupted,
+empty, or persisted/truncated output is retry-first. The job never checks out,
+caches, installs, downloads, or executes candidate input. The publisher is isolated
+from the Claude secret. It writes canonical structured
 JSON to the exact-head `claude-review` check: validated `findings` are
 deterministic repair input, while an infrastructure or invalid-schema failure is
 retry-first. Human PRs continue to report `claude-review-human`.

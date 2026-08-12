@@ -3,14 +3,14 @@ title: A trusted controller prepares exact-head Dependabot pull requests for hum
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 scope: ci/dependabot-processing
 date: 2026-08-10
 ---
 
 # ADR 0006 — A trusted controller prepares exact-head Dependabot pull requests for human merge
 
-**Status:** Accepted, amended Aug 11 2026
+**Status:** Accepted, amended Aug 12 2026
 **Scope:** ci/dependabot-processing
 
 ## Context
@@ -66,8 +66,9 @@ CLEAR head.
 
 `.github/workflows/dependabot-intake.yml` remains the credentialless
 `dependabot-intake:v1` `pull_request_target` boundary. It accepts only the
-strict repository-owned Dependabot branch/head/base event and gains no token,
-secret, checkout, API, artifact, or dispatch capability.
+strict repository-owned Dependabot branch/head/base event from the exact
+Dependabot bot sender and gains no token, secret, checkout, API, artifact, or
+dispatch capability.
 
 `.github/workflows/dependabot-prepared-head-intake.yml` is a second
 credentialless boundary. It accepts only a
@@ -106,13 +107,24 @@ For prepared heads, the workflow materializes
   committer match the live configured App bot ID/login; and
 - a bounded operation chain rooted in a verified Dependabot seed.
 
-The Claude job checks out only the trusted workflow source, reads the candidate
-through GitHub APIs, and never restores candidate artifacts/caches, installs
+The Claude job checks out only the trusted workflow source. It restricts
+built-in tools to Bash, denies every MCP tool, and runs in `dontAsk` mode. A
+trusted `PreToolUse` guard authorizes one exact bound repository-scoped
+`gh pr diff` command per workflow run attempt and blocks every other Bash call.
+A paired `PostToolUse` guard validates the same successful, complete foreground
+diff result, seals the original bytes in a
+`dependabot-claude-review-tool-completed:v2` receipt, and replaces the
+model-visible Bash result with one `text/plain` document containing those exact
+bytes. This document path bypasses Claude Code 2.1.220's 30,000-character
+text-result persistence, which would otherwise leave the restricted reviewer a
+short persisted preview it cannot reopen. A later no-token step requires the v2
+receipt. Missing, failed, interrupted, empty, or persisted/truncated output is
+retry-first. The job never restores candidate artifacts/caches, installs
 candidate dependencies, or executes candidate code. Its bot allowlist is the
-exact Dependabot login plus exact Prepare App bot login. The no-secret publisher
-writes canonical `dependabot-claude-review-result:v1` JSON for both clean and
-findings verdicts. A valid findings result is deterministic repair input; an
-Action, provider, schema, or infrastructure failure is retry-first.
+exact Dependabot login plus exact Prepare App bot login. The no-secret publisher writes canonical
+`dependabot-claude-review-result:v1` JSON for both clean and findings verdicts.
+A valid findings result is deterministic repair input; an Action, provider,
+schema, or infrastructure failure is retry-first.
 
 ### Preparation eligibility is broader than automatic eligibility
 
@@ -235,6 +247,12 @@ force-push, rebase, missing receipt, reordered history, ambiguous receipt, or
 third repair fails closed rather than resetting the budget.
 
 ### Receipts are canonical, typed, and run-bound
+
+The collector resolves Actions workflow provenance only for exact configured
+gate and receipt names. Unrelated checks and statuses remain non-authorizing raw
+evidence. It caches each exact repository/run/attempt lookup within one
+processor job to bound installation API use, while the selected post-merge gate
+always gets a fresh run read.
 
 Authority-bearing checks use exact recursively key-sorted compact JSON and
 SHA-256 of those bytes. External IDs are indexes, not independent authority.
