@@ -131,6 +131,48 @@ test("sensitive Actions updates stay out of the routine Dependabot group", () =>
   }
 });
 
+test("npm groups give every dependency exactly one home", () => {
+  const config = parse(read(".github/dependabot.yml"), { uniqueKeys: true });
+  const npmConfig = config.updates.find(
+    (update) => update["package-ecosystem"] === "npm",
+  );
+  const enumeratedGroups = ["frontend-core", "web3-stack", "ui-styling"];
+  const productionMisc = npmConfig.groups["production-misc"];
+  assert.deepEqual(productionMisc.patterns, ["*"]);
+
+  // The production-misc catch-all must exclude every pattern an enumerated
+  // group owns; otherwise one dependency could ride two grouped PRs, and a
+  // web3-stack package could reach a routine batch instead of arriving as a
+  // focused wallet/bridge review.
+  for (const groupName of enumeratedGroups) {
+    for (const pattern of npmConfig.groups[groupName].patterns) {
+      assert.ok(
+        productionMisc["exclude-patterns"].includes(pattern),
+        `${groupName} pattern ${pattern} must be excluded from production-misc`,
+      );
+    }
+  }
+  const ownedPatterns = enumeratedGroups.flatMap(
+    (groupName) => npmConfig.groups[groupName].patterns,
+  );
+  for (const pattern of productionMisc["exclude-patterns"]) {
+    assert.ok(
+      ownedPatterns.includes(pattern),
+      `production-misc excludes ${pattern}, which no enumerated group owns`,
+    );
+  }
+
+  // Majors arrive only as deliberate maintenance work, never as unsolicited
+  // PRs — and only through the wildcard so no package can slip past an
+  // enumerated list.
+  assert.deepEqual(npmConfig.ignore, [
+    {
+      "dependency-name": "*",
+      "update-types": ["version-update:semver-major"],
+    },
+  ]);
+});
+
 test("embedded workflow JavaScript parses before GitHub executes it", () => {
   const expectedModuleCounts = new Map([
     [processorPath, 3],

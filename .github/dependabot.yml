@@ -13,7 +13,10 @@ updates:
       default-days: 7
       semver-major-days: 21
       semver-minor-days: 7
-      semver-patch-days: 3
+      # Patch cooldown matches minor: with processor-prepared one-click
+      # merges, the cooldown window is the main compensating control against
+      # a malicious release that gets yanked days after publication.
+      semver-patch-days: 7
 
     open-pull-requests-limit: 5
 
@@ -39,16 +42,34 @@ updates:
           - minor
           - patch
 
+      # Wallet, transaction, signing, and bridge packages: the highest-value
+      # supply-chain target in a DeFi frontend. Isolating them here keeps
+      # them out of the routine grouped batches, so their updates always
+      # arrive as a focused PR that gets undivided human review.
       web3-stack:
         applies-to: version-updates
         patterns:
           - wagmi
           - viem
+          - viem-*
           - "@wagmi/*"
           - "@rainbow-me/*"
           - "@metamask/*"
           - ethers
-          - "@mento-protocol/mento-sdk"
+          - ethers-*
+          - "@mento-protocol/*"
+          - "@wormhole-foundation/*"
+          - "@solana/*"
+          - "@walletconnect/*"
+          - "@reown/*"
+          - "@celo/*"
+          - "@ledgerhq/*"
+          - "@trezor/*"
+          - "@safe-global/*"
+          - "@noble/*"
+          - "@scure/*"
+          - "*wallet*"
+          - "*web3*"
         update-types:
           - minor
           - patch
@@ -58,6 +79,58 @@ updates:
         patterns:
           - tailwindcss
           - "@tailwindcss/*"
+          - "@radix-ui/*"
+          - postcss
+          - lucide-react
+          - next-themes
+          - react-hook-form
+          - sonner
+          - jotai
+          - zod
+        update-types:
+          - minor
+          - patch
+
+      # Catch-all so ungrouped production stragglers arrive as one monthly PR
+      # instead of one PR each. Excludes every pattern already owned by a
+      # group above so each dependency has exactly one home.
+      production-misc:
+        applies-to: version-updates
+        dependency-type: production
+        patterns:
+          - "*"
+        exclude-patterns:
+          - next
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
+          - "@t3-oss/env-nextjs"
+          - "@vercel/*"
+          - wagmi
+          - viem
+          - viem-*
+          - "@wagmi/*"
+          - "@rainbow-me/*"
+          - "@metamask/*"
+          - ethers
+          - ethers-*
+          - "@mento-protocol/*"
+          - "@wormhole-foundation/*"
+          - "@solana/*"
+          - "@walletconnect/*"
+          - "@reown/*"
+          - "@celo/*"
+          - "@ledgerhq/*"
+          - "@trezor/*"
+          - "@safe-global/*"
+          - "@noble/*"
+          - "@scure/*"
+          - "*wallet*"
+          - "*web3*"
+          - tailwindcss
+          - "@tailwindcss/*"
+          - "@radix-ui/*"
           - postcss
           - lucide-react
           - next-themes
@@ -81,27 +154,15 @@ updates:
         applies-to: security-updates
         dependency-type: development
 
-    # Handle high-blast-radius major upgrades intentionally.
+    # Handle ALL major upgrades intentionally, as a scheduled maintenance
+    # task, not as unsolicited PRs. The previous enumerated list let
+    # unlisted majors through (e.g. lucide-react 0.x -> 1.x). Note this also
+    # covers devDependency majors, and that Dependabot security updates
+    # respect this ignore — a security fix shipped only in a new major
+    # surfaces through the required osv-scanner gate instead, which is the
+    # authoritative vulnerability signal in this repository.
     ignore:
-      - dependency-name: next
-        update-types: [version-update:semver-major]
-      - dependency-name: react
-        update-types: [version-update:semver-major]
-      - dependency-name: react-dom
-        update-types: [version-update:semver-major]
-      - dependency-name: typescript
-        update-types: [version-update:semver-major]
-      - dependency-name: wagmi
-        update-types: [version-update:semver-major]
-      - dependency-name: viem
-        update-types: [version-update:semver-major]
-      - dependency-name: "@tanstack/react-query"
-        update-types: [version-update:semver-major]
-      - dependency-name: tailwindcss
-        update-types: [version-update:semver-major]
-      - dependency-name: "@rainbow-me/rainbowkit"
-        update-types: [version-update:semver-major]
-      - dependency-name: turbo
+      - dependency-name: "*"
         update-types: [version-update:semver-major]
 
   # GitHub Actions
