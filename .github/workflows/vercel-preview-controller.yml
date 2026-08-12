@@ -66,6 +66,7 @@ jobs:
       change_base_sha: ${{ steps.snapshot.outputs.change_base_sha }}
       head_sha: ${{ steps.snapshot.outputs.head_sha }}
       trust: ${{ steps.snapshot.outputs.trust }}
+      observation_receipt_required: ${{ steps.snapshot.outputs.observation_receipt_required }}
       plan_required: ${{ steps.snapshot.outputs.plan_required }}
     steps:
       - name: Check out trusted controller
@@ -257,6 +258,120 @@ jobs:
               prNumber: process.env.PR_NUMBER,
               workflowSha: process.env.WORKFLOW_SHA,
             });
+
+  publish-observation-receipt:
+    name: Retain immutable preview observation receipt
+    needs: [snapshot-event, receipt-event, reconcile-event]
+    if: >-
+      always() &&
+      needs.snapshot-event.result == 'success' &&
+      needs.receipt-event.result == 'success' &&
+      needs.reconcile-event.result == 'success' &&
+      needs.snapshot-event.outputs.observation_receipt_required == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out trusted controller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Materialize the settled event receipt graph
+        id: materialize
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          EVENT_RUN_ID: ${{ github.run_id }}
+          PR_NUMBER: ${{ needs.receipt-event.outputs.pr_number }}
+        with:
+          script: |
+            const { writeFile } = require("node:fs/promises");
+            const { pathToFileURL } = require("node:url");
+            const moduleUrl = pathToFileURL(
+              `${process.env.GITHUB_WORKSPACE}/controller/scripts/vercel-preview-controller.mjs`,
+            );
+            const {
+              createPreviewObservationReceipt,
+              selectPreviewObservationArtifact,
+            } = await import(moduleUrl.href);
+            const artifacts = await github.paginate(
+              github.rest.actions.listWorkflowRunArtifacts,
+              {
+                ...context.repo,
+                run_id: Number(process.env.EVENT_RUN_ID),
+                per_page: 100,
+              },
+            );
+            if (selectPreviewObservationArtifact(artifacts, process.env.EVENT_RUN_ID)) {
+              core.setOutput("upload_required", "false");
+              return;
+            }
+            const marker = "<!-- vercel-preview-journal:v2 -->";
+            let commentId = null;
+            let receipt = null;
+            for (let attempt = 0; attempt < 180; attempt += 1) {
+              let comment;
+              if (commentId === null) {
+                const comments = await github.paginate(github.rest.issues.listComments, {
+                  ...context.repo,
+                  issue_number: Number(process.env.PR_NUMBER),
+                  per_page: 100,
+                });
+                const matches = comments.filter((candidate) =>
+                  candidate.user?.login === "github-actions[bot]" &&
+                  typeof candidate.body === "string" &&
+                  candidate.body.startsWith(marker),
+                );
+                if (matches.length !== 1) throw new Error("Canonical preview journal is missing or ambiguous");
+                comment = matches[0];
+                commentId = comment.id;
+              } else {
+                const response = await github.rest.issues.getComment({
+                  ...context.repo,
+                  comment_id: commentId,
+                });
+                comment = response.data;
+                if (
+                  comment.user?.login !== "github-actions[bot]" ||
+                  typeof comment.body !== "string" ||
+                  !comment.body.startsWith(marker)
+                ) {
+                  throw new Error("Canonical preview journal identity changed");
+                }
+              }
+              const json = comment.body.match(/```json\n([\s\S]+)\n```/);
+              if (!json) throw new Error("Canonical preview journal JSON is missing");
+              receipt = createPreviewObservationReceipt(
+                JSON.parse(json[1]),
+                process.env.EVENT_RUN_ID,
+              );
+              if (receipt !== null) break;
+              if (attempt === 179) {
+                throw new Error("Preview observation event did not settle before the retention deadline");
+              }
+              await new Promise((resolve) => setTimeout(resolve, 15_000));
+            }
+            await writeFile(
+              `${process.env.RUNNER_TEMP}/preview-observation-receipt.json`,
+              `${JSON.stringify(receipt, null, 2)}\n`,
+              { mode: 0o600 },
+            );
+            core.setOutput("upload_required", "true");
+
+      - name: Upload the immutable event receipt graph
+        if: steps.materialize.outputs.upload_required == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vercel-preview-observation-receipt-v1-${{ github.run_id }}
+          path: ${{ runner.temp }}/preview-observation-receipt.json
+          if-no-files-found: error
+          retention-days: 14
 
   snapshot-bootstrap:
     name: Snapshot requested bootstrap

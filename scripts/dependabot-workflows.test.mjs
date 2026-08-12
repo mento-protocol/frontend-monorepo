@@ -1,12 +1,16 @@
 /* eslint-disable turbo/no-undeclared-env-vars -- The Bash-validator harness preserves the host executable search path. */
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { Buffer } from "node:buffer";
+import { spawn, spawnSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -38,18 +42,29 @@ function dependabotPatternMatches(pattern, dependency) {
 }
 
 const intakePath = ".github/workflows/dependabot-intake.yml";
+const preparedIntakePath =
+  ".github/workflows/dependabot-prepared-head-intake.yml";
 const processorPath = ".github/workflows/dependabot-process.yml";
+const repairPath = ".github/workflows/dependabot-prepare-repair.yml";
+const preparedDispatchPath =
+  ".github/workflows/dependabot-prepared-head-dispatch.yml";
 const dependabotReviewPath = ".github/workflows/dependabot-claude-review.yml";
 const humanReviewPath = ".github/workflows/claude-code-review.yml";
+const dependabotReviewToolGuardPath = fileURLToPath(
+  new URL("./dependabot-claude-review-tool-guard.mjs", import.meta.url),
+);
 const intake = workflow(intakePath);
 const processor = workflow(processorPath);
+const repair = workflow(repairPath);
+const preparedDispatch = workflow(preparedDispatchPath);
 const dependabotReview = workflow(dependabotReviewPath);
 const humanReview = workflow(humanReviewPath);
 
 const claudeAction =
   "anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b";
-const claudePluginMarketplace =
-  "https://github.com/anthropics/claude-code.git#2bb60696142b493eafaeacfe00eac51d16c50c4f";
+const claudePluginMarketplace = "./.claude-code-plugin-marketplace";
+const claudeCodeReviewPlugin = `${claudePluginMarketplace}/plugins/code-review`;
+const claudePluginMarketplaceRef = "2bb60696142b493eafaeacfe00eac51d16c50c4f";
 
 const forbiddenCandidateSurfaces =
   /actions\/(?:download-artifact|upload-artifact|cache)@|cache-dependency-path|gh pr checkout|git (?:checkout|switch|fetch)|node_modules|pnpm install|npm (?:ci|install)|yarn install/;
@@ -118,8 +133,10 @@ test("sensitive Actions updates stay out of the routine Dependabot group", () =>
 
 test("embedded workflow JavaScript parses before GitHub executes it", () => {
   const expectedModuleCounts = new Map([
-    [processorPath, 2],
-    [dependabotReviewPath, 5],
+    [processorPath, 3],
+    [dependabotReviewPath, 6],
+    [preparedIntakePath, 1],
+    [repairPath, 2],
   ]);
   for (const [path, expectedCount] of expectedModuleCounts) {
     const modules = [
@@ -154,7 +171,7 @@ function runBashStep(step, env, eventPayload) {
         PATH: process.env.PATH,
         GITHUB_OUTPUT: githubOutput,
         ...env,
-        ...(eventPayload === undefined ? {} : { EVENT_PATH: eventPath }),
+        ...(eventPayload === undefined ? {} : { GITHUB_EVENT_PATH: eventPath }),
       },
     });
     return {
@@ -173,6 +190,7 @@ function liveIntakeEnvironment(overrides = {}) {
   return {
     DEFAULT_BRANCH: "main",
     INTAKE_ACTOR_LOGIN: "dependabot[bot]",
+    INTAKE_ACTOR_ID: "49699333",
     INTAKE_ACTOR_TYPE: "Bot",
     INTAKE_CONCLUSION: "success",
     INTAKE_EVENT: "pull_request_target",
@@ -193,6 +211,11 @@ function liveIntakeEnvironment(overrides = {}) {
     INTAKE_TITLE: `dependabot-intake:v1 | repository=mento-protocol/frontend-monorepo | pr=701 | sha=${headSha} | action=synchronize | receipt=true`,
     INTAKE_TRIGGERING_ACTOR_LOGIN: "dependabot[bot]",
     INTAKE_TRIGGERING_ACTOR_TYPE: "Bot",
+    INTAKE_STATUS: "completed",
+    INTAKE_RUN_ATTEMPT: "1",
+    INTAKE_RUN_ID: "123456789",
+    EXPECTED_PREPARE_BOT_ID: "123456",
+    EXPECTED_PREPARE_BOT_LOGIN: "mento-dependabot-prepare[bot]",
     REPOSITORY: "mento-protocol/frontend-monorepo",
     ...overrides,
   };
@@ -240,6 +263,9 @@ test("intake is an exact credentialless metadata receipt", () => {
   assert.equal(job.steps.length, 1);
   assert.equal(Object.hasOwn(job.steps[0], "uses"), false);
   assert.match(job.if, /dependabot\[bot\].*dependabot\//s);
+  assert.match(job.if, /github\.event\.sender\.login.*dependabot\[bot\]/s);
+  assert.match(job.if, /github\.event\.sender\.id.*49699333/s);
+  assert.match(job.if, /github\.event\.sender\.type.*Bot/s);
   assert.deepEqual(Object.keys(job.steps[0].env).sort(), [
     "ACTION",
     "AUTHOR",
@@ -250,15 +276,25 @@ test("intake is an exact credentialless metadata receipt", () => {
     "HEAD_SHA",
     "PR_NUMBER",
     "REPOSITORY",
+    "SENDER_ID",
+    "SENDER_LOGIN",
+    "SENDER_TYPE",
   ]);
   assert.match(job.steps[0].run, /mento-protocol\/frontend-monorepo/);
   assert.match(job.steps[0].run, /dependabot\[bot\]/);
+  assert.match(job.steps[0].run, /SENDER_ID.*49699333/);
+  assert.match(job.steps[0].run, /SENDER_LOGIN.*dependabot\[bot\]/);
+  assert.match(job.steps[0].run, /SENDER_TYPE.*Bot/);
   assert.match(job.steps[0].run, /HEAD_REPOSITORY.*REPOSITORY/);
   assert.match(job.steps[0].run, /DEFAULT_BRANCH.*main/);
   assert.match(job.steps[0].run, /BASE_REF.*main/);
   assert.match(job.steps[0].run, /HEAD_REF.*dependabot\/\*/);
   assert.match(job.steps[0].run, /\[0-9a-f\]\{40\}/);
   assert.match(job.steps[0].run, /opened\|synchronize\|reopened/);
+  assert.match(
+    intake["run-name"],
+    /github\.event\.sender\.login.*github\.event\.sender\.id.*github\.event\.sender\.type/s,
+  );
 
   const raw = JSON.stringify(intake);
   assert.doesNotMatch(
@@ -275,13 +311,19 @@ test("processor has only trusted automatic and strict repository triggers", () =
     "schedule",
   ]);
   assert.deepEqual(processor.on.workflow_run, {
-    workflows: ["Dependabot Intake"],
+    workflows: [
+      "Dependabot Intake",
+      "Dependabot Prepared Head Intake",
+      "Dependabot Claude Review",
+    ],
     types: ["completed"],
   });
   assert.deepEqual(processor.on.repository_dispatch, {
     types: ["dependabot-process"],
   });
-  assert.deepEqual(processor.on.schedule, [{ cron: "43 * * * *" }]);
+  assert.deepEqual(processor.on.schedule, [
+    { cron: "3,13,23,33,43,53 * * * *" },
+  ]);
   assert.deepEqual(processor.permissions, {});
   assert.deepEqual(processor.concurrency, {
     group: "dependabot-processor",
@@ -298,7 +340,6 @@ test("processor has only trusted automatic and strict repository triggers", () =
   );
   assert.doesNotMatch(processor["run-name"], /workflow_run\.pull_requests/);
   assert.match(processor["run-name"], /target=scope=open/);
-  assert.match(processor["run-name"], /target=ignored/);
 
   const raw = read(processorPath);
   assert.doesNotMatch(raw, /workflow_dispatch|\binputs\./);
@@ -323,21 +364,35 @@ test("read-only evaluation authenticates every trigger before live collection", 
     evaluate.if,
     /endsWith\(github\.event\.workflow_run\.display_title, 'receipt=true'\)/,
   );
+  assert.match(evaluate.if, /dependabot-prepared-head-intake\.yml/);
+  assert.match(evaluate.if, /dependabot-claude-review\.yml/);
   assert.match(evaluate.if, /github\.event\.action == 'dependabot-process'/);
   assert.doesNotMatch(evaluate.if, /client_payload/);
+  assert.doesNotMatch(evaluate.if, /workflow_run\.name/);
   assert.doesNotMatch(
     evaluate.if,
-    /workflow_run\.(?:path|event|conclusion|head_repository|head_branch)/,
+    /workflow_run\.(?:event|conclusion|head_repository|head_branch)/,
   );
+  assert.match(evaluate.if, /workflow_run\.path/);
 
   const target = evaluate.steps.find(
     (step) => step.name === "Validate trigger and select a bounded target",
   );
   assert.ok(target);
+  assert.equal(target.env.INTAKE_PATH, "${{ github.event.workflow_run.path }}");
+  assert.equal(Object.hasOwn(target.env, "INTAKE_WORKFLOW"), false);
+  assert.match(target.run, /case "\$INTAKE_PATH" in/);
   assert.match(target.run, /Object\.keys\(clientPayload\)\.sort\(\)/);
+  assert.match(target.run, /process\.env\.GITHUB_EVENT_PATH/);
+  assert.equal(Object.hasOwn(target.env, "EVENT_PATH"), false);
+  assert.equal(Object.hasOwn(target.env, "GITHUB_EVENT_PATH"), false);
+  assert.doesNotMatch(JSON.stringify(target.env), /github\.event_path/);
   assert.match(target.run, /\["scope"\]/);
   assert.doesNotMatch(target.run, /clientPayload\.(?:repository|schema)/);
   assert.match(target.run, /dependabot-intake:v1/);
+  assert.match(target.run, /dependabot-prepared-head:v1/);
+  assert.match(target.run, /dependabot-claude-review:v1/);
+  assert.match(target.run, /success\|failure/);
   assert.match(target.run, /\[0-9a-f\]\{40\}/);
   assert.match(target.run, /INTAKE_ACTOR_LOGIN.*dependabot\[bot\]/);
   assert.match(target.run, /INTAKE_ACTOR_TYPE.*Bot/);
@@ -354,7 +409,7 @@ test("read-only evaluation authenticates every trigger before live collection", 
   assert.match(invocation.run, /--expected-head-sha/);
   assert.equal(
     invocation.env.PROCESSOR_MODE,
-    "${{ env.DEPENDABOT_PROCESSOR_MODE }}",
+    "${{ steps.mode.outputs.processor_mode }}",
   );
 });
 
@@ -371,7 +426,7 @@ test("processor accepts a live-shaped Dependabot intake receipt", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.equal(
     result.githubOutput,
-    `pr_numbers=701\nexpected_head_sha=${"a".repeat(40)}\n`,
+    `pr_numbers=701\nexpected_head_sha=${"a".repeat(40)}\nfollowup_kind=native-intake\noperation_code=\noperation_check_id=\noperation_digest=\n`,
   );
 });
 
@@ -389,6 +444,56 @@ test("processor rejects an intake whose upstream head differs from its receipt",
   assert.equal(result.githubOutput, "");
 });
 
+test("processor accepts an exact prepared-head intake completion", () => {
+  const target = processor.jobs.evaluate.steps.find(
+    (step) => step.name === "Validate trigger and select a bounded target",
+  );
+  const headSha = "b".repeat(40);
+  const digest = "d".repeat(64);
+  const result = runBashStep(target, {
+    ...liveIntakeEnvironment(),
+    EVENT_NAME: "workflow_run",
+    INTAKE_ACTOR_ID: "123456",
+    INTAKE_ACTOR_LOGIN: "mento-dependabot-prepare[bot]",
+    INTAKE_CONCLUSION: "success",
+    INTAKE_EVENT: "repository_dispatch",
+    INTAKE_HEAD_BRANCH: "main",
+    INTAKE_HEAD_SHA: "c".repeat(40),
+    INTAKE_PATH: ".github/workflows/dependabot-prepared-head-intake.yml",
+    INTAKE_PULL_REQUESTS_JSON: "[]",
+    INTAKE_TITLE: `dependabot-prepared-head:v1|p=701|h=${headSha}|o=p|c=321|d=${digest}|ok=true`,
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(
+    result.githubOutput,
+    `pr_numbers=701\nexpected_head_sha=${headSha}\nfollowup_kind=prepared-intake\noperation_code=p\noperation_check_id=321\noperation_digest=${digest}\n`,
+  );
+});
+
+test("processor wakes on a failed exact Claude reviewer completion", () => {
+  const target = processor.jobs.evaluate.steps.find(
+    (step) => step.name === "Validate trigger and select a bounded target",
+  );
+  const headSha = "a".repeat(40);
+  const result = runBashStep(target, {
+    ...liveIntakeEnvironment(),
+    EVENT_NAME: "workflow_run",
+    INTAKE_CONCLUSION: "failure",
+    INTAKE_EVENT: "workflow_run",
+    INTAKE_HEAD_BRANCH: "main",
+    INTAKE_HEAD_SHA: "c".repeat(40),
+    INTAKE_PATH: ".github/workflows/dependabot-claude-review.yml",
+    INTAKE_TITLE: `dependabot-claude-review:v1 | source=dependabot-intake:v1 | repository=mento-protocol/frontend-monorepo | pr=701 | sha=${headSha} | action=synchronize | receipt=true`,
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(
+    result.githubOutput,
+    `pr_numbers=701\nexpected_head_sha=${headSha}\nfollowup_kind=claude-review\noperation_code=\noperation_check_id=\noperation_digest=\n`,
+  );
+});
+
 test("processor accepts a live-shaped repository dispatch envelope", () => {
   const target = processor.jobs.evaluate.steps.find(
     (step) => step.name === "Validate trigger and select a bounded target",
@@ -401,6 +506,16 @@ test("processor accepts a live-shaped repository dispatch envelope", () => {
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.githubOutput, "pr_numbers=all\nexpected_head_sha=\n");
+});
+
+test("processor fails closed without the runner event path", () => {
+  const target = processor.jobs.evaluate.steps.find(
+    (step) => step.name === "Validate trigger and select a bounded target",
+  );
+  const result = runBashStep(target, liveRepositoryDispatchEnvironment());
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.githubOutput, "");
 });
 
 test("processor rejects malformed repository dispatch envelopes", () => {
@@ -439,8 +554,15 @@ test("processor rejects malformed repository dispatch envelopes", () => {
   }
 });
 
-test("both jobs materialize only the exact trusted processor source", () => {
-  for (const jobName of ["evaluate", "process"]) {
+test("every processor phase materializes only the exact trusted sources", () => {
+  for (const jobName of [
+    "evaluate",
+    "process",
+    "prepare-validate",
+    "prepare-request",
+    "prepare-mutate",
+    "prepare-finalize",
+  ]) {
     const job = processor.jobs[jobName];
     const step = job.steps.find(
       (candidate) =>
@@ -456,18 +578,132 @@ test("both jobs materialize only the exact trusted processor source", () => {
       step.run,
       /contents\/scripts\/dependabot-processor\.mjs\?ref=\$WORKFLOW_SHA/,
     );
+    assert.match(
+      step.run,
+      /trusted_receipts="\$trusted_root\/dependabot-preparation-receipts\.mjs"/,
+    );
+    assert.match(
+      step.run,
+      /contents\/scripts\/dependabot-preparation-receipts\.mjs\?ref=\$WORKFLOW_SHA/,
+    );
+    assert.match(step.run, /test -s "\$trusted_processor"/);
+    assert.match(step.run, /test -s "\$trusted_receipts"/);
+    assert.match(step.run, /chmod 0400 "\$trusted_receipts"/);
     assert.match(step.run, /resolved_sha.*WORKFLOW_SHA/s);
     assert.doesNotMatch(step.run, forbiddenCandidateSurfaces);
   }
 });
 
-test("process job classifies exact merge mode with case-sensitive shell equality", () => {
-  const processJob = processor.jobs.process;
-  const mode = processJob.steps.find(
-    (step) => step.name === "Classify exact processor mode",
+test("the exact-SHA processor materialization imports its receipt dependency", () => {
+  const temporaryDirectory = mkdtempSync(
+    join(tmpdir(), "dependabot-processor-materialization-"),
+  );
+  const mockBin = join(temporaryDirectory, "bin");
+  const mockGh = join(mockBin, "gh");
+  const processorSourcePath = fileURLToPath(
+    new URL("../scripts/dependabot-processor.mjs", import.meta.url),
+  );
+  const receiptsSourcePath = fileURLToPath(
+    new URL("../scripts/dependabot-preparation-receipts.mjs", import.meta.url),
+  );
+  const workflowSha = "d".repeat(40);
+
+  try {
+    mkdirSync(mockBin, { recursive: true });
+    writeFileSync(
+      mockGh,
+      `#!/usr/bin/env bash
+set -euo pipefail
+test "$GH_TOKEN" = "$EXPECTED_READ_TOKEN"
+for argument in "$@"; do
+  if [[ "$argument" == repos/*/commits/* ]]; then
+    printf '%s\\n' "$WORKFLOW_SHA"
+    exit 0
+  fi
+  if [[ "$argument" == *"contents/scripts/dependabot-processor.mjs?ref="* ]]; then
+    /bin/cat "$MOCK_PROCESSOR_SOURCE"
+    exit 0
+  fi
+  if [[ "$argument" == *"contents/scripts/dependabot-preparation-receipts.mjs?ref="* ]]; then
+    /bin/cat "$MOCK_RECEIPTS_SOURCE"
+    exit 0
+  fi
+done
+exit 64
+`,
+    );
+    chmodSync(mockGh, 0o500);
+
+    for (const jobName of [
+      "evaluate",
+      "process",
+      "prepare-validate",
+      "prepare-request",
+      "prepare-mutate",
+      "prepare-finalize",
+    ]) {
+      const step = processor.jobs[jobName].steps.find(
+        (candidate) =>
+          candidate.name ===
+          "Materialize the processor from the exact trusted workflow SHA",
+      );
+      const runnerTemp = join(temporaryDirectory, jobName);
+      mkdirSync(runnerTemp, { recursive: true });
+      const result = runBashStep(step, {
+        EXPECTED_READ_TOKEN: "normal-read-token",
+        GH_TOKEN: "normal-read-token",
+        MOCK_PROCESSOR_SOURCE: processorSourcePath,
+        MOCK_RECEIPTS_SOURCE: receiptsSourcePath,
+        PATH: `${mockBin}:${process.env.PATH}`,
+        REPOSITORY: "mento-protocol/frontend-monorepo",
+        RUNNER_TEMP: runnerTemp,
+        WORKFLOW_SHA: workflowSha,
+      });
+      assert.equal(result.status, 0, `${jobName}: ${result.stderr}`);
+
+      const trustedRoot = join(runnerTemp, "dependabot-processor");
+      const trustedProcessor = join(trustedRoot, "dependabot-processor.mjs");
+      const trustedReceipts = join(
+        trustedRoot,
+        "dependabot-preparation-receipts.mjs",
+      );
+      assert.equal(result.githubOutput, `path=${trustedProcessor}\n`, jobName);
+      assert.equal(
+        readFileSync(trustedProcessor, "utf8"),
+        readFileSync(processorSourcePath, "utf8"),
+        jobName,
+      );
+      assert.equal(
+        readFileSync(trustedReceipts, "utf8"),
+        readFileSync(receiptsSourcePath, "utf8"),
+        jobName,
+      );
+
+      const imported = spawnSync(
+        "node",
+        [
+          "--input-type=module",
+          "--eval",
+          'import { pathToFileURL } from "node:url"; await import(pathToFileURL(process.argv[2]).href);',
+          "materialization-test",
+          trustedProcessor,
+        ],
+        { encoding: "utf8" },
+      );
+      assert.equal(imported.status, 0, `${jobName}: ${imported.stderr}`);
+    }
+  } finally {
+    rmSync(temporaryDirectory, { force: true, recursive: true });
+  }
+});
+
+test("processor normalizes only exact human-merge-only modes", () => {
+  const evaluateJob = processor.jobs.evaluate;
+  const mode = evaluateJob.steps.find(
+    (step) =>
+      step.name === "Normalize the exact processor mode without credentials",
   );
   assert.ok(mode);
-  assert.equal(processJob.steps[0], mode);
   assert.equal(mode.id, "mode");
   assert.equal(mode.shell, "bash");
   assert.deepEqual(mode.env, {
@@ -475,31 +711,50 @@ test("process job classifies exact merge mode with case-sensitive shell equality
   });
   assert.equal(Object.hasOwn(mode, "uses"), false);
   assert.doesNotMatch(JSON.stringify(mode), /secrets\.|github\.token/);
-  assert.match(mode.run, /test "\$RAW_PROCESSOR_MODE" = "merge"/);
+  assert.match(mode.run, /observe\|assist\|prepare/);
+  assert.match(mode.run, /processor_mode="observe"/);
 
-  for (const [rawMode, expectedMerge] of [
-    ["merge", true],
-    ["Merge", false],
-    ["MERGE", false],
-    [" merge ", false],
-    ["", false],
-    ["observe", false],
-    ["assist", false],
+  for (const [rawMode, expectedMode, expectedPrepare] of [
+    ["observe", "observe", false],
+    ["assist", "assist", false],
+    ["prepare", "prepare", true],
+    ["merge", "observe", false],
+    ["Prepare", "observe", false],
+    ["PREPARE", "observe", false],
+    [" prepare ", "observe", false],
+    ["", "observe", false],
+    ["unknown", "observe", false],
   ]) {
     const result = runBashStep(mode, { RAW_PROCESSOR_MODE: rawMode });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(
       result.githubOutput,
-      `merge=${expectedMerge}\n`,
+      `processor_mode=${expectedMode}\nprepare=${expectedPrepare}\n`,
       JSON.stringify(rawMode),
     );
   }
+
+  assert.deepEqual(evaluateJob.outputs, {
+    expected_head_sha: "${{ steps.target.outputs.expected_head_sha }}",
+    pr_numbers: "${{ steps.target.outputs.pr_numbers }}",
+    processor_mode: "${{ steps.mode.outputs.processor_mode }}",
+    prepare: "${{ steps.mode.outputs.prepare }}",
+  });
+
+  const invocation = evaluateJob.steps.find((step) =>
+    String(step.run ?? "").includes("evaluate"),
+  );
+  assert.equal(
+    invocation.env.PROCESSOR_MODE,
+    "${{ steps.mode.outputs.processor_mode }}",
+  );
 });
 
-test("privileged processing revalidates without candidate code or data", () => {
+test("observe and assist processing have no branch-write App credential", () => {
   const processJob = processor.jobs.process;
   assert.equal(processJob.needs, "evaluate");
-  assert.equal(processJob.if, "needs.evaluate.result == 'success'");
+  assert.match(processJob.if, /needs\.evaluate\.result == 'success'/);
+  assert.match(processJob.if, /needs\.evaluate\.outputs\.prepare != 'true'/);
   assert.deepEqual(processJob.permissions, {
     actions: "read",
     checks: "write",
@@ -508,47 +763,9 @@ test("privileged processing revalidates without candidate code or data", () => {
     "pull-requests": "write",
     statuses: "read",
   });
-
-  const requireMergeCredentials = processJob.steps.find(
-    (step) => step.name === "Require merge App credentials in merge mode",
-  );
-  assert.ok(requireMergeCredentials);
-  assert.equal(
-    requireMergeCredentials.if,
-    "fromJSON(steps.mode.outputs.merge)",
-  );
-  assert.deepEqual(requireMergeCredentials.env, {
-    MERGE_APP_CLIENT_ID: "${{ vars.DEPENDABOT_PROCESSOR_MERGE_APP_CLIENT_ID }}",
-    MERGE_APP_PRIVATE_KEY:
-      "${{ secrets.DEPENDABOT_PROCESSOR_MERGE_APP_PRIVATE_KEY }}",
-  });
-  assert.match(requireMergeCredentials.run, /test -n "\$MERGE_APP_CLIENT_ID"/);
-  assert.match(
-    requireMergeCredentials.run,
-    /test -n "\$MERGE_APP_PRIVATE_KEY"/,
-  );
-
-  const mergeToken = processJob.steps.find(
-    (step) => step.name === "Create repository-scoped merge token",
-  );
-  assert.ok(mergeToken);
-  assert.equal(mergeToken.id, "merge-token");
-  assert.equal(mergeToken.if, "fromJSON(steps.mode.outputs.merge)");
-  assert.equal(
-    mergeToken.uses,
-    "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
-  );
-  assert.deepEqual(mergeToken.with, {
-    "client-id": "${{ vars.DEPENDABOT_PROCESSOR_MERGE_APP_CLIENT_ID }}",
-    "private-key": "${{ secrets.DEPENDABOT_PROCESSOR_MERGE_APP_PRIVATE_KEY }}",
-    owner: "mento-protocol",
-    repositories: "frontend-monorepo",
-    "permission-contents": "write",
-    "permission-pull-requests": "write",
-  });
   assert.deepEqual(
     processJob.steps.filter((step) => Object.hasOwn(step, "uses")),
-    [mergeToken],
+    [],
   );
 
   const invocation = processJob.steps.find(
@@ -557,34 +774,697 @@ test("privileged processing revalidates without candidate code or data", () => {
   );
   assert.ok(invocation);
   assert.match(invocation.run, /process\s+--live\s+--publish-checks/);
+  assert.match(invocation.run, /--phase finalize/);
   assert.match(invocation.run, /--expected-head-sha/);
   assert.equal(
     invocation.env.PROCESSOR_MODE,
-    "${{ env.DEPENDABOT_PROCESSOR_MODE }}",
+    "${{ needs.evaluate.outputs.processor_mode }}",
   );
   assert.equal(
     invocation.env.DEPENDABOT_PROCESSOR_GITHUB_TOKEN,
     "${{ github.token }}",
   );
   assert.equal(
-    invocation.env.DEPENDABOT_PROCESSOR_MERGE_TOKEN,
-    "${{ steps.merge-token.outputs.token }}",
-  );
-  assert.notEqual(
-    invocation.env.DEPENDABOT_PROCESSOR_GITHUB_TOKEN,
-    invocation.env.DEPENDABOT_PROCESSOR_MERGE_TOKEN,
+    Object.hasOwn(invocation.env, "DEPENDABOT_PROCESSOR_REPAIR_TOKEN"),
+    false,
   );
 
   const raw = JSON.stringify(processJob);
   assert.doesNotMatch(raw, forbiddenCandidateSurfaces);
+  assert.doesNotMatch(raw, /PREPARE_APP|REPAIR_TOKEN|secrets\./);
   assert.doesNotMatch(raw, /--admin\b/);
+});
+
+test("prepare validation repeats the live plan without secrets or write authority", () => {
+  const validateJob = processor.jobs["prepare-validate"];
+  assert.equal(validateJob.needs, "evaluate");
+  assert.match(validateJob.if, /needs\.evaluate\.outputs\.prepare == 'true'/);
+  assert.deepEqual(validateJob.permissions, {
+    actions: "read",
+    checks: "read",
+    contents: "read",
+    issues: "read",
+    "pull-requests": "read",
+    statuses: "read",
+  });
+
+  const invocation = validateJob.steps.find(
+    (step) =>
+      step.name === "Revalidate the prepare plan without mutation authority",
+  );
+  assert.ok(invocation);
+  assert.match(invocation.run, /evaluate\s+--live/);
+  assert.match(invocation.run, /--mode prepare/);
+  assert.match(invocation.run, /--expected-head-sha/);
+
+  const raw = JSON.stringify(validateJob);
+  assert.doesNotMatch(raw, forbiddenCandidateSurfaces);
+  assert.doesNotMatch(
+    raw,
+    /secrets\.|PREPARE_APP|REPAIR_TOKEN|checks:write|contents:write/,
+  );
+});
+
+test("refresh request publication has checks authority but no branch credential", () => {
+  const requestJob = processor.jobs["prepare-request"];
+  assert.deepEqual(requestJob.needs, ["evaluate", "prepare-validate"]);
+  assert.match(requestJob.if, /needs\.prepare-validate\.result == 'success'/);
+  assert.deepEqual(requestJob.permissions, {
+    actions: "read",
+    checks: "write",
+    contents: "read",
+    issues: "read",
+    "pull-requests": "read",
+    statuses: "read",
+  });
+  assert.deepEqual(requestJob.outputs, {
+    refresh_pending: "${{ steps.plan.outputs.refresh_pending }}",
+    refresh_requested: "${{ steps.plan.outputs.refresh_requested }}",
+  });
+  const invocation = requestJob.steps.find(
+    (step) =>
+      step.name === "Publish only an exact-head refresh request when required",
+  );
+  assert.ok(invocation);
+  assert.equal(invocation.id, "request");
+  assert.match(invocation.run, /process[\s\S]*--publish-checks/);
+  assert.match(invocation.run, /--phase request/);
+  assert.match(invocation.run, /--mode prepare/);
+  assert.match(invocation.run, /--expected-head-sha/);
+  assert.equal(
+    invocation.env.DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG,
+    "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG }}",
+  );
+  assert.equal(
+    invocation.env.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID,
+    "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID }}",
+  );
+  assert.equal(
+    invocation.env.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN,
+    "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN }}",
+  );
+  assert.match(invocation.run, /> "\$REQUEST_RESULT_PATH"/);
+
+  const plan = requestJob.steps.find(
+    (step) => step.name === "Classify the authenticated request-phase result",
+  );
+  assert.ok(plan);
+  assert.equal(plan.id, "plan");
+  assert.match(plan.run, /dependabot-processor:v2/);
+  assert.match(plan.run, /result\?\.mode !== "prepare"/);
+  assert.match(plan.run, /result\?\.phase !== "request"/);
+  assert.match(plan.run, /mutation\?\.kind !== "refresh-requested"/);
+  assert.match(plan.run, /refresh_pending=/);
+  assert.match(plan.run, /refresh_requested=/);
+  assert.doesNotMatch(
+    JSON.stringify(requestJob),
+    /create-github-app-token|PREPARE_APP_CLIENT_ID|PREPARE_APP_PRIVATE_KEY|REPAIR_TOKEN|REPAIR_APP|secrets\./,
+  );
+});
+
+test("prepare jobs mint a branch token only for a trusted pending refresh", () => {
+  const requestJob = processor.jobs["prepare-request"];
+  const plan = requestJob.steps.find((step) => step.id === "plan");
+  const runPlan = (prepareCandidate, mutations = []) => {
+    const temporaryDirectory = mkdtempSync(
+      join(tmpdir(), "dependabot-request-plan-test-"),
+    );
+    const resultPath = join(temporaryDirectory, "result.json");
+    const outputPath = join(temporaryDirectory, "output");
+    try {
+      writeFileSync(
+        resultPath,
+        JSON.stringify({
+          mode: "prepare",
+          mutations,
+          phase: "request",
+          prepareCandidate,
+          schema: "dependabot-processor:v2",
+        }),
+      );
+      const result = spawnSync("bash", ["-c", plan.run], {
+        encoding: "utf8",
+        env: {
+          GITHUB_OUTPUT: outputPath,
+          PATH: process.env.PATH,
+          REQUEST_RESULT_PATH: resultPath,
+        },
+      });
+      return {
+        ...result,
+        output: existsSync(outputPath) ? readFileSync(outputPath, "utf8") : "",
+      };
+    } finally {
+      rmSync(temporaryDirectory, { force: true, recursive: true });
+    }
+  };
+
+  const nativeGreen = runPlan({
+    disposition: "prepare-candidate",
+    headSha: "a".repeat(40),
+    pullRequestNumber: 731,
+  });
+  assert.equal(nativeGreen.status, 0, nativeGreen.stderr);
+  assert.equal(
+    nativeGreen.output,
+    "refresh_pending=false\nrefresh_requested=false\n",
+  );
+
+  const pending = runPlan({
+    disposition: "refresh-pending",
+    headSha: "a".repeat(40),
+    pullRequestNumber: 731,
+  });
+  assert.equal(pending.status, 0, pending.stderr);
+  assert.equal(
+    pending.output,
+    "refresh_pending=true\nrefresh_requested=false\n",
+  );
+
+  const requested = runPlan(
+    {
+      disposition: "refresh-required",
+      headSha: "a".repeat(40),
+      pullRequestNumber: 731,
+    },
+    [{ kind: "refresh-requested" }],
+  );
+  assert.equal(requested.status, 0, requested.stderr);
+  assert.equal(
+    requested.output,
+    "refresh_pending=false\nrefresh_requested=true\n",
+  );
+
+  const mutateJob = processor.jobs["prepare-mutate"];
+  assert.match(
+    mutateJob.if,
+    /needs\.prepare-request\.outputs\.refresh_pending == 'true'/,
+  );
+  const finalizeJob = processor.jobs["prepare-finalize"];
+  assert.match(finalizeJob.if, /^always\(\)/);
+  assert.match(
+    finalizeJob.if,
+    /needs\.prepare-request\.outputs\.refresh_requested != 'true'/,
+  );
+  assert.match(finalizeJob.if, /needs\.prepare-mutate\.result == 'skipped'/);
+});
+
+test("only the prepare mutator receives the refresh-capable App token", () => {
+  const mutateJob = processor.jobs["prepare-mutate"];
+  assert.deepEqual(mutateJob.needs, ["evaluate", "prepare-request"]);
+  assert.match(mutateJob.if, /needs\.evaluate\.outputs\.prepare == 'true'/);
+  assert.match(mutateJob.if, /needs\.prepare-request\.result == 'success'/);
+  assert.match(
+    mutateJob.if,
+    /needs\.prepare-request\.outputs\.refresh_pending == 'true'/,
+  );
+  assert.deepEqual(mutateJob.permissions, {
+    actions: "read",
+    checks: "read",
+    contents: "read",
+    issues: "read",
+    "pull-requests": "read",
+    statuses: "read",
+  });
+
+  const requireCredentials = mutateJob.steps.find(
+    (step) =>
+      step.name === "Require exact Prepare App identity and credentials",
+  );
+  assert.ok(requireCredentials);
+  assert.deepEqual(requireCredentials.env, {
+    PREPARE_APP_CLIENT_ID:
+      "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID }}",
+    PREPARE_APP_SLUG: "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG }}",
+    PREPARE_APP_PRIVATE_KEY:
+      "${{ secrets.DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY }}",
+    PREPARE_BOT_ID: "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID }}",
+    PREPARE_BOT_LOGIN: "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN }}",
+  });
+  assert.match(requireCredentials.run, /PREPARE_BOT_ID.*\^\[1-9\]\[0-9\]\*\$/);
+  assert.match(requireCredentials.run, /PREPARE_APP_SLUG.*\[a-z0-9-\]/);
+  assert.match(requireCredentials.run, /PREPARE_BOT_LOGIN.*PREPARE_APP_SLUG/);
+
+  const prepareToken = mutateJob.steps.find(
+    (step) => step.name === "Create repository-scoped Prepare App token",
+  );
+  assert.ok(prepareToken);
+  assert.equal(prepareToken.id, "prepare-token");
+  assert.equal(
+    prepareToken.uses,
+    "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
+  );
+  assert.deepEqual(prepareToken.with, {
+    "client-id": "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID }}",
+    "private-key":
+      "${{ secrets.DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY }}",
+    owner: "mento-protocol",
+    repositories: "frontend-monorepo",
+    "permission-contents": "write",
+    "permission-pull-requests": "write",
+  });
+  assert.equal(Object.hasOwn(prepareToken.with, "skip-token-revoke"), false);
+  assert.deepEqual(
+    mutateJob.steps.filter((step) => Object.hasOwn(step, "uses")),
+    [prepareToken],
+  );
+
+  const identity = mutateJob.steps.find(
+    (step) =>
+      step.name === "Bind the token to the exact Prepare App bot identity",
+  );
+  assert.ok(identity);
+  assert.equal(
+    identity.env.ACTUAL_APP_SLUG,
+    "${{ steps.prepare-token.outputs.app-slug }}",
+  );
+  assert.equal(
+    identity.env.ACTUAL_INSTALLATION_ID,
+    "${{ steps.prepare-token.outputs.installation-id }}",
+  );
+  assert.match(identity.run, /gh api "users\/\$EXPECTED_BOT_LOGIN"/);
+  assert.match(identity.run, /actual_bot_id.*EXPECTED_BOT_ID/s);
+  assert.match(identity.run, /actual_bot_login.*EXPECTED_BOT_LOGIN/s);
+
+  const invocation = mutateJob.steps.find(
+    (step) =>
+      step.name === "Re-query exact heads and apply refresh-only mutation",
+  );
+  assert.ok(invocation);
+  assert.match(invocation.run, /process\s+--live/);
+  assert.doesNotMatch(invocation.run, /--publish-checks/);
+  assert.match(invocation.run, /--phase mutate/);
+  assert.match(invocation.run, /--mode prepare/);
+  assert.match(invocation.run, /--expected-head-sha/);
+  assert.equal(
+    invocation.env.DEPENDABOT_PROCESSOR_GITHUB_TOKEN,
+    "${{ github.token }}",
+  );
+  assert.equal(
+    invocation.env.DEPENDABOT_PROCESSOR_REPAIR_TOKEN,
+    "${{ steps.prepare-token.outputs.token }}",
+  );
+  assert.equal(
+    invocation.env.DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG,
+    "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG }}",
+  );
+  assert.equal(
+    invocation.env.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID,
+    "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID }}",
+  );
+  assert.equal(
+    invocation.env.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN,
+    "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN }}",
+  );
+
+  for (const [jobName, job] of Object.entries(processor.jobs)) {
+    if (jobName === "prepare-mutate") continue;
+    assert.doesNotMatch(
+      JSON.stringify(job),
+      /DEPENDABOT_PROCESSOR_PREPARE_APP_(?:CLIENT_ID|PRIVATE_KEY)|DEPENDABOT_PROCESSOR_REPAIR_TOKEN/,
+      jobName,
+    );
+  }
+
+  for (const [jobName, job] of Object.entries(processor.jobs)) {
+    const rawJob = JSON.stringify(job);
+    if (
+      rawJob.includes("create-github-app-token") ||
+      rawJob.includes("DEPENDABOT_PROCESSOR_REPAIR_TOKEN")
+    ) {
+      assert.notEqual(job.permissions?.checks, "write", jobName);
+    }
+  }
+
+  const raw = JSON.stringify(mutateJob);
+  assert.doesNotMatch(raw, forbiddenCandidateSurfaces);
+  assert.doesNotMatch(raw, /--admin\b/);
+  assert.doesNotMatch(raw, /approvePullRequest|Dependabot ALL CLEAR/);
+  assert.doesNotMatch(raw, /PREPARE_APP_ID|REPAIR_APP_ID/);
+});
+
+test("prepare finalization has approval authority but no branch-write credential", () => {
+  const finalizeJob = processor.jobs["prepare-finalize"];
+  assert.deepEqual(finalizeJob.needs, [
+    "evaluate",
+    "prepare-request",
+    "prepare-mutate",
+  ]);
+  assert.match(finalizeJob.if, /^always\(\)/);
+  assert.match(finalizeJob.if, /needs\.evaluate\.outputs\.prepare == 'true'/);
+  assert.match(finalizeJob.if, /needs\.prepare-request\.result == 'success'/);
+  assert.match(
+    finalizeJob.if,
+    /needs\.prepare-request\.outputs\.refresh_requested != 'true'/,
+  );
+  assert.match(finalizeJob.if, /needs\.prepare-mutate\.result == 'success'/);
+  assert.match(finalizeJob.if, /needs\.prepare-mutate\.result == 'skipped'/);
+  assert.deepEqual(finalizeJob.permissions, {
+    actions: "read",
+    checks: "write",
+    contents: "read",
+    issues: "read",
+    "pull-requests": "write",
+    statuses: "read",
+  });
+  assert.deepEqual(
+    finalizeJob.steps.filter((step) => Object.hasOwn(step, "uses")),
+    [],
+  );
+
+  const invocation = finalizeJob.steps.find(
+    (step) =>
+      step.name === "Recollect exact state and publish human-only readiness",
+  );
+  assert.ok(invocation);
+  assert.match(invocation.run, /process\s+\\/);
+  assert.match(invocation.run, /--phase finalize/);
+  assert.match(invocation.run, /--mode prepare/);
+  assert.equal(
+    invocation.env.DEPENDABOT_PROCESSOR_GITHUB_TOKEN,
+    "${{ github.token }}",
+  );
+  assert.equal(
+    invocation.env.DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG,
+    "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG }}",
+  );
+  assert.equal(
+    invocation.env.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID,
+    "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID }}",
+  );
+  assert.equal(
+    invocation.env.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN,
+    "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN }}",
+  );
+
+  const raw = JSON.stringify(finalizeJob);
+  assert.doesNotMatch(raw, forbiddenCandidateSurfaces);
+  assert.doesNotMatch(
+    raw,
+    /PREPARE_APP_CLIENT_ID|PREPARE_APP_PRIVATE_KEY|REPAIR_TOKEN|REPAIR_APP|create-github-app-token|secrets\./,
+  );
+});
+
+test("the processor workflow contains no merge or native auto-merge authority", () => {
+  const raw = read(processorPath);
+  assert.doesNotMatch(
+    raw,
+    /DEPENDABOT_PROCESSOR_MERGE_|MERGE_APP_PRIVATE_KEY|MERGE_TOKEN/,
+  );
+  assert.doesNotMatch(
+    raw,
+    /gh pr merge|pulls\.merge|mergePullRequest|enablePullRequestAutoMerge/,
+  );
+});
+
+test("repair planning, validation, mutation, and receipt publication stay isolated", () => {
+  assert.equal(repair.name, "Dependabot Prepare Repair");
+  assert.deepEqual(repair.on, {
+    repository_dispatch: {
+      types: ["dependabot-prepare-repair", "dependabot-prepare-repair-recover"],
+    },
+  });
+  assert.deepEqual(repair.permissions, {});
+  assert.doesNotMatch(read(repairPath), /workflow_dispatch/);
+  assert.match(
+    repair["run-name"],
+    /pr=\{0\}.*head=\{1\}.*check=\{2\}.*digest=\{3\}/s,
+  );
+  assert.match(repair["run-name"], /retry=\{4\}/);
+
+  const preflight = repair.jobs.preflight;
+  const plan = repair.jobs.plan;
+  const validate = repair.jobs.validate;
+  const stage = repair.jobs.stage;
+  const intent = repair.jobs.intent;
+  const mutate = repair.jobs.mutate;
+  const receipt = repair.jobs.receipt;
+  const recovery = repair.jobs.recovery;
+  const readPermissions = {
+    actions: "read",
+    checks: "read",
+    contents: "read",
+    "pull-requests": "read",
+  };
+  assert.deepEqual(preflight.permissions, readPermissions);
+  assert.deepEqual(plan.permissions, readPermissions);
+  assert.deepEqual(validate.permissions, readPermissions);
+  assert.deepEqual(stage.permissions, readPermissions);
+  assert.deepEqual(mutate.permissions, readPermissions);
+  assert.deepEqual(intent.permissions, {
+    actions: "read",
+    checks: "write",
+    contents: "read",
+    "pull-requests": "read",
+  });
+  assert.deepEqual(receipt.permissions, {
+    actions: "read",
+    checks: "write",
+    contents: "read",
+    "pull-requests": "read",
+  });
+  assert.deepEqual(recovery.permissions, {
+    actions: "read",
+    checks: "write",
+    contents: "read",
+    "pull-requests": "read",
+  });
+
+  const envelope = preflight.steps[0];
+  assert.equal(Object.hasOwn(envelope.env, "GH_TOKEN"), false);
+  assert.doesNotMatch(JSON.stringify(envelope), /secrets\.|github\.token/);
+  assert.match(envelope.run, /process\.env\.GITHUB_EVENT_PATH/);
+  assert.match(envelope.run, /Object\.keys\(payload\)\.length > 10/);
+  assert.match(envelope.run, /dependabot-prepare-repair:v1/);
+  assert.match(envelope.run, /processorReceipt/);
+  assert.match(envelope.run, /retryCount/);
+
+  const checkout = plan.steps[0];
+  const planner = plan.steps[1];
+  assert.deepEqual(checkout.with, {
+    "fetch-depth": 1,
+    "persist-credentials": false,
+    ref: "${{ github.workflow_sha }}",
+  });
+  assert.equal(planner.uses, claudeAction);
+  assert.equal(
+    planner.with.allowed_bots,
+    "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN }}",
+  );
+  assert.equal(planner.with.github_token, "${{ github.token }}");
+  assert.match(planner.with.additional_permissions, /actions: read/);
+  assert.match(planner.with.additional_permissions, /checks: read/);
+  assert.match(planner.with.prompt, /BEGIN UNTRUSTED REPAIR PACKET/);
+  assert.match(planner.with.prompt, /needs\.preflight\.outputs\.packet_json/);
+  assert.doesNotMatch(planner.with.prompt, /packet_base64/);
+  assert.match(planner.with.claude_args, /Bash,Edit,Write,NotebookEdit/);
+  assert.match(planner.with.claude_args, /"maxLength":8192/);
+
+  assert.doesNotMatch(
+    JSON.stringify(validate),
+    /secrets\.|contents:write|checks:write/,
+  );
+  assert.match(
+    validate.steps.at(-1).run,
+    /validate-repair-plan[\s\S]*--packet-base64[\s\S]*--plan-json/,
+  );
+
+  for (const appJob of [stage, mutate]) {
+    const repairToken = appJob.steps.find(
+      (step) => step.name === "Create repository-scoped Repair App token",
+    );
+    assert.ok(repairToken);
+    assert.deepEqual(repairToken.with, {
+      "client-id": "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID }}",
+      "private-key":
+        "${{ secrets.DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY }}",
+      owner: "mento-protocol",
+      repositories: "frontend-monorepo",
+      "permission-contents": "write",
+    });
+    assert.equal(
+      Object.hasOwn(repairToken.with, "permission-pull-requests"),
+      false,
+    );
+    assert.equal(Object.hasOwn(repairToken.with, "skip-token-revoke"), false);
+    const publisher = appJob.steps.at(-1);
+    assert.equal(publisher.env.GH_TOKEN, "${{ github.token }}");
+    assert.notEqual(
+      publisher.env.GH_TOKEN,
+      "${{ steps.repair-token.outputs.token }}",
+    );
+    assert.equal(publisher.env.GH_READ_TOKEN, "${{ github.token }}");
+    assert.equal(
+      publisher.env.GH_WRITE_TOKEN,
+      "${{ steps.repair-token.outputs.token }}",
+    );
+  }
+  assert.match(stage.steps.at(-1).run, /stage-repair/);
+  assert.match(stage.steps.at(-1).run, /--retry-count/);
+  assert.match(mutate.steps.at(-1).run, /apply-repair-intent/);
+  assert.match(mutate.steps.at(-1).run, /--intent-check-id/);
+  assert.doesNotMatch(
+    JSON.stringify(mutate),
+    /checks:write|pull-requests:write/,
+  );
+
+  assert.ok(intent.steps.every((step) => !Object.hasOwn(step, "uses")));
+  assert.match(intent.steps.at(-1).run, /publish-repair-intent/);
+  assert.doesNotMatch(
+    JSON.stringify(intent),
+    /PREPARE_APP_PRIVATE_KEY|repair-token|GH_WRITE_TOKEN|secrets\.|dispatches/,
+  );
+
+  assert.ok(receipt.steps.every((step) => !Object.hasOwn(step, "uses")));
+  assert.match(receipt.steps.at(-1).run, /publish-repair-receipt/);
+  assert.doesNotMatch(
+    JSON.stringify(receipt),
+    /PREPARE_APP_PRIVATE_KEY|repair-token|GH_WRITE_TOKEN|secrets\.|dispatches/,
+  );
+  const recoveryEnvelope = recovery.steps[0];
+  assert.equal(Object.hasOwn(recoveryEnvelope.env, "GH_TOKEN"), false);
+  assert.doesNotMatch(
+    JSON.stringify(recoveryEnvelope),
+    /secrets\.|github\.token/,
+  );
+  assert.match(recoveryEnvelope.run, /dependabot-repair-recovery:v1/);
+  assert.match(recoveryEnvelope.run, /Object\.keys\(payload\)\.length > 10/);
+  assert.match(recoveryEnvelope.run, /retryCount/);
+  assert.ok(recovery.steps.every((step) => !Object.hasOwn(step, "uses")));
+  assert.match(recovery.steps.at(-1).run, /recover-repair/);
+  assert.doesNotMatch(
+    JSON.stringify(recovery),
+    /PREPARE_APP_CLIENT_ID|PREPARE_APP_PRIVATE_KEY|repair-token|GH_WRITE_TOKEN|secrets\.|contents:write|dispatches/,
+  );
+  for (const [jobName, job] of Object.entries(repair.jobs)) {
+    if (jobName !== "plan") {
+      assert.doesNotMatch(JSON.stringify(job), /CLAUDE_CODE_OAUTH_TOKEN/);
+    }
+    if (!new Set(["mutate", "stage"]).has(jobName)) {
+      assert.doesNotMatch(
+        JSON.stringify(job),
+        /DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY|GH_WRITE_TOKEN/,
+      );
+    }
+  }
+
+  const raw = read(repairPath);
+  assert.doesNotMatch(raw, forbiddenCandidateSurfaces);
+  assert.doesNotMatch(
+    raw,
+    /gh pr merge|pulls\.merge|mergePullRequest|enablePullRequestAutoMerge|APPROVE|\/reviews|\/comments/,
+  );
+  const helper = read("scripts/dependabot-preparation-receipts.mjs");
+  const stageHelper = helper.slice(
+    helper.indexOf("async function commandStageRepair"),
+    helper.indexOf("function loadIntentArgument"),
+  );
+  const moveHelper = helper.slice(
+    helper.indexOf("async function commandApplyRepairIntent"),
+    helper.indexOf("async function commandPublishRepairReceipt"),
+  );
+  const recoveryHelper = helper.slice(
+    helper.indexOf("async function commandRecoverRepair"),
+    helper.indexOf("async function commandTerminalDispatchPlan"),
+  );
+  assert.doesNotMatch(stageHelper, /"PATCH"|git\/refs\/heads/);
+  assert.match(moveHelper, /"PATCH"/);
+  assert.doesNotMatch(
+    recoveryHelper,
+    /GH_WRITE_TOKEN|"PATCH"|git\/refs\/heads\/.*"PATCH"/,
+  );
+});
+
+test("terminal dispatch accepts successful Processor and exact terminal Repair outcomes", () => {
+  assert.equal(preparedDispatch.name, "Dependabot Prepared Head Dispatch");
+  assert.deepEqual(preparedDispatch.on, {
+    workflow_run: {
+      workflows: ["Dependabot Processor", "Dependabot Prepare Repair"],
+      types: ["completed"],
+    },
+  });
+  assert.deepEqual(preparedDispatch.permissions, {});
+  const plan = preparedDispatch.jobs.plan;
+  const dispatch = preparedDispatch.jobs.dispatch;
+  assert.doesNotMatch(read(preparedDispatchPath), /workflow_run\.name/);
+  assert.match(preparedDispatch["run-name"], /workflow_run\.path/);
+  assert.match(plan.if, /workflow_run\.status == 'completed'/);
+  assert.match(plan.if, /dependabot-process\.yml/);
+  assert.match(plan.if, /dependabot-prepare-repair\.yml/);
+  assert.doesNotMatch(plan.if, /workflow_run\.name/);
+  assert.match(plan.if, /workflow_run\.conclusion == 'success'/);
+  assert.match(plan.if, /workflow_run\.conclusion == 'failure'/);
+  assert.match(plan.if, /workflow_run\.conclusion == 'cancelled'/);
+  assert.match(plan.if, /workflow_run\.conclusion == 'timed_out'/);
+  assert.match(plan.if, /workflow_run\.conclusion == 'startup_failure'/);
+  assert.match(plan.if, /workflow_run\.conclusion == 'action_required'/);
+  assert.doesNotMatch(
+    plan.if,
+    /workflow_run\.conclusion == '(?:neutral|skipped|stale)'/,
+  );
+  assert.deepEqual(plan.permissions, {
+    actions: "read",
+    checks: "read",
+    contents: "read",
+    "pull-requests": "read",
+  });
+  assert.doesNotMatch(
+    JSON.stringify(plan),
+    /secrets\.|create-github-app-token/,
+  );
+  assert.match(plan.steps[0].run, /SOURCE_STATUS.*completed/s);
+  assert.match(plan.steps[0].run, /SOURCE_CONCLUSION.*success/s);
+  assert.match(plan.steps[0].run, /dependabot-process\.yml@main/);
+  assert.match(plan.steps[0].run, /dependabot-prepare-repair\.yml@main/);
+  assert.match(
+    plan.steps[0].run,
+    /success\|action_required\|failure\|cancelled\|startup_failure\|timed_out/,
+  );
+  assert.match(plan.steps[0].run, /dependabot-repair-recover:v1/);
+  assert.match(plan.steps[0].run, /retry=\[0-2\]/);
+  assert.equal(
+    plan.steps[0].env.SOURCE_PATH,
+    "${{ github.event.workflow_run.path }}",
+  );
+  assert.equal(Object.hasOwn(plan.steps[0].env, "SOURCE_WORKFLOW"), false);
+  assert.equal(
+    plan.steps.at(-1).env.SOURCE_PATH,
+    "${{ github.event.workflow_run.path }}",
+  );
+  assert.match(plan.steps.at(-1).run, /source_workflow="Dependabot Processor"/);
+  assert.match(
+    plan.steps.at(-1).run,
+    /source_workflow="Dependabot Prepare Repair"/,
+  );
+  assert.match(plan.steps.at(-1).run, /terminal-dispatch-plan/);
+  assert.match(plan.steps.at(-1).run, /--source-workflow "\$source_workflow"/);
+
+  const token = dispatch.steps[0];
+  assert.equal(
+    token.uses,
+    "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
+  );
+  assert.deepEqual(token.with, {
+    "client-id": "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID }}",
+    "private-key":
+      "${{ secrets.DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY }}",
+    owner: "mento-protocol",
+    repositories: "frontend-monorepo",
+    "permission-contents": "write",
+  });
+  assert.equal(Object.hasOwn(token.with, "skip-token-revoke"), false);
+  assert.match(dispatch.steps.at(-1).run, /dispatch-terminal-event/);
+  assert.doesNotMatch(
+    read(preparedDispatchPath),
+    /workflow_dispatch|checks: write|pull-requests: write|gh pr merge|APPROVE|ALL CLEAR|enablePullRequestAutoMerge|\/reviews|\/comments/,
+  );
 });
 
 test("Dependabot Claude review follows only authenticated intake runs", () => {
   assert.equal(dependabotReview.name, "Dependabot Claude Review");
   assert.deepEqual(dependabotReview.on, {
     workflow_run: {
-      workflows: ["Dependabot Intake"],
+      workflows: ["Dependabot Intake", "Dependabot Prepared Head Intake"],
       types: ["completed"],
     },
   });
@@ -600,21 +1480,33 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
   assert.equal(preflightJob.name, "dependabot-claude-review-preflight");
   assert.match(preflightJob.if, /mento-protocol\/frontend-monorepo/);
   assert.match(preflightJob.if, /receipt=true/);
+  assert.match(preflightJob.if, /dependabot-intake\.yml/);
+  assert.match(preflightJob.if, /dependabot-prepared-head-intake\.yml/);
+  assert.doesNotMatch(preflightJob.if, /workflow_run\.name/);
   assert.deepEqual(preflightJob.permissions, {
+    actions: "read",
+    checks: "read",
     contents: "read",
     "pull-requests": "read",
   });
   assert.deepEqual(preflightJob.outputs, {
-    head_ref: "${{ steps.intake.outputs.head_ref }}",
+    head_ref: "${{ steps.pr.outputs.head_ref }}",
     head_sha: "${{ steps.intake.outputs.head_sha }}",
     identity_digest: "${{ steps.pr.outputs.identity_digest }}",
+    operation: "${{ steps.intake.outputs.operation }}",
+    operation_check_id: "${{ steps.intake.outputs.operation_check_id }}",
+    operation_digest: "${{ steps.intake.outputs.operation_digest }}",
     pr_number: "${{ steps.intake.outputs.pr_number }}",
+    review_actor_login: "${{ steps.intake.outputs.review_actor_login }}",
+    source_kind: "${{ steps.intake.outputs.source_kind }}",
   });
 
-  const [intake, pr] = preflightJob.steps;
+  const [intake, pr, preparedValidator, preparedLineage] = preflightJob.steps;
   assert.equal(intake.id, "intake");
   assert.equal(Object.hasOwn(intake, "uses"), false);
   assert.equal(Object.hasOwn(intake.env, "GH_TOKEN"), false);
+  assert.equal(Object.hasOwn(intake.env, "INTAKE_WORKFLOW"), false);
+  assert.equal(intake.env.INTAKE_PATH, "${{ github.event.workflow_run.path }}");
   assert.doesNotMatch(JSON.stringify(intake), /secrets\.|github\.token/);
   assert.match(intake.run, /INTAKE_CONCLUSION.*success/);
   assert.match(intake.run, /INTAKE_EVENT.*pull_request_target/);
@@ -629,6 +1521,9 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
   assert.match(intake.run, /pullRequest\?\.head\?\.sha/);
   assert.match(intake.run, /dependabot-intake:v1/);
   assert.match(intake.run, /dependabot-intake\.yml@main/);
+  assert.match(intake.run, /dependabot-prepared-head-intake\.yml/);
+  assert.match(intake.run, /dependabot-prepared-head:v1/);
+  assert.match(intake.run, /EXPECTED_PREPARE_BOT_ID/);
 
   assert.equal(pr.id, "pr");
   assert.equal(Object.hasOwn(pr, "uses"), false);
@@ -653,6 +1548,23 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
   assert.match(pr.run, /web-flow/);
   assert.match(pr.run, /verification\?\.verified !== true/);
   assert.match(pr.run, /verification\?\.reason !== "valid"/);
+  assert.equal(
+    preparedValidator.if,
+    "steps.intake.outputs.source_kind == 'prepared'",
+  );
+  assert.match(
+    preparedValidator.run,
+    /contents\/scripts\/dependabot-prepared-review\.mjs\?ref=\$WORKFLOW_SHA/,
+  );
+  assert.equal(
+    preparedLineage.if,
+    "steps.intake.outputs.source_kind == 'prepared'",
+  );
+  assert.match(
+    preparedLineage.run,
+    /--check-id "\$EXPECTED_OPERATION_CHECK_ID"/,
+  );
+  assert.match(preparedLineage.run, /--digest "\$EXPECTED_OPERATION_DIGEST"/);
 
   assert.equal(reviewJob.name, "dependabot-claude-review-agent");
   assert.equal(reviewJob.needs, "preflight");
@@ -669,7 +1581,7 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
     "${{ steps.claude-review.outputs.structured_output }}",
   );
 
-  const [immediate, checkout, review] = reviewJob.steps;
+  const [immediate, checkout, review, verifyDiffRead] = reviewJob.steps;
   assert.equal(Object.hasOwn(immediate, "uses"), false);
   assert.equal(immediate.env.GH_TOKEN, "${{ github.token }}");
   assert.equal(
@@ -692,7 +1604,10 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
 
   assert.equal(review.id, "claude-review");
   assert.equal(review.uses, claudeAction);
-  assert.equal(review.with.allowed_bots, "dependabot[bot]");
+  assert.equal(
+    review.with.allowed_bots,
+    "${{ needs.preflight.outputs.review_actor_login }}",
+  );
   assert.equal(review.with.github_token, "${{ github.token }}");
   assert.equal(Object.hasOwn(review.with, "plugin_marketplaces"), false);
   assert.equal(Object.hasOwn(review.with, "plugins"), false);
@@ -704,12 +1619,93 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
     review.with.prompt,
     /head.*needs\.preflight\.outputs\.head_sha/s,
   );
+  assert.match(
+    review.with.prompt,
+    /gh pr diff.*needs\.preflight\.outputs\.pr_number.*--repo.*github\.repository/s,
+  );
+  assert.match(review.with.prompt, /one plain-text document tool result/);
   assert.match(review.with.prompt, /Do not make any.*mutation/s);
   assert.match(review.with.claude_code_oauth_token, /secrets\./);
+  const settings = JSON.parse(review.with.settings);
+  assert.deepEqual(settings.env, {
+    BASH_MAX_OUTPUT_LENGTH: "150000",
+    DEPENDABOT_REVIEW_PR_NUMBER: "${{ needs.preflight.outputs.pr_number }}",
+    DEPENDABOT_REVIEW_REPOSITORY: "mento-protocol/frontend-monorepo",
+  });
+  assert.deepEqual(settings.hooks, {
+    PreToolUse: [
+      {
+        matcher: "Bash",
+        hooks: [
+          {
+            type: "command",
+            command:
+              'node "${{ github.workspace }}/scripts/dependabot-claude-review-tool-guard.mjs" || exit 2',
+            timeout: 5,
+          },
+        ],
+      },
+    ],
+    PostToolUse: [
+      {
+        matcher: "Bash",
+        hooks: [
+          {
+            type: "command",
+            command:
+              'node "${{ github.workspace }}/scripts/dependabot-claude-review-tool-guard.mjs" || exit 2',
+            timeout: 5,
+          },
+        ],
+      },
+    ],
+  });
+  const toolFlags = [
+    ...review.with.claude_args.matchAll(/--tools\s+"([^"]+)"/g),
+  ];
+  assert.deepEqual(
+    toolFlags.map((match) => match[1]),
+    ["Bash"],
+  );
+  const disallowedToolFlags = [
+    ...review.with.claude_args.matchAll(
+      /--(?:disallowedTools|disallowed-tools)\s+"([^"]+)"/g,
+    ),
+  ];
+  assert.deepEqual(
+    disallowedToolFlags.map((match) => match[1]),
+    ["mcp__*"],
+  );
+  assert.match(review.with.claude_args, /--permission-mode\s+dontAsk/);
+  assert.match(review.with.claude_args, /--setting-sources\s+user/);
+  assert.match(review.with.claude_args, /--strict-mcp-config\b/);
+  assert.doesNotMatch(
+    review.with.claude_args,
+    /--(?:allowedTools|allowed-tools)\b/,
+  );
+  assert.doesNotMatch(
+    review.with.claude_args,
+    /Bash\(gh api|Bash\(curl|Bash\(git|WebFetch|WebSearch|mcp__github__|--permission-mode\s+bypassPermissions|--dangerously-skip-permissions|--tools\s+"[^"]*(?:Read|Edit|Write|Glob|Grep|Agent)/,
+  );
   assert.match(review.with.claude_args, /--json-schema/);
   assert.match(review.with.claude_args, /dependabot-claude-review-result:v1/);
   assert.match(review.with.claude_args, /"maxItems":20/);
   assert.match(review.with.claude_args, /"additionalProperties":false/);
+
+  assert.equal(verifyDiffRead.name, "Require a completed exact diff read");
+  assert.equal(verifyDiffRead.if, "${{ always() }}");
+  assert.equal(
+    verifyDiffRead.env.DEPENDABOT_REVIEW_PR_NUMBER,
+    "${{ needs.preflight.outputs.pr_number }}",
+  );
+  assert.equal(
+    verifyDiffRead.env.DEPENDABOT_REVIEW_REPOSITORY,
+    "mento-protocol/frontend-monorepo",
+  );
+  assert.match(
+    verifyDiffRead.run,
+    /dependabot-claude-review-tool-guard\.mjs[\s\S]*--verify-completion/,
+  );
 
   assert.equal(publishJob.name, "dependabot-claude-review-publisher");
   assert.deepEqual(publishJob.needs, ["preflight", "review"]);
@@ -766,7 +1762,8 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
   assert.match(publish.run, /reviewCompleted == true/);
   assert.match(publish.run, /verdict == "clean"/);
   assert.match(publish.run, /findings \| length\) == 0/);
-  assert.match(publish.run, /\.findings\[\].*tojson/s);
+  assert.match(publish.run, /all\(\.findings\[\];/);
+  assert.match(publish.run, /jq -S -c '\.'/);
   assert.match(publish.run, /--arg text "\$text"/);
   assert.match(publish.run, /text: \$text/);
   assert.match(publish.run, /POST_IDENTITY_STABLE.*true/s);
@@ -778,13 +1775,472 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
   const raw = read(dependabotReviewPath);
   assert.doesNotMatch(raw, forbiddenCandidateSurfaces);
   assert.doesNotMatch(raw, /github\.event\.pull_request/);
+
+  const guard = read("scripts/dependabot-claude-review-tool-guard.mjs");
+  assert.match(guard, /dependabot-claude-review-tool-completed:v2/);
+  assert.match(guard, /hookEventName: "PostToolUse"/);
+  assert.match(guard, /updatedToolOutput:/);
+  assert.match(guard, /structuredContent:/);
+  assert.match(guard, /type: "document"/);
+  assert.match(guard, /media_type: "text\/plain"/);
+  assert.match(guard, /data: response\.stdout/);
+});
+
+test("Dependabot Claude review tool guard permits only the exact bound diff", async () => {
+  const environment = {
+    ...process.env,
+    DEPENDABOT_REVIEW_PR_NUMBER: "731",
+    DEPENDABOT_REVIEW_REPOSITORY: "mento-protocol/frontend-monorepo",
+    GITHUB_RUN_ATTEMPT: "1",
+    GITHUB_RUN_ID: "123456",
+    RUNNER_TEMP: mkdtempSync(join(tmpdir(), "dependabot-review-tool-")),
+  };
+  const exactInput = {
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_use_id: "toolu_01DependabotDiffRead",
+    tool_input: {
+      command: "gh pr diff 731 --repo mento-protocol/frontend-monorepo",
+      description: "Read the authenticated pull-request diff",
+      run_in_background: false,
+      timeout: 120_000,
+    },
+  };
+  const allowed = spawnSync(process.execPath, [dependabotReviewToolGuardPath], {
+    encoding: "utf8",
+    env: environment,
+    input: JSON.stringify(exactInput),
+  });
+  assert.equal(allowed.status, 0, allowed.stderr);
+  assert.deepEqual(JSON.parse(allowed.stdout), {
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "allow",
+      permissionDecisionReason:
+        "Exact receipt-bound Dependabot PR diff command",
+    },
+  });
+  const duplicate = spawnSync(
+    process.execPath,
+    [dependabotReviewToolGuardPath],
+    {
+      encoding: "utf8",
+      env: environment,
+      input: JSON.stringify(exactInput),
+    },
+  );
+  assert.equal(duplicate.status, 2);
+  assert.match(duplicate.stderr, /one permitted diff read/);
+
+  const exactDiff = [
+    "diff --git a/package.json b/package.json",
+    "--- a/package.json",
+    "+++ b/package.json",
+    "@@ -1 +1 @@",
+    `-${"a".repeat(16_000)}`,
+    `+${"b".repeat(16_000)}`,
+    "",
+  ].join("\n");
+  assert.ok(Buffer.byteLength(exactDiff) > 30_000);
+  const postInput = {
+    ...exactInput,
+    hook_event_name: "PostToolUse",
+    tool_response: {
+      interrupted: false,
+      isImage: false,
+      noOutputExpected: false,
+      stderr: "",
+      stdout: exactDiff,
+    },
+  };
+  const expectedPostHookOutput = {
+    hookSpecificOutput: {
+      hookEventName: "PostToolUse",
+      updatedToolOutput: {
+        interrupted: false,
+        isImage: false,
+        stderr: "",
+        stdout: "",
+        structuredContent: [
+          {
+            source: {
+              data: exactDiff,
+              media_type: "text/plain",
+              type: "text",
+            },
+            type: "document",
+          },
+        ],
+      },
+    },
+  };
+  const completed = spawnSync(
+    process.execPath,
+    [dependabotReviewToolGuardPath],
+    {
+      encoding: "utf8",
+      env: environment,
+      input: JSON.stringify(postInput),
+    },
+  );
+  assert.equal(completed.status, 0, completed.stderr);
+  assert.equal(completed.stdout, `${JSON.stringify(expectedPostHookOutput)}\n`);
+  const deliveredDiff = JSON.parse(completed.stdout).hookSpecificOutput
+    .updatedToolOutput.structuredContent[0].source.data;
+  assert.deepEqual(Buffer.from(deliveredDiff), Buffer.from(exactDiff));
+  const completedReceipt = JSON.parse(
+    readFileSync(
+      join(
+        environment.RUNNER_TEMP,
+        "dependabot-review-tool-123456-1.completed.json",
+      ),
+      "utf8",
+    ),
+  );
+  assert.equal(
+    completedReceipt.schema,
+    "dependabot-claude-review-tool-completed:v2",
+  );
+  assert.equal(completedReceipt.outputBytes, Buffer.byteLength(exactDiff));
+  const verified = spawnSync(
+    process.execPath,
+    [dependabotReviewToolGuardPath, "--verify-completion"],
+    { encoding: "utf8", env: environment },
+  );
+  assert.equal(verified.status, 0, verified.stderr);
+  const duplicateCompletion = spawnSync(
+    process.execPath,
+    [dependabotReviewToolGuardPath],
+    {
+      encoding: "utf8",
+      env: environment,
+      input: JSON.stringify(postInput),
+    },
+  );
+  assert.equal(duplicateCompletion.status, 2);
+  assert.match(duplicateCompletion.stderr, /completion was already sealed/);
+
+  const parallelEnvironment = {
+    ...environment,
+    RUNNER_TEMP: mkdtempSync(join(tmpdir(), "dependabot-review-tool-race-")),
+  };
+  const runGuard = () =>
+    new Promise((resolve) => {
+      const child = spawn(process.execPath, [dependabotReviewToolGuardPath], {
+        env: parallelEnvironment,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      let stderr = "";
+      let stdout = "";
+      child.stderr.setEncoding("utf8");
+      child.stdout.setEncoding("utf8");
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk;
+      });
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk;
+      });
+      child.on("close", (status) => resolve({ status, stderr, stdout }));
+      child.stdin.end(JSON.stringify(exactInput));
+    });
+  const parallelResults = await Promise.all([runGuard(), runGuard()]);
+  assert.deepEqual(parallelResults.map(({ status }) => status).sort(), [0, 2]);
+  assert.equal(
+    parallelResults.filter(({ stdout }) =>
+      stdout.includes('"permissionDecision":"allow"'),
+    ).length,
+    1,
+  );
+  const verifyBeforeCompletion = spawnSync(
+    process.execPath,
+    [dependabotReviewToolGuardPath, "--verify-completion"],
+    { encoding: "utf8", env: parallelEnvironment },
+  );
+  assert.equal(verifyBeforeCompletion.status, 2);
+  assert.match(verifyBeforeCompletion.stderr, /completed diff-read marker/);
+
+  const runCompletionGuard = () =>
+    new Promise((resolve) => {
+      const child = spawn(process.execPath, [dependabotReviewToolGuardPath], {
+        env: parallelEnvironment,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      let stderr = "";
+      let stdout = "";
+      child.stderr.setEncoding("utf8");
+      child.stdout.setEncoding("utf8");
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk;
+      });
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk;
+      });
+      child.on("close", (status) => resolve({ status, stderr, stdout }));
+      child.stdin.end(JSON.stringify(postInput));
+    });
+  const parallelCompletionResults = await Promise.all([
+    runCompletionGuard(),
+    runCompletionGuard(),
+  ]);
+  assert.deepEqual(
+    parallelCompletionResults.map(({ status }) => status).sort(),
+    [0, 2],
+  );
+  assert.equal(
+    parallelCompletionResults.filter(
+      ({ stdout }) => stdout === `${JSON.stringify(expectedPostHookOutput)}\n`,
+    ).length,
+    1,
+  );
+  const parallelVerified = spawnSync(
+    process.execPath,
+    [dependabotReviewToolGuardPath, "--verify-completion"],
+    { encoding: "utf8", env: parallelEnvironment },
+  );
+  assert.equal(parallelVerified.status, 0, parallelVerified.stderr);
+
+  const blockedInputs = [
+    {
+      ...exactInput,
+      tool_input: { command: ` ${exactInput.tool_input.command}` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `${exactInput.tool_input.command} ` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `${exactInput.tool_input.command} --patch` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `${exactInput.tool_input.command}; env` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `${exactInput.tool_input.command} && env` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `${exactInput.tool_input.command} || env` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `${exactInput.tool_input.command} | cat` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `${exactInput.tool_input.command} > /tmp/diff` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `${exactInput.tool_input.command} $(env)` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `${exactInput.tool_input.command} \`env\`` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `${exactInput.tool_input.command}\ncat .env` },
+    },
+    {
+      ...exactInput,
+      tool_input: {
+        command: "gh pr diff 732 --repo mento-protocol/frontend-monorepo",
+      },
+    },
+    {
+      ...exactInput,
+      tool_input: {
+        command: "gh pr diff 731 --repo attacker/example",
+      },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `command ${exactInput.tool_input.command}` },
+    },
+    {
+      ...exactInput,
+      tool_input: { command: `GH_TOKEN=x ${exactInput.tool_input.command}` },
+    },
+    {
+      ...exactInput,
+      tool_input: {
+        command: exactInput.tool_input.command,
+        run_in_background: true,
+      },
+    },
+    {
+      ...exactInput,
+      tool_input: {
+        command: exactInput.tool_input.command,
+        timeout: 120_001,
+      },
+    },
+    {
+      ...exactInput,
+      tool_input: {
+        command: exactInput.tool_input.command,
+        description: "x".repeat(501),
+      },
+    },
+    {
+      ...exactInput,
+      tool_input: {
+        command: exactInput.tool_input.command,
+        dangerouslyDisableSandbox: true,
+      },
+    },
+    { ...exactInput, tool_name: "Read" },
+    { ...exactInput, hook_event_name: "PermissionRequest" },
+    { ...exactInput, hook_event_name: "PostToolUseFailure" },
+    {
+      ...postInput,
+      tool_use_id: "toolu_01DifferentDiffRead",
+    },
+    {
+      ...postInput,
+      tool_response: { ...postInput.tool_response, stdout: "" },
+    },
+    {
+      ...postInput,
+      tool_response: {
+        ...postInput.tool_response,
+        stdout: "not a unified diff",
+      },
+    },
+    {
+      ...postInput,
+      tool_response: { ...postInput.tool_response, interrupted: true },
+    },
+    {
+      ...postInput,
+      tool_response: { ...postInput.tool_response, isImage: true },
+    },
+    {
+      ...postInput,
+      tool_response: { ...postInput.tool_response, noOutputExpected: true },
+    },
+    {
+      ...postInput,
+      tool_response: {
+        ...postInput.tool_response,
+        persistedOutputPath: "/tmp/full-diff",
+        persistedOutputSize: 150_001,
+      },
+    },
+    {
+      ...postInput,
+      tool_response: {
+        ...postInput.tool_response,
+        rawOutputPath: "/tmp/raw-diff",
+      },
+    },
+    {
+      ...postInput,
+      tool_response: {
+        ...postInput.tool_response,
+        structuredContent: [{ type: "text", text: exactDiff }],
+      },
+    },
+    {
+      ...postInput,
+      tool_response: {
+        ...postInput.tool_response,
+        backgroundTaskId: "task-1",
+      },
+    },
+    {
+      ...postInput,
+      tool_response: {
+        ...postInput.tool_response,
+        backgroundedByUser: true,
+      },
+    },
+    {
+      ...postInput,
+      tool_response: {
+        ...postInput.tool_response,
+        timedOutAfterMs: 120_000,
+      },
+    },
+  ];
+  for (const [index, input] of blockedInputs.entries()) {
+    const blockedEnvironment = {
+      ...environment,
+      RUNNER_TEMP: mkdtempSync(
+        join(tmpdir(), `dependabot-review-tool-blocked-${index}-`),
+      ),
+    };
+    try {
+      if (input.hook_event_name === "PostToolUse") {
+        const issued = spawnSync(
+          process.execPath,
+          [dependabotReviewToolGuardPath],
+          {
+            encoding: "utf8",
+            env: blockedEnvironment,
+            input: JSON.stringify(exactInput),
+          },
+        );
+        assert.equal(issued.status, 0, issued.stderr);
+      }
+      const blocked = spawnSync(
+        process.execPath,
+        [dependabotReviewToolGuardPath],
+        {
+          encoding: "utf8",
+          env: blockedEnvironment,
+          input: JSON.stringify(input),
+        },
+      );
+      assert.equal(blocked.status, 2, JSON.stringify(input));
+      assert.match(blocked.stderr, /Blocked Dependabot review tool call/);
+    } finally {
+      rmSync(blockedEnvironment.RUNNER_TEMP, {
+        force: true,
+        recursive: true,
+      });
+    }
+  }
+
+  for (const [input, env] of [
+    ["not-json", environment],
+    [
+      JSON.stringify({
+        ...exactInput,
+        padding: "x".repeat(2_097_152),
+      }),
+      environment,
+    ],
+    [
+      JSON.stringify(exactInput),
+      { ...environment, DEPENDABOT_REVIEW_PR_NUMBER: "0731" },
+    ],
+    [
+      JSON.stringify(exactInput),
+      { ...environment, DEPENDABOT_REVIEW_REPOSITORY: "attacker/example" },
+    ],
+    [JSON.stringify(exactInput), { ...environment, GITHUB_RUN_ID: "0" }],
+    [JSON.stringify(exactInput), { ...environment, RUNNER_TEMP: "relative" }],
+  ]) {
+    const blocked = spawnSync(
+      process.execPath,
+      [dependabotReviewToolGuardPath],
+      { encoding: "utf8", env, input },
+    );
+    assert.equal(blocked.status, 2);
+    assert.match(blocked.stderr, /Blocked Dependabot review tool call/);
+  }
+  rmSync(environment.RUNNER_TEMP, { force: true, recursive: true });
+  rmSync(parallelEnvironment.RUNNER_TEMP, { force: true, recursive: true });
 });
 
 test("Dependabot Claude review authenticates live upstream head metadata", () => {
   const intake = dependabotReview.jobs.preflight.steps[0];
   const result = runBashStep(intake, {
     ...liveIntakeEnvironment(),
-    INTAKE_WORKFLOW: "Dependabot Intake",
     RUN_ATTEMPT: "1",
     RUN_ID: "123456789",
     WORKFLOW_SHA: "c".repeat(40),
@@ -793,15 +2249,31 @@ test("Dependabot Claude review authenticates live upstream head metadata", () =>
   assert.equal(result.status, 0, result.stderr);
   assert.equal(
     result.githubOutput,
-    `pr_number=701\nhead_ref=dependabot/npm_and_yarn/runtime-packages-123abc\nhead_sha=${"a".repeat(40)}\n`,
+    `pr_number=701\nhead_ref=dependabot/npm_and_yarn/runtime-packages-123abc\nhead_sha=${"a".repeat(40)}\noperation=\noperation_check_id=\noperation_digest=\nreview_actor_login=dependabot[bot]\nsource_kind=dependabot\n`,
   );
+});
+
+test("native Dependabot review needs no Prepare App configuration", () => {
+  const intake = dependabotReview.jobs.preflight.steps[0];
+  const result = runBashStep(intake, {
+    ...liveIntakeEnvironment({
+      EXPECTED_PREPARE_APP_SLUG: "",
+      EXPECTED_PREPARE_BOT_ID: "",
+      EXPECTED_PREPARE_BOT_LOGIN: "",
+    }),
+    RUN_ATTEMPT: "1",
+    RUN_ID: "123456789",
+    WORKFLOW_SHA: "c".repeat(40),
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.githubOutput, /review_actor_login=dependabot\[bot\]/);
 });
 
 test("Dependabot Claude review allows an omitted linked PR after receipt authentication", () => {
   const intake = dependabotReview.jobs.preflight.steps[0];
   const result = runBashStep(intake, {
     ...liveIntakeEnvironment({ INTAKE_PULL_REQUESTS_JSON: "[]" }),
-    INTAKE_WORKFLOW: "Dependabot Intake",
     RUN_ATTEMPT: "1",
     RUN_ID: "123456789",
     WORKFLOW_SHA: "c".repeat(40),
@@ -814,7 +2286,6 @@ test("Dependabot Claude review rejects an upstream head and receipt mismatch", (
   const intake = dependabotReview.jobs.preflight.steps[0];
   const result = runBashStep(intake, {
     ...liveIntakeEnvironment({ INTAKE_HEAD_SHA: "b".repeat(40) }),
-    INTAKE_WORKFLOW: "Dependabot Intake",
     RUN_ATTEMPT: "1",
     RUN_ID: "123456789",
     WORKFLOW_SHA: "c".repeat(40),
@@ -832,13 +2303,88 @@ test("human Claude review cannot shadow the Dependabot review check", () => {
   assert.match(job.if, /pull_request\.user\.type == 'User'/);
   assert.equal(humanReview.jobs["claude-review"], undefined);
 
+  const guardIndex = job.steps.findIndex(
+    (step) => step.name === "Reject candidate marketplace path collision",
+  );
+  const marketplaceCheckoutIndex = job.steps.findIndex(
+    (step) => step.name === "Checkout pinned Claude plugin marketplace",
+  );
+  assert.ok(guardIndex >= 0);
+  assert.equal(marketplaceCheckoutIndex, guardIndex + 1);
+  const marketplaceGuard = job.steps[guardIndex];
+  assert.match(marketplaceGuard.run, /GITHUB_WORKSPACE/);
+  assert.match(marketplaceGuard.run, /-e "\$marketplace_path"/);
+  assert.match(marketplaceGuard.run, /-L "\$marketplace_path"/);
+
+  const marketplaceCheckout = job.steps[marketplaceCheckoutIndex];
+  assert.ok(marketplaceCheckout);
+  assert.equal(
+    marketplaceCheckout.uses,
+    "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+  );
+  assert.equal(marketplaceCheckout.with.repository, "anthropics/claude-code");
+  assert.equal(marketplaceCheckout.with.ref, claudePluginMarketplaceRef);
+  assert.equal(marketplaceCheckout.with.path, claudePluginMarketplace.slice(2));
+  assert.equal(marketplaceCheckout.with["persist-credentials"], false);
+  assert.deepEqual(
+    marketplaceCheckout.with["sparse-checkout"].trim().split("\n"),
+    [".claude-plugin", "plugins/code-review"],
+  );
+
+  const marketplaceVerification = job.steps[marketplaceCheckoutIndex + 1];
+  assert.equal(
+    marketplaceVerification.name,
+    "Verify pinned Claude plugin marketplace",
+  );
+  assert.equal(
+    marketplaceVerification.env.EXPECTED_MARKETPLACE_SHA,
+    claudePluginMarketplaceRef,
+  );
+  assert.match(marketplaceVerification.run, /! -L "\$marketplace_path"/);
+  assert.match(
+    marketplaceVerification.run,
+    /git -C "\$marketplace_path" rev-parse HEAD/,
+  );
+
   const review = job.steps.find((step) => step.uses === claudeAction);
   assert.ok(review);
-  assert.equal(review.with.plugin_marketplaces, claudePluginMarketplace);
+  assert.equal(
+    review.with.claude_args,
+    `--plugin-dir ${claudeCodeReviewPlugin}`,
+  );
+  assert.equal(Object.hasOwn(review.with, "plugin_marketplaces"), false);
+  assert.equal(Object.hasOwn(review.with, "plugins"), false);
   assert.equal(Object.hasOwn(review.with, "allowed_bots"), false);
 });
 
-test("the processor is the sole Dependabot merge authority", () => {
+test("human Claude review rejects a candidate marketplace symlink", () => {
+  const guard = humanReview.jobs["claude-review-human"].steps.find(
+    (step) => step.name === "Reject candidate marketplace path collision",
+  );
+  assert.ok(guard);
+
+  const workspace = mkdtempSync(join(tmpdir(), "claude-review-workspace-"));
+  try {
+    const redirect = join(workspace, "redirect");
+    mkdirSync(redirect);
+    symlinkSync(
+      redirect,
+      join(workspace, claudePluginMarketplace.slice(2)),
+      "dir",
+    );
+    const result = spawnSync("bash", ["-c", guard.run], {
+      encoding: "utf8",
+      env: { PATH: process.env.PATH, GITHUB_WORKSPACE: workspace },
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stdout, /Candidate content occupies/);
+    assert.deepEqual(readdirSync(redirect), []);
+  } finally {
+    rmSync(workspace, { force: true, recursive: true });
+  }
+});
+
+test("no workflow can automatically merge Dependabot pull requests", () => {
   const workflowDirectory = new URL("../.github/workflows/", import.meta.url);
   const legacyWorkflow = new URL(
     "../.github/workflows/dependabot-auto-merge.yml",
@@ -846,15 +2392,30 @@ test("the processor is the sole Dependabot merge authority", () => {
   );
   assert.equal(existsSync(legacyWorkflow), false);
 
+  const forbiddenMergeAuthority =
+    /gh\s+pr\s+merge|enablePullRequestAutoMerge|mergePullRequest|\/pulls\/[^\s"'`]*\/merge|pulls\.merge|DEPENDABOT_PROCESSOR_MERGE_/;
+  const trustedSources = [
+    "scripts/dependabot-preparation-receipts.mjs",
+    "scripts/dependabot-prepared-review.mjs",
+    "scripts/dependabot-processor.mjs",
+  ];
+  for (const source of trustedSources) {
+    assert.doesNotMatch(
+      read(source),
+      forbiddenMergeAuthority,
+      `${source} must not merge or enable native auto-merge for Dependabot PRs`,
+    );
+  }
+
   for (const filename of readdirSync(workflowDirectory)) {
-    if (!/\.ya?ml$/.test(filename) || filename === "dependabot-process.yml") {
+    if (!/\.ya?ml$/.test(filename)) {
       continue;
     }
     const raw = read(`.github/workflows/${filename}`);
     assert.doesNotMatch(
       raw,
-      /gh pr (?:merge|review)|enablePullRequestAutoMerge|pulls\.merge/,
-      `${filename} must not independently approve or merge Dependabot PRs`,
+      forbiddenMergeAuthority,
+      `${filename} must not merge or enable native auto-merge for Dependabot PRs`,
     );
   }
 });

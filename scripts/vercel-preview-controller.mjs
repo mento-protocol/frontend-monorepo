@@ -26,6 +26,10 @@ export const SELECTION_RECEIPT_SCHEMA = "vercel-preview-selection:v2";
 export const CONTROLLER_SCHEMA = "vercel-preview-controller:v2";
 export const PREVIEW_JOURNAL_SCHEMA = "vercel-preview-journal:v2";
 export const PREVIEW_JOURNAL_MARKER = "<!-- vercel-preview-journal:v2 -->";
+export const PREVIEW_OBSERVATION_RECEIPT_SCHEMA =
+  "vercel-preview-observation-receipt:v1";
+const PREVIEW_OBSERVATION_ARTIFACT_PREFIX =
+  "vercel-preview-observation-receipt-v1";
 const PREVIEW_CHECKPOINT_SCHEMA = "vercel-preview-checkpoint:v2";
 const CONTROLLER_ADMISSION_SCHEMA = "vercel-preview-controller-admission:v1";
 const WORKER_WORKFLOW = "vercel-preview-worker.yml";
@@ -157,6 +161,20 @@ const SELECTION_SCOPED_CONTROLLER_RESULT_REASONS = new Set([
   NO_DISPATCH_ORPHAN_REASON,
   NATIVE_OWNED_SELECTION_REASON,
 ]);
+const CONTROLLER_SYNTHETIC_RESULT_STATES = new Map([
+  ["selection-removed-from-pr", "failure"],
+  ["controller-workflow-upgraded-before-dispatch", "error"],
+  [NO_DISPATCH_ORPHAN_REASON, "error"],
+  [NATIVE_OWNED_SELECTION_REASON, "error"],
+]);
+
+export function isSupportedControllerSyntheticPreviewResult(result) {
+  return (
+    result?.github_deployment_id === null &&
+    CONTROLLER_SYNTHETIC_RESULT_STATES.get(result.terminal_reason) ===
+      result.state
+  );
+}
 const COMMENT_EXPLANATION = [
   "**No reviewer action is required.**",
   "This repository builds pull request previews in GitHub Actions and deploys them to Vercel.",
@@ -532,7 +550,12 @@ function representedPullRequest(events, checkpoint = null) {
   return [...snapshots.values()][0];
 }
 
-export function snapshotPullRequestEvent(payload, runId, runNumber = null) {
+export function snapshotPullRequestEvent(
+  payload,
+  runId,
+  runNumber = null,
+  { retainObservationReceipt = false } = {},
+) {
   plainObject(payload, "GitHub event payload");
   const action = boundedText(payload.action, "Event action", 32);
   invariant(
@@ -548,6 +571,10 @@ export function snapshotPullRequestEvent(payload, runId, runNumber = null) {
   const before =
     action === "synchronize" ? exactSha(payload.before, "Before SHA") : null;
   const changeBaseSha = action === "synchronize" ? before : pull.baseSha;
+  const observationReceiptRequired =
+    retainObservationReceipt &&
+    pull.trust === "trusted" &&
+    ["opened", "synchronize"].includes(action);
   return {
     schema: EVENT_RECEIPT_SCHEMA,
     repository,
@@ -556,6 +583,9 @@ export function snapshotPullRequestEvent(payload, runId, runNumber = null) {
     ...(runNumber === null
       ? {}
       : { event_run_number: exactRunId(runNumber, "Event run number") }),
+    ...(observationReceiptRequired
+      ? { observation_receipt_required: true }
+      : {}),
     event_action: action,
     pr_state: pull.state,
     pr_updated_at: pull.updatedAt,
@@ -741,6 +771,14 @@ export function validateEventReceipt(value, { requirePlan = true } = {}) {
   exactRunId(event.event_run_id, "Event run ID");
   if (event.event_run_number !== undefined) {
     exactRunId(event.event_run_number, "Event run number");
+  }
+  if (event.observation_receipt_required !== undefined) {
+    invariant(
+      event.observation_receipt_required === true &&
+        event.trust === "trusted" &&
+        ["opened", "synchronize"].includes(event.event_action),
+      "Event observation receipt retention marker is invalid",
+    );
   }
   invariant(
     ALLOWED_EVENT_ACTIONS.has(event.event_action),
@@ -4330,6 +4368,278 @@ export function createPreviewJournal({
   );
 }
 
+export function previewObservationArtifactName(eventRunId) {
+  return `${PREVIEW_OBSERVATION_ARTIFACT_PREFIX}-${exactRunId(
+    eventRunId,
+    "Observation event run ID",
+  )}`;
+}
+
+export function selectPreviewObservationArtifact(values, eventRunId) {
+  invariant(
+    Array.isArray(values),
+    "Preview observation artifacts must be an array",
+  );
+  const name = previewObservationArtifactName(eventRunId);
+  const matches = values.filter(
+    (artifact) => artifact?.name === name && artifact.expired === false,
+  );
+  invariant(matches.length <= 1, "Preview observation artifact is ambiguous");
+  return matches[0] ?? null;
+}
+
+function observationSelectionsForEvent(journal, eventRunId) {
+  return journal.receipts.selections.filter(
+    (selection) =>
+      selection.selection_receipt_run_id === eventRunId ||
+      selection.coalesced_receipt_run_ids.includes(eventRunId),
+  );
+}
+
+function previewObservationJournalForEvent(journal, event) {
+  const decisions = (journal.state?.status_decisions ?? []).filter(
+    (decision) => decision.sha === event.head_sha,
+  );
+  invariant(
+    decisions.length <= 1,
+    "Preview observation event status decision is ambiguous",
+  );
+  if (!TERMINAL_STATES.has(decisions[0]?.state)) return null;
+
+  const selections = observationSelectionsForEvent(journal, event.event_run_id);
+  const selectedTargets = [
+    ...new Set(selections.map((selection) => selection.target)),
+  ].sort();
+  const plannedTargets = [...event.plan.targets].sort();
+  if (canonicalJson(selectedTargets) !== canonicalJson(plannedTargets)) {
+    return null;
+  }
+
+  if (plannedTargets.length > 0 && journal.state === null) return null;
+  const projectedState =
+    journal.state === null ? null : structuredClone(journal.state);
+  for (const selection of selections) {
+    const evidence = journal.receipts.worker_evidence.filter(
+      (entry) => entry.key_digest === selection.key_digest,
+    );
+    const results = journal.receipts.results.filter(
+      (result) => result.key_digest === selection.key_digest,
+    );
+    if (results.length === 0) return null;
+    const synthetic = results.filter(
+      (result) => result.github_deployment_id === null,
+    );
+    if (synthetic.length > 0) {
+      if (
+        synthetic.length !== 1 ||
+        results.length !== 1 ||
+        evidence.length !== 0 ||
+        !isSupportedControllerSyntheticPreviewResult(synthetic[0])
+      ) {
+        return null;
+      }
+      continue;
+    }
+    const evidenceAttempts = new Set(
+      evidence.map(
+        (entry) => `${entry.worker_run_id}:${entry.worker_run_attempt}`,
+      ),
+    );
+    const resultAttempts = new Set(
+      results.map(
+        (entry) => `${entry.worker_run_id}:${entry.worker_run_attempt}`,
+      ),
+    );
+    if (
+      evidenceAttempts.size !== evidence.length ||
+      resultAttempts.size !== results.length ||
+      evidenceAttempts.size !== resultAttempts.size ||
+      [...evidenceAttempts].some((attempt) => !resultAttempts.has(attempt)) ||
+      results.some((result) => !TERMINAL_STATES.has(result.state))
+    ) {
+      return null;
+    }
+  }
+
+  for (const target of plannedTargets) {
+    const targetSelections = selections.filter(
+      (selection) => selection.target === target,
+    );
+    const targetState = journal.state.targets[target];
+    const selectionByKey = new Map(
+      targetSelections.map((selection) => [selection.key_digest, selection]),
+    );
+    const relevantResults = journal.receipts.results.filter((result) =>
+      selectionByKey.has(result.key_digest),
+    );
+    const relevantTerminals = relevantResults
+      .toSorted(
+        (left, right) =>
+          left.worker_run_id - right.worker_run_id ||
+          left.worker_run_attempt - right.worker_run_attempt,
+      )
+      .map((result) => ({
+        target,
+        sha: result.sha,
+        key: result.controller_key,
+        key_digest: result.key_digest,
+        epoch_anchor_run_id: result.epoch_anchor_run_id,
+        reconciliation_basis_digest: result.reconciliation_basis_digest,
+        selection_receipt_run_id: result.selection_receipt_run_id,
+        expected_workflow_sha: result.expected_workflow_sha,
+        state: result.state,
+        worker_run_id: result.worker_run_id,
+        github_deployment_id: result.github_deployment_id,
+        vercel_deployment_url: result.vercel_deployment_url,
+        terminal_reason: result.terminal_reason,
+      }));
+    if (
+      relevantTerminals.length !== relevantResults.length ||
+      relevantResults.some(
+        (result) =>
+          !relevantTerminals.some(
+            (terminal) =>
+              terminal.key_digest === result.key_digest &&
+              terminal.worker_run_id === result.worker_run_id &&
+              terminal.state === result.state &&
+              terminal.github_deployment_id === result.github_deployment_id &&
+              terminal.vercel_deployment_url === result.vercel_deployment_url &&
+              terminal.terminal_reason === result.terminal_reason,
+          ),
+      )
+    ) {
+      return null;
+    }
+    const terminal = relevantTerminals.at(-1);
+    const currentSelection = terminal
+      ? selectionByKey.get(terminal.key_digest)
+      : null;
+    if (
+      !terminal ||
+      !currentSelection ||
+      (currentSelection.selection_receipt_run_id !== event.event_run_id &&
+        !currentSelection.coalesced_receipt_run_ids.includes(
+          event.event_run_id,
+        ))
+    ) {
+      return null;
+    }
+    projectedState.targets[target] = {
+      ...structuredClone(targetState),
+      latest_desired_sha: terminal.sha,
+      latest_desired_receipt_run_id: currentSelection.selection_receipt_run_id,
+      idle_cursor_receipt_run_id: currentSelection.selection_receipt_run_id,
+      active: null,
+      retired_active: [],
+      terminal_result_key_digests: [
+        ...new Set(relevantResults.map((result) => result.key_digest)),
+      ],
+      terminal_history: relevantTerminals,
+    };
+  }
+  return createPreviewJournal({
+    pr: journal.pr,
+    revision: journal.revision,
+    checkpoint: journal.checkpoint,
+    events: journal.receipts.events,
+    selections: journal.receipts.selections,
+    workerEvidence: journal.receipts.worker_evidence,
+    results: journal.receipts.results,
+    state: projectedState,
+    ...(Object.hasOwn(journal, "admission")
+      ? { admission: journal.admission }
+      : {}),
+  });
+}
+
+export function createPreviewObservationReceipt(value, rawEventRunId) {
+  const source = validatePreviewJournal(value, value.pr);
+  const eventRunId = exactRunId(rawEventRunId, "Observation event run ID");
+  const events = source.receipts.events.filter(
+    (event) => event.event_run_id === eventRunId,
+  );
+  invariant(
+    events.length === 1,
+    "Preview observation event is missing or ambiguous",
+  );
+  const projected = previewObservationJournalForEvent(source, events[0]);
+  if (projected === null) return null;
+  const receipt = {
+    schema: PREVIEW_OBSERVATION_RECEIPT_SCHEMA,
+    repository: PREVIEW_REPOSITORY,
+    pr: source.pr,
+    event_run_id: eventRunId,
+    journal_revision: projected.revision,
+    source_journal_digest: source.journal_digest,
+    journal_digest: projected.journal_digest,
+    ...(Object.hasOwn(projected, "admission")
+      ? { admission: structuredClone(projected.admission) }
+      : {}),
+    checkpoint:
+      projected.checkpoint === null
+        ? null
+        : structuredClone(projected.checkpoint),
+    receipts: structuredClone(projected.receipts),
+    state: projected.state === null ? null : structuredClone(projected.state),
+  };
+  return validatePreviewObservationReceipt(receipt);
+}
+
+export function validatePreviewObservationReceipt(value) {
+  const receipt = plainObject(value, "Preview observation receipt");
+  const fields = Object.keys(receipt).sort().join(",");
+  invariant(
+    fields ===
+      "checkpoint,event_run_id,journal_digest,journal_revision,pr,receipts,repository,schema,source_journal_digest,state" ||
+      fields ===
+        "admission,checkpoint,event_run_id,journal_digest,journal_revision,pr,receipts,repository,schema,source_journal_digest,state",
+    "Preview observation receipt fields are invalid",
+  );
+  invariant(
+    receipt.schema === PREVIEW_OBSERVATION_RECEIPT_SCHEMA &&
+      receipt.repository === PREVIEW_REPOSITORY,
+    "Preview observation receipt identity is invalid",
+  );
+  invariant(
+    typeof receipt.source_journal_digest === "string" &&
+      /^[0-9a-f]{64}$/.test(receipt.source_journal_digest),
+    "Preview observation receipt source journal digest is invalid",
+  );
+  const journal = createPreviewJournal({
+    pr: receipt.pr,
+    revision: receipt.journal_revision,
+    checkpoint: receipt.checkpoint,
+    events: receipt.receipts?.events,
+    selections: receipt.receipts?.selections,
+    workerEvidence: receipt.receipts?.worker_evidence,
+    results: receipt.receipts?.results,
+    state: receipt.state,
+    ...(Object.hasOwn(receipt, "admission")
+      ? { admission: receipt.admission }
+      : {}),
+  });
+  invariant(
+    journal.journal_digest === receipt.journal_digest,
+    "Preview observation receipt journal digest conflicts",
+  );
+  const eventRunId = exactRunId(
+    receipt.event_run_id,
+    "Preview observation receipt event run ID",
+  );
+  const events = journal.receipts.events.filter(
+    (event) => event.event_run_id === eventRunId,
+  );
+  const projected =
+    events.length === 1
+      ? previewObservationJournalForEvent(journal, events[0])
+      : null;
+  invariant(
+    projected !== null && canonicalJson(projected) === canonicalJson(journal),
+    "Preview observation receipt event is not settled or canonical",
+  );
+  return receipt;
+}
+
 function emptyReceiptCounts() {
   return { events: 0, selections: 0, worker_evidence: 0, results: 0 };
 }
@@ -4856,7 +5166,7 @@ async function mutatePreviewJournal({
   if (!loaded && assertCanCreate) await assertCanCreate();
   const current = loaded?.journal ?? createPreviewJournal({ pr, revision: 1 });
   const candidate = structuredClone(current);
-  mutate(candidate);
+  await mutate(candidate);
   if (pendingClosedBootstrapRecovery) {
     assertClosedBootstrapTerminalRecoveryWriteResult({
       current,
@@ -5277,6 +5587,32 @@ function foldCheckpointSemanticEvent(journal, event) {
   };
 }
 
+async function priorObservationReceiptsAreRetained({
+  github,
+  context,
+  events,
+}) {
+  const required = events.filter(
+    (event) =>
+      validateEventReceipt(event).observation_receipt_required === true,
+  );
+  for (const event of required) {
+    const artifacts = await github.paginate(
+      github.rest.actions.listWorkflowRunArtifacts,
+      {
+        ...ownerRepo(context),
+        run_id: event.event_run_id,
+        per_page: 100,
+      },
+    );
+    if (
+      selectPreviewObservationArtifact(artifacts, event.event_run_id) === null
+    )
+      return false;
+  }
+  return true;
+}
+
 async function appendJournalReceipt({
   github,
   context,
@@ -5316,7 +5652,7 @@ async function appendJournalReceipt({
             receipt: value,
           }
         : null,
-    mutate(journal) {
+    async mutate(journal) {
       const priorAdmissionRunNumber =
         journal.admission?.through_run_number ?? null;
       const nextAdmission =
@@ -5439,12 +5775,26 @@ async function appendJournalReceipt({
       const entries = journal.receipts[definition.name];
       const eventsBeforeAppend =
         kind === "event" ? structuredClone(journal.receipts.events) : null;
+      const priorObservationReceiptsRetained =
+        kind !== "event" ||
+        (await priorObservationReceiptsAreRetained({
+          github,
+          context,
+          events: eventsBeforeAppend,
+        }));
       entries.push(structuredClone(value));
       persistAdmission();
       if (deferCompaction) {
         // This one authenticated legacy drain must preserve the old active
         // owner lineage until the same run reconciles the persisted results.
         // Rendering here enforces the 60 KB comment headroom before any write.
+        renderPreviewJournalBody(journal);
+        return;
+      }
+      if (kind === "event" && !priorObservationReceiptsRetained) {
+        // A later controller run must not checkpoint an event before that
+        // event's immutable Actions artifact exists. The serialized comment
+        // write keeps the full graph available to its artifact publisher.
         renderPreviewJournalBody(journal);
         return;
       }
@@ -5484,7 +5834,28 @@ async function appendJournalReceipt({
               journal.pr,
               journal.checkpoint,
             );
-        if (
+        if (value.observation_receipt_required === true) {
+          if (beforeWasRepresented) {
+            journal.receipts.events = eventsBeforeAppend;
+            journal.journal_digest = previewJournalDigest(
+              journal.receipts,
+              journal.state,
+              journal.checkpoint,
+              journal.admission,
+            );
+            compactPreviewJournal(journal, {
+              expectedPullNumber,
+            });
+            // This event's publisher can only bind an exact live receipt. Even
+            // when it is semantically equal to the compacted checkpoint tail,
+            // preserve this distinct run ID until its artifact exists.
+            journal.receipts.events.push(structuredClone(value));
+          } else {
+            // The new event itself cannot be compacted until its artifact
+            // publisher has consumed this live graph.
+            renderPreviewJournalBody(journal);
+          }
+        } else if (
           semanticCheckpointReplay &&
           eventAdmissionProof.frontierRunNumber !== null
         ) {
@@ -5542,20 +5913,30 @@ async function writeControllerState({
     closedBootstrapRecoveryCapability: compactClosedBootstrapRecovery
       ? { type: CLOSED_BOOTSTRAP_RECOVERY_TERMINAL_STATE }
       : null,
-    mutate(journal) {
+    async mutate(journal) {
       journal.state = structuredClone(state);
       if (compactClosedBootstrapRecovery) {
         invariant(
           state.closed,
           "Closed bootstrap recovery compaction requires terminal state",
         );
-        journal.journal_digest = previewJournalDigest(
-          journal.receipts,
-          journal.state,
-          journal.checkpoint,
-          journal.admission,
-        );
-        compactPreviewJournal(journal, { expectedPullNumber: pr });
+        if (
+          await priorObservationReceiptsAreRetained({
+            github,
+            context,
+            events: journal.receipts.events,
+          })
+        ) {
+          journal.journal_digest = previewJournalDigest(
+            journal.receipts,
+            journal.state,
+            journal.checkpoint,
+            journal.admission,
+          );
+          compactPreviewJournal(journal, { expectedPullNumber: pr });
+        } else {
+          renderPreviewJournalBody(journal);
+        }
       }
     },
   });
@@ -5848,7 +6229,9 @@ export async function prepareBootstrap({
 }
 
 export function writeEventSnapshotOutputs({ payload, runId, runNumber, core }) {
-  const snapshot = snapshotPullRequestEvent(payload, runId, runNumber);
+  const snapshot = snapshotPullRequestEvent(payload, runId, runNumber, {
+    retainObservationReceipt: true,
+  });
   core.setOutput("snapshot", JSON.stringify(snapshot));
   for (const [name, value] of Object.entries({
     pr_number: snapshot.pr,
@@ -5856,6 +6239,8 @@ export function writeEventSnapshotOutputs({ payload, runId, runNumber, core }) {
     change_base_sha: snapshot.change_base_sha,
     head_sha: snapshot.head_sha,
     trust: snapshot.trust,
+    observation_receipt_required:
+      snapshot.observation_receipt_required === true,
     plan_required:
       snapshot.trust === "trusted" && snapshot.event_action !== "closed",
   }))

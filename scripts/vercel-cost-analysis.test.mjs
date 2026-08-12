@@ -45,12 +45,7 @@ function manifestForAggregate(aggregatePath) {
   manifest.aggregate = aggregatePath;
   for (const windowName of ["baseline", "postCutover"]) {
     const source = manifest.windows[windowName];
-    for (const key of [
-      "focusJsonl",
-      "providerAttributionEvidence",
-      "attributionJsonl",
-      "deploymentCensusJsonl",
-    ]) {
+    for (const key of ["focusJsonl", "deploymentCensusJsonl"]) {
       source[key] = resolve(fixtureDirectory, source[key]);
     }
   }
@@ -61,18 +56,6 @@ function setUsageMetric(evidence, windowName, target, metric, value) {
   const targetEvidence = evidence[windowName].targets[target];
   targetEvidence.migratedPath[metric] = value;
   targetEvidence.grossProject[metric] = value;
-  if (value === null) {
-    targetEvidence.migratedUsageByPath.preview[metric] = null;
-    targetEvidence.migratedUsageByPath.main[metric] = null;
-    return;
-  }
-  const currentPreview = targetEvidence.migratedUsageByPath.preview[metric];
-  const currentMain = targetEvidence.migratedUsageByPath.main[metric];
-  const currentTotal = currentPreview + currentMain;
-  const previewShare = currentTotal === 0 ? 0.5 : currentPreview / currentTotal;
-  const preview = value * previewShare;
-  targetEvidence.migratedUsageByPath.preview[metric] = preview;
-  targetEvidence.migratedUsageByPath.main[metric] = value - preview;
 }
 
 function setAllBilledCosts(evidence, value) {
@@ -87,12 +70,10 @@ function setBuildCpuMinutes(evidence, windowName, target, value) {
   setUsageMetric(evidence, windowName, target, "buildCpuMinutes", value);
 }
 
-function setPathUsageZero(evidence, windowName, target, path) {
+function setTargetUsageZero(evidence, windowName, target) {
   for (const metric of ["buildCpuMinutes", "effectiveCost", "billedCost"]) {
-    evidence[windowName].targets[target].migratedUsageByPath[path][metric] = 0;
-    evidence[windowName].targets[target].migratedPath[metric] =
-      evidence[windowName].targets[target].migratedUsageByPath.preview[metric] +
-      evidence[windowName].targets[target].migratedUsageByPath.main[metric];
+    evidence[windowName].targets[target].migratedPath[metric] = 0;
+    evidence[windowName].targets[target].grossProject[metric] = 0;
   }
 }
 
@@ -124,11 +105,6 @@ function movePreviewCensusToMain(evidence, targets = VERCEL_COST_TARGETS) {
       census.main[metric] += census.preview[metric];
       census.preview[metric] = 0;
     }
-    for (const metric of ["buildCpuMinutes", "effectiveCost", "billedCost"]) {
-      const usage = evidence.postCutover.targets[target].migratedUsageByPath;
-      usage.main[metric] += usage.preview[metric];
-      usage.preview[metric] = 0;
-    }
   }
 }
 
@@ -143,21 +119,34 @@ function postCutoverSourceTotal(evidence, source, metric) {
   );
 }
 
-test("computes the issue #523 target-by-path formula at the exact pass boundary", () => {
-  const analysis = analyzeVercelCostEvidence(fixture());
+test("computes the issue #523 target-mix formula across a changed preview/main mix", () => {
+  const evidence = fixture();
+  setMigratedCensusMetric(
+    evidence,
+    "postCutover",
+    "app",
+    "eligibleEvents",
+    1,
+    3,
+  );
+  setMigratedCensusMetric(
+    evidence,
+    "postCutover",
+    "app",
+    "deploymentAttempts",
+    1,
+    3,
+  );
+  evidence.postCutover.correctness.eligibleFirstPreviews = 8;
+  evidence.postCutover.correctness.eligibleFirstPreviewOpportunities = 8;
+  evidence.postCutover.correctness.mainDeploymentObservationsCompleted = 6;
+
+  const analysis = analyzeVercelCostEvidence(evidence);
 
   assert.equal(analysis.normalized.minutes.counterfactual, 270);
   assert.equal(analysis.normalized.minutes.actual, 27);
   assert.equal(analysis.normalized.minutes.savings, MINIMUM_NORMALIZED_SAVINGS);
   assert.equal(analysis.normalized.minutes.targets.app.counterfactual, 100);
-  assert.equal(
-    analysis.normalized.minutes.targets.app.paths.preview.counterfactual,
-    75,
-  );
-  assert.equal(
-    analysis.normalized.minutes.targets.app.paths.main.counterfactual,
-    25,
-  );
   assert.equal(
     analysis.normalized.minutes.targets.governance.counterfactual,
     100,
@@ -177,16 +166,16 @@ test("normalizes gross minutes by complete UTC days", () => {
 
   assert.equal(analysis.periods.baseline.days, 14);
   assert.equal(analysis.periods.postCutover.days, 7);
-  assert.equal(analysis.gross.baselineMinutes, 580);
-  assert.equal(analysis.gross.postCutoverMinutes, 47);
-  assert.equal(analysis.gross.baselineMinutesPerDay, 580 / 14);
-  assert.equal(analysis.gross.postCutoverMinutesPerDay, 47 / 7);
-  assert.equal(analysis.gross.minuteSavings, 1 - 47 / 7 / (580 / 14));
-  assert.equal(analysis.gross.effectiveCostSavings, 1 - 7.2 / 7 / (82 / 14));
-  assert.equal(analysis.gross.billedCostSavings, 1 - 7.2 / 7 / (82 / 14));
+  assert.equal(analysis.gross.baselineMinutes, 540);
+  assert.equal(analysis.gross.postCutoverMinutes, 27);
+  assert.equal(analysis.gross.baselineMinutesPerDay, 540 / 14);
+  assert.equal(analysis.gross.postCutoverMinutesPerDay, 27 / 7);
+  assert.equal(analysis.gross.minuteSavings, 1 - 27 / 7 / (540 / 14));
+  assert.equal(analysis.gross.effectiveCostSavings, 1 - 3.2 / 7 / (74 / 14));
+  assert.equal(analysis.gross.billedCostSavings, 1 - 3.2 / 7 / (74 / 14));
   assert.deepEqual(analysis.gross.targets.app, {
-    baselineMinutes: 240,
-    postCutoverMinutes: 30,
+    baselineMinutes: 200,
+    postCutoverMinutes: 10,
   });
 });
 
@@ -234,10 +223,7 @@ test("keeps private financial and FOCUS provenance out of public output", () => 
     markdown,
     /Absolute EffectiveCost and BilledCost values are intentionally omitted/,
   );
-  assert.match(
-    markdown,
-    /Target-by-path normalized build-minute savings: 90\.00%/,
-  );
+  assert.match(markdown, /Target-mix normalized build-minute savings: 90\.00%/);
   assert.match(markdown, /Smoke\/E2E checks completed: 10\/10/);
   assert.match(markdown, /Burst first-plus-latest checks completed: 2\/2/);
   assert.match(markdown, /Legacy v2 health checks completed: 7\/7/);
@@ -245,7 +231,7 @@ test("keeps private financial and FOCUS provenance out of public output", () => 
   assert.match(markdown, /Trusted deployed-code same-repository PR pushes: 10/);
   assert.match(
     markdown,
-    /\| app \| 200\.00 \| 240\.00 \| 10\.00 \| 30\.00 \| 100\.00 \| 90\.00% \|/,
+    /\| app \| 200\.00 \| 200\.00 \| 10\.00 \| 10\.00 \| 100\.00 \| 90\.00% \|/,
   );
   assert.doesNotMatch(markdown, /\| Target \|[^\n]*\| Pass \|/);
   assert.doesNotMatch(markdown, /\$\d/);
@@ -270,11 +256,11 @@ test("reports public-safe GitHub, correctness, event, and attribution evidence",
     deploymentAttempts: 4,
     duplicateDeployments: 0,
     excluded: {
-      legacyV2DeploymentAttempts: 1,
+      legacyV2DeploymentAttempts: 0,
       manualDeploymentAttempts: 0,
       unknownDeploymentAttempts: 0,
     },
-    attributionMethod: "provider-attributed",
+    attributionMethod: "project-total-no-exclusions",
     migratedDeploymentCensus: {
       preview: {
         eligibleEvents: 3,
@@ -295,7 +281,7 @@ test("reports public-safe GitHub, correctness, event, and attribution evidence",
   });
   assert.equal(
     analysis.eventCensus.governance.postCutover.attributionMethod,
-    "provider-attributed",
+    "project-total-no-exclusions",
   );
 });
 
@@ -412,14 +398,9 @@ test("binds complete main observations to derived main eligible events", () => {
   );
 });
 
-test("reports a truthful zero-event main denominator without bypassing path-mix savings", () => {
+test("reports a truthful zero-event main denominator without changing target-mix savings", () => {
   const evidence = fixture();
   for (const target of VERCEL_COST_TARGETS) {
-    for (const metric of ["buildCpuMinutes", "effectiveCost", "billedCost"]) {
-      const usage = evidence.postCutover.targets[target].migratedUsageByPath;
-      usage.preview[metric] += usage.main[metric];
-      usage.main[metric] = 0;
-    }
     const migrated = evidence.postCutover.targets[target].migratedPath;
     setMigratedCensusMetric(
       evidence,
@@ -450,12 +431,8 @@ test("reports a truthful zero-event main denominator without bypassing path-mix 
 
   const analysis = analyzeVercelCostEvidence(evidence);
   const markdown = formatVercelCostMarkdown(analysis);
-  assert.equal(analysis.pass, false);
-  assert.ok(
-    analysis.reasons.includes(
-      "normalized-build-minute-savings-below-90-percent",
-    ),
-  );
+  assert.equal(analysis.pass, true);
+  assert.equal(analysis.normalized.minutes.savings, MINIMUM_NORMALIZED_SAVINGS);
   assert.deepEqual(analysis.mainDeploymentObservations, {
     completed: 0,
     eligibleEvents: 0,
@@ -496,12 +473,7 @@ test("requires post-cutover events for every logical target", () => {
     0,
     0,
   );
-  for (const path of ["preview", "main"]) {
-    setPathUsageZero(evidence, "postCutover", "ui", path);
-  }
-  for (const metric of ["buildCpuMinutes", "effectiveCost", "billedCost"]) {
-    evidence.postCutover.targets.ui.grossProject[metric] = 0;
-  }
+  setTargetUsageZero(evidence, "postCutover", "ui");
   evidence.postCutover.correctness.mainDeploymentObservationsCompleted = 3;
   evidence.postCutover.correctness.eligibleFirstPreviews = 8;
   evidence.postCutover.correctness.eligibleFirstPreviewOpportunities = 8;
@@ -533,13 +505,6 @@ test("requires a positive minute counterfactual for every target", () => {
     1,
     0,
   );
-  for (const windowName of ["baseline", "postCutover"]) {
-    const usage = evidence[windowName].targets.app.migratedUsageByPath;
-    for (const metric of ["buildCpuMinutes", "effectiveCost", "billedCost"]) {
-      usage.preview[metric] += usage.main[metric];
-      usage.main[metric] = 0;
-    }
-  }
   evidence.postCutover.correctness.mainDeploymentObservationsCompleted = 3;
   evidence.postCutover.correctness.eligibleFirstPreviews = 8;
   evidence.postCutover.correctness.eligibleFirstPreviewOpportunities = 8;
@@ -656,14 +621,6 @@ test("rejects non-finite derived totals, counterfactuals, ratios, and savings", 
     1,
     0,
   );
-  for (const windowName of ["baseline", "postCutover"]) {
-    const usage =
-      targetCounterfactualOverflow[windowName].targets.app.migratedUsageByPath;
-    for (const metric of ["buildCpuMinutes", "effectiveCost", "billedCost"]) {
-      usage.preview[metric] += usage.main[metric];
-      usage.main[metric] = 0;
-    }
-  }
   setMigratedCensusMetric(
     targetCounterfactualOverflow,
     "postCutover",
@@ -675,7 +632,7 @@ test("rejects non-finite derived totals, counterfactuals, ratios, and savings", 
   targetCounterfactualOverflow.postCutover.correctness.mainDeploymentObservationsCompleted = 3;
   assert.throws(
     () => analyzeVercelCostEvidence(targetCounterfactualOverflow),
-    /normalized\.buildCpuMinutes\.targets\.app\.paths\.preview\.counterfactual must be finite/,
+    /normalized\.buildCpuMinutes\.targets\.app\.counterfactual must be finite/,
   );
 
   const aggregateCounterfactualOverflow = fixture();
@@ -694,15 +651,6 @@ test("rejects non-finite derived totals, counterfactuals, ratios, and savings", 
       1,
       0,
     );
-    for (const windowName of ["baseline", "postCutover"]) {
-      const usage =
-        aggregateCounterfactualOverflow[windowName].targets[target]
-          .migratedUsageByPath;
-      for (const metric of ["buildCpuMinutes", "effectiveCost", "billedCost"]) {
-        usage.preview[metric] += usage.main[metric];
-        usage.main[metric] = 0;
-      }
-    }
     setMigratedCensusMetric(
       aggregateCounterfactualOverflow,
       "postCutover",
@@ -758,14 +706,6 @@ test("rejects non-finite derived totals, counterfactuals, ratios, and savings", 
     1,
     0,
   );
-  for (const windowName of ["baseline", "postCutover"]) {
-    const usage =
-      savingsRatioOverflow[windowName].targets.app.migratedUsageByPath;
-    for (const metric of ["buildCpuMinutes", "effectiveCost", "billedCost"]) {
-      usage.preview[metric] += usage.main[metric];
-      usage.main[metric] = 0;
-    }
-  }
   setMigratedCensusMetric(
     savingsRatioOverflow,
     "postCutover",
@@ -779,17 +719,17 @@ test("rejects non-finite derived totals, counterfactuals, ratios, and savings", 
   savingsRatioOverflow.postCutover.correctness.eligibleFirstPreviewOpportunities = 8;
   assert.throws(
     () => analyzeVercelCostEvidence(savingsRatioOverflow),
-    /normalized\.buildCpuMinutes\.targets\.app\.paths\.preview\.savings\.ratio must be finite/,
+    /normalized\.buildCpuMinutes\.targets\.app\.savings\.ratio must be finite/,
   );
 });
 
-test("does not allow unknown deployment activity to pass", () => {
+test("rejects excluded deployment activity before normalization", () => {
   const evidence = fixture();
   evidence.postCutover.targets.app.excluded.unknownDeploymentAttempts = 1;
-  const analysis = analyzeVercelCostEvidence(evidence);
-
-  assert.equal(analysis.pass, false);
-  assert.ok(analysis.reasons.includes("unknown-deployment-attempts:app"));
+  assert.throws(
+    () => validateVercelCostEvidence(evidence),
+    /cannot use a clean project total with excluded deployments/,
+  );
 });
 
 test("enforces the observation duration, PR sample, and GitHub billing gates", () => {
@@ -1051,50 +991,65 @@ test("rejects inconsistent aggregates instead of silently repairing them", () =>
   );
 });
 
-test("requires invoice-grade provenance for migrated-path attribution", () => {
-  const missingProviderDigest = fixture();
-  missingProviderDigest.baseline.targets.app.attribution.evidenceSha256 = null;
+test("requires invoice-grade zero-exclusion project-total attribution", () => {
+  const legacyProviderMethod = fixture();
+  legacyProviderMethod.baseline.targets.app.attribution.method =
+    "provider-attributed";
   assert.throws(
-    () => validateVercelCostEvidence(missingProviderDigest),
-    /must be lowercase SHA-256 for provider attribution/,
+    () => validateVercelCostEvidence(legacyProviderMethod),
+    /attribution\.method must be project-total-no-exclusions/,
   );
 
-  const excludedCleanTotal = fixture();
-  excludedCleanTotal.baseline.targets.app.attribution = {
-    method: "project-total-no-exclusions",
-    evidenceSha256: null,
-  };
+  const legacyEvidenceDigest = fixture();
+  legacyEvidenceDigest.baseline.targets.app.attribution.evidenceSha256 =
+    "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
   assert.throws(
-    () => validateVercelCostEvidence(excludedCleanTotal),
-    /cannot use a clean project total with excluded deployments/,
+    () => validateVercelCostEvidence(legacyEvidenceDigest),
+    /evidenceSha256 must be null for a clean project total/,
   );
 
-  const mismatchedCleanTotal = fixture();
-  const cleanTarget = mismatchedCleanTotal.baseline.targets.governance;
-  for (const metric of [
-    "eligibleEvents",
-    "deploymentAttempts",
-    "duplicateDeployments",
-  ]) {
-    cleanTarget.migratedDeploymentCensus.preview[metric] +=
-      cleanTarget.migratedDeploymentCensus.main[metric];
-    cleanTarget.migratedDeploymentCensus.main[metric] = 0;
-  }
   for (const metric of ["buildCpuMinutes", "effectiveCost", "billedCost"]) {
-    cleanTarget.migratedUsageByPath.preview[metric] +=
-      cleanTarget.migratedUsageByPath.main[metric];
-    cleanTarget.migratedUsageByPath.main[metric] = 0;
+    const mismatchedProjectTotal = fixture();
+    const target = mismatchedProjectTotal.baseline.targets.governance;
+    target.migratedPath[metric] = target.grossProject[metric] - 1;
+
+    assert.throws(
+      () => validateVercelCostEvidence(mismatchedProjectTotal),
+      new RegExp(
+        `migratedPath\\.${metric} must equal grossProject\\.${metric} for a clean project total`,
+      ),
+      metric,
+    );
   }
-  cleanTarget.attribution = {
-    method: "project-total-no-exclusions",
-    evidenceSha256: null,
-  };
-  mismatchedCleanTotal.baseline.targets.governance.migratedPath.buildCpuMinutes = 199;
-  cleanTarget.migratedUsageByPath.preview.buildCpuMinutes = 199;
+
+  const mismatchedNullableCost = fixture();
+  mismatchedNullableCost.baseline.period.invoiceFinal = false;
+  mismatchedNullableCost.baseline.targets.app.migratedPath.billedCost = null;
   assert.throws(
-    () => validateVercelCostEvidence(mismatchedCleanTotal),
-    /must equal grossProject\.buildCpuMinutes for a clean project total/,
+    () => validateVercelCostEvidence(mismatchedNullableCost),
+    /migratedPath\.billedCost must equal grossProject\.billedCost for a clean project total/,
   );
+
+  const nearEqualProjectTotal = fixture();
+  nearEqualProjectTotal.baseline.targets.app.migratedPath.effectiveCost = 39.999999999999986;
+  assert.throws(
+    () => validateVercelCostEvidence(nearEqualProjectTotal),
+    /migratedPath\.effectiveCost must equal grossProject\.effectiveCost for a clean project total/,
+  );
+
+  for (const excludedKey of [
+    "legacyV2DeploymentAttempts",
+    "manualDeploymentAttempts",
+    "unknownDeploymentAttempts",
+  ]) {
+    const excluded = fixture();
+    excluded.baseline.targets.app.excluded[excludedKey] = 1;
+    assert.throws(
+      () => validateVercelCostEvidence(excluded),
+      /cannot use a clean project total with excluded deployments/,
+      excludedKey,
+    );
+  }
 
   const legacyV2OnWrongProject = fixture();
   legacyV2OnWrongProject.postCutover.targets.ui.excluded.legacyV2DeploymentAttempts = 1;
@@ -1102,29 +1057,9 @@ test("requires invoice-grade provenance for migrated-path attribution", () => {
     () => validateVercelCostEvidence(legacyV2OnWrongProject),
     /cannot classify legacy app v2 activity/,
   );
-
-  for (const metric of ["buildCpuMinutes", "effectiveCost", "billedCost"]) {
-    const unexplainedProviderSplit = fixture();
-    const target = unexplainedProviderSplit.baseline.targets.governance;
-    target.attribution = {
-      method: "provider-attributed",
-      evidenceSha256:
-        "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-    };
-    target.migratedPath[metric] = target.grossProject[metric] - 1;
-    target.migratedUsageByPath.preview[metric] -= 1;
-
-    assert.throws(
-      () => validateVercelCostEvidence(unexplainedProviderSplit),
-      new RegExp(
-        `migratedPath\\.${metric} must equal grossProject\\.${metric} when provider attribution has no excluded deployments`,
-      ),
-      metric,
-    );
-  }
 });
 
-test("rejects reused raw and provider-attribution evidence digests", () => {
+test("rejects reused raw FOCUS evidence digests", () => {
   const reusedFocusExport = fixture();
   reusedFocusExport.postCutover.period.focusExportSha256 =
     reusedFocusExport.baseline.period.focusExportSha256;
@@ -1132,53 +1067,20 @@ test("rejects reused raw and provider-attribution evidence digests", () => {
     () => validateVercelCostEvidence(reusedFocusExport),
     /raw FOCUS export digests must differ/,
   );
-
-  const rawFocusUsedAsAttribution = fixture();
-  rawFocusUsedAsAttribution.baseline.targets.app.attribution.evidenceSha256 =
-    rawFocusUsedAsAttribution.baseline.period.focusExportSha256;
-  assert.throws(
-    () => validateVercelCostEvidence(rawFocusUsedAsAttribution),
-    /evidenceSha256 must differ from the raw FOCUS export digest/,
-  );
-
-  const baselineAttributionUsesPostFocus = fixture();
-  baselineAttributionUsesPostFocus.baseline.targets.app.attribution.evidenceSha256 =
-    baselineAttributionUsesPostFocus.postCutover.period.focusExportSha256;
-  assert.throws(
-    () => validateVercelCostEvidence(baselineAttributionUsesPostFocus),
-    /baseline\.targets\.app\.attribution\.evidenceSha256 must differ from every raw FOCUS export digest/,
-  );
-
-  const postAttributionUsesBaselineFocus = fixture();
-  postAttributionUsesBaselineFocus.postCutover.targets.app.attribution.evidenceSha256 =
-    postAttributionUsesBaselineFocus.baseline.period.focusExportSha256;
-  assert.throws(
-    () => validateVercelCostEvidence(postAttributionUsesBaselineFocus),
-    /postCutover\.targets\.app\.attribution\.evidenceSha256 must differ from every raw FOCUS export digest/,
-  );
-
-  const reusedProviderEvidence = fixture();
-  reusedProviderEvidence.postCutover.targets.app.attribution.evidenceSha256 =
-    reusedProviderEvidence.baseline.targets.app.attribution.evidenceSha256;
-  assert.throws(
-    () => validateVercelCostEvidence(reusedProviderEvidence),
-    /provider attribution evidence must differ for app/,
-  );
 });
 
-test("loads and reconciles raw FOCUS, provider attribution, and deployment census sources", () => {
+test("loads and reconciles raw FOCUS project totals and deployment census sources", () => {
   const analysis = analyzeVercelCostManifest(fileURLToPath(manifestUrl));
 
   assert.equal(analysis.pass, true);
   assert.equal(analysis.sourceEvidence.rawFocusReconciled, true);
-  assert.equal(analysis.sourceEvidence.providerArtifactBound, true);
-  assert.equal(analysis.sourceEvidence.derivedAttributionReconciled, true);
+  assert.equal(analysis.sourceEvidence.projectTotalsReconciled, true);
   assert.equal(analysis.sourceEvidence.deploymentCensusComplete, true);
   assert.deepEqual(
     analysis.sourceEvidence.deployments.postCutover.targets.app.sources,
     {
       "github-actions-prebuilt": 4,
-      "vercel-native": 1,
+      "vercel-native": 0,
       manual: 0,
       unknown: 0,
     },
@@ -1231,7 +1133,7 @@ test("fails closed when raw FOCUS rows do not reconcile to project totals", () =
     const raw = readFileSync(
       resolve(fixtureDirectory, "baseline.focus.jsonl"),
       "utf8",
-    ).replace('"ConsumedQuantity":"240"', '"ConsumedQuantity":"241"');
+    ).replace('"ConsumedQuantity":"200"', '"ConsumedQuantity":"201"');
     const focusPath = join(temporaryDirectory, "baseline.focus.jsonl");
     writeFileSync(focusPath, raw);
     const evidence = fixture();
@@ -1286,6 +1188,36 @@ test("requires complete, untampered deployment census evidence with unique IDs",
     assert.throws(
       () => analyzeVercelCostManifest(duplicateManifestPath),
       /duplicate deploymentId dpl_PAppP1/,
+    );
+
+    const excludedRow = {
+      deploymentId: "dpl_PAppManual",
+      target: "app",
+      path: "unknown",
+      source: "manual",
+      outcome: "ready",
+      sourceSha: null,
+      createdAtUtc: "2026-07-21T02:00:00.000Z",
+      evidenceUrl: "https://example-preview.vercel.app/",
+    };
+    const excluded = `${original}${JSON.stringify(excludedRow)}\n`;
+    const excludedPath = join(temporaryDirectory, "excluded.jsonl");
+    writeFileSync(excludedPath, excluded);
+    const excludedManifest = manifestForAggregate(fileURLToPath(fixtureUrl));
+    excludedManifest.windows.postCutover.deploymentCensusJsonl = excludedPath;
+    excludedManifest.windows.postCutover.deploymentCensusSha256 =
+      sha256(excluded);
+    const excludedManifestPath = join(
+      temporaryDirectory,
+      "excluded-manifest.json",
+    );
+    writeFileSync(
+      excludedManifestPath,
+      `${JSON.stringify(excludedManifest, null, 2)}\n`,
+    );
+    assert.throws(
+      () => analyzeVercelCostManifest(excludedManifestPath),
+      /postCutover deployment census JSONL\.app\.manualDeploymentAttempts does not reconcile/,
     );
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });
@@ -1376,62 +1308,78 @@ test("renders direct links for failed deployment attempts without calling them d
   }
 });
 
-test("keeps the provider artifact distinct from the derived attribution mapping", () => {
-  const temporaryDirectory = mkdtempSync(join(tmpdir(), "vercel-provider-"));
+test("rejects legacy manifest schemas and provider-attribution fields", () => {
+  const temporaryDirectory = mkdtempSync(join(tmpdir(), "vercel-manifest-"));
   try {
-    const manifest = manifestForAggregate(fileURLToPath(fixtureUrl));
-    manifest.windows.baseline.attributionJsonlSha256 =
-      manifest.windows.baseline.providerAttributionSha256;
-    const manifestPath = join(temporaryDirectory, "manifest.json");
-    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    const legacySchema = manifestForAggregate(fileURLToPath(fixtureUrl));
+    legacySchema.schemaVersion = 1;
+    const legacySchemaPath = join(temporaryDirectory, "schema.json");
+    writeFileSync(
+      legacySchemaPath,
+      `${JSON.stringify(legacySchema, null, 2)}\n`,
+    );
     assert.throws(
-      () => analyzeVercelCostManifest(manifestPath),
-      /keep the provider artifact distinct from the derived attribution JSONL/,
+      () => analyzeVercelCostManifest(legacySchemaPath),
+      /manifest\.schemaVersion must be 2/,
+    );
+
+    const legacyField = manifestForAggregate(fileURLToPath(fixtureUrl));
+    legacyField.windows.baseline.providerAttributionEvidence =
+      "baseline.provider-evidence.json";
+    const legacyFieldPath = join(temporaryDirectory, "field.json");
+    writeFileSync(legacyFieldPath, `${JSON.stringify(legacyField, null, 2)}\n`);
+    assert.throws(
+      () => analyzeVercelCostManifest(legacyFieldPath),
+      /manifest\.windows\.baseline must contain exactly/,
     );
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });
   }
 });
 
-test("fails an observed target-path cell that has no baseline events", () => {
+test("fails a target with post events but no baseline target events", () => {
   const evidence = fixture();
   const target = evidence.baseline.targets.app;
-  target.migratedDeploymentCensus.preview.eligibleEvents +=
-    target.migratedDeploymentCensus.main.eligibleEvents;
-  target.migratedDeploymentCensus.preview.deploymentAttempts +=
-    target.migratedDeploymentCensus.main.deploymentAttempts;
+  target.migratedDeploymentCensus.preview.eligibleEvents = 0;
+  target.migratedDeploymentCensus.preview.deploymentAttempts = 0;
   target.migratedDeploymentCensus.main.eligibleEvents = 0;
   target.migratedDeploymentCensus.main.deploymentAttempts = 0;
-  for (const metric of ["buildCpuMinutes", "effectiveCost", "billedCost"]) {
-    target.migratedUsageByPath.preview[metric] +=
-      target.migratedUsageByPath.main[metric];
-    target.migratedUsageByPath.main[metric] = 0;
-  }
+  target.migratedPath.eligibleEvents = 0;
+  target.migratedPath.deploymentAttempts = 0;
 
   const analysis = analyzeVercelCostEvidence(evidence);
   assert.equal(analysis.observationPass, false);
-  assert.ok(analysis.reasons.includes("missing-baseline-events:app:main"));
+  assert.ok(analysis.reasons.includes("missing-baseline-events:app"));
+  assert.ok(
+    analysis.reasons.includes("minute-counterfactual-not-positive:app"),
+  );
 });
 
-test("fails negative EffectiveCost and BilledCost savings for any path", () => {
+test("fails a zero-counterfactual target cost increase masked by aggregate savings", () => {
   const evidence = fixture();
-  const target = evidence.postCutover.targets.app;
-  target.migratedUsageByPath.preview.effectiveCost = 40;
-  target.migratedUsageByPath.preview.billedCost = 40;
-  target.migratedPath.effectiveCost = 40.25;
-  target.migratedPath.billedCost = 40.25;
-  target.grossProject.effectiveCost = 40.25;
-  target.grossProject.billedCost = 40.25;
+  const target = evidence.baseline.targets.app;
+  target.migratedPath.effectiveCost = 0;
+  target.migratedPath.billedCost = 0;
+  target.grossProject.effectiveCost = 0;
+  target.grossProject.billedCost = 0;
 
   const analysis = analyzeVercelCostEvidence(evidence);
   assert.equal(analysis.observationPass, false);
+  assert.ok(analysis.normalized.effectiveCost.savings > 0);
+  assert.ok(analysis.normalized.billedCost.savings > 0);
+  assert.equal(analysis.normalized.effectiveCost.targets.app.savings, null);
+  assert.equal(analysis.normalized.billedCost.targets.app.savings, null);
   assert.ok(
-    analysis.reasons.includes(
-      "normalized-effective-cost-regression:app:preview",
-    ),
+    analysis.reasons.includes("normalized-effective-cost-regression:app"),
   );
-  assert.ok(
-    analysis.reasons.includes("normalized-billed-cost-regression:app:preview"),
+  assert.ok(analysis.reasons.includes("normalized-billed-cost-regression:app"));
+  assert.equal(
+    analysis.reasons.includes("normalized-effective-cost-regression"),
+    false,
+  );
+  assert.equal(
+    analysis.reasons.includes("normalized-billed-cost-regression"),
+    false,
   );
 });
 

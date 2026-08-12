@@ -1,0 +1,169 @@
+name: Dependabot Prepared Head Intake
+
+# This title is the only handoff to the trusted reviewer. It carries the
+# bounded mutation receipt selected by the trusted processor, never candidate
+# data or an artifact.
+run-name: >-
+  ${{ format('dependabot-prepared-head:v1|p={0}|h={1}|o={2}|c={3}|d={4}|ok={5}', github.event.client_payload.prNumber, github.event.client_payload.headSha, github.event.client_payload.operation == 'refresh' && 'r' || 'p', github.event.client_payload.operationReceipt.checkId, github.event.client_payload.operationReceipt.digest, github.repository == 'mento-protocol/frontend-monorepo' && github.event.client_payload.schema == 'dependabot-prepared-head-intake:v1' && github.event.client_payload.repository == github.repository && github.event.sender.type == 'Bot' && format('{0}', github.event.sender.id) == vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID && github.event.sender.login == vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN && github.event.client_payload.prepareApp.slug == vars.DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG && format('{0}', github.event.client_payload.prepareApp.botId) == vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID && github.event.client_payload.prepareApp.botLogin == vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN) }}
+
+on:
+  repository_dispatch:
+    types: [dependabot-prepared-head]
+
+# The intake receives no token capability. It validates only immutable event
+# metadata and never calls an API, checks out code, reads a secret, or publishes
+# an artifact.
+permissions: {}
+
+jobs:
+  validate-receipt:
+    name: Validate immutable prepared-head metadata
+    if: >-
+      github.repository == 'mento-protocol/frontend-monorepo' &&
+      github.event.client_payload.schema == 'dependabot-prepared-head-intake:v1' &&
+      github.event.client_payload.repository == github.repository &&
+      github.event.sender.type == 'Bot' &&
+      format('{0}', github.event.sender.id) == vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID &&
+      github.event.sender.login == vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN &&
+      github.event.client_payload.prepareApp.slug == vars.DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG &&
+      format('{0}', github.event.client_payload.prepareApp.botId) == vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID &&
+      github.event.client_payload.prepareApp.botLogin == vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Validate the credentialless prepared-head receipt
+        shell: bash
+        env:
+          EXPECTED_PREPARE_APP_SLUG: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG }}
+          EXPECTED_PREPARE_BOT_ID: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID }}
+          EXPECTED_PREPARE_BOT_LOGIN: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN }}
+          REPOSITORY: ${{ github.repository }}
+          SENDER_ID: ${{ github.event.sender.id }}
+          SENDER_LOGIN: ${{ github.event.sender.login }}
+          SENDER_TYPE: ${{ github.event.sender.type }}
+        run: |
+          set -euo pipefail
+          test "$REPOSITORY" = "mento-protocol/frontend-monorepo"
+          [[ "$EXPECTED_PREPARE_APP_SLUG" =~ ^[a-z0-9][a-z0-9-]{0,99}$ ]]
+          [[ "$EXPECTED_PREPARE_BOT_ID" =~ ^[1-9][0-9]*$ ]]
+          test "$EXPECTED_PREPARE_BOT_LOGIN" = "${EXPECTED_PREPARE_APP_SLUG}[bot]"
+          test "$SENDER_ID" = "$EXPECTED_PREPARE_BOT_ID"
+          test "$SENDER_LOGIN" = "$EXPECTED_PREPARE_BOT_LOGIN"
+          test "$SENDER_TYPE" = "Bot"
+
+          node --input-type=module --eval '
+            import { readFileSync } from "node:fs";
+
+            const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
+            const payload = event.client_payload;
+            const expectedKeys = [
+              "headRef",
+              "headSha",
+              "operation",
+              "operationReceipt",
+              "parentHeadSha",
+              "prNumber",
+              "prepareApp",
+              "repository",
+              "schema",
+            ];
+            const actualKeys = Object.keys(payload ?? {}).sort();
+            const fail = (message) => {
+              throw new Error(`Invalid prepared-head intake: ${message}`);
+            };
+
+            if (JSON.stringify(actualKeys) !== JSON.stringify(expectedKeys)) {
+              fail("client payload keys are not exact");
+            }
+            if (payload.schema !== "dependabot-prepared-head-intake:v1") {
+              fail("schema is not v1");
+            }
+            if (payload.repository !== process.env.REPOSITORY) {
+              fail("repository does not match the event repository");
+            }
+            if (
+              !Number.isSafeInteger(payload.prNumber) ||
+              payload.prNumber < 1 ||
+              payload.prNumber > 9_999_999_999
+            ) {
+              fail("PR number is invalid");
+            }
+            if (
+              typeof payload.headRef !== "string" ||
+              !/^dependabot\/[A-Za-z0-9._/-]{1,220}$/.test(payload.headRef) ||
+              payload.headRef.includes("..") ||
+              payload.headRef.endsWith("/")
+            ) {
+              fail("head branch is invalid");
+            }
+            for (const field of ["parentHeadSha", "headSha"]) {
+              if (!/^[0-9a-f]{40}$/.test(payload[field] ?? "")) {
+                fail(`${field} is invalid`);
+              }
+            }
+            if (payload.parentHeadSha === payload.headSha) {
+              fail("prepared head did not append a commit");
+            }
+            if (payload.operation !== "refresh" && payload.operation !== "repair") {
+              fail("operation is not refresh or repair");
+            }
+            if (
+              typeof payload.operationReceipt !== "object" ||
+              payload.operationReceipt === null ||
+              Array.isArray(payload.operationReceipt) ||
+              JSON.stringify(Object.keys(payload.operationReceipt).sort()) !==
+                JSON.stringify([
+                  "checkId",
+                  "digest",
+                  "externalId",
+                  "workflowRunAttempt",
+                  "workflowRunId",
+                  "workflowSha",
+                ])
+            ) {
+              fail("operation receipt shape is invalid");
+            }
+            if (
+              !Number.isSafeInteger(payload.operationReceipt.checkId) ||
+              payload.operationReceipt.checkId < 1
+            ) {
+              fail("operation check ID is invalid");
+            }
+            if (
+              !/^[0-9a-f]{64}$/.test(payload.operationReceipt.digest ?? "")
+            ) {
+              fail("operation receipt digest is invalid");
+            }
+            const expectedExternalId = new RegExp(
+              payload.operation === "refresh"
+                ? `^dependabot-refresh:v1:pr=${payload.prNumber}:head=${payload.headSha}:state=completed:digest=${payload.operationReceipt.digest}:run=([1-9][0-9]*):attempt=([1-9][0-9]*)$`
+                : `^dependabot-repair:v1:pr=${payload.prNumber}:head=${payload.headSha}:attempt=[12]:digest=${payload.operationReceipt.digest}:run=([1-9][0-9]*):run_attempt=([1-9][0-9]*)$`,
+            );
+            const external = expectedExternalId.exec(
+              payload.operationReceipt.externalId ?? "",
+            );
+            if (
+              external === null ||
+              !Number.isSafeInteger(payload.operationReceipt.workflowRunId) ||
+              payload.operationReceipt.workflowRunId < 1 ||
+              Number(external[1]) !== payload.operationReceipt.workflowRunId ||
+              !Number.isSafeInteger(payload.operationReceipt.workflowRunAttempt) ||
+              payload.operationReceipt.workflowRunAttempt < 1 ||
+              Number(external[2]) !== payload.operationReceipt.workflowRunAttempt ||
+              !/^[0-9a-f]{40}$/.test(payload.operationReceipt.workflowSha ?? "")
+            ) {
+              fail("operation external ID is invalid");
+            }
+            if (
+              typeof payload.prepareApp !== "object" ||
+              payload.prepareApp === null ||
+              Array.isArray(payload.prepareApp) ||
+              JSON.stringify(Object.keys(payload.prepareApp).sort()) !==
+                JSON.stringify(["botId", "botLogin", "slug"]) ||
+              payload.prepareApp.slug !== process.env.EXPECTED_PREPARE_APP_SLUG ||
+              String(payload.prepareApp.botId) !== process.env.EXPECTED_PREPARE_BOT_ID ||
+              payload.prepareApp.botLogin !== process.env.EXPECTED_PREPARE_BOT_LOGIN
+            ) {
+              fail("Prepare App identity does not match trusted configuration");
+            }
+          '
