@@ -3,7 +3,7 @@ title: Dependabot Processing
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 scope: ci/dependabot-processing
 ---
 
@@ -182,8 +182,14 @@ a candidate artifact, restores a candidate cache, installs candidate
 dependencies, or executes candidate code. A paired trusted `PostToolUse` guard
 binds the same command and tool-use ID, rejects interrupted, background,
 timed-out, empty, or persisted/truncated output, and seals a digest-bound
-completion receipt. A later no-token step requires that receipt, so a missing
-or failed diff cannot be upgraded by schema-valid model output. Its exact bot allowlist contains only
+`dependabot-claude-review-tool-completed:v2` receipt over the original diff.
+After sealing, the hook replaces the model-visible Bash result with one
+`text/plain` document whose data is the exact validated stdout. This document
+path bypasses Claude Code 2.1.220's 30,000-character text-result persistence,
+which would otherwise replace a large successful result with a short persisted
+preview that the restricted reviewer cannot reopen. A later no-token step
+requires the v2 receipt, so a missing or failed diff cannot be upgraded by
+schema-valid model output. Its exact bot allowlist contains only
 `dependabot[bot]` and the configured Prepare App bot login.
 
 The isolated publisher has no Claude secret or checkout. For both clean and

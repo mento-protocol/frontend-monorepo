@@ -457,9 +457,11 @@ jobs:
             ${{ github.repository }}/pull/${{ needs.preflight.outputs.pr_number }}
             at head ${{ needs.preflight.outputs.head_sha }}. Read the diff with
             exactly `gh pr diff ${{ needs.preflight.outputs.pr_number }} --repo
-            ${{ github.repository }}`. Complete the review even when the update
-            is automated, small, or appears trivial. Do not make any repository,
-            pull-request, issue, review, comment, check, or workflow mutation.
+            ${{ github.repository }}`. The trusted PostToolUse guard delivers
+            the validated diff as one plain-text document tool result; review
+            every byte in that document. Complete the review even when the
+            update is automated, small, or appears trivial. Do not make any
+            repository, pull-request, issue, review, comment, check, or workflow mutation.
             Return the requested structured result with concrete correctness,
             security, compatibility, and test findings. A clean verdict means
             the exact diff has no actionable findings.

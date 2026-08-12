@@ -3,14 +3,14 @@ title: A trusted controller prepares exact-head Dependabot pull requests for hum
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 scope: ci/dependabot-processing
 date: 2026-08-10
 ---
 
 # ADR 0006 — A trusted controller prepares exact-head Dependabot pull requests for human merge
 
-**Status:** Accepted, amended Aug 11 2026
+**Status:** Accepted, amended Aug 12 2026
 **Scope:** ci/dependabot-processing
 
 ## Context
@@ -111,12 +111,17 @@ The Claude job checks out only the trusted workflow source. It restricts
 built-in tools to Bash, denies every MCP tool, and runs in `dontAsk` mode. A
 trusted `PreToolUse` guard authorizes one exact bound repository-scoped
 `gh pr diff` command per workflow run attempt and blocks every other Bash call.
-A paired `PostToolUse` guard seals the same successful, complete foreground
-diff result, and a later no-token step requires that receipt. Missing, failed,
-interrupted, empty, or persisted/truncated output is retry-first. The job never
-restores candidate artifacts/caches, installs candidate dependencies, or
-executes candidate code. Its bot allowlist is the exact Dependabot login
-plus exact Prepare App bot login. The no-secret publisher writes canonical
+A paired `PostToolUse` guard validates the same successful, complete foreground
+diff result, seals the original bytes in a
+`dependabot-claude-review-tool-completed:v2` receipt, and replaces the
+model-visible Bash result with one `text/plain` document containing those exact
+bytes. This document path bypasses Claude Code 2.1.220's 30,000-character
+text-result persistence, which would otherwise leave the restricted reviewer a
+short persisted preview it cannot reopen. A later no-token step requires the v2
+receipt. Missing, failed, interrupted, empty, or persisted/truncated output is
+retry-first. The job never restores candidate artifacts/caches, installs
+candidate dependencies, or executes candidate code. Its bot allowlist is the
+exact Dependabot login plus exact Prepare App bot login. The no-secret publisher writes canonical
 `dependabot-claude-review-result:v1` JSON for both clean and findings verdicts.
 A valid findings result is deterministic repair input; an Action, provider,
 schema, or infrastructure failure is retry-first.

@@ -1688,6 +1688,7 @@ test("Dependabot reviewer accepts only authenticated native or prepared intake",
     claude.with.prompt,
     /gh pr diff.*needs\.preflight\.outputs\.pr_number.*--repo.*github\.repository/s,
   );
+  assert.match(claude.with.prompt, /one plain-text document tool result/);
   const settings = JSON.parse(claude.with.settings);
   assert.deepEqual(settings.env, {
     BASH_MAX_OUTPUT_LENGTH: "150000",
@@ -1747,6 +1748,14 @@ test("Dependabot reviewer accepts only authenticated native or prepared intake",
     claude.with.claude_args,
     /Bash\(gh api|Bash\(curl|Bash\(git|WebFetch|WebSearch|mcp__github__|--permission-mode\s+bypassPermissions|--dangerously-skip-permissions|--tools\s+"[^"]*(?:Read|Edit|Write|Glob|Grep|Agent)/,
   );
+  const guard = read("scripts/dependabot-claude-review-tool-guard.mjs");
+  assert.match(guard, /dependabot-claude-review-tool-completed:v2/);
+  assert.match(guard, /hookEventName: "PostToolUse"/);
+  assert.match(guard, /updatedToolOutput:/);
+  assert.match(guard, /structuredContent:/);
+  assert.match(guard, /type: "document"/);
+  assert.match(guard, /media_type: "text\/plain"/);
+  assert.match(guard, /data: response\.stdout/);
   const completion = review.jobs.review.steps.find(
     ({ name }) => name === "Require a completed exact diff read",
   );

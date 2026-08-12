@@ -15,7 +15,7 @@ import process from "node:process";
 
 const EXPECTED_REPOSITORY = "mento-protocol/frontend-monorepo";
 const ISSUED_SCHEMA = "dependabot-claude-review-tool-issued:v1";
-const COMPLETED_SCHEMA = "dependabot-claude-review-tool-completed:v1";
+const COMPLETED_SCHEMA = "dependabot-claude-review-tool-completed:v2";
 const MAX_BASH_OUTPUT_LENGTH = 150_000;
 const MAX_BASH_OUTPUT_BYTES = MAX_BASH_OUTPUT_LENGTH * 4;
 const MAX_DESCRIPTION_LENGTH = 500;
@@ -378,4 +378,28 @@ writeMarker(
     toolUseId: hookInput.tool_use_id,
   },
   "the diff-read completion was already sealed or could not be recorded",
+);
+
+process.stdout.write(
+  `${JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: "PostToolUse",
+      updatedToolOutput: {
+        interrupted: false,
+        isImage: false,
+        stderr: "",
+        stdout: "",
+        structuredContent: [
+          {
+            source: {
+              data: response.stdout,
+              media_type: "text/plain",
+              type: "text",
+            },
+            type: "document",
+          },
+        ],
+      },
+    },
+  })}\n`,
 );

@@ -1,5 +1,6 @@
 /* eslint-disable turbo/no-undeclared-env-vars -- The Bash-validator harness preserves the host executable search path. */
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
@@ -1622,6 +1623,7 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
     review.with.prompt,
     /gh pr diff.*needs\.preflight\.outputs\.pr_number.*--repo.*github\.repository/s,
   );
+  assert.match(review.with.prompt, /one plain-text document tool result/);
   assert.match(review.with.prompt, /Do not make any.*mutation/s);
   assert.match(review.with.claude_code_oauth_token, /secrets\./);
   const settings = JSON.parse(review.with.settings);
@@ -1773,6 +1775,15 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
   const raw = read(dependabotReviewPath);
   assert.doesNotMatch(raw, forbiddenCandidateSurfaces);
   assert.doesNotMatch(raw, /github\.event\.pull_request/);
+
+  const guard = read("scripts/dependabot-claude-review-tool-guard.mjs");
+  assert.match(guard, /dependabot-claude-review-tool-completed:v2/);
+  assert.match(guard, /hookEventName: "PostToolUse"/);
+  assert.match(guard, /updatedToolOutput:/);
+  assert.match(guard, /structuredContent:/);
+  assert.match(guard, /type: "document"/);
+  assert.match(guard, /media_type: "text\/plain"/);
+  assert.match(guard, /data: response\.stdout/);
 });
 
 test("Dependabot Claude review tool guard permits only the exact bound diff", async () => {
@@ -1821,6 +1832,16 @@ test("Dependabot Claude review tool guard permits only the exact bound diff", as
   assert.equal(duplicate.status, 2);
   assert.match(duplicate.stderr, /one permitted diff read/);
 
+  const exactDiff = [
+    "diff --git a/package.json b/package.json",
+    "--- a/package.json",
+    "+++ b/package.json",
+    "@@ -1 +1 @@",
+    `-${"a".repeat(16_000)}`,
+    `+${"b".repeat(16_000)}`,
+    "",
+  ].join("\n");
+  assert.ok(Buffer.byteLength(exactDiff) > 30_000);
   const postInput = {
     ...exactInput,
     hook_event_name: "PostToolUse",
@@ -1829,8 +1850,28 @@ test("Dependabot Claude review tool guard permits only the exact bound diff", as
       isImage: false,
       noOutputExpected: false,
       stderr: "",
-      stdout:
-        "diff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\n",
+      stdout: exactDiff,
+    },
+  };
+  const expectedPostHookOutput = {
+    hookSpecificOutput: {
+      hookEventName: "PostToolUse",
+      updatedToolOutput: {
+        interrupted: false,
+        isImage: false,
+        stderr: "",
+        stdout: "",
+        structuredContent: [
+          {
+            source: {
+              data: exactDiff,
+              media_type: "text/plain",
+              type: "text",
+            },
+            type: "document",
+          },
+        ],
+      },
     },
   };
   const completed = spawnSync(
@@ -1843,7 +1884,24 @@ test("Dependabot Claude review tool guard permits only the exact bound diff", as
     },
   );
   assert.equal(completed.status, 0, completed.stderr);
-  assert.equal(completed.stdout, "");
+  assert.equal(completed.stdout, `${JSON.stringify(expectedPostHookOutput)}\n`);
+  const deliveredDiff = JSON.parse(completed.stdout).hookSpecificOutput
+    .updatedToolOutput.structuredContent[0].source.data;
+  assert.deepEqual(Buffer.from(deliveredDiff), Buffer.from(exactDiff));
+  const completedReceipt = JSON.parse(
+    readFileSync(
+      join(
+        environment.RUNNER_TEMP,
+        "dependabot-review-tool-123456-1.completed.json",
+      ),
+      "utf8",
+    ),
+  );
+  assert.equal(
+    completedReceipt.schema,
+    "dependabot-claude-review-tool-completed:v2",
+  );
+  assert.equal(completedReceipt.outputBytes, Buffer.byteLength(exactDiff));
   const verified = spawnSync(
     process.execPath,
     [dependabotReviewToolGuardPath, "--verify-completion"],
@@ -1908,11 +1966,16 @@ test("Dependabot Claude review tool guard permits only the exact bound diff", as
         stdio: ["pipe", "pipe", "pipe"],
       });
       let stderr = "";
+      let stdout = "";
       child.stderr.setEncoding("utf8");
+      child.stdout.setEncoding("utf8");
       child.stderr.on("data", (chunk) => {
         stderr += chunk;
       });
-      child.on("close", (status) => resolve({ status, stderr }));
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk;
+      });
+      child.on("close", (status) => resolve({ status, stderr, stdout }));
       child.stdin.end(JSON.stringify(postInput));
     });
   const parallelCompletionResults = await Promise.all([
@@ -1922,6 +1985,12 @@ test("Dependabot Claude review tool guard permits only the exact bound diff", as
   assert.deepEqual(
     parallelCompletionResults.map(({ status }) => status).sort(),
     [0, 2],
+  );
+  assert.equal(
+    parallelCompletionResults.filter(
+      ({ stdout }) => stdout === `${JSON.stringify(expectedPostHookOutput)}\n`,
+    ).length,
+    1,
   );
   const parallelVerified = spawnSync(
     process.execPath,
@@ -2047,10 +2116,32 @@ test("Dependabot Claude review tool guard permits only the exact bound diff", as
     },
     {
       ...postInput,
+      tool_response: { ...postInput.tool_response, isImage: true },
+    },
+    {
+      ...postInput,
+      tool_response: { ...postInput.tool_response, noOutputExpected: true },
+    },
+    {
+      ...postInput,
       tool_response: {
         ...postInput.tool_response,
         persistedOutputPath: "/tmp/full-diff",
         persistedOutputSize: 150_001,
+      },
+    },
+    {
+      ...postInput,
+      tool_response: {
+        ...postInput.tool_response,
+        rawOutputPath: "/tmp/raw-diff",
+      },
+    },
+    {
+      ...postInput,
+      tool_response: {
+        ...postInput.tool_response,
+        structuredContent: [{ type: "text", text: exactDiff }],
       },
     },
     {
@@ -2064,22 +2155,54 @@ test("Dependabot Claude review tool guard permits only the exact bound diff", as
       ...postInput,
       tool_response: {
         ...postInput.tool_response,
+        backgroundedByUser: true,
+      },
+    },
+    {
+      ...postInput,
+      tool_response: {
+        ...postInput.tool_response,
         timedOutAfterMs: 120_000,
       },
     },
   ];
-  for (const input of blockedInputs) {
-    const blocked = spawnSync(
-      process.execPath,
-      [dependabotReviewToolGuardPath],
-      {
-        encoding: "utf8",
-        env: environment,
-        input: JSON.stringify(input),
-      },
-    );
-    assert.equal(blocked.status, 2, JSON.stringify(input));
-    assert.match(blocked.stderr, /Blocked Dependabot review tool call/);
+  for (const [index, input] of blockedInputs.entries()) {
+    const blockedEnvironment = {
+      ...environment,
+      RUNNER_TEMP: mkdtempSync(
+        join(tmpdir(), `dependabot-review-tool-blocked-${index}-`),
+      ),
+    };
+    try {
+      if (input.hook_event_name === "PostToolUse") {
+        const issued = spawnSync(
+          process.execPath,
+          [dependabotReviewToolGuardPath],
+          {
+            encoding: "utf8",
+            env: blockedEnvironment,
+            input: JSON.stringify(exactInput),
+          },
+        );
+        assert.equal(issued.status, 0, issued.stderr);
+      }
+      const blocked = spawnSync(
+        process.execPath,
+        [dependabotReviewToolGuardPath],
+        {
+          encoding: "utf8",
+          env: blockedEnvironment,
+          input: JSON.stringify(input),
+        },
+      );
+      assert.equal(blocked.status, 2, JSON.stringify(input));
+      assert.match(blocked.stderr, /Blocked Dependabot review tool call/);
+    } finally {
+      rmSync(blockedEnvironment.RUNNER_TEMP, {
+        force: true,
+        recursive: true,
+      });
+    }
   }
 
   for (const [input, env] of [
