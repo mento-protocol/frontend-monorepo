@@ -48,7 +48,7 @@ pnpm adr:check                       # Advisory reminder for new architecture-si
 pnpm adr:check:test                  # Test the offline ADR trigger and repository wiring
 pnpm vercel:cost:test                # Test private GitHub evidence capture plus redacted cost normalization and closeout gates
 pnpm vercel:cost:observe -- init --start <UTC> --end <UTC>  # Initialize, or append a later pre-audit end to, the private #523 GitHub interval
-pnpm vercel:cost:observe -- capture-preview --pr <number> --event-run-id <id>  # Freeze one preview event before journal compaction
+pnpm vercel:cost:observe -- capture-preview --pr <number> --event-run-id <id>  # Freeze one preview event from the live journal or its 14-day receipt artifact
 pnpm vercel:cost:observe -- capture-main --run-id <id>  # Freeze every attempt, log, and available journal for one main release
 pnpm vercel:cost:observe -- sample-github  # Snapshot visibility, runs, runner labels, caches, and artifacts
 pnpm vercel:cost:observe -- audit --end <UTC>  # Preflight GitHub evidence; once clean, freeze and emit the incomplete provider-join fragment

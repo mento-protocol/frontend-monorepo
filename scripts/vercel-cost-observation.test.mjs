@@ -92,7 +92,14 @@ function fakeGh(routes, calls = []) {
     calls.push([...args]);
     if (args[0] === "auth" && args[1] === "status") return Buffer.from("");
     const key = commandKey(args);
-    const response = routes.get(key);
+    let response = routes.get(key);
+    if (response === undefined) {
+      const prefix = [...routes.keys()].find(
+        (candidate) =>
+          candidate.endsWith(" --dir") && key.startsWith(`${candidate} `),
+      );
+      if (prefix) response = routes.get(prefix);
+    }
     if (response === undefined) {
       throw new Error(`Unexpected fake gh command: ${key}`);
     }
@@ -101,6 +108,58 @@ function fakeGh(routes, calls = []) {
       ? response
       : Buffer.from(JSON.stringify(response));
   };
+}
+
+function addPreviewObservationArtifactRoute(routes, event, journal) {
+  const artifactName = `vercel-preview-observation-receipt-v1-${event.event_run_id}`;
+  routes.set(
+    `api --method GET --paginate --slurp repos/mento-protocol/frontend-monorepo/actions/runs/${event.event_run_id}/artifacts?per_page=100`,
+    [
+      {
+        artifacts: [
+          {
+            id: 90_001,
+            name: artifactName,
+            expired: false,
+            size_in_bytes: 1_024,
+          },
+        ],
+      },
+    ],
+  );
+  routes.set(
+    `run download ${event.event_run_id} --repo mento-protocol/frontend-monorepo --name ${artifactName} --dir`,
+    (args) => {
+      const directory = args.at(-1);
+      mkdirSync(directory, { recursive: true, mode: 0o700 });
+      chmodSync(directory, 0o700);
+      writeFileSync(
+        join(directory, "preview-observation-receipt.json"),
+        `${JSON.stringify(
+          {
+            schema: "vercel-preview-observation-receipt:v1",
+            repository: "mento-protocol/frontend-monorepo",
+            pr: journal.pr,
+            event_run_id: event.event_run_id,
+            journal_revision: journal.revision,
+            source_journal_digest: journal.journal_digest,
+            journal_digest: journal.journal_digest,
+            ...(Object.hasOwn(journal, "admission")
+              ? { admission: journal.admission }
+              : {}),
+            checkpoint: journal.checkpoint,
+            receipts: journal.receipts,
+            state: journal.state,
+          },
+          null,
+          2,
+        )}\n`,
+        { mode: 0o600 },
+      );
+      chmodSync(join(directory, "preview-observation-receipt.json"), 0o600);
+      return Buffer.from("");
+    },
+  );
 }
 
 function githubWholeSecondTimestamps(value) {
@@ -778,6 +837,7 @@ function previewRoutes(
       Buffer.from("fixture preview worker log\n"),
     );
   }
+  addPreviewObservationArtifactRoute(routes, event, journal);
   return routes;
 }
 
@@ -925,6 +985,7 @@ function reselectedPreviewRoutes(
     "run view 9005 --repo mento-protocol/frontend-monorepo --attempt 1 --log",
     Buffer.from("fixture replacement worker log\n"),
   );
+  addPreviewObservationArtifactRoute(routes, event, fixtureState.journal);
   return { routes, fixtureState };
 }
 
@@ -1386,8 +1447,26 @@ test("capture-preview freezes the canonical v2 journal and raw GitHub facts", ()
     false,
   );
   assert.equal(capture.canonicalDerivedFacts.evidenceComplete, true);
+  assert.equal(
+    capture.canonicalDerivedFacts.observationReceiptSource,
+    "live-journal",
+  );
   assert.ok(
     capture.files.some((file) => file.path === "raw/journal-comment.json"),
+  );
+  assert.equal(
+    capture.files.some((file) =>
+      file.path.startsWith("raw/observation-receipt"),
+    ),
+    false,
+  );
+  assert.equal(
+    calls.some(
+      (args) =>
+        args[0] === "api" &&
+        args.some((value) => String(value).includes("/artifacts?per_page=100")),
+    ),
+    false,
   );
   assertPrivateTree(directory);
   assert.ok(calls.some((args) => args[0] === "auth"));
@@ -1732,7 +1811,7 @@ test("capture-preview leaves no append-only capture while reconciliation is pend
   );
 });
 
-test("capture-preview rejects an event retained only by a checkpoint", () => {
+test("capture-preview recovers a compacted event from its immutable Actions artifact", () => {
   const cwd = workspace();
   runInit(cwd);
   const event = fixture("preview-event.json");
@@ -1753,6 +1832,60 @@ test("capture-preview rejects an event retained only by a checkpoint", () => {
       ],
     ],
   );
+  const result = runVercelCostObservation({
+    argv: ["capture-preview", "--pr", "700", "--event-run-id", "9001"],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: fakeGh(routes),
+    stdout: output().stream,
+  });
+  assert.equal(result.exitCode, 0);
+  const directory = join(observationRoot(cwd), "preview", "9001");
+  const capture = JSON.parse(
+    readFileSync(join(directory, "capture.json"), "utf8"),
+  );
+  assert.equal(
+    capture.canonicalDerivedFacts.observationReceiptSource,
+    "actions-artifact",
+  );
+  assert.ok(
+    capture.files.some(
+      (file) => file.path === "raw/observation-receipt-artifact.json",
+    ),
+  );
+  assert.ok(
+    capture.files.some((file) => file.path === "raw/observation-receipt.json"),
+  );
+});
+
+test("capture-preview fails closed when a compacted event has no retained artifact", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  const event = fixture("preview-event.json");
+  const routes = previewRoutes(event);
+  const compacted = compactPreviewJournal(
+    previewJournalFixture(event, "complete").journal,
+  );
+  routes.set(
+    "api --method GET --paginate --slurp repos/mento-protocol/frontend-monorepo/issues/700/comments?per_page=100",
+    [
+      [
+        {
+          id: 301,
+          user: { type: "Bot", login: "github-actions[bot]" },
+          body: renderPreviewJournalBody(compacted),
+        },
+      ],
+    ],
+  );
+  const artifactName = "vercel-preview-observation-receipt-v1-9001";
+  routes.set(
+    "api --method GET --paginate --slurp repos/mento-protocol/frontend-monorepo/actions/runs/9001/artifacts?per_page=100",
+    [{ artifacts: [] }],
+  );
+  routes.delete(
+    `run download 9001 --repo mento-protocol/frontend-monorepo --name ${artifactName} --dir`,
+  );
   assert.throws(
     () =>
       runVercelCostObservation({
@@ -1762,7 +1895,11 @@ test("capture-preview rejects an event retained only by a checkpoint", () => {
         gh: fakeGh(routes),
         stdout: output().stream,
       }),
-    /must remain in the live journal receipts/,
+    /receipt artifact is missing or ambiguous/,
+  );
+  assert.equal(
+    existsSync(join(observationRoot(cwd), "preview", "9001")),
+    false,
   );
 });
 

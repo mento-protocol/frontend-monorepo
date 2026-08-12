@@ -2159,6 +2159,19 @@ run ID and workflow-monotonic run number to the PR, action, head SHA,
 synchronize `before` SHA, and whether a receipt is required. Dependabot
 author/ref events and edited events without a base change are strict
 non-receipt admissions; every other eligible event requires a receipt.
+After a trusted `opened` or `synchronize` event enters the journal, a read-only
+job waits outside the per-PR writer queue for that event's terminal status
+decision and complete selection/result graph. It then uploads one artifact named
+`vercel-preview-observation-receipt-v1-<event-run-id>` with 14-day retention.
+The artifact binds the original event run ID, source journal digest, and a
+canonical event-scoped graph digest. It exists only to preserve
+cost-observation evidence after safe
+terminal compaction; it is never state, reconciliation, status, dispatch, or
+deployment authority. The private collector prefers the live journal and uses
+this artifact only when that exact event no longer remains live. Journal
+compaction keeps each marked event live until GitHub reports that exact,
+unexpired artifact. A workflow rerun reuses the existing immutable artifact
+instead of uploading another copy under the same event-run name.
 
 The journal's top-level `admission` cursor stores the active controller's
 numeric workflow ID plus the exact run ID and run number proven through. One

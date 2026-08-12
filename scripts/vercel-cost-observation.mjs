@@ -33,12 +33,17 @@ import {
 import {
   PREVIEW_JOURNAL_MARKER,
   PREVIEW_JOURNAL_SCHEMA,
+  PREVIEW_OBSERVATION_RECEIPT_SCHEMA,
   PREVIEW_REPOSITORY,
   controllerEventRunName,
   createPreviewJournal,
   parseWorkerRunName,
   renderPreviewJournalBody,
   validateEventReceipt,
+  validatePreviewObservationReceipt,
+  previewObservationArtifactName,
+  selectPreviewObservationArtifact,
+  isSupportedControllerSyntheticPreviewResult,
 } from "./vercel-preview-controller.mjs";
 
 export const OBSERVATION_REPOSITORY = PREVIEW_REPOSITORY;
@@ -1032,15 +1037,83 @@ function parsePreviewJournalComment(comment, pr) {
   return canonical;
 }
 
-function eventReceiptFromJournal(journal, eventRunId) {
+function eventReceiptFromJournal(
+  journal,
+  eventRunId,
+  { allowMissing = false } = {},
+) {
   const candidates = journal.receipts.events.filter(
     (event) => String(event.event_run_id) === String(eventRunId),
   );
-  invariant(
-    candidates.length === 1,
-    "Preview event must remain in the live journal receipts",
-  );
+  invariant(candidates.length <= 1, "Preview event receipt is ambiguous");
+  if (candidates.length === 0) {
+    invariant(
+      allowMissing,
+      "Preview event must remain in the live journal receipts",
+    );
+    return null;
+  }
   return validateEventReceipt(candidates[0]);
+}
+
+function previewObservationArtifact(dependencies, controllerRunId, root) {
+  const artifactName = previewObservationArtifactName(controllerRunId);
+  const artifacts = paginatedCollection(
+    apiJson(
+      dependencies,
+      `repos/${OBSERVATION_REPOSITORY}/actions/runs/${controllerRunId}/artifacts?per_page=100`,
+      "Preview observation artifacts",
+      { paginate: true },
+    ),
+    "artifacts",
+    "Preview observation artifacts",
+  );
+  const artifact = selectPreviewObservationArtifact(artifacts, controllerRunId);
+  invariant(
+    artifact !== null,
+    "Preview observation receipt artifact is missing or ambiguous",
+  );
+  const directory = join(
+    root,
+    `.stage-observation-receipt-${controllerRunId}-${process.pid}-${randomBytes(6).toString("hex")}`,
+  );
+  invariant(!existsSync(directory), "Preview observation receipt stage exists");
+  try {
+    downloadArtifact(dependencies, controllerRunId, artifactName, directory);
+    assertPrivateDirectory(
+      directory,
+      root,
+      "Preview observation artifact directory",
+    );
+    const entries = readdirSync(directory);
+    invariant(
+      entries.length === 1 && entries[0] === "preview-observation-receipt.json",
+      "Preview observation artifact contents are invalid",
+    );
+    const path = join(directory, entries[0]);
+    const stats = lstatSync(path);
+    invariant(
+      stats.isFile() && !stats.isSymbolicLink() && stats.nlink === 1,
+      "Preview observation receipt must be a regular file",
+    );
+    chmodSync(path, 0o600);
+    let parsed;
+    try {
+      parsed = JSON.parse(readFileSync(path, "utf8"));
+    } catch {
+      throw new Error("Preview observation receipt is not valid JSON");
+    }
+    invariant(
+      parsed.schema === PREVIEW_OBSERVATION_RECEIPT_SCHEMA,
+      "Preview observation receipt schema mismatch",
+    );
+    return {
+      artifact,
+      receipt: validatePreviewObservationReceipt(parsed),
+    };
+  } finally {
+    if (existsSync(directory)) removeCaptureStage(directory, root);
+  }
 }
 
 function eventSelections(journal, eventRunId) {
@@ -1175,13 +1248,6 @@ function preBoundaryEligiblePushEvidence(journal, boundaryHeadSha) {
   );
   return hasCompleteAnchor && representsBoundaryHead ? "none" : "unknown";
 }
-
-const CONTROLLER_SYNTHETIC_PREVIEW_RESULTS = new Map([
-  ["selection-removed-from-pr", "failure"],
-  ["controller-workflow-upgraded-before-dispatch", "error"],
-  ["dispatch-disabled-intent-without-worker", "error"],
-  ["native-owned-selection-without-github-worker", "error"],
-]);
 
 function receiptMatchesSelection(receipt, selection) {
   return (
@@ -1378,9 +1444,7 @@ function validateTerminalPreviewReceipts({
         syntheticResults.length === 1 &&
           results.length === 1 &&
           evidence.length === 0 &&
-          CONTROLLER_SYNTHETIC_PREVIEW_RESULTS.get(
-            syntheticResults[0].terminal_reason,
-          ) === syntheticResults[0].state,
+          isSupportedControllerSyntheticPreviewResult(syntheticResults[0]),
         "Preview controller synthetic result is unsupported",
       );
       references.push({
@@ -1958,8 +2022,42 @@ function capturePreview({ root, pr, eventRunId, dependencies }) {
       "Expected exactly one bot-owned preview journal",
     );
     const journalComment = journalComments[0];
-    const journal = parsePreviewJournalComment(journalComment, prNumber);
+    const liveJournal = parsePreviewJournalComment(journalComment, prNumber);
+    const liveEvent = eventReceiptFromJournal(liveJournal, controllerRunId, {
+      allowMissing: true,
+    });
+    const immutable =
+      liveEvent === null
+        ? previewObservationArtifact(
+            { ...dependencies, root },
+            controllerRunId,
+            root,
+          )
+        : null;
+    const journal =
+      immutable === null
+        ? liveJournal
+        : createPreviewJournal({
+            pr: immutable.receipt.pr,
+            revision: immutable.receipt.journal_revision,
+            checkpoint: immutable.receipt.checkpoint,
+            events: immutable.receipt.receipts.events,
+            selections: immutable.receipt.receipts.selections,
+            workerEvidence: immutable.receipt.receipts.worker_evidence,
+            results: immutable.receipt.receipts.results,
+            state: immutable.receipt.state,
+            ...(Object.hasOwn(immutable.receipt, "admission")
+              ? { admission: immutable.receipt.admission }
+              : {}),
+          });
     const event = eventReceiptFromJournal(journal, controllerRunId);
+    if (immutable !== null) {
+      invariant(
+        immutable.receipt.pr === Number(prNumber) &&
+          String(immutable.receipt.event_run_id) === controllerRunId,
+        "Immutable preview observation receipt identity does not match",
+      );
+    }
     invariant(
       event.pr === Number(prNumber),
       "Preview event receipt PR does not match",
@@ -2144,6 +2242,20 @@ function capturePreview({ root, pr, eventRunId, dependencies }) {
 
     writeRawJson(stage, "raw/pull.json", pull, root);
     writeRawJson(stage, "raw/journal-comment.json", journalComment, root);
+    if (immutable !== null) {
+      writeRawJson(
+        stage,
+        "raw/observation-receipt-artifact.json",
+        immutable.artifact,
+        root,
+      );
+      writeRawJson(
+        stage,
+        "raw/observation-receipt.json",
+        immutable.receipt,
+        root,
+      );
+    }
     writeRawJson(stage, "raw/statuses.json", statuses, root);
     writeRawJson(
       stage,
@@ -2178,6 +2290,8 @@ function capturePreview({ root, pr, eventRunId, dependencies }) {
       plan: event.plan,
       canonicalDerivedFacts: {
         eligibleTrustedDeployedCodePush,
+        observationReceiptSource:
+          immutable === null ? "live-journal" : "actions-artifact",
         journalSchema: journal.schema,
         journalRevision: journal.revision,
         journalCommentId: positiveId(
