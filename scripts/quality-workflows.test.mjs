@@ -226,16 +226,39 @@ test("the notifier is loop-safe, secretless, and least privilege", () => {
   assert.match(workflow, /^ {6}issues: write$/m);
   assert.match(workflow, /workflow_run\.name == 'Publish UI Package'/);
   assert.match(workflow, /workflow_run\.name == 'Vercel Main Deployment'/);
-  assert.match(workflow, /workflow_run\.name == 'Dependabot Processor'/);
-  assert.match(workflow, /workflow_run\.name == 'Dependabot Prepare Repair'/);
   assert.match(
     workflow,
-    /workflow_run\.name == 'Dependabot Prepared Head Dispatch'/,
+    /workflow_run\.path == '\.github\/workflows\/dependabot-process\.yml'/,
   );
   assert.match(
     workflow,
-    /workflow_run\.name == 'Dependabot Prepared Head Intake'/,
+    /workflow_run\.path == '\.github\/workflows\/dependabot-process\.yml@main'/,
   );
+  assert.match(
+    workflow,
+    /workflow_run\.path == '\.github\/workflows\/dependabot-prepare-repair\.yml'/,
+  );
+  assert.match(
+    workflow,
+    /workflow_run\.path == '\.github\/workflows\/dependabot-prepare-repair\.yml@main'/,
+  );
+  assert.match(
+    workflow,
+    /workflow_run\.path == '\.github\/workflows\/dependabot-prepared-head-dispatch\.yml'/,
+  );
+  assert.match(
+    workflow,
+    /workflow_run\.path == '\.github\/workflows\/dependabot-prepared-head-dispatch\.yml@main'/,
+  );
+  assert.match(
+    workflow,
+    /workflow_run\.path == '\.github\/workflows\/dependabot-prepared-head-intake\.yml'/,
+  );
+  assert.match(
+    workflow,
+    /workflow_run\.path == '\.github\/workflows\/dependabot-prepared-head-intake\.yml@main'/,
+  );
+  assert.doesNotMatch(workflow, /workflow_run\.name == 'Dependabot /);
   assert.match(
     workflow,
     /startsWith\(github\.event\.workflow_run\.display_title, 'Dependabot processor \| event=workflow_run \| receipt='\)/,

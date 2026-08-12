@@ -240,6 +240,9 @@ export function validateRefreshReceipt(receipt, { state } = {}) {
   sha(receipt.parentHeadSha, "parentHeadSha");
   sha(receipt.previousBaseSha, "previousBaseSha");
   sha(receipt.baseSha, "baseSha");
+  if (receipt.previousBaseSha === receipt.baseSha) {
+    fail("refresh previous and current bases must be distinct");
+  }
   if (receipt.state === "requested") {
     if (receipt.headSha !== null)
       fail("requested refresh headSha must be null");
@@ -2347,6 +2350,34 @@ async function listOpenDependabotPulls(token, repositoryName) {
   );
 }
 
+export async function readCurrentDefaultBranchSha({
+  repositoryName,
+  requestJson,
+}) {
+  repository(repositoryName);
+  const repositoryState = plainObject(
+    await requestJson(`/repos/${repositoryName}`),
+    "repository state",
+  );
+  if (
+    repositoryState.full_name !== repositoryName ||
+    repositoryState.default_branch !== "main"
+  ) {
+    fail("repository default branch is not exact");
+  }
+  const reference = plainObject(
+    await requestJson(`/repos/${repositoryName}/git/ref/heads/main`),
+    "default-branch reference",
+  );
+  if (
+    reference.ref !== "refs/heads/main" ||
+    reference.object?.type !== "commit"
+  ) {
+    fail("default-branch reference is not exact");
+  }
+  return sha(reference.object.sha, "current default-branch SHA");
+}
+
 export async function collectTerminalSourceChecks({
   pulls,
   repositoryName,
@@ -2503,7 +2534,13 @@ function validateOperationCheck({ check, pull, receipt, sourceRunId }) {
   }
 }
 
-function validateRequestedRefreshCheck({ check, pull, receipt, sourceRunId }) {
+function validateRequestedRefreshCheck({
+  check,
+  currentBaseSha,
+  pull,
+  receipt,
+  sourceRunId,
+}) {
   if (
     check.app?.id !== GITHUB_ACTIONS_APP_ID ||
     check.app?.slug !== "github-actions" ||
@@ -2520,17 +2557,30 @@ function validateRequestedRefreshCheck({ check, pull, receipt, sourceRunId }) {
   ) {
     fail("requested refresh check is not exact");
   }
-  return receipt.baseSha === pull.base.sha;
+  return (
+    receipt.previousBaseSha === pull.base?.sha &&
+    receipt.baseSha === currentBaseSha
+  );
 }
 
 export function createRequestedRefreshAction({
   check,
+  currentBaseSha,
   pull,
   receipt,
   sourceRunId,
 }) {
   validateRefreshReceipt(receipt, { state: "requested" });
-  if (!validateRequestedRefreshCheck({ check, pull, receipt, sourceRunId })) {
+  sha(currentBaseSha, "current default-branch SHA");
+  if (
+    !validateRequestedRefreshCheck({
+      check,
+      currentBaseSha,
+      pull,
+      receipt,
+      sourceRunId,
+    })
+  ) {
     return null;
   }
   return {
@@ -2977,6 +3027,7 @@ async function commandTerminalDispatchPlan(args) {
     sourceRunAttempt,
   );
   const actions = [];
+  let currentDefaultBranchSha;
   for (const { check, pull } of checks) {
     const text = check.output?.text;
     const externalId = check.external_id ?? "";
@@ -3006,8 +3057,13 @@ async function commandTerminalDispatchPlan(args) {
         fail("refresh receipt run identity changed");
       }
       if (receipt.state === "requested") {
+        currentDefaultBranchSha ??= await readCurrentDefaultBranchSha({
+          repositoryName,
+          requestJson: (path) => githubRequest(token, "GET", path),
+        });
         const action = createRequestedRefreshAction({
           check,
+          currentBaseSha: currentDefaultBranchSha,
           pull,
           receipt,
           sourceRunId,
