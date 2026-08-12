@@ -381,9 +381,18 @@ through the distinct credentialless
 `.github/workflows/dependabot-prepared-head-intake.yml`, which authenticates
 the exact Prepare App bot, a bounded nine-key dispatch, and the completed
 operation receipt. `.github/workflows/dependabot-claude-review.yml` handles
-both sources without candidate checkout or execution. It reads the diff through
-GitHub APIs and emits canonical exact-head results; validated findings can feed
-a bounded repair, while reviewer infrastructure failure remains retry-first.
+both sources without candidate checkout or execution. Its read-only job
+restricts built-in tools to Bash, denies every MCP tool, and uses a trusted
+fail-closed `PreToolUse` guard to authorize one exact bound repository-scoped
+`gh pr diff` command per run attempt. A paired `PostToolUse` guard and a later
+no-token assertion require the same successful, complete foreground diff
+result. The post-hook seals the original bytes in a
+`dependabot-claude-review-tool-completed:v2` receipt, then delivers those exact
+bytes as one `text/plain` document tool result, bypassing Claude Code 2.1.220's
+30,000-character Bash text-result persistence. It emits canonical exact-head
+results; validated findings can feed a bounded repair, while a missing, failed,
+interrupted, empty, persisted/truncated, or otherwise invalid diff remains
+retry-first.
 
 The preparable tier includes verified npm updates, including grouped and major
 updates. Verified non-sensitive GitHub Actions updates may be refreshed and,

@@ -3,7 +3,7 @@ title: Dependabot Processing
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-08-11
+last_verified: 2026-08-12
 scope: ci/dependabot-processing
 ---
 
@@ -171,10 +171,25 @@ The validator accepts the submitted Actions URL or GitHub's exact
 the canonical receipt. A generic github-actions check, external ID alone,
 candidate comment, or configured actor assertion cannot establish lineage.
 
-The Claude job has only read permissions, checks out only the trusted workflow
-SHA, and reads the PR diff/blobs through GitHub APIs. It never downloads a
-candidate artifact, restores a candidate cache, installs candidate dependencies,
-or executes candidate code. Its exact bot allowlist contains only
+The Claude job has only read permissions and checks out only the trusted
+workflow SHA. It restricts built-in tools to Bash, denies every MCP tool, and
+runs in `dontAsk` mode. A trusted `PreToolUse` guard authorizes one exact bound
+repository-scoped `gh pr diff` command per workflow run attempt and exits with a
+blocking result for every other Bash input, including suffixes, compound shell
+syntax, background execution, and malformed calls. The job therefore grants no
+generic Bash, `gh api`, Git, curl, web, or GitHub MCP access. It never downloads
+a candidate artifact, restores a candidate cache, installs candidate
+dependencies, or executes candidate code. A paired trusted `PostToolUse` guard
+binds the same command and tool-use ID, rejects interrupted, background,
+timed-out, empty, or persisted/truncated output, and seals a digest-bound
+`dependabot-claude-review-tool-completed:v2` receipt over the original diff.
+After sealing, the hook replaces the model-visible Bash result with one
+`text/plain` document whose data is the exact validated stdout. This document
+path bypasses Claude Code 2.1.220's 30,000-character text-result persistence,
+which would otherwise replace a large successful result with a short persisted
+preview that the restricted reviewer cannot reopen. A later no-token step
+requires the v2 receipt, so a missing or failed diff cannot be upgraded by
+schema-valid model output. Its exact bot allowlist contains only
 `dependabot[bot]` and the configured Prepare App bot login.
 
 The isolated publisher has no Claude secret or checkout. For both clean and
@@ -269,6 +284,12 @@ collects every bounded thread/reply, review, issue comment, close/reopen event,
 force-push event, and native `AutoMergeRequest`. Any collection cap,
 pagination ambiguity, malformed SHA/envelope, unknown authority-bearing bot, or
 identity drift fails closed.
+
+Only exact configured gate and receipt names trigger an Actions workflow-run
+provenance lookup. Unrelated checks and statuses remain raw non-authorizing
+evidence and consume no run lookup. One processor job caches each exact
+repository/run/attempt provenance read across its collections; the selected
+post-merge gate is always re-fetched for its current snapshot.
 
 Every required gate must report for the exact head. Attribute each failure
 against the corresponding current-`main` baseline:

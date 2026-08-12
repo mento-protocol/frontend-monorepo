@@ -369,6 +369,22 @@ const RECEIPT_SOURCE_POLICY = Object.freeze({
   },
 });
 
+function checkNameRequiresWorkflowSource(name, kind) {
+  if (typeof name !== "string") return false;
+  if (
+    kind === "check" &&
+    (Object.hasOwn(RECEIPT_SOURCE_POLICY, name) ||
+      name === POST_MERGE_CHECK_NAME)
+  ) {
+    return true;
+  }
+  return CHECK_POLICY_DEFINITIONS.some(
+    (definition) =>
+      (CHECK_SOURCE_POLICY[definition.id]?.kind ?? "check") === kind &&
+      definition.names.some((pattern) => pattern.test(name)),
+  );
+}
+
 export const DEPENDABOT_PROCESSOR_HELP = `Usage:
   dependabot-processor.mjs evaluate --live --repo owner/name --pr-numbers all|1,2 [--mode observe|assist|prepare]
   dependabot-processor.mjs process --live --repo owner/name --pr-numbers all|1,2 [--mode observe|assist|prepare] [--phase request|mutate|finalize] [--publish-checks]
@@ -4302,9 +4318,51 @@ export function createLiveGitHubAdapter({
     return payload.data;
   };
 
+  const workflowRunCache = new Map();
+  const normalizeWorkflowRunSource = (data) => ({
+    runDisplayTitle: data.display_title,
+    runHeadBranch: data.head_branch,
+    runConclusion:
+      typeof data.conclusion === "string"
+        ? data.conclusion.toLowerCase()
+        : null,
+    sourceRepository: data.repository?.full_name,
+    runAttempt: data.run_attempt,
+    runHeadSha: data.head_sha ?? null,
+    runId: data.id,
+    runStatus:
+      typeof data.status === "string" ? data.status.toLowerCase() : null,
+    workflowEvent: data.event,
+    workflowPath: String(data.path ?? "").replace(/@.*$/, ""),
+  });
+  const readWorkflowRunSource = (repository, runId, runAttempt = null) => {
+    const path =
+      runAttempt === null
+        ? `/repos/${repository}/actions/runs/${runId}`
+        : `/repos/${repository}/actions/runs/${runId}/attempts/${runAttempt}`;
+    return request("GET", path).then(({ data }) =>
+      normalizeWorkflowRunSource(data),
+    );
+  };
+  const cachedWorkflowRunSource = (
+    repository,
+    runId,
+    runAttempt = null,
+    { fresh = false } = {},
+  ) => {
+    if (fresh) return readWorkflowRunSource(repository, runId, runAttempt);
+    const cacheKey = `${repository}:${runId}:${runAttempt ?? "latest"}`;
+    if (!workflowRunCache.has(cacheKey)) {
+      workflowRunCache.set(
+        cacheKey,
+        readWorkflowRunSource(repository, runId, runAttempt),
+      );
+    }
+    return workflowRunCache.get(cacheKey);
+  };
+
   const getChecks = async (repository, sha) => {
     exactSha(sha);
-    const workflowRunCache = new Map();
     const receiptRunIdentity = (check) => {
       const pattern =
         check.name === PROCESSOR_CHECK_NAME
@@ -4328,39 +4386,11 @@ export function createLiveGitHubAdapter({
         runId: Number(external.at(-2)),
       };
     };
-    const normalizeWorkflowRunSource = (data) => ({
-      runDisplayTitle: data.display_title,
-      runHeadBranch: data.head_branch,
-      runConclusion:
-        typeof data.conclusion === "string"
-          ? data.conclusion.toLowerCase()
-          : null,
-      sourceRepository: data.repository?.full_name,
-      runAttempt: data.run_attempt,
-      runHeadSha: data.head_sha ?? null,
-      runId: data.id,
-      runStatus:
-        typeof data.status === "string" ? data.status.toLowerCase() : null,
-      workflowEvent: data.event,
-      workflowPath: String(data.path ?? "").replace(/@.*$/, ""),
-    });
-    const cachedWorkflowRunSource = (repository, runId, runAttempt = null) => {
-      const cacheKey = `${runId}:${runAttempt ?? "latest"}`;
-      if (!workflowRunCache.has(cacheKey)) {
-        const path =
-          runAttempt === null
-            ? `/repos/${repository}/actions/runs/${runId}`
-            : `/repos/${repository}/actions/runs/${runId}/attempts/${runAttempt}`;
-        workflowRunCache.set(
-          cacheKey,
-          request("GET", path).then(({ data }) =>
-            normalizeWorkflowRunSource(data),
-          ),
-        );
-      }
-      return workflowRunCache.get(cacheKey);
-    };
-    const workflowRunSource = async (url, check = {}) => {
+    const workflowRunSource = async (
+      url,
+      check = {},
+      { fresh = false } = {},
+    ) => {
       const match = /\/actions\/runs\/([1-9][0-9]*)/.exec(String(url ?? ""));
       const externalReceipt = receiptRunIdentity(check);
       const exactReceiptSelfUrl =
@@ -4371,7 +4401,9 @@ export function createLiveGitHubAdapter({
       if (!match && !exactReceiptSelfUrl) return null;
       const runId = Number(match?.[1] ?? externalReceipt?.runId);
       if (!Number.isSafeInteger(runId) || runId < 1) return null;
-      const latest = await cachedWorkflowRunSource(repository, runId);
+      const latest = await cachedWorkflowRunSource(repository, runId, null, {
+        fresh,
+      });
       const recordedAttempt =
         externalReceipt?.runId === runId &&
         Number.isSafeInteger(externalReceipt.runAttempt) &&
@@ -4417,13 +4449,24 @@ export function createLiveGitHubAdapter({
         isPostMergeCheck &&
         run.head_sha === sha &&
         Number(run.id) === newestPostMergeCheck?.id;
+      const requiresWorkflowSource = checkNameRequiresWorkflowSource(
+        run.name,
+        "check",
+      );
       const source =
-        !isPostMergeCheck || isSelectedPostMergeCheck
-          ? await workflowRunSource(run.details_url, {
-              externalId: run.external_id,
-              id: Number(run.id),
-              name: run.name,
-            })
+        requiresWorkflowSource &&
+        (!isPostMergeCheck || isSelectedPostMergeCheck)
+          ? await workflowRunSource(
+              run.details_url,
+              {
+                externalId: run.external_id,
+                id: Number(run.id),
+                name: run.name,
+              },
+              {
+                fresh: isSelectedPostMergeCheck,
+              },
+            )
           : null;
       return {
         ...source,
@@ -4469,7 +4512,9 @@ export function createLiveGitHubAdapter({
     return [
       ...checkRuns,
       ...(await mapWithSourceResolutionLimit(statuses, async (status) => ({
-        ...(await workflowRunSource(status.target_url)),
+        ...(checkNameRequiresWorkflowSource(status.context, "status")
+          ? await workflowRunSource(status.target_url)
+          : null),
         creatorLogin: status.creator?.login,
         conclusion: status.state,
         description: status.description,

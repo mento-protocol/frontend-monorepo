@@ -40,12 +40,22 @@ Dependabot AI review runs through
 `.github/workflows/dependabot-claude-review.yml`. Its first credentialless step
 authenticates either intake. For a prepared head, it also proves the exact
 append-only Refresh/Repair chain back to a verified Dependabot seed. The
-read-only Claude job checks out only `github.workflow_sha`, reads the diff
-through GitHub APIs, and emits bounded canonical JSON. It never checks out,
-caches, downloads, installs, or executes candidate-controlled input. A valid
-`findings` result is deterministic repair input; an infrastructure or malformed
-result is retry-first. The isolated publisher owns the exact-head
-`claude-review` check. Human PRs keep the separate `claude-review-human` check.
+read-only Claude job checks out only `github.workflow_sha`. It restricts
+built-in tools to Bash, denies every MCP tool, and runs in `dontAsk` mode. A
+trusted `PreToolUse` guard authorizes one exact bound repository-scoped
+`gh pr diff` command per workflow run attempt and blocks every other Bash call.
+A paired `PostToolUse` guard validates the same successful, complete foreground
+diff result, seals its original bytes in a
+`dependabot-claude-review-tool-completed:v2` receipt, and delivers those exact
+bytes as one `text/plain` document tool result. The document bypasses Claude
+Code 2.1.220's 30,000-character Bash text-result persistence. A later no-token
+step requires the receipt before the review job can succeed. Missing, failed,
+interrupted, empty, or persisted/truncated diff output is retry-first. The job
+emits bounded canonical JSON and never checks out, caches, downloads, installs,
+or executes candidate-controlled input. A valid `findings` result is
+deterministic repair input; an infrastructure or malformed result is
+retry-first. The isolated publisher owns the exact-head `claude-review` check.
+Human PRs keep the separate `claude-review-human` check.
 
 `observe` classifies only. `assist` publishes non-authorizing evidence for
 human handling but cannot issue an automatic repair packet. `prepare` may
