@@ -16,9 +16,11 @@ import {
   controllerEventRunName,
   controllerKey,
   createPreviewJournal,
+  createPreviewObservationReceipt,
   dependabotIntakeRunName,
   normalizePlannerResult,
   parseWorkerRunName,
+  previewObservationArtifactName,
   previewOwnerForVercelConfiguration,
   publishDependabotUnsupported,
   postWorkerRecoveryError,
@@ -30,8 +32,10 @@ import {
   reconcileState,
   recoverWorkerResult,
   selectionReceiptFromDispatch,
+  selectPreviewObservationArtifact,
   snapshotPullRequestEvent,
   validateEventReceipt,
+  validatePreviewObservationReceipt,
   validateDependabotIntakeWorkflowRun,
   validateControllerEventWorkflowRun,
   validateRepositoryDispatch,
@@ -159,6 +163,7 @@ function event({
   ref = "feature/preview-controller",
   base = SHA.E,
   baseRef = "main",
+  retainObservationReceipt = false,
 } = {}) {
   const pr = pull({
     head,
@@ -180,6 +185,7 @@ function event({
     },
     run,
     runNumber,
+    { retainObservationReceipt },
   );
   const rawPlan =
     targets.length > 0
@@ -392,6 +398,30 @@ function result(
   });
 }
 
+function workerEvidence(dispatch, { runId = 8_000 } = {}) {
+  return {
+    schema: "vercel-preview-worker-evidence:v2",
+    repository: PREVIEW_REPOSITORY,
+    pr: dispatch.pr,
+    target: dispatch.target,
+    sha: dispatch.sha,
+    controller_key: dispatch.key,
+    key_digest: dispatch.key_digest,
+    epoch_anchor_run_id: dispatch.epoch_anchor_run_id,
+    reconciliation_basis_digest: dispatch.reconciliation_basis_digest,
+    selection_receipt_run_id: dispatch.selection_receipt_run_id,
+    expected_workflow_sha: dispatch.expected_workflow_sha,
+    worker_run_id: runId,
+    worker_run_attempt: 1,
+    github_deployment_id: 9_000 + runId,
+    execution_mode: "build",
+    build_completed: true,
+    vercel_deployment_id: `dpl_${runId}`,
+    next_deployment_id: `m-${dispatch.target}-${runId}`,
+    verified_upload_url: `https://${dispatch.target}-${runId}.vercel.app`,
+  };
+}
+
 function controllerResult(
   dispatch,
   {
@@ -469,9 +499,11 @@ test("trusted snapshot entrypoints emit bounded event and bootstrap outputs", as
   });
   assert.equal(eventSnapshot.event_action, "opened");
   assert.equal(eventSnapshot.event_run_number, 10);
+  assert.equal(eventSnapshot.observation_receipt_required, true);
   assert.equal(outputs.get("pr_number"), "519");
   assert.equal(outputs.get("head_sha"), SHA.A);
   assert.equal(outputs.get("plan_required"), "true");
+  assert.equal(outputs.get("observation_receipt_required"), "true");
   assert.deepEqual(JSON.parse(outputs.get("snapshot")), eventSnapshot);
 
   outputs.clear();
@@ -579,6 +611,177 @@ test("trusted snapshot entrypoints emit bounded event and bootstrap outputs", as
       head: SHA.A,
       planner_source_sha: SHA.E,
     },
+  );
+});
+
+test("preview observation receipts bind one settled event and reject pending graphs", () => {
+  const settledEvent = event({
+    run: 9_001,
+    runNumber: 501,
+    action: "opened",
+    head: SHA.A,
+    runtime: false,
+    updated: timestamp(1),
+  });
+  const settled = reconcile({
+    events: [settledEvent],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const journal = createPreviewJournal({
+    pr: settledEvent.pr,
+    events: [settledEvent],
+    state: settled.state,
+  });
+  const receipt = createPreviewObservationReceipt(journal, 9_001);
+  assert.ok(receipt);
+  assert.equal(receipt.event_run_id, 9_001);
+  assert.equal(receipt.source_journal_digest, journal.journal_digest);
+  assert.equal(receipt.journal_digest, journal.journal_digest);
+  assert.deepEqual(validatePreviewObservationReceipt(receipt), receipt);
+  assert.equal(
+    previewObservationArtifactName(9_001),
+    "vercel-preview-observation-receipt-v1-9001",
+  );
+
+  const pendingEvent = event({
+    run: 9_002,
+    runNumber: 502,
+    action: "opened",
+    head: SHA.B,
+    updated: timestamp(2),
+  });
+  const pending = reconcile({
+    events: [pendingEvent],
+    pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
+  });
+  assert.equal(
+    createPreviewObservationReceipt(
+      createPreviewJournal({
+        pr: pendingEvent.pr,
+        events: [pendingEvent],
+        state: pending.state,
+      }),
+      9_002,
+    ),
+    null,
+  );
+  assert.throws(
+    () => createPreviewObservationReceipt(journal, 9_999),
+    /event is missing or ambiguous/,
+  );
+});
+
+test("preview observation artifacts are exact, unexpired, and rerun-idempotent", () => {
+  const name = previewObservationArtifactName(9_001);
+  const retained = {
+    id: 100,
+    name,
+    expired: false,
+  };
+  assert.equal(
+    selectPreviewObservationArtifact(
+      [{ id: 99, name, expired: true }, retained],
+      9_001,
+    ),
+    retained,
+  );
+  assert.equal(
+    selectPreviewObservationArtifact([{ id: 99, name, expired: true }], 9_001),
+    null,
+  );
+  assert.throws(
+    () =>
+      selectPreviewObservationArtifact(
+        [retained, { id: 101, name, expired: false }],
+        9_001,
+      ),
+    /artifact is ambiguous/,
+  );
+});
+
+test("preview observation receipts project a settled target away from a newer active push", () => {
+  const opened = event({
+    run: 9_101,
+    runNumber: 601,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const selectedOpened = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const openedActive = persistDispatch(selectedOpened, 91_001);
+  const openedSelection = selectionReceiptFromDispatch(
+    openedActive.targets.ui.active,
+  );
+  const openedResult = result(selectedOpened.nextDispatch, { runId: 91_001 });
+  const openedEvidence = workerEvidence(selectedOpened.nextDispatch, {
+    runId: 91_001,
+  });
+  const openedTerminal = reconcile({
+    events: [opened],
+    selections: [openedSelection],
+    results: [openedResult],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+    existingState: openedActive,
+  }).state;
+
+  const synchronize = event({
+    run: 9_102,
+    runNumber: 602,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    updated: timestamp(2),
+  });
+  const selectedSynchronize = reconcile({
+    events: [opened, synchronize],
+    selections: [openedSelection],
+    results: [openedResult],
+    pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
+    existingState: openedTerminal,
+  });
+  const overlapping = persistDispatch(selectedSynchronize, 91_002);
+  const synchronizeSelection = selectionReceiptFromDispatch(
+    overlapping.targets.ui.active,
+  );
+  const journal = createPreviewJournal({
+    pr: opened.pr,
+    events: [opened, synchronize],
+    selections: [openedSelection, synchronizeSelection],
+    workerEvidence: [openedEvidence],
+    results: [openedResult],
+    state: overlapping,
+  });
+
+  const receipt = createPreviewObservationReceipt(journal, opened.event_run_id);
+  assert.ok(receipt);
+  assert.equal(receipt.source_journal_digest, journal.journal_digest);
+  assert.notEqual(receipt.journal_digest, journal.journal_digest);
+  assert.equal(receipt.state.targets.ui.active, null);
+  assert.equal(receipt.state.targets.ui.latest_desired_sha, opened.head_sha);
+  assert.deepEqual(receipt.state.targets.ui.terminal_history, [
+    {
+      target: "ui",
+      sha: openedResult.sha,
+      key: openedResult.controller_key,
+      key_digest: openedResult.key_digest,
+      epoch_anchor_run_id: openedResult.epoch_anchor_run_id,
+      reconciliation_basis_digest: openedResult.reconciliation_basis_digest,
+      selection_receipt_run_id: openedResult.selection_receipt_run_id,
+      expected_workflow_sha: openedResult.expected_workflow_sha,
+      state: openedResult.state,
+      worker_run_id: openedResult.worker_run_id,
+      github_deployment_id: openedResult.github_deployment_id,
+      vercel_deployment_url: openedResult.vercel_deployment_url,
+      terminal_reason: openedResult.terminal_reason,
+    },
+  ]);
+  assert.deepEqual(validatePreviewObservationReceipt(receipt), receipt);
+  assert.equal(
+    createPreviewObservationReceipt(journal, synchronize.event_run_id),
+    null,
   );
 });
 
@@ -3686,6 +3889,7 @@ function fakeGitHub({
   uiVercelContentErrorStatus,
   includeDefaultControllerFloor = true,
   controllerWorkflowId = CONTROLLER_WORKFLOW_ID,
+  artifacts: initialArtifacts = [],
 } = {}) {
   const comments = structuredClone(initialComments);
   const runs = structuredClone(initialRuns);
@@ -3696,6 +3900,7 @@ function fakeGitHub({
     runs.push(controllerInertRun());
   }
   const deployments = structuredClone(initialDeployments);
+  const artifacts = structuredClone(initialArtifacts);
   const statuses = new Map(
     [...deploymentStatuses.entries()].map(([key, value]) => [
       String(key),
@@ -3743,6 +3948,7 @@ function fakeGitHub({
   const listComments = async () => {};
   const listCommits = async () => {};
   const listDeployments = async () => {};
+  const listWorkflowRunArtifacts = async () => {};
   const listCommitStatusesForRef = async ({ ref, per_page = 100 }) => {
     listCommitStatusRequests += 1;
     beforeListCommitStatuses?.({
@@ -3806,6 +4012,7 @@ function fakeGitHub({
         listCommits,
       },
       actions: {
+        listWorkflowRunArtifacts,
         getWorkflow: async ({ workflow_id }) => {
           assert.ok(
             workflow_id === "vercel-preview-controller.yml" ||
@@ -4025,6 +4232,13 @@ function fakeGitHub({
       if (method === listDeployments) {
         deploymentLookupCallCount += 1;
         return structuredClone(deployments);
+      }
+      if (method === listWorkflowRunArtifacts) {
+        return structuredClone(
+          artifacts.filter(
+            (artifact) => artifact.workflow_run_id === request.run_id,
+          ),
+        );
       }
       if (method === listCommitStatusesForRef) {
         return structuredClone(
@@ -7903,6 +8117,178 @@ test("the first receipt after a terminal checkpoint remains live for reconciliat
   });
   assert.equal(reconciled.epoch.tail_receipt_run_id, docs.event_run_id);
   assert.equal(reconciled.status_decisions.at(-1).state, "success");
+});
+
+test("event compaction waits for an unexpired immutable observation artifact", async () => {
+  const opened = event({
+    run: 25_001,
+    runNumber: 2,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+    retainObservationReceipt: true,
+  });
+  const selected = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const active = persistDispatch(selected, 62_001);
+  const selection = selectionReceiptFromDispatch(active.targets.ui.active);
+  const terminalResult = result(selected.nextDispatch, { runId: 62_001 });
+  const terminalState = reconcile({
+    events: [opened],
+    selections: [selection],
+    results: [terminalResult],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+    existingState: active,
+  }).state;
+  const synchronize = event({
+    run: 25_002,
+    runNumber: 3,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    runtime: false,
+    updated: timestamp(2),
+    retainObservationReceipt: true,
+  });
+  const baseOptions = {
+    pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
+    comments: [
+      journalComment({
+        events: [opened],
+        selections: [selection],
+        results: [terminalResult],
+        state: terminalState,
+        admission: {
+          schema: "vercel-preview-controller-admission:v1",
+          workflow_id: CONTROLLER_WORKFLOW_ID,
+          through_run_id: opened.event_run_id,
+          through_run_number: opened.event_run_number,
+        },
+      }),
+    ],
+    runs: [
+      controllerEventRun({
+        id: opened.event_run_id,
+        runNumber: opened.event_run_number,
+        action: "opened",
+        sha: SHA.A,
+      }),
+      controllerEventRun({
+        id: synchronize.event_run_id,
+        runNumber: synchronize.event_run_number,
+        action: "synchronize",
+        before: SHA.A,
+        sha: SHA.B,
+        createdAt: timestamp(2),
+      }),
+    ],
+    includeDefaultControllerFloor: false,
+  };
+
+  const missing = fakeGitHub({
+    ...baseOptions,
+    artifacts: [
+      {
+        id: 699,
+        workflow_run_id: opened.event_run_id,
+        name: previewObservationArtifactName(opened.event_run_id),
+        expired: true,
+      },
+    ],
+  });
+  await recordEventReceipt({
+    github: missing.github,
+    context: fakeContext({
+      runId: synchronize.event_run_id,
+      runNumber: synchronize.event_run_number,
+    }),
+    core: fakeCore(),
+    ...eventRecordInputs(synchronize),
+  });
+  const retainedLive = journalFromComment(missing.comments[0]);
+  assert.equal(retainedLive.checkpoint, null);
+  assert.deepEqual(
+    retainedLive.receipts.events.map((entry) => entry.event_run_id),
+    [opened.event_run_id, synchronize.event_run_id],
+  );
+
+  const retained = fakeGitHub({
+    ...baseOptions,
+    artifacts: [
+      {
+        id: 700,
+        workflow_run_id: opened.event_run_id,
+        name: previewObservationArtifactName(opened.event_run_id),
+        expired: false,
+      },
+    ],
+  });
+  await recordEventReceipt({
+    github: retained.github,
+    context: fakeContext({
+      runId: synchronize.event_run_id,
+      runNumber: synchronize.event_run_number,
+    }),
+    core: fakeCore(),
+    ...eventRecordInputs(synchronize),
+  });
+  const compacted = journalFromComment(retained.comments[0]);
+  assert.equal(compacted.checkpoint.event.event_run_id, opened.event_run_id);
+  assert.deepEqual(
+    compacted.receipts.events.map((entry) => entry.event_run_id),
+    [synchronize.event_run_id],
+  );
+
+  const duplicate = event({
+    run: 25_003,
+    runNumber: 3,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+    retainObservationReceipt: true,
+  });
+  const duplicateFixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+    comments: baseOptions.comments,
+    runs: [
+      baseOptions.runs[0],
+      controllerEventRun({
+        id: duplicate.event_run_id,
+        runNumber: duplicate.event_run_number,
+        action: "opened",
+        sha: SHA.A,
+      }),
+    ],
+    artifacts: [
+      {
+        id: 701,
+        workflow_run_id: opened.event_run_id,
+        name: previewObservationArtifactName(opened.event_run_id),
+        expired: false,
+      },
+    ],
+    includeDefaultControllerFloor: false,
+  });
+  await recordEventReceipt({
+    github: duplicateFixture.github,
+    context: fakeContext({
+      runId: duplicate.event_run_id,
+      runNumber: duplicate.event_run_number,
+    }),
+    core: fakeCore(),
+    ...eventRecordInputs(duplicate),
+  });
+  const duplicatePersisted = journalFromComment(duplicateFixture.comments[0]);
+  assert.equal(
+    duplicatePersisted.checkpoint.event.event_run_id,
+    opened.event_run_id,
+  );
+  assert.deepEqual(
+    duplicatePersisted.receipts.events.map((entry) => entry.event_run_id),
+    [duplicate.event_run_id],
+  );
 });
 
 test("queued receipts after a terminal checkpoint preserve every transition", async () => {
