@@ -1884,6 +1884,12 @@ function trustedCheckSource(
       return { reason: "post-merge-run-url-mismatch", trusted: false };
     }
   } else if (definition.id === "claude-review") {
+    if (check.name !== "claude-review") {
+      return {
+        reason: "unexpected-claude-review-check-name",
+        trusted: false,
+      };
+    }
     const displayTitle = String(check.runDisplayTitle ?? "");
     const nativeDisplayReceipt =
       CLAUDE_REVIEW_RECEIPT_PATTERN.exec(displayTitle);

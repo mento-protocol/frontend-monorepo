@@ -1587,6 +1587,42 @@ test("Claude review requires the workflow-run receipt, main source ref, and exac
     "passing",
   );
 
+  for (const variant of [
+    {
+      detailsUrl: `https://github.com/${REPOSITORY}/actions/runs/2`,
+      name: "Claude-Review",
+    },
+    {
+      detailsUrl: `https://github.com/${REPOSITORY}/runs/2`,
+      name: "CLAUDE-REVIEW",
+    },
+  ]) {
+    const checks = completeChecks();
+    const index = checks.findIndex(({ name }) => name === "claude-review");
+    checks.push({
+      ...checks[index],
+      detailsUrl: variant.detailsUrl,
+      externalId: `dependabot-claude-review:v1:pr=123:sha=${HEAD_SHA}:run=2:attempt=1`,
+      id: 2,
+      name: variant.name,
+      runId: 2,
+    });
+    const result = evaluateDependabotChecks({
+      checks,
+      headSha: HEAD_SHA,
+      pullRequestNumber: 123,
+      repository: REPOSITORY,
+    });
+    const policy = result.policy.find(({ id }) => id === "claude-review");
+    assert.equal(policy.check.name, variant.name, JSON.stringify(variant));
+    assert.equal(policy.state, "failing", JSON.stringify(variant));
+    assert.equal(
+      policy.reason,
+      "unexpected-claude-review-check-name",
+      JSON.stringify(variant),
+    );
+  }
+
   for (const mutation of [
     { runHeadBranch: "dependabot-branch" },
     { runHeadSha: HEAD_SHA },
