@@ -379,9 +379,10 @@ through the distinct credentialless
 `.github/workflows/dependabot-prepared-head-intake.yml`, which authenticates
 the exact Prepare App bot, a bounded nine-key dispatch, and the completed
 operation receipt. `.github/workflows/dependabot-claude-review.yml` handles
-both sources without candidate checkout or execution. It reads the diff through
-GitHub APIs and emits canonical exact-head results; validated findings can feed
-a bounded repair, while reviewer infrastructure failure remains retry-first.
+both sources without candidate checkout or execution. Its read-only job allows
+only the exact bound repository-scoped `gh pr diff` command
+and emits canonical exact-head results; validated findings can feed a bounded
+repair, while reviewer infrastructure failure remains retry-first.
 
 The preparable tier includes verified npm updates, including grouped and major
 updates. Verified non-sensitive GitHub Actions updates may be refreshed and,

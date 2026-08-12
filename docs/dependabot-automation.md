@@ -171,11 +171,13 @@ The validator accepts the submitted Actions URL or GitHub's exact
 the canonical receipt. A generic github-actions check, external ID alone,
 candidate comment, or configured actor assertion cannot establish lineage.
 
-The Claude job has only read permissions, checks out only the trusted workflow
-SHA, and reads the PR diff/blobs through GitHub APIs. It never downloads a
-candidate artifact, restores a candidate cache, installs candidate dependencies,
-or executes candidate code. Its exact bot allowlist contains only
-`dependabot[bot]` and the configured Prepare App bot login.
+The Claude job has only read permissions and checks out only the trusted
+workflow SHA. Its quoted tool allowlist admits only the exact bound
+repository-scoped `gh pr diff` command; it does not
+grant generic Bash, `gh api`, Git, curl, web, or GitHub MCP access. The job never
+downloads a candidate artifact, restores a candidate cache, installs candidate
+dependencies, or executes candidate code. Its exact bot allowlist contains
+only `dependabot[bot]` and the configured Prepare App bot login.
 
 The isolated publisher has no Claude secret or checkout. For both clean and
 findings outcomes, `claude-review` check `output.text` is the exact canonical
@@ -269,6 +271,12 @@ collects every bounded thread/reply, review, issue comment, close/reopen event,
 force-push event, and native `AutoMergeRequest`. Any collection cap,
 pagination ambiguity, malformed SHA/envelope, unknown authority-bearing bot, or
 identity drift fails closed.
+
+Only exact configured gate and receipt names trigger an Actions workflow-run
+provenance lookup. Unrelated checks and statuses remain raw non-authorizing
+evidence and consume no run lookup. One processor job caches each exact
+repository/run/attempt provenance read across its collections; the selected
+post-merge gate is always re-fetched for its current snapshot.
 
 Every required gate must report for the exact head. Attribute each failure
 against the corresponding current-`main` baseline:

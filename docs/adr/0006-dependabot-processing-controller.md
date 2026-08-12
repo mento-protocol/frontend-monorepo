@@ -107,8 +107,9 @@ For prepared heads, the workflow materializes
   committer match the live configured App bot ID/login; and
 - a bounded operation chain rooted in a verified Dependabot seed.
 
-The Claude job checks out only the trusted workflow source, reads the candidate
-through GitHub APIs, and never restores candidate artifacts/caches, installs
+The Claude job checks out only the trusted workflow source. Its quoted tool
+allowlist admits only the exact bound repository-scoped `gh pr diff` command;
+it never restores candidate artifacts/caches, installs
 candidate dependencies, or executes candidate code. Its bot allowlist is the
 exact Dependabot login plus exact Prepare App bot login. The no-secret publisher
 writes canonical `dependabot-claude-review-result:v1` JSON for both clean and
@@ -236,6 +237,12 @@ force-push, rebase, missing receipt, reordered history, ambiguous receipt, or
 third repair fails closed rather than resetting the budget.
 
 ### Receipts are canonical, typed, and run-bound
+
+The collector resolves Actions workflow provenance only for exact configured
+gate and receipt names. Unrelated checks and statuses remain non-authorizing raw
+evidence. It caches each exact repository/run/attempt lookup within one
+processor job to bound installation API use, while the selected post-merge gate
+always gets a fresh run read.
 
 Authority-bearing checks use exact recursively key-sorted compact JSON and
 SHA-256 of those bytes. External IDs are indexes, not independent authority.

@@ -40,9 +40,10 @@ Dependabot AI review runs through
 `.github/workflows/dependabot-claude-review.yml`. Its first credentialless step
 authenticates either intake. For a prepared head, it also proves the exact
 append-only Refresh/Repair chain back to a verified Dependabot seed. The
-read-only Claude job checks out only `github.workflow_sha`, reads the diff
-through GitHub APIs, and emits bounded canonical JSON. It never checks out,
-caches, downloads, installs, or executes candidate-controlled input. A valid
+read-only Claude job checks out only `github.workflow_sha` and pre-authorizes
+only the exact bound repository-scoped `gh pr diff` command. It emits
+bounded canonical JSON and never checks out, caches, downloads, installs, or
+executes candidate-controlled input. A valid
 `findings` result is deterministic repair input; an infrastructure or malformed
 result is retry-first. The isolated publisher owns the exact-head
 `claude-review` check. Human PRs keep the separate `claude-review-human` check.

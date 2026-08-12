@@ -1674,11 +1674,35 @@ test("Dependabot reviewer accepts only authenticated native or prepared intake",
   const claude = review.jobs.review.steps.find(
     ({ name }) => name === "Run Claude Code Review",
   );
+  assert.deepEqual(review.jobs.review.permissions, {
+    contents: "read",
+    issues: "read",
+    "pull-requests": "read",
+  });
   assert.equal(
     claude.with.allowed_bots,
     "${{ needs.preflight.outputs.review_actor_login }}",
   );
   assert.notEqual(claude.with.allowed_bots, "*");
+  assert.match(
+    claude.with.prompt,
+    /gh pr diff.*needs\.preflight\.outputs\.pr_number.*--repo.*github\.repository/s,
+  );
+  const allowedToolFlags = [
+    ...claude.with.claude_args.matchAll(
+      /--(?:allowedTools|allowed-tools)\s+"([^"]+)"/g,
+    ),
+  ];
+  assert.equal(allowedToolFlags.length, 1);
+  assert.equal(
+    allowedToolFlags[0][1],
+    "Bash(gh pr diff ${{ needs.preflight.outputs.pr_number }} --repo ${{ github.repository }})",
+  );
+  assert.doesNotMatch(allowedToolFlags[0][1], /:\*|\s+\*/);
+  assert.doesNotMatch(
+    claude.with.claude_args,
+    /Bash\(gh api|Bash\(curl|Bash\(git|WebFetch|WebSearch|mcp__github__|--permission-mode\s+bypassPermissions|--dangerously-skip-permissions/,
+  );
   const publish = review.jobs.publish.steps.find(
     ({ name }) => name === "Publish the exact-head Claude review check",
   );

@@ -186,9 +186,10 @@ the exact-workflow-SHA `scripts/dependabot-prepared-review.mjs` helper fetches
 and validates canonical Refresh/Repair checks, terminal Actions run provenance,
 append-only parents, exact Prepare App bot repair commits, and the verified
 Dependabot seed. The read-only Claude job checks out only
-`github.workflow_sha`, reads candidate data through GitHub APIs, and never
-checks out, caches, installs, downloads, or executes candidate input. The
-publisher is isolated from the Claude secret. It writes canonical structured
+`github.workflow_sha`; its quoted tool allowlist admits only the exact bound
+repository-scoped `gh pr diff` command. It never checks
+out, caches, installs, downloads, or executes candidate input. The publisher is
+isolated from the Claude secret. It writes canonical structured
 JSON to the exact-head `claude-review` check: validated `findings` are
 deterministic repair input, while an infrastructure or invalid-schema failure is
 retry-first. Human PRs continue to report `claude-review-human`.

@@ -1615,8 +1615,27 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
     review.with.prompt,
     /head.*needs\.preflight\.outputs\.head_sha/s,
   );
+  assert.match(
+    review.with.prompt,
+    /gh pr diff.*needs\.preflight\.outputs\.pr_number.*--repo.*github\.repository/s,
+  );
   assert.match(review.with.prompt, /Do not make any.*mutation/s);
   assert.match(review.with.claude_code_oauth_token, /secrets\./);
+  const allowedToolFlags = [
+    ...review.with.claude_args.matchAll(
+      /--(?:allowedTools|allowed-tools)\s+"([^"]+)"/g,
+    ),
+  ];
+  assert.equal(allowedToolFlags.length, 1);
+  assert.equal(
+    allowedToolFlags[0][1],
+    "Bash(gh pr diff ${{ needs.preflight.outputs.pr_number }} --repo ${{ github.repository }})",
+  );
+  assert.doesNotMatch(allowedToolFlags[0][1], /:\*|\s+\*/);
+  assert.doesNotMatch(
+    review.with.claude_args,
+    /Bash\(gh api|Bash\(curl|Bash\(git|WebFetch|WebSearch|mcp__github__|--permission-mode\s+bypassPermissions|--dangerously-skip-permissions/,
+  );
   assert.match(review.with.claude_args, /--json-schema/);
   assert.match(review.with.claude_args, /dependabot-claude-review-result:v1/);
   assert.match(review.with.claude_args, /"maxItems":20/);
