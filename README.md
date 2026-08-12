@@ -175,11 +175,13 @@ pnpm vercel:cost:observe -- sample-github
 # needs more eligible pushes or has boundary-straddling work
 pnpm vercel:cost:observe -- init --start 2026-07-29T00:00:00.000Z --end 2026-08-06T00:00:00.000Z
 # Repairable GitHub gaps leave collection mutable; a clean audit preflight
-# permanently freezes this interval before writing the provider-join fragment.
+# permanently freezes this interval before writing the private evidence-join fragment.
 pnpm vercel:cost:observe -- audit --end <final-end-utc>
 
 # Test and run the private collector plus redaction-safe closeout analyzer
 pnpm vercel:cost:test
+# The analyzer uses the #523 target-mix formula only after complete baseline and
+# post deployment censuses prove zero legacy-v2, manual, or unknown attempts.
 pnpm vercel:cost:analyze --input .vercel-cost-evidence/manifest.json --format markdown
 ```
 

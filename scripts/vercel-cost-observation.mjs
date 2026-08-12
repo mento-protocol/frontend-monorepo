@@ -54,7 +54,7 @@ export const MAIN_CAPTURE_SCHEMA = "vercel-cost-main-observation-capture:v2";
 export const GITHUB_SAMPLE_SCHEMA = "vercel-cost-github-sample:v2";
 export const OBSERVATION_AUDIT_SCHEMA = "vercel-cost-observation-audit:v2";
 export const ANALYZER_FRAGMENT_SCHEMA =
-  "vercel-cost-analyzer-postcutover-fragment:v2";
+  "vercel-cost-analyzer-postcutover-fragment:v3";
 const CAPTURE_SEAL_SCHEMA = "vercel-cost-capture-seal:v2";
 const START_BOUNDARY_RUN_COVERAGE_SCHEMA =
   "vercel-cost-start-boundary-run-coverage:v1";
@@ -2230,7 +2230,6 @@ function capturePreview({ root, pr, eventRunId, dependencies }) {
         "vercelDeploymentCensus",
         "nativeDuplicateClassification",
         "buildCpuMinutes",
-        "providerAttribution",
       ],
       files: [],
     };
@@ -2790,7 +2789,6 @@ function captureMain({ root, runId, dependencies }) {
           "legacyV2Health",
           "vercelDeploymentCensus",
           "buildCpuMinutes",
-          "providerAttribution",
         ],
         files: [],
       };
@@ -3789,7 +3787,6 @@ function auditObservation({ root, end, now }) {
     "cutoverProvenance",
     "providerDeploymentCensus",
     "vercelFocusBilling",
-    "providerAttribution",
     "githubAuthoritativeRunnerMinutes",
     "githubArtifactAndCacheGbHours",
     "repositoryPublicForEntireInterval",
@@ -3874,7 +3871,6 @@ function auditObservation({ root, end, now }) {
     repositoryPublicForEntireInterval: null,
     targets: null,
     deploymentCensus: null,
-    providerAttribution: null,
     complete: false,
     unresolved,
   };

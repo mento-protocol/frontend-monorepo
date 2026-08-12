@@ -177,14 +177,16 @@ pnpm vercel:cost:analyze \
   --format markdown
 ```
 
-The command reads the raw FOCUS JSONL, an unchanged provider-attribution
-artifact plus its derived target/path mapping, and a complete normalized Vercel
-deployment census. It exits successfully only after both the observation gate
+The command reads the raw project-level FOCUS JSONL and a complete normalized
+Vercel deployment census. It accepts a project total only when that census
+proves zero legacy-v2, manual, or unknown deployment attempts and the migrated
+minutes and costs equal the complete FOCUS-backed project total. It exits
+successfully only after both the observation gate
 and the cleanup/final-closeout gate pass. Before cleanup, a successful
 measurement is explicitly `OBSERVATION ONLY` and the command remains nonzero.
 Its Markdown and JSON output omit absolute `EffectiveCost` and `BilledCost`
 values, raw-export digests, and raw-export charge-row counts. Raw exports,
-manifest, aggregate input, provider artifacts, account configuration,
+manifest, aggregate input, account configuration,
 allocations, invoice figures, and dollar values remain private.
 
 Run the fixture suite without credentials or network access:
@@ -199,8 +201,7 @@ Store working evidence under `.vercel-cost-evidence/`, which is ignored by Git,
 or outside the repository. Never commit or paste any of these into a public
 issue, pull request, workflow artifact, job summary, or log:
 
-- raw Vercel FOCUS JSONL, unchanged provider-attribution artifacts, derived
-  attribution JSONL, normalized deployment-census JSONL, and the manifest;
+- raw Vercel FOCUS JSONL, normalized deployment-census JSONL, and the manifest;
 - project or team IDs not already public;
 - absolute `EffectiveCost`, `BilledCost`, allocation, plan, price, or invoice
   values;
@@ -267,30 +268,21 @@ these defensible paths:
 
 1. extend or select a complete comparison interval with enough eligible events
    and no overlapping excluded builds;
-2. obtain provider-generated usage evidence that attributes the charge at the
-   required granularity; or
-3. leave the migrated-path measurement unresolved and keep #523 open.
+2. leave the migrated-path measurement unresolved and keep #523 open.
 
 Never estimate migrated Build CPU minutes by apportioning a project total using
 deployment count or visible build duration. Record excluded deployment attempts
 even when they contribute zero invoice-grade minutes. Gross project totals must
 remain visible alongside the migrated-path comparison.
 
-Target-by-path (`preview` versus `main`) normalization always requires path
-usage. FOCUS cannot provide it. Preserve the unchanged provider-generated
-artifact and its digest, then derive a separate strict target/path JSONL mapping
-from that artifact. The manifest binds both files; their paths and digests must
-differ, the derived cells must reconcile exactly to `migratedPath`, and the
-provider digest must match `attribution.evidenceSha256`. The analyzer can prove
-that the two frozen inputs and aggregate agree, but it cannot independently
-interpret an opaque provider artifact. Reviewer/operator confirmation that the
-derived cells faithfully represent that provider artifact remains mandatory.
-Never create those cells from census counts or build durations.
-
-Provider evidence and the derived mapping are also separate from the raw FOCUS
-export, whose documented dimensions are insufficient for this split. Their
-digests must differ from the corresponding raw-export digest, and one target
-cannot reuse the same provider evidence for its baseline and post-cutover split.
+The #523 threshold normalizes by logical target, not by preview/main path. The
+preview/main census remains mandatory correctness evidence, but it never
+allocates project-level Build CPU minutes or cost between those paths. A target
+may have both preview and main events only when the complete census proves zero
+excluded deployment attempts and `migratedPath` equals `grossProject` for Build
+CPU minutes, `EffectiveCost`, and final `BilledCost`. In that case the entire
+project total belongs to the migrated path by exclusion; no cost split is
+estimated.
 
 ## Post-cutover collection protocol
 
@@ -357,7 +349,7 @@ cannot reuse the same provider evidence for its baseline and post-cutover split.
    staged/active/shadow partitions, stale-main decision, activation/recovery
    result, domain SHA, the active duplicate census, and v2 health.
 8. Populate `.vercel-cost-evidence/manifest.json` and its referenced aggregate,
-   FOCUS, provider, derived-attribution, and deployment-census files using the
+   FOCUS, and deployment-census files using the
    synthetic [`manifest.json`](../scripts/fixtures/vercel-cost-analysis/manifest.json)
    fixture set as the schema example. Do not copy its invented values.
 9. Run the analyzer. A failing command lists deterministic evidence gaps; extend
@@ -368,13 +360,13 @@ cannot reuse the same provider evidence for its baseline and post-cutover split.
 
 ## Manifest and aggregate evidence schema
 
-The CLI input is a strict manifest. It references the aggregate plus each
-window's raw FOCUS JSONL, unchanged provider artifact, derived attribution
-JSONL, and normalized deployment census. The manifest records separate digests,
-the complete-census assertion, and a distinct FOCUS project-tag selector for
-each logical target. A target's selector must be identical in both windows so a
-comparison cannot silently switch Vercel projects. Unknown or missing keys fail
-instead of being ignored.
+The CLI input is a strict version-2 manifest. It references the schema-version-3
+aggregate plus each window's raw FOCUS JSONL and normalized deployment census.
+The manifest records the deployment-census digest, complete-census assertion,
+and a distinct FOCUS project-tag selector for each logical target. A target's
+selector must be identical in both windows so a comparison cannot silently
+switch Vercel projects. Unknown or missing keys, including legacy provider
+attribution fields, fail instead of being ignored.
 
 Both aggregate periods require the exact FOCUS unit `Build CPU Minutes`, billing
 currency `USD`, a raw-export digest, row count, ingestion state, and
@@ -382,7 +374,7 @@ invoice-final state. Raw FOCUS rows are authoritative for `grossProject`; the
 analyzer derives and reconciles those totals instead of accepting the aggregate
 alone.
 
-Each target has six groups:
+Each target has five groups:
 
 - `migratedPath`: raw Build CPU minutes, `EffectiveCost`, nullable `BilledCost`,
   unique eligible target events, deployment attempts, and actual duplicate
@@ -390,17 +382,12 @@ Each target has six groups:
 - `migratedDeploymentCensus`: strict `preview` and `main` path buckets, each
   containing eligible events, deployment attempts, and actual duplicate counts;
   each metric must sum exactly to its `migratedPath` aggregate;
-- `migratedUsageByPath`: strict `preview` and `main` Build CPU minute,
-  `EffectiveCost`, and nullable `BilledCost` cells derived from the separately
-  preserved provider artifact; each metric must sum exactly to `migratedPath`;
 - `grossProject`: the complete project Build CPU minutes and costs, including
   excluded activity;
 - `excluded`: attempt counts for legacy v2, manual, and unknown deployments;
-- `attribution`: either `project-total-no-exclusions`, which requires migrated
-  and gross values to be identical, every excluded count to be zero, and only
-  one active path, or
-  `provider-attributed`, which requires the SHA-256 digest of the private
-  provider evidence supporting the split.
+- `attribution`: exactly `project-total-no-exclusions` with a null evidence
+  digest. It requires migrated and gross values to be identical and every
+  excluded count to be zero; preview and main may both be active.
 
 The post-cutover record also contains:
 
@@ -468,13 +455,14 @@ zero for a passing report.
 The analyzer rejects malformed evidence such as migrated usage above gross
 project usage, a post period beginning before cutover, partial UTC days,
 finalized invoices with missing BilledCost, and malformed provenance.
-It also rejects guessed clean-project splits, provider-attributed splits without
-distinct hashed evidence, provider-attributed minute or cost splits without a
-classified excluded deployment, reused raw or target-attribution evidence,
-legacy-v2 classifications outside the app project, preview/main census totals
-that do not reconcile exactly, path buckets with fewer attempts than events,
-duplicate counts above `attempts - events`, first-preview counters unsupported
-by the derived preview census, and unknown post-cutover deployment activity.
+It also rejects any legacy-v2, manual, or unknown attempt in either comparison
+window; any mismatch between `migratedPath` and the FOCUS-reconciled
+`grossProject`; legacy provider-attribution schema fields; reused raw FOCUS
+evidence; legacy-v2 classifications outside the app project; preview/main
+census totals that do not reconcile exactly; path buckets with fewer attempts
+than events; duplicate counts above `attempts - events`; first-preview counters
+unsupported by the derived preview census; and unknown post-cutover deployment
+activity.
 Completed-check counts cannot exceed their opportunities, regressions cannot
 exceed completed checks, and completed main observations cannot exceed the
 derived main-event total. Derived totals, counterfactuals, ratios, and savings
@@ -482,22 +470,21 @@ must remain finite; numeric overflow, `NaN`, and infinity fail closed.
 
 ## Calculations
 
-For target-and-path cell `c = (p, path)`, the input supplies baseline minutes
-`M_B,c`, baseline eligible events `N_B,c`, post-cutover minutes `M_P,c`, and
-post-cutover eligible events `N_P,c`. The analyzer computes:
+For each logical target `p`, the input supplies baseline minutes `M_B,p`,
+baseline eligible events `N_B,p`, post-cutover minutes `M_P,p`, and post-cutover
+eligible events `N_P,p`. The analyzer computes:
 
 ```text
-C = sum over c of N_P,c * (M_B,c / N_B,c)
-S = 1 - (sum over c of M_P,c / C)
+C = sum over p of N_P,p * (M_B,p / N_B,p)
+S = 1 - (sum over p of M_P,p / C)
 ```
 
-The exact, unrounded `S` must be at least `0.90`. A post-cutover path with zero
-events contributes zero to the counterfactual. Any path with observed
-post-cutover events must have nonzero baseline events, so newly observed work
-cannot silently inherit another path's baseline. The same target-by-path
-calculation is applied to `EffectiveCost` and final `BilledCost`, but only
-savings ratios are emitted. A negative savings result for either cost metric,
-at the aggregate or individual path level, fails the observation. Gross savings
+The exact, unrounded `S` must be at least `0.90`. Every target must have nonzero
+baseline and post-cutover events. The same target-mix calculation is applied to
+`EffectiveCost` and final `BilledCost`, but only savings ratios are emitted. A
+negative aggregate or per-target savings result for either cost metric fails the
+observation.
+Gross savings
 compare total project Build CPU minutes per complete UTC day. Attempts per
 eligible event and post-cutover Build CPU minutes per trusted deployed-code PR
 push are reported overall and by target. Each target's minute contribution is
@@ -506,7 +493,7 @@ target-specific push count. Every target must independently produce a finite,
 positive build-minute counterfactual and a finite savings ratio; a null
 per-target minute savings value can never coexist with a passing report.
 Per-target savings rows are diagnostic; the 90% threshold applies to the
-aggregate target-by-path result. Final BilledCost savings must be finite and
+aggregate target-mix result. Final BilledCost savings must be finite and
 available before the observation can pass.
 
 The public-safe output shows migrated and gross Build CPU minutes for every
@@ -518,8 +505,9 @@ remain private in both Markdown and JSON output.
 The command remains failing when any required closeout condition is missing,
 including incomplete billing, a non-final invoice, fewer than seven complete
 days or ten trusted PR pushes, a target with zero events or a non-positive
-minute counterfactual, an observed path without a baseline, a negative cost
-savings result, an actual duplicate deployment, missing standard-runner measurement,
+minute counterfactual, any excluded deployment activity, a project-total
+mismatch, a negative cost savings result, an actual duplicate deployment,
+missing standard-runner measurement,
 no eligible first-preview opportunity, less than 100% first-preview coverage,
 missing or incomplete smoke/E2E, burst, or legacy-v2 observation coverage,
 incomplete or failed main-deployment observations, native duplicates,

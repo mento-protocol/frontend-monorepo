@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "cutoverCompletedAtUtc": "2026-07-15T12:00:00.000Z",
   "baseline": {
     "period": {
@@ -7,7 +7,7 @@
       "endUtcExclusive": "2026-07-15T00:00:00.000Z",
       "billingIngestionComplete": true,
       "invoiceFinal": true,
-      "focusExportSha256": "f675bd978008e820f2be1459f7507eefa125ba7a246587322c6f7076fcb35d00",
+      "focusExportSha256": "6288bbf8a8f20923d7addea0c6edc32b0b1f984d3f6c9ba3f7172a3c76223019",
       "focusChargeCount": 4,
       "consumedUnit": "Build CPU Minutes",
       "billingCurrency": "USD"
@@ -22,18 +22,6 @@
           "deploymentAttempts": 8,
           "duplicateDeployments": 0
         },
-        "migratedUsageByPath": {
-          "preview": {
-            "buildCpuMinutes": 150,
-            "effectiveCost": 30,
-            "billedCost": 30
-          },
-          "main": {
-            "buildCpuMinutes": 50,
-            "effectiveCost": 10,
-            "billedCost": 10
-          }
-        },
         "migratedDeploymentCensus": {
           "preview": {
             "eligibleEvents": 6,
@@ -47,18 +35,18 @@
           }
         },
         "grossProject": {
-          "buildCpuMinutes": 240,
-          "effectiveCost": 48,
-          "billedCost": 48
+          "buildCpuMinutes": 200,
+          "effectiveCost": 40,
+          "billedCost": 40
         },
         "excluded": {
-          "legacyV2DeploymentAttempts": 2,
+          "legacyV2DeploymentAttempts": 0,
           "manualDeploymentAttempts": 0,
           "unknownDeploymentAttempts": 0
         },
         "attribution": {
-          "method": "provider-attributed",
-          "evidenceSha256": "d0bb7c027e38d5d22eeb751de5dd97926b5de2ecd78bb65d45d73f4f31ddd79d"
+          "method": "project-total-no-exclusions",
+          "evidenceSha256": null
         }
       },
       "governance": {
@@ -69,18 +57,6 @@
           "eligibleEvents": 8,
           "deploymentAttempts": 8,
           "duplicateDeployments": 0
-        },
-        "migratedUsageByPath": {
-          "preview": {
-            "buildCpuMinutes": 150,
-            "effectiveCost": 15,
-            "billedCost": 15
-          },
-          "main": {
-            "buildCpuMinutes": 50,
-            "effectiveCost": 5,
-            "billedCost": 5
-          }
         },
         "migratedDeploymentCensus": {
           "preview": {
@@ -105,8 +81,8 @@
           "unknownDeploymentAttempts": 0
         },
         "attribution": {
-          "method": "provider-attributed",
-          "evidenceSha256": "d0bb7c027e38d5d22eeb751de5dd97926b5de2ecd78bb65d45d73f4f31ddd79d"
+          "method": "project-total-no-exclusions",
+          "evidenceSha256": null
         }
       },
       "reserve": {
@@ -117,18 +93,6 @@
           "eligibleEvents": 6,
           "deploymentAttempts": 6,
           "duplicateDeployments": 0
-        },
-        "migratedUsageByPath": {
-          "preview": {
-            "buildCpuMinutes": 53,
-            "effectiveCost": 5.3,
-            "billedCost": 5.3
-          },
-          "main": {
-            "buildCpuMinutes": 27,
-            "effectiveCost": 2.7,
-            "billedCost": 2.7
-          }
         },
         "migratedDeploymentCensus": {
           "preview": {
@@ -153,8 +117,8 @@
           "unknownDeploymentAttempts": 0
         },
         "attribution": {
-          "method": "provider-attributed",
-          "evidenceSha256": "d0bb7c027e38d5d22eeb751de5dd97926b5de2ecd78bb65d45d73f4f31ddd79d"
+          "method": "project-total-no-exclusions",
+          "evidenceSha256": null
         }
       },
       "ui": {
@@ -165,18 +129,6 @@
           "eligibleEvents": 6,
           "deploymentAttempts": 6,
           "duplicateDeployments": 0
-        },
-        "migratedUsageByPath": {
-          "preview": {
-            "buildCpuMinutes": 40,
-            "effectiveCost": 4,
-            "billedCost": 4
-          },
-          "main": {
-            "buildCpuMinutes": 20,
-            "effectiveCost": 2,
-            "billedCost": 2
-          }
         },
         "migratedDeploymentCensus": {
           "preview": {
@@ -201,8 +153,8 @@
           "unknownDeploymentAttempts": 0
         },
         "attribution": {
-          "method": "provider-attributed",
-          "evidenceSha256": "d0bb7c027e38d5d22eeb751de5dd97926b5de2ecd78bb65d45d73f4f31ddd79d"
+          "method": "project-total-no-exclusions",
+          "evidenceSha256": null
         }
       }
     }
@@ -213,7 +165,7 @@
       "endUtcExclusive": "2026-07-23T00:00:00.000Z",
       "billingIngestionComplete": true,
       "invoiceFinal": true,
-      "focusExportSha256": "1bd1dea89cd4f209b6bf6a62be977a405c0e2093005c2fae309685ad6785654c",
+      "focusExportSha256": "597372d00c7c2d6d3184df4fb49a073b1f2b0e9b96f0ecb9e68373388d118196",
       "focusChargeCount": 4,
       "consumedUnit": "Build CPU Minutes",
       "billingCurrency": "USD"
@@ -227,66 +179,6 @@
           "eligibleEvents": 4,
           "deploymentAttempts": 4,
           "duplicateDeployments": 0
-        },
-        "migratedUsageByPath": {
-          "preview": {
-            "buildCpuMinutes": 7.5,
-            "effectiveCost": 0.75,
-            "billedCost": 0.75
-          },
-          "main": {
-            "buildCpuMinutes": 2.5,
-            "effectiveCost": 0.25,
-            "billedCost": 0.25
-          }
-        },
-        "migratedDeploymentCensus": {
-          "preview": {
-            "eligibleEvents": 3,
-            "deploymentAttempts": 3,
-            "duplicateDeployments": 0
-          },
-          "main": {
-            "eligibleEvents": 1,
-            "deploymentAttempts": 1,
-            "duplicateDeployments": 0
-          }
-        },
-        "grossProject": {
-          "buildCpuMinutes": 30,
-          "effectiveCost": 5,
-          "billedCost": 5
-        },
-        "excluded": {
-          "legacyV2DeploymentAttempts": 1,
-          "manualDeploymentAttempts": 0,
-          "unknownDeploymentAttempts": 0
-        },
-        "attribution": {
-          "method": "provider-attributed",
-          "evidenceSha256": "40f6e92c647c1152acf5fe02a8cc402b2abb57bcc9258594ffeb7477a9a0d6d3"
-        }
-      },
-      "governance": {
-        "migratedPath": {
-          "buildCpuMinutes": 10,
-          "effectiveCost": 1,
-          "billedCost": 1,
-          "eligibleEvents": 4,
-          "deploymentAttempts": 4,
-          "duplicateDeployments": 0
-        },
-        "migratedUsageByPath": {
-          "preview": {
-            "buildCpuMinutes": 7.5,
-            "effectiveCost": 0.75,
-            "billedCost": 0.75
-          },
-          "main": {
-            "buildCpuMinutes": 2.5,
-            "effectiveCost": 0.25,
-            "billedCost": 0.25
-          }
         },
         "migratedDeploymentCensus": {
           "preview": {
@@ -311,8 +203,44 @@
           "unknownDeploymentAttempts": 0
         },
         "attribution": {
-          "method": "provider-attributed",
-          "evidenceSha256": "40f6e92c647c1152acf5fe02a8cc402b2abb57bcc9258594ffeb7477a9a0d6d3"
+          "method": "project-total-no-exclusions",
+          "evidenceSha256": null
+        }
+      },
+      "governance": {
+        "migratedPath": {
+          "buildCpuMinutes": 10,
+          "effectiveCost": 1,
+          "billedCost": 1,
+          "eligibleEvents": 4,
+          "deploymentAttempts": 4,
+          "duplicateDeployments": 0
+        },
+        "migratedDeploymentCensus": {
+          "preview": {
+            "eligibleEvents": 3,
+            "deploymentAttempts": 3,
+            "duplicateDeployments": 0
+          },
+          "main": {
+            "eligibleEvents": 1,
+            "deploymentAttempts": 1,
+            "duplicateDeployments": 0
+          }
+        },
+        "grossProject": {
+          "buildCpuMinutes": 10,
+          "effectiveCost": 1,
+          "billedCost": 1
+        },
+        "excluded": {
+          "legacyV2DeploymentAttempts": 0,
+          "manualDeploymentAttempts": 0,
+          "unknownDeploymentAttempts": 0
+        },
+        "attribution": {
+          "method": "project-total-no-exclusions",
+          "evidenceSha256": null
         }
       },
       "reserve": {
@@ -323,18 +251,6 @@
           "eligibleEvents": 3,
           "deploymentAttempts": 3,
           "duplicateDeployments": 0
-        },
-        "migratedUsageByPath": {
-          "preview": {
-            "buildCpuMinutes": 2.65,
-            "effectiveCost": 0.265,
-            "billedCost": 0.265
-          },
-          "main": {
-            "buildCpuMinutes": 1.35,
-            "effectiveCost": 0.135,
-            "billedCost": 0.135
-          }
         },
         "migratedDeploymentCensus": {
           "preview": {
@@ -359,8 +275,8 @@
           "unknownDeploymentAttempts": 0
         },
         "attribution": {
-          "method": "provider-attributed",
-          "evidenceSha256": "40f6e92c647c1152acf5fe02a8cc402b2abb57bcc9258594ffeb7477a9a0d6d3"
+          "method": "project-total-no-exclusions",
+          "evidenceSha256": null
         }
       },
       "ui": {
@@ -371,18 +287,6 @@
           "eligibleEvents": 3,
           "deploymentAttempts": 3,
           "duplicateDeployments": 0
-        },
-        "migratedUsageByPath": {
-          "preview": {
-            "buildCpuMinutes": 2,
-            "effectiveCost": 0.5,
-            "billedCost": 0.5
-          },
-          "main": {
-            "buildCpuMinutes": 1,
-            "effectiveCost": 0.3,
-            "billedCost": 0.3
-          }
         },
         "migratedDeploymentCensus": {
           "preview": {
@@ -407,8 +311,8 @@
           "unknownDeploymentAttempts": 0
         },
         "attribution": {
-          "method": "provider-attributed",
-          "evidenceSha256": "40f6e92c647c1152acf5fe02a8cc402b2abb57bcc9258594ffeb7477a9a0d6d3"
+          "method": "project-total-no-exclusions",
+          "evidenceSha256": null
         }
       }
     },

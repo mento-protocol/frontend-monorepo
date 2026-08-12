@@ -334,8 +334,10 @@ Commands such as `latest` are never rollback evidence.
 ### Cost and success gate
 
 The migration succeeds only after at least seven complete post-cutover days and
-ten eligible trusted PR pushes show at least a 90% target-by-path-normalized
-reduction in raw Vercel Build CPU minutes for the migrated paths. Evidence also
+ten eligible trusted PR pushes show at least a 90% target-mix-normalized
+reduction in raw Vercel Build CPU minutes for the migrated paths. Project totals
+qualify only when the complete preview/main deployment census proves zero
+legacy-v2, manual, or unknown attempts in both comparison windows. Evidence also
 tracks standard/larger runner usage, storage added by the migration, queue and
 build durations, duplicate attempts, first-preview delivery, path-planning
 correctness, smoke results, and preserved app `v2` activity.
