@@ -4079,6 +4079,190 @@ test("refresh preparation is split across request, mutate, and finalize phases",
   assert.equal(completedReceipt.requestDigest, digest(requestedReceipt));
 });
 
+test("refresh successor polling retries only bounded snapshot races after the ref moves", async () => {
+  const requestCheck = refreshReceiptCheck("requested");
+  const pending = staleSnapshot();
+  pending.repairHistoryChecks = [requestCheck];
+  const stableFeedback = {
+    digest: "a".repeat(64),
+    headSha: OTHER_SHA,
+    updatedAt: "2026-08-12T09:58:00Z",
+  };
+  let reads = 0;
+  let waits = 0;
+  const result = await processDependabotSweep({
+    adapter: {
+      collectPullRequestSnapshot: async () => {
+        reads += 1;
+        if (reads === 1) {
+          requireStableFeedbackSnapshot(
+            stableFeedback,
+            { ...stableFeedback, digest: "b".repeat(64) },
+            123,
+          );
+        }
+        return refreshedSnapshot({ repairHistoryChecks: [requestCheck] });
+      },
+      requestPullRequestUpdateBranch: async () => {},
+      waitForRefreshSuccessor: async () => {
+        waits += 1;
+      },
+    },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [pending],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "mutate",
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(reads, 2);
+  assert.equal(waits, 1);
+  assert.deepEqual(result.mutations, [
+    {
+      headSha: HEAD_SHA,
+      kind: "refresh-update-requested",
+      pullRequestNumber: 123,
+      requestCheckId: requestCheck.id,
+      requestDigest: digest(JSON.parse(requestCheck.outputText)),
+      successorHeadSha: OTHER_SHA,
+    },
+  ]);
+
+  reads = 0;
+  waits = 0;
+  const slowSuccessor = await processDependabotSweep({
+    adapter: {
+      collectPullRequestSnapshot: async () => {
+        reads += 1;
+        if (reads <= 4) return pending;
+        if (reads === 5) {
+          requireStableFeedbackSnapshot(
+            stableFeedback,
+            { ...stableFeedback, digest: "b".repeat(64) },
+            123,
+          );
+        }
+        return refreshedSnapshot({ repairHistoryChecks: [requestCheck] });
+      },
+      requestPullRequestUpdateBranch: async () => {},
+      waitForRefreshSuccessor: async () => {
+        waits += 1;
+      },
+    },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [pending],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "mutate",
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(reads, 6);
+  assert.equal(waits, 5);
+  assert.equal(
+    slowSuccessor.mutations[0].successorHeadSha,
+    OTHER_SHA,
+    "old-head polls must not consume the separate snapshot-race budget",
+  );
+
+  reads = 0;
+  waits = 0;
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        collectPullRequestSnapshot: async () => {
+          reads += 1;
+          requireStableFeedbackSnapshot(
+            stableFeedback,
+            { ...stableFeedback, updatedAt: `2026-08-12T09:58:0${reads}Z` },
+            123,
+          );
+        },
+        requestPullRequestUpdateBranch: async () => {},
+        waitForRefreshSuccessor: async () => {
+          waits += 1;
+        },
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [pending],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "mutate",
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /feedback changed while its exact-head snapshot was collected/,
+  );
+  assert.equal(reads, 5);
+  assert.equal(waits, 4);
+
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        collectPullRequestSnapshot: async () => {
+          throw new Error("GitHub API unavailable");
+        },
+        requestPullRequestUpdateBranch: async () => {},
+        waitForRefreshSuccessor: async () =>
+          assert.fail("arbitrary failures must not be retried"),
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [pending],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "mutate",
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /GitHub API unavailable/,
+  );
+
+  const badSuccessor = refreshedSnapshot({
+    repairHistoryChecks: [requestCheck],
+  });
+  badSuccessor.commits.at(-1).parents = [HEAD_SHA];
+  reads = 0;
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        collectPullRequestSnapshot: async () => {
+          reads += 1;
+          if (reads === 1) {
+            requireStableFeedbackSnapshot(
+              stableFeedback,
+              { ...stableFeedback, digest: "b".repeat(64) },
+              123,
+            );
+          }
+          return badSuccessor;
+        },
+        requestPullRequestUpdateBranch: async () => {},
+        waitForRefreshSuccessor: async () => {},
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [pending],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "mutate",
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /refresh commit parents are invalid/,
+  );
+  assert.equal(reads, 2);
+});
+
 test("refresh request rejects a recorded base that differs from the compare merge base", async () => {
   const stale = staleSnapshot();
   stale.pullRequest.base.sha = OTHER_SHA;

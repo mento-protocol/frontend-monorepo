@@ -259,6 +259,9 @@ test("intake is an exact credentialless metadata receipt", () => {
   assert.equal(job.steps.length, 1);
   assert.equal(Object.hasOwn(job.steps[0], "uses"), false);
   assert.match(job.if, /dependabot\[bot\].*dependabot\//s);
+  assert.match(job.if, /github\.event\.sender\.login.*dependabot\[bot\]/s);
+  assert.match(job.if, /github\.event\.sender\.id.*49699333/s);
+  assert.match(job.if, /github\.event\.sender\.type.*Bot/s);
   assert.deepEqual(Object.keys(job.steps[0].env).sort(), [
     "ACTION",
     "AUTHOR",
@@ -269,15 +272,25 @@ test("intake is an exact credentialless metadata receipt", () => {
     "HEAD_SHA",
     "PR_NUMBER",
     "REPOSITORY",
+    "SENDER_ID",
+    "SENDER_LOGIN",
+    "SENDER_TYPE",
   ]);
   assert.match(job.steps[0].run, /mento-protocol\/frontend-monorepo/);
   assert.match(job.steps[0].run, /dependabot\[bot\]/);
+  assert.match(job.steps[0].run, /SENDER_ID.*49699333/);
+  assert.match(job.steps[0].run, /SENDER_LOGIN.*dependabot\[bot\]/);
+  assert.match(job.steps[0].run, /SENDER_TYPE.*Bot/);
   assert.match(job.steps[0].run, /HEAD_REPOSITORY.*REPOSITORY/);
   assert.match(job.steps[0].run, /DEFAULT_BRANCH.*main/);
   assert.match(job.steps[0].run, /BASE_REF.*main/);
   assert.match(job.steps[0].run, /HEAD_REF.*dependabot\/\*/);
   assert.match(job.steps[0].run, /\[0-9a-f\]\{40\}/);
   assert.match(job.steps[0].run, /opened\|synchronize\|reopened/);
+  assert.match(
+    intake["run-name"],
+    /github\.event\.sender\.login.*github\.event\.sender\.id.*github\.event\.sender\.type/s,
+  );
 
   const raw = JSON.stringify(intake);
   assert.doesNotMatch(

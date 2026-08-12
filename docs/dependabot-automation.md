@@ -53,11 +53,13 @@ Keep these properties true in code, workflows, rulesets, and operation:
 `reopened`. Its existing `dependabot-intake:v1` title stays strict. The
 workflow has `permissions: {}`, one local shell step, no API call, no secret,
 no checkout, and no artifact. It binds repository, PR, Dependabot-owned
-`dependabot/*` ref, exact head, base `main`, and action.
+`dependabot/*` ref, exact head, base `main`, action, and the exact Dependabot
+bot event sender login, user ID, and type.
 
 Do not relax this receipt to admit an App-authored head. The strict native
 receipt is useful because a normal Dependabot synchronize and a prepared
-successor have different actors and lineage requirements.
+successor have different actors and lineage requirements. App-authored
+synchronize events are inert here and enter only through prepared-head intake.
 
 ### Prepared-head intake
 
@@ -301,6 +303,13 @@ The completed head is accepted only when:
 
 A refresh never increments the repair count. Do not use Dependabot rebase,
 force-push, or a history rewrite.
+
+GitHub may retarget existing review-comment commit metadata while update-branch
+creates the append-only successor. The bounded old-head wait and typed
+snapshot-race retry use separate counters so a late successor still gets a
+stable read. The accepted read still requires a fully stable snapshot plus the
+exact parent, base, App identity, and signature evidence above. Persistent drift
+or any other collection error fails closed.
 
 ### 3. Produce and publish one bounded repair
 
@@ -561,7 +570,8 @@ or failed. Follow the managed failure issue and deployment recovery runbook.
 | Evidence/outcome                                     | Action                                                            |
 | ---------------------------------------------------- | ----------------------------------------------------------------- |
 | Malformed/false intake or dispatch                   | Fail; inspect actor and exact envelope.                           |
-| Head/base/feedback changed                           | Make no mutation; start a fresh exact-head cycle.                 |
+| Head/base/feedback changed before mutation           | Make no mutation; start a fresh exact-head cycle.                 |
+| Snapshot race after one authorized refresh request   | Retry read-only collection within the bounded successor poll.     |
 | Missing/pending gate                                 | Wait for trusted evidence; recollect.                             |
 | Base failure                                         | Repair `main`, prove recovery, then refresh affected PRs.         |
 | Provider/Claude infrastructure failure               | Retry through the trusted provider path; never patch around it.   |

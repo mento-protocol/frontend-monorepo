@@ -168,8 +168,8 @@ case, and whitespace variants become `observe`. No processor path merges or
 enables auto-merge. A maintainer clicks Merge only while the exact head carries
 a successful `Dependabot ALL CLEAR` receipt.
 
-`.github/workflows/dependabot-intake.yml` remains the credentialless
-Dependabot-authored v1 event boundary. A Refresh or Repair successor uses
+`.github/workflows/dependabot-intake.yml` remains the credentialless v1 event
+boundary for exact Dependabot-bot senders. A Refresh or Repair successor uses
 `.github/workflows/dependabot-prepared-head-intake.yml`, whose strict
 `dependabot-prepared-head` repository dispatch accepts only the configured
 Prepare App bot ID/login, exact App slug, nine-key payload, and a completed

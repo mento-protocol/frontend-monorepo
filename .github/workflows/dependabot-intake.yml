@@ -3,7 +3,7 @@ name: Dependabot Intake
 # This title is the only handoff to the trusted follow-up workflow. It contains
 # immutable event metadata, not an artifact or data produced by candidate code.
 run-name: >-
-  ${{ format('dependabot-intake:v1 | repository={0} | pr={1} | sha={2} | action={3} | receipt={4}', github.repository, github.event.pull_request.number, github.event.pull_request.head.sha, github.event.action, github.event.pull_request.user.login == 'dependabot[bot]' && startsWith(github.event.pull_request.head.ref, 'dependabot/') && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == 'main') }}
+  ${{ format('dependabot-intake:v1 | repository={0} | pr={1} | sha={2} | action={3} | receipt={4}', github.repository, github.event.pull_request.number, github.event.pull_request.head.sha, github.event.action, github.event.sender.login == 'dependabot[bot]' && github.event.sender.id == 49699333 && github.event.sender.type == 'Bot' && github.event.pull_request.user.login == 'dependabot[bot]' && startsWith(github.event.pull_request.head.ref, 'dependabot/') && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == 'main') }}
 
 on:
   pull_request_target:
@@ -17,6 +17,9 @@ jobs:
   validate-receipt:
     name: Validate immutable Dependabot event metadata
     if: >-
+      github.event.sender.login == 'dependabot[bot]' &&
+      github.event.sender.id == 49699333 &&
+      github.event.sender.type == 'Bot' &&
       github.event.pull_request.user.login == 'dependabot[bot]' &&
       startsWith(github.event.pull_request.head.ref, 'dependabot/')
     runs-on: ubuntu-latest
@@ -34,9 +37,15 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPOSITORY: ${{ github.repository }}
+          SENDER_ID: ${{ github.event.sender.id }}
+          SENDER_LOGIN: ${{ github.event.sender.login }}
+          SENDER_TYPE: ${{ github.event.sender.type }}
         run: |
           set -euo pipefail
           test "$REPOSITORY" = "mento-protocol/frontend-monorepo"
+          test "$SENDER_ID" = "49699333"
+          test "$SENDER_LOGIN" = "dependabot[bot]"
+          test "$SENDER_TYPE" = "Bot"
           test "$AUTHOR" = "dependabot[bot]"
           test "$HEAD_REPOSITORY" = "$REPOSITORY"
           test "$DEFAULT_BRANCH" = "main"
