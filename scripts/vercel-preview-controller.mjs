@@ -28,7 +28,7 @@ export const PREVIEW_JOURNAL_SCHEMA = "vercel-preview-journal:v2";
 export const PREVIEW_JOURNAL_MARKER = "<!-- vercel-preview-journal:v2 -->";
 export const PREVIEW_OBSERVATION_RECEIPT_SCHEMA =
   "vercel-preview-observation-receipt:v1";
-export const PREVIEW_OBSERVATION_ARTIFACT_PREFIX =
+const PREVIEW_OBSERVATION_ARTIFACT_PREFIX =
   "vercel-preview-observation-receipt-v1";
 const PREVIEW_CHECKPOINT_SCHEMA = "vercel-preview-checkpoint:v2";
 const CONTROLLER_ADMISSION_SCHEMA = "vercel-preview-controller-admission:v1";
