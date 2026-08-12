@@ -2722,12 +2722,6 @@ jobs:
           esac
           node scripts/vercel-main-deployment.mjs active-census-failure --category "$category" --output "$RUNNER_TEMP/recovery-final-census-failure.json"
           echo 'census_outcome=unproven' >> "$GITHUB_OUTPUT"
-      - name: Require a proven provider state unless recovered proof is preserved separately
-        if: steps.recovery-terminal.outputs.outcome == 'manual-intervention'
-        run: |
-          test "${{ steps.recovery-final-state.outcome }}" = success
-          test "${{ steps.recovery-final-state.outputs.census_outcome }}" = proven
-          test -s "$RUNNER_TEMP/recovery-final-state-proof.json"
       - name: Capture fresh final recovery mappings
         if: steps.recovery-terminal.outcome == 'success'
         env:

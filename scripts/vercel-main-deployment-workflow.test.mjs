@@ -1344,6 +1344,14 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
     /recovered-census-unproven[\s\S]*recovery-final-census-failure/,
   );
   assert.match(
+    recoveredTerminal.run,
+    /else[\s\S]*terminal_outcome="\$TERMINAL_OUTCOME"[\s\S]*final_census="\$RUNNER_TEMP\/recovery-final-state-proof\.json"[\s\S]*state_proof="\$RUNNER_TEMP\/recovery-final-state-proof\.json"/,
+  );
+  assert.doesNotMatch(
+    workflowSource,
+    /Require a proven provider state unless recovered proof is preserved separately/,
+  );
+  assert.match(
     command("recover-main-deployment", "terminal-evidence-create").run,
     /terminal-evidence-create/,
   );
