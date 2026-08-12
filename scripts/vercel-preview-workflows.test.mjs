@@ -127,6 +127,62 @@ test("controller run title marks exactly the receipt-producing PR events", () =>
   }
 });
 
+test("trusted PR events retain one settled immutable observation artifact", () => {
+  const retention = controller.jobs["publish-observation-receipt"];
+  assert.deepEqual(retention.needs, [
+    "snapshot-event",
+    "receipt-event",
+    "reconcile-event",
+  ]);
+  assert.match(
+    retention.if,
+    /snapshot-event\.outputs\.observation_receipt_required == 'true'/,
+  );
+  assert.match(retention.if, /reconcile-event\.result == 'success'/);
+  assert.equal(Object.hasOwn(retention, "concurrency"), false);
+  assert.equal(retention["timeout-minutes"], 50);
+  assert.deepEqual(retention.permissions, {
+    actions: "read",
+    contents: "read",
+    "pull-requests": "read",
+  });
+
+  const materialize = retention.steps.find((step) =>
+    String(step.with?.script ?? "").includes("createPreviewObservationReceipt"),
+  );
+  assert.ok(materialize);
+  assert.equal(materialize.id, "materialize");
+  assert.equal(materialize.env.EVENT_RUN_ID, "${{ github.run_id }}");
+  assert.match(materialize.with.script, /listWorkflowRunArtifacts/);
+  assert.match(materialize.with.script, /selectPreviewObservationArtifact/);
+  assert.match(materialize.with.script, /upload_required", "false/);
+  assert.match(materialize.with.script, /issues\.getComment/);
+  assert.match(materialize.with.script, /setTimeout\(resolve, 15_000\)/);
+  assert.match(
+    materialize.with.script,
+    /createPreviewObservationReceipt\([\s\S]+process\.env\.EVENT_RUN_ID/,
+  );
+
+  const upload = retention.steps.find((step) =>
+    String(step.uses ?? "").startsWith("actions/upload-artifact@"),
+  );
+  assert.ok(upload);
+  assert.equal(
+    upload.if,
+    "steps.materialize.outputs.upload_required == 'true'",
+  );
+  assert.equal(
+    upload.with.name,
+    "vercel-preview-observation-receipt-v1-${{ github.run_id }}",
+  );
+  assert.equal(
+    upload.with.path,
+    "${{ runner.temp }}/preview-observation-receipt.json",
+  );
+  assert.equal(upload.with["if-no-files-found"], "error");
+  assert.equal(upload.with["retention-days"], 14);
+});
+
 test("controller mode is canonical and reaches every reconciliation call", () => {
   assert.deepEqual(Object.keys(controller.env), [
     "VERCEL_PREVIEW_CONTROLLER_MODE",
