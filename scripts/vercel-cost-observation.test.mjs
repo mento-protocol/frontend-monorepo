@@ -1457,6 +1457,11 @@ test("capture-preview freezes the canonical v2 journal and raw GitHub facts", ()
     false,
   );
   assert.equal(capture.canonicalDerivedFacts.evidenceComplete, true);
+  assert.deepEqual(capture.unresolvedProviderFields, [
+    "vercelDeploymentCensus",
+    "nativeDuplicateClassification",
+    "buildCpuMinutes",
+  ]);
   assert.equal(
     capture.canonicalDerivedFacts.observationReceiptSource,
     "live-journal",
@@ -2592,6 +2597,13 @@ test("capture-main normalizes whole-second GitHub timestamps and records every a
     "no-target",
   );
   assert.equal(capture.canonicalDerivedFacts.githubEvidenceComplete, true);
+  assert.deepEqual(capture.unresolvedProviderFields, [
+    "publicRuntimeShaByTarget",
+    "activeDuplicateDeploymentCensus",
+    "legacyV2Health",
+    "vercelDeploymentCensus",
+    "buildCpuMinutes",
+  ]);
   assert.equal(
     capture.canonicalDerivedFacts.terminalEvidenceV3.validated,
     false,
