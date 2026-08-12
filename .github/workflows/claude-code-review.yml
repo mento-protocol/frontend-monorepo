@@ -36,26 +36,42 @@ jobs:
         with:
           fetch-depth: 1
 
-      # claude-code-action's plugin_marketplaces input rejects URLs with a
-      # #ref fragment (its validator requires the value to end in .git), so
-      # the marketplace is pinned by checking it out at the reviewed commit
-      # and passing the local path instead.
-      - name: Checkout pinned plugin marketplace
+      - name: Reject candidate marketplace path collision
+        shell: bash
+        run: |
+          marketplace_path="$GITHUB_WORKSPACE/.claude-code-plugin-marketplace"
+          if [[ -e "$marketplace_path" || -L "$marketplace_path" ]]; then
+            echo "::error::Candidate content occupies the trusted marketplace path"
+            exit 1
+          fi
+
+      - name: Checkout pinned Claude plugin marketplace
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: anthropics/claude-code
           ref: 2bb60696142b493eafaeacfe00eac51d16c50c4f
-          path: .claude-plugin-marketplace
-          fetch-depth: 1
+          path: .claude-code-plugin-marketplace
+          sparse-checkout: |
+            .claude-plugin
+            plugins/code-review
           persist-credentials: false
+
+      - name: Verify pinned Claude plugin marketplace
+        shell: bash
+        env:
+          EXPECTED_MARKETPLACE_SHA: 2bb60696142b493eafaeacfe00eac51d16c50c4f
+        run: |
+          marketplace_path="$GITHUB_WORKSPACE/.claude-code-plugin-marketplace"
+          [[ -d "$marketplace_path" && ! -L "$marketplace_path" ]]
+          actual_sha="$(git -C "$marketplace_path" rev-parse HEAD)"
+          [[ "$actual_sha" == "$EXPECTED_MARKETPLACE_SHA" ]]
 
       - name: Run Claude Code Review
         id: claude-review-human
         uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1.0.183
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          plugin_marketplaces: ./.claude-plugin-marketplace
-          plugins: code-review@claude-code-plugins
+          claude_args: --plugin-dir ./.claude-code-plugin-marketplace/plugins/code-review
           prompt: "/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options

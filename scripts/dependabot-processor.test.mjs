@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +8,12 @@ import process from "node:process";
 import { test } from "node:test";
 
 import {
+  DEPENDABOT_ALL_CLEAR_SCHEMA,
   DEPENDABOT_CHECK_POLICY,
+  DEPENDABOT_PROCESSOR_SCHEMA,
+  DEPENDABOT_REFRESH_SCHEMA,
+  DEPENDABOT_REPAIR_PACKET_SCHEMA,
+  DEPENDABOT_REPAIR_SCHEMA,
   classifyDependabotFeedback,
   classifyDependabotRisk,
   createLiveGitHubAdapter,
@@ -18,6 +24,11 @@ import {
   evaluateDependabotSweep,
   evaluateFeedbackGate,
   normalizeProcessorMode,
+  normalizeProcessorPhase,
+  parseDependabotAllClearReceipt,
+  parseDependabotProcessorReceipt,
+  parseDependabotRefreshReceipt,
+  parseDependabotRepairReceipt,
   parseDependabotMetadata,
   processDependabotSweep,
   requireStableFeedbackSnapshot,
@@ -32,7 +43,32 @@ const HEAD_SHA = "1".repeat(40);
 const BASE_SHA = "2".repeat(40);
 const MERGE_SHA = "3".repeat(40);
 const OTHER_SHA = "4".repeat(40);
+const SECOND_HEAD_SHA = "5".repeat(40);
 const REPOSITORY = "mento-protocol/frontend-monorepo";
+const WORKFLOW_CONTEXT = {
+  workflowRunAttempt: 1,
+  workflowRunId: 8_001,
+  workflowSha: MERGE_SHA,
+};
+const PREPARE_ACTOR = {
+  appSlug: "mento-dependabot-prepare",
+  botId: 91_001,
+  botLogin: "mento-dependabot-prepare[bot]",
+};
+const PACKAGE_BLOB = {
+  filename: "package.json",
+  mode: "100644",
+  sha: OTHER_SHA,
+  type: "blob",
+};
+
+function digest(value) {
+  return createHash("sha256").update(stableJson(value)).digest("hex");
+}
+
+function textDigest(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
 
 const CHECK_NAMES = {
   "action-pins": "Action Pin Policy",
@@ -153,13 +189,17 @@ function postMergeReceipt(headSha = BASE_SHA) {
     completedAt: "2026-08-10T10:00:00Z",
     conclusion: "success",
     detailsUrl: `https://github.com/${REPOSITORY}/actions/runs/99`,
+    externalId: "dependabot-post-merge:99:1",
     headSha,
-    id: 99,
+    id: 100,
     kind: "check",
     name: "Dependabot Post-Merge Verification",
     runAttempt: 1,
+    runConclusion: "success",
+    runHeadBranch: "main",
     runHeadSha: headSha,
     runId: 99,
+    runStatus: "completed",
     sourceRepository: REPOSITORY,
     status: "completed",
     workflowEvent: "workflow_run",
@@ -167,22 +207,163 @@ function postMergeReceipt(headSha = BASE_SHA) {
   };
 }
 
-function processorRepairReceipt(
-  attempt,
-  { mode = "assist", packet = true, externalId, headSha = HEAD_SHA } = {},
-) {
+function trustedReceiptCheck({
+  conclusion = "success",
+  externalId,
+  headSha,
+  id,
+  name,
+  receipt,
+  workflowContext = WORKFLOW_CONTEXT,
+  workflowEvent = "repository_dispatch",
+  workflowPath,
+}) {
   return {
     appId: 15_368,
-    conclusion: "neutral",
+    conclusion,
+    detailsUrl: `https://github.com/${REPOSITORY}/actions/runs/${workflowContext.workflowRunId}`,
+    externalId,
+    headSha,
+    id,
+    kind: "check",
+    name,
+    outputText: receipt ? stableJson(receipt) : null,
+    runAttempt: workflowContext.workflowRunAttempt,
+    runConclusion: "success",
+    runHeadBranch: "main",
+    runHeadSha: workflowContext.workflowSha,
+    runId: workflowContext.workflowRunId,
+    runStatus: "completed",
+    sourceRepository: REPOSITORY,
+    status: "completed",
+    workflowEvent,
+    workflowPath,
+  };
+}
+
+function processorRepairReceipt(
+  attempt,
+  {
+    mode = "prepare",
+    packet = true,
+    externalId,
+    headSha = HEAD_SHA,
+    id = 10_000 + attempt,
+    pullRequestNumber = 123,
+    workflowContext = WORKFLOW_CONTEXT,
+  } = {},
+) {
+  const repairPacket =
+    packet === true
+      ? {
+          feedbackThreads: [],
+          schema: DEPENDABOT_REPAIR_PACKET_SCHEMA,
+          ...workflowContext,
+        }
+      : packet && typeof packet === "object"
+        ? packet
+        : null;
+  const packetDigest = repairPacket ? digest(repairPacket) : "none";
+  return trustedReceiptCheck({
+    conclusion: repairPacket ? "failure" : "neutral",
     externalId:
       externalId ??
-      `dependabot-processor:v1:pr=123:head=${headSha}:mode=${mode}:repair=${attempt}:packet=${packet}`,
+      `${DEPENDABOT_PROCESSOR_SCHEMA}:pr=${pullRequestNumber}:head=${headSha}:mode=${mode}:repair=${attempt}:packet=${Boolean(repairPacket)}:digest=${packetDigest}:run=${workflowContext.workflowRunId}:attempt=${workflowContext.workflowRunAttempt}`,
     headSha,
-    id: 10_000 + attempt,
-    kind: "check",
+    id,
     name: "Dependabot Processor",
-    status: "completed",
+    receipt: repairPacket,
+    workflowContext,
+    workflowPath: ".github/workflows/dependabot-process.yml",
+  });
+}
+
+function refreshReceiptCheck(
+  state,
+  {
+    baseSha = BASE_SHA,
+    headSha = state === "requested" ? HEAD_SHA : OTHER_SHA,
+    id = state === "requested" ? 20_001 : 20_002,
+    parentHeadSha = HEAD_SHA,
+    previousBaseSha = MERGE_SHA,
+    requestCheckId = 20_001,
+    requestDigest,
+    workflowContext = WORKFLOW_CONTEXT,
+  } = {},
+) {
+  const requested = {
+    baseSha,
+    headRef: "dependabot/github_actions/github-actions-routine-123",
+    headSha: null,
+    parentHeadSha,
+    prepareAppSlug: PREPARE_ACTOR.appSlug,
+    prepareBotId: PREPARE_ACTOR.botId,
+    prepareBotLogin: PREPARE_ACTOR.botLogin,
+    previousBaseSha,
+    pullRequestNumber: 123,
+    repository: REPOSITORY,
+    schema: DEPENDABOT_REFRESH_SCHEMA,
+    state: "requested",
+    ...workflowContext,
   };
+  const receipt =
+    state === "requested"
+      ? requested
+      : {
+          ...requested,
+          headSha,
+          requestCheckId,
+          requestDigest: requestDigest ?? digest(requested),
+          state: "completed",
+        };
+  const checkHeadSha = state === "requested" ? parentHeadSha : headSha;
+  return trustedReceiptCheck({
+    externalId: `${DEPENDABOT_REFRESH_SCHEMA}:pr=123:head=${checkHeadSha}:state=${state}:digest=${digest(receipt)}:run=${workflowContext.workflowRunId}:attempt=${workflowContext.workflowRunAttempt}`,
+    headSha: checkHeadSha,
+    id,
+    name: "Dependabot Refresh",
+    receipt,
+    workflowContext,
+    workflowPath: ".github/workflows/dependabot-process.yml",
+  });
+}
+
+function repairReceiptCheck({
+  attempt = 1,
+  baseSha = BASE_SHA,
+  headSha = OTHER_SHA,
+  id = 30_001,
+  packetDigest,
+  parentHeadSha = HEAD_SHA,
+  processorCheckId = 10_001,
+  workflowContext = WORKFLOW_CONTEXT,
+} = {}) {
+  const receipt = {
+    attempt,
+    baseSha,
+    headRef: "dependabot/github_actions/github-actions-routine-123",
+    headSha,
+    packetDigest: packetDigest ?? "a".repeat(64),
+    parentHeadSha,
+    prepareAppSlug: PREPARE_ACTOR.appSlug,
+    prepareBotId: PREPARE_ACTOR.botId,
+    prepareBotLogin: PREPARE_ACTOR.botLogin,
+    processorCheckId,
+    pullRequestNumber: 123,
+    repository: REPOSITORY,
+    schema: DEPENDABOT_REPAIR_SCHEMA,
+    state: "completed",
+    ...workflowContext,
+  };
+  return trustedReceiptCheck({
+    externalId: `${DEPENDABOT_REPAIR_SCHEMA}:pr=123:head=${headSha}:attempt=${attempt}:digest=${digest(receipt)}:run=${workflowContext.workflowRunId}:run_attempt=${workflowContext.workflowRunAttempt}`,
+    headSha,
+    id,
+    name: "Dependabot Repair",
+    receipt,
+    workflowContext,
+    workflowPath: ".github/workflows/dependabot-prepare-repair.yml",
+  });
 }
 
 function completeChecks({
@@ -228,6 +409,11 @@ function codexReviewBody(headSha = HEAD_SHA) {
 }
 
 function snapshot(overrides = {}) {
+  const {
+    feedback: feedbackOverride = {},
+    pullRequest: pullRequestOverride = {},
+    ...snapshotOverrides
+  } = overrides;
   const pullRequest = {
     author: { login: "dependabot[bot]" },
     base: {
@@ -237,7 +423,7 @@ function snapshot(overrides = {}) {
     },
     body: actionBody(),
     draft: false,
-    files: [".github/workflows/ci.yml"],
+    files: [PACKAGE_BLOB],
     head: {
       ref: "dependabot/github_actions/github-actions-routine-123",
       repo: { fullName: REPOSITORY },
@@ -249,15 +435,18 @@ function snapshot(overrides = {}) {
     number: 123,
     state: "open",
     updated_at: "2026-08-10T10:00:00Z",
-    ...overrides.pullRequest,
+    ...pullRequestOverride,
   };
   const pullRequestNumber = pullRequest.number;
   const feedback = {
+    autoMergeEnabled: false,
     currentProcessorApprovalCount: 0,
     currentProcessorApprovalIds: [],
+    mergeable: true,
+    mergeStateStatus: "CLEAN",
     reviewDecision: "APPROVED",
     unresolvedThreads: 0,
-    ...overrides.feedback,
+    ...feedbackOverride,
   };
   return {
     baseAncestry: {
@@ -278,7 +467,14 @@ function snapshot(overrides = {}) {
       sha: BASE_SHA,
     },
     checks: completeChecks({ pullRequestNumber }),
-    commits: [{ authorLogin: "dependabot[bot]", sha: HEAD_SHA }],
+    commits: [
+      {
+        authorLogin: "dependabot[bot]",
+        committerLogin: "dependabot[bot]",
+        sha: HEAD_SHA,
+        verified: true,
+      },
+    ],
     expectedHeadSha: HEAD_SHA,
     metadata: {
       dependencyNames: ["actions/setup-node"],
@@ -292,11 +488,176 @@ function snapshot(overrides = {}) {
       packageEcosystem: "github-actions",
       updateType: "minor",
     },
-    pullRequest,
     repository: REPOSITORY,
-    ...overrides,
+    workflowContext: WORKFLOW_CONTEXT,
+    ...snapshotOverrides,
     feedback,
+    pullRequest,
   };
+}
+
+function snapshotForPullRequest(pullRequestNumber, headSha) {
+  return snapshot({
+    baseAncestry: {
+      aheadBy: 1,
+      baseCommitSha: BASE_SHA,
+      behindBy: 0,
+      currentBaseIsAncestor: true,
+      currentBaseSha: BASE_SHA,
+      headSha,
+      mergeBaseSha: BASE_SHA,
+      status: "ahead",
+    },
+    checks: completeChecks({ headSha, pullRequestNumber }),
+    commits: [
+      {
+        authorLogin: "dependabot[bot]",
+        committerLogin: "dependabot[bot]",
+        sha: headSha,
+        verified: true,
+      },
+    ],
+    expectedHeadSha: headSha,
+    pullRequest: {
+      head: {
+        ref: `dependabot/github_actions/github-actions-routine-${pullRequestNumber}`,
+        repo: { fullName: REPOSITORY },
+        sha: headSha,
+      },
+      number: pullRequestNumber,
+    },
+  });
+}
+
+function repairPendingSnapshotForPullRequest(
+  pullRequestNumber,
+  headSha,
+  checkId,
+) {
+  const current = snapshotForPullRequest(pullRequestNumber, headSha);
+  current.checks = completeChecks({
+    conclusions: { ci: "failure" },
+    headSha,
+    pullRequestNumber,
+  });
+  const evaluated = evaluateDependabotPullRequest(current, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(evaluated.disposition, "repair-required");
+  assert.notEqual(evaluated.repairPacket, null);
+  const packetCheck = processorRepairReceipt(1, {
+    headSha,
+    id: checkId,
+    packet: evaluated.repairPacket,
+    pullRequestNumber,
+  });
+  packetCheck.outputSummary = "Disposition: repair-required";
+  current.checks.push(packetCheck);
+  current.repairHistoryChecks = [packetCheck];
+  return current;
+}
+
+function staleSnapshotForPullRequest(pullRequestNumber, headSha) {
+  const current = snapshotForPullRequest(pullRequestNumber, headSha);
+  current.pullRequest.base.sha = MERGE_SHA;
+  current.baseAncestry = {
+    aheadBy: 1,
+    baseCommitSha: BASE_SHA,
+    behindBy: 1,
+    currentBaseIsAncestor: false,
+    currentBaseSha: BASE_SHA,
+    headSha,
+    mergeBaseSha: MERGE_SHA,
+    status: "diverged",
+  };
+  return current;
+}
+
+function staleSnapshot() {
+  return snapshot({
+    baseAncestry: {
+      aheadBy: 1,
+      baseCommitSha: BASE_SHA,
+      behindBy: 1,
+      currentBaseIsAncestor: false,
+      currentBaseSha: BASE_SHA,
+      headSha: HEAD_SHA,
+      mergeBaseSha: MERGE_SHA,
+      status: "diverged",
+    },
+    pullRequest: {
+      base: {
+        ref: "main",
+        repo: { fullName: REPOSITORY },
+        sha: MERGE_SHA,
+      },
+    },
+  });
+}
+
+function refreshedSnapshot({ feedback = {}, repairHistoryChecks = [] } = {}) {
+  return snapshot({
+    baseAncestry: {
+      aheadBy: 2,
+      baseCommitSha: BASE_SHA,
+      behindBy: 0,
+      currentBaseIsAncestor: true,
+      currentBaseSha: BASE_SHA,
+      headSha: OTHER_SHA,
+      mergeBaseSha: BASE_SHA,
+      status: "ahead",
+    },
+    checks: completeChecks({ headSha: OTHER_SHA }),
+    commits: [
+      {
+        authorLogin: "dependabot[bot]",
+        committerLogin: "dependabot[bot]",
+        sha: HEAD_SHA,
+        verified: true,
+      },
+      {
+        authorId: PREPARE_ACTOR.botId,
+        authorLogin: PREPARE_ACTOR.botLogin,
+        authorType: "Bot",
+        committerId: 19_864_447,
+        committerLogin: "web-flow",
+        committerType: "User",
+        parents: [HEAD_SHA, BASE_SHA],
+        sha: OTHER_SHA,
+        verified: true,
+        verificationReason: "valid",
+      },
+    ],
+    expectedHeadSha: OTHER_SHA,
+    feedback,
+    prepareActor: PREPARE_ACTOR,
+    pullRequest: {
+      head: {
+        ref: "dependabot/github_actions/github-actions-routine-123",
+        repo: { fullName: REPOSITORY },
+        sha: OTHER_SHA,
+      },
+    },
+    repairHistoryChecks,
+  });
+}
+
+function evaluatePrepareSerializationReceipt(receipt) {
+  const current = snapshot();
+  current.baseline.checks = [
+    ...current.baseline.checks.filter(
+      ({ name }) => name !== "Dependabot Post-Merge Verification",
+    ),
+    receipt,
+  ];
+  return evaluateDependabotSweep({
+    mode: "prepare",
+    pullRequests: [current],
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
 }
 
 function withCurrentProcessorApproval(current, approvalId = 7001) {
@@ -315,6 +676,65 @@ function processorApprovalResult(approvalId = 7001) {
 
 async function noOutstandingProcessorApprovals() {
   return [];
+}
+
+async function activeAllClearSnapshot({
+  approvalId,
+  checkId,
+  headSha,
+  pullRequestNumber,
+}) {
+  let approved = false;
+  let receipt = null;
+  const currentSnapshot = () => {
+    const current = snapshotForPullRequest(pullRequestNumber, headSha);
+    if (approved) withCurrentProcessorApproval(current, approvalId);
+    return current;
+  };
+  await processDependabotSweep({
+    adapter: {
+      approvePullRequest: async () => {
+        approved = true;
+        return processorApprovalResult(approvalId);
+      },
+      collectPullRequestSnapshot: async () => currentSnapshot(),
+      dismissPullRequestApproval: async () =>
+        assert.fail("ALL CLEAR setup must preserve its approval"),
+      getOutstandingDependabotAutoMergeRequests: async () => [],
+      getOutstandingDependabotProcessorApprovals: async () =>
+        approved ? [{ approvalId, headSha, pullRequestNumber }] : [],
+      publishAllClear: async ({ receipt: publishedReceipt }) => {
+        receipt = publishedReceipt;
+        return { id: checkId };
+      },
+      publishAllClearInvalidation: async () =>
+        assert.fail("ALL CLEAR setup must not invalidate its receipt"),
+      publishProcessorCheck: async () => ({ id: checkId - 1 }),
+    },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [currentSnapshot()],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "finalize",
+    publishChecks: true,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.notEqual(receipt, null);
+  const allClearCheck = trustedReceiptCheck({
+    externalId: `${DEPENDABOT_ALL_CLEAR_SCHEMA}:pr=${pullRequestNumber}:head=${headSha}:base=${BASE_SHA}:digest=${digest(receipt)}:run=${WORKFLOW_CONTEXT.workflowRunId}:attempt=${WORKFLOW_CONTEXT.workflowRunAttempt}`,
+    headSha,
+    id: checkId,
+    name: "Dependabot ALL CLEAR",
+    receipt,
+    workflowContext: WORKFLOW_CONTEXT,
+    workflowPath: ".github/workflows/dependabot-process.yml",
+  });
+  const current = currentSnapshot();
+  current.checks.push(allClearCheck);
+  return current;
 }
 
 function liveApprovalPullRequest(overrides = {}) {
@@ -343,7 +763,7 @@ function liveApprovalPullRequest(overrides = {}) {
 
 function liveProcessorReview(state = "APPROVED", overrides = {}) {
   return {
-    body: `Approved by dependabot-processor:v1 for exact head ${HEAD_SHA}.`,
+    body: `Approved by ${DEPENDABOT_PROCESSOR_SCHEMA} for exact head ${HEAD_SHA}.`,
     commit_id: HEAD_SHA,
     id: 7001,
     state,
@@ -444,20 +864,49 @@ function liveMergeAdmissionFetch({ events = [], labels = [] } = {}) {
         { status: 200 },
       );
     }
+    if (path === `/repos/${REPOSITORY}/git/trees/${HEAD_SHA}`) {
+      return new Response(JSON.stringify({ tree: [], truncated: false }), {
+        status: 200,
+      });
+    }
     assert.fail(`Unexpected request: ${options.method} ${url}`);
   };
 }
 
 test("only exact lowercase processor mode strings grant configured authority", () => {
   assert.equal(normalizeProcessorMode("observe"), "observe");
-  assert.equal(normalizeProcessorMode("merge"), "merge");
   assert.equal(normalizeProcessorMode("assist"), "assist");
+  assert.equal(normalizeProcessorMode("prepare"), "prepare");
+  assert.equal(normalizeProcessorMode("merge"), "observe");
   assert.equal(normalizeProcessorMode("Merge"), "observe");
   assert.equal(normalizeProcessorMode("MERGE"), "observe");
   assert.equal(normalizeProcessorMode(" merge "), "observe");
+  assert.equal(normalizeProcessorMode("Prepare"), "observe");
+  assert.equal(normalizeProcessorMode(" prepare "), "observe");
   assert.equal(normalizeProcessorMode(["merge"]), "observe");
   assert.equal(normalizeProcessorMode("future-mode"), "observe");
   assert.equal(normalizeProcessorMode(undefined), "observe");
+});
+
+test("processor phase parsing defaults to finalize and accepts only the three capability phases", () => {
+  assert.equal(normalizeProcessorPhase(), "finalize");
+  assert.equal(normalizeProcessorPhase(""), "finalize");
+  assert.equal(normalizeProcessorPhase("request"), "request");
+  assert.equal(normalizeProcessorPhase("mutate"), "mutate");
+  assert.equal(normalizeProcessorPhase("finalize"), "finalize");
+  for (const value of [
+    "Request",
+    "Mutate",
+    " mutate ",
+    "merge",
+    "future",
+    [],
+  ]) {
+    assert.throws(
+      () => normalizeProcessorPhase(value),
+      /Processor phase must be exactly request, mutate, or finalize/,
+    );
+  }
 });
 
 test("parses exact Dependabot action dependencies and the highest semver tier", () => {
@@ -706,7 +1155,7 @@ test("editable PR body metadata can neither grant nor hide the automatic action 
   });
   assert.equal(
     evaluateDependabotPullRequest(hiddenSensitive, {
-      mode: "merge",
+      mode: "prepare",
       repository: REPOSITORY,
     }).risk.tier,
     "manual-sensitive-action",
@@ -720,7 +1169,7 @@ test("editable PR body metadata can neither grant nor hide the automatic action 
   });
   assert.equal(
     evaluateDependabotPullRequest(bodyOnlySensitive, {
-      mode: "merge",
+      mode: "prepare",
       repository: REPOSITORY,
     }).risk.tier,
     "safe-actions-patch-minor",
@@ -938,7 +1387,7 @@ test("rejects automatic metadata when the sole immutable commit is not the exact
     commits: [{ authorLogin: "dependabot[bot]", sha: OTHER_SHA }],
   });
   const evaluation = evaluateDependabotPullRequest(current, {
-    mode: "merge",
+    mode: "prepare",
     repository: REPOSITORY,
   });
   assert.equal(evaluation.identity.valid, false);
@@ -971,6 +1420,36 @@ test("selects only the latest result attached to the exact head", () => {
   );
   assert.equal(selected.id, 6);
   assert.equal(selected.conclusion, "success");
+});
+
+test("a newer untrusted duplicate check run supersedes an older trusted pass", () => {
+  const older = check("Build and Test", "success", { id: 100 });
+  const newerRogue = check("Build and Test", "success", {
+    id: 101,
+    source: { runId: 0 },
+  });
+  const checks = completeChecks().filter(
+    ({ name }) => name !== "Build and Test",
+  );
+  checks.push(older, newerRogue);
+
+  const selected = selectLatestExactHeadCheck(checks, HEAD_SHA, {
+    id: "ci",
+    names: [/^Build and Test$/],
+  });
+  assert.equal(selected.id, 101);
+
+  const result = evaluateDependabotChecks({
+    checks,
+    headSha: HEAD_SHA,
+    pullRequestNumber: 123,
+    repository: REPOSITORY,
+  });
+  const ci = result.policy.find(({ id }) => id === "ci");
+  assert.equal(ci.check.id, 101);
+  assert.equal(ci.reason, "invalid-workflow-run-id");
+  assert.equal(ci.state, "failing");
+  assert.equal(result.state, "failing");
 });
 
 test("the policy names every CI, supply-chain, quality, E2E, VRT, review, and Vercel gate", () => {
@@ -1245,12 +1724,14 @@ test("attributes an exact matching baseline failure separately from a branch fai
   assert.deepEqual(result.failures, [
     {
       attribution: "baseline",
+      findings: [],
       id: "supply-chain-root-osv",
       name: "osv-scanner / osv-scan",
       reason: "failing",
     },
     {
       attribution: "branch",
+      findings: [],
       id: "supply-chain-version-skew",
       name: "catalog version-skew",
       reason: "failing",
@@ -1259,7 +1740,7 @@ test("attributes an exact matching baseline failure separately from a branch fai
 });
 
 test("provider-backed failures remain non-deterministic after a passing baseline and never emit repair packets", () => {
-  for (const mode of ["assist", "merge"]) {
+  for (const mode of ["assist", "prepare"]) {
     for (const checkId of EXTERNAL_CHECK_IDS) {
       const result = evaluateDependabotPullRequest(
         snapshot({
@@ -1285,7 +1766,11 @@ test("a provider-backed failure suppresses a mixed deterministic repair packet",
         conclusions: { ci: "failure", "vercel-preview": "failure" },
       }),
     }),
-    { mode: "assist", repository: REPOSITORY },
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
   );
   assert.equal(mixed.disposition, "waiting-retry");
   assert.equal(mixed.repairPacket, null);
@@ -1301,13 +1786,77 @@ test("a provider-backed failure suppresses a mixed deterministic repair packet",
     snapshot({
       checks: completeChecks({ conclusions: { ci: "failure" } }),
     }),
-    { mode: "assist", repository: REPOSITORY },
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
   );
   assert.equal(deterministicOnly.disposition, "repair-required");
   assert.deepEqual(
     deterministicOnly.repairPacket.failures.map(({ id }) => id),
     ["ci"],
   );
+});
+
+test("trusted exact-head Claude findings are direct branch evidence without a main baseline check", () => {
+  const checks = completeChecks({
+    conclusions: { "claude-review": "failure" },
+  });
+  const claudeIndex = checks.findIndex(
+    ({ name }) => name === CHECK_NAMES["claude-review"],
+  );
+  checks[claudeIndex] = {
+    ...checks[claudeIndex],
+    outputText: stableJson({
+      findings: [
+        {
+          line: 12,
+          path: "package.json",
+          summary: "The updated dependency range conflicts with its override.",
+          title: "Align the dependency override",
+        },
+      ],
+      headSha: HEAD_SHA,
+      pullRequestNumber: 123,
+      repository: REPOSITORY,
+      reviewCompleted: true,
+      schema: "dependabot-claude-review-result:v1",
+      verdict: "findings",
+    }),
+  };
+  const baselineChecks = completeChecks({ headSha: BASE_SHA }).filter(
+    ({ name }) => name !== CHECK_NAMES["claude-review"],
+  );
+  const result = evaluateDependabotPullRequest(
+    snapshot({
+      baseline: {
+        checks: [...baselineChecks, postMergeReceipt(BASE_SHA)],
+        sha: BASE_SHA,
+      },
+      checks,
+      metadata: {
+        dependencyNames: ["next"],
+        immutableEvidence: { valid: true },
+        packageEcosystem: "npm",
+        updateType: "patch",
+      },
+    }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+
+  const failure = result.checks.failures.find(
+    ({ id }) => id === "claude-review",
+  );
+  assert.equal(failure.attribution, "branch");
+  assert.equal(failure.findings.length, 1);
+  assert.equal(result.disposition, "repair-required");
+  assert.equal(result.repairPacket.findings.length, 1);
+  assert.equal(result.repairPacket.findings[0].path, "package.json");
 });
 
 test("identity or feedback failure suppresses repair packets and publishes packet=false receipts", async () => {
@@ -1327,8 +1876,9 @@ test("identity or feedback failure suppresses repair packets and publishes packe
   ];
   for (const pullRequest of cases) {
     const evaluated = evaluateDependabotPullRequest(pullRequest, {
-      mode: "assist",
+      mode: "prepare",
       repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
     });
     assert.equal(createDependabotRepairPacket(evaluated), null);
     assert.equal(evaluated.repairPacket, null);
@@ -1343,18 +1893,20 @@ test("identity or feedback failure suppresses repair packets and publishes packe
         publishProcessorCheck: async (receipt) => published.push(receipt),
       },
       input: {
-        mode: "assist",
+        mode: "prepare",
         pullRequests: [pullRequest],
         repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
       },
       publishChecks: true,
+      workflowContext: WORKFLOW_CONTEXT,
     });
     assert.equal(published.length, 1);
-    assert.equal(published[0].repairPacketIssued, false);
+    assert.equal(published[0].repairPacket, null);
   }
 });
 
-test("processor check publication is success-equivalent only for merge-safe dispositions", async () => {
+test("processor check publication preserves each fail-closed disposition", async () => {
   const pending = snapshot({ checks: completeChecks().slice(0, -1) });
   const failing = snapshot({
     checks: completeChecks({ conclusions: { ci: "failure" } }),
@@ -1395,28 +1947,24 @@ test("processor check publication is success-equivalent only for merge-safe disp
   });
   const cases = [
     {
-      expected: "ready-for-approval",
+      expected: "ready-for-human-review",
       snapshot: snapshot(),
-      conclusion: "neutral",
     },
-    { expected: "waiting-checks", snapshot: pending, conclusion: "failure" },
-    { expected: "repair-required", snapshot: failing, conclusion: "failure" },
+    { expected: "waiting-checks", snapshot: pending },
+    { expected: "repair-required", snapshot: failing },
     {
       expected: "waiting-base-update",
       snapshot: staleBase,
-      conclusion: "failure",
     },
-    { expected: "manual-review", snapshot: manual, conclusion: "failure" },
+    { expected: "manual-review", snapshot: manual },
     {
       expected: "manual-veto-or-feedback",
       snapshot: vetoed,
-      conclusion: "failure",
     },
-    { expected: "waiting-retry", snapshot: retry, conclusion: "failure" },
+    { expected: "waiting-retry", snapshot: retry },
     {
       expected: "waiting-baseline",
       snapshot: baselineFailure,
-      conclusion: "failure",
     },
   ];
 
@@ -1435,17 +1983,74 @@ test("processor check publication is success-equivalent only for merge-safe disp
         outstandingAutoMergeRequests: [],
         pullRequests: [testCase.snapshot],
         repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
       },
       publishChecks: true,
+      workflowContext: WORKFLOW_CONTEXT,
     });
     assert.equal(result.evaluations[0].disposition, testCase.expected);
     assert.equal(published.length, 1);
-    assert.equal(
-      published[0].conclusion,
-      testCase.conclusion,
-      testCase.expected,
-    );
+    assert.equal(published[0].disposition, testCase.expected);
+    assert.equal(published[0].repairPacket, null);
   }
+});
+
+test("unchanged trusted Processor receipts suppress check churn without hiding drift", async () => {
+  const matchingReceipt = processorRepairReceipt(1, {
+    id: 62_001,
+    mode: "observe",
+    packet: false,
+  });
+  matchingReceipt.outputSummary = "Disposition: eligible-observed";
+
+  const run = async (current) => {
+    const published = [];
+    await processDependabotSweep({
+      adapter: {
+        collectPullRequestSnapshot: async () => structuredClone(current),
+        getOutstandingDependabotAutoMergeRequests: async () => [],
+        getOutstandingDependabotProcessorApprovals:
+          noOutstandingProcessorApprovals,
+        publishProcessorCheck: async (input) => {
+          published.push(input);
+          return { id: 62_100 + published.length };
+        },
+      },
+      input: {
+        mode: "observe",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [structuredClone(current)],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "finalize",
+      publishChecks: true,
+      workflowContext: WORKFLOW_CONTEXT,
+    });
+    return published;
+  };
+
+  const unchanged = snapshot();
+  unchanged.checks.push(matchingReceipt);
+  assert.deepEqual(await run(unchanged), []);
+
+  const changedDisposition = snapshot({
+    feedback: { maintainerVeto: true },
+  });
+  changedDisposition.checks.push(matchingReceipt);
+  const changedPublication = await run(changedDisposition);
+  assert.equal(changedPublication.length, 1);
+  assert.equal(changedPublication[0].disposition, "manual-veto-or-feedback");
+
+  const newerMalformed = snapshot();
+  newerMalformed.checks.push(matchingReceipt, {
+    ...matchingReceipt,
+    id: 62_002,
+    runId: 0,
+  });
+  const malformedPublication = await run(newerMalformed);
+  assert.equal(malformedPublication.length, 1);
+  assert.equal(malformedPublication[0].disposition, "eligible-observed");
 });
 
 test("deterministic lockfile and version-skew failures remain branch-repairable", () => {
@@ -1457,7 +2062,11 @@ test("deterministic lockfile and version-skew failures remain branch-repairable"
       snapshot({
         checks: completeChecks({ conclusions: { [checkId]: "failure" } }),
       }),
-      { mode: "merge", repository: REPOSITORY },
+      {
+        mode: "prepare",
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
     );
     assert.equal(result.disposition, "repair-required", checkId);
     assert.equal(
@@ -1473,24 +2082,34 @@ test("deterministic lockfile and version-skew failures remain branch-repairable"
   }
 });
 
-test("manual-risk updates may receive proposal-only packets without approval authority", () => {
+test("verified npm updates are preparable even when the legacy automatic tier is false", () => {
   const pullRequest = snapshot({
     checks: completeChecks({ conclusions: { ci: "failure" } }),
     metadata: {
       dependencyNames: ["next"],
+      immutableEvidence: { valid: true },
       packageEcosystem: "npm",
       updateType: "patch",
     },
   });
   const result = evaluateDependabotPullRequest(pullRequest, {
-    mode: "assist",
+    mode: "prepare",
     repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
   });
-  assert.equal(result.identity.valid, true);
+  assert.equal(
+    result.identity.valid,
+    true,
+    stableJson({
+      identity: result.identity,
+      repairAttempts: result.repairAttempts,
+    }),
+  );
   assert.equal(result.risk.autoApprovable, false);
-  assert.equal(result.disposition, "manual-review");
-  assert.equal(result.repairPacket.automatic, false);
-  assert.equal(result.repairPacket.requireHumanApproval, true);
+  assert.equal(result.risk.preparable, true);
+  assert.equal(result.disposition, "repair-required");
+  assert.equal(result.repairPacket.automatic, true);
+  assert.equal(result.repairPacket.requireHumanApproval, false);
   assert.deepEqual(
     result.repairPacket.failures.map(({ id }) => id),
     ["ci"],
@@ -1600,13 +2219,16 @@ test("an unreplied-thread count fails feedback and packet gates even when reason
 });
 
 test("feedback gate blocks unresolved threads, requested changes, explicit vetoes, and veto labels", () => {
+  const pullRequest = snapshot({
+    pullRequest: { labels: ["do-not-merge"] },
+  }).pullRequest;
   const feedback = evaluateFeedbackGate({
     feedback: {
       maintainerVeto: true,
       reviewDecision: "CHANGES_REQUESTED",
       unresolvedThreads: 2,
     },
-    pullRequest: { labels: ["do-not-merge"] },
+    pullRequest,
   });
   assert.equal(feedback.clear, false);
   assert.deepEqual(feedback.reasons, [
@@ -1619,6 +2241,7 @@ test("feedback gate blocks unresolved threads, requested changes, explicit vetoe
   for (const unrepliedThreads of [-1, 1.5, "invalid"]) {
     const malformed = evaluateFeedbackGate({
       feedback: { unrepliedThreads, unresolvedThreads: 0 },
+      pullRequest: snapshot().pullRequest,
     });
     assert.equal(malformed.clear, false);
     assert.ok(
@@ -1637,6 +2260,7 @@ test("feedback gate blocks unresolved threads, requested changes, explicit vetoe
       forcePushEventCount: 60,
       forcePushed: true,
     },
+    pullRequest: snapshot().pullRequest,
   });
   assert.equal(forcePushed.clear, false);
   assert.equal(forcePushed.forcePushActors.length, 50);
@@ -1858,7 +2482,7 @@ test("actionable Claude and Codex roots require one bounded actor- and commit-bo
 test("processor approvals are informational only when their body binds their own current or historical commit", () => {
   const approval = (commitSha, bodySha = commitSha) => ({
     actor: { association: "NONE", login: "github-actions", type: "Bot" },
-    body: `Approved by dependabot-processor:v1 for exact head ${bodySha}.`,
+    body: `Approved by ${DEPENDABOT_PROCESSOR_SCHEMA} for exact head ${bodySha}.`,
     commitSha,
     id: commitSha === HEAD_SHA ? 1 : 2,
     state: "APPROVED",
@@ -1932,6 +2556,267 @@ test("resolved historical feedback clears without a current-head reply while unr
     "invalid-actionable-review-envelope",
   ]);
   assert.equal(malformedEnvelope.complete, false);
+});
+
+test("resolved replied trusted bot threads do not poison an unrelated deterministic repair", () => {
+  const historicalReview = cursorReview(OTHER_SHA);
+  const currentReview = { ...cursorReview(HEAD_SHA), id: 22 };
+  const feedback = classifyDependabotFeedback({
+    headSha: HEAD_SHA,
+    reviews: [historicalReview, currentReview],
+    threads: [
+      {
+        comments: [
+          {
+            actor: historicalReview.actor,
+            body: "### Historical workflow finding",
+            createdAt: "2026-08-09T10:00:00Z",
+            id: 31,
+            replyToId: null,
+            reviewCommitSha: OTHER_SHA,
+            reviewId: historicalReview.id,
+          },
+          {
+            actor: { association: "MEMBER", login: "alice", type: "User" },
+            body: "Won't fix: the historical finding was superseded by the current exact head",
+            createdAt: "2026-08-09T10:01:00Z",
+            id: 32,
+            replyToId: 31,
+            reviewCommitSha: OTHER_SHA,
+            reviewId: historicalReview.id,
+          },
+        ],
+        id: "historical-resolved-thread",
+        outdated: true,
+        path: ".github/workflows/dependabot-process.yml",
+        resolved: true,
+      },
+      {
+        comments: [
+          {
+            actor: currentReview.actor,
+            body: "### Current deployment runbook finding",
+            createdAt: "2026-08-10T10:00:00Z",
+            id: 41,
+            replyToId: null,
+            reviewCommitSha: HEAD_SHA,
+            reviewId: currentReview.id,
+          },
+          {
+            actor: { association: "MEMBER", login: "alice", type: "User" },
+            body: `Fixed in ${HEAD_SHA.slice(0, 8)} — aligned the current finding`,
+            createdAt: "2026-08-10T10:01:00Z",
+            id: 42,
+            replyToId: 41,
+            reviewCommitSha: HEAD_SHA,
+            reviewId: currentReview.id,
+          },
+        ],
+        id: "current-resolved-thread",
+        outdated: false,
+        path: "docs/vercel-deployments.md",
+        resolved: true,
+      },
+    ],
+  });
+
+  assert.deepEqual(feedback.reasons, []);
+  assert.equal(feedback.actionableThreadCount, 0);
+  assert.deepEqual(feedback.actionableThreads, []);
+  assert.equal(feedback.unresolvedThreads, 0);
+  assert.equal(feedback.unrepliedThreads, 0);
+
+  const evaluated = evaluateDependabotPullRequest(
+    snapshot({
+      checks: completeChecks({ conclusions: { ci: "failure" } }),
+      feedback,
+    }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+
+  assert.equal(evaluated.disposition, "repair-required");
+  assert.notEqual(evaluated.disposition, "manual-repair-required");
+  assert.deepEqual(evaluated.feedback.actionableThreads, []);
+  assert.deepEqual(evaluated.repairPacket.feedbackThreads, []);
+  assert.deepEqual(
+    evaluated.repairPacket.failures.map(({ id }) => id),
+    ["ci"],
+  );
+  assert.equal(
+    evaluated.repairPacket.failures.length +
+      evaluated.repairPacket.findings.length +
+      evaluated.repairPacket.feedbackThreads.length,
+    1,
+  );
+});
+
+test("resolved packet-bound automation replies do not become later repair input", () => {
+  const packetDigest = "a".repeat(64);
+  const rootBody = "Claude finding";
+  const threadId = "PRRT_thread_61";
+  const classified = classifyDependabotFeedback({
+    headSha: HEAD_SHA,
+    reviews: [
+      {
+        actor: { association: "NONE", login: "claude", type: "Bot" },
+        body: "## Claude Code Review\nOne inline finding follows.",
+        commitSha: HEAD_SHA,
+        id: 21,
+        state: "COMMENTED",
+      },
+    ],
+    threads: [
+      {
+        comments: [
+          {
+            actor: { association: "NONE", login: "claude", type: "Bot" },
+            body: rootBody,
+            createdAt: "2026-08-10T10:00:00Z",
+            id: 61,
+            replyToId: null,
+            reviewCommitSha: HEAD_SHA,
+            reviewId: 21,
+          },
+          {
+            actor: {
+              association: "NONE",
+              login: "github-actions",
+              type: "Bot",
+            },
+            body: `Fixed in ${HEAD_SHA.slice(0, 12)} — Addressed by authenticated Dependabot preparation.\n\n<!-- dependabot-remediation:v1 pr=123 head=${HEAD_SHA} thread=${textDigest(threadId)} packet=${packetDigest} -->`,
+            createdAt: "2026-08-10T10:01:00Z",
+            id: 62,
+            replyToId: 61,
+            reviewCommitSha: HEAD_SHA,
+            reviewId: 21,
+          },
+        ],
+        id: threadId,
+        line: 7,
+        path: "package.json",
+        resolved: true,
+      },
+    ],
+  });
+  assert.deepEqual(classified.reasons, ["unreplied-review-feedback"]);
+  assert.equal(classified.actionableThreadCount, 1);
+  assert.equal(classified.actionableThreads[0].resolved, true);
+
+  const thread = classified.actionableThreads[0];
+  const feedback = evaluateFeedbackGate({
+    feedback: {
+      ...classified,
+      reviewDecision: "APPROVED",
+    },
+    pullRequest: snapshot().pullRequest,
+    repairAttempts: {
+      latestAppliedRepair: {
+        packet: {
+          feedbackThreads: [
+            {
+              commentId: thread.rootCommentId,
+              digest: thread.bodyDigest,
+              threadId: thread.threadId,
+            },
+          ],
+        },
+        packetDigest,
+        receipt: { state: "completed" },
+      },
+    },
+  });
+
+  assert.equal(feedback.clear, true);
+  assert.equal(feedback.actionableThreadCount, 0);
+  assert.deepEqual(feedback.actionableThreads, []);
+  assert.deepEqual(feedback.trustedRemediationThreads, [thread.threadId]);
+
+  const unrelatedCiFailure = evaluateDependabotPullRequest(
+    snapshot({ checks: completeChecks({ conclusions: { ci: "failure" } }) }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+  const laterPacket = createDependabotRepairPacket({
+    ...unrelatedCiFailure,
+    feedback,
+  });
+
+  assert.notEqual(laterPacket, null);
+  assert.deepEqual(laterPacket.feedbackThreads, []);
+  assert.deepEqual(
+    laterPacket.failures.map(({ id }) => id),
+    ["ci"],
+  );
+  assert.equal(
+    laterPacket.failures.length +
+      laterPacket.findings.length +
+      laterPacket.feedbackThreads.length,
+    1,
+  );
+});
+
+test("historical Codex envelopes bind their reviewed commit before repaired-head resolution", () => {
+  const review = {
+    actor: {
+      association: "NONE",
+      login: "chatgpt-codex-connector",
+      type: "Bot",
+    },
+    body: codexReviewBody(OTHER_SHA),
+    commitSha: OTHER_SHA,
+    id: 41,
+    state: "COMMENTED",
+  };
+  const thread = {
+    comments: [
+      {
+        actor: review.actor,
+        body: "### Historical Codex finding",
+        createdAt: "2026-08-09T10:00:00Z",
+        id: 42,
+        replyToId: null,
+        reviewCommitSha: OTHER_SHA,
+        reviewId: review.id,
+      },
+    ],
+    id: "codex-thread-42",
+    outdated: true,
+    resolved: false,
+  };
+
+  const blocked = classifyDependabotFeedback({
+    headSha: HEAD_SHA,
+    reviews: [review],
+    threads: [thread],
+  });
+  assert.deepEqual(blocked.reasons, [
+    "unresolved-review-feedback",
+    "unreplied-review-feedback",
+  ]);
+
+  const clear = classifyDependabotFeedback({
+    headSha: HEAD_SHA,
+    reviews: [review],
+    threads: [{ ...thread, resolved: true }],
+  });
+  assert.deepEqual(clear.reasons, []);
+
+  const wrongEnvelopeCommit = classifyDependabotFeedback({
+    headSha: HEAD_SHA,
+    reviews: [{ ...review, body: codexReviewBody(HEAD_SHA) }],
+    threads: [{ ...thread, resolved: true }],
+  });
+  assert.deepEqual(wrongEnvelopeCommit.reasons, [
+    "unknown-review-bot-feedback",
+    "invalid-actionable-review-envelope",
+  ]);
 });
 
 test("trusted human prose and unknown bots remove auto authority without letting public users create a veto", () => {
@@ -2033,11 +2918,17 @@ test("feedback collection caps fail closed instead of silently dropping thread d
     "feedback-thread-pagination-cap-exceeded",
     "feedback-thread-comments-cap-exceeded",
   ]);
-  assert.deepEqual(evaluateFeedbackGate({ feedback: result }).reasons, [
-    "feedback-incomplete",
-    "feedback-thread-pagination-cap-exceeded",
-    "feedback-thread-comments-cap-exceeded",
-  ]);
+  assert.deepEqual(
+    evaluateFeedbackGate({
+      feedback: result,
+      pullRequest: snapshot().pullRequest,
+    }).reasons,
+    [
+      "feedback-incomplete",
+      "feedback-thread-pagination-cap-exceeded",
+      "feedback-thread-comments-cap-exceeded",
+    ],
+  );
 });
 
 test("feedback snapshot stability binds head, update token, and canonical digest", () => {
@@ -2069,7 +2960,7 @@ test("a historical human close remains an explicit veto after the PR is reopened
         unresolvedThreads: 0,
       },
     }),
-    { mode: "merge", repository: REPOSITORY },
+    { mode: "prepare", repository: REPOSITORY },
   );
   assert.equal(result.feedback.clear, false);
   assert.equal(result.feedback.humanClosed, true);
@@ -2087,7 +2978,7 @@ test("a historical human reopen is also a durable intervention veto", () => {
         unresolvedThreads: 0,
       },
     }),
-    { mode: "merge", repository: REPOSITORY },
+    { mode: "prepare", repository: REPOSITORY },
   );
   assert.equal(result.feedback.clear, false);
   assert.equal(result.feedback.humanReopened, true);
@@ -2095,109 +2986,206 @@ test("a historical human reopen is also a durable intervention veto", () => {
   assert.equal(result.disposition, "manual-veto-or-feedback");
 });
 
-test("evaluates safe green, manual, pending, baseline, and repair dispositions", () => {
+test("evaluates exact observe, assist, and prepare dispositions and v2 repair packets", () => {
   assert.equal(
     evaluateDependabotPullRequest(snapshot(), {
-      mode: "merge",
+      mode: "observe",
       repository: REPOSITORY,
     }).disposition,
-    "merge-candidate",
+    "eligible-observed",
+  );
+  assert.equal(
+    evaluateDependabotPullRequest(snapshot(), {
+      mode: "assist",
+      repository: REPOSITORY,
+    }).disposition,
+    "ready-for-human-review",
+  );
+  assert.equal(
+    evaluateDependabotPullRequest(snapshot(), {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    }).disposition,
+    "prepare-candidate",
+  );
+
+  const pending = evaluateDependabotPullRequest(
+    snapshot({ checks: completeChecks().slice(0, -1) }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+  assert.equal(pending.disposition, "waiting-checks");
+
+  const repair = evaluateDependabotPullRequest(
+    snapshot({ checks: completeChecks({ conclusions: { ci: "failure" } }) }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+  assert.equal(repair.disposition, "repair-required");
+  assert.deepEqual(
+    repair.repairPacket.failures.map(({ id }) => id),
+    ["ci"],
+  );
+  assert.deepEqual(repair.repairPacket.expectedBlobs, [
+    { mode: "100644", path: "package.json", sha: OTHER_SHA, type: "blob" },
+  ]);
+  assert.equal(repair.repairPacket.schema, DEPENDABOT_REPAIR_PACKET_SCHEMA);
+  assert.deepEqual(
+    {
+      workflowRunAttempt: repair.repairPacket.workflowRunAttempt,
+      workflowRunId: repair.repairPacket.workflowRunId,
+      workflowSha: repair.repairPacket.workflowSha,
+    },
+    WORKFLOW_CONTEXT,
   );
   assert.equal(
     evaluateDependabotPullRequest(
-      snapshot({
-        metadata: {
-          dependencyNames: ["next"],
-          packageEcosystem: "npm",
-          updateType: "patch",
-        },
-      }),
-      { mode: "merge", repository: REPOSITORY },
-    ).disposition,
-    "manual-review",
+      snapshot({ checks: completeChecks({ conclusions: { ci: "failure" } }) }),
+      { mode: "observe", repository: REPOSITORY },
+    ).repairPacket,
+    null,
   );
-
-  const pending = snapshot({ checks: completeChecks().slice(0, -1) });
-  assert.equal(
-    evaluateDependabotPullRequest(pending, {
-      mode: "merge",
-      repository: REPOSITORY,
-    }).disposition,
-    "waiting-checks",
-  );
-
-  const baseline = snapshot({
-    baseline: {
-      checks: completeChecks({
-        conclusions: { "supply-chain-root-osv": "failure" },
-        headSha: BASE_SHA,
-      }),
-      sha: BASE_SHA,
-    },
-    checks: completeChecks({
-      conclusions: { "supply-chain-root-osv": "failure" },
-    }),
-  });
-  assert.equal(
-    evaluateDependabotPullRequest(baseline, {
-      mode: "merge",
-      repository: REPOSITORY,
-    }).disposition,
-    "waiting-baseline",
-  );
-
-  const repair = snapshot({
-    checks: completeChecks({ conclusions: { ci: "failure" } }),
-  });
-  const evaluation = evaluateDependabotPullRequest(repair, {
-    mode: "merge",
-    repository: REPOSITORY,
-  });
-  assert.equal(evaluation.disposition, "repair-required");
-  assert.deepEqual(
-    createDependabotRepairPacket(evaluation).failures.map(({ id }) => id),
-    ["ci"],
-  );
-  assert.deepEqual(
-    Object.keys(createDependabotRepairPacket(evaluation)).sort(),
-    [
-      "attemptLimit",
-      "attemptNumber",
-      "automatic",
-      "baseRef",
-      "baseSha",
-      "changedPaths",
-      "dependencyGroup",
-      "dependencyNames",
-      "escalation",
-      "failures",
-      "forbiddenPaths",
-      "headSha",
-      "mode",
-      "packageEcosystem",
-      "permittedPaths",
-      "pullRequestNumber",
-      "repository",
-      "requiredGateIds",
-      "requireExactHead",
-      "requireHumanApproval",
-      "riskTier",
-      "schema",
-      "updateType",
-      "validationCommands",
-    ].sort(),
-  );
-  const observedRepair = evaluateDependabotPullRequest(repair, {
-    mode: "observe",
-    repository: REPOSITORY,
-  });
-  assert.equal(observedRepair.repairPacket, null);
 });
 
-test("durable force-push evidence removes automatic and repair authority after a lineage reset", async () => {
+test("constructed repair packets fail closed when schema-invalid or oversized", () => {
+  const repair = evaluateDependabotPullRequest(
+    snapshot({ checks: completeChecks({ conclusions: { ci: "failure" } }) }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+  assert.notEqual(repair.repairPacket, null);
+
+  assert.equal(
+    createDependabotRepairPacket({ ...repair, baseRef: "release" }),
+    null,
+  );
+
+  const oversizedPaths = Array.from(
+    { length: 300 },
+    (_, index) =>
+      `packages/${String(index).padStart(3, "0")}/${"a".repeat(270)}.ts`,
+  );
+  assert.ok(
+    stableJson({ ...repair.repairPacket, changedPaths: oversizedPaths })
+      .length > 50_000,
+  );
+  assert.equal(
+    createDependabotRepairPacket({ ...repair, changedPaths: oversizedPaths }),
+    null,
+  );
+});
+
+test("workflow-path Actions failures require manual repair while green updates remain preparable", () => {
+  const workflowFile = {
+    filename: ".github/workflows/ci.yml",
+    mode: "100644",
+    sha: OTHER_SHA,
+    type: "blob",
+  };
+  const failing = evaluateDependabotPullRequest(
+    snapshot({
+      checks: completeChecks({ conclusions: { ci: "failure" } }),
+      pullRequest: { files: [workflowFile] },
+    }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+  assert.equal(failing.risk.preparable, true);
+  assert.equal(failing.disposition, "manual-repair-required");
+  assert.equal(failing.repairPacket, null);
+
+  const green = evaluateDependabotPullRequest(
+    snapshot({ pullRequest: { files: [workflowFile] } }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+  assert.equal(green.disposition, "prepare-candidate");
+});
+
+test("an issued same-head repair packet occupies the lane without republishing", async () => {
+  const current = snapshot({
+    checks: completeChecks({ conclusions: { ci: "failure" } }),
+  });
+  const first = evaluateDependabotPullRequest(current, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(first.disposition, "repair-required");
+  assert.notEqual(first.repairPacket, null);
+
+  const packetCheck = processorRepairReceipt(1, {
+    id: 61_001,
+    packet: first.repairPacket,
+  });
+  packetCheck.outputSummary = "Disposition: repair-required";
+  current.checks.push(packetCheck);
+  current.repairHistoryChecks = [packetCheck];
+  const repeated = evaluateDependabotSweep({
+    mode: "prepare",
+    outstandingAutoMergeRequests: [],
+    pullRequests: [current],
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(repeated.evaluations[0].disposition, "repair-pending");
+  assert.equal(repeated.evaluations[0].repairPacket, null);
+  assert.equal(repeated.prepareCandidate.disposition, "repair-pending");
+
+  let published = 0;
+  const adapter = {
+    collectPullRequestSnapshot: async () => structuredClone(current),
+    getOutstandingDependabotAutoMergeRequests: async () => [],
+    getOutstandingDependabotProcessorApprovals: noOutstandingProcessorApprovals,
+    publishAllClearInvalidation: async () => {},
+    publishProcessorCheck: async () => {
+      published += 1;
+      return { id: 61_002 };
+    },
+  };
+  for (let sweep = 0; sweep < 2; sweep += 1) {
+    const result = await processDependabotSweep({
+      adapter,
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [structuredClone(current)],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "finalize",
+      publishChecks: true,
+      workflowContext: WORKFLOW_CONTEXT,
+    });
+    assert.equal(result.prepareCandidate.disposition, "repair-pending");
+    assert.deepEqual(result.mutations, []);
+  }
+  assert.equal(published, 0);
+  assert.equal(
+    current.checks.filter(({ name }) => name === "Dependabot Processor").length,
+    1,
+  );
+});
+
+test("durable force-push evidence removes preparation and repair authority", async () => {
   const rewritten = snapshot({
     checks: completeChecks({ conclusions: { ci: "failure" } }),
-    commits: [{ authorLogin: "dependabot[bot]", sha: HEAD_SHA }],
     feedback: {
       forcePushActors: ["dependabot[bot]", "unknown-actor"],
       forcePushCommitIds: [OTHER_SHA],
@@ -2207,361 +3195,186 @@ test("durable force-push evidence removes automatic and repair authority after a
     repairHistoryChecks: [],
   });
   const evaluation = evaluateDependabotPullRequest(rewritten, {
-    mode: "merge",
+    mode: "prepare",
     repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
   });
-  assert.equal(evaluation.identity.valid, true);
-  assert.equal(evaluation.identity.automaticAuthority, false);
+  assert.equal(evaluation.identity.prepareAuthority, false);
   assert.deepEqual(evaluation.identity.automaticAuthorityReasons, [
     "pull-request-history-force-pushed",
   ]);
-  assert.equal(evaluation.feedback.clear, false);
-  assert.deepEqual(evaluation.feedback.reasons, [
-    "pull-request-history-force-pushed",
-  ]);
   assert.equal(evaluation.disposition, "manual-veto-or-feedback");
-  assert.equal(evaluation.repairAttempts.currentAttempt, 1);
   assert.equal(evaluation.repairPacket, null);
 
   let approved = false;
-  let merged = false;
   const result = await processDependabotSweep({
     adapter: {
       approvePullRequest: async () => {
         approved = true;
       },
-      mergePullRequest: async () => {
-        merged = true;
-      },
+      collectPullRequestSnapshot: async () => rewritten,
+      getOutstandingDependabotAutoMergeRequests: async () => [],
+      getOutstandingDependabotProcessorApprovals:
+        noOutstandingProcessorApprovals,
     },
     input: {
-      mode: "merge",
+      mode: "prepare",
       outstandingAutoMergeRequests: [],
       pullRequests: [rewritten],
       repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
     },
+    workflowContext: WORKFLOW_CONTEXT,
   });
   assert.equal(result.mergeCandidate, null);
+  assert.equal(result.prepareCandidate, null);
   assert.equal(approved, false);
-  assert.equal(merged, false);
 });
 
-test("repair receipts are idempotent on the current head and consume attempts only across append-only lineage", () => {
-  const failingChecks = completeChecks({ conclusions: { ci: "failure" } });
-  const first = evaluateDependabotPullRequest(
-    snapshot({ checks: failingChecks }),
-    { mode: "assist", repository: REPOSITORY },
-  );
-  assert.equal(first.repairAttempt, 1);
-  assert.equal(first.identity.automaticAuthority, true);
-  assert.equal(first.repairPacket.attemptNumber, 1);
-  assert.equal(first.repairAttempts.historySource, "current-checks-fallback");
-
-  const sameHeadRerun = evaluateDependabotPullRequest(
-    snapshot({
-      checks: failingChecks,
-      repairHistoryChecks: [processorRepairReceipt(1)],
-    }),
-    { mode: "assist", repository: REPOSITORY },
-  );
-  assert.equal(sameHeadRerun.repairAttempt, 1);
-  assert.equal(sameHeadRerun.repairAttempts.consumedAttempts, 0);
-  assert.equal(sameHeadRerun.repairAttempts.currentHeadPacketIssued, true);
-  assert.equal(sameHeadRerun.repairPacket.attemptNumber, 1);
-
-  const appended = snapshot({ checks: failingChecks });
-  appended.commits = [
-    { authorLogin: "dependabot[bot]", sha: OTHER_SHA },
-    { authorLogin: "alice", sha: HEAD_SHA },
-  ];
-  appended.metadata = {
-    ...appended.metadata,
-    maintainerChanges: true,
-    repairChanges: true,
-  };
-  appended.repairHistoryChecks = [
-    processorRepairReceipt(1, { headSha: OTHER_SHA }),
-  ];
-  const second = evaluateDependabotPullRequest(appended, {
-    mode: "merge",
-    repository: REPOSITORY,
+test("typed repair receipts require valid verification and consume one attempt only", () => {
+  const packet = evaluateDependabotPullRequest(
+    snapshot({ checks: completeChecks({ conclusions: { ci: "failure" } }) }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  ).repairPacket;
+  assert.notEqual(packet, null);
+  const packetCheck = processorRepairReceipt(1, {
+    headSha: HEAD_SHA,
+    packet,
   });
-  assert.equal(second.identity.valid, true);
-  assert.equal(second.identity.automaticAuthority, false);
-  assert.equal(second.identity.automaticSeedHeadSha, OTHER_SHA);
-  assert.equal(second.identity.repairCommitCount, 1);
-  assert.equal(second.repairAttempt, 2);
-  assert.equal(second.repairAttempts.consumedAttempts, 1);
-  assert.equal(second.repairAttempts.historySource, "lineage-checks");
-  assert.equal(second.repairAttempts.lineageCommitCount, 2);
-  assert.equal(second.repairPacket.attemptNumber, 2);
-  assert.equal(second.repairPacket.automatic, false);
-  assert.equal(second.repairPacket.requireHumanApproval, true);
-
-  const contradictoryProvenance = structuredClone(appended);
-  contradictoryProvenance.metadata.maintainerChanges = false;
-  contradictoryProvenance.metadata.repairChanges = false;
-  const contradictory = evaluateDependabotPullRequest(contradictoryProvenance, {
-    mode: "assist",
-    repository: REPOSITORY,
+  const receiptCheck = repairReceiptCheck({
+    headSha: OTHER_SHA,
+    packetDigest: digest(packet),
+    parentHeadSha: HEAD_SHA,
+    processorCheckId: packetCheck.id,
   });
-  assert.equal(contradictory.identity.valid, false);
-  assert.ok(
-    contradictory.identity.reasons.includes(
-      "maintainer-change-evidence-mismatch",
-    ),
-  );
-  assert.equal(contradictory.repairPacket, null);
-
-  appended.repairHistoryChecks.push(processorRepairReceipt(2));
-  const sameSecondHead = evaluateDependabotPullRequest(appended, {
-    mode: "assist",
-    repository: REPOSITORY,
+  const repaired = snapshot({
+    baseAncestry: {
+      aheadBy: 2,
+      baseCommitSha: BASE_SHA,
+      behindBy: 0,
+      currentBaseIsAncestor: true,
+      currentBaseSha: BASE_SHA,
+      headSha: OTHER_SHA,
+      mergeBaseSha: BASE_SHA,
+      status: "ahead",
+    },
+    checks: completeChecks({ headSha: OTHER_SHA }),
+    commits: [
+      {
+        authorLogin: "dependabot[bot]",
+        committerLogin: "dependabot[bot]",
+        sha: HEAD_SHA,
+        verified: true,
+      },
+      {
+        authorId: PREPARE_ACTOR.botId,
+        authorLogin: PREPARE_ACTOR.botLogin,
+        authorType: "Bot",
+        committerId: PREPARE_ACTOR.botId,
+        committerLogin: PREPARE_ACTOR.botLogin,
+        committerType: "Bot",
+        parents: [HEAD_SHA],
+        sha: OTHER_SHA,
+        verified: true,
+        verificationReason: "valid",
+      },
+    ],
+    expectedHeadSha: OTHER_SHA,
+    prepareActor: PREPARE_ACTOR,
+    pullRequest: {
+      head: {
+        ref: "dependabot/github_actions/github-actions-routine-123",
+        repo: { fullName: REPOSITORY },
+        sha: OTHER_SHA,
+      },
+    },
+    repairHistoryChecks: [packetCheck, receiptCheck],
   });
-  assert.equal(sameSecondHead.repairAttempt, 2);
-  assert.equal(sameSecondHead.repairAttempts.consumedAttempts, 1);
-  assert.equal(sameSecondHead.repairAttempts.currentHeadPacketIssued, true);
-  assert.equal(sameSecondHead.repairPacket.attemptNumber, 2);
-
-  const repairedGreen = structuredClone(appended);
-  repairedGreen.checks = completeChecks();
-  const manualOnly = evaluateDependabotPullRequest(repairedGreen, {
-    mode: "merge",
+  const result = evaluateDependabotPullRequest(repaired, {
+    mode: "prepare",
     repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
   });
-  assert.equal(manualOnly.identity.valid, true);
-  assert.equal(manualOnly.identity.automaticAuthority, false);
-  assert.equal(manualOnly.disposition, "manual-review");
-
-  const exhausted = snapshot({ checks: failingChecks });
-  exhausted.commits = [
-    { authorLogin: "dependabot[bot]", sha: MERGE_SHA },
-    { authorLogin: "alice", sha: OTHER_SHA },
-    { authorLogin: "alice", sha: HEAD_SHA },
-  ];
-  exhausted.metadata = {
-    ...exhausted.metadata,
-    maintainerChanges: true,
-    repairChanges: true,
-  };
-  exhausted.repairHistoryChecks = [
-    processorRepairReceipt(1, { headSha: MERGE_SHA }),
-    processorRepairReceipt(2, { headSha: OTHER_SHA }),
-  ];
-  const third = evaluateDependabotPullRequest(exhausted, {
-    mode: "assist",
-    repository: REPOSITORY,
-  });
-  assert.equal(third.identity.valid, true);
-  assert.equal(third.repairAttempt, 3);
-  assert.equal(third.repairAttempts.consumedAttempts, 2);
-  assert.equal(third.disposition, "manual-repair-escalated");
-  assert.equal(third.repairPacket, null);
-
-  const rebased = evaluateDependabotPullRequest(
-    snapshot({ checks: failingChecks, repairHistoryChecks: [] }),
-    { mode: "merge", repository: REPOSITORY },
-  );
-  assert.equal(rebased.repairAttempt, 1);
-  assert.equal(rebased.repairAttempts.consumedAttempts, 0);
-  assert.equal(rebased.repairAttempts.historySource, "lineage-checks");
-});
-
-test("malformed explicit or reachable-lineage repair-attempt evidence fails closed", () => {
-  const failingChecks = completeChecks({ conclusions: { ci: "failure" } });
-  for (const repairAttempt of [0, -1, 1.5, "1", null]) {
-    assert.throws(
-      () =>
-        evaluateDependabotPullRequest(
-          snapshot({ repairAttempt, checks: failingChecks }),
-          { mode: "assist", repository: REPOSITORY },
-        ),
-      /Explicit repairAttempt/,
-      String(repairAttempt),
-    );
-  }
-  assert.throws(
-    () =>
-      evaluateDependabotPullRequest(
-        snapshot({
-          checks: [...failingChecks, processorRepairReceipt(1)],
-          repairAttempt: 2,
-        }),
-        { mode: "assist", repository: REPOSITORY },
-      ),
-    /does not match reachable-lineage processor receipts/,
-  );
-  const malformed = evaluateDependabotPullRequest(
-    snapshot({
-      checks: [
-        ...failingChecks,
-        processorRepairReceipt(1, { externalId: "malformed" }),
-      ],
-    }),
-    { mode: "assist", repository: REPOSITORY },
-  );
-  assert.equal(malformed.disposition, "manual-repair-escalated");
-  assert.equal(malformed.repairPacket, null);
-  assert.deepEqual(malformed.repairAttempts.reasons, [
-    "malformed-repair-attempt-receipt",
-  ]);
-});
-
-test("repair lineage receipts reject wrong provenance, incomplete results, conflicts, and missing parent issuance", () => {
-  const failingChecks = completeChecks({ conclusions: { ci: "failure" } });
-  const cases = [
-    {
-      check: { ...processorRepairReceipt(1), appId: 1 },
-      reason: "untrusted-repair-attempt-receipt",
-    },
-    {
-      check: { ...processorRepairReceipt(1), kind: "status" },
-      reason: "untrusted-repair-attempt-receipt",
-    },
-    {
-      check: { ...processorRepairReceipt(1), kind: undefined },
-      reason: "untrusted-repair-attempt-receipt",
-    },
-    {
-      check: { ...processorRepairReceipt(1), status: "in_progress" },
-      reason: "incomplete-repair-attempt-receipt",
-    },
-    {
-      check: { ...processorRepairReceipt(1), status: undefined },
-      reason: "incomplete-repair-attempt-receipt",
-    },
-    {
-      check: { ...processorRepairReceipt(1), conclusion: "cancelled" },
-      reason: "invalid-repair-attempt-receipt-conclusion",
-    },
-    {
-      check: processorRepairReceipt(1, {
-        externalId: `dependabot-processor:v1:pr=999:head=${HEAD_SHA}:mode=assist:repair=1:packet=true`,
-      }),
-      reason: "malformed-repair-attempt-receipt",
-    },
-    {
-      check: processorRepairReceipt(1, {
-        externalId: `dependabot-processor:v1:pr=123:head=${OTHER_SHA}:mode=assist:repair=1:packet=true`,
-      }),
-      reason: "malformed-repair-attempt-receipt",
-    },
-    {
-      check: processorRepairReceipt(1, {
-        externalId: `dependabot-processor:v1:pr=123:head=${HEAD_SHA}:mode=assist:repair=999999999999999999999:packet=true`,
-      }),
-      reason: "malformed-repair-attempt-receipt",
-    },
-    {
-      check: processorRepairReceipt(1, {
-        headSha: OTHER_SHA,
-      }),
-      reason: "repair-attempt-receipt-outside-lineage",
-    },
-    {
-      check: processorRepairReceipt(1, {
-        mode: "observe",
-      }),
-      reason: "observe-repair-attempt-receipt-issued-packet",
-    },
-  ];
-  for (const { check: receipt, reason } of cases) {
-    const result = evaluateDependabotPullRequest(
-      snapshot({
-        checks: failingChecks,
-        repairHistoryChecks: [receipt],
-      }),
-      { mode: "assist", repository: REPOSITORY },
-    );
-    assert.equal(result.repairAttempts.valid, false, reason);
-    assert.ok(result.repairAttempts.reasons.includes(reason), reason);
-    assert.equal(result.repairPacket, null, reason);
-  }
-
-  const successfulReceipt = evaluateDependabotPullRequest(
-    snapshot({
-      checks: failingChecks,
-      repairHistoryChecks: [
-        { ...processorRepairReceipt(1), conclusion: "success" },
-      ],
-    }),
-    { mode: "assist", repository: REPOSITORY },
-  );
-  assert.equal(successfulReceipt.repairAttempts.valid, true);
-  assert.equal(successfulReceipt.repairAttempt, 1);
-
-  const nonAuthorizingReceipt = evaluateDependabotPullRequest(
-    snapshot({
-      checks: failingChecks,
-      repairHistoryChecks: [
-        { ...processorRepairReceipt(1), conclusion: "failure" },
-      ],
-    }),
-    { mode: "assist", repository: REPOSITORY },
-  );
-  assert.equal(nonAuthorizingReceipt.repairAttempts.valid, true);
-  assert.equal(nonAuthorizingReceipt.repairAttempt, 1);
   assert.equal(
-    nonAuthorizingReceipt.repairAttempts.currentHeadPacketIssued,
+    result.identity.valid,
     true,
-  );
-
-  const duplicate = evaluateDependabotPullRequest(
-    snapshot({
-      checks: failingChecks,
-      repairHistoryChecks: [
-        processorRepairReceipt(1),
-        { ...processorRepairReceipt(1), id: 20_001 },
-      ],
+    stableJson({
+      identity: result.identity,
+      repairAttempts: result.repairAttempts,
     }),
-    { mode: "assist", repository: REPOSITORY },
   );
-  assert.equal(duplicate.repairAttempts.valid, true);
-  assert.equal(duplicate.repairAttempt, 1);
-  assert.equal(duplicate.repairAttempts.issuedAttemptCount, 1);
+  assert.equal(result.identity.prepareAuthority, true);
+  assert.equal(result.repairAttempts.authenticatedRepairCommitCount, 1);
+  assert.equal(result.repairAttempts.consumedAttempts, 1);
+  assert.equal(result.repairAttempt, 2);
+  assert.equal(result.repairAttempts.preparationKind, "prepared");
+  assert.equal(result.disposition, "prepare-candidate");
 
-  const conflict = evaluateDependabotPullRequest(
-    snapshot({
-      checks: failingChecks,
-      repairHistoryChecks: [
-        processorRepairReceipt(1),
-        processorRepairReceipt(2),
-      ],
-    }),
-    { mode: "assist", repository: REPOSITORY },
-  );
-  assert.equal(conflict.repairAttempts.valid, false);
-  assert.ok(
-    conflict.repairAttempts.reasons.includes(
-      "ambiguous-repair-attempt-history",
-    ),
-  );
+  for (const [label, verification] of [
+    ["unsigned", { verificationReason: "unsigned", verified: false }],
+    ["invalid reason", { verificationReason: "unknown_key", verified: true }],
+  ]) {
+    const unverified = structuredClone(repaired);
+    Object.assign(unverified.commits[1], verification);
+    const untrusted = evaluateDependabotPullRequest(unverified, {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    });
+    assert.equal(untrusted.identity.valid, false, label);
+    assert.ok(
+      untrusted.repairAttempts.reasons.includes("invalid-repair-transition"),
+      `${label}: ${stableJson(untrusted.repairAttempts.reasons)}`,
+    );
+    assert.equal(untrusted.repairPacket, null, label);
+  }
 
-  const missingParent = snapshot({
-    checks: failingChecks,
-    repairHistoryChecks: [processorRepairReceipt(1)],
+  const forged = structuredClone(repaired);
+  forged.repairHistoryChecks[1].outputText = stableJson({
+    ...JSON.parse(forged.repairHistoryChecks[1].outputText),
+    packetDigest: "f".repeat(64),
   });
-  missingParent.commits = [
-    { authorLogin: "dependabot[bot]", sha: OTHER_SHA },
-    { authorLogin: "alice", sha: HEAD_SHA },
-  ];
-  const missingParentResult = evaluateDependabotPullRequest(missingParent, {
-    mode: "assist",
+  const rejected = evaluateDependabotPullRequest(forged, {
+    mode: "prepare",
     repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
   });
-  assert.equal(missingParentResult.repairAttempts.valid, false);
+  assert.equal(rejected.identity.valid, false);
   assert.ok(
-    missingParentResult.repairAttempts.reasons.includes(
-      "repair-lineage-commit-without-parent-packet",
-    ),
+    rejected.repairAttempts.reasons.includes("malformed-repair-receipt"),
   );
-  assert.equal(missingParentResult.identity.valid, false);
-  assert.ok(
-    missingParentResult.identity.reasons.includes("untrusted-repair-lineage"),
-  );
+  assert.equal(rejected.repairPacket, null);
 });
 
-test("a head behind current main waits for a base update and cannot emit a repair packet", () => {
+test("typed preparation receipt parsers bind terminal workflow provenance", () => {
+  const requested = refreshReceiptCheck("requested");
+  const completed = refreshReceiptCheck("completed");
+  const repaired = repairReceiptCheck();
+  assert.ok(parseDependabotRefreshReceipt(requested, REPOSITORY));
+  assert.ok(parseDependabotRefreshReceipt(completed, REPOSITORY));
+  assert.ok(parseDependabotRepairReceipt(repaired, REPOSITORY));
+
+  for (const mutation of [
+    { runStatus: "in_progress" },
+    { runConclusion: "failure" },
+    { runHeadBranch: "feature" },
+    { runHeadSha: OTHER_SHA },
+    { workflowEvent: "pull_request" },
+    { workflowPath: ".github/workflows/ci.yml" },
+  ]) {
+    assert.equal(
+      parseDependabotRefreshReceipt({ ...requested, ...mutation }, REPOSITORY),
+      null,
+      stableJson(mutation),
+    );
+  }
+});
+
+test("a head behind current main enters the serialized refresh lane", () => {
   const result = evaluateDependabotPullRequest(
     snapshot({
       baseAncestry: {
@@ -2576,27 +3389,34 @@ test("a head behind current main waits for a base update and cannot emit a repai
       },
       checks: completeChecks({ conclusions: { ci: "failure" } }),
     }),
-    { mode: "merge", repository: REPOSITORY },
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
   );
-  assert.equal(result.disposition, "waiting-base-update");
+  assert.equal(result.disposition, "refresh-required");
   assert.equal(result.base.current, false);
   assert.ok(result.base.reasons.includes("head-is-behind-current-base"));
   assert.equal(result.repairPacket, null);
 });
 
-test("selects at most one merge candidate per sweep", () => {
+test("selects at most one prepare candidate per sweep and exposes no merge candidate", () => {
   const second = snapshot({
     pullRequest: { ...snapshot().pullRequest, number: 124 },
   });
   const result = evaluateDependabotSweep({
-    mode: "merge",
+    mode: "prepare",
     pullRequests: [second, snapshot()],
     repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
   });
-  assert.deepEqual(result.mergeCandidate, {
+  assert.deepEqual(result.prepareCandidate, {
+    disposition: "prepare-candidate",
     headSha: HEAD_SHA,
     pullRequestNumber: 123,
   });
+  assert.equal(result.mergeCandidate, null);
   assert.deepEqual(result.serialization.outstandingAutoMerge, {
     ambiguous: false,
     reasons: [],
@@ -2604,22 +3424,232 @@ test("selects at most one merge candidate per sweep", () => {
   });
   assert.equal(
     result.evaluations[1].disposition,
-    "waiting-merge-serialization",
+    "waiting-prepare-serialization",
   );
-  assert.equal(result.summary.mergeCandidates, 1);
+  assert.equal(result.summary.prepareCandidates, 1);
 });
 
-test("blocks merge serialization without an exact trusted main receipt", () => {
+test("targeted prepare collection expands globally and preserves an active higher-number ALL CLEAR", async () => {
+  const targeted = snapshotForPullRequest(122, HEAD_SHA);
+  const incumbent = await activeAllClearSnapshot({
+    approvalId: 7_301,
+    checkId: 63_102,
+    headSha: SECOND_HEAD_SHA,
+    pullRequestNumber: 124,
+  });
+  const snapshots = new Map([
+    [122, targeted],
+    [124, incumbent],
+  ]);
+  const collectedNumbers = [];
+  const result = await processDependabotSweep({
+    adapter: {
+      collectPullRequestSnapshot: async (_repository, number) => {
+        collectedNumbers.push(number);
+        return structuredClone(snapshots.get(number));
+      },
+      getOpenDependabotPullRequestNumbers: async () => [124, 122],
+      getOutstandingDependabotAutoMergeRequests: async () => [],
+      publishRefreshReceipt: async () =>
+        assert.fail("an active ALL CLEAR must not request a refresh"),
+    },
+    expectedHeadSha: HEAD_SHA,
+    mode: "prepare",
+    phase: "request",
+    pullRequestNumbers: [122],
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  assert.deepEqual(collectedNumbers, [122, 124]);
+  assert.deepEqual(result.prepareCandidate, {
+    disposition: "prepare-candidate",
+    headSha: SECOND_HEAD_SHA,
+    pullRequestNumber: 124,
+  });
+  assert.equal(result.serialization.activeAllClearApprovalId, 7_301);
+  assert.equal(
+    result.evaluations.find(
+      ({ pullRequestNumber }) => pullRequestNumber === 122,
+    ).disposition,
+    "waiting-prepare-serialization",
+  );
+  assert.deepEqual(result.mutations, []);
+});
+
+test("targeted prepare collection preserves a higher repair-pending incumbent", async () => {
+  const targeted = snapshotForPullRequest(122, HEAD_SHA);
+  const incumbent = repairPendingSnapshotForPullRequest(
+    123,
+    SECOND_HEAD_SHA,
+    61_101,
+  );
+  const snapshots = new Map([
+    [122, targeted],
+    [123, incumbent],
+  ]);
+  const result = await processDependabotSweep({
+    adapter: {
+      collectPullRequestSnapshot: async (_repository, number) =>
+        structuredClone(snapshots.get(number)),
+      getOpenDependabotPullRequestNumbers: async () => [122, 123],
+      getOutstandingDependabotAutoMergeRequests: async () => [],
+      publishRefreshReceipt: async () =>
+        assert.fail("a repair-pending incumbent must not request a refresh"),
+    },
+    expectedHeadSha: HEAD_SHA,
+    mode: "prepare",
+    phase: "request",
+    pullRequestNumbers: [122],
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  assert.deepEqual(result.prepareCandidate, {
+    disposition: "repair-pending",
+    headSha: SECOND_HEAD_SHA,
+    pullRequestNumber: 123,
+  });
+  assert.equal(
+    result.evaluations.find(
+      ({ pullRequestNumber }) => pullRequestNumber === 122,
+    ).disposition,
+    "waiting-prepare-serialization",
+  );
+  assert.deepEqual(result.mutations, []);
+});
+
+test("a prepared waiting-checks incumbent outranks a lower refresh candidate", () => {
+  const requestCheck = refreshReceiptCheck("requested");
+  const completedCheck = refreshReceiptCheck("completed");
+  const incumbent = refreshedSnapshot({
+    repairHistoryChecks: [requestCheck, completedCheck],
+  });
+  incumbent.checks = completeChecks({ headSha: OTHER_SHA }).slice(0, -1);
+  const lower = staleSnapshotForPullRequest(122, SECOND_HEAD_SHA);
+
+  const result = evaluateDependabotSweep({
+    mode: "prepare",
+    outstandingAutoMergeRequests: [],
+    pullRequests: [lower, incumbent],
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  const selected = result.evaluations.find(
+    ({ pullRequestNumber }) => pullRequestNumber === 123,
+  );
+  assert.equal(selected.repairAttempts.preparationKind, "prepared");
+  assert.equal(selected.repairAttempts.prepareLineageValid, true);
+  assert.deepEqual(result.prepareCandidate, {
+    disposition: "waiting-checks",
+    headSha: OTHER_SHA,
+    pullRequestNumber: 123,
+  });
+  assert.equal(
+    result.evaluations.find(
+      ({ pullRequestNumber }) => pullRequestNumber === 122,
+    ).disposition,
+    "waiting-prepare-serialization",
+  );
+});
+
+test("multiple durable preparation incumbents fail closed without a candidate", () => {
+  const lower = staleSnapshotForPullRequest(122, SECOND_HEAD_SHA);
+  const first = repairPendingSnapshotForPullRequest(123, HEAD_SHA, 61_201);
+  const second = repairPendingSnapshotForPullRequest(124, OTHER_SHA, 61_202);
+
+  const result = evaluateDependabotSweep({
+    mode: "prepare",
+    outstandingAutoMergeRequests: [],
+    pullRequests: [lower, first, second],
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  assert.equal(result.prepareCandidate, null);
+  assert.equal(result.serialization.ready, false);
+  assert.equal(result.serialization.reason, "multiple-preparation-incumbents");
+  assert.deepEqual(
+    result.evaluations.map(({ disposition }) => disposition),
+    Array(3).fill("waiting-prepare-serialization"),
+  );
+  assert.ok(
+    result.evaluations.every(({ repairPacket }) => repairPacket === null),
+  );
+});
+
+test("global prepare expansion keeps the expected head bound only to its requested target", async () => {
+  const racedTarget = snapshotForPullRequest(122, SECOND_HEAD_SHA);
+  const other = snapshotForPullRequest(123, HEAD_SHA);
+  const snapshots = new Map([
+    [122, racedTarget],
+    [123, other],
+  ]);
+  const result = await processDependabotSweep({
+    adapter: {
+      collectPullRequestSnapshot: async (_repository, number) =>
+        structuredClone(snapshots.get(number)),
+      getOpenDependabotPullRequestNumbers: async () => [122, 123],
+      getOutstandingDependabotAutoMergeRequests: async () => [],
+      publishRefreshReceipt: async () =>
+        assert.fail("a target head race must not request a refresh"),
+    },
+    expectedHeadSha: HEAD_SHA,
+    mode: "prepare",
+    phase: "request",
+    pullRequestNumbers: [122],
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  const rejected = result.evaluations.find(
+    ({ pullRequestNumber }) => pullRequestNumber === 122,
+  );
+  assert.equal(rejected.disposition, "rejected-identity");
+  assert.ok(rejected.identity.reasons.includes("head-sha-changed"));
+  assert.deepEqual(result.prepareCandidate, {
+    disposition: "prepare-candidate",
+    headSha: HEAD_SHA,
+    pullRequestNumber: 123,
+  });
+});
+
+test("observe collection remains scoped to the requested pull request", async () => {
+  const collectedNumbers = [];
+  const result = await processDependabotSweep({
+    adapter: {
+      collectPullRequestSnapshot: async (_repository, number) => {
+        collectedNumbers.push(number);
+        return snapshotForPullRequest(number, HEAD_SHA);
+      },
+      getOpenDependabotPullRequestNumbers: async () =>
+        assert.fail("observe must not expand a targeted collection"),
+      getOutstandingDependabotAutoMergeRequests: async () => [],
+    },
+    mode: "observe",
+    pullRequestNumbers: [122],
+    repository: REPOSITORY,
+  });
+
+  assert.deepEqual(collectedNumbers, [122]);
+  assert.equal(result.evaluations.length, 1);
+  assert.equal(result.evaluations[0].pullRequestNumber, 122);
+  assert.equal(result.prepareCandidate, null);
+});
+
+test("blocks prepare serialization without an exact trusted main receipt", () => {
   const withoutReceipt = snapshot();
   withoutReceipt.baseline.checks = withoutReceipt.baseline.checks.filter(
     ({ name }) => name !== "Dependabot Post-Merge Verification",
   );
   const result = evaluateDependabotSweep({
-    mode: "merge",
+    mode: "prepare",
     pullRequests: [withoutReceipt],
     repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
   });
-  assert.equal(result.mergeCandidate, null);
+  assert.equal(result.prepareCandidate, null);
   assert.equal(result.serialization.ready, false);
   assert.equal(
     result.evaluations[0].disposition,
@@ -2627,7 +3657,148 @@ test("blocks merge serialization without an exact trusted main receipt", () => {
   );
 });
 
-test("an exact current auto-merge request re-enters the full gate", () => {
+test("post-merge serialization binds an exact Actions receipt to its trusted workflow run", () => {
+  const actionsReceipt = evaluatePrepareSerializationReceipt(
+    postMergeReceipt(BASE_SHA),
+  );
+  assert.equal(actionsReceipt.serialization.ready, true);
+  assert.equal(
+    actionsReceipt.serialization.reason,
+    "exact-main-post-merge-receipt-passed",
+  );
+  assert.deepEqual(actionsReceipt.prepareCandidate, {
+    disposition: "prepare-candidate",
+    headSha: HEAD_SHA,
+    pullRequestNumber: 123,
+  });
+
+  const validReceipt = postMergeReceipt(BASE_SHA);
+  const cases = [
+    ["malformed external ID", { externalId: "dependabot-post-merge:invalid" }],
+    [
+      "mismatched external run ID",
+      { externalId: "dependabot-post-merge:100:1" },
+    ],
+    [
+      "mismatched external attempt",
+      { externalId: "dependabot-post-merge:99:2" },
+    ],
+    [
+      "wrong Actions run URL",
+      { detailsUrl: `https://github.com/${REPOSITORY}/actions/runs/100` },
+    ],
+    [
+      "wrong self check URL",
+      {
+        detailsUrl: `https://github.com/${REPOSITORY}/runs/101`,
+        id: 100,
+      },
+    ],
+    ["wrong source repository", { sourceRepository: "attacker/repository" }],
+    ["wrong workflow path", { workflowPath: ".github/workflows/ci.yml" }],
+    ["wrong workflow event", { workflowEvent: "push" }],
+    ["wrong workflow branch", { runHeadBranch: "release" }],
+    ["wrong workflow head", { runHeadSha: OTHER_SHA }],
+    ["wrong workflow attempt", { runAttempt: 2 }],
+    ["failed workflow run", { runConclusion: "failure" }],
+    [
+      "in-progress workflow run",
+      { runConclusion: null, runStatus: "in_progress" },
+    ],
+  ];
+  for (const [label, override] of cases) {
+    const result = evaluatePrepareSerializationReceipt({
+      ...validReceipt,
+      ...override,
+    });
+    assert.equal(result.serialization.ready, false, label);
+    assert.equal(result.prepareCandidate, null, label);
+    assert.equal(
+      result.evaluations[0].disposition,
+      "waiting-post-merge-verification",
+      label,
+    );
+  }
+
+  const { runHeadSha: omittedRunHeadSha, ...withoutWorkflowHead } =
+    validReceipt;
+  assert.equal(omittedRunHeadSha, BASE_SHA);
+  const persistedWithoutWorkflowHead = JSON.parse(
+    stableJson(withoutWorkflowHead),
+  );
+  assert.equal(
+    Object.hasOwn(persistedWithoutWorkflowHead, "runHeadSha"),
+    false,
+  );
+  const omittedWorkflowHead = evaluatePrepareSerializationReceipt(
+    persistedWithoutWorkflowHead,
+  );
+  assert.equal(omittedWorkflowHead.serialization.ready, false);
+  assert.equal(
+    omittedWorkflowHead.serialization.reason,
+    "untrusted-post-merge-source-ref",
+  );
+  assert.equal(omittedWorkflowHead.prepareCandidate, null);
+});
+
+test("a newer malformed post-merge check supersedes an older valid receipt and closes the lane", () => {
+  const current = snapshot();
+  current.baseline.checks.push({
+    appId: 15_368,
+    completedAt: "2026-08-10T10:01:00Z",
+    conclusion: "failure",
+    detailsUrl: `https://github.com/${REPOSITORY}/runs/101`,
+    externalId: "malformed",
+    headSha: BASE_SHA,
+    id: 101,
+    kind: "check",
+    name: "Dependabot Post-Merge Verification",
+    status: "completed",
+  });
+
+  const result = evaluateDependabotSweep({
+    mode: "prepare",
+    pullRequests: [current],
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  assert.equal(result.serialization.ready, false);
+  assert.equal(result.serialization.reason, "unexpected-source-repository");
+  assert.equal(result.serialization.check.conclusion, "failure");
+  assert.equal(result.serialization.check.runId, 0);
+  assert.equal(result.prepareCandidate, null);
+  assert.equal(
+    result.evaluations[0].disposition,
+    "waiting-post-merge-verification",
+  );
+});
+
+test("an unordered post-merge receipt blocks fallback to an older valid publication", () => {
+  const current = snapshot();
+  current.baseline.checks.push({
+    ...postMergeReceipt(BASE_SHA),
+    completedAt: "2026-08-10T10:01:00Z",
+    id: 0,
+  });
+
+  const result = evaluateDependabotSweep({
+    mode: "prepare",
+    pullRequests: [current],
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  assert.equal(result.serialization.ready, false);
+  assert.equal(result.serialization.reason, "invalid-post-merge-check-id");
+  assert.equal(result.prepareCandidate, null);
+  assert.equal(
+    result.evaluations[0].disposition,
+    "waiting-post-merge-verification",
+  );
+});
+
+test("an exact current native auto-merge request blocks preparation until cleanup", () => {
   const outstanding = snapshot({
     feedback: {
       autoMergeEnabled: true,
@@ -2636,22 +3807,20 @@ test("an exact current auto-merge request re-enters the full gate", () => {
     },
   });
   const result = evaluateDependabotSweep({
-    mode: "merge",
+    mode: "prepare",
     pullRequests: [outstanding],
     repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
   });
-  assert.deepEqual(result.mergeCandidate, {
-    headSha: HEAD_SHA,
-    pullRequestNumber: 123,
-  });
+  assert.equal(result.prepareCandidate, null);
   assert.equal(
     result.serialization.reason,
-    "exact-candidate-auto-merge-reentry",
+    "outstanding-native-auto-merge-request",
   );
-  assert.equal(result.serialization.outstandingPullRequestNumber, 123);
+  assert.equal(result.evaluations[0].disposition, "waiting-auto-merge-removal");
 
   const globalCurrentHeadRecovery = evaluateDependabotSweep({
-    mode: "merge",
+    mode: "prepare",
     outstandingAutoMergeRequests: [
       {
         headSha: HEAD_SHA,
@@ -2661,11 +3830,13 @@ test("an exact current auto-merge request re-enters the full gate", () => {
     ],
     pullRequests: [snapshot()],
     repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
   });
-  assert.deepEqual(globalCurrentHeadRecovery.mergeCandidate, {
-    headSha: HEAD_SHA,
-    pullRequestNumber: 123,
-  });
+  assert.equal(globalCurrentHeadRecovery.prepareCandidate, null);
+  assert.equal(
+    globalCurrentHeadRecovery.evaluations[0].disposition,
+    "waiting-auto-merge-removal",
+  );
 });
 
 test("targeted sweeps block other, multiple, or malformed repository auto-merge requests", () => {
@@ -2705,14 +3876,18 @@ test("targeted sweeps block other, multiple, or malformed repository auto-merge 
   ];
   for (const outstandingAutoMergeRequests of cases) {
     const result = evaluateDependabotSweep({
-      mode: "merge",
+      mode: "prepare",
       outstandingAutoMergeRequests,
       pullRequests: [snapshot()],
       repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
     });
-    assert.equal(result.mergeCandidate, null);
+    assert.equal(result.prepareCandidate, null);
     assert.equal(result.serialization.ready, false);
-    assert.match(result.serialization.reason, /^outstanding-auto-merge-/);
+    assert.match(
+      result.serialization.reason,
+      /^outstanding-(?:auto-merge-|native-auto-merge-request$)/,
+    );
   }
 });
 
@@ -2796,739 +3971,1216 @@ test("post-merge verification requires explicit terminal Vercel evidence", () =>
   }
 });
 
-test("process revalidates, approves, and immediately merges only one exact head", async () => {
-  const calls = [];
-  const events = [];
-  let autoMergeEnabled = true;
-  let approvalPosted = false;
-  let collections = 0;
-  const snapshots = new Map([
-    [123, snapshot()],
-    [
-      124,
-      snapshot({ pullRequest: { ...snapshot().pullRequest, number: 124 } }),
-    ],
-  ]);
-  const adapter = {
-    approvePullRequest: async (input) => {
-      events.push("approve");
-      assert.equal(input.approvalSnapshot.feedback.autoMergeEnabled, false);
-      approvalPosted = true;
-      calls.push(["approve", input]);
-      return processorApprovalResult();
-    },
-    collectPullRequestSnapshot: async (_repository, number) => {
-      collections += 1;
-      events.push(`collect-${collections}`);
-      const current = structuredClone(snapshots.get(number));
-      current.feedback.autoMergeEnabled = autoMergeEnabled;
-      if (approvalPosted) withCurrentProcessorApproval(current);
-      return current;
-    },
-    disablePullRequestAutoMerge: async (input) => {
-      events.push("disable");
-      assert.equal(input.nodeId, "PR_node");
-      autoMergeEnabled = false;
-      calls.push(["disable", input]);
-    },
-    dismissPullRequestApproval: async () =>
-      assert.fail("successful merge must not dismiss its approval"),
-    getOutstandingDependabotAutoMergeRequests: async () => {
-      events.push("global");
-      return autoMergeEnabled
-        ? [
-            {
-              headSha: HEAD_SHA,
-              nodeId: "PR_node",
-              pullRequestNumber: 123,
-            },
-          ]
-        : [];
-    },
-    getOutstandingDependabotProcessorApprovals: noOutstandingProcessorApprovals,
-    mergePullRequest: async (input) => {
-      events.push("merge");
-      calls.push(["merge", input]);
-    },
-    publishProcessorCheck: async () =>
-      assert.fail(
-        "active auto-merge must suppress processor check publication",
-      ),
-  };
-  const result = await processDependabotSweep({
-    adapter,
-    input: {
-      mode: "merge",
-      pullRequests: [...snapshots.values()],
-      repository: REPOSITORY,
-    },
-    publishChecks: true,
-  });
-  assert.deepEqual(
-    calls.map(([kind, input]) => [
-      kind,
-      input.pullRequestNumber,
-      input.headSha,
-    ]),
-    [
-      ["disable", 123, HEAD_SHA],
-      ["approve", 123, HEAD_SHA],
-      ["merge", 123, HEAD_SHA],
-    ],
-  );
-  assert.deepEqual(
-    result.mutations.map(({ kind }) => kind),
-    ["auto-merge-disabled", "approved", "merged"],
-  );
-  assert.ok(events.indexOf("disable") < events.indexOf("collect-4"));
-  assert.ok(events.indexOf("collect-4") < events.indexOf("approve"));
-  assert.ok(
-    events
-      .slice(events.indexOf("collect-4"), events.indexOf("approve"))
-      .filter((event) => event === "global").length >= 1,
-  );
-  assert.equal(collections, 5);
-});
-
-test("a targeted PR B sweep dismisses a stranded approval on PR A before publication and fully re-gates B", async () => {
-  const events = [];
-  let approvalScans = 0;
-  let approvalPosted = false;
-  let collections = 0;
-  let refreshedTarget = null;
-  const selectedPullRequest = {
-    ...snapshot().pullRequest,
-    node_id: "PR_B",
-    number: 124,
-  };
-  const selected = snapshot({
-    pullRequest: selectedPullRequest,
-  });
-  const adapter = {
-    approvePullRequest: async ({ approvalSnapshot, pullRequestNumber }) => {
-      events.push(`approve-${pullRequestNumber}`);
-      assert.equal(approvalSnapshot.expectedHeadSha, HEAD_SHA);
-      approvalPosted = true;
-      return processorApprovalResult();
-    },
-    collectPullRequestSnapshot: async (_repository, number) => {
-      collections += 1;
-      events.push(`collect-${number}-${collections}`);
-      assert.equal(number, 124);
-      const current = snapshot({
-        expectedHeadSha: OTHER_SHA,
-        pullRequest: selectedPullRequest,
-      });
-      if (collections === 1) refreshedTarget = current;
-      return approvalPosted ? withCurrentProcessorApproval(current) : current;
-    },
-    dismissPullRequestApproval: async ({ approvalId, pullRequestNumber }) => {
-      events.push(`dismiss-${pullRequestNumber}-${approvalId}`);
-      assert.deepEqual([pullRequestNumber, approvalId], [123, 6001]);
-      return { dismissed: true, id: approvalId, state: "DISMISSED" };
-    },
-    getOutstandingDependabotAutoMergeRequests: async () => {
-      events.push("auto-merge-scan");
-      return [];
-    },
-    getOutstandingDependabotProcessorApprovals: async () => {
-      approvalScans += 1;
-      events.push(`approval-scan-${approvalScans}`);
-      return approvalScans === 1
-        ? [
-            {
-              approvalId: 6001,
-              headSha: OTHER_SHA,
-              pullRequestNumber: 123,
-            },
-          ]
-        : [];
-    },
-    publishProcessorCheck: async ({ pullRequestNumber }) => {
-      events.push(`publish-${pullRequestNumber}`);
-    },
-    mergePullRequest: async ({ pullRequestNumber }) => {
-      events.push(`merge-${pullRequestNumber}`);
-    },
-  };
-  const result = await processDependabotSweep({
-    adapter,
-    input: {
-      mode: "merge",
-      outstandingAutoMergeRequests: [],
-      pullRequests: [selected],
-      repository: REPOSITORY,
-    },
-    publishChecks: true,
-  });
-  assert.deepEqual(events, [
-    "approval-scan-1",
-    "dismiss-123-6001",
-    "approval-scan-2",
-    "collect-124-1",
-    "auto-merge-scan",
-    "auto-merge-scan",
-    "publish-124",
-    "collect-124-2",
-    "auto-merge-scan",
-    "auto-merge-scan",
-    "approve-124",
-    "collect-124-3",
-    "auto-merge-scan",
-    "merge-124",
-  ]);
-  assert.equal(refreshedTarget.expectedHeadSha, HEAD_SHA);
-  assert.deepEqual(
-    result.mutations.map(({ kind, pullRequestNumber }) => ({
-      kind,
-      pullRequestNumber,
-    })),
-    [
-      { kind: "approval-dismissed", pullRequestNumber: 123 },
-      { kind: "published-check", pullRequestNumber: 124 },
-      { kind: "approved", pullRequestNumber: 124 },
-      { kind: "merged", pullRequestNumber: 124 },
-    ],
-  );
-});
-
-test("an initially empty approval inventory still forces a second scan and selected-PR recollection before writes", async () => {
-  const events = [];
-  let approvalScans = 0;
-  let refreshed = null;
-  const adapter = {
-    approvePullRequest: async () => assert.fail("stale input must not approve"),
-    collectPullRequestSnapshot: async (_repository, number) => {
-      events.push(`collect-${number}`);
-      refreshed = snapshot({
-        expectedHeadSha: OTHER_SHA,
-        feedback: { autoMergeEnabled: true },
-        pullRequest: {
-          ...snapshot().pullRequest,
-          labels: ["processor:veto"],
-        },
-      });
-      return refreshed;
-    },
-    dismissPullRequestApproval: async () =>
-      assert.fail("an empty inventory must not dismiss"),
-    getOutstandingDependabotAutoMergeRequests: async () => {
-      events.push("auto-merge-scan");
-      return [];
-    },
-    getOutstandingDependabotProcessorApprovals: async () => {
-      approvalScans += 1;
-      events.push(`approval-scan-${approvalScans}`);
-      return [];
-    },
-    mergePullRequest: async () => assert.fail("stale input must not merge"),
-    publishProcessorCheck: async () =>
-      assert.fail("stale input must not publish"),
-  };
-  const result = await processDependabotSweep({
-    adapter,
-    input: {
-      mode: "merge",
-      outstandingAutoMergeRequests: [],
-      pullRequests: [snapshot()],
-      repository: REPOSITORY,
-    },
-    publishChecks: true,
-  });
-  assert.deepEqual(events, [
-    "approval-scan-1",
-    "approval-scan-2",
-    "collect-123",
-    "auto-merge-scan",
-    "auto-merge-scan",
-  ]);
-  assert.equal(refreshed.expectedHeadSha, HEAD_SHA);
-  assert.equal(result.mergeCandidate, null);
-  assert.deepEqual(result.mutations, []);
-  assert.equal(result.evaluations[0].disposition, "manual-veto-or-feedback");
-});
-
-test("repository-wide reconciliation dismisses every independently valid current approval, including multiples", async () => {
-  const dismissed = [];
-  let approvalScans = 0;
-  const adapter = {
-    collectPullRequestSnapshot: async () => snapshot(),
-    dismissPullRequestApproval: async ({ approvalId, pullRequestNumber }) => {
-      dismissed.push([pullRequestNumber, approvalId]);
-      return { dismissed: true, id: approvalId, state: "DISMISSED" };
-    },
-    getOutstandingDependabotAutoMergeRequests: async () => [],
-    getOutstandingDependabotProcessorApprovals: async () => {
-      approvalScans += 1;
-      return approvalScans === 1
-        ? [
-            {
-              approvalId: 6002,
-              headSha: OTHER_SHA,
-              pullRequestNumber: 123,
-            },
-            {
-              approvalId: 6001,
-              headSha: OTHER_SHA,
-              pullRequestNumber: 123,
-            },
-            {
-              approvalId: 6003,
-              headSha: HEAD_SHA,
-              pullRequestNumber: 125,
-            },
-          ]
-        : [];
-    },
-    publishProcessorCheck: async () => {},
-  };
-  const result = await processDependabotSweep({
-    adapter,
-    input: {
-      mode: "assist",
-      outstandingAutoMergeRequests: [],
-      pullRequests: [snapshot()],
-      repository: REPOSITORY,
-    },
-    publishChecks: true,
-  });
-  assert.deepEqual(dismissed, [
-    [123, 6001],
-    [123, 6002],
-    [125, 6003],
-  ]);
-  assert.equal(approvalScans, 2);
-  assert.deepEqual(
-    result.mutations.map(({ kind }) => kind),
-    [
-      "approval-dismissed",
-      "approval-dismissed",
-      "approval-dismissed",
-      "published-check",
-    ],
-  );
-});
-
-test("malformed repository-wide processor approval evidence fails before any write", async () => {
-  const writes = [];
-  await assert.rejects(
-    processDependabotSweep({
-      adapter: {
-        approvePullRequest: async () => writes.push("approve"),
-        collectPullRequestSnapshot: async () =>
-          assert.fail("must not recollect malformed approval evidence"),
-        dismissPullRequestApproval: async () => writes.push("dismiss"),
-        getOutstandingDependabotAutoMergeRequests: async () => {
-          writes.push("auto-merge-read");
-          return [];
-        },
-        getOutstandingDependabotProcessorApprovals: async () => [
-          {
-            approvalId: 6001,
-            headSha: "not-a-sha",
-            pullRequestNumber: 123,
-          },
-        ],
-        publishProcessorCheck: async () => writes.push("publish"),
+test("refresh preparation is split across request, mutate, and finalize phases", async () => {
+  const stale = staleSnapshot();
+  let requestedReceipt = null;
+  const requested = await processDependabotSweep({
+    adapter: {
+      prepareActor: PREPARE_ACTOR,
+      publishRefreshReceipt: async ({ receipt }) => {
+        requestedReceipt = receipt;
+        return { id: 40_001 };
       },
-      input: {
-        mode: "merge",
-        outstandingAutoMergeRequests: [],
-        pullRequests: [snapshot()],
-        repository: REPOSITORY,
-      },
-      publishChecks: true,
-    }),
-    /Repository-wide processor approval inventory is malformed/,
+    },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [stale],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "request",
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.deepEqual(
+    requested.mutations.map(({ kind }) => kind),
+    ["refresh-requested"],
   );
-  assert.deepEqual(writes, []);
+  assert.equal(requestedReceipt.state, "requested");
+  assert.equal(requestedReceipt.parentHeadSha, HEAD_SHA);
+  assert.equal(requestedReceipt.previousBaseSha, MERGE_SHA);
+  assert.equal(requestedReceipt.baseSha, BASE_SHA);
+  assert.deepEqual(
+    {
+      workflowRunAttempt: requestedReceipt.workflowRunAttempt,
+      workflowRunId: requestedReceipt.workflowRunId,
+      workflowSha: requestedReceipt.workflowSha,
+    },
+    WORKFLOW_CONTEXT,
+  );
+
+  const requestCheck = refreshReceiptCheck("requested");
+  const pending = staleSnapshot();
+  pending.repairHistoryChecks = [requestCheck];
+  let updateInput = null;
+  const mutated = await processDependabotSweep({
+    adapter: {
+      collectPullRequestSnapshot: async () =>
+        refreshedSnapshot({ repairHistoryChecks: [requestCheck] }),
+      requestPullRequestUpdateBranch: async (input) => {
+        updateInput = input;
+      },
+    },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [pending],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "mutate",
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.deepEqual(
+    mutated.mutations.map(({ kind }) => kind),
+    ["refresh-update-requested"],
+    stableJson(mutated.evaluations[0].repairAttempts),
+  );
+  assert.deepEqual(updateInput, {
+    expectedBaseSha: BASE_SHA,
+    expectedHeadSha: HEAD_SHA,
+    expectedPreviousBaseSha: MERGE_SHA,
+    pullRequestNumber: 123,
+    repository: REPOSITORY,
+  });
+
+  const successor = refreshedSnapshot({
+    repairHistoryChecks: [requestCheck],
+  });
+  let completedReceipt = null;
+  const completed = await processDependabotSweep({
+    adapter: {
+      collectPullRequestSnapshot: async () => successor,
+      getOutstandingDependabotAutoMergeRequests: async () => [],
+      getOutstandingDependabotProcessorApprovals:
+        noOutstandingProcessorApprovals,
+      publishRefreshReceipt: async ({ receipt }) => {
+        completedReceipt = receipt;
+        return { id: 40_002 };
+      },
+    },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [successor],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "finalize",
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.deepEqual(
+    completed.mutations.map(({ kind }) => kind),
+    ["refresh-completed"],
+  );
+  assert.equal(completedReceipt.state, "completed");
+  assert.equal(completedReceipt.headSha, OTHER_SHA);
+  assert.equal(completedReceipt.requestCheckId, requestCheck.id);
+  assert.equal(completedReceipt.requestDigest, digest(requestedReceipt));
 });
 
-test("reconciliation attempts every validated approval and blocks new authority when the global rescan remains occupied", async () => {
-  const events = [];
-  let approvalScans = 0;
-  const approvals = [
-    {
-      approvalId: 6001,
-      headSha: OTHER_SHA,
-      pullRequestNumber: 123,
+test("refresh successor polling retries only bounded snapshot races after the ref moves", async () => {
+  const requestCheck = refreshReceiptCheck("requested");
+  const pending = staleSnapshot();
+  pending.repairHistoryChecks = [requestCheck];
+  const stableFeedback = {
+    digest: "a".repeat(64),
+    headSha: OTHER_SHA,
+    updatedAt: "2026-08-12T09:58:00Z",
+  };
+  let reads = 0;
+  let waits = 0;
+  const result = await processDependabotSweep({
+    adapter: {
+      collectPullRequestSnapshot: async () => {
+        reads += 1;
+        if (reads === 1) {
+          requireStableFeedbackSnapshot(
+            stableFeedback,
+            { ...stableFeedback, digest: "b".repeat(64) },
+            123,
+          );
+        }
+        return refreshedSnapshot({ repairHistoryChecks: [requestCheck] });
+      },
+      requestPullRequestUpdateBranch: async () => {},
+      waitForRefreshSuccessor: async () => {
+        waits += 1;
+      },
     },
-    {
-      approvalId: 6002,
-      headSha: OTHER_SHA,
-      pullRequestNumber: 123,
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [pending],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
     },
+    phase: "mutate",
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(reads, 2);
+  assert.equal(waits, 1);
+  assert.deepEqual(result.mutations, [
     {
-      approvalId: 6003,
       headSha: HEAD_SHA,
-      pullRequestNumber: 125,
+      kind: "refresh-update-requested",
+      pullRequestNumber: 123,
+      requestCheckId: requestCheck.id,
+      requestDigest: digest(JSON.parse(requestCheck.outputText)),
+      successorHeadSha: OTHER_SHA,
     },
-  ];
+  ]);
+
+  reads = 0;
+  waits = 0;
+  const slowSuccessor = await processDependabotSweep({
+    adapter: {
+      collectPullRequestSnapshot: async () => {
+        reads += 1;
+        if (reads <= 4) return pending;
+        if (reads === 5) {
+          requireStableFeedbackSnapshot(
+            stableFeedback,
+            { ...stableFeedback, digest: "b".repeat(64) },
+            123,
+          );
+        }
+        return refreshedSnapshot({ repairHistoryChecks: [requestCheck] });
+      },
+      requestPullRequestUpdateBranch: async () => {},
+      waitForRefreshSuccessor: async () => {
+        waits += 1;
+      },
+    },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [pending],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "mutate",
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(reads, 6);
+  assert.equal(waits, 5);
+  assert.equal(
+    slowSuccessor.mutations[0].successorHeadSha,
+    OTHER_SHA,
+    "old-head polls must not consume the separate snapshot-race budget",
+  );
+
+  reads = 0;
+  waits = 0;
   await assert.rejects(
     processDependabotSweep({
       adapter: {
         collectPullRequestSnapshot: async () => {
-          events.push("collect");
-          return snapshot();
+          reads += 1;
+          requireStableFeedbackSnapshot(
+            stableFeedback,
+            { ...stableFeedback, updatedAt: `2026-08-12T09:58:0${reads}Z` },
+            123,
+          );
         },
-        dismissPullRequestApproval: async ({ approvalId }) => {
-          events.push(`dismiss-${approvalId}`);
-          if (approvalId === 6001) throw new Error("transient dismissal error");
-          return { dismissed: true, id: approvalId, state: "DISMISSED" };
+        requestPullRequestUpdateBranch: async () => {},
+        waitForRefreshSuccessor: async () => {
+          waits += 1;
         },
-        getOutstandingDependabotAutoMergeRequests: async () => {
-          events.push("auto-merge-read");
-          return [];
-        },
-        getOutstandingDependabotProcessorApprovals: async () => {
-          approvalScans += 1;
-          events.push(`approval-scan-${approvalScans}`);
-          return approvalScans === 1 ? approvals : [approvals[0]];
-        },
-        publishProcessorCheck: async () => events.push("publish"),
       },
       input: {
-        mode: "assist",
+        mode: "prepare",
         outstandingAutoMergeRequests: [],
-        pullRequests: [snapshot()],
+        pullRequests: [pending],
         repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
       },
-      publishChecks: true,
+      phase: "mutate",
+      workflowContext: WORKFLOW_CONTEXT,
     }),
-    /Repository-wide processor approval reconciliation failed/,
+    /feedback changed while its exact-head snapshot was collected/,
   );
-  assert.deepEqual(events, [
-    "approval-scan-1",
-    "dismiss-6001",
-    "dismiss-6002",
-    "dismiss-6003",
-    "approval-scan-2",
-  ]);
-});
+  assert.equal(reads, 5);
+  assert.equal(waits, 4);
 
-test("failure to disable the exact matching auto-merge request prevents approval and check publication", async () => {
-  let approved = false;
-  let published = false;
-  const adapter = {
-    approvePullRequest: async () => {
-      approved = true;
-    },
-    collectPullRequestSnapshot: async () => {
-      const current = snapshot();
-      current.feedback.autoMergeEnabled = true;
-      return current;
-    },
-    disablePullRequestAutoMerge: async () => {
-      throw new Error("disable mutation failed");
-    },
-    getOutstandingDependabotAutoMergeRequests: async () => [
-      {
-        headSha: HEAD_SHA,
-        nodeId: "PR_node",
-        pullRequestNumber: 123,
-      },
-    ],
-    getOutstandingDependabotProcessorApprovals: noOutstandingProcessorApprovals,
-    mergePullRequest: async () => assert.fail("must not merge"),
-    publishProcessorCheck: async () => {
-      published = true;
-    },
-  };
   await assert.rejects(
     processDependabotSweep({
-      adapter,
-      input: {
-        mode: "merge",
-        pullRequests: [snapshot()],
-        repository: REPOSITORY,
+      adapter: {
+        collectPullRequestSnapshot: async () => {
+          throw new Error("GitHub API unavailable");
+        },
+        requestPullRequestUpdateBranch: async () => {},
+        waitForRefreshSuccessor: async () =>
+          assert.fail("arbitrary failures must not be retried"),
       },
-      publishChecks: true,
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [pending],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "mutate",
+      workflowContext: WORKFLOW_CONTEXT,
     }),
-    /disable mutation failed/,
+    /GitHub API unavailable/,
   );
-  assert.equal(published, false);
-  assert.equal(approved, false);
+
+  const badSuccessor = refreshedSnapshot({
+    repairHistoryChecks: [requestCheck],
+  });
+  badSuccessor.commits.at(-1).parents = [HEAD_SHA];
+  reads = 0;
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        collectPullRequestSnapshot: async () => {
+          reads += 1;
+          if (reads === 1) {
+            requireStableFeedbackSnapshot(
+              stableFeedback,
+              { ...stableFeedback, digest: "b".repeat(64) },
+              123,
+            );
+          }
+          return badSuccessor;
+        },
+        requestPullRequestUpdateBranch: async () => {},
+        waitForRefreshSuccessor: async () => {},
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [pending],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "mutate",
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /refresh commit parents are invalid/,
+  );
+  assert.equal(reads, 2);
 });
 
-test("process rechecks the exact-main serialization receipt after approval", async () => {
-  let collections = 0;
+test("refresh request rejects a recorded base that differs from the compare merge base", async () => {
+  const stale = staleSnapshot();
+  stale.pullRequest.base.sha = OTHER_SHA;
+  let published = false;
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        prepareActor: PREPARE_ACTOR,
+        publishRefreshReceipt: async () => {
+          published = true;
+          return { id: 40_001 };
+        },
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [stale],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "request",
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /does not bind the recorded old base and distinct current base/,
+  );
+  assert.equal(published, false);
+});
+
+test("same-run or malformed Refresh evidence cannot reach the App update capability", async () => {
+  const stale = staleSnapshot();
+  stale.repairHistoryChecks = [
+    { ...refreshReceiptCheck("requested"), runStatus: "in_progress" },
+  ];
+  let updated = false;
+  const result = await processDependabotSweep({
+    adapter: {
+      collectPullRequestSnapshot: async () =>
+        assert.fail("untrusted same-run evidence must not recollect"),
+      requestPullRequestUpdateBranch: async () => {
+        updated = true;
+      },
+    },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [stale],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "mutate",
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(updated, false);
+  assert.deepEqual(result.mutations, []);
+  assert.equal(result.prepareCandidate?.disposition, "refresh-required");
+  assert.ok(
+    result.evaluations[0].repairAttempts.reasons.includes(
+      "malformed-current-refresh-request",
+    ),
+  );
+
+  const badSuccessor = refreshedSnapshot({
+    repairHistoryChecks: [refreshReceiptCheck("requested")],
+  });
+  badSuccessor.commits[1].parents = [HEAD_SHA];
+  let published = false;
+  const rejected = await processDependabotSweep({
+    adapter: {
+      collectPullRequestSnapshot: async () => badSuccessor,
+      getOutstandingDependabotAutoMergeRequests: async () => [],
+      getOutstandingDependabotProcessorApprovals:
+        noOutstandingProcessorApprovals,
+      publishRefreshReceipt: async () => {
+        published = true;
+      },
+    },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [badSuccessor],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "finalize",
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(published, false);
+  assert.equal(rejected.prepareCandidate, null);
+  assert.ok(
+    rejected.evaluations[0].repairAttempts.reasons.includes(
+      "preparation-lineage-commit-without-typed-receipt",
+    ),
+  );
+});
+
+test("finalize approves one recollected exact head and publishes ALL CLEAR without merging", async () => {
+  const calls = [];
   let approved = false;
-  let dismissed = false;
+  let allClearReceipt = null;
+  const postApproval = () => {
+    const current = snapshot();
+    if (approved) withCurrentProcessorApproval(current);
+    return current;
+  };
   const adapter = {
-    approvePullRequest: async () => {
+    approvePullRequest: async ({ headSha, pullRequestNumber }) => {
+      calls.push(["approve", pullRequestNumber, headSha]);
       approved = true;
       return processorApprovalResult();
     },
     collectPullRequestSnapshot: async () => {
-      collections += 1;
-      const current = snapshot();
-      if (collections === 3) {
-        withCurrentProcessorApproval(current);
-        current.baseline.checks = current.baseline.checks.filter(
-          ({ name }) => name !== "Dependabot Post-Merge Verification",
+      const current = postApproval();
+      if (approved) {
+        const sweep = evaluateDependabotSweep({
+          mode: "prepare",
+          outstandingAutoMergeRequests: [],
+          pullRequests: [current],
+          repository: REPOSITORY,
+          workflowContext: WORKFLOW_CONTEXT,
+        });
+        assert.deepEqual(sweep.prepareCandidate, {
+          disposition: "prepare-candidate",
+          headSha: HEAD_SHA,
+          pullRequestNumber: 123,
+        });
+        assert.deepEqual(
+          sweep.evaluations[0].feedback.currentProcessorApprovalIds,
+          [7001],
         );
       }
       return current;
     },
-    dismissPullRequestApproval: async () => {
-      dismissed = true;
-      return { dismissed: true, id: 7001, state: "DISMISSED" };
-    },
+    dismissPullRequestApproval: async () =>
+      assert.fail("successful finalization must preserve its exact approval"),
     getOutstandingDependabotAutoMergeRequests: async () => [],
-    getOutstandingDependabotProcessorApprovals: noOutstandingProcessorApprovals,
-    mergePullRequest: async () => assert.fail("must not merge"),
-  };
-  await assert.rejects(
-    processDependabotSweep({
-      adapter,
-      input: {
-        mode: "merge",
-        pullRequests: [snapshot()],
-        repository: REPOSITORY,
-      },
-    }),
-    /changed after approval/,
-  );
-  assert.equal(approved, true);
-  assert.equal(dismissed, true);
-});
-
-test("process rechecks current-main ancestry after approval", async () => {
-  let collections = 0;
-  let dismissed = false;
-  const adapter = {
-    approvePullRequest: async () => processorApprovalResult(),
-    collectPullRequestSnapshot: async () => {
-      collections += 1;
-      const current = snapshot();
-      if (collections === 3) {
-        withCurrentProcessorApproval(current);
-        current.baseAncestry = {
-          ...current.baseAncestry,
-          behindBy: 1,
-          currentBaseIsAncestor: false,
-          mergeBaseSha: OTHER_SHA,
-          status: "diverged",
-        };
-      }
-      return current;
-    },
-    dismissPullRequestApproval: async () => {
-      dismissed = true;
-      return { dismissed: true, id: 7001, state: "DISMISSED" };
-    },
-    getOutstandingDependabotAutoMergeRequests: async () => [],
-    getOutstandingDependabotProcessorApprovals: noOutstandingProcessorApprovals,
-    mergePullRequest: async () => assert.fail("must not merge"),
-  };
-  await assert.rejects(
-    processDependabotSweep({
-      adapter,
-      input: {
-        mode: "merge",
-        outstandingAutoMergeRequests: [],
-        pullRequests: [snapshot()],
-        repository: REPOSITORY,
-      },
-    }),
-    /changed after approval/,
-  );
-  assert.equal(dismissed, true);
-});
-
-test("process repeats the repository-wide auto-merge check immediately before approval", async () => {
-  let approved = false;
-  let globalReads = 0;
-  const adapter = {
-    approvePullRequest: async () => {
-      approved = true;
-    },
-    collectPullRequestSnapshot: async () => snapshot(),
-    getOutstandingDependabotAutoMergeRequests: async () => {
-      globalReads += 1;
-      return globalReads === 1
-        ? []
-        : [
+    getOutstandingDependabotProcessorApprovals: async () =>
+      approved
+        ? [
             {
-              headSha: OTHER_SHA,
-              nodeId: "PR_other",
-              pullRequestNumber: 999,
+              approvalId: 7001,
+              headSha: HEAD_SHA,
+              pullRequestNumber: 123,
             },
-          ];
+          ]
+        : [],
+    publishAllClear: async ({ receipt }) => {
+      calls.push(["all-clear", receipt.pullRequestNumber, receipt.headSha]);
+      allClearReceipt = receipt;
+      return { id: 50_002 };
     },
-    getOutstandingDependabotProcessorApprovals: noOutstandingProcessorApprovals,
-    mergePullRequest: async () => assert.fail("must not merge"),
+    publishAllClearInvalidation: async () =>
+      assert.fail("a clean candidate must not invalidate ALL CLEAR"),
+    publishProcessorCheck: async ({ disposition, headSha }) => {
+      calls.push(["processor", disposition, headSha]);
+      return { id: 50_001 };
+    },
   };
-  await assert.rejects(
-    processDependabotSweep({
-      adapter,
-      input: {
-        mode: "merge",
-        outstandingAutoMergeRequests: [],
-        pullRequests: [snapshot()],
-        repository: REPOSITORY,
-      },
+  const admittedProbeSnapshot = withCurrentProcessorApproval(snapshot());
+  const admittedProbe = evaluateDependabotSweep({
+    mode: "prepare",
+    outstandingAutoMergeRequests: [],
+    pullRequests: [admittedProbeSnapshot],
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  }).evaluations[0];
+  assert.equal(
+    admittedProbe.disposition,
+    "prepare-candidate",
+    stableJson({
+      base: admittedProbe.base,
+      checks: admittedProbe.checks,
+      feedback: admittedProbe.feedback,
+      identity: admittedProbe.identity,
     }),
-    /Another Dependabot auto-merge request occupies/,
   );
-  assert.equal(approved, false);
-  assert.equal(globalReads, 2);
+  const result = await processDependabotSweep({
+    adapter,
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [snapshot()],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "finalize",
+    publishChecks: true,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.deepEqual(calls, [
+    ["processor", "prepare-candidate", HEAD_SHA],
+    ["approve", 123, HEAD_SHA],
+    ["all-clear", 123, HEAD_SHA],
+  ]);
+  assert.deepEqual(
+    result.mutations.map(({ kind }) => kind),
+    ["processor-check-published", "approved", "all-clear-published"],
+  );
+  assert.equal(result.mergeCandidate, null);
+  assert.equal(Object.hasOwn(adapter, "mergePullRequest"), false);
+  assert.equal(allClearReceipt.schema, DEPENDABOT_ALL_CLEAR_SCHEMA);
+  assert.equal(allClearReceipt.humanAction, "merge");
+  assert.equal(allClearReceipt.mergeAuthorizedByAutomation, false);
+  assert.equal(allClearReceipt.processorApprovalId, 7001);
+  assert.deepEqual(allClearReceipt.preparation, {
+    kind: "native",
+    operationDigests: [],
+    refreshCount: 0,
+    repairCount: 0,
+    seedHeadSha: HEAD_SHA,
+  });
 });
 
-test("process repeats the repository-wide auto-merge check after approval and before merge", async () => {
+test("finalize withdraws its approval and invalidates ALL CLEAR after an exact-head race", async () => {
+  const cleanup = [];
   let approved = false;
-  let dismissed = false;
-  let globalReads = 0;
-  const adapter = {
-    approvePullRequest: async () => {
-      approved = true;
-      return processorApprovalResult();
-    },
-    collectPullRequestSnapshot: async () =>
-      approved ? withCurrentProcessorApproval(snapshot()) : snapshot(),
-    dismissPullRequestApproval: async () => {
-      dismissed = true;
-      return { dismissed: true, id: 7001, state: "DISMISSED" };
-    },
-    getOutstandingDependabotAutoMergeRequests: async () => {
-      globalReads += 1;
-      return globalReads <= 3
-        ? []
-        : [
-            {
-              headSha: OTHER_SHA,
-              nodeId: "PR_other",
-              pullRequestNumber: 999,
-            },
-          ];
-    },
-    getOutstandingDependabotProcessorApprovals: noOutstandingProcessorApprovals,
-    mergePullRequest: async () => assert.fail("must not merge"),
-  };
   await assert.rejects(
     processDependabotSweep({
-      adapter,
+      adapter: {
+        approvePullRequest: async () => {
+          approved = true;
+          return processorApprovalResult();
+        },
+        collectPullRequestSnapshot: async () => {
+          if (!approved) return snapshot();
+          return snapshot({
+            expectedHeadSha: OTHER_SHA,
+            pullRequest: {
+              head: {
+                ref: "dependabot/github_actions/github-actions-routine-123",
+                repo: { fullName: REPOSITORY },
+                sha: OTHER_SHA,
+              },
+            },
+          });
+        },
+        dismissPullRequestApproval: async ({ approvalId }) => {
+          cleanup.push(["dismiss", approvalId]);
+        },
+        getOutstandingDependabotAutoMergeRequests: async () => [],
+        getOutstandingDependabotProcessorApprovals:
+          noOutstandingProcessorApprovals,
+        publishAllClear: async () =>
+          assert.fail("a raced head must never receive ALL CLEAR"),
+        publishAllClearInvalidation: async ({ headSha }) => {
+          cleanup.push(["invalidate", headSha]);
+        },
+        publishProcessorCheck: async () => ({ id: 51_001 }),
+      },
       input: {
-        mode: "merge",
+        mode: "prepare",
         outstandingAutoMergeRequests: [],
         pullRequests: [snapshot()],
         repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
       },
+      phase: "finalize",
+      publishChecks: true,
+      workflowContext: WORKFLOW_CONTEXT,
     }),
-    /repository auto-merge lane must be empty before mutation/,
+    /failed final ruleset admission/,
   );
-  assert.equal(approved, true);
-  assert.equal(dismissed, true);
-  assert.equal(globalReads, 4);
+  assert.deepEqual(cleanup, [
+    ["invalidate", HEAD_SHA],
+    ["dismiss", 7001],
+  ]);
 });
 
-test("approval postconditions and merge failures both withdraw the exact processor review", async () => {
-  for (const scenario of ["wrong-review", "merge-error"]) {
-    let approved = false;
-    let dismissed = false;
-    const adapter = {
+test("a matching exact-head ALL CLEAR receipt makes finalize idempotent", async () => {
+  let captured = null;
+  let approved = false;
+  const postApproval = () => {
+    const current = snapshot();
+    if (approved) withCurrentProcessorApproval(current);
+    return current;
+  };
+  await processDependabotSweep({
+    adapter: {
       approvePullRequest: async () => {
         approved = true;
         return processorApprovalResult();
       },
-      collectPullRequestSnapshot: async () => {
-        const current = snapshot();
-        if (approved) {
-          withCurrentProcessorApproval(
-            current,
-            scenario === "wrong-review" ? 7002 : 7001,
-          );
-        }
-        return current;
+      collectPullRequestSnapshot: async () => postApproval(),
+      dismissPullRequestApproval: async () => {},
+      getOutstandingDependabotAutoMergeRequests: async () => [],
+      getOutstandingDependabotProcessorApprovals: async () =>
+        approved
+          ? [
+              {
+                approvalId: 7001,
+                headSha: HEAD_SHA,
+                pullRequestNumber: 123,
+              },
+            ]
+          : [],
+      publishAllClear: async ({ receipt }) => {
+        captured = receipt;
+        return { id: 52_002 };
       },
-      dismissPullRequestApproval: async ({ approvalId }) => {
-        assert.equal(approvalId, 7001);
-        dismissed = true;
-        return { dismissed: true, id: approvalId, state: "DISMISSED" };
+      publishAllClearInvalidation: async () => {},
+      publishProcessorCheck: async () => ({ id: 52_001 }),
+    },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [snapshot()],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "finalize",
+    publishChecks: true,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  const allClearCheck = trustedReceiptCheck({
+    externalId: `${DEPENDABOT_ALL_CLEAR_SCHEMA}:pr=123:head=${HEAD_SHA}:base=${BASE_SHA}:digest=${digest(captured)}:run=${WORKFLOW_CONTEXT.workflowRunId}:attempt=${WORKFLOW_CONTEXT.workflowRunAttempt}`,
+    headSha: HEAD_SHA,
+    id: 52_002,
+    name: "Dependabot ALL CLEAR",
+    receipt: captured,
+    workflowContext: WORKFLOW_CONTEXT,
+    workflowPath: ".github/workflows/dependabot-process.yml",
+  });
+  assert.ok(parseDependabotAllClearReceipt(allClearCheck, REPOSITORY));
+
+  const alreadyClear = withCurrentProcessorApproval(snapshot());
+  alreadyClear.checks.push(allClearCheck);
+  const writes = [];
+  const result = await processDependabotSweep({
+    adapter: {
+      approvePullRequest: async () => writes.push("approve"),
+      collectPullRequestSnapshot: async () => alreadyClear,
+      dismissPullRequestApproval: async () => writes.push("dismiss"),
+      getOutstandingDependabotAutoMergeRequests: async () => [],
+      getOutstandingDependabotProcessorApprovals: async () => [
+        {
+          approvalId: 7001,
+          headSha: HEAD_SHA,
+          pullRequestNumber: 123,
+        },
+      ],
+      publishAllClear: async () => writes.push("all-clear"),
+      publishAllClearInvalidation: async () => writes.push("invalidate"),
+      publishProcessorCheck: async () => writes.push("processor"),
+    },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [alreadyClear],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "finalize",
+    publishChecks: true,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.deepEqual(writes, []);
+  assert.deepEqual(result.processing, {
+    enabled: true,
+    reason: "already-all-clear",
+  });
+  assert.deepEqual(result.mutations, []);
+});
+
+test("an active higher-number ALL CLEAR pins global and targeted prepare lanes", async () => {
+  const lower = snapshotForPullRequest(122, HEAD_SHA);
+  const higher = await activeAllClearSnapshot({
+    approvalId: 7_201,
+    checkId: 63_002,
+    headSha: SECOND_HEAD_SHA,
+    pullRequestNumber: 124,
+  });
+  const evaluated = evaluateDependabotSweep({
+    mode: "prepare",
+    outstandingAutoMergeRequests: [],
+    pullRequests: [lower, higher],
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.deepEqual(evaluated.prepareCandidate, {
+    disposition: "prepare-candidate",
+    headSha: SECOND_HEAD_SHA,
+    pullRequestNumber: 124,
+  });
+  assert.equal(evaluated.serialization.activeAllClearApprovalId, 7_201);
+  assert.equal(
+    evaluated.evaluations.find(
+      ({ pullRequestNumber }) => pullRequestNumber === 122,
+    ).disposition,
+    "waiting-prepare-serialization",
+  );
+
+  const writes = [];
+  const targeted = await processDependabotSweep({
+    adapter: {
+      approvePullRequest: async () => writes.push("approve"),
+      collectPullRequestSnapshot: async (_repository, pullRequestNumber) => {
+        if (pullRequestNumber === 124) return structuredClone(higher);
+        if (pullRequestNumber === 122) return structuredClone(lower);
+        assert.fail(`unexpected PR #${pullRequestNumber}`);
       },
+      dismissPullRequestApproval: async () => writes.push("dismiss"),
+      getOutstandingDependabotAutoMergeRequests: async () => [],
+      getOutstandingDependabotProcessorApprovals: async () => [
+        {
+          approvalId: 7_201,
+          headSha: SECOND_HEAD_SHA,
+          pullRequestNumber: 124,
+        },
+      ],
+      publishAllClear: async () => writes.push("all-clear"),
+      publishAllClearInvalidation: async () => writes.push("invalidate"),
+      publishProcessorCheck: async () => writes.push("processor"),
+    },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [lower],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "finalize",
+    publishChecks: true,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.deepEqual(writes, []);
+  assert.deepEqual(targeted.prepareCandidate, {
+    disposition: "prepare-candidate",
+    headSha: SECOND_HEAD_SHA,
+    pullRequestNumber: 124,
+  });
+  assert.deepEqual(targeted.processing, {
+    enabled: true,
+    reason: "already-all-clear",
+  });
+});
+
+test("a competing approval injected after exact-head admission prevents ALL CLEAR", async () => {
+  const cleanup = [];
+  let approved = false;
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        approvePullRequest: async () => {
+          approved = true;
+          return processorApprovalResult();
+        },
+        collectPullRequestSnapshot: async () => {
+          const current = snapshot();
+          if (approved) withCurrentProcessorApproval(current);
+          return current;
+        },
+        dismissPullRequestApproval: async ({ approvalId }) => {
+          cleanup.push(["dismiss", approvalId]);
+        },
+        getOutstandingDependabotAutoMergeRequests: async () => [],
+        getOutstandingDependabotProcessorApprovals: async () =>
+          approved
+            ? [
+                {
+                  approvalId: 7_001,
+                  headSha: HEAD_SHA,
+                  pullRequestNumber: 123,
+                },
+                {
+                  approvalId: 7_999,
+                  headSha: SECOND_HEAD_SHA,
+                  pullRequestNumber: 124,
+                },
+              ]
+            : [],
+        publishAllClear: async () =>
+          assert.fail("competing global approval must block ALL CLEAR"),
+        publishAllClearInvalidation: async ({ headSha }) => {
+          cleanup.push(["invalidate", headSha]);
+        },
+        publishProcessorCheck: async () => ({ id: 64_001 }),
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [snapshot()],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "finalize",
+      publishChecks: true,
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /approval inventory changed before ALL CLEAR/,
+  );
+  assert.deepEqual(cleanup, [
+    ["invalidate", HEAD_SHA],
+    ["dismiss", 7_001],
+  ]);
+});
+
+test("finalize remediates only the exact packet-bound review thread", async () => {
+  const thread = {
+    bodyDigest: textDigest("Claude finding"),
+    line: 7,
+    path: "package.json",
+    reviewCommitSha: HEAD_SHA,
+    resolved: false,
+    rootCommentId: 61,
+    source: "claude",
+    threadId: "PRRT_thread_61",
+    trustedBotEnvelope: true,
+  };
+  const repairableFeedback = {
+    actionableThreadCount: 1,
+    actionableThreads: [thread],
+    reasons: ["unresolved-review-feedback", "unreplied-review-feedback"],
+    reviewDecision: "APPROVED",
+    unresolvedThreads: 1,
+    unrepliedThreads: 1,
+  };
+  const packet = evaluateDependabotPullRequest(
+    snapshot({ feedback: repairableFeedback }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  ).repairPacket;
+  assert.notEqual(packet, null);
+  const packetCheck = processorRepairReceipt(1, {
+    headSha: HEAD_SHA,
+    packet,
+  });
+  const receiptCheck = repairReceiptCheck({
+    headSha: OTHER_SHA,
+    packetDigest: digest(packet),
+    parentHeadSha: HEAD_SHA,
+    processorCheckId: packetCheck.id,
+  });
+  const repaired = refreshedSnapshot({
+    feedback: repairableFeedback,
+    repairHistoryChecks: [packetCheck, receiptCheck],
+  });
+  repaired.commits[1] = {
+    authorId: PREPARE_ACTOR.botId,
+    authorLogin: PREPARE_ACTOR.botLogin,
+    authorType: "Bot",
+    committerId: PREPARE_ACTOR.botId,
+    committerLogin: PREPARE_ACTOR.botLogin,
+    committerType: "Bot",
+    parents: [HEAD_SHA],
+    sha: OTHER_SHA,
+    verified: true,
+    verificationReason: "valid",
+  };
+  repaired.baseAncestry.aheadBy = 2;
+  const remediationProbe = evaluateDependabotPullRequest(repaired, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(
+    remediationProbe.disposition,
+    "feedback-remediation-required",
+    stableJson({
+      feedback: remediationProbe.feedback,
+      identity: remediationProbe.identity,
+      repairAttempts: remediationProbe.repairAttempts,
+    }),
+  );
+
+  const replies = [];
+  const resolved = [];
+  const result = await processDependabotSweep({
+    adapter: {
+      approvePullRequest: async () =>
+        assert.fail("feedback remediation must re-review before approval"),
+      collectPullRequestSnapshot: async () => repaired,
+      dismissPullRequestApproval: async () => {},
       getOutstandingDependabotAutoMergeRequests: async () => [],
       getOutstandingDependabotProcessorApprovals:
         noOutstandingProcessorApprovals,
-      mergePullRequest: async () => {
-        throw new Error("merge exploded after head drift");
-      },
-    };
-    await assert.rejects(
-      processDependabotSweep({
-        adapter,
-        input: {
-          mode: "merge",
-          outstandingAutoMergeRequests: [],
-          pullRequests: [snapshot()],
-          repository: REPOSITORY,
-        },
-      }),
-      scenario === "wrong-review"
-        ? /processor approval postcondition failed/
-        : /merge exploded after head drift/,
-    );
-    assert.equal(dismissed, true, scenario);
-  }
-});
-
-test("process performs no approval or merge mutation outside merge mode", async () => {
-  const adapter = {
-    approvePullRequest: async () => assert.fail("must not approve"),
-    collectPullRequestSnapshot: async () => snapshot(),
-    mergePullRequest: async () => assert.fail("must not merge"),
-  };
-  const result = await processDependabotSweep({
-    adapter,
-    input: {
-      mode: "assist",
-      pullRequests: [snapshot()],
-      repository: REPOSITORY,
+      publishAllClear: async () =>
+        assert.fail("feedback remediation must not publish ALL CLEAR"),
+      publishAllClearInvalidation: async () => {},
+      publishProcessorCheck: async () => ({ id: 53_001 }),
+      replyToReviewComment: async (input) => replies.push(input),
+      resolveReviewThread: async ({ threadId }) => resolved.push(threadId),
     },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [repaired],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "finalize",
+    publishChecks: true,
+    workflowContext: WORKFLOW_CONTEXT,
   });
-  assert.deepEqual(result.mutations, []);
-  assert.equal(result.evaluations[0].disposition, "ready-for-approval");
-});
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0].commentId, 61);
+  assert.match(replies[0].body, /^Fixed in 444444444444/);
+  assert.match(replies[0].body, new RegExp(`packet=${digest(packet)}`));
+  assert.deepEqual(resolved, [thread.threadId]);
+  assert.deepEqual(
+    result.mutations.filter(({ kind }) => kind === "feedback-remediated"),
+    [
+      {
+        headSha: OTHER_SHA,
+        kind: "feedback-remediated",
+        pullRequestNumber: 123,
+        threadId: thread.threadId,
+      },
+    ],
+  );
 
-test("live merge mode requires a dedicated merge token before any mutation", async () => {
-  const adapter = createLiveGitHubAdapter({
-    execFileImpl: async () => assert.fail("must not invoke gh merge"),
-    fetchImpl: async () => assert.fail("must not read or mutate GitHub"),
-    mergeToken: "",
-    token: "workflow-token",
-  });
+  let firstAttemptReplies = 0;
   await assert.rejects(
     processDependabotSweep({
-      adapter,
-      input: {
-        mode: "merge",
-        outstandingAutoMergeRequests: [],
-        pullRequests: [snapshot()],
-        repository: REPOSITORY,
+      adapter: {
+        collectPullRequestSnapshot: async () => repaired,
+        dismissPullRequestApproval: async () => {},
+        getOutstandingDependabotAutoMergeRequests: async () => [],
+        getOutstandingDependabotProcessorApprovals:
+          noOutstandingProcessorApprovals,
+        publishAllClearInvalidation: async () => {},
+        publishProcessorCheck: async () => ({ id: 53_010 }),
+        replyToReviewComment: async () => {
+          firstAttemptReplies += 1;
+        },
+        resolveReviewThread: async () => {
+          throw new Error("resolve failed after reply");
+        },
       },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [repaired],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "finalize",
       publishChecks: true,
+      workflowContext: WORKFLOW_CONTEXT,
     }),
-    /dedicated Dependabot processor merge token is required/,
+    /resolve failed after reply/,
+  );
+  assert.equal(firstAttemptReplies, 1);
+
+  const replyPersisted = structuredClone(repaired);
+  replyPersisted.feedback.remediationCandidates = [
+    {
+      headSha: OTHER_SHA,
+      packetDigest: digest(packet),
+      pullRequestNumber: 123,
+      rootCommentId: thread.rootCommentId,
+      threadDigest: textDigest(thread.threadId),
+      threadId: thread.threadId,
+    },
+  ];
+  const retryResolutions = [];
+  const retry = await processDependabotSweep({
+    adapter: {
+      collectPullRequestSnapshot: async () => replyPersisted,
+      dismissPullRequestApproval: async () => {},
+      getOutstandingDependabotAutoMergeRequests: async () => [],
+      getOutstandingDependabotProcessorApprovals:
+        noOutstandingProcessorApprovals,
+      publishAllClearInvalidation: async () => {},
+      publishProcessorCheck: async () => ({ id: 53_011 }),
+      replyToReviewComment: async () =>
+        assert.fail("a trusted persisted remediation reply must not repeat"),
+      resolveReviewThread: async ({ threadId }) =>
+        retryResolutions.push(threadId),
+    },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [replyPersisted],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "finalize",
+    publishChecks: true,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.deepEqual(retryResolutions, [thread.threadId]);
+  assert.deepEqual(
+    retry.mutations.filter(
+      ({ kind }) => kind === "feedback-resolution-retried",
+    ),
+    [
+      {
+        headSha: OTHER_SHA,
+        kind: "feedback-resolution-retried",
+        pullRequestNumber: 123,
+        threadId: thread.threadId,
+      },
+    ],
+  );
+
+  const forged = structuredClone(repaired);
+  forged.feedback.actionableThreads[0].rootCommentId = 62;
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        collectPullRequestSnapshot: async () => forged,
+        dismissPullRequestApproval: async () => {},
+        getOutstandingDependabotAutoMergeRequests: async () => [],
+        getOutstandingDependabotProcessorApprovals:
+          noOutstandingProcessorApprovals,
+        publishAllClearInvalidation: async () => {},
+        publishProcessorCheck: async () => ({ id: 53_002 }),
+        replyToReviewComment: async () =>
+          assert.fail("a changed root comment must not receive a reply"),
+        resolveReviewThread: async () =>
+          assert.fail("a changed root comment must not be resolved"),
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [forged],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "finalize",
+      publishChecks: true,
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /Feedback remediation thread changed after repair/,
   );
 });
 
-test("live observe and assist modes do not require a merge token", async () => {
-  for (const mode of ["observe", "assist"]) {
+test("live adapters expose only their phase capability and contain no merge adapter", () => {
+  const common = {
+    fetchImpl: async () => assert.fail("construction must not call GitHub"),
+    prepareAppSlug: PREPARE_ACTOR.appSlug,
+    prepareBotId: PREPARE_ACTOR.botId,
+    prepareBotLogin: PREPARE_ACTOR.botLogin,
+    token: "normal-token",
+  };
+  const request = createLiveGitHubAdapter({ ...common, phase: "request" });
+  assert.equal(typeof request.publishRefreshReceipt, "function");
+  assert.equal(request.requestPullRequestUpdateBranch, undefined);
+  assert.equal(request.approvePullRequest, undefined);
+  assert.equal(request.publishAllClear, undefined);
+  assert.equal(request.mergePullRequest, undefined);
+
+  const mutate = createLiveGitHubAdapter({
+    ...common,
+    phase: "mutate",
+    repairToken: "prepare-app-token",
+  });
+  assert.equal(typeof mutate.requestPullRequestUpdateBranch, "function");
+  assert.equal(mutate.publishRefreshReceipt, undefined);
+  assert.equal(mutate.approvePullRequest, undefined);
+  assert.equal(mutate.publishAllClear, undefined);
+  assert.equal(mutate.mergePullRequest, undefined);
+
+  const finalize = createLiveGitHubAdapter({ ...common, phase: "finalize" });
+  assert.equal(typeof finalize.publishRefreshReceipt, "function");
+  assert.equal(typeof finalize.approvePullRequest, "function");
+  assert.equal(typeof finalize.publishAllClear, "function");
+  assert.equal(finalize.requestPullRequestUpdateBranch, undefined);
+  assert.equal(finalize.mergePullRequest, undefined);
+
+  for (const phase of ["request", "finalize"]) {
+    assert.throws(
+      () =>
+        createLiveGitHubAdapter({
+          ...common,
+          phase,
+          repairToken: "prepare-app-token",
+        }),
+      new RegExp(`${phase} phase must not receive a Dependabot repair token`),
+    );
+  }
+});
+
+test("live refresh mutation binds the historical PR base and current main before update-branch", async () => {
+  const operations = [];
+  const fetchImpl = async (url, options = {}) => {
+    const path = new URL(url).pathname;
+    if (path === `/repos/${REPOSITORY}/pulls/123`) {
+      operations.push("pull");
+      assert.equal(options.method, "GET");
+      assert.equal(options.headers.Authorization, "Bearer workflow-token");
+      return new Response(
+        JSON.stringify(
+          liveApprovalPullRequest({
+            base: {
+              ref: "main",
+              repo: { full_name: REPOSITORY },
+              sha: MERGE_SHA,
+            },
+          }),
+        ),
+        { status: 200 },
+      );
+    }
+    if (path === `/repos/${REPOSITORY}/git/ref/heads/main`) {
+      operations.push("main");
+      assert.equal(options.method, "GET");
+      assert.equal(options.headers.Authorization, "Bearer workflow-token");
+      return new Response(
+        JSON.stringify({
+          object: { sha: BASE_SHA, type: "commit" },
+          ref: "refs/heads/main",
+        }),
+        { status: 200 },
+      );
+    }
+    assert.equal(path, `/repos/${REPOSITORY}/pulls/123/update-branch`);
+    operations.push("update");
+    assert.equal(options.method, "PUT");
+    assert.equal(options.headers.Authorization, "Bearer prepare-app-token");
+    assert.deepEqual(JSON.parse(options.body), {
+      expected_head_sha: HEAD_SHA,
+    });
+    return new Response(JSON.stringify({ message: "Updating pull request" }), {
+      status: 202,
+    });
+  };
+  const adapter = createLiveGitHubAdapter({
+    fetchImpl,
+    phase: "mutate",
+    prepareAppSlug: PREPARE_ACTOR.appSlug,
+    prepareBotId: PREPARE_ACTOR.botId,
+    prepareBotLogin: PREPARE_ACTOR.botLogin,
+    repairToken: "prepare-app-token",
+    token: "workflow-token",
+  });
+  assert.deepEqual(
+    await adapter.requestPullRequestUpdateBranch({
+      expectedBaseSha: BASE_SHA,
+      expectedHeadSha: HEAD_SHA,
+      expectedPreviousBaseSha: MERGE_SHA,
+      pullRequestNumber: 123,
+      repository: REPOSITORY,
+    }),
+    { message: "Updating pull request" },
+  );
+  assert.deepEqual(operations, ["pull", "main", "update"]);
+});
+
+test("live refresh mutation rejects a changed historical base, head, or current main", async () => {
+  const attempt = async ({
+    liveBaseSha = MERGE_SHA,
+    liveHeadSha = HEAD_SHA,
+    liveMainSha = BASE_SHA,
+  }) => {
+    const operations = [];
     const adapter = createLiveGitHubAdapter({
-      fetchImpl: async () => assert.fail("must not access GitHub"),
-      mergeToken: "",
+      fetchImpl: async (url) => {
+        const path = new URL(url).pathname;
+        if (path === `/repos/${REPOSITORY}/pulls/123`) {
+          operations.push("pull");
+          return new Response(
+            JSON.stringify(
+              liveApprovalPullRequest({
+                base: {
+                  ref: "main",
+                  repo: { full_name: REPOSITORY },
+                  sha: liveBaseSha,
+                },
+                head: {
+                  ref: "dependabot/github_actions/github-actions-routine-123",
+                  repo: { full_name: REPOSITORY },
+                  sha: liveHeadSha,
+                },
+              }),
+            ),
+            { status: 200 },
+          );
+        }
+        if (path === `/repos/${REPOSITORY}/git/ref/heads/main`) {
+          operations.push("main");
+          return new Response(
+            JSON.stringify({
+              object: { sha: liveMainSha, type: "commit" },
+              ref: "refs/heads/main",
+            }),
+            { status: 200 },
+          );
+        }
+        operations.push("update");
+        return assert.fail("invalid refresh evidence reached update-branch");
+      },
+      phase: "mutate",
+      prepareAppSlug: PREPARE_ACTOR.appSlug,
+      prepareBotId: PREPARE_ACTOR.botId,
+      prepareBotLogin: PREPARE_ACTOR.botLogin,
+      repairToken: "prepare-app-token",
       token: "workflow-token",
     });
-    const result = await processDependabotSweep({
-      adapter,
-      input: {
-        mode,
-        outstandingAutoMergeRequests: [],
-        pullRequests: [snapshot()],
-        repository: REPOSITORY,
-      },
+    const promise = adapter.requestPullRequestUpdateBranch({
+      expectedBaseSha: BASE_SHA,
+      expectedHeadSha: HEAD_SHA,
+      expectedPreviousBaseSha: MERGE_SHA,
+      pullRequestNumber: 123,
+      repository: REPOSITORY,
     });
-    assert.deepEqual(result.mutations, [], mode);
-  }
+    return { operations, promise };
+  };
+
+  const previousBaseChanged = await attempt({ liveBaseSha: OTHER_SHA });
+  await assert.rejects(
+    previousBaseChanged.promise,
+    /changed before update-branch/,
+  );
+  assert.deepEqual(previousBaseChanged.operations, ["pull"]);
+
+  const headChanged = await attempt({ liveHeadSha: OTHER_SHA });
+  await assert.rejects(headChanged.promise, /changed before update-branch/);
+  assert.deepEqual(headChanged.operations, ["pull"]);
+
+  const mainChanged = await attempt({ liveMainSha: OTHER_SHA });
+  await assert.rejects(
+    mainChanged.promise,
+    /main changed before update-branch/,
+  );
+  assert.deepEqual(mainChanged.operations, ["pull", "main"]);
 });
 
 test("live approval brackets the exact full PR identity and returns its post-review update token", async () => {
@@ -3554,7 +5206,7 @@ test("live approval brackets the exact full PR identity and returns its post-rev
     assert.equal(options.method, "POST");
     assert.equal(options.headers.Authorization, "Bearer workflow-token");
     assert.deepEqual(JSON.parse(options.body), {
-      body: `Approved by dependabot-processor:v1 for exact head ${HEAD_SHA}.`,
+      body: `Approved by ${DEPENDABOT_PROCESSOR_SCHEMA} for exact head ${HEAD_SHA}.`,
       commit_id: HEAD_SHA,
       event: "APPROVE",
     });
@@ -3806,174 +5458,6 @@ test("live approval dismissal is idempotent when GitHub already dismissed the re
   );
 });
 
-test("live merge adapter uses an immediate protected exact-head merge and never bypasses protection", async () => {
-  const executions = [];
-  const fetchImpl = async (url, options = {}) => {
-    if (url.endsWith(`/repos/${REPOSITORY}/pulls/123`)) {
-      return new Response(
-        JSON.stringify({
-          base: {
-            ref: "main",
-            repo: { full_name: REPOSITORY },
-            sha: BASE_SHA,
-          },
-          draft: false,
-          head: {
-            ref: "dependabot/github_actions/github-actions-routine-123",
-            repo: { full_name: REPOSITORY },
-            sha: HEAD_SHA,
-          },
-          labels: [],
-          node_id: "PR_node",
-          number: 123,
-          state: "open",
-          updated_at: "2026-08-10T10:00:00Z",
-          user: { login: "dependabot[bot]" },
-        }),
-        { status: 200 },
-      );
-    }
-    if (url.endsWith("/graphql")) {
-      const { query } = JSON.parse(options.body);
-      if (query.includes("DependabotProcessorAutoMergeRequests")) {
-        return new Response(
-          JSON.stringify({
-            data: {
-              repository: {
-                pullRequests: {
-                  nodes: [],
-                  pageInfo: { endCursor: null, hasNextPage: false },
-                },
-              },
-            },
-          }),
-          { status: 200 },
-        );
-      }
-      return new Response(
-        JSON.stringify({
-          data: {
-            repository: {
-              pullRequest: {
-                autoMergeRequest: null,
-                headRefOid: HEAD_SHA,
-                id: "PR_node",
-                isDraft: false,
-                mergeStateStatus: "CLEAN",
-                reviewDecision: "APPROVED",
-                updatedAt: "2026-08-10T10:00:00Z",
-                reviewThreads: {
-                  nodes: [],
-                  pageInfo: { endCursor: null, hasNextPage: false },
-                },
-              },
-            },
-          },
-        }),
-        { status: 200 },
-      );
-    }
-    if (
-      url.includes(`/repos/${REPOSITORY}/pulls/123/reviews`) ||
-      url.includes(`/repos/${REPOSITORY}/issues/123/comments`) ||
-      url.includes(`/repos/${REPOSITORY}/issues/123/events`)
-    ) {
-      return new Response(JSON.stringify([]), { status: 200 });
-    }
-    if (url.endsWith(`/repos/${REPOSITORY}/commits/main`)) {
-      return new Response(JSON.stringify({ sha: BASE_SHA }), { status: 200 });
-    }
-    if (
-      url.endsWith(`/repos/${REPOSITORY}/compare/${BASE_SHA}...${HEAD_SHA}`)
-    ) {
-      return new Response(
-        JSON.stringify({
-          ahead_by: 1,
-          base_commit: { sha: BASE_SHA },
-          behind_by: 0,
-          merge_base_commit: { sha: BASE_SHA },
-          status: "ahead",
-        }),
-        { status: 200 },
-      );
-    }
-    assert.fail(`Unexpected request: ${options.method} ${url}`);
-  };
-  const adapter = createLiveGitHubAdapter({
-    execFileImpl: async (file, arguments_, options) => {
-      executions.push({ arguments_, file, options });
-      return { stdout: "enabled" };
-    },
-    fetchImpl,
-    mergeToken: "merge-token",
-    token: "test-token",
-  });
-  await adapter.mergePullRequest({
-    headSha: HEAD_SHA,
-    pullRequestNumber: 123,
-    repository: REPOSITORY,
-  });
-  assert.deepEqual(executions[0].arguments_, [
-    "pr",
-    "merge",
-    "123",
-    "--repo",
-    REPOSITORY,
-    "--squash",
-    "--match-head-commit",
-    HEAD_SHA,
-  ]);
-  assert.equal(executions[0].arguments_.includes("--admin"), false);
-  assert.equal(executions[0].options.env.GH_TOKEN, "merge-token");
-  assert.equal(
-    executions[0].options.env.DEPENDABOT_PROCESSOR_GITHUB_TOKEN,
-    undefined,
-  );
-  assert.equal(
-    executions[0].options.env.DEPENDABOT_PROCESSOR_MERGE_TOKEN,
-    undefined,
-  );
-  assert.equal(executions[0].options.env.GITHUB_TOKEN, undefined);
-});
-
-test("final merge admission rechecks current veto labels and paginated durable close history", async () => {
-  for (const input of [
-    { labels: ["do-not-merge"] },
-    { events: [{ actor: { login: "alice" }, event: "closed" }] },
-    {
-      events: [
-        { actor: { login: "alice" }, event: "closed" },
-        { actor: { login: "alice" }, event: "reopened" },
-      ],
-    },
-    {
-      events: [
-        {
-          actor: { login: "dependabot[bot]" },
-          commit_id: OTHER_SHA,
-          event: "head_ref_force_pushed",
-        },
-      ],
-    },
-  ]) {
-    const adapter = createLiveGitHubAdapter({
-      execFileImpl: async () => assert.fail("must not invoke gh merge"),
-      fetchImpl: liveMergeAdmissionFetch(input),
-      mergeToken: "merge-token",
-      token: "test-token",
-    });
-    await assert.rejects(
-      adapter.mergePullRequest({
-        headSha: HEAD_SHA,
-        pullRequestNumber: 123,
-        repository: REPOSITORY,
-      }),
-      /feedback changed during merge admission/,
-      JSON.stringify(input),
-    );
-  }
-});
-
 test("live check collection binds a check to its queried workflow repository", async () => {
   const fetchImpl = async (url) => {
     if (url.includes(`/repos/${REPOSITORY}/commits/${HEAD_SHA}/check-runs`)) {
@@ -4024,6 +5508,688 @@ test("live check collection binds a check to its queried workflow repository", a
     repository: REPOSITORY,
   });
   assert.equal(result.policy.find(({ id }) => id === "ci").state, "passing");
+});
+
+test("live check collection bounds concurrent workflow-run enrichment for checks and statuses", async () => {
+  const checkCount = 12;
+  const statusCount = 12;
+  const firstWorkflowRunId = 31_471_141_700;
+  const firstStatusWorkflowRunId = firstWorkflowRunId + checkCount;
+  let activeWorkflowRunGets = 0;
+  let maxConcurrentWorkflowRunGets = 0;
+  let releaseScheduled = false;
+  let workflowRunGets = 0;
+  const pendingReleases = [];
+  const waitForCurrentWave = () =>
+    new Promise((resolve) => {
+      pendingReleases.push(resolve);
+      if (releaseScheduled) return;
+      releaseScheduled = true;
+      queueMicrotask(() => {
+        releaseScheduled = false;
+        const currentWave = pendingReleases.splice(0);
+        for (const release of currentWave) release();
+      });
+    });
+  const fetchImpl = async (url) => {
+    if (url.includes(`/repos/${REPOSITORY}/commits/${HEAD_SHA}/check-runs`)) {
+      return new Response(
+        JSON.stringify({
+          check_runs: Array.from({ length: checkCount }, (_, index) => {
+            const workflowRunId = firstWorkflowRunId + index;
+            return {
+              app: { id: 15_368 },
+              completed_at: "2026-08-11T08:24:00Z",
+              conclusion: "success",
+              details_url: `https://github.com/${REPOSITORY}/actions/runs/${workflowRunId}`,
+              head_sha: HEAD_SHA,
+              id: 93_713_691_500 + index,
+              name: `Workflow-backed check ${index}`,
+              started_at: "2026-08-11T08:23:59Z",
+              status: "completed",
+            };
+          }),
+        }),
+        { status: 200 },
+      );
+    }
+    const workflowRunMatch = /\/actions\/runs\/([1-9][0-9]*)$/.exec(url);
+    if (workflowRunMatch) {
+      const workflowRunId = Number(workflowRunMatch[1]);
+      workflowRunGets += 1;
+      activeWorkflowRunGets += 1;
+      maxConcurrentWorkflowRunGets = Math.max(
+        maxConcurrentWorkflowRunGets,
+        activeWorkflowRunGets,
+      );
+      await waitForCurrentWave();
+      activeWorkflowRunGets -= 1;
+      return new Response(
+        JSON.stringify({
+          conclusion: "success",
+          event: "pull_request",
+          head_branch: "dependabot/test",
+          head_sha: HEAD_SHA,
+          id: workflowRunId,
+          path: ".github/workflows/ci.yml",
+          repository: { full_name: REPOSITORY },
+          run_attempt: 1,
+          status: "completed",
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes(`/repos/${REPOSITORY}/commits/${HEAD_SHA}/statuses`)) {
+      return new Response(
+        JSON.stringify(
+          Array.from({ length: statusCount }, (_, index) => {
+            const workflowRunId = firstStatusWorkflowRunId + index;
+            return {
+              context: `Workflow-backed status ${index}`,
+              creator: { login: "github-actions[bot]" },
+              id: 93_713_691_600 + index,
+              state: "success",
+              target_url: `https://github.com/${REPOSITORY}/actions/runs/${workflowRunId}`,
+              updated_at: "2026-08-11T08:24:00Z",
+            };
+          }),
+        ),
+        { status: 200 },
+      );
+    }
+    assert.fail(`Unexpected request: ${url}`);
+  };
+  const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
+  const checks = await adapter.getChecks(REPOSITORY, HEAD_SHA);
+
+  assert.equal(checks.length, checkCount + statusCount);
+  assert.equal(workflowRunGets, checkCount + statusCount);
+  assert.equal(activeWorkflowRunGets, 0);
+  assert.ok(maxConcurrentWorkflowRunGets > 0);
+  assert.ok(maxConcurrentWorkflowRunGets <= 8);
+  assert.deepEqual(
+    checks.map(({ runId }) => runId),
+    [
+      ...Array.from(
+        { length: checkCount },
+        (_, index) => firstWorkflowRunId + index,
+      ),
+      ...Array.from(
+        { length: statusCount },
+        (_, index) => firstStatusWorkflowRunId + index,
+      ),
+    ],
+  );
+});
+
+test("live typed receipt enrichment preserves historical attempts without cache poisoning", async () => {
+  const workflowRunId = 31_471_141_750;
+  const workflowContextForAttempt = (workflowRunAttempt) => ({
+    ...WORKFLOW_CONTEXT,
+    workflowRunAttempt,
+    workflowRunId,
+  });
+  const historicalReceipt = processorRepairReceipt(1, {
+    id: 93_713_691_750,
+    packet: false,
+    workflowContext: workflowContextForAttempt(1),
+  });
+  const currentReceipt = processorRepairReceipt(1, {
+    id: 93_713_691_751,
+    packet: false,
+    workflowContext: workflowContextForAttempt(2),
+  });
+  const requestedRunPaths = [];
+  const fetchImpl = async (url) => {
+    const path = new URL(url).pathname;
+    if (path.endsWith(`/commits/${HEAD_SHA}/check-runs`)) {
+      return new Response(
+        JSON.stringify({
+          check_runs: [
+            {
+              app: { id: 15_368 },
+              completed_at: "2026-08-11T08:25:00Z",
+              conclusion: historicalReceipt.conclusion,
+              details_url: `https://github.com/${REPOSITORY}/actions/runs/${workflowRunId}`,
+              external_id: historicalReceipt.externalId,
+              head_sha: HEAD_SHA,
+              id: historicalReceipt.id,
+              name: historicalReceipt.name,
+              started_at: "2026-08-11T08:24:59Z",
+              status: "completed",
+            },
+            {
+              app: { id: 15_368 },
+              completed_at: "2026-08-11T08:26:00Z",
+              conclusion: currentReceipt.conclusion,
+              details_url: `https://github.com/${REPOSITORY}/actions/runs/${workflowRunId}`,
+              external_id: currentReceipt.externalId,
+              head_sha: HEAD_SHA,
+              id: currentReceipt.id,
+              name: currentReceipt.name,
+              started_at: "2026-08-11T08:25:59Z",
+              status: "completed",
+            },
+            {
+              app: { id: 15_368 },
+              completed_at: "2026-08-11T08:26:00Z",
+              conclusion: "failure",
+              details_url: `https://github.com/${REPOSITORY}/actions/runs/${workflowRunId}`,
+              head_sha: HEAD_SHA,
+              id: 93_713_691_752,
+              name: "Current workflow-backed check",
+              started_at: "2026-08-11T08:25:59Z",
+              status: "completed",
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }
+    if (
+      path === `/repos/${REPOSITORY}/actions/runs/${workflowRunId}` ||
+      path === `/repos/${REPOSITORY}/actions/runs/${workflowRunId}/attempts/1`
+    ) {
+      requestedRunPaths.push(path);
+      const historical = path.endsWith("/attempts/1");
+      return new Response(
+        JSON.stringify({
+          conclusion: "success",
+          display_title: historical ? "historical attempt" : "latest attempt",
+          event: "repository_dispatch",
+          head_branch: "main",
+          head_sha: MERGE_SHA,
+          id: workflowRunId,
+          path: ".github/workflows/dependabot-process.yml",
+          repository: { full_name: REPOSITORY },
+          run_attempt: historical ? 1 : 2,
+          status: "completed",
+        }),
+        { status: 200 },
+      );
+    }
+    if (path.endsWith(`/commits/${HEAD_SHA}/statuses`)) {
+      return new Response(JSON.stringify([]), { status: 200 });
+    }
+    assert.fail(`Unexpected request: ${url}`);
+  };
+  const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
+
+  for (let collection = 0; collection < 2; collection += 1) {
+    const checks = await adapter.getChecks(REPOSITORY, HEAD_SHA);
+    assert.ok(parseDependabotProcessorReceipt(checks[0], REPOSITORY));
+    assert.ok(parseDependabotProcessorReceipt(checks[1], REPOSITORY));
+    assert.deepEqual(
+      checks.map(({ runAttempt, runConclusion, runDisplayTitle, runId }) => ({
+        runAttempt,
+        runConclusion,
+        runDisplayTitle,
+        runId,
+      })),
+      [
+        {
+          runAttempt: 1,
+          runConclusion: "success",
+          runDisplayTitle: "historical attempt",
+          runId: workflowRunId,
+        },
+        {
+          runAttempt: 2,
+          runConclusion: "success",
+          runDisplayTitle: "latest attempt",
+          runId: workflowRunId,
+        },
+        {
+          runAttempt: 2,
+          runConclusion: "success",
+          runDisplayTitle: "latest attempt",
+          runId: workflowRunId,
+        },
+      ],
+    );
+  }
+  assert.deepEqual(requestedRunPaths, [
+    `/repos/${REPOSITORY}/actions/runs/${workflowRunId}`,
+    `/repos/${REPOSITORY}/actions/runs/${workflowRunId}/attempts/1`,
+    `/repos/${REPOSITORY}/actions/runs/${workflowRunId}`,
+    `/repos/${REPOSITORY}/actions/runs/${workflowRunId}/attempts/1`,
+  ]);
+});
+
+test("live typed receipt attempt enrichment fails closed on fetch and identity errors", async () => {
+  const workflowRunId = 31_471_141_760;
+  const receipt = processorRepairReceipt(1, {
+    id: 93_713_691_760,
+    workflowContext: {
+      ...WORKFLOW_CONTEXT,
+      workflowRunAttempt: 1,
+      workflowRunId,
+    },
+  });
+  const cases = [
+    {
+      attemptResponse: new Response(JSON.stringify({ message: "Not Found" }), {
+        status: 404,
+      }),
+      expected: /attempts\/1 failed with 404/,
+      label: "missing historical attempt",
+    },
+    {
+      attemptResponse: new Response(
+        JSON.stringify({ id: workflowRunId + 1, run_attempt: 1 }),
+        { status: 200 },
+      ),
+      expected: /attempt 1 response is invalid/,
+      label: "mismatched run ID",
+    },
+    {
+      attemptResponse: new Response(
+        JSON.stringify({ id: workflowRunId, run_attempt: 2 }),
+        { status: 200 },
+      ),
+      expected: /attempt 1 response is invalid/,
+      label: "mismatched attempt",
+    },
+  ];
+
+  for (const testCase of cases) {
+    const fetchImpl = async (url) => {
+      const path = new URL(url).pathname;
+      if (path.endsWith(`/commits/${HEAD_SHA}/check-runs`)) {
+        return new Response(
+          JSON.stringify({
+            check_runs: [
+              {
+                app: { id: 15_368 },
+                completed_at: "2026-08-11T08:25:00Z",
+                conclusion: "failure",
+                details_url: `https://github.com/${REPOSITORY}/actions/runs/${workflowRunId}`,
+                external_id: receipt.externalId,
+                head_sha: HEAD_SHA,
+                id: receipt.id,
+                name: receipt.name,
+                started_at: "2026-08-11T08:24:59Z",
+                status: "completed",
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (path === `/repos/${REPOSITORY}/actions/runs/${workflowRunId}`) {
+        return new Response(
+          JSON.stringify({
+            id: workflowRunId,
+            repository: { full_name: REPOSITORY },
+            run_attempt: 2,
+          }),
+          { status: 200 },
+        );
+      }
+      if (
+        path === `/repos/${REPOSITORY}/actions/runs/${workflowRunId}/attempts/1`
+      ) {
+        return testCase.attemptResponse.clone();
+      }
+      assert.fail(`Unexpected request: ${url}`);
+    };
+    const adapter = createLiveGitHubAdapter({
+      fetchImpl,
+      token: "test-token",
+    });
+    await assert.rejects(
+      adapter.getChecks(REPOSITORY, HEAD_SHA),
+      testCase.expected,
+      testCase.label,
+    );
+  }
+});
+
+test("live post-merge collection follows the durable external receipt when GitHub rewrites the check URL", async () => {
+  const checkRunId = 93_713_691_394;
+  const workflowRunId = 31_471_141_674;
+  const requestedWorkflowRuns = [];
+  const fetchImpl = async (url) => {
+    if (url.includes(`/repos/${REPOSITORY}/commits/${BASE_SHA}/check-runs`)) {
+      return new Response(
+        JSON.stringify({
+          check_runs: [
+            {
+              app: { id: 15_368 },
+              completed_at: "2026-08-11T08:20:00Z",
+              conclusion: "success",
+              details_url: `https://github.com/${REPOSITORY}/runs/${checkRunId}`,
+              external_id: `dependabot-post-merge:${workflowRunId}:1`,
+              head_sha: BASE_SHA,
+              id: checkRunId,
+              name: "Dependabot Post-Merge Verification",
+              started_at: "2026-08-11T08:19:59Z",
+              status: "completed",
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.endsWith(`/repos/${REPOSITORY}/actions/runs/${workflowRunId}`)) {
+      requestedWorkflowRuns.push(workflowRunId);
+      return new Response(
+        JSON.stringify({
+          conclusion: "success",
+          event: "workflow_run",
+          head_branch: "main",
+          head_sha: BASE_SHA,
+          id: workflowRunId,
+          path: ".github/workflows/vercel-main-deployment.yml",
+          repository: { full_name: REPOSITORY },
+          run_attempt: 1,
+          status: "completed",
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes(`/repos/${REPOSITORY}/commits/${BASE_SHA}/statuses`)) {
+      return new Response(JSON.stringify([]), { status: 200 });
+    }
+    assert.fail(`Unexpected request: ${url}`);
+  };
+  const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
+  const [receipt] = await adapter.getChecks(REPOSITORY, BASE_SHA);
+
+  assert.deepEqual(requestedWorkflowRuns, [workflowRunId]);
+  assert.equal(receipt.id, checkRunId);
+  assert.equal(
+    receipt.detailsUrl,
+    `https://github.com/${REPOSITORY}/runs/${checkRunId}`,
+  );
+  assert.equal(receipt.externalId, `dependabot-post-merge:${workflowRunId}:1`);
+  assert.equal(receipt.runId, workflowRunId);
+  assert.equal(receipt.runAttempt, 1);
+  assert.equal(receipt.runConclusion, "success");
+  assert.equal(receipt.runHeadBranch, "main");
+  assert.equal(receipt.runHeadSha, BASE_SHA);
+  assert.equal(receipt.sourceRepository, REPOSITORY);
+  assert.equal(receipt.runStatus, "completed");
+  assert.equal(receipt.workflowEvent, "workflow_run");
+  assert.equal(
+    receipt.workflowPath,
+    ".github/workflows/vercel-main-deployment.yml",
+  );
+
+  const result = evaluatePrepareSerializationReceipt(receipt);
+  assert.equal(result.serialization.ready, true);
+  assert.deepEqual(result.serialization.check, {
+    conclusion: "success",
+    headSha: BASE_SHA,
+    name: "Dependabot Post-Merge Verification",
+    runAttempt: 1,
+    runId: workflowRunId,
+  });
+});
+
+test("live post-merge collection refetches mutable workflow-run state for every gate snapshot", async () => {
+  const checkRunId = 93_713_691_395;
+  const workflowRunId = 31_471_141_675;
+  let checkReads = 0;
+  let workflowRunReads = 0;
+  const fetchImpl = async (url) => {
+    if (url.includes(`/repos/${REPOSITORY}/commits/${BASE_SHA}/check-runs`)) {
+      checkReads += 1;
+      return new Response(
+        JSON.stringify({
+          check_runs: [
+            {
+              app: { id: 15_368 },
+              completed_at: "2026-08-11T08:21:00Z",
+              conclusion: "success",
+              details_url: `https://github.com/${REPOSITORY}/runs/${checkRunId}`,
+              external_id: `dependabot-post-merge:${workflowRunId}:1`,
+              head_sha: BASE_SHA,
+              id: checkRunId,
+              name: "Dependabot Post-Merge Verification",
+              started_at: "2026-08-11T08:20:59Z",
+              status: "completed",
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.endsWith(`/repos/${REPOSITORY}/actions/runs/${workflowRunId}`)) {
+      workflowRunReads += 1;
+      const completed = workflowRunReads === 1;
+      return new Response(
+        JSON.stringify({
+          conclusion: completed ? "success" : null,
+          event: "workflow_run",
+          head_branch: "main",
+          head_sha: BASE_SHA,
+          id: workflowRunId,
+          path: ".github/workflows/vercel-main-deployment.yml",
+          repository: { full_name: REPOSITORY },
+          run_attempt: 1,
+          status: completed ? "completed" : "in_progress",
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes(`/repos/${REPOSITORY}/commits/${BASE_SHA}/statuses`)) {
+      return new Response(JSON.stringify([]), { status: 200 });
+    }
+    assert.fail(`Unexpected request: ${url}`);
+  };
+  const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
+
+  const [firstReceipt] = await adapter.getChecks(REPOSITORY, BASE_SHA);
+  const firstResult = evaluatePrepareSerializationReceipt(firstReceipt);
+  assert.equal(firstReceipt.runStatus, "completed");
+  assert.equal(firstReceipt.runConclusion, "success");
+  assert.equal(firstResult.serialization.ready, true);
+
+  const [secondReceipt] = await adapter.getChecks(REPOSITORY, BASE_SHA);
+  const secondResult = evaluatePrepareSerializationReceipt(secondReceipt);
+  assert.equal(secondReceipt.runStatus, "in_progress");
+  assert.equal(secondReceipt.runConclusion, null);
+  assert.equal(secondResult.serialization.ready, false);
+  assert.equal(
+    secondResult.serialization.reason,
+    "post-merge-workflow-not-successful",
+  );
+  assert.equal(secondResult.prepareCandidate, null);
+  assert.equal(checkReads, 2);
+  assert.equal(workflowRunReads, 2);
+});
+
+test("live post-merge collection preserves an absent workflow head as null across stable JSON", async () => {
+  const cases = [
+    { explicitNull: false, label: "omitted" },
+    { explicitNull: true, label: "null" },
+  ];
+  let omittedReceipt = null;
+  for (const [index, testCase] of cases.entries()) {
+    const checkRunId = 93_713_691_400 + index;
+    const workflowRunId = 31_471_141_680 + index;
+    const fetchImpl = async (url) => {
+      if (url.includes(`/repos/${REPOSITORY}/commits/${BASE_SHA}/check-runs`)) {
+        return new Response(
+          JSON.stringify({
+            check_runs: [
+              {
+                app: { id: 15_368 },
+                completed_at: "2026-08-11T08:22:00Z",
+                conclusion: "success",
+                details_url: `https://github.com/${REPOSITORY}/runs/${checkRunId}`,
+                external_id: `dependabot-post-merge:${workflowRunId}:1`,
+                head_sha: BASE_SHA,
+                id: checkRunId,
+                name: "Dependabot Post-Merge Verification",
+                started_at: "2026-08-11T08:21:59Z",
+                status: "completed",
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith(`/repos/${REPOSITORY}/actions/runs/${workflowRunId}`)) {
+        const workflowRun = {
+          conclusion: "success",
+          event: "workflow_run",
+          head_branch: "main",
+          id: workflowRunId,
+          path: ".github/workflows/vercel-main-deployment.yml",
+          repository: { full_name: REPOSITORY },
+          run_attempt: 1,
+          status: "completed",
+        };
+        if (testCase.explicitNull) workflowRun.head_sha = null;
+        return new Response(JSON.stringify(workflowRun), { status: 200 });
+      }
+      if (url.includes(`/repos/${REPOSITORY}/commits/${BASE_SHA}/statuses`)) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      assert.fail(`Unexpected request: ${url}`);
+    };
+    const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
+    const [receipt] = await adapter.getChecks(REPOSITORY, BASE_SHA);
+
+    assert.equal(receipt.runHeadSha, null, testCase.label);
+    if (!testCase.explicitNull) omittedReceipt = receipt;
+    const result = evaluatePrepareSerializationReceipt(receipt);
+    assert.equal(result.serialization.ready, false, testCase.label);
+    assert.equal(
+      result.serialization.reason,
+      "untrusted-post-merge-source-ref",
+      testCase.label,
+    );
+    assert.equal(result.prepareCandidate, null, testCase.label);
+  }
+
+  assert.notEqual(omittedReceipt, null);
+  const persistedReceipt = JSON.parse(stableJson(omittedReceipt));
+  assert.equal(persistedReceipt.runHeadSha, null);
+  const persistedResult = evaluatePrepareSerializationReceipt(persistedReceipt);
+  assert.equal(persistedResult.serialization.ready, false);
+  assert.equal(
+    persistedResult.serialization.reason,
+    "untrusted-post-merge-source-ref",
+  );
+  assert.equal(persistedResult.prepareCandidate, null);
+});
+
+test("live post-merge collection dereferences only the newest exact receipt", async () => {
+  const olderCheckRunId = 93_713_691_410;
+  const olderWorkflowRunId = 31_471_141_690;
+  const newerCheckRunId = olderCheckRunId + 1;
+  const newerWorkflowRunId = olderWorkflowRunId + 1;
+  const checkRunPages = [];
+  const requestedWorkflowRuns = [];
+  const fetchImpl = async (url) => {
+    if (url.includes(`/repos/${REPOSITORY}/commits/${BASE_SHA}/check-runs`)) {
+      const page = Number(new URL(url).searchParams.get("page"));
+      checkRunPages.push(page);
+      const newerReceipt = {
+        app: { id: 15_368 },
+        completed_at: "2026-08-11T08:20:00Z",
+        conclusion: "success",
+        details_url: `https://github.com/${REPOSITORY}/runs/${newerCheckRunId}`,
+        external_id: `dependabot-post-merge:${newerWorkflowRunId}:1`,
+        head_sha: BASE_SHA,
+        id: newerCheckRunId,
+        name: "Dependabot Post-Merge Verification",
+        started_at: "2026-08-11T08:19:59Z",
+        status: "completed",
+      };
+      const olderReceipt = {
+        app: { id: 15_368 },
+        completed_at: "2026-08-11T08:23:00Z",
+        conclusion: "success",
+        details_url: `https://github.com/${REPOSITORY}/runs/${olderCheckRunId}`,
+        external_id: `dependabot-post-merge:${olderWorkflowRunId}:1`,
+        head_sha: BASE_SHA,
+        id: olderCheckRunId,
+        name: "Dependabot Post-Merge Verification",
+        started_at: "2026-08-11T08:22:59Z",
+        status: "completed",
+      };
+      const unrelatedChecks = Array.from({ length: 99 }, (_, index) => ({
+        app: { id: 15_368 },
+        completed_at: "2026-08-11T08:21:00Z",
+        conclusion: "success",
+        details_url: null,
+        head_sha: BASE_SHA,
+        id: 50_000 + index,
+        name: `Unrelated check ${index}`,
+        started_at: "2026-08-11T08:20:59Z",
+        status: "completed",
+      }));
+      const checkRuns =
+        page === 1
+          ? [newerReceipt, ...unrelatedChecks]
+          : page === 2
+            ? [olderReceipt]
+            : [];
+      return new Response(JSON.stringify({ check_runs: checkRuns }), {
+        status: 200,
+      });
+    }
+    if (
+      url.endsWith(`/repos/${REPOSITORY}/actions/runs/${olderWorkflowRunId}`)
+    ) {
+      requestedWorkflowRuns.push(olderWorkflowRunId);
+      return new Response(JSON.stringify({ message: "Not Found" }), {
+        status: 404,
+      });
+    }
+    if (
+      url.endsWith(`/repos/${REPOSITORY}/actions/runs/${newerWorkflowRunId}`)
+    ) {
+      requestedWorkflowRuns.push(newerWorkflowRunId);
+      return new Response(
+        JSON.stringify({
+          conclusion: "success",
+          event: "workflow_run",
+          head_branch: "main",
+          head_sha: BASE_SHA,
+          id: newerWorkflowRunId,
+          path: ".github/workflows/vercel-main-deployment.yml",
+          repository: { full_name: REPOSITORY },
+          run_attempt: 1,
+          status: "completed",
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes(`/repos/${REPOSITORY}/commits/${BASE_SHA}/statuses`)) {
+      return new Response(JSON.stringify([]), { status: 200 });
+    }
+    assert.fail(`Unexpected request: ${url}`);
+  };
+  const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
+  const receipts = await adapter.getChecks(REPOSITORY, BASE_SHA);
+
+  assert.deepEqual(checkRunPages, [1, 2]);
+  assert.deepEqual(requestedWorkflowRuns, [newerWorkflowRunId]);
+  const current = snapshot();
+  current.baseline.checks = [
+    ...current.baseline.checks.filter(
+      ({ name }) => name !== "Dependabot Post-Merge Verification",
+    ),
+    ...receipts,
+  ];
+  const result = evaluateDependabotSweep({
+    mode: "prepare",
+    pullRequests: [current],
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(result.serialization.ready, true);
+  assert.equal(result.serialization.check.runId, newerWorkflowRunId);
+  assert.deepEqual(result.prepareCandidate, {
+    disposition: "prepare-candidate",
+    headSha: HEAD_SHA,
+    pullRequestNumber: 123,
+  });
 });
 
 test("live check collection authenticates the current Dependabot Vercel intake status envelope", async () => {
@@ -4081,21 +6247,21 @@ test("live check collection authenticates the current Dependabot Vercel intake s
   );
 });
 
-test("live repair-history collection uses only the name-filtered check-run endpoint", async () => {
+test("live repair-history collection filters preparation receipts after the all-checks query", async () => {
   const requested = [];
   const receipt = processorRepairReceipt(1);
   const adapter = createLiveGitHubAdapter({
     fetchImpl: async (url) => {
       const parsed = new URL(url);
       requested.push(parsed);
+      if (parsed.pathname.endsWith(`/commits/${HEAD_SHA}/statuses`)) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
       assert.equal(
         parsed.pathname,
         `/repos/${REPOSITORY}/commits/${HEAD_SHA}/check-runs`,
       );
-      assert.equal(
-        parsed.searchParams.get("check_name"),
-        "Dependabot Processor",
-      );
+      assert.equal(parsed.searchParams.get("check_name"), null);
       assert.equal(parsed.searchParams.get("filter"), "all");
       return new Response(
         JSON.stringify({
@@ -4122,17 +6288,20 @@ test("live repair-history collection uses only the name-filtered check-run endpo
     {
       appId: 15_368,
       completedAt: "2026-08-10T10:00:00Z",
-      conclusion: "neutral",
+      conclusion: "failure",
+      detailsUrl: undefined,
       externalId: receipt.externalId,
       headSha: HEAD_SHA,
       id: receipt.id,
       kind: "check",
       name: "Dependabot Processor",
+      outputSummary: null,
+      outputText: null,
       startedAt: "2026-08-10T09:59:00Z",
       status: "completed",
     },
   ]);
-  assert.equal(requested.length, 1);
+  assert.equal(requested.length, 2);
 });
 
 test("published processor checks carry exact-head durable repair receipts and observe cannot consume one", async () => {
@@ -4148,33 +6317,256 @@ test("published processor checks carry exact-head durable repair receipts and ob
     },
     token: "test-token",
   });
+  const repairPacket = evaluateDependabotPullRequest(
+    snapshot({ checks: completeChecks({ conclusions: { ci: "failure" } }) }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  ).repairPacket;
   await adapter.publishProcessorCheck({
-    conclusion: "neutral",
+    disposition: "repair-required",
     headSha: HEAD_SHA,
-    mode: "assist",
-    output: { summary: "repair", title: "repair" },
+    mode: "prepare",
     pullRequestNumber: 123,
     repairAttempt: 2,
-    repairPacketIssued: true,
+    repairPacket,
     repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
   });
   assert.equal(
     bodies[0].external_id,
-    `dependabot-processor:v1:pr=123:head=${HEAD_SHA}:mode=assist:repair=2:packet=true`,
+    `${DEPENDABOT_PROCESSOR_SCHEMA}:pr=123:head=${HEAD_SHA}:mode=prepare:repair=2:packet=true:digest=${digest(repairPacket)}:run=${WORKFLOW_CONTEXT.workflowRunId}:attempt=${WORKFLOW_CONTEXT.workflowRunAttempt}`,
   );
+  assert.equal(bodies[0].conclusion, "failure");
+  assert.equal(
+    bodies[0].details_url,
+    `https://github.com/${REPOSITORY}/actions/runs/${WORKFLOW_CONTEXT.workflowRunId}`,
+  );
+  assert.equal(bodies[0].output.text, stableJson(repairPacket));
   await assert.rejects(
     adapter.publishProcessorCheck({
-      conclusion: "neutral",
+      disposition: "repair-required",
       headSha: HEAD_SHA,
       mode: "observe",
-      output: { summary: "observe", title: "observe" },
       pullRequestNumber: 123,
       repairAttempt: 1,
-      repairPacketIssued: true,
+      repairPacket,
       repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
     }),
     /Observe processor checks cannot issue repair packets/,
   );
+});
+
+test("processor checks keep safe non-packet dispositions neutral and fail packets or unsafe states", async () => {
+  const bodies = [];
+  const adapter = createLiveGitHubAdapter({
+    fetchImpl: async (url, options = {}) => {
+      assert.equal(url.endsWith(`/repos/${REPOSITORY}/check-runs`), true);
+      bodies.push(JSON.parse(options.body));
+      return new Response(
+        JSON.stringify({ html_url: "https://github.com/checks/1", id: 1 }),
+        { status: 201 },
+      );
+    },
+    token: "test-token",
+  });
+  const repairPacket = evaluateDependabotPullRequest(
+    snapshot({ checks: completeChecks({ conclusions: { ci: "failure" } }) }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  ).repairPacket;
+  const cases = [
+    {
+      disposition: "prepare-candidate",
+      expectedConclusion: "neutral",
+      mode: "prepare",
+      repairPacket: null,
+    },
+    {
+      disposition: "refresh-pending",
+      expectedConclusion: "neutral",
+      mode: "prepare",
+      repairPacket: null,
+    },
+    {
+      disposition: "ready-for-human-review",
+      expectedConclusion: "neutral",
+      mode: "assist",
+      repairPacket: null,
+    },
+    {
+      disposition: "eligible-observed",
+      expectedConclusion: "neutral",
+      mode: "observe",
+      repairPacket: null,
+    },
+    {
+      disposition: "waiting-checks",
+      expectedConclusion: "failure",
+      mode: "prepare",
+      repairPacket: null,
+    },
+    {
+      disposition: "repair-required",
+      expectedConclusion: "failure",
+      mode: "prepare",
+      repairPacket,
+    },
+  ];
+
+  for (const testCase of cases) {
+    await adapter.publishProcessorCheck({
+      disposition: testCase.disposition,
+      headSha: HEAD_SHA,
+      mode: testCase.mode,
+      pullRequestNumber: 123,
+      repairAttempt: 1,
+      repairPacket: testCase.repairPacket,
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    });
+  }
+
+  assert.deepEqual(
+    bodies.map(({ conclusion }) => conclusion),
+    cases.map(({ expectedConclusion }) => expectedConclusion),
+  );
+});
+
+test("authority check publications bind their exact Actions run URL and reject missing run IDs", async () => {
+  const requestBodies = [];
+  const finalizeBodies = [];
+  const publisher = (bodies, phase) =>
+    createLiveGitHubAdapter({
+      fetchImpl: async (url, options = {}) => {
+        assert.equal(url.endsWith(`/repos/${REPOSITORY}/check-runs`), true);
+        bodies.push(JSON.parse(options.body));
+        return new Response(
+          JSON.stringify({
+            html_url: `https://github.com/${REPOSITORY}/runs/${bodies.length}`,
+            id: bodies.length,
+          }),
+          { status: 201 },
+        );
+      },
+      phase,
+      token: "test-token",
+    });
+  const requestAdapter = publisher(requestBodies, "request");
+  const finalizeAdapter = publisher(finalizeBodies, "finalize");
+  const requestedReceipt = JSON.parse(
+    refreshReceiptCheck("requested").outputText,
+  );
+  const completedReceipt = JSON.parse(
+    refreshReceiptCheck("completed").outputText,
+  );
+  const allClearReceipt = {
+    autoMergeEnabled: false,
+    baseSha: BASE_SHA,
+    checksDigest: "a".repeat(64),
+    feedbackDigest: "b".repeat(64),
+    headRef: "dependabot/github_actions/github-actions-routine-123",
+    headSha: HEAD_SHA,
+    humanAction: "merge",
+    mergeAuthorizedByAutomation: false,
+    mergeStateStatus: "CLEAN",
+    mergeable: true,
+    preparation: {
+      kind: "native",
+      operationDigests: [],
+      refreshCount: 0,
+      repairCount: 0,
+      seedHeadSha: HEAD_SHA,
+    },
+    processorApprovalId: 7_001,
+    pullRequestNumber: 123,
+    repository: REPOSITORY,
+    reviewDecision: "APPROVED",
+    riskTier: "safe-actions-patch-minor",
+    schema: DEPENDABOT_ALL_CLEAR_SCHEMA,
+    updateType: "minor",
+    ...WORKFLOW_CONTEXT,
+  };
+
+  await requestAdapter.publishRefreshReceipt({
+    receipt: requestedReceipt,
+    repository: REPOSITORY,
+  });
+  await finalizeAdapter.publishRefreshReceipt({
+    receipt: completedReceipt,
+    repository: REPOSITORY,
+  });
+  await finalizeAdapter.publishAllClear({
+    receipt: allClearReceipt,
+    repository: REPOSITORY,
+  });
+  await finalizeAdapter.publishAllClearInvalidation({
+    headSha: HEAD_SHA,
+    pullRequestNumber: 123,
+    repository: REPOSITORY,
+  });
+
+  const expectedDetailsUrl = `https://github.com/${REPOSITORY}/actions/runs/${WORKFLOW_CONTEXT.workflowRunId}`;
+  assert.equal(requestBodies[0].details_url, expectedDetailsUrl);
+  assert.deepEqual(
+    finalizeBodies.slice(0, 2).map(({ details_url: detailsUrl }) => detailsUrl),
+    [expectedDetailsUrl, expectedDetailsUrl],
+  );
+  assert.equal(Object.hasOwn(finalizeBodies[2], "details_url"), false);
+
+  const { workflowRunId: omittedProcessorRunId, ...missingProcessorRunId } =
+    WORKFLOW_CONTEXT;
+  assert.equal(omittedProcessorRunId, WORKFLOW_CONTEXT.workflowRunId);
+  for (const workflowContext of [
+    missingProcessorRunId,
+    { ...WORKFLOW_CONTEXT, workflowRunId: 0 },
+  ]) {
+    await assert.rejects(
+      finalizeAdapter.publishProcessorCheck({
+        disposition: "prepare-candidate",
+        headSha: HEAD_SHA,
+        mode: "prepare",
+        pullRequestNumber: 123,
+        repairAttempt: 1,
+        repairPacket: null,
+        repository: REPOSITORY,
+        workflowContext,
+      }),
+      /workflow run ID/i,
+    );
+  }
+
+  const withoutRunId = (receipt) => {
+    const { workflowRunId, ...rest } = receipt;
+    assert.equal(workflowRunId, WORKFLOW_CONTEXT.workflowRunId);
+    return rest;
+  };
+  for (const receipt of [
+    withoutRunId(requestedReceipt),
+    { ...requestedReceipt, workflowRunId: "not-a-run" },
+  ]) {
+    await assert.rejects(
+      requestAdapter.publishRefreshReceipt({ receipt, repository: REPOSITORY }),
+      /workflow run ID/i,
+    );
+  }
+  for (const receipt of [
+    withoutRunId(allClearReceipt),
+    { ...allClearReceipt, workflowRunId: "not-a-run" },
+  ]) {
+    await assert.rejects(
+      finalizeAdapter.publishAllClear({ receipt, repository: REPOSITORY }),
+      /workflow run ID/i,
+    );
+  }
+  assert.equal(requestBodies.length, 1);
+  assert.equal(finalizeBodies.length, 3);
 });
 
 test("live feedback collection paginates threads, top-level reviews, and issue comments", async () => {
@@ -4413,7 +6805,7 @@ test("live durable intervention evidence paginates force pushes regardless actor
     repairHistoryChecks: [],
   });
   const evaluation = evaluateDependabotPullRequest(rewritten, {
-    mode: "merge",
+    mode: "prepare",
     repository: REPOSITORY,
   });
   assert.equal(evaluation.identity.automaticAuthority, false);
@@ -4481,7 +6873,7 @@ test("live repository-wide processor approval visibility paginates open PRs and 
             : page === 2
               ? [
                   liveProcessorReview("APPROVED", {
-                    body: `Approved by dependabot-processor:v1 for exact head ${OTHER_SHA}.`,
+                    body: `Approved by ${DEPENDABOT_PROCESSOR_SCHEMA} for exact head ${OTHER_SHA}.`,
                     commit_id: OTHER_SHA,
                     id: 6001,
                   }),
@@ -4566,8 +6958,10 @@ test("a targeted PR B sweep rejects an unbound current github-actions approval o
           }),
         ],
         repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
       },
       publishChecks: true,
+      workflowContext: WORKFLOW_CONTEXT,
     }),
     /PR #123 processor approval evidence is malformed/,
   );
@@ -4638,8 +7032,10 @@ test("a targeted PR B sweep rejects incomplete current github-actions approval i
             }),
           ],
           repository: REPOSITORY,
+          workflowContext: WORKFLOW_CONTEXT,
         },
         publishChecks: true,
+        workflowContext: WORKFLOW_CONTEXT,
       }),
       /PR #123 review evidence is malformed/,
       name,
@@ -5062,6 +7458,22 @@ test("live snapshot collection rejects a PR head race after files, commits, and 
         { status: 200 },
       );
     }
+    if (path === `/repos/${REPOSITORY}/git/trees/${HEAD_SHA}`) {
+      return new Response(
+        JSON.stringify({
+          tree: [
+            {
+              mode: "100644",
+              path: ".github/workflows/ci.yml",
+              sha: OTHER_SHA,
+              type: "blob",
+            },
+          ],
+          truncated: false,
+        }),
+        { status: 200 },
+      );
+    }
     if (path.endsWith("/check-runs")) {
       return new Response(JSON.stringify({ check_runs: [] }), { status: 200 });
     }
@@ -5093,6 +7505,7 @@ test("live snapshot collection awaits the initial PR read before candidate-contr
   let initialPullReadCompleted = false;
   let maximumHistoryConcurrency = 0;
   let pullReads = 0;
+  let currentHeadChecksCollected = false;
   const fallback = liveMergeAdmissionFetch();
   const fetchImpl = async (url, options = {}) => {
     const parsed = new URL(url);
@@ -5120,7 +7533,11 @@ test("live snapshot collection awaits the initial PR read before candidate-contr
       );
     }
     if (path.endsWith("/check-runs")) {
-      if (parsed.searchParams.get("check_name") === "Dependabot Processor") {
+      const sha = /\/commits\/([0-9a-f]{40})\/check-runs$/.exec(path)?.[1];
+      const isCurrentHeadCollection =
+        sha === HEAD_SHA && currentHeadChecksCollected === false;
+      if (isCurrentHeadCollection) currentHeadChecksCollected = true;
+      if (lineageShas.includes(sha) && !isCurrentHeadCollection) {
         historyReads += 1;
         activeHistoryReads += 1;
         maximumHistoryConcurrency = Math.max(
@@ -5204,7 +7621,7 @@ test("stable JSON recursively sorts object keys", () => {
   );
 });
 
-test("CLI tolerates a leading separator and pure process fails closed without an adapter", () => {
+test("CLI tolerates a leading separator, normalizes legacy merge, and keeps pure process read-only", () => {
   const directory = mkdtempSync(join(tmpdir(), "dependabot-processor-"));
   const inputPath = join(directory, "input.json");
   try {
@@ -5223,7 +7640,7 @@ test("CLI tolerates a leading separator and pure process fails closed without an
       { encoding: "utf8" },
     );
     const result = JSON.parse(output);
-    assert.equal(result.mode, "merge");
+    assert.equal(result.mode, "observe");
     assert.deepEqual(result.mutations, []);
     assert.deepEqual(result.processing, {
       enabled: false,

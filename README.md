@@ -364,76 +364,91 @@ All packages referencing `"react": "catalog:"` will automatically use the new ve
 
 #### Dependabot Processing
 
-Dependabot pull requests pass through a credentialless intake and a trusted
-default-branch processor. The processor classifies current exact-head evidence,
-distinguishes branch failures from failures already present on `main`, and
-serializes eligible merges through default-branch CI and release proof. Its
-rollout modes are `observe`, `assist`, and `merge`; missing or unknown modes
-always become `observe`.
+Dependabot preparation is human-merge-only. The trusted controller supports
+exact `observe`, `assist`, and `prepare` modes; missing, legacy `merge`,
+or unknown values become `observe`. `observe` classifies, `assist` publishes
+non-authorizing evidence for human handling, and `prepare` may refresh, apply
+at most two bounded
+repairs, re-review, satisfy receipt-bound feedback, create the ruleset-required
+processor approval, and publish `Dependabot ALL CLEAR`. It never merges or
+enables native auto-merge. A maintainer performs the final squash merge.
 
-`merge` mode requires a separate repository-scoped GitHub App configured with
-the Actions variable `DEPENDABOT_PROCESSOR_MERGE_APP_CLIENT_ID` and Actions
-secret `DEPENDABOT_PROCESSOR_MERGE_APP_PRIVATE_KEY`. Its installation token has
-only `contents: write` and `pull-requests: write`, with no Actions, workflow, or
-deployment permission. The normal `GITHUB_TOKEN` continues to handle reads,
-checks, and approval but cannot merge. The App-authored merge lets the resulting
-`main` push start default-branch CI and Vercel post-merge proof. Missing App
-configuration fails `merge` closed; `observe` and `assist` still work. This App
-is separate from the future repair App.
+Native events from the exact Dependabot bot sender enter through the credentialless
+`.github/workflows/dependabot-intake.yml`. Refresh/Repair successors enter
+through the distinct credentialless
+`.github/workflows/dependabot-prepared-head-intake.yml`, which authenticates
+the exact Prepare App bot, a bounded nine-key dispatch, and the completed
+operation receipt. `.github/workflows/dependabot-claude-review.yml` handles
+both sources without candidate checkout or execution. It reads the diff through
+GitHub APIs and emits canonical exact-head results; validated findings can feed
+a bounded repair, while reviewer infrastructure failure remains retry-first.
 
-Dependabot's `claude-review` gate comes from the separate trusted-base
-`.github/workflows/dependabot-claude-review.yml` workflow, which reads the diff
-through GitHub APIs without checking out or executing candidate code. Human PRs
-continue to use the distinct `claude-review-human` check.
+The preparable tier includes verified npm updates, including grouped and major
+updates. Verified non-sensitive GitHub Actions updates may be refreshed and,
+when green, prepared, but automatic repair never writes `.github/**`; a failure
+that needs that surface becomes `manual-repair-required`. Sensitive
+self-reviewing Actions; workflow-policy, deployment, authentication, credential,
+or security changes; unknown metadata; force-pushed histories; human vetoes;
+unresolved feedback; and exhausted repairs remain blocked. The ALL CLEAR receipt
+keeps the dependency risk/update metadata for the human decision.
 
-Repair packets require valid structural identity, complete clear feedback, a
-current base, a complete current-head gate with no missing or pending evidence,
-a deterministic branch-attributed failure, and valid attempt lineage.
-Reprocessing the same head is idempotent; only a strict append-only successor
-consumes the prior attempt, and the limit is two. A human-applied repair may
-remain eligible for a second proposal but never regains automatic merge
-authority. Any observed `head_ref_force_pushed` issue event permanently removes
-automatic and repair-packet authority for that PR generation. Continue manually
-or recreate the PR; rewritten lineage cannot reset the two-attempt budget.
+Configure the repository-scoped Prepare App with variables
+`DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,
+`DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG`,
+`DEPENDABOT_PROCESSOR_PREPARE_BOT_ID`, and
+`DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN`, plus secret
+`DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY`. The short-lived token exists
+only in a mutation or authenticated-dispatch job. A separate no-App-token
+finalize phase owns approval and ALL CLEAR. Install the App with only `contents:
+write` and `pull-requests: write`; update-branch needs both. Refresh tokens
+request both permissions, while repair and dispatch tokens are downscoped to
+Contents write. Grant no bypass, Actions, workflow, deployment, package, or
+provider permission. Contents write technically reaches GitHub's merge
+endpoint, so the reviewed code contains no merge call and revokes the token
+before approval; the final merge remains human.
 
-Unresolved actionable threads block even on an older head. Resolved
-current-head threads need the exact repository reply; resolved older-head
-threads do not need another current-head reply. Malformed thread commit SHAs or
-envelopes block. Agents still reply to every PR review comment.
+Only an exact `refresh-pending` result mints the processor's refresh-capable
+Prepare App token. Repair staging, repair mutation, and authenticated dispatch
+mint separate downscoped Prepare App tokens. Native green heads skip mutation
+and can finalize without App configuration. A same-head `repair-pending` result
+keeps its original packet/run and emits no duplicate packet or identical
+Processor check.
 
-Run the local processor and its network-free contract tests with:
+The authority receipts are `Dependabot Refresh`
+(`dependabot-refresh:v1`), `Dependabot Repair Intent`
+(`dependabot-repair-intent:v1`), `Dependabot Repair`
+(`dependabot-repair:v1`), and `Dependabot ALL CLEAR`
+(`dependabot-all-clear:v1`). They bind canonical JSON to the exact PR,
+old/new/base commits, workflow SHA/run/attempt, App bot identity when used, and
+operation digests. Refresh requires an old-head request plus the exact
+two-parent result and does not consume the two-repair budget. Repair requires a
+v2 Processor packet, a durable packet/plan/tree-bound intent before the exact
+ref move, and one exact-parent App commit whose GitHub verification is valid.
+If the run fails, is cancelled, times out, needs action, or has a startup
+failure after the ref move, a checks-only recovery revalidates the exact intent
+and current head before publishing the completed receipt. Normal pre-move work
+and checks-only recovery each get at most two exact-evidence infrastructure
+retries, separate from the two-commit repair limit.
+
+A sole valid ALL CLEAR receipt plus its exact processor approval stays pinned,
+including during a run triggered for another PR, until the human merge and its
+post-merge proof complete or current evidence invalidates it.
+
+ALL CLEAR means the exact head is on current `main`, every gate and clean
+re-review passed, feedback is clear, mergeability/ruleset/review state is
+satisfied, the exact processor approval exists, and no auto-merge or competing
+candidate exists. Keep one candidate serialized until the human merge SHA has
+default-branch CI and release proof. A late comment or new `main` commit can
+invalidate this snapshot before the click.
+
+Run the network-free evaluator and contract suite with:
 
 ```bash
 pnpm dependabot:process -- evaluate --input path/to/snapshot.json --mode observe
 pnpm dependabot:process:test
 ```
 
-The live repair/re-review/push path remains disabled until a dedicated,
-allowlisted, repository-scoped repair GitHub App is provisioned and integrated
-with intake and the Dependabot reviewer. Never reuse `GITHUB_TOKEN`, the
-preview worker-dispatch credential, or a deployment token. Native
-`AutoMergeRequest` state also fails closed: `observe` and `assist` suppress the
-processor check while any request is active; `merge` disables a sole matching
-request before any potentially merge-unblocking publication or approval, then
-collects a fresh full snapshot and proves the global lane empty. Other,
-multiple, or malformed requests block. Approval is bound to the full PR identity
-and its `updated_at` before and after approval. A failed post-approval,
-pre-merge gate dismisses the processor approval with the normal `GITHUB_TOKEN`
-while the PR remains open. That cleanup is compensating rather than atomic, so
-hard runner cancellation or death can strand an approval. Before any live run
-can publish a processor check or create an approval, it scans every open
-Dependabot PR. In every mode, it dismisses all independently exact, schema-valid
-current-head `APPROVED` `github-actions` processor reviews, including multiple
-approvals on one PR and approvals on unselected PRs. A bounded global rescan
-must prove that none remain. The controller then fully recollects the originally
-selected PRs against their prior expected heads and recollects global auto-merge
-state before evaluation. Any current-head `APPROVED` `github-actions` review
-that is not the exact processor envelope requires operator action. Malformed,
-incomplete, or capped evidence, dismissal failure, or rescan failure also fails
-closed before publication or mutation. Schema-valid old-head and `DISMISSED`
-processor reviews are informational state, not unknown-bot feedback. Residual
-API races after the final read remain. See the
-[Dependabot processing runbook](docs/dependabot-automation.md) and
+See the [Dependabot processing runbook](docs/dependabot-automation.md) and
 [ADR 0006](docs/adr/0006-dependabot-processing-controller.md).
 
 #### When to Use Catalog vs Direct Versions
@@ -541,14 +556,15 @@ The repository is set up with GitHub Actions for CI:
   CI failure notifier opens or updates one issue for an operational workflow
   failure and closes the issue after recovery.
 - **Dependabot processing**: A credentialless intake exposes only bounded PR
-  identity to a trusted `workflow_run` consumer. The separate
-  `dependabot-process` repository-dispatch event is an operator sweep with one
-  bounded scope field. The default-branch `Dependabot Processor` revalidates the
-  exact head, evaluates the full dependency gate, attributes base failures, and
-  handles one merge plus its exact-SHA release proof at a time. There is no
-  `workflow_dispatch` path. Unknown mode or evidence stays observe-only;
-  manual/veto policy can only remove authority. Intake-triggered failures are
-  partitioned by PR, while valid `receipt=false` skipped runs are ignored. See
+  identity to trusted `workflow_run` consumers. A separate credentialless
+  prepared-head intake authenticates exact Refresh/Repair successors from the
+  Prepare App. The bounded `dependabot-process` repository dispatch remains an
+  operator sweep. The default-branch processor revalidates the exact head,
+  attributes base failures, and may fully prepare one ALL CLEAR candidate at a
+  time; it never merges. Native/prepared intake and Claude-review completions
+  resume processing, with ten-minute reconciliation for missed events. There is no
+  `workflow_dispatch` path. Unknown mode or evidence stays observe-only and
+  manual/veto policy can only remove authority. See
   [the operator runbook](docs/dependabot-automation.md) and
   [ADR 0006](docs/adr/0006-dependabot-processing-controller.md).
 - **CD**: GitHub Actions automatically builds `app.mento.org`,

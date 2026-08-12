@@ -154,6 +154,9 @@ test("the notifier is loop-safe, secretless, and least privilege", () => {
   const workflow = read(".github/workflows/ci-failure-notifier.yml");
   const monitoredNames = [
     ".github/workflows/ci.yml",
+    ".github/workflows/dependabot-prepare-repair.yml",
+    ".github/workflows/dependabot-prepared-head-dispatch.yml",
+    ".github/workflows/dependabot-prepared-head-intake.yml",
     ".github/workflows/dependabot-process.yml",
     ".github/workflows/e2e.yml",
     ".github/workflows/publish-ui.yml",
@@ -168,6 +171,9 @@ test("the notifier is loop-safe, secretless, and least privilege", () => {
   assert.match(workflow, /^name: CI Failure Notifier$/m);
   assert.match(workflow, /^ {2}workflow_run:$/m);
   assert.match(workflow, /^ {6}- Quality Budgets$/m);
+  assert.match(workflow, /^ {6}- Dependabot Prepare Repair$/m);
+  assert.match(workflow, /^ {6}- Dependabot Prepared Head Dispatch$/m);
+  assert.match(workflow, /^ {6}- Dependabot Prepared Head Intake$/m);
   assert.match(workflow, /^ {6}- Dependabot Processor$/m);
   assert.match(workflow, /^ {6}- Supply Chain$/m);
   assert.match(workflow, /^ {6}- Vercel Main Deployment$/m);
@@ -220,14 +226,42 @@ test("the notifier is loop-safe, secretless, and least privilege", () => {
   assert.match(workflow, /^ {6}issues: write$/m);
   assert.match(workflow, /workflow_run\.name == 'Publish UI Package'/);
   assert.match(workflow, /workflow_run\.name == 'Vercel Main Deployment'/);
-  assert.match(workflow, /workflow_run\.name == 'Dependabot Processor'/);
   assert.match(
     workflow,
-    /startsWith\(github\.event\.workflow_run\.display_title, 'Dependabot processor \| event=workflow_run \| receipt=dependabot-intake:v1 \| repository=mento-protocol\/frontend-monorepo \| pr='\)/,
+    /workflow_run\.path == '\.github\/workflows\/dependabot-process\.yml'/,
   );
   assert.match(
     workflow,
-    /endsWith\(github\.event\.workflow_run\.display_title, 'receipt=true'\)/,
+    /workflow_run\.path == '\.github\/workflows\/dependabot-process\.yml@main'/,
+  );
+  assert.match(
+    workflow,
+    /workflow_run\.path == '\.github\/workflows\/dependabot-prepare-repair\.yml'/,
+  );
+  assert.match(
+    workflow,
+    /workflow_run\.path == '\.github\/workflows\/dependabot-prepare-repair\.yml@main'/,
+  );
+  assert.match(
+    workflow,
+    /workflow_run\.path == '\.github\/workflows\/dependabot-prepared-head-dispatch\.yml'/,
+  );
+  assert.match(
+    workflow,
+    /workflow_run\.path == '\.github\/workflows\/dependabot-prepared-head-dispatch\.yml@main'/,
+  );
+  assert.match(
+    workflow,
+    /workflow_run\.path == '\.github\/workflows\/dependabot-prepared-head-intake\.yml'/,
+  );
+  assert.match(
+    workflow,
+    /workflow_run\.path == '\.github\/workflows\/dependabot-prepared-head-intake\.yml@main'/,
+  );
+  assert.doesNotMatch(workflow, /workflow_run\.name == 'Dependabot /);
+  assert.match(
+    workflow,
+    /startsWith\(github\.event\.workflow_run\.display_title, 'Dependabot processor \| event=workflow_run \| receipt='\)/,
   );
   assert.match(
     workflow,
@@ -243,7 +277,19 @@ test("the notifier is loop-safe, secretless, and least privilege", () => {
   );
   assert.match(
     workflow,
-    /workflow_run\.event == 'repository_dispatch' &&\n {10}github\.event\.workflow_run\.name == 'Dependabot Processor' &&\n {10}github\.event\.workflow_run\.display_title == 'Dependabot processor \| event=repository_dispatch \| target=scope=open' &&\n {10}github\.event\.workflow_run\.head_branch == github\.event\.repository\.default_branch &&\n {10}github\.event\.workflow_run\.head_repository\.full_name == github\.repository/,
+    /workflow_run\.display_title == 'Dependabot processor \| event=repository_dispatch \| target=scope=open'/,
+  );
+  assert.match(
+    workflow,
+    /startsWith\(github\.event\.workflow_run\.display_title, 'dependabot-repair:v1 \| pr='\)/,
+  );
+  assert.match(
+    workflow,
+    /startsWith\(github\.event\.workflow_run\.display_title, 'dependabot-repair-recover:v1 \| pr='\)/,
+  );
+  assert.match(
+    workflow,
+    /endsWith\(github\.event\.workflow_run\.display_title, '\|ok=true'\)/,
   );
   assert.match(workflow, /ref: \$\{\{ github\.workflow_sha \}\}/);
   assert.doesNotMatch(workflow, /workflow_run\.head_sha/);

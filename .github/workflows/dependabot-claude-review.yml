@@ -8,7 +8,7 @@ run-name: >-
 
 on:
   workflow_run:
-    workflows: [Dependabot Intake]
+    workflows: [Dependabot Intake, Dependabot Prepared Head Intake]
     types: [completed]
 
 permissions: {}
@@ -18,17 +18,37 @@ jobs:
     name: dependabot-claude-review-preflight
     if: >-
       github.repository == 'mento-protocol/frontend-monorepo' &&
-      endsWith(github.event.workflow_run.display_title, 'receipt=true')
+      (
+        (
+          (github.event.workflow_run.path == '.github/workflows/dependabot-intake.yml' ||
+           github.event.workflow_run.path == '.github/workflows/dependabot-intake.yml@main') &&
+          startsWith(github.event.workflow_run.display_title, 'dependabot-intake:v1 | ') &&
+          endsWith(github.event.workflow_run.display_title, 'receipt=true')
+        ) ||
+        (
+          (github.event.workflow_run.path == '.github/workflows/dependabot-prepared-head-intake.yml' ||
+           github.event.workflow_run.path == '.github/workflows/dependabot-prepared-head-intake.yml@main') &&
+          startsWith(github.event.workflow_run.display_title, 'dependabot-prepared-head:v1|') &&
+          endsWith(github.event.workflow_run.display_title, '|ok=true')
+        )
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      actions: read
+      checks: read
       contents: read
       pull-requests: read
     outputs:
-      head_ref: ${{ steps.intake.outputs.head_ref }}
+      head_ref: ${{ steps.pr.outputs.head_ref }}
       head_sha: ${{ steps.intake.outputs.head_sha }}
       identity_digest: ${{ steps.pr.outputs.identity_digest }}
+      operation: ${{ steps.intake.outputs.operation }}
+      operation_check_id: ${{ steps.intake.outputs.operation_check_id }}
+      operation_digest: ${{ steps.intake.outputs.operation_digest }}
       pr_number: ${{ steps.intake.outputs.pr_number }}
+      review_actor_login: ${{ steps.intake.outputs.review_actor_login }}
+      source_kind: ${{ steps.intake.outputs.source_kind }}
     steps:
       # This first step has no token, secret, or third-party Action. It must
       # authenticate the complete upstream envelope before a credential is
@@ -38,6 +58,10 @@ jobs:
         shell: bash
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EXPECTED_PREPARE_APP_SLUG: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG }}
+          EXPECTED_PREPARE_BOT_ID: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID }}
+          EXPECTED_PREPARE_BOT_LOGIN: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN }}
+          INTAKE_ACTOR_ID: ${{ github.event.workflow_run.actor.id }}
           INTAKE_ACTOR_LOGIN: ${{ github.event.workflow_run.actor.login }}
           INTAKE_ACTOR_TYPE: ${{ github.event.workflow_run.actor.type }}
           INTAKE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
@@ -49,8 +73,8 @@ jobs:
           INTAKE_PULL_REQUESTS_JSON: ${{ toJson(github.event.workflow_run.pull_requests) }}
           INTAKE_TITLE: ${{ github.event.workflow_run.display_title }}
           INTAKE_TRIGGERING_ACTOR_LOGIN: ${{ github.event.workflow_run.triggering_actor.login }}
+          INTAKE_TRIGGERING_ACTOR_ID: ${{ github.event.workflow_run.triggering_actor.id }}
           INTAKE_TRIGGERING_ACTOR_TYPE: ${{ github.event.workflow_run.triggering_actor.type }}
-          INTAKE_WORKFLOW: ${{ github.event.workflow_run.name }}
           REPOSITORY: ${{ github.repository }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
           RUN_ID: ${{ github.run_id }}
@@ -59,54 +83,105 @@ jobs:
           set -euo pipefail
           test "$REPOSITORY" = "mento-protocol/frontend-monorepo"
           test "$DEFAULT_BRANCH" = "main"
-          test "$INTAKE_WORKFLOW" = "Dependabot Intake"
           test "$INTAKE_CONCLUSION" = "success"
-          test "$INTAKE_EVENT" = "pull_request_target"
-          test "$INTAKE_ACTOR_LOGIN" = "dependabot[bot]"
-          test "$INTAKE_ACTOR_TYPE" = "Bot"
-          if test -n "$INTAKE_TRIGGERING_ACTOR_LOGIN" || \
-            test -n "$INTAKE_TRIGGERING_ACTOR_TYPE"; then
-            test "$INTAKE_TRIGGERING_ACTOR_LOGIN" = "dependabot[bot]"
-            test "$INTAKE_TRIGGERING_ACTOR_TYPE" = "Bot"
-          fi
           test "$INTAKE_HEAD_REPOSITORY" = "$REPOSITORY"
-          [[ "$INTAKE_HEAD_BRANCH" == dependabot/* ]]
           [[ "$INTAKE_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]]
           [[ "$RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          source_kind=""
+          review_actor_login=""
+          operation=""
+          operation_check_id=""
           case "$INTAKE_PATH" in
-            .github/workflows/dependabot-intake.yml|.github/workflows/dependabot-intake.yml@main) ;;
-            *) exit 1 ;;
-          esac
+            .github/workflows/dependabot-intake.yml|.github/workflows/dependabot-intake.yml@main)
+              test "$INTAKE_EVENT" = "pull_request_target"
+              test "$INTAKE_ACTOR_LOGIN" = "dependabot[bot]"
+              test "$INTAKE_ACTOR_TYPE" = "Bot"
+              if test -n "$INTAKE_TRIGGERING_ACTOR_LOGIN" || \
+                test -n "$INTAKE_TRIGGERING_ACTOR_TYPE"; then
+                test "$INTAKE_TRIGGERING_ACTOR_LOGIN" = "dependabot[bot]"
+                test "$INTAKE_TRIGGERING_ACTOR_TYPE" = "Bot"
+              fi
+              [[ "$INTAKE_HEAD_BRANCH" == dependabot/* ]]
 
-          receipt_pattern='^dependabot-intake:v1 \| repository=mento-protocol/frontend-monorepo \| pr=([1-9][0-9]*) \| sha=([0-9a-f]{40}) \| action=(opened|synchronize|reopened) \| receipt=true$'
-          [[ "$INTAKE_TITLE" =~ $receipt_pattern ]]
-          pr_number="${BASH_REMATCH[1]}"
-          receipt_head_sha="${BASH_REMATCH[2]}"
-          test "$INTAKE_HEAD_SHA" = "$receipt_head_sha"
-          RECEIPT_HEAD_SHA="$receipt_head_sha" \
-            RECEIPT_PR_NUMBER="$pr_number" \
-            node --input-type=module --eval '
-              const linked = JSON.parse(process.env.INTAKE_PULL_REQUESTS_JSON);
-              if (!Array.isArray(linked) || linked.length > 1) {
-                throw new Error("Invalid intake linked-PR cardinality");
-              }
-              if (linked.length === 1) {
-                const [pullRequest] = linked;
-                if (
-                  pullRequest?.number !== Number(process.env.RECEIPT_PR_NUMBER) ||
-                  pullRequest?.head?.ref !== process.env.INTAKE_HEAD_BRANCH ||
-                  pullRequest?.head?.sha !== process.env.RECEIPT_HEAD_SHA ||
-                  pullRequest?.base?.ref !== "main"
-                ) {
-                  throw new Error("Intake linked PR does not match receipt");
-                }
-              }
-            '
+              receipt_pattern='^dependabot-intake:v1 \| repository=mento-protocol/frontend-monorepo \| pr=([1-9][0-9]*) \| sha=([0-9a-f]{40}) \| action=(opened|synchronize|reopened) \| receipt=true$'
+              [[ "$INTAKE_TITLE" =~ $receipt_pattern ]]
+              pr_number="${BASH_REMATCH[1]}"
+              receipt_head_sha="${BASH_REMATCH[2]}"
+              test "$INTAKE_HEAD_SHA" = "$receipt_head_sha"
+              RECEIPT_HEAD_SHA="$receipt_head_sha" \
+                RECEIPT_PR_NUMBER="$pr_number" \
+                node --input-type=module --eval '
+                  const linked = JSON.parse(process.env.INTAKE_PULL_REQUESTS_JSON);
+                  if (!Array.isArray(linked) || linked.length > 1) {
+                    throw new Error("Invalid intake linked-PR cardinality");
+                  }
+                  if (linked.length === 1) {
+                    const [pullRequest] = linked;
+                    if (
+                      pullRequest?.number !== Number(process.env.RECEIPT_PR_NUMBER) ||
+                      pullRequest?.head?.ref !== process.env.INTAKE_HEAD_BRANCH ||
+                      pullRequest?.head?.sha !== process.env.RECEIPT_HEAD_SHA ||
+                      pullRequest?.base?.ref !== "main"
+                    ) {
+                      throw new Error("Intake linked PR does not match receipt");
+                    }
+                  }
+                '
+              source_kind="dependabot"
+              review_actor_login="dependabot[bot]"
+              ;;
+            .github/workflows/dependabot-prepared-head-intake.yml|.github/workflows/dependabot-prepared-head-intake.yml@main)
+              test "$INTAKE_EVENT" = "repository_dispatch"
+              [[ "$EXPECTED_PREPARE_APP_SLUG" =~ ^[a-z0-9][a-z0-9-]{0,99}$ ]]
+              [[ "$EXPECTED_PREPARE_BOT_ID" =~ ^[1-9][0-9]*$ ]]
+              test "$EXPECTED_PREPARE_BOT_LOGIN" = "${EXPECTED_PREPARE_APP_SLUG}[bot]"
+              test "$INTAKE_ACTOR_ID" = "$EXPECTED_PREPARE_BOT_ID"
+              test "$INTAKE_ACTOR_LOGIN" = "$EXPECTED_PREPARE_BOT_LOGIN"
+              test "$INTAKE_ACTOR_TYPE" = "Bot"
+              if test -n "$INTAKE_TRIGGERING_ACTOR_ID" || \
+                test -n "$INTAKE_TRIGGERING_ACTOR_LOGIN" || \
+                test -n "$INTAKE_TRIGGERING_ACTOR_TYPE"; then
+                test "$INTAKE_TRIGGERING_ACTOR_ID" = "$EXPECTED_PREPARE_BOT_ID"
+                test "$INTAKE_TRIGGERING_ACTOR_LOGIN" = "$EXPECTED_PREPARE_BOT_LOGIN"
+                test "$INTAKE_TRIGGERING_ACTOR_TYPE" = "Bot"
+              fi
+              test "$INTAKE_HEAD_BRANCH" = "main"
+
+              receipt_pattern='^dependabot-prepared-head:v1\|p=([1-9][0-9]{0,9})\|h=([0-9a-f]{40})\|o=([rp])\|c=([1-9][0-9]*)\|d=([0-9a-f]{64})\|ok=true$'
+              [[ "$INTAKE_TITLE" =~ $receipt_pattern ]]
+              pr_number="${BASH_REMATCH[1]}"
+              receipt_head_sha="${BASH_REMATCH[2]}"
+              case "${BASH_REMATCH[3]}" in
+                r) operation="refresh" ;;
+                p) operation="repair" ;;
+                *) exit 1 ;;
+              esac
+              operation_check_id="${BASH_REMATCH[4]}"
+              operation_digest="${BASH_REMATCH[5]}"
+              linked_count="$(node --input-type=module --eval '
+                const linked = JSON.parse(process.env.INTAKE_PULL_REQUESTS_JSON);
+                if (!Array.isArray(linked)) throw new Error("Invalid linked PR payload");
+                process.stdout.write(String(linked.length));
+              ')"
+              test "$linked_count" = "0"
+              INTAKE_HEAD_BRANCH=""
+              source_kind="prepared"
+              review_actor_login="$EXPECTED_PREPARE_BOT_LOGIN"
+              ;;
+            *)
+              exit 1
+              ;;
+          esac
           echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
           echo "head_ref=$INTAKE_HEAD_BRANCH" >> "$GITHUB_OUTPUT"
           echo "head_sha=$receipt_head_sha" >> "$GITHUB_OUTPUT"
+          echo "operation=$operation" >> "$GITHUB_OUTPUT"
+          echo "operation_check_id=$operation_check_id" >> "$GITHUB_OUTPUT"
+          echo "operation_digest=${operation_digest:-}" >> "$GITHUB_OUTPUT"
+          echo "review_actor_login=$review_actor_login" >> "$GITHUB_OUTPUT"
+          echo "source_kind=$source_kind" >> "$GITHUB_OUTPUT"
 
       - name: Query and bind the exact PR identity before review
         id: pr
@@ -117,12 +192,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.intake.outputs.pr_number }}
           REPOSITORY: ${{ github.repository }}
+          SOURCE_KIND: ${{ steps.intake.outputs.source_kind }}
         run: |
           set -euo pipefail
           snapshot="$RUNNER_TEMP/dependabot-review-pr-before.json"
           gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" \
             --jq '{id,node_id,number,state,draft,user:{login:.user.login,type:.user.type},head:{sha:.head.sha,ref:.head.ref,repo:{full_name:.head.repo.full_name}},base:{ref:.base.ref,repo:{full_name:.base.repo.full_name}}}' \
             > "$snapshot"
+          if test -z "$EXPECTED_HEAD_REF"; then
+            EXPECTED_HEAD_REF="$(jq -r '.head.ref' "$snapshot")"
+            export EXPECTED_HEAD_REF
+          fi
+          [[ "$EXPECTED_HEAD_REF" == dependabot/* ]]
           identity_digest="$(node --input-type=module --eval '
             import { createHash } from "node:crypto";
             import { readFileSync } from "node:fs";
@@ -183,35 +264,93 @@ jobs:
           )"
           [[ "$identity_digest" =~ ^[0-9a-f]{64}$ ]]
 
-          commit_snapshot="$RUNNER_TEMP/dependabot-review-commit.json"
-          gh api "repos/$REPOSITORY/commits/$EXPECTED_HEAD_SHA" \
-            --jq '{sha,author:{login:.author.login,type:.author.type},committer:{login:.committer.login,type:.committer.type},verification:{verified:.commit.verification.verified,reason:.commit.verification.reason}}' \
-            > "$commit_snapshot"
-          node --input-type=module --eval '
-            import { readFileSync } from "node:fs";
+          if test "$SOURCE_KIND" = "dependabot"; then
+            commit_snapshot="$RUNNER_TEMP/dependabot-review-commit.json"
+            gh api "repos/$REPOSITORY/commits/$EXPECTED_HEAD_SHA" \
+              --jq '{sha,author:{login:.author.login,type:.author.type},committer:{login:.committer.login,type:.committer.type},verification:{verified:.commit.verification.verified,reason:.commit.verification.reason}}' \
+              > "$commit_snapshot"
+            node --input-type=module --eval '
+              import { readFileSync } from "node:fs";
 
-            const commit = JSON.parse(readFileSync(process.argv[1], "utf8"));
-            const expectedHeadSha = process.env.EXPECTED_HEAD_SHA;
-            const dependabotCommitter =
-              commit.committer?.login === "dependabot[bot]" &&
-              commit.committer?.type === "Bot";
-            const webFlowCommitter =
-              commit.committer?.login === "web-flow" &&
-              commit.committer?.type === "User";
-            if (
-              commit.sha !== expectedHeadSha ||
-              commit.author?.login !== "dependabot[bot]" ||
-              commit.author?.type !== "Bot" ||
-              (!dependabotCommitter && !webFlowCommitter) ||
-              commit.verification?.verified !== true ||
-              commit.verification?.reason !== "valid"
-            ) {
-              throw new Error("PR head is not a verified Dependabot commit");
-            }
-          ' "$commit_snapshot"
+              const commit = JSON.parse(readFileSync(process.argv[1], "utf8"));
+              const expectedHeadSha = process.env.EXPECTED_HEAD_SHA;
+              const dependabotCommitter =
+                commit.committer?.login === "dependabot[bot]" &&
+                commit.committer?.type === "Bot";
+              const webFlowCommitter =
+                commit.committer?.login === "web-flow" &&
+                commit.committer?.type === "User";
+              if (
+                commit.sha !== expectedHeadSha ||
+                commit.author?.login !== "dependabot[bot]" ||
+                commit.author?.type !== "Bot" ||
+                (!dependabotCommitter && !webFlowCommitter) ||
+                commit.verification?.verified !== true ||
+                commit.verification?.reason !== "valid"
+              ) {
+                throw new Error("PR head is not a verified Dependabot commit");
+              }
+            ' "$commit_snapshot"
+          else
+            test "$SOURCE_KIND" = "prepared"
+          fi
 
           echo "identity_digest=$identity_digest" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$EXPECTED_HEAD_REF" >> "$GITHUB_OUTPUT"
 
+      - name: Materialize the prepared-review validator from trusted source
+        id: prepared-validator
+        if: steps.intake.outputs.source_kind == 'prepared'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]
+          trusted_root="$RUNNER_TEMP/dependabot-prepared-review"
+          install -d -m 0700 "$trusted_root"
+          trusted_validator="$trusted_root/dependabot-prepared-review.mjs"
+          resolved_sha="$(gh api "repos/$REPOSITORY/commits/$WORKFLOW_SHA" --jq .sha)"
+          test "$resolved_sha" = "$WORKFLOW_SHA"
+          gh api \
+            -H "Accept: application/vnd.github.raw+json" \
+            "repos/$REPOSITORY/contents/scripts/dependabot-prepared-review.mjs?ref=$WORKFLOW_SHA" \
+            > "$trusted_validator"
+          test -s "$trusted_validator"
+          chmod 0500 "$trusted_validator"
+          echo "path=$trusted_validator" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate the append-only prepared-head lineage
+        if: steps.intake.outputs.source_kind == 'prepared'
+        shell: bash
+        env:
+          EXPECTED_HEAD_REF: ${{ steps.pr.outputs.head_ref }}
+          EXPECTED_HEAD_SHA: ${{ steps.intake.outputs.head_sha }}
+          EXPECTED_OPERATION: ${{ steps.intake.outputs.operation }}
+          EXPECTED_OPERATION_CHECK_ID: ${{ steps.intake.outputs.operation_check_id }}
+          EXPECTED_OPERATION_DIGEST: ${{ steps.intake.outputs.operation_digest }}
+          EXPECTED_PREPARE_APP_SLUG: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG }}
+          EXPECTED_PREPARE_BOT_ID: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID }}
+          EXPECTED_PREPARE_BOT_LOGIN: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN }}
+          GH_TOKEN: ${{ github.token }}
+          PREPARED_VALIDATOR: ${{ steps.prepared-validator.outputs.path }}
+          PR_NUMBER: ${{ steps.intake.outputs.pr_number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          node "$PREPARED_VALIDATOR" \
+            --app-slug "$EXPECTED_PREPARE_APP_SLUG" \
+            --bot-id "$EXPECTED_PREPARE_BOT_ID" \
+            --bot-login "$EXPECTED_PREPARE_BOT_LOGIN" \
+            --check-id "$EXPECTED_OPERATION_CHECK_ID" \
+            --digest "$EXPECTED_OPERATION_DIGEST" \
+            --head-ref "$EXPECTED_HEAD_REF" \
+            --head-sha "$EXPECTED_HEAD_SHA" \
+            --operation "$EXPECTED_OPERATION" \
+            --pr "$PR_NUMBER" \
+            --repo "$REPOSITORY"
   review:
     name: dependabot-claude-review-agent
     needs: preflight
@@ -323,7 +462,7 @@ jobs:
             Return the requested structured result with concrete correctness,
             security, compatibility, and test findings. A clean verdict means
             the exact diff has no actionable findings.
-          allowed_bots: dependabot[bot]
+          allowed_bots: ${{ needs.preflight.outputs.review_actor_login }}
           claude_args: >-
             --json-schema '{"type":"object","additionalProperties":false,"required":["schema","repository","pullRequestNumber","headSha","reviewCompleted","verdict","findings"],"properties":{"schema":{"const":"dependabot-claude-review-result:v1"},"repository":{"const":"mento-protocol/frontend-monorepo"},"pullRequestNumber":{"type":"integer","minimum":1},"headSha":{"type":"string","pattern":"^[0-9a-f]{40}$"},"reviewCompleted":{"type":"boolean"},"verdict":{"enum":["clean","findings"]},"findings":{"type":"array","maxItems":20,"items":{"type":"object","additionalProperties":false,"required":["title","path","line","summary"],"properties":{"title":{"type":"string","minLength":1,"maxLength":160},"path":{"type":"string","minLength":1,"maxLength":300},"line":{"type":"integer","minimum":1},"summary":{"type":"string","minLength":1,"maxLength":1000}}}}}}'
 
@@ -465,6 +604,10 @@ jobs:
                 (.reviewCompleted | type == "boolean") and
                 (.verdict == "clean" or .verdict == "findings") and
                 (.findings | type == "array" and length <= 20) and
+                (
+                  (.reviewCompleted == true and .verdict == "clean" and (.findings | length) == 0) or
+                  (.reviewCompleted == true and .verdict == "findings" and (.findings | length) >= 1)
+                ) and
                 all(.findings[];
                   type == "object" and
                   (keys | sort) == ["line", "path", "summary", "title"] and
@@ -490,15 +633,13 @@ jobs:
               "$review_result_file" > /dev/null; then
             conclusion=success
             summary="Claude reviewed the exact stable PR head and returned no actionable findings."
-            text="The validated structured review completed with an empty findings array."
-          elif test "$valid_review" = "true" && \
+            text="$(jq -S -c '.' "$review_result_file")"
+          elif test "$POST_IDENTITY_STABLE" = "true" && \
+            test "$valid_review" = "true" && \
             jq -e '.reviewCompleted == true and .verdict == "findings"' \
               "$review_result_file" > /dev/null; then
             summary="Claude reviewed the exact PR head and returned $finding_count bounded finding(s)."
-            text="$(jq -r '
-              "Validated findings (one JSON object per line):\n\n" +
-              ([.findings[] | "    " + tojson] | join("\n"))
-            ' "$review_result_file")"
+            text="$(jq -S -c '.' "$review_result_file")"
           fi
 
           request="$RUNNER_TEMP/dependabot-claude-review-check.json"
