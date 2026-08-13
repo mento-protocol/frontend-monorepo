@@ -8,6 +8,11 @@ import process from "node:process";
 import { test } from "node:test";
 
 import {
+  canonicalJson,
+  parseCanonicalJson,
+  rawDigest,
+} from "./dependabot-preparation-receipts.mjs";
+import {
   DEPENDABOT_ALL_CLEAR_SCHEMA,
   DEPENDABOT_CHECK_POLICY,
   DEPENDABOT_PROCESSOR_SCHEMA,
@@ -3306,10 +3311,17 @@ test("typed repair receipts require valid verification and consume one attempt o
     },
   ).repairPacket;
   assert.notEqual(packet, null);
+  const legacyPacketText = stableJson(packet);
+  assert.notEqual(legacyPacketText, canonicalJson(packet));
   const packetCheck = processorRepairReceipt(1, {
     headSha: HEAD_SHA,
     packet,
   });
+  assert.equal(packetCheck.outputText, legacyPacketText);
+  assert.equal(
+    parseDependabotProcessorReceipt(packetCheck, REPOSITORY)?.packetDigest,
+    rawDigest(legacyPacketText),
+  );
   const receiptCheck = repairReceiptCheck({
     headSha: OTHER_SHA,
     packetDigest: digest(packet),
@@ -3375,6 +3387,7 @@ test("typed repair receipts require valid verification and consume one attempt o
   assert.equal(result.identity.prepareAuthority, true);
   assert.equal(result.repairAttempts.authenticatedRepairCommitCount, 1);
   assert.equal(result.repairAttempts.consumedAttempts, 1);
+  assert.equal(result.repairAttempts.valid, true);
   assert.equal(result.repairAttempt, 2);
   assert.equal(result.repairAttempts.preparationKind, "prepared");
   assert.equal(result.disposition, "prepare-candidate");
@@ -6715,16 +6728,25 @@ test("published processor checks carry exact-head durable repair receipts and ob
     repository: REPOSITORY,
     workflowContext: WORKFLOW_CONTEXT,
   });
+  const publishedPacketText = bodies[0].output.text;
   assert.equal(
     bodies[0].external_id,
-    `${DEPENDABOT_PROCESSOR_SCHEMA}:pr=123:head=${HEAD_SHA}:mode=prepare:repair=2:packet=true:digest=${digest(repairPacket)}:run=${WORKFLOW_CONTEXT.workflowRunId}:attempt=${WORKFLOW_CONTEXT.workflowRunAttempt}`,
+    `${DEPENDABOT_PROCESSOR_SCHEMA}:pr=123:head=${HEAD_SHA}:mode=prepare:repair=2:packet=true:digest=${rawDigest(publishedPacketText)}:run=${WORKFLOW_CONTEXT.workflowRunId}:attempt=${WORKFLOW_CONTEXT.workflowRunAttempt}`,
   );
   assert.equal(bodies[0].conclusion, "failure");
   assert.equal(
     bodies[0].details_url,
     `https://github.com/${REPOSITORY}/actions/runs/${WORKFLOW_CONTEXT.workflowRunId}`,
   );
-  assert.equal(bodies[0].output.text, stableJson(repairPacket));
+  assert.equal(publishedPacketText, canonicalJson(repairPacket));
+  assert.deepEqual(
+    parseCanonicalJson(publishedPacketText, "repair packet"),
+    repairPacket,
+  );
+  assert.ok(
+    publishedPacketText.indexOf('"requireExactHead"') <
+      publishedPacketText.indexOf('"requiredGateIds"'),
+  );
   await assert.rejects(
     adapter.publishProcessorCheck({
       disposition: "repair-required",
