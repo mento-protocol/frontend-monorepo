@@ -188,7 +188,10 @@ function createObservation(evidenceRoot) {
   return root;
 }
 
-export function createSyntheticGitHubActionsEvidence(parent) {
+export function createSyntheticGitHubActionsEvidence(
+  parent,
+  { auditSource = "rest", auditEvents = [] } = {},
+) {
   const evidenceRoot = directory(join(parent, ".vercel-cost-evidence"));
   const observationRoot = createObservation(evidenceRoot);
   const rawRoot = directory(join(evidenceRoot, "github", "raw"));
@@ -274,11 +277,6 @@ export function createSyntheticGitHubActionsEvidence(parent) {
     completenessBasis: "maintainer-attested-web-export-after-storage-lag",
     csvSha256: sha256(csvBytes),
   });
-  const auditTranscript = join(rawRoot, "audit-log.transcript.txt");
-  const transcriptBytes = privateFile(
-    auditTranscript,
-    "HTTP/2 200\ncontent-type: application/json\n\n[]\n",
-  );
   const queryStartUtc = "2026-07-15T23:55:00.000Z";
   const queryEndUtcExclusive = "2026-07-23T00:02:00.000Z";
   const queryPhrase = `repo:${REPOSITORY} action:repo.access created:>=${queryStartUtc} created:<${queryEndUtcExclusive}`;
@@ -289,29 +287,73 @@ export function createSyntheticGitHubActionsEvidence(parent) {
   firstPage.searchParams.set("include", "web");
   firstPage.searchParams.set("order", "asc");
   firstPage.searchParams.set("per_page", "100");
+  let auditEvidence;
+  let auditInput;
+  let auditMetadataValue;
+  if (auditSource === "rest") {
+    auditEvidence = join(rawRoot, "audit-log.transcript.txt");
+    const transcriptBytes = privateFile(
+      auditEvidence,
+      `HTTP/2 200\ncontent-type: application/json\n\n${JSON.stringify(auditEvents)}\n`,
+    );
+    auditInput = { auditRestTranscript: auditEvidence };
+    auditMetadataValue = {
+      schema: GITHUB_AUDIT_METADATA_SCHEMA,
+      source: "github-org-audit-log-rest-link-transcript",
+      format: "http-link-transcript-json-array-pages",
+      repository: REPOSITORY,
+      startUtc: SYNTHETIC_START,
+      endUtcExclusive: SYNTHETIC_END,
+      queryStartUtc,
+      queryEndUtcExclusive,
+      capturedAtUtc: "2026-07-23T00:03:00.000Z",
+      queryPhrase,
+      include: "web",
+      order: "asc",
+      perPage: 100,
+      pageUrls: [firstPage.toString()],
+      complete: true,
+      eventCount: auditEvents.length,
+      transcriptByteLength: transcriptBytes.length,
+      transcriptSha256: sha256(transcriptBytes),
+    };
+  } else if (auditSource === "web") {
+    auditEvidence = join(rawRoot, "audit-log.web-export.json");
+    const exportBytes = privateFile(auditEvidence, auditEvents);
+    auditInput = { auditWebExport: auditEvidence };
+    auditMetadataValue = {
+      schema: GITHUB_AUDIT_METADATA_SCHEMA,
+      source: "github-org-audit-log-owner-web-json-export",
+      format: "json-array",
+      repository: REPOSITORY,
+      startUtc: SYNTHETIC_START,
+      endUtcExclusive: SYNTHETIC_END,
+      queryStartUtc,
+      queryEndUtcExclusive,
+      capturedAtUtc: "2026-07-23T00:03:00.000Z",
+      queryPhrase,
+      eventCount: auditEvents.length,
+      exportByteLength: exportBytes.length,
+      exportSha256: sha256(exportBytes),
+      ownerAttestation: {
+        role: "admin",
+        exportCompleted: true,
+        sizeLimitReached: false,
+        processingTimeLimitReached: false,
+        exportError: null,
+        matchingEntryCount: auditEvents.length,
+      },
+    };
+  } else {
+    throw new Error(`Unsupported synthetic audit source: ${auditSource}`);
+  }
   const auditMetadata = join(rawRoot, "audit-log.metadata.json");
-  privateFile(auditMetadata, {
-    schema: GITHUB_AUDIT_METADATA_SCHEMA,
-    source: "github-org-audit-log-rest-link-transcript",
-    repository: REPOSITORY,
-    startUtc: SYNTHETIC_START,
-    endUtcExclusive: SYNTHETIC_END,
-    queryStartUtc,
-    queryEndUtcExclusive,
-    capturedAtUtc: "2026-07-23T00:03:00.000Z",
-    queryPhrase,
-    include: "web",
-    order: "asc",
-    perPage: 100,
-    pageUrls: [firstPage.toString()],
-    complete: true,
-    transcriptSha256: sha256(transcriptBytes),
-  });
+  privateFile(auditMetadata, auditMetadataValue);
   const proofPath = join(outputRoot, "postcutover.github-actions.json");
   const options = {
     usageCsv,
     usageMetadata,
-    auditTranscript,
+    ...auditInput,
     auditMetadata,
     observationRoot,
     output: proofPath,
@@ -321,6 +363,7 @@ export function createSyntheticGitHubActionsEvidence(parent) {
   return {
     ...options,
     evidenceRoot,
+    auditEvidence,
     proof,
     proofPath,
     proofSha256: sha256(proofBytes),

@@ -195,9 +195,11 @@ pnpm vercel:cost:normalize-deployments --input <private-pages-envelope.json> --o
 # Test and run the private collector, census normalizer, and redaction-safe analyzer
 pnpm vercel:cost:test
 # Inspect the private detailed-usage shape, then build the source-bound GitHub
-# Actions proof after collecting its metadata and complete audit transcript.
+# Actions proof after collecting its metadata and one complete audit source.
 pnpm vercel:cost:github -- inspect --usage-csv .vercel-cost-evidence/github/raw/detailed-usage.csv --output .vercel-cost-evidence/github/usage-shape.json
-pnpm vercel:cost:github -- build --usage-csv .vercel-cost-evidence/github/raw/detailed-usage.csv --usage-metadata .vercel-cost-evidence/github/raw/detailed-usage.metadata.json --audit-transcript .vercel-cost-evidence/github/raw/audit-log.transcript.txt --audit-metadata .vercel-cost-evidence/github/raw/audit-log.metadata.json --observation-root .vercel-cost-evidence/github-observation-v2 --output .vercel-cost-evidence/github/postcutover.github-actions.json
+# Free-plan owners use --audit-web-export; entitled Enterprise Cloud owners may
+# instead pass --audit-rest-transcript. The two options are mutually exclusive.
+pnpm vercel:cost:github -- build --usage-csv .vercel-cost-evidence/github/raw/detailed-usage.csv --usage-metadata .vercel-cost-evidence/github/raw/detailed-usage.metadata.json --audit-web-export .vercel-cost-evidence/github/raw/audit-log.web-export.json --audit-metadata .vercel-cost-evidence/github/raw/audit-log.metadata.json --observation-root .vercel-cost-evidence/github-observation-v2 --output .vercel-cost-evidence/github/postcutover.github-actions.json
 # The analyzer rebuilds baseline/post censuses and canonical proofs from their
 # raw saved deployment pages before applying the #523 target-mix formula, and
 # manifest v3 also revalidates the GitHub Actions proof from its raw sources.

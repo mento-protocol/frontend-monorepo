@@ -1152,6 +1152,31 @@ test("loads and reconciles raw FOCUS project totals and deployment census source
   }
 });
 
+test("rebuilds the GitHub Actions proof from a bound owner web audit export", () => {
+  const temporaryDirectory = mkdtempSync(
+    join(tmpdir(), "vercel-web-audit-manifest-"),
+  );
+  try {
+    const { manifest } = createManifestFixture(temporaryDirectory);
+    const github = createSyntheticGitHubActionsEvidence(
+      join(temporaryDirectory, "web-audit"),
+      { auditSource: "web" },
+    );
+    manifest.githubActionsEvidence = {
+      proof: github.proofPath,
+      proofSha256: github.proofSha256,
+    };
+    const manifestPath = join(temporaryDirectory, "web-audit-manifest.json");
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const analysis = analyzeVercelCostManifest(manifestPath);
+    assert.equal(analysis.pass, true);
+    assert.equal(analysis.sourceEvidence.githubActionsProofReconciled, true);
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
 test("filters non-Usage FOCUS rows before reconciling usage totals", () => {
   const temporaryDirectory = mkdtempSync(
     join(tmpdir(), "vercel-focus-filter-"),

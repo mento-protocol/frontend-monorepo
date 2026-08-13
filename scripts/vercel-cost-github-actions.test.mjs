@@ -61,8 +61,45 @@ function rebindUsageMetadata(evidence) {
 
 function rebindAuditMetadata(evidence) {
   rewriteJson(evidence.auditMetadata, (metadata) => {
-    metadata.transcriptSha256 = sha256(readFileSync(evidence.auditTranscript));
+    const bytes = readFileSync(evidence.auditEvidence);
+    if (metadata.source === "github-org-audit-log-rest-link-transcript") {
+      metadata.transcriptByteLength = bytes.length;
+      metadata.transcriptSha256 = sha256(bytes);
+      metadata.eventCount =
+        bytes.toString("utf8").match(/"action"\s*:\s*"repo\.access"/g)
+          ?.length ?? 0;
+    } else {
+      metadata.exportByteLength = bytes.length;
+      metadata.exportSha256 = sha256(bytes);
+      const events = JSON.parse(bytes);
+      metadata.eventCount = events.length;
+      metadata.ownerAttestation.matchingEntryCount = events.length;
+    }
   });
+}
+
+function rewriteWebAuditEvents(evidence, events) {
+  writeFileSync(
+    evidence.auditEvidence,
+    `${JSON.stringify(events, null, 2)}\n`,
+    {
+      mode: 0o600,
+    },
+  );
+  chmodSync(evidence.auditEvidence, 0o600);
+  rebindAuditMetadata(evidence);
+}
+
+function visibilityEvent(
+  createdAt = "2026-07-16T00:00:00.000Z",
+  documentId = "visibility-event",
+) {
+  return {
+    _document_id: documentId,
+    action: "repo.access",
+    repo: "mento-protocol/frontend-monorepo",
+    created_at: createdAt,
+  };
 }
 
 test("builds and revalidates a source-bound eligible proof", () => {
@@ -81,6 +118,318 @@ test("builds and revalidates a source-bound eligible proof", () => {
       validateGitHubActionsCostProof(evidence.proofPath).eligibleForAnalyzer,
       true,
     );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("builds and revalidates an eligible empty owner web JSON export", () => {
+  const root = workspace();
+  try {
+    const evidence = createSyntheticGitHubActionsEvidence(root, {
+      auditSource: "web",
+    });
+    assert.equal(evidence.proof.eligibleForAnalyzer, true);
+    assert.equal(
+      evidence.proof.visibility.auditSource,
+      "github-org-audit-log-owner-web-json-export",
+    );
+    assert.equal(evidence.proof.visibility.auditFormat, "json-array");
+    assert.equal(evidence.proof.visibility.repositoryAccessEventCount, 0);
+    assert.equal(
+      validateGitHubActionsCostProof(evidence.proofPath).eligibleForAnalyzer,
+      true,
+    );
+
+    rmSync(evidence.proofPath);
+    const result = runGitHubActionsCostCli([
+      "build",
+      "--usage-csv",
+      evidence.usageCsv,
+      "--usage-metadata",
+      evidence.usageMetadata,
+      "--audit-web-export",
+      evidence.auditEvidence,
+      "--audit-metadata",
+      evidence.auditMetadata,
+      "--observation-root",
+      evidence.observationRoot,
+      "--output",
+      evidence.proofPath,
+    ]);
+    assert.equal(result.exitCode, 0);
+    assert.throws(
+      () =>
+        runGitHubActionsCostCli([
+          "build",
+          "--usage-csv",
+          evidence.usageCsv,
+          "--usage-metadata",
+          evidence.usageMetadata,
+          "--audit-rest-transcript",
+          evidence.auditEvidence,
+          "--audit-web-export",
+          evidence.auditEvidence,
+          "--audit-metadata",
+          evidence.auditMetadata,
+          "--observation-root",
+          evidence.observationRoot,
+          "--output",
+          evidence.proofPath,
+        ]),
+      /Usage:/,
+    );
+    assert.throws(
+      () =>
+        buildGitHubActionsCostProof({
+          ...evidence,
+          auditWebExport: undefined,
+          auditRestTranscript: evidence.auditEvidence,
+        }),
+      /source conflicts with the selected CLI option/,
+    );
+    assert.throws(
+      () =>
+        runGitHubActionsCostCli([
+          "build",
+          "--usage-csv",
+          evidence.usageCsv,
+          "--usage-metadata",
+          evidence.usageMetadata,
+          "--audit-metadata",
+          evidence.auditMetadata,
+          "--observation-root",
+          evidence.observationRoot,
+          "--output",
+          evidence.proofPath,
+        ]),
+      /Usage:/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects wrong web export source, format, query, repository, and window metadata", () => {
+  const cases = [
+    [
+      (metadata) => (metadata.source = "github-org-audit-log-rest"),
+      /source is unsupported/,
+    ],
+    [(metadata) => (metadata.format = "ndjson"), /source or format/],
+    [
+      (metadata) => (metadata.queryPhrase += " actor:someone"),
+      /query is not exact/,
+    ],
+    [
+      (metadata) => (metadata.repository = "other/repository"),
+      /repository conflicts/,
+    ],
+    [
+      (metadata) => (metadata.queryStartUtc = "2026-07-15T23:55:01.000Z"),
+      /floored pre-window boundary/,
+    ],
+    [
+      (metadata) => (metadata.startUtc = "2026-07-17T00:00:00.000Z"),
+      /interval conflicts/,
+    ],
+    [
+      (metadata) =>
+        (metadata.queryEndUtcExclusive = "2026-07-23T00:01:00.000Z"),
+      /must cover the post-window terminal sample/,
+    ],
+  ];
+  for (const [mutate, expected] of cases) {
+    const root = workspace();
+    try {
+      const evidence = createSyntheticGitHubActionsEvidence(root, {
+        auditSource: "web",
+      });
+      rewriteJson(evidence.auditMetadata, mutate);
+      assert.throws(() => buildGitHubActionsCostProof(evidence), expected);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("binds web export digest, byte length, event count, and owner matching count", () => {
+  const cases = [
+    [
+      (metadata) => (metadata.exportSha256 = "f".repeat(64)),
+      /web export bytes/,
+    ],
+    [(metadata) => (metadata.exportByteLength += 1), /web export byte length/],
+    [(metadata) => (metadata.eventCount = 1), /eventCount conflicts/],
+    [
+      (metadata) => (metadata.ownerAttestation.matchingEntryCount = 1),
+      /matchingEntryCount conflicts/,
+    ],
+  ];
+  for (const [mutate, expected] of cases) {
+    const root = workspace();
+    try {
+      const evidence = createSyntheticGitHubActionsEvidence(root, {
+        auditSource: "web",
+      });
+      rewriteJson(evidence.auditMetadata, mutate);
+      assert.throws(() => buildGitHubActionsCostProof(evidence), expected);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("requires an admin owner attestation with successful unlimited export", () => {
+  const cases = [
+    [(metadata) => delete metadata.ownerAttestation, /must contain exactly/],
+    [
+      (metadata) => (metadata.ownerAttestation.role = "member"),
+      /organization admin owner/,
+    ],
+    [
+      (metadata) => (metadata.ownerAttestation.exportCompleted = false),
+      /successful completion/,
+    ],
+    [
+      (metadata) => (metadata.ownerAttestation.sizeLimitReached = true),
+      /no provider limit/,
+    ],
+    [
+      (metadata) =>
+        (metadata.ownerAttestation.processingTimeLimitReached = true),
+      /no provider limit/,
+    ],
+    [
+      (metadata) => (metadata.ownerAttestation.exportError = "timed out"),
+      /no export error/,
+    ],
+  ];
+  for (const [mutate, expected] of cases) {
+    const root = workspace();
+    try {
+      const evidence = createSyntheticGitHubActionsEvidence(root, {
+        auditSource: "web",
+      });
+      rewriteJson(evidence.auditMetadata, mutate);
+      assert.throws(() => buildGitHubActionsCostProof(evidence), expected);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("requires the web export to be one strict JSON array rather than malformed JSON or NDJSON", () => {
+  for (const raw of ["{", "{}\n{}\n", '{"events":[]}\n']) {
+    const root = workspace();
+    try {
+      const evidence = createSyntheticGitHubActionsEvidence(root, {
+        auditSource: "web",
+      });
+      writeFileSync(evidence.auditEvidence, raw, { mode: 0o600 });
+      chmodSync(evidence.auditEvidence, 0o600);
+      rewriteJson(evidence.auditMetadata, (metadata) => {
+        const bytes = readFileSync(evidence.auditEvidence);
+        metadata.exportByteLength = bytes.length;
+        metadata.exportSha256 = sha256(bytes);
+      });
+      assert.throws(
+        () => buildGitHubActionsCostProof(evidence),
+        /must be valid JSON|must be a JSON array/,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("requires exact action, repository, query window, and unique document IDs in web rows", () => {
+  const cases = [
+    [[{ ...visibilityEvent(), action: "repo.rename" }], /action is outside/],
+    [
+      [{ ...visibilityEvent(), repo: "other/repository" }],
+      /repository is outside/,
+    ],
+    [
+      [
+        visibilityEvent("2026-07-16T00:00:00.000Z", "same"),
+        visibilityEvent("2026-07-17T00:00:00.000Z", "same"),
+      ],
+      /_document_id is missing or duplicated/,
+    ],
+    [
+      [{ ...visibilityEvent(), _document_id: undefined }],
+      /_document_id is missing/,
+    ],
+    [
+      [visibilityEvent("2026-07-15T23:54:59.999Z")],
+      /outside the covering half-open query/,
+    ],
+    [
+      [visibilityEvent("2026-07-23T00:02:00.000Z")],
+      /outside the covering half-open query/,
+    ],
+  ];
+  for (const [events, expected] of cases) {
+    const root = workspace();
+    try {
+      const evidence = createSyntheticGitHubActionsEvidence(root, {
+        auditSource: "web",
+      });
+      rewriteWebAuditEvents(evidence, events);
+      assert.throws(() => buildGitHubActionsCostProof(evidence), expected);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("includes the floored start second and the instant before the exclusive query end", () => {
+  const root = workspace();
+  try {
+    const evidence = createSyntheticGitHubActionsEvidence(root, {
+      auditSource: "web",
+    });
+    rewriteWebAuditEvents(evidence, [
+      visibilityEvent("2026-07-15T23:55:00.000Z", "start-second"),
+      visibilityEvent("2026-07-23T00:01:59.999Z", "end-minus"),
+    ]);
+    const proof = buildGitHubActionsCostProof(evidence);
+    assert.equal(proof.visibility.repositoryAccessEventCount, 2);
+    assert.equal(proof.visibility.repositoryPublicEntireWindow, false);
+    assert.equal(proof.eligibleForAnalyzer, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("accepts GitHub web export created_at timestamps in documented epoch milliseconds", () => {
+  const root = workspace();
+  try {
+    const evidence = createSyntheticGitHubActionsEvidence(root, {
+      auditSource: "web",
+    });
+    const event = visibilityEvent();
+    event.created_at = Date.parse(event.created_at);
+    rewriteWebAuditEvents(evidence, [event]);
+    const proof = buildGitHubActionsCostProof(evidence);
+    assert.equal(proof.visibility.repositoryAccessEventCount, 1);
+    assert.equal(proof.eligibleForAnalyzer, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a valid nonzero web visibility event makes the proof ineligible", () => {
+  const root = workspace();
+  try {
+    const evidence = createSyntheticGitHubActionsEvidence(root, {
+      auditSource: "web",
+    });
+    rewriteWebAuditEvents(evidence, [visibilityEvent()]);
+    const proof = buildGitHubActionsCostProof(evidence);
+    assert.equal(proof.visibility.repositoryAccessEventCount, 1);
+    assert.equal(proof.eligibleForAnalyzer, false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -175,13 +524,13 @@ test("requires a complete audit pagination chain and no visibility changes", () 
       value.pageUrls.push(nextPageUrl);
     });
     rewrite(
-      evidence.auditTranscript,
+      evidence.auditEvidence,
       () =>
         `HTTP/2 200\nlink: <${nextPageUrl}>; rel="next"\ncontent-type: application/json\n\n[]\n--- github-audit-page ---\nHTTP/2 200\ncontent-type: application/json\n\n[]\n`,
     );
     rebindAuditMetadata(evidence);
     const proof = buildGitHubActionsCostProof(evidence);
-    assert.equal(proof.visibility.auditLogPageCount, 2);
+    assert.equal(proof.visibility.auditEvidenceUnitCount, 2);
     assert.equal(proof.eligibleForAnalyzer, true);
   } finally {
     rmSync(completeRoot, { recursive: true, force: true });
@@ -191,7 +540,7 @@ test("requires a complete audit pagination chain and no visibility changes", () 
   try {
     const evidence = createSyntheticGitHubActionsEvidence(root);
     rewrite(
-      evidence.auditTranscript,
+      evidence.auditEvidence,
       () =>
         'HTTP/2 200\nlink: <https://api.github.com/orgs/mento-protocol/audit-log?after=cursor>; rel="next"\n\n[]\n',
     );
@@ -208,7 +557,7 @@ test("requires a complete audit pagination chain and no visibility changes", () 
   try {
     const evidence = createSyntheticGitHubActionsEvidence(changedRoot);
     rewrite(
-      evidence.auditTranscript,
+      evidence.auditEvidence,
       () =>
         'HTTP/2 200\ncontent-type: application/json\n\n[{"_document_id":"one","action":"repo.access","repo":"mento-protocol/frontend-monorepo","created_at":"2026-07-15T23:57:00.000Z"}]\n',
     );
@@ -218,6 +567,31 @@ test("requires a complete audit pagination chain and no visibility changes", () 
     assert.equal(proof.eligibleForAnalyzer, false);
   } finally {
     rmSync(changedRoot, { recursive: true, force: true });
+  }
+});
+
+test("retains REST source, format, byte-length, digest, and event-count binding", () => {
+  const cases = [
+    [(metadata) => (metadata.format = "json-array"), /source or format/],
+    [
+      (metadata) => (metadata.transcriptByteLength += 1),
+      /transcript byte length/,
+    ],
+    [
+      (metadata) => (metadata.transcriptSha256 = "f".repeat(64)),
+      /transcript bytes/,
+    ],
+    [(metadata) => (metadata.eventCount = 1), /eventCount conflicts/],
+  ];
+  for (const [mutate, expected] of cases) {
+    const root = workspace();
+    try {
+      const evidence = createSyntheticGitHubActionsEvidence(root);
+      rewriteJson(evidence.auditMetadata, mutate);
+      assert.throws(() => buildGitHubActionsCostProof(evidence), expected);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   }
 });
 
@@ -256,7 +630,7 @@ test("rejects duplicate audit page URLs and visibility changes in the floored bo
   try {
     const evidence = createSyntheticGitHubActionsEvidence(visibilityRoot);
     rewrite(
-      evidence.auditTranscript,
+      evidence.auditEvidence,
       () =>
         'HTTP/2 200\ncontent-type: application/json\n\n[{"_document_id":"boundary-second","action":"repo.access","repo":"mento-protocol/frontend-monorepo","created_at":"2026-07-15T23:55:00.000Z"}]\n',
     );
@@ -427,8 +801,8 @@ test("inspect writes private shape only and build stdout excludes financials", (
         evidence.usageCsv,
         "--usage-metadata",
         evidence.usageMetadata,
-        "--audit-transcript",
-        evidence.auditTranscript,
+        "--audit-rest-transcript",
+        evidence.auditEvidence,
         "--audit-metadata",
         evidence.auditMetadata,
         "--observation-root",
@@ -452,8 +826,8 @@ test("inspect writes private shape only and build stdout excludes financials", (
           evidence.usageCsv,
           "--usage-metadata",
           evidence.usageMetadata,
-          "--audit-transcript",
-          evidence.auditTranscript,
+          "--audit-rest-transcript",
+          evidence.auditEvidence,
           "--audit-metadata",
           evidence.auditMetadata,
           "--observation-root",
@@ -556,6 +930,51 @@ test("proof validation catches raw source and proof tampering", () => {
     );
   } finally {
     rmSync(proofRoot, { recursive: true, force: true });
+  }
+
+  const legacyProofRoot = workspace();
+  try {
+    const evidence = createSyntheticGitHubActionsEvidence(legacyProofRoot);
+    rewriteJson(evidence.proofPath, (proof) => {
+      proof.schema = "vercel-cost-github-actions-proof:v1";
+    });
+    assert.throws(
+      () => validateGitHubActionsCostProof(evidence.proofPath),
+      /proof schema is unsupported/,
+    );
+  } finally {
+    rmSync(legacyProofRoot, { recursive: true, force: true });
+  }
+
+  const webSourceRoot = workspace();
+  try {
+    const evidence = createSyntheticGitHubActionsEvidence(webSourceRoot, {
+      auditSource: "web",
+    });
+    rewrite(evidence.auditEvidence, (value) => `${value.trimEnd()} `);
+    assert.throws(
+      () => validateGitHubActionsCostProof(evidence.proofPath),
+      /web export byte length|web export bytes/,
+    );
+  } finally {
+    rmSync(webSourceRoot, { recursive: true, force: true });
+  }
+
+  const webProofRoot = workspace();
+  try {
+    const evidence = createSyntheticGitHubActionsEvidence(webProofRoot, {
+      auditSource: "web",
+    });
+    rewriteJson(evidence.proofPath, (proof) => {
+      proof.visibility.auditSource =
+        "github-org-audit-log-rest-link-transcript";
+    });
+    assert.throws(
+      () => validateGitHubActionsCostProof(evidence.proofPath),
+      /does not reconcile to its bound sources/,
+    );
+  } finally {
+    rmSync(webProofRoot, { recursive: true, force: true });
   }
 });
 

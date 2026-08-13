@@ -236,7 +236,7 @@ pages, normalized census, and canonical census proof. It reruns
 normalizer's canonical proof and JSONL bytes, digests, and window to match, and
 uses only that rebuilt census. Manifest schema v3 also binds one canonical
 GitHub Actions proof and its SHA-256. The analyzer rebuilds that proof from its
-raw CSV, audit-log transcript, metadata, and frozen observation tree before
+raw CSV, selected audit evidence, metadata, and frozen observation tree before
 accepting any GitHub aggregate field. It accepts a project total only when the
 rebuilt census proves zero legacy-v2, manual, or unknown deployment attempts and
 the migrated minutes and costs equal the complete FOCUS-backed project total. It exits
@@ -263,7 +263,7 @@ issue, pull request, workflow artifact, job summary, or log:
 - raw Vercel FOCUS JSONL, saved deployment-page envelopes and original page
   responses, normalized deployment-census JSONL, census proofs, and the
   manifest;
-- the GitHub detailed-usage CSV, audit-log transcript, metadata, and canonical
+- the GitHub detailed-usage CSV, audit-log export or REST transcript, metadata, and canonical
   GitHub Actions proof;
 - project or team IDs not already public;
 - absolute `EffectiveCost`, `BilledCost`, allocation, plan, price, or invoice
@@ -330,20 +330,75 @@ least 12 hours after `endUtcExclusive`.
 
 The collector samples visibility before the start and after the end. Cover the
 entire gap, not just the billing interval: query the organization audit log from
-the whole-second floor of the boundary record's `recordedAtUtc` through a timestamp strictly after the
-terminal sample's `capturedAtUtc`. Use the exact phrase
+the whole-second floor of the boundary record's `recordedAtUtc` through a
+timestamp strictly after the terminal sample's `capturedAtUtc`. Use the exact phrase
 `repo:mento-protocol/frontend-monorepo action:repo.access
-created:>=<queryStartUtc> created:<queryEndUtcExclusive>`, `include=web`,
-ascending order, and `per_page=100`. Save every REST response as its status
-line, headers, blank line, and JSON array body. Join pages with this literal
-delimiter on its own line:
+created:>=<queryStartUtc> created:<queryEndUtcExclusive>`. Preserve the literal
+query and exact bounds in metadata. Choose exactly one of the two evidence
+routes below. Do not combine their files or fields.
+
+### Owner web JSON export (Free and Enterprise plans)
+
+An organization owner whose membership role is `admin` can enter the exact
+query in the organization **Audit log** page and select **Export > JSON**. Keep
+the downloaded JSON bytes unchanged. The file must be one JSON array, not
+NDJSON or a wrapper object. Every row must have exact `action: "repo.access"`
+and `repo: "mento-protocol/frontend-monorepo"` values, fall inside the covering
+half-open query range, and have a nonempty unique `_document_id`.
+
+[GitHub documents](https://docs.github.com/en/organizations/keeping-your-organization-secure/managing-security-settings-for-your-organization/reviewing-the-audit-log-for-your-organization#exporting-the-audit-log)
+two hard web-export limits: a 100 MB compressed file or 10 minutes of export
+processing. Confirm that neither limit nor an export error appeared and that
+the visible matching-entry count equals the JSON array length. Create canonical
+mode-`0600` `.vercel-cost-evidence/github/raw/audit-log.metadata.json`:
+
+```json
+{
+  "schema": "vercel-cost-github-audit-export-metadata:v2",
+  "source": "github-org-audit-log-owner-web-json-export",
+  "format": "json-array",
+  "repository": "mento-protocol/frontend-monorepo",
+  "startUtc": "<START_UTC_FROM_PRIVATE_INTERVAL>",
+  "endUtcExclusive": "<CURRENT_END_UTC_EXCLUSIVE_FROM_PRIVATE_LEDGER>",
+  "queryStartUtc": "<whole-second floor of boundary recordedAtUtc>",
+  "queryEndUtcExclusive": "<strictly after terminal sample capturedAtUtc>",
+  "capturedAtUtc": "<at or after queryEndUtcExclusive>",
+  "queryPhrase": "<the exact phrase above>",
+  "eventCount": 0,
+  "exportByteLength": 1234,
+  "exportSha256": "<lowercase SHA-256 of the exact JSON bytes>",
+  "ownerAttestation": {
+    "role": "admin",
+    "exportCompleted": true,
+    "sizeLimitReached": false,
+    "processingTimeLimitReached": false,
+    "exportError": null,
+    "matchingEntryCount": 0
+  }
+}
+```
+
+The web route has no provider pagination receipt or signed export. Its
+completeness claim is the maintainer attestation bound to the exact
+query, byte length, digest, array count, and matching-entry count. Keep the
+private export completion screen or equivalent operator record with the
+evidence package. Any visibility row remains valid source data but makes the
+proof ineligible.
+
+### REST Link transcript (Enterprise Cloud only)
+
+Organizations entitled to the organization audit-log REST endpoint may use
+the API route instead. Add `include=web`, ascending order, and `per_page=100`
+to the exact phrase. Save every REST response as its status line, headers,
+blank line, and JSON array body. Join pages with this literal delimiter on its
+own line:
 
 ```text
 --- github-audit-page ---
 ```
 
-Follow every `Link: ...; rel="next"` cursor through the terminal page. Do not
-use the web audit-log CSV: its size/time limits provide no pagination proof.
+Start without an `after` or `before` cursor and follow every
+`Link: ...; rel="next"` cursor through the terminal page.
 Create canonical mode-`0600`
 `.vercel-cost-evidence/github/raw/audit-log.metadata.json` with these keys.
 Reuse the same verified interval values; the placeholders remain deliberately
@@ -351,8 +406,9 @@ invalid until replaced:
 
 ```json
 {
-  "schema": "vercel-cost-github-audit-export-metadata:v1",
+  "schema": "vercel-cost-github-audit-export-metadata:v2",
   "source": "github-org-audit-log-rest-link-transcript",
+  "format": "http-link-transcript-json-array-pages",
   "repository": "mento-protocol/frontend-monorepo",
   "startUtc": "<START_UTC_FROM_PRIVATE_INTERVAL>",
   "endUtcExclusive": "<CURRENT_END_UTC_EXCLUSIVE_FROM_PRIVATE_LEDGER>",
@@ -365,14 +421,16 @@ invalid until replaced:
   "perPage": 100,
   "pageUrls": ["<exact first URL>", "<exact next URL if present>"],
   "complete": true,
+  "eventCount": 0,
+  "transcriptByteLength": 1234,
   "transcriptSha256": "<lowercase SHA-256 of the exact transcript bytes>"
 }
 ```
 
 Each `pageUrls` entry must preserve the same phrase, include, order, and
-per-page parameters and must be unique. Cursor parameters may differ. The transcript's `next`
-links must equal the next entries exactly, and the final page must have no next
-link.
+per-page parameters and must be unique. Cursor parameters may differ. The
+transcript's `next` links must equal the next entries exactly, and the final
+page must have no next link.
 
 Build the proof without network access or credentials:
 
@@ -380,11 +438,15 @@ Build the proof without network access or credentials:
 pnpm vercel:cost:github -- build \
   --usage-csv .vercel-cost-evidence/github/raw/detailed-usage.csv \
   --usage-metadata .vercel-cost-evidence/github/raw/detailed-usage.metadata.json \
-  --audit-transcript .vercel-cost-evidence/github/raw/audit-log.transcript.txt \
+  --audit-web-export .vercel-cost-evidence/github/raw/audit-log.web-export.json \
   --audit-metadata .vercel-cost-evidence/github/raw/audit-log.metadata.json \
   --observation-root .vercel-cost-evidence/github-observation-v2 \
   --output .vercel-cost-evidence/github/postcutover.github-actions.json
 ```
+
+For the Enterprise REST route, replace the one web-export option with
+`--audit-rest-transcript .vercel-cost-evidence/github/raw/audit-log.transcript.txt`.
+The CLI requires exactly one of these two options.
 
 All inputs and outputs must share one real `.vercel-cost-evidence/` tree with
 mode-`0700` directories and mode-`0600` files. Publication is fsynced and
@@ -392,7 +454,10 @@ no-overwrite; archive or delete an obsolete proof deliberately before rebuilding
 The proof binds raw-file SHA-256s, the exact interval, the six deployment
 workflow paths, checked-in standard/larger runner SKU allowlists, units, exact
 decimal billing amounts, the complete frozen collector tree, and audit
-pagination. Unknown SKUs, a visibility event in the covering range,
+source evidence. The REST source proves its cursor chain. The web source binds
+its explicit owner attestation while recording the absence of provider
+pagination and signature proof. Unknown SKUs, a visibility event in the
+covering range,
 interval-crossing jobs, nonzero larger-runner minutes, nonzero custom-image
 storage, nonzero standard-runner net cost, or disagreement between billed
 standard minutes and the collector's per-job rounded total makes the proof

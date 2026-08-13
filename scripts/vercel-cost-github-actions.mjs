@@ -27,11 +27,11 @@ import {
 } from "./vercel-cost-observation.mjs";
 
 export const GITHUB_ACTIONS_PROOF_SCHEMA =
-  "vercel-cost-github-actions-proof:v1";
+  "vercel-cost-github-actions-proof:v2";
 export const GITHUB_USAGE_METADATA_SCHEMA =
   "vercel-cost-github-usage-export-metadata:v1";
 export const GITHUB_AUDIT_METADATA_SCHEMA =
-  "vercel-cost-github-audit-export-metadata:v1";
+  "vercel-cost-github-audit-export-metadata:v2";
 
 const REPOSITORY = "mento-protocol/frontend-monorepo";
 const ORGANIZATION = "mento-protocol";
@@ -104,6 +104,10 @@ const KNOWN_ACTIONS_SKUS = new Set([
 const MINUTE_UNITS = new Set(["minutes"]);
 const STORAGE_UNITS = new Set(["GB-Hours", "GigabyteHours", "gigabyte-hours"]);
 const TRANSCRIPT_SEPARATOR = "\n--- github-audit-page ---\n";
+const AUDIT_REST_SOURCE = "github-org-audit-log-rest-link-transcript";
+const AUDIT_REST_FORMAT = "http-link-transcript-json-array-pages";
+const AUDIT_WEB_SOURCE = "github-org-audit-log-owner-web-json-export";
+const AUDIT_WEB_FORMAT = "json-array";
 
 function invariant(condition, message) {
   if (!condition) throw new Error(message);
@@ -713,36 +717,10 @@ function auditEventTime(value, label) {
   return exactUtc(value, label);
 }
 
-function validateAuditEvidence(transcriptBytes, metadataBytes, observation) {
-  const metadata = parseJson(metadataBytes, "GitHub audit metadata");
-  exactKeys(
-    metadata,
-    [
-      "schema",
-      "source",
-      "repository",
-      "startUtc",
-      "endUtcExclusive",
-      "queryStartUtc",
-      "queryEndUtcExclusive",
-      "capturedAtUtc",
-      "queryPhrase",
-      "include",
-      "order",
-      "perPage",
-      "pageUrls",
-      "complete",
-      "transcriptSha256",
-    ],
-    "GitHub audit metadata",
-  );
+function validateAuditMetadataCommon(metadata, observation) {
   invariant(
     metadata.schema === GITHUB_AUDIT_METADATA_SCHEMA,
     "GitHub audit metadata schema is unsupported",
-  );
-  invariant(
-    metadata.source === "github-org-audit-log-rest-link-transcript",
-    "GitHub audit metadata source is unsupported",
   );
   invariant(
     metadata.repository === REPOSITORY,
@@ -755,7 +733,7 @@ function validateAuditEvidence(transcriptBytes, metadataBytes, observation) {
   );
   invariant(
     metadata.queryStartUtc === observation.visibilityEvidenceStartUtc,
-    "GitHub audit query must start at the pre-window boundary capture",
+    "GitHub audit query must start at the floored pre-window boundary capture",
   );
   exactUtc(metadata.queryEndUtcExclusive, "GitHub audit query end");
   invariant(
@@ -767,18 +745,90 @@ function validateAuditEvidence(transcriptBytes, metadataBytes, observation) {
   invariant(
     Date.parse(metadata.capturedAtUtc) >=
       Date.parse(observation.endUtcExclusive),
-    "GitHub audit transcript was captured before the interval ended",
+    "GitHub audit evidence was captured before the interval ended",
   );
   invariant(
     Date.parse(metadata.capturedAtUtc) >=
       Date.parse(metadata.queryEndUtcExclusive),
-    "GitHub audit transcript was captured before its query range ended",
+    "GitHub audit evidence was captured before its query range ended",
   );
   invariant(
     metadata.queryPhrase ===
       `repo:${REPOSITORY} action:repo.access created:>=${metadata.queryStartUtc} created:<${metadata.queryEndUtcExclusive}`,
     "GitHub audit metadata query is not exact",
   );
+  invariant(
+    Number.isSafeInteger(metadata.eventCount) && metadata.eventCount >= 0,
+    "GitHub audit metadata eventCount must be a nonnegative safe integer",
+  );
+}
+
+function validateAuditEvents(events, metadata, label, eventIds = new Set()) {
+  invariant(Array.isArray(events), `${label} must be a JSON array`);
+  for (const [index, event] of events.entries()) {
+    invariant(
+      event !== null && typeof event === "object" && !Array.isArray(event),
+      `${label} row ${index + 1} must be an object`,
+    );
+    invariant(
+      event.action === "repo.access",
+      `${label} row ${index + 1} action is outside the visibility query`,
+    );
+    invariant(
+      event.repo === REPOSITORY,
+      `${label} row ${index + 1} repository is outside the visibility query`,
+    );
+    const timestamp = auditEventTime(
+      event.created_at,
+      `${label} row ${index + 1} created_at`,
+    );
+    invariant(
+      timestamp >= metadata.queryStartUtc &&
+        timestamp < metadata.queryEndUtcExclusive,
+      `${label} row ${index + 1} is outside the covering half-open query`,
+    );
+    invariant(
+      typeof event._document_id === "string" &&
+        event._document_id.length > 0 &&
+        !eventIds.has(event._document_id),
+      `${label} row ${index + 1} _document_id is missing or duplicated`,
+    );
+    eventIds.add(event._document_id);
+  }
+  return eventIds;
+}
+
+function validateRestAuditEvidence(transcriptBytes, metadata, observation) {
+  exactKeys(
+    metadata,
+    [
+      "schema",
+      "source",
+      "format",
+      "repository",
+      "startUtc",
+      "endUtcExclusive",
+      "queryStartUtc",
+      "queryEndUtcExclusive",
+      "capturedAtUtc",
+      "queryPhrase",
+      "include",
+      "order",
+      "perPage",
+      "pageUrls",
+      "complete",
+      "eventCount",
+      "transcriptByteLength",
+      "transcriptSha256",
+    ],
+    "GitHub audit metadata",
+  );
+  invariant(
+    metadata.source === AUDIT_REST_SOURCE &&
+      metadata.format === AUDIT_REST_FORMAT,
+    "GitHub REST audit metadata source or format is unsupported",
+  );
+  validateAuditMetadataCommon(metadata, observation);
   invariant(
     metadata.include === "web" &&
       metadata.order === "asc" &&
@@ -788,6 +838,11 @@ function validateAuditEvidence(transcriptBytes, metadataBytes, observation) {
   invariant(
     metadata.complete === true,
     "GitHub audit metadata must attest a complete export",
+  );
+  invariant(
+    Number.isSafeInteger(metadata.transcriptByteLength) &&
+      metadata.transcriptByteLength === transcriptBytes.length,
+    "GitHub audit metadata does not bind the transcript byte length",
   );
   invariant(
     DIGEST_PATTERN.test(metadata.transcriptSha256) &&
@@ -807,8 +862,7 @@ function validateAuditEvidence(transcriptBytes, metadataBytes, observation) {
     pages.length === metadata.pageUrls.length,
     "GitHub audit transcript page count conflicts with metadata",
   );
-  const eventIds = new Set();
-  let eventCount = 0;
+  let eventIds = new Set();
   for (const [index, page] of pages.entries()) {
     invariant(
       page.events.length <= metadata.perPage,
@@ -839,38 +893,135 @@ function validateAuditEvidence(transcriptBytes, metadataBytes, observation) {
       page.nextUrl === expectedNext,
       `GitHub audit transcript page ${index + 1} pagination chain is incomplete`,
     );
-    for (const [eventIndex, event] of page.events.entries()) {
-      invariant(
-        event !== null && typeof event === "object" && !Array.isArray(event),
-        `GitHub audit event ${index + 1}.${eventIndex + 1} must be an object`,
-      );
-      invariant(
-        event.action === "repo.access" && event.repo === REPOSITORY,
-        `GitHub audit event ${index + 1}.${eventIndex + 1} is outside the visibility query`,
-      );
-      const timestamp = auditEventTime(
-        event.created_at,
-        `GitHub audit event ${index + 1}.${eventIndex + 1} created_at`,
-      );
-      invariant(
-        timestamp >= metadata.queryStartUtc &&
-          timestamp < metadata.queryEndUtcExclusive,
-        `GitHub audit event ${index + 1}.${eventIndex + 1} is outside the covering half-open query`,
-      );
-      const identity = String(event._document_id ?? event.id ?? "");
-      invariant(
-        identity.length > 0 && !eventIds.has(identity),
-        `GitHub audit event ${index + 1}.${eventIndex + 1} identity is missing or duplicated`,
-      );
-      eventIds.add(identity);
-      eventCount += 1;
-    }
+    eventIds = validateAuditEvents(
+      page.events,
+      metadata,
+      `GitHub audit transcript page ${index + 1}`,
+      eventIds,
+    );
   }
+  invariant(
+    metadata.eventCount === eventIds.size,
+    "GitHub audit metadata eventCount conflicts with the transcript",
+  );
   return {
+    source: metadata.source,
+    format: metadata.format,
     pageCount: pages.length,
-    eventCount,
-    repositoryAccessEventCount: eventCount,
+    eventCount: eventIds.size,
+    repositoryAccessEventCount: eventIds.size,
   };
+}
+
+function validateWebAuditEvidence(exportBytes, metadata, observation) {
+  exactKeys(
+    metadata,
+    [
+      "schema",
+      "source",
+      "format",
+      "repository",
+      "startUtc",
+      "endUtcExclusive",
+      "queryStartUtc",
+      "queryEndUtcExclusive",
+      "capturedAtUtc",
+      "queryPhrase",
+      "eventCount",
+      "exportByteLength",
+      "exportSha256",
+      "ownerAttestation",
+    ],
+    "GitHub audit metadata",
+  );
+  invariant(
+    metadata.source === AUDIT_WEB_SOURCE &&
+      metadata.format === AUDIT_WEB_FORMAT,
+    "GitHub web audit metadata source or format is unsupported",
+  );
+  validateAuditMetadataCommon(metadata, observation);
+  invariant(
+    Number.isSafeInteger(metadata.exportByteLength) &&
+      metadata.exportByteLength === exportBytes.length,
+    "GitHub audit metadata does not bind the web export byte length",
+  );
+  invariant(
+    DIGEST_PATTERN.test(metadata.exportSha256) &&
+      metadata.exportSha256 === sha256(exportBytes),
+    "GitHub audit metadata does not bind the web export bytes",
+  );
+  const attestation = exactKeys(
+    metadata.ownerAttestation,
+    [
+      "role",
+      "exportCompleted",
+      "sizeLimitReached",
+      "processingTimeLimitReached",
+      "exportError",
+      "matchingEntryCount",
+    ],
+    "GitHub audit ownerAttestation",
+  );
+  invariant(
+    attestation.role === "admin",
+    "GitHub audit web export must be attested by an organization admin owner",
+  );
+  invariant(
+    attestation.exportCompleted === true,
+    "GitHub audit web export must attest successful completion",
+  );
+  invariant(
+    attestation.sizeLimitReached === false &&
+      attestation.processingTimeLimitReached === false,
+    "GitHub audit web export must attest that no provider limit was reached",
+  );
+  invariant(
+    attestation.exportError === null,
+    "GitHub audit web export must attest that no export error occurred",
+  );
+  invariant(
+    Number.isSafeInteger(attestation.matchingEntryCount) &&
+      attestation.matchingEntryCount >= 0,
+    "GitHub audit ownerAttestation matchingEntryCount must be a nonnegative safe integer",
+  );
+  const events = parseJson(exportBytes, "GitHub audit web export");
+  const eventIds = validateAuditEvents(
+    events,
+    metadata,
+    "GitHub audit web export",
+  );
+  invariant(
+    metadata.eventCount === eventIds.size,
+    "GitHub audit metadata eventCount conflicts with the web export",
+  );
+  invariant(
+    attestation.matchingEntryCount === eventIds.size,
+    "GitHub audit ownerAttestation matchingEntryCount conflicts with the web export",
+  );
+  return {
+    source: metadata.source,
+    format: metadata.format,
+    pageCount: 1,
+    eventCount: eventIds.size,
+    repositoryAccessEventCount: eventIds.size,
+  };
+}
+
+function validateAuditEvidence(evidenceBytes, metadataBytes, observation) {
+  const metadata = parseJson(metadataBytes, "GitHub audit metadata");
+  invariant(
+    metadata !== null &&
+      typeof metadata === "object" &&
+      !Array.isArray(metadata),
+    "GitHub audit metadata must be an object",
+  );
+  if (metadata.source === AUDIT_REST_SOURCE) {
+    return validateRestAuditEvidence(evidenceBytes, metadata, observation);
+  }
+  if (metadata.source === AUDIT_WEB_SOURCE) {
+    return validateWebAuditEvidence(evidenceBytes, metadata, observation);
+  }
+  throw new Error("GitHub audit metadata source is unsupported");
 }
 
 function collectorRunnerMinutes(observation) {
@@ -914,7 +1065,8 @@ function buildProofData({
   proofPath,
   usageCsvPath,
   usageMetadataPath,
-  auditTranscriptPath,
+  auditEvidencePath,
+  expectedAuditSource,
   auditMetadataPath,
   observationRoot,
 }) {
@@ -935,10 +1087,10 @@ function buildProofData({
     privateRoot,
     "GitHub usage metadata",
   );
-  const auditTranscriptBytes = readPrivateFile(
-    auditTranscriptPath,
+  const auditEvidenceBytes = readPrivateFile(
+    auditEvidencePath,
     privateRoot,
-    "GitHub audit transcript",
+    "GitHub audit evidence",
   );
   const auditMetadataRead = readPrivateJson(
     auditMetadataPath,
@@ -951,9 +1103,13 @@ function buildProofData({
   );
   const usage = aggregateUsage(usageCsvBytes, usageMetadata);
   const audit = validateAuditEvidence(
-    auditTranscriptBytes,
+    auditEvidenceBytes,
     auditMetadataRead.bytes,
     observation,
+  );
+  invariant(
+    expectedAuditSource === undefined || audit.source === expectedAuditSource,
+    "GitHub audit evidence source conflicts with the selected CLI option",
   );
   const collector = collectorRunnerMinutes(observation);
   const standardRunnerMinutes = numberFromDecimal(
@@ -1017,14 +1173,14 @@ function buildProofData({
         ),
         sha256: sha256(usageMetadataRead.bytes),
       },
-      auditTranscript: {
+      auditEvidence: {
         path: relativeSource(
           proofPath,
-          auditTranscriptPath,
+          auditEvidencePath,
           privateRoot,
-          "GitHub audit transcript",
+          "GitHub audit evidence",
         ),
-        sha256: sha256(auditTranscriptBytes),
+        sha256: sha256(auditEvidenceBytes),
       },
       auditMetadata: {
         path: relativeSource(
@@ -1062,7 +1218,9 @@ function buildProofData({
     },
     visibility: {
       publicAtEveryCollectorSample: observation.repositoryPublicAtEverySample,
-      auditLogPageCount: audit.pageCount,
+      auditSource: audit.source,
+      auditFormat: audit.format,
+      auditEvidenceUnitCount: audit.pageCount,
       repositoryAccessEventCount: audit.repositoryAccessEventCount,
       repositoryPublicEntireWindow,
     },
@@ -1085,6 +1243,10 @@ function buildProofData({
         "nonzero storage is accepted only when the detailed report assigns it to one allowlisted deployment workflow; repository-level blank-path storage is not attributed to the migration",
       csvCompleteness:
         "GitHub detailed web CSV has no machine-verifiable completion marker; the bound metadata is a maintainer attestation after the documented storage lag",
+      auditCompleteness:
+        audit.source === AUDIT_REST_SOURCE
+          ? "REST evidence binds a cursor-free first page and the complete exact Link next chain"
+          : "owner web JSON export completeness is maintainer-attested; GitHub provides no pagination proof or provider signature, and hard-limits exports at 100 MB compressed or 10 minutes processing time",
     },
     analyzerFragment: {
       standardRunnerMinutes,
@@ -1099,11 +1261,22 @@ function buildProofData({
 
 export function buildGitHubActionsCostProof(options) {
   const proofPath = locatePrivatePath(options.output).path;
+  const auditInputs = [
+    options.auditRestTranscript,
+    options.auditWebExport,
+  ].filter((value) => typeof value === "string" && value.length > 0);
+  invariant(
+    auditInputs.length === 1,
+    "Exactly one of auditRestTranscript or auditWebExport is required",
+  );
   return buildProofData({
     proofPath,
     usageCsvPath: resolve(options.usageCsv),
     usageMetadataPath: resolve(options.usageMetadata),
-    auditTranscriptPath: resolve(options.auditTranscript),
+    auditEvidencePath: resolve(auditInputs[0]),
+    expectedAuditSource: options.auditRestTranscript
+      ? AUDIT_REST_SOURCE
+      : AUDIT_WEB_SOURCE,
     auditMetadataPath: resolve(options.auditMetadata),
     observationRoot: resolve(options.observationRoot),
   });
@@ -1144,11 +1317,11 @@ export function validateGitHubActionsCostProof(proofPath) {
       privateRoot,
       "GitHub usage metadata path",
     ),
-    auditTranscriptPath: resolveSource(
+    auditEvidencePath: resolveSource(
       absoluteProof,
-      proof.sources.auditTranscript.path,
+      proof.sources.auditEvidence.path,
       privateRoot,
-      "GitHub audit transcript path",
+      "GitHub audit evidence path",
     ),
     auditMetadataPath: resolveSource(
       absoluteProof,
@@ -1302,7 +1475,7 @@ function recoverPrivateOutputPublication(path, privateRoot) {
 }
 
 function usage() {
-  return "Usage: vercel-cost-github-actions.mjs inspect --usage-csv <private.csv> --output <inspection.json> | build --usage-csv <private.csv> --usage-metadata <metadata.json> --audit-transcript <transcript.txt> --audit-metadata <metadata.json> --observation-root <root> --output <proof.json>";
+  return "Usage: vercel-cost-github-actions.mjs inspect --usage-csv <private.csv> --output <inspection.json> | build --usage-csv <private.csv> --usage-metadata <metadata.json> (--audit-rest-transcript <transcript.txt> | --audit-web-export <export.json>) --audit-metadata <metadata.json> --observation-root <root> --output <proof.json>";
 }
 
 function parseArguments(argv) {
@@ -1318,22 +1491,35 @@ function parseArguments(argv) {
     invariant(!Object.hasOwn(options, key), `Duplicate option: ${rest[index]}`);
     options[key] = rest[index + 1];
   }
-  const expected =
-    command === "inspect"
-      ? ["usageCsv", "output"]
-      : [
-          "usageCsv",
-          "usageMetadata",
-          "auditTranscript",
-          "auditMetadata",
-          "observationRoot",
-          "output",
-        ];
-  invariant(
-    JSON.stringify(Object.keys(options).sort()) ===
-      JSON.stringify(expected.sort()),
-    usage(),
-  );
+  if (command === "inspect") {
+    invariant(
+      JSON.stringify(Object.keys(options).sort()) ===
+        JSON.stringify(["usageCsv", "output"].sort()),
+      usage(),
+    );
+  } else {
+    const required = [
+      "usageCsv",
+      "usageMetadata",
+      "auditMetadata",
+      "observationRoot",
+      "output",
+    ];
+    invariant(
+      required.every((key) => Object.hasOwn(options, key)),
+      usage(),
+    );
+    const auditInputs = ["auditRestTranscript", "auditWebExport"].filter(
+      (key) => Object.hasOwn(options, key),
+    );
+    invariant(auditInputs.length === 1, usage());
+    invariant(
+      Object.keys(options).every(
+        (key) => required.includes(key) || auditInputs.includes(key),
+      ),
+      usage(),
+    );
+  }
   return { command, options };
 }
 
