@@ -164,6 +164,29 @@ test("uses exact decimal arithmetic for amount reconciliation", () => {
 });
 
 test("requires a complete audit pagination chain and no visibility changes", () => {
+  const completeRoot = workspace();
+  try {
+    const evidence = createSyntheticGitHubActionsEvidence(completeRoot);
+    const metadata = JSON.parse(readFileSync(evidence.auditMetadata, "utf8"));
+    const nextPage = new URL(metadata.pageUrls[0]);
+    nextPage.searchParams.set("after", "cursor");
+    const nextPageUrl = nextPage.toString();
+    rewriteJson(evidence.auditMetadata, (value) => {
+      value.pageUrls.push(nextPageUrl);
+    });
+    rewrite(
+      evidence.auditTranscript,
+      () =>
+        `HTTP/2 200\nlink: <${nextPageUrl}>; rel="next"\ncontent-type: application/json\n\n[]\n--- github-audit-page ---\nHTTP/2 200\ncontent-type: application/json\n\n[]\n`,
+    );
+    rebindAuditMetadata(evidence);
+    const proof = buildGitHubActionsCostProof(evidence);
+    assert.equal(proof.visibility.auditLogPageCount, 2);
+    assert.equal(proof.eligibleForAnalyzer, true);
+  } finally {
+    rmSync(completeRoot, { recursive: true, force: true });
+  }
+
   const root = workspace();
   try {
     const evidence = createSyntheticGitHubActionsEvidence(root);

@@ -668,7 +668,7 @@ function parseLinkNext(value) {
 function parseAuditTranscript(bytes) {
   const text = bytes.toString("utf8").replaceAll("\r\n", "\n").trimEnd();
   invariant(text.length > 0, "GitHub audit transcript is empty");
-  return text.split(TRANSCRIPT_SEPARATOR.trim()).map((part, index) => {
+  return text.split(TRANSCRIPT_SEPARATOR).map((part, index) => {
     const separator = part.indexOf("\n\n");
     invariant(
       separator > 0,
