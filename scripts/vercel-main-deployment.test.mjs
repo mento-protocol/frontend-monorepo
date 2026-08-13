@@ -29,6 +29,7 @@ import {
   MAIN_ACTIVE_CURRENT_RELEASE_EVIDENCE_SCHEMA,
   MAIN_ACTIVE_EVIDENCE_SCHEMA,
   MAIN_ACTIVE_FAILURE_EVIDENCE_SCHEMA,
+  MAIN_ACTIVE_CENSUS_FAILURE_SCHEMA,
   MAIN_ACTIVE_JOURNAL_HISTORY_MAX_JSON_BYTES,
   MAIN_ACTIVE_SAFE_NOOP_EVIDENCE_SCHEMA,
   MAIN_ACTIVE_TERMINAL_PROOFS_MAX_JSON_BYTES,
@@ -4098,6 +4099,117 @@ test("execution-bound recovered terminal artifacts prove rollback to every origi
         runAttempt: "3",
       }),
     /does not restore its prior/,
+  );
+});
+
+test("recovered terminal preserves verified rollback evidence when final provider census is unproven", async () => {
+  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const execution = releaseExecutionForPlan(deploymentPlan);
+  const prepared = createPreparedMainActiveJournal({
+    plan: deploymentPlan,
+    stageJobs: stageJobs(deploymentPlan),
+    appBuildProof: null,
+    runId: "800",
+    runAttempt: "3",
+  });
+  const started = startMainTransactionOperation(prepared, {
+    type: "promote",
+    target: "governance",
+  });
+  let mappingState = "candidate";
+  const recoveredHistory = [prepared, started];
+  const recovery = await runMainActiveRecovery({
+    recoveryPlan: planMainActiveRecovery({
+      journalHistory: recoveredHistory,
+      deploySha: SHA,
+      runId: "800",
+      runAttempt: "3",
+      currentMappings: Object.values(started.prior).flatMap((prior) =>
+        prior.aliases.map((alias) =>
+          mapping(
+            alias,
+            alias === "governance.mento.org"
+              ? started.candidates.governance
+              : prior,
+          ),
+        ),
+      ),
+      appCandidateMatches: [],
+    }),
+    adapters: {
+      uploadJournal: async ({ artifactName, journal }) => {
+        recoveredHistory.push(structuredClone(journal));
+        return {
+          acknowledged: true,
+          artifactName,
+          artifactId: String(8000 + journal.sequence),
+        };
+      },
+      inspectMapping: async () => ({ mappingState }),
+      ordinaryRollback: async () => {
+        mappingState = "prior";
+        return { outcome: "success" };
+      },
+      verifyMapping: async () => ({ mappingState }),
+    },
+  });
+  const priorMappings = Object.values(recovery.journal.prior).flatMap((prior) =>
+    prior.aliases.map((alias) => mapping(alias, prior)),
+  );
+  const censusFailure = {
+    schema: MAIN_ACTIVE_CENSUS_FAILURE_SCHEMA,
+    phase: "recovery-final-active-proof",
+    category: "provider-read-transport",
+  };
+  const artifacts = createMainActiveTerminalArtifacts({
+    execution,
+    outcome: "recovered-census-unproven",
+    journalHistory: activeHistoryDocument(recoveredHistory),
+    finalMappings: providerMappings(execution, priorMappings),
+    publicSmokes: priorPublicSmokes(execution),
+    stateProof: null,
+    finalCensus: censusFailure,
+    freshLegacyV2: deploymentPlan.legacySnapshot,
+    freshness: null,
+    runId: "800",
+    runAttempt: "3",
+  });
+  assert.equal(artifacts.proofs.outcome, "recovered-census-unproven");
+  assert.equal(artifacts.proofs.finalMapping.status, "passed");
+  assert.equal(artifacts.proofs.publicSmoke.status, "passed");
+  assert.equal(artifacts.proofs.finalCensus.status, "unsafe");
+  assert.deepEqual(artifacts.proofs.finalCensus.artifact, censusFailure);
+  assert.equal(artifacts.proofs.journal.status, "recovered");
+  assert.equal(artifacts.evidence.errorCode, "RECOVERED_CENSUS_UNPROVEN");
+  assert.deepEqual(artifacts.evidence.censusFailure, censusFailure);
+  assert.equal(
+    evaluateMainActiveFinalResults({
+      execution,
+      jobs: finalActiveJobs(deploymentPlan, {
+        coordinator: "failure",
+        recovery: "failure",
+      }),
+      coordinatorOutcome: "",
+      recoveryOutcome: "recovered-census-unproven",
+    }).failAfterEvidence,
+    true,
+  );
+  assert.throws(
+    () =>
+      createMainActiveTerminalArtifacts({
+        execution,
+        outcome: "recovered-census-unproven",
+        journalHistory: activeHistoryDocument(recoveredHistory),
+        finalMappings: providerMappings(execution, priorMappings),
+        publicSmokes: priorPublicSmokes(execution),
+        stateProof: null,
+        finalCensus: { ...censusFailure, category: "unbounded-provider-error" },
+        freshLegacyV2: deploymentPlan.legacySnapshot,
+        freshness: null,
+        runId: "800",
+        runAttempt: "3",
+      }),
+    /category is unsupported/,
   );
 });
 

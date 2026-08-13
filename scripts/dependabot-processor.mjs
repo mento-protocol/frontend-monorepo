@@ -1884,6 +1884,12 @@ function trustedCheckSource(
       return { reason: "post-merge-run-url-mismatch", trusted: false };
     }
   } else if (definition.id === "claude-review") {
+    if (check.name !== "claude-review") {
+      return {
+        reason: "unexpected-claude-review-check-name",
+        trusted: false,
+      };
+    }
     const displayTitle = String(check.runDisplayTitle ?? "");
     const nativeDisplayReceipt =
       CLAUDE_REVIEW_RECEIPT_PATTERN.exec(displayTitle);
@@ -1927,10 +1933,14 @@ function trustedCheckSource(
     ) {
       return { reason: "claude-review-run-identity-mismatch", trusted: false };
     }
-    if (
-      check.detailsUrl !==
-      `https://github.com/${repository}/actions/runs/${check.runId}`
-    ) {
+    if (!Number.isSafeInteger(check.id) || check.id < 1) {
+      return { reason: "invalid-claude-review-check-id", trusted: false };
+    }
+    const allowedDetailsUrls = new Set([
+      `https://github.com/${repository}/actions/runs/${check.runId}`,
+      `https://github.com/${repository}/runs/${check.id}`,
+    ]);
+    if (!allowedDetailsUrls.has(check.detailsUrl)) {
       return { reason: "claude-review-run-url-mismatch", trusted: false };
     }
   } else if (check.runHeadSha !== headSha) {
@@ -1943,7 +1953,7 @@ function trustedCheckSource(
     return { reason: "invalid-workflow-run-id", trusted: false };
   }
   if (
-    definition.id !== "post-merge-verification" &&
+    !["claude-review", "post-merge-verification"].includes(definition.id) &&
     check.detailsUrl &&
     !check.detailsUrl.includes(`/actions/runs/${check.runId}`)
   ) {
@@ -4375,11 +4385,16 @@ export function createLiveGitHubAdapter({
                 ? ALL_CLEAR_RECEIPT_PATTERN
                 : check.name === POST_MERGE_CHECK_NAME
                   ? POST_MERGE_EXTERNAL_ID_PATTERN
-                  : null;
+                  : check.name === "claude-review"
+                    ? CLAUDE_REVIEW_EXTERNAL_ID_PATTERN
+                    : null;
       const external = pattern?.exec(String(check.externalId ?? ""));
       if (!external) return null;
       if (check.name === POST_MERGE_CHECK_NAME) {
         return { runAttempt: Number(external[2]), runId: Number(external[1]) };
+      }
+      if (check.name === "claude-review") {
+        return { runAttempt: Number(external[4]), runId: Number(external[3]) };
       }
       return {
         runAttempt: Number(external.at(-1)),

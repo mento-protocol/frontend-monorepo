@@ -126,6 +126,12 @@ export const MAIN_TERMINAL_RECEIPT_OUTCOMES = Object.freeze({
     minMutations: 1,
     rollback: "required",
   }),
+  "recovered-census-unproven": Object.freeze({
+    proofs: ["passed", "unsafe", "unsafe", "passed", "passed"],
+    journal: "recovered",
+    minMutations: 1,
+    rollback: "required",
+  }),
   "verified-noop": Object.freeze({
     proofs: ["passed", "passed", "passed", "passed", "passed"],
     journal: "not-applicable",
@@ -520,11 +526,13 @@ function assertOutcomeContract(receipt) {
     throw new Error("Main terminal receipt journal conflicts with outcome");
   }
   if (
-    receipt.outcome === "recovery-failed" &&
+    ["recovery-failed", "recovered-census-unproven"].includes(
+      receipt.outcome,
+    ) &&
     receipt.producerJob !== "recover-main-deployment"
   ) {
     throw new Error(
-      "Recovery-failed terminal receipt requires the recovery producer job",
+      `${receipt.outcome} terminal receipt requires the recovery producer job`,
     );
   }
   if (
@@ -637,7 +645,7 @@ function canonicalReceipt(value, { checkDigest = true } = {}) {
     outcome: requireString(
       value.outcome,
       "Main terminal receipt outcome",
-      /^(?:active-committed|recovered|verified-noop|current-release-verified|no-target|superseded-before-journal|shadow-prepared|manual-intervention|recovery-failed|preparation-failed-before-journal)$/,
+      /^(?:active-committed|recovered|recovered-census-unproven|verified-noop|current-release-verified|no-target|superseded-before-journal|shadow-prepared|manual-intervention|recovery-failed|preparation-failed-before-journal)$/,
     ),
     finalMapping: canonicalProof(
       value.finalMapping,
@@ -812,17 +820,17 @@ function canonicalEvidence(value) {
   const outcome = requireString(
     value.outcome,
     "Main terminal evidence outcome",
-    /^(?:active-committed|recovered|verified-noop|current-release-verified|no-target|superseded-before-journal|shadow-prepared|manual-intervention|recovery-failed|preparation-failed-before-journal)$/,
+    /^(?:active-committed|recovered|recovered-census-unproven|verified-noop|current-release-verified|no-target|superseded-before-journal|shadow-prepared|manual-intervention|recovery-failed|preparation-failed-before-journal)$/,
   );
   if (!MAIN_TERMINAL_RECEIPT_OUTCOMES[outcome]) {
     throw new Error("Main terminal evidence outcome is unsupported");
   }
   if (
-    outcome === "recovery-failed" &&
+    ["recovery-failed", "recovered-census-unproven"].includes(outcome) &&
     identity.producerJob !== "recover-main-deployment"
   ) {
     throw new Error(
-      "Recovery-failed terminal evidence requires the recovery producer job",
+      `${outcome} terminal evidence requires the recovery producer job`,
     );
   }
   if (
