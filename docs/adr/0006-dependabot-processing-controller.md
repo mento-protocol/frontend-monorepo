@@ -3,14 +3,14 @@ title: A trusted controller prepares exact-head Dependabot pull requests for hum
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-08-12
+last_verified: 2026-08-13
 scope: ci/dependabot-processing
 date: 2026-08-10
 ---
 
 # ADR 0006 — A trusted controller prepares exact-head Dependabot pull requests for human merge
 
-**Status:** Accepted, amended Aug 12 2026
+**Status:** Accepted, amended Aug 13 2026
 **Scope:** ci/dependabot-processing
 
 ## Context
@@ -167,7 +167,8 @@ has no endpoint-specific deny for this combination. We therefore do not claim
 that the credential itself cannot merge. The controls are:
 
 - no reviewed workflow/helper contains a merge call;
-- the App token is isolated to one mutation or terminal-dispatch job;
+- the App token is isolated to one repair-staging, ref-mutation/refresh, or
+  terminal-dispatch job;
 - those jobs cannot approve or publish ALL CLEAR;
 - the token is revoked/invalidated before finalize; and
 - finalize rejects the repair token and has no branch-write credential.
@@ -183,9 +184,20 @@ code:
 
 1. **preflight** re-fetches the exact completed Processor v2 failure check,
    canonical packet, run provenance, live PR/head/base, and attempt;
-2. **plan** gives Claude read-only API access, disables Bash/Edit/Write/Web
-   tools, and accepts only a strict bounded patch schema;
-3. **validate** has no secret or write token, re-fetches exact blobs, applies
+2. **plan** uses a trusted step-scoped read token to authenticate and seal the
+   exact packet-bound compare, Git blobs, failed-job logs, and findings under
+   `RUNNER_TEMP`. Claude then runs token-free through the pinned base action,
+   may only use guarded Read/Grep calls on the canonical evidence manifest, and
+   accepts only a strict bounded patch schema. Three workflow-only bindings—
+   `DEPENDABOT_REPAIR_EVIDENCE_ROOT`,
+   `DEPENDABOT_REPAIR_EVIDENCE_MANIFEST`, and
+   `DEPENDABOT_REPAIR_EVIDENCE_MANIFEST_DIGEST`—tie the hook to the sealed
+   evidence. Paired pre/post hooks seal successful exact accesses; large files
+   require explicit one-based bounded Read pages, and Grep may locate the
+   relevant ranges. A no-token postflight assertion requires at least one access
+   before success;
+3. **validate** has no secret or write token, re-fetches exact inputs by Git
+   object SHA, including files larger than the Contents API limit, applies
    patches in a disposable credential-free temporary Git tree, and enforces
    path, file, edit, and byte caps;
 4. **stage** alone gets a short-lived App token and writes exact unreachable
@@ -464,9 +476,10 @@ The repository contract is implemented by:
   credentialless intake;
 - `.github/workflows/dependabot-process.yml` — trusted modes, phases,
   immediate/scheduled reconciliation, approval, and ALL CLEAR;
-- `.github/workflows/dependabot-prepare-repair.yml` — read-only planner,
-  secretless validator, App-only staging/ref mutation, no-App durable intent,
-  receipt publication, and checks-only recovery;
+- `.github/workflows/dependabot-prepare-repair.yml` — sealed evidence
+  materialization, token-free guarded planner, secretless validator, App-only
+  staging/ref mutation, no-App durable intent, receipt publication, and
+  checks-only recovery;
 - `.github/workflows/dependabot-prepared-head-dispatch.yml` — terminal source
   revalidation and App-authenticated bounded dispatch;
 - `.github/workflows/dependabot-claude-review.yml` — native/prepared
@@ -474,7 +487,9 @@ The repository contract is implemented by:
 - `scripts/dependabot-processor.mjs` — policy, evidence, typed receipts,
   attempt lineage, and serialization;
 - `scripts/dependabot-preparation-receipts.mjs` — repair dispatch, plan,
-  blob/patch, commit, and receipt validation;
+  evidence materialization, blob/patch, commit, and receipt validation;
+- `scripts/dependabot-repair-evidence-tool-guard.mjs` — exact-manifest Read/Grep
+  authorization for the token-free planner;
 - `scripts/dependabot-prepared-review.mjs` — prepared operation/run/commit
   lineage validation;
 - `pnpm dependabot:process:test` — network-free policy, workflow, receipt,
