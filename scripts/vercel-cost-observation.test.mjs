@@ -55,6 +55,34 @@ const END = "2026-08-05T00:00:00.000Z";
 const CAPTURED_AT = "2026-08-05T00:01:00.000Z";
 const INITIALIZED_AT = "2026-07-28T23:50:00.000Z";
 
+const OBSERVATION_CANARY_LAYOUTS = new Map([
+  ["app", "../apps/app.mento.org/app/layout.tsx"],
+  ["governance", "../apps/governance.mento.org/app/layout.tsx"],
+  ["reserve", "../apps/reserve.mento.org/app/layout.tsx"],
+  ["ui", "../apps/ui.mento.org/app/layout.tsx"],
+]);
+
+test("all deployed roots expose the exact observation event canary", () => {
+  for (const [target, relativeLayoutPath] of OBSERVATION_CANARY_LAYOUTS) {
+    const source = readFileSync(
+      new URL(relativeLayoutPath, import.meta.url),
+      "utf8",
+    );
+    const rootOpeningTag = source.match(/<html\b[^>]*>/s)?.[0];
+    const expectedCanary = `523-v1-${target}-01`;
+    const canaries = [
+      ...source.matchAll(/data-mento-observation-canary="([^"]+)"/g),
+    ].map((match) => match[1]);
+
+    assert.ok(rootOpeningTag, `${target} must retain a root html element`);
+    assert.match(
+      rootOpeningTag,
+      new RegExp(`data-mento-observation-canary="${expectedCanary}"`),
+    );
+    assert.deepEqual(canaries, [expectedCanary]);
+  }
+});
+
 function fixture(name) {
   return JSON.parse(readFileSync(new URL(name, FIXTURE_ROOT), "utf8"));
 }
