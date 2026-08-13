@@ -2818,6 +2818,9 @@ jobs:
           --manifest "$RUNNER_TEMP/manifest.json" --execution "$RUNNER_TEMP/execution.json"
           --active-evidence "$RUNNER_TEMP/recovery-evidence.json" --proofs "$RUNNER_TEMP/recovery-proofs.json"
           --receipt-output "$RUNNER_TEMP/recovery-receipt.json" --evidence-output "$RUNNER_TEMP/recovery-terminal-evidence.json"
+      - name: Mark recovered census-unproven terminal route
+        if: ${{ always() && steps.terminal.outcome == 'success' && steps.recovered-terminal.outputs.outcome == 'recovered-census-unproven' }}
+        run: "true"
       - name: Publish recovery outcome
         id: outcome
         if: ${{ always() && steps.terminal.outcome == 'success' }}

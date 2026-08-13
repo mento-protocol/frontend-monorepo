@@ -1355,6 +1355,19 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
     command("recover-main-deployment", "terminal-evidence-create").run,
     /terminal-evidence-create/,
   );
+  const recoveredCensusUnprovenMarker = named(
+    "recover-main-deployment",
+    "Mark recovered census-unproven terminal route",
+  );
+  assert.match(
+    recoveredCensusUnprovenMarker.if,
+    /steps\.terminal\.outcome == 'success'/,
+  );
+  assert.match(
+    recoveredCensusUnprovenMarker.if,
+    /steps\.recovered-terminal\.outputs\.outcome == 'recovered-census-unproven'/,
+  );
+  assert.equal(recoveredCensusUnprovenMarker.run, "true");
   assert.match(
     named(
       "recover-main-deployment",
