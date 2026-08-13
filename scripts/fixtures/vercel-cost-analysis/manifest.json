@@ -8,9 +8,12 @@
   "windows": {
     "baseline": {
       "focusJsonl": "baseline.focus.jsonl",
+      "deploymentPagesJson": "REPLACE_WITH_PRIVATE_BASELINE_DEPLOYMENT_PAGES.json",
+      "deploymentPagesSha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "deploymentCensusJsonl": "baseline.deployments.jsonl",
-      "deploymentCensusSha256": "3a57c5d491f092e43bc0bab96712b7875d72bf679d89575670cc4414149b5fac",
-      "deploymentCensusComplete": true,
+      "deploymentCensusSha256": "cc1a63acb691cf2980d6065292ff04533706952f03d794e5cdc6b240f198bd29",
+      "deploymentCensusProof": "REPLACE_WITH_PRIVATE_BASELINE_DEPLOYMENT_CENSUS_PROOF.json",
+      "deploymentCensusProofSha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "focusProjectTags": {
         "app": { "key": "ProjectName", "value": "app.mento.org" },
         "governance": {
@@ -23,9 +26,12 @@
     },
     "postCutover": {
       "focusJsonl": "post.focus.jsonl",
+      "deploymentPagesJson": "REPLACE_WITH_PRIVATE_POST_DEPLOYMENT_PAGES.json",
+      "deploymentPagesSha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "deploymentCensusJsonl": "post.deployments.jsonl",
-      "deploymentCensusSha256": "a72b0ee804c2a345e70c69a28d885202778466d12a119cd27df042f12c9e1177",
-      "deploymentCensusComplete": true,
+      "deploymentCensusSha256": "36cf9cbef31ec84b27c55185f023064388cb7bbf512e3ae9d33d3e261c337ee4",
+      "deploymentCensusProof": "REPLACE_WITH_PRIVATE_POST_DEPLOYMENT_CENSUS_PROOF.json",
+      "deploymentCensusProofSha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "focusProjectTags": {
         "app": { "key": "ProjectName", "value": "app.mento.org" },
         "governance": {

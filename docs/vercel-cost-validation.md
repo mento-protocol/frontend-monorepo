@@ -176,7 +176,38 @@ unresolved. It never manufactures a passing analyzer aggregate. The audit is
 an immutable end-of-window record. A crash after the freeze can resume the
 same audit, but no later collection or interval extension is allowed.
 
-After the manual/private evidence joins that GitHub record, run the analyzer:
+After the manual/private evidence joins that GitHub record, normalize the saved
+Vercel deployment pages without giving the repository tool a Vercel credential:
+
+```bash
+pnpm vercel:cost:normalize-deployments \
+  --input .vercel-cost-evidence/post-deployment-pages.json \
+  --output .vercel-cost-evidence/post.deployments.jsonl \
+  --proof .vercel-cost-evidence/post-deployment-census-proof.json
+```
+
+The command reads files only. It makes no network request and has no token
+option. Output and proof must share one canonical private directory owned by
+the current user and not writable by the group or other users. The command uses
+a deterministic private journal, then stages and syncs both mode-`0600` regular
+files before publishing either with no-overwrite semantics. If the process
+stops before the journal commit point, rerun the exact command: it validates
+the journal and staged-file identities and bytes, resumes both files, and
+removes the journal and stages only after both finals are durable. A caught
+staging or publication failure removes only entries created by that invocation.
+A different input or an unrelated file at a reserved or destination path fails
+closed, and a preexisting destination remains untouched. Symlink, hardlink,
+cross-directory, and destination races also fail closed. The private proof
+binds the exact input-envelope bytes, normalized JSONL bytes, UTC window, four
+project IDs, per-project page and row counts, final request cursors, terminal
+`next: null` values, annotation count, and
+`deploymentCensusComplete: true`. The schema-version-3 analyzer manifest must
+bind all three private files for each window: the raw deployment-page envelope,
+the normalized JSONL, and the canonical proof, each with its exact SHA-256. It
+does not accept a caller-supplied completeness boolean. The manifest's separate
+GitHub Actions proof and digest remain required.
+
+Then run the analyzer:
 
 ```bash
 pnpm vercel:cost:analyze \
@@ -184,13 +215,16 @@ pnpm vercel:cost:analyze \
   --format markdown
 ```
 
-The command reads the raw project-level FOCUS JSONL and a complete normalized
-Vercel deployment census. Manifest schema v3 also binds one canonical GitHub
-Actions proof and its SHA-256. The analyzer rebuilds that proof from its raw CSV,
-audit-log transcript, metadata, and frozen observation tree before accepting any
-GitHub aggregate field. It accepts a project total only when that census
-proves zero legacy-v2, manual, or unknown deployment attempts and the migrated
-minutes and costs equal the complete FOCUS-backed project total. It exits
+The command reads the raw project-level FOCUS JSONL, saved Vercel deployment
+pages, normalized census, and canonical census proof. It reruns
+`normalizeVercelDeploymentPages` over the exact raw bytes, requires the checked-in
+normalizer's canonical proof and JSONL bytes, digests, and window to match, and
+uses only that rebuilt census. Manifest schema v3 also binds one canonical
+GitHub Actions proof and its SHA-256. The analyzer rebuilds that proof from its
+raw CSV, audit-log transcript, metadata, and frozen observation tree before
+accepting any GitHub aggregate field. It accepts a project total only when the
+rebuilt census proves zero legacy-v2, manual, or unknown deployment attempts and
+the migrated minutes and costs equal the complete FOCUS-backed project total. It exits
 successfully only after both the observation gate
 and the cleanup/final-closeout gate pass. Before cleanup, a successful
 measurement is explicitly `OBSERVATION ONLY` and the command remains nonzero.
@@ -211,7 +245,9 @@ Store working evidence under `.vercel-cost-evidence/`, which is ignored by Git,
 or outside the repository. Never commit or paste any of these into a public
 issue, pull request, workflow artifact, job summary, or log:
 
-- raw Vercel FOCUS JSONL, normalized deployment-census JSONL, and the manifest;
+- raw Vercel FOCUS JSONL, saved deployment-page envelopes and original page
+  responses, normalized deployment-census JSONL, census proofs, and the
+  manifest;
 - the GitHub detailed-usage CSV, audit-log transcript, metadata, and canonical
   GitHub Actions proof;
 - project or team IDs not already public;
@@ -432,16 +468,22 @@ estimated.
    FOCUS data, retain the raw files privately, and record their digests and row
    counts. Re-export or compare the billing surface until ingestion for both
    intervals is confirmed complete.
-4. Export every Vercel deployment page for the interval and assert
-   `deploymentCensusComplete: true` only after pagination and UTC-boundary
-   completeness are verified. Normalize one JSONL row per deployment attempt
-   with `deploymentId`, `createdAtUtc`, `target`, `path`, `source`, `outcome`,
-   `sourceSha`, and a public-safe direct `evidenceUrl`. The analyzer accepts only
-   this public repository's GitHub run/deployment URLs or a root `*.vercel.app`
-   deployment URL, with no credentials, query string, fragment, or custom port.
-   Vercel dashboard URLs are private evidence and fail closed. Duplicate deployment
-   IDs, rows outside the interval, digest mismatches, or incomplete-census
-   assertions fail closed. One eligible event key is `target:path:sourceSha`. Count every native,
+4. Export every page from Vercel's
+   [`GET /v7/deployments`](https://vercel.com/docs/rest-api/reference/endpoints/deployments/list-deployments)
+   endpoint for each of the four projects, preserve the original private
+   responses, and assemble the strict saved-pages envelope described below.
+   Run `pnpm vercel:cost:normalize-deployments` to verify pagination and UTC
+   completeness and produce one JSONL row per deployment attempt with exactly
+   `deploymentId`, `target`, `path`, `source`, `outcome`, `sourceSha`,
+   `createdAtUtc`, and `evidenceUrl`. The analyzer accepts only this public
+   repository's GitHub run/deployment URLs or a root `*.vercel.app` deployment
+   URL, with no credentials, query string, fragment, or custom port. Vercel
+   dashboard URLs are private evidence and fail closed. Duplicate deployment
+   IDs, raw timestamps outside the bounded query, digest mismatches, incomplete
+   pagination, or incomplete-census assertions fail closed. The exact
+   one-millisecond lower query pad is retained only in the private input digest
+   and excluded from the census. One eligible event key is
+   `target:path:sourceSha`. Count every native,
    prebuilt, failed, cancelled, and rerun deployment attempt; do not use attempts
    as the event denominator. In both the baseline and post-cutover windows,
    deployment attempts must be at least the number of eligible events.
@@ -492,16 +534,144 @@ estimated.
     reconciled values, set both `invoiceFinal` flags, rerun the analyzer, and
     retain the private reconciliation.
 
+### Saved Vercel deployment pages
+
+The normalizer accepts one private `vercel-deployment-pages:v1` JSON envelope.
+Do not include request headers, cookies, tokens, dashboard URLs, or other
+authentication material. Keep the original response files separately as
+private provider evidence; the normalizer's input digest binds the complete
+envelope, including raw deployment fields it does not interpret.
+
+```json
+{
+  "schema": "vercel-deployment-pages:v1",
+  "window": {
+    "startUtc": "2026-08-14T00:00:00.000Z",
+    "endUtcExclusive": "2026-08-21T00:00:00.000Z"
+  },
+  "projects": [
+    {
+      "target": "app",
+      "projectId": "prj_example123",
+      "query": {
+        "path": "/v7/deployments",
+        "teamId": "team_example123",
+        "projectId": "prj_example123",
+        "since": 1786665599999,
+        "until": 1787270400000,
+        "limit": 100
+      },
+      "pages": [
+        {
+          "requestCursor": 1787270400000,
+          "response": {
+            "deployments": [
+              {
+                "uid": "dpl_example",
+                "projectId": "prj_example123",
+                "createdAt": 1786669200000,
+                "readyState": "READY",
+                "url": "example.vercel.app",
+                "prebuilt": true,
+                "meta": {
+                  "githubCommitOrg": "mento-protocol",
+                  "githubCommitRepo": "frontend-monorepo",
+                  "githubCommitRef": "example-branch",
+                  "githubCommitSha": "1111111111111111111111111111111111111111",
+                  "mentoControllerKey": "vercel-preview:v1:pr:1:target:app:sha:1111111111111111111111111111111111111111"
+                }
+              }
+            ],
+            "pagination": { "count": 1, "next": null, "prev": null }
+          }
+        }
+      ]
+    }
+  ],
+  "annotations": {
+    "dpl_example": {
+      "path": "preview",
+      "source": "github-actions-prebuilt",
+      "evidenceUrl": "https://example.vercel.app/"
+    }
+  }
+}
+```
+
+The example abbreviates the `projects` array; the real envelope must contain
+`app`, `governance`, `reserve`, and `ui` exactly once with distinct project IDs
+and the same team ID. Each initial query must use:
+
+- `path: "/v7/deployments"`, `limit: 100`, and the exact project and team IDs;
+- `since` equal to the inclusive UTC start in epoch milliseconds minus one;
+- `until` and the first `requestCursor` equal to the exclusive UTC end in epoch
+  milliseconds; and
+- for every later page, `requestCursor` equal to the preceding response's
+  numeric `pagination.next`, ending with one `next: null` page.
+
+Every response must contain exactly `deployments` and `pagination`, and every
+pagination object must contain exactly `count`, `next`, and `prev`. `count` must
+equal that page's deployment count. The tool rejects repeated or discontinuous
+cursors, more than 100 pages or 100 rows per page, duplicate deployment IDs,
+mixed queries, timestamps outside the bounded
+`[startUtc - 1 ms, endUtcExclusive)` query, and pages that do not end at
+`next: null`. Vercel does not guarantee deployment row order. The normalizer
+therefore makes no row-order assumption and deterministically sorts final
+census rows by timestamp and deployment ID.
+
+Every raw deployment object must supply a valid `uid`, its exact `projectId`,
+and epoch-millisecond `createdAt`. A row at the exact `startUtc - 1 ms` query pad
+is excluded before semantic normalization and needs no annotation, but its raw
+identity, project, and timestamp are still validated. Duplicate detection also
+includes that excluded row, and the input digest binds all of its bytes. Every
+in-window row must additionally supply `readyState` and a root `*.vercel.app`
+`url`. Raw rows may retain additional provider fields. The normalizer ignores
+unrelated additions while the input digest still binds their bytes. It rejects
+conflicting known aliases such as `id != uid`, a different `project` ID, or
+`state != readyState`. `readyState` must be one of Vercel's documented states;
+only `READY`, `ERROR`, and `CANCELED` map to analyzer outcomes. Re-export after
+any other state settles.
+
+Every in-window deployment ID needs exactly one annotation, and padding IDs
+must not be annotated. The operator must choose the semantic `path` (`preview`,
+`main`, `legacy-v2`, or `unknown`) and `source`
+(`github-actions-prebuilt`, `vercel-native`, `manual`, or `unknown`); the tool
+never guesses either axis from `target`, Vercel's best-effort `source`, a
+missing Git field, or the project name. `unknown` stays explicit. The
+annotation's evidence URL must be a public repository run/deployment URL or the
+row's exact root `*.vercel.app` URL.
+
+For a migrated preview or main row and preserved App v2, the raw metadata must
+contain the exact lowercase 40-character SHA and complete
+`mento-protocol/frontend-monorepo` Git identity. A GitHub-owned preview must
+also carry its exact target/SHA-bound `mentoControllerKey`; a GitHub-owned main
+deployment must pass the repository's complete `vercel-main-candidate-metadata:v3`
+validator and match the target's production or App `v3` environment. The App
+v2 annotation requires native source, `v2` ref, and production target. Optional
+raw environment fields are cross-checked when present but are never used to
+infer a path; a preview cannot carry a production or custom environment. Mento
+metadata on a native annotation, conflicting SHA
+fields, or `prebuilt` evidence that contradicts a native annotation fails
+closed. Manual and unknown annotations remain authoritative when raw Git or
+Mento metadata is present, even when only part of the best-effort Git metadata
+exists. The normalizer validates each known field that is present but does not
+silently upgrade those sources. Both emit `sourceSha: null`, as required by the
+analyzer.
+
 ## Manifest and aggregate evidence schema
 
 The CLI input is a strict version-3 manifest. It references the schema-version-3
 aggregate, one exact GitHub Actions proof and digest, plus each window's raw
-FOCUS JSONL and normalized deployment census.
-The manifest records the deployment-census digest, complete-census assertion,
-and a distinct FOCUS project-tag selector for each logical target. A target's
-selector must be identical in both windows so a comparison cannot silently
-switch Vercel projects. Unknown or missing keys, including legacy provider
-attribution fields, fail instead of being ignored.
+FOCUS JSONL, raw deployment-page envelope, normalized deployment census, and
+canonical census proof. The three deployment files each have a manifest-bound
+SHA-256. The analyzer rebuilds the normalized bytes and proof from the raw page
+bytes, requires every target's Vercel project ID to match across the baseline
+and post-cutover proofs, and rejects a caller-added
+`deploymentCensusComplete` field. The manifest
+also records a distinct FOCUS project-tag selector for each logical target. A
+target's selector must be identical in both windows so a comparison cannot
+silently switch Vercel projects. Unknown or missing keys, including legacy
+provider attribution fields, fail instead of being ignored.
 
 Both aggregate periods require the exact FOCUS unit `Build CPU Minutes`, billing
 currency `USD`, a raw-export digest, row count, ingestion state, and

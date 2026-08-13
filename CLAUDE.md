@@ -46,7 +46,7 @@ pnpm dependabot:process -- evaluate --input path/to/snapshot.json --mode observe
 pnpm dependabot:process:test         # Test Dependabot policy, CLI, and trusted-workflow contracts
 pnpm adr:check                       # Advisory reminder for new architecture-significant workflows/workspaces
 pnpm adr:check:test                  # Test the offline ADR trigger and repository wiring
-pnpm vercel:cost:test                # Test private GitHub capture/billing proof plus zero-exclusion target-mix normalization and closeout gates
+pnpm vercel:cost:test                # Test private GitHub billing proof, saved-page census normalization, target-mix analysis, and closeout gates
 pnpm vercel:cost:observe -- init --start <UTC> --end <UTC>  # Initialize, or append a later pre-audit end to, the private #523 GitHub interval
 pnpm vercel:cost:observe -- capture-preview --pr <number> --event-run-id <id>  # Freeze one preview event from the live journal or its 14-day receipt artifact
 pnpm vercel:cost:observe -- capture-main --run-id <id>  # Freeze every attempt, log, and available journal for one main release
@@ -54,6 +54,7 @@ pnpm vercel:cost:observe -- sample-github  # Snapshot visibility, runs, runner l
 pnpm vercel:cost:observe -- audit --end <UTC>  # Preflight GitHub evidence; once clean, freeze and emit the incomplete private evidence-join fragment
 pnpm vercel:cost:github -- inspect --usage-csv <private.csv> --output <private-shape.json>  # Inspect detailed-usage CSV shape without exposing amounts
 pnpm vercel:cost:github -- build --usage-csv <private.csv> --usage-metadata <metadata.json> --audit-transcript <transcript.txt> --audit-metadata <metadata.json> --observation-root <root> --output <proof.json>  # Bind billing, visibility, and frozen collector evidence offline
+pnpm vercel:cost:normalize-deployments --input <private-pages-envelope.json> --output <private-dir/census.jsonl> --proof <private-dir/census-proof.json>  # Crash-resumably normalize saved Vercel v7 pages; rerun the exact command after interruption
 pnpm vercel:cost:analyze --input <private-evidence-manifest.json> --format markdown  # Reconcile FOCUS project totals only after complete zero-exclusion censuses
 trunk check --fix                     # Lint with autofix
 trunk fmt                             # Format

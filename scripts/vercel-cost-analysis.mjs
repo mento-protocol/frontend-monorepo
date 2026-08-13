@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 
+import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { normalizeVercelDeploymentPages } from "./vercel-cost-deployment-census.mjs";
 import { validateGitHubActionsCostProof } from "./vercel-cost-github-actions.mjs";
 
 export const VERCEL_COST_SCHEMA_VERSION = 3;
@@ -77,9 +79,12 @@ const MANIFEST_KEYS = [
 const GITHUB_ACTIONS_EVIDENCE_KEYS = ["proof", "proofSha256"];
 const MANIFEST_WINDOW_KEYS = [
   "focusJsonl",
+  "deploymentPagesJson",
+  "deploymentPagesSha256",
   "deploymentCensusJsonl",
   "deploymentCensusSha256",
-  "deploymentCensusComplete",
+  "deploymentCensusProof",
+  "deploymentCensusProofSha256",
   "focusProjectTags",
 ];
 const FOCUS_PROJECT_TAG_KEYS = ["key", "value"];
@@ -1523,17 +1528,20 @@ function validateManifest(manifest) {
     const source = manifest.windows[windowName];
     const label = `manifest.windows.${windowName}`;
     assertExactKeys(source, MANIFEST_WINDOW_KEYS, label);
-    for (const key of ["focusJsonl", "deploymentCensusJsonl"]) {
+    for (const key of [
+      "focusJsonl",
+      "deploymentPagesJson",
+      "deploymentCensusJsonl",
+      "deploymentCensusProof",
+    ]) {
       assertNonemptyString(source[key], `${label}.${key}`);
     }
-    assertDigest(
-      source.deploymentCensusSha256,
-      `${label}.deploymentCensusSha256`,
-    );
-    if (source.deploymentCensusComplete !== true) {
-      throw new Error(
-        `${label}.deploymentCensusComplete must be true after pagination/completeness verification`,
-      );
+    for (const key of [
+      "deploymentPagesSha256",
+      "deploymentCensusSha256",
+      "deploymentCensusProofSha256",
+    ]) {
+      assertDigest(source[key], `${label}.${key}`);
     }
     assertExactKeys(
       source.focusProjectTags,
@@ -1908,6 +1916,69 @@ function reconcileDeploymentCensusJsonl(
   };
 }
 
+function rebuildDeploymentCensus({
+  manifestDirectory,
+  source,
+  aggregateWindow,
+  windowName,
+}) {
+  const label = `${windowName} deployment census`;
+  const pagesBytes = readFileSync(
+    resolve(manifestDirectory, source.deploymentPagesJson),
+  );
+  if (sha256(pagesBytes) !== source.deploymentPagesSha256) {
+    throw new Error(`${label} raw pages SHA-256 does not match the manifest`);
+  }
+  const rebuilt = normalizeVercelDeploymentPages(pagesBytes);
+  const proofBytes = readFileSync(
+    resolve(manifestDirectory, source.deploymentCensusProof),
+  );
+  if (sha256(proofBytes) !== source.deploymentCensusProofSha256) {
+    throw new Error(`${label} proof SHA-256 does not match the manifest`);
+  }
+  if (!proofBytes.equals(Buffer.from(rebuilt.proof))) {
+    throw new Error(
+      `${label} proof is not the canonical proof for the bound raw pages`,
+    );
+  }
+  const censusBytes = readFileSync(
+    resolve(manifestDirectory, source.deploymentCensusJsonl),
+  );
+  if (sha256(censusBytes) !== source.deploymentCensusSha256) {
+    throw new Error(`${label} JSONL SHA-256 does not match the manifest`);
+  }
+  if (rebuilt.proofObject.outputSha256 !== source.deploymentCensusSha256) {
+    throw new Error(
+      `${label} rebuilt output digest does not match the manifest`,
+    );
+  }
+  if (!censusBytes.equals(Buffer.from(rebuilt.output))) {
+    throw new Error(`${label} JSONL does not match the rebuilt output bytes`);
+  }
+  if (
+    rebuilt.proofObject.window.startUtc !== aggregateWindow.period.startUtc ||
+    rebuilt.proofObject.window.endUtcExclusive !==
+      aggregateWindow.period.endUtcExclusive
+  ) {
+    throw new Error(`${label} proof window does not match aggregate evidence`);
+  }
+  return {
+    evidence: reconcileDeploymentCensusJsonl(
+      rebuilt.output,
+      source,
+      aggregateWindow,
+      windowName,
+      `${label} JSONL`,
+    ),
+    projectIds: Object.fromEntries(
+      rebuilt.proofObject.projects.map(({ target, projectId }) => [
+        target,
+        projectId,
+      ]),
+    ),
+  };
+}
+
 export function analyzeVercelCostManifest(inputPath) {
   const manifestPath = resolve(inputPath);
   const manifestDirectory = dirname(manifestPath);
@@ -1949,6 +2020,7 @@ export function analyzeVercelCostManifest(inputPath) {
     }
   }
   const deploymentEvidence = {};
+  const deploymentProjectIds = {};
   for (const windowName of ["baseline", "postCutover"]) {
     const source = manifest.windows[windowName];
     const aggregateWindow = evidence[windowName];
@@ -1958,16 +2030,24 @@ export function analyzeVercelCostManifest(inputPath) {
       aggregateWindow,
       `${windowName} FOCUS JSONL`,
     );
-    deploymentEvidence[windowName] = reconcileDeploymentCensusJsonl(
-      readFileSync(
-        resolve(manifestDirectory, source.deploymentCensusJsonl),
-        "utf8",
-      ),
+    const deploymentCensus = rebuildDeploymentCensus({
+      manifestDirectory,
       source,
       aggregateWindow,
       windowName,
-      `${windowName} deployment census JSONL`,
-    );
+    });
+    deploymentEvidence[windowName] = deploymentCensus.evidence;
+    deploymentProjectIds[windowName] = deploymentCensus.projectIds;
+  }
+  for (const target of VERCEL_COST_TARGETS) {
+    if (
+      deploymentProjectIds.baseline[target] !==
+      deploymentProjectIds.postCutover[target]
+    ) {
+      throw new Error(
+        `deployment census projectId for ${target} must match across comparison windows`,
+      );
+    }
   }
   return {
     ...analyzeVercelCostEvidence(evidence),
