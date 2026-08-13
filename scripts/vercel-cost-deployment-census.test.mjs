@@ -334,6 +334,22 @@ function findDeployment(value, uid) {
   throw new Error(`missing test deployment ${uid}`);
 }
 
+function appendLowerPaddingDeployment(value, overrides = {}) {
+  const projectValue = value.projects.find((entry) => entry.target === "ui");
+  const pageValue = projectValue.pages.at(-1);
+  const row = deployment({
+    uid: "dpl_UiLowerPad1",
+    projectId: PROJECT_IDS.ui,
+    createdAt: START_MS - 1,
+    readyState: "READY",
+    url: "ui-lower-pad.vercel.app",
+    ...overrides,
+  });
+  pageValue.response.deployments.push(row);
+  pageValue.response.pagination.count += 1;
+  return row;
+}
+
 test("normalizes two-page raw v7 responses for all four targets", () => {
   const result = normalize();
   assert.equal(result.rows.length, 6);
@@ -454,6 +470,50 @@ test("is deterministic while binding ignored raw provider bytes", () => {
   assert.notEqual(
     compact.proofObject.inputSha256,
     changed.proofObject.inputSha256,
+  );
+});
+
+test("normalizes unordered provider rows and pages with a stable final sort", () => {
+  const baseline = normalize();
+  const value = fixture();
+  const [firstPage, secondPage] = value.projects[0].pages;
+  const [appPreview, appLegacy] = firstPage.response.deployments;
+  const [appUnknown] = secondPage.response.deployments;
+  firstPage.response.deployments = [appUnknown, appLegacy];
+  firstPage.response.pagination.count = 2;
+  secondPage.response.deployments = [appPreview];
+  secondPage.response.pagination.count = 1;
+
+  const reordered = normalize(value);
+  assert.equal(reordered.output, baseline.output);
+  assert.deepEqual(reordered.rows, baseline.rows);
+});
+
+test("breaks equal-timestamp sort ties by deployment ID", () => {
+  const value = fixture();
+  const preview = findDeployment(value, "dpl_AppPreview1");
+  const legacy = findDeployment(value, "dpl_AppLegacy1");
+  legacy.createdAt = preview.createdAt;
+  const pageValue = value.projects[0].pages[0];
+  pageValue.response.deployments = [preview, legacy];
+
+  const ids = normalize(value).rows.map((row) => row.deploymentId);
+  assert.ok(ids.indexOf("dpl_AppLegacy1") < ids.indexOf("dpl_AppPreview1"));
+});
+
+test("excludes the lower one-millisecond query pad before annotation", () => {
+  const baseline = normalize();
+  const value = fixture();
+  const padding = appendLowerPaddingDeployment(value);
+  padding.officialFieldAddedLater = { retainedOnlyInRawEvidence: true };
+
+  const normalized = normalize(value);
+  assert.equal(normalized.output, baseline.output);
+  assert.equal(normalized.proofObject.rowCount, 6);
+  assert.equal(normalized.proofObject.annotationCount, 6);
+  assert.notEqual(
+    normalized.proofObject.inputSha256,
+    baseline.proofObject.inputSha256,
   );
 });
 
@@ -646,20 +706,36 @@ const failClosedCases = [
     /appears more than once/,
   ],
   [
-    "rejects out-of-window deployment timestamps",
+    "rejects deployment timestamps outside the bounded query",
     (value) => {
       findDeployment(value, "dpl_UiManual1").createdAt = END_MS;
     },
-    /outside the census window/,
+    /outside the bounded query/,
   ],
   [
-    "rejects page ordering drift",
+    "rejects deployment timestamps before the lower query pad",
     (value) => {
-      findDeployment(value, "dpl_AppUnknown1").createdAt = Date.parse(
-        "2026-07-07T12:00:00.000Z",
-      );
+      findDeployment(value, "dpl_UiManual1").createdAt = START_MS - 2;
     },
-    /breaks provider page ordering/,
+    /outside the bounded query/,
+  ],
+  [
+    "validates the project identity of an excluded padding row",
+    (value) => {
+      appendLowerPaddingDeployment(value, {
+        projectId: PROJECT_IDS.app,
+      });
+    },
+    /projectId conflicts with its project envelope/,
+  ],
+  [
+    "rejects a duplicate deployment ID in an excluded padding row",
+    (value) => {
+      appendLowerPaddingDeployment(value, {
+        uid: "dpl_UiManual1",
+      });
+    },
+    /appears more than once/,
   ],
   [
     "rejects malformed deployment IDs",

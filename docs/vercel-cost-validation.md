@@ -338,8 +338,10 @@ estimated.
    repository's GitHub run/deployment URLs or a root `*.vercel.app` deployment
    URL, with no credentials, query string, fragment, or custom port. Vercel
    dashboard URLs are private evidence and fail closed. Duplicate deployment
-   IDs, rows outside the interval, digest mismatches, incomplete pagination, or
-   incomplete-census assertions fail closed. One eligible event key is
+   IDs, raw timestamps outside the bounded query, digest mismatches, incomplete
+   pagination, or incomplete-census assertions fail closed. The exact
+   one-millisecond lower query pad is retained only in the private input digest
+   and excluded from the census. One eligible event key is
    `target:path:sourceSha`. Count every native,
    prebuilt, failed, cancelled, and rerun deployment attempt; do not use attempts
    as the event denominator. In both the baseline and post-cutover windows,
@@ -470,19 +472,28 @@ Every response must contain exactly `deployments` and `pagination`, and every
 pagination object must contain exactly `count`, `next`, and `prev`. `count` must
 equal that page's deployment count. The tool rejects repeated or discontinuous
 cursors, more than 100 pages or 100 rows per page, duplicate deployment IDs,
-mixed queries, rows outside `[startUtc, endUtcExclusive)`, and pages that do not
-end at `next: null`.
+mixed queries, timestamps outside the bounded
+`[startUtc - 1 ms, endUtcExclusive)` query, and pages that do not end at
+`next: null`. Vercel does not guarantee deployment row order. The normalizer
+therefore makes no row-order assumption and deterministically sorts final
+census rows by timestamp and deployment ID.
 
-Raw deployment objects must supply `uid`, `projectId`, epoch-millisecond
-`createdAt`, `readyState`, and a root `*.vercel.app` `url`. They may retain
-additional provider fields. The normalizer ignores unrelated additions while
-the input digest still binds their bytes. It rejects conflicting known aliases
-such as `id != uid`, a different `project` ID, or `state != readyState`.
-`readyState` must be one of Vercel's documented states; only `READY`, `ERROR`,
-and `CANCELED` map to analyzer outcomes. Re-export after any other state settles.
+Every raw deployment object must supply a valid `uid`, its exact `projectId`,
+and epoch-millisecond `createdAt`. A row at the exact `startUtc - 1 ms` query pad
+is excluded before semantic normalization and needs no annotation, but its raw
+identity, project, and timestamp are still validated. Duplicate detection also
+includes that excluded row, and the input digest binds all of its bytes. Every
+in-window row must additionally supply `readyState` and a root `*.vercel.app`
+`url`. Raw rows may retain additional provider fields. The normalizer ignores
+unrelated additions while the input digest still binds their bytes. It rejects
+conflicting known aliases such as `id != uid`, a different `project` ID, or
+`state != readyState`. `readyState` must be one of Vercel's documented states;
+only `READY`, `ERROR`, and `CANCELED` map to analyzer outcomes. Re-export after
+any other state settles.
 
-Every deployment ID needs exactly one annotation. The operator must choose the
-semantic `path` (`preview`, `main`, `legacy-v2`, or `unknown`) and `source`
+Every in-window deployment ID needs exactly one annotation, and padding IDs
+must not be annotated. The operator must choose the semantic `path` (`preview`,
+`main`, `legacy-v2`, or `unknown`) and `source`
 (`github-actions-prebuilt`, `vercel-native`, `manual`, or `unknown`); the tool
 never guesses either axis from `target`, Vercel's best-effort `source`, a
 missing Git field, or the project name. `unknown` stays explicit. The

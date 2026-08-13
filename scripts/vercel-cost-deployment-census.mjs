@@ -396,10 +396,8 @@ function rawEnvironment(deployment, label) {
   };
 }
 
-function normalizeDeployment({
+function validateRawDeploymentIdentity({
   deployment,
-  annotation,
-  target,
   projectId,
   start,
   end,
@@ -440,9 +438,25 @@ function normalizeDeployment({
     `${label}.createdAt`,
     { minimum: 1 },
   );
-  if (createdAt < start || createdAt >= end) {
-    throw new Error(`${label}.createdAt falls outside the census window`);
+  if (createdAt < start - 1 || createdAt >= end) {
+    throw new Error(`${label}.createdAt falls outside the bounded query`);
   }
+  return {
+    deploymentId,
+    createdAt,
+    inWindow: createdAt >= start,
+  };
+}
+
+function normalizeDeployment({
+  deployment,
+  identity,
+  annotation,
+  target,
+  projectId,
+  label,
+}) {
+  const { deploymentId, createdAt } = identity;
   const readyState = assertString(deployment.readyState, `${label}.readyState`);
   if (!PROVIDER_STATES.has(readyState)) {
     throw new Error(`${label}.readyState is unsupported`);
@@ -589,7 +603,7 @@ function normalizeDeployment({
   if (JSON.stringify(Object.keys(row)) !== JSON.stringify(OUTPUT_KEYS)) {
     throw new Error("internal census row key order is invalid");
   }
-  return { row, createdAt };
+  return row;
 }
 
 function canonicalQuery(query, { target, projectId, start, end }) {
@@ -626,7 +640,14 @@ function canonicalPagination(value, label, count) {
   return value;
 }
 
-function normalizeProject({ project, annotations, start, end, deploymentIds }) {
+function normalizeProject({
+  project,
+  annotations,
+  start,
+  end,
+  rawDeploymentIds,
+  censusDeploymentIds,
+}) {
   assertExactKeys(project, PROJECT_KEYS, "project");
   const target = assertString(project.target, "project.target");
   if (!TARGETS.includes(target))
@@ -654,7 +675,6 @@ function normalizeProject({ project, annotations, start, end, deploymentIds }) {
   }
 
   let expectedCursor = end;
-  let previousCreatedAt = Number.POSITIVE_INFINITY;
   const seenCursors = new Set();
   const rows = [];
   for (const [pageIndex, page] of project.pages.entries()) {
@@ -686,30 +706,35 @@ function normalizeProject({ project, annotations, start, end, deploymentIds }) {
     );
     for (const [rowIndex, deployment] of page.response.deployments.entries()) {
       const rowLabel = `${pageLabel}.response.deployments[${rowIndex}]`;
-      const rawId = deployment?.uid;
-      if (typeof rawId !== "string" || annotations[rawId] === undefined) {
-        throw new Error(`${rowLabel} has no exact maintainer annotation`);
-      }
-      const normalized = normalizeDeployment({
+      const identity = validateRawDeploymentIdentity({
         deployment,
-        annotation: annotations[rawId],
-        target,
         projectId,
         start,
         end,
         label: rowLabel,
       });
-      if (deploymentIds.has(normalized.row.deploymentId)) {
+      if (rawDeploymentIds.has(identity.deploymentId)) {
         throw new Error(
-          `deploymentId ${normalized.row.deploymentId} appears more than once`,
+          `deploymentId ${identity.deploymentId} appears more than once`,
         );
       }
-      if (normalized.createdAt > previousCreatedAt) {
-        throw new Error(`${rowLabel}.createdAt breaks provider page ordering`);
+      rawDeploymentIds.add(identity.deploymentId);
+      if (!identity.inWindow) {
+        continue;
       }
-      previousCreatedAt = normalized.createdAt;
-      deploymentIds.add(normalized.row.deploymentId);
-      rows.push(normalized.row);
+      if (annotations[identity.deploymentId] === undefined) {
+        throw new Error(`${rowLabel} has no exact maintainer annotation`);
+      }
+      const row = normalizeDeployment({
+        deployment,
+        identity,
+        annotation: annotations[identity.deploymentId],
+        target,
+        projectId,
+        label: rowLabel,
+      });
+      censusDeploymentIds.add(identity.deploymentId);
+      rows.push(row);
     }
     if (pagination.next === null) {
       if (pageIndex !== project.pages.length - 1) {
@@ -776,21 +801,23 @@ export function normalizeVercelDeploymentPages(raw) {
     throw new Error("input.projects must contain four distinct project IDs");
   }
 
-  const deploymentIds = new Set();
+  const rawDeploymentIds = new Set();
+  const censusDeploymentIds = new Set();
   const projects = parsed.projects.map((project) =>
     normalizeProject({
       project,
       annotations,
       start,
       end,
-      deploymentIds,
+      rawDeploymentIds,
+      censusDeploymentIds,
     }),
   );
   if (new Set(projects.map((project) => project.teamId)).size !== 1) {
     throw new Error("all project queries must use the same Vercel team ID");
   }
   const annotationIds = Object.keys(annotations).toSorted();
-  const censusIds = [...deploymentIds].toSorted();
+  const censusIds = [...censusDeploymentIds].toSorted();
   if (JSON.stringify(annotationIds) !== JSON.stringify(censusIds)) {
     throw new Error(
       "input.annotations must match the deployment census exactly",
