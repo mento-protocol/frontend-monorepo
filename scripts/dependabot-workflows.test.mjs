@@ -94,6 +94,9 @@ const humanReviewPath = ".github/workflows/claude-code-review.yml";
 const dependabotReviewToolGuardPath = fileURLToPath(
   new URL("./dependabot-claude-review-tool-guard.mjs", import.meta.url),
 );
+const repairEvidenceToolGuardPath = fileURLToPath(
+  new URL("./dependabot-repair-evidence-tool-guard.mjs", import.meta.url),
+);
 const intake = workflow(intakePath);
 const processor = workflow(processorPath);
 const repair = workflow(repairPath);
@@ -1475,7 +1478,52 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
   assert.match(planner.with.prompt, /only Read and Grep/);
   assert.match(
     planner.with.prompt,
-    /Use Grep.*when useful.*large evidence files only.*explicit bounded pages.*one-based offsets and limits/s,
+    /Use Grep.*when useful.*\.json.*above 12,500 bytes.*\.patch.*\.txt.*above 16,384 bytes.*explicit byte-efficient pages.*one-based offsets and limits.*at most 2,000 lines.*25,000 raw bytes.*\.patch.*\.txt.*12,500 raw bytes.*\.json.*enforced media-aware maxima/s,
+  );
+  const printedPagePolicy = spawnSync(
+    process.execPath,
+    [repairEvidenceToolGuardPath, "--print-policy"],
+    { encoding: "utf8" },
+  );
+  assert.equal(printedPagePolicy.status, 0, printedPagePolicy.stderr);
+  const pagePolicy = JSON.parse(printedPagePolicy.stdout);
+  assert.deepEqual(pagePolicy, {
+    claudeCodeActionRef: "be7b93b1907a4abad570368f3c74b6fe3807510b",
+    claudeCodeVersion: "2.1.220",
+    evidenceMaxLineBytes: 4 * 1024,
+    jsonMaxBytes: 12_500,
+    jsonMaxLines: 2_000,
+    jsonMaxUnpagedBytes: 12_500,
+    schema: "dependabot-repair-evidence-page-policy:v1",
+    textMaxBytes: 25_000,
+    textMaxLines: 2_000,
+    textMaxUnpagedBytes: 16 * 1024,
+  });
+  assert.equal(
+    planner.with.prompt.includes(
+      `Read \`.json\` evidence above ${pagePolicy.jsonMaxUnpagedBytes.toLocaleString("en-US")} bytes and \`.patch\`/\`.txt\` evidence above ${pagePolicy.textMaxUnpagedBytes.toLocaleString("en-US")} bytes only in explicit byte-efficient pages with one-based offsets and limits. Each page may request at most ${pagePolicy.textMaxLines.toLocaleString("en-US")} lines and must stay within ${pagePolicy.textMaxBytes.toLocaleString("en-US")} raw bytes for \`.patch\`/\`.txt\` or ${pagePolicy.jsonMaxBytes.toLocaleString("en-US")} raw bytes for \`.json\` (the enforced media-aware maxima)`,
+    ),
+    true,
+    "the workflow prompt must match the guard's computed page policy",
+  );
+  assert.equal(
+    planner.uses,
+    `anthropics/claude-code-action/base-action@${pagePolicy.claudeCodeActionRef}`,
+    "the page estimator must stay bound to the action pin that installs its Claude Code version",
+  );
+  const materializerLineCap =
+    /const MAX_EVIDENCE_LINE_BYTES = ([0-9]+) \* ([0-9]+);/.exec(
+      read("scripts/dependabot-preparation-receipts.mjs"),
+    );
+  assert.ok(materializerLineCap);
+  assert.equal(
+    Number(materializerLineCap[1]) * Number(materializerLineCap[2]),
+    pagePolicy.evidenceMaxLineBytes,
+    "the materializer and guard must share the exact evidence-line cap",
+  );
+  assert.match(
+    planner.with.prompt,
+    /Every hunk header count must exactly match its body.*unchanged context line before.*and after.*unless.*first or final line.*Prefix each unchanged hunk-body line.*required single.*diff marker space.*original indentation.*Never emit a context-free or one-sided-context.*away from a file.*boundary/s,
   );
   assert.match(planner.with.claude_args, /--tools "Read,Grep"/);
   assert.doesNotMatch(planner.with.claude_args, /--allowedTools/);
@@ -1493,6 +1541,10 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
     /--add-dir "\$\{\{ steps\.evidence\.outputs\.evidence_root \}\}"/,
   );
   assert.match(planner.with.claude_args, /"maxLength":8192/);
+  assert.match(
+    planner.with.claude_args,
+    /"description":"Valid contextual unified diff with exact hunk counts, required diff marker prefixes, and unchanged context before and after each changed run unless it touches a file boundary\."/,
+  );
   assert.deepEqual(evidenceCompletion.env, {
     DEPENDABOT_REPAIR_EVIDENCE_MANIFEST:
       "${{ steps.evidence.outputs.evidence_manifest }}",
@@ -1601,6 +1653,16 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
     /gh pr merge|pulls\.merge|mergePullRequest|enablePullRequestAutoMerge|APPROVE|\/reviews|\/comments/,
   );
   const helper = read("scripts/dependabot-preparation-receipts.mjs");
+  const applyHelper = helper.slice(
+    helper.indexOf("export async function applyRepairPlan"),
+    helper.indexOf("async function commandValidateRepairPlan"),
+  );
+  assert.match(
+    applyHelper,
+    /\["apply", "--check", "--whitespace=error-all", patchPath\]/,
+  );
+  assert.doesNotMatch(applyHelper, /--recount/);
+  assert.doesNotMatch(applyHelper, /--unidiff-zero/);
   const stageHelper = helper.slice(
     helper.indexOf("async function commandStageRepair"),
     helper.indexOf("function loadIntentArgument"),

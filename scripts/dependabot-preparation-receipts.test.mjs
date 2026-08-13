@@ -966,6 +966,118 @@ test("repair patch budgets count hunk content with diff-header prefixes", () => 
   );
 });
 
+test("repair validator rejects one-sided hunks and accepts exact trailing context", async () => {
+  const path = "pnpm-lock.yaml";
+  const original = [
+    "importers:",
+    "  .:",
+    "    devDependencies:",
+    "      typescript-eslint:",
+    "        version: 8.65.0(eslint@9.39.2)(typescript@5.9.3)",
+    "      vercel:",
+    "        specifier: 56.5.0",
+    "        version: 56.5.0(@vercel/container@0.0.5)",
+    "      yaml:",
+    "        specifier: 2.9.0",
+    "",
+  ].join("\n");
+  const expectedBlobSha = gitBlobSha(original);
+  const packet = repairPacket({
+    changedPaths: [path],
+    expectedBlobs: [
+      { mode: "100644", path, sha: expectedBlobSha, type: "blob" },
+    ],
+    permittedPaths: [path],
+  });
+  const treeSha = "2".repeat(40);
+  const oneSidedPatch = `--- a/${path}\n+++ b/${path}\n@@ -5,4 +5,4 @@\n         version: 8.65.0(eslint@9.39.2)(typescript@5.9.3)\n       vercel:\n-        specifier: 56.5.0\n-        version: 56.5.0(@vercel/container@0.0.5)\n+        specifier: 56.4.1\n+        version: 56.4.1(@vercel/container@0.0.5)\n`;
+  const contextualPatch = oneSidedPatch
+    .replace("@@ -5,4 +5,4 @@", "@@ -5,5 +5,5 @@")
+    .concat("       yaml:\n");
+  const malformedHunkCountPatch = contextualPatch.replace(
+    "@@ -5,5 +5,5 @@",
+    "@@ -5,6 +5,6 @@",
+  );
+  const missingContextMarkersPatch = contextualPatch
+    .replace("         version: 8.65.0", "        version: 8.65.0")
+    .replace("       vercel:", "      vercel:")
+    .replace("       yaml:", "      yaml:");
+  assert.deepEqual(validateRepairPatch({ patch: oneSidedPatch, path }), {
+    addedLines: 2,
+    bytes: Buffer.byteLength(oneSidedPatch),
+    changes: 4,
+    deletedLines: 2,
+  });
+
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async (url) => {
+      const pathName = new URL(url).pathname;
+      const body = pathName.endsWith(`/git/commits/${headSha}`)
+        ? { tree: { sha: treeSha } }
+        : pathName.endsWith(`/git/trees/${treeSha}`)
+          ? {
+              tree: [
+                { mode: "100644", path, sha: expectedBlobSha, type: "blob" },
+              ],
+              truncated: false,
+            }
+          : pathName.endsWith(`/git/blobs/${expectedBlobSha}`)
+            ? {
+                content: Buffer.from(original).toString("base64"),
+                encoding: "base64",
+                sha: expectedBlobSha,
+                size: Buffer.byteLength(original),
+              }
+            : assert.fail(`unexpected Git blob request: ${pathName}`);
+      return new Response(JSON.stringify(body), { status: 200 });
+    };
+    await assert.rejects(
+      applyRepairPlan({
+        packet,
+        plan: { edits: [{ expectedBlobSha, patch: oneSidedPatch, path }] },
+        repositoryName: repository,
+        token: "read-token",
+      }),
+      /git apply --check --whitespace=error-all.*patch does not apply/s,
+    );
+    await assert.rejects(
+      applyRepairPlan({
+        packet,
+        plan: {
+          edits: [{ expectedBlobSha, patch: malformedHunkCountPatch, path }],
+        },
+        repositoryName: repository,
+        token: "read-token",
+      }),
+      /git apply --check --whitespace=error-all.*corrupt patch/s,
+    );
+    await assert.rejects(
+      applyRepairPlan({
+        packet,
+        plan: {
+          edits: [{ expectedBlobSha, patch: missingContextMarkersPatch, path }],
+        },
+        repositoryName: repository,
+        token: "read-token",
+      }),
+      /git apply --check --whitespace=error-all.*patch does not apply/s,
+    );
+    const applied = await applyRepairPlan({
+      packet,
+      plan: { edits: [{ expectedBlobSha, patch: contextualPatch, path }] },
+      repositoryName: repository,
+      token: "read-token",
+    });
+    assert.match(
+      applied.edits[0].content.toString(),
+      /specifier: 56\.4\.1\n {8}version: 56\.4\.1/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("dispatch payloads stay below GitHub's ten-key client-payload cap", () => {
   const processPayload = validateProcessDispatchPayload({ scope: "open" });
   assert.equal(Object.keys(processPayload).length, 1);
@@ -2180,6 +2292,7 @@ test("materializer rejects a final PR race and live file SHA mismatch before sea
 
 function makeGuardEvidenceFixture({
   additionalFileCount = 0,
+  diffContent = "diff --git a/a b/a\n",
   packetContent = "{}\n",
 } = {}) {
   const temporary = mkdtempSync(
@@ -2208,7 +2321,7 @@ function makeGuardEvidenceFixture({
       name === "packet.json"
         ? packetContent
         : name.endsWith(".patch")
-          ? "diff --git a/a b/a\n"
+          ? diffContent
           : "{}\n";
     const path = join(root, name);
     writeFileSync(path, content, { mode: 0o400 });
@@ -2260,6 +2373,355 @@ function makeGuardEvidenceFixture({
     temporary,
   };
 }
+
+function exactSizedJsonEvidence(byteLength) {
+  const lineCount = 4;
+  const structuralBytes = lineCount * 6 + 3;
+  assert.ok(byteLength > structuralBytes);
+  const payloadBytes = byteLength - structuralBytes;
+  const basePayloadBytes = Math.floor(payloadBytes / lineCount);
+  const remainder = payloadBytes % lineCount;
+  const content = `${JSON.stringify(
+    Array.from({ length: lineCount }, (_, index) =>
+      "x".repeat(basePayloadBytes + (index < remainder ? 1 : 0)),
+    ),
+    null,
+    2,
+  )}\n`;
+  assert.equal(Buffer.byteLength(content), byteLength);
+  assert.ok(
+    content.split("\n").every((line) => Buffer.byteLength(line) <= 4 * 1024),
+  );
+  return content;
+}
+
+test("repair evidence guard pages JSON above its exact token-safe threshold", () => {
+  const guard = fileURLToPath(
+    new URL("./dependabot-repair-evidence-tool-guard.mjs", import.meta.url),
+  );
+  const printed = spawnSync(process.execPath, [guard, "--print-policy"], {
+    encoding: "utf8",
+  });
+  assert.equal(printed.status, 0, printed.stderr);
+  const policy = JSON.parse(printed.stdout);
+  assert.equal(
+    policy.claudeCodeActionRef,
+    "be7b93b1907a4abad570368f3c74b6fe3807510b",
+  );
+  assert.equal(policy.claudeCodeVersion, "2.1.220");
+  assert.equal(policy.evidenceMaxLineBytes, 4 * 1024);
+  assert.equal(policy.jsonMaxUnpagedBytes, 12_500);
+  assert.equal(policy.jsonMaxBytes, 12_500);
+  assert.equal(policy.jsonMaxLines, 2_000);
+
+  const thresholdFixture = makeGuardEvidenceFixture({
+    packetContent: exactSizedJsonEvidence(policy.jsonMaxUnpagedBytes),
+  });
+  try {
+    const atThreshold = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: thresholdFixture.environment,
+      input: JSON.stringify({
+        hook_event_name: "PreToolUse",
+        tool_input: { file_path: join(thresholdFixture.root, "packet.json") },
+        tool_name: "Read",
+        tool_use_id: "toolu_json_at_unpaged_threshold",
+      }),
+    });
+    assert.equal(atThreshold.status, 0, atThreshold.stderr);
+  } finally {
+    rmSync(thresholdFixture.temporary, { force: true, recursive: true });
+  }
+
+  const aboveThresholdFixture = makeGuardEvidenceFixture({
+    packetContent: exactSizedJsonEvidence(policy.jsonMaxUnpagedBytes + 1),
+  });
+  const packetPath = join(aboveThresholdFixture.root, "packet.json");
+  try {
+    for (const [toolUseId, toolInput] of [
+      ["toolu_json_above_threshold_unpaged", { file_path: packetPath }],
+      [
+        "toolu_json_above_threshold_whole_page",
+        { file_path: packetPath, limit: policy.jsonMaxLines, offset: 1 },
+      ],
+    ]) {
+      const blocked = spawnSync(process.execPath, [guard], {
+        encoding: "utf8",
+        env: aboveThresholdFixture.environment,
+        input: JSON.stringify({
+          hook_event_name: "PreToolUse",
+          tool_input: toolInput,
+          tool_name: "Read",
+          tool_use_id: toolUseId,
+        }),
+      });
+      assert.equal(blocked.status, 2, blocked.stderr);
+      assert.deepEqual(readdirSync(aboveThresholdFixture.receiptRoot), []);
+    }
+
+    const bounded = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: aboveThresholdFixture.environment,
+      input: JSON.stringify({
+        hook_event_name: "PreToolUse",
+        tool_input: {
+          file_path: packetPath,
+          limit: 4,
+          offset: 1,
+        },
+        tool_name: "Read",
+        tool_use_id: "toolu_json_above_threshold_bounded",
+      }),
+    });
+    assert.equal(bounded.status, 0, bounded.stderr);
+  } finally {
+    rmSync(aboveThresholdFixture.temporary, {
+      force: true,
+      recursive: true,
+    });
+  }
+});
+
+test("repair evidence guard measures escaped JSON pages by exact sealed bytes", () => {
+  const guard = fileURLToPath(
+    new URL("./dependabot-repair-evidence-tool-guard.mjs", import.meta.url),
+  );
+  const packetContent = `${JSON.stringify(
+    { items: Array.from({ length: 500 }, () => "\u0001".repeat(4)) },
+    null,
+    2,
+  )}\n`;
+  assert.ok(Buffer.byteLength(packetContent) > 12_500);
+  assert.match(packetContent, /\\u0001/);
+  const packetLines = packetContent.split("\n");
+  assert.ok(packetLines.every((line) => Buffer.byteLength(line) <= 4 * 1024));
+  let pageLineCount = 0;
+  let pageBytes = 0;
+  while (pageLineCount < packetLines.length) {
+    const nextLineBytes = Buffer.byteLength(packetLines[pageLineCount]);
+    const candidateBytes =
+      pageBytes + (pageLineCount === 0 ? 0 : 1) + nextLineBytes;
+    if (candidateBytes > 12_500) break;
+    pageBytes = candidateBytes;
+    pageLineCount += 1;
+  }
+  assert.ok(pageLineCount > 3);
+  const pageContent = packetLines.slice(0, pageLineCount).join("\n");
+  assert.equal(Buffer.byteLength(pageContent), pageBytes);
+
+  const fixture = makeGuardEvidenceFixture({ packetContent });
+  const packetPath = join(fixture.root, "packet.json");
+  const pageInput = {
+    hook_event_name: "PreToolUse",
+    tool_input: { file_path: packetPath, limit: pageLineCount, offset: 1 },
+    tool_name: "Read",
+    tool_use_id: "toolu_escaped_json_page",
+  };
+  try {
+    const pre = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify(pageInput),
+    });
+    assert.equal(pre.status, 0, pre.stderr);
+    const post = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify({
+        ...pageInput,
+        hook_event_name: "PostToolUse",
+        tool_response: {
+          file: {
+            content: pageContent,
+            filePath: packetPath,
+            numLines: pageLineCount,
+            startLine: 1,
+            totalLines: packetLines.length,
+            truncatedByTokenCap: false,
+          },
+          type: "text",
+        },
+      }),
+    });
+    assert.equal(post.status, 0, post.stderr);
+  } finally {
+    rmSync(fixture.temporary, { force: true, recursive: true });
+  }
+});
+
+test("repair evidence guard matches Claude Read CRLF normalization on large pages", () => {
+  const guard = fileURLToPath(
+    new URL("./dependabot-repair-evidence-tool-guard.mjs", import.meta.url),
+  );
+  const contentLines = Array.from(
+    { length: 600 },
+    (_, index) => `line-${String(index).padStart(3, "0")}-${"x".repeat(24)}`,
+  );
+  const rawContent = `${contentLines.join("\r\n")}\r\n`;
+  assert.ok(Buffer.byteLength(rawContent) > 16 * 1024);
+  const rawLines = rawContent.split("\n");
+  const normalizedLines = rawLines.map((line) =>
+    line.endsWith("\r") ? line.slice(0, -1) : line,
+  );
+  assert.equal(normalizedLines.length, 601);
+  assert.equal(normalizedLines.at(-1), "");
+
+  const fixture = makeGuardEvidenceFixture({ diffContent: rawContent });
+  const evidencePath = join(fixture.root, "pull-request-diff.patch");
+  const offset = contentLines.length;
+  const limit = 2;
+  const normalizedPage = normalizedLines
+    .slice(offset - 1, offset - 1 + limit)
+    .join("\n");
+  const rawPage = rawLines.slice(offset - 1, offset - 1 + limit).join("\n");
+  assert.equal(normalizedPage, `${contentLines.at(-1)}\n`);
+  assert.equal(rawPage, `${contentLines.at(-1)}\r\n`);
+
+  const readInput = (toolUseId) => ({
+    hook_event_name: "PreToolUse",
+    tool_input: { file_path: evidencePath, limit, offset },
+    tool_name: "Read",
+    tool_use_id: toolUseId,
+  });
+  const readResponse = (content) => ({
+    file: {
+      content,
+      filePath: evidencePath,
+      numLines: limit,
+      startLine: offset,
+      totalLines: normalizedLines.length,
+      truncatedByTokenCap: false,
+    },
+    type: "text",
+  });
+  try {
+    const normalizedInput = readInput("toolu_large_crlf_normalized");
+    const normalizedPre = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify(normalizedInput),
+    });
+    assert.equal(normalizedPre.status, 0, normalizedPre.stderr);
+    const normalizedPost = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify({
+        ...normalizedInput,
+        hook_event_name: "PostToolUse",
+        tool_response: readResponse(normalizedPage),
+      }),
+    });
+    assert.equal(normalizedPost.status, 0, normalizedPost.stderr);
+
+    const rawInput = readInput("toolu_large_crlf_raw");
+    const rawPre = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify(rawInput),
+    });
+    assert.equal(rawPre.status, 0, rawPre.stderr);
+    const rawPost = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify({
+        ...rawInput,
+        hook_event_name: "PostToolUse",
+        tool_response: readResponse(rawPage),
+      }),
+    });
+    assert.equal(rawPost.status, 2);
+    assert.match(
+      rawPost.stderr,
+      /Read response does not match the authorized sealed slice/,
+    );
+  } finally {
+    rmSync(fixture.temporary, { force: true, recursive: true });
+  }
+});
+
+test("repair evidence guard matches Claude Read BOM normalization on large pages", () => {
+  const guard = fileURLToPath(
+    new URL("./dependabot-repair-evidence-tool-guard.mjs", import.meta.url),
+  );
+  const contentLines = Array.from(
+    { length: 600 },
+    (_, index) => `line-${String(index).padStart(3, "0")}-${"x".repeat(24)}`,
+  );
+  const rawContent = `\uFEFF\uFEFF${contentLines.join("\n")}`;
+  assert.ok(Buffer.byteLength(rawContent) > 16 * 1024);
+  const rawLines = rawContent.split("\n");
+  const normalizedLines = rawContent.slice(1).split("\n");
+  assert.equal(rawLines.length, normalizedLines.length);
+  assert.equal(rawLines[0], `\uFEFF\uFEFF${contentLines[0]}`);
+  assert.equal(normalizedLines[0], `\uFEFF${contentLines[0]}`);
+
+  const fixture = makeGuardEvidenceFixture({ diffContent: rawContent });
+  const evidencePath = join(fixture.root, "pull-request-diff.patch");
+  const offset = 1;
+  const limit = 2;
+  const normalizedPage = normalizedLines.slice(0, limit).join("\n");
+  const rawPage = rawLines.slice(0, limit).join("\n");
+  const readInput = (toolUseId) => ({
+    hook_event_name: "PreToolUse",
+    tool_input: { file_path: evidencePath, limit, offset },
+    tool_name: "Read",
+    tool_use_id: toolUseId,
+  });
+  const readResponse = (content) => ({
+    file: {
+      content,
+      filePath: evidencePath,
+      numLines: limit,
+      startLine: offset,
+      totalLines: normalizedLines.length,
+      truncatedByTokenCap: false,
+    },
+    type: "text",
+  });
+  try {
+    const normalizedInput = readInput("toolu_large_bom_normalized");
+    const normalizedPre = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify(normalizedInput),
+    });
+    assert.equal(normalizedPre.status, 0, normalizedPre.stderr);
+    const normalizedPost = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify({
+        ...normalizedInput,
+        hook_event_name: "PostToolUse",
+        tool_response: readResponse(normalizedPage),
+      }),
+    });
+    assert.equal(normalizedPost.status, 0, normalizedPost.stderr);
+
+    const rawInput = readInput("toolu_large_bom_raw");
+    const rawPre = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify(rawInput),
+    });
+    assert.equal(rawPre.status, 0, rawPre.stderr);
+    const rawPost = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify({
+        ...rawInput,
+        hook_event_name: "PostToolUse",
+        tool_response: readResponse(rawPage),
+      }),
+    });
+    assert.equal(rawPost.status, 2);
+    assert.match(
+      rawPost.stderr,
+      /Read response does not match the authorized sealed slice/,
+    );
+  } finally {
+    rmSync(fixture.temporary, { force: true, recursive: true });
+  }
+});
 
 test("repair evidence guard permits only sealed manifest Read/Grep and requires completion", () => {
   const guard = fileURLToPath(
@@ -2459,7 +2921,7 @@ test("repair evidence guard accepts 150 manifest files and rejects 151", () => {
           hook_event_name: "PreToolUse",
           tool_input: {
             file_path: fixture.manifestPath,
-            limit: 4,
+            limit: 3,
             offset: 1,
           },
           tool_name: "Read",
@@ -2506,9 +2968,9 @@ test("repair evidence guard requires bounded one-based pages for large reads and
       },
       {
         hook_event_name: "PreToolUse",
-        tool_input: { file_path: packetPath, limit: 5, offset: 1 },
+        tool_input: { file_path: packetPath, limit: 2000, offset: 1 },
         tool_name: "Read",
-        tool_use_id: "toolu_large_page_too_wide",
+        tool_use_id: "toolu_large_page_too_many_bytes",
       },
       {
         hook_event_name: "PreToolUse",
@@ -2534,7 +2996,7 @@ test("repair evidence guard requires bounded one-based pages for large reads and
 
     const pageInput = {
       hook_event_name: "PreToolUse",
-      tool_input: { file_path: packetPath, limit: 4, offset: 1 },
+      tool_input: { file_path: packetPath, limit: 3, offset: 1 },
       tool_name: "Read",
       tool_use_id: "toolu_large_page",
     };
@@ -2545,7 +3007,7 @@ test("repair evidence guard requires bounded one-based pages for large reads and
     });
     assert.equal(pagePre.status, 0, pagePre.stderr);
     const packetLines = packetContent.split("\n");
-    const pageContent = packetLines.slice(0, 4).join("\n");
+    const pageContent = packetLines.slice(0, 3).join("\n");
     const pagePost = spawnSync(process.execPath, [guard], {
       encoding: "utf8",
       env: fixture.environment,
@@ -2556,7 +3018,7 @@ test("repair evidence guard requires bounded one-based pages for large reads and
           file: {
             content: pageContent,
             filePath: packetPath,
-            numLines: 4,
+            numLines: 3,
             startLine: 1,
             totalLines: packetLines.length,
             truncatedByTokenCap: false,
@@ -2576,6 +3038,10 @@ test("repair evidence guard requires bounded one-based pages for large reads and
     for (const [toolUseId, responseOverride] of [
       ["toolu_large_wrong_start", { startLine: 2 }],
       ["toolu_large_truncated", { truncatedByTokenCap: true }],
+      [
+        "toolu_large_wrong_slice",
+        { content: pageContent.replace('"items"', '"xtems"') },
+      ],
     ]) {
       const input = { ...pageInput, tool_use_id: toolUseId };
       const pre = spawnSync(process.execPath, [guard], {
@@ -2594,9 +3060,9 @@ test("repair evidence guard requires bounded one-based pages for large reads and
             file: {
               content: pageContent,
               filePath: packetPath,
-              numLines: 4,
+              numLines: 3,
               startLine: 1,
-              totalLines: packetLines.length - 1,
+              totalLines: packetLines.length,
               truncatedByTokenCap: false,
               ...responseOverride,
             },
@@ -2606,6 +3072,451 @@ test("repair evidence guard requires bounded one-based pages for large reads and
       });
       assert.equal(post.status, 2, JSON.stringify(responseOverride));
     }
+  } finally {
+    rmSync(fixture.temporary, { force: true, recursive: true });
+  }
+});
+
+test("repair evidence guard completes 690 short lines in two byte-bounded pages", () => {
+  const guard = fileURLToPath(
+    new URL("./dependabot-repair-evidence-tool-guard.mjs", import.meta.url),
+  );
+  const packetContent = JSON.stringify(
+    Array.from(
+      { length: 688 },
+      (_, index) => `line-${String(index).padStart(3, "0")}-${"x".repeat(24)}`,
+    ),
+    null,
+    2,
+  );
+  const packetLines = packetContent.split("\n");
+  assert.equal(packetLines.length, 690);
+  assert.ok(Buffer.byteLength(packetContent) > 16 * 1024);
+  const fixture = makeGuardEvidenceFixture({ diffContent: packetContent });
+  const packetPath = join(fixture.root, "pull-request-diff.patch");
+  try {
+    const pages = [];
+    for (let lineIndex = 0; lineIndex < packetLines.length; ) {
+      let nextLineIndex = lineIndex;
+      let pageBytes = 0;
+      while (nextLineIndex < packetLines.length) {
+        const nextLineBytes = Buffer.byteLength(packetLines[nextLineIndex]);
+        const candidateBytes =
+          pageBytes + (nextLineIndex === lineIndex ? 0 : 1) + nextLineBytes;
+        if (candidateBytes > 25_000) break;
+        pageBytes = candidateBytes;
+        nextLineIndex += 1;
+      }
+      assert.ok(nextLineIndex > lineIndex);
+      pages.push({
+        lineIndex,
+        pageLines: packetLines.slice(lineIndex, nextLineIndex),
+      });
+      lineIndex = nextLineIndex;
+    }
+    assert.equal(pages.length, 2);
+
+    let completedPages = 0;
+    for (const { lineIndex, pageLines } of pages) {
+      const toolUseId = `toolu_capacity_page_${String(completedPages).padStart(3, "0")}`;
+      const pageInput = {
+        hook_event_name: "PreToolUse",
+        tool_input: {
+          file_path: packetPath,
+          limit: pageLines.length,
+          offset: lineIndex + 1,
+        },
+        tool_name: "Read",
+        tool_use_id: toolUseId,
+      };
+      const pre = spawnSync(process.execPath, [guard], {
+        encoding: "utf8",
+        env: fixture.environment,
+        input: JSON.stringify(pageInput),
+      });
+      assert.equal(pre.status, 0, pre.stderr);
+      const post = spawnSync(process.execPath, [guard], {
+        encoding: "utf8",
+        env: fixture.environment,
+        input: JSON.stringify({
+          ...pageInput,
+          hook_event_name: "PostToolUse",
+          tool_response: {
+            file: {
+              content: pageLines.join("\n"),
+              filePath: packetPath,
+              numLines: pageLines.length,
+              startLine: lineIndex + 1,
+              totalLines: packetLines.length,
+              truncatedByTokenCap: false,
+            },
+            type: "text",
+          },
+        }),
+      });
+      assert.equal(post.status, 0, post.stderr);
+      completedPages += 1;
+    }
+    assert.equal(completedPages, 2);
+    assert.equal(readdirSync(fixture.receiptRoot).length, 4);
+    const verified = spawnSync(
+      process.execPath,
+      [guard, "--verify-completion"],
+      { encoding: "utf8", env: fixture.environment },
+    );
+    assert.equal(verified.status, 0, verified.stderr);
+  } finally {
+    rmSync(fixture.temporary, { force: true, recursive: true });
+  }
+});
+
+test("repair evidence guard retains its 200-call receipt ceiling", () => {
+  const guard = fileURLToPath(
+    new URL("./dependabot-repair-evidence-tool-guard.mjs", import.meta.url),
+  );
+  const fixture = makeGuardEvidenceFixture();
+  mkdirSync(fixture.receiptRoot, { mode: 0o700 });
+  const writeReceiptPair = (index) => {
+    const toolUseId = `toolu_receipt_cap_${String(index).padStart(3, "0")}`;
+    const toolInputDigest = rawDigest(`input-${index}`);
+    const shared = {
+      manifestDigest:
+        fixture.environment.DEPENDABOT_REPAIR_EVIDENCE_MANIFEST_DIGEST,
+      runAttempt: "1",
+      runId: "998877",
+      toolInputDigest,
+      toolUseId,
+    };
+    writeFileSync(
+      join(fixture.receiptRoot, `${toolUseId}.issued.json`),
+      `${canonicalJson({
+        ...shared,
+        pageBytes: 0,
+        pageDigest: null,
+        pageLines: 0,
+        schema: "dependabot-repair-evidence-tool-issued:v1",
+      })}\n`,
+      { mode: 0o600 },
+    );
+    writeFileSync(
+      join(fixture.receiptRoot, `${toolUseId}.completed.json`),
+      `${canonicalJson({
+        ...shared,
+        responseBytes: 1,
+        responseDigest: rawDigest(`response-${index}`),
+        schema: "dependabot-repair-evidence-tool-completed:v1",
+      })}\n`,
+      { mode: 0o600 },
+    );
+  };
+  try {
+    for (let index = 0; index < 200; index += 1) writeReceiptPair(index);
+    const atCap = spawnSync(process.execPath, [guard, "--verify-completion"], {
+      encoding: "utf8",
+      env: fixture.environment,
+    });
+    assert.equal(atCap.status, 0, atCap.stderr);
+
+    writeReceiptPair(200);
+    const aboveCap = spawnSync(
+      process.execPath,
+      [guard, "--verify-completion"],
+      { encoding: "utf8", env: fixture.environment },
+    );
+    assert.equal(aboveCap.status, 2);
+    assert.match(aboveCap.stderr, /receipt inventory is malformed or capped/);
+  } finally {
+    rmSync(fixture.temporary, { force: true, recursive: true });
+  }
+});
+
+test("repair evidence guard keeps maximum-width pages below response bounds", () => {
+  const guard = fileURLToPath(
+    new URL("./dependabot-repair-evidence-tool-guard.mjs", import.meta.url),
+  );
+  const maximumWidthLine = "x".repeat(4 * 1024);
+  const packetContent = Array.from({ length: 8 }, () => maximumWidthLine).join(
+    "\n",
+  );
+  const fixture = makeGuardEvidenceFixture({ diffContent: packetContent });
+  const packetPath = join(fixture.root, "pull-request-diff.patch");
+  try {
+    const sevenLinePage = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify({
+        hook_event_name: "PreToolUse",
+        tool_input: { file_path: packetPath, limit: 7, offset: 1 },
+        tool_name: "Read",
+        tool_use_id: "toolu_seven_maximum_width_lines",
+      }),
+    });
+    assert.equal(sevenLinePage.status, 2);
+
+    const pageInput = {
+      hook_event_name: "PreToolUse",
+      tool_input: { file_path: packetPath, limit: 6, offset: 1 },
+      tool_name: "Read",
+      tool_use_id: "toolu_six_maximum_width_lines",
+    };
+    const pre = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify(pageInput),
+    });
+    assert.equal(pre.status, 0, pre.stderr);
+    const pageContent = Array.from({ length: 6 }, () => maximumWidthLine).join(
+      "\n",
+    );
+    assert.equal(Buffer.byteLength(pageContent), 6 * 4 * 1024 + 5);
+    assert.ok(Buffer.byteLength(pageContent) < 25_000);
+    const post = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify({
+        ...pageInput,
+        hook_event_name: "PostToolUse",
+        tool_response: {
+          file: {
+            content: pageContent,
+            filePath: packetPath,
+            numLines: 6,
+            startLine: 1,
+            totalLines: 8,
+            truncatedByTokenCap: false,
+          },
+          type: "text",
+        },
+      }),
+    });
+    assert.equal(post.status, 0, post.stderr);
+    const completedReceipt = JSON.parse(
+      readFileSync(
+        join(
+          fixture.receiptRoot,
+          "toolu_six_maximum_width_lines.completed.json",
+        ),
+        "utf8",
+      ),
+    );
+    assert.equal(
+      completedReceipt.responseBytes,
+      Buffer.byteLength(pageContent),
+    );
+
+    const oversizedLineInput = {
+      hook_event_name: "PreToolUse",
+      tool_input: { file_path: packetPath, limit: 1, offset: 1 },
+      tool_name: "Read",
+      tool_use_id: "toolu_oversized_response_line",
+    };
+    const oversizedLinePre = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify(oversizedLineInput),
+    });
+    assert.equal(oversizedLinePre.status, 0, oversizedLinePre.stderr);
+    const oversizedLinePost = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify({
+        ...oversizedLineInput,
+        hook_event_name: "PostToolUse",
+        tool_response: {
+          file: {
+            content: "x".repeat(4 * 1024 + 1),
+            filePath: packetPath,
+            numLines: 1,
+            startLine: 1,
+            totalLines: 8,
+            truncatedByTokenCap: false,
+          },
+          type: "text",
+        },
+      }),
+    });
+    assert.equal(oversizedLinePost.status, 2);
+
+    const grepInput = {
+      hook_event_name: "PreToolUse",
+      tool_input: {
+        head_limit: 1,
+        output_mode: "content",
+        path: packetPath,
+        pattern: "x",
+      },
+      tool_name: "Grep",
+      tool_use_id: "toolu_oversized_grep_response",
+    };
+    const grepPre = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify(grepInput),
+    });
+    assert.equal(grepPre.status, 0, grepPre.stderr);
+    const grepPost = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify({
+        ...grepInput,
+        hook_event_name: "PostToolUse",
+        tool_response: {
+          content: "x".repeat(32 * 1024),
+          filenames: [packetPath],
+          numFiles: 1,
+        },
+      }),
+    });
+    assert.equal(grepPost.status, 2);
+  } finally {
+    rmSync(fixture.temporary, { force: true, recursive: true });
+  }
+});
+
+test("repair evidence guard admits the worst escaped six-line Read envelope", () => {
+  const guard = fileURLToPath(
+    new URL("./dependabot-repair-evidence-tool-guard.mjs", import.meta.url),
+  );
+  const maximumControlLine = "\u0001".repeat(4 * 1024);
+  const pageContent = Array.from({ length: 6 }, () => maximumControlLine).join(
+    "\n",
+  );
+  assert.equal(Buffer.byteLength(pageContent), 6 * 4 * 1024 + 5);
+  assert.equal(
+    Buffer.byteLength(JSON.stringify(pageContent)),
+    6 * 4 * 1024 * 6 + 5 * 2 + 2,
+  );
+  const fixture = makeGuardEvidenceFixture({ diffContent: pageContent });
+  const evidencePath = join(fixture.root, "pull-request-diff.patch");
+  try {
+    const postMetadata = {
+      agent_id: "agent-test",
+      agent_type: "",
+      cwd: fixture.root,
+      duration_ms: Number.MAX_SAFE_INTEGER,
+      effort: { level: "high" },
+      hook_event_name: "PostToolUse",
+      permission_mode: "dontAsk",
+      prompt_id: "prompt-test",
+      session_id: "session-test",
+      tool_input: { file_path: evidencePath, limit: 6, offset: 1 },
+      tool_name: "Read",
+      tool_use_id: "toolu_worst_escaped_page",
+      transcript_path: join(fixture.temporary, "transcript.jsonl"),
+    };
+    const metadataPadding =
+      64 * 1024 - Buffer.byteLength(JSON.stringify(postMetadata));
+    assert.ok(metadataPadding > 0);
+    postMetadata.agent_type = "x".repeat(metadataPadding);
+    assert.equal(Buffer.byteLength(JSON.stringify(postMetadata)), 64 * 1024);
+
+    const preInput = { ...postMetadata, hook_event_name: "PreToolUse" };
+    assert.equal(Buffer.byteLength(JSON.stringify(preInput)), 64 * 1024 - 1);
+    const pre = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify(preInput),
+    });
+    assert.equal(pre.status, 0, pre.stderr);
+
+    const postInput = {
+      ...postMetadata,
+      tool_response: {
+        file: {
+          content: pageContent,
+          filePath: evidencePath,
+          numLines: 6,
+          startLine: 1,
+          totalLines: 6,
+          truncatedByTokenCap: false,
+        },
+        type: "text",
+      },
+    };
+    const serializedPostInput = JSON.stringify(postInput);
+    assert.ok(Buffer.byteLength(serializedPostInput) > 64 * 1024);
+    assert.ok(Buffer.byteLength(serializedPostInput) < 256 * 1024);
+    const post = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: serializedPostInput,
+    });
+    assert.equal(post.status, 0, post.stderr);
+    const verified = spawnSync(
+      process.execPath,
+      [guard, "--verify-completion"],
+      { encoding: "utf8", env: fixture.environment },
+    );
+    assert.equal(verified.status, 0, verified.stderr);
+  } finally {
+    rmSync(fixture.temporary, { force: true, recursive: true });
+  }
+});
+
+test("repair evidence guard rejects metadata one byte above its separate cap", () => {
+  const guard = fileURLToPath(
+    new URL("./dependabot-repair-evidence-tool-guard.mjs", import.meta.url),
+  );
+  const fixture = makeGuardEvidenceFixture();
+  try {
+    const input = {
+      hook_event_name: "PreToolUse",
+      metadataPadding: "",
+      tool_input: {
+        file_path: join(fixture.root, "packet.json"),
+        limit: 1,
+        offset: 1,
+      },
+      tool_name: "Read",
+      tool_use_id: "toolu_oversized_hook_metadata",
+    };
+    const paddingBytes =
+      64 * 1024 + 1 - Buffer.byteLength(JSON.stringify(input));
+    assert.ok(paddingBytes > 0);
+    input.metadataPadding = "x".repeat(paddingBytes);
+    const serializedInput = JSON.stringify(input);
+    assert.equal(Buffer.byteLength(serializedInput), 64 * 1024 + 1);
+    assert.ok(Buffer.byteLength(serializedInput) < 256 * 1024);
+
+    const blocked = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: serializedInput,
+    });
+    assert.equal(blocked.status, 2);
+    assert.match(blocked.stderr, /hook metadata exceeds its size cap/);
+    assert.deepEqual(readdirSync(fixture.receiptRoot), []);
+  } finally {
+    rmSync(fixture.temporary, { force: true, recursive: true });
+  }
+});
+
+test("repair evidence guard rejects stdin one byte above its derived cap", () => {
+  const guard = fileURLToPath(
+    new URL("./dependabot-repair-evidence-tool-guard.mjs", import.meta.url),
+  );
+  const fixture = makeGuardEvidenceFixture();
+  try {
+    const input = JSON.stringify({
+      hook_event_name: "PreToolUse",
+      tool_input: {
+        file_path: join(fixture.root, "packet.json"),
+        limit: 1,
+        offset: 1,
+      },
+      tool_name: "Read",
+      tool_use_id: "toolu_oversized_hook_stdin",
+    });
+    const oversizedInput = `${input}${" ".repeat(256 * 1024 + 1 - Buffer.byteLength(input))}`;
+    assert.equal(Buffer.byteLength(oversizedInput), 256 * 1024 + 1);
+    const blocked = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: oversizedInput,
+    });
+    assert.equal(blocked.status, 2);
+    assert.match(blocked.stderr, /hook input exceeds its size cap/);
+    assert.deepEqual(readdirSync(fixture.receiptRoot), []);
   } finally {
     rmSync(fixture.temporary, { force: true, recursive: true });
   }
