@@ -109,7 +109,7 @@ latest runtime event for dispatch. Thus queued receipt jobs cannot disappear,
 and a docs-only tail cannot remain pending after its runtime dependency ends.
 
 The complete rendered comment body remains subject to the controller's
-60,000-byte UTF-8 hard limit. A mutation that cannot use either terminal or
+64,000-byte UTF-8 hard limit. A mutation that cannot use either terminal or
 capacity checkpointing safely and would exceed that bound fails closed before
 it changes the journal, publishes a success status, or dispatches a worker.
 Unfinished evidence and active or retired ownership are never truncated to
@@ -423,7 +423,7 @@ cost, retention policy, and operator dependency for preview deployment.
   operational signal alongside preview latency.
 - Deterministic terminal and capacity checkpoints keep sequential previews and
   overlapping bursts bounded without adding an archive, rollover comment, or
-  compatibility path. The 60,000-byte UTF-8 bound remains a fail-closed
+  compatibility path. The 64,000-byte UTF-8 bound remains a fail-closed
   constraint when unfinished ownership cannot be summarized safely.
 - Terminal results remove their retired owners once the result is durable.
   More than 40 genuinely unfinished retired owners fails closed; ownership is
