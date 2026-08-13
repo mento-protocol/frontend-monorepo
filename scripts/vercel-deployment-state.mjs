@@ -3412,9 +3412,18 @@ export async function runCli({
 }
 
 export function renderCliFailure(error) {
-  return error instanceof CanonicalDriftError
-    ? `${error.message}\n`
-    : "Vercel deployment state command failed\n";
+  if (error instanceof CanonicalDriftError) return `${error.message}\n`;
+  const category =
+    error?.message === "Active deployment state is unproven"
+      ? "active-census-unproven"
+      : ({
+          VERCEL_API_READ_TIMEOUT: "provider-read-timeout",
+          VERCEL_API_READ_TRANSPORT: "provider-read-transport",
+          VERCEL_API_READ_RATE_LIMITED: "provider-read-rate-limited",
+          VERCEL_API_READ_HTTP: "provider-read-http",
+          VERCEL_API_READ_MALFORMED: "provider-read-malformed",
+        }[error?.code] ?? "state-validation-failed");
+  return `Vercel deployment state failed category=${category}\n`;
 }
 
 function isCliEntrypoint() {

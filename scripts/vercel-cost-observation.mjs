@@ -2443,6 +2443,9 @@ const MAIN_TERMINAL_ROUTE_STEPS = new Map([
   ],
 ]);
 
+const MAIN_RECOVERED_CENSUS_UNPROVEN_MARKER =
+  "Mark recovered census-unproven terminal route";
+
 export function deriveMainTerminalRoute({ jobs, journalHistories }) {
   invariant(Array.isArray(jobs), "Main terminal route jobs are malformed");
   invariant(
@@ -2452,14 +2455,18 @@ export function deriveMainTerminalRoute({ jobs, journalHistories }) {
   const completedSteps = jobs.flatMap((job) =>
     (Array.isArray(job.steps) ? job.steps : [])
       .filter(
-        (step) =>
-          step.status === "completed" &&
-          step.conclusion === "success" &&
-          MAIN_TERMINAL_ROUTE_STEPS.has(step.name),
+        (step) => step.status === "completed" && step.conclusion === "success",
       )
       .map((step) => step.name),
   );
-  const uniqueSteps = [...new Set(completedSteps)];
+  const uniqueSteps = [
+    ...new Set(
+      completedSteps.filter((step) => MAIN_TERMINAL_ROUTE_STEPS.has(step)),
+    ),
+  ];
+  const recoveredCensusUnproven = completedSteps.includes(
+    MAIN_RECOVERED_CENSUS_UNPROVEN_MARKER,
+  );
   if (uniqueSteps.length !== 1) {
     return {
       complete: false,
@@ -2475,6 +2482,19 @@ export function deriveMainTerminalRoute({ jobs, journalHistories }) {
   }
   const terminalStep = uniqueSteps[0];
   const contract = MAIN_TERMINAL_ROUTE_STEPS.get(terminalStep);
+  if (
+    recoveredCensusUnproven &&
+    terminalStep !== "Materialize recovered or manual terminal artifacts"
+  ) {
+    return {
+      complete: false,
+      outcome: null,
+      terminalStep,
+      journalBinding: null,
+      reason: "recovered-census-unproven-marker-conflict",
+      observedTerminalSteps: uniqueSteps,
+    };
+  }
   let outcome = contract.outcome;
   let journalBinding = null;
   if (contract.journalStatus === "committed") {
@@ -2516,8 +2536,19 @@ export function deriveMainTerminalRoute({ jobs, journalHistories }) {
         observedTerminalSteps: uniqueSteps,
       };
     }
-    outcome =
-      matches[0].highestStatus === "recovered"
+    if (recoveredCensusUnproven && matches[0].highestStatus !== "recovered") {
+      return {
+        complete: false,
+        outcome: null,
+        terminalStep,
+        journalBinding: null,
+        reason: "recovered-census-unproven-marker-conflict",
+        observedTerminalSteps: uniqueSteps,
+      };
+    }
+    outcome = recoveredCensusUnproven
+      ? "recovered-census-unproven"
+      : matches[0].highestStatus === "recovered"
         ? "recovered"
         : "manual-intervention";
     journalBinding = {

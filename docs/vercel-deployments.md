@@ -430,6 +430,16 @@ as `recovery-failed`. It performs no recovery transition or provider mutation,
 then publishes terminal evidence bound to the unchanged canonical journal
 history and a fresh legacy App `v2` proof before failing the release.
 
+When a recovered journal, fresh protected alias mappings, and all four
+credential-free restored-prior runtime smokes are verified, a later duplicate
+census can still be unproven because a bounded provider read failed or the
+census found an unexpected deployment. The workflow records only a fixed,
+non-secret census-failure category in terminal evidence, preserves the verified
+recovery journal, mappings, and smokes, and reports
+`recovered-census-unproven`. It never treats that outcome as a proven census or
+as a successful release: the recovery job and final result fail after the
+evidence is published. A mapping or smoke failure does not use this path.
+
 If a recovered journal proves that App's `app_v3_deploy` operation never
 started and its prepared candidate still has no deployment identity, the final
 state specification records App as `recoveredPrior`. That narrow state expects

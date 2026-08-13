@@ -1881,11 +1881,14 @@ test("CLI entrypoint redacts ordinary failures and compares without credentials"
   );
   assert.equal(failed.status, 1);
   assert.equal(failed.stdout, "");
-  assert.equal(failed.stderr, "Vercel deployment state command failed\n");
+  assert.equal(
+    failed.stderr,
+    "Vercel deployment state failed category=state-validation-failed\n",
+  );
   assert.doesNotMatch(failed.stderr, /private-test-value|\/private\//);
   assert.equal(
     renderCliFailure(new Error(`${sensitivePath}: test-token-never-printed`)),
-    "Vercel deployment state command failed\n",
+    "Vercel deployment state failed category=state-validation-failed\n",
   );
 });
 
@@ -3227,6 +3230,16 @@ test("active-proof CLI writes canonical duplicate evidence before failing unprov
     renderCliFailure(
       new Error("unproven-cli-token-never-output raw-secret-never-output"),
     ),
-    "Vercel deployment state command failed\n",
+    "Vercel deployment state failed category=state-validation-failed\n",
+  );
+  assert.equal(
+    renderCliFailure(new Error("Active deployment state is unproven")),
+    "Vercel deployment state failed category=active-census-unproven\n",
+  );
+  const transport = new Error("active-proof-token-never-output");
+  transport.code = "VERCEL_API_READ_TRANSPORT";
+  assert.equal(
+    renderCliFailure(transport),
+    "Vercel deployment state failed category=provider-read-transport\n",
   );
 });
