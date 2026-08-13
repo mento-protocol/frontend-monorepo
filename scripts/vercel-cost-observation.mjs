@@ -82,6 +82,9 @@ const BOUNDARY_WORKFLOW_PATHS = new Set([
   ".github/workflows/_vercel-prebuilt.yml",
   ".github/workflows/_vercel-preview-smoke.yml",
 ]);
+export const GITHUB_BILLING_WORKFLOW_PATHS = [
+  ...BOUNDARY_WORKFLOW_PATHS,
+].sort();
 const TERMINAL_RUN_CONCLUSIONS = new Set([
   "success",
   "failure",
@@ -3285,6 +3288,121 @@ export function selectLatestTerminalSample(samples, endUtcExclusive) {
       (left, right) =>
         Date.parse(right.capturedAtUtc) - Date.parse(left.capturedAtUtc),
     )[0],
+  };
+}
+
+export function validateGitHubBillingObservation(rootPath) {
+  const root = realpathSync(resolve(rootPath));
+  assertPrivateDirectory(root, root, "GitHub billing observation root");
+  invariant(
+    !existsSync(join(root, ".operation-lock")),
+    "GitHub billing observation is locked by an active collector operation",
+  );
+  const interval = readInterval(root);
+  const startBoundary = readPrivateJson(
+    join(root, "boundary", "start.json"),
+    root,
+    "GitHub billing observation start boundary",
+  );
+  const freeze = readPrivateJson(
+    join(root, "freeze.json"),
+    root,
+    "GitHub billing observation freeze marker",
+  );
+  const audit = readPrivateJson(
+    join(root, "audit.json"),
+    root,
+    "GitHub billing observation audit",
+  );
+  invariant(
+    freeze.schema === OBSERVATION_FREEZE_SCHEMA &&
+      freeze.repository === OBSERVATION_REPOSITORY &&
+      freeze.startUtc === interval.startUtc &&
+      freeze.endUtcExclusive === interval.endUtcExclusive &&
+      freeze.intervalChainHeadSha256 === interval.extensionChainHeadSha256,
+    "GitHub billing observation freeze marker conflicts with the interval",
+  );
+  invariant(
+    startBoundary.repositoryVisibility?.private === false &&
+      startBoundary.repositoryVisibility?.visibility === "public" &&
+      startBoundary.repositoryVisibility?.publicAtCapture === true,
+    "GitHub billing observation start boundary was not public",
+  );
+  exactUtc(freeze.frozenAtUtc, "GitHub billing observation freeze time");
+  invariant(
+    audit.schema === OBSERVATION_AUDIT_SCHEMA &&
+      audit.repository === OBSERVATION_REPOSITORY &&
+      audit.startUtc === interval.startUtc &&
+      audit.endUtcExclusive === interval.endUtcExclusive &&
+      audit.analyzerFragmentComplete === false &&
+      audit.pass === false &&
+      audit.derived?.allSampledRepositoryVisibilityPublic === true,
+    "GitHub billing observation audit conflicts with the sealed interval",
+  );
+  invariant(
+    canonicalJson(audit.gaps) ===
+      canonicalJson(["manual-provider-and-closeout-evidence-unresolved"]),
+    "GitHub billing observation has unresolved collector gaps",
+  );
+  const boundaryPaths = startBoundary.workflows
+    .map((workflow) => workflow.path)
+    .sort();
+  invariant(
+    canonicalJson(boundaryPaths) ===
+      canonicalJson(GITHUB_BILLING_WORKFLOW_PATHS),
+    "GitHub billing observation workflow boundary conflicts",
+  );
+  invariant(
+    startBoundary.workflows.every((workflow) => workflow.state === "active"),
+    "GitHub billing observation includes an inactive workflow",
+  );
+  const samples = directories(join(root, "samples"), root).map((name) =>
+    verifyCaptureDirectory(
+      join(root, "samples", name),
+      root,
+      GITHUB_SAMPLE_SCHEMA,
+      {},
+    ),
+  );
+  const { latestSample } = selectLatestTerminalSample(
+    samples,
+    interval.endUtcExclusive,
+  );
+  invariant(latestSample, "GitHub billing observation has no terminal sample");
+  assertTerminalSampleCoverage({
+    sample: latestSample,
+    startBoundary,
+    interval,
+    requiredWorkflowPaths: [...OBSERVED_WORKFLOW_PATHS].sort(),
+  });
+  invariant(
+    samples.every((sample) => sample.repositoryVisibility?.publicAtSample),
+    "GitHub billing observation does not prove public visibility at every sample",
+  );
+  const unknownRunnerJobs = latestSample.runnerJobs.filter(
+    (job) =>
+      (job.startedAtUtc || job.completedAtUtc) &&
+      (job.labels.length === 0 ||
+        !job.labels.some((label) => STANDARD_RUNNER_LABELS.has(label))),
+  );
+  invariant(
+    unknownRunnerJobs.length === 0,
+    "GitHub billing observation contains an unknown runner label",
+  );
+  const treeFiles = listPrivateFiles(root, root);
+  return {
+    repository: OBSERVATION_REPOSITORY,
+    startUtc: interval.startUtc,
+    endUtcExclusive: interval.endUtcExclusive,
+    visibilityEvidenceStartUtc: new Date(
+      Math.floor(Date.parse(startBoundary.recordedAtUtc) / 1_000) * 1_000,
+    ).toISOString(),
+    visibilityEvidenceEndMinimumUtc: latestSample.capturedAtUtc,
+    workflowPaths: GITHUB_BILLING_WORKFLOW_PATHS,
+    observationTreeSha256: sha256(canonicalJson(treeFiles)),
+    terminalSampleCapturedAtUtc: latestSample.capturedAtUtc,
+    repositoryPublicAtEverySample: true,
+    runnerJobs: latestSample.runnerJobs,
   };
 }
 
