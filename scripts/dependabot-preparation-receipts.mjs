@@ -4,6 +4,7 @@ import { Buffer } from "node:buffer";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -11,7 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
@@ -22,6 +23,7 @@ export const REPAIR_PLAN_SCHEMA = "dependabot-repair-plan:v1";
 export const REPAIR_RECOVERY_SCHEMA = "dependabot-repair-recovery:v1";
 export const VALIDATED_REPAIR_PLAN_SCHEMA =
   "dependabot-validated-repair-plan:v1";
+export const REPAIR_EVIDENCE_SCHEMA = "dependabot-repair-evidence:v1";
 
 const REPOSITORY = "mento-protocol/frontend-monorepo";
 const HEX_SHA = /^[0-9a-f]{40}$/;
@@ -55,6 +57,94 @@ const ALLOWED_FILE_EXTENSIONS = new Set([
 ]);
 const CHECK_PAGE_SIZE = 100;
 const MAX_TERMINAL_CHECK_PAGES = 10;
+const MAX_EVIDENCE_BLOB_BYTES = 8 * 1024 * 1024;
+const MAX_EVIDENCE_BLOBS_BYTES = 24 * 1024 * 1024;
+const MAX_EVIDENCE_DIFF_BYTES = 1024 * 1024;
+const MAX_EVIDENCE_JOB_LOG_BYTES = 1024 * 1024;
+const MAX_EVIDENCE_JOB_LOGS_BYTES = 4 * 1024 * 1024;
+const MAX_EVIDENCE_JOB_COUNT = 100;
+const MAX_FEEDBACK_BODY_BYTES = 128 * 1024;
+const MAX_GITHUB_JSON_BYTES = 32 * 1024 * 1024;
+const MAX_EVIDENCE_LINE_BYTES = 4 * 1024;
+const MAX_EVIDENCE_MANIFEST_FILES = 150;
+const FAILURE_SOURCE_POLICY = Object.freeze({
+  "action-pins": {
+    events: ["pull_request_target"],
+    workflowPaths: [".github/workflows/action-pins.yml"],
+  },
+  "action-pins-source": {
+    events: ["pull_request"],
+    workflowPaths: [".github/workflows/action-pins-source.yml"],
+  },
+  ci: {
+    events: ["pull_request", "push"],
+    workflowPaths: [".github/workflows/ci.yml"],
+  },
+  "dependency-review": {
+    events: ["pull_request"],
+    workflowPaths: [".github/workflows/dependency-review.yml"],
+  },
+  "e2e-celo": {
+    events: ["pull_request", "schedule", "workflow_dispatch"],
+    workflowPaths: [".github/workflows/e2e.yml"],
+  },
+  "e2e-governance": {
+    events: ["pull_request", "schedule", "workflow_dispatch"],
+    workflowPaths: [".github/workflows/e2e.yml"],
+  },
+  "e2e-monad": {
+    events: ["pull_request", "schedule", "workflow_dispatch"],
+    workflowPaths: [".github/workflows/e2e.yml"],
+  },
+  "e2e-plan": {
+    events: ["pull_request", "schedule", "workflow_dispatch"],
+    workflowPaths: [".github/workflows/e2e.yml"],
+  },
+  "e2e-seed": {
+    events: ["pull_request", "schedule", "workflow_dispatch"],
+    workflowPaths: [".github/workflows/e2e.yml"],
+  },
+  quality: {
+    events: ["pull_request", "push", "workflow_dispatch"],
+    workflowPaths: [".github/workflows/quality-budgets.yml"],
+  },
+  "supply-chain-lockfile": {
+    events: ["pull_request", "schedule", "workflow_dispatch"],
+    workflowPaths: [".github/workflows/supply-chain.yml"],
+  },
+  "supply-chain-pnpm-bootstrap-osv": {
+    events: ["pull_request", "schedule", "workflow_dispatch"],
+    workflowPaths: [".github/workflows/supply-chain.yml"],
+  },
+  "supply-chain-pnpm-runtime-osv": {
+    events: ["pull_request", "schedule", "workflow_dispatch"],
+    workflowPaths: [".github/workflows/supply-chain.yml"],
+  },
+  "supply-chain-root-osv": {
+    events: ["pull_request", "schedule", "workflow_dispatch"],
+    workflowPaths: [".github/workflows/supply-chain.yml"],
+  },
+  "supply-chain-vercel-runtime-osv": {
+    events: ["pull_request", "schedule", "workflow_dispatch"],
+    workflowPaths: [".github/workflows/supply-chain.yml"],
+  },
+  "supply-chain-version-skew": {
+    events: ["pull_request", "schedule", "workflow_dispatch"],
+    workflowPaths: [".github/workflows/supply-chain.yml"],
+  },
+  "visual-app": {
+    events: ["pull_request", "push"],
+    workflowPaths: [".github/workflows/visual.yml"],
+  },
+  "visual-plan": {
+    events: ["pull_request", "push"],
+    workflowPaths: [".github/workflows/visual.yml"],
+  },
+  "visual-ui": {
+    events: ["pull_request", "push"],
+    workflowPaths: [".github/workflows/visual.yml"],
+  },
+});
 const RETRYABLE_REPAIR_CONCLUSIONS = new Set([
   "action_required",
   "cancelled",
@@ -476,6 +566,17 @@ function validateEvidence(packet) {
       min: 1,
     });
     digest(finding.digest, `findings[${index}].digest`);
+    if (
+      finding.digest !==
+      canonicalDigest({
+        line: finding.line,
+        path: finding.path,
+        summary: finding.summary,
+        title: finding.title,
+      })
+    ) {
+      fail(`findings[${index}].digest does not bind the finding`);
+    }
   }
 
   if (
@@ -1096,19 +1197,64 @@ function writeOutputs(path, outputs) {
   writeFileSync(path, `${lines.join("\n")}\n`, { flag: "a", mode: 0o600 });
 }
 
-async function githubRequest(token, method, path, body) {
+async function readBoundedResponseBytes(response, maximumBytes, label) {
+  const contentLength = response.headers.get("content-length");
+  if (
+    contentLength !== null &&
+    (!/^(?:0|[1-9][0-9]*)$/.test(contentLength) ||
+      Number(contentLength) > maximumBytes)
+  ) {
+    fail(`${label} exceeds the bounded size`);
+  }
+  if (response.body === null) return Buffer.alloc(0);
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of response.body) {
+    bytes += chunk.byteLength;
+    if (bytes > maximumBytes) fail(`${label} exceeds the bounded size`);
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks, bytes);
+}
+
+function strictUtf8(bytes, label, { allowEmpty = false } = {}) {
+  let text;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    fail(`${label} is not valid UTF-8`);
+  }
+  if ((!allowEmpty && text.length === 0) || text.includes("\0")) {
+    fail(`${label} is empty or contains a NUL byte`);
+  }
+  return text;
+}
+
+function githubHeaders(token, accept = "application/vnd.github+json") {
   boundedString(token, "GitHub token", { max: 10_000, min: 1 });
+  return {
+    Accept: accept,
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+}
+
+async function githubRequest(token, method, path, body) {
   const response = await fetch(`https://api.github.com${path}`, {
     body: body === undefined ? undefined : JSON.stringify(body),
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
+    headers: githubHeaders(token),
     method,
   });
-  const responseText = await response.text();
+  const responseText = strictUtf8(
+    await readBoundedResponseBytes(
+      response,
+      MAX_GITHUB_JSON_BYTES,
+      `GitHub ${method} ${path} response`,
+    ),
+    `GitHub ${method} ${path} response`,
+    { allowEmpty: true },
+  );
   let data = null;
   if (responseText !== "") {
     try {
@@ -1120,6 +1266,65 @@ async function githubRequest(token, method, path, body) {
   if (!response.ok)
     fail(`GitHub ${method} ${path} failed with ${response.status}`);
   return data;
+}
+
+async function githubTextRequest(token, path, accept, maximumBytes, label) {
+  const response = await fetch(`https://api.github.com${path}`, {
+    headers: githubHeaders(token, accept),
+    method: "GET",
+  });
+  const bytes = await readBoundedResponseBytes(response, maximumBytes, label);
+  if (!response.ok) fail(`${label} failed with ${response.status}`);
+  return strictUtf8(bytes, label);
+}
+
+export async function githubJobLogRequest(token, repositoryName, jobId) {
+  const apiPath = `/repos/${repositoryName}/actions/jobs/${jobId}/logs`;
+  const response = await fetch(`https://api.github.com${apiPath}`, {
+    headers: githubHeaders(token),
+    method: "GET",
+    redirect: "manual",
+  });
+  const location = response.headers.get("location");
+  if (
+    !new Set([302, 307]).has(response.status) ||
+    typeof location !== "string"
+  ) {
+    fail(`failure job ${jobId} log redirect is invalid`);
+  }
+  let signedUrl;
+  try {
+    signedUrl = new URL(location);
+  } catch {
+    fail(`failure job ${jobId} log redirect URL is invalid`);
+  }
+  if (
+    signedUrl.protocol !== "https:" ||
+    signedUrl.username !== "" ||
+    signedUrl.password !== "" ||
+    signedUrl.hash !== "" ||
+    signedUrl.hostname === "api.github.com" ||
+    !(
+      signedUrl.hostname === "results-receiver.actions.githubusercontent.com" ||
+      /^[a-z0-9-]{1,63}\.blob\.core\.windows\.net$/.test(signedUrl.hostname)
+    )
+  ) {
+    fail(`failure job ${jobId} log redirect is not a signed Actions URL`);
+  }
+  const signedResponse = await fetch(signedUrl, {
+    headers: {},
+    method: "GET",
+    redirect: "error",
+  });
+  const bytes = await readBoundedResponseBytes(
+    signedResponse,
+    MAX_EVIDENCE_JOB_LOG_BYTES,
+    `failure job ${jobId} log`,
+  );
+  if (!signedResponse.ok) {
+    fail(`failure job ${jobId} log failed with ${signedResponse.status}`);
+  }
+  return strictUtf8(bytes, `failure job ${jobId} log`);
 }
 
 function expectedRunUrl(repositoryName, runId) {
@@ -1292,6 +1497,642 @@ async function commandRepairPreflight(args) {
   });
 }
 
+function exactCliPositiveInteger(value, label) {
+  boundedString(value, label, {
+    max: 16,
+    min: 1,
+    pattern: /^[1-9][0-9]*$/,
+  });
+  return safeInteger(Number(value), label);
+}
+
+function decodeExactBase64(value, label) {
+  boundedString(value, label, { max: 128 * 1024, min: 4 });
+  if (
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+      value,
+    )
+  ) {
+    fail(`${label} is not canonical base64`);
+  }
+  const bytes = Buffer.from(value, "base64");
+  if (bytes.toString("base64") !== value) {
+    fail(`${label} is not canonical base64`);
+  }
+  return bytes;
+}
+
+async function authenticateMaterializedPacket({
+  packetDigest,
+  packetText,
+  processorCheckId,
+  repositoryName,
+  token,
+}) {
+  const packet = validateProcessorRepairPacket(
+    parseCanonicalJson(packetText, "Processor packet"),
+  );
+  if (
+    packet.repository !== repositoryName ||
+    rawDigest(packetText) !== packetDigest
+  ) {
+    fail("Processor packet CLI binding changed");
+  }
+  const check = await githubRequest(
+    token,
+    "GET",
+    `/repos/${repositoryName}/check-runs/${processorCheckId}`,
+  );
+  const external = `dependabot-processor:v2:pr=${packet.pullRequestNumber}:head=${packet.headSha}:mode=prepare:repair=${packet.attemptNumber}:packet=true:digest=${packetDigest}:run=${packet.workflowRunId}:attempt=${packet.workflowRunAttempt}`;
+  if (
+    check?.id !== processorCheckId ||
+    check?.name !== "Dependabot Processor" ||
+    check?.app?.id !== GITHUB_ACTIONS_APP_ID ||
+    check?.app?.slug !== "github-actions" ||
+    check?.head_sha !== packet.headSha ||
+    check?.status !== "completed" ||
+    check?.conclusion !== "failure" ||
+    check?.external_id !== external ||
+    check?.output?.text !== packetText ||
+    !checkDetailsBound(check, repositoryName, packet.workflowRunId)
+  ) {
+    fail("Processor packet check provenance is invalid");
+  }
+  await validateActionsRun({
+    expectedAttempt: packet.workflowRunAttempt,
+    expectedEvent: new Set(["repository_dispatch", "schedule", "workflow_run"]),
+    expectedPath: ".github/workflows/dependabot-process.yml",
+    expectedSha: packet.workflowSha,
+    repository: repositoryName,
+    runId: packet.workflowRunId,
+    token,
+  });
+  const pull = await validateLivePullRequest(token, packet);
+  boundedString(pull.updated_at, "pull request updated_at", {
+    max: 100,
+    min: 1,
+  });
+  safeInteger(pull.changed_files, "pull request changed_files", { max: 300 });
+  return { packet, pull };
+}
+
+function sameSortedStrings(left, right) {
+  return JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
+}
+
+export async function collectExactPullFiles(token, packet, pull) {
+  const files = [];
+  const pageCount = Math.ceil(pull.changed_files / 100);
+  for (let page = 1; page <= pageCount; page += 1) {
+    const pageFiles = await githubRequest(
+      token,
+      "GET",
+      `/repos/${packet.repository}/pulls/${packet.pullRequestNumber}/files?per_page=100&page=${page}`,
+    );
+    if (!Array.isArray(pageFiles) || pageFiles.length > 100) {
+      fail("pull request file inventory is malformed");
+    }
+    files.push(...pageFiles);
+  }
+  if (files.length !== pull.changed_files || files.length > 300) {
+    fail("pull request file inventory is incomplete");
+  }
+  const expectedByPath = new Map(
+    packet.expectedBlobs.map((blob) => [blob.path, blob]),
+  );
+  const changedPaths = new Set(packet.changedPaths);
+  if (
+    changedPaths.size !== packet.changedPaths.length ||
+    expectedByPath.size !== packet.expectedBlobs.length
+  ) {
+    fail("packet path inventories contain duplicates");
+  }
+  const seen = new Set();
+  const inventory = [];
+  for (const [index, file] of files.entries()) {
+    const filename = pathName(file?.filename, `pull files[${index}].filename`);
+    const expected = expectedByPath.get(filename);
+    const fileSha = sha(file?.sha, `pull files[${index}].sha`);
+    if (
+      seen.has(filename) ||
+      !changedPaths.has(filename) ||
+      (expected !== undefined && fileSha !== expected.sha) ||
+      !new Set(["added", "changed", "modified"]).has(file.status) ||
+      (file.previous_filename !== undefined && file.previous_filename !== null)
+    ) {
+      fail(`pull request file does not match the packet: ${filename}`);
+    }
+    seen.add(filename);
+    inventory.push({
+      additions: safeInteger(file.additions, `pull files[${index}].additions`, {
+        max: 1_000_000,
+        min: 0,
+      }),
+      changes: safeInteger(file.changes, `pull files[${index}].changes`, {
+        max: 1_000_000,
+        min: 0,
+      }),
+      deletions: safeInteger(file.deletions, `pull files[${index}].deletions`, {
+        max: 1_000_000,
+        min: 0,
+      }),
+      path: filename,
+      sha: fileSha,
+      status: file.status,
+    });
+  }
+  if (!sameSortedStrings(seen, changedPaths)) {
+    fail("live pull request paths changed from the packet");
+  }
+  return inventory.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function validateExactPullDiff(diff, packet) {
+  if (!diff.startsWith("diff --git ")) fail("pull request diff is malformed");
+  const diffPaths = [];
+  for (const line of diff.split("\n")) {
+    if (!line.startsWith("diff --git ")) continue;
+    const match = /^diff --git a\/(\S+) b\/(\S+)$/.exec(line);
+    if (match === null) fail("pull request diff contains an unsafe path");
+    const oldPath = pathName(match[1], "diff old path");
+    const newPath = pathName(match[2], "diff new path");
+    if (oldPath !== newPath) fail("pull request diff contains a rename");
+    diffPaths.push(newPath);
+  }
+  if (
+    new Set(diffPaths).size !== diffPaths.length ||
+    !sameSortedStrings(diffPaths, packet.changedPaths)
+  ) {
+    fail("pull request diff paths do not match the packet");
+  }
+  return diff;
+}
+
+export function validateFailureRun(run, packet, runId, failure) {
+  const policy = FAILURE_SOURCE_POLICY[failure.id];
+  if (
+    policy === undefined ||
+    run?.id !== runId ||
+    run?.head_sha !== packet.headSha ||
+    run?.head_repository?.full_name !== packet.repository ||
+    run?.status !== "completed" ||
+    run?.conclusion !== "failure" ||
+    !policy.events.includes(run?.event) ||
+    !policy.workflowPaths.includes(
+      String(run?.path ?? "").replace(/@.*$/, ""),
+    ) ||
+    !Number.isSafeInteger(run?.run_attempt) ||
+    run.run_attempt < 1
+  ) {
+    fail("failure workflow run provenance is not exact");
+  }
+  boundedString(String(run.path).replace(/@.*$/, ""), "failure workflow path", {
+    max: 300,
+    min: 1,
+    pattern: /^\.github\/workflows\/[A-Za-z0-9._/-]+$/,
+  });
+  return run;
+}
+
+function validateFailureJob(job, packet, runId, runAttempt, label) {
+  if (
+    !Number.isSafeInteger(job?.id) ||
+    job.id < 1 ||
+    job.run_id !== runId ||
+    job.run_attempt !== runAttempt ||
+    job.head_sha !== packet.headSha ||
+    job.status !== "completed" ||
+    typeof job.name !== "string" ||
+    job.name.length < 1 ||
+    job.name.length > 300 ||
+    job.run_url !==
+      `https://api.github.com/repos/${packet.repository}/actions/runs/${runId}`
+  ) {
+    fail(`${label} provenance is not exact`);
+  }
+  return job;
+}
+
+async function collectFailureEvidence(token, packet) {
+  const failureIndex = [];
+  const logFiles = [];
+  const runs = new Map();
+  const loggedJobs = new Set();
+  let totalLogBytes = 0;
+  for (const [failureIndexValue, failure] of packet.failures.entries()) {
+    const escapedRepository = packet.repository.replaceAll("/", "\\/");
+    const match = new RegExp(
+      `^https:\\/\\/github\\.com\\/${escapedRepository}\\/actions\\/runs\\/([1-9][0-9]*)\\/job\\/([1-9][0-9]*)$`,
+    ).exec(failure.detailsUrl ?? "");
+    if (match === null) {
+      fail(`failure[${failureIndexValue}] has no exact Actions job URL`);
+    }
+    const runId = safeInteger(Number(match[1]), "failure run ID");
+    const jobId = safeInteger(Number(match[2]), "failure job ID");
+    let collected = runs.get(runId);
+    if (collected === undefined) {
+      const run = validateFailureRun(
+        await githubRequest(
+          token,
+          "GET",
+          `/repos/${packet.repository}/actions/runs/${runId}`,
+        ),
+        packet,
+        runId,
+        failure,
+      );
+      const jobsResponse = await githubRequest(
+        token,
+        "GET",
+        `/repos/${packet.repository}/actions/runs/${runId}/attempts/${run.run_attempt}/jobs?per_page=100&page=1`,
+      );
+      if (
+        !Number.isSafeInteger(jobsResponse?.total_count) ||
+        jobsResponse.total_count < 1 ||
+        jobsResponse.total_count > MAX_EVIDENCE_JOB_COUNT ||
+        !Array.isArray(jobsResponse.jobs) ||
+        jobsResponse.jobs.length !== jobsResponse.total_count
+      ) {
+        fail("failure workflow job inventory is incomplete or capped");
+      }
+      const jobs = new Map();
+      for (const [index, candidate] of jobsResponse.jobs.entries()) {
+        const job = validateFailureJob(
+          candidate,
+          packet,
+          runId,
+          run.run_attempt,
+          `failure jobs[${index}]`,
+        );
+        if (jobs.has(job.id)) fail("failure job inventory contains duplicates");
+        jobs.set(job.id, job);
+      }
+      collected = { jobs, run };
+      runs.set(runId, collected);
+    }
+    const target = collected.jobs.get(jobId);
+    if (
+      target === undefined ||
+      target.name !== failure.name ||
+      target.html_url !== failure.detailsUrl ||
+      !new Set([
+        "action_required",
+        "cancelled",
+        "failure",
+        "startup_failure",
+        "timed_out",
+      ]).has(target.conclusion)
+    ) {
+      fail(`failure[${failureIndexValue}] job no longer matches the packet`);
+    }
+    failureIndex.push({
+      failureId: failure.id,
+      jobId,
+      jobName: target.name,
+      runAttempt: collected.run.run_attempt,
+      runId,
+      workflowPath: collected.run.path,
+    });
+    const failedJobs = [...collected.jobs.values()]
+      .filter((job) =>
+        new Set([
+          "action_required",
+          "cancelled",
+          "failure",
+          "startup_failure",
+          "timed_out",
+        ]).has(job.conclusion),
+      )
+      .sort((left, right) => left.id - right.id);
+    for (const job of failedJobs) {
+      if (loggedJobs.has(job.id)) continue;
+      if (loggedJobs.size >= 20) fail("failure job log count exceeds its cap");
+      const log = await githubJobLogRequest(token, packet.repository, job.id);
+      totalLogBytes += Buffer.byteLength(log);
+      if (totalLogBytes > MAX_EVIDENCE_JOB_LOGS_BYTES) {
+        fail("failure job logs exceed their aggregate cap");
+      }
+      loggedJobs.add(job.id);
+      logFiles.push({
+        content: log,
+        source: {
+          conclusion: job.conclusion,
+          jobId: job.id,
+          jobName: job.name,
+          runAttempt: collected.run.run_attempt,
+          runId: collected.run.id,
+        },
+      });
+    }
+  }
+  return {
+    index: failureIndex.sort((left, right) =>
+      left.failureId.localeCompare(right.failureId),
+    ),
+    logs: logFiles.sort(
+      (left, right) => left.source.jobId - right.source.jobId,
+    ),
+  };
+}
+
+function expectedFeedbackLogin(source) {
+  return source === "codex" ? "chatgpt-codex-connector" : source;
+}
+
+async function collectFeedbackEvidence(token, packet) {
+  const evidence = [];
+  for (const [index, thread] of packet.feedbackThreads.entries()) {
+    const comment = await githubRequest(
+      token,
+      "GET",
+      `/repos/${packet.repository}/pulls/comments/${thread.commentId}`,
+    );
+    const login = String(comment?.user?.login ?? "")
+      .toLowerCase()
+      .replace(/\[bot\]$/, "");
+    if (
+      comment?.id !== thread.commentId ||
+      comment?.in_reply_to_id != null ||
+      comment?.pull_request_url !==
+        `https://api.github.com/repos/${packet.repository}/pulls/${packet.pullRequestNumber}` ||
+      comment?.user?.type !== "Bot" ||
+      comment?.path !== thread.path ||
+      comment?.commit_id !== thread.commitSha ||
+      (thread.line !== null && comment?.line !== thread.line) ||
+      login !== expectedFeedbackLogin(thread.source) ||
+      typeof comment?.body !== "string" ||
+      Buffer.byteLength(comment.body) > MAX_FEEDBACK_BODY_BYTES ||
+      rawDigest(comment.body) !== thread.digest
+    ) {
+      fail(`feedbackThreads[${index}] body or provenance changed`);
+    }
+    evidence.push({ body: comment.body, thread });
+  }
+  return evidence;
+}
+
+function prepareEvidenceOutputRoot(outputRoot) {
+  if (
+    !isAbsolute(outputRoot) ||
+    resolve(outputRoot) !== outputRoot ||
+    outputRoot === "/" ||
+    outputRoot.includes("\0")
+  ) {
+    fail("evidence output root is not one exact absolute path");
+  }
+  mkdirSync(outputRoot, { mode: 0o700, recursive: false });
+  chmodSync(outputRoot, 0o700);
+  return outputRoot;
+}
+
+function evidenceFileEntry(root, name, kind, content, source) {
+  if (!/^[a-z][a-z0-9-]{0,60}\.(?:json|patch|txt)$/.test(name)) {
+    fail("synthetic evidence filename is invalid");
+  }
+  const bytes = Buffer.isBuffer(content) ? content : Buffer.from(content);
+  strictUtf8(bytes, `evidence file ${name}`, { allowEmpty: false });
+  validateEvidenceLineLengths(bytes, `evidence file ${name}`);
+  const path = join(root, name);
+  writeFileSync(path, bytes, { flag: "wx", mode: 0o600 });
+  chmodSync(path, 0o400);
+  return {
+    bytes: bytes.byteLength,
+    digest: rawDigest(bytes),
+    kind,
+    mediaType: name.endsWith(".json") ? "application/json" : "text/plain",
+    name,
+    source,
+  };
+}
+
+function validateEvidenceLineLengths(bytes, label) {
+  let lineStart = 0;
+  for (let index = 0; index <= bytes.byteLength; index += 1) {
+    if (index !== bytes.byteLength && bytes[index] !== 0x0a) continue;
+    if (index - lineStart > MAX_EVIDENCE_LINE_BYTES) {
+      fail(`${label} contains an oversized line`);
+    }
+    lineStart = index + 1;
+  }
+}
+
+function prettyJson(value) {
+  return `${JSON.stringify(recursivelySorted(value), null, 2)}\n`;
+}
+
+export async function materializeRepairEvidence({
+  outputRoot,
+  packetDigest,
+  packetText,
+  processorCheckId,
+  repositoryName,
+  token,
+}) {
+  repository(repositoryName);
+  digest(packetDigest, "packetDigest");
+  safeInteger(processorCheckId, "processorCheckId");
+  const authenticated = await authenticateMaterializedPacket({
+    packetDigest,
+    packetText,
+    processorCheckId,
+    repositoryName,
+    token,
+  });
+  const { packet, pull } = authenticated;
+  const pullFiles = await collectExactPullFiles(token, packet, pull);
+  const diff = validateExactPullDiff(
+    await githubTextRequest(
+      token,
+      `/repos/${repositoryName}/pulls/${packet.pullRequestNumber}`,
+      "application/vnd.github.v3.diff",
+      MAX_EVIDENCE_DIFF_BYTES,
+      "pull request diff",
+    ),
+    packet,
+  );
+  const { entries, treeSha } = await exactTreeEntries(
+    token,
+    repositoryName,
+    packet.headSha,
+  );
+  const blobs = [];
+  let totalBlobBytes = 0;
+  for (const expected of [...packet.expectedBlobs].sort((left, right) =>
+    left.path.localeCompare(right.path),
+  )) {
+    const treeEntry = entries.get(expected.path);
+    if (
+      treeEntry?.path !== expected.path ||
+      treeEntry?.sha !== expected.sha ||
+      treeEntry?.mode !== expected.mode ||
+      treeEntry?.type !== expected.type
+    ) {
+      fail(`tree entry changed from the packet: ${expected.path}`);
+    }
+    const content = await loadExactGitBlob(token, repositoryName, expected);
+    totalBlobBytes += content.byteLength;
+    if (totalBlobBytes > MAX_EVIDENCE_BLOBS_BYTES) {
+      fail("Git blobs exceed their aggregate evidence cap");
+    }
+    blobs.push({ content, expected });
+  }
+  const failures = await collectFailureEvidence(token, packet);
+  const feedback = await collectFeedbackEvidence(token, packet);
+  const finalPull = await validateLivePullRequest(token, packet);
+  if (
+    finalPull.updated_at !== pull.updated_at ||
+    finalPull.changed_files !== pull.changed_files
+  ) {
+    fail("pull request changed while repair evidence was collected");
+  }
+
+  const root = prepareEvidenceOutputRoot(outputRoot);
+  try {
+    const files = [];
+    files.push(
+      evidenceFileEntry(root, "packet.json", "packet", prettyJson(packet), {
+        packetDigest,
+        processorCheckId,
+      }),
+      evidenceFileEntry(root, "pull-request-diff.patch", "pull-diff", diff, {
+        baseSha: packet.baseSha,
+        headSha: packet.headSha,
+        paths: packet.changedPaths,
+      }),
+      evidenceFileEntry(
+        root,
+        "pull-file-inventory.json",
+        "pull-file-inventory",
+        prettyJson(pullFiles),
+        { baseSha: packet.baseSha, headSha: packet.headSha },
+      ),
+    );
+    for (const [index, blob] of blobs.entries()) {
+      files.push(
+        evidenceFileEntry(
+          root,
+          `blob-${String(index).padStart(3, "0")}.txt`,
+          "git-blob",
+          blob.content,
+          {
+            gitBlobSha: blob.expected.sha,
+            mode: blob.expected.mode,
+            path: blob.expected.path,
+            treeSha,
+          },
+        ),
+      );
+    }
+    files.push(
+      evidenceFileEntry(
+        root,
+        "failure-index.json",
+        "failure-index",
+        prettyJson(failures.index),
+        { headSha: packet.headSha },
+      ),
+    );
+    for (const [index, log] of failures.logs.entries()) {
+      files.push(
+        evidenceFileEntry(
+          root,
+          `job-log-${String(index).padStart(3, "0")}.txt`,
+          "job-log",
+          log.content,
+          log.source,
+        ),
+      );
+    }
+    files.push(
+      evidenceFileEntry(
+        root,
+        "findings.json",
+        "packet-findings",
+        prettyJson(packet.findings),
+        { packetDigest },
+      ),
+      evidenceFileEntry(
+        root,
+        "feedback-index.json",
+        "feedback-index",
+        prettyJson(feedback.map(({ thread }) => thread)),
+        { packetDigest },
+      ),
+    );
+    for (const [index, item] of feedback.entries()) {
+      files.push(
+        evidenceFileEntry(
+          root,
+          `feedback-body-${String(index).padStart(3, "0")}.txt`,
+          "feedback-body",
+          item.body,
+          item.thread,
+        ),
+      );
+    }
+    if (files.length > MAX_EVIDENCE_MANIFEST_FILES) {
+      fail("repair evidence file inventory exceeds its cap");
+    }
+    const manifest = {
+      baseSha: packet.baseSha,
+      evidenceRoot: root,
+      files: files.sort((left, right) => left.name.localeCompare(right.name)),
+      headSha: packet.headSha,
+      packetDigest,
+      processorCheckId,
+      pullRequestNumber: packet.pullRequestNumber,
+      repository: repositoryName,
+      schema: REPAIR_EVIDENCE_SCHEMA,
+      workflowRunAttempt: packet.workflowRunAttempt,
+      workflowRunId: packet.workflowRunId,
+      workflowSha: packet.workflowSha,
+    };
+    const manifestPath = join(root, "manifest.json");
+    const manifestText = prettyJson(manifest);
+    validateEvidenceLineLengths(Buffer.from(manifestText), "evidence manifest");
+    writeFileSync(manifestPath, manifestText, {
+      flag: "wx",
+      mode: 0o600,
+    });
+    chmodSync(manifestPath, 0o400);
+    chmodSync(root, 0o700);
+    return {
+      manifest,
+      manifestDigest: rawDigest(manifestText),
+      manifestPath,
+      root,
+    };
+  } catch (error) {
+    chmodSync(root, 0o700);
+    rmSync(root, { force: true, recursive: true });
+    throw error;
+  }
+}
+
+async function commandMaterializeRepairEvidence(args) {
+  const repositoryName = requiredArg(args, "--repository");
+  const packetText = strictUtf8(
+    decodeExactBase64(requiredArg(args, "--packet-base64"), "packet base64"),
+    "packet base64",
+  );
+  const result = await materializeRepairEvidence({
+    outputRoot: requiredArg(args, "--output-root"),
+    packetDigest: requiredArg(args, "--packet-digest"),
+    packetText,
+    processorCheckId: exactCliPositiveInteger(
+      requiredArg(args, "--processor-check-id"),
+      "processor check ID",
+    ),
+    repositoryName,
+    token: process.env.GH_TOKEN,
+  });
+  writeOutputs(requiredArg(args, "--github-output"), {
+    evidence_root: result.root,
+    evidence_manifest: result.manifestPath,
+    evidence_manifest_digest: result.manifestDigest,
+  });
+}
+
 export function gitSubprocessEnvironment(
   workingDirectory,
   ambientEnvironment = process.env,
@@ -1388,7 +2229,68 @@ async function exactTreeEntries(token, repositoryName, headSha) {
   return { entries, treeSha: commit.tree.sha };
 }
 
-async function applyRepairPlan({ packet, plan, repositoryName, token }) {
+export function gitBlobSha(content) {
+  const bytes = Buffer.isBuffer(content) ? content : Buffer.from(content);
+  return createHash("sha1")
+    .update(Buffer.from(`blob ${bytes.byteLength}\0`))
+    .update(bytes)
+    .digest("hex");
+}
+
+function decodeGitHubBase64(value, label) {
+  if (typeof value !== "string") fail(`${label} is not base64 text`);
+  const normalized = value.replaceAll("\n", "");
+  if (
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+      normalized,
+    )
+  ) {
+    fail(`${label} is not canonical base64`);
+  }
+  const bytes = Buffer.from(normalized, "base64");
+  if (bytes.toString("base64") !== normalized) {
+    fail(`${label} is not canonical base64`);
+  }
+  return bytes;
+}
+
+async function loadExactGitBlob(
+  token,
+  repositoryName,
+  expected,
+  { maximumBytes = MAX_EVIDENCE_BLOB_BYTES } = {},
+) {
+  const blob = await githubRequest(
+    token,
+    "GET",
+    `/repos/${repositoryName}/git/blobs/${expected.sha}`,
+  );
+  if (
+    blob?.sha !== expected.sha ||
+    blob?.encoding !== "base64" ||
+    !Number.isSafeInteger(blob?.size) ||
+    blob.size < 0 ||
+    blob.size > maximumBytes
+  ) {
+    fail(`Git blob metadata changed or exceeds its cap: ${expected.path}`);
+  }
+  const content = decodeGitHubBase64(
+    blob.content,
+    `Git blob content for ${expected.path}`,
+  );
+  if (
+    content.byteLength !== blob.size ||
+    gitBlobSha(content) !== expected.sha
+  ) {
+    fail(`Git blob bytes do not match the exact tree: ${expected.path}`);
+  }
+  strictUtf8(content, `Git blob content for ${expected.path}`, {
+    allowEmpty: true,
+  });
+  return content;
+}
+
+export async function applyRepairPlan({ packet, plan, repositoryName, token }) {
   const expectedBlobs = new Map(
     packet.expectedBlobs.map((blob) => [blob.path, blob]),
   );
@@ -1420,31 +2322,12 @@ async function applyRepairPlan({ packet, plan, repositoryName, token }) {
           `tree entry changed or is not a regular packet-bound blob: ${edit.path}`,
         );
       }
-      const encodedPath = edit.path
-        .split("/")
-        .map((part) => encodeURIComponent(part))
-        .join("/");
-      const content = await githubRequest(
-        token,
-        "GET",
-        `/repos/${repositoryName}/contents/${encodedPath}?ref=${packet.headSha}`,
-      );
-      if (
-        content.type !== "file" ||
-        content.sha !== edit.expectedBlobSha ||
-        content.sha !== treeEntry.sha ||
-        content.encoding !== "base64" ||
-        typeof content.content !== "string"
-      ) {
-        fail(`live blob changed or is not a regular file: ${edit.path}`);
-      }
+      const content = await loadExactGitBlob(token, repositoryName, expected);
       const filePath = join(temporaryDirectory, edit.path);
       mkdirSync(dirname(filePath), { recursive: true, mode: 0o700 });
-      writeFileSync(
-        filePath,
-        Buffer.from(content.content.replaceAll("\n", ""), "base64"),
-        { mode: treeEntry.mode === "100755" ? 0o700 : 0o600 },
-      );
+      writeFileSync(filePath, content, {
+        mode: treeEntry.mode === "100755" ? 0o700 : 0o600,
+      });
       const patchPath = join(
         temporaryDirectory,
         `.patch-${appliedEdits.length}`,
@@ -3304,6 +4187,8 @@ async function main() {
   const [command, ...rest] = process.argv.slice(2);
   const args = argsMap(rest);
   if (command === "repair-preflight") return commandRepairPreflight(args);
+  if (command === "materialize-repair-evidence")
+    return commandMaterializeRepairEvidence(args);
   if (command === "validate-repair-plan")
     return commandValidateRepairPlan(args);
   if (command === "stage-repair") return commandStageRepair(args);

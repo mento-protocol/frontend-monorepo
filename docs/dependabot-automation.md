@@ -3,7 +3,7 @@ title: Dependabot Processing
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-08-12
+last_verified: 2026-08-13
 scope: ci/dependabot-processing
 ---
 
@@ -37,8 +37,10 @@ Keep these properties true in code, workflows, rulesets, and operation:
   budget. At most two repair commits are allowed.
 - Branch-write authority and approval/ALL CLEAR authority never coexist in one
   job or process.
-- Candidate code, artifacts, dependencies, caches, and commands never enter a
-  credential-bearing trusted job.
+- Candidate input is never executed. The read-only materializer may hold a
+  step-scoped token while sealing exact inert Git blobs; candidate artifacts,
+  dependencies, caches, and commands never enter a write- or secret-bearing
+  job.
 - Only one ALL CLEAR candidate occupies the lane. Keep it occupied through the
   human merge and the exact merge SHA's default-branch CI and release proof.
 - ALL CLEAR is current evidence, not a timeless authorization. GitHub must still
@@ -228,7 +230,8 @@ denies the merge endpoint. Contents write therefore leaves a residual technical
 merge capability. The control is architectural and auditable:
 
 - no reviewed workflow or helper contains a merge call;
-- the token exists only inside the mutation or prepared-dispatch job;
+- the token exists only inside a repair-staging, ref-mutation/refresh, or
+  authenticated-dispatch job;
 - no such job has approval or ALL CLEAR authority;
 - the token is revoked/invalidated at job completion; and
 - finalize runs later without the App credential.
@@ -351,10 +354,24 @@ intent, branch mutation, and recovery:
 
 1. **preflight** authenticates the exact Processor v2 packet and terminal
    processor run;
-2. **plan** gives Claude read-only API access and a strict JSON schema. It
-   produces contextual patches only and has no Bash/Edit/Write tool or mutation
-   permission;
-3. **validate** has no secret or write token. It re-fetches exact blobs, applies
+2. **plan** first runs the trusted `materialize-repair-evidence` command with a
+   step-scoped read token. The command authenticates the packet and live PR,
+   binds the exact base-to-head compare, re-fetches every expected file through
+   the Git blob API, collects only packet-bound failed-job logs and findings,
+   and seals a canonical manifest plus synthetic evidence files under
+   `RUNNER_TEMP`. Claude then runs through the pinned token-free base action
+   with only guarded `Read` and `Grep` access to those files and a strict JSON
+   schema. Its model-visible tool surface has no Bash/Edit/Write, general
+   network, MCP, candidate checkout, or mutation capability. The workflow-only
+   `DEPENDABOT_REPAIR_EVIDENCE_ROOT`,
+   `DEPENDABOT_REPAIR_EVIDENCE_MANIFEST`, and
+   `DEPENDABOT_REPAIR_EVIDENCE_MANIFEST_DIGEST` values bind the hook to that
+   sealed directory and manifest. Paired pre/post hooks seal successful exact
+   accesses; large files require explicit one-based bounded Read pages, and Grep
+   may locate the relevant ranges. A no-token postflight assertion requires at
+   least one successful exact access before the plan job succeeds;
+3. **validate** has no secret or write token. It re-fetches exact inputs by Git
+   object SHA, including files larger than the Contents API limit, applies
    patches in a disposable credential-free temporary Git tree, enforces
    permitted/forbidden paths, file/edit/byte caps, exact
    packet/head/base/check IDs, and emits a digest-bound plan;

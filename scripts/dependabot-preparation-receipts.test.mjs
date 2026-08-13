@@ -1,18 +1,38 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import process from "node:process";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
+  applyRepairPlan,
   canonicalDigest,
   canonicalJson,
+  collectExactPullFiles,
   collectTerminalSourceChecks,
   createRecoveryRetryAction,
   createRepairRecoveryAction,
   createRepairRetryAction,
   createRequestedRefreshAction,
   gitSubprocessEnvironment,
+  gitBlobSha,
+  githubJobLogRequest,
   isRetryableRepairConclusion,
+  materializeRepairEvidence,
   nextInfrastructureRetry,
   operationExternalId,
   parseRepairRunTitle,
@@ -27,6 +47,7 @@ import {
   validateProcessorRepairPacket,
   validateRefreshReceipt,
   validateRepairDispatchPayload,
+  validateFailureRun,
   validateRepairCommit,
   validateRepairIntent,
   validateRepairPatch,
@@ -72,7 +93,12 @@ function repairPacket(overrides = {}) {
     findings: [
       {
         checkId: 77,
-        digest: "f".repeat(64),
+        digest: canonicalDigest({
+          line: 3,
+          path: "scripts/fixtures/action-pins/ci.yml",
+          summary: "The reviewed fixture still contains the prior pin.",
+          title: "Update the action-pin fixture",
+        }),
         line: 3,
         path: "scripts/fixtures/action-pins/ci.yml",
         source: "check",
@@ -1110,6 +1136,1048 @@ test("Git patch subprocesses receive only an explicit credential-free environmen
     JSON.stringify(childEnvironment),
     /sentinel|TOKEN|SECRET/,
   );
+});
+
+test("Git blob identity covers bytes above the Contents API inline limit", () => {
+  const content = Buffer.alloc(1024 * 1024 + 97, 0x61);
+  const expected = createHash("sha1")
+    .update(Buffer.from(`blob ${content.byteLength}\0`))
+    .update(content)
+    .digest("hex");
+  assert.equal(gitBlobSha(content), expected);
+  content[content.length - 1] = 0x62;
+  assert.notEqual(gitBlobSha(content), expected);
+});
+
+test("repair validator loads a greater-than-1MiB exact Git blob by object SHA", async () => {
+  const path = "pnpm-lock.yaml";
+  const original = `${"# filler\n".repeat(140_000)}vercel: 56.5.0\n`;
+  assert.ok(Buffer.byteLength(original) > 1024 * 1024);
+  const expectedBlobSha = gitBlobSha(original);
+  const packet = repairPacket({
+    changedPaths: [path],
+    expectedBlobs: [
+      { mode: "100644", path, sha: expectedBlobSha, type: "blob" },
+    ],
+    failures: [
+      {
+        attribution: "branch",
+        detailsUrl: `https://github.com/${repository}/actions/runs/11/job/12`,
+        id: "ci",
+        name: "Build and Test",
+      },
+    ],
+    findings: [],
+    limits: {
+      maxAddedLines: 20,
+      maxBytes: 8192,
+      maxChanges: 20,
+      maxDeletedLines: 20,
+      maxFiles: 2,
+    },
+    permittedPaths: ["pnpm-lock.yaml"],
+  });
+  const patch = `--- a/${path}\n+++ b/${path}\n@@ -140001 +140001 @@\n-vercel: 56.5.0\n+vercel: 56.4.1\n`;
+  const plan = {
+    attempt: 1,
+    baseSha,
+    edits: [{ expectedBlobSha, patch, path }],
+    packetDigest,
+    parentHeadSha: headSha,
+    processorCheckId: 444,
+    pullRequestNumber: packet.pullRequestNumber,
+    repository,
+    schema: "dependabot-repair-plan:v1",
+    summary: "Restore the reviewed Vercel CLI pin.",
+  };
+  const treeSha = "2".repeat(40);
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async (url) => {
+      const pathName = new URL(url).pathname;
+      const body = pathName.endsWith(`/git/commits/${headSha}`)
+        ? { tree: { sha: treeSha } }
+        : pathName.endsWith(`/git/trees/${treeSha}`)
+          ? {
+              tree: [
+                { mode: "100644", path, sha: expectedBlobSha, type: "blob" },
+              ],
+              truncated: false,
+            }
+          : pathName.endsWith(`/git/blobs/${expectedBlobSha}`)
+            ? {
+                content: Buffer.from(original).toString("base64"),
+                encoding: "base64",
+                sha: expectedBlobSha,
+                size: Buffer.byteLength(original),
+              }
+            : assert.fail(`unexpected Git blob request: ${pathName}`);
+      return new Response(JSON.stringify(body), { status: 200 });
+    };
+    const applied = await applyRepairPlan({
+      packet,
+      plan,
+      repositoryName: repository,
+      token: "read-token",
+    });
+    assert.equal(applied.edits.length, 1);
+    assert.equal(
+      applied.edits[0].content.toString().endsWith("vercel: 56.4.1\n"),
+      true,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("pull file evidence binds changed paths independently from repair blobs", async () => {
+  const disjointPacket = repairPacket();
+  const packet = repairPacket({
+    changedPaths: ["package.json"],
+    expectedBlobs: [
+      {
+        mode: "100644",
+        path: "package.json",
+        sha: "e".repeat(40),
+        type: "blob",
+      },
+    ],
+  });
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify([
+          {
+            additions: 1,
+            changes: 2,
+            deletions: 1,
+            filename: ".github/workflows/ci.yml",
+            sha: "f".repeat(40),
+            status: "modified",
+          },
+        ]),
+        { status: 200 },
+      );
+    const disjointInventory = await collectExactPullFiles(
+      "read-token",
+      disjointPacket,
+      { changed_files: 1 },
+    );
+    assert.equal(disjointInventory[0].path, ".github/workflows/ci.yml");
+    assert.equal(disjointInventory[0].sha, "f".repeat(40));
+
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify([
+          {
+            additions: 1,
+            changes: 2,
+            deletions: 1,
+            filename: "package.json",
+            sha: "e".repeat(40),
+            status: "modified",
+          },
+        ]),
+        { status: 200 },
+      );
+    const inventory = await collectExactPullFiles("read-token", packet, {
+      changed_files: 1,
+    });
+    assert.equal(inventory[0].path, "package.json");
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify([
+          {
+            additions: 1,
+            changes: 2,
+            deletions: 1,
+            filename: "package.json",
+            sha: "f".repeat(40),
+            status: "modified",
+          },
+        ]),
+        { status: 200 },
+      );
+    await assert.rejects(
+      collectExactPullFiles("read-token", packet, { changed_files: 1 }),
+      /does not match the packet/,
+    );
+
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify([
+          {
+            additions: 1,
+            changes: 2,
+            deletions: 1,
+            filename: "pnpm-lock.yaml",
+            sha: "e".repeat(40),
+            status: "modified",
+          },
+        ]),
+        { status: 200 },
+      );
+    await assert.rejects(
+      collectExactPullFiles("read-token", packet, { changed_files: 1 }),
+      /does not match the packet/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("failure run evidence binds each gate ID to its trusted event and workflow", () => {
+  const packet = repairPacket();
+  const failure = {
+    attribution: "branch",
+    detailsUrl: `https://github.com/${repository}/actions/runs/11/job/12`,
+    id: "action-pins",
+    name: "Actions SHA pinning",
+  };
+  const run = {
+    conclusion: "failure",
+    event: "pull_request_target",
+    head_repository: { full_name: repository },
+    head_sha: packet.headSha,
+    id: 11,
+    path: ".github/workflows/action-pins.yml@refs/heads/main",
+    run_attempt: 1,
+    status: "completed",
+  };
+  assert.equal(validateFailureRun(run, packet, 11, failure), run);
+  assert.throws(
+    () =>
+      validateFailureRun(
+        { ...run, event: "pull_request" },
+        packet,
+        11,
+        failure,
+      ),
+    /provenance is not exact/,
+  );
+  assert.throws(
+    () => validateFailureRun(run, packet, 11, { ...failure, id: "unknown" }),
+    /provenance is not exact/,
+  );
+});
+
+test("job logs follow only credential-free signed Actions or Azure Blob redirects", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const host of [
+      "results-receiver.actions.githubusercontent.com",
+      "productionresultssa9.blob.core.windows.net",
+    ]) {
+      const calls = [];
+      globalThis.fetch = async (url, options) => {
+        calls.push({ options, url: String(url) });
+        if (calls.length === 1) {
+          return new Response(null, {
+            headers: { location: `https://${host}/signed/log?sig=opaque` },
+            status: 302,
+          });
+        }
+        return new Response("exact log\n", { status: 200 });
+      };
+      assert.equal(
+        await githubJobLogRequest("read-token", repository, 123),
+        "exact log\n",
+      );
+      assert.match(calls[0].options.headers.Authorization, /^Bearer /);
+      assert.deepEqual(calls[1].options.headers, {});
+      assert.equal(calls[1].options.redirect, "error");
+    }
+    for (const location of [
+      "https://productionresultssa9.blob.core.windows.net.evil.example/log?sig=x",
+      "https://evil.actions.githubusercontent.com/log?sig=x",
+      "https://user@productionresultssa9.blob.core.windows.net/log?sig=x",
+      "http://productionresultssa9.blob.core.windows.net/log?sig=x",
+    ]) {
+      globalThis.fetch = async () =>
+        new Response(null, { headers: { location }, status: 302 });
+      await assert.rejects(
+        githubJobLogRequest("read-token", repository, 123),
+        /not a signed Actions URL/,
+      );
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+function jsonResponse(value, status = 200, headers = {}) {
+  return new Response(JSON.stringify(value), { headers, status });
+}
+
+function materializerFixture(overrides = {}) {
+  const blobContent = overrides.blobContent ?? '{\n  "vercel": "56.5.0"\n}\n';
+  const blobSha = gitBlobSha(blobContent);
+  const packet = repairPacket({
+    changedPaths: ["package.json"],
+    expectedBlobs: [
+      { mode: "100644", path: "package.json", sha: blobSha, type: "blob" },
+    ],
+    failures: [
+      {
+        attribution: "branch",
+        detailsUrl: `https://github.com/${repository}/actions/runs/700/job/701`,
+        id: "ci",
+        name: "Build and Test",
+      },
+    ],
+    findings: [
+      {
+        checkId: 77,
+        digest: canonicalDigest({
+          line: 2,
+          path: "package.json",
+          summary: "Restore the reviewed Vercel CLI pin.",
+          title: "Vercel CLI pin drift",
+        }),
+        line: 2,
+        path: "package.json",
+        source: "check",
+        sourceId: "ci-pin-drift",
+        summary: "Restore the reviewed Vercel CLI pin.",
+        title: "Vercel CLI pin drift",
+      },
+    ],
+    permittedPaths: ["package.json"],
+    pullRequestNumber: 731,
+    workflowRunAttempt: 1,
+    workflowRunId: 998877,
+    ...overrides.packet,
+  });
+  const packetText = canonicalJson(packet);
+  const digest = rawDigest(packetText);
+  const processorCheck = {
+    app: { id: 15368, slug: "github-actions" },
+    conclusion: "failure",
+    details_url: `https://github.com/${repository}/actions/runs/${packet.workflowRunId}`,
+    external_id: `dependabot-processor:v2:pr=${packet.pullRequestNumber}:head=${packet.headSha}:mode=prepare:repair=${packet.attemptNumber}:packet=true:digest=${digest}:run=${packet.workflowRunId}:attempt=${packet.workflowRunAttempt}`,
+    head_sha: packet.headSha,
+    id: 444,
+    name: "Dependabot Processor",
+    output: { text: packetText },
+    status: "completed",
+  };
+  const processorRun = {
+    conclusion: "success",
+    event: "repository_dispatch",
+    head_branch: "main",
+    head_repository: { full_name: repository },
+    head_sha: packet.workflowSha,
+    id: packet.workflowRunId,
+    path: ".github/workflows/dependabot-process.yml",
+    run_attempt: packet.workflowRunAttempt,
+    status: "completed",
+  };
+  const pull = {
+    base: { ref: "main", repo: { full_name: repository }, sha: packet.baseSha },
+    changed_files: 1,
+    draft: false,
+    head: {
+      ref: packet.headRef,
+      repo: { full_name: repository },
+      sha: packet.headSha,
+    },
+    number: packet.pullRequestNumber,
+    state: "open",
+    updated_at: "2026-08-13T10:00:00Z",
+    user: { login: "dependabot[bot]", type: "Bot" },
+  };
+  const treeSha = "9".repeat(40);
+  const failureRun = {
+    conclusion: "failure",
+    event: "pull_request",
+    head_branch: packet.headRef,
+    head_repository: { full_name: repository },
+    head_sha: packet.headSha,
+    id: 700,
+    path: ".github/workflows/ci.yml",
+    run_attempt: 1,
+    status: "completed",
+  };
+  const jobs = {
+    jobs: [
+      {
+        conclusion: "failure",
+        head_sha: packet.headSha,
+        html_url: `https://github.com/${repository}/actions/runs/700/job/701`,
+        id: 701,
+        name: "Build and Test",
+        run_attempt: 1,
+        run_id: 700,
+        run_url: `https://api.github.com/repos/${repository}/actions/runs/700`,
+        status: "completed",
+      },
+    ],
+    total_count: 1,
+  };
+  let livePullReads = 0;
+  const fetch = async (url, options = {}) => {
+    const parsed = new URL(url);
+    if (parsed.hostname === "productionresultssa9.blob.core.windows.net") {
+      return new Response("CI failed: expected Vercel 56.4.1\n", {
+        status: 200,
+      });
+    }
+    const path = `${parsed.pathname}${parsed.search}`;
+    if (path === `/repos/${repository}/check-runs/444`)
+      return jsonResponse(processorCheck);
+    if (path === `/repos/${repository}/actions/runs/${packet.workflowRunId}`)
+      return jsonResponse(processorRun);
+    if (path === `/repos/${repository}/pulls/${packet.pullRequestNumber}`) {
+      const accept = options.headers?.Accept;
+      if (accept === "application/vnd.github.v3.diff") {
+        return new Response(
+          "diff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\n@@ -1 +1 @@\n-old\n+new\n",
+          { status: 200 },
+        );
+      }
+      livePullReads += 1;
+      return jsonResponse(
+        livePullReads === 2 && overrides.finalPull
+          ? { ...pull, ...overrides.finalPull }
+          : pull,
+      );
+    }
+    if (
+      path ===
+      `/repos/${repository}/pulls/${packet.pullRequestNumber}/files?per_page=100&page=1`
+    ) {
+      return jsonResponse([
+        {
+          additions: 1,
+          changes: 2,
+          deletions: 1,
+          filename: "package.json",
+          sha: overrides.fileSha ?? blobSha,
+          status: "modified",
+        },
+      ]);
+    }
+    if (path === `/repos/${repository}/git/commits/${packet.headSha}`)
+      return jsonResponse({ tree: { sha: treeSha } });
+    if (path === `/repos/${repository}/git/trees/${treeSha}?recursive=1`)
+      return jsonResponse({
+        tree: [
+          { mode: "100644", path: "package.json", sha: blobSha, type: "blob" },
+        ],
+        truncated: false,
+      });
+    if (path === `/repos/${repository}/git/blobs/${blobSha}`)
+      return jsonResponse({
+        content: Buffer.from(blobContent).toString("base64"),
+        encoding: "base64",
+        sha: blobSha,
+        size: Buffer.byteLength(blobContent),
+      });
+    if (path === `/repos/${repository}/actions/runs/700`)
+      return jsonResponse(failureRun);
+    if (
+      path ===
+      `/repos/${repository}/actions/runs/700/attempts/1/jobs?per_page=100&page=1`
+    )
+      return jsonResponse(jobs);
+    if (path === `/repos/${repository}/actions/jobs/701/logs`) {
+      assert.equal(options.redirect, "manual");
+      return new Response(null, {
+        headers: {
+          location:
+            "https://productionresultssa9.blob.core.windows.net/exact/log?sig=opaque",
+        },
+        status: 302,
+      });
+    }
+    return assert.fail(`unexpected materializer request: ${path}`);
+  };
+  return { digest, fetch, packet, packetText };
+}
+
+test("materializer seals an exact packet, diff, blob, failed log, and manifest", async () => {
+  const fixture = materializerFixture({
+    blobContent: `{\n  "current-tooling-script": "${"x".repeat(1_040)}"\n}\n`,
+  });
+  const temporary = mkdtempSync(
+    join(tmpdir(), "dependabot-repair-materialize-"),
+  );
+  const outputRoot = join(temporary, "evidence");
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = fixture.fetch;
+    const result = await materializeRepairEvidence({
+      outputRoot,
+      packetDigest: fixture.digest,
+      packetText: fixture.packetText,
+      processorCheckId: 444,
+      repositoryName: repository,
+      token: "read-token",
+    });
+    const manifestText = readFileSync(result.manifestPath, "utf8");
+    assert.equal(result.manifestDigest, rawDigest(manifestText));
+    assert.match(manifestText, /^\{\n {2}"baseSha":/);
+    assert.equal(
+      JSON.parse(manifestText).schema,
+      "dependabot-repair-evidence:v1",
+    );
+    assert.equal(result.manifest.files.length, 8);
+    assert.deepEqual(
+      result.manifest.files.map(({ name }) => name),
+      [
+        "blob-000.txt",
+        "failure-index.json",
+        "feedback-index.json",
+        "findings.json",
+        "job-log-000.txt",
+        "packet.json",
+        "pull-file-inventory.json",
+        "pull-request-diff.patch",
+      ],
+    );
+    for (const entry of result.manifest.files) {
+      const stats = await import("node:fs").then(({ statSync }) =>
+        statSync(join(outputRoot, entry.name)),
+      );
+      assert.equal(stats.mode & 0o777, 0o400);
+      const bytes = readFileSync(join(outputRoot, entry.name));
+      assert.equal(bytes.length, entry.bytes);
+      assert.equal(rawDigest(bytes), entry.digest);
+    }
+    assert.doesNotMatch(
+      JSON.stringify(
+        result.manifest.files.find(({ name }) => name === "job-log-000.txt")
+          .source,
+      ),
+      /Bearer|read-token/,
+    );
+    assert.equal(
+      JSON.parse(readFileSync(join(outputRoot, "findings.json"), "utf8"))[0]
+        .title,
+      "Vercel CLI pin drift",
+    );
+    assert.deepEqual(
+      JSON.parse(readFileSync(join(outputRoot, "feedback-index.json"), "utf8")),
+      [],
+    );
+    assert.equal(
+      JSON.parse(readFileSync(join(outputRoot, "packet.json"), "utf8")).headSha,
+      fixture.packet.headSha,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    rmSync(temporary, { force: true, recursive: true });
+  }
+});
+
+test("materializer rejects evidence with a line above the paging cap", async () => {
+  const fixture = materializerFixture({
+    blobContent: `${"x".repeat(4 * 1024 + 1)}\n`,
+  });
+  const temporary = mkdtempSync(
+    join(tmpdir(), "dependabot-repair-materialize-line-cap-"),
+  );
+  const outputRoot = join(temporary, "evidence");
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = fixture.fetch;
+    await assert.rejects(
+      materializeRepairEvidence({
+        outputRoot,
+        packetDigest: fixture.digest,
+        packetText: fixture.packetText,
+        processorCheckId: 444,
+        repositoryName: repository,
+        token: "read-token",
+      }),
+      /contains an oversized line/,
+    );
+    assert.throws(() => readFileSync(join(outputRoot, "manifest.json")));
+  } finally {
+    globalThis.fetch = originalFetch;
+    rmSync(temporary, { force: true, recursive: true });
+  }
+});
+
+test("materializer rejects a final PR race and live file SHA mismatch before sealing", async () => {
+  for (const overrides of [
+    { finalPull: { updated_at: "2026-08-13T10:01:00Z" } },
+    { fileSha: "0".repeat(40) },
+  ]) {
+    const fixture = materializerFixture(overrides);
+    const temporary = mkdtempSync(
+      join(tmpdir(), "dependabot-repair-materialize-reject-"),
+    );
+    const outputRoot = join(temporary, "evidence");
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = fixture.fetch;
+      await assert.rejects(
+        materializeRepairEvidence({
+          outputRoot,
+          packetDigest: fixture.digest,
+          packetText: fixture.packetText,
+          processorCheckId: 444,
+          repositoryName: repository,
+          token: "read-token",
+        }),
+        /changed while repair evidence|does not match the packet/,
+      );
+      assert.throws(() => readFileSync(join(outputRoot, "manifest.json")));
+    } finally {
+      globalThis.fetch = originalFetch;
+      rmSync(temporary, { force: true, recursive: true });
+    }
+  }
+});
+
+function makeGuardEvidenceFixture({
+  additionalFileCount = 0,
+  packetContent = "{}\n",
+} = {}) {
+  const temporary = mkdtempSync(
+    join(tmpdir(), "dependabot-repair-evidence-guard-"),
+  );
+  const runnerTemp = join(temporary, "runner");
+  const root = join(runnerTemp, "dependabot-repair-evidence-998877-1");
+  mkdirSync(runnerTemp, { mode: 0o700 });
+  mkdirSync(root, { mode: 0o700 });
+  chmodSync(root, 0o700);
+  chmodSync(runnerTemp, 0o700);
+  const named = [
+    "failure-index.json",
+    "feedback-index.json",
+    "findings.json",
+    "packet.json",
+    "pull-file-inventory.json",
+    "pull-request-diff.patch",
+    ...Array.from(
+      { length: additionalFileCount },
+      (_, index) => `extra-${String(index).padStart(3, "0")}.txt`,
+    ),
+  ];
+  const files = named.map((name) => {
+    const content =
+      name === "packet.json"
+        ? packetContent
+        : name.endsWith(".patch")
+          ? "diff --git a/a b/a\n"
+          : "{}\n";
+    const path = join(root, name);
+    writeFileSync(path, content, { mode: 0o400 });
+    return {
+      bytes: Buffer.byteLength(content),
+      digest: rawDigest(content),
+      kind: name.replace(/\.(?:json|patch|txt)$/, ""),
+      mediaType: name.endsWith(".json") ? "application/json" : "text/plain",
+      name,
+      source: {},
+    };
+  });
+  const manifest = `${JSON.stringify(
+    JSON.parse(
+      canonicalJson({
+        baseSha,
+        evidenceRoot: root,
+        files,
+        headSha,
+        packetDigest,
+        processorCheckId: 444,
+        pullRequestNumber: 731,
+        repository,
+        schema: "dependabot-repair-evidence:v1",
+        workflowRunAttempt: 1,
+        workflowRunId: 998877,
+        workflowSha,
+      }),
+    ),
+    null,
+    2,
+  )}\n`;
+  const manifestPath = join(root, "manifest.json");
+  writeFileSync(manifestPath, manifest, { mode: 0o400 });
+  const environment = {
+    ...process.env,
+    DEPENDABOT_REPAIR_EVIDENCE_MANIFEST: manifestPath,
+    DEPENDABOT_REPAIR_EVIDENCE_MANIFEST_DIGEST: rawDigest(manifest),
+    DEPENDABOT_REPAIR_EVIDENCE_ROOT: root,
+    GITHUB_RUN_ATTEMPT: "1",
+    GITHUB_RUN_ID: "998877",
+    RUNNER_TEMP: runnerTemp,
+  };
+  return {
+    environment,
+    manifestPath,
+    receiptRoot: join(runnerTemp, "dependabot-repair-evidence-use-998877-1"),
+    root,
+    temporary,
+  };
+}
+
+test("repair evidence guard permits only sealed manifest Read/Grep and requires completion", () => {
+  const guard = fileURLToPath(
+    new URL("./dependabot-repair-evidence-tool-guard.mjs", import.meta.url),
+  );
+  const fixture = makeGuardEvidenceFixture();
+  try {
+    const readInput = {
+      hook_event_name: "PreToolUse",
+      tool_input: {
+        file_path: join(fixture.root, "packet.json"),
+        limit: 2000,
+        offset: 1,
+      },
+      tool_name: "Read",
+      tool_use_id: "toolu_repair_packet",
+    };
+    const pre = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify(readInput),
+    });
+    assert.equal(pre.status, 0, pre.stderr);
+    assert.equal(
+      JSON.parse(pre.stdout).hookSpecificOutput.permissionDecision,
+      "allow",
+    );
+    const post = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify({
+        ...readInput,
+        hook_event_name: "PostToolUse",
+        tool_response: {
+          file: {
+            content: "{}\n",
+            filePath: join(fixture.root, "packet.json"),
+            numLines: 1,
+            startLine: 1,
+            totalLines: 1,
+          },
+          type: "text",
+        },
+      }),
+    });
+    assert.equal(post.status, 0, post.stderr);
+    const mismatchedResponse = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify({
+        ...readInput,
+        hook_event_name: "PostToolUse",
+        tool_response: {
+          file: {
+            content: "{}\n",
+            filePath: join(fixture.root, "findings.json"),
+            numLines: 1,
+            startLine: 1,
+            totalLines: 1,
+          },
+          type: "text",
+        },
+      }),
+    });
+    assert.equal(mismatchedResponse.status, 2);
+    const verify = spawnSync(process.execPath, [guard, "--verify-completion"], {
+      encoding: "utf8",
+      env: fixture.environment,
+    });
+    assert.equal(verify.status, 0, verify.stderr);
+
+    const grepInput = {
+      hook_event_name: "PreToolUse",
+      tool_input: {
+        "-A": 1,
+        head_limit: 5,
+        multiline: false,
+        output_mode: "content",
+        path: fixture.root,
+        pattern: "vercel",
+      },
+      tool_name: "Grep",
+      tool_use_id: "toolu_repair_grep",
+    };
+    const grep = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify(grepInput),
+    });
+    assert.equal(grep.status, 0, grep.stderr);
+    const grepPost = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify({
+        ...grepInput,
+        hook_event_name: "PostToolUse",
+        tool_response: {
+          appliedLimit: 5,
+          appliedOffset: 0,
+          content: `${join(fixture.root, "packet.json")}:1:{}`,
+          filenames: [join(fixture.root, "packet.json")],
+          mode: "content",
+          numFiles: 1,
+          numLines: 1,
+          numMatches: 1,
+          totalFiles: 1,
+          totalLines: 1,
+        },
+      }),
+    });
+    assert.equal(grepPost.status, 0, grepPost.stderr);
+
+    for (const blockedInput of [
+      { ...readInput, tool_name: "Bash" },
+      { ...readInput, tool_input: { file_path: "/etc/passwd" } },
+      {
+        ...readInput,
+        tool_input: {
+          file_path: join(fixture.root, "packet.json"),
+          limit: 100,
+          offset: 0,
+        },
+      },
+      {
+        ...readInput,
+        tool_input: { file_path: fixture.manifestPath, limit: 2001 },
+      },
+      {
+        ...grepInput,
+        tool_input: { ...grepInput.tool_input, multiline: true },
+      },
+      {
+        ...grepInput,
+        tool_input: { ...grepInput.tool_input, head_limit: 6 },
+      },
+      {
+        ...grepInput,
+        tool_input: { ...grepInput.tool_input, "-A": 2 },
+      },
+      {
+        ...grepInput,
+        tool_input: { ...grepInput.tool_input, pattern: "x".repeat(501) },
+      },
+      { ...readInput, hook_event_name: "PostToolUseFailure" },
+    ]) {
+      const blocked = spawnSync(process.execPath, [guard], {
+        encoding: "utf8",
+        env: fixture.environment,
+        input: JSON.stringify(blockedInput),
+      });
+      assert.equal(blocked.status, 2, JSON.stringify(blockedInput));
+    }
+  } finally {
+    rmSync(fixture.temporary, { force: true, recursive: true });
+  }
+});
+
+test("repair evidence guard accepts 150 manifest files and rejects 151", () => {
+  const guard = fileURLToPath(
+    new URL("./dependabot-repair-evidence-tool-guard.mjs", import.meta.url),
+  );
+  for (const [additionalFileCount, expectedStatus] of [
+    [144, 0],
+    [145, 2],
+  ]) {
+    const fixture = makeGuardEvidenceFixture({ additionalFileCount });
+    try {
+      const result = spawnSync(process.execPath, [guard], {
+        encoding: "utf8",
+        env: fixture.environment,
+        input: JSON.stringify({
+          hook_event_name: "PreToolUse",
+          tool_input: {
+            file_path: fixture.manifestPath,
+            limit: 4,
+            offset: 1,
+          },
+          tool_name: "Read",
+          tool_use_id: `toolu_manifest_${additionalFileCount}`,
+        }),
+      });
+      assert.equal(result.status, expectedStatus, result.stderr);
+    } finally {
+      rmSync(fixture.temporary, { force: true, recursive: true });
+    }
+  }
+});
+
+test("repair evidence guard requires bounded one-based pages for large reads and Grep", () => {
+  const guard = fileURLToPath(
+    new URL("./dependabot-repair-evidence-tool-guard.mjs", import.meta.url),
+  );
+  const packetContent = `${JSON.stringify(
+    { items: Array.from({ length: 3_000 }, (_, index) => `item-${index}`) },
+    null,
+    2,
+  )}\n`;
+  assert.ok(Buffer.byteLength(packetContent) > 16 * 1024);
+  assert.ok(
+    packetContent
+      .split("\n")
+      .every((line) => Buffer.byteLength(line) <= 4 * 1024),
+  );
+  const fixture = makeGuardEvidenceFixture({ packetContent });
+  const packetPath = join(fixture.root, "packet.json");
+  try {
+    const invalidInputs = [
+      {
+        hook_event_name: "PreToolUse",
+        tool_input: { file_path: packetPath },
+        tool_name: "Read",
+        tool_use_id: "toolu_large_unpaged",
+      },
+      {
+        hook_event_name: "PreToolUse",
+        tool_input: { file_path: packetPath, limit: 4, offset: 0 },
+        tool_name: "Read",
+        tool_use_id: "toolu_large_offset_zero",
+      },
+      {
+        hook_event_name: "PreToolUse",
+        tool_input: { file_path: packetPath, limit: 5, offset: 1 },
+        tool_name: "Read",
+        tool_use_id: "toolu_large_page_too_wide",
+      },
+      {
+        hook_event_name: "PreToolUse",
+        tool_input: {
+          multiline: false,
+          output_mode: "content",
+          path: fixture.root,
+          pattern: "item",
+        },
+        tool_name: "Grep",
+        tool_use_id: "toolu_unbounded_grep",
+      },
+    ];
+    for (const input of invalidInputs) {
+      const blocked = spawnSync(process.execPath, [guard], {
+        encoding: "utf8",
+        env: fixture.environment,
+        input: JSON.stringify(input),
+      });
+      assert.equal(blocked.status, 2, JSON.stringify(input));
+      assert.deepEqual(readdirSync(fixture.receiptRoot), []);
+    }
+
+    const pageInput = {
+      hook_event_name: "PreToolUse",
+      tool_input: { file_path: packetPath, limit: 4, offset: 1 },
+      tool_name: "Read",
+      tool_use_id: "toolu_large_page",
+    };
+    const pagePre = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify(pageInput),
+    });
+    assert.equal(pagePre.status, 0, pagePre.stderr);
+    const packetLines = packetContent.split("\n");
+    const pageContent = `${packetLines.slice(0, 4).join("\n")}\n`;
+    const pagePost = spawnSync(process.execPath, [guard], {
+      encoding: "utf8",
+      env: fixture.environment,
+      input: JSON.stringify({
+        ...pageInput,
+        hook_event_name: "PostToolUse",
+        tool_response: {
+          file: {
+            content: pageContent,
+            filePath: packetPath,
+            numLines: 4,
+            startLine: 1,
+            totalLines: packetLines.length - 1,
+            truncatedByTokenCap: false,
+          },
+          type: "text",
+        },
+      }),
+    });
+    assert.equal(pagePost.status, 0, pagePost.stderr);
+    const verified = spawnSync(
+      process.execPath,
+      [guard, "--verify-completion"],
+      { encoding: "utf8", env: fixture.environment },
+    );
+    assert.equal(verified.status, 0, verified.stderr);
+
+    for (const [toolUseId, responseOverride] of [
+      ["toolu_large_wrong_start", { startLine: 2 }],
+      ["toolu_large_truncated", { truncatedByTokenCap: true }],
+    ]) {
+      const input = { ...pageInput, tool_use_id: toolUseId };
+      const pre = spawnSync(process.execPath, [guard], {
+        encoding: "utf8",
+        env: fixture.environment,
+        input: JSON.stringify(input),
+      });
+      assert.equal(pre.status, 0, pre.stderr);
+      const post = spawnSync(process.execPath, [guard], {
+        encoding: "utf8",
+        env: fixture.environment,
+        input: JSON.stringify({
+          ...input,
+          hook_event_name: "PostToolUse",
+          tool_response: {
+            file: {
+              content: pageContent,
+              filePath: packetPath,
+              numLines: 4,
+              startLine: 1,
+              totalLines: packetLines.length - 1,
+              truncatedByTokenCap: false,
+              ...responseOverride,
+            },
+            type: "text",
+          },
+        }),
+      });
+      assert.equal(post.status, 2, JSON.stringify(responseOverride));
+    }
+  } finally {
+    rmSync(fixture.temporary, { force: true, recursive: true });
+  }
+});
+
+test("repair evidence guard rejects manifest mutation, symlinks, extras, and missing use", () => {
+  const guard = fileURLToPath(
+    new URL("./dependabot-repair-evidence-tool-guard.mjs", import.meta.url),
+  );
+  const cases = ["digest", "symlink", "extra", "unused"];
+  for (const kind of cases) {
+    const fixture = makeGuardEvidenceFixture();
+    try {
+      if (kind === "digest") {
+        fixture.environment.DEPENDABOT_REPAIR_EVIDENCE_MANIFEST_DIGEST =
+          "0".repeat(64);
+      } else if (kind === "symlink") {
+        const path = join(fixture.root, "packet.json");
+        chmodSync(path, 0o600);
+        rmSync(path);
+        symlinkSync("findings.json", path);
+      } else if (kind === "extra") {
+        writeFileSync(join(fixture.root, "unlisted.txt"), "x", { mode: 0o400 });
+      }
+      const args = kind === "unused" ? [guard, "--verify-completion"] : [guard];
+      const result = spawnSync(process.execPath, args, {
+        encoding: "utf8",
+        env: fixture.environment,
+        input:
+          kind === "unused"
+            ? undefined
+            : JSON.stringify({
+                hook_event_name: "PreToolUse",
+                tool_input: { file_path: join(fixture.root, "packet.json") },
+                tool_name: "Read",
+                tool_use_id: `toolu_${kind}`,
+              }),
+      });
+      assert.equal(result.status, 2, `${kind}: ${result.stderr}`);
+    } finally {
+      rmSync(fixture.temporary, { force: true, recursive: true });
+    }
+  }
 });
 
 test("terminal receipt selection ignores proven old attempts and rejects malformed current evidence", () => {
