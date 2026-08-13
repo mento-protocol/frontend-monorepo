@@ -17,6 +17,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 export const GITHUB_ACTIONS_APP_ID = 15_368;
+export const GITHUB_WEB_FLOW_USER_ID = 19_864_447;
 export const PROCESSOR_PACKET_SCHEMA = "dependabot-repair-packet:v2";
 export const REPAIR_INTENT_SCHEMA = "dependabot-repair-intent:v1";
 export const REPAIR_PLAN_SCHEMA = "dependabot-repair-plan:v1";
@@ -2716,6 +2717,14 @@ export function nextInfrastructureRetry(retryCount) {
 }
 
 export function validateRepairCommit(commit, intent) {
+  const exactPrepareCommitter =
+    commit.committer?.id === intent.prepareBotId &&
+    commit.committer?.login === intent.prepareBotLogin &&
+    commit.committer?.type === "Bot";
+  const exactGitHubSystemCommitter =
+    commit.committer?.id === GITHUB_WEB_FLOW_USER_ID &&
+    commit.committer?.login === "web-flow" &&
+    commit.committer?.type === "User";
   if (
     commit.sha !== intent.headSha ||
     commit.parents?.length !== 1 ||
@@ -2726,9 +2735,7 @@ export function validateRepairCommit(commit, intent) {
     commit.author?.id !== intent.prepareBotId ||
     commit.author?.login !== intent.prepareBotLogin ||
     commit.author?.type !== "Bot" ||
-    commit.committer?.id !== intent.prepareBotId ||
-    commit.committer?.login !== intent.prepareBotLogin ||
-    commit.committer?.type !== "Bot"
+    (!exactPrepareCommitter && !exactGitHubSystemCommitter)
   ) {
     fail("staged repair commit is not an exact Prepare App append");
   }

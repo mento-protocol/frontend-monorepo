@@ -28,6 +28,11 @@ const workflowSha = "5".repeat(40);
 const prepareAppSlug = "mento-dependabot-prepare";
 const prepareBotId = 987654;
 const prepareBotLogin = "mento-dependabot-prepare[bot]";
+const githubSystemCommitter = {
+  id: 19864447,
+  login: "web-flow",
+  type: "User",
+};
 
 function read(relativePath) {
   return readFileSync(new URL(`../${relativePath}`, import.meta.url), "utf8");
@@ -210,7 +215,7 @@ function repairFixture() {
   const repairCommit = {
     author: { id: prepareBotId, login: prepareBotLogin, type: "Bot" },
     commit: { verification: { reason: "valid", verified: true } },
-    committer: { id: prepareBotId, login: prepareBotLogin, type: "Bot" },
+    committer: githubSystemCommitter,
     parents: [{ sha: seedHeadSha }],
     sha: preparedHeadSha,
   };
@@ -634,7 +639,7 @@ function recoveredRepairLineageFixture({ failedRecoveryCount = 0 } = {}) {
       {
         author: actor,
         commit: { verification: { reason: "valid", verified: true } },
-        committer: actor,
+        committer: githubSystemCommitter,
         parents: [{ sha: preparedHeadSha }],
         sha: laterHeadSha,
       },
@@ -644,7 +649,7 @@ function recoveredRepairLineageFixture({ failedRecoveryCount = 0 } = {}) {
       {
         author: actor,
         commit: { verification: { reason: "valid", verified: true } },
-        committer: actor,
+        committer: githubSystemCommitter,
         parents: [{ sha: seedHeadSha }],
         sha: preparedHeadSha,
       },
@@ -722,6 +727,33 @@ test("accepts an exact App-authored repair rooted in a verified Dependabot seed"
     repository,
     seedHeadSha,
   });
+});
+
+test("also accepts an exact App bot as the verified Repair committer", () => {
+  const fixture = repairFixture();
+  const path = `repos/${repository}/commits/${preparedHeadSha}`;
+  const entries = fixture.entries.map(([key, value]) =>
+    key === path
+      ? [
+          key,
+          {
+            ...value,
+            committer: {
+              id: prepareBotId,
+              login: prepareBotLogin,
+              type: "Bot",
+            },
+          },
+        ]
+      : [key, value],
+  );
+  assert.equal(
+    validatePreparedReviewTarget(
+      options(fixture.operation, fixture.checkId, fixture.receiptDigest),
+      requestFromMap(entries),
+    ).repairCount,
+    1,
+  );
 });
 
 test("uses a successful recovery receipt after a failed receipt when later prepared lineage continues", () => {
@@ -1400,6 +1432,29 @@ test("rejects a repair commit whose bot identity is only asserted in receipt JSO
       ),
     /repair commit is not an exact Prepare App append/,
   );
+});
+
+test("rejects inexact GitHub system committers on a Repair commit", () => {
+  const path = `repos/${repository}/commits/${preparedHeadSha}`;
+  for (const committer of [
+    { ...githubSystemCommitter, id: githubSystemCommitter.id + 1 },
+    { ...githubSystemCommitter, login: "attacker" },
+    { ...githubSystemCommitter, type: "Bot" },
+  ]) {
+    const fixture = repairFixture();
+    const entries = fixture.entries.map(([key, value]) =>
+      key === path ? [key, { ...value, committer }] : [key, value],
+    );
+    assert.throws(
+      () =>
+        validatePreparedReviewTarget(
+          options(fixture.operation, fixture.checkId, fixture.receiptDigest),
+          requestFromMap(entries),
+        ),
+      /repair commit is not an exact Prepare App append/,
+      JSON.stringify(committer),
+    );
+  }
 });
 
 test("rejects unsigned and invalid-reason Repair commits", () => {
