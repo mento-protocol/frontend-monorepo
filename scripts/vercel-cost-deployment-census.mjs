@@ -189,7 +189,7 @@ function parseInput(raw) {
 
 function canonicalRawUrl(value, label) {
   assertString(value, label, undefined, 2048);
-  const candidate = value.startsWith("http") ? value : `https://${value}`;
+  const candidate = /^https?:\/\//.test(value) ? value : `https://${value}`;
   let parsed;
   try {
     parsed = new URL(candidate);
@@ -258,6 +258,7 @@ function knownGitMetadata(deployment, label) {
   ];
   const present = names.filter((name) => meta && meta[name] !== undefined);
   let result = null;
+  let knownSha = null;
   if (present.length !== 0) {
     const parsed = {};
     if (meta.githubCommitOrg !== undefined) {
@@ -289,12 +290,13 @@ function knownGitMetadata(deployment, label) {
       }
     }
     if (meta.githubCommitSha !== undefined) {
-      parsed.sha = assertString(
+      knownSha = assertString(
         meta.githubCommitSha,
         `${label}.meta.githubCommitSha`,
         SHA_PATTERN,
         40,
       );
+      parsed.sha = knownSha;
     }
     if (present.length === names.length) {
       result = parsed;
@@ -310,7 +312,7 @@ function knownGitMetadata(deployment, label) {
         SHA_PATTERN,
         40,
       );
-      if (result !== null && result.sha !== gitSourceSha) {
+      if (knownSha !== null && knownSha !== gitSourceSha) {
         throw new Error(`${label} contains conflicting Git SHAs`);
       }
     }

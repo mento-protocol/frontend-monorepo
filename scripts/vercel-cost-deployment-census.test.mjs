@@ -483,6 +483,20 @@ test("accepts omitted optional environment fields on a signed GitHub main row", 
   );
 });
 
+test("accepts a bare Vercel hostname beginning with http", () => {
+  const value = fixture();
+  const row = findDeployment(value, "dpl_AppUnknown1");
+  row.url = "http-preview.vercel.app";
+  value.annotations.dpl_AppUnknown1.evidenceUrl =
+    "https://http-preview.vercel.app/";
+  assert.equal(
+    normalize(value).rows.find(
+      (entry) => entry.deploymentId === "dpl_AppUnknown1",
+    ).evidenceUrl,
+    "https://http-preview.vercel.app/",
+  );
+});
+
 test("writes private output and proof through the credential-free CLI", () => {
   const directory = mkdtempSync(join(tmpdir(), "vercel-census-"));
   const input = join(directory, "pages.json");
@@ -764,6 +778,14 @@ const failClosedCases = [
       findDeployment(value, "dpl_ReservePreview1").gitSource = {
         sha: SHA.appPreview,
       };
+    },
+    /conflicting Git SHAs/,
+  ],
+  [
+    "rejects conflicting partial Git SHA fields",
+    (value) => {
+      const row = findDeployment(value, "dpl_AppUnknown1");
+      row.gitSource = { sha: SHA.uiManual };
     },
     /conflicting Git SHAs/,
   ],
