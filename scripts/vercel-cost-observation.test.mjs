@@ -1506,6 +1506,69 @@ test("capture-preview freezes the canonical v2 journal and raw GitHub facts", ()
   );
 });
 
+test("capture-preview rejects a conflicting optional commit-status SHA", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  const event = fixture("preview-event.json");
+  const routes = previewRoutes(event);
+  const statusPages = routes.get(
+    `api --method GET --paginate --slurp repos/mento-protocol/frontend-monorepo/commits/${event.head_sha}/statuses?per_page=100`,
+  );
+  statusPages[0][0].sha = "c".repeat(40);
+
+  assert.throws(
+    () =>
+      runVercelCostObservation({
+        argv: ["capture-preview", "--pr", "700", "--event-run-id", "9001"],
+        cwd,
+        now: () => new Date(CAPTURED_AT),
+        gh: fakeGh(routes),
+        stdout: output().stream,
+      }),
+    /Preview terminal status does not match the bot-owned controller decision/,
+  );
+  assert.equal(
+    existsSync(join(observationRoot(cwd), "preview", "9001")),
+    false,
+  );
+});
+
+test("capture-preview rejects a deployment URL path mismatch", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  const sourceEvent = fixture("preview-event.json");
+  const event = {
+    ...sourceEvent,
+    plan: {
+      ...sourceEvent.plan,
+      targets: ["ui"],
+      reason: "affected-packages",
+    },
+  };
+  const routes = previewRoutes(event);
+  const statusPages = routes.get(
+    "api --method GET --paginate --slurp repos/mento-protocol/frontend-monorepo/deployments/7001/statuses?per_page=100",
+  );
+  statusPages[0][0].environment_url =
+    "https://ui-observation-fixture.vercel.app/another-path";
+
+  assert.throws(
+    () =>
+      runVercelCostObservation({
+        argv: ["capture-preview", "--pr", "700", "--event-run-id", "9001"],
+        cwd,
+        now: () => new Date(CAPTURED_AT),
+        gh: fakeGh(routes),
+        stdout: output().stream,
+      }),
+    /GitHub Deployment terminal status is missing or ambiguous/,
+  );
+  assert.equal(
+    existsSync(join(observationRoot(cwd), "preview", "9001")),
+    false,
+  );
+});
+
 test("capture-preview normalizes whole-second GitHub REST timestamps", () => {
   const cwd = workspace();
   runInit(cwd);
