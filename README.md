@@ -165,23 +165,44 @@ pnpm --filter app.mento.org test:production-shadow:routing
 # Verify exact Next.js and Vercel CLI custom deployment-ID prerequisites
 pnpm vercel:versions:check
 
-# Capture the private, append-only GitHub side of the #523 observation
-pnpm vercel:cost:observe -- init --start 2026-07-29T00:00:00.000Z --end 2026-08-05T00:00:00.000Z
+# Capture the private, append-only GitHub side of the #523 observation.
+# Before substituting these deliberately invalid placeholders, read and verify
+# the current private interval.json and interval-extensions ledger. Reuse their
+# exact start/current end, or use a separately approved interval for a new tree.
+START_UTC='<START_UTC>'
+END_UTC_EXCLUSIVE='<END_UTC_EXCLUSIVE>'
+pnpm vercel:cost:observe -- init --start "$START_UTC" --end "$END_UTC_EXCLUSIVE"
 pnpm vercel:cost:observe -- capture-preview --pr <number> --event-run-id <controller-run-id>
 pnpm vercel:cost:observe -- capture-main --run-id <main-deployment-run-id>
 # Run at useful checkpoints and after the final end boundary
 pnpm vercel:cost:observe -- sample-github
 # Re-run init with the same start and a later end before audit if the window
-# needs more eligible pushes or has boundary-straddling work
-pnpm vercel:cost:observe -- init --start 2026-07-29T00:00:00.000Z --end 2026-08-06T00:00:00.000Z
+# needs more eligible pushes or has boundary-straddling work. Verify the
+# append-only ledger again, then substitute a separately reviewed later end.
+EXTENDED_END_UTC_EXCLUSIVE='<EXTENDED_END_UTC_EXCLUSIVE>'
+pnpm vercel:cost:observe -- init --start "$START_UTC" --end "$EXTENDED_END_UTC_EXCLUSIVE"
 # Repairable GitHub gaps leave collection mutable; a clean audit preflight
 # permanently freezes this interval before writing the private evidence-join fragment.
-pnpm vercel:cost:observe -- audit --end <final-end-utc>
+# Read the canonical current end back from interval.json plus its latest valid
+# extension. Never audit an earlier scheduled end after the ledger was extended.
+CURRENT_END_UTC_EXCLUSIVE='<CURRENT_END_UTC_EXCLUSIVE>'
+pnpm vercel:cost:observe -- audit --end "$CURRENT_END_UTC_EXCLUSIVE"
 
-# Test and run the private collector plus redaction-safe closeout analyzer
+# Normalize complete saved Vercel v7 pages without network access. Output and
+# proof share one private directory; rerun the exact command after interruption.
+pnpm vercel:cost:normalize-deployments --input <private-pages-envelope.json> --output <private-dir/census.jsonl> --proof <private-dir/census-proof.json>
+
+# Test and run the private collector, census normalizer, and redaction-safe analyzer
 pnpm vercel:cost:test
-# The analyzer uses the #523 target-mix formula only after complete baseline and
-# post deployment censuses prove zero legacy-v2, manual, or unknown attempts.
+# Inspect the private detailed-usage shape, then build the source-bound GitHub
+# Actions proof after collecting its metadata and one complete audit source.
+pnpm vercel:cost:github -- inspect --usage-csv .vercel-cost-evidence/github/raw/detailed-usage.csv --output .vercel-cost-evidence/github/usage-shape.json
+# Free-plan owners use --audit-web-export; entitled Enterprise Cloud owners may
+# instead pass --audit-rest-transcript. The two options are mutually exclusive.
+pnpm vercel:cost:github -- build --usage-csv .vercel-cost-evidence/github/raw/detailed-usage.csv --usage-metadata .vercel-cost-evidence/github/raw/detailed-usage.metadata.json --audit-web-export .vercel-cost-evidence/github/raw/audit-log.web-export.json --audit-metadata .vercel-cost-evidence/github/raw/audit-log.metadata.json --observation-root .vercel-cost-evidence/github-observation-v2 --output .vercel-cost-evidence/github/postcutover.github-actions.json
+# The analyzer rebuilds baseline/post censuses and canonical proofs from their
+# raw saved deployment pages before applying the #523 target-mix formula, and
+# manifest v3 also revalidates the GitHub Actions proof from its raw sources.
 pnpm vercel:cost:analyze --input .vercel-cost-evidence/manifest.json --format markdown
 ```
 

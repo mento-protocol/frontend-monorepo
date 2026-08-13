@@ -1568,6 +1568,61 @@ test("Claude review requires the workflow-run receipt, main source ref, and exac
     "passing",
   );
 
+  const rewrittenChecks = completeChecks();
+  const rewrittenIndex = rewrittenChecks.findIndex(
+    ({ name }) => name === "claude-review",
+  );
+  rewrittenChecks[rewrittenIndex] = {
+    ...rewrittenChecks[rewrittenIndex],
+    detailsUrl: `https://github.com/${REPOSITORY}/runs/${rewrittenChecks[rewrittenIndex].id}`,
+  };
+  const rewritten = evaluateDependabotChecks({
+    checks: rewrittenChecks,
+    headSha: HEAD_SHA,
+    pullRequestNumber: 123,
+    repository: REPOSITORY,
+  });
+  assert.equal(
+    rewritten.policy.find(({ id }) => id === "claude-review").state,
+    "passing",
+  );
+
+  for (const variant of [
+    {
+      detailsUrl: `https://github.com/${REPOSITORY}/actions/runs/2`,
+      name: "Claude-Review",
+    },
+    {
+      detailsUrl: `https://github.com/${REPOSITORY}/runs/2`,
+      name: "CLAUDE-REVIEW",
+    },
+  ]) {
+    const checks = completeChecks();
+    const index = checks.findIndex(({ name }) => name === "claude-review");
+    checks.push({
+      ...checks[index],
+      detailsUrl: variant.detailsUrl,
+      externalId: `dependabot-claude-review:v1:pr=123:sha=${HEAD_SHA}:run=2:attempt=1`,
+      id: 2,
+      name: variant.name,
+      runId: 2,
+    });
+    const result = evaluateDependabotChecks({
+      checks,
+      headSha: HEAD_SHA,
+      pullRequestNumber: 123,
+      repository: REPOSITORY,
+    });
+    const policy = result.policy.find(({ id }) => id === "claude-review");
+    assert.equal(policy.check.name, variant.name, JSON.stringify(variant));
+    assert.equal(policy.state, "failing", JSON.stringify(variant));
+    assert.equal(
+      policy.reason,
+      "unexpected-claude-review-check-name",
+      JSON.stringify(variant),
+    );
+  }
+
   for (const mutation of [
     { runHeadBranch: "dependabot-branch" },
     { runHeadSha: HEAD_SHA },
@@ -1577,7 +1632,17 @@ test("Claude review requires the workflow-run receipt, main source ref, and exac
     {
       externalId: `dependabot-claude-review:v1:pr=123:sha=${HEAD_SHA}:run=1:attempt=2`,
     },
+    {
+      externalId: `dependabot-claude-review:v1:pr=123:sha=${HEAD_SHA}:run=2:attempt=1`,
+    },
+    { externalId: "dependabot-claude-review:v1:malformed" },
+    { detailsUrl: `https://github.com/${REPOSITORY}/runs/2` },
+    {
+      detailsUrl: `https://github.com/${REPOSITORY}/runs/1`,
+      id: 0,
+    },
     { detailsUrl: `https://github.com/${REPOSITORY}/actions/runs/1/job/2` },
+    { sourceRepository: "attacker/fork" },
     { workflowEvent: "pull_request_target" },
   ]) {
     const checks = completeChecks();
@@ -5511,6 +5576,181 @@ test("live check collection binds a check to its queried workflow repository", a
   });
   assert.equal(result.policy.find(({ id }) => id === "ci").state, "passing");
   assert.equal(workflowRunReads, 1);
+});
+
+test("live Claude review collection follows its exact receipt when GitHub rewrites the check URL", async () => {
+  const checkRunId = 93_713_691_800;
+  const workflowRunId = 31_471_141_800;
+  const requestedWorkflowRuns = [];
+  const fetchImpl = async (url) => {
+    const path = new URL(url).pathname;
+    if (path.endsWith(`/commits/${HEAD_SHA}/check-runs`)) {
+      return new Response(
+        JSON.stringify({
+          check_runs: [
+            {
+              app: { id: 15_368 },
+              completed_at: "2026-08-12T10:01:00Z",
+              conclusion: "success",
+              details_url: `https://github.com/${REPOSITORY}/runs/${checkRunId}`,
+              external_id: `dependabot-claude-review:v1:pr=123:sha=${HEAD_SHA}:run=${workflowRunId}:attempt=1`,
+              head_sha: HEAD_SHA,
+              id: checkRunId,
+              name: "claude-review",
+              output: {
+                text: stableJson({
+                  findings: [],
+                  headSha: HEAD_SHA,
+                  pullRequestNumber: 123,
+                  repository: REPOSITORY,
+                  reviewCompleted: true,
+                  schema: "dependabot-claude-review-result:v1",
+                  verdict: "clean",
+                }),
+              },
+              started_at: "2026-08-12T10:00:00Z",
+              status: "completed",
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }
+    if (path === `/repos/${REPOSITORY}/actions/runs/${workflowRunId}`) {
+      requestedWorkflowRuns.push(workflowRunId);
+      return new Response(
+        JSON.stringify({
+          conclusion: "success",
+          display_title: `dependabot-claude-review:v1 | source=dependabot-intake:v1 | repository=${REPOSITORY} | pr=123 | sha=${HEAD_SHA} | action=synchronize | receipt=true`,
+          event: "workflow_run",
+          head_branch: "main",
+          head_sha: MERGE_SHA,
+          id: workflowRunId,
+          path: ".github/workflows/dependabot-claude-review.yml",
+          repository: { full_name: REPOSITORY },
+          run_attempt: 1,
+          status: "completed",
+        }),
+        { status: 200 },
+      );
+    }
+    if (path.endsWith(`/commits/${HEAD_SHA}/statuses`)) {
+      return new Response(JSON.stringify([]), { status: 200 });
+    }
+    assert.fail(`Unexpected request: ${url}`);
+  };
+  const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
+  const [review] = await adapter.getChecks(REPOSITORY, HEAD_SHA);
+
+  assert.deepEqual(requestedWorkflowRuns, [workflowRunId]);
+  assert.equal(review.id, checkRunId);
+  assert.equal(
+    review.detailsUrl,
+    `https://github.com/${REPOSITORY}/runs/${checkRunId}`,
+  );
+  assert.equal(review.runId, workflowRunId);
+  assert.equal(review.runAttempt, 1);
+  assert.equal(review.sourceRepository, REPOSITORY);
+  assert.equal(
+    review.workflowPath,
+    ".github/workflows/dependabot-claude-review.yml",
+  );
+
+  const result = evaluateDependabotChecks({
+    checks: [review],
+    headSha: HEAD_SHA,
+    pullRequestNumber: 123,
+    repository: REPOSITORY,
+  });
+  assert.deepEqual(
+    result.policy
+      .filter(({ id }) => id === "claude-review")
+      .map(({ findings, reason, source, state }) => ({
+        findings,
+        reason,
+        source,
+        state,
+      })),
+    [
+      {
+        findings: [],
+        reason: "passing",
+        source: "trusted-source",
+        state: "passing",
+      },
+    ],
+  );
+});
+
+test("live Claude review self URLs fail closed without the exact receipt and check identity", async () => {
+  const checkRunId = 93_713_691_810;
+  const workflowRunId = 31_471_141_810;
+  const cases = [
+    {
+      detailsUrl: `https://github.com/${REPOSITORY}/runs/${checkRunId}`,
+      externalId: "dependabot-claude-review:v1:malformed",
+      label: "malformed external receipt",
+    },
+    {
+      detailsUrl: `https://github.com/${REPOSITORY}/runs/${checkRunId + 1}`,
+      externalId: `dependabot-claude-review:v1:pr=123:sha=${HEAD_SHA}:run=${workflowRunId}:attempt=1`,
+      label: "wrong self check ID",
+    },
+  ];
+
+  for (const testCase of cases) {
+    let workflowRunReads = 0;
+    const fetchImpl = async (url) => {
+      const path = new URL(url).pathname;
+      if (path.endsWith(`/commits/${HEAD_SHA}/check-runs`)) {
+        return new Response(
+          JSON.stringify({
+            check_runs: [
+              {
+                app: { id: 15_368 },
+                completed_at: "2026-08-12T10:01:00Z",
+                conclusion: "success",
+                details_url: testCase.detailsUrl,
+                external_id: testCase.externalId,
+                head_sha: HEAD_SHA,
+                id: checkRunId,
+                name: "claude-review",
+                started_at: "2026-08-12T10:00:00Z",
+                status: "completed",
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (path.includes(`/repos/${REPOSITORY}/actions/runs/`)) {
+        workflowRunReads += 1;
+        return new Response(JSON.stringify({ message: "unexpected" }), {
+          status: 500,
+        });
+      }
+      if (path.endsWith(`/commits/${HEAD_SHA}/statuses`)) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      assert.fail(`Unexpected request: ${url}`);
+    };
+    const adapter = createLiveGitHubAdapter({
+      fetchImpl,
+      token: "test-token",
+    });
+    const [review] = await adapter.getChecks(REPOSITORY, HEAD_SHA);
+    const result = evaluateDependabotChecks({
+      checks: [review],
+      headSha: HEAD_SHA,
+      pullRequestNumber: 123,
+      repository: REPOSITORY,
+    });
+    const policy = result.policy.find(({ id }) => id === "claude-review");
+
+    assert.equal(workflowRunReads, 0, testCase.label);
+    assert.equal(policy.state, "failing", testCase.label);
+    assert.equal(policy.reason, "unexpected-source-repository", testCase.label);
+  }
 });
 
 test("live check collection skips workflow-run reads for irrelevant checks and statuses", async () => {

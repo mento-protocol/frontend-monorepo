@@ -58,10 +58,11 @@ function receiptInput(outcome = "active-committed") {
   return {
     ...IDENTITY,
     producerRunAttempt: "2",
-    producerJob:
-      outcome === "recovery-failed"
-        ? "recover-main-deployment"
-        : "activate-and-verify",
+    producerJob: ["recovery-failed", "recovered-census-unproven"].includes(
+      outcome,
+    )
+      ? "recover-main-deployment"
+      : "activate-and-verify",
     evidenceDigest: DIGEST(`terminal-evidence:${outcome}`),
     outcome,
     finalMapping: proof(mapping, "mapping"),
@@ -191,6 +192,78 @@ test("recovery failure has a recovery-only, dynamic, tamper-evident terminal han
         affectedOperations: [affectedOperation()],
       }),
     /forbids affected operations/,
+  );
+});
+
+test("recovered unproven census has a recovery-only durable terminal handoff", () => {
+  const outcome = "recovered-census-unproven";
+  const evidence = createMainTerminalEvidence({
+    ...IDENTITY,
+    producerRunAttempt: "2",
+    producerJob: "recover-main-deployment",
+    outcome,
+    affectedOperations: [],
+    artifact: {
+      censusFailure: "provider-read-transport",
+      finalMapping: "prior",
+      publicSmoke: "passed",
+    },
+  });
+  const receipt = createMainTerminalReceipt({
+    ...receiptInput(outcome),
+    evidenceDigest: digestMainTerminalEvidence(evidence),
+  });
+
+  assert.deepEqual(
+    [
+      receipt.finalMapping.status,
+      receipt.finalCensus.status,
+      receipt.stateProof.status,
+      receipt.publicSmoke.status,
+      receipt.freshLegacyV2.status,
+    ],
+    ["passed", "unsafe", "unsafe", "passed", "passed"],
+  );
+  assert.equal(receipt.journal.status, "recovered");
+  assert.deepEqual(receipt.rollbackTargets, ["governance"]);
+  assert.deepEqual(
+    decodeMainTerminalReceipt(encodeMainTerminalReceipt(receipt), IDENTITY),
+    receipt,
+  );
+  assert.deepEqual(
+    decodeMainTerminalEvidence(encodeMainTerminalEvidence(evidence), {
+      receipt,
+    }),
+    evidence,
+  );
+
+  assert.throws(
+    () =>
+      createMainTerminalReceipt({
+        ...receiptInput(outcome),
+        producerJob: "activate-and-verify",
+      }),
+    /requires the recovery producer job/,
+  );
+  assert.throws(
+    () =>
+      createMainTerminalEvidence({
+        ...IDENTITY,
+        producerRunAttempt: "2",
+        producerJob: "activate-and-verify",
+        outcome,
+        affectedOperations: [],
+        artifact: { censusFailure: "provider-read-transport" },
+      }),
+    /requires the recovery producer job/,
+  );
+  assert.throws(
+    () =>
+      createMainTerminalReceipt({
+        ...receiptInput(outcome),
+        finalCensus: proof("passed", "census"),
+      }),
+    /proof statuses conflict/,
   );
 });
 
