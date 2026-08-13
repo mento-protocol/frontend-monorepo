@@ -54,7 +54,7 @@ export default async function RootLayout({
   );
 
   return (
-    <html lang="en" data-mento-observation-canary="523-v1-governance-08">
+    <html lang="en" data-mento-observation-canary="523-v1-governance-09">
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${aspekta.className} dark max-w-screen overflow-x-hidden antialiased`}
       >
