@@ -75,6 +75,54 @@ describe("sentry-filter", () => {
     expect(filterNoisySentryEvents(event)).toBeNull();
   });
 
+  it("drops typed user-rejection errors from an exception chain", () => {
+    const event = {
+      exception: {
+        values: [
+          {
+            type: "ContractFunctionExecutionError",
+            value: "User rejected the request.",
+          },
+          {
+            type: "UserRejectedRequestError",
+            value: "User rejected the request.",
+          },
+        ],
+      },
+    } as ErrorEvent;
+
+    expect(filterNoisySentryEvents(event)).toBeNull();
+  });
+
+  it("drops code 4001 errors without relying on global wallet context", () => {
+    const event = makeEvent();
+    const hint = {
+      originalException: { code: 4001, message: "User rejected the request." },
+    } as EventHint;
+
+    expect(filterNoisySentryEvents(event, hint)).toBeNull();
+  });
+
+  it("keeps generic request-rejected errors even with global wallet context", () => {
+    const event = {
+      ...makeEvent({ message: "Request rejected by upstream" }),
+      contexts: { wallet: { connection_status: "connected" } },
+      tags: { "wallet.type": "Rabby Wallet" },
+    } as ErrorEvent;
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
+  });
+
+  it("drops a nested code 4001 cause and tolerates cause cycles", () => {
+    const rejection = { code: 4001 } as { cause?: unknown; code: number };
+    const wrapper = { cause: rejection };
+    rejection.cause = wrapper;
+    const event = makeEvent();
+    const hint = { originalException: wrapper } as EventHint;
+
+    expect(filterNoisySentryEvents(event, hint)).toBeNull();
+  });
+
   it("drops Merkl proxy transport failures on the Merkl route", () => {
     const event = makeEvent({
       exceptionType: "AbortError",

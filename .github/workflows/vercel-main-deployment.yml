@@ -950,7 +950,7 @@ jobs:
           }
         run: |
           node scripts/vercel-main-provider-cli.mjs candidate-smoke --intent "$RUNNER_TEMP/intent.json" --output "$RUNNER_TEMP/smoke.json"
-          node scripts/vercel-main-provider-cli.mjs candidate-finalize --intent "$RUNNER_TEMP/intent.json" --smoke "$RUNNER_TEMP/smoke.json" --output "$RUNNER_TEMP/receipt.json"
+          node scripts/vercel-main-provider-cli.mjs candidate-finalize --intent "$RUNNER_TEMP/intent.json" --smoke "$RUNNER_TEMP/smoke.json" --preflight "$RUNNER_TEMP/preflight.json" --output "$RUNNER_TEMP/receipt.json"
       - name: Publish governance terminal outputs
         id: terminal
         if: ${{ always() }}
@@ -1153,7 +1153,7 @@ jobs:
           }
         run: |
           node scripts/vercel-main-provider-cli.mjs candidate-smoke --intent "$RUNNER_TEMP/intent.json" --output "$RUNNER_TEMP/smoke.json"
-          node scripts/vercel-main-provider-cli.mjs candidate-finalize --intent "$RUNNER_TEMP/intent.json" --smoke "$RUNNER_TEMP/smoke.json" --output "$RUNNER_TEMP/receipt.json"
+          node scripts/vercel-main-provider-cli.mjs candidate-finalize --intent "$RUNNER_TEMP/intent.json" --smoke "$RUNNER_TEMP/smoke.json" --preflight "$RUNNER_TEMP/preflight.json" --output "$RUNNER_TEMP/receipt.json"
       - name: Publish reserve terminal outputs
         id: terminal
         if: ${{ always() }}
@@ -1355,7 +1355,7 @@ jobs:
           }
         run: |
           node scripts/vercel-main-provider-cli.mjs candidate-smoke --intent "$RUNNER_TEMP/intent.json" --output "$RUNNER_TEMP/smoke.json"
-          node scripts/vercel-main-provider-cli.mjs candidate-finalize --intent "$RUNNER_TEMP/intent.json" --smoke "$RUNNER_TEMP/smoke.json" --output "$RUNNER_TEMP/receipt.json"
+          node scripts/vercel-main-provider-cli.mjs candidate-finalize --intent "$RUNNER_TEMP/intent.json" --smoke "$RUNNER_TEMP/smoke.json" --preflight "$RUNNER_TEMP/preflight.json" --output "$RUNNER_TEMP/receipt.json"
       - name: Publish UI terminal outputs
         id: terminal
         if: ${{ always() }}

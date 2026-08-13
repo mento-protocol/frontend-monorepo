@@ -1,6 +1,10 @@
 import { UserRejectedRequestError } from "viem";
 import { describe, expect, it } from "vitest";
-import { isUserRejection } from "./is-user-rejection";
+import {
+  isStructuredUserRejection,
+  isUserRejection,
+  isUserRejectionForTelemetry,
+} from "./is-user-rejection";
 
 describe("isUserRejection", () => {
   it("detects MetaMask/viem rejection messages", () => {
@@ -26,7 +30,7 @@ describe("isUserRejection", () => {
     expect(isUserRejection("Swap transaction rejected by user.")).toBe(true);
   });
 
-  it("detects a UserRejectedRequestError instance via BaseError#walk", () => {
+  it("detects a UserRejectedRequestError instance", () => {
     const error = new UserRejectedRequestError(new Error("denied"));
     expect(isUserRejection(error)).toBe(true);
   });
@@ -41,5 +45,30 @@ describe("isUserRejection", () => {
     expect(isUserRejection("insufficient funds")).toBe(false);
     expect(isUserRejection("execution reverted")).toBe(false);
     expect(isUserRejection(undefined)).toBe(false);
+  });
+});
+
+describe("isUserRejectionForTelemetry", () => {
+  it("accepts structured and unambiguous user denials", () => {
+    expect(isUserRejectionForTelemetry({ code: 4001 })).toBe(true);
+    expect(isUserRejectionForTelemetry(new Error("User denied"))).toBe(true);
+    expect(
+      isUserRejectionForTelemetry(new Error("Transaction rejected by user")),
+    ).toBe(true);
+  });
+
+  it("keeps generic request-rejected failures reportable", () => {
+    expect(
+      isUserRejectionForTelemetry(new Error("Request rejected by upstream")),
+    ).toBe(false);
+  });
+
+  it("finds structured causes and tolerates cause cycles", () => {
+    const rejection = { code: 4001 } as { cause?: unknown; code: number };
+    const wrapper = { cause: rejection };
+    rejection.cause = wrapper;
+
+    expect(isStructuredUserRejection(wrapper)).toBe(true);
+    expect(isUserRejectionForTelemetry(wrapper)).toBe(true);
   });
 });

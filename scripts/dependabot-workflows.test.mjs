@@ -103,6 +103,8 @@ const humanReview = workflow(humanReviewPath);
 
 const claudeAction =
   "anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b";
+const claudeBaseAction =
+  "anthropics/claude-code-action/base-action@be7b93b1907a4abad570368f3c74b6fe3807510b";
 const claudePluginMarketplace = "./.claude-code-plugin-marketplace";
 const claudeCodeReviewPlugin = `${claudePluginMarketplace}/plugins/code-review`;
 const claudePluginMarketplaceRef = "2bb60696142b493eafaeacfe00eac51d16c50c4f";
@@ -158,6 +160,7 @@ test("sensitive Actions updates stay out of the routine Dependabot group", () =>
     "actions/create-github-app-token",
     "actions/dependency-review-action",
     "anthropics/claude-code-action",
+    "anthropics/claude-code-action/base-action",
     "github/codeql-action/upload-sarif",
     "google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml",
     "ossf/scorecard-action",
@@ -1392,25 +1395,116 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
   assert.match(envelope.run, /retryCount/);
 
   const checkout = plan.steps[0];
-  const planner = plan.steps[1];
+  const evidence = plan.steps[1];
+  const planner = plan.steps[2];
+  const evidenceCompletion = plan.steps[3];
+  assert.equal(plan.name, "Produce a bounded sealed-evidence repair plan");
   assert.deepEqual(checkout.with, {
     "fetch-depth": 1,
     "persist-credentials": false,
     ref: "${{ github.workflow_sha }}",
   });
-  assert.equal(planner.uses, claudeAction);
+  assert.equal(evidence.id, "evidence");
+  assert.equal(evidence.env.GH_TOKEN, "${{ github.token }}");
   assert.equal(
-    planner.with.allowed_bots,
-    "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN }}",
+    evidence.env.PACKET_BASE64,
+    "${{ needs.preflight.outputs.packet_base64 }}",
   );
-  assert.equal(planner.with.github_token, "${{ github.token }}");
-  assert.match(planner.with.additional_permissions, /actions: read/);
-  assert.match(planner.with.additional_permissions, /checks: read/);
+  assert.equal(
+    evidence.env.PACKET_DIGEST,
+    "${{ needs.preflight.outputs.packet_digest }}",
+  );
+  assert.equal(
+    evidence.env.PROCESSOR_CHECK_ID,
+    "${{ needs.preflight.outputs.processor_check_id }}",
+  );
+  assert.match(evidence.run, /materialize-repair-evidence/);
+  assert.match(evidence.run, /--output-root "\$evidence_root"/);
+  assert.match(evidence.run, /--github-output "\$GITHUB_OUTPUT"/);
+
+  assert.equal(planner.uses, claudeBaseAction);
+  assert.equal(Object.hasOwn(planner.with, "github_token"), false);
+  assert.equal(Object.hasOwn(planner.with, "allowed_bots"), false);
+  assert.equal(Object.hasOwn(planner.with, "additional_permissions"), false);
+  assert.equal(Object.hasOwn(planner.with, "plugins"), false);
+  assert.equal(Object.hasOwn(planner.with, "plugin_marketplaces"), false);
+  assert.equal(planner.with.show_full_output, false);
+  assert.doesNotMatch(
+    JSON.stringify(planner),
+    /github\.token|GH_TOKEN|DEPENDABOT_PROCESSOR_PREPARE_APP|mcpServers/,
+  );
+  const plannerSettings = JSON.parse(planner.with.settings);
+  assert.deepEqual(plannerSettings.env, {
+    DEPENDABOT_REPAIR_EVIDENCE_MANIFEST:
+      "${{ steps.evidence.outputs.evidence_manifest }}",
+    DEPENDABOT_REPAIR_EVIDENCE_MANIFEST_DIGEST:
+      "${{ steps.evidence.outputs.evidence_manifest_digest }}",
+    DEPENDABOT_REPAIR_EVIDENCE_ROOT:
+      "${{ steps.evidence.outputs.evidence_root }}",
+  });
+  assert.deepEqual(plannerSettings.hooks.PreToolUse, [
+    {
+      hooks: [
+        {
+          command:
+            'node "${{ github.workspace }}/scripts/dependabot-repair-evidence-tool-guard.mjs" || exit 2',
+          timeout: 5,
+          type: "command",
+        },
+      ],
+      matcher: "Read|Grep",
+    },
+  ]);
+  assert.deepEqual(plannerSettings.hooks.PostToolUse, [
+    {
+      hooks: [
+        {
+          command:
+            'node "${{ github.workspace }}/scripts/dependabot-repair-evidence-tool-guard.mjs" || exit 2',
+          timeout: 5,
+          type: "command",
+        },
+      ],
+      matcher: "Read|Grep",
+    },
+  ]);
   assert.match(planner.with.prompt, /BEGIN UNTRUSTED REPAIR PACKET/);
   assert.match(planner.with.prompt, /needs\.preflight\.outputs\.packet_json/);
   assert.doesNotMatch(planner.with.prompt, /packet_base64/);
-  assert.match(planner.with.claude_args, /Bash,Edit,Write,NotebookEdit/);
+  assert.match(planner.with.prompt, /evidence_manifest/);
+  assert.match(planner.with.prompt, /only Read and Grep/);
+  assert.match(
+    planner.with.prompt,
+    /Use Grep.*when useful.*large evidence files only.*explicit bounded pages.*one-based offsets and limits/s,
+  );
+  assert.match(planner.with.claude_args, /--tools "Read,Grep"/);
+  assert.doesNotMatch(planner.with.claude_args, /--allowedTools/);
+  assert.match(
+    planner.with.claude_args,
+    /--disallowedTools "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Agent,Skill,Glob,mcp__\*"/,
+  );
+  assert.match(planner.with.claude_args, /--permission-mode dontAsk/);
+  assert.match(planner.with.claude_args, /--setting-sources user/);
+  assert.match(planner.with.claude_args, /--strict-mcp-config/);
+  assert.match(planner.with.claude_args, /--disable-slash-commands/);
+  assert.match(planner.with.claude_args, /--no-session-persistence/);
+  assert.match(
+    planner.with.claude_args,
+    /--add-dir "\$\{\{ steps\.evidence\.outputs\.evidence_root \}\}"/,
+  );
   assert.match(planner.with.claude_args, /"maxLength":8192/);
+  assert.deepEqual(evidenceCompletion.env, {
+    DEPENDABOT_REPAIR_EVIDENCE_MANIFEST:
+      "${{ steps.evidence.outputs.evidence_manifest }}",
+    DEPENDABOT_REPAIR_EVIDENCE_MANIFEST_DIGEST:
+      "${{ steps.evidence.outputs.evidence_manifest_digest }}",
+    DEPENDABOT_REPAIR_EVIDENCE_ROOT:
+      "${{ steps.evidence.outputs.evidence_root }}",
+  });
+  assert.match(
+    evidenceCompletion.run,
+    /dependabot-repair-evidence-tool-guard\.mjs --verify-completion/,
+  );
 
   assert.doesNotMatch(
     JSON.stringify(validate),

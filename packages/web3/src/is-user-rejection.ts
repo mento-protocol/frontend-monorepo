@@ -1,1 +1,5 @@
-export { isUserRejection } from "./utils/is-user-rejection";
+export {
+  isStructuredUserRejection,
+  isUserRejection,
+  isUserRejectionForTelemetry,
+} from "./utils/is-user-rejection";

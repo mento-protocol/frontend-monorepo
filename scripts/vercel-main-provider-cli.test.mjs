@@ -1461,6 +1461,28 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
     intent.deploySha,
   );
 
+  const creationPreflightPath = join(
+    context.directory,
+    "creation-preflight.json",
+  );
+  const creationPreflight = await runMainProviderCli({
+    argv: [
+      "candidate-preflight",
+      "--intent",
+      intentPath,
+      "--output",
+      creationPreflightPath,
+    ],
+    env: context.env,
+    stdout: context.stdout,
+    stateClientFactory: () => ({
+      requestWithRetry: async () => ({
+        deployments: [],
+        pagination: { next: null },
+      }),
+    }),
+  });
+  assert.equal(creationPreflight.outcome, "create-if-zero");
   await assert.rejects(
     () =>
       runMainProviderCli({
@@ -1470,6 +1492,8 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
           intentPath,
           "--smoke",
           smokePath,
+          "--preflight",
+          creationPreflightPath,
           "--output",
           join(context.directory, "missing-base-handoff.json"),
         ],
@@ -1486,6 +1510,42 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
       }),
     /candidate generated-alias topology mismatch/,
   );
+
+  const admissionPreflightPath = join(
+    context.directory,
+    "admission-preflight.json",
+  );
+  const admissionPreflight = await runMainProviderCli({
+    argv: [
+      "candidate-preflight",
+      "--intent",
+      intentPath,
+      "--output",
+      admissionPreflightPath,
+    ],
+    env: context.env,
+    stdout: context.stdout,
+    stateClientFactory: candidateSmokeStateClient(response),
+  });
+  assert.equal(admissionPreflight.outcome, "reuse-existing");
+  const rerunResult = await runMainProviderCli({
+    argv: [
+      "candidate-finalize",
+      "--intent",
+      intentPath,
+      "--smoke",
+      smokePath,
+      "--preflight",
+      admissionPreflightPath,
+      "--output",
+      join(context.directory, "detached-rerun-handoff.json"),
+    ],
+    env: context.env,
+    stdout: context.stdout,
+    stateClientFactory: candidateSmokeStateClient(response),
+  });
+  assert.equal(rerunResult.action, "reuse");
+  assert.deepEqual(rerunResult.canonicalState.aliases, []);
 
   const badSmokePath = writeJson(context.directory, "bad-smoke.json", {
     immutableUrl: response.url,

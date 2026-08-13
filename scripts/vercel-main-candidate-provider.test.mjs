@@ -10,6 +10,7 @@ import {
 import {
   assertMainCandidateHandoff,
   assertMainServedPriorCandidateHandoff,
+  preflightMainCandidateProvider,
   resolveMainCandidateHandoff,
   resolveMainServedPriorCandidateHandoff,
 } from "./vercel-main-candidate-controller.mjs";
@@ -91,18 +92,34 @@ function releaseManifest() {
   });
 }
 
-function intent(target = "ui") {
+function intent(
+  target = "ui",
+  {
+    originAttempt = "1",
+    originTransactionId = "main-0123456789abcdef0123456789abcdef",
+  } = {},
+) {
   const manifest = releaseManifest();
   return createMainCandidateIntent({
     target,
     deploySha: "dddddddddddddddddddddddddddddddddddddddd",
     upstreamRunId: "700",
     originRunId: "800",
-    originAttempt: "1",
-    originTransactionId: "main-0123456789abcdef0123456789abcdef",
+    originAttempt,
+    originTransactionId,
     projectId: manifest.originalPriors[target].projectId,
     releaseManifest: manifest,
   });
+}
+
+function originForAttempt(originAttempt) {
+  return {
+    originAttempt,
+    originTransactionId:
+      originAttempt === "1"
+        ? "main-0123456789abcdef0123456789abcdef"
+        : "main-fedcba9876543210fedcba9876543210",
+  };
 }
 
 function deploymentResponse(
@@ -156,10 +173,20 @@ function subsets(values) {
 async function resolveHandoff(
   target,
   aliases,
-  { deploymentUrl, servedPrior = false } = {},
+  {
+    candidateAttempt,
+    currentAttempt = "1",
+    deploymentUrl,
+    admittedBeforeJob = false,
+    servedPrior = false,
+  } = {},
 ) {
-  const currentIntent = intent(target);
-  const response = deploymentResponse(currentIntent, {
+  const currentIntent = intent(target, originForAttempt(currentAttempt));
+  const candidateIntent = intent(
+    target,
+    originForAttempt(candidateAttempt ?? currentAttempt),
+  );
+  const response = deploymentResponse(candidateIntent, {
     ...(deploymentUrl === undefined ? {} : { url: deploymentUrl }),
   });
   const provider = createMainCandidateVercelProvider({
@@ -176,15 +203,20 @@ async function resolveHandoff(
   const resolve = servedPrior
     ? resolveMainServedPriorCandidateHandoff
     : resolveMainCandidateHandoff;
-  return resolve({
+  const admissionPreflight = admittedBeforeJob
+    ? await preflightMainCandidateProvider({ intent: currentIntent, provider })
+    : null;
+  const handoff = await resolve({
     intent: currentIntent,
     provider,
+    admissionPreflight,
     smokeCandidate: async (candidate) => ({
       immutableUrl: candidate.deploymentUrl,
       servedSha: currentIntent.deploySha,
       status: "passed",
     }),
   });
+  return admittedBeforeJob ? { handoff, admissionPreflight } : handoff;
 }
 
 test("provider lists a complete bounded project and stable-identity census", async () => {
@@ -311,6 +343,73 @@ test("automatic ordinary candidate finalization requires the base and permits th
       assert.deepEqual(assertMainCandidateHandoff(handoff), handoff);
     }
   }
+});
+
+test("a later attempt reuses a detached ordinary candidate after recovery moved its generated aliases", async () => {
+  for (const target of ["governance", "reserve", "ui"]) {
+    const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
+    for (const aliases of subsets([
+      contract.generatedProjectAlias,
+      generatedCreatorAlias(target),
+    ])) {
+      const { handoff, admissionPreflight } = await resolveHandoff(
+        target,
+        aliases,
+        {
+          candidateAttempt: "1",
+          currentAttempt: "2",
+          admittedBeforeJob: true,
+        },
+      );
+      assert.equal(handoff.action, "reuse");
+      assert.deepEqual(handoff.canonicalState.aliases, aliases);
+      assert.deepEqual(
+        assertMainCandidateHandoff(handoff, admissionPreflight),
+        handoff,
+      );
+      assert.deepEqual(
+        assertMainCandidateHandoff(
+          JSON.parse(JSON.stringify(handoff)),
+          admissionPreflight,
+        ),
+        handoff,
+      );
+    }
+  }
+});
+
+test("a later attempt still rejects unreviewed aliases on a detached ordinary candidate", async () => {
+  for (const target of ["governance", "reserve", "ui"]) {
+    const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
+    for (const [name, aliases] of [
+      ["git-main", [contract.generatedGitMainAlias]],
+      ["project-default", [contract.generatedProjectDefaultAlias]],
+      ["protected", MAIN_TARGET_CONTRACTS[target].aliases],
+      ["unknown", [`${target}-preview.mento.org`]],
+    ]) {
+      await assert.rejects(
+        () =>
+          resolveHandoff(target, aliases, {
+            candidateAttempt: "1",
+            currentAttempt: "2",
+            admittedBeforeJob: true,
+          }),
+        /reused-candidate generated-alias topology mismatch/,
+        `${target}: ${name}`,
+      );
+    }
+  }
+});
+
+test("detached ordinary candidates require a trusted reuse preflight regardless of audit labels", async () => {
+  await assert.rejects(
+    () =>
+      resolveHandoff("governance", [], {
+        candidateAttempt: "1",
+        currentAttempt: "2",
+      }),
+    /candidate generated-alias topology mismatch/,
+  );
 });
 
 test("automatic ordinary candidate finalization rejects non-candidate alias topologies", async () => {
