@@ -8,7 +8,11 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { validateProcessorRepairPacket } from "./dependabot-preparation-receipts.mjs";
+import {
+  canonicalJson,
+  rawDigest,
+  validateProcessorRepairPacket,
+} from "./dependabot-preparation-receipts.mjs";
 
 export const DEPENDABOT_PROCESSOR_SCHEMA = "dependabot-processor:v2";
 export const DEPENDABOT_REPAIR_PACKET_SCHEMA = "dependabot-repair-packet:v2";
@@ -486,6 +490,27 @@ function canonicalCheckJson(check) {
   try {
     const parsed = JSON.parse(outputText);
     return stableJson(parsed) === outputText ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function processorPacketJson(check) {
+  const outputText = check?.outputText ?? check?.output?.text ?? null;
+  if (
+    typeof outputText !== "string" ||
+    outputText.length === 0 ||
+    outputText.length > RECEIPT_OUTPUT_LIMIT
+  ) {
+    return null;
+  }
+  try {
+    const packet = JSON.parse(outputText);
+    const canonical = canonicalJson(packet) === outputText;
+    if (!canonical && stableJson(packet) !== outputText) {
+      return null;
+    }
+    return { canonical, outputText, packet };
   } catch {
     return null;
   }
@@ -1479,10 +1504,15 @@ export function parseDependabotProcessorReceipt(check, repository) {
   );
   if (!external) return null;
   const packetIssued = external[5] === "true";
-  const packet = packetIssued ? canonicalCheckJson(normalized) : null;
+  const packetJson = packetIssued ? processorPacketJson(normalized) : null;
+  const packet = packetJson?.packet ?? null;
   const packetDigest = external[6];
   let packetValid = !packetIssued;
-  if (packetIssued && packet) {
+  if (
+    packetIssued &&
+    packetJson &&
+    rawDigest(packetJson.outputText) === packetDigest
+  ) {
     try {
       validateProcessorRepairPacket(packet);
       packetValid = true;
@@ -1500,7 +1530,6 @@ export function parseDependabotProcessorReceipt(check, repository) {
     (packetIssued &&
       (!packet ||
         packet.schema !== DEPENDABOT_REPAIR_PACKET_SCHEMA ||
-        canonicalDigest(packet) !== packetDigest ||
         packet.workflowRunId !== normalized.runId ||
         packet.workflowRunAttempt !== normalized.runAttempt ||
         packet.workflowSha !== normalized.runHeadSha ||
@@ -1519,6 +1548,7 @@ export function parseDependabotProcessorReceipt(check, repository) {
     headSha: external[2],
     mode: external[3],
     packet,
+    packetCanonical: packetJson?.canonical === true,
     packetDigest: packetIssued ? packetDigest : null,
     packetIssued,
     pullRequestNumber: Number(external[1]),
@@ -3200,7 +3230,12 @@ function evaluateRepairAttemptGate({
       issuedAttemptCount += 1;
       if (isCurrentHead) {
         if (packetAttempts.has(consumedAttempts + 1)) {
-          currentHeadPacketIssued = true;
+          currentHeadPacketIssued = receipts.some(
+            ({ attempt, packetCanonical, packetIssued }) =>
+              packetIssued &&
+              packetCanonical &&
+              attempt === consumedAttempts + 1,
+          );
         } else {
           reasons.push("current-head-packet-attempt-mismatch");
         }
@@ -3549,7 +3584,7 @@ export function createDependabotRepairPacket(evaluation) {
   };
   try {
     validateProcessorRepairPacket(packet);
-    return stableJson(packet).length <= RECEIPT_OUTPUT_LIMIT ? packet : null;
+    return canonicalJson(packet).length <= RECEIPT_OUTPUT_LIMIT ? packet : null;
   } catch {
     return null;
   }
@@ -5543,6 +5578,7 @@ export function createLiveGitHubAdapter({
       );
       const context = normalizeWorkflowContext(workflowContext);
       const packetIssued = repairPacket !== null;
+      const packetText = packetIssued ? canonicalJson(repairPacket) : null;
       if (packetIssued) {
         invariant(
           repairPacket.workflowRunId === context.workflowRunId &&
@@ -5551,9 +5587,7 @@ export function createLiveGitHubAdapter({
           "Repair packet workflow identity changed before publication",
         );
       }
-      const packetDigest = packetIssued
-        ? canonicalDigest(repairPacket)
-        : "none";
+      const packetDigest = packetIssued ? rawDigest(packetText) : "none";
       return publishCompletedCheck({
         conclusion:
           !packetIssued && SAFE_PROCESSOR_CHECK_DISPOSITIONS.has(disposition)
@@ -5565,7 +5599,7 @@ export function createLiveGitHubAdapter({
         name: PROCESSOR_CHECK_NAME,
         output: {
           summary: `Disposition: ${disposition}`,
-          text: packetIssued ? stableJson(repairPacket) : undefined,
+          text: packetText ?? undefined,
           title: `Dependabot processor: ${disposition}`,
         },
         repository,
@@ -6051,7 +6085,7 @@ function processorCheckAlreadyPublished({ evaluation, result, snapshot }) {
   if (!parsed) return false;
   const packetIssued = result.repairPacket !== null;
   const packetDigest = packetIssued
-    ? canonicalDigest(result.repairPacket)
+    ? rawDigest(canonicalJson(result.repairPacket))
     : null;
   return (
     parsed.pullRequestNumber === result.pullRequestNumber &&
@@ -6601,7 +6635,7 @@ async function processFinalizePhase({
         packetDigest:
           result.repairPacket === null
             ? null
-            : canonicalDigest(result.repairPacket),
+            : rawDigest(canonicalJson(result.repairPacket)),
         pullRequestNumber: result.pullRequestNumber,
       });
     }
