@@ -1648,7 +1648,10 @@ test("ordinary candidates emit a current-attempt intent before create and a rece
       finalize,
       `${target} smoke and finalization stay one fail-closed step`,
     );
-    assert.match(smoke.run, /candidate-smoke[\s\S]*candidate-finalize/);
+    assert.match(
+      smoke.run,
+      /candidate-smoke[\s\S]*candidate-finalize[\s\S]*--preflight "\$RUNNER_TEMP\/preflight\.json"/,
+    );
     assert.ok(workflow.jobs[job].outputs.receipt, `${target} receipt output`);
   }
 });
