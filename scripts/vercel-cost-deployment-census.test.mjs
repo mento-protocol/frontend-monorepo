@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import {
+  chmodSync,
+  existsSync,
+  linkSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   statSync,
   symlinkSync,
@@ -22,6 +26,7 @@ import {
   VERCEL_DEPLOYMENT_CENSUS_PROOF_SCHEMA,
   VERCEL_DEPLOYMENT_PAGES_SCHEMA,
   normalizeVercelDeploymentPages,
+  runCli,
 } from "./vercel-cost-deployment-census.mjs";
 
 const START = "2026-07-01T00:00:00.000Z";
@@ -350,6 +355,26 @@ function appendLowerPaddingDeployment(value, overrides = {}) {
   return row;
 }
 
+function cliPaths(prefix = "vercel-census-") {
+  const directory = mkdtempSync(join(tmpdir(), prefix));
+  const input = join(directory, "pages.json");
+  const output = join(directory, "census.jsonl");
+  const proof = join(directory, "proof.json");
+  writeFileSync(input, JSON.stringify(fixture()), { mode: 0o600 });
+  return { directory, input, output, proof };
+}
+
+function cliArguments({ input, output, proof }) {
+  return ["--input", input, "--output", output, "--proof", proof];
+}
+
+function assertNoBundleResidue(directory) {
+  assert.deepEqual(
+    readdirSync(directory).filter((name) => name.startsWith(".vercel-census-")),
+    [],
+  );
+}
+
 test("normalizes two-page raw v7 responses for all four targets", () => {
   const result = normalize();
   assert.equal(result.rows.length, 6);
@@ -558,33 +583,164 @@ test("accepts a bare Vercel hostname beginning with http", () => {
 });
 
 test("writes private output and proof through the credential-free CLI", () => {
-  const directory = mkdtempSync(join(tmpdir(), "vercel-census-"));
-  const input = join(directory, "pages.json");
-  const output = join(directory, "census.jsonl");
-  const proof = join(directory, "proof.json");
-  writeFileSync(input, JSON.stringify(fixture()), { mode: 0o600 });
+  const paths = cliPaths();
   const result = spawnSync(
     process.execPath,
-    [scriptPath, "--input", input, "--output", output, "--proof", proof],
+    [scriptPath, ...cliArguments(paths)],
     { encoding: "utf8" },
   );
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Normalized 6 Vercel deployment records/);
-  assert.equal(readFileSync(output, "utf8"), normalize().output);
+  assert.equal(readFileSync(paths.output, "utf8"), normalize().output);
   assert.equal(
-    JSON.parse(readFileSync(proof, "utf8")).deploymentCensusComplete,
+    JSON.parse(readFileSync(paths.proof, "utf8")).deploymentCensusComplete,
     true,
   );
-  assert.equal(statSync(output).mode & 0o777, 0o600);
-  assert.equal(statSync(proof).mode & 0o777, 0o600);
+  assert.equal(statSync(paths.output).mode & 0o777, 0o600);
+  assert.equal(statSync(paths.proof).mode & 0o777, 0o600);
+  assert.equal(statSync(paths.output).nlink, 1);
+  assert.equal(statSync(paths.proof).nlink, 1);
+  assertNoBundleResidue(paths.directory);
 
   const retry = spawnSync(
     process.execPath,
-    [scriptPath, "--input", input, "--output", output, "--proof", proof],
+    [scriptPath, ...cliArguments(paths)],
     { encoding: "utf8" },
   );
   assert.notEqual(retry.status, 0);
   assert.match(retry.stderr, /refusing to overwrite evidence/);
+});
+
+for (const [name, hook] of [
+  [
+    "rolls back both stages when writing the proof stage fails",
+    {
+      beforeWrite(role) {
+        if (role === "proof") throw new Error("injected proof write failure");
+      },
+    },
+  ],
+  [
+    "rolls back a published output when proof publication fails",
+    {
+      beforePublish(role) {
+        if (role === "proof") {
+          throw new Error("injected proof publication failure");
+        }
+      },
+    },
+  ],
+]) {
+  test(name, () => {
+    const paths = cliPaths("vercel-census-rollback-");
+    assert.throws(() => runCli(cliArguments(paths), hook), /injected proof/);
+    assert.equal(existsSync(paths.output), false);
+    assert.equal(existsSync(paths.proof), false);
+    assertNoBundleResidue(paths.directory);
+  });
+}
+
+test("preserves a preexisting destination and leaves no staged residue", () => {
+  const paths = cliPaths("vercel-census-existing-");
+  writeFileSync(paths.proof, "operator evidence\n", { mode: 0o600 });
+  assert.throws(
+    () => runCli(cliArguments(paths)),
+    /proof already exists; refusing to overwrite evidence/,
+  );
+  assert.equal(existsSync(paths.output), false);
+  assert.equal(readFileSync(paths.proof, "utf8"), "operator evidence\n");
+  assertNoBundleResidue(paths.directory);
+});
+
+test("rolls back its output when a proof destination wins the publish race", () => {
+  const paths = cliPaths("vercel-census-publish-race-");
+  assert.throws(
+    () =>
+      runCli(cliArguments(paths), {
+        beforePublish(role) {
+          if (role === "proof") {
+            writeFileSync(paths.proof, "racing operator evidence\n", {
+              mode: 0o600,
+            });
+          }
+        },
+      }),
+    /EEXIST/,
+  );
+  assert.equal(existsSync(paths.output), false);
+  assert.equal(readFileSync(paths.proof, "utf8"), "racing operator evidence\n");
+  assertNoBundleResidue(paths.directory);
+});
+
+test("rejects a preexisting hardlinked destination without touching it", () => {
+  const paths = cliPaths("vercel-census-hardlink-");
+  const operatorEvidence = join(paths.directory, "operator-proof.json");
+  writeFileSync(operatorEvidence, "operator evidence\n", { mode: 0o600 });
+  linkSync(operatorEvidence, paths.proof);
+  assert.throws(
+    () => runCli(cliArguments(paths)),
+    /proof already exists; refusing to overwrite evidence/,
+  );
+  assert.equal(existsSync(paths.output), false);
+  assert.equal(readFileSync(paths.proof, "utf8"), "operator evidence\n");
+  assert.equal(statSync(operatorEvidence).nlink, 2);
+  assertNoBundleResidue(paths.directory);
+});
+
+test("rejects a preexisting symlink destination without touching it", () => {
+  const paths = cliPaths("vercel-census-symlink-output-");
+  const operatorEvidence = join(paths.directory, "operator-proof.json");
+  writeFileSync(operatorEvidence, "operator evidence\n", { mode: 0o600 });
+  symlinkSync(operatorEvidence, paths.proof);
+  assert.throws(
+    () => runCli(cliArguments(paths)),
+    /proof already exists; refusing to overwrite evidence/,
+  );
+  assert.equal(existsSync(paths.output), false);
+  assert.equal(readFileSync(paths.proof, "utf8"), "operator evidence\n");
+  assertNoBundleResidue(paths.directory);
+});
+
+test("requires output and proof to share one canonical real parent", () => {
+  const paths = cliPaths("vercel-census-parent-a-");
+  const other = mkdtempSync(join(tmpdir(), "vercel-census-parent-b-"));
+  paths.proof = join(other, "proof.json");
+  assert.throws(
+    () => runCli(cliArguments(paths)),
+    /must share one canonical real parent/,
+  );
+  assert.equal(existsSync(paths.output), false);
+  assert.equal(existsSync(paths.proof), false);
+  assertNoBundleResidue(paths.directory);
+  assertNoBundleResidue(other);
+});
+
+test("rejects a writable evidence destination parent", () => {
+  const paths = cliPaths("vercel-census-writable-parent-");
+  chmodSync(paths.directory, 0o770);
+  assert.throws(
+    () => runCli(cliArguments(paths)),
+    /must not be group- or world-writable/,
+  );
+  assert.equal(existsSync(paths.output), false);
+  assert.equal(existsSync(paths.proof), false);
+  assertNoBundleResidue(paths.directory);
+});
+
+test("rejects a symlinked evidence destination parent", () => {
+  const paths = cliPaths("vercel-census-symlink-parent-");
+  const realParent = mkdtempSync(join(tmpdir(), "vercel-census-real-parent-"));
+  const parentLink = join(paths.directory, "linked-parent");
+  symlinkSync(realParent, parentLink);
+  paths.output = join(parentLink, "census.jsonl");
+  paths.proof = join(parentLink, "proof.json");
+  assert.throws(
+    () => runCli(cliArguments(paths)),
+    /parent must be a real directory, not a symlink/,
+  );
+  assert.equal(existsSync(paths.output), false);
+  assert.equal(existsSync(paths.proof), false);
+  assertNoBundleResidue(realParent);
 });
 
 test("refuses a symlinked private input", () => {

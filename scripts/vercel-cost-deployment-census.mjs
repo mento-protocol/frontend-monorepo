@@ -1,17 +1,22 @@
 #!/usr/bin/env node
 
 import { Buffer } from "node:buffer";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   closeSync,
   constants,
+  fchmodSync,
   fstatSync,
+  fsyncSync,
+  linkSync,
   lstatSync,
   openSync,
   readFileSync,
+  realpathSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
@@ -949,16 +954,239 @@ function assertDestination(path, label) {
   throw new Error(`${label} already exists; refusing to overwrite evidence`);
 }
 
-export function runCli(argv) {
+function sameIdentity(left, right) {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+function assertPrivateParent(path) {
+  const requestedParent = dirname(path);
+  const requestedStat = lstatSync(requestedParent, { bigint: true });
+  if (!requestedStat.isDirectory() || requestedStat.isSymbolicLink?.()) {
+    throw new Error("output parent must be a real directory, not a symlink");
+  }
+  const parent = realpathSync(requestedParent);
+  const parentStat = lstatSync(parent, { bigint: true });
+  if (!parentStat.isDirectory() || parentStat.isSymbolicLink?.()) {
+    throw new Error("output parent must resolve to a real directory");
+  }
+  if (!sameIdentity(requestedStat, parentStat)) {
+    throw new Error("output parent identity changed during validation");
+  }
+  const uid = process.getuid?.();
+  if (!Number.isInteger(uid) || parentStat.uid !== BigInt(uid)) {
+    throw new Error("output parent must be owned by the current user");
+  }
+  if ((parentStat.mode & 0o022n) !== 0n) {
+    throw new Error("output parent must not be group- or world-writable");
+  }
+  return { parent, stat: parentStat, uid: BigInt(uid) };
+}
+
+function assertParentIdentity(parent) {
+  const current = lstatSync(parent.parent, { bigint: true });
+  if (
+    !current.isDirectory() ||
+    current.isSymbolicLink?.() ||
+    !sameIdentity(current, parent.stat) ||
+    current.uid !== parent.uid ||
+    (current.mode & 0o022n) !== 0n
+  ) {
+    throw new Error("output parent changed during evidence publication");
+  }
+}
+
+function assertPrivateFile(stat, identity, expectedLinks) {
+  if (
+    !stat.isFile() ||
+    stat.isSymbolicLink?.() ||
+    stat.dev !== identity.dev ||
+    stat.ino !== identity.ino ||
+    stat.uid !== identity.uid ||
+    stat.nlink !== BigInt(expectedLinks) ||
+    (stat.mode & 0o777n) !== 0o600n
+  ) {
+    throw new Error("private evidence file identity is invalid");
+  }
+}
+
+function removeCreatedPath(path, identity) {
+  try {
+    const current = lstatSync(path, { bigint: true });
+    if (sameIdentity(current, identity)) unlinkSync(path);
+  } catch (error) {
+    if (!(error && typeof error === "object" && error.code === "ENOENT")) {
+      throw error;
+    }
+  }
+}
+
+function cleanupCreatedEntries(entries) {
+  const errors = [];
+  for (const entry of entries.toReversed()) {
+    try {
+      removeCreatedPath(entry.path, entry.identity);
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  return errors;
+}
+
+function stagePrivateFile(parent, role, content, hooks) {
+  assertParentIdentity(parent);
+  const path = join(
+    parent.parent,
+    `.vercel-census-${role}-${process.pid}-${randomBytes(16).toString("hex")}.tmp`,
+  );
+  const descriptor = openSync(
+    path,
+    constants.O_WRONLY |
+      constants.O_CREAT |
+      constants.O_EXCL |
+      constants.O_NOFOLLOW,
+    0o600,
+  );
+  let identity = fstatSync(descriptor, { bigint: true });
+  try {
+    assertPrivateFile(identity, identity, 1);
+    fchmodSync(descriptor, 0o600);
+    hooks.beforeWrite?.(role);
+    writeFileSync(descriptor, content);
+    fsyncSync(descriptor);
+    identity = fstatSync(descriptor, { bigint: true });
+    assertPrivateFile(identity, identity, 1);
+  } catch (error) {
+    try {
+      closeSync(descriptor);
+    } finally {
+      removeCreatedPath(path, identity);
+    }
+    throw error;
+  }
+  try {
+    closeSync(descriptor);
+  } catch (error) {
+    removeCreatedPath(path, identity);
+    throw error;
+  }
+  try {
+    const pathStat = lstatSync(path, { bigint: true });
+    assertPrivateFile(pathStat, identity, 1);
+    return { path, identity };
+  } catch (error) {
+    removeCreatedPath(path, identity);
+    throw error;
+  }
+}
+
+export function publishEvidenceBundle(
+  { output, proof },
+  { outputContent, proofContent },
+  hooks = {},
+) {
+  if (
+    !Number.isInteger(constants.O_NOFOLLOW) ||
+    constants.O_NOFOLLOW === 0 ||
+    !Number.isInteger(constants.O_DIRECTORY) ||
+    constants.O_DIRECTORY === 0
+  ) {
+    throw new Error(
+      "this platform cannot safely publish private output evidence",
+    );
+  }
+  const outputParent = assertPrivateParent(output);
+  const proofParent = assertPrivateParent(proof);
+  if (!sameIdentity(outputParent.stat, proofParent.stat)) {
+    throw new Error("output and proof must share one canonical real parent");
+  }
+  const parent = outputParent;
+  const finals = {
+    output: join(parent.parent, basename(output)),
+    proof: join(parent.parent, basename(proof)),
+  };
+  if (finals.output === finals.proof) {
+    throw new Error("output and proof paths must be distinct");
+  }
+  assertDestination(finals.output, "output");
+  assertDestination(finals.proof, "proof");
+
+  const staged = [];
+  const published = [];
+  let directoryDescriptor;
+  try {
+    directoryDescriptor = openSync(
+      parent.parent,
+      constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+    );
+    const openedParent = fstatSync(directoryDescriptor, { bigint: true });
+    if (!sameIdentity(openedParent, parent.stat)) {
+      throw new Error("output parent identity changed before publication");
+    }
+    for (const [role, content] of [
+      ["output", outputContent],
+      ["proof", proofContent],
+    ]) {
+      hooks.beforeStage?.(role);
+      staged.push({ role, ...stagePrivateFile(parent, role, content, hooks) });
+    }
+    for (const entry of staged) {
+      assertParentIdentity(parent);
+      hooks.beforePublish?.(entry.role);
+      linkSync(entry.path, finals[entry.role]);
+      published.push({ path: finals[entry.role], identity: entry.identity });
+      assertPrivateFile(
+        lstatSync(finals[entry.role], { bigint: true }),
+        entry.identity,
+        2,
+      );
+    }
+    fsyncSync(directoryDescriptor);
+    for (const entry of staged) {
+      removeCreatedPath(entry.path, entry.identity);
+    }
+    fsyncSync(directoryDescriptor);
+    for (const entry of published) {
+      assertPrivateFile(
+        lstatSync(entry.path, { bigint: true }),
+        entry.identity,
+        1,
+      );
+    }
+  } catch (error) {
+    const cleanupErrors = [
+      ...cleanupCreatedEntries(published),
+      ...cleanupCreatedEntries(staged),
+    ];
+    if (directoryDescriptor !== undefined) {
+      try {
+        fsyncSync(directoryDescriptor);
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+    }
+    if (cleanupErrors.length !== 0) {
+      throw new AggregateError(
+        [error, ...cleanupErrors],
+        "evidence publication failed and cleanup was incomplete",
+      );
+    }
+    throw error;
+  } finally {
+    if (directoryDescriptor !== undefined) closeSync(directoryDescriptor);
+  }
+}
+
+export function runCli(argv, hooks) {
   const paths = parseArguments(argv);
   if (new Set(Object.values(paths)).size !== 3) {
     throw new Error("input, output, and proof paths must be distinct");
   }
-  assertDestination(paths.output, "output");
-  assertDestination(paths.proof, "proof");
   const normalized = normalizeVercelDeploymentPages(readInputFile(paths.input));
-  writeFileSync(paths.output, normalized.output, { flag: "wx", mode: 0o600 });
-  writeFileSync(paths.proof, normalized.proof, { flag: "wx", mode: 0o600 });
+  publishEvidenceBundle(
+    paths,
+    { outputContent: normalized.output, proofContent: normalized.proof },
+    hooks,
+  );
   process.stdout.write(
     `Normalized ${normalized.proofObject.rowCount} Vercel deployment records.\n`,
   );

@@ -186,10 +186,16 @@ pnpm vercel:cost:normalize-deployments \
 ```
 
 The command reads files only. It makes no network request and has no token
-option. It refuses to overwrite its mode-`0600` output or proof. The private
-proof binds the exact input-envelope bytes, normalized JSONL bytes, UTC window,
-four project IDs, per-project page and row counts, final request cursors,
-terminal `next: null` values, annotation count, and
+option. Output and proof must share one canonical private directory owned by
+the current user and not writable by the group or other users. The command
+stages and syncs both mode-`0600`, single-link regular files before publishing
+either with no-overwrite semantics. A staging or publication failure removes
+only entries created by that invocation, so a retry cannot be blocked by an
+orphaned half-bundle and a preexisting destination remains untouched. Symlink,
+hardlink, cross-directory, and destination races fail closed. The private proof
+binds the exact input-envelope bytes, normalized JSONL bytes, UTC window, four
+project IDs, per-project page and row counts, final request cursors, terminal
+`next: null` values, annotation count, and
 `deploymentCensusComplete: true`. Keep that proof as operator evidence. The
 analyzer manifest remains schema version 2: set
 its `deploymentCensusSha256` to the proof's `outputSha256` and set
