@@ -1,6 +1,5 @@
 import { deriveVoteCardState } from "@/components/voting/derive-vote-card-state";
 import { getActiveGovernanceTransactionError } from "@/components/voting/get-active-governance-transaction-error";
-import { getGovernanceTransactionErrorMessage } from "@/components/voting/get-governance-transaction-error-message";
 import { VoteCardContent } from "@/components/voting/vote-card-content";
 import { useDelayedVoteCardRefire } from "@/components/voting/use-delayed-vote-card-refire";
 import { getWatchdogMultisigAddress } from "@/config";
