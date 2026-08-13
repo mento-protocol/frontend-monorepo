@@ -111,6 +111,8 @@ export const MAIN_ACTIVE_SAFE_NOOP_EVIDENCE_SCHEMA =
   "vercel-main-active-safe-noop-evidence:v1";
 export const MAIN_ACTIVE_FAILURE_EVIDENCE_SCHEMA =
   "vercel-main-active-failure-evidence:v1";
+export const MAIN_ACTIVE_CENSUS_FAILURE_SCHEMA =
+  "vercel-main-active-census-failure:v1";
 export const MAIN_ACTIVE_PREPARATION_FAILURE_EVIDENCE_SCHEMA =
   "vercel-main-active-preparation-failure-evidence:v1";
 export const MAIN_ACTIVE_TERMINAL_PROOFS_SCHEMA =
@@ -275,6 +277,7 @@ const CLI_COMMAND_OPTIONS = Object.freeze({
     "output",
     "state-proof",
   ]),
+  "active-census-failure": Object.freeze(["category", "output"]),
   "active-safe-noop-evidence": Object.freeze(["output"]),
   "terminal-evidence-create": Object.freeze([
     "active-evidence",
@@ -4573,6 +4576,7 @@ export function createMainActiveDeploymentFailureEvidence({
   coordinatorOutcome,
   recoveryOutcome,
   errorCode,
+  censusFailure = null,
 }) {
   const expectedRunId = requirePositiveId(
     runId,
@@ -4698,6 +4702,10 @@ export function createMainActiveDeploymentFailureEvidence({
       "Active failure error code",
       /^[A-Z][A-Z0-9_]*$/,
     ),
+    censusFailure:
+      censusFailure === null
+        ? null
+        : canonicalMainActiveCensusFailureEvidence(censusFailure),
     outcome: "failed",
   };
 }
@@ -4805,6 +4813,11 @@ export function renderMainActiveDeploymentFailureEvidence(evidence) {
     `- Public-serving mutation commands: \`${evidence.publicServingMutationCommands}\``,
     `- Coordinator: \`${evidence.coordinatorOutcome}\`; recovery: \`${evidence.recoveryOutcome}\``,
     `- Error code: \`${evidence.errorCode}\``,
+    ...(evidence.censusFailure === null
+      ? []
+      : [
+          `- Final provider census: unproven (\`${evidence.censusFailure.category}\`); recovery mappings and public smokes remain separately verified.`,
+        ]),
     `- Canonical deployment state proof: ${
       evidence.stateProofSummary === null
         ? "unavailable"
@@ -5055,11 +5068,6 @@ export function evaluateMainActiveFinalResults({
     jobs,
     "Active final job results",
   );
-  const coordinator = requireString(
-    coordinatorOutcome,
-    "Active coordinator outcome",
-    /^[a-z][a-z0-9-]*$/,
-  );
   const recovery = requireString(
     recoveryOutcome,
     "Active recovery outcome",
@@ -5094,7 +5102,12 @@ export function evaluateMainActiveFinalResults({
   }
 
   if (
-    ["recovered", "manual-intervention", "recovery-failed"].includes(recovery)
+    [
+      "recovered",
+      "recovered-census-unproven",
+      "manual-intervention",
+      "recovery-failed",
+    ].includes(recovery)
   ) {
     if (
       canonicalJobs.coordinator === "failure" &&
@@ -5104,6 +5117,11 @@ export function evaluateMainActiveFinalResults({
     }
     return result("failure", "unexpected-active-job-graph");
   }
+  const coordinator = requireString(
+    coordinatorOutcome,
+    "Active coordinator outcome",
+    /^[a-z][a-z0-9-]*$/,
+  );
   if (coordinator === "preparation-failed-before-journal") {
     if (
       canonicalJobs.coordinator === "failure" &&
@@ -5457,7 +5475,7 @@ export function assertMainActiveTerminalProofs(value) {
   const outcome = requireString(
     value.outcome,
     "Main active terminal outcome",
-    /^(?:active-committed|current-release-verified|recovered|verified-noop|no-target|superseded-before-journal|shadow-prepared|manual-intervention|recovery-failed|preparation-failed-before-journal)$/,
+    /^(?:active-committed|current-release-verified|recovered|recovered-census-unproven|verified-noop|no-target|superseded-before-journal|shadow-prepared|manual-intervention|recovery-failed|preparation-failed-before-journal)$/,
   );
   const finalMapping = canonicalTerminalProof(
     value.finalMapping,
@@ -5947,6 +5965,7 @@ export function createMainTerminalStageResults({
 function terminalJobs(execution, outcome) {
   const recoveryOutcome = [
     "recovered",
+    "recovered-census-unproven",
     "verified-noop",
     "manual-intervention",
     "recovery-failed",
@@ -5964,7 +5983,11 @@ function terminalJobs(execution, outcome) {
       ? "success"
       : "skipped",
     coordinator: recoveryOutcome ? "failure" : "success",
-    recovery: ["manual-intervention", "recovery-failed"].includes(outcome)
+    recovery: [
+      "recovered-census-unproven",
+      "manual-intervention",
+      "recovery-failed",
+    ].includes(outcome)
       ? "failure"
       : "success",
   };
@@ -5980,6 +6003,42 @@ function terminalWorkflowRunUrl(runId) {
 
 function terminalProof({ status, artifact }) {
   return { status, artifact };
+}
+
+const MAIN_ACTIVE_CENSUS_FAILURE_CATEGORIES = new Set([
+  "active-census-unproven",
+  "provider-read-timeout",
+  "provider-read-transport",
+  "provider-read-rate-limited",
+  "provider-read-http",
+  "provider-read-malformed",
+  "state-validation-failed",
+]);
+
+export function createMainActiveCensusFailureEvidence({ category }) {
+  if (!MAIN_ACTIVE_CENSUS_FAILURE_CATEGORIES.has(category)) {
+    throw new Error("Active census failure category is unsupported");
+  }
+  return {
+    schema: MAIN_ACTIVE_CENSUS_FAILURE_SCHEMA,
+    phase: "recovery-final-active-proof",
+    category,
+  };
+}
+
+function canonicalMainActiveCensusFailureEvidence(value) {
+  assertExactKeys(
+    value,
+    ["schema", "phase", "category"],
+    "Active census failure evidence",
+  );
+  const canonical = createMainActiveCensusFailureEvidence({
+    category: value.category,
+  });
+  if (value.schema !== canonical.schema || value.phase !== canonical.phase) {
+    throw new Error("Active census failure evidence is malformed");
+  }
+  return canonical;
 }
 
 export function createMainActiveTerminalArtifacts({
@@ -6008,6 +6067,7 @@ export function createMainActiveTerminalArtifacts({
       "active-committed",
       "current-release-verified",
       "recovered",
+      "recovered-census-unproven",
       "verified-noop",
       "no-target",
       "superseded-before-journal",
@@ -6470,6 +6530,77 @@ export function createMainActiveTerminalArtifacts({
       rollbackTargets: [],
       affectedOperations: [],
       journal: terminalProof({ status: "recovery-failed", artifact: history }),
+    };
+  } else if (outcome === "recovered-census-unproven") {
+    if (freshness !== null || stateProof !== null || stageResults !== null) {
+      throw new Error(
+        "Recovered-census-unproven terminal evidence cannot contain a state proof",
+      );
+    }
+    if (
+      history.length === 0 ||
+      finalMappings === null ||
+      publicSmokes === null
+    ) {
+      throw new Error(
+        "Recovered-census-unproven terminal evidence lacks recovery proof",
+      );
+    }
+    const highest = history.at(-1);
+    assertJournalMatchesActivePlanning(highest, planning);
+    if (highest.status !== "recovered") {
+      throw new Error(
+        "Recovered-census-unproven terminal evidence requires a recovered journal",
+      );
+    }
+    const counts = operationMutationCounts(highest);
+    const mappings = canonicalFinalMappings(
+      highest,
+      canonicalTerminalProviderMappings(finalMappings),
+      { exact: false },
+    );
+    assertTerminalMappingsArePriors(mappings, releaseExecution);
+    const smokes = canonicalTerminalPriorSmokes(publicSmokes, releaseExecution);
+    const censusFailure = canonicalMainActiveCensusFailureEvidence(finalCensus);
+    const rollbackTargets = terminalRollbackTargets(highest);
+    if (rollbackTargets.length === 0) {
+      throw new Error(
+        "Recovered-census-unproven terminal evidence lacks rollback proof",
+      );
+    }
+    evidence = createMainActiveDeploymentFailureEvidence({
+      eventHeadSha: manifest.deploySha,
+      verifiedDeploySha: manifest.deploySha,
+      planOutput: "execution-bound",
+      jobs: safeJobs,
+      workflowDefinitionSha: manifest.deploySha,
+      runId: canonicalRunId,
+      runAttempt: canonicalRunAttempt,
+      workflowRunUrl: terminalWorkflowRunUrl(canonicalRunId),
+      mainOwnershipMode: planning.mainOwnershipMode,
+      journalHistory: history,
+      finalMappings: mappings,
+      publicSmokes: smokes,
+      rollbackStateTargets: rollbackTargets,
+      publicServingMutationCommands: counts.started,
+      coordinatorOutcome: "active-failed",
+      recoveryOutcome: "recovered",
+      errorCode: "RECOVERED_CENSUS_UNPROVEN",
+      censusFailure,
+    });
+    proofs = {
+      ...proofIdentity,
+      producerJob: "recover-main-deployment",
+      outcome,
+      finalMapping: terminalProof({ status: "passed", artifact: mappings }),
+      finalCensus: terminalProof({ status: "unsafe", artifact: censusFailure }),
+      stateProof: terminalProof({ status: "unsafe", artifact: censusFailure }),
+      publicSmoke: terminalProof({ status: "passed", artifact: smokes }),
+      freshLegacyV2: terminalProof({ status: "passed", artifact: legacyState }),
+      mutationCount: counts.started,
+      rollbackTargets,
+      affectedOperations: [],
+      journal: terminalProof({ status: "recovered", artifact: history }),
     };
   } else {
     if (stageResults !== null) {
@@ -7037,7 +7168,11 @@ function terminalOutcomeForActiveEvidence(evidence) {
   if (evidence.schema !== MAIN_ACTIVE_FAILURE_EVIDENCE_SCHEMA) {
     throw new Error("Nested active evidence schema is unsupported");
   }
-  if (evidence.recoveryOutcome === "recovered") return "recovered";
+  if (evidence.recoveryOutcome === "recovered") {
+    return evidence.errorCode === "RECOVERED_CENSUS_UNPROVEN"
+      ? "recovered-census-unproven"
+      : "recovered";
+  }
   if (evidence.recoveryOutcome === "recovery-failed") {
     return "recovery-failed";
   }
@@ -7467,6 +7602,7 @@ export function assertMainActiveTerminalEvidenceArtifact(
       "coordinatorOutcome",
       "recoveryOutcome",
       "errorCode",
+      "censusFailure",
       "outcome",
     ],
     "Nested active failure evidence",
@@ -7598,6 +7734,10 @@ export function assertMainActiveTerminalEvidenceArtifact(
     "Nested active failure error code",
     /^[A-Z][A-Z0-9_]*$/,
   );
+  const censusFailure =
+    value.censusFailure === null
+      ? null
+      : canonicalMainActiveCensusFailureEvidence(value.censusFailure);
   const canonical = {
     schema: MAIN_ACTIVE_FAILURE_EVIDENCE_SCHEMA,
     mode: MAIN_ACTIVE_DEPLOYMENT_MODE,
@@ -7622,6 +7762,7 @@ export function assertMainActiveTerminalEvidenceArtifact(
     coordinatorOutcome,
     recoveryOutcome,
     errorCode,
+    censusFailure,
     outcome: "failed",
   };
   assertSameJson(value, canonical, "Nested active failure evidence");
@@ -7630,12 +7771,37 @@ export function assertMainActiveTerminalEvidenceArtifact(
     throw new Error("Nested active failure outcome conflicts");
   }
   if (
+    terminalOutcome !== "recovered-census-unproven" &&
+    censusFailure !== null
+  ) {
+    throw new Error(
+      "Only recovered-census-unproven evidence may carry a census failure",
+    );
+  }
+  if (
     terminalOutcome === "recovered" &&
     (journal.historyStatus !== "valid" ||
       journal.highestStatus !== "recovered" ||
-      rollbackStateTargets.length === 0)
+      rollbackStateTargets.length === 0 ||
+      errorCode !== "RECOVERED_TO_PRIORS" ||
+      censusFailure !== null)
   ) {
     throw new Error("Recovered active evidence lacks terminal recovery proof");
+  }
+  if (
+    terminalOutcome === "recovered-census-unproven" &&
+    (journal.historyStatus !== "valid" ||
+      journal.highestStatus !== "recovered" ||
+      rollbackStateTargets.length === 0 ||
+      errorCode !== "RECOVERED_CENSUS_UNPROVEN" ||
+      censusFailure === null ||
+      finalMappings === null ||
+      publicSmokes === null ||
+      stateProofSummary !== null)
+  ) {
+    throw new Error(
+      "Recovered-census-unproven evidence lacks bounded recovery proof",
+    );
   }
   if (
     terminalOutcome === "manual-intervention" &&
@@ -8079,6 +8245,25 @@ function assertMainActiveTerminalProofBindings({
     ) {
       throw new Error(
         "Recovery-failed terminal proofs conflict with failure evidence",
+      );
+    }
+  }
+  if (proofs.outcome === "recovered-census-unproven") {
+    if (
+      evidence.schema !== MAIN_ACTIVE_FAILURE_EVIDENCE_SCHEMA ||
+      evidence.recoveryOutcome !== "recovered" ||
+      evidence.errorCode !== "RECOVERED_CENSUS_UNPROVEN" ||
+      evidence.censusFailure === null ||
+      proofs.finalMapping.receipt.status !== "passed" ||
+      proofs.finalCensus.receipt.status !== "unsafe" ||
+      proofs.stateProof.receipt.status !== "unsafe" ||
+      !sameJson(proofs.finalCensus.artifact, evidence.censusFailure) ||
+      !sameJson(proofs.stateProof.artifact, evidence.censusFailure) ||
+      proofs.publicSmoke.receipt.status !== "passed" ||
+      proofs.journal.receipt.status !== "recovered"
+    ) {
+      throw new Error(
+        "Recovered-census-unproven terminal proofs conflict with failure evidence",
       );
     }
   }
@@ -9398,6 +9583,13 @@ export async function runMainDeploymentCli({
       values.GITHUB_STEP_SUMMARY,
       renderMainActiveDeploymentFailureEvidence(evidence),
     );
+    return evidence;
+  }
+  if (command === "active-census-failure") {
+    const evidence = createMainActiveCensusFailureEvidence({
+      category: options.category,
+    });
+    writeCanonicalJson(options.output, evidence);
     return evidence;
   }
   if (command === "validate-context") {

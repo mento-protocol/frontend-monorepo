@@ -1316,29 +1316,64 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
     /--journal-history[\s\S]*recovered-history[\s\S]*--mappings[\s\S]*recovery-final-mappings-raw[\s\S]*--output[\s\S]*recovery-final-mappings/,
   );
   assert.doesNotMatch(canonicalMappings.run, /jq -n --slurpfile/);
+  const recoveryFinalState = command("recover-main-deployment", "active-proof");
+  assert.match(recoveryFinalState.run, /recovery-final-state-spec/);
   assert.match(
-    command("recover-main-deployment", "active-proof").run,
-    /recovery-final-state-spec/,
+    recoveryFinalState.run,
+    /Vercel deployment state failed category=provider-read-transport/,
   );
+  assert.match(
+    recoveryFinalState.run,
+    /active-census-failure[\s\S]*recovery-final-census-failure/,
+  );
+  assert.doesNotMatch(recoveryFinalState.run, /cat "\$RUNNER_TEMP/);
   assert.match(
     command("recover-main-deployment", "active-recovery-public-smokes").run,
     /--execution[\s\S]*recovery-app-runtime-smoke[\s\S]*recovery-ui-runtime-smoke/,
   );
+  const recoveredTerminal = named(
+    "recover-main-deployment",
+    "recovered or manual terminal artifacts",
+  );
   assert.match(
-    named("recover-main-deployment", "recovered or manual terminal artifacts")
-      .run,
+    recoveredTerminal.run,
     /terminal-artifacts[\s\S]*recovery-final-mappings[\s\S]*recovery-final-legacy/,
+  );
+  assert.match(
+    recoveredTerminal.run,
+    /recovered-census-unproven[\s\S]*recovery-final-census-failure/,
+  );
+  assert.match(
+    recoveredTerminal.run,
+    /else[\s\S]*terminal_outcome="\$TERMINAL_OUTCOME"[\s\S]*final_census="\$RUNNER_TEMP\/recovery-final-state-proof\.json"[\s\S]*state_proof="\$RUNNER_TEMP\/recovery-final-state-proof\.json"/,
+  );
+  assert.doesNotMatch(
+    workflowSource,
+    /Require a proven provider state unless recovered proof is preserved separately/,
   );
   assert.match(
     command("recover-main-deployment", "terminal-evidence-create").run,
     /terminal-evidence-create/,
   );
+  const recoveredCensusUnprovenMarker = named(
+    "recover-main-deployment",
+    "Mark recovered census-unproven terminal route",
+  );
+  assert.match(
+    recoveredCensusUnprovenMarker.if,
+    /steps\.terminal\.outcome == 'success'/,
+  );
+  assert.match(
+    recoveredCensusUnprovenMarker.if,
+    /steps\.recovered-terminal\.outputs\.outcome == 'recovered-census-unproven'/,
+  );
+  assert.equal(recoveredCensusUnprovenMarker.run, "true");
   assert.match(
     named(
       "recover-main-deployment",
       "Fail after recording recovery terminal evidence",
     ).run,
-    /recovered\|manual-intervention\|recovery-failed\|preparation-failed-before-journal[\s\S]*exit 1/,
+    /recovered\|recovered-census-unproven\|manual-intervention\|recovery-failed\|preparation-failed-before-journal[\s\S]*exit 1/,
   );
   assert.match(
     named("recover-main-deployment", "Publish recovery outcome").env

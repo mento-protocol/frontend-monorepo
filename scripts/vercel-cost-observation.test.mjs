@@ -2690,6 +2690,41 @@ test("main terminal routes are mutually exclusive and bind required journal stat
   assert.equal(recovered.complete, true);
   assert.equal(recovered.outcome, "recovered");
 
+  const recoveredCensusUnproven = deriveMainTerminalRoute({
+    jobs: jobsFor(
+      "Materialize recovered or manual terminal artifacts",
+      "Mark recovered census-unproven terminal route",
+    ),
+    journalHistories: [
+      {
+        transactionId: `main-${"e".repeat(32)}`,
+        highestSequence: 8,
+        highestStatus: "recovered",
+      },
+    ],
+  });
+  assert.equal(recoveredCensusUnproven.complete, true);
+  assert.equal(recoveredCensusUnproven.outcome, "recovered-census-unproven");
+
+  const conflictingMarker = deriveMainTerminalRoute({
+    jobs: jobsFor(
+      "Materialize recovered or manual terminal artifacts",
+      "Mark recovered census-unproven terminal route",
+    ),
+    journalHistories: [
+      {
+        transactionId: `main-${"f".repeat(32)}`,
+        highestSequence: 9,
+        highestStatus: "manual_intervention",
+      },
+    ],
+  });
+  assert.equal(conflictingMarker.complete, false);
+  assert.equal(
+    conflictingMarker.reason,
+    "recovered-census-unproven-marker-conflict",
+  );
+
   const missingCommittedJournal = deriveMainTerminalRoute({
     jobs: jobsFor("Materialize committed terminal artifacts"),
     journalHistories: [],
