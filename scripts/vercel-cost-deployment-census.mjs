@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Buffer } from "node:buffer";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import {
   closeSync,
   constants,
@@ -15,6 +15,7 @@ import {
   realpathSync,
   unlinkSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import process from "node:process";
@@ -944,14 +945,15 @@ function readInputFile(path) {
   }
 }
 
-function assertDestination(path, label) {
+function pathStat(path) {
   try {
-    lstatSync(path);
+    return lstatSync(path, { bigint: true });
   } catch (error) {
-    if (error && typeof error === "object" && error.code === "ENOENT") return;
+    if (error && typeof error === "object" && error.code === "ENOENT") {
+      return null;
+    }
     throw error;
   }
-  throw new Error(`${label} already exists; refusing to overwrite evidence`);
 }
 
 function sameIdentity(left, right) {
@@ -1009,6 +1011,37 @@ function assertPrivateFile(stat, identity, expectedLinks) {
   }
 }
 
+function readPrivateFile(path, parent, identity, expectedLinks, label) {
+  assertParentIdentity(parent);
+  const before = lstatSync(path, { bigint: true });
+  assertPrivateFile(before, identity, expectedLinks);
+  if (before.uid !== parent.uid) {
+    throw new Error(`${label} must be owned by the current user`);
+  }
+  const descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const openedBefore = fstatSync(descriptor, { bigint: true });
+    assertPrivateFile(openedBefore, identity, expectedLinks);
+    const bytes = readFileSync(descriptor);
+    const openedAfter = fstatSync(descriptor, { bigint: true });
+    const after = lstatSync(path, { bigint: true });
+    assertPrivateFile(openedAfter, identity, expectedLinks);
+    assertPrivateFile(after, identity, expectedLinks);
+    for (const field of ["size", "mtimeNs", "ctimeNs"]) {
+      if (
+        openedBefore[field] !== openedAfter[field] ||
+        openedAfter[field] !== after[field]
+      ) {
+        throw new Error(`${label} changed while it was being read`);
+      }
+    }
+    fsyncSync(descriptor);
+    return bytes;
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
 function removeCreatedPath(path, identity) {
   try {
     const current = lstatSync(path, { bigint: true });
@@ -1032,12 +1065,8 @@ function cleanupCreatedEntries(entries) {
   return errors;
 }
 
-function stagePrivateFile(parent, role, content, hooks) {
+function stagePrivateFile(parent, role, content, hooks, path) {
   assertParentIdentity(parent);
-  const path = join(
-    parent.parent,
-    `.vercel-census-${role}-${process.pid}-${randomBytes(16).toString("hex")}.tmp`,
-  );
   const descriptor = openSync(
     path,
     constants.O_WRONLY |
@@ -1051,7 +1080,24 @@ function stagePrivateFile(parent, role, content, hooks) {
     assertPrivateFile(identity, identity, 1);
     fchmodSync(descriptor, 0o600);
     hooks.beforeWrite?.(role);
-    writeFileSync(descriptor, content);
+    if (role === "journal") {
+      const bytes = Buffer.from(content);
+      const prefixLength = Math.max(1, Math.floor(bytes.length / 2));
+      if (writeSync(descriptor, bytes, 0, prefixLength) !== prefixLength) {
+        throw new Error("publication journal prefix write was incomplete");
+      }
+      hooks.afterWritePrefix?.(role);
+      const suffixLength = bytes.length - prefixLength;
+      if (
+        writeSync(descriptor, bytes, prefixLength, suffixLength) !==
+        suffixLength
+      ) {
+        throw new Error("publication journal suffix write was incomplete");
+      }
+    } else {
+      writeFileSync(descriptor, content);
+    }
+    hooks.afterWriteComplete?.(role);
     fsyncSync(descriptor);
     identity = fstatSync(descriptor, { bigint: true });
     assertPrivateFile(identity, identity, 1);
@@ -1077,6 +1123,117 @@ function stagePrivateFile(parent, role, content, hooks) {
     removeCreatedPath(path, identity);
     throw error;
   }
+}
+
+function expectedPublication(parent, finals, contents) {
+  const destinations = [basename(finals.output), basename(finals.proof)];
+  const journalKey = sha256(JSON.stringify(destinations));
+  const journalPath = join(
+    parent.parent,
+    `.vercel-census-publication-${journalKey}.json`,
+  );
+  const transactionId = sha256(
+    JSON.stringify({
+      parent: [
+        parent.stat.dev.toString(),
+        parent.stat.ino.toString(),
+        parent.uid.toString(),
+      ],
+      destinations,
+      output: [sha256(contents.output), Buffer.byteLength(contents.output)],
+      proof: [sha256(contents.proof), Buffer.byteLength(contents.proof)],
+    }),
+  );
+  const stages = Object.fromEntries(
+    ["output", "proof"].map((role) => [
+      role,
+      join(parent.parent, `.vercel-census-${transactionId}-${role}.stage`),
+    ]),
+  );
+  const journalContent = `${JSON.stringify({
+    schema: "vercel-census-publication-journal:v1",
+    transactionId,
+    parent: {
+      dev: parent.stat.dev.toString(),
+      ino: parent.stat.ino.toString(),
+      uid: parent.uid.toString(),
+    },
+    files: {
+      output: {
+        destinationName: destinations[0],
+        stageName: basename(stages.output),
+        sha256: sha256(contents.output),
+        byteLength: Buffer.byteLength(contents.output),
+      },
+      proof: {
+        destinationName: destinations[1],
+        stageName: basename(stages.proof),
+        sha256: sha256(contents.proof),
+        byteLength: Buffer.byteLength(contents.proof),
+      },
+    },
+  })}\n`;
+  return { journalPath, journalContent, stages };
+}
+
+function ensurePrivateContent(
+  path,
+  content,
+  parent,
+  role,
+  hooks,
+  directoryDescriptor,
+  created,
+) {
+  const expected = Buffer.from(content);
+  let identity = pathStat(path);
+  if (identity !== null) {
+    const actual = readPrivateFile(path, parent, identity, 1, `${role} stage`);
+    if (actual.equals(expected)) return identity;
+    if (
+      actual.length < expected.length &&
+      actual.equals(expected.subarray(0, actual.length))
+    ) {
+      removeCreatedPath(path, identity);
+      if (pathStat(path) !== null) {
+        throw new Error(`${role} stage changed during crash recovery`);
+      }
+      fsyncSync(directoryDescriptor);
+      identity = null;
+    } else {
+      throw new Error(`${role} stage conflicts with this invocation`);
+    }
+  }
+  if (identity === null) {
+    hooks.beforeStage?.(role);
+    const staged = stagePrivateFile(parent, role, content, hooks, path);
+    created.push(staged);
+    hooks.afterStage?.(role);
+    return staged.identity;
+  }
+  return identity;
+}
+
+function validateFinal(path, content, parent, identity, expectedLinks, label) {
+  const actual = readPrivateFile(path, parent, identity, expectedLinks, label);
+  if (!actual.equals(Buffer.from(content))) {
+    throw new Error(`${label} content conflicts with this invocation`);
+  }
+}
+
+function completedBundle(parent, finals, contents) {
+  const output = pathStat(finals.output);
+  const proof = pathStat(finals.proof);
+  if (output === null && proof === null) return false;
+  if (output === null || proof === null) {
+    const role = output === null ? "proof" : "output";
+    throw new Error(
+      `${role} already exists without its evidence bundle peer; refusing to overwrite evidence`,
+    );
+  }
+  validateFinal(finals.output, contents.output, parent, output, 1, "output");
+  validateFinal(finals.proof, contents.proof, parent, proof, 1, "proof");
+  return true;
 }
 
 export function publishEvidenceBundle(
@@ -1107,12 +1264,21 @@ export function publishEvidenceBundle(
   if (finals.output === finals.proof) {
     throw new Error("output and proof paths must be distinct");
   }
-  assertDestination(finals.output, "output");
-  assertDestination(finals.proof, "proof");
+  const contents = { output: outputContent, proof: proofContent };
+  const publication = expectedPublication(parent, finals, contents);
+  const internalPaths = [
+    publication.journalPath,
+    publication.stages.output,
+    publication.stages.proof,
+  ];
+  if (Object.values(finals).some((path) => internalPaths.includes(path))) {
+    throw new Error("output or proof conflicts with private publication state");
+  }
 
-  const staged = [];
-  const published = [];
+  const created = [];
   let directoryDescriptor;
+  let rollbackAllowed = true;
+  let committed = false;
   try {
     directoryDescriptor = openSync(
       parent.parent,
@@ -1122,41 +1288,124 @@ export function publishEvidenceBundle(
     if (!sameIdentity(openedParent, parent.stat)) {
       throw new Error("output parent identity changed before publication");
     }
-    for (const [role, content] of [
-      ["output", outputContent],
-      ["proof", proofContent],
-    ]) {
-      hooks.beforeStage?.(role);
-      staged.push({ role, ...stagePrivateFile(parent, role, content, hooks) });
+    if (
+      pathStat(publication.journalPath) === null &&
+      completedBundle(parent, finals, contents)
+    ) {
+      return { status: "already-published" };
     }
-    for (const entry of staged) {
-      assertParentIdentity(parent);
-      hooks.beforePublish?.(entry.role);
-      linkSync(entry.path, finals[entry.role]);
-      published.push({ path: finals[entry.role], identity: entry.identity });
-      assertPrivateFile(
-        lstatSync(finals[entry.role], { bigint: true }),
-        entry.identity,
+    const journalIdentity = ensurePrivateContent(
+      publication.journalPath,
+      publication.journalContent,
+      parent,
+      "journal",
+      hooks,
+      directoryDescriptor,
+      created,
+    );
+    fsyncSync(directoryDescriptor);
+    hooks.afterJournalSynced?.();
+
+    const stages = {};
+    for (const role of ["output", "proof"]) {
+      const finalIdentity = pathStat(finals[role]);
+      let stageIdentity = pathStat(publication.stages[role]);
+      if (stageIdentity !== null && finalIdentity !== null) {
+        if (!sameIdentity(stageIdentity, finalIdentity)) {
+          throw new Error(`${role} destination conflicts with its stage`);
+        }
+        validateFinal(
+          publication.stages[role],
+          contents[role],
+          parent,
+          stageIdentity,
+          2,
+          `${role} stage`,
+        );
+      } else if (stageIdentity !== null) {
+        stageIdentity = ensurePrivateContent(
+          publication.stages[role],
+          contents[role],
+          parent,
+          role,
+          hooks,
+          directoryDescriptor,
+          created,
+        );
+      } else if (finalIdentity !== null) {
+        validateFinal(
+          finals[role],
+          contents[role],
+          parent,
+          finalIdentity,
+          1,
+          role,
+        );
+      } else {
+        stageIdentity = ensurePrivateContent(
+          publication.stages[role],
+          contents[role],
+          parent,
+          role,
+          hooks,
+          directoryDescriptor,
+          created,
+        );
+      }
+      stages[role] = stageIdentity;
+    }
+    fsyncSync(directoryDescriptor);
+    hooks.afterStagesSynced?.();
+
+    for (const role of ["output", "proof"]) {
+      if (pathStat(finals[role]) !== null) continue;
+      hooks.beforePublish?.(role);
+      linkSync(publication.stages[role], finals[role]);
+      created.push({ path: finals[role], identity: stages[role] });
+      validateFinal(
+        finals[role],
+        contents[role],
+        parent,
+        stages[role],
         2,
+        role,
       );
+      hooks.afterPublish?.(role);
     }
     fsyncSync(directoryDescriptor);
-    for (const entry of staged) {
-      removeCreatedPath(entry.path, entry.identity);
+    hooks.afterPublicationsSynced?.();
+    for (const role of ["output", "proof"]) {
+      const stageIdentity = pathStat(publication.stages[role]);
+      if (stageIdentity !== null) {
+        const finalIdentity = lstatSync(finals[role], { bigint: true });
+        if (!sameIdentity(stageIdentity, finalIdentity)) {
+          throw new Error(`${role} destination conflicts with its stage`);
+        }
+        removeCreatedPath(publication.stages[role], stageIdentity);
+        if (pathStat(publication.stages[role]) !== null) {
+          throw new Error(`${role} stage changed during cleanup`);
+        }
+      }
+      hooks.afterStageCleanup?.(role);
     }
     fsyncSync(directoryDescriptor);
-    for (const entry of published) {
-      assertPrivateFile(
-        lstatSync(entry.path, { bigint: true }),
-        entry.identity,
-        1,
-      );
+    for (const role of ["output", "proof"]) {
+      const identity = lstatSync(finals[role], { bigint: true });
+      validateFinal(finals[role], contents[role], parent, identity, 1, role);
     }
+    created.length = 0;
+    rollbackAllowed = false;
+    removeCreatedPath(publication.journalPath, journalIdentity);
+    if (pathStat(publication.journalPath) !== null) {
+      throw new Error("publication journal changed during commit");
+    }
+    fsyncSync(directoryDescriptor);
+    committed = true;
+    hooks.afterCommit?.();
+    return { status: "published" };
   } catch (error) {
-    const cleanupErrors = [
-      ...cleanupCreatedEntries(published),
-      ...cleanupCreatedEntries(staged),
-    ];
+    if (committed) return { status: "published" };
+    const cleanupErrors = rollbackAllowed ? cleanupCreatedEntries(created) : [];
     if (directoryDescriptor !== undefined) {
       try {
         fsyncSync(directoryDescriptor);
@@ -1172,7 +1421,15 @@ export function publishEvidenceBundle(
     }
     throw error;
   } finally {
-    if (directoryDescriptor !== undefined) closeSync(directoryDescriptor);
+    if (directoryDescriptor !== undefined) {
+      try {
+        closeSync(directoryDescriptor);
+      } catch {
+        // Closing cannot revoke a synced publication. Pre-commit errors have
+        // already taken the rollback path; post-commit close errors are not a
+        // reason to report a durable bundle as failed.
+      }
+    }
   }
 }
 

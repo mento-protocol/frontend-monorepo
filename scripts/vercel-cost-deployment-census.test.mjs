@@ -52,10 +52,11 @@ const fixtureUrl = new URL(
   "./fixtures/vercel-main-plan/valid-priors.json",
   import.meta.url,
 );
-const scriptPath = new URL(
+const scriptUrl = new URL(
   "./vercel-cost-deployment-census.mjs",
   import.meta.url,
-).pathname;
+);
+const scriptPath = scriptUrl.pathname;
 
 function releaseManifest() {
   const input = JSON.parse(readFileSync(fixtureUrl, "utf8"));
@@ -375,6 +376,57 @@ function assertNoBundleResidue(directory) {
   );
 }
 
+function assertCompletedCliBundle(paths) {
+  assert.equal(readFileSync(paths.output, "utf8"), normalize().output);
+  assert.equal(
+    JSON.parse(readFileSync(paths.proof, "utf8")).deploymentCensusComplete,
+    true,
+  );
+  assert.equal(statSync(paths.output).mode & 0o777, 0o600);
+  assert.equal(statSync(paths.proof).mode & 0o777, 0o600);
+  assert.equal(statSync(paths.output).nlink, 1);
+  assert.equal(statSync(paths.proof).nlink, 1);
+  assertNoBundleResidue(paths.directory);
+}
+
+const crashHarness = `
+import { runCli } from ${JSON.stringify(scriptUrl.href)};
+const phase = process.argv[1];
+const [input, output, proof] = process.argv.slice(2);
+const crash = (current) => {
+  if (phase === current) process.kill(process.pid, "SIGKILL");
+};
+runCli(["--input", input, "--output", output, "--proof", proof], {
+  beforeStage(role) { crash(\`before-${"${role}"}\`); },
+  beforeWrite(role) { crash(\`${"${role}"}-opened\`); },
+  afterWritePrefix(role) { crash(\`${"${role}"}-prefix\`); },
+  afterWriteComplete(role) { crash(\`${"${role}"}-written\`); },
+  afterStage(role) { crash(\`${"${role}"}-staged\`); },
+  afterJournalSynced() { crash("journal-synced"); },
+  afterStagesSynced() { crash("stages-synced"); },
+  afterPublish(role) { crash(\`${"${role}"}-published\`); },
+  afterPublicationsSynced() { crash("publications-synced"); },
+  afterStageCleanup(role) { crash(\`${"${role}"}-stage-cleaned\`); },
+  afterCommit() { crash("committed"); },
+});
+`;
+
+function crashCli(paths, phase) {
+  return spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      crashHarness,
+      phase,
+      paths.input,
+      paths.output,
+      paths.proof,
+    ],
+    { encoding: "utf8" },
+  );
+}
+
 test("normalizes two-page raw v7 responses for all four targets", () => {
   const result = normalize();
   assert.equal(result.rows.length, 6);
@@ -591,25 +643,50 @@ test("writes private output and proof through the credential-free CLI", () => {
   );
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Normalized 6 Vercel deployment records/);
-  assert.equal(readFileSync(paths.output, "utf8"), normalize().output);
-  assert.equal(
-    JSON.parse(readFileSync(paths.proof, "utf8")).deploymentCensusComplete,
-    true,
-  );
-  assert.equal(statSync(paths.output).mode & 0o777, 0o600);
-  assert.equal(statSync(paths.proof).mode & 0o777, 0o600);
-  assert.equal(statSync(paths.output).nlink, 1);
-  assert.equal(statSync(paths.proof).nlink, 1);
-  assertNoBundleResidue(paths.directory);
+  assertCompletedCliBundle(paths);
 
   const retry = spawnSync(
     process.execPath,
     [scriptPath, ...cliArguments(paths)],
     { encoding: "utf8" },
   );
-  assert.notEqual(retry.status, 0);
-  assert.match(retry.stderr, /refusing to overwrite evidence/);
+  assert.equal(retry.status, 0, retry.stderr);
+  assertCompletedCliBundle(paths);
 });
+
+for (const phase of [
+  "before-journal",
+  "journal-opened",
+  "journal-prefix",
+  "journal-written",
+  "journal-synced",
+  "output-written",
+  "output-staged",
+  "proof-written",
+  "proof-staged",
+  "stages-synced",
+  "output-published",
+  "proof-published",
+  "publications-synced",
+  "output-stage-cleaned",
+  "proof-stage-cleaned",
+  "committed",
+]) {
+  test(`recovers without residue after SIGKILL at ${phase}`, () => {
+    const paths = cliPaths(`vercel-census-crash-${phase}-`);
+    const interrupted = crashCli(paths, phase);
+    assert.equal(interrupted.status, null, interrupted.stderr);
+    assert.equal(interrupted.signal, "SIGKILL");
+
+    const recovered = spawnSync(
+      process.execPath,
+      [scriptPath, ...cliArguments(paths)],
+      { encoding: "utf8" },
+    );
+    assert.equal(recovered.status, 0, recovered.stderr);
+    assertCompletedCliBundle(paths);
+  });
+}
 
 for (const [name, hook] of [
   [
@@ -645,7 +722,7 @@ test("preserves a preexisting destination and leaves no staged residue", () => {
   writeFileSync(paths.proof, "operator evidence\n", { mode: 0o600 });
   assert.throws(
     () => runCli(cliArguments(paths)),
-    /proof already exists; refusing to overwrite evidence/,
+    /proof already exists without its evidence bundle peer/,
   );
   assert.equal(existsSync(paths.output), false);
   assert.equal(readFileSync(paths.proof, "utf8"), "operator evidence\n");
@@ -672,6 +749,23 @@ test("rolls back its output when a proof destination wins the publish race", () 
   assertNoBundleResidue(paths.directory);
 });
 
+test("rejects an equal-content destination on a different inode from its stage", () => {
+  const paths = cliPaths("vercel-census-stage-race-");
+  const interrupted = crashCli(paths, "stages-synced");
+  assert.equal(interrupted.signal, "SIGKILL");
+  writeFileSync(paths.output, normalize().output, { mode: 0o600 });
+
+  const result = spawnSync(
+    process.execPath,
+    [scriptPath, ...cliArguments(paths)],
+    { encoding: "utf8" },
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /output destination conflicts with its stage/);
+  assert.equal(readFileSync(paths.output, "utf8"), normalize().output);
+  assert.equal(existsSync(paths.proof), false);
+});
+
 test("rejects a preexisting hardlinked destination without touching it", () => {
   const paths = cliPaths("vercel-census-hardlink-");
   const operatorEvidence = join(paths.directory, "operator-proof.json");
@@ -679,7 +773,7 @@ test("rejects a preexisting hardlinked destination without touching it", () => {
   linkSync(operatorEvidence, paths.proof);
   assert.throws(
     () => runCli(cliArguments(paths)),
-    /proof already exists; refusing to overwrite evidence/,
+    /proof already exists without its evidence bundle peer/,
   );
   assert.equal(existsSync(paths.output), false);
   assert.equal(readFileSync(paths.proof, "utf8"), "operator evidence\n");
@@ -694,7 +788,7 @@ test("rejects a preexisting symlink destination without touching it", () => {
   symlinkSync(operatorEvidence, paths.proof);
   assert.throws(
     () => runCli(cliArguments(paths)),
-    /proof already exists; refusing to overwrite evidence/,
+    /proof already exists without its evidence bundle peer/,
   );
   assert.equal(existsSync(paths.output), false);
   assert.equal(readFileSync(paths.proof, "utf8"), "operator evidence\n");

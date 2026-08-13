@@ -187,12 +187,16 @@ pnpm vercel:cost:normalize-deployments \
 
 The command reads files only. It makes no network request and has no token
 option. Output and proof must share one canonical private directory owned by
-the current user and not writable by the group or other users. The command
-stages and syncs both mode-`0600`, single-link regular files before publishing
-either with no-overwrite semantics. A staging or publication failure removes
-only entries created by that invocation, so a retry cannot be blocked by an
-orphaned half-bundle and a preexisting destination remains untouched. Symlink,
-hardlink, cross-directory, and destination races fail closed. The private proof
+the current user and not writable by the group or other users. The command uses
+a deterministic private journal, then stages and syncs both mode-`0600` regular
+files before publishing either with no-overwrite semantics. If the process
+stops before the journal commit point, rerun the exact command: it validates
+the journal and staged-file identities and bytes, resumes both files, and
+removes the journal and stages only after both finals are durable. A caught
+staging or publication failure removes only entries created by that invocation.
+A different input or an unrelated file at a reserved or destination path fails
+closed, and a preexisting destination remains untouched. Symlink, hardlink,
+cross-directory, and destination races also fail closed. The private proof
 binds the exact input-envelope bytes, normalized JSONL bytes, UTC window, four
 project IDs, per-project page and row counts, final request cursors, terminal
 `next: null` values, annotation count, and

@@ -52,7 +52,7 @@ pnpm vercel:cost:observe -- capture-preview --pr <number> --event-run-id <id>  #
 pnpm vercel:cost:observe -- capture-main --run-id <id>  # Freeze every attempt, log, and available journal for one main release
 pnpm vercel:cost:observe -- sample-github  # Snapshot visibility, runs, runner labels, caches, and artifacts
 pnpm vercel:cost:observe -- audit --end <UTC>  # Preflight GitHub evidence; once clean, freeze and emit the incomplete private evidence-join fragment
-pnpm vercel:cost:normalize-deployments --input <private-pages-envelope.json> --output <private-dir/census.jsonl> --proof <private-dir/census-proof.json>  # Transactionally normalize saved Vercel v7 pages; output and proof share one private directory
+pnpm vercel:cost:normalize-deployments --input <private-pages-envelope.json> --output <private-dir/census.jsonl> --proof <private-dir/census-proof.json>  # Crash-resumably normalize saved Vercel v7 pages; rerun the exact command after interruption
 pnpm vercel:cost:analyze --input <private-evidence-manifest.json> --format markdown  # Reconcile FOCUS project totals only after complete zero-exclusion censuses
 trunk check --fix                     # Lint with autofix
 trunk fmt                             # Format
