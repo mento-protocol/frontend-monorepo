@@ -1410,6 +1410,24 @@ function jsonResponse(value, status = 200, headers = {}) {
   return new Response(JSON.stringify(value), { headers, status });
 }
 
+function claudePacketFinding(checkId = 777, overrides = {}) {
+  const canonical = {
+    line: 2,
+    path: "package.json",
+    summary: "Restore the reviewed Vercel CLI pin.",
+    title: "Vercel CLI pin drift",
+    ...overrides,
+  };
+  const findingDigest = canonicalDigest(canonical);
+  return {
+    checkId,
+    digest: findingDigest,
+    ...canonical,
+    source: "claude",
+    sourceId: findingDigest.slice(0, 24),
+  };
+}
+
 function materializerFixture(overrides = {}) {
   const blobContent = overrides.blobContent ?? '{\n  "vercel": "56.5.0"\n}\n';
   const blobSha = gitBlobSha(blobContent);
@@ -1451,6 +1469,58 @@ function materializerFixture(overrides = {}) {
   });
   const packetText = canonicalJson(packet);
   const digest = rawDigest(packetText);
+  const claudeFailure = packet.failures.find(
+    ({ id }) => id === "claude-review",
+  );
+  const claudeFindings = packet.findings.filter(
+    ({ source }) => source === "claude",
+  );
+  const claudeCheckId = claudeFindings[0]?.checkId;
+  const claudeRunId = overrides.claudeRunId ?? 702;
+  const claudeRunAttempt = overrides.claudeRunAttempt ?? 1;
+  const claudeResult = overrides.claudeResult ?? {
+    findings: claudeFindings.map(({ line, path, summary, title }) => ({
+      line,
+      path,
+      summary,
+      title,
+    })),
+    headSha: packet.headSha,
+    pullRequestNumber: packet.pullRequestNumber,
+    repository: packet.repository,
+    reviewCompleted: true,
+    schema: "dependabot-claude-review-result:v1",
+    verdict: "findings",
+  };
+  const claudeCheck =
+    claudeFailure === undefined
+      ? null
+      : {
+          app: { id: 15368, slug: "github-actions" },
+          conclusion: "failure",
+          details_url: claudeFailure.detailsUrl,
+          external_id: `dependabot-claude-review:v1:pr=${packet.pullRequestNumber}:sha=${packet.headSha}:run=${claudeRunId}:attempt=${claudeRunAttempt}`,
+          head_sha: packet.headSha,
+          id: claudeCheckId,
+          name: "claude-review",
+          output: { text: canonicalJson(claudeResult) },
+          status: "completed",
+          ...overrides.claudeCheck,
+        };
+  const claudeRun = {
+    conclusion: "failure",
+    display_title: `dependabot-claude-review:v1 | source=dependabot-intake:v1 | repository=${repository} | pr=${packet.pullRequestNumber} | sha=${packet.headSha} | action=synchronize | receipt=true`,
+    event: "workflow_run",
+    head_branch: "main",
+    head_repository: { full_name: repository },
+    head_sha: "8".repeat(40),
+    id: claudeRunId,
+    path: ".github/workflows/dependabot-claude-review.yml",
+    repository: { full_name: repository },
+    run_attempt: claudeRunAttempt,
+    status: "completed",
+    ...overrides.claudeRun,
+  };
   const processorCheck = {
     app: { id: 15368, slug: "github-actions" },
     conclusion: "failure",
@@ -1526,8 +1596,27 @@ function materializerFixture(overrides = {}) {
     const path = `${parsed.pathname}${parsed.search}`;
     if (path === `/repos/${repository}/check-runs/444`)
       return jsonResponse(processorCheck);
+    if (
+      claudeCheck !== null &&
+      path === `/repos/${repository}/check-runs/${claudeCheckId}`
+    )
+      return jsonResponse(claudeCheck);
     if (path === `/repos/${repository}/actions/runs/${packet.workflowRunId}`)
       return jsonResponse(processorRun);
+    if (
+      claudeCheck !== null &&
+      path === `/repos/${repository}/actions/runs/${claudeRunId}`
+    )
+      return jsonResponse({
+        ...claudeRun,
+        ...overrides.claudeLatestRun,
+      });
+    if (
+      claudeCheck !== null &&
+      path ===
+        `/repos/${repository}/actions/runs/${claudeRunId}/attempts/${claudeRunAttempt}`
+    )
+      return jsonResponse(claudeRun);
     if (path === `/repos/${repository}/pulls/${packet.pullRequestNumber}`) {
       const accept = options.headers?.Accept;
       if (accept === "application/vnd.github.v3.diff") {
@@ -1664,6 +1753,363 @@ test("materializer seals an exact packet, diff, blob, failed log, and manifest",
     assert.equal(
       JSON.parse(readFileSync(join(outputRoot, "packet.json"), "utf8")).headSha,
       fixture.packet.headSha,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    rmSync(temporary, { force: true, recursive: true });
+  }
+});
+
+test("materializer authenticates exact Claude findings without weakening failed-job logs", async () => {
+  const claudeFinding = claudePacketFinding();
+  const fixture = materializerFixture({
+    packet: {
+      failures: [
+        {
+          attribution: "branch",
+          detailsUrl: `https://github.com/${repository}/runs/${claudeFinding.checkId}`,
+          id: "claude-review",
+          name: "claude-review",
+        },
+      ],
+      findings: [claudeFinding],
+    },
+  });
+  const temporary = mkdtempSync(
+    join(tmpdir(), "dependabot-repair-materialize-claude-"),
+  );
+  const outputRoot = join(temporary, "evidence");
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = fixture.fetch;
+    const result = await materializeRepairEvidence({
+      outputRoot,
+      packetDigest: fixture.digest,
+      packetText: fixture.packetText,
+      processorCheckId: 444,
+      repositoryName: repository,
+      token: "read-token",
+    });
+    assert.deepEqual(
+      result.manifest.files.map(({ name }) => name),
+      [
+        "blob-000.txt",
+        "failure-index.json",
+        "feedback-index.json",
+        "findings.json",
+        "packet.json",
+        "pull-file-inventory.json",
+        "pull-request-diff.patch",
+      ],
+    );
+    assert.deepEqual(
+      JSON.parse(readFileSync(join(outputRoot, "failure-index.json"), "utf8")),
+      [
+        {
+          checkId: claudeFinding.checkId,
+          checkName: "claude-review",
+          detailsUrl: `https://github.com/${repository}/runs/${claudeFinding.checkId}`,
+          externalId: `dependabot-claude-review:v1:pr=731:sha=${headSha}:run=702:attempt=1`,
+          failureId: "claude-review",
+          kind: "review-findings",
+          runAttempt: 1,
+          runId: 702,
+          workflowHeadSha: "8".repeat(40),
+          workflowPath: ".github/workflows/dependabot-claude-review.yml",
+        },
+      ],
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    rmSync(temporary, { force: true, recursive: true });
+  }
+});
+
+test("materializer binds Claude findings to the exact check and historical run attempt", async () => {
+  const claudeFinding = claudePacketFinding();
+  for (const { claudeRun, detailsUrl } of [
+    {
+      detailsUrl: `https://github.com/${repository}/actions/runs/702`,
+    },
+    {
+      claudeRun: {
+        display_title: `dependabot-claude-review:v1 | source=dependabot-prepared-head:v1|p=731|h=${headSha}|o=r|c=444|d=${"d".repeat(64)}|ok=true`,
+      },
+      detailsUrl: `https://github.com/${repository}/runs/${claudeFinding.checkId}`,
+    },
+  ]) {
+    const fixture = materializerFixture({
+      claudeLatestRun: { run_attempt: 2 },
+      claudeRun,
+      packet: {
+        failures: [
+          {
+            attribution: "branch",
+            detailsUrl,
+            id: "claude-review",
+            name: "claude-review",
+          },
+        ],
+        findings: [claudeFinding],
+      },
+    });
+    const temporary = mkdtempSync(
+      join(tmpdir(), "dependabot-repair-materialize-claude-attempt-"),
+    );
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = fixture.fetch;
+      await materializeRepairEvidence({
+        outputRoot: join(temporary, "evidence"),
+        packetDigest: fixture.digest,
+        packetText: fixture.packetText,
+        processorCheckId: 444,
+        repositoryName: repository,
+        token: "read-token",
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+      rmSync(temporary, { force: true, recursive: true });
+    }
+  }
+});
+
+test("materializer rejects inexact Claude finding provenance and ordinary run URLs", async () => {
+  const claudeFinding = claudePacketFinding();
+  const cases = [
+    {
+      packet: {
+        failures: [
+          {
+            attribution: "branch",
+            detailsUrl: `https://github.com/${repository}/actions/runs/700`,
+            id: "ci",
+            name: "Build and Test",
+          },
+        ],
+      },
+      pattern: /no exact Actions job URL/,
+    },
+    {
+      claudeCheck: { app: { id: 1, slug: "github-actions" } },
+      pattern: /check provenance is not exact/,
+    },
+    {
+      claudeCheck: {
+        external_id: `dependabot-claude-review:v1:pr=999:sha=${headSha}:run=702:attempt=1`,
+      },
+      pattern: /check provenance is not exact/,
+    },
+    {
+      claudeCheck: {
+        details_url: `https://github.com/${repository}/runs/${claudeFinding.checkId + 1}`,
+      },
+      pattern: /check provenance is not exact/,
+    },
+    {
+      claudeCheck: {
+        output: {
+          text: JSON.stringify({
+            verdict: "findings",
+            schema: "dependabot-claude-review-result:v1",
+          }),
+        },
+      },
+      pattern: /not canonical/,
+    },
+    {
+      claudeResult: {
+        findings: [
+          {
+            line: 3,
+            path: "package.json",
+            summary: "The finding changed.",
+            title: "Changed finding",
+          },
+        ],
+        headSha,
+        pullRequestNumber: 731,
+        repository,
+        reviewCompleted: true,
+        schema: "dependabot-claude-review-result:v1",
+        verdict: "findings",
+      },
+      pattern: /packet findings changed/,
+    },
+    {
+      claudeRun: { event: "pull_request" },
+      pattern: /workflow run provenance is not exact/,
+    },
+    {
+      claudeRun: {
+        display_title: `dependabot-claude-review:v1 | source=dependabot-intake:v1 | repository=${repository} | pr=999 | sha=${headSha} | action=synchronize | receipt=true`,
+      },
+      pattern: /workflow run provenance is not exact/,
+    },
+    {
+      claudeRun: {
+        path: ".github/workflows/ci.yml",
+      },
+      pattern: /workflow run provenance is not exact/,
+    },
+    {
+      claudeRun: {
+        repository: { full_name: "attacker/example" },
+      },
+      pattern: /workflow run provenance is not exact/,
+    },
+    {
+      claudeRun: { head_sha: headSha },
+      pattern: /workflow run provenance is not exact/,
+    },
+    {
+      packet: {
+        failures: [
+          {
+            attribution: "branch",
+            detailsUrl: `https://github.com/${repository}/runs/${claudeFinding.checkId}`,
+            id: "claude-review",
+            name: "claude-review",
+          },
+          {
+            attribution: "branch",
+            detailsUrl: `https://github.com/${repository}/runs/${claudeFinding.checkId}`,
+            id: "claude-review",
+            name: "claude-review",
+          },
+        ],
+        findings: [claudeFinding],
+      },
+      pattern: /failure evidence is ambiguous/,
+    },
+    {
+      packet: {
+        failures: [
+          {
+            attribution: "branch",
+            detailsUrl: `https://github.com/${repository}/runs/${claudeFinding.checkId}`,
+            id: "claude-review",
+            name: "claude-review",
+          },
+        ],
+        findings: [
+          claudeFinding,
+          { ...repairPacket().findings[0], checkId: claudeFinding.checkId },
+        ],
+      },
+      pattern: /packet findings are ambiguous/,
+    },
+    {
+      packet: {
+        failures: [],
+        findings: [claudeFinding],
+      },
+      pattern: /failure evidence is ambiguous/,
+    },
+    {
+      packet: {
+        failures: [
+          {
+            attribution: "branch",
+            detailsUrl: `https://github.com/${repository}/runs/${claudeFinding.checkId}`,
+            id: "claude-review",
+            name: "Claude-Review",
+          },
+        ],
+        findings: [claudeFinding],
+      },
+      pattern: /failure evidence is ambiguous/,
+    },
+  ];
+  for (const testCase of cases) {
+    const packet = testCase.packet ?? {
+      failures: [
+        {
+          attribution: "branch",
+          detailsUrl: `https://github.com/${repository}/runs/${claudeFinding.checkId}`,
+          id: "claude-review",
+          name: "claude-review",
+        },
+      ],
+      findings: [claudeFinding],
+    };
+    const fixture = materializerFixture({
+      claudeCheck: testCase.claudeCheck,
+      claudeResult: testCase.claudeResult,
+      claudeRun: testCase.claudeRun,
+      packet,
+    });
+    const temporary = mkdtempSync(
+      join(tmpdir(), "dependabot-repair-materialize-claude-reject-"),
+    );
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = fixture.fetch;
+      await assert.rejects(
+        materializeRepairEvidence({
+          outputRoot: join(temporary, "evidence"),
+          packetDigest: fixture.digest,
+          packetText: fixture.packetText,
+          processorCheckId: 444,
+          repositoryName: repository,
+          token: "read-token",
+        }),
+        testCase.pattern,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+      rmSync(temporary, { force: true, recursive: true });
+    }
+  }
+});
+
+test("materializer logs only ordinary jobs for mixed gate and Claude findings", async () => {
+  const claudeFinding = claudePacketFinding();
+  const fixture = materializerFixture({
+    packet: {
+      failures: [
+        {
+          attribution: "branch",
+          detailsUrl: `https://github.com/${repository}/actions/runs/700/job/701`,
+          id: "ci",
+          name: "Build and Test",
+        },
+        {
+          attribution: "branch",
+          detailsUrl: `https://github.com/${repository}/runs/${claudeFinding.checkId}`,
+          id: "claude-review",
+          name: "claude-review",
+        },
+      ],
+      findings: [claudeFinding],
+    },
+  });
+  const temporary = mkdtempSync(
+    join(tmpdir(), "dependabot-repair-materialize-mixed-"),
+  );
+  const outputRoot = join(temporary, "evidence");
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = fixture.fetch;
+    const result = await materializeRepairEvidence({
+      outputRoot,
+      packetDigest: fixture.digest,
+      packetText: fixture.packetText,
+      processorCheckId: 444,
+      repositoryName: repository,
+      token: "read-token",
+    });
+    assert.deepEqual(
+      result.manifest.files
+        .filter(({ kind }) => kind === "job-log")
+        .map(({ source }) => source.jobId),
+      [701],
+    );
+    assert.deepEqual(
+      JSON.parse(
+        readFileSync(join(outputRoot, "failure-index.json"), "utf8"),
+      ).map(({ failureId }) => failureId),
+      ["ci", "claude-review"],
     );
   } finally {
     globalThis.fetch = originalFetch;
@@ -1851,9 +2297,9 @@ test("repair evidence guard permits only sealed manifest Read/Grep and requires 
           file: {
             content: "{}\n",
             filePath: join(fixture.root, "packet.json"),
-            numLines: 1,
+            numLines: 2,
             startLine: 1,
-            totalLines: 1,
+            totalLines: 2,
           },
           type: "text",
         },
@@ -1870,9 +2316,9 @@ test("repair evidence guard permits only sealed manifest Read/Grep and requires 
           file: {
             content: "{}\n",
             filePath: join(fixture.root, "findings.json"),
-            numLines: 1,
+            numLines: 2,
             startLine: 1,
-            totalLines: 1,
+            totalLines: 2,
           },
           type: "text",
         },
@@ -1890,7 +2336,6 @@ test("repair evidence guard permits only sealed manifest Read/Grep and requires 
       tool_input: {
         "-A": 1,
         head_limit: 5,
-        multiline: false,
         output_mode: "content",
         path: fixture.root,
         pattern: "vercel",
@@ -1898,33 +2343,55 @@ test("repair evidence guard permits only sealed manifest Read/Grep and requires 
       tool_name: "Grep",
       tool_use_id: "toolu_repair_grep",
     };
-    const grep = spawnSync(process.execPath, [guard], {
-      encoding: "utf8",
-      env: fixture.environment,
-      input: JSON.stringify(grepInput),
-    });
-    assert.equal(grep.status, 0, grep.stderr);
-    const grepPost = spawnSync(process.execPath, [guard], {
-      encoding: "utf8",
-      env: fixture.environment,
-      input: JSON.stringify({
+    for (const [toolUseId, multiline] of [
+      ["toolu_repair_grep_default", undefined],
+      ["toolu_repair_grep_false", false],
+    ]) {
+      const input = {
         ...grepInput,
-        hook_event_name: "PostToolUse",
-        tool_response: {
-          appliedLimit: 5,
-          appliedOffset: 0,
-          content: `${join(fixture.root, "packet.json")}:1:{}`,
-          filenames: [join(fixture.root, "packet.json")],
-          mode: "content",
-          numFiles: 1,
-          numLines: 1,
-          numMatches: 1,
-          totalFiles: 1,
-          totalLines: 1,
+        tool_input: {
+          ...grepInput.tool_input,
+          ...(multiline === undefined ? {} : { multiline }),
         },
-      }),
-    });
-    assert.equal(grepPost.status, 0, grepPost.stderr);
+        tool_use_id: toolUseId,
+      };
+      const grep = spawnSync(process.execPath, [guard], {
+        encoding: "utf8",
+        env: fixture.environment,
+        input: JSON.stringify(input),
+      });
+      assert.equal(grep.status, 0, grep.stderr);
+      const grepPost = spawnSync(process.execPath, [guard], {
+        encoding: "utf8",
+        env: fixture.environment,
+        input: JSON.stringify({
+          ...input,
+          hook_event_name: "PostToolUse",
+          tool_response: {
+            appliedLimit: 5,
+            appliedOffset: 0,
+            content: `${join(fixture.root, "packet.json")}:1:{}`,
+            filenames: [join(fixture.root, "packet.json")],
+            mode: "content",
+            numFiles: 1,
+            numLines: 1,
+            numMatches: 1,
+            totalFiles: 1,
+            totalLines: 1,
+          },
+        }),
+      });
+      assert.equal(grepPost.status, 0, grepPost.stderr);
+    }
+    const grepVerify = spawnSync(
+      process.execPath,
+      [guard, "--verify-completion"],
+      {
+        encoding: "utf8",
+        env: fixture.environment,
+      },
+    );
+    assert.equal(grepVerify.status, 0, grepVerify.stderr);
 
     for (const blockedInput of [
       { ...readInput, tool_name: "Bash" },
@@ -1944,6 +2411,10 @@ test("repair evidence guard permits only sealed manifest Read/Grep and requires 
       {
         ...grepInput,
         tool_input: { ...grepInput.tool_input, multiline: true },
+      },
+      {
+        ...grepInput,
+        tool_input: { ...grepInput.tool_input, multiline: "false" },
       },
       {
         ...grepInput,
@@ -2074,7 +2545,7 @@ test("repair evidence guard requires bounded one-based pages for large reads and
     });
     assert.equal(pagePre.status, 0, pagePre.stderr);
     const packetLines = packetContent.split("\n");
-    const pageContent = `${packetLines.slice(0, 4).join("\n")}\n`;
+    const pageContent = packetLines.slice(0, 4).join("\n");
     const pagePost = spawnSync(process.execPath, [guard], {
       encoding: "utf8",
       env: fixture.environment,
@@ -2087,7 +2558,7 @@ test("repair evidence guard requires bounded one-based pages for large reads and
             filePath: packetPath,
             numLines: 4,
             startLine: 1,
-            totalLines: packetLines.length - 1,
+            totalLines: packetLines.length,
             truncatedByTokenCap: false,
           },
           type: "text",

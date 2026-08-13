@@ -101,11 +101,7 @@ function hasBoundedLines(bytes) {
 }
 
 function textLineCount(value) {
-  if (value.length === 0) return 0;
-  const newlineCount = [...value].filter(
-    (character) => character === "\n",
-  ).length;
-  return newlineCount + (value.endsWith("\n") ? 0 : 1);
+  return 1 + [...value].filter((character) => character === "\n").length;
 }
 
 function requiredEnvironment() {
@@ -446,7 +442,7 @@ function validateGrepInput(input, root, allowedPaths) {
   ) {
     block("Grep offset is invalid");
   }
-  if (input.multiline !== false) {
+  if (input.multiline !== undefined && input.multiline !== false) {
     block("multiline Grep is forbidden");
   }
 }

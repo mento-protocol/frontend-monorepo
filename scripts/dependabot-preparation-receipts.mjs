@@ -67,6 +67,12 @@ const MAX_FEEDBACK_BODY_BYTES = 128 * 1024;
 const MAX_GITHUB_JSON_BYTES = 32 * 1024 * 1024;
 const MAX_EVIDENCE_LINE_BYTES = 4 * 1024;
 const MAX_EVIDENCE_MANIFEST_FILES = 150;
+const CLAUDE_REVIEW_EXTERNAL_ID_PATTERN =
+  /^dependabot-claude-review:v1:pr=([1-9][0-9]{0,9}):sha=([0-9a-f]{40}):run=([1-9][0-9]*):attempt=([1-9][0-9]*)$/;
+const CLAUDE_REVIEW_RECEIPT_PATTERN =
+  /^dependabot-claude-review:v1 \| source=dependabot-intake:v1 \| repository=([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+) \| pr=([1-9][0-9]{0,9}) \| sha=([0-9a-f]{40}) \| action=(opened|synchronize|reopened) \| receipt=true$/;
+const CLAUDE_PREPARED_REVIEW_RECEIPT_PATTERN =
+  /^dependabot-claude-review:v1 \| source=dependabot-prepared-head:v1\|p=([1-9][0-9]{0,9})\|h=([0-9a-f]{40})\|o=([rp])\|c=([1-9][0-9]*)\|d=([0-9a-f]{64})\|ok=true$/;
 const FAILURE_SOURCE_POLICY = Object.freeze({
   "action-pins": {
     events: ["pull_request_target"],
@@ -1713,13 +1719,229 @@ function validateFailureJob(job, packet, runId, runAttempt, label) {
   return job;
 }
 
+function exactClaudeReviewFindings(result, packet, checkId) {
+  exactKeys(
+    result,
+    [
+      "findings",
+      "headSha",
+      "pullRequestNumber",
+      "repository",
+      "reviewCompleted",
+      "schema",
+      "verdict",
+    ],
+    "Claude review result",
+  );
+  if (
+    result.schema !== "dependabot-claude-review-result:v1" ||
+    result.repository !== packet.repository ||
+    result.pullRequestNumber !== packet.pullRequestNumber ||
+    result.headSha !== packet.headSha ||
+    result.reviewCompleted !== true ||
+    result.verdict !== "findings" ||
+    !Array.isArray(result.findings) ||
+    result.findings.length < 1 ||
+    result.findings.length > 20
+  ) {
+    fail("Claude review result does not contain exact findings");
+  }
+  return result.findings.map((finding, index) => {
+    exactKeys(
+      finding,
+      ["line", "path", "summary", "title"],
+      `Claude review findings[${index}]`,
+    );
+    pathName(finding.path, `Claude review findings[${index}].path`);
+    safeInteger(finding.line, `Claude review findings[${index}].line`);
+    boundedString(finding.title, `Claude review findings[${index}].title`, {
+      max: 160,
+      min: 1,
+    });
+    boundedString(finding.summary, `Claude review findings[${index}].summary`, {
+      max: 1_000,
+      min: 1,
+    });
+    const canonical = {
+      line: finding.line,
+      path: finding.path,
+      summary: finding.summary,
+      title: finding.title,
+    };
+    const findingDigest = canonicalDigest(canonical);
+    return {
+      checkId,
+      digest: findingDigest,
+      ...canonical,
+      source: "claude",
+      sourceId: findingDigest.slice(0, 24),
+    };
+  });
+}
+
+function claudeReviewDisplayTitleMatches(run, packet) {
+  const title = String(run.display_title ?? "");
+  const native = CLAUDE_REVIEW_RECEIPT_PATTERN.exec(title);
+  if (native !== null) {
+    return (
+      native[1] === packet.repository &&
+      Number(native[2]) === packet.pullRequestNumber &&
+      native[3] === packet.headSha
+    );
+  }
+  const prepared = CLAUDE_PREPARED_REVIEW_RECEIPT_PATTERN.exec(title);
+  return (
+    prepared !== null &&
+    Number(prepared[1]) === packet.pullRequestNumber &&
+    prepared[2] === packet.headSha
+  );
+}
+
+async function collectClaudeReviewFailureEvidence(
+  token,
+  packet,
+  failure,
+  packetFindings,
+) {
+  if (failure.id !== "claude-review" || failure.name !== "claude-review") {
+    fail("Claude review failure identity is not exact");
+  }
+  const checkIds = new Set(packetFindings.map(({ checkId }) => checkId));
+  if (
+    packetFindings.length < 1 ||
+    checkIds.size !== 1 ||
+    !Number.isSafeInteger(packetFindings[0].checkId) ||
+    packetFindings[0].checkId < 1 ||
+    packet.findings.some(
+      (finding) =>
+        finding.source !== "claude" &&
+        finding.checkId === packetFindings[0].checkId,
+    )
+  ) {
+    fail("Claude review packet findings are ambiguous");
+  }
+  const checkId = packetFindings[0].checkId;
+  const check = await githubRequest(
+    token,
+    "GET",
+    `/repos/${packet.repository}/check-runs/${checkId}`,
+  );
+  const external = CLAUDE_REVIEW_EXTERNAL_ID_PATTERN.exec(
+    String(check?.external_id ?? ""),
+  );
+  if (external === null) fail("Claude review external receipt is invalid");
+  const runId = safeInteger(Number(external[3]), "Claude review run ID");
+  const runAttempt = safeInteger(
+    Number(external[4]),
+    "Claude review run attempt",
+  );
+  const runUrl = expectedRunUrl(packet.repository, runId);
+  const selfUrl = `https://github.com/${packet.repository}/runs/${checkId}`;
+  if (
+    check?.id !== checkId ||
+    check?.name !== "claude-review" ||
+    check?.app?.id !== GITHUB_ACTIONS_APP_ID ||
+    check?.app?.slug !== "github-actions" ||
+    check?.head_sha !== packet.headSha ||
+    check?.status !== "completed" ||
+    check?.conclusion !== "failure" ||
+    check?.details_url !== failure.detailsUrl ||
+    !new Set([runUrl, selfUrl]).has(failure.detailsUrl) ||
+    Number(external[1]) !== packet.pullRequestNumber ||
+    external[2] !== packet.headSha
+  ) {
+    fail("Claude review check provenance is not exact");
+  }
+  const reviewText = boundedString(
+    check.output?.text,
+    "Claude review result text",
+    { max: 64 * 1024, min: 2 },
+  );
+  const expectedFindings = exactClaudeReviewFindings(
+    parseCanonicalJson(reviewText, "Claude review result"),
+    packet,
+    checkId,
+  );
+  if (canonicalJson(expectedFindings) !== canonicalJson(packetFindings)) {
+    fail("Claude review packet findings changed from the check");
+  }
+
+  let run = await githubRequest(
+    token,
+    "GET",
+    `/repos/${packet.repository}/actions/runs/${runId}`,
+  );
+  if (run?.run_attempt !== runAttempt) {
+    run = await githubRequest(
+      token,
+      "GET",
+      `/repos/${packet.repository}/actions/runs/${runId}/attempts/${runAttempt}`,
+    );
+  }
+  const workflowPath = String(run?.path ?? "").replace(/@.*$/, "");
+  if (
+    run?.id !== runId ||
+    run?.run_attempt !== runAttempt ||
+    run?.status !== "completed" ||
+    run?.conclusion !== "failure" ||
+    run?.event !== "workflow_run" ||
+    workflowPath !== ".github/workflows/dependabot-claude-review.yml" ||
+    run?.head_branch !== "main" ||
+    run?.repository?.full_name !== packet.repository ||
+    run?.head_repository?.full_name !== packet.repository ||
+    !HEX_SHA.test(run?.head_sha ?? "") ||
+    run.head_sha === packet.headSha ||
+    !claudeReviewDisplayTitleMatches(run, packet)
+  ) {
+    fail("Claude review workflow run provenance is not exact");
+  }
+  return {
+    checkId,
+    checkName: check.name,
+    detailsUrl: failure.detailsUrl,
+    externalId: check.external_id,
+    failureId: failure.id,
+    kind: "review-findings",
+    runAttempt,
+    runId,
+    workflowHeadSha: run.head_sha,
+    workflowPath,
+  };
+}
+
 async function collectFailureEvidence(token, packet) {
   const failureIndex = [];
   const logFiles = [];
   const runs = new Map();
   const loggedJobs = new Set();
   let totalLogBytes = 0;
+  const claudeFailureCandidates = packet.failures.filter(
+    ({ id, name }) => id === "claude-review" || name === "claude-review",
+  );
+  const claudeFindings = packet.findings.filter(
+    ({ source }) => source === "claude",
+  );
+  if (
+    claudeFailureCandidates.some(
+      ({ id, name }) => id !== "claude-review" || name !== "claude-review",
+    ) ||
+    claudeFailureCandidates.length > 1 ||
+    (claudeFailureCandidates.length === 0 && claudeFindings.length > 0)
+  ) {
+    fail("Claude review failure evidence is ambiguous");
+  }
   for (const [failureIndexValue, failure] of packet.failures.entries()) {
+    if (failure.id === "claude-review") {
+      failureIndex.push(
+        await collectClaudeReviewFailureEvidence(
+          token,
+          packet,
+          failure,
+          claudeFindings,
+        ),
+      );
+      continue;
+    }
     const escapedRepository = packet.repository.replaceAll("/", "\\/");
     const match = new RegExp(
       `^https:\\/\\/github\\.com\\/${escapedRepository}\\/actions\\/runs\\/([1-9][0-9]*)\\/job\\/([1-9][0-9]*)$`,
