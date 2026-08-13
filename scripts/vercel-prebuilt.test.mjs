@@ -41,8 +41,10 @@ const scriptPath = fileURLToPath(
   new URL("./vercel-prebuilt.mjs", import.meta.url),
 );
 const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567";
-const PINNED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
+const CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
   "957ccb3b8431add07a144e77966b4a05733aaca6f21cd071c937861fc10189d4";
+const NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
+  "2dbd0eba57b119870bcd2ba43f6cf726bb52c85d8ec03f4999030e9931e5ed36";
 
 function deploymentId(overrides = {}) {
   return generateVercelDeploymentId({
@@ -66,6 +68,34 @@ function createVersionContractFixture() {
     );
   }
   return fixtureRoot;
+}
+
+function nextNanoidOverrides(overrides) {
+  const next = { ...overrides };
+  assert.equal(next["nanoid@<3.3.17"], "3.3.17");
+  delete next["nanoid@<3.3.17"];
+  next["nanoid@<3.3.18"] = "3.3.18";
+  return next;
+}
+
+function nextNanoidLockfile(lockfile) {
+  const next = lockfile.replace(
+    "  nanoid@<3.3.17: 3.3.17\n",
+    "  nanoid@<3.3.18: 3.3.18\n",
+  );
+  assert.notEqual(next, lockfile);
+  return next;
+}
+
+function writeRuntimeOverrides({ fixtureRoot, overrides }) {
+  for (const path of [
+    join(fixtureRoot, "package.json"),
+    join(fixtureRoot, "scripts", "vercel-cli-runtime", "package.json"),
+  ]) {
+    const packageMetadata = JSON.parse(readFileSync(path, "utf8"));
+    packageMetadata.pnpm.overrides = overrides;
+    writeFileSync(path, `${JSON.stringify(packageMetadata, null, 2)}\n`);
+  }
 }
 
 test("generated IDs satisfy every Vercel constraint for every target", () => {
@@ -212,7 +242,7 @@ test("resolved Next.js and exact Vercel CLI satisfy custom-ID prerequisites", ()
   };
   assert.equal(
     prerequisites.vercelCliRuntime.lockfileSha256,
-    PINNED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
+    CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
   );
   assert.deepEqual(prerequisites, expected);
   assert.deepEqual(
@@ -229,7 +259,7 @@ test("resolved Next.js and exact Vercel CLI satisfy custom-ID prerequisites", ()
   assert.equal(isVersionGreaterThan("56.4.1", "50.3.3"), true);
 });
 
-test("trusted controller accepts only the pinned Vercel CLI runtime pair", () => {
+test("trusted controller accepts only matching current and next Vercel CLI runtime pairs", () => {
   const fixtureRoot = createVersionContractFixture();
   const contractPaths = {
     rootPackageJsonPath: join(fixtureRoot, "package.json"),
@@ -247,13 +277,39 @@ test("trusted controller accepts only the pinned Vercel CLI runtime pair", () =>
     ),
   };
   try {
-    const repositoryDigest =
+    const currentDigest =
       assertVercelCliRuntimeContract(contractPaths).lockfileSha256;
-    assert.equal(repositoryDigest, PINNED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256);
-    const repositoryLockfile = readFileSync(contractPaths.lockfilePath, "utf8");
+    assert.equal(currentDigest, CURRENT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256);
+    const currentLockfile = readFileSync(contractPaths.lockfilePath, "utf8");
+    const currentOverrides = JSON.parse(
+      readFileSync(contractPaths.rootPackageJsonPath, "utf8"),
+    ).pnpm.overrides;
+    const nextLockfile = nextNanoidLockfile(currentLockfile);
+    const nextOverrides = nextNanoidOverrides(currentOverrides);
+
+    writeRuntimeOverrides({ fixtureRoot, overrides: nextOverrides });
+    writeFileSync(contractPaths.lockfilePath, nextLockfile);
+    assert.equal(
+      assertVercelCliRuntimeContract(contractPaths).lockfileSha256,
+      NEXT_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
+    );
+
+    for (const [overrides, lockfile] of [
+      [currentOverrides, nextLockfile],
+      [nextOverrides, currentLockfile],
+    ]) {
+      writeRuntimeOverrides({ fixtureRoot, overrides });
+      writeFileSync(contractPaths.lockfilePath, lockfile);
+      assert.throws(
+        () => assertVercelCliRuntimeContract(contractPaths),
+        /lockfile and overrides are not an approved pair/,
+      );
+    }
+
+    writeRuntimeOverrides({ fixtureRoot, overrides: nextOverrides });
     writeFileSync(
       contractPaths.lockfilePath,
-      `${repositoryLockfile}\n# unreviewed digest\n`,
+      `${nextLockfile}\n# unreviewed digest\n`,
     );
     assert.throws(
       () => assertVercelCliRuntimeContract(contractPaths),
