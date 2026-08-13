@@ -1150,17 +1150,17 @@ Trusted controller code first requires its manifest to contain
 requires its `pnpm.overrides` object to equal the root security overrides,
 binds every byte of `scripts/vercel-cli-runtime/pnpm-lock.yaml` to a literal
 controller-owned mapping. During the nanoid 3.3.18 rotation, that temporary
-mapping accepts only the current lockfile SHA-256
+mapping accepts only the former lockfile SHA-256
 `957ccb3b8431add07a144e77966b4a05733aaca6f21cd071c937861fc10189d4`
 paired with canonical root override SHA-256
 `301165d803f4cc7db4524ea3a7a02b33db772505c04fdc9025860b244bcb447b`,
-or the reviewed-next lockfile SHA-256
+or the active lockfile SHA-256
 `2dbd0eba57b119870bcd2ba43f6cf726bb52c85d8ec03f4999030e9931e5ed36`
 paired with canonical root override SHA-256
 `11fc5e7476b6d15ddf6bf8d6956f6566346637f34e0b11e23849e92011b2bf31`.
-The checked-in runtime remains on the current pair until the payload PR changes
-both root and standalone states. The controller rejects cross-paired states,
-all patched-dependency metadata, and patch artifacts. The current runtime uses
+The checked-in runtime now uses the active pair; remove the former pair after
+the payload is proven on the default branch. The controller rejects cross-paired
+states, all patched-dependency metadata, and patch artifacts. The current runtime uses
 upstream fixed `brace-expansion@2.1.4`. It copies the manifest and lockfile as
 independent runner-owned `0444`, single-link files under
 `$TOOLS_PATH/vercel-cli-runtime`; CI never generates or updates that lockfile.
