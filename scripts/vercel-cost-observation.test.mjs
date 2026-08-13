@@ -744,13 +744,13 @@ function previewRoutes(
   };
   const status = {
     id: 401,
-    sha: event.head_sha,
     context: "Vercel Preview",
     state: "success",
-    target_url:
+    target_url: new URL(
       journal.state?.status_decisions.find(
         (decision) => decision.sha === event.head_sha,
       )?.target_url ?? run.html_url,
+    ).toString(),
     created_at: "2026-07-29T01:04:00.000Z",
     updated_at: "2026-07-29T01:04:00.000Z",
     creator: { type: "Bot", login: "github-actions[bot]" },
@@ -811,7 +811,7 @@ function previewRoutes(
             state: "success",
             log_url:
               "https://github.com/mento-protocol/frontend-monorepo/actions/runs/8001",
-            environment_url: "https://ui-observation-fixture.vercel.app",
+            environment_url: "https://ui-observation-fixture.vercel.app/",
             created_at: "2026-07-29T01:03:00.000Z",
             creator: { type: "Bot", login: "github-actions[bot]" },
           },
@@ -894,10 +894,9 @@ function reselectedPreviewRoutes(
       [
         {
           id: 402,
-          sha: event.head_sha,
           context: "Vercel Preview",
           state: decision.state,
-          target_url: decision.target_url,
+          target_url: new URL(decision.target_url).toString(),
           created_at: "2026-07-29T01:04:00.000Z",
           updated_at: "2026-07-29T01:04:00.000Z",
           creator: { type: "Bot", login: "github-actions[bot]" },

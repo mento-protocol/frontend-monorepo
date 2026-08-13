@@ -1224,6 +1224,21 @@ function latestSentinelStatus(statuses) {
   );
 }
 
+function canonicalHttpsTargetUrl(value, label) {
+  invariant(typeof value === "string", `${label} must be an HTTPS URL`);
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${label} must be an HTTPS URL`);
+  }
+  invariant(
+    parsed.protocol === "https:" && !parsed.username && !parsed.password,
+    `${label} must be an HTTPS URL without credentials`,
+  );
+  return parsed.toString();
+}
+
 function deploymentCapture(deployments) {
   return deployments.map(({ deployment, statuses }) => ({
     deployment,
@@ -1329,7 +1344,14 @@ function validatePreviewDeployment({
         Number(runIdMatch[2]) === Number(result.worker_run_attempt)) &&
       status.state === result.state &&
       (result.state !== "success" ||
-        status.environment_url === result.vercel_deployment_url) &&
+        canonicalHttpsTargetUrl(
+          status.environment_url,
+          "GitHub Deployment status environment URL",
+        ) ===
+          canonicalHttpsTargetUrl(
+            result.vercel_deployment_url,
+            "Preview worker result deployment URL",
+          )) &&
       status.creator?.type === "Bot" &&
       status.creator?.login === "github-actions[bot]"
     );
@@ -1358,9 +1380,16 @@ function validateTerminalPreviewReceipts({
   );
   invariant(
     sentinel !== null &&
-      sentinel.sha === event.head_sha &&
+      (!Object.hasOwn(sentinel, "sha") || sentinel.sha === event.head_sha) &&
       sentinel.state === decision.state &&
-      sentinel.target_url === decision.target_url &&
+      canonicalHttpsTargetUrl(
+        sentinel.target_url,
+        "Preview terminal status target URL",
+      ) ===
+        canonicalHttpsTargetUrl(
+          decision.target_url,
+          "Preview controller decision target URL",
+        ) &&
       sentinel.creator?.type === "Bot" &&
       sentinel.creator?.login === "github-actions[bot]",
     "Preview terminal status does not match the bot-owned controller decision",
