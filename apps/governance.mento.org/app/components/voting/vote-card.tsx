@@ -20,6 +20,7 @@ import { getTimelockOperationId } from "@/contracts/governor/utils/get-timelock-
 import { Proposal, ProposalState } from "@/graphql/subgraph/generated/subgraph";
 import { useVeMentoDelegationSummary } from "@/hooks/use-ve-mento-delegation-summary";
 import { NumbersService } from "@repo/web3";
+import { isUserRejectionForTelemetry } from "@repo/web3/is-user-rejection";
 import { useAccount, useChainId } from "@repo/web3/wagmi";
 import * as Sentry from "@sentry/nextjs";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -32,7 +33,7 @@ interface VoteCardProps {
 }
 
 function reportGovernanceTransactionError(error: unknown): boolean {
-  if (getGovernanceTransactionErrorMessage(error) === null) {
+  if (isUserRejectionForTelemetry(error)) {
     return false;
   }
 

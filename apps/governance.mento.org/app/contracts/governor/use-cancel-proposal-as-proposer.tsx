@@ -12,7 +12,7 @@ import {
   type WriteContractErrorType,
 } from "@repo/web3/wagmi";
 import * as Sentry from "@sentry/nextjs";
-import { isUserRejection } from "@repo/web3/is-user-rejection";
+import { isUserRejectionForTelemetry } from "@repo/web3/is-user-rejection";
 
 /**
  * Hook to cancel a proposal as the proposer.
@@ -66,7 +66,7 @@ export const useCancelProposalAsProposer = () => {
   // Toast notifications for proposal cancellation
   useEffect(() => {
     if (error) {
-      if (isUserRejection(error)) {
+      if (isUserRejectionForTelemetry(error)) {
         toast.error("Cancellation rejected by user");
       } else {
         // Send non-rejection errors to Sentry

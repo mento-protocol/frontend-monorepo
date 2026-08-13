@@ -16,7 +16,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ProposalQueryKey } from "@/contracts/governor/use-proposal";
 import * as Sentry from "@sentry/nextjs";
 import { useIsWatchdog } from "@/contracts/governor/use-is-watchdog";
-import { isUserRejection } from "@repo/web3/is-user-rejection";
+import { isUserRejectionForTelemetry } from "@repo/web3/is-user-rejection";
 
 /**
  * Hook to cancel a queued proposal.
@@ -78,7 +78,7 @@ export const useCancelProposalAsWatchdog = (): {
             onSuccess?.();
           },
           onError: (error) => {
-            if (isUserRejection(error)) {
+            if (isUserRejectionForTelemetry(error)) {
               // User deliberately rejected - show clear message
               toast.error("Failed to cancel proposal", {
                 description: "You rejected the transaction",
@@ -211,7 +211,7 @@ export const useCancelProposalAsWatchdog = (): {
           downloadCancelTransaction(operationId, onSuccess);
         }
       } catch (error) {
-        if (isUserRejection(error)) {
+        if (isUserRejectionForTelemetry(error)) {
           toast.error("Failed to cancel proposal", {
             description: "You rejected the transaction",
           });

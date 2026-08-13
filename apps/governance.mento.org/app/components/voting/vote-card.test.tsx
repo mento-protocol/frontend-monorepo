@@ -203,8 +203,8 @@ describe("VoteCard", () => {
     expect(mocks.captureException).not.toHaveBeenCalled();
   });
 
-  it("captures an unexpected execute failure", () => {
-    const executionError = new Error("execution reverted");
+  it("captures a generic request-rejected execute failure", () => {
+    const executionError = new Error("Request rejected by upstream");
     render(<VoteCard proposal={proposal} votingDeadline={undefined} />);
 
     const contentProps = mocks.voteCardContent.mock.calls.at(-1)?.[0] as

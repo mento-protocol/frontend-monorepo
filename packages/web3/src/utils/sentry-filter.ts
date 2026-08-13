@@ -1,6 +1,6 @@
 import type { ErrorEvent, EventHint } from "@sentry/nextjs";
+import { isStructuredUserRejection } from "./is-user-rejection";
 
-const USER_REJECTED_REQUEST_CODE = 4001;
 const USER_REJECTED_REQUEST_ERROR_NAME = "UserRejectedRequestError";
 
 const ALWAYS_IGNORE_ERROR_PATTERNS = [
@@ -117,34 +117,9 @@ function eventTargetsRoute(event: ErrorEvent, route: string): boolean {
   return requestUrl.includes(route) || transaction.includes(route);
 }
 
-function hasStructuredUserRejection(
-  error: unknown,
-  seen = new Set<object>(),
-): boolean {
-  if (typeof error !== "object" || error === null || seen.has(error)) {
-    return false;
-  }
-
-  seen.add(error);
-  const candidate = error as {
-    cause?: unknown;
-    code?: unknown;
-    name?: unknown;
-  };
-
-  if (
-    candidate.code === USER_REJECTED_REQUEST_CODE ||
-    candidate.name === USER_REJECTED_REQUEST_ERROR_NAME
-  ) {
-    return true;
-  }
-
-  return hasStructuredUserRejection(candidate.cause, seen);
-}
-
 function isUserRejectionEvent(event: ErrorEvent, hint?: EventHint): boolean {
   return (
-    hasStructuredUserRejection(hint?.originalException) ||
+    isStructuredUserRejection(hint?.originalException) ||
     (event.exception?.values ?? []).some(
       ({ type }) => type === USER_REJECTED_REQUEST_ERROR_NAME,
     )
