@@ -69,7 +69,7 @@ test("all deployed roots expose the exact observation event canary", () => {
       "utf8",
     );
     const rootOpeningTag = source.match(/<html\b[^>]*>/s)?.[0];
-    const expectedCanary = `523-v1-${target}-09`;
+    const expectedCanary = `523-v1-${target}-10`;
     const canaries = [
       ...source.matchAll(/data-mento-observation-canary="([^"]+)"/g),
     ].map((match) => match[1]);

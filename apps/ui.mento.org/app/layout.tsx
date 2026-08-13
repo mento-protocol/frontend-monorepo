@@ -28,7 +28,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      data-mento-observation-canary="523-v1-ui-09"
+      data-mento-observation-canary="523-v1-ui-10"
       suppressHydrationWarning
     >
       <body className={inter.className}>
