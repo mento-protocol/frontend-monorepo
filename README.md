@@ -178,7 +178,10 @@ pnpm vercel:cost:observe -- init --start 2026-07-29T00:00:00.000Z --end 2026-08-
 # permanently freezes this interval before writing the private evidence-join fragment.
 pnpm vercel:cost:observe -- audit --end <final-end-utc>
 
-# Test and run the private collector plus redaction-safe closeout analyzer
+# Normalize complete saved Vercel v7 deployment pages without network access
+pnpm vercel:cost:normalize-deployments --input <private-pages-envelope.json> --output <census.jsonl> --proof <private-census-proof.json>
+
+# Test and run the private collector, census normalizer, and redaction-safe analyzer
 pnpm vercel:cost:test
 # The analyzer uses the #523 target-mix formula only after complete baseline and
 # post deployment censuses prove zero legacy-v2, manual, or unknown attempts.

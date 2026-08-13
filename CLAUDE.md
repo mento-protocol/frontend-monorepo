@@ -46,12 +46,13 @@ pnpm dependabot:process -- evaluate --input path/to/snapshot.json --mode observe
 pnpm dependabot:process:test         # Test Dependabot policy, CLI, and trusted-workflow contracts
 pnpm adr:check                       # Advisory reminder for new architecture-significant workflows/workspaces
 pnpm adr:check:test                  # Test the offline ADR trigger and repository wiring
-pnpm vercel:cost:test                # Test private GitHub capture plus zero-exclusion target-mix normalization and closeout gates
+pnpm vercel:cost:test                # Test private GitHub capture, saved-page census normalization, target-mix analysis, and closeout gates
 pnpm vercel:cost:observe -- init --start <UTC> --end <UTC>  # Initialize, or append a later pre-audit end to, the private #523 GitHub interval
 pnpm vercel:cost:observe -- capture-preview --pr <number> --event-run-id <id>  # Freeze one preview event from the live journal or its 14-day receipt artifact
 pnpm vercel:cost:observe -- capture-main --run-id <id>  # Freeze every attempt, log, and available journal for one main release
 pnpm vercel:cost:observe -- sample-github  # Snapshot visibility, runs, runner labels, caches, and artifacts
 pnpm vercel:cost:observe -- audit --end <UTC>  # Preflight GitHub evidence; once clean, freeze and emit the incomplete private evidence-join fragment
+pnpm vercel:cost:normalize-deployments --input <private-pages-envelope.json> --output <census.jsonl> --proof <private-census-proof.json>  # Normalize complete saved Vercel v7 pages without credentials or network access
 pnpm vercel:cost:analyze --input <private-evidence-manifest.json> --format markdown  # Reconcile FOCUS project totals only after complete zero-exclusion censuses
 trunk check --fix                     # Lint with autofix
 trunk fmt                             # Format
