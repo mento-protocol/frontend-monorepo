@@ -20,18 +20,66 @@ import process from "node:process";
 const MANIFEST_SCHEMA = "dependabot-repair-evidence:v1";
 const MAX_EVIDENCE_FILE_BYTES = 8 * 1024 * 1024;
 const MAX_EVIDENCE_TOTAL_BYTES = 32 * 1024 * 1024;
-const MAX_HOOK_INPUT_BYTES = 64 * 1024;
+const MAX_EVIDENCE_PATH_BYTES = 4 * 1024;
+const MAX_HOOK_METADATA_BYTES = 64 * 1024;
 const MAX_MANIFEST_BYTES = 256 * 1024;
 const MAX_MANIFEST_FILES = 150;
 const MAX_PATTERN_LENGTH = 500;
 const MAX_TOOL_RESPONSE_BYTES = 32 * 1024;
 const MAX_RECEIPT_FILES = 400;
-const MAX_UNPAGED_READ_BYTES = 16 * 1024;
+const MAX_TEXT_UNPAGED_READ_BYTES = 16 * 1024;
 const MAX_READ_LINES = 2_000;
-const MAX_PAGED_READ_LINES = 4;
 const MAX_GREP_HEAD_LIMIT = 5;
 const MAX_GREP_CONTEXT = 1;
 const MAX_EVIDENCE_LINE_BYTES = 4 * 1024;
+// The production action installs Claude Code 2.1.220. Its Read implementation
+// caps output at 25,000 tokens and skips the exact token-count request only
+// while selected text stays at or below one quarter of that cap by its
+// four-code-unit approximation. Valid UTF-8 text never has more UTF-16 code
+// units than source bytes. Authorize each requested sealed-file slice by its
+// exact raw bytes under that conservative threshold and our response byte cap.
+const CLAUDE_READ_MAX_TOKENS = 25_000;
+const MAX_JSON_UNPAGED_READ_BYTES = Math.floor(CLAUDE_READ_MAX_TOKENS / 2);
+const MAX_TEXT_PAGED_READ_LINES = MAX_READ_LINES;
+// Claude's local estimate treats JSON as two code units per token, versus four
+// for text. A smaller JSON page therefore stays on the same no-count path.
+const MAX_JSON_PAGED_READ_LINES = MAX_READ_LINES;
+const MAX_TEXT_READ_PAGE_BYTES = Math.min(
+  MAX_TOOL_RESPONSE_BYTES,
+  CLAUDE_READ_MAX_TOKENS,
+);
+const MAX_JSON_READ_PAGE_BYTES = Math.min(
+  MAX_TOOL_RESPONSE_BYTES,
+  MAX_JSON_UNPAGED_READ_BYTES,
+);
+const MAX_READ_PAGE_BYTES = Math.max(
+  MAX_TEXT_READ_PAGE_BYTES,
+  MAX_JSON_READ_PAGE_BYTES,
+);
+// JSON.stringify may expand each one-byte control character to six bytes. The
+// PostToolUse response also repeats one bounded path. Four KiB covers every
+// fixed response field and JSON delimiter by more than an order of magnitude.
+const MAX_SERIALIZED_READ_RESPONSE_BYTES =
+  MAX_READ_PAGE_BYTES * 6 + MAX_EVIDENCE_PATH_BYTES * 6 + 4 * 1024;
+const MAX_HOOK_INPUT_BYTES = 256 * 1024;
+const READ_PAGE_POLICY = Object.freeze({
+  claudeCodeActionRef: "be7b93b1907a4abad570368f3c74b6fe3807510b",
+  claudeCodeVersion: "2.1.220",
+  evidenceMaxLineBytes: MAX_EVIDENCE_LINE_BYTES,
+  jsonMaxBytes: MAX_JSON_READ_PAGE_BYTES,
+  jsonMaxLines: MAX_JSON_PAGED_READ_LINES,
+  jsonMaxUnpagedBytes: MAX_JSON_UNPAGED_READ_BYTES,
+  schema: "dependabot-repair-evidence-page-policy:v1",
+  textMaxBytes: MAX_TEXT_READ_PAGE_BYTES,
+  textMaxLines: MAX_TEXT_PAGED_READ_LINES,
+  textMaxUnpagedBytes: MAX_TEXT_UNPAGED_READ_BYTES,
+});
+if (
+  MAX_HOOK_METADATA_BYTES + MAX_SERIALIZED_READ_RESPONSE_BYTES >
+  MAX_HOOK_INPUT_BYTES
+) {
+  throw new Error("Dependabot repair hook input bounds are inconsistent");
+}
 const READ_INPUT_KEYS = new Set(["file_path", "limit", "offset"]);
 const GREP_INPUT_KEYS = new Set([
   "-A",
@@ -120,12 +168,15 @@ function requiredEnvironment() {
     !isAbsolute(root) ||
     resolve(root) !== root ||
     root === "/" ||
+    Buffer.byteLength(root) > MAX_EVIDENCE_PATH_BYTES ||
     !isAbsolute(manifestPath) ||
     resolve(manifestPath) !== manifestPath ||
+    Buffer.byteLength(manifestPath) > MAX_EVIDENCE_PATH_BYTES ||
     manifestPath !== join(root, "manifest.json") ||
     !/^[0-9a-f]{64}$/.test(manifestDigest) ||
     !isAbsolute(runnerTemp) ||
     resolve(runnerTemp) !== runnerTemp ||
+    Buffer.byteLength(runnerTemp) > MAX_EVIDENCE_PATH_BYTES ||
     !/^[1-9][0-9]*$/.test(runId) ||
     !/^[1-9][0-9]*$/.test(runAttempt) ||
     root !== expectedRoot
@@ -293,6 +344,7 @@ function loadManifest({ manifestDigest, manifestPath, root }) {
     if (
       resolve(path) !== path ||
       dirname(path) !== root ||
+      Buffer.byteLength(path) > MAX_EVIDENCE_PATH_BYTES ||
       path === manifestPath ||
       paths.has(path)
     ) {
@@ -347,7 +399,42 @@ function verifyEntry(path, entry) {
   }
 }
 
-function validateReadInput(input, readableEntries) {
+function exactReadPage(path, entry, offset, limit) {
+  const label = `evidence file ${entry.name ?? "manifest.json"}`;
+  const bytes = readSealedFile(path, MAX_EVIDENCE_FILE_BYTES, label);
+  if (
+    bytes.byteLength !== entry.bytes ||
+    (entry.digest !== undefined && digest(bytes) !== entry.digest) ||
+    !hasBoundedLines(bytes)
+  ) {
+    block(`${label} changed after materialization`);
+  }
+  let text;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+      bytes,
+    );
+  } catch {
+    block("evidence Read page is not valid UTF-8 text");
+  }
+  if (text.startsWith("\uFEFF")) text = text.slice(1);
+  const lines = text.split("\n");
+  const firstLineIndex = offset - 1;
+  if (firstLineIndex >= lines.length) {
+    block("evidence Read page starts beyond the sealed file");
+  }
+  const content = lines
+    .slice(firstLineIndex, firstLineIndex + limit)
+    .map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line))
+    .join("\n");
+  return {
+    bytes: Buffer.byteLength(content),
+    digest: digest(content),
+    lines: textLineCount(content),
+  };
+}
+
+function validateReadInput(input, readableEntries, { sealPage }) {
   if (!exactKeysSubset(input, READ_INPUT_KEYS)) {
     block("Read input contains an unexpected field");
   }
@@ -370,18 +457,40 @@ function validateReadInput(input, readableEntries) {
   ) {
     block("Read limit is invalid");
   }
+  const maximumUnpagedBytes =
+    entry.mediaType === "application/json"
+      ? MAX_JSON_UNPAGED_READ_BYTES
+      : MAX_TEXT_UNPAGED_READ_BYTES;
+  const maximumPageLines =
+    entry.mediaType === "application/json"
+      ? MAX_JSON_PAGED_READ_LINES
+      : MAX_TEXT_PAGED_READ_LINES;
   if (
-    entry.bytes > MAX_UNPAGED_READ_BYTES &&
+    entry.bytes > maximumUnpagedBytes &&
     (input.offset === undefined || input.limit === undefined)
   ) {
     block("large Read requires an explicit bounded line page");
   }
-  if (
-    entry.bytes > MAX_UNPAGED_READ_BYTES &&
-    input.limit > MAX_PAGED_READ_LINES
-  ) {
+  if (entry.bytes > maximumUnpagedBytes && input.limit > maximumPageLines) {
     block("large Read page exceeds its line cap");
   }
+  if (entry.bytes > maximumUnpagedBytes && sealPage) {
+    const maximumPageBytes =
+      entry.mediaType === "application/json"
+        ? MAX_JSON_READ_PAGE_BYTES
+        : MAX_TEXT_READ_PAGE_BYTES;
+    const page = exactReadPage(
+      input.file_path,
+      entry,
+      input.offset,
+      input.limit,
+    );
+    if (page.bytes < 1 || page.bytes > maximumPageBytes) {
+      block("large Read page exceeds its media-aware byte cap");
+    }
+    return page;
+  }
+  return null;
 }
 
 function exactKeysSubset(value, allowed) {
@@ -459,15 +568,17 @@ function canonicalToolInput(
   root,
   allowedPaths,
   readableEntries,
+  sealPage,
 ) {
+  let page = null;
   if (toolName === "Read") {
-    validateReadInput(toolInput, readableEntries);
+    page = validateReadInput(toolInput, readableEntries, { sealPage });
   } else if (toolName === "Grep") {
     validateGrepInput(toolInput, root, allowedPaths);
   } else {
     block("only Read and Grep tools are accepted");
   }
-  return canonicalJson(toolInput);
+  return { page, text: canonicalJson(toolInput) };
 }
 
 function receiptPaths(environment, toolUseId) {
@@ -532,6 +643,9 @@ function validateIssuedReceipt(receipt, environment, toolUseId, inputDigest) {
   if (
     !exactKeys(receipt, [
       "manifestDigest",
+      "pageBytes",
+      "pageDigest",
+      "pageLines",
       "runAttempt",
       "runId",
       "schema",
@@ -543,7 +657,13 @@ function validateIssuedReceipt(receipt, environment, toolUseId, inputDigest) {
     receipt.runId !== environment.runId ||
     receipt.runAttempt !== environment.runAttempt ||
     receipt.toolUseId !== toolUseId ||
-    receipt.toolInputDigest !== inputDigest
+    receipt.toolInputDigest !== inputDigest ||
+    !isBoundedInteger(receipt.pageBytes, 0, MAX_TOOL_RESPONSE_BYTES) ||
+    !isBoundedInteger(receipt.pageLines, 0, MAX_READ_LINES) ||
+    (receipt.pageBytes === 0) !== (receipt.pageLines === 0) ||
+    (receipt.pageBytes === 0
+      ? receipt.pageDigest !== null
+      : !/^[0-9a-f]{64}$/.test(receipt.pageDigest ?? ""))
   ) {
     block("issued evidence-read receipt is not canonically bound");
   }
@@ -556,6 +676,7 @@ function validateSuccessfulToolResponse(
   root,
   allowedPaths,
   readableEntries,
+  issuedReceipt,
 ) {
   if (
     response === null ||
@@ -610,6 +731,14 @@ function validateSuccessfulToolResponse(
     Buffer.byteLength(text) > MAX_TOOL_RESPONSE_BYTES
   ) {
     block("evidence tool response is empty, malformed, or oversized");
+  }
+  if (
+    issuedReceipt.pageBytes > 0 &&
+    (Buffer.byteLength(text) !== issuedReceipt.pageBytes ||
+      textLineCount(text) !== issuedReceipt.pageLines ||
+      digest(text) !== issuedReceipt.pageDigest)
+  ) {
+    block("evidence Read response does not match the authorized sealed slice");
   }
   return text;
 }
@@ -699,7 +828,18 @@ async function readHookInput() {
   if (input === null || typeof input !== "object" || Array.isArray(input)) {
     block("hook input is not an object");
   }
+  const metadata = Object.fromEntries(
+    Object.entries(input).filter(([key]) => key !== "tool_response"),
+  );
+  if (Buffer.byteLength(JSON.stringify(metadata)) > MAX_HOOK_METADATA_BYTES) {
+    block("hook metadata exceeds its size cap");
+  }
   return input;
+}
+
+if (process.argv.length === 3 && process.argv[2] === "--print-policy") {
+  process.stdout.write(`${canonicalJson(READ_PAGE_POLICY)}\n`);
+  process.exit(0);
 }
 
 const environment = requiredEnvironment();
@@ -711,22 +851,36 @@ if (process.argv.length === 3 && process.argv[2] === "--verify-completion") {
 if (process.argv.length !== 2) block("command-line arguments are forbidden");
 const allowedPaths = new Set([environment.manifestPath, ...paths.keys()]);
 const readableEntries = new Map([
-  [environment.manifestPath, { bytes: manifestBytes }],
+  [
+    environment.manifestPath,
+    {
+      bytes: manifestBytes,
+      digest: environment.manifestDigest,
+      mediaType: "application/json",
+      name: "manifest.json",
+    },
+  ],
   ...paths,
 ]);
 const hookInput = await readHookInput();
 if (!isToolUseId(hookInput.tool_use_id)) block("tool-use ID is invalid");
-const toolInputText = canonicalToolInput(
+const { page: authorizedPage, text: toolInputText } = canonicalToolInput(
   hookInput.tool_name,
   hookInput.tool_input,
   environment.root,
   allowedPaths,
   readableEntries,
+  hookInput.hook_event_name === "PreToolUse",
 );
 const toolInputDigest = digest(toolInputText);
 if (hookInput.tool_name === "Read") {
   const entry = paths.get(hookInput.tool_input.file_path);
-  if (entry !== undefined) verifyEntry(hookInput.tool_input.file_path, entry);
+  if (
+    entry !== undefined &&
+    (authorizedPage === null || hookInput.hook_event_name === "PostToolUse")
+  ) {
+    verifyEntry(hookInput.tool_input.file_path, entry);
+  }
 } else {
   if (hookInput.tool_input.path === environment.root) {
     for (const [path, entry] of paths) verifyEntry(path, entry);
@@ -738,8 +892,12 @@ if (hookInput.tool_name === "Read") {
 
 const toolReceiptPaths = receiptPaths(environment, hookInput.tool_use_id);
 if (hookInput.hook_event_name === "PostToolUse") {
+  const issuedReceipt = readReceipt(
+    toolReceiptPaths.issued,
+    "issued evidence-read receipt",
+  );
   validateIssuedReceipt(
-    readReceipt(toolReceiptPaths.issued, "issued evidence-read receipt"),
+    issuedReceipt,
     environment,
     hookInput.tool_use_id,
     toolInputDigest,
@@ -751,6 +909,7 @@ if (hookInput.hook_event_name === "PostToolUse") {
     environment.root,
     allowedPaths,
     readableEntries,
+    issuedReceipt,
   );
   writeReceipt(
     toolReceiptPaths.completed,
@@ -775,6 +934,9 @@ writeReceipt(
   toolReceiptPaths.issued,
   {
     manifestDigest: environment.manifestDigest,
+    pageBytes: authorizedPage?.bytes ?? 0,
+    pageDigest: authorizedPage?.digest ?? null,
+    pageLines: authorizedPage?.lines ?? 0,
     runAttempt: environment.runAttempt,
     runId: environment.runId,
     schema: "dependabot-repair-evidence-tool-issued:v1",
