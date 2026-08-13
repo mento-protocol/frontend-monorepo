@@ -828,6 +828,12 @@ function validateAuditEvidence(transcriptBytes, metadataBytes, observation) {
         pageUrl.searchParams.get("per_page") === String(metadata.perPage),
       `GitHub audit metadata page ${index + 1} URL does not bind the query`,
     );
+    invariant(
+      index !== 0 ||
+        (!pageUrl.searchParams.has("after") &&
+          !pageUrl.searchParams.has("before")),
+      "GitHub audit metadata first page must be cursor-free",
+    );
     const expectedNext = metadata.pageUrls[index + 1] ?? null;
     invariant(
       page.nextUrl === expectedNext,

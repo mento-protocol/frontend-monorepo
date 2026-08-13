@@ -236,6 +236,22 @@ test("rejects duplicate audit page URLs and visibility changes in the floored bo
     rmSync(duplicateRoot, { recursive: true, force: true });
   }
 
+  const cursorRoot = workspace();
+  try {
+    const evidence = createSyntheticGitHubActionsEvidence(cursorRoot);
+    rewriteJson(evidence.auditMetadata, (metadata) => {
+      const firstPage = new URL(metadata.pageUrls[0]);
+      firstPage.searchParams.set("after", "omitted-earlier-results");
+      metadata.pageUrls[0] = firstPage.toString();
+    });
+    assert.throws(
+      () => buildGitHubActionsCostProof(evidence),
+      /first page must be cursor-free/,
+    );
+  } finally {
+    rmSync(cursorRoot, { recursive: true, force: true });
+  }
+
   const visibilityRoot = workspace();
   try {
     const evidence = createSyntheticGitHubActionsEvidence(visibilityRoot);
