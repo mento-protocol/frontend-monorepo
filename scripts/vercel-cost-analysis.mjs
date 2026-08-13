@@ -6,6 +6,8 @@ import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { validateGitHubActionsCostProof } from "./vercel-cost-github-actions.mjs";
+
 export const VERCEL_COST_SCHEMA_VERSION = 3;
 export const VERCEL_COST_TARGETS = ["app", "governance", "reserve", "ui"];
 export const MINIMUM_OBSERVATION_DAYS = 7;
@@ -66,7 +68,13 @@ const CLOSEOUT_KEYS = [
   "docsDriftAuditPassed",
   "finalVerificationPassed",
 ];
-const MANIFEST_KEYS = ["schemaVersion", "aggregate", "windows"];
+const MANIFEST_KEYS = [
+  "schemaVersion",
+  "aggregate",
+  "githubActionsEvidence",
+  "windows",
+];
+const GITHUB_ACTIONS_EVIDENCE_KEYS = ["proof", "proofSha256"];
 const MANIFEST_WINDOW_KEYS = [
   "focusJsonl",
   "deploymentCensusJsonl",
@@ -1489,10 +1497,23 @@ function assertExactNumber(actual, expected, label) {
 
 function validateManifest(manifest) {
   assertExactKeys(manifest, MANIFEST_KEYS, "manifest");
-  if (manifest.schemaVersion !== 2) {
-    throw new Error("manifest.schemaVersion must be 2");
+  if (manifest.schemaVersion !== 3) {
+    throw new Error("manifest.schemaVersion must be 3");
   }
   assertNonemptyString(manifest.aggregate, "manifest.aggregate");
+  assertExactKeys(
+    manifest.githubActionsEvidence,
+    GITHUB_ACTIONS_EVIDENCE_KEYS,
+    "manifest.githubActionsEvidence",
+  );
+  assertNonemptyString(
+    manifest.githubActionsEvidence.proof,
+    "manifest.githubActionsEvidence.proof",
+  );
+  assertDigest(
+    manifest.githubActionsEvidence.proofSha256,
+    "manifest.githubActionsEvidence.proofSha256",
+  );
   assertExactKeys(
     manifest.windows,
     ["baseline", "postCutover"],
@@ -1898,6 +1919,35 @@ export function analyzeVercelCostManifest(inputPath) {
     "aggregate evidence",
   );
   validateVercelCostEvidence(evidence);
+  const githubProofPath = resolve(
+    manifestDirectory,
+    manifest.githubActionsEvidence.proof,
+  );
+  const githubProofBytes = readFileSync(githubProofPath);
+  if (sha256(githubProofBytes) !== manifest.githubActionsEvidence.proofSha256) {
+    throw new Error(
+      "manifest.githubActionsEvidence.proofSha256 does not bind the proof bytes",
+    );
+  }
+  const githubProof = validateGitHubActionsCostProof(githubProofPath);
+  if (
+    githubProof.interval.startUtc !== evidence.postCutover.period.startUtc ||
+    githubProof.interval.endUtcExclusive !==
+      evidence.postCutover.period.endUtcExclusive
+  ) {
+    throw new Error(
+      "GitHub Actions proof interval does not match the postCutover aggregate",
+    );
+  }
+  for (const key of GITHUB_KEYS) {
+    if (
+      githubProof.analyzerFragment[key] !== evidence.postCutover.github[key]
+    ) {
+      throw new Error(
+        `GitHub Actions proof ${key} does not reconcile to the postCutover aggregate`,
+      );
+    }
+  }
   const deploymentEvidence = {};
   for (const windowName of ["baseline", "postCutover"]) {
     const source = manifest.windows[windowName];
@@ -1925,6 +1975,7 @@ export function analyzeVercelCostManifest(inputPath) {
       rawFocusReconciled: true,
       projectTotalsReconciled: true,
       deploymentCensusComplete: true,
+      githubActionsProofReconciled: true,
       deployments: deploymentEvidence,
     },
   };

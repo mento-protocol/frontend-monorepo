@@ -3,10 +3,12 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+
+import { createSyntheticGitHubActionsEvidence } from "./vercel-cost-github-actions.test-helper.mjs";
 
 import {
   analyzeVercelCostManifest,
@@ -49,7 +51,28 @@ function manifestForAggregate(aggregatePath) {
       source[key] = resolve(fixtureDirectory, source[key]);
     }
   }
+  const directory = dirname(aggregatePath);
+  const github = createSyntheticGitHubActionsEvidence(directory);
+  manifest.githubActionsEvidence = {
+    proof: github.proofPath,
+    proofSha256: github.proofSha256,
+  };
   return manifest;
+}
+
+function createManifestFixture(
+  parent,
+  aggregatePath = fileURLToPath(fixtureUrl),
+) {
+  const github = createSyntheticGitHubActionsEvidence(parent);
+  const manifest = manifestForAggregate(aggregatePath);
+  manifest.githubActionsEvidence = {
+    proof: github.proofPath,
+    proofSha256: github.proofSha256,
+  };
+  const manifestPath = join(parent, "manifest.json");
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  return { github, manifest, manifestPath };
 }
 
 function setUsageMetric(evidence, windowName, target, metric, value) {
@@ -1070,21 +1093,30 @@ test("rejects reused raw FOCUS evidence digests", () => {
 });
 
 test("loads and reconciles raw FOCUS project totals and deployment census sources", () => {
-  const analysis = analyzeVercelCostManifest(fileURLToPath(manifestUrl));
-
-  assert.equal(analysis.pass, true);
-  assert.equal(analysis.sourceEvidence.rawFocusReconciled, true);
-  assert.equal(analysis.sourceEvidence.projectTotalsReconciled, true);
-  assert.equal(analysis.sourceEvidence.deploymentCensusComplete, true);
-  assert.deepEqual(
-    analysis.sourceEvidence.deployments.postCutover.targets.app.sources,
-    {
-      "github-actions-prebuilt": 4,
-      "vercel-native": 0,
-      manual: 0,
-      unknown: 0,
-    },
+  const temporaryDirectory = mkdtempSync(
+    join(tmpdir(), "vercel-manifest-pass-"),
   );
+  try {
+    const { manifestPath } = createManifestFixture(temporaryDirectory);
+    const analysis = analyzeVercelCostManifest(manifestPath);
+
+    assert.equal(analysis.pass, true);
+    assert.equal(analysis.sourceEvidence.rawFocusReconciled, true);
+    assert.equal(analysis.sourceEvidence.projectTotalsReconciled, true);
+    assert.equal(analysis.sourceEvidence.deploymentCensusComplete, true);
+    assert.equal(analysis.sourceEvidence.githubActionsProofReconciled, true);
+    assert.deepEqual(
+      analysis.sourceEvidence.deployments.postCutover.targets.app.sources,
+      {
+        "github-actions-prebuilt": 4,
+        "vercel-native": 0,
+        manual: 0,
+        unknown: 0,
+      },
+    );
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
 });
 
 test("filters non-Usage FOCUS rows before reconciling usage totals", () => {
@@ -1320,7 +1352,7 @@ test("rejects legacy manifest schemas and provider-attribution fields", () => {
     );
     assert.throws(
       () => analyzeVercelCostManifest(legacySchemaPath),
-      /manifest\.schemaVersion must be 2/,
+      /manifest\.schemaVersion must be 3/,
     );
 
     const legacyField = manifestForAggregate(fileURLToPath(fixtureUrl));
@@ -1331,6 +1363,47 @@ test("rejects legacy manifest schemas and provider-attribution fields", () => {
     assert.throws(
       () => analyzeVercelCostManifest(legacyFieldPath),
       /manifest\.windows\.baseline must contain exactly/,
+    );
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("binds manifest v3 to the exact GitHub Actions proof and aggregate fields", () => {
+  const temporaryDirectory = mkdtempSync(
+    join(tmpdir(), "vercel-github-proof-"),
+  );
+  try {
+    const { manifest, github } = createManifestFixture(temporaryDirectory);
+    manifest.githubActionsEvidence.proofSha256 = "f".repeat(64);
+    const digestPath = join(temporaryDirectory, "digest.json");
+    writeFileSync(digestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    assert.throws(
+      () => analyzeVercelCostManifest(digestPath),
+      /proofSha256 does not bind the proof bytes/,
+    );
+
+    const mismatchedAggregate = fixture();
+    mismatchedAggregate.postCutover.github.standardRunnerMinutes = 299;
+    const aggregatePath = join(temporaryDirectory, "mismatch-aggregate.json");
+    writeFileSync(
+      aggregatePath,
+      `${JSON.stringify(mismatchedAggregate, null, 2)}\n`,
+    );
+    const mismatchManifest = structuredClone(manifest);
+    mismatchManifest.aggregate = aggregatePath;
+    mismatchManifest.githubActionsEvidence = {
+      proof: github.proofPath,
+      proofSha256: github.proofSha256,
+    };
+    const mismatchPath = join(temporaryDirectory, "mismatch.json");
+    writeFileSync(
+      mismatchPath,
+      `${JSON.stringify(mismatchManifest, null, 2)}\n`,
+    );
+    assert.throws(
+      () => analyzeVercelCostManifest(mismatchPath),
+      /standardRunnerMinutes does not reconcile/,
     );
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });
@@ -1399,35 +1472,46 @@ test("labels a successful measurement observation-only until closeout finishes",
 });
 
 test("CLI emits public-safe JSON and returns nonzero for a failed gate", () => {
-  const passing = spawnSync(
-    process.execPath,
-    [scriptPath, "--input", fileURLToPath(manifestUrl)],
-    { encoding: "utf8" },
-  );
-  assert.equal(passing.status, 0, passing.stderr);
-  const output = JSON.parse(passing.stdout);
-  assert.equal(output.pass, true);
-  assert.equal(Object.hasOwn(output.normalized.effectiveCost, "actual"), false);
-  assert.equal(
-    Object.hasOwn(output.normalized.billedCost, "counterfactual"),
-    false,
-  );
-  assert.equal(
-    Object.hasOwn(output.periods.baseline, "focusExportSha256"),
-    false,
-  );
-  assert.equal(
-    Object.hasOwn(output.periods.baseline, "focusChargeCount"),
-    false,
-  );
-  assert.equal(
-    Object.hasOwn(output.periods.postCutover, "focusExportSha256"),
-    false,
-  );
-  assert.equal(
-    Object.hasOwn(output.periods.postCutover, "focusChargeCount"),
-    false,
-  );
+  const passingDirectory = mkdtempSync(join(tmpdir(), "vercel-cost-cli-pass-"));
+  try {
+    const { manifestPath } = createManifestFixture(passingDirectory);
+    const passing = spawnSync(
+      process.execPath,
+      [scriptPath, "--input", manifestPath],
+      {
+        encoding: "utf8",
+      },
+    );
+    assert.equal(passing.status, 0, passing.stderr);
+    const output = JSON.parse(passing.stdout);
+    assert.equal(output.pass, true);
+    assert.equal(
+      Object.hasOwn(output.normalized.effectiveCost, "actual"),
+      false,
+    );
+    assert.equal(
+      Object.hasOwn(output.normalized.billedCost, "counterfactual"),
+      false,
+    );
+    assert.equal(
+      Object.hasOwn(output.periods.baseline, "focusExportSha256"),
+      false,
+    );
+    assert.equal(
+      Object.hasOwn(output.periods.baseline, "focusChargeCount"),
+      false,
+    );
+    assert.equal(
+      Object.hasOwn(output.periods.postCutover, "focusExportSha256"),
+      false,
+    );
+    assert.equal(
+      Object.hasOwn(output.periods.postCutover, "focusChargeCount"),
+      false,
+    );
+  } finally {
+    rmSync(passingDirectory, { recursive: true, force: true });
+  }
 
   const temporaryDirectory = mkdtempSync(
     join(tmpdir(), "vercel-cost-analysis-"),

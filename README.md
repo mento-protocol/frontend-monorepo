@@ -180,8 +180,13 @@ pnpm vercel:cost:observe -- audit --end <final-end-utc>
 
 # Test and run the private collector plus redaction-safe closeout analyzer
 pnpm vercel:cost:test
+# Inspect the private detailed-usage shape, then build the source-bound GitHub
+# Actions proof after collecting its metadata and complete audit transcript.
+pnpm vercel:cost:github -- inspect --usage-csv .vercel-cost-evidence/github/raw/detailed-usage.csv --output .vercel-cost-evidence/github/usage-shape.json
+pnpm vercel:cost:github -- build --usage-csv .vercel-cost-evidence/github/raw/detailed-usage.csv --usage-metadata .vercel-cost-evidence/github/raw/detailed-usage.metadata.json --audit-transcript .vercel-cost-evidence/github/raw/audit-log.transcript.txt --audit-metadata .vercel-cost-evidence/github/raw/audit-log.metadata.json --observation-root .vercel-cost-evidence/github-observation-v2 --output .vercel-cost-evidence/github/postcutover.github-actions.json
 # The analyzer uses the #523 target-mix formula only after complete baseline and
-# post deployment censuses prove zero legacy-v2, manual, or unknown attempts.
+# post deployment censuses prove zero legacy-v2, manual, or unknown attempts,
+# and manifest v3 revalidates the GitHub Actions proof from its raw sources.
 pnpm vercel:cost:analyze --input .vercel-cost-evidence/manifest.json --format markdown
 ```
 

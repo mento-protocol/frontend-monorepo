@@ -1,6 +1,10 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "aggregate": "pass.json",
+  "githubActionsEvidence": {
+    "proof": "REPLACE_WITH_PRIVATE_GITHUB_ACTIONS_PROOF.json",
+    "proofSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
   "windows": {
     "baseline": {
       "focusJsonl": "baseline.focus.jsonl",
