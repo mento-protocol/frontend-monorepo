@@ -723,8 +723,14 @@ function previewRoutes(
     conclusion: "success",
     created_at: "2026-07-29T01:00:01.000Z",
     updated_at: "2026-07-29T01:04:00.000Z",
-    head_branch: event.base_ref,
-    head_sha: event.trusted_base_sha,
+    head_branch: event.head_ref,
+    head_sha: event.head_sha,
+    head_repository: {
+      full_name: event.head_repository,
+      url: `https://api.github.com/repos/${event.head_repository}`,
+    },
+    repository: { full_name: "mento-protocol/frontend-monorepo" },
+    pull_requests: [],
     html_url: `https://github.com/mento-protocol/frontend-monorepo/actions/runs/${event.event_run_id}`,
     display_title: controllerEventRunName({
       runId: event.event_run_id,
@@ -1700,9 +1706,21 @@ test("a later controller event can remove a selection after the trusted base adv
     assertControllerSyntheticRunBinding({
       rawRun: {
         id: 9_006,
+        run_number: event.event_run_number,
+        name: "Vercel Preview Controller",
+        path: ".github/workflows/vercel-preview-controller.yml",
         event: "pull_request_target",
-        head_branch: "main",
-        head_sha: "d".repeat(40),
+        head_branch: event.head_ref,
+        head_sha: event.head_sha,
+        head_repository: {
+          full_name: event.head_repository,
+          url: `https://api.github.com/repos/${event.head_repository}`,
+        },
+        repository: { full_name: "mento-protocol/frontend-monorepo" },
+        pull_requests: [],
+        status: "completed",
+        conclusion: "success",
+        created_at: "2026-07-29T01:00:01.000Z",
         display_title: controllerEventRunName({
           runId: event.event_run_id,
           runNumber: event.event_run_number,
@@ -1751,7 +1769,7 @@ test("a real worker run cannot be reused across preview selection keys", () => {
   );
 });
 
-test("capture-preview rejects a controller run on another trusted base SHA", () => {
+test("capture-preview rejects a controller run on another candidate SHA", () => {
   const cwd = workspace();
   runInit(cwd);
   const routes = previewRoutes();
@@ -1768,7 +1786,28 @@ test("capture-preview rejects a controller run on another trusted base SHA", () 
         gh: fakeGh(routes),
         stdout: output().stream,
       }),
-    /not the immutable PR event run/,
+    /Controller event head SHA mismatch/,
+  );
+});
+
+test("capture-preview rejects a controller run on another candidate ref", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  const routes = previewRoutes();
+  const controllerRun = routes.get(
+    "api --method GET repos/mento-protocol/frontend-monorepo/actions/runs/9001",
+  );
+  controllerRun.head_branch = "feature/another-candidate";
+  assert.throws(
+    () =>
+      runVercelCostObservation({
+        argv: ["capture-preview", "--pr", "700", "--event-run-id", "9001"],
+        cwd,
+        now: () => new Date(CAPTURED_AT),
+        gh: fakeGh(routes),
+        stdout: output().stream,
+      }),
+    /conflicts with its event receipt/,
   );
 });
 
