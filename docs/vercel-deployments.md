@@ -293,6 +293,18 @@ provider candidate from that manifest after fresh inspection and smoke. Provider
 metadata that lacks the canonical manifest, a matching URL, a matching custom
 identifier, or zero/multiple provider candidates is insufficient.
 
+When a failed active attempt promotes an ordinary prior during recovery,
+Vercel also moves the target's generated project and optional creator aliases
+back to that prior. The stable candidate then remains exact and healthy on its
+immutable URL but can have no generated aliases. A later attempt may admit that
+detached Governance, Reserve, or UI candidate only when the trusted preflight
+census captured it before the job could build a candidate, the stable manifest
+and candidate identity still match, the fresh immutable smoke passes, and every
+remaining alias is in the candidate's reviewed finite generated-alias set. A
+candidate absent from that preflight still requires the generated project
+alias. A changed candidate, protected/custom alias, Git/default alias,
+wrong-target alias, or unknown alias fails closed.
+
 The candidate HTTP smoke reads the immutable deployment root directly for App,
 Governance, and Reserve. UI reads `/basic-components` on that same immutable
 host because its root intentionally redirects there. Each request uses manual
@@ -1283,13 +1295,20 @@ hostname in the alias list, or malformed canonical evidence fails closed. The
 read-only state inspector normalizes and deduplicates raw provider aliases;
 persisted canonical evidence must remain deduplicated and sorted.
 
-That base-required topology applies to a newly staged or automatically reused
-ordinary candidate. Served-prior planning uses a separate finite contract
-because generated aliases can move independently of the protected custom
-domain. For Governance, Reserve, and UI, a served deployment may retain any
-canonical subset of its reviewed base project/scope alias, exact
-project-default alias, exact canonical creator alias when that name is safe,
-and literal native-Git `main` alias:
+That base-required topology applies to an ordinary candidate absent from the
+trusted preflight. A candidate captured there before the job could build one
+may use a canonical subset of only the reviewed project/scope and creator
+aliases, including the empty subset, because recovery promotion can move both
+aliases back to the prior deployment. A `create-if-zero` preflight does not
+receive this relaxed topology. The
+immutable hostname, protected/custom domains, project-default alias, Git alias,
+wrong-target alias, and every other alias remain forbidden.
+
+Served-prior planning uses a separate finite contract because generated aliases
+can move independently of the protected custom domain. For Governance, Reserve,
+and UI, a served deployment may retain any canonical subset of its reviewed
+base project/scope alias, exact project-default alias, exact canonical creator
+alias when that name is safe, and literal native-Git `main` alias:
 
 - Governance: `governancementoorg-mentolabs.vercel.app`,
   `governancementoorg.vercel.app`, and
@@ -1308,8 +1327,10 @@ alias, or duplicate or unsorted canonical evidence fails closed.
 For `restore-before-planning`, the workflow calls
 `candidate-finalize-inherited`, which is fixed to this served-prior mode only
 for inherited Governance, Reserve, and UI recovery. Ordinary
-`candidate-finalize` remains base-required, and inherited App remains on its
-custom `v3` path. The inherited finalizer requires the target's exact protected
+`candidate-finalize` requires the base alias for a candidate absent from its
+trusted preflight and allows the reviewed detached subset only for the exact
+candidate already captured there. Inherited App remains on its custom `v3`
+path. The inherited finalizer requires the target's exact protected
 public alias in the deployment's full alias list, removes that reviewed alias,
 then validates the remaining generated aliases against the finite served-prior
 set.

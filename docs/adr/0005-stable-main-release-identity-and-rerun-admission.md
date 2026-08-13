@@ -3,7 +3,7 @@ title: Stable active-main release identity and provider-side rerun reconciliatio
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-07-28
+last_verified: 2026-08-13
 scope: ci/deployment/main-reruns
 date: 2026-07
 ---
@@ -118,6 +118,18 @@ response SHA remains mandatory and must equal the manifest-bound served SHA.
 Candidate admission still requires canonical
 `mento-protocol/frontend-monorepo@main` Git identity.
 
+An ordinary candidate already present at the trusted preflight may have
+lost its generated project and creator aliases when recovery promoted the exact
+prior deployment. That detached state is admissible only after the same exact
+manifest-bound candidate census, inspection, and immutable smoke. The
+preflight is captured before the job can build a candidate, and a
+`create-if-zero` result does not authorize the relaxed topology. Any aliases
+that remain must be a canonical subset of the candidate's reviewed
+project/scope and creator aliases; protected/custom domains, Git/default
+aliases, wrong-target aliases, and unknown aliases remain blockers. A candidate
+absent from the trusted preflight still requires its reviewed generated project
+alias, and any candidate change after that preflight fails closed.
+
 When App belongs to `shadowTargets`, its protected custom-`v3` preparation is
 build-only terminal evidence. It never creates a provider deployment or gains
 public-mutation authority.
@@ -173,6 +185,8 @@ every other non-prefix state still require manual intervention.
 - The provider-side release manifest, not GitHub artifact history, is the
   durable cross-attempt source of truth.
 - Every attempt has an independently auditable journal and recovery boundary.
+- A recovered ordinary candidate remains reusable across attempts even when
+  recovery moved its reviewed generated aliases back to the prior deployment.
 - An inherited partial release is restored before a new baseline can be planned.
 - The exact terminal App recovery residual may restore only App before a new
   baseline; it never authorizes forward resumption.

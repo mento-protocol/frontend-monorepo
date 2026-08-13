@@ -30,6 +30,7 @@ export const PRODUCTION_GENERATED_ALIAS_CONTRACTS = Object.freeze({
 
 export const PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES = Object.freeze({
   CANDIDATE: "candidate",
+  REUSED_CANDIDATE: "reused-candidate",
   SERVED_PRIOR: "served-prior",
 });
 
@@ -133,10 +134,10 @@ export function assertOnlyExpectedProductionGeneratedAliases({
         ])
       : new Set([generatedProjectAlias, ...allowedCreatorAliases]);
   const topologyMatches =
-    mode === PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR
-      ? canonicalAliases.every((alias) => allowedAliases.has(alias))
-      : canonicalAliases.includes(generatedProjectAlias) &&
-        canonicalAliases.every((alias) => allowedAliases.has(alias));
+    mode === PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.CANDIDATE
+      ? canonicalAliases.includes(generatedProjectAlias) &&
+        canonicalAliases.every((alias) => allowedAliases.has(alias))
+      : canonicalAliases.every((alias) => allowedAliases.has(alias));
   if (!topologyMatches) {
     throw new Error(
       `Production ${logicalTarget} ${mode} generated-alias topology mismatch: allowed ${JSON.stringify([...allowedAliases].toSorted())}; actual ${JSON.stringify(canonicalAliases)}`,

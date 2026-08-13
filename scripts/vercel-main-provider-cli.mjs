@@ -107,6 +107,7 @@ const CLI_OPTIONS = Object.freeze({
 });
 const OPTIONAL_OPTIONS = Object.freeze({
   "canonical-mappings": new Set(["legacy-snapshot"]),
+  "candidate-finalize": new Set(["preflight"]),
 });
 const DISCOVERY_SCHEMA = "vercel-main-preplan-candidate-discovery:v2";
 const DIGEST_PATTERN = /^[a-f0-9]{64}$/;
@@ -1396,6 +1397,13 @@ export async function runMainProviderCli({
     "Main candidate immutable smoke",
     runnerTemp,
   );
+  const admissionPreflight = options.preflight
+    ? readPrivateJson(
+        options.preflight,
+        "Main candidate admission preflight",
+        runnerTemp,
+      )
+    : null;
   const inherited = command === "candidate-finalize-inherited";
   const resolveHandoff = inherited
     ? resolveMainServedPriorCandidateHandoff
@@ -1408,7 +1416,9 @@ export async function runMainProviderCli({
       intent,
       provider,
       smokeCandidate: async () => smoke,
+      admissionPreflight,
     }),
+    admissionPreflight,
   );
   if (result.action !== "reuse") {
     throw new Error("Candidate finalization requires one reusable candidate");
