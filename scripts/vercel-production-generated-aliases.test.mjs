@@ -71,6 +71,28 @@ test("candidate mode requires the project alias and permits only the exact creat
   }
 });
 
+test("reused-candidate mode permits only the surviving candidate alias subset", () => {
+  for (const logicalTarget of ORDINARY_TARGETS) {
+    const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[logicalTarget];
+    for (const aliases of subsets([
+      contract.generatedProjectAlias,
+      creatorAlias(logicalTarget),
+    ])) {
+      const canonicalAliases = aliases.toSorted();
+      assert.deepEqual(
+        assertOnlyExpectedProductionGeneratedAliases({
+          aliases: canonicalAliases,
+          creatorUsername: CREATOR_USERNAME,
+          logicalTarget,
+          mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.REUSED_CANDIDATE,
+        }),
+        canonicalAliases,
+        `${logicalTarget}: ${JSON.stringify(canonicalAliases)}`,
+      );
+    }
+  }
+});
+
 test("served-prior mode rejects aliases outside the finite reviewed set", () => {
   const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS.governance;
   for (const [name, aliases] of [
@@ -168,6 +190,38 @@ test("candidate mode rejects missing-base and non-candidate generated aliases", 
           mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.CANDIDATE,
         }),
       /generated-alias topology mismatch/,
+      name,
+    );
+  }
+});
+
+test("reused-candidate mode rejects aliases outside the finite candidate set", () => {
+  const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS.governance;
+  for (const [name, aliases] of [
+    ["git-main", [contract.generatedGitMainAlias]],
+    ["project-default", [contract.generatedProjectDefaultAlias]],
+    ["protected", ["governance.mento.org"]],
+    ["unknown", ["governance-preview.mento.org"]],
+    [
+      "wrong target",
+      [PRODUCTION_GENERATED_ALIAS_CONTRACTS.reserve.generatedProjectAlias],
+    ],
+    [
+      "creator near miss",
+      [
+        `${contract.generatedProjectSlug}-fixture-author2-${contract.generatedScopeSlug}.vercel.app`,
+      ],
+    ],
+  ]) {
+    assert.throws(
+      () =>
+        assertOnlyExpectedProductionGeneratedAliases({
+          aliases,
+          creatorUsername: CREATOR_USERNAME,
+          logicalTarget: "governance",
+          mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.REUSED_CANDIDATE,
+        }),
+      /reused-candidate generated-alias topology mismatch/,
       name,
     );
   }
