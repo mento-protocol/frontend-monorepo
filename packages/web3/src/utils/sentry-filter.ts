@@ -1,4 +1,7 @@
 import type { ErrorEvent, EventHint } from "@sentry/nextjs";
+import { isStructuredUserRejection } from "./is-user-rejection";
+
+const USER_REJECTED_REQUEST_ERROR_NAME = "UserRejectedRequestError";
 
 const ALWAYS_IGNORE_ERROR_PATTERNS = [
   /Origin not allowed/i,
@@ -114,6 +117,15 @@ function eventTargetsRoute(event: ErrorEvent, route: string): boolean {
   return requestUrl.includes(route) || transaction.includes(route);
 }
 
+function isUserRejectionEvent(event: ErrorEvent, hint?: EventHint): boolean {
+  return (
+    isStructuredUserRejection(hint?.originalException) ||
+    (event.exception?.values ?? []).some(
+      ({ type }) => type === USER_REJECTED_REQUEST_ERROR_NAME,
+    )
+  );
+}
+
 export function filterNoisySentryEvents(
   event: ErrorEvent,
   hint?: EventHint,
@@ -121,6 +133,10 @@ export function filterNoisySentryEvents(
   const message = getEventMessage(event, hint);
   const eventType = getEventType(event, hint);
   const eventSignal = `${eventType} ${message}`.trim();
+
+  if (isUserRejectionEvent(event, hint)) {
+    return null;
+  }
 
   if (ALWAYS_IGNORE_ERROR_PATTERNS.some((pattern) => pattern.test(message))) {
     return null;

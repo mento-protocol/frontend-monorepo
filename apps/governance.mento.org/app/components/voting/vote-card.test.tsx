@@ -186,4 +186,37 @@ describe("VoteCard", () => {
 
     expect(mocks.captureException).not.toHaveBeenCalled();
   });
+
+  it("does not capture a rejected execute request", () => {
+    const rejection = new Error("User rejected the request.");
+    render(<VoteCard proposal={proposal} votingDeadline={undefined} />);
+
+    const contentProps = mocks.voteCardContent.mock.calls.at(-1)?.[0] as
+      | { onExecute: () => void }
+      | undefined;
+    contentProps?.onExecute();
+    const onError = mocks.executeProposal.mock.calls.at(-1)?.[2] as
+      | ((error: Error) => void)
+      | undefined;
+    onError?.(rejection);
+
+    expect(mocks.captureException).not.toHaveBeenCalled();
+  });
+
+  it("captures a generic request-rejected execute failure", () => {
+    const executionError = new Error("Request rejected by upstream");
+    render(<VoteCard proposal={proposal} votingDeadline={undefined} />);
+
+    const contentProps = mocks.voteCardContent.mock.calls.at(-1)?.[0] as
+      | { onExecute: () => void }
+      | undefined;
+    contentProps?.onExecute();
+    const onError = mocks.executeProposal.mock.calls.at(-1)?.[2] as
+      | ((error: Error) => void)
+      | undefined;
+    onError?.(executionError);
+
+    expect(mocks.captureException).toHaveBeenCalledOnce();
+    expect(mocks.captureException).toHaveBeenCalledWith(executionError);
+  });
 });

@@ -1,6 +1,5 @@
 import { deriveVoteCardState } from "@/components/voting/derive-vote-card-state";
 import { getActiveGovernanceTransactionError } from "@/components/voting/get-active-governance-transaction-error";
-import { getGovernanceTransactionErrorMessage } from "@/components/voting/get-governance-transaction-error-message";
 import { VoteCardContent } from "@/components/voting/vote-card-content";
 import { useDelayedVoteCardRefire } from "@/components/voting/use-delayed-vote-card-refire";
 import { getWatchdogMultisigAddress } from "@/config";
@@ -20,6 +19,7 @@ import { getTimelockOperationId } from "@/contracts/governor/utils/get-timelock-
 import { Proposal, ProposalState } from "@/graphql/subgraph/generated/subgraph";
 import { useVeMentoDelegationSummary } from "@/hooks/use-ve-mento-delegation-summary";
 import { NumbersService } from "@repo/web3";
+import { isUserRejectionForTelemetry } from "@repo/web3/is-user-rejection";
 import { useAccount, useChainId } from "@repo/web3/wagmi";
 import * as Sentry from "@sentry/nextjs";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -29,6 +29,15 @@ interface VoteCardProps {
   proposal: Proposal;
   votingDeadline: Date | undefined;
   onVoteConfirmed?: () => void;
+}
+
+function reportGovernanceTransactionError(error: unknown): boolean {
+  if (isUserRejectionForTelemetry(error)) {
+    return false;
+  }
+
+  Sentry.captureException(error);
+  return true;
 }
 
 export const VoteCard = ({
@@ -300,7 +309,7 @@ export const VoteCard = ({
       try {
         castVote(proposal.proposalId, support);
       } catch (error) {
-        Sentry.captureException(error);
+        reportGovernanceTransactionError(error);
       }
     }
   };
@@ -317,11 +326,11 @@ export const VoteCard = ({
             }
           },
           (error) => {
-            Sentry.captureException(error);
+            reportGovernanceTransactionError(error);
           },
         );
       } catch (error) {
-        Sentry.captureException(error);
+        reportGovernanceTransactionError(error);
       }
     }
   };
@@ -338,11 +347,11 @@ export const VoteCard = ({
             }
           },
           (error) => {
-            Sentry.captureException(error);
+            reportGovernanceTransactionError(error);
           },
         );
       } catch (error) {
-        Sentry.captureException(error);
+        reportGovernanceTransactionError(error);
       }
     }
   };
@@ -359,11 +368,11 @@ export const VoteCard = ({
             }
           },
           (error) => {
-            Sentry.captureException(error);
+            reportGovernanceTransactionError(error);
           },
         );
       } catch (error) {
-        Sentry.captureException(error);
+        reportGovernanceTransactionError(error);
       }
     }
   };
@@ -380,11 +389,11 @@ export const VoteCard = ({
             }
           },
           (error) => {
-            Sentry.captureException(error);
+            reportGovernanceTransactionError(error);
           },
         );
       } catch (error) {
-        Sentry.captureException(error);
+        reportGovernanceTransactionError(error);
       }
     }
   };
@@ -414,16 +423,13 @@ export const VoteCard = ({
   // Execute, queue, and cancel errors are captured by their callbacks or hooks.
   // Cast-vote does not receive an onError callback, so capture its hook state here.
   useEffect(() => {
-    if (
-      !error ||
-      getGovernanceTransactionErrorMessage(error) === null ||
-      capturedVoteErrorsRef.current.has(error)
-    ) {
+    if (!error || capturedVoteErrorsRef.current.has(error)) {
       return;
     }
 
-    Sentry.captureException(error);
-    capturedVoteErrorsRef.current.add(error);
+    if (reportGovernanceTransactionError(error)) {
+      capturedVoteErrorsRef.current.add(error);
+    }
   }, [error]);
 
   const currentState = useMemo(() => {
