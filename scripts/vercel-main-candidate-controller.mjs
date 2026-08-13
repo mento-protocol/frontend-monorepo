@@ -38,12 +38,52 @@ const EMPTY_REUSE_METRICS = Object.freeze({
 
 function assertAliasTopologyTarget(intent, aliasTopologyMode) {
   if (
-    aliasTopologyMode ===
-      PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR &&
-    intent.target === "app"
+    intent.target === "app" &&
+    aliasTopologyMode !== PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.CANDIDATE
   ) {
-    throw new Error("Served-prior candidate finalization excludes App");
+    throw new Error("Alternate candidate alias topology excludes App");
   }
+}
+
+function canonicalAdmissionPreflight(value, intent, candidate) {
+  if (value === null) return null;
+  const preflight = assertMainCandidatePreflight(value);
+  if (JSON.stringify(preflight.intent) !== JSON.stringify(intent)) {
+    throw new Error("Main candidate admission preflight conflicts with intent");
+  }
+  if (
+    preflight.outcome === "reuse-existing" &&
+    JSON.stringify(preflight.candidate) !== JSON.stringify(candidate)
+  ) {
+    throw new Error("Main candidate changed after its admission preflight");
+  }
+  return preflight;
+}
+
+function resolvedAliasTopologyMode(
+  intent,
+  candidate,
+  aliasTopologyMode,
+  admissionPreflight,
+) {
+  if (
+    aliasTopologyMode !== PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.CANDIDATE ||
+    intent.target === "app" ||
+    admissionPreflight === null
+  ) {
+    return aliasTopologyMode;
+  }
+  const preflight = canonicalAdmissionPreflight(
+    admissionPreflight,
+    intent,
+    candidate,
+  );
+  // Recovery can move Vercel's generated aliases away from an exact candidate.
+  // Only the trusted census captured before this job could build a candidate
+  // may authorize the detached topology.
+  return preflight.outcome === "reuse-existing"
+    ? PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.REUSED_CANDIDATE
+    : aliasTopologyMode;
 }
 
 function exactKeys(value, keys, label) {
@@ -301,7 +341,7 @@ export function assertMainCandidatePreflight(value) {
 }
 
 async function resolveMainCandidateHandoffForAliasTopology(
-  { intent, provider, smokeCandidate },
+  { intent, provider, smokeCandidate, admissionPreflight = null },
   aliasTopologyMode,
 ) {
   const canonicalIntent = assertMainCandidateIntent(intent);
@@ -333,13 +373,19 @@ async function resolveMainCandidateHandoffForAliasTopology(
     candidate: canonicalResolution.candidate,
     immutableSmoke: canonicalResolution.immutableSmoke,
   });
+  const resolvedTopologyMode = resolvedAliasTopologyMode(
+    canonicalIntent,
+    receipt.candidate,
+    aliasTopologyMode,
+    admissionPreflight,
+  );
   if (typeof provider.inspectCandidateState !== "function")
     throw new Error("Main candidate canonical-state provider is required");
   const canonicalState = assertMainCandidateCanonicalState(
     await provider.inspectCandidateState(receipt.candidate.deploymentId),
     canonicalIntent,
     receipt.candidate,
-    aliasTopologyMode,
+    resolvedTopologyMode,
   );
   return {
     schema: MAIN_CANDIDATE_HANDOFF_SCHEMA,
@@ -441,7 +487,11 @@ function assertMainCandidateCanonicalState(
   return canonicalState;
 }
 
-function assertMainCandidateHandoffForAliasTopology(value, aliasTopologyMode) {
+function assertMainCandidateHandoffForAliasTopology(
+  value,
+  aliasTopologyMode,
+  admissionPreflight,
+) {
   exactKeys(
     value,
     [
@@ -488,7 +538,12 @@ function assertMainCandidateHandoffForAliasTopology(value, aliasTopologyMode) {
     value.canonicalState,
     intent,
     receipt.candidate,
-    aliasTopologyMode,
+    resolvedAliasTopologyMode(
+      intent,
+      receipt.candidate,
+      aliasTopologyMode,
+      admissionPreflight,
+    ),
   );
   return {
     ...value,
@@ -501,16 +556,21 @@ function assertMainCandidateHandoffForAliasTopology(value, aliasTopologyMode) {
   };
 }
 
-export function assertMainCandidateHandoff(value) {
+export function assertMainCandidateHandoff(value, admissionPreflight = null) {
   return assertMainCandidateHandoffForAliasTopology(
     value,
     PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.CANDIDATE,
+    admissionPreflight,
   );
 }
 
-export function assertMainServedPriorCandidateHandoff(value) {
+export function assertMainServedPriorCandidateHandoff(
+  value,
+  admissionPreflight = null,
+) {
   return assertMainCandidateHandoffForAliasTopology(
     value,
     PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
+    admissionPreflight,
   );
 }
