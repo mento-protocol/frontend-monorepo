@@ -13,8 +13,8 @@ updates:
       default-days: 7
       semver-major-days: 21
       semver-minor-days: 7
-      # Patch cooldown matches minor: with processor-prepared one-click
-      # merges, the cooldown window is the main compensating control against
+      # Patch cooldown matches minor for version updates. Security updates
+      # bypass cooldown, while the version-update window reduces exposure to
       # a malicious release that gets yanked days after publication.
       semver-patch-days: 7
 
@@ -43,9 +43,9 @@ updates:
           - patch
 
       # Wallet, transaction, signing, and bridge packages: the highest-value
-      # supply-chain target in a DeFi frontend. Isolating them here keeps
-      # them out of the routine grouped batches, so their updates always
-      # arrive as a focused PR that gets undivided human review.
+      # supply-chain target in a DeFi frontend. Isolating their routine version
+      # updates here keeps them out of broad production batches and gives the
+      # group focused human review.
       web3-stack:
         applies-to: version-updates
         patterns:
@@ -92,8 +92,8 @@ updates:
           - patch
 
       # Catch-all so ungrouped production stragglers arrive as one monthly PR
-      # instead of one PR each. Excludes every pattern already owned by a
-      # group above so each dependency has exactly one home.
+      # instead of one PR each. Explicit exclusions preserve the named group
+      # boundaries even if the group order changes later.
       production-misc:
         applies-to: version-updates
         dependency-type: production
@@ -153,17 +153,6 @@ updates:
       security-tooling:
         applies-to: security-updates
         dependency-type: development
-
-    # Handle ALL major upgrades intentionally, as a scheduled maintenance
-    # task, not as unsolicited PRs. The previous enumerated list let
-    # unlisted majors through (e.g. lucide-react 0.x -> 1.x). Note this also
-    # covers devDependency majors, and that Dependabot security updates
-    # respect this ignore — a security fix shipped only in a new major
-    # surfaces through the required osv-scanner gate instead, which is the
-    # authoritative vulnerability signal in this repository.
-    ignore:
-      - dependency-name: "*"
-        update-types: [version-update:semver-major]
 
   # GitHub Actions
   - package-ecosystem: github-actions

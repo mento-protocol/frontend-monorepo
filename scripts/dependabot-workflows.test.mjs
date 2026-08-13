@@ -41,6 +41,47 @@ function dependabotPatternMatches(pattern, dependency) {
   return new RegExp(`^${escaped.replaceAll("\\*", ".*")}$`).test(dependency);
 }
 
+function dependabotGroupMatches(group, dependency, dependencyType, updateType) {
+  if ((group["applies-to"] ?? "version-updates") !== "version-updates") {
+    return false;
+  }
+  if (group["dependency-type"] && group["dependency-type"] !== dependencyType) {
+    return false;
+  }
+  if (group["update-types"] && !group["update-types"].includes(updateType)) {
+    return false;
+  }
+  const patterns = group.patterns ?? ["*"];
+  const excludePatterns = group["exclude-patterns"] ?? [];
+  return (
+    patterns.some((pattern) => dependabotPatternMatches(pattern, dependency)) &&
+    !excludePatterns.some((pattern) =>
+      dependabotPatternMatches(pattern, dependency),
+    )
+  );
+}
+
+function firstDependabotGroup(groups, dependency, dependencyType, updateType) {
+  return Object.entries(groups).find(([, group]) =>
+    dependabotGroupMatches(group, dependency, dependencyType, updateType),
+  )?.[0];
+}
+
+function workspacePackagePaths() {
+  const paths = ["package.json"];
+  for (const directory of ["apps", "packages"]) {
+    const root = fileURLToPath(new URL(`../${directory}/`, import.meta.url));
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const relativePath = `${directory}/${entry.name}/package.json`;
+      if (existsSync(new URL(`../${relativePath}`, import.meta.url))) {
+        paths.push(relativePath);
+      }
+    }
+  }
+  return paths;
+}
+
 const intakePath = ".github/workflows/dependabot-intake.yml";
 const preparedIntakePath =
   ".github/workflows/dependabot-prepared-head-intake.yml";
@@ -131,7 +172,7 @@ test("sensitive Actions updates stay out of the routine Dependabot group", () =>
   }
 });
 
-test("npm groups give every dependency exactly one home", () => {
+test("npm group routing isolates sensitive dependencies and covers the workspace", () => {
   const config = parse(read(".github/dependabot.yml"), { uniqueKeys: true });
   const npmConfig = config.updates.find(
     (update) => update["package-ecosystem"] === "npm",
@@ -139,11 +180,19 @@ test("npm groups give every dependency exactly one home", () => {
   const enumeratedGroups = ["frontend-core", "web3-stack", "ui-styling"];
   const productionMisc = npmConfig.groups["production-misc"];
   assert.deepEqual(productionMisc.patterns, ["*"]);
+  assert.deepEqual(npmConfig.cooldown, {
+    "default-days": 7,
+    "semver-major-days": 21,
+    "semver-minor-days": 7,
+    "semver-patch-days": 7,
+  });
+  assert.equal(
+    npmConfig.ignore,
+    undefined,
+    "npm majors must stay eligible for processor preparation and human merge",
+  );
 
-  // The production-misc catch-all must exclude every pattern an enumerated
-  // group owns; otherwise one dependency could ride two grouped PRs, and a
-  // web3-stack package could reach a routine batch instead of arriving as a
-  // focused wallet/bridge review.
+  // Preserve explicit group boundaries even if the YAML order changes.
   for (const groupName of enumeratedGroups) {
     for (const pattern of npmConfig.groups[groupName].patterns) {
       assert.ok(
@@ -162,15 +211,76 @@ test("npm groups give every dependency exactly one home", () => {
     );
   }
 
-  // Majors arrive only as deliberate maintenance work, never as unsolicited
-  // PRs — and only through the wildcard so no package can slip past an
-  // enumerated list.
-  assert.deepEqual(npmConfig.ignore, [
-    {
-      "dependency-name": "*",
-      "update-types": ["version-update:semver-major"],
-    },
-  ]);
+  const expectedSensitiveDependencies = [
+    "@celo/wallet-base",
+    "@ledgerhq/connect-kit",
+    "@mento-protocol/mento-sdk",
+    "@metamask/jazzicon",
+    "@noble/hashes",
+    "@rainbow-me/rainbowkit",
+    "@reown/appkit",
+    "@safe-global/protocol-kit",
+    "@scure/bip39",
+    "@solana/web3.js",
+    "@trezor/connect-web",
+    "@wagmi/core",
+    "@walletconnect/sign-client",
+    "@wormhole-foundation/wormhole-connect",
+    "ethers",
+    "ethers-utils",
+    "viem",
+    "viem-utils",
+    "wallet-sdk",
+    "web3",
+  ];
+  for (const dependency of expectedSensitiveDependencies) {
+    for (const dependencyType of ["production", "development"]) {
+      assert.equal(
+        firstDependabotGroup(
+          npmConfig.groups,
+          dependency,
+          dependencyType,
+          "minor",
+        ),
+        "web3-stack",
+        `${dependency} (${dependencyType}) must route to web3-stack`,
+      );
+    }
+  }
+
+  assert.equal(
+    firstDependabotGroup(npmConfig.groups, "date-fns", "production", "patch"),
+    "production-misc",
+  );
+  assert.equal(
+    firstDependabotGroup(npmConfig.groups, "eslint", "development", "patch"),
+    "tooling",
+  );
+
+  for (const packagePath of workspacePackagePaths()) {
+    const manifest = JSON.parse(read(packagePath));
+    for (const [manifestKey, dependencyType] of [
+      ["dependencies", "production"],
+      ["devDependencies", "development"],
+    ]) {
+      for (const [dependency, version] of Object.entries(
+        manifest[manifestKey] ?? {},
+      )) {
+        if (String(version).startsWith("workspace:")) continue;
+        for (const updateType of ["minor", "patch"]) {
+          assert.ok(
+            firstDependabotGroup(
+              npmConfig.groups,
+              dependency,
+              dependencyType,
+              updateType,
+            ),
+            `${packagePath} ${manifestKey} dependency ${dependency} has no ${updateType} group`,
+          );
+        }
+      }
+    }
+  }
 });
 
 test("embedded workflow JavaScript parses before GitHub executes it", () => {
