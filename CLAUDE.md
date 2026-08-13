@@ -236,14 +236,20 @@ The refresh token requests both permissions; repair and authenticated-dispatch
 tokens are downscoped to Contents write. Grant no bypass, Actions, workflow,
 deployment, package, or provider permission. Contents write also makes
 GitHub's merge endpoint technically reachable; the reviewed workflows contain
-no merge call, isolate the token to the mutation/dispatch jobs, and revoke it
-before finalize approval. Never reuse the normal `GITHUB_TOKEN`, preview App,
+no merge call, isolate the token to repair-staging, ref-mutation/refresh, and
+authenticated-dispatch jobs, and revoke it before finalize approval. Never reuse the normal `GITHUB_TOKEN`, preview App,
 deployment/provider credential, package credential, or PAT.
 
 Branch mutation and readiness authority must never coexist:
 
-1. a read-only API planner emits a strict bounded plan;
-2. a secretless validator binds each patch to permitted paths and exact blobs;
+1. a trusted read-only materializer seals the packet-bound compare, exact Git
+   blobs, and failed-job logs, then a token-free planner may only use guarded
+   Read/Grep over that evidence. Paired pre/post hooks and a later assertion
+   require a successful exact evidence read before the strict bounded plan job
+   can succeed; large files require explicit one-based bounded Read pages, and
+   Grep may locate the relevant ranges;
+2. a secretless validator binds each patch to permitted paths and exact Git
+   blobs, including files larger than the Contents API limit;
 3. an App-only staging job writes one unreachable exact-parent commit without
    moving the ref;
 4. a no-App-token job publishes a packet/plan/tree-bound Repair Intent before

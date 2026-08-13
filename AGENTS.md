@@ -99,9 +99,16 @@ check, approve, or publish ALL CLEAR. It revokes the token at job end. A later
 finalize phase rejects the repair token, recollects the exact head with the
 normal workflow token, and alone may clean stale processor approvals, approve,
 reply to receipt-bound threads, and publish ALL CLEAR. The repair planner is
-API-only and read-only; the validator has no secret or write token; the
-publisher uses Git Data APIs for one exact-parent non-force commit and never
-executes candidate input.
+token-free and may only use guarded Read/Grep over a trusted, sealed evidence
+directory. A preceding read-only materializer binds the exact packet, compare,
+Git blobs, and failed-job logs; paired pre/post hooks and a later assertion
+require at least one successful exact evidence read, and large files require
+explicit one-based bounded Read pages. Grep may locate the relevant ranges. The
+boundary never executes candidate input. The
+validator has no secret or write token and re-fetches blobs by exact Git object
+SHA, including files larger than the Contents API limit. The publisher uses Git
+Data APIs for one exact-parent non-force commit and never executes candidate
+input.
 
 Only an exact trusted pending Refresh may start the mutation/token job. A native
 green Dependabot head skips that job and can finalize without Prepare App

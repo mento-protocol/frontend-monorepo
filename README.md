@@ -415,6 +415,15 @@ results; validated findings can feed a bounded repair, while a missing, failed,
 interrupted, empty, persisted/truncated, or otherwise invalid diff remains
 retry-first.
 
+Repair planning uses a separate least-privilege boundary. A trusted read-only
+step materializes and seals the exact packet-bound compare, Git blobs, failed
+job logs, and findings. The token-free planner may only use guarded `Read` and
+`Grep` calls inside that evidence directory; paired hooks and a postflight
+assertion require a successful exact evidence read, and large files require
+explicit one-based bounded Read pages. `Grep` may locate the relevant ranges. A
+secretless validator then re-fetches every input through the exact Git blob API before any staged
+commit or branch mutation can occur.
+
 The preparable tier includes verified npm updates, including grouped and major
 updates. Verified non-sensitive GitHub Actions updates may be refreshed and,
 when green, prepared, but automatic repair never writes `.github/**`; a failure
@@ -430,8 +439,8 @@ Configure the repository-scoped Prepare App with variables
 `DEPENDABOT_PROCESSOR_PREPARE_BOT_ID`, and
 `DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN`, plus secret
 `DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY`. The short-lived token exists
-only in a mutation or authenticated-dispatch job. A separate no-App-token
-finalize phase owns approval and ALL CLEAR. Install the App with only `contents:
+only in a repair-staging, ref-mutation/refresh, or authenticated-dispatch job.
+A separate no-App-token finalize phase owns approval and ALL CLEAR. Install the App with only `contents:
 write` and `pull-requests: write`; update-branch needs both. Refresh tokens
 request both permissions, while repair and dispatch tokens are downscoped to
 Contents write. Grant no bypass, Actions, workflow, deployment, package, or
