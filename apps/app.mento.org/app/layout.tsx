@@ -51,7 +51,7 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      data-mento-observation-canary="523-v1-app-04"
+      data-mento-observation-canary="523-v1-app-05"
       suppressHydrationWarning
     >
       <body

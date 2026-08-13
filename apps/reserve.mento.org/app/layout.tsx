@@ -45,7 +45,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" data-mento-observation-canary="523-v1-reserve-04">
+    <html lang="en" data-mento-observation-canary="523-v1-reserve-05">
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${aspekta.className} dark max-w-screen overflow-x-hidden antialiased`}
       >
