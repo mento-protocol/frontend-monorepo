@@ -2321,7 +2321,7 @@ retired owners are then removed. More than 40 genuinely unfinished retired
 owners fails closed instead of silently discarding ownership. No unfinished
 worker evidence is truncated.
 
-The complete rendered journal body has a 60,000-byte hard limit measured as
+The complete rendered journal body has a 64,000-byte hard limit measured as
 UTF-8. A transition that cannot safely use either terminal or capacity
 checkpointing and would cross it fails closed before changing the journal,
 reporting success, or dispatching work; active, retired, or unmatched evidence

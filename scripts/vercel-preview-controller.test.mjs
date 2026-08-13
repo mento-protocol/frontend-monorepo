@@ -2529,6 +2529,149 @@ test("capacity checkpoints keep a long overlapping push burst recoverable", () =
   );
 });
 
+test("two-event four-target recovery fits the result-only write before terminal folding", () => {
+  const firstEvent = event({
+    run: 317_000_000,
+    action: "opened",
+    head: SHA.A,
+    targets: PREVIEW_TARGETS,
+    updated: timestamp(1),
+  });
+  const firstPull = pull({ head: SHA.A, updated: timestamp(1) });
+  const selections = [];
+  const workerEvidenceReceipts = [];
+  const results = [];
+  const persistWave = (reconciled, runBase) => {
+    const runIds = Object.fromEntries(
+      PREVIEW_TARGETS.map((target, index) => [target, runBase + index]),
+    );
+    const state = persistTargetDispatches(reconciled, runIds);
+    for (const target of PREVIEW_TARGETS) {
+      const active = state.targets[target].active;
+      selections.push(selectionReceiptFromDispatch(active));
+      workerEvidenceReceipts.push(
+        workerEvidence(active, { runId: runIds[target] }),
+      );
+    }
+    return { runIds, state };
+  };
+  const failWave = (state, runIds) => {
+    for (const target of PREVIEW_TARGETS) {
+      results.push(
+        result(state.targets[target].active, {
+          runId: runIds[target],
+          state: "failure",
+          reason: "build-failed-retriable",
+        }),
+      );
+    }
+  };
+
+  let selected = reconcile({ events: [firstEvent], pullRequest: firstPull });
+  let activeWave = persistWave(selected, 317_100_000);
+  failWave(activeWave.state, activeWave.runIds);
+  selected = reconcile({
+    events: [firstEvent],
+    selections,
+    results,
+    pullRequest: firstPull,
+    existingState: activeWave.state,
+  });
+  activeWave = persistWave(selected, 317_110_000);
+  failWave(activeWave.state, activeWave.runIds);
+  const firstTerminal = reconcile({
+    events: [firstEvent],
+    selections,
+    results,
+    pullRequest: firstPull,
+    existingState: activeWave.state,
+  });
+
+  const secondEvent = event({
+    run: 317_000_001,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    targets: PREVIEW_TARGETS,
+    updated: timestamp(2),
+  });
+  const events = [firstEvent, secondEvent];
+  const secondPull = pull({ head: SHA.B, updated: timestamp(2) });
+  selected = reconcile({
+    events,
+    selections,
+    results,
+    pullRequest: secondPull,
+    existingState: firstTerminal.state,
+  });
+  activeWave = persistWave(selected, 317_200_000);
+  failWave(activeWave.state, activeWave.runIds);
+  selected = reconcile({
+    events,
+    selections,
+    results,
+    pullRequest: secondPull,
+    existingState: activeWave.state,
+  });
+  activeWave = persistWave(selected, 317_210_000);
+  // Two failed attempts ended before they could publish pre-completion evidence.
+  workerEvidenceReceipts.splice(0, 2);
+
+  let state = activeWave.state;
+  let maximumResultOnlyBytes = 0;
+  for (const target of PREVIEW_TARGETS) {
+    const terminalResult = result(state.targets[target].active, {
+      runId: activeWave.runIds[target],
+    });
+    const resultOnlyJournal = createPreviewJournal({
+      pr: 519,
+      events,
+      selections,
+      workerEvidence: workerEvidenceReceipts,
+      results: [...results, terminalResult],
+      state,
+    });
+    maximumResultOnlyBytes = Math.max(
+      maximumResultOnlyBytes,
+      Buffer.byteLength(previewJournalBody(resultOnlyJournal), "utf8"),
+    );
+    results.push(terminalResult);
+    state = reconcile({
+      events,
+      selections,
+      results,
+      pullRequest: secondPull,
+      existingState: state,
+    }).state;
+  }
+
+  assert.ok(
+    maximumResultOnlyBytes >= 62_500 && maximumResultOnlyBytes <= 63_500,
+    `expected a result-only journal near 63,073 bytes, got ${maximumResultOnlyBytes}`,
+  );
+  assert.ok(
+    maximumResultOnlyBytes < 64_000,
+    `journal was ${maximumResultOnlyBytes} bytes`,
+  );
+  const terminal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      events,
+      selections,
+      workerEvidence: workerEvidenceReceipts,
+      results,
+      state,
+    }),
+  );
+  assert.deepEqual(terminal.receipts, {
+    events: [],
+    selections: [],
+    worker_evidence: [],
+    results: [],
+  });
+  assert.ok(Buffer.byteLength(previewJournalBody(terminal), "utf8") < 64_000);
+});
+
 test("capacity checkpoints preserve the newest queued runtime before reconciliation", () => {
   const openedHead = (200).toString(16).padStart(40, "0");
   const opened = event({
