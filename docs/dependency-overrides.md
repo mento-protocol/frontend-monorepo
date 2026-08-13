@@ -27,9 +27,9 @@ outside the reviewed lockfile.
 
 The workspace and standalone runtime resolve legacy v2 consumers to upstream
 `brace-expansion@2.1.4`. The August 2026 rotation retired the former local 2.1.2
-patch. The checked-in manifests and lockfiles now use the exact reviewed nanoid
-3.3.18 pair while the trusted controller temporarily also admits the former
-patchless pair. It rejects both cross-paired hybrids.
+patch. The checked-in manifests, lockfiles, and trusted controller now use only
+the exact reviewed nanoid 3.3.18 pair. The controller rejects the former pair,
+cross-paired hybrids, and unreviewed lockfile or override state.
 
 After changing the root Vercel pin or any root override, update this protected
 runtime in the same PR:
@@ -103,10 +103,10 @@ manifest declares a local patch. The lockfile lint rejects patched-dependency
 metadata and every affected release, including pnpm aliases, so a broad OSV
 correction cannot hide a future direct or aliased vulnerable entry.
 
-During the nanoid 3.3.18 rotation, the controller's default contract contains
-only the former and active patchless pairs and rejects their cross-pair hybrids.
-Retired patch metadata remains only in negative regression fixtures; do not
-restore the patch to either manifest.
+The controller's default contract contains only the active patchless nanoid
+3.3.18 pair. It rejects the former pair, either cross-paired hybrid, and
+unreviewed state. Retired patch metadata remains only in negative regression
+fixtures; do not restore the patch to either manifest.
 
 ## Wormhole Connect (`@wormhole-foundation/wormhole-connect`)
 
