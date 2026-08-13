@@ -20,12 +20,19 @@ evidence rather than invoice-grade Build CPU allocation.
 The repository provides a Vercel-credential-free GitHub evidence collector, a
 credential-free offline GitHub billing proof builder, and a deterministic,
 network-free analyzer. Initialize the approved half-open
-observation interval before its start boundary:
+observation interval before its start boundary. The values below are
+deliberately invalid placeholders. Before replacing them, read and verify
+`.vercel-cost-evidence/github-observation-v2/interval.json` and every record in
+its `interval-extensions/` ledger. An existing tree must reuse its exact start
+and current end; a new tree requires a separately approved interval. After
+`init`, read those private records back and confirm the canonical values:
 
 ```bash
+START_UTC='<START_UTC>'
+END_UTC_EXCLUSIVE='<END_UTC_EXCLUSIVE>'
 pnpm vercel:cost:observe -- init \
-  --start 2026-07-29T00:00:00.000Z \
-  --end 2026-08-05T00:00:00.000Z
+  --start "$START_UTC" \
+  --end "$END_UTC_EXCLUSIVE"
 ```
 
 The collector writes only below the fixed ignored root
@@ -130,12 +137,16 @@ complete UTC-day start after all relevant workflows have drained.
 
 If the interval ends with fewer than ten eligible pushes, or work straddles its
 end boundary, extend it before auditing. Re-run `init` with the same start and a
-later complete UTC-day end:
+later complete UTC-day end. Read the start from the private `interval.json`,
+verify the full extension ledger, and replace the deliberately invalid new-end
+placeholder only with a separately reviewed later boundary:
 
 ```bash
+START_UTC='<START_UTC_FROM_PRIVATE_INTERVAL>'
+EXTENDED_END_UTC_EXCLUSIVE='<EXTENDED_END_UTC_EXCLUSIVE>'
 pnpm vercel:cost:observe -- init \
-  --start 2026-07-29T00:00:00.000Z \
-  --end 2026-08-06T00:00:00.000Z
+  --start "$START_UTC" \
+  --end "$EXTENDED_END_UTC_EXCLUSIVE"
 ```
 
 The collector appends an immutable
@@ -143,11 +154,15 @@ The collector appends an immutable
 digest chain, cannot shrink the interval, and are rejected after the permanent
 freeze marker seals closeout.
 
-At the frozen end boundary, take a final sample and run:
+At the frozen end boundary, take a final sample. Then verify `interval.json`
+and the complete extension ledger again and read the canonical current end;
+never reuse the originally scheduled end after an extension. Replace the
+deliberately invalid placeholder and run:
 
 ```bash
+CURRENT_END_UTC_EXCLUSIVE='<CURRENT_END_UTC_EXCLUSIVE_FROM_PRIVATE_LEDGER>'
 pnpm vercel:cost:observe -- audit \
-  --end 2026-08-05T00:00:00.000Z
+  --end "$CURRENT_END_UTC_EXCLUSIVE"
 ```
 
 The offline audit requires complete cumulative run/job coverage for every UTC
@@ -290,16 +305,18 @@ rows, quantities, or amounts. Review any new value; `build` rejects unknown
 Actions SKUs and units instead of guessing.
 
 Create canonical mode-`0600`
-`.vercel-cost-evidence/github/raw/detailed-usage.metadata.json`:
+`.vercel-cost-evidence/github/raw/detailed-usage.metadata.json`. Read the exact
+start and current exclusive end from the verified private interval and
+extension ledger; the placeholders below are deliberately invalid:
 
 ```json
 {
   "schema": "vercel-cost-github-usage-export-metadata:v1",
   "source": "github-detailed-usage-web-csv",
   "reportType": "detailed",
-  "startUtc": "2026-08-14T00:00:00.000Z",
-  "endUtcExclusive": "2026-08-21T00:00:00.000Z",
-  "requestedAtUtc": "2026-08-21T12:00:00.000Z",
+  "startUtc": "<START_UTC_FROM_PRIVATE_INTERVAL>",
+  "endUtcExclusive": "<CURRENT_END_UTC_EXCLUSIVE_FROM_PRIVATE_LEDGER>",
+  "requestedAtUtc": "<AT_LEAST_12_HOURS_AFTER_END_UTC_EXCLUSIVE>",
   "complete": true,
   "completenessBasis": "maintainer-attested-web-export-after-storage-lag",
   "csvSha256": "<lowercase SHA-256 of the exact CSV bytes>"
@@ -328,15 +345,17 @@ delimiter on its own line:
 Follow every `Link: ...; rel="next"` cursor through the terminal page. Do not
 use the web audit-log CSV: its size/time limits provide no pagination proof.
 Create canonical mode-`0600`
-`.vercel-cost-evidence/github/raw/audit-log.metadata.json` with these keys:
+`.vercel-cost-evidence/github/raw/audit-log.metadata.json` with these keys.
+Reuse the same verified interval values; the placeholders remain deliberately
+invalid until replaced:
 
 ```json
 {
   "schema": "vercel-cost-github-audit-export-metadata:v1",
   "source": "github-org-audit-log-rest-link-transcript",
   "repository": "mento-protocol/frontend-monorepo",
-  "startUtc": "2026-08-14T00:00:00.000Z",
-  "endUtcExclusive": "2026-08-21T00:00:00.000Z",
+  "startUtc": "<START_UTC_FROM_PRIVATE_INTERVAL>",
+  "endUtcExclusive": "<CURRENT_END_UTC_EXCLUSIVE_FROM_PRIVATE_LEDGER>",
   "queryStartUtc": "<whole-second floor of boundary recordedAtUtc>",
   "queryEndUtcExclusive": "<strictly after terminal sample capturedAtUtc>",
   "capturedAtUtc": "<at or after queryEndUtcExclusive>",
@@ -546,8 +565,8 @@ envelope, including raw deployment fields it does not interpret.
 {
   "schema": "vercel-deployment-pages:v1",
   "window": {
-    "startUtc": "2026-08-14T00:00:00.000Z",
-    "endUtcExclusive": "2026-08-21T00:00:00.000Z"
+    "startUtc": "<START_UTC_FROM_PRIVATE_INTERVAL>",
+    "endUtcExclusive": "<CURRENT_END_UTC_EXCLUSIVE_FROM_PRIVATE_LEDGER>"
   },
   "projects": [
     {
@@ -557,19 +576,19 @@ envelope, including raw deployment fields it does not interpret.
         "path": "/v7/deployments",
         "teamId": "team_example123",
         "projectId": "prj_example123",
-        "since": 1786665599999,
-        "until": 1787270400000,
+        "since": 1111111111111,
+        "until": 2222222222222,
         "limit": 100
       },
       "pages": [
         {
-          "requestCursor": 1787270400000,
+          "requestCursor": 2222222222222,
           "response": {
             "deployments": [
               {
                 "uid": "dpl_example",
                 "projectId": "prj_example123",
-                "createdAt": 1786669200000,
+                "createdAt": 1111111111112,
                 "readyState": "READY",
                 "url": "example.vercel.app",
                 "prebuilt": true,
@@ -598,7 +617,12 @@ envelope, including raw deployment fields it does not interpret.
 }
 ```
 
-The example abbreviates the `projects` array; the real envelope must contain
+The example uses deliberately invalid interval placeholders and numeric epoch
+sentinels. Derive `since`, `until`, and the initial `requestCursor` from the
+verified private interval/extension ledger; preserve the JSON number type and
+the repeated end/cursor value. Replace `createdAt` with the exact integer epoch
+from the saved Vercel response without deriving or altering it. The example
+abbreviates the `projects` array; the real envelope must contain
 `app`, `governance`, `reserve`, and `ui` exactly once with distinct project IDs
 and the same team ID. Each initial query must use:
 
