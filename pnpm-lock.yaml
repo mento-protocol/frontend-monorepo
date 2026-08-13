@@ -146,7 +146,7 @@ overrides:
   markdown-it@<14.2.0: '>=14.2.0'
   mdast-util-to-hast: ^13.2.1
   minimatch@>=10.0.0 <10.2.4: '>=10.2.4'
-  nanoid@<3.3.17: 3.3.17
+  nanoid@<3.3.18: 3.3.18
   next: ^16.2.12
   path-to-regexp@>=8.0.0 <8.4.0: 8.4.2
   path-to-regexp@>=6.0.0 <6.3.0: 6.3.0
@@ -11036,8 +11036,8 @@ packages:
   nan@2.26.1:
     resolution: {integrity: sha512-vodKprLlmaKmraa9E/TxHQwpH4eKYTJbLdeQE49pb9GOmrLs68zESjJu0LQOz1W6JwJmftOWD5Ls4dpd/elQtQ==}
 
-  nanoid@3.3.17:
-    resolution: {integrity: sha512-xQLf0A3HOMlgHq0n247/LRuAOYmB7dXJ/DvAxGvsSBij45XtBSmQycu+F8ODbHwns/XyFZagyL1+J0Offw1E0g==}
+  nanoid@3.3.18:
+    resolution: {integrity: sha512-DTg4MJbGMWkfi6VZFdNt2/caMbQy4Ou+Op/hJQvGEWcnVfoA1QA+xzRKAzw9jD6+GVOOeYr/mIcuDSdug6F6+w==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
@@ -28259,7 +28259,7 @@ snapshots:
 
   nan@2.26.1: {}
 
-  nanoid@3.3.17: {}
+  nanoid@3.3.18: {}
 
   natural-compare@1.4.0: {}
 
@@ -28900,13 +28900,13 @@ snapshots:
 
   postcss@8.5.23:
     dependencies:
-      nanoid: 3.3.17
+      nanoid: 3.3.18
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
   postcss@8.5.26:
     dependencies:
-      nanoid: 3.3.17
+      nanoid: 3.3.18
       picocolors: 1.1.1
       source-map-js: 1.2.1
 

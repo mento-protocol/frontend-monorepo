@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   copyFileSync,
   mkdirSync,
@@ -41,8 +42,12 @@ const scriptPath = fileURLToPath(
   new URL("./vercel-prebuilt.mjs", import.meta.url),
 );
 const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567";
-const PINNED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
+const FORMER_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
   "957ccb3b8431add07a144e77966b4a05733aaca6f21cd071c937861fc10189d4";
+const FORMER_VERCEL_CLI_RUNTIME_OVERRIDE_SHA256 =
+  "301165d803f4cc7db4524ea3a7a02b33db772505c04fdc9025860b244bcb447b";
+const ACTIVE_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
+  "2dbd0eba57b119870bcd2ba43f6cf726bb52c85d8ec03f4999030e9931e5ed36";
 
 function deploymentId(overrides = {}) {
   return generateVercelDeploymentId({
@@ -66,6 +71,43 @@ function createVersionContractFixture() {
     );
   }
   return fixtureRoot;
+}
+
+function formerNanoidOverrides(overrides) {
+  const former = { ...overrides };
+  assert.equal(former["nanoid@<3.3.18"], "3.3.18");
+  delete former["nanoid@<3.3.18"];
+  former["nanoid@<3.3.17"] = "3.3.17";
+  return former;
+}
+
+function canonicalOverrideSha256(overrides) {
+  const canonical = Object.fromEntries(
+    Object.entries(overrides).toSorted(([left], [right]) =>
+      left.localeCompare(right),
+    ),
+  );
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+}
+
+function formerNanoidLockfile(lockfile) {
+  const former = lockfile.replace(
+    "  nanoid@<3.3.18: 3.3.18\n",
+    "  nanoid@<3.3.17: 3.3.17\n",
+  );
+  assert.notEqual(former, lockfile);
+  return former;
+}
+
+function writeRuntimeOverrides({ fixtureRoot, overrides }) {
+  for (const path of [
+    join(fixtureRoot, "package.json"),
+    join(fixtureRoot, "scripts", "vercel-cli-runtime", "package.json"),
+  ]) {
+    const packageMetadata = JSON.parse(readFileSync(path, "utf8"));
+    packageMetadata.pnpm.overrides = overrides;
+    writeFileSync(path, `${JSON.stringify(packageMetadata, null, 2)}\n`);
+  }
 }
 
 test("generated IDs satisfy every Vercel constraint for every target", () => {
@@ -212,7 +254,7 @@ test("resolved Next.js and exact Vercel CLI satisfy custom-ID prerequisites", ()
   };
   assert.equal(
     prerequisites.vercelCliRuntime.lockfileSha256,
-    PINNED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
+    ACTIVE_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
   );
   assert.deepEqual(prerequisites, expected);
   assert.deepEqual(
@@ -229,7 +271,7 @@ test("resolved Next.js and exact Vercel CLI satisfy custom-ID prerequisites", ()
   assert.equal(isVersionGreaterThan("56.4.1", "50.3.3"), true);
 });
 
-test("trusted controller accepts only the pinned Vercel CLI runtime pair", () => {
+test("trusted controller accepts only the active Vercel CLI runtime pair", () => {
   const fixtureRoot = createVersionContractFixture();
   const contractPaths = {
     rootPackageJsonPath: join(fixtureRoot, "package.json"),
@@ -247,18 +289,68 @@ test("trusted controller accepts only the pinned Vercel CLI runtime pair", () =>
     ),
   };
   try {
-    const repositoryDigest =
+    const activeDigest =
       assertVercelCliRuntimeContract(contractPaths).lockfileSha256;
-    assert.equal(repositoryDigest, PINNED_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256);
-    const repositoryLockfile = readFileSync(contractPaths.lockfilePath, "utf8");
-    writeFileSync(
-      contractPaths.lockfilePath,
-      `${repositoryLockfile}\n# unreviewed digest\n`,
+    assert.equal(activeDigest, ACTIVE_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256);
+    const activeLockfile = readFileSync(contractPaths.lockfilePath, "utf8");
+    const activeOverrides = JSON.parse(
+      readFileSync(contractPaths.rootPackageJsonPath, "utf8"),
+    ).pnpm.overrides;
+    const formerLockfile = formerNanoidLockfile(activeLockfile);
+    const formerOverrides = formerNanoidOverrides(activeOverrides);
+    const unknownOverrides = {
+      ...activeOverrides,
+      "nanoid@<3.3.18": "3.3.19",
+    };
+    assert.equal(
+      createHash("sha256").update(formerLockfile).digest("hex"),
+      FORMER_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
     );
-    assert.throws(
-      () => assertVercelCliRuntimeContract(contractPaths),
-      /runtime lockfile is not exact/,
+    assert.equal(
+      canonicalOverrideSha256(formerOverrides),
+      FORMER_VERCEL_CLI_RUNTIME_OVERRIDE_SHA256,
     );
+
+    for (const { expected, lockfile, name, overrides } of [
+      {
+        expected: /runtime lockfile is not exact/,
+        lockfile: formerLockfile,
+        name: "former lockfile and overrides",
+        overrides: formerOverrides,
+      },
+      {
+        expected: /lockfile and overrides are not an approved pair/,
+        lockfile: activeLockfile,
+        name: "active lockfile with former overrides",
+        overrides: formerOverrides,
+      },
+      {
+        expected: /runtime lockfile is not exact/,
+        lockfile: formerLockfile,
+        name: "former lockfile with active overrides",
+        overrides: activeOverrides,
+      },
+      {
+        expected: /runtime lockfile is not exact/,
+        lockfile: `${activeLockfile}\n# unreviewed digest\n`,
+        name: "unreviewed lockfile",
+        overrides: activeOverrides,
+      },
+      {
+        expected: /lockfile and overrides are not an approved pair/,
+        lockfile: activeLockfile,
+        name: "unreviewed overrides",
+        overrides: unknownOverrides,
+      },
+    ]) {
+      writeRuntimeOverrides({ fixtureRoot, overrides });
+      writeFileSync(contractPaths.lockfilePath, lockfile);
+      assert.throws(
+        () => assertVercelCliRuntimeContract(contractPaths),
+        expected,
+        name,
+      );
+    }
   } finally {
     rmSync(fixtureRoot, { force: true, recursive: true });
   }

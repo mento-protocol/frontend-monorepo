@@ -81,7 +81,8 @@ const MAX_HISTORY = 40;
 // terminal receipts need a small fixed number of rereads before publication.
 const MAX_RECONCILIATION_PROGRESS_PASSES = MAX_HISTORY + 4;
 const MAX_SERIALIZED_UPDATE_ATTEMPTS = 3;
-const MAX_JOURNAL_BYTES = 60_000;
+// GitHub issue comments cap at 65,536 bytes; 64,000 retains 1,536 bytes of headroom.
+const MAX_JOURNAL_BYTES = 64_000;
 const ACTIVE_CHECKPOINT_BYTES = 40_000;
 const WORKER_RUN_PAGE_SIZE = 100;
 const MAX_WORKER_RUN_PAGES = 3;

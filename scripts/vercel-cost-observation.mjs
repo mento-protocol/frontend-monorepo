@@ -35,10 +35,10 @@ import {
   PREVIEW_JOURNAL_SCHEMA,
   PREVIEW_OBSERVATION_RECEIPT_SCHEMA,
   PREVIEW_REPOSITORY,
-  controllerEventRunName,
   createPreviewJournal,
   parseWorkerRunName,
   renderPreviewJournalBody,
+  validateControllerEventWorkflowRun,
   validateEventReceipt,
   validatePreviewObservationReceipt,
   previewObservationArtifactName,
@@ -1224,6 +1224,21 @@ function latestSentinelStatus(statuses) {
   );
 }
 
+function canonicalHttpsTargetUrl(value, label) {
+  invariant(typeof value === "string", `${label} must be an HTTPS URL`);
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${label} must be an HTTPS URL`);
+  }
+  invariant(
+    parsed.protocol === "https:" && !parsed.username && !parsed.password,
+    `${label} must be an HTTPS URL without credentials`,
+  );
+  return parsed.toString();
+}
+
 function deploymentCapture(deployments) {
   return deployments.map(({ deployment, statuses }) => ({
     deployment,
@@ -1329,7 +1344,14 @@ function validatePreviewDeployment({
         Number(runIdMatch[2]) === Number(result.worker_run_attempt)) &&
       status.state === result.state &&
       (result.state !== "success" ||
-        status.environment_url === result.vercel_deployment_url) &&
+        canonicalHttpsTargetUrl(
+          status.environment_url,
+          "GitHub Deployment status environment URL",
+        ) ===
+          canonicalHttpsTargetUrl(
+            result.vercel_deployment_url,
+            "Preview worker result deployment URL",
+          )) &&
       status.creator?.type === "Bot" &&
       status.creator?.login === "github-actions[bot]"
     );
@@ -1358,9 +1380,16 @@ function validateTerminalPreviewReceipts({
   );
   invariant(
     sentinel !== null &&
-      sentinel.sha === event.head_sha &&
+      (!Object.hasOwn(sentinel, "sha") || sentinel.sha === event.head_sha) &&
       sentinel.state === decision.state &&
-      sentinel.target_url === decision.target_url &&
+      canonicalHttpsTargetUrl(
+        sentinel.target_url,
+        "Preview terminal status target URL",
+      ) ===
+        canonicalHttpsTargetUrl(
+          decision.target_url,
+          "Preview controller decision target URL",
+        ) &&
       sentinel.creator?.type === "Bot" &&
       sentinel.creator?.login === "github-actions[bot]",
     "Preview terminal status does not match the bot-owned controller decision",
@@ -1629,6 +1658,24 @@ function journalTargetStateForValidation(
   return currentSelections[0];
 }
 
+function assertControllerEventRunBinding(rawRun, event) {
+  const identity = validateControllerEventWorkflowRun(rawRun, event.head_sha);
+  invariant(
+    String(identity.runId) === String(event.event_run_id) &&
+      (event.event_run_number === undefined ||
+        identity.runNumber === event.event_run_number) &&
+      identity.pr === event.pr &&
+      identity.sha === event.head_sha &&
+      identity.before === event.before_sha &&
+      identity.action === event.event_action &&
+      identity.receiptRequired === true &&
+      identity.headRef === event.head_ref &&
+      identity.headRepository === event.head_repository,
+    "Preview controller run conflicts with its event receipt",
+  );
+  return identity;
+}
+
 export function assertControllerSyntheticRunBinding({
   rawRun,
   bindings,
@@ -1644,22 +1691,7 @@ export function assertControllerSyntheticRunBinding({
   );
   if (matchingEvents.length === 1) {
     const event = matchingEvents[0];
-    invariant(
-      rawRun.event === "pull_request_target" &&
-        rawRun.head_branch === event.base_ref &&
-        rawRun.head_sha === event.trusted_base_sha &&
-        rawRun.display_title ===
-          controllerEventRunName({
-            runId: event.event_run_id,
-            runNumber: event.event_run_number,
-            pr: event.pr,
-            sha: event.head_sha,
-            before: event.before_sha,
-            action: event.event_action,
-            receiptRequired: true,
-          }),
-      "Preview controller synthetic run conflicts with its event receipt",
-    );
+    assertControllerEventRunBinding(rawRun, event);
     return true;
   }
   invariant(
@@ -2081,25 +2113,10 @@ function capturePreview({ root, pr, eventRunId, dependencies }) {
       "Preview controller run",
     );
     invariant(
-      controllerRun.event === "pull_request_target" &&
-        String(controllerRun.id) === controllerRunId &&
-        controllerRun.head_branch === event.base_ref &&
-        controllerRun.head_sha === event.trusted_base_sha,
-      "Preview controller run is not the immutable PR event run",
+      String(controllerRun.id) === controllerRunId,
+      "Preview controller run ID does not match the requested event run",
     );
-    const expectedTitle = controllerEventRunName({
-      runId: controllerRunId,
-      runNumber: event.event_run_number ?? controllerRun.run_number,
-      pr: event.pr,
-      sha: event.head_sha,
-      before: event.before_sha,
-      action: event.event_action,
-      receiptRequired: true,
-    });
-    invariant(
-      controllerRun.display_title === expectedTitle,
-      "Preview controller run title does not match the event receipt",
-    );
+    assertControllerEventRunBinding(controllerRun, event);
     invariant(
       withinInterval(controllerRun.created_at, interval),
       "Preview event is outside the observation interval",
