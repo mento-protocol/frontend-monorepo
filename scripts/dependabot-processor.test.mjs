@@ -254,6 +254,7 @@ function processorRepairReceipt(
     externalId,
     headSha = HEAD_SHA,
     id = 10_000 + attempt,
+    packetEncoding = "legacy",
     pullRequestNumber = 123,
     workflowContext = WORKFLOW_CONTEXT,
   } = {},
@@ -268,8 +269,13 @@ function processorRepairReceipt(
       : packet && typeof packet === "object"
         ? packet
         : null;
-  const packetDigest = repairPacket ? digest(repairPacket) : "none";
-  return trustedReceiptCheck({
+  const packetText = repairPacket
+    ? packetEncoding === "canonical"
+      ? canonicalJson(repairPacket)
+      : stableJson(repairPacket)
+    : null;
+  const packetDigest = packetText ? rawDigest(packetText) : "none";
+  const receipt = trustedReceiptCheck({
     conclusion: repairPacket ? "failure" : "neutral",
     externalId:
       externalId ??
@@ -281,6 +287,8 @@ function processorRepairReceipt(
     workflowContext,
     workflowPath: ".github/workflows/dependabot-process.yml",
   });
+  if (packetText !== null) receipt.outputText = packetText;
+  return receipt;
 }
 
 function refreshReceiptCheck(
@@ -556,6 +564,7 @@ function repairPendingSnapshotForPullRequest(
     headSha,
     id: checkId,
     packet: evaluated.repairPacket,
+    packetEncoding: "canonical",
     pullRequestNumber,
   });
   packetCheck.outputSummary = "Disposition: repair-required";
@@ -3188,7 +3197,131 @@ test("workflow-path Actions failures require manual repair while green updates r
   assert.equal(green.disposition, "prepare-candidate");
 });
 
-test("an issued same-head repair packet occupies the lane without republishing", async () => {
+test("a legacy same-head packet is replaced canonically once before the lane becomes pending", async () => {
+  const replacementWorkflowContext = {
+    ...WORKFLOW_CONTEXT,
+    workflowRunId: WORKFLOW_CONTEXT.workflowRunId + 1,
+  };
+  const laterWorkflowContext = {
+    ...WORKFLOW_CONTEXT,
+    workflowRunId: WORKFLOW_CONTEXT.workflowRunId + 2,
+  };
+  const current = snapshot({
+    checks: completeChecks({ conclusions: { ci: "failure" } }),
+  });
+  const initial = evaluateDependabotPullRequest(current, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(initial.disposition, "repair-required");
+  assert.notEqual(initial.repairPacket, null);
+
+  const legacyCheck = processorRepairReceipt(1, {
+    id: 60_001,
+    packet: initial.repairPacket,
+  });
+  legacyCheck.outputSummary = "Disposition: repair-required";
+  assert.equal(
+    parseDependabotProcessorReceipt(legacyCheck, REPOSITORY)?.packetCanonical,
+    false,
+  );
+  current.checks.push(legacyCheck);
+  current.repairHistoryChecks = [legacyCheck];
+
+  const beforeReplacement = evaluateDependabotSweep({
+    mode: "prepare",
+    outstandingAutoMergeRequests: [],
+    pullRequests: [current],
+    repository: REPOSITORY,
+    workflowContext: replacementWorkflowContext,
+  });
+  assert.equal(
+    beforeReplacement.evaluations[0].repairAttempts.currentHeadPacketIssued,
+    false,
+  );
+  assert.equal(beforeReplacement.evaluations[0].disposition, "repair-required");
+  assert.notEqual(beforeReplacement.evaluations[0].repairPacket, null);
+
+  const published = [];
+  const adapter = {
+    collectPullRequestSnapshot: async () => structuredClone(current),
+    getOutstandingDependabotAutoMergeRequests: async () => [],
+    getOutstandingDependabotProcessorApprovals: noOutstandingProcessorApprovals,
+    publishProcessorCheck: async (input) => {
+      published.push(input);
+      return { id: 60_002 };
+    },
+  };
+  const replacement = await processDependabotSweep({
+    adapter,
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [structuredClone(current)],
+      repository: REPOSITORY,
+      workflowContext: replacementWorkflowContext,
+    },
+    phase: "finalize",
+    publishChecks: true,
+    workflowContext: replacementWorkflowContext,
+  });
+  assert.equal(published.length, 1);
+  assert.equal(published[0].disposition, "repair-required");
+  assert.equal(
+    published[0].repairPacket.workflowRunId,
+    replacementWorkflowContext.workflowRunId,
+  );
+  assert.deepEqual(
+    replacement.mutations.map(({ kind }) => kind),
+    ["repair-packet-published"],
+  );
+
+  const canonicalCheck = processorRepairReceipt(1, {
+    id: 60_002,
+    packet: published[0].repairPacket,
+    packetEncoding: "canonical",
+    workflowContext: replacementWorkflowContext,
+  });
+  canonicalCheck.outputSummary = "Disposition: repair-required";
+  assert.equal(
+    parseDependabotProcessorReceipt(canonicalCheck, REPOSITORY)
+      ?.packetCanonical,
+    true,
+  );
+  current.checks.push(canonicalCheck);
+  current.repairHistoryChecks.push(canonicalCheck);
+
+  for (let run = 0; run < 2; run += 1) {
+    const workflowContext = {
+      ...laterWorkflowContext,
+      workflowRunId: laterWorkflowContext.workflowRunId + run,
+    };
+    const result = await processDependabotSweep({
+      adapter,
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [structuredClone(current)],
+        repository: REPOSITORY,
+        workflowContext,
+      },
+      phase: "finalize",
+      publishChecks: true,
+      workflowContext,
+    });
+    assert.equal(result.prepareCandidate.disposition, "repair-pending");
+    assert.equal(result.evaluations[0].repairPacket, null);
+    assert.deepEqual(result.mutations, []);
+  }
+  assert.equal(published.length, 1);
+  assert.equal(
+    current.checks.filter(({ name }) => name === "Dependabot Processor").length,
+    2,
+  );
+});
+
+test("a canonical same-head repair packet occupies the lane without republishing", async () => {
   const current = snapshot({
     checks: completeChecks({ conclusions: { ci: "failure" } }),
   });
@@ -3203,8 +3336,13 @@ test("an issued same-head repair packet occupies the lane without republishing",
   const packetCheck = processorRepairReceipt(1, {
     id: 61_001,
     packet: first.repairPacket,
+    packetEncoding: "canonical",
   });
   packetCheck.outputSummary = "Disposition: repair-required";
+  assert.equal(
+    parseDependabotProcessorReceipt(packetCheck, REPOSITORY)?.packetCanonical,
+    true,
+  );
   current.checks.push(packetCheck);
   current.repairHistoryChecks = [packetCheck];
   const repeated = evaluateDependabotSweep({
@@ -3318,10 +3456,12 @@ test("typed repair receipts require valid verification and consume one attempt o
     packet,
   });
   assert.equal(packetCheck.outputText, legacyPacketText);
-  assert.equal(
-    parseDependabotProcessorReceipt(packetCheck, REPOSITORY)?.packetDigest,
-    rawDigest(legacyPacketText),
+  const parsedLegacyPacket = parseDependabotProcessorReceipt(
+    packetCheck,
+    REPOSITORY,
   );
+  assert.equal(parsedLegacyPacket?.packetCanonical, false);
+  assert.equal(parsedLegacyPacket?.packetDigest, rawDigest(legacyPacketText));
   const receiptCheck = repairReceiptCheck({
     headSha: OTHER_SHA,
     packetDigest: digest(packet),

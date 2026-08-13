@@ -506,13 +506,11 @@ function processorPacketJson(check) {
   }
   try {
     const packet = JSON.parse(outputText);
-    if (
-      canonicalJson(packet) !== outputText &&
-      stableJson(packet) !== outputText
-    ) {
+    const canonical = canonicalJson(packet) === outputText;
+    if (!canonical && stableJson(packet) !== outputText) {
       return null;
     }
-    return { outputText, packet };
+    return { canonical, outputText, packet };
   } catch {
     return null;
   }
@@ -1550,6 +1548,7 @@ export function parseDependabotProcessorReceipt(check, repository) {
     headSha: external[2],
     mode: external[3],
     packet,
+    packetCanonical: packetJson?.canonical === true,
     packetDigest: packetIssued ? packetDigest : null,
     packetIssued,
     pullRequestNumber: Number(external[1]),
@@ -3231,7 +3230,12 @@ function evaluateRepairAttemptGate({
       issuedAttemptCount += 1;
       if (isCurrentHead) {
         if (packetAttempts.has(consumedAttempts + 1)) {
-          currentHeadPacketIssued = true;
+          currentHeadPacketIssued = receipts.some(
+            ({ attempt, packetCanonical, packetIssued }) =>
+              packetIssued &&
+              packetCanonical &&
+              attempt === consumedAttempts + 1,
+          );
         } else {
           reasons.push("current-head-packet-attempt-mismatch");
         }
