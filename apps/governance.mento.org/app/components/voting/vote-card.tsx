@@ -31,6 +31,15 @@ interface VoteCardProps {
   onVoteConfirmed?: () => void;
 }
 
+function reportGovernanceTransactionError(error: unknown): boolean {
+  if (getGovernanceTransactionErrorMessage(error) === null) {
+    return false;
+  }
+
+  Sentry.captureException(error);
+  return true;
+}
+
 export const VoteCard = ({
   proposal,
   votingDeadline,
@@ -300,7 +309,7 @@ export const VoteCard = ({
       try {
         castVote(proposal.proposalId, support);
       } catch (error) {
-        Sentry.captureException(error);
+        reportGovernanceTransactionError(error);
       }
     }
   };
@@ -317,11 +326,11 @@ export const VoteCard = ({
             }
           },
           (error) => {
-            Sentry.captureException(error);
+            reportGovernanceTransactionError(error);
           },
         );
       } catch (error) {
-        Sentry.captureException(error);
+        reportGovernanceTransactionError(error);
       }
     }
   };
@@ -338,11 +347,11 @@ export const VoteCard = ({
             }
           },
           (error) => {
-            Sentry.captureException(error);
+            reportGovernanceTransactionError(error);
           },
         );
       } catch (error) {
-        Sentry.captureException(error);
+        reportGovernanceTransactionError(error);
       }
     }
   };
@@ -359,11 +368,11 @@ export const VoteCard = ({
             }
           },
           (error) => {
-            Sentry.captureException(error);
+            reportGovernanceTransactionError(error);
           },
         );
       } catch (error) {
-        Sentry.captureException(error);
+        reportGovernanceTransactionError(error);
       }
     }
   };
@@ -380,11 +389,11 @@ export const VoteCard = ({
             }
           },
           (error) => {
-            Sentry.captureException(error);
+            reportGovernanceTransactionError(error);
           },
         );
       } catch (error) {
-        Sentry.captureException(error);
+        reportGovernanceTransactionError(error);
       }
     }
   };
@@ -414,16 +423,13 @@ export const VoteCard = ({
   // Execute, queue, and cancel errors are captured by their callbacks or hooks.
   // Cast-vote does not receive an onError callback, so capture its hook state here.
   useEffect(() => {
-    if (
-      !error ||
-      getGovernanceTransactionErrorMessage(error) === null ||
-      capturedVoteErrorsRef.current.has(error)
-    ) {
+    if (!error || capturedVoteErrorsRef.current.has(error)) {
       return;
     }
 
-    Sentry.captureException(error);
-    capturedVoteErrorsRef.current.add(error);
+    if (reportGovernanceTransactionError(error)) {
+      capturedVoteErrorsRef.current.add(error);
+    }
   }, [error]);
 
   const currentState = useMemo(() => {

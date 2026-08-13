@@ -16,6 +16,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ProposalQueryKey } from "@/contracts/governor/use-proposal";
 import * as Sentry from "@sentry/nextjs";
 import { useIsWatchdog } from "@/contracts/governor/use-is-watchdog";
+import { isUserRejection } from "@repo/web3/is-user-rejection";
 
 /**
  * Hook to cancel a queued proposal.
@@ -77,21 +78,13 @@ export const useCancelProposalAsWatchdog = (): {
             onSuccess?.();
           },
           onError: (error) => {
-            console.error("Failed to cancel proposal:", error);
-
-            // Check if user rejected the transaction
-            const errorMessage = error.message || "";
-            const isUserRejection =
-              errorMessage.includes("User rejected") ||
-              errorMessage.includes("user rejected") ||
-              errorMessage.includes("User denied");
-
-            if (isUserRejection) {
+            if (isUserRejection(error)) {
               // User deliberately rejected - show clear message
               toast.error("Failed to cancel proposal", {
                 description: "You rejected the transaction",
               });
             } else {
+              console.error("Failed to cancel proposal:", error);
               // Unexpected error - send to Sentry and show generic error toast
               Sentry.captureException(error, {
                 tags: {
@@ -218,17 +211,23 @@ export const useCancelProposalAsWatchdog = (): {
           downloadCancelTransaction(operationId, onSuccess);
         }
       } catch (error) {
-        console.error("Failed to create Safe transaction:", error);
-        Sentry.captureException(error, {
-          tags: {
-            context: "cancel-proposal",
-            mode: isWatchdogSafe ? "direct-execution" : "file-download",
-          },
-        });
-        toast.error("Failed to prepare cancellation transaction", {
-          description:
-            "Unable to prepare the cancellation transaction. Check your wallet connection and try again.",
-        });
+        if (isUserRejection(error)) {
+          toast.error("Failed to cancel proposal", {
+            description: "You rejected the transaction",
+          });
+        } else {
+          console.error("Failed to create Safe transaction:", error);
+          Sentry.captureException(error, {
+            tags: {
+              context: "cancel-proposal",
+              mode: isWatchdogSafe ? "direct-execution" : "file-download",
+            },
+          });
+          toast.error("Failed to prepare cancellation transaction", {
+            description:
+              "Unable to prepare the cancellation transaction. Check your wallet connection and try again.",
+          });
+        }
         onError?.(error as Error);
       }
     },
