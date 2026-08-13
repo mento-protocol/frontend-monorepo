@@ -17,14 +17,22 @@ measurements; failed runs contain only the redacted failure graph. Successful
 shadow measurements help diagnose the canary, but they remain log-duration
 evidence rather than invoice-grade Build CPU allocation.
 
-The repository provides a Vercel-credential-free GitHub evidence collector and a
-deterministic, network-free analyzer. Initialize the approved half-open
-observation interval before its start boundary:
+The repository provides a Vercel-credential-free GitHub evidence collector, a
+credential-free offline GitHub billing proof builder, and a deterministic,
+network-free analyzer. Initialize the approved half-open
+observation interval before its start boundary. The values below are
+deliberately invalid placeholders. Before replacing them, read and verify
+`.vercel-cost-evidence/github-observation-v2/interval.json` and every record in
+its `interval-extensions/` ledger. An existing tree must reuse its exact start
+and current end; a new tree requires a separately approved interval. After
+`init`, read those private records back and confirm the canonical values:
 
 ```bash
+START_UTC='<START_UTC>'
+END_UTC_EXCLUSIVE='<END_UTC_EXCLUSIVE>'
 pnpm vercel:cost:observe -- init \
-  --start 2026-07-29T00:00:00.000Z \
-  --end 2026-08-05T00:00:00.000Z
+  --start "$START_UTC" \
+  --end "$END_UTC_EXCLUSIVE"
 ```
 
 The collector writes only below the fixed ignored root
@@ -129,12 +137,16 @@ complete UTC-day start after all relevant workflows have drained.
 
 If the interval ends with fewer than ten eligible pushes, or work straddles its
 end boundary, extend it before auditing. Re-run `init` with the same start and a
-later complete UTC-day end:
+later complete UTC-day end. Read the start from the private `interval.json`,
+verify the full extension ledger, and replace the deliberately invalid new-end
+placeholder only with a separately reviewed later boundary:
 
 ```bash
+START_UTC='<START_UTC_FROM_PRIVATE_INTERVAL>'
+EXTENDED_END_UTC_EXCLUSIVE='<EXTENDED_END_UTC_EXCLUSIVE>'
 pnpm vercel:cost:observe -- init \
-  --start 2026-07-29T00:00:00.000Z \
-  --end 2026-08-06T00:00:00.000Z
+  --start "$START_UTC" \
+  --end "$EXTENDED_END_UTC_EXCLUSIVE"
 ```
 
 The collector appends an immutable
@@ -142,11 +154,15 @@ The collector appends an immutable
 digest chain, cannot shrink the interval, and are rejected after the permanent
 freeze marker seals closeout.
 
-At the frozen end boundary, take a final sample and run:
+At the frozen end boundary, take a final sample. Then verify `interval.json`
+and the complete extension ledger again and read the canonical current end;
+never reuse the originally scheduled end after an extension. Replace the
+deliberately invalid placeholder and run:
 
 ```bash
+CURRENT_END_UTC_EXCLUSIVE='<CURRENT_END_UTC_EXCLUSIVE_FROM_PRIVATE_LEDGER>'
 pnpm vercel:cost:observe -- audit \
-  --end 2026-08-05T00:00:00.000Z
+  --end "$CURRENT_END_UTC_EXCLUSIVE"
 ```
 
 The offline audit requires complete cumulative run/job coverage for every UTC
@@ -200,11 +216,11 @@ cross-directory, and destination races also fail closed. The private proof
 binds the exact input-envelope bytes, normalized JSONL bytes, UTC window, four
 project IDs, per-project page and row counts, final request cursors, terminal
 `next: null` values, annotation count, and
-`deploymentCensusComplete: true`. Keep that proof as operator evidence. The
-analyzer manifest remains schema version 2: set
-its `deploymentCensusSha256` to the proof's `outputSha256` and set
-`deploymentCensusComplete: true` only when this proof and the original private
-page exports remain available.
+`deploymentCensusComplete: true`. The schema-version-3 analyzer manifest must
+bind all three private files for each window: the raw deployment-page envelope,
+the normalized JSONL, and the canonical proof, each with its exact SHA-256. It
+does not accept a caller-supplied completeness boolean. The manifest's separate
+GitHub Actions proof and digest remain required.
 
 Then run the analyzer:
 
@@ -214,10 +230,16 @@ pnpm vercel:cost:analyze \
   --format markdown
 ```
 
-The command reads the raw project-level FOCUS JSONL and a complete normalized
-Vercel deployment census. It accepts a project total only when that census
-proves zero legacy-v2, manual, or unknown deployment attempts and the migrated
-minutes and costs equal the complete FOCUS-backed project total. It exits
+The command reads the raw project-level FOCUS JSONL, saved Vercel deployment
+pages, normalized census, and canonical census proof. It reruns
+`normalizeVercelDeploymentPages` over the exact raw bytes, requires the checked-in
+normalizer's canonical proof and JSONL bytes, digests, and window to match, and
+uses only that rebuilt census. Manifest schema v3 also binds one canonical
+GitHub Actions proof and its SHA-256. The analyzer rebuilds that proof from its
+raw CSV, selected audit evidence, metadata, and frozen observation tree before
+accepting any GitHub aggregate field. It accepts a project total only when the
+rebuilt census proves zero legacy-v2, manual, or unknown deployment attempts and
+the migrated minutes and costs equal the complete FOCUS-backed project total. It exits
 successfully only after both the observation gate
 and the cleanup/final-closeout gate pass. Before cleanup, a successful
 measurement is explicitly `OBSERVATION ONLY` and the command remains nonzero.
@@ -241,6 +263,8 @@ issue, pull request, workflow artifact, job summary, or log:
 - raw Vercel FOCUS JSONL, saved deployment-page envelopes and original page
   responses, normalized deployment-census JSONL, census proofs, and the
   manifest;
+- the GitHub detailed-usage CSV, audit-log export or REST transcript, metadata, and canonical
+  GitHub Actions proof;
 - project or team IDs not already public;
 - absolute `EffectiveCost`, `BilledCost`, allocation, plan, price, or invoice
   values;
@@ -256,6 +280,197 @@ credentials.
 Only generated public-safe analyzer output (Markdown or JSON), redacted
 screenshots, and direct links to non-sensitive workflow or deployment evidence
 belong on #523.
+
+## Build the private GitHub Actions proof
+
+Wait at least 12 hours after the exclusive interval end so GitHub's documented
+storage lag can settle. In the GitHub billing web UI, request the **detailed**
+usage CSV for the exact complete UTC days in the half-open interval. Keep the
+download unchanged; the report covers all paid products and the normalizer
+selects only exact `Actions`, organization, repository, SKU, unit, and
+workflow-path matches.
+
+Inspect its shape before writing metadata:
+
+```bash
+pnpm vercel:cost:github -- inspect \
+  --usage-csv .vercel-cost-evidence/github/raw/detailed-usage.csv \
+  --output .vercel-cost-evidence/github/usage-shape.json
+```
+
+The inspector accepts one UTF-8 BOM, quoted RFC 4180 fields, and reordered
+exact columns. It writes only header names and distinct products, SKUs, units,
+repositories, and workflow paths to its private output. It never prints CSV
+rows, quantities, or amounts. Review any new value; `build` rejects unknown
+Actions SKUs and units instead of guessing.
+
+Create canonical mode-`0600`
+`.vercel-cost-evidence/github/raw/detailed-usage.metadata.json`. Read the exact
+start and current exclusive end from the verified private interval and
+extension ledger; the placeholders below are deliberately invalid:
+
+```json
+{
+  "schema": "vercel-cost-github-usage-export-metadata:v1",
+  "source": "github-detailed-usage-web-csv",
+  "reportType": "detailed",
+  "startUtc": "<START_UTC_FROM_PRIVATE_INTERVAL>",
+  "endUtcExclusive": "<CURRENT_END_UTC_EXCLUSIVE_FROM_PRIVATE_LEDGER>",
+  "requestedAtUtc": "<AT_LEAST_12_HOURS_AFTER_END_UTC_EXCLUSIVE>",
+  "complete": true,
+  "completenessBasis": "maintainer-attested-web-export-after-storage-lag",
+  "csvSha256": "<lowercase SHA-256 of the exact CSV bytes>"
+}
+```
+
+GitHub's detailed web CSV has no machine-readable completion marker. This
+metadata records a maintainer attestation and binds the exact download bytes;
+retain the request/download confirmation privately. `requestedAtUtc` must be at
+least 12 hours after `endUtcExclusive`.
+
+The collector samples visibility before the start and after the end. Cover the
+entire gap, not just the billing interval: query the organization audit log from
+the whole-second floor of the boundary record's `recordedAtUtc` through a
+timestamp strictly after the terminal sample's `capturedAtUtc`. Use the exact phrase
+`repo:mento-protocol/frontend-monorepo action:repo.access
+created:>=<queryStartUtc> created:<queryEndUtcExclusive>`. Preserve the literal
+query and exact bounds in metadata. Choose exactly one of the two evidence
+routes below. Do not combine their files or fields.
+
+### Owner web JSON export (Free and Enterprise plans)
+
+An organization owner whose membership role is `admin` can enter the exact
+query in the organization **Audit log** page and select **Export > JSON**. Keep
+the downloaded JSON bytes unchanged. The file must be one JSON array, not
+NDJSON or a wrapper object. Every row must have exact `action: "repo.access"`
+and `repo: "mento-protocol/frontend-monorepo"` values, fall inside the covering
+half-open query range, and have a nonempty unique `_document_id`.
+
+[GitHub documents](https://docs.github.com/en/organizations/keeping-your-organization-secure/managing-security-settings-for-your-organization/reviewing-the-audit-log-for-your-organization#exporting-the-audit-log)
+two hard web-export limits: a 100 MB compressed file or 10 minutes of export
+processing. Confirm that neither limit nor an export error appeared and that
+the visible matching-entry count equals the JSON array length. Create canonical
+mode-`0600` `.vercel-cost-evidence/github/raw/audit-log.metadata.json`:
+
+```json
+{
+  "schema": "vercel-cost-github-audit-export-metadata:v2",
+  "source": "github-org-audit-log-owner-web-json-export",
+  "format": "json-array",
+  "repository": "mento-protocol/frontend-monorepo",
+  "startUtc": "<START_UTC_FROM_PRIVATE_INTERVAL>",
+  "endUtcExclusive": "<CURRENT_END_UTC_EXCLUSIVE_FROM_PRIVATE_LEDGER>",
+  "queryStartUtc": "<whole-second floor of boundary recordedAtUtc>",
+  "queryEndUtcExclusive": "<strictly after terminal sample capturedAtUtc>",
+  "capturedAtUtc": "<at or after queryEndUtcExclusive>",
+  "queryPhrase": "<the exact phrase above>",
+  "eventCount": 0,
+  "exportByteLength": 1234,
+  "exportSha256": "<lowercase SHA-256 of the exact JSON bytes>",
+  "ownerAttestation": {
+    "role": "admin",
+    "exportCompleted": true,
+    "sizeLimitReached": false,
+    "processingTimeLimitReached": false,
+    "exportError": null,
+    "matchingEntryCount": 0
+  }
+}
+```
+
+The web route has no provider pagination receipt or signed export. Its
+completeness claim is the maintainer attestation bound to the exact
+query, byte length, digest, array count, and matching-entry count. Keep the
+private export completion screen or equivalent operator record with the
+evidence package. Any visibility row remains valid source data but makes the
+proof ineligible.
+
+### REST Link transcript (Enterprise Cloud only)
+
+Organizations entitled to the organization audit-log REST endpoint may use
+the API route instead. Add `include=web`, ascending order, and `per_page=100`
+to the exact phrase. Save every REST response as its status line, headers,
+blank line, and JSON array body. Join pages with this literal delimiter on its
+own line:
+
+```text
+--- github-audit-page ---
+```
+
+Start without an `after` or `before` cursor and follow every
+`Link: ...; rel="next"` cursor through the terminal page.
+Create canonical mode-`0600`
+`.vercel-cost-evidence/github/raw/audit-log.metadata.json` with these keys.
+Reuse the same verified interval values; the placeholders remain deliberately
+invalid until replaced:
+
+```json
+{
+  "schema": "vercel-cost-github-audit-export-metadata:v2",
+  "source": "github-org-audit-log-rest-link-transcript",
+  "format": "http-link-transcript-json-array-pages",
+  "repository": "mento-protocol/frontend-monorepo",
+  "startUtc": "<START_UTC_FROM_PRIVATE_INTERVAL>",
+  "endUtcExclusive": "<CURRENT_END_UTC_EXCLUSIVE_FROM_PRIVATE_LEDGER>",
+  "queryStartUtc": "<whole-second floor of boundary recordedAtUtc>",
+  "queryEndUtcExclusive": "<strictly after terminal sample capturedAtUtc>",
+  "capturedAtUtc": "<at or after queryEndUtcExclusive>",
+  "queryPhrase": "<the exact phrase above>",
+  "include": "web",
+  "order": "asc",
+  "perPage": 100,
+  "pageUrls": ["<exact first URL>", "<exact next URL if present>"],
+  "complete": true,
+  "eventCount": 0,
+  "transcriptByteLength": 1234,
+  "transcriptSha256": "<lowercase SHA-256 of the exact transcript bytes>"
+}
+```
+
+Each `pageUrls` entry must preserve the same phrase, include, order, and
+per-page parameters and must be unique. Cursor parameters may differ. The
+transcript's `next` links must equal the next entries exactly, and the final
+page must have no next link.
+
+Build the proof without network access or credentials:
+
+```bash
+pnpm vercel:cost:github -- build \
+  --usage-csv .vercel-cost-evidence/github/raw/detailed-usage.csv \
+  --usage-metadata .vercel-cost-evidence/github/raw/detailed-usage.metadata.json \
+  --audit-web-export .vercel-cost-evidence/github/raw/audit-log.web-export.json \
+  --audit-metadata .vercel-cost-evidence/github/raw/audit-log.metadata.json \
+  --observation-root .vercel-cost-evidence/github-observation-v2 \
+  --output .vercel-cost-evidence/github/postcutover.github-actions.json
+```
+
+For the Enterprise REST route, replace the one web-export option with
+`--audit-rest-transcript .vercel-cost-evidence/github/raw/audit-log.transcript.txt`.
+The CLI requires exactly one of these two options.
+
+All inputs and outputs must share one real `.vercel-cost-evidence/` tree with
+mode-`0700` directories and mode-`0600` files. Publication is fsynced and
+no-overwrite; archive or delete an obsolete proof deliberately before rebuilding.
+The proof binds raw-file SHA-256s, the exact interval, the six deployment
+workflow paths, checked-in standard/larger runner SKU allowlists, units, exact
+decimal billing amounts, the complete frozen collector tree, and audit
+source evidence. The REST source proves its cursor chain. The web source binds
+its explicit owner attestation while recording the absence of provider
+pagination and signature proof. Unknown SKUs, a visibility event in the
+covering range,
+interval-crossing jobs, nonzero larger-runner minutes, nonzero custom-image
+storage, nonzero standard-runner net cost, or disagreement between billed
+standard minutes and the collector's per-job rounded total makes the proof
+ineligible.
+
+`artifactStorageGbHours` receives the billed `actions_storage` quantity only
+when the detailed report attributes a nonzero row to one of the six allowlisted
+deployment workflows. `cacheStorageGbHours` applies the same rule to billed
+`actions_cache_storage`, which represents billable cache overage after GitHub
+allowances, not physical cache size. A nonzero repository-level storage row
+with a blank workflow path is an unattributed upper bound and fails the proof;
+do not claim it was added by this migration. Collector snapshots are diagnostic
+and do not replace attributable GB-hour quantities.
 
 ## Source-of-truth intervals
 
@@ -374,7 +589,7 @@ estimated.
 5. Classify app deployments as migrated PR preview, migrated `main -> v3`,
    preserved native `v2 -> production`, or manual/unknown. Keep v2 visible and
    apply the invoice-grade attribution limitation above.
-6. Build a GitHub Actions census from the final preview workflow inventory
+6. Build the source-bound GitHub Actions proof above from the final preview workflow inventory
    (`Vercel Preview Intake`, `Vercel Preview Controller`,
    `Vercel Preview Worker`, and their reusable build/smoke workflows) plus
    `Vercel Main Deployment`: standard-runner minutes, larger-runner minutes,
@@ -394,7 +609,7 @@ estimated.
    staged/active/shadow partitions, stale-main decision, activation/recovery
    result, domain SHA, the active duplicate census, and v2 health.
 8. Populate `.vercel-cost-evidence/manifest.json` and its referenced aggregate,
-   FOCUS, and deployment-census files using the
+   FOCUS, deployment-census, and GitHub proof files using the
    synthetic [`manifest.json`](../scripts/fixtures/vercel-cost-analysis/manifest.json)
    fixture set as the schema example. Do not copy its invented values.
 9. Run the analyzer. A failing command lists deterministic evidence gaps; extend
@@ -415,8 +630,8 @@ envelope, including raw deployment fields it does not interpret.
 {
   "schema": "vercel-deployment-pages:v1",
   "window": {
-    "startUtc": "2026-08-14T00:00:00.000Z",
-    "endUtcExclusive": "2026-08-21T00:00:00.000Z"
+    "startUtc": "<START_UTC_FROM_PRIVATE_INTERVAL>",
+    "endUtcExclusive": "<CURRENT_END_UTC_EXCLUSIVE_FROM_PRIVATE_LEDGER>"
   },
   "projects": [
     {
@@ -426,19 +641,19 @@ envelope, including raw deployment fields it does not interpret.
         "path": "/v7/deployments",
         "teamId": "team_example123",
         "projectId": "prj_example123",
-        "since": 1786665599999,
-        "until": 1787270400000,
+        "since": 1111111111111,
+        "until": 2222222222222,
         "limit": 100
       },
       "pages": [
         {
-          "requestCursor": 1787270400000,
+          "requestCursor": 2222222222222,
           "response": {
             "deployments": [
               {
                 "uid": "dpl_example",
                 "projectId": "prj_example123",
-                "createdAt": 1786669200000,
+                "createdAt": 1111111111112,
                 "readyState": "READY",
                 "url": "example.vercel.app",
                 "prebuilt": true,
@@ -467,7 +682,12 @@ envelope, including raw deployment fields it does not interpret.
 }
 ```
 
-The example abbreviates the `projects` array; the real envelope must contain
+The example uses deliberately invalid interval placeholders and numeric epoch
+sentinels. Derive `since`, `until`, and the initial `requestCursor` from the
+verified private interval/extension ledger; preserve the JSON number type and
+the repeated end/cursor value. Replace `createdAt` with the exact integer epoch
+from the saved Vercel response without deriving or altering it. The example
+abbreviates the `projects` array; the real envelope must contain
 `app`, `governance`, `reserve`, and `ui` exactly once with distinct project IDs
 and the same team ID. Each initial query must use:
 
@@ -529,13 +749,18 @@ analyzer.
 
 ## Manifest and aggregate evidence schema
 
-The CLI input is a strict version-2 manifest. It references the schema-version-3
-aggregate plus each window's raw FOCUS JSONL and normalized deployment census.
-The manifest records the deployment-census digest, complete-census assertion,
-and a distinct FOCUS project-tag selector for each logical target. A target's
-selector must be identical in both windows so a comparison cannot silently
-switch Vercel projects. Unknown or missing keys, including legacy provider
-attribution fields, fail instead of being ignored.
+The CLI input is a strict version-3 manifest. It references the schema-version-3
+aggregate, one exact GitHub Actions proof and digest, plus each window's raw
+FOCUS JSONL, raw deployment-page envelope, normalized deployment census, and
+canonical census proof. The three deployment files each have a manifest-bound
+SHA-256. The analyzer rebuilds the normalized bytes and proof from the raw page
+bytes, requires every target's Vercel project ID to match across the baseline
+and post-cutover proofs, and rejects a caller-added
+`deploymentCensusComplete` field. The manifest
+also records a distinct FOCUS project-tag selector for each logical target. A
+target's selector must be identical in both windows so a comparison cannot
+silently switch Vercel projects. Unknown or missing keys, including legacy
+provider attribution fields, fail instead of being ignored.
 
 Both aggregate periods require the exact FOCUS unit `Build CPU Minutes`, billing
 currency `USD`, a raw-export digest, row count, ingestion state, and
