@@ -312,14 +312,20 @@ jobs:
           trusted_root="$RUNNER_TEMP/dependabot-prepared-review"
           install -d -m 0700 "$trusted_root"
           trusted_validator="$trusted_root/dependabot-prepared-review.mjs"
+          trusted_receipts="$trusted_root/dependabot-preparation-receipts.mjs"
           resolved_sha="$(gh api "repos/$REPOSITORY/commits/$WORKFLOW_SHA" --jq .sha)"
           test "$resolved_sha" = "$WORKFLOW_SHA"
           gh api \
             -H "Accept: application/vnd.github.raw+json" \
             "repos/$REPOSITORY/contents/scripts/dependabot-prepared-review.mjs?ref=$WORKFLOW_SHA" \
             > "$trusted_validator"
+          gh api \
+            -H "Accept: application/vnd.github.raw+json" \
+            "repos/$REPOSITORY/contents/scripts/dependabot-preparation-receipts.mjs?ref=$WORKFLOW_SHA" \
+            > "$trusted_receipts"
           test -s "$trusted_validator"
-          chmod 0500 "$trusted_validator"
+          test -s "$trusted_receipts"
+          chmod 0500 "$trusted_validator" "$trusted_receipts"
           echo "path=$trusted_validator" >> "$GITHUB_OUTPUT"
 
       - name: Authenticate the append-only prepared-head lineage

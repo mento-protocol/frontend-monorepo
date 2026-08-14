@@ -5,6 +5,7 @@
 import { readFileSync } from "node:fs";
 import process from "node:process";
 import { createHash } from "node:crypto";
+import { Buffer } from "node:buffer";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,6 +17,8 @@ import {
 
 export const DEPENDABOT_PROCESSOR_SCHEMA = "dependabot-processor:v2";
 export const DEPENDABOT_REPAIR_PACKET_SCHEMA = "dependabot-repair-packet:v2";
+export const DEPENDABOT_PROTECTED_RUNTIME_REPAIR_PACKET_SCHEMA =
+  "dependabot-repair-packet:v3";
 export const DEPENDABOT_POST_MERGE_SCHEMA = "dependabot-post-merge:v1";
 export const DEPENDABOT_REFRESH_SCHEMA = "dependabot-refresh:v1";
 export const DEPENDABOT_REPAIR_SCHEMA = "dependabot-repair:v1";
@@ -124,6 +127,41 @@ const PREPARATION_SENSITIVE_ACTION_PATTERN =
 const AUTONOMOUS_REPAIR_FORBIDDEN_PATH_PATTERN =
   /(?:^\.github\/|(?:^|[/_.-])(?:auth|authentication|credential|credentials|deploy|deployment|policy|runtime|security)(?:[/_.-]|$))/i;
 const RECEIPT_OUTPUT_LIMIT = 50_000;
+const PROTECTED_RUNTIME_BLOB_LIMIT = 256 * 1024;
+const PROTECTED_RUNTIME_OPERATION_SCHEMA =
+  "dependabot-protected-runtime-sync:v1";
+const VERCEL_CLI_RUNTIME_CONTRACT_SCHEMA = "vercel-cli-runtime-contract:v1";
+const VERCEL_CLI_RUNTIME_KIND = "vercel-cli-runtime-sync";
+const VERCEL_CLI_RUNTIME_PNPM_VERSION = "10.34.4";
+const VERCEL_CLI_RUNTIME_GROUPS = new Set([
+  "tooling",
+  "vercel-cli",
+  "vercel-cli-security",
+]);
+const VERCEL_CLI_RUNTIME_REQUIRED_PATHS = [
+  "package.json",
+  "pnpm-lock.yaml",
+  "scripts/vercel-cli-runtime/contract.json",
+  "scripts/vercel-cli-runtime/package.json",
+  "scripts/vercel-cli-runtime/pnpm-lock.yaml",
+];
+const VERCEL_CLI_RUNTIME_INPUT_PATHS = [
+  "apps/app.mento.org/package.json",
+  "apps/governance.mento.org/package.json",
+  "apps/reserve.mento.org/package.json",
+  "apps/ui.mento.org/package.json",
+  "package.json",
+  "packages/eslint-config/package.json",
+  "packages/typescript-config/package.json",
+  "packages/ui/package.json",
+  "packages/vitest-config/package.json",
+  "packages/web3/package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "scripts/vercel-cli-runtime/contract.json",
+  "scripts/vercel-cli-runtime/package.json",
+  "scripts/vercel-cli-runtime/pnpm-lock.yaml",
+];
 
 const CHECK_POLICY_DEFINITIONS = [
   {
@@ -833,6 +871,151 @@ function semverUpdateType(from, to) {
   return "patch";
 }
 
+function stableSemverParts(value) {
+  const match = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.exec(
+    String(value ?? ""),
+  );
+  return match ? match.slice(1).map(Number) : null;
+}
+
+function compareSemverParts(left, right) {
+  for (let index = 0; index < 3; index += 1) {
+    if (left[index] !== right[index]) return left[index] - right[index];
+  }
+  return 0;
+}
+
+function validVercelCliRuntimeOperation(operation) {
+  if (
+    !exactObjectKeys(operation, [
+      "dependency",
+      "fromVersion",
+      "inputPaths",
+      "kind",
+      "pnpmVersion",
+      "requiredPaths",
+      "schema",
+      "sourceSeedHeadSha",
+      "targetVersion",
+      "updateType",
+    ]) ||
+    operation.schema !== PROTECTED_RUNTIME_OPERATION_SCHEMA ||
+    operation.kind !== VERCEL_CLI_RUNTIME_KIND ||
+    operation.dependency !== "vercel" ||
+    operation.pnpmVersion !== VERCEL_CLI_RUNTIME_PNPM_VERSION ||
+    !SHA_PATTERN.test(operation.sourceSeedHeadSha ?? "") ||
+    stableJson(operation.requiredPaths) !==
+      stableJson(VERCEL_CLI_RUNTIME_REQUIRED_PATHS) ||
+    stableJson(operation.inputPaths) !==
+      stableJson(VERCEL_CLI_RUNTIME_INPUT_PATHS)
+  ) {
+    return false;
+  }
+  const from = stableSemverParts(operation.fromVersion);
+  const target = stableSemverParts(operation.targetVersion);
+  return (
+    from !== null &&
+    target !== null &&
+    from[0] === target[0] &&
+    compareSemverParts(target, from) > 0 &&
+    new Set(["patch", "minor"]).has(operation.updateType) &&
+    semverUpdateType(operation.fromVersion, operation.targetVersion) ===
+      operation.updateType
+  );
+}
+
+function vercelCliRuntimeOperationFromMetadata(metadata = {}) {
+  const dependencies = Array.isArray(metadata.dependencies)
+    ? metadata.dependencies
+    : [];
+  const vercelRows = dependencies.filter(
+    (dependency) => dependency?.name === "vercel",
+  );
+  if (vercelRows.length === 0) return null;
+  const sourceSeedHeadSha = metadata.immutableEvidence?.seedCommitSha;
+  if (
+    metadata.packageEcosystem !== "npm" ||
+    metadata.immutableEvidence?.dependencyMetadataValid !== true ||
+    metadata.groupedUpdateIntegrity?.valid !== true ||
+    !VERCEL_CLI_RUNTIME_GROUPS.has(metadata.dependencyGroup) ||
+    vercelRows.length !== 1 ||
+    !SHA_PATTERN.test(sourceSeedHeadSha ?? "")
+  ) {
+    return { eligible: false, reason: "invalid-vercel-cli-runtime-update" };
+  }
+  const [{ from, to, updateType }] = vercelRows;
+  const operation = {
+    dependency: "vercel",
+    fromVersion: from,
+    inputPaths: [...VERCEL_CLI_RUNTIME_INPUT_PATHS],
+    kind: VERCEL_CLI_RUNTIME_KIND,
+    pnpmVersion: VERCEL_CLI_RUNTIME_PNPM_VERSION,
+    requiredPaths: [...VERCEL_CLI_RUNTIME_REQUIRED_PATHS],
+    schema: PROTECTED_RUNTIME_OPERATION_SCHEMA,
+    sourceSeedHeadSha,
+    targetVersion: to,
+    updateType,
+  };
+  return validVercelCliRuntimeOperation(operation)
+    ? { eligible: true, operation }
+    : { eligible: false, reason: "invalid-vercel-cli-runtime-update" };
+}
+
+function protectedRuntimeStateMatches(protectedRuntime, operation) {
+  return (
+    protectedRuntime !== null &&
+    typeof protectedRuntime === "object" &&
+    protectedRuntime.contractSchema === VERCEL_CLI_RUNTIME_CONTRACT_SCHEMA &&
+    protectedRuntime.contractVersion === operation.targetVersion &&
+    protectedRuntime.rootVersion === operation.targetVersion &&
+    protectedRuntime.runtimeVersion === operation.targetVersion &&
+    protectedRuntime.pnpmVersion === operation.pnpmVersion
+  );
+}
+
+function validProtectedRuntimeSnapshot(protectedRuntime) {
+  return (
+    protectedRuntime !== null &&
+    typeof protectedRuntime === "object" &&
+    protectedRuntime.contractSchema === VERCEL_CLI_RUNTIME_CONTRACT_SCHEMA &&
+    stableSemverParts(protectedRuntime.contractVersion) !== null &&
+    stableSemverParts(protectedRuntime.rootVersion) !== null &&
+    stableSemverParts(protectedRuntime.runtimeVersion) !== null &&
+    protectedRuntime.pnpmVersion === VERCEL_CLI_RUNTIME_PNPM_VERSION
+  );
+}
+
+function evaluateProtectedRuntimeOperation({
+  metadata,
+  protectedRuntime,
+  repairAttempts,
+}) {
+  const candidate = vercelCliRuntimeOperationFromMetadata(metadata);
+  if (candidate === null || candidate.eligible !== true) return candidate;
+  if (!validProtectedRuntimeSnapshot(protectedRuntime)) {
+    return {
+      eligible: false,
+      operation: candidate.operation,
+      reason: "invalid-vercel-cli-runtime-snapshot",
+    };
+  }
+  const matchingProof = (repairAttempts?.protectedRuntimeOperations ?? []).find(
+    ({ operation }) =>
+      validVercelCliRuntimeOperation(operation) &&
+      stableJson(operation) === stableJson(candidate.operation),
+  );
+  const stateMatches = protectedRuntimeStateMatches(
+    protectedRuntime,
+    candidate.operation,
+  );
+  return {
+    ...candidate,
+    proof: matchingProof ?? null,
+    satisfied: matchingProof !== undefined && stateMatches,
+    stateMatches,
+  };
+}
+
 function dependencyRowsFromBody(body) {
   const rows = [];
   const pattern = /^\| \[([^\]]+)\]\([^\n)]+\) \| `([^`]+)` \| `([^`]+)` \|$/gm;
@@ -1528,7 +1711,10 @@ export function parseDependabotProcessorReceipt(check, repository) {
     !packetValid ||
     (packetIssued &&
       (!packet ||
-        packet.schema !== DEPENDABOT_REPAIR_PACKET_SCHEMA ||
+        !new Set([
+          DEPENDABOT_REPAIR_PACKET_SCHEMA,
+          DEPENDABOT_PROTECTED_RUNTIME_REPAIR_PACKET_SCHEMA,
+        ]).has(packet.schema) ||
         packet.workflowRunId !== normalized.runId ||
         packet.workflowRunAttempt !== normalized.runAttempt ||
         packet.workflowSha !== normalized.runHeadSha ||
@@ -1761,6 +1947,38 @@ function validPreparationSummary(preparation) {
       preparation.repairCount === 0
     );
   }
+  const hasProtectedRuntimeOperations = Object.hasOwn(
+    preparation,
+    "protectedRuntimeOperations",
+  );
+  const protectedRuntimeOperations = hasProtectedRuntimeOperations
+    ? preparation.protectedRuntimeOperations
+    : [];
+  if (
+    !Array.isArray(protectedRuntimeOperations) ||
+    (hasProtectedRuntimeOperations &&
+      protectedRuntimeOperations.length === 0) ||
+    protectedRuntimeOperations.some(
+      (record) =>
+        !exactObjectKeys(record, [
+          "operation",
+          "operationDigest",
+          "packetDigest",
+        ]) ||
+        !validVercelCliRuntimeOperation(record.operation) ||
+        record.operation.sourceSeedHeadSha !== preparation.seedHeadSha ||
+        !/^[0-9a-f]{64}$/.test(record.operationDigest ?? "") ||
+        !/^[0-9a-f]{64}$/.test(record.packetDigest ?? "") ||
+        !preparation.operationDigests.includes(record.operationDigest),
+    ) ||
+    new Set(
+      protectedRuntimeOperations.map(({ operationDigest }) => operationDigest),
+    ).size !== protectedRuntimeOperations.length ||
+    new Set(protectedRuntimeOperations.map(({ packetDigest }) => packetDigest))
+      .size !== protectedRuntimeOperations.length
+  ) {
+    return false;
+  }
   return (
     preparation.kind === "prepared" &&
     exactObjectKeys(preparation, [
@@ -1769,6 +1987,7 @@ function validPreparationSummary(preparation) {
       "prepareAppSlug",
       "prepareBotId",
       "prepareBotLogin",
+      ...(hasProtectedRuntimeOperations ? ["protectedRuntimeOperations"] : []),
       "refreshCount",
       "repairCount",
       "seedHeadSha",
@@ -3027,6 +3246,7 @@ function evaluateRepairAttemptGate({
   let prepareLineageValid = true;
   let preparationActor = null;
   const operationDigests = [];
+  const protectedRuntimeOperations = [];
   const bindPreparationActor = (receipt) => {
     const actor = {
       appSlug: receipt.prepareAppSlug,
@@ -3114,8 +3334,15 @@ function evaluateRepairAttemptGate({
           packetDigest === completed.packetDigest,
       );
       const parents = commitParentShas(commit);
+      const protectedRuntimeOperation =
+        processorReceipt?.packet?.schema ===
+        DEPENDABOT_PROTECTED_RUNTIME_REPAIR_PACKET_SCHEMA
+          ? processorReceipt.packet.operation
+          : null;
       if (
         !processorReceipt ||
+        (protectedRuntimeOperation !== null &&
+          !validVercelCliRuntimeOperation(protectedRuntimeOperation)) ||
         completed.parentHeadSha !== parentHeadSha ||
         completed.headSha !== commitHeadSha ||
         completed.attempt !== consumedAttempts + 1 ||
@@ -3130,7 +3357,15 @@ function evaluateRepairAttemptGate({
       consumedAttempts += 1;
       authenticatedRepairCommitCount += 1;
       bindPreparationActor(completed);
-      operationDigests.push(canonicalDigest(completed));
+      const operationDigest = canonicalDigest(completed);
+      operationDigests.push(operationDigest);
+      if (protectedRuntimeOperation !== null) {
+        protectedRuntimeOperations.push({
+          operation: protectedRuntimeOperation,
+          operationDigest,
+          packetDigest: processorReceipt.packetDigest,
+        });
+      }
       latestAppliedRepair = {
         packet: processorReceipt.packet,
         packetDigest: processorReceipt.packetDigest,
@@ -3278,6 +3513,7 @@ function evaluateRepairAttemptGate({
         ? "native"
         : "prepared",
     prepareLineageValid: reasons.length === 0 && prepareLineageValid,
+    protectedRuntimeOperations,
     refreshCommitCount,
     reasons: [...new Set(reasons)],
     receiptCheckCount: seenReceiptIds.size,
@@ -3295,6 +3531,7 @@ function recommendedDisposition({
   feedback,
   identity,
   mode,
+  protectedRuntimeOperation,
   repairAttempts,
   risk,
 }) {
@@ -3314,20 +3551,40 @@ function recommendedDisposition({
     if (!base.current) return "waiting-base-update";
     if (!risk.autoApprovable) return "manual-review";
   }
+  if (
+    preparing &&
+    protectedRuntimeOperation !== null &&
+    protectedRuntimeOperation.eligible !== true
+  ) {
+    return "manual-repair-required";
+  }
   if (checks.missing.length > 0 || checks.pending.length > 0) {
     return "waiting-checks";
   }
   if (checks.state === "pending") return "waiting-checks";
+  let branchFailures = [];
   if (checks.state === "failing") {
     const retryFailures = checks.failures.filter(
       ({ attribution }) =>
         attribution === "unknown" || attribution === "non-deterministic",
     );
     if (retryFailures.length > 0) return "waiting-retry";
-    const branchFailures = checks.failures.filter(
+    branchFailures = checks.failures.filter(
       ({ attribution }) => attribution === "branch",
     );
     if (branchFailures.length === 0) return "waiting-baseline";
+  }
+  if (preparing && protectedRuntimeOperation !== null) {
+    if (protectedRuntimeOperation.satisfied !== true) {
+      if (feedback.repairable) return "manual-repair-required";
+      if (!repairAttempts.valid || repairAttempts.currentAttempt > 2) {
+        return "manual-repair-escalated";
+      }
+      if (repairAttempts.currentHeadPacketIssued) return "repair-pending";
+      return "repair-required";
+    }
+  }
+  if (branchFailures.length > 0) {
     if (repairTouchesForbiddenPath({ checks, feedback })) {
       return "manual-repair-required";
     }
@@ -3385,6 +3642,12 @@ export function createDependabotRepairPacket(evaluation) {
   ) {
     return null;
   }
+  const protectedRuntimeOperation =
+    evaluation.protectedRuntimeOperation?.eligible === true &&
+    evaluation.protectedRuntimeOperation?.satisfied !== true
+      ? evaluation.protectedRuntimeOperation.operation
+      : null;
+  const isProtectedRuntimeSync = protectedRuntimeOperation !== null;
   const feedbackEligible =
     evaluation.feedback?.clear === true ||
     evaluation.feedback?.repairable === true;
@@ -3407,7 +3670,8 @@ export function createDependabotRepairPacket(evaluation) {
     evaluation.base?.current !== true ||
     evaluation.repairAttempts?.valid !== true ||
     evaluation.repairAttempt > 2 ||
-    forbiddenRepairEvidence ||
+    (!isProtectedRuntimeSync && forbiddenRepairEvidence) ||
+    (isProtectedRuntimeSync && evaluation.feedback?.clear !== true) ||
     evaluation.checks.missing.length > 0 ||
     evaluation.checks.pending.length > 0 ||
     evaluation.checks.failures.some(
@@ -3479,23 +3743,37 @@ export function createDependabotRepairPacket(evaluation) {
       threadId: thread.threadId,
     }))
     .slice(0, 20);
-  if (branchFailures.length === 0 && feedbackThreads.length === 0) return null;
+  if (
+    !isProtectedRuntimeSync &&
+    branchFailures.length === 0 &&
+    feedbackThreads.length === 0
+  ) {
+    return null;
+  }
   const isAction = evaluation.risk.packageEcosystem === "github-actions";
-  const limits = isAction
+  const limits = isProtectedRuntimeSync
     ? {
-        maxAddedLines: 250,
-        maxBytes: 64 * 1024,
-        maxChanges: 8,
-        maxDeletedLines: 250,
-        maxFiles: 6,
-      }
-    : {
         maxAddedLines: 600,
         maxBytes: 64 * 1024,
-        maxChanges: 16,
+        maxChanges: 160,
         maxDeletedLines: 600,
-        maxFiles: 8,
-      };
+        maxFiles: 5,
+      }
+    : isAction
+      ? {
+          maxAddedLines: 250,
+          maxBytes: 64 * 1024,
+          maxChanges: 8,
+          maxDeletedLines: 250,
+          maxFiles: 6,
+        }
+      : {
+          maxAddedLines: 600,
+          maxBytes: 64 * 1024,
+          maxChanges: 16,
+          maxDeletedLines: 600,
+          maxFiles: 8,
+        };
   const workflowContext = evaluation.workflowContext ?? {};
   const expectedBlobs = Array.isArray(evaluation.expectedBlobs)
     ? evaluation.expectedBlobs
@@ -3508,6 +3786,9 @@ export function createDependabotRepairPacket(evaluation) {
     !SHA_PATTERN.test(workflowContext.workflowSha ?? "") ||
     expectedBlobs.length < 1 ||
     expectedBlobs.length > 100 ||
+    (isProtectedRuntimeSync &&
+      stableJson(expectedBlobs.map(({ path }) => path)) !==
+        stableJson(VERCEL_CLI_RUNTIME_INPUT_PATHS)) ||
     expectedBlobs.some(
       ({ mode, path, sha, type }) =>
         typeof path !== "string" ||
@@ -3539,7 +3820,7 @@ export function createDependabotRepairPacket(evaluation) {
       "**/deploy/**",
       "**/deployment/**",
       "**/policy/**",
-      "**/runtime/**",
+      ...(isProtectedRuntimeSync ? [] : ["**/runtime/**"]),
       "**/security/**",
       "docs/vercel-deployments.md",
       "scripts/vercel-main-*.mjs",
@@ -3549,16 +3830,18 @@ export function createDependabotRepairPacket(evaluation) {
     limits,
     mode: evaluation.mode,
     packageEcosystem: evaluation.risk.packageEcosystem,
-    permittedPaths: isAction
-      ? []
-      : [
-          "package.json",
-          "pnpm-lock.yaml",
-          "pnpm-workspace.yaml",
-          "apps/**",
-          "packages/**",
-          "patches/**",
-        ],
+    permittedPaths: isProtectedRuntimeSync
+      ? [...VERCEL_CLI_RUNTIME_REQUIRED_PATHS]
+      : isAction
+        ? []
+        : [
+            "package.json",
+            "pnpm-lock.yaml",
+            "pnpm-workspace.yaml",
+            "apps/**",
+            "packages/**",
+            "patches/**",
+          ],
     pullRequestNumber: evaluation.pullRequestNumber,
     preparable: true,
     repository: evaluation.repository,
@@ -3566,8 +3849,12 @@ export function createDependabotRepairPacket(evaluation) {
     requireExactHead: true,
     requireHumanApproval: false,
     riskTier: evaluation.risk.tier,
-    schema: DEPENDABOT_REPAIR_PACKET_SCHEMA,
-    updateType: evaluation.risk.updateType,
+    schema: isProtectedRuntimeSync
+      ? DEPENDABOT_PROTECTED_RUNTIME_REPAIR_PACKET_SCHEMA
+      : DEPENDABOT_REPAIR_PACKET_SCHEMA,
+    updateType: isProtectedRuntimeSync
+      ? protectedRuntimeOperation.updateType
+      : evaluation.risk.updateType,
     validationCommands: isAction
       ? ["pnpm ci:action-pins:test", "pnpm quality:budgets:test"]
       : [
@@ -3581,6 +3868,7 @@ export function createDependabotRepairPacket(evaluation) {
     workflowRunId: workflowContext.workflowRunId,
     workflowSha: workflowContext.workflowSha,
   };
+  if (isProtectedRuntimeSync) packet.operation = protectedRuntimeOperation;
   try {
     validateProcessorRepairPacket(packet);
     return canonicalJson(packet).length <= RECEIPT_OUTPUT_LIMIT ? packet : null;
@@ -3663,6 +3951,11 @@ export function evaluateDependabotPullRequest(snapshot, options = {}) {
     pullRequest: snapshot.pullRequest ?? snapshot,
     repairAttempts,
   });
+  const protectedRuntimeOperation = evaluateProtectedRuntimeOperation({
+    metadata,
+    protectedRuntime: snapshot.protectedRuntime ?? null,
+    repairAttempts,
+  });
   const identity = feedback.forcePushed
     ? {
         ...structuralIdentity,
@@ -3677,9 +3970,13 @@ export function evaluateDependabotPullRequest(snapshot, options = {}) {
     feedback,
     identity,
     mode,
+    protectedRuntimeOperation,
     repairAttempts,
     risk,
   });
+  const expectedBlobSource = Array.isArray(snapshot.expectedBlobs)
+    ? snapshot.expectedBlobs
+    : pullRequest.files;
   const evaluation = {
     base,
     baseRef: pullRequest.baseRef,
@@ -3688,10 +3985,16 @@ export function evaluateDependabotPullRequest(snapshot, options = {}) {
       .map((file) => (typeof file === "string" ? file : file?.filename))
       .filter(Boolean)
       .sort(),
-    expectedBlobs: pullRequest.files
+    dependencies: (metadata.dependencies ?? []).map((dependency) => ({
+      from: dependency.from,
+      name: dependency.name,
+      to: dependency.to,
+      updateType: dependency.updateType,
+    })),
+    expectedBlobs: expectedBlobSource
       .map((file) => ({
         mode: typeof file === "string" ? null : (file?.mode ?? null),
-        path: typeof file === "string" ? file : file?.filename,
+        path: typeof file === "string" ? file : (file?.path ?? file?.filename),
         sha: typeof file === "string" ? null : (file?.sha ?? null),
         type: typeof file === "string" ? null : (file?.type ?? null),
       }))
@@ -3705,6 +4008,8 @@ export function evaluateDependabotPullRequest(snapshot, options = {}) {
     identity,
     dependencyGroup: metadata.dependencyGroup ?? null,
     mode,
+    protectedRuntime: snapshot.protectedRuntime ?? null,
+    protectedRuntimeOperation,
     pullRequestNumber: pullRequest.number,
     repository,
     repairAttempt: repairAttempts.currentAttempt,
@@ -5082,7 +5387,7 @@ export function createLiveGitHubAdapter({
     throw new Error("GitHub auto-merge request pagination limit exceeded");
   };
 
-  const getExpectedBlobs = async (repository, headSha, files) => {
+  const getExpectedBlobs = async (repository, headSha, paths) => {
     const response = await request(
       "GET",
       `/repos/${repository}/git/trees/${exactSha(headSha)}?recursive=1`,
@@ -5098,8 +5403,8 @@ export function createLiveGitHubAdapter({
       }
       byPath.set(entry.path, entry);
     }
-    return files.map((file) => {
-      const path = file?.filename;
+    return paths.map((value) => {
+      const path = typeof value === "string" ? value : value?.filename;
       const entry = byPath.get(path);
       return {
         mode: entry?.mode ?? null,
@@ -5108,6 +5413,83 @@ export function createLiveGitHubAdapter({
         type: entry?.type ?? null,
       };
     });
+  };
+
+  const getBoundJsonBlob = async (repository, expectedBlob) => {
+    snapshotInvariant(
+      expectedBlob?.type === "blob" &&
+        expectedBlob.mode === "100644" &&
+        SHA_PATTERN.test(expectedBlob.sha ?? ""),
+      `Protected runtime input ${expectedBlob?.path ?? "unknown"} is missing from the exact head`,
+    );
+    const response = await request(
+      "GET",
+      `/repos/${repository}/git/blobs/${expectedBlob.sha}`,
+    );
+    const data = response.data;
+    snapshotInvariant(
+      data?.encoding === "base64" &&
+        typeof data.content === "string" &&
+        Number.isSafeInteger(data.size) &&
+        data.size >= 0 &&
+        data.size <= PROTECTED_RUNTIME_BLOB_LIMIT,
+      `Protected runtime input ${expectedBlob.path} exceeds its bounded Git blob contract`,
+    );
+    const decoded = Buffer.from(data.content.replaceAll(/\s/g, ""), "base64");
+    snapshotInvariant(
+      decoded.length === data.size,
+      `Protected runtime input ${expectedBlob.path} has inconsistent Git blob bytes`,
+    );
+    try {
+      const value = JSON.parse(decoded.toString("utf8"));
+      snapshotInvariant(
+        value !== null && typeof value === "object" && !Array.isArray(value),
+        `Protected runtime input ${expectedBlob.path} is not a JSON object`,
+      );
+      return value;
+    } catch (error) {
+      if (error instanceof PullRequestSnapshotChangedError) throw error;
+      throw new PullRequestSnapshotChangedError(
+        `Protected runtime input ${expectedBlob.path} is not valid JSON`,
+      );
+    }
+  };
+
+  const getProtectedRuntimeSnapshot = async (repository, expectedBlobs) => {
+    const byPath = new Map(
+      expectedBlobs.map((expectedBlob) => [expectedBlob.path, expectedBlob]),
+    );
+    const completeInputSet =
+      byPath.size === VERCEL_CLI_RUNTIME_INPUT_PATHS.length &&
+      VERCEL_CLI_RUNTIME_INPUT_PATHS.every((path) => {
+        const expectedBlob = byPath.get(path);
+        return (
+          expectedBlob?.type === "blob" &&
+          expectedBlob.mode === "100644" &&
+          SHA_PATTERN.test(expectedBlob.sha ?? "")
+        );
+      });
+    if (!completeInputSet) return null;
+    const [rootPackage, runtimePackage, contract] = await Promise.all([
+      getBoundJsonBlob(repository, byPath.get("package.json")),
+      getBoundJsonBlob(
+        repository,
+        byPath.get("scripts/vercel-cli-runtime/package.json"),
+      ),
+      getBoundJsonBlob(
+        repository,
+        byPath.get("scripts/vercel-cli-runtime/contract.json"),
+      ),
+    ]);
+    return {
+      contractSchema: contract.schema ?? null,
+      contractVersion: contract.vercelVersion ?? null,
+      pnpmVersion:
+        /^pnpm@(.+)$/.exec(String(rootPackage.packageManager ?? ""))?.[1] ??
+        null,
+      rootVersion: rootPackage.devDependencies?.vercel ?? null,
+      runtimeVersion: runtimePackage.dependencies?.vercel ?? null,
+    };
   };
 
   const collectPullRequestSnapshot = async (repository, number) => {
@@ -5122,14 +5504,35 @@ export function createLiveGitHubAdapter({
       initialFeedback.headSha === headSha,
       `PR #${number} changed while feedback was collected`,
     );
+    const preliminaryMetadata = deriveImmutableDependabotMetadata({
+      commits,
+      files,
+      headRef: raw.head.ref,
+      headSha,
+    });
+    const protectedRuntimeCandidate =
+      vercelCliRuntimeOperationFromMetadata(preliminaryMetadata);
+    const expectedBlobPaths =
+      protectedRuntimeCandidate?.eligible === true
+        ? VERCEL_CLI_RUNTIME_INPUT_PATHS
+        : files;
     const [baseAncestry, expectedBlobs] = await Promise.all([
       getCurrentBaseAncestry({
         baseRef: raw.base.ref,
         headSha,
         repository,
       }),
-      getExpectedBlobs(repository, headSha, files),
+      getExpectedBlobs(repository, headSha, expectedBlobPaths),
     ]);
+    const collectionBase = evaluateCurrentBaseGate({
+      ancestry: baseAncestry,
+      baselineSha: baseAncestry.currentBaseSha,
+      pullRequest: normalizePullRequest(raw),
+    });
+    const protectedRuntime =
+      protectedRuntimeCandidate?.eligible === true && collectionBase.current
+        ? await getProtectedRuntimeSnapshot(repository, expectedBlobs)
+        : null;
     const baselineSha = baseAncestry.currentBaseSha;
     const commitHeadShas = [
       ...new Set(
@@ -5183,16 +5586,21 @@ export function createLiveGitHubAdapter({
       },
       body: finalRaw.body ?? "",
       draft: finalRaw.draft,
-      files: files.map((file, index) => ({
-        additions: file.additions,
-        changes: file.changes,
-        deletions: file.deletions,
-        filename: file.filename,
-        mode: expectedBlobs[index]?.mode ?? null,
-        sha: expectedBlobs[index]?.sha ?? null,
-        status: file.status,
-        type: expectedBlobs[index]?.type ?? null,
-      })),
+      files: files.map((file) => {
+        const expectedBlob = expectedBlobs.find(
+          ({ path }) => path === file.filename,
+        );
+        return {
+          additions: file.additions,
+          changes: file.changes,
+          deletions: file.deletions,
+          filename: file.filename,
+          mode: expectedBlob?.mode ?? null,
+          sha: expectedBlob?.sha ?? null,
+          status: file.status,
+          type: expectedBlob?.type ?? null,
+        };
+      }),
       head: {
         ref: finalRaw.head.ref,
         repo: { fullName: finalRaw.head.repo?.full_name },
@@ -5213,12 +5621,7 @@ export function createLiveGitHubAdapter({
       title: finalRaw.title,
       updated_at: finalRaw.updated_at,
     };
-    const metadata = deriveImmutableDependabotMetadata({
-      commits: lineageCommits,
-      files,
-      headRef: pullRequest.head.ref,
-      headSha,
-    });
+    const metadata = preliminaryMetadata;
     return {
       baseAncestry,
       baseline: { checks: baselineChecks, sha: baselineSha },
@@ -5236,6 +5639,7 @@ export function createLiveGitHubAdapter({
         verified: commit.commit?.verification?.verified === true,
         verificationReason: commit.commit?.verification?.reason ?? null,
       })),
+      expectedBlobs,
       expectedHeadSha: headSha,
       feedback: {
         actionableThreadCount: feedback.actionableThreadCount,
@@ -5276,6 +5680,7 @@ export function createLiveGitHubAdapter({
         updatedAt: feedback.updatedAt,
       },
       metadata,
+      protectedRuntime,
       prepareActor: validPrepareActor({
         prepareAppSlug: prepareActor.appSlug,
         prepareBotId: prepareActor.botId,
@@ -5917,9 +6322,15 @@ function evaluationForCandidate(evaluation) {
 
 function preparationSummary(result) {
   const attempts = result.repairAttempts;
+  const protectedRuntimeOperations = [
+    ...(attempts.protectedRuntimeOperations ?? []),
+  ];
   const common = {
     kind: attempts.preparationKind,
     operationDigests: [...attempts.operationDigests],
+    ...(protectedRuntimeOperations.length > 0
+      ? { protectedRuntimeOperations }
+      : {}),
     refreshCount: attempts.refreshCommitCount,
     repairCount: attempts.authenticatedRepairCommitCount,
     seedHeadSha: result.identity.automaticSeedHeadSha,

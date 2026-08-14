@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { validateProcessorRepairPacket } from "./dependabot-preparation-receipts.mjs";
+
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -345,10 +347,14 @@ function validateProcessorPacket({ expected, receipt, requestJson }) {
     check.output.text === canonicalReceiptJson(packet),
     "repair packet check output is not canonical JSON",
   );
+  try {
+    validateProcessorRepairPacket(packet);
+  } catch {
+    invariant(false, "repair packet check output is not a valid typed packet");
+  }
   const packetDigest = digestReceipt(packet);
   invariant(
     packetDigest === receipt.packetDigest &&
-      packet.schema === "dependabot-repair-packet:v2" &&
       packet.repository === expected.repository &&
       packet.pullRequestNumber === expected.pullRequestNumber &&
       packet.headSha === receipt.parentHeadSha &&

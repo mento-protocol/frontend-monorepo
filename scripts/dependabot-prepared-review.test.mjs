@@ -154,23 +154,158 @@ function options(operation, checkId, operationDigest) {
   };
 }
 
+function processorPacket({
+  attemptNumber,
+  packetHeadSha,
+  workflowRunAttempt = 1,
+  workflowRunId,
+  ...overrides
+}) {
+  return {
+    attemptLimit: 2,
+    attemptNumber,
+    automatic: true,
+    baseRef: "main",
+    baseSha,
+    changedPaths: ["package.json", "pnpm-lock.yaml"],
+    dependencyGroup: "tooling",
+    dependencyNames: ["vercel"],
+    escalation: "manual-review",
+    expectedBlobs: [
+      {
+        mode: "100644",
+        path: "package.json",
+        sha: "a".repeat(40),
+        type: "blob",
+      },
+    ],
+    failures: [
+      {
+        attribution: "branch",
+        detailsUrl: null,
+        id: "ci",
+        name: "CI sentinel",
+      },
+    ],
+    feedbackThreads: [],
+    findings: [],
+    forbiddenPaths: [".github/**"],
+    headRef,
+    headSha: packetHeadSha,
+    limits: {
+      maxAddedLines: 20,
+      maxBytes: 8192,
+      maxChanges: 20,
+      maxDeletedLines: 20,
+      maxFiles: 1,
+    },
+    mode: "prepare",
+    packageEcosystem: "npm",
+    permittedPaths: ["package.json"],
+    preparable: true,
+    pullRequestNumber,
+    repository,
+    requiredGateIds: ["ci"],
+    requireExactHead: true,
+    requireHumanApproval: false,
+    riskTier: "automatic",
+    schema: "dependabot-repair-packet:v2",
+    updateType: "patch",
+    validationCommands: ["pnpm quality:budgets:test"],
+    workflowRunAttempt,
+    workflowRunId,
+    workflowSha,
+    ...overrides,
+  };
+}
+
+const protectedRuntimeRequiredPaths = [
+  "package.json",
+  "pnpm-lock.yaml",
+  "scripts/vercel-cli-runtime/contract.json",
+  "scripts/vercel-cli-runtime/package.json",
+  "scripts/vercel-cli-runtime/pnpm-lock.yaml",
+];
+const protectedRuntimeInputPaths = [
+  "apps/app.mento.org/package.json",
+  "apps/governance.mento.org/package.json",
+  "apps/reserve.mento.org/package.json",
+  "apps/ui.mento.org/package.json",
+  "package.json",
+  "packages/eslint-config/package.json",
+  "packages/typescript-config/package.json",
+  "packages/ui/package.json",
+  "packages/vitest-config/package.json",
+  "packages/web3/package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "scripts/vercel-cli-runtime/contract.json",
+  "scripts/vercel-cli-runtime/package.json",
+  "scripts/vercel-cli-runtime/pnpm-lock.yaml",
+];
+
+function protectedRuntimePacket({
+  attemptNumber,
+  packetHeadSha,
+  workflowRunId,
+}) {
+  return processorPacket({
+    attemptNumber,
+    dependencyNames: ["knip", "vercel", "@next/eslint-plugin-next"],
+    expectedBlobs: protectedRuntimeInputPaths.map((path) => ({
+      mode: "100644",
+      path,
+      sha: "a".repeat(40),
+      type: "blob",
+    })),
+    failures: [],
+    forbiddenPaths: [
+      ".github/**",
+      "**/auth/**",
+      "**/deploy/**",
+      "**/deployment/**",
+      "**/policy/**",
+      "**/security/**",
+      "docs/vercel-deployments.md",
+      "scripts/vercel-main-*.mjs",
+    ],
+    limits: {
+      maxAddedLines: 600,
+      maxBytes: 64 * 1024,
+      maxChanges: 160,
+      maxDeletedLines: 600,
+      maxFiles: 5,
+    },
+    operation: {
+      dependency: "vercel",
+      fromVersion: "56.4.1",
+      inputPaths: protectedRuntimeInputPaths,
+      kind: "vercel-cli-runtime-sync",
+      pnpmVersion: "10.34.4",
+      requiredPaths: protectedRuntimeRequiredPaths,
+      schema: "dependabot-protected-runtime-sync:v1",
+      sourceSeedHeadSha: seedHeadSha,
+      targetVersion: "56.5.0",
+      updateType: "minor",
+    },
+    packetHeadSha,
+    permittedPaths: protectedRuntimeRequiredPaths,
+    schema: "dependabot-repair-packet:v3",
+    updateType: "minor",
+    workflowRunId,
+  });
+}
+
 function repairFixture() {
   const processorRunId = 510;
   const repairRunId = 610;
   const processorCheckId = 110;
   const repairCheckId = 210;
-  const packet = {
+  const packet = processorPacket({
     attemptNumber: 1,
-    baseSha,
-    headSha: seedHeadSha,
-    mode: "prepare",
-    pullRequestNumber,
-    repository,
-    schema: "dependabot-repair-packet:v2",
-    workflowRunAttempt: 1,
+    packetHeadSha: seedHeadSha,
     workflowRunId: processorRunId,
-    workflowSha,
-  };
+  });
   const packetDigest = digestReceipt(packet);
   const processorCheck = check({
     conclusion: "failure",
@@ -362,7 +497,10 @@ function refreshFixture({
   };
 }
 
-function recoveredRepairLineageFixture({ failedRecoveryCount = 0 } = {}) {
+function recoveredRepairLineageFixture({
+  failedRecoveryCount = 0,
+  protectedRuntimeSecondRepair = false,
+} = {}) {
   assert.ok([0, 1, 2].includes(failedRecoveryCount));
   const laterHeadSha = "9".repeat(40);
   const firstProcessorRunId = 510;
@@ -381,18 +519,11 @@ function recoveredRepairLineageFixture({ failedRecoveryCount = 0 } = {}) {
     type: "Bot",
   };
 
-  const firstPacket = {
+  const firstPacket = processorPacket({
     attemptNumber: 1,
-    baseSha,
-    headSha: seedHeadSha,
-    mode: "prepare",
-    pullRequestNumber,
-    repository,
-    schema: "dependabot-repair-packet:v2",
-    workflowRunAttempt: 1,
+    packetHeadSha: seedHeadSha,
     workflowRunId: firstProcessorRunId,
-    workflowSha,
-  };
+  });
   const firstPacketDigest = digestReceipt(firstPacket);
   const firstProcessorCheck = check({
     conclusion: "failure",
@@ -520,18 +651,17 @@ function recoveredRepairLineageFixture({ failedRecoveryCount = 0 } = {}) {
   const recoveryCheck = recoveryEvidence.at(-1).check;
   const recoveryDigest = recoveryEvidence.at(-1).receiptDigest;
 
-  const secondPacket = {
-    attemptNumber: 2,
-    baseSha,
-    headSha: preparedHeadSha,
-    mode: "prepare",
-    pullRequestNumber,
-    repository,
-    schema: "dependabot-repair-packet:v2",
-    workflowRunAttempt: 1,
-    workflowRunId: secondProcessorRunId,
-    workflowSha,
-  };
+  const secondPacket = protectedRuntimeSecondRepair
+    ? protectedRuntimePacket({
+        attemptNumber: 2,
+        packetHeadSha: preparedHeadSha,
+        workflowRunId: secondProcessorRunId,
+      })
+    : processorPacket({
+        attemptNumber: 2,
+        packetHeadSha: preparedHeadSha,
+        workflowRunId: secondProcessorRunId,
+      });
   const secondPacketDigest = digestReceipt(secondPacket);
   const secondProcessorCheck = check({
     conclusion: "failure",
@@ -781,6 +911,28 @@ test("uses a successful recovery receipt after a failed receipt when later prepa
     repository,
     seedHeadSha,
   });
+});
+
+test("accepts a v2 repair followed by a packet-bound v3 protected-runtime sync", () => {
+  const fixture = recoveredRepairLineageFixture({
+    protectedRuntimeSecondRepair: true,
+  });
+  const result = validatePreparedReviewTarget(
+    {
+      ...options(
+        fixture.operation,
+        fixture.secondRepairCheckId,
+        fixture.secondReceiptDigest,
+      ),
+      headSha: fixture.laterHeadSha,
+    },
+    requestFromMap(fixture.entries),
+  );
+  assert.equal(result.repairCount, 2);
+  assert.deepEqual(result.operationDigests, [
+    fixture.recoveryDigest,
+    fixture.secondReceiptDigest,
+  ]);
 });
 
 test("accepts a continuing lineage after one failed recovery retry", () => {

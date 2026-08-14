@@ -1624,7 +1624,7 @@ export function environmentForVercelCli(environment, allowedNames = []) {
     if (value === undefined || value === "") continue;
     cliEnvironment[name] = requiredText(value, name, { maximum: 32_768 });
   }
-  // CLI 56.4.1 gives these variables precedence over repo.json and would lose
+  // The pinned CLI gives these variables precedence over repo.json and would lose
   // the monorepo Root Directory mapping. The controller has already validated
   // the IDs and materialized them in the trusted repo link.
   delete cliEnvironment.VERCEL_ORG_ID;
@@ -2234,14 +2234,18 @@ export function stageTrustedPnpmRuntimeManifest({ controllerRoot, toolsRoot }) {
 }
 
 function validatePinnedVercelCliRuntimeFiles({
+  contractPath,
   rootPackageJsonPath,
   packageJsonPath,
   lockfilePath,
+  runtimeRootPath,
 }) {
   return assertVercelCliRuntimeContract({
+    contractPath,
     rootPackageJsonPath,
     packageJsonPath,
     lockfilePath,
+    runtimeRootPath,
   });
 }
 
@@ -2325,8 +2329,16 @@ export function stageTrustedVercelCliRuntimeManifest({
     expectedUid: currentUid,
     expectedGid: currentGid,
   });
+  const sourceContract = assertProtectedRuntimeDescendant({
+    root: canonicalControllerRoot,
+    path: join(sourceRoot, "contract.json"),
+    directory: false,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
   assertNoVercelCliRuntimePatchArtifacts(sourceRoot);
   validatePinnedVercelCliRuntimeFiles({
+    contractPath: sourceContract.path,
     rootPackageJsonPath: rootPackageJson.path,
     packageJsonPath: sourcePackageJson.path,
     lockfilePath: sourceLockfile.path,
@@ -2347,6 +2359,7 @@ export function stageTrustedVercelCliRuntimeManifest({
       expectedGid: currentGid,
     });
     for (const [name, source] of [
+      ["contract.json", sourceContract],
       ["package.json", sourcePackageJson],
       ["pnpm-lock.yaml", sourceLockfile],
     ]) {
@@ -2372,6 +2385,7 @@ export function stageTrustedVercelCliRuntimeManifest({
       rootPackageJsonPath: rootPackageJson.path,
       packageJsonPath: join(runtimeRoot, "package.json"),
       lockfilePath: join(runtimeRoot, "pnpm-lock.yaml"),
+      runtimeRootPath: runtimeRoot,
     });
     return runtimeRoot;
   } catch (error) {
@@ -2455,6 +2469,7 @@ export function trustedStandaloneVercelCliPath({ controllerRoot, toolsRoot }) {
     rootPackageJsonPath: rootPackageJson.path,
     packageJsonPath: runtimePackageJson.path,
     lockfilePath: runtimeLockfile.path,
+    runtimeRootPath: runtimeRoot,
   });
 
   const virtualStoreRoot = join(runtimeRoot, "node_modules", ".pnpm");
@@ -2726,7 +2741,8 @@ export function trustedVercelCliPath(toolsPath) {
     !packageEntry.isFile() ||
     packageEntry.uid !== currentUid ||
     (packageEntry.mode & 0o022) !== 0 ||
-    JSON.parse(readFileSync(packagePath, "utf8")).version !== "56.4.1"
+    JSON.parse(readFileSync(packagePath, "utf8")).version !==
+      PINNED_VERCEL_CLI_VERSION
   ) {
     throw new Error("Trusted Vercel CLI version is not the pinned release");
   }
@@ -3366,7 +3382,10 @@ export function assertPrebuiltOutput({
   } catch {
     throw new Error("Prebuilt output is missing its Vercel CLI build record");
   }
-  if (buildRecord.target !== "preview" || buildRecord.cliVersion !== "56.4.1") {
+  if (
+    buildRecord.target !== "preview" ||
+    buildRecord.cliVersion !== PINNED_VERCEL_CLI_VERSION
+  ) {
     throw new Error(
       "Prebuilt output target or pinned Vercel CLI version is invalid",
     );

@@ -68,6 +68,7 @@ import {
   validateSourceCheckout,
   withValidatedPrebuiltUpload,
 } from "./vercel-prebuilt-workflow.mjs";
+import { PINNED_VERCEL_CLI_VERSION } from "./vercel-cli-runtime-contract.mjs";
 import { sharpRuntimePlatform } from "./next-sharp-output-tracing.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
@@ -198,7 +199,10 @@ function uploadFixture(logicalTarget = "ui") {
   );
   writeFileSync(
     join(outputDirectory, "builds.json"),
-    JSON.stringify({ target: "preview", cliVersion: "56.4.1" }),
+    JSON.stringify({
+      target: "preview",
+      cliVersion: PINNED_VERCEL_CLI_VERSION,
+    }),
   );
   writeSharpRuntimeArtifacts(outputDirectory);
   mkdirSync(join(outputDirectory, "static", "nested"), { recursive: true });
@@ -2138,7 +2142,7 @@ test("standalone Vercel CLI runtime is exact, override-aligned, and independentl
     mkdirSync(sourceRoot, { recursive: true });
     mkdirSync(toolsRoot, { mode: 0o755 });
     copyFileSync(join(REPOSITORY_ROOT, "package.json"), rootPackagePath);
-    for (const file of ["package.json", "pnpm-lock.yaml"]) {
+    for (const file of ["contract.json", "package.json", "pnpm-lock.yaml"]) {
       copyFileSync(
         join(REPOSITORY_ROOT, "scripts", "vercel-cli-runtime", file),
         join(sourceRoot, file),
@@ -2162,7 +2166,7 @@ test("standalone Vercel CLI runtime is exact, override-aligned, and independentl
       runtimeRoot,
       join(realpathSync(toolsRoot), "vercel-cli-runtime"),
     );
-    for (const file of ["package.json", "pnpm-lock.yaml"]) {
+    for (const file of ["contract.json", "package.json", "pnpm-lock.yaml"]) {
       const source = join(sourceRoot, file);
       const destination = join(runtimeRoot, file);
       const sourceEntry = lstatSync(source);
@@ -2199,7 +2203,10 @@ test("standalone Vercel CLI runtime is exact, override-aligned, and independentl
       },
       {
         ...originalManifest,
-        dependencies: { injected: "1.0.0", vercel: "56.4.1" },
+        dependencies: {
+          injected: "1.0.0",
+          vercel: PINNED_VERCEL_CLI_VERSION,
+        },
       },
       {
         ...originalManifest,
@@ -2247,7 +2254,10 @@ test("standalone Vercel CLI runtime is exact, override-aligned, and independentl
         "importers:\n\n  .:",
         "importers:\n\n  injected:\n    dependencies: {}\n\n  .:",
       ),
-      originalLockfile.replace("specifier: 56.4.1", "specifier: workspace:*"),
+      originalLockfile.replace(
+        `specifier: ${PINNED_VERCEL_CLI_VERSION}`,
+        "specifier: workspace:*",
+      ),
       originalLockfile.replace(
         "resolution: {integrity:",
         "resolution: {tarball: https://packages.example/vercel.tgz, integrity:",
@@ -2371,7 +2381,7 @@ test("installed root Vercel CLI executes the exact pinned release", () => {
       },
       stdio: ["ignore", "pipe", "pipe"],
     }).trim(),
-    "56.4.1",
+    PINNED_VERCEL_CLI_VERSION,
   );
 });
 
@@ -2387,7 +2397,7 @@ test("standalone Vercel CLI resolver enforces and executes the exact protected l
       join(REPOSITORY_ROOT, "package.json"),
       join(controllerRoot, "package.json"),
     );
-    for (const file of ["package.json", "pnpm-lock.yaml"]) {
+    for (const file of ["contract.json", "package.json", "pnpm-lock.yaml"]) {
       copyFileSync(
         join(REPOSITORY_ROOT, "scripts", "vercel-cli-runtime", file),
         join(sourceRoot, file),
@@ -2410,7 +2420,7 @@ test("standalone Vercel CLI resolver enforces and executes the exact protected l
       runtimeRoot,
       "node_modules",
       ".pnpm",
-      "vercel@56.4.1",
+      `vercel@${PINNED_VERCEL_CLI_VERSION}`,
       "node_modules",
       "vercel",
     );
@@ -2422,14 +2432,17 @@ test("standalone Vercel CLI resolver enforces and executes the exact protected l
     );
     writeFileSync(
       join(packageRoot, "package.json"),
-      `${JSON.stringify({ name: "vercel", version: "56.4.1" })}\n`,
+      `${JSON.stringify({
+        name: "vercel",
+        version: PINNED_VERCEL_CLI_VERSION,
+      })}\n`,
       { mode: 0o644 },
     );
     writeFileSync(
       cliPath,
       [
         'if (process.argv[2] !== "--version") process.exit(2);',
-        'process.stdout.write("56.4.1\\n");',
+        `process.stdout.write("${PINNED_VERCEL_CLI_VERSION}\\n");`,
         "",
       ].join("\n"),
       { mode: 0o644 },
@@ -2445,7 +2458,7 @@ test("standalone Vercel CLI resolver enforces and executes the exact protected l
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
       }).trim(),
-      "56.4.1",
+      PINNED_VERCEL_CLI_VERSION,
     );
 
     chmodSync(cliPath, 0o666);
@@ -2724,7 +2737,7 @@ test("trusted Vercel CLI must be exact-versioned and runner-protected", () => {
     writeFileSync(cliPath, "export {};\n");
     writeFileSync(
       join(packagePath, "package.json"),
-      JSON.stringify({ version: "56.4.1" }),
+      JSON.stringify({ version: PINNED_VERCEL_CLI_VERSION }),
     );
     assert.equal(trustedVercelCliPath(toolsPath), realpathSync(cliPath));
 
@@ -2735,7 +2748,7 @@ test("trusted Vercel CLI must be exact-versioned and runner-protected", () => {
     assert.throws(() => trustedVercelCliPath(toolsPath), /pinned release/);
     writeFileSync(
       join(packagePath, "package.json"),
-      JSON.stringify({ version: "56.4.1" }),
+      JSON.stringify({ version: PINNED_VERCEL_CLI_VERSION }),
     );
 
     chmodSync(toolsPath, 0o777);
@@ -3522,7 +3535,10 @@ test("pulled project and prebuilt output bind the configured UI root and build I
     );
     writeFileSync(
       join(outputDirectory, "builds.json"),
-      JSON.stringify({ target: "preview", cliVersion: "56.4.1" }),
+      JSON.stringify({
+        target: "preview",
+        cliVersion: PINNED_VERCEL_CLI_VERSION,
+      }),
     );
     writeSharpRuntimeArtifacts(outputDirectory);
     assert.equal(

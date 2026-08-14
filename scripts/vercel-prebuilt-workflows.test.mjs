@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { parse } from "yaml";
+import { PINNED_VERCEL_CLI_VERSION } from "./vercel-cli-runtime-contract.mjs";
 
 function read(relativePath) {
   return readFileSync(new URL(`../${relativePath}`, import.meta.url), "utf8");
@@ -380,39 +381,34 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
   assert.deepEqual(Object.keys(runtimeLock.packages), ["pnpm@10.34.4"]);
   assert.deepEqual(Object.keys(runtimeLock.snapshots), ["pnpm@10.34.4"]);
   assert.equal(runtimeLock.importers["."].dependencies.pnpm.version, "10.34.4");
-  assert.deepEqual(vercelCliRuntimeManifest.dependencies, {
-    "@vercel/backends": "0.8.25",
-    "@vercel/container": "0.0.5",
-    "@vercel/elysia": "0.1.102",
-    "@vercel/express": "0.1.116",
-    "@vercel/fastify": "0.1.105",
-    "@vercel/go": "3.10.2",
-    "@vercel/h3": "0.1.111",
-    "@vercel/hono": "0.2.105",
-    "@vercel/hydrogen": "1.4.0",
-    "@vercel/koa": "0.1.85",
-    "@vercel/nestjs": "0.2.106",
-    "@vercel/next": "4.20.4",
-    "@vercel/node": "5.8.26",
-    "@vercel/python": "6.51.0",
-    "@vercel/redwood": "2.5.0",
-    "@vercel/remix-builder": "5.9.1",
-    "@vercel/ruby": "2.5.1",
-    "@vercel/rust": "1.4.0",
-    "@vercel/static-build": "2.11.8",
-    vercel: "56.4.1",
-  });
+  assert.equal(
+    vercelCliRuntimeManifest.dependencies.vercel,
+    PINNED_VERCEL_CLI_VERSION,
+  );
+  assert.ok(
+    Object.entries(vercelCliRuntimeManifest.dependencies)
+      .filter(([name]) => name !== "vercel")
+      .every(
+        ([name, version]) =>
+          name.startsWith("@vercel/") &&
+          /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/.test(
+            version,
+          ),
+      ),
+  );
   assert.equal(vercelCliRuntimeManifest.scripts, undefined);
   assert.deepEqual(
     vercelCliRuntimeManifest.pnpm.overrides,
     manifest.pnpm.overrides,
   );
-  assert.equal(manifest.devDependencies.vercel, "56.4.1");
+  assert.equal(manifest.devDependencies.vercel, PINNED_VERCEL_CLI_VERSION);
   assert.equal(
     vercelCliRuntimeLock.importers["."].dependencies.vercel.specifier,
-    "56.4.1",
+    PINNED_VERCEL_CLI_VERSION,
   );
-  assert.ok(vercelCliRuntimeLock.packages["vercel@56.4.1"]);
+  assert.ok(
+    vercelCliRuntimeLock.packages[`vercel@${PINNED_VERCEL_CLI_VERSION}`],
+  );
   assert.doesNotMatch(rootOsvConfig, /GHSA-gj8w-mvpf-x27x/);
   // Retired with the local brace-expansion patch and the ip-address floor
   // bump — both advisories are fixed by upstream releases now.
@@ -697,14 +693,15 @@ test("main-only controller is restored after every candidate-code phase", () => 
   );
   assert.ok(
     names.indexOf("Restore trusted controller after source installation") <
-      names.indexOf("Verify pinned Vercel prerequisites"),
+      names.indexOf("Verify candidate Vercel prerequisite consistency"),
   );
   const versionCheck = steps.find(
-    ({ name }) => name === "Verify pinned Vercel prerequisites",
+    ({ name }) => name === "Verify candidate Vercel prerequisite consistency",
   );
+  assert.equal(versionCheck["working-directory"], "source");
   assert.match(
     versionCheck.run,
-    /controller\/scripts\/vercel-prebuilt\.mjs" check-versions/,
+    /controller\/scripts\/vercel-prebuilt\.mjs" check-candidate-versions/,
   );
   const contract = steps.find(
     ({ name }) =>
@@ -739,7 +736,7 @@ test("monorepo CLI and trusted env validation use their exact roots", () => {
       name === "Validate same-repository branch reachability and exact HEAD",
   );
   const prerequisites = steps.find(
-    ({ name }) => name === "Verify pinned Vercel prerequisites",
+    ({ name }) => name === "Verify candidate Vercel prerequisite consistency",
   );
   const environmentValidation = steps.find(
     ({ name }) =>

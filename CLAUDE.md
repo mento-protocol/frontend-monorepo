@@ -277,12 +277,28 @@ slug/bot identity for prepared mutations, and operation digests. The check
 publisher is github-actions App ID 15368; its generic identity is insufficient
 without the exact terminal trusted run and canonical receipt. A Refresh needs a
 successful request on the old head and completed receipt on the exact
-two-parent result. A Repair needs the exact Processor v2 packet, a durable
-pre-mutation intent, one App-authored non-force commit with GitHub verification
+two-parent result. A Repair needs the exact Processor v2 generic packet or v3
+typed protected-runtime packet, a durable pre-mutation intent, one App-authored
+non-force commit with GitHub verification
 `verified=true` and reason `valid`, and a completed or exact-intent recovered
 receipt. Normal pre-move work and checks-only recovery each get at most two
 exact-evidence infrastructure retries. Those counters do not change the
 two-commit repair limit; refresh count is independent.
+
+The current v3 operation is the model-free `vercel-cli-runtime-sync`. It admits
+only stable same-major patch/minor Vercel updates, binds exact current-head
+workspace/runtime inputs and both npm release records, changes only the exact
+Vercel regions of the root lock, and regenerates the standalone lock twice with
+pnpm 10.34.4 without scripts, workspace links, or a pnpmfile. It may edit only
+the root package/lock and standalone Vercel contract, manifest, and lock. Generic
+v2 repair never gains runtime or deployment write
+authority. ALL CLEAR requires the requested target and its reachable typed
+operation. A maintainer still performs the squash merge.
+Preview workers validate the candidate runtime tuple only as data and continue
+to stage the credentialed build CLI from trusted default-branch controller
+source. After trusted plan validation, a fresh terminal no-output job runs the
+secretless frozen standalone install and exact CLI version smoke; it can veto
+staging but cannot produce mutation authority.
 
 A valid review finding may be included in a v2 repair packet by exact
 finding/thread ID and body digest. Only after the repaired head passes its full

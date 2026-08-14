@@ -31,55 +31,67 @@ patch. The checked-in manifests, lockfiles, and trusted controller now use only
 the exact reviewed nanoid 3.3.18 pair. The controller rejects the former pair,
 cross-paired hybrids, and unreviewed lockfile or override state.
 
-After changing the root Vercel pin or any root override, update this protected
-runtime in the same PR:
+Stable same-major patch and minor `vercel` updates use the processor's typed
+`vercel-cli-runtime-sync` operation. Dependabot isolates those updates in the
+`vercel-cli` group. Trusted, model-free code mirrors the target version and
+builder dependencies, changes only the exact Vercel importer/package/snapshot
+regions of the root lock, regenerates the standalone lock twice with exact pnpm
+10.34.4, updates `scripts/vercel-cli-runtime/contract.json`, and proves the
+result byte-for-byte before the existing Repair protocol may move the branch.
+The generic model repair cannot write these runtime paths.
 
-1. Mirror the root Vercel pin and complete override object into the standalone
-   manifest. If the Vercel version changed, also update
-   `PINNED_VERCEL_CLI_VERSION` in
-   `scripts/vercel-cli-runtime-contract.mjs`; the Vercel workflow structural
-   tests identify every remaining reviewed version assertion that must change:
+The typed operation rejects a changed root override, builder dependency key
+set, major, prerelease, downgrade, patched dependency, or non-registry source.
+Handle one of those rejected shapes in a separate human-reviewed PR. Keep these
+steps together in that PR:
+
+1. Fetch the target release's exact builder peer map from npm, review any key
+   or major-version change, then mirror that map, the root Vercel pin, and the
+   complete override object into the standalone manifest:
 
    ```bash
    node --input-type=module -e '
+   import { execFileSync } from "node:child_process";
    import { readFile, writeFile } from "node:fs/promises";
    const root = JSON.parse(await readFile("package.json", "utf8"));
+   const vercelVersion = root.devDependencies.vercel;
+   const peers = JSON.parse(execFileSync(
+     "npm",
+     ["view", `vercel@${vercelVersion}`, "peerDependencies", "--json"],
+     { encoding: "utf8" },
+   ));
    const path = "scripts/vercel-cli-runtime/package.json";
    const runtime = JSON.parse(await readFile(path, "utf8"));
-   runtime.dependencies.vercel = root.devDependencies.vercel;
+   runtime.dependencies = Object.fromEntries(
+     Object.entries({ ...peers, vercel: vercelVersion }).sort(([a], [b]) =>
+       a.localeCompare(b),
+     ),
+   );
    runtime.pnpm.overrides = root.pnpm.overrides;
    await writeFile(path, `${JSON.stringify(runtime, null, 2)}\n`);
    '
    ```
 
-2. Regenerate only the standalone lockfile from a fresh isolated directory:
+2. Regenerate only the standalone lockfile from a fresh isolated directory with
+   exact pnpm 10.34.4, no lifecycle scripts, no pnpmfile, and no workspace:
 
    ```bash
    runtime_dir="$(mktemp -d)"
    cp scripts/vercel-cli-runtime/package.json "$runtime_dir/package.json"
-   CI=true pnpm --dir "$runtime_dir" install --lockfile-only --ignore-scripts
+   CI=true pnpm --dir "$runtime_dir" install --lockfile-only --ignore-scripts --ignore-pnpmfile --ignore-workspace
    mv "$runtime_dir/pnpm-lock.yaml" scripts/vercel-cli-runtime/pnpm-lock.yaml
    rm -rf "$runtime_dir"
    ```
 
-3. Review the lockfile diff and calculate its exact digest:
+3. Review the manifest and lockfile diff. Update only the rotating values in
+   `scripts/vercel-cli-runtime/contract.json`: the exact Vercel version,
+   manifest/runtime-dependency/lockfile/override SHA-256 values, and npm
+   registry integrity. The stable executable validator reads and enforces that
+   exact data contract.
 
    ```bash
    shasum -a 256 scripts/vercel-cli-runtime/pnpm-lock.yaml
    ```
-
-   For a future rotation, change the manifest and lockfile state in a three-PR
-   sequence. First, land a trusted default-branch controller change that maps
-   each reviewed current/next
-   lockfile digest to the SHA-256 of its matching canonical, sorted root
-   override object. The standalone manifest must remain an exact mirror of
-   that root state, and cross-paired old-lock/new-manifest or
-   new-lock/old-manifest hybrids must reject. Candidate or PR-authored source
-   must never supply or extend this mapping. Then land the matching manifest
-   and lockfile state in a second PR, keeping the manifest's exact Vercel pin
-   and all registry-only checks intact. Immediately after that PR merges, use
-   a third cleanup PR to remove the former digest/override pair and restore the
-   single-pair contract.
 
 4. Verify the root/standalone pins, exact manifest, override mirror, reviewed
    lockfile digest, and registry-only lockfile policy:
@@ -94,6 +106,12 @@ runtime in the same PR:
 Never run a general workspace install to regenerate this lockfile. That would
 allow workspace links into a runtime whose isolation depends on a standalone
 registry-only graph.
+
+The typed processor path never copies a prior Dependabot lockfile wholesale.
+It preserves all non-Vercel root-lock bytes from the refreshed exact head, so a
+newer `main` cannot be overwritten by stale seed bytes. Its completed v3 packet, Repair
+Intent, Repair receipt, prepared-head review, and exact-head gates remain
+mandatory before ALL CLEAR. A maintainer still performs the squash merge.
 
 ### Reviewed brace-expansion state
 

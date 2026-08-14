@@ -392,6 +392,7 @@ runs:
           fi
         done
         immutable_files=(
+          "$TOOLS_PATH/vercel-cli-runtime/contract.json"
           "$TOOLS_PATH/vercel-cli-runtime/package.json"
           "$TOOLS_PATH/vercel-cli-runtime/pnpm-lock.yaml"
         )
@@ -432,8 +433,22 @@ runs:
         done
         "$node_bin" "$controller_path/scripts/vercel-prebuilt.mjs" \
           check-versions --repo-root "$source_path"
+        contract_path="$controller_path/scripts/vercel-cli-runtime/contract.json"
+        pinned_vercel_version="$(
+          "$node_bin" -e '
+            const { readFileSync } = require("node:fs");
+            const contract = JSON.parse(readFileSync(process.argv[1], "utf8"));
+            if (
+              contract.schema !== "vercel-cli-runtime-contract:v1" ||
+              !/^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/.test(
+                contract.vercelVersion,
+              )
+            ) process.exit(1);
+            process.stdout.write(contract.vercelVersion);
+          ' "$contract_path"
+        )"
         [ "$("$pnpm_bin" --version)" = 10.34.4 ]
-        [ "$("$node_bin" "$vercel_cli" --version)" = 56.4.1 ]
+        [ "$("$node_bin" "$vercel_cli" --version)" = "$pinned_vercel_version" ]
 
         /bin/rm -rf -- \
           "$bootstrap_cache" \

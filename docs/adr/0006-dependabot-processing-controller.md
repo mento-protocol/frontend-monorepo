@@ -244,10 +244,13 @@ not consume repair attempts and may never use rebase or force-push.
 
 ### Repair attempts are typed and capped independently of refresh
 
-The v2 Processor packet is created only after exact structural identity,
-prepared lineage, current base, complete current-head gate, clear feedback,
-preparable policy, deterministic branch attribution or validated findings, and
-valid attempt history.
+The generic v2 Processor packet is created only after exact structural
+identity, prepared lineage, current base, complete current-head gate, clear
+feedback, preparable policy, deterministic branch attribution or validated
+findings, and valid attempt history. ADR 0007 adds an exact v3 packet for a
+model-free protected-runtime synchronization. It retains this lineage and
+attempt budget but may be actionable without failed-check evidence when the
+verified Dependabot target is not yet realized across the protected runtime.
 
 Same-head packet and Processor check publication is idempotent. The newest
 trusted exact-head receipt must match mode, disposition/output summary, attempt,
@@ -277,10 +280,12 @@ A github-actions App ID 15368 check without those bindings is insufficient.
 
 The contracts are:
 
-- `dependabot-processor:v2` and
-  `dependabot-repair-packet:v2`: exact head/base/policy/failure/finding/path
-  scope, attempt, workflow source, and packet digest. A packet-issued Processor
-  check is completed **failure**, so repair-needed state cannot unblock merge.
+- `dependabot-processor:v2` and the exact generic
+  `dependabot-repair-packet:v2` or typed `dependabot-repair-packet:v3`: exact
+  head/base/policy/path scope, attempt, workflow source, and packet digest. V2
+  binds failure/finding evidence; v3 is reserved for the deterministic
+  protected-runtime operation in ADR 0007. A packet-issued Processor check is
+  completed **failure**, so repair-needed state cannot unblock merge.
 - `dependabot-refresh:v1`: successful requested receipt on the old head and
   successful completed receipt on the new two-parent head. Completed evidence
   binds the request check ID/digest.
@@ -303,8 +308,8 @@ The collector reads every bounded review thread/reply, review, issue comment,
 and close/reopen/force-push event. Unresolved actionable feedback blocks even
 when it targets an older head.
 
-A v2 packet may bind a validated Claude finding or review thread only by exact
-ID, head/commit, and body digest. After the repaired head passes its complete
+A generic v2 packet may bind a validated Claude finding or review thread only
+by exact ID, head/commit, and body digest. After the repaired head passes its complete
 gate and clean re-review, finalize may post the repository's exact
 `Fixed in <sha> — <change>` reply and resolve only those bound threads. It
 then recollects feedback. Generic bot/github-actions comments, candidate text,
