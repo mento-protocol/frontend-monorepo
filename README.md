@@ -430,8 +430,11 @@ when green, prepared, but automatic repair never writes `.github/**`; a failure
 that needs that surface becomes `manual-repair-required`. Sensitive
 self-reviewing Actions; workflow-policy, deployment, authentication, credential,
 or security changes; unknown metadata; force-pushed histories; human vetoes;
-unresolved feedback; and exhausted repairs remain blocked. The ALL CLEAR receipt
-keeps the dependency risk/update metadata for the human decision.
+unresolved feedback outside an exact packet-bound repair; and exhausted repairs
+remain blocked. The typed Vercel sync can bind only the structured Cursor
+runtime-mismatch finding that matches its exact versions, path, and review
+commit. The ALL CLEAR receipt keeps the dependency risk/update metadata for the
+human decision.
 
 Configure the repository-scoped Prepare App with variables
 `DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,
@@ -463,8 +466,9 @@ The authority receipts are `Dependabot Refresh`
 old/new/base commits, workflow SHA/run/attempt, App bot identity when used, and
 operation digests. Refresh requires an old-head request plus the exact
 two-parent result and does not consume the two-repair budget. Repair requires a
-v2 Processor packet, a durable packet/plan/tree-bound intent before the exact
-ref move, and one exact-parent App commit whose GitHub verification is valid.
+v2 generic or v3 typed Processor packet, a durable packet/plan/tree-bound intent
+before the exact ref move, and one exact-parent App commit whose GitHub
+verification is valid.
 If the run fails, is cancelled, times out, needs action, or has a startup
 failure after the ref move, a checks-only recovery revalidates the exact intent
 and current head before publishing the completed receipt. Normal pre-move work

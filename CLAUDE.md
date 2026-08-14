@@ -294,6 +294,11 @@ the root package/lock and standalone Vercel contract, manifest, and lock. Generi
 v2 repair never gains runtime or deployment write
 authority. ALL CLEAR requires the requested target and its reachable typed
 operation. A maintainer still performs the squash merge.
+The typed operation may bind exact Cursor runtime-mismatch threads only when
+each structured finding names the same source and target versions, root
+`package.json` path, and trusted seed or current review commit. Every other
+unresolved finding stays manual. Finalize replies and resolves the bound thread
+only after the typed Repair receipt, green gates, and clean re-review.
 Preview workers validate the candidate runtime tuple only as data and continue
 to stage the credentialed build CLI from trusted default-branch controller
 source. After trusted plan validation, a fresh terminal no-output job runs the
@@ -301,8 +306,9 @@ secretless frozen standalone install and exact CLI version smoke; it can veto
 staging but cannot produce mutation authority.
 
 A valid review finding may be included in a v2 repair packet by exact
-finding/thread ID and body digest. Only after the repaired head passes its full
-gate and clean re-review may finalize post
+finding/thread ID and body digest. The exact typed Vercel mismatch above can use
+the same receipt-bound remediation path in v3. Only after the repaired head
+passes its full gate and clean re-review may finalize post
 `Fixed in <current-head prefix> — <change>` and resolve those exact
 packet-bound threads. Generic github-actions or bot comments never establish
 lineage or satisfy feedback.
