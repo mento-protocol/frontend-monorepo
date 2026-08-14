@@ -314,13 +314,14 @@ function gitShow(commit, path) {
   });
 }
 
-function pr753Fixture() {
+function protectedRuntimeFixture({ useHistoricalPr753Objects = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), "protected-runtime-pr753-"));
   const evidenceRoot = join(root, "evidence");
   mkdirSync(evidenceRoot, { mode: 0o700 });
   const bytesByPath = new Map();
   for (const path of PROTECTED_RUNTIME_SYNC_INPUT_PATHS) {
     const bytes =
+      !useHistoricalPr753Objects ||
       path === "scripts/vercel-cli-runtime/contract.json"
         ? readFileSync(join(REPOSITORY_ROOT, path))
         : gitShow(PR_753_REPAIRED_HEAD, path);
@@ -369,7 +370,7 @@ function pr753Fixture() {
       "scripts/vercel-main-*.mjs",
     ],
     headRef: "dependabot/npm_and_yarn/tooling-123",
-    headSha: PR_753_REPAIRED_HEAD,
+    headSha: useHistoricalPr753Objects ? PR_753_REPAIRED_HEAD : "a".repeat(40),
     limits: {
       maxAddedLines: 600,
       maxBytes: 64 * 1024,
@@ -386,7 +387,9 @@ function pr753Fixture() {
       pnpmVersion: "10.34.4",
       requiredPaths: PROTECTED_RUNTIME_SYNC_REQUIRED_PATHS,
       schema: "dependabot-protected-runtime-sync:v1",
-      sourceSeedHeadSha: PR_753_IMMUTABLE_SOURCE,
+      sourceSeedHeadSha: useHistoricalPr753Objects
+        ? PR_753_IMMUTABLE_SOURCE
+        : "e".repeat(40),
       targetVersion: TARGET_VERSION,
       updateType: "minor",
     },
@@ -455,8 +458,12 @@ function pr753Fixture() {
   };
 }
 
+function pr753Fixture() {
+  return protectedRuntimeFixture({ useHistoricalPr753Objects: true });
+}
+
 test("terminal CLI smoke rejects validated-plan and content drift", () => {
-  const fixture = pr753Fixture();
+  const fixture = protectedRuntimeFixture();
   try {
     const packetText = Buffer.from(fixture.packetBase64, "base64").toString(
       "utf8",
