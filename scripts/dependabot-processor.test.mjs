@@ -60,6 +60,11 @@ const PREPARE_ACTOR = {
   botId: 91_001,
   botLogin: "mento-dependabot-prepare[bot]",
 };
+const GITHUB_SYSTEM_COMMITTER = {
+  committerId: 19_864_447,
+  committerLogin: "web-flow",
+  committerType: "User",
+};
 const PACKAGE_BLOB = {
   filename: "package.json",
   mode: "100644",
@@ -3491,9 +3496,7 @@ test("typed repair receipts require valid verification and consume one attempt o
         authorId: PREPARE_ACTOR.botId,
         authorLogin: PREPARE_ACTOR.botLogin,
         authorType: "Bot",
-        committerId: PREPARE_ACTOR.botId,
-        committerLogin: PREPARE_ACTOR.botLogin,
-        committerType: "Bot",
+        ...GITHUB_SYSTEM_COMMITTER,
         parents: [HEAD_SHA],
         sha: OTHER_SHA,
         verified: true,
@@ -3549,6 +3552,29 @@ test("typed repair receipts require valid verification and consume one attempt o
       `${label}: ${stableJson(untrusted.repairAttempts.reasons)}`,
     );
     assert.equal(untrusted.repairPacket, null, label);
+  }
+
+  for (const replacement of [
+    { committerId: GITHUB_SYSTEM_COMMITTER.committerId + 1 },
+    { committerLogin: "attacker" },
+    { committerType: "Bot" },
+  ]) {
+    const wrongSystemCommitter = structuredClone(repaired);
+    Object.assign(wrongSystemCommitter.commits[1], replacement);
+    const wrongSystemCommitterResult = evaluateDependabotPullRequest(
+      wrongSystemCommitter,
+      {
+        mode: "prepare",
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+    );
+    assert.equal(wrongSystemCommitterResult.identity.valid, false);
+    assert.ok(
+      wrongSystemCommitterResult.repairAttempts.reasons.includes(
+        "invalid-repair-transition",
+      ),
+    );
   }
 
   const forged = structuredClone(repaired);
@@ -5023,9 +5049,7 @@ test("finalize remediates only the exact packet-bound review thread", async () =
     authorId: PREPARE_ACTOR.botId,
     authorLogin: PREPARE_ACTOR.botLogin,
     authorType: "Bot",
-    committerId: PREPARE_ACTOR.botId,
-    committerLogin: PREPARE_ACTOR.botLogin,
-    committerType: "Bot",
+    ...GITHUB_SYSTEM_COMMITTER,
     parents: [HEAD_SHA],
     sha: OTHER_SHA,
     verified: true,

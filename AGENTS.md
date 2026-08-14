@@ -127,8 +127,9 @@ request receipt on the old head and a successful completed receipt on the new
 two-parent head. A repair stages an unreachable exact-parent commit, publishes a
 packet/plan/tree-bound intent without the App token, moves the exact ref with a
 fresh token, and publishes the completed receipt without it. The commit must
-have the exact App bot identity and GitHub verification `verified=true` with
-reason `valid`. A failed, cancelled, timed-out, action-required, or
+have the exact App bot author, either the exact App bot or GitHub's exact
+`web-flow` system signer as committer, and GitHub verification `verified=true`
+with reason `valid`. A failed, cancelled, timed-out, action-required, or
 startup-failed post-move run may only enter the bounded exact-intent recovery
 path. Normal pre-move work and checks-only recovery each get at most two
 exact-evidence infrastructure retries, independent of the two-commit repair

@@ -11,6 +11,7 @@ const HEAD_REF_PATTERN = /^dependabot\/[A-Za-z0-9._/-]{1,220}$/;
 const REPAIR_PATH_PATTERN =
   /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._@+/-]{1,300}$/;
 const GITHUB_ACTIONS_APP_ID = 15368;
+const GITHUB_WEB_FLOW_USER_ID = 19864447;
 const RECEIPT_OUTPUT_LIMIT = 50_000;
 const LINEAGE_LIMIT = 24;
 const CHECK_PAGE_SIZE = 100;
@@ -471,6 +472,24 @@ function validateDependabotSeed(commit) {
       commit.commit?.verification?.verified === true &&
       commit.commit?.verification?.reason === "valid",
     "prepared lineage is not rooted in a verified Dependabot seed",
+  );
+}
+
+function hasExactPrepareAuthorship(commit, expected) {
+  const exactPrepareAuthor =
+    commit.author?.id === expected.prepareBotId &&
+    commit.author?.login === expected.prepareBotLogin &&
+    commit.author?.type === "Bot";
+  const exactPrepareCommitter =
+    commit.committer?.id === expected.prepareBotId &&
+    commit.committer?.login === expected.prepareBotLogin &&
+    commit.committer?.type === "Bot";
+  const exactGitHubSystemCommitter =
+    commit.committer?.id === GITHUB_WEB_FLOW_USER_ID &&
+    commit.committer?.login === "web-flow" &&
+    commit.committer?.type === "User";
+  return (
+    exactPrepareAuthor && (exactPrepareCommitter || exactGitHubSystemCommitter)
   );
 }
 
@@ -987,24 +1006,11 @@ export function validatePreparedReviewTarget(options, requestJson) {
         repository: expected.repository,
         requestJson,
       });
-      const exactPrepareAuthor =
-        commit.author?.id === expected.prepareBotId &&
-        commit.author?.login === expected.prepareBotLogin &&
-        commit.author?.type === "Bot";
-      const exactPrepareCommitter =
-        commit.committer?.id === expected.prepareBotId &&
-        commit.committer?.login === expected.prepareBotLogin &&
-        commit.committer?.type === "Bot";
-      const verifiedWebFlowCommitter =
-        commit.committer?.id === 19864447 &&
-        commit.committer?.login === "web-flow" &&
-        commit.committer?.type === "User";
       invariant(
         commit.parents.length === 2 &&
           commit.parents[0]?.sha === parentHeadSha &&
           commit.parents[1]?.sha === current.receipt.baseSha &&
-          exactPrepareAuthor &&
-          (exactPrepareCommitter || verifiedWebFlowCommitter) &&
+          hasExactPrepareAuthorship(commit, expected) &&
           commit.commit?.verification?.verified === true &&
           commit.commit?.verification?.reason === "valid",
         "refresh is not the exact append-only two-parent merge",
@@ -1022,12 +1028,7 @@ export function validatePreparedReviewTarget(options, requestJson) {
         repairCount <= 2 &&
           commit.parents.length === 1 &&
           commit.parents[0]?.sha === parentHeadSha &&
-          commit.author?.id === expected.prepareBotId &&
-          commit.author?.login === expected.prepareBotLogin &&
-          commit.author?.type === "Bot" &&
-          commit.committer?.id === expected.prepareBotId &&
-          commit.committer?.login === expected.prepareBotLogin &&
-          commit.committer?.type === "Bot" &&
+          hasExactPrepareAuthorship(commit, expected) &&
           commit.commit?.verification?.verified === true &&
           commit.commit?.verification?.reason === "valid",
         "repair commit is not an exact Prepare App append",

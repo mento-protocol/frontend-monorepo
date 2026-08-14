@@ -19,6 +19,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  GITHUB_WEB_FLOW_USER_ID,
   applyRepairPlan,
   canonicalDigest,
   canonicalJson,
@@ -324,7 +325,7 @@ test("repair and recovery titles bind bounded infrastructure retry state", () =>
   );
 });
 
-test("staging and recovery reject an unsigned Prepare App repair commit", () => {
+test("staging and recovery bind the Prepare author, GitHub signer, and verification", () => {
   const intent = repairIntent();
   const commit = {
     author: {
@@ -337,14 +338,39 @@ test("staging and recovery reject an unsigned Prepare App repair commit", () => 
       verification: { reason: "valid", verified: true },
     },
     committer: {
-      id: intent.prepareBotId,
-      login: intent.prepareBotLogin,
-      type: "Bot",
+      id: GITHUB_WEB_FLOW_USER_ID,
+      login: "web-flow",
+      type: "User",
     },
     parents: [{ sha: intent.parentHeadSha }],
     sha: intent.headSha,
   };
   assert.equal(validateRepairCommit(commit, intent), commit);
+  assert.equal(
+    validateRepairCommit(
+      {
+        ...commit,
+        committer: {
+          id: intent.prepareBotId,
+          login: intent.prepareBotLogin,
+          type: "Bot",
+        },
+      },
+      intent,
+    ).sha,
+    intent.headSha,
+  );
+  for (const committer of [
+    { id: GITHUB_WEB_FLOW_USER_ID + 1, login: "web-flow", type: "User" },
+    { id: GITHUB_WEB_FLOW_USER_ID, login: "attacker", type: "User" },
+    { id: GITHUB_WEB_FLOW_USER_ID, login: "web-flow", type: "Bot" },
+    { id: intent.prepareBotId, login: intent.prepareBotLogin, type: "User" },
+  ]) {
+    assert.throws(
+      () => validateRepairCommit({ ...commit, committer }, intent),
+      /exact Prepare App append/,
+    );
+  }
   assert.throws(
     () =>
       validateRepairCommit(

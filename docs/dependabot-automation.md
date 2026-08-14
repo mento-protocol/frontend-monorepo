@@ -3,7 +3,7 @@ title: Dependabot Processing
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-08-13
+last_verified: 2026-08-14
 scope: ci/dependabot-processing
 ---
 
@@ -389,12 +389,15 @@ intent, branch mutation, and recovery:
    the exact intent-bound commit is already the current PR head.
 
 The staged tree is never executed. The Repair commit must have the configured
-Prepare App bot author/committer identity and GitHub verification
-`verified=true` with reason `valid`. A staged intent is inert if its commit did
-not become the PR head. `Dependabot Prepared Head Dispatch` sends prepared-head
-intake only from a successful completed Repair receipt. Only the exact retryable
-non-success conclusions above may trigger bounded retry or the checks-only
-recovery path; they never establish completion authority by themselves.
+Prepare App bot as its exact author and either that bot or GitHub's exact
+`web-flow` system user as its committer, with GitHub verification
+`verified=true` and reason `valid`. GitHub uses `web-flow` when it server-signs
+a Git Data commit created by an App without custom author, committer, or
+signature fields. A staged intent is inert if its commit did not become the PR
+head. `Dependabot Prepared Head Dispatch` sends prepared-head intake only from
+a successful completed Repair receipt. Only the exact retryable non-success
+conclusions above may trigger bounded retry or the checks-only recovery path;
+they never establish completion authority by themselves.
 
 Infrastructure retry count is separate from the two-commit repair attempt. A
 normal failure before the ref move re-authenticates and redispatches the exact

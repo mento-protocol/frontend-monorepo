@@ -3,14 +3,14 @@ title: A trusted controller prepares exact-head Dependabot pull requests for hum
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-08-13
+last_verified: 2026-08-14
 scope: ci/dependabot-processing
 date: 2026-08-10
 ---
 
 # ADR 0006 — A trusted controller prepares exact-head Dependabot pull requests for human merge
 
-**Status:** Accepted, amended Aug 13 2026
+**Status:** Accepted, amended Aug 14 2026
 **Scope:** ci/dependabot-processing
 
 ## Context
@@ -103,8 +103,9 @@ For prepared heads, the workflow materializes
 - a Refresh commit whose first parent is the prior head and whose second parent
   is the receipt's actual applied base, plus its successful old-head request and
   verified bounded request-to-update base-race evidence;
-- a Repair commit whose single parent is the packet head and whose author and
-  committer match the live configured App bot ID/login; and
+- a Repair commit whose single parent is the packet head, whose author matches
+  the live configured App bot ID/login, and whose committer is either that bot
+  or GitHub's exact `web-flow` system signer; and
 - a bounded operation chain rooted in a verified Dependabot seed.
 
 The Claude job checks out only the trusted workflow source. It restricts
@@ -215,8 +216,10 @@ code:
    completion idempotently. An intent whose staged commit never became the PR
    head is inert.
 
-Repair commits must have the exact Prepare App bot author/committer identity and
-GitHub verification `verified=true` with reason `valid`. Mutation and recovery
+Repair commits must have the exact Prepare App bot author, either that bot or
+GitHub's exact `web-flow` system signer as committer, and GitHub verification
+`verified=true` with reason `valid`. This models GitHub's server-signed App
+commit shape without accepting an arbitrary committer. Mutation and recovery
 never install dependencies or execute the new tree. `Dependabot Prepared Head
 Dispatch` accepts a successful completed receipt for prepared-head intake. It
 accepts those exact retryable non-success Repair sources only to dispatch the
