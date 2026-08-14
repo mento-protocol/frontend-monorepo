@@ -124,6 +124,12 @@ builder-key-set, override, registry, generation, or byte drift fails closed.
 Generic repairs remain exact v2 and retain every runtime/deployment deny. ALL
 CLEAR requires the requested Vercel target in both root and runtime plus its
 reachable typed operation; human squash merge remains mandatory.
+The typed operation may carry exact Cursor runtime-mismatch threads only when
+each structured finding names the same source and target versions, the root
+`package.json` path, and the trusted seed or current review commit. Every other
+unresolved finding stays manual. The packet binds each accepted comment and
+body digest. Finalize replies and resolves it only after the typed Repair
+receipt, complete green gates, and clean exact-head re-review.
 PR preview workers validate the candidate runtime tuple only as data; every
 credentialed preview build still stages its CLI from the trusted default-branch
 controller. After trusted plan validation, a fresh terminal no-output job

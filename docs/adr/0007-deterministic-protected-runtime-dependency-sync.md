@@ -60,6 +60,16 @@ runtime is itself the required repair. The processor cannot publish ALL CLEAR
 until the current tree reports the requested root and runtime version and its
 reachable Repair lineage contains the exact typed operation.
 
+An automated reviewer can report the incomplete runtime synchronization before
+the typed repair runs. The processor admits that feedback only when every
+actionable thread is an exact structured Cursor `Incomplete Vercel CLI runtime
+sync` finding. The finding must bind the operation's source and target versions,
+root `package.json` path, and trusted seed or current review commit. The v3
+packet binds its comment, commit, and body digest. Any different or additional
+feedback remains manual. Finalize can reply and resolve the accepted thread only
+after the typed Repair receipt, complete green gates, and clean exact-head
+re-review.
+
 The repair workflow routes v3 to trusted, model-free generator code from the
 exact default-branch workflow SHA. Planning and validation receive no App,
 provider, package, deployment, or write credential. The generator:
