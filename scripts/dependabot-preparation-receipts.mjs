@@ -18,7 +18,13 @@ import { pathToFileURL } from "node:url";
 
 export const GITHUB_ACTIONS_APP_ID = 15_368;
 export const GITHUB_WEB_FLOW_USER_ID = 19_864_447;
-export const PROCESSOR_PACKET_SCHEMA = "dependabot-repair-packet:v2";
+export const PROCESSOR_PACKET_SCHEMA_V2 = "dependabot-repair-packet:v2";
+export const PROCESSOR_PACKET_SCHEMA_V3 = "dependabot-repair-packet:v3";
+// Preserve the original export for callers that intentionally construct the
+// generic, model-planned v2 packet.
+export const PROCESSOR_PACKET_SCHEMA = PROCESSOR_PACKET_SCHEMA_V2;
+export const PROTECTED_RUNTIME_SYNC_OPERATION_SCHEMA =
+  "dependabot-protected-runtime-sync:v1";
 export const REPAIR_INTENT_SCHEMA = "dependabot-repair-intent:v1";
 export const REPAIR_PLAN_SCHEMA = "dependabot-repair-plan:v1";
 export const REPAIR_RECOVERY_SCHEMA = "dependabot-repair-recovery:v1";
@@ -40,6 +46,40 @@ const HARD_DENIED_PATHS = [
   "docs/vercel-deployments.md",
   "scripts/vercel-main-*.mjs",
 ];
+const PROTECTED_RUNTIME_SYNC_REQUIRED_PATHS = Object.freeze([
+  "package.json",
+  "pnpm-lock.yaml",
+  "scripts/vercel-cli-runtime/contract.json",
+  "scripts/vercel-cli-runtime/package.json",
+  "scripts/vercel-cli-runtime/pnpm-lock.yaml",
+]);
+const PROTECTED_RUNTIME_SYNC_INPUT_PATHS = Object.freeze([
+  "apps/app.mento.org/package.json",
+  "apps/governance.mento.org/package.json",
+  "apps/reserve.mento.org/package.json",
+  "apps/ui.mento.org/package.json",
+  "package.json",
+  "packages/eslint-config/package.json",
+  "packages/typescript-config/package.json",
+  "packages/ui/package.json",
+  "packages/vitest-config/package.json",
+  "packages/web3/package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "scripts/vercel-cli-runtime/contract.json",
+  "scripts/vercel-cli-runtime/package.json",
+  "scripts/vercel-cli-runtime/pnpm-lock.yaml",
+]);
+const PROTECTED_RUNTIME_SYNC_FORBIDDEN_PATHS = Object.freeze([
+  ".github/**",
+  "**/auth/**",
+  "**/deploy/**",
+  "**/deployment/**",
+  "**/policy/**",
+  "**/security/**",
+  "docs/vercel-deployments.md",
+  "scripts/vercel-main-*.mjs",
+]);
 const ALLOWED_FILE_EXTENSIONS = new Set([
   ".css",
   ".html",
@@ -622,48 +662,150 @@ function validateEvidence(packet) {
   }
 }
 
+const PROCESSOR_PACKET_V2_KEYS = Object.freeze([
+  "attemptLimit",
+  "attemptNumber",
+  "automatic",
+  "baseRef",
+  "baseSha",
+  "changedPaths",
+  "dependencyGroup",
+  "dependencyNames",
+  "escalation",
+  "expectedBlobs",
+  "failures",
+  "feedbackThreads",
+  "findings",
+  "forbiddenPaths",
+  "headRef",
+  "headSha",
+  "limits",
+  "mode",
+  "packageEcosystem",
+  "permittedPaths",
+  "preparable",
+  "pullRequestNumber",
+  "repository",
+  "requiredGateIds",
+  "requireExactHead",
+  "requireHumanApproval",
+  "riskTier",
+  "schema",
+  "updateType",
+  "validationCommands",
+  "workflowRunAttempt",
+  "workflowRunId",
+  "workflowSha",
+]);
+
+function exactStringArray(value, expected, label) {
+  boundedStringArray(value, label, expected.length);
+  if (JSON.stringify(value) !== JSON.stringify(expected)) {
+    fail(`${label} is not the exact protected-runtime set`);
+  }
+}
+
+function stableSemver(value, label) {
+  boundedString(value, label, {
+    max: 64,
+    min: 5,
+    pattern: /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/,
+  });
+  return value.split(".").map(Number);
+}
+
+function validateProtectedRuntimeSyncOperation(packet) {
+  const operation = packet.operation;
+  exactKeys(
+    operation,
+    [
+      "dependency",
+      "fromVersion",
+      "inputPaths",
+      "kind",
+      "pnpmVersion",
+      "requiredPaths",
+      "schema",
+      "sourceSeedHeadSha",
+      "targetVersion",
+      "updateType",
+    ],
+    "protected runtime sync operation",
+  );
+  if (
+    operation.schema !== PROTECTED_RUNTIME_SYNC_OPERATION_SCHEMA ||
+    operation.kind !== "vercel-cli-runtime-sync" ||
+    operation.dependency !== "vercel" ||
+    operation.pnpmVersion !== "10.34.4" ||
+    packet.packageEcosystem !== "npm" ||
+    !packet.dependencyNames.includes("vercel")
+  ) {
+    fail("protected runtime sync identity is invalid");
+  }
+  sha(operation.sourceSeedHeadSha, "operation.sourceSeedHeadSha");
+  exactStringArray(
+    operation.requiredPaths,
+    PROTECTED_RUNTIME_SYNC_REQUIRED_PATHS,
+    "operation.requiredPaths",
+  );
+  exactStringArray(
+    operation.inputPaths,
+    PROTECTED_RUNTIME_SYNC_INPUT_PATHS,
+    "operation.inputPaths",
+  );
+  exactStringArray(
+    packet.permittedPaths,
+    PROTECTED_RUNTIME_SYNC_REQUIRED_PATHS,
+    "permittedPaths",
+  );
+  exactStringArray(
+    packet.forbiddenPaths,
+    PROTECTED_RUNTIME_SYNC_FORBIDDEN_PATHS,
+    "forbiddenPaths",
+  );
+  if (
+    packet.limits.maxAddedLines !== 600 ||
+    packet.limits.maxBytes !== 64 * 1024 ||
+    packet.limits.maxChanges !== 160 ||
+    packet.limits.maxDeletedLines !== 600 ||
+    packet.limits.maxFiles !== PROTECTED_RUNTIME_SYNC_REQUIRED_PATHS.length
+  ) {
+    fail("protected runtime sync limits are invalid");
+  }
+  const from = stableSemver(operation.fromVersion, "operation.fromVersion");
+  const target = stableSemver(
+    operation.targetVersion,
+    "operation.targetVersion",
+  );
+  const derivedUpdateType =
+    from[0] === target[0] && target[1] > from[1]
+      ? "minor"
+      : from[0] === target[0] && target[1] === from[1] && target[2] > from[2]
+        ? "patch"
+        : null;
+  if (
+    derivedUpdateType === null ||
+    operation.updateType !== derivedUpdateType ||
+    packet.updateType !== derivedUpdateType
+  ) {
+    fail("protected runtime sync version transition is invalid");
+  }
+}
+
 export function validateProcessorRepairPacket(packet) {
+  plainObject(packet, "Processor repair packet");
+  const v3 = packet.schema === PROCESSOR_PACKET_SCHEMA_V3;
   exactKeys(
     packet,
-    [
-      "attemptLimit",
-      "attemptNumber",
-      "automatic",
-      "baseRef",
-      "baseSha",
-      "changedPaths",
-      "dependencyGroup",
-      "dependencyNames",
-      "escalation",
-      "expectedBlobs",
-      "failures",
-      "feedbackThreads",
-      "findings",
-      "forbiddenPaths",
-      "headRef",
-      "headSha",
-      "limits",
-      "mode",
-      "packageEcosystem",
-      "permittedPaths",
-      "preparable",
-      "pullRequestNumber",
-      "repository",
-      "requiredGateIds",
-      "requireExactHead",
-      "requireHumanApproval",
-      "riskTier",
-      "schema",
-      "updateType",
-      "validationCommands",
-      "workflowRunAttempt",
-      "workflowRunId",
-      "workflowSha",
-    ],
+    v3 ? [...PROCESSOR_PACKET_V2_KEYS, "operation"] : PROCESSOR_PACKET_V2_KEYS,
     "Processor repair packet",
   );
-  if (packet.schema !== PROCESSOR_PACKET_SCHEMA)
+  if (
+    packet.schema !== PROCESSOR_PACKET_SCHEMA_V2 &&
+    packet.schema !== PROCESSOR_PACKET_SCHEMA_V3
+  ) {
     fail("packet schema is invalid");
+  }
   repository(packet.repository);
   safeInteger(packet.pullRequestNumber, "pullRequestNumber");
   headRef(packet.headRef);
@@ -742,7 +884,9 @@ export function validateProcessorRepairPacket(packet) {
     "limits",
   );
   safeInteger(packet.limits.maxFiles, "limits.maxFiles", { max: 8 });
-  safeInteger(packet.limits.maxChanges, "limits.maxChanges", { max: 20 });
+  safeInteger(packet.limits.maxChanges, "limits.maxChanges", {
+    max: v3 ? 160 : 20,
+  });
   safeInteger(packet.limits.maxBytes, "limits.maxBytes", { max: 64 * 1024 });
   safeInteger(packet.limits.maxAddedLines, "limits.maxAddedLines", {
     max: 1_000,
@@ -752,11 +896,21 @@ export function validateProcessorRepairPacket(packet) {
   });
   validateEvidence(packet);
   if (
+    !v3 &&
     packet.failures.length === 0 &&
     packet.findings.length === 0 &&
     packet.feedbackThreads.length === 0
   ) {
     fail("packet has no actionable failure or feedback evidence");
+  }
+  if (v3) {
+    validateProtectedRuntimeSyncOperation(packet);
+    if (
+      JSON.stringify(packet.expectedBlobs.map(({ path }) => path)) !==
+      JSON.stringify(PROTECTED_RUNTIME_SYNC_INPUT_PATHS)
+    ) {
+      fail("expectedBlobs do not cover the exact protected-runtime inputs");
+    }
   }
   return packet;
 }
@@ -1497,6 +1651,10 @@ async function commandRepairPreflight(args) {
     packet_base64: Buffer.from(text).toString("base64"),
     packet_digest: payload.processorReceipt.digest,
     packet_json: text,
+    plan_kind:
+      packet.schema === PROCESSOR_PACKET_SCHEMA_V3
+        ? "protected-runtime-sync"
+        : "claude-repair",
     processor_check_id: check.id,
     pull_request_number: packet.pullRequestNumber,
     repair_attempt: packet.attemptNumber,

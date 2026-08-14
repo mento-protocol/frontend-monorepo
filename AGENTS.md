@@ -110,6 +110,26 @@ SHA, including files larger than the Contents API limit. The publisher uses Git
 Data APIs for one exact-parent non-force commit and never executes candidate
 input.
 
+Stable same-major patch/minor updates to the unscoped `vercel` package use the
+typed `dependabot-repair-packet:v3` protected-runtime operation instead of the
+model planner. Trusted workflow-SHA code binds the exact refreshed-head
+workspace/runtime inputs and both public npm release records; changes only the
+exact Vercel regions of the root lock; regenerates the standalone lock twice
+with pnpm 10.34.4, scripts, workspace links, and pnpmfile loading disabled; and
+permits only the root package/lock plus
+`scripts/vercel-cli-runtime/{contract.json,package.json,pnpm-lock.yaml}`. An
+independent no-secret job reproduces the exact plan before the unchanged staged
+commit, Intent, non-force move, receipt, and recovery path. Major, prerelease,
+builder-key-set, override, registry, generation, or byte drift fails closed.
+Generic repairs remain exact v2 and retain every runtime/deployment deny. ALL
+CLEAR requires the requested Vercel target in both root and runtime plus its
+reachable typed operation; human squash merge remains mandatory.
+PR preview workers validate the candidate runtime tuple only as data; every
+credentialed preview build still stages its CLI from the trusted default-branch
+controller. After trusted plan validation, a fresh terminal no-output job
+performs the secretless frozen install and exact CLI version smoke; it can veto
+staging but cannot produce mutation authority.
+
 Only an exact trusted pending Refresh may start the mutation/token job. A native
 green Dependabot head skips that job and can finalize without Prepare App
 configuration. `repair-pending` preserves the original exact-head packet/run

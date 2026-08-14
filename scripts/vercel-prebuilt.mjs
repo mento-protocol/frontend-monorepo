@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import process from "node:process";
-import { join, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { assertVercelCliRuntimeContract } from "./vercel-cli-runtime-contract.mjs";
@@ -13,6 +13,41 @@ export const VERCEL_TARGETS = ["app", "governance", "reserve", "ui"];
 
 const DEPLOYMENT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const MAX_ROOT_PACKAGE_BYTES = 1024 * 1024;
+const MAX_ROOT_LOCKFILE_BYTES = 16 * 1024 * 1024;
+
+function readBoundedCandidatePath(repoRoot, path, maximumBytes, label) {
+  try {
+    const requestedRoot = resolve(repoRoot);
+    const rootEntry = lstatSync(requestedRoot);
+    if (!rootEntry.isDirectory() || rootEntry.isSymbolicLink()) {
+      throw new Error("unsafe root");
+    }
+    const root = realpathSync(requestedRoot);
+    const candidate = resolve(requestedRoot, path);
+    const canonicalCandidate = realpathSync(candidate);
+    const expectedCandidate = resolve(root, path);
+    const fromRoot = relative(root, canonicalCandidate);
+    const entry = lstatSync(candidate);
+    if (
+      fromRoot === ".." ||
+      fromRoot.startsWith(`..${sep}`) ||
+      fromRoot.length === 0 ||
+      !entry.isFile() ||
+      entry.isSymbolicLink() ||
+      entry.size < 1 ||
+      entry.size > maximumBytes ||
+      canonicalCandidate !== expectedCandidate
+    ) {
+      throw new Error("unsafe file");
+    }
+    const contents = readFileSync(candidate);
+    if (contents.byteLength !== entry.size) throw new Error("file changed");
+    return contents;
+  } catch {
+    throw new Error(`${label} is unreadable or unsafe`);
+  }
+}
 
 export function assertValidDeploymentId(deploymentId) {
   if (typeof deploymentId !== "string" || deploymentId.length === 0) {
@@ -194,13 +229,22 @@ export function readResolvedNextVersion(lockfile) {
   return match[1];
 }
 
-export function assertDeploymentIdPrerequisites(repoRoot) {
+function assertDeploymentIdPrerequisitesWithContract(repoRoot, contractPath) {
   const packageJson = JSON.parse(
-    readFileSync(join(repoRoot, "package.json"), "utf8"),
+    readBoundedCandidatePath(
+      repoRoot,
+      "package.json",
+      MAX_ROOT_PACKAGE_BYTES,
+      "Root package manifest",
+    ).toString("utf8"),
   );
-  const nextVersion = readResolvedNextVersion(
-    readFileSync(join(repoRoot, "pnpm-lock.yaml"), "utf8"),
-  );
+  const rootLockfile = readBoundedCandidatePath(
+    repoRoot,
+    "pnpm-lock.yaml",
+    MAX_ROOT_LOCKFILE_BYTES,
+    "Root lockfile",
+  ).toString("utf8");
+  const nextVersion = readResolvedNextVersion(rootLockfile);
   const vercelVersion = packageJson.devDependencies?.vercel;
 
   if (
@@ -215,6 +259,15 @@ export function assertDeploymentIdPrerequisites(repoRoot) {
   if (!isVersionGreaterThan(vercelVersion, "50.3.3")) {
     throw new Error("Pinned Vercel CLI is too old for custom deployment IDs");
   }
+  const escapedVercelVersion = vercelVersion.replaceAll(".", "\\.");
+  if (
+    !new RegExp(
+      `\\n      vercel:\\n        specifier: ${escapedVercelVersion}\\n        version: ${escapedVercelVersion}(?:\\(|\\n)`,
+      "u",
+    ).test(rootLockfile)
+  ) {
+    throw new Error("Root Vercel manifest and lockfile are inconsistent");
+  }
 
   const runtimePackageJsonPath = join(
     repoRoot,
@@ -223,6 +276,7 @@ export function assertDeploymentIdPrerequisites(repoRoot) {
     "package.json",
   );
   const vercelCliRuntime = assertVercelCliRuntimeContract({
+    ...(contractPath === undefined ? {} : { contractPath }),
     rootPackageJsonPath: join(repoRoot, "package.json"),
     packageJsonPath: runtimePackageJsonPath,
     lockfilePath: join(
@@ -234,6 +288,20 @@ export function assertDeploymentIdPrerequisites(repoRoot) {
   });
 
   return { next: nextVersion, vercel: vercelVersion, vercelCliRuntime };
+}
+
+export function assertDeploymentIdPrerequisites(repoRoot) {
+  return assertDeploymentIdPrerequisitesWithContract(repoRoot, undefined);
+}
+
+// This check proves only that candidate package and lock data agree with the
+// candidate's own digest-bound runtime contract. It does not select the
+// protected CLI or grant deployment authority; those remain controller-owned.
+export function assertCandidateDeploymentIdPrerequisites(repoRoot) {
+  return assertDeploymentIdPrerequisitesWithContract(
+    repoRoot,
+    join(repoRoot, "scripts", "vercel-cli-runtime", "contract.json"),
+  );
 }
 
 function parseArguments(argv) {
@@ -297,9 +365,17 @@ if (isCliEntrypoint()) {
         ),
       )}\n`,
     );
+  } else if (command === "check-candidate-versions") {
+    process.stdout.write(
+      `${JSON.stringify(
+        assertCandidateDeploymentIdPrerequisites(
+          resolve(options["repo-root"] ?? process.cwd()),
+        ),
+      )}\n`,
+    );
   } else {
     throw new Error(
-      "Usage: vercel-prebuilt.mjs deployment-id|main-release-id|main-candidate-deployment-id|assert-output|check-versions",
+      "Usage: vercel-prebuilt.mjs deployment-id|main-release-id|main-candidate-deployment-id|assert-output|check-versions|check-candidate-versions",
     );
   }
 }

@@ -241,11 +241,11 @@ or package credential, deployment token, or a PAT.
 
 ## Modes and handling tiers
 
-| Mode      | Classification | Packet                       | Refresh/repair/re-review | Approval/ALL CLEAR  | Merge |
-| --------- | -------------- | ---------------------------- | ------------------------ | ------------------- | ----- |
-| `observe` | Yes            | No                           | No                       | No                  | Never |
-| `assist`  | Yes            | No; non-authorizing evidence | No                       | No                  | Never |
-| `prepare` | Yes            | v2 packet                    | Eligible bounded path    | Exact finalize only | Never |
+| Mode      | Classification | Packet                        | Refresh/repair/re-review | Approval/ALL CLEAR  | Merge |
+| --------- | -------------- | ----------------------------- | ------------------------ | ------------------- | ----- |
+| `observe` | Yes            | No                            | No                       | No                  | Never |
+| `assist`  | Yes            | No; non-authorizing evidence  | No                       | No                  | Never |
+| `prepare` | Yes            | v2 generic or v3 typed packet | Eligible bounded path    | Exact finalize only | Never |
 
 Unknown values normalize to `observe` before any credential is exposed.
 
@@ -337,11 +337,14 @@ or any other collection error fails closed.
 
 ### 3. Produce and publish one bounded repair
 
-A v2 repair packet exists only when identity/lineage, current base, complete
-gate, clear feedback, deterministic attribution, preparable policy, and repair
-attempt lineage all pass. Same-head processing is idempotent. The first
-append-only Repair commit consumes attempt one; a second consumes attempt two.
-There is no third attempt.
+A generic v2 repair packet exists only when identity/lineage, current base,
+complete gate, clear feedback, deterministic attribution, preparable policy,
+and repair attempt lineage all pass. A typed v3 packet may instead represent
+one admitted deterministic protected-runtime synchronization. Its operation is
+actionable even with no failed check: ALL CLEAR would otherwise leave the
+immutable Dependabot target unrealized across the protected runtime. Same-head
+processing is idempotent. The first append-only Repair commit consumes attempt
+one; a second consumes attempt two. There is no third attempt.
 
 Processor check publication is also transition-idempotent. The newest trusted
 exact-head receipt must match mode, disposition/output summary, attempt, packet
@@ -352,8 +355,8 @@ original packet source rather than creating another repair run.
 `.github/workflows/dependabot-prepare-repair.yml` separates planning, durable
 intent, branch mutation, and recovery:
 
-1. **preflight** authenticates the exact Processor v2 packet and terminal
-   processor run;
+1. **preflight** authenticates the exact Processor v2 or v3 packet and terminal
+   processor run, then selects its exact plan kind;
 2. **plan** first runs the trusted `materialize-repair-evidence` command with a
    step-scoped read token. The command authenticates the packet and live PR,
    binds the exact base-to-head compare, re-fetches every expected file through
@@ -369,21 +372,34 @@ intent, branch mutation, and recovery:
    sealed directory and manifest. Paired pre/post hooks seal successful exact
    accesses; large files require explicit one-based bounded Read pages, and Grep
    may locate the relevant ranges. A no-token postflight assertion requires at
-   least one successful exact access before the plan job succeeds;
+   least one successful exact access before the generic plan job succeeds.
+   A `vercel-cli-runtime-sync` v3 packet takes the mutually exclusive
+   model-free path instead: trusted code reads the same exact blob evidence,
+   fetches the exact current and target public npm records, changes only the
+   Vercel regions of the root lock, runs pinned pnpm with scripts, workspace
+   links, and pnpmfile loading disabled to regenerate the standalone lock twice,
+   and emits only the packet's fixed five-path patch set;
 3. **validate** has no secret or write token. It re-fetches exact inputs by Git
    object SHA, including files larger than the Contents API limit, applies
    patches in a disposable credential-free temporary Git tree, enforces
    permitted/forbidden paths, file/edit/byte caps, exact
-   packet/head/base/check IDs, and emits a digest-bound plan;
-4. **stage** alone receives a short-lived Prepare App token and writes exact
+   packet/head/base/check IDs, and emits a digest-bound plan. For the typed v3
+   path it also regenerates independently and requires exact plan equality;
+4. **candidate CLI smoke** runs only for typed v3 after trusted validation on a
+   fresh no-output runner. It binds the canonical validated plan, performs a
+   secretless frozen standalone install with candidate scripts and workspace
+   links disabled, and requires `node <cli> --version` to equal the packet
+   target. Candidate execution is the terminal step: it can veto staging but
+   cannot change the validated plan or produce downstream authority;
+5. **stage** alone receives a short-lived Prepare App token and writes exact
    unreachable blobs, tree, and one commit without moving the branch;
-5. **intent** has no App token. It publishes `Dependabot Repair Intent`
+6. **intent** has no App token. It publishes `Dependabot Repair Intent`
    (`dependabot-repair-intent:v1`) on the staged successor, binding the packet,
    plan, old head, tree, result blobs, exact workflow run, and expected new head;
-6. **mutate** receives a fresh Prepare App token, revalidates the intent and
+7. **mutate** receives a fresh Prepare App token, revalidates the intent and
    exact current ref, then moves only that `dependabot/*` ref with
    `force=false`; and
-7. **receipt/recovery** has no App token. It publishes the completed
+8. **receipt/recovery** has no App token. It publishes the completed
    `Dependabot Repair` check, or recovers that check idempotently after a failed,
    cancelled, timed-out, action-required, or startup-failed source run only when
    the exact intent-bound commit is already the current PR head.
@@ -412,7 +428,7 @@ attempt.
 The prepared-head intake starts a new exact-head Claude review and processor
 cycle. Discard every old check, review, base, and feedback conclusion.
 
-A v2 packet may bind a validated Claude finding or review thread only by exact
+A generic v2 packet may bind a validated Claude finding or review thread only by exact
 identifier, commit/head, and body digest. After the repaired head has a clean
 re-review and complete green gate, finalize may post only:
 
@@ -463,18 +479,29 @@ binds its exact terminal trusted workflow run ID, attempt, workflow SHA, path,
 event, repository, `main` source, status, and conclusion. GitHub's self check
 URL is accepted only for the same check ID and resolved canonical run.
 
-### Processor v2 and repair packet v2
+### Processor v2 and repair packets v2/v3
 
 A packet-issued Processor check uses:
 
 `dependabot-processor:v2:pr=<n>:head=<sha>:mode=prepare:repair=<1|2>:packet=true:digest=<digest>:run=<run-id>:attempt=<run-attempt>`
 
 Its `output.text` is the exact canonical
-`dependabot-repair-packet:v2` JSON. It is deliberately a completed **failure**
-check while repair is required, so it cannot unblock merge. The packet binds
-the exact workflow run/SHA, PR/head/base, attempt, policy/risk, deterministic
-failures or finding digests, permitted/forbidden paths, caps, validation, and
-escalation.
+`dependabot-repair-packet:v2` or `dependabot-repair-packet:v3` JSON. It is
+deliberately a completed **failure** check while repair is required, so it
+cannot unblock merge. Both schemas bind the exact workflow run/SHA,
+PR/head/base, attempt, policy/risk, permitted/forbidden paths, caps, validation,
+and escalation. V2 additionally requires deterministic failure, finding, or
+feedback evidence.
+
+V3 is reserved for the exact
+`dependabot-protected-runtime-sync:v1` operation. Its current
+`vercel-cli-runtime-sync` kind binds the immutable seed Vercel row, stable
+same-major patch/minor target, exact pnpm 10.34.4, exact current-head input
+blobs, and the fixed root/runtime manifest, lockfile, and contract output paths.
+It may carry empty failure/finding/feedback arrays because the missing typed
+runtime synchronization is the actionable invariant. Mixed v2 attempt-one and
+v3 attempt-two lineage remains valid only when every packet, Intent, commit,
+receipt, operation digest, target version, and current-tree contract matches.
 
 ### Refresh v1
 
@@ -525,7 +552,7 @@ External ID:
 `dependabot-repair:v1:pr=<n>:head=<new head>:attempt=<repair attempt>:digest=<digest>:run=<run-id>:run_attempt=<run-attempt>`
 
 The check is completed success. `processorCheckId` and `packetDigest` bind the
-exact parent-head Processor failure check and canonical v2 packet.
+exact parent-head Processor failure check and canonical v2 or v3 packet.
 
 ### ALL CLEAR v1
 
@@ -619,6 +646,7 @@ or failed. Follow the managed failure issue and deployment recovery runbook.
 | Repair/recovery infrastructure failure               | Retry exact evidence twice per phase; then require investigation. |
 | Valid Claude findings                                | Treat as deterministic packet input, not infrastructure failure.  |
 | Eligible deterministic branch failure                | Publish v2 packet only when the bounded repair surface is valid.  |
+| Admitted Vercel protected-runtime target missing     | Publish exact v3 model-free sync packet; require typed proof.     |
 | Existing exact-head packet (`repair-pending`)        | Preserve its run; publish no duplicate packet/check.              |
 | No valid automatic packet (`manual-repair-required`) | Leave the lane and require human repair.                          |
 | Refresh needed                                       | Use request/completed v1 lineage; do not spend repair budget.     |

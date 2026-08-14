@@ -28,6 +28,17 @@ updates:
       prefix-development: chore(deps-dev)
 
     groups:
+      # The protected deployment runtime mirrors the root Vercel CLI pin. Keep
+      # routine CLI rotations isolated so the processor can apply its exact,
+      # model-free runtime synchronizer before asking a maintainer to merge.
+      vercel-cli:
+        applies-to: version-updates
+        patterns:
+          - vercel
+        update-types:
+          - minor
+          - patch
+
       frontend-core:
         applies-to: version-updates
         patterns:
@@ -145,6 +156,15 @@ updates:
       tooling:
         applies-to: version-updates
         dependency-type: development
+        patterns:
+          - "*"
+        exclude-patterns:
+          - vercel
+
+      vercel-cli-security:
+        applies-to: security-updates
+        patterns:
+          - vercel
 
       security-runtime:
         applies-to: security-updates
@@ -153,6 +173,10 @@ updates:
       security-tooling:
         applies-to: security-updates
         dependency-type: development
+        patterns:
+          - "*"
+        exclude-patterns:
+          - vercel
 
   # GitHub Actions
   - package-ecosystem: github-actions

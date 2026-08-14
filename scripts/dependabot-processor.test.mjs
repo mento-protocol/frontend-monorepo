@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -16,6 +17,7 @@ import {
   DEPENDABOT_ALL_CLEAR_SCHEMA,
   DEPENDABOT_CHECK_POLICY,
   DEPENDABOT_PROCESSOR_SCHEMA,
+  DEPENDABOT_PROTECTED_RUNTIME_REPAIR_PACKET_SCHEMA,
   DEPENDABOT_REFRESH_SCHEMA,
   DEPENDABOT_REPAIR_PACKET_SCHEMA,
   DEPENDABOT_REPAIR_SCHEMA,
@@ -71,6 +73,30 @@ const PACKAGE_BLOB = {
   sha: OTHER_SHA,
   type: "blob",
 };
+const VERCEL_REQUIRED_PATHS = [
+  "package.json",
+  "pnpm-lock.yaml",
+  "scripts/vercel-cli-runtime/contract.json",
+  "scripts/vercel-cli-runtime/package.json",
+  "scripts/vercel-cli-runtime/pnpm-lock.yaml",
+];
+const VERCEL_INPUT_PATHS = [
+  "apps/app.mento.org/package.json",
+  "apps/governance.mento.org/package.json",
+  "apps/reserve.mento.org/package.json",
+  "apps/ui.mento.org/package.json",
+  "package.json",
+  "packages/eslint-config/package.json",
+  "packages/typescript-config/package.json",
+  "packages/ui/package.json",
+  "packages/vitest-config/package.json",
+  "packages/web3/package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "scripts/vercel-cli-runtime/contract.json",
+  "scripts/vercel-cli-runtime/package.json",
+  "scripts/vercel-cli-runtime/pnpm-lock.yaml",
+];
 
 function digest(value) {
   return createHash("sha256").update(stableJson(value)).digest("hex");
@@ -350,6 +376,7 @@ function repairReceiptCheck({
   attempt = 1,
   baseSha = BASE_SHA,
   headSha = OTHER_SHA,
+  headRef = "dependabot/github_actions/github-actions-routine-123",
   id = 30_001,
   packetDigest,
   parentHeadSha = HEAD_SHA,
@@ -359,7 +386,7 @@ function repairReceiptCheck({
   const receipt = {
     attempt,
     baseSha,
-    headRef: "dependabot/github_actions/github-actions-routine-123",
+    headRef,
     headSha,
     packetDigest: packetDigest ?? "a".repeat(64),
     parentHeadSha,
@@ -410,6 +437,216 @@ function completeChecks({
 
 function actionBody(name = "actions/setup-node", from = "6.0.0", to = "6.1.0") {
   return `Bumps the github-actions group with 1 update:\n\n| Package | From | To |\n| --- | --- | --- |\n| [${name}](https://github.com/${name}) | \`${from}\` | \`${to}\` |`;
+}
+
+function toolingBody({
+  duplicateVercel = false,
+  vercelFrom = "56.4.1",
+  vercelTo = "56.5.0",
+} = {}) {
+  const rows = [
+    ["knip", "6.31.0", "6.32.0"],
+    ["vercel", vercelFrom, vercelTo],
+    ["@next/eslint-plugin-next", "16.2.12", "16.3.0"],
+    ...(duplicateVercel ? [["vercel", vercelFrom, vercelTo]] : []),
+  ];
+  return `Bumps the tooling group with ${rows.length} updates:\n\n| Package | From | To |\n| --- | --- | --- |\n${rows
+    .map(
+      ([name, from, to]) =>
+        `| [${name}](https://www.npmjs.com/package/${name}) | \`${from}\` | \`${to}\` |`,
+    )
+    .join("\n")}`;
+}
+
+function vercelMetadata({
+  duplicateVercel = false,
+  group = "tooling",
+  vercelFrom = "56.4.1",
+  vercelTo = "56.5.0",
+} = {}) {
+  const parsed = parseDependabotMetadata({
+    body: toolingBody({ duplicateVercel, vercelFrom, vercelTo }),
+    files: [
+      "package.json",
+      "packages/eslint-config/package.json",
+      "pnpm-lock.yaml",
+    ],
+    headRef: "dependabot/npm_and_yarn/tooling-31c5cf6265",
+  });
+  return {
+    ...parsed,
+    dependencyGroup: group,
+    immutableEvidence: {
+      currentHeadMatches: true,
+      dependencyMetadataValid: parsed.groupedUpdateIntegrity.valid,
+      seedCommitSha: HEAD_SHA,
+      seedCommitTrusted: true,
+      source: "dependabot-commit-message",
+      valid: true,
+    },
+  };
+}
+
+function vercelExpectedBlobs() {
+  return VERCEL_INPUT_PATHS.map((path) => ({
+    mode: "100644",
+    path,
+    sha: createHash("sha1").update(path).digest("hex"),
+    type: "blob",
+  }));
+}
+
+function preparedCommit(sha, parent) {
+  return {
+    authorId: PREPARE_ACTOR.botId,
+    authorLogin: PREPARE_ACTOR.botLogin,
+    authorType: "Bot",
+    ...GITHUB_SYSTEM_COMMITTER,
+    parents: [parent],
+    sha,
+    verified: true,
+    verificationReason: "valid",
+  };
+}
+
+function vercelSnapshot({
+  commits,
+  headSha = HEAD_SHA,
+  metadata = vercelMetadata(),
+  protectedVersion = "56.4.1",
+  repairHistoryChecks,
+} = {}) {
+  const expectedBlobs = vercelExpectedBlobs();
+  const expectedByPath = new Map(
+    expectedBlobs.map((entry) => [entry.path, entry]),
+  );
+  const changedPaths = [
+    "package.json",
+    "packages/eslint-config/package.json",
+    "pnpm-lock.yaml",
+  ];
+  return snapshot({
+    baseAncestry: {
+      aheadBy: commits?.length ?? 1,
+      baseCommitSha: BASE_SHA,
+      behindBy: 0,
+      currentBaseIsAncestor: true,
+      currentBaseSha: BASE_SHA,
+      headSha,
+      mergeBaseSha: BASE_SHA,
+      status: "ahead",
+    },
+    checks: completeChecks({ headSha }),
+    commits: commits ?? [
+      {
+        authorLogin: "dependabot[bot]",
+        committerLogin: "dependabot[bot]",
+        sha: HEAD_SHA,
+        verified: true,
+      },
+    ],
+    expectedBlobs,
+    expectedHeadSha: headSha,
+    metadata,
+    protectedRuntime: {
+      contractSchema: "vercel-cli-runtime-contract:v1",
+      contractVersion: protectedVersion,
+      pnpmVersion: "10.34.4",
+      rootVersion: protectedVersion,
+      runtimeVersion: protectedVersion,
+    },
+    pullRequest: {
+      body: toolingBody(),
+      files: changedPaths.map((filename) => ({
+        filename,
+        mode: expectedByPath.get(filename).mode,
+        sha: expectedByPath.get(filename).sha,
+        status: "modified",
+        type: expectedByPath.get(filename).type,
+      })),
+      head: {
+        ref: "dependabot/npm_and_yarn/tooling-31c5cf6265",
+        repo: { fullName: REPOSITORY },
+        sha: headSha,
+      },
+    },
+    repairHistoryChecks,
+  });
+}
+
+function legacyNpmRepairPacket({ headSha = HEAD_SHA } = {}) {
+  const body =
+    "Bumps the tooling group with 1 update:\n\n| Package | From | To |\n| --- | --- | --- |\n| [knip](https://www.npmjs.com/package/knip) | `6.31.0` | `6.32.0` |";
+  const parsed = parseDependabotMetadata({
+    body,
+    files: [PACKAGE_BLOB],
+    headRef: "dependabot/npm_and_yarn/tooling-31c5cf6265",
+  });
+  const result = evaluateDependabotPullRequest(
+    snapshot({
+      checks: completeChecks({ conclusions: { ci: "failure" }, headSha }),
+      expectedHeadSha: headSha,
+      metadata: {
+        ...parsed,
+        immutableEvidence: {
+          dependencyMetadataValid: true,
+          seedCommitSha: HEAD_SHA,
+          valid: true,
+        },
+      },
+      pullRequest: {
+        body,
+        head: {
+          ref: "dependabot/npm_and_yarn/tooling-31c5cf6265",
+          repo: { fullName: REPOSITORY },
+          sha: headSha,
+        },
+      },
+    }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+  assert.equal(result.repairPacket?.schema, DEPENDABOT_REPAIR_PACKET_SCHEMA);
+  return result.repairPacket;
+}
+
+function vercelAfterLegacyRepair({ protectedVersion = "56.4.1" } = {}) {
+  const legacyPacket = legacyNpmRepairPacket();
+  const processorCheck = processorRepairReceipt(1, {
+    headSha: HEAD_SHA,
+    packet: legacyPacket,
+    packetEncoding: "canonical",
+  });
+  const repairCheck = repairReceiptCheck({
+    attempt: 1,
+    headRef: "dependabot/npm_and_yarn/tooling-31c5cf6265",
+    headSha: OTHER_SHA,
+    packetDigest: rawDigest(processorCheck.outputText),
+    parentHeadSha: HEAD_SHA,
+    processorCheckId: processorCheck.id,
+  });
+  return {
+    legacyPacket,
+    processorCheck,
+    repairCheck,
+    snapshot: vercelSnapshot({
+      commits: [
+        {
+          authorLogin: "dependabot[bot]",
+          committerLogin: "dependabot[bot]",
+          sha: HEAD_SHA,
+          verified: true,
+        },
+        preparedCommit(OTHER_SHA, HEAD_SHA),
+      ],
+      headSha: OTHER_SHA,
+      protectedVersion,
+      repairHistoryChecks: [processorCheck, repairCheck],
+    }),
+  };
 }
 
 function cursorReview(commitSha = HEAD_SHA, issueCount = 1) {
@@ -3136,6 +3373,291 @@ test("evaluates exact observe, assist, and prepare dispositions and v2 repair pa
     ).repairPacket,
     null,
   );
+});
+
+test("a green #753-like legacy repair requires a typed Vercel runtime sync", () => {
+  const legacy = vercelAfterLegacyRepair();
+  const result = evaluateDependabotPullRequest(legacy.snapshot, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  assert.equal(result.repairAttempt, 2);
+  assert.equal(result.disposition, "repair-required");
+  assert.deepEqual(result.dependencies, vercelMetadata().dependencies);
+  assert.equal(
+    result.repairPacket?.schema,
+    DEPENDABOT_PROTECTED_RUNTIME_REPAIR_PACKET_SCHEMA,
+  );
+  assert.deepEqual(result.repairPacket?.operation, {
+    dependency: "vercel",
+    fromVersion: "56.4.1",
+    inputPaths: VERCEL_INPUT_PATHS,
+    kind: "vercel-cli-runtime-sync",
+    pnpmVersion: "10.34.4",
+    requiredPaths: VERCEL_REQUIRED_PATHS,
+    schema: "dependabot-protected-runtime-sync:v1",
+    sourceSeedHeadSha: HEAD_SHA,
+    targetVersion: "56.5.0",
+    updateType: "minor",
+  });
+  assert.deepEqual(
+    result.repairPacket?.expectedBlobs.map(({ path }) => path),
+    VERCEL_INPUT_PATHS,
+  );
+  assert.deepEqual(result.repairPacket?.permittedPaths, VERCEL_REQUIRED_PATHS);
+  assert.deepEqual(result.repairPacket?.limits, {
+    maxAddedLines: 600,
+    maxBytes: 65_536,
+    maxChanges: 160,
+    maxDeletedLines: 600,
+    maxFiles: 5,
+  });
+
+  const alignedWithoutProof = evaluateDependabotPullRequest(
+    vercelAfterLegacyRepair({ protectedVersion: "56.5.0" }).snapshot,
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+  assert.equal(alignedWithoutProof.disposition, "repair-required");
+  assert.equal(
+    alignedWithoutProof.repairPacket?.schema,
+    DEPENDABOT_PROTECTED_RUNTIME_REPAIR_PACKET_SCHEMA,
+  );
+});
+
+test("a reachable typed Vercel receipt and exact target state permit preparation", async () => {
+  const legacy = vercelAfterLegacyRepair();
+  const selected = evaluateDependabotPullRequest(legacy.snapshot, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.notEqual(selected.repairPacket, null);
+  const processorCheck = processorRepairReceipt(2, {
+    headSha: OTHER_SHA,
+    id: 10_002,
+    packet: selected.repairPacket,
+    packetEncoding: "canonical",
+  });
+  const repairCheck = repairReceiptCheck({
+    attempt: 2,
+    headRef: "dependabot/npm_and_yarn/tooling-31c5cf6265",
+    headSha: SECOND_HEAD_SHA,
+    id: 30_002,
+    packetDigest: rawDigest(processorCheck.outputText),
+    parentHeadSha: OTHER_SHA,
+    processorCheckId: processorCheck.id,
+  });
+  const prepared = vercelSnapshot({
+    commits: [
+      {
+        authorLogin: "dependabot[bot]",
+        committerLogin: "dependabot[bot]",
+        sha: HEAD_SHA,
+        verified: true,
+      },
+      preparedCommit(OTHER_SHA, HEAD_SHA),
+      preparedCommit(SECOND_HEAD_SHA, OTHER_SHA),
+    ],
+    headSha: SECOND_HEAD_SHA,
+    protectedVersion: "56.5.0",
+    repairHistoryChecks: [
+      legacy.processorCheck,
+      legacy.repairCheck,
+      processorCheck,
+      repairCheck,
+    ],
+  });
+  const result = evaluateDependabotPullRequest(prepared, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  assert.equal(result.disposition, "prepare-candidate");
+  assert.equal(result.repairPacket, null);
+  assert.equal(result.repairAttempts.currentAttempt, 3);
+  assert.deepEqual(result.repairAttempts.protectedRuntimeOperations, [
+    {
+      operation: selected.repairPacket.operation,
+      operationDigest: digest(
+        repairCheck.outputText ? JSON.parse(repairCheck.outputText) : null,
+      ),
+      packetDigest: rawDigest(processorCheck.outputText),
+    },
+  ]);
+
+  let approved = false;
+  let allClearReceipt = null;
+  const currentSnapshot = () => {
+    const current = structuredClone(prepared);
+    if (approved) withCurrentProcessorApproval(current);
+    return current;
+  };
+  await processDependabotSweep({
+    adapter: {
+      approvePullRequest: async () => {
+        approved = true;
+        return processorApprovalResult();
+      },
+      collectPullRequestSnapshot: async () => currentSnapshot(),
+      dismissPullRequestApproval: async () =>
+        assert.fail("the protected runtime candidate must remain approved"),
+      getOutstandingDependabotAutoMergeRequests: async () => [],
+      getOutstandingDependabotProcessorApprovals: async () =>
+        approved
+          ? [
+              {
+                approvalId: 7001,
+                headSha: SECOND_HEAD_SHA,
+                pullRequestNumber: 123,
+              },
+            ]
+          : [],
+      publishAllClear: async ({ receipt }) => {
+        allClearReceipt = receipt;
+        return { id: 50_002 };
+      },
+      publishAllClearInvalidation: async () =>
+        assert.fail("the protected runtime candidate must not be invalidated"),
+      publishProcessorCheck: async () => ({ id: 50_001 }),
+    },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [prepared],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "finalize",
+    publishChecks: true,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.deepEqual(
+    allClearReceipt?.preparation.protectedRuntimeOperations,
+    result.repairAttempts.protectedRuntimeOperations,
+  );
+  const mismatchedSeedReceipt = structuredClone(allClearReceipt);
+  mismatchedSeedReceipt.preparation.protectedRuntimeOperations[0].operation.sourceSeedHeadSha =
+    OTHER_SHA;
+  assert.equal(
+    parseDependabotAllClearReceipt(
+      trustedReceiptCheck({
+        externalId: `${DEPENDABOT_ALL_CLEAR_SCHEMA}:pr=123:head=${SECOND_HEAD_SHA}:base=${BASE_SHA}:digest=${digest(mismatchedSeedReceipt)}:run=${WORKFLOW_CONTEXT.workflowRunId}:attempt=${WORKFLOW_CONTEXT.workflowRunAttempt}`,
+        headSha: SECOND_HEAD_SHA,
+        id: 50_003,
+        name: "Dependabot ALL CLEAR",
+        receipt: mismatchedSeedReceipt,
+        workflowContext: WORKFLOW_CONTEXT,
+        workflowPath: ".github/workflows/dependabot-process.yml",
+      }),
+      REPOSITORY,
+    ),
+    null,
+  );
+});
+
+test("Vercel runtime sync waits for gates and fails closed on unsafe inputs", () => {
+  const pending = vercelSnapshot();
+  pending.checks = completeChecks().slice(0, -1);
+  assert.equal(
+    evaluateDependabotPullRequest(pending, {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    }).disposition,
+    "waiting-checks",
+  );
+  const retry = vercelSnapshot();
+  retry.checks = completeChecks({ conclusions: { "e2e-celo": "failure" } });
+  assert.equal(
+    evaluateDependabotPullRequest(retry, {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    }).disposition,
+    "waiting-retry",
+  );
+
+  for (const metadata of [
+    vercelMetadata({ vercelTo: "57.0.0" }),
+    vercelMetadata({ vercelTo: "56.5.0-rc.1" }),
+    vercelMetadata({ duplicateVercel: true }),
+  ]) {
+    const result = evaluateDependabotPullRequest(vercelSnapshot({ metadata }), {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    });
+    assert.equal(result.disposition, "manual-repair-required");
+    assert.equal(result.repairPacket, null);
+  }
+
+  const missingBlob = vercelSnapshot();
+  missingBlob.expectedBlobs = missingBlob.expectedBlobs.slice(1);
+  const missingResult = evaluateDependabotPullRequest(missingBlob, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(missingResult.disposition, "manual-repair-required");
+  assert.equal(missingResult.repairPacket, null);
+
+  const legacy = vercelAfterLegacyRepair();
+  const secondPacket = {
+    ...legacy.legacyPacket,
+    attemptNumber: 2,
+    headSha: OTHER_SHA,
+  };
+  const secondProcessorCheck = processorRepairReceipt(2, {
+    headSha: OTHER_SHA,
+    id: 10_002,
+    packet: secondPacket,
+    packetEncoding: "canonical",
+  });
+  const secondRepairCheck = repairReceiptCheck({
+    attempt: 2,
+    headRef: "dependabot/npm_and_yarn/tooling-31c5cf6265",
+    headSha: SECOND_HEAD_SHA,
+    id: 30_002,
+    packetDigest: rawDigest(secondProcessorCheck.outputText),
+    parentHeadSha: OTHER_SHA,
+    processorCheckId: secondProcessorCheck.id,
+  });
+  const exhausted = evaluateDependabotPullRequest(
+    vercelSnapshot({
+      commits: [
+        {
+          authorLogin: "dependabot[bot]",
+          committerLogin: "dependabot[bot]",
+          sha: HEAD_SHA,
+          verified: true,
+        },
+        preparedCommit(OTHER_SHA, HEAD_SHA),
+        preparedCommit(SECOND_HEAD_SHA, OTHER_SHA),
+      ],
+      headSha: SECOND_HEAD_SHA,
+      repairHistoryChecks: [
+        legacy.processorCheck,
+        legacy.repairCheck,
+        secondProcessorCheck,
+        secondRepairCheck,
+      ],
+    }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+  assert.equal(exhausted.repairAttempts.currentAttempt, 3);
+  assert.equal(exhausted.disposition, "manual-repair-escalated");
+  assert.equal(exhausted.repairPacket, null);
 });
 
 test("constructed repair packets fail closed when schema-invalid or oversized", () => {
@@ -7910,6 +8432,251 @@ test("live auto-merge disable fails before mutation unless the exact target is t
     /not the current single repository auto-merge request/,
   );
   assert.equal(mutationCalled, false);
+});
+
+function liveVercelSnapshotFetch({
+  current = true,
+  includeContract = true,
+} = {}) {
+  const expectedBlobs = vercelExpectedBlobs();
+  const currentBaseSha = current ? BASE_SHA : MERGE_SHA;
+  const blobDocuments = new Map([
+    [
+      expectedBlobs.find(({ path }) => path === "package.json").sha,
+      {
+        devDependencies: { vercel: "56.4.1" },
+        packageManager: "pnpm@10.34.4",
+      },
+    ],
+    [
+      expectedBlobs.find(
+        ({ path }) => path === "scripts/vercel-cli-runtime/package.json",
+      ).sha,
+      { dependencies: { vercel: "56.4.1" } },
+    ],
+    [
+      expectedBlobs.find(
+        ({ path }) => path === "scripts/vercel-cli-runtime/contract.json",
+      ).sha,
+      {
+        schema: "vercel-cli-runtime-contract:v1",
+        vercelVersion: "56.4.1",
+      },
+    ],
+  ]);
+  const rawPullRequest = {
+    base: {
+      ref: "main",
+      repo: { full_name: REPOSITORY },
+      sha: currentBaseSha,
+    },
+    body: toolingBody(),
+    draft: false,
+    head: {
+      ref: "dependabot/npm_and_yarn/tooling-31c5cf6265",
+      repo: { full_name: REPOSITORY },
+      sha: HEAD_SHA,
+    },
+    labels: [],
+    merge_commit_sha: null,
+    merged: false,
+    node_id: "PR_node",
+    number: 123,
+    state: "open",
+    title: "chore(deps): bump the tooling group",
+    updated_at: "2026-08-10T10:00:00Z",
+    user: { login: "dependabot[bot]" },
+  };
+  return async (url) => {
+    const parsed = new URL(url);
+    const path = parsed.pathname;
+    if (url.endsWith("/graphql")) {
+      return new Response(
+        JSON.stringify({
+          data: {
+            repository: {
+              pullRequest: {
+                autoMergeRequest: null,
+                headRefOid: HEAD_SHA,
+                id: "PR_node",
+                isDraft: false,
+                mergeStateStatus: "CLEAN",
+                reviewDecision: "APPROVED",
+                reviewThreads: {
+                  nodes: [],
+                  pageInfo: { endCursor: null, hasNextPage: false },
+                },
+                updatedAt: "2026-08-10T10:00:00Z",
+              },
+            },
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    if (path === `/repos/${REPOSITORY}/pulls/123`) {
+      return new Response(JSON.stringify(rawPullRequest), { status: 200 });
+    }
+    if (path === `/repos/${REPOSITORY}/pulls/123/files`) {
+      return new Response(
+        JSON.stringify([
+          { filename: "package.json", status: "modified" },
+          {
+            filename: "packages/eslint-config/package.json",
+            status: "modified",
+          },
+          { filename: "pnpm-lock.yaml", status: "modified" },
+        ]),
+        { status: 200 },
+      );
+    }
+    if (path === `/repos/${REPOSITORY}/pulls/123/commits`) {
+      return new Response(
+        JSON.stringify([
+          {
+            author: { login: "dependabot[bot]" },
+            commit: {
+              message: toolingBody(),
+              verification: { reason: "valid", verified: true },
+            },
+            committer: { login: "web-flow" },
+            parents: [{ sha: BASE_SHA }],
+            sha: HEAD_SHA,
+          },
+        ]),
+        { status: 200 },
+      );
+    }
+    if (
+      path === `/repos/${REPOSITORY}/pulls/123/reviews` ||
+      path === `/repos/${REPOSITORY}/issues/123/comments` ||
+      path === `/repos/${REPOSITORY}/issues/123/events`
+    ) {
+      return new Response(JSON.stringify([]), { status: 200 });
+    }
+    if (path === `/repos/${REPOSITORY}/commits/main`) {
+      return new Response(JSON.stringify({ sha: currentBaseSha }), {
+        status: 200,
+      });
+    }
+    if (
+      path === `/repos/${REPOSITORY}/compare/${currentBaseSha}...${HEAD_SHA}`
+    ) {
+      return new Response(
+        JSON.stringify(
+          current
+            ? {
+                ahead_by: 1,
+                base_commit: { sha: currentBaseSha },
+                behind_by: 0,
+                merge_base_commit: { sha: currentBaseSha },
+                status: "ahead",
+              }
+            : {
+                ahead_by: 1,
+                base_commit: { sha: currentBaseSha },
+                behind_by: 1,
+                merge_base_commit: { sha: BASE_SHA },
+                status: "diverged",
+              },
+        ),
+        { status: 200 },
+      );
+    }
+    if (path === `/repos/${REPOSITORY}/git/trees/${HEAD_SHA}`) {
+      return new Response(
+        JSON.stringify({
+          tree: includeContract
+            ? expectedBlobs
+            : expectedBlobs.filter(
+                ({ path: blobPath }) =>
+                  blobPath !== "scripts/vercel-cli-runtime/contract.json",
+              ),
+          truncated: false,
+        }),
+        { status: 200 },
+      );
+    }
+    const blobSha = /\/git\/blobs\/([0-9a-f]{40})$/.exec(path)?.[1];
+    if (blobSha && blobDocuments.has(blobSha)) {
+      const content = JSON.stringify(blobDocuments.get(blobSha));
+      return new Response(
+        JSON.stringify({
+          content: Buffer.from(content).toString("base64"),
+          encoding: "base64",
+          size: Buffer.byteLength(content),
+        }),
+        { status: 200 },
+      );
+    }
+    if (path.endsWith("/check-runs")) {
+      return new Response(JSON.stringify({ check_runs: [] }), { status: 200 });
+    }
+    if (path.endsWith("/statuses")) {
+      return new Response(JSON.stringify([]), { status: 200 });
+    }
+    assert.fail(`Unexpected request: ${url}`);
+  };
+}
+
+test("live snapshot collection binds Vercel operation inputs and parsed target state", async () => {
+  const adapter = createLiveGitHubAdapter({
+    fetchImpl: liveVercelSnapshotFetch(),
+    token: "test-token",
+  });
+  const collected = await adapter.collectPullRequestSnapshot(REPOSITORY, 123);
+  assert.deepEqual(
+    collected.expectedBlobs.map(({ path }) => path),
+    VERCEL_INPUT_PATHS,
+  );
+  assert.deepEqual(
+    collected.metadata.dependencies,
+    vercelMetadata().dependencies,
+  );
+  assert.deepEqual(collected.protectedRuntime, {
+    contractSchema: "vercel-cli-runtime-contract:v1",
+    contractVersion: "56.4.1",
+    pnpmVersion: "10.34.4",
+    rootVersion: "56.4.1",
+    runtimeVersion: "56.4.1",
+  });
+});
+
+test("a stale Vercel head can refresh before newly introduced runtime inputs exist", async () => {
+  const staleAdapter = createLiveGitHubAdapter({
+    fetchImpl: liveVercelSnapshotFetch({
+      current: false,
+      includeContract: false,
+    }),
+    token: "test-token",
+  });
+  const stale = await staleAdapter.collectPullRequestSnapshot(REPOSITORY, 123);
+  assert.equal(stale.protectedRuntime, null);
+  assert.equal(
+    evaluateDependabotPullRequest(stale, {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    }).disposition,
+    "refresh-required",
+  );
+
+  const currentAdapter = createLiveGitHubAdapter({
+    fetchImpl: liveVercelSnapshotFetch({ includeContract: false }),
+    token: "test-token",
+  });
+  const current = await currentAdapter.collectPullRequestSnapshot(
+    REPOSITORY,
+    123,
+  );
+  assert.equal(current.protectedRuntime, null);
+  const evaluated = evaluateDependabotPullRequest(current, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(evaluated.disposition, "manual-repair-required");
+  assert.equal(evaluated.repairPacket, null);
 });
 
 test("live snapshot collection rejects a PR head race after files, commits, and checks were read", async () => {

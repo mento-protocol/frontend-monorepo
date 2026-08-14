@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,6 +17,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  assertCandidateDeploymentIdPrerequisites,
   assertDeploymentIdPrerequisites,
   assertPrebuiltDeploymentId,
   assertValidDeploymentId,
@@ -26,7 +28,10 @@ import {
   isVersionGreaterThan,
   VERCEL_TARGETS,
 } from "./vercel-prebuilt.mjs";
-import { assertVercelCliRuntimeContract } from "./vercel-cli-runtime-contract.mjs";
+import {
+  assertVercelCliRuntimeContract,
+  PINNED_VERCEL_CLI_VERSION,
+} from "./vercel-cli-runtime-contract.mjs";
 import {
   assertSharpOutputTrace,
   isSharpManifestPath,
@@ -42,12 +47,14 @@ const scriptPath = fileURLToPath(
   new URL("./vercel-prebuilt.mjs", import.meta.url),
 );
 const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567";
-const FORMER_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
-  "957ccb3b8431add07a144e77966b4a05733aaca6f21cd071c937861fc10189d4";
 const FORMER_VERCEL_CLI_RUNTIME_OVERRIDE_SHA256 =
   "301165d803f4cc7db4524ea3a7a02b33db772505c04fdc9025860b244bcb447b";
-const ACTIVE_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256 =
-  "2dbd0eba57b119870bcd2ba43f6cf726bb52c85d8ec03f4999030e9931e5ed36";
+const activeVercelCliRuntimeContract = JSON.parse(
+  readFileSync(
+    join(repoRoot, "scripts", "vercel-cli-runtime", "contract.json"),
+    "utf8",
+  ),
+);
 
 function deploymentId(overrides = {}) {
   return generateVercelDeploymentId({
@@ -70,6 +77,10 @@ function createVersionContractFixture() {
       join(runtimeRoot, file),
     );
   }
+  copyFileSync(
+    join(repoRoot, "scripts", "vercel-cli-runtime", "contract.json"),
+    join(runtimeRoot, "contract.json"),
+  );
   return fixtureRoot;
 }
 
@@ -246,15 +257,15 @@ test("resolved Next.js and exact Vercel CLI satisfy custom-ID prerequisites", ()
   const prerequisites = assertDeploymentIdPrerequisites(repoRoot);
   const expected = {
     next: "16.2.12",
-    vercel: "56.4.1",
+    vercel: PINNED_VERCEL_CLI_VERSION,
     vercelCliRuntime: {
       lockfileSha256: prerequisites.vercelCliRuntime.lockfileSha256,
-      vercel: "56.4.1",
+      vercel: PINNED_VERCEL_CLI_VERSION,
     },
   };
   assert.equal(
     prerequisites.vercelCliRuntime.lockfileSha256,
-    ACTIVE_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
+    activeVercelCliRuntimeContract.lockfileSha256,
   );
   assert.deepEqual(prerequisites, expected);
   assert.deepEqual(
@@ -268,7 +279,161 @@ test("resolved Next.js and exact Vercel CLI satisfy custom-ID prerequisites", ()
     expected,
   );
   assert.equal(isVersionGreaterThan("16.2.10", "16.2.0-canary.15"), true);
-  assert.equal(isVersionGreaterThan("56.4.1", "50.3.3"), true);
+  assert.equal(isVersionGreaterThan(PINNED_VERCEL_CLI_VERSION, "50.3.3"), true);
+});
+
+test("candidate-only version check accepts a self-consistent rotation without changing controller authority", () => {
+  const fixtureRoot = createVersionContractFixture();
+  const runtimeRoot = join(fixtureRoot, "scripts", "vercel-cli-runtime");
+  const targetVersion = "56.5.0";
+  const targetIntegrity =
+    "sha512-wAKpT8DFSbnwlgbS711fbvxGjOfQeb1n+NcaBaSC4onq9eJAjbPfERrjrKE4GDsV8dkoBo0627lp0QxbLCGFiw==";
+  try {
+    const rootPackagePath = join(fixtureRoot, "package.json");
+    const rootPackage = JSON.parse(readFileSync(rootPackagePath, "utf8"));
+    rootPackage.devDependencies.vercel = targetVersion;
+    writeFileSync(rootPackagePath, `${JSON.stringify(rootPackage, null, 2)}\n`);
+    const rootLockPath = join(fixtureRoot, "pnpm-lock.yaml");
+    writeFileSync(
+      rootLockPath,
+      readFileSync(rootLockPath, "utf8")
+        .replaceAll(PINNED_VERCEL_CLI_VERSION, targetVersion)
+        .replaceAll("6.51.0", "6.51.1")
+        .replaceAll(
+          activeVercelCliRuntimeContract.registryIntegrity,
+          targetIntegrity,
+        ),
+    );
+
+    const runtimePackagePath = join(runtimeRoot, "package.json");
+    const runtimePackage = JSON.parse(readFileSync(runtimePackagePath, "utf8"));
+    runtimePackage.dependencies["@vercel/python"] = "6.51.1";
+    runtimePackage.dependencies.vercel = targetVersion;
+    const runtimePackageBytes = `${JSON.stringify(runtimePackage, null, 2)}\n`;
+    writeFileSync(runtimePackagePath, runtimePackageBytes);
+    const runtimeLockPath = join(runtimeRoot, "pnpm-lock.yaml");
+    const runtimeLockBytes = readFileSync(runtimeLockPath, "utf8")
+      .replaceAll(PINNED_VERCEL_CLI_VERSION, targetVersion)
+      .replaceAll("6.51.0", "6.51.1")
+      .replaceAll(
+        activeVercelCliRuntimeContract.registryIntegrity,
+        targetIntegrity,
+      );
+    writeFileSync(runtimeLockPath, runtimeLockBytes);
+    const contract = {
+      lockfileSha256: createHash("sha256")
+        .update(runtimeLockBytes)
+        .digest("hex"),
+      manifestSha256: createHash("sha256")
+        .update(runtimePackageBytes)
+        .digest("hex"),
+      overridesSha256: canonicalOverrideSha256(rootPackage.pnpm.overrides),
+      registryIntegrity: targetIntegrity,
+      runtimeDependenciesSha256: canonicalOverrideSha256(
+        runtimePackage.dependencies,
+      ),
+      schema: "vercel-cli-runtime-contract:v1",
+      vercelVersion: targetVersion,
+    };
+    writeFileSync(
+      join(runtimeRoot, "contract.json"),
+      `${JSON.stringify(contract, null, 2)}\n`,
+    );
+
+    const candidate = assertCandidateDeploymentIdPrerequisites(fixtureRoot);
+    assert.equal(candidate.vercel, targetVersion);
+    assert.equal(candidate.vercelCliRuntime.vercel, targetVersion);
+    assert.equal(
+      PINNED_VERCEL_CLI_VERSION,
+      activeVercelCliRuntimeContract.vercelVersion,
+    );
+    assert.notEqual(PINNED_VERCEL_CLI_VERSION, targetVersion);
+    assert.equal(
+      JSON.parse(
+        execFileSync(
+          process.execPath,
+          [scriptPath, "check-candidate-versions", "--repo-root", fixtureRoot],
+          { encoding: "utf8" },
+        ),
+      ).vercel,
+      targetVersion,
+    );
+    assert.throws(
+      () => assertDeploymentIdPrerequisites(fixtureRoot),
+      /root Vercel CLI contract is invalid/,
+    );
+  } finally {
+    rmSync(fixtureRoot, { force: true, recursive: true });
+  }
+});
+
+test("candidate runtime contract rejects a manifest dependency with stale lock resolution", () => {
+  const fixtureRoot = createVersionContractFixture();
+  const runtimeRoot = join(fixtureRoot, "scripts", "vercel-cli-runtime");
+  try {
+    const packagePath = join(runtimeRoot, "package.json");
+    const packageMetadata = JSON.parse(readFileSync(packagePath, "utf8"));
+    packageMetadata.dependencies["@vercel/python"] = "6.51.1";
+    const packageBytes = `${JSON.stringify(packageMetadata, null, 2)}\n`;
+    writeFileSync(packagePath, packageBytes);
+    const contractPath = join(runtimeRoot, "contract.json");
+    const contract = JSON.parse(readFileSync(contractPath, "utf8"));
+    contract.manifestSha256 = createHash("sha256")
+      .update(packageBytes)
+      .digest("hex");
+    contract.runtimeDependenciesSha256 = canonicalOverrideSha256(
+      packageMetadata.dependencies,
+    );
+    writeFileSync(contractPath, `${JSON.stringify(contract, null, 2)}\n`);
+    assert.throws(
+      () => assertCandidateDeploymentIdPrerequisites(fixtureRoot),
+      /lockfile importer is stale: @vercel\/python/u,
+    );
+  } finally {
+    rmSync(fixtureRoot, { force: true, recursive: true });
+  }
+});
+
+test("candidate fixed-path checks reject symlinks, devices, and oversized inputs", () => {
+  const symlinkFixture = createVersionContractFixture();
+  try {
+    const rootPackagePath = join(symlinkFixture, "package.json");
+    const savedPackagePath = join(symlinkFixture, "saved-package.json");
+    writeFileSync(savedPackagePath, readFileSync(rootPackagePath));
+    rmSync(rootPackagePath);
+    symlinkSync(savedPackagePath, rootPackagePath);
+    assert.throws(
+      () => assertCandidateDeploymentIdPrerequisites(symlinkFixture),
+      /Root package manifest is unreadable or unsafe/u,
+    );
+  } finally {
+    rmSync(symlinkFixture, { force: true, recursive: true });
+  }
+
+  assert.throws(
+    () =>
+      assertVercelCliRuntimeContract({
+        contractPath: "/dev/null",
+        lockfilePath: "/dev/null",
+        packageJsonPath: "/dev/null",
+        rootPackageJsonPath: "/dev/null",
+      }),
+    /runtime contract is unreadable/u,
+  );
+
+  const oversizedFixture = createVersionContractFixture();
+  try {
+    writeFileSync(
+      join(oversizedFixture, "scripts", "vercel-cli-runtime", "contract.json"),
+      "x".repeat(64 * 1024 + 1),
+    );
+    assert.throws(
+      () => assertCandidateDeploymentIdPrerequisites(oversizedFixture),
+      /runtime contract is unreadable/u,
+    );
+  } finally {
+    rmSync(oversizedFixture, { force: true, recursive: true });
+  }
 });
 
 test("trusted controller accepts only the active Vercel CLI runtime pair", () => {
@@ -287,11 +452,17 @@ test("trusted controller accepts only the active Vercel CLI runtime pair", () =>
       "vercel-cli-runtime",
       "pnpm-lock.yaml",
     ),
+    contractPath: join(
+      fixtureRoot,
+      "scripts",
+      "vercel-cli-runtime",
+      "contract.json",
+    ),
   };
   try {
     const activeDigest =
       assertVercelCliRuntimeContract(contractPaths).lockfileSha256;
-    assert.equal(activeDigest, ACTIVE_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256);
+    assert.equal(activeDigest, activeVercelCliRuntimeContract.lockfileSha256);
     const activeLockfile = readFileSync(contractPaths.lockfilePath, "utf8");
     const activeOverrides = JSON.parse(
       readFileSync(contractPaths.rootPackageJsonPath, "utf8"),
@@ -302,10 +473,6 @@ test("trusted controller accepts only the active Vercel CLI runtime pair", () =>
       ...activeOverrides,
       "nanoid@<3.3.18": "3.3.19",
     };
-    assert.equal(
-      createHash("sha256").update(formerLockfile).digest("hex"),
-      FORMER_VERCEL_CLI_RUNTIME_LOCKFILE_SHA256,
-    );
     assert.equal(
       canonicalOverrideSha256(formerOverrides),
       FORMER_VERCEL_CLI_RUNTIME_OVERRIDE_SHA256,
@@ -319,7 +486,7 @@ test("trusted controller accepts only the active Vercel CLI runtime pair", () =>
         overrides: formerOverrides,
       },
       {
-        expected: /lockfile and overrides are not an approved pair/,
+        expected: /runtime manifest is not exact/,
         lockfile: activeLockfile,
         name: "active lockfile with former overrides",
         overrides: formerOverrides,
@@ -337,7 +504,7 @@ test("trusted controller accepts only the active Vercel CLI runtime pair", () =>
         overrides: activeOverrides,
       },
       {
-        expected: /lockfile and overrides are not an approved pair/,
+        expected: /runtime manifest is not exact/,
         lockfile: activeLockfile,
         name: "unreviewed overrides",
         overrides: unknownOverrides,
@@ -373,7 +540,7 @@ test("version check rejects standalone pin, override, patch, and lockfile drift"
       },
     },
     {
-      expected: /lockfile and overrides are not an approved pair/,
+      expected: /runtime manifest is not exact/,
       mutate(fixtureRoot) {
         for (const path of [
           join(fixtureRoot, "package.json"),

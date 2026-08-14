@@ -36,6 +36,7 @@ jobs:
       packet_base64: ${{ steps.packet.outputs.packet_base64 }}
       packet_json: ${{ steps.packet.outputs.packet_json }}
       packet_digest: ${{ steps.packet.outputs.packet_digest }}
+      plan_kind: ${{ steps.packet.outputs.plan_kind }}
       processor_check_id: ${{ steps.packet.outputs.processor_check_id }}
       pull_request_number: ${{ steps.packet.outputs.pull_request_number }}
       repair_attempt: ${{ steps.packet.outputs.repair_attempt }}
@@ -191,7 +192,7 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      structured_output: ${{ steps.claude-repair.outputs.structured_output }}
+      structured_output: ${{ steps.plan-output.outputs.structured_output }}
     steps:
       - name: Check out only the exact trusted workflow source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -222,6 +223,7 @@ jobs:
 
       - name: Plan the exact packet-bound repair
         id: claude-repair
+        if: needs.preflight.outputs.plan_kind == 'claude-repair'
         uses: anthropics/claude-code-action/base-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1.0.183
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -310,7 +312,61 @@ jobs:
             --add-dir "${{ steps.evidence.outputs.evidence_root }}"
             --json-schema '{"type":"object","additionalProperties":false,"required":["schema","repository","pullRequestNumber","parentHeadSha","baseSha","processorCheckId","packetDigest","attempt","summary","edits"],"properties":{"schema":{"const":"dependabot-repair-plan:v1"},"repository":{"const":"mento-protocol/frontend-monorepo"},"pullRequestNumber":{"type":"integer","minimum":1},"parentHeadSha":{"type":"string","pattern":"^[0-9a-f]{40}$"},"baseSha":{"type":"string","pattern":"^[0-9a-f]{40}$"},"processorCheckId":{"type":"integer","minimum":1},"packetDigest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"attempt":{"type":"integer","minimum":1,"maximum":2},"summary":{"type":"string","minLength":1,"maxLength":500},"edits":{"type":"array","minItems":1,"maxItems":6,"items":{"type":"object","additionalProperties":false,"required":["path","expectedBlobSha","patch"],"properties":{"path":{"type":"string","minLength":1,"maxLength":300},"expectedBlobSha":{"type":"string","pattern":"^[0-9a-f]{40}$"},"patch":{"type":"string","description":"Valid contextual unified diff with exact hunk counts, required diff marker prefixes, and unchanged context before and after each changed run unless it touches a file boundary.","minLength":1,"maxLength":8192}}}}}}'
 
+      - name: Install the exact model-free planner pnpm
+        if: needs.preflight.outputs.plan_kind == 'protected-runtime-sync'
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v4
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+        with:
+          standalone: true
+          version: 10.34.4
+
+      - name: Prove the exact model-free planner pnpm and registry
+        if: needs.preflight.outputs.plan_kind == 'protected-runtime-sync'
+        shell: bash
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+        run: |
+          set -euo pipefail
+          test "$(pnpm --version)" = "10.34.4"
+          test "$(pnpm config get registry)" = "https://registry.npmjs.org/"
+
+      - name: Generate the protected-runtime sync plan once
+        id: protected-runtime-sync-first
+        if: needs.preflight.outputs.plan_kind == 'protected-runtime-sync'
+        shell: bash
+        env:
+          EVIDENCE_MANIFEST: ${{ steps.evidence.outputs.evidence_manifest }}
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+          PACKET_BASE64: ${{ needs.preflight.outputs.packet_base64 }}
+          PROCESSOR_CHECK_ID: ${{ needs.preflight.outputs.processor_check_id }}
+        run: |
+          set -euo pipefail
+          node scripts/dependabot-protected-runtime-sync.mjs generate-plan \
+            --packet-base64 "$PACKET_BASE64" \
+            --evidence-manifest "$EVIDENCE_MANIFEST" \
+            --processor-check-id "$PROCESSOR_CHECK_ID" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Generate the protected-runtime sync plan again
+        id: protected-runtime-sync-second
+        if: needs.preflight.outputs.plan_kind == 'protected-runtime-sync'
+        shell: bash
+        env:
+          EVIDENCE_MANIFEST: ${{ steps.evidence.outputs.evidence_manifest }}
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+          PACKET_BASE64: ${{ needs.preflight.outputs.packet_base64 }}
+          PROCESSOR_CHECK_ID: ${{ needs.preflight.outputs.processor_check_id }}
+        run: |
+          set -euo pipefail
+          node scripts/dependabot-protected-runtime-sync.mjs generate-plan \
+            --packet-base64 "$PACKET_BASE64" \
+            --evidence-manifest "$EVIDENCE_MANIFEST" \
+            --processor-check-id "$PROCESSOR_CHECK_ID" \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Require a completed exact evidence read
+        if: needs.preflight.outputs.plan_kind == 'claude-repair'
         shell: bash
         env:
           DEPENDABOT_REPAIR_EVIDENCE_MANIFEST: ${{ steps.evidence.outputs.evidence_manifest }}
@@ -319,6 +375,44 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/dependabot-repair-evidence-tool-guard.mjs --verify-completion
+
+      - name: Select exactly one typed repair plan
+        id: plan-output
+        shell: bash
+        env:
+          CLAUDE_PLAN: ${{ steps.claude-repair.outputs.structured_output }}
+          FIRST_PROTECTED_RUNTIME_PLAN: ${{ steps.protected-runtime-sync-first.outputs.structured_output }}
+          PLAN_KIND: ${{ needs.preflight.outputs.plan_kind }}
+          SECOND_PROTECTED_RUNTIME_PLAN: ${{ steps.protected-runtime-sync-second.outputs.structured_output }}
+        run: |
+          set -euo pipefail
+          node --input-type=module --eval '
+            import { appendFileSync } from "node:fs";
+
+            const kind = process.env.PLAN_KIND;
+            const claude = process.env.CLAUDE_PLAN ?? "";
+            const first = process.env.FIRST_PROTECTED_RUNTIME_PLAN ?? "";
+            const second = process.env.SECOND_PROTECTED_RUNTIME_PLAN ?? "";
+            let selected;
+            if (kind === "claude-repair") {
+              if (claude.length === 0 || first.length !== 0 || second.length !== 0) {
+                throw new Error("Claude repair did not produce exactly one plan");
+              }
+              selected = claude;
+            } else if (kind === "protected-runtime-sync") {
+              if (claude.length !== 0 || first.length === 0 || first !== second) {
+                throw new Error("Protected-runtime plans are absent or non-deterministic");
+              }
+              selected = first;
+            } else {
+              throw new Error("Unknown repair plan kind");
+            }
+            JSON.parse(selected);
+            appendFileSync(
+              process.env.GITHUB_OUTPUT,
+              `structured_output<<DEPENDABOT_PLAN_EOF\n${selected}\nDEPENDABOT_PLAN_EOF\n`,
+            );
+          '
 
   validate:
     name: Validate patches without secrets or write authority
@@ -337,6 +431,32 @@ jobs:
       validated_plan_base64: ${{ steps.validate.outputs.validated_plan_base64 }}
       validated_plan_digest: ${{ steps.validate.outputs.validated_plan_digest }}
     steps:
+      - name: Check out only the exact trusted workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Install the exact model-free verifier pnpm
+        if: needs.preflight.outputs.plan_kind == 'protected-runtime-sync'
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v4
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+        with:
+          standalone: true
+          version: 10.34.4
+
+      - name: Prove the exact model-free verifier pnpm and registry
+        if: needs.preflight.outputs.plan_kind == 'protected-runtime-sync'
+        shell: bash
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+        run: |
+          set -euo pipefail
+          test "$(pnpm --version)" = "10.34.4"
+          test "$(pnpm config get registry)" = "https://registry.npmjs.org/"
+
       - name: Materialize the trusted preparation validator
         id: validator
         shell: bash
@@ -358,6 +478,45 @@ jobs:
           chmod 0500 "$trusted_validator"
           echo "path=$trusted_validator" >> "$GITHUB_OUTPUT"
 
+      - name: Materialize exact packet-bound verification evidence
+        id: verification-evidence
+        if: needs.preflight.outputs.plan_kind == 'protected-runtime-sync'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKET_BASE64: ${{ needs.preflight.outputs.packet_base64 }}
+          PACKET_DIGEST: ${{ needs.preflight.outputs.packet_digest }}
+          PROCESSOR_CHECK_ID: ${{ needs.preflight.outputs.processor_check_id }}
+          REPOSITORY: ${{ github.repository }}
+          VALIDATOR_PATH: ${{ steps.validator.outputs.path }}
+        run: |
+          set -euo pipefail
+          evidence_root="$RUNNER_TEMP/dependabot-repair-verification-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          node "$VALIDATOR_PATH" materialize-repair-evidence \
+            --repository "$REPOSITORY" \
+            --packet-base64 "$PACKET_BASE64" \
+            --packet-digest "$PACKET_DIGEST" \
+            --processor-check-id "$PROCESSOR_CHECK_ID" \
+            --output-root "$evidence_root" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Independently verify the protected-runtime sync plan
+        if: needs.preflight.outputs.plan_kind == 'protected-runtime-sync'
+        shell: bash
+        env:
+          EVIDENCE_MANIFEST: ${{ steps.verification-evidence.outputs.evidence_manifest }}
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+          PACKET_BASE64: ${{ needs.preflight.outputs.packet_base64 }}
+          PLAN_JSON: ${{ needs.plan.outputs.structured_output }}
+          PROCESSOR_CHECK_ID: ${{ needs.preflight.outputs.processor_check_id }}
+        run: |
+          set -euo pipefail
+          node scripts/dependabot-protected-runtime-sync.mjs verify-plan \
+            --packet-base64 "$PACKET_BASE64" \
+            --evidence-manifest "$EVIDENCE_MANIFEST" \
+            --processor-check-id "$PROCESSOR_CHECK_ID" \
+            --plan-json "$PLAN_JSON"
+
       - name: Validate the bounded repair plan against exact blobs
         id: validate
         shell: bash
@@ -376,12 +535,97 @@ jobs:
             --processor-check-id "${{ needs.preflight.outputs.processor_check_id }}" \
             --github-output "$GITHUB_OUTPUT"
 
-  stage:
-    name: Stage one unreachable exact Repair App commit
-    needs: [preflight, validate]
+  candidate_cli_smoke:
+    name: Smoke the generated candidate CLI without authority
+    needs: [preflight, plan, validate]
     if: >-
       needs.preflight.result == 'success' &&
-      needs.validate.result == 'success'
+      needs.plan.result == 'success' &&
+      needs.validate.result == 'success' &&
+      needs.preflight.outputs.plan_kind == 'protected-runtime-sync'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out only the exact trusted workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Install the exact terminal-smoke pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v4
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+        with:
+          standalone: true
+          version: 10.34.4
+
+      - name: Prove the exact terminal-smoke pnpm and registry
+        shell: bash
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+        run: |
+          set -euo pipefail
+          test "$(pnpm --version)" = "10.34.4"
+          test "$(pnpm config get registry)" = "https://registry.npmjs.org/"
+
+      - name: Materialize exact packet-bound terminal-smoke evidence
+        id: evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKET_BASE64: ${{ needs.preflight.outputs.packet_base64 }}
+          PACKET_DIGEST: ${{ needs.preflight.outputs.packet_digest }}
+          PROCESSOR_CHECK_ID: ${{ needs.preflight.outputs.processor_check_id }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          evidence_root="$RUNNER_TEMP/dependabot-repair-terminal-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          node scripts/dependabot-preparation-receipts.mjs materialize-repair-evidence \
+            --repository "$REPOSITORY" \
+            --packet-base64 "$PACKET_BASE64" \
+            --packet-digest "$PACKET_DIGEST" \
+            --processor-check-id "$PROCESSOR_CHECK_ID" \
+            --output-root "$evidence_root" \
+            --github-output "$GITHUB_OUTPUT"
+
+      # Candidate registry code executes only here, after authoritative plan
+      # validation, on this fresh runner. This terminal step emits no output.
+      - name: Execute the generated candidate CLI as a terminal smoke
+        shell: bash
+        env:
+          EVIDENCE_MANIFEST: ${{ steps.evidence.outputs.evidence_manifest }}
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+          PACKET_BASE64: ${{ needs.preflight.outputs.packet_base64 }}
+          PROCESSOR_CHECK_ID: ${{ needs.preflight.outputs.processor_check_id }}
+          VALIDATED_PLAN_BASE64: ${{ needs.validate.outputs.validated_plan_base64 }}
+          VALIDATED_PLAN_DIGEST: ${{ needs.validate.outputs.validated_plan_digest }}
+        run: |
+          set -euo pipefail
+          node scripts/dependabot-protected-runtime-sync.mjs candidate-cli-smoke \
+            --packet-base64 "$PACKET_BASE64" \
+            --evidence-manifest "$EVIDENCE_MANIFEST" \
+            --processor-check-id "$PROCESSOR_CHECK_ID" \
+            --validated-plan-base64 "$VALIDATED_PLAN_BASE64" \
+            --validated-plan-digest "$VALIDATED_PLAN_DIGEST"
+
+  stage:
+    name: Stage one unreachable exact Repair App commit
+    needs: [preflight, validate, candidate_cli_smoke]
+    if: >-
+      always() &&
+      needs.preflight.result == 'success' &&
+      needs.validate.result == 'success' &&
+      ((needs.preflight.outputs.plan_kind == 'protected-runtime-sync' &&
+        needs.candidate_cli_smoke.result == 'success') ||
+       (needs.preflight.outputs.plan_kind != 'protected-runtime-sync' &&
+        needs.candidate_cli_smoke.result == 'skipped'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

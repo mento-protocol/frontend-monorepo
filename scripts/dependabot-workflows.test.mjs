@@ -185,6 +185,36 @@ test("npm group routing isolates sensitive dependencies and covers the workspace
   );
   const enumeratedGroups = ["frontend-core", "web3-stack", "ui-styling"];
   const productionMisc = npmConfig.groups["production-misc"];
+  assert.deepEqual(npmConfig.groups["vercel-cli"], {
+    "applies-to": "version-updates",
+    patterns: ["vercel"],
+    "update-types": ["minor", "patch"],
+  });
+  assert.deepEqual(npmConfig.groups["vercel-cli-security"], {
+    "applies-to": "security-updates",
+    patterns: ["vercel"],
+  });
+  assert.ok(
+    npmConfig.groups.tooling["exclude-patterns"].includes("vercel"),
+    "the broad development group must not absorb Vercel CLI rotations",
+  );
+  assert.ok(
+    npmConfig.groups["security-tooling"]["exclude-patterns"].includes("vercel"),
+    "the broad security group must not absorb Vercel CLI security rotations",
+  );
+  for (const dependencyType of ["production", "development"]) {
+    for (const updateType of ["minor", "patch"]) {
+      assert.equal(
+        firstDependabotGroup(
+          npmConfig.groups,
+          "vercel",
+          dependencyType,
+          updateType,
+        ),
+        "vercel-cli",
+      );
+    }
+  }
   assert.deepEqual(productionMisc.patterns, ["*"]);
   assert.deepEqual(npmConfig.cooldown, {
     "default-days": 7,
@@ -294,7 +324,7 @@ test("embedded workflow JavaScript parses before GitHub executes it", () => {
     [processorPath, 3],
     [dependabotReviewPath, 6],
     [preparedIntakePath, 1],
-    [repairPath, 2],
+    [repairPath, 3],
   ]);
   for (const [path, expectedCount] of expectedModuleCounts) {
     const modules = [
@@ -1353,6 +1383,7 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
   const preflight = repair.jobs.preflight;
   const plan = repair.jobs.plan;
   const validate = repair.jobs.validate;
+  const candidateCliSmoke = repair.jobs.candidate_cli_smoke;
   const stage = repair.jobs.stage;
   const intent = repair.jobs.intent;
   const mutate = repair.jobs.mutate;
@@ -1367,6 +1398,7 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
   assert.deepEqual(preflight.permissions, readPermissions);
   assert.deepEqual(plan.permissions, readPermissions);
   assert.deepEqual(validate.permissions, readPermissions);
+  assert.deepEqual(candidateCliSmoke.permissions, readPermissions);
   assert.deepEqual(stage.permissions, readPermissions);
   assert.deepEqual(mutate.permissions, readPermissions);
   assert.deepEqual(intent.permissions, {
@@ -1397,10 +1429,18 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
   assert.match(envelope.run, /processorReceipt/);
   assert.match(envelope.run, /retryCount/);
 
-  const checkout = plan.steps[0];
-  const evidence = plan.steps[1];
-  const planner = plan.steps[2];
-  const evidenceCompletion = plan.steps[3];
+  const checkout = plan.steps.find(
+    (step) => step.name === "Check out only the exact trusted workflow source",
+  );
+  const evidence = plan.steps.find(
+    (step) => step.name === "Materialize exact packet-bound repair evidence",
+  );
+  const planner = plan.steps.find(
+    (step) => step.name === "Plan the exact packet-bound repair",
+  );
+  const evidenceCompletion = plan.steps.find(
+    (step) => step.name === "Require a completed exact evidence read",
+  );
   assert.equal(plan.name, "Produce a bounded sealed-evidence repair plan");
   assert.deepEqual(checkout.with, {
     "fetch-depth": 1,
@@ -1426,6 +1466,10 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
   assert.match(evidence.run, /--github-output "\$GITHUB_OUTPUT"/);
 
   assert.equal(planner.uses, claudeBaseAction);
+  assert.equal(
+    planner.if,
+    "needs.preflight.outputs.plan_kind == 'claude-repair'",
+  );
   assert.equal(Object.hasOwn(planner.with, "github_token"), false);
   assert.equal(Object.hasOwn(planner.with, "allowed_bots"), false);
   assert.equal(Object.hasOwn(planner.with, "additional_permissions"), false);
@@ -1557,6 +1601,86 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
     evidenceCompletion.run,
     /dependabot-repair-evidence-tool-guard\.mjs --verify-completion/,
   );
+  assert.equal(
+    evidenceCompletion.if,
+    "needs.preflight.outputs.plan_kind == 'claude-repair'",
+  );
+
+  assert.equal(
+    preflight.outputs.plan_kind,
+    "${{ steps.packet.outputs.plan_kind }}",
+  );
+  assert.equal(
+    plan.outputs.structured_output,
+    "${{ steps.plan-output.outputs.structured_output }}",
+  );
+  const modelFreePnpm = plan.steps.find(
+    (step) => step.name === "Install the exact model-free planner pnpm",
+  );
+  const modelFreePnpmProof = plan.steps.find(
+    (step) =>
+      step.name === "Prove the exact model-free planner pnpm and registry",
+  );
+  const firstModelFreePlan = plan.steps.find(
+    (step) => step.name === "Generate the protected-runtime sync plan once",
+  );
+  const secondModelFreePlan = plan.steps.find(
+    (step) => step.name === "Generate the protected-runtime sync plan again",
+  );
+  const planOutput = plan.steps.find(
+    (step) => step.name === "Select exactly one typed repair plan",
+  );
+  assert.equal(
+    modelFreePnpm.if,
+    "needs.preflight.outputs.plan_kind == 'protected-runtime-sync'",
+  );
+  assert.equal(
+    modelFreePnpm.uses,
+    "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86",
+  );
+  assert.deepEqual(modelFreePnpm.with, {
+    standalone: true,
+    version: "10.34.4",
+  });
+  assert.deepEqual(modelFreePnpm.env, {
+    NPM_CONFIG_REGISTRY: "https://registry.npmjs.org/",
+  });
+  assert.match(modelFreePnpmProof.run, /pnpm --version.*10\.34\.4/s);
+  assert.match(
+    modelFreePnpmProof.run,
+    /pnpm config get registry.*https:\/\/registry\.npmjs\.org\//s,
+  );
+  for (const generator of [firstModelFreePlan, secondModelFreePlan]) {
+    assert.equal(
+      generator.if,
+      "needs.preflight.outputs.plan_kind == 'protected-runtime-sync'",
+    );
+    assert.deepEqual(Object.keys(generator.env).sort(), [
+      "EVIDENCE_MANIFEST",
+      "NPM_CONFIG_REGISTRY",
+      "PACKET_BASE64",
+      "PROCESSOR_CHECK_ID",
+    ]);
+    assert.equal(
+      generator.env.NPM_CONFIG_REGISTRY,
+      "https://registry.npmjs.org/",
+    );
+    assert.match(
+      generator.run,
+      /dependabot-protected-runtime-sync\.mjs generate-plan[\s\S]*--packet-base64[\s\S]*--evidence-manifest[\s\S]*--processor-check-id[\s\S]*--github-output/,
+    );
+    assert.doesNotMatch(
+      JSON.stringify(generator),
+      /CLAUDE|secrets\.|github\.token|GH_TOKEN|PREPARE_APP|VERCEL_TOKEN|write/,
+    );
+  }
+  assert.match(planOutput.run, /first\.length === 0 \|\| first !== second/);
+  assert.match(planOutput.run, /claude\.length !== 0/);
+  assert.match(planOutput.run, /Unknown repair plan kind/);
+  assert.doesNotMatch(
+    JSON.stringify(planOutput),
+    /secrets\.|github\.token|GH_TOKEN|PREPARE_APP|VERCEL_TOKEN/,
+  );
 
   assert.doesNotMatch(
     JSON.stringify(validate),
@@ -1566,6 +1690,105 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
     validate.steps.at(-1).run,
     /validate-repair-plan[\s\S]*--packet-base64[\s\S]*--plan-json/,
   );
+  const validateCheckout = validate.steps.find(
+    (step) => step.name === "Check out only the exact trusted workflow source",
+  );
+  assert.deepEqual(validateCheckout.with, {
+    "fetch-depth": 1,
+    "persist-credentials": false,
+    ref: "${{ github.workflow_sha }}",
+  });
+  const verificationEvidence = validate.steps.find(
+    (step) =>
+      step.name === "Materialize exact packet-bound verification evidence",
+  );
+  const modelFreeVerify = validate.steps.find(
+    (step) =>
+      step.name === "Independently verify the protected-runtime sync plan",
+  );
+  assert.equal(
+    verificationEvidence.if,
+    "needs.preflight.outputs.plan_kind == 'protected-runtime-sync'",
+  );
+  assert.equal(verificationEvidence.env.GH_TOKEN, "${{ github.token }}");
+  assert.match(
+    verificationEvidence.run,
+    /materialize-repair-evidence[\s\S]*--packet-digest[\s\S]*--processor-check-id/,
+  );
+  assert.equal(
+    modelFreeVerify.if,
+    "needs.preflight.outputs.plan_kind == 'protected-runtime-sync'",
+  );
+  assert.match(
+    modelFreeVerify.run,
+    /dependabot-protected-runtime-sync\.mjs verify-plan[\s\S]*--packet-base64[\s\S]*--evidence-manifest[\s\S]*--processor-check-id[\s\S]*--plan-json/,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(modelFreeVerify),
+    /CLAUDE|secrets\.|github\.token|GH_TOKEN|PREPARE_APP|VERCEL_TOKEN|write/,
+  );
+  assert.doesNotMatch(
+    modelFreeVerify.run,
+    /candidate-cli-smoke|--frozen-lockfile|node_modules\/vercel/,
+  );
+
+  assert.deepEqual(candidateCliSmoke.needs, ["preflight", "plan", "validate"]);
+  assert.match(candidateCliSmoke.if, /plan_kind == 'protected-runtime-sync'/);
+  assert.match(candidateCliSmoke.if, /needs\.validate\.result == 'success'/);
+  assert.equal(Object.hasOwn(candidateCliSmoke, "outputs"), false);
+  const smokeCheckout = candidateCliSmoke.steps[0];
+  assert.equal(
+    smokeCheckout.name,
+    "Check out only the exact trusted workflow source",
+  );
+  assert.deepEqual(smokeCheckout.with, {
+    "fetch-depth": 1,
+    "persist-credentials": false,
+    ref: "${{ github.workflow_sha }}",
+  });
+  const smokeEvidence = candidateCliSmoke.steps.find(
+    (step) =>
+      step.name === "Materialize exact packet-bound terminal-smoke evidence",
+  );
+  assert.equal(smokeEvidence.env.GH_TOKEN, "${{ github.token }}");
+  assert.match(smokeEvidence.run, /materialize-repair-evidence/);
+  const terminalSmoke = candidateCliSmoke.steps.at(-1);
+  assert.equal(
+    terminalSmoke.name,
+    "Execute the generated candidate CLI as a terminal smoke",
+  );
+  assert.deepEqual(Object.keys(terminalSmoke.env).sort(), [
+    "EVIDENCE_MANIFEST",
+    "NPM_CONFIG_REGISTRY",
+    "PACKET_BASE64",
+    "PROCESSOR_CHECK_ID",
+    "VALIDATED_PLAN_BASE64",
+    "VALIDATED_PLAN_DIGEST",
+  ]);
+  assert.equal(
+    terminalSmoke.env.VALIDATED_PLAN_BASE64,
+    "${{ needs.validate.outputs.validated_plan_base64 }}",
+  );
+  assert.equal(
+    terminalSmoke.env.VALIDATED_PLAN_DIGEST,
+    "${{ needs.validate.outputs.validated_plan_digest }}",
+  );
+  assert.match(
+    terminalSmoke.run,
+    /dependabot-protected-runtime-sync\.mjs candidate-cli-smoke[\s\S]*--packet-base64[\s\S]*--evidence-manifest[\s\S]*--processor-check-id[\s\S]*--validated-plan-base64[\s\S]*--validated-plan-digest/,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(terminalSmoke),
+    /GITHUB_OUTPUT|GH_TOKEN|github\.token|secrets\.|PREPARE_APP|VERCEL_TOKEN|DEPLOYMENT|PACKAGE/,
+  );
+  assert.deepEqual(stage.needs, [
+    "preflight",
+    "validate",
+    "candidate_cli_smoke",
+  ]);
+  assert.match(stage.if, /^always\(\)/);
+  assert.match(stage.if, /candidate_cli_smoke\.result == 'success'/);
+  assert.match(stage.if, /candidate_cli_smoke\.result == 'skipped'/);
 
   for (const appJob of [stage, mutate]) {
     const repairToken = appJob.steps.find(
@@ -1863,6 +2086,18 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
   assert.match(
     preparedValidator.run,
     /contents\/scripts\/dependabot-prepared-review\.mjs\?ref=\$WORKFLOW_SHA/,
+  );
+  assert.match(
+    preparedValidator.run,
+    /trusted_receipts="\$trusted_root\/dependabot-preparation-receipts\.mjs"/,
+  );
+  assert.match(
+    preparedValidator.run,
+    /contents\/scripts\/dependabot-preparation-receipts\.mjs\?ref=\$WORKFLOW_SHA/,
+  );
+  assert.match(
+    preparedValidator.run,
+    /test -s "\$trusted_receipts"[\s\S]*chmod 0500 "\$trusted_validator" "\$trusted_receipts"/,
   );
   assert.equal(
     preparedLineage.if,

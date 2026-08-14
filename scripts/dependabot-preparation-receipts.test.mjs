@@ -20,6 +20,9 @@ import { fileURLToPath } from "node:url";
 
 import {
   GITHUB_WEB_FLOW_USER_ID,
+  PROCESSOR_PACKET_SCHEMA_V2,
+  PROCESSOR_PACKET_SCHEMA_V3,
+  PROTECTED_RUNTIME_SYNC_OPERATION_SCHEMA,
   applyRepairPlan,
   canonicalDigest,
   canonicalJson,
@@ -128,7 +131,7 @@ function repairPacket(overrides = {}) {
     requireExactHead: true,
     requireHumanApproval: false,
     riskTier: "automatic",
-    schema: "dependabot-repair-packet:v2",
+    schema: PROCESSOR_PACKET_SCHEMA_V2,
     updateType: "patch",
     validationCommands: ["pnpm ci:action-pins:test"],
     workflowRunAttempt: 2,
@@ -136,6 +139,83 @@ function repairPacket(overrides = {}) {
     workflowSha,
     ...overrides,
   };
+}
+
+const protectedRuntimeRequiredPaths = [
+  "package.json",
+  "pnpm-lock.yaml",
+  "scripts/vercel-cli-runtime/contract.json",
+  "scripts/vercel-cli-runtime/package.json",
+  "scripts/vercel-cli-runtime/pnpm-lock.yaml",
+];
+const protectedRuntimeInputPaths = [
+  "apps/app.mento.org/package.json",
+  "apps/governance.mento.org/package.json",
+  "apps/reserve.mento.org/package.json",
+  "apps/ui.mento.org/package.json",
+  "package.json",
+  "packages/eslint-config/package.json",
+  "packages/typescript-config/package.json",
+  "packages/ui/package.json",
+  "packages/vitest-config/package.json",
+  "packages/web3/package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "scripts/vercel-cli-runtime/contract.json",
+  "scripts/vercel-cli-runtime/package.json",
+  "scripts/vercel-cli-runtime/pnpm-lock.yaml",
+];
+
+function protectedRuntimePacket(overrides = {}) {
+  return repairPacket({
+    changedPaths: ["package.json", "pnpm-lock.yaml"],
+    dependencyGroup: "tooling",
+    dependencyNames: ["knip", "vercel", "@next/eslint-plugin-next"],
+    expectedBlobs: protectedRuntimeInputPaths.map((path) => ({
+      mode: "100644",
+      path,
+      sha: "e".repeat(40),
+      type: "blob",
+    })),
+    failures: [],
+    feedbackThreads: [],
+    findings: [],
+    forbiddenPaths: [
+      ".github/**",
+      "**/auth/**",
+      "**/deploy/**",
+      "**/deployment/**",
+      "**/policy/**",
+      "**/security/**",
+      "docs/vercel-deployments.md",
+      "scripts/vercel-main-*.mjs",
+    ],
+    headRef: "dependabot/npm_and_yarn/tooling-123",
+    limits: {
+      maxAddedLines: 600,
+      maxBytes: 64 * 1024,
+      maxChanges: 160,
+      maxDeletedLines: 600,
+      maxFiles: 5,
+    },
+    operation: {
+      dependency: "vercel",
+      fromVersion: "56.4.1",
+      inputPaths: protectedRuntimeInputPaths,
+      kind: "vercel-cli-runtime-sync",
+      pnpmVersion: "10.34.4",
+      requiredPaths: protectedRuntimeRequiredPaths,
+      schema: PROTECTED_RUNTIME_SYNC_OPERATION_SCHEMA,
+      sourceSeedHeadSha: "f".repeat(40),
+      targetVersion: "56.5.0",
+      updateType: "minor",
+    },
+    packageEcosystem: "npm",
+    permittedPaths: protectedRuntimeRequiredPaths,
+    schema: PROCESSOR_PACKET_SCHEMA_V3,
+    updateType: "minor",
+    ...overrides,
+  });
 }
 
 function repairReceipt(overrides = {}) {
@@ -910,6 +990,121 @@ test("processor packet permits feedback-only repair but rejects empty authority"
       ),
     /keys are not exact/,
   );
+});
+
+test("protected-runtime v3 packets permit empty repair evidence only under the exact typed contract", () => {
+  const packet = protectedRuntimePacket();
+  assert.equal(validateProcessorRepairPacket(packet), packet);
+  assert.equal(packet.failures.length, 0);
+
+  assert.throws(
+    () =>
+      validateProcessorRepairPacket({
+        ...packet,
+        schema: PROCESSOR_PACKET_SCHEMA_V2,
+      }),
+    /keys are not exact/,
+  );
+
+  const invalidPackets = [
+    {
+      label: "operation key",
+      mutate(value) {
+        value.operation.untrusted = true;
+      },
+    },
+    {
+      label: "operation schema",
+      mutate(value) {
+        value.operation.schema = "dependabot-protected-runtime-sync:v2";
+      },
+    },
+    {
+      label: "dependency",
+      mutate(value) {
+        value.operation.dependency = "next";
+      },
+    },
+    {
+      label: "major target",
+      mutate(value) {
+        value.operation.targetVersion = "57.0.0";
+        value.operation.updateType = "major";
+        value.updateType = "major";
+      },
+    },
+    {
+      label: "required path",
+      mutate(value) {
+        value.operation.requiredPaths = [
+          ...value.operation.requiredPaths,
+          "scripts/vercel-cli-runtime/extra.json",
+        ];
+      },
+    },
+    {
+      label: "input order",
+      mutate(value) {
+        value.operation.inputPaths = [...value.operation.inputPaths].reverse();
+      },
+    },
+    {
+      label: "missing expected blob",
+      mutate(value) {
+        value.expectedBlobs = value.expectedBlobs.slice(1);
+      },
+    },
+    {
+      label: "extra permitted path",
+      mutate(value) {
+        value.permittedPaths = [...value.permittedPaths, "scripts/**"];
+      },
+    },
+    {
+      label: "runtime wildcard denial",
+      mutate(value) {
+        value.forbiddenPaths = [
+          ...value.forbiddenPaths.slice(0, 5),
+          "**/runtime/**",
+          ...value.forbiddenPaths.slice(5),
+        ];
+      },
+    },
+    {
+      label: "change cap",
+      mutate(value) {
+        value.limits.maxChanges = 159;
+      },
+    },
+  ];
+  for (const { label, mutate } of invalidPackets) {
+    const value = structuredClone(packet);
+    mutate(value);
+    assert.throws(() => validateProcessorRepairPacket(value), undefined, label);
+  }
+});
+
+test("v3 operation authority remains transitively bound through unchanged repair receipts", () => {
+  const digest = canonicalDigest(protectedRuntimePacket());
+  const intent = validateRepairIntent(
+    repairIntent({
+      headRef: "dependabot/npm_and_yarn/tooling-123",
+      packetDigest: digest,
+    }),
+  );
+  const receipt = validateRepairReceipt(
+    repairReceipt({
+      headRef: intent.headRef,
+      packetDigest: digest,
+    }),
+  );
+  assert.equal(intent.packetDigest, digest);
+  assert.equal(receipt.packetDigest, digest);
+  assert.match(
+    repairIntentExternalId(intent),
+    new RegExp(`digest=[0-9a-f]{64}`),
+  );
+  assert.match(operationExternalId(receipt), /dependabot-repair:v1/);
 });
 
 test("repair plans bind packet paths and carry only bounded patches and digests", () => {

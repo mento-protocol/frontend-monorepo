@@ -844,9 +844,11 @@ jobs:
           persist-credentials: false
           ref: ${{ github.workflow_sha }}
 
-      - name: Verify pinned Vercel prerequisites
+      # This is a non-authorizing consistency check over candidate package and
+      # lock data. The protected CLI remains sourced from the trusted controller.
+      - name: Verify candidate Vercel prerequisite consistency
         working-directory: source
-        run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt.mjs" check-versions
+        run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt.mjs" check-candidate-versions
 
       - name: Prepare fresh runner-owned Vercel pull staging
         env:

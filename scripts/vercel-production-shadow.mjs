@@ -40,6 +40,7 @@ import { fileURLToPath } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 
 import { assertPrebuiltDeploymentId } from "./vercel-prebuilt.mjs";
+import { PINNED_VERCEL_CLI_VERSION } from "./vercel-cli-runtime-contract.mjs";
 import { assertSafeOutputTree } from "./vercel-output-validator.mjs";
 import {
   parseVercelPulledEnvironment,
@@ -1778,7 +1779,7 @@ export function assertProductionShadowOutput({
   }
   if (
     buildRecord.target !== expectedTarget ||
-    buildRecord.cliVersion !== "56.4.1"
+    buildRecord.cliVersion !== PINNED_VERCEL_CLI_VERSION
   ) {
     throw new Error("Prebuilt output target or Vercel CLI version is invalid");
   }
@@ -2458,7 +2459,7 @@ export function writePilotSummary({
     `- Workflow run: ${requireString(runUrl, "Workflow run URL")}`,
     `- Exact deployment SHA: \`${normalizedSha}\``,
     `- Whole workflow duration: ${totalWorkflowDuration} ms`,
-    "- Pinned Vercel CLI: `56.4.1`",
+    `- Pinned Vercel CLI: \`${PINNED_VERCEL_CLI_VERSION}\``,
     "- Project Root Directories verified: `apps/app.mento.org`, `apps/governance.mento.org`, `apps/reserve.mento.org`, `apps/ui.mento.org`",
     "",
     "| Target | Build target | Deployment ID / URL | Runtime/browser | Protected mappings | Turbo cache | Timing | Result |",
