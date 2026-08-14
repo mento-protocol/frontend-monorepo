@@ -107,8 +107,8 @@ function isBuildAlignedWithQuote(
 ): boolean {
   const details = build.addLiquidity;
   return (
-    isWithinOneWei(details.amountADesired, quote.amountA) &&
-    isWithinOneWei(details.amountBDesired, quote.amountB) &&
+    details.amountADesired === quote.amountADesired &&
+    details.amountBDesired === quote.amountBDesired &&
     isWithinOneWei(
       details.amountAMin,
       getMinimumAmount(quote.amountA, slippage),
@@ -346,8 +346,8 @@ export function AddLiquidityForm({
     )
       return;
     buildTransaction(
-      currentQuote.amountA,
-      currentQuote.amountB,
+      currentQuote.amountADesired,
+      currentQuote.amountBDesired,
       address,
       slippage,
     );
@@ -427,8 +427,7 @@ export function AddLiquidityForm({
     if (
       token0Balance === undefined ||
       token1Balance === undefined ||
-      token0Balance === 0n ||
-      token1Balance === 0n
+      token0Balance === 0n
     )
       return;
 
@@ -448,7 +447,6 @@ export function AddLiquidityForm({
     if (
       token0Balance === undefined ||
       token1Balance === undefined ||
-      token0Balance === 0n ||
       token1Balance === 0n
     )
       return;
@@ -709,7 +707,9 @@ export function AddLiquidityForm({
           !refreshedQuote ||
           refreshedQuote.requestId !== capturedQuote.requestId ||
           refreshedQuote.amountA !== capturedQuote.amountA ||
-          refreshedQuote.amountB !== capturedQuote.amountB
+          refreshedQuote.amountB !== capturedQuote.amountB ||
+          refreshedQuote.amountADesired !== capturedQuote.amountADesired ||
+          refreshedQuote.amountBDesired !== capturedQuote.amountBDesired
         ) {
           throw new Error(POOL_RATIO_CHANGED_ERROR);
         }
@@ -717,8 +717,8 @@ export function AddLiquidityForm({
         // Rebuild at click time and use this exact result for approvals. The
         // stateful preview build may still belong to a previous quote.
         const capturedBuild = await buildTransaction(
-          capturedQuote.amountA,
-          capturedQuote.amountB,
+          capturedQuote.amountADesired,
+          capturedQuote.amountBDesired,
           address,
           capturedSlippage,
         );
@@ -738,7 +738,7 @@ export function AddLiquidityForm({
 
         if (
           capturedBuild.approvalA &&
-          capturedQuote.amountA > allowances.token0
+          capturedQuote.amountADesired > allowances.token0
         ) {
           const approvalParams = capturedBuild.approvalA.params;
           steps.push({
@@ -750,7 +750,7 @@ export function AddLiquidityForm({
 
         if (
           capturedBuild.approvalB &&
-          capturedQuote.amountB > allowances.token1
+          capturedQuote.amountBDesired > allowances.token1
         ) {
           const approvalParams = capturedBuild.approvalB.params;
           steps.push({
@@ -779,14 +779,17 @@ export function AddLiquidityForm({
               !postApprovalQuote ||
               postApprovalQuote.requestId !== capturedQuote.requestId ||
               postApprovalQuote.amountA !== capturedQuote.amountA ||
-              postApprovalQuote.amountB !== capturedQuote.amountB
+              postApprovalQuote.amountB !== capturedQuote.amountB ||
+              postApprovalQuote.amountADesired !==
+                capturedQuote.amountADesired ||
+              postApprovalQuote.amountBDesired !== capturedQuote.amountBDesired
             ) {
               throw new Error(POOL_RATIO_CHANGED_ERROR);
             }
 
             const freshBuild = await buildTransaction(
-              capturedQuote.amountA,
-              capturedQuote.amountB,
+              capturedQuote.amountADesired,
+              capturedQuote.amountBDesired,
               address,
               capturedSlippage,
             );

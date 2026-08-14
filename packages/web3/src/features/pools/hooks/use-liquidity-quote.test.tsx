@@ -131,7 +131,7 @@ describe("useLiquidityQuote", () => {
             kind: "max",
             token: 0,
             token0Balance: 1_000n,
-            token1Balance: 1_000n,
+            token1Balance: 0n,
           },
         }),
       { wrapper },
@@ -149,10 +149,12 @@ describe("useLiquidityQuote", () => {
     expect(result.current.data).toMatchObject({
       amountA: 1_000n,
       amountB: 500n,
+      amountADesired: 1_000n,
+      amountBDesired: 500n,
       reserve0: 2_000n,
       reserve1: 1_000n,
       surplus0: 0n,
-      surplus1: 500n,
+      surplus1: 0n,
     });
   });
 
@@ -193,12 +195,14 @@ describe("useLiquidityQuote", () => {
     expect(result.current.data).toMatchObject({
       amountA: 10n * 10n ** 18n,
       amountB: 5n * 10n ** 18n,
+      amountADesired: 10n * 10n ** 18n,
+      amountBDesired: 5n * 10n ** 18n,
       reserve0: 2n * 10n ** 18n,
       reserve1: 1n * 10n ** 18n,
     });
   });
 
-  it("lets the Router choose token1 as the limiting MAX side", async () => {
+  it("keeps token1 MAX binding when token0 cannot cover the required pair", async () => {
     liveReserves = [1_000n, 2_000n, 0n];
 
     const { result } = renderHook(
@@ -210,7 +214,7 @@ describe("useLiquidityQuote", () => {
             id: 2,
             kind: "max",
             token: 1,
-            token0Balance: 1_000n,
+            token0Balance: 100n,
             token1Balance: 1_000n,
           },
         }),
@@ -222,14 +226,14 @@ describe("useLiquidityQuote", () => {
     expect(result.current.data).toMatchObject({
       amountA: 500n,
       amountB: 1_000n,
-      surplus0: 500n,
+      amountADesired: 500n,
+      amountBDesired: 1_000n,
+      surplus0: 0n,
       surplus1: 0n,
     });
   });
 
-  it("re-quotes a clipped-amount0 MAX pair until it is a Router fixed point", async () => {
-    // reserve1/reserve0 = 333x, so the floor round-trip after an amount0 clip
-    // drops amount1 well past the form's 1-wei build-alignment tolerance.
+  it("keeps token0 MAX binding when token1 cannot cover the required pair", async () => {
     liveReserves = [3n, 1_000n, 0n];
 
     const { result } = renderHook(
@@ -250,25 +254,27 @@ describe("useLiquidityQuote", () => {
 
     await waitFor(() => expect(result.current.data).toBeTruthy());
 
-    // First quote clips amount0: (3, 900) -> (2, 900). That pair is not what
-    // addLiquidity would execute, so the hook re-quotes it: (2, 900) -> (2, 666).
-    expect(mocks.quoteAddLiquidity).toHaveBeenCalledTimes(2);
+    expect(mocks.quoteAddLiquidity).toHaveBeenCalledTimes(1);
     expect(mocks.quoteAddLiquidity).toHaveBeenLastCalledWith(
       pool.poolAddr,
       pool.token0.address,
-      2n,
+      3n,
       pool.token1.address,
-      900n,
+      1_000n,
     );
     expect(result.current.data).toMatchObject({
-      amountA: 2n,
-      amountB: 666n,
-      surplus0: 1n,
-      surplus1: 234n,
+      amountA: 3n,
+      amountB: 1_000n,
+      amountADesired: 3n,
+      amountBDesired: 1_000n,
+      surplus0: 0n,
+      surplus1: 0n,
     });
   });
 
-  it("does not re-quote when the Router kept amount0 as passed", async () => {
+  it("rounds the token0 counterpart up so token1 MAX is exhausted", async () => {
+    liveReserves = [3n, 1_000n, 0n];
+
     const { result } = renderHook(
       () =>
         useLiquidityQuote({
@@ -277,9 +283,9 @@ describe("useLiquidityQuote", () => {
           request: {
             id: 6,
             kind: "max",
-            token: 0,
-            token0Balance: 1_000n,
-            token1Balance: 1_000n,
+            token: 1,
+            token0Balance: 0n,
+            token1Balance: 900n,
           },
         }),
       { wrapper },
@@ -288,13 +294,22 @@ describe("useLiquidityQuote", () => {
     await waitFor(() => expect(result.current.data).toBeTruthy());
 
     expect(mocks.quoteAddLiquidity).toHaveBeenCalledTimes(1);
+    expect(mocks.quoteAddLiquidity).toHaveBeenCalledWith(
+      pool.poolAddr,
+      pool.token0.address,
+      3n,
+      pool.token1.address,
+      900n,
+    );
     expect(result.current.data).toMatchObject({
-      amountA: 1_000n,
-      amountB: 500n,
+      amountA: 2n,
+      amountB: 900n,
+      amountADesired: 3n,
+      amountBDesired: 900n,
     });
   });
 
-  it("keeps a Router-clipped driver amount canonical", async () => {
+  it("keeps desired transaction inputs separate from Router transfer amounts", async () => {
     mocks.quoteAddLiquidity.mockResolvedValue({
       amountA: 8n * 10n ** 18n,
       amountB: 4n * 10n ** 18n,
@@ -322,6 +337,8 @@ describe("useLiquidityQuote", () => {
     expect(result.current.data).toMatchObject({
       amountA: 8n * 10n ** 18n,
       amountB: 4n * 10n ** 18n,
+      amountADesired: 10n * 10n ** 18n,
+      amountBDesired: 5n * 10n ** 18n,
     });
   });
 
@@ -408,7 +425,7 @@ describe("getDesiredBalancedLiquidityAmounts", () => {
     });
   });
 
-  it("passes both wallet balances to the live Router for MAX", () => {
+  it("derives MAX from the selected wallet balance and live reserves", () => {
     expect(
       getDesiredBalancedLiquidityAmounts(
         {
@@ -419,9 +436,24 @@ describe("getDesiredBalancedLiquidityAmounts", () => {
           token1Balance: 456n,
         },
         pool,
-        999n,
-        1n,
+        3n,
+        10n,
       ),
-    ).toEqual({ amount0: 123n, amount1: 456n });
+    ).toEqual({ amount0: 123n, amount1: 410n });
+
+    expect(
+      getDesiredBalancedLiquidityAmounts(
+        {
+          id: 4,
+          kind: "max",
+          token: 1,
+          token0Balance: 123n,
+          token1Balance: 456n,
+        },
+        pool,
+        10n,
+        3n,
+      ),
+    ).toEqual({ amount0: 1_520n, amount1: 456n });
   });
 });
