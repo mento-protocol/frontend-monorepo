@@ -59,7 +59,7 @@ const CHECK_SOURCE_RESOLUTION_CONCURRENCY = 8;
 const REFRESH_SUCCESSOR_POLL_ATTEMPTS = 5;
 const REFRESH_SNAPSHOT_RACE_ATTEMPTS = 5;
 const REFRESH_SUCCESSOR_POLL_INTERVAL_MS = 2_000;
-const GITHUB_WEB_FLOW_BOT_ID = 19_864_447;
+const GITHUB_WEB_FLOW_USER_ID = 19_864_447;
 const PROCESSOR_APPROVAL_PULL_LIMIT = 100;
 const PROCESSOR_APPROVAL_REVIEW_LIMIT = 2_000;
 const PROCESSOR_APPROVAL_RESULT_LIMIT = 1_000;
@@ -727,9 +727,19 @@ function commitActorMatchesPrepareBot(commit, receipt, role) {
 }
 
 function commitMatchesPrepareBot(commit, receipt) {
+  const committer = normalizedCommitActor(commit, "committer");
+  const exactPrepareCommitter = commitActorMatchesPrepareBot(
+    commit,
+    receipt,
+    "committer",
+  );
+  const exactGitHubSystemCommitter =
+    committer.id === GITHUB_WEB_FLOW_USER_ID &&
+    committer.login === "web-flow" &&
+    committer.type === "User";
   return (
     commitActorMatchesPrepareBot(commit, receipt, "author") &&
-    commitActorMatchesPrepareBot(commit, receipt, "committer")
+    (exactPrepareCommitter || exactGitHubSystemCommitter)
   );
 }
 
@@ -743,19 +753,8 @@ function commitHasValidVerification(commit) {
 }
 
 function commitMatchesAuthenticatedRefresh(commit, receipt) {
-  const committer = normalizedCommitActor(commit, "committer");
-  const exactPrepareCommitter = commitActorMatchesPrepareBot(
-    commit,
-    receipt,
-    "committer",
-  );
-  const exactWebFlowCommitter =
-    committer.id === GITHUB_WEB_FLOW_BOT_ID &&
-    committer.login === "web-flow" &&
-    committer.type === "User";
   return (
-    commitActorMatchesPrepareBot(commit, receipt, "author") &&
-    (exactPrepareCommitter || exactWebFlowCommitter) &&
+    commitMatchesPrepareBot(commit, receipt) &&
     commitHasValidVerification(commit)
   );
 }
