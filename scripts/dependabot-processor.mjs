@@ -688,6 +688,66 @@ function boundedFeedbackBlocker(blocker) {
   };
 }
 
+const CURSOR_FIX_LINKS_PATTERN = new RegExp(
+  [
+    '^<div><a href="https://cursor\\.com/open\\?link=[A-Za-z0-9_-]+" target="_blank" rel="noopener noreferrer">',
+    '<picture><source media="\\(prefers-color-scheme: dark\\)" srcset="https://cursor\\.com/assets/images/fix-in-cursor-dark\\.png">',
+    '<source media="\\(prefers-color-scheme: light\\)" srcset="https://cursor\\.com/assets/images/fix-in-cursor-light\\.png">',
+    '<img alt="Fix in Cursor" width="115" height="28" src="https://cursor\\.com/assets/images/fix-in-cursor-dark\\.png"></picture></a>',
+    '&nbsp;<a href="https://cursor\\.com/agents\\?link=[A-Za-z0-9_-]+" target="_blank" rel="noopener noreferrer">',
+    '<picture><source media="\\(prefers-color-scheme: dark\\)" srcset="https://cursor\\.com/assets/images/fix-in-web-dark\\.png">',
+    '<source media="\\(prefers-color-scheme: light\\)" srcset="https://cursor\\.com/assets/images/fix-in-web-light\\.png">',
+    '<img alt="Fix in Web" width="99" height="28" src="https://cursor\\.com/assets/images/fix-in-web-dark\\.png"></picture></a></div>\\n\\n\\n([\\s\\S]*)$',
+  ].join(""),
+);
+
+function exactCursorBugbotSuffix(suffix, reviewCommitSha) {
+  const locations =
+    /^<!-- BUGBOT_BUG_ID: [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12} -->\n\n<!-- LOCATIONS START\npackage\.json#L[0-9]+(?:-L[0-9]+)?\npnpm-lock\.yaml#L[0-9]+(?:-L[0-9]+)?\nLOCATIONS END -->\n([\s\S]*)$/.exec(
+      suffix,
+    );
+  if (locations === null) return false;
+  const additionalLocation =
+    /^<details>\n<summary>Additional Locations \(1\)<\/summary>\n\n- \[`pnpm-lock\.yaml#L[0-9]+(?:-L[0-9]+)?`\]\(https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/blob\/([0-9a-f]{40})\/pnpm-lock\.yaml#L[0-9]+(?:-L[0-9]+)?\)\n\n<\/details>\n\n([\s\S]*)$/.exec(
+      locations[1],
+    );
+  if (
+    additionalLocation === null ||
+    additionalLocation[1] !== reviewCommitSha
+  ) {
+    return false;
+  }
+  const fixLinks = CURSOR_FIX_LINKS_PATTERN.exec(additionalLocation[2]);
+  if (fixLinks === null) return false;
+  const footer =
+    /^<sup>Reviewed by \[Cursor Bugbot\]\(https:\/\/cursor\.com\/bugbot\) for commit ([0-9a-f]{40})\. Configure \[here\]\(https:\/\/www\.cursor\.com\/dashboard\/bugbot\)\.<\/sup>\n*$/.exec(
+      fixLinks[1],
+    );
+  return footer !== null && footer[1] === reviewCommitSha;
+}
+
+function vercelCliRuntimeSyncFinding(body, reviewCommitSha) {
+  const match =
+    /^### Incomplete Vercel CLI runtime sync\n\n\*\*High Severity\*\*\n\n<!-- DESCRIPTION START -->\nRoot `vercel` is now `([^`]+)`, but `scripts\/vercel-cli-runtime` still pins `([^`]+)` and `contract\.json` still records `vercelVersion` `([^`]+)`\. `assertVercelCliRuntimeContract` requires those to match, so `check-versions` fails and protected deploy workflows keep the old CLI\.\n<!-- DESCRIPTION END -->\n\n([\s\S]*)$/.exec(
+      String(body ?? ""),
+    );
+  if (
+    match === null ||
+    match[2] !== match[3] ||
+    stableSemverParts(match[1]) === null ||
+    stableSemverParts(match[2]) === null ||
+    !SHA_PATTERN.test(reviewCommitSha ?? "") ||
+    !exactCursorBugbotSuffix(match[4], reviewCommitSha)
+  ) {
+    return null;
+  }
+  return {
+    fromVersion: match[2],
+    kind: VERCEL_CLI_RUNTIME_KIND,
+    targetVersion: match[1],
+  };
+}
+
 function boundedActionableThread({ root, thread, trustedBotEnvelope }) {
   const actor = feedbackActor(root?.actor);
   const source =
@@ -698,16 +758,22 @@ function boundedActionableThread({ root, thread, trustedBotEnvelope }) {
         : actor.login === "claude"
           ? "claude"
           : "check";
+  const path =
+    typeof thread?.path === "string" && thread.path.length <= 300
+      ? thread.path
+      : null;
+  const protectedRuntimeFinding =
+    source === "cursor" && path === "package.json"
+      ? vercelCliRuntimeSyncFinding(root?.body, root?.reviewCommitSha)
+      : null;
   return {
     bodyDigest: feedbackBodyDigest(String(root?.body ?? "")),
     line:
       Number.isSafeInteger(thread?.line) && thread.line > 0
         ? thread.line
         : null,
-    path:
-      typeof thread?.path === "string" && thread.path.length <= 300
-        ? thread.path
-        : null,
+    path,
+    ...(protectedRuntimeFinding === null ? {} : { protectedRuntimeFinding }),
     reviewCommitSha: SHA_PATTERN.test(root?.reviewCommitSha ?? "")
       ? root.reviewCommitSha
       : null,
@@ -3525,10 +3591,47 @@ function evaluateRepairAttemptGate({
   return packet;
 }
 
+function protectedRuntimeFeedbackMatchesOperation({
+  feedback,
+  headSha,
+  operation,
+}) {
+  if (feedback?.clear === true) return true;
+  if (
+    feedback?.repairable !== true ||
+    !validVercelCliRuntimeOperation(operation) ||
+    !SHA_PATTERN.test(headSha ?? "")
+  ) {
+    return false;
+  }
+  const actionableThreads = Array.isArray(feedback.actionableThreads)
+    ? feedback.actionableThreads
+    : [];
+  const allowedReviewCommits = new Set([headSha, operation.sourceSeedHeadSha]);
+  return (
+    actionableThreads.length > 0 &&
+    actionableThreads.every(
+      ({ path, protectedRuntimeFinding, reviewCommitSha, source }) =>
+        source === "cursor" &&
+        path === "package.json" &&
+        allowedReviewCommits.has(reviewCommitSha) &&
+        exactObjectKeys(protectedRuntimeFinding, [
+          "fromVersion",
+          "kind",
+          "targetVersion",
+        ]) &&
+        protectedRuntimeFinding.kind === operation.kind &&
+        protectedRuntimeFinding.fromVersion === operation.fromVersion &&
+        protectedRuntimeFinding.targetVersion === operation.targetVersion,
+    )
+  );
+}
+
 function recommendedDisposition({
   base,
   checks,
   feedback,
+  headSha,
   identity,
   mode,
   protectedRuntimeOperation,
@@ -3576,7 +3679,16 @@ function recommendedDisposition({
   }
   if (preparing && protectedRuntimeOperation !== null) {
     if (protectedRuntimeOperation.satisfied !== true) {
-      if (feedback.repairable) return "manual-repair-required";
+      if (
+        feedback.repairable &&
+        !protectedRuntimeFeedbackMatchesOperation({
+          feedback,
+          headSha,
+          operation: protectedRuntimeOperation.operation,
+        })
+      ) {
+        return "manual-repair-required";
+      }
       if (!repairAttempts.valid || repairAttempts.currentAttempt > 2) {
         return "manual-repair-escalated";
       }
@@ -3671,7 +3783,12 @@ export function createDependabotRepairPacket(evaluation) {
     evaluation.repairAttempts?.valid !== true ||
     evaluation.repairAttempt > 2 ||
     (!isProtectedRuntimeSync && forbiddenRepairEvidence) ||
-    (isProtectedRuntimeSync && evaluation.feedback?.clear !== true) ||
+    (isProtectedRuntimeSync &&
+      !protectedRuntimeFeedbackMatchesOperation({
+        feedback: evaluation.feedback,
+        headSha: evaluation.headSha,
+        operation: protectedRuntimeOperation,
+      })) ||
     evaluation.checks.missing.length > 0 ||
     evaluation.checks.pending.length > 0 ||
     evaluation.checks.failures.some(
@@ -3968,6 +4085,7 @@ export function evaluateDependabotPullRequest(snapshot, options = {}) {
     base,
     checks,
     feedback,
+    headSha: pullRequest.headSha,
     identity,
     mode,
     protectedRuntimeOperation,

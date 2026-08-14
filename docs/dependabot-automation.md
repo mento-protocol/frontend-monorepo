@@ -442,6 +442,13 @@ again. Generic github-actions comments/replies, unbound bot output, or a model
 claim never satisfy feedback. Automated `Won't fix` is not permitted; that
 decision remains human.
 
+A v3 Vercel runtime sync may bind an exact Cursor thread only when its
+structured `Incomplete Vercel CLI runtime sync` finding names the operation's
+source and target versions, root `package.json` path, and trusted seed or
+current review commit. All actionable threads must match that contract. Any
+other unresolved feedback makes the typed operation manual. The completed typed
+Repair then uses the same digest-bound reply and resolution flow above.
+
 For historical Codex feedback, `Reviewed commit` binds the parent review's own
 `reviewCommitSha`, not the repaired current head. Its unresolved historical
 thread still blocks; a resolved historical thread clears. If an exact
@@ -502,9 +509,11 @@ V3 is reserved for the exact
 same-major patch/minor target, exact pnpm 10.34.4, exact current-head input
 blobs, and the fixed root/runtime manifest, lockfile, and contract output paths.
 It may carry empty failure/finding/feedback arrays because the missing typed
-runtime synchronization is the actionable invariant. Mixed v2 attempt-one and
-v3 attempt-two lineage remains valid only when every packet, Intent, commit,
-receipt, operation digest, target version, and current-tree contract matches.
+runtime synchronization is the actionable invariant. It may instead carry only
+the exact matching Cursor runtime-mismatch threads described above. Mixed v2
+attempt-one and v3 attempt-two lineage remains valid only when every packet,
+Intent, commit, receipt, operation digest, target version, and current-tree
+contract matches.
 
 ### Refresh v1
 

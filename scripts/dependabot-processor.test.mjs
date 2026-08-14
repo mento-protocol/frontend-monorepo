@@ -326,6 +326,7 @@ function refreshReceiptCheck(
   state,
   {
     baseSha = BASE_SHA,
+    headRef = "dependabot/github_actions/github-actions-routine-123",
     headSha = state === "requested" ? HEAD_SHA : OTHER_SHA,
     id = state === "requested" ? 20_001 : 20_002,
     parentHeadSha = HEAD_SHA,
@@ -337,7 +338,7 @@ function refreshReceiptCheck(
 ) {
   const requested = {
     baseSha,
-    headRef: "dependabot/github_actions/github-actions-routine-123",
+    headRef,
     headSha: null,
     parentHeadSha,
     prepareAppSlug: PREPARE_ACTOR.appSlug,
@@ -458,6 +459,10 @@ function toolingBody({
     .join("\n")}`;
 }
 
+function vercelCliBody({ vercelFrom = "56.4.1", vercelTo = "56.5.0" } = {}) {
+  return `Bumps the vercel-cli group with 1 update:\n\n| Package | From | To |\n| --- | --- | --- |\n| [vercel](https://www.npmjs.com/package/vercel) | \`${vercelFrom}\` | \`${vercelTo}\` |`;
+}
+
 function vercelMetadata({
   duplicateVercel = false,
   group = "tooling",
@@ -476,6 +481,29 @@ function vercelMetadata({
   return {
     ...parsed,
     dependencyGroup: group,
+    immutableEvidence: {
+      currentHeadMatches: true,
+      dependencyMetadataValid: parsed.groupedUpdateIntegrity.valid,
+      seedCommitSha: HEAD_SHA,
+      seedCommitTrusted: true,
+      source: "dependabot-commit-message",
+      valid: true,
+    },
+  };
+}
+
+function vercelCliMetadata({
+  vercelFrom = "56.4.1",
+  vercelTo = "56.5.0",
+} = {}) {
+  const body = vercelCliBody({ vercelFrom, vercelTo });
+  const parsed = parseDependabotMetadata({
+    body,
+    files: ["package.json", "pnpm-lock.yaml"],
+    headRef: "dependabot/npm_and_yarn/vercel-cli-986014f9a1",
+  });
+  return {
+    ...parsed,
     immutableEvidence: {
       currentHeadMatches: true,
       dependencyMetadataValid: parsed.groupedUpdateIntegrity.valid,
@@ -510,21 +538,26 @@ function preparedCommit(sha, parent) {
 }
 
 function vercelSnapshot({
+  body = toolingBody(),
+  changedPaths = [
+    "package.json",
+    "packages/eslint-config/package.json",
+    "pnpm-lock.yaml",
+  ],
   commits,
+  contractVersion,
+  headRef = "dependabot/npm_and_yarn/tooling-31c5cf6265",
   headSha = HEAD_SHA,
   metadata = vercelMetadata(),
   protectedVersion = "56.4.1",
   repairHistoryChecks,
+  rootVersion,
+  runtimeVersion,
 } = {}) {
   const expectedBlobs = vercelExpectedBlobs();
   const expectedByPath = new Map(
     expectedBlobs.map((entry) => [entry.path, entry]),
   );
-  const changedPaths = [
-    "package.json",
-    "packages/eslint-config/package.json",
-    "pnpm-lock.yaml",
-  ];
   return snapshot({
     baseAncestry: {
       aheadBy: commits?.length ?? 1,
@@ -550,13 +583,13 @@ function vercelSnapshot({
     metadata,
     protectedRuntime: {
       contractSchema: "vercel-cli-runtime-contract:v1",
-      contractVersion: protectedVersion,
+      contractVersion: contractVersion ?? protectedVersion,
       pnpmVersion: "10.34.4",
-      rootVersion: protectedVersion,
-      runtimeVersion: protectedVersion,
+      rootVersion: rootVersion ?? protectedVersion,
+      runtimeVersion: runtimeVersion ?? protectedVersion,
     },
     pullRequest: {
-      body: toolingBody(),
+      body,
       files: changedPaths.map((filename) => ({
         filename,
         mode: expectedByPath.get(filename).mode,
@@ -565,12 +598,29 @@ function vercelSnapshot({
         type: expectedByPath.get(filename).type,
       })),
       head: {
-        ref: "dependabot/npm_and_yarn/tooling-31c5cf6265",
+        ref: headRef,
         repo: { fullName: REPOSITORY },
         sha: headSha,
       },
     },
     repairHistoryChecks,
+  });
+}
+
+function vercelCliSnapshot({
+  contractVersion = "56.4.1",
+  runtimeVersion = "56.4.1",
+  ...overrides
+} = {}) {
+  return vercelSnapshot({
+    body: vercelCliBody(),
+    changedPaths: ["package.json", "pnpm-lock.yaml"],
+    contractVersion,
+    headRef: "dependabot/npm_and_yarn/vercel-cli-986014f9a1",
+    metadata: vercelCliMetadata(),
+    rootVersion: "56.5.0",
+    runtimeVersion,
+    ...overrides,
   });
 }
 
@@ -657,6 +707,44 @@ function cursorReview(commitSha = HEAD_SHA, issueCount = 1) {
     id: 21,
     state: "COMMENTED",
   };
+}
+
+function vercelRuntimeSyncCursorBody({
+  fromVersion = "56.4.1",
+  reviewCommitSha = HEAD_SHA,
+  targetVersion = "56.5.0",
+} = {}) {
+  return `### Incomplete Vercel CLI runtime sync\n\n**High Severity**\n\n<!-- DESCRIPTION START -->\nRoot \`vercel\` is now \`${targetVersion}\`, but \`scripts/vercel-cli-runtime\` still pins \`${fromVersion}\` and \`contract.json\` still records \`vercelVersion\` \`${fromVersion}\`. \`assertVercelCliRuntimeContract\` requires those to match, so \`check-versions\` fails and protected deploy workflows keep the old CLI.\n<!-- DESCRIPTION END -->\n\n<!-- BUGBOT_BUG_ID: fbce8aba-b010-4b72-8d4a-bf6acb9ea14d -->\n\n<!-- LOCATIONS START\npackage.json#L76-L77\npnpm-lock.yaml#L221-L223\nLOCATIONS END -->\n<details>\n<summary>Additional Locations (1)</summary>\n\n- [\`pnpm-lock.yaml#L221-L223\`](https://github.com/mento-protocol/frontend-monorepo/blob/${reviewCommitSha}/pnpm-lock.yaml#L221-L223)\n\n</details>\n\n<div><a href="https://cursor.com/open?link=fixture" target="_blank" rel="noopener noreferrer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://cursor.com/assets/images/fix-in-cursor-dark.png"><source media="(prefers-color-scheme: light)" srcset="https://cursor.com/assets/images/fix-in-cursor-light.png"><img alt="Fix in Cursor" width="115" height="28" src="https://cursor.com/assets/images/fix-in-cursor-dark.png"></picture></a>&nbsp;<a href="https://cursor.com/agents?link=fixture" target="_blank" rel="noopener noreferrer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://cursor.com/assets/images/fix-in-web-dark.png"><source media="(prefers-color-scheme: light)" srcset="https://cursor.com/assets/images/fix-in-web-light.png"><img alt="Fix in Web" width="99" height="28" src="https://cursor.com/assets/images/fix-in-web-dark.png"></picture></a></div>\n\n\n<sup>Reviewed by [Cursor Bugbot](https://cursor.com/bugbot) for commit ${reviewCommitSha}. Configure [here](https://www.cursor.com/dashboard/bugbot).</sup>\n`;
+}
+
+function vercelRuntimeSyncCursorFeedback({
+  body = vercelRuntimeSyncCursorBody(),
+  path = "package.json",
+} = {}) {
+  return classifyDependabotFeedback({
+    headSha: HEAD_SHA,
+    reviews: [cursorReview()],
+    threads: [
+      {
+        comments: [
+          {
+            actor: { association: "NONE", login: "cursor", type: "Bot" },
+            body,
+            createdAt: "2026-08-10T10:00:00Z",
+            id: 11,
+            replyToId: null,
+            reviewCommitSha: HEAD_SHA,
+            reviewId: 21,
+          },
+        ],
+        id: "thread-vercel-runtime-sync",
+        line: 77,
+        outdated: false,
+        path,
+        resolved: false,
+      },
+    ],
+  });
 }
 
 function codexReviewBody(headSha = HEAD_SHA) {
@@ -2634,6 +2722,35 @@ test("feedback classifier binds Cursor summaries to actionable inline roots and 
   assert.match(result.blockers[0].bodyDigest, /^[0-9a-f]{64}$/);
 });
 
+test("feedback classifier recognizes only the exact Cursor Vercel runtime mismatch", () => {
+  const exact = vercelRuntimeSyncCursorFeedback();
+  assert.deepEqual(exact.actionableThreads[0].protectedRuntimeFinding, {
+    fromVersion: "56.4.1",
+    kind: "vercel-cli-runtime-sync",
+    targetVersion: "56.5.0",
+  });
+  for (const feedback of [
+    vercelRuntimeSyncCursorFeedback({ path: "pnpm-lock.yaml" }),
+    vercelRuntimeSyncCursorFeedback({
+      body: vercelRuntimeSyncCursorBody().replace(
+        "protected deploy workflows keep the old CLI",
+        "a different problem remains",
+      ),
+    }),
+    vercelRuntimeSyncCursorFeedback({
+      body: `${vercelRuntimeSyncCursorBody()}\n### Another actionable concern`,
+    }),
+    vercelRuntimeSyncCursorFeedback({
+      body: vercelRuntimeSyncCursorBody({ reviewCommitSha: OTHER_SHA }),
+    }),
+  ]) {
+    assert.equal(
+      "protectedRuntimeFinding" in feedback.actionableThreads[0],
+      false,
+    );
+  }
+});
+
 test("resolved current-head roots clear only with the exact repository reply formats", () => {
   const root = {
     actor: { association: "NONE", login: "cursor", type: "Bot" },
@@ -3427,6 +3544,263 @@ test("a green #753-like legacy repair requires a typed Vercel runtime sync", () 
   assert.equal(
     alignedWithoutProof.repairPacket?.schema,
     DEPENDABOT_PROTECTED_RUNTIME_REPAIR_PACKET_SCHEMA,
+  );
+});
+
+test("the exact Cursor runtime mismatch is packet-bound to the typed Vercel sync", () => {
+  const evaluateWithFeedback = (feedback) => {
+    const candidate = vercelCliSnapshot();
+    candidate.feedback = { ...candidate.feedback, ...feedback };
+    return evaluateDependabotPullRequest(candidate, {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    });
+  };
+
+  const exact = evaluateWithFeedback(vercelRuntimeSyncCursorFeedback());
+  assert.equal(exact.disposition, "repair-required");
+  assert.equal(
+    exact.repairPacket?.schema,
+    DEPENDABOT_PROTECTED_RUNTIME_REPAIR_PACKET_SCHEMA,
+  );
+  assert.deepEqual(exact.repairPacket?.feedbackThreads, [
+    {
+      commentId: 11,
+      commitSha: HEAD_SHA,
+      digest: exact.feedback.actionableThreads[0].bodyDigest,
+      line: 77,
+      path: "package.json",
+      source: "cursor",
+      threadId: "thread-vercel-runtime-sync",
+    },
+  ]);
+
+  const wrongSource = structuredClone(vercelRuntimeSyncCursorFeedback());
+  wrongSource.actionableThreads[0].source = "claude";
+  const wrongCommit = structuredClone(vercelRuntimeSyncCursorFeedback());
+  wrongCommit.actionableThreads[0].reviewCommitSha = OTHER_SHA;
+  for (const feedback of [
+    vercelRuntimeSyncCursorFeedback({
+      body: vercelRuntimeSyncCursorBody({ targetVersion: "56.5.1" }),
+    }),
+    vercelRuntimeSyncCursorFeedback({
+      body: "### Different package.json finding",
+    }),
+    wrongSource,
+    wrongCommit,
+  ]) {
+    const blocked = evaluateWithFeedback(feedback);
+    assert.equal(blocked.disposition, "manual-repair-required");
+    assert.equal(blocked.repairPacket, null);
+  }
+});
+
+test("typed Vercel sync fails closed when another actionable thread is present", () => {
+  const mixedFeedback = classifyDependabotFeedback({
+    headSha: HEAD_SHA,
+    reviews: [cursorReview(HEAD_SHA, 2)],
+    threads: [
+      {
+        comments: [
+          {
+            actor: { association: "NONE", login: "cursor", type: "Bot" },
+            body: vercelRuntimeSyncCursorBody(),
+            createdAt: "2026-08-10T10:00:00Z",
+            id: 11,
+            replyToId: null,
+            reviewCommitSha: HEAD_SHA,
+            reviewId: 21,
+          },
+        ],
+        id: "thread-vercel-runtime-sync",
+        line: 77,
+        outdated: false,
+        path: "package.json",
+        resolved: false,
+      },
+      {
+        comments: [
+          {
+            actor: { association: "NONE", login: "cursor", type: "Bot" },
+            body: "### Unrelated package.json finding",
+            createdAt: "2026-08-10T10:01:00Z",
+            id: 12,
+            replyToId: null,
+            reviewCommitSha: HEAD_SHA,
+            reviewId: 21,
+          },
+        ],
+        id: "thread-unrelated-finding",
+        line: 78,
+        outdated: false,
+        path: "package.json",
+        resolved: false,
+      },
+    ],
+  });
+  const candidate = vercelCliSnapshot();
+  candidate.feedback = { ...candidate.feedback, ...mixedFeedback };
+
+  const result = evaluateDependabotPullRequest(candidate, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  assert.equal(result.feedback.actionableThreadCount, 2);
+  assert.equal(result.disposition, "manual-repair-required");
+  assert.equal(result.repairPacket, null);
+});
+
+test("typed Vercel sync remediates its seed-bound Cursor thread after refresh", async () => {
+  const headRef = "dependabot/npm_and_yarn/vercel-cli-986014f9a1";
+  const requestCheck = refreshReceiptCheck("requested", { headRef });
+  const completedCheck = refreshReceiptCheck("completed", { headRef });
+  const sourceFeedback = vercelRuntimeSyncCursorFeedback();
+  const refreshed = vercelCliSnapshot({
+    commits: [
+      {
+        authorLogin: "dependabot[bot]",
+        committerLogin: "dependabot[bot]",
+        sha: HEAD_SHA,
+        verified: true,
+      },
+      {
+        authorId: PREPARE_ACTOR.botId,
+        authorLogin: PREPARE_ACTOR.botLogin,
+        authorType: "Bot",
+        ...GITHUB_SYSTEM_COMMITTER,
+        parents: [HEAD_SHA, BASE_SHA],
+        sha: OTHER_SHA,
+        verified: true,
+        verificationReason: "valid",
+      },
+    ],
+    headSha: OTHER_SHA,
+    repairHistoryChecks: [requestCheck, completedCheck],
+  });
+  refreshed.feedback = { ...refreshed.feedback, ...sourceFeedback };
+
+  const unboundReview = structuredClone(refreshed);
+  unboundReview.feedback.actionableThreads[0].reviewCommitSha = SECOND_HEAD_SHA;
+  const blocked = evaluateDependabotPullRequest(unboundReview, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(blocked.disposition, "manual-repair-required");
+  assert.equal(blocked.repairPacket, null);
+
+  const selected = evaluateDependabotPullRequest(refreshed, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(selected.disposition, "repair-required");
+  assert.equal(
+    selected.repairPacket?.schema,
+    DEPENDABOT_PROTECTED_RUNTIME_REPAIR_PACKET_SCHEMA,
+  );
+  assert.equal(selected.repairPacket?.operation.sourceSeedHeadSha, HEAD_SHA);
+  assert.equal(selected.repairPacket?.feedbackThreads[0].commitSha, HEAD_SHA);
+
+  const packetCheck = processorRepairReceipt(1, {
+    headSha: OTHER_SHA,
+    id: 10_401,
+    packet: selected.repairPacket,
+    packetEncoding: "canonical",
+  });
+  const repairCheck = repairReceiptCheck({
+    attempt: 1,
+    headRef,
+    headSha: SECOND_HEAD_SHA,
+    id: 30_401,
+    packetDigest: rawDigest(packetCheck.outputText),
+    parentHeadSha: OTHER_SHA,
+    processorCheckId: packetCheck.id,
+  });
+  const repaired = vercelCliSnapshot({
+    commits: [
+      refreshed.commits[0],
+      refreshed.commits[1],
+      preparedCommit(SECOND_HEAD_SHA, OTHER_SHA),
+    ],
+    contractVersion: "56.5.0",
+    headSha: SECOND_HEAD_SHA,
+    repairHistoryChecks: [
+      requestCheck,
+      completedCheck,
+      packetCheck,
+      repairCheck,
+    ],
+    runtimeVersion: "56.5.0",
+  });
+  repaired.feedback = { ...repaired.feedback, ...sourceFeedback };
+
+  const remediationProbe = evaluateDependabotPullRequest(repaired, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(
+    remediationProbe.disposition,
+    "feedback-remediation-required",
+    stableJson({
+      feedback: remediationProbe.feedback,
+      identity: remediationProbe.identity,
+      repairAttempts: remediationProbe.repairAttempts,
+    }),
+  );
+
+  const replies = [];
+  const resolved = [];
+  const result = await processDependabotSweep({
+    adapter: {
+      approvePullRequest: async () =>
+        assert.fail("feedback remediation must re-review before approval"),
+      collectPullRequestSnapshot: async () => repaired,
+      dismissPullRequestApproval: async () => {},
+      getOutstandingDependabotAutoMergeRequests: async () => [],
+      getOutstandingDependabotProcessorApprovals:
+        noOutstandingProcessorApprovals,
+      publishAllClear: async () =>
+        assert.fail("feedback remediation must not publish ALL CLEAR"),
+      publishAllClearInvalidation: async () => {},
+      publishProcessorCheck: async () => ({ id: 53_401 }),
+      replyToReviewComment: async (input) => replies.push(input),
+      resolveReviewThread: async ({ threadId }) => resolved.push(threadId),
+    },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [repaired],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "finalize",
+    publishChecks: true,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0].commentId, 11);
+  assert.match(replies[0].body, /^Fixed in 555555555555/);
+  assert.match(
+    replies[0].body,
+    new RegExp(`packet=${rawDigest(packetCheck.outputText)}`),
+  );
+  assert.deepEqual(resolved, ["thread-vercel-runtime-sync"]);
+  assert.deepEqual(
+    result.mutations.filter(({ kind }) => kind === "feedback-remediated"),
+    [
+      {
+        headSha: SECOND_HEAD_SHA,
+        kind: "feedback-remediated",
+        pullRequestNumber: 123,
+        threadId: "thread-vercel-runtime-sync",
+      },
+    ],
   );
 });
 
