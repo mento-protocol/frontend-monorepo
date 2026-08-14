@@ -141,8 +141,11 @@ lock byte from exact current-head inputs.
 - Public npm availability and deterministic pnpm output become planning inputs;
   outages or output drift stop preparation instead of falling back to a model or
   stale bytes.
-- The fixed two-Repair limit remains. PR #753 uses its existing generic repair
-  as attempt one and the typed runtime sync as attempt two.
+- The npm open-pull-request limit rises from five to six so the isolated Vercel
+  CLI group can open under the five-PR pressure observed during rollout.
+- The fixed two-Repair limit remains. Mixed generic and typed repair lineage is
+  covered by the historical PR #753 fixtures; a new isolated Vercel PR can use
+  the typed runtime sync as its first repair.
 - The runtime contract JSON becomes reviewed authority data. Stable executable
   validators still enforce its exact schema, hashes, version agreement, and
   lockfile structure.
@@ -155,5 +158,5 @@ lock byte from exact current-head inputs.
 - `pnpm vercel:workflow:test`
 - `pnpm vercel:production-shadow:test`
 - `pnpm supply-chain:lockfile-lint`
-- PR #753 live canary: a verified typed attempt-two Repair must retain Vercel
-  56.5.0 in the root and standalone runtime before exact-head ALL CLEAR.
+- Isolated Vercel live canary: a verified typed Repair must retain Vercel 56.5.0
+  in the root and standalone runtime before exact-head ALL CLEAR.
