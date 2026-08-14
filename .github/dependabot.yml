@@ -18,7 +18,9 @@ updates:
       # a malicious release that gets yanked days after publication.
       semver-patch-days: 7
 
-    open-pull-requests-limit: 5
+    # The five npm PRs open when the isolated Vercel lane launched exhausted
+    # the prior limit. Keep one additional slot for that dedicated rotation.
+    open-pull-requests-limit: 6
 
     labels:
       - dependencies

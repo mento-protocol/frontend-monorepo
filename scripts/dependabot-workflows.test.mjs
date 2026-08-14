@@ -185,6 +185,10 @@ test("npm group routing isolates sensitive dependencies and covers the workspace
   );
   const enumeratedGroups = ["frontend-core", "web3-stack", "ui-styling"];
   const productionMisc = npmConfig.groups["production-misc"];
+  assert.ok(
+    npmConfig["open-pull-requests-limit"] >= 6,
+    "the isolated Vercel CLI lane must have capacity beyond the observed five-PR pressure set",
+  );
   assert.deepEqual(npmConfig.groups["vercel-cli"], {
     "applies-to": "version-updates",
     patterns: ["vercel"],

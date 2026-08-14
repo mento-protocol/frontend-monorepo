@@ -43,6 +43,9 @@ Keep these properties true in code, workflows, rulesets, and operation:
   job.
 - Only one ALL CLEAR candidate occupies the lane. Keep it occupied through the
   human merge and the exact merge SHA's default-branch CI and release proof.
+- Keep the npm open-pull-request limit at six or higher. Five npm PRs were
+  already open when the isolated Vercel lane launched, so the former limit
+  prevented that rotation from reaching the processor.
 - ALL CLEAR is current evidence, not a timeless authorization. GitHub must still
   enforce current-base and ruleset state when the maintainer clicks Merge.
 
