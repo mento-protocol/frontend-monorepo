@@ -165,9 +165,11 @@ const pool: PoolDisplay = {
 };
 
 const walletEURm = parseUnits("2199.275594139894034278", 18);
-const walletUSDm = parseUnits("1677.027867285683156092", 18);
-const canonicalEURm = parseUnits("1938.824449465635730703", 18);
-const canonicalUSDm = parseUnits("1677.027867285683156092", 18);
+const walletUSDm = parseUnits("2500", 18);
+const desiredEURm = walletEURm;
+const desiredUSDm = parseUnits("1902.37338893100833975", 18);
+const actualEURm = parseUnits("2199.275594139894034178", 18);
+const actualUSDm = parseUnits("1902.37338893100833965", 18);
 
 let currentQuote: Record<string, unknown>;
 let currentAddBuild: Record<string, unknown>;
@@ -188,10 +190,10 @@ function makeAddBuild({ approvals }: { approvals: boolean }) {
       ? { params: { to: USDM, data: "0xapprove-usdm", value: "0" } }
       : undefined,
     addLiquidity: {
-      amountADesired: canonicalEURm,
-      amountBDesired: canonicalUSDm,
-      amountAMin: minimumAmount(canonicalEURm),
-      amountBMin: minimumAmount(canonicalUSDm),
+      amountADesired: desiredEURm,
+      amountBDesired: desiredUSDm,
+      amountAMin: minimumAmount(actualEURm),
+      amountBMin: minimumAmount(actualUSDm),
       params: {
         to: "0x00000000000000000000000000000000000000bb",
         data: "0xcanonical-add-liquidity",
@@ -237,16 +239,18 @@ describe("AddLiquidityForm canonical transaction flows", () => {
     mocks.allowances.set(USDM, 0n);
 
     currentQuote = {
-      amountA: canonicalEURm,
-      amountB: canonicalUSDm,
+      amountA: actualEURm,
+      amountB: actualUSDm,
+      amountADesired: desiredEURm,
+      amountBDesired: desiredUSDm,
       liquidity: 1n,
       totalSupply: 10_000n,
       reserve0: parseUnits("2000", 18),
       reserve1: parseUnits("1730", 18),
       requestId: 1,
       requestKind: "max",
-      surplus0: walletEURm - canonicalEURm,
-      surplus1: walletUSDm - canonicalUSDm,
+      surplus0: walletEURm - actualEURm,
+      surplus1: walletUSDm - actualUSDm,
     };
     currentAddBuild = makeAddBuild({ approvals: true });
     currentZapPreviewBuild = makeZapBuild({
@@ -319,7 +323,11 @@ describe("AddLiquidityForm canonical transaction flows", () => {
 
   afterEach(() => cleanup());
 
-  it("uses one Router-clipped MAX quote for inputs, summary, approvals, and calldata", async () => {
+  it("uses actual MAX transfers for display and desired amounts for approvals and calldata", async () => {
+    const actualOnlyEURmAllowance = actualEURm + 50n;
+    const actualOnlyUSDmAllowance = actualUSDm + 50n;
+    mocks.allowances.set(EURM, actualOnlyEURmAllowance);
+    mocks.allowances.set(USDM, actualOnlyUSDmAllowance);
     const previewBuild = makeAddBuild({ approvals: true });
     const capturedBuild = makeAddBuild({ approvals: true });
     const freshBuild = makeAddBuild({ approvals: false });
@@ -335,14 +343,14 @@ describe("AddLiquidityForm canonical transaction flows", () => {
       expect(
         (screen.getByLabelText("Deposit amount in EURm") as HTMLInputElement)
           .value,
-      ).toBe("1938.824449465635730703");
+      ).toBe("2199.275594139894034178");
       expect(
         (screen.getByLabelText("Deposit amount in USDm") as HTMLInputElement)
           .value,
-      ).toBe("1677.027867285683156092");
+      ).toBe("1902.37338893100833965");
     });
-    expect(screen.getByText("1,938.824449465635730703")).toBeTruthy();
-    expect(screen.getByText("1,677.027867285683156092")).toBeTruthy();
+    expect(screen.getByText("2,199.275594139894034178")).toBeTruthy();
+    expect(screen.getByText("1,902.37338893100833965")).toBeTruthy();
     expect(mocks.useLiquidityQuote).toHaveBeenLastCalledWith(
       expect.objectContaining({
         request: expect.objectContaining({
@@ -363,13 +371,61 @@ describe("AddLiquidityForm canonical transaction flows", () => {
       expect(mocks.buildAddLiquidityTransaction).toHaveBeenCalledTimes(3),
     );
     for (const call of mocks.buildAddLiquidityTransaction.mock.calls) {
-      expect(call).toEqual([canonicalEURm, canonicalUSDm, OWNER, 0.3]);
+      expect(call).toEqual([desiredEURm, desiredUSDm, OWNER, 0.3]);
     }
+    expect(capturedBuild.addLiquidity).toEqual(
+      expect.objectContaining({
+        amountADesired: desiredEURm,
+        amountBDesired: desiredUSDm,
+        amountAMin: minimumAmount(actualEURm),
+        amountBMin: minimumAmount(actualUSDm),
+      }),
+    );
     expect(sentTransactions).toEqual([
       capturedBuild.approvalA?.params,
       capturedBuild.approvalB?.params,
       freshBuild.addLiquidity.params,
     ]);
+  });
+
+  it("shows the paired requirement when MAX exceeds the other token balance", async () => {
+    mocks.balances.set(USDM, 0n);
+    currentQuote = {
+      ...currentQuote,
+      surplus1: 0n,
+    };
+
+    render(<AddLiquidityForm pool={pool} />);
+    fireEvent.click(screen.getByRole("button", { name: "MAX EURm" }));
+
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText("Deposit amount in EURm") as HTMLInputElement)
+          .value,
+      ).toBe("2199.275594139894034178");
+      expect(
+        (screen.getByLabelText("Deposit amount in USDm") as HTMLInputElement)
+          .value,
+      ).toBe("1902.37338893100833965");
+    });
+    expect(screen.getAllByText("Insufficient USDm balance")).toHaveLength(2);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Insufficient USDm balance",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(mocks.useLiquidityQuote).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        request: expect.objectContaining({
+          kind: "max",
+          token: 0,
+          token0Balance: walletEURm,
+          token1Balance: 0n,
+        }),
+      }),
+    );
   });
 
   it.each([
