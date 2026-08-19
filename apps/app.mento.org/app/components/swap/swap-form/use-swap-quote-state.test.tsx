@@ -170,6 +170,22 @@ describe("useSwapQuoteState", () => {
     expect(result.current.tradingLimitError).toBeNull();
   });
 
+  it("waits for a debounced quote after limits load", () => {
+    const { result } = renderHook(() =>
+      useSwapQuoteState(
+        createProps({
+          limits: routeLimits,
+          quote: "0",
+          quoteFetching: false,
+          routeAmounts: [],
+        }),
+      ),
+    );
+
+    expect(result.current.tradingLimitError).toBeNull();
+    expect(toastMocks.error).not.toHaveBeenCalled();
+  });
+
   it("fails closed when a completed quote has no route amounts", () => {
     const { result } = renderHook(() =>
       useSwapQuoteState(

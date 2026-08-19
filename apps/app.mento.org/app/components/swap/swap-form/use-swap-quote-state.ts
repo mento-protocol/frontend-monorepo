@@ -73,7 +73,9 @@ export function useSwapQuoteState({
     if (hasAmount && limitsError) return TRADING_LIMITS_UNAVAILABLE_MESSAGE;
     if (!hasAmount || !limits || limitsLoading) return null;
     if (routeAmounts.length === 0) {
-      return quoteFetching ? null : TRADING_LIMITS_UNAVAILABLE_MESSAGE;
+      return quoteFetching || !quote || Number(quote) <= 0
+        ? null
+        : TRADING_LIMITS_UNAVAILABLE_MESSAGE;
     }
     return checkTradingLimitViolation({
       limits,
@@ -83,6 +85,7 @@ export function useSwapQuoteState({
     limits,
     limitsError,
     limitsLoading,
+    quote,
     quoteFetching,
     routeAmounts,
     hasAmount,
