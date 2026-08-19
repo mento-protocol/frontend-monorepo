@@ -53,11 +53,11 @@ describe("formatRouteAmounts", () => {
 
     expect(
       formatRouteAmounts(
-        [1_000_000n, 2n * 10n ** 18n, 3_000_000n],
-        [route(TOKEN_A, TOKEN_B), route(TOKEN_B, TOKEN_C)],
+        [3_000_000n, 2n * 10n ** 18n, 1_000_000n],
+        [route(TOKEN_C, TOKEN_B), route(TOKEN_B, TOKEN_A)],
         42220,
       ),
-    ).toEqual(["1", "2", "3"]);
+    ).toEqual(["3", "2", "1"]);
   });
 
   it("rejects an incomplete Router amount list", () => {

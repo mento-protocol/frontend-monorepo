@@ -167,6 +167,7 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
     isSuspensionCheckLoading,
     isTradingSuspended,
     limits,
+    limitsError,
     limitsLoading,
     toTokenBalance,
     tradingSuspensionError,
@@ -281,6 +282,7 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
     isQuoteError: isError,
     isTradingSuspended,
     limits,
+    limitsError,
     limitsLoading,
     prevTradingSuspensionErrorRef,
     quote,
@@ -596,6 +598,8 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
   // ── Submit ──────────────────────────────────────────────────────────
 
   const onSubmit = async (values: FormValues) => {
+    if (!canOpenVerifiedSwap) return;
+
     try {
       if (isApprovalVerificationPending) {
         await synchronizeAllowanceAndOpenConfirmRef.current();

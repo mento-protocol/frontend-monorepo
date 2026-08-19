@@ -1,10 +1,4 @@
-import {
-  PoolType,
-  type Mento,
-  type Pool,
-  type Route,
-  type TradingLimit,
-} from "@mento-protocol/mento-sdk";
+import { PoolType, type Pool, type Route } from "@mento-protocol/mento-sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const tokenSymbolsByAddress = new Map<string, string>();
@@ -17,6 +11,10 @@ vi.mock("@/config/tokens", () => ({
 }));
 
 import { getRouteTradingLimits } from "./use-trading-limits";
+import type {
+  TaggedTradingLimit,
+  TradingLimitsPublicClient,
+} from "../strict-trading-limits";
 
 const FACTORY = "0xffffffffffffffffffffffffffffffffffffffff";
 const TOKEN_A = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -49,23 +47,27 @@ function makeLimit(
   value: bigint,
   decimals: number,
   until: number,
-): TradingLimit {
+  tier: TaggedTradingLimit["tier"] = "L0",
+): TaggedTradingLimit {
   return {
     asset,
     decimals,
     maxIn: value,
     maxOut: value * 2n,
+    tier,
     until,
   };
 }
 
-function makeMento(limitsByPool: Record<string, TradingLimit[]>) {
-  const getPoolTradingLimits = vi.fn((pool: Pool) =>
-    Promise.resolve(limitsByPool[pool.poolAddr.toLowerCase()] ?? []),
+const publicClient = {} as TradingLimitsPublicClient;
+
+function makeLoader(limitsByPool: Record<string, TaggedTradingLimit[]>) {
+  const loadPoolTradingLimits = vi.fn(
+    (_publicClient: TradingLimitsPublicClient, _chainId: number, pool: Pool) =>
+      Promise.resolve(limitsByPool[pool.poolAddr.toLowerCase()] ?? []),
   );
   return {
-    getPoolTradingLimits,
-    mento: { trading: { getPoolTradingLimits } } as unknown as Mento,
+    loadPoolTradingLimits,
   };
 }
 
@@ -80,7 +82,7 @@ beforeEach(() => {
 describe("getRouteTradingLimits", () => {
   it("formats both directions for a direct FPMM route", async () => {
     const pool = makePool(POOL_1, TOKEN_A, TOKEN_B);
-    const { mento } = makeMento({
+    const { loadPoolTradingLimits } = makeLoader({
       [POOL_1]: [
         makeLimit(TOKEN_A, 1_000n * 10n ** 15n, 15, 100),
         makeLimit(TOKEN_B, 2_000n * 10n ** 15n, 15, 100),
@@ -90,7 +92,8 @@ describe("getRouteTradingLimits", () => {
     await expect(
       getRouteTradingLimits({
         chainId: 42220,
-        mento,
+        publicClient,
+        loadPoolTradingLimits,
         route: { path: [pool] } as Route,
         tokenInAddress: TOKEN_A,
         tokenOutAddress: TOKEN_B,
@@ -111,13 +114,61 @@ describe("getRouteTradingLimits", () => {
     ]);
   });
 
+  it("keeps the SDK tier order when reset times cross", async () => {
+    const pool = makePool(POOL_1, TOKEN_A, TOKEN_B);
+    const { loadPoolTradingLimits } = makeLoader({
+      [POOL_1]: [
+        makeLimit(TOKEN_A, 100n, 0, 300),
+        makeLimit(TOKEN_A, 200n, 0, 100, "L1"),
+        makeLimit(TOKEN_A, 300n, 0, 200, "LG"),
+      ],
+    });
+
+    const limits = await getRouteTradingLimits({
+      chainId: 42220,
+      publicClient,
+      loadPoolTradingLimits,
+      route: { path: [pool] } as Route,
+      tokenInAddress: TOKEN_A,
+      tokenOutAddress: TOKEN_B,
+    });
+
+    expect(limits[0]).toMatchObject({
+      L0: { maxIn: "100", until: 300 },
+      L1: { maxIn: "200", until: 100 },
+      LG: { maxIn: "300", until: 200 },
+    });
+  });
+
+  it("keeps a sparse L1 tier in the L1 field", async () => {
+    const pool = makePool(POOL_1, TOKEN_A, TOKEN_B);
+    const { loadPoolTradingLimits } = makeLoader({
+      [POOL_1]: [makeLimit(TOKEN_A, 200n, 0, 100, "L1")],
+    });
+
+    const limits = await getRouteTradingLimits({
+      chainId: 42220,
+      publicClient,
+      loadPoolTradingLimits,
+      route: { path: [pool] } as Route,
+      tokenInAddress: TOKEN_A,
+      tokenOutAddress: TOKEN_B,
+    });
+
+    expect(limits[0]).toMatchObject({
+      L0: null,
+      L1: { maxIn: "200" },
+      LG: null,
+    });
+  });
+
   it("returns every configured limit across a mixed three-hop route", async () => {
     const pools = [
       makePool(POOL_1, TOKEN_A, TOKEN_B),
       makePool(POOL_2, TOKEN_B, TOKEN_C, PoolType.Virtual),
       makePool(POOL_3, TOKEN_C, TOKEN_D),
     ];
-    const { mento, getPoolTradingLimits } = makeMento({
+    const { loadPoolTradingLimits } = makeLoader({
       [POOL_1]: [makeLimit(TOKEN_A, 100n * 10n ** 15n, 15, 100)],
       [POOL_2]: [makeLimit(TOKEN_B, 200n, 0, 100)],
       [POOL_3]: [makeLimit(TOKEN_D, 300n * 10n ** 15n, 15, 100)],
@@ -125,7 +176,8 @@ describe("getRouteTradingLimits", () => {
 
     const limits = await getRouteTradingLimits({
       chainId: 42220,
-      mento,
+      publicClient,
+      loadPoolTradingLimits,
       route: { path: pools } as Route,
       tokenInAddress: TOKEN_A,
       tokenOutAddress: TOKEN_D,
@@ -149,7 +201,7 @@ describe("getRouteTradingLimits", () => {
         tokenSymbol: "D",
       }),
     ]);
-    expect(getPoolTradingLimits).toHaveBeenCalledTimes(3);
+    expect(loadPoolTradingLimits).toHaveBeenCalledTimes(3);
   });
 
   it("assigns hop indexes in reverse Router order", async () => {
@@ -158,7 +210,7 @@ describe("getRouteTradingLimits", () => {
       makePool(POOL_2, TOKEN_B, TOKEN_C),
       makePool(POOL_3, TOKEN_C, TOKEN_D),
     ];
-    const { mento } = makeMento({
+    const { loadPoolTradingLimits } = makeLoader({
       [POOL_3]: [makeLimit(TOKEN_D, 100n, 0, 100)],
       [POOL_2]: [makeLimit(TOKEN_C, 100n, 0, 100)],
       [POOL_1]: [makeLimit(TOKEN_A, 100n, 0, 100)],
@@ -166,7 +218,8 @@ describe("getRouteTradingLimits", () => {
 
     const limits = await getRouteTradingLimits({
       chainId: 42220,
-      mento,
+      publicClient,
+      loadPoolTradingLimits,
       route: { path: pools } as Route,
       tokenInAddress: TOKEN_D,
       tokenOutAddress: TOKEN_A,
@@ -187,19 +240,49 @@ describe("getRouteTradingLimits", () => {
 
   it("reads a repeated pool only once", async () => {
     const pool = makePool(POOL_1, TOKEN_A, TOKEN_B);
-    const { mento, getPoolTradingLimits } = makeMento({
+    const { loadPoolTradingLimits } = makeLoader({
       [POOL_1]: [makeLimit(TOKEN_A, 100n, 0, 100)],
     });
 
     await getRouteTradingLimits({
       chainId: 42220,
-      mento,
+      publicClient,
+      loadPoolTradingLimits,
       route: { path: [pool, pool, pool] } as Route,
       tokenInAddress: TOKEN_A,
       tokenOutAddress: TOKEN_B,
     });
 
-    expect(getPoolTradingLimits).toHaveBeenCalledTimes(1);
+    expect(loadPoolTradingLimits).toHaveBeenCalledTimes(1);
+  });
+
+  it("consumes distinct pools for repeated token-pair hops", async () => {
+    const firstPool = makePool(POOL_1, TOKEN_A, TOKEN_B);
+    const secondPool = makePool(POOL_2, TOKEN_A, TOKEN_B);
+    const { loadPoolTradingLimits } = makeLoader({
+      [POOL_1]: [makeLimit(TOKEN_B, 100n, 0, 100)],
+      [POOL_2]: [makeLimit(TOKEN_A, 200n, 0, 100)],
+    });
+
+    const limits = await getRouteTradingLimits({
+      chainId: 42220,
+      publicClient,
+      loadPoolTradingLimits,
+      route: { path: [firstPool, secondPool] } as Route,
+      tokenInAddress: TOKEN_A,
+      tokenOutAddress: TOKEN_A,
+    });
+
+    expect(
+      limits.map(({ direction, hopIndex, tokenSymbol }) => ({
+        direction,
+        hopIndex,
+        tokenSymbol,
+      })),
+    ).toEqual([
+      { direction: "out", hopIndex: 0, tokenSymbol: "B" },
+      { direction: "out", hopIndex: 1, tokenSymbol: "A" },
+    ]);
   });
 
   it("reads virtual exchanges with a shared contract address separately", async () => {
@@ -217,26 +300,29 @@ describe("getRouteTradingLimits", () => {
       PoolType.Virtual,
       POOL_3,
     );
-    const getPoolTradingLimits = vi.fn((pool: Pool) =>
-      Promise.resolve(
-        pool.exchangeId === POOL_2
-          ? [makeLimit(TOKEN_A, 100n, 0, 100)]
-          : [makeLimit(TOKEN_C, 300n, 0, 100)],
-      ),
+    const loadPoolTradingLimits = vi.fn(
+      (
+        _publicClient: TradingLimitsPublicClient,
+        _chainId: number,
+        pool: Pool,
+      ) =>
+        Promise.resolve(
+          pool.exchangeId === POOL_2
+            ? [makeLimit(TOKEN_A, 100n, 0, 100)]
+            : [makeLimit(TOKEN_C, 300n, 0, 100)],
+        ),
     );
-    const mento = {
-      trading: { getPoolTradingLimits },
-    } as unknown as Mento;
 
     const limits = await getRouteTradingLimits({
       chainId: 42220,
-      mento,
+      publicClient,
+      loadPoolTradingLimits,
       route: { path: [firstPool, secondPool] } as Route,
       tokenInAddress: TOKEN_A,
       tokenOutAddress: TOKEN_C,
     });
 
-    expect(getPoolTradingLimits).toHaveBeenCalledTimes(2);
+    expect(loadPoolTradingLimits).toHaveBeenCalledTimes(2);
     expect(limits.map(({ tokenSymbol }) => tokenSymbol)).toEqual(["A", "C"]);
   });
 });

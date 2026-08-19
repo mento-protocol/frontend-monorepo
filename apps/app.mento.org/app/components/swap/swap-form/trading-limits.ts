@@ -2,7 +2,6 @@ import { parseAmountWithDefault, type RouteTradingLimit } from "@repo/web3";
 
 interface TradingLimitAmount {
   gt(other: string | number): boolean;
-  isZero(): boolean;
   toFormat(): string;
 }
 
@@ -14,7 +13,7 @@ interface CheckTradingLimitViolationParams {
 }
 
 function exceedsLimit(amount: TradingLimitAmount, max: string | undefined) {
-  return !!max && !parseAmountWithDefault(max, 0).isZero() && amount.gt(max);
+  return !!max && amount.gt(max);
 }
 
 function getTierTimeframe(tier: "L0" | "L1") {

@@ -58,11 +58,13 @@ export function useSwapFormValidation({
       }),
     [balances, selectedTokenOutSymbol, chainId],
   );
-  const { data: limits, isLoading: limitsLoading } = useTradingLimits(
-    selectedTokenInSymbol,
-    selectedTokenOutSymbol,
-    chainId,
-  );
+  const {
+    data: limits,
+    isError: limitsError,
+    isFetching: limitsFetching,
+    isLoading: limitsInitialLoading,
+  } = useTradingLimits(selectedTokenInSymbol, selectedTokenOutSymbol, chainId);
+  const limitsLoading = limitsInitialLoading || limitsFetching;
   const {
     isSuspended: isTradingSuspended,
     isLoading: isSuspensionCheckLoading,
@@ -108,6 +110,7 @@ export function useSwapFormValidation({
     hasAmount &&
     !hasAmountError &&
     !limitsLoading &&
+    !limitsError &&
     !isTradingSuspended &&
     !!selectedTokenInSymbol &&
     !!selectedTokenOutSymbol;
@@ -120,6 +123,7 @@ export function useSwapFormValidation({
     isSuspensionCheckLoading,
     isTradingSuspended,
     limits,
+    limitsError,
     limitsLoading,
     toTokenBalance,
     tradingSuspensionError,

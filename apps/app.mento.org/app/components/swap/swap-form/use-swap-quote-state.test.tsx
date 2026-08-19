@@ -6,6 +6,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SwapTradingLimits } from "./trading-limits";
 
 const web3Mocks = vi.hoisted(() => ({
+  TRADING_LIMITS_UNAVAILABLE_MESSAGE:
+    "Unable to verify trading limits. Please try again.",
   getTokenDecimals: vi.fn(() => 18),
   parseAmount: vi.fn(),
   toWei: vi.fn(),
@@ -27,7 +29,21 @@ import { useSwapQuoteState } from "./use-swap-quote-state";
 const chainId = 42220 as ChainId;
 const celo = "CELO" as TokenSymbol;
 const usdM = "USDm" as TokenSymbol;
-const noLimits: SwapTradingLimits = [];
+const routeLimits: SwapTradingLimits = [
+  {
+    direction: "in",
+    hopIndex: 0,
+    tokenSymbol: "CELO",
+    L0: {
+      maxIn: "1",
+      maxOut: "2",
+      total: "3",
+      until: 1_700_000_000,
+    },
+    L1: null,
+    LG: null,
+  },
+];
 type QuoteStateProps = Parameters<typeof useSwapQuoteState>[0];
 
 function createProps(
@@ -43,6 +59,7 @@ function createProps(
     isQuoteError: false,
     isTradingSuspended: false,
     limits: null,
+    limitsError: false,
     limitsLoading: false,
     prevTradingSuspensionErrorRef: { current: null },
     quote: "2.5",
@@ -110,18 +127,39 @@ describe("useSwapQuoteState", () => {
     );
 
     const { result } = renderHook(() =>
-      useSwapQuoteState(createProps({ limits: noLimits })),
+      useSwapQuoteState(createProps({ limits: routeLimits })),
     );
 
     expect(result.current.tradingLimitError).toBe("Trading limit exceeded");
     expect(result.current.isLoading).toBe(false);
+    expect(result.current.isButtonLoading).toBe(false);
     expect(tradingLimitMocks.checkTradingLimitViolation).toHaveBeenCalledWith({
-      limits: noLimits,
+      limits: routeLimits,
       routeAmounts: ["1.25", "2.5"],
     });
     expect(toastMocks.error).toHaveBeenCalledWith("Trading limit exceeded", {
       duration: 20000,
     });
+  });
+
+  it("blocks button loading while route limits are loading", () => {
+    const { result } = renderHook(() =>
+      useSwapQuoteState(createProps({ limitsLoading: true })),
+    );
+
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.isButtonLoading).toBe(false);
+  });
+
+  it("fails closed when route limit verification fails", () => {
+    const { result } = renderHook(() =>
+      useSwapQuoteState(createProps({ limitsError: true })),
+    );
+
+    expect(result.current.tradingLimitError).toBe(
+      "Unable to verify trading limits. Please try again.",
+    );
+    expect(result.current.isButtonLoading).toBe(false);
   });
 
   it("replaces a changed suspension toast and dismisses it when the error clears", () => {

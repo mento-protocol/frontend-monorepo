@@ -99,6 +99,34 @@ describe("checkTradingLimitViolation", () => {
     );
   });
 
+  it("allows an input amount equal to the active limit", () => {
+    const limits = createLimits({
+      direction: "in",
+      tokenSymbol: TOKEN_IN,
+    });
+
+    expect(
+      checkTradingLimitViolation({
+        routeAmounts: ["1000", "0"],
+        limits,
+      }),
+    ).toBeNull();
+  });
+
+  it("allows an output amount equal to the active limit", () => {
+    const limits = createLimits({
+      direction: "out",
+      tokenSymbol: TOKEN_OUT,
+    });
+
+    expect(
+      checkTradingLimitViolation({
+        routeAmounts: ["0", "2000"],
+        limits,
+      }),
+    ).toBeNull();
+  });
+
   it("preserves the direct-route L1 input message", () => {
     const limits = createLimits({
       direction: "in",
@@ -198,13 +226,13 @@ describe("checkTradingLimitViolation", () => {
 
     expect(
       checkTradingLimitViolation({
-        routeAmounts: ["1", "1", "1", "2000.01"],
+        routeAmounts: ["1000.01", "1", "1", "2000.01"],
         limits: [...firstHopLimits, ...lastHopLimits],
       }),
-    ).toContain("EUROP");
+    ).toContain("USDC");
   });
 
-  it("treats zero-valued tiers as not configured", () => {
+  it("treats zero remaining capacity as exhausted", () => {
     const limits = createLimits({
       direction: "in",
       tokenSymbol: TOKEN_IN,
@@ -224,6 +252,13 @@ describe("checkTradingLimitViolation", () => {
     expect(
       checkTradingLimitViolation({
         routeAmounts: ["10", "0"],
+        limits,
+      }),
+    ).toContain(`current trading limit of 0 ${TOKEN_IN}`);
+
+    expect(
+      checkTradingLimitViolation({
+        routeAmounts: ["0", "0"],
         limits,
       }),
     ).toBeNull();

@@ -1,14 +1,20 @@
 import { getTokenByAddress } from "@/config/tokens";
-import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
+import { type ChainId } from "@/config/chains";
+import { getPublicClient, getTradablePairForTokens } from "@/features/sdk";
 import {
   TokenSymbol,
   encodeRoutePath,
   getTokenAddress,
   type Pool,
-  type TradingLimit,
 } from "@mento-protocol/mento-sdk";
 import { useQuery } from "@tanstack/react-query";
 import { formatUnits } from "viem";
+import { resolveRouteHops } from "../route-hops";
+import {
+  readPoolTradingLimitsStrict,
+  type TaggedTradingLimit,
+  type TradingLimitsPublicClient,
+} from "../strict-trading-limits";
 
 export interface FormattedTradingLimitTier {
   maxIn: string;
@@ -46,7 +52,7 @@ function getPoolIdentity(pool: Pool): string {
 }
 
 function formatTradingLimitTier(
-  limit: TradingLimit | undefined,
+  limit: TaggedTradingLimit | undefined,
 ): FormattedTradingLimitTier | null {
   if (!limit) return null;
 
@@ -60,16 +66,18 @@ function formatTradingLimitTier(
 
 export async function getRouteTradingLimits({
   chainId,
-  mento,
+  publicClient,
   route,
   tokenInAddress,
   tokenOutAddress,
+  loadPoolTradingLimits = readPoolTradingLimitsStrict,
 }: {
   chainId: number;
-  mento: Awaited<ReturnType<typeof getMentoSdk>>;
+  publicClient: TradingLimitsPublicClient;
   route: Awaited<ReturnType<typeof getTradablePairForTokens>>;
   tokenInAddress: `0x${string}`;
   tokenOutAddress: `0x${string}`;
+  loadPoolTradingLimits?: typeof readPoolTradingLimitsStrict;
 }): Promise<RouteTradingLimit[]> {
   const routerRoutes = encodeRoutePath(
     route.path,
@@ -85,27 +93,20 @@ export async function getRouteTradingLimits({
         async ([poolIdentity, pool]) =>
           [
             poolIdentity,
-            await mento.trading.getPoolTradingLimits(pool),
+            await loadPoolTradingLimits(publicClient, chainId, pool),
           ] as const,
       ),
     ),
   );
 
+  const resolvedHops = resolveRouteHops(route, routerRoutes);
+  if (!resolvedHops) {
+    throw new Error("Unable to load trading limits for the swap route.");
+  }
+
   const routeLimits: RouteTradingLimit[] = [];
 
-  for (const [hopIndex, hop] of routerRoutes.entries()) {
-    const pool = route.path.find(
-      (candidate) =>
-        isSameAddress(candidate.factoryAddr, hop.factory) &&
-        ((isSameAddress(candidate.token0, hop.from) &&
-          isSameAddress(candidate.token1, hop.to)) ||
-          (isSameAddress(candidate.token1, hop.from) &&
-            isSameAddress(candidate.token0, hop.to))),
-    );
-    if (!pool) {
-      throw new Error("Unable to load trading limits for the swap route.");
-    }
-
+  for (const { hop, hopIndex, pool } of resolvedHops) {
     const poolLimits = limitsByPoolIdentity.get(getPoolIdentity(pool));
     if (!poolLimits) {
       throw new Error("Unable to load trading limits for the swap route.");
@@ -115,10 +116,13 @@ export async function getRouteTradingLimits({
       ["in", hop.from],
       ["out", hop.to],
     ] as const) {
-      const assetLimits = poolLimits
-        .filter((limit) => isSameAddress(limit.asset, asset))
-        .sort((limitA, limitB) => limitA.until - limitB.until);
+      const assetLimits = poolLimits.filter((limit) =>
+        isSameAddress(limit.asset, asset),
+      );
       if (assetLimits.length === 0) continue;
+      const assetLimitsByTier = new Map(
+        assetLimits.map((limit) => [limit.tier, limit]),
+      );
 
       const token = getTokenByAddress(asset, chainId);
       if (!token) {
@@ -129,9 +133,9 @@ export async function getRouteTradingLimits({
         hopIndex,
         direction,
         tokenSymbol: token.symbol,
-        L0: formatTradingLimitTier(assetLimits[0]),
-        L1: formatTradingLimitTier(assetLimits[1]),
-        LG: formatTradingLimitTier(assetLimits[2]),
+        L0: formatTradingLimitTier(assetLimitsByTier.get("L0")),
+        L1: formatTradingLimitTier(assetLimitsByTier.get("L1")),
+        LG: formatTradingLimitTier(assetLimitsByTier.get("LG")),
       });
     }
   }
@@ -149,7 +153,6 @@ export function useTradingLimits(
     queryFn: async () => {
       if (!tokenInSymbol || !tokenOutSymbol) return null;
 
-      const mento = await getMentoSdk(chainId);
       const tradablePair = await getTradablePairForTokens(
         chainId,
         tokenInSymbol as TokenSymbol,
@@ -161,7 +164,7 @@ export function useTradingLimits(
         !tradablePair.path ||
         tradablePair.path.length === 0
       ) {
-        return null;
+        throw new Error("Unable to load trading limits for the swap route.");
       }
       const tokenInAddress = getTokenAddress(
         chainId,
@@ -186,7 +189,7 @@ export function useTradingLimits(
 
       return getRouteTradingLimits({
         chainId,
-        mento,
+        publicClient: getPublicClient(chainId as ChainId),
         route: tradablePair,
         tokenInAddress: tokenInAddress as `0x${string}`,
         tokenOutAddress: tokenOutAddress as `0x${string}`,

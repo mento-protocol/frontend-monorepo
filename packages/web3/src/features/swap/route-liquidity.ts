@@ -6,6 +6,7 @@ import {
   encodeRoutePath,
   type Mento,
 } from "@mento-protocol/mento-sdk";
+import { resolveRouteHops } from "./route-hops";
 
 function isSameAddress(addressA: string, addressB: string): boolean {
   return addressA.toLowerCase() === addressB.toLowerCase();
@@ -36,25 +37,14 @@ export async function validateRouteLiquidity(params: {
     ),
   );
 
-  // routerRoutes is the authoritative, direction-aware order of hops; route.path
-  // is only consulted to resolve (factory, {from,to}) → poolAddr.
-  const remainingPools = [...route.path];
+  // routerRoutes is the authoritative, direction-aware order of hops. Each
+  // matching route.path pool can resolve at most one hop.
+  const resolvedHops = resolveRouteHops(route, routerRoutes);
+  if (!resolvedHops) {
+    throw new Error("Unable to validate swap liquidity.");
+  }
 
-  for (const [hopIndex, hop] of routerRoutes.entries()) {
-    const poolIdx = remainingPools.findIndex(
-      (p) =>
-        isSameAddress(p.factoryAddr, hop.factory) &&
-        ((isSameAddress(p.token0, hop.from) &&
-          isSameAddress(p.token1, hop.to)) ||
-          (isSameAddress(p.token1, hop.from) &&
-            isSameAddress(p.token0, hop.to))),
-    );
-    const pool = poolIdx === -1 ? undefined : remainingPools[poolIdx];
-    if (!pool) {
-      throw new Error("Unable to validate swap liquidity.");
-    }
-    remainingPools.splice(poolIdx, 1);
-
+  for (const { hop, hopIndex, pool } of resolvedHops) {
     const details = poolDetailsByAddr.get(pool.poolAddr.toLowerCase());
     const hopAmountOut = amounts[hopIndex + 1];
     if (!details || hopAmountOut == null) {
