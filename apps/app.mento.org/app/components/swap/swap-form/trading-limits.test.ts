@@ -31,6 +31,8 @@ const { parseAmountWithDefault } = vi.hoisted(() => {
 });
 
 vi.mock("@repo/web3", () => ({
+  TRADING_LIMITS_UNAVAILABLE_MESSAGE:
+    "Unable to verify trading limits. Please try again.",
   parseAmountWithDefault,
 }));
 
@@ -207,10 +209,25 @@ describe("checkTradingLimitViolation", () => {
 
     expect(
       checkTradingLimitViolation({
-        routeAmounts: ["1 EUROP", "1 EURm", "2000.01", "1 USDC"],
+        routeAmounts: ["1", "1", "2000.01", "1"],
         limits,
       }),
     ).toContain("Cannot buy more than 2,000 USDm");
+  });
+
+  it("fails closed when a configured hop amount is missing", () => {
+    const limits = createLimits({
+      direction: "out",
+      hopIndex: 1,
+      tokenSymbol: "USDm",
+    });
+
+    expect(
+      checkTradingLimitViolation({
+        routeAmounts: ["1", "1"],
+        limits,
+      }),
+    ).toBe("Unable to verify trading limits. Please try again.");
   });
 
   it("checks all configured assets and returns the first route violation", () => {

@@ -6,11 +6,7 @@ import {
   encodeRoutePath,
   type Mento,
 } from "@mento-protocol/mento-sdk";
-import { resolveRouteHops } from "./route-hops";
-
-function isSameAddress(addressA: string, addressB: string): boolean {
-  return addressA.toLowerCase() === addressB.toLowerCase();
-}
+import { isSameAddress, resolveRouteHops } from "./route-hops";
 
 export async function validateRouteLiquidity(params: {
   mento: Mento;

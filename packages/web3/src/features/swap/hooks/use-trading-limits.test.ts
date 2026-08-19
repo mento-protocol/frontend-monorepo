@@ -48,12 +48,14 @@ function makeLimit(
   decimals: number,
   until: number,
   tier: TaggedTradingLimit["tier"] = "L0",
+  total: bigint = value * 3n,
 ): TaggedTradingLimit {
   return {
     asset,
     decimals,
     maxIn: value,
     maxOut: value * 2n,
+    total,
     tier,
     until,
   };
@@ -84,7 +86,14 @@ describe("getRouteTradingLimits", () => {
     const pool = makePool(POOL_1, TOKEN_A, TOKEN_B);
     const { loadPoolTradingLimits } = makeLoader({
       [POOL_1]: [
-        makeLimit(TOKEN_A, 1_000n * 10n ** 15n, 15, 100),
+        makeLimit(
+          TOKEN_A,
+          1_000n * 10n ** 15n,
+          15,
+          100,
+          "L0",
+          1_500n * 10n ** 15n,
+        ),
         makeLimit(TOKEN_B, 2_000n * 10n ** 15n, 15, 100),
       ],
     });
@@ -103,7 +112,11 @@ describe("getRouteTradingLimits", () => {
         direction: "in",
         hopIndex: 0,
         tokenSymbol: "A",
-        L0: expect.objectContaining({ maxIn: "1000", maxOut: "2000" }),
+        L0: expect.objectContaining({
+          maxIn: "1000",
+          maxOut: "2000",
+          total: "1500",
+        }),
       }),
       expect.objectContaining({
         direction: "out",
@@ -254,6 +267,25 @@ describe("getRouteTradingLimits", () => {
     });
 
     expect(loadPoolTradingLimits).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when a pool returns a limit for an unexpected asset", async () => {
+    const pool = makePool(POOL_1, TOKEN_A, TOKEN_B);
+    const unexpectedAsset = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+    const { loadPoolTradingLimits } = makeLoader({
+      [POOL_1]: [makeLimit(unexpectedAsset, 100n, 0, 100)],
+    });
+
+    await expect(
+      getRouteTradingLimits({
+        chainId: 42220,
+        publicClient,
+        loadPoolTradingLimits,
+        route: { path: [pool] } as Route,
+        tokenInAddress: TOKEN_A,
+        tokenOutAddress: TOKEN_B,
+      }),
+    ).rejects.toThrow("Unable to load trading limits for the swap route.");
   });
 
   it("consumes distinct pools for repeated token-pair hops", async () => {

@@ -19,20 +19,25 @@ export const TRADING_LIMITS_UNAVAILABLE_MESSAGE =
   "Unable to verify trading limits. Please try again.";
 
 export type TradingLimitTier = "L0" | "L1" | "LG";
-export type TaggedTradingLimit = TradingLimit & { tier: TradingLimitTier };
+export type TaggedTradingLimit = TradingLimit & {
+  tier: TradingLimitTier;
+  total: bigint;
+};
 
 export type TradingLimitsPublicClient = Pick<PublicClient, "readContract">;
 
 function tagCalculatedLimits(
   limits: TradingLimit[],
   tiers: TradingLimitTier[],
+  totals: bigint[],
 ): TaggedTradingLimit[] {
   return limits.map((limit, index) => {
     const tier = tiers[index];
-    if (!tier) {
+    const total = totals[index];
+    if (!tier || total == null) {
       throw new Error(TRADING_LIMITS_UNAVAILABLE_MESSAGE);
     }
-    return { ...limit, tier };
+    return { ...limit, tier, total };
   });
 }
 
@@ -59,12 +64,20 @@ async function readFpmmTokenLimits(
     netflow1: stateTuple.netflow1,
   };
   const tiers: TradingLimitTier[] = [];
-  if (config.limit0 > 0n) tiers.push("L0");
-  if (config.limit1 > 0n) tiers.push("L1");
+  const totals: bigint[] = [];
+  if (config.limit0 > 0n) {
+    tiers.push("L0");
+    totals.push(config.limit0);
+  }
+  if (config.limit1 > 0n) {
+    tiers.push("L1");
+    totals.push(config.limit1);
+  }
 
   return tagCalculatedLimits(
     calculateTradingLimitsV2(config, state, token),
     tiers,
+    totals,
   );
 }
 
@@ -90,43 +103,54 @@ async function readVirtualTokenLimits(
     }),
   ]);
   const configTuple = configResult as readonly [
-    bigint,
-    bigint,
-    bigint,
-    bigint,
-    bigint,
-    bigint,
+    number | bigint,
+    number | bigint,
+    number | bigint,
+    number | bigint,
+    number | bigint,
+    number | bigint,
   ];
   const stateTuple = stateResult as readonly [
-    bigint,
-    bigint,
-    bigint,
-    bigint,
-    bigint,
+    number | bigint,
+    number | bigint,
+    number | bigint,
+    number | bigint,
+    number | bigint,
   ];
   const config: TradingLimitsConfigV1 = {
     timestep0: Number(configTuple[0]),
     timestep1: Number(configTuple[1]),
-    limit0: configTuple[2],
-    limit1: configTuple[3],
-    limitGlobal: configTuple[4],
+    limit0: BigInt(configTuple[2]),
+    limit1: BigInt(configTuple[3]),
+    limitGlobal: BigInt(configTuple[4]),
     flags: Number(configTuple[5]),
   };
   const state: TradingLimitsStateV1 = {
     lastUpdated0: Number(stateTuple[0]),
     lastUpdated1: Number(stateTuple[1]),
-    netflow0: stateTuple[2],
-    netflow1: stateTuple[3],
-    netflowGlobal: stateTuple[4],
+    netflow0: BigInt(stateTuple[2]),
+    netflow1: BigInt(stateTuple[3]),
+    netflowGlobal: BigInt(stateTuple[4]),
   };
   const tiers: TradingLimitTier[] = [];
-  if ((config.flags & 0x01) !== 0 && config.limit0 > 0n) tiers.push("L0");
-  if ((config.flags & 0x02) !== 0 && config.limit1 > 0n) tiers.push("L1");
-  if ((config.flags & 0x04) !== 0 && config.limitGlobal > 0n) tiers.push("LG");
+  const totals: bigint[] = [];
+  if ((config.flags & 0x01) !== 0 && config.limit0 > 0n) {
+    tiers.push("L0");
+    totals.push(config.limit0);
+  }
+  if ((config.flags & 0x02) !== 0 && config.limit1 > 0n) {
+    tiers.push("L1");
+    totals.push(config.limit1);
+  }
+  if ((config.flags & 0x04) !== 0 && config.limitGlobal > 0n) {
+    tiers.push("LG");
+    totals.push(config.limitGlobal);
+  }
 
   return tagCalculatedLimits(
     calculateTradingLimitsV1(config, state, token, 0),
     tiers,
+    totals,
   );
 }
 

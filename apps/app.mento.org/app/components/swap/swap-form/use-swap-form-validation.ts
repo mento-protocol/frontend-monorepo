@@ -109,7 +109,7 @@ export function useSwapFormValidation({
   const canQuote =
     hasAmount &&
     !hasAmountError &&
-    !limitsLoading &&
+    !limitsInitialLoading &&
     !limitsError &&
     !isTradingSuspended &&
     !!selectedTokenInSymbol &&

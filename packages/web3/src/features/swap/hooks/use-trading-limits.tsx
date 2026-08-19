@@ -9,7 +9,7 @@ import {
 } from "@mento-protocol/mento-sdk";
 import { useQuery } from "@tanstack/react-query";
 import { formatUnits } from "viem";
-import { resolveRouteHops } from "../route-hops";
+import { isSameAddress, resolveRouteHops } from "../route-hops";
 import {
   readPoolTradingLimitsStrict,
   type TaggedTradingLimit,
@@ -39,10 +39,6 @@ function formatLimit(value: bigint, decimals: number): string {
   return formatUnits(value, decimals);
 }
 
-function isSameAddress(addressA: string, addressB: string): boolean {
-  return addressA.toLowerCase() === addressB.toLowerCase();
-}
-
 function getPoolIdentity(pool: Pool): string {
   return [
     pool.poolType,
@@ -60,7 +56,7 @@ function formatTradingLimitTier(
     maxIn: formatLimit(limit.maxIn, limit.decimals),
     maxOut: formatLimit(limit.maxOut, limit.decimals),
     until: limit.until,
-    total: formatLimit(limit.maxIn + limit.maxOut, limit.decimals),
+    total: formatLimit(limit.total, limit.decimals),
   };
 }
 
@@ -109,6 +105,15 @@ export async function getRouteTradingLimits({
   for (const { hop, hopIndex, pool } of resolvedHops) {
     const poolLimits = limitsByPoolIdentity.get(getPoolIdentity(pool));
     if (!poolLimits) {
+      throw new Error("Unable to load trading limits for the swap route.");
+    }
+    if (
+      poolLimits.some(
+        (limit) =>
+          !isSameAddress(limit.asset, hop.from) &&
+          !isSameAddress(limit.asset, hop.to),
+      )
+    ) {
       throw new Error("Unable to load trading limits for the swap route.");
     }
 

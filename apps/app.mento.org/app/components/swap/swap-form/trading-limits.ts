@@ -1,4 +1,8 @@
-import { parseAmountWithDefault, type RouteTradingLimit } from "@repo/web3";
+import {
+  TRADING_LIMITS_UNAVAILABLE_MESSAGE,
+  parseAmountWithDefault,
+  type RouteTradingLimit,
+} from "@repo/web3";
 
 interface TradingLimitAmount {
   gt(other: string | number): boolean;
@@ -79,7 +83,7 @@ export function checkTradingLimitViolation({
     const amountIndex =
       routeLimit.hopIndex + (routeLimit.direction === "out" ? 1 : 0);
     const routeAmount = routeAmounts[amountIndex];
-    if (routeAmount == null) continue;
+    if (routeAmount == null) return TRADING_LIMITS_UNAVAILABLE_MESSAGE;
 
     const violation = checkRouteLimit(routeAmount, routeLimit);
     if (violation) return violation;

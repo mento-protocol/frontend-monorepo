@@ -45,6 +45,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   web3Mocks.useTradingLimits.mockReturnValue({
     data: [],
+    isError: false,
+    isFetching: false,
     isLoading: false,
   });
   web3Mocks.useTradingSuspensionCheck.mockReturnValue({
@@ -191,5 +193,46 @@ describe("useSwapFormValidation", () => {
     expect(result.current.tradingSuspensionError).toContain(
       "Trading temporarily paused for CELO -> USDm",
     );
+  });
+
+  it("blocks quotes and exposes a trading-limit read error", () => {
+    web3Mocks.useTradingLimits.mockReturnValue({
+      data: undefined,
+      isError: true,
+      isFetching: false,
+      isLoading: false,
+    });
+
+    const { result } = renderValidation();
+
+    expect(result.current.canQuote).toBe(false);
+    expect(result.current.limitsError).toBe(true);
+  });
+
+  it("keeps the current quote while cached limits refresh", () => {
+    web3Mocks.useTradingLimits.mockReturnValue({
+      data: [],
+      isError: false,
+      isFetching: true,
+      isLoading: false,
+    });
+
+    const { result } = renderValidation();
+
+    expect(result.current.canQuote).toBe(true);
+    expect(result.current.limitsLoading).toBe(true);
+  });
+
+  it("blocks quotes during the initial trading-limit read", () => {
+    web3Mocks.useTradingLimits.mockReturnValue({
+      data: undefined,
+      isError: false,
+      isFetching: true,
+      isLoading: true,
+    });
+
+    const { result } = renderValidation();
+
+    expect(result.current.canQuote).toBe(false);
   });
 });

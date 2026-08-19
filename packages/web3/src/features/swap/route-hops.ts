@@ -4,7 +4,7 @@ import {
   type Route,
 } from "@mento-protocol/mento-sdk";
 
-function isSameAddress(addressA: string, addressB: string): boolean {
+export function isSameAddress(addressA: string, addressB: string): boolean {
   return addressA.toLowerCase() === addressB.toLowerCase();
 }
 

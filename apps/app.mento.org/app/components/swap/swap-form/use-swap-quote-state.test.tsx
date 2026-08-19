@@ -162,6 +162,30 @@ describe("useSwapQuoteState", () => {
     expect(result.current.isButtonLoading).toBe(false);
   });
 
+  it("waits for an in-flight quote before requiring route amounts", () => {
+    const { result } = renderHook(() =>
+      useSwapQuoteState(createProps({ limits: routeLimits, routeAmounts: [] })),
+    );
+
+    expect(result.current.tradingLimitError).toBeNull();
+  });
+
+  it("fails closed when a completed quote has no route amounts", () => {
+    const { result } = renderHook(() =>
+      useSwapQuoteState(
+        createProps({
+          limits: routeLimits,
+          quoteFetching: false,
+          routeAmounts: [],
+        }),
+      ),
+    );
+
+    expect(result.current.tradingLimitError).toBe(
+      "Unable to verify trading limits. Please try again.",
+    );
+  });
+
   it("replaces a changed suspension toast and dismisses it when the error clears", () => {
     toastMocks.error.mockReturnValueOnce(101).mockReturnValueOnce(102);
     const prevErrorRef = { current: null as string | null };

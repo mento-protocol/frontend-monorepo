@@ -364,6 +364,87 @@ describe("SwapConfirm chain threading", () => {
     expect(refetchMocks.limits).toHaveBeenCalledTimes(2);
   });
 
+  it("blocks submission when the fresh quote reports an error", async () => {
+    const sendSwapTx = vi.fn();
+    hooks.useSwapTransaction.mockReturnValue({
+      sendSwapTx,
+      isSwapTxLoading: false,
+      isSwapTxReceiptLoading: false,
+    });
+    refetchMocks.quote.mockResolvedValue({
+      data: { routeAmounts: ["1", "1"] },
+      error: new Error("quote unavailable"),
+      isError: true,
+    });
+    hooks.useChainId.mockReturnValue(CELO);
+    const { getByRole, getByTestId } = renderConfirm(CELO);
+
+    fireEvent.click(getByTestId("swapButton"));
+
+    await waitFor(() =>
+      expect(getByRole("alert").textContent).toBe(
+        "Unable to verify trading limits. Please try again.",
+      ),
+    );
+    expect(sendSwapTx).not.toHaveBeenCalled();
+  });
+
+  it("blocks submission when the fresh quote has no route amounts", async () => {
+    const sendSwapTx = vi.fn();
+    hooks.useSwapTransaction.mockReturnValue({
+      sendSwapTx,
+      isSwapTxLoading: false,
+      isSwapTxReceiptLoading: false,
+    });
+    refetchMocks.quote.mockResolvedValue({
+      data: { routeAmounts: [] },
+      error: null,
+      isError: false,
+    });
+    hooks.useChainId.mockReturnValue(CELO);
+    const { getByRole, getByTestId } = renderConfirm(CELO);
+
+    fireEvent.click(getByTestId("swapButton"));
+
+    await waitFor(() =>
+      expect(getByRole("alert").textContent).toBe(
+        "Unable to verify trading limits. Please try again.",
+      ),
+    );
+    expect(sendSwapTx).not.toHaveBeenCalled();
+  });
+
+  it("blocks a second click while fresh quote verification is in flight", async () => {
+    const sendSwapTx = vi.fn().mockResolvedValue(undefined);
+    hooks.useSwapTransaction.mockReturnValue({
+      sendSwapTx,
+      isSwapTxLoading: false,
+      isSwapTxReceiptLoading: false,
+    });
+    let resolveQuote: ((value: unknown) => void) | undefined;
+    refetchMocks.quote.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveQuote = resolve;
+        }),
+    );
+    hooks.useChainId.mockReturnValue(CELO);
+    const { getByTestId } = renderConfirm(CELO);
+
+    fireEvent.click(getByTestId("swapButton"));
+    fireEvent.click(getByTestId("swapButton"));
+
+    expect(refetchMocks.quote).toHaveBeenCalledTimes(1);
+    expect(refetchMocks.limits).toHaveBeenCalledTimes(1);
+
+    resolveQuote?.({
+      data: { routeAmounts: ["1", "1"] },
+      error: null,
+      isError: false,
+    });
+    await waitFor(() => expect(sendSwapTx).toHaveBeenCalledTimes(1));
+  });
+
   it("blocks an enabled submission when fresh limits reject the quote", async () => {
     const sendSwapTx = vi.fn();
     hooks.useSwapTransaction.mockReturnValue({
@@ -383,11 +464,11 @@ describe("SwapConfirm chain threading", () => {
       error: null,
       isError: false,
     });
+    tradingLimitMocks.checkTradingLimitViolation
+      .mockReturnValueOnce(null)
+      .mockReturnValue("Fresh trading limit violation");
     hooks.useChainId.mockReturnValue(CELO);
     const { getByRole, getByTestId } = renderConfirm(CELO);
-    tradingLimitMocks.checkTradingLimitViolation.mockReturnValue(
-      "Fresh trading limit violation",
-    );
 
     fireEvent.click(getByTestId("swapButton"));
 
