@@ -71,8 +71,13 @@ export function useSwapQuoteState({
 }) {
   const tradingLimitError = useMemo(() => {
     if (hasAmount && limitsError) return TRADING_LIMITS_UNAVAILABLE_MESSAGE;
-    if (!hasAmount || !limits || limitsLoading) return null;
+    if (!hasAmount || limitsLoading) return null;
     if (routeAmounts.length === 0) {
+      return quoteFetching || !quote || Number(quote) <= 0
+        ? null
+        : TRADING_LIMITS_UNAVAILABLE_MESSAGE;
+    }
+    if (!limits) {
       return quoteFetching || !quote || Number(quote) <= 0
         ? null
         : TRADING_LIMITS_UNAVAILABLE_MESSAGE;

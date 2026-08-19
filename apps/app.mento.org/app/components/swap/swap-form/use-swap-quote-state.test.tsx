@@ -202,11 +202,28 @@ describe("useSwapQuoteState", () => {
     );
   });
 
+  it("fails closed when a completed quote has no limits", () => {
+    const { result } = renderHook(() =>
+      useSwapQuoteState(
+        createProps({
+          limits: null,
+          quoteFetching: false,
+        }),
+      ),
+    );
+
+    expect(result.current.tradingLimitError).toBe(
+      "Unable to verify trading limits. Please try again.",
+    );
+    expect(tradingLimitMocks.checkTradingLimitViolation).not.toHaveBeenCalled();
+  });
+
   it("replaces a changed suspension toast and dismisses it when the error clears", () => {
     toastMocks.error.mockReturnValueOnce(101).mockReturnValueOnce(102);
     const prevErrorRef = { current: null as string | null };
     const toastIdRef = { current: null as string | number | null };
     const props = createProps({
+      limits: routeLimits,
       prevTradingSuspensionErrorRef: prevErrorRef,
       quoteFetching: false,
       suspensionToastIdRef: toastIdRef,
