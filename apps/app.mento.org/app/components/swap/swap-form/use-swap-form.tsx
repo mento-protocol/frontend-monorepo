@@ -176,7 +176,6 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
     amount,
     balances,
     chainId: formChainId,
-    formQuote,
     hasAmountError: Boolean(errors.amount),
     selectedTokenInSymbol,
     selectedTokenOutSymbol,
@@ -231,6 +230,7 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
     isError,
     hasInsufficientLiquidityError,
     quoteErrorMessage,
+    routeAmounts,
     fromTokenUSDValue,
     toTokenUSDValue,
   } = useOptimizedSwapQuote(
@@ -285,6 +285,7 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
     prevTradingSuspensionErrorRef,
     quote,
     quoteFetching,
+    routeAmounts,
     selectedTokenInSymbol,
     selectedTokenOutSymbol,
     suspensionToastIdRef,

@@ -8,7 +8,6 @@ import type { SwapTradingLimits } from "./trading-limits";
 const web3Mocks = vi.hoisted(() => ({
   getTokenDecimals: vi.fn(() => 18),
   parseAmount: vi.fn(),
-  parseAmountWithDefault: vi.fn((value) => ({ value })),
   toWei: vi.fn(),
 }));
 const toastMocks = vi.hoisted(() => ({
@@ -28,12 +27,7 @@ import { useSwapQuoteState } from "./use-swap-quote-state";
 const chainId = 42220 as ChainId;
 const celo = "CELO" as TokenSymbol;
 const usdM = "USDm" as TokenSymbol;
-const noLimits: SwapTradingLimits = {
-  L0: null,
-  L1: null,
-  LG: null,
-  tokenToCheck: null,
-};
+const noLimits: SwapTradingLimits = [];
 type QuoteStateProps = Parameters<typeof useSwapQuoteState>[0];
 
 function createProps(
@@ -53,6 +47,7 @@ function createProps(
     prevTradingSuspensionErrorRef: { current: null },
     quote: "2.5",
     quoteFetching: true,
+    routeAmounts: ["1.25", "2.5"],
     selectedTokenInSymbol: celo,
     selectedTokenOutSymbol: usdM,
     suspensionToastIdRef: { current: null },
@@ -121,11 +116,8 @@ describe("useSwapQuoteState", () => {
     expect(result.current.tradingLimitError).toBe("Trading limit exceeded");
     expect(result.current.isLoading).toBe(false);
     expect(tradingLimitMocks.checkTradingLimitViolation).toHaveBeenCalledWith({
-      amountIn: { value: "1.25" },
-      amountOut: { value: "2.5" },
       limits: noLimits,
-      tokenInSymbol: "CELO",
-      tokenOutSymbol: "USDm",
+      routeAmounts: ["1.25", "2.5"],
     });
     expect(toastMocks.error).toHaveBeenCalledWith("Trading limit exceeded", {
       duration: 20000,

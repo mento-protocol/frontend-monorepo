@@ -1,11 +1,5 @@
 import type { TokenSymbol } from "@mento-protocol/mento-sdk";
-import {
-  getTokenDecimals,
-  parseAmount,
-  parseAmountWithDefault,
-  toWei,
-  type ChainId,
-} from "@repo/web3";
+import { getTokenDecimals, parseAmount, toWei, type ChainId } from "@repo/web3";
 import {
   useEffect,
   useMemo,
@@ -36,6 +30,7 @@ export function useSwapQuoteState({
   prevTradingSuspensionErrorRef,
   quote,
   quoteFetching,
+  routeAmounts,
   selectedTokenInSymbol,
   selectedTokenOutSymbol,
   suspensionToastIdRef,
@@ -57,6 +52,7 @@ export function useSwapQuoteState({
   prevTradingSuspensionErrorRef: RefObject<string | null>;
   quote?: string;
   quoteFetching: boolean;
+  routeAmounts: string[];
   selectedTokenInSymbol?: TokenSymbol;
   selectedTokenOutSymbol?: TokenSymbol;
   suspensionToastIdRef: RefObject<string | number | null>;
@@ -66,23 +62,13 @@ export function useSwapQuoteState({
   tradingSuspensionError: string | null;
 }) {
   const tradingLimitError = useMemo(() => {
-    if (!hasAmount || !limits || limitsLoading) return null;
+    if (!hasAmount || !limits || limitsLoading || routeAmounts.length === 0)
+      return null;
     return checkTradingLimitViolation({
-      amountIn: parseAmountWithDefault(amount, 0),
-      amountOut: parseAmountWithDefault(quote, 0),
       limits,
-      tokenInSymbol,
-      tokenOutSymbol,
+      routeAmounts,
     });
-  }, [
-    amount,
-    quote,
-    limits,
-    limitsLoading,
-    tokenInSymbol,
-    tokenOutSymbol,
-    hasAmount,
-  ]);
+  }, [limits, limitsLoading, routeAmounts, hasAmount]);
 
   useEffect(() => {
     if (tradingLimitError) {

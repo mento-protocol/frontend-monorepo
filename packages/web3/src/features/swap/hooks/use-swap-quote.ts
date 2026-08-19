@@ -1,11 +1,11 @@
 import { toast } from "@mento-protocol/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { type Address } from "viem";
+import { formatUnits, type Address } from "viem";
 import { useChainId, usePublicClient } from "wagmi";
 
 import { SWAP_QUOTE_REFETCH_INTERVAL } from "@/config/constants";
-import { getTokenBySymbol } from "@/config/tokens";
+import { getTokenByAddress, getTokenBySymbol } from "@/config/tokens";
 import {
   getPreferredUsdQuoteTokenSymbol,
   isUsdQuoteTokenSymbol,
@@ -47,6 +47,7 @@ interface ISwapData {
   quoteWei: string;
   quote: string;
   rate: string;
+  routeAmounts: string[];
 }
 
 interface UseSwapQuoteOptions {
@@ -55,6 +56,32 @@ interface UseSwapQuoteOptions {
   validatePoolLiquidity?: boolean;
   insufficientLiquidityFallbackUrl?: string;
   chainId?: number;
+}
+
+export function formatRouteAmounts(
+  amounts: readonly bigint[],
+  routerRoutes: ReturnType<typeof encodeRoutePath>,
+  chainId: Parameters<typeof getTokenByAddress>[1],
+): string[] {
+  if (amounts.length !== routerRoutes.length + 1) {
+    throw new Error("Unable to map swap amounts to the route");
+  }
+
+  return amounts.map((routeAmount, amountIndex) => {
+    const tokenAddress =
+      amountIndex === 0
+        ? routerRoutes[0]?.from
+        : routerRoutes[amountIndex - 1]?.to;
+    const token = tokenAddress
+      ? getTokenByAddress(tokenAddress, chainId)
+      : null;
+    if (!token) {
+      throw new Error(
+        `Unable to resolve token for swap route amount ${amountIndex}`,
+      );
+    }
+    return formatUnits(routeAmount, token.decimals);
+  });
 }
 
 /**
@@ -229,6 +256,8 @@ export function useSwapQuote(
       throw new Error("Unable to fetch swap amount");
     }
 
+    const routeAmounts = formatRouteAmounts(amounts, routerRoutes, chainId);
+
     const quote = fromWei(quoteWei.toString(), quoteDecimals ?? 18);
     const rate = calcExchangeRate(
       amountWei,
@@ -254,6 +283,7 @@ export function useSwapQuote(
       quoteWei: quoteWei.toString(),
       quote,
       rate,
+      routeAmounts,
     };
   }, [
     validation.isQueryEnabled,
@@ -345,6 +375,7 @@ export function useSwapQuote(
       quoteWei: data?.quoteWei || "0",
       quote: data?.quote || "0",
       rate: data?.rate,
+      routeAmounts: data?.routeAmounts || [],
       refetch,
     }),
     [

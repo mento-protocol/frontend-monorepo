@@ -26,12 +26,7 @@ const web3Mocks = vi.hoisted(() => {
   };
 });
 
-const tradingLimitMocks = vi.hoisted(() => ({
-  checkTradingLimitViolation: vi.fn(),
-}));
-
 vi.mock("@repo/web3", () => web3Mocks);
-vi.mock("./trading-limits", () => tradingLimitMocks);
 
 import {
   getFormattedTokenInBalance,
@@ -49,14 +44,13 @@ const chainId = 42220 as ChainId;
 beforeEach(() => {
   vi.clearAllMocks();
   web3Mocks.useTradingLimits.mockReturnValue({
-    data: { tokenToCheck: tokenInSymbol },
+    data: [],
     isLoading: false,
   });
   web3Mocks.useTradingSuspensionCheck.mockReturnValue({
     isLoading: false,
     isSuspended: false,
   });
-  tradingLimitMocks.checkTradingLimitViolation.mockReturnValue(null);
 });
 
 describe("swap form balance helpers", () => {
@@ -170,7 +164,6 @@ describe("useSwapFormValidation", () => {
         amount: "1",
         balances: { [tokenInSymbol]: "20" },
         chainId,
-        formQuote: "2",
         hasAmountError: false,
         selectedTokenInSymbol: tokenInSymbol,
         selectedTokenOutSymbol: tokenOutSymbol,
@@ -179,26 +172,12 @@ describe("useSwapFormValidation", () => {
       }),
     );
 
-  it("preserves the valid quote and composed amount-validation path", async () => {
+  it("preserves the valid quote and amount-validation path", async () => {
     const { result } = renderValidation();
 
     expect(result.current.canQuote).toBe(true);
     expect(result.current.hasAmount).toBe(true);
     await expect(result.current.validateAmount("1")).resolves.toBe(true);
-    expect(tradingLimitMocks.checkTradingLimitViolation).toHaveBeenCalledWith(
-      expect.objectContaining({ tokenInSymbol, tokenOutSymbol }),
-    );
-  });
-
-  it("surfaces the current trading-limit message through validateAmount", async () => {
-    tradingLimitMocks.checkTradingLimitViolation.mockReturnValue(
-      "Limit reached",
-    );
-    const { result } = renderValidation();
-
-    await expect(result.current.validateAmount("1")).resolves.toBe(
-      "Limit reached",
-    );
   });
 
   it("blocks quotes and exposes the pair message while trading is suspended", () => {
