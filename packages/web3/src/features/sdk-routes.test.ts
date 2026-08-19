@@ -29,6 +29,12 @@ describe("Polygon three-hop routes", () => {
     ).resolves.toContain(TokenSymbol.EUROP);
   });
 
+  it("makes USDC selectable when EUROP is selected", async () => {
+    await expect(
+      getSwappableTokenOptions(TokenSymbol.EUROP, ChainId.Polygon),
+    ).resolves.toContain(TokenSymbol.USDC);
+  });
+
   it("encodes USDC to EUROP through USDm and EURm", async () => {
     const route = await getTradablePairForTokens(
       ChainId.Polygon,
