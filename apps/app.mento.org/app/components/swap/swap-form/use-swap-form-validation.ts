@@ -1,7 +1,5 @@
 import type { TokenSymbol } from "@mento-protocol/mento-sdk";
 import {
-  parseAmount,
-  parseAmountWithDefault,
   useTradingLimits,
   useTradingSuspensionCheck,
   type AccountBalances,
@@ -16,7 +14,6 @@ import {
   hasSwapAmount,
   validateSwapBalance,
 } from "./swap-form-validation";
-import { checkTradingLimitViolation } from "./trading-limits";
 
 type TokenOptions = Parameters<
   typeof validateSwapBalance
@@ -27,7 +24,6 @@ export function useSwapFormValidation({
   amount,
   balances,
   chainId,
-  formQuote,
   hasAmountError,
   selectedTokenInSymbol,
   selectedTokenOutSymbol,
@@ -38,7 +34,6 @@ export function useSwapFormValidation({
   amount: string;
   balances: AccountBalances;
   chainId: ChainId;
-  formQuote: string;
   hasAmountError: boolean;
   selectedTokenInSymbol?: TokenSymbol;
   selectedTokenOutSymbol?: TokenSymbol;
@@ -63,11 +58,13 @@ export function useSwapFormValidation({
       }),
     [balances, selectedTokenOutSymbol, chainId],
   );
-  const { data: limits, isLoading: limitsLoading } = useTradingLimits(
-    selectedTokenInSymbol,
-    selectedTokenOutSymbol,
-    chainId,
-  );
+  const {
+    data: limits,
+    isError: limitsError,
+    isFetching: limitsFetching,
+    isLoading: limitsInitialLoading,
+  } = useTradingLimits(selectedTokenInSymbol, selectedTokenOutSymbol, chainId);
+  const limitsLoading = limitsInitialLoading || limitsFetching;
   const {
     isSuspended: isTradingSuspended,
     isLoading: isSuspensionCheckLoading,
@@ -86,36 +83,13 @@ export function useSwapFormValidation({
       }),
     [balances, selectedTokenInSymbol, allTokenOptions],
   );
-  const validateLimits = useCallback(
-    async (value: string) => {
-      if (!value || limitsLoading || !limits || !limits.tokenToCheck)
-        return true;
-      if (value === "0." || value === "0") return true;
-
-      const parsedAmount = parseAmount(value);
-      if (!parsedAmount) return true;
-
-      const violation = checkTradingLimitViolation({
-        amountIn: parsedAmount,
-        amountOut: parseAmountWithDefault(formQuote, 0),
-        limits,
-        tokenInSymbol,
-        tokenOutSymbol,
-      });
-      return violation || true;
-    },
-    [limitsLoading, limits, tokenInSymbol, tokenOutSymbol, formQuote],
-  );
   const validateAmount = useCallback(
     async (value: string) => {
       const balanceCheck = validateBalance(value);
       if (balanceCheck !== true) return balanceCheck;
-
-      const limitsCheck = await validateLimits(value);
-      if (limitsCheck !== true) return limitsCheck;
       return true;
     },
-    [validateBalance, validateLimits],
+    [validateBalance],
   );
   const hasAmount = hasSwapAmount(amount);
   const balanceError = useMemo(() => {
@@ -135,7 +109,8 @@ export function useSwapFormValidation({
   const canQuote =
     hasAmount &&
     !hasAmountError &&
-    !limitsLoading &&
+    !limitsInitialLoading &&
+    !limitsError &&
     !isTradingSuspended &&
     !!selectedTokenInSymbol &&
     !!selectedTokenOutSymbol;
@@ -148,6 +123,7 @@ export function useSwapFormValidation({
     isSuspensionCheckLoading,
     isTradingSuspended,
     limits,
+    limitsError,
     limitsLoading,
     toTokenBalance,
     tradingSuspensionError,

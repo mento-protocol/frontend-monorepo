@@ -1,19 +1,151 @@
 import { getTokenByAddress } from "@/config/tokens";
-import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
+import { type ChainId } from "@/config/chains";
+import { getPublicClient, getTradablePairForTokens } from "@/features/sdk";
 import {
   TokenSymbol,
+  encodeRoutePath,
   getTokenAddress,
-  TradingLimit,
-  Pool,
+  type Pool,
 } from "@mento-protocol/mento-sdk";
 import { useQuery } from "@tanstack/react-query";
 import { formatUnits } from "viem";
+import { isSameAddress, resolveRouteHops } from "../route-hops";
+import {
+  readPoolTradingLimitsStrict,
+  type TaggedTradingLimit,
+  type TradingLimitsPublicClient,
+} from "../strict-trading-limits";
+
+export interface FormattedTradingLimitTier {
+  maxIn: string;
+  maxOut: string;
+  total: string;
+  until: number;
+}
+
+export interface RouteTradingLimit {
+  hopIndex: number;
+  direction: "in" | "out";
+  tokenSymbol: string;
+  L0: FormattedTradingLimitTier | null;
+  L1: FormattedTradingLimitTier | null;
+  LG: FormattedTradingLimitTier | null;
+}
 
 // Helper to convert a bigint limit to an exact decimal string using token
 // decimals. Kept as a string (not a float) so downstream comparisons stay
 // precise for amounts near a limit boundary.
 function formatLimit(value: bigint, decimals: number): string {
   return formatUnits(value, decimals);
+}
+
+function getPoolIdentity(pool: Pool): string {
+  return [
+    pool.poolType,
+    pool.poolAddr.toLowerCase(),
+    pool.exchangeId?.toLowerCase() ?? "",
+  ].join(":");
+}
+
+function formatTradingLimitTier(
+  limit: TaggedTradingLimit | undefined,
+): FormattedTradingLimitTier | null {
+  if (!limit) return null;
+
+  return {
+    maxIn: formatLimit(limit.maxIn, limit.decimals),
+    maxOut: formatLimit(limit.maxOut, limit.decimals),
+    until: limit.until,
+    total: formatLimit(limit.total, limit.decimals),
+  };
+}
+
+export async function getRouteTradingLimits({
+  chainId,
+  publicClient,
+  route,
+  tokenInAddress,
+  tokenOutAddress,
+  loadPoolTradingLimits = readPoolTradingLimitsStrict,
+}: {
+  chainId: number;
+  publicClient: TradingLimitsPublicClient;
+  route: Awaited<ReturnType<typeof getTradablePairForTokens>>;
+  tokenInAddress: `0x${string}`;
+  tokenOutAddress: `0x${string}`;
+  loadPoolTradingLimits?: typeof readPoolTradingLimitsStrict;
+}): Promise<RouteTradingLimit[]> {
+  const routerRoutes = encodeRoutePath(
+    route.path,
+    tokenInAddress,
+    tokenOutAddress,
+  );
+  const poolsByIdentity = new Map(
+    route.path.map((pool) => [getPoolIdentity(pool), pool]),
+  );
+  const limitsByPoolIdentity = new Map(
+    await Promise.all(
+      [...poolsByIdentity.entries()].map(
+        async ([poolIdentity, pool]) =>
+          [
+            poolIdentity,
+            await loadPoolTradingLimits(publicClient, chainId, pool),
+          ] as const,
+      ),
+    ),
+  );
+
+  const resolvedHops = resolveRouteHops(route, routerRoutes);
+  if (!resolvedHops) {
+    throw new Error("Unable to load trading limits for the swap route.");
+  }
+
+  const routeLimits: RouteTradingLimit[] = [];
+
+  for (const { hop, hopIndex, pool } of resolvedHops) {
+    const poolLimits = limitsByPoolIdentity.get(getPoolIdentity(pool));
+    if (!poolLimits) {
+      throw new Error("Unable to load trading limits for the swap route.");
+    }
+    if (
+      poolLimits.some(
+        (limit) =>
+          !isSameAddress(limit.asset, hop.from) &&
+          !isSameAddress(limit.asset, hop.to),
+      )
+    ) {
+      throw new Error("Unable to load trading limits for the swap route.");
+    }
+
+    for (const [direction, asset] of [
+      ["in", hop.from],
+      ["out", hop.to],
+    ] as const) {
+      const assetLimits = poolLimits.filter((limit) =>
+        isSameAddress(limit.asset, asset),
+      );
+      if (assetLimits.length === 0) continue;
+      const assetLimitsByTier = new Map(
+        assetLimits.map((limit) => [limit.tier, limit]),
+      );
+
+      const token = getTokenByAddress(asset, chainId);
+      if (!token) {
+        throw new Error(`Token address ${asset} not found on chain ${chainId}`);
+      }
+
+      routeLimits.push({
+        hopIndex,
+        direction,
+        tokenSymbol: token.symbol,
+        L0: formatTradingLimitTier(assetLimitsByTier.get("L0")),
+        L1: formatTradingLimitTier(assetLimitsByTier.get("L1")),
+        LG: formatTradingLimitTier(assetLimitsByTier.get("LG")),
+      });
+    }
+  }
+
+  return routeLimits;
 }
 
 export function useTradingLimits(
@@ -26,7 +158,6 @@ export function useTradingLimits(
     queryFn: async () => {
       if (!tokenInSymbol || !tokenOutSymbol) return null;
 
-      const mento = await getMentoSdk(chainId);
       const tradablePair = await getTradablePairForTokens(
         chainId,
         tokenInSymbol as TokenSymbol,
@@ -38,16 +169,8 @@ export function useTradingLimits(
         !tradablePair.path ||
         tradablePair.path.length === 0
       ) {
-        return null;
+        throw new Error("Unable to load trading limits for the swap route.");
       }
-
-      const pool: Pool | undefined = tradablePair.path[0];
-      if (!pool) return null;
-
-      const tradingLimits: TradingLimit[] =
-        await mento.trading.getPoolTradingLimits(pool);
-
-      // Check limits for both tokens
       const tokenInAddress = getTokenAddress(
         chainId,
         tokenInSymbol as TokenSymbol,
@@ -69,81 +192,13 @@ export function useTradingLimits(
         );
       }
 
-      // Filter limits for tokenIn
-      const tokenInLimits = tradingLimits.filter(
-        (limit: TradingLimit) =>
-          limit.asset.toLowerCase() === tokenInAddress.toLowerCase(),
-      );
-
-      // Filter limits for tokenOut
-      const tokenOutLimits = tradingLimits.filter(
-        (limit: TradingLimit) =>
-          limit.asset.toLowerCase() === tokenOutAddress.toLowerCase(),
-      );
-
-      // Determine which token has limits configured
-      let filteredTradingLimits: TradingLimit[];
-      let limitAsset: string;
-
-      if (tokenInLimits.length > 0) {
-        filteredTradingLimits = tokenInLimits;
-        limitAsset = tokenInAddress;
-      } else if (tokenOutLimits.length > 0) {
-        filteredTradingLimits = tokenOutLimits;
-        limitAsset = tokenOutAddress;
-      } else {
-        // No limits configured for either token
-        return null;
-      }
-
-      // Sort limits by 'until' timestamp in ascending order
-      const sortedLimits = [...filteredTradingLimits].sort(
-        (a: TradingLimit, b: TradingLimit) => a.until - b.until,
-      );
-
-      const tokenToCheck = limitAsset
-        ? getTokenByAddress(limitAsset as `0x${string}`, chainId)?.symbol
-        : null;
-
-      // Extract L0, L1, and LG limits based on timestamp ranking
-      const L0 = sortedLimits[0] || null; // Soonest timestamp (e.g., 5 minutes)
-      const L1 = sortedLimits[1] || null; // Middle timestamp (e.g., 1 day)
-      const LG = sortedLimits[2] || null; // Latest timestamp (far future)
-
-      return {
-        L0: L0
-          ? {
-              asset: L0.asset,
-              maxIn: formatLimit(L0.maxIn, L0.decimals),
-              maxOut: formatLimit(L0.maxOut, L0.decimals),
-              until: L0.until,
-              decimals: L0.decimals,
-              total: formatLimit(L0.maxIn + L0.maxOut, L0.decimals),
-            }
-          : null,
-        L1: L1
-          ? {
-              asset: L1.asset,
-              maxIn: formatLimit(L1.maxIn, L1.decimals),
-              maxOut: formatLimit(L1.maxOut, L1.decimals),
-              until: L1.until,
-              decimals: L1.decimals,
-              total: formatLimit(L1.maxIn + L1.maxOut, L1.decimals),
-            }
-          : null,
-        LG: LG
-          ? {
-              asset: LG.asset,
-              maxIn: formatLimit(LG.maxIn, LG.decimals),
-              maxOut: formatLimit(LG.maxOut, LG.decimals),
-              until: LG.until,
-              decimals: LG.decimals,
-              total: formatLimit(LG.maxIn + LG.maxOut, LG.decimals),
-            }
-          : null,
-        tokenToCheck,
-        asset: limitAsset,
-      };
+      return getRouteTradingLimits({
+        chainId,
+        publicClient: getPublicClient(chainId as ChainId),
+        route: tradablePair,
+        tokenInAddress: tokenInAddress as `0x${string}`,
+        tokenOutAddress: tokenOutAddress as `0x${string}`,
+      });
     },
     enabled: !!tokenInSymbol && !!tokenOutSymbol,
   });

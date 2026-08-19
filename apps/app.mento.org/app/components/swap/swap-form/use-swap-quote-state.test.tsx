@@ -6,9 +6,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SwapTradingLimits } from "./trading-limits";
 
 const web3Mocks = vi.hoisted(() => ({
+  TRADING_LIMITS_UNAVAILABLE_MESSAGE:
+    "Unable to verify trading limits. Please try again.",
   getTokenDecimals: vi.fn(() => 18),
   parseAmount: vi.fn(),
-  parseAmountWithDefault: vi.fn((value) => ({ value })),
   toWei: vi.fn(),
 }));
 const toastMocks = vi.hoisted(() => ({
@@ -28,12 +29,21 @@ import { useSwapQuoteState } from "./use-swap-quote-state";
 const chainId = 42220 as ChainId;
 const celo = "CELO" as TokenSymbol;
 const usdM = "USDm" as TokenSymbol;
-const noLimits: SwapTradingLimits = {
-  L0: null,
-  L1: null,
-  LG: null,
-  tokenToCheck: null,
-};
+const routeLimits: SwapTradingLimits = [
+  {
+    direction: "in",
+    hopIndex: 0,
+    tokenSymbol: "CELO",
+    L0: {
+      maxIn: "1",
+      maxOut: "2",
+      total: "3",
+      until: 1_700_000_000,
+    },
+    L1: null,
+    LG: null,
+  },
+];
 type QuoteStateProps = Parameters<typeof useSwapQuoteState>[0];
 
 function createProps(
@@ -49,10 +59,12 @@ function createProps(
     isQuoteError: false,
     isTradingSuspended: false,
     limits: null,
+    limitsError: false,
     limitsLoading: false,
     prevTradingSuspensionErrorRef: { current: null },
     quote: "2.5",
     quoteFetching: true,
+    routeAmounts: ["1.25", "2.5"],
     selectedTokenInSymbol: celo,
     selectedTokenOutSymbol: usdM,
     suspensionToastIdRef: { current: null },
@@ -115,21 +127,95 @@ describe("useSwapQuoteState", () => {
     );
 
     const { result } = renderHook(() =>
-      useSwapQuoteState(createProps({ limits: noLimits })),
+      useSwapQuoteState(createProps({ limits: routeLimits })),
     );
 
     expect(result.current.tradingLimitError).toBe("Trading limit exceeded");
     expect(result.current.isLoading).toBe(false);
+    expect(result.current.isButtonLoading).toBe(false);
     expect(tradingLimitMocks.checkTradingLimitViolation).toHaveBeenCalledWith({
-      amountIn: { value: "1.25" },
-      amountOut: { value: "2.5" },
-      limits: noLimits,
-      tokenInSymbol: "CELO",
-      tokenOutSymbol: "USDm",
+      limits: routeLimits,
+      routeAmounts: ["1.25", "2.5"],
     });
     expect(toastMocks.error).toHaveBeenCalledWith("Trading limit exceeded", {
       duration: 20000,
     });
+  });
+
+  it("blocks button loading while route limits are loading", () => {
+    const { result } = renderHook(() =>
+      useSwapQuoteState(createProps({ limitsLoading: true })),
+    );
+
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.isButtonLoading).toBe(false);
+  });
+
+  it("fails closed when route limit verification fails", () => {
+    const { result } = renderHook(() =>
+      useSwapQuoteState(createProps({ limitsError: true })),
+    );
+
+    expect(result.current.tradingLimitError).toBe(
+      "Unable to verify trading limits. Please try again.",
+    );
+    expect(result.current.isButtonLoading).toBe(false);
+  });
+
+  it("waits for an in-flight quote before requiring route amounts", () => {
+    const { result } = renderHook(() =>
+      useSwapQuoteState(createProps({ limits: routeLimits, routeAmounts: [] })),
+    );
+
+    expect(result.current.tradingLimitError).toBeNull();
+  });
+
+  it("waits for a debounced quote after limits load", () => {
+    const { result } = renderHook(() =>
+      useSwapQuoteState(
+        createProps({
+          limits: routeLimits,
+          quote: "0",
+          quoteFetching: false,
+          routeAmounts: [],
+        }),
+      ),
+    );
+
+    expect(result.current.tradingLimitError).toBeNull();
+    expect(toastMocks.error).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a completed quote has no route amounts", () => {
+    const { result } = renderHook(() =>
+      useSwapQuoteState(
+        createProps({
+          limits: routeLimits,
+          quoteFetching: false,
+          routeAmounts: [],
+        }),
+      ),
+    );
+
+    expect(result.current.tradingLimitError).toBe(
+      "Unable to verify trading limits. Please try again.",
+    );
+  });
+
+  it("fails closed when a completed quote has no limits", () => {
+    const { result } = renderHook(() =>
+      useSwapQuoteState(
+        createProps({
+          limits: null,
+          quoteFetching: false,
+        }),
+      ),
+    );
+
+    expect(result.current.tradingLimitError).toBe(
+      "Unable to verify trading limits. Please try again.",
+    );
+    expect(tradingLimitMocks.checkTradingLimitViolation).not.toHaveBeenCalled();
   });
 
   it("replaces a changed suspension toast and dismisses it when the error clears", () => {
@@ -137,6 +223,7 @@ describe("useSwapQuoteState", () => {
     const prevErrorRef = { current: null as string | null };
     const toastIdRef = { current: null as string | number | null };
     const props = createProps({
+      limits: routeLimits,
       prevTradingSuspensionErrorRef: prevErrorRef,
       quoteFetching: false,
       suspensionToastIdRef: toastIdRef,
