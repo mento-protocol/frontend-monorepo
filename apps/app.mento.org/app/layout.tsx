@@ -6,8 +6,8 @@ import { ClientProviders } from "./components/providers";
 import localFont from "next/font/local";
 import { env } from "@/env.mjs";
 import { Analytics } from "@vercel/analytics/react";
-import { cookieToInitialState, wagmiSsrConfig } from "@repo/web3/wagmi-ssr";
 import { headers } from "next/headers";
+import { getWagmiInitialState } from "@/lib/wagmi-initial-state";
 
 const aspekta = localFont({
   src: "./fonts/AspektaVF.ttf",
@@ -43,10 +43,7 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const initialState = cookieToInitialState(
-    wagmiSsrConfig,
-    (await headers()).get("cookie"),
-  );
+  const initialState = getWagmiInitialState((await headers()).get("cookie"));
 
   return (
     <html lang="en" suppressHydrationWarning>
