@@ -89,6 +89,13 @@ export const PILOT_TARGET = Object.freeze({
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const VERCEL_DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
+const PINNED_VERCEL_CLI_STORE_PATTERN = new RegExp(
+  `^vercel@${PINNED_VERCEL_CLI_VERSION.replace(
+    /[.*+?^${}()|[\]\\]/gu,
+    "\\$&",
+  )}(?:_[^/]+)?/node_modules/vercel$`,
+  "u",
+);
 const LIBVIPS_SHARED_LIBRARY_PATTERN =
   /^libvips-cpp(?:\.[0-9.]+)?\.(?:dylib|so)(?:\.[0-9.]+)?$/;
 const VERCEL_CLI_BASE_ENVIRONMENT = [
@@ -2497,9 +2504,7 @@ export function trustedStandaloneVercelCliPath({ controllerRoot, toolsRoot }) {
     hasControlCharacters(packageLinkTarget) ||
     packageLinkTarget !==
       relative(dirname(packageLinkPath), canonicalPackageRoot) ||
-    !/^vercel@56\.4\.1(?:_[^/]+)?\/node_modules\/vercel$/u.test(
-      packageFromVirtualStore,
-    )
+    !PINNED_VERCEL_CLI_STORE_PATTERN.test(packageFromVirtualStore)
   ) {
     throw new Error("Trusted Vercel CLI package link is not exact");
   }
