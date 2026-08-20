@@ -153,7 +153,7 @@ const ACTIVE_STATE_RECORD_KEYS = Object.freeze([
   "source",
   "workflowMetadataMatches",
 ]);
-const ACTIVE_STATE_CLASSIFICATIONS = Object.freeze([
+export const ACTIVE_STATE_CLASSIFICATIONS = Object.freeze([
   "githubPrebuilt",
   "githubShadowStage",
   "nativeGitOwner",

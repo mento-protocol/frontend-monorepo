@@ -73,7 +73,9 @@ import {
 } from "./vercel-main-active-controller.mjs";
 import {
   ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA,
+  ACTIVE_DEPLOYMENT_STATE_PROOF_SCHEMA,
   ACTIVE_DEPLOYMENT_STATE_SPEC_SCHEMA,
+  ACTIVE_STATE_CLASSIFICATIONS,
   assertActiveAliasMappingSpec,
   assertActiveDeploymentStateProof,
   assertActiveDeploymentStateSpec,
@@ -135,6 +137,15 @@ export const MAIN_ORDINARY_TARGETS = Object.freeze([
   "governance",
   "reserve",
   "ui",
+]);
+
+// The complete proof classifies legacy App v2 per project. The compact
+// terminal summary binds that deployment once through its legacyAppV2 field.
+const ACTIVE_STATE_SUMMARY_COUNT_KEYS = Object.freeze([
+  "scanned",
+  ...ACTIVE_STATE_CLASSIFICATIONS.filter(
+    (classification) => classification !== "legacyV2",
+  ),
 ]);
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
@@ -4330,16 +4341,12 @@ function summarizeActiveDeploymentStateProof(
           {
             expectedDisposition: project.expectedDisposition,
             expectedDeploymentId: project.expectedDeploymentId,
-            counts: {
-              scanned: project.counts.scanned,
-              githubPrebuilt: project.counts.githubPrebuilt,
-              githubShadowStage: project.counts.githubShadowStage,
-              nativeGitOwner: project.counts.nativeGitOwner,
-              nativeGitDuplicates: project.counts.nativeGitDuplicates,
-              manualDuplicates: project.counts.manualDuplicates,
-              inertCanceled: project.counts.inertCanceled,
-              unknown: project.counts.unknown,
-            },
+            counts: Object.fromEntries(
+              ACTIVE_STATE_SUMMARY_COUNT_KEYS.map((name) => [
+                name,
+                project.counts[name],
+              ]),
+            ),
           },
         ];
       }),
@@ -7053,7 +7060,7 @@ function canonicalNestedStateProofSummary(
     "Nested active state proof summary",
   );
   if (
-    value.proofSchema !== "vercel-active-deployment-state-proof:v5" ||
+    value.proofSchema !== ACTIVE_DEPLOYMENT_STATE_PROOF_SCHEMA ||
     !["proven", "unproven"].includes(value.outcome) ||
     (requireProven && value.outcome !== "proven") ||
     value.transactionId !== transactionId
@@ -7088,23 +7095,13 @@ function canonicalNestedStateProofSummary(
               `Nested active ${target} expected deployment ID`,
               DEPLOYMENT_ID_PATTERN,
             );
-      const countKeys = [
-        "scanned",
-        "githubPrebuilt",
-        "githubShadowStage",
-        "nativeGitOwner",
-        "nativeGitDuplicates",
-        "manualDuplicates",
-        "inertCanceled",
-        "unknown",
-      ];
       assertExactKeys(
         entry.counts,
-        countKeys,
+        ACTIVE_STATE_SUMMARY_COUNT_KEYS,
         `Nested active ${target} proof counts`,
       );
       const counts = Object.fromEntries(
-        countKeys.map((name) => [
+        ACTIVE_STATE_SUMMARY_COUNT_KEYS.map((name) => [
           name,
           canonicalMutationCount(
             entry.counts[name],
