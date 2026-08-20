@@ -100,8 +100,13 @@ function activeReleaseManifest({
   projects,
   priorSha = "b".repeat(40),
   rollbackOnly = false,
+  stagedTargets,
 }) {
   const targets = ["app", "governance", "reserve", "ui"];
+  const plannedTargets =
+    stagedTargets === undefined
+      ? targets
+      : targets.filter((target) => stagedTargets.includes(target));
   const plan = {
     schema: "vercel-main-plan:v2",
     mode: "active",
@@ -109,10 +114,10 @@ function activeReleaseManifest({
       targets.map((target) => [target, "github"]),
     ),
     deploySha,
-    stagedTargets: targets,
-    activeTargets: targets,
+    stagedTargets: plannedTargets,
+    activeTargets: plannedTargets,
     shadowTargets: [],
-    plan: targets,
+    plan: plannedTargets,
     priors: targets.map((target) => ({
       target,
       deploymentId: `dpl_${target}Prior123`,
@@ -128,11 +133,11 @@ function activeReleaseManifest({
             head: deploySha,
             kind: "served",
             reason: "global-build-input",
-            targets,
-            deployments: targets,
+            targets: plannedTargets,
+            deployments: plannedTargets,
           },
         ],
-    reasons: targets.map((target) => ({
+    reasons: plannedTargets.map((target) => ({
       target,
       base: priorSha,
       reason: rollbackOnly
@@ -262,6 +267,24 @@ function activeStateSpec({ rollbackOnly = false } = {}) {
   };
 }
 
+function activeStateSpecWithInactiveUi() {
+  const spec = activeStateSpec();
+  spec.projects.ui = {
+    ...spec.projects.ui,
+    expectedDisposition: null,
+    deploymentId: null,
+    deploymentUrl: null,
+  };
+  spec.stagedTargets = ["app", "governance", "reserve"];
+  spec.activeTargets = ["app", "governance", "reserve"];
+  spec.releaseManifest = activeReleaseManifest({
+    deploySha: spec.deploySha,
+    projects: spec.projects,
+    stagedTargets: spec.stagedTargets,
+  });
+  return spec;
+}
+
 test("recovered-prior App state accepts no candidate and rejects an unexpected one", () => {
   const spec = activeStateSpec();
   spec.projects.app = {
@@ -368,15 +391,42 @@ function activeDeploymentInspections(spec) {
       const deploymentId = spec.projects[logicalTarget].deploymentId;
       return [
         logicalTarget,
-        [
-          {
-            deploymentId,
-            response: activeDeploymentResponse(spec, logicalTarget),
-          },
-        ],
+        deploymentId === null
+          ? []
+          : [
+              {
+                deploymentId,
+                response: activeDeploymentResponse(spec, logicalTarget),
+              },
+            ],
       ];
     }),
   );
+}
+
+function inactiveUiInspection(
+  spec,
+  { readyState = "CANCELED", source = "git" } = {},
+) {
+  const deploymentId = "dpl_FnzVkA6HCgEaubHhF3DNgivYKqkk";
+  const project = spec.projects.ui;
+  const response = {
+    id: deploymentId,
+    url: "uimento-lxu9dr6ck-mentolabs.vercel.app",
+    projectId: project.projectId,
+    name: project.projectName,
+    readyState,
+    target: project.target,
+    customEnvironment: null,
+    source,
+    meta: {
+      githubCommitOrg: "mento-protocol",
+      githubCommitRepo: "frontend-monorepo",
+      githubCommitRef: "main",
+      githubCommitSha: spec.deploySha,
+    },
+  };
+  return { deploymentId, response };
 }
 
 function legacyAppV2Proof(spec) {
@@ -2222,6 +2272,10 @@ test("reviewed custom-v3 aliases exactly equal the current two-alias topology", 
 
 test("active deployment proof binds every GitHub prebuilt and keeps legacy App v2 separate", () => {
   const spec = activeStateSpec();
+  assert.equal(
+    ACTIVE_DEPLOYMENT_STATE_PROOF_SCHEMA,
+    "vercel-active-deployment-state-proof:v5",
+  );
   assert.equal(assertActiveDeploymentStateSpec(spec), spec);
   const proof = createActiveDeploymentStateProof({
     spec,
@@ -2239,6 +2293,7 @@ test("active deployment proof binds every GitHub prebuilt and keeps legacy App v
       nativeGitOwner: 0,
       nativeGitDuplicates: 0,
       manualDuplicates: 0,
+      inertCanceled: 0,
       unknown: 0,
       legacyV2: 0,
     });
@@ -2253,6 +2308,218 @@ test("active deployment proof binds every GitHub prebuilt and keeps legacy App v
     /meta|protectionBypass|token-never-output|rawResponse/,
   );
   assert.equal(assertActiveDeploymentStateProof(proof), proof);
+});
+
+test("active deployment proof records an exact canceled inactive deployment as inert evidence", () => {
+  const spec = activeStateSpecWithInactiveUi();
+  const deployments = activeDeploymentInspections(spec);
+  const canceled = inactiveUiInspection(spec);
+  deployments.ui = [canceled];
+
+  const proof = createActiveDeploymentStateProof({
+    spec,
+    deployments,
+    legacyV2: legacyAppV2Proof(spec),
+  });
+
+  assert.equal(proof.outcome, "proven");
+  assert.equal(proof.projects.ui.expectedDisposition, null);
+  assert.deepEqual(proof.projects.ui.counts, {
+    scanned: 1,
+    githubPrebuilt: 0,
+    githubShadowStage: 0,
+    nativeGitOwner: 0,
+    nativeGitDuplicates: 0,
+    manualDuplicates: 0,
+    inertCanceled: 1,
+    unknown: 0,
+    legacyV2: 0,
+  });
+  assert.deepEqual(proof.projects.ui.ids.inertCanceled, [
+    canceled.deploymentId,
+  ]);
+  assert.deepEqual(proof.projects.ui.records.inertCanceled, [
+    {
+      deploymentId: canceled.deploymentId,
+      deploymentUrl: "https://uimento-lxu9dr6ck-mentolabs.vercel.app",
+      projectId: spec.projects.ui.projectId,
+      projectName: spec.projects.ui.projectName,
+      readyState: "CANCELED",
+      target: "production",
+      customEnvironmentSlug: null,
+      git: {
+        org: "mento-protocol",
+        repo: "frontend-monorepo",
+        ref: "main",
+        sha: spec.deploySha,
+      },
+      source: "git",
+      workflowMetadataMatches: false,
+    },
+  ]);
+  assert.equal(assertActiveDeploymentStateProof(proof), proof);
+
+  const tampered = structuredClone(proof);
+  tampered.projects.ui.records.inertCanceled[0].readyState = "ERROR";
+  assert.throws(
+    () => assertActiveDeploymentStateProof(tampered),
+    /inertCanceled deployment record is malformed/,
+  );
+});
+
+test("active deployment proof does not let a canceled expected candidate satisfy its disposition", () => {
+  const spec = activeStateSpec();
+  const deployments = activeDeploymentInspections(spec);
+  deployments.ui[0].response.readyState = "CANCELED";
+
+  const proof = createActiveDeploymentStateProof({
+    spec,
+    deployments,
+    legacyV2: legacyAppV2Proof(spec),
+  });
+
+  assert.equal(proof.outcome, "unproven");
+  assert.deepEqual(proof.projects.ui.ids.githubPrebuilt, []);
+  assert.deepEqual(proof.projects.ui.ids.inertCanceled, []);
+  assert.deepEqual(proof.projects.ui.ids.unknown, [
+    spec.projects.ui.deploymentId,
+  ]);
+});
+
+test("active deployment proof keeps errors and pending deployments unknown", () => {
+  for (const readyState of [
+    "ERROR",
+    "BLOCKED",
+    "BUILDING",
+    "INITIALIZING",
+    "QUEUED",
+  ]) {
+    const spec = activeStateSpecWithInactiveUi();
+    const deployments = activeDeploymentInspections(spec);
+    const entry = inactiveUiInspection(spec, { readyState });
+    deployments.ui = [entry];
+
+    const proof = createActiveDeploymentStateProof({
+      spec,
+      deployments,
+      legacyV2: legacyAppV2Proof(spec),
+    });
+
+    assert.equal(proof.outcome, "unproven", readyState);
+    assert.deepEqual(
+      proof.projects.ui.ids.unknown,
+      [entry.deploymentId],
+      readyState,
+    );
+    assert.equal(proof.projects.ui.counts.inertCanceled, 0, readyState);
+  }
+});
+
+test("active deployment proof fails closed when canceled identity fields do not match", () => {
+  const scenarios = [
+    {
+      label: "project ID",
+      mutate(entry) {
+        entry.response.projectId = "prj_wrongui123";
+      },
+    },
+    {
+      label: "project name",
+      mutate(entry) {
+        entry.response.name = "wrong-ui.mento.org";
+      },
+    },
+    {
+      label: "target",
+      mutate(entry) {
+        entry.response.target = null;
+      },
+    },
+    {
+      label: "custom environment",
+      mutate(entry) {
+        entry.response.customEnvironment = { slug: "preview" };
+      },
+    },
+    {
+      label: "malformed identity",
+      mutate(entry) {
+        entry.response.project = { id: "prj_conflictingui123" };
+      },
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    const spec = activeStateSpecWithInactiveUi();
+    const deployments = activeDeploymentInspections(spec);
+    const entry = inactiveUiInspection(spec);
+    scenario.mutate(entry);
+    deployments.ui = [entry];
+
+    const proof = createActiveDeploymentStateProof({
+      spec,
+      deployments,
+      legacyV2: legacyAppV2Proof(spec),
+    });
+
+    assert.equal(proof.outcome, "unproven", scenario.label);
+    assert.deepEqual(
+      proof.projects.ui.ids.unknown,
+      [entry.deploymentId],
+      scenario.label,
+    );
+    assert.equal(proof.projects.ui.counts.inertCanceled, 0, scenario.label);
+  }
+
+  const spec = activeStateSpecWithInactiveUi();
+  const deployments = activeDeploymentInspections(spec);
+  const mismatchedId = inactiveUiInspection(spec);
+  mismatchedId.response.id = "dpl_wrongresponseid123";
+  deployments.ui = [mismatchedId];
+  assert.throws(
+    () =>
+      createActiveDeploymentStateProof({
+        spec,
+        deployments,
+        legacyV2: legacyAppV2Proof(spec),
+      }),
+    /Git identity is missing/,
+  );
+
+  const wrongShaSpec = activeStateSpecWithInactiveUi();
+  const wrongShaDeployments = activeDeploymentInspections(wrongShaSpec);
+  const wrongSha = inactiveUiInspection(wrongShaSpec);
+  wrongSha.response.meta.githubCommitSha = "e".repeat(40);
+  wrongShaDeployments.ui = [wrongSha];
+  assert.throws(
+    () =>
+      createActiveDeploymentStateProof({
+        spec: wrongShaSpec,
+        deployments: wrongShaDeployments,
+        legacyV2: legacyAppV2Proof(wrongShaSpec),
+      }),
+    /SHA does not match census/,
+  );
+});
+
+test("active deployment proof keeps an unexpected ready inactive deployment as a duplicate", () => {
+  const spec = activeStateSpecWithInactiveUi();
+  const deployments = activeDeploymentInspections(spec);
+  const ready = inactiveUiInspection(spec, { readyState: "READY" });
+  deployments.ui = [ready];
+
+  const proof = createActiveDeploymentStateProof({
+    spec,
+    deployments,
+    legacyV2: legacyAppV2Proof(spec),
+  });
+
+  assert.equal(proof.outcome, "unproven");
+  assert.deepEqual(proof.projects.ui.ids.manualDuplicates, [
+    ready.deploymentId,
+  ]);
+  assert.equal(proof.projects.ui.counts.inertCanceled, 0);
+  assert.equal(proof.projects.ui.counts.unknown, 0);
 });
 
 test("first-cutover proof accepts source-free candidates and the exact same-SHA rollback prior", () => {
@@ -2596,6 +2863,7 @@ test("active deployment proof treats non-prior same-SHA identities as duplicates
     nativeGitOwner: 0,
     nativeGitDuplicates: 0,
     manualDuplicates: 2,
+    inertCanceled: 0,
     unknown: 1,
     legacyV2: 0,
   });

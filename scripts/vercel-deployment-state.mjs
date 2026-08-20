@@ -46,7 +46,7 @@ export const MAIN_PLANNING_SNAPSHOT_KEYS = Object.freeze(["schema", "states"]);
 export const ACTIVE_DEPLOYMENT_STATE_SPEC_SCHEMA =
   "vercel-active-deployment-state-spec:v3";
 export const ACTIVE_DEPLOYMENT_STATE_PROOF_SCHEMA =
-  "vercel-active-deployment-state-proof:v4";
+  "vercel-active-deployment-state-proof:v5";
 export const ACTIVE_ALIAS_MAPPING_SET_SCHEMA =
   "vercel-active-alias-mapping-set:v1";
 export const ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA =
@@ -153,12 +153,13 @@ const ACTIVE_STATE_RECORD_KEYS = Object.freeze([
   "source",
   "workflowMetadataMatches",
 ]);
-const ACTIVE_STATE_CLASSIFICATIONS = Object.freeze([
+export const ACTIVE_STATE_CLASSIFICATIONS = Object.freeze([
   "githubPrebuilt",
   "githubShadowStage",
   "nativeGitOwner",
   "nativeGitDuplicates",
   "manualDuplicates",
+  "inertCanceled",
   "unknown",
   "legacyV2",
 ]);
@@ -2117,6 +2118,33 @@ function matchesActiveProjectTopology(identity, project, deploySha) {
   );
 }
 
+function matchesInertCanceledDeployment(
+  identity,
+  requestedId,
+  project,
+  deploySha,
+) {
+  const expectedDeploymentId = Object.hasOwn(project, "deploymentId")
+    ? project.deploymentId
+    : project.expectedDeploymentId;
+  const expectedDeploymentUrl = Object.hasOwn(project, "deploymentUrl")
+    ? project.deploymentUrl
+    : project.expectedDeploymentUrl;
+  return (
+    identity !== null &&
+    project.expectedDisposition === null &&
+    expectedDeploymentId === null &&
+    expectedDeploymentUrl === null &&
+    identity.deploymentId === requestedId &&
+    identity.projectId === project.projectId &&
+    identity.projectName === project.projectName &&
+    identity.readyState === "CANCELED" &&
+    identity.target === project.target &&
+    identity.customEnvironmentSlug === project.customEnvironmentSlug &&
+    identity.git.sha === deploySha
+  );
+}
+
 function matchesCanonicalMainCandidate(identity, project, deploySha) {
   return (
     matchesActiveProjectTopology(identity, project, deploySha) &&
@@ -2325,6 +2353,15 @@ export function createActiveDeploymentStateProof({
       ) {
         classification = "legacyV2";
       } else if (
+        matchesInertCanceledDeployment(
+          identity,
+          requestedId,
+          project,
+          canonicalSpec.deploySha,
+        )
+      ) {
+        classification = "inertCanceled";
+      } else if (
         matchesActiveProjectTopology(identity, project, canonicalSpec.deploySha)
       ) {
         if (
@@ -2504,6 +2541,27 @@ function recordMatchesActiveProjectTopology(record, project, deploySha) {
     record.projectId === project.projectId &&
     record.projectName === project.projectName &&
     record.readyState === "READY" &&
+    record.target === project.target &&
+    record.customEnvironmentSlug === project.customEnvironmentSlug &&
+    record.git.sha === deploySha
+  );
+}
+
+function recordMatchesInertCanceledDeployment(
+  record,
+  requestedId,
+  project,
+  deploySha,
+) {
+  return (
+    project.expectedDisposition === null &&
+    project.expectedDeploymentId === null &&
+    project.expectedDeploymentUrl === null &&
+    record.deploymentId === requestedId &&
+    record.deploymentUrl !== null &&
+    record.projectId === project.projectId &&
+    record.projectName === project.projectName &&
+    record.readyState === "CANCELED" &&
     record.target === project.target &&
     record.customEnvironmentSlug === project.customEnvironmentSlug &&
     record.git.sha === deploySha
@@ -2704,14 +2762,30 @@ export function assertActiveDeploymentStateProof(value) {
           `${logicalTarget} ${classification} deployment records conflict`,
         );
       }
-      for (const record of project.records[classification]) {
+      for (const [recordIndex, record] of project.records[
+        classification
+      ].entries()) {
         if (classifiedDeploymentIds.has(record.deploymentId)) {
           throw new Error("Active deployment proof classifies an ID twice");
         }
         classifiedDeploymentIds.add(record.deploymentId);
         if (
+          classification === "inertCanceled" &&
+          !recordMatchesInertCanceledDeployment(
+            record,
+            project.ids[classification][recordIndex],
+            project,
+            value.deploySha,
+          )
+        ) {
+          throw new Error(
+            `${logicalTarget} ${classification} deployment record is malformed`,
+          );
+        }
+        if (
           classification !== "unknown" &&
           classification !== "legacyV2" &&
+          classification !== "inertCanceled" &&
           !recordMatchesActiveProjectTopology(record, project, value.deploySha)
         ) {
           throw new Error(

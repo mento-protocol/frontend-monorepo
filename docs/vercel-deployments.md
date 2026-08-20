@@ -630,7 +630,7 @@ visible, the E2E Test Wallet must be absent, and no preview/mock-wallet
 local-storage flag may exist.
 
 After activation, the final evidence performs an active duplicate census for
-every selected target. It binds the exact candidate and original-prior
+every protected main project. It binds the exact candidate and original-prior
 deployment IDs and URLs, project, environment, `DEPLOY_SHA`, stable release
 manifest, and relevant release interval. Vercel's optional `source` value is
 retained only as telemetry and cannot admit or reject an attempt.
@@ -638,8 +638,14 @@ retained only as telemetry and cannot admit or reject an attempt.
 For a GitHub-owned target, the census may contain the canonical candidate and
 at most the exact manifest-bound same-SHA original prior. The separate protected
 mapping proof must still show that the candidate owns every reviewed public
-alias; the historical prior never authorizes that mapping. Any different or
-third same-SHA deployment is an unexpected duplicate and fails the release.
+alias; the historical prior never authorizes that mapping. When the release
+plan has no expected candidate for a project, the census records an
+exact-project, exact-SHA deployment in terminal `CANCELED` state as
+`inertCanceled`. This evidence may coexist with a proven release, but it cannot
+satisfy an expected candidate or protected mapping. Any different `READY`
+deployment, any canceled expected candidate, any pending deployment, or any
+malformed record is an unexpected duplicate or unknown state and fails the
+release.
 The prior match uses its bound deployment ID, URL, project, environment, and a
 freshly inspected response SHA equal to `DEPLOY_SHA`; optional Git organization,
 repository, ref, and `source` fields are telemetry and cannot reject that exact
