@@ -79,6 +79,12 @@ function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function nextPatchVersion(version) {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/u.exec(version);
+  assert.ok(match, `Expected an exact stable version, received ${version}`);
+  return `${match[1]}.${match[2]}.${Number(match[3]) + 1}`;
+}
+
 function gitBlobSha(value) {
   const bytes = Buffer.isBuffer(value) ? value : Buffer.from(value);
   return createHash("sha1")
@@ -290,10 +296,11 @@ test(
 test("root package rotation preserves unrelated current-base scripts byte-for-byte", () => {
   const currentBytes = readFileSync(join(REPOSITORY_ROOT, "package.json"));
   const current = JSON.parse(currentBytes.toString("utf8"));
+  const targetVersion = nextPatchVersion(current.devDependencies.vercel);
   const rotated = JSON.parse(
-    rotateRootPackageBytes(currentBytes, TARGET_VERSION).toString("utf8"),
+    rotateRootPackageBytes(currentBytes, targetVersion).toString("utf8"),
   );
-  assert.equal(rotated.devDependencies.vercel, TARGET_VERSION);
+  assert.equal(rotated.devDependencies.vercel, targetVersion);
   assert.equal(
     rotated.scripts["dependabot:process:test"],
     current.scripts["dependabot:process:test"],
