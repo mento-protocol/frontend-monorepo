@@ -443,7 +443,12 @@ export function renderPreviewJournalBody(value) {
 }
 
 export function renderPreviousPreviewJournalBody(value) {
-  return previewJournalBody(value, JSON.stringify(value, null, 2));
+  const body = previewJournalBody(value, JSON.stringify(value, null, 2));
+  invariant(
+    Buffer.byteLength(body, "utf8") <= MAX_JOURNAL_BYTES,
+    "Preview journal comment is too large",
+  );
+  return body;
 }
 
 function parseJournalBody(body) {
