@@ -442,7 +442,7 @@ export function renderPreviewJournalBody(value) {
   return body;
 }
 
-function renderPreviousPreviewJournalBody(value) {
+export function renderPreviousPreviewJournalBody(value) {
   return previewJournalBody(value, JSON.stringify(value, null, 2));
 }
 

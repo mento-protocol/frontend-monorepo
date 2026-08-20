@@ -41,6 +41,7 @@ import {
   createPreviewJournal,
   reconcileState,
   renderPreviewJournalBody,
+  renderPreviousPreviewJournalBody,
   selectionReceiptFromDispatch,
   validateWorkerResult,
   workerRunName,
@@ -701,7 +702,12 @@ function reselectedPreviewJournalFixture(event) {
 
 function previewRoutes(
   event = fixture("preview-event.json"),
-  { mode = "complete", events = [event], observationArtifact = false } = {},
+  {
+    mode = "complete",
+    events = [event],
+    observationArtifact = false,
+    journalFormat = "compact",
+  } = {},
 ) {
   const fixtureState = previewJournalFixture(event, mode, events);
   const { journal } = fixtureState;
@@ -710,7 +716,10 @@ function previewRoutes(
     html_url:
       "https://github.com/mento-protocol/frontend-monorepo/pull/700#issuecomment-301",
     user: { type: "Bot", login: "github-actions[bot]" },
-    body: renderPreviewJournalBody(journal),
+    body:
+      journalFormat === "previous"
+        ? renderPreviousPreviewJournalBody(journal)
+        : renderPreviewJournalBody(journal),
   };
   const run = {
     id: event.event_run_id,
@@ -1504,6 +1513,22 @@ test("capture-preview freezes the canonical v2 journal and raw GitHub facts", ()
           "github.com/mento-protocol/frontend-monorepo",
       ),
   );
+});
+
+test("capture-preview accepts the exact previous two-space journal during migration", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  const sink = output();
+  const result = runVercelCostObservation({
+    argv: ["capture-preview", "--pr", "700", "--event-run-id", "9001"],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: fakeGh(previewRoutes(undefined, { journalFormat: "previous" })),
+    stdout: sink.stream,
+  });
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(JSON.parse(sink.read()).status, "captured");
 });
 
 test("capture-preview rejects a conflicting optional commit-status SHA", () => {
