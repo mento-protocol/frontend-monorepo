@@ -128,7 +128,9 @@ The typed operation may carry exact Cursor runtime-mismatch threads only when
 each structured finding names the same source and target versions, the root
 `package.json` path, and the trusted seed or current review commit. Every other
 unresolved finding stays manual. The packet binds each accepted comment and
-body digest. Finalize replies and resolves it only after the typed Repair
+body digest. Evidence binds the packet commit to the immutable review-comment
+`original_commit_id`. GitHub may retarget the mutable `commit_id` to the
+refreshed packet head. Finalize replies and resolves the comment only after the typed Repair
 receipt, complete green gates, and clean exact-head re-review.
 PR preview workers validate the candidate runtime tuple only as data; every
 credentialed preview build still stages its CLI from the trusted default-branch
