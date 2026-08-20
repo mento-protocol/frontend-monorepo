@@ -26,12 +26,7 @@ const web3Mocks = vi.hoisted(() => {
   };
 });
 
-const tradingLimitMocks = vi.hoisted(() => ({
-  checkTradingLimitViolation: vi.fn(),
-}));
-
 vi.mock("@repo/web3", () => web3Mocks);
-vi.mock("./trading-limits", () => tradingLimitMocks);
 
 import {
   getFormattedTokenInBalance,
@@ -49,14 +44,15 @@ const chainId = 42220 as ChainId;
 beforeEach(() => {
   vi.clearAllMocks();
   web3Mocks.useTradingLimits.mockReturnValue({
-    data: { tokenToCheck: tokenInSymbol },
+    data: [],
+    isError: false,
+    isFetching: false,
     isLoading: false,
   });
   web3Mocks.useTradingSuspensionCheck.mockReturnValue({
     isLoading: false,
     isSuspended: false,
   });
-  tradingLimitMocks.checkTradingLimitViolation.mockReturnValue(null);
 });
 
 describe("swap form balance helpers", () => {
@@ -170,7 +166,6 @@ describe("useSwapFormValidation", () => {
         amount: "1",
         balances: { [tokenInSymbol]: "20" },
         chainId,
-        formQuote: "2",
         hasAmountError: false,
         selectedTokenInSymbol: tokenInSymbol,
         selectedTokenOutSymbol: tokenOutSymbol,
@@ -179,26 +174,12 @@ describe("useSwapFormValidation", () => {
       }),
     );
 
-  it("preserves the valid quote and composed amount-validation path", async () => {
+  it("preserves the valid quote and amount-validation path", async () => {
     const { result } = renderValidation();
 
     expect(result.current.canQuote).toBe(true);
     expect(result.current.hasAmount).toBe(true);
     await expect(result.current.validateAmount("1")).resolves.toBe(true);
-    expect(tradingLimitMocks.checkTradingLimitViolation).toHaveBeenCalledWith(
-      expect.objectContaining({ tokenInSymbol, tokenOutSymbol }),
-    );
-  });
-
-  it("surfaces the current trading-limit message through validateAmount", async () => {
-    tradingLimitMocks.checkTradingLimitViolation.mockReturnValue(
-      "Limit reached",
-    );
-    const { result } = renderValidation();
-
-    await expect(result.current.validateAmount("1")).resolves.toBe(
-      "Limit reached",
-    );
   });
 
   it("blocks quotes and exposes the pair message while trading is suspended", () => {
@@ -212,5 +193,46 @@ describe("useSwapFormValidation", () => {
     expect(result.current.tradingSuspensionError).toContain(
       "Trading temporarily paused for CELO -> USDm",
     );
+  });
+
+  it("blocks quotes and exposes a trading-limit read error", () => {
+    web3Mocks.useTradingLimits.mockReturnValue({
+      data: undefined,
+      isError: true,
+      isFetching: false,
+      isLoading: false,
+    });
+
+    const { result } = renderValidation();
+
+    expect(result.current.canQuote).toBe(false);
+    expect(result.current.limitsError).toBe(true);
+  });
+
+  it("keeps the current quote while cached limits refresh", () => {
+    web3Mocks.useTradingLimits.mockReturnValue({
+      data: [],
+      isError: false,
+      isFetching: true,
+      isLoading: false,
+    });
+
+    const { result } = renderValidation();
+
+    expect(result.current.canQuote).toBe(true);
+    expect(result.current.limitsLoading).toBe(true);
+  });
+
+  it("blocks quotes during the initial trading-limit read", () => {
+    web3Mocks.useTradingLimits.mockReturnValue({
+      data: undefined,
+      isError: false,
+      isFetching: true,
+      isLoading: true,
+    });
+
+    const { result } = renderValidation();
+
+    expect(result.current.canQuote).toBe(false);
   });
 });

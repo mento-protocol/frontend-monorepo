@@ -18,6 +18,8 @@ import { fileURLToPath } from "node:url";
 
 import {
   ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA,
+  ACTIVE_DEPLOYMENT_STATE_PROOF_SCHEMA,
+  ACTIVE_STATE_CLASSIFICATIONS,
   createActiveDeploymentStateProof,
 } from "./vercel-deployment-state.mjs";
 import {
@@ -3424,7 +3426,34 @@ test("governance-only smoke materialization pipes through finalization and evide
     jobs: harness.stageJobs,
     runId: "800",
     runAttempt: "3",
+    additionalDeployments: {
+      ui: [
+        {
+          deploymentId: "dpl_uicanceled123",
+          response: {
+            id: "dpl_uicanceled123",
+            url: "https://ui-canceled.vercel.app",
+            projectId: projectIds.ui,
+            name: "ui.mento.org",
+            readyState: "CANCELED",
+            target: "production",
+            customEnvironment: null,
+            source: "git",
+            meta: {
+              githubCommitOrg: "mento-protocol",
+              githubCommitRepo: "frontend-monorepo",
+              githubCommitRef: "main",
+              githubCommitSha: SHA,
+            },
+          },
+        },
+      ],
+    },
   });
+  assert.equal(stateProof.outcome, "proven");
+  assert.deepEqual(stateProof.projects.ui.ids.inertCanceled, [
+    "dpl_uicanceled123",
+  ]);
   const boundFinalMappings = activeFinalMappings(harness).map((entry) =>
     harness.inputs.prior["legacy-app"].aliases.includes(entry.alias)
       ? {
@@ -3474,6 +3503,17 @@ test("governance-only smoke materialization pipes through finalization and evide
     workflowRunUrl: WORKFLOW_RUN_URL,
   });
   assert.deepEqual(evidence.publicSmokes, publicSmokes);
+  assert.equal(evidence.stateProofSummary.targets.ui.counts.inertCanceled, 1);
+  assert.deepEqual(Object.keys(evidence.stateProofSummary.targets.ui.counts), [
+    "scanned",
+    ...ACTIVE_STATE_CLASSIFICATIONS.filter(
+      (classification) => classification !== "legacyV2",
+    ),
+  ]);
+  assert.equal(
+    Object.hasOwn(evidence.stateProofSummary.targets.ui.counts, "legacyV2"),
+    false,
+  );
 });
 
 test("active controller commits exact ordered mutations and emits canonical redacted evidence", async () => {
@@ -3531,12 +3571,54 @@ test("active controller commits exact ordered mutations and emits canonical reda
   assert.equal(evidence.finalMappings.length, 9);
   assert.equal(
     evidence.stateProofSummary.proofSchema,
-    "vercel-active-deployment-state-proof:v4",
+    ACTIVE_DEPLOYMENT_STATE_PROOF_SCHEMA,
   );
   assert.deepEqual(evidence.recovery.rollbackStateTargets, []);
   assert.match(
     renderMainActiveDeploymentEvidence(evidence),
     /Public-serving mutation commands: `6`/,
+  );
+  const execution = releaseExecutionForPlan(harness.plan);
+  assert.deepEqual(
+    assertMainActiveTerminalEvidenceArtifact(evidence, {
+      execution,
+      runId: "800",
+      runAttempt: "3",
+      outcome: "active-committed",
+    }),
+    evidence,
+  );
+  const staleProofSchema = structuredClone(evidence);
+  staleProofSchema.stateProofSummary.proofSchema = `${ACTIVE_DEPLOYMENT_STATE_PROOF_SCHEMA}:stale`;
+  assert.throws(
+    () =>
+      assertMainActiveTerminalEvidenceArtifact(staleProofSchema, {
+        execution,
+        runId: "800",
+        runAttempt: "3",
+        outcome: "active-committed",
+      }),
+    /state proof summary identity is invalid/,
+  );
+  const incompleteClassificationSummary = structuredClone(evidence);
+  const requiredClassification = ACTIVE_STATE_CLASSIFICATIONS.find(
+    (classification) => classification !== "legacyV2",
+  );
+  delete incompleteClassificationSummary.stateProofSummary.targets.ui.counts[
+    requiredClassification
+  ];
+  assert.throws(
+    () =>
+      assertMainActiveTerminalEvidenceArtifact(
+        incompleteClassificationSummary,
+        {
+          execution,
+          runId: "800",
+          runAttempt: "3",
+          outcome: "active-committed",
+        },
+      ),
+    /forbidden or missing fields/,
   );
   assert.doesNotMatch(JSON.stringify(evidence), /token|cookie|environment/i);
   assert.throws(

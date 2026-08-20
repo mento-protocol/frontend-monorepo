@@ -10,8 +10,8 @@ catalogs:
       specifier: ^9.39.2
       version: 9.39.2
     '@mento-protocol/mento-sdk':
-      specifier: 3.3.1
-      version: 3.3.1
+      specifier: 3.4.0
+      version: 3.4.0
     '@metamask/jazzicon':
       specifier: github:jmrossy/jazzicon#7a8df28974b4e81129bfbe3cab76308b889032a6
       version: 2.1.0
@@ -238,7 +238,7 @@ importers:
         version: 5.2.2(react-hook-form@7.85.0(react@19.2.8))(zod@4.4.3)
       '@mento-protocol/mento-sdk':
         specifier: 'catalog:'
-        version: 3.3.1(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.4.3)
+        version: 3.4.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.4.3)
       '@mento-protocol/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -480,7 +480,7 @@ importers:
         version: 4.4.2(graphql@16.12.0)
       '@mento-protocol/mento-sdk':
         specifier: 'catalog:'
-        version: 3.3.1(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.4.3)
+        version: 3.4.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.4.3)
       '@playwright/test':
         specifier: 1.61.1
         version: 1.61.1
@@ -888,7 +888,7 @@ importers:
     dependencies:
       '@mento-protocol/mento-sdk':
         specifier: 'catalog:'
-        version: 3.3.1(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.4.3)
+        version: 3.4.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.4.3)
       '@mento-protocol/ui':
         specifier: workspace:*
         version: link:../ui
@@ -2895,8 +2895,8 @@ packages:
   '@mayanfinance/swap-sdk@12.2.5':
     resolution: {integrity: sha512-ZPk4QF3eDdh/jv3h+2J7XUNZaT5i5ix9UeH6QX9GkBEG6NqQmdSqRapZx52Z6JZi3BR0ixMBMjsIiGZ1KdjkkA==}
 
-  '@mento-protocol/mento-sdk@3.3.1':
-    resolution: {integrity: sha512-A2sYzHV7vYamh6z7TC6T8lwQNgvrcOpJgQuajWi0B2hEJkTZ6Tv6K9/TGkINAx+8zWTayd2QGvzAz8IVsgtaLg==}
+  '@mento-protocol/mento-sdk@3.4.0':
+    resolution: {integrity: sha512-7seD+uoTgvxPDdU9eVDRAv0qcb2q6qM2N5VN15sBRaAtM0vSv++3hn7fNgzF8Nm722IonRIbsyW94qqs0xGpiw==}
     engines: {node: '>=18', pnpm: '>=9'}
 
   '@metamask/detect-provider@2.0.0':
@@ -16385,7 +16385,7 @@ snapshots:
       - typescript
       - utf-8-validate
 
-  '@mento-protocol/mento-sdk@3.3.1(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.4.3)':
+  '@mento-protocol/mento-sdk@3.4.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.4.3)':
     dependencies:
       viem: 2.55.10(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.4.3)
     transitivePeerDependencies:

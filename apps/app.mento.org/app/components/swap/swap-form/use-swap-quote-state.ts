@@ -1,8 +1,8 @@
 import type { TokenSymbol } from "@mento-protocol/mento-sdk";
 import {
+  TRADING_LIMITS_UNAVAILABLE_MESSAGE,
   getTokenDecimals,
   parseAmount,
-  parseAmountWithDefault,
   toWei,
   type ChainId,
 } from "@repo/web3";
@@ -32,10 +32,12 @@ export function useSwapQuoteState({
   isQuoteError,
   isTradingSuspended,
   limits,
+  limitsError,
   limitsLoading,
   prevTradingSuspensionErrorRef,
   quote,
   quoteFetching,
+  routeAmounts,
   selectedTokenInSymbol,
   selectedTokenOutSymbol,
   suspensionToastIdRef,
@@ -53,10 +55,12 @@ export function useSwapQuoteState({
   isQuoteError: boolean;
   isTradingSuspended: boolean;
   limits?: TradingLimits | null;
+  limitsError: boolean;
   limitsLoading: boolean;
   prevTradingSuspensionErrorRef: RefObject<string | null>;
   quote?: string;
   quoteFetching: boolean;
+  routeAmounts: string[];
   selectedTokenInSymbol?: TokenSymbol;
   selectedTokenOutSymbol?: TokenSymbol;
   suspensionToastIdRef: RefObject<string | number | null>;
@@ -66,21 +70,29 @@ export function useSwapQuoteState({
   tradingSuspensionError: string | null;
 }) {
   const tradingLimitError = useMemo(() => {
-    if (!hasAmount || !limits || limitsLoading) return null;
+    if (hasAmount && limitsError) return TRADING_LIMITS_UNAVAILABLE_MESSAGE;
+    if (!hasAmount || limitsLoading) return null;
+    if (routeAmounts.length === 0) {
+      return quoteFetching || !quote || Number(quote) <= 0
+        ? null
+        : TRADING_LIMITS_UNAVAILABLE_MESSAGE;
+    }
+    if (!limits) {
+      return quoteFetching || !quote || Number(quote) <= 0
+        ? null
+        : TRADING_LIMITS_UNAVAILABLE_MESSAGE;
+    }
     return checkTradingLimitViolation({
-      amountIn: parseAmountWithDefault(amount, 0),
-      amountOut: parseAmountWithDefault(quote, 0),
       limits,
-      tokenInSymbol,
-      tokenOutSymbol,
+      routeAmounts,
     });
   }, [
-    amount,
-    quote,
     limits,
+    limitsError,
     limitsLoading,
-    tokenInSymbol,
-    tokenOutSymbol,
+    quote,
+    quoteFetching,
+    routeAmounts,
     hasAmount,
   ]);
 
@@ -157,6 +169,8 @@ export function useSwapQuoteState({
     () =>
       !isTradingSuspended &&
       !isQuoteError &&
+      !tradingLimitError &&
+      !limitsLoading &&
       (quoteFetching || isWaitingForQuote) &&
       hasAmount &&
       !!selectedTokenInSymbol &&
@@ -169,6 +183,8 @@ export function useSwapQuoteState({
       selectedTokenOutSymbol,
       isTradingSuspended,
       isQuoteError,
+      tradingLimitError,
+      limitsLoading,
     ],
   );
   const sellUSDValue = useMemo(

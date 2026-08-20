@@ -4,6 +4,7 @@ import { env } from "@/env.mjs";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import { Button, IconLoading, TokenIcon } from "@mento-protocol/ui";
 import {
+  TRADING_LIMITS_UNAVAILABLE_MESSAGE,
   type ChainId,
   formatWithMaxDecimals,
   formValuesAtom,
@@ -17,13 +18,15 @@ import {
   useSwapAllowance,
   useSwapTransaction,
   useTokenOptions,
+  useTradingLimits,
 } from "@repo/web3";
 import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { useAtom } from "jotai";
 import { ArrowRight } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ChainMismatchBanner } from "@/components/shared/chain-mismatch-banner";
 import { SwapInsufficientLiquidityNotice } from "./insufficient-liquidity-notice";
+import { checkTradingLimitViolation } from "./swap-form/trading-limits";
 
 export function SwapConfirm({ chainId }: { chainId: ChainId }) {
   const [formValues] = useAtom(formValuesAtom);
@@ -49,15 +52,39 @@ export function SwapConfirm({ chainId }: { chainId: ChainId }) {
     amountWei,
     quote,
     rate,
+    isFetching: quoteFetching,
     isError: isQuoteError,
     hasInsufficientLiquidityError: hasQuoteInsufficientLiquidityError,
     quoteErrorMessage,
+    routeAmounts,
+    refetch: refetchQuote,
     fromTokenUSDValue,
     toTokenUSDValue,
   } = useOptimizedSwapQuote(amount, tokenInSymbol, tokenOutSymbol, {
     chainId,
     insufficientLiquidityFallbackUrl: env.NEXT_PUBLIC_BANNER_LINK,
   });
+  const {
+    data: limits,
+    isLoading: limitsLoading,
+    isFetching: limitsFetching,
+    isError: limitsQueryError,
+    refetch: refetchLimits,
+  } = useTradingLimits(tokenInSymbol, tokenOutSymbol, chainId);
+  const areLimitsLoading = limitsLoading || limitsFetching;
+  const [submissionTradingLimitError, setSubmissionTradingLimitError] =
+    useState<string | null>(null);
+  const isVerificationInFlightRef = useRef(false);
+  const currentTradingLimitError = useMemo(() => {
+    if (!limits || areLimitsLoading) return null;
+    if (routeAmounts.length === 0) {
+      return quoteFetching ? null : TRADING_LIMITS_UNAVAILABLE_MESSAGE;
+    }
+    return checkTradingLimitViolation({ limits, routeAmounts });
+  }, [limits, areLimitsLoading, quoteFetching, routeAmounts]);
+  const tradingLimitError = limitsQueryError
+    ? TRADING_LIMITS_UNAVAILABLE_MESSAGE
+    : (submissionTradingLimitError ?? currentTradingLimitError);
 
   // Always direction "in" - selling exact amount of fromToken (swapIn)
   const swapValues = useMemo(() => {
@@ -142,21 +169,68 @@ export function SwapConfirm({ chainId }: { chainId: ChainId }) {
 
   async function onSubmit() {
     if (
+      isVerificationInFlightRef.current ||
       !rate ||
       !amountWei ||
       !address ||
       !isConnected ||
       isWalletOnWrongChain ||
+      isSwapTxLoading ||
+      isSwapTxReceiptLoading ||
+      isGasEstimating ||
+      quoteFetching ||
+      isQuoteError ||
+      hasInsufficientLiquidityError ||
       isAllowanceLoading ||
+      areLimitsLoading ||
       !skipApprove
     )
       return;
 
+    isVerificationInFlightRef.current = true;
+    setSubmissionTradingLimitError(null);
     try {
-      await sendSwapTx();
-    } catch (error) {
-      // Error handling is done in the hook
-      logger.error("Swap submission error:", error);
+      const verification = await Promise.all([
+        refetchQuote({ throwOnError: true }),
+        refetchLimits({ throwOnError: true }),
+      ]).catch((error) => {
+        logger.error("Trading limit verification error:", error);
+        return null;
+      });
+      if (!verification) {
+        setSubmissionTradingLimitError(TRADING_LIMITS_UNAVAILABLE_MESSAGE);
+        return;
+      }
+      const [freshQuote, freshLimits] = verification;
+
+      const freshRouteAmounts = freshQuote.data?.routeAmounts;
+      if (
+        freshQuote.isError ||
+        freshLimits.isError ||
+        !freshRouteAmounts ||
+        freshRouteAmounts.length === 0 ||
+        freshLimits.data == null
+      ) {
+        setSubmissionTradingLimitError(TRADING_LIMITS_UNAVAILABLE_MESSAGE);
+        return;
+      }
+      const freshTradingLimitError = checkTradingLimitViolation({
+        limits: freshLimits.data,
+        routeAmounts: freshRouteAmounts,
+      });
+      if (freshTradingLimitError) {
+        setSubmissionTradingLimitError(freshTradingLimitError);
+        return;
+      }
+
+      try {
+        await sendSwapTx();
+      } catch (error) {
+        // Error handling is done in the hook
+        logger.error("Swap submission error:", error);
+      }
+    } finally {
+      isVerificationInFlightRef.current = false;
     }
   }
 
@@ -274,6 +348,12 @@ export function SwapConfirm({ chainId }: { chainId: ChainId }) {
         />
       )}
 
+      {tradingLimitError && (
+        <p role="alert" className="text-sm text-destructive">
+          {tradingLimitError}
+        </p>
+      )}
+
       <Button
         data-testid={
           isSwapTxLoading || isSwapTxReceiptLoading
@@ -288,7 +368,9 @@ export function SwapConfirm({ chainId }: { chainId: ChainId }) {
           isSwapTxLoading ||
           isSwapTxReceiptLoading ||
           isGasEstimating ||
+          quoteFetching ||
           isAllowanceLoading ||
+          areLimitsLoading ||
           !skipApprove ||
           isWalletOnWrongChain ||
           isQuoteError ||
@@ -303,6 +385,12 @@ export function SwapConfirm({ chainId }: { chainId: ChainId }) {
           <IconLoading />
         ) : isWalletOnWrongChain ? (
           "Wrong network"
+        ) : quoteFetching ? (
+          "Refreshing quote..."
+        ) : areLimitsLoading ? (
+          "Checking trading limits..."
+        ) : tradingLimitError ? (
+          "Recheck trading limits"
         ) : isQuoteError ? (
           hasQuoteInsufficientLiquidityError ? (
             SWAP_INSUFFICIENT_LIQUIDITY_LABEL
