@@ -502,6 +502,10 @@ be active, or can later fail, without turning that status into repair
 authority. Every `packet=true` check keeps the strict terminal-success source
 requirement below.
 
+Finalization publishes this status before it creates the approval. If later
+admission fails, cleanup dismisses the approval without reclassifying the live
+status as repair evidence.
+
 A packet-issued Processor check uses:
 
 `dependabot-processor:v2:pr=<n>:head=<sha>:mode=prepare:repair=<1|2>:packet=true:digest=<digest>:run=<run-id>:attempt=<run-attempt>`
