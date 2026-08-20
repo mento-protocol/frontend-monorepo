@@ -2238,7 +2238,8 @@ async function collectFeedbackEvidence(token, packet) {
         `https://api.github.com/repos/${packet.repository}/pulls/${packet.pullRequestNumber}` ||
       comment?.user?.type !== "Bot" ||
       comment?.path !== thread.path ||
-      comment?.commit_id !== thread.commitSha ||
+      comment?.original_commit_id !== thread.commitSha ||
+      !new Set([thread.commitSha, packet.headSha]).has(comment?.commit_id) ||
       (thread.line !== null && comment?.line !== thread.line) ||
       login !== expectedFeedbackLogin(thread.source) ||
       typeof comment?.body !== "string" ||
