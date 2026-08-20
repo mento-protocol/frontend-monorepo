@@ -39,6 +39,7 @@ import {
   createMainCandidateIntent,
   createMainCandidateVercelMetadata,
 } from "./vercel-main-candidate.mjs";
+import { PINNED_VERCEL_CLI_VERSION } from "./vercel-cli-runtime-contract.mjs";
 
 const TOKEN = ["test", "main", "active", "token", "never", "output"].join("-");
 const DEPLOY_SHA = "0123456789abcdef0123456789abcdef01234567";
@@ -445,7 +446,13 @@ test("fd loader runs the pinned Vercel ESM entrypoint", () => {
           spawnOptions,
         );
         assert.equal(child.status, 0, child.stderr);
-        assert.match(`${child.stdout}${child.stderr}`, /56\.4\.1/);
+        assert.match(
+          `${child.stdout}${child.stderr}`,
+          new RegExp(
+            PINNED_VERCEL_CLI_VERSION.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"),
+            "u",
+          ),
+        );
         return child;
       },
     });
