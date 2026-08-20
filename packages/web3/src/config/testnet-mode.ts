@@ -41,13 +41,25 @@ function writeTestnetModeCookie(enabled: boolean) {
   document.cookie = `${TESTNET_MODE_COOKIE}=${enabled ? "1" : "0"}; Path=/; Max-Age=31536000; SameSite=Lax`;
 }
 
+function readTestnetModeStorageValue(): string | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    return window.localStorage?.getItem(TESTNET_MODE_STORAGE_KEY) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function readTestnetModeStorage(initialValue = false): boolean {
+  return parseStoredBoolean(readTestnetModeStorageValue()) ?? initialValue;
+}
+
 const testnetModeStorage = {
   getItem: (_key: string, initialValue: boolean) => {
     if (typeof window === "undefined") return initialValue;
 
-    const storedValue = parseStoredBoolean(
-      window.localStorage.getItem(TESTNET_MODE_STORAGE_KEY),
-    );
+    const storedValue = parseStoredBoolean(readTestnetModeStorageValue());
     if (storedValue !== null) {
       return storedValue;
     }
@@ -60,13 +72,21 @@ const testnetModeStorage = {
   setItem: (_key: string, value: boolean) => {
     if (typeof window === "undefined") return;
 
-    window.localStorage.setItem(TESTNET_MODE_STORAGE_KEY, String(value));
+    try {
+      window.localStorage?.setItem(TESTNET_MODE_STORAGE_KEY, String(value));
+    } catch {
+      // Some embedded browsers expose localStorage but reject access to it.
+    }
     writeTestnetModeCookie(value);
   },
   removeItem: () => {
     if (typeof window === "undefined") return;
 
-    window.localStorage.removeItem(TESTNET_MODE_STORAGE_KEY);
+    try {
+      window.localStorage?.removeItem(TESTNET_MODE_STORAGE_KEY);
+    } catch {
+      // Some embedded browsers expose localStorage but reject access to it.
+    }
     document.cookie = `${TESTNET_MODE_COOKIE}=0; Path=/; Max-Age=0; SameSite=Lax`;
   },
 };

@@ -12,7 +12,7 @@ vi.mock("./chains", () => ({
   },
 }));
 
-import { readTestnetModeCookie } from "./testnet-mode";
+import { readTestnetModeCookie, readTestnetModeStorage } from "./testnet-mode";
 
 describe("testnet-mode cookie parsing", () => {
   it("reads enabled cookie values", () => {
@@ -23,5 +23,48 @@ describe("testnet-mode cookie parsing", () => {
   it("reads disabled and missing cookie values", () => {
     expect(readTestnetModeCookie("mento_testnet_mode=0")).toBe(false);
     expect(readTestnetModeCookie("foo=bar")).toBe(false);
+  });
+});
+
+describe("testnet-mode storage access", () => {
+  it("falls back when localStorage is null", () => {
+    const originalWindow = globalThis.window;
+
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { localStorage: null },
+    });
+
+    try {
+      expect(readTestnetModeStorage()).toBe(false);
+      expect(readTestnetModeStorage(true)).toBe(true);
+    } finally {
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: originalWindow,
+      });
+    }
+  });
+
+  it("falls back when localStorage access throws", () => {
+    const originalWindow = globalThis.window;
+
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        get localStorage() {
+          throw new Error("localStorage is blocked");
+        },
+      },
+    });
+
+    try {
+      expect(readTestnetModeStorage()).toBe(false);
+    } finally {
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: originalWindow,
+      });
+    }
   });
 });

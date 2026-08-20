@@ -9,6 +9,12 @@ const ALWAYS_IGNORE_ERROR_PATTERNS = [
   /Cannot set property ethereum of #<Window> which has only a getter/i,
   /'set' on proxy: trap returned falsish for property 'tronlinkParams'/i,
   /WebSocket connection failed for host: wss:\/\/relay\.walletconnect\.org/i,
+  // WalletConnect emits this expected rejection when a user leaves a
+  // connection proposal open until the protocol timeout.
+  /^Proposal expired$/i,
+  // WalletConnect's IndexedDB-backed session store is unavailable in some
+  // embedded browsers. Keep that vendor failure out of application telemetry.
+  /^(?:Can't find variable: indexedDB|indexedDB is not defined)$/i,
 ] as const;
 
 const CHUNK_LOAD_ERROR_PATTERNS = [

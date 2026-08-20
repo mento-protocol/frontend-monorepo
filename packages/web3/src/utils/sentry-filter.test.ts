@@ -75,6 +75,24 @@ describe("sentry-filter", () => {
     expect(filterNoisySentryEvents(event)).toBeNull();
   });
 
+  it("drops expected WalletConnect proposal expiry events", () => {
+    const event = makeEvent({
+      exceptionValue: "Proposal expired",
+      exceptionType: "Error",
+    });
+
+    expect(filterNoisySentryEvents(event)).toBeNull();
+  });
+
+  it("drops IndexedDB-unavailable vendor errors", () => {
+    const event = makeEvent({
+      exceptionValue: "Can't find variable: indexedDB",
+      exceptionType: "ReferenceError",
+    });
+
+    expect(filterNoisySentryEvents(event)).toBeNull();
+  });
+
   it("drops typed user-rejection errors from an exception chain", () => {
     const event = {
       exception: {
