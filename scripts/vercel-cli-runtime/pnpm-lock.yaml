@@ -121,8 +121,8 @@ importers:
         specifier: 5.8.26
         version: 5.8.26
       '@vercel/python':
-        specifier: 6.51.0
-        version: 6.51.0
+        specifier: 6.51.1
+        version: 6.51.1
       '@vercel/redwood':
         specifier: 2.5.0
         version: 2.5.0
@@ -139,8 +139,8 @@ importers:
         specifier: 2.11.8
         version: 2.11.8
       vercel:
-        specifier: 56.4.1
-        version: 56.4.1(@vercel/backends@0.8.25(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3))(@vercel/container@0.0.5)(@vercel/elysia@0.1.102)(@vercel/express@0.1.116(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3))(@vercel/fastify@0.1.105)(@vercel/go@3.10.2)(@vercel/h3@0.1.111)(@vercel/hono@0.2.105)(@vercel/hydrogen@1.4.0)(@vercel/koa@0.1.85)(@vercel/nestjs@0.2.106)(@vercel/next@4.20.4)(@vercel/node@5.8.26)(@vercel/python@6.51.0)(@vercel/redwood@2.5.0)(@vercel/remix-builder@5.9.1)(@vercel/ruby@2.5.1)(@vercel/rust@1.4.0)(@vercel/static-build@2.11.8)
+        specifier: 56.5.0
+        version: 56.5.0(@vercel/backends@0.8.25(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3))(@vercel/container@0.0.5)(@vercel/elysia@0.1.102)(@vercel/express@0.1.116(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3))(@vercel/fastify@0.1.105)(@vercel/go@3.10.2)(@vercel/h3@0.1.111)(@vercel/hono@0.2.105)(@vercel/hydrogen@1.4.0)(@vercel/koa@0.1.85)(@vercel/nestjs@0.2.106)(@vercel/next@4.20.4)(@vercel/node@5.8.26)(@vercel/python@6.51.1)(@vercel/redwood@2.5.0)(@vercel/remix-builder@5.9.1)(@vercel/ruby@2.5.1)(@vercel/rust@1.4.0)(@vercel/static-build@2.11.8)
 
 packages:
 
@@ -422,12 +422,12 @@ packages:
     resolution: {integrity: sha512-d0d4Oyxm+v980PEq1ZH2PmS6cvpMIRc17eYpiU47KgW+lzxklMu6+HOEOPmxrpnF/XQZ0+Q78I2mgMhbIIo/dg==}
     engines: {node: '>= 10'}
 
-  '@napi-rs/wasm-runtime@1.2.2':
-    resolution: {integrity: sha512-JfB4kuJQjaoHuCTseIINHtHWeJnvgEcxjwA5t/Y00ZgaOO1Crz3fjT/p8kT28zA/Caz7oiUMn3d6H2yOVCVwuw==}
+  '@napi-rs/wasm-runtime@1.2.3':
+    resolution: {integrity: sha512-UMduMbqO5s5zF2NkNacMT/yK5Y5QiKvWr2+50bzIIxFDwVJ2h49b+oyjaCGPhJxd2/gC2x39EHv/gHVuu36x2Q==}
     engines: {node: ^20.19.0 || ^22.13.0 || >=23.5.0}
     peerDependencies:
-      '@emnapi/core': ^1.7.1 || ^2.0.0-alpha.3
-      '@emnapi/runtime': ^1.7.1 || ^2.0.0-alpha.3
+      '@emnapi/core': ^1.7.1 || ^2.0.0-alpha.4
+      '@emnapi/runtime': ^1.7.1 || ^2.0.0-alpha.4
 
   '@nodelib/fs.scandir@2.1.5':
     resolution: {integrity: sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==}
@@ -778,8 +778,8 @@ packages:
   '@vercel/python-analysis@0.11.1':
     resolution: {integrity: sha512-EPPLuXJQhIDUx08H9nG76AR2HSgBquwe3OAX5s2w20M923iaWeGGVkhX/4yZ89CJfXEZgE1Aj/mX7lVHOVIcYA==}
 
-  '@vercel/python@6.51.0':
-    resolution: {integrity: sha512-81n05giwRNXwp7UZQbDoSHv8XhQTsFRfQnlFSaITmsWA8MVl1t1XJrrHSNswiRm+hceWzHxBZxE0ysfWXs4AQA==}
+  '@vercel/python@6.51.1':
+    resolution: {integrity: sha512-S30y6HxR0UKCckjCQsY7sVZaYN9aZLsKLVtfBkjV6W49zrPmSy11GCJlyM1fbMcDSvCd6qLfa3iCIiKOcO5okw==}
 
   '@vercel/redwood@2.5.0':
     resolution: {integrity: sha512-LO24CbieV57rGAqrq5n5z/B+fMYeUqbE/Ge3qMeKRuS3Q9awgcBgB6WYLCe8crHM7XJd5AZjbuyoS/6k3r0X0w==}
@@ -1054,8 +1054,8 @@ packages:
     resolution: {integrity: sha512-ts6Wi+2j3jQjqi70w5AlN8DFnkSwC+MqmxEzdEALB2qXZYV3X/b1CTfgPLGJNMeAWxdPfU8FO1ms3NUfaHCPYg==}
     engines: {node: '>=10'}
 
-  get-tsconfig@4.14.1:
-    resolution: {integrity: sha512-Dz/6HxkrxgNehhxLVeyv8sad9UzF2xBVeaKBQNDfJ5XiSXmp2gTR0eO0RWiT2NCKS5aGP9jjkOMggTN90qU50A==}
+  get-tsconfig@4.14.3:
+    resolution: {integrity: sha512-++QEw4DIY7WGoukz+/+A/8dGYPT9l9yIadnmSgZ8Rjr3YVSVDipQSO9CdnJo9ePqFqUUqh+wk9uIaoiAwsiPkA==}
 
   glob-parent@5.1.2:
     resolution: {integrity: sha512-AOIgSQCepiJYwP3ARnGx+5VnTu2HBYdzbGP45eLw1vr3zB3vZLeyed1sC9hnbcOc9/SrMyM5RPQrkGz4aS9Zow==}
@@ -1415,8 +1415,8 @@ packages:
     resolution: {integrity: sha512-MY2/qGx4enyjprQnFaZsHib3Yadh3IXyV2C321GY0pjGfVBu4un0uDJkwgdxqO+Rdx8JMT8IfJIRwbYVz3Ob3Q==}
     engines: {node: '>=14'}
 
-  smol-toml@1.7.1:
-    resolution: {integrity: sha512-PPlsspAZ4jbMBu5DMFhfUGDQLu/vrL4SyBROVS37x8ynnVmFIs1VPBz1Co8Xks3TvpIaZXmU85y4DrQ+UyVFoQ==}
+  smol-toml@1.8.0:
+    resolution: {integrity: sha512-kCZr2V3ch9i00x8zXRhjUNVcjG9ijES5dDudkXvUVCT5QlJNQWElSJdZqyPemffHoLNUYwOcou0Fy+ojN0uHSQ==}
     engines: {node: '>= 18'}
 
   srvx@0.11.16:
@@ -1522,8 +1522,8 @@ packages:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
     engines: {node: '>= 0.8'}
 
-  vercel@56.4.1:
-    resolution: {integrity: sha512-+CIEa0qcKm1RNBRhOvpo2l/yz28LMKSDuGeAYGx4/EkYyR5VOrXJZYV52WvqVARcxBAbH3Un2RRin8YGXMlcNg==}
+  vercel@56.5.0:
+    resolution: {integrity: sha512-wAKpT8DFSbnwlgbS711fbvxGjOfQeb1n+NcaBaSC4onq9eJAjbPfERrjrKE4GDsV8dkoBo0627lp0QxbLCGFiw==}
     engines: {node: '>= 18'}
     hasBin: true
     peerDependencies:
@@ -1540,7 +1540,7 @@ packages:
       '@vercel/nestjs': 0.2.106
       '@vercel/next': 4.20.4
       '@vercel/node': 5.8.26
-      '@vercel/python': 6.51.0
+      '@vercel/python': 6.51.1
       '@vercel/redwood': 2.5.0
       '@vercel/remix-builder': 5.9.1
       '@vercel/ruby': 2.5.1
@@ -1826,7 +1826,7 @@ snapshots:
       '@napi-rs/keyring-win32-ia32-msvc': 1.2.0
       '@napi-rs/keyring-win32-x64-msvc': 1.2.0
 
-  '@napi-rs/wasm-runtime@1.2.2(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)':
+  '@napi-rs/wasm-runtime@1.2.3(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)':
     dependencies:
       '@emnapi/core': 1.11.3
       '@emnapi/runtime': 1.11.3
@@ -1897,7 +1897,7 @@ snapshots:
 
   '@oxc-transform/binding-wasm32-wasi@0.111.0(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)':
     dependencies:
-      '@napi-rs/wasm-runtime': 1.2.2(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
+      '@napi-rs/wasm-runtime': 1.2.3(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -1946,7 +1946,7 @@ snapshots:
 
   '@rolldown/binding-wasm32-wasi@1.0.0-rc.1(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)':
     dependencies:
-      '@napi-rs/wasm-runtime': 1.2.2(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
+      '@napi-rs/wasm-runtime': 1.2.3(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -2242,10 +2242,10 @@ snapshots:
       fs-extra: 11.1.1
       js-yaml: 4.3.1
       minimatch: 10.2.6
-      smol-toml: 1.7.1
+      smol-toml: 1.8.0
       zod: 4.4.3
 
-  '@vercel/python@6.51.0':
+  '@vercel/python@6.51.1':
     dependencies:
       '@vercel/python-analysis': 0.11.1
 
@@ -2279,7 +2279,7 @@ snapshots:
     dependencies:
       execa: 5.1.1
       get-port: 5.1.1
-      smol-toml: 1.7.1
+      smol-toml: 1.8.0
 
   '@vercel/sandbox@2.4.0':
     dependencies:
@@ -2555,7 +2555,7 @@ snapshots:
 
   get-stream@6.0.1: {}
 
-  get-tsconfig@4.14.1:
+  get-tsconfig@4.14.3:
     dependencies:
       resolve-pkg-maps: 1.0.0
 
@@ -2887,7 +2887,7 @@ snapshots:
 
   signal-exit@4.0.2: {}
 
-  smol-toml@1.7.1: {}
+  smol-toml@1.8.0: {}
 
   srvx@0.11.16: {}
 
@@ -2970,7 +2970,7 @@ snapshots:
   tsx@4.21.0:
     dependencies:
       esbuild: 0.28.1
-      get-tsconfig: 4.14.1
+      get-tsconfig: 4.14.3
     optionalDependencies:
       fsevents: 2.3.3
 
@@ -2988,7 +2988,7 @@ snapshots:
 
   unpipe@1.0.0: {}
 
-  vercel@56.4.1(@vercel/backends@0.8.25(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3))(@vercel/container@0.0.5)(@vercel/elysia@0.1.102)(@vercel/express@0.1.116(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3))(@vercel/fastify@0.1.105)(@vercel/go@3.10.2)(@vercel/h3@0.1.111)(@vercel/hono@0.2.105)(@vercel/hydrogen@1.4.0)(@vercel/koa@0.1.85)(@vercel/nestjs@0.2.106)(@vercel/next@4.20.4)(@vercel/node@5.8.26)(@vercel/python@6.51.0)(@vercel/redwood@2.5.0)(@vercel/remix-builder@5.9.1)(@vercel/ruby@2.5.1)(@vercel/rust@1.4.0)(@vercel/static-build@2.11.8):
+  vercel@56.5.0(@vercel/backends@0.8.25(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3))(@vercel/container@0.0.5)(@vercel/elysia@0.1.102)(@vercel/express@0.1.116(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3))(@vercel/fastify@0.1.105)(@vercel/go@3.10.2)(@vercel/h3@0.1.111)(@vercel/hono@0.2.105)(@vercel/hydrogen@1.4.0)(@vercel/koa@0.1.85)(@vercel/nestjs@0.2.106)(@vercel/next@4.20.4)(@vercel/node@5.8.26)(@vercel/python@6.51.1)(@vercel/redwood@2.5.0)(@vercel/remix-builder@5.9.1)(@vercel/ruby@2.5.1)(@vercel/rust@1.4.0)(@vercel/static-build@2.11.8):
     dependencies:
       '@vercel/blob': 2.4.0
       '@vercel/build-utils': 13.34.0
@@ -3003,7 +3003,7 @@ snapshots:
       jsonc-parser: 3.3.1
       luxon: 3.7.2
       sandbox: 3.4.0
-      smol-toml: 1.7.1
+      smol-toml: 1.8.0
       undici: 6.28.0
       zod: 4.4.3
     optionalDependencies:
@@ -3020,7 +3020,7 @@ snapshots:
       '@vercel/nestjs': 0.2.106
       '@vercel/next': 4.20.4
       '@vercel/node': 5.8.26
-      '@vercel/python': 6.51.0
+      '@vercel/python': 6.51.1
       '@vercel/redwood': 2.5.0
       '@vercel/remix-builder': 5.9.1
       '@vercel/ruby': 2.5.1
