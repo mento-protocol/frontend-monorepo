@@ -74,6 +74,10 @@ describe("stability-route", () => {
 
   it("reads the testnet mode cookie", () => {
     expect(readTestnetModeCookie("mento_testnet_mode=1")).toBe(true);
+    expect(readTestnetModeCookie("mento_testnet_mode=v1:123:1")).toBe(true);
+    expect(
+      readTestnetModeCookie(`mento_testnet_mode=v1:${"9".repeat(1000)}:1`),
+    ).toBe(true);
     expect(readTestnetModeCookie("foo=bar")).toBe(false);
   });
 

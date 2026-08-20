@@ -10,6 +10,7 @@ export type StabilityChainId = 42220 | 11142220;
 const DEFAULT_CHAIN_SLUG = "celo";
 const CELO_CHAIN_ID = 42220 as const;
 const CELO_SEPOLIA_CHAIN_ID = 11142220 as const;
+const versionedValuePattern = /^v1:(\d+):(1|true|0|false)$/;
 
 const STABILITY_CHAINS = {
   [CELO_CHAIN_ID]: {
@@ -42,6 +43,26 @@ function parseStoredBoolean(value?: string | null): boolean | null {
   return null;
 }
 
+function parseTestnetModeCookieValue(value?: string | null): boolean | null {
+  const parsedValue = parseStoredBoolean(value);
+  if (parsedValue !== null) return parsedValue;
+
+  const match = value?.match(versionedValuePattern);
+  if (!match) return null;
+
+  const versionText = match[1];
+  const valueText = match[2];
+  if (!versionText || !valueText) return null;
+
+  try {
+    BigInt(versionText);
+  } catch {
+    return null;
+  }
+
+  return parseStoredBoolean(valueText);
+}
+
 function readCookieValue(
   cookieSource: string | null | undefined,
   key: string,
@@ -59,8 +80,9 @@ function readCookieValue(
 
 export function readTestnetModeCookie(cookieSource?: string | null): boolean {
   return (
-    parseStoredBoolean(readCookieValue(cookieSource, "mento_testnet_mode")) ??
-    false
+    parseTestnetModeCookieValue(
+      readCookieValue(cookieSource, "mento_testnet_mode"),
+    ) ?? false
   );
 }
 

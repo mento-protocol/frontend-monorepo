@@ -11,6 +11,18 @@ const ALWAYS_IGNORE_ERROR_PATTERNS = [
   /WebSocket connection failed for host: wss:\/\/relay\.walletconnect\.org/i,
 ] as const;
 
+const walletConnectProposalExpiredPattern = /^Proposal expired$/i;
+
+const indexedDatabaseUnavailableErrorPatterns = [
+  /^(?:Can't find variable: indexedDB|indexedDB is not defined)$/i,
+] as const;
+
+const walletConnectFramePatterns = [
+  /(?:^|[/\\])node_modules[/\\](?:\.pnpm[/\\])?@walletconnect(?:\+|[/\\])/i,
+  /(?:^|[/\\])node_modules[/\\](?:\.pnpm[/\\])?@reown(?:\+|[/\\])/i,
+  /^\.\.\/\.\.\/src\/walletConnect\.ts$/i,
+] as const;
+
 const CHUNK_LOAD_ERROR_PATTERNS = [
   /Failed to load chunk/i,
   /Loading chunk [\w./?-]+ failed/i,
@@ -110,6 +122,19 @@ function hasExtensionFrames(event: ErrorEvent): boolean {
   );
 }
 
+function hasWalletConnectFrames(event: ErrorEvent): boolean {
+  return getFrameFilenames(event).some((filename) =>
+    walletConnectFramePatterns.some((pattern) => pattern.test(filename)),
+  );
+}
+
+function isBrowserUnhandledRejection(event: ErrorEvent): boolean {
+  return (event.exception?.values ?? []).some(
+    ({ mechanism }) =>
+      mechanism?.type === "auto.browser.global_handlers.onunhandledrejection",
+  );
+}
+
 function eventTargetsRoute(event: ErrorEvent, route: string): boolean {
   const requestUrl = event.request?.url ?? "";
   const transaction = event.transaction ?? "";
@@ -139,6 +164,23 @@ export function filterNoisySentryEvents(
   }
 
   if (ALWAYS_IGNORE_ERROR_PATTERNS.some((pattern) => pattern.test(message))) {
+    return null;
+  }
+
+  if (
+    walletConnectProposalExpiredPattern.test(message) &&
+    isBrowserUnhandledRejection(event)
+  ) {
+    return null;
+  }
+
+  if (
+    indexedDatabaseUnavailableErrorPatterns.some((pattern) =>
+      pattern.test(message),
+    ) &&
+    hasWalletConnectFrames(event) &&
+    isBrowserUnhandledRejection(event)
+  ) {
     return null;
   }
 

@@ -11,6 +11,7 @@ function makeEvent({
   message,
   exceptionValue,
   exceptionType,
+  mechanismType,
   frames = [],
   requestUrl,
   transaction,
@@ -18,6 +19,7 @@ function makeEvent({
   message?: string;
   exceptionValue?: string;
   exceptionType?: string;
+  mechanismType?: string;
   frames?: string[];
   requestUrl?: string;
   transaction?: string;
@@ -32,6 +34,7 @@ function makeEvent({
             {
               type: exceptionType ?? "Error",
               value: exceptionValue,
+              mechanism: mechanismType ? { type: mechanismType } : undefined,
               stacktrace: {
                 frames: frames.map((filename) => ({ filename })),
               },
@@ -73,6 +76,97 @@ describe("sentry-filter", () => {
     const event = makeEvent({ message: "Origin not allowed" });
 
     expect(filterNoisySentryEvents(event)).toBeNull();
+  });
+
+  it("drops expected WalletConnect proposal expiry events", () => {
+    const event = makeEvent({
+      exceptionValue: "Proposal expired",
+      exceptionType: "Error",
+      mechanismType: "auto.browser.global_handlers.onunhandledrejection",
+    });
+
+    expect(filterNoisySentryEvents(event)).toBeNull();
+  });
+
+  it("keeps proposal-expiry errors outside browser promise rejections", () => {
+    const event = makeEvent({
+      exceptionValue: "Proposal expired",
+      exceptionType: "Error",
+      frames: ["/var/task/.next/server/app/proposals/page.js"],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
+  });
+
+  it("drops browser IndexedDB-unavailable vendor errors", () => {
+    const event = makeEvent({
+      exceptionValue: "Can't find variable: indexedDB",
+      exceptionType: "ReferenceError",
+      mechanismType: "auto.browser.global_handlers.onunhandledrejection",
+      frames: [
+        "https://app.mento.org/node_modules/@walletconnect/keyvaluestorage/dist/index.es.js",
+      ],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBeNull();
+  });
+
+  it("keeps server IndexedDB-unavailable vendor errors reportable", () => {
+    const event = makeEvent({
+      exceptionValue: "Can't find variable: indexedDB",
+      exceptionType: "ReferenceError",
+      frames: [
+        "https://app.mento.org/node_modules/@walletconnect/keyvaluestorage/dist/index.es.js",
+      ],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
+  });
+
+  it("keeps IndexedDB errors from first-party code", () => {
+    const event = makeEvent({
+      exceptionValue: "indexedDB is not defined",
+      exceptionType: "ReferenceError",
+      frames: ["/var/task/.next/server/app/pools/page.js"],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
+  });
+
+  it("keeps first-party IndexedDB errors when filenames contain vendor-like words", () => {
+    const event = makeEvent({
+      exceptionValue: "indexedDB is not defined",
+      exceptionType: "ReferenceError",
+      frames: ["/var/task/.next/server/app/idb-keyval-cache.js"],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
+  });
+
+  it("drops production-shaped IndexedDB errors with a WalletConnect source frame", () => {
+    const event = makeEvent({
+      exceptionValue: "Can't find variable: indexedDB",
+      exceptionType: "ReferenceError",
+      mechanismType: "auto.browser.global_handlers.onunhandledrejection",
+      frames: [
+        "app:///_next/static/chunks/d626ed93ff8bab4e.js",
+        "../../src/walletConnect.ts",
+        "https://app.mento.org/node_modules/idb-keyval/dist/index.js",
+      ],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBeNull();
+  });
+
+  it("keeps IndexedDB errors from generic bundled first-party chunks", () => {
+    const event = makeEvent({
+      exceptionValue: "indexedDB is not defined",
+      exceptionType: "ReferenceError",
+      mechanismType: "auto.browser.global_handlers.onunhandledrejection",
+      frames: ["app:///_next/static/chunks/d626ed93ff8bab4e.js"],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
   });
 
   it("drops typed user-rejection errors from an exception chain", () => {
