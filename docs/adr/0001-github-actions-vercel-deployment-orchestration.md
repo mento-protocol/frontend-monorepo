@@ -169,9 +169,11 @@ one-full-smoke-per-qualifying-event invariant.
 
 Deployment planning is repository-owned, deterministic, and offline-testable.
 It uses the real Turborepo package graph and a small reviewed list of proven
-non-runtime paths. Unknown paths, empty or unresolved diffs, shallow history,
-non-ancestral ranges, malformed planner output, or graph errors select all four
-targets rather than silently skipping a required deployment.
+non-runtime paths. The list names each current Dependabot control-plane file
+instead of matching the `scripts/dependabot-` prefix. New, renamed, or
+near-match files remain unknown. Unknown paths, empty or unresolved diffs,
+shallow history, non-ancestral ranges, malformed planner output, or graph errors
+select all four targets rather than silently skipping a required deployment.
 
 For previews, planning compares the immutable base and snapshotted PR head. For
 `main`, planning compares the SHA currently served by each logical target with

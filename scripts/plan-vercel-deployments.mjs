@@ -27,6 +27,17 @@ const PROVEN_NON_RUNTIME_FILES = new Set([
   "CLAUDE.md",
   "LICENSE",
   "README.md",
+  "scripts/dependabot-claude-review-tool-guard.mjs",
+  "scripts/dependabot-preparation-receipts.mjs",
+  "scripts/dependabot-preparation-receipts.test.mjs",
+  "scripts/dependabot-prepared-review.mjs",
+  "scripts/dependabot-prepared-review.test.mjs",
+  "scripts/dependabot-processor.mjs",
+  "scripts/dependabot-processor.test.mjs",
+  "scripts/dependabot-protected-runtime-sync.mjs",
+  "scripts/dependabot-protected-runtime-sync.test.mjs",
+  "scripts/dependabot-repair-evidence-tool-guard.mjs",
+  "scripts/dependabot-workflows.test.mjs",
 ]);
 
 const PROVEN_NON_RUNTIME_DIRECTORIES = [
