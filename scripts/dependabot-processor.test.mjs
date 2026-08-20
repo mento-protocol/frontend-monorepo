@@ -5813,6 +5813,7 @@ test("finalize withdraws its approval when the post-approval ruleset stays block
     }),
     /failed final ruleset admission/,
   );
+  assert.equal(processorStatusPublished, true);
   assert.deepEqual(cleanup, [
     ["invalidate", HEAD_SHA],
     ["dismiss", 7_001],
