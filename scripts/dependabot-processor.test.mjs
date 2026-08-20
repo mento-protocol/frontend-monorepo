@@ -3847,6 +3847,15 @@ test("a reachable typed Vercel receipt and exact target state permit preparation
       repairCheck,
     ],
   });
+  const currentRunStatus = processorRepairReceipt(3, {
+    headSha: SECOND_HEAD_SHA,
+    id: 10_003,
+    packet: false,
+  });
+  currentRunStatus.runConclusion = null;
+  currentRunStatus.runStatus = "in_progress";
+  prepared.checks.push(currentRunStatus);
+  prepared.repairHistoryChecks.push(currentRunStatus);
   const result = evaluateDependabotPullRequest(prepared, {
     mode: "prepare",
     repository: REPOSITORY,
@@ -4512,6 +4521,99 @@ test("typed preparation receipt parsers bind terminal workflow provenance", () =
       stableJson(mutation),
     );
   }
+});
+
+test("packetless processor statuses do not enter repair-lineage receipt accounting", () => {
+  for (const source of [
+    { runConclusion: null, runStatus: "in_progress" },
+    { runConclusion: "success", runStatus: "completed" },
+    { runConclusion: "failure", runStatus: "completed" },
+  ]) {
+    const processorStatus = {
+      ...processorRepairReceipt(1, { packet: false }),
+      ...source,
+    };
+    const result = evaluateDependabotPullRequest(
+      snapshot({ repairHistoryChecks: [processorStatus] }),
+      {
+        mode: "prepare",
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+    );
+    assert.equal(result.identity.valid, true, stableJson(source));
+    assert.equal(result.disposition, "prepare-candidate", stableJson(source));
+    assert.equal(result.repairAttempts.valid, true, stableJson(source));
+    assert.deepEqual(result.repairAttempts.reasons, [], stableJson(source));
+    assert.equal(result.repairAttempts.consumedAttempts, 0, stableJson(source));
+    assert.equal(
+      result.repairAttempts.issuedAttemptCount,
+      0,
+      stableJson(source),
+    );
+    assert.equal(
+      result.repairAttempts.receiptCheckCount,
+      0,
+      stableJson(source),
+    );
+    assert.equal(result.repairAttempts.currentAttempt, 1, stableJson(source));
+    assert.equal(
+      result.repairAttempts.currentHeadPacketIssued,
+      false,
+      stableJson(source),
+    );
+  }
+
+  for (const mutation of [
+    { outputText: stableJson({ unexpected: true }) },
+    { workflowPath: ".github/workflows/ci.yml" },
+    {
+      externalId: `${DEPENDABOT_PROCESSOR_SCHEMA}:pr=123:head=${HEAD_SHA}:mode=prepare:repair=1:packet=false:digest=${"a".repeat(64)}:run=${WORKFLOW_CONTEXT.workflowRunId}:attempt=${WORKFLOW_CONTEXT.workflowRunAttempt}`,
+    },
+  ]) {
+    const processorStatus = {
+      ...processorRepairReceipt(1, { packet: false }),
+      runConclusion: null,
+      runStatus: "in_progress",
+      ...mutation,
+    };
+    const result = evaluateDependabotPullRequest(
+      snapshot({ repairHistoryChecks: [processorStatus] }),
+      {
+        mode: "prepare",
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+    );
+    assert.equal(result.repairAttempts.valid, false, stableJson(mutation));
+    assert.deepEqual(
+      result.repairAttempts.reasons,
+      ["malformed-processor-status"],
+      stableJson(mutation),
+    );
+  }
+
+  const packetCheck = processorRepairReceipt(1, {
+    packet: legacyNpmRepairPacket(),
+    packetEncoding: "canonical",
+  });
+  packetCheck.runConclusion = null;
+  packetCheck.runStatus = "in_progress";
+  const rejected = evaluateDependabotPullRequest(
+    snapshot({ repairHistoryChecks: [packetCheck] }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+  assert.equal(rejected.repairAttempts.valid, false);
+  assert.equal(rejected.repairAttempts.currentHeadPacketIssued, false);
+  assert.ok(
+    rejected.repairAttempts.reasons.includes(
+      "malformed-processor-packet-receipt",
+    ),
+  );
 });
 
 test("a head behind current main enters the serialized refresh lane", () => {
@@ -5502,9 +5604,30 @@ test("finalize approves one recollected exact head and publishes ALL CLEAR witho
   const calls = [];
   let approved = false;
   let allClearReceipt = null;
+  let processorStatusPublished = false;
+  const preApprovalSnapshot = snapshot({
+    feedback: {
+      mergeStateStatus: "BLOCKED",
+      reviewDecision: "REVIEW_REQUIRED",
+    },
+  });
   const postApproval = () => {
-    const current = snapshot();
-    if (approved) withCurrentProcessorApproval(current);
+    const current = structuredClone(preApprovalSnapshot);
+    if (processorStatusPublished) {
+      const processorStatus = processorRepairReceipt(1, {
+        id: 50_001,
+        packet: false,
+      });
+      processorStatus.runConclusion = null;
+      processorStatus.runStatus = "in_progress";
+      current.checks.push(processorStatus);
+      current.repairHistoryChecks = [processorStatus];
+    }
+    if (approved) {
+      withCurrentProcessorApproval(current);
+      current.feedback.mergeStateStatus = "CLEAN";
+      current.feedback.reviewDecision = "APPROVED";
+    }
     return current;
   };
   const adapter = {
@@ -5557,6 +5680,7 @@ test("finalize approves one recollected exact head and publishes ALL CLEAR witho
       assert.fail("a clean candidate must not invalidate ALL CLEAR"),
     publishProcessorCheck: async ({ disposition, headSha }) => {
       calls.push(["processor", disposition, headSha]);
+      processorStatusPublished = true;
       return { id: 50_001 };
     },
   };
@@ -5583,7 +5707,7 @@ test("finalize approves one recollected exact head and publishes ALL CLEAR witho
     input: {
       mode: "prepare",
       outstandingAutoMergeRequests: [],
-      pullRequests: [snapshot()],
+      pullRequests: [preApprovalSnapshot],
       repository: REPOSITORY,
       workflowContext: WORKFLOW_CONTEXT,
     },
@@ -5613,6 +5737,86 @@ test("finalize approves one recollected exact head and publishes ALL CLEAR witho
     repairCount: 0,
     seedHeadSha: HEAD_SHA,
   });
+});
+
+test("finalize withdraws its approval when the post-approval ruleset stays blocked", async () => {
+  const cleanup = [];
+  let approved = false;
+  let processorStatusPublished = false;
+  const preApprovalSnapshot = snapshot({
+    feedback: {
+      mergeStateStatus: "BLOCKED",
+      reviewDecision: "REVIEW_REQUIRED",
+    },
+  });
+  const currentSnapshot = () => {
+    const current = structuredClone(preApprovalSnapshot);
+    if (processorStatusPublished) {
+      const processorStatus = processorRepairReceipt(1, {
+        id: 50_101,
+        packet: false,
+      });
+      processorStatus.runConclusion = null;
+      processorStatus.runStatus = "in_progress";
+      current.checks.push(processorStatus);
+      current.repairHistoryChecks = [processorStatus];
+    }
+    if (approved) {
+      withCurrentProcessorApproval(current);
+      current.feedback.reviewDecision = "APPROVED";
+    }
+    return current;
+  };
+
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        approvePullRequest: async () => {
+          approved = true;
+          return processorApprovalResult();
+        },
+        collectPullRequestSnapshot: async () => currentSnapshot(),
+        dismissPullRequestApproval: async ({ approvalId }) => {
+          cleanup.push(["dismiss", approvalId]);
+        },
+        getOutstandingDependabotAutoMergeRequests: async () => [],
+        getOutstandingDependabotProcessorApprovals: async () =>
+          approved
+            ? [
+                {
+                  approvalId: 7_001,
+                  headSha: HEAD_SHA,
+                  pullRequestNumber: 123,
+                },
+              ]
+            : [],
+        publishAllClear: async () =>
+          assert.fail("a blocked ruleset must never receive ALL CLEAR"),
+        publishAllClearInvalidation: async ({ headSha }) => {
+          cleanup.push(["invalidate", headSha]);
+        },
+        publishProcessorCheck: async () => {
+          processorStatusPublished = true;
+          return { id: 50_101 };
+        },
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [preApprovalSnapshot],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "finalize",
+      publishChecks: true,
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /failed final ruleset admission/,
+  );
+  assert.deepEqual(cleanup, [
+    ["invalidate", HEAD_SHA],
+    ["dismiss", 7_001],
+  ]);
 });
 
 test("finalize withdraws its approval and invalidates ALL CLEAR after an exact-head race", async () => {

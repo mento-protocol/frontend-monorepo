@@ -494,6 +494,14 @@ URL is accepted only for the same check ID and resolved canonical run.
 
 ### Processor v2 and repair packets v2/v3
 
+A Processor check with `packet=false:digest=none` is a non-authorizing status
+record. It has no `output.text` packet and does not enter repair-receipt,
+attempt, or prepared-lineage accounting. The processor still binds its exact
+trusted workflow identity, PR, head, run, and attempt. The source run can still
+be active, or can later fail, without turning that status into repair
+authority. Every `packet=true` check keeps the strict terminal-success source
+requirement below.
+
 A packet-issued Processor check uses:
 
 `dependabot-processor:v2:pr=<n>:head=<sha>:mode=prepare:repair=<1|2>:packet=true:digest=<digest>:run=<run-id>:attempt=<run-attempt>`
