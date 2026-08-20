@@ -32,8 +32,30 @@ import { canonicalJson } from "./dependabot-preparation-receipts.mjs";
 const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const FROM_VERSION = "56.4.1";
 const TARGET_VERSION = "56.5.0";
+const SOURCE_INTEGRITY =
+  "sha512-+CIEa0qcKm1RNBRhOvpo2l/yz28LMKSDuGeAYGx4/EkYyR5VOrXJZYV52WvqVARcxBAbH3Un2RRin8YGXMlcNg==";
 const TARGET_INTEGRITY =
   "sha512-wAKpT8DFSbnwlgbS711fbvxGjOfQeb1n+NcaBaSC4onq9eJAjbPfERrjrKE4GDsV8dkoBo0627lp0QxbLCGFiw==";
+const STABLE_BUILDER_DEPENDENCIES = {
+  "@vercel/backends": "0.8.25",
+  "@vercel/container": "0.0.5",
+  "@vercel/elysia": "0.1.102",
+  "@vercel/express": "0.1.116",
+  "@vercel/fastify": "0.1.105",
+  "@vercel/go": "3.10.2",
+  "@vercel/h3": "0.1.111",
+  "@vercel/hono": "0.2.105",
+  "@vercel/hydrogen": "1.4.0",
+  "@vercel/koa": "0.1.85",
+  "@vercel/nestjs": "0.2.106",
+  "@vercel/next": "4.20.4",
+  "@vercel/node": "5.8.26",
+  "@vercel/redwood": "2.5.0",
+  "@vercel/remix-builder": "5.9.1",
+  "@vercel/ruby": "2.5.1",
+  "@vercel/rust": "1.4.0",
+  "@vercel/static-build": "2.11.8",
+};
 const PR_753_SEED = "374c0899cdadf5be3197bcabe1549af82bdf36df";
 const PR_753_IMMUTABLE_SOURCE = "87b50107da06b3d22d6e4a70a43027e48838a4ab";
 const PR_753_REPAIRED_HEAD = "7e15d2d5596e81364e44d6d46dd1b212351cc070";
@@ -67,32 +89,16 @@ function gitBlobSha(value) {
 
 function registryMetadata(version) {
   assert.ok([FROM_VERSION, TARGET_VERSION].includes(version));
-  const currentDependencies = JSON.parse(
-    readFileSync(
-      join(REPOSITORY_ROOT, "scripts", "vercel-cli-runtime", "package.json"),
-      "utf8",
-    ),
-  ).dependencies;
-  const peers = Object.fromEntries(
-    Object.entries(currentDependencies)
-      .filter(([name]) => name !== "vercel")
-      .map(([name, entryVersion]) => [
-        name,
-        name === "@vercel/python" && version === FROM_VERSION
-          ? "6.51.0"
-          : name === "@vercel/python"
-            ? "6.51.1"
-            : entryVersion,
-      ]),
-  );
+  const peers = {
+    ...STABLE_BUILDER_DEPENDENCIES,
+    "@vercel/python": version === FROM_VERSION ? "6.51.0" : "6.51.1",
+  };
   return {
     bin: { vc: "dist/vc.js", vercel: "dist/vc.js" },
     dependencies: { ...peers },
     dist: {
       integrity:
-        version === TARGET_VERSION
-          ? TARGET_INTEGRITY
-          : activeSourceContract().registryIntegrity,
+        version === TARGET_VERSION ? TARGET_INTEGRITY : SOURCE_INTEGRITY,
       tarball: `https://registry.npmjs.org/vercel/-/vercel-${version}.tgz`,
     },
     engines: { node: ">= 18" },
@@ -105,15 +111,6 @@ function registryMetadata(version) {
   };
 }
 
-function activeSourceContract() {
-  return JSON.parse(
-    readFileSync(
-      join(REPOSITORY_ROOT, "scripts", "vercel-cli-runtime", "contract.json"),
-      "utf8",
-    ),
-  );
-}
-
 function sourceMetadata() {
   return registryMetadata(FROM_VERSION);
 }
@@ -123,17 +120,16 @@ function targetMetadata() {
 }
 
 test("registry transition accepts only exact stable same-major builder peers", () => {
-  const currentRuntimeDependencies = JSON.parse(
-    readFileSync(
-      join(REPOSITORY_ROOT, "scripts", "vercel-cli-runtime", "package.json"),
-      "utf8",
-    ),
-  ).dependencies;
+  const source = sourceMetadata();
+  const currentRuntimeDependencies = {
+    ...source.peerDependencies,
+    vercel: FROM_VERSION,
+  };
   const metadata = targetMetadata();
   const result = validateRegistryTransition({
     currentRuntimeDependencies,
     fromVersion: FROM_VERSION,
-    sourceMetadata: sourceMetadata(),
+    sourceMetadata: source,
     targetMetadata: metadata,
     targetVersion: TARGET_VERSION,
     updateType: "minor",
@@ -164,7 +160,7 @@ test("registry transition accepts only exact stable same-major builder peers", (
         validateRegistryTransition({
           currentRuntimeDependencies,
           fromVersion: FROM_VERSION,
-          sourceMetadata: sourceMetadata(),
+          sourceMetadata: source,
           targetMetadata: invalid,
           targetVersion: TARGET_VERSION,
           updateType: "minor",
@@ -182,7 +178,7 @@ test("registry transition accepts only exact stable same-major builder peers", (
         validateRegistryTransition({
           currentRuntimeDependencies,
           fromVersion: FROM_VERSION,
-          sourceMetadata: sourceMetadata(),
+          sourceMetadata: source,
           targetMetadata: invalid,
           targetVersion: TARGET_VERSION,
           updateType: "minor",
