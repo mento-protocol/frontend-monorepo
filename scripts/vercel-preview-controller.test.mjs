@@ -28,6 +28,7 @@ import {
   recordEventReceipt,
   recordWorkerEvidence as recordWorkerEvidenceImplementation,
   renderPreviewJournalBody,
+  renderPreviousPreviewJournalBody,
   reconcilePreview as reconcilePreviewImplementation,
   reconcileState,
   recoverWorkerResult,
@@ -47,6 +48,7 @@ import {
   writeRepositoryDispatchOutputs,
 } from "./vercel-preview-controller.mjs";
 import { validateGitBranch } from "./vercel-prebuilt-workflow.mjs";
+import { legacyPreviewJournalBody } from "./fixtures/vercel-preview-legacy-journal.mjs";
 import {
   PREVIEW_TARGET_CONFIG,
   PREVIEW_TARGETS,
@@ -2618,6 +2620,7 @@ test("two-event four-target recovery fits the result-only write before terminal 
   let state = activeWave.state;
   let maximumResultOnlyBytes = 0;
   let maximumPreviousResultOnlyBytes = 0;
+  let oversizedPreviousJournal = null;
   for (const target of PREVIEW_TARGETS) {
     const terminalResult = result(state.targets[target].active, {
       runId: activeWave.runIds[target],
@@ -2634,10 +2637,15 @@ test("two-event four-target recovery fits the result-only write before terminal 
       maximumResultOnlyBytes,
       Buffer.byteLength(previewJournalBody(resultOnlyJournal), "utf8"),
     );
+    const previousBytes = Buffer.byteLength(
+      legacyPreviewJournalBody(resultOnlyJournal),
+      "utf8",
+    );
     maximumPreviousResultOnlyBytes = Math.max(
       maximumPreviousResultOnlyBytes,
-      Buffer.byteLength(previousPreviewJournalBody(resultOnlyJournal), "utf8"),
+      previousBytes,
     );
+    if (previousBytes > 64_000) oversizedPreviousJournal = resultOnlyJournal;
     results.push(terminalResult);
     state = reconcile({
       events,
@@ -2651,6 +2659,11 @@ test("two-event four-target recovery fits the result-only write before terminal 
   assert.ok(
     maximumPreviousResultOnlyBytes > 64_000,
     `previous journal unexpectedly fit at ${maximumPreviousResultOnlyBytes} bytes`,
+  );
+  assert.ok(oversizedPreviousJournal);
+  assert.throws(
+    () => renderPreviousPreviewJournalBody(oversizedPreviousJournal),
+    /Preview journal comment is too large/,
   );
   assert.ok(
     maximumResultOnlyBytes < 64_000,
@@ -3604,14 +3617,6 @@ test("closed checkpoints retain matching closure across late events and reopen",
 
 function previewJournalBody(value) {
   return renderPreviewJournalBody(value);
-}
-
-function previousPreviewJournalBody(value) {
-  const compactBody = previewJournalBody(value);
-  return compactBody.replace(
-    JSON.stringify(value),
-    JSON.stringify(value, null, 2),
-  );
 }
 
 const CONTROLLER_WORKFLOW_ID = 42;
@@ -7794,7 +7799,7 @@ test("a legacy two-space journal rewrites compact on the next mutation", async (
     },
   });
   const legacyJournal = journalFromComment(legacyComment);
-  legacyComment.body = previousPreviewJournalBody(legacyJournal);
+  legacyComment.body = legacyPreviewJournalBody(legacyJournal);
   assert.notEqual(legacyComment.body, previewJournalBody(legacyJournal));
   assert.match(
     legacyComment.body,

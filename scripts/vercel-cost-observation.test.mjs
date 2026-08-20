@@ -41,11 +41,11 @@ import {
   createPreviewJournal,
   reconcileState,
   renderPreviewJournalBody,
-  renderPreviousPreviewJournalBody,
   selectionReceiptFromDispatch,
   validateWorkerResult,
   workerRunName,
 } from "./vercel-preview-controller.mjs";
+import { legacyPreviewJournalBody } from "./fixtures/vercel-preview-legacy-journal.mjs";
 
 const FIXTURE_ROOT = new URL(
   "./fixtures/vercel-cost-observation/",
@@ -55,6 +55,38 @@ const START = "2026-07-29T00:00:00.000Z";
 const END = "2026-08-05T00:00:00.000Z";
 const CAPTURED_AT = "2026-08-05T00:01:00.000Z";
 const INITIALIZED_AT = "2026-07-28T23:50:00.000Z";
+
+test("legacy journal fixture locks the retired Markdown and JSON bytes", () => {
+  const expected = `<!-- vercel-preview-journal:v2 -->
+
+**No reviewer action is required.** This repository builds pull request previews in GitHub Actions and deploys them to Vercel. This record lets the preview automation handle overlapping pushes and recover safely from retries. [How previews work](https://github.com/mento-protocol/frontend-monorepo/blob/main/docs/vercel-deployments.md#event-status-and-batching-contract).
+
+**Preview outcomes**
+
+| Target | Outcome |
+| --- | --- |
+| \`app\` | \`awaiting reconciliation\` |
+| \`governance\` | \`awaiting reconciliation\` |
+| \`reserve\` | \`awaiting reconciliation\` |
+| \`ui\` | \`awaiting reconciliation\` |
+
+<details>
+<summary>Show machine-readable preview automation record</summary>
+
+\`\`\`json
+{
+  "schema": "fixture"
+}
+\`\`\`
+
+</details>
+`;
+
+  assert.deepEqual(
+    Buffer.from(legacyPreviewJournalBody({ schema: "fixture" }), "utf8"),
+    Buffer.from(expected, "utf8"),
+  );
+});
 
 function fixture(name) {
   return JSON.parse(readFileSync(new URL(name, FIXTURE_ROOT), "utf8"));
@@ -718,7 +750,7 @@ function previewRoutes(
     user: { type: "Bot", login: "github-actions[bot]" },
     body:
       journalFormat === "previous"
-        ? renderPreviousPreviewJournalBody(journal)
+        ? legacyPreviewJournalBody(journal)
         : renderPreviewJournalBody(journal),
   };
   const run = {
