@@ -130,48 +130,30 @@ describe("sentry-filter", () => {
     expect(filterNoisySentryEvents(event)).toBe(event);
   });
 
-  it("drops production-shaped IndexedDB errors when the browser lacks the API", () => {
-    const originalWindow = globalThis.window;
-    Object.defineProperty(globalThis, "window", {
-      configurable: true,
-      value: {},
-    });
+  it("drops production-shaped IndexedDB errors with a WalletConnect source frame", () => {
     const event = makeEvent({
       exceptionValue: "Can't find variable: indexedDB",
+      exceptionType: "ReferenceError",
+      mechanismType: "auto.browser.global_handlers.onunhandledrejection",
+      frames: [
+        "app:///_next/static/chunks/d626ed93ff8bab4e.js",
+        "../../src/walletConnect.ts",
+        "https://app.mento.org/node_modules/idb-keyval/dist/index.js",
+      ],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBeNull();
+  });
+
+  it("keeps IndexedDB errors from generic bundled first-party chunks", () => {
+    const event = makeEvent({
+      exceptionValue: "indexedDB is not defined",
       exceptionType: "ReferenceError",
       mechanismType: "auto.browser.global_handlers.onunhandledrejection",
       frames: ["app:///_next/static/chunks/d626ed93ff8bab4e.js"],
     });
 
-    try {
-      expect(filterNoisySentryEvents(event)).toBeNull();
-    } finally {
-      Object.defineProperty(globalThis, "window", {
-        configurable: true,
-        value: originalWindow,
-      });
-    }
-  });
-
-  it("keeps unscoped IndexedDB errors when the browser lacks the API", () => {
-    const originalWindow = globalThis.window;
-    Object.defineProperty(globalThis, "window", {
-      configurable: true,
-      value: {},
-    });
-    const event = makeEvent({
-      exceptionValue: "indexedDB is not defined",
-      exceptionType: "ReferenceError",
-    });
-
-    try {
-      expect(filterNoisySentryEvents(event)).toBe(event);
-    } finally {
-      Object.defineProperty(globalThis, "window", {
-        configurable: true,
-        value: originalWindow,
-      });
-    }
+    expect(filterNoisySentryEvents(event)).toBe(event);
   });
 
   it("drops typed user-rejection errors from an exception chain", () => {

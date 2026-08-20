@@ -20,9 +20,8 @@ const INDEXED_DB_UNAVAILABLE_ERROR_PATTERNS = [
 const WALLETCONNECT_FRAME_PATTERNS = [
   /(?:^|[/\\])node_modules[/\\](?:\.pnpm[/\\])?@walletconnect(?:\+|[/\\])/i,
   /(?:^|[/\\])node_modules[/\\](?:\.pnpm[/\\])?@reown(?:\+|[/\\])/i,
+  /^\.\.\/\.\.\/src\/walletConnect\.ts$/i,
 ] as const;
-
-const NEXT_CLIENT_CHUNK_FRAME_PATTERN = /\/_next\/static\/chunks\/[^/]+\.js/i;
 
 const CHUNK_LOAD_ERROR_PATTERNS = [
   /Failed to load chunk/i,
@@ -129,22 +128,6 @@ function hasWalletConnectFrames(event: ErrorEvent): boolean {
   );
 }
 
-function hasNextClientChunkFrames(event: ErrorEvent): boolean {
-  return getFrameFilenames(event).some((filename) =>
-    NEXT_CLIENT_CHUNK_FRAME_PATTERN.test(filename),
-  );
-}
-
-function isBrowserWithoutIndexedDb(): boolean {
-  if (typeof window === "undefined") return false;
-
-  try {
-    return typeof window.indexedDB === "undefined";
-  } catch {
-    return true;
-  }
-}
-
 function isBrowserUnhandledRejection(event: ErrorEvent): boolean {
   return (event.exception?.values ?? []).some(
     ({ mechanism }) =>
@@ -195,10 +178,7 @@ export function filterNoisySentryEvents(
     INDEXED_DB_UNAVAILABLE_ERROR_PATTERNS.some((pattern) =>
       pattern.test(message),
     ) &&
-    (hasWalletConnectFrames(event) ||
-      (isBrowserWithoutIndexedDb() &&
-        isBrowserUnhandledRejection(event) &&
-        hasNextClientChunkFrames(event)))
+    hasWalletConnectFrames(event)
   ) {
     return null;
   }
