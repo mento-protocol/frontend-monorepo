@@ -51,7 +51,15 @@ function readTestnetModeStorageValue(): string | null {
   }
 }
 
-export function readTestnetModeStorage(initialValue = false): boolean {
+export function readTestnetModeStorage(
+  initialValue = false,
+  cookieSource?: string | null,
+): boolean {
+  const cookieValue = parseStoredBoolean(
+    readCookieValue(cookieSource, TESTNET_MODE_COOKIE),
+  );
+  if (cookieValue !== null) return cookieValue;
+
   return parseStoredBoolean(readTestnetModeStorageValue()) ?? initialValue;
 }
 
@@ -59,15 +67,7 @@ const testnetModeStorage = {
   getItem: (_key: string, initialValue: boolean) => {
     if (typeof window === "undefined") return initialValue;
 
-    const storedValue = parseStoredBoolean(readTestnetModeStorageValue());
-    if (storedValue !== null) {
-      return storedValue;
-    }
-
-    const cookieValue = parseStoredBoolean(
-      readCookieValue(document.cookie, TESTNET_MODE_COOKIE),
-    );
-    return cookieValue ?? initialValue;
+    return readTestnetModeStorage(initialValue, document.cookie);
   },
   setItem: (_key: string, value: boolean) => {
     if (typeof window === "undefined") return;
@@ -87,7 +87,7 @@ const testnetModeStorage = {
     } catch {
       // Some embedded browsers expose localStorage but reject access to it.
     }
-    document.cookie = `${TESTNET_MODE_COOKIE}=0; Path=/; Max-Age=0; SameSite=Lax`;
+    writeTestnetModeCookie(false);
   },
 };
 

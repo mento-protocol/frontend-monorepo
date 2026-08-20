@@ -79,12 +79,13 @@ describe("testnet-mode storage access", () => {
     const originalWindow = globalThis.window;
     const originalDocument = globalThis.document;
     const cookieWrites: string[] = [];
+    let cookieValue = "";
 
     Object.defineProperty(globalThis, "window", {
       configurable: true,
       value: {
         localStorage: {
-          getItem: vi.fn(() => null),
+          getItem: vi.fn(() => "false"),
           setItem: vi.fn(() => {
             throw new Error("localStorage is blocked");
           }),
@@ -95,10 +96,11 @@ describe("testnet-mode storage access", () => {
       configurable: true,
       value: {
         get cookie() {
-          return "";
+          return cookieValue;
         },
         set cookie(value: string) {
           cookieWrites.push(value);
+          cookieValue = value.split(";")[0] ?? "";
         },
       },
     });
@@ -110,6 +112,7 @@ describe("testnet-mode storage access", () => {
       expect(cookieWrites).toContain(
         `${TESTNET_MODE_COOKIE}=1; Path=/; Max-Age=31536000; SameSite=Lax`,
       );
+      expect(readTestnetModeStorage(false, cookieValue)).toBe(true);
     } finally {
       Object.defineProperty(globalThis, "window", {
         configurable: true,
@@ -126,12 +129,13 @@ describe("testnet-mode storage access", () => {
     const originalWindow = globalThis.window;
     const originalDocument = globalThis.document;
     const cookieWrites: string[] = [];
+    let cookieValue = `${TESTNET_MODE_COOKIE}=1`;
 
     Object.defineProperty(globalThis, "window", {
       configurable: true,
       value: {
         localStorage: {
-          getItem: vi.fn(() => null),
+          getItem: vi.fn(() => "true"),
           removeItem: vi.fn(() => {
             throw new Error("localStorage is blocked");
           }),
@@ -142,10 +146,11 @@ describe("testnet-mode storage access", () => {
       configurable: true,
       value: {
         get cookie() {
-          return `${TESTNET_MODE_COOKIE}=1`;
+          return cookieValue;
         },
         set cookie(value: string) {
           cookieWrites.push(value);
+          cookieValue = value.split(";")[0] ?? "";
         },
       },
     });
@@ -155,8 +160,9 @@ describe("testnet-mode storage access", () => {
 
       expect(() => store.set(testnetModeAtom, RESET)).not.toThrow();
       expect(cookieWrites).toContain(
-        `${TESTNET_MODE_COOKIE}=0; Path=/; Max-Age=0; SameSite=Lax`,
+        `${TESTNET_MODE_COOKIE}=0; Path=/; Max-Age=31536000; SameSite=Lax`,
       );
+      expect(readTestnetModeStorage(false, cookieValue)).toBe(false);
     } finally {
       Object.defineProperty(globalThis, "window", {
         configurable: true,

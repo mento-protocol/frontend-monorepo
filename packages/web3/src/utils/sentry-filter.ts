@@ -12,9 +12,15 @@ const ALWAYS_IGNORE_ERROR_PATTERNS = [
   // WalletConnect emits this expected rejection when a user leaves a
   // connection proposal open until the protocol timeout.
   /^Proposal expired$/i,
-  // WalletConnect's IndexedDB-backed session store is unavailable in some
-  // embedded browsers. Keep that vendor failure out of application telemetry.
+] as const;
+
+const INDEXED_DB_UNAVAILABLE_ERROR_PATTERNS = [
   /^(?:Can't find variable: indexedDB|indexedDB is not defined)$/i,
+] as const;
+
+const WALLETCONNECT_FRAME_PATTERNS = [
+  /(?:^|[/\\])node_modules[/\\](?:\.pnpm[/\\])?@walletconnect(?:\+|[/\\])/i,
+  /(?:^|[/\\])node_modules[/\\](?:\.pnpm[/\\])?@reown(?:\+|[/\\])/i,
 ] as const;
 
 const CHUNK_LOAD_ERROR_PATTERNS = [
@@ -116,6 +122,12 @@ function hasExtensionFrames(event: ErrorEvent): boolean {
   );
 }
 
+function hasWalletConnectFrames(event: ErrorEvent): boolean {
+  return getFrameFilenames(event).some((filename) =>
+    WALLETCONNECT_FRAME_PATTERNS.some((pattern) => pattern.test(filename)),
+  );
+}
+
 function eventTargetsRoute(event: ErrorEvent, route: string): boolean {
   const requestUrl = event.request?.url ?? "";
   const transaction = event.transaction ?? "";
@@ -145,6 +157,15 @@ export function filterNoisySentryEvents(
   }
 
   if (ALWAYS_IGNORE_ERROR_PATTERNS.some((pattern) => pattern.test(message))) {
+    return null;
+  }
+
+  if (
+    INDEXED_DB_UNAVAILABLE_ERROR_PATTERNS.some((pattern) =>
+      pattern.test(message),
+    ) &&
+    hasWalletConnectFrames(event)
+  ) {
     return null;
   }
 

@@ -88,9 +88,32 @@ describe("sentry-filter", () => {
     const event = makeEvent({
       exceptionValue: "Can't find variable: indexedDB",
       exceptionType: "ReferenceError",
+      frames: [
+        "https://app.mento.org/node_modules/@walletconnect/keyvaluestorage/dist/index.es.js",
+      ],
     });
 
     expect(filterNoisySentryEvents(event)).toBeNull();
+  });
+
+  it("keeps IndexedDB errors from first-party code", () => {
+    const event = makeEvent({
+      exceptionValue: "indexedDB is not defined",
+      exceptionType: "ReferenceError",
+      frames: ["/var/task/.next/server/app/pools/page.js"],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
+  });
+
+  it("keeps first-party IndexedDB errors when filenames contain vendor-like words", () => {
+    const event = makeEvent({
+      exceptionValue: "indexedDB is not defined",
+      exceptionType: "ReferenceError",
+      frames: ["/var/task/.next/server/app/idb-keyval-cache.js"],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
   });
 
   it("drops typed user-rejection errors from an exception chain", () => {
