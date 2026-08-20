@@ -101,6 +101,20 @@ function canonicalOverrideSha256(overrides) {
   return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
 }
 
+function nextPatchVersion(version) {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/u.exec(version);
+  assert.ok(match, `Expected an exact stable version, received ${version}`);
+  return `${match[1]}.${match[2]}.${Number(match[3]) + 1}`;
+}
+
+function syntheticRegistryIntegrity(sourceIntegrity) {
+  const integrity = `sha512-${createHash("sha512")
+    .update(`candidate:${sourceIntegrity}`)
+    .digest("base64")}`;
+  assert.notEqual(integrity, sourceIntegrity);
+  return integrity;
+}
+
 function formerNanoidLockfile(lockfile) {
   const former = lockfile.replace(
     "  nanoid@<3.3.18: 3.3.18\n",
@@ -285,10 +299,15 @@ test("resolved Next.js and exact Vercel CLI satisfy custom-ID prerequisites", ()
 test("candidate-only version check accepts a self-consistent rotation without changing controller authority", () => {
   const fixtureRoot = createVersionContractFixture();
   const runtimeRoot = join(fixtureRoot, "scripts", "vercel-cli-runtime");
-  const targetVersion = "56.5.0";
-  const targetIntegrity =
-    "sha512-wAKpT8DFSbnwlgbS711fbvxGjOfQeb1n+NcaBaSC4onq9eJAjbPfERrjrKE4GDsV8dkoBo0627lp0QxbLCGFiw==";
+  const targetVersion = nextPatchVersion(PINNED_VERCEL_CLI_VERSION);
+  const targetIntegrity = syntheticRegistryIntegrity(
+    activeVercelCliRuntimeContract.registryIntegrity,
+  );
   try {
+    const runtimePackagePath = join(runtimeRoot, "package.json");
+    const runtimePackage = JSON.parse(readFileSync(runtimePackagePath, "utf8"));
+    const sourcePythonVersion = runtimePackage.dependencies["@vercel/python"];
+    const targetPythonVersion = nextPatchVersion(sourcePythonVersion);
     const rootPackagePath = join(fixtureRoot, "package.json");
     const rootPackage = JSON.parse(readFileSync(rootPackagePath, "utf8"));
     rootPackage.devDependencies.vercel = targetVersion;
@@ -298,23 +317,21 @@ test("candidate-only version check accepts a self-consistent rotation without ch
       rootLockPath,
       readFileSync(rootLockPath, "utf8")
         .replaceAll(PINNED_VERCEL_CLI_VERSION, targetVersion)
-        .replaceAll("6.51.0", "6.51.1")
+        .replaceAll(sourcePythonVersion, targetPythonVersion)
         .replaceAll(
           activeVercelCliRuntimeContract.registryIntegrity,
           targetIntegrity,
         ),
     );
 
-    const runtimePackagePath = join(runtimeRoot, "package.json");
-    const runtimePackage = JSON.parse(readFileSync(runtimePackagePath, "utf8"));
-    runtimePackage.dependencies["@vercel/python"] = "6.51.1";
+    runtimePackage.dependencies["@vercel/python"] = targetPythonVersion;
     runtimePackage.dependencies.vercel = targetVersion;
     const runtimePackageBytes = `${JSON.stringify(runtimePackage, null, 2)}\n`;
     writeFileSync(runtimePackagePath, runtimePackageBytes);
     const runtimeLockPath = join(runtimeRoot, "pnpm-lock.yaml");
     const runtimeLockBytes = readFileSync(runtimeLockPath, "utf8")
       .replaceAll(PINNED_VERCEL_CLI_VERSION, targetVersion)
-      .replaceAll("6.51.0", "6.51.1")
+      .replaceAll(sourcePythonVersion, targetPythonVersion)
       .replaceAll(
         activeVercelCliRuntimeContract.registryIntegrity,
         targetIntegrity,
@@ -373,7 +390,9 @@ test("candidate runtime contract rejects a manifest dependency with stale lock r
   try {
     const packagePath = join(runtimeRoot, "package.json");
     const packageMetadata = JSON.parse(readFileSync(packagePath, "utf8"));
-    packageMetadata.dependencies["@vercel/python"] = "6.51.1";
+    packageMetadata.dependencies["@vercel/python"] = nextPatchVersion(
+      packageMetadata.dependencies["@vercel/python"],
+    );
     const packageBytes = `${JSON.stringify(packageMetadata, null, 2)}\n`;
     writeFileSync(packagePath, packageBytes);
     const contractPath = join(runtimeRoot, "contract.json");
