@@ -38,6 +38,7 @@ import {
   createPreviewJournal,
   parseWorkerRunName,
   renderPreviewJournalBody,
+  renderPreviousPreviewJournalBody,
   validateControllerEventWorkflowRun,
   validateEventReceipt,
   validatePreviewObservationReceipt,
@@ -1033,7 +1034,8 @@ function parsePreviewJournalComment(comment, pr) {
     canonicalCandidates.some(
       (candidate) =>
         JSON.stringify(parsed) === JSON.stringify(candidate) &&
-        comment.body === renderPreviewJournalBody(candidate),
+        (comment.body === renderPreviewJournalBody(candidate) ||
+          comment.body === renderPreviousPreviewJournalBody(candidate)),
     ),
     "Preview journal is not canonical",
   );

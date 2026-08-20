@@ -45,6 +45,7 @@ import {
   validateWorkerResult,
   workerRunName,
 } from "./vercel-preview-controller.mjs";
+import { legacyPreviewJournalBody } from "./fixtures/vercel-preview-legacy-journal.mjs";
 
 const FIXTURE_ROOT = new URL(
   "./fixtures/vercel-cost-observation/",
@@ -54,6 +55,38 @@ const START = "2026-07-29T00:00:00.000Z";
 const END = "2026-08-05T00:00:00.000Z";
 const CAPTURED_AT = "2026-08-05T00:01:00.000Z";
 const INITIALIZED_AT = "2026-07-28T23:50:00.000Z";
+
+test("legacy journal fixture locks the retired Markdown and JSON bytes", () => {
+  const expected = `<!-- vercel-preview-journal:v2 -->
+
+**No reviewer action is required.** This repository builds pull request previews in GitHub Actions and deploys them to Vercel. This record lets the preview automation handle overlapping pushes and recover safely from retries. [How previews work](https://github.com/mento-protocol/frontend-monorepo/blob/main/docs/vercel-deployments.md#event-status-and-batching-contract).
+
+**Preview outcomes**
+
+| Target | Outcome |
+| --- | --- |
+| \`app\` | \`awaiting reconciliation\` |
+| \`governance\` | \`awaiting reconciliation\` |
+| \`reserve\` | \`awaiting reconciliation\` |
+| \`ui\` | \`awaiting reconciliation\` |
+
+<details>
+<summary>Show machine-readable preview automation record</summary>
+
+\`\`\`json
+{
+  "schema": "fixture"
+}
+\`\`\`
+
+</details>
+`;
+
+  assert.deepEqual(
+    Buffer.from(legacyPreviewJournalBody({ schema: "fixture" }), "utf8"),
+    Buffer.from(expected, "utf8"),
+  );
+});
 
 function fixture(name) {
   return JSON.parse(readFileSync(new URL(name, FIXTURE_ROOT), "utf8"));
@@ -701,7 +734,12 @@ function reselectedPreviewJournalFixture(event) {
 
 function previewRoutes(
   event = fixture("preview-event.json"),
-  { mode = "complete", events = [event], observationArtifact = false } = {},
+  {
+    mode = "complete",
+    events = [event],
+    observationArtifact = false,
+    journalFormat = "compact",
+  } = {},
 ) {
   const fixtureState = previewJournalFixture(event, mode, events);
   const { journal } = fixtureState;
@@ -710,7 +748,10 @@ function previewRoutes(
     html_url:
       "https://github.com/mento-protocol/frontend-monorepo/pull/700#issuecomment-301",
     user: { type: "Bot", login: "github-actions[bot]" },
-    body: renderPreviewJournalBody(journal),
+    body:
+      journalFormat === "previous"
+        ? legacyPreviewJournalBody(journal)
+        : renderPreviewJournalBody(journal),
   };
   const run = {
     id: event.event_run_id,
@@ -1504,6 +1545,22 @@ test("capture-preview freezes the canonical v2 journal and raw GitHub facts", ()
           "github.com/mento-protocol/frontend-monorepo",
       ),
   );
+});
+
+test("capture-preview accepts the exact previous two-space journal during migration", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  const sink = output();
+  const result = runVercelCostObservation({
+    argv: ["capture-preview", "--pr", "700", "--event-run-id", "9001"],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: fakeGh(previewRoutes(undefined, { journalFormat: "previous" })),
+    stdout: sink.stream,
+  });
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(JSON.parse(sink.read()).status, "captured");
 });
 
 test("capture-preview rejects a conflicting optional commit-status SHA", () => {

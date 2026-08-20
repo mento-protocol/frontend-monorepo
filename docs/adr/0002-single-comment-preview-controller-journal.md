@@ -68,7 +68,10 @@ admission cursor, checkpoint, canonical live receipt set, and mutable state;
 live receipt set. The canonical Markdown envelope includes an explicit closing
 `</details>` tag and permits no extra presentation text. The comment ID is
 stable for the life of the journal. Updates edit that comment; they never
-create another journal or a receipt-specific comment.
+create another journal or a receipt-specific comment. Writers render the JSON
+document without optional whitespace. During the formatting migration, readers
+accept only this compact canonical body or the exact prior two-space canonical
+body. The next mutation rewrites the body in compact form.
 
 Receipt immutability is enforced by the journal protocol. A deterministic
 receipt identity may be inserted once. Replaying an identical receipt is a
@@ -113,7 +116,12 @@ The complete rendered comment body remains subject to the controller's
 capacity checkpointing safely and would exceed that bound fails closed before
 it changes the journal, publishes a success status, or dispatches a worker.
 Unfinished evidence and active or retired ownership are never truncated to
-recover capacity.
+recover capacity. Compact JSON reduced the live journal that triggered this
+migration from 63,133 bytes to 49,772 bytes with the same data and digests. The
+new body has 14,228 bytes of headroom under the unchanged limit. The projected
+terminal recovery is 65,358 bytes with the prior rendering and 51,457 bytes
+with compact rendering. The prior rendering exceeds the hard limit. Compact
+rendering leaves 12,543 bytes of recovery headroom.
 
 ### The shared queue is a correctness boundary
 
@@ -243,10 +251,11 @@ before mutation. The authenticated bootstrap must be the complete quiescent
 frontier. It records the admission floor without planning, worker dispatch,
 Deployment mutation, or a pending preview status; the same run's existing
 reconciliation job then consumes only the already-persisted terminal results,
-drains the active slots, and records terminal closed state. No second operation,
-reader, or compatibility mode exists. Active-capacity compaction is deferred only
-between that receipt and same-run drain, while the ordinary 60 KB guard remains
-fail-closed. Until drain and compaction commit, the durable admission cursor
+drains the active slots, and records terminal closed state. No second recovery
+operation, alternate-schema reader, or recovery compatibility mode exists.
+Active-capacity compaction is deferred only between that receipt and same-run
+drain, while the ordinary 60 KB guard remains fail-closed. Until drain and
+compaction commit, the durable admission cursor
 remains pinned to the bootstrap: a later Actions frontier fails before its
 cursor or any journal mutation is persisted, and a distinct reconciliation run
 cannot consume the pending state. A central writer barrier covers event,
@@ -423,7 +432,7 @@ cost, retention policy, and operator dependency for preview deployment.
   operational signal alongside preview latency.
 - Deterministic terminal and capacity checkpoints keep sequential previews and
   overlapping bursts bounded without adding an archive, rollover comment, or
-  compatibility path. The 64,000-byte UTF-8 bound remains a fail-closed
+  alternate-state compatibility path. The 64,000-byte UTF-8 bound remains a fail-closed
   constraint when unfinished ownership cannot be summarized safely.
 - Terminal results remove their retired owners once the result is durable.
   More than 40 genuinely unfinished retired owners fails closed; ownership is

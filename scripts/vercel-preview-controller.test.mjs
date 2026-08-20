@@ -28,6 +28,7 @@ import {
   recordEventReceipt,
   recordWorkerEvidence as recordWorkerEvidenceImplementation,
   renderPreviewJournalBody,
+  renderPreviousPreviewJournalBody,
   reconcilePreview as reconcilePreviewImplementation,
   reconcileState,
   recoverWorkerResult,
@@ -47,6 +48,7 @@ import {
   writeRepositoryDispatchOutputs,
 } from "./vercel-preview-controller.mjs";
 import { validateGitBranch } from "./vercel-prebuilt-workflow.mjs";
+import { legacyPreviewJournalBody } from "./fixtures/vercel-preview-legacy-journal.mjs";
 import {
   PREVIEW_TARGET_CONFIG,
   PREVIEW_TARGETS,
@@ -2614,11 +2616,11 @@ test("two-event four-target recovery fits the result-only write before terminal 
     existingState: activeWave.state,
   });
   activeWave = persistWave(selected, 317_210_000);
-  // Two failed attempts ended before they could publish pre-completion evidence.
-  workerEvidenceReceipts.splice(0, 2);
 
   let state = activeWave.state;
   let maximumResultOnlyBytes = 0;
+  let maximumPreviousResultOnlyBytes = 0;
+  let oversizedPreviousJournal = null;
   for (const target of PREVIEW_TARGETS) {
     const terminalResult = result(state.targets[target].active, {
       runId: activeWave.runIds[target],
@@ -2635,6 +2637,15 @@ test("two-event four-target recovery fits the result-only write before terminal 
       maximumResultOnlyBytes,
       Buffer.byteLength(previewJournalBody(resultOnlyJournal), "utf8"),
     );
+    const previousBytes = Buffer.byteLength(
+      legacyPreviewJournalBody(resultOnlyJournal),
+      "utf8",
+    );
+    maximumPreviousResultOnlyBytes = Math.max(
+      maximumPreviousResultOnlyBytes,
+      previousBytes,
+    );
+    if (previousBytes > 64_000) oversizedPreviousJournal = resultOnlyJournal;
     results.push(terminalResult);
     state = reconcile({
       events,
@@ -2646,13 +2657,19 @@ test("two-event four-target recovery fits the result-only write before terminal 
   }
 
   assert.ok(
-    maximumResultOnlyBytes >= 62_500 && maximumResultOnlyBytes <= 63_500,
-    `expected a result-only journal near 63,073 bytes, got ${maximumResultOnlyBytes}`,
+    maximumPreviousResultOnlyBytes > 64_000,
+    `previous journal unexpectedly fit at ${maximumPreviousResultOnlyBytes} bytes`,
+  );
+  assert.ok(oversizedPreviousJournal);
+  assert.throws(
+    () => renderPreviousPreviewJournalBody(oversizedPreviousJournal),
+    /Preview journal comment is too large/,
   );
   assert.ok(
     maximumResultOnlyBytes < 64_000,
     `journal was ${maximumResultOnlyBytes} bytes`,
   );
+  assert.ok(maximumResultOnlyBytes < maximumPreviousResultOnlyBytes);
   const terminal = compactPreviewJournal(
     createPreviewJournal({
       pr: 519,
@@ -7638,7 +7655,7 @@ test("malformed successful planner output is recorded as fail-closed UI impact",
     /<summary>Show machine-readable preview automation record<\/summary>/,
   );
   assert.match(fixture.comments[0].body, /<\/details>\n$/);
-  assert.match(fixture.comments[0].body, /"reason": "planner-job-failed"/);
+  assert.match(fixture.comments[0].body, /"reason":"planner-job-failed"/);
   const journal = journalFromComment(fixture.comments[0]);
   assert.equal(journal.schema, PREVIEW_JOURNAL_SCHEMA);
   assert.deepEqual(journal.receipts.events, [receipt]);
@@ -7722,7 +7739,7 @@ test("closed event receipt keeps one stable idempotent journal and publishes no 
   assert.equal(fixture.comments.length, 1);
   assert.equal(fixture.comments[0].id, 1);
   assert.equal(fixture.commentUpdates.length, 1);
-  assert.match(fixture.comments[0].body, /"event_action": "closed"/);
+  assert.match(fixture.comments[0].body, /"event_action":"closed"/);
   assert.equal(journalFromComment(fixture.comments[0]).revision, 2);
   assert.deepEqual(
     fixture.commitStatuses.map(({ context, state }) => ({ context, state })),
@@ -7757,6 +7774,86 @@ test("closed event receipt keeps one stable idempotent journal and publishes no 
   );
 });
 
+test("a legacy two-space journal rewrites compact on the next mutation", async () => {
+  const opened = event({
+    run: 135,
+    runNumber: 2,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const closed = event({
+    run: 136,
+    runNumber: 3,
+    action: "closed",
+    head: SHA.A,
+    updated: timestamp(2),
+  });
+  const legacyComment = journalComment({
+    events: [opened],
+    admission: {
+      schema: "vercel-preview-controller-admission:v1",
+      workflow_id: CONTROLLER_WORKFLOW_ID,
+      through_run_id: opened.event_run_id,
+      through_run_number: opened.event_run_number,
+    },
+  });
+  const legacyJournal = journalFromComment(legacyComment);
+  legacyComment.body = legacyPreviewJournalBody(legacyJournal);
+  assert.notEqual(legacyComment.body, previewJournalBody(legacyJournal));
+  assert.match(
+    legacyComment.body,
+    /\n {2}"schema": "vercel-preview-journal:v2",/,
+  );
+
+  const fixture = fakeGitHub({
+    pullRequest: pull({
+      head: SHA.A,
+      state: "closed",
+      updated: timestamp(2),
+      closed: timestamp(2),
+    }),
+    comments: [legacyComment],
+    runs: [
+      controllerEventRun({
+        id: opened.event_run_id,
+        runNumber: opened.event_run_number,
+        action: "opened",
+        sha: SHA.A,
+      }),
+      controllerEventRun({
+        id: closed.event_run_id,
+        runNumber: closed.event_run_number,
+        action: "closed",
+        sha: SHA.A,
+        linked: false,
+        createdAt: timestamp(2),
+      }),
+    ],
+    includeDefaultControllerFloor: false,
+  });
+  const snapshot = structuredClone(closed);
+  delete snapshot.plan;
+
+  await recordEventReceipt({
+    github: fixture.github,
+    context: fakeContext({ runId: 136, runNumber: 3 }),
+    core: fakeCore(),
+    snapshotRaw: JSON.stringify(snapshot),
+    planRaw: "",
+    plannerOutcome: "skipped",
+  });
+
+  const migratedJournal = journalFromComment(fixture.comments[0]);
+  assert.equal(migratedJournal.revision, 2);
+  assert.equal(fixture.comments[0].body, previewJournalBody(migratedJournal));
+  assert.doesNotMatch(
+    fixture.comments[0].body,
+    /\n {2}"schema": "vercel-preview-journal:v2",/,
+  );
+  assert.equal(fixture.commentUpdates.length, 1);
+});
+
 test("a large journal compacts a closed receipt without losing branch identity", async () => {
   const headFor = (index) => (20_000 + index).toString(16).padStart(40, "0");
   const opened = event({
@@ -7766,7 +7863,7 @@ test("a large journal compacts a closed receipt without losing branch identity",
     updated: timestamp(1),
   });
   const events = [opened];
-  for (let index = 1; index < 28; index += 1) {
+  for (let index = 1; index < 33; index += 1) {
     events.push(
       event({
         run: 20_000 + index,
@@ -8919,9 +9016,10 @@ test("malformed and oversized preview journals fail closed without mutation", as
     body: `${PREVIEW_JOURNAL_MARKER}\n${"x".repeat(70_000)}`,
   };
   const noncanonical = journalComment({ events: [opened] });
+  const noncanonicalValue = journalFromComment(noncanonical);
   noncanonical.body = noncanonical.body.replace(
-    '  "schema": "vercel-preview-journal:v2",',
-    '    "schema": "vercel-preview-journal:v2",',
+    JSON.stringify(noncanonicalValue),
+    JSON.stringify(noncanonicalValue, null, 4),
   );
 
   for (const [comment, message] of [
@@ -11626,14 +11724,14 @@ test("a dispatch racing a main advance is terminalized and automatically reselec
   assert.ok(
     fixture.comments.some(
       ({ body }) =>
-        body.includes('"dispatch_state": "intended"') &&
-        body.includes(`"expected_workflow_sha": "${SHA.A}"`),
+        body.includes('"dispatch_state":"intended"') &&
+        body.includes(`"expected_workflow_sha":"${SHA.A}"`),
     ),
   );
   assert.ok(
     fixture.comments.some(({ body }) =>
       body.includes(
-        '"terminal_reason": "controller-workflow-upgraded-before-dispatch"',
+        '"terminal_reason":"controller-workflow-upgraded-before-dispatch"',
       ),
     ),
   );
@@ -12029,7 +12127,7 @@ test("intended recovery ignores wrong-SHA artifacts and reselects stale intents"
   assert.ok(
     conflictingRun.comments.some(({ body }) =>
       body.includes(
-        '"terminal_reason": "controller-workflow-upgraded-before-dispatch"',
+        '"terminal_reason":"controller-workflow-upgraded-before-dispatch"',
       ),
     ),
   );
@@ -12057,8 +12155,8 @@ test("intended recovery ignores wrong-SHA artifacts and reselects stale intents"
     mainAdvancedBeforeDispatch.comments.some(
       ({ body }) =>
         body.includes(
-          '"terminal_reason": "controller-workflow-upgraded-before-dispatch"',
-        ) && body.includes(`"expected_workflow_sha": "${SHA.A}"`),
+          '"terminal_reason":"controller-workflow-upgraded-before-dispatch"',
+        ) && body.includes(`"expected_workflow_sha":"${SHA.A}"`),
     ),
   );
   assert.equal(
@@ -12254,7 +12352,7 @@ test("a force-pushed-away active selection is aborted before credentials and new
   assert.equal(state.targets.ui.active.sha, SHA.C);
   assert.ok(
     fixture.comments.some(({ body }) =>
-      body.includes('"terminal_reason": "selection-removed-from-pr"'),
+      body.includes('"terminal_reason":"selection-removed-from-pr"'),
     ),
   );
   assert.ok(
