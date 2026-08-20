@@ -98,7 +98,20 @@ describe("sentry-filter", () => {
     expect(filterNoisySentryEvents(event)).toBe(event);
   });
 
-  it("drops IndexedDB-unavailable vendor errors", () => {
+  it("drops browser IndexedDB-unavailable vendor errors", () => {
+    const event = makeEvent({
+      exceptionValue: "Can't find variable: indexedDB",
+      exceptionType: "ReferenceError",
+      mechanismType: "auto.browser.global_handlers.onunhandledrejection",
+      frames: [
+        "https://app.mento.org/node_modules/@walletconnect/keyvaluestorage/dist/index.es.js",
+      ],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBeNull();
+  });
+
+  it("keeps server IndexedDB-unavailable vendor errors reportable", () => {
     const event = makeEvent({
       exceptionValue: "Can't find variable: indexedDB",
       exceptionType: "ReferenceError",
@@ -107,7 +120,7 @@ describe("sentry-filter", () => {
       ],
     });
 
-    expect(filterNoisySentryEvents(event)).toBeNull();
+    expect(filterNoisySentryEvents(event)).toBe(event);
   });
 
   it("keeps IndexedDB errors from first-party code", () => {

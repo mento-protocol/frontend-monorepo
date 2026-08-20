@@ -178,7 +178,8 @@ export function filterNoisySentryEvents(
     indexedDatabaseUnavailableErrorPatterns.some((pattern) =>
       pattern.test(message),
     ) &&
-    hasWalletConnectFrames(event)
+    hasWalletConnectFrames(event) &&
+    isBrowserUnhandledRejection(event)
   ) {
     return null;
   }
