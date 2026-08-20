@@ -1918,6 +1918,28 @@ function materializerFixture(overrides = {}) {
     ],
     total_count: 1,
   };
+  const feedbackThread = packet.feedbackThreads[0] ?? null;
+  const feedbackBody =
+    overrides.feedbackBody ?? "The protected runtime is not synchronized.\n";
+  const feedbackLogin =
+    feedbackThread?.source === "codex"
+      ? "chatgpt-codex-connector"
+      : `${feedbackThread?.source ?? "cursor"}[bot]`;
+  const feedbackComment =
+    feedbackThread === null
+      ? null
+      : {
+          body: feedbackBody,
+          commit_id: packet.headSha,
+          id: feedbackThread.commentId,
+          in_reply_to_id: null,
+          line: feedbackThread.line,
+          original_commit_id: feedbackThread.commitSha,
+          path: feedbackThread.path,
+          pull_request_url: `https://api.github.com/repos/${repository}/pulls/${packet.pullRequestNumber}`,
+          user: { login: feedbackLogin, type: "Bot" },
+          ...overrides.feedbackComment,
+        };
   let livePullReads = 0;
   const fetch = async (url, options = {}) => {
     const parsed = new URL(url);
@@ -1998,6 +2020,11 @@ function materializerFixture(overrides = {}) {
       });
     if (path === `/repos/${repository}/actions/runs/700`)
       return jsonResponse(failureRun);
+    if (
+      feedbackComment !== null &&
+      path === `/repos/${repository}/pulls/comments/${feedbackThread.commentId}`
+    )
+      return jsonResponse(feedbackComment);
     if (
       path ===
       `/repos/${repository}/actions/runs/700/attempts/1/jobs?per_page=100&page=1`
@@ -2090,6 +2117,100 @@ test("materializer seals an exact packet, diff, blob, failed log, and manifest",
   } finally {
     globalThis.fetch = originalFetch;
     rmSync(temporary, { force: true, recursive: true });
+  }
+});
+
+test("materializer keeps immutable feedback provenance across a refreshed head", async () => {
+  const body = "The protected runtime is not synchronized.\n";
+  const originalCommitSha = "f".repeat(40);
+  const thread = {
+    commentId: 3783646660,
+    commitSha: originalCommitSha,
+    digest: rawDigest(body),
+    line: 77,
+    path: "package.json",
+    source: "cursor",
+    threadId: "PRRT_kwDOObNo886ZRNj6",
+  };
+  const fixture = materializerFixture({
+    feedbackBody: body,
+    packet: { feedbackThreads: [thread] },
+  });
+  const temporary = mkdtempSync(
+    join(tmpdir(), "dependabot-repair-materialize-feedback-refresh-"),
+  );
+  const outputRoot = join(temporary, "evidence");
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = fixture.fetch;
+    const result = await materializeRepairEvidence({
+      outputRoot,
+      packetDigest: fixture.digest,
+      packetText: fixture.packetText,
+      processorCheckId: 444,
+      repositoryName: repository,
+      token: "read-token",
+    });
+    assert.equal(
+      readFileSync(join(outputRoot, "feedback-body-000.txt"), "utf8"),
+      body,
+    );
+    assert.deepEqual(
+      JSON.parse(readFileSync(join(outputRoot, "feedback-index.json"), "utf8")),
+      [thread],
+    );
+    assert.ok(
+      result.manifest.files.some(
+        ({ name }) => name === "feedback-body-000.txt",
+      ),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    rmSync(temporary, { force: true, recursive: true });
+  }
+});
+
+test("materializer rejects changed original feedback provenance after refresh", async () => {
+  const body = "The protected runtime is not synchronized.\n";
+  const thread = {
+    commentId: 3783646660,
+    commitSha: "f".repeat(40),
+    digest: rawDigest(body),
+    line: 77,
+    path: "package.json",
+    source: "cursor",
+    threadId: "PRRT_kwDOObNo886ZRNj6",
+  };
+  for (const feedbackComment of [
+    { original_commit_id: "0".repeat(40) },
+    { commit_id: "1".repeat(40) },
+  ]) {
+    const fixture = materializerFixture({
+      feedbackBody: body,
+      feedbackComment,
+      packet: { feedbackThreads: [thread] },
+    });
+    const temporary = mkdtempSync(
+      join(tmpdir(), "dependabot-repair-materialize-feedback-reject-"),
+    );
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = fixture.fetch;
+      await assert.rejects(
+        materializeRepairEvidence({
+          outputRoot: join(temporary, "evidence"),
+          packetDigest: fixture.digest,
+          packetText: fixture.packetText,
+          processorCheckId: 444,
+          repositoryName: repository,
+          token: "read-token",
+        }),
+        /feedbackThreads\[0\] body or provenance changed/,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+      rmSync(temporary, { force: true, recursive: true });
+    }
   }
 });
 

@@ -68,7 +68,9 @@ root `package.json` path, and trusted seed or current review commit. The v3
 packet binds its comment, commit, and body digest. Any different or additional
 feedback remains manual. Finalize can reply and resolve the accepted thread only
 after the typed Repair receipt, complete green gates, and clean exact-head
-re-review.
+re-review. The bound commit is the REST comment's immutable
+`original_commit_id`. The mutable `commit_id` may name that original commit or
+the exact packet head after GitHub retargets the comment during a refresh.
 
 The repair workflow routes v3 to trusted, model-free generator code from the
 exact default-branch workflow SHA. Planning and validation receive no App,

@@ -433,8 +433,9 @@ or security changes; unknown metadata; force-pushed histories; human vetoes;
 unresolved feedback outside an exact packet-bound repair; and exhausted repairs
 remain blocked. The typed Vercel sync can bind only the structured Cursor
 runtime-mismatch finding that matches its exact versions, path, and review
-commit. The ALL CLEAR receipt keeps the dependency risk/update metadata for the
-human decision.
+commit. The packet binds the immutable original review commit even when GitHub
+retargets the comment's current commit after a branch refresh. The ALL CLEAR
+receipt keeps the dependency risk/update metadata for the human decision.
 
 Configure the repository-scoped Prepare App with variables
 `DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,

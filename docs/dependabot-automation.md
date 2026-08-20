@@ -447,7 +447,10 @@ structured `Incomplete Vercel CLI runtime sync` finding names the operation's
 source and target versions, root `package.json` path, and trusted seed or
 current review commit. All actionable threads must match that contract. Any
 other unresolved feedback makes the typed operation manual. The completed typed
-Repair then uses the same digest-bound reply and resolution flow above.
+Repair then uses the same digest-bound reply and resolution flow above. Evidence
+authenticates the REST comment's immutable `original_commit_id`. It accepts the
+mutable `commit_id` only when it names that original review commit or the exact
+packet head because GitHub retargets current comment metadata after a refresh.
 
 For historical Codex feedback, `Reviewed commit` binds the parent review's own
 `reviewCommitSha`, not the repaired current head. Its unresolved historical
