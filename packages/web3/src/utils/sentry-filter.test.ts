@@ -11,6 +11,7 @@ function makeEvent({
   message,
   exceptionValue,
   exceptionType,
+  mechanismType,
   frames = [],
   requestUrl,
   transaction,
@@ -18,6 +19,7 @@ function makeEvent({
   message?: string;
   exceptionValue?: string;
   exceptionType?: string;
+  mechanismType?: string;
   frames?: string[];
   requestUrl?: string;
   transaction?: string;
@@ -32,6 +34,7 @@ function makeEvent({
             {
               type: exceptionType ?? "Error",
               value: exceptionValue,
+              mechanism: mechanismType ? { type: mechanismType } : undefined,
               stacktrace: {
                 frames: frames.map((filename) => ({ filename })),
               },
@@ -79,9 +82,20 @@ describe("sentry-filter", () => {
     const event = makeEvent({
       exceptionValue: "Proposal expired",
       exceptionType: "Error",
+      mechanismType: "auto.browser.global_handlers.onunhandledrejection",
     });
 
     expect(filterNoisySentryEvents(event)).toBeNull();
+  });
+
+  it("keeps proposal-expiry errors outside browser promise rejections", () => {
+    const event = makeEvent({
+      exceptionValue: "Proposal expired",
+      exceptionType: "Error",
+      frames: ["/var/task/.next/server/app/proposals/page.js"],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
   });
 
   it("drops IndexedDB-unavailable vendor errors", () => {
@@ -114,6 +128,50 @@ describe("sentry-filter", () => {
     });
 
     expect(filterNoisySentryEvents(event)).toBe(event);
+  });
+
+  it("drops production-shaped IndexedDB errors when the browser lacks the API", () => {
+    const originalWindow = globalThis.window;
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {},
+    });
+    const event = makeEvent({
+      exceptionValue: "Can't find variable: indexedDB",
+      exceptionType: "ReferenceError",
+      mechanismType: "auto.browser.global_handlers.onunhandledrejection",
+      frames: ["app:///_next/static/chunks/d626ed93ff8bab4e.js"],
+    });
+
+    try {
+      expect(filterNoisySentryEvents(event)).toBeNull();
+    } finally {
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: originalWindow,
+      });
+    }
+  });
+
+  it("keeps unscoped IndexedDB errors when the browser lacks the API", () => {
+    const originalWindow = globalThis.window;
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {},
+    });
+    const event = makeEvent({
+      exceptionValue: "indexedDB is not defined",
+      exceptionType: "ReferenceError",
+    });
+
+    try {
+      expect(filterNoisySentryEvents(event)).toBe(event);
+    } finally {
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: originalWindow,
+      });
+    }
   });
 
   it("drops typed user-rejection errors from an exception chain", () => {

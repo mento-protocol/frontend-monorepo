@@ -75,6 +75,80 @@ describe("testnet-mode storage access", () => {
     }
   });
 
+  it("falls back to localStorage when cookie access throws", () => {
+    const originalWindow = globalThis.window;
+    const originalDocument = globalThis.document;
+
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { localStorage: { getItem: vi.fn(() => "true") } },
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        get cookie() {
+          throw new Error("cookies are blocked");
+        },
+      },
+    });
+
+    try {
+      expect(readTestnetModeStorage()).toBe(true);
+    } finally {
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: originalWindow,
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument,
+      });
+    }
+  });
+
+  it("continues when cookie writes are blocked", () => {
+    const originalWindow = globalThis.window;
+    const originalDocument = globalThis.document;
+
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        localStorage: {
+          getItem: vi.fn(() => null),
+          setItem: vi.fn(),
+          removeItem: vi.fn(),
+        },
+      },
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        get cookie() {
+          return "";
+        },
+        set cookie(_value: string) {
+          throw new Error("cookies are blocked");
+        },
+      },
+    });
+
+    try {
+      const store = createStore();
+
+      expect(() => store.set(testnetModeAtom, true)).not.toThrow();
+      expect(() => store.set(testnetModeAtom, RESET)).not.toThrow();
+    } finally {
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: originalWindow,
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument,
+      });
+    }
+  });
+
   it("persists the cookie when a localStorage write throws", () => {
     const originalWindow = globalThis.window;
     const originalDocument = globalThis.document;

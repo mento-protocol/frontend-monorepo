@@ -35,10 +35,24 @@ export function readTestnetModeCookie(cookieSource?: string | null): boolean {
   );
 }
 
+function readTestnetModeDocumentCookie(): string | null {
+  if (typeof document === "undefined") return null;
+
+  try {
+    return document.cookie;
+  } catch {
+    return null;
+  }
+}
+
 function writeTestnetModeCookie(enabled: boolean) {
   if (typeof document === "undefined") return;
 
-  document.cookie = `${TESTNET_MODE_COOKIE}=${enabled ? "1" : "0"}; Path=/; Max-Age=31536000; SameSite=Lax`;
+  try {
+    document.cookie = `${TESTNET_MODE_COOKIE}=${enabled ? "1" : "0"}; Path=/; Max-Age=31536000; SameSite=Lax`;
+  } catch {
+    // Sandboxed browsers can reject cookie access independently of storage.
+  }
 }
 
 function readTestnetModeStorageValue(): string | null {
@@ -53,7 +67,7 @@ function readTestnetModeStorageValue(): string | null {
 
 export function readTestnetModeStorage(
   initialValue = false,
-  cookieSource?: string | null,
+  cookieSource: string | null = readTestnetModeDocumentCookie(),
 ): boolean {
   const cookieValue = parseStoredBoolean(
     readCookieValue(cookieSource, TESTNET_MODE_COOKIE),
@@ -67,7 +81,7 @@ const testnetModeStorage = {
   getItem: (_key: string, initialValue: boolean) => {
     if (typeof window === "undefined") return initialValue;
 
-    return readTestnetModeStorage(initialValue, document.cookie);
+    return readTestnetModeStorage(initialValue);
   },
   setItem: (_key: string, value: boolean) => {
     if (typeof window === "undefined") return;

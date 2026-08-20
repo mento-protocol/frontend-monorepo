@@ -9,10 +9,9 @@ const ALWAYS_IGNORE_ERROR_PATTERNS = [
   /Cannot set property ethereum of #<Window> which has only a getter/i,
   /'set' on proxy: trap returned falsish for property 'tronlinkParams'/i,
   /WebSocket connection failed for host: wss:\/\/relay\.walletconnect\.org/i,
-  // WalletConnect emits this expected rejection when a user leaves a
-  // connection proposal open until the protocol timeout.
-  /^Proposal expired$/i,
 ] as const;
+
+const WALLETCONNECT_PROPOSAL_EXPIRED_PATTERN = /^Proposal expired$/i;
 
 const INDEXED_DB_UNAVAILABLE_ERROR_PATTERNS = [
   /^(?:Can't find variable: indexedDB|indexedDB is not defined)$/i,
@@ -22,6 +21,8 @@ const WALLETCONNECT_FRAME_PATTERNS = [
   /(?:^|[/\\])node_modules[/\\](?:\.pnpm[/\\])?@walletconnect(?:\+|[/\\])/i,
   /(?:^|[/\\])node_modules[/\\](?:\.pnpm[/\\])?@reown(?:\+|[/\\])/i,
 ] as const;
+
+const NEXT_CLIENT_CHUNK_FRAME_PATTERN = /\/_next\/static\/chunks\/[^/]+\.js/i;
 
 const CHUNK_LOAD_ERROR_PATTERNS = [
   /Failed to load chunk/i,
@@ -128,6 +129,29 @@ function hasWalletConnectFrames(event: ErrorEvent): boolean {
   );
 }
 
+function hasNextClientChunkFrames(event: ErrorEvent): boolean {
+  return getFrameFilenames(event).some((filename) =>
+    NEXT_CLIENT_CHUNK_FRAME_PATTERN.test(filename),
+  );
+}
+
+function isBrowserWithoutIndexedDb(): boolean {
+  if (typeof window === "undefined") return false;
+
+  try {
+    return typeof window.indexedDB === "undefined";
+  } catch {
+    return true;
+  }
+}
+
+function isBrowserUnhandledRejection(event: ErrorEvent): boolean {
+  return (event.exception?.values ?? []).some(
+    ({ mechanism }) =>
+      mechanism?.type === "auto.browser.global_handlers.onunhandledrejection",
+  );
+}
+
 function eventTargetsRoute(event: ErrorEvent, route: string): boolean {
   const requestUrl = event.request?.url ?? "";
   const transaction = event.transaction ?? "";
@@ -161,10 +185,20 @@ export function filterNoisySentryEvents(
   }
 
   if (
+    WALLETCONNECT_PROPOSAL_EXPIRED_PATTERN.test(message) &&
+    isBrowserUnhandledRejection(event)
+  ) {
+    return null;
+  }
+
+  if (
     INDEXED_DB_UNAVAILABLE_ERROR_PATTERNS.some((pattern) =>
       pattern.test(message),
     ) &&
-    hasWalletConnectFrames(event)
+    (hasWalletConnectFrames(event) ||
+      (isBrowserWithoutIndexedDb() &&
+        isBrowserUnhandledRejection(event) &&
+        hasNextClientChunkFrames(event)))
   ) {
     return null;
   }

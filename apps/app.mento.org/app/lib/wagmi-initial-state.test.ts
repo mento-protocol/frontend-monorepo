@@ -33,6 +33,14 @@ describe("getWagmiInitialState", () => {
     expect(getWagmiInitialState("wagmi.store=truncated")).toBeUndefined();
   });
 
+  it("ignores structurally invalid null cookie state", () => {
+    cookieToInitialState.mockImplementation(() => {
+      throw new TypeError("Cannot read properties of null (reading 'state')");
+    });
+
+    expect(getWagmiInitialState("wagmi.store=null")).toBeUndefined();
+  });
+
   it("does not hide unexpected parser failures", () => {
     const error = new TypeError("unexpected parser failure");
     cookieToInitialState.mockImplementation(() => {
