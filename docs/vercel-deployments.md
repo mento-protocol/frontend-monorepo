@@ -821,7 +821,11 @@ This includes invalid or non-ancestral commits, an empty or unreadable diff,
 malformed Turbo output, a change with no deployable task, deployment-planner or
 workflow changes, and cross-workspace inputs such as the lockfile, root package
 configuration, `turbo.json`, patches, or shared security headers. Proven
-documentation and test-only paths return an empty deployment list.
+documentation and test-only paths return an empty deployment list. The exact
+reviewed Dependabot control-plane files in the planner also return an empty
+list. This rule lists each file. It does not match the
+`scripts/dependabot-` prefix. A new, renamed, or near-match file remains unknown
+and therefore fails closed until the planner lists it explicitly.
 
 ### Trusted-base execution
 
