@@ -2226,10 +2226,34 @@ terminal compaction; it is never state, reconciliation, status, dispatch, or
 deployment authority. The private collector prefers this exact validated
 artifact whenever it exists and falls back to the live journal when it does
 not. This keeps a later push from making the retained live graph authoritative
-for an older settled event. Journal compaction keeps each marked event live
-until GitHub reports that exact, unexpired artifact. A workflow rerun reuses
-the existing immutable artifact instead of uploading another copy under the
-same event-run name.
+for an older settled event. If both sources lack the requested event, the
+collector searches only `pull_request_target` runs of the controller workflow
+on the requested historical run's validated, URL-encoded head branch. It reads at most five
+100-run pages until it reaches the exact requested run. It then checks at most
+64 completed later runs in nearest-first order. Each candidate lookup uses the
+exact per-run artifact name. The collector accepts a candidate only when its
+canonical receipt binds that run, contains the marked requested event, and has
+an admission cursor through the covering event. It does not enumerate all
+repository artifacts. An unrelated or ambiguous artifact, an invalid receipt,
+or an exhausted bound fails closed.
+
+The trusted upload step writes the artifact only
+after the controller validates and materializes the event's full canonical
+journal graph. A later exact artifact therefore retains the admitted prefix
+that it contains, even if an earlier event's own artifact is missing. A workflow
+rerun reuses the existing immutable artifact instead of uploading another copy
+under the same event-run name.
+
+At the 40,000-byte soft threshold, selection, worker-evidence,
+result-recovery, and state writers can checkpoint only the longest safe prefix
+through a live artifact-covered event. The admission cursor must cover the
+cutoff, and every earlier lineage event must have a run number no greater than
+the cutoff. The checkpoint retains all later events and all selections,
+worker evidence, and results bound to that unsettled suffix. It also preserves
+the original ownership epoch for those immutable receipts. A missing cursor,
+an artifact on another run, a cutoff beyond the cursor, or an out-of-order
+prefix leaves the journal unchanged. The 64,000-byte hard limit remains
+fail-closed.
 
 The journal's top-level `admission` cursor stores the active controller's
 numeric workflow ID plus the exact run ID and run number proven through. One

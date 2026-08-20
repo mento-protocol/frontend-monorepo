@@ -38,6 +38,7 @@ import {
 import {
   compactPreviewJournal,
   controllerEventRunName,
+  createPreviewObservationReceipt,
   createPreviewJournal,
   reconcileState,
   renderPreviewJournalBody,
@@ -147,23 +148,29 @@ function addPreviewObservationArtifactRoute(
   routes,
   event,
   journal,
-  { available = true } = {},
+  { available = true, duplicate = false } = {},
 ) {
   const artifactName = `vercel-preview-observation-receipt-v1-${event.event_run_id}`;
+  const receipt = available
+    ? createPreviewObservationReceipt(journal, event.event_run_id)
+    : null;
+  if (available) assert.ok(receipt);
+  const artifacts = available
+    ? [
+        {
+          id: 90_001,
+          name: artifactName,
+          expired: false,
+          size_in_bytes: 1_024,
+        },
+      ]
+    : [];
+  if (duplicate) artifacts.push({ ...artifacts[0], id: 90_002 });
   routes.set(
     `api --method GET --paginate --slurp repos/mento-protocol/frontend-monorepo/actions/runs/${event.event_run_id}/artifacts?per_page=100`,
     [
       {
-        artifacts: available
-          ? [
-              {
-                id: 90_001,
-                name: artifactName,
-                expired: false,
-                size_in_bytes: 1_024,
-              },
-            ]
-          : [],
+        artifacts,
       },
     ],
   );
@@ -176,30 +183,58 @@ function addPreviewObservationArtifactRoute(
       chmodSync(directory, 0o700);
       writeFileSync(
         join(directory, "preview-observation-receipt.json"),
-        `${JSON.stringify(
-          {
-            schema: "vercel-preview-observation-receipt:v1",
-            repository: "mento-protocol/frontend-monorepo",
-            pr: journal.pr,
-            event_run_id: event.event_run_id,
-            journal_revision: journal.revision,
-            source_journal_digest: journal.journal_digest,
-            journal_digest: journal.journal_digest,
-            ...(Object.hasOwn(journal, "admission")
-              ? { admission: journal.admission }
-              : {}),
-            checkpoint: journal.checkpoint,
-            receipts: journal.receipts,
-            state: journal.state,
-          },
-          null,
-          2,
-        )}\n`,
+        `${JSON.stringify(receipt, null, 2)}\n`,
         { mode: 0o600 },
       );
       chmodSync(join(directory, "preview-observation-receipt.json"), 0o600);
       return Buffer.from("");
     },
+  );
+}
+
+function previewControllerRun(event, overrides = {}) {
+  return {
+    id: event.event_run_id,
+    run_number: event.event_run_number,
+    run_attempt: 1,
+    name: "Vercel Preview Controller",
+    path: ".github/workflows/vercel-preview-controller.yml",
+    event: "pull_request_target",
+    status: "completed",
+    conclusion: "success",
+    created_at: "2026-07-29T01:00:01.000Z",
+    updated_at: "2026-07-29T01:04:00.000Z",
+    head_branch: event.head_ref,
+    head_sha: event.head_sha,
+    head_repository: {
+      full_name: event.head_repository,
+      url: `https://api.github.com/repos/${event.head_repository}`,
+    },
+    repository: { full_name: "mento-protocol/frontend-monorepo" },
+    pull_requests: [],
+    html_url: `https://github.com/mento-protocol/frontend-monorepo/actions/runs/${event.event_run_id}`,
+    display_title: controllerEventRunName({
+      runId: event.event_run_id,
+      runNumber: event.event_run_number,
+      pr: event.pr,
+      sha: event.head_sha,
+      before: event.before_sha,
+      action: event.event_action,
+      receiptRequired: true,
+    }),
+    ...overrides,
+  };
+}
+
+function addPreviewControllerBranchRunsRoute(
+  routes,
+  branch,
+  workflowRuns,
+  { page = 1, totalCount = workflowRuns.length } = {},
+) {
+  routes.set(
+    `api --method GET repos/mento-protocol/frontend-monorepo/actions/workflows/vercel-preview-controller.yml/runs?branch=${encodeURIComponent(branch)}&event=pull_request_target&per_page=100&page=${page}`,
+    { total_count: totalCount, workflow_runs: workflowRuns },
   );
 }
 
@@ -590,6 +625,43 @@ function previewJournalFixture(event, mode, events = [event]) {
   };
 }
 
+function coveringPreviewJournalFixture(rawEvent) {
+  assert.deepEqual(rawEvent.plan.targets, []);
+  const event = { ...rawEvent, observation_receipt_required: true };
+  const initial = reconcileEvent(event);
+  const laterEvent = {
+    ...event,
+    event_run_id: event.event_run_id + 2,
+    event_run_number: event.event_run_number + 2,
+    event_action: "synchronize",
+    pr_updated_at: "2026-07-29T02:00:00.000Z",
+    before_sha: event.head_sha,
+    change_base_sha: event.head_sha,
+    head_sha: "c".repeat(40),
+    plan: {
+      ...event.plan,
+      base: event.head_sha,
+      head: "c".repeat(40),
+    },
+  };
+  const settled = reconcileEvent(laterEvent, {
+    events: [event, laterEvent],
+    existingState: initial.state,
+  });
+  const journal = createPreviewJournal({
+    pr: event.pr,
+    events: [event, laterEvent],
+    state: settled.state,
+    admission: {
+      schema: "vercel-preview-controller-admission:v1",
+      workflow_id: 100,
+      through_run_id: laterEvent.event_run_id,
+      through_run_number: laterEvent.event_run_number,
+    },
+  });
+  return { event, laterEvent, journal };
+}
+
 function reselectedPreviewJournalFixture(event) {
   assert.deepEqual(event.plan.targets, ["ui"]);
   const initial = reconcileEvent(event);
@@ -753,36 +825,7 @@ function previewRoutes(
         ? legacyPreviewJournalBody(journal)
         : renderPreviewJournalBody(journal),
   };
-  const run = {
-    id: event.event_run_id,
-    run_number: event.event_run_number,
-    run_attempt: 1,
-    name: "Vercel Preview Controller",
-    path: ".github/workflows/vercel-preview-controller.yml",
-    event: "pull_request_target",
-    status: "completed",
-    conclusion: "success",
-    created_at: "2026-07-29T01:00:01.000Z",
-    updated_at: "2026-07-29T01:04:00.000Z",
-    head_branch: event.head_ref,
-    head_sha: event.head_sha,
-    head_repository: {
-      full_name: event.head_repository,
-      url: `https://api.github.com/repos/${event.head_repository}`,
-    },
-    repository: { full_name: "mento-protocol/frontend-monorepo" },
-    pull_requests: [],
-    html_url: `https://github.com/mento-protocol/frontend-monorepo/actions/runs/${event.event_run_id}`,
-    display_title: controllerEventRunName({
-      runId: event.event_run_id,
-      runNumber: event.event_run_number,
-      pr: event.pr,
-      sha: event.head_sha,
-      before: event.before_sha,
-      action: event.event_action,
-      receiptRequired: true,
-    }),
-  };
+  const run = previewControllerRun(event);
   const status = {
     id: 401,
     context: "Vercel Preview",
@@ -804,6 +847,7 @@ function previewRoutes(
         base: {
           repo: { full_name: "mento-protocol/frontend-monorepo" },
         },
+        head: { ref: event.head_ref },
       },
     ],
     [
@@ -842,6 +886,7 @@ function previewRoutes(
       ],
     ],
   ]);
+  addPreviewControllerBranchRunsRoute(routes, event.head_ref, [run]);
   if (fixtureState.selection) {
     routes.set(
       "api --method GET --paginate --slurp repos/mento-protocol/frontend-monorepo/deployments/7001/statuses?per_page=100",
@@ -1984,11 +2029,43 @@ test("capture-preview leaves no append-only capture while reconciliation is pend
   );
 });
 
-test("capture-preview recovers a compacted event from its immutable Actions artifact", () => {
+test("capture-preview accepts live historical evidence after the current PR branch is renamed", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  const routes = previewRoutes();
+  routes.get(
+    "api --method GET repos/mento-protocol/frontend-monorepo/pulls/700",
+  ).head.ref = "feature/renamed-current-head";
+
+  const result = runVercelCostObservation({
+    argv: ["capture-preview", "--pr", "700", "--event-run-id", "9001"],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: fakeGh(routes),
+    stdout: output().stream,
+  });
+
+  assert.equal(result.exitCode, 0);
+  const capture = JSON.parse(
+    readFileSync(
+      join(observationRoot(cwd), "preview", "9001", "capture.json"),
+      "utf8",
+    ),
+  );
+  assert.equal(
+    capture.canonicalDerivedFacts.observationReceiptSource,
+    "live-journal",
+  );
+});
+
+test("capture-preview recovers a compacted exact artifact after the current PR branch is renamed", () => {
   const cwd = workspace();
   runInit(cwd);
   const event = fixture("preview-event.json");
   const routes = previewRoutes(event, { observationArtifact: true });
+  routes.get(
+    "api --method GET repos/mento-protocol/frontend-monorepo/pulls/700",
+  ).head.ref = "feature/renamed-current-head";
   const compacted = compactPreviewJournal(
     previewJournalFixture(event, "complete").journal,
   );
@@ -2126,6 +2203,295 @@ test("capture-preview prefers an immutable artifact when a later push leaves the
   );
   assert.ok(
     capture.files.some((file) => file.path === "raw/observation-receipt.json"),
+  );
+});
+
+test("capture-preview recovers a pruned event on its historical branch after the current branch is renamed", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  const { event, laterEvent, journal } = coveringPreviewJournalFixture(
+    fixture("preview-event.json"),
+  );
+  const routes = previewRoutes(event);
+  routes.get(
+    "api --method GET repos/mento-protocol/frontend-monorepo/pulls/700",
+  ).head.ref = "feature/renamed-current-head";
+  const compacted = compactPreviewJournal(structuredClone(journal));
+  assert.equal(compacted.receipts.events.length, 0);
+  routes.set(
+    "api --method GET --paginate --slurp repos/mento-protocol/frontend-monorepo/issues/700/comments?per_page=100",
+    [
+      [
+        {
+          id: 301,
+          user: { type: "Bot", login: "github-actions[bot]" },
+          body: renderPreviewJournalBody(compacted),
+        },
+      ],
+    ],
+  );
+  const laterRun = previewControllerRun(laterEvent, {
+    created_at: "2026-07-29T02:00:01.000Z",
+    updated_at: "2026-07-29T02:04:00.000Z",
+  });
+  addPreviewControllerBranchRunsRoute(
+    routes,
+    event.head_ref,
+    [
+      laterRun,
+      { id: 9_002, run_number: 502, status: "queued" },
+      previewControllerRun(event),
+      ...Array.from({ length: 97 }, (_, index) => ({
+        id: 60_000 + index,
+        run_number: 500 - index,
+        status: "queued",
+      })),
+    ],
+    { totalCount: 4_783 },
+  );
+  addPreviewObservationArtifactRoute(routes, laterEvent, journal);
+  const calls = [];
+
+  const result = runVercelCostObservation({
+    argv: ["capture-preview", "--pr", "700", "--event-run-id", "9001"],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: fakeGh(routes, calls),
+    stdout: output().stream,
+  });
+
+  assert.equal(result.exitCode, 0);
+  const directory = join(observationRoot(cwd), "preview", "9001");
+  const capture = JSON.parse(
+    readFileSync(join(directory, "capture.json"), "utf8"),
+  );
+  const receipt = JSON.parse(
+    readFileSync(join(directory, "raw", "observation-receipt.json"), "utf8"),
+  );
+  assert.equal(
+    capture.canonicalDerivedFacts.observationReceiptSource,
+    "actions-artifact",
+  );
+  assert.equal(receipt.event_run_id, laterEvent.event_run_id);
+  assert.ok(
+    receipt.receipts.events.some(
+      (candidate) => candidate.event_run_id === event.event_run_id,
+    ),
+  );
+  assert.ok(
+    calls.some(
+      (args) =>
+        commandKey(args) ===
+        "api --method GET repos/mento-protocol/frontend-monorepo/actions/workflows/vercel-preview-controller.yml/runs?branch=feature%2Fobservation-fixture&event=pull_request_target&per_page=100&page=1",
+    ),
+  );
+  assert.equal(
+    calls.some((args) => commandKey(args).includes("actions/artifacts")),
+    false,
+  );
+});
+
+test("capture-preview rejects an unrelated later observation artifact", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  const { event, laterEvent, journal } = coveringPreviewJournalFixture(
+    fixture("preview-event.json"),
+  );
+  const routes = previewRoutes(event);
+  routes.set(
+    "api --method GET --paginate --slurp repos/mento-protocol/frontend-monorepo/issues/700/comments?per_page=100",
+    [
+      [
+        {
+          id: 301,
+          user: { type: "Bot", login: "github-actions[bot]" },
+          body: renderPreviewJournalBody(
+            compactPreviewJournal(structuredClone(journal)),
+          ),
+        },
+      ],
+    ],
+  );
+  const unrelatedEvent = {
+    ...laterEvent,
+    event_action: "opened",
+    before_sha: null,
+    change_base_sha: laterEvent.trusted_base_sha,
+    plan: {
+      ...laterEvent.plan,
+      base: laterEvent.trusted_base_sha,
+    },
+  };
+  const unrelatedJournal = previewJournalFixture(
+    unrelatedEvent,
+    "complete",
+  ).journal;
+  addPreviewControllerBranchRunsRoute(routes, event.head_ref, [
+    previewControllerRun(unrelatedEvent, {
+      created_at: "2026-07-29T02:00:01.000Z",
+      updated_at: "2026-07-29T02:04:00.000Z",
+    }),
+    previewControllerRun(event),
+  ]);
+  addPreviewObservationArtifactRoute(routes, unrelatedEvent, unrelatedJournal);
+
+  assert.throws(
+    () =>
+      runVercelCostObservation({
+        argv: ["capture-preview", "--pr", "700", "--event-run-id", "9001"],
+        cwd,
+        now: () => new Date(CAPTURED_AT),
+        gh: fakeGh(routes),
+        stdout: output().stream,
+      }),
+    /receipt artifact is missing or ambiguous/,
+  );
+});
+
+test("capture-preview rejects an ambiguous covering artifact", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  const { event, laterEvent, journal } = coveringPreviewJournalFixture(
+    fixture("preview-event.json"),
+  );
+  const routes = previewRoutes(event);
+  routes.set(
+    "api --method GET --paginate --slurp repos/mento-protocol/frontend-monorepo/issues/700/comments?per_page=100",
+    [
+      [
+        {
+          id: 301,
+          user: { type: "Bot", login: "github-actions[bot]" },
+          body: renderPreviewJournalBody(
+            compactPreviewJournal(structuredClone(journal)),
+          ),
+        },
+      ],
+    ],
+  );
+  addPreviewControllerBranchRunsRoute(routes, event.head_ref, [
+    previewControllerRun(laterEvent, {
+      created_at: "2026-07-29T02:00:01.000Z",
+      updated_at: "2026-07-29T02:04:00.000Z",
+    }),
+    previewControllerRun(event),
+  ]);
+  addPreviewObservationArtifactRoute(routes, laterEvent, journal, {
+    duplicate: true,
+  });
+
+  assert.throws(
+    () =>
+      runVercelCostObservation({
+        argv: ["capture-preview", "--pr", "700", "--event-run-id", "9001"],
+        cwd,
+        now: () => new Date(CAPTURED_AT),
+        gh: fakeGh(routes),
+        stdout: output().stream,
+      }),
+    /observation artifact is ambiguous/,
+  );
+});
+
+test("capture-preview rejects covering evidence beyond its admission frontier", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  const { event, laterEvent, journal } = coveringPreviewJournalFixture(
+    fixture("preview-event.json"),
+  );
+  const routes = previewRoutes(event);
+  routes.set(
+    "api --method GET --paginate --slurp repos/mento-protocol/frontend-monorepo/issues/700/comments?per_page=100",
+    [
+      [
+        {
+          id: 301,
+          user: { type: "Bot", login: "github-actions[bot]" },
+          body: renderPreviewJournalBody(
+            compactPreviewJournal(structuredClone(journal)),
+          ),
+        },
+      ],
+    ],
+  );
+  addPreviewControllerBranchRunsRoute(routes, event.head_ref, [
+    previewControllerRun(laterEvent, {
+      created_at: "2026-07-29T02:00:01.000Z",
+      updated_at: "2026-07-29T02:04:00.000Z",
+    }),
+    previewControllerRun(event),
+  ]);
+  const behindAdmission = createPreviewJournal({
+    pr: journal.pr,
+    events: journal.receipts.events,
+    state: journal.state,
+    admission: {
+      ...journal.admission,
+      through_run_id: event.event_run_id,
+      through_run_number: event.event_run_number,
+    },
+  });
+  addPreviewObservationArtifactRoute(routes, laterEvent, behindAdmission);
+
+  assert.throws(
+    () =>
+      runVercelCostObservation({
+        argv: ["capture-preview", "--pr", "700", "--event-run-id", "9001"],
+        cwd,
+        now: () => new Date(CAPTURED_AT),
+        gh: fakeGh(routes),
+        stdout: output().stream,
+      }),
+    /does not prove a later admitted event/,
+  );
+});
+
+test("capture-preview fails closed when branch-run search exceeds its page bound", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  const event = {
+    ...fixture("preview-event.json"),
+    observation_receipt_required: true,
+  };
+  const journal = previewJournalFixture(event, "complete").journal;
+  const routes = previewRoutes(event);
+  routes.set(
+    "api --method GET --paginate --slurp repos/mento-protocol/frontend-monorepo/issues/700/comments?per_page=100",
+    [
+      [
+        {
+          id: 301,
+          user: { type: "Bot", login: "github-actions[bot]" },
+          body: renderPreviewJournalBody(
+            compactPreviewJournal(structuredClone(journal)),
+          ),
+        },
+      ],
+    ],
+  );
+  for (let page = 1; page <= 5; page += 1) {
+    const newestRunNumber = 1_101 - page * 100;
+    const runs = Array.from({ length: 100 }, (_, index) => ({
+      id: 50_000 + (page - 1) * 100 + index,
+      run_number: newestRunNumber - index,
+      status: "queued",
+    }));
+    addPreviewControllerBranchRunsRoute(routes, event.head_ref, runs, {
+      page,
+      totalCount: 600,
+    });
+  }
+
+  assert.throws(
+    () =>
+      runVercelCostObservation({
+        argv: ["capture-preview", "--pr", "700", "--event-run-id", "9001"],
+        cwd,
+        now: () => new Date(CAPTURED_AT),
+        gh: fakeGh(routes),
+        stdout: output().stream,
+      }),
+    /branch run search exceeded its bound/,
   );
 });
 

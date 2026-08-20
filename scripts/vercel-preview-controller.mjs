@@ -433,6 +433,13 @@ function previewJournalBody(value, json) {
   return `${PREVIEW_JOURNAL_MARKER}\n\n${COMMENT_EXPLANATION}\n\n${reviewerSummary}\n\n<details>\n<summary>${COMMENT_DETAILS_SUMMARY}</summary>\n\n\`\`\`json\n${json}\n\`\`\`\n\n</details>\n`;
 }
 
+function previewJournalByteLength(value) {
+  return Buffer.byteLength(
+    previewJournalBody(value, JSON.stringify(value)),
+    "utf8",
+  );
+}
+
 export function renderPreviewJournalBody(value) {
   const body = previewJournalBody(value, JSON.stringify(value));
   invariant(
@@ -3192,15 +3199,17 @@ export function reconcileState({
     lineage,
     checkpoint: selectedCheckpoint,
   } = selectCurrentEpoch(events, pull, checkpoint);
+  const persistedEpoch = selectedCheckpoint === null ? null : previous?.epoch;
+  const epochAnchorRunId = persistedEpoch?.anchor_run_id ?? anchor.event_run_id;
   const epochResults = allResults.filter(
-    (result) => result.epoch_anchor_run_id === anchor.event_run_id,
+    (result) => result.epoch_anchor_run_id === epochAnchorRunId,
   );
   const epochSelections = allSelections.filter(
-    (selection) => selection.epoch_anchor_run_id === anchor.event_run_id,
+    (selection) => selection.epoch_anchor_run_id === epochAnchorRunId,
   );
   if (epochResults.length > 0) {
     invariant(
-      previous?.epoch?.anchor_run_id === anchor.event_run_id,
+      previous?.epoch?.anchor_run_id === epochAnchorRunId,
       "Current-epoch result exists without persisted epoch ownership",
     );
     for (const result of epochResults) {
@@ -3223,7 +3232,7 @@ export function reconcileState({
     lineage: lineage.map(semanticEventKey),
     results: epochResults.map(canonicalJson).sort(),
   });
-  const sameEpoch = previous?.epoch?.anchor_run_id === anchor.event_run_id;
+  const sameEpoch = previous?.epoch?.anchor_run_id === epochAnchorRunId;
   const controllerTargetUrl = optionalHttpsUrl(controllerUrl, "Controller URL");
   const targetStates = {};
   const targetStatuses = {};
@@ -3342,7 +3351,7 @@ export function reconcileState({
     for (const event of candidates) {
       const result = resultForSelection(
         targetResults,
-        anchor.event_run_id,
+        epochAnchorRunId,
         event,
         sameEpoch &&
           previousTarget?.active?.selection_receipt_run_id ===
@@ -3435,7 +3444,7 @@ export function reconcileState({
       invariant(selectedEvent, `${target} active selection left the lineage`);
       const terminal = resultForSelection(
         targetResults,
-        anchor.event_run_id,
+        epochAnchorRunId,
         selectedEvent,
         previousActive,
         target,
@@ -3557,13 +3566,13 @@ export function reconcileState({
         sha: selected.head_sha,
         git_ref: selected.head_ref,
         key,
-        epoch_anchor_run_id: anchor.event_run_id,
+        epoch_anchor_run_id: epochAnchorRunId,
         reconciliation_basis_digest: basisDigest,
         selection_receipt_run_id: selected.event_run_id,
         expected_workflow_sha: expectedWorkflowSha,
         coalesced_receipt_run_ids: coalescedReceiptRunIds,
         key_digest: controllerKeyDigest(key, {
-          epochAnchorRunId: anchor.event_run_id,
+          epochAnchorRunId,
           basisDigest,
           selectionReceiptRunId: selected.event_run_id,
           expectedWorkflowSha,
@@ -3729,11 +3738,12 @@ export function reconcileState({
     repository: PREVIEW_REPOSITORY,
     pr: pull.number,
     epoch: {
-      anchor_run_id: anchor.event_run_id,
-      anchor_action: anchor.event_action,
-      anchor_pr_updated_at: anchor.pr_updated_at,
-      anchor_head_sha: anchor.head_sha,
-      anchor_head_ref: anchor.head_ref,
+      anchor_run_id: epochAnchorRunId,
+      anchor_action: persistedEpoch?.anchor_action ?? anchor.event_action,
+      anchor_pr_updated_at:
+        persistedEpoch?.anchor_pr_updated_at ?? anchor.pr_updated_at,
+      anchor_head_sha: persistedEpoch?.anchor_head_sha ?? anchor.head_sha,
+      anchor_head_ref: persistedEpoch?.anchor_head_ref ?? anchor.head_ref,
       closed_at: closure?.pr_closed_at ?? null,
       tail_receipt_run_id: (closure ?? lineage.at(-1)).event_run_id,
       lineage_digest: digest(lineage.map(semanticEventKey)),
@@ -4834,7 +4844,7 @@ function assertCheckpointableReceipts(
 
 export function compactPreviewJournal(
   value,
-  { expectedPullNumber = null } = {},
+  { expectedPullNumber = null, throughEventRunId = null } = {},
 ) {
   const journal = validatePreviewJournal(value, value.pr);
   if (journal.state === null) return journal;
@@ -4876,6 +4886,7 @@ export function compactPreviewJournal(
       state.targets[target].retired_active.some(isLiveRetiredPreviewOwnership),
   );
   if (
+    throughEventRunId === null &&
     hasInFlightOwnership &&
     Buffer.byteLength(renderPreviewJournalBody(journal), "utf8") <
       ACTIVE_CHECKPOINT_BYTES
@@ -4897,7 +4908,24 @@ export function compactPreviewJournal(
     pull,
     journal.checkpoint,
   );
-  const tailEvent = closure ?? lineage.at(-1) ?? null;
+  const fullTailEvent = closure ?? lineage.at(-1) ?? null;
+  const partialCheckpoint = throughEventRunId !== null;
+  const cutoffRunId = partialCheckpoint
+    ? exactRunId(throughEventRunId, "Preview checkpoint cutoff event run ID")
+    : (fullTailEvent?.event_run_id ?? null);
+  const cutoffIndex = partialCheckpoint
+    ? lineage.findIndex((event) => event.event_run_id === cutoffRunId)
+    : lineage.length - 1;
+  invariant(
+    !partialCheckpoint || (cutoffIndex >= 0 && closure === null),
+    "Preview checkpoint cutoff is not in the open event lineage",
+  );
+  const checkpointLineage = partialCheckpoint
+    ? lineage.slice(0, cutoffIndex + 1)
+    : lineage;
+  const tailEvent = partialCheckpoint
+    ? (checkpointLineage.at(-1) ?? null)
+    : fullTailEvent;
   invariant(tailEvent, "Preview checkpoint tail event is missing");
   invariant(
     !state.closed ||
@@ -4950,7 +4978,7 @@ export function compactPreviewJournal(
       protectedKeys.add(selection.key_digest);
     }
     const latestRuntimeEvent = runtimeEventForTarget(
-      lineage,
+      checkpointLineage,
       journal.checkpoint,
       target,
     );
@@ -5024,9 +5052,42 @@ export function compactPreviewJournal(
     };
   }
 
-  const retainedReceipts = hasInFlightOwnership
+  const checkpointEventRunIds = new Set(
+    (partialCheckpoint ? checkpointLineage : journal.receipts.events).map(
+      (event) => event.event_run_id,
+    ),
+  );
+  const checkpointEvents = journal.receipts.events.filter((event) =>
+    checkpointEventRunIds.has(event.event_run_id),
+  );
+  invariant(
+    !partialCheckpoint ||
+      checkpointEvents.some(
+        (event) => event.event_run_id === tailEvent.event_run_id,
+      ),
+    "Preview checkpoint cutoff receipt is missing",
+  );
+  const retainedEvents = journal.receipts.events.filter(
+    (event) => !checkpointEventRunIds.has(event.event_run_id),
+  );
+  const retainedEventRunIds = new Set(
+    retainedEvents.map((event) => event.event_run_id),
+  );
+  for (const selection of journal.receipts.selections) {
+    if (
+      retainedEventRunIds.has(selection.selection_receipt_run_id) ||
+      selection.coalesced_receipt_run_ids.some((runId) =>
+        retainedEventRunIds.has(runId),
+      )
+    ) {
+      protectedKeys.add(selection.key_digest);
+    }
+  }
+  const preserveCurrentState =
+    hasInFlightOwnership || retainedEvents.length > 0;
+  const retainedReceipts = preserveCurrentState
     ? {
-        events: [],
+        events: structuredClone(retainedEvents),
         selections: journal.receipts.selections.filter((selection) =>
           protectedKeys.has(selection.key_digest),
         ),
@@ -5039,7 +5100,7 @@ export function compactPreviewJournal(
       }
     : { events: [], selections: [], worker_evidence: [], results: [] };
   const prunedReceipts = {
-    events: journal.receipts.events,
+    events: checkpointEvents,
     selections: journal.receipts.selections.filter(
       (selection) => !protectedKeys.has(selection.key_digest),
     ),
@@ -5059,7 +5120,7 @@ export function compactPreviewJournal(
     (total, receipts) => total + receipts.length,
     0,
   );
-  if (hasInFlightOwnership && prunedCount === 0) return journal;
+  if (preserveCurrentState && prunedCount === 0) return journal;
   const previousCounts =
     journal.checkpoint?.pruned_receipt_counts ?? emptyReceiptCounts();
   const prunedReceiptCounts = Object.fromEntries(
@@ -5083,7 +5144,7 @@ export function compactPreviewJournal(
   };
   journal.checkpoint = checkpoint;
   journal.receipts = retainedReceipts;
-  if (!hasInFlightOwnership) {
+  if (!preserveCurrentState) {
     journal.state = checkpointBaselineState(state, checkpoint);
   }
   journal.journal_digest = previewJournalDigest(
@@ -5629,6 +5690,85 @@ async function priorObservationReceiptsAreRetained({
   return true;
 }
 
+async function latestRetainedObservationCutoff({ github, context, journal }) {
+  const liveEvents = journal.receipts.events.map(validateEventReceipt);
+  if (liveEvents.length === 0) return null;
+  const admission = validateControllerAdmissionCursor(journal.admission);
+  if (admission === null) return null;
+  const liveEventRunIds = new Set(
+    liveEvents.map((event) => event.event_run_id),
+  );
+  const pull = representedPullRequest(liveEvents, journal.checkpoint);
+  const { closure, lineage: events } = selectCurrentEpoch(
+    liveEvents,
+    pull,
+    journal.checkpoint,
+  );
+  if (closure !== null) return null;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const candidate = events[index];
+    if (
+      !liveEventRunIds.has(candidate.event_run_id) ||
+      candidate.observation_receipt_required !== true ||
+      candidate.event_run_number === undefined ||
+      candidate.event_run_number > admission.through_run_number
+    ) {
+      continue;
+    }
+    const prefix = events.slice(0, index + 1);
+    if (
+      prefix.some(
+        (event) =>
+          event.event_run_number === undefined ||
+          event.event_run_number > candidate.event_run_number,
+      )
+    ) {
+      continue;
+    }
+    const artifacts = await github.paginate(
+      github.rest.actions.listWorkflowRunArtifacts,
+      {
+        ...ownerRepo(context),
+        run_id: candidate.event_run_id,
+        per_page: 100,
+      },
+    );
+    if (
+      selectPreviewObservationArtifact(artifacts, candidate.event_run_id) !==
+      null
+    ) {
+      return candidate.event_run_id;
+    }
+  }
+  return null;
+}
+
+export async function compactPreviewJournalForCapacity({
+  github,
+  context,
+  journal,
+  expectedPullNumber,
+}) {
+  if (
+    journal.state === null ||
+    previewJournalByteLength(journal) < ACTIVE_CHECKPOINT_BYTES
+  ) {
+    return false;
+  }
+  const throughEventRunId = await latestRetainedObservationCutoff({
+    github,
+    context,
+    journal,
+  });
+  if (throughEventRunId === null) return false;
+  const checkpointSequence = journal.checkpoint?.sequence ?? 0;
+  compactPreviewJournal(journal, {
+    expectedPullNumber,
+    throughEventRunId,
+  });
+  return (journal.checkpoint?.sequence ?? 0) > checkpointSequence;
+}
+
 async function appendJournalReceipt({
   github,
   context,
@@ -5788,6 +5928,14 @@ async function appendJournalReceipt({
         // receipt remains live until the Actions admission scan proves that no
         // required run is missing before the API-backed frontier.
       }
+      if (kind !== "event") {
+        await compactPreviewJournalForCapacity({
+          github,
+          context,
+          journal,
+          expectedPullNumber,
+        });
+      }
       const entries = journal.receipts[definition.name];
       const eventsBeforeAppend =
         kind === "event" ? structuredClone(journal.receipts.events) : null;
@@ -5800,6 +5948,20 @@ async function appendJournalReceipt({
         }));
       entries.push(structuredClone(value));
       persistAdmission();
+      if (kind !== "event") {
+        journal.journal_digest = previewJournalDigest(
+          journal.receipts,
+          journal.state,
+          journal.checkpoint,
+          journal.admission,
+        );
+        await compactPreviewJournalForCapacity({
+          github,
+          context,
+          journal,
+          expectedPullNumber,
+        });
+      }
       if (deferCompaction) {
         // This one authenticated legacy drain must preserve the old active
         // owner lineage until the same run reconciles the persisted results.
@@ -5930,6 +6092,12 @@ async function writeControllerState({
       ? { type: CLOSED_BOOTSTRAP_RECOVERY_TERMINAL_STATE }
       : null,
     async mutate(journal) {
+      await compactPreviewJournalForCapacity({
+        github,
+        context,
+        journal,
+        expectedPullNumber: pr,
+      });
       journal.state = structuredClone(state);
       if (compactClosedBootstrapRecovery) {
         invariant(
@@ -5953,6 +6121,19 @@ async function writeControllerState({
         } else {
           renderPreviewJournalBody(journal);
         }
+      } else {
+        journal.journal_digest = previewJournalDigest(
+          journal.receipts,
+          journal.state,
+          journal.checkpoint,
+          journal.admission,
+        );
+        await compactPreviewJournalForCapacity({
+          github,
+          context,
+          journal,
+          expectedPullNumber: pr,
+        });
       }
     },
   });
@@ -5978,7 +6159,13 @@ async function writeControllerIntents({
     context,
     pr,
     expectedComment: stateComment,
-    mutate(journal) {
+    async mutate(journal) {
+      await compactPreviewJournalForCapacity({
+        github,
+        context,
+        journal,
+        expectedPullNumber: pr,
+      });
       journal.state = structuredClone(state);
       for (const receipt of receipts) {
         const existing = journal.receipts.selections.find(
@@ -5992,6 +6179,18 @@ async function writeControllerIntents({
           journal.receipts.selections.push(structuredClone(receipt));
         }
       }
+      journal.journal_digest = previewJournalDigest(
+        journal.receipts,
+        journal.state,
+        journal.checkpoint,
+        journal.admission,
+      );
+      await compactPreviewJournalForCapacity({
+        github,
+        context,
+        journal,
+        expectedPullNumber: pr,
+      });
     },
   });
   return updated.journalComment;

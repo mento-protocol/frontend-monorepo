@@ -13,6 +13,7 @@ import {
   RESULT_RECEIPT_SCHEMA,
   SELECTION_RECEIPT_SCHEMA,
   compactPreviewJournal,
+  compactPreviewJournalForCapacity,
   controllerEventRunName,
   controllerKey,
   createPreviewJournal,
@@ -2687,6 +2688,479 @@ test("two-event four-target recovery fits the result-only write before terminal 
     results: [],
   });
   assert.ok(Buffer.byteLength(previewJournalBody(terminal), "utf8") < 64_000);
+});
+
+test("non-event capacity writes checkpoint an artifact-covered prefix and preserve the observable suffix", async () => {
+  const liveDeploymentFields = (target, runId) => ({
+    vercel_deployment_id: `dpl_${target}_${runId}_${"a".repeat(16)}`,
+    next_deployment_id: `m-${target}-${runId}`,
+    vercel_deployment_url: `https://${target}-${runId}-${"b".repeat(8)}.vercel.app`,
+    verified_upload_url: `https://${target}-${runId}-${"b".repeat(8)}.vercel.app`,
+  });
+  const liveWorkerEvidence = (dispatch, runId) => ({
+    ...workerEvidence(dispatch, { runId }),
+    ...liveDeploymentFields(dispatch.target, runId),
+  });
+  const liveWorkerResult = (dispatch, runId) => {
+    const receipt = result(dispatch, { runId });
+    const fields = liveDeploymentFields(dispatch.target, runId);
+    return validateWorkerResult({
+      ...receipt,
+      vercel_deployment_id: fields.vercel_deployment_id,
+      next_deployment_id: fields.next_deployment_id,
+      vercel_deployment_url: fields.vercel_deployment_url,
+    });
+  };
+  const events = [];
+  const selections = [];
+  const workerEvidenceReceipts = [];
+  const results = [];
+  let state = null;
+  let previousHead = null;
+
+  for (let wave = 0; wave < 4; wave += 1) {
+    const head = (700 + wave).toString(16).padStart(40, "0");
+    const receipt = event({
+      run: 330_000_000 + wave,
+      runNumber: 500 + wave,
+      action: wave === 0 ? "opened" : "synchronize",
+      before: previousHead,
+      head,
+      targets: PREVIEW_TARGETS,
+      updated: timestamp(wave + 1),
+      retainObservationReceipt: true,
+    });
+    events.push(receipt);
+    const currentPull = pull({ head, updated: timestamp(wave + 1) });
+    const selected = reconcile({
+      events,
+      selections,
+      results,
+      pullRequest: currentPull,
+      existingState: state,
+    });
+    const runIds = Object.fromEntries(
+      PREVIEW_TARGETS.map((target, index) => [
+        target,
+        330_100_000 + wave * 10 + index,
+      ]),
+    );
+    state = persistTargetDispatches(selected, runIds);
+    for (const target of PREVIEW_TARGETS) {
+      const dispatch = state.targets[target].active;
+      selections.push(selectionReceiptFromDispatch(dispatch));
+      const hasUploadEvidence =
+        wave !== 1 && !(wave === 3 && target === "governance");
+      if (hasUploadEvidence) {
+        workerEvidenceReceipts.push(
+          liveWorkerEvidence(dispatch, runIds[target]),
+        );
+        results.push(liveWorkerResult(dispatch, runIds[target]));
+      } else {
+        results.push(controllerResult(dispatch, { runId: runIds[target] }));
+      }
+    }
+    state = reconcile({
+      events,
+      selections,
+      results,
+      pullRequest: currentPull,
+      existingState: state,
+    }).state;
+    previousHead = head;
+  }
+
+  const covered = event({
+    run: 330_000_004,
+    runNumber: 504,
+    action: "synchronize",
+    before: previousHead,
+    head: SHA.B,
+    runtime: false,
+    updated: timestamp(5),
+    retainObservationReceipt: true,
+  });
+  events.push(covered);
+  state = reconcile({
+    events,
+    selections,
+    results,
+    pullRequest: pull({ head: SHA.B, updated: timestamp(5) }),
+    existingState: state,
+  }).state;
+
+  const suffix = event({
+    run: 330_000_005,
+    runNumber: 505,
+    action: "synchronize",
+    before: SHA.B,
+    head: SHA.C,
+    targets: PREVIEW_TARGETS,
+    updated: timestamp(6),
+    retainObservationReceipt: true,
+  });
+  events.push(suffix);
+  const selected = reconcile({
+    events,
+    selections,
+    results,
+    pullRequest: pull({ head: SHA.C, updated: timestamp(6) }),
+    existingState: state,
+  });
+  const suffixRunIds = Object.fromEntries(
+    PREVIEW_TARGETS.map((target, index) => [target, 330_200_000 + index]),
+  );
+  state = persistTargetDispatches(selected, suffixRunIds);
+  const suffixDispatches = Object.fromEntries(
+    PREVIEW_TARGETS.map((target) => [
+      target,
+      structuredClone(state.targets[target].active),
+    ]),
+  );
+  for (const target of PREVIEW_TARGETS) {
+    selections.push(selectionReceiptFromDispatch(suffixDispatches[target]));
+  }
+  for (const target of ["reserve", "ui", "app"]) {
+    workerEvidenceReceipts.push(
+      liveWorkerEvidence(suffixDispatches[target], suffixRunIds[target]),
+    );
+  }
+  results.push(
+    liveWorkerResult(suffixDispatches.reserve, suffixRunIds.reserve),
+  );
+  state = reconcile({
+    events,
+    selections,
+    results,
+    pullRequest: pull({ head: SHA.C, updated: timestamp(6) }),
+    existingState: state,
+  }).state;
+
+  const comment = journalComment({
+    events,
+    selections,
+    workerEvidence: workerEvidenceReceipts,
+    results,
+    state,
+    admission: {
+      schema: "vercel-preview-controller-admission:v1",
+      workflow_id: CONTROLLER_WORKFLOW_ID,
+      through_run_id: suffix.event_run_id,
+      through_run_number: suffix.event_run_number,
+    },
+  });
+  const before = journalFromComment(comment);
+  assert.deepEqual(
+    Object.fromEntries(
+      Object.entries(before.receipts).map(([name, entries]) => [
+        name,
+        entries.length,
+      ]),
+    ),
+    { events: 6, selections: 20, worker_evidence: 14, results: 17 },
+  );
+  const suffixKeys = new Set(
+    Object.values(suffixDispatches).map((dispatch) => dispatch.key_digest),
+  );
+  const outOfOrderJournal = createPreviewJournal({
+    pr: before.pr,
+    revision: before.revision,
+    events: [suffix, ...before.receipts.events.slice(0, -1)],
+    selections: before.receipts.selections,
+    workerEvidence: before.receipts.worker_evidence,
+    results: before.receipts.results,
+    state: before.state,
+    admission: before.admission,
+  });
+  compactPreviewJournal(outOfOrderJournal, {
+    expectedPullNumber: before.pr,
+    throughEventRunId: covered.event_run_id,
+  });
+  assert.deepEqual(outOfOrderJournal.receipts.events, [suffix]);
+  for (const name of ["selections", "worker_evidence", "results"]) {
+    assert.deepEqual(
+      outOfOrderJournal.receipts[name],
+      before.receipts[name].filter((receipt) =>
+        suffixKeys.has(receipt.key_digest),
+      ),
+      name,
+    );
+  }
+  const preWriteBytes = Buffer.byteLength(comment.body, "utf8");
+  assert.ok(preWriteBytes > 62_000, `journal was ${preWriteBytes} bytes`);
+  assert.ok(preWriteBytes <= 64_000, `journal was ${preWriteBytes} bytes`);
+  const uncheckpointedGovernanceEvidence = {
+    ...workerEvidence(suffixDispatches.governance, {
+      runId: suffixRunIds.governance,
+    }),
+    vercel_deployment_id: "dpl_governance_suffix",
+    next_deployment_id: "m-governance-suffix",
+    verified_upload_url: "https://governance-suffix.vercel.app",
+  };
+  const uncheckpointedCandidate = {
+    ...structuredClone(before),
+    revision: before.revision + 1,
+    receipts: {
+      ...structuredClone(before.receipts),
+      worker_evidence: [
+        ...structuredClone(before.receipts.worker_evidence),
+        uncheckpointedGovernanceEvidence,
+      ],
+    },
+  };
+  const uncheckpointedCandidateBytes =
+    preWriteBytes +
+    Buffer.byteLength(JSON.stringify(uncheckpointedCandidate), "utf8") -
+    Buffer.byteLength(JSON.stringify(before), "utf8");
+  assert.ok(
+    uncheckpointedCandidateBytes > 64_000,
+    `uncheckpointed evidence candidate was ${uncheckpointedCandidateBytes} bytes`,
+  );
+  assert.throws(
+    () => renderPreviewJournalBody(uncheckpointedCandidate),
+    /Preview journal comment is too large/,
+  );
+
+  const deployments = PREVIEW_TARGETS.map((target) => ({
+    id: 9_000 + suffixRunIds[target],
+    ref: SHA.C,
+    sha: SHA.C,
+    environment: `preview/${target}/pr-519`,
+    payload: {
+      ...canonicalDeploymentBinding(),
+      idempotency_key: suffixDispatches[target].key,
+      sha: SHA.C,
+      logical_target: target,
+    },
+  }));
+  const runs = PREVIEW_TARGETS.map((target) =>
+    workerRun(suffixDispatches[target], {
+      id: suffixRunIds[target],
+      status: "completed",
+      conclusion: "success",
+      createdAt: timestamp(6),
+    }),
+  );
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.C, updated: timestamp(6) }),
+    comments: [comment],
+    runs,
+    deployments,
+    deploymentStatuses: new Map(
+      PREVIEW_TARGETS.map((target) => [
+        9_000 + suffixRunIds[target],
+        [
+          {
+            state: "success",
+            environment_url: `https://${target}-suffix.vercel.app`,
+          },
+        ],
+      ]),
+    ),
+    artifacts: [
+      {
+        id: 900_001,
+        workflow_run_id: covered.event_run_id,
+        name: previewObservationArtifactName(covered.event_run_id),
+        expired: false,
+      },
+    ],
+  });
+
+  const capacityJournal = ({
+    journalEvents = before.receipts.events,
+    admission = before.admission,
+  } = {}) =>
+    createPreviewJournal({
+      pr: before.pr,
+      revision: before.revision,
+      checkpoint: before.checkpoint,
+      events: journalEvents,
+      selections: before.receipts.selections,
+      workerEvidence: before.receipts.worker_evidence,
+      results: before.receipts.results,
+      state: before.state,
+      ...(admission === null ? {} : { admission }),
+    });
+  const assertCapacityCheckpointSkipped = async (journal, github) => {
+    const snapshot = structuredClone(journal);
+    assert.equal(
+      await compactPreviewJournalForCapacity({
+        github,
+        context: fakeContext(),
+        journal,
+        expectedPullNumber: before.pr,
+      }),
+      false,
+    );
+    assert.deepEqual(journal, snapshot);
+  };
+
+  await assertCapacityCheckpointSkipped(
+    capacityJournal({ admission: null }),
+    fixture.github,
+  );
+
+  const behindAdmission = capacityJournal({
+    admission: {
+      ...before.admission,
+      through_run_id: events.at(-3).event_run_id,
+      through_run_number: covered.event_run_number - 1,
+    },
+  });
+  await assertCapacityCheckpointSkipped(behindAdmission, fixture.github);
+
+  const outOfOrderPrefix = structuredClone(before.receipts.events);
+  outOfOrderPrefix[3].event_run_number = covered.event_run_number + 1;
+  await assertCapacityCheckpointSkipped(
+    capacityJournal({ journalEvents: outOfOrderPrefix }),
+    fixture.github,
+  );
+
+  const misplacedArtifactFixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.C, updated: timestamp(6) }),
+    artifacts: [
+      {
+        id: 900_002,
+        workflow_run_id: suffix.event_run_id,
+        name: previewObservationArtifactName(covered.event_run_id),
+        expired: false,
+      },
+    ],
+  });
+  await assertCapacityCheckpointSkipped(
+    capacityJournal(),
+    misplacedArtifactFixture.github,
+  );
+
+  const governanceEvidence = await recordWorkerEvidence({
+    github: fixture.github,
+    context: fakeContext({ runId: suffixRunIds.governance }),
+    core: fakeCore(),
+    inputs: {
+      ...workerInputs(suffixDispatches.governance),
+      execution_mode: "build",
+      build_duration_ms: "1234",
+      verified_upload_url: "https://governance-suffix.vercel.app",
+      vercel_deployment_id: "dpl_governance_suffix",
+      next_deployment_id: "m-governance-suffix",
+    },
+  });
+  assert.equal(governanceEvidence.target, "governance");
+
+  let persisted = journalFromComment(fixture.comments[0]);
+  assert.equal(persisted.checkpoint.event.event_run_id, covered.event_run_id);
+  assert.deepEqual(persisted.receipts.events, [suffix]);
+  assert.deepEqual(
+    persisted.receipts.selections.map((entry) => entry.key_digest).sort(),
+    Object.values(suffixDispatches)
+      .map((entry) => entry.key_digest)
+      .sort(),
+  );
+  assert.equal(persisted.receipts.worker_evidence.length, 4);
+  assert.equal(persisted.receipts.results.length, 1);
+  assert.ok(Buffer.byteLength(fixture.comments[0].body, "utf8") < 64_000);
+
+  for (const target of ["governance", "app", "ui"]) {
+    const outcome = await recoverWorkerResult({
+      github: fixture.github,
+      context: fakeContext({
+        workflowRun: runs.find((run) =>
+          run.display_title.includes(`target=${target}`),
+        ),
+      }),
+      core: fakeCore(),
+    });
+    assert.equal(outcome.state, "success");
+  }
+  persisted = journalFromComment(fixture.comments[0]);
+  assert.equal(persisted.receipts.results.length, 4);
+  const settledState = reconcile({
+    events: persisted.receipts.events,
+    selections: persisted.receipts.selections,
+    results: persisted.receipts.results,
+    pullRequest: pull({ head: SHA.C, updated: timestamp(6) }),
+    existingState: persisted.state,
+    checkpoint: persisted.checkpoint,
+  }).state;
+  const settledJournal = createPreviewJournal({
+    pr: 519,
+    revision: persisted.revision,
+    checkpoint: persisted.checkpoint,
+    events: persisted.receipts.events,
+    selections: persisted.receipts.selections,
+    workerEvidence: persisted.receipts.worker_evidence,
+    results: persisted.receipts.results,
+    state: settledState,
+    admission: persisted.admission,
+  });
+  assert.deepEqual(settledState.status_decisions.at(-1).targets, {
+    app: "deployed",
+    governance: "deployed",
+    reserve: "deployed",
+    ui: "deployed",
+  });
+  for (const selection of persisted.receipts.selections) {
+    const matchingEvidence = persisted.receipts.worker_evidence.filter(
+      (entry) => entry.key_digest === selection.key_digest,
+    );
+    const matchingResults = persisted.receipts.results.filter(
+      (entry) => entry.key_digest === selection.key_digest,
+    );
+    assert.equal(matchingEvidence.length, 1, selection.target);
+    assert.equal(matchingResults.length, 1, selection.target);
+    assert.equal(
+      matchingEvidence[0].worker_run_id,
+      matchingResults[0].worker_run_id,
+      selection.target,
+    );
+  }
+  assert.ok(
+    createPreviewObservationReceipt(settledJournal, suffix.event_run_id),
+  );
+
+  const repeatedEvidence = [];
+  const repeatedResults = [];
+  for (const target of PREVIEW_TARGETS) {
+    for (const offset of [100, 200]) {
+      const runId = suffixRunIds[target] + offset;
+      repeatedEvidence.push(
+        workerEvidence(suffixDispatches[target], { runId }),
+      );
+      repeatedResults.push(result(suffixDispatches[target], { runId }));
+    }
+  }
+  const repeatedCapacityJournal = createPreviewJournal({
+    pr: persisted.pr,
+    revision: persisted.revision,
+    checkpoint: persisted.checkpoint,
+    events: persisted.receipts.events,
+    selections: persisted.receipts.selections,
+    workerEvidence: [
+      ...persisted.receipts.worker_evidence,
+      ...repeatedEvidence,
+    ],
+    results: [...persisted.receipts.results, ...repeatedResults],
+    state: settledState,
+    admission: persisted.admission,
+  });
+  assert.ok(
+    Buffer.byteLength(
+      renderPreviewJournalBody(repeatedCapacityJournal),
+      "utf8",
+    ) > 40_000,
+  );
+  const repeatedSnapshot = structuredClone(repeatedCapacityJournal);
+  assert.equal(
+    await compactPreviewJournalForCapacity({
+      github: fixture.github,
+      context: fakeContext(),
+      journal: repeatedCapacityJournal,
+      expectedPullNumber: persisted.pr,
+    }),
+    false,
+  );
+  assert.deepEqual(repeatedCapacityJournal, repeatedSnapshot);
 });
 
 test("capacity checkpoints preserve the newest queued runtime before reconciliation", () => {

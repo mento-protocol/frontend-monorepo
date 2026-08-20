@@ -3,7 +3,7 @@ title: One canonical pull-request comment stores the preview controller journal
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-07-22
+last_verified: 2026-08-20
 scope: ci/deployment/preview-controller-state
 date: 2026-07
 ---
@@ -102,14 +102,47 @@ A four-target 50-preview sequential-cycle fixture remains below a strict
 The same checkpoint field protects an overlapping push burst before the hard
 body limit is reached. At a 40,000-byte soft threshold, the controller proves a
 unique path to the latest pull-request tail represented by the complete receipt
-graph, then folds that graph and terminal receipts not needed for recovery into
-the cumulative digest. A pending checkpoint records the exact unfinished owner,
-its consumed attempt count, and the latest runtime event still owed, while
-retaining that owner's selection, worker evidence, and result. Reconciliation
-waits for that owner;
+graph. Every selection, worker-evidence, result-recovery, and state writer runs
+this capacity check before and after its mutation. This prevents a valid
+near-limit journal from becoming unwriteable during a non-event append.
+
+Capacity checkpointing can fold an artifact-covered prefix while a later event
+is still unsettled. The cutoff must be a live event in the selected open
+lineage. Its exact, unexpired observation artifact must exist. The journal must
+also have a valid admission cursor through the cutoff, and no earlier event in
+the lineage can have a greater workflow run number. The trusted artifact job
+uploads that name only after `createPreviewObservationReceipt` validates and
+materializes the event's canonical journal graph. Therefore a later exact
+artifact transitively retains every earlier admitted receipt in that graph,
+including an earlier event whose own artifact is missing.
+
+The private cost collector prefers the requested event's exact artifact. If
+that artifact and the live event are both absent, it searches the controller
+workflow runs on the requested historical run's validated head branch. The search is
+bounded to five 100-run pages and 64 completed later candidates. It checks
+candidates nearest-first and downloads only an exact per-run artifact. A
+covering receipt must bind the candidate run, contain the marked requested
+event, and carry an admission cursor through the covering event. The collector
+does not depend on the current checkpoint. It does not enumerate repository-wide
+artifacts. This keeps transitive evidence usable after later checkpoints replace
+the checkpoint event. Any identity conflict, ambiguity, or bound exhaustion
+fails closed.
+
+The checkpoint folds only through that cutoff. It retains every later live
+event and every selection whose selected or coalesced event run ID binds it to
+that suffix. It also retains the matching worker evidence and results. The
+persisted ownership epoch remains stable so reconciliation can consume those
+immutable suffix receipts after the checkpoint event becomes the graph anchor.
+The cumulative digest and receipt counts continue to cover the pruned prefix.
+A pending checkpoint records the exact unfinished owner, its consumed attempt
+count, and the latest runtime event still owed. Reconciliation waits for that owner;
 its terminal result either satisfies a runtime-equivalent tail or releases the
 latest runtime event for dispatch. Thus queued receipt jobs cannot disappear,
 and a docs-only tail cannot remain pending after its runtime dependency ends.
+An absent admission cursor, a cutoff beyond the admission frontier, an
+out-of-order prefix, an artifact attached to another run, or a checkpoint event
+that is no longer live cannot authorize another fold. The mutation then keeps
+the journal unchanged and fails closed if the hard limit would be exceeded.
 
 The complete rendered comment body remains subject to the controller's
 64,000-byte UTF-8 hard limit. A mutation that cannot use either terminal or

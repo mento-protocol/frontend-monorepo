@@ -259,6 +259,27 @@ test("automatic preview runtime has no v1 journal or worker compatibility path",
   );
 });
 
+test("every non-event journal writer performs capacity preflight and postflight", () => {
+  const implementation = read("scripts/vercel-preview-controller.mjs");
+  const writers = [
+    ["appendJournalReceipt", "writeControllerState"],
+    ["writeControllerState", "writeControllerIntents"],
+    ["writeControllerIntents", "persistControllerAdmissionCursor"],
+  ];
+  for (const [name, nextName] of writers) {
+    const start = implementation.indexOf(`async function ${name}(`);
+    const end = implementation.indexOf(`async function ${nextName}(`, start);
+    assert.ok(start >= 0 && end > start, `${name} must have a stable body`);
+    const capacityChecks = implementation
+      .slice(start, end)
+      .match(/compactPreviewJournalForCapacity\(/g);
+    assert.ok(
+      (capacityChecks?.length ?? 0) >= 2,
+      `${name} must check capacity before and after its mutation`,
+    );
+  }
+});
+
 test("Dependabot intake is credentialless and trusted follow-up alone can write status", () => {
   assert.equal(intake.name, "Vercel Preview Intake");
   assert.deepEqual(intake.on, {
@@ -559,7 +580,12 @@ test("every PR comment writer uses the pull-request resource permission", () => 
 
   const workerEvidence = worker.jobs["record-worker-evidence"];
   assert.match(JSON.stringify(workerEvidence), /recordWorkerEvidence/);
-  assert.equal(workerEvidence.permissions["pull-requests"], "write");
+  assert.deepEqual(workerEvidence.permissions, {
+    actions: "read",
+    contents: "read",
+    deployments: "write",
+    "pull-requests": "write",
+  });
   assert.equal(Object.hasOwn(workerEvidence.permissions, "issues"), false);
 });
 
