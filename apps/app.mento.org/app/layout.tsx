@@ -49,7 +49,11 @@ export default async function RootLayout({
   );
 
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang="en"
+      data-mento-observation-canary="523-v1-app-10"
+      suppressHydrationWarning
+    >
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${aspekta.className} min-h-screen antialiased`}
       >
