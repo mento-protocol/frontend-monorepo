@@ -2177,10 +2177,13 @@ over that cursor, checkpoint, canonical live receipt set, and mutable state.
 It also contains logically immutable live
 event/selection/worker-evidence/result entries, and bounded mutable controller
 state. The state's separate receipts digest binds reconciliation to the
-checkpoint plus live receipt set. The canonical Markdown envelope includes the explicit closing
-`</details>` tag; missing or additional presentation text is invalid. The
-journal keeps one stable comment ID: every update edits it, and no
-receipt-specific comment is created.
+checkpoint plus live receipt set. Writers use compact JSON in the machine block.
+During the formatting migration, readers accept only that compact canonical
+body or the exact prior two-space canonical body. The next mutation always
+rewrites a legacy body in compact form. The canonical Markdown envelope includes
+the explicit closing `</details>` tag; missing or additional presentation text
+is invalid. The journal keeps one stable comment ID: every update edits it, and
+no receipt-specific comment is created.
 
 All jobs that can create or update the journal share one repository-wide,
 per-PR concurrency group configured with `queue: max` and
@@ -2326,7 +2329,7 @@ failure or cancellation meaning continue across later docs-only pushes rather
 than reverting to a fresh no-runtime success. The four-target 50-preview
 sequential-cycle fixture remains below a strict 16,000-byte bound. This is still
 one comment, schema, and controller path: there is no archive, rollover, second
-comment, or compatibility reader.
+comment, or alternate-schema reader.
 
 An overlapping push burst uses the same checkpoint field before the rendered
 body reaches capacity. At the 40,000-byte soft threshold, the controller proves
@@ -2347,7 +2350,12 @@ The complete rendered journal body has a 64,000-byte hard limit measured as
 UTF-8. A transition that cannot safely use either terminal or capacity
 checkpointing and would cross it fails closed before changing the journal,
 reporting success, or dispatching work; active, retired, or unmatched evidence
-is never truncated.
+is never truncated. Compact rendering reduced the live journal that triggered
+the migration from 63,133 bytes to 49,772 bytes without changing its JSON data
+or digests. This restores 14,228 bytes of headroom while keeping the same hard
+limit. The projected terminal recovery is 65,358 bytes with the prior rendering
+and 51,457 bytes with compact rendering. The prior rendering exceeds the hard
+limit. The compact rendering leaves 12,543 bytes of recovery headroom.
 
 Reconciliation is lossy/replaceable, but it reconstructs from the journal's
 entries and mutable state, current PR lifecycle evidence, and GitHub/provider
@@ -2682,7 +2690,8 @@ The authenticated bootstrap run must also be the complete quiescent admission
 frontier. Its receipt establishes that one floor; the existing
 `reconcile-bootstrap` job in the same workflow run then consumes the already
 persisted results, clears the stale current-active slots, and compacts the
-journal. This is not another operation, reader, or compatibility mode. A
+journal. This is not another recovery operation, alternate-schema reader, or
+recovery compatibility mode. A
 terminal-recovery receipt deliberately defers active-capacity checkpointing so
 the old owner lineage survives until that reconcile; the ordinary 60 KB
 comment guard still rejects an oversized body before any write. While that

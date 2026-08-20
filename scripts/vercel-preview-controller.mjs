@@ -428,14 +428,22 @@ function reviewerOutcomeSummary(value) {
   ].join("\n");
 }
 
-export function renderPreviewJournalBody(value) {
+function previewJournalBody(value, json) {
   const reviewerSummary = reviewerOutcomeSummary(value);
-  const body = `${PREVIEW_JOURNAL_MARKER}\n\n${COMMENT_EXPLANATION}\n\n${reviewerSummary}\n\n<details>\n<summary>${COMMENT_DETAILS_SUMMARY}</summary>\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\`\n\n</details>\n`;
+  return `${PREVIEW_JOURNAL_MARKER}\n\n${COMMENT_EXPLANATION}\n\n${reviewerSummary}\n\n<details>\n<summary>${COMMENT_DETAILS_SUMMARY}</summary>\n\n\`\`\`json\n${json}\n\`\`\`\n\n</details>\n`;
+}
+
+export function renderPreviewJournalBody(value) {
+  const body = previewJournalBody(value, JSON.stringify(value));
   invariant(
     Buffer.byteLength(body, "utf8") <= MAX_JOURNAL_BYTES,
     "Preview journal comment is too large",
   );
   return body;
+}
+
+function renderPreviousPreviewJournalBody(value) {
+  return previewJournalBody(value, JSON.stringify(value, null, 2));
 }
 
 function parseJournalBody(body) {
@@ -5114,8 +5122,10 @@ function parsePreviewJournalComments(
     return null;
   }
   const journal = validatePreviewJournal(parseJournalBody(matches[0].body), pr);
+  const compactBody = renderPreviewJournalBody(journal);
   invariant(
-    matches[0].body === renderPreviewJournalBody(journal),
+    matches[0].body === compactBody ||
+      matches[0].body === renderPreviousPreviewJournalBody(journal),
     "Preview journal body is not canonical",
   );
   return journalRecords(journal, matches[0]);
