@@ -11,13 +11,13 @@ const ALWAYS_IGNORE_ERROR_PATTERNS = [
   /WebSocket connection failed for host: wss:\/\/relay\.walletconnect\.org/i,
 ] as const;
 
-const WALLETCONNECT_PROPOSAL_EXPIRED_PATTERN = /^Proposal expired$/i;
+const walletConnectProposalExpiredPattern = /^Proposal expired$/i;
 
-const INDEXED_DB_UNAVAILABLE_ERROR_PATTERNS = [
+const indexedDatabaseUnavailableErrorPatterns = [
   /^(?:Can't find variable: indexedDB|indexedDB is not defined)$/i,
 ] as const;
 
-const WALLETCONNECT_FRAME_PATTERNS = [
+const walletConnectFramePatterns = [
   /(?:^|[/\\])node_modules[/\\](?:\.pnpm[/\\])?@walletconnect(?:\+|[/\\])/i,
   /(?:^|[/\\])node_modules[/\\](?:\.pnpm[/\\])?@reown(?:\+|[/\\])/i,
   /^\.\.\/\.\.\/src\/walletConnect\.ts$/i,
@@ -124,7 +124,7 @@ function hasExtensionFrames(event: ErrorEvent): boolean {
 
 function hasWalletConnectFrames(event: ErrorEvent): boolean {
   return getFrameFilenames(event).some((filename) =>
-    WALLETCONNECT_FRAME_PATTERNS.some((pattern) => pattern.test(filename)),
+    walletConnectFramePatterns.some((pattern) => pattern.test(filename)),
   );
 }
 
@@ -168,14 +168,14 @@ export function filterNoisySentryEvents(
   }
 
   if (
-    WALLETCONNECT_PROPOSAL_EXPIRED_PATTERN.test(message) &&
+    walletConnectProposalExpiredPattern.test(message) &&
     isBrowserUnhandledRejection(event)
   ) {
     return null;
   }
 
   if (
-    INDEXED_DB_UNAVAILABLE_ERROR_PATTERNS.some((pattern) =>
+    indexedDatabaseUnavailableErrorPatterns.some((pattern) =>
       pattern.test(message),
     ) &&
     hasWalletConnectFrames(event)

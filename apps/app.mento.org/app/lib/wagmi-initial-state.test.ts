@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
-const { cookieToInitialState } = vi.hoisted(() => ({
+const { cookieToInitialState, deserialize } = vi.hoisted(() => ({
   cookieToInitialState: vi.fn(),
+  deserialize: vi.fn(),
 }));
 
 vi.mock("@repo/web3/wagmi-ssr", () => ({
   cookieToInitialState,
-  wagmiSsrConfig: {},
+  deserialize,
+  wagmiSsrConfig: { storage: { key: "wagmi" } },
 }));
 
 import { getWagmiInitialState } from "./wagmi-initial-state";
@@ -14,9 +16,10 @@ import { getWagmiInitialState } from "./wagmi-initial-state";
 describe("getWagmiInitialState", () => {
   it("returns the parsed state for a valid cookie", () => {
     const state = { chainId: 42220 };
+    deserialize.mockReturnValue({ state: {} });
     cookieToInitialState.mockReturnValue(state);
 
-    expect(getWagmiInitialState("wagmi.store=valid")).toBe(state);
+    expect(getWagmiInitialState('wagmi.store={"state":{}}')).toBe(state);
   });
 
   it("returns no state when the request has no cookie", () => {
@@ -26,19 +29,33 @@ describe("getWagmiInitialState", () => {
   });
 
   it("ignores malformed cookie state so SSR can continue", () => {
-    cookieToInitialState.mockImplementation(() => {
+    deserialize.mockImplementation(() => {
       throw new SyntaxError("malformed cookie");
     });
 
     expect(getWagmiInitialState("wagmi.store=truncated")).toBeUndefined();
   });
 
-  it("ignores structurally invalid null cookie state", () => {
-    cookieToInitialState.mockImplementation(() => {
-      throw new TypeError("Cannot read properties of null (reading 'state')");
+  it("ignores structurally invalid cookie state during deserialization", () => {
+    deserialize.mockImplementation(() => {
+      throw new TypeError("object is not iterable");
     });
 
-    expect(getWagmiInitialState("wagmi.store=null")).toBeUndefined();
+    expect(
+      getWagmiInitialState('wagmi.store={"__type":"Map","value":{}}'),
+    ).toBeUndefined();
+  });
+
+  it("does not hide parser failures after valid deserialization", () => {
+    const error = new TypeError("unexpected parser failure");
+    deserialize.mockReturnValue({ state: {} });
+    cookieToInitialState.mockImplementation(() => {
+      throw error;
+    });
+
+    expect(() => getWagmiInitialState('wagmi.store={"state":{}}')).toThrow(
+      error,
+    );
   });
 
   it("does not hide unexpected parser failures", () => {
@@ -47,6 +64,6 @@ describe("getWagmiInitialState", () => {
       throw error;
     });
 
-    expect(() => getWagmiInitialState("wagmi.store=valid")).toThrow(error);
+    expect(() => getWagmiInitialState("other.store=valid")).toThrow(error);
   });
 });
