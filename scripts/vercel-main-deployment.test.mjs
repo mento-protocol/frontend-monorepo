@@ -3424,7 +3424,34 @@ test("governance-only smoke materialization pipes through finalization and evide
     jobs: harness.stageJobs,
     runId: "800",
     runAttempt: "3",
+    additionalDeployments: {
+      ui: [
+        {
+          deploymentId: "dpl_uicanceled123",
+          response: {
+            id: "dpl_uicanceled123",
+            url: "https://ui-canceled.vercel.app",
+            projectId: projectIds.ui,
+            name: "ui.mento.org",
+            readyState: "CANCELED",
+            target: "production",
+            customEnvironment: null,
+            source: "git",
+            meta: {
+              githubCommitOrg: "mento-protocol",
+              githubCommitRepo: "frontend-monorepo",
+              githubCommitRef: "main",
+              githubCommitSha: SHA,
+            },
+          },
+        },
+      ],
+    },
   });
+  assert.equal(stateProof.outcome, "proven");
+  assert.deepEqual(stateProof.projects.ui.ids.inertCanceled, [
+    "dpl_uicanceled123",
+  ]);
   const boundFinalMappings = activeFinalMappings(harness).map((entry) =>
     harness.inputs.prior["legacy-app"].aliases.includes(entry.alias)
       ? {
@@ -3474,6 +3501,7 @@ test("governance-only smoke materialization pipes through finalization and evide
     workflowRunUrl: WORKFLOW_RUN_URL,
   });
   assert.deepEqual(evidence.publicSmokes, publicSmokes);
+  assert.equal(evidence.stateProofSummary.targets.ui.counts.inertCanceled, 1);
 });
 
 test("active controller commits exact ordered mutations and emits canonical redacted evidence", async () => {
@@ -3531,7 +3559,7 @@ test("active controller commits exact ordered mutations and emits canonical reda
   assert.equal(evidence.finalMappings.length, 9);
   assert.equal(
     evidence.stateProofSummary.proofSchema,
-    "vercel-active-deployment-state-proof:v4",
+    "vercel-active-deployment-state-proof:v5",
   );
   assert.deepEqual(evidence.recovery.rollbackStateTargets, []);
   assert.match(

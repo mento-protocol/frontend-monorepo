@@ -4337,6 +4337,7 @@ function summarizeActiveDeploymentStateProof(
               nativeGitOwner: project.counts.nativeGitOwner,
               nativeGitDuplicates: project.counts.nativeGitDuplicates,
               manualDuplicates: project.counts.manualDuplicates,
+              inertCanceled: project.counts.inertCanceled,
               unknown: project.counts.unknown,
             },
           },
@@ -7052,7 +7053,7 @@ function canonicalNestedStateProofSummary(
     "Nested active state proof summary",
   );
   if (
-    value.proofSchema !== "vercel-active-deployment-state-proof:v4" ||
+    value.proofSchema !== "vercel-active-deployment-state-proof:v5" ||
     !["proven", "unproven"].includes(value.outcome) ||
     (requireProven && value.outcome !== "proven") ||
     value.transactionId !== transactionId
@@ -7094,6 +7095,7 @@ function canonicalNestedStateProofSummary(
         "nativeGitOwner",
         "nativeGitDuplicates",
         "manualDuplicates",
+        "inertCanceled",
         "unknown",
       ];
       assertExactKeys(

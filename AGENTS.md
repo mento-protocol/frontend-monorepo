@@ -265,7 +265,11 @@ the controller rechecks freshness and protected state and persists the next
 durable journal transition. Recovery restores exact captured mappings in
 reverse mutation order and treats unknown operator-owned state as manual
 intervention. The final evidence includes an active duplicate-deployment census
-and fails if native Vercel also attempted a replaced `main` path.
+and fails if Vercel produced an unexpected serving or pending deployment for a
+replaced `main` path. If the release plan has no expected candidate for a
+project, an exact-project, exact-SHA deployment in terminal `CANCELED` state
+remains visible as `inertCanceled` evidence. It cannot satisfy the required
+candidate or protected-mapping proof.
 
 Ordinary reruns reuse only the exact stable candidate identified by the release
 manifest, one provider candidate, and fresh deployment inspection/smoke. A

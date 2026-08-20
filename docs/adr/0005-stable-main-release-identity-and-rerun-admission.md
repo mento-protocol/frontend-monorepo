@@ -197,8 +197,11 @@ every other non-prefix state still require manual intervention.
   or mutated again.
 - The final duplicate census may observe at most the exact manifest-bound
   same-SHA original prior alongside the canonical candidate. Separate mapping
-  proof must show the candidate owns every protected alias; any other same-SHA
-  deployment fails closed.
+  proof must show the candidate owns every protected alias. For a project
+  without an expected candidate, an exact-project, exact-SHA deployment in
+  terminal `CANCELED` state remains visible as `inertCanceled` evidence and
+  cannot satisfy either proof. Any other serving, pending, malformed, or
+  ambiguous same-SHA deployment fails closed.
 - Final-only reruns use the terminal receipt/evidence handoff only.
 - Missing, conflicting, or ambiguous provider evidence stops the release rather
   than selecting a guess. Operators use the documented recovery and rollback

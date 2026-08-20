@@ -232,8 +232,11 @@ Unexpected operator-owned mappings stop for manual review rather than being
 overwritten. The design does not claim cross-project atomicity; it provides a
 bounded, auditable transaction with explicit compensation.
 
-After activation, a fail-closed duplicate census proves that native Vercel did
-not also attempt any replaced `main` path for the exact target/SHA release.
+After activation, a fail-closed duplicate census proves that no unexpected
+serving or pending deployment exists for a replaced `main` path at the exact
+target/SHA release. For a project without an expected candidate, an
+exact-project, exact-SHA deployment in terminal `CANCELED` state remains
+visible as inert evidence and cannot satisfy the candidate or mapping proof.
 Legacy App `v2 -> production` activity is classified and verified separately
 instead of being mislabeled as a duplicate `main -> v3` deployment.
 
