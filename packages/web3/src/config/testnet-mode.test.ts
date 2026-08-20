@@ -1,3 +1,5 @@
+import { createStore } from "jotai";
+import { RESET } from "jotai/utils";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("./chains", () => ({
@@ -12,7 +14,12 @@ vi.mock("./chains", () => ({
   },
 }));
 
-import { readTestnetModeCookie, readTestnetModeStorage } from "./testnet-mode";
+import {
+  readTestnetModeCookie,
+  readTestnetModeStorage,
+  TESTNET_MODE_COOKIE,
+  testnetModeAtom,
+} from "./testnet-mode";
 
 describe("testnet-mode cookie parsing", () => {
   it("reads enabled cookie values", () => {
@@ -64,6 +71,100 @@ describe("testnet-mode storage access", () => {
       Object.defineProperty(globalThis, "window", {
         configurable: true,
         value: originalWindow,
+      });
+    }
+  });
+
+  it("persists the cookie when a localStorage write throws", () => {
+    const originalWindow = globalThis.window;
+    const originalDocument = globalThis.document;
+    const cookieWrites: string[] = [];
+
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        localStorage: {
+          getItem: vi.fn(() => null),
+          setItem: vi.fn(() => {
+            throw new Error("localStorage is blocked");
+          }),
+        },
+      },
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        get cookie() {
+          return "";
+        },
+        set cookie(value: string) {
+          cookieWrites.push(value);
+        },
+      },
+    });
+
+    try {
+      const store = createStore();
+
+      expect(() => store.set(testnetModeAtom, true)).not.toThrow();
+      expect(cookieWrites).toContain(
+        `${TESTNET_MODE_COOKIE}=1; Path=/; Max-Age=31536000; SameSite=Lax`,
+      );
+    } finally {
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: originalWindow,
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument,
+      });
+    }
+  });
+
+  it("removes the cookie when a localStorage removal throws", () => {
+    const originalWindow = globalThis.window;
+    const originalDocument = globalThis.document;
+    const cookieWrites: string[] = [];
+
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        localStorage: {
+          getItem: vi.fn(() => null),
+          removeItem: vi.fn(() => {
+            throw new Error("localStorage is blocked");
+          }),
+        },
+      },
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        get cookie() {
+          return `${TESTNET_MODE_COOKIE}=1`;
+        },
+        set cookie(value: string) {
+          cookieWrites.push(value);
+        },
+      },
+    });
+
+    try {
+      const store = createStore();
+
+      expect(() => store.set(testnetModeAtom, RESET)).not.toThrow();
+      expect(cookieWrites).toContain(
+        `${TESTNET_MODE_COOKIE}=0; Path=/; Max-Age=0; SameSite=Lax`,
+      );
+    } finally {
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: originalWindow,
+      });
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: originalDocument,
       });
     }
   });
