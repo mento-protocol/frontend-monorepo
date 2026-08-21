@@ -128,8 +128,13 @@ a candidate ref.
 
 Prepare execution has explicit phases:
 
+- The initial read-only evaluation collects the global lane once. It validates
+  its result before it exports only `refresh_required` and `refresh_pending`
+  routing booleans. These booleans cannot authorize mutation or readiness. The
+  workflow skips the request job for every other state.
 - `request` may publish only a typed old-head Refresh request. It has no App
-  credential or branch-write authority.
+  credential or branch-write authority. It recollects live state before it
+  publishes a request or confirms a pending request.
 - `mutate` may consume only a terminal trusted request from an earlier
   Processor run. Before dispatch, the old PR base must still match the
   receipt's `previousBaseSha`, while an independent live default-branch lookup
@@ -137,8 +142,9 @@ Prepare execution has explicit phases:
   performs the bounded branch refresh. It cannot publish checks, approve,
   reply, resolve threads, or publish ALL CLEAR.
 - `finalize` rejects `DEPENDABOT_PROCESSOR_REPAIR_TOKEN`, cannot update a
-  branch, recollects the exact head, and alone may clean stale processor
-  approvals, post packet-bound replies, approve, and publish ALL CLEAR.
+  branch, independently recollects the exact head and global lane, and alone
+  may clean stale processor approvals, post packet-bound replies, approve, and
+  publish ALL CLEAR.
 - A phase-less invocation defaults to `finalize` for compatibility; every
   trusted workflow passes its phase explicitly. An unknown or incompatible
   phase fails closed.

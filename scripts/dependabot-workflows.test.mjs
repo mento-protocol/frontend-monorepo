@@ -325,7 +325,7 @@ test("npm group routing isolates sensitive dependencies and covers the workspace
 
 test("embedded workflow JavaScript parses before GitHub executes it", () => {
   const expectedModuleCounts = new Map([
-    [processorPath, 3],
+    [processorPath, 4],
     [dependabotReviewPath, 6],
     [preparedIntakePath, 1],
     [repairPath, 3],
@@ -750,7 +750,6 @@ test("every processor phase materializes only the exact trusted sources", () => 
   for (const jobName of [
     "evaluate",
     "process",
-    "prepare-validate",
     "prepare-request",
     "prepare-mutate",
     "prepare-finalize",
@@ -829,7 +828,6 @@ exit 64
     for (const jobName of [
       "evaluate",
       "process",
-      "prepare-validate",
       "prepare-request",
       "prepare-mutate",
       "prepare-finalize",
@@ -931,6 +929,8 @@ test("processor normalizes only exact human-merge-only modes", () => {
     pr_numbers: "${{ steps.target.outputs.pr_numbers }}",
     processor_mode: "${{ steps.mode.outputs.processor_mode }}",
     prepare: "${{ steps.mode.outputs.prepare }}",
+    refresh_pending: "${{ steps.evaluation.outputs.refresh_pending }}",
+    refresh_required: "${{ steps.evaluation.outputs.refresh_required }}",
   });
 
   const invocation = evaluateJob.steps.find((step) =>
@@ -987,40 +987,172 @@ test("observe and assist processing have no branch-write App credential", () => 
   assert.doesNotMatch(raw, /--admin\b/);
 });
 
-test("prepare validation repeats the live plan without secrets or write authority", () => {
-  const validateJob = processor.jobs["prepare-validate"];
-  assert.equal(validateJob.needs, "evaluate");
-  assert.match(validateJob.if, /needs\.evaluate\.outputs\.prepare == 'true'/);
-  assert.deepEqual(validateJob.permissions, {
-    actions: "read",
-    checks: "read",
-    contents: "read",
-    issues: "read",
-    "pull-requests": "read",
-    statuses: "read",
+test("initial evaluation exports only validated prepare routing booleans", () => {
+  const evaluation = processor.jobs.evaluate.steps.find(
+    (step) => step.id === "evaluation",
+  );
+  assert.ok(evaluation);
+  assert.match(evaluation.run, /> "\$EVALUATION_RESULT_PATH"/);
+  assert.match(evaluation.run, /dependabot-processor:v2/);
+  assert.match(evaluation.run, /allowedDispositions/);
+  assert.match(evaluation.run, /refresh_pending=/);
+  assert.match(evaluation.run, /refresh_required=/);
+  assert.doesNotMatch(evaluation.run, /prepareCandidate=.*GITHUB_OUTPUT/);
+
+  const temporaryDirectory = mkdtempSync(
+    join(tmpdir(), "dependabot-evaluation-routing-test-"),
+  );
+  const mockProcessor = join(temporaryDirectory, "mock-processor.mjs");
+  writeFileSync(
+    mockProcessor,
+    "process.stdout.write(process.env.MOCK_EVALUATION_RESULT);\n",
+  );
+
+  const candidate = (disposition) => ({
+    disposition,
+    headSha: "a".repeat(40),
+    pullRequestNumber: 777,
   });
+  const resultFor = ({
+    prepareCandidate = null,
+    mode = "prepare",
+    repository = "mento-protocol/frontend-monorepo",
+    schema = "dependabot-processor:v2",
+  } = {}) => ({
+    evaluations: prepareCandidate === null ? [] : [{ ...prepareCandidate }],
+    mode,
+    prepareCandidate,
+    repository,
+    schema,
+  });
+  const runRouting = (result, mode = result.mode) =>
+    runBashStep(evaluation, {
+      EVALUATION_RESULT_PATH: join(temporaryDirectory, "evaluation.json"),
+      EXPECTED_HEAD_SHA: "",
+      MOCK_EVALUATION_RESULT: JSON.stringify(result),
+      PROCESSOR_MODE: mode,
+      PROCESSOR_PATH: mockProcessor,
+      PR_NUMBERS: "all",
+      REPOSITORY: "mento-protocol/frontend-monorepo",
+    });
 
-  const invocation = validateJob.steps.find(
-    (step) =>
-      step.name === "Revalidate the prepare plan without mutation authority",
-  );
-  assert.ok(invocation);
-  assert.match(invocation.run, /evaluate\s+--live/);
-  assert.match(invocation.run, /--mode prepare/);
-  assert.match(invocation.run, /--expected-head-sha/);
+  try {
+    for (const [disposition, expectedPending, expectedRequired] of [
+      [null, false, false],
+      ["feedback-remediation-required", false, false],
+      ["prepare-candidate", false, false],
+      ["refresh-receipt-required", false, false],
+      ["refresh-required", false, true],
+      ["refresh-pending", true, false],
+      ["repair-pending", false, false],
+      ["repair-required", false, false],
+      ["waiting-baseline", false, false],
+      ["waiting-checks", false, false],
+      ["waiting-retry", false, false],
+    ]) {
+      const result = runRouting(
+        resultFor({
+          prepareCandidate:
+            disposition === null ? null : candidate(disposition),
+        }),
+      );
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(
+        result.githubOutput,
+        `refresh_pending=${expectedPending}\n` +
+          `refresh_required=${expectedRequired}\n`,
+      );
+    }
 
-  const raw = JSON.stringify(validateJob);
-  assert.doesNotMatch(raw, forbiddenCandidateSurfaces);
-  assert.doesNotMatch(
-    raw,
-    /secrets\.|PREPARE_APP|REPAIR_TOKEN|checks:write|contents:write/,
-  );
+    const observe = runRouting(resultFor({ mode: "observe" }), "observe");
+    assert.equal(observe.status, 0, observe.stderr);
+    assert.equal(
+      observe.githubOutput,
+      "refresh_pending=false\nrefresh_required=false\n",
+    );
+    const observeCandidate = runRouting(
+      resultFor({
+        mode: "observe",
+        prepareCandidate: candidate("refresh-required"),
+      }),
+      "observe",
+    );
+    assert.notEqual(observeCandidate.status, 0, observeCandidate.stderr);
+    assert.equal(observeCandidate.githubOutput, "");
+
+    for (const invalid of [
+      resultFor({ schema: "dependabot-processor:v1" }),
+      resultFor({ repository: "other/repository" }),
+      resultFor({ mode: "assist" }),
+      resultFor({
+        prepareCandidate: {
+          ...candidate("refresh-required"),
+          headSha: "b".repeat(39),
+        },
+      }),
+      resultFor({
+        prepareCandidate: {
+          ...candidate("refresh-required"),
+          pullRequestNumber: 0,
+        },
+      }),
+      resultFor({
+        prepareCandidate: {
+          ...candidate("refresh-required"),
+          pullRequestNumber: 10_000_000_000,
+        },
+      }),
+      {
+        evaluations: [],
+        mode: "prepare",
+        repository: "mento-protocol/frontend-monorepo",
+        schema: "dependabot-processor:v2",
+      },
+      resultFor({
+        prepareCandidate: {
+          ...candidate("refresh-required"),
+          extra: true,
+        },
+      }),
+      resultFor({ prepareCandidate: candidate("unknown") }),
+      {
+        ...resultFor({
+          prepareCandidate: candidate("refresh-required"),
+        }),
+        evaluations: [],
+      },
+      {
+        ...resultFor({
+          prepareCandidate: candidate("refresh-required"),
+        }),
+        evaluations: [
+          candidate("refresh-required"),
+          candidate("refresh-required"),
+        ],
+      },
+    ]) {
+      const result = runRouting(invalid, "prepare");
+      assert.notEqual(result.status, 0, JSON.stringify(invalid));
+      assert.equal(result.githubOutput, "", JSON.stringify(invalid));
+    }
+  } finally {
+    rmSync(temporaryDirectory, { force: true, recursive: true });
+  }
 });
 
 test("refresh request publication has checks authority but no branch credential", () => {
   const requestJob = processor.jobs["prepare-request"];
-  assert.deepEqual(requestJob.needs, ["evaluate", "prepare-validate"]);
-  assert.match(requestJob.if, /needs\.prepare-validate\.result == 'success'/);
+  assert.equal(requestJob.needs, "evaluate");
+  assert.match(requestJob.if, /needs\.evaluate\.result == 'success'/);
+  assert.match(requestJob.if, /needs\.evaluate\.outputs\.prepare == 'true'/);
+  assert.match(
+    requestJob.if,
+    /needs\.evaluate\.outputs\.refresh_required == 'true'/,
+  );
+  assert.match(
+    requestJob.if,
+    /needs\.evaluate\.outputs\.refresh_pending == 'true'/,
+  );
   assert.deepEqual(requestJob.permissions, {
     actions: "read",
     checks: "write",
@@ -1156,7 +1288,16 @@ test("prepare jobs mint a branch token only for a trusted pending refresh", () =
   assert.match(finalizeJob.if, /^always\(\)/);
   assert.match(
     finalizeJob.if,
-    /needs\.prepare-request\.outputs\.refresh_requested != 'true'/,
+    /needs\.prepare-request\.outputs\.refresh_requested == 'false'/,
+  );
+  assert.match(finalizeJob.if, /needs\.prepare-request\.result == 'skipped'/);
+  assert.match(
+    finalizeJob.if,
+    /needs\.evaluate\.outputs\.refresh_required == 'false'/,
+  );
+  assert.match(
+    finalizeJob.if,
+    /needs\.evaluate\.outputs\.refresh_pending == 'false'/,
   );
   assert.match(finalizeJob.if, /needs\.prepare-mutate\.result == 'skipped'/);
 });
@@ -1305,9 +1446,22 @@ test("prepare finalization has approval authority but no branch-write credential
   assert.match(finalizeJob.if, /^always\(\)/);
   assert.match(finalizeJob.if, /needs\.evaluate\.outputs\.prepare == 'true'/);
   assert.match(finalizeJob.if, /needs\.prepare-request\.result == 'success'/);
+  assert.match(finalizeJob.if, /needs\.prepare-request\.result == 'skipped'/);
   assert.match(
     finalizeJob.if,
+    /needs\.prepare-request\.outputs\.refresh_requested == 'false'/,
+  );
+  assert.doesNotMatch(
+    finalizeJob.if,
     /needs\.prepare-request\.outputs\.refresh_requested != 'true'/,
+  );
+  assert.match(
+    finalizeJob.if,
+    /needs\.evaluate\.outputs\.refresh_required == 'false'/,
+  );
+  assert.match(
+    finalizeJob.if,
+    /needs\.evaluate\.outputs\.refresh_pending == 'false'/,
   );
   assert.match(finalizeJob.if, /needs\.prepare-mutate\.result == 'success'/);
   assert.match(finalizeJob.if, /needs\.prepare-mutate\.result == 'skipped'/);
