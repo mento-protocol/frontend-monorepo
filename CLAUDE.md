@@ -267,6 +267,11 @@ green heads skip it and can finalize without Prepare App configuration. A
 same-head `repair-pending` result preserves its original packet/run without
 publishing another packet or identical check.
 
+A packetless Processor check is a non-authorizing status record. It does not
+enter repair-receipt or attempt accounting. Only a `packet=true` check can bind
+repair authority, and that check requires terminal-success workflow
+provenance.
+
 The typed check contracts are `Dependabot Refresh`
 (`dependabot-refresh:v1`), `Dependabot Repair Intent`
 (`dependabot-repair-intent:v1`), `Dependabot Repair`
