@@ -55,4 +55,17 @@ describe("decodeTransaction", () => {
         '{"timestep0":"0","timestep1":"0","limit0":"0","limit1":"0","limitGlobal":"1597","flags":"4"}',
     });
   });
+
+  it("does not apply the Broker ABI to another contract", async () => {
+    const decoded = await decodeTransaction(
+      {
+        address: "0x0000000000000000000000000000000000000001",
+        value: "0",
+        data: SET_AUDM_LIMIT,
+      },
+      EMPTY_ABI_MAP,
+    );
+
+    expect(decoded).toBeNull();
+  });
 });

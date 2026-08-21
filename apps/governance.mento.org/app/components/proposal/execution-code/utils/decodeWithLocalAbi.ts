@@ -158,6 +158,10 @@ const BROKER_ABI = parseAbi([
   "function configureTradingLimit(bytes32 exchangeId, address token, (uint32 timestep0, uint32 timestep1, int48 limit0, int48 limit1, int48 limitGlobal, uint8 flags) config)",
 ]);
 
+export const ADDRESS_SCOPED_ABIS: ReadonlyMap<string, Abi> = new Map([
+  ["0x777a8255ca72412f0d706dc03c9d1987306b4cad", BROKER_ABI],
+]);
+
 // Proxy Admin functions
 const PROXY_ADMIN_ABI = parseAbi([
   // Proxy management
@@ -379,7 +383,6 @@ export const KNOWN_ABIS: Abi = [
   ...VEMENTO_ABI,
   ...RESERVE_ABI,
   ...PROTOCOL_ABI,
-  ...BROKER_ABI,
   ...SORTED_ORACLES_ABI,
   ...PROXY_ADMIN_ABI,
   ...STABLETOKEN_ABI,

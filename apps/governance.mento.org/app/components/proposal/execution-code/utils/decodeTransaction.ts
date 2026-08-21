@@ -3,7 +3,7 @@ import { DecodedTransaction, Transaction } from "../../types/transaction";
 import { isProxyFunctionCall } from "./isProxyFunctionCall";
 import { Abi, type AbiParameter, decodeFunctionData } from "viem";
 
-import { KNOWN_ABIS } from "./decodeWithLocalAbi";
+import { ADDRESS_SCOPED_ABIS, KNOWN_ABIS } from "./decodeWithLocalAbi";
 
 /**
  * Generalized function to decode a transaction with fallback logic
@@ -35,7 +35,12 @@ export async function decodeTransaction(
 function decodeWithLocalAbi(
   transaction: Transaction | null | undefined,
 ): DecodedTransaction | null {
-  return decodeTransactionWithABI(transaction, KNOWN_ABIS);
+  const scopedAbi = transaction
+    ? ADDRESS_SCOPED_ABIS.get(transaction.address.toLowerCase())
+    : undefined;
+  const localAbi: Abi = scopedAbi ? [...KNOWN_ABIS, ...scopedAbi] : KNOWN_ABIS;
+
+  return decodeTransactionWithABI(transaction, localAbi);
 }
 
 /**
