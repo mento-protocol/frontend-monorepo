@@ -1557,6 +1557,10 @@ test("capture-preview freezes the canonical v2 journal and raw GitHub facts", ()
     capture.canonicalDerivedFacts.observationReceiptSource,
     "live-journal",
   );
+  assert.equal(
+    capture.canonicalDerivedFacts.observationReceiptEventRunId,
+    null,
+  );
   assert.ok(
     capture.files.some((file) => file.path === "raw/journal-comment.json"),
   );
@@ -2098,6 +2102,10 @@ test("capture-preview recovers a compacted exact artifact after the current PR b
     capture.canonicalDerivedFacts.observationReceiptSource,
     "actions-artifact",
   );
+  assert.equal(
+    capture.canonicalDerivedFacts.observationReceiptEventRunId,
+    String(event.event_run_id),
+  );
   assert.ok(
     capture.files.some(
       (file) => file.path === "raw/observation-receipt-artifact.json",
@@ -2234,14 +2242,26 @@ test("capture-preview recovers a pruned event on its historical branch after the
     created_at: "2026-07-29T02:00:01.000Z",
     updated_at: "2026-07-29T02:04:00.000Z",
   });
+  const fartherRuns = Array.from({ length: 65 }, (_, index) => {
+    const fartherEvent = {
+      ...laterEvent,
+      event_run_id: 9_100 + index,
+      event_run_number: laterEvent.event_run_number + index + 1,
+    };
+    return previewControllerRun(fartherEvent, {
+      created_at: "2026-07-29T03:00:01.000Z",
+      updated_at: "2026-07-29T03:04:00.000Z",
+    });
+  }).reverse();
   addPreviewControllerBranchRunsRoute(
     routes,
     event.head_ref,
     [
+      ...fartherRuns,
       laterRun,
       { id: 9_002, run_number: 502, status: "queued" },
       previewControllerRun(event),
-      ...Array.from({ length: 97 }, (_, index) => ({
+      ...Array.from({ length: 32 }, (_, index) => ({
         id: 60_000 + index,
         run_number: 500 - index,
         status: "queued",
@@ -2272,6 +2292,14 @@ test("capture-preview recovers a pruned event on its historical branch after the
     capture.canonicalDerivedFacts.observationReceiptSource,
     "actions-artifact",
   );
+  assert.equal(
+    capture.canonicalDerivedFacts.observationReceiptEventRunId,
+    String(laterEvent.event_run_id),
+  );
+  assert.notEqual(
+    capture.canonicalDerivedFacts.observationReceiptEventRunId,
+    capture.eventRunId,
+  );
   assert.equal(receipt.event_run_id, laterEvent.event_run_id);
   assert.ok(
     receipt.receipts.events.some(
@@ -2287,6 +2315,14 @@ test("capture-preview recovers a pruned event on its historical branch after the
   );
   assert.equal(
     calls.some((args) => commandKey(args).includes("actions/artifacts")),
+    false,
+  );
+  assert.equal(
+    calls.some((args) =>
+      fartherRuns.some((run) =>
+        commandKey(args).includes(`/actions/runs/${run.id}/artifacts`),
+      ),
+    ),
     false,
   );
 });

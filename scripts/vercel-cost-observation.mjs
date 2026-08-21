@@ -1251,11 +1251,9 @@ function laterPreviewControllerRuns(dependencies, requestedRun) {
         foundRequestedRun,
         "Preview controller branch run search did not reach the requested run",
       );
-      invariant(
-        runs.length <= MAX_COVERING_PREVIEW_OBSERVATION_CANDIDATES,
-        "Covering preview observation artifact search exceeded its bound",
-      );
-      return runs.sort((left, right) => left.run_number - right.run_number);
+      return runs
+        .sort((left, right) => left.run_number - right.run_number)
+        .slice(0, MAX_COVERING_PREVIEW_OBSERVATION_CANDIDATES);
     }
   }
   throw new Error("Preview controller branch run search exceeded its bound");
@@ -2504,6 +2502,8 @@ function capturePreview({ root, pr, eventRunId, dependencies }) {
         eligibleTrustedDeployedCodePush,
         observationReceiptSource:
           immutable === null ? "live-journal" : "actions-artifact",
+        observationReceiptEventRunId:
+          immutable === null ? null : String(immutable.receipt.event_run_id),
         journalSchema: journal.schema,
         journalRevision: journal.revision,
         journalCommentId: positiveId(

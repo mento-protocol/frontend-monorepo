@@ -34,6 +34,17 @@ const PREVIEW_CHECKPOINT_SCHEMA = "vercel-preview-checkpoint:v2";
 const CONTROLLER_ADMISSION_SCHEMA = "vercel-preview-controller-admission:v1";
 const WORKER_WORKFLOW = "vercel-preview-worker.yml";
 const WORKER_WORKFLOW_NAME = "Vercel Preview Worker";
+const WORKER_EVIDENCE_JOB_NAME =
+  "Persist immutable pre-completion worker evidence";
+const WORKER_EVIDENCE_STEP_NAME =
+  "Record epoch-bound upload and retry evidence";
+const MAX_WORKER_ATTEMPT_JOBS = 32;
+const PREVIEW_TARGET_TITLES = Object.freeze({
+  app: "App",
+  governance: "Governance",
+  reserve: "Reserve",
+  ui: "UI",
+});
 const CONTROLLER_WORKFLOW = "vercel-preview-controller.yml";
 const CONTROLLER_WORKFLOW_NAME = "Vercel Preview Controller";
 const INTAKE_WORKFLOW = "vercel-preview-intake.yml";
@@ -84,6 +95,9 @@ const MAX_SERIALIZED_UPDATE_ATTEMPTS = 3;
 // GitHub issue comments cap at 65,536 bytes; 64,000 retains 1,536 bytes of headroom.
 const MAX_JOURNAL_BYTES = 64_000;
 const ACTIVE_CHECKPOINT_BYTES = 40_000;
+const MAX_RETAINED_PREVIEW_OBSERVATION_CANDIDATES = 64;
+const DEPLOYMENT_STATUS_PAGE_SIZE = 100;
+const MAX_DEPLOYMENT_STATUS_PAGES = 3;
 const WORKER_RUN_PAGE_SIZE = 100;
 const MAX_WORKER_RUN_PAGES = 3;
 const WORKER_RUN_VISIBILITY_ATTEMPTS = 3;
@@ -3289,8 +3303,11 @@ export function reconcileState({
     const checkpointRuntimeEvent =
       checkpointTarget?.latest_runtime_event ?? null;
     const checkpointOwnerEvent = checkpointTarget?.pending_owner_event ?? null;
+    const checkpointOwnerIsLive = liveCandidates.some(
+      (event) => event.event_run_id === checkpointOwnerEvent?.event_run_id,
+    );
     const candidates = [
-      checkpointOwnerEvent,
+      checkpointOwnerIsLive ? null : checkpointOwnerEvent,
       checkpointRuntimeEvent,
       ...liveCandidates,
     ]
@@ -3469,9 +3486,18 @@ export function reconcileState({
         const desired = candidateByRun.get(
           previousTarget?.latest_desired_receipt_run_id,
         );
+        const completedIndex = candidates.findIndex(
+          (event) =>
+            event.event_run_id === completedActive.selection_receipt_run_id,
+        );
+        const desiredIndex = desired
+          ? candidates.findIndex(
+              (event) => event.event_run_id === desired.event_run_id,
+            )
+          : -1;
         if (
           desired &&
-          desired.event_run_id !== completedActive.selection_receipt_run_id &&
+          desiredIndex > completedIndex &&
           !resultByRun.has(desired.event_run_id)
         ) {
           selected = desired;
@@ -5705,6 +5731,7 @@ async function latestRetainedObservationCutoff({ github, context, journal }) {
     journal.checkpoint,
   );
   if (closure !== null) return null;
+  let artifactLookups = 0;
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const candidate = events[index];
     if (
@@ -5725,6 +5752,10 @@ async function latestRetainedObservationCutoff({ github, context, journal }) {
     ) {
       continue;
     }
+    if (artifactLookups >= MAX_RETAINED_PREVIEW_OBSERVATION_CANDIDATES) {
+      return null;
+    }
+    artifactLookups += 1;
     const artifacts = await github.paginate(
       github.rest.actions.listWorkflowRunArtifacts,
       {
@@ -5741,6 +5772,28 @@ async function latestRetainedObservationCutoff({ github, context, journal }) {
     }
   }
   return null;
+}
+
+function bindJournalStateToReceipts(journal) {
+  invariant(journal.state !== null, "Preview journal state is missing");
+  journal.state.receipts_digest = controllerReceiptsDigest(
+    journal.receipts.events,
+    journal.receipts.results,
+    journal.receipts.selections,
+    journal.pr,
+    journal.checkpoint,
+  );
+  journal.journal_digest = previewJournalDigest(
+    journal.receipts,
+    journal.state,
+    journal.checkpoint,
+    journal.admission,
+  );
+}
+
+function synchronizeControllerState(state, journal) {
+  bindJournalStateToReceipts(journal);
+  Object.assign(state, structuredClone(journal.state));
 }
 
 export async function compactPreviewJournalForCapacity({
@@ -6099,6 +6152,7 @@ async function writeControllerState({
         expectedPullNumber: pr,
       });
       journal.state = structuredClone(state);
+      bindJournalStateToReceipts(journal);
       if (compactClosedBootstrapRecovery) {
         invariant(
           state.closed,
@@ -6111,23 +6165,9 @@ async function writeControllerState({
             events: journal.receipts.events,
           })
         ) {
-          journal.journal_digest = previewJournalDigest(
-            journal.receipts,
-            journal.state,
-            journal.checkpoint,
-            journal.admission,
-          );
           compactPreviewJournal(journal, { expectedPullNumber: pr });
-        } else {
-          renderPreviewJournalBody(journal);
         }
       } else {
-        journal.journal_digest = previewJournalDigest(
-          journal.receipts,
-          journal.state,
-          journal.checkpoint,
-          journal.admission,
-        );
         await compactPreviewJournalForCapacity({
           github,
           context,
@@ -6135,6 +6175,8 @@ async function writeControllerState({
           expectedPullNumber: pr,
         });
       }
+      synchronizeControllerState(state, journal);
+      if (compactClosedBootstrapRecovery) renderPreviewJournalBody(journal);
     },
   });
   return updated.journalComment;
@@ -6179,18 +6221,14 @@ async function writeControllerIntents({
           journal.receipts.selections.push(structuredClone(receipt));
         }
       }
-      journal.journal_digest = previewJournalDigest(
-        journal.receipts,
-        journal.state,
-        journal.checkpoint,
-        journal.admission,
-      );
+      bindJournalStateToReceipts(journal);
       await compactPreviewJournalForCapacity({
         github,
         context,
         journal,
         expectedPullNumber: pr,
       });
+      synchronizeControllerState(state, journal);
     },
   });
   return updated.journalComment;
@@ -8820,16 +8858,24 @@ async function createRecoveryDeployment(
 }
 
 async function deploymentStatusHistory(github, context, deploymentId) {
-  const { data } = await github.rest.repos.listDeploymentStatuses({
-    ...ownerRepo(context),
-    deployment_id: deploymentId,
-    per_page: 100,
-  });
-  invariant(
-    Array.isArray(data),
-    "GitHub Deployment statuses response is malformed",
+  const statuses = [];
+  for (let page = 1; page <= MAX_DEPLOYMENT_STATUS_PAGES; page += 1) {
+    const { data } = await github.rest.repos.listDeploymentStatuses({
+      ...ownerRepo(context),
+      deployment_id: deploymentId,
+      per_page: DEPLOYMENT_STATUS_PAGE_SIZE,
+      page,
+    });
+    invariant(
+      Array.isArray(data) && data.length <= DEPLOYMENT_STATUS_PAGE_SIZE,
+      "GitHub Deployment statuses response is malformed",
+    );
+    statuses.push(...data);
+    if (data.length < DEPLOYMENT_STATUS_PAGE_SIZE) return statuses;
+  }
+  throw new Error(
+    `GitHub Deployment status history exceeded the ${MAX_DEPLOYMENT_STATUS_PAGES * DEPLOYMENT_STATUS_PAGE_SIZE}-status bound`,
   );
-  return data;
 }
 
 async function terminalizeDeployment(
@@ -9010,6 +9056,328 @@ export async function recordWorkerEvidence({
   return workerEvidence;
 }
 
+function workerAttemptUrl(runId, runAttempt) {
+  return `https://github.com/${PREVIEW_REPOSITORY}/actions/runs/${exactRunId(
+    runId,
+  )}/attempts/${exactRunAttempt(runAttempt)}`;
+}
+
+function expectedWorkerEvidenceRecoveryJobs(target, sha) {
+  const selectedTarget = previewTarget(target, "Evidence recovery target");
+  const selectedTitle = PREVIEW_TARGET_TITLES[selectedTarget];
+  const jobs = new Map([
+    ["Validate exact-SHA controller ownership", "success"],
+    ["Finalize resumed smoke lifecycle", "skipped"],
+    [WORKER_EVIDENCE_JOB_NAME, "failure"],
+  ]);
+  for (const candidate of PREVIEW_TARGETS) {
+    const title = PREVIEW_TARGET_TITLES[candidate];
+    jobs.set(
+      `Validate ${title} preview prerequisite names`,
+      candidate === selectedTarget ? "success" : "skipped",
+    );
+    jobs.set(
+      `Resume ${title} smoke for an existing immutable upload`,
+      "skipped",
+    );
+    if (candidate !== selectedTarget) {
+      jobs.set(`Run ${title} prebuilt preview pipeline`, "skipped");
+    }
+  }
+  jobs.set(
+    `Run ${selectedTitle} prebuilt preview pipeline / Prebuilt ${selectedTarget} preview`,
+    "success",
+  );
+  jobs.set(
+    `Run ${selectedTitle} prebuilt preview pipeline / Smoke verified ${selectedTarget} preview / Smoke ${selectedTarget} ${exactSha(
+      sha,
+    )}`,
+    "success",
+  );
+  jobs.set(
+    `Run ${selectedTitle} prebuilt preview pipeline / Finalize ${selectedTarget} deployment lifecycle`,
+    "success",
+  );
+  return jobs;
+}
+
+function validateEvidenceRecoveryJobSteps(
+  job,
+  { requiredSuccessSteps = [], requiredFailedStep = null } = {},
+) {
+  invariant(Array.isArray(job.steps), "Worker recovery job steps are missing");
+  const stepNames = new Set();
+  const failedSteps = [];
+  for (const value of job.steps) {
+    const step = plainObject(value, "Worker recovery job step");
+    const name = boundedText(step.name, "Worker recovery job step name");
+    invariant(
+      !stepNames.has(name),
+      "Worker recovery job has duplicate step names",
+    );
+    stepNames.add(name);
+    invariant(
+      step.status === "completed",
+      "Worker recovery job step is not completed",
+    );
+    invariant(
+      ["success", "failure", "skipped"].includes(step.conclusion),
+      "Worker recovery job step conclusion is invalid",
+    );
+    if (step.conclusion === "failure") failedSteps.push(name);
+  }
+  for (const name of requiredSuccessSteps) {
+    const matches = job.steps.filter((step) => step.name === name);
+    invariant(
+      matches.length === 1 && matches[0].conclusion === "success",
+      `Worker recovery job did not prove step: ${name}`,
+    );
+  }
+  if (requiredFailedStep === null) {
+    invariant(
+      failedSteps.length === 0,
+      "Worker recovery job contains an unexpected failed step",
+    );
+    return;
+  }
+  invariant(
+    failedSteps.length === 1 && failedSteps[0] === requiredFailedStep,
+    "Worker evidence persistence step is not the sole failed step",
+  );
+}
+
+async function validateWorkerEvidenceRecoveryJobs({
+  github,
+  context,
+  selection,
+  runId,
+  runAttempt,
+}) {
+  const response = await github.request(
+    "GET /repos/{owner}/{repo}/actions/runs/{run_id}/attempts/{attempt_number}/jobs",
+    {
+      ...ownerRepo(context),
+      run_id: exactRunId(runId),
+      attempt_number: exactRunAttempt(runAttempt),
+      filter: "all",
+      per_page: 100,
+      headers: { "X-GitHub-Api-Version": "2026-03-10" },
+    },
+  );
+  invariant(response.status === 200, "Worker recovery jobs request failed");
+  const data = plainObject(response.data, "Worker recovery jobs response");
+  invariant(Array.isArray(data.jobs), "Worker recovery jobs are missing");
+  invariant(
+    Number.isSafeInteger(data.total_count) &&
+      data.total_count === data.jobs.length &&
+      data.jobs.length <= MAX_WORKER_ATTEMPT_JOBS,
+    "Worker recovery job set is incomplete or exceeds its bound",
+  );
+  const expectedJobs = expectedWorkerEvidenceRecoveryJobs(
+    selection.target,
+    selection.sha,
+  );
+  invariant(
+    data.jobs.length === expectedJobs.size,
+    "Worker recovery job set does not match the build contract",
+  );
+  const jobNames = new Set();
+  const jobIds = new Set();
+  let selectedBuildJob = null;
+  let selectedLifecycleJob = null;
+  let ownershipJob = null;
+  let evidenceJob = null;
+  const selectedTitle = PREVIEW_TARGET_TITLES[selection.target];
+  const selectedBuildJobName =
+    `Run ${selectedTitle} prebuilt preview pipeline / ` +
+    `Prebuilt ${selection.target} preview`;
+  const selectedLifecycleJobName =
+    `Run ${selectedTitle} prebuilt preview pipeline / ` +
+    `Finalize ${selection.target} deployment lifecycle`;
+  for (const value of data.jobs) {
+    const job = plainObject(value, "Worker recovery job");
+    const id = exactRunId(job.id, "Worker recovery job ID");
+    const name = boundedText(job.name, "Worker recovery job name");
+    invariant(!jobIds.has(id), "Worker recovery job ID is duplicated");
+    invariant(!jobNames.has(name), "Worker recovery job name is duplicated");
+    jobIds.add(id);
+    jobNames.add(name);
+    invariant(
+      exactRunId(job.run_id, "Worker recovery job run ID") === runId &&
+        exactRunAttempt(job.run_attempt) === runAttempt &&
+        exactSha(job.head_sha, "Worker recovery job workflow SHA") ===
+          selection.expected_workflow_sha,
+      "Worker recovery job identity does not match the owned attempt",
+    );
+    invariant(
+      job.status === "completed" && expectedJobs.get(name) === job.conclusion,
+      "Worker recovery job conclusion does not match the build contract",
+    );
+    if (name === selectedBuildJobName) selectedBuildJob = job;
+    if (name === selectedLifecycleJobName) selectedLifecycleJob = job;
+    if (name === "Validate exact-SHA controller ownership") ownershipJob = job;
+    if (name === WORKER_EVIDENCE_JOB_NAME) evidenceJob = job;
+  }
+  invariant(
+    jobNames.size === expectedJobs.size &&
+      [...expectedJobs.keys()].every((name) => jobNames.has(name)),
+    "Worker recovery job set is missing a required job",
+  );
+  validateEvidenceRecoveryJobSteps(ownershipJob, {
+    requiredSuccessSteps: [
+      "Revalidate PR trust, lineage, state ownership, and Deployment absence",
+    ],
+  });
+  validateEvidenceRecoveryJobSteps(selectedBuildJob, {
+    requiredSuccessSteps: [
+      "Build the literal target prebuilt output",
+      "Mark the durable upload-attempt boundary",
+      "Upload the verified prebuilt output",
+      "Verify immutable Vercel deployment metadata",
+    ],
+  });
+  validateEvidenceRecoveryJobSteps(selectedLifecycleJob, {
+    requiredSuccessSteps: ["Post truthful terminal GitHub Deployment state"],
+  });
+  validateEvidenceRecoveryJobSteps(evidenceJob, {
+    requiredSuccessSteps: ["Check out trusted evidence controller only"],
+    requiredFailedStep: WORKER_EVIDENCE_STEP_NAME,
+  });
+}
+
+async function recoverSuccessfulWorkerEvidence({
+  github,
+  context,
+  core,
+  parsed,
+  selection,
+  evidence,
+  runId,
+  runAttempt,
+  conclusion,
+  deployment,
+  statusHistory,
+  existingResult = null,
+}) {
+  invariant(
+    conclusion === "failure",
+    "Successful Deployment without worker evidence has an ineligible run conclusion",
+  );
+  invariant(
+    evidence.workerEvidence.every(
+      (item) => item.controller_key !== selection.key,
+    ) &&
+      evidence.results.every(
+        (result) =>
+          result === existingResult || result.controller_key !== selection.key,
+      ),
+    "Worker evidence recovery cannot infer a first build from prior same-key receipts",
+  );
+  const checkpointTarget = evidence.checkpoint?.targets[parsed.target] ?? null;
+  if (checkpointTarget?.pending_owner_key_digest === selection.key_digest) {
+    invariant(
+      checkpointTarget.pending_owner_attempt_count === 1,
+      "Worker evidence recovery cannot infer a first build from a retried checkpoint owner",
+    );
+  }
+  const expectedRunUrl = workerAttemptUrl(runId, runAttempt);
+  const payload = plainObject(
+    deploymentPayload(deployment.payload),
+    "Worker recovery Deployment payload",
+  );
+  invariant(
+    optionalHttpsUrl(
+      payload.workflow_run_url,
+      "Worker recovery Deployment run URL",
+    ) === expectedRunUrl &&
+      pullRequestNumber(payload.pull_request_number) === parsed.pr &&
+      validatedWorkerHeadRef(payload.git_ref) === selection.git_ref,
+    "Worker recovery Deployment payload does not match the owned attempt",
+  );
+  invariant(
+    Array.isArray(statusHistory) && statusHistory.length > 0,
+    "Worker recovery Deployment status history is missing",
+  );
+  const successfulStatuses = statusHistory.filter(
+    (candidate) => candidate?.state === "success",
+  );
+  invariant(
+    successfulStatuses.length === 1 &&
+      statusHistory[0] === successfulStatuses[0],
+    "Worker recovery Deployment does not have one current success status",
+  );
+  const successStatus = plainObject(
+    successfulStatuses[0],
+    "Worker recovery Deployment success status",
+  );
+  invariant(
+    optionalHttpsUrl(
+      successStatus.log_url,
+      "Worker recovery Deployment status run URL",
+    ) === expectedRunUrl,
+    "Worker recovery Deployment success status does not match the owned attempt",
+  );
+  const verifiedUploadUrl = immutableVercelUrl(successStatus.environment_url);
+  invariant(
+    verifiedUploadUrl !== null,
+    "Worker recovery Deployment success status has no immutable URL",
+  );
+  if (existingResult) {
+    invariant(
+      existingResult.worker_run_id === runId &&
+        existingResult.worker_run_attempt === runAttempt &&
+        existingResult.key_digest === selection.key_digest &&
+        existingResult.github_deployment_id === Number(deployment.id) &&
+        existingResult.state === "success" &&
+        existingResult.terminal_reason === "verified" &&
+        existingResult.smoke_result === "passed" &&
+        immutableVercelUrl(existingResult.vercel_deployment_url) ===
+          verifiedUploadUrl,
+      "Existing worker result does not match recoverable success evidence",
+    );
+  }
+  await validateWorkerEvidenceRecoveryJobs({
+    github,
+    context,
+    selection,
+    runId,
+    runAttempt,
+  });
+  const recoveredEvidence = validateWorkerEvidence({
+    schema: WORKER_EVIDENCE_SCHEMA,
+    repository: PREVIEW_REPOSITORY,
+    pr: parsed.pr,
+    target: parsed.target,
+    sha: parsed.sha,
+    controller_key: selection.key,
+    key_digest: selection.key_digest,
+    epoch_anchor_run_id: selection.epoch_anchor_run_id,
+    reconciliation_basis_digest: selection.reconciliation_basis_digest,
+    selection_receipt_run_id: selection.selection_receipt_run_id,
+    expected_workflow_sha: selection.expected_workflow_sha,
+    worker_run_id: runId,
+    worker_run_attempt: runAttempt,
+    github_deployment_id: Number(deployment.id),
+    execution_mode: "build",
+    build_completed: true,
+    vercel_deployment_id: null,
+    next_deployment_id: null,
+    verified_upload_url: verifiedUploadUrl,
+  });
+  await appendJournalReceipt({
+    github,
+    context,
+    pr: parsed.pr,
+    kind: "workerEvidence",
+    value: recoveredEvidence,
+  });
+  core.setOutput("worker_evidence_recovered", "true");
+  core.notice(
+    `Recovered minimal worker evidence for run ${runId} attempt ${runAttempt} from its exact job graph and canonical GitHub Deployment`,
+  );
+  return recoveredEvidence;
+}
+
 export async function recoverWorkerResult({
   github,
   context,
@@ -9185,7 +9553,7 @@ export async function recoverWorkerResult({
     (result) =>
       result.worker_run_id === runId && result.key_digest === parsed.keyDigest,
   );
-  const workerEvidence = evidence.workerEvidence.find(
+  let workerEvidence = evidence.workerEvidence.find(
     (item) =>
       item.worker_run_id === runId && item.key_digest === parsed.keyDigest,
   );
@@ -9199,18 +9567,7 @@ export async function recoverWorkerResult({
       existingResult?.github_deployment_id === Number(deployment.id);
     if (!ownsDeployment) deployment = null;
   }
-  if (existingResult) {
-    invariant(
-      (existingResult.github_deployment_id === null &&
-        newerSameKeyOwnsDeployment) ||
-        (deployment &&
-          existingResult.github_deployment_id === Number(deployment.id)),
-      "Existing worker result no longer matches its canonical Deployment",
-    );
-    invariant(
-      conclusion !== "success" || existingResult.state === "success",
-      "Existing worker result conflicts with the completed run conclusion",
-    );
+  const returnExistingResult = async () => {
     const shouldReconcileCurrentEpoch =
       workerResultAffectsCurrentReconciliation({
         evidence,
@@ -9237,6 +9594,22 @@ export async function recoverWorkerResult({
       ...existingResult,
       should_reconcile_current_epoch: shouldReconcileCurrentEpoch,
     };
+  };
+  if (existingResult) {
+    invariant(
+      (existingResult.github_deployment_id === null &&
+        newerSameKeyOwnsDeployment) ||
+        (deployment &&
+          existingResult.github_deployment_id === Number(deployment.id)),
+      "Existing worker result no longer matches its canonical Deployment",
+    );
+    invariant(
+      conclusion !== "success" || existingResult.state === "success",
+      "Existing worker result conflicts with the completed run conclusion",
+    );
+    if (workerEvidence || existingResult.state !== "success") {
+      return returnExistingResult();
+    }
   }
   if (!deployment && !newerSameKeyOwnsDeployment) {
     deployment = await createRecoveryDeployment(
@@ -9259,12 +9632,40 @@ export async function recoverWorkerResult({
   const uploadStarted = selectionStatusHistory.some(
     (candidate) => candidate.description === UPLOAD_STARTED_DESCRIPTION,
   );
+  if (
+    !workerEvidence &&
+    deployment &&
+    status?.state === "success" &&
+    status.environment_url
+  ) {
+    workerEvidence = await recoverSuccessfulWorkerEvidence({
+      github,
+      context,
+      core,
+      parsed,
+      selection,
+      evidence,
+      runId,
+      runAttempt,
+      conclusion,
+      deployment,
+      statusHistory: selectionStatusHistory,
+      existingResult,
+    });
+  }
   if (workerEvidence) {
     invariant(
       deployment &&
         workerEvidence.github_deployment_id === Number(deployment.id),
       "Worker evidence does not match the canonical Deployment",
     );
+  }
+  if (existingResult) {
+    invariant(
+      workerEvidence,
+      "Existing successful worker result is missing recoverable paired evidence",
+    );
+    return returnExistingResult();
   }
   let terminalState;
   let terminalReason;

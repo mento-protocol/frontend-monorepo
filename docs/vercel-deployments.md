@@ -2462,6 +2462,31 @@ closed. Durable recovery, ownership-flip, and no-dispatch mutations may require
 multiple local reconciliation passes; those bounded progress passes are
 separate from the three-attempt budget reserved for serialized journal races.
 
+The worker normally writes its immutable evidence before its run completes. A
+reconcile can reconstruct minimal evidence only when that write is the sole
+failed operation after a verified build. The persisted owner must bind the
+exact original run and attempt. No earlier evidence or result can exist for the
+same Deployment key, except the exact successful result for that run and
+attempt when an older recovery already wrote it. The attempt-scoped Actions job
+census must be complete and bounded. The ownership, selected prerequisite,
+build, smoke, and lifecycle jobs must succeed. All mutually exclusive target
+and resume jobs must be skipped. The evidence job's checkout must succeed, and
+its exact journal-persistence step must be the only failed step. The canonical
+GitHub Deployment payload must bind the same PR, target, SHA, head ref, key, run,
+and attempt. Its current status must be the only success status and must bind
+the same attempt URL and one immutable `vercel.app` environment URL.
+
+When every condition holds, reconcile appends one ordinary evidence receipt for
+the original run and attempt. It records `execution_mode=build` and
+`build_completed=true`. It copies the GitHub Deployment ID and verified URL.
+It leaves `vercel_deployment_id` and `next_deployment_id` null because GitHub's
+immutable job and Deployment records do not prove those provider IDs. It then
+appends the normal result or returns the already-persisted matching result
+without changing it. Any missing, duplicate, unexpected, or conflicting job,
+step, receipt, Deployment, status, URL, SHA, run, or attempt fails closed. Do
+not rerun the evidence job: a rerun has a different attempt and cannot own the
+persisted selection. Do not redispatch the worker or invent provider IDs.
+
 ### Durable dispatch and exact Deployment identity
 
 The reconciler writes `dispatch_state=intended`, including
