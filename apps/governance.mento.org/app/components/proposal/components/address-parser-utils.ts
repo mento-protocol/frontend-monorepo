@@ -11,6 +11,14 @@ export function isPartOfTokenPairOrRateFeed(
     Math.min(text.length, match.index + match[0].length + 20),
   );
 
+  const isPartOfTokenPair =
+    Boolean(afterText.match(/^\/[A-Z]{3,4}(\s+rate\s+feed)?/i)) ||
+    Boolean(beforeText.match(/[A-Z]{3,4}\/$/i));
+
+  if (isPartOfTokenPair) {
+    return true;
+  }
+
   // Allow linking in pause/unpause contexts
   if (
     beforeText.match(/(pause|resume).*for\s*$/i) ||
@@ -20,8 +28,6 @@ export function isPartOfTokenPairOrRateFeed(
   }
 
   return (
-    Boolean(afterText.match(/^\/[A-Z]{3,4}(\s+rate\s+feed)?/i)) ||
-    Boolean(beforeText.match(/[A-Z]{3,4}\/$/i)) ||
     Boolean(beforeText.match(/rate\s+feed.*$/i)) ||
     Boolean(afterText.match(/^\s+rate\s+feed/i)) ||
     Boolean(beforeText.match(/[A-Z]{3,4}\/[A-Z]{3,4}\s+rate\s+feed.*$/i)) ||

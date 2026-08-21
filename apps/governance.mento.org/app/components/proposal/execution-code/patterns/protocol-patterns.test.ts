@@ -14,6 +14,9 @@ const { protocolPatterns } = await import("./protocol-patterns");
 const CONTRACT: ContractInfo = {
   address: "0x777a8255ca72412f0d706dc03c9d1987306b4cad",
 };
+const UNRELATED_CONTRACT: ContractInfo = {
+  address: "0x0000000000000000000000000000000000000001",
+};
 
 const EXCHANGE_ID =
   "0xd580d237231109e6a96d67d82450611c610a805a26660c90281bdc0cd04a95c7";
@@ -69,7 +72,7 @@ describe("protocolPatterns configureTradingLimit", () => {
         CONTRACT,
         args(
           "not-json",
-          "0x1234567890abcdef",
+          "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
           "0x0000000000000000000000000000000000000001",
         ),
         "0",
@@ -77,6 +80,16 @@ describe("protocolPatterns configureTradingLimit", () => {
     ).toBe(
       "Configure trading limits for 0x0000000000000000000000000000000000000001 on pool 0x12345678... pool",
     );
+  });
+
+  it("does not apply the Broker summary to unrelated contracts", () => {
+    expect(
+      getPattern()(
+        UNRELATED_CONTRACT,
+        args({ limitGlobal: "1597", flags: "4" }),
+        "0",
+      ),
+    ).toBeNull();
   });
 
   it.each([{ limitGlobal: "10" }, { flags: "4" }])(

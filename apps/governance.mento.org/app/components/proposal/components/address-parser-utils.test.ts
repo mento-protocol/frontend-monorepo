@@ -21,4 +21,11 @@ describe("isPartOfTokenPairOrRateFeed", () => {
 
     expect(isPartOfTokenPairOrRateFeed(text, find(text, "AUDm"))).toBe(false);
   });
+
+  it("keeps both sides of a paused token pair unlinked", () => {
+    const text = "Pause transfers for USDm/AUDm";
+
+    expect(isPartOfTokenPairOrRateFeed(text, find(text, "USDm"))).toBe(true);
+    expect(isPartOfTokenPairOrRateFeed(text, find(text, "AUDm"))).toBe(true);
+  });
 });
