@@ -40,6 +40,12 @@ catalog:
   vitest: 3.2.6
   "@vitest/coverage-v8": 3.2.6
 
+# Dependabot maps its seven-day npm cooldown to pnpm minimumReleaseAge.
+# Remove this exact-version exception after 2026-08-26T10:22:27.910Z or when
+# the reviewed catalog pin changes.
+minimumReleaseAgeExclude:
+  - "@mento-protocol/mento-sdk@3.4.0"
+
 onlyBuiltDependencies:
   - "@parcel/watcher"
   - "@sentry/cli"

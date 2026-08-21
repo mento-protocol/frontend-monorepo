@@ -3,7 +3,7 @@ title: Dependabot Processing
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-08-14
+last_verified: 2026-08-22
 scope: ci/dependabot-processing
 ---
 
@@ -46,6 +46,11 @@ Keep these properties true in code, workflows, rulesets, and operation:
 - Keep the npm open-pull-request limit at six or higher. Five npm PRs were
   already open when the isolated Vercel lane launched, so the former limit
   prevented that rotation from reaching the processor.
+- Dependabot applies the npm cooldown as pnpm's `minimumReleaseAge` during
+  lockfile generation. A young dependency already reviewed and pinned on
+  `main` can block an unrelated update. Permit only exact-version exclusions
+  that match the current reviewed pin. Remove each exclusion after the release
+  matures or when the pin changes.
 - ALL CLEAR is current evidence, not a timeless authorization. GitHub must still
   enforce current-base and ruleset state when the maintainer clicks Merge.
 
@@ -721,6 +726,7 @@ or failed. Follow the managed failure issue and deployment recovery runbook.
 | Existing exact-head packet (`repair-pending`)        | Preserve its run; publish no duplicate packet/check.              |
 | No valid automatic packet (`manual-repair-required`) | Leave the lane and require human repair.                          |
 | Refresh needed                                       | Use request/completed v1 lineage; do not spend repair budget.     |
+| Current reviewed pin fails pnpm release-age check    | Add one exact-version exception; remove it after maturity.        |
 | Repair plan malformed/out of scope                   | Fail before App token mutation; escalate manual.                  |
 | Repair attempts exhausted                            | Manual handling; do not reset with rebase/force-push.             |
 | Sensitive/unknown/manual tier                        | Record evidence and require human dependency handling.            |

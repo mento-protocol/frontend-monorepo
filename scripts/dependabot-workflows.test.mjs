@@ -323,6 +323,19 @@ test("npm group routing isolates sensitive dependencies and covers the workspace
   }
 });
 
+test("pnpm release-age exclusions stay exact and bounded", () => {
+  const workspace = parse(read("pnpm-workspace.yaml"), { uniqueKeys: true });
+
+  assert.deepEqual(workspace.minimumReleaseAgeExclude, [
+    "@mento-protocol/mento-sdk@3.4.0",
+  ]);
+  assert.equal(
+    workspace.catalog["@mento-protocol/mento-sdk"],
+    "3.4.0",
+    "remove the release-age exclusion when the reviewed catalog pin changes",
+  );
+});
+
 test("embedded workflow JavaScript parses before GitHub executes it", () => {
   const expectedModuleCounts = new Map([
     [processorPath, 4],
