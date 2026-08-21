@@ -68,6 +68,9 @@ const PROCESSOR_APPROVAL_PULL_LIMIT = 100;
 const PROCESSOR_APPROVAL_REVIEW_LIMIT = 2_000;
 const PROCESSOR_APPROVAL_RESULT_LIMIT = 1_000;
 const PROCESSOR_APPROVAL_SCAN_CONCURRENCY = 4;
+const PROCESSOR_APPROVAL_SNAPSHOT_ATTEMPTS = 2;
+const RECOVERY_ROLLBACK_INVENTORY_ATTEMPTS = 5;
+const RECOVERY_ROLLBACK_EMPTY_CONFIRMATIONS = 2;
 const PULL_REQUEST_REVIEW_STATES = new Set([
   "APPROVED",
   "CHANGES_REQUESTED",
@@ -5519,7 +5522,7 @@ export function createLiveGitHubAdapter({
     return normalized;
   };
 
-  const getOutstandingDependabotProcessorApprovals = async (repository) => {
+  const collectOutstandingDependabotProcessorApprovals = async (repository) => {
     const initialPullRequests =
       await listOpenDependabotPullRequests(repository);
     const approvals = [];
@@ -5535,7 +5538,7 @@ export function createLiveGitHubAdapter({
           .map(async (summary) => {
             const number = summary.pullRequestNumber;
             const initial = await getPullRequest(repository, number);
-            invariant(
+            snapshotInvariant(
               normalizeLogin(initial.user?.login) === DEPENDABOT_LOGIN &&
                 initial.state === "open" &&
                 initial.node_id === summary.nodeId &&
@@ -5616,7 +5619,7 @@ export function createLiveGitHubAdapter({
       }
     }
     const finalPullRequests = await listOpenDependabotPullRequests(repository);
-    invariant(
+    snapshotInvariant(
       stableJson(initialPullRequests) === stableJson(finalPullRequests),
       "Repository-wide processor approval PR set changed during collection",
     );
@@ -5625,6 +5628,26 @@ export function createLiveGitHubAdapter({
         left.pullRequestNumber - right.pullRequestNumber ||
         left.approvalId - right.approvalId,
     );
+  };
+
+  const getOutstandingDependabotProcessorApprovals = async (repository) => {
+    for (
+      let attempt = 1;
+      attempt <= PROCESSOR_APPROVAL_SNAPSHOT_ATTEMPTS;
+      attempt += 1
+    ) {
+      try {
+        return await collectOutstandingDependabotProcessorApprovals(repository);
+      } catch (error) {
+        if (
+          !(error instanceof PullRequestSnapshotChangedError) ||
+          attempt === PROCESSOR_APPROVAL_SNAPSHOT_ATTEMPTS
+        ) {
+          throw error;
+        }
+      }
+    }
+    throw new Error("Repository-wide processor approval collection exhausted");
   };
 
   const getOutstandingDependabotAutoMergeRequests = async (repository) => {
@@ -6354,6 +6377,7 @@ export function createLiveGitHubAdapter({
       });
     },
     publishAllClearInvalidation: async ({
+      blocking = true,
       headSha,
       pullRequestNumber: number,
       repository,
@@ -6362,15 +6386,23 @@ export function createLiveGitHubAdapter({
         phase === "finalize",
         "ALL CLEAR invalidation requires finalize phase",
       );
+      invariant(
+        typeof blocking === "boolean",
+        "ALL CLEAR invalidation type is invalid",
+      );
       return publishCompletedCheck({
-        conclusion: "failure",
+        conclusion: blocking ? "failure" : "neutral",
         detailsUrl: null,
-        externalId: `dependabot-all-clear-invalidated:v1:pr=${pullRequestNumber(number)}:head=${exactSha(headSha)}`,
+        externalId: `dependabot-all-clear-${blocking ? "invalidated" : "tombstone"}:v1:pr=${pullRequestNumber(number)}:head=${exactSha(headSha)}`,
         headSha,
         name: ALL_CLEAR_CHECK_NAME,
         output: {
-          summary: "Reconciliation invalidated prior preparation authority.",
-          title: "Dependabot ALL CLEAR invalidated",
+          summary: blocking
+            ? "Reconciliation invalidated prior preparation authority."
+            : "No processor approval remains. Preparation authority is absent.",
+          title: blocking
+            ? "Dependabot ALL CLEAR invalidated"
+            : "Dependabot ALL CLEAR authority absent",
         },
         repository,
       });
@@ -6805,9 +6837,42 @@ function isExactAllClearInvalidation(check, pullRequestNumberValue, headSha) {
     check !== null &&
     check.appId === GITHUB_ACTIONS_APP_ID &&
     check.status === "completed" &&
+    ((check.conclusion === "failure" &&
+      check.externalId ===
+        `dependabot-all-clear-invalidated:v1:pr=${pullRequestNumberValue}:head=${headSha}`) ||
+      (check.conclusion === "neutral" &&
+        check.externalId ===
+          `dependabot-all-clear-tombstone:v1:pr=${pullRequestNumberValue}:head=${headSha}`))
+  );
+}
+
+function isExactBlockingAllClearInvalidation(
+  check,
+  pullRequestNumberValue,
+  headSha,
+) {
+  return (
+    check !== null &&
+    check.appId === GITHUB_ACTIONS_APP_ID &&
+    check.status === "completed" &&
     check.conclusion === "failure" &&
     check.externalId ===
       `dependabot-all-clear-invalidated:v1:pr=${pullRequestNumberValue}:head=${headSha}`
+  );
+}
+
+function isExactNeutralAllClearTombstone(
+  check,
+  pullRequestNumberValue,
+  headSha,
+) {
+  return (
+    check !== null &&
+    check.appId === GITHUB_ACTIONS_APP_ID &&
+    check.status === "completed" &&
+    check.conclusion === "neutral" &&
+    check.externalId ===
+      `dependabot-all-clear-tombstone:v1:pr=${pullRequestNumberValue}:head=${headSha}`
   );
 }
 
@@ -6894,6 +6959,169 @@ async function recollectSelectedSweep({ adapter, collected, workflowContext }) {
     pullRequests,
     workflowContext,
   };
+}
+
+async function rollbackDependabotAuthority({
+  adapter,
+  evaluation,
+  invalidationTargets = [],
+  observedApprovals = [],
+}) {
+  const cleanupErrors = [];
+  const repository = evaluation.repository;
+  const blockingInvalidations = new Set();
+  const publishBlockingInvalidation = async ({
+    headSha,
+    pullRequestNumber: number,
+  }) => {
+    const key = `${number}:${headSha}`;
+    if (blockingInvalidations.has(key)) return;
+    try {
+      invariant(
+        typeof adapter.publishAllClearInvalidation === "function",
+        "Dependabot authority rollback requires invalidation capability",
+      );
+      await adapter.publishAllClearInvalidation({
+        blocking: true,
+        headSha,
+        pullRequestNumber: number,
+        repository,
+      });
+      blockingInvalidations.add(key);
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError);
+    }
+  };
+
+  const cleanupApprovals = new Map();
+  const rememberApproval = (approval) => {
+    const normalized = normalizeApprovalInventory([approval])[0];
+    cleanupApprovals.set(normalized.approvalId, normalized);
+  };
+  for (const approval of observedApprovals) rememberApproval(approval);
+  for (const candidate of evaluation.evaluations ?? []) {
+    for (const approvalId of candidate.feedback.currentProcessorApprovalIds ??
+      []) {
+      rememberApproval({
+        approvalId,
+        headSha: candidate.headSha,
+        pullRequestNumber: candidate.pullRequestNumber,
+      });
+    }
+  }
+  for (const target of invalidationTargets) {
+    await publishBlockingInvalidation(target);
+  }
+
+  const dismissedApprovals = new Set();
+  const dismissObservedApprovals = async (approvals) => {
+    for (const approval of approvals) {
+      await publishBlockingInvalidation(approval);
+      if (dismissedApprovals.has(approval.approvalId)) continue;
+      try {
+        invariant(
+          typeof adapter.dismissPullRequestApproval === "function",
+          "Dependabot authority rollback requires approval dismissal capability",
+        );
+        await adapter.dismissPullRequestApproval({
+          approvalId: approval.approvalId,
+          pullRequestNumber: approval.pullRequestNumber,
+          repository,
+        });
+        dismissedApprovals.add(approval.approvalId);
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+    }
+  };
+  await dismissObservedApprovals(cleanupApprovals.values());
+
+  const disableObservedAutoMerge = async (observed) => {
+    for (const request of observed.requests) {
+      await publishBlockingInvalidation(request);
+    }
+    invariant(
+      !observed.ambiguous,
+      `Repository auto-merge evidence remained ambiguous during Dependabot authority rollback: ${observed.reasons.join(",")}`,
+    );
+    if (observed.requests.length === 0) return;
+    const [request] = observed.requests;
+    invariant(
+      typeof adapter.disablePullRequestAutoMerge === "function",
+      "Dependabot authority rollback requires auto-merge cleanup capability",
+    );
+    await adapter.disablePullRequestAutoMerge({
+      headSha: request.headSha,
+      nodeId: request.nodeId,
+      pullRequestNumber: request.pullRequestNumber,
+      repository,
+    });
+  };
+  try {
+    await disableObservedAutoMerge(
+      evaluation.serialization.outstandingAutoMerge,
+    );
+  } catch (cleanupError) {
+    cleanupErrors.push(cleanupError);
+  }
+
+  let emptyInventoryRounds = 0;
+  let cleanupProven = false;
+  for (
+    let attempt = 0;
+    attempt < RECOVERY_ROLLBACK_INVENTORY_ATTEMPTS;
+    attempt += 1
+  ) {
+    let autoMergeEmpty = false;
+    let approvalsEmpty = false;
+    let roundComplete = true;
+    try {
+      const autoMerge = outstandingAutoMergeState(
+        {
+          outstandingAutoMergeRequests:
+            await adapter.getOutstandingDependabotAutoMergeRequests(repository),
+        },
+        [],
+      );
+      autoMergeEmpty = !autoMerge.ambiguous && autoMerge.requests.length === 0;
+      if (!autoMergeEmpty) await disableObservedAutoMerge(autoMerge);
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError);
+      roundComplete = false;
+    }
+    try {
+      const approvals = normalizeApprovalInventory(
+        await adapter.getOutstandingDependabotProcessorApprovals(repository),
+      );
+      approvalsEmpty = approvals.length === 0;
+      if (!approvalsEmpty) await dismissObservedApprovals(approvals);
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError);
+      roundComplete = false;
+    }
+    if (roundComplete && autoMergeEmpty && approvalsEmpty) {
+      emptyInventoryRounds += 1;
+      if (emptyInventoryRounds === RECOVERY_ROLLBACK_EMPTY_CONFIRMATIONS) {
+        cleanupProven = true;
+        break;
+      }
+    } else {
+      emptyInventoryRounds = 0;
+    }
+  }
+  if (!cleanupProven) {
+    cleanupErrors.push(
+      new Error(
+        "Dependabot merge authority was not proven absent after bounded rollback",
+      ),
+    );
+  }
+  if (cleanupErrors.length > 0) {
+    throw new AggregateError(
+      cleanupErrors,
+      "Dependabot authority rollback failed",
+    );
+  }
 }
 
 async function processRequestPhase({ adapter, evaluation, workflowContext }) {
@@ -7163,10 +7391,19 @@ async function processFinalizePhase({
     approvals = confirmationApprovals;
   }
 
-  const invalidated = new Set();
+  const blockingInvalidations = new Map();
+  const rememberBlockingInvalidation = ({
+    headSha,
+    pullRequestNumber: number,
+  }) => {
+    blockingInvalidations.set(`${number}:${headSha}`, {
+      headSha,
+      pullRequestNumber: number,
+    });
+  };
   const invalidate = async ({ headSha, pullRequestNumber: number }) => {
     const key = `${number}:${headSha}`;
-    if (invalidated.has(key)) return;
+    if (blockingInvalidations.has(key)) return;
     invariant(
       typeof adapter.publishAllClearInvalidation === "function",
       "ALL CLEAR cleanup requires a finalize invalidation publisher",
@@ -7176,7 +7413,10 @@ async function processFinalizePhase({
       pullRequestNumber: number,
       repository: evaluation.repository,
     });
-    invalidated.add(key);
+    rememberBlockingInvalidation({
+      headSha,
+      pullRequestNumber: number,
+    });
     mutations.push({
       headSha,
       kind: "all-clear-invalidated",
@@ -7189,6 +7429,20 @@ async function processFinalizePhase({
       snapshot,
       pullRequest.headSha,
     );
+    const blockingInvalidation =
+      !newestAllClear.malformed &&
+      isExactBlockingAllClearInvalidation(
+        newestAllClear.check,
+        pullRequest.number,
+        pullRequest.headSha,
+      );
+    const neutralTombstone =
+      !newestAllClear.malformed &&
+      isExactNeutralAllClearTombstone(
+        newestAllClear.check,
+        pullRequest.number,
+        pullRequest.headSha,
+      );
     const alreadyInvalidated =
       !newestAllClear.malformed &&
       isExactAllClearInvalidation(
@@ -7196,7 +7450,14 @@ async function processFinalizePhase({
         pullRequest.number,
         pullRequest.headSha,
       );
+    if (blockingInvalidation) {
+      rememberBlockingInvalidation({
+        headSha: pullRequest.headSha,
+        pullRequestNumber: pullRequest.number,
+      });
+    }
     if (
+      neutralTombstone ||
       newestAllClear.malformed ||
       (newestAllClear.check !== null && !alreadyInvalidated)
     ) {
@@ -7236,7 +7497,7 @@ async function processFinalizePhase({
       "Repository-wide processor approvals changed during reconciliation",
     );
   }
-  if (authorityAddingFinalize || invalidated.size > 0) {
+  if (authorityAddingFinalize || blockingInvalidations.size > 0) {
     collected = await recollectSelectedSweep({
       adapter,
       collected,
@@ -7268,6 +7529,150 @@ async function processFinalizePhase({
       pullRequestNumber: request.pullRequestNumber,
     });
     return { ...evaluation, mutations, phase: "finalize" };
+  }
+
+  if (evaluation.mode === "prepare" && blockingInvalidations.size > 0) {
+    const recoveryTargets = [];
+    for (const snapshot of collected.pullRequests ?? []) {
+      const pullRequest = normalizePullRequest(
+        snapshot.pullRequest ?? snapshot,
+      );
+      const target = blockingInvalidations.get(
+        `${pullRequest.number}:${pullRequest.headSha}`,
+      );
+      if (!target) continue;
+      const newestAllClear = newestExactHeadAllClear(
+        snapshot,
+        pullRequest.headSha,
+      );
+      invariant(
+        !newestAllClear.malformed &&
+          isExactBlockingAllClearInvalidation(
+            newestAllClear.check,
+            pullRequest.number,
+            pullRequest.headSha,
+          ),
+        `PR #${pullRequest.number} ALL CLEAR invalidation changed before recovery`,
+      );
+      recoveryTargets.push(target);
+    }
+    if (recoveryTargets.length > 0) {
+      const requireBlockedRecoveryState = (currentEvaluation) => {
+        const outstandingAutoMerge =
+          currentEvaluation.serialization.outstandingAutoMerge;
+        invariant(
+          outstandingAutoMerge.ambiguous === false &&
+            outstandingAutoMerge.requests.length === 0,
+          "ALL CLEAR recovery requires no repository auto-merge authority",
+        );
+        for (const target of recoveryTargets) {
+          const current = (currentEvaluation.evaluations ?? []).find(
+            (candidate) =>
+              candidate.pullRequestNumber === target.pullRequestNumber &&
+              candidate.headSha === target.headSha,
+          );
+          invariant(
+            current &&
+              current.feedback.autoMergeEnabled === false &&
+              current.feedback.currentProcessorApprovalCount === 0 &&
+              current.feedback.currentProcessorApprovalIds.length === 0 &&
+              current.feedback.reviewDecision === "REVIEW_REQUIRED" &&
+              current.feedback.mergeStateStatus === "BLOCKED",
+            `PR #${target.pullRequestNumber} retained merge authority during ALL CLEAR recovery`,
+          );
+        }
+      };
+      approvals = normalizeApprovalInventory(
+        await adapter.getOutstandingDependabotProcessorApprovals(
+          evaluation.repository,
+        ),
+      );
+      invariant(
+        approvals.length === 0,
+        "Repository-wide processor approvals changed before ALL CLEAR recovery",
+      );
+      requireBlockedRecoveryState(evaluation);
+      const attempted = [];
+      const recovered = [];
+      try {
+        for (const target of recoveryTargets) {
+          attempted.push(target);
+          const published = await adapter.publishAllClearInvalidation({
+            blocking: false,
+            headSha: target.headSha,
+            pullRequestNumber: target.pullRequestNumber,
+            repository: evaluation.repository,
+          });
+          invariant(
+            Number.isSafeInteger(published?.id) && published.id > 0,
+            `PR #${target.pullRequestNumber} ALL CLEAR tombstone response is invalid`,
+          );
+          recovered.push({ ...target, tombstoneCheckId: published.id });
+          mutations.push({
+            checkId: published.id,
+            headSha: target.headSha,
+            kind: "all-clear-tombstoned",
+            pullRequestNumber: target.pullRequestNumber,
+          });
+        }
+        collected = await recollectSelectedSweep({
+          adapter,
+          collected,
+          workflowContext,
+        });
+        evaluation = evaluateDependabotSweep(collected);
+        approvals = normalizeApprovalInventory(
+          await adapter.getOutstandingDependabotProcessorApprovals(
+            evaluation.repository,
+          ),
+        );
+        invariant(
+          approvals.length === 0,
+          "Repository-wide processor approvals changed during ALL CLEAR recovery",
+        );
+        requireBlockedRecoveryState(evaluation);
+        for (const target of recovered) {
+          const snapshot = (collected.pullRequests ?? []).find((candidate) => {
+            const pullRequest = normalizePullRequest(
+              candidate.pullRequest ?? candidate,
+            );
+            return (
+              pullRequest.number === target.pullRequestNumber &&
+              pullRequest.headSha === target.headSha
+            );
+          });
+          const newestAllClear = newestExactHeadAllClear(
+            snapshot,
+            target.headSha,
+          );
+          invariant(
+            !newestAllClear.malformed &&
+              newestAllClear.check?.id === target.tombstoneCheckId &&
+              isExactNeutralAllClearTombstone(
+                newestAllClear.check,
+                target.pullRequestNumber,
+                target.headSha,
+              ),
+            `PR #${target.pullRequestNumber} ALL CLEAR recovery was not observed`,
+          );
+        }
+      } catch (error) {
+        try {
+          await rollbackDependabotAuthority({
+            adapter,
+            evaluation,
+            invalidationTargets: attempted,
+            observedApprovals: approvals,
+          });
+        } catch (cleanupError) {
+          throw new AggregateError(
+            [error, cleanupError],
+            "ALL CLEAR recovery and rollback failed",
+          );
+        }
+        throw error;
+      }
+    }
   }
 
   const reconciledCandidate = evaluationForCandidate(evaluation);
@@ -7403,6 +7808,9 @@ async function processFinalizePhase({
     "Prepare finalization requires bounded approval and ALL CLEAR capabilities",
   );
   let approval = null;
+  let approvalAttempted = false;
+  let authorityEvaluation = evaluation;
+  let postApprovalInventory = [];
   try {
     const approvalSnapshot = (collected.pullRequests ?? []).find((snapshot) => {
       const pullRequest = normalizePullRequest(
@@ -7414,6 +7822,7 @@ async function processFinalizePhase({
       );
     });
     invariant(approvalSnapshot, "Prepare candidate snapshot is missing");
+    approvalAttempted = true;
     approval = await adapter.approvePullRequest({
       approvalSnapshot,
       headSha: result.headSha,
@@ -7447,6 +7856,7 @@ async function processFinalizePhase({
       repository: evaluation.repository,
       workflowContext,
     });
+    authorityEvaluation = postApproval;
     const admitted = evaluationForCandidate(postApproval);
     const admissionEvidence = {
       approvalId: approval.id,
@@ -7484,7 +7894,7 @@ async function processFinalizePhase({
         admitted.feedback.reviewDecision === "APPROVED",
       `PR #${result.pullRequestNumber} failed final ruleset admission: ${stableJson(admissionEvidence)}`,
     );
-    const postApprovalInventory = normalizeApprovalInventory(
+    postApprovalInventory = normalizeApprovalInventory(
       await adapter.getOutstandingDependabotProcessorApprovals(
         evaluation.repository,
       ),
@@ -7531,29 +7941,30 @@ async function processFinalizePhase({
     });
     return { ...postApproval, mutations, phase: "finalize" };
   } catch (error) {
-    if (Number.isSafeInteger(approval?.id) && approval.id > 0) {
-      const cleanupErrors = [];
-      try {
-        await adapter.publishAllClearInvalidation({
+    if (approvalAttempted) {
+      const observedApprovals = [...postApprovalInventory];
+      if (Number.isSafeInteger(approval?.id) && approval.id > 0) {
+        observedApprovals.push({
+          approvalId: approval.id,
           headSha: result.headSha,
           pullRequestNumber: result.pullRequestNumber,
-          repository: evaluation.repository,
         });
-      } catch (cleanupError) {
-        cleanupErrors.push(cleanupError);
       }
       try {
-        await adapter.dismissPullRequestApproval({
-          approvalId: approval.id,
-          pullRequestNumber: result.pullRequestNumber,
-          repository: evaluation.repository,
+        await rollbackDependabotAuthority({
+          adapter,
+          evaluation: authorityEvaluation,
+          invalidationTargets: [
+            {
+              headSha: result.headSha,
+              pullRequestNumber: result.pullRequestNumber,
+            },
+          ],
+          observedApprovals,
         });
       } catch (cleanupError) {
-        cleanupErrors.push(cleanupError);
-      }
-      if (cleanupErrors.length > 0) {
         throw new AggregateError(
-          [error, ...cleanupErrors],
+          [error, cleanupError],
           `PR #${result.pullRequestNumber} finalization and cleanup failed`,
         );
       }

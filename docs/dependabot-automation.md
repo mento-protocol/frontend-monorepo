@@ -643,6 +643,33 @@ PR, and prove the bounded global rescan is empty. An unknown or malformed
 current-head github-actions approval requires operator resolution. Recollect
 selected PRs and auto-merge state after cleanup; pre-cleanup evidence is stale.
 
+If a post-approval revalidation fails, publish an automation-invalidating
+exact-head ALL CLEAR failure before dismissal. This optional failed check does
+not remove GitHub merge authority; dismissal does. GitHub can keep the failed
+check as `UNSTABLE` after the approval is gone. A later finalize run may publish
+a newer neutral tombstone only after a fresh repository-wide scan proves zero
+processor approvals and the exact PR reports `REVIEW_REQUIRED`, `BLOCKED`, and
+no auto-merge. It recollects and proves the neutral tombstone and the same
+non-authorizing state before it can approve again. Any approval found during
+that proof causes failure restoration and dismissal. A later run changes a
+persisted tombstone back to failure before it repeats the proof. Recovery
+rollback restores every target whose neutral publication started, disables a
+sole exact auto-merge request, and dismisses every processor approval that any
+rollback scan observes. Two consecutive paired global scans must prove both
+authority inventories empty within five attempts. A final scan that first
+exposes a processor approval or sole exact auto-merge request removes that
+authority and fails because it cannot prove the required empty sequence.
+Post-approval admission or publication failure uses the same rollback. It
+blocks every normalized authority target, dismisses every observed processor
+approval, and disables a sole exact auto-merge request. Multiple, malformed, or
+ambiguous auto-merge evidence remains blocking and fails closed. This includes
+authority that appears after an ambiguous API response. Each confirmation
+round reads both global inventories. Authority observed in either inventory
+read resets the empty sequence.
+The tombstone external ID is
+`dependabot-all-clear-tombstone:v1:pr=<n>:head=<sha>` and never parses as an ALL
+CLEAR receipt.
+
 ## Serial human merge and post-merge proof
 
 There is at most one successful ALL CLEAR candidate. A valid active receipt and
