@@ -90,9 +90,12 @@ selection-bound worker result. Each trusted receipt-producing controller run
 waits outside the journal-writer concurrency queue until that graph settles,
 then uploads one event-ID-bound Actions artifact for 14 days. The collector
 prefers that exact validated artifact whenever it exists, including while a
-later push still leaves the event in the live journal, and falls back to the
-live journal when no artifact exists. A pending event, an expired or missing
-artifact for a compacted event, or ambiguous evidence fails without reserving
+later push still leaves the event in the live journal. If the event is no
+longer live, the collector searches the nearest 64 later completed controller
+runs on the same branch for a validated artifact that still covers the event.
+It falls back to the live journal when no exact artifact exists and the event
+is still live. A pending event, an expired or missing artifact after the
+bounded compacted-event search, or ambiguous evidence fails without reserving
 its append-only destination. Capture promptly after reconciliation and before
 the artifact expires.
 
