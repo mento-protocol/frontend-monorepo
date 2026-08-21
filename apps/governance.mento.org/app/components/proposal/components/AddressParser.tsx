@@ -8,6 +8,7 @@ import {
   getContractInfo,
   getAddressNameFromCache,
 } from "../services/address-resolver-service";
+import { isPartOfTokenPairOrRateFeed } from "./address-parser-utils";
 
 interface AddressReplacement {
   match: string;
@@ -115,8 +116,8 @@ function findFriendlyNameMatches(
         return;
       }
 
-      // Skip if it's part of a rate feed name
-      if (isPartOfRateFeed(text, match)) {
+      // Keep slash-separated names, such as pools and rate feeds, unbroken
+      if (isPartOfTokenPairOrRateFeed(text, match)) {
         return;
       }
 
@@ -327,34 +328,5 @@ function isRateFeedId(name: string): boolean {
   return (
     name.includes("rate feed") &&
     /^[A-Z]{3,4}\/[A-Z]{3,4}\s+rate\s+feed$/i.test(name)
-  );
-}
-
-/**
- * Check if a friendly name match is part of a rate feed name
- */
-function isPartOfRateFeed(text: string, match: RegExpExecArray): boolean {
-  const beforeText = text.substring(Math.max(0, match.index - 20), match.index);
-  const afterText = text.substring(
-    match.index + match[0].length,
-    Math.min(text.length, match.index + match[0].length + 20),
-  );
-
-  // Allow linking in pause/unpause contexts
-  if (
-    beforeText.match(/(pause|resume).*for\s*$/i) ||
-    afterText.match(/^\s*(token|transfers)/i)
-  ) {
-    return false;
-  }
-
-  // Check if this appears to be part of a rate feed name
-  // Look for patterns like "CELO/ETH rate feed", "rate feed", etc.
-  return (
-    Boolean(afterText.match(/^\/[A-Z]{3,4}(\s+rate\s+feed)?/i)) ||
-    Boolean(beforeText.match(/rate\s+feed.*$/i)) ||
-    Boolean(afterText.match(/^\s+rate\s+feed/i)) ||
-    Boolean(beforeText.match(/[A-Z]{3,4}\/[A-Z]{3,4}\s+rate\s+feed.*$/i)) ||
-    Boolean(afterText.match(/^[A-Z]{3,4}\/[A-Z]{3,4}\s+rate\s+feed/i))
   );
 }
