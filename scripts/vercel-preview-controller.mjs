@@ -34,6 +34,17 @@ const PREVIEW_CHECKPOINT_SCHEMA = "vercel-preview-checkpoint:v2";
 const CONTROLLER_ADMISSION_SCHEMA = "vercel-preview-controller-admission:v1";
 const WORKER_WORKFLOW = "vercel-preview-worker.yml";
 const WORKER_WORKFLOW_NAME = "Vercel Preview Worker";
+const WORKER_EVIDENCE_JOB_NAME =
+  "Persist immutable pre-completion worker evidence";
+const WORKER_EVIDENCE_STEP_NAME =
+  "Record epoch-bound upload and retry evidence";
+const MAX_WORKER_ATTEMPT_JOBS = 32;
+const PREVIEW_TARGET_TITLES = Object.freeze({
+  app: "App",
+  governance: "Governance",
+  reserve: "Reserve",
+  ui: "UI",
+});
 const CONTROLLER_WORKFLOW = "vercel-preview-controller.yml";
 const CONTROLLER_WORKFLOW_NAME = "Vercel Preview Controller";
 const INTAKE_WORKFLOW = "vercel-preview-intake.yml";
@@ -84,6 +95,9 @@ const MAX_SERIALIZED_UPDATE_ATTEMPTS = 3;
 // GitHub issue comments cap at 65,536 bytes; 64,000 retains 1,536 bytes of headroom.
 const MAX_JOURNAL_BYTES = 64_000;
 const ACTIVE_CHECKPOINT_BYTES = 40_000;
+const MAX_RETAINED_PREVIEW_OBSERVATION_CANDIDATES = 64;
+const DEPLOYMENT_STATUS_PAGE_SIZE = 100;
+const MAX_DEPLOYMENT_STATUS_PAGES = 3;
 const WORKER_RUN_PAGE_SIZE = 100;
 const MAX_WORKER_RUN_PAGES = 3;
 const WORKER_RUN_VISIBILITY_ATTEMPTS = 3;
@@ -431,6 +445,13 @@ function reviewerOutcomeSummary(value) {
 function previewJournalBody(value, json) {
   const reviewerSummary = reviewerOutcomeSummary(value);
   return `${PREVIEW_JOURNAL_MARKER}\n\n${COMMENT_EXPLANATION}\n\n${reviewerSummary}\n\n<details>\n<summary>${COMMENT_DETAILS_SUMMARY}</summary>\n\n\`\`\`json\n${json}\n\`\`\`\n\n</details>\n`;
+}
+
+function previewJournalByteLength(value) {
+  return Buffer.byteLength(
+    previewJournalBody(value, JSON.stringify(value)),
+    "utf8",
+  );
 }
 
 export function renderPreviewJournalBody(value) {
@@ -3192,15 +3213,17 @@ export function reconcileState({
     lineage,
     checkpoint: selectedCheckpoint,
   } = selectCurrentEpoch(events, pull, checkpoint);
+  const persistedEpoch = selectedCheckpoint === null ? null : previous?.epoch;
+  const epochAnchorRunId = persistedEpoch?.anchor_run_id ?? anchor.event_run_id;
   const epochResults = allResults.filter(
-    (result) => result.epoch_anchor_run_id === anchor.event_run_id,
+    (result) => result.epoch_anchor_run_id === epochAnchorRunId,
   );
   const epochSelections = allSelections.filter(
-    (selection) => selection.epoch_anchor_run_id === anchor.event_run_id,
+    (selection) => selection.epoch_anchor_run_id === epochAnchorRunId,
   );
   if (epochResults.length > 0) {
     invariant(
-      previous?.epoch?.anchor_run_id === anchor.event_run_id,
+      previous?.epoch?.anchor_run_id === epochAnchorRunId,
       "Current-epoch result exists without persisted epoch ownership",
     );
     for (const result of epochResults) {
@@ -3223,7 +3246,7 @@ export function reconcileState({
     lineage: lineage.map(semanticEventKey),
     results: epochResults.map(canonicalJson).sort(),
   });
-  const sameEpoch = previous?.epoch?.anchor_run_id === anchor.event_run_id;
+  const sameEpoch = previous?.epoch?.anchor_run_id === epochAnchorRunId;
   const controllerTargetUrl = optionalHttpsUrl(controllerUrl, "Controller URL");
   const targetStates = {};
   const targetStatuses = {};
@@ -3280,8 +3303,11 @@ export function reconcileState({
     const checkpointRuntimeEvent =
       checkpointTarget?.latest_runtime_event ?? null;
     const checkpointOwnerEvent = checkpointTarget?.pending_owner_event ?? null;
+    const checkpointOwnerIsLive = liveCandidates.some(
+      (event) => event.event_run_id === checkpointOwnerEvent?.event_run_id,
+    );
     const candidates = [
-      checkpointOwnerEvent,
+      checkpointOwnerIsLive ? null : checkpointOwnerEvent,
       checkpointRuntimeEvent,
       ...liveCandidates,
     ]
@@ -3342,7 +3368,7 @@ export function reconcileState({
     for (const event of candidates) {
       const result = resultForSelection(
         targetResults,
-        anchor.event_run_id,
+        epochAnchorRunId,
         event,
         sameEpoch &&
           previousTarget?.active?.selection_receipt_run_id ===
@@ -3435,7 +3461,7 @@ export function reconcileState({
       invariant(selectedEvent, `${target} active selection left the lineage`);
       const terminal = resultForSelection(
         targetResults,
-        anchor.event_run_id,
+        epochAnchorRunId,
         selectedEvent,
         previousActive,
         target,
@@ -3460,9 +3486,18 @@ export function reconcileState({
         const desired = candidateByRun.get(
           previousTarget?.latest_desired_receipt_run_id,
         );
+        const completedIndex = candidates.findIndex(
+          (event) =>
+            event.event_run_id === completedActive.selection_receipt_run_id,
+        );
+        const desiredIndex = desired
+          ? candidates.findIndex(
+              (event) => event.event_run_id === desired.event_run_id,
+            )
+          : -1;
         if (
           desired &&
-          desired.event_run_id !== completedActive.selection_receipt_run_id &&
+          desiredIndex > completedIndex &&
           !resultByRun.has(desired.event_run_id)
         ) {
           selected = desired;
@@ -3557,13 +3592,13 @@ export function reconcileState({
         sha: selected.head_sha,
         git_ref: selected.head_ref,
         key,
-        epoch_anchor_run_id: anchor.event_run_id,
+        epoch_anchor_run_id: epochAnchorRunId,
         reconciliation_basis_digest: basisDigest,
         selection_receipt_run_id: selected.event_run_id,
         expected_workflow_sha: expectedWorkflowSha,
         coalesced_receipt_run_ids: coalescedReceiptRunIds,
         key_digest: controllerKeyDigest(key, {
-          epochAnchorRunId: anchor.event_run_id,
+          epochAnchorRunId,
           basisDigest,
           selectionReceiptRunId: selected.event_run_id,
           expectedWorkflowSha,
@@ -3729,11 +3764,12 @@ export function reconcileState({
     repository: PREVIEW_REPOSITORY,
     pr: pull.number,
     epoch: {
-      anchor_run_id: anchor.event_run_id,
-      anchor_action: anchor.event_action,
-      anchor_pr_updated_at: anchor.pr_updated_at,
-      anchor_head_sha: anchor.head_sha,
-      anchor_head_ref: anchor.head_ref,
+      anchor_run_id: epochAnchorRunId,
+      anchor_action: persistedEpoch?.anchor_action ?? anchor.event_action,
+      anchor_pr_updated_at:
+        persistedEpoch?.anchor_pr_updated_at ?? anchor.pr_updated_at,
+      anchor_head_sha: persistedEpoch?.anchor_head_sha ?? anchor.head_sha,
+      anchor_head_ref: persistedEpoch?.anchor_head_ref ?? anchor.head_ref,
       closed_at: closure?.pr_closed_at ?? null,
       tail_receipt_run_id: (closure ?? lineage.at(-1)).event_run_id,
       lineage_digest: digest(lineage.map(semanticEventKey)),
@@ -4834,7 +4870,7 @@ function assertCheckpointableReceipts(
 
 export function compactPreviewJournal(
   value,
-  { expectedPullNumber = null } = {},
+  { expectedPullNumber = null, throughEventRunId = null } = {},
 ) {
   const journal = validatePreviewJournal(value, value.pr);
   if (journal.state === null) return journal;
@@ -4876,6 +4912,7 @@ export function compactPreviewJournal(
       state.targets[target].retired_active.some(isLiveRetiredPreviewOwnership),
   );
   if (
+    throughEventRunId === null &&
     hasInFlightOwnership &&
     Buffer.byteLength(renderPreviewJournalBody(journal), "utf8") <
       ACTIVE_CHECKPOINT_BYTES
@@ -4897,7 +4934,24 @@ export function compactPreviewJournal(
     pull,
     journal.checkpoint,
   );
-  const tailEvent = closure ?? lineage.at(-1) ?? null;
+  const fullTailEvent = closure ?? lineage.at(-1) ?? null;
+  const partialCheckpoint = throughEventRunId !== null;
+  const cutoffRunId = partialCheckpoint
+    ? exactRunId(throughEventRunId, "Preview checkpoint cutoff event run ID")
+    : (fullTailEvent?.event_run_id ?? null);
+  const cutoffIndex = partialCheckpoint
+    ? lineage.findIndex((event) => event.event_run_id === cutoffRunId)
+    : lineage.length - 1;
+  invariant(
+    !partialCheckpoint || (cutoffIndex >= 0 && closure === null),
+    "Preview checkpoint cutoff is not in the open event lineage",
+  );
+  const checkpointLineage = partialCheckpoint
+    ? lineage.slice(0, cutoffIndex + 1)
+    : lineage;
+  const tailEvent = partialCheckpoint
+    ? (checkpointLineage.at(-1) ?? null)
+    : fullTailEvent;
   invariant(tailEvent, "Preview checkpoint tail event is missing");
   invariant(
     !state.closed ||
@@ -4950,7 +5004,7 @@ export function compactPreviewJournal(
       protectedKeys.add(selection.key_digest);
     }
     const latestRuntimeEvent = runtimeEventForTarget(
-      lineage,
+      checkpointLineage,
       journal.checkpoint,
       target,
     );
@@ -5024,9 +5078,42 @@ export function compactPreviewJournal(
     };
   }
 
-  const retainedReceipts = hasInFlightOwnership
+  const checkpointEventRunIds = new Set(
+    (partialCheckpoint ? checkpointLineage : journal.receipts.events).map(
+      (event) => event.event_run_id,
+    ),
+  );
+  const checkpointEvents = journal.receipts.events.filter((event) =>
+    checkpointEventRunIds.has(event.event_run_id),
+  );
+  invariant(
+    !partialCheckpoint ||
+      checkpointEvents.some(
+        (event) => event.event_run_id === tailEvent.event_run_id,
+      ),
+    "Preview checkpoint cutoff receipt is missing",
+  );
+  const retainedEvents = journal.receipts.events.filter(
+    (event) => !checkpointEventRunIds.has(event.event_run_id),
+  );
+  const retainedEventRunIds = new Set(
+    retainedEvents.map((event) => event.event_run_id),
+  );
+  for (const selection of journal.receipts.selections) {
+    if (
+      retainedEventRunIds.has(selection.selection_receipt_run_id) ||
+      selection.coalesced_receipt_run_ids.some((runId) =>
+        retainedEventRunIds.has(runId),
+      )
+    ) {
+      protectedKeys.add(selection.key_digest);
+    }
+  }
+  const preserveCurrentState =
+    hasInFlightOwnership || retainedEvents.length > 0;
+  const retainedReceipts = preserveCurrentState
     ? {
-        events: [],
+        events: structuredClone(retainedEvents),
         selections: journal.receipts.selections.filter((selection) =>
           protectedKeys.has(selection.key_digest),
         ),
@@ -5039,7 +5126,7 @@ export function compactPreviewJournal(
       }
     : { events: [], selections: [], worker_evidence: [], results: [] };
   const prunedReceipts = {
-    events: journal.receipts.events,
+    events: checkpointEvents,
     selections: journal.receipts.selections.filter(
       (selection) => !protectedKeys.has(selection.key_digest),
     ),
@@ -5059,7 +5146,7 @@ export function compactPreviewJournal(
     (total, receipts) => total + receipts.length,
     0,
   );
-  if (hasInFlightOwnership && prunedCount === 0) return journal;
+  if (preserveCurrentState && prunedCount === 0) return journal;
   const previousCounts =
     journal.checkpoint?.pruned_receipt_counts ?? emptyReceiptCounts();
   const prunedReceiptCounts = Object.fromEntries(
@@ -5083,7 +5170,7 @@ export function compactPreviewJournal(
   };
   journal.checkpoint = checkpoint;
   journal.receipts = retainedReceipts;
-  if (!hasInFlightOwnership) {
+  if (!preserveCurrentState) {
     journal.state = checkpointBaselineState(state, checkpoint);
   }
   journal.journal_digest = previewJournalDigest(
@@ -5629,6 +5716,112 @@ async function priorObservationReceiptsAreRetained({
   return true;
 }
 
+async function latestRetainedObservationCutoff({ github, context, journal }) {
+  const liveEvents = journal.receipts.events.map(validateEventReceipt);
+  if (liveEvents.length === 0) return null;
+  const admission = validateControllerAdmissionCursor(journal.admission);
+  if (admission === null) return null;
+  const liveEventRunIds = new Set(
+    liveEvents.map((event) => event.event_run_id),
+  );
+  const pull = representedPullRequest(liveEvents, journal.checkpoint);
+  const { closure, lineage: events } = selectCurrentEpoch(
+    liveEvents,
+    pull,
+    journal.checkpoint,
+  );
+  if (closure !== null) return null;
+  let artifactLookups = 0;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const candidate = events[index];
+    if (
+      !liveEventRunIds.has(candidate.event_run_id) ||
+      candidate.observation_receipt_required !== true ||
+      candidate.event_run_number === undefined ||
+      candidate.event_run_number > admission.through_run_number
+    ) {
+      continue;
+    }
+    const prefix = events.slice(0, index + 1);
+    if (
+      prefix.some(
+        (event) =>
+          event.event_run_number === undefined ||
+          event.event_run_number > candidate.event_run_number,
+      )
+    ) {
+      continue;
+    }
+    if (artifactLookups >= MAX_RETAINED_PREVIEW_OBSERVATION_CANDIDATES) {
+      return null;
+    }
+    artifactLookups += 1;
+    const artifacts = await github.paginate(
+      github.rest.actions.listWorkflowRunArtifacts,
+      {
+        ...ownerRepo(context),
+        run_id: candidate.event_run_id,
+        per_page: 100,
+      },
+    );
+    if (
+      selectPreviewObservationArtifact(artifacts, candidate.event_run_id) !==
+      null
+    ) {
+      return candidate.event_run_id;
+    }
+  }
+  return null;
+}
+
+function bindJournalStateToReceipts(journal) {
+  invariant(journal.state !== null, "Preview journal state is missing");
+  journal.state.receipts_digest = controllerReceiptsDigest(
+    journal.receipts.events,
+    journal.receipts.results,
+    journal.receipts.selections,
+    journal.pr,
+    journal.checkpoint,
+  );
+  journal.journal_digest = previewJournalDigest(
+    journal.receipts,
+    journal.state,
+    journal.checkpoint,
+    journal.admission,
+  );
+}
+
+function synchronizeControllerState(state, journal) {
+  bindJournalStateToReceipts(journal);
+  Object.assign(state, structuredClone(journal.state));
+}
+
+export async function compactPreviewJournalForCapacity({
+  github,
+  context,
+  journal,
+  expectedPullNumber,
+}) {
+  if (
+    journal.state === null ||
+    previewJournalByteLength(journal) < ACTIVE_CHECKPOINT_BYTES
+  ) {
+    return false;
+  }
+  const throughEventRunId = await latestRetainedObservationCutoff({
+    github,
+    context,
+    journal,
+  });
+  if (throughEventRunId === null) return false;
+  const checkpointSequence = journal.checkpoint?.sequence ?? 0;
+  compactPreviewJournal(journal, {
+    expectedPullNumber,
+    throughEventRunId,
+  });
+  return (journal.checkpoint?.sequence ?? 0) > checkpointSequence;
+}
+
 async function appendJournalReceipt({
   github,
   context,
@@ -5788,6 +5981,14 @@ async function appendJournalReceipt({
         // receipt remains live until the Actions admission scan proves that no
         // required run is missing before the API-backed frontier.
       }
+      if (kind !== "event") {
+        await compactPreviewJournalForCapacity({
+          github,
+          context,
+          journal,
+          expectedPullNumber,
+        });
+      }
       const entries = journal.receipts[definition.name];
       const eventsBeforeAppend =
         kind === "event" ? structuredClone(journal.receipts.events) : null;
@@ -5800,6 +6001,20 @@ async function appendJournalReceipt({
         }));
       entries.push(structuredClone(value));
       persistAdmission();
+      if (kind !== "event") {
+        journal.journal_digest = previewJournalDigest(
+          journal.receipts,
+          journal.state,
+          journal.checkpoint,
+          journal.admission,
+        );
+        await compactPreviewJournalForCapacity({
+          github,
+          context,
+          journal,
+          expectedPullNumber,
+        });
+      }
       if (deferCompaction) {
         // This one authenticated legacy drain must preserve the old active
         // owner lineage until the same run reconciles the persisted results.
@@ -5930,7 +6145,14 @@ async function writeControllerState({
       ? { type: CLOSED_BOOTSTRAP_RECOVERY_TERMINAL_STATE }
       : null,
     async mutate(journal) {
+      await compactPreviewJournalForCapacity({
+        github,
+        context,
+        journal,
+        expectedPullNumber: pr,
+      });
       journal.state = structuredClone(state);
+      bindJournalStateToReceipts(journal);
       if (compactClosedBootstrapRecovery) {
         invariant(
           state.closed,
@@ -5943,17 +6165,18 @@ async function writeControllerState({
             events: journal.receipts.events,
           })
         ) {
-          journal.journal_digest = previewJournalDigest(
-            journal.receipts,
-            journal.state,
-            journal.checkpoint,
-            journal.admission,
-          );
           compactPreviewJournal(journal, { expectedPullNumber: pr });
-        } else {
-          renderPreviewJournalBody(journal);
         }
+      } else {
+        await compactPreviewJournalForCapacity({
+          github,
+          context,
+          journal,
+          expectedPullNumber: pr,
+        });
       }
+      synchronizeControllerState(state, journal);
+      if (compactClosedBootstrapRecovery) renderPreviewJournalBody(journal);
     },
   });
   return updated.journalComment;
@@ -5978,7 +6201,13 @@ async function writeControllerIntents({
     context,
     pr,
     expectedComment: stateComment,
-    mutate(journal) {
+    async mutate(journal) {
+      await compactPreviewJournalForCapacity({
+        github,
+        context,
+        journal,
+        expectedPullNumber: pr,
+      });
       journal.state = structuredClone(state);
       for (const receipt of receipts) {
         const existing = journal.receipts.selections.find(
@@ -5992,6 +6221,14 @@ async function writeControllerIntents({
           journal.receipts.selections.push(structuredClone(receipt));
         }
       }
+      bindJournalStateToReceipts(journal);
+      await compactPreviewJournalForCapacity({
+        github,
+        context,
+        journal,
+        expectedPullNumber: pr,
+      });
+      synchronizeControllerState(state, journal);
     },
   });
   return updated.journalComment;
@@ -8621,16 +8858,24 @@ async function createRecoveryDeployment(
 }
 
 async function deploymentStatusHistory(github, context, deploymentId) {
-  const { data } = await github.rest.repos.listDeploymentStatuses({
-    ...ownerRepo(context),
-    deployment_id: deploymentId,
-    per_page: 100,
-  });
-  invariant(
-    Array.isArray(data),
-    "GitHub Deployment statuses response is malformed",
+  const statuses = [];
+  for (let page = 1; page <= MAX_DEPLOYMENT_STATUS_PAGES; page += 1) {
+    const { data } = await github.rest.repos.listDeploymentStatuses({
+      ...ownerRepo(context),
+      deployment_id: deploymentId,
+      per_page: DEPLOYMENT_STATUS_PAGE_SIZE,
+      page,
+    });
+    invariant(
+      Array.isArray(data) && data.length <= DEPLOYMENT_STATUS_PAGE_SIZE,
+      "GitHub Deployment statuses response is malformed",
+    );
+    statuses.push(...data);
+    if (data.length < DEPLOYMENT_STATUS_PAGE_SIZE) return statuses;
+  }
+  throw new Error(
+    `GitHub Deployment status history exceeded the ${MAX_DEPLOYMENT_STATUS_PAGES * DEPLOYMENT_STATUS_PAGE_SIZE}-status bound`,
   );
-  return data;
 }
 
 async function terminalizeDeployment(
@@ -8811,6 +9056,328 @@ export async function recordWorkerEvidence({
   return workerEvidence;
 }
 
+function workerAttemptUrl(runId, runAttempt) {
+  return `https://github.com/${PREVIEW_REPOSITORY}/actions/runs/${exactRunId(
+    runId,
+  )}/attempts/${exactRunAttempt(runAttempt)}`;
+}
+
+function expectedWorkerEvidenceRecoveryJobs(target, sha) {
+  const selectedTarget = previewTarget(target, "Evidence recovery target");
+  const selectedTitle = PREVIEW_TARGET_TITLES[selectedTarget];
+  const jobs = new Map([
+    ["Validate exact-SHA controller ownership", "success"],
+    ["Finalize resumed smoke lifecycle", "skipped"],
+    [WORKER_EVIDENCE_JOB_NAME, "failure"],
+  ]);
+  for (const candidate of PREVIEW_TARGETS) {
+    const title = PREVIEW_TARGET_TITLES[candidate];
+    jobs.set(
+      `Validate ${title} preview prerequisite names`,
+      candidate === selectedTarget ? "success" : "skipped",
+    );
+    jobs.set(
+      `Resume ${title} smoke for an existing immutable upload`,
+      "skipped",
+    );
+    if (candidate !== selectedTarget) {
+      jobs.set(`Run ${title} prebuilt preview pipeline`, "skipped");
+    }
+  }
+  jobs.set(
+    `Run ${selectedTitle} prebuilt preview pipeline / Prebuilt ${selectedTarget} preview`,
+    "success",
+  );
+  jobs.set(
+    `Run ${selectedTitle} prebuilt preview pipeline / Smoke verified ${selectedTarget} preview / Smoke ${selectedTarget} ${exactSha(
+      sha,
+    )}`,
+    "success",
+  );
+  jobs.set(
+    `Run ${selectedTitle} prebuilt preview pipeline / Finalize ${selectedTarget} deployment lifecycle`,
+    "success",
+  );
+  return jobs;
+}
+
+function validateEvidenceRecoveryJobSteps(
+  job,
+  { requiredSuccessSteps = [], requiredFailedStep = null } = {},
+) {
+  invariant(Array.isArray(job.steps), "Worker recovery job steps are missing");
+  const stepNames = new Set();
+  const failedSteps = [];
+  for (const value of job.steps) {
+    const step = plainObject(value, "Worker recovery job step");
+    const name = boundedText(step.name, "Worker recovery job step name");
+    invariant(
+      !stepNames.has(name),
+      "Worker recovery job has duplicate step names",
+    );
+    stepNames.add(name);
+    invariant(
+      step.status === "completed",
+      "Worker recovery job step is not completed",
+    );
+    invariant(
+      ["success", "failure", "skipped"].includes(step.conclusion),
+      "Worker recovery job step conclusion is invalid",
+    );
+    if (step.conclusion === "failure") failedSteps.push(name);
+  }
+  for (const name of requiredSuccessSteps) {
+    const matches = job.steps.filter((step) => step.name === name);
+    invariant(
+      matches.length === 1 && matches[0].conclusion === "success",
+      `Worker recovery job did not prove step: ${name}`,
+    );
+  }
+  if (requiredFailedStep === null) {
+    invariant(
+      failedSteps.length === 0,
+      "Worker recovery job contains an unexpected failed step",
+    );
+    return;
+  }
+  invariant(
+    failedSteps.length === 1 && failedSteps[0] === requiredFailedStep,
+    "Worker evidence persistence step is not the sole failed step",
+  );
+}
+
+async function validateWorkerEvidenceRecoveryJobs({
+  github,
+  context,
+  selection,
+  runId,
+  runAttempt,
+}) {
+  const response = await github.request(
+    "GET /repos/{owner}/{repo}/actions/runs/{run_id}/attempts/{attempt_number}/jobs",
+    {
+      ...ownerRepo(context),
+      run_id: exactRunId(runId),
+      attempt_number: exactRunAttempt(runAttempt),
+      filter: "all",
+      per_page: 100,
+      headers: { "X-GitHub-Api-Version": "2026-03-10" },
+    },
+  );
+  invariant(response.status === 200, "Worker recovery jobs request failed");
+  const data = plainObject(response.data, "Worker recovery jobs response");
+  invariant(Array.isArray(data.jobs), "Worker recovery jobs are missing");
+  invariant(
+    Number.isSafeInteger(data.total_count) &&
+      data.total_count === data.jobs.length &&
+      data.jobs.length <= MAX_WORKER_ATTEMPT_JOBS,
+    "Worker recovery job set is incomplete or exceeds its bound",
+  );
+  const expectedJobs = expectedWorkerEvidenceRecoveryJobs(
+    selection.target,
+    selection.sha,
+  );
+  invariant(
+    data.jobs.length === expectedJobs.size,
+    "Worker recovery job set does not match the build contract",
+  );
+  const jobNames = new Set();
+  const jobIds = new Set();
+  let selectedBuildJob = null;
+  let selectedLifecycleJob = null;
+  let ownershipJob = null;
+  let evidenceJob = null;
+  const selectedTitle = PREVIEW_TARGET_TITLES[selection.target];
+  const selectedBuildJobName =
+    `Run ${selectedTitle} prebuilt preview pipeline / ` +
+    `Prebuilt ${selection.target} preview`;
+  const selectedLifecycleJobName =
+    `Run ${selectedTitle} prebuilt preview pipeline / ` +
+    `Finalize ${selection.target} deployment lifecycle`;
+  for (const value of data.jobs) {
+    const job = plainObject(value, "Worker recovery job");
+    const id = exactRunId(job.id, "Worker recovery job ID");
+    const name = boundedText(job.name, "Worker recovery job name");
+    invariant(!jobIds.has(id), "Worker recovery job ID is duplicated");
+    invariant(!jobNames.has(name), "Worker recovery job name is duplicated");
+    jobIds.add(id);
+    jobNames.add(name);
+    invariant(
+      exactRunId(job.run_id, "Worker recovery job run ID") === runId &&
+        exactRunAttempt(job.run_attempt) === runAttempt &&
+        exactSha(job.head_sha, "Worker recovery job workflow SHA") ===
+          selection.expected_workflow_sha,
+      "Worker recovery job identity does not match the owned attempt",
+    );
+    invariant(
+      job.status === "completed" && expectedJobs.get(name) === job.conclusion,
+      "Worker recovery job conclusion does not match the build contract",
+    );
+    if (name === selectedBuildJobName) selectedBuildJob = job;
+    if (name === selectedLifecycleJobName) selectedLifecycleJob = job;
+    if (name === "Validate exact-SHA controller ownership") ownershipJob = job;
+    if (name === WORKER_EVIDENCE_JOB_NAME) evidenceJob = job;
+  }
+  invariant(
+    jobNames.size === expectedJobs.size &&
+      [...expectedJobs.keys()].every((name) => jobNames.has(name)),
+    "Worker recovery job set is missing a required job",
+  );
+  validateEvidenceRecoveryJobSteps(ownershipJob, {
+    requiredSuccessSteps: [
+      "Revalidate PR trust, lineage, state ownership, and Deployment absence",
+    ],
+  });
+  validateEvidenceRecoveryJobSteps(selectedBuildJob, {
+    requiredSuccessSteps: [
+      "Build the literal target prebuilt output",
+      "Mark the durable upload-attempt boundary",
+      "Upload the verified prebuilt output",
+      "Verify immutable Vercel deployment metadata",
+    ],
+  });
+  validateEvidenceRecoveryJobSteps(selectedLifecycleJob, {
+    requiredSuccessSteps: ["Post truthful terminal GitHub Deployment state"],
+  });
+  validateEvidenceRecoveryJobSteps(evidenceJob, {
+    requiredSuccessSteps: ["Check out trusted evidence controller only"],
+    requiredFailedStep: WORKER_EVIDENCE_STEP_NAME,
+  });
+}
+
+async function recoverSuccessfulWorkerEvidence({
+  github,
+  context,
+  core,
+  parsed,
+  selection,
+  evidence,
+  runId,
+  runAttempt,
+  conclusion,
+  deployment,
+  statusHistory,
+  existingResult = null,
+}) {
+  invariant(
+    conclusion === "failure",
+    "Successful Deployment without worker evidence has an ineligible run conclusion",
+  );
+  invariant(
+    evidence.workerEvidence.every(
+      (item) => item.controller_key !== selection.key,
+    ) &&
+      evidence.results.every(
+        (result) =>
+          result === existingResult || result.controller_key !== selection.key,
+      ),
+    "Worker evidence recovery cannot infer a first build from prior same-key receipts",
+  );
+  const checkpointTarget = evidence.checkpoint?.targets[parsed.target] ?? null;
+  if (checkpointTarget?.pending_owner_key_digest === selection.key_digest) {
+    invariant(
+      checkpointTarget.pending_owner_attempt_count === 1,
+      "Worker evidence recovery cannot infer a first build from a retried checkpoint owner",
+    );
+  }
+  const expectedRunUrl = workerAttemptUrl(runId, runAttempt);
+  const payload = plainObject(
+    deploymentPayload(deployment.payload),
+    "Worker recovery Deployment payload",
+  );
+  invariant(
+    optionalHttpsUrl(
+      payload.workflow_run_url,
+      "Worker recovery Deployment run URL",
+    ) === expectedRunUrl &&
+      pullRequestNumber(payload.pull_request_number) === parsed.pr &&
+      validatedWorkerHeadRef(payload.git_ref) === selection.git_ref,
+    "Worker recovery Deployment payload does not match the owned attempt",
+  );
+  invariant(
+    Array.isArray(statusHistory) && statusHistory.length > 0,
+    "Worker recovery Deployment status history is missing",
+  );
+  const successfulStatuses = statusHistory.filter(
+    (candidate) => candidate?.state === "success",
+  );
+  invariant(
+    successfulStatuses.length === 1 &&
+      statusHistory[0] === successfulStatuses[0],
+    "Worker recovery Deployment does not have one current success status",
+  );
+  const successStatus = plainObject(
+    successfulStatuses[0],
+    "Worker recovery Deployment success status",
+  );
+  invariant(
+    optionalHttpsUrl(
+      successStatus.log_url,
+      "Worker recovery Deployment status run URL",
+    ) === expectedRunUrl,
+    "Worker recovery Deployment success status does not match the owned attempt",
+  );
+  const verifiedUploadUrl = immutableVercelUrl(successStatus.environment_url);
+  invariant(
+    verifiedUploadUrl !== null,
+    "Worker recovery Deployment success status has no immutable URL",
+  );
+  if (existingResult) {
+    invariant(
+      existingResult.worker_run_id === runId &&
+        existingResult.worker_run_attempt === runAttempt &&
+        existingResult.key_digest === selection.key_digest &&
+        existingResult.github_deployment_id === Number(deployment.id) &&
+        existingResult.state === "success" &&
+        existingResult.terminal_reason === "verified" &&
+        existingResult.smoke_result === "passed" &&
+        immutableVercelUrl(existingResult.vercel_deployment_url) ===
+          verifiedUploadUrl,
+      "Existing worker result does not match recoverable success evidence",
+    );
+  }
+  await validateWorkerEvidenceRecoveryJobs({
+    github,
+    context,
+    selection,
+    runId,
+    runAttempt,
+  });
+  const recoveredEvidence = validateWorkerEvidence({
+    schema: WORKER_EVIDENCE_SCHEMA,
+    repository: PREVIEW_REPOSITORY,
+    pr: parsed.pr,
+    target: parsed.target,
+    sha: parsed.sha,
+    controller_key: selection.key,
+    key_digest: selection.key_digest,
+    epoch_anchor_run_id: selection.epoch_anchor_run_id,
+    reconciliation_basis_digest: selection.reconciliation_basis_digest,
+    selection_receipt_run_id: selection.selection_receipt_run_id,
+    expected_workflow_sha: selection.expected_workflow_sha,
+    worker_run_id: runId,
+    worker_run_attempt: runAttempt,
+    github_deployment_id: Number(deployment.id),
+    execution_mode: "build",
+    build_completed: true,
+    vercel_deployment_id: null,
+    next_deployment_id: null,
+    verified_upload_url: verifiedUploadUrl,
+  });
+  await appendJournalReceipt({
+    github,
+    context,
+    pr: parsed.pr,
+    kind: "workerEvidence",
+    value: recoveredEvidence,
+  });
+  core.setOutput("worker_evidence_recovered", "true");
+  core.notice(
+    `Recovered minimal worker evidence for run ${runId} attempt ${runAttempt} from its exact job graph and canonical GitHub Deployment`,
+  );
+  return recoveredEvidence;
+}
+
 export async function recoverWorkerResult({
   github,
   context,
@@ -8986,7 +9553,7 @@ export async function recoverWorkerResult({
     (result) =>
       result.worker_run_id === runId && result.key_digest === parsed.keyDigest,
   );
-  const workerEvidence = evidence.workerEvidence.find(
+  let workerEvidence = evidence.workerEvidence.find(
     (item) =>
       item.worker_run_id === runId && item.key_digest === parsed.keyDigest,
   );
@@ -9000,18 +9567,7 @@ export async function recoverWorkerResult({
       existingResult?.github_deployment_id === Number(deployment.id);
     if (!ownsDeployment) deployment = null;
   }
-  if (existingResult) {
-    invariant(
-      (existingResult.github_deployment_id === null &&
-        newerSameKeyOwnsDeployment) ||
-        (deployment &&
-          existingResult.github_deployment_id === Number(deployment.id)),
-      "Existing worker result no longer matches its canonical Deployment",
-    );
-    invariant(
-      conclusion !== "success" || existingResult.state === "success",
-      "Existing worker result conflicts with the completed run conclusion",
-    );
+  const returnExistingResult = async () => {
     const shouldReconcileCurrentEpoch =
       workerResultAffectsCurrentReconciliation({
         evidence,
@@ -9038,6 +9594,22 @@ export async function recoverWorkerResult({
       ...existingResult,
       should_reconcile_current_epoch: shouldReconcileCurrentEpoch,
     };
+  };
+  if (existingResult) {
+    invariant(
+      (existingResult.github_deployment_id === null &&
+        newerSameKeyOwnsDeployment) ||
+        (deployment &&
+          existingResult.github_deployment_id === Number(deployment.id)),
+      "Existing worker result no longer matches its canonical Deployment",
+    );
+    invariant(
+      conclusion !== "success" || existingResult.state === "success",
+      "Existing worker result conflicts with the completed run conclusion",
+    );
+    if (workerEvidence || existingResult.state !== "success") {
+      return returnExistingResult();
+    }
   }
   if (!deployment && !newerSameKeyOwnsDeployment) {
     deployment = await createRecoveryDeployment(
@@ -9060,12 +9632,40 @@ export async function recoverWorkerResult({
   const uploadStarted = selectionStatusHistory.some(
     (candidate) => candidate.description === UPLOAD_STARTED_DESCRIPTION,
   );
+  if (
+    !workerEvidence &&
+    deployment &&
+    status?.state === "success" &&
+    status.environment_url
+  ) {
+    workerEvidence = await recoverSuccessfulWorkerEvidence({
+      github,
+      context,
+      core,
+      parsed,
+      selection,
+      evidence,
+      runId,
+      runAttempt,
+      conclusion,
+      deployment,
+      statusHistory: selectionStatusHistory,
+      existingResult,
+    });
+  }
   if (workerEvidence) {
     invariant(
       deployment &&
         workerEvidence.github_deployment_id === Number(deployment.id),
       "Worker evidence does not match the canonical Deployment",
     );
+  }
+  if (existingResult) {
+    invariant(
+      workerEvidence,
+      "Existing successful worker result is missing recoverable paired evidence",
+    );
+    return returnExistingResult();
   }
   let terminalState;
   let terminalReason;

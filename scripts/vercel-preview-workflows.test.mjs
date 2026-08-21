@@ -259,6 +259,53 @@ test("automatic preview runtime has no v1 journal or worker compatibility path",
   );
 });
 
+test("every non-event journal writer performs capacity preflight and postflight", () => {
+  const implementation = read("scripts/vercel-preview-controller.mjs");
+  const writers = [
+    [
+      "appendJournalReceipt",
+      "writeControllerState",
+      "entries.push(structuredClone(value));",
+      "journal.journal_digest = previewJournalDigest(",
+    ],
+    [
+      "writeControllerState",
+      "writeControllerIntents",
+      "journal.state = structuredClone(state);",
+      "bindJournalStateToReceipts(journal);",
+    ],
+    [
+      "writeControllerIntents",
+      "persistControllerAdmissionCursor",
+      "journal.state = structuredClone(state);",
+      "bindJournalStateToReceipts(journal);",
+    ],
+  ];
+  for (const [name, nextName, mutation, digestUpdate] of writers) {
+    const start = implementation.indexOf(`async function ${name}(`);
+    const end = implementation.indexOf(`async function ${nextName}(`, start);
+    assert.ok(start >= 0 && end > start, `${name} must have a stable body`);
+    const body = implementation.slice(start, end);
+    const capacityChecks = [
+      ...body.matchAll(/compactPreviewJournalForCapacity\(/g),
+    ].map((match) => match.index);
+    const mutationStart = body.indexOf(mutation);
+    const mutationEnd = body.indexOf(digestUpdate, mutationStart);
+    assert.ok(
+      capacityChecks.length >= 2,
+      `${name} must check capacity before and after its mutation`,
+    );
+    assert.ok(
+      mutationStart >= 0 && mutationEnd > mutationStart,
+      `${name} must expose its journal mutation and digest update`,
+    );
+    assert.ok(
+      capacityChecks[0] < mutationStart && capacityChecks.at(-1) > mutationEnd,
+      `${name} must check capacity before mutation and after its digest update`,
+    );
+  }
+});
+
 test("Dependabot intake is credentialless and trusted follow-up alone can write status", () => {
   assert.equal(intake.name, "Vercel Preview Intake");
   assert.deepEqual(intake.on, {
@@ -559,7 +606,12 @@ test("every PR comment writer uses the pull-request resource permission", () => 
 
   const workerEvidence = worker.jobs["record-worker-evidence"];
   assert.match(JSON.stringify(workerEvidence), /recordWorkerEvidence/);
-  assert.equal(workerEvidence.permissions["pull-requests"], "write");
+  assert.deepEqual(workerEvidence.permissions, {
+    actions: "read",
+    contents: "read",
+    deployments: "write",
+    "pull-requests": "write",
+  });
   assert.equal(Object.hasOwn(workerEvidence.permissions, "issues"), false);
 });
 
