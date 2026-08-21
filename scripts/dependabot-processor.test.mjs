@@ -3844,6 +3844,35 @@ test("the protected-runtime carry-forward exception fails closed on unbound or b
   assert.equal(extraRuntimeResult.disposition, "manual-repair-required");
   assert.equal(extraRuntimeResult.repairPacket, null);
 
+  for (const path of [
+    ".gitmodules",
+    "docs/vercel-deployments.md",
+    "scripts/vercel-main-controller.mjs",
+  ]) {
+    const extraHardDeniedPath = vercelAfterTypedRepair().repaired;
+    const hardDeniedBlob = {
+      filename: path,
+      mode: "100644",
+      sha: createHash("sha1").update(path).digest("hex"),
+      status: "modified",
+      type: "blob",
+    };
+    extraHardDeniedPath.pullRequest.files.push(hardDeniedBlob);
+    extraHardDeniedPath.expectedBlobs.push({
+      mode: hardDeniedBlob.mode,
+      path: hardDeniedBlob.filename,
+      sha: hardDeniedBlob.sha,
+      type: hardDeniedBlob.type,
+    });
+    const extraHardDeniedResult = evaluate(extraHardDeniedPath);
+    assert.equal(
+      extraHardDeniedResult.disposition,
+      "manual-repair-required",
+      path,
+    );
+    assert.equal(extraHardDeniedResult.repairPacket, null, path);
+  }
+
   const protectedFinding = evaluate(vercelAfterTypedRepair().repaired, {
     path: "scripts/vercel-cli-runtime/package.json",
   });

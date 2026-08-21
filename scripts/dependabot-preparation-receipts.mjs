@@ -935,6 +935,13 @@ export function pathMatches(pattern, candidate) {
   return globRegex(pattern).test(candidate);
 }
 
+export function hardDeniedRepairPath(candidate) {
+  return (
+    typeof candidate === "string" &&
+    HARD_DENIED_PATHS.some((pattern) => pathMatches(pattern, candidate))
+  );
+}
+
 function pathAllowed(packet, candidate) {
   pathName(candidate);
   const extensionIndex = candidate.lastIndexOf(".");
@@ -942,7 +949,7 @@ function pathAllowed(packet, candidate) {
     extensionIndex === -1 ? "" : candidate.slice(extensionIndex);
   if (!ALLOWED_FILE_EXTENSIONS.has(extension))
     fail(`file type is denied: ${candidate}`);
-  if (HARD_DENIED_PATHS.some((pattern) => pathMatches(pattern, candidate))) {
+  if (hardDeniedRepairPath(candidate)) {
     fail(`hard-denied path: ${candidate}`);
   }
   if (

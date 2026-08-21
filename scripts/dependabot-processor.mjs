@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   canonicalJson,
+  hardDeniedRepairPath,
   rawDigest,
   validateProcessorRepairPacket,
 } from "./dependabot-preparation-receipts.mjs";
@@ -3799,25 +3800,29 @@ function recommendedDisposition({
   return "eligible-observed";
 }
 
+function autonomousRepairPathForbidden(path) {
+  return (
+    typeof path !== "string" ||
+    path.length === 0 ||
+    AUTONOMOUS_REPAIR_FORBIDDEN_PATH_PATTERN.test(path) ||
+    hardDeniedRepairPath(path)
+  );
+}
+
 function repairTouchesForbiddenPath({ checks = {}, feedback = {} }) {
   return [
     ...(checks.failures ?? []).flatMap(({ findings = [] }) =>
       findings.map(({ path }) => path),
     ),
     ...(feedback.actionableThreads ?? []).map(({ path }) => path),
-  ].some(
-    (path) =>
-      typeof path !== "string" ||
-      path.length === 0 ||
-      AUTONOMOUS_REPAIR_FORBIDDEN_PATH_PATTERN.test(path),
-  );
+  ].some((path) => autonomousRepairPathForbidden(path));
 }
 
 function genericRepairPathPermitted(path) {
   return (
     typeof path === "string" &&
     path.length > 0 &&
-    !AUTONOMOUS_REPAIR_FORBIDDEN_PATH_PATTERN.test(path) &&
+    !autonomousRepairPathForbidden(path) &&
     (new Set(["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"]).has(
       path,
     ) ||
@@ -3896,7 +3901,7 @@ export function createDependabotRepairPacket(evaluation) {
     ? evaluation.changedPaths
     : [];
   const forbiddenChangedPaths = changedPaths.filter((path) =>
-    AUTONOMOUS_REPAIR_FORBIDDEN_PATH_PATTERN.test(path),
+    autonomousRepairPathForbidden(path),
   );
   const forbiddenRepairEvidence = repairTouchesForbiddenPath({
     checks: evaluation.checks,
@@ -3972,7 +3977,7 @@ export function createDependabotRepairPacket(evaluation) {
       (thread) =>
         typeof thread.path === "string" &&
         thread.path.length > 0 &&
-        !AUTONOMOUS_REPAIR_FORBIDDEN_PATH_PATTERN.test(thread.path) &&
+        !autonomousRepairPathForbidden(thread.path) &&
         Number.isSafeInteger(thread.rootCommentId) &&
         thread.rootCommentId > 0 &&
         SHA_PATTERN.test(thread.reviewCommitSha ?? "") &&
