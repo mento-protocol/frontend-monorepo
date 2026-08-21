@@ -3880,6 +3880,27 @@ test("the protected-runtime carry-forward exception fails closed on unbound or b
   assert.equal(mixedFailure.disposition, "manual-repair-required");
   assert.equal(mixedFailure.repairPacket, null);
 
+  const baselineFailureCandidate = vercelAfterTypedRepair().repaired;
+  const baselineCi = baselineFailureCandidate.baseline.checks.find(
+    ({ name }) => name === CHECK_NAMES.ci,
+  );
+  baselineCi.conclusion = "failure";
+  const baselineFailure = evaluate(baselineFailureCandidate, {
+    conclusions: { ci: "failure" },
+  });
+  assert.deepEqual(
+    baselineFailure.checks.failures.map(({ attribution, id }) => ({
+      attribution,
+      id,
+    })),
+    [
+      { attribution: "baseline", id: "ci" },
+      { attribution: "branch", id: "claude-review" },
+    ],
+  );
+  assert.equal(baselineFailure.disposition, "manual-repair-required");
+  assert.equal(baselineFailure.repairPacket, null);
+
   const absentEvidenceBlob = evaluate(vercelAfterTypedRepair().repaired, {
     path: "packages/ui/src/unrelated.ts",
   });

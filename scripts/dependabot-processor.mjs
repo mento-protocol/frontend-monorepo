@@ -3764,6 +3764,13 @@ function recommendedDisposition({
     }
   }
   if (branchFailures.length > 0) {
+    if (
+      preparing &&
+      protectedRuntimeOperation?.satisfied === true &&
+      !onlyClaudeReviewFailures(checks)
+    ) {
+      return "manual-repair-required";
+    }
     if (repairTouchesForbiddenPath({ checks, feedback })) {
       return "manual-repair-required";
     }
@@ -3807,6 +3814,10 @@ function autonomousRepairPathForbidden(path) {
     AUTONOMOUS_REPAIR_FORBIDDEN_PATH_PATTERN.test(path) ||
     hardDeniedRepairPath(path)
   );
+}
+
+function onlyClaudeReviewFailures(checks) {
+  return (checks.failures ?? []).every(({ id }) => id === "claude-review");
 }
 
 function repairTouchesForbiddenPath({ checks = {}, feedback = {} }) {
@@ -3858,7 +3869,6 @@ function hasBoundProtectedRuntimeProof(evaluation) {
 }
 
 function canCarryBoundProtectedRuntimePaths({
-  branchFailures,
   changedPaths,
   evaluation,
   evidencePaths,
@@ -3871,7 +3881,7 @@ function canCarryBoundProtectedRuntimePaths({
   return (
     forbiddenChangedPaths.length > 0 &&
     forbiddenChangedPaths.every((path) => requiredPaths.has(path)) &&
-    branchFailures.every(({ id }) => id === "claude-review") &&
+    onlyClaudeReviewFailures(evaluation.checks) &&
     evidencePaths.length > 0 &&
     evidencePaths.length <= 8 &&
     evidencePaths.every(
@@ -4002,7 +4012,6 @@ export function createDependabotRepairPacket(evaluation) {
   const carryBoundProtectedRuntimePaths =
     !isProtectedRuntimeSync &&
     canCarryBoundProtectedRuntimePaths({
-      branchFailures,
       changedPaths,
       evaluation,
       evidencePaths,
