@@ -3689,20 +3689,15 @@ test("a prior typed Vercel repair permits one finding-scoped generic follow-up",
   mixedOrdering.expectedBlobs.sort((left, right) =>
     left.path.localeCompare(right.path),
   );
+  const expectedEvidencePaths = ["pnpm-lock.yaml", ...mixedPaths].sort(
+    (left, right) => left.localeCompare(right),
+  );
   const mixedPacket = createDependabotRepairPacket(mixedOrdering);
   assert.deepEqual(
     mixedPacket?.expectedBlobs.map(({ path }) => path),
-    [
-      "packages/_fixture/package.json",
-      "packages/-fixture/package.json",
-      "pnpm-lock.yaml",
-    ],
+    expectedEvidencePaths,
   );
-  assert.deepEqual(mixedPacket?.permittedPaths, [
-    "packages/_fixture/package.json",
-    "packages/-fixture/package.json",
-    "pnpm-lock.yaml",
-  ]);
+  assert.deepEqual(mixedPacket?.permittedPaths, expectedEvidencePaths);
 
   const packetDigest = rawDigest(canonicalJson(result.repairPacket));
   assert.throws(
