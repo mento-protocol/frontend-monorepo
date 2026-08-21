@@ -83,6 +83,8 @@ jobs:
       pr_numbers: ${{ steps.target.outputs.pr_numbers }}
       processor_mode: ${{ steps.mode.outputs.processor_mode }}
       prepare: ${{ steps.mode.outputs.prepare }}
+      refresh_pending: ${{ steps.evaluation.outputs.refresh_pending }}
+      refresh_required: ${{ steps.evaluation.outputs.refresh_required }}
     steps:
       - name: Validate trigger and select a bounded target
         id: target
@@ -301,9 +303,11 @@ jobs:
           echo "path=$trusted_processor" >> "$GITHUB_OUTPUT"
 
       - name: Evaluate live PR, check, baseline, and feedback state
+        id: evaluation
         shell: bash
         env:
           DEPENDABOT_PROCESSOR_GITHUB_TOKEN: ${{ github.token }}
+          EVALUATION_RESULT_PATH: ${{ runner.temp }}/dependabot-evaluation-result.json
           EXPECTED_HEAD_SHA: ${{ steps.target.outputs.expected_head_sha }}
           PROCESSOR_MODE: ${{ steps.mode.outputs.processor_mode }}
           PROCESSOR_PATH: ${{ steps.processor.outputs.path }}
@@ -321,7 +325,67 @@ jobs:
           if test -n "$EXPECTED_HEAD_SHA"; then
             arguments+=(--expected-head-sha "$EXPECTED_HEAD_SHA")
           fi
-          node "$PROCESSOR_PATH" "${arguments[@]}"
+          node "$PROCESSOR_PATH" "${arguments[@]}" > "$EVALUATION_RESULT_PATH"
+          node --input-type=module --eval '
+            import { appendFileSync, readFileSync } from "node:fs";
+
+            const result = JSON.parse(
+              readFileSync(process.env.EVALUATION_RESULT_PATH, "utf8"),
+            );
+            const candidate = result?.prepareCandidate;
+            const allowedDispositions = new Set([
+              "feedback-remediation-required",
+              "prepare-candidate",
+              "refresh-pending",
+              "refresh-receipt-required",
+              "refresh-required",
+              "repair-pending",
+              "repair-required",
+              "waiting-baseline",
+              "waiting-checks",
+              "waiting-retry",
+            ]);
+            const validCandidate =
+              candidate === null ||
+              (candidate !== null &&
+                typeof candidate === "object" &&
+                !Array.isArray(candidate) &&
+                JSON.stringify(Object.keys(candidate).sort()) ===
+                  JSON.stringify([
+                    "disposition",
+                    "headSha",
+                    "pullRequestNumber",
+                  ]) &&
+                allowedDispositions.has(candidate.disposition) &&
+                /^[0-9a-f]{40}$/.test(candidate.headSha ?? "") &&
+                Number.isSafeInteger(candidate.pullRequestNumber) &&
+                candidate.pullRequestNumber >= 1 &&
+                candidate.pullRequestNumber <= 9_999_999_999 &&
+                Array.isArray(result.evaluations) &&
+                result.evaluations.filter(
+                  (evaluation) =>
+                    evaluation?.pullRequestNumber ===
+                      candidate.pullRequestNumber &&
+                    evaluation?.headSha === candidate.headSha &&
+                    evaluation?.disposition === candidate.disposition,
+                ).length === 1);
+            if (
+              result?.schema !== "dependabot-processor:v2" ||
+              result?.repository !== process.env.REPOSITORY ||
+              result?.mode !== process.env.PROCESSOR_MODE ||
+              !Array.isArray(result?.evaluations) ||
+              !Object.hasOwn(result, "prepareCandidate") ||
+              !validCandidate ||
+              (result.mode !== "prepare" && candidate !== null)
+            ) {
+              throw new Error("Invalid Dependabot evaluation result");
+            }
+            appendFileSync(
+              process.env.GITHUB_OUTPUT,
+              `refresh_pending=${candidate?.disposition === "refresh-pending"}\n` +
+                `refresh_required=${candidate?.disposition === "refresh-required"}\n`,
+            );
+          '
 
   process:
     name: Revalidate exact heads without branch-write authority
@@ -396,81 +460,16 @@ jobs:
           fi
           node "$PROCESSOR_PATH" "${arguments[@]}"
 
-  prepare-validate:
-    name: Recollect prepare state without secrets or write authority
+  prepare-request:
+    name: Publish a bounded refresh request without branch authority
     needs: evaluate
     if: >-
       needs.evaluate.result == 'success' &&
-      needs.evaluate.outputs.prepare == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      actions: read
-      checks: read
-      contents: read
-      issues: read
-      pull-requests: read
-      statuses: read
-    steps:
-      - name: Materialize the processor from the exact trusted workflow SHA
-        id: processor
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          WORKFLOW_SHA: ${{ github.workflow_sha }}
-        run: |
-          set -euo pipefail
-          [[ "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]
-          trusted_root="$RUNNER_TEMP/dependabot-processor"
-          install -d -m 0700 "$trusted_root"
-          trusted_processor="$trusted_root/dependabot-processor.mjs"
-          trusted_receipts="$trusted_root/dependabot-preparation-receipts.mjs"
-          resolved_sha="$(gh api "repos/$REPOSITORY/commits/$WORKFLOW_SHA" --jq .sha)"
-          test "$resolved_sha" = "$WORKFLOW_SHA"
-          gh api \
-            -H "Accept: application/vnd.github.raw+json" \
-            "repos/$REPOSITORY/contents/scripts/dependabot-processor.mjs?ref=$WORKFLOW_SHA" \
-            > "$trusted_processor"
-          gh api \
-            -H "Accept: application/vnd.github.raw+json" \
-            "repos/$REPOSITORY/contents/scripts/dependabot-preparation-receipts.mjs?ref=$WORKFLOW_SHA" \
-            > "$trusted_receipts"
-          test -s "$trusted_processor"
-          test -s "$trusted_receipts"
-          chmod 0500 "$trusted_processor"
-          chmod 0400 "$trusted_receipts"
-          echo "path=$trusted_processor" >> "$GITHUB_OUTPUT"
-
-      - name: Revalidate the prepare plan without mutation authority
-        shell: bash
-        env:
-          DEPENDABOT_PROCESSOR_GITHUB_TOKEN: ${{ github.token }}
-          EXPECTED_HEAD_SHA: ${{ needs.evaluate.outputs.expected_head_sha }}
-          PROCESSOR_PATH: ${{ steps.processor.outputs.path }}
-          PR_NUMBERS: ${{ needs.evaluate.outputs.pr_numbers }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          arguments=(
-            evaluate
-            --live
-            --repo "$REPOSITORY"
-            --pr-numbers "$PR_NUMBERS"
-            --mode prepare
-          )
-          if test -n "$EXPECTED_HEAD_SHA"; then
-            arguments+=(--expected-head-sha "$EXPECTED_HEAD_SHA")
-          fi
-          node "$PROCESSOR_PATH" "${arguments[@]}"
-
-  prepare-request:
-    name: Publish a bounded refresh request without branch authority
-    needs: [evaluate, prepare-validate]
-    if: >-
-      needs.evaluate.result == 'success' &&
       needs.evaluate.outputs.prepare == 'true' &&
-      needs.prepare-validate.result == 'success'
+      (
+        needs.evaluate.outputs.refresh_required == 'true' ||
+        needs.evaluate.outputs.refresh_pending == 'true'
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -717,8 +716,17 @@ jobs:
       always() &&
       needs.evaluate.result == 'success' &&
       needs.evaluate.outputs.prepare == 'true' &&
-      needs.prepare-request.result == 'success' &&
-      needs.prepare-request.outputs.refresh_requested != 'true' &&
+      (
+        (
+          needs.prepare-request.result == 'success' &&
+          needs.prepare-request.outputs.refresh_requested == 'false'
+        ) ||
+        (
+          needs.prepare-request.result == 'skipped' &&
+          needs.evaluate.outputs.refresh_required == 'false' &&
+          needs.evaluate.outputs.refresh_pending == 'false'
+        )
+      ) &&
       (
         needs.prepare-mutate.result == 'success' ||
         needs.prepare-mutate.result == 'skipped'
