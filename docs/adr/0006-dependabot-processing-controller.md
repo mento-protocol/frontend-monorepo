@@ -347,6 +347,12 @@ must:
 If any post-approval pre-publication condition fails while the PR remains open,
 dismiss the approval. This is compensating, not atomic.
 
+The packetless Processor classification check emitted before approval is a
+non-authorizing status record. It is excluded from repair-receipt and attempt
+accounting even while its source run is still active or if that run later
+fails. Only a `packet=true` Processor check can bind repair authority, and that
+check still requires terminal-success workflow provenance.
+
 ### The human lane stays serialized through release proof
 
 One successful ALL CLEAR receipt occupies the lane and outranks ordinary numeric

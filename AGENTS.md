@@ -161,7 +161,11 @@ with reason `valid`. A failed, cancelled, timed-out, action-required, or
 startup-failed post-move run may only enter the bounded exact-intent recovery
 path. Normal pre-move work and checks-only recovery each get at most two
 exact-evidence infrastructure retries, independent of the two-commit repair
-budget. External IDs are digest indexes, never authority alone.
+budget. External IDs are digest indexes, never authority alone. Packetless
+`Dependabot Processor` checks are non-authorizing status records. They never
+enter repair-receipt or attempt accounting. Only `packet=true` checks can bind
+a repair packet, and those checks retain strict terminal-success workflow
+provenance.
 
 ALL CLEAR requires stable exact identity, current-base ancestry, complete green
 exact-head gates, a clean re-review, clear feedback, satisfied mergeability,

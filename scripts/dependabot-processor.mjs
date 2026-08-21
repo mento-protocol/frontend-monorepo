@@ -565,7 +565,7 @@ function validPrepareActor(receipt) {
   );
 }
 
-function trustedReceiptPublisher(check, repository) {
+function trustedWorkflowCheckPublisher(check, repository) {
   const normalized = normalizeCheck(check);
   const policy = RECEIPT_SOURCE_POLICY[normalized.name];
   if (
@@ -581,12 +581,22 @@ function trustedReceiptPublisher(check, repository) {
     normalized.runId < 1 ||
     !Number.isSafeInteger(normalized.runAttempt) ||
     normalized.runAttempt < 1 ||
-    normalized.runStatus !== "completed" ||
-    normalized.runConclusion !== "success" ||
     !new Set([
       `https://github.com/${repository}/actions/runs/${normalized.runId}`,
       `https://github.com/${repository}/runs/${normalized.id}`,
     ]).has(normalized.detailsUrl)
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+function trustedReceiptPublisher(check, repository) {
+  const normalized = trustedWorkflowCheckPublisher(check, repository);
+  if (
+    !normalized ||
+    normalized.runStatus !== "completed" ||
+    normalized.runConclusion !== "success"
   ) {
     return null;
   }
@@ -1802,6 +1812,46 @@ export function parseDependabotProcessorReceipt(check, repository) {
     packetCanonical: packetJson?.canonical === true,
     packetDigest: packetIssued ? packetDigest : null,
     packetIssued,
+    pullRequestNumber: Number(external[1]),
+  };
+}
+
+function parseDependabotProcessorStatus(check, repository) {
+  const normalized = trustedWorkflowCheckPublisher(check, repository);
+  const external = PROCESSOR_REPAIR_RECEIPT_PATTERN.exec(
+    String(normalized?.externalId ?? ""),
+  );
+  const outputText = normalized?.outputText;
+  const attempt = Number(external?.[4]);
+  if (
+    !normalized ||
+    !Number.isSafeInteger(normalized.id) ||
+    normalized.id < 1 ||
+    normalized.name !== PROCESSOR_CHECK_NAME ||
+    normalized.status !== "completed" ||
+    !new Set(["failure", "neutral"]).has(normalized.conclusion) ||
+    !new Set(["in_progress", "completed"]).has(normalized.runStatus) ||
+    (normalized.runStatus === "in_progress" &&
+      normalized.runConclusion !== null) ||
+    (normalized.runStatus === "completed" &&
+      typeof normalized.runConclusion !== "string") ||
+    !external ||
+    external[5] !== "false" ||
+    external[6] !== "none" ||
+    normalized.headSha !== external[2] ||
+    normalized.runId !== Number(external[7]) ||
+    normalized.runAttempt !== Number(external[8]) ||
+    !Number.isSafeInteger(attempt) ||
+    attempt < 1 ||
+    (outputText !== null && outputText !== "")
+  ) {
+    return null;
+  }
+  return {
+    attempt,
+    check: normalized,
+    headSha: external[2],
+    mode: external[3],
     pullRequestNumber: Number(external[1]),
   };
 }
@@ -3241,6 +3291,22 @@ function evaluateRepairAttemptGate({
       (!hasLineageHistory && check.headSha !== headSha)
     ) {
       reasons.push("preparation-receipt-outside-lineage");
+      continue;
+    }
+    if (
+      check.name === PROCESSOR_CHECK_NAME &&
+      PROCESSOR_REPAIR_RECEIPT_PATTERN.exec(
+        String(check.externalId ?? ""),
+      )?.[5] === "false"
+    ) {
+      const status = parseDependabotProcessorStatus(check, repository);
+      if (
+        !status ||
+        status.pullRequestNumber !== pullRequestNumberValue ||
+        status.headSha !== check.headSha
+      ) {
+        reasons.push("malformed-processor-status");
+      }
       continue;
     }
     if (seenReceiptIds.has(check.id)) {
