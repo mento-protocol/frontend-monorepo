@@ -1087,6 +1087,30 @@ test("initial evaluation exports only validated prepare routing booleans", () =>
       resultFor({
         prepareCandidate: {
           ...candidate("refresh-required"),
+          headSha: "b".repeat(39),
+        },
+      }),
+      resultFor({
+        prepareCandidate: {
+          ...candidate("refresh-required"),
+          pullRequestNumber: 0,
+        },
+      }),
+      resultFor({
+        prepareCandidate: {
+          ...candidate("refresh-required"),
+          pullRequestNumber: 10_000_000_000,
+        },
+      }),
+      {
+        evaluations: [],
+        mode: "prepare",
+        repository: "mento-protocol/frontend-monorepo",
+        schema: "dependabot-processor:v2",
+      },
+      resultFor({
+        prepareCandidate: {
+          ...candidate("refresh-required"),
           extra: true,
         },
       }),
