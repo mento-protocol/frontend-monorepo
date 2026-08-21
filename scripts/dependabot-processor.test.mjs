@@ -1186,6 +1186,23 @@ function liveProcessorReview(state = "APPROVED", overrides = {}) {
   };
 }
 
+function allClearInvalidationCheck({
+  blocking = true,
+  headSha = HEAD_SHA,
+  id = 60_001,
+  pullRequestNumber = 123,
+} = {}) {
+  return {
+    appId: 15_368,
+    conclusion: blocking ? "failure" : "neutral",
+    externalId: `dependabot-all-clear-${blocking ? "invalidated" : "tombstone"}:v1:pr=${pullRequestNumber}:head=${headSha}`,
+    headSha,
+    id,
+    name: "Dependabot ALL CLEAR",
+    status: "completed",
+  };
+}
+
 function liveMergeAdmissionFetch({ events = [], labels = [] } = {}) {
   return async (url, options = {}) => {
     const parsed = new URL(url);
@@ -6139,6 +6156,7 @@ test("finalize withdraws its approval when the post-approval ruleset stays block
         collectPullRequestSnapshot: async () => currentSnapshot(),
         dismissPullRequestApproval: async ({ approvalId }) => {
           cleanup.push(["dismiss", approvalId]);
+          approved = false;
         },
         getOutstandingDependabotAutoMergeRequests: async () => [],
         getOutstandingDependabotProcessorApprovals: async () =>
@@ -6179,6 +6197,820 @@ test("finalize withdraws its approval when the post-approval ruleset stays block
     ["invalidate", HEAD_SHA],
     ["dismiss", 7_001],
   ]);
+});
+
+test("finalize finds and dismisses an approval after its response is lost", async () => {
+  const cleanup = [];
+  let approved = false;
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        approvePullRequest: async () => {
+          approved = true;
+          throw new Error("approval response lost");
+        },
+        collectPullRequestSnapshot: async () => snapshot(),
+        dismissPullRequestApproval: async ({ approvalId }) => {
+          assert.equal(approvalId, 7_001);
+          cleanup.push(["dismiss", approvalId]);
+          approved = false;
+        },
+        getOutstandingDependabotAutoMergeRequests: async () => [],
+        getOutstandingDependabotProcessorApprovals: async () =>
+          approved
+            ? [
+                {
+                  approvalId: 7_001,
+                  headSha: HEAD_SHA,
+                  pullRequestNumber: 123,
+                },
+              ]
+            : [],
+        publishAllClear: async () =>
+          assert.fail("an ambiguous approval must block ALL CLEAR"),
+        publishAllClearInvalidation: async ({ headSha }) => {
+          cleanup.push(["invalidate", headSha]);
+        },
+        publishProcessorCheck: async () => ({ id: 50_201 }),
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [snapshot()],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "finalize",
+      publishChecks: true,
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /approval response lost/,
+  );
+  assert.deepEqual(cleanup, [
+    ["invalidate", HEAD_SHA],
+    ["dismiss", 7_001],
+  ]);
+  assert.equal(approved, false);
+});
+
+test("finalize settles a blocking ALL CLEAR invalidation only without merge authority", async () => {
+  const writes = [];
+  let activeApprovalId = 6_999;
+  let tombstoned = false;
+  const currentSnapshot = () => {
+    const approved = activeApprovalId !== null;
+    const current = snapshot({
+      feedback: {
+        mergeStateStatus:
+          approved && tombstoned ? "CLEAN" : approved ? "UNSTABLE" : "BLOCKED",
+        reviewDecision: approved ? "APPROVED" : "REVIEW_REQUIRED",
+      },
+    });
+    current.checks.push(allClearInvalidationCheck());
+    if (tombstoned) {
+      current.checks.push(
+        allClearInvalidationCheck({ blocking: false, id: 60_002 }),
+      );
+    }
+    if (approved) withCurrentProcessorApproval(current, activeApprovalId);
+    return current;
+  };
+
+  const result = await processDependabotSweep({
+    adapter: {
+      approvePullRequest: async () => {
+        writes.push("approve");
+        activeApprovalId = 7_001;
+        return processorApprovalResult();
+      },
+      collectPullRequestSnapshot: async () => currentSnapshot(),
+      dismissPullRequestApproval: async ({ approvalId }) => {
+        assert.equal(approvalId, 6_999);
+        writes.push("dismiss-stale-approval");
+        activeApprovalId = null;
+      },
+      getOutstandingDependabotAutoMergeRequests: async () => [],
+      getOutstandingDependabotProcessorApprovals: async () =>
+        activeApprovalId === null
+          ? []
+          : [
+              {
+                approvalId: activeApprovalId,
+                headSha: HEAD_SHA,
+                pullRequestNumber: 123,
+              },
+            ],
+      publishAllClear: async () => {
+        writes.push("all-clear");
+        return { id: 60_004 };
+      },
+      publishAllClearInvalidation: async ({ blocking = true }) => {
+        assert.equal(blocking, false);
+        writes.push("neutral-tombstone");
+        tombstoned = true;
+        return { id: 60_002 };
+      },
+      publishProcessorCheck: async () => {
+        writes.push("processor");
+        return { id: 60_003 };
+      },
+    },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [currentSnapshot()],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "finalize",
+    publishChecks: true,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  assert.deepEqual(writes, [
+    "dismiss-stale-approval",
+    "neutral-tombstone",
+    "processor",
+    "approve",
+    "all-clear",
+  ]);
+  assert.ok(
+    result.mutations.some(({ kind }) => kind === "all-clear-tombstoned"),
+  );
+  assert.ok(
+    result.mutations.some(({ kind }) => kind === "all-clear-published"),
+  );
+});
+
+test("finalize disables native auto-merge before ALL CLEAR recovery", async () => {
+  const current = snapshot();
+  current.checks.push(allClearInvalidationCheck());
+  const request = {
+    headSha: HEAD_SHA,
+    nodeId: "PR_node",
+    pullRequestNumber: 123,
+  };
+  let autoMergeActive = true;
+  const writes = [];
+
+  const result = await processDependabotSweep({
+    adapter: {
+      approvePullRequest: async () =>
+        assert.fail("auto-merge cleanup must finish first"),
+      collectPullRequestSnapshot: async () => structuredClone(current),
+      disablePullRequestAutoMerge: async (input) => {
+        assert.deepEqual(input, { ...request, repository: REPOSITORY });
+        writes.push("disable-auto-merge");
+        autoMergeActive = false;
+      },
+      dismissPullRequestApproval: async () =>
+        assert.fail("no processor approval exists"),
+      getOutstandingDependabotAutoMergeRequests: async () =>
+        autoMergeActive ? [request] : [],
+      getOutstandingDependabotProcessorApprovals:
+        noOutstandingProcessorApprovals,
+      publishAllClear: async () =>
+        assert.fail("auto-merge cleanup must finish first"),
+      publishAllClearInvalidation: async () =>
+        assert.fail("the blocking invalidation must remain current"),
+      publishProcessorCheck: async () =>
+        assert.fail("auto-merge cleanup must finish first"),
+    },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [request],
+      pullRequests: [current],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "finalize",
+    publishChecks: true,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  assert.deepEqual(writes, ["disable-auto-merge"]);
+  assert.equal(autoMergeActive, false);
+  assert.deepEqual(
+    result.mutations.map(({ kind }) => kind),
+    ["auto-merge-disabled"],
+  );
+});
+
+test("finalize revalidates a persisted neutral ALL CLEAR tombstone", async () => {
+  const writes = [];
+  let approved = false;
+  let allClearState = "persisted-neutral";
+  const currentSnapshot = () => {
+    const current = snapshot({
+      feedback: {
+        mergeStateStatus: approved ? "CLEAN" : "BLOCKED",
+        reviewDecision: approved ? "APPROVED" : "REVIEW_REQUIRED",
+      },
+    });
+    current.checks.push(allClearInvalidationCheck());
+    if (allClearState === "persisted-neutral") {
+      current.checks.push(
+        allClearInvalidationCheck({ blocking: false, id: 60_202 }),
+      );
+    } else if (allClearState === "revalidated-blocking") {
+      current.checks.push(allClearInvalidationCheck({ id: 60_203 }));
+    } else if (allClearState === "recovered-neutral") {
+      current.checks.push(
+        allClearInvalidationCheck({ blocking: false, id: 60_204 }),
+      );
+    }
+    if (approved) withCurrentProcessorApproval(current);
+    return current;
+  };
+
+  await processDependabotSweep({
+    adapter: {
+      approvePullRequest: async () => {
+        writes.push("approve");
+        approved = true;
+        return processorApprovalResult();
+      },
+      collectPullRequestSnapshot: async () => currentSnapshot(),
+      dismissPullRequestApproval: async () =>
+        assert.fail("successful finalization must preserve its approval"),
+      getOutstandingDependabotAutoMergeRequests: async () => [],
+      getOutstandingDependabotProcessorApprovals: async () =>
+        approved
+          ? [
+              {
+                approvalId: 7_001,
+                headSha: HEAD_SHA,
+                pullRequestNumber: 123,
+              },
+            ]
+          : [],
+      publishAllClear: async () => {
+        writes.push("all-clear");
+        return { id: 60_206 };
+      },
+      publishAllClearInvalidation: async ({ blocking = true }) => {
+        if (blocking) {
+          writes.push("blocking-invalidation");
+          allClearState = "revalidated-blocking";
+          return { id: 60_203 };
+        }
+        writes.push("neutral-tombstone");
+        allClearState = "recovered-neutral";
+        return { id: 60_204 };
+      },
+      publishProcessorCheck: async () => {
+        writes.push("processor");
+        return { id: 60_205 };
+      },
+    },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [currentSnapshot()],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    phase: "finalize",
+    publishChecks: true,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  assert.deepEqual(writes, [
+    "blocking-invalidation",
+    "neutral-tombstone",
+    "processor",
+    "approve",
+    "all-clear",
+  ]);
+});
+
+test("finalize leaves a blocking ALL CLEAR invalidation when review authority remains", async () => {
+  const current = snapshot({
+    feedback: {
+      mergeStateStatus: "UNSTABLE",
+      reviewDecision: "APPROVED",
+    },
+  });
+  current.checks.push(allClearInvalidationCheck());
+  const writes = [];
+
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        approvePullRequest: async () => writes.push("approve"),
+        collectPullRequestSnapshot: async () => structuredClone(current),
+        dismissPullRequestApproval: async () => writes.push("dismiss"),
+        getOutstandingDependabotAutoMergeRequests: async () => [],
+        getOutstandingDependabotProcessorApprovals:
+          noOutstandingProcessorApprovals,
+        publishAllClear: async () => writes.push("all-clear"),
+        publishAllClearInvalidation: async () => writes.push("invalidation"),
+        publishProcessorCheck: async () => writes.push("processor"),
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [current],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "finalize",
+      publishChecks: true,
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /retained merge authority during ALL CLEAR recovery/,
+  );
+  assert.deepEqual(writes, []);
+});
+
+test("finalize reblocks a persisted neutral tombstone before checking review authority", async () => {
+  let blocking = false;
+  const writes = [];
+  const currentSnapshot = () => {
+    const current = snapshot({
+      feedback: {
+        mergeStateStatus: "UNSTABLE",
+        reviewDecision: "APPROVED",
+      },
+    });
+    current.checks.push(allClearInvalidationCheck());
+    current.checks.push(
+      allClearInvalidationCheck({
+        blocking,
+        id: blocking ? 60_212 : 60_211,
+      }),
+    );
+    return current;
+  };
+
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        approvePullRequest: async () =>
+          assert.fail("human review authority must block approval"),
+        collectPullRequestSnapshot: async () => currentSnapshot(),
+        dismissPullRequestApproval: async () =>
+          assert.fail("human approvals must not be dismissed"),
+        getOutstandingDependabotAutoMergeRequests: async () => [],
+        getOutstandingDependabotProcessorApprovals:
+          noOutstandingProcessorApprovals,
+        publishAllClear: async () =>
+          assert.fail("human review authority must block ALL CLEAR"),
+        publishAllClearInvalidation: async ({ blocking: next = true }) => {
+          assert.equal(next, true);
+          writes.push("blocking-invalidation");
+          blocking = true;
+          return { id: 60_212 };
+        },
+        publishProcessorCheck: async () =>
+          assert.fail("human review authority must block classification"),
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [currentSnapshot()],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "finalize",
+      publishChecks: true,
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /retained merge authority during ALL CLEAR recovery/,
+  );
+  assert.deepEqual(writes, ["blocking-invalidation"]);
+  assert.equal(blocking, true);
+});
+
+test("finalize restores a blocking invalidation when neutral recovery races", async () => {
+  const writes = [];
+  let tombstoned = false;
+  const currentSnapshot = () => {
+    const current = snapshot({
+      feedback: {
+        mergeStateStatus: tombstoned ? "UNSTABLE" : "BLOCKED",
+        reviewDecision: tombstoned ? "APPROVED" : "REVIEW_REQUIRED",
+      },
+    });
+    current.checks.push(allClearInvalidationCheck());
+    if (tombstoned) {
+      current.checks.push(
+        allClearInvalidationCheck({ blocking: false, id: 60_102 }),
+      );
+    }
+    return current;
+  };
+
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        approvePullRequest: async () => writes.push("approve"),
+        collectPullRequestSnapshot: async () => currentSnapshot(),
+        dismissPullRequestApproval: async () => writes.push("dismiss"),
+        getOutstandingDependabotAutoMergeRequests: async () => [],
+        getOutstandingDependabotProcessorApprovals:
+          noOutstandingProcessorApprovals,
+        publishAllClear: async () => writes.push("all-clear"),
+        publishAllClearInvalidation: async ({ blocking = true }) => {
+          writes.push(blocking ? "blocking-invalidation" : "neutral-tombstone");
+          tombstoned = !blocking;
+          return { id: blocking ? 60_103 : 60_102 };
+        },
+        publishProcessorCheck: async () => writes.push("processor"),
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [currentSnapshot()],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "finalize",
+      publishChecks: true,
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /retained merge authority during ALL CLEAR recovery/,
+  );
+  assert.deepEqual(writes, ["neutral-tombstone", "blocking-invalidation"]);
+});
+
+test("finalize restores blocking state after an ambiguous neutral publication", async () => {
+  const writes = [];
+  let blockingRestored = false;
+  const current = snapshot({
+    feedback: {
+      mergeStateStatus: "BLOCKED",
+      reviewDecision: "REVIEW_REQUIRED",
+    },
+  });
+  current.checks.push(allClearInvalidationCheck());
+
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        approvePullRequest: async () =>
+          assert.fail("ambiguous recovery must stop before approval"),
+        collectPullRequestSnapshot: async () => structuredClone(current),
+        dismissPullRequestApproval: async () =>
+          assert.fail("no processor approval exists"),
+        getOutstandingDependabotAutoMergeRequests: async () => [],
+        getOutstandingDependabotProcessorApprovals:
+          noOutstandingProcessorApprovals,
+        publishAllClear: async () =>
+          assert.fail("ambiguous recovery must stop before ALL CLEAR"),
+        publishAllClearInvalidation: async ({ blocking = true }) => {
+          writes.push(blocking ? "blocking-invalidation" : "neutral-tombstone");
+          if (!blocking) {
+            throw new Error("neutral publication response lost");
+          }
+          blockingRestored = true;
+          return { id: 60_403 };
+        },
+        publishProcessorCheck: async () =>
+          assert.fail("ambiguous recovery must stop before classification"),
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [current],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "finalize",
+      publishChecks: true,
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /neutral publication response lost/,
+  );
+  assert.deepEqual(writes, ["neutral-tombstone", "blocking-invalidation"]);
+  assert.equal(blockingRestored, true);
+});
+
+test("finalize disables auto-merge that reappears on the same PR during rollback", async () => {
+  const request = {
+    headSha: HEAD_SHA,
+    nodeId: "PR_node",
+    pullRequestNumber: 123,
+  };
+  const writes = [];
+  let autoMergeActive = false;
+  let disableCount = 0;
+  let reenabled = false;
+  let rollbackStarted = false;
+  let tombstoned = false;
+  const currentSnapshot = () => {
+    const current = snapshot({
+      feedback: {
+        mergeStateStatus: "BLOCKED",
+        reviewDecision: "REVIEW_REQUIRED",
+      },
+    });
+    current.checks.push(allClearInvalidationCheck());
+    if (tombstoned) {
+      current.checks.push(
+        allClearInvalidationCheck({ blocking: false, id: 60_502 }),
+      );
+    }
+    return current;
+  };
+
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        approvePullRequest: async () =>
+          assert.fail("auto-merge recovery must stop before approval"),
+        collectPullRequestSnapshot: async () => currentSnapshot(),
+        disablePullRequestAutoMerge: async (input) => {
+          assert.deepEqual(input, { ...request, repository: REPOSITORY });
+          writes.push("disable-auto-merge");
+          disableCount += 1;
+          autoMergeActive = false;
+        },
+        dismissPullRequestApproval: async () =>
+          assert.fail("no processor approval exists"),
+        getOutstandingDependabotAutoMergeRequests: async () => {
+          if (rollbackStarted && disableCount === 1 && !reenabled) {
+            reenabled = true;
+            autoMergeActive = true;
+          }
+          return autoMergeActive ? [request] : [];
+        },
+        getOutstandingDependabotProcessorApprovals:
+          noOutstandingProcessorApprovals,
+        publishAllClear: async () =>
+          assert.fail("auto-merge recovery must stop before ALL CLEAR"),
+        publishAllClearInvalidation: async ({ blocking = true }) => {
+          writes.push(blocking ? "blocking-invalidation" : "neutral-tombstone");
+          tombstoned = !blocking;
+          if (blocking) rollbackStarted = true;
+          else autoMergeActive = true;
+          return { id: blocking ? 60_503 : 60_502 };
+        },
+        publishProcessorCheck: async () =>
+          assert.fail("auto-merge recovery must stop before classification"),
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [currentSnapshot()],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "finalize",
+      publishChecks: true,
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /ALL CLEAR recovery requires no repository auto-merge authority/,
+  );
+  assert.deepEqual(writes, [
+    "neutral-tombstone",
+    "blocking-invalidation",
+    "disable-auto-merge",
+    "disable-auto-merge",
+  ]);
+  assert.equal(disableCount, 2);
+  assert.equal(reenabled, true);
+  assert.equal(autoMergeActive, false);
+  assert.equal(tombstoned, false);
+});
+
+test("finalize disables auto-merge first visible in a rollback confirmation scan", async () => {
+  const request = {
+    headSha: HEAD_SHA,
+    nodeId: "PR_node",
+    pullRequestNumber: 123,
+  };
+  const writes = [];
+  let autoMergeActive = false;
+  let rollbackAutoMergeReads = 0;
+  let rollbackStarted = false;
+  let tombstoned = false;
+  const currentSnapshot = () => {
+    const current = snapshot({
+      feedback: {
+        mergeStateStatus: tombstoned ? "UNSTABLE" : "BLOCKED",
+        reviewDecision: tombstoned ? "APPROVED" : "REVIEW_REQUIRED",
+      },
+    });
+    current.checks.push(allClearInvalidationCheck());
+    if (tombstoned) {
+      current.checks.push(
+        allClearInvalidationCheck({ blocking: false, id: 60_512 }),
+      );
+    }
+    return current;
+  };
+
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        approvePullRequest: async () =>
+          assert.fail("a recovery race must stop before approval"),
+        collectPullRequestSnapshot: async () => currentSnapshot(),
+        disablePullRequestAutoMerge: async (input) => {
+          assert.deepEqual(input, { ...request, repository: REPOSITORY });
+          writes.push("disable-late-auto-merge");
+          autoMergeActive = false;
+        },
+        dismissPullRequestApproval: async () =>
+          assert.fail("no processor approval exists"),
+        getOutstandingDependabotAutoMergeRequests: async () => {
+          if (!rollbackStarted) return [];
+          rollbackAutoMergeReads += 1;
+          if (rollbackAutoMergeReads === 2) autoMergeActive = true;
+          return autoMergeActive ? [request] : [];
+        },
+        getOutstandingDependabotProcessorApprovals:
+          noOutstandingProcessorApprovals,
+        publishAllClear: async () =>
+          assert.fail("a recovery race must stop before ALL CLEAR"),
+        publishAllClearInvalidation: async ({ blocking = true }) => {
+          writes.push(blocking ? "blocking-invalidation" : "neutral-tombstone");
+          tombstoned = !blocking;
+          if (blocking) rollbackStarted = true;
+          return { id: blocking ? 60_513 : 60_512 };
+        },
+        publishProcessorCheck: async () =>
+          assert.fail("a recovery race must stop before classification"),
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [currentSnapshot()],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "finalize",
+      publishChecks: true,
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /retained merge authority during ALL CLEAR recovery/,
+  );
+  assert.deepEqual(writes, [
+    "neutral-tombstone",
+    "blocking-invalidation",
+    "disable-late-auto-merge",
+  ]);
+  assert.equal(rollbackAutoMergeReads, 4);
+  assert.equal(autoMergeActive, false);
+});
+
+test("finalize dismisses processor authority that appears during ALL CLEAR recovery", async () => {
+  const writes = [];
+  let racedApproval = false;
+  let tombstoned = false;
+  const currentSnapshot = () => {
+    const current = snapshot({
+      feedback: {
+        mergeStateStatus: racedApproval ? "UNSTABLE" : "BLOCKED",
+        reviewDecision: racedApproval ? "APPROVED" : "REVIEW_REQUIRED",
+      },
+    });
+    current.checks.push(allClearInvalidationCheck());
+    if (tombstoned) {
+      current.checks.push(
+        allClearInvalidationCheck({ blocking: false, id: 60_302 }),
+      );
+    }
+    if (racedApproval) withCurrentProcessorApproval(current, 7_002);
+    return current;
+  };
+
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        approvePullRequest: async () =>
+          assert.fail("a recovery race must stop before a new approval"),
+        collectPullRequestSnapshot: async () => currentSnapshot(),
+        dismissPullRequestApproval: async ({ approvalId }) => {
+          assert.equal(approvalId, 7_002);
+          writes.push("dismiss-raced-approval");
+          racedApproval = false;
+        },
+        getOutstandingDependabotAutoMergeRequests: async () => [],
+        getOutstandingDependabotProcessorApprovals: async () =>
+          racedApproval
+            ? [
+                {
+                  approvalId: 7_002,
+                  headSha: HEAD_SHA,
+                  pullRequestNumber: 123,
+                },
+              ]
+            : [],
+        publishAllClear: async () =>
+          assert.fail("a recovery race must not publish ALL CLEAR"),
+        publishAllClearInvalidation: async ({ blocking = true }) => {
+          writes.push(blocking ? "blocking-invalidation" : "neutral-tombstone");
+          if (!blocking) {
+            tombstoned = true;
+            racedApproval = true;
+          }
+          return { id: blocking ? 60_303 : 60_302 };
+        },
+        publishProcessorCheck: async () =>
+          assert.fail("a recovery race must stop before classification"),
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [currentSnapshot()],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "finalize",
+      publishChecks: true,
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /processor approvals changed during ALL CLEAR recovery/,
+  );
+  assert.deepEqual(writes, [
+    "neutral-tombstone",
+    "blocking-invalidation",
+    "dismiss-raced-approval",
+  ]);
+  assert.equal(racedApproval, false);
+});
+
+test("finalize dismisses an approval first visible in a rollback confirmation scan", async () => {
+  const writes = [];
+  let lateApprovalActive = false;
+  let rollbackInventoryReads = 0;
+  let rollbackStarted = false;
+  let tombstoned = false;
+  const currentSnapshot = () => {
+    const current = snapshot({
+      feedback: {
+        mergeStateStatus: tombstoned ? "UNSTABLE" : "BLOCKED",
+        reviewDecision: tombstoned ? "APPROVED" : "REVIEW_REQUIRED",
+      },
+    });
+    current.checks.push(allClearInvalidationCheck());
+    if (tombstoned) {
+      current.checks.push(
+        allClearInvalidationCheck({ blocking: false, id: 60_602 }),
+      );
+    }
+    return current;
+  };
+
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        approvePullRequest: async () =>
+          assert.fail("a recovery race must stop before approval"),
+        collectPullRequestSnapshot: async () => currentSnapshot(),
+        dismissPullRequestApproval: async ({ approvalId }) => {
+          assert.equal(approvalId, 7_003);
+          writes.push("dismiss-late-approval");
+          lateApprovalActive = false;
+        },
+        getOutstandingDependabotAutoMergeRequests: async () => [],
+        getOutstandingDependabotProcessorApprovals: async () => {
+          if (!rollbackStarted) return [];
+          rollbackInventoryReads += 1;
+          if (rollbackInventoryReads === 2) lateApprovalActive = true;
+          return lateApprovalActive
+            ? [
+                {
+                  approvalId: 7_003,
+                  headSha: HEAD_SHA,
+                  pullRequestNumber: 123,
+                },
+              ]
+            : [];
+        },
+        publishAllClear: async () =>
+          assert.fail("a recovery race must stop before ALL CLEAR"),
+        publishAllClearInvalidation: async ({ blocking = true }) => {
+          writes.push(blocking ? "blocking-invalidation" : "neutral-tombstone");
+          tombstoned = !blocking;
+          if (blocking) rollbackStarted = true;
+          return { id: blocking ? 60_603 : 60_602 };
+        },
+        publishProcessorCheck: async () =>
+          assert.fail("a recovery race must stop before classification"),
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [currentSnapshot()],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "finalize",
+      publishChecks: true,
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /retained merge authority during ALL CLEAR recovery/,
+  );
+  assert.deepEqual(writes, [
+    "neutral-tombstone",
+    "blocking-invalidation",
+    "dismiss-late-approval",
+  ]);
+  assert.equal(rollbackInventoryReads, 4);
+  assert.equal(lateApprovalActive, false);
 });
 
 test("finalize withdraws its approval and invalidates ALL CLEAR after an exact-head race", async () => {
@@ -6406,12 +7238,23 @@ test("an active higher-number ALL CLEAR pins global and targeted prepare lanes",
 
 test("a competing approval injected after exact-head admission prevents ALL CLEAR", async () => {
   const cleanup = [];
+  const activeApprovals = new Map();
   let approved = false;
   await assert.rejects(
     processDependabotSweep({
       adapter: {
         approvePullRequest: async () => {
           approved = true;
+          activeApprovals.set(7_001, {
+            approvalId: 7_001,
+            headSha: HEAD_SHA,
+            pullRequestNumber: 123,
+          });
+          activeApprovals.set(7_999, {
+            approvalId: 7_999,
+            headSha: SECOND_HEAD_SHA,
+            pullRequestNumber: 124,
+          });
           return processorApprovalResult();
         },
         collectPullRequestSnapshot: async () => {
@@ -6421,23 +7264,12 @@ test("a competing approval injected after exact-head admission prevents ALL CLEA
         },
         dismissPullRequestApproval: async ({ approvalId }) => {
           cleanup.push(["dismiss", approvalId]);
+          activeApprovals.delete(approvalId);
         },
         getOutstandingDependabotAutoMergeRequests: async () => [],
-        getOutstandingDependabotProcessorApprovals: async () =>
-          approved
-            ? [
-                {
-                  approvalId: 7_001,
-                  headSha: HEAD_SHA,
-                  pullRequestNumber: 123,
-                },
-                {
-                  approvalId: 7_999,
-                  headSha: SECOND_HEAD_SHA,
-                  pullRequestNumber: 124,
-                },
-              ]
-            : [],
+        getOutstandingDependabotProcessorApprovals: async () => [
+          ...activeApprovals.values(),
+        ],
         publishAllClear: async () =>
           assert.fail("competing global approval must block ALL CLEAR"),
         publishAllClearInvalidation: async ({ headSha }) => {
@@ -6461,7 +7293,84 @@ test("a competing approval injected after exact-head admission prevents ALL CLEA
   assert.deepEqual(cleanup, [
     ["invalidate", HEAD_SHA],
     ["dismiss", 7_001],
+    ["invalidate", SECOND_HEAD_SHA],
+    ["dismiss", 7_999],
   ]);
+  assert.equal(activeApprovals.size, 0);
+});
+
+test("post-approval rollback disables auto-merge and dismisses its approval", async () => {
+  const request = {
+    headSha: HEAD_SHA,
+    nodeId: "PR_node",
+    pullRequestNumber: 123,
+  };
+  const cleanup = [];
+  let approved = false;
+  let autoMergeActive = false;
+
+  await assert.rejects(
+    processDependabotSweep({
+      adapter: {
+        approvePullRequest: async () => {
+          approved = true;
+          autoMergeActive = true;
+          return processorApprovalResult();
+        },
+        collectPullRequestSnapshot: async () => {
+          const current = snapshot();
+          if (approved) withCurrentProcessorApproval(current);
+          return current;
+        },
+        disablePullRequestAutoMerge: async (input) => {
+          assert.deepEqual(input, { ...request, repository: REPOSITORY });
+          cleanup.push(["disable-auto-merge", HEAD_SHA]);
+          autoMergeActive = false;
+        },
+        dismissPullRequestApproval: async ({ approvalId }) => {
+          assert.equal(approvalId, 7_001);
+          cleanup.push(["dismiss", approvalId]);
+          approved = false;
+        },
+        getOutstandingDependabotAutoMergeRequests: async () =>
+          autoMergeActive ? [request] : [],
+        getOutstandingDependabotProcessorApprovals: async () =>
+          approved
+            ? [
+                {
+                  approvalId: 7_001,
+                  headSha: HEAD_SHA,
+                  pullRequestNumber: 123,
+                },
+              ]
+            : [],
+        publishAllClear: async () =>
+          assert.fail("post-approval auto-merge must block ALL CLEAR"),
+        publishAllClearInvalidation: async ({ headSha }) => {
+          cleanup.push(["invalidate", headSha]);
+        },
+        publishProcessorCheck: async () => ({ id: 64_101 }),
+      },
+      input: {
+        mode: "prepare",
+        outstandingAutoMergeRequests: [],
+        pullRequests: [snapshot()],
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+      phase: "finalize",
+      publishChecks: true,
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /failed final ruleset admission/,
+  );
+  assert.deepEqual(cleanup, [
+    ["invalidate", HEAD_SHA],
+    ["dismiss", 7_001],
+    ["disable-auto-merge", HEAD_SHA],
+  ]);
+  assert.equal(approved, false);
+  assert.equal(autoMergeActive, false);
 });
 
 test("finalize remediates only the exact packet-bound review thread", async () => {
@@ -8539,6 +9448,12 @@ test("authority check publications bind their exact Actions run URL and reject m
     pullRequestNumber: 123,
     repository: REPOSITORY,
   });
+  await finalizeAdapter.publishAllClearInvalidation({
+    blocking: false,
+    headSha: HEAD_SHA,
+    pullRequestNumber: 123,
+    repository: REPOSITORY,
+  });
 
   const expectedDetailsUrl = `https://github.com/${REPOSITORY}/actions/runs/${WORKFLOW_CONTEXT.workflowRunId}`;
   assert.equal(requestBodies[0].details_url, expectedDetailsUrl);
@@ -8547,6 +9462,21 @@ test("authority check publications bind their exact Actions run URL and reject m
     [expectedDetailsUrl, expectedDetailsUrl],
   );
   assert.equal(Object.hasOwn(finalizeBodies[2], "details_url"), false);
+  assert.equal(finalizeBodies[2].conclusion, "failure");
+  assert.equal(
+    finalizeBodies[2].output.title,
+    "Dependabot ALL CLEAR invalidated",
+  );
+  assert.equal(finalizeBodies[3].conclusion, "neutral");
+  assert.equal(
+    finalizeBodies[3].output.title,
+    "Dependabot ALL CLEAR authority absent",
+  );
+  assert.equal(
+    finalizeBodies[3].external_id,
+    `dependabot-all-clear-tombstone:v1:pr=123:head=${HEAD_SHA}`,
+  );
+  assert.equal(Object.hasOwn(finalizeBodies[3], "details_url"), false);
 
   const { workflowRunId: omittedProcessorRunId, ...missingProcessorRunId } =
     WORKFLOW_CONTEXT;
@@ -8594,7 +9524,7 @@ test("authority check publications bind their exact Actions run URL and reject m
     );
   }
   assert.equal(requestBodies.length, 1);
-  assert.equal(finalizeBodies.length, 3);
+  assert.equal(finalizeBodies.length, 4);
 });
 
 test("live feedback collection paginates threads, top-level reviews, and issue comments", async () => {
@@ -8927,6 +9857,90 @@ test("live repository-wide processor approval visibility paginates open PRs and 
   assert.deepEqual(listPages, [1, 2, 1, 2]);
   assert.deepEqual(reviewPages, [1, 2]);
   assert.equal(pullDetailReads, 2);
+});
+
+test("live repository-wide processor approval visibility retries one full snapshot drift", async () => {
+  let detailReads = 0;
+  let listReads = 0;
+  let reviewReads = 0;
+  const updatedAt = (value) =>
+    liveApprovalPullRequest({ updated_at: `2026-08-10T10:00:0${value}Z` });
+  const fetchImpl = async (url) => {
+    const parsed = new URL(url);
+    if (parsed.pathname === `/repos/${REPOSITORY}/pulls`) {
+      listReads += 1;
+      const version = listReads === 1 ? 0 : 1;
+      return new Response(JSON.stringify([updatedAt(version)]), {
+        status: 200,
+      });
+    }
+    if (parsed.pathname === `/repos/${REPOSITORY}/pulls/123`) {
+      detailReads += 1;
+      return new Response(JSON.stringify(updatedAt(detailReads <= 2 ? 0 : 1)), {
+        status: 200,
+      });
+    }
+    if (parsed.pathname === `/repos/${REPOSITORY}/pulls/123/reviews`) {
+      reviewReads += 1;
+      return new Response(JSON.stringify([liveProcessorReview()]), {
+        status: 200,
+      });
+    }
+    assert.fail(`Unexpected request: ${url}`);
+  };
+  const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
+
+  assert.deepEqual(
+    await adapter.getOutstandingDependabotProcessorApprovals(REPOSITORY),
+    [
+      {
+        approvalId: 7_001,
+        headSha: HEAD_SHA,
+        pullRequestNumber: 123,
+      },
+    ],
+  );
+  assert.equal(listReads, 4);
+  assert.equal(detailReads, 4);
+  assert.equal(reviewReads, 2);
+});
+
+test("live repository-wide processor approval visibility rejects a second full snapshot drift", async () => {
+  let detailReads = 0;
+  let listReads = 0;
+  const updatedAt = (value) =>
+    liveApprovalPullRequest({ updated_at: `2026-08-10T10:00:0${value}Z` });
+  const fetchImpl = async (url) => {
+    const parsed = new URL(url);
+    if (parsed.pathname === `/repos/${REPOSITORY}/pulls`) {
+      listReads += 1;
+      const version = [0, 1, 1, 2][listReads - 1];
+      return new Response(JSON.stringify([updatedAt(version)]), {
+        status: 200,
+      });
+    }
+    if (parsed.pathname === `/repos/${REPOSITORY}/pulls/123`) {
+      detailReads += 1;
+      return new Response(
+        JSON.stringify(detailReads <= 2 ? updatedAt(0) : updatedAt(1)),
+        { status: 200 },
+      );
+    }
+    if (parsed.pathname === `/repos/${REPOSITORY}/pulls/123/reviews`) {
+      return new Response(JSON.stringify([liveProcessorReview()]), {
+        status: 200,
+      });
+    }
+    assert.fail(`Unexpected request: ${url}`);
+  };
+  const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
+
+  await assert.rejects(
+    adapter.getOutstandingDependabotProcessorApprovals(REPOSITORY),
+    /Repository-wide processor approval PR set changed during collection/,
+  );
+  assert.equal(listReads, 4);
+  assert.equal(detailReads, 4);
 });
 
 test("a targeted PR B sweep rejects an unbound current github-actions approval on PR A before writes", async () => {

@@ -345,7 +345,21 @@ must:
 9. publish canonical ALL CLEAR success.
 
 If any post-approval pre-publication condition fails while the PR remains open,
-dismiss the approval. This is compensating, not atomic.
+publish an automation-invalidating exact-head ALL CLEAR failure and then dismiss
+the approval. The optional failed check does not remove GitHub merge authority;
+dismissal does. This is compensating, not atomic. A later finalize run may
+replace that failure with a neutral non-authorizing tombstone only after fresh
+evidence proves zero processor approvals, `REVIEW_REQUIRED`, `BLOCKED`, and no
+auto-merge. It recollects and proves that state before it can approve again. A
+later run changes a persisted tombstone back to failure before it trusts that
+state. Failed recovery restores every attempted neutral target, disables a sole
+exact late auto-merge request, and dismisses every observed processor approval.
+Two consecutive global scans must prove both authority inventories empty within
+five attempts. A processor approval or sole exact auto-merge request first
+exposed by the final scan is removed. Multiple, malformed, or ambiguous
+auto-merge evidence remains blocking. The run still fails because it cannot
+prove the required empty sequence. Post-approval failure uses the same
+paired-inventory rollback, including after an ambiguous approval response.
 
 The packetless Processor classification check emitted before approval is a
 non-authorizing status record. It is excluded from repair-receipt and attempt
