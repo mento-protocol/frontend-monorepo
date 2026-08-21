@@ -3,7 +3,7 @@ title: One canonical pull-request comment stores the preview controller journal
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-07-22
+last_verified: 2026-08-20
 scope: ci/deployment/preview-controller-state
 date: 2026-07
 ---
@@ -68,7 +68,10 @@ admission cursor, checkpoint, canonical live receipt set, and mutable state;
 live receipt set. The canonical Markdown envelope includes an explicit closing
 `</details>` tag and permits no extra presentation text. The comment ID is
 stable for the life of the journal. Updates edit that comment; they never
-create another journal or a receipt-specific comment.
+create another journal or a receipt-specific comment. Writers render the JSON
+document without optional whitespace. During the formatting migration, readers
+accept only this compact canonical body or the exact prior two-space canonical
+body. The next mutation rewrites the body in compact form.
 
 Receipt immutability is enforced by the journal protocol. A deterministic
 receipt identity may be inserted once. Replaying an identical receipt is a
@@ -99,21 +102,59 @@ A four-target 50-preview sequential-cycle fixture remains below a strict
 The same checkpoint field protects an overlapping push burst before the hard
 body limit is reached. At a 40,000-byte soft threshold, the controller proves a
 unique path to the latest pull-request tail represented by the complete receipt
-graph, then folds that graph and terminal receipts not needed for recovery into
-the cumulative digest. A pending checkpoint records the exact unfinished owner,
-its consumed attempt count, and the latest runtime event still owed, while
-retaining that owner's selection, worker evidence, and result. Reconciliation
-waits for that owner;
+graph. Every selection, worker-evidence, result-recovery, and state writer runs
+this capacity check before and after its mutation. This prevents a valid
+near-limit journal from becoming unwriteable during a non-event append.
+
+Capacity checkpointing can fold an artifact-covered prefix while a later event
+is still unsettled. The cutoff must be a live event in the selected open
+lineage. Its exact, unexpired observation artifact must exist. The journal must
+also have a valid admission cursor through the cutoff, and no earlier event in
+the lineage can have a greater workflow run number. The trusted artifact job
+uploads that name only after `createPreviewObservationReceipt` validates and
+materializes the event's canonical journal graph. Therefore a later exact
+artifact transitively retains every earlier admitted receipt in that graph,
+including an earlier event whose own artifact is missing.
+
+The private cost collector prefers the requested event's exact artifact. If
+that artifact and the live event are both absent, it searches the controller
+workflow runs on the requested historical run's validated head branch. The search is
+bounded to five 100-run pages and 64 completed later candidates. It checks
+candidates nearest-first and downloads only an exact per-run artifact. A
+covering receipt must bind the candidate run, contain the marked requested
+event, and carry an admission cursor through the covering event. The collector
+does not depend on the current checkpoint. It does not enumerate repository-wide
+artifacts. This keeps transitive evidence usable after later checkpoints replace
+the checkpoint event. Any identity conflict, ambiguity, or bound exhaustion
+fails closed.
+
+The checkpoint folds only through that cutoff. It retains every later live
+event and every selection whose selected or coalesced event run ID binds it to
+that suffix. It also retains the matching worker evidence and results. The
+persisted ownership epoch remains stable so reconciliation can consume those
+immutable suffix receipts after the checkpoint event becomes the graph anchor.
+The cumulative digest and receipt counts continue to cover the pruned prefix.
+A pending checkpoint records the exact unfinished owner, its consumed attempt
+count, and the latest runtime event still owed. Reconciliation waits for that owner;
 its terminal result either satisfies a runtime-equivalent tail or releases the
 latest runtime event for dispatch. Thus queued receipt jobs cannot disappear,
 and a docs-only tail cannot remain pending after its runtime dependency ends.
+An absent admission cursor, a cutoff beyond the admission frontier, an
+out-of-order prefix, an artifact attached to another run, or a checkpoint event
+that is no longer live cannot authorize another fold. The mutation then keeps
+the journal unchanged and fails closed if the hard limit would be exceeded.
 
 The complete rendered comment body remains subject to the controller's
 64,000-byte UTF-8 hard limit. A mutation that cannot use either terminal or
 capacity checkpointing safely and would exceed that bound fails closed before
 it changes the journal, publishes a success status, or dispatches a worker.
 Unfinished evidence and active or retired ownership are never truncated to
-recover capacity.
+recover capacity. Compact JSON reduced the live journal that triggered this
+migration from 63,133 bytes to 49,772 bytes with the same data and digests. The
+new body has 14,228 bytes of headroom under the unchanged limit. The projected
+terminal recovery is 65,358 bytes with the prior rendering and 51,457 bytes
+with compact rendering. The prior rendering exceeds the hard limit. Compact
+rendering leaves 12,543 bytes of recovery headroom.
 
 ### The shared queue is a correctness boundary
 
@@ -243,10 +284,11 @@ before mutation. The authenticated bootstrap must be the complete quiescent
 frontier. It records the admission floor without planning, worker dispatch,
 Deployment mutation, or a pending preview status; the same run's existing
 reconciliation job then consumes only the already-persisted terminal results,
-drains the active slots, and records terminal closed state. No second operation,
-reader, or compatibility mode exists. Active-capacity compaction is deferred only
-between that receipt and same-run drain, while the ordinary 60 KB guard remains
-fail-closed. Until drain and compaction commit, the durable admission cursor
+drains the active slots, and records terminal closed state. No second recovery
+operation, alternate-schema reader, or recovery compatibility mode exists.
+Active-capacity compaction is deferred only between that receipt and same-run
+drain, while the ordinary 60 KB guard remains fail-closed. Until drain and
+compaction commit, the durable admission cursor
 remains pinned to the bootstrap: a later Actions frontier fails before its
 cursor or any journal mutation is persisted, and a distinct reconciliation run
 cannot consume the pending state. A central writer barrier covers event,
@@ -423,7 +465,7 @@ cost, retention policy, and operator dependency for preview deployment.
   operational signal alongside preview latency.
 - Deterministic terminal and capacity checkpoints keep sequential previews and
   overlapping bursts bounded without adding an archive, rollover comment, or
-  compatibility path. The 64,000-byte UTF-8 bound remains a fail-closed
+  alternate-state compatibility path. The 64,000-byte UTF-8 bound remains a fail-closed
   constraint when unfinished ownership cannot be summarized safely.
 - Terminal results remove their retired owners once the result is durable.
   More than 40 genuinely unfinished retired owners fails closed; ownership is

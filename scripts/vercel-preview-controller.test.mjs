@@ -13,6 +13,7 @@ import {
   RESULT_RECEIPT_SCHEMA,
   SELECTION_RECEIPT_SCHEMA,
   compactPreviewJournal,
+  compactPreviewJournalForCapacity,
   controllerEventRunName,
   controllerKey,
   createPreviewJournal,
@@ -28,6 +29,7 @@ import {
   recordEventReceipt,
   recordWorkerEvidence as recordWorkerEvidenceImplementation,
   renderPreviewJournalBody,
+  renderPreviousPreviewJournalBody,
   reconcilePreview as reconcilePreviewImplementation,
   reconcileState,
   recoverWorkerResult,
@@ -47,6 +49,7 @@ import {
   writeRepositoryDispatchOutputs,
 } from "./vercel-preview-controller.mjs";
 import { validateGitBranch } from "./vercel-prebuilt-workflow.mjs";
+import { legacyPreviewJournalBody } from "./fixtures/vercel-preview-legacy-journal.mjs";
 import {
   PREVIEW_TARGET_CONFIG,
   PREVIEW_TARGETS,
@@ -2614,11 +2617,11 @@ test("two-event four-target recovery fits the result-only write before terminal 
     existingState: activeWave.state,
   });
   activeWave = persistWave(selected, 317_210_000);
-  // Two failed attempts ended before they could publish pre-completion evidence.
-  workerEvidenceReceipts.splice(0, 2);
 
   let state = activeWave.state;
   let maximumResultOnlyBytes = 0;
+  let maximumPreviousResultOnlyBytes = 0;
+  let oversizedPreviousJournal = null;
   for (const target of PREVIEW_TARGETS) {
     const terminalResult = result(state.targets[target].active, {
       runId: activeWave.runIds[target],
@@ -2635,6 +2638,15 @@ test("two-event four-target recovery fits the result-only write before terminal 
       maximumResultOnlyBytes,
       Buffer.byteLength(previewJournalBody(resultOnlyJournal), "utf8"),
     );
+    const previousBytes = Buffer.byteLength(
+      legacyPreviewJournalBody(resultOnlyJournal),
+      "utf8",
+    );
+    maximumPreviousResultOnlyBytes = Math.max(
+      maximumPreviousResultOnlyBytes,
+      previousBytes,
+    );
+    if (previousBytes > 64_000) oversizedPreviousJournal = resultOnlyJournal;
     results.push(terminalResult);
     state = reconcile({
       events,
@@ -2646,13 +2658,19 @@ test("two-event four-target recovery fits the result-only write before terminal 
   }
 
   assert.ok(
-    maximumResultOnlyBytes >= 62_500 && maximumResultOnlyBytes <= 63_500,
-    `expected a result-only journal near 63,073 bytes, got ${maximumResultOnlyBytes}`,
+    maximumPreviousResultOnlyBytes > 64_000,
+    `previous journal unexpectedly fit at ${maximumPreviousResultOnlyBytes} bytes`,
+  );
+  assert.ok(oversizedPreviousJournal);
+  assert.throws(
+    () => renderPreviousPreviewJournalBody(oversizedPreviousJournal),
+    /Preview journal comment is too large/,
   );
   assert.ok(
     maximumResultOnlyBytes < 64_000,
     `journal was ${maximumResultOnlyBytes} bytes`,
   );
+  assert.ok(maximumResultOnlyBytes < maximumPreviousResultOnlyBytes);
   const terminal = compactPreviewJournal(
     createPreviewJournal({
       pr: 519,
@@ -2670,6 +2688,761 @@ test("two-event four-target recovery fits the result-only write before terminal 
     results: [],
   });
   assert.ok(Buffer.byteLength(previewJournalBody(terminal), "utf8") < 64_000);
+});
+
+test("non-event capacity writes checkpoint an artifact-covered prefix and preserve the observable suffix", async () => {
+  const liveDeploymentFields = (target, runId) => ({
+    vercel_deployment_id: `dpl_${target}_${runId}_${"a".repeat(16)}`,
+    next_deployment_id: `m-${target}-${runId}`,
+    vercel_deployment_url: `https://${target}-${runId}-${"b".repeat(8)}.vercel.app`,
+    verified_upload_url: `https://${target}-${runId}-${"b".repeat(8)}.vercel.app`,
+  });
+  const liveWorkerEvidence = (dispatch, runId) => ({
+    ...workerEvidence(dispatch, { runId }),
+    ...liveDeploymentFields(dispatch.target, runId),
+  });
+  const liveWorkerResult = (dispatch, runId) => {
+    const receipt = result(dispatch, { runId });
+    const fields = liveDeploymentFields(dispatch.target, runId);
+    return validateWorkerResult({
+      ...receipt,
+      vercel_deployment_id: fields.vercel_deployment_id,
+      next_deployment_id: fields.next_deployment_id,
+      vercel_deployment_url: fields.vercel_deployment_url,
+    });
+  };
+  const events = [];
+  const selections = [];
+  const workerEvidenceReceipts = [];
+  const results = [];
+  let state = null;
+  let previousHead = null;
+
+  for (let wave = 0; wave < 4; wave += 1) {
+    const head = (700 + wave).toString(16).padStart(40, "0");
+    const receipt = event({
+      run: 330_000_000 + wave,
+      runNumber: 500 + wave,
+      action: wave === 0 ? "opened" : "synchronize",
+      before: previousHead,
+      head,
+      targets: PREVIEW_TARGETS,
+      updated: timestamp(wave + 1),
+      retainObservationReceipt: true,
+    });
+    events.push(receipt);
+    const currentPull = pull({ head, updated: timestamp(wave + 1) });
+    const selected = reconcile({
+      events,
+      selections,
+      results,
+      pullRequest: currentPull,
+      existingState: state,
+    });
+    const runIds = Object.fromEntries(
+      PREVIEW_TARGETS.map((target, index) => [
+        target,
+        330_100_000 + wave * 10 + index,
+      ]),
+    );
+    state = persistTargetDispatches(selected, runIds);
+    for (const target of PREVIEW_TARGETS) {
+      const dispatch = state.targets[target].active;
+      selections.push(selectionReceiptFromDispatch(dispatch));
+      const hasUploadEvidence =
+        wave !== 1 && !(wave === 3 && target === "governance");
+      if (hasUploadEvidence) {
+        workerEvidenceReceipts.push(
+          liveWorkerEvidence(dispatch, runIds[target]),
+        );
+        results.push(liveWorkerResult(dispatch, runIds[target]));
+      } else {
+        results.push(controllerResult(dispatch, { runId: runIds[target] }));
+      }
+    }
+    state = reconcile({
+      events,
+      selections,
+      results,
+      pullRequest: currentPull,
+      existingState: state,
+    }).state;
+    previousHead = head;
+  }
+
+  const covered = event({
+    run: 330_000_004,
+    runNumber: 504,
+    action: "synchronize",
+    before: previousHead,
+    head: SHA.B,
+    runtime: false,
+    updated: timestamp(5),
+    retainObservationReceipt: true,
+  });
+  events.push(covered);
+  state = reconcile({
+    events,
+    selections,
+    results,
+    pullRequest: pull({ head: SHA.B, updated: timestamp(5) }),
+    existingState: state,
+  }).state;
+
+  const suffix = event({
+    run: 330_000_005,
+    runNumber: 505,
+    action: "synchronize",
+    before: SHA.B,
+    head: SHA.C,
+    targets: PREVIEW_TARGETS,
+    updated: timestamp(6),
+    retainObservationReceipt: true,
+  });
+  events.push(suffix);
+  const selected = reconcile({
+    events,
+    selections,
+    results,
+    pullRequest: pull({ head: SHA.C, updated: timestamp(6) }),
+    existingState: state,
+  });
+  const suffixRunIds = Object.fromEntries(
+    PREVIEW_TARGETS.map((target, index) => [target, 330_200_000 + index]),
+  );
+  state = persistTargetDispatches(selected, suffixRunIds);
+  const suffixDispatches = Object.fromEntries(
+    PREVIEW_TARGETS.map((target) => [
+      target,
+      structuredClone(state.targets[target].active),
+    ]),
+  );
+  for (const target of PREVIEW_TARGETS) {
+    selections.push(selectionReceiptFromDispatch(suffixDispatches[target]));
+  }
+  for (const target of ["reserve", "ui", "app"]) {
+    workerEvidenceReceipts.push(
+      liveWorkerEvidence(suffixDispatches[target], suffixRunIds[target]),
+    );
+  }
+  results.push(
+    liveWorkerResult(suffixDispatches.reserve, suffixRunIds.reserve),
+  );
+  state = reconcile({
+    events,
+    selections,
+    results,
+    pullRequest: pull({ head: SHA.C, updated: timestamp(6) }),
+    existingState: state,
+  }).state;
+
+  const comment = journalComment({
+    events,
+    selections,
+    workerEvidence: workerEvidenceReceipts,
+    results,
+    state,
+    admission: {
+      schema: "vercel-preview-controller-admission:v1",
+      workflow_id: CONTROLLER_WORKFLOW_ID,
+      through_run_id: suffix.event_run_id,
+      through_run_number: suffix.event_run_number,
+    },
+  });
+  const before = journalFromComment(comment);
+  assert.deepEqual(
+    Object.fromEntries(
+      Object.entries(before.receipts).map(([name, entries]) => [
+        name,
+        entries.length,
+      ]),
+    ),
+    { events: 6, selections: 20, worker_evidence: 14, results: 17 },
+  );
+  const suffixKeys = new Set(
+    Object.values(suffixDispatches).map((dispatch) => dispatch.key_digest),
+  );
+  const outOfOrderJournal = createPreviewJournal({
+    pr: before.pr,
+    revision: before.revision,
+    events: [suffix, ...before.receipts.events.slice(0, -1)],
+    selections: before.receipts.selections,
+    workerEvidence: before.receipts.worker_evidence,
+    results: before.receipts.results,
+    state: before.state,
+    admission: before.admission,
+  });
+  compactPreviewJournal(outOfOrderJournal, {
+    expectedPullNumber: before.pr,
+    throughEventRunId: covered.event_run_id,
+  });
+  assert.deepEqual(outOfOrderJournal.receipts.events, [suffix]);
+  for (const name of ["selections", "worker_evidence", "results"]) {
+    assert.deepEqual(
+      outOfOrderJournal.receipts[name],
+      before.receipts[name].filter((receipt) =>
+        suffixKeys.has(receipt.key_digest),
+      ),
+      name,
+    );
+  }
+  const preWriteBytes = Buffer.byteLength(comment.body, "utf8");
+  assert.ok(preWriteBytes > 62_000, `journal was ${preWriteBytes} bytes`);
+  assert.ok(preWriteBytes <= 64_000, `journal was ${preWriteBytes} bytes`);
+  const uncheckpointedGovernanceEvidence = {
+    ...workerEvidence(suffixDispatches.governance, {
+      runId: suffixRunIds.governance,
+    }),
+    vercel_deployment_id: "dpl_governance_suffix",
+    next_deployment_id: "m-governance-suffix",
+    verified_upload_url: "https://governance-suffix.vercel.app",
+  };
+  const uncheckpointedCandidate = {
+    ...structuredClone(before),
+    revision: before.revision + 1,
+    receipts: {
+      ...structuredClone(before.receipts),
+      worker_evidence: [
+        ...structuredClone(before.receipts.worker_evidence),
+        uncheckpointedGovernanceEvidence,
+      ],
+    },
+  };
+  const uncheckpointedCandidateBytes =
+    preWriteBytes +
+    Buffer.byteLength(JSON.stringify(uncheckpointedCandidate), "utf8") -
+    Buffer.byteLength(JSON.stringify(before), "utf8");
+  assert.ok(
+    uncheckpointedCandidateBytes > 64_000,
+    `uncheckpointed evidence candidate was ${uncheckpointedCandidateBytes} bytes`,
+  );
+  assert.throws(
+    () => renderPreviewJournalBody(uncheckpointedCandidate),
+    /Preview journal comment is too large/,
+  );
+
+  const deployments = PREVIEW_TARGETS.map((target) => ({
+    id: 9_000 + suffixRunIds[target],
+    ref: SHA.C,
+    sha: SHA.C,
+    environment: `preview/${target}/pr-519`,
+    payload: {
+      ...canonicalDeploymentBinding(),
+      idempotency_key: suffixDispatches[target].key,
+      sha: SHA.C,
+      logical_target: target,
+      git_ref: suffixDispatches[target].git_ref,
+      workflow_run_url: `https://github.com/mento-protocol/frontend-monorepo/actions/runs/${suffixRunIds[target]}/attempts/1`,
+      pull_request_number: 519,
+    },
+  }));
+  const runs = PREVIEW_TARGETS.map((target) =>
+    workerRun(suffixDispatches[target], {
+      id: suffixRunIds[target],
+      status: "completed",
+      conclusion: target === "governance" ? "failure" : "success",
+      createdAt: timestamp(6),
+    }),
+  );
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.C, updated: timestamp(6) }),
+    comments: [comment],
+    runs,
+    workflowRunJobs: new Map([
+      [
+        `${suffixRunIds.governance}:1`,
+        successfulBuildRecoveryJobs(suffixDispatches.governance, {
+          runId: suffixRunIds.governance,
+        }),
+      ],
+    ]),
+    deployments,
+    deploymentStatuses: new Map(
+      PREVIEW_TARGETS.map((target) => [
+        9_000 + suffixRunIds[target],
+        [
+          {
+            state: "success",
+            environment_url: `https://${target}-suffix.vercel.app`,
+            log_url: `https://github.com/mento-protocol/frontend-monorepo/actions/runs/${suffixRunIds[target]}/attempts/1`,
+          },
+        ],
+      ]),
+    ),
+    artifacts: [
+      {
+        id: 900_001,
+        workflow_run_id: covered.event_run_id,
+        name: previewObservationArtifactName(covered.event_run_id),
+        expired: false,
+      },
+    ],
+  });
+
+  const capacityJournal = ({
+    journalEvents = before.receipts.events,
+    admission = before.admission,
+  } = {}) =>
+    createPreviewJournal({
+      pr: before.pr,
+      revision: before.revision,
+      checkpoint: before.checkpoint,
+      events: journalEvents,
+      selections: before.receipts.selections,
+      workerEvidence: before.receipts.worker_evidence,
+      results: before.receipts.results,
+      state: before.state,
+      ...(admission === null ? {} : { admission }),
+    });
+  const assertCapacityCheckpointSkipped = async (journal, github) => {
+    const snapshot = structuredClone(journal);
+    assert.equal(
+      await compactPreviewJournalForCapacity({
+        github,
+        context: fakeContext(),
+        journal,
+        expectedPullNumber: before.pr,
+      }),
+      false,
+    );
+    assert.deepEqual(journal, snapshot);
+  };
+
+  await assertCapacityCheckpointSkipped(
+    capacityJournal({ admission: null }),
+    fixture.github,
+  );
+
+  const behindAdmission = capacityJournal({
+    admission: {
+      ...before.admission,
+      through_run_id: events.at(-3).event_run_id,
+      through_run_number: covered.event_run_number - 1,
+    },
+  });
+  await assertCapacityCheckpointSkipped(behindAdmission, fixture.github);
+
+  const outOfOrderPrefix = structuredClone(before.receipts.events);
+  outOfOrderPrefix[3].event_run_number = covered.event_run_number + 1;
+  await assertCapacityCheckpointSkipped(
+    capacityJournal({ journalEvents: outOfOrderPrefix }),
+    fixture.github,
+  );
+
+  const misplacedArtifactFixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.C, updated: timestamp(6) }),
+    artifacts: [
+      {
+        id: 900_002,
+        workflow_run_id: suffix.event_run_id,
+        name: previewObservationArtifactName(covered.event_run_id),
+        expired: false,
+      },
+    ],
+  });
+  await assertCapacityCheckpointSkipped(
+    capacityJournal(),
+    misplacedArtifactFixture.github,
+  );
+
+  const stateWriteFixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.C, updated: timestamp(6) }),
+    comments: [structuredClone(comment)],
+    runs: [
+      ...events.map((receipt) =>
+        controllerEventRun({
+          id: receipt.event_run_id,
+          runNumber: receipt.event_run_number,
+          sha: receipt.head_sha,
+          before: receipt.before_sha,
+          action: receipt.event_action,
+          createdAt: receipt.pr_updated_at,
+        }),
+      ),
+      ...runs,
+    ],
+    workflowRunJobs: new Map([
+      [
+        `${suffixRunIds.governance}:1`,
+        successfulBuildRecoveryJobs(suffixDispatches.governance, {
+          runId: suffixRunIds.governance,
+        }),
+      ],
+    ]),
+    deployments,
+    deploymentStatuses: new Map(
+      PREVIEW_TARGETS.map((target) => [
+        9_000 + suffixRunIds[target],
+        [
+          {
+            state: "success",
+            environment_url: `https://${target}-suffix.vercel.app`,
+            log_url: `https://github.com/mento-protocol/frontend-monorepo/actions/runs/${suffixRunIds[target]}/attempts/1`,
+          },
+        ],
+      ]),
+    ),
+    artifacts: [
+      {
+        id: 900_004,
+        workflow_run_id: covered.event_run_id,
+        name: previewObservationArtifactName(covered.event_run_id),
+        expired: false,
+      },
+    ],
+    allCandidateTargetsNative: true,
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+  const returnedState = await reconcilePreview({
+    github: stateWriteFixture.github,
+    workerDispatchGithub: null,
+    controllerMode: "observe-only",
+    context: fakeContext({
+      runId: suffix.event_run_id,
+      runNumber: suffix.event_run_number,
+    }),
+    core: fakeCore(),
+    prNumber: before.pr,
+    waitForRecovery: async () => {},
+  });
+  const stateWriteJournal = journalFromComment(stateWriteFixture.comments[0]);
+  assert.equal(
+    stateWriteJournal.checkpoint.event.event_run_id,
+    covered.event_run_id,
+  );
+  assert.deepEqual(stateWriteJournal.receipts.events, [suffix]);
+  assert.deepEqual(returnedState, stateWriteJournal.state);
+  const reboundState = reconcile({
+    events: stateWriteJournal.receipts.events,
+    selections: stateWriteJournal.receipts.selections,
+    results: stateWriteJournal.receipts.results,
+    pullRequest: pull({ head: SHA.C, updated: timestamp(6) }),
+    existingState: stateWriteJournal.state,
+    checkpoint: stateWriteJournal.checkpoint,
+  }).state;
+  assert.equal(
+    stateWriteJournal.state.receipts_digest,
+    reboundState.receipts_digest,
+  );
+  assert.equal(stateWriteFixture.lostSerializedUpdates.length, 0);
+
+  const governanceCore = fakeCore();
+  const governanceResult = await recoverWorkerResult({
+    github: fixture.github,
+    context: fakeContext({
+      workflowRun: runs.find((run) =>
+        run.display_title.includes("target=governance"),
+      ),
+    }),
+    core: governanceCore,
+  });
+  assert.equal(governanceResult.target, "governance");
+  assert.equal(governanceResult.state, "success");
+  assert.equal(governanceCore.outputs.get("worker_evidence_recovered"), "true");
+
+  let persisted = journalFromComment(fixture.comments[0]);
+  assert.equal(persisted.checkpoint.event.event_run_id, covered.event_run_id);
+  assert.deepEqual(persisted.receipts.events, [suffix]);
+  for (const target of ["app", "governance", "ui"]) {
+    assert.equal(
+      before.state.targets[target].active.selection_receipt_run_id,
+      suffix.event_run_id,
+      `${target} live owner`,
+    );
+    assert.equal(
+      before.state.targets[target].latest_desired_receipt_run_id,
+      suffix.event_run_id,
+      `${target} live desired event`,
+    );
+    assert.equal(
+      persisted.state.targets[target].active.selection_receipt_run_id,
+      suffix.event_run_id,
+      `${target} retained owner`,
+    );
+    assert.equal(
+      persisted.state.targets[target].latest_desired_receipt_run_id,
+      suffix.event_run_id,
+      `${target} retained desired event`,
+    );
+    assert.equal(
+      persisted.checkpoint.targets[target].latest_runtime_event.event_run_id,
+      events.at(-3).event_run_id,
+      `${target} checkpoint runtime predecessor`,
+    );
+  }
+  assert.deepEqual(
+    persisted.receipts.selections.map((entry) => entry.key_digest).sort(),
+    Object.values(suffixDispatches)
+      .map((entry) => entry.key_digest)
+      .sort(),
+  );
+  assert.equal(persisted.receipts.worker_evidence.length, 4);
+  assert.equal(persisted.receipts.results.length, 2);
+  const governanceEvidence = persisted.receipts.worker_evidence.find(
+    (entry) => entry.target === "governance",
+  );
+  assert.equal(governanceEvidence.execution_mode, "build");
+  assert.equal(governanceEvidence.build_completed, true);
+  assert.equal(governanceEvidence.vercel_deployment_id, null);
+  assert.equal(governanceEvidence.next_deployment_id, null);
+  assert.equal(
+    governanceEvidence.verified_upload_url,
+    "https://governance-suffix.vercel.app",
+  );
+  assert.ok(Buffer.byteLength(fixture.comments[0].body, "utf8") < 64_000);
+
+  for (const target of ["app", "ui"]) {
+    const outcome = await recoverWorkerResult({
+      github: fixture.github,
+      context: fakeContext({
+        workflowRun: runs.find((run) =>
+          run.display_title.includes(`target=${target}`),
+        ),
+      }),
+      core: fakeCore(),
+    });
+    assert.equal(outcome.state, "success");
+  }
+  persisted = journalFromComment(fixture.comments[0]);
+  assert.equal(persisted.receipts.results.length, 4);
+  const settled = reconcile({
+    events: persisted.receipts.events,
+    selections: persisted.receipts.selections,
+    results: persisted.receipts.results,
+    pullRequest: pull({ head: SHA.C, updated: timestamp(6) }),
+    existingState: persisted.state,
+    checkpoint: persisted.checkpoint,
+  });
+  assert.deepEqual(settled.nextDispatches, []);
+  const settledState = settled.state;
+  const staleDesiredState = structuredClone(persisted.state);
+  for (const target of ["app", "governance", "ui"]) {
+    assert.equal(
+      staleDesiredState.targets[target].active.selection_receipt_run_id,
+      suffix.event_run_id,
+      `${target} completed owner before stale desired recovery`,
+    );
+    staleDesiredState.targets[target].latest_desired_sha =
+      events.at(-3).head_sha;
+    staleDesiredState.targets[target].latest_desired_receipt_run_id =
+      events.at(-3).event_run_id;
+  }
+  const staleDesiredSettled = reconcile({
+    events: persisted.receipts.events,
+    selections: persisted.receipts.selections,
+    results: persisted.receipts.results,
+    pullRequest: pull({ head: SHA.C, updated: timestamp(6) }),
+    existingState: staleDesiredState,
+    checkpoint: persisted.checkpoint,
+  });
+  assert.deepEqual(staleDesiredSettled.nextDispatches, []);
+  const staleDesiredJournal = createPreviewJournal({
+    pr: 519,
+    revision: persisted.revision,
+    checkpoint: persisted.checkpoint,
+    events: persisted.receipts.events,
+    selections: persisted.receipts.selections,
+    workerEvidence: persisted.receipts.worker_evidence,
+    results: persisted.receipts.results,
+    state: staleDesiredSettled.state,
+    admission: persisted.admission,
+  });
+  const staleDesiredObservation = createPreviewObservationReceipt(
+    staleDesiredJournal,
+    suffix.event_run_id,
+  );
+  assert.ok(staleDesiredObservation);
+  assert.deepEqual(
+    validatePreviewObservationReceipt(staleDesiredObservation),
+    staleDesiredObservation,
+  );
+  const settledJournal = createPreviewJournal({
+    pr: 519,
+    revision: persisted.revision,
+    checkpoint: persisted.checkpoint,
+    events: persisted.receipts.events,
+    selections: persisted.receipts.selections,
+    workerEvidence: persisted.receipts.worker_evidence,
+    results: persisted.receipts.results,
+    state: settledState,
+    admission: persisted.admission,
+  });
+  assert.deepEqual(settledState.status_decisions.at(-1).targets, {
+    app: "deployed",
+    governance: "deployed",
+    reserve: "deployed",
+    ui: "deployed",
+  });
+  for (const selection of persisted.receipts.selections) {
+    const matchingEvidence = persisted.receipts.worker_evidence.filter(
+      (entry) => entry.key_digest === selection.key_digest,
+    );
+    const matchingResults = persisted.receipts.results.filter(
+      (entry) => entry.key_digest === selection.key_digest,
+    );
+    assert.equal(matchingEvidence.length, 1, selection.target);
+    assert.equal(matchingResults.length, 1, selection.target);
+    assert.equal(
+      matchingEvidence[0].worker_run_id,
+      matchingResults[0].worker_run_id,
+      selection.target,
+    );
+  }
+  const suffixObservation = createPreviewObservationReceipt(
+    settledJournal,
+    suffix.event_run_id,
+  );
+  assert.ok(suffixObservation);
+  assert.deepEqual(
+    validatePreviewObservationReceipt(suffixObservation),
+    suffixObservation,
+  );
+
+  const repeatedEvidence = [];
+  const repeatedResults = [];
+  for (const target of PREVIEW_TARGETS) {
+    for (const offset of [100, 200]) {
+      const runId = suffixRunIds[target] + offset;
+      repeatedEvidence.push(
+        workerEvidence(suffixDispatches[target], { runId }),
+      );
+      repeatedResults.push(result(suffixDispatches[target], { runId }));
+    }
+  }
+  const repeatedCapacityJournal = createPreviewJournal({
+    pr: persisted.pr,
+    revision: persisted.revision,
+    checkpoint: persisted.checkpoint,
+    events: persisted.receipts.events,
+    selections: persisted.receipts.selections,
+    workerEvidence: [
+      ...persisted.receipts.worker_evidence,
+      ...repeatedEvidence,
+    ],
+    results: [...persisted.receipts.results, ...repeatedResults],
+    state: settledState,
+    admission: persisted.admission,
+  });
+  assert.ok(
+    Buffer.byteLength(
+      renderPreviewJournalBody(repeatedCapacityJournal),
+      "utf8",
+    ) > 40_000,
+  );
+  const repeatedSnapshot = structuredClone(repeatedCapacityJournal);
+  assert.equal(
+    await compactPreviewJournalForCapacity({
+      github: fixture.github,
+      context: fakeContext(),
+      journal: repeatedCapacityJournal,
+      expectedPullNumber: persisted.pr,
+    }),
+    false,
+  );
+  assert.deepEqual(repeatedCapacityJournal, repeatedSnapshot);
+});
+
+test("capacity artifact lookup stops after the nearest 64 eligible events", async () => {
+  const events = [];
+  let previousHead = null;
+  const observedAt = (index) =>
+    new Date(Date.parse(timestamp(0)) + index * 1_000).toISOString();
+  for (let index = 0; index < 65; index += 1) {
+    const head = (4_000 + index).toString(16).padStart(40, "0");
+    events.push(
+      event({
+        run: 331_000_000 + index,
+        runNumber: 600 + index,
+        action: index === 0 ? "opened" : "synchronize",
+        before: previousHead,
+        head,
+        runtime: false,
+        updated: observedAt(index + 1),
+        retainObservationReceipt: true,
+        author: "x",
+        ref: "x",
+      }),
+    );
+    previousHead = head;
+  }
+  const currentPull = pull({
+    head: previousHead,
+    updated: observedAt(events.length),
+    author: "x",
+    ref: "x",
+  });
+  const state = reconcile({
+    events: [events[0]],
+    pullRequest: pull({
+      head: events[0].head_sha,
+      updated: events[0].pr_updated_at,
+      author: "x",
+      ref: "x",
+    }),
+  }).state;
+  const journal = createPreviewJournal({
+    pr: currentPull.number,
+    events,
+    state,
+    admission: {
+      schema: "vercel-preview-controller-admission:v1",
+      workflow_id: CONTROLLER_WORKFLOW_ID,
+      through_run_id: events.at(-1).event_run_id,
+      through_run_number: events.at(-1).event_run_number,
+    },
+  });
+  assert.ok(
+    Buffer.byteLength(renderPreviewJournalBody(journal), "utf8") > 40_000,
+  );
+
+  const candidateOutsideBound = events.at(-65);
+  const fixture = fakeGitHub({
+    pullRequest: currentPull,
+    comments: [],
+    artifacts: [
+      {
+        id: 900_003,
+        workflow_run_id: candidateOutsideBound.event_run_id,
+        name: previewObservationArtifactName(
+          candidateOutsideBound.event_run_id,
+        ),
+        expired: false,
+      },
+    ],
+  });
+  const artifactLookups = [];
+  const github = {
+    ...fixture.github,
+    async paginate(method, request) {
+      if (method === fixture.github.rest.actions.listWorkflowRunArtifacts) {
+        artifactLookups.push(request.run_id);
+      }
+      return fixture.github.paginate(method, request);
+    },
+  };
+  const snapshot = structuredClone(journal);
+
+  assert.equal(
+    await compactPreviewJournalForCapacity({
+      github,
+      context: fakeContext(),
+      journal,
+      expectedPullNumber: currentPull.number,
+    }),
+    false,
+  );
+  assert.deepEqual(journal, snapshot);
+  assert.deepEqual(
+    artifactLookups,
+    events
+      .slice(-64)
+      .reverse()
+      .map((candidate) => candidate.event_run_id),
+  );
+  assert.equal(
+    artifactLookups.includes(candidateOutsideBound.event_run_id),
+    false,
+  );
 });
 
 test("capacity checkpoints preserve the newest queued runtime before reconciliation", () => {
@@ -3046,6 +3819,11 @@ test("a terminal pending owner resolves a docs-only capacity checkpoint", async 
     status: "completed",
     conclusion: "success",
   });
+  const completedEvidence = {
+    ...workerEvidence(first.nextDispatch, { runId: 42_000 }),
+    github_deployment_id: 9_200,
+    verified_upload_url: "https://ui-42000.vercel.app",
+  };
   const callbackFixture = fakeGitHub({
     pullRequest: currentPull,
     comments: [
@@ -3053,6 +3831,7 @@ test("a terminal pending owner resolves a docs-only capacity checkpoint", async 
         checkpoint: compacted.checkpoint,
         events: compacted.receipts.events,
         selections: compacted.receipts.selections,
+        workerEvidence: [completedEvidence],
         state: postCheckpoint.state,
       }),
     ],
@@ -3723,6 +4502,112 @@ function workerRun(
   };
 }
 
+function workerAttemptJob(
+  selection,
+  { id, name, conclusion, steps = [], runId = 8_000, attempt = 1 },
+) {
+  return {
+    id,
+    run_id: runId,
+    run_attempt: attempt,
+    head_sha: selection.expected_workflow_sha,
+    name,
+    status: "completed",
+    conclusion,
+    steps: steps.map((step, index) => ({
+      number: index + 1,
+      name: typeof step === "string" ? step : step.name,
+      status: "completed",
+      conclusion: typeof step === "string" ? "success" : step.conclusion,
+    })),
+  };
+}
+
+function successfulBuildRecoveryJobs(
+  selection,
+  { runId = 8_000, attempt = 1 } = {},
+) {
+  const titles = {
+    app: "App",
+    governance: "Governance",
+    reserve: "Reserve",
+    ui: "UI",
+  };
+  const selectedTitle = titles[selection.target];
+  const jobs = [];
+  let id = 96_500_000_000;
+  const add = (name, conclusion, steps = []) => {
+    jobs.push(
+      workerAttemptJob(selection, {
+        id: id++,
+        name,
+        conclusion,
+        steps,
+        runId,
+        attempt,
+      }),
+    );
+  };
+  add("Validate exact-SHA controller ownership", "success", [
+    "Set up job",
+    "Check out trusted worker controller",
+    "Revalidate PR trust, lineage, state ownership, and Deployment absence",
+    "Complete job",
+  ]);
+  for (const target of PREVIEW_TARGETS) {
+    const title = titles[target];
+    add(
+      `Validate ${title} preview prerequisite names`,
+      target === selection.target ? "success" : "skipped",
+    );
+    add(`Resume ${title} smoke for an existing immutable upload`, "skipped");
+    if (target !== selection.target) {
+      add(`Run ${title} prebuilt preview pipeline`, "skipped");
+    }
+  }
+  add("Finalize resumed smoke lifecycle", "skipped");
+  add(
+    `Run ${selectedTitle} prebuilt preview pipeline / Prebuilt ${selection.target} preview`,
+    "success",
+    [
+      "Set up job",
+      "Create or reuse canonical GitHub Deployment",
+      "Mark GitHub Deployment queued",
+      "Mark GitHub Deployment in progress",
+      "Build the literal target prebuilt output",
+      "Mark the durable upload-attempt boundary",
+      "Upload the verified prebuilt output",
+      "Verify immutable Vercel deployment metadata",
+      "Complete job",
+    ],
+  );
+  add(
+    `Run ${selectedTitle} prebuilt preview pipeline / Smoke verified ${selection.target} preview / Smoke ${selection.target} ${selection.sha}`,
+    "success",
+    ["Set up job", "Verify immutable preview", "Complete job"],
+  );
+  add(
+    `Run ${selectedTitle} prebuilt preview pipeline / Finalize ${selection.target} deployment lifecycle`,
+    "success",
+    [
+      "Set up job",
+      "Check out trusted lifecycle controller only",
+      "Post truthful terminal GitHub Deployment state",
+      "Complete job",
+    ],
+  );
+  add("Persist immutable pre-completion worker evidence", "failure", [
+    "Set up job",
+    "Check out trusted evidence controller only",
+    {
+      name: "Record epoch-bound upload and retry evidence",
+      conclusion: "failure",
+    },
+    "Complete job",
+  ]);
+  return jobs;
+}
+
 function dependabotIntakeRun({
   pr = 519,
   sha = SHA.A,
@@ -4019,6 +4904,7 @@ function fakeGitHub({
   workflowRunDisplayTitles = [],
   workflowRunListDisplayTitles = [],
   workflowRunListRunIds = [],
+  workflowRunJobs = new Map(),
   pullRequests = [],
   beforeListComments,
   beforeListCommitStatuses,
@@ -4062,6 +4948,7 @@ function fakeGitHub({
   const dispatches = [];
   const createdDeploymentStatuses = [];
   const workflowRunAttemptRequests = [];
+  const workflowRunJobRequests = [];
   const workflowRunListRequests = [];
   const workflowRunRequests = [];
   const controllerEventRunListRequests = [];
@@ -4348,8 +5235,17 @@ function fakeGitHub({
           deployments.push(data);
           return { data };
         },
-        listDeploymentStatuses: async ({ deployment_id }) => ({
-          data: structuredClone(statuses.get(String(deployment_id)) ?? []),
+        listDeploymentStatuses: async ({
+          deployment_id,
+          page = 1,
+          per_page = 100,
+        }) => ({
+          data: structuredClone(
+            (statuses.get(String(deployment_id)) ?? []).slice(
+              (page - 1) * per_page,
+              page * per_page,
+            ),
+          ),
         }),
         createDeploymentStatus: async (request) => {
           const data = {
@@ -4392,6 +5288,35 @@ function fakeGitHub({
     },
     request: async (route, request) => {
       primaryRequests.push({ route, request: structuredClone(request) });
+      if (
+        route ===
+        "GET /repos/{owner}/{repo}/actions/runs/{run_id}/attempts/{attempt_number}/jobs"
+      ) {
+        assert.equal(request.headers["X-GitHub-Api-Version"], "2026-03-10");
+        assert.equal(request.filter, "all");
+        assert.equal(request.per_page, 100);
+        workflowRunJobRequests.push({
+          run_id: request.run_id,
+          attempt_number: request.attempt_number,
+        });
+        const jobs = workflowRunJobs.get(
+          `${request.run_id}:${request.attempt_number}`,
+        );
+        if (!jobs) {
+          const error = new Error(
+            `fixture jobs for run ${request.run_id} attempt ${request.attempt_number} do not exist`,
+          );
+          error.status = 404;
+          throw error;
+        }
+        return {
+          status: 200,
+          data: {
+            total_count: jobs.length,
+            jobs: structuredClone(jobs),
+          },
+        };
+      }
       if (
         route ===
         "GET /repos/{owner}/{repo}/actions/runs/{run_id}/attempts/{attempt_number}"
@@ -4467,6 +5392,7 @@ function fakeGitHub({
     dispatches,
     createdDeploymentStatuses,
     workflowRunAttemptRequests,
+    workflowRunJobRequests,
     workflowRunListRequests,
     controllerEventRunListRequests,
     workflowRunRequests,
@@ -7638,7 +8564,7 @@ test("malformed successful planner output is recorded as fail-closed UI impact",
     /<summary>Show machine-readable preview automation record<\/summary>/,
   );
   assert.match(fixture.comments[0].body, /<\/details>\n$/);
-  assert.match(fixture.comments[0].body, /"reason": "planner-job-failed"/);
+  assert.match(fixture.comments[0].body, /"reason":"planner-job-failed"/);
   const journal = journalFromComment(fixture.comments[0]);
   assert.equal(journal.schema, PREVIEW_JOURNAL_SCHEMA);
   assert.deepEqual(journal.receipts.events, [receipt]);
@@ -7722,7 +8648,7 @@ test("closed event receipt keeps one stable idempotent journal and publishes no 
   assert.equal(fixture.comments.length, 1);
   assert.equal(fixture.comments[0].id, 1);
   assert.equal(fixture.commentUpdates.length, 1);
-  assert.match(fixture.comments[0].body, /"event_action": "closed"/);
+  assert.match(fixture.comments[0].body, /"event_action":"closed"/);
   assert.equal(journalFromComment(fixture.comments[0]).revision, 2);
   assert.deepEqual(
     fixture.commitStatuses.map(({ context, state }) => ({ context, state })),
@@ -7757,6 +8683,86 @@ test("closed event receipt keeps one stable idempotent journal and publishes no 
   );
 });
 
+test("a legacy two-space journal rewrites compact on the next mutation", async () => {
+  const opened = event({
+    run: 135,
+    runNumber: 2,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const closed = event({
+    run: 136,
+    runNumber: 3,
+    action: "closed",
+    head: SHA.A,
+    updated: timestamp(2),
+  });
+  const legacyComment = journalComment({
+    events: [opened],
+    admission: {
+      schema: "vercel-preview-controller-admission:v1",
+      workflow_id: CONTROLLER_WORKFLOW_ID,
+      through_run_id: opened.event_run_id,
+      through_run_number: opened.event_run_number,
+    },
+  });
+  const legacyJournal = journalFromComment(legacyComment);
+  legacyComment.body = legacyPreviewJournalBody(legacyJournal);
+  assert.notEqual(legacyComment.body, previewJournalBody(legacyJournal));
+  assert.match(
+    legacyComment.body,
+    /\n {2}"schema": "vercel-preview-journal:v2",/,
+  );
+
+  const fixture = fakeGitHub({
+    pullRequest: pull({
+      head: SHA.A,
+      state: "closed",
+      updated: timestamp(2),
+      closed: timestamp(2),
+    }),
+    comments: [legacyComment],
+    runs: [
+      controllerEventRun({
+        id: opened.event_run_id,
+        runNumber: opened.event_run_number,
+        action: "opened",
+        sha: SHA.A,
+      }),
+      controllerEventRun({
+        id: closed.event_run_id,
+        runNumber: closed.event_run_number,
+        action: "closed",
+        sha: SHA.A,
+        linked: false,
+        createdAt: timestamp(2),
+      }),
+    ],
+    includeDefaultControllerFloor: false,
+  });
+  const snapshot = structuredClone(closed);
+  delete snapshot.plan;
+
+  await recordEventReceipt({
+    github: fixture.github,
+    context: fakeContext({ runId: 136, runNumber: 3 }),
+    core: fakeCore(),
+    snapshotRaw: JSON.stringify(snapshot),
+    planRaw: "",
+    plannerOutcome: "skipped",
+  });
+
+  const migratedJournal = journalFromComment(fixture.comments[0]);
+  assert.equal(migratedJournal.revision, 2);
+  assert.equal(fixture.comments[0].body, previewJournalBody(migratedJournal));
+  assert.doesNotMatch(
+    fixture.comments[0].body,
+    /\n {2}"schema": "vercel-preview-journal:v2",/,
+  );
+  assert.equal(fixture.commentUpdates.length, 1);
+});
+
 test("a large journal compacts a closed receipt without losing branch identity", async () => {
   const headFor = (index) => (20_000 + index).toString(16).padStart(40, "0");
   const opened = event({
@@ -7766,7 +8772,7 @@ test("a large journal compacts a closed receipt without losing branch identity",
     updated: timestamp(1),
   });
   const events = [opened];
-  for (let index = 1; index < 28; index += 1) {
+  for (let index = 1; index < 33; index += 1) {
     events.push(
       event({
         run: 20_000 + index,
@@ -8919,9 +9925,10 @@ test("malformed and oversized preview journals fail closed without mutation", as
     body: `${PREVIEW_JOURNAL_MARKER}\n${"x".repeat(70_000)}`,
   };
   const noncanonical = journalComment({ events: [opened] });
+  const noncanonicalValue = journalFromComment(noncanonical);
   noncanonical.body = noncanonical.body.replace(
-    '  "schema": "vercel-preview-journal:v2",',
-    '    "schema": "vercel-preview-journal:v2",',
+    JSON.stringify(noncanonicalValue),
+    JSON.stringify(noncanonicalValue, null, 4),
   );
 
   for (const [comment, message] of [
@@ -11400,6 +12407,15 @@ test("a missing worker dispatch credential fails closed only when a new dispatch
   assert.equal(journal.receipts.selections.length, 1);
   assert.equal(journal.state.targets.ui.active.dispatch_state, "intended");
   assert.equal(journal.state.targets.ui.active.workflow_run_id, null);
+  const rebound = reconcile({
+    events: journal.receipts.events,
+    selections: journal.receipts.selections,
+    results: journal.receipts.results,
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  assert.equal(journal.state.receipts_digest, rebound.state.receipts_digest);
 });
 
 test("durable dispatch fails closed when the exact run title never materializes", async () => {
@@ -11626,14 +12642,14 @@ test("a dispatch racing a main advance is terminalized and automatically reselec
   assert.ok(
     fixture.comments.some(
       ({ body }) =>
-        body.includes('"dispatch_state": "intended"') &&
-        body.includes(`"expected_workflow_sha": "${SHA.A}"`),
+        body.includes('"dispatch_state":"intended"') &&
+        body.includes(`"expected_workflow_sha":"${SHA.A}"`),
     ),
   );
   assert.ok(
     fixture.comments.some(({ body }) =>
       body.includes(
-        '"terminal_reason": "controller-workflow-upgraded-before-dispatch"',
+        '"terminal_reason":"controller-workflow-upgraded-before-dispatch"',
       ),
     ),
   );
@@ -12029,7 +13045,7 @@ test("intended recovery ignores wrong-SHA artifacts and reselects stale intents"
   assert.ok(
     conflictingRun.comments.some(({ body }) =>
       body.includes(
-        '"terminal_reason": "controller-workflow-upgraded-before-dispatch"',
+        '"terminal_reason":"controller-workflow-upgraded-before-dispatch"',
       ),
     ),
   );
@@ -12057,8 +13073,8 @@ test("intended recovery ignores wrong-SHA artifacts and reselects stale intents"
     mainAdvancedBeforeDispatch.comments.some(
       ({ body }) =>
         body.includes(
-          '"terminal_reason": "controller-workflow-upgraded-before-dispatch"',
-        ) && body.includes(`"expected_workflow_sha": "${SHA.A}"`),
+          '"terminal_reason":"controller-workflow-upgraded-before-dispatch"',
+        ) && body.includes(`"expected_workflow_sha":"${SHA.A}"`),
     ),
   );
   assert.equal(
@@ -12254,7 +13270,7 @@ test("a force-pushed-away active selection is aborted before credentials and new
   assert.equal(state.targets.ui.active.sha, SHA.C);
   assert.ok(
     fixture.comments.some(({ body }) =>
-      body.includes('"terminal_reason": "selection-removed-from-pr"'),
+      body.includes('"terminal_reason":"selection-removed-from-pr"'),
     ),
   );
   assert.ok(
@@ -12657,8 +13673,23 @@ test("same-SHA reopened epoch resumes verified old upload evidence before its ca
   assert.equal(fixture.createdDeploymentStatuses.length, 0);
   assert.equal(fixture.statuses.get("9000")[0].state, "success");
   const journal = journalFromComment(fixture.comments[0]);
+  const expectedState = reconcile({
+    events: journal.receipts.events,
+    selections: journal.receipts.selections,
+    results: journal.receipts.results,
+    pullRequest: setup.pullRequest,
+    existingState: {
+      ...controllerStateBefore,
+      targets: {
+        ...controllerStateBefore.targets,
+        ui: { ...controllerStateBefore.targets.ui, retired_active: [] },
+      },
+    },
+    checkpoint: journal.checkpoint,
+  }).state;
   assert.deepEqual(journal.state, {
     ...controllerStateBefore,
+    receipts_digest: expectedState.receipts_digest,
     targets: {
       ...controllerStateBefore.targets,
       ui: { ...controllerStateBefore.targets.ui, retired_active: [] },
@@ -12762,6 +13793,13 @@ test("terminal reopened same-SHA ownership survives a delayed old-epoch callback
           ),
           selectionReceiptFromDispatch(setup.currentState.targets.ui.active),
         ],
+        workerEvidence: [
+          {
+            ...workerEvidence(setup.current.nextDispatch, { runId: 8_001 }),
+            github_deployment_id: 9_000,
+            verified_upload_url: "https://ui-current-terminal.vercel.app",
+          },
+        ],
       }),
     ],
     runs: [oldQueued, currentCompleted],
@@ -12821,8 +13859,23 @@ test("terminal reopened same-SHA ownership survives a delayed old-epoch callback
   assert.equal(fixture.createdDeploymentStatuses.length, 0);
   assert.equal(fixture.statuses.get("9000")[0].state, "success");
   const journal = journalFromComment(fixture.comments[0]);
+  const expectedState = reconcile({
+    events: journal.receipts.events,
+    selections: journal.receipts.selections,
+    results: journal.receipts.results,
+    pullRequest: setup.pullRequest,
+    existingState: {
+      ...controllerStateBefore,
+      targets: {
+        ...controllerStateBefore.targets,
+        ui: { ...controllerStateBefore.targets.ui, retired_active: [] },
+      },
+    },
+    checkpoint: journal.checkpoint,
+  }).state;
   assert.deepEqual(journal.state, {
     ...controllerStateBefore,
+    receipts_digest: expectedState.receipts_digest,
     targets: {
       ...controllerStateBefore.targets,
       ui: { ...controllerStateBefore.targets.ui, retired_active: [] },
@@ -13078,6 +14131,13 @@ test("delayed old-epoch success reads only its own same-SHA Deployment status hi
           ),
           selectionReceiptFromDispatch(setup.currentState.targets.ui.active),
         ],
+        workerEvidence: [
+          {
+            ...workerEvidence(setup.old.nextDispatch, { runId: 8_000 }),
+            github_deployment_id: 9_000,
+            verified_upload_url: "https://ui-old-success.vercel.app",
+          },
+        ],
       }),
     ],
     runs: [oldCompleted, workerRun(setup.current.nextDispatch, { id: 8_001 })],
@@ -13225,12 +14285,19 @@ test("verified deployment success survives a later evidence persistence failure"
       idempotency_key: selected.nextDispatch.key,
       sha: SHA.A,
       logical_target: "ui",
+      git_ref: selected.nextDispatch.git_ref,
+      workflow_run_url:
+        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/8000/attempts/1",
+      pull_request_number: 519,
     },
   };
   const fixture = fakeGitHub({
     pullRequest,
     comments: [journalWithState([opened], dispatched)],
     runs: [completed],
+    workflowRunJobs: new Map([
+      ["8000:1", successfulBuildRecoveryJobs(selected.nextDispatch)],
+    ]),
     deployments: [canonical],
     deploymentStatuses: new Map([
       [
@@ -13247,10 +14314,11 @@ test("verified deployment success survives a later evidence persistence failure"
     ]),
   });
 
+  const core = fakeCore();
   const outcome = await recoverWorkerResult({
     github: fixture.github,
     context: fakeContext({ workflowRun: completed }),
-    core: fakeCore(),
+    core,
   });
 
   assert.equal(outcome.state, "success");
@@ -13262,14 +14330,69 @@ test("verified deployment success survives a later evidence persistence failure"
   );
   assert.equal(fixture.createdDeploymentStatuses.length, 0);
   assert.equal(fixture.statuses.get("9000")[0].state, "success");
+  assert.equal(core.outputs.get("worker_evidence_recovered"), "true");
+  assert.equal(core.notices.length, 1);
+  assert.deepEqual(fixture.workflowRunJobRequests, [
+    { run_id: 8_000, attempt_number: 1 },
+  ]);
   const journalAfterResult = journalFromComment(fixture.comments[0]);
-  assert.equal(journalAfterResult.revision, 2);
+  assert.equal(journalAfterResult.revision, 3);
+  assert.deepEqual(journalAfterResult.receipts.worker_evidence, [
+    {
+      schema: "vercel-preview-worker-evidence:v2",
+      repository: PREVIEW_REPOSITORY,
+      pr: 519,
+      target: "ui",
+      sha: SHA.A,
+      controller_key: selected.nextDispatch.key,
+      key_digest: selected.nextDispatch.key_digest,
+      epoch_anchor_run_id: selected.nextDispatch.epoch_anchor_run_id,
+      reconciliation_basis_digest:
+        selected.nextDispatch.reconciliation_basis_digest,
+      selection_receipt_run_id: selected.nextDispatch.selection_receipt_run_id,
+      expected_workflow_sha: selected.nextDispatch.expected_workflow_sha,
+      worker_run_id: 8_000,
+      worker_run_attempt: 1,
+      github_deployment_id: 9_000,
+      execution_mode: "build",
+      build_completed: true,
+      vercel_deployment_id: null,
+      next_deployment_id: null,
+      verified_upload_url: "https://ui-verified-before-evidence.vercel.app",
+    },
+  ]);
   const {
     should_reconcile_current_epoch: shouldReconcileCurrentEpoch,
     ...persistedOutcome
   } = outcome;
   assert.equal(shouldReconcileCurrentEpoch, true);
   assert.deepEqual(journalAfterResult.receipts.results, [persistedOutcome]);
+  const settled = reconcile({
+    events: journalAfterResult.receipts.events,
+    selections: journalAfterResult.receipts.selections,
+    results: journalAfterResult.receipts.results,
+    pullRequest,
+    existingState: journalAfterResult.state,
+    checkpoint: journalAfterResult.checkpoint,
+  });
+  assert.deepEqual(settled.nextDispatches, []);
+  const settledJournal = createPreviewJournal({
+    pr: 519,
+    revision: journalAfterResult.revision,
+    checkpoint: journalAfterResult.checkpoint,
+    events: journalAfterResult.receipts.events,
+    selections: journalAfterResult.receipts.selections,
+    workerEvidence: journalAfterResult.receipts.worker_evidence,
+    results: journalAfterResult.receipts.results,
+    state: settled.state,
+    admission: journalAfterResult.admission,
+  });
+  const observation = createPreviewObservationReceipt(
+    settledJournal,
+    opened.event_run_id,
+  );
+  assert.ok(observation);
+  assert.deepEqual(validatePreviewObservationReceipt(observation), observation);
   const updatesAfterResult = fixture.commentUpdates.length;
 
   const repeated = await recoverWorkerResult({
@@ -13284,7 +14407,274 @@ test("verified deployment success survives a later evidence persistence failure"
   );
   assert.equal(fixture.createdDeploymentStatuses.length, 0);
   assert.equal(fixture.commentUpdates.length, updatesAfterResult);
+  assert.equal(fixture.workflowRunJobRequests.length, 1);
   assert.deepEqual(journalFromComment(fixture.comments[0]), journalAfterResult);
+});
+
+test("recovery backfills evidence before returning an existing successful result", async () => {
+  const opened = event({
+    run: 124,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const selected = reconcile({ events: [opened], pullRequest });
+  const dispatched = persistDispatch(selected, 8_000);
+  const completed = workerRun(selected.nextDispatch, {
+    status: "completed",
+    conclusion: "failure",
+  });
+  const existingResult = validateWorkerResult({
+    schema: RESULT_RECEIPT_SCHEMA,
+    repository: PREVIEW_REPOSITORY,
+    pr: 519,
+    target: "ui",
+    sha: SHA.A,
+    controller_key: selected.nextDispatch.key,
+    key_digest: selected.nextDispatch.key_digest,
+    epoch_anchor_run_id: selected.nextDispatch.epoch_anchor_run_id,
+    reconciliation_basis_digest:
+      selected.nextDispatch.reconciliation_basis_digest,
+    selection_receipt_run_id: selected.nextDispatch.selection_receipt_run_id,
+    expected_workflow_sha: selected.nextDispatch.expected_workflow_sha,
+    worker_run_id: 8_000,
+    worker_run_attempt: 1,
+    github_deployment_id: 9_000,
+    state: "success",
+    vercel_deployment_id: null,
+    next_deployment_id: null,
+    vercel_deployment_url: "https://ui-verified-before-evidence.vercel.app",
+    smoke_result: "passed",
+    terminal_reason: "verified",
+  });
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [
+      journalWithState([opened], dispatched, { results: [existingResult] }),
+    ],
+    runs: [completed],
+    workflowRunJobs: new Map([
+      ["8000:1", successfulBuildRecoveryJobs(selected.nextDispatch)],
+    ]),
+    deployments: [
+      {
+        id: 9_000,
+        ref: SHA.A,
+        sha: SHA.A,
+        environment: "preview/ui/pr-519",
+        payload: {
+          ...canonicalDeploymentBinding(),
+          idempotency_key: selected.nextDispatch.key,
+          sha: SHA.A,
+          logical_target: "ui",
+          git_ref: selected.nextDispatch.git_ref,
+          workflow_run_url:
+            "https://github.com/mento-protocol/frontend-monorepo/actions/runs/8000/attempts/1",
+          pull_request_number: 519,
+        },
+      },
+    ],
+    deploymentStatuses: new Map([
+      [
+        9_000,
+        [
+          {
+            state: "success",
+            environment_url: "https://ui-verified-before-evidence.vercel.app",
+            log_url:
+              "https://github.com/mento-protocol/frontend-monorepo/actions/runs/8000/attempts/1",
+          },
+        ],
+      ],
+    ]),
+  });
+
+  const firstCore = fakeCore();
+  const first = await recoverWorkerResult({
+    github: fixture.github,
+    context: fakeContext({ workflowRun: completed }),
+    core: firstCore,
+  });
+  assert.deepEqual(first, {
+    ...existingResult,
+    should_reconcile_current_epoch: true,
+  });
+  assert.equal(firstCore.outputs.get("worker_evidence_recovered"), "true");
+  const backfilled = journalFromComment(fixture.comments[0]);
+  assert.equal(backfilled.revision, 2);
+  assert.deepEqual(backfilled.receipts.results, [existingResult]);
+  assert.equal(backfilled.receipts.worker_evidence.length, 1);
+  assert.equal(backfilled.receipts.worker_evidence[0].worker_run_id, 8_000);
+  assert.equal(backfilled.receipts.worker_evidence[0].worker_run_attempt, 1);
+  assert.equal(fixture.commentUpdates.length, 1);
+  assert.equal(fixture.workflowRunJobRequests.length, 1);
+
+  const second = await recoverWorkerResult({
+    github: fixture.github,
+    context: fakeContext({ workflowRun: completed }),
+    core: fakeCore(),
+  });
+  assert.deepEqual(second, first);
+  assert.equal(fixture.commentUpdates.length, 1);
+  assert.equal(fixture.workflowRunJobRequests.length, 1);
+  assert.deepEqual(journalFromComment(fixture.comments[0]), backfilled);
+});
+
+test("minimal evidence recovery rejects any ambiguous job or attempt proof", async () => {
+  const scenarios = [
+    {
+      name: "missing required job",
+      mutate({ jobs }) {
+        const index = jobs.findIndex((job) =>
+          job.name.includes("Smoke verified ui preview"),
+        );
+        assert.ok(index >= 0);
+        jobs.splice(index, 1);
+      },
+      pattern: /job set does not match the build contract/,
+    },
+    {
+      name: "unexpected job conclusion",
+      mutate({ jobs }) {
+        jobs.find((job) =>
+          job.name.includes("Smoke verified ui preview"),
+        ).conclusion = "failure";
+      },
+      pattern: /job conclusion does not match the build contract/,
+    },
+    {
+      name: "job attempt drift",
+      mutate({ jobs }) {
+        jobs[0].run_attempt = 2;
+      },
+      pattern: /job identity does not match the owned attempt/,
+    },
+    {
+      name: "evidence checkout did not succeed",
+      mutate({ jobs }) {
+        const evidenceJob = jobs.find(
+          (job) =>
+            job.name === "Persist immutable pre-completion worker evidence",
+        );
+        evidenceJob.steps.find(
+          (step) => step.name === "Check out trusted evidence controller only",
+        ).conclusion = "skipped";
+      },
+      pattern: /did not prove step: Check out trusted evidence controller only/,
+    },
+    {
+      name: "wrong evidence failure step",
+      mutate({ jobs }) {
+        const evidenceJob = jobs.find(
+          (job) =>
+            job.name === "Persist immutable pre-completion worker evidence",
+        );
+        evidenceJob.steps.find((step) => step.conclusion === "failure").name =
+          "Different failed step";
+      },
+      pattern: /evidence persistence step is not the sole failed step/,
+    },
+    {
+      name: "Deployment attempt drift",
+      mutate({ payload }) {
+        payload.workflow_run_url =
+          "https://github.com/mento-protocol/frontend-monorepo/actions/runs/8000/attempts/2";
+      },
+      pattern: /Deployment payload does not match the owned attempt/,
+    },
+    {
+      name: "duplicate success status on the second page",
+      mutate({ statuses }) {
+        statuses.push(
+          ...Array.from({ length: 99 }, () => ({
+            state: "pending",
+            environment_url: null,
+          })),
+        );
+        statuses.push(structuredClone(statuses[0]));
+      },
+      pattern: /does not have one current success status/,
+    },
+    {
+      name: "Deployment status history exceeds its bound",
+      mutate({ statuses }) {
+        statuses.push(
+          ...Array.from({ length: 299 }, () => ({
+            state: "pending",
+            environment_url: null,
+          })),
+        );
+      },
+      pattern: /status history exceeded the 300-status bound/,
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    const opened = event({
+      run: 124,
+      action: "opened",
+      head: SHA.A,
+      updated: timestamp(1),
+    });
+    const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+    const selected = reconcile({ events: [opened], pullRequest });
+    const dispatched = persistDispatch(selected, 8_000);
+    const completed = workerRun(selected.nextDispatch, {
+      status: "completed",
+      conclusion: "failure",
+    });
+    const jobs = successfulBuildRecoveryJobs(selected.nextDispatch);
+    const payload = {
+      ...canonicalDeploymentBinding(),
+      idempotency_key: selected.nextDispatch.key,
+      sha: SHA.A,
+      logical_target: "ui",
+      git_ref: selected.nextDispatch.git_ref,
+      workflow_run_url:
+        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/8000/attempts/1",
+      pull_request_number: 519,
+    };
+    const statuses = [
+      {
+        state: "success",
+        environment_url: "https://ui-verified-before-evidence.vercel.app",
+        log_url:
+          "https://github.com/mento-protocol/frontend-monorepo/actions/runs/8000/attempts/1",
+      },
+    ];
+    scenario.mutate({ jobs, payload, statuses });
+    const fixture = fakeGitHub({
+      pullRequest,
+      comments: [journalWithState([opened], dispatched)],
+      runs: [completed],
+      workflowRunJobs: new Map([["8000:1", jobs]]),
+      deployments: [
+        {
+          id: 9_000,
+          ref: SHA.A,
+          sha: SHA.A,
+          environment: "preview/ui/pr-519",
+          payload,
+        },
+      ],
+      deploymentStatuses: new Map([[9_000, statuses]]),
+    });
+    const before = fixture.comments[0].body;
+
+    await assert.rejects(
+      recoverWorkerResult({
+        github: fixture.github,
+        context: fakeContext({ workflowRun: completed }),
+        core: fakeCore(),
+      }),
+      scenario.pattern,
+      scenario.name,
+    );
+    assert.equal(fixture.comments[0].body, before, scenario.name);
+    assert.equal(fixture.commentUpdates.length, 0, scenario.name);
+    assert.equal(fixture.createdDeploymentStatuses.length, 0, scenario.name);
+  }
 });
 
 test("a rerun attempt cannot reuse persisted first-attempt worker ownership", async () => {

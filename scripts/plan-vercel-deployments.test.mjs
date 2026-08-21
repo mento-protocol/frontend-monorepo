@@ -26,6 +26,20 @@ const scriptPath = fileURLToPath(
 );
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 
+const DEPENDABOT_CONTROL_PLANE_FILES = [
+  "scripts/dependabot-claude-review-tool-guard.mjs",
+  "scripts/dependabot-preparation-receipts.mjs",
+  "scripts/dependabot-preparation-receipts.test.mjs",
+  "scripts/dependabot-prepared-review.mjs",
+  "scripts/dependabot-prepared-review.test.mjs",
+  "scripts/dependabot-processor.mjs",
+  "scripts/dependabot-processor.test.mjs",
+  "scripts/dependabot-protected-runtime-sync.mjs",
+  "scripts/dependabot-protected-runtime-sync.test.mjs",
+  "scripts/dependabot-repair-evidence-tool-guard.mjs",
+  "scripts/dependabot-workflows.test.mjs",
+];
+
 function commit(directory, message) {
   execFileSync("git", ["add", "--all"], { cwd: directory });
   execFileSync(
@@ -48,14 +62,16 @@ function commit(directory, message) {
   }).trim();
 }
 
-function createFixture(changedPath) {
+function createFixture(changedPaths) {
   const directory = mkdtempSync(join(tmpdir(), "vercel-plan-"));
   execFileSync("git", ["init", "--quiet"], { cwd: directory });
   writeFileSync(join(directory, "seed.txt"), "base\n");
   const base = commit(directory, "base");
-  const absolutePath = join(directory, changedPath);
-  mkdirSync(dirname(absolutePath), { recursive: true });
-  writeFileSync(absolutePath, "changed\n");
+  for (const changedPath of [changedPaths].flat()) {
+    const absolutePath = join(directory, changedPath);
+    mkdirSync(dirname(absolutePath), { recursive: true });
+    writeFileSync(absolutePath, "changed\n");
+  }
   const head = commit(directory, "change");
   return { directory, base, head };
 }
@@ -189,6 +205,7 @@ for (const path of [
   "apps/governance.mento.org/e2e/lock.spec.ts",
   "apps/app.mento.org/e2e/preview/smoke.spec.ts",
   "apps/ui.mento.org/e2e/showcase.visual.spec.ts",
+  ...DEPENDABOT_CONTROL_PLANE_FILES,
 ]) {
   test(`returns no deployments for proven non-runtime change ${path}`, () => {
     withFixture(path, (fixture) => {
@@ -203,6 +220,72 @@ for (const path of [
     });
   });
 }
+
+for (const path of [
+  "scripts/dependabot-processor.mjs.bak",
+  "scripts/dependabot-unreviewed-helper.mjs",
+]) {
+  test(`fails closed for unknown Dependabot near-match ${path}`, () => {
+    withFixture(path, (fixture) => {
+      let turboCalled = false;
+      const plan = planVercelDeployments({
+        repoRoot: fixture.directory,
+        base: fixture.base,
+        head: fixture.head,
+        runTurbo: () => {
+          turboCalled = true;
+          return turboPlan([]);
+        },
+      });
+      assert.deepEqual(plan.deployments, VERCEL_DEPLOYMENTS);
+      assert.equal(plan.reason, "turbo-planning-failed");
+      assert.equal(turboCalled, true);
+    });
+  });
+}
+
+test("a Dependabot control-plane change mixed with app runtime affects app", () => {
+  const fixture = createFixture([
+    "scripts/dependabot-processor.mjs",
+    "apps/app.mento.org/app/page.tsx",
+  ]);
+  try {
+    const plan = planVercelDeployments({
+      repoRoot: fixture.directory,
+      base: fixture.base,
+      head: fixture.head,
+      runTurbo: () => turboPlan(["app.mento.org"]),
+    });
+    assert.deepEqual(plan.deployments, ["app"]);
+    assert.equal(plan.reason, "affected-packages");
+  } finally {
+    rmSync(fixture.directory, { force: true, recursive: true });
+  }
+});
+
+test("a Dependabot control-plane change mixed with security headers fails closed", () => {
+  const fixture = createFixture([
+    "scripts/dependabot-processor.mjs",
+    "scripts/security-headers.mjs",
+  ]);
+  try {
+    let turboCalled = false;
+    const plan = planVercelDeployments({
+      repoRoot: fixture.directory,
+      base: fixture.base,
+      head: fixture.head,
+      runTurbo: () => {
+        turboCalled = true;
+        return turboPlan([]);
+      },
+    });
+    assert.deepEqual(plan.deployments, VERCEL_DEPLOYMENTS);
+    assert.equal(plan.reason, "global-build-input");
+    assert.equal(turboCalled, false);
+  } finally {
+    rmSync(fixture.directory, { force: true, recursive: true });
+  }
+});
 
 for (const path of [
   "apps/app.mento.org/app/runtime-notes.md",
