@@ -12,6 +12,7 @@ import {
   canonicalJson,
   parseCanonicalJson,
   rawDigest,
+  validateRepairPlan,
 } from "./dependabot-preparation-receipts.mjs";
 import {
   DEPENDABOT_ALL_CLEAR_SCHEMA,
@@ -436,6 +437,33 @@ function completeChecks({
   );
 }
 
+function completeChecksWithClaudeFindings({
+  conclusions = {},
+  findings,
+  headSha = HEAD_SHA,
+} = {}) {
+  const checks = completeChecks({
+    conclusions: { ...conclusions, "claude-review": "failure" },
+    headSha,
+  });
+  const claudeIndex = checks.findIndex(
+    ({ name }) => name === CHECK_NAMES["claude-review"],
+  );
+  checks[claudeIndex] = {
+    ...checks[claudeIndex],
+    outputText: stableJson({
+      findings,
+      headSha,
+      pullRequestNumber: 123,
+      repository: REPOSITORY,
+      reviewCompleted: true,
+      schema: "dependabot-claude-review-result:v1",
+      verdict: "findings",
+    }),
+  };
+  return checks;
+}
+
 function actionBody(name = "actions/setup-node", from = "6.0.0", to = "6.1.0") {
   return `Bumps the github-actions group with 1 update:\n\n| Package | From | To |\n| --- | --- | --- |\n| [${name}](https://github.com/${name}) | \`${from}\` | \`${to}\` |`;
 }
@@ -697,6 +725,48 @@ function vercelAfterLegacyRepair({ protectedVersion = "56.4.1" } = {}) {
       repairHistoryChecks: [processorCheck, repairCheck],
     }),
   };
+}
+
+function vercelAfterTypedRepair() {
+  const selected = evaluateDependabotPullRequest(vercelCliSnapshot(), {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(
+    selected.repairPacket?.schema,
+    DEPENDABOT_PROTECTED_RUNTIME_REPAIR_PACKET_SCHEMA,
+  );
+  const processorCheck = processorRepairReceipt(1, {
+    headSha: HEAD_SHA,
+    packet: selected.repairPacket,
+    packetEncoding: "canonical",
+  });
+  const repairCheck = repairReceiptCheck({
+    attempt: 1,
+    headRef: "dependabot/npm_and_yarn/vercel-cli-986014f9a1",
+    headSha: OTHER_SHA,
+    packetDigest: rawDigest(processorCheck.outputText),
+    parentHeadSha: HEAD_SHA,
+    processorCheckId: processorCheck.id,
+  });
+  const repaired = vercelCliSnapshot({
+    changedPaths: VERCEL_REQUIRED_PATHS,
+    commits: [
+      {
+        authorLogin: "dependabot[bot]",
+        committerLogin: "dependabot[bot]",
+        sha: HEAD_SHA,
+        verified: true,
+      },
+      preparedCommit(OTHER_SHA, HEAD_SHA),
+    ],
+    contractVersion: "56.5.0",
+    headSha: OTHER_SHA,
+    repairHistoryChecks: [processorCheck, repairCheck],
+    runtimeVersion: "56.5.0",
+  });
+  return { processorCheck, repairCheck, repaired, selected };
 }
 
 function cursorReview(commitSha = HEAD_SHA, issueCount = 1) {
@@ -3545,6 +3615,297 @@ test("a green #753-like legacy repair requires a typed Vercel runtime sync", () 
     alignedWithoutProof.repairPacket?.schema,
     DEPENDABOT_PROTECTED_RUNTIME_REPAIR_PACKET_SCHEMA,
   );
+});
+
+test("a prior typed Vercel repair permits one finding-scoped generic follow-up", () => {
+  const { repaired } = vercelAfterTypedRepair();
+  repaired.checks = completeChecksWithClaudeFindings({
+    findings: [
+      {
+        line: 16_610,
+        path: "pnpm-lock.yaml",
+        summary:
+          "The unrelated lockfile resolution changed and must retain the prior compatible version.",
+        title: "Retain the prior transitive resolution",
+      },
+    ],
+    headSha: OTHER_SHA,
+  });
+
+  const result = evaluateDependabotPullRequest(repaired, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  assert.equal(result.protectedRuntimeOperation.satisfied, true);
+  assert.equal(result.repairAttempt, 2);
+  assert.equal(result.disposition, "repair-required");
+  assert.equal(result.repairPacket?.schema, DEPENDABOT_REPAIR_PACKET_SCHEMA);
+  assert.deepEqual(result.repairPacket?.changedPaths, VERCEL_REQUIRED_PATHS);
+  assert.deepEqual(
+    result.repairPacket?.expectedBlobs.map(({ path }) => path),
+    ["pnpm-lock.yaml"],
+  );
+  assert.deepEqual(result.repairPacket?.permittedPaths, ["pnpm-lock.yaml"]);
+  assert.equal(result.repairPacket?.limits.maxFiles, 1);
+  assert.ok(
+    result.repairPacket?.forbiddenPaths.includes(
+      "scripts/vercel-cli-runtime/**",
+    ),
+  );
+  assert.deepEqual(
+    result.repairPacket?.findings.map(({ path, source }) => ({ path, source })),
+    [{ path: "pnpm-lock.yaml", source: "claude" }],
+  );
+
+  const mixedOrdering = structuredClone(result);
+  const mixedPaths = [
+    "packages/-fixture/package.json",
+    "packages/_fixture/package.json",
+  ];
+  const claudeFailure = mixedOrdering.checks.failures.find(
+    ({ id }) => id === "claude-review",
+  );
+  for (const path of mixedPaths) {
+    mixedOrdering.changedPaths.push(path);
+    mixedOrdering.expectedBlobs.push({
+      mode: "100644",
+      path,
+      sha: createHash("sha1").update(path).digest("hex"),
+      type: "blob",
+    });
+    const summary = "The exact mixed-character path needs a bounded repair.";
+    claudeFailure.findings.push({
+      id: createHash("sha256").update(path).digest("hex").slice(0, 24),
+      line: 1,
+      path,
+      summary,
+      summaryDigest: textDigest(summary),
+      title: "Repair the exact mixed-character path",
+    });
+  }
+  mixedOrdering.changedPaths.sort();
+  mixedOrdering.expectedBlobs.sort((left, right) =>
+    left.path.localeCompare(right.path),
+  );
+  const expectedEvidencePaths = ["pnpm-lock.yaml", ...mixedPaths].sort(
+    (left, right) => left.localeCompare(right),
+  );
+  const mixedPacket = createDependabotRepairPacket(mixedOrdering);
+  assert.deepEqual(
+    mixedPacket?.expectedBlobs.map(({ path }) => path),
+    expectedEvidencePaths,
+  );
+  assert.deepEqual(mixedPacket?.permittedPaths, expectedEvidencePaths);
+
+  const packetDigest = rawDigest(canonicalJson(result.repairPacket));
+  assert.throws(
+    () =>
+      validateRepairPlan(
+        {
+          attempt: 2,
+          baseSha: BASE_SHA,
+          edits: [
+            {
+              expectedBlobSha: "6".repeat(40),
+              patch:
+                "--- a/scripts/vercel-cli-runtime/package.json\n+++ b/scripts/vercel-cli-runtime/package.json\n@@ -1 +1 @@\n-old\n+new\n",
+              path: "scripts/vercel-cli-runtime/package.json",
+            },
+          ],
+          packetDigest,
+          parentHeadSha: OTHER_SHA,
+          processorCheckId: 44_001,
+          pullRequestNumber: 123,
+          repository: REPOSITORY,
+          schema: "dependabot-repair-plan:v1",
+          summary: "Attempt to edit the protected runtime",
+        },
+        {
+          packet: result.repairPacket,
+          packetDigest,
+          processorCheckId: 44_001,
+        },
+      ),
+    /packet-denied path: scripts\/vercel-cli-runtime\/package\.json/,
+  );
+
+  const feedbackCandidate = vercelAfterTypedRepair().repaired;
+  feedbackCandidate.feedback = {
+    actionableThreadCount: 1,
+    actionableThreads: [
+      {
+        bodyDigest: textDigest("Retain the prior transitive resolution"),
+        line: 16_610,
+        path: "pnpm-lock.yaml",
+        reviewCommitSha: OTHER_SHA,
+        rootCommentId: 61,
+        source: "claude",
+        threadId: "PRRT_lockfile_resolution",
+        trustedBotEnvelope: true,
+      },
+    ],
+    reasons: ["unresolved-review-feedback", "unreplied-review-feedback"],
+    reviewDecision: "APPROVED",
+    unresolvedThreads: 1,
+    unrepliedThreads: 1,
+  };
+  const feedbackResult = evaluateDependabotPullRequest(feedbackCandidate, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(feedbackResult.disposition, "repair-required");
+  assert.deepEqual(feedbackResult.repairPacket?.permittedPaths, [
+    "pnpm-lock.yaml",
+  ]);
+  assert.deepEqual(
+    feedbackResult.repairPacket?.feedbackThreads.map(({ path, source }) => ({
+      path,
+      source,
+    })),
+    [{ path: "pnpm-lock.yaml", source: "claude" }],
+  );
+});
+
+test("the protected-runtime carry-forward exception fails closed on unbound or broad repair input", () => {
+  const finding = (path) => ({
+    line: 12,
+    path,
+    summary: "The exact finding requires one bounded file repair.",
+    title: "Repair the exact finding",
+  });
+  const evaluate = (
+    candidate,
+    { conclusions = {}, path = "pnpm-lock.yaml" } = {},
+  ) => {
+    candidate.checks = completeChecksWithClaudeFindings({
+      conclusions,
+      findings: [finding(path)],
+      headSha: OTHER_SHA,
+    });
+    return evaluateDependabotPullRequest(candidate, {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    });
+  };
+
+  const allowed = evaluate(vercelAfterTypedRepair().repaired);
+  const missingProof = structuredClone(allowed);
+  missingProof.protectedRuntimeOperation.proof = null;
+  assert.equal(createDependabotRepairPacket(missingProof), null);
+
+  const missingLineageBinding = structuredClone(allowed);
+  missingLineageBinding.repairAttempts.protectedRuntimeOperations = [];
+  assert.equal(createDependabotRepairPacket(missingLineageBinding), null);
+
+  const firstAttempt = structuredClone(allowed);
+  firstAttempt.repairAttempt = 1;
+  assert.equal(createDependabotRepairPacket(firstAttempt), null);
+
+  const invalidCurrentAttempt = structuredClone(allowed);
+  invalidCurrentAttempt.repairAttempts.currentAttempt = 3;
+  assert.equal(createDependabotRepairPacket(invalidCurrentAttempt), null);
+
+  const staleRuntimeState = structuredClone(allowed);
+  staleRuntimeState.protectedRuntimeOperation.stateMatches = false;
+  assert.equal(createDependabotRepairPacket(staleRuntimeState), null);
+
+  const malformedProofDigest = structuredClone(allowed);
+  malformedProofDigest.protectedRuntimeOperation.proof.packetDigest =
+    "malformed";
+  malformedProofDigest.repairAttempts.protectedRuntimeOperations[0].packetDigest =
+    "malformed";
+  assert.equal(createDependabotRepairPacket(malformedProofDigest), null);
+
+  const extraRuntimePath = vercelAfterTypedRepair().repaired;
+  const extraBlob = {
+    filename: "scripts/other-runtime/config.json",
+    mode: "100644",
+    sha: "6".repeat(40),
+    status: "modified",
+    type: "blob",
+  };
+  extraRuntimePath.pullRequest.files.push(extraBlob);
+  extraRuntimePath.expectedBlobs.push({
+    mode: extraBlob.mode,
+    path: extraBlob.filename,
+    sha: extraBlob.sha,
+    type: extraBlob.type,
+  });
+  const extraRuntimeResult = evaluate(extraRuntimePath);
+  assert.equal(extraRuntimeResult.disposition, "manual-repair-required");
+  assert.equal(extraRuntimeResult.repairPacket, null);
+
+  for (const path of [
+    ".gitmodules",
+    "docs/vercel-deployments.md",
+    "scripts/vercel-main-controller.mjs",
+  ]) {
+    const extraHardDeniedPath = vercelAfterTypedRepair().repaired;
+    const hardDeniedBlob = {
+      filename: path,
+      mode: "100644",
+      sha: createHash("sha1").update(path).digest("hex"),
+      status: "modified",
+      type: "blob",
+    };
+    extraHardDeniedPath.pullRequest.files.push(hardDeniedBlob);
+    extraHardDeniedPath.expectedBlobs.push({
+      mode: hardDeniedBlob.mode,
+      path: hardDeniedBlob.filename,
+      sha: hardDeniedBlob.sha,
+      type: hardDeniedBlob.type,
+    });
+    const extraHardDeniedResult = evaluate(extraHardDeniedPath);
+    assert.equal(
+      extraHardDeniedResult.disposition,
+      "manual-repair-required",
+      path,
+    );
+    assert.equal(extraHardDeniedResult.repairPacket, null, path);
+  }
+
+  const protectedFinding = evaluate(vercelAfterTypedRepair().repaired, {
+    path: "scripts/vercel-cli-runtime/package.json",
+  });
+  assert.equal(protectedFinding.disposition, "manual-repair-required");
+  assert.equal(protectedFinding.repairPacket, null);
+
+  const mixedFailure = evaluate(vercelAfterTypedRepair().repaired, {
+    conclusions: { ci: "failure" },
+  });
+  assert.equal(mixedFailure.disposition, "manual-repair-required");
+  assert.equal(mixedFailure.repairPacket, null);
+
+  const baselineFailureCandidate = vercelAfterTypedRepair().repaired;
+  const baselineCi = baselineFailureCandidate.baseline.checks.find(
+    ({ name }) => name === CHECK_NAMES.ci,
+  );
+  baselineCi.conclusion = "failure";
+  const baselineFailure = evaluate(baselineFailureCandidate, {
+    conclusions: { ci: "failure" },
+  });
+  assert.deepEqual(
+    baselineFailure.checks.failures.map(({ attribution, id }) => ({
+      attribution,
+      id,
+    })),
+    [
+      { attribution: "baseline", id: "ci" },
+      { attribution: "branch", id: "claude-review" },
+    ],
+  );
+  assert.equal(baselineFailure.disposition, "manual-repair-required");
+  assert.equal(baselineFailure.repairPacket, null);
+
+  const absentEvidenceBlob = evaluate(vercelAfterTypedRepair().repaired, {
+    path: "packages/ui/src/unrelated.ts",
+  });
+  assert.equal(absentEvidenceBlob.disposition, "manual-repair-required");
+  assert.equal(absentEvidenceBlob.repairPacket, null);
 });
 
 test("the exact Cursor runtime mismatch is packet-bound to the typed Vercel sync", () => {

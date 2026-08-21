@@ -124,6 +124,13 @@ builder-key-set, override, registry, generation, or byte drift fails closed.
 Generic repairs remain exact v2 and retain every runtime/deployment deny. ALL
 CLEAR requires the requested Vercel target in both root and runtime plus its
 reachable typed operation; human squash merge remains mandatory.
+After a reachable v3 sync, one later v2 repair may carry the already-bound
+runtime paths in its authenticated PR inventory only when each new finding or
+feedback path names an exact generic-safe changed file. That v2 packet exposes
+only those evidence files as expected and permitted blobs.
+`scripts/vercel-cli-runtime/**` remains forbidden and unavailable for edits.
+Missing v3 proof, an extra protected path, an unsafe evidence path, or a mixed
+non-review failure remains `manual-repair-required`.
 The typed operation may carry exact Cursor runtime-mismatch threads only when
 each structured finding names the same source and target versions, the root
 `package.json` path, and the trusted seed or current review commit. Every other

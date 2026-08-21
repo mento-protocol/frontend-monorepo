@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   canonicalJson,
+  hardDeniedRepairPath,
   rawDigest,
   validateProcessorRepairPacket,
 } from "./dependabot-preparation-receipts.mjs";
@@ -3763,6 +3764,13 @@ function recommendedDisposition({
     }
   }
   if (branchFailures.length > 0) {
+    if (
+      preparing &&
+      protectedRuntimeOperation?.satisfied === true &&
+      !onlyClaudeReviewFailures(checks)
+    ) {
+      return "manual-repair-required";
+    }
     if (repairTouchesForbiddenPath({ checks, feedback })) {
       return "manual-repair-required";
     }
@@ -3799,17 +3807,87 @@ function recommendedDisposition({
   return "eligible-observed";
 }
 
+function autonomousRepairPathForbidden(path) {
+  return (
+    typeof path !== "string" ||
+    path.length === 0 ||
+    AUTONOMOUS_REPAIR_FORBIDDEN_PATH_PATTERN.test(path) ||
+    hardDeniedRepairPath(path)
+  );
+}
+
+function onlyClaudeReviewFailures(checks) {
+  return (checks.failures ?? []).every(({ id }) => id === "claude-review");
+}
+
 function repairTouchesForbiddenPath({ checks = {}, feedback = {} }) {
   return [
     ...(checks.failures ?? []).flatMap(({ findings = [] }) =>
       findings.map(({ path }) => path),
     ),
     ...(feedback.actionableThreads ?? []).map(({ path }) => path),
-  ].some(
-    (path) =>
-      typeof path !== "string" ||
-      path.length === 0 ||
-      AUTONOMOUS_REPAIR_FORBIDDEN_PATH_PATTERN.test(path),
+  ].some((path) => autonomousRepairPathForbidden(path));
+}
+
+function genericRepairPathPermitted(path) {
+  return (
+    typeof path === "string" &&
+    path.length > 0 &&
+    !autonomousRepairPathForbidden(path) &&
+    (new Set(["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"]).has(
+      path,
+    ) ||
+      ["apps/", "packages/", "patches/"].some((prefix) =>
+        path.startsWith(prefix),
+      ))
+  );
+}
+
+function hasBoundProtectedRuntimeProof(evaluation) {
+  const operationState = evaluation.protectedRuntimeOperation;
+  const attempts = evaluation.repairAttempts;
+  const proof = operationState?.proof;
+  return (
+    operationState?.eligible === true &&
+    operationState.satisfied === true &&
+    operationState.stateMatches === true &&
+    validVercelCliRuntimeOperation(operationState.operation) &&
+    evaluation.repairAttempt === 2 &&
+    attempts?.valid === true &&
+    attempts.currentAttempt === 2 &&
+    attempts.prepareLineageValid === true &&
+    attempts.repairLineageValid === true &&
+    exactObjectKeys(proof, ["operation", "operationDigest", "packetDigest"]) &&
+    validVercelCliRuntimeOperation(proof.operation) &&
+    stableJson(proof.operation) === stableJson(operationState.operation) &&
+    /^[0-9a-f]{64}$/.test(proof.operationDigest ?? "") &&
+    /^[0-9a-f]{64}$/.test(proof.packetDigest ?? "") &&
+    (attempts.protectedRuntimeOperations ?? []).some(
+      (candidate) => stableJson(candidate) === stableJson(proof),
+    )
+  );
+}
+
+function canCarryBoundProtectedRuntimePaths({
+  changedPaths,
+  evaluation,
+  evidencePaths,
+  forbiddenChangedPaths,
+}) {
+  const requiredPaths = new Set(
+    evaluation.protectedRuntimeOperation?.operation?.requiredPaths ?? [],
+  );
+  const changedPathSet = new Set(changedPaths);
+  return (
+    forbiddenChangedPaths.length > 0 &&
+    forbiddenChangedPaths.every((path) => requiredPaths.has(path)) &&
+    onlyClaudeReviewFailures(evaluation.checks) &&
+    evidencePaths.length > 0 &&
+    evidencePaths.length <= 8 &&
+    evidencePaths.every(
+      (path) => changedPathSet.has(path) && genericRepairPathPermitted(path),
+    ) &&
+    hasBoundProtectedRuntimeProof(evaluation)
   );
 }
 
@@ -3832,14 +3910,13 @@ export function createDependabotRepairPacket(evaluation) {
   const changedPaths = Array.isArray(evaluation.changedPaths)
     ? evaluation.changedPaths
     : [];
-  const forbiddenRepairEvidence =
-    changedPaths.some((path) =>
-      AUTONOMOUS_REPAIR_FORBIDDEN_PATH_PATTERN.test(path),
-    ) ||
-    repairTouchesForbiddenPath({
-      checks: evaluation.checks,
-      feedback: evaluation.feedback,
-    });
+  const forbiddenChangedPaths = changedPaths.filter((path) =>
+    autonomousRepairPathForbidden(path),
+  );
+  const forbiddenRepairEvidence = repairTouchesForbiddenPath({
+    checks: evaluation.checks,
+    feedback: evaluation.feedback,
+  });
   if (
     evaluation.identity?.valid !== true ||
     evaluation.identity?.prepareAuthority !== true ||
@@ -3910,7 +3987,7 @@ export function createDependabotRepairPacket(evaluation) {
       (thread) =>
         typeof thread.path === "string" &&
         thread.path.length > 0 &&
-        !AUTONOMOUS_REPAIR_FORBIDDEN_PATH_PATTERN.test(thread.path) &&
+        !autonomousRepairPathForbidden(thread.path) &&
         Number.isSafeInteger(thread.rootCommentId) &&
         thread.rootCommentId > 0 &&
         SHA_PATTERN.test(thread.reviewCommitSha ?? "") &&
@@ -3926,10 +4003,31 @@ export function createDependabotRepairPacket(evaluation) {
       threadId: thread.threadId,
     }))
     .slice(0, 20);
+  const evidencePaths = [
+    ...new Set([
+      ...findings.map(({ path }) => path),
+      ...feedbackThreads.map(({ path }) => path),
+    ]),
+  ].sort((left, right) => left.localeCompare(right));
+  const carryBoundProtectedRuntimePaths =
+    !isProtectedRuntimeSync &&
+    canCarryBoundProtectedRuntimePaths({
+      changedPaths,
+      evaluation,
+      evidencePaths,
+      forbiddenChangedPaths,
+    });
   if (
     !isProtectedRuntimeSync &&
     branchFailures.length === 0 &&
     feedbackThreads.length === 0
+  ) {
+    return null;
+  }
+  if (
+    !isProtectedRuntimeSync &&
+    forbiddenChangedPaths.length > 0 &&
+    !carryBoundProtectedRuntimePaths
   ) {
     return null;
   }
@@ -3955,12 +4053,16 @@ export function createDependabotRepairPacket(evaluation) {
           maxBytes: 64 * 1024,
           maxChanges: 16,
           maxDeletedLines: 600,
-          maxFiles: 8,
+          maxFiles: carryBoundProtectedRuntimePaths ? evidencePaths.length : 8,
         };
   const workflowContext = evaluation.workflowContext ?? {};
-  const expectedBlobs = Array.isArray(evaluation.expectedBlobs)
+  const allExpectedBlobs = Array.isArray(evaluation.expectedBlobs)
     ? evaluation.expectedBlobs
     : [];
+  const evidencePathSet = new Set(evidencePaths);
+  const expectedBlobs = carryBoundProtectedRuntimePaths
+    ? allExpectedBlobs.filter(({ path }) => evidencePathSet.has(path))
+    : allExpectedBlobs;
   if (
     !Number.isSafeInteger(workflowContext.workflowRunId) ||
     workflowContext.workflowRunId < 1 ||
@@ -3969,6 +4071,9 @@ export function createDependabotRepairPacket(evaluation) {
     !SHA_PATTERN.test(workflowContext.workflowSha ?? "") ||
     expectedBlobs.length < 1 ||
     expectedBlobs.length > 100 ||
+    (carryBoundProtectedRuntimePaths &&
+      stableJson(expectedBlobs.map(({ path }) => path)) !==
+        stableJson(evidencePaths)) ||
     (isProtectedRuntimeSync &&
       stableJson(expectedBlobs.map(({ path }) => path)) !==
         stableJson(VERCEL_CLI_RUNTIME_INPUT_PATHS)) ||
@@ -4004,6 +4109,7 @@ export function createDependabotRepairPacket(evaluation) {
       "**/deployment/**",
       "**/policy/**",
       ...(isProtectedRuntimeSync ? [] : ["**/runtime/**"]),
+      ...(isProtectedRuntimeSync ? [] : ["scripts/vercel-cli-runtime/**"]),
       "**/security/**",
       "docs/vercel-deployments.md",
       "scripts/vercel-main-*.mjs",
@@ -4015,16 +4121,18 @@ export function createDependabotRepairPacket(evaluation) {
     packageEcosystem: evaluation.risk.packageEcosystem,
     permittedPaths: isProtectedRuntimeSync
       ? [...VERCEL_CLI_RUNTIME_REQUIRED_PATHS]
-      : isAction
-        ? []
-        : [
-            "package.json",
-            "pnpm-lock.yaml",
-            "pnpm-workspace.yaml",
-            "apps/**",
-            "packages/**",
-            "patches/**",
-          ],
+      : carryBoundProtectedRuntimePaths
+        ? evidencePaths
+        : isAction
+          ? []
+          : [
+              "package.json",
+              "pnpm-lock.yaml",
+              "pnpm-workspace.yaml",
+              "apps/**",
+              "packages/**",
+              "patches/**",
+            ],
     pullRequestNumber: evaluation.pullRequestNumber,
     preparable: true,
     repository: evaluation.repository,

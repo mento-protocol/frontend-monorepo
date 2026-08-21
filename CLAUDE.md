@@ -299,6 +299,13 @@ the root package/lock and standalone Vercel contract, manifest, and lock. Generi
 v2 repair never gains runtime or deployment write
 authority. ALL CLEAR requires the requested target and its reachable typed
 operation. A maintainer still performs the squash merge.
+After a reachable v3 sync, one later v2 repair may retain the already-bound
+runtime paths in its authenticated PR inventory only when every new finding or
+feedback path is an exact generic-safe changed file. The packet limits expected
+and permitted blobs to those evidence paths. It excludes
+`scripts/vercel-cli-runtime/**` from the editable blob set and keeps that path
+explicitly forbidden. Missing proof, extra protected paths, unsafe evidence,
+or a mixed non-review failure fails closed as `manual-repair-required`.
 The typed operation may bind exact Cursor runtime-mismatch threads only when
 each structured finding names the same source and target versions, root
 `package.json` path, and trusted seed or current review commit. Every other
