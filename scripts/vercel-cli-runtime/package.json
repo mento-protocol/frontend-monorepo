@@ -17,13 +17,13 @@
     "@vercel/nestjs": "0.2.106",
     "@vercel/next": "4.20.4",
     "@vercel/node": "5.8.26",
-    "@vercel/python": "6.51.0",
+    "@vercel/python": "6.51.1",
     "@vercel/redwood": "2.5.0",
     "@vercel/remix-builder": "5.9.1",
     "@vercel/ruby": "2.5.1",
     "@vercel/rust": "1.4.0",
     "@vercel/static-build": "2.11.8",
-    "vercel": "56.4.1"
+    "vercel": "56.5.0"
   },
   "pnpm": {
     "overrides": {
