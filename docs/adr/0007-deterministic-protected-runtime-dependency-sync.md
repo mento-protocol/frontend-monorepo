@@ -158,6 +158,10 @@ lock byte from exact current-head inputs.
 - The fixed two-Repair limit remains. Mixed generic and typed repair lineage is
   covered by the historical PR #753 fixtures; a new isolated Vercel PR can use
   the typed runtime sync as its first repair.
+- A second generic repair can follow a proven v3 sync only for exact safe
+  finding or feedback paths. The packet authenticates the full PR inventory but
+  excludes the protected runtime blobs from its expected and permitted edit
+  sets. Missing proof or any other protected path fails closed.
 - The runtime contract JSON becomes reviewed authority data. Stable executable
   validators still enforce its exact schema, hashes, version agreement, and
   lockfile structure.

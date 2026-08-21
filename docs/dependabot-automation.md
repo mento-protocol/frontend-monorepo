@@ -349,6 +349,17 @@ immutable Dependabot target unrealized across the protected runtime. Same-head
 processing is idempotent. The first append-only Repair commit consumes attempt
 one; a second consumes attempt two. There is no third attempt.
 
+A later generic v2 repair can follow a reachable v3 protected-runtime sync.
+The processor keeps the full PR path inventory for live diff authentication.
+It admits the v2 packet only when the protected paths are exact v3 required
+paths, the current runtime state matches the proven operation, and each new
+Claude finding or bound review thread names an exact generic-safe changed file.
+The v2 expected-blob and permitted-path sets shrink to those evidence paths.
+The packet omits the protected runtime blobs and explicitly forbids
+`scripts/vercel-cli-runtime/**`. A missing or changed v3 proof, another
+protected path, an unsafe or absent evidence path, or a mixed branch failure
+suppresses the packet and produces `manual-repair-required`.
+
 Processor check publication is also transition-idempotent. The newest trusted
 exact-head receipt must match mode, disposition/output summary, attempt, packet
 flag, and packet digest before publication is skipped. Newer malformed or
