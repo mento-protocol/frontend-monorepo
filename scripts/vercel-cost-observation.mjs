@@ -117,6 +117,9 @@ const DIGEST_PATTERN = /^[a-f0-9]{64}$/;
 const JOURNAL_ARTIFACT_PATTERN =
   /^vercel-main-journal-main-[a-f0-9]{32}-[0-9]{6}$/;
 const MAX_GH_OUTPUT_BYTES = 64 * 1024 * 1024;
+const PREVIEW_CONTROLLER_RUN_PAGE_SIZE = 100;
+const MAX_COVERING_PREVIEW_CONTROLLER_RUN_PAGES = 5;
+const MAX_COVERING_PREVIEW_OBSERVATION_CANDIDATES = 64;
 
 function invariant(condition, message) {
   if (!condition) throw new Error(message);
@@ -1061,31 +1064,29 @@ function eventReceiptFromJournal(
   return validateEventReceipt(candidates[0]);
 }
 
-function previewObservationArtifact(
+function journalFromPreviewObservationReceipt(receipt) {
+  return createPreviewJournal({
+    pr: receipt.pr,
+    revision: receipt.journal_revision,
+    checkpoint: receipt.checkpoint,
+    events: receipt.receipts.events,
+    selections: receipt.receipts.selections,
+    workerEvidence: receipt.receipts.worker_evidence,
+    results: receipt.receipts.results,
+    state: receipt.state,
+    ...(Object.hasOwn(receipt, "admission")
+      ? { admission: receipt.admission }
+      : {}),
+  });
+}
+
+function downloadPreviewObservationArtifact(
   dependencies,
   controllerRunId,
+  artifact,
   root,
-  { required = true } = {},
 ) {
   const artifactName = previewObservationArtifactName(controllerRunId);
-  const artifacts = paginatedCollection(
-    apiJson(
-      dependencies,
-      `repos/${OBSERVATION_REPOSITORY}/actions/runs/${controllerRunId}/artifacts?per_page=100`,
-      "Preview observation artifacts",
-      { paginate: true },
-    ),
-    "artifacts",
-    "Preview observation artifacts",
-  );
-  const artifact = selectPreviewObservationArtifact(artifacts, controllerRunId);
-  if (artifact === null) {
-    invariant(
-      !required,
-      "Preview observation receipt artifact is missing or ambiguous",
-    );
-    return null;
-  }
   const directory = join(
     root,
     `.stage-observation-receipt-${controllerRunId}-${process.pid}-${randomBytes(6).toString("hex")}`,
@@ -1127,6 +1128,185 @@ function previewObservationArtifact(
   } finally {
     if (existsSync(directory)) removeCaptureStage(directory, root);
   }
+}
+
+function previewObservationArtifact(
+  dependencies,
+  controllerRunId,
+  root,
+  { required = true } = {},
+) {
+  const artifacts = paginatedCollection(
+    apiJson(
+      dependencies,
+      `repos/${OBSERVATION_REPOSITORY}/actions/runs/${controllerRunId}/artifacts?per_page=100`,
+      "Preview observation artifacts",
+      { paginate: true },
+    ),
+    "artifacts",
+    "Preview observation artifacts",
+  );
+  const artifact = selectPreviewObservationArtifact(artifacts, controllerRunId);
+  if (artifact === null) {
+    invariant(
+      !required,
+      "Preview observation receipt artifact is missing or ambiguous",
+    );
+    return null;
+  }
+  return downloadPreviewObservationArtifact(
+    dependencies,
+    controllerRunId,
+    artifact,
+    root,
+  );
+}
+
+function laterPreviewControllerRuns(dependencies, requestedRun) {
+  const requestedRunId = positiveId(
+    requestedRun.id,
+    "Requested preview run ID",
+  );
+  const requestedRunNumber = Number(
+    positiveId(requestedRun.run_number, "Requested preview run number"),
+  );
+  const headBranch = requestedRun.head_branch;
+  invariant(
+    Number.isSafeInteger(requestedRunNumber) &&
+      typeof headBranch === "string" &&
+      headBranch.length > 0 &&
+      headBranch.length <= 255 &&
+      [...headBranch].every((character) => {
+        const codePoint = character.codePointAt(0);
+        return codePoint >= 0x20 && codePoint !== 0x7f;
+      }),
+    "Requested preview run branch is invalid",
+  );
+  const runs = [];
+  let previousRunNumber = Number.POSITIVE_INFINITY;
+  let foundRequestedRun = false;
+  for (
+    let page = 1;
+    page <= MAX_COVERING_PREVIEW_CONTROLLER_RUN_PAGES;
+    page += 1
+  ) {
+    const response = plainObject(
+      apiJson(
+        dependencies,
+        `repos/${OBSERVATION_REPOSITORY}/actions/workflows/vercel-preview-controller.yml/runs?branch=${encodeURIComponent(headBranch)}&event=pull_request_target&per_page=${PREVIEW_CONTROLLER_RUN_PAGE_SIZE}&page=${page}`,
+        "Preview controller branch runs",
+      ),
+      "Preview controller branch runs page",
+    );
+    invariant(
+      Number.isSafeInteger(response.total_count) && response.total_count >= 0,
+      "Preview controller branch run count is invalid",
+    );
+    invariant(
+      Array.isArray(response.workflow_runs) &&
+        response.workflow_runs.length <= PREVIEW_CONTROLLER_RUN_PAGE_SIZE,
+      "Preview controller branch run pagination is malformed",
+    );
+    let reachedRequestedRun = false;
+    for (const rawRun of response.workflow_runs) {
+      plainObject(rawRun, "Preview controller branch run");
+      const runNumber = Number(
+        positiveId(rawRun.run_number, "Preview controller branch run number"),
+      );
+      invariant(
+        Number.isSafeInteger(runNumber) && runNumber < previousRunNumber,
+        "Preview controller branch runs are not strictly newest-first",
+      );
+      previousRunNumber = runNumber;
+      if (runNumber > requestedRunNumber) {
+        if (rawRun.status === "completed") {
+          invariant(
+            rawRun.event === "pull_request_target" &&
+              rawRun.head_branch === headBranch,
+            "Covering preview controller run query identity conflicts",
+          );
+          runs.push(
+            terminalRun(
+              rawRun,
+              ".github/workflows/vercel-preview-controller.yml",
+              "Covering preview controller run",
+            ),
+          );
+        }
+        continue;
+      }
+      reachedRequestedRun = true;
+      if (
+        runNumber === requestedRunNumber &&
+        String(rawRun.id) === requestedRunId
+      ) {
+        foundRequestedRun = true;
+      }
+    }
+    if (
+      reachedRequestedRun ||
+      response.workflow_runs.length < PREVIEW_CONTROLLER_RUN_PAGE_SIZE
+    ) {
+      invariant(
+        foundRequestedRun,
+        "Preview controller branch run search did not reach the requested run",
+      );
+      return runs
+        .sort((left, right) => left.run_number - right.run_number)
+        .slice(0, MAX_COVERING_PREVIEW_OBSERVATION_CANDIDATES);
+    }
+  }
+  throw new Error("Preview controller branch run search exceeded its bound");
+}
+
+function coveringPreviewObservationArtifact({
+  dependencies,
+  controllerRunId,
+  controllerRun,
+  prNumber,
+  root,
+}) {
+  for (const candidateRun of laterPreviewControllerRuns(
+    dependencies,
+    controllerRun,
+  )) {
+    const candidateRunId = String(candidateRun.id);
+    const immutable = previewObservationArtifact(
+      dependencies,
+      candidateRunId,
+      root,
+      { required: false },
+    );
+    if (immutable === null) continue;
+    invariant(
+      immutable.receipt.pr === Number(prNumber) &&
+        String(immutable.receipt.event_run_id) === candidateRunId,
+      "Covering preview observation receipt identity does not match",
+    );
+    const journal = journalFromPreviewObservationReceipt(immutable.receipt);
+    const requestedEvent = eventReceiptFromJournal(journal, controllerRunId, {
+      allowMissing: true,
+    });
+    if (requestedEvent === null) continue;
+    const coveringEvent = eventReceiptFromJournal(journal, candidateRunId);
+    assertControllerEventRunBinding(candidateRun, coveringEvent);
+    invariant(
+      requestedEvent.pr === Number(prNumber) &&
+        requestedEvent.observation_receipt_required === true &&
+        coveringEvent.trust === "trusted" &&
+        coveringEvent.observation_receipt_required === true &&
+        requestedEvent.event_run_number !== undefined &&
+        coveringEvent.event_run_number !== undefined &&
+        coveringEvent.event_run_number > requestedEvent.event_run_number &&
+        immutable.receipt.admission?.through_run_number >=
+          coveringEvent.event_run_number,
+      "Covering preview observation receipt does not prove a later admitted event",
+    );
+    return immutable;
+  }
+  throw new Error(
+    "Preview observation receipt artifact is missing or ambiguous",
+  );
 }
 
 function eventSelections(journal, eventRunId) {
@@ -2071,40 +2251,6 @@ function capturePreview({ root, pr, eventRunId, dependencies }) {
     const liveEvent = eventReceiptFromJournal(liveJournal, controllerRunId, {
       allowMissing: true,
     });
-    const immutable = previewObservationArtifact(
-      { ...dependencies, root },
-      controllerRunId,
-      root,
-      { required: liveEvent === null },
-    );
-    const journal =
-      immutable === null
-        ? liveJournal
-        : createPreviewJournal({
-            pr: immutable.receipt.pr,
-            revision: immutable.receipt.journal_revision,
-            checkpoint: immutable.receipt.checkpoint,
-            events: immutable.receipt.receipts.events,
-            selections: immutable.receipt.receipts.selections,
-            workerEvidence: immutable.receipt.receipts.worker_evidence,
-            results: immutable.receipt.receipts.results,
-            state: immutable.receipt.state,
-            ...(Object.hasOwn(immutable.receipt, "admission")
-              ? { admission: immutable.receipt.admission }
-              : {}),
-          });
-    const event = eventReceiptFromJournal(journal, controllerRunId);
-    if (immutable !== null) {
-      invariant(
-        immutable.receipt.pr === Number(prNumber) &&
-          String(immutable.receipt.event_run_id) === controllerRunId,
-        "Immutable preview observation receipt identity does not match",
-      );
-    }
-    invariant(
-      event.pr === Number(prNumber),
-      "Preview event receipt PR does not match",
-    );
     const controllerRun = terminalRun(
       apiJson(
         dependencies,
@@ -2117,6 +2263,42 @@ function capturePreview({ root, pr, eventRunId, dependencies }) {
     invariant(
       String(controllerRun.id) === controllerRunId,
       "Preview controller run ID does not match the requested event run",
+    );
+    if (liveEvent !== null)
+      assertControllerEventRunBinding(controllerRun, liveEvent);
+    let immutable = previewObservationArtifact(
+      { ...dependencies, root },
+      controllerRunId,
+      root,
+      { required: false },
+    );
+    let usesCoveringArtifact = false;
+    if (immutable === null && liveEvent === null) {
+      immutable = coveringPreviewObservationArtifact({
+        dependencies: { ...dependencies, root },
+        controllerRunId,
+        controllerRun,
+        prNumber,
+        root,
+      });
+      usesCoveringArtifact = true;
+    }
+    const journal =
+      immutable === null
+        ? liveJournal
+        : journalFromPreviewObservationReceipt(immutable.receipt);
+    const event = eventReceiptFromJournal(journal, controllerRunId);
+    if (immutable !== null) {
+      invariant(
+        immutable.receipt.pr === Number(prNumber) &&
+          (usesCoveringArtifact ||
+            String(immutable.receipt.event_run_id) === controllerRunId),
+        "Immutable preview observation receipt identity does not match",
+      );
+    }
+    invariant(
+      event.pr === Number(prNumber),
+      "Preview event receipt PR does not match",
     );
     assertControllerEventRunBinding(controllerRun, event);
     invariant(
@@ -2320,6 +2502,8 @@ function capturePreview({ root, pr, eventRunId, dependencies }) {
         eligibleTrustedDeployedCodePush,
         observationReceiptSource:
           immutable === null ? "live-journal" : "actions-artifact",
+        observationReceiptEventRunId:
+          immutable === null ? null : String(immutable.receipt.event_run_id),
         journalSchema: journal.schema,
         journalRevision: journal.revision,
         journalCommentId: positiveId(

@@ -2226,10 +2226,34 @@ terminal compaction; it is never state, reconciliation, status, dispatch, or
 deployment authority. The private collector prefers this exact validated
 artifact whenever it exists and falls back to the live journal when it does
 not. This keeps a later push from making the retained live graph authoritative
-for an older settled event. Journal compaction keeps each marked event live
-until GitHub reports that exact, unexpired artifact. A workflow rerun reuses
-the existing immutable artifact instead of uploading another copy under the
-same event-run name.
+for an older settled event. If both sources lack the requested event, the
+collector searches only `pull_request_target` runs of the controller workflow
+on the requested historical run's validated, URL-encoded head branch. It reads at most five
+100-run pages until it reaches the exact requested run. It then checks at most
+64 completed later runs in nearest-first order. Each candidate lookup uses the
+exact per-run artifact name. The collector accepts a candidate only when its
+canonical receipt binds that run, contains the marked requested event, and has
+an admission cursor through the covering event. It does not enumerate all
+repository artifacts. An unrelated or ambiguous artifact, an invalid receipt,
+or an exhausted bound fails closed.
+
+The trusted upload step writes the artifact only
+after the controller validates and materializes the event's full canonical
+journal graph. A later exact artifact therefore retains the admitted prefix
+that it contains, even if an earlier event's own artifact is missing. A workflow
+rerun reuses the existing immutable artifact instead of uploading another copy
+under the same event-run name.
+
+At the 40,000-byte soft threshold, selection, worker-evidence,
+result-recovery, and state writers can checkpoint only the longest safe prefix
+through a live artifact-covered event. The admission cursor must cover the
+cutoff, and every earlier lineage event must have a run number no greater than
+the cutoff. The checkpoint retains all later events and all selections,
+worker evidence, and results bound to that unsettled suffix. It also preserves
+the original ownership epoch for those immutable receipts. A missing cursor,
+an artifact on another run, a cutoff beyond the cursor, or an out-of-order
+prefix leaves the journal unchanged. The 64,000-byte hard limit remains
+fail-closed.
 
 The journal's top-level `admission` cursor stores the active controller's
 numeric workflow ID plus the exact run ID and run number proven through. One
@@ -2437,6 +2461,31 @@ status. A recovery ambiguity for the current active selection still fails
 closed. Durable recovery, ownership-flip, and no-dispatch mutations may require
 multiple local reconciliation passes; those bounded progress passes are
 separate from the three-attempt budget reserved for serialized journal races.
+
+The worker normally writes its immutable evidence before its run completes. A
+reconcile can reconstruct minimal evidence only when that write is the sole
+failed operation after a verified build. The persisted owner must bind the
+exact original run and attempt. No earlier evidence or result can exist for the
+same Deployment key, except the exact successful result for that run and
+attempt when an older recovery already wrote it. The attempt-scoped Actions job
+census must be complete and bounded. The ownership, selected prerequisite,
+build, smoke, and lifecycle jobs must succeed. All mutually exclusive target
+and resume jobs must be skipped. The evidence job's checkout must succeed, and
+its exact journal-persistence step must be the only failed step. The canonical
+GitHub Deployment payload must bind the same PR, target, SHA, head ref, key, run,
+and attempt. Its current status must be the only success status and must bind
+the same attempt URL and one immutable `vercel.app` environment URL.
+
+When every condition holds, reconcile appends one ordinary evidence receipt for
+the original run and attempt. It records `execution_mode=build` and
+`build_completed=true`. It copies the GitHub Deployment ID and verified URL.
+It leaves `vercel_deployment_id` and `next_deployment_id` null because GitHub's
+immutable job and Deployment records do not prove those provider IDs. It then
+appends the normal result or returns the already-persisted matching result
+without changing it. Any missing, duplicate, unexpected, or conflicting job,
+step, receipt, Deployment, status, URL, SHA, run, or attempt fails closed. Do
+not rerun the evidence job: a rerun has a different attempt and cannot own the
+persisted selection. Do not redispatch the worker or invent provider IDs.
 
 ### Durable dispatch and exact Deployment identity
 
