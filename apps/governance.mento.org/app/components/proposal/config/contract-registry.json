@@ -127,6 +127,11 @@
     }
   },
   "protocol": {
+    "0x777A8255cA72412f0d706dc03C9D1987306B4CaD": {
+      "name": "BrokerProxy",
+      "friendlyName": "Broker",
+      "isProxy": true
+    },
     "0x22d9db95e6ae61c104a7b6f6c78d7993b94ec901": {
       "name": "BiPoolManagerProxy",
       "friendlyName": "BiPoolManagerProxy",

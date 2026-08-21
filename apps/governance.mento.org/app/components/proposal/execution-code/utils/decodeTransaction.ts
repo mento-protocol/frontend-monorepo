@@ -1,9 +1,9 @@
 import { ABIResponse } from "@/api/contract/types";
 import { DecodedTransaction, Transaction } from "../../types/transaction";
 import { isProxyFunctionCall } from "./isProxyFunctionCall";
-import { Abi, decodeFunctionData } from "viem";
+import { Abi, type AbiParameter, decodeFunctionData } from "viem";
 
-import { KNOWN_ABIS } from "./decodeWithLocalAbi";
+import { ADDRESS_SCOPED_ABIS, KNOWN_ABIS } from "./decodeWithLocalAbi";
 
 /**
  * Generalized function to decode a transaction with fallback logic
@@ -35,7 +35,12 @@ export async function decodeTransaction(
 function decodeWithLocalAbi(
   transaction: Transaction | null | undefined,
 ): DecodedTransaction | null {
-  return decodeTransactionWithABI(transaction, KNOWN_ABIS);
+  const scopedAbi = transaction
+    ? ADDRESS_SCOPED_ABIS.get(transaction.address.toLowerCase())
+    : undefined;
+  const localAbi: Abi = scopedAbi ? [...KNOWN_ABIS, ...scopedAbi] : KNOWN_ABIS;
+
+  return decodeTransactionWithABI(transaction, localAbi);
 }
 
 /**
@@ -154,33 +159,11 @@ function decodeTransactionWithABI(
 
       // Format arguments with null checks
       const args = matchingAbiItem.inputs.map(
-        (input: { name?: string; type: string }, index: number) => {
-          let value = decodedArgs?.[index] as
-            | string
-            | number
-            | boolean
-            | bigint
-            | null
-            | undefined;
-
-          // Handle null/undefined values
-          if (value === null || value === undefined) {
-            value = "";
-          } else if (input.type.includes("uint") && value !== "") {
-            // Keep as string for large numbers
-            value = value.toString();
-          } else if (input.type === "address" && value) {
-            value = (value as string).toLowerCase();
-          } else if (input.type === "bool") {
-            value = Boolean(value);
-          }
-
-          return {
-            name: input.name || `arg${index}`,
-            type: input.type,
-            value: value || "",
-          };
-        },
+        (input: AbiParameter, index: number) => ({
+          name: input.name || `arg${index}`,
+          type: input.type,
+          value: formatAbiArgument(input, decodedArgs?.[index]),
+        }),
       );
 
       return {
@@ -210,4 +193,79 @@ function decodeTransactionWithABI(
     });
     return null;
   }
+}
+
+function formatAbiArgument(
+  input: AbiParameter,
+  value: unknown,
+): string | number | boolean | bigint {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  if (isTupleParameter(input)) {
+    return JSON.stringify(normalizeTupleValue(input, value));
+  }
+
+  if (input.type.startsWith("uint") || input.type.startsWith("int")) {
+    return String(value);
+  }
+
+  if (input.type === "address") {
+    return String(value).toLowerCase();
+  }
+
+  if (input.type === "bool") {
+    return Boolean(value);
+  }
+
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+  ) {
+    return value;
+  }
+
+  return String(value);
+}
+
+function normalizeTupleValue(
+  input: TupleAbiParameter,
+  value: unknown,
+): Record<string, string | boolean> {
+  const tupleValues = Array.isArray(value) ? value : null;
+  const tupleRecord =
+    value !== null && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : null;
+
+  return Object.fromEntries(
+    input.components.map((component, index) => {
+      const componentName = component.name || `arg${index}`;
+      const componentValue = tupleValues
+        ? tupleValues[index]
+        : tupleRecord?.[componentName];
+
+      if (component.type === "bool") {
+        return [componentName, Boolean(componentValue)];
+      }
+
+      if (component.type === "address") {
+        return [componentName, String(componentValue ?? "").toLowerCase()];
+      }
+
+      return [componentName, String(componentValue ?? "")];
+    }),
+  );
+}
+
+type TupleAbiParameter = AbiParameter & {
+  type: "tuple";
+  components: readonly AbiParameter[];
+};
+
+function isTupleParameter(input: AbiParameter): input is TupleAbiParameter {
+  return input.type === "tuple" && "components" in input;
 }
