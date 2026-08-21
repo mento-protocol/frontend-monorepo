@@ -185,6 +185,20 @@ push can still land after final recollection and before the click, so ALL CLEAR
 is a current-head snapshot and strict current-base/ruleset enforcement at merge
 time remains mandatory.
 
+If final validation fails after approval, publish an automation-invalidating
+exact-head ALL CLEAR failure before dismissal. The optional failed check does
+not replace dismissal as the GitHub merge-authority control. A later finalize
+run may replace that failure with a neutral tombstone only after a fresh global
+scan finds no processor approval and exact-head evidence reports
+`REVIEW_REQUIRED`, `BLOCKED`, and no auto-merge. Recollect and prove the same
+non-authorizing state before a new approval. A tombstone is never an ALL CLEAR
+receipt. A later run first changes a persisted tombstone back to failure. A
+failed recovery restores every attempted target, removes a sole exact late
+auto-merge request, and dismisses every observed processor approval. Two
+consecutive bounded paired global scans must prove both authority inventories
+empty. Post-approval failure uses the same rollback, including after an
+ambiguous approval response.
+
 A valid active ALL CLEAR receipt plus its sole exact approval outranks ordinary
 numeric candidate selection, including during a run triggered for another PR.
 Finalize recollects that incumbent and preserves it until merge/post-merge proof

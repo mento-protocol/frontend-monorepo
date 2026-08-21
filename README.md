@@ -492,6 +492,20 @@ candidate exists. Keep one candidate serialized until the human merge SHA has
 default-branch CI and release proof. A late comment or new `main` commit can
 invalidate this snapshot before the click.
 
+A failed post-approval validation publishes an automation-invalidating
+exact-head failure before it dismisses the processor approval. The optional
+failed check does not remove GitHub merge authority; dismissal does. Finalize
+replaces that failure with a neutral, non-authorizing tombstone only after fresh
+evidence proves no processor approval, `REVIEW_REQUIRED`, `BLOCKED`, and no
+auto-merge. It proves the same state again before it creates a new approval.
+A later run changes a persisted tombstone back to failure before it trusts that
+state. Failed recovery restores every attempted target, dismisses every
+observed processor approval, and disables a sole exact auto-merge request.
+Multiple, malformed, or ambiguous auto-merge requests remain blocking and fail
+closed. Post-approval failure uses the same rollback, including when the
+approval response is ambiguous. Two consecutive paired global scans must then
+prove both authority inventories empty within five attempts.
+
 Run the network-free evaluator and contract suite with:
 
 ```bash
