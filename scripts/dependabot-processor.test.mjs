@@ -3659,6 +3659,51 @@ test("a prior typed Vercel repair permits one finding-scoped generic follow-up",
     [{ path: "pnpm-lock.yaml", source: "claude" }],
   );
 
+  const mixedOrdering = structuredClone(result);
+  const mixedPaths = [
+    "packages/-fixture/package.json",
+    "packages/_fixture/package.json",
+  ];
+  const claudeFailure = mixedOrdering.checks.failures.find(
+    ({ id }) => id === "claude-review",
+  );
+  for (const path of mixedPaths) {
+    mixedOrdering.changedPaths.push(path);
+    mixedOrdering.expectedBlobs.push({
+      mode: "100644",
+      path,
+      sha: createHash("sha1").update(path).digest("hex"),
+      type: "blob",
+    });
+    const summary = "The exact mixed-character path needs a bounded repair.";
+    claudeFailure.findings.push({
+      id: createHash("sha256").update(path).digest("hex").slice(0, 24),
+      line: 1,
+      path,
+      summary,
+      summaryDigest: textDigest(summary),
+      title: "Repair the exact mixed-character path",
+    });
+  }
+  mixedOrdering.changedPaths.sort();
+  mixedOrdering.expectedBlobs.sort((left, right) =>
+    left.path.localeCompare(right.path),
+  );
+  const mixedPacket = createDependabotRepairPacket(mixedOrdering);
+  assert.deepEqual(
+    mixedPacket?.expectedBlobs.map(({ path }) => path),
+    [
+      "packages/_fixture/package.json",
+      "packages/-fixture/package.json",
+      "pnpm-lock.yaml",
+    ],
+  );
+  assert.deepEqual(mixedPacket?.permittedPaths, [
+    "packages/_fixture/package.json",
+    "packages/-fixture/package.json",
+    "pnpm-lock.yaml",
+  ]);
+
   const packetDigest = rawDigest(canonicalJson(result.repairPacket));
   assert.throws(
     () =>

@@ -3993,7 +3993,7 @@ export function createDependabotRepairPacket(evaluation) {
       ...findings.map(({ path }) => path),
       ...feedbackThreads.map(({ path }) => path),
     ]),
-  ].sort();
+  ].sort((left, right) => left.localeCompare(right));
   const carryBoundProtectedRuntimePaths =
     !isProtectedRuntimeSync &&
     canCarryBoundProtectedRuntimePaths({
