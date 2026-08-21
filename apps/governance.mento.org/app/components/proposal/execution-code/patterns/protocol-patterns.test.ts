@@ -26,11 +26,19 @@ function getPattern() {
   return pattern;
 }
 
-function args(config: Record<string, string>): DecodedArg[] {
+function args(
+  config: Record<string, string | undefined> | string,
+  exchangeId = EXCHANGE_ID,
+  token = AUDM_ADDRESS,
+): DecodedArg[] {
   return [
-    { name: "exchangeId", type: "bytes32", value: EXCHANGE_ID },
-    { name: "token", type: "address", value: AUDM_ADDRESS },
-    { name: "config", type: "tuple", value: JSON.stringify(config) },
+    { name: "exchangeId", type: "bytes32", value: exchangeId },
+    { name: "token", type: "address", value: token },
+    {
+      name: "config",
+      type: "tuple",
+      value: typeof config === "string" ? config : JSON.stringify(config),
+    },
   ];
 }
 
@@ -48,4 +56,35 @@ describe("protocolPatterns configureTradingLimit", () => {
       "Set global trading limit for AUDm on USDm/AUDm pool to 1,597 whole tokens",
     );
   });
+
+  it("uses the generic summary for other trading-limit flags", () => {
+    expect(
+      getPattern()(CONTRACT, args({ limitGlobal: "10", flags: "3" }), "0"),
+    ).toBe("Configure trading limits for AUDm on USDm/AUDm pool");
+  });
+
+  it("uses safe fallbacks for an unknown pool, token, and malformed config", () => {
+    expect(
+      getPattern()(
+        CONTRACT,
+        args(
+          "not-json",
+          "0x1234567890abcdef",
+          "0x0000000000000000000000000000000000000001",
+        ),
+        "0",
+      ),
+    ).toBe(
+      "Configure trading limits for 0x0000000000000000000000000000000000000001 on pool 0x12345678... pool",
+    );
+  });
+
+  it.each([{ limitGlobal: "10" }, { flags: "4" }])(
+    "uses the generic summary for an incomplete config",
+    (config) => {
+      expect(getPattern()(CONTRACT, args(config), "0")).toBe(
+        "Configure trading limits for AUDm on USDm/AUDm pool",
+      );
+    },
+  );
 });
