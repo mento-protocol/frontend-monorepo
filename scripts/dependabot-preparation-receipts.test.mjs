@@ -990,6 +990,21 @@ test("processor packet permits feedback-only repair but rejects empty authority"
       ),
     /keys are not exact/,
   );
+  const providerFailure = repairPacket({
+    failures: [
+      {
+        attribution: "branch",
+        detailsUrl: `https://github.com/${repository}/actions/runs/11`,
+        id: "action-pins",
+        name: "Action Pin Policy",
+      },
+    ],
+  });
+  providerFailure.failures[0].attribution = "provider-baseline";
+  assert.throws(
+    () => validateProcessorRepairPacket(providerFailure),
+    /not branch-attributed/,
+  );
 });
 
 test("protected-runtime v3 packets permit empty repair evidence only under the exact typed contract", () => {

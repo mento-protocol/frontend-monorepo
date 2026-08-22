@@ -245,12 +245,30 @@ not consume repair attempts and may never use rebase or force-push.
 ### Repair attempts are typed and capped independently of refresh
 
 The generic v2 Processor packet is created only after exact structural
-identity, prepared lineage, current base, complete current-head gate, clear
-feedback, preparable policy, deterministic branch attribution or validated
-findings, and valid attempt history. ADR 0007 adds an exact v3 packet for a
+identity, prepared lineage, current base, complete current-head gate,
+preparable policy, valid attempt history, and at least one deterministic branch
+attribution, validated finding, or exact repairable feedback thread. Feedback
+must otherwise be clear. Unknown attribution blocks the packet. Prepare mode
+may retain trusted provider failures outside a packet that contains separate
+deterministic branch evidence. Provider evidence never enters the packet and
+still blocks approval and readiness. ADR 0007 adds an exact v3 packet for a
 model-free protected-runtime synchronization. It retains this lineage and
 attempt budget but may be actionable without failed-check evidence when the
 verified Dependabot target is not yet realized across the protected runtime.
+
+Failure attribution distinguishes `non-deterministic` provider evidence with a
+passing baseline, `provider-baseline` evidence whose trusted head and main
+checks both report `error`, `failure`, `startup_failure`, or `timed_out`, and
+`provider-unbaselined` evidence whose exact-main provider check is missing,
+pending, or intentionally skipped. All three states remain failed and stay
+outside repair packets. `unknown` covers untrusted evidence, a missing or
+pending deterministic baseline, and a trusted current or baseline conclusion
+outside the accepted proof set, such as `neutral` or `cancelled`. Baseline
+evidence accepts only configured push, scheduled, or manual runs. The workflow
+branch must be `main`, and the workflow head must equal the exact current-main
+SHA. PR and PR-target runs cannot supply it. Every `main` push runs the
+deterministic Supply Chain lockfile and catalog jobs. The provider-backed OSV
+jobs skip that push and retain their PR, scheduled, and manual cadence.
 
 Same-head packet and Processor check publication is idempotent. The newest
 trusted exact-head receipt must match mode, disposition/output summary, attempt,
@@ -285,7 +303,8 @@ The contracts are:
 - `dependabot-processor:v2` and the exact generic
   `dependabot-repair-packet:v2` or typed `dependabot-repair-packet:v3`: exact
   head/base/policy/path scope, attempt, workflow source, and packet digest. V2
-  binds failure/finding evidence; v3 is reserved for the deterministic
+  binds failure, finding, or exact repairable feedback evidence. V3 is reserved
+  for the deterministic
   protected-runtime operation in ADR 0007. A packet-issued Processor check is
   completed **failure**, so repair-needed state cannot unblock merge.
 - `dependabot-refresh:v1`: successful requested receipt on the old head and
@@ -444,9 +463,12 @@ the PR.
 ### Treat every check failure as repairable
 
 Rejected. Provider and baseline ambiguity can cause automation to patch around
-an outage or a failure already on main. Only deterministic branch evidence or a
-validated structured finding enters a packet; retry-first and base failures
-block mutation.
+an outage or a failure already on main. Only deterministic branch evidence,
+validated structured findings, or exact repairable feedback threads enter their
+corresponding packet fields. Unknown and deterministic baseline failures block
+mutation. Provider-only failures wait for a trusted retry. Prepare mode may
+repair separate deterministic branch evidence while trusted provider failures
+remain failed and outside the packet.
 
 ### Give the Prepare App broad permissions or reuse another App
 
@@ -488,12 +510,17 @@ hidden.
 
 ## Failure handling
 
-Malformed, capped, missing, stale, ambiguous, or untrusted evidence fails before
-mutation or readiness publication. A base failure is repaired on main first. A
-retry-first provider failure waits for trusted evidence. A malformed/out-of-
-scope plan stops before App mutation. Exhausted repairs, sensitive policy,
-veto, untrusted force-push history, or unresolved feedback move the PR to
-manual handling.
+Malformed, capped, stale, ambiguous, or untrusted evidence fails before
+mutation or readiness publication. Missing or pending deterministic baseline
+evidence also fails closed. A deterministic baseline failure is repaired on
+main first. A provider-only failure waits for trusted evidence. A trusted
+passing or retryably failing provider baseline may coexist with a deterministic
+branch repair in prepare mode. An absent, trusted-pending, or intentionally
+skipped provider baseline may also coexist with that repair. The provider
+failure remains failed and never enters the packet. A malformed or out-of-scope
+plan stops before App mutation. Exhausted repairs, sensitive policy, veto,
+untrusted force-push history, or unresolved feedback move the PR to manual
+handling.
 
 If main CI or post-merge release proof fails after the human merge, keep the
 lane occupied and use the managed failure issue and deployment recovery

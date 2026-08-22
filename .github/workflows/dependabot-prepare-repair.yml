@@ -619,7 +619,7 @@ jobs:
     name: Stage one unreachable exact Repair App commit
     needs: [preflight, validate, candidate_cli_smoke]
     if: >-
-      always() &&
+      !cancelled() &&
       needs.preflight.result == 'success' &&
       needs.validate.result == 'success' &&
       ((needs.preflight.outputs.plan_kind == 'protected-runtime-sync' &&
@@ -734,6 +734,7 @@ jobs:
     name: Publish the exact github-actions repair intent
     needs: [preflight, stage]
     if: >-
+      !cancelled() &&
       needs.preflight.result == 'success' &&
       needs.stage.result == 'success'
     runs-on: ubuntu-latest
@@ -789,6 +790,7 @@ jobs:
     name: Move the exact ref to the intent-bound successor
     needs: [preflight, stage, intent]
     if: >-
+      !cancelled() &&
       needs.preflight.result == 'success' &&
       needs.stage.result == 'success' &&
       needs.intent.result == 'success'
@@ -892,6 +894,7 @@ jobs:
     name: Publish the exact completed repair receipt
     needs: [preflight, mutate]
     if: >-
+      !cancelled() &&
       needs.preflight.result == 'success' &&
       needs.mutate.result == 'success'
     runs-on: ubuntu-latest

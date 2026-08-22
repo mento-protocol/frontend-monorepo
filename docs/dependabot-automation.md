@@ -325,18 +325,37 @@ repository/run/attempt provenance read across its collections; the selected
 post-merge gate is always re-fetched for its current snapshot.
 
 Every required gate must report for the exact head. Attribute each failure
-against the corresponding current-`main` baseline:
+against the corresponding current-`main` baseline. A baseline check must come
+from an allowed push, scheduled, or manual run. Its workflow branch must be
+`main`, and its workflow head must equal the exact current-main SHA. PR and
+PR-target runs cannot supply baseline evidence. PR-only checks have no main
+baseline.
 
 - `branch`: deterministic exact-head failure with a passing baseline;
-- `base`: the corresponding current-main baseline also fails;
+- `baseline`: the corresponding deterministic current-main baseline also fails;
 - `non-deterministic`: provider-backed head failure with a passing baseline;
-- `unknown`: baseline missing or pending.
+- `provider-baseline`: trusted provider-backed head and main checks both report
+  `error`, `failure`, `startup_failure`, or `timed_out`;
+- `provider-unbaselined`: trusted provider-backed head failure whose matching
+  exact-main check is missing, pending, or intentionally skipped; and
+- `unknown`: untrusted source evidence, a missing or pending deterministic
+  baseline, or a trusted current or baseline conclusion outside the accepted
+  proof set, such as `neutral` or `cancelled`.
 
-Only deterministic branch failures or provenance-valid Claude findings can
-enter a repair packet. Any non-deterministic or unknown failure suppresses the
-whole packet, including mixed failures. The current controller does not patch
-around or infer success from provider failures; wait for or authorize a trusted
-retry, then recollect.
+Only deterministic branch failures and provenance-valid Claude findings can
+enter the packet's `failures` and `findings` fields. Exact repairable feedback
+threads can enter `feedbackThreads`. An unknown failure always suppresses the
+packet. A provider-only failure waits for a trusted retry. Prepare mode may
+repair a concurrent deterministic branch failure while trusted
+`non-deterministic`, `provider-baseline`, or `provider-unbaselined` failures
+remain failed. Those provider failures never enter the packet and still block
+approval and readiness.
+
+The Supply Chain workflow runs `lockfile integrity + registry` and `catalog
+version-skew` on every `main` push. These short jobs create exact deterministic
+baselines. The four provider-backed OSV jobs remain PR, scheduled, and manual
+gates. Their main-push jobs are intentionally skipped and count as unbaselined
+provider evidence.
 
 ### 2. Refresh stale current-base ancestry
 
@@ -369,13 +388,17 @@ or any other collection error fails closed.
 ### 3. Produce and publish one bounded repair
 
 A generic v2 repair packet exists only when identity/lineage, current base,
-complete gate, clear feedback, deterministic attribution, preparable policy,
-and repair attempt lineage all pass. A typed v3 packet may instead represent
-one admitted deterministic protected-runtime synchronization. Its operation is
-actionable even with no failed check: ALL CLEAR would otherwise leave the
-immutable Dependabot target unrealized across the protected runtime. Same-head
-processing is idempotent. The first append-only Repair commit consumes attempt
-one; a second consumes attempt two. There is no third attempt.
+complete gate, preparable policy, and repair attempt lineage all pass. It also
+requires at least one deterministic branch attribution, validated finding, or
+exact repairable feedback thread. Feedback must otherwise be clear. Unknown
+attribution is forbidden. Prepare mode can retain completed trusted provider
+failures outside a packet with separate deterministic branch evidence. A typed
+v3 packet may instead represent one admitted deterministic protected-runtime
+synchronization. Its operation is actionable even with no failed check: ALL
+CLEAR would otherwise leave the immutable Dependabot target unrealized across
+the protected runtime. Same-head processing is idempotent. The first
+append-only Repair commit consumes attempt one; a second consumes attempt two.
+There is no third attempt.
 
 A later generic v2 repair can follow a reachable v3 protected-runtime sync.
 The processor keeps the full PR path inventory for live diff authentication.
@@ -728,34 +751,35 @@ or failed. Follow the managed failure issue and deployment recovery runbook.
 
 ## Failure handling
 
-| Evidence/outcome                                     | Action                                                            |
-| ---------------------------------------------------- | ----------------------------------------------------------------- |
-| Malformed/false intake or dispatch                   | Fail; inspect actor and exact envelope.                           |
-| Head/base/feedback changed before mutation           | Make no mutation; start a fresh exact-head cycle.                 |
-| Snapshot race after one authorized refresh request   | Retry read-only collection within the bounded successor poll.     |
-| Missing/pending gate                                 | Wait for trusted evidence; recollect.                             |
-| Base failure                                         | Repair `main`, prove recovery, then refresh affected PRs.         |
-| Provider/Claude infrastructure failure               | Retry through the trusted provider path; never patch around it.   |
-| Repair/recovery infrastructure failure               | Retry exact evidence twice per phase; then require investigation. |
-| Valid Claude findings                                | Treat as deterministic packet input, not infrastructure failure.  |
-| Eligible deterministic branch failure                | Publish v2 packet only when the bounded repair surface is valid.  |
-| Admitted Vercel protected-runtime target missing     | Publish exact v3 model-free sync packet; require typed proof.     |
-| Existing exact-head packet (`repair-pending`)        | Preserve its run; publish no duplicate packet/check.              |
-| No valid automatic packet (`manual-repair-required`) | Leave the lane and require human repair.                          |
-| Refresh needed                                       | Use request/completed v1 lineage; do not spend repair budget.     |
-| Current reviewed pin fails pnpm release-age check    | Add one exact-version exception; remove it after maturity.        |
-| Repair plan malformed/out of scope                   | Fail before App token mutation; escalate manual.                  |
-| Repair attempts exhausted                            | Manual handling; do not reset with rebase/force-push.             |
-| Sensitive/unknown/manual tier                        | Record evidence and require human dependency handling.            |
-| Human veto/close/reopen or untrusted force-push      | Stop preparation for this PR.                                     |
-| Exact native-to-native Dependabot rewrite chain      | Start a new generation; recollect all exact-head evidence.        |
-| Unresolved/unbound feedback                          | Block; never infer a reply or resolution.                         |
-| Auto-merge request or competing candidate            | Remove only exact safe stale authority, recollect, or block.      |
-| Mergeability/ruleset/review unsatisfied              | Do not approve or publish ALL CLEAR.                              |
-| Finalize drift after approval                        | Dismiss processor approval and reprocess.                         |
-| ALL CLEAR published                                  | Human verifies current head and clicks Merge.                     |
-| Main CI/release proof failed                         | Keep lane occupied and follow recovery.                           |
-| Ambiguous/capped evidence                            | Fail closed and require operator investigation.                   |
+| Evidence/outcome                                       | Action                                                            |
+| ------------------------------------------------------ | ----------------------------------------------------------------- |
+| Malformed/false intake or dispatch                     | Fail; inspect actor and exact envelope.                           |
+| Head/base/feedback changed before mutation             | Make no mutation; start a fresh exact-head cycle.                 |
+| Snapshot race after one authorized refresh request     | Retry read-only collection within the bounded successor poll.     |
+| Missing/pending current gate or deterministic baseline | Wait for trusted evidence; recollect.                             |
+| Deterministic baseline failure                         | Repair `main`, prove recovery, then refresh affected PRs.         |
+| Provider-only/Claude infrastructure failure            | Retry through the trusted provider path; never patch around it.   |
+| Provider failure plus deterministic branch failure     | In prepare mode, packetize only the deterministic branch failure. |
+| Repair/recovery infrastructure failure                 | Retry exact evidence twice per phase; then require investigation. |
+| Valid Claude findings                                  | Treat as deterministic packet input, not infrastructure failure.  |
+| Eligible deterministic branch failure                  | Publish v2 packet only when the bounded repair surface is valid.  |
+| Admitted Vercel protected-runtime target missing       | Publish exact v3 model-free sync packet; require typed proof.     |
+| Existing exact-head packet (`repair-pending`)          | Preserve its run; publish no duplicate packet/check.              |
+| No valid automatic packet (`manual-repair-required`)   | Leave the lane and require human repair.                          |
+| Refresh needed                                         | Use request/completed v1 lineage; do not spend repair budget.     |
+| Current reviewed pin fails pnpm release-age check      | Add one exact-version exception; remove it after maturity.        |
+| Repair plan malformed/out of scope                     | Fail before App token mutation; escalate manual.                  |
+| Repair attempts exhausted                              | Manual handling; do not reset with rebase/force-push.             |
+| Sensitive/unknown/manual tier                          | Record evidence and require human dependency handling.            |
+| Human veto/close/reopen or untrusted force-push        | Stop preparation for this PR.                                     |
+| Exact native-to-native Dependabot rewrite chain        | Start a new generation; recollect all exact-head evidence.        |
+| Unresolved/unbound feedback                            | Block; never infer a reply or resolution.                         |
+| Auto-merge request or competing candidate              | Remove only exact safe stale authority, recollect, or block.      |
+| Mergeability/ruleset/review unsatisfied                | Do not approve or publish ALL CLEAR.                              |
+| Finalize drift after approval                          | Dismiss processor approval and reprocess.                         |
+| ALL CLEAR published                                    | Human verifies current head and clicks Merge.                     |
+| Main CI/release proof failed                           | Keep lane occupied and follow recovery.                           |
+| Ambiguous/capped evidence                              | Fail closed and require operator investigation.                   |
 
 ## Commands and reporting
 

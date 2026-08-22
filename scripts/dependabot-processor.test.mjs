@@ -41,6 +41,7 @@ import {
   processDependabotSweep,
   requireStableFeedbackSnapshot,
   requireStablePullRequestSnapshot,
+  selectAllowedCheckEvents,
   selectLatestExactHeadCheck,
   stableJson,
   validateDependabotPullRequestIdentity,
@@ -161,6 +162,25 @@ const WORKFLOW_PATHS = {
   "visual-app": ".github/workflows/visual.yml",
   "visual-plan": ".github/workflows/visual.yml",
   "visual-ui": ".github/workflows/visual.yml",
+};
+
+const MAIN_BASELINE_EVENTS = {
+  ci: "push",
+  "e2e-celo": "workflow_dispatch",
+  "e2e-governance": "workflow_dispatch",
+  "e2e-monad": "workflow_dispatch",
+  "e2e-plan": "workflow_dispatch",
+  "e2e-seed": "workflow_dispatch",
+  quality: "push",
+  "supply-chain-lockfile": "push",
+  "supply-chain-pnpm-bootstrap-osv": "workflow_dispatch",
+  "supply-chain-pnpm-runtime-osv": "workflow_dispatch",
+  "supply-chain-root-osv": "workflow_dispatch",
+  "supply-chain-vercel-runtime-osv": "workflow_dispatch",
+  "supply-chain-version-skew": "push",
+  "visual-app": "push",
+  "visual-plan": "push",
+  "visual-ui": "push",
 };
 
 const EXTERNAL_CHECK_IDS = [
@@ -440,6 +460,34 @@ function completeChecks({
       { headSha, pullRequestNumber },
     ),
   );
+}
+
+function completeBaselineChecks({
+  conclusions = {},
+  headSha = BASE_SHA,
+  plannedSkips = false,
+  pullRequestNumber = 123,
+} = {}) {
+  return completeChecks({
+    conclusions,
+    headSha,
+    plannedSkips,
+    pullRequestNumber,
+  }).flatMap((candidate) => {
+    const checkId = Object.entries(CHECK_NAMES).find(
+      ([, name]) => name === candidate.name,
+    )?.[0];
+    const workflowEvent = MAIN_BASELINE_EVENTS[checkId];
+    if (!workflowEvent) return [];
+    return [
+      {
+        ...candidate,
+        runHeadBranch: "main",
+        runHeadSha: headSha,
+        workflowEvent,
+      },
+    ];
+  });
 }
 
 function completeChecksWithClaudeFindings({
@@ -940,7 +988,7 @@ function snapshot(overrides = {}) {
     },
     baseline: {
       checks: [
-        ...completeChecks({ headSha: BASE_SHA, pullRequestNumber }),
+        ...completeBaselineChecks({ pullRequestNumber }),
         postMergeReceipt(BASE_SHA),
       ],
       sha: BASE_SHA,
@@ -2041,6 +2089,31 @@ test("rejects a skipped job when the trusted path planner selected that surface"
   assert.equal(celo.reason, "unjustified-skip");
 });
 
+test("check source event selection fails closed without an explicit baseline allowlist", () => {
+  assert.deepEqual(
+    selectAllowedCheckEvents({ events: ["pull_request"] }, true),
+    [],
+  );
+  assert.deepEqual(
+    selectAllowedCheckEvents(
+      { baselineEvents: "push", events: ["pull_request"] },
+      true,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    selectAllowedCheckEvents(
+      { baselineEvents: ["push"], events: ["pull_request"] },
+      true,
+    ),
+    ["push"],
+  );
+  assert.deepEqual(selectAllowedCheckEvents({ events: ["pull_request"] }), [
+    "pull_request",
+  ]);
+  assert.deepEqual(selectAllowedCheckEvents({ events: "pull_request" }), []);
+});
+
 test("fails closed on an unexpected check app, workflow, event, attempt, or source repository", () => {
   for (const source of [
     { appId: 1 },
@@ -2053,7 +2126,7 @@ test("fails closed on an unexpected check app, workflow, event, attempt, or sour
     const index = checks.findIndex(({ name }) => name === "Build and Test");
     checks[index] = { ...checks[index], ...source };
     const result = evaluateDependabotChecks({
-      baselineChecks: completeChecks({ headSha: BASE_SHA }),
+      baselineChecks: completeBaselineChecks(),
       baselineSha: BASE_SHA,
       checks,
       headSha: HEAD_SHA,
@@ -2247,7 +2320,7 @@ test("Vercel status selection follows status publication chronology and rejects 
     }),
   );
   const chronological = evaluateDependabotChecks({
-    baselineChecks: completeChecks({ headSha: BASE_SHA }),
+    baselineChecks: completeBaselineChecks(),
     baselineSha: BASE_SHA,
     checks,
     headSha: HEAD_SHA,
@@ -2280,16 +2353,15 @@ test("Vercel status selection follows status publication chronology and rejects 
   );
 });
 
-test("attributes an exact matching baseline failure separately from a branch failure", () => {
+test("attributes an exact provider baseline failure separately from a branch failure", () => {
   const checks = completeChecks({
     conclusions: {
       "supply-chain-root-osv": "failure",
       "supply-chain-version-skew": "failure",
     },
   });
-  const baselineChecks = completeChecks({
+  const baselineChecks = completeBaselineChecks({
     conclusions: { "supply-chain-root-osv": "failure" },
-    headSha: BASE_SHA,
   });
   const result = evaluateDependabotChecks({
     baselineChecks,
@@ -2301,7 +2373,7 @@ test("attributes an exact matching baseline failure separately from a branch fai
   });
   assert.deepEqual(result.failures, [
     {
-      attribution: "baseline",
+      attribution: "provider-baseline",
       findings: [],
       id: "supply-chain-root-osv",
       name: "osv-scanner / osv-scan",
@@ -2317,7 +2389,7 @@ test("attributes an exact matching baseline failure separately from a branch fai
   ]);
 });
 
-test("provider-backed failures remain non-deterministic after a passing baseline and never emit repair packets", () => {
+test("provider-only failures remain retry-only with or without a main-context baseline", () => {
   for (const mode of ["assist", "prepare"]) {
     for (const checkId of EXTERNAL_CHECK_IDS) {
       const result = evaluateDependabotPullRequest(
@@ -2330,14 +2402,16 @@ test("provider-backed failures remain non-deterministic after a passing baseline
       assert.equal(result.repairPacket, null, `${mode}:${checkId}`);
       assert.equal(
         result.checks.failures.find(({ id }) => id === checkId)?.attribution,
-        "non-deterministic",
+        MAIN_BASELINE_EVENTS[checkId]
+          ? "non-deterministic"
+          : "provider-unbaselined",
         `${mode}:${checkId}`,
       );
     }
   }
 });
 
-test("a provider-backed failure suppresses a mixed deterministic repair packet", () => {
+test("prepare mode scopes mixed provider and deterministic failures to the deterministic repair", () => {
   const mixed = evaluateDependabotPullRequest(
     snapshot({
       checks: completeChecks({
@@ -2350,15 +2424,32 @@ test("a provider-backed failure suppresses a mixed deterministic repair packet",
       workflowContext: WORKFLOW_CONTEXT,
     },
   );
-  assert.equal(mixed.disposition, "waiting-retry");
-  assert.equal(mixed.repairPacket, null);
+  assert.equal(mixed.disposition, "repair-required");
   assert.deepEqual(
     mixed.checks.failures.map(({ attribution, id }) => ({ attribution, id })),
     [
       { attribution: "branch", id: "ci" },
-      { attribution: "non-deterministic", id: "vercel-preview" },
+      { attribution: "provider-unbaselined", id: "vercel-preview" },
     ],
   );
+  assert.deepEqual(
+    mixed.repairPacket.failures.map(({ attribution, id }) => ({
+      attribution,
+      id,
+    })),
+    [{ attribution: "branch", id: "ci" }],
+  );
+
+  const assist = evaluateDependabotPullRequest(
+    snapshot({
+      checks: completeChecks({
+        conclusions: { ci: "failure", "vercel-preview": "failure" },
+      }),
+    }),
+    { mode: "assist", repository: REPOSITORY },
+  );
+  assert.equal(assist.disposition, "waiting-retry");
+  assert.equal(assist.repairPacket, null);
 
   const deterministicOnly = evaluateDependabotPullRequest(
     snapshot({
@@ -2374,6 +2465,573 @@ test("a provider-backed failure suppresses a mixed deterministic repair packet",
   assert.deepEqual(
     deterministicOnly.repairPacket.failures.map(({ id }) => id),
     ["ci"],
+  );
+});
+
+test("prepare mode can repair a branch failure beside trusted provider evidence without a baseline", () => {
+  const baselineChecks = completeBaselineChecks();
+  const current = snapshot({
+    baseline: { checks: baselineChecks, sha: BASE_SHA },
+    checks: completeChecks({
+      conclusions: { ci: "failure", "vercel-preview": "failure" },
+    }),
+  });
+  const prepared = evaluateDependabotPullRequest(current, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  assert.equal(prepared.disposition, "repair-required");
+  assert.deepEqual(
+    prepared.checks.failures.map(({ attribution, id }) => ({
+      attribution,
+      id,
+    })),
+    [
+      { attribution: "branch", id: "ci" },
+      { attribution: "provider-unbaselined", id: "vercel-preview" },
+    ],
+  );
+  assert.deepEqual(
+    prepared.repairPacket.failures.map(({ attribution, id }) => ({
+      attribution,
+      id,
+    })),
+    [{ attribution: "branch", id: "ci" }],
+  );
+
+  const assisted = evaluateDependabotPullRequest(current, {
+    mode: "assist",
+    repository: REPOSITORY,
+  });
+  assert.equal(assisted.disposition, "waiting-retry");
+  assert.equal(assisted.repairPacket, null);
+
+  const providerOnly = evaluateDependabotPullRequest(
+    snapshot({
+      baseline: { checks: baselineChecks, sha: BASE_SHA },
+      checks: completeChecks({
+        conclusions: { "vercel-preview": "failure" },
+      }),
+    }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+  assert.equal(providerOnly.disposition, "waiting-retry");
+  assert.equal(providerOnly.repairPacket, null);
+});
+
+test("malformed provider provenance blocks a concurrent deterministic repair", () => {
+  for (const malformedSide of ["current", "baseline"]) {
+    const baselineChecks = completeBaselineChecks();
+    const checks = completeChecks({
+      conclusions: { ci: "failure", "e2e-celo": "failure" },
+    });
+    const targetChecks = malformedSide === "current" ? checks : baselineChecks;
+    const providerIndex = targetChecks.findIndex(
+      ({ name }) => name === CHECK_NAMES["e2e-celo"],
+    );
+    targetChecks[providerIndex] = {
+      ...targetChecks[providerIndex],
+      appId: 9,
+    };
+    const result = evaluateDependabotPullRequest(
+      snapshot({
+        baseline: { checks: baselineChecks, sha: BASE_SHA },
+        checks,
+      }),
+      {
+        mode: "prepare",
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+    );
+
+    assert.equal(result.disposition, "waiting-retry", malformedSide);
+    assert.equal(result.repairPacket, null, malformedSide);
+    assert.equal(
+      result.checks.failures.find(({ id }) => id === "e2e-celo")?.attribution,
+      "unknown",
+      malformedSide,
+    );
+  }
+});
+
+test("main supply-chain push leaves provider failures unbaselined", () => {
+  const providerIds = new Set([
+    "supply-chain-root-osv",
+    "supply-chain-pnpm-runtime-osv",
+    "supply-chain-vercel-runtime-osv",
+    "supply-chain-pnpm-bootstrap-osv",
+  ]);
+  const baselineChecks = completeBaselineChecks().filter((candidate) => {
+    const id = Object.entries(CHECK_NAMES).find(
+      ([, name]) => name === candidate.name,
+    )?.[0];
+    return !providerIds.has(id);
+  });
+  const result = evaluateDependabotPullRequest(
+    snapshot({
+      baseline: { checks: baselineChecks, sha: BASE_SHA },
+      checks: completeChecks({
+        conclusions: {
+          "supply-chain-root-osv": "failure",
+          "supply-chain-version-skew": "failure",
+        },
+      }),
+    }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+
+  assert.equal(result.disposition, "repair-required");
+  assert.deepEqual(
+    result.checks.failures.map(({ attribution, id }) => ({ attribution, id })),
+    [
+      {
+        attribution: "provider-unbaselined",
+        id: "supply-chain-root-osv",
+      },
+      {
+        attribution: "branch",
+        id: "supply-chain-version-skew",
+      },
+    ],
+  );
+  assert.deepEqual(
+    result.repairPacket.failures.map(({ id }) => id),
+    ["supply-chain-version-skew"],
+  );
+});
+
+test("a trusted skipped main provider check remains unbaselined", () => {
+  const baselineChecks = completeBaselineChecks().map((candidate) => {
+    const supplyChainCheck = candidate.name.startsWith("osv-scanner");
+    if (!supplyChainCheck) return candidate;
+    return {
+      ...candidate,
+      conclusion: "skipped",
+      runHeadBranch: "main",
+      runHeadSha: BASE_SHA,
+      workflowEvent: "push",
+    };
+  });
+  const result = evaluateDependabotPullRequest(
+    snapshot({
+      baseline: { checks: baselineChecks, sha: BASE_SHA },
+      checks: completeChecks({
+        conclusions: {
+          "supply-chain-root-osv": "failure",
+          "supply-chain-version-skew": "failure",
+        },
+      }),
+    }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+
+  assert.equal(result.disposition, "repair-required");
+  assert.equal(
+    result.checks.failures.find(({ id }) => id === "supply-chain-root-osv")
+      ?.attribution,
+    "provider-unbaselined",
+  );
+  assert.deepEqual(
+    result.repairPacket.failures.map(({ id }) => id),
+    ["supply-chain-version-skew"],
+  );
+});
+
+test("exact-main push evidence attributes deterministic supply-chain failures", () => {
+  for (const checkId of [
+    "supply-chain-lockfile",
+    "supply-chain-version-skew",
+  ]) {
+    const baselineWithConclusion = (conclusion, source = {}) =>
+      completeBaselineChecks().map((candidate) =>
+        candidate.name === CHECK_NAMES[checkId]
+          ? {
+              ...candidate,
+              conclusion,
+              runHeadBranch: "main",
+              runHeadSha: BASE_SHA,
+              workflowEvent: "push",
+              ...source,
+            }
+          : candidate,
+      );
+    const evaluate = (baselineChecks) =>
+      evaluateDependabotPullRequest(
+        snapshot({
+          baseline: { checks: baselineChecks, sha: BASE_SHA },
+          checks: completeChecks({ conclusions: { [checkId]: "failure" } }),
+        }),
+        {
+          mode: "prepare",
+          repository: REPOSITORY,
+          workflowContext: WORKFLOW_CONTEXT,
+        },
+      );
+
+    const branch = evaluate(baselineWithConclusion("success"));
+    assert.equal(branch.disposition, "repair-required", checkId);
+    assert.equal(branch.checks.failures[0].attribution, "branch", checkId);
+
+    const baseline = evaluate(baselineWithConclusion("failure"));
+    assert.equal(baseline.disposition, "waiting-baseline", checkId);
+    assert.equal(baseline.checks.failures[0].attribution, "baseline", checkId);
+
+    for (const source of [
+      { runHeadBranch: "release" },
+      { runHeadSha: OTHER_SHA },
+    ]) {
+      const untrusted = evaluate(baselineWithConclusion("success", source));
+      assert.equal(untrusted.disposition, "waiting-retry", checkId);
+      assert.equal(untrusted.repairPacket, null, checkId);
+      assert.equal(
+        untrusted.checks.failures[0].attribution,
+        "unknown",
+        checkId,
+      );
+    }
+  }
+});
+
+test("manual provider baselines require exact main workflow provenance", () => {
+  const baselineWithSource = (source = {}) =>
+    completeBaselineChecks({
+      conclusions: { "e2e-celo": "failure" },
+    }).map((candidate) =>
+      candidate.name === CHECK_NAMES["e2e-celo"]
+        ? { ...candidate, ...source }
+        : candidate,
+    );
+  const evaluate = (baselineChecks) =>
+    evaluateDependabotPullRequest(
+      snapshot({
+        baseline: { checks: baselineChecks, sha: BASE_SHA },
+        checks: completeChecks({
+          conclusions: {
+            "e2e-celo": "failure",
+            "supply-chain-version-skew": "failure",
+          },
+        }),
+      }),
+      {
+        mode: "prepare",
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+    );
+
+  const trusted = evaluate(baselineWithSource());
+  assert.equal(trusted.disposition, "repair-required");
+  assert.deepEqual(
+    trusted.checks.failures.map(({ attribution, id }) => ({ attribution, id })),
+    [
+      { attribution: "branch", id: "supply-chain-version-skew" },
+      { attribution: "provider-baseline", id: "e2e-celo" },
+    ],
+  );
+  assert.deepEqual(
+    trusted.repairPacket.failures.map(({ id }) => id),
+    ["supply-chain-version-skew"],
+  );
+
+  for (const [label, source] of [
+    ["branch", { runHeadBranch: "release" }],
+    ["sha", { runHeadSha: OTHER_SHA }],
+    ["event", { workflowEvent: "pull_request" }],
+    ["workflow", { workflowPath: ".github/workflows/ci.yml" }],
+    ["app", { appId: 9 }],
+    ["run identity", { runId: 0 }],
+    [
+      "run URL",
+      { detailsUrl: `https://github.com/${REPOSITORY}/actions/runs/999` },
+    ],
+  ]) {
+    const rejected = evaluate(baselineWithSource(source));
+    assert.equal(rejected.disposition, "waiting-retry", label);
+    assert.equal(rejected.repairPacket, null, label);
+    assert.equal(
+      rejected.checks.failures.find(({ id }) => id === "e2e-celo")?.attribution,
+      "unknown",
+      label,
+    );
+    assert.equal(
+      rejected.checks.failures.find(
+        ({ id }) => id === "supply-chain-version-skew",
+      )?.attribution,
+      "branch",
+      label,
+    );
+  }
+});
+
+test("non-repairable conclusions cannot authorize deterministic repair", () => {
+  for (const testCase of [
+    { conclusion: "skipped", id: "e2e-celo" },
+    { conclusion: "neutral", id: "e2e-celo" },
+    { conclusion: "cancelled", id: "supply-chain-version-skew" },
+    { conclusion: "neutral", id: "supply-chain-version-skew" },
+    { conclusion: "startup_failure", id: "ci" },
+    { conclusion: "timed_out", id: "ci" },
+  ]) {
+    const result = evaluateDependabotPullRequest(
+      snapshot({
+        checks: completeChecks({
+          conclusions: { ci: "failure", [testCase.id]: testCase.conclusion },
+        }),
+      }),
+      {
+        mode: "prepare",
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+    );
+
+    assert.equal(
+      result.disposition,
+      "waiting-retry",
+      `${testCase.id}:${testCase.conclusion}`,
+    );
+    assert.equal(result.repairPacket, null);
+    assert.equal(
+      result.checks.failures.find(({ id }) => id === testCase.id)?.attribution,
+      "unknown",
+    );
+  }
+});
+
+test("retryable provider outcomes can coexist with a separate deterministic repair", () => {
+  for (const testCase of [
+    { conclusion: "error", id: "vercel-preview" },
+    { conclusion: "startup_failure", id: "e2e-celo" },
+    { conclusion: "timed_out", id: "e2e-celo" },
+  ]) {
+    const result = evaluateDependabotPullRequest(
+      snapshot({
+        checks: completeChecks({
+          conclusions: { ci: "failure", [testCase.id]: testCase.conclusion },
+        }),
+      }),
+      {
+        mode: "prepare",
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+    );
+
+    assert.equal(result.disposition, "repair-required", testCase.conclusion);
+    assert.equal(
+      result.checks.failures.find(({ id }) => id === testCase.id)?.attribution,
+      MAIN_BASELINE_EVENTS[testCase.id]
+        ? "non-deterministic"
+        : "provider-unbaselined",
+      testCase.conclusion,
+    );
+    assert.deepEqual(
+      result.repairPacket.failures.map(({ id }) => id),
+      ["ci"],
+      testCase.conclusion,
+    );
+  }
+});
+
+test("non-proof baseline outcomes remain unknown", () => {
+  for (const testCase of [
+    { baselineConclusion: "neutral", baselineStatus: "completed" },
+    { baselineConclusion: "cancelled", baselineStatus: "completed" },
+  ]) {
+    const baselineChecks = completeBaselineChecks();
+    const providerIndex = baselineChecks.findIndex(
+      ({ name }) => name === CHECK_NAMES["e2e-celo"],
+    );
+    baselineChecks[providerIndex] = {
+      ...baselineChecks[providerIndex],
+      conclusion: testCase.baselineConclusion,
+      status: testCase.baselineStatus,
+    };
+    const result = evaluateDependabotPullRequest(
+      snapshot({
+        baseline: { checks: baselineChecks, sha: BASE_SHA },
+        checks: completeChecks({
+          conclusions: { ci: "failure", "e2e-celo": "failure" },
+        }),
+      }),
+      {
+        mode: "prepare",
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+    );
+
+    assert.equal(result.disposition, "waiting-retry");
+    assert.equal(result.repairPacket, null);
+    assert.equal(
+      result.checks.failures.find(({ id }) => id === "e2e-celo")?.attribution,
+      "unknown",
+    );
+  }
+
+  for (const conclusion of ["startup_failure", "timed_out"]) {
+    const baselineChecks = completeBaselineChecks().map((candidate) =>
+      candidate.name === CHECK_NAMES.ci
+        ? { ...candidate, conclusion }
+        : candidate,
+    );
+    const result = evaluateDependabotPullRequest(
+      snapshot({
+        baseline: { checks: baselineChecks, sha: BASE_SHA },
+        checks: completeChecks({ conclusions: { ci: "failure" } }),
+      }),
+      {
+        mode: "prepare",
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+    );
+    assert.equal(result.disposition, "waiting-retry", conclusion);
+    assert.equal(result.repairPacket, null, conclusion);
+    assert.equal(
+      result.checks.failures.find(({ id }) => id === "ci")?.attribution,
+      "unknown",
+      conclusion,
+    );
+  }
+});
+
+test("a trusted pending provider baseline can coexist with a deterministic repair", () => {
+  const baselineChecks = completeBaselineChecks();
+  const providerIndex = baselineChecks.findIndex(
+    ({ name }) => name === CHECK_NAMES["e2e-celo"],
+  );
+  baselineChecks[providerIndex] = {
+    ...baselineChecks[providerIndex],
+    conclusion: null,
+    status: "in_progress",
+  };
+  const result = evaluateDependabotPullRequest(
+    snapshot({
+      baseline: { checks: baselineChecks, sha: BASE_SHA },
+      checks: completeChecks({
+        conclusions: { ci: "failure", "e2e-celo": "failure" },
+      }),
+    }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+
+  assert.equal(result.disposition, "repair-required");
+  assert.equal(
+    result.checks.failures.find(({ id }) => id === "e2e-celo")?.attribution,
+    "provider-unbaselined",
+  );
+  assert.deepEqual(
+    result.repairPacket.failures.map(({ id }) => id),
+    ["ci"],
+  );
+});
+
+test("a push check cannot authorize a current Dependabot head failure", () => {
+  const checks = completeChecks({
+    conclusions: { ci: "failure", "supply-chain-version-skew": "failure" },
+  });
+  const skewIndex = checks.findIndex(
+    ({ name }) => name === CHECK_NAMES["supply-chain-version-skew"],
+  );
+  checks[skewIndex] = {
+    ...checks[skewIndex],
+    runHeadBranch: "main",
+    runHeadSha: HEAD_SHA,
+    workflowEvent: "push",
+  };
+  const result = evaluateDependabotPullRequest(snapshot({ checks }), {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  assert.equal(result.disposition, "waiting-retry");
+  assert.equal(result.repairPacket, null);
+  assert.equal(
+    result.checks.failures.find(({ id }) => id === "supply-chain-version-skew")
+      ?.attribution,
+    "unknown",
+  );
+});
+
+test("a baseline failure blocks a separate deterministic branch repair", () => {
+  const result = evaluateDependabotPullRequest(
+    snapshot({
+      baseline: {
+        checks: completeBaselineChecks({
+          conclusions: { "supply-chain-lockfile": "failure" },
+        }),
+        sha: BASE_SHA,
+      },
+      checks: completeChecks({
+        conclusions: {
+          ci: "failure",
+          "supply-chain-lockfile": "failure",
+        },
+      }),
+    }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+
+  assert.equal(result.disposition, "waiting-baseline");
+  assert.equal(result.repairPacket, null);
+});
+
+test("an unknown failure still suppresses a mixed deterministic repair packet", () => {
+  const baselineChecks = completeBaselineChecks().filter(
+    ({ name }) => name !== CHECK_NAMES.ci,
+  );
+  const result = evaluateDependabotPullRequest(
+    snapshot({
+      baseline: {
+        checks: baselineChecks,
+        sha: BASE_SHA,
+      },
+      checks: completeChecks({
+        conclusions: { ci: "failure", "supply-chain-version-skew": "failure" },
+      }),
+    }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+
+  assert.equal(result.disposition, "waiting-retry");
+  assert.equal(result.repairPacket, null);
+  assert.equal(
+    result.checks.failures.find(({ id }) => id === "ci")?.attribution,
+    "unknown",
+  );
+  assert.equal(
+    result.checks.failures.find(({ id }) => id === "supply-chain-version-skew")
+      ?.attribution,
+    "branch",
   );
 });
 
@@ -2403,9 +3061,7 @@ test("trusted exact-head Claude findings are direct branch evidence without a ma
       verdict: "findings",
     }),
   };
-  const baselineChecks = completeChecks({ headSha: BASE_SHA }).filter(
-    ({ name }) => name !== CHECK_NAMES["claude-review"],
-  );
+  const baselineChecks = completeBaselineChecks();
   const result = evaluateDependabotPullRequest(
     snapshot({
       baseline: {
@@ -2435,6 +3091,36 @@ test("trusted exact-head Claude findings are direct branch evidence without a ma
   assert.equal(result.disposition, "repair-required");
   assert.equal(result.repairPacket.findings.length, 1);
   assert.equal(result.repairPacket.findings[0].path, "package.json");
+});
+
+test("non-failure Claude findings cannot authorize a branch repair", () => {
+  const checks = completeChecksWithClaudeFindings({
+    findings: [
+      {
+        line: 12,
+        path: "package.json",
+        summary: "The updated dependency range conflicts with its override.",
+        title: "Align the dependency override",
+      },
+    ],
+  });
+  const claudeIndex = checks.findIndex(
+    ({ name }) => name === CHECK_NAMES["claude-review"],
+  );
+  checks[claudeIndex] = { ...checks[claudeIndex], conclusion: "timed_out" };
+  const result = evaluateDependabotPullRequest(snapshot({ checks }), {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  assert.equal(result.disposition, "waiting-retry");
+  assert.equal(result.repairPacket, null);
+  assert.equal(
+    result.checks.failures.find(({ id }) => id === "claude-review")
+      ?.attribution,
+    "unknown",
+  );
 });
 
 test("identity or feedback failure suppresses repair packets and publishes packet=false receipts", async () => {
@@ -2513,9 +3199,8 @@ test("processor check publication preserves each fail-closed disposition", async
   const baselineFailure = snapshot({
     baseline: {
       checks: [
-        ...completeChecks({
+        ...completeBaselineChecks({
           conclusions: { ci: "failure" },
-          headSha: BASE_SHA,
         }),
         postMergeReceipt(BASE_SHA),
       ],
@@ -2694,86 +3379,188 @@ test("verified npm updates are preparable even when the legacy automatic tier is
   );
 });
 
-test("a provider-backed failure shared by the baseline remains baseline-attributed", () => {
-  const result = evaluateDependabotPullRequest(
-    snapshot({
+test("provider retry outcomes shared by the main baseline remain retry-only", () => {
+  for (const conclusion of [
+    "error",
+    "failure",
+    "startup_failure",
+    "timed_out",
+  ]) {
+    const current = snapshot({
       baseline: {
         checks: [
-          ...completeChecks({
-            conclusions: { "e2e-celo": "failure" },
-            headSha: BASE_SHA,
+          ...completeBaselineChecks({
+            conclusions: { "e2e-celo": conclusion },
           }),
           postMergeReceipt(BASE_SHA),
         ],
         sha: BASE_SHA,
       },
-      checks: completeChecks({ conclusions: { "e2e-celo": "failure" } }),
-    }),
-    { mode: "assist", repository: REPOSITORY },
-  );
-  assert.equal(result.disposition, "waiting-baseline");
-  assert.equal(result.repairPacket, null);
-  assert.equal(
-    result.checks.failures.find(({ id }) => id === "e2e-celo")?.attribution,
-    "baseline",
-  );
+      checks: completeChecks({ conclusions: { "e2e-celo": conclusion } }),
+    });
+    for (const mode of ["observe", "assist", "prepare"]) {
+      const result = evaluateDependabotPullRequest(current, {
+        mode,
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      });
+      assert.equal(
+        result.disposition,
+        "waiting-retry",
+        `${mode}:${conclusion}`,
+      );
+      assert.equal(result.checks.state, "failing", `${mode}:${conclusion}`);
+      assert.equal(result.repairPacket, null, `${mode}:${conclusion}`);
+      assert.equal(
+        result.checks.failures.find(({ id }) => id === "e2e-celo")?.attribution,
+        "provider-baseline",
+        `${mode}:${conclusion}`,
+      );
+    }
+  }
 });
 
-test("missing or pending baseline evidence attributes a failure as unknown and emits no repair packet", () => {
-  const pullRequest = snapshot({
+test("live-shaped provider baseline failures stay outside a deterministic repair packet", () => {
+  const current = snapshot({
     baseline: {
-      checks: completeChecks({ headSha: BASE_SHA }).filter(
-        ({ name }) => name !== "Build and Test",
-      ),
+      checks: completeBaselineChecks({
+        conclusions: {
+          "e2e-celo": "failure",
+          "e2e-monad": "failure",
+        },
+      }),
       sha: BASE_SHA,
     },
-    checks: completeChecks({ conclusions: { ci: "failure" } }),
+    checks: completeChecks({
+      conclusions: {
+        "e2e-celo": "failure",
+        "e2e-monad": "failure",
+        "supply-chain-version-skew": "failure",
+      },
+    }),
   });
-  const result = evaluateDependabotPullRequest(pullRequest, {
+  const prepared = evaluateDependabotPullRequest(current, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  assert.equal(prepared.disposition, "repair-required");
+  assert.deepEqual(
+    prepared.checks.failures.map(({ attribution, id }) => ({
+      attribution,
+      id,
+    })),
+    [
+      { attribution: "branch", id: "supply-chain-version-skew" },
+      { attribution: "provider-baseline", id: "e2e-celo" },
+      { attribution: "provider-baseline", id: "e2e-monad" },
+    ],
+  );
+  assert.deepEqual(
+    prepared.repairPacket.failures.map(({ id }) => id),
+    ["supply-chain-version-skew"],
+  );
+
+  const assisted = evaluateDependabotPullRequest(current, {
     mode: "assist",
     repository: REPOSITORY,
   });
-  assert.equal(result.disposition, "waiting-retry");
-  assert.equal(
-    result.checks.failures.find(({ id }) => id === "ci").attribution,
-    "unknown",
+  assert.equal(assisted.disposition, "waiting-retry");
+  assert.equal(assisted.repairPacket, null);
+
+  const providerOnly = evaluateDependabotPullRequest(
+    snapshot({
+      baseline: current.baseline,
+      checks: completeChecks({
+        conclusions: {
+          "e2e-celo": "failure",
+          "e2e-monad": "failure",
+        },
+      }),
+    }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
   );
-  assert.equal(result.repairPacket, null);
+  assert.equal(providerOnly.disposition, "waiting-retry");
+  assert.equal(providerOnly.checks.state, "failing");
+  assert.equal(providerOnly.repairPacket, null);
+});
+
+test("missing or pending baseline evidence attributes a failure as unknown and emits no repair packet", () => {
+  const completeBaseline = completeBaselineChecks();
+  const pendingBaseline = completeBaseline.map((candidate) =>
+    candidate.name === CHECK_NAMES.ci
+      ? { ...candidate, conclusion: null, status: "in_progress" }
+      : candidate,
+  );
+  for (const baselineChecks of [
+    completeBaseline.filter(({ name }) => name !== CHECK_NAMES.ci),
+    pendingBaseline,
+  ]) {
+    const result = evaluateDependabotPullRequest(
+      snapshot({
+        baseline: { checks: baselineChecks, sha: BASE_SHA },
+        checks: completeChecks({ conclusions: { ci: "failure" } }),
+      }),
+      {
+        mode: "assist",
+        repository: REPOSITORY,
+      },
+    );
+    assert.equal(result.disposition, "waiting-retry");
+    assert.equal(
+      result.checks.failures.find(({ id }) => id === "ci").attribution,
+      "unknown",
+    );
+    assert.equal(result.repairPacket, null);
+  }
 });
 
 test("missing or pending current-head gates take precedence over deterministic repair", () => {
   const failingChecks = completeChecks({ conclusions: { ci: "failure" } });
-  const missing = evaluateDependabotPullRequest(
-    snapshot({
-      checks: failingChecks.filter(
-        ({ name }) => name !== CHECK_NAMES["dependency-review"],
-      ),
-    }),
-    { mode: "assist", repository: REPOSITORY },
-  );
-  assert.equal(missing.checks.failures[0].attribution, "branch");
-  assert.deepEqual(missing.checks.missing, ["dependency-review"]);
-  assert.equal(missing.disposition, "waiting-checks");
-  assert.equal(missing.repairPacket, null);
+  const cases = [
+    {
+      expected: { missing: ["dependency-review"], pending: [] },
+      snapshot: snapshot({
+        checks: failingChecks.filter(
+          ({ name }) => name !== CHECK_NAMES["dependency-review"],
+        ),
+      }),
+    },
+    {
+      expected: { missing: [], pending: ["dependency-review"] },
+      snapshot: snapshot({
+        checks: failingChecks.map((candidate) =>
+          candidate.name === CHECK_NAMES["dependency-review"]
+            ? {
+                ...candidate,
+                conclusion: null,
+                status: "in_progress",
+              }
+            : candidate,
+        ),
+      }),
+    },
+  ];
 
-  const pending = evaluateDependabotPullRequest(
-    snapshot({
-      checks: failingChecks.map((candidate) =>
-        candidate.name === CHECK_NAMES["dependency-review"]
-          ? {
-              ...candidate,
-              conclusion: null,
-              status: "in_progress",
-            }
-          : candidate,
-      ),
-    }),
-    { mode: "assist", repository: REPOSITORY },
-  );
-  assert.equal(pending.checks.failures[0].attribution, "branch");
-  assert.deepEqual(pending.checks.pending, ["dependency-review"]);
-  assert.equal(pending.disposition, "waiting-checks");
-  assert.equal(pending.repairPacket, null);
+  for (const mode of ["assist", "prepare"]) {
+    for (const testCase of cases) {
+      const result = evaluateDependabotPullRequest(testCase.snapshot, {
+        mode,
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      });
+      assert.equal(result.checks.failures[0].attribution, "branch", mode);
+      assert.deepEqual(result.checks.missing, testCase.expected.missing, mode);
+      assert.deepEqual(result.checks.pending, testCase.expected.pending, mode);
+      assert.equal(result.disposition, "waiting-checks", mode);
+      assert.equal(result.repairPacket, null, mode);
+    }
+  }
 });
 
 test("an unreplied-thread count fails feedback and packet gates even when reasons are malformed-empty", () => {
@@ -3868,6 +4655,83 @@ test("a prior typed Vercel repair permits one finding-scoped generic follow-up",
   );
 });
 
+test("a typed Vercel follow-up keeps provider failures outside its Claude repair packet", () => {
+  const finding = {
+    line: 16_610,
+    path: "pnpm-lock.yaml",
+    summary:
+      "The unrelated lockfile resolution changed and must retain the prior compatible version.",
+    title: "Retain the prior transitive resolution",
+  };
+  for (const { baselineMode, expectedAttribution } of [
+    {
+      baselineMode: "passing",
+      expectedAttribution: "non-deterministic",
+    },
+    {
+      baselineMode: "failing",
+      expectedAttribution: "provider-baseline",
+    },
+    {
+      baselineMode: "missing",
+      expectedAttribution: "provider-unbaselined",
+    },
+  ]) {
+    const candidate = vercelAfterTypedRepair().repaired;
+    candidate.checks = completeChecksWithClaudeFindings({
+      conclusions: { "e2e-celo": "failure" },
+      findings: [finding],
+      headSha: OTHER_SHA,
+    });
+    if (baselineMode === "failing") {
+      candidate.baseline.checks = candidate.baseline.checks.map((check) =>
+        check.name === CHECK_NAMES["e2e-celo"]
+          ? { ...check, conclusion: "failure" }
+          : check,
+      );
+    } else if (baselineMode === "missing") {
+      candidate.baseline.checks = candidate.baseline.checks.filter(
+        ({ name }) => name !== CHECK_NAMES["e2e-celo"],
+      );
+    }
+
+    const result = evaluateDependabotPullRequest(candidate, {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    });
+
+    assert.equal(result.disposition, "repair-required", expectedAttribution);
+    assert.deepEqual(
+      result.checks.failures.map(({ attribution, id }) => ({
+        attribution,
+        id,
+      })),
+      [
+        { attribution: expectedAttribution, id: "e2e-celo" },
+        { attribution: "branch", id: "claude-review" },
+      ],
+      expectedAttribution,
+    );
+    assert.deepEqual(
+      result.repairPacket?.failures.map(({ attribution, id }) => ({
+        attribution,
+        id,
+      })),
+      [{ attribution: "branch", id: "claude-review" }],
+      expectedAttribution,
+    );
+    assert.deepEqual(
+      result.repairPacket?.findings.map(({ path, source }) => ({
+        path,
+        source,
+      })),
+      [{ path: "pnpm-lock.yaml", source: "claude" }],
+      expectedAttribution,
+    );
+  }
+});
+
 test("the protected-runtime carry-forward exception fails closed on unbound or broad repair input", () => {
   const finding = (path) => ({
     line: 12,
@@ -3997,7 +4861,7 @@ test("the protected-runtime carry-forward exception fails closed on unbound or b
       { attribution: "branch", id: "claude-review" },
     ],
   );
-  assert.equal(baselineFailure.disposition, "manual-repair-required");
+  assert.equal(baselineFailure.disposition, "waiting-baseline");
   assert.equal(baselineFailure.repairPacket, null);
 
   const absentEvidenceBlob = evaluate(vercelAfterTypedRepair().repaired, {
@@ -9735,6 +10599,12 @@ test("processor checks keep safe non-packet dispositions neutral and fail packet
     },
     {
       disposition: "waiting-checks",
+      expectedConclusion: "failure",
+      mode: "prepare",
+      repairPacket: null,
+    },
+    {
+      disposition: "waiting-retry",
       expectedConclusion: "failure",
       mode: "prepare",
       repairPacket: null,
