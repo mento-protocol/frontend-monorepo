@@ -1597,6 +1597,14 @@ export function derivePlannerDecisions(files = []) {
       decisions.e2eGovernance = true;
       decisions.e2eMonad = true;
     }
+    if (
+      path === "scripts/fork-test-clock.mjs" ||
+      path === "scripts/fork-test-clock.test.mjs"
+    ) {
+      decisions.e2eApp = true;
+      decisions.e2eGovernance = true;
+      decisions.e2eMonad = true;
+    }
     if (globalInputs || path === ".github/workflows/visual.yml") {
       decisions.visualApp = true;
       decisions.visualUi = true;
@@ -4207,6 +4215,8 @@ function evaluateRepairAttemptGate({
     repairAttempt = explicitRepairAttempt;
   }
   const packet = {
+    authenticatedLineageHeadShas:
+      reasons.length === 0 && prepareLineageValid ? lineageHeadShas : [],
     attemptLimit: 2,
     consumedAttempts,
     currentAttempt: repairAttempt,
@@ -4243,6 +4253,7 @@ function protectedRuntimeFeedbackMatchesOperation({
   feedback,
   headSha,
   operation,
+  repairAttempts,
 }) {
   if (feedback?.clear === true) return true;
   if (
@@ -4262,8 +4273,25 @@ function protectedRuntimeFeedbackMatchesOperation({
   const actionableThreads = Array.isArray(feedback.actionableThreads)
     ? feedback.actionableThreads
     : [];
-  const allowedReviewCommits = new Set([headSha, operation.sourceSeedHeadSha]);
+  const authenticatedLineageHeadShas = Array.isArray(
+    repairAttempts?.authenticatedLineageHeadShas,
+  )
+    ? repairAttempts.authenticatedLineageHeadShas
+    : [];
+  const allowedReviewCommits = new Set(authenticatedLineageHeadShas);
+  const authenticatedLineageValid =
+    repairAttempts?.valid === true &&
+    repairAttempts.prepareLineageValid === true &&
+    repairAttempts.repairLineageValid === true &&
+    authenticatedLineageHeadShas.length > 0 &&
+    authenticatedLineageHeadShas.length <= REPAIR_LINEAGE_COMMIT_LIMIT &&
+    authenticatedLineageHeadShas.length === repairAttempts.lineageCommitCount &&
+    allowedReviewCommits.size === authenticatedLineageHeadShas.length &&
+    authenticatedLineageHeadShas.every((sha) => SHA_PATTERN.test(sha)) &&
+    authenticatedLineageHeadShas[0] === operation.sourceSeedHeadSha &&
+    authenticatedLineageHeadShas.at(-1) === headSha;
   return (
+    authenticatedLineageValid &&
     actionableThreads.length > 0 &&
     actionableThreads.every(
       ({ path, protectedRuntimeFinding, reviewCommitSha, source }) =>
@@ -4402,6 +4430,7 @@ function recommendedDisposition({
           feedback,
           headSha,
           operation: protectedRuntimeOperation.operation,
+          repairAttempts,
         })
       ) {
         return "manual-repair-required";
@@ -4609,6 +4638,7 @@ export function createDependabotRepairPacket(evaluation) {
         feedback: evaluation.feedback,
         headSha: evaluation.headSha,
         operation: typedOperation,
+        repairAttempts: evaluation.repairAttempts,
       })) ||
     evaluation.checks.missing.length > 0 ||
     evaluation.checks.pending.length > 0 ||

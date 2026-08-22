@@ -31,7 +31,7 @@ runs against an anvil fork of Celo mainnet — no real network is ever touched.
    pnpm fork:mainnet   # anvil --celo --auto-impersonate, Celo mainnet fork on port 8545
    ```
 
-2. Seed it (fund test accounts, refresh oracle rates):
+2. Seed it (select a safe clock, fund test accounts, refresh oracle rates):
 
    ```bash
    pnpm fork:seed
@@ -40,6 +40,9 @@ runs against an anvil fork of Celo mainnet — no real network is ever touched.
    The summary table it prints includes each price feed's report expiry
    (`tokenReportExpirySeconds`) — re-run `pnpm fork:seed` whenever the fork has
    been up longer than the smallest expiry, or whenever quotes stall.
+   `scripts/fork-test-clock.mjs` uses wall time only when the FX market remains
+   open for two hours. During a weekend or year-end closure, it advances the
+   fork to the next safe opening. A second seed preserves that future time.
 
 3. Start the app in E2E + fork mode:
 
@@ -85,8 +88,10 @@ you can run both forks at once.
    pnpm fork:seed:monad  # MON gas + Reserve collateral + every stable via real Router swaps; re-reports oracles
    ```
 
-   `fork:seed:monad` is idempotent — re-run it after every `evm_revert` and
-   whenever quotes stall (the EURm/USDm feed's report expiry is 360s). It seeds
+   `fork:seed:monad` uses the same safe clock and is idempotent — re-run it after
+   every `evm_revert` and whenever quotes stall (the EURm/USDm feed's report
+   expiry is 360s). Its raw seeding swaps derive deadlines from the latest fork
+   block timestamp. It seeds
    stables by executing REAL Router swaps (USDC -> USDm -> X) rather than
    whale-transferring, because pulling a leg straight out of an FPMM pool drops
    its balance below its stored reserve and every later swap through it reverts.
@@ -122,6 +127,11 @@ The Monad swap has its own project + spec
 `test:connected` project so that job never needs the 8546 fork; the spec drives
 the "Switch to Monad" banner before swapping and asserts UI + network (8546) +
 on-chain balance delta.
+
+The Celo and Monad swap suites retain real oracle reports, quotes, approvals,
+and swaps when the runner clock is inside a real FX closure. The seed scripts
+advance only the local fork clock to the next modeled opening. They do not
+disable or change `MarketHoursBreaker`.
 
 The governance `connected` project has three specs:
 
@@ -406,7 +416,8 @@ cast rpc evm_revert 0x0 --rpc-url http://127.0.0.1:8545        # returns true
 
 - Snapshots are CONSUMED by revert — take a fresh snapshot after every revert.
 - Re-run `pnpm fork:seed` after every `evm_revert` and whenever quotes stall
-  (oracle staleness): revert rolls back seeded balances and oracle re-reports.
+  (oracle staleness): revert rolls back seeded balances, the selected safe fork
+  clock, and oracle re-reports.
 
 ## Safety rules (NEVER list)
 
@@ -428,7 +439,7 @@ cast rpc evm_revert 0x0 --rpc-url http://127.0.0.1:8545        # returns true
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `pnpm fork:mainnet` fails: port 8545 in use                          | `lsof -i :8545`, kill the stale anvil, restart.                                                                                                                                                                                                                    |
 | CELO transfers silently no-op on the fork                            | anvil started without `--celo` (manual command or pre-fix script). Use `pnpm fork:mainnet`.                                                                                                                                                                        |
-| Swap quotes stall or swaps revert after the fork has been up a while | Oracle medians went stale (wall-clock expiry). Re-run `pnpm fork:seed`; if still stuck, restart the fork and re-seed.                                                                                                                                              |
+| Swap quotes stall or swaps revert after the fork has been up a while | Oracle medians expired in fork time. Re-run `pnpm fork:seed`; if still stuck, restart the fork and re-seed. The seed selects an FX-open timestamp during real weekend and year-end closures.                                                                       |
 | App shows a blocking screen right after connecting                   | Sanctions check failed closed — `CHAINALYSIS_API_KEY` missing from `apps/app.mento.org/.env.local`. Not a bug.                                                                                                                                                     |
 | "E2E Test Wallet" not in the connect modal                           | Not on localhost/127.0.0.1, or neither `NEXT_PUBLIC_E2E_TEST=true` nor `mento_e2e_wallet` set, or you forgot to reload after setting localStorage.                                                                                                                 |
 | governance.mento.org dev server has stale `@repo/web3`               | Its `dev` script does not watch `@repo/web3` (app.mento.org's does). Run `pnpm exec turbo run build --filter governance.mento.org` first.                                                                                                                          |

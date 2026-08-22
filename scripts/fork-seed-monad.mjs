@@ -40,7 +40,10 @@
  *
  * Idempotent: every acquisition is guarded by a balance check, so a re-run
  * skips already-funded tokens; oracle re-reporting is safe to repeat (same
- * median, fresh timestamp).
+ * median, fresh timestamp). A shared test-clock policy preserves an
+ * already-safe fork time or advances through an FX weekend/year-end closure
+ * to the next opening with two hours of runway. Seed-swap deadlines derive
+ * from that fork time, not the runner clock.
  *
  * Zero-dependency: plain Node >= 22 built-ins + native fetch, raw JSON-RPC to
  * the fork. No viem/ethers — calldata is hand-encoded (see the ENCODE helpers
@@ -51,6 +54,12 @@
 
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+
+import {
+  forkDeadline,
+  hasFxOpenRunway,
+  selectSafeFxForkTimestamp,
+} from "./fork-test-clock.mjs";
 
 // ── configuration ────────────────────────────────────────────────────────────
 
@@ -485,30 +494,42 @@ async function assertMonadFork() {
 }
 
 /**
- * Advances the fork's clock to wall-clock time. A fork pinned to a past block
- * boots with chain time behind the real world, and anvil stamps descendant
- * blocks parent+1s — so `block.timestamp` stays in the past. The mento-sdk
- * validates swap deadlines against wall-clock `Date.now()`, so every app swap
- * on such a fork fails "Deadline must be in the future". Syncing the clock
- * BEFORE the oracle re-reports below also means every re-reported median
- * carries a fresh wall-clock timestamp.
+ * Advances the fork to an FX-open test timestamp with two hours of runway.
+ * It uses wall time when that time is safe. During a weekend or year-end
+ * closure it advances to the next safe opening. It never rewinds, and a
+ * second seed preserves a safe future fork time. Oracle reports below then
+ * carry a fresh timestamp inside the modeled MarketHoursBreaker window.
  */
-async function syncClockToWallTime() {
+async function syncClockToSafeMarketTime() {
   /** @type {{timestamp: string}} */
   const latest = await rpc("eth_getBlockByNumber", ["latest", false]);
   const chainNow = BigInt(latest.timestamp);
   const wallNow = BigInt(Math.floor(Date.now() / 1000));
-  if (wallNow <= chainNow) {
-    ok(
-      `Fork clock (${chainNow}) is at/ahead of wall clock (${wallNow}) — no sync needed`,
-    );
-    return;
+  const { reason, targetTimestamp } = selectSafeFxForkTimestamp({
+    forkTimestamp: chainNow,
+    wallTimestamp: wallNow,
+  });
+  if (targetTimestamp > chainNow) {
+    await rpc("evm_setNextBlockTimestamp", [toHexQuantity(targetTimestamp)]);
+    await rpc("evm_mine", []);
   }
-  await rpc("evm_setNextBlockTimestamp", [toHexQuantity(wallNow)]);
-  await rpc("evm_mine", []);
+
+  /** @type {{timestamp: string}} */
+  const synced = await rpc("eth_getBlockByNumber", ["latest", false]);
+  const syncedNow = BigInt(synced.timestamp);
+  if (syncedNow < chainNow || syncedNow < targetTimestamp) {
+    throw new Error(
+      `Fork clock did not advance to the selected timestamp (${syncedNow} < ${targetTimestamp})`,
+    );
+  }
+  if (!hasFxOpenRunway(syncedNow)) {
+    throw new Error(
+      `Fork clock ${syncedNow} is outside the required FX-open runway`,
+    );
+  }
   ok(
-    `Advanced fork clock by ${wallNow - chainNow}s to wall-clock time ${wallNow} ` +
-      "(pinned-block forks boot in the past, which breaks SDK swap-deadline validation)",
+    `Fork clock policy: wall=${wallNow}, previous=${chainNow}, selected=${targetTimestamp}, ` +
+      `actual=${syncedNow}, reason=${reason}`,
   );
 }
 
@@ -725,7 +746,9 @@ async function transferFromReserve(token, recipient, amount) {
  * @param {bigint} amountIn
  */
 async function swapFrom(recipient, tokenIn, tokenOut, amountIn) {
-  const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
+  /** @type {{timestamp: string}} */
+  const latest = await rpc("eth_getBlockByNumber", ["latest", false]);
+  const deadline = forkDeadline(BigInt(latest.timestamp));
   await withImpersonation(recipient, async () => {
     await sendAndWait(recipient, tokenIn, encodeApprove(ROUTER, amountIn));
     await sendAndWait(
@@ -891,7 +914,7 @@ function printSummary(rows) {
 
 async function main() {
   await assertMonadFork();
-  await syncClockToWallTime();
+  await syncClockToSafeMarketTime();
   const feeds = await discoverRateFeeds();
   const rows = await reportOracles(feeds);
   await seedTokens();

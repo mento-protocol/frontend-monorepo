@@ -146,6 +146,12 @@ jobs:
                 run_gov=true
                 run_monad=true
                 ;;
+              # Shared fork clock — every fork suite uses the same timestamp.
+              scripts/fork-test-clock.mjs | scripts/fork-test-clock.test.mjs)
+                run_app=true
+                run_gov=true
+                run_monad=true
+                ;;
               # Celo seed script — the Celo app + governance forks only.
               scripts/fork-seed.mjs | scripts/fork-seed.test.mjs)
                 run_app=true
@@ -188,11 +194,9 @@ jobs:
             echo "</details>"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Self-tests the pure calldata encoders in fork-seed.mjs — no anvil, no
-  # network, no pnpm install needed (zero-dependency script). Cheap (~15s) so
-  # it runs unconditionally on every trigger; the expensive fork jobs below
-  # gate on it passing so a broken encoder fails fast instead of burning 30
-  # minutes of anvil-fork time first.
+  # Self-tests the shared FX-open clock and pure calldata encoders — no anvil,
+  # network, or pnpm install needed. It runs unconditionally on every trigger;
+  # the expensive fork jobs below gate on it so broken test state fails fast.
   fork-seed-self-test:
     name: fork-seed self-test
     runs-on: ubuntu-latest
@@ -207,6 +211,9 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
+
+      - name: Run fork clock self-test
+        run: node --test scripts/fork-test-clock.test.mjs
 
       - name: Run fork-seed self-test
         run: node scripts/fork-seed.test.mjs
@@ -417,21 +424,20 @@ jobs:
           fi
           echo "anvil ready at block $(cast block-number --rpc-url http://127.0.0.1:8545)"
 
-      # First seed run, straight after fork creation: funds balances and pulls
-      # the contracts/accounts the suite touches into anvil's local state.
+      # First seed run: selects an FX-open timestamp with two hours of runway,
+      # funds balances, and pulls touched contracts/accounts into local state.
       - name: Seed fork (balances, ERC-20s, oracle freshness)
         run: node scripts/fork-seed.mjs
 
       - name: Build app.mento.org (E2E mode)
         run: pnpm turbo build --filter=app.mento.org
 
-      # Second seed run, right before the specs: SortedOracles medians go
-      # stale on wall-clock time and the build above can take minutes, which
-      # would burn the freshness window (flagged by Codex review on #456).
-      # The re-run is idempotent (funding no-ops). fork-seed.mjs deliberately
-      # warns-and-continues on per-item RPC errors, which would mask a dead
-      # anvil as a green step (it did exactly that on run 29061781044) — so
-      # assert the fork is still alive before handing over to Playwright.
+      # Second seed run, right before the specs: SortedOracles medians expire
+      # and the build above can burn the freshness window. The re-run preserves
+      # the selected safe clock and skips funded balances. fork-seed.mjs
+      # deliberately warns-and-continues on per-item RPC errors, which would
+      # mask a dead anvil as a green step (it did that on run 29061781044) —
+      # so assert the fork is alive before handing over to Playwright.
       - name: Re-seed fork (refresh oracle reports after build)
         shell: bash
         run: |
@@ -707,18 +713,18 @@ jobs:
           fi
           echo "anvil ready at block $(cast block-number --rpc-url http://127.0.0.1:8545)"
 
-      # First seed run, straight after fork creation: funds balances and pulls
-      # the contracts/accounts the suite touches into anvil's local state.
+      # First seed run: selects an FX-open timestamp with two hours of runway,
+      # funds balances, and pulls touched contracts/accounts into local state.
       - name: Seed fork (balances, ERC-20s, oracle freshness)
         run: node scripts/fork-seed.mjs
 
       - name: Build governance.mento.org (E2E mode)
         run: pnpm exec turbo run build --filter governance.mento.org
 
-      # Second seed run, right before the specs: SortedOracles medians go
-      # stale on wall-clock time and the build above can take minutes, which
-      # would burn the freshness window. The re-run is idempotent (funding
-      # no-ops). fork-seed.mjs deliberately warns-and-continues on per-item
+      # Second seed run, right before the specs: SortedOracles medians expire
+      # and the build above can burn the freshness window. The re-run preserves
+      # the selected safe clock and skips funded balances. fork-seed.mjs
+      # deliberately warns-and-continues on per-item
       # RPC errors, which would mask a dead anvil as a green step — so
       # assert the fork is still alive before handing over to Playwright.
       - name: Re-seed fork (refresh oracle reports after build)
@@ -965,9 +971,9 @@ jobs:
           fi
           echo "anvil ready at block $(cast block-number --rpc-url http://127.0.0.1:8546)"
 
-      # First seed run, straight after fork creation: funds balances, re-reports
-      # oracles, and pulls the contracts/accounts the suite touches into anvil's
-      # local state.
+      # First seed run: selects an FX-open timestamp with two hours of runway,
+      # funds balances, re-reports oracles, and pulls touched contracts/accounts
+      # into local state.
       - name: Seed Monad fork (balances, ERC-20s, oracle freshness)
         run: node scripts/fork-seed-monad.mjs
 
@@ -975,8 +981,8 @@ jobs:
         run: pnpm turbo build --filter=app.mento.org
 
       # Second seed run, right before the specs: the EURm/USDm feed's report
-      # expiry is only 360s and the build above can take minutes, which would
-      # burn the freshness window. The re-run is idempotent (funding no-ops).
+      # expiry is only 360s and the build can burn that freshness window. The
+      # re-run preserves the selected safe clock and skips funded balances.
       # fork-seed-monad.mjs warns-and-continues on per-item RPC errors, which
       # would mask a dead anvil as a green step — so assert the fork is still
       # alive before handing over to Playwright.

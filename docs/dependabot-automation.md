@@ -566,8 +566,13 @@ A v3 Vercel or Next sync may bind an exact Cursor thread only when its
 structured finding matches the typed operation. Vercel accepts only
 `Incomplete Vercel CLI runtime sync` on root `package.json`. Next accepts only
 `Next bump never applied` on root `pnpm-lock.yaml`. Each finding must name the
-operation's source and target versions and bind the trusted seed or current
-review commit. All actionable threads must match the same operation contract.
+operation's source and target versions and bind a review commit from the
+authenticated prepare lineage. This can be the seed, the current head, or an
+authenticated intermediate repair head that remains after a required refresh.
+The PR #723 recovery exposed this case: the refresh moved `f7dbbe33` to
+`f628c05d`, while the exact Cursor review remained immutably bound to
+`f7dbbe33`. A commit outside the authenticated lineage remains manual. All
+actionable threads must match the same operation contract.
 Any other unresolved feedback makes the typed operation manual. The completed
 typed Repair then uses the same digest-bound reply and resolution flow above.
 Evidence authenticates the REST comment's immutable `original_commit_id`. It
