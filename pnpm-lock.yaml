@@ -61,8 +61,8 @@ catalogs:
       specifier: ^2.20.2
       version: 2.20.2
     lucide-react:
-      specifier: ^0.562.0
-      version: 0.562.0
+      specifier: ^1.28.0
+      version: 1.31.0
     next-themes:
       specifier: ^0.4.6
       version: 0.4.6
@@ -271,16 +271,16 @@ importers:
         version: 5.90.16(react@19.2.8)
       '@vercel/analytics':
         specifier: 'catalog:'
-        version: 2.0.1(next@16.2.12(@opentelemetry/api@1.9.0)(@playwright/test@1.61.1)(@types/node@25.9.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
+        version: 2.0.1(next@16.2.12(@babel/core@7.29.7)(@opentelemetry/api@1.9.0)(@playwright/test@1.61.1)(@types/node@25.9.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
       '@wormhole-foundation/wormhole-connect':
         specifier: ^5.1.0
-        version: 5.1.0(ad5528019bc9310f6167eb05ed4ea22d)
+        version: 5.1.0(8737ceafaa2cf6c9df6e83c0ab7deea2)
       jotai:
         specifier: 'catalog:'
         version: 2.20.2(@babel/core@7.29.7)(@babel/template@7.29.7)(@types/react@19.2.18)(react@19.2.8)
       lucide-react:
         specifier: 'catalog:'
-        version: 0.562.0(react@19.2.8)
+        version: 1.31.0(react@19.2.8)
       next:
         specifier: ^16.2.12
         version: 16.2.12(@babel/core@7.29.7)(@opentelemetry/api@1.9.0)(@playwright/test@1.61.1)(@types/node@25.9.3)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -401,7 +401,7 @@ importers:
         version: 5.0.6
       '@vercel/analytics':
         specifier: 'catalog:'
-        version: 2.0.1(next@16.2.12(@opentelemetry/api@1.9.0)(@playwright/test@1.61.1)(@types/node@25.9.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
+        version: 2.0.1(next@16.2.12(@babel/core@7.29.7)(@opentelemetry/api@1.9.0)(@playwright/test@1.61.1)(@types/node@25.9.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0
@@ -416,7 +416,7 @@ importers:
         version: 16.12.0
       lucide-react:
         specifier: 'catalog:'
-        version: 0.562.0(react@19.2.8)
+        version: 1.31.0(react@19.2.8)
       next:
         specifier: ^16.2.12
         version: 16.2.12(@babel/core@7.29.7)(@opentelemetry/api@1.9.0)(@playwright/test@1.61.1)(@types/node@25.9.3)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -537,7 +537,7 @@ importers:
         version: link:../../packages/web3
       '@sentry/nextjs':
         specifier: 'catalog:'
-        version: 10.36.0(@opentelemetry/context-async-hooks@2.5.0(@opentelemetry/api@1.9.0))(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.5.0(@opentelemetry/api@1.9.0))(next@16.2.12(@opentelemetry/api@1.9.0)(@playwright/test@1.61.1)(@types/node@25.9.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)(webpack@5.104.1(postcss@8.5.26))
+        version: 10.36.0(@opentelemetry/context-async-hooks@2.5.0(@opentelemetry/api@1.9.0))(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.5.0(@opentelemetry/api@1.9.0))(next@16.2.12(@babel/core@7.29.7)(@opentelemetry/api@1.9.0)(@playwright/test@1.61.1)(@types/node@25.9.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)(webpack@5.104.1(postcss@8.5.26))
       '@t3-oss/env-nextjs':
         specifier: 'catalog:'
         version: 0.13.11(typescript@5.9.3)(valibot@1.4.2(typescript@5.9.3))(zod@4.4.3)
@@ -546,10 +546,10 @@ importers:
         version: 5.90.16(react@19.2.8)
       '@vercel/analytics':
         specifier: 'catalog:'
-        version: 2.0.1(next@16.2.12(@opentelemetry/api@1.9.0)(@playwright/test@1.61.1)(@types/node@25.9.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
+        version: 2.0.1(next@16.2.12(@babel/core@7.29.7)(@opentelemetry/api@1.9.0)(@playwright/test@1.61.1)(@types/node@25.9.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
       lucide-react:
         specifier: 'catalog:'
-        version: 0.562.0(react@19.2.8)
+        version: 1.31.0(react@19.2.8)
       next:
         specifier: ^16.2.12
         version: 16.2.12(@babel/core@7.29.7)(@opentelemetry/api@1.9.0)(@playwright/test@1.61.1)(@types/node@25.9.3)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -598,7 +598,7 @@ importers:
         version: 0.13.11(typescript@5.9.3)(valibot@1.4.2(typescript@5.9.3))(zod@4.4.3)
       lucide-react:
         specifier: 'catalog:'
-        version: 0.562.0(react@19.2.8)
+        version: 1.31.0(react@19.2.8)
       next:
         specifier: ^16.2.12
         version: 16.2.12(@babel/core@7.29.7)(@opentelemetry/api@1.9.0)(@playwright/test@1.61.1)(@types/node@25.9.3)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -909,7 +909,7 @@ importers:
         version: 2.20.2(@babel/core@7.29.7)(@babel/template@7.29.7)(@types/react@19.2.18)(react@19.2.8)
       lucide-react:
         specifier: 'catalog:'
-        version: 0.562.0(react@19.2.8)
+        version: 1.31.0(react@19.2.8)
       react:
         specifier: 'catalog:'
         version: 19.2.8
@@ -10618,6 +10618,11 @@ packages:
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
+  lucide-react@1.31.0:
+    resolution: {integrity: sha512-G8u2eEtoHUnUa9f8lbvqDhCiORMnYLdUEo06EEG9MQvHQrInKcX3Pa2TH39MM5qyzRcWETxB0+aOwAPI1g1kEg==}
+    peerDependencies:
+      react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
   luxon@3.7.2:
     resolution: {integrity: sha512-vtEhXh/gNjI9Yg1u4jX/0YVPMvxzHuGgCm6tC5kZyb08yjGWGnqAjGJvcXbqQR2P3MyMEFnRbpcdFS6PBcLqew==}
     engines: {node: '>=12'}
@@ -19307,7 +19312,7 @@ snapshots:
       - supports-color
       - webpack
 
-  '@sentry/nextjs@10.36.0(@opentelemetry/context-async-hooks@2.5.0(@opentelemetry/api@1.9.0))(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.5.0(@opentelemetry/api@1.9.0))(next@16.2.12(@opentelemetry/api@1.9.0)(@playwright/test@1.61.1)(@types/node@25.9.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)(webpack@5.104.1(postcss@8.5.26))':
+  '@sentry/nextjs@10.36.0(@opentelemetry/context-async-hooks@2.5.0(@opentelemetry/api@1.9.0))(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.5.0(@opentelemetry/api@1.9.0))(next@16.2.12(@babel/core@7.29.7)(@opentelemetry/api@1.9.0)(@playwright/test@1.61.1)(@types/node@25.9.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)(webpack@5.104.1(postcss@8.5.26))':
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/semantic-conventions': 1.38.0
@@ -22020,7 +22025,7 @@ snapshots:
     dependencies:
       '@vanilla-extract/css': 1.20.1(babel-plugin-macros@3.1.0)
 
-  '@vercel/analytics@2.0.1(next@16.2.12(@opentelemetry/api@1.9.0)(@playwright/test@1.61.1)(@types/node@25.9.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)':
+  '@vercel/analytics@2.0.1(next@16.2.12(@babel/core@7.29.7)(@opentelemetry/api@1.9.0)(@playwright/test@1.61.1)(@types/node@25.9.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)':
     optionalDependencies:
       next: 16.2.12(@babel/core@7.29.7)(@opentelemetry/api@1.9.0)(@playwright/test@1.61.1)(@types/node@25.9.3)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       react: 19.2.8
@@ -24056,7 +24061,7 @@ snapshots:
       - utf-8-validate
       - zod
 
-  '@wormhole-foundation/wormhole-connect@5.1.0(ad5528019bc9310f6167eb05ed4ea22d)':
+  '@wormhole-foundation/wormhole-connect@5.1.0(8737ceafaa2cf6c9df6e83c0ab7deea2)':
     dependencies:
       '@aptos-labs/ts-sdk': 2.0.0(got@11.8.6)
       '@aptos-labs/wallet-adapter-core': 5.5.0(@aptos-labs/ts-sdk@2.0.0(got@11.8.6))(@mizuwallet-sdk/protocol@0.0.2)(@telegram-apps/bridge@1.9.2)(@wallet-standard/core@1.1.1)(aptos@1.22.1(got@11.8.6))(axios@1.18.1)(got@11.8.6)
@@ -24117,7 +24122,7 @@ snapshots:
       es-toolkit: 1.39.10
       ethers: 6.13.5(bufferutil@4.1.0)(utf-8-validate@5.0.10)
       fast-memoize: 2.5.2
-      lucide-react: 0.562.0(react@19.2.8)
+      lucide-react: 1.31.0(react@19.2.8)
       material-ui-popup-state: 5.3.6(@mui/material@7.3.9(@emotion/react@11.14.0(@types/react@19.2.18)(react@19.2.8))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.18)(react@19.2.8))(@types/react@19.2.18)(react@19.2.8))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@types/react@19.2.18)(react@19.2.8)
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
@@ -26178,7 +26183,7 @@ snapshots:
 
   extension-port-stream@3.0.0:
     dependencies:
-      readable-stream: 3.6.2
+      readable-stream: 4.7.0
       webextension-polyfill: 0.10.0
 
   extension-port-stream@4.2.0(webextension-polyfill@0.10.0):
@@ -27541,6 +27546,10 @@ snapshots:
       yallist: 4.0.0
 
   lucide-react@0.562.0(react@19.2.8):
+    dependencies:
+      react: 19.2.8
+
+  lucide-react@1.31.0(react@19.2.8):
     dependencies:
       react: 19.2.8
 
