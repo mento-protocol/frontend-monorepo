@@ -72,8 +72,10 @@ prepared. Autonomous repair never writes `.github/**`; an Actions failure that
 needs that surface becomes `manual-repair-required`. The receipt retains risk
 and update metadata for the human merge decision. Sensitive or self-reviewing Actions, workflow
 policy, deployment, authentication, credential, or security changes; unknown
-metadata/ecosystems; force-pushed histories; manual vetoes; unresolved
-feedback; and exhausted repair attempts remain blocked.
+metadata/ecosystems; untrusted force-push histories; manual vetoes; unresolved
+feedback; and exhausted repair attempts remain blocked. A complete
+native-to-native Dependabot rewrite chain starts a new generation. Every event,
+commit, actor, ref, and SHA in that chain must pass the exact controller policy.
 
 Configure the repository-scoped Prepare App with variables
 `DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,

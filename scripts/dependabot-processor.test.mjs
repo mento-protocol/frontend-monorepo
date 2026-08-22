@@ -63,6 +63,11 @@ const PREPARE_ACTOR = {
   botId: 91_001,
   botLogin: "mento-dependabot-prepare[bot]",
 };
+const DEPENDABOT_ACTOR = {
+  id: 49_699_333,
+  login: "dependabot[bot]",
+  type: "Bot",
+};
 const GITHUB_SYSTEM_COMMITTER = {
   committerId: 19_864_447,
   committerLogin: "web-flow",
@@ -565,6 +570,67 @@ function preparedCommit(sha, parent) {
   };
 }
 
+function nativeDependabotCommit(sha, parent = BASE_SHA) {
+  return {
+    authorId: DEPENDABOT_ACTOR.id,
+    authorLogin: DEPENDABOT_ACTOR.login,
+    authorType: DEPENDABOT_ACTOR.type,
+    ...GITHUB_SYSTEM_COMMITTER,
+    parents: [parent],
+    sha,
+    verified: true,
+    verificationReason: "valid",
+  };
+}
+
+function nativeForcePushFeedback({
+  afterSha = HEAD_SHA,
+  beforeSha = OTHER_SHA,
+  headRef = "dependabot/github_actions/github-actions-routine-123",
+} = {}) {
+  return {
+    forcePushActors: [DEPENDABOT_ACTOR.login],
+    forcePushCommitIds: [afterSha],
+    forcePushCommits: [
+      nativeDependabotCommit(beforeSha, MERGE_SHA),
+      nativeDependabotCommit(afterSha),
+    ],
+    forcePushEventCount: 1,
+    forcePushEvents: [
+      {
+        actorId: DEPENDABOT_ACTOR.id,
+        actorLogin: "dependabot",
+        actorType: DEPENDABOT_ACTOR.type,
+        afterSha,
+        beforeSha,
+        createdAt: "2026-08-10T09:00:00Z",
+        eventId: "force-push-event-1",
+        headRef: `refs/heads/${headRef}`,
+      },
+    ],
+    forcePushEventsComplete: true,
+    forcePushed: true,
+  };
+}
+
+function withNativeForcePush(current) {
+  current.commits[0] = nativeDependabotCommit(HEAD_SHA);
+  current.feedback = {
+    ...current.feedback,
+    ...nativeForcePushFeedback(),
+  };
+  current.metadata = {
+    ...current.metadata,
+    immutableEvidence: {
+      ...current.metadata.immutableEvidence,
+      seedCommitSha: HEAD_SHA,
+      seedCommitTrusted: true,
+    },
+  };
+  current.pullRequest.author = DEPENDABOT_ACTOR;
+  return current;
+}
+
 function vercelSnapshot({
   body = toolingBody(),
   changedPaths = [
@@ -1025,12 +1091,7 @@ function refreshedSnapshot({ feedback = {}, repairHistoryChecks = [] } = {}) {
     },
     checks: completeChecks({ headSha: OTHER_SHA }),
     commits: [
-      {
-        authorLogin: "dependabot[bot]",
-        committerLogin: "dependabot[bot]",
-        sha: HEAD_SHA,
-        verified: true,
-      },
+      nativeDependabotCommit(HEAD_SHA),
       {
         authorId: PREPARE_ACTOR.botId,
         authorLogin: PREPARE_ACTOR.botLogin,
@@ -1203,6 +1264,22 @@ function allClearInvalidationCheck({
   };
 }
 
+function forcePushTimelinePayload(nodes = [], { hasNextPage = false } = {}) {
+  return {
+    data: {
+      repository: {
+        pullRequest: {
+          timelineItems: {
+            nodes,
+            pageInfo: { hasNextPage },
+            totalCount: nodes.length + (hasNextPage ? 1 : 0),
+          },
+        },
+      },
+    },
+  };
+}
+
 function liveMergeAdmissionFetch({ events = [], labels = [] } = {}) {
   return async (url, options = {}) => {
     const parsed = new URL(url);
@@ -1247,6 +1324,11 @@ function liveMergeAdmissionFetch({ events = [], labels = [] } = {}) {
           }),
           { status: 200 },
         );
+      }
+      if (query.includes("DependabotForcePushHistory")) {
+        return new Response(JSON.stringify(forcePushTimelinePayload()), {
+          status: 200,
+        });
       }
       return new Response(
         JSON.stringify({
@@ -4727,6 +4809,278 @@ test("durable force-push evidence removes preparation and repair authority", asy
   assert.equal(approved, false);
 });
 
+test("a verified native Dependabot rewrite starts a new preparation generation", () => {
+  const rewritten = snapshot({
+    checks: completeChecks({ conclusions: { ci: "failure" } }),
+    commits: [nativeDependabotCommit(HEAD_SHA)],
+    feedback: nativeForcePushFeedback(),
+    metadata: {
+      ...snapshot().metadata,
+      immutableEvidence: {
+        ...snapshot().metadata.immutableEvidence,
+        seedCommitSha: HEAD_SHA,
+        seedCommitTrusted: true,
+      },
+    },
+    pullRequest: {
+      author: DEPENDABOT_ACTOR,
+    },
+    repairHistoryChecks: [],
+  });
+  const evaluation = evaluateDependabotPullRequest(rewritten, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  assert.equal(evaluation.feedback.forcePushGenerationKind, "native");
+  assert.equal(evaluation.feedback.forcePushVeto, false);
+  assert.equal(evaluation.feedback.clear, true);
+  assert.equal(evaluation.identity.valid, true);
+  assert.equal(evaluation.identity.prepareAuthority, true);
+  assert.equal(evaluation.identity.automaticSeedHeadSha, HEAD_SHA);
+  assert.equal(evaluation.repairAttempts.currentAttempt, 1);
+  assert.equal(evaluation.disposition, "repair-required");
+  assert.notEqual(evaluation.repairPacket, null);
+});
+
+test("a continuous multi-event Dependabot rewrite starts a new preparation generation", () => {
+  const feedback = nativeForcePushFeedback();
+  feedback.forcePushEventCount = 2;
+  feedback.forcePushEvents = [
+    {
+      ...feedback.forcePushEvents[0],
+      afterSha: SECOND_HEAD_SHA,
+      createdAt: "2026-08-10T08:00:00Z",
+    },
+    {
+      ...feedback.forcePushEvents[0],
+      beforeSha: SECOND_HEAD_SHA,
+      createdAt: "2026-08-10T09:00:00Z",
+      eventId: "force-push-event-2",
+    },
+  ];
+  feedback.forcePushCommits = [
+    nativeDependabotCommit(OTHER_SHA, MERGE_SHA),
+    nativeDependabotCommit(SECOND_HEAD_SHA),
+    nativeDependabotCommit(HEAD_SHA),
+  ];
+  const rewritten = snapshot({
+    checks: completeChecks({ conclusions: { ci: "failure" } }),
+    commits: [nativeDependabotCommit(HEAD_SHA)],
+    feedback,
+    metadata: {
+      ...snapshot().metadata,
+      immutableEvidence: {
+        ...snapshot().metadata.immutableEvidence,
+        seedCommitSha: HEAD_SHA,
+        seedCommitTrusted: true,
+      },
+    },
+    pullRequest: { author: DEPENDABOT_ACTOR },
+    repairHistoryChecks: [],
+  });
+  const evaluation = evaluateDependabotPullRequest(rewritten, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  assert.equal(evaluation.feedback.forcePushGenerationKind, "native");
+  assert.equal(evaluation.feedback.forcePushVeto, false);
+  assert.equal(evaluation.feedback.clear, true);
+  assert.equal(evaluation.identity.prepareAuthority, true);
+  assert.equal(evaluation.disposition, "repair-required");
+  assert.notEqual(evaluation.repairPacket, null);
+});
+
+test("human, spoofed, malformed, mixed, and unbound rewrites remain vetoed", () => {
+  const baseFeedback = nativeForcePushFeedback();
+  const cases = [
+    {
+      label: "human actor",
+      mutate(feedback) {
+        feedback.forcePushEvents[0].actorId = 7;
+        feedback.forcePushEvents[0].actorLogin = "alice";
+        feedback.forcePushEvents[0].actorType = "User";
+      },
+    },
+    {
+      label: "Dependabot login with the wrong ID",
+      mutate(feedback) {
+        feedback.forcePushEvents[0].actorId = 7;
+      },
+    },
+    {
+      label: "Dependabot ID with the wrong actor type",
+      mutate(feedback) {
+        feedback.forcePushEvents[0].actorType = "User";
+      },
+    },
+    {
+      label: "malformed destination",
+      mutate(feedback) {
+        feedback.forcePushEvents[0].afterSha = "malformed";
+      },
+    },
+    {
+      label: "latest destination does not bind the seed",
+      mutate(feedback) {
+        feedback.forcePushEvents[0].afterSha = SECOND_HEAD_SHA;
+      },
+    },
+    {
+      label: "incomplete event census",
+      mutate(feedback) {
+        feedback.forcePushEventCount = 2;
+      },
+    },
+    {
+      label: "wrong branch ref",
+      mutate(feedback) {
+        feedback.forcePushEvents[0].headRef =
+          "refs/heads/dependabot/npm_and_yarn/other";
+      },
+    },
+    {
+      label: "untrusted historical commit",
+      mutate(feedback) {
+        feedback.forcePushCommits[0].verificationReason = "unknown_key";
+      },
+    },
+    {
+      label: "missing historical commit census",
+      mutate(feedback) {
+        feedback.forcePushCommits.pop();
+      },
+    },
+    {
+      label: "Dependabot rewrite erased a Prepare App commit",
+      mutate(feedback) {
+        feedback.forcePushCommits[0] = preparedCommit(OTHER_SHA, MERGE_SHA);
+      },
+    },
+    {
+      label: "cyclic rewrite returned to a prior seed",
+      mutate(feedback) {
+        feedback.forcePushEventCount = 2;
+        feedback.forcePushEvents = [
+          {
+            ...feedback.forcePushEvents[0],
+            afterSha: SECOND_HEAD_SHA,
+            beforeSha: HEAD_SHA,
+            createdAt: "2026-08-10T08:00:00Z",
+          },
+          {
+            ...feedback.forcePushEvents[0],
+            beforeSha: SECOND_HEAD_SHA,
+            createdAt: "2026-08-10T09:00:00Z",
+            eventId: "force-push-event-2",
+          },
+        ];
+        feedback.forcePushCommits = [
+          nativeDependabotCommit(HEAD_SHA),
+          nativeDependabotCommit(SECOND_HEAD_SHA),
+        ];
+      },
+    },
+    {
+      label: "reordered events",
+      mutate(feedback) {
+        feedback.forcePushEventCount = 2;
+        feedback.forcePushCommits.push(
+          nativeDependabotCommit(SECOND_HEAD_SHA, MERGE_SHA),
+        );
+        feedback.forcePushEvents.unshift({
+          ...feedback.forcePushEvents[0],
+          afterSha: SECOND_HEAD_SHA,
+          beforeSha: OTHER_SHA,
+          createdAt: "2026-08-10T10:00:00Z",
+          eventId: "force-push-event-2",
+        });
+      },
+    },
+    {
+      label: "discontinuous events",
+      mutate(feedback) {
+        feedback.forcePushEventCount = 2;
+        feedback.forcePushCommits.push(nativeDependabotCommit(SECOND_HEAD_SHA));
+        feedback.forcePushEvents.unshift({
+          ...feedback.forcePushEvents[0],
+          afterSha: SECOND_HEAD_SHA,
+          beforeSha: MERGE_SHA,
+          createdAt: "2026-08-10T08:00:00Z",
+          eventId: "force-push-event-2",
+        });
+      },
+    },
+    {
+      label: "mixed history",
+      mutate(feedback) {
+        feedback.forcePushEventCount = 2;
+        feedback.forcePushEvents.push({
+          ...feedback.forcePushEvents[0],
+          actorId: 7,
+          actorLogin: "alice",
+          actorType: "User",
+          afterSha: SECOND_HEAD_SHA,
+          beforeSha: HEAD_SHA,
+          createdAt: "2026-08-10T10:00:00Z",
+          eventId: "force-push-event-2",
+        });
+      },
+    },
+    {
+      label: "spoofed current seed actor",
+      mutate() {},
+      mutateSnapshot(current) {
+        current.commits[0].authorId = 7;
+      },
+    },
+    {
+      label: "invalid current seed verification",
+      mutate() {},
+      mutateSnapshot(current) {
+        current.commits[0].verificationReason = "unknown_key";
+      },
+    },
+  ];
+
+  for (const testCase of cases) {
+    const feedback = structuredClone(baseFeedback);
+    testCase.mutate(feedback);
+    const current = snapshot({
+      checks: completeChecks({ conclusions: { ci: "failure" } }),
+      commits: [nativeDependabotCommit(HEAD_SHA)],
+      feedback,
+      metadata: {
+        ...snapshot().metadata,
+        immutableEvidence: {
+          ...snapshot().metadata.immutableEvidence,
+          seedCommitSha: HEAD_SHA,
+          seedCommitTrusted: true,
+        },
+      },
+      pullRequest: { author: DEPENDABOT_ACTOR },
+    });
+    testCase.mutateSnapshot?.(current);
+    const evaluation = evaluateDependabotPullRequest(current, {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    });
+    assert.equal(evaluation.feedback.forcePushVeto, true, testCase.label);
+    assert.equal(evaluation.feedback.clear, false, testCase.label);
+    assert.equal(evaluation.identity.prepareAuthority, false, testCase.label);
+    assert.equal(
+      evaluation.disposition,
+      "manual-veto-or-feedback",
+      testCase.label,
+    );
+    assert.equal(evaluation.repairPacket, null, testCase.label);
+  }
+});
+
 test("typed repair receipts require valid verification and consume one attempt only", () => {
   const packet = evaluateDependabotPullRequest(
     snapshot({ checks: completeChecks({ conclusions: { ci: "failure" } }) }),
@@ -4769,12 +5123,7 @@ test("typed repair receipts require valid verification and consume one attempt o
     },
     checks: completeChecks({ headSha: OTHER_SHA }),
     commits: [
-      {
-        authorLogin: "dependabot[bot]",
-        committerLogin: "dependabot[bot]",
-        sha: HEAD_SHA,
-        verified: true,
-      },
+      nativeDependabotCommit(HEAD_SHA),
       {
         authorId: PREPARE_ACTOR.botId,
         authorLogin: PREPARE_ACTOR.botLogin,
@@ -4787,8 +5136,18 @@ test("typed repair receipts require valid verification and consume one attempt o
       },
     ],
     expectedHeadSha: OTHER_SHA,
+    feedback: nativeForcePushFeedback(),
+    metadata: {
+      ...snapshot().metadata,
+      immutableEvidence: {
+        ...snapshot().metadata.immutableEvidence,
+        seedCommitSha: HEAD_SHA,
+        seedCommitTrusted: true,
+      },
+    },
     prepareActor: PREPARE_ACTOR,
     pullRequest: {
+      author: DEPENDABOT_ACTOR,
       head: {
         ref: "dependabot/github_actions/github-actions-routine-123",
         repo: { fullName: REPOSITORY },
@@ -4810,7 +5169,12 @@ test("typed repair receipts require valid verification and consume one attempt o
       repairAttempts: result.repairAttempts,
     }),
   );
-  assert.equal(result.identity.prepareAuthority, true);
+  assert.equal(
+    result.identity.prepareAuthority,
+    true,
+    stableJson({ feedback: result.feedback, metadata: repaired.metadata }),
+  );
+  assert.equal(result.feedback.forcePushGenerationKind, "native");
   assert.equal(result.repairAttempts.authenticatedRepairCommitCount, 1);
   assert.equal(result.repairAttempts.consumedAttempts, 1);
   assert.equal(result.repairAttempts.valid, true);
@@ -5592,7 +5956,7 @@ test("post-merge verification requires explicit terminal Vercel evidence", () =>
 });
 
 test("refresh preparation is split across request, mutate, and finalize phases", async () => {
-  const stale = staleSnapshot();
+  const stale = withNativeForcePush(staleSnapshot());
   let requestedReceipt = null;
   const requested = await processDependabotSweep({
     adapter: {
@@ -5630,13 +5994,15 @@ test("refresh preparation is split across request, mutate, and finalize phases",
   );
 
   const requestCheck = refreshReceiptCheck("requested");
-  const pending = staleSnapshot();
+  const pending = withNativeForcePush(staleSnapshot());
   pending.repairHistoryChecks = [requestCheck];
   let updateInput = null;
   const mutated = await processDependabotSweep({
     adapter: {
       collectPullRequestSnapshot: async () =>
-        refreshedSnapshot({ repairHistoryChecks: [requestCheck] }),
+        withNativeForcePush(
+          refreshedSnapshot({ repairHistoryChecks: [requestCheck] }),
+        ),
       requestPullRequestUpdateBranch: async (input) => {
         updateInput = input;
       },
@@ -5664,9 +6030,11 @@ test("refresh preparation is split across request, mutate, and finalize phases",
     repository: REPOSITORY,
   });
 
-  const successor = refreshedSnapshot({
-    repairHistoryChecks: [requestCheck],
-  });
+  const successor = withNativeForcePush(
+    refreshedSnapshot({
+      repairHistoryChecks: [requestCheck],
+    }),
+  );
   let completedReceipt = null;
   const completed = await processDependabotSweep({
     adapter: {
@@ -9698,10 +10066,46 @@ test("live feedback collection marks an over-cap thread instead of dropping repl
   assert.deepEqual(result.reasons, ["feedback-thread-comments-cap-exceeded"]);
 });
 
-test("live durable intervention evidence paginates force pushes regardless actor and survives a reopen", async () => {
+test("live durable intervention evidence preserves the force-push chain and survives a reopen", async () => {
   const requestedPages = [];
-  const fetchImpl = async (url) => {
+  const forcePushEvents = [
+    {
+      actor: {
+        __typename: "Bot",
+        databaseId: DEPENDABOT_ACTOR.id,
+        login: "dependabot",
+      },
+      afterCommit: { oid: OTHER_SHA },
+      beforeCommit: { oid: MERGE_SHA },
+      createdAt: "2026-08-10T09:00:00Z",
+      id: "force-push-event-1",
+      ref: {
+        name: "dependabot/github_actions/github-actions-routine-123",
+        prefix: "refs/heads/",
+      },
+    },
+    {
+      actor: null,
+      afterCommit: { oid: SECOND_HEAD_SHA },
+      beforeCommit: { oid: OTHER_SHA },
+      createdAt: "2026-08-10T10:00:00Z",
+      id: "force-push-event-2",
+      ref: {
+        name: "dependabot/github_actions/github-actions-routine-123",
+        prefix: "refs/heads/",
+      },
+    },
+  ];
+  const fetchImpl = async (url, options = {}) => {
     const parsed = new URL(url);
+    if (parsed.pathname === "/graphql") {
+      const { query } = JSON.parse(options.body);
+      assert.match(query, /DependabotForcePushHistory/);
+      return new Response(
+        JSON.stringify(forcePushTimelinePayload(forcePushEvents)),
+        { status: 200 },
+      );
+    }
     assert.equal(parsed.pathname, `/repos/${REPOSITORY}/issues/123/events`);
     const page = Number(parsed.searchParams.get("page"));
     requestedPages.push(page);
@@ -9726,16 +10130,6 @@ test("live durable intervention evidence paginates force pushes regardless actor
         JSON.stringify([
           { actor: { login: "alice" }, event: "closed" },
           { actor: { login: "alice" }, event: "reopened" },
-          {
-            actor: { login: "dependabot[bot]" },
-            commit_id: OTHER_SHA,
-            event: "head_ref_force_pushed",
-          },
-          {
-            actor: null,
-            commit_id: "malformed",
-            event: "head_ref_force_pushed",
-          },
         ]),
         { status: 200 },
       );
@@ -9747,8 +10141,34 @@ test("live durable intervention evidence paginates force pushes regardless actor
   assert.deepEqual(requestedPages, [1, 2]);
   assert.deepEqual(evidence, {
     forcePushActors: ["dependabot[bot]", "unknown-actor"],
-    forcePushCommitIds: [OTHER_SHA],
+    forcePushCommitIds: [OTHER_SHA, SECOND_HEAD_SHA],
+    forcePushCommits: [],
     forcePushEventCount: 2,
+    forcePushEvents: [
+      {
+        actorId: DEPENDABOT_ACTOR.id,
+        actorLogin: "dependabot",
+        actorType: DEPENDABOT_ACTOR.type,
+        afterSha: OTHER_SHA,
+        beforeSha: MERGE_SHA,
+        createdAt: "2026-08-10T09:00:00Z",
+        eventId: "force-push-event-1",
+        headRef:
+          "refs/heads/dependabot/github_actions/github-actions-routine-123",
+      },
+      {
+        actorId: null,
+        actorLogin: null,
+        actorType: null,
+        afterSha: SECOND_HEAD_SHA,
+        beforeSha: OTHER_SHA,
+        createdAt: "2026-08-10T10:00:00Z",
+        eventId: "force-push-event-2",
+        headRef:
+          "refs/heads/dependabot/github_actions/github-actions-routine-123",
+      },
+    ],
+    forcePushEventsComplete: true,
     forcePushed: true,
     humanCloseActors: ["alice"],
     humanClosed: true,
@@ -9768,6 +10188,100 @@ test("live durable intervention evidence paginates force pushes regardless actor
   });
   assert.equal(evaluation.identity.automaticAuthority, false);
   assert.equal(evaluation.repairPacket, null);
+});
+
+test("live native force-push collection binds every commit in one continuous generation", async () => {
+  const headRef = "dependabot/github_actions/github-actions-routine-123";
+  let commitReads = 0;
+  const forcePushEvent = {
+    actor: {
+      __typename: "Bot",
+      databaseId: DEPENDABOT_ACTOR.id,
+      login: "dependabot",
+    },
+    afterCommit: { oid: HEAD_SHA },
+    beforeCommit: { oid: OTHER_SHA },
+    createdAt: "2026-08-10T09:00:00Z",
+    id: "force-push-event-1",
+    ref: { name: headRef, prefix: "refs/heads/" },
+  };
+  const fetchImpl = async (url, options = {}) => {
+    const path = new URL(url).pathname;
+    if (path === "/graphql") {
+      const { query } = JSON.parse(options.body);
+      assert.match(query, /DependabotForcePushHistory/);
+      return new Response(
+        JSON.stringify(forcePushTimelinePayload([forcePushEvent])),
+        { status: 200 },
+      );
+    }
+    if (path === `/repos/${REPOSITORY}/issues/123/events`) {
+      return new Response(JSON.stringify([]), { status: 200 });
+    }
+    const commitSha = new RegExp(
+      `^/repos/${REPOSITORY}/commits/([0-9a-f]{40})$`,
+    ).exec(path)?.[1];
+    if (commitSha) {
+      commitReads += 1;
+      return new Response(
+        JSON.stringify({
+          author: DEPENDABOT_ACTOR,
+          commit: { verification: { reason: "valid", verified: true } },
+          committer: {
+            id: GITHUB_SYSTEM_COMMITTER.committerId,
+            login: GITHUB_SYSTEM_COMMITTER.committerLogin,
+            type: GITHUB_SYSTEM_COMMITTER.committerType,
+          },
+          parents: [{ sha: commitSha === HEAD_SHA ? BASE_SHA : MERGE_SHA }],
+          sha: commitSha,
+        }),
+        { status: 200 },
+      );
+    }
+    assert.fail(`Unexpected request: ${url}`);
+  };
+  const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
+  const evidence = await adapter.getHumanCloseEvidence(REPOSITORY, 123);
+  const repeated = await adapter.getHumanCloseEvidence(REPOSITORY, 123);
+
+  assert.deepEqual(repeated, evidence);
+  assert.equal(commitReads, 2);
+  assert.equal(evidence.forcePushEventsComplete, true);
+  assert.deepEqual(evidence.forcePushEvents, [
+    {
+      actorId: DEPENDABOT_ACTOR.id,
+      actorLogin: "dependabot",
+      actorType: DEPENDABOT_ACTOR.type,
+      afterSha: HEAD_SHA,
+      beforeSha: OTHER_SHA,
+      createdAt: "2026-08-10T09:00:00Z",
+      eventId: "force-push-event-1",
+      headRef: `refs/heads/${headRef}`,
+    },
+  ]);
+  assert.deepEqual(
+    evidence.forcePushCommits.map(({ sha }) => sha),
+    [HEAD_SHA, OTHER_SHA],
+  );
+
+  const evaluation = evaluateDependabotPullRequest(
+    snapshot({
+      commits: [nativeDependabotCommit(HEAD_SHA)],
+      feedback: evidence,
+      metadata: {
+        ...snapshot().metadata,
+        immutableEvidence: {
+          ...snapshot().metadata.immutableEvidence,
+          seedCommitSha: HEAD_SHA,
+          seedCommitTrusted: true,
+        },
+      },
+      pullRequest: { author: DEPENDABOT_ACTOR },
+    }),
+    { mode: "prepare", repository: REPOSITORY },
+  );
+  assert.equal(evaluation.feedback.forcePushGenerationKind, "native");
+  assert.equal(evaluation.identity.prepareAuthority, true);
 });
 
 test("live repository-wide processor approval visibility paginates open PRs and every review page", async () => {
@@ -10441,10 +10955,16 @@ function liveVercelSnapshotFetch({
     updated_at: "2026-08-10T10:00:00Z",
     user: { login: "dependabot[bot]" },
   };
-  return async (url) => {
+  return async (url, options = {}) => {
     const parsed = new URL(url);
     const path = parsed.pathname;
     if (url.endsWith("/graphql")) {
+      const { query } = JSON.parse(options.body);
+      if (query.includes("DependabotForcePushHistory")) {
+        return new Response(JSON.stringify(forcePushTimelinePayload()), {
+          status: 200,
+        });
+      }
       return new Response(
         JSON.stringify({
           data: {
@@ -10659,10 +11179,16 @@ test("live snapshot collection rejects a PR head race after files, commits, and 
     updated_at: "2026-08-10T10:00:00Z",
     user: { login: "dependabot[bot]" },
   });
-  const fetchImpl = async (url) => {
+  const fetchImpl = async (url, options = {}) => {
     const parsed = new URL(url);
     const path = parsed.pathname;
     if (url.endsWith("/graphql")) {
+      const { query } = JSON.parse(options.body);
+      if (query.includes("DependabotForcePushHistory")) {
+        return new Response(JSON.stringify(forcePushTimelinePayload()), {
+          status: 200,
+        });
+      }
       feedbackReads += 1;
       return new Response(
         JSON.stringify({

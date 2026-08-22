@@ -429,9 +429,10 @@ updates. Verified non-sensitive GitHub Actions updates may be refreshed and,
 when green, prepared, but automatic repair never writes `.github/**`; a failure
 that needs that surface becomes `manual-repair-required`. Sensitive
 self-reviewing Actions; workflow-policy, deployment, authentication, credential,
-or security changes; unknown metadata; force-pushed histories; human vetoes;
-unresolved feedback outside an exact packet-bound repair; and exhausted repairs
-remain blocked. The typed Vercel sync can bind only the structured Cursor
+or security changes; unknown metadata; untrusted force-push histories; human
+vetoes; unresolved feedback outside an exact packet-bound repair; and exhausted
+repairs remain blocked. A complete native-to-native Dependabot rewrite chain
+starts a new generation. The typed Vercel sync can bind only the structured Cursor
 runtime-mismatch finding that matches its exact versions, path, and review
 commit. The packet binds the immutable original review commit even when GitHub
 retargets the comment's current commit after a branch refresh. The ALL CLEAR

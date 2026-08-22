@@ -28,6 +28,7 @@ export const DEPENDABOT_ALL_CLEAR_SCHEMA = "dependabot-all-clear:v1";
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const DEPENDABOT_LOGIN = "dependabot[bot]";
+const DEPENDABOT_USER_ID = 49_699_333;
 const PROCESSOR_MODES = new Set(["observe", "assist", "prepare"]);
 const PROCESSOR_PHASES = new Set(["request", "mutate", "finalize"]);
 const PASSING_CONCLUSIONS = new Set(["success"]);
@@ -835,6 +836,51 @@ function normalizedCommitActor(commit, role) {
   };
 }
 
+function normalizedCommitEvidence(commit) {
+  return {
+    authorId: normalizedCommitActor(commit, "author").id || null,
+    authorLogin: normalizedCommitActor(commit, "author").login,
+    authorType: normalizedCommitActor(commit, "author").type,
+    committerId: normalizedCommitActor(commit, "committer").id || null,
+    committerLogin: normalizedCommitActor(commit, "committer").login,
+    committerType: normalizedCommitActor(commit, "committer").type,
+    message: commit?.message ?? commit?.commit?.message ?? null,
+    parents: commitParentShas(commit),
+    sha: commit?.sha ?? null,
+    verified:
+      commit?.verified === true ||
+      commit?.commit?.verification?.verified === true,
+    verificationReason:
+      commit?.verificationReason ??
+      commit?.commit?.verification?.reason ??
+      null,
+  };
+}
+
+function commitMatchesNativeDependabot(commit) {
+  const normalized = normalizedCommitEvidence(commit);
+  const exactAuthor =
+    normalized.authorId === DEPENDABOT_USER_ID &&
+    normalized.authorLogin === DEPENDABOT_LOGIN &&
+    normalized.authorType === "Bot";
+  const exactDependabotCommitter =
+    normalized.committerId === DEPENDABOT_USER_ID &&
+    normalized.committerLogin === DEPENDABOT_LOGIN &&
+    normalized.committerType === "Bot";
+  const exactGitHubSystemCommitter =
+    normalized.committerId === GITHUB_WEB_FLOW_USER_ID &&
+    normalized.committerLogin === "web-flow" &&
+    normalized.committerType === "User";
+  return (
+    SHA_PATTERN.test(normalized.sha ?? "") &&
+    exactAuthor &&
+    (exactDependabotCommitter || exactGitHubSystemCommitter) &&
+    normalized.verified === true &&
+    normalized.verificationReason === "valid" &&
+    normalized.parents.length === 1
+  );
+}
+
 function commitActorMatchesPrepareBot(commit, receipt, role) {
   const actor = normalizedCommitActor(commit, role);
   return (
@@ -1462,6 +1508,7 @@ export function classifyDependabotRisk(metadata = {}) {
 }
 
 function normalizePullRequest(pullRequest) {
+  const rawAuthor = pullRequest?.author ?? pullRequest?.user;
   const authorLogin = normalizeLogin(
     pullRequest?.author?.login ??
       pullRequest?.user?.login ??
@@ -1480,7 +1527,9 @@ function normalizePullRequest(pullRequest) {
     pullRequest?.baseRepository ??
     pullRequest?.baseRepo;
   return {
+    authorId: Number(rawAuthor?.id ?? 0),
     authorLogin,
+    authorType: String(rawAuthor?.type ?? ""),
     baseRef: pullRequest?.base?.ref ?? pullRequest?.baseRef ?? "",
     baseRepository,
     baseSha: pullRequest?.base?.sha ?? pullRequest?.baseSha ?? null,
@@ -2989,12 +3038,188 @@ export function classifyDependabotFeedback({
   };
 }
 
+function normalizeForcePushEvent(event) {
+  const actorId = Number(event?.actorId ?? 0);
+  const createdAt = String(event?.createdAt ?? "");
+  const eventId = String(event?.eventId ?? "");
+  const headRef = String(event?.headRef ?? "");
+  return {
+    actorId: Number.isSafeInteger(actorId) && actorId > 0 ? actorId : null,
+    actorLogin:
+      typeof event?.actorLogin === "string"
+        ? event.actorLogin.toLowerCase()
+        : null,
+    actorType: String(event?.actorType ?? "") || null,
+    afterSha: SHA_PATTERN.test(event?.afterSha ?? "") ? event.afterSha : null,
+    beforeSha: SHA_PATTERN.test(event?.beforeSha ?? "")
+      ? event.beforeSha
+      : null,
+    createdAt:
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(createdAt) &&
+      Number.isFinite(Date.parse(createdAt))
+        ? createdAt
+        : null,
+    eventId: eventId.length > 0 && eventId.length <= 200 ? eventId : null,
+    headRef: headRef.length > 0 && headRef.length <= 300 ? headRef : null,
+  };
+}
+
+function evaluateForcePushGeneration({
+  feedback,
+  generationSeedCommit,
+  generationSeedHeadSha,
+  generationSeedTrusted,
+  pullRequest,
+}) {
+  const normalizedPullRequest = normalizePullRequest(pullRequest);
+  const rawEvents = Array.isArray(feedback.forcePushEvents)
+    ? feedback.forcePushEvents.slice(0, DURABLE_EVENT_EVIDENCE_LIMIT)
+    : [];
+  const events = rawEvents.map(normalizeForcePushEvent);
+  const eventCount = Number(feedback.forcePushEventCount);
+  const observed =
+    feedback.forcePushed === true ||
+    (Number.isSafeInteger(eventCount) && eventCount > 0) ||
+    events.length > 0;
+  if (!observed) {
+    return {
+      eventDigest: canonicalDigest([]),
+      events,
+      eventsComplete: feedback.forcePushEventsComplete !== false,
+      kind: "none",
+      reasons: [],
+      veto: false,
+    };
+  }
+
+  const exactEventCount =
+    feedback.forcePushed === true &&
+    feedback.forcePushEventsComplete === true &&
+    Number.isSafeInteger(eventCount) &&
+    eventCount > 0 &&
+    eventCount <= DURABLE_EVENT_EVIDENCE_LIMIT &&
+    eventCount === events.length;
+  const eventIds = new Set();
+  let previousEvent = null;
+  let exactEvents = exactEventCount;
+  const expectedRef = `refs/heads/${normalizedPullRequest.headRef}`;
+  for (const event of events) {
+    const ordered =
+      previousEvent === null ||
+      (event.createdAt !== null &&
+        previousEvent.createdAt !== null &&
+        Date.parse(event.createdAt) > Date.parse(previousEvent.createdAt));
+    const continuous =
+      previousEvent === null || previousEvent.afterSha === event.beforeSha;
+    const exactActor =
+      event.actorId === DEPENDABOT_USER_ID &&
+      event.actorLogin === "dependabot" &&
+      event.actorType === "Bot";
+    const exactEvent =
+      event.eventId !== null &&
+      !eventIds.has(event.eventId) &&
+      event.createdAt !== null &&
+      event.beforeSha !== null &&
+      event.afterSha !== null &&
+      event.beforeSha !== event.afterSha &&
+      event.headRef === expectedRef &&
+      exactActor &&
+      ordered &&
+      continuous;
+    exactEvents &&= exactEvent;
+    if (event.eventId !== null) eventIds.add(event.eventId);
+    previousEvent = event;
+  }
+  const chainShas =
+    events.length === 0
+      ? []
+      : [events[0].beforeSha, ...events.map(({ afterSha }) => afterSha)];
+  exactEvents &&= new Set(chainShas).size === events.length + 1;
+
+  const requiredCommitShas = new Set(
+    events.flatMap(({ afterSha, beforeSha }) => [beforeSha, afterSha]),
+  );
+  requiredCommitShas.delete(null);
+  const commitEvidence = Array.isArray(feedback.forcePushCommits)
+    ? feedback.forcePushCommits.map(normalizedCommitEvidence)
+    : [];
+  const commitsBySha = new Map();
+  let exactCommits = commitEvidence.length === requiredCommitShas.size;
+  for (const commit of commitEvidence) {
+    if (
+      commitsBySha.has(commit.sha) ||
+      !commitMatchesNativeDependabot(commit)
+    ) {
+      exactCommits = false;
+    }
+    commitsBySha.set(commit.sha, commit);
+  }
+  exactCommits &&= [...requiredCommitShas].every((sha) =>
+    commitsBySha.has(sha),
+  );
+
+  const exactPullRequestAuthor =
+    normalizedPullRequest.authorId === DEPENDABOT_USER_ID &&
+    normalizedPullRequest.authorLogin === DEPENDABOT_LOGIN &&
+    normalizedPullRequest.authorType === "Bot";
+  const exactSeed =
+    generationSeedTrusted === true &&
+    SHA_PATTERN.test(generationSeedHeadSha ?? "") &&
+    generationSeedCommit?.sha === generationSeedHeadSha &&
+    commitMatchesNativeDependabot(generationSeedCommit) &&
+    events.at(-1)?.afterSha === generationSeedHeadSha &&
+    commitsBySha.has(generationSeedHeadSha);
+  const native =
+    exactEvents && exactCommits && exactPullRequestAuthor && exactSeed;
+  const reasons = [];
+  if (!exactEventCount) reasons.push("incomplete-force-push-event-census");
+  if (!exactEvents) reasons.push("invalid-force-push-event-chain");
+  if (!exactCommits) reasons.push("invalid-force-push-commit-census");
+  if (!exactPullRequestAuthor) reasons.push("invalid-force-push-pr-author");
+  if (!exactSeed) {
+    reasons.push("invalid-force-push-generation-seed");
+    if (generationSeedTrusted !== true) {
+      reasons.push("untrusted-force-push-generation-seed");
+    }
+    if (generationSeedCommit?.sha !== generationSeedHeadSha) {
+      reasons.push("force-push-generation-seed-sha-mismatch");
+    }
+    if (!commitMatchesNativeDependabot(generationSeedCommit)) {
+      reasons.push("invalid-force-push-generation-seed-commit");
+    }
+    if (events.at(-1)?.afterSha !== generationSeedHeadSha) {
+      reasons.push("force-push-generation-head-mismatch");
+    }
+    if (!commitsBySha.has(generationSeedHeadSha)) {
+      reasons.push("force-push-generation-seed-evidence-missing");
+    }
+  }
+  return {
+    eventDigest: canonicalDigest(events),
+    events,
+    eventsComplete: exactEventCount,
+    kind: native ? "native" : "veto",
+    reasons,
+    veto: !native,
+  };
+}
+
 export function evaluateFeedbackGate({
   feedback = {},
+  generationSeedCommit = null,
+  generationSeedHeadSha = null,
+  generationSeedTrusted = false,
   pullRequest = {},
   repairAttempts = null,
 } = {}) {
   const normalizedPullRequest = normalizePullRequest(pullRequest);
+  const forcePushGeneration = evaluateForcePushGeneration({
+    feedback,
+    generationSeedCommit,
+    generationSeedHeadSha,
+    generationSeedTrusted,
+    pullRequest,
+  });
   const labels = normalizeLabels([
     ...(pullRequest.labels ?? []),
     ...(feedback.labels ?? []),
@@ -3113,7 +3338,7 @@ export function evaluateFeedbackGate({
   if (feedback.humanReopened === true) {
     reasons.push("human-reopened-pull-request");
   }
-  if (feedback.forcePushed === true) {
+  if (forcePushGeneration.veto) {
     reasons.push("pull-request-history-force-pushed");
   }
   if (vetoLabels.length > 0) reasons.push("veto-label-present");
@@ -3185,11 +3410,17 @@ export function evaluateFeedbackGate({
         }),
     forcePushActors,
     forcePushCommitIds,
+    forcePushEventDigest: forcePushGeneration.eventDigest,
     forcePushEventCount:
       Number.isSafeInteger(feedback.forcePushEventCount) &&
       feedback.forcePushEventCount >= 0
         ? feedback.forcePushEventCount
         : null,
+    forcePushEvents: forcePushGeneration.events,
+    forcePushEventsComplete: forcePushGeneration.eventsComplete,
+    forcePushGenerationKind: forcePushGeneration.kind,
+    forcePushGenerationReasons: forcePushGeneration.reasons,
+    forcePushVeto: forcePushGeneration.veto,
     forcePushed: feedback.forcePushed === true,
     humanClosed: feedback.humanClosed === true,
     humanReopened: feedback.humanReopened === true,
@@ -4242,6 +4473,12 @@ export function evaluateDependabotPullRequest(snapshot, options = {}) {
       };
   const feedback = evaluateFeedbackGate({
     feedback: snapshot.feedback,
+    generationSeedCommit: (snapshot.commits ?? [])[0] ?? null,
+    generationSeedHeadSha: structuralIdentity.automaticSeedHeadSha,
+    generationSeedTrusted:
+      metadata.immutableEvidence?.seedCommitTrusted === true &&
+      metadata.immutableEvidence?.seedCommitSha ===
+        structuralIdentity.automaticSeedHeadSha,
     pullRequest: snapshot.pullRequest ?? snapshot,
     repairAttempts,
   });
@@ -4250,7 +4487,7 @@ export function evaluateDependabotPullRequest(snapshot, options = {}) {
     protectedRuntime: snapshot.protectedRuntime ?? null,
     repairAttempts,
   });
-  const identity = feedback.forcePushed
+  const identity = feedback.forcePushVeto
     ? {
         ...structuralIdentity,
         automaticAuthority: false,
@@ -4963,6 +5200,7 @@ export function createLiveGitHubAdapter({
   };
 
   const workflowRunCache = new Map();
+  const forcePushCommitEvidenceCache = new Map();
   const normalizeWorkflowRunSource = (data) => ({
     runDisplayTitle: data.display_title,
     runHeadBranch: data.head_branch,
@@ -5003,6 +5241,18 @@ export function createLiveGitHubAdapter({
       );
     }
     return workflowRunCache.get(cacheKey);
+  };
+  const cachedForcePushCommitEvidence = (repository, sha) => {
+    const cacheKey = `${repository}:${exactSha(sha)}`;
+    if (!forcePushCommitEvidenceCache.has(cacheKey)) {
+      forcePushCommitEvidenceCache.set(
+        cacheKey,
+        request("GET", `/repos/${repository}/commits/${sha}`).then(({ data }) =>
+          normalizedCommitEvidence(data),
+        ),
+      );
+    }
+    return forcePushCommitEvidenceCache.get(cacheKey);
   };
 
   const getChecks = async (repository, sha) => {
@@ -5432,9 +5682,41 @@ export function createLiveGitHubAdapter({
   };
 
   const getHumanCloseEvidence = async (repository, number) => {
-    const events = await paginate(
-      `/repos/${repository}/issues/${number}/events`,
-    );
+    const { name, owner } = splitRepository(repository);
+    const forcePushQuery = `
+      query DependabotForcePushHistory($owner: String!, $name: String!, $number: Int!, $limit: Int!) {
+        repository(owner: $owner, name: $name) {
+          pullRequest(number: $number) {
+            timelineItems(first: $limit, itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT]) {
+              nodes {
+                ... on HeadRefForcePushedEvent {
+                  id
+                  createdAt
+                  actor {
+                    __typename
+                    login
+                    ... on Bot { databaseId }
+                  }
+                  beforeCommit { oid }
+                  afterCommit { oid }
+                  ref { name prefix }
+                }
+              }
+              pageInfo { hasNextPage }
+            }
+          }
+        }
+      }
+    `;
+    const [events, forcePushData] = await Promise.all([
+      paginate(`/repos/${repository}/issues/${number}/events`),
+      graphql(forcePushQuery, {
+        limit: DURABLE_EVENT_EVIDENCE_LIMIT,
+        name,
+        number,
+        owner,
+      }),
+    ]);
     const actorsForEvent = (eventName) =>
       events
         .filter(
@@ -5447,16 +5729,48 @@ export function createLiveGitHubAdapter({
         .sort();
     const humanCloseActors = actorsForEvent("closed");
     const humanReopenActors = actorsForEvent("reopened");
-    const forcePushEvents = events.filter(
-      (event) => event?.event === "head_ref_force_pushed",
+    const timeline =
+      forcePushData.repository?.pullRequest?.timelineItems ?? null;
+    invariant(
+      timeline !== null &&
+        Array.isArray(timeline.nodes) &&
+        typeof timeline.pageInfo?.hasNextPage === "boolean",
+      "GitHub force-push timeline response is invalid",
     );
+    const forcePushEvents = timeline.nodes.map((event) => ({
+      actorId:
+        Number.isSafeInteger(event?.actor?.databaseId) &&
+        event.actor.databaseId > 0
+          ? event.actor.databaseId
+          : null,
+      actorLogin:
+        typeof event?.actor?.login === "string"
+          ? event.actor.login.toLowerCase()
+          : null,
+      actorType: String(event?.actor?.__typename ?? "") || null,
+      afterSha: SHA_PATTERN.test(event?.afterCommit?.oid ?? "")
+        ? event.afterCommit.oid
+        : null,
+      beforeSha: SHA_PATTERN.test(event?.beforeCommit?.oid ?? "")
+        ? event.beforeCommit.oid
+        : null,
+      createdAt: String(event?.createdAt ?? "") || null,
+      eventId: String(event?.id ?? "") || null,
+      headRef:
+        typeof event?.ref?.prefix === "string" &&
+        typeof event?.ref?.name === "string"
+          ? `${event.ref.prefix}${event.ref.name}`
+          : null,
+    }));
+    const forcePushEventsComplete =
+      timeline.pageInfo.hasNextPage === false &&
+      forcePushEvents.length <= DURABLE_EVENT_EVIDENCE_LIMIT;
+    const forcePushEventCount =
+      forcePushEvents.length + (timeline.pageInfo.hasNextPage ? 1 : 0);
     const forcePushActors = [
       ...new Set(
         forcePushEvents.map((event) =>
-          (normalizeLogin(event?.actor?.login) || "unknown-actor").slice(
-            0,
-            100,
-          ),
+          (normalizeLogin(event.actorLogin) || "unknown-actor").slice(0, 100),
         ),
       ),
     ]
@@ -5465,17 +5779,57 @@ export function createLiveGitHubAdapter({
     const forcePushCommitIds = [
       ...new Set(
         forcePushEvents
-          .map((event) => event?.commit_id)
+          .map((event) => event.afterSha)
           .filter((commitId) => SHA_PATTERN.test(commitId ?? "")),
       ),
     ]
       .sort()
       .slice(0, DURABLE_EVENT_EVIDENCE_LIMIT);
+    const nativeCommitShas = [
+      ...new Set(
+        forcePushEvents.flatMap(({ afterSha, beforeSha }) => [
+          beforeSha,
+          afterSha,
+        ]),
+      ),
+    ].filter((sha) => SHA_PATTERN.test(sha ?? ""));
+    const forcePushActorsExact = forcePushEvents.every(
+      ({ actorId, actorLogin, actorType }) =>
+        actorId === DEPENDABOT_USER_ID &&
+        actorLogin === "dependabot" &&
+        actorType === "Bot",
+    );
+    const forcePushCommits = [];
+    if (
+      forcePushEventsComplete &&
+      forcePushEvents.length > 0 &&
+      forcePushActorsExact &&
+      nativeCommitShas.length <= DURABLE_EVENT_EVIDENCE_LIMIT + 1
+    ) {
+      for (
+        let index = 0;
+        index < nativeCommitShas.length;
+        index += CHECK_SOURCE_RESOLUTION_CONCURRENCY
+      ) {
+        const batch = await Promise.all(
+          nativeCommitShas
+            .slice(index, index + CHECK_SOURCE_RESOLUTION_CONCURRENCY)
+            .map((sha) => cachedForcePushCommitEvidence(repository, sha)),
+        );
+        forcePushCommits.push(...batch);
+      }
+      forcePushCommits.sort((left, right) =>
+        String(left.sha).localeCompare(String(right.sha)),
+      );
+    }
     return {
       forcePushActors,
       forcePushCommitIds,
-      forcePushEventCount: forcePushEvents.length,
-      forcePushed: forcePushEvents.length > 0,
+      forcePushCommits,
+      forcePushEventCount,
+      forcePushEvents,
+      forcePushEventsComplete,
+      forcePushed: forcePushEventCount > 0,
       humanCloseActors,
       humanClosed: humanCloseActors.length > 0,
       humanIntervened:
@@ -5893,7 +6247,11 @@ export function createLiveGitHubAdapter({
     const finalRaw = await getPullRequest(repository, number);
     requireStablePullRequestSnapshot(raw, finalRaw, number);
     const pullRequest = {
-      author: { login: finalRaw.user?.login },
+      author: {
+        id: finalRaw.user?.id ?? null,
+        login: finalRaw.user?.login,
+        type: finalRaw.user?.type,
+      },
       base: {
         ref: finalRaw.base.ref,
         repo: { fullName: finalRaw.base.repo?.full_name },
@@ -5941,19 +6299,7 @@ export function createLiveGitHubAdapter({
       baseAncestry,
       baseline: { checks: baselineChecks, sha: baselineSha },
       checks,
-      commits: lineageCommits.map((commit) => ({
-        authorId: commit.author?.id ?? null,
-        authorLogin: commit.author?.login,
-        authorType: commit.author?.type,
-        committerId: commit.committer?.id ?? null,
-        committerLogin: commit.committer?.login,
-        committerType: commit.committer?.type,
-        message: commit.commit?.message,
-        parents: (commit.parents ?? []).map(({ sha }) => sha),
-        sha: commit.sha,
-        verified: commit.commit?.verification?.verified === true,
-        verificationReason: commit.commit?.verification?.reason ?? null,
-      })),
+      commits: lineageCommits.map(normalizedCommitEvidence),
       expectedBlobs,
       expectedHeadSha: headSha,
       feedback: {
@@ -5970,7 +6316,10 @@ export function createLiveGitHubAdapter({
           feedback.dismissedProcessorApprovalCount,
         forcePushActors: humanCloseEvidence.forcePushActors,
         forcePushCommitIds: humanCloseEvidence.forcePushCommitIds,
+        forcePushCommits: humanCloseEvidence.forcePushCommits,
         forcePushEventCount: humanCloseEvidence.forcePushEventCount,
+        forcePushEvents: humanCloseEvidence.forcePushEvents,
+        forcePushEventsComplete: humanCloseEvidence.forcePushEventsComplete,
         forcePushed: humanCloseEvidence.forcePushed,
         humanCloseActors: humanCloseEvidence.humanCloseActors,
         humanClosed: humanCloseEvidence.humanClosed,
@@ -6903,6 +7252,19 @@ function hasCurrentTrustedAllClear({ approval, collected, evaluation }) {
 
 function exactRefreshSuccessor(snapshot, expected) {
   const pullRequest = normalizePullRequest(snapshot.pullRequest ?? snapshot);
+  const commits = Array.isArray(snapshot.commits) ? snapshot.commits : [];
+  const generationSeedCommit = commits[0] ?? null;
+  const generationSeedHeadSha = generationSeedCommit?.sha ?? null;
+  const forcePushGeneration = evaluateForcePushGeneration({
+    feedback: snapshot.feedback ?? {},
+    generationSeedCommit,
+    generationSeedHeadSha,
+    generationSeedTrusted:
+      snapshot.metadata?.immutableEvidence?.seedCommitTrusted === true &&
+      snapshot.metadata?.immutableEvidence?.seedCommitSha ===
+        generationSeedHeadSha,
+    pullRequest: snapshot.pullRequest ?? snapshot,
+  });
   invariant(
     pullRequest.number === expected.pullRequestNumber &&
       pullRequest.headRef === expected.headRef &&
@@ -6910,11 +7272,10 @@ function exactRefreshSuccessor(snapshot, expected) {
       pullRequest.baseRepository === expected.repository &&
       pullRequest.baseRef === "main" &&
       SHA_PATTERN.test(pullRequest.baseSha ?? "") &&
-      snapshot.feedback?.forcePushed !== true,
+      forcePushGeneration.veto !== true,
     `PR #${expected.pullRequestNumber} changed outside the requested refresh`,
   );
   if (pullRequest.headSha === expected.parentHeadSha) return null;
-  const commits = Array.isArray(snapshot.commits) ? snapshot.commits : [];
   invariant(
     commits.length >= 2 &&
       commits.at(-2)?.sha === expected.parentHeadSha &&
