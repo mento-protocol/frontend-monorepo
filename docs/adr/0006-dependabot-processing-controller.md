@@ -3,14 +3,14 @@ title: A trusted controller prepares exact-head Dependabot pull requests for hum
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-08-14
+last_verified: 2026-08-22
 scope: ci/dependabot-processing
 date: 2026-08-10
 ---
 
 # ADR 0006 — A trusted controller prepares exact-head Dependabot pull requests for human merge
 
-**Status:** Accepted, amended Aug 14 2026
+**Status:** Accepted, amended Aug 14 and Aug 22 2026
 **Scope:** ci/dependabot-processing
 
 ## Context
@@ -143,7 +143,7 @@ The following do not receive preparation authority:
 - workflow-policy, authentication, authorization, credential, deployment,
   security, or similarly protected Action changes;
 - unknown ecosystem, dependency metadata, update shape, actor, or provenance;
-- human veto, close/reopen, or observed force-push;
+- human veto, close/reopen, or force-push history not admitted by ADR 0008;
 - unresolved, unbound, malformed, or over-cap feedback/evidence; and
 - invalid lineage or exhausted repair attempts.
 
@@ -261,8 +261,10 @@ original packet and serialized lane without creating another repair run.
 packet can represent the repair. An exact one-parent Repair successor consumes
 its parent packet. The limit is two Repair commits. Refresh operation receipts
 form the same append-only lineage but do not increment the repair counter. A
-force-push, rebase, missing receipt, reordered history, ambiguous receipt, or
-third repair fails closed rather than resetting the budget.
+untrusted force-push, rebase, missing receipt, reordered history, ambiguous
+receipt, or third repair fails closed rather than resetting the budget. ADR
+0008 defines the complete native-to-native rewrite chain that starts a new
+generation with a new reachable receipt budget.
 
 ### Receipts are canonical, typed, and run-bound
 
@@ -305,8 +307,9 @@ repair count.
 ### Feedback resolution is packet-bound
 
 The collector reads every bounded review thread/reply, review, issue comment,
-and close/reopen/force-push event. Unresolved actionable feedback blocks even
-when it targets an older head.
+and close/reopen event. ADR 0008 requires a separate complete GraphQL timeline
+and exact commit census for force-push evidence. Unresolved actionable feedback
+blocks even when it targets an older head.
 
 A generic v2 packet may bind a validated Claude finding or review thread only
 by exact ID, head/commit, and body digest. After the repaired head passes its complete
@@ -433,8 +436,10 @@ verified App bot commit identity, and append-only parents establish authority.
 ### Ask Dependabot to rebase or force-push
 
 Rejected. Rewrites destroy append-only attempt accounting and can make old
-receipts ambiguous. Any observed force-push permanently removes preparation
-authority for that PR generation.
+receipts ambiguous. The controller never requests such a rewrite. ADR 0008
+admits only a complete native-to-native rewrite that Dependabot already made.
+Every other force-push history permanently removes preparation authority for
+the PR.
 
 ### Treat every check failure as repairable
 
@@ -486,8 +491,9 @@ hidden.
 Malformed, capped, missing, stale, ambiguous, or untrusted evidence fails before
 mutation or readiness publication. A base failure is repaired on main first. A
 retry-first provider failure waits for trusted evidence. A malformed/out-of-
-scope plan stops before App mutation. Exhausted repairs, sensitive policy, veto,
-force-push, or unresolved feedback move the PR to manual handling.
+scope plan stops before App mutation. Exhausted repairs, sensitive policy,
+veto, untrusted force-push history, or unresolved feedback move the PR to
+manual handling.
 
 If main CI or post-merge release proof fails after the human merge, keep the
 lane occupied and use the managed failure issue and deployment recovery

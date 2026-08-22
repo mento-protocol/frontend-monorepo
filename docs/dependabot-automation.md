@@ -31,8 +31,10 @@ Keep these properties true in code, workflows, rulesets, and operation:
 - Every decision, packet, mutation, review, reply, approval, and readiness
   receipt binds the exact repository, PR, branch, current base, and head.
 - Any push invalidates all earlier current-head gates and review evidence.
-- Refresh and repair are strict append-only operations. A force-push event
-  permanently removes preparation authority for that PR generation.
+- Refresh and repair are strict append-only operations within one generation.
+  A complete native-to-native Dependabot rewrite chain starts a new generation.
+  Any other force-push history permanently removes preparation authority for
+  the PR.
 - Refreshes have a separate receipt lineage and do not spend the two-repair
   budget. At most two repair commits are allowed.
 - Branch-write authority and approval/ALL CLEAR authority never coexist in one
@@ -274,8 +276,8 @@ Handling tier and preparation eligibility are separate:
 - **manual**: sensitive/self-reviewing Actions; workflow-policy, deployment,
   authentication, credential, or security Actions; unknown ecosystem or
   metadata; and any policy shape not explicitly admitted.
-- **vetoed**: human veto/close/reopen, force-push history, unresolved or
-  malformed feedback, untrusted actor, or ambiguous/capped evidence.
+- **vetoed**: human veto/close/reopen, untrusted force-push history, unresolved
+  or malformed feedback, untrusted actor, or ambiguous/capped evidence.
 
 The preparable tier is broader than the former automatic tier. It does not grant
 automatic merge authority. It authorizes only bounded preparation for a human
@@ -298,9 +300,23 @@ Two preparation dispositions are intentionally terminal for the current sweep:
 The collector brackets each PR, files, commits, checks, immutable commit
 metadata, feedback, and base-ancestry read with stable identity reads. It
 collects every bounded thread/reply, review, issue comment, close/reopen event,
-force-push event, and native `AutoMergeRequest`. Any collection cap,
-pagination ambiguity, malformed SHA/envelope, unknown authority-bearing bot, or
-identity drift fails closed.
+force-push event, and native `AutoMergeRequest`. For force pushes, it reads the
+bounded GraphQL timeline without dropping event order or before/after commit
+pairs. It caches exact historical commit evidence within the processor run.
+Any collection cap, pagination ambiguity, malformed SHA/envelope, unknown
+authority-bearing bot, or identity drift fails closed.
+
+The controller admits a force-pushed PR only when all events form one complete
+native Dependabot rewrite chain. Every event must bind the exact PR ref, the
+Dependabot bot account ID `49699333`, bot type, time, unique event ID, and valid
+before/after SHAs. The SHAs must form one ordered continuous chain without a
+repeated SHA. Every
+referenced commit must have the exact Dependabot author, an exact Dependabot or
+`web-flow` committer, one parent, and valid GitHub verification. The newest
+destination must equal the current verified generation seed. Any human,
+unknown, mixed, malformed, reordered, discontinuous, or capped history remains
+a permanent veto. A rewrite that removes a Prepare App commit breaks the chain
+and remains a veto.
 
 Only exact configured gate and receipt names trigger an Actions workflow-run
 provenance lookup. Unrelated checks and statuses remain raw non-authorizing
@@ -339,8 +355,9 @@ The completed head is accepted only when:
 - the App bot dispatch and terminal trusted run are exact; and
 - the full native/prepared chain remains rooted in the verified Dependabot seed.
 
-A refresh never increments the repair count. Do not use Dependabot rebase,
-force-push, or a history rewrite.
+A refresh never increments the repair count. The controller does not request a
+Dependabot rebase, force push, or history rewrite. It only observes and
+authenticates a native rewrite that Dependabot already completed.
 
 GitHub may retarget existing review-comment commit metadata while update-branch
 creates the append-only successor. The bounded old-head wait and typed
@@ -730,7 +747,8 @@ or failed. Follow the managed failure issue and deployment recovery runbook.
 | Repair plan malformed/out of scope                   | Fail before App token mutation; escalate manual.                  |
 | Repair attempts exhausted                            | Manual handling; do not reset with rebase/force-push.             |
 | Sensitive/unknown/manual tier                        | Record evidence and require human dependency handling.            |
-| Human veto/close/reopen or force-push                | Stop preparation for this PR generation.                          |
+| Human veto/close/reopen or untrusted force-push      | Stop preparation for this PR.                                     |
+| Exact native-to-native Dependabot rewrite chain      | Start a new generation; recollect all exact-head evidence.        |
 | Unresolved/unbound feedback                          | Block; never infer a reply or resolution.                         |
 | Auto-merge request or competing candidate            | Remove only exact safe stale authority, recollect, or block.      |
 | Mergeability/ruleset/review unsatisfied              | Do not approve or publish ALL CLEAR.                              |

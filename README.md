@@ -429,9 +429,10 @@ updates. Verified non-sensitive GitHub Actions updates may be refreshed and,
 when green, prepared, but automatic repair never writes `.github/**`; a failure
 that needs that surface becomes `manual-repair-required`. Sensitive
 self-reviewing Actions; workflow-policy, deployment, authentication, credential,
-or security changes; unknown metadata; force-pushed histories; human vetoes;
-unresolved feedback outside an exact packet-bound repair; and exhausted repairs
-remain blocked. The typed Vercel sync can bind only the structured Cursor
+or security changes; unknown metadata; untrusted force-push histories; human
+vetoes; unresolved feedback outside an exact packet-bound repair; and exhausted
+repairs remain blocked. A complete native-to-native Dependabot rewrite chain
+starts a new generation. The typed Vercel sync can bind only the structured Cursor
 runtime-mismatch finding that matches its exact versions, path, and review
 commit. The packet binds the immutable original review commit even when GitHub
 retargets the comment's current commit after a branch refresh. The ALL CLEAR
@@ -514,7 +515,9 @@ pnpm dependabot:process:test
 ```
 
 See the [Dependabot processing runbook](docs/dependabot-automation.md) and
-[ADR 0006](docs/adr/0006-dependabot-processing-controller.md).
+[ADR 0006](docs/adr/0006-dependabot-processing-controller.md) with its native
+rewrite boundary in
+[ADR 0008](docs/adr/0008-authenticated-dependabot-native-generation-boundaries.md).
 
 #### When to Use Catalog vs Direct Versions
 
@@ -631,7 +634,9 @@ The repository is set up with GitHub Actions for CI:
   `workflow_dispatch` path. Unknown mode or evidence stays observe-only and
   manual/veto policy can only remove authority. See
   [the operator runbook](docs/dependabot-automation.md) and
-  [ADR 0006](docs/adr/0006-dependabot-processing-controller.md).
+  [ADR 0006](docs/adr/0006-dependabot-processing-controller.md) with its native
+  rewrite boundary in
+  [ADR 0008](docs/adr/0008-authenticated-dependabot-native-generation-boundaries.md).
 - **CD**: GitHub Actions automatically builds `app.mento.org`,
   `governance.mento.org`, `reserve.mento.org`, and `ui.mento.org` previews for
   trusted same-repository PRs with exact-SHA aggregate `Vercel Preview`

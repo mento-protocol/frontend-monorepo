@@ -218,12 +218,13 @@ The preparable tier includes verified npm updates, including grouped and major
 updates. Verified non-sensitive GitHub Actions updates may be refreshed and,
 when green, prepared, but autonomous repair never writes `.github/**`; a
 failure requiring that surface is `manual-repair-required`. This policy is
-deliberately separate from the old automatic tier. Sensitive or self-reviewing Actions and
-workflow-policy, deployment, authentication, credential, security, or unknown
-changes remain manual. Force-push evidence, a human veto or close/reopen,
-malformed identity, unresolved feedback, ambiguous evidence, or exhausted
-repairs also blocks preparation. Risk and update metadata remain in the ALL
-CLEAR evidence for the maintainer's merge decision.
+deliberately separate from the old automatic tier. Sensitive or self-reviewing
+Actions and workflow-policy, deployment, authentication, credential, security,
+or unknown changes remain manual. Untrusted force-push evidence, a human veto
+or close/reopen, malformed identity, unresolved feedback, ambiguous evidence,
+or exhausted repairs also block preparation. A complete native-to-native
+Dependabot rewrite chain starts a new generation under ADR 0008. Risk and update
+metadata remain in the ALL CLEAR evidence for the maintainer's merge decision.
 
 Configure the repository-scoped Prepare App with Actions variables
 `DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,
@@ -356,8 +357,9 @@ Use
 `pnpm dependabot:process -- evaluate --input path/to/snapshot.json --mode observe`
 for a network-free plan and `pnpm dependabot:process:test` for the processor,
 workflow, receipt, repair, and reviewer contracts. The complete operating
-procedure is `docs/dependabot-automation.md`; the architecture decision is
-`docs/adr/0006-dependabot-processing-controller.md`.
+procedure is `docs/dependabot-automation.md`; the architecture decisions are
+`docs/adr/0006-dependabot-processing-controller.md` and
+`docs/adr/0008-authenticated-dependabot-native-generation-boundaries.md`.
 The automatic `.github/workflows/vercel-main-deployment.yml` path runs only
 from the exact successful `CI/CD` attempt for `main`. Its global mode is
 `active`, and the current per-target `mainOwnershipMode` map assigns App,
