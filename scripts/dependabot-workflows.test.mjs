@@ -125,6 +125,35 @@ test("workflow parsing rejects duplicate YAML keys", () => {
   );
 });
 
+test("main pushes publish only deterministic supply-chain baselines", () => {
+  const supplyChain = workflow(".github/workflows/supply-chain.yml");
+
+  assert.deepEqual(Object.keys(supplyChain.on).sort(), [
+    "pull_request",
+    "push",
+    "schedule",
+    "workflow_dispatch",
+  ]);
+  assert.deepEqual(supplyChain.on.push, { branches: ["main"] });
+  assert.deepEqual(supplyChain.on.pull_request, { branches: ["main"] });
+  assert.deepEqual(supplyChain.on.schedule, [{ cron: "17 6 * * *" }]);
+  assert.equal(supplyChain.on.workflow_dispatch, null);
+  assert.equal(
+    supplyChain.concurrency.group,
+    "${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}",
+  );
+  for (const jobId of [
+    "osv",
+    "osv-pnpm-runtime",
+    "osv-vercel-cli-runtime",
+    "osv-pnpm-bootstrap",
+  ]) {
+    assert.equal(supplyChain.jobs[jobId].if, "github.event_name != 'push'");
+  }
+  assert.equal(supplyChain.jobs["lockfile-lint"].if, undefined);
+  assert.equal(supplyChain.jobs["version-skew"].if, undefined);
+});
+
 test("sensitive Actions updates stay out of the routine Dependabot group", () => {
   const config = parse(read(".github/dependabot.yml"), { uniqueKeys: true });
   const actionsConfig = config.updates.find(
@@ -1957,9 +1986,20 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
     "validate",
     "candidate_cli_smoke",
   ]);
-  assert.match(stage.if, /^always\(\)/);
+  assert.match(stage.if, /^!cancelled\(\)/);
   assert.match(stage.if, /candidate_cli_smoke\.result == 'success'/);
   assert.match(stage.if, /candidate_cli_smoke\.result == 'skipped'/);
+  for (const [jobName, job] of [
+    ["intent", intent],
+    ["mutate", mutate],
+    ["receipt", receipt],
+  ]) {
+    assert.match(
+      job.if,
+      /^!cancelled\(\)/,
+      `${jobName} must evaluate its exact result checks after the generic repair path skips candidate_cli_smoke and stop after cancellation`,
+    );
+  }
 
   for (const appJob of [stage, mutate]) {
     const repairToken = appJob.steps.find(

@@ -32,6 +32,13 @@ const DEPENDABOT_USER_ID = 49_699_333;
 const PROCESSOR_MODES = new Set(["observe", "assist", "prepare"]);
 const PROCESSOR_PHASES = new Set(["request", "mutate", "finalize"]);
 const PASSING_CONCLUSIONS = new Set(["success"]);
+const BRANCH_FAILURE_CONCLUSIONS = new Set(["failure"]);
+const PROVIDER_RETRY_FAILURE_CONCLUSIONS = new Set([
+  "error",
+  "failure",
+  "startup_failure",
+  "timed_out",
+]);
 const PENDING_STATUSES = new Set([
   "expected",
   "in_progress",
@@ -301,70 +308,87 @@ const CHECK_POLICY_DEFINITIONS = [
 const GITHUB_ACTIONS_APP_ID = 15_368;
 const CHECK_SOURCE_POLICY = Object.freeze({
   "action-pins": {
+    baselineEvents: [],
     events: ["pull_request_target"],
     workflowPaths: [".github/workflows/action-pins.yml"],
   },
   "action-pins-source": {
+    baselineEvents: [],
     events: ["pull_request"],
     workflowPaths: [".github/workflows/action-pins-source.yml"],
   },
   "claude-review": {
+    baselineEvents: [],
     events: ["workflow_run"],
     workflowPaths: [".github/workflows/dependabot-claude-review.yml"],
   },
   ci: {
+    baselineEvents: ["push"],
     events: ["pull_request", "push"],
     workflowPaths: [".github/workflows/ci.yml"],
   },
   "dependency-review": {
+    baselineEvents: [],
     events: ["pull_request"],
     workflowPaths: [".github/workflows/dependency-review.yml"],
   },
   "e2e-celo": {
+    baselineEvents: ["schedule", "workflow_dispatch"],
     events: ["pull_request", "schedule", "workflow_dispatch"],
     workflowPaths: [".github/workflows/e2e.yml"],
   },
   "e2e-governance": {
+    baselineEvents: ["schedule", "workflow_dispatch"],
     events: ["pull_request", "schedule", "workflow_dispatch"],
     workflowPaths: [".github/workflows/e2e.yml"],
   },
   "e2e-monad": {
+    baselineEvents: ["schedule", "workflow_dispatch"],
     events: ["pull_request", "schedule", "workflow_dispatch"],
     workflowPaths: [".github/workflows/e2e.yml"],
   },
   "e2e-plan": {
+    baselineEvents: ["schedule", "workflow_dispatch"],
     events: ["pull_request", "schedule", "workflow_dispatch"],
     workflowPaths: [".github/workflows/e2e.yml"],
   },
   "e2e-seed": {
+    baselineEvents: ["schedule", "workflow_dispatch"],
     events: ["pull_request", "schedule", "workflow_dispatch"],
     workflowPaths: [".github/workflows/e2e.yml"],
   },
   quality: {
+    baselineEvents: ["push", "workflow_dispatch"],
     events: ["pull_request", "push", "workflow_dispatch"],
     workflowPaths: [".github/workflows/quality-budgets.yml"],
   },
   "supply-chain-lockfile": {
+    baselineEvents: ["push", "schedule", "workflow_dispatch"],
     events: ["pull_request", "schedule", "workflow_dispatch"],
     workflowPaths: [".github/workflows/supply-chain.yml"],
   },
   "supply-chain-pnpm-bootstrap-osv": {
+    baselineEvents: ["push", "schedule", "workflow_dispatch"],
     events: ["pull_request", "schedule", "workflow_dispatch"],
     workflowPaths: [".github/workflows/supply-chain.yml"],
   },
   "supply-chain-pnpm-runtime-osv": {
+    baselineEvents: ["push", "schedule", "workflow_dispatch"],
     events: ["pull_request", "schedule", "workflow_dispatch"],
     workflowPaths: [".github/workflows/supply-chain.yml"],
   },
   "supply-chain-root-osv": {
+    baselineEvents: ["push", "schedule", "workflow_dispatch"],
     events: ["pull_request", "schedule", "workflow_dispatch"],
     workflowPaths: [".github/workflows/supply-chain.yml"],
   },
   "supply-chain-vercel-runtime-osv": {
+    baselineEvents: ["push", "schedule", "workflow_dispatch"],
     events: ["pull_request", "schedule", "workflow_dispatch"],
     workflowPaths: [".github/workflows/supply-chain.yml"],
   },
   "supply-chain-version-skew": {
+    baselineEvents: ["push", "schedule", "workflow_dispatch"],
     events: ["pull_request", "schedule", "workflow_dispatch"],
     workflowPaths: [".github/workflows/supply-chain.yml"],
   },
@@ -373,19 +397,23 @@ const CHECK_SOURCE_POLICY = Object.freeze({
     workflowPaths: [".github/workflows/vercel-main-deployment.yml"],
   },
   "vercel-preview": {
+    baselineEvents: [],
     events: ["pull_request_target"],
     kind: "status",
     workflowPaths: [".github/workflows/vercel-preview-intake.yml"],
   },
   "visual-app": {
+    baselineEvents: ["push"],
     events: ["pull_request", "push"],
     workflowPaths: [".github/workflows/visual.yml"],
   },
   "visual-plan": {
+    baselineEvents: ["push"],
     events: ["pull_request", "push"],
     workflowPaths: [".github/workflows/visual.yml"],
   },
   "visual-ui": {
+    baselineEvents: ["push"],
     events: ["pull_request", "push"],
     workflowPaths: [".github/workflows/visual.yml"],
   },
@@ -2214,6 +2242,7 @@ function trustedCheckSource(
   definition,
   repository,
   pullRequestNumberValue = null,
+  baseline = false,
 ) {
   if (!check) return { reason: "missing", trusted: false };
   const policy = CHECK_SOURCE_POLICY[definition.id];
@@ -2236,8 +2265,18 @@ function trustedCheckSource(
   if (!policy.workflowPaths.includes(check.workflowPath)) {
     return { reason: "unexpected-workflow-path", trusted: false };
   }
-  if (!policy.events.includes(check.workflowEvent)) {
+  const allowedEvents =
+    baseline && Array.isArray(policy.baselineEvents)
+      ? policy.baselineEvents
+      : policy.events;
+  if (!allowedEvents.includes(check.workflowEvent)) {
     return { reason: "unexpected-workflow-event", trusted: false };
+  }
+  if (
+    baseline &&
+    (check.runHeadBranch !== "main" || check.runHeadSha !== headSha)
+  ) {
+    return { reason: "untrusted-baseline-source-ref", trusted: false };
   }
   if (definition.id === "vercel-preview") {
     const title = VERCEL_PREVIEW_INTAKE_TITLE_PATTERN.exec(
@@ -2483,6 +2522,7 @@ function evaluateChecksForSha(
   plannerDecisions = {},
   repository,
   pullRequestNumberValue = null,
+  baseline = false,
 ) {
   const results = [];
   const byId = new Map();
@@ -2496,12 +2536,16 @@ function evaluateChecksForSha(
       definition,
       repository,
       pullRequestNumberValue,
+      baseline,
     );
     if (check && !source.trusted) {
       state = "failing";
       reason = source.reason;
     }
-    if (state === "skipped") {
+    if (state === "skipped" && baseline) {
+      state = "missing";
+      reason = "baseline-skip";
+    } else if (state === "skipped") {
       const planner = byId.get(definition.skippedBy);
       if (
         definition.skippedBy &&
@@ -2545,6 +2589,7 @@ function evaluateChecksForSha(
       findings,
       reason,
       source: source.reason,
+      sourceTrusted: source.trusted,
       skippedBy: definition.skippedBy ?? null,
       state,
     };
@@ -2579,6 +2624,7 @@ export function evaluateDependabotChecks({
         plannerDecisions,
         repository,
         null,
+        true,
       )
     : [];
   const baselineById = new Map(
@@ -2588,17 +2634,39 @@ export function evaluateDependabotChecks({
   for (const result of policy) {
     if (result.state !== "failing") continue;
     const baselineResult = baselineById.get(result.id);
+    const baselineUnavailable =
+      baselineResult?.state === "missing" ||
+      (baselineResult?.state === "pending" &&
+        baselineResult.sourceTrusted === true);
+    const hasDirectBranchFindings =
+      result.id === "claude-review" && result.findings.length > 0;
+    const failureConclusions =
+      result.failureAttribution === "external" && !hasDirectBranchFindings
+        ? PROVIDER_RETRY_FAILURE_CONCLUSIONS
+        : BRANCH_FAILURE_CONCLUSIONS;
     failures.push({
       attribution:
-        result.id === "claude-review" && result.findings.length > 0
-          ? "branch"
-          : baselineResult?.state === "failing"
-            ? "baseline"
-            : baselineResult?.state === "passing"
+        result.sourceTrusted !== true ||
+        !failureConclusions.has(result.check?.conclusion)
+          ? "unknown"
+          : hasDirectBranchFindings
+            ? "branch"
+            : baselineResult?.state === "failing" &&
+                baselineResult.sourceTrusted === true &&
+                failureConclusions.has(baselineResult.check?.conclusion)
               ? result.failureAttribution === "external"
-                ? "non-deterministic"
-                : "branch"
-              : "unknown",
+                ? "provider-baseline"
+                : "baseline"
+              : baselineResult?.state === "passing" &&
+                  baselineResult.sourceTrusted === true
+                ? result.failureAttribution === "external"
+                  ? "non-deterministic"
+                  : "branch"
+                : result.failureAttribution === "external" &&
+                    baselineSha !== null &&
+                    baselineUnavailable
+                  ? "provider-unbaselined"
+                  : "unknown",
       findings: result.findings,
       id: result.id,
       name: result.check?.name ?? null,
@@ -3970,14 +4038,41 @@ function recommendedDisposition({
   if (checks.state === "pending") return "waiting-checks";
   let branchFailures = [];
   if (checks.state === "failing") {
-    const retryFailures = checks.failures.filter(
-      ({ attribution }) =>
-        attribution === "unknown" || attribution === "non-deterministic",
-    );
-    if (retryFailures.length > 0) return "waiting-retry";
     branchFailures = checks.failures.filter(
       ({ attribution }) => attribution === "branch",
     );
+    const unknownFailures = checks.failures.filter(
+      ({ attribution }) => attribution === "unknown",
+    );
+    const knownAttributions = new Set([
+      "baseline",
+      "branch",
+      "non-deterministic",
+      "provider-baseline",
+      "provider-unbaselined",
+      "unknown",
+    ]);
+    const unsupportedFailures = checks.failures.filter(
+      ({ attribution }) => !knownAttributions.has(attribution),
+    );
+    if (unknownFailures.length > 0 || unsupportedFailures.length > 0) {
+      return "waiting-retry";
+    }
+    if (checks.failures.some(({ attribution }) => attribution === "baseline")) {
+      return "waiting-baseline";
+    }
+    const providerFailures = checks.failures.filter(
+      ({ attribution }) =>
+        attribution === "non-deterministic" ||
+        attribution === "provider-baseline" ||
+        attribution === "provider-unbaselined",
+    );
+    if (
+      providerFailures.length > 0 &&
+      (!preparing || branchFailures.length === 0)
+    ) {
+      return "waiting-retry";
+    }
     if (branchFailures.length === 0) return "waiting-baseline";
   }
   if (preparing && protectedRuntimeOperation !== null) {
@@ -4003,7 +4098,7 @@ function recommendedDisposition({
     if (
       preparing &&
       protectedRuntimeOperation?.satisfied === true &&
-      !onlyClaudeReviewFailures(checks)
+      !onlyClaudeReviewBranchFailures(checks)
     ) {
       return "manual-repair-required";
     }
@@ -4052,8 +4147,10 @@ function autonomousRepairPathForbidden(path) {
   );
 }
 
-function onlyClaudeReviewFailures(checks) {
-  return (checks.failures ?? []).every(({ id }) => id === "claude-review");
+function onlyClaudeReviewBranchFailures(checks) {
+  return (checks.failures ?? []).every(
+    ({ attribution, id }) => attribution !== "branch" || id === "claude-review",
+  );
 }
 
 function repairTouchesForbiddenPath({ checks = {}, feedback = {} }) {
@@ -4117,7 +4214,7 @@ function canCarryBoundProtectedRuntimePaths({
   return (
     forbiddenChangedPaths.length > 0 &&
     forbiddenChangedPaths.every((path) => requiredPaths.has(path)) &&
-    onlyClaudeReviewFailures(evaluation.checks) &&
+    onlyClaudeReviewBranchFailures(evaluation.checks) &&
     evidencePaths.length > 0 &&
     evidencePaths.length <= 8 &&
     evidencePaths.every(
@@ -4153,6 +4250,22 @@ export function createDependabotRepairPacket(evaluation) {
     checks: evaluation.checks,
     feedback: evaluation.feedback,
   });
+  const branchFailureEvidence = evaluation.checks.failures.filter(
+    ({ attribution }) => attribution === "branch",
+  );
+  const hasBlockingFailureAttribution = evaluation.checks.failures.some(
+    ({ attribution }) => {
+      if (attribution === "branch") return false;
+      if (
+        attribution === "non-deterministic" ||
+        attribution === "provider-baseline" ||
+        attribution === "provider-unbaselined"
+      ) {
+        return branchFailureEvidence.length === 0;
+      }
+      return true;
+    },
+  );
   if (
     evaluation.identity?.valid !== true ||
     evaluation.identity?.prepareAuthority !== true ||
@@ -4170,15 +4283,11 @@ export function createDependabotRepairPacket(evaluation) {
       })) ||
     evaluation.checks.missing.length > 0 ||
     evaluation.checks.pending.length > 0 ||
-    evaluation.checks.failures.some(
-      ({ attribution }) =>
-        attribution === "unknown" || attribution === "non-deterministic",
-    )
+    hasBlockingFailureAttribution
   ) {
     return null;
   }
-  const branchFailures = evaluation.checks.failures
-    .filter(({ attribution }) => attribution === "branch")
+  const branchFailures = branchFailureEvidence
     .map(({ attribution, id, name }) => {
       const result = evaluation.checks.policy.find(
         (policyResult) => policyResult.id === id,

@@ -20,6 +20,8 @@ name: Supply Chain
 #                         real Linux npm-ci proof for the bootstrap lock.
 #   6. version-skew     — every cataloged dep is "catalog:" or the exact catalog
 #                         version (no silent drift off the shared catalog).
+#                         Main pushes run only these two deterministic jobs so
+#                         Dependabot can bind failures to an exact main baseline.
 #
 # Repository-wide suppressions live in osv-scanner.toml. Advisories suppressed
 # across configured scanners must stay in sync with the `allow-ghsas` list in
@@ -34,6 +36,8 @@ name: Supply Chain
 # repository-wide deduplicated failure issue lifecycle.
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
   schedule:
@@ -41,8 +45,10 @@ on:
     - cron: 17 6 * * *
   workflow_dispatch:
 
+# A short main baseline must not cancel a full scheduled or manual OSV scan at
+# the same SHA.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: true
 
 permissions: read-all
@@ -50,6 +56,7 @@ permissions: read-all
 jobs:
   osv:
     name: osv-scanner
+    if: github.event_name != 'push'
     permissions:
       actions: read
       contents: read
@@ -64,12 +71,13 @@ jobs:
         --lockfile=pnpm-lock.yaml
       # SARIF upload needs `security-events: write`, which Dependabot and forked
       # `pull_request` runs don't get (read-only GITHUB_TOKEN) — uploading there
-      # fails the check even when the scan passes. Upload only on schedule/main
-      # runs; PRs still block via fail-on-vuln (default true).
+      # fails the check even when the scan passes. Upload only on scheduled or
+      # manual runs; PRs still block via fail-on-vuln (default true).
       upload-sarif: ${{ github.event_name != 'pull_request' }}
 
   osv-pnpm-runtime:
     name: osv-scanner (trusted pnpm runtime)
+    if: github.event_name != 'push'
     permissions:
       actions: read
       contents: read
@@ -85,6 +93,7 @@ jobs:
 
   osv-vercel-cli-runtime:
     name: osv-scanner (standalone Vercel CLI runtime)
+    if: github.event_name != 'push'
     permissions:
       actions: read
       contents: read
@@ -98,6 +107,7 @@ jobs:
 
   osv-pnpm-bootstrap:
     name: osv-scanner (trusted pnpm bootstrap)
+    if: github.event_name != 'push'
     permissions:
       actions: read
       contents: read
