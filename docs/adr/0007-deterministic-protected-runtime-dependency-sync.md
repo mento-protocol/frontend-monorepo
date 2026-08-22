@@ -92,7 +92,10 @@ actionable thread matches the selected operation. Vercel accepts only an exact
 structured Cursor `Incomplete Vercel CLI runtime sync` finding on root
 `package.json`. Next accepts only an exact structured Cursor `Next bump never
 applied` finding on root `pnpm-lock.yaml`. Each finding must bind the operation's
-source and target versions and trusted seed or current review commit. The v3
+source and target versions and a review commit from the authenticated prepare
+lineage. This includes an authenticated intermediate repair head that remains
+in the lineage after a required refresh. A commit outside that lineage remains
+manual. The v3
 packet binds its comment, commit, and body digest. Any different or additional
 feedback remains manual. Finalize can reply and resolve the accepted thread only
 after the typed Repair receipt, complete green gates, and clean exact-head

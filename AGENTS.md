@@ -18,6 +18,16 @@ After creating or locating a PR, verify `isDraft: false`. If a pre-existing PR
 is unexpectedly draft, run `gh pr ready <number>` immediately before requesting
 reviews or starting the babysit loop.
 
+## Connected fork clock
+
+Both connected-swap seed scripts use `scripts/fork-test-clock.mjs`. The helper
+models the deployed `MarketHoursBreaker` UTC calendar. It selects wall time only
+when the FX market stays open for two more hours. Otherwise, it advances the
+fork to the next safe opening. It never rewinds, and the second seed preserves
+an already-safe future timestamp. Keep Celo and Monad on this shared helper.
+Derive raw fork transaction deadlines from the latest block timestamp. Changes
+to the helper must select the Celo app, Celo governance, and Monad E2E lanes.
+
 ## Dependabot processing
 
 Use `.github/workflows/dependabot-process.yml` for every Dependabot decision.
@@ -151,7 +161,7 @@ Missing v3 proof, an extra protected path, an unsafe evidence path, or a mixed
 non-review failure remains `manual-repair-required`.
 The typed Vercel or Next operation may carry exact Cursor feedback only when
 each structured finding matches the operation kind, source and target versions,
-and trusted seed or current review commit. The Vercel finding must name root
+and a review commit from the authenticated prepare lineage. The Vercel finding must name root
 `package.json`; the Next finding must name root `pnpm-lock.yaml`. Every other
 unresolved finding stays manual. The packet binds each accepted comment and
 body digest. Evidence binds the packet commit to the immutable review-comment

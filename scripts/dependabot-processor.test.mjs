@@ -26,6 +26,7 @@ import {
   classifyDependabotRisk,
   createLiveGitHubAdapter,
   deriveImmutableDependabotMetadata,
+  derivePlannerDecisions,
   createDependabotRepairPacket,
   evaluateDependabotChecks,
   evaluateDependabotPullRequest,
@@ -2220,6 +2221,21 @@ test("the policy names every CI, supply-chain, quality, E2E, VRT, review, and Ve
     Object.keys(CHECK_NAMES).sort(),
   );
   assert.equal(new Set(DEPENDABOT_CHECK_POLICY.map(({ id }) => id)).size, 21);
+});
+
+test("the shared fork clock selects every connected E2E lane", () => {
+  for (const path of [
+    "scripts/fork-test-clock.mjs",
+    "scripts/fork-test-clock.test.mjs",
+  ]) {
+    assert.deepEqual(derivePlannerDecisions([path]), {
+      e2eApp: true,
+      e2eGovernance: true,
+      e2eMonad: true,
+      visualApp: false,
+      visualUi: false,
+    });
+  }
 });
 
 test("accepts skipped E2E and VRT jobs only when their exact-head planners pass", () => {
@@ -5054,6 +5070,154 @@ test("the exact Cursor Next mismatch is packet-bound to the typed catalog sync",
     const blocked = evaluateWithFeedback(feedback);
     assert.equal(blocked.disposition, "manual-repair-required");
     assert.equal(blocked.repairPacket, null);
+  }
+});
+
+test("an exact Cursor Next finding stays bound across authenticated repair and refresh lineage", () => {
+  const headRef = "dependabot/npm_and_yarn/frontend-core-2f0c077f04";
+  const first = evaluateDependabotPullRequest(nextCatalogSnapshot(), {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(first.disposition, "repair-required");
+  assert.notEqual(first.repairPacket, null);
+
+  const processorCheck = processorRepairReceipt(1, {
+    headSha: HEAD_SHA,
+    id: 10_411,
+    packet: first.repairPacket,
+    packetEncoding: "canonical",
+  });
+  const repairCheck = repairReceiptCheck({
+    attempt: 1,
+    headRef,
+    headSha: OTHER_SHA,
+    id: 30_411,
+    packetDigest: rawDigest(processorCheck.outputText),
+    parentHeadSha: HEAD_SHA,
+    processorCheckId: processorCheck.id,
+  });
+  const refreshRequest = refreshReceiptCheck("requested", {
+    headRef,
+    id: 20_411,
+    parentHeadSha: OTHER_SHA,
+  });
+  const refreshCompletion = refreshReceiptCheck("completed", {
+    headRef,
+    headSha: SECOND_HEAD_SHA,
+    id: 20_412,
+    parentHeadSha: OTHER_SHA,
+    requestCheckId: refreshRequest.id,
+  });
+  const reviewFeedback = classifyDependabotFeedback({
+    headSha: SECOND_HEAD_SHA,
+    reviews: [cursorReview(OTHER_SHA)],
+    threads: [
+      {
+        comments: [
+          {
+            actor: { association: "NONE", login: "cursor", type: "Bot" },
+            body: nextCatalogSyncCursorBody({
+              reviewCommitSha: OTHER_SHA,
+            }),
+            createdAt: "2026-08-22T17:07:46Z",
+            id: 11,
+            replyToId: null,
+            reviewCommitSha: OTHER_SHA,
+            reviewId: 21,
+          },
+        ],
+        id: "thread-next-catalog-sync",
+        line: 277,
+        outdated: false,
+        path: "pnpm-lock.yaml",
+        resolved: false,
+      },
+    ],
+  });
+  const current = nextCatalogSnapshot({
+    commits: [
+      nativeDependabotCommit(HEAD_SHA),
+      preparedCommit(OTHER_SHA, HEAD_SHA),
+      {
+        authorId: PREPARE_ACTOR.botId,
+        authorLogin: PREPARE_ACTOR.botLogin,
+        authorType: "Bot",
+        ...GITHUB_SYSTEM_COMMITTER,
+        parents: [OTHER_SHA, BASE_SHA],
+        sha: SECOND_HEAD_SHA,
+        verified: true,
+        verificationReason: "valid",
+      },
+    ],
+    headSha: SECOND_HEAD_SHA,
+    repairHistoryChecks: [
+      processorCheck,
+      repairCheck,
+      refreshRequest,
+      refreshCompletion,
+    ],
+  });
+  current.feedback = { ...current.feedback, ...reviewFeedback };
+
+  const selected = evaluateDependabotPullRequest(current, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(selected.repairAttempt, 2);
+  assert.equal(selected.disposition, "repair-required");
+  assert.equal(
+    selected.repairPacket?.schema,
+    DEPENDABOT_PROTECTED_RUNTIME_REPAIR_PACKET_SCHEMA,
+  );
+  assert.deepEqual(selected.repairAttempts.authenticatedLineageHeadShas, [
+    HEAD_SHA,
+    OTHER_SHA,
+    SECOND_HEAD_SHA,
+  ]);
+  assert.deepEqual(selected.repairPacket?.feedbackThreads, [
+    {
+      commentId: 11,
+      commitSha: OTHER_SHA,
+      digest: selected.feedback.actionableThreads[0].bodyDigest,
+      line: 277,
+      path: "pnpm-lock.yaml",
+      source: "cursor",
+      threadId: "thread-next-catalog-sync",
+    },
+  ]);
+
+  const outsideLineage = structuredClone(current);
+  outsideLineage.feedback.actionableThreads[0].reviewCommitSha = BASE_SHA;
+  const blocked = evaluateDependabotPullRequest(outsideLineage, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(blocked.disposition, "manual-repair-required");
+  assert.equal(blocked.repairPacket, null);
+
+  const missingRefreshProof = structuredClone(current);
+  missingRefreshProof.repairHistoryChecks = [processorCheck, repairCheck];
+  const untrusted = evaluateDependabotPullRequest(missingRefreshProof, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.deepEqual(untrusted.repairAttempts.authenticatedLineageHeadShas, []);
+  assert.equal(untrusted.repairPacket, null);
+
+  for (const authenticatedLineageHeadShas of [
+    [HEAD_SHA, OTHER_SHA, OTHER_SHA],
+    [OTHER_SHA, SECOND_HEAD_SHA],
+    [HEAD_SHA, OTHER_SHA],
+  ]) {
+    const malformed = structuredClone(selected);
+    malformed.repairAttempts.authenticatedLineageHeadShas =
+      authenticatedLineageHeadShas;
+    assert.equal(createDependabotRepairPacket(malformed), null);
   }
 });
 
