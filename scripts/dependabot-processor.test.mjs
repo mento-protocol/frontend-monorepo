@@ -4844,7 +4844,7 @@ test("a verified native Dependabot rewrite starts a new preparation generation",
   assert.notEqual(evaluation.repairPacket, null);
 });
 
-test("a continuous multi-event Dependabot rewrite starts a new preparation generation", () => {
+test("a continuous Dependabot rewrite accepts equal-resolution event times", () => {
   const feedback = nativeForcePushFeedback();
   feedback.forcePushEventCount = 2;
   feedback.forcePushEvents = [
@@ -4856,7 +4856,7 @@ test("a continuous multi-event Dependabot rewrite starts a new preparation gener
     {
       ...feedback.forcePushEvents[0],
       beforeSha: SECOND_HEAD_SHA,
-      createdAt: "2026-08-10T09:00:00Z",
+      createdAt: "2026-08-10T08:00:00Z",
       eventId: "force-push-event-2",
     },
   ];
@@ -4898,6 +4898,7 @@ test("human, spoofed, malformed, mixed, and unbound rewrites remain vetoed", () 
   const baseFeedback = nativeForcePushFeedback();
   const cases = [
     {
+      expectedReason: "invalid-force-push-event-chain",
       label: "human actor",
       mutate(feedback) {
         feedback.forcePushEvents[0].actorId = 7;
@@ -4906,36 +4907,42 @@ test("human, spoofed, malformed, mixed, and unbound rewrites remain vetoed", () 
       },
     },
     {
+      expectedReason: "invalid-force-push-event-chain",
       label: "Dependabot login with the wrong ID",
       mutate(feedback) {
         feedback.forcePushEvents[0].actorId = 7;
       },
     },
     {
+      expectedReason: "invalid-force-push-event-chain",
       label: "Dependabot ID with the wrong actor type",
       mutate(feedback) {
         feedback.forcePushEvents[0].actorType = "User";
       },
     },
     {
+      expectedReason: "invalid-force-push-event-chain",
       label: "malformed destination",
       mutate(feedback) {
         feedback.forcePushEvents[0].afterSha = "malformed";
       },
     },
     {
+      expectedReason: "invalid-force-push-generation-seed",
       label: "latest destination does not bind the seed",
       mutate(feedback) {
         feedback.forcePushEvents[0].afterSha = SECOND_HEAD_SHA;
       },
     },
     {
+      expectedReason: "incomplete-force-push-event-census",
       label: "incomplete event census",
       mutate(feedback) {
         feedback.forcePushEventCount = 2;
       },
     },
     {
+      expectedReason: "invalid-force-push-event-chain",
       label: "wrong branch ref",
       mutate(feedback) {
         feedback.forcePushEvents[0].headRef =
@@ -4943,24 +4950,28 @@ test("human, spoofed, malformed, mixed, and unbound rewrites remain vetoed", () 
       },
     },
     {
+      expectedReason: "invalid-force-push-commit-census",
       label: "untrusted historical commit",
       mutate(feedback) {
         feedback.forcePushCommits[0].verificationReason = "unknown_key";
       },
     },
     {
+      expectedReason: "invalid-force-push-commit-census",
       label: "missing historical commit census",
       mutate(feedback) {
         feedback.forcePushCommits.pop();
       },
     },
     {
+      expectedReason: "invalid-force-push-commit-census",
       label: "Dependabot rewrite erased a Prepare App commit",
       mutate(feedback) {
         feedback.forcePushCommits[0] = preparedCommit(OTHER_SHA, MERGE_SHA);
       },
     },
     {
+      expectedReason: "invalid-force-push-event-chain",
       label: "cyclic rewrite returned to a prior seed",
       mutate(feedback) {
         feedback.forcePushEventCount = 2;
@@ -4985,6 +4996,7 @@ test("human, spoofed, malformed, mixed, and unbound rewrites remain vetoed", () 
       },
     },
     {
+      expectedReason: "invalid-force-push-event-chain",
       label: "reordered events",
       mutate(feedback) {
         feedback.forcePushEventCount = 2;
@@ -5001,6 +5013,7 @@ test("human, spoofed, malformed, mixed, and unbound rewrites remain vetoed", () 
       },
     },
     {
+      expectedReason: "invalid-force-push-event-chain",
       label: "discontinuous events",
       mutate(feedback) {
         feedback.forcePushEventCount = 2;
@@ -5015,6 +5028,7 @@ test("human, spoofed, malformed, mixed, and unbound rewrites remain vetoed", () 
       },
     },
     {
+      expectedReason: "invalid-force-push-event-chain",
       label: "mixed history",
       mutate(feedback) {
         feedback.forcePushEventCount = 2;
@@ -5031,6 +5045,7 @@ test("human, spoofed, malformed, mixed, and unbound rewrites remain vetoed", () 
       },
     },
     {
+      expectedReason: "invalid-force-push-generation-seed",
       label: "spoofed current seed actor",
       mutate() {},
       mutateSnapshot(current) {
@@ -5038,6 +5053,7 @@ test("human, spoofed, malformed, mixed, and unbound rewrites remain vetoed", () 
       },
     },
     {
+      expectedReason: "invalid-force-push-generation-seed",
       label: "invalid current seed verification",
       mutate() {},
       mutateSnapshot(current) {
@@ -5070,6 +5086,12 @@ test("human, spoofed, malformed, mixed, and unbound rewrites remain vetoed", () 
       workflowContext: WORKFLOW_CONTEXT,
     });
     assert.equal(evaluation.feedback.forcePushVeto, true, testCase.label);
+    assert.ok(
+      evaluation.feedback.forcePushGenerationReasons.includes(
+        testCase.expectedReason,
+      ),
+      testCase.label,
+    );
     assert.equal(evaluation.feedback.clear, false, testCase.label);
     assert.equal(evaluation.identity.prepareAuthority, false, testCase.label);
     assert.equal(

@@ -837,13 +837,15 @@ function normalizedCommitActor(commit, role) {
 }
 
 function normalizedCommitEvidence(commit) {
+  const author = normalizedCommitActor(commit, "author");
+  const committer = normalizedCommitActor(commit, "committer");
   return {
-    authorId: normalizedCommitActor(commit, "author").id || null,
-    authorLogin: normalizedCommitActor(commit, "author").login,
-    authorType: normalizedCommitActor(commit, "author").type,
-    committerId: normalizedCommitActor(commit, "committer").id || null,
-    committerLogin: normalizedCommitActor(commit, "committer").login,
-    committerType: normalizedCommitActor(commit, "committer").type,
+    authorId: author.id || null,
+    authorLogin: author.login,
+    authorType: author.type,
+    committerId: committer.id || null,
+    committerLogin: committer.login,
+    committerType: committer.type,
     message: commit?.message ?? commit?.commit?.message ?? null,
     parents: commitParentShas(commit),
     sha: commit?.sha ?? null,
@@ -3108,7 +3110,7 @@ function evaluateForcePushGeneration({
       previousEvent === null ||
       (event.createdAt !== null &&
         previousEvent.createdAt !== null &&
-        Date.parse(event.createdAt) > Date.parse(previousEvent.createdAt));
+        Date.parse(event.createdAt) >= Date.parse(previousEvent.createdAt));
     const continuous =
       previousEvent === null || previousEvent.afterSha === event.beforeSha;
     const exactActor =

@@ -515,7 +515,9 @@ pnpm dependabot:process:test
 ```
 
 See the [Dependabot processing runbook](docs/dependabot-automation.md) and
-[ADR 0006](docs/adr/0006-dependabot-processing-controller.md).
+[ADR 0006](docs/adr/0006-dependabot-processing-controller.md) with its native
+rewrite boundary in
+[ADR 0008](docs/adr/0008-authenticated-dependabot-native-generation-boundaries.md).
 
 #### When to Use Catalog vs Direct Versions
 
@@ -632,7 +634,9 @@ The repository is set up with GitHub Actions for CI:
   `workflow_dispatch` path. Unknown mode or evidence stays observe-only and
   manual/veto policy can only remove authority. See
   [the operator runbook](docs/dependabot-automation.md) and
-  [ADR 0006](docs/adr/0006-dependabot-processing-controller.md).
+  [ADR 0006](docs/adr/0006-dependabot-processing-controller.md) with its native
+  rewrite boundary in
+  [ADR 0008](docs/adr/0008-authenticated-dependabot-native-generation-boundaries.md).
 - **CD**: GitHub Actions automatically builds `app.mento.org`,
   `governance.mento.org`, `reserve.mento.org`, and `ui.mento.org` previews for
   trusted same-repository PRs with exact-SHA aggregate `Vercel Preview`

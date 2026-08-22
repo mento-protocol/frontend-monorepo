@@ -50,8 +50,8 @@ The controller admits the generation only when all of these conditions hold:
 3. Every event names the exact PR head ref.
 4. Every actor is GitHub Dependabot bot ID `49699333` and type `Bot`.
 5. Every before and after value is a distinct lowercase 40-character SHA.
-6. Event times increase, each after SHA equals the next before SHA, and the full
-   chain contains no repeated SHA.
+6. Event times do not decrease, each after SHA equals the next before SHA, and
+   the full chain contains no repeated SHA.
 7. Every referenced commit has the exact Dependabot author ID, login, and type.
 8. Every referenced commit has the exact Dependabot committer or exact
    `web-flow` user ID `19864447` and type `User`.
