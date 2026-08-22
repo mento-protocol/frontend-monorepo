@@ -45,6 +45,16 @@ function filesBelow(directory) {
   });
 }
 
+function makeDirectoryTreeRemovable(directory) {
+  if (!existsSync(directory)) return;
+  chmodSync(directory, 0o700);
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      makeDirectoryTreeRemovable(join(directory, entry.name));
+    }
+  }
+}
+
 function dependabotPatternMatches(pattern, dependency) {
   const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`^${escaped.replaceAll("\\*", ".*")}$`).test(dependency);
@@ -1229,6 +1239,93 @@ exit 64
   }
 });
 
+test("the exact-SHA terminal source materialization imports every local dependency", () => {
+  const temporaryDirectory = mkdtempSync(
+    join(tmpdir(), "dependabot-terminal-source-materialization-"),
+  );
+  const mockBin = join(temporaryDirectory, "bin");
+  const mockGh = join(mockBin, "gh");
+  const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+  const workflowSha = "d".repeat(40);
+  const runId = `${process.pid}${Date.now()}`;
+  const trustedRoot = join("/tmp", `dependabot-terminal-source-${runId}-1`);
+
+  try {
+    mkdirSync(mockBin, { recursive: true });
+    writeFileSync(
+      mockGh,
+      `#!/usr/bin/env bash
+set -euo pipefail
+test "$GH_TOKEN" = "$EXPECTED_READ_TOKEN"
+for argument in "$@"; do
+  if [[ "$argument" == repos/*/commits/* ]]; then
+    test "$argument" = "repos/$REPOSITORY/commits/$WORKFLOW_SHA"
+    printf '%s\\n' "$WORKFLOW_SHA"
+    exit 0
+  fi
+  if [[ "$argument" == repos/*/contents/* ]]; then
+    source_path="\${argument#*contents/}"
+    source_path="\${source_path%%\\?ref=*}"
+    test "$argument" = "repos/$REPOSITORY/contents/$source_path?ref=$WORKFLOW_SHA"
+    test -f "$MOCK_REPOSITORY_ROOT/$source_path"
+    /bin/cat "$MOCK_REPOSITORY_ROOT/$source_path"
+    exit 0
+  fi
+done
+exit 64
+`,
+    );
+    chmodSync(mockGh, 0o500);
+
+    const step = repair.jobs.candidate_cli_smoke.steps[0];
+    const result = runBashStep(step, {
+      EXPECTED_READ_TOKEN: "normal-read-token",
+      GH_TOKEN: "normal-read-token",
+      GITHUB_RUN_ATTEMPT: "1",
+      GITHUB_RUN_ID: runId,
+      MOCK_REPOSITORY_ROOT: repositoryRoot,
+      PATH: `${mockBin}:${process.env.PATH}`,
+      REPOSITORY: "mento-protocol/frontend-monorepo",
+      WORKFLOW_SHA: workflowSha,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.githubOutput, `root=${trustedRoot}\n`);
+
+    const trustedSync = join(
+      trustedRoot,
+      "scripts",
+      "dependabot-protected-runtime-sync.mjs",
+    );
+    const trustedContract = join(
+      trustedRoot,
+      "scripts",
+      "vercel-cli-runtime",
+      "contract.json",
+    );
+    assert.equal(
+      readFileSync(trustedContract, "utf8"),
+      read("scripts/vercel-cli-runtime/contract.json"),
+    );
+
+    const imported = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        'import { pathToFileURL } from "node:url"; await import(pathToFileURL(process.argv[2]).href);',
+        "materialization-test",
+        trustedSync,
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(imported.status, 0, imported.stderr);
+  } finally {
+    makeDirectoryTreeRemovable(trustedRoot);
+    rmSync(trustedRoot, { force: true, recursive: true });
+    rmSync(temporaryDirectory, { force: true, recursive: true });
+  }
+});
+
 test("processor normalizes only exact human-merge-only modes", () => {
   const evaluateJob = processor.jobs.evaluate;
   const mode = evaluateJob.steps.find(
@@ -2274,6 +2371,7 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
     "scripts/dependabot-preparation-receipts.mjs",
     "scripts/dependabot-protected-runtime-sync.mjs",
     "scripts/vercel-cli-runtime-contract.mjs",
+    "scripts/vercel-cli-runtime/contract.json",
     "scripts/vercel-pnpm-bootstrap/package.json",
     "scripts/vercel-pnpm-bootstrap/package-lock.json",
   ]) {

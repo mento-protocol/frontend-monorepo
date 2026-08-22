@@ -34,6 +34,8 @@ import { Controller, useForm, useFormContext } from "react-hook-form";
 import spacetime from "spacetime";
 import { formatUnits, parseEther } from "viem";
 
+const LOCK_AMOUNT_FORMAT = /^(?:\d+)(?:\.\d{1,18})?$/;
+
 // Helper function to calculate the first valid Wednesday
 const getFirstWednesdayAfterMinPeriod = () => {
   let targetDate = spacetime.now().add(MIN_LOCK_PERIOD_WEEKS, "week");
@@ -42,6 +44,16 @@ const getFirstWednesdayAfterMinPeriod = () => {
   }
   return targetDate.toNativeDate();
 };
+
+export function validateAmountWithinBalance(
+  value: unknown,
+  mentoBalance: bigint,
+) {
+  if (value === undefined || value === null || value === "") return true;
+  const normalized = String(value);
+  if (!LOCK_AMOUNT_FORMAT.test(normalized)) return true;
+  return parseEther(normalized) <= mentoBalance || "Insufficient balance";
+}
 
 interface LockFormFieldsProps {
   mentoBalance: bigint;
@@ -86,7 +98,7 @@ export const LockFormFields = forwardRef<
   });
 
   const methods = existingMethods || localMethods;
-  const { register, control, watch, setValue } = methods;
+  const { register, control, watch, setValue, trigger } = methods;
   const delegateEnabled = watch(LOCKING_DELEGATE_ENABLED_FORM_KEY);
   const amountToLock = watch(LOCKING_AMOUNT_FORM_KEY);
   const unlockDate = watch(LOCKING_UNLOCK_DATE_FORM_KEY);
@@ -98,12 +110,9 @@ export const LockFormFields = forwardRef<
       format: (v) => {
         if (v === undefined || v === null || v === "") return true;
         // Require a valid decimal number, with optional fractional part of 1-18 digits (no trailing dot like "0.")
-        const re = /^(?:\d+)(?:\.\d{1,18})?$/;
-        return re.test(v) || "Invalid amount format";
+        return LOCK_AMOUNT_FORMAT.test(v) || "Invalid amount format";
       },
-      max: (v) =>
-        Number(v) <= Number(formatUnits(mentoBalance, 18)) ||
-        "Insufficient balance",
+      max: (v) => validateAmountWithinBalance(v, mentoBalance),
       min: (v) => {
         if (v === undefined || v === null || v === "") return true;
         const amount = Number(v);
@@ -137,6 +146,10 @@ export const LockFormFields = forwardRef<
       },
     },
   });
+
+  useEffect(() => {
+    void trigger(LOCKING_AMOUNT_FORM_KEY);
+  }, [mentoBalance, trigger]);
 
   // Set up registration for delegate address without attaching RHF's onChange to avoid conflicts
   const delegateRegister = register(LOCKING_DELEGATE_ADDRESS_FORM_KEY, {

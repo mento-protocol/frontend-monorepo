@@ -141,6 +141,11 @@ test("creates a 1 MENTO lock and mints veMENTO", async ({ page }) => {
     timeout: 30_000,
   }); // eager-connected via the init-script localStorage keys above
 
+  // Keep this flow on the funded path. The wallet balance resolves
+  // asynchronously after the account connects.
+  await expect(page.getByText(/Balance:\s*[1-9]/).first()).toBeVisible({
+    timeout: 30_000,
+  });
   await page.getByTestId("lockAmountInput").fill("1");
   // Set the unlock date via the Radix slider (keyboard): more robust than
   // driving the datepickerButton calendar popover. "End" selects the max
