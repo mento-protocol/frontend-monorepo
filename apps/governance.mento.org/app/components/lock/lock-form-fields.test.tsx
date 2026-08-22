@@ -128,6 +128,7 @@ describe("LockFormFields balance validation", () => {
     expect(validateAmountWithinBalance(undefined, balance)).toBe(true);
     expect(validateAmountWithinBalance(null, balance)).toBe(true);
     expect(validateAmountWithinBalance("", balance)).toBe(true);
+    expect(validateAmountWithinBalance("invalid", balance)).toBe(true);
     expect(validateAmountWithinBalance("1", MENTO_DECIMALS)).toBe(true);
     expect(validateAmountWithinBalance("3", balance)).toBe(
       "Insufficient balance",

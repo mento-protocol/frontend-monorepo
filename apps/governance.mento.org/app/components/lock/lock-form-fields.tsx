@@ -34,6 +34,8 @@ import { Controller, useForm, useFormContext } from "react-hook-form";
 import spacetime from "spacetime";
 import { formatUnits, parseEther } from "viem";
 
+const LOCK_AMOUNT_FORMAT = /^(?:\d+)(?:\.\d{1,18})?$/;
+
 // Helper function to calculate the first valid Wednesday
 const getFirstWednesdayAfterMinPeriod = () => {
   let targetDate = spacetime.now().add(MIN_LOCK_PERIOD_WEEKS, "week");
@@ -48,12 +50,9 @@ export function validateAmountWithinBalance(
   mentoBalance: bigint,
 ) {
   if (value === undefined || value === null || value === "") return true;
-  try {
-    return parseEther(String(value)) <= mentoBalance || "Insufficient balance";
-  } catch {
-    // The format validator owns malformed amount errors.
-    return true;
-  }
+  const normalized = String(value);
+  if (!LOCK_AMOUNT_FORMAT.test(normalized)) return true;
+  return parseEther(normalized) <= mentoBalance || "Insufficient balance";
 }
 
 interface LockFormFieldsProps {
@@ -111,8 +110,7 @@ export const LockFormFields = forwardRef<
       format: (v) => {
         if (v === undefined || v === null || v === "") return true;
         // Require a valid decimal number, with optional fractional part of 1-18 digits (no trailing dot like "0.")
-        const re = /^(?:\d+)(?:\.\d{1,18})?$/;
-        return re.test(v) || "Invalid amount format";
+        return LOCK_AMOUNT_FORMAT.test(v) || "Invalid amount format";
       },
       max: (v) => validateAmountWithinBalance(v, mentoBalance),
       min: (v) => {
