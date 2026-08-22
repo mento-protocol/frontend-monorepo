@@ -48,10 +48,12 @@ export function validateAmountWithinBalance(
   mentoBalance: bigint,
 ) {
   if (value === undefined || value === null || value === "") return true;
-  return (
-    Number(value) <= Number(formatUnits(mentoBalance, 18)) ||
-    "Insufficient balance"
-  );
+  try {
+    return parseEther(String(value)) <= mentoBalance || "Insufficient balance";
+  } catch {
+    // The format validator owns malformed amount errors.
+    return true;
+  }
 }
 
 interface LockFormFieldsProps {
