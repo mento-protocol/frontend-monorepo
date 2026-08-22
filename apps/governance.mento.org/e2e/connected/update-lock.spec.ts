@@ -267,10 +267,8 @@ test("tops up and extends an existing lock via the subgraph-mocked update flow",
       timeout: 30_000,
     }); // eager-connected via the init-script localStorage keys
 
-    // The amount field's max-validation runs against the wagmi MENTO balance;
-    // if we fill before that balance has loaded it validates against 0 and
-    // sticks on "Insufficient balance" (RHF does not re-validate the amount
-    // when the balance later resolves). Wait for a non-zero balance to render.
+    // Keep this flow on the funded path. The wallet balance resolves
+    // asynchronously after the account connects.
     await expect(page.getByText(/Balance:\s*[1-9]/).first()).toBeVisible({
       timeout: 30_000,
     });
@@ -310,7 +308,7 @@ test("tops up and extends an existing lock via the subgraph-mocked update flow",
     await expect(dialog).toBeVisible({ timeout: 10_000 });
 
     // ---- 4. Top up (+1 MENTO) AND extend (slider "End") — the richest path.
-    // Same balance-load race as the create form above (see comment there).
+    // Use the same funded-balance precondition as the create form above.
     await expect(dialog.getByText(/Balance:\s*[1-9]/).first()).toBeVisible({
       timeout: 30_000,
     });

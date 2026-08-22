@@ -86,7 +86,7 @@ export const LockFormFields = forwardRef<
   });
 
   const methods = existingMethods || localMethods;
-  const { register, control, watch, setValue } = methods;
+  const { register, control, watch, setValue, trigger } = methods;
   const delegateEnabled = watch(LOCKING_DELEGATE_ENABLED_FORM_KEY);
   const amountToLock = watch(LOCKING_AMOUNT_FORM_KEY);
   const unlockDate = watch(LOCKING_UNLOCK_DATE_FORM_KEY);
@@ -137,6 +137,10 @@ export const LockFormFields = forwardRef<
       },
     },
   });
+
+  useEffect(() => {
+    void trigger(LOCKING_AMOUNT_FORM_KEY);
+  }, [mentoBalance, trigger]);
 
   // Set up registration for delegate address without attaching RHF's onChange to avoid conflicts
   const delegateRegister = register(LOCKING_DELEGATE_ADDRESS_FORM_KEY, {
