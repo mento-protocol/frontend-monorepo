@@ -39,12 +39,13 @@ adds a high-signal surface without a numbered ADR.
 
 ### CI and deployment
 
-| ADR                                                              | Decision                                                                                  |
-| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| [0001](0001-github-actions-vercel-deployment-orchestration.md)   | GitHub Actions owns Vercel build/deployment orchestration; Vercel remains hosting/runtime |
-| [0002](0002-single-comment-preview-controller-journal.md)        | One canonical pull-request comment stores the preview controller journal                  |
-| [0003](0003-preview-worker-dispatch-authentication.md)           | A dedicated repository-scoped credential dispatches preview workers                       |
-| [0004](0004-one-way-vercel-build-environment-materialization.md) | Preview candidates receive only a one-way exact allowlist of Vercel-pulled variables      |
-| [0005](0005-stable-main-release-identity-and-rerun-admission.md) | Stable provider release manifests reconcile reruns; mutations remain attempt-scoped       |
-| [0006](0006-dependabot-processing-controller.md)                 | Trusted default-branch policy processes Dependabot PRs through exact-head release proof   |
-| [0007](0007-deterministic-protected-runtime-dependency-sync.md)  | Typed deterministic repairs synchronize protected runtime dependencies                    |
+| ADR                                                                   | Decision                                                                                  |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| [0001](0001-github-actions-vercel-deployment-orchestration.md)        | GitHub Actions owns Vercel build/deployment orchestration; Vercel remains hosting/runtime |
+| [0002](0002-single-comment-preview-controller-journal.md)             | One canonical pull-request comment stores the preview controller journal                  |
+| [0003](0003-preview-worker-dispatch-authentication.md)                | A dedicated repository-scoped credential dispatches preview workers                       |
+| [0004](0004-one-way-vercel-build-environment-materialization.md)      | Preview candidates receive only a one-way exact allowlist of Vercel-pulled variables      |
+| [0005](0005-stable-main-release-identity-and-rerun-admission.md)      | Stable provider release manifests reconcile reruns; mutations remain attempt-scoped       |
+| [0006](0006-dependabot-processing-controller.md)                      | Trusted default-branch policy processes Dependabot PRs through exact-head release proof   |
+| [0007](0007-deterministic-protected-runtime-dependency-sync.md)       | Typed deterministic repairs synchronize protected runtime dependencies                    |
+| [0008](0008-authenticated-dependabot-native-generation-boundaries.md) | Exact native Dependabot rewrite chains start new preparation generations                  |
