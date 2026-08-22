@@ -1538,6 +1538,15 @@ test("Next catalog-sync v3 packets accept only the exact typed contract", () => 
     mutate(value);
     assert.throws(() => validateProcessorRepairPacket(value), expected, label);
   }
+
+  const unknownKind = structuredClone(packet);
+  unknownKind.operation.kind = "unknown-catalog-sync";
+  unknownKind.limits.maxChanges = 160;
+  assert.throws(
+    () => validateProcessorRepairPacket(unknownKind),
+    /typed operation kind is invalid/,
+    "an unknown typed operation kind is rejected after generic v3 limits pass",
+  );
 });
 
 test("repair plan patch caps remain narrow for v2 and permit a large typed Next lock patch", () => {

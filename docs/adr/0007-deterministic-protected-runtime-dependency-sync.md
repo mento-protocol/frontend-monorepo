@@ -136,9 +136,10 @@ standalone lock, requires that lock to contain no Next package or snapshot, and
 rebuilds the contract with the unchanged Vercel version, dependencies, and
 registry integrity plus the new manifest, lock, and override digests. Frozen
 checks cover both locks. These steps build the fixed six outputs
-deterministically. The Next lock patch receives a
-typed-only larger per-edit limit because the verified 16.2.12 to 16.3.1 U1
-patch exceeds 8 KiB. The aggregate plan stays at 64 KiB.
+deterministically. The exact Next operation receives a typed-only per-edit
+limit of 48 KiB because its verified 16.2.12 to 16.3.1 lock patch exceeds 8
+KiB. Edits for other operation kinds remain capped at 8192 bytes. The aggregate
+plan stays capped at 64 KiB.
 
 An independent no-secret validation job regenerates the result and requires
 exact plan equality. The existing unreachable App commit, Repair Intent,
@@ -215,12 +216,12 @@ recovery. A parallel mutation protocol would duplicate security-sensitive code.
 ### Regenerate the complete root lock with pnpm
 
 Rejected. Identical pnpm runs can choose different unrelated transitive peer
-bindings or import changed registry metadata. The root lock changed between
-isolated runs even when every command and input was identical. This behavior
-matches [pnpm issue #13567](https://github.com/pnpm/pnpm/issues/13567). Resolver
-flags, isolated stores, and repeated generation did not make full output a safe
-determinism proof. The source-preserving transform limits resolver output to the
-authenticated Next runtime closure.
+bindings. The root lock changed between isolated runs even when every command
+and input was identical. This behavior matches
+[pnpm issue #13567](https://github.com/pnpm/pnpm/issues/13567). Resolver flags,
+isolated stores, and repeated generation did not make full output a safe
+determinism proof. The source-preserving transform limits resolver output to
+the authenticated Next runtime closure.
 
 ### Copy the prior Dependabot lockfile bytes into the refreshed head
 

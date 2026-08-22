@@ -3268,6 +3268,8 @@ export function generateProtectedRuntimeRepairPlan({
         rootLockBytes,
         runRoot: join(temporaryRoot, "generation-1"),
       });
+      // This branch uses one live generation. Its surgical transform and
+      // frozen-lock round trip prove determinism without a second resolution.
       second = first;
     } else {
       const current = validateCurrentInputs(blobs, packet.operation);

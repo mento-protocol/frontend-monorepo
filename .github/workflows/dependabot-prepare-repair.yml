@@ -530,7 +530,7 @@ jobs:
       needs.validate.result == 'success' &&
       needs.preflight.outputs.plan_kind == 'protected-runtime-sync'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     permissions:
       actions: read
       checks: read

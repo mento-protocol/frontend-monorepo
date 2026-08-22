@@ -940,6 +940,8 @@ export function validateProcessorRepairPacket(packet) {
   const v3 = packet.schema === PROCESSOR_PACKET_SCHEMA_V3;
   const nextCatalogSync =
     v3 && packet.operation?.kind === "next-catalog-override-sync";
+  const protectedRuntimeSync =
+    v3 && packet.operation?.kind === "vercel-cli-runtime-sync";
   exactKeys(
     packet,
     v3 ? [...PROCESSOR_PACKET_V2_KEYS, "operation"] : PROCESSOR_PACKET_V2_KEYS,
@@ -1054,8 +1056,10 @@ export function validateProcessorRepairPacket(packet) {
   if (v3) {
     if (nextCatalogSync) {
       validateNextCatalogSyncOperation(packet);
-    } else {
+    } else if (protectedRuntimeSync) {
       validateProtectedRuntimeSyncOperation(packet);
+    } else {
+      fail("typed operation kind is invalid");
     }
     if (
       JSON.stringify(packet.expectedBlobs.map(({ path }) => path)) !==

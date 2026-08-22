@@ -107,10 +107,14 @@ test("the quality workflow is always reported and runs the canonical command", (
     workflow,
     /group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.event_name == 'pull_request' && github\.ref \|\| github\.sha \}\}/,
   );
-  const concurrency = workflow.slice(
-    workflow.indexOf("concurrency:"),
-    workflow.indexOf("permissions:"),
+  const concurrencyStart = workflow.indexOf("concurrency:");
+  const permissionsStart = workflow.indexOf("permissions:");
+  assert.ok(concurrencyStart >= 0, "workflow must declare concurrency");
+  assert.ok(
+    permissionsStart > concurrencyStart,
+    "permissions must follow the top-level concurrency block",
   );
+  const concurrency = workflow.slice(concurrencyStart, permissionsStart);
   assert.doesNotMatch(concurrency, /pull_request\.head\.ref/);
   assert.match(
     workflow,

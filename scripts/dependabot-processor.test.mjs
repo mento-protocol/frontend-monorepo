@@ -1623,6 +1623,14 @@ test("generic npm repairs collect canonical companion inputs", () => {
     }),
     VERCEL_INPUT_PATHS,
   );
+  assert.deepEqual(
+    selectDependabotRepairBlobPaths({
+      files: [{ filename: "pnpm-workspace.yaml" }],
+      nextCatalogSyncEligible: true,
+      packageEcosystem: "npm",
+    }),
+    VERCEL_INPUT_PATHS,
+  );
 });
 
 test("parses exact Dependabot action dependencies and the highest semver tier", () => {

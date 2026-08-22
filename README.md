@@ -425,20 +425,23 @@ secretless validator then re-fetches every input through the exact Git blob API 
 commit or branch mutation can occur.
 
 Stable same-major Vercel updates and the exact `frontend-core` Next catalog
-update use typed v3 model-free plans. The Next plan uses one pinned pnpm target
-solve as an oracle, imports only the authenticated Next runtime closure into
-the sealed source lock, and preserves unrelated source resolutions. An
-independent job reproduces the plan. A terminal no-output job then runs the
-candidate CLI under a separate non-sudo account with read-only trusted inputs,
-no registered runner action or post action, and no secret or write authority.
+update use typed v3 model-free plans. The Next operation updates the workspace
+catalog and root `pnpm.overrides` together. It uses pnpm 10.34.4 for one target
+solve, imports only the authenticated Next runtime closure into the sealed
+source lock, and preserves unrelated source resolutions. An independent job
+reproduces the plan. A terminal no-output job then runs the candidate CLI under
+a separate non-sudo account with read-only trusted inputs, no registered runner
+action or post action, and no secret or write authority.
 
 The preparable tier includes verified npm updates, including grouped and major
 updates. Verified non-sensitive GitHub Actions updates may be prepared only
 while their native Dependabot head is current and green. The Prepare App never
 refreshes or repairs a generation whose live diff contains
 `.github/workflows/**` or `.github/actions/**`. Each ref mutator re-fetches the
-exact file inventory immediately before its write. A stale or failing Actions
-update becomes `manual-repair-required`. Sensitive
+exact file inventory immediately before its write. It revalidates the exact
+current ref and moves only the intent-bound successor with `force=false`, so a
+non-fast-forward drift is rejected. A stale or failing Actions update becomes
+`manual-repair-required`. Sensitive
 self-reviewing Actions; workflow-policy, deployment, authentication, credential,
 or security changes; unknown metadata; untrusted force-push histories; human
 vetoes; unresolved feedback outside an exact packet-bound repair; and exhausted
@@ -466,10 +469,11 @@ before approval; the final merge remains human.
 
 After an App ref move, the Prepare App is the pull-request event sender. Direct
 PR workflows grant repository credentials only to a same-repository `User` PR
-author and `User` sender. Prepared Dependabot runs therefore receive no
-repository secrets, do not persist checkout credentials, and disable
-dependency, Foundry, and Trunk caches. Pull-request supply-chain scans remain
-read-only; schedule and manual scans own SARIF write authority.
+author and `User` sender. Direct PR and candidate jobs for prepared Dependabot
+heads therefore receive no repository secrets, do not persist checkout
+credentials, and disable dependency, Foundry, and Trunk caches. Pull-request
+supply-chain scans remain read-only; schedule and manual scans own SARIF write
+authority.
 
 Only an exact `refresh-pending` result mints the processor's refresh-capable
 Prepare App token. Repair staging, repair mutation, and authenticated dispatch
