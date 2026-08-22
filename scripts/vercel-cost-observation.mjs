@@ -45,6 +45,7 @@ import {
   previewObservationArtifactName,
   selectPreviewObservationArtifact,
   isSupportedControllerSyntheticPreviewResult,
+  isSupportedEvidenceFreeRecoveredFailure,
 } from "./vercel-preview-controller.mjs";
 
 export const OBSERVATION_REPOSITORY = PREVIEW_REPOSITORY;
@@ -1496,10 +1497,13 @@ function validatePreviewDeployment({
   evidence,
   result,
 }) {
+  const evidenceFreeRecoveredFailure =
+    evidence === null && isSupportedEvidenceFreeRecoveredFailure(result);
   invariant(
     String(deployment.id) === String(result.github_deployment_id) &&
-      String(evidence.github_deployment_id) ===
-        String(result.github_deployment_id),
+      (evidenceFreeRecoveredFailure ||
+        String(evidence?.github_deployment_id) ===
+          String(result.github_deployment_id)),
     "Preview worker receipts do not bind one GitHub Deployment",
   );
   const payload = parsedDeploymentPayload(deployment.payload);
@@ -1661,6 +1665,38 @@ function validateTerminalPreviewReceipts({
     const syntheticResults = results.filter(
       (result) => result.github_deployment_id === null,
     );
+    if (
+      results.length === 1 &&
+      evidence.length === 0 &&
+      isSupportedEvidenceFreeRecoveredFailure(results[0])
+    ) {
+      const result = results[0];
+      const deployment = deploymentsById.get(
+        String(result.github_deployment_id),
+      );
+      invariant(
+        deployment !== undefined,
+        "Preview result GitHub Deployment is missing",
+      );
+      const status = validatePreviewDeployment({
+        ...deployment,
+        selection,
+        evidence: null,
+        result,
+      });
+      validatedDeploymentStatuses.push({
+        deploymentId: String(deployment.deployment.id),
+        status,
+      });
+      references.push({
+        kind: "worker",
+        runId: String(result.worker_run_id),
+        attempt: Number(result.worker_run_attempt),
+        selection,
+        result,
+      });
+      continue;
+    }
     if (syntheticResults.length > 0) {
       invariant(
         syntheticResults.length === 1 &&
@@ -2385,6 +2421,11 @@ function capturePreview({ root, pr, eventRunId, dependencies }) {
         invariant(
           rawRun.head_sha === reference.selection.expected_workflow_sha,
           "Preview worker run head conflicts with its selection",
+        );
+        invariant(
+          !isSupportedEvidenceFreeRecoveredFailure(reference.result) ||
+            rawRun.conclusion === "failure",
+          "Preview recovered worker result conflicts with its run conclusion",
         );
       } else {
         assertControllerSyntheticRunBinding({
