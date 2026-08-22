@@ -15,9 +15,21 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+  # GitHub suppresses repository credentials for native Dependabot events.
+  # A Prepare App ref move changes only the event sender. Recreate the native
+  # boundary from the signed PR identities before any candidate step starts.
+  ALLOW_REPOSITORY_CREDENTIALS: >-
+    ${{ github.event_name != 'pull_request' ||
+        (github.event.pull_request.user.type == 'User' &&
+         github.event.pull_request.user.id != 49699333 &&
+         github.event.pull_request.user.login != 'dependabot[bot]' &&
+         github.event.pull_request.head.repo.full_name == github.repository &&
+         github.event.pull_request.head.ref != 'dependabot' &&
+         !startsWith(github.event.pull_request.head.ref, 'dependabot/') &&
+         github.event.sender.type == 'User' &&
+         github.event.sender.id != 315967666 &&
+         github.event.sender.login != 'mento-dependabot-prepare[bot]') }}
   TURBO_TEAM: ${{ vars.TURBO_TEAM }}
-  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-  TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
 
 jobs:
   changes:
@@ -27,13 +39,26 @@ jobs:
     permissions:
       contents: read
     outputs:
+      allow_repository_credentials: ${{ steps.credentials.outputs.allow_repository_credentials }}
       run_quality: ${{ steps.plan.outputs.run_quality }}
       reason: ${{ steps.plan.outputs.reason }}
     steps:
+      - name: Classify repository credential access
+        id: credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$ALLOW_REPOSITORY_CREDENTIALS" in
+            true | false) ;;
+            *) exit 1 ;;
+          esac
+          echo "allow_repository_credentials=$ALLOW_REPOSITORY_CREDENTIALS" >> "$GITHUB_OUTPUT"
+
       - name: Check out code and history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -99,29 +124,34 @@ jobs:
     permissions:
       contents: read
     env:
+      TURBO_TOKEN: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.TURBO_TOKEN || '' }}
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY || '' }}
       NEXT_PUBLIC_STORAGE_URL: ${{ vars.STORAGE_URL }}
       NEXT_PUBLIC_WALLET_CONNECT_ID: ${{ vars.WALLET_CONNECT_ID }}
       NEXT_PUBLIC_ANALYTICS_API_URL: ${{ vars.ANALYTICS_API_URL }}
-      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-      NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE }}
-      NEXT_PUBLIC_SENTRY_DSN_RESERVE: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN_RESERVE }}
-      NEXT_PUBLIC_SENTRY_DSN_SWAP: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN_SWAP }}
+      SENTRY_AUTH_TOKEN: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.SENTRY_AUTH_TOKEN || '' }}
+      NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE || '' }}
+      NEXT_PUBLIC_SENTRY_DSN_RESERVE: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.NEXT_PUBLIC_SENTRY_DSN_RESERVE || '' }}
+      NEXT_PUBLIC_SENTRY_DSN_SWAP: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.NEXT_PUBLIC_SENTRY_DSN_SWAP || '' }}
       NEXT_PUBLIC_VERCEL_ENV: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
-      ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+      ETHERSCAN_API_KEY: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.ETHERSCAN_API_KEY || '' }}
       NEXT_PUBLIC_ETHERSCAN_API_URL: ${{ vars.ETHERSCAN_API_URL }}
       NEXT_PUBLIC_BLOCKSCOUT_API_URL: ${{ vars.BLOCKSCOUT_API_URL }}
       NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL: ${{ vars.BLOCKSCOUT_GRAPHQL_URL }}
       NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA: ${{ vars.BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA }}
       NEXT_PUBLIC_SUBGRAPH_URL: ${{ vars.SUBGRAPH_URL }}
       NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA: ${{ vars.SUBGRAPH_URL_CELO_SEPOLIA }}
-      NEXT_PUBLIC_GRAPH_API_KEY: ${{ secrets.GRAPH_API_KEY }}
+      NEXT_PUBLIC_GRAPH_API_KEY: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.GRAPH_API_KEY || '' }}
     steps:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
+          persist-credentials: false
       - name: Install pnpm dependencies
         uses: ./.github/actions/pnpm-install
+        with:
+          cache: ${{ needs.changes.outputs.allow_repository_credentials == 'true' }}
       - name: Build
         run: pnpm build
 
@@ -134,29 +164,34 @@ jobs:
     permissions:
       contents: read
     env:
+      TURBO_TOKEN: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.TURBO_TOKEN || '' }}
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY || '' }}
       NEXT_PUBLIC_STORAGE_URL: ${{ vars.STORAGE_URL }}
       NEXT_PUBLIC_WALLET_CONNECT_ID: ${{ vars.WALLET_CONNECT_ID }}
       NEXT_PUBLIC_ANALYTICS_API_URL: ${{ vars.ANALYTICS_API_URL }}
-      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-      NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE }}
-      NEXT_PUBLIC_SENTRY_DSN_RESERVE: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN_RESERVE }}
-      NEXT_PUBLIC_SENTRY_DSN_SWAP: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN_SWAP }}
+      SENTRY_AUTH_TOKEN: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.SENTRY_AUTH_TOKEN || '' }}
+      NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE || '' }}
+      NEXT_PUBLIC_SENTRY_DSN_RESERVE: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.NEXT_PUBLIC_SENTRY_DSN_RESERVE || '' }}
+      NEXT_PUBLIC_SENTRY_DSN_SWAP: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.NEXT_PUBLIC_SENTRY_DSN_SWAP || '' }}
       NEXT_PUBLIC_VERCEL_ENV: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
-      ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+      ETHERSCAN_API_KEY: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.ETHERSCAN_API_KEY || '' }}
       NEXT_PUBLIC_ETHERSCAN_API_URL: ${{ vars.ETHERSCAN_API_URL }}
       NEXT_PUBLIC_BLOCKSCOUT_API_URL: ${{ vars.BLOCKSCOUT_API_URL }}
       NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL: ${{ vars.BLOCKSCOUT_GRAPHQL_URL }}
       NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA: ${{ vars.BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA }}
       NEXT_PUBLIC_SUBGRAPH_URL: ${{ vars.SUBGRAPH_URL }}
       NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA: ${{ vars.SUBGRAPH_URL_CELO_SEPOLIA }}
-      NEXT_PUBLIC_GRAPH_API_KEY: ${{ secrets.GRAPH_API_KEY }}
+      NEXT_PUBLIC_GRAPH_API_KEY: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.GRAPH_API_KEY || '' }}
     steps:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
+          persist-credentials: false
       - name: Install pnpm dependencies
         uses: ./.github/actions/pnpm-install
+        with:
+          cache: ${{ needs.changes.outputs.allow_repository_credentials == 'true' }}
       - name: Test CI scope planner
         run: pnpm ci:change-plan:test
       - name: E2E mock wallet gate tripwire
@@ -180,32 +215,36 @@ jobs:
     timeout-minutes: 10
     runs-on: ubuntu-latest
     permissions:
-      checks: write
       contents: read
     env:
+      TURBO_TOKEN: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.TURBO_TOKEN || '' }}
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY || '' }}
       NEXT_PUBLIC_STORAGE_URL: ${{ vars.STORAGE_URL }}
       NEXT_PUBLIC_WALLET_CONNECT_ID: ${{ vars.WALLET_CONNECT_ID }}
       NEXT_PUBLIC_ANALYTICS_API_URL: ${{ vars.ANALYTICS_API_URL }}
-      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-      NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE }}
-      NEXT_PUBLIC_SENTRY_DSN_RESERVE: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN_RESERVE }}
-      NEXT_PUBLIC_SENTRY_DSN_SWAP: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN_SWAP }}
+      SENTRY_AUTH_TOKEN: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.SENTRY_AUTH_TOKEN || '' }}
+      NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE || '' }}
+      NEXT_PUBLIC_SENTRY_DSN_RESERVE: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.NEXT_PUBLIC_SENTRY_DSN_RESERVE || '' }}
+      NEXT_PUBLIC_SENTRY_DSN_SWAP: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.NEXT_PUBLIC_SENTRY_DSN_SWAP || '' }}
       NEXT_PUBLIC_VERCEL_ENV: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
-      ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+      ETHERSCAN_API_KEY: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.ETHERSCAN_API_KEY || '' }}
       NEXT_PUBLIC_ETHERSCAN_API_URL: ${{ vars.ETHERSCAN_API_URL }}
       NEXT_PUBLIC_BLOCKSCOUT_API_URL: ${{ vars.BLOCKSCOUT_API_URL }}
       NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL: ${{ vars.BLOCKSCOUT_GRAPHQL_URL }}
       NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA: ${{ vars.BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA }}
       NEXT_PUBLIC_SUBGRAPH_URL: ${{ vars.SUBGRAPH_URL }}
       NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA: ${{ vars.SUBGRAPH_URL_CELO_SEPOLIA }}
-      NEXT_PUBLIC_GRAPH_API_KEY: ${{ secrets.GRAPH_API_KEY }}
+      NEXT_PUBLIC_GRAPH_API_KEY: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.GRAPH_API_KEY || '' }}
     steps:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
+          persist-credentials: false
       - name: Install pnpm dependencies
         uses: ./.github/actions/pnpm-install
+        with:
+          cache: ${{ needs.changes.outputs.allow_repository_credentials == 'true' }}
       - name: Type check
         if: needs.changes.outputs.run_quality == 'true'
         run: pnpm check-types
@@ -214,6 +253,8 @@ jobs:
         run: pnpm knip
       - name: Trunk Code Quality
         uses: trunk-io/trunk-action@04ba50e7658c81db7356da96657e6e77f220bfa3 # v1.3.1
+        with:
+          cache: ${{ needs.changes.outputs.allow_repository_credentials == 'true' }}
 
   ci:
     name: Build and Test

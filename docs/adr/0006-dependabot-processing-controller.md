@@ -181,15 +181,20 @@ together.
 
 `.github/workflows/dependabot-prepare-repair.yml` starts only from an
 authenticated, bounded Processor packet dispatch and uses trusted default-branch
-code:
+code. Its repository-wide concurrency group uses `queue: max` and does not
+cancel in-progress runs. GitHub can retain up to 100 pending repair or recovery
+runs instead of replacing an older pending run. Ordering follows the time each
+run starts waiting and can differ from dispatch order.
 
-1. **preflight** re-fetches the exact completed Processor v2 failure check,
+1. **preflight** re-fetches the exact completed Processor v2 or v3 check,
    canonical packet, run provenance, live PR/head/base, and attempt;
 2. **plan** uses a trusted step-scoped read token to authenticate and seal the
    exact packet-bound compare, Git blobs, failed-job logs, and findings under
-   `RUNNER_TEMP`. Claude then runs token-free through the pinned base action,
-   may only use guarded Read/Grep calls on the canonical evidence manifest, and
-   accepts only a strict bounded patch schema. Three workflow-only bindings—
+   `RUNNER_TEMP`. Generic v2 repairs use Claude token-free through the pinned
+   base action. It may only use guarded Read/Grep calls on the canonical
+   evidence manifest and accepts only a strict bounded patch schema. Typed v3
+   protected-runtime repairs instead use the trusted model-free generator from
+   the exact workflow SHA. Three workflow-only bindings—
    `DEPENDABOT_REPAIR_EVIDENCE_ROOT`,
    `DEPENDABOT_REPAIR_EVIDENCE_MANIFEST`, and
    `DEPENDABOT_REPAIR_EVIDENCE_MANIFEST_DIGEST`—tie the hook to the sealed
@@ -200,16 +205,22 @@ code:
 3. **validate** has no secret or write token, re-fetches exact inputs by Git
    object SHA, including files larger than the Contents API limit, applies
    patches in a disposable credential-free temporary Git tree, and enforces
-   path, file, edit, and byte caps;
-4. **stage** alone gets a short-lived App token and writes exact unreachable
+   path, file, edit, and byte caps. For v3, it independently reproduces the
+   exact typed plan;
+4. **candidate CLI smoke** runs only for v3 after validation. API and shell
+   steps materialize exact trusted source and a hash-verified pnpm bootstrap
+   without registering a runner action or post action. A separate non-sudo
+   account runs candidate code as the terminal step with read-only trusted
+   inputs and no secret, cache, or write authority;
+5. **stage** alone gets a short-lived App token and writes exact unreachable
    blobs, tree, and one commit without moving the branch;
-5. **intent** has no App token and publishes `Dependabot Repair Intent`
+6. **intent** has no App token and publishes `Dependabot Repair Intent`
    (`dependabot-repair-intent:v1`) on the staged successor. Its canonical
    receipt binds the packet, plan, parent, tree, result blobs, workflow, and
    expected successor before any ref mutation;
-6. **mutate** gets a fresh App token, revalidates the intent and exact current
+7. **mutate** gets a fresh App token, revalidates the intent and exact current
    ref, and moves only the exact `dependabot/*` ref with `force=false`; and
-7. **receipt/recovery** has no App token and publishes the completed Repair
+8. **receipt/recovery** has no App token and publishes the completed Repair
    receipt. If the enclosing run fails, is cancelled, times out, needs action,
    or has a startup failure after the exact ref move, a checks-only recovery run revalidates the intent, current
    head, commit, tree, and failed source before publishing the same typed
@@ -483,9 +494,10 @@ hidden.
 
 - Maintainers receive a fully refreshed, repaired, reviewed, and ruleset-ready
   PR with one explicit final action.
-- npm/grouped/major updates and green or refreshed non-sensitive Actions updates
-  can be prepared without granting automatic merge policy; Actions repairs stay
-  outside `.github/**` and escalate to humans.
+- npm/grouped/major updates and current green native non-sensitive Actions
+  updates can be prepared without granting automatic merge policy. The Prepare
+  App never refreshes or repairs `.github/workflows/**` or `.github/actions/**`;
+  stale or failing Actions updates escalate to humans.
 - Typed receipts distinguish refresh from repair and keep refresh outside the
   two-attempt budget.
 - Exact App actor, parent chain, workflow run, packet, and review validation

@@ -41,6 +41,7 @@ import {
   processDependabotSweep,
   requireStableFeedbackSnapshot,
   requireStablePullRequestSnapshot,
+  selectDependabotRepairBlobPaths,
   selectAllowedCheckEvents,
   selectLatestExactHeadCheck,
   stableJson,
@@ -104,6 +105,16 @@ const VERCEL_INPUT_PATHS = [
   "scripts/vercel-cli-runtime/package.json",
   "scripts/vercel-cli-runtime/pnpm-lock.yaml",
 ];
+const NEXT_CATALOG_REQUIRED_PATHS = [
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "scripts/vercel-cli-runtime/contract.json",
+  "scripts/vercel-cli-runtime/package.json",
+  "scripts/vercel-cli-runtime/pnpm-lock.yaml",
+];
+const NEXT_FROM_SPECIFIER = "^16.2.12";
+const NEXT_TARGET_SPECIFIER = "^16.3.1";
 
 function digest(value) {
   return createHash("sha256").update(stableJson(value)).digest("hex");
@@ -603,6 +614,121 @@ function vercelExpectedBlobs() {
     sha: createHash("sha1").update(path).digest("hex"),
     type: "blob",
   }));
+}
+
+function nextCatalogBody({ from = "16.2.12", to = "16.3.1" } = {}) {
+  return `Bumps the frontend-core group with 1 update:\n\n| Package | From | To |\n| --- | --- | --- |\n| [next](https://www.npmjs.com/package/next) | \`${from}\` | \`${to}\` |`;
+}
+
+function nextCatalogMetadata({ from = "16.2.12", to = "16.3.1" } = {}) {
+  const body = nextCatalogBody({ from, to });
+  const parsed = parseDependabotMetadata({
+    body,
+    files: ["pnpm-lock.yaml", "pnpm-workspace.yaml"],
+    headRef: "dependabot/npm_and_yarn/frontend-core-2f0c077f04",
+  });
+  return {
+    ...parsed,
+    immutableEvidence: {
+      currentHeadMatches: true,
+      dependencyMetadataValid: parsed.groupedUpdateIntegrity.valid,
+      seedCommitSha: HEAD_SHA,
+      seedCommitTrusted: true,
+      source: "dependabot-commit-message",
+      valid: true,
+    },
+  };
+}
+
+function nextCatalogState(state = "mixed") {
+  const specifiers = {
+    mixed: {
+      catalogSpecifier: NEXT_TARGET_SPECIFIER,
+      overrideSpecifier: NEXT_FROM_SPECIFIER,
+      runtimeOverrideSpecifier: NEXT_FROM_SPECIFIER,
+    },
+    source: {
+      catalogSpecifier: NEXT_FROM_SPECIFIER,
+      overrideSpecifier: NEXT_FROM_SPECIFIER,
+      runtimeOverrideSpecifier: NEXT_FROM_SPECIFIER,
+    },
+    target: {
+      catalogSpecifier: NEXT_TARGET_SPECIFIER,
+      overrideSpecifier: NEXT_TARGET_SPECIFIER,
+      runtimeOverrideSpecifier: NEXT_TARGET_SPECIFIER,
+    },
+  }[state];
+  assert.notEqual(
+    specifiers,
+    undefined,
+    `unknown Next catalog state: ${state}`,
+  );
+  return {
+    ...specifiers,
+    contractOverrideDigest: "a".repeat(64),
+    contractSchema: "vercel-cli-runtime-contract:v1",
+    contractVersion: "56.5.0",
+    overrideDigest: "a".repeat(64),
+    pnpmVersion: "10.34.4",
+    rootVercelVersion: "56.5.0",
+    runtimeOverrideDigest: "a".repeat(64),
+    runtimeVercelVersion: "56.5.0",
+  };
+}
+
+function nextCatalogSnapshot({
+  changedPaths = ["pnpm-lock.yaml", "pnpm-workspace.yaml"],
+  checks,
+  commits,
+  headSha = HEAD_SHA,
+  metadata = nextCatalogMetadata(),
+  nextCatalogSync = nextCatalogState(),
+  repairHistoryChecks,
+} = {}) {
+  const expectedBlobs = vercelExpectedBlobs();
+  const expectedByPath = new Map(
+    expectedBlobs.map((entry) => [entry.path, entry]),
+  );
+  return snapshot({
+    baseAncestry: {
+      aheadBy: commits?.length ?? 1,
+      baseCommitSha: BASE_SHA,
+      behindBy: 0,
+      currentBaseIsAncestor: true,
+      currentBaseSha: BASE_SHA,
+      headSha,
+      mergeBaseSha: BASE_SHA,
+      status: "ahead",
+    },
+    checks:
+      checks ??
+      completeChecks({
+        conclusions: { "supply-chain-version-skew": "failure" },
+        headSha,
+      }),
+    commits: commits ?? [nativeDependabotCommit(HEAD_SHA)],
+    expectedBlobs,
+    expectedHeadSha: headSha,
+    metadata,
+    nextCatalogSync,
+    prepareActor: PREPARE_ACTOR,
+    pullRequest: {
+      body: nextCatalogBody(),
+      files: changedPaths.map((filename) => ({
+        filename,
+        mode: expectedByPath.get(filename).mode,
+        sha: expectedByPath.get(filename).sha,
+        status: "modified",
+        type: expectedByPath.get(filename).type,
+      })),
+      head: {
+        ref: "dependabot/npm_and_yarn/frontend-core-2f0c077f04",
+        repo: { fullName: REPOSITORY },
+        sha: headSha,
+      },
+    },
+    repairHistoryChecks,
+  });
 }
 
 function preparedCommit(sha, parent) {
@@ -1268,6 +1394,7 @@ function liveApprovalPullRequest(overrides = {}) {
       sha: BASE_SHA,
     },
     body: actionBody(),
+    changed_files: 1,
     draft: false,
     head: {
       ref: "dependabot/github_actions/github-actions-routine-123",
@@ -1468,6 +1595,42 @@ test("processor phase parsing defaults to finalize and accepts only the three ca
       /Processor phase must be exactly request, mutate, or finalize/,
     );
   }
+});
+
+test("generic npm repairs collect canonical companion inputs", () => {
+  assert.deepEqual(
+    selectDependabotRepairBlobPaths({
+      files: [
+        { filename: "pnpm-lock.yaml" },
+        { filename: "pnpm-workspace.yaml" },
+      ],
+      packageEcosystem: "npm",
+    }),
+    ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"],
+  );
+  assert.deepEqual(
+    selectDependabotRepairBlobPaths({
+      files: [{ filename: ".github/workflows/ci.yml" }],
+      packageEcosystem: "github-actions",
+    }),
+    [".github/workflows/ci.yml"],
+  );
+  assert.deepEqual(
+    selectDependabotRepairBlobPaths({
+      files: [{ filename: "package.json" }],
+      packageEcosystem: "npm",
+      protectedRuntimeEligible: true,
+    }),
+    VERCEL_INPUT_PATHS,
+  );
+  assert.deepEqual(
+    selectDependabotRepairBlobPaths({
+      files: [{ filename: "pnpm-workspace.yaml" }],
+      nextCatalogSyncEligible: true,
+      packageEcosystem: "npm",
+    }),
+    VERCEL_INPUT_PATHS,
+  );
 });
 
 test("parses exact Dependabot action dependencies and the highest semver tier", () => {
@@ -3345,6 +3508,68 @@ test("deterministic lockfile and version-skew failures remain branch-repairable"
   }
 });
 
+test("version-skew repair packets retain exact npm companion blobs", () => {
+  const expectedBlobs = [
+    "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+  ].map((path) => ({
+    mode: "100644",
+    path,
+    sha: createHash("sha1").update(path).digest("hex"),
+    type: "blob",
+  }));
+  const expectedByPath = new Map(
+    expectedBlobs.map((entry) => [entry.path, entry]),
+  );
+  const result = evaluateDependabotPullRequest(
+    snapshot({
+      checks: completeChecks({
+        conclusions: { "supply-chain-version-skew": "failure" },
+      }),
+      expectedBlobs,
+      metadata: {
+        dependencies: [
+          {
+            from: "16.2.12",
+            name: "next",
+            to: "16.3.1",
+            updateType: "minor",
+          },
+        ],
+        dependencyNames: ["next"],
+        immutableEvidence: { valid: true },
+        packageEcosystem: "npm",
+        updateType: "minor",
+      },
+      pullRequest: {
+        files: ["pnpm-lock.yaml", "pnpm-workspace.yaml"].map((filename) => ({
+          filename,
+          mode: expectedByPath.get(filename).mode,
+          sha: expectedByPath.get(filename).sha,
+          status: "modified",
+          type: expectedByPath.get(filename).type,
+        })),
+      },
+    }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+
+  assert.equal(result.disposition, "repair-required");
+  assert.deepEqual(
+    result.repairPacket.expectedBlobs.map(({ path }) => path),
+    ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"],
+  );
+  assert.deepEqual(result.repairPacket.changedPaths, [
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+  ]);
+});
+
 test("verified npm updates are preparable even when the legacy automatic tier is false", () => {
   const pullRequest = snapshot({
     checks: completeChecks({ conclusions: { ci: "failure" } }),
@@ -4445,6 +4670,395 @@ test("evaluates exact observe, assist, and prepare dispositions and v2 repair pa
       { mode: "observe", repository: REPOSITORY },
     ).repairPacket,
     null,
+  );
+});
+
+test("immutable frontend-core Next metadata selects an exact v3 catalog sync for source and mixed states", () => {
+  const operation = {
+    dependency: "next",
+    fromSpecifier: NEXT_FROM_SPECIFIER,
+    fromVersion: "16.2.12",
+    inputPaths: VERCEL_INPUT_PATHS,
+    kind: "next-catalog-override-sync",
+    pnpmVersion: "10.34.4",
+    resolutionMode: "lowest-direct",
+    requiredPaths: NEXT_CATALOG_REQUIRED_PATHS,
+    schema: "dependabot-protected-runtime-sync:v1",
+    sourceSeedHeadSha: HEAD_SHA,
+    targetSpecifier: NEXT_TARGET_SPECIFIER,
+    targetVersion: "16.3.1",
+    updateType: "minor",
+  };
+  for (const state of ["source", "mixed"]) {
+    const result = evaluateDependabotPullRequest(
+      nextCatalogSnapshot({ nextCatalogSync: nextCatalogState(state) }),
+      {
+        mode: "prepare",
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+    );
+
+    assert.equal(result.disposition, "repair-required", state);
+    assert.deepEqual(result.dependencies, [
+      {
+        from: "16.2.12",
+        name: "next",
+        to: "16.3.1",
+        updateType: "minor",
+      },
+    ]);
+    assert.deepEqual(result.nextCatalogSyncOperation, {
+      eligible: true,
+      proof: null,
+      satisfied: false,
+      stateMatches: false,
+      operation,
+    });
+    assert.equal(
+      result.repairPacket?.schema,
+      "dependabot-repair-packet:v3",
+      state,
+    );
+    assert.deepEqual(result.repairPacket?.operation, operation, state);
+    assert.deepEqual(
+      result.repairPacket?.expectedBlobs.map(({ path }) => path),
+      VERCEL_INPUT_PATHS,
+      state,
+    );
+    assert.deepEqual(
+      result.repairPacket?.permittedPaths,
+      NEXT_CATALOG_REQUIRED_PATHS,
+      state,
+    );
+    assert.deepEqual(result.repairPacket?.limits, {
+      maxAddedLines: 600,
+      maxBytes: 65_536,
+      maxChanges: 1_200,
+      maxDeletedLines: 600,
+      maxFiles: 6,
+    });
+  }
+
+  const packet = evaluateDependabotPullRequest(nextCatalogSnapshot(), {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  }).repairPacket;
+  assert.notEqual(packet, null);
+  assert.deepEqual(
+    Object.keys(packet).sort(),
+    [
+      "attemptLimit",
+      "attemptNumber",
+      "automatic",
+      "baseRef",
+      "baseSha",
+      "changedPaths",
+      "dependencyGroup",
+      "dependencyNames",
+      "escalation",
+      "expectedBlobs",
+      "failures",
+      "feedbackThreads",
+      "findings",
+      "forbiddenPaths",
+      "headRef",
+      "headSha",
+      "limits",
+      "mode",
+      "operation",
+      "packageEcosystem",
+      "permittedPaths",
+      "preparable",
+      "pullRequestNumber",
+      "repository",
+      "requireExactHead",
+      "requireHumanApproval",
+      "requiredGateIds",
+      "riskTier",
+      "schema",
+      "updateType",
+      "validationCommands",
+      "workflowRunAttempt",
+      "workflowRunId",
+      "workflowSha",
+    ].sort(),
+  );
+  assert.equal(packet.expectedBlobs.length, 15);
+  assert.equal(packet.permittedPaths.length, 6);
+  assert.deepEqual(packet.changedPaths, [
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+  ]);
+  assert.deepEqual(
+    packet.failures.map(({ attribution, id }) => ({ attribution, id })),
+    [{ attribution: "branch", id: "supply-chain-version-skew" }],
+  );
+  assert.deepEqual(packet.feedbackThreads, []);
+  assert.deepEqual(packet.findings, []);
+});
+
+test("Next catalog sync recovers the source-state bad head at attempt two despite provider baselines", () => {
+  const genericPacket = {
+    ...legacyNpmRepairPacket(),
+    changedPaths: ["pnpm-lock.yaml", "pnpm-workspace.yaml"],
+    dependencyGroup: "frontend-core",
+    dependencyNames: ["next"],
+    headRef: "dependabot/npm_and_yarn/frontend-core-2f0c077f04",
+    updateType: "minor",
+  };
+  const processorCheck = processorRepairReceipt(1, {
+    headSha: HEAD_SHA,
+    packet: genericPacket,
+    packetEncoding: "canonical",
+  });
+  const repairCheck = repairReceiptCheck({
+    attempt: 1,
+    headRef: "dependabot/npm_and_yarn/frontend-core-2f0c077f04",
+    headSha: OTHER_SHA,
+    packetDigest: rawDigest(processorCheck.outputText),
+    parentHeadSha: HEAD_SHA,
+    processorCheckId: processorCheck.id,
+  });
+  const candidate = nextCatalogSnapshot({
+    changedPaths: ["pnpm-lock.yaml"],
+    checks: completeChecks({
+      conclusions: { "e2e-celo": "failure", "e2e-monad": "failure" },
+      headSha: OTHER_SHA,
+    }),
+    commits: [
+      nativeDependabotCommit(HEAD_SHA),
+      preparedCommit(OTHER_SHA, HEAD_SHA),
+    ],
+    headSha: OTHER_SHA,
+    nextCatalogSync: nextCatalogState("source"),
+    repairHistoryChecks: [processorCheck, repairCheck],
+  });
+  candidate.baseline.checks = candidate.baseline.checks.map((check) =>
+    [CHECK_NAMES["e2e-celo"], CHECK_NAMES["e2e-monad"]].includes(check.name)
+      ? { ...check, conclusion: "failure" }
+      : check,
+  );
+
+  const result = evaluateDependabotPullRequest(candidate, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  assert.equal(result.repairAttempts.valid, true);
+  assert.equal(result.repairAttempt, 2);
+  assert.equal(result.disposition, "repair-required");
+  assert.deepEqual(
+    result.checks.failures.map(({ attribution, id }) => ({
+      attribution,
+      id,
+    })),
+    [
+      { attribution: "provider-baseline", id: "e2e-celo" },
+      { attribution: "provider-baseline", id: "e2e-monad" },
+    ],
+  );
+  assert.equal(
+    result.repairPacket?.operation.kind,
+    "next-catalog-override-sync",
+  );
+  assert.equal(result.repairPacket?.attemptNumber, 2);
+  assert.deepEqual(result.repairPacket?.failures, []);
+});
+
+test("Next catalog target state requires a reachable matching typed repair proof", () => {
+  const withoutProof = evaluateDependabotPullRequest(
+    nextCatalogSnapshot({
+      checks: completeChecks(),
+      nextCatalogSync: nextCatalogState("target"),
+    }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+  assert.equal(withoutProof.disposition, "manual-repair-required");
+  assert.equal(withoutProof.repairPacket, null);
+  assert.equal(
+    withoutProof.nextCatalogSyncOperation.reason,
+    "next-catalog-target-state-has-no-typed-proof",
+  );
+
+  const selected = evaluateDependabotPullRequest(nextCatalogSnapshot(), {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.notEqual(selected.repairPacket, null);
+  const processorCheck = processorRepairReceipt(1, {
+    headSha: HEAD_SHA,
+    packet: selected.repairPacket,
+    packetEncoding: "canonical",
+  });
+  const repairCheck = repairReceiptCheck({
+    attempt: 1,
+    headRef: "dependabot/npm_and_yarn/frontend-core-2f0c077f04",
+    headSha: OTHER_SHA,
+    packetDigest: rawDigest(processorCheck.outputText),
+    parentHeadSha: HEAD_SHA,
+    processorCheckId: processorCheck.id,
+  });
+  const withProof = evaluateDependabotPullRequest(
+    nextCatalogSnapshot({
+      changedPaths: NEXT_CATALOG_REQUIRED_PATHS,
+      checks: completeChecks({ headSha: OTHER_SHA }),
+      commits: [
+        nativeDependabotCommit(HEAD_SHA),
+        preparedCommit(OTHER_SHA, HEAD_SHA),
+      ],
+      headSha: OTHER_SHA,
+      nextCatalogSync: nextCatalogState("target"),
+      repairHistoryChecks: [processorCheck, repairCheck],
+    }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+
+  assert.equal(withProof.disposition, "prepare-candidate");
+  assert.equal(withProof.repairPacket, null);
+  assert.equal(withProof.nextCatalogSyncOperation.satisfied, true);
+  assert.deepEqual(
+    withProof.nextCatalogSyncOperation.proof.operation,
+    selected.repairPacket.operation,
+  );
+  assert.equal(withProof.repairAttempts.protectedRuntimeOperations.length, 1);
+
+  const genericPacket = structuredClone(selected.repairPacket);
+  delete genericPacket.operation;
+  Object.assign(genericPacket, {
+    attemptNumber: 2,
+    changedPaths: ["pnpm-lock.yaml"],
+    expectedBlobs: genericPacket.expectedBlobs.filter(
+      ({ path }) => path === "pnpm-lock.yaml",
+    ),
+    failures: [
+      {
+        attribution: "branch",
+        detailsUrl: null,
+        id: "supply-chain-version-skew",
+        name: "catalog version-skew",
+      },
+    ],
+    headSha: OTHER_SHA,
+    limits: {
+      maxAddedLines: 20,
+      maxBytes: 8_192,
+      maxChanges: 20,
+      maxDeletedLines: 20,
+      maxFiles: 1,
+    },
+    permittedPaths: ["pnpm-lock.yaml"],
+    schema: DEPENDABOT_REPAIR_PACKET_SCHEMA,
+  });
+  const genericProcessorCheck = processorRepairReceipt(2, {
+    headSha: OTHER_SHA,
+    id: 10_102,
+    packet: genericPacket,
+    packetEncoding: "canonical",
+  });
+  const genericRepairCheck = repairReceiptCheck({
+    attempt: 2,
+    headRef: genericPacket.headRef,
+    headSha: SECOND_HEAD_SHA,
+    id: 30_102,
+    packetDigest: rawDigest(genericProcessorCheck.outputText),
+    parentHeadSha: OTHER_SHA,
+    processorCheckId: genericProcessorCheck.id,
+  });
+  const afterGenericRepair = evaluateDependabotPullRequest(
+    nextCatalogSnapshot({
+      changedPaths: NEXT_CATALOG_REQUIRED_PATHS,
+      checks: completeChecks({ headSha: SECOND_HEAD_SHA }),
+      commits: [
+        nativeDependabotCommit(HEAD_SHA),
+        preparedCommit(OTHER_SHA, HEAD_SHA),
+        preparedCommit(SECOND_HEAD_SHA, OTHER_SHA),
+      ],
+      headSha: SECOND_HEAD_SHA,
+      nextCatalogSync: nextCatalogState("target"),
+      repairHistoryChecks: [
+        processorCheck,
+        repairCheck,
+        genericProcessorCheck,
+        genericRepairCheck,
+      ],
+    }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+  assert.equal(afterGenericRepair.disposition, "prepare-candidate");
+  assert.equal(
+    afterGenericRepair.repairAttempts.latestAppliedRepair.packet.schema,
+    DEPENDABOT_REPAIR_PACKET_SCHEMA,
+  );
+  assert.equal(afterGenericRepair.nextCatalogSyncOperation.satisfied, true);
+  assert.deepEqual(
+    afterGenericRepair.nextCatalogSyncOperation.proof.operation,
+    selected.repairPacket.operation,
+  );
+});
+
+test("Next catalog sync rejects higher, malformed, and unsupported immutable states", () => {
+  for (const [label, nextCatalogSync] of [
+    [
+      "higher-than-target catalog",
+      {
+        ...nextCatalogState("mixed"),
+        catalogSpecifier: "^16.4.0",
+      },
+    ],
+    [
+      "malformed override",
+      {
+        ...nextCatalogState("mixed"),
+        overrideSpecifier: "16.2.12",
+      },
+    ],
+  ]) {
+    const result = evaluateDependabotPullRequest(
+      nextCatalogSnapshot({ nextCatalogSync }),
+      {
+        mode: "prepare",
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+    );
+    assert.equal(result.disposition, "manual-repair-required", label);
+    assert.equal(result.repairPacket, null, label);
+    assert.equal(
+      result.nextCatalogSyncOperation.reason,
+      "invalid-next-catalog-sync-snapshot",
+      label,
+    );
+  }
+
+  const unsupportedTransition = evaluateDependabotPullRequest(
+    nextCatalogSnapshot({ metadata: nextCatalogMetadata({ to: "17.0.0" }) }),
+    {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+  );
+  assert.equal(unsupportedTransition.disposition, "manual-repair-required");
+  assert.equal(unsupportedTransition.repairPacket, null);
+  assert.equal(
+    unsupportedTransition.nextCatalogSyncOperation.reason,
+    "invalid-next-catalog-sync-update",
   );
 });
 
@@ -6269,6 +6883,62 @@ test("a head behind current main enters the serialized refresh lane", () => {
   assert.equal(result.base.current, false);
   assert.ok(result.base.reasons.includes("head-is-behind-current-base"));
   assert.equal(result.repairPacket, null);
+});
+
+test("workflow and local-action updates never enter a Prepare App mutation", () => {
+  for (const filename of [
+    ".github/workflows/ci.yml",
+    ".github/actions/pnpm-install/action.yml",
+  ]) {
+    const actionFile = { ...PACKAGE_BLOB, filename };
+    const green = evaluateDependabotPullRequest(
+      snapshot({ pullRequest: { files: [actionFile] } }),
+      {
+        mode: "prepare",
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+    );
+    assert.equal(green.disposition, "prepare-candidate", filename);
+    assert.equal(green.repairPacket, null, filename);
+
+    const stale = evaluateDependabotPullRequest(
+      snapshot({
+        baseAncestry: {
+          aheadBy: 1,
+          baseCommitSha: BASE_SHA,
+          behindBy: 1,
+          currentBaseIsAncestor: false,
+          currentBaseSha: BASE_SHA,
+          headSha: HEAD_SHA,
+          mergeBaseSha: OTHER_SHA,
+          status: "diverged",
+        },
+        pullRequest: { files: [actionFile] },
+      }),
+      {
+        mode: "prepare",
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+    );
+    assert.equal(stale.disposition, "manual-review", filename);
+    assert.equal(stale.repairPacket, null, filename);
+
+    const failing = evaluateDependabotPullRequest(
+      snapshot({
+        checks: completeChecks({ conclusions: { ci: "failure" } }),
+        pullRequest: { files: [actionFile] },
+      }),
+      {
+        mode: "prepare",
+        repository: REPOSITORY,
+        workflowContext: WORKFLOW_CONTEXT,
+      },
+    );
+    assert.equal(failing.disposition, "manual-repair-required", filename);
+    assert.equal(failing.repairPacket, null, filename);
+  }
 });
 
 test("selects at most one prepare candidate per sweep and exposes no merge candidate", () => {
@@ -8926,6 +9596,14 @@ test("live refresh mutation binds the historical PR base and current main before
         { status: 200 },
       );
     }
+    if (path === `/repos/${REPOSITORY}/pulls/123/files`) {
+      operations.push("files");
+      assert.equal(options.method, "GET");
+      assert.equal(options.headers.Authorization, "Bearer workflow-token");
+      return new Response(JSON.stringify([{ filename: "package.json" }]), {
+        status: 200,
+      });
+    }
     if (path === `/repos/${REPOSITORY}/git/ref/heads/main`) {
       operations.push("main");
       assert.equal(options.method, "GET");
@@ -8968,12 +9646,13 @@ test("live refresh mutation binds the historical PR base and current main before
     }),
     { message: "Updating pull request" },
   );
-  assert.deepEqual(operations, ["pull", "main", "update"]);
+  assert.deepEqual(operations, ["pull", "files", "main", "update"]);
 });
 
 test("live refresh mutation rejects a changed historical base, head, or current main", async () => {
   const attempt = async ({
     liveBaseSha = MERGE_SHA,
+    liveFilePath = "package.json",
     liveHeadSha = HEAD_SHA,
     liveMainSha = BASE_SHA,
   }) => {
@@ -9000,6 +9679,12 @@ test("live refresh mutation rejects a changed historical base, head, or current 
             ),
             { status: 200 },
           );
+        }
+        if (path === `/repos/${REPOSITORY}/pulls/123/files`) {
+          operations.push("files");
+          return new Response(JSON.stringify([{ filename: liveFilePath }]), {
+            status: 200,
+          });
         }
         if (path === `/repos/${REPOSITORY}/git/ref/heads/main`) {
           operations.push("main");
@@ -9042,12 +9727,21 @@ test("live refresh mutation rejects a changed historical base, head, or current 
   await assert.rejects(headChanged.promise, /changed before update-branch/);
   assert.deepEqual(headChanged.operations, ["pull"]);
 
+  const workflowChanged = await attempt({
+    liveFilePath: ".github/workflows/ci.yml",
+  });
+  await assert.rejects(
+    workflowChanged.promise,
+    /cannot refresh automation authority paths/,
+  );
+  assert.deepEqual(workflowChanged.operations, ["pull", "files"]);
+
   const mainChanged = await attempt({ liveMainSha: OTHER_SHA });
   await assert.rejects(
     mainChanged.promise,
     /main changed before update-branch/,
   );
-  assert.deepEqual(mainChanged.operations, ["pull", "main"]);
+  assert.deepEqual(mainChanged.operations, ["pull", "files", "main"]);
 });
 
 test("live approval brackets the exact full PR identity and returns its post-review update token", async () => {

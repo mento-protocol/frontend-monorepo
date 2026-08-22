@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import {
   canonicalJson,
   hardDeniedRepairPath,
+  prepareRefMutationForbiddenPath,
   rawDigest,
   validateProcessorRepairPacket,
 } from "./dependabot-preparation-receipts.mjs";
@@ -173,6 +174,19 @@ const VERCEL_CLI_RUNTIME_INPUT_PATHS = [
   "scripts/vercel-cli-runtime/contract.json",
   "scripts/vercel-cli-runtime/package.json",
   "scripts/vercel-cli-runtime/pnpm-lock.yaml",
+];
+const NEXT_CATALOG_SYNC_REQUIRED_PATHS = [
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "scripts/vercel-cli-runtime/contract.json",
+  "scripts/vercel-cli-runtime/package.json",
+  "scripts/vercel-cli-runtime/pnpm-lock.yaml",
+];
+const NPM_REPAIR_COMPANION_INPUT_PATHS = [
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
 ];
 
 const CHECK_POLICY_DEFINITIONS = [
@@ -1117,6 +1131,29 @@ function vercelCliRuntimeOperationFromMetadata(metadata = {}) {
     : { eligible: false, reason: "invalid-vercel-cli-runtime-update" };
 }
 
+export function selectDependabotRepairBlobPaths({
+  files = [],
+  nextCatalogSyncEligible = false,
+  packageEcosystem = "unknown",
+  protectedRuntimeEligible = false,
+} = {}) {
+  if (protectedRuntimeEligible || nextCatalogSyncEligible) {
+    return [...VERCEL_CLI_RUNTIME_INPUT_PATHS];
+  }
+  const changedPaths = files.map((file) =>
+    typeof file === "string" ? file : file?.filename,
+  );
+  invariant(
+    changedPaths.every((path) => typeof path === "string" && path.length > 0),
+    "Dependabot repair file paths are invalid",
+  );
+  return packageEcosystem === "npm"
+    ? [...new Set([...changedPaths, ...NPM_REPAIR_COMPANION_INPUT_PATHS])].sort(
+        (left, right) => left.localeCompare(right),
+      )
+    : changedPaths;
+}
+
 function protectedRuntimeStateMatches(protectedRuntime, operation) {
   return (
     protectedRuntime !== null &&
@@ -1168,6 +1205,153 @@ function evaluateProtectedRuntimeOperation({
     ...candidate,
     proof: matchingProof ?? null,
     satisfied: matchingProof !== undefined && stateMatches,
+    stateMatches,
+  };
+}
+
+function validNextCatalogSyncOperation(operation) {
+  if (
+    !exactObjectKeys(operation, [
+      "dependency",
+      "fromSpecifier",
+      "fromVersion",
+      "inputPaths",
+      "kind",
+      "pnpmVersion",
+      "resolutionMode",
+      "requiredPaths",
+      "schema",
+      "sourceSeedHeadSha",
+      "targetSpecifier",
+      "targetVersion",
+      "updateType",
+    ]) ||
+    operation.schema !== PROTECTED_RUNTIME_OPERATION_SCHEMA ||
+    operation.kind !== "next-catalog-override-sync" ||
+    operation.dependency !== "next" ||
+    operation.pnpmVersion !== VERCEL_CLI_RUNTIME_PNPM_VERSION ||
+    operation.resolutionMode !== "lowest-direct" ||
+    operation.fromSpecifier !== `^${operation.fromVersion}` ||
+    operation.targetSpecifier !== `^${operation.targetVersion}` ||
+    !SHA_PATTERN.test(operation.sourceSeedHeadSha ?? "") ||
+    stableJson(operation.requiredPaths) !==
+      stableJson(NEXT_CATALOG_SYNC_REQUIRED_PATHS) ||
+    stableJson(operation.inputPaths) !==
+      stableJson(VERCEL_CLI_RUNTIME_INPUT_PATHS)
+  ) {
+    return false;
+  }
+  const from = stableSemverParts(operation.fromVersion);
+  const target = stableSemverParts(operation.targetVersion);
+  return (
+    from !== null &&
+    target !== null &&
+    from[0] === target[0] &&
+    compareSemverParts(target, from) > 0 &&
+    new Set(["patch", "minor"]).has(operation.updateType) &&
+    semverUpdateType(operation.fromVersion, operation.targetVersion) ===
+      operation.updateType
+  );
+}
+
+function validTypedRepairOperation(operation) {
+  return (
+    validVercelCliRuntimeOperation(operation) ||
+    validNextCatalogSyncOperation(operation)
+  );
+}
+
+function nextCatalogSyncOperationFromMetadata(metadata = {}) {
+  const dependencies = Array.isArray(metadata.dependencies)
+    ? metadata.dependencies
+    : [];
+  const sourceSeedHeadSha = metadata.immutableEvidence?.seedCommitSha;
+  if (
+    metadata.packageEcosystem !== "npm" ||
+    metadata.immutableEvidence?.dependencyMetadataValid !== true ||
+    metadata.groupedUpdateIntegrity?.valid !== true ||
+    metadata.dependencyGroup !== "frontend-core" ||
+    dependencies.length !== 1 ||
+    dependencies[0]?.name !== "next" ||
+    !SHA_PATTERN.test(sourceSeedHeadSha ?? "")
+  ) {
+    return null;
+  }
+  const [{ from, to, updateType }] = dependencies;
+  const operation = {
+    dependency: "next",
+    fromSpecifier: `^${from}`,
+    fromVersion: from,
+    inputPaths: [...VERCEL_CLI_RUNTIME_INPUT_PATHS],
+    kind: "next-catalog-override-sync",
+    pnpmVersion: VERCEL_CLI_RUNTIME_PNPM_VERSION,
+    resolutionMode: "lowest-direct",
+    requiredPaths: [...NEXT_CATALOG_SYNC_REQUIRED_PATHS],
+    schema: PROTECTED_RUNTIME_OPERATION_SCHEMA,
+    sourceSeedHeadSha,
+    targetSpecifier: `^${to}`,
+    targetVersion: to,
+    updateType,
+  };
+  return validNextCatalogSyncOperation(operation)
+    ? { eligible: true, operation }
+    : { eligible: false, reason: "invalid-next-catalog-sync-update" };
+}
+
+function validNextCatalogSnapshot(snapshot, operation) {
+  const allowed = new Set([operation.fromSpecifier, operation.targetSpecifier]);
+  return (
+    snapshot !== null &&
+    typeof snapshot === "object" &&
+    allowed.has(snapshot.catalogSpecifier) &&
+    allowed.has(snapshot.overrideSpecifier) &&
+    allowed.has(snapshot.runtimeOverrideSpecifier) &&
+    snapshot.pnpmVersion === operation.pnpmVersion &&
+    snapshot.contractSchema === VERCEL_CLI_RUNTIME_CONTRACT_SCHEMA &&
+    stableSemverParts(snapshot.contractVersion) !== null &&
+    snapshot.rootVercelVersion === snapshot.contractVersion &&
+    snapshot.runtimeVercelVersion === snapshot.contractVersion &&
+    snapshot.overrideDigest === snapshot.runtimeOverrideDigest &&
+    snapshot.overrideDigest === snapshot.contractOverrideDigest
+  );
+}
+
+function evaluateNextCatalogSyncOperation({
+  metadata,
+  nextCatalogSync,
+  repairAttempts,
+}) {
+  const candidate = nextCatalogSyncOperationFromMetadata(metadata);
+  if (candidate === null || candidate.eligible !== true) return candidate;
+  if (!validNextCatalogSnapshot(nextCatalogSync, candidate.operation)) {
+    return {
+      eligible: false,
+      operation: candidate.operation,
+      reason: "invalid-next-catalog-sync-snapshot",
+    };
+  }
+  const matchingProof = (repairAttempts?.protectedRuntimeOperations ?? []).find(
+    ({ operation }) =>
+      validNextCatalogSyncOperation(operation) &&
+      stableJson(operation) === stableJson(candidate.operation),
+  );
+  const stateMatches =
+    nextCatalogSync.catalogSpecifier === candidate.operation.targetSpecifier &&
+    nextCatalogSync.overrideSpecifier === candidate.operation.targetSpecifier &&
+    nextCatalogSync.runtimeOverrideSpecifier ===
+      candidate.operation.targetSpecifier;
+  if (stateMatches && matchingProof === undefined) {
+    return {
+      eligible: false,
+      operation: candidate.operation,
+      reason: "next-catalog-target-state-has-no-typed-proof",
+      stateMatches,
+    };
+  }
+  return {
+    ...candidate,
+    proof: matchingProof ?? null,
+    satisfied: stateMatches && matchingProof !== undefined,
     stateMatches,
   };
 }
@@ -2164,7 +2348,7 @@ function validPreparationSummary(preparation) {
           "operationDigest",
           "packetDigest",
         ]) ||
-        !validVercelCliRuntimeOperation(record.operation) ||
+        !validTypedRepairOperation(record.operation) ||
         record.operation.sourceSeedHeadSha !== preparation.seedHeadSha ||
         !/^[0-9a-f]{64}$/.test(record.operationDigest ?? "") ||
         !/^[0-9a-f]{64}$/.test(record.packetDigest ?? "") ||
@@ -3802,7 +3986,7 @@ function evaluateRepairAttemptGate({
       if (
         !processorReceipt ||
         (protectedRuntimeOperation !== null &&
-          !validVercelCliRuntimeOperation(protectedRuntimeOperation)) ||
+          !validTypedRepairOperation(protectedRuntimeOperation)) ||
         completed.parentHeadSha !== parentHeadSha ||
         completed.headSha !== commitHeadSha ||
         completed.attempt !== consumedAttempts + 1 ||
@@ -4023,22 +4207,36 @@ function protectedRuntimeFeedbackMatchesOperation({
 
 function recommendedDisposition({
   base,
+  changedPaths,
   checks,
   feedback,
   headSha,
   identity,
   mode,
+  nextCatalogSyncOperation,
   protectedRuntimeOperation,
   repairAttempts,
   risk,
 }) {
   if (!identity.valid) return "rejected-identity";
   const preparing = mode === "prepare";
+  const refMutationForbidden = changedPaths.some(
+    prepareRefMutationForbiddenPath,
+  );
   if (!feedback.clear && !(preparing && feedback.repairable)) {
     return "manual-veto-or-feedback";
   }
   if (preparing) {
     if (!risk.preparable || !identity.prepareAuthority) return "manual-review";
+    if (
+      refMutationForbidden &&
+      (repairAttempts.preparationKind !== "native" ||
+        repairAttempts.pendingRefreshCompletion !== null ||
+        repairAttempts.pendingRefreshRequest !== null ||
+        !base.current)
+    ) {
+      return "manual-review";
+    }
     if (repairAttempts.pendingRefreshCompletion) {
       return "refresh-receipt-required";
     }
@@ -4055,11 +4253,22 @@ function recommendedDisposition({
   ) {
     return "manual-repair-required";
   }
+  if (
+    preparing &&
+    nextCatalogSyncOperation !== null &&
+    nextCatalogSyncOperation.eligible !== true
+  ) {
+    return "manual-repair-required";
+  }
   if (checks.missing.length > 0 || checks.pending.length > 0) {
     return "waiting-checks";
   }
   if (checks.state === "pending") return "waiting-checks";
   let branchFailures = [];
+  const nextCatalogRepairRequired =
+    preparing &&
+    nextCatalogSyncOperation?.eligible === true &&
+    nextCatalogSyncOperation.satisfied !== true;
   if (checks.state === "failing") {
     branchFailures = checks.failures.filter(
       ({ attribution }) => attribution === "branch",
@@ -4092,11 +4301,21 @@ function recommendedDisposition({
     );
     if (
       providerFailures.length > 0 &&
-      (!preparing || branchFailures.length === 0)
+      (!preparing ||
+        (branchFailures.length === 0 && !nextCatalogRepairRequired))
     ) {
       return "waiting-retry";
     }
-    if (branchFailures.length === 0) return "waiting-baseline";
+    if (branchFailures.length === 0 && !nextCatalogRepairRequired) {
+      return "waiting-baseline";
+    }
+  }
+  if (nextCatalogRepairRequired) {
+    if (!repairAttempts.valid || repairAttempts.currentAttempt > 2) {
+      return "manual-repair-escalated";
+    }
+    if (repairAttempts.currentHeadPacketIssued) return "repair-pending";
+    return "repair-required";
   }
   if (preparing && protectedRuntimeOperation !== null) {
     if (protectedRuntimeOperation.satisfied !== true) {
@@ -4259,13 +4478,23 @@ export function createDependabotRepairPacket(evaluation) {
     evaluation.protectedRuntimeOperation?.satisfied !== true
       ? evaluation.protectedRuntimeOperation.operation
       : null;
+  const nextCatalogSyncOperation =
+    evaluation.nextCatalogSyncOperation?.eligible === true &&
+    evaluation.nextCatalogSyncOperation?.satisfied !== true
+      ? evaluation.nextCatalogSyncOperation.operation
+      : null;
   const isProtectedRuntimeSync = protectedRuntimeOperation !== null;
+  const isNextCatalogSync = nextCatalogSyncOperation !== null;
+  if (isProtectedRuntimeSync && isNextCatalogSync) return null;
+  const typedOperation = protectedRuntimeOperation ?? nextCatalogSyncOperation;
+  const isTypedOperation = typedOperation !== null;
   const feedbackEligible =
     evaluation.feedback?.clear === true ||
     evaluation.feedback?.repairable === true;
   const changedPaths = Array.isArray(evaluation.changedPaths)
     ? evaluation.changedPaths
     : [];
+  if (changedPaths.some(prepareRefMutationForbiddenPath)) return null;
   const forbiddenChangedPaths = changedPaths.filter((path) =>
     autonomousRepairPathForbidden(path),
   );
@@ -4284,7 +4513,7 @@ export function createDependabotRepairPacket(evaluation) {
         attribution === "provider-baseline" ||
         attribution === "provider-unbaselined"
       ) {
-        return branchFailureEvidence.length === 0;
+        return branchFailureEvidence.length === 0 && !isNextCatalogSync;
       }
       return true;
     },
@@ -4297,13 +4526,14 @@ export function createDependabotRepairPacket(evaluation) {
     evaluation.base?.current !== true ||
     evaluation.repairAttempts?.valid !== true ||
     evaluation.repairAttempt > 2 ||
-    (!isProtectedRuntimeSync && forbiddenRepairEvidence) ||
+    ((!isTypedOperation || isNextCatalogSync) && forbiddenRepairEvidence) ||
     (isProtectedRuntimeSync &&
       !protectedRuntimeFeedbackMatchesOperation({
         feedback: evaluation.feedback,
         headSha: evaluation.headSha,
         operation: protectedRuntimeOperation,
       })) ||
+    (isNextCatalogSync && evaluation.feedback?.clear !== true) ||
     evaluation.checks.missing.length > 0 ||
     evaluation.checks.pending.length > 0 ||
     hasBlockingFailureAttribution
@@ -4378,7 +4608,7 @@ export function createDependabotRepairPacket(evaluation) {
     ]),
   ].sort((left, right) => left.localeCompare(right));
   const carryBoundProtectedRuntimePaths =
-    !isProtectedRuntimeSync &&
+    !isTypedOperation &&
     canCarryBoundProtectedRuntimePaths({
       changedPaths,
       evaluation,
@@ -4386,27 +4616,29 @@ export function createDependabotRepairPacket(evaluation) {
       forbiddenChangedPaths,
     });
   if (
-    !isProtectedRuntimeSync &&
+    !isTypedOperation &&
     branchFailures.length === 0 &&
     feedbackThreads.length === 0
   ) {
     return null;
   }
   if (
-    !isProtectedRuntimeSync &&
+    !isTypedOperation &&
     forbiddenChangedPaths.length > 0 &&
     !carryBoundProtectedRuntimePaths
   ) {
     return null;
   }
   const isAction = evaluation.risk.packageEcosystem === "github-actions";
-  const limits = isProtectedRuntimeSync
+  const limits = isTypedOperation
     ? {
         maxAddedLines: 600,
         maxBytes: 64 * 1024,
-        maxChanges: 160,
+        maxChanges: isNextCatalogSync ? 1_200 : 160,
         maxDeletedLines: 600,
-        maxFiles: 5,
+        maxFiles: isNextCatalogSync
+          ? NEXT_CATALOG_SYNC_REQUIRED_PATHS.length
+          : VERCEL_CLI_RUNTIME_REQUIRED_PATHS.length,
       }
     : isAction
       ? {
@@ -4442,7 +4674,7 @@ export function createDependabotRepairPacket(evaluation) {
     (carryBoundProtectedRuntimePaths &&
       stableJson(expectedBlobs.map(({ path }) => path)) !==
         stableJson(evidencePaths)) ||
-    (isProtectedRuntimeSync &&
+    (isTypedOperation &&
       stableJson(expectedBlobs.map(({ path }) => path)) !==
         stableJson(VERCEL_CLI_RUNTIME_INPUT_PATHS)) ||
     expectedBlobs.some(
@@ -4476,8 +4708,8 @@ export function createDependabotRepairPacket(evaluation) {
       "**/deploy/**",
       "**/deployment/**",
       "**/policy/**",
-      ...(isProtectedRuntimeSync ? [] : ["**/runtime/**"]),
-      ...(isProtectedRuntimeSync ? [] : ["scripts/vercel-cli-runtime/**"]),
+      ...(isTypedOperation ? [] : ["**/runtime/**"]),
+      ...(isTypedOperation ? [] : ["scripts/vercel-cli-runtime/**"]),
       "**/security/**",
       "docs/vercel-deployments.md",
       "scripts/vercel-main-*.mjs",
@@ -4487,8 +4719,8 @@ export function createDependabotRepairPacket(evaluation) {
     limits,
     mode: evaluation.mode,
     packageEcosystem: evaluation.risk.packageEcosystem,
-    permittedPaths: isProtectedRuntimeSync
-      ? [...VERCEL_CLI_RUNTIME_REQUIRED_PATHS]
+    permittedPaths: isTypedOperation
+      ? [...typedOperation.requiredPaths]
       : carryBoundProtectedRuntimePaths
         ? evidencePaths
         : isAction
@@ -4508,11 +4740,11 @@ export function createDependabotRepairPacket(evaluation) {
     requireExactHead: true,
     requireHumanApproval: false,
     riskTier: evaluation.risk.tier,
-    schema: isProtectedRuntimeSync
+    schema: isTypedOperation
       ? DEPENDABOT_PROTECTED_RUNTIME_REPAIR_PACKET_SCHEMA
       : DEPENDABOT_REPAIR_PACKET_SCHEMA,
-    updateType: isProtectedRuntimeSync
-      ? protectedRuntimeOperation.updateType
+    updateType: isTypedOperation
+      ? typedOperation.updateType
       : evaluation.risk.updateType,
     validationCommands: isAction
       ? ["pnpm ci:action-pins:test", "pnpm quality:budgets:test"]
@@ -4527,7 +4759,7 @@ export function createDependabotRepairPacket(evaluation) {
     workflowRunId: workflowContext.workflowRunId,
     workflowSha: workflowContext.workflowSha,
   };
-  if (isProtectedRuntimeSync) packet.operation = protectedRuntimeOperation;
+  if (isTypedOperation) packet.operation = typedOperation;
   try {
     validateProcessorRepairPacket(packet);
     return canonicalJson(packet).length <= RECEIPT_OUTPUT_LIMIT ? packet : null;
@@ -4621,6 +4853,11 @@ export function evaluateDependabotPullRequest(snapshot, options = {}) {
     protectedRuntime: snapshot.protectedRuntime ?? null,
     repairAttempts,
   });
+  const nextCatalogSyncOperation = evaluateNextCatalogSyncOperation({
+    metadata,
+    nextCatalogSync: snapshot.nextCatalogSync ?? null,
+    repairAttempts,
+  });
   const identity = feedback.forcePushVeto
     ? {
         ...structuralIdentity,
@@ -4629,13 +4866,19 @@ export function evaluateDependabotPullRequest(snapshot, options = {}) {
         prepareAuthority: false,
       }
     : structuralIdentity;
+  const changedPaths = pullRequest.files
+    .map((file) => (typeof file === "string" ? file : file?.filename))
+    .filter(Boolean)
+    .sort();
   const disposition = recommendedDisposition({
     base,
+    changedPaths,
     checks,
     feedback,
     headSha: pullRequest.headSha,
     identity,
     mode,
+    nextCatalogSyncOperation,
     protectedRuntimeOperation,
     repairAttempts,
     risk,
@@ -4647,10 +4890,7 @@ export function evaluateDependabotPullRequest(snapshot, options = {}) {
     base,
     baseRef: pullRequest.baseRef,
     baseSha: pullRequest.baseSha,
-    changedPaths: pullRequest.files
-      .map((file) => (typeof file === "string" ? file : file?.filename))
-      .filter(Boolean)
-      .sort(),
+    changedPaths,
     dependencies: (metadata.dependencies ?? []).map((dependency) => ({
       from: dependency.from,
       name: dependency.name,
@@ -4674,6 +4914,8 @@ export function evaluateDependabotPullRequest(snapshot, options = {}) {
     identity,
     dependencyGroup: metadata.dependencyGroup ?? null,
     mode,
+    nextCatalogSync: snapshot.nextCatalogSync ?? null,
+    nextCatalogSyncOperation,
     protectedRuntime: snapshot.protectedRuntime ?? null,
     protectedRuntimeOperation,
     pullRequestNumber: pullRequest.number,
@@ -6218,12 +6460,12 @@ export function createLiveGitHubAdapter({
     });
   };
 
-  const getBoundJsonBlob = async (repository, expectedBlob) => {
+  const getBoundBlobBytes = async (repository, expectedBlob) => {
     snapshotInvariant(
       expectedBlob?.type === "blob" &&
         expectedBlob.mode === "100644" &&
         SHA_PATTERN.test(expectedBlob.sha ?? ""),
-      `Protected runtime input ${expectedBlob?.path ?? "unknown"} is missing from the exact head`,
+      `Typed repair input ${expectedBlob?.path ?? "unknown"} is missing from the exact head`,
     );
     const response = await request(
       "GET",
@@ -6236,13 +6478,18 @@ export function createLiveGitHubAdapter({
         Number.isSafeInteger(data.size) &&
         data.size >= 0 &&
         data.size <= PROTECTED_RUNTIME_BLOB_LIMIT,
-      `Protected runtime input ${expectedBlob.path} exceeds its bounded Git blob contract`,
+      `Typed repair input ${expectedBlob.path} exceeds its bounded Git blob contract`,
     );
     const decoded = Buffer.from(data.content.replaceAll(/\s/g, ""), "base64");
     snapshotInvariant(
       decoded.length === data.size,
-      `Protected runtime input ${expectedBlob.path} has inconsistent Git blob bytes`,
+      `Typed repair input ${expectedBlob.path} has inconsistent Git blob bytes`,
     );
+    return decoded;
+  };
+
+  const getBoundJsonBlob = async (repository, expectedBlob) => {
+    const decoded = await getBoundBlobBytes(repository, expectedBlob);
     try {
       const value = JSON.parse(decoded.toString("utf8"));
       snapshotInvariant(
@@ -6256,6 +6503,75 @@ export function createLiveGitHubAdapter({
         `Protected runtime input ${expectedBlob.path} is not valid JSON`,
       );
     }
+  };
+
+  const getNextCatalogSyncSnapshot = async (repository, expectedBlobs) => {
+    const byPath = new Map(
+      expectedBlobs.map((expectedBlob) => [expectedBlob.path, expectedBlob]),
+    );
+    const completeInputSet =
+      byPath.size === VERCEL_CLI_RUNTIME_INPUT_PATHS.length &&
+      VERCEL_CLI_RUNTIME_INPUT_PATHS.every((path) => {
+        const expectedBlob = byPath.get(path);
+        return (
+          expectedBlob?.type === "blob" &&
+          expectedBlob.mode === "100644" &&
+          SHA_PATTERN.test(expectedBlob.sha ?? "")
+        );
+      });
+    if (!completeInputSet) return null;
+    const [rootPackage, runtimePackage, contract, workspaceBytes] =
+      await Promise.all([
+        getBoundJsonBlob(repository, byPath.get("package.json")),
+        getBoundJsonBlob(
+          repository,
+          byPath.get("scripts/vercel-cli-runtime/package.json"),
+        ),
+        getBoundJsonBlob(
+          repository,
+          byPath.get("scripts/vercel-cli-runtime/contract.json"),
+        ),
+        getBoundBlobBytes(repository, byPath.get("pnpm-workspace.yaml")),
+      ]);
+    const workspaceText = workspaceBytes.toString("utf8");
+    snapshotInvariant(
+      Buffer.from(workspaceText, "utf8").equals(workspaceBytes) &&
+        workspaceText.endsWith("\n") &&
+        !workspaceText.includes("\r"),
+      "Next catalog input is not canonical UTF-8",
+    );
+    const matches = [...workspaceText.matchAll(/^ {2}next: (\^[^\s]+)$/gmu)];
+    snapshotInvariant(
+      matches.length === 1,
+      "Next catalog input is missing or ambiguous",
+    );
+    const rootOverrides = rootPackage.pnpm?.overrides;
+    const runtimeOverrides = runtimePackage.pnpm?.overrides;
+    return {
+      catalogSpecifier: matches[0][1],
+      contractOverrideDigest: contract.overridesSha256 ?? null,
+      contractSchema: contract.schema ?? null,
+      contractVersion: contract.vercelVersion ?? null,
+      overrideDigest:
+        rootOverrides !== null &&
+        typeof rootOverrides === "object" &&
+        !Array.isArray(rootOverrides)
+          ? canonicalDigest(rootOverrides)
+          : null,
+      overrideSpecifier: rootOverrides?.next ?? null,
+      pnpmVersion:
+        /^pnpm@(.+)$/.exec(String(rootPackage.packageManager ?? ""))?.[1] ??
+        null,
+      rootVercelVersion: rootPackage.devDependencies?.vercel ?? null,
+      runtimeOverrideDigest:
+        runtimeOverrides !== null &&
+        typeof runtimeOverrides === "object" &&
+        !Array.isArray(runtimeOverrides)
+          ? canonicalDigest(runtimeOverrides)
+          : null,
+      runtimeOverrideSpecifier: runtimeOverrides?.next ?? null,
+      runtimeVercelVersion: runtimePackage.dependencies?.vercel ?? null,
+    };
   };
 
   const getProtectedRuntimeSnapshot = async (repository, expectedBlobs) => {
@@ -6315,10 +6631,21 @@ export function createLiveGitHubAdapter({
     });
     const protectedRuntimeCandidate =
       vercelCliRuntimeOperationFromMetadata(preliminaryMetadata);
-    const expectedBlobPaths =
-      protectedRuntimeCandidate?.eligible === true
-        ? VERCEL_CLI_RUNTIME_INPUT_PATHS
-        : files;
+    const nextCatalogSyncCandidate =
+      nextCatalogSyncOperationFromMetadata(preliminaryMetadata);
+    snapshotInvariant(
+      !(
+        protectedRuntimeCandidate?.eligible === true &&
+        nextCatalogSyncCandidate?.eligible === true
+      ),
+      "Dependabot update selected multiple typed repair operations",
+    );
+    const expectedBlobPaths = selectDependabotRepairBlobPaths({
+      files,
+      nextCatalogSyncEligible: nextCatalogSyncCandidate?.eligible === true,
+      packageEcosystem: preliminaryMetadata.packageEcosystem,
+      protectedRuntimeEligible: protectedRuntimeCandidate?.eligible === true,
+    });
     const [baseAncestry, expectedBlobs] = await Promise.all([
       getCurrentBaseAncestry({
         baseRef: raw.base.ref,
@@ -6335,6 +6662,10 @@ export function createLiveGitHubAdapter({
     const protectedRuntime =
       protectedRuntimeCandidate?.eligible === true && collectionBase.current
         ? await getProtectedRuntimeSnapshot(repository, expectedBlobs)
+        : null;
+    const nextCatalogSync =
+      nextCatalogSyncCandidate?.eligible === true && collectionBase.current
+        ? await getNextCatalogSyncSnapshot(repository, expectedBlobs)
         : null;
     const baselineSha = baseAncestry.currentBaseSha;
     const commitHeadShas = [
@@ -6478,6 +6809,7 @@ export function createLiveGitHubAdapter({
         updatedAt: feedback.updatedAt,
       },
       metadata,
+      nextCatalogSync,
       protectedRuntime,
       prepareActor: validPrepareActor({
         prepareAppSlug: prepareActor.appSlug,
@@ -6939,6 +7271,24 @@ export function createLiveGitHubAdapter({
           current.base?.repo?.full_name === repository &&
           current.base?.sha === previousBaseSha,
         `PR #${number} changed before update-branch`,
+      );
+      const currentFiles = await paginate(
+        `/repos/${repository}/pulls/${number}/files`,
+      );
+      invariant(
+        Number.isSafeInteger(current.changed_files) &&
+          current.changed_files >= 1 &&
+          current.changed_files <= 300 &&
+          currentFiles.length === current.changed_files &&
+          new Set(currentFiles.map(({ filename }) => filename)).size ===
+            currentFiles.length &&
+          currentFiles.every(
+            ({ filename }) =>
+              typeof filename === "string" &&
+              filename.length > 0 &&
+              !prepareRefMutationForbiddenPath(filename),
+          ),
+        `PR #${number} cannot refresh automation authority paths`,
       );
       const mainReference = await request(
         "GET",
