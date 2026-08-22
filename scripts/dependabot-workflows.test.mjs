@@ -2372,6 +2372,11 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
     terminalSmoke.run,
     /dependabot-protected-runtime-sync\.mjs" candidate-cli-smoke[\s\S]*--packet-base64[\s\S]*--evidence-manifest[\s\S]*--processor-check-id[\s\S]*--validated-plan-base64[\s\S]*--validated-plan-digest/,
   );
+  assert.ok(
+    terminalSmoke.run.includes(
+      '"$NODE_BINARY" "$TRUSTED_ROOT/scripts/dependabot-protected-runtime-sync.mjs"',
+    ),
+  );
   assert.match(terminalSmoke.run, /assert_not_writable/u);
   assert.match(terminalSmoke.run, /actions_parent/u);
   assert.ok(
