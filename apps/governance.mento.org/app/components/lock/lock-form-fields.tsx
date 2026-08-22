@@ -43,6 +43,17 @@ const getFirstWednesdayAfterMinPeriod = () => {
   return targetDate.toNativeDate();
 };
 
+export function validateAmountWithinBalance(
+  value: unknown,
+  mentoBalance: bigint,
+) {
+  if (value === undefined || value === null || value === "") return true;
+  return (
+    Number(value) <= Number(formatUnits(mentoBalance, 18)) ||
+    "Insufficient balance"
+  );
+}
+
 interface LockFormFieldsProps {
   mentoBalance: bigint;
   lock?: LockWithExpiration;
@@ -101,9 +112,7 @@ export const LockFormFields = forwardRef<
         const re = /^(?:\d+)(?:\.\d{1,18})?$/;
         return re.test(v) || "Invalid amount format";
       },
-      max: (v) =>
-        Number(v) <= Number(formatUnits(mentoBalance, 18)) ||
-        "Insufficient balance",
+      max: (v) => validateAmountWithinBalance(v, mentoBalance),
       min: (v) => {
         if (v === undefined || v === null || v === "") return true;
         const amount = Number(v);

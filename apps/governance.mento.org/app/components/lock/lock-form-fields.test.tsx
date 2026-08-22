@@ -46,7 +46,10 @@ vi.mock("@/contracts/locking", () => ({
   useLockCalculation: () => ({ data: undefined, isLoading: false }),
 }));
 
-import { LockFormFields } from "./lock-form-fields";
+import {
+  LockFormFields,
+  validateAmountWithinBalance,
+} from "./lock-form-fields";
 
 const MENTO_DECIMALS = 10n ** 18n;
 
@@ -117,5 +120,16 @@ describe("LockFormFields balance validation", () => {
       );
     });
     expect(amountInput.value).toBe("1");
+  });
+
+  it("accepts an unset amount and rejects an amount above the balance", () => {
+    const balance = 2n * MENTO_DECIMALS;
+
+    expect(validateAmountWithinBalance(undefined, balance)).toBe(true);
+    expect(validateAmountWithinBalance(null, balance)).toBe(true);
+    expect(validateAmountWithinBalance("", balance)).toBe(true);
+    expect(validateAmountWithinBalance("3", balance)).toBe(
+      "Insufficient balance",
+    );
   });
 });
