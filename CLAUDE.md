@@ -255,8 +255,10 @@ Branch mutation and readiness authority must never coexist:
    Grep may locate the relevant ranges;
 2. a secretless validator binds each patch to permitted paths and exact Git
    blobs, including files larger than the Contents API limit;
-3. a terminal no-output job materializes trusted source and a hash-verified
-   pnpm bootstrap without registering runner actions, reapplies the validated
+3. a terminal no-output job materializes trusted source, a byte-identical
+   sealed Node executable, and a hash-verified pnpm bootstrap without
+   registering runner actions. It checks a non-writable candidate `PATH` that
+   excludes the runner-owned `/usr/local/bin` directory, reapplies the validated
    plan to fresh evidence, and executes the typed candidate as the final step
    under a separate non-sudo account without secrets, caches, or write
    authority;
@@ -337,11 +339,13 @@ only after the typed Repair receipt, green gates, and clean re-review.
 Preview workers validate the candidate runtime tuple only as data and continue
 to stage the credentialed build CLI from trusted default-branch controller
 source. After trusted plan validation, a fresh terminal no-output job uses only
-API and shell steps to materialize the trusted scripts and hash-verified pnpm
-bootstrap. It registers no runner action or post action before candidate code.
-A separate non-sudo account runs candidate code and cannot write the trusted
-source, evidence, pnpm executable, workspace, Actions directory, or runner
-command files. The job runs the digest-bound validated patches against fresh
+API and shell steps to materialize the trusted scripts, a byte-identical sealed
+Node executable, and the hash-verified pnpm bootstrap. It registers no runner
+action or post action before candidate code. A separate non-sudo account runs
+candidate code and cannot write the trusted source, evidence, Node or pnpm
+executable, candidate `PATH` directories, workspace, Actions directory, or
+runner command files. The checked `PATH` excludes the runner-owned
+`/usr/local/bin` directory. The job runs the digest-bound validated patches against fresh
 exact evidence, then runs the secretless frozen checks. For Next, its final
 step performs a cacheless frozen install of only the selected app's production
 dependencies. Lifecycle scripts run in a sanitized environment. The job

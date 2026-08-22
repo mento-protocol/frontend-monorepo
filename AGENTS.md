@@ -171,11 +171,13 @@ typed Repair receipt, complete green gates, and clean exact-head re-review.
 PR preview workers validate the candidate runtime tuple only as data; every
 credentialed preview build still stages its CLI from the trusted default-branch
 controller. After trusted plan validation, a fresh terminal no-output job uses
-API and shell steps to materialize the exact trusted scripts and hash-verified
-pnpm bootstrap. It registers no runner action or post action before candidate
-code. A separate non-sudo account runs candidate code and cannot write the
-trusted source, evidence, pnpm executable, workspace, Actions directory, or
-runner command files. The job reapplies the digest-bound validated patches to
+API and shell steps to materialize the exact trusted scripts, a byte-identical
+sealed Node executable, and the hash-verified pnpm bootstrap. It registers no
+runner action or post action before candidate code. A separate non-sudo account
+runs candidate code and cannot write the trusted source, evidence, Node or pnpm
+executable, candidate `PATH` directories, workspace, Actions directory, or
+runner command files. The checked `PATH` excludes the runner-owned
+`/usr/local/bin` directory. The job reapplies the digest-bound validated patches to
 fresh exact evidence, performs the secretless frozen checks, and emits no plan
 or mutation authority. For Next, the final step performs a cacheless frozen
 install of only the selected app's production dependencies. Lifecycle scripts

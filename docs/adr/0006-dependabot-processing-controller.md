@@ -208,10 +208,12 @@ run starts waiting and can differ from dispatch order.
    path, file, edit, and byte caps. For v3, it independently reproduces the
    exact typed plan;
 4. **candidate CLI smoke** runs only for v3 after validation. API and shell
-   steps materialize exact trusted source and a hash-verified pnpm bootstrap
-   without registering a runner action or post action. A separate non-sudo
-   account runs candidate code as the terminal step with read-only trusted
-   inputs and no secret, cache, or write authority;
+   steps materialize exact trusted source, a byte-identical sealed Node
+   executable, and a hash-verified pnpm bootstrap without registering a runner
+   action or post action. A separate non-sudo account runs candidate code as the
+   terminal step. Its checked non-writable `PATH` excludes the runner-owned
+   `/usr/local/bin` directory. The account has read-only trusted inputs and no
+   secret, cache, or write authority;
 5. **stage** alone gets a short-lived App token and writes exact unreachable
    blobs, tree, and one commit without moving the branch;
 6. **intent** has no App token and publishes `Dependabot Repair Intent`

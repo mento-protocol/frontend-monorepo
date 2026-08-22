@@ -500,10 +500,13 @@ the time each run starts waiting, which can differ from dispatch order.
    freshly materialized exact packet evidence and requires every result digest
    to match the validated plan. It does not run another registry oracle or
    regenerate the plan. API and shell steps materialize the exact trusted
-   scripts and the npm-locked, hash-verified pnpm bootstrap. The job registers
+   scripts, a byte-identical sealed Node executable, and the npm-locked,
+   hash-verified pnpm bootstrap. The job registers
    no runner action or post action before candidate code. A separate non-sudo
-   account cannot write the trusted source, evidence, pnpm executable,
-   workspace, Actions directory, or runner command files. The job first
+   account cannot write the trusted source, evidence, copied Node executable,
+   pnpm executable, workspace, Actions directory, or runner command files. The
+   candidate `PATH` contains only checked non-writable directories and excludes
+   the runner-owned `/usr/local/bin` directory. The job first
    performs secretless frozen lock checks with scripts and pnpmfile loading
    disabled. It installs the standalone runtime and checks its exact CLI
    version. The Next kind finishes with a cacheless frozen install of only the
