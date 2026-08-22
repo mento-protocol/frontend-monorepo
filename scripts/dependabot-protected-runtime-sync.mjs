@@ -719,7 +719,6 @@ function sanitizedEnvironment(root, executableDirectories = []) {
     PATH: [
       ...executableDirectories,
       dirname(process.execPath),
-      "/usr/local/bin",
       "/usr/bin",
       "/bin",
     ].join(":"),

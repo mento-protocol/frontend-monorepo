@@ -583,6 +583,15 @@ jobs:
           set -euo pipefail
           bootstrap_root="/tmp/dependabot-terminal-pnpm-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           install -d -m 0700 "$bootstrap_root"
+          source_node_binary="$(realpath "$(command -v node)")"
+          node_binary="$bootstrap_root/node"
+          test -f "$source_node_binary"
+          test ! -L "$source_node_binary"
+          install -m 0555 "$source_node_binary" "$node_binary"
+          test -f "$node_binary"
+          test ! -L "$node_binary"
+          cmp -s "$source_node_binary" "$node_binary"
+          test "$("$node_binary" --version)" = "$("$source_node_binary" --version)"
           install -m 0400 "$TRUSTED_ROOT/scripts/vercel-pnpm-bootstrap/package.json" "$bootstrap_root/package.json"
           install -m 0400 "$TRUSTED_ROOT/scripts/vercel-pnpm-bootstrap/package-lock.json" "$bootstrap_root/package-lock.json"
           npm ci --prefix "$bootstrap_root" --ignore-scripts --no-audit --no-fund
@@ -594,7 +603,7 @@ jobs:
           "$pnpm_binary" --version | grep -Fxq "10.34.4"
           find "$bootstrap_root" -type f -exec chmod 0444 {} +
           find "$bootstrap_root" -type d -exec chmod 0555 {} +
-          chmod 0555 "$pnpm_binary"
+          chmod 0555 "$node_binary" "$pnpm_binary"
 
           candidate_user="dependabot-candidate"
           candidate_root="/tmp/dependabot-terminal-candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -610,6 +619,7 @@ jobs:
           sudo -n -u "$candidate_user" test -w "$candidate_root"
           echo "candidate_root=$candidate_root" >> "$GITHUB_OUTPUT"
           echo "candidate_user=$candidate_user" >> "$GITHUB_OUTPUT"
+          echo "node_binary=$node_binary" >> "$GITHUB_OUTPUT"
           echo "pnpm_binary=$pnpm_binary" >> "$GITHUB_OUTPUT"
           echo "pnpm_dir=$(dirname "$pnpm_binary")" >> "$GITHUB_OUTPUT"
 
@@ -644,6 +654,7 @@ jobs:
           CANDIDATE_ROOT: ${{ steps.terminal-runtime.outputs.candidate_root }}
           CANDIDATE_USER: ${{ steps.terminal-runtime.outputs.candidate_user }}
           EVIDENCE_MANIFEST: ${{ steps.evidence.outputs.evidence_manifest }}
+          NODE_BINARY: ${{ steps.terminal-runtime.outputs.node_binary }}
           NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
           PACKET_BASE64: ${{ needs.preflight.outputs.packet_base64 }}
           PNPM_BINARY: ${{ steps.terminal-runtime.outputs.pnpm_binary }}
@@ -654,16 +665,15 @@ jobs:
           VALIDATED_PLAN_DIGEST: ${{ needs.validate.outputs.validated_plan_digest }}
         run: |
           set -euo pipefail
-          node_binary="$(realpath "$(command -v node)")"
           assert_not_writable() {
             if sudo -n -u "$CANDIDATE_USER" test -w "$1"; then
               echo "::error::candidate account can write protected path: $1"
               exit 1
             fi
           }
-          test -x "$node_binary"
+          test -x "$NODE_BINARY"
           test -x "$PNPM_BINARY"
-          sudo -n -u "$CANDIDATE_USER" test -x "$node_binary"
+          sudo -n -u "$CANDIDATE_USER" test -x "$NODE_BINARY"
           sudo -n -u "$CANDIDATE_USER" test -x "$PNPM_BINARY"
           if sudo -n -u "$CANDIDATE_USER" /usr/bin/sudo -n true >/dev/null 2>&1; then
             echo "::error::candidate account unexpectedly has sudo authority"
@@ -672,8 +682,12 @@ jobs:
           actions_parent="$(dirname "$(dirname "$GITHUB_WORKSPACE")")"
           assert_not_writable "$actions_parent"
           assert_not_writable "$GITHUB_WORKSPACE"
-          assert_not_writable "$(dirname "$node_binary")"
-          assert_not_writable "$node_binary"
+          candidate_path="$PNPM_DIR:$(dirname "$NODE_BINARY"):/usr/bin:/bin"
+          IFS=: read -r -a candidate_path_dirs <<< "$candidate_path"
+          for executable_dir in "${candidate_path_dirs[@]}"; do
+            assert_not_writable "$executable_dir"
+          done
+          assert_not_writable "$NODE_BINARY"
           assert_not_writable "$PNPM_BINARY"
           while IFS= read -r -d '' protected_path; do
             assert_not_writable "$protected_path"
@@ -688,9 +702,9 @@ jobs:
             LANG=C.UTF-8 \
             LC_ALL=C.UTF-8 \
             NPM_CONFIG_REGISTRY=https://registry.npmjs.org/ \
-            PATH="$PNPM_DIR:$(dirname "$node_binary"):/usr/local/bin:/usr/bin:/bin" \
+            PATH="$candidate_path" \
             TMPDIR="$CANDIDATE_ROOT/tmp" \
-            "$node_binary" "$TRUSTED_ROOT/scripts/dependabot-protected-runtime-sync.mjs" candidate-cli-smoke \
+            "$NODE_BINARY" "$TRUSTED_ROOT/scripts/dependabot-protected-runtime-sync.mjs" candidate-cli-smoke \
             --packet-base64 "$PACKET_BASE64" \
             --evidence-manifest "$EVIDENCE_MANIFEST" \
             --processor-check-id "$PROCESSOR_CHECK_ID" \
