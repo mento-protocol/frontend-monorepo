@@ -14,6 +14,7 @@ permissions: {}
 concurrency:
   group: dependabot-prepare-repair
   cancel-in-progress: false
+  # GitHub supports queue:max. The pinned actionlint schema does not know this key yet.
   queue: max # trunk-ignore(actionlint/syntax-check)
 
 jobs:
@@ -294,6 +295,10 @@ jobs:
             publish checks, or trigger workflows.
             Return only the requested structured result. Each edit must be one
             valid contextual unified diff for one existing expected blob.
+            Preserve each dependency declaration that the Dependabot diff
+            changed. Never edit a changed package.json or pnpm-workspace.yaml;
+            repair only unchanged packet-bound companion declarations and
+            generated lockfiles.
             Every hunk header count must exactly match its body, and every
             changed run must include at least one unchanged context line before
             and after it unless the run touches the first or final line of the
@@ -348,23 +353,6 @@ jobs:
             --processor-check-id "$PROCESSOR_CHECK_ID" \
             --github-output "$GITHUB_OUTPUT"
 
-      - name: Generate the protected-runtime sync plan again
-        id: protected-runtime-sync-second
-        if: needs.preflight.outputs.plan_kind == 'protected-runtime-sync'
-        shell: bash
-        env:
-          EVIDENCE_MANIFEST: ${{ steps.evidence.outputs.evidence_manifest }}
-          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
-          PACKET_BASE64: ${{ needs.preflight.outputs.packet_base64 }}
-          PROCESSOR_CHECK_ID: ${{ needs.preflight.outputs.processor_check_id }}
-        run: |
-          set -euo pipefail
-          node scripts/dependabot-protected-runtime-sync.mjs generate-plan \
-            --packet-base64 "$PACKET_BASE64" \
-            --evidence-manifest "$EVIDENCE_MANIFEST" \
-            --processor-check-id "$PROCESSOR_CHECK_ID" \
-            --github-output "$GITHUB_OUTPUT"
-
       - name: Require a completed exact evidence read
         if: needs.preflight.outputs.plan_kind == 'claude-repair'
         shell: bash
@@ -383,7 +371,6 @@ jobs:
           CLAUDE_PLAN: ${{ steps.claude-repair.outputs.structured_output }}
           FIRST_PROTECTED_RUNTIME_PLAN: ${{ steps.protected-runtime-sync-first.outputs.structured_output }}
           PLAN_KIND: ${{ needs.preflight.outputs.plan_kind }}
-          SECOND_PROTECTED_RUNTIME_PLAN: ${{ steps.protected-runtime-sync-second.outputs.structured_output }}
         run: |
           set -euo pipefail
           node --input-type=module --eval '
@@ -392,16 +379,15 @@ jobs:
             const kind = process.env.PLAN_KIND;
             const claude = process.env.CLAUDE_PLAN ?? "";
             const first = process.env.FIRST_PROTECTED_RUNTIME_PLAN ?? "";
-            const second = process.env.SECOND_PROTECTED_RUNTIME_PLAN ?? "";
             let selected;
             if (kind === "claude-repair") {
-              if (claude.length === 0 || first.length !== 0 || second.length !== 0) {
+              if (claude.length === 0 || first.length !== 0) {
                 throw new Error("Claude repair did not produce exactly one plan");
               }
               selected = claude;
             } else if (kind === "protected-runtime-sync") {
-              if (claude.length !== 0 || first.length === 0 || first !== second) {
-                throw new Error("Protected-runtime plans are absent or non-deterministic");
+              if (claude.length !== 0 || first.length === 0) {
+                throw new Error("Protected-runtime plan is absent or ambiguous");
               }
               selected = first;
             } else {
@@ -421,7 +407,9 @@ jobs:
       needs.preflight.result == 'success' &&
       needs.plan.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The typed Next verifier runs one oracle solve and two frozen solves in
+    # series. Their explicit subprocess caps total more than 13 minutes.
+    timeout-minutes: 20
     permissions:
       actions: read
       checks: read
@@ -544,36 +532,86 @@ jobs:
       needs.validate.result == 'success' &&
       needs.preflight.outputs.plan_kind == 'protected-runtime-sync'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     permissions:
       actions: read
       checks: read
       contents: read
       pull-requests: read
     steps:
-      - name: Check out only the exact trusted workflow source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-          ref: ${{ github.workflow_sha }}
-
-      - name: Install the exact terminal-smoke pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v4
+      # Do not register a runner action before candidate lifecycle code.
+      # A same-user candidate could replace a registered post entry and make
+      # the runner execute it later with the action's original inputs.
+      - name: Materialize the exact trusted terminal source without actions
+        id: trusted-source
+        shell: bash
         env:
-          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
-        with:
-          standalone: true
-          version: 10.34.4
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          trusted_root="/tmp/dependabot-terminal-source-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          test "$(gh api "repos/$REPOSITORY/commits/$WORKFLOW_SHA" --jq .sha)" = "$WORKFLOW_SHA"
+          paths=(
+            scripts/dependabot-preparation-receipts.mjs
+            scripts/dependabot-protected-runtime-sync.mjs
+            scripts/vercel-cli-runtime-contract.mjs
+            scripts/vercel-pnpm-bootstrap/package.json
+            scripts/vercel-pnpm-bootstrap/package-lock.json
+          )
+          for source_path in "${paths[@]}"; do
+            destination="$trusted_root/$source_path"
+            install -d -m 0700 "$(dirname "$destination")"
+            gh api -H "Accept: application/vnd.github.raw+json" \
+              "repos/$REPOSITORY/contents/$source_path?ref=$WORKFLOW_SHA" \
+              > "$destination"
+            test -s "$destination"
+            chmod 0400 "$destination"
+          done
+          find "$trusted_root" -type f -exec chmod 0444 {} +
+          find "$trusted_root" -type d -exec chmod 0555 {} +
+          echo "root=$trusted_root" >> "$GITHUB_OUTPUT"
 
-      - name: Prove the exact terminal-smoke pnpm and registry
+      - name: Install and authenticate the exact terminal-smoke pnpm
+        id: terminal-runtime
         shell: bash
         env:
           NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+          TRUSTED_ROOT: ${{ steps.trusted-source.outputs.root }}
         run: |
           set -euo pipefail
-          test "$(pnpm --version)" = "10.34.4"
-          test "$(pnpm config get registry)" = "https://registry.npmjs.org/"
+          bootstrap_root="/tmp/dependabot-terminal-pnpm-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 0700 "$bootstrap_root"
+          install -m 0400 "$TRUSTED_ROOT/scripts/vercel-pnpm-bootstrap/package.json" "$bootstrap_root/package.json"
+          install -m 0400 "$TRUSTED_ROOT/scripts/vercel-pnpm-bootstrap/package-lock.json" "$bootstrap_root/package-lock.json"
+          npm ci --prefix "$bootstrap_root" --ignore-scripts --no-audit --no-fund
+          pnpm_binary="$bootstrap_root/node_modules/@pnpm/linux-x64/pnpm"
+          test -f "$pnpm_binary"
+          test ! -L "$pnpm_binary"
+          echo "e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193  $pnpm_binary" |
+            sha256sum --check --strict
+          "$pnpm_binary" --version | grep -Fxq "10.34.4"
+          find "$bootstrap_root" -type f -exec chmod 0444 {} +
+          find "$bootstrap_root" -type d -exec chmod 0555 {} +
+          chmod 0555 "$pnpm_binary"
+
+          candidate_user="dependabot-candidate"
+          candidate_root="/tmp/dependabot-terminal-candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          sudo /usr/sbin/useradd --system --user-group \
+            --home-dir "$candidate_root/home" --no-create-home \
+            --shell /usr/sbin/nologin "$candidate_user"
+          sudo install -d -o "$candidate_user" -g "$candidate_user" -m 0700 \
+            "$candidate_root" "$candidate_root/home" "$candidate_root/tmp"
+          if sudo -n -u "$candidate_user" /usr/bin/sudo -n true >/dev/null 2>&1; then
+            echo "::error::candidate account unexpectedly has sudo authority"
+            exit 1
+          fi
+          sudo -n -u "$candidate_user" test -w "$candidate_root"
+          echo "candidate_root=$candidate_root" >> "$GITHUB_OUTPUT"
+          echo "candidate_user=$candidate_user" >> "$GITHUB_OUTPUT"
+          echo "pnpm_binary=$pnpm_binary" >> "$GITHUB_OUTPUT"
+          echo "pnpm_dir=$(dirname "$pnpm_binary")" >> "$GITHUB_OUTPUT"
 
       - name: Materialize exact packet-bound terminal-smoke evidence
         id: evidence
@@ -584,31 +622,75 @@ jobs:
           PACKET_DIGEST: ${{ needs.preflight.outputs.packet_digest }}
           PROCESSOR_CHECK_ID: ${{ needs.preflight.outputs.processor_check_id }}
           REPOSITORY: ${{ github.repository }}
+          TRUSTED_ROOT: ${{ steps.trusted-source.outputs.root }}
         run: |
           set -euo pipefail
-          evidence_root="$RUNNER_TEMP/dependabot-repair-terminal-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          node scripts/dependabot-preparation-receipts.mjs materialize-repair-evidence \
+          evidence_root="/tmp/dependabot-repair-terminal-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          node "$TRUSTED_ROOT/scripts/dependabot-preparation-receipts.mjs" materialize-repair-evidence \
             --repository "$REPOSITORY" \
             --packet-base64 "$PACKET_BASE64" \
             --packet-digest "$PACKET_DIGEST" \
             --processor-check-id "$PROCESSOR_CHECK_ID" \
             --output-root "$evidence_root" \
             --github-output "$GITHUB_OUTPUT"
+          find "$evidence_root" -type f -exec chmod 0444 {} +
+          find "$evidence_root" -type d -exec chmod 0555 {} +
 
       # Candidate registry code executes only here, after authoritative plan
       # validation, on this fresh runner. This terminal step emits no output.
       - name: Execute the generated candidate CLI as a terminal smoke
         shell: bash
         env:
+          CANDIDATE_ROOT: ${{ steps.terminal-runtime.outputs.candidate_root }}
+          CANDIDATE_USER: ${{ steps.terminal-runtime.outputs.candidate_user }}
           EVIDENCE_MANIFEST: ${{ steps.evidence.outputs.evidence_manifest }}
           NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
           PACKET_BASE64: ${{ needs.preflight.outputs.packet_base64 }}
+          PNPM_BINARY: ${{ steps.terminal-runtime.outputs.pnpm_binary }}
+          PNPM_DIR: ${{ steps.terminal-runtime.outputs.pnpm_dir }}
           PROCESSOR_CHECK_ID: ${{ needs.preflight.outputs.processor_check_id }}
+          TRUSTED_ROOT: ${{ steps.trusted-source.outputs.root }}
           VALIDATED_PLAN_BASE64: ${{ needs.validate.outputs.validated_plan_base64 }}
           VALIDATED_PLAN_DIGEST: ${{ needs.validate.outputs.validated_plan_digest }}
         run: |
           set -euo pipefail
-          node scripts/dependabot-protected-runtime-sync.mjs candidate-cli-smoke \
+          node_binary="$(realpath "$(command -v node)")"
+          assert_not_writable() {
+            if sudo -n -u "$CANDIDATE_USER" test -w "$1"; then
+              echo "::error::candidate account can write protected path: $1"
+              exit 1
+            fi
+          }
+          test -x "$node_binary"
+          test -x "$PNPM_BINARY"
+          sudo -n -u "$CANDIDATE_USER" test -x "$node_binary"
+          sudo -n -u "$CANDIDATE_USER" test -x "$PNPM_BINARY"
+          if sudo -n -u "$CANDIDATE_USER" /usr/bin/sudo -n true >/dev/null 2>&1; then
+            echo "::error::candidate account unexpectedly has sudo authority"
+            exit 1
+          fi
+          actions_parent="$(dirname "$(dirname "$GITHUB_WORKSPACE")")"
+          assert_not_writable "$actions_parent"
+          assert_not_writable "$GITHUB_WORKSPACE"
+          assert_not_writable "$(dirname "$node_binary")"
+          assert_not_writable "$node_binary"
+          assert_not_writable "$PNPM_BINARY"
+          while IFS= read -r -d '' protected_path; do
+            assert_not_writable "$protected_path"
+          done < <(find "$TRUSTED_ROOT" "$(dirname "$EVIDENCE_MANIFEST")" -print0)
+          for command_file in "$GITHUB_ENV" "$GITHUB_OUTPUT" "$GITHUB_PATH" "$GITHUB_STEP_SUMMARY"; do
+            assert_not_writable "$(dirname "$command_file")"
+            assert_not_writable "$command_file"
+          done
+          sudo -n -u "$CANDIDATE_USER" /usr/bin/env -i \
+            CI=true \
+            HOME="$CANDIDATE_ROOT/home" \
+            LANG=C.UTF-8 \
+            LC_ALL=C.UTF-8 \
+            NPM_CONFIG_REGISTRY=https://registry.npmjs.org/ \
+            PATH="$PNPM_DIR:$(dirname "$node_binary"):/usr/local/bin:/usr/bin:/bin" \
+            TMPDIR="$CANDIDATE_ROOT/tmp" \
+            "$node_binary" "$TRUSTED_ROOT/scripts/dependabot-protected-runtime-sync.mjs" candidate-cli-smoke \
             --packet-base64 "$PACKET_BASE64" \
             --evidence-manifest "$EVIDENCE_MANIFEST" \
             --processor-check-id "$PROCESSOR_CHECK_ID" \

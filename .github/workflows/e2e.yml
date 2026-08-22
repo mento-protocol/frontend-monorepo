@@ -23,9 +23,18 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  ALLOW_REPOSITORY_CREDENTIALS: >-
+    ${{ github.event_name != 'pull_request' ||
+        (github.event.pull_request.user.type == 'User' &&
+         github.event.pull_request.user.id != 49699333 &&
+         github.event.pull_request.user.login != 'dependabot[bot]' &&
+         github.event.pull_request.head.repo.full_name == github.repository &&
+         github.event.pull_request.head.ref != 'dependabot' &&
+         !startsWith(github.event.pull_request.head.ref, 'dependabot/') &&
+         github.event.sender.type == 'User' &&
+         github.event.sender.id != 315967666 &&
+         github.event.sender.login != 'mento-dependabot-prepare[bot]') }}
   TURBO_TEAM: ${{ vars.TURBO_TEAM }}
-  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-  TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
   # Pinned Celo mainnet block for the anvil fork: keeps the run deterministic
   # and makes anvil's RPC cache (~/.foundry/cache) reusable across runs.
   # Verified live (fork boot + seed + real Broker swapIn) against this block
@@ -58,14 +67,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
+      allow_repository_credentials: ${{ steps.credentials.outputs.allow_repository_credentials }}
       run_app: ${{ steps.detect.outputs.run_app }}
       run_gov: ${{ steps.detect.outputs.run_gov }}
       run_monad: ${{ steps.detect.outputs.run_monad }}
     steps:
+      - name: Classify repository credential access
+        id: credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$ALLOW_REPOSITORY_CREDENTIALS" in
+            true | false) ;;
+            *) exit 1 ;;
+          esac
+          echo "allow_repository_credentials=$ALLOW_REPOSITORY_CREDENTIALS" >> "$GITHUB_OUTPUT"
+
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Detect E2E impact
         id: detect
@@ -178,6 +200,8 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js environment
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -209,6 +233,8 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
 
     env:
+      TURBO_TOKEN: ${{ needs.e2e-plan.outputs.allow_repository_credentials == 'true' && secrets.TURBO_TOKEN || '' }}
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ needs.e2e-plan.outputs.allow_repository_credentials == 'true' && secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY || '' }}
       NEXT_PUBLIC_STORAGE_URL: ${{ vars.STORAGE_URL }}
       # Still required non-empty by t3-env validation even though E2E mode
       # never renders the WalletConnect connector.
@@ -238,9 +264,13 @@ jobs:
 
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install pnpm dependencies
         uses: ./.github/actions/pnpm-install
+        with:
+          cache: ${{ needs.e2e-plan.outputs.allow_repository_credentials == 'true' }}
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
@@ -284,6 +314,7 @@ jobs:
           exit 1
 
       - name: Cache anvil fork state
+        if: needs.e2e-plan.outputs.allow_repository_credentials == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.foundry/cache
@@ -477,6 +508,8 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
 
     env:
+      TURBO_TOKEN: ${{ needs.e2e-plan.outputs.allow_repository_credentials == 'true' && secrets.TURBO_TOKEN || '' }}
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ needs.e2e-plan.outputs.allow_repository_credentials == 'true' && secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY || '' }}
       # governance.mento.org's env schema (app/env.mjs) requires all these
       # keys present; the url()-typed ones must be syntactically valid, so
       # they're set to the real public endpoints from .env.example (not
@@ -518,9 +551,13 @@ jobs:
 
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install pnpm dependencies
         uses: ./.github/actions/pnpm-install
+        with:
+          cache: ${{ needs.e2e-plan.outputs.allow_repository_credentials == 'true' }}
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
@@ -564,6 +601,7 @@ jobs:
           exit 1
 
       - name: Cache anvil fork state
+        if: needs.e2e-plan.outputs.allow_repository_credentials == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.foundry/cache
@@ -758,6 +796,8 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
 
     env:
+      TURBO_TOKEN: ${{ needs.e2e-plan.outputs.allow_repository_credentials == 'true' && secrets.TURBO_TOKEN || '' }}
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ needs.e2e-plan.outputs.allow_repository_credentials == 'true' && secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY || '' }}
       NEXT_PUBLIC_STORAGE_URL: ${{ vars.STORAGE_URL }}
       # Still required non-empty by t3-env validation even though E2E mode
       # never renders the WalletConnect connector.
@@ -791,9 +831,13 @@ jobs:
 
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install pnpm dependencies
         uses: ./.github/actions/pnpm-install
+        with:
+          cache: ${{ needs.e2e-plan.outputs.allow_repository_credentials == 'true' }}
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
@@ -872,6 +916,7 @@ jobs:
           exit 1
 
       - name: Cache anvil fork state
+        if: needs.e2e-plan.outputs.allow_repository_credentials == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.foundry/cache

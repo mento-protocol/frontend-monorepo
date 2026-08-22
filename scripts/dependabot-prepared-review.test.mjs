@@ -16,6 +16,7 @@ import {
   validateAppliedBaseOnCurrentMain,
   validatePreparedReviewTarget,
 } from "./dependabot-prepared-review.mjs";
+import { DEPENDABOT_CHECK_POLICY } from "./dependabot-processor.mjs";
 
 const repository = "mento-protocol/frontend-monorepo";
 const pullRequestNumber = 731;
@@ -290,8 +291,17 @@ function protectedRuntimePacket({
     },
     packetHeadSha,
     permittedPaths: protectedRuntimeRequiredPaths,
+    requiredGateIds: DEPENDABOT_CHECK_POLICY.map(({ id }) => id),
+    riskTier: "human-merge-npm",
     schema: "dependabot-repair-packet:v3",
     updateType: "minor",
+    validationCommands: [
+      "pnpm install --frozen-lockfile",
+      "pnpm quality:budgets:test",
+      "pnpm quality:coverage",
+      "pnpm build",
+      "pnpm quality:bundle:check",
+    ],
     workflowRunId,
   });
 }

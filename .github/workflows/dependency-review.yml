@@ -15,6 +15,8 @@ jobs:
       - name: Check out code
         # Pin to a commit SHA to match the repository's Actions hardening posture.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Enforce allow-ghsas expiry
         # dependency-review-action has no native expiry for allow-ghsas, so

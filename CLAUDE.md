@@ -44,6 +44,7 @@ pnpm ci:action-pins:test             # Test the action-pin scanner and REST mate
 pnpm ci:change-plan:test             # Test PR scoping, full main pushes, mandatory Trunk, and fail-closed behavior
 pnpm dependabot:process -- evaluate --input path/to/snapshot.json --mode observe  # Evaluate a saved Dependabot snapshot
 pnpm dependabot:process:test         # Test Dependabot policy, CLI, and trusted-workflow contracts
+NEXT_CATALOG_SYNC_INTEGRATION=1 pnpm exec node --test scripts/dependabot-protected-runtime-sync.test.mjs  # Run the networked source-preserving Next sync proof
 pnpm adr:check                       # Advisory reminder for new architecture-significant workflows/workspaces
 pnpm adr:check:test                  # Test the offline ADR trigger and repository wiring
 pnpm vercel:cost:test                # Test private GitHub billing proof, saved-page census normalization, target-mix analysis, and closeout gates
@@ -215,9 +216,12 @@ Mode authority is:
   approval, and publish ALL CLEAR. Refreshes do not consume repair attempts.
 
 The preparable tier includes verified npm updates, including grouped and major
-updates. Verified non-sensitive GitHub Actions updates may be refreshed and,
-when green, prepared, but autonomous repair never writes `.github/**`; a
-failure requiring that surface is `manual-repair-required`. This policy is
+updates. Verified non-sensitive GitHub Actions updates may be prepared only
+while their native Dependabot head is current and green. The Prepare App never
+refreshes or repairs a generation whose live diff contains
+`.github/workflows/**` or `.github/actions/**`. Each ref mutator re-fetches the
+exact file inventory before it writes. A stale or failing Actions update stays
+manual. This policy is
 deliberately separate from the old automatic tier. Sensitive or self-reviewing
 Actions and workflow-policy, deployment, authentication, credential, security,
 or unknown changes remain manual. Untrusted force-push evidence, a human veto
@@ -251,15 +255,20 @@ Branch mutation and readiness authority must never coexist:
    Grep may locate the relevant ranges;
 2. a secretless validator binds each patch to permitted paths and exact Git
    blobs, including files larger than the Contents API limit;
-3. an App-only staging job writes one unreachable exact-parent commit without
+3. a terminal no-output job materializes trusted source and a hash-verified
+   pnpm bootstrap without registering runner actions, reapplies the validated
+   plan to fresh evidence, and executes the typed candidate as the final step
+   under a separate non-sudo account without secrets, caches, or write
+   authority;
+4. an App-only staging job writes one unreachable exact-parent commit without
    moving the ref;
-4. a no-App-token job publishes a packet/plan/tree-bound Repair Intent before
+5. a no-App-token job publishes a packet/plan/tree-bound Repair Intent before
    branch mutation;
-5. a fresh App-only job revalidates that intent and moves the exact ref without
+6. a fresh App-only job revalidates that intent and moves the exact ref without
    force;
-6. a no-App-token job publishes the completed receipt, or a checks-only run
+7. a no-App-token job publishes the completed receipt, or a checks-only run
    recovers it after an exact post-move failure, cancellation, or timeout; and
-7. a later processor finalize phase rejects the repair token, recollects every
+8. a later processor finalize phase rejects the repair token, recollects every
    exact-head gate and feedback surface, then alone may clean processor
    approvals, approve, post receipt-bound replies, and publish ALL CLEAR.
 
@@ -291,19 +300,31 @@ receipt. Normal pre-move work and checks-only recovery each get at most two
 exact-evidence infrastructure retries. Those counters do not change the
 two-commit repair limit; refresh count is independent.
 
-The current v3 operation is the model-free `vercel-cli-runtime-sync`. It admits
-only stable same-major patch/minor Vercel updates, binds exact current-head
-workspace/runtime inputs and both npm release records, changes only the exact
-Vercel regions of the root lock, and regenerates the standalone lock twice with
-pnpm 10.34.4 without scripts, workspace links, or a pnpmfile. It may edit only
-the root package/lock and standalone Vercel contract, manifest, and lock. Generic
-v2 repair never gains runtime or deployment write
-authority. ALL CLEAR requires the requested target and its reachable typed
-operation. A maintainer still performs the squash merge.
-After a reachable v3 sync, one later v2 repair may retain the already-bound
-runtime paths in its authenticated PR inventory only when every new finding or
-feedback path is an exact generic-safe changed file. The packet limits expected
-and permitted blobs to those evidence paths. It excludes
+The v3 model-free operation supports `vercel-cli-runtime-sync` and the exact
+`frontend-core` `next-catalog-override-sync`. Both admit only stable
+same-major patch/minor updates and bind exact current-head workspace/runtime
+inputs. The Vercel kind also binds both npm release records and changes only
+the exact Vercel regions of the root lock. The Next kind requires caret source
+or target specs, moves the catalog plus root and standalone runtime overrides
+forward to the immutable target, and starts from the sealed source root lock.
+It runs one isolated exact-pnpm 10.34.4 target solve as an oracle. It imports
+only the exact Next runtime closure records and integrity values and preserves
+all unrelated source resolutions. Exact registry metadata also binds the Next
+peer maps, optional-peer metadata, Node engine, bin shape, and retained
+snapshot peer context. The bound `resolutionMode: lowest-direct`
+constrains only the oracle and does not define the output lock. It rotates the
+exact Next override in the sealed standalone lock, requires frozen-lock
+consistency, and reseals the runtime contract. Both paths disable scripts and
+pnpmfile loading. Standalone checks also disable workspace linking. The Next
+kind may edit
+only the root package/workspace/lock and standalone Vercel contract, manifest,
+and lock. Generic v2 repair never gains runtime or deployment write authority.
+ALL CLEAR requires the requested target and its reachable typed operation. A
+maintainer still performs the squash merge.
+After a reachable Vercel v3 sync, one later v2 repair may retain the
+already-bound runtime paths in its authenticated PR inventory only when every
+new finding or feedback path is an exact generic-safe changed file. The packet
+limits expected and permitted blobs to those evidence paths. It excludes
 `scripts/vercel-cli-runtime/**` from the editable blob set and keeps that path
 explicitly forbidden. Missing proof, extra protected paths, unsafe evidence,
 or a mixed non-review failure fails closed as `manual-repair-required`.
@@ -314,9 +335,27 @@ unresolved finding stays manual. Finalize replies and resolves the bound thread
 only after the typed Repair receipt, green gates, and clean re-review.
 Preview workers validate the candidate runtime tuple only as data and continue
 to stage the credentialed build CLI from trusted default-branch controller
-source. After trusted plan validation, a fresh terminal no-output job runs the
-secretless frozen standalone install and exact CLI version smoke; it can veto
-staging but cannot produce mutation authority.
+source. After trusted plan validation, a fresh terminal no-output job uses only
+API and shell steps to materialize the trusted scripts and hash-verified pnpm
+bootstrap. It registers no runner action or post action before candidate code.
+A separate non-sudo account runs candidate code and cannot write the trusted
+source, evidence, pnpm executable, workspace, Actions directory, or runner
+command files. The job runs the digest-bound validated patches against fresh
+exact evidence, then runs the secretless frozen checks. For Next, its final
+step performs a cacheless frozen install of only the selected app's production
+dependencies. Lifecycle scripts run in a sanitized environment. The job
+executes the exact target CLI and builds a minimal App Router project. It can
+veto staging
+but cannot regenerate the plan or produce mutation authority.
+
+The Prepare App becomes the sender after a repair ref move. Direct PR
+workflows grant repository credentials only when
+`ALLOW_REPOSITORY_CREDENTIALS` proves a same-repository `User` author and
+`User` sender. Dependabot, the Prepare App bot, and reserved Dependabot refs
+remain secretless. Their candidate jobs do not persist checkout credentials or
+use dependency, Foundry, or Trunk caches. This applies to CI, E2E, visual, and Quality
+Budgets. Pull-request supply-chain scanners have read-only tokens;
+schedule/manual scanners own SARIF write authority.
 
 A valid review finding may be included in a v2 repair packet by exact
 finding/thread ID and body digest. The exact typed Vercel mismatch above can use
