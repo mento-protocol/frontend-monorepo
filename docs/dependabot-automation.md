@@ -562,15 +562,18 @@ again. Generic github-actions comments/replies, unbound bot output, or a model
 claim never satisfy feedback. Automated `Won't fix` is not permitted; that
 decision remains human.
 
-A v3 Vercel runtime sync may bind an exact Cursor thread only when its
-structured `Incomplete Vercel CLI runtime sync` finding names the operation's
-source and target versions, root `package.json` path, and trusted seed or
-current review commit. All actionable threads must match that contract. Any
-other unresolved feedback makes the typed operation manual. The completed typed
-Repair then uses the same digest-bound reply and resolution flow above. Evidence
-authenticates the REST comment's immutable `original_commit_id`. It accepts the
-mutable `commit_id` only when it names that original review commit or the exact
-packet head because GitHub retargets current comment metadata after a refresh.
+A v3 Vercel or Next sync may bind an exact Cursor thread only when its
+structured finding matches the typed operation. Vercel accepts only
+`Incomplete Vercel CLI runtime sync` on root `package.json`. Next accepts only
+`Next bump never applied` on root `pnpm-lock.yaml`. Each finding must name the
+operation's source and target versions and bind the trusted seed or current
+review commit. All actionable threads must match the same operation contract.
+Any other unresolved feedback makes the typed operation manual. The completed
+typed Repair then uses the same digest-bound reply and resolution flow above.
+Evidence authenticates the REST comment's immutable `original_commit_id`. It
+accepts the mutable `commit_id` only when it names that original review commit
+or the exact packet head because GitHub retargets current comment metadata
+after a refresh.
 
 For historical Codex feedback, `Reviewed commit` binds the parent review's own
 `reviewCommitSha`, not the repaired current head. Its unresolved historical
@@ -650,8 +653,8 @@ contract/manifest/lock. Its lock patch can exceed the generic 8 KiB per-edit
 cap, but the larger allowance applies only to this typed kind and remains under
 the 64 KiB aggregate plan cap. A v3 packet may carry empty
 failure/finding/feedback arrays because the missing typed synchronization is the
-actionable invariant. The Vercel kind may instead carry only the exact matching
-Cursor runtime-mismatch threads described above. Mixed v2 attempt-one and v3
+actionable invariant. The Vercel and Next kinds may instead carry only their
+exact matching Cursor threads described above. Mixed v2 attempt-one and v3
 attempt-two lineage remains valid only when every packet, Intent, commit,
 receipt, operation digest, target version, and current-tree contract matches.
 

@@ -86,11 +86,13 @@ blobs and a fixed six-path output allowlist:
 Trusted provider-baseline failures do not delay this deterministic repair. They
 remain failed, stay outside the packet, and continue to block ALL CLEAR.
 
-An automated reviewer can report the incomplete runtime synchronization before
-the typed repair runs. The processor admits that feedback only when every
-actionable thread is an exact structured Cursor `Incomplete Vercel CLI runtime
-sync` finding. The finding must bind the operation's source and target versions,
-root `package.json` path, and trusted seed or current review commit. The v3
+An automated reviewer can report the incomplete synchronization before the
+typed repair runs. The processor admits that feedback only when every
+actionable thread matches the selected operation. Vercel accepts only an exact
+structured Cursor `Incomplete Vercel CLI runtime sync` finding on root
+`package.json`. Next accepts only an exact structured Cursor `Next bump never
+applied` finding on root `pnpm-lock.yaml`. Each finding must bind the operation's
+source and target versions and trusted seed or current review commit. The v3
 packet binds its comment, commit, and body digest. Any different or additional
 feedback remains manual. Finalize can reply and resolve the accepted thread only
 after the typed Repair receipt, complete green gates, and clean exact-head
@@ -190,8 +192,13 @@ Any schema, metadata, registry, generation, byte, path, lineage, identity,
 signature, gate, feedback, or repair-budget mismatch fails closed. Major and
 prerelease Vercel updates, builder dependency key-set changes, override changes,
 and changes that require executable deployment-policy edits remain manual.
-The Next kind also requires clear review feedback and never uses the Vercel
-Cursor-thread exception.
+
+The initial Next rollout required clear feedback. Live PR #723 showed that
+Cursor can report the exact typed-operation invariant before the repair runs.
+That state deadlocked because the unresolved finding blocked the packet that
+would fix it. The Next kind now uses its own exact structured finding exception.
+It does not reuse the Vercel finding parser or path. Mixed or inexact feedback
+remains manual.
 
 ## Alternatives considered
 

@@ -1057,6 +1057,44 @@ function vercelRuntimeSyncCursorFeedback({
   });
 }
 
+function nextCatalogSyncCursorBody({
+  fromVersion = "16.2.12",
+  reviewCommitSha = HEAD_SHA,
+  targetVersion = "16.3.1",
+} = {}) {
+  return `### Next bump never applied\n\n**High Severity**\n\n<!-- DESCRIPTION START -->\nThis PR claims to move \`next\` from \`${fromVersion}\` to \`${targetVersion}\`, but the lockfile still resolves \`next\` to \`${fromVersion}\` (and peers like \`@vercel/analytics\` still bind that same copy). Catalog and root override remain \`^${fromVersion}\`, so merging ships no Next upgrade while closing the Dependabot request—the exact incomplete \`frontend-core\` failure mode documented in ADR 0007.\n<!-- DESCRIPTION END -->\n\n<!-- BUGBOT_BUG_ID: 8df03061-7960-4b0d-a266-f91a7e607eee -->\n\n<!-- LOCATIONS START\npnpm-lock.yaml#L284-L286\npnpm-lock.yaml#L273-L274\nLOCATIONS END -->\n<details>\n<summary>Additional Locations (1)</summary>\n\n- [\`pnpm-lock.yaml#L273-L274\`](https://github.com/mento-protocol/frontend-monorepo/blob/${reviewCommitSha}/pnpm-lock.yaml#L273-L274)\n\n</details>\n\n<div><a href="https://cursor.com/open?link=fixture" target="_blank" rel="noopener noreferrer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://cursor.com/assets/images/fix-in-cursor-dark.png"><source media="(prefers-color-scheme: light)" srcset="https://cursor.com/assets/images/fix-in-cursor-light.png"><img alt="Fix in Cursor" width="115" height="28" src="https://cursor.com/assets/images/fix-in-cursor-dark.png"></picture></a>&nbsp;<a href="https://cursor.com/agents?link=fixture" target="_blank" rel="noopener noreferrer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://cursor.com/assets/images/fix-in-web-dark.png"><source media="(prefers-color-scheme: light)" srcset="https://cursor.com/assets/images/fix-in-web-light.png"><img alt="Fix in Web" width="99" height="28" src="https://cursor.com/assets/images/fix-in-web-dark.png"></picture></a></div>\n\n\n<sup>Reviewed by [Cursor Bugbot](https://cursor.com/bugbot) for commit ${reviewCommitSha}. Configure [here](https://www.cursor.com/dashboard/bugbot).</sup>\n`;
+}
+
+function nextCatalogSyncCursorFeedback({
+  body = nextCatalogSyncCursorBody(),
+  path = "pnpm-lock.yaml",
+} = {}) {
+  return classifyDependabotFeedback({
+    headSha: HEAD_SHA,
+    reviews: [cursorReview()],
+    threads: [
+      {
+        comments: [
+          {
+            actor: { association: "NONE", login: "cursor", type: "Bot" },
+            body,
+            createdAt: "2026-08-22T17:07:46Z",
+            id: 11,
+            replyToId: null,
+            reviewCommitSha: HEAD_SHA,
+            reviewId: 21,
+          },
+        ],
+        id: "thread-next-catalog-sync",
+        line: 277,
+        outdated: false,
+        path,
+        resolved: false,
+      },
+    ],
+  });
+}
+
 function codexReviewBody(headSha = HEAD_SHA) {
   return `\n### 💡 Codex Review\n\nHere are some automated review suggestions for this pull request.\n\n**Reviewed commit:** \`${headSha.slice(0, 10)}\`\n    \n\n<details> <summary>ℹ️ About Codex in GitHub</summary>\n<br/>\n\nConnector details.\n\n</details>`;
 }
@@ -3932,6 +3970,35 @@ test("feedback classifier recognizes only the exact Cursor Vercel runtime mismat
   }
 });
 
+test("feedback classifier recognizes only the exact Cursor Next catalog mismatch", () => {
+  const exact = nextCatalogSyncCursorFeedback();
+  assert.deepEqual(exact.actionableThreads[0].protectedRuntimeFinding, {
+    fromVersion: "16.2.12",
+    kind: "next-catalog-override-sync",
+    targetVersion: "16.3.1",
+  });
+  for (const feedback of [
+    nextCatalogSyncCursorFeedback({ path: "package.json" }),
+    nextCatalogSyncCursorFeedback({
+      body: nextCatalogSyncCursorBody().replace(
+        "merging ships no Next upgrade",
+        "a different problem remains",
+      ),
+    }),
+    nextCatalogSyncCursorFeedback({
+      body: `${nextCatalogSyncCursorBody()}\n### Another actionable concern`,
+    }),
+    nextCatalogSyncCursorFeedback({
+      body: nextCatalogSyncCursorBody({ reviewCommitSha: OTHER_SHA }),
+    }),
+  ]) {
+    assert.equal(
+      "protectedRuntimeFinding" in feedback.actionableThreads[0],
+      false,
+    );
+  }
+});
+
 test("resolved current-head roots clear only with the exact repository reply formats", () => {
   const root = {
     actor: { association: "NONE", login: "cursor", type: "Bot" },
@@ -4175,6 +4242,139 @@ test("resolved historical feedback clears without a current-head reply while unr
     "invalid-actionable-review-envelope",
   ]);
   assert.equal(malformedEnvelope.complete, false);
+});
+
+test("empty legacy Cursor envelopes clear only when every inline root is historical, outdated, and resolved", () => {
+  const review = { ...cursorReview(OTHER_SHA), body: "" };
+  const thread = {
+    comments: [
+      {
+        actor: review.actor,
+        body: "### Historical Cursor finding",
+        createdAt: "2026-08-09T10:00:00Z",
+        id: 11,
+        replyToId: null,
+        reviewCommitSha: OTHER_SHA,
+        reviewId: review.id,
+      },
+    ],
+    id: "legacy-cursor-thread",
+    outdated: true,
+    resolved: true,
+  };
+
+  const clear = classifyDependabotFeedback({
+    headSha: HEAD_SHA,
+    reviews: [review],
+    threads: [thread],
+  });
+  assert.deepEqual(clear.reasons, []);
+  assert.equal(clear.complete, true);
+  assert.equal(clear.actionableThreadCount, 0);
+  assert.deepEqual(clear.actionableThreads, []);
+
+  const currentReview = { ...cursorReview(HEAD_SHA, 2), id: 22 };
+  const currentThreads = [1, 2].map((index) => ({
+    comments: [
+      {
+        actor: currentReview.actor,
+        body: `### Current Cursor finding ${index}`,
+        createdAt: `2026-08-10T10:0${index}:00Z`,
+        id: 20 + index,
+        replyToId: null,
+        reviewCommitSha: HEAD_SHA,
+        reviewId: currentReview.id,
+      },
+    ],
+    id: `current-cursor-thread-${index}`,
+    outdated: false,
+    resolved: false,
+  }));
+  const mixed = classifyDependabotFeedback({
+    headSha: HEAD_SHA,
+    reviews: [review, currentReview],
+    threads: [thread, ...currentThreads],
+  });
+  assert.deepEqual(mixed.reasons, [
+    "unresolved-review-feedback",
+    "unreplied-review-feedback",
+  ]);
+  assert.equal(mixed.complete, true);
+  assert.equal(mixed.actionableThreadCount, 2);
+  assert.equal(mixed.actionableThreads.length, 2);
+  assert.equal(
+    evaluateFeedbackGate({
+      feedback: mixed,
+      pullRequest: snapshot().pullRequest,
+    }).repairable,
+    true,
+  );
+
+  const sameReviewUnresolvedThread = {
+    ...thread,
+    comments: [
+      {
+        ...thread.comments[0],
+        body: "### Second historical Cursor finding",
+        id: 12,
+      },
+    ],
+    id: "legacy-cursor-unresolved-thread",
+    resolved: false,
+  };
+  for (const [blockedThread, threadReason] of [
+    [{ ...thread, outdated: false }, "invalid-actionable-review-envelope"],
+    [{ ...thread, resolved: false }, "invalid-actionable-review-envelope"],
+    [
+      { ...thread, commentsTruncated: true },
+      "feedback-thread-comments-cap-exceeded",
+    ],
+  ]) {
+    const blocked = classifyDependabotFeedback({
+      headSha: HEAD_SHA,
+      reviews: [review],
+      threads: [blockedThread],
+    });
+    assert.ok(
+      blocked.reasons.includes("unknown-review-bot-feedback"),
+      JSON.stringify(blocked.reasons),
+    );
+    assert.ok(
+      blocked.reasons.includes(threadReason),
+      JSON.stringify(blocked.reasons),
+    );
+    assert.equal(blocked.complete, false);
+  }
+
+  const incompleteReview = classifyDependabotFeedback({
+    headSha: HEAD_SHA,
+    reviews: [review],
+    threads: [thread, sameReviewUnresolvedThread],
+  });
+  assert.ok(
+    incompleteReview.reasons.includes("unknown-review-bot-feedback"),
+    JSON.stringify(incompleteReview.reasons),
+  );
+  assert.ok(
+    incompleteReview.reasons.includes("invalid-actionable-review-envelope"),
+    JSON.stringify(incompleteReview.reasons),
+  );
+  assert.equal(incompleteReview.complete, false);
+
+  const whitespaceEnvelope = classifyDependabotFeedback({
+    headSha: HEAD_SHA,
+    reviews: [{ ...review, body: " " }],
+    threads: [thread],
+  });
+  assert.ok(
+    whitespaceEnvelope.reasons.includes("unknown-review-bot-feedback"),
+    JSON.stringify(whitespaceEnvelope.reasons),
+  );
+  assert.ok(
+    whitespaceEnvelope.reasons.includes("invalid-actionable-review-envelope"),
+    JSON.stringify(whitespaceEnvelope.reasons),
+  );
+  assert.equal(whitespaceEnvelope.complete, false);
 });
 
 test("resolved replied trusted bot threads do not poison an unrelated deterministic repair", () => {
@@ -4797,6 +4997,64 @@ test("immutable frontend-core Next metadata selects an exact v3 catalog sync for
   );
   assert.deepEqual(packet.feedbackThreads, []);
   assert.deepEqual(packet.findings, []);
+});
+
+test("the exact Cursor Next mismatch is packet-bound to the typed catalog sync", () => {
+  const evaluateWithFeedback = (feedback) => {
+    const candidate = nextCatalogSnapshot();
+    candidate.feedback = { ...candidate.feedback, ...feedback };
+    return evaluateDependabotPullRequest(candidate, {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    });
+  };
+
+  const exactFeedback = nextCatalogSyncCursorFeedback();
+  const exact = evaluateWithFeedback(exactFeedback);
+  assert.equal(exact.disposition, "repair-required");
+  assert.equal(
+    exact.repairPacket?.schema,
+    DEPENDABOT_PROTECTED_RUNTIME_REPAIR_PACKET_SCHEMA,
+  );
+  assert.deepEqual(exact.repairPacket?.feedbackThreads, [
+    {
+      commentId: 11,
+      commitSha: HEAD_SHA,
+      digest: exact.feedback.actionableThreads[0].bodyDigest,
+      line: 277,
+      path: "pnpm-lock.yaml",
+      source: "cursor",
+      threadId: "thread-next-catalog-sync",
+    },
+  ]);
+
+  const wrongSource = structuredClone(exactFeedback);
+  wrongSource.actionableThreads[0].source = "claude";
+  const wrongCommit = structuredClone(exactFeedback);
+  wrongCommit.actionableThreads[0].reviewCommitSha = OTHER_SHA;
+  const mixed = structuredClone(exactFeedback);
+  mixed.actionableThreadCount = 2;
+  mixed.actionableThreads.push({
+    ...mixed.actionableThreads[0],
+    bodyDigest: "b".repeat(64),
+    rootCommentId: 12,
+    threadId: "thread-unrelated-lock-finding",
+  });
+  delete mixed.actionableThreads[1].protectedRuntimeFinding;
+  for (const feedback of [
+    nextCatalogSyncCursorFeedback({
+      body: nextCatalogSyncCursorBody({ targetVersion: "16.3.2" }),
+    }),
+    nextCatalogSyncCursorFeedback({ path: "package.json" }),
+    wrongSource,
+    wrongCommit,
+    mixed,
+  ]) {
+    const blocked = evaluateWithFeedback(feedback);
+    assert.equal(blocked.disposition, "manual-repair-required");
+    assert.equal(blocked.repairPacket, null);
+  }
 });
 
 test("Next catalog sync recovers the source-state bad head at attempt two despite provider baselines", () => {
