@@ -788,6 +788,99 @@ test("preview observation receipts project a settled target away from a newer ac
   );
 });
 
+test("preview observation receipts accept only a strict evidence-free recovered failure", () => {
+  const opened = event({
+    run: 9_201,
+    runNumber: 701,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const selected = reconcile({ events: [opened], pullRequest });
+  const firstState = persistDispatch(selected, 92_001);
+  const firstSelection = selectionReceiptFromDispatch(
+    firstState.targets.ui.active,
+  );
+  const recoveredFailure = result(selected.nextDispatch, {
+    runId: 92_001,
+    state: "failure",
+    reason: "worker-failure-recovered",
+  });
+  const retry = reconcile({
+    events: [opened],
+    selections: [firstSelection],
+    results: [recoveredFailure],
+    pullRequest,
+    existingState: firstState,
+  });
+  const retryState = persistDispatch(retry, 92_002);
+  const retrySelection = selectionReceiptFromDispatch(
+    retryState.targets.ui.active,
+  );
+  const verified = result(retry.nextDispatch, { runId: 92_002 });
+  const verifiedEvidence = workerEvidence(retry.nextDispatch, {
+    runId: 92_002,
+  });
+  const terminal = reconcile({
+    events: [opened],
+    selections: [firstSelection, retrySelection],
+    results: [recoveredFailure, verified],
+    pullRequest,
+    existingState: retryState,
+  });
+  const observationJournal = (firstResult, extraResults = []) =>
+    createPreviewJournal({
+      pr: opened.pr,
+      events: [opened],
+      selections: [firstSelection, retrySelection],
+      workerEvidence: [verifiedEvidence],
+      results: [firstResult, ...extraResults, verified],
+      state: terminal.state,
+    });
+
+  const receipt = createPreviewObservationReceipt(
+    observationJournal(recoveredFailure),
+    opened.event_run_id,
+  );
+  assert.ok(receipt);
+  assert.equal(receipt.state.status_decisions.at(-1).state, "success");
+
+  for (const invalid of [
+    { ...recoveredFailure, terminal_reason: "worker-failure" },
+    { ...recoveredFailure, state: "error" },
+    { ...recoveredFailure, github_deployment_id: null },
+    { ...recoveredFailure, vercel_deployment_id: "dpl_unverified" },
+    { ...recoveredFailure, next_deployment_id: "m-ui-unverified" },
+    { ...recoveredFailure, smoke_result: "passed" },
+    {
+      ...recoveredFailure,
+      vercel_deployment_url: "https://ui-unverified.vercel.app",
+    },
+  ]) {
+    assert.equal(
+      createPreviewObservationReceipt(
+        observationJournal(validateWorkerResult(invalid)),
+        opened.event_run_id,
+      ),
+      null,
+    );
+  }
+  assert.equal(
+    createPreviewObservationReceipt(
+      observationJournal(recoveredFailure, [
+        result(selected.nextDispatch, {
+          runId: 92_003,
+          state: "failure",
+          reason: "worker-failure-recovered",
+        }),
+      ]),
+      opened.event_run_id,
+    ),
+    null,
+  );
+});
+
 test("repository dispatch accepts only one validated PR number and two operations", () => {
   const outputs = new Map();
   const core = {
@@ -15104,4 +15197,285 @@ test("build failure gets at most one serialized rebuild retry", () => {
   });
   assert.equal(terminal.nextDispatch, null);
   assert.equal(terminal.state.status_decisions[0].state, "failure");
+});
+
+test("controller-recovered pre-Deployment failure gets one serialized retry", async () => {
+  const opened = event({
+    run: 127,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const first = reconcile({ events: [opened], pullRequest });
+  const firstState = persistDispatch(first, 8_000);
+  const firstFailure = result(first.nextDispatch, {
+    runId: 8_000,
+    state: "failure",
+    reason: "worker-failure-recovered",
+  });
+  const retry = reconcile({
+    events: [opened],
+    results: [firstFailure],
+    pullRequest,
+    existingState: firstState,
+  });
+  assert.equal(retry.nextDispatch.sha, SHA.A);
+  assert.notEqual(retry.nextDispatch.key_digest, first.nextDispatch.key_digest);
+
+  const retryState = persistDispatch(retry, 8_001);
+  const retryFixture = fakeGitHub({
+    pullRequest,
+    comments: [
+      journalWithState([opened], retryState, {
+        selections: [
+          selectionReceiptFromDispatch(firstState.targets.ui.active),
+          selectionReceiptFromDispatch(retryState.targets.ui.active),
+        ],
+        results: [firstFailure],
+      }),
+    ],
+    runs: [workerRun(retry.nextDispatch, { id: 8_001 })],
+    deployments: [
+      {
+        id: firstFailure.github_deployment_id,
+        ref: SHA.A,
+        sha: SHA.A,
+        environment: "preview/ui/pr-519",
+        payload: {
+          ...canonicalDeploymentBinding(),
+          idempotency_key: firstFailure.controller_key,
+          sha: SHA.A,
+          logical_target: "ui",
+        },
+      },
+    ],
+    deploymentStatuses: new Map([
+      [
+        firstFailure.github_deployment_id,
+        [{ state: "failure", environment_url: null }],
+      ],
+    ]),
+  });
+  const core = fakeCore();
+  assert.deepEqual(
+    await validateWorkerDispatch({
+      github: retryFixture.github,
+      context: fakeContext({ runId: 8_001 }),
+      core,
+      inputs: workerInputs(retry.nextDispatch),
+    }),
+    { shouldDeploy: true, duplicate: false },
+  );
+  assert.equal(core.outputs.get("execution_mode"), "build");
+
+  const retryFailure = result(retry.nextDispatch, {
+    runId: 8_001,
+    state: "failure",
+    reason: "worker-failure-recovered",
+  });
+  const terminal = reconcile({
+    events: [opened],
+    results: [firstFailure, retryFailure],
+    pullRequest,
+    existingState: retryState,
+  });
+  assert.equal(terminal.nextDispatch, null);
+  assert.equal(terminal.state.status_decisions[0].state, "failure");
+});
+
+test("terminalized recovered failure reopens its latest same-epoch selection once", () => {
+  const opened = event({
+    run: 128,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const first = reconcile({ events: [opened], pullRequest });
+  const firstState = persistDispatch(first, 8_000);
+  const firstSelection = selectionReceiptFromDispatch(
+    firstState.targets.ui.active,
+  );
+  const firstFailure = result(first.nextDispatch, {
+    runId: 8_000,
+    state: "failure",
+    reason: "worker-failure-recovered",
+  });
+  const legacyFold = reconcile({
+    events: [opened],
+    selections: [firstSelection],
+    results: [firstFailure],
+    pullRequest,
+    existingState: firstState,
+  });
+  assert.equal(legacyFold.state.targets.ui.active, null);
+  assert.equal(
+    legacyFold.state.targets.ui.idle_cursor_receipt_run_id,
+    opened.event_run_id,
+  );
+
+  const migrated = reconcile({
+    events: [opened],
+    selections: [firstSelection],
+    results: [firstFailure],
+    pullRequest,
+    existingState: legacyFold.state,
+  });
+  assert.equal(migrated.nextDispatch.sha, SHA.A);
+  assert.notEqual(
+    migrated.nextDispatch.key_digest,
+    first.nextDispatch.key_digest,
+  );
+
+  const retryState = persistDispatch(migrated, 8_001);
+  const retrySelection = selectionReceiptFromDispatch(
+    retryState.targets.ui.active,
+  );
+  const retryFailure = result(migrated.nextDispatch, {
+    runId: 8_001,
+    state: "failure",
+    reason: "worker-failure-recovered",
+  });
+  const terminal = reconcile({
+    events: [opened],
+    selections: [firstSelection, retrySelection],
+    results: [firstFailure, retryFailure],
+    pullRequest,
+    existingState: retryState,
+  });
+  assert.equal(terminal.nextDispatch, null);
+  const replay = reconcile({
+    events: [opened],
+    selections: [firstSelection, retrySelection],
+    results: [firstFailure, retryFailure],
+    pullRequest,
+    existingState: terminal.state,
+  });
+  assert.equal(replay.nextDispatch, null);
+
+  const artifactBearingFailure = validateWorkerResult({
+    ...firstFailure,
+    vercel_deployment_id: "dpl_unverified",
+  });
+  const artifactFold = reconcile({
+    events: [opened],
+    selections: [firstSelection],
+    results: [artifactBearingFailure],
+    pullRequest,
+    existingState: firstState,
+  });
+  assert.equal(artifactFold.nextDispatch, null);
+  assert.equal(
+    reconcile({
+      events: [opened],
+      selections: [firstSelection],
+      results: [artifactBearingFailure],
+      pullRequest,
+      existingState: artifactFold.state,
+    }).nextDispatch,
+    null,
+  );
+});
+
+test("terminalized recovered failure after an older checkpoint reopens once", () => {
+  const opened = event({
+    run: 129,
+    action: "opened",
+    head: SHA.A,
+    runtime: false,
+    updated: timestamp(1),
+  });
+  const openedPull = pull({ head: SHA.A, updated: timestamp(1) });
+  const openedState = reconcile({
+    events: [opened],
+    pullRequest: openedPull,
+  }).state;
+  const checkpointed = compactPreviewJournal(
+    createPreviewJournal({
+      pr: opened.pr,
+      events: [opened],
+      state: openedState,
+    }),
+  );
+  assert.ok(checkpointed.checkpoint);
+  assert.deepEqual(checkpointed.receipts.events, []);
+
+  const synchronize = event({
+    run: 130,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    updated: timestamp(2),
+  });
+  const pullRequest = pull({ head: SHA.B, updated: timestamp(2) });
+  const first = reconcile({
+    events: [synchronize],
+    pullRequest,
+    existingState: checkpointed.state,
+    checkpoint: checkpointed.checkpoint,
+  });
+  assert.equal(first.nextDispatch.sha, SHA.B);
+  const firstState = persistDispatch(first, 8_000);
+  const firstSelection = selectionReceiptFromDispatch(
+    firstState.targets.ui.active,
+  );
+  const firstFailure = result(first.nextDispatch, {
+    runId: 8_000,
+    state: "failure",
+    reason: "worker-failure-recovered",
+  });
+  const legacyFold = reconcile({
+    events: [synchronize],
+    selections: [firstSelection],
+    results: [firstFailure],
+    pullRequest,
+    existingState: firstState,
+    checkpoint: checkpointed.checkpoint,
+  });
+  assert.equal(legacyFold.state.targets.ui.active, null);
+
+  const migrated = reconcile({
+    events: [synchronize],
+    selections: [firstSelection],
+    results: [firstFailure],
+    pullRequest,
+    existingState: legacyFold.state,
+    checkpoint: checkpointed.checkpoint,
+  });
+  assert.equal(migrated.nextDispatch.sha, SHA.B);
+  assert.notEqual(
+    migrated.nextDispatch.key_digest,
+    first.nextDispatch.key_digest,
+  );
+
+  const retryState = persistDispatch(migrated, 8_001);
+  const retrySelection = selectionReceiptFromDispatch(
+    retryState.targets.ui.active,
+  );
+  const retryFailure = result(migrated.nextDispatch, {
+    runId: 8_001,
+    state: "failure",
+    reason: "worker-failure-recovered",
+  });
+  const terminal = reconcile({
+    events: [synchronize],
+    selections: [firstSelection, retrySelection],
+    results: [firstFailure, retryFailure],
+    pullRequest,
+    existingState: retryState,
+    checkpoint: checkpointed.checkpoint,
+  });
+  assert.equal(terminal.nextDispatch, null);
+  assert.equal(
+    reconcile({
+      events: [synchronize],
+      selections: [firstSelection, retrySelection],
+      results: [firstFailure, retryFailure],
+      pullRequest,
+      existingState: terminal.state,
+      checkpoint: checkpointed.checkpoint,
+    }).nextDispatch,
+    null,
+  );
 });

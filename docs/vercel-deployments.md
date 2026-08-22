@@ -2652,6 +2652,13 @@ Retry behavior is bounded and serialized:
 - an existing verified success is absorbing and never rebuilds;
 - a verified upload whose smoke failed retries smoke once against the same URL;
 - a build failure before the durable upload-attempt boundary may rebuild once;
+- a trusted completed worker that failed before it created its GitHub
+  Deployment may rebuild once. The controller records a strict failure-only
+  recovery result with no Vercel identity. An observation receipt may retain
+  that result without pre-completion worker evidence, but it cannot use this
+  path for success. A later controller version may reopen the latest
+  same-epoch terminal record under this rule when the original controller
+  folded it before selecting the bounded retry;
 - after an ambiguous upload result, the trusted credentialed job re-queries a
   bounded Vercel time window using only the
   [documented List Deployments filters](https://vercel.com/docs/rest-api/deployments/list-deployments)
