@@ -41,6 +41,7 @@ import {
   operationExternalId,
   parseRepairRunTitle,
   parseCanonicalJson,
+  prepareRefMutationForbiddenPath,
   rawDigest,
   readCurrentDefaultBranchSha,
   repairIntentExternalId,
@@ -60,6 +61,7 @@ import {
   validateRepairRecoveryPayload,
   validateTerminalEventPayload,
   validateValidatedRepairPlan,
+  waitForRepairPullAfterRefMove,
 } from "./dependabot-preparation-receipts.mjs";
 
 const repository = "mento-protocol/frontend-monorepo";
@@ -80,7 +82,7 @@ function repairPacket(overrides = {}) {
     automatic: true,
     baseRef: "main",
     baseSha,
-    changedPaths: [".github/workflows/ci.yml"],
+    changedPaths: ["scripts/fixtures/action-pins/ci.yml"],
     dependencyGroup: "github-actions-routine",
     dependencyNames: ["actions/checkout"],
     escalation: "manual-review",
@@ -165,6 +167,36 @@ const protectedRuntimeInputPaths = [
   "scripts/vercel-cli-runtime/package.json",
   "scripts/vercel-cli-runtime/pnpm-lock.yaml",
 ];
+const typedNpmRequiredGateIds = [
+  "ci",
+  "action-pins",
+  "action-pins-source",
+  "dependency-review",
+  "supply-chain-root-osv",
+  "supply-chain-pnpm-runtime-osv",
+  "supply-chain-vercel-runtime-osv",
+  "supply-chain-pnpm-bootstrap-osv",
+  "supply-chain-lockfile",
+  "supply-chain-version-skew",
+  "quality",
+  "e2e-plan",
+  "e2e-seed",
+  "e2e-celo",
+  "e2e-governance",
+  "e2e-monad",
+  "visual-plan",
+  "visual-ui",
+  "visual-app",
+  "claude-review",
+  "vercel-preview",
+];
+const typedNpmValidationCommands = [
+  "pnpm install --frozen-lockfile",
+  "pnpm quality:budgets:test",
+  "pnpm quality:coverage",
+  "pnpm build",
+  "pnpm quality:bundle:check",
+];
 
 function protectedRuntimePacket(overrides = {}) {
   return repairPacket({
@@ -212,10 +244,72 @@ function protectedRuntimePacket(overrides = {}) {
     },
     packageEcosystem: "npm",
     permittedPaths: protectedRuntimeRequiredPaths,
+    requiredGateIds: typedNpmRequiredGateIds,
+    riskTier: "human-merge-npm",
     schema: PROCESSOR_PACKET_SCHEMA_V3,
+    updateType: "minor",
+    validationCommands: typedNpmValidationCommands,
+    ...overrides,
+  });
+}
+
+const nextCatalogRequiredPaths = [
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "scripts/vercel-cli-runtime/contract.json",
+  "scripts/vercel-cli-runtime/package.json",
+  "scripts/vercel-cli-runtime/pnpm-lock.yaml",
+];
+
+function nextCatalogPacket(overrides = {}) {
+  return protectedRuntimePacket({
+    changedPaths: ["pnpm-lock.yaml", "pnpm-workspace.yaml"],
+    dependencyGroup: "frontend-core",
+    dependencyNames: ["next"],
+    headRef: "dependabot/npm_and_yarn/frontend-core-123",
+    limits: {
+      maxAddedLines: 600,
+      maxBytes: 64 * 1024,
+      maxChanges: 1_200,
+      maxDeletedLines: 600,
+      maxFiles: nextCatalogRequiredPaths.length,
+    },
+    operation: {
+      dependency: "next",
+      fromSpecifier: "^16.2.12",
+      fromVersion: "16.2.12",
+      inputPaths: protectedRuntimeInputPaths,
+      kind: "next-catalog-override-sync",
+      pnpmVersion: "10.34.4",
+      resolutionMode: "lowest-direct",
+      requiredPaths: nextCatalogRequiredPaths,
+      schema: PROTECTED_RUNTIME_SYNC_OPERATION_SCHEMA,
+      sourceSeedHeadSha: "f".repeat(40),
+      targetSpecifier: "^16.3.1",
+      targetVersion: "16.3.1",
+      updateType: "minor",
+    },
+    permittedPaths: nextCatalogRequiredPaths,
+    riskTier: "human-merge-npm",
     updateType: "minor",
     ...overrides,
   });
+}
+
+function repairPlanFor(packet, edits) {
+  return {
+    attempt: packet.attemptNumber,
+    baseSha: packet.baseSha,
+    edits,
+    packetDigest,
+    parentHeadSha: packet.headSha,
+    processorCheckId: 444,
+    pullRequestNumber: packet.pullRequestNumber,
+    repository: packet.repository,
+    schema: "dependabot-repair-plan:v1",
+    summary: "Apply the exact packet-bound repair.",
+  };
 }
 
 function repairReceipt(overrides = {}) {
@@ -352,6 +446,134 @@ test("repair intents bind staged commit, packet, plan, tree, edits, App, and sou
     () => validateRepairIntent({ ...intent, treeSha: "8".repeat(40) }),
     /tree digest changed/,
   );
+});
+
+test("post-ref repair verification polls only an exact stale parent pull", async () => {
+  const intent = repairIntent();
+  const pullAt = (head) => ({
+    base: {
+      ref: "main",
+      repo: { full_name: intent.repository },
+      sha: intent.baseSha,
+    },
+    draft: false,
+    head: {
+      ref: intent.headRef,
+      repo: { full_name: intent.repository },
+      sha: head,
+    },
+    number: intent.pullRequestNumber,
+    state: "open",
+    user: { login: "dependabot[bot]", type: "Bot" },
+  });
+  const reads = [
+    pullAt(intent.parentHeadSha),
+    pullAt(intent.parentHeadSha),
+    pullAt(intent.headSha),
+  ];
+  const waits = [];
+  const result = await waitForRepairPullAfterRefMove({
+    intent,
+    readPull: async () => reads.shift(),
+    sleep: async (milliseconds) => waits.push(milliseconds),
+  });
+  assert.equal(result.head.sha, intent.headSha);
+  assert.equal(reads.length, 0);
+  assert.deepEqual(waits, [2_000, 2_000]);
+
+  let immediateReads = 0;
+  const immediate = await waitForRepairPullAfterRefMove({
+    intent,
+    readPull: async () => {
+      immediateReads += 1;
+      return pullAt(intent.headSha);
+    },
+    sleep: async () => assert.fail("an exact target must not wait"),
+  });
+  assert.equal(immediate.head.sha, intent.headSha);
+  assert.equal(immediateReads, 1);
+});
+
+test("post-ref repair verification fails closed on drift, API errors, and a stale cap", async () => {
+  const intent = repairIntent();
+  const pullAt = (head, overrides = {}) => ({
+    base: {
+      ref: "main",
+      repo: { full_name: intent.repository },
+      sha: intent.baseSha,
+    },
+    draft: false,
+    head: {
+      ref: intent.headRef,
+      repo: { full_name: intent.repository },
+      sha: head,
+    },
+    number: intent.pullRequestNumber,
+    state: "open",
+    user: { login: "dependabot[bot]", type: "Bot" },
+    ...overrides,
+  });
+
+  let driftReads = 0;
+  await assert.rejects(
+    waitForRepairPullAfterRefMove({
+      intent,
+      readPull: async () => {
+        driftReads += 1;
+        return pullAt("9".repeat(40));
+      },
+      sleep: async () => assert.fail("unexpected head drift must not wait"),
+    }),
+    /live pull request does not match repair intent/,
+  );
+  assert.equal(driftReads, 1);
+
+  let metadataReads = 0;
+  await assert.rejects(
+    waitForRepairPullAfterRefMove({
+      intent,
+      readPull: async () => {
+        metadataReads += 1;
+        return pullAt(intent.parentHeadSha, { draft: true });
+      },
+      sleep: async () => assert.fail("metadata drift must not wait"),
+    }),
+    /live pull request does not match repair intent/,
+  );
+  assert.equal(metadataReads, 1);
+
+  let apiReads = 0;
+  const apiWaits = [];
+  await assert.rejects(
+    waitForRepairPullAfterRefMove({
+      intent,
+      readPull: async () => {
+        apiReads += 1;
+        if (apiReads === 1) return pullAt(intent.parentHeadSha);
+        throw new Error("provider read failed");
+      },
+      sleep: async (milliseconds) => apiWaits.push(milliseconds),
+    }),
+    /provider read failed/,
+  );
+  assert.equal(apiReads, 2);
+  assert.deepEqual(apiWaits, [2_000]);
+
+  let staleReads = 0;
+  const staleWaits = [];
+  await assert.rejects(
+    waitForRepairPullAfterRefMove({
+      intent,
+      readPull: async () => {
+        staleReads += 1;
+        return pullAt(intent.parentHeadSha);
+      },
+      sleep: async (milliseconds) => staleWaits.push(milliseconds),
+    }),
+    /remained stale after repair ref move/,
+  );
+  assert.equal(staleReads, 5);
+  assert.deepEqual(staleWaits, [2_000, 2_000, 2_000, 2_000]);
 });
 
 test("repair and recovery titles bind bounded infrastructure retry state", () => {
@@ -1007,6 +1229,31 @@ test("processor packet permits feedback-only repair but rejects empty authority"
   );
 });
 
+test("Prepare App ref mutations reject the protected workflow authority graph", () => {
+  for (const path of [
+    ".github/workflows/ci.yml",
+    ".github/workflows/e2e.yml",
+    ".github/workflows/quality-budgets.yml",
+    ".github/workflows/visual.yml",
+    ".github/actions/pnpm-install/action.yml",
+  ]) {
+    assert.equal(prepareRefMutationForbiddenPath(path), true, path);
+    assert.throws(
+      () =>
+        validateProcessorRepairPacket(repairPacket({ changedPaths: [path] })),
+      /cannot authorize a ref move for automation authority paths/,
+      path,
+    );
+  }
+  for (const path of [
+    "package.json",
+    "pnpm-lock.yaml",
+    "apps/app.mento.org/package.json",
+  ]) {
+    assert.equal(prepareRefMutationForbiddenPath(path), false, path);
+  }
+});
+
 test("protected-runtime v3 packets permit empty repair evidence only under the exact typed contract", () => {
   const packet = protectedRuntimePacket();
   assert.equal(validateProcessorRepairPacket(packet), packet);
@@ -1099,6 +1346,278 @@ test("protected-runtime v3 packets permit empty repair evidence only under the e
   }
 });
 
+test("Next catalog-sync v3 packets accept only the exact typed contract", () => {
+  const packet = nextCatalogPacket();
+  assert.equal(validateProcessorRepairPacket(packet), packet);
+  assert.equal(packet.failures.length, 0);
+
+  const invalidPackets = [
+    {
+      label: "operation identity",
+      expected: /Next catalog sync identity is invalid/,
+      mutate(value) {
+        value.operation.dependency = "react";
+      },
+    },
+    {
+      label: "operation kind",
+      expected: /limits\.maxChanges/,
+      mutate(value) {
+        value.operation.kind = "unknown-catalog-sync";
+      },
+    },
+    {
+      label: "operation schema",
+      expected: /Next catalog sync identity is invalid/,
+      mutate(value) {
+        value.operation.schema = "dependabot-protected-runtime-sync:v2";
+      },
+    },
+    {
+      label: "package ecosystem",
+      expected: /Next catalog sync identity is invalid/,
+      mutate(value) {
+        value.packageEcosystem = "github-actions";
+      },
+    },
+    {
+      label: "pnpm identity",
+      expected: /Next catalog sync identity is invalid/,
+      mutate(value) {
+        value.operation.pnpmVersion = "10.34.3";
+      },
+    },
+    {
+      label: "resolution mode",
+      expected: /Next catalog sync identity is invalid/,
+      mutate(value) {
+        value.operation.resolutionMode = "highest";
+      },
+    },
+    {
+      label: "operation source identity",
+      expected: /operation\.sourceSeedHeadSha is invalid/,
+      mutate(value) {
+        value.operation.sourceSeedHeadSha = "not-a-sha";
+      },
+    },
+    {
+      label: "dependency group",
+      expected: /Next catalog sync identity is invalid/,
+      mutate(value) {
+        value.dependencyGroup = "tooling";
+      },
+    },
+    {
+      label: "dependency names",
+      expected: /Next catalog sync identity is invalid/,
+      mutate(value) {
+        value.dependencyNames = ["next", "react"];
+      },
+    },
+    {
+      label: "risk tier",
+      expected: /typed npm risk tier is invalid/,
+      mutate(value) {
+        value.riskTier = "automatic";
+      },
+    },
+    {
+      label: "required gates",
+      expected: /requiredGateIds is not the exact/,
+      mutate(value) {
+        value.requiredGateIds = value.requiredGateIds.slice(1);
+      },
+    },
+    {
+      label: "validation commands",
+      expected: /validationCommands is not the exact/,
+      mutate(value) {
+        value.validationCommands = value.validationCommands.slice(0, -1);
+      },
+    },
+    {
+      label: "required path",
+      expected: /operation\.requiredPaths is not the exact/,
+      mutate(value) {
+        value.operation.requiredPaths = value.operation.requiredPaths.slice(1);
+      },
+    },
+    {
+      label: "input path order",
+      expected: /operation\.inputPaths is not the exact/,
+      mutate(value) {
+        value.operation.inputPaths = [...value.operation.inputPaths].reverse();
+      },
+    },
+    {
+      label: "permitted path",
+      expected: /permittedPaths is not the exact/,
+      mutate(value) {
+        value.permittedPaths = value.permittedPaths.slice(0, -1);
+      },
+    },
+    {
+      label: "forbidden path",
+      expected: /forbiddenPaths is not the exact/,
+      mutate(value) {
+        value.forbiddenPaths = [...value.forbiddenPaths].reverse();
+      },
+    },
+    {
+      label: "expected input blob",
+      expected: /expectedBlobs do not cover the exact typed-operation inputs/,
+      mutate(value) {
+        value.expectedBlobs = value.expectedBlobs.slice(1);
+      },
+    },
+    {
+      label: "from specifier",
+      expected: /Next catalog sync identity is invalid/,
+      mutate(value) {
+        value.operation.fromSpecifier = "16.2.12";
+      },
+    },
+    {
+      label: "target specifier",
+      expected: /Next catalog sync identity is invalid/,
+      mutate(value) {
+        value.operation.targetSpecifier = "^16.3.0";
+      },
+    },
+    {
+      label: "major version",
+      expected: /Next catalog sync version transition is invalid/,
+      mutate(value) {
+        value.operation.targetSpecifier = "^17.0.0";
+        value.operation.targetVersion = "17.0.0";
+        value.operation.updateType = "major";
+        value.updateType = "major";
+      },
+    },
+    {
+      label: "version downgrade",
+      expected: /Next catalog sync version transition is invalid/,
+      mutate(value) {
+        value.operation.targetSpecifier = "^16.1.0";
+        value.operation.targetVersion = "16.1.0";
+      },
+    },
+    {
+      label: "prerelease version",
+      expected: /operation\.targetVersion is invalid/,
+      mutate(value) {
+        value.operation.targetSpecifier = "^16.3.1-rc.1";
+        value.operation.targetVersion = "16.3.1-rc.1";
+      },
+    },
+    {
+      label: "update type",
+      expected: /Next catalog sync version transition is invalid/,
+      mutate(value) {
+        value.operation.updateType = "patch";
+      },
+    },
+    ...[
+      ["maxAddedLines", 599],
+      ["maxBytes", 64 * 1024 - 1],
+      ["maxChanges", 1_199],
+      ["maxDeletedLines", 599],
+      ["maxFiles", nextCatalogRequiredPaths.length - 1],
+    ].map(([key, replacement]) => ({
+      label: `limit ${key}`,
+      expected: /Next catalog sync limits are invalid/,
+      mutate(value) {
+        value.limits[key] = replacement;
+      },
+    })),
+  ];
+
+  for (const { expected, label, mutate } of invalidPackets) {
+    const value = structuredClone(packet);
+    mutate(value);
+    assert.throws(() => validateProcessorRepairPacket(value), expected, label);
+  }
+});
+
+test("repair plan patch caps remain narrow for v2 and permit a large typed Next lock patch", () => {
+  const v2Packet = repairPacket();
+  const v2Edit = {
+    expectedBlobSha: "e".repeat(40),
+    patch: "x".repeat(8 * 1024),
+    path: "scripts/fixtures/action-pins/ci.yml",
+  };
+  assert.equal(
+    validateRepairPlan(repairPlanFor(v2Packet, [v2Edit]), {
+      packet: v2Packet,
+      packetDigest,
+      processorCheckId: 444,
+    }).edits[0].patch.length,
+    8 * 1024,
+  );
+  assert.throws(
+    () =>
+      validateRepairPlan(
+        repairPlanFor(v2Packet, [
+          { ...v2Edit, patch: "x".repeat(8 * 1024 + 1) },
+        ]),
+        { packet: v2Packet, packetDigest, processorCheckId: 444 },
+      ),
+    /edits\[0\]\.patch is oversized/,
+  );
+
+  const nextPacket = nextCatalogPacket();
+  const largeLockEdit = {
+    expectedBlobSha: "e".repeat(40),
+    patch: "x".repeat(41 * 1024),
+    path: "pnpm-lock.yaml",
+  };
+  assert.equal(
+    validateRepairPlan(repairPlanFor(nextPacket, [largeLockEdit]), {
+      packet: nextPacket,
+      packetDigest,
+      processorCheckId: 444,
+    }).edits[0].patch.length,
+    41 * 1024,
+  );
+  assert.throws(
+    () =>
+      validateRepairPlan(
+        repairPlanFor(nextPacket, [
+          { ...largeLockEdit, patch: "x".repeat(48 * 1024 + 1) },
+        ]),
+        { packet: nextPacket, packetDigest, processorCheckId: 444 },
+      ),
+    /edits\[0\]\.patch is oversized/,
+  );
+
+  assert.throws(
+    () =>
+      validateRepairPlan(
+        repairPlanFor(nextPacket, [
+          { ...largeLockEdit, patch: "é".repeat(24 * 1024 + 1) },
+        ]),
+        { packet: nextPacket, packetDigest, processorCheckId: 444 },
+      ),
+    /edits\[0\]\.patch is oversized/,
+  );
+
+  const aggregateEdits = ["package.json", "pnpm-lock.yaml"].map((path) => ({
+    expectedBlobSha: "e".repeat(40),
+    patch: "x".repeat(33 * 1024),
+    path,
+  }));
+  assert.throws(
+    () =>
+      validateRepairPlan(repairPlanFor(nextPacket, aggregateEdits), {
+        packet: nextPacket,
+        packetDigest,
+        processorCheckId: 444,
+      }),
+    /repair plan is too large/,
+  );
+});
+
 test("v3 operation authority remains transitively bound through unchanged repair receipts", () => {
   const digest = canonicalDigest(protectedRuntimePacket());
   const intent = validateRepairIntent(
@@ -1182,6 +1701,92 @@ test("repair plans bind packet paths and carry only bounded patches and digests"
         { packet, packetDigest, processorCheckId: 444 },
       ),
     /hard-denied|packet-denied|outside packet allowlist/,
+  );
+});
+
+test("v2 npm repair plans preserve Dependabot-changed declarations", () => {
+  const blobs = new Map([
+    ["package.json", "1".repeat(40)],
+    ["pnpm-lock.yaml", "2".repeat(40)],
+    ["pnpm-workspace.yaml", "3".repeat(40)],
+  ]);
+  const packet = repairPacket({
+    changedPaths: ["pnpm-lock.yaml", "pnpm-workspace.yaml"],
+    dependencyGroup: "frontend-core",
+    dependencyNames: ["next"],
+    expectedBlobs: [...blobs].map(([path, sha]) => ({
+      mode: "100644",
+      path,
+      sha,
+      type: "blob",
+    })),
+    failures: [
+      {
+        attribution: "branch",
+        detailsUrl: `https://github.com/${repository}/actions/runs/11/job/12`,
+        id: "supply-chain-version-skew",
+        name: "catalog version-skew",
+      },
+    ],
+    findings: [],
+    headRef: "dependabot/npm_and_yarn/frontend-core-123",
+    packageEcosystem: "npm",
+    permittedPaths: ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"],
+    riskTier: "human-merge-npm",
+    updateType: "minor",
+  });
+  const plan = {
+    attempt: 1,
+    baseSha,
+    edits: [
+      {
+        expectedBlobSha: blobs.get("package.json"),
+        patch:
+          '--- a/package.json\n+++ b/package.json\n@@ -1 +1 @@\n-  "next": "^16.2.12"\n+  "next": "^16.3.1"\n',
+        path: "package.json",
+      },
+      {
+        expectedBlobSha: blobs.get("pnpm-lock.yaml"),
+        patch:
+          "--- a/pnpm-lock.yaml\n+++ b/pnpm-lock.yaml\n@@ -1 +1 @@\n-  next: ^16.2.12\n+  next: ^16.3.1\n",
+        path: "pnpm-lock.yaml",
+      },
+    ],
+    packetDigest,
+    parentHeadSha: headSha,
+    processorCheckId: 444,
+    pullRequestNumber: packet.pullRequestNumber,
+    repository,
+    schema: "dependabot-repair-plan:v1",
+    summary: "Align the unchanged override and generated lockfile.",
+  };
+
+  assert.deepEqual(
+    validateRepairPlan(plan, {
+      packet,
+      packetDigest,
+      processorCheckId: 444,
+    }).edits.map(({ path }) => path),
+    ["package.json", "pnpm-lock.yaml"],
+  );
+  assert.throws(
+    () =>
+      validateRepairPlan(
+        {
+          ...plan,
+          edits: [
+            {
+              expectedBlobSha: blobs.get("pnpm-workspace.yaml"),
+              patch:
+                "--- a/pnpm-workspace.yaml\n+++ b/pnpm-workspace.yaml\n@@ -1 +1 @@\n-  next: ^16.3.1\n+  next: ^16.2.12\n",
+              path: "pnpm-workspace.yaml",
+            },
+          ],
+          summary: "Reverse the Dependabot catalog update.",
+        },
+        { packet, packetDigest, processorCheckId: 444 },
+      ),
+    /rewrites a Dependabot-changed dependency declaration: pnpm-workspace\.yaml/,
   );
 });
 
@@ -1579,7 +2184,9 @@ test("repair validator loads a greater-than-1MiB exact Git blob by object SHA", 
 });
 
 test("pull file evidence binds changed paths independently from repair blobs", async () => {
-  const disjointPacket = repairPacket();
+  const disjointPacket = repairPacket({
+    changedPaths: [".github/workflows/ci.yml"],
+  });
   const packet = repairPacket({
     changedPaths: ["package.json"],
     expectedBlobs: [

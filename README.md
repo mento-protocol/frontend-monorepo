@@ -424,10 +424,21 @@ explicit one-based bounded Read pages. `Grep` may locate the relevant ranges. A
 secretless validator then re-fetches every input through the exact Git blob API before any staged
 commit or branch mutation can occur.
 
+Stable same-major Vercel updates and the exact `frontend-core` Next catalog
+update use typed v3 model-free plans. The Next plan uses one pinned pnpm target
+solve as an oracle, imports only the authenticated Next runtime closure into
+the sealed source lock, and preserves unrelated source resolutions. An
+independent job reproduces the plan. A terminal no-output job then runs the
+candidate CLI under a separate non-sudo account with read-only trusted inputs,
+no registered runner action or post action, and no secret or write authority.
+
 The preparable tier includes verified npm updates, including grouped and major
-updates. Verified non-sensitive GitHub Actions updates may be refreshed and,
-when green, prepared, but automatic repair never writes `.github/**`; a failure
-that needs that surface becomes `manual-repair-required`. Sensitive
+updates. Verified non-sensitive GitHub Actions updates may be prepared only
+while their native Dependabot head is current and green. The Prepare App never
+refreshes or repairs a generation whose live diff contains
+`.github/workflows/**` or `.github/actions/**`. Each ref mutator re-fetches the
+exact file inventory immediately before its write. A stale or failing Actions
+update becomes `manual-repair-required`. Sensitive
 self-reviewing Actions; workflow-policy, deployment, authentication, credential,
 or security changes; unknown metadata; untrusted force-push histories; human
 vetoes; unresolved feedback outside an exact packet-bound repair; and exhausted
@@ -452,6 +463,13 @@ Contents write. Grant no bypass, Actions, workflow, deployment, package, or
 provider permission. Contents write technically reaches GitHub's merge
 endpoint, so the reviewed code contains no merge call and revokes the token
 before approval; the final merge remains human.
+
+After an App ref move, the Prepare App is the pull-request event sender. Direct
+PR workflows grant repository credentials only to a same-repository `User` PR
+author and `User` sender. Prepared Dependabot runs therefore receive no
+repository secrets, do not persist checkout credentials, and disable
+dependency, Foundry, and Trunk caches. Pull-request supply-chain scans remain
+read-only; schedule and manual scans own SARIF write authority.
 
 Only an exact `refresh-pending` result mints the processor's refresh-capable
 Prepare App token. Repair staging, repair mutation, and authenticated dispatch
@@ -762,7 +780,9 @@ The repository is set up with GitHub Actions for CI:
 
 Dependency-installing jobs use `.github/actions/pnpm-install`, which pins the
 Node/pnpm bootstrap, relies on `actions/setup-node` as the single pnpm-store
-cache owner, and enforces `pnpm install --frozen-lockfile`.
+cache owner, and enforces `pnpm install --frozen-lockfile`. Prepared Dependabot
+runs disable that cache and the Trunk action cache through the same positive
+repository-credential grant.
 Production-shadow candidate builds instead use the dedicated-UID
 `.github/actions/vercel-candidate-build` boundary documented in the deployment
 runbook; fresh browser-smoke jobs return to the trusted pnpm action. Publishing

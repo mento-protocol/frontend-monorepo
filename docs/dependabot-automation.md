@@ -255,6 +255,23 @@ merge capability. The control is architectural and auditable:
 Never substitute the normal `GITHUB_TOKEN`, preview worker credential, Vercel
 or package credential, deployment token, or a PAT.
 
+The App ref move makes the Prepare App the later `synchronize` event sender.
+Direct pull-request workflows therefore compute
+`ALLOW_REPOSITORY_CREDENTIALS` from the signed event before candidate code
+runs. The positive grant requires a same-repository `User` PR author and
+`User` sender. It explicitly denies the Dependabot account, the Prepare App
+bot, and `dependabot` refs. CI, E2E, and visual jobs materialize repository
+secrets only from that plan-job output. A missing or false output leaves every
+secret empty. Quality Budgets uses the same positive event grant without a
+separate planner because it has no repository secret. Prepared Dependabot jobs
+also disable dependency, Foundry, and Trunk caches, do not persist checkout
+credentials, and receive no candidate-execution write token. Because the grant
+is part of direct PR workflow code, the Prepare App never refreshes or repairs
+a generation whose live diff contains `.github/workflows/**` or
+`.github/actions/**`. Each ref mutator re-fetches the exact current file
+inventory immediately before its write. Pull-request OSV jobs stay read-only;
+separate schedule/manual jobs own SARIF write authority.
+
 ## Modes and handling tiers
 
 | Mode      | Classification | Packet                        | Refresh/repair/re-review | Approval/ALL CLEAR  | Merge |
@@ -267,12 +284,12 @@ Unknown values normalize to `observe` before any credential is exposed.
 
 Handling tier and preparation eligibility are separate:
 
-- **preparable**: verified npm updates, including grouped and major updates, and
-  verified non-sensitive GitHub Actions updates may be refreshed and, when
-  already green, fully prepared. Autonomous repair never writes `.github/**`;
-  an Actions failure that would require such a change becomes
-  `manual-repair-required`. The dependency names, update type, ecosystem, and
-  risk tier remain visible to the maintainer.
+- **preparable**: verified npm updates, including grouped and major updates, may
+  be refreshed, repaired, and fully prepared. A verified non-sensitive GitHub
+  Actions update may be fully prepared only on its current, green, native
+  Dependabot head. It never enters a Prepare App refresh or repair. A stale or
+  failing Actions update stays manual. The dependency names, update type,
+  ecosystem, and risk tier remain visible to the maintainer.
 - **manual**: sensitive/self-reviewing Actions; workflow-policy, deployment,
   authentication, credential, or security Actions; unknown ecosystem or
   metadata; and any policy shape not explicitly admitted.
@@ -396,11 +413,21 @@ failures outside a packet with separate deterministic branch evidence. A typed
 v3 packet may instead represent one admitted deterministic protected-runtime
 synchronization. Its operation is actionable even with no failed check: ALL
 CLEAR would otherwise leave the immutable Dependabot target unrealized across
-the protected runtime. Same-head processing is idempotent. The first
+the protected runtime. The exact Next catalog operation can proceed beside
+trusted provider-baseline failures because those failures do not affect its
+deterministic inputs. They remain failed and still block ALL CLEAR. Same-head
+processing is idempotent. The first
 append-only Repair commit consumes attempt one; a second consumes attempt two.
 There is no third attempt.
 
-A later generic v2 repair can follow a reachable v3 protected-runtime sync.
+Generic npm packets bind the root `package.json`, `pnpm-workspace.yaml`, and
+`pnpm-lock.yaml` as companion inputs in addition to the PR files. A generic v2
+plan cannot edit a dependency declaration file that Dependabot changed. This
+preserves the requested update direction while still allowing an unchanged
+companion declaration and the generated lockfile to repair a bounded skew.
+
+A later generic v2 repair can follow a reachable Vercel v3 protected-runtime
+sync.
 The processor keeps the full PR path inventory for live diff authentication.
 It admits the v2 packet only when the protected paths are exact v3 required
 paths, the current runtime state matches the proven operation, and each new
@@ -420,6 +447,11 @@ original packet source rather than creating another repair run.
 `.github/workflows/dependabot-prepare-repair.yml` separates planning, durable
 intent, branch mutation, and recovery:
 
+Its repository-wide concurrency group uses `queue: max` with
+`cancel-in-progress: false`. GitHub can retain up to 100 pending repair or
+recovery runs instead of replacing the older pending run. GitHub orders runs by
+the time each run starts waiting, which can differ from dispatch order.
+
 1. **preflight** authenticates the exact Processor v2 or v3 packet and terminal
    processor run, then selects its exact plan kind;
 2. **plan** first runs the trusted `materialize-repair-evidence` command with a
@@ -438,12 +470,24 @@ intent, branch mutation, and recovery:
    accesses; large files require explicit one-based bounded Read pages, and Grep
    may locate the relevant ranges. A no-token postflight assertion requires at
    least one successful exact access before the generic plan job succeeds.
-   A `vercel-cli-runtime-sync` v3 packet takes the mutually exclusive
-   model-free path instead: trusted code reads the same exact blob evidence,
-   fetches the exact current and target public npm records, changes only the
-   Vercel regions of the root lock, runs pinned pnpm with scripts, workspace
-   links, and pnpmfile loading disabled to regenerate the standalone lock twice,
-   and emits only the packet's fixed five-path patch set;
+   A v3 packet takes the mutually exclusive model-free path instead. The
+   `vercel-cli-runtime-sync` kind reads the same exact blob evidence, fetches
+   the exact current and target public npm records, changes only the Vercel
+   regions of the root lock, and regenerates the standalone lock twice. The
+   `next-catalog-override-sync` kind admits only the exact `frontend-core`
+   Next row. It moves the catalog, root override, and protected-runtime
+   override forward to the immutable target. It starts from the sealed source
+   root lock and runs one isolated pinned-pnpm target solve as an oracle. It
+   imports only the exact Next runtime closure records and integrity values
+   from that oracle into the source lock. Exact registry metadata also binds
+   the Next package peers, optional-peer metadata, Node engine, bin shape, and
+   retained snapshot peer context. It preserves every unrelated source
+   resolution. The packet's `resolutionMode: lowest-direct` constrains only
+   the oracle and does not define the output lock. The generator rotates the
+   exact Next override in the sealed standalone lock, requires frozen-lock
+   consistency, and reseals the runtime contract. Both kinds disable scripts
+   and pnpmfile loading. Standalone checks also disable workspace linking. They
+   emit only their fixed output-path patches;
 3. **validate** has no secret or write token. It re-fetches exact inputs by Git
    object SHA, including files larger than the Contents API limit, applies
    patches in a disposable credential-free temporary Git tree, enforces
@@ -451,11 +495,22 @@ intent, branch mutation, and recovery:
    packet/head/base/check IDs, and emits a digest-bound plan. For the typed v3
    path it also regenerates independently and requires exact plan equality;
 4. **candidate CLI smoke** runs only for typed v3 after trusted validation on a
-   fresh no-output runner. It binds the canonical validated plan, performs a
-   secretless frozen standalone install with candidate scripts and workspace
-   links disabled, and requires `node <cli> --version` to equal the packet
-   target. Candidate execution is the terminal step: it can veto staging but
-   cannot change the validated plan or produce downstream authority;
+   fresh no-output runner. It reapplies the digest-bound validated patches to
+   freshly materialized exact packet evidence and requires every result digest
+   to match the validated plan. It does not run another registry oracle or
+   regenerate the plan. API and shell steps materialize the exact trusted
+   scripts and the npm-locked, hash-verified pnpm bootstrap. The job registers
+   no runner action or post action before candidate code. A separate non-sudo
+   account cannot write the trusted source, evidence, pnpm executable,
+   workspace, Actions directory, or runner command files. The job first
+   performs secretless frozen lock checks with scripts and pnpmfile loading
+   disabled. It installs the standalone runtime and checks its exact CLI
+   version. The Next kind finishes with a cacheless frozen install of only the
+   selected app's production dependencies. Lifecycle scripts run inside a
+   sanitized environment. It executes the exact target Next CLI and builds a
+   minimal App Router project. Candidate execution is the final step: it can
+   veto staging but cannot change the validated plan or produce downstream
+   authority;
 5. **stage** alone receives a short-lived Prepare App token and writes exact
    unreachable blobs, tree, and one commit without moving the branch;
 6. **intent** has no App token. It publishes `Dependabot Repair Intent`
@@ -463,7 +518,9 @@ intent, branch mutation, and recovery:
    plan, old head, tree, result blobs, exact workflow run, and expected new head;
 7. **mutate** receives a fresh Prepare App token, revalidates the intent and
    exact current ref, then moves only that `dependabot/*` ref with
-   `force=false`; and
+   `force=false`. It then polls the read-only PR view up to five times when
+   GitHub still returns the exact parent state. It never repeats the ref write
+   and fails immediately on any other drift; and
 8. **receipt/recovery** has no App token. It publishes the completed
    `Dependabot Repair` check, or recovers that check idempotently after a failed,
    cancelled, timed-out, action-required, or startup-failed source run only when
@@ -581,16 +638,21 @@ and escalation. V2 additionally requires deterministic failure, finding, or
 feedback evidence.
 
 V3 is reserved for the exact
-`dependabot-protected-runtime-sync:v1` operation. Its current
+`dependabot-protected-runtime-sync:v1` operation. The
 `vercel-cli-runtime-sync` kind binds the immutable seed Vercel row, stable
 same-major patch/minor target, exact pnpm 10.34.4, exact current-head input
-blobs, and the fixed root/runtime manifest, lockfile, and contract output paths.
-It may carry empty failure/finding/feedback arrays because the missing typed
-runtime synchronization is the actionable invariant. It may instead carry only
-the exact matching Cursor runtime-mismatch threads described above. Mixed v2
-attempt-one and v3 attempt-two lineage remains valid only when every packet,
-Intent, commit, receipt, operation digest, target version, and current-tree
-contract matches.
+blobs, and the fixed five root/runtime output paths. The
+`next-catalog-override-sync` kind binds the exact immutable `frontend-core`
+Next row, caret source and target specs, the same exact pnpm and input set, and
+six outputs: the root package/workspace/lock plus the standalone runtime
+contract/manifest/lock. Its lock patch can exceed the generic 8 KiB per-edit
+cap, but the larger allowance applies only to this typed kind and remains under
+the 64 KiB aggregate plan cap. A v3 packet may carry empty
+failure/finding/feedback arrays because the missing typed synchronization is the
+actionable invariant. The Vercel kind may instead carry only the exact matching
+Cursor runtime-mismatch threads described above. Mixed v2 attempt-one and v3
+attempt-two lineage remains valid only when every packet, Intent, commit,
+receipt, operation digest, target version, and current-tree contract matches.
 
 ### Refresh v1
 
@@ -764,6 +826,7 @@ or failed. Follow the managed failure issue and deployment recovery runbook.
 | Valid Claude findings                                  | Treat as deterministic packet input, not infrastructure failure.  |
 | Eligible deterministic branch failure                  | Publish v2 packet only when the bounded repair surface is valid.  |
 | Admitted Vercel protected-runtime target missing       | Publish exact v3 model-free sync packet; require typed proof.     |
+| Admitted Next catalog/override target missing          | Publish exact v3 model-free sync packet; preserve forward intent. |
 | Existing exact-head packet (`repair-pending`)          | Preserve its run; publish no duplicate packet/check.              |
 | No valid automatic packet (`manual-repair-required`)   | Leave the lane and require human repair.                          |
 | Refresh needed                                         | Use request/completed v1 lineage; do not spend repair budget.     |
@@ -794,6 +857,13 @@ suite after any related code, workflow, configuration, or documentation change:
 
 ```bash
 pnpm dependabot:process:test
+```
+
+Run the opt-in public-registry Next source-preserving sync proof after changing
+the typed generator or its pnpm contract:
+
+```bash
+NEXT_CATALOG_SYNC_INTEGRATION=1 pnpm exec node --test scripts/dependabot-protected-runtime-sync.test.mjs
 ```
 
 When reporting, distinguish:

@@ -33,22 +33,44 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  ALLOW_REPOSITORY_CREDENTIALS: >-
+    ${{ github.event_name != 'pull_request' ||
+        (github.event.pull_request.user.type == 'User' &&
+         github.event.pull_request.user.id != 49699333 &&
+         github.event.pull_request.user.login != 'dependabot[bot]' &&
+         github.event.pull_request.head.repo.full_name == github.repository &&
+         github.event.pull_request.head.ref != 'dependabot' &&
+         !startsWith(github.event.pull_request.head.ref, 'dependabot/') &&
+         github.event.sender.type == 'User' &&
+         github.event.sender.id != 315967666 &&
+         github.event.sender.login != 'mento-dependabot-prepare[bot]') }}
   TURBO_TEAM: ${{ vars.TURBO_TEAM }}
-  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-  TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
 
 jobs:
   visual-plan:
     name: Visual Regression Plan
     runs-on: ubuntu-latest
     outputs:
+      allow_repository_credentials: ${{ steps.credentials.outputs.allow_repository_credentials }}
       app: ${{ steps.detect.outputs.app }}
       ui: ${{ steps.detect.outputs.ui }}
     steps:
+      - name: Classify repository credential access
+        id: credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$ALLOW_REPOSITORY_CREDENTIALS" in
+            true | false) ;;
+            *) exit 1 ;;
+          esac
+          echo "allow_repository_credentials=$ALLOW_REPOSITORY_CREDENTIALS" >> "$GITHUB_OUTPUT"
+
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Detect visual impact
         id: detect
@@ -136,6 +158,8 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
 
     env:
+      TURBO_TOKEN: ${{ needs.visual-plan.outputs.allow_repository_credentials == 'true' && secrets.TURBO_TOKEN || '' }}
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ needs.visual-plan.outputs.allow_repository_credentials == 'true' && secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY || '' }}
       # ui.mento.org needs only STORAGE_URL; app.mento.org additionally needs a
       # WalletConnect id + sanctions test-mode, and we disable Sentry entirely
       # (empty DSN) for a clean, network-free render. Extra vars are harmless to
@@ -145,7 +169,7 @@ jobs:
       NEXT_PUBLIC_SANCTIONS_TEST_MODE: "true"
       NEXT_PUBLIC_SENTRY_DSN_SWAP: ""
       SENTRY_AUTH_TOKEN: ""
-      ARGOS_TOKEN: ${{ secrets.ARGOS_TOKEN }}
+      ARGOS_TOKEN: ${{ needs.visual-plan.outputs.allow_repository_credentials == 'true' && secrets.ARGOS_TOKEN || '' }}
 
     steps:
       - name: Require successful visual plan
@@ -158,9 +182,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # full history so Argos can compute the merge-base baseline
+          persist-credentials: false
 
       - name: Install pnpm dependencies
         uses: ./.github/actions/pnpm-install
+        with:
+          cache: ${{ needs.visual-plan.outputs.allow_repository_credentials == 'true' }}
 
       - name: Build app
         run: pnpm turbo build --filter=ui.mento.org
@@ -183,6 +210,8 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
 
     env:
+      TURBO_TOKEN: ${{ needs.visual-plan.outputs.allow_repository_credentials == 'true' && secrets.TURBO_TOKEN || '' }}
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ needs.visual-plan.outputs.allow_repository_credentials == 'true' && secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY || '' }}
       # ui.mento.org needs only STORAGE_URL; app.mento.org additionally needs a
       # WalletConnect id + sanctions test-mode, and we disable Sentry entirely
       # (empty DSN) for a clean, network-free render. Extra vars are harmless to
@@ -192,7 +221,7 @@ jobs:
       NEXT_PUBLIC_SANCTIONS_TEST_MODE: "true"
       NEXT_PUBLIC_SENTRY_DSN_SWAP: ""
       SENTRY_AUTH_TOKEN: ""
-      ARGOS_TOKEN: ${{ secrets.ARGOS_TOKEN }}
+      ARGOS_TOKEN: ${{ needs.visual-plan.outputs.allow_repository_credentials == 'true' && secrets.ARGOS_TOKEN || '' }}
 
     steps:
       - name: Require successful visual plan
@@ -205,9 +234,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # full history so Argos can compute the merge-base baseline
+          persist-credentials: false
 
       - name: Install pnpm dependencies
         uses: ./.github/actions/pnpm-install
+        with:
+          cache: ${{ needs.visual-plan.outputs.allow_repository_credentials == 'true' }}
 
       - name: Build app
         run: pnpm turbo build --filter=app.mento.org

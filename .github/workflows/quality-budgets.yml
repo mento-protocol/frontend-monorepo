@@ -15,6 +15,17 @@ permissions:
   contents: read
 
 env:
+  ALLOW_REPOSITORY_CREDENTIALS: >-
+    ${{ github.event_name != 'pull_request' ||
+        (github.event.pull_request.user.type == 'User' &&
+         github.event.pull_request.user.id != 49699333 &&
+         github.event.pull_request.user.login != 'dependabot[bot]' &&
+         github.event.pull_request.head.repo.full_name == github.repository &&
+         github.event.pull_request.head.ref != 'dependabot' &&
+         !startsWith(github.event.pull_request.head.ref, 'dependabot/') &&
+         github.event.sender.type == 'User' &&
+         github.event.sender.id != 315967666 &&
+         github.event.sender.login != 'mento-dependabot-prepare[bot]') }}
   NEXT_TELEMETRY_DISABLED: "1"
   NEXT_PUBLIC_STORAGE_URL: https://example.com
   NEXT_PUBLIC_ANALYTICS_API_URL: ${{ vars.ANALYTICS_API_URL }}
@@ -47,6 +58,8 @@ jobs:
 
       - name: Install pnpm dependencies
         uses: ./.github/actions/pnpm-install
+        with:
+          cache: ${{ env.ALLOW_REPOSITORY_CREDENTIALS == 'true' }}
 
       - name: Enforce coverage and production bundle budgets
         run: pnpm quality:budgets

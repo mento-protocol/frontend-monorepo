@@ -29,6 +29,15 @@ function workflow(relativePath) {
   return parse(read(relativePath), { uniqueKeys: true });
 }
 
+function nestedStrings(value) {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(nestedStrings);
+  if (value !== null && typeof value === "object") {
+    return Object.values(value).flatMap(nestedStrings);
+  }
+  return [];
+}
+
 function filesBelow(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
@@ -125,6 +134,215 @@ test("workflow parsing rejects duplicate YAML keys", () => {
   );
 });
 
+test("repaired Dependabot PR jobs retain native secret and credential isolation", () => {
+  const configurations = [
+    {
+      expectedSecretCount: 24,
+      gate: "needs.changes.outputs.allow_repository_credentials",
+      path: ".github/workflows/ci.yml",
+      planJob: "changes",
+    },
+    {
+      expectedSecretCount: 6,
+      gate: "needs.e2e-plan.outputs.allow_repository_credentials",
+      path: ".github/workflows/e2e.yml",
+      planJob: "e2e-plan",
+    },
+    {
+      expectedSecretCount: 6,
+      gate: "needs.visual-plan.outputs.allow_repository_credentials",
+      path: ".github/workflows/visual.yml",
+      planJob: "visual-plan",
+    },
+    {
+      expectedSecretCount: 0,
+      gate: "env.ALLOW_REPOSITORY_CREDENTIALS",
+      path: ".github/workflows/quality-budgets.yml",
+      planJob: null,
+    },
+  ];
+  const protectedWorkflowPaths = configurations.map(({ path }) => path).sort();
+  const workflowRoot = fileURLToPath(
+    new URL("../.github/workflows/", import.meta.url),
+  );
+  const directPullRequestWorkflows = readdirSync(workflowRoot)
+    .filter((name) => /\.ya?ml$/u.test(name))
+    .map((name) => {
+      const path = `.github/workflows/${name}`;
+      return { parsed: workflow(path), path };
+    })
+    .filter(({ parsed }) => Object.hasOwn(parsed.on ?? {}, "pull_request"));
+  const directSecretPaths = directPullRequestWorkflows
+    .filter(({ parsed }) =>
+      nestedStrings(parsed).some((value) => value.includes("secrets.")),
+    )
+    .map(({ path }) => path)
+    .sort();
+  assert.deepEqual(directSecretPaths, [
+    ".github/workflows/ci.yml",
+    ".github/workflows/claude-code-review.yml",
+    ".github/workflows/e2e.yml",
+    ".github/workflows/visual.yml",
+  ]);
+  const humanReviewJob = workflow(".github/workflows/claude-code-review.yml")
+    .jobs["claude-review-human"];
+  assert.match(humanReviewJob.if, /pull_request\.user\.type == 'User'/u);
+  assert.doesNotMatch(humanReviewJob.if, /sender/u);
+  for (const { parsed, path } of directPullRequestWorkflows) {
+    assert.doesNotMatch(
+      JSON.stringify(parsed.jobs),
+      /"secrets":"inherit"/u,
+      `${path} must not inherit an unbounded secret set`,
+    );
+  }
+
+  const directCandidateCachePaths = directPullRequestWorkflows
+    .filter(({ parsed }) =>
+      Object.values(parsed.jobs).some((job) =>
+        (job.steps ?? []).some(
+          (step) =>
+            step.uses === "./.github/actions/pnpm-install" ||
+            step.uses?.startsWith("actions/cache@") ||
+            step.uses?.startsWith("trunk-io/trunk-action@") ||
+            Object.hasOwn(step.with ?? {}, "cache-dependency-path"),
+        ),
+      ),
+    )
+    .map(({ path }) => path)
+    .sort();
+  assert.deepEqual(directCandidateCachePaths, protectedWorkflowPaths);
+
+  const directLocalActions = directPullRequestWorkflows
+    .flatMap(({ parsed }) => Object.values(parsed.jobs))
+    .flatMap((job) => job.steps ?? [])
+    .map((step) => step.uses)
+    .filter((uses) => uses?.startsWith("./.github/actions/"));
+  assert.deepEqual([...new Set(directLocalActions)].sort(), [
+    "./.github/actions/pnpm-install",
+  ]);
+  const installAction = parse(read(".github/actions/pnpm-install/action.yml"), {
+    uniqueKeys: true,
+  });
+  assert.deepEqual(
+    installAction.runs.steps
+      .map((step) => step.uses)
+      .filter((uses) => uses?.startsWith("./")),
+    [],
+    "the protected local install action must not hide another local action",
+  );
+  const cachedNode = installAction.runs.steps.find(
+    (step) =>
+      step.uses?.startsWith("actions/setup-node@") &&
+      step.with?.cache === "pnpm",
+  );
+  assert.equal(cachedNode.if, "inputs.cache == 'true'");
+  assert.equal(
+    cachedNode.with["cache-dependency-path"],
+    "${{ inputs.working-directory }}/pnpm-lock.yaml",
+  );
+  const uncachedNode = installAction.runs.steps.find(
+    (step) =>
+      step.uses?.startsWith("actions/setup-node@") &&
+      step.with?.["package-manager-cache"] === false,
+  );
+  assert.equal(uncachedNode.if, "inputs.cache != 'true'");
+  const positiveGrantSignals = [
+    "github.event_name != 'pull_request'",
+    "github.event.pull_request.user.type == 'User'",
+    "github.event.pull_request.user.id != 49699333",
+    "github.event.pull_request.user.login != 'dependabot[bot]'",
+    "github.event.pull_request.head.repo.full_name == github.repository",
+    "github.event.pull_request.head.ref != 'dependabot'",
+    "!startsWith(github.event.pull_request.head.ref, 'dependabot/')",
+    "github.event.sender.type == 'User'",
+    "github.event.sender.id != 315967666",
+    "github.event.sender.login != 'mento-dependabot-prepare[bot]'",
+  ];
+
+  for (const { expectedSecretCount, gate, path, planJob } of configurations) {
+    const parsed = workflow(path);
+    const grant = parsed.env.ALLOW_REPOSITORY_CREDENTIALS;
+    for (const signal of positiveGrantSignals) {
+      assert.ok(grant.includes(signal), `${path} is missing ${signal}`);
+    }
+    if (planJob !== null) {
+      const classifier = parsed.jobs[planJob].steps[0];
+      assert.equal(classifier.name, "Classify repository credential access");
+      assert.equal(classifier.id, "credentials");
+      assert.match(
+        classifier.run,
+        /case "\$ALLOW_REPOSITORY_CREDENTIALS" in[\s\S]*true \| false[\s\S]*allow_repository_credentials=\$ALLOW_REPOSITORY_CREDENTIALS/u,
+      );
+      assert.equal(
+        parsed.jobs[planJob].outputs.allow_repository_credentials,
+        "${{ steps.credentials.outputs.allow_repository_credentials }}",
+      );
+    }
+
+    const secretValues = nestedStrings(parsed).filter((value) =>
+      value.includes("secrets."),
+    );
+    assert.equal(secretValues.length, expectedSecretCount, path);
+    for (const value of secretValues) {
+      assert.match(
+        value,
+        new RegExp(
+          `^\\$\\{\\{ ${gate.replaceAll(".", "\\.")} == 'true' && secrets\\.[A-Z0-9_]+ \\|\\| '' \\}\\}$`,
+          "u",
+        ),
+        `${path} secret access must require the positive grant output`,
+      );
+    }
+
+    const steps = Object.values(parsed.jobs).flatMap((job) => job.steps ?? []);
+    const checkouts = steps.filter((step) =>
+      step.uses?.startsWith("actions/checkout@"),
+    );
+    assert.ok(checkouts.length > 0, `${path} must contain a checkout`);
+    for (const checkout of checkouts) {
+      assert.equal(
+        checkout.with?.["persist-credentials"],
+        false,
+        `${path} candidate checkout must not persist the event token`,
+      );
+    }
+
+    const installs = steps.filter(
+      (step) => step.uses === "./.github/actions/pnpm-install",
+    );
+    assert.ok(installs.length > 0, `${path} must contain a pnpm install`);
+    for (const install of installs) {
+      assert.equal(
+        install.with?.cache,
+        `\${{ ${gate} == 'true' }}`,
+        `${path} must disable the package cache for Dependabot PRs`,
+      );
+    }
+
+    const directCaches = steps.filter((step) =>
+      step.uses?.startsWith("actions/cache@"),
+    );
+    for (const cache of directCaches) {
+      assert.equal(
+        cache.if,
+        `${gate} == 'true'`,
+        `${path} must disable direct caches for Dependabot PRs`,
+      );
+    }
+  }
+
+  const ci = workflow(".github/workflows/ci.yml");
+  assert.deepEqual(ci.jobs.static.permissions, { contents: "read" });
+  const trunk = ci.jobs.static.steps.find((step) =>
+    step.uses?.startsWith("trunk-io/trunk-action@"),
+  );
+  assert.equal(
+    trunk.with?.cache,
+    "${{ needs.changes.outputs.allow_repository_credentials == 'true' }}",
+    "Trunk must disable its internal cache for prepared Dependabot PRs",
+  );
+});
+
 test("main pushes publish only deterministic supply-chain baselines", () => {
   const supplyChain = workflow(".github/workflows/supply-chain.yml");
 
@@ -148,8 +366,38 @@ test("main pushes publish only deterministic supply-chain baselines", () => {
     "osv-vercel-cli-runtime",
     "osv-pnpm-bootstrap",
   ]) {
-    assert.equal(supplyChain.jobs[jobId].if, "github.event_name != 'push'");
+    assert.equal(
+      supplyChain.jobs[jobId].if,
+      "github.event_name == 'pull_request'",
+    );
+    assert.deepEqual(supplyChain.jobs[jobId].permissions, {
+      actions: "read",
+      contents: "read",
+    });
+    assert.equal(supplyChain.jobs[jobId].with["upload-sarif"], false);
+    const sarifJob = supplyChain.jobs[`${jobId}-sarif`];
+    assert.equal(
+      sarifJob.if,
+      "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
+    );
+    assert.deepEqual(sarifJob.permissions, {
+      actions: "read",
+      contents: "read",
+      "security-events": "write",
+    });
+    assert.equal(sarifJob.with["upload-sarif"], true);
   }
+  for (const jobId of ["lockfile-lint", "version-skew"]) {
+    const checkout = supplyChain.jobs[jobId].steps.find((step) =>
+      step.uses?.startsWith("actions/checkout@"),
+    );
+    assert.equal(checkout.with["persist-credentials"], false);
+  }
+  const dependencyReview = workflow(".github/workflows/dependency-review.yml");
+  const dependencyCheckout = dependencyReview.jobs[
+    "dependency-review"
+  ].steps.find((step) => step.uses?.startsWith("actions/checkout@"));
+  assert.equal(dependencyCheckout.with["persist-credentials"], false);
   assert.equal(supplyChain.jobs["lockfile-lint"].if, undefined);
   assert.equal(supplyChain.jobs["version-skew"].if, undefined);
 });
@@ -1567,6 +1815,11 @@ test("the processor workflow contains no merge or native auto-merge authority", 
 
 test("repair planning, validation, mutation, and receipt publication stay isolated", () => {
   assert.equal(repair.name, "Dependabot Prepare Repair");
+  assert.deepEqual(repair.concurrency, {
+    "cancel-in-progress": false,
+    group: "dependabot-prepare-repair",
+    queue: "max",
+  });
   assert.deepEqual(repair.on, {
     repository_dispatch: {
       types: ["dependabot-prepare-repair", "dependabot-prepare-repair-recover"],
@@ -1722,6 +1975,10 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
   assert.match(planner.with.prompt, /only Read and Grep/);
   assert.match(
     planner.with.prompt,
+    /Preserve each dependency declaration.*Dependabot diff.*Never edit a changed package\.json or pnpm-workspace\.yaml.*unchanged packet-bound companion declarations.*generated lockfiles/s,
+  );
+  assert.match(
+    planner.with.prompt,
     /Use Grep.*when useful.*\.json.*above 12,500 bytes.*\.patch.*\.txt.*above 16,384 bytes.*explicit byte-efficient pages.*one-based offsets and limits.*at most 2,000 lines.*25,000 raw bytes.*\.patch.*\.txt.*12,500 raw bytes.*\.json.*enforced media-aware maxima/s,
   );
   const printedPagePolicy = spawnSync(
@@ -1850,7 +2107,8 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
     modelFreePnpmProof.run,
     /pnpm config get registry.*https:\/\/registry\.npmjs\.org\//s,
   );
-  for (const generator of [firstModelFreePlan, secondModelFreePlan]) {
+  assert.equal(secondModelFreePlan, undefined);
+  for (const generator of [firstModelFreePlan]) {
     assert.equal(
       generator.if,
       "needs.preflight.outputs.plan_kind == 'protected-runtime-sync'",
@@ -1874,7 +2132,11 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
       /CLAUDE|secrets\.|github\.token|GH_TOKEN|PREPARE_APP|VERCEL_TOKEN|write/,
     );
   }
-  assert.match(planOutput.run, /first\.length === 0 \|\| first !== second/);
+  assert.match(planOutput.run, /first\.length === 0/);
+  assert.doesNotMatch(
+    JSON.stringify(planOutput),
+    /SECOND_PROTECTED_RUNTIME_PLAN/,
+  );
   assert.match(planOutput.run, /claude\.length !== 0/);
   assert.match(planOutput.run, /Unknown repair plan kind/);
   assert.doesNotMatch(
@@ -1936,32 +2198,88 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
   assert.match(candidateCliSmoke.if, /plan_kind == 'protected-runtime-sync'/);
   assert.match(candidateCliSmoke.if, /needs\.validate\.result == 'success'/);
   assert.equal(Object.hasOwn(candidateCliSmoke, "outputs"), false);
-  const smokeCheckout = candidateCliSmoke.steps[0];
   assert.equal(
-    smokeCheckout.name,
-    "Check out only the exact trusted workflow source",
+    candidateCliSmoke.steps.every((step) => !Object.hasOwn(step, "uses")),
+    true,
+    "the candidate smoke must not register a runner action or post action",
   );
-  assert.deepEqual(smokeCheckout.with, {
-    "fetch-depth": 1,
-    "persist-credentials": false,
-    ref: "${{ github.workflow_sha }}",
-  });
+  const trustedSmokeSource = candidateCliSmoke.steps[0];
+  assert.equal(
+    trustedSmokeSource.name,
+    "Materialize the exact trusted terminal source without actions",
+  );
+  assert.equal(trustedSmokeSource.id, "trusted-source");
+  assert.equal(trustedSmokeSource.env.GH_TOKEN, "${{ github.token }}");
+  assert.equal(
+    trustedSmokeSource.env.WORKFLOW_SHA,
+    "${{ github.workflow_sha }}",
+  );
+  assert.match(trustedSmokeSource.run, /commits\/\$WORKFLOW_SHA/);
+  for (const path of [
+    "scripts/dependabot-preparation-receipts.mjs",
+    "scripts/dependabot-protected-runtime-sync.mjs",
+    "scripts/vercel-cli-runtime-contract.mjs",
+    "scripts/vercel-pnpm-bootstrap/package.json",
+    "scripts/vercel-pnpm-bootstrap/package-lock.json",
+  ]) {
+    assert.match(
+      trustedSmokeSource.run,
+      new RegExp(path.replaceAll("/", "\\/"), "u"),
+    );
+  }
+  const smokePnpm = candidateCliSmoke.steps[1];
+  assert.equal(
+    smokePnpm.name,
+    "Install and authenticate the exact terminal-smoke pnpm",
+  );
+  assert.match(
+    smokePnpm.run,
+    /npm ci .*--ignore-scripts --no-audit --no-fund/u,
+  );
+  assert.match(
+    smokePnpm.run,
+    /e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193/u,
+  );
+  assert.match(smokePnpm.run, /pnpm_binary.*--version.*10\.34\.4/su);
+  assert.match(smokePnpm.run, /useradd --system --user-group/u);
+  assert.match(smokePnpm.run, /dependabot-candidate/u);
+  assert.match(
+    smokePnpm.run,
+    /sudo -n -u "\$candidate_user" \/usr\/bin\/sudo -n true/u,
+  );
   const smokeEvidence = candidateCliSmoke.steps.find(
     (step) =>
       step.name === "Materialize exact packet-bound terminal-smoke evidence",
   );
   assert.equal(smokeEvidence.env.GH_TOKEN, "${{ github.token }}");
+  assert.equal(
+    smokeEvidence.env.TRUSTED_ROOT,
+    "${{ steps.trusted-source.outputs.root }}",
+  );
   assert.match(smokeEvidence.run, /materialize-repair-evidence/);
+  assert.match(
+    smokeEvidence.run,
+    /find "\$evidence_root" -type f -exec chmod 0444/u,
+  );
+  assert.match(
+    smokeEvidence.run,
+    /find "\$evidence_root" -type d -exec chmod 0555/u,
+  );
   const terminalSmoke = candidateCliSmoke.steps.at(-1);
   assert.equal(
     terminalSmoke.name,
     "Execute the generated candidate CLI as a terminal smoke",
   );
   assert.deepEqual(Object.keys(terminalSmoke.env).sort(), [
+    "CANDIDATE_ROOT",
+    "CANDIDATE_USER",
     "EVIDENCE_MANIFEST",
     "NPM_CONFIG_REGISTRY",
     "PACKET_BASE64",
+    "PNPM_BINARY",
+    "PNPM_DIR",
     "PROCESSOR_CHECK_ID",
+    "TRUSTED_ROOT",
     "VALIDATED_PLAN_BASE64",
     "VALIDATED_PLAN_DIGEST",
   ]);
@@ -1975,12 +2293,24 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
   );
   assert.match(
     terminalSmoke.run,
-    /dependabot-protected-runtime-sync\.mjs candidate-cli-smoke[\s\S]*--packet-base64[\s\S]*--evidence-manifest[\s\S]*--processor-check-id[\s\S]*--validated-plan-base64[\s\S]*--validated-plan-digest/,
+    /dependabot-protected-runtime-sync\.mjs" candidate-cli-smoke[\s\S]*--packet-base64[\s\S]*--evidence-manifest[\s\S]*--processor-check-id[\s\S]*--validated-plan-base64[\s\S]*--validated-plan-digest/,
+  );
+  assert.match(terminalSmoke.run, /assert_not_writable/u);
+  assert.match(terminalSmoke.run, /actions_parent/u);
+  assert.match(terminalSmoke.run, /dirname "\$node_binary"/u);
+  assert.match(terminalSmoke.run, /find "\$TRUSTED_ROOT"/u);
+  assert.match(terminalSmoke.run, /GITHUB_ENV/u);
+  assert.match(terminalSmoke.run, /GITHUB_STEP_SUMMARY/u);
+  assert.match(terminalSmoke.run, /dirname "\$command_file"/u);
+  assert.match(
+    terminalSmoke.run,
+    /sudo -n -u "\$CANDIDATE_USER" \/usr\/bin\/env -i/u,
   );
   assert.doesNotMatch(
     JSON.stringify(terminalSmoke),
-    /GITHUB_OUTPUT|GH_TOKEN|github\.token|secrets\.|PREPARE_APP|VERCEL_TOKEN|DEPLOYMENT|PACKAGE/,
+    /GH_TOKEN|github\.token|secrets\.|PREPARE_APP|VERCEL_TOKEN|DEPLOYMENT|PACKAGE/,
   );
+  assert.doesNotMatch(terminalSmoke.run, />>.*GITHUB_OUTPUT/u);
   assert.deepEqual(stage.needs, [
     "preflight",
     "validate",
@@ -2080,8 +2410,12 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
     }
   }
 
+  for (const step of candidateCliSmoke.steps.filter(
+    (step) => step !== smokePnpm,
+  )) {
+    assert.doesNotMatch(JSON.stringify(step), forbiddenCandidateSurfaces);
+  }
   const raw = read(repairPath);
-  assert.doesNotMatch(raw, forbiddenCandidateSurfaces);
   assert.doesNotMatch(
     raw,
     /gh pr merge|pulls\.merge|mergePullRequest|enablePullRequestAutoMerge|APPROVE|\/reviews|\/comments/,

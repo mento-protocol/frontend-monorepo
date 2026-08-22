@@ -107,7 +107,11 @@ test("the quality workflow is always reported and runs the canonical command", (
     workflow,
     /group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.event_name == 'pull_request' && github\.ref \|\| github\.sha \}\}/,
   );
-  assert.doesNotMatch(workflow, /pull_request\.head\.ref/);
+  const concurrency = workflow.slice(
+    workflow.indexOf("concurrency:"),
+    workflow.indexOf("permissions:"),
+  );
+  assert.doesNotMatch(concurrency, /pull_request\.head\.ref/);
   assert.match(
     workflow,
     /cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}/,

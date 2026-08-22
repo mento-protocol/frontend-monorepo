@@ -2,7 +2,8 @@ name: Supply Chain
 
 # Dependency supply-chain gates, decoupled from trunk so the pre-push hook
 # never blocks on lockfile CVEs (see .trunk/trunk.yaml — osv-scanner ignores
-# the dependency lockfiles). Six jobs:
+# the dependency lockfiles). Pull-request scans use read-only tokens. Separate
+# schedule/manual jobs publish SARIF with `security-events: write`.
 #
 #   1. osv              — osv-scanner against the application lockfile, reading
 #                         the repository-wide osv-scanner.toml.
@@ -56,11 +57,10 @@ permissions: read-all
 jobs:
   osv:
     name: osv-scanner
-    if: github.event_name != 'push'
+    if: github.event_name == 'pull_request'
     permissions:
       actions: read
       contents: read
-      security-events: write # upload SARIF to the Security tab
     # Pinned to v2.3.8. scan-args is scoped to the lockfile + the repo config:
     # with --lockfile, osv-scanner does NOT auto-discover osv-scanner.toml, so
     # --config is required. node_modules is gitignored and not scanned.
@@ -69,19 +69,14 @@ jobs:
       scan-args: |-
         --config=osv-scanner.toml
         --lockfile=pnpm-lock.yaml
-      # SARIF upload needs `security-events: write`, which Dependabot and forked
-      # `pull_request` runs don't get (read-only GITHUB_TOKEN) — uploading there
-      # fails the check even when the scan passes. Upload only on scheduled or
-      # manual runs; PRs still block via fail-on-vuln (default true).
-      upload-sarif: ${{ github.event_name != 'pull_request' }}
+      upload-sarif: false
 
   osv-pnpm-runtime:
     name: osv-scanner (trusted pnpm runtime)
-    if: github.event_name != 'push'
+    if: github.event_name == 'pull_request'
     permissions:
       actions: read
       contents: read
-      security-events: write
     # Keep the malformed-advisory correction scoped to this exact one-package
     # lockfile instead of suppressing the GHSA repository-wide.
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
@@ -89,11 +84,64 @@ jobs:
       scan-args: |-
         --config=scripts/vercel-pnpm-runtime/osv-scanner.toml
         --lockfile=scripts/vercel-pnpm-runtime/pnpm-lock.yaml
-      upload-sarif: ${{ github.event_name != 'pull_request' }}
+      upload-sarif: false
 
   osv-vercel-cli-runtime:
     name: osv-scanner (standalone Vercel CLI runtime)
-    if: github.event_name != 'push'
+    if: github.event_name == 'pull_request'
+    permissions:
+      actions: read
+      contents: read
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+    with:
+      scan-args: |-
+        --config=scripts/vercel-cli-runtime/osv-scanner.toml
+        --lockfile=scripts/vercel-cli-runtime/pnpm-lock.yaml
+      upload-sarif: false
+
+  osv-pnpm-bootstrap:
+    name: osv-scanner (trusted pnpm bootstrap)
+    if: github.event_name == 'pull_request'
+    permissions:
+      actions: read
+      contents: read
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+    with:
+      scan-args: |-
+        --lockfile=scripts/vercel-pnpm-bootstrap/package-lock.json
+      upload-sarif: false
+
+  osv-sarif:
+    name: osv-scanner SARIF
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+    with:
+      scan-args: |-
+        --config=osv-scanner.toml
+        --lockfile=pnpm-lock.yaml
+      upload-sarif: true
+
+  osv-pnpm-runtime-sarif:
+    name: osv-scanner SARIF (trusted pnpm runtime)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+    with:
+      scan-args: |-
+        --config=scripts/vercel-pnpm-runtime/osv-scanner.toml
+        --lockfile=scripts/vercel-pnpm-runtime/pnpm-lock.yaml
+      upload-sarif: true
+
+  osv-vercel-cli-runtime-sarif:
+    name: osv-scanner SARIF (standalone Vercel CLI runtime)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     permissions:
       actions: read
       contents: read
@@ -103,11 +151,11 @@ jobs:
       scan-args: |-
         --config=scripts/vercel-cli-runtime/osv-scanner.toml
         --lockfile=scripts/vercel-cli-runtime/pnpm-lock.yaml
-      upload-sarif: ${{ github.event_name != 'pull_request' }}
+      upload-sarif: true
 
-  osv-pnpm-bootstrap:
-    name: osv-scanner (trusted pnpm bootstrap)
-    if: github.event_name != 'push'
+  osv-pnpm-bootstrap-sarif:
+    name: osv-scanner SARIF (trusted pnpm bootstrap)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     permissions:
       actions: read
       contents: read
@@ -116,7 +164,7 @@ jobs:
     with:
       scan-args: |-
         --lockfile=scripts/vercel-pnpm-bootstrap/package-lock.json
-      upload-sarif: ${{ github.event_name != 'pull_request' }}
+      upload-sarif: true
 
   lockfile-lint:
     name: lockfile integrity + registry
@@ -125,6 +173,8 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -152,6 +202,8 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:

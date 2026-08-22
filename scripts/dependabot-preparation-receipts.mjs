@@ -70,6 +70,14 @@ const PROTECTED_RUNTIME_SYNC_INPUT_PATHS = Object.freeze([
   "scripts/vercel-cli-runtime/package.json",
   "scripts/vercel-cli-runtime/pnpm-lock.yaml",
 ]);
+const NEXT_CATALOG_SYNC_REQUIRED_PATHS = Object.freeze([
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "scripts/vercel-cli-runtime/contract.json",
+  "scripts/vercel-cli-runtime/package.json",
+  "scripts/vercel-cli-runtime/pnpm-lock.yaml",
+]);
 const PROTECTED_RUNTIME_SYNC_FORBIDDEN_PATHS = Object.freeze([
   ".github/**",
   "**/auth/**",
@@ -79,6 +87,36 @@ const PROTECTED_RUNTIME_SYNC_FORBIDDEN_PATHS = Object.freeze([
   "**/security/**",
   "docs/vercel-deployments.md",
   "scripts/vercel-main-*.mjs",
+]);
+const TYPED_NPM_REQUIRED_GATE_IDS = Object.freeze([
+  "ci",
+  "action-pins",
+  "action-pins-source",
+  "dependency-review",
+  "supply-chain-root-osv",
+  "supply-chain-pnpm-runtime-osv",
+  "supply-chain-vercel-runtime-osv",
+  "supply-chain-pnpm-bootstrap-osv",
+  "supply-chain-lockfile",
+  "supply-chain-version-skew",
+  "quality",
+  "e2e-plan",
+  "e2e-seed",
+  "e2e-celo",
+  "e2e-governance",
+  "e2e-monad",
+  "visual-plan",
+  "visual-ui",
+  "visual-app",
+  "claude-review",
+  "vercel-preview",
+]);
+const TYPED_NPM_VALIDATION_COMMANDS = Object.freeze([
+  "pnpm install --frozen-lockfile",
+  "pnpm quality:budgets:test",
+  "pnpm quality:coverage",
+  "pnpm build",
+  "pnpm quality:bundle:check",
 ]);
 const ALLOWED_FILE_EXTENSIONS = new Set([
   ".css",
@@ -199,6 +237,8 @@ const RETRYABLE_REPAIR_CONCLUSIONS = new Set([
   "startup_failure",
   "timed_out",
 ]);
+const POST_REPAIR_REF_MOVE_PULL_READS = 5;
+const POST_REPAIR_REF_MOVE_PULL_WAIT_MS = 2_000;
 
 export function isRetryableRepairConclusion(conclusion) {
   return RETRYABLE_REPAIR_CONCLUSIONS.has(conclusion);
@@ -714,6 +754,22 @@ function stableSemver(value, label) {
   return value.split(".").map(Number);
 }
 
+function validateTypedNpmPolicy(packet) {
+  if (packet.riskTier !== "human-merge-npm") {
+    fail("typed npm risk tier is invalid");
+  }
+  exactStringArray(
+    packet.requiredGateIds,
+    TYPED_NPM_REQUIRED_GATE_IDS,
+    "requiredGateIds",
+  );
+  exactStringArray(
+    packet.validationCommands,
+    TYPED_NPM_VALIDATION_COMMANDS,
+    "validationCommands",
+  );
+}
+
 function validateProtectedRuntimeSyncOperation(packet) {
   const operation = packet.operation;
   exactKeys(
@@ -742,6 +798,7 @@ function validateProtectedRuntimeSyncOperation(packet) {
   ) {
     fail("protected runtime sync identity is invalid");
   }
+  validateTypedNpmPolicy(packet);
   sha(operation.sourceSeedHeadSha, "operation.sourceSeedHeadSha");
   exactStringArray(
     operation.requiredPaths,
@@ -792,9 +849,97 @@ function validateProtectedRuntimeSyncOperation(packet) {
   }
 }
 
+function validateNextCatalogSyncOperation(packet) {
+  const operation = packet.operation;
+  exactKeys(
+    operation,
+    [
+      "dependency",
+      "fromSpecifier",
+      "fromVersion",
+      "inputPaths",
+      "kind",
+      "pnpmVersion",
+      "resolutionMode",
+      "requiredPaths",
+      "schema",
+      "sourceSeedHeadSha",
+      "targetSpecifier",
+      "targetVersion",
+      "updateType",
+    ],
+    "Next catalog sync operation",
+  );
+  if (
+    operation.schema !== PROTECTED_RUNTIME_SYNC_OPERATION_SCHEMA ||
+    operation.kind !== "next-catalog-override-sync" ||
+    operation.dependency !== "next" ||
+    operation.pnpmVersion !== "10.34.4" ||
+    operation.resolutionMode !== "lowest-direct" ||
+    operation.fromSpecifier !== `^${operation.fromVersion}` ||
+    operation.targetSpecifier !== `^${operation.targetVersion}` ||
+    packet.packageEcosystem !== "npm" ||
+    packet.dependencyGroup !== "frontend-core" ||
+    JSON.stringify(packet.dependencyNames) !== JSON.stringify(["next"])
+  ) {
+    fail("Next catalog sync identity is invalid");
+  }
+  validateTypedNpmPolicy(packet);
+  sha(operation.sourceSeedHeadSha, "operation.sourceSeedHeadSha");
+  exactStringArray(
+    operation.requiredPaths,
+    NEXT_CATALOG_SYNC_REQUIRED_PATHS,
+    "operation.requiredPaths",
+  );
+  exactStringArray(
+    operation.inputPaths,
+    PROTECTED_RUNTIME_SYNC_INPUT_PATHS,
+    "operation.inputPaths",
+  );
+  exactStringArray(
+    packet.permittedPaths,
+    NEXT_CATALOG_SYNC_REQUIRED_PATHS,
+    "permittedPaths",
+  );
+  exactStringArray(
+    packet.forbiddenPaths,
+    PROTECTED_RUNTIME_SYNC_FORBIDDEN_PATHS,
+    "forbiddenPaths",
+  );
+  if (
+    packet.limits.maxAddedLines !== 600 ||
+    packet.limits.maxBytes !== 64 * 1024 ||
+    packet.limits.maxChanges !== 1_200 ||
+    packet.limits.maxDeletedLines !== 600 ||
+    packet.limits.maxFiles !== NEXT_CATALOG_SYNC_REQUIRED_PATHS.length
+  ) {
+    fail("Next catalog sync limits are invalid");
+  }
+  const from = stableSemver(operation.fromVersion, "operation.fromVersion");
+  const target = stableSemver(
+    operation.targetVersion,
+    "operation.targetVersion",
+  );
+  const derivedUpdateType =
+    from[0] === target[0] && target[1] > from[1]
+      ? "minor"
+      : from[0] === target[0] && target[1] === from[1] && target[2] > from[2]
+        ? "patch"
+        : null;
+  if (
+    derivedUpdateType === null ||
+    operation.updateType !== derivedUpdateType ||
+    packet.updateType !== derivedUpdateType
+  ) {
+    fail("Next catalog sync version transition is invalid");
+  }
+}
+
 export function validateProcessorRepairPacket(packet) {
   plainObject(packet, "Processor repair packet");
   const v3 = packet.schema === PROCESSOR_PACKET_SCHEMA_V3;
+  const nextCatalogSync =
+    v3 && packet.operation?.kind === "next-catalog-override-sync";
   exactKeys(
     packet,
     v3 ? [...PROCESSOR_PACKET_V2_KEYS, "operation"] : PROCESSOR_PACKET_V2_KEYS,
@@ -835,6 +980,9 @@ export function validateProcessorRepairPacket(packet) {
   boundedStringArray(packet.validationCommands, "validationCommands", 20);
   for (const [index, changedPath] of packet.changedPaths.entries()) {
     pathName(changedPath, `changedPaths[${index}]`);
+  }
+  if (packet.changedPaths.some(prepareRefMutationForbiddenPath)) {
+    fail("packet cannot authorize a ref move for automation authority paths");
   }
   if (!Array.isArray(packet.failures) || packet.failures.length > 20) {
     fail("failures are invalid");
@@ -885,7 +1033,7 @@ export function validateProcessorRepairPacket(packet) {
   );
   safeInteger(packet.limits.maxFiles, "limits.maxFiles", { max: 8 });
   safeInteger(packet.limits.maxChanges, "limits.maxChanges", {
-    max: v3 ? 160 : 20,
+    max: nextCatalogSync ? 1_200 : v3 ? 160 : 20,
   });
   safeInteger(packet.limits.maxBytes, "limits.maxBytes", { max: 64 * 1024 });
   safeInteger(packet.limits.maxAddedLines, "limits.maxAddedLines", {
@@ -904,12 +1052,16 @@ export function validateProcessorRepairPacket(packet) {
     fail("packet has no actionable failure or feedback evidence");
   }
   if (v3) {
-    validateProtectedRuntimeSyncOperation(packet);
+    if (nextCatalogSync) {
+      validateNextCatalogSyncOperation(packet);
+    } else {
+      validateProtectedRuntimeSyncOperation(packet);
+    }
     if (
       JSON.stringify(packet.expectedBlobs.map(({ path }) => path)) !==
       JSON.stringify(PROTECTED_RUNTIME_SYNC_INPUT_PATHS)
     ) {
-      fail("expectedBlobs do not cover the exact protected-runtime inputs");
+      fail("expectedBlobs do not cover the exact typed-operation inputs");
     }
   }
   return packet;
@@ -939,6 +1091,20 @@ export function hardDeniedRepairPath(candidate) {
   return (
     typeof candidate === "string" &&
     HARD_DENIED_PATHS.some((pattern) => pathMatches(pattern, candidate))
+  );
+}
+
+export function prepareRefMutationForbiddenPath(candidate) {
+  return (
+    typeof candidate === "string" &&
+    /^\.github\/(?:actions|workflows)\//u.test(candidate)
+  );
+}
+
+function npmDependencyDeclarationPath(candidate) {
+  return (
+    candidate === "pnpm-workspace.yaml" ||
+    /(?:^|\/)package\.json$/.test(candidate)
   );
 }
 
@@ -1021,17 +1187,36 @@ export function validateRepairPlan(
   const expectedBlobs = new Map(
     packet.expectedBlobs.map((blob) => [blob.path, blob]),
   );
+  const maxPatchBytes =
+    packet.schema === PROCESSOR_PACKET_SCHEMA_V3 &&
+    packet.operation?.kind === "next-catalog-override-sync"
+      ? 48 * 1024
+      : 8_192;
+  const changedPaths = new Set(packet.changedPaths);
   const paths = new Set();
   for (const [index, edit] of plan.edits.entries()) {
     exactKeys(edit, ["expectedBlobSha", "patch", "path"], `edits[${index}]`);
     pathAllowed(packet, edit.path);
+    if (
+      packet.schema === PROCESSOR_PACKET_SCHEMA_V2 &&
+      packet.packageEcosystem === "npm" &&
+      changedPaths.has(edit.path) &&
+      npmDependencyDeclarationPath(edit.path)
+    ) {
+      fail(
+        `repair plan rewrites a Dependabot-changed dependency declaration: ${edit.path}`,
+      );
+    }
     if (paths.has(edit.path)) fail("repair plan contains duplicate edit paths");
     paths.add(edit.path);
     if (expectedBlobs.get(edit.path)?.sha !== edit.expectedBlobSha) {
       fail(`expected blob is not packet-bound: ${edit.path}`);
     }
     sha(edit.expectedBlobSha, `edits[${index}].expectedBlobSha`);
-    boundedString(edit.patch, `edits[${index}].patch`, { max: 8_192, min: 1 });
+    boundedString(edit.patch, `edits[${index}].patch`, { min: 1 });
+    if (Buffer.byteLength(edit.patch) > maxPatchBytes) {
+      fail(`edits[${index}].patch is oversized`);
+    }
   }
   return plan;
 }
@@ -2908,13 +3093,13 @@ export function validateRepairCommit(commit, intent) {
   return commit;
 }
 
-function validatePullForIntent(
+function pullMatchesIntent(
   pull,
   intent,
   expectedHeadSha,
   { requireBaseSha = true } = {},
 ) {
-  if (
+  return !(
     pull.number !== intent.pullRequestNumber ||
     pull.state !== "open" ||
     pull.draft !== false ||
@@ -2926,10 +3111,45 @@ function validatePullForIntent(
     pull.head?.sha !== expectedHeadSha ||
     pull.base?.ref !== "main" ||
     (requireBaseSha && pull.base?.sha !== intent.baseSha)
-  ) {
+  );
+}
+
+function validatePullForIntent(pull, intent, expectedHeadSha, options = {}) {
+  if (!pullMatchesIntent(pull, intent, expectedHeadSha, options))
     fail("live pull request does not match repair intent");
-  }
   return pull;
+}
+
+function wait(milliseconds) {
+  return new Promise((resolvePromise) => {
+    setTimeout(resolvePromise, milliseconds);
+  });
+}
+
+export async function waitForRepairPullAfterRefMove({
+  intent,
+  readPull,
+  sleep = wait,
+}) {
+  if (typeof readPull !== "function" || typeof sleep !== "function") {
+    fail("post-repair pull verification dependencies are invalid");
+  }
+  for (
+    let readNumber = 1;
+    readNumber <= POST_REPAIR_REF_MOVE_PULL_READS;
+    readNumber += 1
+  ) {
+    const pull = await readPull();
+    if (pullMatchesIntent(pull, intent, intent.headSha)) return pull;
+    if (!pullMatchesIntent(pull, intent, intent.parentHeadSha)) {
+      fail("live pull request does not match repair intent");
+    }
+    if (readNumber === POST_REPAIR_REF_MOVE_PULL_READS) {
+      fail("live pull request remained stale after repair ref move");
+    }
+    await sleep(POST_REPAIR_REF_MOVE_PULL_WAIT_MS);
+  }
+  fail("post-repair pull verification exhausted unexpectedly");
 }
 
 async function verifyRepairIntentTree(token, intent) {
@@ -3444,7 +3664,7 @@ async function commandApplyRepairIntent(args) {
     new Set([null]),
     new Set(["in_progress"]),
   );
-  await loadIntentProcessorPacket(readToken, intent);
+  const { packet } = await loadIntentProcessorPacket(readToken, intent);
   const checkId = Number(requiredArg(args, "--intent-check-id"));
   safeInteger(checkId, "repair intent check ID");
   const check = await githubRequest(
@@ -3459,6 +3679,11 @@ async function commandApplyRepairIntent(args) {
     `/repos/${repositoryName}/pulls/${intent.pullRequestNumber}`,
   );
   validatePullForIntent(pull, intent, intent.parentHeadSha);
+  safeInteger(pull.changed_files, "pull request changed_files", { max: 300 });
+  const pullFiles = await collectExactPullFiles(readToken, packet, pull);
+  if (pullFiles.some(({ path }) => prepareRefMutationForbiddenPath(path))) {
+    fail("Repair ref move cannot change automation authority paths");
+  }
   const commit = await githubRequest(
     readToken,
     "GET",
@@ -3506,12 +3731,15 @@ async function commandApplyRepairIntent(args) {
   ) {
     fail("repair ref verification failed");
   }
-  const finalPull = await githubRequest(
-    readToken,
-    "GET",
-    `/repos/${repositoryName}/pulls/${intent.pullRequestNumber}`,
-  );
-  validatePullForIntent(finalPull, intent, intent.headSha);
+  await waitForRepairPullAfterRefMove({
+    intent,
+    readPull: () =>
+      githubRequest(
+        readToken,
+        "GET",
+        `/repos/${repositoryName}/pulls/${intent.pullRequestNumber}`,
+      ),
+  });
   const receipt = validateRepairReceipt({
     attempt: intent.attempt,
     baseSha: intent.baseSha,
