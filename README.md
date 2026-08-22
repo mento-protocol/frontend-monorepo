@@ -446,11 +446,13 @@ self-reviewing Actions; workflow-policy, deployment, authentication, credential,
 or security changes; unknown metadata; untrusted force-push histories; human
 vetoes; unresolved feedback outside an exact packet-bound repair; and exhausted
 repairs remain blocked. A complete native-to-native Dependabot rewrite chain
-starts a new generation. The typed Vercel sync can bind only the structured Cursor
-runtime-mismatch finding that matches its exact versions, path, and review
-commit. The packet binds the immutable original review commit even when GitHub
-retargets the comment's current commit after a branch refresh. The ALL CLEAR
-receipt keeps the dependency risk/update metadata for the human decision.
+starts a new generation. A typed Vercel or Next sync can bind only its exact
+structured Cursor finding. The finding must match the operation's source and
+target versions, exact root manifest or lockfile path, and trusted seed or
+current review commit. The packet binds the immutable original review commit
+even when GitHub retargets the comment's current commit after a branch refresh.
+The ALL CLEAR receipt keeps the dependency risk/update metadata for the human
+decision.
 
 Configure the repository-scoped Prepare App with variables
 `DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,

@@ -328,9 +328,10 @@ limits expected and permitted blobs to those evidence paths. It excludes
 `scripts/vercel-cli-runtime/**` from the editable blob set and keeps that path
 explicitly forbidden. Missing proof, extra protected paths, unsafe evidence,
 or a mixed non-review failure fails closed as `manual-repair-required`.
-The typed operation may bind exact Cursor runtime-mismatch threads only when
-each structured finding names the same source and target versions, root
-`package.json` path, and trusted seed or current review commit. Every other
+The typed Vercel or Next operation may bind exact Cursor feedback only when each
+structured finding matches the operation kind, source and target versions, and
+trusted seed or current review commit. The Vercel finding must name root
+`package.json`; the Next finding must name root `pnpm-lock.yaml`. Every other
 unresolved finding stays manual. Finalize replies and resolves the bound thread
 only after the typed Repair receipt, green gates, and clean re-review.
 Preview workers validate the candidate runtime tuple only as data and continue
@@ -358,9 +359,9 @@ Budgets. Pull-request supply-chain scanners have read-only tokens;
 schedule/manual scanners own SARIF write authority.
 
 A valid review finding may be included in a v2 repair packet by exact
-finding/thread ID and body digest. The exact typed Vercel mismatch above can use
-the same receipt-bound remediation path in v3. Only after the repaired head
-passes its full gate and clean re-review may finalize post
+finding/thread ID and body digest. The exact typed Vercel and Next mismatches
+above can use the same receipt-bound remediation path in v3. Only after the
+repaired head passes its full gate and clean re-review may finalize post
 `Fixed in <current-head prefix> — <change>` and resolve those exact
 packet-bound threads. Generic github-actions or bot comments never establish
 lineage or satisfy feedback.
