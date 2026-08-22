@@ -2265,10 +2265,8 @@ function trustedCheckSource(
   if (!policy.workflowPaths.includes(check.workflowPath)) {
     return { reason: "unexpected-workflow-path", trusted: false };
   }
-  const allowedEvents =
-    baseline && Array.isArray(policy.baselineEvents)
-      ? policy.baselineEvents
-      : policy.events;
+  const configuredEvents = baseline ? policy.baselineEvents : policy.events;
+  const allowedEvents = Array.isArray(configuredEvents) ? configuredEvents : [];
   if (!allowedEvents.includes(check.workflowEvent)) {
     return { reason: "unexpected-workflow-event", trusted: false };
   }
@@ -2599,6 +2597,41 @@ function evaluateChecksForSha(
   return results;
 }
 
+function classifyFailureAttribution({
+  baselineResult,
+  baselineSha,
+  baselineUnavailable,
+  failureConclusions,
+  hasDirectBranchFindings,
+  result,
+}) {
+  if (
+    result.sourceTrusted !== true ||
+    !failureConclusions.has(result.check?.conclusion)
+  ) {
+    return "unknown";
+  }
+  if (hasDirectBranchFindings) return "branch";
+  const external = result.failureAttribution === "external";
+  if (
+    baselineResult?.state === "failing" &&
+    baselineResult.sourceTrusted === true &&
+    failureConclusions.has(baselineResult.check?.conclusion)
+  ) {
+    return external ? "provider-baseline" : "baseline";
+  }
+  if (
+    baselineResult?.state === "passing" &&
+    baselineResult.sourceTrusted === true
+  ) {
+    return external ? "non-deterministic" : "branch";
+  }
+  if (external && baselineSha !== null && baselineUnavailable) {
+    return "provider-unbaselined";
+  }
+  return "unknown";
+}
+
 export function evaluateDependabotChecks({
   baselineChecks = [],
   baselineSha = null,
@@ -2645,28 +2678,14 @@ export function evaluateDependabotChecks({
         ? PROVIDER_RETRY_FAILURE_CONCLUSIONS
         : BRANCH_FAILURE_CONCLUSIONS;
     failures.push({
-      attribution:
-        result.sourceTrusted !== true ||
-        !failureConclusions.has(result.check?.conclusion)
-          ? "unknown"
-          : hasDirectBranchFindings
-            ? "branch"
-            : baselineResult?.state === "failing" &&
-                baselineResult.sourceTrusted === true &&
-                failureConclusions.has(baselineResult.check?.conclusion)
-              ? result.failureAttribution === "external"
-                ? "provider-baseline"
-                : "baseline"
-              : baselineResult?.state === "passing" &&
-                  baselineResult.sourceTrusted === true
-                ? result.failureAttribution === "external"
-                  ? "non-deterministic"
-                  : "branch"
-                : result.failureAttribution === "external" &&
-                    baselineSha !== null &&
-                    baselineUnavailable
-                  ? "provider-unbaselined"
-                  : "unknown",
+      attribution: classifyFailureAttribution({
+        baselineResult,
+        baselineSha,
+        baselineUnavailable,
+        failureConclusions,
+        hasDirectBranchFindings,
+        result,
+      }),
       findings: result.findings,
       id: result.id,
       name: result.check?.name ?? null,
