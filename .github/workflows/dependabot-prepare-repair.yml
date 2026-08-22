@@ -557,6 +557,7 @@ jobs:
             scripts/dependabot-preparation-receipts.mjs
             scripts/dependabot-protected-runtime-sync.mjs
             scripts/vercel-cli-runtime-contract.mjs
+            scripts/vercel-cli-runtime/contract.json
             scripts/vercel-pnpm-bootstrap/package.json
             scripts/vercel-pnpm-bootstrap/package-lock.json
           )
