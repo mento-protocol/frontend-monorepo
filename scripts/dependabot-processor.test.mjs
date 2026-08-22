@@ -41,6 +41,7 @@ import {
   processDependabotSweep,
   requireStableFeedbackSnapshot,
   requireStablePullRequestSnapshot,
+  selectAllowedCheckEvents,
   selectLatestExactHeadCheck,
   stableJson,
   validateDependabotPullRequestIdentity,
@@ -2086,6 +2087,31 @@ test("rejects a skipped job when the trusted path planner selected that surface"
   const celo = result.policy.find(({ id }) => id === "e2e-celo");
   assert.equal(celo.state, "failing");
   assert.equal(celo.reason, "unjustified-skip");
+});
+
+test("check source event selection fails closed without an explicit baseline allowlist", () => {
+  assert.deepEqual(
+    selectAllowedCheckEvents({ events: ["pull_request"] }, true),
+    [],
+  );
+  assert.deepEqual(
+    selectAllowedCheckEvents(
+      { baselineEvents: "push", events: ["pull_request"] },
+      true,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    selectAllowedCheckEvents(
+      { baselineEvents: ["push"], events: ["pull_request"] },
+      true,
+    ),
+    ["push"],
+  );
+  assert.deepEqual(selectAllowedCheckEvents({ events: ["pull_request"] }), [
+    "pull_request",
+  ]);
+  assert.deepEqual(selectAllowedCheckEvents({ events: "pull_request" }), []);
 });
 
 test("fails closed on an unexpected check app, workflow, event, attempt, or source repository", () => {

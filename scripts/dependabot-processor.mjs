@@ -2236,6 +2236,11 @@ function comparePolicyCheckRuns(left, right) {
   return String(left.timestamp).localeCompare(String(right.timestamp));
 }
 
+export function selectAllowedCheckEvents(policy, baseline = false) {
+  const configuredEvents = baseline ? policy?.baselineEvents : policy?.events;
+  return Array.isArray(configuredEvents) ? configuredEvents : [];
+}
+
 function trustedCheckSource(
   check,
   headSha,
@@ -2265,8 +2270,7 @@ function trustedCheckSource(
   if (!policy.workflowPaths.includes(check.workflowPath)) {
     return { reason: "unexpected-workflow-path", trusted: false };
   }
-  const configuredEvents = baseline ? policy.baselineEvents : policy.events;
-  const allowedEvents = Array.isArray(configuredEvents) ? configuredEvents : [];
+  const allowedEvents = selectAllowedCheckEvents(policy, baseline);
   if (!allowedEvents.includes(check.workflowEvent)) {
     return { reason: "unexpected-workflow-event", trusted: false };
   }
