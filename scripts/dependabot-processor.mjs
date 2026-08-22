@@ -145,6 +145,7 @@ const PROTECTED_RUNTIME_OPERATION_SCHEMA =
   "dependabot-protected-runtime-sync:v1";
 const VERCEL_CLI_RUNTIME_CONTRACT_SCHEMA = "vercel-cli-runtime-contract:v1";
 const VERCEL_CLI_RUNTIME_KIND = "vercel-cli-runtime-sync";
+const NEXT_CATALOG_SYNC_KIND = "next-catalog-override-sync";
 const VERCEL_CLI_RUNTIME_PNPM_VERSION = "10.34.4";
 const VERCEL_CLI_RUNTIME_GROUPS = new Set([
   "tooling",
@@ -758,11 +759,13 @@ const CURSOR_FIX_LINKS_PATTERN = new RegExp(
   ].join(""),
 );
 
-function exactCursorBugbotSuffix(suffix, reviewCommitSha) {
-  const locations =
-    /^<!-- BUGBOT_BUG_ID: [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12} -->\n\n<!-- LOCATIONS START\npackage\.json#L[0-9]+(?:-L[0-9]+)?\npnpm-lock\.yaml#L[0-9]+(?:-L[0-9]+)?\nLOCATIONS END -->\n([\s\S]*)$/.exec(
-      suffix,
-    );
+const VERCEL_CLI_RUNTIME_CURSOR_LOCATIONS_PATTERN =
+  /^<!-- BUGBOT_BUG_ID: [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12} -->\n\n<!-- LOCATIONS START\npackage\.json#L[0-9]+(?:-L[0-9]+)?\npnpm-lock\.yaml#L[0-9]+(?:-L[0-9]+)?\nLOCATIONS END -->\n([\s\S]*)$/;
+const NEXT_CATALOG_SYNC_CURSOR_LOCATIONS_PATTERN =
+  /^<!-- BUGBOT_BUG_ID: [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12} -->\n\n<!-- LOCATIONS START\npnpm-lock\.yaml#L[0-9]+(?:-L[0-9]+)?\npnpm-lock\.yaml#L[0-9]+(?:-L[0-9]+)?\nLOCATIONS END -->\n([\s\S]*)$/;
+
+function exactCursorBugbotSuffix(suffix, reviewCommitSha, locationsPattern) {
+  const locations = locationsPattern.exec(suffix);
   if (locations === null) return false;
   const additionalLocation =
     /^<details>\n<summary>Additional Locations \(1\)<\/summary>\n\n- \[`pnpm-lock\.yaml#L[0-9]+(?:-L[0-9]+)?`\]\(https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/blob\/([0-9a-f]{40})\/pnpm-lock\.yaml#L[0-9]+(?:-L[0-9]+)?\)\n\n<\/details>\n\n([\s\S]*)$/.exec(
@@ -794,7 +797,11 @@ function vercelCliRuntimeSyncFinding(body, reviewCommitSha) {
     stableSemverParts(match[1]) === null ||
     stableSemverParts(match[2]) === null ||
     !SHA_PATTERN.test(reviewCommitSha ?? "") ||
-    !exactCursorBugbotSuffix(match[4], reviewCommitSha)
+    !exactCursorBugbotSuffix(
+      match[4],
+      reviewCommitSha,
+      VERCEL_CLI_RUNTIME_CURSOR_LOCATIONS_PATTERN,
+    )
   ) {
     return null;
   }
@@ -802,6 +809,33 @@ function vercelCliRuntimeSyncFinding(body, reviewCommitSha) {
     fromVersion: match[2],
     kind: VERCEL_CLI_RUNTIME_KIND,
     targetVersion: match[1],
+  };
+}
+
+function nextCatalogSyncFinding(body, reviewCommitSha) {
+  const match =
+    /^### Next bump never applied\n\n\*\*High Severity\*\*\n\n<!-- DESCRIPTION START -->\nThis PR claims to move `next` from `([^`]+)` to `([^`]+)`, but the lockfile still resolves `next` to `([^`]+)` \(and peers like `@vercel\/analytics` still bind that same copy\)\. Catalog and root override remain `\^([^`]+)`, so merging ships no Next upgrade while closing the Dependabot request—the exact incomplete `frontend-core` failure mode documented in ADR 0007\.\n<!-- DESCRIPTION END -->\n\n([\s\S]*)$/.exec(
+      String(body ?? ""),
+    );
+  if (
+    match === null ||
+    match[1] !== match[3] ||
+    match[1] !== match[4] ||
+    stableSemverParts(match[1]) === null ||
+    stableSemverParts(match[2]) === null ||
+    !SHA_PATTERN.test(reviewCommitSha ?? "") ||
+    !exactCursorBugbotSuffix(
+      match[5],
+      reviewCommitSha,
+      NEXT_CATALOG_SYNC_CURSOR_LOCATIONS_PATTERN,
+    )
+  ) {
+    return null;
+  }
+  return {
+    fromVersion: match[1],
+    kind: NEXT_CATALOG_SYNC_KIND,
+    targetVersion: match[2],
   };
 }
 
@@ -820,9 +854,13 @@ function boundedActionableThread({ root, thread, trustedBotEnvelope }) {
       ? thread.path
       : null;
   const protectedRuntimeFinding =
-    source === "cursor" && path === "package.json"
-      ? vercelCliRuntimeSyncFinding(root?.body, root?.reviewCommitSha)
-      : null;
+    source !== "cursor"
+      ? null
+      : path === "package.json"
+        ? vercelCliRuntimeSyncFinding(root?.body, root?.reviewCommitSha)
+        : path === "pnpm-lock.yaml"
+          ? nextCatalogSyncFinding(root?.body, root?.reviewCommitSha)
+          : null;
   return {
     bodyDigest: feedbackBodyDigest(String(root?.body ?? "")),
     line:
@@ -1227,7 +1265,7 @@ function validNextCatalogSyncOperation(operation) {
       "updateType",
     ]) ||
     operation.schema !== PROTECTED_RUNTIME_OPERATION_SCHEMA ||
-    operation.kind !== "next-catalog-override-sync" ||
+    operation.kind !== NEXT_CATALOG_SYNC_KIND ||
     operation.dependency !== "next" ||
     operation.pnpmVersion !== VERCEL_CLI_RUNTIME_PNPM_VERSION ||
     operation.resolutionMode !== "lowest-direct" ||
@@ -1283,7 +1321,7 @@ function nextCatalogSyncOperationFromMetadata(metadata = {}) {
     fromSpecifier: `^${from}`,
     fromVersion: from,
     inputPaths: [...VERCEL_CLI_RUNTIME_INPUT_PATHS],
-    kind: "next-catalog-override-sync",
+    kind: NEXT_CATALOG_SYNC_KIND,
     pnpmVersion: VERCEL_CLI_RUNTIME_PNPM_VERSION,
     resolutionMode: "lowest-direct",
     requiredPaths: [...NEXT_CATALOG_SYNC_REQUIRED_PATHS],
@@ -2993,19 +3031,45 @@ export function classifyDependabotFeedback({
     reviewsById.get(key).push(review);
   }
   const botInlineRootCounts = new Map();
+  const resolvedHistoricalCursorRootCounts = new Map();
   for (const thread of threads) {
-    for (const comment of thread?.comments ?? []) {
+    const comments = Array.isArray(thread?.comments) ? thread.comments : [];
+    const roots = comments.filter((comment) => comment?.replyToId == null);
+    for (const comment of roots) {
       const actor = feedbackActor(comment?.actor);
-      if (
-        comment?.replyToId == null &&
-        actor.type === "Bot" &&
-        ACTIONABLE_REVIEW_BOTS.has(actor.login)
-      ) {
+      if (actor.type === "Bot" && ACTIONABLE_REVIEW_BOTS.has(actor.login)) {
         const key = String(comment?.reviewId ?? "");
         botInlineRootCounts.set(key, (botInlineRootCounts.get(key) ?? 0) + 1);
       }
     }
+    const [root] = roots;
+    const rootActor = feedbackActor(root?.actor);
+    const reviewId = String(root?.reviewId ?? "");
+    if (
+      thread?.commentsTruncated !== true &&
+      thread?.resolved === true &&
+      thread?.outdated === true &&
+      roots.length === 1 &&
+      reviewId.length > 0 &&
+      rootActor.type === "Bot" &&
+      rootActor.login === "cursor" &&
+      SHA_PATTERN.test(root?.reviewCommitSha ?? "") &&
+      root.reviewCommitSha !== headSha
+    ) {
+      resolvedHistoricalCursorRootCounts.set(
+        reviewId,
+        (resolvedHistoricalCursorRootCounts.get(reviewId) ?? 0) + 1,
+      );
+    }
   }
+  const resolvedHistoricalCursorReviewIds = new Set(
+    [...resolvedHistoricalCursorRootCounts]
+      .filter(
+        ([reviewId, count]) =>
+          count > 0 && count === botInlineRootCounts.get(reviewId),
+      )
+      .map(([reviewId]) => reviewId),
+  );
   const acceptedReviewEnvelopes = new Set();
 
   if (threadPagesTruncated) {
@@ -3070,16 +3134,22 @@ export function classifyDependabotFeedback({
     }
     const reviewId = String(review?.id ?? "");
     const inlineRootCount = botInlineRootCounts.get(reviewId) ?? 0;
+    const resolvedHistoricalCursorEnvelope =
+      actor.login === "cursor" &&
+      body.length === 0 &&
+      review?.commitSha !== headSha &&
+      resolvedHistoricalCursorReviewIds.has(reviewId);
     if (
       state === "COMMENTED" &&
       SHA_PATTERN.test(review?.commitSha ?? "") &&
       ACTIONABLE_REVIEW_BOTS.has(actor.login) &&
-      reviewEnvelopeMatches({
-        actor,
-        body,
-        inlineRootCount,
-        reviewCommitSha: review?.commitSha,
-      })
+      (resolvedHistoricalCursorEnvelope ||
+        reviewEnvelopeMatches({
+          actor,
+          body,
+          inlineRootCount,
+          reviewCommitSha: review?.commitSha,
+        }))
     ) {
       acceptedReviewEnvelopes.add(reviewId);
       continue;
@@ -4177,11 +4247,18 @@ function protectedRuntimeFeedbackMatchesOperation({
   if (feedback?.clear === true) return true;
   if (
     feedback?.repairable !== true ||
-    !validVercelCliRuntimeOperation(operation) ||
+    !validTypedRepairOperation(operation) ||
     !SHA_PATTERN.test(headSha ?? "")
   ) {
     return false;
   }
+  const expectedPath =
+    operation.kind === VERCEL_CLI_RUNTIME_KIND
+      ? "package.json"
+      : operation.kind === NEXT_CATALOG_SYNC_KIND
+        ? "pnpm-lock.yaml"
+        : null;
+  if (expectedPath === null) return false;
   const actionableThreads = Array.isArray(feedback.actionableThreads)
     ? feedback.actionableThreads
     : [];
@@ -4191,7 +4268,7 @@ function protectedRuntimeFeedbackMatchesOperation({
     actionableThreads.every(
       ({ path, protectedRuntimeFinding, reviewCommitSha, source }) =>
         source === "cursor" &&
-        path === "package.json" &&
+        path === expectedPath &&
         allowedReviewCommits.has(reviewCommitSha) &&
         exactObjectKeys(protectedRuntimeFinding, [
           "fromVersion",
@@ -4527,13 +4604,12 @@ export function createDependabotRepairPacket(evaluation) {
     evaluation.repairAttempts?.valid !== true ||
     evaluation.repairAttempt > 2 ||
     ((!isTypedOperation || isNextCatalogSync) && forbiddenRepairEvidence) ||
-    (isProtectedRuntimeSync &&
+    (isTypedOperation &&
       !protectedRuntimeFeedbackMatchesOperation({
         feedback: evaluation.feedback,
         headSha: evaluation.headSha,
-        operation: protectedRuntimeOperation,
+        operation: typedOperation,
       })) ||
-    (isNextCatalogSync && evaluation.feedback?.clear !== true) ||
     evaluation.checks.missing.length > 0 ||
     evaluation.checks.pending.length > 0 ||
     hasBlockingFailureAttribution

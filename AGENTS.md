@@ -149,14 +149,15 @@ packet exposes only those evidence files as expected and permitted blobs.
 `scripts/vercel-cli-runtime/**` remains forbidden and unavailable for edits.
 Missing v3 proof, an extra protected path, an unsafe evidence path, or a mixed
 non-review failure remains `manual-repair-required`.
-The typed operation may carry exact Cursor runtime-mismatch threads only when
-each structured finding names the same source and target versions, the root
-`package.json` path, and the trusted seed or current review commit. Every other
+The typed Vercel or Next operation may carry exact Cursor feedback only when
+each structured finding matches the operation kind, source and target versions,
+and trusted seed or current review commit. The Vercel finding must name root
+`package.json`; the Next finding must name root `pnpm-lock.yaml`. Every other
 unresolved finding stays manual. The packet binds each accepted comment and
 body digest. Evidence binds the packet commit to the immutable review-comment
 `original_commit_id`. GitHub may retarget the mutable `commit_id` to the
-refreshed packet head. Finalize replies and resolves the comment only after the typed Repair
-receipt, complete green gates, and clean exact-head re-review.
+refreshed packet head. Finalize replies and resolves the comment only after the
+typed Repair receipt, complete green gates, and clean exact-head re-review.
 PR preview workers validate the candidate runtime tuple only as data; every
 credentialed preview build still stages its CLI from the trusted default-branch
 controller. After trusted plan validation, a fresh terminal no-output job uses
