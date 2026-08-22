@@ -292,7 +292,7 @@ pnpm fork:seed     # fund anvil's junk accounts (CELO + cUSD/cEUR/USDC/MENTO) an
 pnpm fork:testnet  # same anvil flags, forking Celo Sepolia instead (fork:seed does not support testnet forks)
 ```
 
-`--celo` requires [Foundry](https://book.getfoundry.sh/) >= 1.4 — without it, CELO's native/ERC-20 token duality breaks and `transfer()` silently no-ops. `fork:seed` is idempotent; re-run it after every `evm_revert` and whenever Broker quotes start reverting (SortedOracles reports go stale on a wall-clock timescale).
+`--celo` requires [Foundry](https://book.getfoundry.sh/) >= 1.4 — without it, CELO's native/ERC-20 token duality breaks and `transfer()` silently no-ops. `fork:seed` selects an FX-open fork timestamp with two hours of runway before it reports oracles. During a weekend or year-end closure, the fork can run ahead of the runner clock. A second seed preserves that safe timestamp. Re-run it after every `evm_revert` and whenever Broker quotes start reverting because SortedOracles reports expire.
 
 ### Local Monad fork
 
@@ -303,7 +303,7 @@ pnpm fork:monad       # anvil --auto-impersonate --fork-url https://rpc.monad.xy
 pnpm fork:seed:monad  # fund anvil's junk accounts with MON + Reserve collateral + every Mento stable (via real Router swaps), re-report oracles
 ```
 
-`fork:seed:monad` is idempotent (re-run after every `evm_revert` / when quotes stall). To point the app at this fork, dev/build with `NEXT_PUBLIC_MONAD_RPC_URL=http://localhost:8546` — Monad has no `--celo`/`NEXT_PUBLIC_USE_FORK` redirect, so that override is the seam (it redirects both wagmi and the mento-sdk). See [docs/wallet-testing.md](docs/wallet-testing.md) for the full Monad runbook.
+`fork:seed:monad` uses the same FX-open clock policy as the Celo seed. Its raw seeding swaps derive deadlines from the fork block timestamp, so a future safe timestamp does not expire them. The command is idempotent; re-run it after every `evm_revert` or when quotes stall. To point the app at this fork, dev/build with `NEXT_PUBLIC_MONAD_RPC_URL=http://localhost:8546` — Monad has no `--celo`/`NEXT_PUBLIC_USE_FORK` redirect, so that override is the seam (it redirects both wagmi and the mento-sdk). See [docs/wallet-testing.md](docs/wallet-testing.md) for the full Monad runbook.
 
 Full runbook with localStorage activation, on-chain verification, safety rules, and troubleshooting: [docs/wallet-testing.md](docs/wallet-testing.md)
 
@@ -448,8 +448,9 @@ vetoes; unresolved feedback outside an exact packet-bound repair; and exhausted
 repairs remain blocked. A complete native-to-native Dependabot rewrite chain
 starts a new generation. A typed Vercel or Next sync can bind only its exact
 structured Cursor finding. The finding must match the operation's source and
-target versions, exact root manifest or lockfile path, and trusted seed or
-current review commit. The packet binds the immutable original review commit
+target versions, exact root manifest or lockfile path, and a review commit from
+the authenticated prepare lineage. This includes a reviewed intermediate repair
+head that remains in the authenticated lineage after a required refresh. The packet binds the immutable original review commit
 even when GitHub retargets the comment's current commit after a branch refresh.
 The ALL CLEAR receipt keeps the dependency risk/update metadata for the human
 decision.
