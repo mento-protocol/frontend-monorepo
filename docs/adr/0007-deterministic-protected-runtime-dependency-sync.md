@@ -159,11 +159,13 @@ Pull-request preview workers validate the candidate contract, manifests, and
 locks only as an internally consistent data tuple. Credentialed preview builds
 keep using the protected CLI staged from trusted default-branch controller
 source. After trusted plan validation, a fresh terminal no-output job uses API
-and shell steps to materialize the exact trusted scripts and hash-verified pnpm
-bootstrap. It registers no runner action or post action before candidate code.
-A separate non-sudo account runs candidate code and cannot write the trusted
-source, evidence, pnpm executable, workspace, Actions directory, or runner
-command files. The job binds the exact validated plan, reapplies its patches to
+and shell steps to materialize the exact trusted scripts, a byte-identical
+sealed Node executable, and the hash-verified pnpm bootstrap. It registers no
+runner action or post action before candidate code. A separate non-sudo account
+runs candidate code and cannot write the trusted source, evidence, Node or pnpm
+executable, candidate `PATH` directories, workspace, Actions directory, or
+runner command files. The checked `PATH` excludes the runner-owned
+`/usr/local/bin` directory. The job binds the exact validated plan, reapplies its patches to
 fresh exact packet evidence, and requires every result digest to match. It does
 not run another registry oracle. It performs secretless frozen checks. For
 Next, its final step performs a cacheless frozen install of only the selected

@@ -2296,6 +2296,23 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
     /e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193/u,
   );
   assert.match(smokePnpm.run, /pnpm_binary.*--version.*10\.34\.4/su);
+  assert.match(smokePnpm.run, /source_node_binary=.*realpath/su);
+  assert.ok(
+    smokePnpm.run.includes(
+      'install -m 0555 "$source_node_binary" "$node_binary"',
+    ),
+  );
+  assert.ok(
+    smokePnpm.run.includes('cmp -s "$source_node_binary" "$node_binary"'),
+  );
+  assert.ok(smokePnpm.run.includes('test ! -L "$source_node_binary"'));
+  assert.ok(smokePnpm.run.includes('test ! -L "$node_binary"'));
+  assert.ok(smokePnpm.run.includes('chmod 0555 "$node_binary" "$pnpm_binary"'));
+  assert.match(
+    smokePnpm.run,
+    /node_binary.*--version.*source_node_binary.*--version/su,
+  );
+  assert.ok(smokePnpm.run.includes("node_binary=$node_binary"));
   assert.match(smokePnpm.run, /useradd --system --user-group/u);
   assert.match(smokePnpm.run, /dependabot-candidate/u);
   assert.match(
@@ -2329,6 +2346,7 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
     "CANDIDATE_ROOT",
     "CANDIDATE_USER",
     "EVIDENCE_MANIFEST",
+    "NODE_BINARY",
     "NPM_CONFIG_REGISTRY",
     "PACKET_BASE64",
     "PNPM_BINARY",
@@ -2338,6 +2356,10 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
     "VALIDATED_PLAN_BASE64",
     "VALIDATED_PLAN_DIGEST",
   ]);
+  assert.equal(
+    terminalSmoke.env.NODE_BINARY,
+    "${{ steps.terminal-runtime.outputs.node_binary }}",
+  );
   assert.equal(
     terminalSmoke.env.VALIDATED_PLAN_BASE64,
     "${{ needs.validate.outputs.validated_plan_base64 }}",
@@ -2352,7 +2374,17 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
   );
   assert.match(terminalSmoke.run, /assert_not_writable/u);
   assert.match(terminalSmoke.run, /actions_parent/u);
-  assert.match(terminalSmoke.run, /dirname "\$node_binary"/u);
+  assert.ok(
+    terminalSmoke.run.includes(
+      'candidate_path="$PNPM_DIR:$(dirname "$NODE_BINARY"):/usr/bin:/bin"',
+    ),
+  );
+  assert.match(
+    terminalSmoke.run,
+    /for executable_dir in "\$\{candidate_path_dirs\[@\]\}"; do[\s\S]*assert_not_writable "\$executable_dir"/u,
+  );
+  assert.ok(terminalSmoke.run.includes('assert_not_writable "$NODE_BINARY"'));
+  assert.ok(terminalSmoke.run.includes('assert_not_writable "$PNPM_BINARY"'));
   assert.match(terminalSmoke.run, /find "\$TRUSTED_ROOT"/u);
   assert.match(terminalSmoke.run, /GITHUB_ENV/u);
   assert.match(terminalSmoke.run, /GITHUB_STEP_SUMMARY/u);
@@ -2364,6 +2396,12 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
   assert.doesNotMatch(
     JSON.stringify(terminalSmoke),
     /GH_TOKEN|github\.token|secrets\.|PREPARE_APP|VERCEL_TOKEN|DEPLOYMENT|PACKAGE/,
+  );
+  assert.doesNotMatch(terminalSmoke.run, /\/usr\/local\/bin/u);
+  assert.doesNotMatch(terminalSmoke.run, /command -v node/u);
+  assert.doesNotMatch(
+    read("scripts/dependabot-protected-runtime-sync.mjs"),
+    /"\/usr\/local\/bin"/u,
   );
   assert.doesNotMatch(terminalSmoke.run, />>.*GITHUB_OUTPUT/u);
   assert.deepEqual(stage.needs, [
