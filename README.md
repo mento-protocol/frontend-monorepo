@@ -472,8 +472,8 @@ PR workflows grant repository credentials only to a same-repository `User` PR
 author and `User` sender. Direct PR and candidate jobs for prepared Dependabot
 heads therefore receive no repository secrets, do not persist checkout
 credentials, and disable dependency, Foundry, and Trunk caches. Pull-request
-supply-chain scans remain read-only; schedule and manual scans own SARIF write
-authority.
+supply-chain scans use the local `_osv-scanner-readonly.yml` adapter and remain
+read-only. Schedule and manual scans own SARIF write authority.
 
 Only an exact `refresh-pending` result mints the processor's refresh-capable
 Prepare App token. Repair staging, repair mutation, and authenticated dispatch

@@ -269,8 +269,9 @@ credentials, and receive no candidate-execution write token. Because the grant
 is part of direct PR workflow code, the Prepare App never refreshes or repairs
 a generation whose live diff contains `.github/workflows/**` or
 `.github/actions/**`. Each ref mutator re-fetches the exact current file
-inventory immediately before its write. Pull-request OSV jobs stay read-only;
-separate schedule/manual jobs own SARIF write authority.
+inventory immediately before its write. Pull-request OSV jobs use the local
+`_osv-scanner-readonly.yml` adapter and stay read-only. Separate schedule/manual
+jobs own SARIF write authority.
 
 ## Modes and handling tiers
 

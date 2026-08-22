@@ -345,6 +345,7 @@ test("repaired Dependabot PR jobs retain native secret and credential isolation"
 
 test("main pushes publish only deterministic supply-chain baselines", () => {
   const supplyChain = workflow(".github/workflows/supply-chain.yml");
+  const readOnlyOsv = workflow(".github/workflows/_osv-scanner-readonly.yml");
 
   assert.deepEqual(Object.keys(supplyChain.on).sort(), [
     "pull_request",
@@ -360,12 +361,14 @@ test("main pushes publish only deterministic supply-chain baselines", () => {
     supplyChain.concurrency.group,
     "${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}",
   );
-  for (const jobId of [
-    "osv",
-    "osv-pnpm-runtime",
-    "osv-vercel-cli-runtime",
-    "osv-pnpm-bootstrap",
-  ]) {
+  const readOnlyNames = {
+    osv: "osv-scanner",
+    "osv-pnpm-runtime": "osv-scanner (trusted pnpm runtime)",
+    "osv-vercel-cli-runtime": "osv-scanner (standalone Vercel CLI runtime)",
+    "osv-pnpm-bootstrap": "osv-scanner (trusted pnpm bootstrap)",
+  };
+  for (const jobId of Object.keys(readOnlyNames)) {
+    assert.equal(supplyChain.jobs[jobId].name, readOnlyNames[jobId]);
     assert.equal(
       supplyChain.jobs[jobId].if,
       "github.event_name == 'pull_request'",
@@ -374,7 +377,14 @@ test("main pushes publish only deterministic supply-chain baselines", () => {
       actions: "read",
       contents: "read",
     });
-    assert.equal(supplyChain.jobs[jobId].with["upload-sarif"], false);
+    assert.equal(
+      supplyChain.jobs[jobId].uses,
+      "./.github/workflows/_osv-scanner-readonly.yml",
+    );
+    assert.equal(
+      Object.hasOwn(supplyChain.jobs[jobId].with, "upload-sarif"),
+      false,
+    );
     const sarifJob = supplyChain.jobs[`${jobId}-sarif`];
     assert.equal(
       sarifJob.if,
@@ -385,8 +395,48 @@ test("main pushes publish only deterministic supply-chain baselines", () => {
       contents: "read",
       "security-events": "write",
     });
+    assert.match(
+      sarifJob.uses,
+      /^google\/osv-scanner-action\/\.github\/workflows\/osv-scanner-reusable\.yml@[0-9a-f]{40}$/,
+    );
     assert.equal(sarifJob.with["upload-sarif"], true);
   }
+  assert.deepEqual(Object.keys(readOnlyOsv.on), ["workflow_call"]);
+  assert.equal(readOnlyOsv.on.workflow_call.inputs["scan-args"].required, true);
+  assert.deepEqual(readOnlyOsv.permissions, {
+    actions: "read",
+    contents: "read",
+  });
+  assert.deepEqual(readOnlyOsv.jobs["osv-scan"].permissions, {
+    actions: "read",
+    contents: "read",
+  });
+  assert.equal(readOnlyOsv.jobs["osv-scan"].name, "osv-scan");
+  assert.equal(readOnlyOsv.jobs["osv-scan"]["timeout-minutes"], 10);
+  const readOnlySteps = readOnlyOsv.jobs["osv-scan"].steps;
+  const readOnlyCheckout = readOnlySteps.find((step) =>
+    step.uses?.startsWith("actions/checkout@"),
+  );
+  assert.equal(readOnlyCheckout.with["persist-credentials"], false);
+  const scanner = readOnlySteps.find((step) =>
+    step.uses?.startsWith("google/osv-scanner-action/osv-scanner-action@"),
+  );
+  assert.equal(scanner["continue-on-error"], true);
+  assert.match(scanner.with["scan-args"], /--output=results\.json/);
+  assert.match(scanner.with["scan-args"], /--format=json/);
+  assert.match(scanner.with["scan-args"], /\$\{\{ inputs\.scan-args \}\}/);
+  const reporter = readOnlySteps.find((step) =>
+    step.uses?.startsWith("google/osv-scanner-action/osv-reporter-action@"),
+  );
+  assert.match(reporter.with["scan-args"], /--output=results\.sarif/);
+  assert.match(reporter.with["scan-args"], /--new=results\.json/);
+  assert.match(reporter.with["scan-args"], /--gh-annotations=false/);
+  assert.match(reporter.with["scan-args"], /--fail-on-vuln=true/);
+  const readOnlySource = JSON.stringify(readOnlyOsv);
+  assert.doesNotMatch(
+    readOnlySource,
+    /security-events|upload-sarif|github\/codeql-action|actions\/upload-artifact/,
+  );
   for (const jobId of ["lockfile-lint", "version-skew"]) {
     const checkout = supplyChain.jobs[jobId].steps.find((step) =>
       step.uses?.startsWith("actions/checkout@"),
@@ -443,6 +493,8 @@ test("sensitive Actions updates stay out of the routine Dependabot group", () =>
     "anthropics/claude-code-action/base-action",
     "github/codeql-action/upload-sarif",
     "google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml",
+    "google/osv-scanner-action/osv-reporter-action",
+    "google/osv-scanner-action/osv-scanner-action",
     "ossf/scorecard-action",
   ]);
   for (const dependency of sensitive) {
@@ -1852,6 +1904,9 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
   assert.deepEqual(plan.permissions, readPermissions);
   assert.deepEqual(validate.permissions, readPermissions);
   assert.deepEqual(candidateCliSmoke.permissions, readPermissions);
+  assert.equal(plan["timeout-minutes"], 20);
+  assert.equal(validate["timeout-minutes"], 20);
+  assert.equal(candidateCliSmoke["timeout-minutes"], 45);
   assert.deepEqual(stage.permissions, readPermissions);
   assert.deepEqual(mutate.permissions, readPermissions);
   assert.deepEqual(intent.permissions, {

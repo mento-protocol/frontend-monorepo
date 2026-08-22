@@ -407,7 +407,9 @@ jobs:
       needs.preflight.result == 'success' &&
       needs.plan.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The typed Next verifier runs one oracle solve and two frozen solves in
+    # series. Their explicit subprocess caps total more than 13 minutes.
+    timeout-minutes: 20
     permissions:
       actions: read
       checks: read
