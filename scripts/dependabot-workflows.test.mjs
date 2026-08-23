@@ -2960,6 +2960,12 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
     disallowedToolFlags.map((match) => match[1]),
     ["mcp__*"],
   );
+  assert.deepEqual(
+    [...review.with.claude_args.matchAll(/--model\s+(\S+)/g)].map(
+      (match) => match[1],
+    ),
+    ["claude-4-0-sonnet-20250805"],
+  );
   assert.match(review.with.claude_args, /--permission-mode\s+dontAsk/);
   assert.match(review.with.claude_args, /--setting-sources\s+user/);
   assert.match(review.with.claude_args, /--strict-mcp-config\b/);

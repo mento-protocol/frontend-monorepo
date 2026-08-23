@@ -109,7 +109,9 @@ For prepared heads, the workflow materializes
 - a bounded operation chain rooted in a verified Dependabot seed.
 
 The Claude job checks out only the trusted workflow source. It restricts
-built-in tools to Bash, denies every MCP tool, and runs in `dontAsk` mode. A
+built-in tools to Bash, denies every MCP tool, and runs in `dontAsk` mode. The
+workflow pins `claude-4-0-sonnet-20250805`. This prevents provider-default
+drift. A
 trusted `PreToolUse` guard authorizes one exact bound repository-scoped
 `gh pr diff` command per workflow run attempt and blocks every other Bash call.
 A paired `PostToolUse` guard validates the same successful, complete foreground
