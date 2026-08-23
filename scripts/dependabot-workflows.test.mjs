@@ -668,6 +668,7 @@ test("pnpm release-age exclusions stay exact and bounded", () => {
   assert.deepEqual(workspace.minimumReleaseAgeExclude, [
     "@mento-protocol/mento-sdk@3.4.0",
     "turbo@2.10.11",
+    "@turbo/linux-64@2.10.11",
   ]);
   assert.equal(
     workspace.catalog["@mento-protocol/mento-sdk"],
@@ -679,6 +680,10 @@ test("pnpm release-age exclusions stay exact and bounded", () => {
   assert.ok(
     lockfile.packages["turbo@2.10.11"],
     "remove the release-age exclusion when the reviewed lock entry changes",
+  );
+  assert.ok(
+    lockfile.packages["@turbo/linux-64@2.10.11"],
+    "remove the Linux release-age exclusion when the reviewed lock entry changes",
   );
 });
 
