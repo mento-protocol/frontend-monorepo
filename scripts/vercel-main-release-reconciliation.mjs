@@ -739,7 +739,7 @@ function isTerminalAppRecoveryResidual(targets) {
   return (
     targets.length > 1 &&
     targets.at(-1)?.target === "app" &&
-    targets.at(-1)?.state === "candidate" &&
+    ["candidate", "mixed"].includes(targets.at(-1)?.state) &&
     targets.slice(0, -1).every(({ state }) => state === "prior")
   );
 }

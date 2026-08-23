@@ -3000,6 +3000,69 @@ export async function captureActiveDeploymentStateProof(client, spec) {
   });
 }
 
+export function assertMainPlanningAppV3Topology(groupStates, reviewedAliases) {
+  const canonicalReviewedAliases = reviewedAliases.toSorted();
+  const deploymentIds = new Map();
+  const deploymentUrls = new Map();
+  const partitions = new Map();
+  for (const state of groupStates) {
+    if (!state.aliases.includes(state.alias)) {
+      throw new Error(
+        "Main planning app-v3 deployment omits its mapped reviewed alias",
+      );
+    }
+    if (
+      state.aliases.some((alias) => !canonicalReviewedAliases.includes(alias))
+    ) {
+      throw new Error(
+        "Main planning app-v3 aliases do not exactly match the reviewed set",
+      );
+    }
+    const knownUrl = deploymentIds.get(state.deploymentId);
+    const knownId = deploymentUrls.get(state.deploymentUrl);
+    if (
+      (knownUrl !== undefined && knownUrl !== state.deploymentUrl) ||
+      (knownId !== undefined && knownId !== state.deploymentId)
+    ) {
+      throw new Error("Main planning app-v3 deployment identity conflicts");
+    }
+    deploymentIds.set(state.deploymentId, state.deploymentUrl);
+    deploymentUrls.set(state.deploymentUrl, state.deploymentId);
+    const partitionKey = JSON.stringify([
+      state.deploymentId,
+      state.deploymentUrl,
+    ]);
+    const partition = partitions.get(partitionKey) ?? {
+      aliases: [],
+      deploymentAliasSet: JSON.stringify(state.aliases),
+    };
+    if (partition.deploymentAliasSet !== JSON.stringify(state.aliases)) {
+      throw new Error("Main planning deployment alias sets conflict");
+    }
+    partition.aliases.push(state.alias);
+    partitions.set(partitionKey, partition);
+  }
+  const observedAliases = [];
+  for (const partition of partitions.values()) {
+    const mappedAliases = partition.aliases.toSorted();
+    const deploymentAliases = JSON.parse(partition.deploymentAliasSet);
+    if (JSON.stringify(deploymentAliases) !== JSON.stringify(mappedAliases)) {
+      throw new Error(
+        "Main planning app-v3 deployment aliases do not match their mapped reviewed aliases",
+      );
+    }
+    observedAliases.push(...deploymentAliases);
+  }
+  if (
+    JSON.stringify(observedAliases.toSorted()) !==
+    JSON.stringify(canonicalReviewedAliases)
+  ) {
+    throw new Error(
+      "Main planning app-v3 aliases do not exactly match the reviewed set",
+    );
+  }
+}
+
 export async function captureMainPlanningSnapshot(client, spec) {
   assertSnapshotSpec(spec);
   if (spec.some((entry) => entry.git.ref !== "main")) {
@@ -3040,6 +3103,10 @@ export async function captureMainPlanningSnapshot(client, spec) {
     if (groupStates.length !== reviewedAliases.length) {
       throw new Error("Main planning alias group is incomplete");
     }
+    if (customEnvironmentSlug === "v3") {
+      assertMainPlanningAppV3Topology(groupStates, reviewedAliases);
+      continue;
+    }
     if (
       new Set(groupStates.map((state) => state.deploymentId)).size !== 1 ||
       new Set(groupStates.map((state) => state.deploymentUrl)).size !== 1
@@ -3058,15 +3125,6 @@ export async function captureMainPlanningSnapshot(client, spec) {
     if (reviewedAliases.some((alias) => !deploymentAliases.includes(alias))) {
       throw new Error(
         "Main planning deployment omits a reviewed protected alias",
-      );
-    }
-    if (
-      customEnvironmentSlug === "v3" &&
-      JSON.stringify(deploymentAliases) !==
-        JSON.stringify(reviewedAliases.toSorted())
-    ) {
-      throw new Error(
-        "Main planning app-v3 aliases do not exactly match the reviewed set",
       );
     }
   }

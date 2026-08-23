@@ -3059,6 +3059,27 @@ test("terminal App recovery residual restores both reviewed aliases only", () =>
   assert.equal(recovering.status, "recovering");
 });
 
+test("terminal mixed App recovery residual restores only the moved alias", () => {
+  const journal = structuredClone(preparedWithCandidatePrefix(0));
+  const movedAlias = journal.startMappings.app[0].alias;
+  journal.startMappings.app[0] = mapping(movedAlias, journal.candidates.app);
+
+  const plan = planInheritedMainTransactionRecovery({
+    journal,
+    reason: "forward-operation-failed",
+  });
+
+  assert.equal(plan.decision, "restore-inherited");
+  assert.deepEqual(plan.rollbackAuthority, {
+    targets: ["app"],
+    aliases: [movedAlias],
+  });
+  assert.deepEqual(
+    plan.actions.map(({ kind, target, alias }) => ({ kind, target, alias })),
+    [{ kind: "app_alias_restore", target: "app", alias: movedAlias }],
+  );
+});
+
 test("all-candidate reader is verify-only without rollback authority", () => {
   const plan = planInheritedMainTransactionRecovery({
     journal: preparedWithCandidatePrefix(4),

@@ -2126,9 +2126,16 @@ test("current-attempt inherited recovery binds the inherited release SHA and com
   assert.equal(terminal.afterUploadAction, "continue-after-recovery");
 });
 
-test("App-only recovery residual restores both aliases before a fresh baseline", () => {
+test("mixed App-only recovery residual restores its moved alias before a fresh baseline", () => {
   const inherited = prepared(TARGETS, { appKnown: true });
   const observed = groupedCurrentMappings(inherited, { app: "candidate" });
+  const priorAlias = inherited.prior.app.aliases[0];
+  observed.app[0] = {
+    alias: priorAlias,
+    deploymentId: inherited.prior.app.deploymentId,
+    deploymentUrl: inherited.prior.app.deploymentUrl,
+  };
+  const movedAlias = inherited.prior.app.aliases[1];
   const { journal: current } = createCurrentMainActiveRecoveryJournal({
     inheritedJournal: inherited,
     identity: {
@@ -2148,9 +2155,7 @@ test("App-only recovery residual restores both aliases before a fresh baseline",
   assert.equal(plan.decision, "restore-inherited");
   assert.deepEqual(
     plan.actions.map(({ kind, alias }) => ({ kind, alias })),
-    [...inherited.prior.app.aliases]
-      .reverse()
-      .map((alias) => ({ kind: "app_alias_restore", alias })),
+    [{ kind: "app_alias_restore", alias: movedAlias }],
   );
 
   const history = [current];
@@ -2162,7 +2167,7 @@ test("App-only recovery residual restores both aliases before a fresh baseline",
     }),
   });
   history.push(initialized.journal);
-  const movedAliases = new Set(inherited.prior.app.aliases);
+  const movedAliases = new Set([movedAlias]);
   const liveMappings = () =>
     recoveryCurrentMappings(history.at(-1)).map((mapping) =>
       movedAliases.has(mapping.alias)
@@ -2174,7 +2179,7 @@ test("App-only recovery residual restores both aliases before a fresh baseline",
         : mapping,
     );
 
-  for (const expectedAlias of [...inherited.prior.app.aliases].reverse()) {
+  for (const expectedAlias of [movedAlias]) {
     const started = reduceMainActiveRecoveryTransition({
       recoveryPlan: plan,
       history,

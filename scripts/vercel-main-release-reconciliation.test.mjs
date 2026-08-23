@@ -794,56 +794,75 @@ test("App mixed mappings are accepted only at the activation frontier", () => {
   ]);
 });
 
-test("only a full terminal App candidate remains recoverable after at least one ordinary rollback", () => {
-  const state = appRecoveryResidualState();
-  assert.throws(() => reconcileMainRelease(state), /activation prefix/);
-  const reconciliation = reconcileMainReleaseForRecovery(state);
-  assert.deepEqual(
-    reconciliation.targets.map(({ target, state: targetState }) => [
-      target,
-      targetState,
-    ]),
-    [
-      ["governance", "prior"],
-      ["reserve", "prior"],
-      ["ui", "prior"],
-      ["app", "candidate"],
-    ],
-  );
-  assert.deepEqual(
-    createInheritedRollbackAuthorization({
-      reconciliation,
-      reason: "restore-inherited",
-    }),
-    {
-      reason: "restore-inherited",
-      targets: ["app"],
-      aliases: [...state.manifest.originalPriors.app.aliases].sort(),
-    },
-  );
-  assert.throws(
-    () =>
+test("only an exact terminal App residual remains recoverable after ordinary rollback", () => {
+  const candidateState = appRecoveryResidualState();
+  const mixedState = structuredClone(candidateState);
+  mixedState.currentMappings.app[0] = {
+    alias: mixedState.currentMappings.app[0].alias,
+    deploymentId: mixedState.manifest.originalPriors.app.deploymentId,
+    deploymentUrl: mixedState.manifest.originalPriors.app.deploymentUrl,
+  };
+  for (const state of [candidateState, mixedState]) {
+    assert.throws(
+      () => reconcileMainRelease(state),
+      /(?:activation prefix|outside the release frontier)/,
+    );
+    const reconciliation = reconcileMainReleaseForRecovery(state);
+    assert.deepEqual(
+      reconciliation.targets.map(({ target, state: targetState }) => [
+        target,
+        targetState,
+      ]),
+      [
+        ["governance", "prior"],
+        ["reserve", "prior"],
+        ["ui", "prior"],
+        ["app", state === candidateState ? "candidate" : "mixed"],
+      ],
+    );
+    assert.deepEqual(
       createInheritedRollbackAuthorization({
         reconciliation,
-        reason: "first-forward-command",
+        reason: "restore-inherited",
       }),
-    /activation prefix/,
-  );
-  for (const currentMain of [true, false]) {
-    for (const preparation of ["ready", "failed", "pending", "producer-live"]) {
-      assert.deepEqual(
-        decideMainReleaseReconciliation({
+      {
+        reason: "restore-inherited",
+        targets: ["app"],
+        aliases:
+          state === candidateState
+            ? [...state.manifest.originalPriors.app.aliases].sort()
+            : [state.manifest.originalPriors.app.aliases[1]],
+      },
+    );
+    assert.throws(
+      () =>
+        createInheritedRollbackAuthorization({
           reconciliation,
-          currentMain,
-          preparation,
+          reason: "first-forward-command",
         }),
-        {
-          decision: "restore-inherited",
-          rollbackInherited: true,
-          reason: "terminal-app-recovery-residual",
-        },
-        `${currentMain ? "current" : "stale"} main with ${preparation} preparation`,
-      );
+      /(?:activation prefix|outside the release frontier)/,
+    );
+    for (const currentMain of [true, false]) {
+      for (const preparation of [
+        "ready",
+        "failed",
+        "pending",
+        "producer-live",
+      ]) {
+        assert.deepEqual(
+          decideMainReleaseReconciliation({
+            reconciliation,
+            currentMain,
+            preparation,
+          }),
+          {
+            decision: "restore-inherited",
+            rollbackInherited: true,
+            reason: "terminal-app-recovery-residual",
+          },
+          `${currentMain ? "current" : "stale"} main with ${preparation} preparation`,
+        );
+      }
     }
   }
 });
@@ -923,7 +942,7 @@ test("unsupported non-prefix, third-party, missing-candidate, and disagreeing-ma
     /activation prefix/,
   );
 
-  const mixedAppResidual = releaseState({ appMixed: true });
+  const mixedAppResidual = releaseState({ candidateCount: 1, appMixed: true });
   assert.throws(
     () => reconcileMainRelease(mixedAppResidual),
     /Mixed App mappings are outside the release frontier/,
@@ -1180,8 +1199,14 @@ test("pre-plan inspection restores an older mixed App frontier", () => {
   ]);
 });
 
-test("pre-plan restores the App-candidate-only residual for older and matching releases", () => {
-  const state = appRecoveryResidualState();
+test("pre-plan restores terminal App candidate and mixed residuals", () => {
+  const candidateState = appRecoveryResidualState();
+  const mixedState = structuredClone(candidateState);
+  mixedState.currentMappings.app[0] = {
+    alias: mixedState.currentMappings.app[0].alias,
+    deploymentId: mixedState.manifest.originalPriors.app.deploymentId,
+    deploymentUrl: mixedState.manifest.originalPriors.app.deploymentUrl,
+  };
   const cases = [
     {
       name: "older",
@@ -1191,27 +1216,32 @@ test("pre-plan restores the App-candidate-only residual for older and matching r
     },
     {
       name: "matching",
-      nextDeploySha: state.manifest.deploySha,
-      nextUpstreamRunId: state.manifest.upstreamRunId,
+      nextDeploySha: candidateState.manifest.deploySha,
+      nextUpstreamRunId: candidateState.manifest.upstreamRunId,
       reason: "current-main-release-is-an-app-recovery-residual",
     },
   ];
 
-  for (const current of cases) {
-    const decision = decideMainPreplanReconciliation({
-      nextDeploySha: current.nextDeploySha,
-      nextUpstreamRunId: current.nextUpstreamRunId,
-      candidateReleases: [candidateRelease(state)],
-      currentMappings: state.currentMappings,
-      rollbackOnlyTargets: [],
-    });
-    assert.equal(decision.decision, "restore-before-planning", current.name);
-    assert.equal(decision.reason, current.reason, current.name);
-    assert.deepEqual(decision.rollbackAuthorization, {
-      reason: "restore-inherited",
-      targets: ["app"],
-      aliases: [...state.manifest.originalPriors.app.aliases].sort(),
-    });
+  for (const state of [candidateState, mixedState]) {
+    for (const current of cases) {
+      const decision = decideMainPreplanReconciliation({
+        nextDeploySha: current.nextDeploySha,
+        nextUpstreamRunId: current.nextUpstreamRunId,
+        candidateReleases: [candidateRelease(state)],
+        currentMappings: state.currentMappings,
+        rollbackOnlyTargets: [],
+      });
+      assert.equal(decision.decision, "restore-before-planning", current.name);
+      assert.equal(decision.reason, current.reason, current.name);
+      assert.deepEqual(decision.rollbackAuthorization, {
+        reason: "restore-inherited",
+        targets: ["app"],
+        aliases:
+          state === candidateState
+            ? [...state.manifest.originalPriors.app.aliases].sort()
+            : [state.manifest.originalPriors.app.aliases[1]],
+      });
+    }
   }
 });
 

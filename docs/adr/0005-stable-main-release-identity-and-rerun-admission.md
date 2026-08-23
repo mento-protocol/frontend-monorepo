@@ -79,10 +79,11 @@ planning.
   recovery residual, the controller restores only App through a fresh
   current-attempt journal before new planning. This residual requires at least
   one active non-App target, every active non-App target at its original prior,
-  and every reviewed App alias at one manifest-bound candidate. It can occur
-  when the App command moves aliases before the controller checkpoints its
-  return while recovery has already restored the ordinary targets. It never
-  authorizes forward resumption.
+  and every reviewed App alias at either its captured prior or one
+  manifest-bound candidate, with at least one alias at the candidate. It can
+  occur when the App command moves aliases before the controller checkpoints
+  its return while recovery has already restored the ordinary targets. It
+  never authorizes forward resumption.
 - If no mapped release explains the protected state, it captures a new baseline.
   Every other non-prefix, ambiguous, conflicting, incomplete, or unverified
   provider state fails closed.
@@ -177,7 +178,7 @@ Rejected. The terminal App recovery residual is fully explained by one
 canonical manifest, exact captured priors, and complete reviewed App aliases.
 Restricting automation to reverse-only App restoration preserves the same
 compensation authority while avoiding a manual alias rollback after a
-checkpoint failure. Partial App mappings, ordinary candidate suffixes, and
+checkpoint failure. Unexplained App mappings, ordinary candidate suffixes, and
 every other non-prefix state still require manual intervention.
 
 ## Consequences

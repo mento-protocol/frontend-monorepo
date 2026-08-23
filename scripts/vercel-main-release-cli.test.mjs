@@ -2254,7 +2254,7 @@ test("forward journal uses only asserted execution, fresh mappings, and current-
   );
 });
 
-test("an App-only residual creates only an inherited recovery journal", async (t) => {
+test("a mixed App-only residual creates only an inherited recovery journal", async (t) => {
   const directory = realpathSync(
     mkdtempSync(join(tmpdir(), "main-release-app-residual-journal-")),
   );
@@ -2271,20 +2271,23 @@ test("an App-only residual creates only an inherited recovery journal", async (t
     },
     legacySnapshot: [legacyState],
   });
+  const movedAppAlias = release.originalPriors.app.aliases[0];
   for (const target of RELEASE_ORDER) {
     const prior = release.originalPriors[target];
-    const deployment =
-      target === "app"
-        ? {
-            deploymentId: "dpl_appCandidate123",
-            deploymentUrl: "https://app-candidate.vercel.app",
-          }
-        : prior;
-    mappings.mappings[target] = prior.aliases.map((alias) => ({
-      alias,
-      deploymentId: deployment.deploymentId,
-      deploymentUrl: deployment.deploymentUrl,
-    }));
+    mappings.mappings[target] = prior.aliases.map((alias) => {
+      const deployment =
+        target === "app" && alias === movedAppAlias
+          ? {
+              deploymentId: "dpl_appCandidate123",
+              deploymentUrl: "https://app-candidate.vercel.app",
+            }
+          : prior;
+      return {
+        alias,
+        deploymentId: deployment.deploymentId,
+        deploymentUrl: deployment.deploymentUrl,
+      };
+    });
   }
   const candidateReceipts = Object.fromEntries(
     TARGETS.map((target) => [target, currentAttemptReceipt(release, target)]),
@@ -2301,6 +2304,9 @@ test("an App-only residual creates only an inherited recovery journal", async (t
   });
   assert.equal(inheritedPreplan.decision, "restore-before-planning");
   assert.deepEqual(inheritedPreplan.rollbackAuthorization.targets, ["app"]);
+  assert.deepEqual(inheritedPreplan.rollbackAuthorization.aliases, [
+    movedAppAlias,
+  ]);
 
   await assert.rejects(
     runMainReleaseCli({
@@ -2317,7 +2323,7 @@ test("an App-only residual creates only an inherited recovery journal", async (t
       ],
       env: environment(directory),
     }),
-    /activation prefix/,
+    /(?:activation prefix|outside the release frontier)/,
   );
 
   const result = await runMainReleaseCli({
@@ -2344,9 +2350,7 @@ test("an App-only residual creates only an inherited recovery journal", async (t
       target,
       alias,
     })),
-    [...release.originalPriors.app.aliases]
-      .reverse()
-      .map((alias) => ({ kind: "app_alias_restore", target: "app", alias })),
+    [{ kind: "app_alias_restore", target: "app", alias: movedAppAlias }],
   );
 });
 

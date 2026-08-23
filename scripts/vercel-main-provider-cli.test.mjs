@@ -760,7 +760,7 @@ test("preplan decision binds current SHA and upstream run to one exact release I
   );
 });
 
-test("preplan decision restores a manifest-bound App recovery residual", async (t) => {
+test("preplan decision restores a manifest-bound mixed App recovery residual", async (t) => {
   const context = testContext(t);
   const inherited = releaseManifest({
     deploySha: "c".repeat(40),
@@ -771,19 +771,25 @@ test("preplan decision restores a manifest-bound App recovery residual", async (
     deploymentId: "dpl_appRecoveryResidual123",
     deploymentUrl: "https://app-recovery-residual.vercel.app",
   };
+  const candidateAlias = inherited.originalPriors.app.aliases[0];
   const snapshot = planningSnapshot(
     Object.fromEntries(
       inherited.originalPriors.app.aliases.map((alias) => [
         alias,
-        {
-          ...appCandidate,
-          git: {
-            org: "mento-protocol",
-            repo: "frontend-monorepo",
-            ref: "main",
-            sha: inherited.deploySha,
-          },
-        },
+        alias === candidateAlias
+          ? {
+              ...appCandidate,
+              aliases: [alias],
+              git: {
+                org: "mento-protocol",
+                repo: "frontend-monorepo",
+                ref: "main",
+                sha: inherited.deploySha,
+              },
+            }
+          : {
+              aliases: [alias],
+            },
       ]),
     ),
   );
@@ -854,9 +860,14 @@ test("preplan decision restores a manifest-bound App recovery residual", async (
   assert.deepEqual(result.rollbackAuthorization, {
     reason: "restore-inherited",
     targets: ["app"],
-    aliases: inherited.originalPriors.app.aliases.toSorted(),
+    aliases: [candidateAlias],
   });
-  assert.deepEqual(result.rollbackOnlyTargets, ["governance", "reserve", "ui"]);
+  assert.deepEqual(result.rollbackOnlyTargets, [
+    "app",
+    "governance",
+    "reserve",
+    "ui",
+  ]);
   assert.deepEqual(readJson(output), result);
 });
 

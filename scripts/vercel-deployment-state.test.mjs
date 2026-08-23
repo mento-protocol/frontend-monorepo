@@ -748,6 +748,61 @@ test("main planning snapshot rejects rollback, alias-set, and mapping-race ambig
   );
 });
 
+test("main planning snapshot accepts only an exact partition of reviewed App aliases", async () => {
+  const appFixture = fixture("valid-custom-v3.json");
+  const appBase = canonicalizePlanningFixture(appFixture);
+  const appAliases = [
+    "app.mento.org",
+    "appmentoorg-env-v3-mentolabs.vercel.app",
+  ];
+  const spec = appAliases.map((alias) => ({
+    alias,
+    ...appFixture.expected,
+  }));
+  const states = await captureMainPlanningSnapshot(
+    {
+      mainPlanningAliasState: async (entry) => {
+        const suffix = entry.alias === appAliases[0] ? "custom" : "generated";
+        return {
+          ...appBase,
+          alias: entry.alias,
+          aliases: [entry.alias],
+          deploymentId: `dpl_app${suffix}123`,
+          deploymentUrl: `https://app-${suffix}-immutable.vercel.app`,
+        };
+      },
+    },
+    spec,
+  );
+  assert.deepEqual(
+    states.states.map(({ alias, aliases }) => [alias, aliases]),
+    appAliases.map((alias) => [alias, [alias]]),
+  );
+
+  await assert.rejects(
+    () =>
+      captureMainPlanningSnapshot(
+        {
+          mainPlanningAliasState: async (entry) => ({
+            ...appBase,
+            alias: entry.alias,
+            aliases: [appAliases[0]],
+            deploymentId:
+              entry.alias === appAliases[0]
+                ? "dpl_appcustom123"
+                : "dpl_appgenerated123",
+            deploymentUrl:
+              entry.alias === appAliases[0]
+                ? "https://app-custom-immutable.vercel.app"
+                : "https://app-generated-immutable.vercel.app",
+          }),
+        },
+        spec,
+      ),
+    /omits its mapped reviewed alias/,
+  );
+});
+
 test("minimal alias mapping exposes only read-only drift fields", () => {
   const production = fixture("valid-production.json");
   const mapping = canonicalizeAliasMapping({
