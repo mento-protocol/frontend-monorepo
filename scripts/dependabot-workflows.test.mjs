@@ -667,11 +667,18 @@ test("pnpm release-age exclusions stay exact and bounded", () => {
 
   assert.deepEqual(workspace.minimumReleaseAgeExclude, [
     "@mento-protocol/mento-sdk@3.4.0",
+    "turbo@2.10.11",
   ]);
   assert.equal(
     workspace.catalog["@mento-protocol/mento-sdk"],
     "3.4.0",
     "remove the release-age exclusion when the reviewed catalog pin changes",
+  );
+
+  const lockfile = parse(read("pnpm-lock.yaml"), { uniqueKeys: true });
+  assert.ok(
+    lockfile.packages["turbo@2.10.11"],
+    "remove the release-age exclusion when the reviewed lock entry changes",
   );
 });
 
