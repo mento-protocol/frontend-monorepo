@@ -352,9 +352,10 @@ Only an exact `@dependabot recreate` command can establish a new native
 generation boundary after poisoned branch history. The comment must have a
 trusted-maintainer actor, valid identity fields, an exact body, and matching
 creation and update timestamps. The boundary event and every later event
-must target the exact PR ref, come from the exact Dependabot bot identity, form
-a continuous non-cyclic suffix, and land only on signed native Dependabot
-commits. The controller never inherits the boundary event's replaced commit.
+must have a later timestamp, target the exact PR ref, come from the exact
+Dependabot bot identity, form a continuous non-cyclic suffix, and land only on
+signed native Dependabot commits. The controller never inherits the boundary
+event's replaced commit.
 It can collect bounded commit evidence from the full history, but it grants
 authority only from the selected signed native suffix. An edited or untrusted
 command, a `rebase` command, a replayed SHA, or any non-Dependabot destination

@@ -6939,6 +6939,12 @@ test("an exact trusted recreate starts a native generation after poisoned histor
       },
     ],
     [
+      "command and rewrite have equal-resolution timestamps",
+      (current) => {
+        current.feedback.forcePushEvents[1].createdAt = "2026-08-10T09:00:00Z";
+      },
+    ],
+    [
       "untrusted commenter",
       (current) => {
         current.feedback.branchMaintenanceComments[0].actor.association =

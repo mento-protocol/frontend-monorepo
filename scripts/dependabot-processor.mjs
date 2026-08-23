@@ -3554,7 +3554,7 @@ function evaluateForcePushGeneration({
     const nextEventIndex = events.findIndex(
       (event) =>
         event.createdAt !== null &&
-        Date.parse(event.createdAt) >= Date.parse(comment.updatedAt),
+        Date.parse(event.createdAt) > Date.parse(comment.updatedAt),
     );
     if (nextEventIndex >= 0) {
       generationBoundaryIndex = nextEventIndex;
