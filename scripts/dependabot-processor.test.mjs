@@ -4699,12 +4699,16 @@ test("exact trusted maintainer Dependabot branch commands do not create a veto",
       {
         actor: { association: "MEMBER", login: "alice", type: "User" },
         body: "@dependabot recreate",
+        createdAt: "2026-08-10T08:00:00Z",
         id: 31,
+        updatedAt: "2026-08-10T08:00:00Z",
       },
       {
         actor: { association: "OWNER", login: "bob", type: "User" },
         body: "\n@dependabot rebase\n",
+        createdAt: "2026-08-10T09:00:00Z",
         id: 32,
+        updatedAt: "2026-08-10T09:00:00Z",
       },
       {
         actor: { association: "MEMBER", login: "alice", type: "User" },
@@ -4725,6 +4729,13 @@ test("exact trusted maintainer Dependabot branch commands do not create a veto",
   });
   assert.deepEqual(result.reasons, ["maintainer-issue-comment"]);
   assert.equal(result.blockerCount, 3);
+  assert.deepEqual(
+    result.branchMaintenanceComments.map(({ body, id }) => ({ body, id })),
+    [
+      { body: "@dependabot recreate", id: 31 },
+      { body: "@dependabot rebase", id: 32 },
+    ],
+  );
 });
 
 test("bot informational issue comments require their exact author and body predicates", () => {
@@ -6827,6 +6838,108 @@ test("a continuous Dependabot rewrite accepts equal-resolution event times", () 
   assert.equal(evaluation.identity.prepareAuthority, true);
   assert.equal(evaluation.disposition, "repair-required");
   assert.notEqual(evaluation.repairPacket, null);
+});
+
+test("an exact trusted recreate starts a native generation after poisoned history", () => {
+  const feedback = nativeForcePushFeedback();
+  feedback.branchMaintenanceComments = [
+    {
+      actor: { association: "MEMBER", login: "alice", type: "User" },
+      body: "@dependabot recreate",
+      createdAt: "2026-08-10T09:00:00Z",
+      id: 41,
+      updatedAt: "2026-08-10T09:00:00Z",
+    },
+  ];
+  feedback.forcePushEventCount = 2;
+  feedback.forcePushEvents = [
+    {
+      ...feedback.forcePushEvents[0],
+      afterSha: SECOND_HEAD_SHA,
+      createdAt: "2026-08-10T08:00:00Z",
+    },
+    {
+      ...feedback.forcePushEvents[0],
+      beforeSha: MERGE_SHA,
+      createdAt: "2026-08-10T10:00:00Z",
+      eventId: "force-push-event-2",
+    },
+  ];
+  feedback.forcePushCommits = [
+    nativeDependabotCommit(OTHER_SHA, MERGE_SHA),
+    nativeDependabotCommit(SECOND_HEAD_SHA),
+    preparedCommit(MERGE_SHA, BASE_SHA),
+    nativeDependabotCommit(HEAD_SHA),
+  ];
+  const rewritten = snapshot({
+    checks: completeChecks({ conclusions: { ci: "failure" } }),
+    commits: [nativeDependabotCommit(HEAD_SHA)],
+    feedback,
+    metadata: {
+      ...snapshot().metadata,
+      immutableEvidence: {
+        ...snapshot().metadata.immutableEvidence,
+        seedCommitSha: HEAD_SHA,
+        seedCommitTrusted: true,
+      },
+    },
+    pullRequest: { author: DEPENDABOT_ACTOR },
+    repairHistoryChecks: [],
+  });
+
+  const evaluation = evaluateDependabotPullRequest(rewritten, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(evaluation.feedback.forcePushGenerationKind, "native");
+  assert.equal(evaluation.feedback.forcePushVeto, false);
+  assert.equal(evaluation.identity.prepareAuthority, true);
+  assert.equal(evaluation.disposition, "repair-required");
+
+  const invalidBoundaries = [
+    [
+      "rebase command",
+      (current) => {
+        current.feedback.branchMaintenanceComments[0].body =
+          "@dependabot rebase";
+      },
+    ],
+    [
+      "comment edited after rewrite",
+      (current) => {
+        current.feedback.branchMaintenanceComments[0].updatedAt =
+          "2026-08-10T11:00:00Z";
+      },
+    ],
+    [
+      "untrusted commenter",
+      (current) => {
+        current.feedback.branchMaintenanceComments[0].actor.association =
+          "NONE";
+      },
+    ],
+    [
+      "non-Dependabot destination event",
+      (current) => {
+        current.feedback.forcePushEvents[1].actorId = 7;
+        current.feedback.forcePushEvents[1].actorLogin = "alice";
+        current.feedback.forcePushEvents[1].actorType = "User";
+      },
+    ],
+  ];
+  for (const [label, mutate] of invalidBoundaries) {
+    const current = structuredClone(rewritten);
+    mutate(current);
+    const rejected = evaluateDependabotPullRequest(current, {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    });
+    assert.equal(rejected.feedback.forcePushVeto, true, label);
+    assert.equal(rejected.identity.prepareAuthority, false, label);
+    assert.equal(rejected.disposition, "manual-veto-or-feedback", label);
+  }
 });
 
 test("human, spoofed, malformed, mixed, and unbound rewrites remain vetoed", () => {

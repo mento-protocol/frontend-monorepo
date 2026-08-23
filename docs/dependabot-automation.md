@@ -348,6 +348,16 @@ issue comment from a trusted maintainer as a branch-maintenance command. It does
 not treat these two commands as vetoes. Added text, other Dependabot commands,
 and all other trusted-maintainer issue comments remain vetoes.
 
+Only an exact `@dependabot recreate` command can establish a new native
+generation boundary after poisoned branch history. The comment must have a
+trusted-maintainer actor, valid immutable identity fields, and an unchanged
+body before the next force-push event. The boundary event and every later event
+must target the exact PR ref, come from the exact Dependabot bot identity, form
+a continuous non-cyclic suffix, and land only on signed native Dependabot
+commits. The controller never inherits the boundary event's replaced commit.
+An edited or untrusted command, a `rebase` command, a replayed SHA, or any
+non-Dependabot destination after the boundary remains a veto.
+
 The controller admits a force-pushed PR only when all events form one complete
 native Dependabot rewrite chain. Every event must bind the exact PR ref, the
 Dependabot bot account ID `49699333`, bot type, time, unique event ID, and valid
@@ -357,8 +367,9 @@ referenced commit must have the exact Dependabot author, an exact Dependabot or
 `web-flow` committer, one parent, and valid GitHub verification. The newest
 destination must equal the current verified generation seed. Any human,
 unknown, mixed, malformed, reordered, discontinuous, or capped history remains
-a permanent veto. A rewrite that removes a Prepare App commit breaks the chain
-and remains a veto.
+a permanent veto unless the bounded trusted `recreate` boundary above starts a
+new native suffix. Without that boundary, a rewrite that removes a Prepare App
+commit breaks the chain and remains a veto.
 
 Only exact configured gate and receipt names trigger an Actions workflow-run
 provenance lookup. Unrelated checks and statuses remain raw non-authorizing

@@ -709,6 +709,14 @@ function dependabotBranchMaintenanceComment(body) {
   );
 }
 
+function feedbackTimestamp(value) {
+  const timestamp = String(value ?? "");
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(timestamp) &&
+    Number.isFinite(Date.parse(timestamp))
+    ? timestamp
+    : null;
+}
+
 function malformedFeedbackActor(actor) {
   return (
     actor.login.length === 0 ||
@@ -3036,6 +3044,7 @@ export function classifyDependabotFeedback({
   let dismissedProcessorApprovalCount = 0;
   const currentProcessorApprovalIds = [];
   const actionableThreads = [];
+  const branchMaintenanceComments = [];
   const remediationCandidates = [];
 
   const reviewsById = new Map();
@@ -3333,10 +3342,28 @@ export function classifyDependabotFeedback({
       continue;
     }
     if (actor.type === "User") {
-      if (
+      const trustedBranchMaintenance =
         trustedHuman(actor) &&
-        !dependabotBranchMaintenanceComment(comment?.body)
-      ) {
+        dependabotBranchMaintenanceComment(comment?.body);
+      if (trustedBranchMaintenance) {
+        const createdAt = feedbackTimestamp(comment?.createdAt);
+        const updatedAt = feedbackTimestamp(comment?.updatedAt);
+        if (
+          Number.isSafeInteger(comment?.id) &&
+          comment.id > 0 &&
+          createdAt !== null &&
+          updatedAt !== null &&
+          Date.parse(updatedAt) >= Date.parse(createdAt)
+        ) {
+          branchMaintenanceComments.push({
+            actor,
+            body: String(comment.body).trim(),
+            createdAt,
+            id: comment.id,
+            updatedAt,
+          });
+        }
+      } else if (trustedHuman(actor)) {
         addBlocker({
           body: comment?.body,
           id: comment.id,
@@ -3375,6 +3402,9 @@ export function classifyDependabotFeedback({
     actionableThreads: actionableThreads.slice(0, FEEDBACK_BLOCKER_LIMIT),
     blockerCount: blockers.length,
     blockers: blockers.slice(0, FEEDBACK_BLOCKER_LIMIT),
+    branchMaintenanceComments: branchMaintenanceComments.slice(
+      -DURABLE_EVENT_EVIDENCE_LIMIT,
+    ),
     complete: !reasons.some((reason) =>
       [
         "feedback-thread-comments-cap-exceeded",
@@ -3418,11 +3448,7 @@ function normalizeForcePushEvent(event) {
     beforeSha: SHA_PATTERN.test(event?.beforeSha ?? "")
       ? event.beforeSha
       : null,
-    createdAt:
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(createdAt) &&
-      Number.isFinite(Date.parse(createdAt))
-        ? createdAt
-        : null,
+    createdAt: feedbackTimestamp(createdAt),
     eventId: eventId.length > 0 && eventId.length <= 200 ? eventId : null,
     headRef: headRef.length > 0 && headRef.length <= 300 ? headRef : null,
   };
@@ -3465,7 +3491,7 @@ function evaluateForcePushGeneration({
     eventCount === events.length;
   const eventIds = new Set();
   let previousEvent = null;
-  let exactEvents = exactEventCount;
+  let exactTimeline = exactEventCount;
   const expectedRef = `refs/heads/${normalizedPullRequest.headRef}`;
   for (const event of events) {
     const ordered =
@@ -3473,13 +3499,7 @@ function evaluateForcePushGeneration({
       (event.createdAt !== null &&
         previousEvent.createdAt !== null &&
         Date.parse(event.createdAt) >= Date.parse(previousEvent.createdAt));
-    const continuous =
-      previousEvent === null || previousEvent.afterSha === event.beforeSha;
-    const exactActor =
-      event.actorId === DEPENDABOT_USER_ID &&
-      event.actorLogin === "dependabot" &&
-      event.actorType === "Bot";
-    const exactEvent =
+    const exactTimelineEvent =
       event.eventId !== null &&
       !eventIds.has(event.eventId) &&
       event.createdAt !== null &&
@@ -3487,29 +3507,98 @@ function evaluateForcePushGeneration({
       event.afterSha !== null &&
       event.beforeSha !== event.afterSha &&
       event.headRef === expectedRef &&
-      exactActor &&
-      ordered &&
-      continuous;
-    exactEvents &&= exactEvent;
+      ordered;
+    exactTimeline &&= exactTimelineEvent;
     if (event.eventId !== null) eventIds.add(event.eventId);
     previousEvent = event;
   }
-  const chainShas =
-    events.length === 0
-      ? []
-      : [events[0].beforeSha, ...events.map(({ afterSha }) => afterSha)];
-  exactEvents &&= new Set(chainShas).size === events.length + 1;
 
-  const requiredCommitShas = new Set(
-    events.flatMap(({ afterSha, beforeSha }) => [beforeSha, afterSha]),
-  );
+  const recreateComments = Array.isArray(feedback.branchMaintenanceComments)
+    ? feedback.branchMaintenanceComments
+        .map((comment) => {
+          const actor = feedbackActor(comment?.actor);
+          const createdAt = feedbackTimestamp(comment?.createdAt);
+          const updatedAt = feedbackTimestamp(comment?.updatedAt);
+          return {
+            actor,
+            body: String(comment?.body ?? "").trim(),
+            createdAt,
+            id:
+              Number.isSafeInteger(comment?.id) && comment.id > 0
+                ? comment.id
+                : null,
+            updatedAt,
+          };
+        })
+        .filter(
+          ({ actor, body, createdAt, id, updatedAt }) =>
+            trustedHuman(actor) &&
+            body === "@dependabot recreate" &&
+            createdAt !== null &&
+            updatedAt !== null &&
+            id !== null &&
+            Date.parse(updatedAt) >= Date.parse(createdAt),
+        )
+        .sort((left, right) =>
+          left.updatedAt === right.updatedAt
+            ? left.id - right.id
+            : Date.parse(left.updatedAt) - Date.parse(right.updatedAt),
+        )
+    : [];
+  let generationBoundaryIndex = 0;
+  let recreateBoundary = false;
+  for (const comment of recreateComments) {
+    const nextEventIndex = events.findIndex(
+      (event) =>
+        event.createdAt !== null &&
+        Date.parse(event.createdAt) >= Date.parse(comment.updatedAt),
+    );
+    if (nextEventIndex >= 0) {
+      generationBoundaryIndex = nextEventIndex;
+      recreateBoundary = true;
+    }
+  }
+  const generationEvents = events.slice(generationBoundaryIndex);
+  let exactEvents = exactTimeline && generationEvents.length > 0;
+  let previousGenerationEvent = null;
+  for (const event of generationEvents) {
+    const exactActor =
+      event.actorId === DEPENDABOT_USER_ID &&
+      event.actorLogin === "dependabot" &&
+      event.actorType === "Bot";
+    const continuous =
+      previousGenerationEvent === null ||
+      previousGenerationEvent.afterSha === event.beforeSha;
+    exactEvents &&= exactActor && continuous;
+    previousGenerationEvent = event;
+  }
+  const generationShas = [
+    ...(recreateBoundary ? [] : [generationEvents[0]?.beforeSha]),
+    ...generationEvents.map(({ afterSha }) => afterSha),
+  ];
+  exactEvents &&=
+    new Set(generationShas).size === generationShas.length &&
+    generationShas.every(
+      (sha) =>
+        !events
+          .slice(0, generationBoundaryIndex)
+          .some(
+            ({ afterSha, beforeSha }) => afterSha === sha || beforeSha === sha,
+          ),
+    );
+
+  const requiredCommitShas = new Set(generationShas);
   requiredCommitShas.delete(null);
   const commitEvidence = Array.isArray(feedback.forcePushCommits)
     ? feedback.forcePushCommits.map(normalizedCommitEvidence)
     : [];
   const commitsBySha = new Map();
-  let exactCommits = commitEvidence.length === requiredCommitShas.size;
-  for (const commit of commitEvidence) {
+  const generationCommitEvidence = commitEvidence.filter(({ sha }) =>
+    requiredCommitShas.has(sha),
+  );
+  let exactCommits =
+    generationCommitEvidence.length === requiredCommitShas.size;
+  for (const commit of generationCommitEvidence) {
     if (
       commitsBySha.has(commit.sha) ||
       !commitMatchesNativeDependabot(commit)
@@ -3531,7 +3620,7 @@ function evaluateForcePushGeneration({
     SHA_PATTERN.test(generationSeedHeadSha ?? "") &&
     generationSeedCommit?.sha === generationSeedHeadSha &&
     commitMatchesNativeDependabot(generationSeedCommit) &&
-    events.at(-1)?.afterSha === generationSeedHeadSha &&
+    generationEvents.at(-1)?.afterSha === generationSeedHeadSha &&
     commitsBySha.has(generationSeedHeadSha);
   const native =
     exactEvents && exactCommits && exactPullRequestAuthor && exactSeed;
@@ -3551,7 +3640,7 @@ function evaluateForcePushGeneration({
     if (!commitMatchesNativeDependabot(generationSeedCommit)) {
       reasons.push("invalid-force-push-generation-seed-commit");
     }
-    if (events.at(-1)?.afterSha !== generationSeedHeadSha) {
+    if (generationEvents.at(-1)?.afterSha !== generationSeedHeadSha) {
       reasons.push("force-push-generation-head-mismatch");
     }
     if (!commitsBySha.has(generationSeedHeadSha)) {
@@ -6888,6 +6977,7 @@ export function createLiveGitHubAdapter({
         autoMergeEnabled: feedback.autoMergeEnabled,
         blockerCount: feedback.blockerCount,
         blockers: feedback.blockers,
+        branchMaintenanceComments: feedback.branchMaintenanceComments,
         complete: feedback.complete,
         currentProcessorApprovalCount: feedback.currentProcessorApprovalCount,
         currentProcessorApprovalIds: feedback.currentProcessorApprovalIds,

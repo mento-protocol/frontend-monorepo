@@ -103,7 +103,10 @@ native-to-native Dependabot rewrite chain starts a new generation. Every event,
 commit, actor, ref, and SHA in that chain must pass the exact controller policy.
 An exact `@dependabot rebase` or `@dependabot recreate` issue comment from a
 trusted maintainer is a branch-maintenance command, not a veto. Every other
-trusted-maintainer issue comment remains a veto.
+trusted-maintainer issue comment remains a veto. Only an exact, unchanged
+`@dependabot recreate` comment can start a new native generation after poisoned
+branch history. The next and all later force-push destinations must remain an
+exact signed Dependabot chain. `@dependabot rebase` cannot reset that history.
 
 Configure the repository-scoped Prepare App with variables
 `DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,
