@@ -471,7 +471,12 @@ jobs:
             repository, pull-request, issue, review, comment, check, or workflow mutation.
             Return the requested structured result with concrete correctness,
             security, compatibility, and test findings. A clean verdict means
-            the exact diff has no actionable findings.
+            the exact diff has no actionable findings. Report a transitive
+            dependency change only when the diff gives concrete evidence of an
+            incompatible constraint or a specific repository defect. Do not
+            report an updated direct package's declared internal dependency as
+            a separate finding only because its version changed or it might
+            regress.
           allowed_bots: ${{ needs.preflight.outputs.review_actor_login }}
           settings: |
             {

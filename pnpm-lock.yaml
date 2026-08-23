@@ -174,6 +174,7 @@ overrides:
   ws@>=7.0.0 <7.5.11: 7.5.11
   yaml@>=2.0.0 <2.8.3: '>=2.8.3'
   yaml@<1.10.3: '>=1.10.3 <2'
+  zustand>use-sync-external-store: 1.4.0
   zod: ^4.4.3
 
 packageExtensionsChecksum: sha256-6HWoSaFsGJy3iPnqtfclkrqfmAo7vnHbY4ulU8b+A5M=
@@ -13726,7 +13727,7 @@ packages:
       '@types/react': '>=18.0.0'
       immer: '>=9.0.6'
       react: '>=18.0.0'
-      use-sync-external-store: '>=1.2.0'
+      use-sync-external-store: 1.4.0
     peerDependenciesMeta:
       '@types/react':
         optional: true
@@ -13744,7 +13745,7 @@ packages:
       '@types/react': '>=18.0.0'
       immer: '>=9.0.6'
       react: '>=18.0.0'
-      use-sync-external-store: '>=1.2.0'
+      use-sync-external-store: 1.4.0
     peerDependenciesMeta:
       '@types/react':
         optional: true
@@ -13762,7 +13763,7 @@ packages:
       '@types/react': '>=18.0.0'
       immer: '>=9.0.6'
       react: '>=18.0.0'
-      use-sync-external-store: '>=1.2.0'
+      use-sync-external-store: 1.4.0
     peerDependenciesMeta:
       '@types/react':
         optional: true

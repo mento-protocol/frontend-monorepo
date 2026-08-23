@@ -204,8 +204,10 @@ empty, or persisted/truncated output is retry-first. The job never checks out,
 caches, installs, downloads, or executes candidate input. The publisher is isolated
 from the Claude secret. It writes canonical structured
 JSON to the exact-head `claude-review` check: validated `findings` are
-deterministic repair input, while an infrastructure or invalid-schema failure is
-retry-first. Human PRs continue to report `claude-review-human`.
+deterministic repair input, while an infrastructure or invalid-schema failure
+is retry-first. The reviewer reports transitive dependency changes only when
+the diff shows a concrete incompatible constraint or repository defect. Human
+PRs continue to report `claude-review-human`.
 
 Dependabot review and Claude repair prefer the `ANTHROPIC_API_KEY` secret. They
 use `CLAUDE_CODE_OAUTH_TOKEN` only when the API-key secret is absent. A bounded
