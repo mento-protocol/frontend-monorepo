@@ -227,7 +227,8 @@ jobs:
         if: needs.preflight.outputs.plan_kind == 'claude-repair'
         uses: anthropics/claude-code-action/base-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1.0.183
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.ANTHROPIC_API_KEY == '' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           show_full_output: false
           settings: |
             {

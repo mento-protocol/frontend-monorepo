@@ -218,6 +218,12 @@ findings outcomes, `claude-review` check `output.text` is the exact canonical
 incomplete, or infrastructure-failed result is retry-first and cannot become a
 repair packet.
 
+Dependabot review and Claude repair prefer the `ANTHROPIC_API_KEY` secret. They
+use `CLAUDE_CODE_OAUTH_TOKEN` only when the API-key secret is absent. A bounded
+post-action diagnostic reports only the CLI subtype, error flag, terminal
+reason, and numeric API status. It never logs the model result, prompt, tool
+output, or diff.
+
 ## Prepare App configuration and residual capability
 
 Configure:

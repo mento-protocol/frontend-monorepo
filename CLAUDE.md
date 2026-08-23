@@ -207,6 +207,12 @@ JSON to the exact-head `claude-review` check: validated `findings` are
 deterministic repair input, while an infrastructure or invalid-schema failure is
 retry-first. Human PRs continue to report `claude-review-human`.
 
+Dependabot review and Claude repair prefer the `ANTHROPIC_API_KEY` secret. They
+use `CLAUDE_CODE_OAUTH_TOKEN` only when the API-key secret is absent. A bounded
+post-action diagnostic reports only the CLI subtype, error flag, terminal
+reason, and numeric API status. It never logs the model result, prompt, tool
+output, or diff.
+
 Mode authority is:
 
 - `observe`: classify and record evidence only;

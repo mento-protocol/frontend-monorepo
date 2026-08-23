@@ -2081,6 +2081,14 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
   assert.equal(Object.hasOwn(planner.with, "plugins"), false);
   assert.equal(Object.hasOwn(planner.with, "plugin_marketplaces"), false);
   assert.equal(planner.with.show_full_output, false);
+  assert.equal(
+    planner.with.anthropic_api_key,
+    "${{ secrets.ANTHROPIC_API_KEY }}",
+  );
+  assert.equal(
+    planner.with.claude_code_oauth_token,
+    "${{ secrets.ANTHROPIC_API_KEY == '' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}",
+  );
   assert.doesNotMatch(
     JSON.stringify(planner),
     /github\.token|GH_TOKEN|DEPENDABOT_PROCESSOR_PREPARE_APP|mcpServers/,
@@ -2865,7 +2873,8 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
     "${{ steps.claude-review.outputs.structured_output }}",
   );
 
-  const [immediate, checkout, review, verifyDiffRead] = reviewJob.steps;
+  const [immediate, checkout, review, diagnostics, verifyDiffRead] =
+    reviewJob.steps;
   assert.equal(Object.hasOwn(immediate, "uses"), false);
   assert.equal(immediate.env.GH_TOKEN, "${{ github.token }}");
   assert.equal(
@@ -2909,7 +2918,14 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
   );
   assert.match(review.with.prompt, /one plain-text document tool result/);
   assert.match(review.with.prompt, /Do not make any.*mutation/s);
-  assert.match(review.with.claude_code_oauth_token, /secrets\./);
+  assert.equal(
+    review.with.anthropic_api_key,
+    "${{ secrets.ANTHROPIC_API_KEY }}",
+  );
+  assert.equal(
+    review.with.claude_code_oauth_token,
+    "${{ secrets.ANTHROPIC_API_KEY == '' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}",
+  );
   const settings = JSON.parse(review.with.settings);
   assert.deepEqual(settings.env, {
     BASH_MAX_OUTPUT_LENGTH: "150000",
@@ -2981,6 +2997,38 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
   assert.match(review.with.claude_args, /dependabot-claude-review-result:v1/);
   assert.match(review.with.claude_args, /"maxItems":20/);
   assert.match(review.with.claude_args, /"additionalProperties":false/);
+
+  assert.equal(
+    diagnostics.name,
+    "Report sanitized Claude terminal diagnostics",
+  );
+  assert.equal(diagnostics.if, "${{ always() }}");
+  assert.equal(diagnostics["continue-on-error"], true);
+  assert.equal(
+    diagnostics.env.CLAUDE_EXECUTION_FILE,
+    "${{ steps.claude-review.outputs.execution_file }}",
+  );
+  assert.match(
+    diagnostics.run,
+    /expected="\$RUNNER_TEMP\/claude-execution-output\.json"/,
+  );
+  assert.match(diagnostics.run, /! test -L "\$expected"/);
+  assert.match(diagnostics.run, /bytes <= 2097152/);
+  assert.match(diagnostics.run, /\(\$results \| length\) != 1/);
+  assert.match(diagnostics.run, /\^\[A-Za-z0-9_-\]\{1,64\}\$/);
+  assert.match(diagnostics.run, /\. >= 100 and \. <= 599/);
+  for (const key of [
+    "subtype",
+    "is_error",
+    "terminal_reason",
+    "api_error_status",
+  ]) {
+    assert.match(diagnostics.run, new RegExp(`${key}=`));
+  }
+  assert.doesNotMatch(
+    diagnostics.run,
+    /\.result\b|\.errors\b|\.message\b|\.content\b|\bcat\b/,
+  );
 
   assert.equal(verifyDiffRead.name, "Require a completed exact diff read");
   assert.equal(verifyDiffRead.if, "${{ always() }}");

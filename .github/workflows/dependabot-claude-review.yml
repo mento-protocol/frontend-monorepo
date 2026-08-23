@@ -456,7 +456,8 @@ jobs:
         id: claude-review
         uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1.0.183
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.ANTHROPIC_API_KEY == '' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           github_token: ${{ github.token }}
           prompt: >-
             Review the exact Dependabot pull request
@@ -508,6 +509,36 @@ jobs:
             --setting-sources user
             --strict-mcp-config
             --json-schema '{"type":"object","additionalProperties":false,"required":["schema","repository","pullRequestNumber","headSha","reviewCompleted","verdict","findings"],"properties":{"schema":{"const":"dependabot-claude-review-result:v1"},"repository":{"const":"mento-protocol/frontend-monorepo"},"pullRequestNumber":{"type":"integer","minimum":1},"headSha":{"type":"string","pattern":"^[0-9a-f]{40}$"},"reviewCompleted":{"type":"boolean"},"verdict":{"enum":["clean","findings"]},"findings":{"type":"array","maxItems":20,"items":{"type":"object","additionalProperties":false,"required":["title","path","line","summary"],"properties":{"title":{"type":"string","minLength":1,"maxLength":160},"path":{"type":"string","minLength":1,"maxLength":300},"line":{"type":"integer","minimum":1},"summary":{"type":"string","minLength":1,"maxLength":1000}}}}}}'
+
+      - name: Report sanitized Claude terminal diagnostics
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          CLAUDE_EXECUTION_FILE: ${{ steps.claude-review.outputs.execution_file }}
+        run: |
+          set -u
+          expected="$RUNNER_TEMP/claude-execution-output.json"
+          diagnostic=unavailable
+          if test "$CLAUDE_EXECUTION_FILE" = "$expected" && \
+            test -f "$expected" && ! test -L "$expected"; then
+            bytes="$(wc -c < "$expected" | tr -d ' ')"
+            if [[ "$bytes" =~ ^[0-9]+$ ]] && \
+              (( bytes >= 2 && bytes <= 2097152 )); then
+              diagnostic="$(jq -r '
+                def safe_label:
+                  if type == "string" and test("^[A-Za-z0-9_-]{1,64}$") then . else "unknown" end;
+                def safe_status:
+                  if type == "number" and floor == . and . >= 100 and . <= 599 then tostring else "none" end;
+                (if type == "array" then [.[] | select(type == "object" and .type == "result")] else [] end) as $results |
+                if ($results | length) != 1 then "unavailable"
+                else $results[0] |
+                  "subtype=\(.subtype | safe_label) is_error=\(.is_error == true) terminal_reason=\(.terminal_reason | safe_label) api_error_status=\(.api_error_status | safe_status)"
+                end
+              ' "$expected" 2>/dev/null)" || diagnostic=unavailable
+            fi
+          fi
+          printf 'Claude terminal diagnostics: %s\n' "$diagnostic"
 
       - name: Require a completed exact diff read
         if: ${{ always() }}
