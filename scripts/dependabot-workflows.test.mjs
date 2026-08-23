@@ -124,12 +124,18 @@ const dependabotReview = workflow(dependabotReviewPath);
 const humanReview = workflow(humanReviewPath);
 
 const claudeAction =
-  "anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b";
+  "anthropics/claude-code-action@9d7150bc8a3dae8149739a88019d192b579ad90c";
 const claudeBaseAction =
-  "anthropics/claude-code-action/base-action@be7b93b1907a4abad570368f3c74b6fe3807510b";
+  "anthropics/claude-code-action/base-action@9d7150bc8a3dae8149739a88019d192b579ad90c";
 const claudePluginMarketplace = "./.claude-code-plugin-marketplace";
 const claudeCodeReviewPlugin = `${claudePluginMarketplace}/plugins/code-review`;
 const claudePluginMarketplaceRef = "2bb60696142b493eafaeacfe00eac51d16c50c4f";
+const osvReusableWorkflow =
+  "google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@8deb546fdb875b9996d27d4950be7312dac076a1";
+const osvScannerAction =
+  "google/osv-scanner-action/osv-scanner-action@06b2ab4348248b456ee06c9e953637f55e03504f";
+const osvReporterAction =
+  "google/osv-scanner-action/osv-reporter-action@06b2ab4348248b456ee06c9e953637f55e03504f";
 
 const forbiddenCandidateSurfaces =
   /actions\/(?:download-artifact|upload-artifact|cache)@|cache-dependency-path|gh pr checkout|git (?:checkout|switch|fetch)|node_modules|pnpm install|npm (?:ci|install)|yarn install/;
@@ -405,10 +411,7 @@ test("main pushes publish only deterministic supply-chain baselines", () => {
       contents: "read",
       "security-events": "write",
     });
-    assert.match(
-      sarifJob.uses,
-      /^google\/osv-scanner-action\/\.github\/workflows\/osv-scanner-reusable\.yml@[0-9a-f]{40}$/,
-    );
+    assert.equal(sarifJob.uses, osvReusableWorkflow);
     assert.equal(sarifJob.with["upload-sarif"], true);
   }
   assert.deepEqual(Object.keys(readOnlyOsv.on), ["workflow_call"]);
@@ -431,6 +434,7 @@ test("main pushes publish only deterministic supply-chain baselines", () => {
   const scanner = readOnlySteps.find((step) =>
     step.uses?.startsWith("google/osv-scanner-action/osv-scanner-action@"),
   );
+  assert.equal(scanner.uses, osvScannerAction);
   assert.equal(scanner["continue-on-error"], true);
   assert.match(scanner.with["scan-args"], /--output=results\.json/);
   assert.match(scanner.with["scan-args"], /--format=json/);
@@ -438,6 +442,7 @@ test("main pushes publish only deterministic supply-chain baselines", () => {
   const reporter = readOnlySteps.find((step) =>
     step.uses?.startsWith("google/osv-scanner-action/osv-reporter-action@"),
   );
+  assert.equal(reporter.uses, osvReporterAction);
   assert.match(reporter.with["scan-args"], /--output=results\.sarif/);
   assert.match(reporter.with["scan-args"], /--new=results\.json/);
   assert.match(reporter.with["scan-args"], /--gh-annotations=false/);
@@ -2226,8 +2231,8 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
   assert.equal(printedPagePolicy.status, 0, printedPagePolicy.stderr);
   const pagePolicy = JSON.parse(printedPagePolicy.stdout);
   assert.deepEqual(pagePolicy, {
-    claudeCodeActionRef: "be7b93b1907a4abad570368f3c74b6fe3807510b",
-    claudeCodeVersion: "2.1.220",
+    claudeCodeActionRef: "9d7150bc8a3dae8149739a88019d192b579ad90c",
+    claudeCodeVersion: "2.1.233",
     evidenceMaxLineBytes: 4 * 1024,
     jsonMaxBytes: 12_500,
     jsonMaxLines: 2_000,

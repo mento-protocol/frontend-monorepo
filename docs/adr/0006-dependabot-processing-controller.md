@@ -118,7 +118,7 @@ A paired `PostToolUse` guard validates the same successful, complete foreground
 diff result, seals the original bytes in a
 `dependabot-claude-review-tool-completed:v2` receipt, and replaces the
 model-visible Bash result with one `text/plain` document containing those exact
-bytes. This document path bypasses Claude Code 2.1.220's 30,000-character
+bytes. This document path bypasses Claude Code 2.1.233's 30,000-character
 text-result persistence, which would otherwise leave the restricted reviewer a
 short persisted preview it cannot reopen. A later no-token step requires the v2
 receipt. Missing, failed, interrupted, empty, or persisted/truncated output is

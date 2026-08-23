@@ -3379,9 +3379,9 @@ test("repair evidence guard pages JSON above its exact token-safe threshold", ()
   const policy = JSON.parse(printed.stdout);
   assert.equal(
     policy.claudeCodeActionRef,
-    "be7b93b1907a4abad570368f3c74b6fe3807510b",
+    "9d7150bc8a3dae8149739a88019d192b579ad90c",
   );
-  assert.equal(policy.claudeCodeVersion, "2.1.220");
+  assert.equal(policy.claudeCodeVersion, "2.1.233");
   assert.equal(policy.evidenceMaxLineBytes, 4 * 1024);
   assert.equal(policy.jsonMaxUnpagedBytes, 12_500);
   assert.equal(policy.jsonMaxBytes, 12_500);

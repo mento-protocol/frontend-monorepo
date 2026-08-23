@@ -32,7 +32,7 @@ const MAX_READ_LINES = 2_000;
 const MAX_GREP_HEAD_LIMIT = 5;
 const MAX_GREP_CONTEXT = 1;
 const MAX_EVIDENCE_LINE_BYTES = 4 * 1024;
-// The production action installs Claude Code 2.1.220. Its Read implementation
+// The production action installs Claude Code 2.1.233. Its Read implementation
 // caps output at 25,000 tokens and skips the exact token-count request only
 // while selected text stays at or below one quarter of that cap by its
 // four-code-unit approximation. Valid UTF-8 text never has more UTF-16 code
@@ -63,8 +63,8 @@ const MAX_SERIALIZED_READ_RESPONSE_BYTES =
   MAX_READ_PAGE_BYTES * 6 + MAX_EVIDENCE_PATH_BYTES * 6 + 4 * 1024;
 const MAX_HOOK_INPUT_BYTES = 256 * 1024;
 const READ_PAGE_POLICY = Object.freeze({
-  claudeCodeActionRef: "be7b93b1907a4abad570368f3c74b6fe3807510b",
-  claudeCodeVersion: "2.1.220",
+  claudeCodeActionRef: "9d7150bc8a3dae8149739a88019d192b579ad90c",
+  claudeCodeVersion: "2.1.233",
   evidenceMaxLineBytes: MAX_EVIDENCE_LINE_BYTES,
   jsonMaxBytes: MAX_JSON_READ_PAGE_BYTES,
   jsonMaxLines: MAX_JSON_PAGED_READ_LINES,
