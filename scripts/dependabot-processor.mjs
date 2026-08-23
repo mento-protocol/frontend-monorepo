@@ -703,6 +703,12 @@ function trustedHuman(actor) {
   );
 }
 
+function dependabotBranchMaintenanceComment(body) {
+  return ["@dependabot rebase", "@dependabot recreate"].includes(
+    String(body ?? "").trim(),
+  );
+}
+
 function malformedFeedbackActor(actor) {
   return (
     actor.login.length === 0 ||
@@ -3327,7 +3333,10 @@ export function classifyDependabotFeedback({
       continue;
     }
     if (actor.type === "User") {
-      if (trustedHuman(actor)) {
+      if (
+        trustedHuman(actor) &&
+        !dependabotBranchMaintenanceComment(comment?.body)
+      ) {
         addBlocker({
           body: comment?.body,
           id: comment.id,

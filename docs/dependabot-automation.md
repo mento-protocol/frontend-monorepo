@@ -343,6 +343,11 @@ pairs. It caches exact historical commit evidence within the processor run.
 Any collection cap, pagination ambiguity, malformed SHA/envelope, unknown
 authority-bearing bot, or identity drift fails closed.
 
+The controller treats an exact `@dependabot rebase` or `@dependabot recreate`
+issue comment from a trusted maintainer as a branch-maintenance command. It does
+not treat these two commands as vetoes. Added text, other Dependabot commands,
+and all other trusted-maintainer issue comments remain vetoes.
+
 The controller admits a force-pushed PR only when all events form one complete
 native Dependabot rewrite chain. Every event must bind the exact PR ref, the
 Dependabot bot account ID `49699333`, bot type, time, unique event ID, and valid
