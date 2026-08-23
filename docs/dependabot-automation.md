@@ -225,7 +225,10 @@ repair packet.
 The reviewer reports a transitive dependency change only when the diff shows a
 concrete incompatible constraint or repository defect. An updated direct
 package's declared internal dependency is not a separate finding only because
-its version changed or it might regress.
+its version changed or it might regress. Added registry metadata, including a
+deprecation notice, for an unchanged package resolution is not a finding unless
+the updated dependency makes that package newly reachable or creates a concrete
+incompatibility.
 
 Dependabot review and Claude repair prefer the `ANTHROPIC_API_KEY` secret. They
 use `CLAUDE_CODE_OAUTH_TOKEN` only when the API-key secret is absent. A bounded

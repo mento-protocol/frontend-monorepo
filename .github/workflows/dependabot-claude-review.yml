@@ -476,7 +476,10 @@ jobs:
             incompatible constraint or a specific repository defect. Do not
             report an updated direct package's declared internal dependency as
             a separate finding only because its version changed or it might
-            regress.
+            regress. Do not report added registry metadata, including a
+            deprecation notice, for a package whose resolved version and
+            integrity are unchanged unless the updated dependency makes that
+            package newly reachable or creates a concrete incompatibility.
           allowed_bots: ${{ needs.preflight.outputs.review_actor_login }}
           settings: |
             {
