@@ -3500,10 +3500,17 @@ function selectRecreateGenerationBoundary({
       const eventCreatedAt = feedbackTimestamp(event?.createdAt);
       return (
         eventCreatedAt !== null &&
-        Date.parse(eventCreatedAt) > Date.parse(comment.updatedAt)
+        Date.parse(eventCreatedAt) >= Date.parse(comment.updatedAt)
       );
     });
-    if (nextEventIndex >= 0) {
+    const nextEventCreatedAt = feedbackTimestamp(
+      events[nextEventIndex]?.createdAt,
+    );
+    if (
+      nextEventIndex >= 0 &&
+      nextEventCreatedAt !== null &&
+      Date.parse(nextEventCreatedAt) > Date.parse(comment.updatedAt)
+    ) {
       generationBoundaryIndex = nextEventIndex;
       recreateBoundary = true;
     }

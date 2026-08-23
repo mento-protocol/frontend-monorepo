@@ -6939,9 +6939,18 @@ test("an exact trusted recreate starts a native generation after poisoned histor
       },
     ],
     [
-      "command and rewrite have equal-resolution timestamps",
+      "equal-resolution rewrite before a later rewrite",
       (current) => {
+        current.feedback.forcePushEventCount = 3;
         current.feedback.forcePushEvents[1].createdAt = "2026-08-10T09:00:00Z";
+        current.feedback.forcePushEvents[1].afterSha = SECOND_HEAD_SHA;
+        current.feedback.forcePushEvents.push({
+          ...current.feedback.forcePushEvents[1],
+          afterSha: HEAD_SHA,
+          beforeSha: SECOND_HEAD_SHA,
+          createdAt: "2026-08-10T10:00:00Z",
+          eventId: "force-push-event-3",
+        });
       },
     ],
     [
