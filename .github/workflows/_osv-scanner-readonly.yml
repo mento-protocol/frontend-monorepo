@@ -1,7 +1,7 @@
 name: Read-only OSV Scanner
 
-# The upstream v2.3.8 reusable workflow declares `security-events: write` at
-# workflow scope. GitHub rejects a read-only caller before it evaluates the
+# The upstream v2.5.0 reusable workflow declares `security-events: write` at
+# job scope. GitHub rejects a read-only caller before it evaluates the
 # false `upload-sarif` input. This adapter keeps PR scans read-only and leaves
 # SARIF publication in the separate scheduled/manual jobs.
 
@@ -32,7 +32,7 @@ jobs:
           persist-credentials: false
 
       - name: Scan the selected lockfile
-        uses: google/osv-scanner-action/osv-scanner-action@8dc09193bb540e09b23da07ad7e30bd33bf87018 # v2.3.8
+        uses: google/osv-scanner-action/osv-scanner-action@06b2ab4348248b456ee06c9e953637f55e03504f # v2.5.0
         with:
           scan-args: |-
             --output=results.json
@@ -41,7 +41,7 @@ jobs:
         continue-on-error: true
 
       - name: Fail on detected vulnerabilities
-        uses: google/osv-scanner-action/osv-reporter-action@8dc09193bb540e09b23da07ad7e30bd33bf87018 # v2.3.8
+        uses: google/osv-scanner-action/osv-reporter-action@06b2ab4348248b456ee06c9e953637f55e03504f # v2.5.0
         with:
           scan-args: |-
             --output=results.sarif

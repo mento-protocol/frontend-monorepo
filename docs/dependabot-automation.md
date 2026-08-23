@@ -208,7 +208,7 @@ timed-out, empty, or persisted/truncated output, and seals a digest-bound
 `dependabot-claude-review-tool-completed:v2` receipt over the original diff.
 After sealing, the hook replaces the model-visible Bash result with one
 `text/plain` document whose data is the exact validated stdout. This document
-path bypasses Claude Code 2.1.220's 30,000-character text-result persistence,
+path bypasses Claude Code 2.1.233's 30,000-character text-result persistence,
 which would otherwise replace a large successful result with a short persisted
 preview that the restricted reviewer cannot reopen. A later no-token step
 requires the v2 receipt, so a missing or failed diff cannot be upgraded by
