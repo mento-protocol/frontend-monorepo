@@ -12362,6 +12362,17 @@ test("live feedback verifies maintenance authors by repository permission", asyn
     completed: 9,
     maxActive: 4,
   });
+
+  const cappedTracker = { active: 0, completed: 0, maxActive: 0 };
+  await assert.rejects(
+    collect({ authorCount: 21, lookupTracker: cappedTracker }),
+    /permission lookup cap exceeded/i,
+  );
+  assert.deepEqual(cappedTracker, {
+    active: 0,
+    completed: 0,
+    maxActive: 0,
+  });
 });
 
 test("live feedback collection marks an over-cap thread instead of dropping replies", async () => {

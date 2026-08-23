@@ -71,6 +71,7 @@ const REPAIR_LINEAGE_COMMIT_LIMIT = 100;
 const REPAIR_LINEAGE_CHECK_CONCURRENCY = 4;
 const CHECK_SOURCE_RESOLUTION_CONCURRENCY = 8;
 const MAINTENANCE_PERMISSION_LOOKUP_CONCURRENCY = 4;
+const MAINTENANCE_PERMISSION_LOOKUP_LIMIT = 20;
 const REFRESH_SUCCESSOR_POLL_ATTEMPTS = 5;
 const REFRESH_SNAPSHOT_RACE_ATTEMPTS = 5;
 const REFRESH_SUCCESSOR_POLL_INTERVAL_MS = 2_000;
@@ -6220,6 +6221,10 @@ export function createLiveGitHubAdapter({
     }
     const repositoryPermissionByUserId = new Map();
     const maintenanceAuthorEntries = [...maintenanceAuthors.values()];
+    invariant(
+      maintenanceAuthorEntries.length <= MAINTENANCE_PERMISSION_LOOKUP_LIMIT,
+      "Dependabot maintenance author permission lookup cap exceeded",
+    );
     for (
       let index = 0;
       index < maintenanceAuthorEntries.length;
