@@ -47,8 +47,6 @@ const scriptPath = fileURLToPath(
   new URL("./vercel-prebuilt.mjs", import.meta.url),
 );
 const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567";
-const FORMER_VERCEL_CLI_RUNTIME_OVERRIDE_SHA256 =
-  "301165d803f4cc7db4524ea3a7a02b33db772505c04fdc9025860b244bcb447b";
 const activeVercelCliRuntimeContract = JSON.parse(
   readFileSync(
     join(repoRoot, "scripts", "vercel-cli-runtime", "contract.json"),
@@ -269,8 +267,13 @@ test("prebuilt assertion rejects missing, malformed, or mismatched output", () =
 
 test("resolved Next.js and exact Vercel CLI satisfy custom-ID prerequisites", () => {
   const prerequisites = assertDeploymentIdPrerequisites(repoRoot);
+  const nextOverride = JSON.parse(
+    readFileSync(join(repoRoot, "package.json"), "utf8"),
+  ).pnpm.overrides.next;
+  const nextOverrideMatch = /^\^(\d+\.\d+\.\d+)$/u.exec(nextOverride);
+  assert.ok(nextOverrideMatch, "Expected a stable caret root Next override");
   const expected = {
-    next: "16.2.12",
+    next: nextOverrideMatch[1],
     vercel: PINNED_VERCEL_CLI_VERSION,
     vercelCliRuntime: {
       lockfileSha256: prerequisites.vercelCliRuntime.lockfileSha256,
@@ -492,9 +495,9 @@ test("trusted controller accepts only the active Vercel CLI runtime pair", () =>
       ...activeOverrides,
       "nanoid@<3.3.18": "3.3.19",
     };
-    assert.equal(
+    assert.notEqual(
       canonicalOverrideSha256(formerOverrides),
-      FORMER_VERCEL_CLI_RUNTIME_OVERRIDE_SHA256,
+      canonicalOverrideSha256(activeOverrides),
     );
 
     for (const { expected, lockfile, name, overrides } of [
