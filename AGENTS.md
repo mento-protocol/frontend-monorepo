@@ -101,6 +101,18 @@ metadata/ecosystems; untrusted force-push histories; manual vetoes; unresolved
 feedback; and exhausted repair attempts remain blocked. A complete
 native-to-native Dependabot rewrite chain starts a new generation. Every event,
 commit, actor, ref, and SHA in that chain must pass the exact controller policy.
+An exact `@dependabot rebase` or `@dependabot recreate` issue comment from a
+trusted maintainer is a branch-maintenance command, not a veto. Every other
+trusted-maintainer issue comment remains a veto. Only an exact, unchanged
+`@dependabot recreate` comment can start a new native generation after poisoned
+branch history. Its creation and update timestamps must match. The next and all
+later force-push events must have later timestamps. Their destinations must
+remain an exact signed Dependabot chain. `@dependabot rebase` cannot reset that
+history. For these two exact commands only, the collector also trusts a `User`
+whose live repository permission is `admin` or `write`. It binds the permission
+response to the comment author's numeric ID, login, and type. A missing, `read`,
+or malformed permission response remains untrusted. All other issue-comment
+feedback continues to use the author-association policy.
 
 Configure the repository-scoped Prepare App with variables
 `DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,

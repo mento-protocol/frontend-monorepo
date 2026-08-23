@@ -380,6 +380,36 @@ jobs:
             ) {
               throw new Error("Invalid Dependabot evaluation result");
             }
+            console.log(
+              JSON.stringify({
+                event: "dependabot-evaluation-summary",
+                prepareCandidate: candidate,
+                serialization: {
+                  ready: result.serialization?.ready,
+                  reason: result.serialization?.reason,
+                  selectedDisposition:
+                    result.serialization?.selectedDisposition,
+                  selectedPullRequestNumber:
+                    result.serialization?.selectedPullRequestNumber,
+                },
+                evaluations: result.evaluations.map((evaluation) => ({
+                  branchMaintenanceCommentCount:
+                    evaluation?.feedback?.branchMaintenanceCommentCount,
+                  disposition: evaluation?.disposition,
+                  feedbackClear: evaluation?.feedback?.clear,
+                  feedbackReasons: evaluation?.feedback?.reasons,
+                  forcePushGenerationKind:
+                    evaluation?.feedback?.forcePushGenerationKind,
+                  forcePushGenerationReasons:
+                    evaluation?.feedback?.forcePushGenerationReasons,
+                  forcePushEventCount:
+                    evaluation?.feedback?.forcePushEventCount,
+                  headSha: evaluation?.headSha,
+                  prepareAuthority: evaluation?.identity?.prepareAuthority,
+                  pullRequestNumber: evaluation?.pullRequestNumber,
+                })),
+              }),
+            );
             appendFileSync(
               process.env.GITHUB_OUTPUT,
               `refresh_pending=${candidate?.disposition === "refresh-pending"}\n` +

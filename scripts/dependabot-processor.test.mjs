@@ -4692,6 +4692,78 @@ test("trusted human prose and unknown bots remove auto authority without letting
   assert.equal(result.blockerCount, 3);
 });
 
+test("exact trusted maintainer Dependabot branch commands do not create a veto", () => {
+  const result = classifyDependabotFeedback({
+    headSha: HEAD_SHA,
+    issueComments: [
+      {
+        actor: { association: "MEMBER", login: "alice", type: "User" },
+        body: "@dependabot recreate",
+        createdAt: "2026-08-10T08:00:00Z",
+        id: 31,
+        updatedAt: "2026-08-10T08:00:00Z",
+      },
+      {
+        actor: { association: "OWNER", login: "bob", type: "User" },
+        body: "\n@dependabot rebase\n",
+        createdAt: "2026-08-10T09:00:00Z",
+        id: 32,
+        updatedAt: "2026-08-10T09:00:00Z",
+      },
+      {
+        actor: { association: "MEMBER", login: "alice", type: "User" },
+        body: "@dependabot recreate please",
+        id: 33,
+      },
+      {
+        actor: { association: "MEMBER", login: "alice", type: "User" },
+        body: "@dependabot merge",
+        id: 34,
+      },
+      {
+        actor: { association: "MEMBER", login: "alice", type: "User" },
+        body: "Please hold this update.",
+        id: 35,
+      },
+    ],
+  });
+  assert.deepEqual(result.reasons, ["maintainer-issue-comment"]);
+  assert.equal(result.blockerCount, 3);
+  assert.deepEqual(
+    result.branchMaintenanceComments.map(({ body, id }) => ({ body, id })),
+    [
+      { body: "@dependabot recreate", id: 31 },
+      { body: "@dependabot rebase", id: 32 },
+    ],
+  );
+});
+
+test("edited or malformed trusted branch commands remain maintainer vetoes", () => {
+  const result = classifyDependabotFeedback({
+    headSha: HEAD_SHA,
+    issueComments: [
+      {
+        actor: { association: "MEMBER", login: "alice", type: "User" },
+        body: "@dependabot recreate",
+        createdAt: "2026-08-10T08:00:00Z",
+        id: 31,
+        updatedAt: "2026-08-10T08:01:00Z",
+      },
+      {
+        actor: { association: "OWNER", login: "bob", type: "User" },
+        body: "@dependabot rebase",
+        createdAt: "2026-08-10T09:00:00Z",
+        id: null,
+        updatedAt: "2026-08-10T09:00:00Z",
+      },
+    ],
+  });
+
+  assert.deepEqual(result.branchMaintenanceComments, []);
+  assert.equal(result.blockerCount, 2);
+  assert.deepEqual(result.reasons, ["maintainer-issue-comment"]);
+});
+
 test("bot informational issue comments require their exact author and body predicates", () => {
   const comments = [
     {
@@ -6792,6 +6864,144 @@ test("a continuous Dependabot rewrite accepts equal-resolution event times", () 
   assert.equal(evaluation.identity.prepareAuthority, true);
   assert.equal(evaluation.disposition, "repair-required");
   assert.notEqual(evaluation.repairPacket, null);
+});
+
+test("an exact trusted recreate starts a native generation after poisoned history", () => {
+  const feedback = nativeForcePushFeedback();
+  feedback.branchMaintenanceComments = [
+    {
+      actor: { association: "MEMBER", login: "alice", type: "User" },
+      body: "@dependabot recreate",
+      createdAt: "2026-08-10T09:00:00Z",
+      id: 41,
+      updatedAt: "2026-08-10T09:00:00Z",
+    },
+  ];
+  feedback.forcePushEventCount = 2;
+  feedback.forcePushEvents = [
+    {
+      ...feedback.forcePushEvents[0],
+      afterSha: SECOND_HEAD_SHA,
+      createdAt: "2026-08-10T08:00:00Z",
+    },
+    {
+      ...feedback.forcePushEvents[0],
+      beforeSha: MERGE_SHA,
+      createdAt: "2026-08-10T10:00:00Z",
+      eventId: "force-push-event-2",
+    },
+  ];
+  feedback.forcePushCommits = [
+    nativeDependabotCommit(OTHER_SHA, MERGE_SHA),
+    nativeDependabotCommit(SECOND_HEAD_SHA),
+    preparedCommit(MERGE_SHA, BASE_SHA),
+    nativeDependabotCommit(HEAD_SHA),
+  ];
+  const rewritten = snapshot({
+    checks: completeChecks({ conclusions: { ci: "failure" } }),
+    commits: [nativeDependabotCommit(HEAD_SHA)],
+    feedback,
+    metadata: {
+      ...snapshot().metadata,
+      immutableEvidence: {
+        ...snapshot().metadata.immutableEvidence,
+        seedCommitSha: HEAD_SHA,
+        seedCommitTrusted: true,
+      },
+    },
+    pullRequest: { author: DEPENDABOT_ACTOR },
+    repairHistoryChecks: [],
+  });
+
+  const evaluation = evaluateDependabotPullRequest(rewritten, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(evaluation.feedback.forcePushGenerationKind, "native");
+  assert.equal(evaluation.feedback.forcePushVeto, false);
+  assert.equal(evaluation.identity.prepareAuthority, true);
+  assert.equal(evaluation.disposition, "repair-required");
+
+  const invalidBoundaries = [
+    [
+      "rebase command",
+      (current) => {
+        current.feedback.branchMaintenanceComments[0].body =
+          "@dependabot rebase";
+      },
+    ],
+    [
+      "comment edited after rewrite",
+      (current) => {
+        current.feedback.branchMaintenanceComments[0].updatedAt =
+          "2026-08-10T11:00:00Z";
+      },
+    ],
+    [
+      "equal-resolution rewrite before a later rewrite",
+      (current) => {
+        current.feedback.forcePushEventCount = 3;
+        current.feedback.forcePushEvents[1].createdAt = "2026-08-10T09:00:00Z";
+        current.feedback.forcePushEvents[1].afterSha = SECOND_HEAD_SHA;
+        current.feedback.forcePushEvents.push({
+          ...current.feedback.forcePushEvents[1],
+          afterSha: HEAD_SHA,
+          beforeSha: SECOND_HEAD_SHA,
+          createdAt: "2026-08-10T10:00:00Z",
+          eventId: "force-push-event-3",
+        });
+      },
+    ],
+    [
+      "untrusted commenter",
+      (current) => {
+        current.feedback.branchMaintenanceComments[0].actor.association =
+          "NONE";
+      },
+    ],
+    [
+      "non-Dependabot destination event",
+      (current) => {
+        current.feedback.forcePushEvents[1].actorId = 7;
+        current.feedback.forcePushEvents[1].actorLogin = "alice";
+        current.feedback.forcePushEvents[1].actorType = "User";
+      },
+    ],
+  ];
+  for (const [label, mutate] of invalidBoundaries) {
+    const current = structuredClone(rewritten);
+    mutate(current);
+    const rejected = evaluateDependabotPullRequest(current, {
+      mode: "prepare",
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    });
+    assert.equal(rejected.feedback.forcePushVeto, true, label);
+    assert.equal(rejected.identity.prepareAuthority, false, label);
+    assert.equal(rejected.disposition, "manual-veto-or-feedback", label);
+  }
+
+  const boundaryReplay = structuredClone(rewritten);
+  boundaryReplay.feedback.forcePushEventCount = 3;
+  boundaryReplay.feedback.forcePushEvents.push({
+    ...boundaryReplay.feedback.forcePushEvents[1],
+    afterSha: MERGE_SHA,
+    beforeSha: HEAD_SHA,
+    createdAt: "2026-08-10T11:00:00Z",
+    eventId: "force-push-event-3",
+  });
+  const replayed = evaluateDependabotPullRequest(boundaryReplay, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(replayed.feedback.forcePushVeto, true);
+  assert.ok(
+    replayed.feedback.forcePushGenerationReasons.includes(
+      "invalid-force-push-event-chain",
+    ),
+  );
 });
 
 test("human, spoofed, malformed, mixed, and unbound rewrites remain vetoed", () => {
@@ -12018,6 +12228,153 @@ test("live feedback collection paginates threads, top-level reviews, and issue c
   ]);
 });
 
+test("live feedback verifies maintenance authors by repository permission", async () => {
+  const maintenanceUser = {
+    id: 117495,
+    login: "maintainer",
+    type: "User",
+  };
+  const collect = async ({
+    authorCount = 1,
+    lookupTracker = null,
+    permission = "admin",
+    permissionStatus = 200,
+  } = {}) => {
+    const maintenanceUsers = Array.from({ length: authorCount }, (_, index) =>
+      index === 0
+        ? maintenanceUser
+        : {
+            id: maintenanceUser.id + index,
+            login: `maintainer-${index + 1}`,
+            type: "User",
+          },
+    );
+    const fetchImpl = async (url) => {
+      const parsed = new URL(url);
+      if (parsed.pathname === "/graphql") {
+        return new Response(
+          JSON.stringify({
+            data: {
+              repository: {
+                pullRequest: {
+                  autoMergeRequest: null,
+                  headRefOid: HEAD_SHA,
+                  id: "PR_node",
+                  isDraft: false,
+                  mergeStateStatus: "CLEAN",
+                  reviewDecision: "APPROVED",
+                  reviewThreads: {
+                    nodes: [],
+                    pageInfo: { endCursor: null, hasNextPage: false },
+                  },
+                  updatedAt: "2026-08-10T10:00:00Z",
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      if (parsed.pathname === `/repos/${REPOSITORY}/pulls/123/reviews`) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (parsed.pathname === `/repos/${REPOSITORY}/issues/123/comments`) {
+        return new Response(
+          JSON.stringify(
+            maintenanceUsers.map((user, index) => ({
+              author_association: "NONE",
+              body: "@dependabot recreate",
+              created_at: "2026-08-10T10:00:00Z",
+              id: 41 + index,
+              updated_at: "2026-08-10T10:00:00Z",
+              user,
+            })),
+          ),
+          { status: 200 },
+        );
+      }
+      const permissionPrefix = `/repos/${REPOSITORY}/collaborators/`;
+      if (
+        parsed.pathname.startsWith(permissionPrefix) &&
+        parsed.pathname.endsWith("/permission")
+      ) {
+        const login = decodeURIComponent(
+          parsed.pathname.slice(permissionPrefix.length, -"/permission".length),
+        );
+        const user = maintenanceUsers.find(
+          (candidate) => candidate.login === login,
+        );
+        assert.ok(user, `Unexpected permission author: ${login}`);
+        if (lookupTracker !== null) {
+          lookupTracker.active += 1;
+          lookupTracker.maxActive = Math.max(
+            lookupTracker.maxActive,
+            lookupTracker.active,
+          );
+          await new Promise((resolve) => setTimeout(resolve, 1));
+          lookupTracker.active -= 1;
+          lookupTracker.completed += 1;
+        }
+        return new Response(JSON.stringify({ permission, user }), {
+          status: permissionStatus,
+        });
+      }
+      assert.fail(`Unexpected request: ${url}`);
+    };
+    return createLiveGitHubAdapter({
+      fetchImpl,
+      token: "test-token",
+    }).getFeedback(REPOSITORY, 123);
+  };
+
+  const admin = await collect();
+  assert.deepEqual(admin.branchMaintenanceComments, [
+    {
+      actor: {
+        association: "NONE",
+        login: "maintainer",
+        repositoryPermission: "admin",
+        type: "User",
+      },
+      body: "@dependabot recreate",
+      createdAt: "2026-08-10T10:00:00Z",
+      id: 41,
+      updatedAt: "2026-08-10T10:00:00Z",
+    },
+  ]);
+
+  for (const options of [{ permission: "read" }, { permissionStatus: 404 }]) {
+    const untrusted = await collect(options);
+    assert.deepEqual(untrusted.branchMaintenanceComments, []);
+    assert.deepEqual(untrusted.reasons, []);
+  }
+
+  await assert.rejects(
+    collect({ permission: "maintain" }),
+    /repository permission response/i,
+  );
+
+  const lookupTracker = { active: 0, completed: 0, maxActive: 0 };
+  const bounded = await collect({ authorCount: 9, lookupTracker });
+  assert.equal(bounded.branchMaintenanceComments.length, 9);
+  assert.deepEqual(lookupTracker, {
+    active: 0,
+    completed: 9,
+    maxActive: 4,
+  });
+
+  const cappedTracker = { active: 0, completed: 0, maxActive: 0 };
+  await assert.rejects(
+    collect({ authorCount: 21, lookupTracker: cappedTracker }),
+    /permission lookup cap exceeded/i,
+  );
+  assert.deepEqual(cappedTracker, {
+    active: 0,
+    completed: 0,
+    maxActive: 0,
+  });
+});
+
 test("live feedback collection marks an over-cap thread instead of dropping replies", async () => {
   const fetchImpl = async (url) => {
     if (url.endsWith("/graphql")) {
@@ -12111,6 +12468,25 @@ test("live durable intervention evidence preserves the force-push chain and surv
       assert.match(query, /DependabotForcePushHistory/);
       return new Response(
         JSON.stringify(forcePushTimelinePayload(forcePushEvents)),
+        { status: 200 },
+      );
+    }
+    const commitSha = new RegExp(
+      `^/repos/${REPOSITORY}/commits/([0-9a-f]{40})$`,
+    ).exec(parsed.pathname)?.[1];
+    if (commitSha) {
+      return new Response(
+        JSON.stringify({
+          author: DEPENDABOT_ACTOR,
+          commit: { verification: { reason: "valid", verified: true } },
+          committer: {
+            id: GITHUB_SYSTEM_COMMITTER.committerId,
+            login: GITHUB_SYSTEM_COMMITTER.committerLogin,
+            type: GITHUB_SYSTEM_COMMITTER.committerType,
+          },
+          parents: [{ sha: BASE_SHA }],
+          sha: commitSha,
+        }),
         { status: 200 },
       );
     }
@@ -12276,6 +12652,115 @@ test("live native force-push collection binds every commit in one continuous gen
     snapshot({
       commits: [nativeDependabotCommit(HEAD_SHA)],
       feedback: evidence,
+      metadata: {
+        ...snapshot().metadata,
+        immutableEvidence: {
+          ...snapshot().metadata.immutableEvidence,
+          seedCommitSha: HEAD_SHA,
+          seedCommitTrusted: true,
+        },
+      },
+      pullRequest: { author: DEPENDABOT_ACTOR },
+    }),
+    { mode: "prepare", repository: REPOSITORY },
+  );
+  assert.equal(evaluation.feedback.forcePushGenerationKind, "native");
+  assert.equal(evaluation.identity.prepareAuthority, true);
+});
+
+test("live collection can select a native recreate generation after a non-Dependabot prefix", async () => {
+  const headRef = "dependabot/github_actions/github-actions-routine-123";
+  const forcePushEvents = [
+    ...Array.from({ length: 49 }, (_, index) => ({
+      actor: {
+        __typename: "User",
+        databaseId: 7,
+        login: "alice",
+      },
+      afterCommit: {
+        oid: (index * 2 + 2).toString(16).padStart(40, "0"),
+      },
+      beforeCommit: {
+        oid: (index * 2 + 1).toString(16).padStart(40, "0"),
+      },
+      createdAt: new Date(
+        Date.parse("2026-08-10T08:00:00Z") + index * 1_000,
+      ).toISOString(),
+      id: `force-push-event-${index + 1}`,
+      ref: { name: headRef, prefix: "refs/heads/" },
+    })),
+    {
+      actor: {
+        __typename: "Bot",
+        databaseId: DEPENDABOT_ACTOR.id,
+        login: "dependabot",
+      },
+      afterCommit: { oid: HEAD_SHA },
+      beforeCommit: { oid: MERGE_SHA },
+      createdAt: "2026-08-10T10:00:00Z",
+      id: "force-push-event-50",
+      ref: { name: headRef, prefix: "refs/heads/" },
+    },
+  ];
+  const branchMaintenanceComments = [
+    {
+      actor: { association: "MEMBER", login: "bob", type: "User" },
+      body: "@dependabot recreate",
+      createdAt: "2026-08-10T09:00:00Z",
+      id: 41,
+      updatedAt: "2026-08-10T09:00:00Z",
+    },
+  ];
+  const fetchImpl = async (url, options = {}) => {
+    const path = new URL(url).pathname;
+    if (path === "/graphql") {
+      const { query } = JSON.parse(options.body);
+      assert.match(query, /DependabotForcePushHistory/);
+      return new Response(
+        JSON.stringify(forcePushTimelinePayload(forcePushEvents)),
+        { status: 200 },
+      );
+    }
+    if (path === `/repos/${REPOSITORY}/issues/123/events`) {
+      return new Response(JSON.stringify([]), { status: 200 });
+    }
+    const commitSha = new RegExp(
+      `^/repos/${REPOSITORY}/commits/([0-9a-f]{40})$`,
+    ).exec(path)?.[1];
+    if (commitSha) {
+      return new Response(
+        JSON.stringify({
+          author: DEPENDABOT_ACTOR,
+          commit: { verification: { reason: "valid", verified: true } },
+          committer: {
+            id: GITHUB_SYSTEM_COMMITTER.committerId,
+            login: GITHUB_SYSTEM_COMMITTER.committerLogin,
+            type: GITHUB_SYSTEM_COMMITTER.committerType,
+          },
+          parents: [{ sha: BASE_SHA }],
+          sha: commitSha,
+        }),
+        { status: 200 },
+      );
+    }
+    assert.fail(`Unexpected request: ${url}`);
+  };
+  const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
+  const feedback = await adapter.getHumanCloseEvidence(
+    REPOSITORY,
+    123,
+    branchMaintenanceComments,
+  );
+  feedback.branchMaintenanceComments = branchMaintenanceComments;
+
+  assert.deepEqual(
+    feedback.forcePushCommits.map(({ sha }) => sha),
+    [HEAD_SHA],
+  );
+  const evaluation = evaluateDependabotPullRequest(
+    snapshot({
+      commits: [nativeDependabotCommit(HEAD_SHA)],
+      feedback,
       metadata: {
         ...snapshot().metadata,
         immutableEvidence: {
