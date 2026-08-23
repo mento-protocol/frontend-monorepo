@@ -664,11 +664,19 @@ test("npm group routing isolates sensitive dependencies and covers the workspace
 
 test("pnpm release-age exclusions stay exact and bounded", () => {
   const workspace = parse(read("pnpm-workspace.yaml"), { uniqueKeys: true });
+  const turboReleaseAgeExclusions = [
+    "turbo@2.10.11",
+    "@turbo/darwin-64@2.10.11",
+    "@turbo/darwin-arm64@2.10.11",
+    "@turbo/linux-64@2.10.11",
+    "@turbo/linux-arm64@2.10.11",
+    "@turbo/windows-64@2.10.11",
+    "@turbo/windows-arm64@2.10.11",
+  ];
 
   assert.deepEqual(workspace.minimumReleaseAgeExclude, [
     "@mento-protocol/mento-sdk@3.4.0",
-    "turbo@2.10.11",
-    "@turbo/linux-64@2.10.11",
+    ...turboReleaseAgeExclusions,
   ]);
   assert.equal(
     workspace.catalog["@mento-protocol/mento-sdk"],
@@ -677,14 +685,12 @@ test("pnpm release-age exclusions stay exact and bounded", () => {
   );
 
   const lockfile = parse(read("pnpm-lock.yaml"), { uniqueKeys: true });
-  assert.ok(
-    lockfile.packages["turbo@2.10.11"],
-    "remove the release-age exclusion when the reviewed lock entry changes",
-  );
-  assert.ok(
-    lockfile.packages["@turbo/linux-64@2.10.11"],
-    "remove the Linux release-age exclusion when the reviewed lock entry changes",
-  );
+  for (const packageSelector of turboReleaseAgeExclusions) {
+    assert.ok(
+      lockfile.packages[packageSelector],
+      `remove the release-age exclusion when ${packageSelector} leaves the reviewed lockfile`,
+    );
+  }
 });
 
 test("Wagmi paths share one use-sync-external-store peer snapshot", () => {
