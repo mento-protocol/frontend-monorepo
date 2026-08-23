@@ -695,6 +695,7 @@ test("pnpm release-age exclusions stay exact and bounded", () => {
 
 test("Wormhole Connect allows the reviewed Lucide 1.x catalog release", () => {
   const appManifest = JSON.parse(read("apps/app.mento.org/package.json"));
+  const uiManifest = JSON.parse(read("packages/ui/package.json"));
   const workspace = parse(read("pnpm-workspace.yaml"), { uniqueKeys: true });
   const lockfile = parse(read("pnpm-lock.yaml"), { uniqueKeys: true });
   const appLucide =
@@ -704,10 +705,13 @@ test("Wormhole Connect allows the reviewed Lucide 1.x catalog release", () => {
   const wormholeSnapshots = Object.entries(lockfile.snapshots).filter(([key]) =>
     key.startsWith("@wormhole-foundation/wormhole-connect@5.1.0("),
   );
+  const approvedResolvedLucide = /^1\.31\.0(?:\(|$)/;
 
   assert.equal(appManifest.dependencies["lucide-react"], "catalog:");
+  assert.equal(uiManifest.dependencies["lucide-react"], "^1.28.0");
+  assert.equal(workspace.catalog["lucide-react"], "^1.28.0");
   assert.equal(appLucide.specifier, "catalog:");
-  assert.match(appLucide.version, /^1\./);
+  assert.match(appLucide.version, approvedResolvedLucide);
   assert.equal(wormholePackage.peerDependencies["lucide-react"], "^0.554.0");
   assert.equal(
     workspace.peerDependencyRules.allowedVersions[
@@ -716,7 +720,10 @@ test("Wormhole Connect allows the reviewed Lucide 1.x catalog release", () => {
     "^1.28.0",
   );
   assert.equal(wormholeSnapshots.length, 1);
-  assert.match(wormholeSnapshots[0][1].dependencies["lucide-react"], /^1\./);
+  assert.match(
+    wormholeSnapshots[0][1].dependencies["lucide-react"],
+    approvedResolvedLucide,
+  );
 });
 
 test("Wagmi paths share one use-sync-external-store peer snapshot", () => {
