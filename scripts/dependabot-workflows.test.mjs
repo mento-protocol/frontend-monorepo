@@ -2952,6 +2952,10 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
     review.with.prompt,
     /declared internal dependency.*separate finding.*only because its version changed or it might regress/s,
   );
+  assert.match(
+    review.with.prompt,
+    /added registry metadata.*deprecation notice.*resolved version.*integrity are unchanged.*newly reachable.*concrete incompatibility/s,
+  );
   assert.equal(
     review.with.anthropic_api_key,
     "${{ secrets.ANTHROPIC_API_KEY }}",

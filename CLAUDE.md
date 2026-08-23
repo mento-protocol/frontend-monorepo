@@ -206,8 +206,10 @@ from the Claude secret. It writes canonical structured
 JSON to the exact-head `claude-review` check: validated `findings` are
 deterministic repair input, while an infrastructure or invalid-schema failure
 is retry-first. The reviewer reports transitive dependency changes only when
-the diff shows a concrete incompatible constraint or repository defect. Human
-PRs continue to report `claude-review-human`.
+the diff shows a concrete incompatible constraint or repository defect. Added
+registry metadata for an unchanged package resolution is not a finding unless
+the updated dependency makes that package newly reachable or creates a concrete
+incompatibility. Human PRs continue to report `claude-review-human`.
 
 Dependabot review and Claude repair prefer the `ANTHROPIC_API_KEY` secret. They
 use `CLAUDE_CODE_OAUTH_TOKEN` only when the API-key secret is absent. A bounded
