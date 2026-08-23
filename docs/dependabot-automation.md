@@ -355,11 +355,11 @@ creation and update timestamps. The boundary event and every later event
 must have a later timestamp, target the exact PR ref, come from the exact
 Dependabot bot identity, form a continuous non-cyclic suffix, and land only on
 signed native Dependabot commits. The controller never inherits the boundary
-event's replaced commit.
-It can collect bounded commit evidence from the full history, but it grants
-authority only from the selected signed native suffix. An edited or untrusted
-command, a `rebase` command, a replayed SHA, or any non-Dependabot destination
-after the boundary remains a veto.
+event's replaced commit. The collector uses the same boundary rule and fetches
+only destination-commit evidence for the selected suffix. The evaluator then
+revalidates the command, complete timeline, and signed native suffix before it
+grants authority. An edited or untrusted command, a `rebase` command, a replayed
+SHA, or any non-Dependabot destination after the boundary remains a veto.
 
 The controller admits a force-pushed PR only when all events form one complete
 native Dependabot rewrite chain. Every event must bind the exact PR ref, the

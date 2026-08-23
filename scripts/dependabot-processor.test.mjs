@@ -12366,16 +12366,11 @@ test("live durable intervention evidence preserves the force-push chain and surv
   };
   const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
   const evidence = await adapter.getHumanCloseEvidence(REPOSITORY, 123);
-  const forcePushCommits = evidence.forcePushCommits;
-  assert.deepEqual(
-    forcePushCommits.map(({ sha }) => sha),
-    [MERGE_SHA, OTHER_SHA, SECOND_HEAD_SHA].sort(),
-  );
   assert.deepEqual(requestedPages, [1, 2]);
   assert.deepEqual(evidence, {
     forcePushActors: ["dependabot[bot]", "unknown-actor"],
     forcePushCommitIds: [OTHER_SHA, SECOND_HEAD_SHA],
-    forcePushCommits,
+    forcePushCommits: [],
     forcePushEventCount: 2,
     forcePushEvents: [
       {
@@ -12520,18 +12515,24 @@ test("live native force-push collection binds every commit in one continuous gen
 test("live collection can select a native recreate generation after a non-Dependabot prefix", async () => {
   const headRef = "dependabot/github_actions/github-actions-routine-123";
   const forcePushEvents = [
-    {
+    ...Array.from({ length: 49 }, (_, index) => ({
       actor: {
         __typename: "User",
         databaseId: 7,
         login: "alice",
       },
-      afterCommit: { oid: SECOND_HEAD_SHA },
-      beforeCommit: { oid: OTHER_SHA },
-      createdAt: "2026-08-10T08:00:00Z",
-      id: "force-push-event-1",
+      afterCommit: {
+        oid: (index * 2 + 2).toString(16).padStart(40, "0"),
+      },
+      beforeCommit: {
+        oid: (index * 2 + 1).toString(16).padStart(40, "0"),
+      },
+      createdAt: new Date(
+        Date.parse("2026-08-10T08:00:00Z") + index * 1_000,
+      ).toISOString(),
+      id: `force-push-event-${index + 1}`,
       ref: { name: headRef, prefix: "refs/heads/" },
-    },
+    })),
     {
       actor: {
         __typename: "Bot",
@@ -12541,8 +12542,17 @@ test("live collection can select a native recreate generation after a non-Depend
       afterCommit: { oid: HEAD_SHA },
       beforeCommit: { oid: MERGE_SHA },
       createdAt: "2026-08-10T10:00:00Z",
-      id: "force-push-event-2",
+      id: "force-push-event-50",
       ref: { name: headRef, prefix: "refs/heads/" },
+    },
+  ];
+  const branchMaintenanceComments = [
+    {
+      actor: { association: "MEMBER", login: "bob", type: "User" },
+      body: "@dependabot recreate",
+      createdAt: "2026-08-10T09:00:00Z",
+      id: 41,
+      updatedAt: "2026-08-10T09:00:00Z",
     },
   ];
   const fetchImpl = async (url, options = {}) => {
@@ -12580,20 +12590,16 @@ test("live collection can select a native recreate generation after a non-Depend
     assert.fail(`Unexpected request: ${url}`);
   };
   const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
-  const feedback = await adapter.getHumanCloseEvidence(REPOSITORY, 123);
-  feedback.branchMaintenanceComments = [
-    {
-      actor: { association: "MEMBER", login: "bob", type: "User" },
-      body: "@dependabot recreate",
-      createdAt: "2026-08-10T09:00:00Z",
-      id: 41,
-      updatedAt: "2026-08-10T09:00:00Z",
-    },
-  ];
+  const feedback = await adapter.getHumanCloseEvidence(
+    REPOSITORY,
+    123,
+    branchMaintenanceComments,
+  );
+  feedback.branchMaintenanceComments = branchMaintenanceComments;
 
   assert.deepEqual(
     feedback.forcePushCommits.map(({ sha }) => sha),
-    [HEAD_SHA, MERGE_SHA, OTHER_SHA, SECOND_HEAD_SHA].sort(),
+    [HEAD_SHA],
   );
   const evaluation = evaluateDependabotPullRequest(
     snapshot({

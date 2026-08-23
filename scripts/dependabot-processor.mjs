@@ -3457,6 +3457,60 @@ function normalizeForcePushEvent(event) {
   };
 }
 
+function selectRecreateGenerationBoundary({
+  branchMaintenanceComments = [],
+  events = [],
+}) {
+  const recreateComments = Array.isArray(branchMaintenanceComments)
+    ? branchMaintenanceComments
+        .map((comment) => {
+          const actor = feedbackActor(comment?.actor);
+          const createdAt = feedbackTimestamp(comment?.createdAt);
+          const updatedAt = feedbackTimestamp(comment?.updatedAt);
+          return {
+            actor,
+            body: String(comment?.body ?? "").trim(),
+            createdAt,
+            id:
+              Number.isSafeInteger(comment?.id) && comment.id > 0
+                ? comment.id
+                : null,
+            updatedAt,
+          };
+        })
+        .filter(
+          ({ actor, body, createdAt, id, updatedAt }) =>
+            trustedHuman(actor) &&
+            body === "@dependabot recreate" &&
+            createdAt !== null &&
+            updatedAt !== null &&
+            id !== null &&
+            updatedAt === createdAt,
+        )
+        .sort((left, right) =>
+          left.updatedAt === right.updatedAt
+            ? left.id - right.id
+            : Date.parse(left.updatedAt) - Date.parse(right.updatedAt),
+        )
+    : [];
+  let generationBoundaryIndex = 0;
+  let recreateBoundary = false;
+  for (const comment of recreateComments) {
+    const nextEventIndex = events.findIndex((event) => {
+      const eventCreatedAt = feedbackTimestamp(event?.createdAt);
+      return (
+        eventCreatedAt !== null &&
+        Date.parse(eventCreatedAt) > Date.parse(comment.updatedAt)
+      );
+    });
+    if (nextEventIndex >= 0) {
+      generationBoundaryIndex = nextEventIndex;
+      recreateBoundary = true;
+    }
+  }
+  return { generationBoundaryIndex, recreateBoundary };
+}
+
 function evaluateForcePushGeneration({
   feedback,
   generationSeedCommit,
@@ -3516,51 +3570,11 @@ function evaluateForcePushGeneration({
     previousEvent = event;
   }
 
-  const recreateComments = Array.isArray(feedback.branchMaintenanceComments)
-    ? feedback.branchMaintenanceComments
-        .map((comment) => {
-          const actor = feedbackActor(comment?.actor);
-          const createdAt = feedbackTimestamp(comment?.createdAt);
-          const updatedAt = feedbackTimestamp(comment?.updatedAt);
-          return {
-            actor,
-            body: String(comment?.body ?? "").trim(),
-            createdAt,
-            id:
-              Number.isSafeInteger(comment?.id) && comment.id > 0
-                ? comment.id
-                : null,
-            updatedAt,
-          };
-        })
-        .filter(
-          ({ actor, body, createdAt, id, updatedAt }) =>
-            trustedHuman(actor) &&
-            body === "@dependabot recreate" &&
-            createdAt !== null &&
-            updatedAt !== null &&
-            id !== null &&
-            updatedAt === createdAt,
-        )
-        .sort((left, right) =>
-          left.updatedAt === right.updatedAt
-            ? left.id - right.id
-            : Date.parse(left.updatedAt) - Date.parse(right.updatedAt),
-        )
-    : [];
-  let generationBoundaryIndex = 0;
-  let recreateBoundary = false;
-  for (const comment of recreateComments) {
-    const nextEventIndex = events.findIndex(
-      (event) =>
-        event.createdAt !== null &&
-        Date.parse(event.createdAt) > Date.parse(comment.updatedAt),
-    );
-    if (nextEventIndex >= 0) {
-      generationBoundaryIndex = nextEventIndex;
-      recreateBoundary = true;
-    }
-  }
+  const { generationBoundaryIndex, recreateBoundary } =
+    selectRecreateGenerationBoundary({
+      branchMaintenanceComments: feedback.branchMaintenanceComments,
+      events,
+    });
   const generationEvents = events.slice(generationBoundaryIndex);
   let exactEvents = exactTimeline && generationEvents.length > 0;
   let previousGenerationEvent = null;
@@ -6271,7 +6285,11 @@ export function createLiveGitHubAdapter({
     };
   };
 
-  const getHumanCloseEvidence = async (repository, number) => {
+  const getHumanCloseEvidence = async (
+    repository,
+    number,
+    branchMaintenanceComments = [],
+  ) => {
     const { name, owner } = splitRepository(repository);
     const forcePushQuery = `
       query DependabotForcePushHistory($owner: String!, $name: String!, $number: Int!, $limit: Int!) {
@@ -6375,18 +6393,35 @@ export function createLiveGitHubAdapter({
     ]
       .sort()
       .slice(0, DURABLE_EVENT_EVIDENCE_LIMIT);
+    const forcePushActorsExact = forcePushEvents.every(
+      ({ actorId, actorLogin, actorType }) =>
+        actorId === DEPENDABOT_USER_ID &&
+        actorLogin === "dependabot" &&
+        actorType === "Bot",
+    );
+    const { generationBoundaryIndex, recreateBoundary } =
+      selectRecreateGenerationBoundary({
+        branchMaintenanceComments,
+        events: forcePushEvents,
+      });
+    const evidenceEvents = recreateBoundary
+      ? forcePushEvents.slice(generationBoundaryIndex)
+      : forcePushEvents;
     const nativeCommitShas = [
       ...new Set(
-        forcePushEvents.flatMap(({ afterSha, beforeSha }) => [
-          beforeSha,
-          afterSha,
-        ]),
+        recreateBoundary
+          ? evidenceEvents.map(({ afterSha }) => afterSha)
+          : evidenceEvents.flatMap(({ afterSha, beforeSha }) => [
+              beforeSha,
+              afterSha,
+            ]),
       ),
     ].filter((sha) => SHA_PATTERN.test(sha ?? ""));
     const forcePushCommits = [];
     if (
       forcePushEventsComplete &&
       forcePushEvents.length > 0 &&
+      (recreateBoundary || forcePushActorsExact) &&
       nativeCommitShas.length <= DURABLE_EVENT_EVIDENCE_LIMIT + 1
     ) {
       for (
@@ -6913,7 +6948,11 @@ export function createLiveGitHubAdapter({
       getChecks(repository, baselineSha),
       collectRepairHistory(),
     ]);
-    const humanCloseEvidence = await getHumanCloseEvidence(repository, number);
+    const humanCloseEvidence = await getHumanCloseEvidence(
+      repository,
+      number,
+      initialFeedback.branchMaintenanceComments,
+    );
     const feedback = await getFeedback(repository, number);
     requireStableFeedbackSnapshot(initialFeedback, feedback, number);
     const finalRaw = await getPullRequest(repository, number);
