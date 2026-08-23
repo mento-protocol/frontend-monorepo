@@ -393,6 +393,8 @@ jobs:
                     result.serialization?.selectedPullRequestNumber,
                 },
                 evaluations: result.evaluations.map((evaluation) => ({
+                  branchMaintenanceCommentCount:
+                    evaluation?.feedback?.branchMaintenanceCommentCount,
                   disposition: evaluation?.disposition,
                   feedbackClear: evaluation?.feedback?.clear,
                   feedbackReasons: evaluation?.feedback?.reasons,
@@ -400,6 +402,8 @@ jobs:
                     evaluation?.feedback?.forcePushGenerationKind,
                   forcePushGenerationReasons:
                     evaluation?.feedback?.forcePushGenerationReasons,
+                  forcePushEventCount:
+                    evaluation?.feedback?.forcePushEventCount,
                   headSha: evaluation?.headSha,
                   prepareAuthority: evaluation?.identity?.prepareAuthority,
                   pullRequestNumber: evaluation?.pullRequestNumber,

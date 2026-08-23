@@ -56,6 +56,7 @@ const VETO_LABELS = new Set([
   "processor:veto",
 ]);
 const TRUSTED_HUMAN_ASSOCIATIONS = new Set(["COLLABORATOR", "MEMBER", "OWNER"]);
+const TRUSTED_HUMAN_REPOSITORY_PERMISSIONS = new Set(["admin", "write"]);
 const ACTIONABLE_REVIEW_BOTS = new Set([
   "chatgpt-codex-connector",
   "claude",
@@ -687,10 +688,16 @@ function parseReceiptCheck({
   return { check: normalized, external, receipt };
 }
 
-function feedbackActor({ association, login, type } = {}) {
+function feedbackActor({
+  association,
+  login,
+  repositoryPermission,
+  type,
+} = {}) {
   return {
     association: String(association ?? "").toUpperCase(),
     login: normalizeFeedbackLogin(login),
+    repositoryPermission: String(repositoryPermission ?? "").toLowerCase(),
     type: String(type ?? ""),
   };
 }
@@ -700,6 +707,15 @@ function trustedHuman(actor) {
     actor.type === "User" &&
     actor.login.length > 0 &&
     TRUSTED_HUMAN_ASSOCIATIONS.has(actor.association)
+  );
+}
+
+function trustedBranchMaintenanceHuman(actor) {
+  return (
+    trustedHuman(actor) ||
+    (actor.type === "User" &&
+      actor.login.length > 0 &&
+      TRUSTED_HUMAN_REPOSITORY_PERMISSIONS.has(actor.repositoryPermission))
   );
 }
 
@@ -3343,7 +3359,7 @@ export function classifyDependabotFeedback({
     }
     if (actor.type === "User") {
       const trustedBranchMaintenance =
-        trustedHuman(actor) &&
+        trustedBranchMaintenanceHuman(actor) &&
         dependabotBranchMaintenanceComment(comment?.body);
       const createdAt = trustedBranchMaintenance
         ? feedbackTimestamp(comment?.createdAt)
@@ -3480,7 +3496,7 @@ function selectRecreateGenerationBoundary({
         })
         .filter(
           ({ actor, body, createdAt, id, updatedAt }) =>
-            trustedHuman(actor) &&
+            trustedBranchMaintenanceHuman(actor) &&
             body === "@dependabot recreate" &&
             createdAt !== null &&
             updatedAt !== null &&
@@ -3879,6 +3895,11 @@ export function evaluateFeedbackGate({
     actionableThreads,
     autoMergeEnabled: feedback.autoMergeEnabled === true,
     blockers: Array.isArray(feedback.blockers) ? feedback.blockers : [],
+    branchMaintenanceCommentCount: Array.isArray(
+      feedback.branchMaintenanceComments,
+    )
+      ? feedback.branchMaintenanceComments.length
+      : null,
     clear: uniqueReasons.length === 0,
     currentProcessorApprovalCount,
     currentProcessorApprovalIds,
@@ -6182,10 +6203,56 @@ export function createLiveGitHubAdapter({
       id: review.id,
       state: review.state,
     }));
+    const maintenanceAuthors = new Map();
+    for (const comment of rawIssueComments) {
+      const userId = Number(comment?.user?.id);
+      const login = normalizeLogin(comment?.user?.login);
+      if (
+        comment?.user?.type === "User" &&
+        Number.isSafeInteger(userId) &&
+        userId > 0 &&
+        login.length > 0 &&
+        dependabotBranchMaintenanceComment(comment?.body)
+      ) {
+        maintenanceAuthors.set(userId, { login, userId });
+      }
+    }
+    const repositoryPermissionByUserId = new Map();
+    await Promise.all(
+      [...maintenanceAuthors.values()].map(async ({ login, userId }) => {
+        let permissionResponse;
+        try {
+          permissionResponse = await request(
+            "GET",
+            `/repos/${repository}/collaborators/${encodeURIComponent(login)}/permission`,
+          );
+        } catch (error) {
+          if (error?.status === 404) {
+            repositoryPermissionByUserId.set(userId, "none");
+            return;
+          }
+          throw error;
+        }
+        const permission = String(
+          permissionResponse.data?.permission ?? "",
+        ).toLowerCase();
+        invariant(
+          Number(permissionResponse.data?.user?.id) === userId &&
+            normalizeLogin(permissionResponse.data?.user?.login) === login &&
+            permissionResponse.data?.user?.type === "User" &&
+            new Set(["admin", "write", "read", "none"]).has(permission),
+          `Repository permission response for ${login} is invalid`,
+        );
+        repositoryPermissionByUserId.set(userId, permission);
+      }),
+    );
     const issueComments = rawIssueComments.map((comment) => ({
       actor: {
         association: comment.author_association,
         login: comment.user?.login,
+        repositoryPermission: repositoryPermissionByUserId.get(
+          Number(comment.user?.id),
+        ),
         type: comment.user?.type,
       },
       body: comment.body,

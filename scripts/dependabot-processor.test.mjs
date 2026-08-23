@@ -12228,6 +12228,105 @@ test("live feedback collection paginates threads, top-level reviews, and issue c
   ]);
 });
 
+test("live feedback verifies maintenance authors by repository permission", async () => {
+  const maintenanceUser = {
+    id: 117495,
+    login: "maintainer",
+    type: "User",
+  };
+  const collect = async ({
+    permission = "admin",
+    permissionStatus = 200,
+  } = {}) => {
+    const fetchImpl = async (url) => {
+      const parsed = new URL(url);
+      if (parsed.pathname === "/graphql") {
+        return new Response(
+          JSON.stringify({
+            data: {
+              repository: {
+                pullRequest: {
+                  autoMergeRequest: null,
+                  headRefOid: HEAD_SHA,
+                  id: "PR_node",
+                  isDraft: false,
+                  mergeStateStatus: "CLEAN",
+                  reviewDecision: "APPROVED",
+                  reviewThreads: {
+                    nodes: [],
+                    pageInfo: { endCursor: null, hasNextPage: false },
+                  },
+                  updatedAt: "2026-08-10T10:00:00Z",
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      if (parsed.pathname === `/repos/${REPOSITORY}/pulls/123/reviews`) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (parsed.pathname === `/repos/${REPOSITORY}/issues/123/comments`) {
+        return new Response(
+          JSON.stringify([
+            {
+              author_association: "NONE",
+              body: "@dependabot recreate",
+              created_at: "2026-08-10T10:00:00Z",
+              id: 41,
+              updated_at: "2026-08-10T10:00:00Z",
+              user: maintenanceUser,
+            },
+          ]),
+          { status: 200 },
+        );
+      }
+      if (
+        parsed.pathname ===
+        `/repos/${REPOSITORY}/collaborators/maintainer/permission`
+      ) {
+        return new Response(
+          JSON.stringify({ permission, user: maintenanceUser }),
+          { status: permissionStatus },
+        );
+      }
+      assert.fail(`Unexpected request: ${url}`);
+    };
+    return createLiveGitHubAdapter({
+      fetchImpl,
+      token: "test-token",
+    }).getFeedback(REPOSITORY, 123);
+  };
+
+  const admin = await collect();
+  assert.deepEqual(admin.branchMaintenanceComments, [
+    {
+      actor: {
+        association: "NONE",
+        login: "maintainer",
+        repositoryPermission: "admin",
+        type: "User",
+      },
+      body: "@dependabot recreate",
+      createdAt: "2026-08-10T10:00:00Z",
+      id: 41,
+      updatedAt: "2026-08-10T10:00:00Z",
+    },
+  ]);
+
+  for (const options of [{ permission: "read" }, { permissionStatus: 404 }]) {
+    const untrusted = await collect(options);
+    assert.deepEqual(untrusted.branchMaintenanceComments, []);
+    assert.deepEqual(untrusted.reasons, []);
+  }
+
+  await assert.rejects(
+    collect({ permission: "maintain" }),
+    /repository permission response/i,
+  );
+});
+
 test("live feedback collection marks an over-cap thread instead of dropping replies", async () => {
   const fetchImpl = async (url) => {
     if (url.endsWith("/graphql")) {
