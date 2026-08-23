@@ -70,6 +70,7 @@ const REVIEW_ENVELOPE_BODY_LIMIT = 50_000;
 const REPAIR_LINEAGE_COMMIT_LIMIT = 100;
 const REPAIR_LINEAGE_CHECK_CONCURRENCY = 4;
 const CHECK_SOURCE_RESOLUTION_CONCURRENCY = 8;
+const MAINTENANCE_PERMISSION_LOOKUP_CONCURRENCY = 4;
 const REFRESH_SUCCESSOR_POLL_ATTEMPTS = 5;
 const REFRESH_SNAPSHOT_RACE_ATTEMPTS = 5;
 const REFRESH_SUCCESSOR_POLL_INTERVAL_MS = 2_000;
@@ -6218,34 +6219,44 @@ export function createLiveGitHubAdapter({
       }
     }
     const repositoryPermissionByUserId = new Map();
-    await Promise.all(
-      [...maintenanceAuthors.values()].map(async ({ login, userId }) => {
-        let permissionResponse;
-        try {
-          permissionResponse = await request(
-            "GET",
-            `/repos/${repository}/collaborators/${encodeURIComponent(login)}/permission`,
-          );
-        } catch (error) {
-          if (error?.status === 404) {
-            repositoryPermissionByUserId.set(userId, "none");
-            return;
-          }
-          throw error;
-        }
-        const permission = String(
-          permissionResponse.data?.permission ?? "",
-        ).toLowerCase();
-        invariant(
-          Number(permissionResponse.data?.user?.id) === userId &&
-            normalizeLogin(permissionResponse.data?.user?.login) === login &&
-            permissionResponse.data?.user?.type === "User" &&
-            new Set(["admin", "write", "read", "none"]).has(permission),
-          `Repository permission response for ${login} is invalid`,
-        );
-        repositoryPermissionByUserId.set(userId, permission);
-      }),
-    );
+    const maintenanceAuthorEntries = [...maintenanceAuthors.values()];
+    for (
+      let index = 0;
+      index < maintenanceAuthorEntries.length;
+      index += MAINTENANCE_PERMISSION_LOOKUP_CONCURRENCY
+    ) {
+      await Promise.all(
+        maintenanceAuthorEntries
+          .slice(index, index + MAINTENANCE_PERMISSION_LOOKUP_CONCURRENCY)
+          .map(async ({ login, userId }) => {
+            let permissionResponse;
+            try {
+              permissionResponse = await request(
+                "GET",
+                `/repos/${repository}/collaborators/${encodeURIComponent(login)}/permission`,
+              );
+            } catch (error) {
+              if (error?.status === 404) {
+                repositoryPermissionByUserId.set(userId, "none");
+                return;
+              }
+              throw error;
+            }
+            const permission = String(
+              permissionResponse.data?.permission ?? "",
+            ).toLowerCase();
+            invariant(
+              Number(permissionResponse.data?.user?.id) === userId &&
+                normalizeLogin(permissionResponse.data?.user?.login) ===
+                  login &&
+                permissionResponse.data?.user?.type === "User" &&
+                new Set(["admin", "write", "read", "none"]).has(permission),
+              `Repository permission response for ${login} is invalid`,
+            );
+            repositoryPermissionByUserId.set(userId, permission);
+          }),
+      );
+    }
     const issueComments = rawIssueComments.map((comment) => ({
       actor: {
         association: comment.author_association,

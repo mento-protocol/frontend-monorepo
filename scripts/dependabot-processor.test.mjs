@@ -12235,9 +12235,20 @@ test("live feedback verifies maintenance authors by repository permission", asyn
     type: "User",
   };
   const collect = async ({
+    authorCount = 1,
+    lookupTracker = null,
     permission = "admin",
     permissionStatus = 200,
   } = {}) => {
+    const maintenanceUsers = Array.from({ length: authorCount }, (_, index) =>
+      index === 0
+        ? maintenanceUser
+        : {
+            id: maintenanceUser.id + index,
+            login: `maintainer-${index + 1}`,
+            type: "User",
+          },
+    );
     const fetchImpl = async (url) => {
       const parsed = new URL(url);
       if (parsed.pathname === "/graphql") {
@@ -12269,27 +12280,44 @@ test("live feedback verifies maintenance authors by repository permission", asyn
       }
       if (parsed.pathname === `/repos/${REPOSITORY}/issues/123/comments`) {
         return new Response(
-          JSON.stringify([
-            {
+          JSON.stringify(
+            maintenanceUsers.map((user, index) => ({
               author_association: "NONE",
               body: "@dependabot recreate",
               created_at: "2026-08-10T10:00:00Z",
-              id: 41,
+              id: 41 + index,
               updated_at: "2026-08-10T10:00:00Z",
-              user: maintenanceUser,
-            },
-          ]),
+              user,
+            })),
+          ),
           { status: 200 },
         );
       }
+      const permissionPrefix = `/repos/${REPOSITORY}/collaborators/`;
       if (
-        parsed.pathname ===
-        `/repos/${REPOSITORY}/collaborators/maintainer/permission`
+        parsed.pathname.startsWith(permissionPrefix) &&
+        parsed.pathname.endsWith("/permission")
       ) {
-        return new Response(
-          JSON.stringify({ permission, user: maintenanceUser }),
-          { status: permissionStatus },
+        const login = decodeURIComponent(
+          parsed.pathname.slice(permissionPrefix.length, -"/permission".length),
         );
+        const user = maintenanceUsers.find(
+          (candidate) => candidate.login === login,
+        );
+        assert.ok(user, `Unexpected permission author: ${login}`);
+        if (lookupTracker !== null) {
+          lookupTracker.active += 1;
+          lookupTracker.maxActive = Math.max(
+            lookupTracker.maxActive,
+            lookupTracker.active,
+          );
+          await new Promise((resolve) => setTimeout(resolve, 1));
+          lookupTracker.active -= 1;
+          lookupTracker.completed += 1;
+        }
+        return new Response(JSON.stringify({ permission, user }), {
+          status: permissionStatus,
+        });
       }
       assert.fail(`Unexpected request: ${url}`);
     };
@@ -12325,6 +12353,15 @@ test("live feedback verifies maintenance authors by repository permission", asyn
     collect({ permission: "maintain" }),
     /repository permission response/i,
   );
+
+  const lookupTracker = { active: 0, completed: 0, maxActive: 0 };
+  const bounded = await collect({ authorCount: 9, lookupTracker });
+  assert.equal(bounded.branchMaintenanceComments.length, 9);
+  assert.deepEqual(lookupTracker, {
+    active: 0,
+    completed: 9,
+    maxActive: 4,
+  });
 });
 
 test("live feedback collection marks an over-cap thread instead of dropping replies", async () => {
