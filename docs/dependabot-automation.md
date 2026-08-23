@@ -3,7 +3,7 @@ title: Dependabot Processing
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-08-22
+last_verified: 2026-08-23
 scope: ci/dependabot-processing
 ---
 
@@ -53,6 +53,10 @@ Keep these properties true in code, workflows, rulesets, and operation:
   `main` can block an unrelated update. Permit only exact-version exclusions
   that match the current reviewed pin. Remove each exclusion after the release
   matures or when the pin changes.
+- Keep the root `zustand>use-sync-external-store` override at `1.4.0` while the
+  application and Wormhole wallet paths share Wagmi. This prevents pnpm from
+  creating separate `@wagmi/core` peer snapshots for those paths. Upgrade the
+  override only after the generated lockfile retains one Wagmi core snapshot.
 - ALL CLEAR is current evidence, not a timeless authorization. GitHub must still
   enforce current-base and ruleset state when the maintainer clicks Merge.
 
@@ -217,6 +221,11 @@ findings outcomes, `claude-review` check `output.text` is the exact canonical
 `verdict="findings"` is deterministic repair input. A missing, malformed,
 incomplete, or infrastructure-failed result is retry-first and cannot become a
 repair packet.
+
+The reviewer reports a transitive dependency change only when the diff shows a
+concrete incompatible constraint or repository defect. An updated direct
+package's declared internal dependency is not a separate finding only because
+its version changed or it might regress.
 
 Dependabot review and Claude repair prefer the `ANTHROPIC_API_KEY` secret. They
 use `CLAUDE_CODE_OAUTH_TOKEN` only when the API-key secret is absent. A bounded

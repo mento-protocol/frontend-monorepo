@@ -64,7 +64,9 @@ Code 2.1.220's 30,000-character Bash text-result persistence. A later no-token
 step requires the receipt before the review job can succeed. Missing, failed,
 interrupted, empty, or persisted/truncated diff output is retry-first. The job
 emits bounded canonical JSON and never checks out, caches, downloads, installs,
-or executes candidate-controlled input. A valid `findings` result is
+or executes candidate-controlled input. The reviewer reports transitive
+dependency changes only when the diff shows a concrete incompatible constraint
+or repository defect. A valid `findings` result is
 deterministic repair input; an infrastructure or malformed result is
 retry-first. The isolated publisher owns the exact-head `claude-review` check.
 Human PRs keep the separate `claude-review-human` check.

@@ -675,6 +675,32 @@ test("pnpm release-age exclusions stay exact and bounded", () => {
   );
 });
 
+test("Wagmi paths share one use-sync-external-store peer snapshot", () => {
+  const manifest = JSON.parse(read("package.json"));
+  const vercelRuntimeManifest = JSON.parse(
+    read("scripts/vercel-cli-runtime/package.json"),
+  );
+  const lockfile = read("pnpm-lock.yaml");
+
+  assert.equal(
+    manifest.pnpm.overrides["zustand>use-sync-external-store"],
+    "1.4.0",
+  );
+  assert.equal(
+    vercelRuntimeManifest.pnpm.overrides["zustand>use-sync-external-store"],
+    "1.4.0",
+  );
+  const wagmiPeerSnapshots = [
+    ...lockfile.matchAll(/^ {2}'(@wagmi\/core@[^']+\([^']+\))':$/gm),
+  ].map((match) => match[1]);
+
+  assert.equal(wagmiPeerSnapshots.length, 1);
+  assert.equal(
+    wagmiPeerSnapshots[0].includes("use-sync-external-store@1.4.0"),
+    true,
+  );
+});
+
 test("embedded workflow JavaScript parses before GitHub executes it", () => {
   const expectedModuleCounts = new Map([
     [processorPath, 4],
@@ -2918,6 +2944,14 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
   );
   assert.match(review.with.prompt, /one plain-text document tool result/);
   assert.match(review.with.prompt, /Do not make any.*mutation/s);
+  assert.match(
+    review.with.prompt,
+    /transitive dependency change.*concrete evidence.*incompatible constraint.*specific repository defect/s,
+  );
+  assert.match(
+    review.with.prompt,
+    /declared internal dependency.*separate finding.*only because its version changed or it might regress/s,
+  );
   assert.equal(
     review.with.anthropic_api_key,
     "${{ secrets.ANTHROPIC_API_KEY }}",
