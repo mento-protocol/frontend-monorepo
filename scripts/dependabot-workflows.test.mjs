@@ -693,6 +693,28 @@ test("pnpm release-age exclusions stay exact and bounded", () => {
   }
 });
 
+test("Wormhole Connect keeps its app-local Lucide peer", () => {
+  const appManifest = JSON.parse(read("apps/app.mento.org/package.json"));
+  const lockfile = parse(read("pnpm-lock.yaml"), { uniqueKeys: true });
+  const appLucide =
+    lockfile.importers["apps/app.mento.org"].dependencies["lucide-react"];
+  const wormholePackage =
+    lockfile.packages["@wormhole-foundation/wormhole-connect@5.1.0"];
+  const wormholeSnapshots = Object.entries(lockfile.snapshots).filter(([key]) =>
+    key.startsWith("@wormhole-foundation/wormhole-connect@5.1.0("),
+  );
+
+  assert.equal(appManifest.dependencies["lucide-react"], "0.554.0");
+  assert.equal(appLucide.specifier, "0.554.0");
+  assert.match(appLucide.version, /^0\.554\.0\(/);
+  assert.equal(wormholePackage.peerDependencies["lucide-react"], "^0.554.0");
+  assert.equal(wormholeSnapshots.length, 1);
+  assert.match(
+    wormholeSnapshots[0][1].dependencies["lucide-react"],
+    /^0\.554\.0\(/,
+  );
+});
+
 test("Wagmi paths share one use-sync-external-store peer snapshot", () => {
   const manifest = JSON.parse(read("package.json"));
   const vercelRuntimeManifest = JSON.parse(
