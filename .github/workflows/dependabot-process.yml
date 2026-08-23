@@ -395,8 +395,11 @@ jobs:
                 evaluations: result.evaluations.map((evaluation) => ({
                   disposition: evaluation?.disposition,
                   feedbackClear: evaluation?.feedback?.clear,
+                  feedbackReasons: evaluation?.feedback?.reasons,
                   forcePushGenerationKind:
                     evaluation?.feedback?.forcePushGenerationKind,
+                  forcePushGenerationReasons:
+                    evaluation?.feedback?.forcePushGenerationReasons,
                   headSha: evaluation?.headSha,
                   prepareAuthority: evaluation?.identity?.prepareAuthority,
                   pullRequestNumber: evaluation?.pullRequestNumber,
