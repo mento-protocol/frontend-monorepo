@@ -190,6 +190,25 @@ export function isSupportedControllerSyntheticPreviewResult(result) {
       result.state
   );
 }
+
+export function isSupportedEvidenceFreeRecoveredFailure(result) {
+  return (
+    result?.github_deployment_id !== null &&
+    result?.state === "failure" &&
+    result?.vercel_deployment_id === null &&
+    result?.next_deployment_id === null &&
+    result?.vercel_deployment_url === null &&
+    result?.smoke_result === "failed" &&
+    result?.terminal_reason === "worker-failure-recovered"
+  );
+}
+
+function isRetriableTerminalResult(result) {
+  return (
+    RETRIABLE_TERMINAL_REASONS.has(result?.terminal_reason) ||
+    isSupportedEvidenceFreeRecoveredFailure(result)
+  );
+}
 const COMMENT_EXPLANATION = [
   "**No reviewer action is required.**",
   "This repository builds pull request previews in GitHub Actions and deploys them to Vercel.",
@@ -2597,6 +2616,56 @@ function resultForSelection(results, anchorRunId, event, selection, target) {
   );
 }
 
+function recoveredIdleCompletion({
+  previousTarget,
+  candidates,
+  candidateByRun,
+  targetResults,
+  targetSelections,
+  epochAnchorRunId,
+  target,
+}) {
+  if (
+    !previousTarget ||
+    previousTarget.active !== null ||
+    previousTarget.latest_desired_receipt_run_id === null ||
+    previousTarget.latest_desired_receipt_run_id !==
+      previousTarget.idle_cursor_receipt_run_id
+  ) {
+    return null;
+  }
+  const desired = candidateByRun.get(
+    previousTarget.latest_desired_receipt_run_id,
+  );
+  if (!desired || desired.event_run_id !== candidates.at(-1)?.event_run_id) {
+    return null;
+  }
+  const result = resultForSelection(
+    targetResults,
+    epochAnchorRunId,
+    desired,
+    null,
+    target,
+  );
+  if (!isSupportedEvidenceFreeRecoveredFailure(result)) return null;
+  const selection = targetSelections.find(
+    (candidate) => candidate.key_digest === result.key_digest,
+  );
+  const terminal = previousTarget.terminal_history.at(-1);
+  if (
+    !selection ||
+    !previousTarget.terminal_result_key_digests.includes(result.key_digest) ||
+    terminal?.key_digest !== result.key_digest ||
+    terminal.worker_run_id !== result.worker_run_id ||
+    terminal.github_deployment_id !== result.github_deployment_id ||
+    terminal.state !== result.state ||
+    terminal.terminal_reason !== result.terminal_reason
+  ) {
+    return null;
+  }
+  return { selection, result };
+}
+
 function nativeOwnedStatusDescription(target) {
   return `${previewTarget(target)}: native Vercel owns preview`;
 }
@@ -3409,7 +3478,7 @@ export function reconcileState({
       pendingOwner &&
       pendingOwnerResult &&
       checkpointOwnerEvent.head_sha === pendingOwner.sha &&
-      (!RETRIABLE_TERMINAL_REASONS.has(pendingOwnerResult.terminal_reason) ||
+      (!isRetriableTerminalResult(pendingOwnerResult) ||
         checkpointTarget.pending_owner_attempt_count >= 2) &&
       !resultByRun.has(checkpointOwnerEvent.event_run_id)
     ) {
@@ -3453,6 +3522,21 @@ export function reconcileState({
     let latestDesired = null;
     let completedActive = null;
     let completedResult = null;
+    if (sameEpoch) {
+      const recovered = recoveredIdleCompletion({
+        previousTarget,
+        candidates,
+        candidateByRun,
+        targetResults,
+        targetSelections,
+        epochAnchorRunId,
+        target,
+      });
+      if (recovered) {
+        completedActive = recovered.selection;
+        completedResult = recovered.result;
+      }
+    }
     if (sameEpoch && previousTarget?.active) {
       const previousActive = previousTarget.active;
       const selectedEvent = candidateByRun.get(
@@ -3519,7 +3603,7 @@ export function reconcileState({
           ).length;
         if (
           !selected &&
-          RETRIABLE_TERMINAL_REASONS.has(completedResult?.terminal_reason) &&
+          isRetriableTerminalResult(completedResult) &&
           attemptsForReceipt < 2
         ) {
           selected = candidateByRun.get(
@@ -4476,6 +4560,13 @@ function previewObservationJournalForEvent(journal, event) {
       (result) => result.key_digest === selection.key_digest,
     );
     if (results.length === 0) return null;
+    if (
+      results.length === 1 &&
+      evidence.length === 0 &&
+      isSupportedEvidenceFreeRecoveredFailure(results[0])
+    ) {
+      continue;
+    }
     const synthetic = results.filter(
       (result) => result.github_deployment_id === null,
     );

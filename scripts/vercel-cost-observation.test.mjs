@@ -561,6 +561,7 @@ function previewJournalFixture(event, mode, events = [event]) {
   const persisted = structuredClone(initial.state);
   persisted.targets[dispatch.target].active = active;
   const selection = selectionReceiptFromDispatch(active);
+  const recoveredFailure = mode === "recovered-failure";
   const result = validateWorkerResult({
     schema: "vercel-preview-worker-result:v2",
     repository: "mento-protocol/frontend-monorepo",
@@ -576,12 +577,14 @@ function previewJournalFixture(event, mode, events = [event]) {
     worker_run_id: workerRunId,
     worker_run_attempt: 1,
     github_deployment_id: 7_001,
-    state: "success",
-    vercel_deployment_id: "dpl_fixture",
-    next_deployment_id: "m-ui-fixture",
-    vercel_deployment_url: "https://ui-observation-fixture.vercel.app",
-    smoke_result: "passed",
-    terminal_reason: "verified",
+    state: recoveredFailure ? "failure" : "success",
+    vercel_deployment_id: recoveredFailure ? null : "dpl_fixture",
+    next_deployment_id: recoveredFailure ? null : "m-ui-fixture",
+    vercel_deployment_url: recoveredFailure
+      ? null
+      : "https://ui-observation-fixture.vercel.app",
+    smoke_result: recoveredFailure ? "failed" : "passed",
+    terminal_reason: recoveredFailure ? "worker-failure-recovered" : "verified",
   });
   const workerEvidence = {
     schema: "vercel-preview-worker-evidence:v2",
@@ -615,7 +618,8 @@ function previewJournalFixture(event, mode, events = [event]) {
       pr: event.pr,
       events,
       selections: [selection],
-      workerEvidence: mode === "missing-evidence" ? [] : [workerEvidence],
+      workerEvidence:
+        mode === "missing-evidence" || recoveredFailure ? [] : [workerEvidence],
       results: [result],
       state: settled.state,
     }),
@@ -829,7 +833,10 @@ function previewRoutes(
   const status = {
     id: 401,
     context: "Vercel Preview",
-    state: "success",
+    state:
+      journal.state?.status_decisions.find(
+        (decision) => decision.sha === event.head_sha,
+      )?.state ?? "success",
     target_url: new URL(
       journal.state?.status_decisions.find(
         (decision) => decision.sha === event.head_sha,
@@ -894,10 +901,10 @@ function previewRoutes(
         [
           {
             id: 7_002,
-            state: "success",
+            state: fixtureState.result.state,
             log_url:
               "https://github.com/mento-protocol/frontend-monorepo/actions/runs/8001",
-            environment_url: "https://ui-observation-fixture.vercel.app/",
+            environment_url: fixtureState.result.vercel_deployment_url,
             created_at: "2026-07-29T01:03:00.000Z",
             creator: { type: "Bot", login: "github-actions[bot]" },
           },
@@ -913,7 +920,7 @@ function previewRoutes(
         path: ".github/workflows/vercel-preview-worker.yml",
         event: "workflow_dispatch",
         status: "completed",
-        conclusion: "success",
+        conclusion: fixtureState.result.state,
         created_at: "2026-07-29T01:00:20.000Z",
         updated_at: "2026-07-29T01:03:00.000Z",
         head_branch: "main",
@@ -2601,6 +2608,88 @@ test("capture-preview rejects a terminal selection missing worker evidence", () 
         stdout: output().stream,
       }),
     /evidence\/result pairs are incomplete/,
+  );
+  assert.equal(
+    existsSync(join(observationRoot(cwd), "preview", "9003")),
+    false,
+  );
+});
+
+test("capture-preview accepts a strict evidence-free recovered worker failure", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  const event = {
+    ...fixture("preview-event.json"),
+    event_run_id: 9003,
+    event_run_number: 503,
+    plan: {
+      targets: ["ui"],
+      reason: "affected-packages",
+      base: "a".repeat(40),
+      head: "b".repeat(40),
+      planner_source_sha: "a".repeat(40),
+    },
+  };
+  const result = runVercelCostObservation({
+    argv: ["capture-preview", "--pr", "700", "--event-run-id", "9003"],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: fakeGh(previewRoutes(event, { mode: "recovered-failure" })),
+    stdout: output().stream,
+  });
+  assert.equal(result.exitCode, 0);
+  const capture = JSON.parse(
+    readFileSync(
+      join(observationRoot(cwd), "preview", "9003", "capture.json"),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(capture.canonicalDerivedFacts.workerEvidenceRunIds, []);
+  assert.deepEqual(capture.canonicalDerivedFacts.workerResultRunIds, ["8001"]);
+  assert.deepEqual(capture.canonicalDerivedFacts.githubDeploymentIds, ["7001"]);
+  assert.deepEqual(
+    capture.canonicalDerivedFacts.githubDeploymentTerminalStatuses.map(
+      ({ deploymentId, state }) => ({ deploymentId, state }),
+    ),
+    [{ deploymentId: "7001", state: "failure" }],
+  );
+  assert.deepEqual(
+    capture.canonicalDerivedFacts.capturedWorkers.map(
+      ({ runId, attempt, conclusion }) => ({ runId, attempt, conclusion }),
+    ),
+    [{ runId: "8001", attempt: 1, conclusion: "failure" }],
+  );
+});
+
+test("capture-preview rejects a recovered failure from a successful worker", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  const event = {
+    ...fixture("preview-event.json"),
+    event_run_id: 9003,
+    event_run_number: 503,
+    plan: {
+      targets: ["ui"],
+      reason: "affected-packages",
+      base: "a".repeat(40),
+      head: "b".repeat(40),
+      planner_source_sha: "a".repeat(40),
+    },
+  };
+  const routes = previewRoutes(event, { mode: "recovered-failure" });
+  routes.get(
+    "api --method GET repos/mento-protocol/frontend-monorepo/actions/runs/8001/attempts/1",
+  ).conclusion = "success";
+  assert.throws(
+    () =>
+      runVercelCostObservation({
+        argv: ["capture-preview", "--pr", "700", "--event-run-id", "9003"],
+        cwd,
+        now: () => new Date(CAPTURED_AT),
+        gh: fakeGh(routes),
+        stdout: output().stream,
+      }),
+    /recovered worker result conflicts with its run conclusion/,
   );
   assert.equal(
     existsSync(join(observationRoot(cwd), "preview", "9003")),
