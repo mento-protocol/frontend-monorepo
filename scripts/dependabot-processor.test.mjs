@@ -4738,6 +4738,32 @@ test("exact trusted maintainer Dependabot branch commands do not create a veto",
   );
 });
 
+test("edited or malformed trusted branch commands remain maintainer vetoes", () => {
+  const result = classifyDependabotFeedback({
+    headSha: HEAD_SHA,
+    issueComments: [
+      {
+        actor: { association: "MEMBER", login: "alice", type: "User" },
+        body: "@dependabot recreate",
+        createdAt: "2026-08-10T08:00:00Z",
+        id: 31,
+        updatedAt: "2026-08-10T08:01:00Z",
+      },
+      {
+        actor: { association: "OWNER", login: "bob", type: "User" },
+        body: "@dependabot rebase",
+        createdAt: "2026-08-10T09:00:00Z",
+        id: null,
+        updatedAt: "2026-08-10T09:00:00Z",
+      },
+    ],
+  });
+
+  assert.deepEqual(result.branchMaintenanceComments, []);
+  assert.equal(result.blockerCount, 2);
+  assert.deepEqual(result.reasons, ["maintainer-issue-comment"]);
+});
+
 test("bot informational issue comments require their exact author and body predicates", () => {
   const comments = [
     {
@@ -6940,6 +6966,27 @@ test("an exact trusted recreate starts a native generation after poisoned histor
     assert.equal(rejected.identity.prepareAuthority, false, label);
     assert.equal(rejected.disposition, "manual-veto-or-feedback", label);
   }
+
+  const boundaryReplay = structuredClone(rewritten);
+  boundaryReplay.feedback.forcePushEventCount = 3;
+  boundaryReplay.feedback.forcePushEvents.push({
+    ...boundaryReplay.feedback.forcePushEvents[1],
+    afterSha: MERGE_SHA,
+    beforeSha: HEAD_SHA,
+    createdAt: "2026-08-10T11:00:00Z",
+    eventId: "force-push-event-3",
+  });
+  const replayed = evaluateDependabotPullRequest(boundaryReplay, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(replayed.feedback.forcePushVeto, true);
+  assert.ok(
+    replayed.feedback.forcePushGenerationReasons.includes(
+      "invalid-force-push-event-chain",
+    ),
+  );
 });
 
 test("human, spoofed, malformed, mixed, and unbound rewrites remain vetoed", () => {
@@ -12262,6 +12309,25 @@ test("live durable intervention evidence preserves the force-push chain and surv
         { status: 200 },
       );
     }
+    const commitSha = new RegExp(
+      `^/repos/${REPOSITORY}/commits/([0-9a-f]{40})$`,
+    ).exec(parsed.pathname)?.[1];
+    if (commitSha) {
+      return new Response(
+        JSON.stringify({
+          author: DEPENDABOT_ACTOR,
+          commit: { verification: { reason: "valid", verified: true } },
+          committer: {
+            id: GITHUB_SYSTEM_COMMITTER.committerId,
+            login: GITHUB_SYSTEM_COMMITTER.committerLogin,
+            type: GITHUB_SYSTEM_COMMITTER.committerType,
+          },
+          parents: [{ sha: BASE_SHA }],
+          sha: commitSha,
+        }),
+        { status: 200 },
+      );
+    }
     assert.equal(parsed.pathname, `/repos/${REPOSITORY}/issues/123/events`);
     const page = Number(parsed.searchParams.get("page"));
     requestedPages.push(page);
@@ -12294,11 +12360,16 @@ test("live durable intervention evidence preserves the force-push chain and surv
   };
   const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
   const evidence = await adapter.getHumanCloseEvidence(REPOSITORY, 123);
+  const forcePushCommits = evidence.forcePushCommits;
+  assert.deepEqual(
+    forcePushCommits.map(({ sha }) => sha),
+    [MERGE_SHA, OTHER_SHA, SECOND_HEAD_SHA].sort(),
+  );
   assert.deepEqual(requestedPages, [1, 2]);
   assert.deepEqual(evidence, {
     forcePushActors: ["dependabot[bot]", "unknown-actor"],
     forcePushCommitIds: [OTHER_SHA, SECOND_HEAD_SHA],
-    forcePushCommits: [],
+    forcePushCommits,
     forcePushEventCount: 2,
     forcePushEvents: [
       {
@@ -12424,6 +12495,104 @@ test("live native force-push collection binds every commit in one continuous gen
     snapshot({
       commits: [nativeDependabotCommit(HEAD_SHA)],
       feedback: evidence,
+      metadata: {
+        ...snapshot().metadata,
+        immutableEvidence: {
+          ...snapshot().metadata.immutableEvidence,
+          seedCommitSha: HEAD_SHA,
+          seedCommitTrusted: true,
+        },
+      },
+      pullRequest: { author: DEPENDABOT_ACTOR },
+    }),
+    { mode: "prepare", repository: REPOSITORY },
+  );
+  assert.equal(evaluation.feedback.forcePushGenerationKind, "native");
+  assert.equal(evaluation.identity.prepareAuthority, true);
+});
+
+test("live collection can select a native recreate generation after a non-Dependabot prefix", async () => {
+  const headRef = "dependabot/github_actions/github-actions-routine-123";
+  const forcePushEvents = [
+    {
+      actor: {
+        __typename: "User",
+        databaseId: 7,
+        login: "alice",
+      },
+      afterCommit: { oid: SECOND_HEAD_SHA },
+      beforeCommit: { oid: OTHER_SHA },
+      createdAt: "2026-08-10T08:00:00Z",
+      id: "force-push-event-1",
+      ref: { name: headRef, prefix: "refs/heads/" },
+    },
+    {
+      actor: {
+        __typename: "Bot",
+        databaseId: DEPENDABOT_ACTOR.id,
+        login: "dependabot",
+      },
+      afterCommit: { oid: HEAD_SHA },
+      beforeCommit: { oid: MERGE_SHA },
+      createdAt: "2026-08-10T10:00:00Z",
+      id: "force-push-event-2",
+      ref: { name: headRef, prefix: "refs/heads/" },
+    },
+  ];
+  const fetchImpl = async (url, options = {}) => {
+    const path = new URL(url).pathname;
+    if (path === "/graphql") {
+      const { query } = JSON.parse(options.body);
+      assert.match(query, /DependabotForcePushHistory/);
+      return new Response(
+        JSON.stringify(forcePushTimelinePayload(forcePushEvents)),
+        { status: 200 },
+      );
+    }
+    if (path === `/repos/${REPOSITORY}/issues/123/events`) {
+      return new Response(JSON.stringify([]), { status: 200 });
+    }
+    const commitSha = new RegExp(
+      `^/repos/${REPOSITORY}/commits/([0-9a-f]{40})$`,
+    ).exec(path)?.[1];
+    if (commitSha) {
+      return new Response(
+        JSON.stringify({
+          author: DEPENDABOT_ACTOR,
+          commit: { verification: { reason: "valid", verified: true } },
+          committer: {
+            id: GITHUB_SYSTEM_COMMITTER.committerId,
+            login: GITHUB_SYSTEM_COMMITTER.committerLogin,
+            type: GITHUB_SYSTEM_COMMITTER.committerType,
+          },
+          parents: [{ sha: BASE_SHA }],
+          sha: commitSha,
+        }),
+        { status: 200 },
+      );
+    }
+    assert.fail(`Unexpected request: ${url}`);
+  };
+  const adapter = createLiveGitHubAdapter({ fetchImpl, token: "test-token" });
+  const feedback = await adapter.getHumanCloseEvidence(REPOSITORY, 123);
+  feedback.branchMaintenanceComments = [
+    {
+      actor: { association: "MEMBER", login: "bob", type: "User" },
+      body: "@dependabot recreate",
+      createdAt: "2026-08-10T09:00:00Z",
+      id: 41,
+      updatedAt: "2026-08-10T09:00:00Z",
+    },
+  ];
+
+  assert.deepEqual(
+    feedback.forcePushCommits.map(({ sha }) => sha),
+    [HEAD_SHA, MERGE_SHA, OTHER_SHA, SECOND_HEAD_SHA].sort(),
+  );
+  const evaluation = evaluateDependabotPullRequest(
+    snapshot({
+      commits: [nativeDependabotCommit(HEAD_SHA)],
+      feedback,
       metadata: {
         ...snapshot().metadata,
         immutableEvidence: {

@@ -3345,24 +3345,27 @@ export function classifyDependabotFeedback({
       const trustedBranchMaintenance =
         trustedHuman(actor) &&
         dependabotBranchMaintenanceComment(comment?.body);
-      if (trustedBranchMaintenance) {
-        const createdAt = feedbackTimestamp(comment?.createdAt);
-        const updatedAt = feedbackTimestamp(comment?.updatedAt);
-        if (
-          Number.isSafeInteger(comment?.id) &&
-          comment.id > 0 &&
-          createdAt !== null &&
-          updatedAt !== null &&
-          Date.parse(updatedAt) >= Date.parse(createdAt)
-        ) {
-          branchMaintenanceComments.push({
-            actor,
-            body: String(comment.body).trim(),
-            createdAt,
-            id: comment.id,
-            updatedAt,
-          });
-        }
+      const createdAt = trustedBranchMaintenance
+        ? feedbackTimestamp(comment?.createdAt)
+        : null;
+      const updatedAt = trustedBranchMaintenance
+        ? feedbackTimestamp(comment?.updatedAt)
+        : null;
+      const exactMaintenanceEvidence =
+        trustedBranchMaintenance &&
+        Number.isSafeInteger(comment?.id) &&
+        comment.id > 0 &&
+        createdAt !== null &&
+        updatedAt !== null &&
+        updatedAt === createdAt;
+      if (exactMaintenanceEvidence) {
+        branchMaintenanceComments.push({
+          actor,
+          body: String(comment.body).trim(),
+          createdAt,
+          id: comment.id,
+          updatedAt,
+        });
       } else if (trustedHuman(actor)) {
         addBlocker({
           body: comment?.body,
@@ -3537,7 +3540,7 @@ function evaluateForcePushGeneration({
             createdAt !== null &&
             updatedAt !== null &&
             id !== null &&
-            Date.parse(updatedAt) >= Date.parse(createdAt),
+            updatedAt === createdAt,
         )
         .sort((left, right) =>
           left.updatedAt === right.updatedAt
@@ -3576,8 +3579,15 @@ function evaluateForcePushGeneration({
     ...(recreateBoundary ? [] : [generationEvents[0]?.beforeSha]),
     ...generationEvents.map(({ afterSha }) => afterSha),
   ];
+  const replacedBoundarySha = recreateBoundary
+    ? generationEvents[0]?.beforeSha
+    : null;
   exactEvents &&=
     new Set(generationShas).size === generationShas.length &&
+    !generationEvents.some(
+      ({ afterSha }) =>
+        replacedBoundarySha !== null && afterSha === replacedBoundarySha,
+    ) &&
     generationShas.every(
       (sha) =>
         !events
@@ -6373,17 +6383,10 @@ export function createLiveGitHubAdapter({
         ]),
       ),
     ].filter((sha) => SHA_PATTERN.test(sha ?? ""));
-    const forcePushActorsExact = forcePushEvents.every(
-      ({ actorId, actorLogin, actorType }) =>
-        actorId === DEPENDABOT_USER_ID &&
-        actorLogin === "dependabot" &&
-        actorType === "Bot",
-    );
     const forcePushCommits = [];
     if (
       forcePushEventsComplete &&
       forcePushEvents.length > 0 &&
-      forcePushActorsExact &&
       nativeCommitShas.length <= DURABLE_EVENT_EVIDENCE_LIMIT + 1
     ) {
       for (

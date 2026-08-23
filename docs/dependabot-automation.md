@@ -350,13 +350,15 @@ and all other trusted-maintainer issue comments remain vetoes.
 
 Only an exact `@dependabot recreate` command can establish a new native
 generation boundary after poisoned branch history. The comment must have a
-trusted-maintainer actor, valid immutable identity fields, and an unchanged
-body before the next force-push event. The boundary event and every later event
+trusted-maintainer actor, valid identity fields, an exact body, and matching
+creation and update timestamps. The boundary event and every later event
 must target the exact PR ref, come from the exact Dependabot bot identity, form
 a continuous non-cyclic suffix, and land only on signed native Dependabot
 commits. The controller never inherits the boundary event's replaced commit.
-An edited or untrusted command, a `rebase` command, a replayed SHA, or any
-non-Dependabot destination after the boundary remains a veto.
+It can collect bounded commit evidence from the full history, but it grants
+authority only from the selected signed native suffix. An edited or untrusted
+command, a `rebase` command, a replayed SHA, or any non-Dependabot destination
+after the boundary remains a veto.
 
 The controller admits a force-pushed PR only when all events form one complete
 native Dependabot rewrite chain. Every event must bind the exact PR ref, the
