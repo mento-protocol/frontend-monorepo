@@ -677,6 +677,9 @@ test("pnpm release-age exclusions stay exact and bounded", () => {
 
 test("Wagmi paths share one use-sync-external-store peer snapshot", () => {
   const manifest = JSON.parse(read("package.json"));
+  const vercelRuntimeManifest = JSON.parse(
+    read("scripts/vercel-cli-runtime/package.json"),
+  );
   const lockfile = read("pnpm-lock.yaml");
 
   assert.equal(
@@ -684,12 +687,17 @@ test("Wagmi paths share one use-sync-external-store peer snapshot", () => {
     "1.4.0",
   );
   assert.equal(
-    [
-      ...lockfile.matchAll(
-        /^ {2}'@wagmi\/core@[^']+\(.*use-sync-external-store@[^']+\)':$/gm,
-      ),
-    ].length,
-    1,
+    vercelRuntimeManifest.pnpm.overrides["zustand>use-sync-external-store"],
+    "1.4.0",
+  );
+  const wagmiPeerSnapshots = [
+    ...lockfile.matchAll(/^ {2}'(@wagmi\/core@[^']+\([^']+\))':$/gm),
+  ].map((match) => match[1]);
+
+  assert.equal(wagmiPeerSnapshots.length, 1);
+  assert.equal(
+    wagmiPeerSnapshots[0].includes("use-sync-external-store@1.4.0"),
+    true,
   );
 });
 
