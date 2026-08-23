@@ -129,6 +129,12 @@ exact Dependabot login plus exact Prepare App bot login. The no-secret publisher
 A valid findings result is deterministic repair input; an Action, provider,
 schema, or infrastructure failure is retry-first.
 
+Dependabot review and Claude repair prefer the `ANTHROPIC_API_KEY` secret. They
+use `CLAUDE_CODE_OAUTH_TOKEN` only when the API-key secret is absent. A bounded
+post-action diagnostic reports only the CLI subtype, error flag, terminal
+reason, and numeric API status. It never logs the model result, prompt, tool
+output, or diff.
+
 ### Preparation eligibility is broader than automatic eligibility
 
 The accepted **preparable** tier includes verified npm updates, including

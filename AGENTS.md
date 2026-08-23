@@ -69,6 +69,12 @@ deterministic repair input; an infrastructure or malformed result is
 retry-first. The isolated publisher owns the exact-head `claude-review` check.
 Human PRs keep the separate `claude-review-human` check.
 
+Dependabot review and Claude repair prefer the `ANTHROPIC_API_KEY` secret. They
+use `CLAUDE_CODE_OAUTH_TOKEN` only when the API-key secret is absent. A bounded
+post-action diagnostic reports only the CLI subtype, error flag, terminal
+reason, and numeric API status. It never logs the model result, prompt, tool
+output, or diff.
+
 `observe` classifies only. `assist` publishes non-authorizing evidence for
 human handling but cannot issue an automatic repair packet. `prepare` may
 refresh a stale branch, apply at most two bounded

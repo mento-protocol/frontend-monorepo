@@ -1985,6 +1985,23 @@ test("Dependabot reviewer accepts only authenticated native or prepared intake",
   assert.ok(completion);
   assert.equal(completion.if, "${{ always() }}");
   assert.match(completion.run, /--verify-completion/);
+  const diagnostics = review.jobs.review.steps.find(
+    ({ name }) => name === "Report sanitized Claude terminal diagnostics",
+  );
+  assert.ok(diagnostics);
+  assert.equal(diagnostics.if, "${{ always() }}");
+  assert.equal(diagnostics["continue-on-error"], true);
+  assert.equal(
+    diagnostics.env.CLAUDE_EXECUTION_FILE,
+    "${{ steps.claude-review.outputs.execution_file }}",
+  );
+  assert.match(diagnostics.run, /claude-execution-output\.json/);
+  assert.match(diagnostics.run, /terminal_reason/);
+  assert.match(diagnostics.run, /api_error_status/);
+  assert.doesNotMatch(
+    diagnostics.run,
+    /\.result\b|\.errors\b|\.message\b|\.content\b|\bcat\b/,
+  );
   const publish = review.jobs.publish.steps.find(
     ({ name }) => name === "Publish the exact-head Claude review check",
   );
