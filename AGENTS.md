@@ -108,7 +108,11 @@ trusted-maintainer issue comment remains a veto. Only an exact, unchanged
 branch history. Its creation and update timestamps must match. The next and all
 later force-push events must have later timestamps. Their destinations must
 remain an exact signed Dependabot chain. `@dependabot rebase` cannot reset that
-history.
+history. For these two exact commands only, the collector also trusts a `User`
+whose live repository permission is `admin` or `write`. It binds the permission
+response to the comment author's numeric ID, login, and type. A missing, `read`,
+or malformed permission response remains untrusted. All other issue-comment
+feedback continues to use the author-association policy.
 
 Configure the repository-scoped Prepare App with variables
 `DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,

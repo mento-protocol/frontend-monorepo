@@ -348,6 +348,12 @@ issue comment from a trusted maintainer as a branch-maintenance command. It does
 not treat these two commands as vetoes. Added text, other Dependabot commands,
 and all other trusted-maintainer issue comments remain vetoes.
 
+For these two exact commands only, the live collector also accepts a `User`
+whose repository permission is `admin` or `write`. It binds the permission
+response to the comment author's numeric ID, login, and type. A missing, `read`,
+or malformed permission response remains untrusted. All other issue-comment
+feedback continues to use the author-association policy.
+
 Only an exact `@dependabot recreate` command can establish a new native
 generation boundary after poisoned branch history. The comment must have a
 trusted-maintainer actor, valid identity fields, an exact body, and matching

@@ -12228,6 +12228,153 @@ test("live feedback collection paginates threads, top-level reviews, and issue c
   ]);
 });
 
+test("live feedback verifies maintenance authors by repository permission", async () => {
+  const maintenanceUser = {
+    id: 117495,
+    login: "maintainer",
+    type: "User",
+  };
+  const collect = async ({
+    authorCount = 1,
+    lookupTracker = null,
+    permission = "admin",
+    permissionStatus = 200,
+  } = {}) => {
+    const maintenanceUsers = Array.from({ length: authorCount }, (_, index) =>
+      index === 0
+        ? maintenanceUser
+        : {
+            id: maintenanceUser.id + index,
+            login: `maintainer-${index + 1}`,
+            type: "User",
+          },
+    );
+    const fetchImpl = async (url) => {
+      const parsed = new URL(url);
+      if (parsed.pathname === "/graphql") {
+        return new Response(
+          JSON.stringify({
+            data: {
+              repository: {
+                pullRequest: {
+                  autoMergeRequest: null,
+                  headRefOid: HEAD_SHA,
+                  id: "PR_node",
+                  isDraft: false,
+                  mergeStateStatus: "CLEAN",
+                  reviewDecision: "APPROVED",
+                  reviewThreads: {
+                    nodes: [],
+                    pageInfo: { endCursor: null, hasNextPage: false },
+                  },
+                  updatedAt: "2026-08-10T10:00:00Z",
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      if (parsed.pathname === `/repos/${REPOSITORY}/pulls/123/reviews`) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (parsed.pathname === `/repos/${REPOSITORY}/issues/123/comments`) {
+        return new Response(
+          JSON.stringify(
+            maintenanceUsers.map((user, index) => ({
+              author_association: "NONE",
+              body: "@dependabot recreate",
+              created_at: "2026-08-10T10:00:00Z",
+              id: 41 + index,
+              updated_at: "2026-08-10T10:00:00Z",
+              user,
+            })),
+          ),
+          { status: 200 },
+        );
+      }
+      const permissionPrefix = `/repos/${REPOSITORY}/collaborators/`;
+      if (
+        parsed.pathname.startsWith(permissionPrefix) &&
+        parsed.pathname.endsWith("/permission")
+      ) {
+        const login = decodeURIComponent(
+          parsed.pathname.slice(permissionPrefix.length, -"/permission".length),
+        );
+        const user = maintenanceUsers.find(
+          (candidate) => candidate.login === login,
+        );
+        assert.ok(user, `Unexpected permission author: ${login}`);
+        if (lookupTracker !== null) {
+          lookupTracker.active += 1;
+          lookupTracker.maxActive = Math.max(
+            lookupTracker.maxActive,
+            lookupTracker.active,
+          );
+          await new Promise((resolve) => setTimeout(resolve, 1));
+          lookupTracker.active -= 1;
+          lookupTracker.completed += 1;
+        }
+        return new Response(JSON.stringify({ permission, user }), {
+          status: permissionStatus,
+        });
+      }
+      assert.fail(`Unexpected request: ${url}`);
+    };
+    return createLiveGitHubAdapter({
+      fetchImpl,
+      token: "test-token",
+    }).getFeedback(REPOSITORY, 123);
+  };
+
+  const admin = await collect();
+  assert.deepEqual(admin.branchMaintenanceComments, [
+    {
+      actor: {
+        association: "NONE",
+        login: "maintainer",
+        repositoryPermission: "admin",
+        type: "User",
+      },
+      body: "@dependabot recreate",
+      createdAt: "2026-08-10T10:00:00Z",
+      id: 41,
+      updatedAt: "2026-08-10T10:00:00Z",
+    },
+  ]);
+
+  for (const options of [{ permission: "read" }, { permissionStatus: 404 }]) {
+    const untrusted = await collect(options);
+    assert.deepEqual(untrusted.branchMaintenanceComments, []);
+    assert.deepEqual(untrusted.reasons, []);
+  }
+
+  await assert.rejects(
+    collect({ permission: "maintain" }),
+    /repository permission response/i,
+  );
+
+  const lookupTracker = { active: 0, completed: 0, maxActive: 0 };
+  const bounded = await collect({ authorCount: 9, lookupTracker });
+  assert.equal(bounded.branchMaintenanceComments.length, 9);
+  assert.deepEqual(lookupTracker, {
+    active: 0,
+    completed: 9,
+    maxActive: 4,
+  });
+
+  const cappedTracker = { active: 0, completed: 0, maxActive: 0 };
+  await assert.rejects(
+    collect({ authorCount: 21, lookupTracker: cappedTracker }),
+    /permission lookup cap exceeded/i,
+  );
+  assert.deepEqual(cappedTracker, {
+    active: 0,
+    completed: 0,
+    maxActive: 0,
+  });
+});
+
 test("live feedback collection marks an over-cap thread instead of dropping replies", async () => {
   const fetchImpl = async (url) => {
     if (url.endsWith("/graphql")) {
