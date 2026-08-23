@@ -501,6 +501,7 @@ jobs:
           # allowedTools only auto-approves calls. Restrict availability with
           # --tools; trusted hooks approve and receipt one exact diff read.
           claude_args: >-
+            --model claude-sonnet-4-6
             --tools "Bash"
             --disallowedTools "mcp__*"
             --permission-mode dontAsk
