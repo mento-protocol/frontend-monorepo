@@ -4692,6 +4692,41 @@ test("trusted human prose and unknown bots remove auto authority without letting
   assert.equal(result.blockerCount, 3);
 });
 
+test("exact trusted maintainer Dependabot branch commands do not create a veto", () => {
+  const result = classifyDependabotFeedback({
+    headSha: HEAD_SHA,
+    issueComments: [
+      {
+        actor: { association: "MEMBER", login: "alice", type: "User" },
+        body: "@dependabot recreate",
+        id: 31,
+      },
+      {
+        actor: { association: "OWNER", login: "bob", type: "User" },
+        body: "\n@dependabot rebase\n",
+        id: 32,
+      },
+      {
+        actor: { association: "MEMBER", login: "alice", type: "User" },
+        body: "@dependabot recreate please",
+        id: 33,
+      },
+      {
+        actor: { association: "MEMBER", login: "alice", type: "User" },
+        body: "@dependabot merge",
+        id: 34,
+      },
+      {
+        actor: { association: "MEMBER", login: "alice", type: "User" },
+        body: "Please hold this update.",
+        id: 35,
+      },
+    ],
+  });
+  assert.deepEqual(result.reasons, ["maintainer-issue-comment"]);
+  assert.equal(result.blockerCount, 3);
+});
+
 test("bot informational issue comments require their exact author and body predicates", () => {
   const comments = [
     {

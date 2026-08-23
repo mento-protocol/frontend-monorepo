@@ -240,6 +240,9 @@ or close/reopen, malformed identity, unresolved feedback, ambiguous evidence,
 or exhausted repairs also block preparation. A complete native-to-native
 Dependabot rewrite chain starts a new generation under ADR 0008. Risk and update
 metadata remain in the ALL CLEAR evidence for the maintainer's merge decision.
+An exact `@dependabot rebase` or `@dependabot recreate` issue comment from a
+trusted maintainer is a branch-maintenance command, not a veto. Every other
+trusted-maintainer issue comment remains a veto.
 
 Configure the repository-scoped Prepare App with Actions variables
 `DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,

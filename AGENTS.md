@@ -101,6 +101,9 @@ metadata/ecosystems; untrusted force-push histories; manual vetoes; unresolved
 feedback; and exhausted repair attempts remain blocked. A complete
 native-to-native Dependabot rewrite chain starts a new generation. Every event,
 commit, actor, ref, and SHA in that chain must pass the exact controller policy.
+An exact `@dependabot rebase` or `@dependabot recreate` issue comment from a
+trusted maintainer is a branch-maintenance command, not a veto. Every other
+trusted-maintainer issue comment remains a veto.
 
 Configure the repository-scoped Prepare App with variables
 `DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,
