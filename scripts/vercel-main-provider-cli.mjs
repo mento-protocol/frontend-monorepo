@@ -31,6 +31,7 @@ import { fileURLToPath } from "node:url";
 import {
   VercelStateClient,
   assertCanonicalOutput,
+  assertMainPlanningAppV3Topology,
   assertMainPlanningSnapshot,
   canonicalizeDeploymentUrl,
 } from "./vercel-deployment-state.mjs";
@@ -281,15 +282,19 @@ export function createMainCanonicalMappings({
         );
       }
     }
-    if (
-      states.some((state) => !sameDeployment(states[0], state)) ||
-      (target === "app" &&
-        states.some(
-          (state) =>
-            JSON.stringify(state.aliases) !==
-            JSON.stringify([...contract.aliases].sort()),
-        ))
-    ) {
+    let topologyConflict = false;
+    if (target === "app") {
+      try {
+        assertMainPlanningAppV3Topology(states, contract.aliases);
+      } catch {
+        topologyConflict = true;
+      }
+    } else {
+      topologyConflict = states.some(
+        (state) => !sameDeployment(states[0], state),
+      );
+    }
+    if (topologyConflict) {
       throw new Error(
         `Main planning snapshot topology conflicts for ${target}`,
       );

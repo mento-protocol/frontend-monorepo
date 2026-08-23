@@ -114,7 +114,8 @@ captured protected rollback prior. A provider census must be complete and
 stable, each candidate must carry one exact canonical manifest, and the current
 protected mappings must form one canonical forward release prefix or the exact
 terminal App recovery residual: at least one active non-App target with every
-such target at its original prior, and every reviewed App alias at one canonical
+such target at its original prior, and every reviewed App alias at either its
+captured prior or one canonical candidate, with at least one alias at the
 candidate. That residual authorizes `restore-before-planning`, even for the
 matching release; it never authorizes forward resumption. Missing, ambiguous,
 conflicting, malformed, non-prefix, or incomplete provider state fails closed.

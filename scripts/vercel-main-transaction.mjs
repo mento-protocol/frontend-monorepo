@@ -1133,7 +1133,7 @@ export function planInheritedMainTransactionRecovery({ journal, reason }) {
       rollbackAuthority: { targets: [], aliases: [] },
     };
   }
-  if (reconciliation.inheritedCandidateTargets.length === 0) {
+  if (reconciliation.inheritedCandidateAliases.length === 0) {
     return {
       decision: "no-inherited-recovery",
       reason: "all-prior",

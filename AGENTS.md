@@ -348,8 +348,9 @@ a complete release, resumes or restores an interrupted forward prefix as
 appropriate, or restores the exact terminal App recovery residual through a
 fresh current-attempt journal before new planning can proceed. That residual
 requires at least one active non-App target, every active non-App target at its
-original prior, and every reviewed App alias at one manifest-bound candidate;
-it grants App restoration authority only and never forward resumption. It never
+original prior, and every reviewed App alias at either its captured prior or one
+manifest-bound candidate, with at least one alias at the candidate; it grants
+App restoration authority only and never forward resumption. It never
 resumes or treats a prior attempt's journal artifact as cross-attempt authority.
 Every other non-prefix, ambiguous, conflicting, or incomplete provider state
 fails closed before the release continues.

@@ -709,7 +709,8 @@ The repository is set up with GitHub Actions for CI:
   validation. An interrupted forward prefix is resumed or restored as
   appropriate through a fresh current-attempt journal. The exact terminal App
   recovery residual—at least one active non-App target with every such target
-  at its original prior, and every reviewed App alias at one manifest-bound
+  at its original prior, and every reviewed App alias at either its captured
+  prior or one manifest-bound candidate, with at least one alias at the
   candidate—may restore App before new planning, but may never resume forward.
   No prior journal is resumed and GitHub artifacts do not authorize
   cross-attempt work. The compact terminal receipt and evidence are the only
