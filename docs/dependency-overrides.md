@@ -150,11 +150,6 @@ TSX, or app config imports of those packages in `apps/app.mento.org`. Do not
 remove them independently, and do not start using them directly in Mento UI
 code.
 
-Wormhole Connect 5.1.0 declares `lucide-react` as a `^0.554.0` peer. Keep the
-`app.mento.org` dependency pinned to `0.554.0` while the repository catalog and
-the shared UI package use Lucide 1.x. Remove this app-local pin only with a
-reviewed Wormhole Connect upgrade whose peer contract supports Lucide 1.x.
-
 As of the August 2026 remediation, `osv-scanner.toml` has 20 ignored
 vulnerability blocks, and 11 blocks document the Wormhole Connect dependency
 chain. That cluster is protobufjs including `@protobufjs/utf8`. Axios, valibot,
