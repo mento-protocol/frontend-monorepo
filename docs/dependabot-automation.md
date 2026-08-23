@@ -191,7 +191,7 @@ candidate comment, or configured actor assertion cannot establish lineage.
 
 The Claude job has only read permissions and checks out only the trusted
 workflow SHA. It restricts built-in tools to Bash, denies every MCP tool, and
-runs in `dontAsk` mode. It pins `claude-4-0-sonnet-20250805` so a provider
+runs in `dontAsk` mode. It pins `claude-sonnet-4-6` so a provider
 default change cannot change the reviewer model. A trusted `PreToolUse` guard authorizes one exact bound
 repository-scoped `gh pr diff` command per workflow run attempt and exits with a
 blocking result for every other Bash input, including suffixes, compound shell

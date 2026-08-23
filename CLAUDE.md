@@ -191,7 +191,7 @@ and validates canonical Refresh/Repair checks, terminal Actions run provenance,
 append-only parents, exact Prepare App bot repair commits, and the verified
 Dependabot seed. The read-only Claude job checks out only
 `github.workflow_sha`. It restricts built-in tools to Bash, denies every MCP
-tool, and pins `claude-4-0-sonnet-20250805` to prevent provider-default drift.
+tool, and pins `claude-sonnet-4-6` to prevent provider-default drift.
 A trusted fail-closed `PreToolUse` guard authorizes one exact
 bound repository-scoped `gh pr diff` command per run attempt. `dontAsk` mode
 and the guard block every other Bash call. A paired `PostToolUse` guard and a

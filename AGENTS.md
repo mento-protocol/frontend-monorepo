@@ -52,7 +52,7 @@ authenticates either intake. For a prepared head, it also proves the exact
 append-only Refresh/Repair chain back to a verified Dependabot seed. The
 read-only Claude job checks out only `github.workflow_sha`. It restricts
 built-in tools to Bash, denies every MCP tool, and runs in `dontAsk` mode. The
-workflow pins `claude-4-0-sonnet-20250805`. This prevents provider-default
+workflow pins `claude-sonnet-4-6`. This prevents provider-default
 drift. A
 trusted `PreToolUse` guard authorizes one exact bound repository-scoped
 `gh pr diff` command per workflow run attempt and blocks every other Bash call.

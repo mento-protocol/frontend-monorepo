@@ -110,7 +110,7 @@ For prepared heads, the workflow materializes
 
 The Claude job checks out only the trusted workflow source. It restricts
 built-in tools to Bash, denies every MCP tool, and runs in `dontAsk` mode. The
-workflow pins `claude-4-0-sonnet-20250805`. This prevents provider-default
+workflow pins `claude-sonnet-4-6`. This prevents provider-default
 drift. A
 trusted `PreToolUse` guard authorizes one exact bound repository-scoped
 `gh pr diff` command per workflow run attempt and blocks every other Bash call.

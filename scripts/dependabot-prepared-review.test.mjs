@@ -1958,7 +1958,7 @@ test("Dependabot reviewer accepts only authenticated native or prepared intake",
     [...claude.with.claude_args.matchAll(/--model\s+(\S+)/g)].map(
       (match) => match[1],
     ),
-    ["claude-4-0-sonnet-20250805"],
+    ["claude-sonnet-4-6"],
   );
   assert.match(claude.with.claude_args, /--permission-mode\s+dontAsk/);
   assert.match(claude.with.claude_args, /--setting-sources\s+user/);
