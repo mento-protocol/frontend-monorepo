@@ -843,7 +843,8 @@ on the production path. The no-target route still binds the exact successful
 main CI attempt and publishes the exact-main
 `Dependabot Post-Merge Verification` receipt. It skips candidate staging,
 provider mutation transitions, Chromium installation, and public runtime smoke
-because no runtime target changed. Affected and mixed releases retain exact-SHA
+only when its evidence binds an explicit empty affected-target set. Affected
+and mixed releases retain exact-SHA
 candidate staging, journal checkpoints, bounded recovery, public runtime smoke,
 and the final provider census.
 

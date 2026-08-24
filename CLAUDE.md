@@ -170,8 +170,14 @@ Dependabot preparation is human-merge-only. The trusted default-branch
 `.github/workflows/dependabot-process.yml` controller supports exact
 `observe`, `assist`, and `prepare` modes. Empty, legacy `merge`, unknown,
 case, and whitespace variants become `observe`. No processor path merges or
-enables auto-merge. A maintainer clicks Merge only while the exact head carries
-a successful `Dependabot ALL CLEAR` receipt.
+enables auto-merge. A maintainer performs the final squash merge through one of
+two explicit paths. A prepared change requires a successful exact-head
+`Dependabot ALL CLEAR` check and its exact processor approval. A
+`manual-review` change requires an explicit maintainer takeover. Before merging
+it, verify the exact current head and base, all repository-required checks,
+resolved feedback, a current human approval, and mergeability. The packetless
+failed `Dependabot Processor` check is non-required and intentionally waived
+for this manual path.
 
 `.github/workflows/dependabot-intake.yml` remains the credentialless v1 event
 boundary for exact Dependabot-bot senders. A Refresh or Repair successor uses
@@ -258,8 +264,8 @@ Sensitive and self-reviewing Actions remain manual. This includes OSV
 scanner/reporter updates. The workflow contract requires exactly one scanner
 step and one reporter step. Both actions must use full lowercase 40-character
 SHA pins at the same revision. The test does not copy a specific revision into
-another source file. A maintainer reviews the update and merges it only after
-all required checks pass.
+another source file. Use the explicit `manual-review` maintainer takeover path
+for these updates. Never report this path as Dependabot ALL CLEAR.
 
 Configure the repository-scoped Prepare App with Actions variables
 `DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,

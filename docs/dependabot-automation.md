@@ -15,6 +15,15 @@ receipt-bound feedback, approve through the normal processor identity, and
 publish exact-head ALL CLEAR evidence. It never merges and never enables native
 auto-merge.
 
+A maintainer performs the final squash merge through one of two explicit
+paths. A prepared change requires a successful exact-head `Dependabot ALL
+CLEAR` check and its exact processor approval. A `manual-review` change
+requires an explicit maintainer takeover. Before merging it, verify the exact
+current head and base, all repository-required checks, resolved feedback, a
+current human approval, and mergeability. The packetless failed `Dependabot
+Processor` check is non-required and intentionally waived for this manual path.
+The manual path does not produce or claim ALL CLEAR.
+
 [ADR 0006](adr/0006-dependabot-processing-controller.md) records the controller
 decision. This runbook defines the live trust boundaries, receipts, operating
 sequence, and failure handling.
@@ -28,6 +37,8 @@ Keep these properties true in code, workflows, rulesets, and operation:
 - No workflow or controller code calls a merge endpoint, runs `gh pr merge`,
   enables auto-merge, or holds a merge queue entry. A maintainer performs the
   final squash merge.
+- Prepared changes use the exact-head ALL CLEAR path. Manual-review changes use
+  the explicit maintainer takeover path and never claim ALL CLEAR.
 - Every decision, packet, mutation, review, reply, approval, and readiness
   receipt binds the exact repository, PR, branch, current base, and head.
 - Any push invalidates all earlier current-head gates and review evidence.
@@ -322,8 +333,8 @@ Handling tier and preparation eligibility are separate:
 - **manual**: sensitive/self-reviewing Actions; workflow-policy, deployment,
   authentication, credential, or security Actions; unknown ecosystem or
   metadata; and any policy shape not explicitly admitted. These changes receive
-  no preparation authority. The Processor publishes an actionable human-review
-  summary.
+  no preparation authority. The Processor publishes a failed, packetless,
+  non-required check with an actionable maintainer-takeover summary.
 - **vetoed**: human veto/close/reopen, untrusted force-push history, unresolved
   or malformed feedback, untrusted actor, or ambiguous/capped evidence.
 
@@ -879,7 +890,8 @@ After merge, keep the lane occupied until the exact merge SHA has:
 1. successful full default-branch `CI/CD`;
 2. the applicable `Vercel Main Deployment`; and
 3. successful exact-main `Dependabot Post-Merge Verification` with terminal
-   release, smoke, and recovery evidence, or a verified no-target outcome.
+   release, smoke, and recovery evidence, or a verified no-target outcome that
+   binds an explicit empty affected-target set.
 
 Do not admit another ALL CLEAR candidate while main CI/release proof is missing
 or failed. Follow the managed failure issue and deployment recovery runbook.
@@ -913,7 +925,7 @@ or failed. Follow the managed failure issue and deployment recovery runbook.
 | Auto-merge request or competing candidate              | Remove only exact safe stale authority, recollect, or block.      |
 | Mergeability/ruleset/review unsatisfied                | Do not approve or publish ALL CLEAR.                              |
 | Finalize drift after approval                          | Dismiss processor approval and reprocess.                         |
-| ALL CLEAR published                                    | Human verifies current head and clicks Merge.                     |
+| ALL CLEAR published                                    | Human verifies the prepared path and clicks Merge.                |
 | Main CI/release proof failed                           | Keep lane occupied and follow recovery.                           |
 | Ambiguous/capped evidence                              | Fail closed and require operator investigation.                   |
 

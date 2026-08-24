@@ -536,6 +536,39 @@ test("sensitive Actions updates stay out of the routine Dependabot group", () =>
   }
 });
 
+test("canonical instructions keep prepared and manual-review merge paths distinct", () => {
+  const paths = [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    "docs/adr/0006-dependabot-processing-controller.md",
+    "docs/dependabot-automation.md",
+  ];
+  for (const path of paths) {
+    const source = read(path).replace(/\s+/gu, " ");
+    assert.match(
+      source,
+      /A prepared change requires a successful exact-head `Dependabot ALL CLEAR` check and its exact processor approval\./u,
+      path,
+    );
+    assert.match(
+      source,
+      /A `manual-review` change requires an explicit maintainer takeover\./u,
+      path,
+    );
+    assert.match(
+      source,
+      /The packetless failed `Dependabot Processor` check is non-required and intentionally waived for this manual path\./u,
+      path,
+    );
+    assert.doesNotMatch(
+      source,
+      /(?:merge only after|clicks? Merge only while|normal squash merge only while).{0,160}(?:Dependabot )?ALL CLEAR/iu,
+      path,
+    );
+  }
+});
+
 test("npm group routing isolates sensitive dependencies and covers the workspace", () => {
   const config = parse(read(".github/dependabot.yml"), { uniqueKeys: true });
   const npmConfig = config.updates.find(

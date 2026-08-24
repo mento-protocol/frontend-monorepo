@@ -3522,7 +3522,7 @@ test("manual-review processor checks explain the deterministic next action witho
   assert.equal(published[0].repairPacket, null);
   assert.equal(
     published[0].summary,
-    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: complete human review and merge after required checks pass.",
+    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: take over manually; verify exact head/base, required checks, resolved feedback, current approval, and mergeability, then merge.",
   );
 
   const receipt = processorRepairReceipt(1, {
@@ -3598,7 +3598,7 @@ test("unchanged trusted Processor receipts suppress check churn without hiding d
     updateType: "minor",
   };
   const actionableSummary =
-    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: complete human review and merge after required checks pass.";
+    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: take over manually; verify exact head/base, required checks, resolved feedback, current approval, and mergeability, then merge.";
   const actionableReceipt = processorRepairReceipt(1, {
     id: 62_003,
     mode: "prepare",
@@ -11989,7 +11989,7 @@ test("processor checks keep safe non-packet dispositions neutral and fail packet
     },
   ).repairPacket;
   const actionableManualSummary =
-    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: complete human review and merge after required checks pass.";
+    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: take over manually; verify exact head/base, required checks, resolved feedback, current approval, and mergeability, then merge.";
   const cases = [
     {
       disposition: "prepare-candidate",

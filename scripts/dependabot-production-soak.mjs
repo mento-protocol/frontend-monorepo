@@ -275,10 +275,12 @@ function validateMainCi(mainCi, pr, repository, label) {
   };
 }
 
-function validatePostMerge(postMerge, pr, repository, label) {
+export function validatePostMerge(postMerge, pr, repository, label) {
+  const noTarget = postMerge?.outcome === "no-target";
   exactKeys(
     postMerge,
     [
+      ...(noTarget ? ["affectedTargets"] : []),
       "checkId",
       "conclusion",
       "externalId",
@@ -303,11 +305,19 @@ function validatePostMerge(postMerge, pr, repository, label) {
     `${label}.postMerge is not terminal exact-merge proof`,
   );
   invariant(
-    new Set(["active-committed", "current-release-verified"]).has(
-      postMerge.outcome,
-    ),
-    `${label}.postMerge.outcome does not prove an affected release`,
+    noTarget ||
+      new Set(["active-committed", "current-release-verified"]).has(
+        postMerge.outcome,
+      ),
+    `${label}.postMerge.outcome is not terminal release proof`,
   );
+  if (noTarget) {
+    invariant(
+      Array.isArray(postMerge.affectedTargets) &&
+        postMerge.affectedTargets.length === 0,
+      `${label}.postMerge no-target must bind zero affected targets`,
+    );
+  }
   const external = POST_MERGE_EXTERNAL_ID_PATTERN.exec(postMerge.externalId);
   invariant(external !== null, `${label}.postMerge.externalId is invalid`);
   invariant(
@@ -670,6 +680,8 @@ export function renderDependabotProductionSoak(manifest) {
     "## Evidence handling",
     "",
     "Offline validation checks only the manifest schema, internal consistency, and report rendering. It does not query GitHub or prove that a recorded resource exists, is current, or has the declared publisher and conclusion.",
+    "",
+    "A no-target post-merge result must include an explicit empty affected-target set. Any affected target makes that outcome invalid.",
     "",
     "A maintainer must revalidate the exact live GitHub PR, head, controller SHA, checks, workflow runs, approval state, merge, and post-merge result before changing a row from `PENDING` to `PASS`. Keep a case pending until a real Dependabot event supplies that evidence. Contract tests and copied identifiers are not production evidence.",
     "",

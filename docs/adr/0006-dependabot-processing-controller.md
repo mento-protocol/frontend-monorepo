@@ -58,9 +58,16 @@ normalize to `observe` before any credential is available.
 
 No mode merges, calls a merge endpoint, invokes `gh pr merge`, enables native
 auto-merge, or creates a merge-queue entry. Retire the merge mode, merge code,
-merge-token minting, and merge App configuration. The maintainer performs the
-normal squash merge only while GitHub still shows the exact successful ALL
-CLEAR head.
+merge-token minting, and merge App configuration.
+
+A maintainer performs the final squash merge through one of two explicit
+paths. A prepared change requires a successful exact-head `Dependabot ALL
+CLEAR` check and its exact processor approval. A `manual-review` change
+requires an explicit maintainer takeover. Before merging it, verify the exact
+current head and base, all repository-required checks, resolved feedback, a
+current human approval, and mergeability. The packetless failed `Dependabot
+Processor` check is non-required and intentionally waived for this manual path.
+The manual path does not produce or claim ALL CLEAR.
 
 ### Native and prepared intake remain distinct
 

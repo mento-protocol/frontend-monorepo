@@ -9,6 +9,7 @@ import {
   DEPENDABOT_PRODUCTION_SOAK_SCHEMA,
   renderDependabotProductionSoak,
   validateDependabotProductionSoakManifest,
+  validatePostMerge,
 } from "./dependabot-production-soak.mjs";
 
 const scriptPath = fileURLToPath(
@@ -69,6 +70,40 @@ test("the CLI only renders or checks the observational report", () => {
     removedCompletionRun.stderr,
     /Unsupported argument: --require-complete/,
   );
+});
+
+test("no-target soak proof requires an explicit empty affected-target set", () => {
+  const mergeSha = "1".repeat(40);
+  const postMerge = {
+    affectedTargets: [],
+    checkId: 98_000_000_003,
+    workflowRunId: 33_000_000_003,
+    workflowRunAttempt: 1,
+    externalId: "dependabot-post-merge:33000000003:1",
+    headSha: mergeSha,
+    conclusion: "success",
+    outcome: "no-target",
+    terminalRestored: true,
+  };
+  const validate = (evidence) =>
+    validatePostMerge(
+      evidence,
+      { mergeSha },
+      "mento-protocol/frontend-monorepo",
+      "routine Actions",
+    );
+  assert.doesNotThrow(() => validate(postMerge));
+
+  const affected = structuredClone(postMerge);
+  affected.affectedTargets = ["governance"];
+  assert.throws(
+    () => validate(affected),
+    /no-target must bind zero affected targets/,
+  );
+
+  const implicit = structuredClone(postMerge);
+  delete implicit.affectedTargets;
+  assert.throws(() => validate(implicit), /postMerge keys are invalid/);
 });
 
 test("the soak manifest rejects incomplete or contradictory evidence", () => {
@@ -146,7 +181,7 @@ test("the soak manifest rejects incomplete or contradictory evidence", () => {
       mutate(value) {
         value.cases[1].postMerge.outcome = "no-target";
       },
-      pattern: /does not prove an affected release/,
+      pattern: /postMerge keys are invalid/,
     },
     {
       mutate(value) {

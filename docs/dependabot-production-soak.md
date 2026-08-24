@@ -18,6 +18,8 @@ Recorded production coverage: **3 of 5 cases observed; 2 pending.**
 
 Offline validation checks only the manifest schema, internal consistency, and report rendering. It does not query GitHub or prove that a recorded resource exists, is current, or has the declared publisher and conclusion.
 
+A no-target post-merge result must include an explicit empty affected-target set. Any affected target makes that outcome invalid.
+
 A maintainer must revalidate the exact live GitHub PR, head, controller SHA, checks, workflow runs, approval state, merge, and post-merge result before changing a row from `PENDING` to `PASS`. Keep a case pending until a real Dependabot event supplies that evidence. Contract tests and copied identifiers are not production evidence.
 
 Render or check this observational report without network access:
