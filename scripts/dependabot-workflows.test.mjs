@@ -1087,6 +1087,24 @@ test("read-only evaluation authenticates every trigger before live collection", 
   );
 });
 
+test("processor filters non-target Claude callbacks before evaluation", () => {
+  const evaluateCondition = processor.jobs.evaluate.if;
+  const claudeGuardStart = evaluateCondition.indexOf(
+    "(github.event.workflow_run.path == '.github/workflows/dependabot-claude-review.yml'",
+  );
+  assert.notEqual(claudeGuardStart, -1);
+
+  const claudeGuard = evaluateCondition.slice(claudeGuardStart);
+  assert.match(
+    claudeGuard,
+    /startsWith\(github\.event\.workflow_run\.display_title, 'dependabot-claude-review:v1 \| source='\)\s*&&\s*\(\s*endsWith\(github\.event\.workflow_run\.display_title, 'receipt=true'\)\s*\|\|\s*endsWith\(github\.event\.workflow_run\.display_title, '\|ok=true'\)\s*\)/,
+  );
+  assert.doesNotMatch(
+    claudeGuard,
+    /endsWith\(github\.event\.workflow_run\.display_title, '(?:receipt=false|\|ok=false)'\)/,
+  );
+});
+
 test("processor accepts a live-shaped Dependabot intake receipt", () => {
   const target = processor.jobs.evaluate.steps.find(
     (step) => step.name === "Validate trigger and select a bounded target",

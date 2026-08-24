@@ -64,7 +64,11 @@ jobs:
             (
               (github.event.workflow_run.path == '.github/workflows/dependabot-claude-review.yml' ||
                github.event.workflow_run.path == '.github/workflows/dependabot-claude-review.yml@main') &&
-              startsWith(github.event.workflow_run.display_title, 'dependabot-claude-review:v1 | source=')
+              startsWith(github.event.workflow_run.display_title, 'dependabot-claude-review:v1 | source=') &&
+              (
+                endsWith(github.event.workflow_run.display_title, 'receipt=true') ||
+                endsWith(github.event.workflow_run.display_title, '|ok=true')
+              )
             )
           )
         )
