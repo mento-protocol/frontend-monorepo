@@ -17,6 +17,83 @@ measurements; failed runs contain only the redacted failure graph. Successful
 shadow measurements help diagnose the canary, but they remain log-duration
 evidence rather than invoice-grade Build CPU allocation.
 
+## Recorded #523 failure and #842 corrective interval
+
+The completed #523 measurement is immutable failed evidence. Its post-cost
+window started at `2026-08-18T07:00:00.000Z` and ended at the exclusive
+`2026-08-23T07:00:00.000Z` boundary. The deployment census found 276
+GitHub-prebuilt deployments, zero Vercel-native builds, and 42 canceled native
+Git requests that never entered the building state. The matching FOCUS export
+reported 1,104 Build CPU minutes. Every prebuilt deployment reconciled to
+exactly four minutes. Target-mix normalized savings were
+`84.3261929579423%`, below the required `90%` gate. This establishes the
+finding tracked in
+[#842](https://github.com/mento-protocol/frontend-monorepo/issues/842); it does
+not establish the provider rule that caused the charge.
+
+Preserve that post-cost export, deployment census, manifest, and verdict as the
+failed #523 record. Do not extend, relabel, filter, or reuse that post-cost
+window for the corrective result. The original baseline interval remains the
+fixed target-mix baseline; it is not a substitute for a new post-change export.
+
+The separately sealed correctness window was
+`[2026-08-17T00:00:00.000Z, 2026-08-24T00:00:00.000Z)`. It captured all 119
+required preview runs and all 42 required main runs. It also recorded 96
+trusted deployed-code PR pushes, 43 of 43 eligible first previews, and zero
+collector gaps or boundary straddlers.
+
+The #842 rerun uses a new cost-only interval after the external setting rollout
+in [External Standard-build cost pilot](vercel-deployments.md#external-standard-build-cost-pilot).
+It may reference the sealed #523 correctness evidence for unchanged preview
+ownership, first-plus-latest behavior, exact-SHA main releases, smoke coverage,
+security boundaries, and rollback procedures. Do not reopen or append the
+frozen correctness collector. The new UI, Reserve, and Governance queue and
+canary records supplement that sealed evidence because the external project
+setting can change scheduling behavior. For each project, those new records
+must include the automatic first-plus-latest scheduler canary and its separate
+Production Shadow proof of the ordinary `main` upload path. Both paths
+serialize provider requests, so neither proves provider-side deployment
+overlap. Record queue timing if provider contention occurs naturally. Do not
+require or claim forced provider contention. A natural `main` release is
+observation evidence, not a prerequisite for the cost-only interval. Any
+workflow, ownership, `vercel.json`, security-boundary, or deployment-path
+change invalidates this cost-only route and requires a new correctness
+observation.
+
+Start the new half-open post-cost interval at the first complete Vercel charge
+boundary after all three ordinary-project settings are proven, the Governance
+scheduler and Production Shadow proofs pass, and every relevant queue is
+drained. The interval must contain one or more exact 24-hour periods and at
+least one eligible migrated deployment for every logical target. Extend only by
+complete provider charge periods until that condition holds. Do not backdate
+the start into the rollout or a canary.
+
+For the new interval, collect fresh FOCUS exports and fresh complete Vercel
+deployment pages for all four projects. Record new raw-file digests, row counts,
+ingestion-completeness evidence, project-setting reads at both boundaries, and
+the matching deployment census. Never copy a FOCUS row, digest, saved page, or
+aggregate from the failed post-cost window. A zero Build CPU row count for an
+ordinary project is valid only when the fresh complete deployment census proves
+eligible prebuilt deployments and zero excluded builds for that same interval.
+Zero cost does not imply zero `ConsumedQuantity`; use the FOCUS quantity that
+Vercel actually emits.
+
+Keep the provider response requested by the deployment runbook with the
+corrective evidence. Vercel's public documentation does not state whether a
+prebuilt upload consumes the one-minute On-Demand Concurrent Builds increment
+or which FOCUS `ConsumedQuantity` result follows from Standard plus On-Demand
+Concurrent Builds disabled. The fresh billing export and complete deployment
+census decide the measured gate. The measurement can finish before support
+answers, but issue #842 remains open until Vercel confirms the charging rule or
+a maintainer explicitly changes that acceptance criterion.
+
+Run the same target-mix calculation and keep the exact `90%` threshold. Do not
+infer savings from the project setting or from Vercel's statement that Standard
+builds without On-Demand Concurrent Builds are unbilled. App remains in the
+fresh four-project census and FOCUS export even though its setting is excluded
+from this rollout. The corrective interval passes only from fresh provider
+evidence and the sealed-plus-canary correctness join.
+
 The repository provides a Vercel-credential-free GitHub evidence collector, a
 credential-free offline GitHub billing proof builder, and a deterministic,
 network-free analyzer. Initialize the approved half-open

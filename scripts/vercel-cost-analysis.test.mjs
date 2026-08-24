@@ -236,6 +236,23 @@ test("normalizes gross minutes by complete UTC days", () => {
   });
 });
 
+test("accepts eligible ordinary deployments with zero provider usage", () => {
+  const evidence = fixture();
+  for (const target of ["governance", "reserve", "ui"]) {
+    setTargetUsageZero(evidence, "postCutover", target);
+  }
+  evidence.postCutover.period.focusChargeCount = 1;
+
+  const analysis = analyzeVercelCostEvidence(evidence);
+
+  assert.equal(analysis.normalized.minutes.actual, 10);
+  assert.equal(analysis.normalized.minutes.targets.governance.actual, 0);
+  assert.equal(analysis.normalized.minutes.targets.reserve.actual, 0);
+  assert.equal(analysis.normalized.minutes.targets.ui.actual, 0);
+  assert.ok(analysis.normalized.minutes.savings > MINIMUM_NORMALIZED_SAVINGS);
+  assert.equal(analysis.pass, true);
+});
+
 test("reports duplicate rate and cost-window minutes per trusted PR push", () => {
   const evidence = fixture();
   evidence.postCutover.trustedDeployedCodePrPushes = 20;
@@ -1195,6 +1212,55 @@ test("loads and reconciles raw FOCUS project totals and deployment census source
         unknown: 0,
       },
     );
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("reconciles eligible ordinary deployments when FOCUS emits no ordinary rows", () => {
+  const temporaryDirectory = mkdtempSync(
+    join(tmpdir(), "vercel-manifest-zero-ordinary-focus-"),
+  );
+  try {
+    const evidence = fixture();
+    for (const target of ["governance", "reserve", "ui"]) {
+      setTargetUsageZero(evidence, "postCutover", target);
+    }
+    const postFocusRaw = readFileSync(
+      resolve(fixtureDirectory, "post.focus.jsonl"),
+      "utf8",
+    )
+      .split("\n")
+      .filter((line) => {
+        if (line.length === 0) return false;
+        return JSON.parse(line).Tags.ProjectName === "app.mento.org";
+      })
+      .map((line) => `${line}\n`)
+      .join("");
+    evidence.postCutover.period.focusChargeCount = 1;
+    evidence.postCutover.period.focusExportSha256 = sha256(postFocusRaw);
+
+    const aggregatePath = join(temporaryDirectory, "aggregate.json");
+    writeFileSync(aggregatePath, `${JSON.stringify(evidence, null, 2)}\n`);
+    const manifest = manifestForAggregate(aggregatePath, temporaryDirectory);
+    const focusPath = join(temporaryDirectory, "post.focus.jsonl");
+    writeFileSync(focusPath, postFocusRaw);
+    manifest.windows.postCutover.focusJsonl = focusPath;
+    const manifestPath = join(temporaryDirectory, "manifest.json");
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const analysis = analyzeVercelCostManifest(manifestPath);
+
+    assert.equal(analysis.pass, true);
+    assert.equal(analysis.sourceEvidence.rawFocusReconciled, true);
+    for (const target of ["governance", "reserve", "ui"]) {
+      assert.equal(analysis.normalized.minutes.targets[target].actual, 0);
+      assert.ok(
+        analysis.sourceEvidence.deployments.postCutover.targets[target].sources[
+          "github-actions-prebuilt"
+        ] > 0,
+      );
+    }
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });
   }
