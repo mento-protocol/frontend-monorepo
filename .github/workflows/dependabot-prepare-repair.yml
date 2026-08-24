@@ -225,7 +225,7 @@ jobs:
       - name: Plan the exact packet-bound repair
         id: claude-repair
         if: needs.preflight.outputs.plan_kind == 'claude-repair'
-        uses: anthropics/claude-code-action/base-action@9d7150bc8a3dae8149739a88019d192b579ad90c # v1.0.193
+        uses: anthropics/claude-code-action/base-action@459ad358ae43fea66bfefd0a1f8d840b4b9791fb # v1.0.194
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.ANTHROPIC_API_KEY == '' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}

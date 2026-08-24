@@ -32,7 +32,7 @@ jobs:
           persist-credentials: false
 
       - name: Scan the selected lockfile
-        uses: google/osv-scanner-action/osv-scanner-action@06b2ab4348248b456ee06c9e953637f55e03504f # v2.5.0
+        uses: google/osv-scanner-action/osv-scanner-action@ffa0a5f39214d80778c9b494822d94d0d9668458 # v2.5.0
         with:
           scan-args: |-
             --output=results.json
@@ -41,7 +41,7 @@ jobs:
         continue-on-error: true
 
       - name: Fail on detected vulnerabilities
-        uses: google/osv-scanner-action/osv-reporter-action@06b2ab4348248b456ee06c9e953637f55e03504f # v2.5.0
+        uses: google/osv-scanner-action/osv-reporter-action@ffa0a5f39214d80778c9b494822d94d0d9668458 # v2.5.0
         with:
           scan-args: |-
             --output=results.sarif
