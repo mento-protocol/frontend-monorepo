@@ -878,8 +878,9 @@ ledger rather than entering a blanket success value:
   opportunities; the truthful value is `0/0` when no main event occurred.
 - `unexplainedNativeBuilds` belongs to the correctness observation interval.
   The source evidence reports `costWindowUnexplainedNativeBuilds` separately
-  for the provider-aligned post-cutover cost census. Do not force these counts
-  to match when the intervals differ.
+  for the provider-aligned post-cutover cost census. A nonzero value fails the
+  manifest result. Do not force these counts to match when the intervals
+  differ.
 - `legacyV2HealthCheckOpportunities` counts the v2 health verifications recorded
   for the observation and final closeout, and `legacyV2HealthChecksCompleted`
   counts the checks that finished. At least one health check is required.

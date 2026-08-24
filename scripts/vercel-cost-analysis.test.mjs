@@ -1292,6 +1292,10 @@ test("keeps cost-window native builds separate from observation correctness", ()
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
     const analysis = analyzeVercelCostManifest(manifestPath);
+    assert.equal(analysis.pass, false);
+    assert.ok(
+      analysis.reasons.includes("cost-window-unexplained-native-builds"),
+    );
     assert.equal(analysis.correctness.unexplainedNativeBuilds, 0);
     assert.equal(
       analysis.sourceEvidence.deployments.postCutover

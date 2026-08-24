@@ -2118,8 +2118,17 @@ export function analyzeVercelCostManifest(inputPath) {
       );
     }
   }
+  const analysis = analyzeVercelCostEvidence(evidence);
+  const costWindowUnexplainedNativeBuilds =
+    deploymentEvidence.postCutover.costWindowUnexplainedNativeBuilds;
+  const sourceReasons =
+    costWindowUnexplainedNativeBuilds > 0
+      ? ["cost-window-unexplained-native-builds"]
+      : [];
   return {
-    ...analyzeVercelCostEvidence(evidence),
+    ...analysis,
+    pass: analysis.pass && sourceReasons.length === 0,
+    reasons: [...analysis.reasons, ...sourceReasons],
     sourceEvidence: {
       rawFocusReconciled: true,
       projectTotalsReconciled: true,
