@@ -3,14 +3,14 @@ title: A trusted controller prepares exact-head Dependabot pull requests for hum
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-08-22
+last_verified: 2026-08-24
 scope: ci/dependabot-processing
 date: 2026-08-10
 ---
 
 # ADR 0006 — A trusted controller prepares exact-head Dependabot pull requests for human merge
 
-**Status:** Accepted, amended Aug 14 and Aug 22 2026
+**Status:** Accepted, amended Aug 14, Aug 22, and Aug 24 2026
 **Scope:** ci/dependabot-processing
 
 ## Context
@@ -133,7 +133,12 @@ Dependabot review and Claude repair prefer the `ANTHROPIC_API_KEY` secret. They
 use `CLAUDE_CODE_OAUTH_TOKEN` only when the API-key secret is absent. A bounded
 post-action diagnostic reports only the CLI subtype, error flag, terminal
 reason, and numeric API status. It never logs the model result, prompt, tool
-output, or diff.
+output, or diff. The publisher records a canonical non-authorizing failure
+receipt. The processor can rerun the exact failed review workflow twice for an
+authenticated transient provider status. It reruns only when that failure
+remains the newest trusted exact-head Claude result. The isolated retry job
+receives only Actions write and read-only PR/check access. Attempt three is
+terminal.
 
 ### Preparation eligibility is broader than automatic eligibility
 
@@ -163,13 +168,17 @@ The Prepare App is repository-scoped. Configure its client ID, exact App slug,
 bot account ID/login, and private key. Mint only short-lived installation tokens
 and verify the returned App slug plus live bot identity before use.
 
-Install the App with only `contents: write` and `pull-requests: write`;
-GitHub's update-branch endpoint requires both. The processor's refresh token
-requests both permissions. Git Data repair and terminal-dispatch tokens are
-explicitly downscoped to Contents write. The App receives no bypass, Actions,
-workflow, deployment, package, environment, or provider permission. Never
-reuse the normal workflow token, preview App, deployment/provider token,
-registry credential, or PAT.
+Install the App with `contents: write`, `pull-requests: write`, and
+`workflows: write`. ADR 0009 adds the Workflows permission for one typed
+sensitive-Actions companion path. The companion staging token requests only
+Contents and Workflows write. Its separate PR-opening token requests only Pull
+requests write. The processor's Refresh token requests Contents and Pull
+requests write because GitHub's update-branch endpoint requires both. Git Data
+Repair and terminal-dispatch tokens request only Contents write. No existing
+Refresh or Repair token receives Workflows write. The App receives no bypass,
+Actions, deployment, package, environment, or provider permission. Never reuse
+the normal workflow token, preview App, deployment/provider token, registry
+credential, or PAT.
 
 Contents write also makes GitHub's merge endpoint technically available; GitHub
 has no endpoint-specific deny for this combination. We therefore do not claim

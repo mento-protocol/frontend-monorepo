@@ -764,7 +764,7 @@ test("Wagmi paths share one use-sync-external-store peer snapshot", () => {
 
 test("embedded workflow JavaScript parses before GitHub executes it", () => {
   const expectedModuleCounts = new Map([
-    [processorPath, 4],
+    [processorPath, 9],
     [dependabotReviewPath, 6],
     [preparedIntakePath, 1],
     [repairPath, 3],
@@ -1057,7 +1057,7 @@ test("processor accepts a live-shaped Dependabot intake receipt", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.equal(
     result.githubOutput,
-    `pr_numbers=701\nexpected_head_sha=${"a".repeat(40)}\nfollowup_kind=native-intake\noperation_code=\noperation_check_id=\noperation_digest=\n`,
+    `pr_numbers=701\nexpected_head_sha=${"a".repeat(40)}\nfollowup_kind=native-intake\noperation_code=\noperation_check_id=\noperation_digest=\nclaude_retry_candidate=false\nclaude_run_attempt=\nclaude_run_id=\nclaude_run_title=\n`,
   );
 });
 
@@ -1098,7 +1098,7 @@ test("processor accepts an exact prepared-head intake completion", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.equal(
     result.githubOutput,
-    `pr_numbers=701\nexpected_head_sha=${headSha}\nfollowup_kind=prepared-intake\noperation_code=p\noperation_check_id=321\noperation_digest=${digest}\n`,
+    `pr_numbers=701\nexpected_head_sha=${headSha}\nfollowup_kind=prepared-intake\noperation_code=p\noperation_check_id=321\noperation_digest=${digest}\nclaude_retry_candidate=false\nclaude_run_attempt=\nclaude_run_id=\nclaude_run_title=\n`,
   );
 });
 
@@ -1107,6 +1107,7 @@ test("processor wakes on a failed exact Claude reviewer completion", () => {
     (step) => step.name === "Validate trigger and select a bounded target",
   );
   const headSha = "a".repeat(40);
+  const runTitle = `dependabot-claude-review:v1 | source=dependabot-intake:v1 | repository=mento-protocol/frontend-monorepo | pr=701 | sha=${headSha} | action=synchronize | receipt=true`;
   const result = runBashStep(target, {
     ...liveIntakeEnvironment(),
     EVENT_NAME: "workflow_run",
@@ -1115,14 +1116,37 @@ test("processor wakes on a failed exact Claude reviewer completion", () => {
     INTAKE_HEAD_BRANCH: "main",
     INTAKE_HEAD_SHA: "c".repeat(40),
     INTAKE_PATH: ".github/workflows/dependabot-claude-review.yml",
-    INTAKE_TITLE: `dependabot-claude-review:v1 | source=dependabot-intake:v1 | repository=mento-protocol/frontend-monorepo | pr=701 | sha=${headSha} | action=synchronize | receipt=true`,
+    INTAKE_TITLE: runTitle,
   });
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(
     result.githubOutput,
-    `pr_numbers=701\nexpected_head_sha=${headSha}\nfollowup_kind=claude-review\noperation_code=\noperation_check_id=\noperation_digest=\n`,
+    `pr_numbers=701\nexpected_head_sha=${headSha}\nfollowup_kind=claude-review\noperation_code=\noperation_check_id=\noperation_digest=\nclaude_retry_candidate=true\nclaude_run_attempt=1\nclaude_run_id=123456789\nclaude_run_title=${runTitle}\n`,
   );
+});
+
+test("processor stops automatic Claude provider retries after attempt three", () => {
+  const target = processor.jobs.evaluate.steps.find(
+    (step) => step.name === "Validate trigger and select a bounded target",
+  );
+  const headSha = "a".repeat(40);
+  const runTitle = `dependabot-claude-review:v1 | source=dependabot-intake:v1 | repository=mento-protocol/frontend-monorepo | pr=701 | sha=${headSha} | action=synchronize | receipt=true`;
+  const result = runBashStep(target, {
+    ...liveIntakeEnvironment(),
+    EVENT_NAME: "workflow_run",
+    INTAKE_CONCLUSION: "failure",
+    INTAKE_EVENT: "workflow_run",
+    INTAKE_HEAD_BRANCH: "main",
+    INTAKE_HEAD_SHA: "c".repeat(40),
+    INTAKE_PATH: ".github/workflows/dependabot-claude-review.yml",
+    INTAKE_RUN_ATTEMPT: "3",
+    INTAKE_TITLE: runTitle,
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.githubOutput, /claude_retry_candidate=false/);
+  assert.match(result.githubOutput, /claude_run_attempt=3/);
 });
 
 test("processor accepts a live-shaped repository dispatch envelope", () => {
@@ -1136,7 +1160,438 @@ test("processor accepts a live-shaped repository dispatch envelope", () => {
   );
 
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.githubOutput, "pr_numbers=all\nexpected_head_sha=\n");
+  assert.equal(
+    result.githubOutput,
+    "pr_numbers=all\nexpected_head_sha=\nclaude_retry_candidate=false\n",
+  );
+});
+
+test("Claude retry authority is isolated and bound to a transient receipt", () => {
+  const retry = processor.jobs["retry-claude-review"];
+  assert.ok(retry);
+  assert.equal(retry.needs, "evaluate");
+  assert.match(retry.if, /claude_retry_candidate == 'true'/);
+  assert.deepEqual(retry.permissions, {
+    actions: "write",
+    checks: "read",
+    "pull-requests": "read",
+  });
+  assert.equal(retry.steps.length, 1);
+  const [rerun] = retry.steps;
+  assert.equal(Object.hasOwn(rerun, "uses"), false);
+  assert.equal(rerun.env.GH_TOKEN, "${{ github.token }}");
+  assert.match(rerun.run, /EXPECTED_RUN_ATTEMPT.*\^\[12\]\$/s);
+  assert.match(rerun.run, /\.app\.id == 15368/);
+  assert.match(rerun.run, /dependabot-claude-review-failure:v1/);
+  assert.match(rerun.run, /provider-transient/);
+  assert.match(rerun.run, /429.*500.*502.*503.*504.*529/s);
+  assert.match(rerun.run, /filter=all/);
+  assert.match(rerun.run, /page <= 20/);
+  assert.match(rerun.run, /\.total_count/);
+  assert.match(rerun.run, /actions\/runs\/\$run_id\/attempts\/\$run_attempt/);
+  assert.match(rerun.run, /max_by\(\.checkId\)/);
+  assert.match(rerun.run, /actions\/runs\/\$EXPECTED_RUN_ID\/rerun/);
+  assert.match(rerun.run, /\.head\.sha == \$headSha/);
+  assert.match(rerun.run, /\.display_title == \$displayTitle/);
+  assert.doesNotMatch(
+    JSON.stringify(retry),
+    /secrets\.|contents: write|checks: write|pull-requests: write|checkout|claude-code-action|\/merge|\/reviews|auto-merge/,
+  );
+});
+
+test("Claude retry reruns only the newest trusted exact-head result", () => {
+  const retry = processor.jobs["retry-claude-review"];
+  const [rerun] = retry.steps;
+  const temporaryDirectory = mkdtempSync(
+    join(tmpdir(), "dependabot-claude-retry-"),
+  );
+  const mockBin = join(temporaryDirectory, "bin");
+  const mockGh = join(mockBin, "gh");
+  const repository = "mento-protocol/frontend-monorepo";
+  const pullRequestNumber = 701;
+  const runId = 123456789;
+  const headSha = "a".repeat(40);
+  const workflowHeadSha = "c".repeat(40);
+  const exactRunTitle = `dependabot-claude-review:v1 | source=dependabot-intake:v1 | repository=${repository} | pr=${pullRequestNumber} | sha=${headSha} | action=synchronize | receipt=true`;
+  let caseNumber = 0;
+
+  function failureReceipt({ attempt = "1", overrides = {} } = {}) {
+    return {
+      apiStatus: 529,
+      failureKind: "provider-transient",
+      headSha,
+      pullRequestNumber,
+      repository,
+      retryable: true,
+      runAttempt: Number(attempt),
+      runId,
+      schema: "dependabot-claude-review-failure:v1",
+      ...overrides,
+    };
+  }
+
+  function checkRun({
+    appId = 15368,
+    attempt = "1",
+    checkHeadSha = headSha,
+    checkId = 987654321,
+    conclusion = "failure",
+    detailsUrl,
+    externalId,
+    name = "claude-review",
+    outputText,
+    workflowRunId = runId,
+  } = {}) {
+    return {
+      app: { id: appId },
+      conclusion,
+      details_url:
+        detailsUrl ??
+        `https://github.com/${repository}/actions/runs/${workflowRunId}`,
+      external_id:
+        externalId ??
+        `dependabot-claude-review:v1:pr=${pullRequestNumber}:sha=${headSha}:run=${workflowRunId}:attempt=${attempt}`,
+      head_sha: checkHeadSha,
+      id: checkId,
+      name,
+      output: { text: outputText ?? "{}" },
+      status: "completed",
+    };
+  }
+
+  function workflowRun({
+    attempt = "1",
+    conclusion = "failure",
+    displayTitle = exactRunTitle,
+    overrides = {},
+    workflowRunId = runId,
+  } = {}) {
+    return {
+      conclusion,
+      display_title: displayTitle,
+      event: "workflow_run",
+      head_branch: "main",
+      head_sha: workflowHeadSha,
+      id: workflowRunId,
+      path: ".github/workflows/dependabot-claude-review.yml",
+      repository: { full_name: repository },
+      run_attempt: Number(attempt),
+      status: "completed",
+      ...overrides,
+    };
+  }
+
+  try {
+    mkdirSync(mockBin, { recursive: true });
+    writeFileSync(
+      mockGh,
+      `#!/usr/bin/env bash
+set -euo pipefail
+test "\${GH_TOKEN:-}" = "$EXPECTED_READ_TOKEN"
+
+method=GET
+endpoint=""
+check_name=""
+filter=""
+page=""
+per_page=""
+previous=""
+for argument in "$@"; do
+  if [[ "$previous" == "--method" ]]; then
+    method="$argument"
+  fi
+  if [[ "$argument" == repos/* ]]; then
+    endpoint="$argument"
+  fi
+  case "$argument" in
+    check_name=*) check_name="\${argument#check_name=}" ;;
+    filter=*) filter="\${argument#filter=}" ;;
+    page=*) page="\${argument#page=}" ;;
+    per_page=*) per_page="\${argument#per_page=}" ;;
+  esac
+  previous="$argument"
+done
+
+if [[ "$method" == "POST" ]]; then
+  test "$endpoint" = "repos/$REPOSITORY/actions/runs/$EXPECTED_RUN_ID/rerun"
+  printf '%s\\n' "$endpoint" >> "$MOCK_POST_LOG"
+  exit 0
+fi
+
+case "$endpoint" in
+  "repos/$REPOSITORY/pulls/$PR_NUMBER")
+    /bin/cat "$MOCK_PR_RESPONSE"
+    ;;
+  "repos/$REPOSITORY/actions/runs/$EXPECTED_RUN_ID")
+    /bin/cat "$MOCK_RUN_RESPONSE"
+    ;;
+  repos/$REPOSITORY/actions/runs/*/attempts/*)
+    run_pattern="^repos/$REPOSITORY/actions/runs/([1-9][0-9]*)/attempts/([1-9][0-9]*)$"
+    [[ "$endpoint" =~ $run_pattern ]]
+    /bin/cat "$MOCK_RUN_RESPONSES/\${BASH_REMATCH[1]}-\${BASH_REMATCH[2]}.json"
+    ;;
+  "repos/$REPOSITORY/commits/$EXPECTED_HEAD_SHA/check-runs")
+    test "$check_name" = "claude-review"
+    test "$filter" = "all"
+    test "$per_page" = "100"
+    [[ "$page" =~ ^[1-9][0-9]*$ ]]
+    printf '%s\\n' "$page" >> "$MOCK_CHECK_PAGE_LOG"
+    /bin/cat "$MOCK_CHECK_RESPONSES/page-$page.json"
+    ;;
+  *)
+    exit 64
+    ;;
+esac
+`,
+    );
+    chmodSync(mockGh, 0o500);
+
+    function executeRetry({
+      additionalChecks = [],
+      additionalRuns = [],
+      attempt = "1",
+      candidateCheckOverrides = {},
+      candidateRunOverrides = {},
+      checkPages,
+      checkReceiptOverrides = {},
+      pageTotals,
+      prHeadSha = headSha,
+      runTitle = exactRunTitle,
+    } = {}) {
+      caseNumber += 1;
+      const caseDirectory = join(temporaryDirectory, `case-${caseNumber}`);
+      const prResponse = join(caseDirectory, "pr.json");
+      const runResponse = join(caseDirectory, "run.json");
+      const checkResponses = join(caseDirectory, "checks");
+      const checkPageLog = join(caseDirectory, "check-pages.log");
+      const postLog = join(caseDirectory, "posts.log");
+      const runResponses = join(caseDirectory, "runs");
+      mkdirSync(checkResponses, { recursive: true });
+      mkdirSync(runResponses, { recursive: true });
+
+      writeFileSync(
+        prResponse,
+        JSON.stringify({
+          base: { ref: "main", repo: { full_name: repository } },
+          draft: false,
+          head: { repo: { full_name: repository }, sha: prHeadSha },
+          number: pullRequestNumber,
+          state: "open",
+          user: { login: "dependabot[bot]", type: "Bot" },
+        }),
+      );
+      writeFileSync(
+        runResponse,
+        JSON.stringify(
+          workflowRun({
+            attempt,
+            displayTitle: runTitle,
+            overrides: candidateRunOverrides,
+          }),
+        ),
+      );
+      const candidateCheck = checkRun({
+        attempt,
+        outputText: JSON.stringify(
+          failureReceipt({ attempt, overrides: checkReceiptOverrides }),
+        ),
+        ...candidateCheckOverrides,
+      });
+      const resolvedPages = checkPages ?? [
+        [candidateCheck, ...additionalChecks],
+      ];
+      const totalCount = resolvedPages.reduce(
+        (count, pageChecks) => count + pageChecks.length,
+        0,
+      );
+      for (const [index, pageChecks] of resolvedPages.entries()) {
+        writeFileSync(
+          join(checkResponses, `page-${index + 1}.json`),
+          JSON.stringify({
+            check_runs: pageChecks,
+            total_count: pageTotals?.[index] ?? totalCount,
+          }),
+        );
+      }
+
+      const exactAttemptRuns = [
+        workflowRun({
+          attempt,
+          displayTitle: runTitle,
+          overrides: candidateRunOverrides,
+        }),
+        ...additionalRuns,
+      ];
+      for (const exactAttemptRun of exactAttemptRuns) {
+        writeFileSync(
+          join(
+            runResponses,
+            `${exactAttemptRun.id}-${exactAttemptRun.run_attempt}.json`,
+          ),
+          JSON.stringify(exactAttemptRun),
+        );
+      }
+
+      const result = runBashStep(rerun, {
+        EXPECTED_HEAD_SHA: headSha,
+        EXPECTED_READ_TOKEN: "normal-read-token",
+        EXPECTED_RUN_ATTEMPT: attempt,
+        EXPECTED_RUN_ID: String(runId),
+        EXPECTED_RUN_TITLE: exactRunTitle,
+        GH_TOKEN: "normal-read-token",
+        MOCK_CHECK_PAGE_LOG: checkPageLog,
+        MOCK_CHECK_RESPONSES: checkResponses,
+        MOCK_POST_LOG: postLog,
+        MOCK_PR_RESPONSE: prResponse,
+        MOCK_RUN_RESPONSE: runResponse,
+        MOCK_RUN_RESPONSES: runResponses,
+        PATH: `${mockBin}:${process.env.PATH}`,
+        PR_NUMBER: String(pullRequestNumber),
+        REPOSITORY: repository,
+        RUNNER_TEMP: caseDirectory,
+      });
+      const posts = existsSync(postLog)
+        ? readFileSync(postLog, "utf8").trim().split("\n").filter(Boolean)
+        : [];
+      const pages = existsSync(checkPageLog)
+        ? readFileSync(checkPageLog, "utf8").trim().split("\n").filter(Boolean)
+        : [];
+      return { pages, posts, result };
+    }
+
+    const expectedRerunEndpoint = `repos/${repository}/actions/runs/${runId}/rerun`;
+    for (const attempt of ["1", "2"]) {
+      const { posts, result } = executeRetry({ attempt });
+      assert.equal(result.status, 0, `attempt ${attempt}: ${result.stderr}`);
+      assert.deepEqual(posts, [expectedRerunEndpoint], `attempt ${attempt}`);
+    }
+
+    const rejectedCases = [
+      {
+        input: { attempt: "3" },
+        name: "attempt three",
+      },
+      {
+        input: {
+          checkReceiptOverrides: {
+            apiStatus: 400,
+            failureKind: "provider-permanent",
+            retryable: false,
+          },
+        },
+        name: "non-transient receipt",
+      },
+      {
+        input: { prHeadSha: "b".repeat(40) },
+        name: "pull request drift",
+      },
+      {
+        input: { runTitle: `${exactRunTitle} drift` },
+        name: "workflow run drift",
+      },
+      {
+        input: { checkReceiptOverrides: { runId: runId + 1 } },
+        name: "check receipt drift",
+      },
+      {
+        input: { pageTotals: [2] },
+        name: "check cardinality mismatch",
+      },
+      {
+        input: { pageTotals: [2001] },
+        name: "check pagination cap exceeded",
+      },
+    ];
+    for (const { input, name } of rejectedCases) {
+      const { posts, result } = executeRetry(input);
+      assert.notEqual(result.status, 0, name);
+      assert.deepEqual(posts, [], `${name} must not POST a rerun`);
+    }
+
+    for (const conclusion of ["success", "failure"]) {
+      const newerRunId = runId + (conclusion === "success" ? 1 : 2);
+      const newerCheck = checkRun({
+        checkId: 987654321 + newerRunId - runId,
+        conclusion,
+        workflowRunId: newerRunId,
+      });
+      const { posts, result } = executeRetry({
+        additionalChecks: [newerCheck],
+        additionalRuns: [
+          workflowRun({
+            conclusion,
+            displayTitle: exactRunTitle.replace(
+              "action=synchronize",
+              "action=reopened",
+            ),
+            workflowRunId: newerRunId,
+          }),
+        ],
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(
+        posts,
+        [],
+        `newer ${conclusion} check must suppress the stale retry`,
+      );
+    }
+
+    const untrustedRunId = runId + 30;
+    const malformedAndSpoofedChecks = [
+      checkRun({
+        appId: 999,
+        checkId: 987654330,
+        workflowRunId: runId + 10,
+      }),
+      checkRun({
+        checkId: 987654331,
+        externalId: "dependabot-claude-review:malformed",
+        workflowRunId: runId + 20,
+      }),
+      checkRun({
+        checkId: 987654332,
+        workflowRunId: untrustedRunId,
+      }),
+    ];
+    const malformedResult = executeRetry({
+      additionalChecks: malformedAndSpoofedChecks,
+      additionalRuns: [
+        workflowRun({
+          displayTitle: `${exactRunTitle} spoofed`,
+          workflowRunId: untrustedRunId,
+        }),
+      ],
+    });
+    assert.equal(
+      malformedResult.result.status,
+      0,
+      malformedResult.result.stderr,
+    );
+    assert.deepEqual(malformedResult.posts, [expectedRerunEndpoint]);
+
+    const firstPageSpoofs = Array.from({ length: 100 }, (_, index) =>
+      checkRun({
+        appId: 999,
+        checkId: 1000 + index,
+        workflowRunId: 2000 + index,
+      }),
+    );
+    const paginatedCandidate = checkRun({
+      outputText: JSON.stringify(failureReceipt()),
+    });
+    const paginatedResult = executeRetry({
+      checkPages: [firstPageSpoofs, [paginatedCandidate]],
+    });
+    assert.equal(
+      paginatedResult.result.status,
+      0,
+      paginatedResult.result.stderr,
+    );
+    assert.deepEqual(paginatedResult.pages, ["1", "2"]);
+    assert.deepEqual(paginatedResult.posts, [expectedRerunEndpoint]);
+  } finally {
+    rmSync(temporaryDirectory, { force: true, recursive: true });
+  }
 });
 
 test("processor fails closed without the runner event path", () => {
@@ -1326,6 +1781,100 @@ exit 64
   }
 });
 
+test("the exact-SHA companion materialization imports every local dependency", () => {
+  const temporaryDirectory = mkdtempSync(
+    join(tmpdir(), "dependabot-companion-materialization-"),
+  );
+  const mockBin = join(temporaryDirectory, "bin");
+  const mockGh = join(mockBin, "gh");
+  const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+  const repository = "mento-protocol/frontend-monorepo";
+  const workflowSha = "d".repeat(40);
+
+  try {
+    mkdirSync(mockBin, { recursive: true });
+    writeFileSync(
+      mockGh,
+      `#!/usr/bin/env bash
+set -euo pipefail
+test "$GH_TOKEN" = "$EXPECTED_READ_TOKEN"
+for argument in "$@"; do
+  if [[ "$argument" == repos/*/commits/* ]]; then
+    test "$argument" = "repos/$REPOSITORY/commits/$WORKFLOW_SHA"
+    printf '%s\\n' "$WORKFLOW_SHA"
+    exit 0
+  fi
+  if [[ "$argument" == repos/*/contents/* ]]; then
+    source_path="\${argument#*contents/}"
+    source_path="\${source_path%%\\?ref=*}"
+    test "$argument" = "repos/$REPOSITORY/contents/$source_path?ref=$WORKFLOW_SHA"
+    test -f "$MOCK_REPOSITORY_ROOT/$source_path"
+    /bin/cat "$MOCK_REPOSITORY_ROOT/$source_path"
+    exit 0
+  fi
+done
+exit 64
+`,
+    );
+    chmodSync(mockGh, 0o500);
+
+    for (const jobName of [
+      "actions-companion-stage",
+      "actions-companion-open",
+    ]) {
+      const step = processor.jobs[jobName].steps.find(
+        ({ id }) => id === "companion-adapter",
+      );
+      const runnerTemp = join(temporaryDirectory, jobName);
+      mkdirSync(runnerTemp, { recursive: true });
+      const result = runBashStep(step, {
+        EXPECTED_READ_TOKEN: "normal-read-token",
+        GH_TOKEN: "normal-read-token",
+        MOCK_REPOSITORY_ROOT: repositoryRoot,
+        PATH: `${mockBin}:${process.env.PATH}`,
+        REPOSITORY: repository,
+        RUNNER_TEMP: runnerTemp,
+        WORKFLOW_SHA: workflowSha,
+      });
+      assert.equal(result.status, 0, `${jobName}: ${result.stderr}`);
+
+      const trustedRoot = join(runnerTemp, "dependabot-actions-companion");
+      const trustedAdapter = join(
+        trustedRoot,
+        "dependabot-actions-companion-live.mjs",
+      );
+      assert.equal(result.githubOutput, `path=${trustedAdapter}\n`, jobName);
+      for (const source of [
+        "dependabot-actions-companion-live.mjs",
+        "dependabot-actions-companion.mjs",
+        "dependabot-preparation-receipts.mjs",
+        "dependabot-processor.mjs",
+      ]) {
+        assert.equal(
+          readFileSync(join(trustedRoot, source), "utf8"),
+          read(`scripts/${source}`),
+          `${jobName}: ${source}`,
+        );
+      }
+
+      const imported = spawnSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "--eval",
+          'import { pathToFileURL } from "node:url"; await import(pathToFileURL(process.argv[2]).href);',
+          "materialization-test",
+          trustedAdapter,
+        ],
+        { encoding: "utf8" },
+      );
+      assert.equal(imported.status, 0, `${jobName}: ${imported.stderr}`);
+    }
+  } finally {
+    rmSync(temporaryDirectory, { force: true, recursive: true });
+  }
+});
+
 test("the exact-SHA terminal source materialization imports every local dependency", () => {
   const temporaryDirectory = mkdtempSync(
     join(tmpdir(), "dependabot-terminal-source-materialization-"),
@@ -1451,6 +2000,19 @@ test("processor normalizes only exact human-merge-only modes", () => {
   }
 
   assert.deepEqual(evaluateJob.outputs, {
+    actions_companion_base_sha:
+      "${{ steps.evaluation.outputs.actions_companion_base_sha }}",
+    actions_companion_candidate:
+      "${{ steps.evaluation.outputs.actions_companion_candidate }}",
+    actions_companion_head_sha:
+      "${{ steps.evaluation.outputs.actions_companion_head_sha }}",
+    actions_companion_pr_number:
+      "${{ steps.evaluation.outputs.actions_companion_pr_number }}",
+    claude_retry_candidate:
+      "${{ steps.target.outputs.claude_retry_candidate }}",
+    claude_run_attempt: "${{ steps.target.outputs.claude_run_attempt }}",
+    claude_run_id: "${{ steps.target.outputs.claude_run_id }}",
+    claude_run_title: "${{ steps.target.outputs.claude_run_title }}",
     expected_head_sha: "${{ steps.target.outputs.expected_head_sha }}",
     pr_numbers: "${{ steps.target.outputs.pr_numbers }}",
     processor_mode: "${{ steps.mode.outputs.processor_mode }}",
@@ -1561,6 +2123,11 @@ test("initial evaluation exports only validated prepare routing booleans", () =>
       PR_NUMBERS: "all",
       REPOSITORY: "mento-protocol/frontend-monorepo",
     });
+  const noCompanionRouting =
+    "actions_companion_base_sha=\n" +
+    "actions_companion_candidate=false\n" +
+    "actions_companion_head_sha=\n" +
+    "actions_companion_pr_number=\n";
 
   try {
     for (const [disposition, expectedPending, expectedRequired] of [
@@ -1586,7 +2153,8 @@ test("initial evaluation exports only validated prepare routing booleans", () =>
       assert.equal(
         result.githubOutput,
         `refresh_pending=${expectedPending}\n` +
-          `refresh_required=${expectedRequired}\n`,
+          `refresh_required=${expectedRequired}\n` +
+          noCompanionRouting,
       );
     }
 
@@ -1594,8 +2162,103 @@ test("initial evaluation exports only validated prepare routing booleans", () =>
     assert.equal(observe.status, 0, observe.stderr);
     assert.equal(
       observe.githubOutput,
-      "refresh_pending=false\nrefresh_required=false\n",
+      "refresh_pending=false\nrefresh_required=false\n" + noCompanionRouting,
     );
+
+    const companionCandidate = {
+      base: { current: true, currentBaseSha: "a".repeat(40) },
+      baseSha: "a".repeat(40),
+      changedPaths: [".github/workflows/_osv-scanner-readonly.yml"],
+      dependencies: [
+        {
+          from: "b".repeat(40),
+          name: "google/osv-scanner-action/osv-scanner-action",
+          to: "c".repeat(40),
+        },
+        {
+          from: "b".repeat(40),
+          name: "google/osv-scanner-action/osv-reporter-action",
+          to: "c".repeat(40),
+        },
+      ],
+      dependencyGroup: "github-actions-manual",
+      disposition: "manual-review",
+      feedback: {
+        autoMergeEnabled: false,
+        currentProcessorApprovalCount: 0,
+      },
+      headRef: "dependabot/github_actions/github-actions-manual-148744ce4a",
+      headSha: "d".repeat(40),
+      pullRequestNumber: 840,
+      repairAttempts: { preparationKind: "native" },
+      risk: {
+        packageEcosystem: "github-actions",
+        reason: "sensitive-auth-deployment-or-workflow-policy-action",
+      },
+    };
+    const companion = runRouting({
+      evaluations: [companionCandidate],
+      mode: "prepare",
+      prepareCandidate: null,
+      repository: "mento-protocol/frontend-monorepo",
+      schema: "dependabot-processor:v2",
+    });
+    assert.equal(companion.status, 0, companion.stderr);
+    assert.equal(
+      companion.githubOutput,
+      "refresh_pending=false\n" +
+        "refresh_required=false\n" +
+        `actions_companion_base_sha=${"a".repeat(40)}\n` +
+        "actions_companion_candidate=true\n" +
+        `actions_companion_head_sha=${"d".repeat(40)}\n` +
+        "actions_companion_pr_number=840\n",
+    );
+
+    for (const invalidCandidate of [
+      {
+        ...companionCandidate,
+        base: { current: true, currentBaseSha: "a".repeat(39) },
+        baseSha: "a".repeat(39),
+      },
+      {
+        ...companionCandidate,
+        base: {
+          current: true,
+          currentBaseSha: `${"a".repeat(39)}\nforged-output=true`,
+        },
+        baseSha: `${"a".repeat(39)}\nforged-output=true`,
+      },
+      {
+        ...companionCandidate,
+        baseSha: "f".repeat(40),
+      },
+    ]) {
+      const invalidBase = runRouting({
+        evaluations: [invalidCandidate],
+        mode: "prepare",
+        prepareCandidate: null,
+        repository: "mento-protocol/frontend-monorepo",
+        schema: "dependabot-processor:v2",
+      });
+      assert.equal(invalidBase.status, 0, invalidBase.stderr);
+      assert.equal(
+        invalidBase.githubOutput,
+        "refresh_pending=false\n" +
+          "refresh_required=false\n" +
+          noCompanionRouting,
+      );
+      assert.doesNotMatch(invalidBase.githubOutput, /forged-output/u);
+    }
+
+    const ambiguousCompanion = runRouting({
+      evaluations: [companionCandidate, { ...companionCandidate }],
+      mode: "prepare",
+      prepareCandidate: null,
+      repository: "mento-protocol/frontend-monorepo",
+      schema: "dependabot-processor:v2",
+    });
+    assert.notEqual(ambiguousCompanion.status, 0);
+    assert.equal(ambiguousCompanion.githubOutput, "");
     const observeCandidate = runRouting(
       resultFor({
         mode: "observe",
@@ -1664,6 +2327,307 @@ test("initial evaluation exports only validated prepare routing booleans", () =>
   } finally {
     rmSync(temporaryDirectory, { force: true, recursive: true });
   }
+});
+
+test("OSV companion staging waits for finalization and isolates each write token", () => {
+  const stageJob = processor.jobs["actions-companion-stage"];
+  const openJob = processor.jobs["actions-companion-open"];
+  const readPermissions = {
+    actions: "read",
+    checks: "read",
+    contents: "read",
+    "pull-requests": "read",
+  };
+
+  assert.ok(stageJob);
+  assert.deepEqual(stageJob.needs, ["evaluate", "prepare-finalize"]);
+  assert.match(stageJob.if, /^always\(\)/u);
+  assert.match(stageJob.if, /needs\.evaluate\.result == 'success'/u);
+  assert.match(stageJob.if, /needs\.prepare-finalize\.result == 'success'/u);
+  assert.match(
+    stageJob.if,
+    /needs\.evaluate\.outputs\.actions_companion_candidate == 'true'/u,
+  );
+  assert.deepEqual(stageJob.permissions, readPermissions);
+  assert.deepEqual(stageJob.outputs, {
+    stage_receipt: "${{ steps.stage.outputs.stage_receipt }}",
+    stage_result: "${{ steps.stage.outputs.stage_result }}",
+  });
+  assert.deepEqual(
+    stageJob.steps.map(({ name }) => name),
+    [
+      "Checkout the exact evaluated current main for inert census",
+      "Materialize the companion adapter from the exact trusted workflow SHA",
+      "Census the inert exact-base checkout without App credentials",
+      "Create an isolated workflow-staging App token",
+      "Bind the staging token to the exact Prepare App bot",
+      "Revalidate and stage the exact companion tree",
+    ],
+  );
+
+  const checkout = stageJob.steps.find((step) =>
+    step.name.startsWith("Checkout the exact evaluated current main"),
+  );
+  assert.ok(checkout);
+  assert.equal(
+    checkout.uses,
+    "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+  );
+  assert.deepEqual(checkout.with, {
+    "fetch-depth": 1,
+    "persist-credentials": false,
+    ref: "${{ needs.evaluate.outputs.actions_companion_base_sha }}",
+  });
+
+  const materialize = stageJob.steps.find(
+    (step) =>
+      step.name ===
+      "Materialize the companion adapter from the exact trusted workflow SHA",
+  );
+  const census = stageJob.steps.find((step) =>
+    step.name.startsWith("Census the inert exact-base checkout"),
+  );
+  const stageToken = stageJob.steps.find(
+    (step) => step.id === "companion-stage-token",
+  );
+  const stageIdentity = stageJob.steps.find((step) =>
+    step.name.startsWith("Bind the staging token"),
+  );
+  const stage = stageJob.steps.find((step) => step.id === "stage");
+  assert.ok(materialize);
+  assert.ok(census);
+  assert.ok(stageToken);
+  assert.ok(stageIdentity);
+  assert.ok(stage);
+  assert.equal(census.id, "census");
+  assert.equal(materialize.env.GH_TOKEN, "${{ github.token }}");
+  assert.equal(materialize.env.WORKFLOW_SHA, "${{ github.workflow_sha }}");
+  assert.match(materialize.run, /commits\/\$WORKFLOW_SHA/u);
+  assert.match(
+    materialize.run,
+    /dependabot-actions-companion\.mjs\?ref=\$WORKFLOW_SHA/u,
+  );
+  assert.match(
+    materialize.run,
+    /dependabot-actions-companion-live\.mjs\?ref=\$WORKFLOW_SHA/u,
+  );
+  assert.match(
+    materialize.run,
+    /dependabot-processor\.mjs\?ref=\$WORKFLOW_SHA/u,
+  );
+  assert.match(
+    materialize.run,
+    /dependabot-preparation-receipts\.mjs\?ref=\$WORKFLOW_SHA/u,
+  );
+  assert.equal(
+    census.env.DEPENDABOT_COMPANION_GITHUB_TOKEN,
+    "${{ github.token }}",
+  );
+  assert.equal(
+    census.env.EXPECTED_BASE_SHA,
+    "${{ needs.evaluate.outputs.actions_companion_base_sha }}",
+  );
+  assert.doesNotMatch(JSON.stringify(census.env), /APP_TOKEN|secrets\./u);
+  assert.match(census.run, /census\s+\\/u);
+  assert.match(census.run, /--base-dir "\$BASE_DIRECTORY"/u);
+  assert.match(census.run, /--run-attempt "\$PROCESSOR_RUN_ATTEMPT"/u);
+  assert.match(census.run, /--run-id "\$PROCESSOR_RUN_ID"/u);
+  assert.match(census.run, /rev-parse HEAD.*EXPECTED_BASE_SHA/su);
+  assert.match(census.run, /stage_token_required=/u);
+  assert.ok(
+    census.run.indexOf("bytes.byteLength") < census.run.indexOf("JSON.parse"),
+  );
+
+  assert.equal(
+    stageToken.uses,
+    "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
+  );
+  assert.deepEqual(stageToken.with, {
+    "client-id": "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID }}",
+    "private-key":
+      "${{ secrets.DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY }}",
+    owner: "mento-protocol",
+    repositories: "frontend-monorepo",
+    "permission-contents": "write",
+    "permission-workflows": "write",
+  });
+  assert.equal(Object.hasOwn(stageToken.with, "skip-token-revoke"), false);
+  assert.equal(
+    stageToken.if,
+    "steps.census.outputs.stage_token_required == 'true'",
+  );
+  assert.equal(stageIdentity.if, stageToken.if);
+  assert.match(stageIdentity.run, /ACTUAL_APP_SLUG.*EXPECTED_APP_SLUG/su);
+  assert.match(stageIdentity.run, /actual_bot_id.*EXPECTED_BOT_ID/su);
+  assert.equal(
+    stage.env.DEPENDABOT_COMPANION_GITHUB_TOKEN,
+    "${{ github.token }}",
+  );
+  assert.equal(
+    stage.env.DEPENDABOT_COMPANION_STAGE_APP_TOKEN,
+    "${{ steps.companion-stage-token.outputs.token }}",
+  );
+  assert.match(stage.run, /stage\s+\\/u);
+  assert.match(stage.run, /--census "\$CENSUS_RESULT_PATH"/u);
+  assert.match(stage.run, /--run-attempt "\$PROCESSOR_RUN_ATTEMPT"/u);
+  assert.match(stage.run, /--run-id "\$PROCESSOR_RUN_ID"/u);
+  assert.match(stage.run, /stage_receipt=.*base64/su);
+  assert.match(stage.run, /stage_result=/u);
+  assert.ok(
+    stage.run.indexOf("bytes.byteLength") < stage.run.indexOf("JSON.parse"),
+  );
+  assert.equal(Object.hasOwn(stage, "if"), false);
+  assert.equal(
+    JSON.stringify(stageJob).split(
+      "${{ steps.companion-stage-token.outputs.token }}",
+    ).length - 1,
+    1,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(stageJob),
+    /permission-pull-requests":"write|DEPENDABOT_COMPANION_OPEN_APP_TOKEN|checks":"write|\/reviews|\/comments|enablePullRequestAutoMerge|\/merge/u,
+  );
+
+  assert.ok(openJob);
+  assert.deepEqual(openJob.needs, ["evaluate", "actions-companion-stage"]);
+  assert.match(
+    openJob.if,
+    /needs\.actions-companion-stage\.result == 'success'/u,
+  );
+  assert.match(
+    openJob.if,
+    /needs\.actions-companion-stage\.outputs\.stage_result == 'staged'/u,
+  );
+  assert.deepEqual(openJob.permissions, readPermissions);
+  assert.deepEqual(
+    openJob.steps.map(({ name }) => name),
+    [
+      "Materialize the companion adapter from the exact trusted workflow SHA",
+      "Decode and validate the exact stage receipt",
+      "Create an isolated pull-request App token",
+      "Bind the pull-request token to the exact Prepare App bot",
+      "Revalidate the staged head and open its companion pull request",
+      "Confirm the exact App-authored companion pull request",
+    ],
+  );
+  const openToken = openJob.steps.find(
+    (step) => step.id === "companion-open-token",
+  );
+  const openIdentity = openJob.steps.find((step) =>
+    step.name.startsWith("Bind the pull-request token"),
+  );
+  const decode = openJob.steps.find((step) =>
+    step.name.startsWith("Decode and validate the exact stage receipt"),
+  );
+  const open = openJob.steps.find((step) => step.id === "open");
+  const openMaterialize = openJob.steps.find(
+    (step) => step.id === "companion-adapter",
+  );
+  const confirmation = openJob.steps.find((step) =>
+    step.name.startsWith("Confirm the exact App-authored"),
+  );
+  assert.ok(openToken);
+  assert.ok(openIdentity);
+  assert.ok(decode);
+  assert.ok(open);
+  assert.ok(openMaterialize);
+  assert.ok(confirmation);
+  assert.match(
+    openMaterialize.run,
+    /dependabot-actions-companion\.mjs\?ref=\$WORKFLOW_SHA/u,
+  );
+  assert.match(
+    openMaterialize.run,
+    /dependabot-actions-companion-live\.mjs\?ref=\$WORKFLOW_SHA/u,
+  );
+  assert.match(
+    openMaterialize.run,
+    /dependabot-processor\.mjs\?ref=\$WORKFLOW_SHA/u,
+  );
+  assert.match(
+    openMaterialize.run,
+    /dependabot-preparation-receipts\.mjs\?ref=\$WORKFLOW_SHA/u,
+  );
+  assert.equal(
+    openToken.uses,
+    "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
+  );
+  assert.deepEqual(openToken.with, {
+    "client-id": "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID }}",
+    "private-key":
+      "${{ secrets.DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY }}",
+    owner: "mento-protocol",
+    repositories: "frontend-monorepo",
+    "permission-pull-requests": "write",
+  });
+  assert.equal(Object.hasOwn(openToken.with, "skip-token-revoke"), false);
+  assert.match(openIdentity.run, /ACTUAL_APP_SLUG.*EXPECTED_APP_SLUG/su);
+  assert.match(openIdentity.run, /actual_bot_id.*EXPECTED_BOT_ID/su);
+  assert.equal(
+    decode.env.STAGE_RECEIPT_BASE64,
+    "${{ needs.actions-companion-stage.outputs.stage_receipt }}",
+  );
+  assert.ok(
+    decode.run.indexOf("bytes.byteLength") < decode.run.indexOf("JSON.parse"),
+  );
+  assert.equal(
+    open.env.DEPENDABOT_COMPANION_GITHUB_TOKEN,
+    "${{ github.token }}",
+  );
+  assert.equal(
+    open.env.DEPENDABOT_COMPANION_OPEN_APP_TOKEN,
+    "${{ steps.companion-open-token.outputs.token }}",
+  );
+  assert.match(open.run, /open\s+\\/u);
+  assert.match(open.run, /--staged "\$STAGE_RECEIPT_PATH"/u);
+  assert.match(open.run, /--run-attempt "\$PROCESSOR_RUN_ATTEMPT"/u);
+  assert.match(open.run, /--run-id "\$PROCESSOR_RUN_ID"/u);
+  assert.match(open.run, /already-open/u);
+  assert.ok(
+    open.run.indexOf("bytes.byteLength") < open.run.indexOf("JSON.parse"),
+  );
+  for (const boundary of [census, stage, decode, open]) {
+    assert.match(
+      boundary.run,
+      /receipt\.orchestratorRunId !== Number\(process\.env\.PROCESSOR_RUN_ID\)/u,
+    );
+    assert.match(
+      boundary.run,
+      /receipt\.orchestratorRunAttempt !==[\s\S]*PROCESSOR_RUN_ATTEMPT/u,
+    );
+    assert.match(
+      boundary.run,
+      /Number\.isSafeInteger\(receipt\.processorRunId\)/u,
+    );
+    assert.match(
+      boundary.run,
+      /Number\.isSafeInteger\(receipt\.processorRunAttempt\)/u,
+    );
+  }
+  assert.match(confirmation.if, /open_result == 'opened'/u);
+  assert.match(confirmation.if, /open_result == 'already-open'/u);
+  assert.match(confirmation.run, /pull\.user\?\.id.*EXPECTED_BOT_ID/su);
+  assert.match(confirmation.run, /pull\.user\?\.login.*EXPECTED_BOT_LOGIN/su);
+  assert.match(confirmation.run, /pull\.user\?\.type !== "Bot"/u);
+  assert.match(confirmation.run, /pull\.head\?\.sha !== receipt\.commitSha/u);
+  assert.match(confirmation.run, /pull\.base\?\.sha !== expected\.baseSha/u);
+  assert.match(confirmation.run, /pull\.maintainer_can_modify !== false/u);
+  assert.match(confirmation.run, /pull\.merged_at !== null/u);
+  assert.match(confirmation.run, /pull\.auto_merge !== null/u);
+  assert.equal(
+    JSON.stringify(openJob).split(
+      "${{ steps.companion-open-token.outputs.token }}",
+    ).length - 1,
+    1,
+  );
+  assert.deepEqual(
+    openJob.steps.filter((step) => step.uses?.startsWith("actions/checkout@")),
+    [],
+  );
+  assert.doesNotMatch(
+    JSON.stringify(openJob),
+    /permission-(?:contents|workflows)":"write|DEPENDABOT_COMPANION_STAGE_APP_TOKEN|checks":"write|\/reviews|\/comments|enablePullRequestAutoMerge|\/merge/u,
+  );
 });
 
 test("refresh request publication has checks authority but no branch credential", () => {
@@ -1940,7 +2904,24 @@ test("only the prepare mutator receives the refresh-capable App token", () => {
     if (jobName === "prepare-mutate") continue;
     assert.doesNotMatch(
       JSON.stringify(job),
-      /DEPENDABOT_PROCESSOR_PREPARE_APP_(?:CLIENT_ID|PRIVATE_KEY)|DEPENDABOT_PROCESSOR_REPAIR_TOKEN/,
+      /DEPENDABOT_PROCESSOR_REPAIR_TOKEN/,
+      jobName,
+    );
+  }
+
+  for (const [jobName, job] of Object.entries(processor.jobs)) {
+    if (
+      new Set([
+        "prepare-mutate",
+        "actions-companion-stage",
+        "actions-companion-open",
+      ]).has(jobName)
+    ) {
+      continue;
+    }
+    assert.doesNotMatch(
+      JSON.stringify(job),
+      /DEPENDABOT_PROCESSOR_PREPARE_APP_(?:CLIENT_ID|PRIVATE_KEY)/,
       jobName,
     );
   }
@@ -2959,6 +3940,18 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
     reviewJob.outputs.structured_output,
     "${{ steps.claude-review.outputs.structured_output }}",
   );
+  assert.equal(
+    reviewJob.outputs.api_status,
+    "${{ steps.diagnostics.outputs.api_status }}",
+  );
+  assert.equal(
+    reviewJob.outputs.failure_kind,
+    "${{ steps.diagnostics.outputs.failure_kind }}",
+  );
+  assert.equal(
+    reviewJob.outputs.retryable,
+    "${{ steps.diagnostics.outputs.retryable }}",
+  );
 
   const [immediate, checkout, review, diagnostics, verifyDiffRead] =
     reviewJob.steps;
@@ -3101,6 +4094,7 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
     diagnostics.name,
     "Report sanitized Claude terminal diagnostics",
   );
+  assert.equal(diagnostics.id, "diagnostics");
   assert.equal(diagnostics.if, "${{ always() }}");
   assert.equal(diagnostics["continue-on-error"], true);
   assert.equal(
@@ -3116,6 +4110,10 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
   assert.match(diagnostics.run, /\(\$results \| length\) != 1/);
   assert.match(diagnostics.run, /\^\[A-Za-z0-9_-\]\{1,64\}\$/);
   assert.match(diagnostics.run, /\. >= 100 and \. <= 599/);
+  assert.match(diagnostics.run, /429\|500\|502\|503\|504\|529/);
+  assert.match(diagnostics.run, /failure_kind=provider-transient/);
+  assert.match(diagnostics.run, /retryable=true/);
+  assert.match(diagnostics.run, /GITHUB_OUTPUT/);
   for (const key of [
     "subtype",
     "is_error",
@@ -3190,12 +4188,26 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
     publish.env.REVIEW_OUTPUT,
     "${{ needs.review.outputs.structured_output }}",
   );
+  assert.equal(
+    publish.env.CLAUDE_API_STATUS,
+    "${{ needs.review.outputs.api_status }}",
+  );
+  assert.equal(
+    publish.env.CLAUDE_FAILURE_KIND,
+    "${{ needs.review.outputs.failure_kind }}",
+  );
+  assert.equal(
+    publish.env.CLAUDE_RETRYABLE,
+    "${{ needs.review.outputs.retryable }}",
+  );
   assert.match(publish.run, /repos\/\$REPOSITORY\/check-runs/);
   assert.match(publish.run, /name: "claude-review"/);
   assert.match(publish.run, /head_sha: \$headSha/);
   assert.match(publish.run, /details_url: \$detailsUrl/);
   assert.match(publish.run, /external_id: \$externalId/);
   assert.match(publish.run, /dependabot-claude-review-result:v1/);
+  assert.match(publish.run, /dependabot-claude-review-failure:v1/);
+  assert.match(publish.run, /provider-transient/);
   assert.match(publish.run, /reviewCompleted == true/);
   assert.match(publish.run, /verdict == "clean"/);
   assert.match(publish.run, /findings \| length\) == 0/);
@@ -3204,6 +4216,8 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
   assert.match(publish.run, /--arg text "\$text"/);
   assert.match(publish.run, /text: \$text/);
   assert.match(publish.run, /POST_IDENTITY_STABLE.*true/s);
+  assert.match(publish.run, /GITHUB_RUN_ATTEMPT <= 2/);
+  assert.match(publish.run, /bounded retry limit is exhausted/);
   assert.match(publish.run, /test "\$conclusion" = "success"/);
 
   assert.match(checkout.uses, /@[0-9a-f]{40}$/);
@@ -3221,6 +4235,197 @@ test("Dependabot Claude review follows only authenticated intake runs", () => {
   assert.match(guard, /type: "document"/);
   assert.match(guard, /media_type: "text\/plain"/);
   assert.match(guard, /data: response\.stdout/);
+});
+
+test("Claude publisher exhausts transient retries after attempt two", () => {
+  const publish = dependabotReview.jobs.publish.steps.find(
+    (step) => step.name === "Publish the exact-head Claude review check",
+  );
+  const temporaryDirectory = mkdtempSync(
+    join(tmpdir(), "dependabot-claude-publisher-"),
+  );
+  const mockBin = join(temporaryDirectory, "bin");
+  const mockGh = join(mockBin, "gh");
+  const repository = "mento-protocol/frontend-monorepo";
+  const pullRequestNumber = 701;
+  const runId = 123456789;
+  const headSha = "a".repeat(40);
+  mkdirSync(mockBin, { recursive: true });
+  writeFileSync(
+    mockGh,
+    `#!/usr/bin/env bash
+set -euo pipefail
+test "$GH_TOKEN" = "publisher-token"
+test "$1" = "api"
+shift
+method=
+endpoint=
+input=
+while (( $# > 0 )); do
+  case "$1" in
+    --method)
+      method="$2"
+      shift 2
+      ;;
+    -H|--jq)
+      shift 2
+      ;;
+    --input)
+      input="$2"
+      shift 2
+      ;;
+    *)
+      test -z "$endpoint"
+      endpoint="$1"
+      shift
+      ;;
+  esac
+done
+test "$method" = "POST"
+test "$endpoint" = "repos/$REPOSITORY/check-runs"
+test -f "$input"
+cp "$input" "$MOCK_REQUEST_PATH"
+printf '%s\n' '{}'
+`,
+  );
+  chmodSync(mockGh, 0o500);
+
+  try {
+    for (const fixture of [
+      {
+        attempt: "2",
+        retryable: true,
+        summary:
+          "Claude review hit a transient provider error (HTTP 529). A bounded retry is available.",
+      },
+      {
+        attempt: "3",
+        retryable: false,
+        summary:
+          "Claude review hit a transient provider error (HTTP 529). The bounded retry limit is exhausted.",
+      },
+    ]) {
+      const caseDirectory = join(
+        temporaryDirectory,
+        `attempt-${fixture.attempt}`,
+      );
+      const requestPath = join(caseDirectory, "request.json");
+      mkdirSync(caseDirectory, { recursive: true });
+      const result = runBashStep(publish, {
+        CHECK_DETAILS_URL: `https://github.com/${repository}/actions/runs/${runId}`,
+        CHECK_EXTERNAL_ID: `dependabot-claude-review:v1:pr=${pullRequestNumber}:sha=${headSha}:run=${runId}:attempt=${fixture.attempt}`,
+        CLAUDE_API_STATUS: "529",
+        CLAUDE_FAILURE_KIND: "provider-transient",
+        CLAUDE_RETRYABLE: "true",
+        EXPECTED_HEAD_SHA: headSha,
+        GH_TOKEN: "publisher-token",
+        GITHUB_RUN_ATTEMPT: fixture.attempt,
+        GITHUB_RUN_ID: String(runId),
+        MOCK_REQUEST_PATH: requestPath,
+        PATH: `${mockBin}:${process.env.PATH}`,
+        POST_IDENTITY_STABLE: "true",
+        PR_NUMBER: String(pullRequestNumber),
+        REPOSITORY: repository,
+        REVIEW_OUTPUT: "",
+        REVIEW_RESULT: "failure",
+        RUNNER_TEMP: caseDirectory,
+      });
+      assert.equal(result.status, 1, result.stderr);
+      assert.equal(existsSync(requestPath), true);
+      const request = JSON.parse(readFileSync(requestPath, "utf8"));
+      assert.equal(request.conclusion, "failure");
+      assert.equal(request.output.summary, fixture.summary);
+      const receipt = JSON.parse(request.output.text);
+      assert.deepEqual(receipt, {
+        apiStatus: 529,
+        failureKind: "provider-transient",
+        headSha,
+        pullRequestNumber,
+        repository,
+        retryable: fixture.retryable,
+        runAttempt: Number(fixture.attempt),
+        runId,
+        schema: "dependabot-claude-review-failure:v1",
+      });
+    }
+  } finally {
+    rmSync(temporaryDirectory, { force: true, recursive: true });
+  }
+});
+
+test("Claude terminal diagnostics classify only bounded provider retries", () => {
+  const diagnostics = dependabotReview.jobs.review.steps.find(
+    (step) => step.id === "diagnostics",
+  );
+  const fixtures = [
+    {
+      apiStatus: 529,
+      expected:
+        "api_status=529\nfailure_kind=provider-transient\nretryable=true\n",
+      terminalReason: "api_error",
+    },
+    {
+      apiStatus: 429,
+      expected:
+        "api_status=429\nfailure_kind=provider-transient\nretryable=true\n",
+      terminalReason: "api_error",
+    },
+    {
+      apiStatus: 401,
+      expected:
+        "api_status=401\nfailure_kind=provider-terminal\nretryable=false\n",
+      terminalReason: "api_error",
+    },
+    {
+      apiStatus: 529,
+      expected: "api_status=529\nfailure_kind=review-failed\nretryable=false\n",
+      terminalReason: "invalid_request",
+    },
+  ];
+
+  for (const fixture of fixtures) {
+    const directory = mkdtempSync(join(tmpdir(), "claude-diagnostics-"));
+    try {
+      const executionFile = join(directory, "claude-execution-output.json");
+      writeFileSync(
+        executionFile,
+        JSON.stringify([
+          {
+            api_error_status: fixture.apiStatus,
+            is_error: true,
+            subtype: "success",
+            terminal_reason: fixture.terminalReason,
+            type: "result",
+          },
+        ]),
+      );
+      const result = runBashStep(diagnostics, {
+        CLAUDE_EXECUTION_FILE: executionFile,
+        RUNNER_TEMP: directory,
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.githubOutput, fixture.expected);
+    } finally {
+      rmSync(directory, { force: true, recursive: true });
+    }
+  }
+
+  const directory = mkdtempSync(join(tmpdir(), "claude-diagnostics-"));
+  try {
+    const executionFile = join(directory, "claude-execution-output.json");
+    writeFileSync(executionFile, "{}");
+    const result = runBashStep(diagnostics, {
+      CLAUDE_EXECUTION_FILE: executionFile,
+      RUNNER_TEMP: directory,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(
+      result.githubOutput,
+      "api_status=none\nfailure_kind=review-unavailable\nretryable=false\n",
+    );
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
 });
 
 test("Dependabot Claude review tool guard permits only the exact bound diff", async () => {
@@ -3832,6 +5037,8 @@ test("no workflow can automatically merge Dependabot pull requests", () => {
   const forbiddenMergeAuthority =
     /gh\s+pr\s+merge|enablePullRequestAutoMerge|mergePullRequest|\/pulls\/[^\s"'`]*\/merge|pulls\.merge|DEPENDABOT_PROCESSOR_MERGE_/;
   const trustedSources = [
+    "scripts/dependabot-actions-companion-live.mjs",
+    "scripts/dependabot-actions-companion.mjs",
     "scripts/dependabot-preparation-receipts.mjs",
     "scripts/dependabot-prepared-review.mjs",
     "scripts/dependabot-processor.mjs",
