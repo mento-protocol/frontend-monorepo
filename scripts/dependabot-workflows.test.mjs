@@ -1097,15 +1097,11 @@ test("processor filters non-target Claude callbacks before evaluation", () => {
   const claudeGuard = evaluateCondition.slice(claudeGuardStart);
   assert.match(
     claudeGuard,
-    /startsWith\(github\.event\.workflow_run\.display_title, 'dependabot-claude-review:v1 \| source='\)/,
+    /startsWith\(github\.event\.workflow_run\.display_title, 'dependabot-claude-review:v1 \| source='\)\s*&&\s*\(\s*endsWith\(github\.event\.workflow_run\.display_title, 'receipt=true'\)\s*\|\|\s*endsWith\(github\.event\.workflow_run\.display_title, '\|ok=true'\)\s*\)/,
   );
-  assert.match(
+  assert.doesNotMatch(
     claudeGuard,
-    /endsWith\(github\.event\.workflow_run\.display_title, 'receipt=true'\)/,
-  );
-  assert.match(
-    claudeGuard,
-    /endsWith\(github\.event\.workflow_run\.display_title, '\|ok=true'\)/,
+    /endsWith\(github\.event\.workflow_run\.display_title, '(?:receipt=false|\|ok=false)'\)/,
   );
 });
 
