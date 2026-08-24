@@ -32,6 +32,7 @@ import {
   evaluateDependabotPullRequest,
   evaluateDependabotSweep,
   evaluateFeedbackGate,
+  isTypedOsvActionsCompanionCandidate,
   normalizeProcessorMode,
   normalizeProcessorPhase,
   parseDependabotAllClearReceipt,
@@ -1213,6 +1214,80 @@ function snapshotForPullRequest(pullRequestNumber, headSha) {
     pullRequest: {
       head: {
         ref: `dependabot/github_actions/github-actions-routine-${pullRequestNumber}`,
+        repo: { fullName: REPOSITORY },
+        sha: headSha,
+      },
+      number: pullRequestNumber,
+    },
+  });
+}
+
+function typedOsvSnapshotForPullRequest(
+  pullRequestNumber = 840,
+  headSha = SECOND_HEAD_SHA,
+) {
+  const from = "6".repeat(40);
+  const to = "7".repeat(40);
+  return snapshot({
+    baseAncestry: {
+      aheadBy: 1,
+      baseCommitSha: BASE_SHA,
+      behindBy: 0,
+      currentBaseIsAncestor: true,
+      currentBaseSha: BASE_SHA,
+      headSha,
+      mergeBaseSha: BASE_SHA,
+      status: "ahead",
+    },
+    checks: completeChecks({ headSha, pullRequestNumber }),
+    commits: [
+      {
+        authorLogin: "dependabot[bot]",
+        committerLogin: "dependabot[bot]",
+        sha: headSha,
+        verified: true,
+      },
+    ],
+    expectedHeadSha: headSha,
+    metadata: {
+      dependencies: [
+        {
+          from,
+          name: "google/osv-scanner-action/osv-scanner-action",
+          to,
+          updateType: "minor",
+        },
+        {
+          from,
+          name: "google/osv-scanner-action/osv-reporter-action",
+          to,
+          updateType: "minor",
+        },
+      ],
+      dependencyGroup: "github-actions-manual",
+      dependencyNames: [
+        "google/osv-scanner-action/osv-scanner-action",
+        "google/osv-scanner-action/osv-reporter-action",
+      ],
+      groupedUpdateIntegrity: {
+        declaredUpdateCount: 2,
+        duplicateDependencyRows: false,
+        parsedUpdateCount: 2,
+        valid: true,
+      },
+      immutableEvidence: { valid: true },
+      packageEcosystem: "github-actions",
+      updateType: "minor",
+    },
+    pullRequest: {
+      files: [
+        {
+          ...PACKAGE_BLOB,
+          filename: ".github/workflows/_osv-scanner-readonly.yml",
+        },
+      ],
+      head: {
+        ref: "dependabot/github_actions/github-actions-manual-148744ce4a",
         repo: { fullName: REPOSITORY },
         sha: headSha,
       },
@@ -7686,6 +7761,123 @@ test("selects at most one prepare candidate per sweep and exposes no merge candi
     "waiting-prepare-serialization",
   );
   assert.equal(result.summary.prepareCandidates, 1);
+});
+
+test("serializes the typed OSV companion only when the preparation lane is empty", () => {
+  const typed = typedOsvSnapshotForPullRequest();
+  const typedOnly = evaluateDependabotSweep({
+    mode: "prepare",
+    pullRequests: [typed],
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(typedOnly.prepareCandidate, null);
+  assert.deepEqual(typedOnly.actionsCompanionCandidate, {
+    baseSha: BASE_SHA,
+    headSha: SECOND_HEAD_SHA,
+    pullRequestNumber: 840,
+  });
+  assert.equal(
+    typedOnly.serialization.actionsCompanionReason,
+    "exact-typed-actions-companion-selected",
+  );
+
+  const ordinary = snapshotForPullRequest(122, HEAD_SHA);
+  const occupied = evaluateDependabotSweep({
+    mode: "prepare",
+    pullRequests: [ordinary, typed],
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.deepEqual(occupied.prepareCandidate, {
+    disposition: "prepare-candidate",
+    headSha: HEAD_SHA,
+    pullRequestNumber: 122,
+  });
+  assert.equal(occupied.actionsCompanionCandidate, null);
+
+  const incumbent = repairPendingSnapshotForPullRequest(123, HEAD_SHA, 61_301);
+  const durable = evaluateDependabotSweep({
+    mode: "prepare",
+    outstandingAutoMergeRequests: [],
+    pullRequests: [typed, incumbent],
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(durable.prepareCandidate?.pullRequestNumber, 123);
+  assert.equal(durable.actionsCompanionCandidate, null);
+
+  const withoutReceipt = typedOsvSnapshotForPullRequest();
+  withoutReceipt.baseline.checks = withoutReceipt.baseline.checks.filter(
+    ({ name }) => name !== "Dependabot Post-Merge Verification",
+  );
+  const blocked = evaluateDependabotSweep({
+    mode: "prepare",
+    pullRequests: [withoutReceipt],
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(blocked.serialization.ready, false);
+  assert.equal(blocked.actionsCompanionCandidate, null);
+
+  const ambiguous = evaluateDependabotSweep({
+    mode: "prepare",
+    pullRequests: [
+      typedOsvSnapshotForPullRequest(840, SECOND_HEAD_SHA),
+      typedOsvSnapshotForPullRequest(841, OTHER_SHA),
+    ],
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(ambiguous.actionsCompanionCandidate, null);
+  assert.equal(
+    ambiguous.serialization.actionsCompanionReason,
+    "multiple-actions-companion-candidates",
+  );
+});
+
+test("typed OSV companion selection requires clear feedback and preparation authority", () => {
+  const result = evaluateDependabotSweep({
+    mode: "prepare",
+    pullRequests: [typedOsvSnapshotForPullRequest()],
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  const [evaluation] = result.evaluations;
+  assert.equal(isTypedOsvActionsCompanionCandidate(evaluation), true);
+  assert.equal(
+    isTypedOsvActionsCompanionCandidate({
+      ...evaluation,
+      feedback: { ...evaluation.feedback, clear: false },
+    }),
+    false,
+  );
+  assert.equal(
+    isTypedOsvActionsCompanionCandidate({
+      ...evaluation,
+      identity: { ...evaluation.identity, prepareAuthority: false },
+    }),
+    false,
+  );
+});
+
+test("an active ALL CLEAR keeps the typed OSV companion out of the write lane", async () => {
+  const incumbent = await activeAllClearSnapshot({
+    approvalId: 7_302,
+    checkId: 63_103,
+    headSha: HEAD_SHA,
+    pullRequestNumber: 124,
+  });
+  const result = evaluateDependabotSweep({
+    mode: "prepare",
+    outstandingAutoMergeRequests: [],
+    pullRequests: [typedOsvSnapshotForPullRequest(), incumbent],
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.equal(result.prepareCandidate?.pullRequestNumber, 124);
+  assert.equal(result.serialization.activeAllClearApprovalId, 7_302);
+  assert.equal(result.actionsCompanionCandidate, null);
 });
 
 test("targeted prepare collection expands globally and preserves an active higher-number ALL CLEAR", async () => {

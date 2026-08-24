@@ -13,6 +13,7 @@ import {
   ACTIONS_COMPANION_INPUT_SCHEMA,
   ACTIONS_COMPANION_PLAN_SCHEMA,
   ACTIONS_COMPANION_STAGED_SCHEMA,
+  canonicalJson,
   createOsvActionsCompanionPlan,
   evaluateOsvActionsCompanion,
   OSV_MIRROR_TEST_PATH,
@@ -31,6 +32,13 @@ const TO_SHA = "b".repeat(40);
 const BASE_SHA = "c".repeat(40);
 const BASE_TREE_SHA = "d".repeat(40);
 const HEAD_SHA = "e".repeat(40);
+
+test("canonical JSON uses locale-independent code-unit key order", () => {
+  assert.equal(
+    canonicalJson({ pr: { mergedAt: null, mergeSha: null } }),
+    '{"pr":{"mergeSha":null,"mergedAt":null}}',
+  );
+});
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");

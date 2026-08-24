@@ -35,6 +35,8 @@ export const ACTIONS_COMPANION_LIVE_OPEN_SCHEMA =
   "dependabot-actions-companion-live-open:v1";
 export const ACTIONS_COMPANION_LIVE_CENSUS_SCHEMA =
   "dependabot-actions-companion-live-census:v1";
+export const ACTIONS_COMPANION_BASE_VERIFICATION_SCHEMA =
+  "dependabot-actions-companion-base-verification:v1";
 
 const API_ROOT = "https://api.github.com";
 const REQUIRED_REPOSITORY = "mento-protocol/frontend-monorepo";
@@ -249,9 +251,7 @@ async function terminalCompanionState(
     }),
     "companion-pr-census-invalid",
   );
-  const candidates = pulls.filter(
-    (pull) => pull?.head?.ref === branchRef || pull?.title === title,
-  );
+  const candidates = pulls.filter((pull) => pull?.head?.ref === branchRef);
   if (candidates.length > 1) reject("duplicate-companion-prs");
   if (candidates.length === 0 || candidates[0]?.state === "open") return null;
   const pull = candidates[0];
@@ -803,6 +803,36 @@ async function historicalBaseSnapshot(readApi, baseDirectory, expectedBaseSha) {
   );
   const files = await localBaseFiles(baseDirectory, identity.entries);
   return { ...identity, files, oldReferenceFiles: null };
+}
+
+export async function verifyHistoricalBaseLive({
+  baseDirectory,
+  expectedBaseSha,
+  fetchImpl = globalThis.fetch,
+  readToken,
+  repository,
+}) {
+  repositoryName(repository);
+  const baseSha = exactSha(expectedBaseSha, "expected-base-sha-invalid");
+  const readApi = createApi({ fetchImpl, token: readToken });
+  const identity = await historicalBaseSnapshot(
+    readApi,
+    baseDirectory,
+    baseSha,
+  );
+  const byteCount = [...identity.files.values()].reduce(
+    (total, bytes) => total + bytes.byteLength,
+    0,
+  );
+  return {
+    baseSha: identity.commitSha,
+    byteCount,
+    entriesDigest: sha256Bytes(Buffer.from(canonicalJson(identity.entries))),
+    entryCount: identity.entries.length,
+    repository: REQUIRED_REPOSITORY,
+    schema: ACTIONS_COMPANION_BASE_VERIFICATION_SCHEMA,
+    treeSha: identity.treeSha,
+  };
 }
 
 async function revalidateCurrentBaseSnapshot(readApi, expected) {
@@ -2751,7 +2781,6 @@ async function companionPullRequestCensus(readApi, plan, prepareBot) {
   const candidates = pulls.filter(
     (pull) =>
       pull?.head?.ref === plan.branchRef ||
-      pull?.title === plan.pullRequestTitle ||
       (typeof pull?.body === "string" && pull.body.includes(planMarker)),
   );
   const numbers = new Set();
@@ -3183,6 +3212,16 @@ function writeJson(path, value) {
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
   const args = argsMap(rest);
+  if (command === "verify-base") {
+    exactArgs(args, ["--base", "--base-dir", "--output", "--repo"]);
+    const receipt = await verifyHistoricalBaseLive({
+      baseDirectory: args.get("--base-dir"),
+      expectedBaseSha: args.get("--base"),
+      readToken: process.env.DEPENDABOT_COMPANION_GITHUB_TOKEN,
+      repository: args.get("--repo"),
+    });
+    return writeJson(args.get("--output"), receipt);
+  }
   const common = [
     "--base",
     "--base-dir",

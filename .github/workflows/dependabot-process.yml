@@ -362,6 +362,7 @@ jobs:
               readFileSync(process.env.EVALUATION_RESULT_PATH, "utf8"),
             );
             const candidate = result?.prepareCandidate;
+            const companionCandidate = result?.actionsCompanionCandidate;
             const allowedDispositions = new Set([
               "feedback-remediation-required",
               "prepare-candidate",
@@ -398,14 +399,45 @@ jobs:
                     evaluation?.headSha === candidate.headSha &&
                     evaluation?.disposition === candidate.disposition,
                 ).length === 1);
+            const validCompanionCandidate =
+              companionCandidate === null ||
+              (companionCandidate !== null &&
+                typeof companionCandidate === "object" &&
+                !Array.isArray(companionCandidate) &&
+                JSON.stringify(Object.keys(companionCandidate).sort()) ===
+                  JSON.stringify([
+                    "baseSha",
+                    "headSha",
+                    "pullRequestNumber",
+                  ]) &&
+                /^[0-9a-f]{40}$/.test(companionCandidate.baseSha ?? "") &&
+                /^[0-9a-f]{40}$/.test(companionCandidate.headSha ?? "") &&
+                Number.isSafeInteger(companionCandidate.pullRequestNumber) &&
+                companionCandidate.pullRequestNumber >= 1 &&
+                companionCandidate.pullRequestNumber <= 9_999_999_999 &&
+                candidate === null &&
+                result?.serialization?.ready === true &&
+                result.evaluations.filter(
+                  (evaluation) =>
+                    evaluation?.pullRequestNumber ===
+                      companionCandidate.pullRequestNumber &&
+                    evaluation?.headSha === companionCandidate.headSha &&
+                    evaluation?.base?.currentBaseSha ===
+                      companionCandidate.baseSha &&
+                    evaluation?.baseSha === companionCandidate.baseSha &&
+                    evaluation?.disposition === "manual-review",
+                ).length === 1);
             if (
               result?.schema !== "dependabot-processor:v2" ||
               result?.repository !== process.env.REPOSITORY ||
               result?.mode !== process.env.PROCESSOR_MODE ||
               !Array.isArray(result?.evaluations) ||
               !Object.hasOwn(result, "prepareCandidate") ||
+              !Object.hasOwn(result, "actionsCompanionCandidate") ||
               !validCandidate ||
-              (result.mode !== "prepare" && candidate !== null)
+              !validCompanionCandidate ||
+              (result.mode !== "prepare" &&
+                (candidate !== null || companionCandidate !== null))
             ) {
               throw new Error("Invalid Dependabot evaluation result");
             }
@@ -439,69 +471,11 @@ jobs:
                 })),
               }),
             );
-            const expectedDependencies = [
-              "google/osv-scanner-action/osv-reporter-action",
-              "google/osv-scanner-action/osv-scanner-action",
-            ];
-            const companionCandidates =
-              result.mode === "prepare"
-                ? result.evaluations.filter((evaluation) => {
-                    const dependencies = Array.isArray(evaluation?.dependencies)
-                      ? [...evaluation.dependencies]
-                      : [];
-                    const dependencyNames = dependencies
-                      .map(({ name }) => name)
-                      .sort();
-                    const fromRevisions = new Set(
-                      dependencies.map(({ from }) => from),
-                    );
-                    const toRevisions = new Set(
-                      dependencies.map(({ to }) => to),
-                    );
-                    return (
-                      evaluation?.disposition === "manual-review" &&
-                      evaluation?.dependencyGroup === "github-actions-manual" &&
-                      evaluation?.risk?.packageEcosystem === "github-actions" &&
-                      evaluation?.risk?.reason ===
-                        "sensitive-auth-deployment-or-workflow-policy-action" &&
-                      JSON.stringify(evaluation?.changedPaths) ===
-                        JSON.stringify([
-                          ".github/workflows/_osv-scanner-readonly.yml",
-                        ]) &&
-                      JSON.stringify(dependencyNames) ===
-                        JSON.stringify(expectedDependencies) &&
-                      fromRevisions.size === 1 &&
-                      toRevisions.size === 1 &&
-                      /^[0-9a-f]{40}$/.test([...fromRevisions][0] ?? "") &&
-                      /^[0-9a-f]{40}$/.test([...toRevisions][0] ?? "") &&
-                      [...fromRevisions][0] !== [...toRevisions][0] &&
-                      evaluation?.base?.current === true &&
-                      /^[0-9a-f]{40}$/.test(
-                        evaluation?.base?.currentBaseSha ?? "",
-                      ) &&
-                      evaluation?.baseSha ===
-                        evaluation?.base?.currentBaseSha &&
-                      evaluation?.repairAttempts?.preparationKind === "native" &&
-                      evaluation?.feedback?.autoMergeEnabled === false &&
-                      evaluation?.feedback?.currentProcessorApprovalCount === 0 &&
-                      /^dependabot\/github_actions\/github-actions-manual(?:-[a-z0-9._-]+)?$/.test(
-                        evaluation?.headRef ?? "",
-                      ) &&
-                      /^[0-9a-f]{40}$/.test(evaluation?.headSha ?? "") &&
-                      Number.isSafeInteger(evaluation?.pullRequestNumber) &&
-                      evaluation.pullRequestNumber >= 1
-                    );
-                  })
-                : [];
-            if (companionCandidates.length > 1) {
-              throw new Error("Multiple OSV companion candidates are ambiguous");
-            }
-            const [companionCandidate] = companionCandidates;
             appendFileSync(
               process.env.GITHUB_OUTPUT,
               `refresh_pending=${candidate?.disposition === "refresh-pending"}\n` +
                 `refresh_required=${candidate?.disposition === "refresh-required"}\n` +
-                `actions_companion_base_sha=${companionCandidate?.base?.currentBaseSha ?? ""}\n` +
+                `actions_companion_base_sha=${companionCandidate?.baseSha ?? ""}\n` +
                 `actions_companion_candidate=${Boolean(companionCandidate)}\n` +
                 `actions_companion_head_sha=${companionCandidate?.headSha ?? ""}\n` +
                 `actions_companion_pr_number=${companionCandidate?.pullRequestNumber ?? ""}\n`,
@@ -516,7 +490,11 @@ jobs:
       needs.evaluate.result == 'success' &&
       needs.prepare-finalize.result == 'success' &&
       needs.evaluate.outputs.prepare == 'true' &&
-      needs.evaluate.outputs.actions_companion_candidate == 'true'
+      needs.evaluate.outputs.actions_companion_candidate == 'true' &&
+      needs.prepare-finalize.outputs.actions_companion_candidate == 'true' &&
+      needs.prepare-finalize.outputs.actions_companion_base_sha == needs.evaluate.outputs.actions_companion_base_sha &&
+      needs.prepare-finalize.outputs.actions_companion_head_sha == needs.evaluate.outputs.actions_companion_head_sha &&
+      needs.prepare-finalize.outputs.actions_companion_pr_number == needs.evaluate.outputs.actions_companion_pr_number
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -534,7 +512,18 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
-          ref: ${{ needs.evaluate.outputs.actions_companion_base_sha }}
+          ref: refs/heads/main
+          repository: mento-protocol/frontend-monorepo
+
+      - name: Bind current main to the exact evaluated base before App authority
+        shell: bash
+        env:
+          EXPECTED_BASE_SHA: ${{ needs.evaluate.outputs.actions_companion_base_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_BASE_SHA"
+          test -z "$(git status --porcelain=v1 --untracked-files=no)"
 
       - name: Materialize the companion adapter from the exact trusted workflow SHA
         id: companion-adapter
@@ -897,13 +886,6 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - name: Checkout the exact evaluated historical base as inert data
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-          ref: ${{ needs.evaluate.outputs.actions_companion_base_sha }}
-
       - name: Materialize the companion adapter from the exact trusted workflow SHA
         id: companion-adapter
         shell: bash
@@ -956,6 +938,93 @@ jobs:
           chmod 0500 "$trusted_soak"
           echo "path=$trusted_adapter" >> "$GITHUB_OUTPUT"
           echo "soak_path=$trusted_soak" >> "$GITHUB_OUTPUT"
+
+      - name: Materialize the exact historical base without workflow credentials
+        id: historical-base
+        shell: bash
+        env:
+          EXPECTED_BASE_SHA: ${{ needs.evaluate.outputs.actions_companion_base_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$REPOSITORY" = "mento-protocol/frontend-monorepo"
+          [[ "$EXPECTED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          object_store="$RUNNER_TEMP/dependabot-actions-companion-base.git"
+          archive="$RUNNER_TEMP/dependabot-actions-companion-base.tar"
+          base_directory="$RUNNER_TEMP/dependabot-actions-companion-base"
+          test ! -e "$object_store"
+          test ! -e "$archive"
+          test ! -e "$base_directory"
+          git init --bare "$object_store"
+          git -C "$object_store" remote add origin \
+            https://github.com/mento-protocol/frontend-monorepo.git
+          git -C "$object_store" -c protocol.version=2 fetch \
+            --no-tags --depth=1 origin "$EXPECTED_BASE_SHA"
+          test "$(git -C "$object_store" rev-parse --verify 'FETCH_HEAD^{commit}')" = \
+            "$EXPECTED_BASE_SHA"
+          test "$(git -C "$object_store" cat-file -t "$EXPECTED_BASE_SHA")" = \
+            commit
+          git -C "$object_store" archive \
+            --format=tar --output="$archive" "$EXPECTED_BASE_SHA"
+          archive_bytes="$(wc -c < "$archive" | tr -d ' ')"
+          [[ "$archive_bytes" =~ ^[1-9][0-9]*$ ]]
+          (( archive_bytes <= 67108864 ))
+          install -d -m 0700 "$base_directory"
+          tar --extract --file "$archive" --directory "$base_directory" \
+            --no-same-owner --no-same-permissions
+          echo "path=$base_directory" >> "$GITHUB_OUTPUT"
+
+      - name: Audit the historical base before pull-request authority
+        shell: bash
+        env:
+          ADAPTER_PATH: ${{ steps.companion-adapter.outputs.path }}
+          BASE_DIRECTORY: ${{ steps.historical-base.outputs.path }}
+          BASE_RECEIPT_PATH: ${{ runner.temp }}/dependabot-actions-companion-base.json
+          DEPENDABOT_COMPANION_GITHUB_TOKEN: ${{ github.token }}
+          EXPECTED_BASE_SHA: ${{ needs.evaluate.outputs.actions_companion_base_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          node "$ADAPTER_PATH" \
+            verify-base \
+            --base "$EXPECTED_BASE_SHA" \
+            --base-dir "$BASE_DIRECTORY" \
+            --output "$BASE_RECEIPT_PATH" \
+            --repo "$REPOSITORY"
+          node --input-type=module --eval '
+            import { Buffer } from "node:buffer";
+            import { readFileSync } from "node:fs";
+            import { dirname, resolve } from "node:path";
+            import { pathToFileURL } from "node:url";
+
+            const helper = resolve(
+              dirname(process.env.ADAPTER_PATH),
+              "dependabot-actions-companion.mjs",
+            );
+            const { canonicalJson } = await import(pathToFileURL(helper).href);
+            const bytes = readFileSync(process.env.BASE_RECEIPT_PATH);
+            if (bytes.byteLength > 1024 + 1) {
+              throw new Error("Historical base receipt is too large");
+            }
+            const raw = bytes.toString("utf8");
+            const receipt = JSON.parse(raw);
+            if (
+              !Buffer.from(raw, "utf8").equals(bytes) ||
+              raw !== `${canonicalJson(receipt)}\n` ||
+              receipt.schema !==
+                "dependabot-actions-companion-base-verification:v1" ||
+              receipt.repository !== process.env.REPOSITORY ||
+              receipt.baseSha !== process.env.EXPECTED_BASE_SHA ||
+              !/^[0-9a-f]{40}$/.test(receipt.treeSha ?? "") ||
+              !/^[0-9a-f]{64}$/.test(receipt.entriesDigest ?? "") ||
+              !Number.isSafeInteger(receipt.entryCount) ||
+              receipt.entryCount < 1 ||
+              !Number.isSafeInteger(receipt.byteCount) ||
+              receipt.byteCount < 1
+            ) {
+              throw new Error("Historical base receipt is invalid");
+            }
+          '
 
       - name: Decode and validate the exact stage receipt
         shell: bash
@@ -1110,7 +1179,7 @@ jobs:
         shell: bash
         env:
           ADAPTER_PATH: ${{ steps.companion-adapter.outputs.path }}
-          BASE_DIRECTORY: ${{ github.workspace }}
+          BASE_DIRECTORY: ${{ steps.historical-base.outputs.path }}
           DEPENDABOT_COMPANION_GITHUB_TOKEN: ${{ github.token }}
           DEPENDABOT_COMPANION_OPEN_APP_TOKEN: ${{ steps.companion-open-token.outputs.token }}
           EXPECTED_HEAD_SHA: ${{ needs.evaluate.outputs.actions_companion_head_sha }}
@@ -1342,9 +1411,9 @@ jobs:
             echo "- Artifact digest: \`$ARTIFACT_DIGEST\`"
             echo
             echo '```bash'
-            echo "gh run download $RUN_ID \\\"
-            echo "  --repo $REPOSITORY \\\"
-            echo "  --name $ARTIFACT_NAME \\\"
+            echo "gh run download $RUN_ID \\"
+            echo "  --repo $REPOSITORY \\"
+            echo "  --name $ARTIFACT_NAME \\"
             echo "  --dir /tmp/dependabot-actions-companion-soak"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
@@ -1505,43 +1574,6 @@ jobs:
                .details_url == "https://github.com/" + $repository + "/runs/" + (.id | tostring))
             )]' "$all_checks_snapshot" > "$check_snapshot"
           test "$(jq 'length' "$check_snapshot")" = "1"
-          jq -e \
-            --arg headSha "$EXPECTED_HEAD_SHA" \
-            --arg repository "$REPOSITORY" \
-            --argjson prNumber "$PR_NUMBER" \
-            --argjson runAttempt "$EXPECTED_RUN_ATTEMPT" \
-            --argjson runId "$EXPECTED_RUN_ID" \
-            '
-              .[0].output.text |
-              fromjson |
-              type == "object" and
-              (keys | sort) == [
-                "apiStatus",
-                "failureKind",
-                "headSha",
-                "pullRequestNumber",
-                "repository",
-                "retryable",
-                "runAttempt",
-                "runId",
-                "schema"
-              ] and
-              .schema == "dependabot-claude-review-failure:v1" and
-              .repository == $repository and
-              .pullRequestNumber == $prNumber and
-              .headSha == $headSha and
-              .runId == $runId and
-              .runAttempt == $runAttempt and
-              .failureKind == "provider-transient" and
-              .retryable == true and
-              (.apiStatus == 429 or
-               .apiStatus == 500 or
-               .apiStatus == 502 or
-               .apiStatus == 503 or
-               .apiStatus == 504 or
-               .apiStatus == 529)
-            ' "$check_snapshot" > /dev/null
-
           canonical_checks="$RUNNER_TEMP/dependabot-claude-retry-canonical-checks.tsv"
           jq -r \
             --arg headSha "$EXPECTED_HEAD_SHA" \
@@ -1645,6 +1677,107 @@ jobs:
             echo "Skipping stale Claude retry because a newer trusted exact-head review result exists."
             exit 0
           fi
+
+          classification="$(jq -er \
+            --arg headSha "$EXPECTED_HEAD_SHA" \
+            --arg repository "$REPOSITORY" \
+            --argjson prNumber "$PR_NUMBER" \
+            --argjson runAttempt "$EXPECTED_RUN_ATTEMPT" \
+            --argjson runId "$EXPECTED_RUN_ID" \
+            '
+              .[0].output.text |
+              fromjson |
+              if .schema == "dependabot-claude-review-failure:v1" then
+                if
+                  type == "object" and
+                  (keys | sort) == [
+                    "apiStatus",
+                    "failureKind",
+                    "headSha",
+                    "pullRequestNumber",
+                    "repository",
+                    "retryable",
+                    "runAttempt",
+                    "runId",
+                    "schema"
+                  ] and
+                  .repository == $repository and
+                  .pullRequestNumber == $prNumber and
+                  .headSha == $headSha and
+                  .runId == $runId and
+                  .runAttempt == $runAttempt and
+                  (.retryable | type) == "boolean" and
+                  (
+                    .apiStatus == null or
+                    ((.apiStatus | type) == "number" and
+                     (.apiStatus | floor) == .apiStatus and
+                     .apiStatus >= 100 and .apiStatus <= 599)
+                  )
+                then
+                  if
+                    .failureKind == "provider-transient" and
+                    .retryable == true and
+                    (.apiStatus == 429 or
+                     .apiStatus == 500 or
+                     .apiStatus == 502 or
+                     .apiStatus == 503 or
+                     .apiStatus == 504 or
+                     .apiStatus == 529)
+                  then "retry"
+                  elif
+                    (.failureKind == "provider-terminal" or
+                     .failureKind == "review-completed" or
+                     .failureKind == "review-failed" or
+                     .failureKind == "review-unavailable") and
+                    .retryable == false
+                  then "no-retry"
+                  else error("invalid Claude failure classification")
+                  end
+                else error("invalid Claude failure receipt")
+                end
+              elif .schema == "dependabot-claude-review-result:v1" then
+                if
+                  type == "object" and
+                  (keys | sort) == [
+                    "findings",
+                    "headSha",
+                    "pullRequestNumber",
+                    "repository",
+                    "reviewCompleted",
+                    "schema",
+                    "verdict"
+                  ] and
+                  .repository == $repository and
+                  .pullRequestNumber == $prNumber and
+                  .headSha == $headSha and
+                  .reviewCompleted == true and
+                  .verdict == "findings" and
+                  (.findings | type) == "array" and
+                  (.findings | length) >= 1 and
+                  (.findings | length) <= 20 and
+                  all(.findings[];
+                    type == "object" and
+                    (keys | sort) == ["line", "path", "summary", "title"] and
+                    (.title | type) == "string" and
+                    (.title | length) >= 1 and (.title | length) <= 160 and
+                    (.path | type) == "string" and
+                    (.path | length) >= 1 and (.path | length) <= 300 and
+                    (.line | type) == "number" and
+                    (.line | floor) == .line and .line >= 1 and
+                    (.summary | type) == "string" and
+                    (.summary | length) >= 1 and (.summary | length) <= 1000)
+                then "no-retry"
+                else error("invalid Claude findings result")
+                end
+              else error("unsupported Claude check schema")
+              end
+            ' "$check_snapshot")"
+
+          if test "$classification" = "no-retry"; then
+            echo "Skipping Claude retry because the newest trusted result is deterministic or non-retryable."
+            exit 0
+          fi
+          test "$classification" = "retry"
 
           gh api --method POST \
             "repos/$REPOSITORY/actions/runs/$EXPECTED_RUN_ID/rerun"
@@ -2002,6 +2135,11 @@ jobs:
       issues: read
       pull-requests: write
       statuses: read
+    outputs:
+      actions_companion_base_sha: ${{ steps.finalize.outputs.actions_companion_base_sha }}
+      actions_companion_candidate: ${{ steps.finalize.outputs.actions_companion_candidate }}
+      actions_companion_head_sha: ${{ steps.finalize.outputs.actions_companion_head_sha }}
+      actions_companion_pr_number: ${{ steps.finalize.outputs.actions_companion_pr_number }}
     steps:
       # The Prepare App client ID, secret, and token are absent from this job.
       # Its public actor identity binds completed receipts. The trusted
@@ -2038,12 +2176,14 @@ jobs:
           echo "path=$trusted_processor" >> "$GITHUB_OUTPUT"
 
       - name: Recollect exact state and publish human-only readiness
+        id: finalize
         shell: bash
         env:
           DEPENDABOT_PROCESSOR_GITHUB_TOKEN: ${{ github.token }}
           DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG }}
           DEPENDABOT_PROCESSOR_PREPARE_BOT_ID: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID }}
           DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN }}
+          FINALIZE_RESULT_PATH: ${{ runner.temp }}/dependabot-finalize-result.json
           PROCESSOR_PATH: ${{ steps.processor.outputs.path }}
           PR_NUMBERS: ${{ needs.evaluate.outputs.pr_numbers }}
           REPOSITORY: ${{ github.repository }}
@@ -2056,4 +2196,59 @@ jobs:
             --phase finalize \
             --repo "$REPOSITORY" \
             --pr-numbers "$PR_NUMBERS" \
-            --mode prepare
+            --mode prepare > "$FINALIZE_RESULT_PATH"
+          node --input-type=module --eval '
+            import { appendFileSync, readFileSync } from "node:fs";
+
+            const result = JSON.parse(
+              readFileSync(process.env.FINALIZE_RESULT_PATH, "utf8"),
+            );
+            const candidate = result?.actionsCompanionCandidate;
+            const validCandidate =
+              candidate === null ||
+              (candidate !== null &&
+                typeof candidate === "object" &&
+                !Array.isArray(candidate) &&
+                JSON.stringify(Object.keys(candidate).sort()) ===
+                  JSON.stringify([
+                    "baseSha",
+                    "headSha",
+                    "pullRequestNumber",
+                  ]) &&
+                /^[0-9a-f]{40}$/.test(candidate.baseSha ?? "") &&
+                /^[0-9a-f]{40}$/.test(candidate.headSha ?? "") &&
+                Number.isSafeInteger(candidate.pullRequestNumber) &&
+                candidate.pullRequestNumber >= 1 &&
+                candidate.pullRequestNumber <= 9_999_999_999 &&
+                result?.prepareCandidate === null &&
+                result?.serialization?.ready === true &&
+                result.evaluations.filter(
+                  (evaluation) =>
+                    evaluation?.pullRequestNumber ===
+                      candidate.pullRequestNumber &&
+                    evaluation?.headSha === candidate.headSha &&
+                    evaluation?.base?.currentBaseSha === candidate.baseSha &&
+                    evaluation?.baseSha === candidate.baseSha &&
+                    evaluation?.disposition === "manual-review",
+                ).length === 1);
+            if (
+              result?.schema !== "dependabot-processor:v2" ||
+              result?.repository !== process.env.REPOSITORY ||
+              result?.mode !== "prepare" ||
+              result?.phase !== "finalize" ||
+              !Array.isArray(result?.evaluations) ||
+              !Array.isArray(result?.mutations) ||
+              !Object.hasOwn(result, "prepareCandidate") ||
+              !Object.hasOwn(result, "actionsCompanionCandidate") ||
+              !validCandidate
+            ) {
+              throw new Error("Invalid Dependabot finalization result");
+            }
+            appendFileSync(
+              process.env.GITHUB_OUTPUT,
+              `actions_companion_base_sha=${candidate?.baseSha ?? ""}\n` +
+                `actions_companion_candidate=${Boolean(candidate)}\n` +
+                `actions_companion_head_sha=${candidate?.headSha ?? ""}\n` +
+                `actions_companion_pr_number=${candidate?.pullRequestNumber ?? ""}\n`,
+            );
+          '

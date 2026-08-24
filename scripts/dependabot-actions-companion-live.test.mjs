@@ -19,6 +19,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  ACTIONS_COMPANION_BASE_VERIFICATION_SCHEMA,
   ACTIONS_COMPANION_LIVE_OPEN_SCHEMA,
   ACTIONS_COMPANION_LIVE_CENSUS_SCHEMA,
   ACTIONS_COMPANION_LIVE_STAGE_SCHEMA,
@@ -26,6 +27,7 @@ import {
   censusOsvActionsCompanionLive,
   openOsvActionsCompanionLive,
   stageOsvActionsCompanionLive,
+  verifyHistoricalBaseLive,
 } from "./dependabot-actions-companion-live.mjs";
 import {
   canonicalJson,
@@ -733,6 +735,38 @@ async function closedCompanionFixture({ merged = true } = {}) {
   return { fixture, pull, sealed, staged };
 }
 
+test("historical base verification audits the exact full local tree", async () => {
+  const fixture = liveFixture();
+  const receipt = await verifyHistoricalBaseLive({
+    baseDirectory: fixture.baseDirectory,
+    expectedBaseSha: BASE_SHA,
+    fetchImpl: fixture.fetchImpl,
+    readToken: READ_TOKEN,
+    repository: REPOSITORY,
+  });
+  assert.equal(receipt.schema, ACTIONS_COMPANION_BASE_VERIFICATION_SCHEMA);
+  assert.equal(receipt.repository, REPOSITORY);
+  assert.equal(receipt.baseSha, BASE_SHA);
+  assert.equal(receipt.treeSha, BASE_TREE_SHA);
+  assert.equal(receipt.entryCount > 250, true);
+  assert.equal(receipt.byteCount > 0, true);
+  assert.match(receipt.entriesDigest, /^[0-9a-f]{64}$/u);
+
+  await assert.rejects(
+    verifyHistoricalBaseLive({
+      baseDirectory: fixture.baseDirectory,
+      expectedBaseSha: "not-a-sha",
+      fetchImpl: fixture.fetchImpl,
+      readToken: READ_TOKEN,
+      repository: REPOSITORY,
+    }),
+    (error) => {
+      assert.equal(error.code, "expected-base-sha-invalid");
+      return true;
+    },
+  );
+});
+
 test("stages and opens the #840 OSV companion with an 11-digit run ID and isolated authorities", async () => {
   const fixture = liveFixture();
   const sealed = await census(fixture);
@@ -1194,6 +1228,28 @@ test("exact staged and open states converge without duplicate writes", async () 
     fixture.state.calls.filter(isRepositoryMutation).length,
     mutationsAfterOpen,
   );
+});
+
+test("an older source-head generation does not block a new companion", async () => {
+  for (const state of ["open", "closed"]) {
+    const fixture = liveFixture();
+    const sealed = await census(fixture);
+    fixture.state.censusPulls = [
+      existingPull({
+        body: "Old source-head generation",
+        branchRef: `dependabot-companion/osv-pr-840-${OTHER_SHA.slice(0, 12)}`,
+        number: state === "open" ? 898 : 899,
+        state,
+        title: sealed.plan.pullRequestTitle,
+      }),
+    ];
+    const staged = await stage(fixture, sealed);
+    assert.equal(staged.result, "staged", state);
+    assert.equal(staged.branchRef, sealed.plan.branchRef, state);
+    const opened = await open(fixture, staged);
+    assert.equal(opened.result, "opened", state);
+    assert.equal(opened.companionPullRequest.number, 841, state);
+  }
 });
 
 test("exact ref and pull-request creation races converge", async () => {

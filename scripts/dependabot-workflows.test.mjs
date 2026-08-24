@@ -764,7 +764,7 @@ test("Wagmi paths share one use-sync-external-store peer snapshot", () => {
 
 test("embedded workflow JavaScript parses before GitHub executes it", () => {
   const expectedModuleCounts = new Map([
-    [processorPath, 11],
+    [processorPath, 13],
     [dependabotReviewPath, 6],
     [preparedIntakePath, 1],
     [repairPath, 3],
@@ -1255,6 +1255,26 @@ test("Claude retry reruns only the newest trusted exact-head result", () => {
     };
   }
 
+  function findingsResult(overrides = {}) {
+    return {
+      findings: [
+        {
+          line: 42,
+          path: "scripts/example.mjs",
+          summary: "The exact-head review found a deterministic defect.",
+          title: "Fix the deterministic defect",
+        },
+      ],
+      headSha,
+      pullRequestNumber,
+      repository,
+      reviewCompleted: true,
+      schema: "dependabot-claude-review-result:v1",
+      verdict: "findings",
+      ...overrides,
+    };
+  }
+
   function checkRun({
     appId = 15368,
     attempt = "1",
@@ -1376,6 +1396,7 @@ esac
       additionalRuns = [],
       attempt = "1",
       candidateCheckOverrides = {},
+      candidateOutputText,
       candidateRunOverrides = {},
       checkPages,
       checkReceiptOverrides = {},
@@ -1417,9 +1438,11 @@ esac
       );
       const candidateCheck = checkRun({
         attempt,
-        outputText: JSON.stringify(
-          failureReceipt({ attempt, overrides: checkReceiptOverrides }),
-        ),
+        outputText:
+          candidateOutputText ??
+          JSON.stringify(
+            failureReceipt({ attempt, overrides: checkReceiptOverrides }),
+          ),
         ...candidateCheckOverrides,
       });
       const resolvedPages = checkPages ?? [
@@ -1492,6 +1515,26 @@ esac
       assert.deepEqual(posts, [expectedRerunEndpoint], `attempt ${attempt}`);
     }
 
+    for (const [name, candidateOutputText] of [
+      ["deterministic findings", JSON.stringify(findingsResult())],
+      [
+        "terminal provider failure",
+        JSON.stringify(
+          failureReceipt({
+            overrides: {
+              apiStatus: 401,
+              failureKind: "provider-terminal",
+              retryable: false,
+            },
+          }),
+        ),
+      ],
+    ]) {
+      const { posts, result } = executeRetry({ candidateOutputText });
+      assert.equal(result.status, 0, `${name}: ${result.stderr}`);
+      assert.deepEqual(posts, [], `${name} must not POST a rerun`);
+    }
+
     const rejectedCases = [
       {
         input: { attempt: "3" },
@@ -1506,6 +1549,20 @@ esac
           },
         },
         name: "non-transient receipt",
+      },
+      {
+        input: {
+          candidateOutputText: JSON.stringify(
+            findingsResult({ headSha: "b".repeat(40) }),
+          ),
+        },
+        name: "findings binding mismatch",
+      },
+      {
+        input: {
+          candidateOutputText: JSON.stringify(findingsResult({ findings: [] })),
+        },
+        name: "empty findings result",
       },
       {
         input: { prHeadSha: "b".repeat(40) },
@@ -1567,6 +1624,38 @@ esac
         `newer ${conclusion} check must suppress the stale retry`,
       );
     }
+
+    const newerRunId = runId + 3;
+    const staleMalformedResult = executeRetry({
+      additionalChecks: [
+        checkRun({
+          checkId: 987654324,
+          conclusion: "success",
+          workflowRunId: newerRunId,
+        }),
+      ],
+      additionalRuns: [
+        workflowRun({
+          conclusion: "success",
+          displayTitle: exactRunTitle.replace(
+            "action=synchronize",
+            "action=reopened",
+          ),
+          workflowRunId: newerRunId,
+        }),
+      ],
+      candidateOutputText: "{}",
+    });
+    assert.equal(
+      staleMalformedResult.result.status,
+      0,
+      staleMalformedResult.result.stderr,
+    );
+    assert.deepEqual(
+      staleMalformedResult.posts,
+      [],
+      "a newer trusted result must suppress a stale malformed receipt",
+    );
 
     const untrustedRunId = runId + 30;
     const malformedAndSpoofedChecks = [
@@ -2142,16 +2231,20 @@ test("initial evaluation exports only validated prepare routing booleans", () =>
     pullRequestNumber: 777,
   });
   const resultFor = ({
+    actionsCompanionCandidate = null,
     prepareCandidate = null,
     mode = "prepare",
     repository = "mento-protocol/frontend-monorepo",
     schema = "dependabot-processor:v2",
+    serialization = { ready: true },
   } = {}) => ({
+    actionsCompanionCandidate,
     evaluations: prepareCandidate === null ? [] : [{ ...prepareCandidate }],
     mode,
     prepareCandidate,
     repository,
     schema,
+    serialization,
   });
   const runRouting = (result, mode = result.mode) =>
     runBashStep(evaluation, {
@@ -2236,12 +2329,19 @@ test("initial evaluation exports only validated prepare routing booleans", () =>
         reason: "sensitive-auth-deployment-or-workflow-policy-action",
       },
     };
+    const companionSelection = {
+      baseSha: "a".repeat(40),
+      headSha: "d".repeat(40),
+      pullRequestNumber: 840,
+    };
     const companion = runRouting({
+      actionsCompanionCandidate: companionSelection,
       evaluations: [companionCandidate],
       mode: "prepare",
       prepareCandidate: null,
       repository: "mento-protocol/frontend-monorepo",
       schema: "dependabot-processor:v2",
+      serialization: { ready: true },
     });
     assert.equal(companion.status, 0, companion.stderr);
     assert.equal(
@@ -2274,11 +2374,13 @@ test("initial evaluation exports only validated prepare routing booleans", () =>
       },
     ]) {
       const invalidBase = runRouting({
+        actionsCompanionCandidate: null,
         evaluations: [invalidCandidate],
         mode: "prepare",
         prepareCandidate: null,
         repository: "mento-protocol/frontend-monorepo",
         schema: "dependabot-processor:v2",
+        serialization: { ready: true },
       });
       assert.equal(invalidBase.status, 0, invalidBase.stderr);
       assert.equal(
@@ -2291,14 +2393,24 @@ test("initial evaluation exports only validated prepare routing booleans", () =>
     }
 
     const ambiguousCompanion = runRouting({
+      actionsCompanionCandidate: null,
       evaluations: [companionCandidate, { ...companionCandidate }],
       mode: "prepare",
       prepareCandidate: null,
       repository: "mento-protocol/frontend-monorepo",
       schema: "dependabot-processor:v2",
+      serialization: {
+        actionsCompanionReason: "multiple-actions-companion-candidates",
+        ready: true,
+      },
     });
-    assert.notEqual(ambiguousCompanion.status, 0);
-    assert.equal(ambiguousCompanion.githubOutput, "");
+    assert.equal(ambiguousCompanion.status, 0, ambiguousCompanion.stderr);
+    assert.equal(
+      ambiguousCompanion.githubOutput,
+      "refresh_pending=false\n" +
+        "refresh_required=false\n" +
+        noCompanionRouting,
+    );
     const observeCandidate = runRouting(
       resultFor({
         mode: "observe",
@@ -2388,6 +2500,19 @@ test("OSV companion staging waits for finalization and isolates each write token
     stageJob.if,
     /needs\.evaluate\.outputs\.actions_companion_candidate == 'true'/u,
   );
+  assert.match(
+    stageJob.if,
+    /needs\.prepare-finalize\.outputs\.actions_companion_candidate == 'true'/u,
+  );
+  for (const field of ["base_sha", "head_sha", "pr_number"]) {
+    assert.match(
+      stageJob.if,
+      new RegExp(
+        `needs\\.prepare-finalize\\.outputs\\.actions_companion_${field} == needs\\.evaluate\\.outputs\\.actions_companion_${field}`,
+        "u",
+      ),
+    );
+  }
   assert.deepEqual(stageJob.permissions, readPermissions);
   assert.deepEqual(stageJob.outputs, {
     soak_partial: "${{ steps.stage.outputs.soak_partial }}",
@@ -2398,6 +2523,7 @@ test("OSV companion staging waits for finalization and isolates each write token
     stageJob.steps.map(({ name }) => name),
     [
       "Checkout the exact evaluated current main for inert census",
+      "Bind current main to the exact evaluated base before App authority",
       "Materialize the companion adapter from the exact trusted workflow SHA",
       "Census the inert exact-base checkout without App credentials",
       "Create an isolated workflow-staging App token",
@@ -2417,8 +2543,22 @@ test("OSV companion staging waits for finalization and isolates each write token
   assert.deepEqual(checkout.with, {
     "fetch-depth": 1,
     "persist-credentials": false,
-    ref: "${{ needs.evaluate.outputs.actions_companion_base_sha }}",
+    ref: "refs/heads/main",
+    repository: "mento-protocol/frontend-monorepo",
   });
+  assert.doesNotMatch(checkout.with.ref, /\$\{\{/u);
+  const bindBase = stageJob.steps.find((step) =>
+    step.name.startsWith("Bind current main to the exact evaluated base"),
+  );
+  assert.ok(bindBase);
+  assert.match(bindBase.run, /rev-parse HEAD/u);
+  assert.match(bindBase.run, /EXPECTED_BASE_SHA/u);
+  assert.ok(
+    stageJob.steps.indexOf(bindBase) <
+      stageJob.steps.indexOf(
+        stageJob.steps.find((step) => step.id === "companion-stage-token"),
+      ),
+  );
 
   const materialize = stageJob.steps.find(
     (step) =>
@@ -2586,8 +2726,9 @@ test("OSV companion staging waits for finalization and isolates each write token
   assert.deepEqual(
     openJob.steps.map(({ name }) => name),
     [
-      "Checkout the exact evaluated historical base as inert data",
       "Materialize the companion adapter from the exact trusted workflow SHA",
+      "Materialize the exact historical base without workflow credentials",
+      "Audit the historical base before pull-request authority",
       "Decode and validate the exact stage receipt",
       "Create an isolated pull-request App token",
       "Bind the pull-request token to the exact Prepare App bot",
@@ -2598,8 +2739,13 @@ test("OSV companion staging waits for finalization and isolates each write token
       "Summarize the redacted companion soak evidence",
     ],
   );
-  const openCheckout = openJob.steps.find((step) =>
-    step.name.startsWith("Checkout the exact evaluated historical base"),
+  const historicalBase = openJob.steps.find((step) =>
+    step.name.startsWith(
+      "Materialize the exact historical base without workflow credentials",
+    ),
+  );
+  const historicalAudit = openJob.steps.find((step) =>
+    step.name.startsWith("Audit the historical base"),
   );
   const openToken = openJob.steps.find(
     (step) => step.id === "companion-open-token",
@@ -2627,7 +2773,8 @@ test("OSV companion staging waits for finalization and isolates each write token
     step.name.startsWith("Summarize the redacted companion soak evidence"),
   );
   assert.ok(openToken);
-  assert.ok(openCheckout);
+  assert.ok(historicalBase);
+  assert.ok(historicalAudit);
   assert.ok(openIdentity);
   assert.ok(decode);
   assert.ok(open);
@@ -2637,14 +2784,28 @@ test("OSV companion staging waits for finalization and isolates each write token
   assert.ok(soakUpload);
   assert.ok(soakSummary);
   assert.equal(
-    openCheckout.uses,
-    "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+    openJob.steps.some((step) => step.uses?.startsWith("actions/checkout@")),
+    false,
   );
-  assert.deepEqual(openCheckout.with, {
-    "fetch-depth": 1,
-    "persist-credentials": false,
-    ref: "${{ needs.evaluate.outputs.actions_companion_base_sha }}",
-  });
+  assert.equal(Object.hasOwn(historicalBase.env, "GH_TOKEN"), false);
+  assert.doesNotMatch(JSON.stringify(historicalBase), /APP_TOKEN|secrets\./u);
+  assert.match(historicalBase.run, /git init --bare/u);
+  assert.match(historicalBase.run, /--depth=1 origin "\$EXPECTED_BASE_SHA"/u);
+  assert.match(historicalBase.run, /FETCH_HEAD\^\{commit\}/u);
+  assert.match(historicalBase.run, /git -C "\$object_store" archive/u);
+  assert.equal(
+    historicalAudit.env.DEPENDABOT_COMPANION_GITHUB_TOKEN,
+    "${{ github.token }}",
+  );
+  assert.doesNotMatch(JSON.stringify(historicalAudit), /APP_TOKEN|secrets\./u);
+  assert.match(historicalAudit.run, /verify-base\s+\\/u);
+  assert.match(
+    historicalAudit.run,
+    /dependabot-actions-companion-base-verification:v1/u,
+  );
+  assert.ok(
+    openJob.steps.indexOf(historicalAudit) < openJob.steps.indexOf(openToken),
+  );
   assert.match(
     openMaterialize.run,
     /dependabot-actions-companion\.mjs\?ref=\$WORKFLOW_SHA/u,
@@ -2712,6 +2873,10 @@ test("OSV companion staging waits for finalization and isolates each write token
   assert.equal(
     open.env.DEPENDABOT_COMPANION_OPEN_APP_TOKEN,
     "${{ steps.companion-open-token.outputs.token }}",
+  );
+  assert.equal(
+    open.env.BASE_DIRECTORY,
+    "${{ steps.historical-base.outputs.path }}",
   );
   assert.match(open.run, /open\s+\\/u);
   assert.match(open.run, /--base "\$EXPECTED_BASE_SHA"/u);
@@ -2800,6 +2965,41 @@ test("OSV companion staging waits for finalization and isolates each write token
     soakSummary.run,
     /--dir \/tmp\/dependabot-actions-companion-soak/u,
   );
+  const summaryDirectory = mkdtempSync(
+    join(tmpdir(), "dependabot-companion-summary-"),
+  );
+  try {
+    const summaryPath = join(summaryDirectory, "summary.md");
+    const summaryResult = spawnSync("bash", ["-c", soakSummary.run], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        ARTIFACT_DIGEST: "sha256:artifact-digest",
+        ARTIFACT_ID: "123",
+        ARTIFACT_NAME: "dependabot-actions-companion-soak-456-1-840",
+        ARTIFACT_URL: "https://github.com/example/artifacts/123",
+        GITHUB_STEP_SUMMARY: summaryPath,
+        REPOSITORY: "mento-protocol/frontend-monorepo",
+        RUN_ID: "456",
+      },
+    });
+    assert.equal(summaryResult.status, 0, summaryResult.stderr);
+    assert.equal(
+      readFileSync(summaryPath, "utf8"),
+      "### Dependabot typed companion soak evidence\n\n" +
+        "- Artifact: [dependabot-actions-companion-soak-456-1-840](https://github.com/example/artifacts/123)\n" +
+        "- Artifact ID: `123`\n" +
+        "- Artifact digest: `sha256:artifact-digest`\n\n" +
+        "```bash\n" +
+        "gh run download 456 \\\n" +
+        "  --repo mento-protocol/frontend-monorepo \\\n" +
+        "  --name dependabot-actions-companion-soak-456-1-840 \\\n" +
+        "  --dir /tmp/dependabot-actions-companion-soak\n" +
+        "```\n",
+    );
+  } finally {
+    rmSync(summaryDirectory, { force: true, recursive: true });
+  }
   assert.equal(
     JSON.stringify(openJob).split(
       "${{ steps.companion-open-token.outputs.token }}",
@@ -2808,7 +3008,7 @@ test("OSV companion staging waits for finalization and isolates each write token
   );
   assert.deepEqual(
     openJob.steps.filter((step) => step.uses?.startsWith("actions/checkout@")),
-    [openCheckout],
+    [],
   );
   assert.equal(
     openJob.steps.some((step) =>
@@ -3172,6 +3372,16 @@ test("prepare finalization has approval authority but no branch-write credential
     "pull-requests": "write",
     statuses: "read",
   });
+  assert.deepEqual(finalizeJob.outputs, {
+    actions_companion_base_sha:
+      "${{ steps.finalize.outputs.actions_companion_base_sha }}",
+    actions_companion_candidate:
+      "${{ steps.finalize.outputs.actions_companion_candidate }}",
+    actions_companion_head_sha:
+      "${{ steps.finalize.outputs.actions_companion_head_sha }}",
+    actions_companion_pr_number:
+      "${{ steps.finalize.outputs.actions_companion_pr_number }}",
+  });
   assert.deepEqual(
     finalizeJob.steps.filter((step) => Object.hasOwn(step, "uses")),
     [],
@@ -3182,9 +3392,12 @@ test("prepare finalization has approval authority but no branch-write credential
       step.name === "Recollect exact state and publish human-only readiness",
   );
   assert.ok(invocation);
+  assert.equal(invocation.id, "finalize");
   assert.match(invocation.run, /process\s+\\/);
   assert.match(invocation.run, /--phase finalize/);
   assert.match(invocation.run, /--mode prepare/);
+  assert.match(invocation.run, /> "\$FINALIZE_RESULT_PATH"/);
+  assert.match(invocation.run, /actionsCompanionCandidate/);
   assert.equal(
     invocation.env.DEPENDABOT_PROCESSOR_GITHUB_TOKEN,
     "${{ github.token }}",
@@ -3208,6 +3421,102 @@ test("prepare finalization has approval authority but no branch-write credential
     raw,
     /PREPARE_APP_CLIENT_ID|PREPARE_APP_PRIVATE_KEY|REPAIR_TOKEN|REPAIR_APP|create-github-app-token|secrets\./,
   );
+});
+
+test("prepare finalization exports only its recollected open-lane companion", () => {
+  const finalize = processor.jobs["prepare-finalize"].steps.find(
+    (step) => step.id === "finalize",
+  );
+  const temporaryDirectory = mkdtempSync(
+    join(tmpdir(), "dependabot-finalize-routing-"),
+  );
+  const mockProcessor = join(temporaryDirectory, "mock-processor.mjs");
+  writeFileSync(
+    mockProcessor,
+    "process.stdout.write(process.env.MOCK_FINALIZE_RESULT);\n",
+  );
+  const evaluation = {
+    base: { currentBaseSha: "a".repeat(40) },
+    baseSha: "a".repeat(40),
+    disposition: "manual-review",
+    headSha: "b".repeat(40),
+    pullRequestNumber: 840,
+  };
+  const companion = {
+    baseSha: "a".repeat(40),
+    headSha: "b".repeat(40),
+    pullRequestNumber: 840,
+  };
+  const resultFor = ({
+    actionsCompanionCandidate = companion,
+    evaluations = [evaluation],
+    prepareCandidate = null,
+    serialization = { ready: true },
+  } = {}) => ({
+    actionsCompanionCandidate,
+    evaluations,
+    mode: "prepare",
+    mutations: [],
+    phase: "finalize",
+    prepareCandidate,
+    repository: "mento-protocol/frontend-monorepo",
+    schema: "dependabot-processor:v2",
+    serialization,
+  });
+  const runFinalize = (result) =>
+    runBashStep(finalize, {
+      DEPENDABOT_PROCESSOR_GITHUB_TOKEN: "normal-read-token",
+      FINALIZE_RESULT_PATH: join(temporaryDirectory, "result.json"),
+      MOCK_FINALIZE_RESULT: JSON.stringify(result),
+      PATH: process.env.PATH,
+      PROCESSOR_PATH: mockProcessor,
+      PR_NUMBERS: "all",
+      REPOSITORY: "mento-protocol/frontend-monorepo",
+    });
+
+  try {
+    const selected = runFinalize(resultFor());
+    assert.equal(selected.status, 0, selected.stderr);
+    assert.equal(
+      selected.githubOutput,
+      `actions_companion_base_sha=${"a".repeat(40)}\n` +
+        "actions_companion_candidate=true\n" +
+        `actions_companion_head_sha=${"b".repeat(40)}\n` +
+        "actions_companion_pr_number=840\n",
+    );
+
+    const occupied = runFinalize(
+      resultFor({
+        actionsCompanionCandidate: null,
+        prepareCandidate: {
+          disposition: "prepare-candidate",
+          headSha: "c".repeat(40),
+          pullRequestNumber: 841,
+        },
+      }),
+    );
+    assert.equal(occupied.status, 0, occupied.stderr);
+    assert.equal(
+      occupied.githubOutput,
+      "actions_companion_base_sha=\n" +
+        "actions_companion_candidate=false\n" +
+        "actions_companion_head_sha=\n" +
+        "actions_companion_pr_number=\n",
+    );
+
+    const changed = runFinalize(
+      resultFor({
+        actionsCompanionCandidate: {
+          ...companion,
+          headSha: "d".repeat(40),
+        },
+      }),
+    );
+    assert.notEqual(changed.status, 0);
+    assert.equal(changed.githubOutput, "");
+  } finally {
+    rmSync(temporaryDirectory, { force: true, recursive: true });
+  }
 });
 
 test("the processor workflow contains no merge or native auto-merge authority", () => {

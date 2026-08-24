@@ -69,20 +69,32 @@ evidence into the census and stage receipts.
 
 The workflow separates branch staging from PR creation:
 
+- The Processor selects the typed companion only when the global preparation
+  lane has no selected preparation, durable incumbent, active ALL CLEAR, or
+  native auto-merge request. The finalizer recollects the repository-wide
+  state. The staging job runs only when the initial and final exact source,
+  head, and base tuple match.
 - The staging job receives a short-lived Prepare App token downscoped to
   `contents: write` and `workflows: write`. It has no PR-write, check-write,
   approval, ALL CLEAR, or merge authority. It creates one new deterministic
-  branch. Immediately before it creates the ref, it recollects all feedback and
+  branch. It checks out literal `main` without credentials and requires its
+  commit to equal the evaluated base before it creates the App token.
+  Immediately before it creates the ref, it recollects all feedback and
   requires the bound feedback evidence to remain unchanged and clear. It never
   updates or force-pushes an existing ref.
 - The opening job receives a separate short-lived Prepare App token downscoped
   to `pull-requests: write`. It has no Contents or Workflows write permission.
-  It re-collects the live source and base, recomputes the plan, validates the
+  It fetches the exact historical base SHA into a fresh credentialless Git
+  object store. The trusted adapter audits every local path, mode, and blob
+  against the GitHub commit and tree before the job creates the App token. It
+  re-collects the live source and base, recomputes the plan, validates the
   staged commit, tree, and blobs, recollects the same complete feedback
   evidence immediately before the write, rejects mismatched or duplicate
   companions, and opens a non-draft PR. Any veto, unresolved thread, human
-  event, label, or update-token drift fails before the write. An exact existing
-  open PR converges without a duplicate write. An exact merged or
+  event, label, or update-token drift fails before the write. Discovery binds
+  the exact head-derived branch or plan digest, so an older source-head
+  generation does not block a new generation. An exact existing open PR
+  converges without a duplicate write. An exact merged or
   closed-unmerged PR returns a bounded terminal result. Terminal convergence
   authenticates the exact Prepare App PR creator. It reconstructs the
   historical source/base plan from immutable commits and verifies the exact
