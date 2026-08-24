@@ -3681,9 +3681,10 @@ export function validateGitHubBillingObservation(rootPath) {
     "GitHub billing observation does not prove public visibility at every sample",
   );
   // GitHub can return an empty label list for skipped, startup-failed, and
-  // short-lived terminal jobs. Keep every job in the minute reconciliation.
-  // The source-bound detailed usage export classifies standard and larger
-  // runner SKUs and remains the authority for the zero-larger-runner gate.
+  // short-lived terminal jobs. Keep every job as evidence. Only non-skipped
+  // jobs enter minute reconciliation. The source-bound detailed usage export
+  // classifies standard and larger runner SKUs and remains the authority for
+  // the zero-larger-runner gate.
   exactIdSet(
     audit.derived?.observedUnknownRunnerJobIds,
     runnerJobIdsWithoutStandardLabels(latestSample.runnerJobs),
@@ -4226,7 +4227,8 @@ function auditObservation({ root, end, now }) {
   const unknownRunnerJobs = runnerJobIdsWithoutStandardLabels(relevantJobs);
   // Preserve missing or nonstandard labels for private audit evidence. Do not
   // make them a collector gap: the detailed usage proof classifies runner SKUs
-  // and reconciles its standard minutes to every terminal collector job.
+  // and reconciles its standard minutes to every non-skipped terminal
+  // collector job.
   if (
     samples.length === 0 ||
     samples.some((sample) => !sample.repositoryVisibility?.publicAtSample)

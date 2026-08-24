@@ -55,7 +55,7 @@ pnpm vercel:cost:observe -- capture-main --run-id <id>  # Freeze every attempt, 
 pnpm vercel:cost:observe -- sample-github  # Snapshot visibility, runs, runner labels, caches, and artifacts
 pnpm vercel:cost:observe -- audit --end <CURRENT_END_UTC_EXCLUSIVE>  # Read the canonical end from the verified private ledger; once clean, freeze and emit the incomplete private evidence-join fragment
 pnpm vercel:cost:github -- inspect --usage-csv <private.csv> --output <private-shape.json>  # Inspect detailed-usage CSV shape without exposing amounts
-pnpm vercel:cost:github -- build --usage-csv <private.csv> --usage-metadata <metadata.json> --audit-web-export <export.json> --audit-metadata <metadata.json> --observation-root <root> --output <proof.json>  # Free-plan owner route; entitled Enterprise owners replace the web option with --audit-rest-transcript <transcript.txt>
+pnpm vercel:cost:github -- build --usage-csv <private.csv> --usage-metadata <metadata.json> --audit-web-export <export.json> --audit-metadata <metadata.json> --observation-root <root> --output <proof.json>  # Use one audit source: web export, Enterprise REST transcript, or owner zero-result screenshot
 pnpm vercel:cost:normalize-deployments --input <private-pages-envelope.json> --output <private-dir/census.jsonl> --proof <private-dir/census-proof.json>  # Crash-resumably normalize saved Vercel v7 pages; rerun the exact command after interruption
 pnpm vercel:cost:analyze --input <private-evidence-manifest.json> --format markdown  # Reconcile FOCUS project totals only after complete zero-exclusion censuses
 trunk check --fix                     # Lint with autofix
