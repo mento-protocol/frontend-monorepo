@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "cutoverCompletedAtUtc": "2026-07-15T12:00:00.000Z",
   "baseline": {
     "period": {
@@ -7,9 +7,10 @@
       "endUtcExclusive": "2026-07-15T00:00:00.000Z",
       "billingIngestionComplete": true,
       "invoiceFinal": true,
-      "focusExportSha256": "6288bbf8a8f20923d7addea0c6edc32b0b1f984d3f6c9ba3f7172a3c76223019",
+      "focusExportSha256": "53200b5d160b6da15d35aeaae6fa33eeeb96b060affbe38a1a0c87a118ece372",
       "focusChargeCount": 4,
-      "consumedUnit": "Build CPU Minutes",
+      "serviceName": "Build CPU Minutes",
+      "consumedUnit": "minute",
       "billingCurrency": "USD"
     },
     "targets": {
@@ -42,7 +43,8 @@
         "excluded": {
           "legacyV2DeploymentAttempts": 0,
           "manualDeploymentAttempts": 0,
-          "unknownDeploymentAttempts": 0
+          "unknownDeploymentAttempts": 0,
+          "suppressedNativeDeploymentAttempts": 0
         },
         "attribution": {
           "method": "project-total-no-exclusions",
@@ -78,7 +80,8 @@
         "excluded": {
           "legacyV2DeploymentAttempts": 0,
           "manualDeploymentAttempts": 0,
-          "unknownDeploymentAttempts": 0
+          "unknownDeploymentAttempts": 0,
+          "suppressedNativeDeploymentAttempts": 0
         },
         "attribution": {
           "method": "project-total-no-exclusions",
@@ -114,7 +117,8 @@
         "excluded": {
           "legacyV2DeploymentAttempts": 0,
           "manualDeploymentAttempts": 0,
-          "unknownDeploymentAttempts": 0
+          "unknownDeploymentAttempts": 0,
+          "suppressedNativeDeploymentAttempts": 0
         },
         "attribution": {
           "method": "project-total-no-exclusions",
@@ -150,7 +154,8 @@
         "excluded": {
           "legacyV2DeploymentAttempts": 0,
           "manualDeploymentAttempts": 0,
-          "unknownDeploymentAttempts": 0
+          "unknownDeploymentAttempts": 0,
+          "suppressedNativeDeploymentAttempts": 0
         },
         "attribution": {
           "method": "project-total-no-exclusions",
@@ -165,9 +170,10 @@
       "endUtcExclusive": "2026-07-23T00:00:00.000Z",
       "billingIngestionComplete": true,
       "invoiceFinal": true,
-      "focusExportSha256": "597372d00c7c2d6d3184df4fb49a073b1f2b0e9b96f0ecb9e68373388d118196",
+      "focusExportSha256": "032e6358f8d6d66fb5bc69128e0385a0bbe15bfffcd0130dca31d3d6b9320b92",
       "focusChargeCount": 4,
-      "consumedUnit": "Build CPU Minutes",
+      "serviceName": "Build CPU Minutes",
+      "consumedUnit": "minute",
       "billingCurrency": "USD"
     },
     "targets": {
@@ -200,7 +206,8 @@
         "excluded": {
           "legacyV2DeploymentAttempts": 0,
           "manualDeploymentAttempts": 0,
-          "unknownDeploymentAttempts": 0
+          "unknownDeploymentAttempts": 0,
+          "suppressedNativeDeploymentAttempts": 0
         },
         "attribution": {
           "method": "project-total-no-exclusions",
@@ -236,7 +243,8 @@
         "excluded": {
           "legacyV2DeploymentAttempts": 0,
           "manualDeploymentAttempts": 0,
-          "unknownDeploymentAttempts": 0
+          "unknownDeploymentAttempts": 0,
+          "suppressedNativeDeploymentAttempts": 0
         },
         "attribution": {
           "method": "project-total-no-exclusions",
@@ -272,7 +280,8 @@
         "excluded": {
           "legacyV2DeploymentAttempts": 0,
           "manualDeploymentAttempts": 0,
-          "unknownDeploymentAttempts": 0
+          "unknownDeploymentAttempts": 0,
+          "suppressedNativeDeploymentAttempts": 0
         },
         "attribution": {
           "method": "project-total-no-exclusions",
@@ -308,7 +317,8 @@
         "excluded": {
           "legacyV2DeploymentAttempts": 0,
           "manualDeploymentAttempts": 0,
-          "unknownDeploymentAttempts": 0
+          "unknownDeploymentAttempts": 0,
+          "suppressedNativeDeploymentAttempts": 0
         },
         "attribution": {
           "method": "project-total-no-exclusions",
@@ -316,6 +326,11 @@
         }
       }
     },
+    "observationPeriod": {
+      "startUtc": "2026-07-16T00:00:00.000Z",
+      "endUtcExclusive": "2026-07-23T00:00:00.000Z"
+    },
+    "costWindowTrustedDeployedCodePrPushes": 10,
     "trustedDeployedCodePrPushes": 10,
     "github": {
       "standardRunnerMinutes": 300,
@@ -336,6 +351,7 @@
       "burstFirstPlusLatestChecksCompleted": 2,
       "burstFirstPlusLatestCheckOpportunities": 2,
       "burstFirstPlusLatestFailures": 0,
+      "mainDeploymentObservationOpportunities": 4,
       "mainDeploymentObservationsCompleted": 4,
       "mainDeploymentObservationFailures": 0,
       "legacyV2HealthChecksCompleted": 7,

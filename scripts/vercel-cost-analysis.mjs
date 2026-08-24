@@ -10,14 +10,15 @@ import { fileURLToPath } from "node:url";
 import { normalizeVercelDeploymentPages } from "./vercel-cost-deployment-census.mjs";
 import { validateGitHubActionsCostProof } from "./vercel-cost-github-actions.mjs";
 
-export const VERCEL_COST_SCHEMA_VERSION = 3;
+export const VERCEL_COST_SCHEMA_VERSION = 4;
 export const VERCEL_COST_TARGETS = ["app", "governance", "reserve", "ui"];
 export const MINIMUM_OBSERVATION_DAYS = 7;
 export const MINIMUM_TRUSTED_PR_PUSHES = 10;
 export const MINIMUM_NORMALIZED_SAVINGS = 0.9;
 
 const DAY_MILLISECONDS = 24 * 60 * 60 * 1_000;
-const FOCUS_UNIT = "Build CPU Minutes";
+const FOCUS_SERVICE_NAME = "Build CPU Minutes";
+const FOCUS_UNIT = "minute";
 const BILLING_CURRENCY = "USD";
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const GIT_SHA_PATTERN = /^[a-f0-9]{40}$/;
@@ -30,9 +31,11 @@ const PERIOD_KEYS = [
   "invoiceFinal",
   "focusExportSha256",
   "focusChargeCount",
+  "serviceName",
   "consumedUnit",
   "billingCurrency",
 ];
+const OBSERVATION_PERIOD_KEYS = ["startUtc", "endUtcExclusive"];
 const MIGRATED_PATH_KEYS = [
   "buildCpuMinutes",
   "effectiveCost",
@@ -42,10 +45,14 @@ const MIGRATED_PATH_KEYS = [
   "duplicateDeployments",
 ];
 const GROSS_PROJECT_KEYS = ["buildCpuMinutes", "effectiveCost", "billedCost"];
-const EXCLUDED_KEYS = [
+const COST_EXCLUDED_KEYS = [
   "legacyV2DeploymentAttempts",
   "manualDeploymentAttempts",
   "unknownDeploymentAttempts",
+];
+const EXCLUDED_KEYS = [
+  ...COST_EXCLUDED_KEYS,
+  "suppressedNativeDeploymentAttempts",
 ];
 const ATTRIBUTION_KEYS = ["method", "evidenceSha256"];
 const ATTRIBUTION_METHOD = "project-total-no-exclusions";
@@ -92,6 +99,7 @@ const DEPLOYMENT_PATHS = ["preview", "main", "legacy-v2", "unknown"];
 const DEPLOYMENT_SOURCES = [
   "github-actions-prebuilt",
   "vercel-native",
+  "vercel-native-suppressed",
   "manual",
   "unknown",
 ];
@@ -118,6 +126,7 @@ const CORRECTNESS_KEYS = [
   "burstFirstPlusLatestChecksCompleted",
   "burstFirstPlusLatestCheckOpportunities",
   "burstFirstPlusLatestFailures",
+  "mainDeploymentObservationOpportunities",
   "mainDeploymentObservationsCompleted",
   "mainDeploymentObservationFailures",
   "legacyV2HealthChecksCompleted",
@@ -310,13 +319,30 @@ function parseUtcBoundary(value, label) {
   return milliseconds;
 }
 
+function parseCostBoundary(value, label) {
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.000Z$/.test(value)
+  ) {
+    throw new Error(`${label} must be an exact UTC boundary`);
+  }
+  const milliseconds = Date.parse(value);
+  if (
+    !Number.isFinite(milliseconds) ||
+    new Date(milliseconds).toISOString() !== value
+  ) {
+    throw new Error(`${label} must be a valid ISO 8601 timestamp`);
+  }
+  return milliseconds;
+}
+
 function validatePeriod(period, label) {
   assertExactKeys(period, PERIOD_KEYS, label);
-  const startMilliseconds = parseUtcBoundary(
+  const startMilliseconds = parseCostBoundary(
     period.startUtc,
     `${label}.startUtc`,
   );
-  const endMilliseconds = parseUtcBoundary(
+  const endMilliseconds = parseCostBoundary(
     period.endUtcExclusive,
     `${label}.endUtcExclusive`,
   );
@@ -325,7 +351,7 @@ function validatePeriod(period, label) {
   }
   const days = (endMilliseconds - startMilliseconds) / DAY_MILLISECONDS;
   if (!Number.isSafeInteger(days)) {
-    throw new Error(`${label} must contain complete UTC days`);
+    throw new Error(`${label} must contain complete 24-hour periods`);
   }
   assertBoolean(
     period.billingIngestionComplete,
@@ -342,6 +368,9 @@ function validatePeriod(period, label) {
     period.focusChargeCount,
     `${label}.focusChargeCount`,
   );
+  if (period.serviceName !== FOCUS_SERVICE_NAME) {
+    throw new Error(`${label}.serviceName must be ${FOCUS_SERVICE_NAME}`);
+  }
   if (period.consumedUnit !== FOCUS_UNIT) {
     throw new Error(`${label}.consumedUnit must be ${FOCUS_UNIT}`);
   }
@@ -478,7 +507,7 @@ function validateTarget(target, targetName, label, invoiceFinal) {
     throw new Error(`${label} cannot classify legacy app v2 activity`);
   }
 
-  const excludedAttempts = EXCLUDED_KEYS.reduce(
+  const excludedAttempts = COST_EXCLUDED_KEYS.reduce(
     (total, key) =>
       addSafeCount(
         total,
@@ -529,16 +558,24 @@ function validateObservationCoverage(
   }
 }
 
-function sumMigratedDeploymentCensus(window, source, metric, label) {
-  let total = 0;
-  for (const target of VERCEL_COST_TARGETS) {
-    total = addSafeCount(
-      total,
-      window.targets[target].migratedDeploymentCensus[source][metric],
-      `${label}.${source}.${metric}.total`,
-    );
+function validateObservationPeriod(period, label) {
+  assertExactKeys(period, OBSERVATION_PERIOD_KEYS, label);
+  const startMilliseconds = parseUtcBoundary(
+    period.startUtc,
+    `${label}.startUtc`,
+  );
+  const endMilliseconds = parseUtcBoundary(
+    period.endUtcExclusive,
+    `${label}.endUtcExclusive`,
+  );
+  if (endMilliseconds <= startMilliseconds) {
+    throw new Error(`${label} must have a positive UTC interval`);
   }
-  return total;
+  const days = (endMilliseconds - startMilliseconds) / DAY_MILLISECONDS;
+  if (!Number.isSafeInteger(days)) {
+    throw new Error(`${label} must contain complete UTC days`);
+  }
+  return { startMilliseconds, endMilliseconds, days };
 }
 
 function validateWindow(window, label) {
@@ -546,7 +583,9 @@ function validateWindow(window, label) {
     label === "postCutover"
       ? [
           "period",
+          "observationPeriod",
           "targets",
+          "costWindowTrustedDeployedCodePrPushes",
           "trustedDeployedCodePrPushes",
           "github",
           "correctness",
@@ -554,6 +593,13 @@ function validateWindow(window, label) {
       : ["period", "targets"];
   assertExactKeys(window, requiredKeys, label);
   const period = validatePeriod(window.period, `${label}.period`);
+  const observationPeriod =
+    label === "postCutover"
+      ? validateObservationPeriod(
+          window.observationPeriod,
+          `${label}.observationPeriod`,
+        )
+      : null;
   assertExactKeys(window.targets, VERCEL_COST_TARGETS, `${label}.targets`);
   for (const target of VERCEL_COST_TARGETS) {
     validateTarget(
@@ -577,6 +623,10 @@ function validateWindow(window, label) {
   }
 
   if (label === "postCutover") {
+    assertNonnegativeInteger(
+      window.costWindowTrustedDeployedCodePrPushes,
+      `${label}.costWindowTrustedDeployedCodePrPushes`,
+    );
     assertNonnegativeInteger(
       window.trustedDeployedCodePrPushes,
       `${label}.trustedDeployedCodePrPushes`,
@@ -620,17 +670,6 @@ function validateWindow(window, label) {
         `${label}.correctness.eligibleFirstPreviewOpportunities cannot exceed trustedDeployedCodePrPushes`,
       );
     }
-    const previewEligibleEvents = sumMigratedDeploymentCensus(
-      window,
-      "preview",
-      "eligibleEvents",
-      `${label}.migratedDeploymentCensus`,
-    );
-    if (window.correctness.eligibleFirstPreviews > previewEligibleEvents) {
-      throw new Error(
-        `${label}.correctness.eligibleFirstPreviews cannot exceed derived preview eligible events`,
-      );
-    }
     validateObservationCoverage(
       window.correctness,
       "smokeOrE2eChecksCompleted",
@@ -638,28 +677,13 @@ function validateWindow(window, label) {
       "smokeOrE2eRegressions",
       `${label}.correctness`,
     );
-    const mainEligibleEvents = sumMigratedDeploymentCensus(
-      window,
-      "main",
-      "eligibleEvents",
-      `${label}.migratedDeploymentCensus`,
+    validateObservationCoverage(
+      window.correctness,
+      "mainDeploymentObservationsCompleted",
+      "mainDeploymentObservationOpportunities",
+      "mainDeploymentObservationFailures",
+      `${label}.correctness`,
     );
-    if (
-      window.correctness.mainDeploymentObservationsCompleted >
-      mainEligibleEvents
-    ) {
-      throw new Error(
-        `${label}.correctness.mainDeploymentObservationsCompleted cannot exceed derived main eligible events`,
-      );
-    }
-    if (
-      window.correctness.mainDeploymentObservationFailures >
-      window.correctness.mainDeploymentObservationsCompleted
-    ) {
-      throw new Error(
-        `${label}.correctness.mainDeploymentObservationFailures cannot exceed mainDeploymentObservationsCompleted`,
-      );
-    }
     validateObservationCoverage(
       window.correctness,
       "burstFirstPlusLatestChecksCompleted",
@@ -675,7 +699,7 @@ function validateWindow(window, label) {
       `${label}.correctness`,
     );
   }
-  return period;
+  return { ...period, observationPeriod };
 }
 
 export function validateVercelCostEvidence(evidence) {
@@ -729,6 +753,11 @@ export function validateVercelCostEvidence(evidence) {
   }
   if (postPeriod.startMilliseconds < cutoverMilliseconds) {
     throw new Error("postCutover period starts before the completed cutover");
+  }
+  if (postPeriod.observationPeriod.startMilliseconds < cutoverMilliseconds) {
+    throw new Error(
+      "postCutover observationPeriod starts before the completed cutover",
+    );
   }
   return { baselinePeriod, postPeriod };
 }
@@ -943,17 +972,10 @@ export function analyzeVercelCostEvidence(evidence) {
             `postCutover.targets.${target}.attemptsPerEligibleEvent`,
           );
   }
-  const postMainEligibleEvents = sumMigratedDeploymentCensus(
-    evidence.postCutover,
-    "main",
-    "eligibleEvents",
-    "postCutover.migratedDeploymentCensus",
-  );
-
   const correctness = evidence.postCutover.correctness;
   const reasons = [];
   reason(
-    postPeriod.days < MINIMUM_OBSERVATION_DAYS,
+    postPeriod.observationPeriod.days < MINIMUM_OBSERVATION_DAYS,
     `post-cutover-window-under-${MINIMUM_OBSERVATION_DAYS}-days`,
     reasons,
   );
@@ -1128,7 +1150,8 @@ export function analyzeVercelCostEvidence(evidence) {
     reasons,
   );
   reason(
-    correctness.mainDeploymentObservationsCompleted !== postMainEligibleEvents,
+    correctness.mainDeploymentObservationsCompleted !==
+      correctness.mainDeploymentObservationOpportunities,
     "main-deployment-observation-coverage-incomplete",
     reasons,
   );
@@ -1172,7 +1195,8 @@ export function analyzeVercelCostEvidence(evidence) {
     reasons,
   );
 
-  const prPushes = evidence.postCutover.trustedDeployedCodePrPushes;
+  const costWindowPrPushes =
+    evidence.postCutover.costWindowTrustedDeployedCodePrPushes;
   const totalAttemptsPerEligibleEvent =
     totalPostEvents === 0
       ? null
@@ -1182,21 +1206,21 @@ export function analyzeVercelCostEvidence(evidence) {
           "postCutover.attemptsPerEligibleEvent.total",
         );
   const totalMinutesPerTrustedPrPush =
-    prPushes === 0
+    costWindowPrPushes === 0
       ? null
       : divideFiniteDerived(
           postCutoverMigratedMinutes,
-          prPushes,
+          costWindowPrPushes,
           "postCutover.buildCpuMinutesPerTrustedPrPush.total",
         );
   const targetMinutesPerTrustedPrPush = Object.fromEntries(
     VERCEL_COST_TARGETS.map((target) => [
       target,
-      prPushes === 0
+      costWindowPrPushes === 0
         ? null
         : divideFiniteDerived(
             evidence.postCutover.targets[target].migratedPath.buildCpuMinutes,
-            prPushes,
+            costWindowPrPushes,
             `postCutover.targets.${target}.buildCpuMinutesPerTrustedPrPush`,
           ),
     ]),
@@ -1215,6 +1239,7 @@ export function analyzeVercelCostEvidence(evidence) {
         billingIngestionComplete:
           evidence.baseline.period.billingIngestionComplete,
         invoiceFinal: evidence.baseline.period.invoiceFinal,
+        serviceName: evidence.baseline.period.serviceName,
         consumedUnit: evidence.baseline.period.consumedUnit,
         billingCurrency: evidence.baseline.period.billingCurrency,
         days: baselinePeriod.days,
@@ -1225,9 +1250,15 @@ export function analyzeVercelCostEvidence(evidence) {
         billingIngestionComplete:
           evidence.postCutover.period.billingIngestionComplete,
         invoiceFinal: evidence.postCutover.period.invoiceFinal,
+        serviceName: evidence.postCutover.period.serviceName,
         consumedUnit: evidence.postCutover.period.consumedUnit,
         billingCurrency: evidence.postCutover.period.billingCurrency,
         days: postPeriod.days,
+      },
+      observation: {
+        startUtc: evidence.postCutover.observationPeriod.startUtc,
+        endUtcExclusive: evidence.postCutover.observationPeriod.endUtcExclusive,
+        days: postPeriod.observationPeriod.days,
       },
     },
     normalized: {
@@ -1273,6 +1304,8 @@ export function analyzeVercelCostEvidence(evidence) {
     github: { ...evidence.postCutover.github },
     trustedDeployedCodePrPushes:
       evidence.postCutover.trustedDeployedCodePrPushes,
+    costWindowTrustedDeployedCodePrPushes:
+      evidence.postCutover.costWindowTrustedDeployedCodePrPushes,
     correctness: { ...evidence.postCutover.correctness },
     eventCensus: Object.fromEntries(
       VERCEL_COST_TARGETS.map((target) => [
@@ -1329,13 +1362,13 @@ export function analyzeVercelCostEvidence(evidence) {
       total: totalAttemptsPerEligibleEvent,
       targets: attempts,
     },
-    postCutoverMinutesPerTrustedPrPush: {
+    postCutoverMinutesPerCostWindowTrustedPrPush: {
       total: totalMinutesPerTrustedPrPush,
       targets: targetMinutesPerTrustedPrPush,
     },
     mainDeploymentObservations: {
       completed: correctness.mainDeploymentObservationsCompleted,
-      eligibleEvents: postMainEligibleEvents,
+      opportunities: correctness.mainDeploymentObservationOpportunities,
       failures: correctness.mainDeploymentObservationFailures,
     },
   };
@@ -1362,8 +1395,9 @@ export function formatVercelCostMarkdown(analysis) {
     `Cleanup/closeout gate: **${analysis.closeoutPass ? "PASS" : "FAIL"}**`,
     `Report stage: **${analysis.reportStage === "final-closeout" ? "FINAL CLOSEOUT" : "OBSERVATION ONLY"}**`,
     "",
-    `- Baseline UTC window: ${analysis.periods.baseline.startUtc} to ${analysis.periods.baseline.endUtcExclusive} (${analysis.periods.baseline.days} complete days)`,
-    `- Post-cutover UTC window: ${analysis.periods.postCutover.startUtc} to ${analysis.periods.postCutover.endUtcExclusive} (${analysis.periods.postCutover.days} complete days)`,
+    `- Baseline Vercel cost window: ${analysis.periods.baseline.startUtc} to ${analysis.periods.baseline.endUtcExclusive} (${analysis.periods.baseline.days} complete 24-hour periods)`,
+    `- Post-cutover Vercel cost window: ${analysis.periods.postCutover.startUtc} to ${analysis.periods.postCutover.endUtcExclusive} (${analysis.periods.postCutover.days} complete 24-hour periods)`,
+    `- Correctness and GitHub observation window: ${analysis.periods.observation.startUtc} to ${analysis.periods.observation.endUtcExclusive} (${analysis.periods.observation.days} complete UTC days)`,
     `- Target-mix normalized build-minute savings: ${formatPercent(analysis.normalized.minutes?.savings ?? null)}`,
     `- Target-mix normalized EffectiveCost savings: ${formatPercent(analysis.normalized.effectiveCost?.savings ?? null)}`,
     `- Target-mix normalized final BilledCost savings: ${formatPercent(analysis.normalized.billedCost?.savings ?? null)}`,
@@ -1371,8 +1405,9 @@ export function formatVercelCostMarkdown(analysis) {
     `- Gross equal-window EffectiveCost savings: ${formatPercent(analysis.gross.effectiveCostSavings)}`,
     `- Gross equal-window final BilledCost savings: ${formatPercent(analysis.gross.billedCostSavings)}`,
     `- Deployment attempts per eligible event: ${formatNumber(analysis.attemptsPerEligibleEvent.total)}`,
-    `- Trusted deployed-code same-repository PR pushes: ${analysis.trustedDeployedCodePrPushes}`,
-    `- Vercel build minutes per trusted deployed-code PR push: ${formatNumber(analysis.postCutoverMinutesPerTrustedPrPush.total)}`,
+    `- Correctness-window trusted deployed-code same-repository PR pushes: ${analysis.trustedDeployedCodePrPushes}`,
+    `- Cost-window trusted deployed-code same-repository PR pushes: ${analysis.costWindowTrustedDeployedCodePrPushes}`,
+    `- Vercel build minutes per cost-window trusted deployed-code PR push: ${formatNumber(analysis.postCutoverMinutesPerCostWindowTrustedPrPush.total)}`,
     `- GitHub standard-runner minutes: ${formatNumber(analysis.github.standardRunnerMinutes)}`,
     `- GitHub larger-runner minutes: ${formatNumber(analysis.github.largerRunnerMinutes)}`,
     `- GitHub artifact storage: ${formatNumber(analysis.github.artifactStorageGbHours)} GB-hours`,
@@ -1380,7 +1415,7 @@ export function formatVercelCostMarkdown(analysis) {
     `- Eligible first previews: ${analysis.correctness.eligibleFirstPreviews}/${analysis.correctness.eligibleFirstPreviewOpportunities}`,
     `- Smoke/E2E checks completed: ${analysis.correctness.smokeOrE2eChecksCompleted}/${analysis.correctness.smokeOrE2eCheckOpportunities}`,
     `- Burst first-plus-latest checks completed: ${analysis.correctness.burstFirstPlusLatestChecksCompleted}/${analysis.correctness.burstFirstPlusLatestCheckOpportunities}`,
-    `- Main deployment observations completed: ${analysis.mainDeploymentObservations.completed}/${analysis.mainDeploymentObservations.eligibleEvents}`,
+    `- Main deployment observations completed: ${analysis.mainDeploymentObservations.completed}/${analysis.mainDeploymentObservations.opportunities}`,
     `- Legacy v2 health checks completed: ${analysis.correctness.legacyV2HealthChecksCompleted}/${analysis.correctness.legacyV2HealthCheckOpportunities}`,
     "",
     "| Target | Baseline migrated minutes | Baseline gross minutes | Post migrated minutes | Post gross minutes | Baseline-mix counterfactual | Migrated change | Post minutes / trusted push |",
@@ -1392,19 +1427,19 @@ export function formatVercelCostMarkdown(analysis) {
     const migrated = analysis.migrated.targets[target];
     const gross = analysis.gross.targets[target];
     lines.push(
-      `| ${target} | ${formatNumber(migrated.baselineMinutes)} | ${formatNumber(gross.baselineMinutes)} | ${formatNumber(migrated.postCutoverMinutes)} | ${formatNumber(gross.postCutoverMinutes)} | ${formatNumber(normalized?.counterfactual ?? null)} | ${formatPercent(normalized?.savings ?? null)} | ${formatNumber(analysis.postCutoverMinutesPerTrustedPrPush.targets[target])} |`,
+      `| ${target} | ${formatNumber(migrated.baselineMinutes)} | ${formatNumber(gross.baselineMinutes)} | ${formatNumber(migrated.postCutoverMinutes)} | ${formatNumber(gross.postCutoverMinutes)} | ${formatNumber(normalized?.counterfactual ?? null)} | ${formatPercent(normalized?.savings ?? null)} | ${formatNumber(analysis.postCutoverMinutesPerCostWindowTrustedPrPush.targets[target])} |`,
     );
   }
 
   lines.push(
     "",
-    "| Target | Baseline events/attempts | Post events/attempts | Post duplicates | Post legacy v2 | Post manual | Post unknown | Attribution |",
-    "|---|---:|---:|---:|---:|---:|---:|---|",
+    "| Target | Baseline events/attempts | Post events/attempts | Post duplicates | Post suppressed native | Post legacy v2 | Post manual | Post unknown | Attribution |",
+    "|---|---:|---:|---:|---:|---:|---:|---:|---|",
   );
   for (const target of VERCEL_COST_TARGETS) {
     const census = analysis.eventCensus[target];
     lines.push(
-      `| ${target} | ${census.baseline.eligibleEvents}/${census.baseline.deploymentAttempts} | ${census.postCutover.eligibleEvents}/${census.postCutover.deploymentAttempts} | ${census.postCutover.duplicateDeployments} | ${census.postCutover.excluded.legacyV2DeploymentAttempts} | ${census.postCutover.excluded.manualDeploymentAttempts} | ${census.postCutover.excluded.unknownDeploymentAttempts} | ${census.postCutover.attributionMethod} |`,
+      `| ${target} | ${census.baseline.eligibleEvents}/${census.baseline.deploymentAttempts} | ${census.postCutover.eligibleEvents}/${census.postCutover.deploymentAttempts} | ${census.postCutover.duplicateDeployments} | ${census.postCutover.excluded.suppressedNativeDeploymentAttempts} | ${census.postCutover.excluded.legacyV2DeploymentAttempts} | ${census.postCutover.excluded.manualDeploymentAttempts} | ${census.postCutover.excluded.unknownDeploymentAttempts} | ${census.postCutover.attributionMethod} |`,
     );
   }
 
@@ -1601,7 +1636,7 @@ function reconcileFocusJsonl(raw, source, aggregateWindow, label) {
 
   for (const [index, row] of rows.entries()) {
     assertObject(row, `${label} row ${index + 1}`);
-    if (row.ConsumedUnit !== FOCUS_UNIT) continue;
+    if (row.ServiceName !== FOCUS_SERVICE_NAME) continue;
     if (row.ChargeCategory !== "Usage") continue;
     const tags = assertObject(row.Tags, `${label} row ${index + 1}.Tags`);
     const matches = VERCEL_COST_TARGETS.filter((target) => {
@@ -1611,6 +1646,11 @@ function reconcileFocusJsonl(raw, source, aggregateWindow, label) {
     if (matches.length === 0) continue;
     if (matches.length !== 1) {
       throw new Error(`${label} row ${index + 1} matches multiple targets`);
+    }
+    if (row.ConsumedUnit !== FOCUS_UNIT) {
+      throw new Error(
+        `${label} row ${index + 1}.ConsumedUnit must be ${FOCUS_UNIT}`,
+      );
     }
     if (row.BillingCurrency !== BILLING_CURRENCY) {
       throw new Error(
@@ -1735,6 +1775,7 @@ function reconcileDeploymentCensusJsonl(
     ]),
   );
   const readyByEvent = new Map();
+  const trustedPreviewShas = new Set();
   const excluded = Object.fromEntries(
     VERCEL_COST_TARGETS.map((target) => [
       target,
@@ -1742,6 +1783,7 @@ function reconcileDeploymentCensusJsonl(
         legacyV2DeploymentAttempts: 0,
         manualDeploymentAttempts: 0,
         unknownDeploymentAttempts: 0,
+        suppressedNativeDeploymentAttempts: 0,
       },
     ]),
   );
@@ -1796,7 +1838,9 @@ function reconcileDeploymentCensusJsonl(
     const migrated =
       migratedPath &&
       ["github-actions-prebuilt", "vercel-native"].includes(row.source);
-    if (migrated || row.path === "legacy-v2") {
+    const suppressed =
+      migratedPath && row.source === "vercel-native-suppressed";
+    if (migrated || suppressed || row.path === "legacy-v2") {
       if (
         typeof row.sourceSha !== "string" ||
         !GIT_SHA_PATTERN.test(row.sourceSha)
@@ -1830,6 +1874,13 @@ function reconcileDeploymentCensusJsonl(
       pathAttempts[row.target][row.path] += 1;
       const eventKey = `${row.target}:${row.path}:${row.sourceSha}`;
       eventKeys[row.target][row.path].add(eventKey);
+      if (
+        windowName === "postCutover" &&
+        row.path === "preview" &&
+        row.source === "github-actions-prebuilt"
+      ) {
+        trustedPreviewShas.add(row.sourceSha);
+      }
       if (row.outcome === "ready") {
         const readyRows = readyByEvent.get(eventKey) ?? [];
         readyRows.push(row);
@@ -1839,6 +1890,9 @@ function reconcileDeploymentCensusJsonl(
         unexplainedNativeBuilds += 1;
         reasons.push("unexplained-native-build");
       }
+    } else if (suppressed) {
+      excluded[row.target].suppressedNativeDeploymentAttempts += 1;
+      reasons.push("native-suppression-record");
     } else if (row.path === "legacy-v2") {
       excluded[row.target].legacyV2DeploymentAttempts += 1;
     } else if (row.source === "manual") {
@@ -1887,6 +1941,15 @@ function reconcileDeploymentCensusJsonl(
         );
       }
     }
+  }
+  if (
+    windowName === "postCutover" &&
+    trustedPreviewShas.size !==
+      aggregateWindow.costWindowTrustedDeployedCodePrPushes
+  ) {
+    throw new Error(
+      `${label} trusted preview SHA count does not reconcile to costWindowTrustedDeployedCodePrPushes`,
+    );
   }
   if (
     windowName === "postCutover" &&
@@ -2002,12 +2065,13 @@ export function analyzeVercelCostManifest(inputPath) {
   }
   const githubProof = validateGitHubActionsCostProof(githubProofPath);
   if (
-    githubProof.interval.startUtc !== evidence.postCutover.period.startUtc ||
+    githubProof.interval.startUtc !==
+      evidence.postCutover.observationPeriod.startUtc ||
     githubProof.interval.endUtcExclusive !==
-      evidence.postCutover.period.endUtcExclusive
+      evidence.postCutover.observationPeriod.endUtcExclusive
   ) {
     throw new Error(
-      "GitHub Actions proof interval does not match the postCutover aggregate",
+      "GitHub Actions proof interval does not match postCutover.observationPeriod",
     );
   }
   for (const key of GITHUB_KEYS) {
@@ -2018,6 +2082,14 @@ export function analyzeVercelCostManifest(inputPath) {
         `GitHub Actions proof ${key} does not reconcile to the postCutover aggregate`,
       );
     }
+  }
+  if (
+    githubProof.analyzerFragment.mainDeploymentObservationOpportunities !==
+    evidence.postCutover.correctness.mainDeploymentObservationOpportunities
+  ) {
+    throw new Error(
+      "GitHub Actions proof mainDeploymentObservationOpportunities does not reconcile to the postCutover aggregate",
+    );
   }
   const deploymentEvidence = {};
   const deploymentProjectIds = {};

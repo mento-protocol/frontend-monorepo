@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import {
   chmodSync,
   existsSync,
@@ -606,6 +607,71 @@ test("normalizes a structurally complete empty census as newline-terminated JSON
   assert.equal(result.proofObject.deploymentCensusComplete, true);
 });
 
+test("accepts a complete provider-aligned 24-hour window", () => {
+  const value = fixture();
+  const start = Date.parse("2026-07-01T07:00:00.000Z");
+  const end = Date.parse("2026-07-08T07:00:00.000Z");
+  value.window = {
+    startUtc: new Date(start).toISOString(),
+    endUtcExclusive: new Date(end).toISOString(),
+  };
+  for (const projectValue of value.projects) {
+    projectValue.query.since = start - 1;
+    projectValue.query.until = end;
+    projectValue.pages[0].requestCursor = end;
+    if (projectValue.pages.length > 1) {
+      projectValue.pages.at(-1).response.pagination.prev = end;
+    }
+  }
+  assert.equal(normalize(value).proofObject.rowCount, 6);
+});
+
+test("rejects the superseded v1 deployment-pages schema", () => {
+  const value = fixture();
+  value.schema = "vercel-deployment-pages:v1";
+  assert.throws(
+    () =>
+      normalizeVercelDeploymentPages(
+        Buffer.from(`${JSON.stringify(value, null, 2)}\n`),
+      ),
+    /input\.schema must be vercel-deployment-pages:v2/,
+  );
+});
+
+test("classifies a canceled Git record that never started building as suppressed", () => {
+  const value = fixture();
+  const row = findDeployment(value, "dpl_ReservePreview1");
+  row.readyState = "CANCELED";
+  row.source = "git";
+  value.annotations.dpl_ReservePreview1.source = "vercel-native-suppressed";
+
+  const normalized = normalize(value).rows.find(
+    (entry) => entry.deploymentId === "dpl_ReservePreview1",
+  );
+  assert.equal(normalized.source, "vercel-native-suppressed");
+  assert.equal(normalized.outcome, "canceled");
+  assert.equal(normalized.sourceSha, SHA.reservePreview);
+});
+
+for (const [name, mutate] of [
+  ["started building", (row) => (row.buildingAt = row.createdAt + 1)],
+  ["did not cancel", (row) => (row.readyState = "READY")],
+  ["did not come from Git", (row) => (row.source = "cli")],
+]) {
+  test(`rejects a suppressed native record that ${name}`, () => {
+    const value = fixture();
+    const row = findDeployment(value, "dpl_ReservePreview1");
+    row.readyState = "CANCELED";
+    row.source = "git";
+    value.annotations.dpl_ReservePreview1.source = "vercel-native-suppressed";
+    mutate(row);
+    assert.throws(
+      () => normalize(value),
+      /native suppression signature is malformed/,
+    );
+  });
+}
+
 test("accepts omitted optional environment fields on a signed GitHub main row", () => {
   const value = fixture();
   const row = findDeployment(value, "dpl_GovernanceMain1");
@@ -618,6 +684,28 @@ test("accepts omitted optional environment fields on a signed GitHub main row", 
     ).source,
     "github-actions-prebuilt",
   );
+});
+
+test("accepts an old native main custom environment with only an ID", () => {
+  const value = fixture();
+  const row = findDeployment(value, "dpl_ReservePreview1");
+  row.meta.githubCommitRef = "main";
+  row.customEnvironment = { id: "env_historical123" };
+  value.annotations.dpl_ReservePreview1.path = "main";
+  assert.equal(
+    normalize(value).rows.find(
+      (entry) => entry.deploymentId === "dpl_ReservePreview1",
+    ).path,
+    "main",
+  );
+});
+
+test("rejects an old preview custom environment with only an ID", () => {
+  const value = fixture();
+  findDeployment(value, "dpl_ReservePreview1").customEnvironment = {
+    id: "env_historical123",
+  };
+  assert.throws(() => normalize(value), /preview environment conflicts/);
 });
 
 test("accepts a bare Vercel hostname beginning with http", () => {

@@ -113,7 +113,29 @@ test("builds and revalidates a source-bound eligible proof", () => {
       artifactStorageGbHours: 5,
       cacheStorageGbHours: 50,
       repositoryPublicEntireWindow: true,
+      mainDeploymentObservationOpportunities: 4,
     });
+    assert.equal(
+      validateGitHubActionsCostProof(evidence.proofPath).eligibleForAnalyzer,
+      true,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("uses detailed billing SKUs when terminal jobs have empty labels", () => {
+  const root = workspace();
+  try {
+    const evidence = createSyntheticGitHubActionsEvidence(root, {
+      runnerLabels: [],
+    });
+    assert.equal(evidence.proof.eligibleForAnalyzer, true);
+    assert.equal(
+      evidence.proof.reconciliation.standardRunnerMinutesMatchCollector,
+      true,
+    );
+    assert.equal(evidence.proof.reconciliation.largerRunnerMinutesZero, true);
     assert.equal(
       validateGitHubActionsCostProof(evidence.proofPath).eligibleForAnalyzer,
       true,

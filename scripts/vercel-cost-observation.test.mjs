@@ -20,6 +20,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+  ANALYZER_FRAGMENT_SCHEMA,
   GITHUB_SAMPLE_SCHEMA,
   MAIN_CAPTURE_SCHEMA,
   OBSERVATION_AUDIT_SCHEMA,
@@ -34,6 +35,7 @@ import {
   environmentWithoutGhTokens,
   runVercelCostObservation,
   selectLatestTerminalSample,
+  validateGitHubBillingObservation,
 } from "./vercel-cost-observation.mjs";
 import {
   compactPreviewJournal,
@@ -3734,6 +3736,16 @@ test("audit writes a deterministic incomplete analyzer fragment and fails closed
       "utf8",
     ),
   );
+  assert.equal(fragment.schema, ANALYZER_FRAGMENT_SCHEMA);
+  assert.deepEqual(fragment.observationPeriod, {
+    startUtc: START,
+    endUtcExclusive: END,
+  });
+  assert.equal(
+    fragment.mainDeploymentObservationOpportunities,
+    audit.inventory.requiredMainRunIds.length,
+  );
+  assert.equal(Object.hasOwn(fragment, "period"), false);
   assert.equal(fragment.complete, false);
   assert.equal(fragment.targets, null);
   assert.equal(
@@ -3764,6 +3776,94 @@ test("audit writes a deterministic incomplete analyzer fragment and fails closed
         stdout: output().stream,
       }),
     /audit already exists/,
+  );
+});
+
+test("audit records empty runner labels for detailed billing reconciliation", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  seedAuditEligiblePreviewCaptures(cwd);
+  const run = {
+    id: 98_401,
+    run_attempt: 1,
+    path: ".github/workflows/vercel-preview-worker.yml",
+    event: "workflow_dispatch",
+    status: "completed",
+    conclusion: "success",
+    created_at: "2026-08-01T02:00:00.000Z",
+    updated_at: "2026-08-01T02:01:00.000Z",
+    head_sha: "f".repeat(40),
+    head_branch: "main",
+    display_title: "runner-label reconciliation fixture",
+    html_url:
+      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/98401",
+  };
+  runVercelCostObservation({
+    argv: ["sample-github"],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: fakeGh(
+      githubSampleRoutes({
+        runs: [run],
+        jobsByRun: new Map([
+          [
+            "98401",
+            [
+              {
+                id: 98_402,
+                run_attempt: 1,
+                name: "skipped job",
+                status: "completed",
+                conclusion: "skipped",
+                labels: [],
+                started_at: "2026-08-01T02:00:10.000Z",
+                completed_at: "2026-08-01T02:00:10.000Z",
+              },
+              {
+                id: 98_403,
+                run_attempt: 1,
+                name: "short terminal job",
+                status: "completed",
+                conclusion: "success",
+                labels: [],
+                started_at: "2026-08-01T02:00:20.000Z",
+                completed_at: "2026-08-01T02:00:26.000Z",
+              },
+            ],
+          ],
+        ]),
+      }),
+    ),
+    stdout: output().stream,
+  });
+
+  const result = runVercelCostObservation({
+    argv: ["audit", "--end", END],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: () => {
+      throw new Error("audit must remain offline");
+    },
+    stdout: output().stream,
+  });
+  assert.equal(result.exitCode, 1);
+  const root = observationRoot(cwd);
+  const audit = JSON.parse(readFileSync(join(root, "audit.json"), "utf8"));
+  assert.deepEqual(audit.gaps, [
+    "manual-provider-and-closeout-evidence-unresolved",
+  ]);
+  assert.deepEqual(audit.derived.observedUnknownRunnerJobIds, [
+    "98402",
+    "98403",
+  ]);
+  assert.equal(validateGitHubBillingObservation(root).runnerJobs.length, 2);
+  audit.derived.observedUnknownRunnerJobIds = ["98402"];
+  writeFileSync(join(root, "audit.json"), canonicalBytes(audit), {
+    mode: 0o600,
+  });
+  assert.throws(
+    () => validateGitHubBillingObservation(root),
+    /runner-label gap IDs does not match/,
   );
 });
 
