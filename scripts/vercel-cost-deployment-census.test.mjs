@@ -708,6 +708,22 @@ test("rejects an old preview custom environment with only an ID", () => {
   assert.throws(() => normalize(value), /preview environment conflicts/);
 });
 
+test("rejects an ID-only custom environment on a non-app GitHub main row", () => {
+  const value = fixture();
+  findDeployment(value, "dpl_GovernanceMain1").customEnvironment = {
+    id: "env_historical123",
+  };
+  assert.throws(() => normalize(value), /main environment conflicts/);
+});
+
+test("rejects an ID-only custom environment on a legacy-v2 row", () => {
+  const value = fixture();
+  findDeployment(value, "dpl_AppLegacy1").customEnvironment = {
+    id: "env_historical123",
+  };
+  assert.throws(() => normalize(value), /legacy-v2 signature is malformed/);
+});
+
 test("accepts a bare Vercel hostname beginning with http", () => {
   const value = fixture();
   const row = findDeployment(value, "dpl_AppUnknown1");

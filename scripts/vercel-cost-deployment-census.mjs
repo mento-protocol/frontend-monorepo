@@ -544,16 +544,15 @@ function normalizeDeployment({
       assertPreviewSignature({ meta, git, target, label });
     } else if (annotation.path === "main") {
       assertMainSignature({ meta, git, target, projectId, label });
-      const expectedEnvironment =
+      const expectedTarget = target === "app" ? null : "production";
+      const customEnvironmentMismatch =
         target === "app"
-          ? { target: null, customEnvironmentSlug: "v3" }
-          : { target: "production", customEnvironmentSlug: null };
+          ? environment.customEnvironmentPresent &&
+            environment.customEnvironmentSlug !== "v3"
+          : environment.customEnvironmentConfigured;
       if (
-        (environment.targetPresent &&
-          environment.target !== expectedEnvironment.target) ||
-        (environment.customEnvironmentPresent &&
-          environment.customEnvironmentSlug !==
-            expectedEnvironment.customEnvironmentSlug)
+        (environment.targetPresent && environment.target !== expectedTarget) ||
+        customEnvironmentMismatch
       ) {
         throw new Error(
           `${label} GitHub main environment conflicts with its target`,
@@ -597,7 +596,7 @@ function normalizeDeployment({
       git.ref !== "v2" ||
       !environment.targetPresent ||
       environment.target !== "production" ||
-      environment.customEnvironmentSlug !== null
+      environment.customEnvironmentConfigured
     ) {
       throw new Error(`${label} legacy-v2 signature is malformed`);
     }
