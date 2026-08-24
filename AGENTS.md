@@ -119,20 +119,12 @@ response to the comment author's numeric ID, login, and type. A missing, `read`,
 or malformed permission response remains untrusted. All other issue-comment
 feedback continues to use the author-association policy.
 
-One exact current native OSV scanner/reporter update has a typed companion path
-under ADR 0009. The planner accepts only the two same-revision full-SHA
-workflow replacements and their two exact test-mirror replacements. A staging
-job creates one new deterministic branch with Contents and Workflows write
-authority only. A separate opening job revalidates all live input and opens a
-ready PR with Pull requests write authority only. Both jobs reuse the
-Processor's complete feedback gate and recollect its bound digest and
-human-event evidence immediately before a ref or PR write. Neither job mutates
-the source Dependabot branch, approves, publishes ALL CLEAR, enables
-auto-merge, merges, or closes a PR. Every other sensitive Action remains
-manual. Terminal convergence authenticates the exact Prepare App PR creator
-and reconstructs the historical source/base plan from immutable commits. It
-verifies the companion commit, parent, tree, and result blobs even when the
-base ref moved or the companion branch was deleted.
+Sensitive and self-reviewing Actions remain manual. This includes OSV
+scanner/reporter updates. The workflow contract requires exactly one scanner
+step and one reporter step. Both actions must use full lowercase 40-character
+SHA pins at the same revision. The test does not copy a specific revision into
+another source file. A maintainer reviews the update and merges it only after
+all required checks pass.
 
 Configure the repository-scoped Prepare App with variables
 `DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,
@@ -140,12 +132,10 @@ Configure the repository-scoped Prepare App with variables
 `DEPENDABOT_PROCESSOR_PREPARE_BOT_ID`, and
 `DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN`, plus secret
 `DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY`. Install the App with
-`contents: write`, `pull-requests: write`, and `workflows: write`.
-Update-branch needs Contents and Pull requests. The typed companion stage needs
-Contents and Workflows. Its separate opener requests only Pull requests.
-Refresh requests Contents and Pull requests. Repair and authenticated dispatch
-request only Contents. Grant the App no bypass, Actions, deployment, package,
-environment, or provider permission. Contents write also
+`contents: write` and `pull-requests: write`. Update-branch and Refresh need
+both permissions. Repair and authenticated dispatch request only Contents.
+Grant the App no bypass, Actions, workflow, deployment, package, environment,
+or provider permission. Contents write also
 makes GitHub's merge endpoint technically reachable, so the reviewed workflow
 contains no merge call or merge code and isolates and revokes the token before
 approval. The mutation token is passed to the core only as
@@ -312,14 +302,9 @@ workflow, receipt, reviewer, policy, or runbook changes. Run
 `pnpm dependabot:soak` to render and validate the offline observational
 production evidence report. Before changing a pending row to passed, revalidate
 its exact PR, check, workflow-run, and authority evidence against live GitHub.
-The typed companion row also requires the exact source and companion PRs and
-the distinct census, stage, and open receipt hashes. Its successful opener
-uploads a redacted `dependabot-actions-companion-soak-<run>-<attempt>-<pr>`
-artifact. Use the import command in `docs/dependabot-automation.md` only after
-live revalidation.
 The offline command does not certify GitHub provenance.
 Follow `docs/dependabot-automation.md` and
-ADRs 0006, 0008, and 0009 for the complete contract.
+ADRs 0006 and 0008 for the complete contract.
 
 For any protocol-level question that crosses beyond this frontend repo, first
 read the private `mento-master-context` router when the checkout is available:

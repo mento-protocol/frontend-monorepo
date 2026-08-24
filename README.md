@@ -462,19 +462,12 @@ even when GitHub retargets the comment's current commit after a branch refresh.
 The ALL CLEAR receipt keeps the dependency risk/update metadata for the human
 decision.
 
-ADR 0009 adds one typed companion path for an exact current native OSV
-scanner/reporter pair. A staging job accepts only the two same-revision
-full-SHA workflow replacements and their exact test-mirror replacements. It
-creates one deterministic branch with Contents and Workflows write authority.
-A separate job revalidates the staged head and opens a ready PR with Pull
-requests write authority. Both jobs reuse the Processor's complete feedback
-gate and recollect bound feedback and human-event evidence immediately before a
-ref or PR write. Neither job changes the source branch, approves, publishes ALL
-CLEAR, enables auto-merge, merges, or closes a PR. Other sensitive Actions
-remain manual. Terminal convergence authenticates the exact Prepare App PR
-creator and reconstructs the historical source/base plan from immutable
-commits. It verifies the companion commit, parent, tree, and result blobs even
-when the base ref moved or the companion branch was deleted.
+Sensitive and self-reviewing Actions remain manual. This includes OSV
+scanner/reporter updates. The workflow contract requires exactly one scanner
+step and one reporter step. Both actions must use full lowercase 40-character
+SHA pins at the same revision. The test does not mirror the current revision in
+another source file. A maintainer reviews the update and merges it only after
+all required checks pass.
 
 Configure the repository-scoped Prepare App with variables
 `DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,
@@ -484,11 +477,9 @@ Configure the repository-scoped Prepare App with variables
 `DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY`. The short-lived token exists
 only in a repair-staging, ref-mutation/refresh, or authenticated-dispatch job.
 A separate no-App-token finalize phase owns approval and ALL CLEAR. Install the
-App with `contents: write`, `pull-requests: write`, and `workflows: write`.
-Update-branch needs Contents and Pull requests. The typed companion stage needs
-Contents and Workflows; its opener requests only Pull requests. Refresh
-requests Contents and Pull requests. Repair and dispatch request only Contents.
-Grant no bypass, Actions, deployment, package, environment, or provider
+App with `contents: write` and `pull-requests: write`. Update-branch and Refresh
+need both permissions. Repair and dispatch request only Contents. Grant no
+bypass, Actions, workflow, deployment, package, environment, or provider
 permission. Contents write technically reaches GitHub's merge
 endpoint, so the reviewed code contains no merge call and revokes the token
 before approval; the final merge remains human.
@@ -566,19 +557,13 @@ pnpm dependabot:soak
 
 The soak command validates an offline observational report. Revalidate every
 exact PR, check, workflow run, and authority claim against live GitHub before
-changing a pending row to passed. The typed companion row also requires the
-exact source and companion PRs and the distinct census, stage, and open receipt
-hashes. Its successful opener uploads a redacted
-`dependabot-actions-companion-soak-<run>-<attempt>-<pr>` artifact. Download it
-and use the importer documented in the Dependabot runbook only after live
-revalidation. Offline validation does not certify GitHub provenance.
+changing a pending row to passed. Offline validation does not certify GitHub
+provenance.
 
 See the [Dependabot processing runbook](docs/dependabot-automation.md) and
 [ADR 0006](docs/adr/0006-dependabot-processing-controller.md) with its native
 rewrite boundary in
-[ADR 0008](docs/adr/0008-authenticated-dependabot-native-generation-boundaries.md),
-and the typed Actions companion boundary in
-[ADR 0009](docs/adr/0009-typed-dependabot-actions-companion-pull-requests.md).
+[ADR 0008](docs/adr/0008-authenticated-dependabot-native-generation-boundaries.md).
 
 #### When to Use Catalog vs Direct Versions
 
@@ -693,14 +678,12 @@ The repository is set up with GitHub Actions for CI:
   time; it never merges. Native/prepared intake and Claude-review completions
   resume processing, with ten-minute reconciliation for missed events. There is no
   `workflow_dispatch` path. Unknown mode or evidence stays observe-only and
-  manual/veto policy can only remove authority. An exact OSV pair can produce a
-  separate typed companion PR; it receives no automatic merge authority. See
+  manual/veto policy can only remove authority. Sensitive Actions remain manual
+  and receive an actionable Processor summary. See
   [the operator runbook](docs/dependabot-automation.md) and
   [ADR 0006](docs/adr/0006-dependabot-processing-controller.md) with its native
   rewrite boundary in
-  [ADR 0008](docs/adr/0008-authenticated-dependabot-native-generation-boundaries.md)
-  and its typed Actions companion boundary in
-  [ADR 0009](docs/adr/0009-typed-dependabot-actions-companion-pull-requests.md).
+  [ADR 0008](docs/adr/0008-authenticated-dependabot-native-generation-boundaries.md).
 - **CD**: GitHub Actions automatically builds `app.mento.org`,
   `governance.mento.org`, `reserve.mento.org`, and `ui.mento.org` previews for
   trusted same-repository PRs with exact-SHA aggregate `Vercel Preview`
