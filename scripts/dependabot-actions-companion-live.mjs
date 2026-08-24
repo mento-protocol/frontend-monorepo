@@ -102,6 +102,41 @@ function boundedPullRequestNumber(value, code) {
   return number;
 }
 
+function prepareAppIdentity({ prepareAppSlug, prepareBotId, prepareBotLogin }) {
+  if (
+    typeof prepareAppSlug !== "string" ||
+    !/^[a-z0-9][a-z0-9-]{0,99}$/u.test(prepareAppSlug)
+  ) {
+    reject("prepare-app-slug-invalid");
+  }
+  const id = positiveInteger(prepareBotId, "prepare-bot-id-invalid");
+  if (
+    typeof prepareBotLogin !== "string" ||
+    prepareBotLogin !== `${prepareAppSlug}[bot]`
+  ) {
+    reject("prepare-bot-login-invalid");
+  }
+  return { id, login: prepareBotLogin, type: "Bot" };
+}
+
+async function resolvePrepareAppBot(readApi, input) {
+  const expected = prepareAppIdentity(input);
+  const { data } = await readApi.request(
+    "GET",
+    `/users/${encodeURIComponent(expected.login)}`,
+  );
+  if (canonicalJson(normalizedActor(data)) !== canonicalJson(expected)) {
+    reject("prepare-app-bot-mismatch");
+  }
+  return expected;
+}
+
+function requireActor(actual, expected, code) {
+  if (canonicalJson(normalizedActor(actual)) !== canonicalJson(expected)) {
+    reject(code);
+  }
+}
+
 function repositoryName(value) {
   if (!REPOSITORY_PATTERN.test(value ?? "") || value !== REQUIRED_REPOSITORY) {
     reject("repository-invalid");
@@ -194,7 +229,10 @@ function companionTitle(pullRequestNumber) {
 async function terminalCompanionState(
   readApi,
   {
+    baseDirectory,
+    expectedBaseSha,
     expectedHeadSha,
+    prepareBot,
     processorRunAttempt,
     processorRunId,
     pullRequestNumber,
@@ -217,9 +255,6 @@ async function terminalCompanionState(
   if (candidates.length > 1) reject("duplicate-companion-prs");
   if (candidates.length === 0 || candidates[0]?.state === "open") return null;
   const pull = candidates[0];
-  const body = String(pull?.body ?? "");
-  const baseBinding = /^- Base: `([0-9a-f]{40})`$/mu.exec(body);
-  const planBinding = /^- Plan digest: `([0-9a-f]{64})`$/mu.exec(body);
   if (
     pull?.state !== "closed" ||
     pull?.head?.ref !== branchRef ||
@@ -229,10 +264,7 @@ async function terminalCompanionState(
     pull?.base?.repo?.full_name !== REQUIRED_REPOSITORY ||
     pull?.title !== title ||
     pull?.draft !== false ||
-    !body.includes(`Source PR: #${pullRequestNumber}`) ||
-    !body.includes(`Source head: \`${expectedHeadSha}\``) ||
-    !baseBinding ||
-    !planBinding ||
+    pull?.maintainer_can_modify !== false ||
     !Number.isSafeInteger(pull?.number) ||
     pull.number < 1 ||
     pull?.html_url !==
@@ -240,65 +272,24 @@ async function terminalCompanionState(
   ) {
     reject("terminal-companion-pr-mismatch");
   }
-  const [sourceResult, reviews, processor, companionCommitResult] =
-    await Promise.all([
-      readApi.request(
-        "GET",
-        `/repos/${REQUIRED_REPOSITORY}/pulls/${pullRequestNumber}`,
-      ),
-      paginate(
-        readApi,
-        `/repos/${REQUIRED_REPOSITORY}/pulls/${pullRequestNumber}/reviews`,
-        "source-reviews-response-invalid",
-      ),
-      trustedProcessorState(
-        readApi,
-        pullRequestNumber,
-        expectedHeadSha,
-        workflowSha,
-        processorRunId,
-        processorRunAttempt,
-      ),
-      readApi.request(
-        "GET",
-        `/repos/${REQUIRED_REPOSITORY}/git/commits/${pull.head.sha}`,
-      ),
-    ]);
-  const companionCommit = companionCommitResult.data;
-  const treeDigest = /^Tree-Digest: ([0-9a-f]{64})$/mu.exec(
-    String(companionCommit?.message ?? ""),
-  )?.[1];
-  const expectedMessage = [
-    title,
-    "",
-    `Source-PR: ${pullRequestNumber}`,
-    `Source-Head: ${expectedHeadSha}`,
-    `Tree-Digest: ${treeDigest}`,
-    `Plan-Digest: ${planBinding[1]}`,
-  ].join("\n");
-  if (
-    companionCommit?.sha !== pull.head.sha ||
-    !DIGEST_PATTERN.test(treeDigest ?? "") ||
-    companionCommit?.message !== expectedMessage ||
-    !Array.isArray(companionCommit?.parents) ||
-    companionCommit.parents.length !== 1 ||
-    companionCommit.parents[0]?.sha !== baseBinding[1] ||
-    !SHA_PATTERN.test(companionCommit?.tree?.sha ?? "")
-  ) {
-    reject("terminal-companion-commit-mismatch");
-  }
-  const source = sourceResult.data;
-  if (
-    source?.number !== pullRequestNumber ||
-    source?.state !== "open" ||
-    source?.head?.sha !== expectedHeadSha ||
-    source?.head?.repo?.full_name !== REQUIRED_REPOSITORY ||
-    source?.base?.repo?.full_name !== REQUIRED_REPOSITORY ||
-    (source.auto_merge !== null && source.auto_merge !== undefined)
-  ) {
-    reject("terminal-source-pr-changed");
-  }
-  rejectCurrentProcessorApproval(reviews, expectedHeadSha);
+  requireActor(pull.user, prepareBot, "terminal-companion-author-mismatch");
+  const historical = await collectHistoricalTerminalPlan({
+    baseDirectory,
+    expectedBaseSha,
+    expectedHeadSha,
+    processorRunAttempt,
+    processorRunId,
+    pullRequestNumber,
+    readApi,
+    workflowSha,
+  });
+  await verifyTerminalCompanionPullRequest(readApi, {
+    baseEntries: historical.base.entries,
+    input: historical.input,
+    plan: historical.plan,
+    prepareBot,
+    pull,
+  });
   const reason = pull.merged_at ? "merged" : "closed-unmerged";
   return {
     branchRef,
@@ -311,8 +302,8 @@ async function terminalCompanionState(
     },
     orchestratorRunAttempt: processorRunAttempt,
     orchestratorRunId: processorRunId,
-    processorRunAttempt: processor.runAttempt,
-    processorRunId: processor.runId,
+    processorRunAttempt: historical.processor.runAttempt,
+    processorRunId: historical.processor.runId,
     reason,
     sourceHeadSha: expectedHeadSha,
     sourcePullRequestNumber: pullRequestNumber,
@@ -631,6 +622,24 @@ function normalizeRecursiveTree(data, expectedTreeSha, code) {
   return entries.sort((left, right) => left.path.localeCompare(right.path));
 }
 
+async function commitTreeIdentity(readApi, commitSha, code) {
+  const sha = exactSha(commitSha, code);
+  const { data: commit } = await readApi.request(
+    "GET",
+    `/repos/${REQUIRED_REPOSITORY}/git/commits/${sha}`,
+  );
+  if (commit?.sha !== sha) reject(code);
+  const treeSha = exactSha(commit?.tree?.sha, code);
+  const { data: tree } = await readApi.request(
+    "GET",
+    pathWithQuery(`/repos/${REQUIRED_REPOSITORY}/git/trees/${treeSha}`, {
+      recursive: 1,
+    }),
+  );
+  const entries = normalizeRecursiveTree(tree, treeSha, code);
+  return { commitSha: sha, entries, treeSha };
+}
+
 async function currentBaseIdentity(readApi, expected = null) {
   const { data: ref } = await readApi.request(
     "GET",
@@ -643,27 +652,15 @@ async function currentBaseIdentity(readApi, expected = null) {
   if (expected && commitSha !== expected.commitSha) {
     reject("current-main-changed");
   }
-  const { data: commit } = await readApi.request(
-    "GET",
-    `/repos/${REQUIRED_REPOSITORY}/git/commits/${commitSha}`,
+  const identity = await commitTreeIdentity(
+    readApi,
+    commitSha,
+    "current-main-commit-invalid",
   );
-  if (commit?.sha !== commitSha) reject("current-main-commit-invalid");
-  const treeSha = exactSha(commit?.tree?.sha, "current-main-commit-invalid");
-  if (expected && treeSha !== expected.treeSha) {
+  if (expected && identity.treeSha !== expected.treeSha) {
     reject("current-main-changed");
   }
-  const { data: tree } = await readApi.request(
-    "GET",
-    pathWithQuery(`/repos/${REQUIRED_REPOSITORY}/git/trees/${treeSha}`, {
-      recursive: 1,
-    }),
-  );
-  const entries = normalizeRecursiveTree(
-    tree,
-    treeSha,
-    "current-main-tree-invalid",
-  );
-  return { commitSha, entries, treeSha };
+  return identity;
 }
 
 async function localBaseFiles(baseDirectory, entries) {
@@ -796,6 +793,16 @@ async function currentBaseSnapshot(
     ? await localBaseFiles(baseDirectory, identity.entries)
     : await remoteKnownBaseFiles(readApi, identity.entries);
   return { ...identity, files, oldReferenceFiles };
+}
+
+async function historicalBaseSnapshot(readApi, baseDirectory, expectedBaseSha) {
+  const identity = await commitTreeIdentity(
+    readApi,
+    expectedBaseSha,
+    "historical-base-invalid",
+  );
+  const files = await localBaseFiles(baseDirectory, identity.entries);
+  return { ...identity, files, oldReferenceFiles: null };
 }
 
 async function revalidateCurrentBaseSnapshot(readApi, expected) {
@@ -1099,8 +1106,12 @@ function validateCensusReceipt(receipt, expected) {
 
 export async function censusOsvActionsCompanionLive({
   baseDirectory,
+  expectedBaseSha,
   expectedHeadSha,
   fetchImpl = globalThis.fetch,
+  prepareAppSlug,
+  prepareBotId,
+  prepareBotLogin,
   pullRequestNumber,
   processorRunAttempt,
   processorRunId,
@@ -1118,11 +1129,20 @@ export async function censusOsvActionsCompanionLive({
     processorRunAttempt,
     "processor-run-attempt-invalid",
   );
+  const baseSha = exactSha(expectedBaseSha, "expected-base-sha-invalid");
   const headSha = exactSha(expectedHeadSha, "source-head-sha-invalid");
   const trustedWorkflowSha = exactSha(workflowSha, "workflow-sha-invalid");
   const readApi = createApi({ fetchImpl, token: readToken });
+  const prepareBot = await resolvePrepareAppBot(readApi, {
+    prepareAppSlug,
+    prepareBotId,
+    prepareBotLogin,
+  });
   const terminal = await terminalCompanionState(readApi, {
+    baseDirectory,
+    expectedBaseSha: baseSha,
     expectedHeadSha: headSha,
+    prepareBot,
     processorRunAttempt: runAttempt,
     processorRunId: runId,
     pullRequestNumber: number,
@@ -1141,6 +1161,7 @@ export async function censusOsvActionsCompanionLive({
     reusableBase: null,
     workflowSha: trustedWorkflowSha,
   });
+  if (collected.base.commitSha !== baseSha) reject("expected-base-sha-changed");
   const plan = createOsvActionsCompanionPlan(collected.input);
   if (!verifyOsvActionsCompanionPlan(collected.input, plan).eligible) {
     reject("companion-plan-invalid");
@@ -1169,24 +1190,7 @@ export async function censusOsvActionsCompanionLive({
 }
 
 async function sourceHeadIdentity(readApi, headSha) {
-  const { data: commit } = await readApi.request(
-    "GET",
-    `/repos/${REQUIRED_REPOSITORY}/git/commits/${headSha}`,
-  );
-  if (commit?.sha !== headSha) reject("source-head-commit-invalid");
-  const treeSha = exactSha(commit?.tree?.sha, "source-head-commit-invalid");
-  const { data: tree } = await readApi.request(
-    "GET",
-    pathWithQuery(`/repos/${REQUIRED_REPOSITORY}/git/trees/${treeSha}`, {
-      recursive: 1,
-    }),
-  );
-  const entries = normalizeRecursiveTree(
-    tree,
-    treeSha,
-    "source-head-tree-invalid",
-  );
-  return { commitSha: headSha, entries, treeSha };
+  return commitTreeIdentity(readApi, headSha, "source-head-commit-invalid");
 }
 
 async function sourceHeadContent(readApi, headSha) {
@@ -1569,6 +1573,213 @@ function textBlobBinding(content, entry, code) {
   }
 }
 
+function expectedSourceLeaves(baseEntries, sourceWorkflowEntry) {
+  return leafEntries(baseEntries).map((entry) =>
+    entry.path === OSV_WORKFLOW_PATH
+      ? {
+          mode: sourceWorkflowEntry.mode,
+          path: sourceWorkflowEntry.path,
+          sha: sourceWorkflowEntry.sha,
+          type: sourceWorkflowEntry.type,
+        }
+      : entry,
+  );
+}
+
+async function collectHistoricalTerminalPlan({
+  baseDirectory,
+  expectedBaseSha,
+  expectedHeadSha,
+  processorRunAttempt,
+  processorRunId,
+  pullRequestNumber,
+  readApi,
+  workflowSha,
+}) {
+  const [pullResult, commits, reviews, base, source, processor] =
+    await Promise.all([
+      readApi.request(
+        "GET",
+        `/repos/${REQUIRED_REPOSITORY}/pulls/${pullRequestNumber}`,
+      ),
+      paginate(
+        readApi,
+        `/repos/${REQUIRED_REPOSITORY}/pulls/${pullRequestNumber}/commits`,
+        "source-commits-response-invalid",
+      ),
+      paginate(
+        readApi,
+        `/repos/${REQUIRED_REPOSITORY}/pulls/${pullRequestNumber}/reviews`,
+        "source-reviews-response-invalid",
+      ),
+      historicalBaseSnapshot(readApi, baseDirectory, expectedBaseSha),
+      sourceHeadIdentity(readApi, expectedHeadSha),
+      trustedProcessorState(
+        readApi,
+        pullRequestNumber,
+        expectedHeadSha,
+        workflowSha,
+        processorRunId,
+        processorRunAttempt,
+      ),
+    ]);
+  const pull = plainObject(pullResult.data, "source-pr-response-invalid");
+  if (
+    pull.number !== pullRequestNumber ||
+    pull.state !== "open" ||
+    pull.head?.sha !== expectedHeadSha ||
+    pull.head?.repo?.full_name !== REQUIRED_REPOSITORY ||
+    pull.base?.ref !== "main" ||
+    pull.base?.repo?.full_name !== REQUIRED_REPOSITORY ||
+    (pull.auto_merge !== null && pull.auto_merge !== undefined) ||
+    commits.length !== 1 ||
+    source.commitSha !== expectedHeadSha
+  ) {
+    reject("terminal-source-pr-changed");
+  }
+  rejectCurrentProcessorApproval(reviews, expectedHeadSha);
+  const sourceCommit = commits[0];
+  const labels = Array.isArray(pull.labels)
+    ? pull.labels.map((label) => label?.name)
+    : null;
+  if (labels === null || labels.some((label) => typeof label !== "string")) {
+    reject("source-labels-response-invalid");
+  }
+  const baseWorkflowEntry = requiredBlobEntry(
+    base.entries,
+    OSV_WORKFLOW_PATH,
+    "historical-base-workflow-invalid",
+  );
+  const baseMirrorEntry = requiredBlobEntry(
+    base.entries,
+    OSV_MIRROR_TEST_PATH,
+    "historical-base-mirror-invalid",
+  );
+  const sourceWorkflowEntry = requiredBlobEntry(
+    source.entries,
+    OSV_WORKFLOW_PATH,
+    "historical-source-workflow-invalid",
+  );
+  sameCanonical(
+    leafEntries(source.entries),
+    expectedSourceLeaves(base.entries, sourceWorkflowEntry),
+    "historical-source-tree-has-unplanned-changes",
+  );
+  sameCanonical(
+    treeShape(source.entries),
+    treeShape(base.entries),
+    "historical-source-tree-has-unplanned-changes",
+  );
+  const baseWorkflow = strictUtf8(
+    base.files.get(OSV_WORKFLOW_PATH),
+    "historical-base-workflow-invalid",
+  );
+  const mirrorContent = strictUtf8(
+    base.files.get(OSV_MIRROR_TEST_PATH),
+    "historical-base-mirror-invalid",
+  );
+  textBlobBinding(
+    baseWorkflow,
+    baseWorkflowEntry,
+    "historical-base-workflow-invalid",
+  );
+  textBlobBinding(
+    mirrorContent,
+    baseMirrorEntry,
+    "historical-base-mirror-invalid",
+  );
+  const { data: sourceBlob } = await readApi.request(
+    "GET",
+    `/repos/${REQUIRED_REPOSITORY}/git/blobs/${sourceWorkflowEntry.sha}`,
+  );
+  const sourceContent = strictUtf8(
+    decodeBlob(sourceBlob, sourceWorkflowEntry.sha, sourceWorkflowEntry.size),
+    "historical-source-workflow-invalid",
+  );
+  const scannerRevision = exactActionRevision(
+    baseWorkflow,
+    OSV_SCANNER_ACTION,
+    "historical-base-osv-reference-invalid",
+  );
+  if (
+    exactActionRevision(
+      baseWorkflow,
+      OSV_REPORTER_ACTION,
+      "historical-base-osv-reference-invalid",
+    ) !== scannerRevision
+  ) {
+    reject("historical-base-osv-reference-invalid");
+  }
+  const input = {
+    currentBase: {
+      commitSha: base.commitSha,
+      ref: "main",
+      treeSha: base.treeSha,
+    },
+    mirror: {
+      baseContent: mirrorContent,
+      path: OSV_MIRROR_TEST_PATH,
+    },
+    mode: "prepare",
+    oldReferenceFiles: validateOldReferenceFiles(
+      oldReferenceCensus(base, scannerRevision),
+      "old-reference-census-invalid",
+    ),
+    processor: {
+      approved: false,
+      autoMergeEnabled: false,
+      disposition: "manual-review",
+    },
+    repository: REQUIRED_REPOSITORY,
+    schema: ACTIONS_COMPANION_INPUT_SCHEMA,
+    sourcePullRequest: {
+      author: normalizedActor(pull.user),
+      base: {
+        ref: "main",
+        repository: REQUIRED_REPOSITORY,
+        sha: base.commitSha,
+      },
+      commits: [
+        {
+          author: normalizedActor(sourceCommit.author),
+          committer: normalizedActor(sourceCommit.committer),
+          message: sourceCommit.commit?.message,
+          parentShas: Array.isArray(sourceCommit.parents)
+            ? sourceCommit.parents.map(({ sha: parentSha }) => parentSha)
+            : null,
+          sha: sourceCommit.sha,
+          verificationReason: sourceCommit.commit?.verification?.reason,
+          verified: sourceCommit.commit?.verification?.verified,
+        },
+      ],
+      draft: pull.draft,
+      files: [
+        {
+          baseContent: baseWorkflow,
+          path: OSV_WORKFLOW_PATH,
+          previousPath: null,
+          sourceContent,
+          status: "modified",
+        },
+      ],
+      head: {
+        ref: pull.head.ref,
+        repository: pull.head.repo.full_name,
+        sha: pull.head.sha,
+      },
+      labels,
+      metadata: dependencyMetadata(sourceCommit.commit?.message),
+      number: pull.number,
+      state: pull.state,
+    },
+  };
+  const plan = createOsvActionsCompanionPlan(input);
+  if (!verifyOsvActionsCompanionPlan(input, plan).eligible) {
+    reject("terminal-companion-plan-invalid");
+  }
+  return { base, input, plan, processor };
+}
+
 async function revalidateSealedLiveState(
   readApi,
   {
@@ -1783,9 +1994,10 @@ function sameCanonical(left, right, code) {
   if (canonicalJson(left) !== canonicalJson(right)) reject(code);
 }
 
-function validateCreatedCommit(data, plan, treeSha) {
+function validateCreatedCommit(data, plan, treeSha, expectedCommitSha = null) {
   if (
     !SHA_PATTERN.test(data?.sha ?? "") ||
+    (expectedCommitSha !== null && data.sha !== expectedCommitSha) ||
     data?.message !== plan.commitMessage ||
     data?.tree?.sha !== treeSha ||
     !Array.isArray(data?.parents) ||
@@ -1801,6 +2013,12 @@ function leafEntries(entries) {
   return entries
     .filter(({ type }) => type !== "tree")
     .map(({ mode, path, sha, type }) => ({ mode, path, sha, type }));
+}
+
+function treeShape(entries) {
+  return entries
+    .filter(({ type }) => type === "tree")
+    .map(({ mode, path, type }) => ({ mode, path, type }));
 }
 
 function expectedStagedLeaves(baseEntries, plan) {
@@ -1824,20 +2042,17 @@ function expectedStagedLeaves(baseEntries, plan) {
   return result.sort((left, right) => left.path.localeCompare(right.path));
 }
 
-async function verifyStagedGitObjects(readApi, plan, staged, baseEntries) {
-  const { data: ref } = await readApi.request("GET", refPath(plan.branchRef));
-  if (
-    ref?.ref !== `refs/heads/${plan.branchRef}` ||
-    ref?.object?.type !== "commit" ||
-    ref?.object?.sha !== staged.commitSha
-  ) {
-    reject("staged-ref-invalid");
-  }
+async function verifyStagedCommitTreeAndBlobs(
+  readApi,
+  plan,
+  staged,
+  baseEntries,
+) {
   const { data: commit } = await readApi.request(
     "GET",
     `/repos/${REQUIRED_REPOSITORY}/git/commits/${staged.commitSha}`,
   );
-  validateCreatedCommit(commit, plan, staged.treeSha);
+  validateCreatedCommit(commit, plan, staged.treeSha, staged.commitSha);
   const { data: tree } = await readApi.request(
     "GET",
     pathWithQuery(`/repos/${REQUIRED_REPOSITORY}/git/trees/${staged.treeSha}`, {
@@ -1854,6 +2069,11 @@ async function verifyStagedGitObjects(readApi, plan, staged, baseEntries) {
     expectedStagedLeaves(baseEntries, plan),
     "staged-tree-has-unplanned-changes",
   );
+  sameCanonical(
+    treeShape(stagedEntries),
+    treeShape(baseEntries),
+    "staged-tree-has-unplanned-changes",
+  );
   await mapConcurrent(plan.edits, BLOB_READ_CONCURRENCY, async (edit) => {
     const { data } = await readApi.request(
       "GET",
@@ -1868,6 +2088,61 @@ async function verifyStagedGitObjects(readApi, plan, staged, baseEntries) {
       reject("staged-blob-content-invalid");
     }
   });
+}
+
+async function verifyStagedGitObjects(readApi, plan, staged, baseEntries) {
+  const { data: ref } = await readApi.request("GET", refPath(plan.branchRef));
+  if (
+    ref?.ref !== `refs/heads/${plan.branchRef}` ||
+    ref?.object?.type !== "commit" ||
+    ref?.object?.sha !== staged.commitSha
+  ) {
+    reject("staged-ref-invalid");
+  }
+  await verifyStagedCommitTreeAndBlobs(readApi, plan, staged, baseEntries);
+}
+
+async function verifyTerminalCompanionPullRequest(
+  readApi,
+  { baseEntries, input, plan, prepareBot, pull },
+) {
+  if (
+    pull?.state !== "closed" ||
+    pull?.draft !== false ||
+    pull?.title !== plan.pullRequestTitle ||
+    pull?.body !== plan.pullRequestBody ||
+    pull?.head?.ref !== plan.branchRef ||
+    !SHA_PATTERN.test(pull?.head?.sha ?? "") ||
+    pull?.head?.repo?.full_name !== REQUIRED_REPOSITORY ||
+    pull?.base?.ref !== "main" ||
+    pull?.base?.repo?.full_name !== REQUIRED_REPOSITORY ||
+    pull?.maintainer_can_modify !== false ||
+    !Number.isSafeInteger(pull?.number) ||
+    pull.number < 1 ||
+    pull?.html_url !==
+      `https://github.com/${REQUIRED_REPOSITORY}/pull/${pull.number}` ||
+    (pull.merged_at !== null &&
+      pull.merged_at !== undefined &&
+      (typeof pull.merged_at !== "string" ||
+        Number.isNaN(Date.parse(pull.merged_at))))
+  ) {
+    reject("terminal-companion-pr-mismatch");
+  }
+  requireActor(pull.user, prepareBot, "terminal-companion-author-mismatch");
+  const { data: commit } = await readApi.request(
+    "GET",
+    `/repos/${REQUIRED_REPOSITORY}/git/commits/${pull.head.sha}`,
+  );
+  const treeSha = exactSha(
+    commit?.tree?.sha,
+    "terminal-companion-commit-mismatch",
+  );
+  const staged = stagedRecord(plan, { commitSha: pull.head.sha, treeSha });
+  if (!verifyStagedOsvActionsCompanion(input, plan, staged).eligible) {
+    reject("terminal-companion-staged-record-invalid");
+  }
+  await verifyStagedCommitTreeAndBlobs(readApi, plan, staged, baseEntries);
+  return staged;
 }
 
 async function existingStagedBranch(readApi, input, plan, baseEntries) {
@@ -1888,7 +2163,7 @@ async function existingStagedBranch(readApi, input, plan, baseEntries) {
     `/repos/${REQUIRED_REPOSITORY}/git/commits/${ref.object.sha}`,
   );
   const treeSha = exactSha(commit?.tree?.sha, "staged-commit-response-invalid");
-  validateCreatedCommit(commit, plan, treeSha);
+  validateCreatedCommit(commit, plan, treeSha, ref.object.sha);
   const staged = stagedRecord(plan, {
     commitSha: ref.object.sha,
     treeSha,
@@ -2064,9 +2339,14 @@ function compactStageReceipt({
 }
 
 export async function stageOsvActionsCompanionLive({
+  baseDirectory,
   censusReceipt,
+  expectedBaseSha,
   expectedHeadSha,
   fetchImpl = globalThis.fetch,
+  prepareAppSlug,
+  prepareBotId,
+  prepareBotLogin,
   pullRequestNumber,
   processorRunAttempt,
   processorRunId,
@@ -2080,6 +2360,7 @@ export async function stageOsvActionsCompanionLive({
     pullRequestNumber,
     "source-pr-number-invalid",
   );
+  const baseSha = exactSha(expectedBaseSha, "expected-base-sha-invalid");
   const headSha = exactSha(expectedHeadSha, "source-head-sha-invalid");
   const runId = positiveInteger(processorRunId, "processor-run-id-invalid");
   const runAttempt = positiveInteger(
@@ -2091,24 +2372,34 @@ export async function stageOsvActionsCompanionLive({
     expectedHeadSha: headSha,
     orchestratorRunAttempt: runAttempt,
     orchestratorRunId: runId,
+    expectedBaseSha: baseSha,
     pullRequestNumber: number,
     repository: REQUIRED_REPOSITORY,
     workflowSha: trustedWorkflowSha,
   });
   const readApi = createApi({ fetchImpl, token: readToken });
+  const prepareBot = await resolvePrepareAppBot(readApi, {
+    prepareAppSlug,
+    prepareBotId,
+    prepareBotLogin,
+  });
+  const liveTerminal = await terminalCompanionState(readApi, {
+    baseDirectory,
+    expectedBaseSha: baseSha,
+    expectedHeadSha: headSha,
+    prepareBot,
+    processorRunAttempt: runAttempt,
+    processorRunId: runId,
+    pullRequestNumber: number,
+    workflowSha: trustedWorkflowSha,
+  });
   if (sealed.result === "terminal") {
-    const liveTerminal = await terminalCompanionState(readApi, {
-      expectedHeadSha: headSha,
-      processorRunAttempt: runAttempt,
-      processorRunId: runId,
-      pullRequestNumber: number,
-      workflowSha: trustedWorkflowSha,
-    });
     if (!liveTerminal) reject("terminal-companion-state-changed");
     const expectedTerminal = createTerminalCensusReceipt(liveTerminal);
     sameCanonical(sealed, expectedTerminal, "terminal-companion-state-changed");
     return createTerminalStageReceipt(liveTerminal);
   }
+  if (liveTerminal) return createTerminalStageReceipt(liveTerminal);
   const feedbackAdapter = createProcessorFeedbackAdapter(fetchImpl, readToken);
   const collected = await revalidateSealedLiveState(readApi, {
     authority: sealed.authority,
@@ -2147,11 +2438,22 @@ export async function stageOsvActionsCompanionLive({
         trustedWorkflowSha,
       ),
     );
-  const initialPullState = await companionPullRequestCensus(readApi, plan);
+  const initialPullState = await companionPullRequestCensus(
+    readApi,
+    plan,
+    prepareBot,
+  );
   if (
     initialPullState.kind === "merged" ||
     initialPullState.kind === "closed-unmerged"
   ) {
+    await verifyTerminalCompanionPullRequest(readApi, {
+      baseEntries: collected.base.entries,
+      input: sealed.input,
+      plan,
+      prepareBot,
+      pull: initialPullState.pull,
+    });
     return terminalReceiptFor(initialPullState.pull);
   }
   const existing = await existingStagedBranch(
@@ -2164,7 +2466,12 @@ export async function stageOsvActionsCompanionLive({
     if (!existing || initialPullState.pull.head.sha !== existing.commitSha) {
       reject("open-companion-pr-head-mismatch");
     }
-    validateOpenedPullRequest(initialPullState.pull, plan, existing);
+    validateOpenedPullRequest(
+      initialPullState.pull,
+      plan,
+      existing,
+      prepareBot,
+    );
     return stageReceiptFor(existing);
   }
   if (existing) return stageReceiptFor(existing);
@@ -2180,11 +2487,22 @@ export async function stageOsvActionsCompanionLive({
     workflowSha: trustedWorkflowSha,
   });
   sameCanonical(collected.input, revalidated.input, "live-input-changed");
-  const racedPullState = await companionPullRequestCensus(readApi, plan);
+  const racedPullState = await companionPullRequestCensus(
+    readApi,
+    plan,
+    prepareBot,
+  );
   if (
     racedPullState.kind === "merged" ||
     racedPullState.kind === "closed-unmerged"
   ) {
+    await verifyTerminalCompanionPullRequest(readApi, {
+      baseEntries: collected.base.entries,
+      input: sealed.input,
+      plan,
+      prepareBot,
+      pull: racedPullState.pull,
+    });
     return terminalReceiptFor(racedPullState.pull);
   }
   const racedBranch = await existingStagedBranch(
@@ -2200,7 +2518,12 @@ export async function stageOsvActionsCompanionLive({
     ) {
       reject("open-companion-pr-head-mismatch");
     }
-    validateOpenedPullRequest(racedPullState.pull, plan, racedBranch);
+    validateOpenedPullRequest(
+      racedPullState.pull,
+      plan,
+      racedBranch,
+      prepareBot,
+    );
     return stageReceiptFor(racedBranch);
   }
   if (racedBranch) return stageReceiptFor(racedBranch);
@@ -2348,6 +2671,8 @@ function validateStageReceipt(receipt, expected) {
     !SHA_PATTERN.test(receipt.treeSha ?? "") ||
     !SHA_PATTERN.test(receipt.parentCommitSha ?? "") ||
     !SHA_PATTERN.test(receipt.parentTreeSha ?? "") ||
+    (expected.expectedBaseSha !== undefined &&
+      receipt.parentCommitSha !== expected.expectedBaseSha) ||
     !/^dependabot-companion\/osv-pr-[1-9][0-9]{0,9}-[0-9a-f]{12}$/u.test(
       receipt.branchRef ?? "",
     ) ||
@@ -2411,7 +2736,7 @@ function bindStageReceiptToLive(receipt, input, plan, feedbackDigest) {
   return staged;
 }
 
-async function companionPullRequestCensus(readApi, plan) {
+async function companionPullRequestCensus(readApi, plan, prepareBot) {
   const pulls = await paginate(
     readApi,
     pathWithQuery(`/repos/${REQUIRED_REPOSITORY}/pulls`, {
@@ -2451,12 +2776,14 @@ async function companionPullRequestCensus(readApi, plan) {
     existing.title !== plan.pullRequestTitle ||
     existing.body !== plan.pullRequestBody ||
     existing.draft !== false ||
+    existing.maintainer_can_modify !== false ||
     !SHA_PATTERN.test(existing.head?.sha ?? "") ||
     existing.html_url !==
       `https://github.com/${REQUIRED_REPOSITORY}/pull/${existing.number}`
   ) {
     reject("companion-pr-mismatch");
   }
+  requireActor(existing.user, prepareBot, "companion-pr-author-mismatch");
   if (existing.state === "open" && !existing.merged_at) {
     return { kind: "open", pull: existing };
   }
@@ -2469,12 +2796,13 @@ async function companionPullRequestCensus(readApi, plan) {
   reject("companion-pr-census-invalid");
 }
 
-function validateOpenedPullRequest(pull, plan, staged) {
+function validateOpenedPullRequest(pull, plan, staged, prepareBot) {
   if (
     !Number.isSafeInteger(pull?.number) ||
     pull.number < 1 ||
     pull.state !== "open" ||
     pull.draft !== false ||
+    pull.maintainer_can_modify !== false ||
     pull.title !== plan.pullRequestTitle ||
     pull.body !== plan.pullRequestBody ||
     pull.head?.ref !== plan.branchRef ||
@@ -2488,6 +2816,7 @@ function validateOpenedPullRequest(pull, plan, staged) {
   ) {
     reject("opened-companion-pr-invalid");
   }
+  requireActor(pull.user, prepareBot, "opened-companion-pr-author-mismatch");
 }
 
 function openedReceipt(
@@ -2500,8 +2829,9 @@ function openedReceipt(
   processorRunAttempt,
   processorRunId,
   workflowSha,
+  prepareBot,
 ) {
-  validateOpenedPullRequest(pull, plan, staged);
+  validateOpenedPullRequest(pull, plan, staged, prepareBot);
   return {
     branchRef: plan.branchRef,
     commitSha: staged.commitSha,
@@ -2528,9 +2858,14 @@ function openedReceipt(
 }
 
 export async function openOsvActionsCompanionLive({
+  baseDirectory,
+  expectedBaseSha,
   expectedHeadSha,
   fetchImpl = globalThis.fetch,
   openToken,
+  prepareAppSlug,
+  prepareBotId,
+  prepareBotLogin,
   pullRequestNumber,
   processorRunAttempt,
   processorRunId,
@@ -2544,6 +2879,7 @@ export async function openOsvActionsCompanionLive({
     pullRequestNumber,
     "source-pr-number-invalid",
   );
+  const baseSha = exactSha(expectedBaseSha, "expected-base-sha-invalid");
   const headSha = exactSha(expectedHeadSha, "source-head-sha-invalid");
   const runId = positiveInteger(processorRunId, "processor-run-id-invalid");
   const runAttempt = positiveInteger(
@@ -2553,6 +2889,7 @@ export async function openOsvActionsCompanionLive({
   const trustedWorkflowSha = exactSha(workflowSha, "workflow-sha-invalid");
   const validatedStage = validateStageReceipt(stageReceipt, {
     expectedHeadSha: headSha,
+    expectedBaseSha: baseSha,
     orchestratorRunAttempt: runAttempt,
     orchestratorRunId: runId,
     pullRequestNumber: number,
@@ -2560,14 +2897,22 @@ export async function openOsvActionsCompanionLive({
     workflowSha: trustedWorkflowSha,
   });
   const readApi = createApi({ fetchImpl, token: readToken });
+  const prepareBot = await resolvePrepareAppBot(readApi, {
+    prepareAppSlug,
+    prepareBotId,
+    prepareBotLogin,
+  });
+  const liveTerminal = await terminalCompanionState(readApi, {
+    baseDirectory,
+    expectedBaseSha: baseSha,
+    expectedHeadSha: headSha,
+    prepareBot,
+    processorRunAttempt: runAttempt,
+    processorRunId: runId,
+    pullRequestNumber: number,
+    workflowSha: trustedWorkflowSha,
+  });
   if (validatedStage.result === "terminal") {
-    const liveTerminal = await terminalCompanionState(readApi, {
-      expectedHeadSha: headSha,
-      processorRunAttempt: runAttempt,
-      processorRunId: runId,
-      pullRequestNumber: number,
-      workflowSha: trustedWorkflowSha,
-    });
     if (!liveTerminal) reject("terminal-companion-state-changed");
     const expectedStage = createTerminalStageReceipt(liveTerminal);
     sameCanonical(
@@ -2580,8 +2925,15 @@ export async function openOsvActionsCompanionLive({
       schema: ACTIONS_COMPANION_LIVE_OPEN_SCHEMA,
     });
   }
+  if (liveTerminal) {
+    return terminalReceiptCore({
+      ...liveTerminal,
+      schema: ACTIONS_COMPANION_LIVE_OPEN_SCHEMA,
+    });
+  }
   const feedbackAdapter = createProcessorFeedbackAdapter(fetchImpl, readToken);
   const collected = await collectLiveState({
+    baseDirectory,
     expectedHeadSha: headSha,
     feedbackAdapter,
     oldReferenceFiles: stageReceipt.oldReferenceFiles,
@@ -2592,6 +2944,7 @@ export async function openOsvActionsCompanionLive({
     reusableBase: null,
     workflowSha: trustedWorkflowSha,
   });
+  if (collected.base.commitSha !== baseSha) reject("expected-base-sha-changed");
   if (
     collected.authority.processor.runId !== stageReceipt.processorRunId ||
     collected.authority.processor.runAttempt !==
@@ -2620,7 +2973,11 @@ export async function openOsvActionsCompanionLive({
       ),
       schema: ACTIONS_COMPANION_LIVE_OPEN_SCHEMA,
     });
-  const initialPullState = await companionPullRequestCensus(readApi, plan);
+  const initialPullState = await companionPullRequestCensus(
+    readApi,
+    plan,
+    prepareBot,
+  );
   if (initialPullState.kind === "open") {
     if (initialPullState.pull.head.sha !== staged.commitSha) {
       reject("open-companion-pr-head-mismatch");
@@ -2635,12 +2992,20 @@ export async function openOsvActionsCompanionLive({
       stageReceipt.processorRunAttempt,
       stageReceipt.processorRunId,
       trustedWorkflowSha,
+      prepareBot,
     );
   }
   if (
     initialPullState.kind === "merged" ||
     initialPullState.kind === "closed-unmerged"
   ) {
+    await verifyTerminalCompanionPullRequest(readApi, {
+      baseEntries: collected.base.entries,
+      input: collected.input,
+      plan,
+      prepareBot,
+      pull: initialPullState.pull,
+    });
     return terminalOpenReceipt(initialPullState.pull);
   }
   const revalidated = await collectLiveState({
@@ -2660,7 +3025,11 @@ export async function openOsvActionsCompanionLive({
     "live-authority-changed",
   );
   await verifyStagedGitObjects(readApi, plan, staged, collected.base.entries);
-  const revalidatedPullState = await companionPullRequestCensus(readApi, plan);
+  const revalidatedPullState = await companionPullRequestCensus(
+    readApi,
+    plan,
+    prepareBot,
+  );
   if (revalidatedPullState.kind === "open") {
     if (revalidatedPullState.pull.head.sha !== staged.commitSha) {
       reject("open-companion-pr-head-mismatch");
@@ -2675,12 +3044,20 @@ export async function openOsvActionsCompanionLive({
       stageReceipt.processorRunAttempt,
       stageReceipt.processorRunId,
       trustedWorkflowSha,
+      prepareBot,
     );
   }
   if (
     revalidatedPullState.kind === "merged" ||
     revalidatedPullState.kind === "closed-unmerged"
   ) {
+    await verifyTerminalCompanionPullRequest(readApi, {
+      baseEntries: collected.base.entries,
+      input: collected.input,
+      plan,
+      prepareBot,
+      pull: revalidatedPullState.pull,
+    });
     return terminalOpenReceipt(revalidatedPullState.pull);
   }
   await collectSourceFeedbackAuthority({
@@ -2707,7 +3084,11 @@ export async function openOsvActionsCompanionLive({
     },
   );
   if (openedResult.status === 422) {
-    const converged = await companionPullRequestCensus(readApi, plan);
+    const converged = await companionPullRequestCensus(
+      readApi,
+      plan,
+      prepareBot,
+    );
     if (converged.kind === "open") {
       if (converged.pull.head.sha !== staged.commitSha) {
         reject("open-companion-pr-head-mismatch");
@@ -2722,20 +3103,28 @@ export async function openOsvActionsCompanionLive({
         stageReceipt.processorRunAttempt,
         stageReceipt.processorRunId,
         trustedWorkflowSha,
+        prepareBot,
       );
     }
     if (converged.kind === "merged" || converged.kind === "closed-unmerged") {
+      await verifyTerminalCompanionPullRequest(readApi, {
+        baseEntries: collected.base.entries,
+        input: collected.input,
+        plan,
+        prepareBot,
+        pull: converged.pull,
+      });
       return terminalOpenReceipt(converged.pull);
     }
     reject("companion-pr-create-raced");
   }
   const opened = openedResult.data;
-  validateOpenedPullRequest(opened, plan, staged);
+  validateOpenedPullRequest(opened, plan, staged, prepareBot);
   const { data: confirmed } = await readApi.request(
     "GET",
     `/repos/${REQUIRED_REPOSITORY}/pulls/${opened.number}`,
   );
-  validateOpenedPullRequest(confirmed, plan, staged);
+  validateOpenedPullRequest(confirmed, plan, staged, prepareBot);
   if (confirmed.number !== opened.number) reject("opened-companion-pr-invalid");
   return openedReceipt(
     plan,
@@ -2747,6 +3136,7 @@ export async function openOsvActionsCompanionLive({
     stageReceipt.processorRunAttempt,
     stageReceipt.processorRunId,
     trustedWorkflowSha,
+    prepareBot,
   );
 }
 
@@ -2792,19 +3182,28 @@ async function main() {
   const [command, ...rest] = process.argv.slice(2);
   const args = argsMap(rest);
   const common = [
+    "--base",
+    "--base-dir",
     "--head",
     "--output",
     "--pr",
+    "--prepare-app-slug",
+    "--prepare-bot-id",
+    "--prepare-bot-login",
     "--repo",
     "--run-attempt",
     "--run-id",
     "--workflow-sha",
   ];
   if (command === "census") {
-    exactArgs(args, [...common, "--base-dir"]);
+    exactArgs(args, common);
     const receipt = await censusOsvActionsCompanionLive({
       baseDirectory: args.get("--base-dir"),
+      expectedBaseSha: args.get("--base"),
       expectedHeadSha: args.get("--head"),
+      prepareAppSlug: args.get("--prepare-app-slug"),
+      prepareBotId: args.get("--prepare-bot-id"),
+      prepareBotLogin: args.get("--prepare-bot-login"),
       pullRequestNumber: args.get("--pr"),
       processorRunAttempt: args.get("--run-attempt"),
       processorRunId: args.get("--run-id"),
@@ -2817,12 +3216,17 @@ async function main() {
   if (command === "stage") {
     exactArgs(args, [...common, "--census"]);
     const receipt = await stageOsvActionsCompanionLive({
+      baseDirectory: args.get("--base-dir"),
       censusReceipt: readJson(
         args.get("--census"),
         "census-receipt-json-invalid",
         MAX_CENSUS_RECEIPT_BYTES,
       ),
+      expectedBaseSha: args.get("--base"),
       expectedHeadSha: args.get("--head"),
+      prepareAppSlug: args.get("--prepare-app-slug"),
+      prepareBotId: args.get("--prepare-bot-id"),
+      prepareBotLogin: args.get("--prepare-bot-login"),
       pullRequestNumber: args.get("--pr"),
       processorRunAttempt: args.get("--run-attempt"),
       processorRunId: args.get("--run-id"),
@@ -2836,8 +3240,13 @@ async function main() {
   if (command === "open") {
     exactArgs(args, [...common, "--staged"]);
     const receipt = await openOsvActionsCompanionLive({
+      baseDirectory: args.get("--base-dir"),
+      expectedBaseSha: args.get("--base"),
       expectedHeadSha: args.get("--head"),
       openToken: process.env.DEPENDABOT_COMPANION_OPEN_APP_TOKEN,
+      prepareAppSlug: args.get("--prepare-app-slug"),
+      prepareBotId: args.get("--prepare-bot-id"),
+      prepareBotLogin: args.get("--prepare-bot-login"),
       pullRequestNumber: args.get("--pr"),
       processorRunAttempt: args.get("--run-attempt"),
       processorRunId: args.get("--run-id"),

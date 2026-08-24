@@ -819,6 +819,7 @@ function runBashStep(step, env, eventPayload) {
 function liveIntakeEnvironment(overrides = {}) {
   const headSha = "a".repeat(40);
   return {
+    CURRENT_WORKFLOW_SHA: "c".repeat(40),
     DEFAULT_BRANCH: "main",
     INTAKE_ACTOR_LOGIN: "dependabot[bot]",
     INTAKE_ACTOR_ID: "49699333",
@@ -1166,6 +1167,28 @@ test("processor accepts a live-shaped repository dispatch envelope", () => {
   );
 });
 
+test("processor rejects a Claude result from a superseded workflow SHA", () => {
+  const target = processor.jobs.evaluate.steps.find(
+    (step) => step.name === "Validate trigger and select a bounded target",
+  );
+  const headSha = "a".repeat(40);
+  const runTitle = `dependabot-claude-review:v1 | source=dependabot-intake:v1 | repository=mento-protocol/frontend-monorepo | pr=701 | sha=${headSha} | action=synchronize | receipt=true`;
+  const result = runBashStep(target, {
+    ...liveIntakeEnvironment(),
+    CURRENT_WORKFLOW_SHA: "d".repeat(40),
+    EVENT_NAME: "workflow_run",
+    INTAKE_CONCLUSION: "failure",
+    INTAKE_EVENT: "workflow_run",
+    INTAKE_HEAD_BRANCH: "main",
+    INTAKE_HEAD_SHA: "c".repeat(40),
+    INTAKE_PATH: ".github/workflows/dependabot-claude-review.yml",
+    INTAKE_TITLE: runTitle,
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.githubOutput, "");
+});
+
 test("Claude retry authority is isolated and bound to a transient receipt", () => {
   const retry = processor.jobs["retry-claude-review"];
   assert.ok(retry);
@@ -1180,6 +1203,7 @@ test("Claude retry authority is isolated and bound to a transient receipt", () =
   const [rerun] = retry.steps;
   assert.equal(Object.hasOwn(rerun, "uses"), false);
   assert.equal(rerun.env.GH_TOKEN, "${{ github.token }}");
+  assert.equal(rerun.env.WORKFLOW_SHA, "${{ github.workflow_sha }}");
   assert.match(rerun.run, /EXPECTED_RUN_ATTEMPT.*\^\[12\]\$/s);
   assert.match(rerun.run, /\.app\.id == 15368/);
   assert.match(rerun.run, /dependabot-claude-review-failure:v1/);
@@ -1189,6 +1213,7 @@ test("Claude retry authority is isolated and bound to a transient receipt", () =
   assert.match(rerun.run, /page <= 20/);
   assert.match(rerun.run, /\.total_count/);
   assert.match(rerun.run, /actions\/runs\/\$run_id\/attempts\/\$run_attempt/);
+  assert.match(rerun.run, /\.head_sha == \$workflowSha/);
   assert.match(rerun.run, /max_by\(\.checkId\)/);
   assert.match(rerun.run, /actions\/runs\/\$EXPECTED_RUN_ID\/rerun/);
   assert.match(rerun.run, /\.head\.sha == \$headSha/);
@@ -1449,6 +1474,7 @@ esac
         PR_NUMBER: String(pullRequestNumber),
         REPOSITORY: repository,
         RUNNER_TEMP: caseDirectory,
+        WORKFLOW_SHA: workflowHeadSha,
       });
       const posts = existsSync(postLog)
         ? readFileSync(postLog, "utf8").trim().split("\n").filter(Boolean)
@@ -1488,6 +1514,12 @@ esac
       {
         input: { runTitle: `${exactRunTitle} drift` },
         name: "workflow run drift",
+      },
+      {
+        input: {
+          candidateRunOverrides: { head_sha: "d".repeat(40) },
+        },
+        name: "superseded workflow SHA",
       },
       {
         input: { checkReceiptOverrides: { runId: runId + 1 } },
@@ -2429,7 +2461,14 @@ test("OSV companion staging waits for finalization and isolates each write token
   );
   assert.doesNotMatch(JSON.stringify(census.env), /APP_TOKEN|secrets\./u);
   assert.match(census.run, /census\s+\\/u);
+  assert.match(census.run, /--base "\$EXPECTED_BASE_SHA"/u);
   assert.match(census.run, /--base-dir "\$BASE_DIRECTORY"/u);
+  assert.match(census.run, /--prepare-app-slug "\$EXPECTED_PREPARE_APP_SLUG"/u);
+  assert.match(census.run, /--prepare-bot-id "\$EXPECTED_PREPARE_BOT_ID"/u);
+  assert.match(
+    census.run,
+    /--prepare-bot-login "\$EXPECTED_PREPARE_BOT_LOGIN"/u,
+  );
   assert.match(census.run, /--run-attempt "\$PROCESSOR_RUN_ATTEMPT"/u);
   assert.match(census.run, /--run-id "\$PROCESSOR_RUN_ID"/u);
   assert.match(census.run, /rev-parse HEAD.*EXPECTED_BASE_SHA/su);
@@ -2468,7 +2507,15 @@ test("OSV companion staging waits for finalization and isolates each write token
     "${{ steps.companion-stage-token.outputs.token }}",
   );
   assert.match(stage.run, /stage\s+\\/u);
+  assert.match(stage.run, /--base "\$EXPECTED_BASE_SHA"/u);
+  assert.match(stage.run, /--base-dir "\$BASE_DIRECTORY"/u);
   assert.match(stage.run, /--census "\$CENSUS_RESULT_PATH"/u);
+  assert.match(stage.run, /--prepare-app-slug "\$EXPECTED_PREPARE_APP_SLUG"/u);
+  assert.match(stage.run, /--prepare-bot-id "\$EXPECTED_PREPARE_BOT_ID"/u);
+  assert.match(
+    stage.run,
+    /--prepare-bot-login "\$EXPECTED_PREPARE_BOT_LOGIN"/u,
+  );
   assert.match(stage.run, /--run-attempt "\$PROCESSOR_RUN_ATTEMPT"/u);
   assert.match(stage.run, /--run-id "\$PROCESSOR_RUN_ID"/u);
   assert.match(stage.run, /stage_receipt=.*base64/su);
@@ -2502,6 +2549,7 @@ test("OSV companion staging waits for finalization and isolates each write token
   assert.deepEqual(
     openJob.steps.map(({ name }) => name),
     [
+      "Checkout the exact evaluated historical base as inert data",
       "Materialize the companion adapter from the exact trusted workflow SHA",
       "Decode and validate the exact stage receipt",
       "Create an isolated pull-request App token",
@@ -2509,6 +2557,9 @@ test("OSV companion staging waits for finalization and isolates each write token
       "Revalidate the staged head and open its companion pull request",
       "Confirm the exact App-authored companion pull request",
     ],
+  );
+  const openCheckout = openJob.steps.find((step) =>
+    step.name.startsWith("Checkout the exact evaluated historical base"),
   );
   const openToken = openJob.steps.find(
     (step) => step.id === "companion-open-token",
@@ -2527,11 +2578,21 @@ test("OSV companion staging waits for finalization and isolates each write token
     step.name.startsWith("Confirm the exact App-authored"),
   );
   assert.ok(openToken);
+  assert.ok(openCheckout);
   assert.ok(openIdentity);
   assert.ok(decode);
   assert.ok(open);
   assert.ok(openMaterialize);
   assert.ok(confirmation);
+  assert.equal(
+    openCheckout.uses,
+    "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+  );
+  assert.deepEqual(openCheckout.with, {
+    "fetch-depth": 1,
+    "persist-credentials": false,
+    ref: "${{ needs.evaluate.outputs.actions_companion_base_sha }}",
+  });
   assert.match(
     openMaterialize.run,
     /dependabot-actions-companion\.mjs\?ref=\$WORKFLOW_SHA/u,
@@ -2579,6 +2640,11 @@ test("OSV companion staging waits for finalization and isolates each write token
     "${{ steps.companion-open-token.outputs.token }}",
   );
   assert.match(open.run, /open\s+\\/u);
+  assert.match(open.run, /--base "\$EXPECTED_BASE_SHA"/u);
+  assert.match(open.run, /--base-dir "\$BASE_DIRECTORY"/u);
+  assert.match(open.run, /--prepare-app-slug "\$EXPECTED_PREPARE_APP_SLUG"/u);
+  assert.match(open.run, /--prepare-bot-id "\$EXPECTED_PREPARE_BOT_ID"/u);
+  assert.match(open.run, /--prepare-bot-login "\$EXPECTED_PREPARE_BOT_LOGIN"/u);
   assert.match(open.run, /--staged "\$STAGE_RECEIPT_PATH"/u);
   assert.match(open.run, /--run-attempt "\$PROCESSOR_RUN_ATTEMPT"/u);
   assert.match(open.run, /--run-id "\$PROCESSOR_RUN_ID"/u);
@@ -2622,7 +2688,7 @@ test("OSV companion staging waits for finalization and isolates each write token
   );
   assert.deepEqual(
     openJob.steps.filter((step) => step.uses?.startsWith("actions/checkout@")),
-    [],
+    [openCheckout],
   );
   assert.doesNotMatch(
     JSON.stringify(openJob),

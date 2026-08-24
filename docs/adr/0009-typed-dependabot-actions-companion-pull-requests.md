@@ -83,7 +83,11 @@ The workflow separates branch staging from PR creation:
   companions, and opens a non-draft PR. Any veto, unresolved thread, human
   event, label, or update-token drift fails before the write. An exact existing
   open PR converges without a duplicate write. An exact merged or
-  closed-unmerged PR returns a bounded terminal result.
+  closed-unmerged PR returns a bounded terminal result. Terminal convergence
+  authenticates the exact Prepare App PR creator. It reconstructs the
+  historical source/base plan from immutable commits and verifies the exact
+  companion commit, parent, tree, and result blobs. It does not depend on a
+  surviving companion branch ref or mutable current-base state.
 
 Install the Prepare App with Contents, Pull requests, and Workflows write
 permissions. Each token request still receives only the permissions required
@@ -127,7 +131,8 @@ to create a ref whose tree changes `.github/workflows`.
   isolated typed staging job requests it.
 - A source or base race, unsupported edit, incomplete census, mismatched
   branch or PR, or duplicate PR fails closed. Exact open, merged, and
-  closed-unmerged companion states converge without a duplicate write.
+  closed-unmerged companion states converge without a duplicate write. Moved
+  base refs and deleted companion refs do not weaken historical verification.
 - The source Dependabot PR remains open and manual. The companion PR identifies
   it and remains human-review and human-merge only.
 - The first adapter does not cover Claude, CodeQL, or other sensitive Actions.

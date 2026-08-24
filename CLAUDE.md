@@ -262,7 +262,11 @@ separate job revalidates the staged head and opens a ready PR with Pull requests
 write authority only. Both jobs reuse the Processor's complete feedback gate
 and recollect its bound digest and human-event evidence immediately before a
 ref or PR write. Neither job changes the source branch, approves, publishes ALL
-CLEAR, enables auto-merge, merges, or closes a PR.
+CLEAR, enables auto-merge, merges, or closes a PR. Terminal convergence
+authenticates the exact Prepare App PR creator and reconstructs the historical
+source/base plan from immutable commits. It verifies the companion commit,
+parent, tree, and result blobs even when the base ref moved or the companion
+branch was deleted.
 
 Configure the repository-scoped Prepare App with Actions variables
 `DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,

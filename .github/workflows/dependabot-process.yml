@@ -99,6 +99,7 @@ jobs:
         shell: bash
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          CURRENT_WORKFLOW_SHA: ${{ github.workflow_sha }}
           EVENT_NAME: ${{ github.event_name }}
           INTAKE_ACTOR_LOGIN: ${{ github.event.workflow_run.actor.login }}
           INTAKE_ACTOR_ID: ${{ github.event.workflow_run.actor.id }}
@@ -196,6 +197,8 @@ jobs:
                   followup_kind="prepared-intake"
                   ;;
                 .github/workflows/dependabot-claude-review.yml|.github/workflows/dependabot-claude-review.yml@main)
+                  [[ "$CURRENT_WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]
+                  test "$INTAKE_HEAD_SHA" = "$CURRENT_WORKFLOW_SHA"
                   case "$INTAKE_CONCLUSION" in
                     success|failure) ;;
                     *) exit 1 ;;
@@ -338,6 +341,7 @@ jobs:
           PROCESSOR_PATH: ${{ steps.processor.outputs.path }}
           PR_NUMBERS: ${{ steps.target.outputs.pr_numbers }}
           REPOSITORY: ${{ github.repository }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: |
           set -euo pipefail
           arguments=(
@@ -586,6 +590,9 @@ jobs:
           DEPENDABOT_COMPANION_GITHUB_TOKEN: ${{ github.token }}
           EXPECTED_BASE_SHA: ${{ needs.evaluate.outputs.actions_companion_base_sha }}
           EXPECTED_HEAD_SHA: ${{ needs.evaluate.outputs.actions_companion_head_sha }}
+          EXPECTED_PREPARE_APP_SLUG: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG }}
+          EXPECTED_PREPARE_BOT_ID: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID }}
+          EXPECTED_PREPARE_BOT_LOGIN: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN }}
           PR_NUMBER: ${{ needs.evaluate.outputs.actions_companion_pr_number }}
           PROCESSOR_RUN_ATTEMPT: ${{ github.run_attempt }}
           PROCESSOR_RUN_ID: ${{ github.run_id }}
@@ -596,6 +603,9 @@ jobs:
           test "$REPOSITORY" = "mento-protocol/frontend-monorepo"
           [[ "$EXPECTED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$EXPECTED_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$EXPECTED_PREPARE_APP_SLUG" =~ ^[a-z0-9][a-z0-9-]*$ ]]
+          [[ "$EXPECTED_PREPARE_BOT_ID" =~ ^[1-9][0-9]*$ ]]
+          test "$EXPECTED_PREPARE_BOT_LOGIN" = "${EXPECTED_PREPARE_APP_SLUG}[bot]"
           [[ "$PR_NUMBER" =~ ^[1-9][0-9]{0,9}$ ]]
           [[ "$PROCESSOR_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
           [[ "$PROCESSOR_RUN_ID" =~ ^[1-9][0-9]*$ ]]
@@ -604,10 +614,14 @@ jobs:
           test -z "$(git -C "$BASE_DIRECTORY" status --porcelain=v1 --untracked-files=no)"
           node "$ADAPTER_PATH" \
             census \
+            --base "$EXPECTED_BASE_SHA" \
             --base-dir "$BASE_DIRECTORY" \
             --head "$EXPECTED_HEAD_SHA" \
             --output "$CENSUS_RESULT_PATH" \
             --pr "$PR_NUMBER" \
+            --prepare-app-slug "$EXPECTED_PREPARE_APP_SLUG" \
+            --prepare-bot-id "$EXPECTED_PREPARE_BOT_ID" \
+            --prepare-bot-login "$EXPECTED_PREPARE_BOT_LOGIN" \
             --repo "$REPOSITORY" \
             --run-attempt "$PROCESSOR_RUN_ATTEMPT" \
             --run-id "$PROCESSOR_RUN_ID" \
@@ -714,12 +728,16 @@ jobs:
         shell: bash
         env:
           ADAPTER_PATH: ${{ steps.companion-adapter.outputs.path }}
+          BASE_DIRECTORY: ${{ github.workspace }}
           CENSUS_RESULT_PATH: ${{ runner.temp }}/dependabot-actions-companion-census.json
           COMPANION_CANDIDATE: ${{ needs.evaluate.outputs.actions_companion_candidate }}
           DEPENDABOT_COMPANION_GITHUB_TOKEN: ${{ github.token }}
           DEPENDABOT_COMPANION_STAGE_APP_TOKEN: ${{ steps.companion-stage-token.outputs.token }}
           EXPECTED_BASE_SHA: ${{ needs.evaluate.outputs.actions_companion_base_sha }}
           EXPECTED_HEAD_SHA: ${{ needs.evaluate.outputs.actions_companion_head_sha }}
+          EXPECTED_PREPARE_APP_SLUG: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG }}
+          EXPECTED_PREPARE_BOT_ID: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID }}
+          EXPECTED_PREPARE_BOT_LOGIN: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN }}
           PR_NUMBER: ${{ needs.evaluate.outputs.actions_companion_pr_number }}
           PROCESSOR_RUN_ATTEMPT: ${{ github.run_attempt }}
           PROCESSOR_RUN_ID: ${{ github.run_id }}
@@ -732,16 +750,24 @@ jobs:
           test "$REPOSITORY" = "mento-protocol/frontend-monorepo"
           [[ "$EXPECTED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$EXPECTED_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$EXPECTED_PREPARE_APP_SLUG" =~ ^[a-z0-9][a-z0-9-]*$ ]]
+          [[ "$EXPECTED_PREPARE_BOT_ID" =~ ^[1-9][0-9]*$ ]]
+          test "$EXPECTED_PREPARE_BOT_LOGIN" = "${EXPECTED_PREPARE_APP_SLUG}[bot]"
           [[ "$PR_NUMBER" =~ ^[1-9][0-9]{0,9}$ ]]
           [[ "$PROCESSOR_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
           [[ "$PROCESSOR_RUN_ID" =~ ^[1-9][0-9]*$ ]]
           [[ "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]
           node "$ADAPTER_PATH" \
             stage \
+            --base "$EXPECTED_BASE_SHA" \
+            --base-dir "$BASE_DIRECTORY" \
             --census "$CENSUS_RESULT_PATH" \
             --head "$EXPECTED_HEAD_SHA" \
             --output "$STAGE_RESULT_PATH" \
             --pr "$PR_NUMBER" \
+            --prepare-app-slug "$EXPECTED_PREPARE_APP_SLUG" \
+            --prepare-bot-id "$EXPECTED_PREPARE_BOT_ID" \
+            --prepare-bot-login "$EXPECTED_PREPARE_BOT_LOGIN" \
             --repo "$REPOSITORY" \
             --run-attempt "$PROCESSOR_RUN_ATTEMPT" \
             --run-id "$PROCESSOR_RUN_ID" \
@@ -823,6 +849,13 @@ jobs:
       contents: read
       pull-requests: read
     steps:
+      - name: Checkout the exact evaluated historical base as inert data
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.evaluate.outputs.actions_companion_base_sha }}
+
       - name: Materialize the companion adapter from the exact trusted workflow SHA
         id: companion-adapter
         shell: bash
@@ -985,9 +1018,14 @@ jobs:
         shell: bash
         env:
           ADAPTER_PATH: ${{ steps.companion-adapter.outputs.path }}
+          BASE_DIRECTORY: ${{ github.workspace }}
           DEPENDABOT_COMPANION_GITHUB_TOKEN: ${{ github.token }}
           DEPENDABOT_COMPANION_OPEN_APP_TOKEN: ${{ steps.companion-open-token.outputs.token }}
           EXPECTED_HEAD_SHA: ${{ needs.evaluate.outputs.actions_companion_head_sha }}
+          EXPECTED_BASE_SHA: ${{ needs.evaluate.outputs.actions_companion_base_sha }}
+          EXPECTED_PREPARE_APP_SLUG: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG }}
+          EXPECTED_PREPARE_BOT_ID: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_ID }}
+          EXPECTED_PREPARE_BOT_LOGIN: ${{ vars.DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN }}
           OPEN_RESULT_PATH: ${{ runner.temp }}/dependabot-actions-companion-open.json
           PR_NUMBER: ${{ needs.evaluate.outputs.actions_companion_pr_number }}
           PROCESSOR_RUN_ATTEMPT: ${{ github.run_attempt }}
@@ -998,16 +1036,25 @@ jobs:
         run: |
           set -euo pipefail
           test "$REPOSITORY" = "mento-protocol/frontend-monorepo"
+          [[ "$EXPECTED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$EXPECTED_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$EXPECTED_PREPARE_APP_SLUG" =~ ^[a-z0-9][a-z0-9-]*$ ]]
+          [[ "$EXPECTED_PREPARE_BOT_ID" =~ ^[1-9][0-9]*$ ]]
+          test "$EXPECTED_PREPARE_BOT_LOGIN" = "${EXPECTED_PREPARE_APP_SLUG}[bot]"
           [[ "$PR_NUMBER" =~ ^[1-9][0-9]{0,9}$ ]]
           [[ "$PROCESSOR_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
           [[ "$PROCESSOR_RUN_ID" =~ ^[1-9][0-9]*$ ]]
           [[ "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]
           node "$ADAPTER_PATH" \
             open \
+            --base "$EXPECTED_BASE_SHA" \
+            --base-dir "$BASE_DIRECTORY" \
             --head "$EXPECTED_HEAD_SHA" \
             --output "$OPEN_RESULT_PATH" \
             --pr "$PR_NUMBER" \
+            --prepare-app-slug "$EXPECTED_PREPARE_APP_SLUG" \
+            --prepare-bot-id "$EXPECTED_PREPARE_BOT_ID" \
+            --prepare-bot-login "$EXPECTED_PREPARE_BOT_LOGIN" \
             --repo "$REPOSITORY" \
             --run-attempt "$PROCESSOR_RUN_ATTEMPT" \
             --run-id "$PROCESSOR_RUN_ID" \
@@ -1149,6 +1196,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.evaluate.outputs.pr_numbers }}
           REPOSITORY: ${{ github.repository }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: |
           set -euo pipefail
           test "$REPOSITORY" = "mento-protocol/frontend-monorepo"
@@ -1156,6 +1204,7 @@ jobs:
           [[ "$PR_NUMBER" =~ ^[1-9][0-9]{0,9}$ ]]
           [[ "$EXPECTED_RUN_ID" =~ ^[1-9][0-9]*$ ]]
           [[ "$EXPECTED_RUN_ATTEMPT" =~ ^[12]$ ]]
+          [[ "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]
 
           pr_snapshot="$RUNNER_TEMP/dependabot-claude-retry-pr.json"
           gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" \
@@ -1179,10 +1228,12 @@ jobs:
 
           run_snapshot="$RUNNER_TEMP/dependabot-claude-retry-run.json"
           gh api "repos/$REPOSITORY/actions/runs/$EXPECTED_RUN_ID" \
-            --jq '{id,run_attempt,status,conclusion,event,path,head_branch,display_title}' \
+            --jq '{id,run_attempt,status,conclusion,event,path,head_branch,head_sha,display_title,repository:{full_name:.repository.full_name}}' \
             > "$run_snapshot"
           jq -e \
             --arg displayTitle "$EXPECTED_RUN_TITLE" \
+            --arg repository "$REPOSITORY" \
+            --arg workflowSha "$WORKFLOW_SHA" \
             --argjson runAttempt "$EXPECTED_RUN_ATTEMPT" \
             --argjson runId "$EXPECTED_RUN_ID" \
             '
@@ -1194,6 +1245,8 @@ jobs:
               (.path == ".github/workflows/dependabot-claude-review.yml" or
                .path == ".github/workflows/dependabot-claude-review.yml@main") and
               .head_branch == "main" and
+              .head_sha == $workflowSha and
+              .repository.full_name == $repository and
               .display_title == $displayTitle
             ' "$run_snapshot" > /dev/null
 
@@ -1357,6 +1410,7 @@ jobs:
               --arg checkConclusion "$conclusion" \
               --arg headSha "$EXPECTED_HEAD_SHA" \
               --arg repository "$REPOSITORY" \
+              --arg workflowSha "$WORKFLOW_SHA" \
               --argjson prNumber "$PR_NUMBER" \
               --argjson runAttempt "$run_attempt" \
               --argjson runId "$run_id" \
@@ -1369,7 +1423,7 @@ jobs:
                 (.path == ".github/workflows/dependabot-claude-review.yml" or
                  .path == ".github/workflows/dependabot-claude-review.yml@main") and
                 .head_branch == "main" and
-                (.head_sha | type == "string" and test("^[0-9a-f]{40}$") and . != $headSha) and
+                .head_sha == $workflowSha and
                 .repository.full_name == $repository and
                 (
                   (.display_title |

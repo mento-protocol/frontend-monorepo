@@ -136,7 +136,8 @@ reason, and numeric API status. It never logs the model result, prompt, tool
 output, or diff. The publisher records a canonical non-authorizing failure
 receipt. The processor can rerun the exact failed review workflow twice for an
 authenticated transient provider status. It reruns only when that failure
-remains the newest trusted exact-head Claude result. The isolated retry job
+remains the newest trusted exact-head Claude result and the failed review used
+the current processor workflow SHA. The isolated retry job
 receives only Actions write and read-only PR/check access. Attempt three is
 terminal.
 

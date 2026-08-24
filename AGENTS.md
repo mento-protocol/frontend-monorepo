@@ -129,7 +129,10 @@ Processor's complete feedback gate and recollect its bound digest and
 human-event evidence immediately before a ref or PR write. Neither job mutates
 the source Dependabot branch, approves, publishes ALL CLEAR, enables
 auto-merge, merges, or closes a PR. Every other sensitive Action remains
-manual.
+manual. Terminal convergence authenticates the exact Prepare App PR creator
+and reconstructs the historical source/base plan from immutable commits. It
+verifies the companion commit, parent, tree, and result blobs even when the
+base ref moved or the companion branch was deleted.
 
 Configure the repository-scoped Prepare App with variables
 `DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,

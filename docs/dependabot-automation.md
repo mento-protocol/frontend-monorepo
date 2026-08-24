@@ -233,6 +233,8 @@ repair packet. A failed check publishes canonical bounded failure metadata.
 The processor may rerun the exact authenticated review workflow for HTTP 429,
 500, 502, 503, 504, or 529. It permits attempts two and three only, and reruns
 only when the failed check remains the newest trusted exact-head Claude result.
+The review run must use the current processor workflow SHA. A superseded
+default-branch workflow run cannot receive the current Claude credential.
 The retry job has Actions write and read-only PR/check access. It has no
 checkout, repository-write, check-write, App, or Claude credential.
 
@@ -391,7 +393,12 @@ mismatched existing branch or PR, or duplicate PR fails closed before the
 write. An exact existing open PR converges without a duplicate write. An exact
 merged or closed-unmerged PR returns a bounded terminal result. A valid new
 case opens one ready-for-review PR with the required Problem and Solution
-sections. Normal CI and human review apply. The source PR stays open and manual.
+sections. Terminal convergence does not trust the branch ref, PR text, or a
+mutable base ref. It authenticates the exact Prepare App PR creator and
+reconstructs the historical source/base plan from immutable commits. It then
+verifies the exact companion commit, parent, tree, and result blobs. This check
+still works after the companion branch is deleted. Normal CI and human review
+apply. The source PR stays open and manual.
 
 The controller treats an exact `@dependabot rebase` or `@dependabot recreate`
 issue comment from a trusted maintainer as a branch-maintenance command. It does

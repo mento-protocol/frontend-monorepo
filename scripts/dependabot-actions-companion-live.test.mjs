@@ -50,6 +50,14 @@ const READ_TOKEN = "read-token";
 const STAGE_TOKEN = "stage-token";
 const OPEN_TOKEN = "open-token";
 const PROCESSOR_RUN_ID = 32_720_811_102;
+const PREPARE_APP_SLUG = "dependabot-companion-prepare";
+const PREPARE_BOT_ID = 91_840;
+const PREPARE_BOT_LOGIN = `${PREPARE_APP_SLUG}[bot]`;
+const PREPARE_BOT = {
+  id: PREPARE_BOT_ID,
+  login: PREPARE_BOT_LOGIN,
+  type: "Bot",
+};
 const TEMP_DIRECTORIES = [];
 
 after(() => {
@@ -176,6 +184,7 @@ function unresolvedReviewThread() {
 }
 
 function existingPull({
+  baseSha = BASE_SHA,
   branchRef,
   body = "",
   headSha = STAGED_COMMIT_SHA,
@@ -183,12 +192,13 @@ function existingPull({
   number = 900,
   state = "open",
   title = "",
+  user = PREPARE_BOT,
 }) {
   return {
     base: {
       ref: "main",
       repo: { full_name: REPOSITORY },
-      sha: BASE_SHA,
+      sha: baseSha,
     },
     head: {
       ref: branchRef,
@@ -198,10 +208,12 @@ function existingPull({
     body,
     draft: false,
     html_url: `https://github.com/${REPOSITORY}/pull/${number}`,
+    maintainer_can_modify: false,
     merged_at: merged ? "2026-08-24T12:00:00Z" : null,
     number,
     state,
     title,
+    user,
   };
 }
 
@@ -262,6 +274,7 @@ function liveFixture() {
   }
   const state = {
     branchCreated: false,
+    blobResponses: new Map(),
     calls: [],
     companionCensusReads: 0,
     censusPulls: [],
@@ -269,6 +282,7 @@ function liveFixture() {
     issueComments: [],
     lateIssueCommentAtCompanionCensus: null,
     lateThreadAtCompanionCensus: null,
+    currentMainSha: BASE_SHA,
     mainRefReads: 0,
     moveMainAtRead: null,
     openedPull: null,
@@ -281,6 +295,12 @@ function liveFixture() {
     refCreateRaces: false,
     reviewThreads: [],
     sourceReviews: [],
+    prepareBot: structuredClone(PREPARE_BOT),
+    stagedCommitSha: STAGED_COMMIT_SHA,
+    stagedCommitMessage: null,
+    stagedCommitParentSha: BASE_SHA,
+    stagedCommitTreeSha: STAGED_TREE_SHA,
+    stagedEntries,
   };
 
   const sourcePull = () => ({
@@ -314,6 +334,8 @@ function liveFixture() {
     parents: [{ sha: BASE_SHA }],
     sha: HEAD_SHA,
   };
+  state.headEntries = headEntries;
+  state.sourceCommit = sourceCommit;
 
   const fetchImpl = async (url, options = {}) => {
     const parsed = new URL(url);
@@ -322,6 +344,13 @@ function liveFixture() {
     const authorization = options.headers?.Authorization;
     state.calls.push({ authorization, body, method, url: parsed });
     const path = parsed.pathname;
+
+    if (
+      method === "GET" &&
+      path === `/users/${encodeURIComponent(PREPARE_BOT_LOGIN)}`
+    ) {
+      return json(state.prepareBot);
+    }
 
     if (method === "POST" && path === "/graphql") {
       if (body?.query?.includes("DependabotProcessorFeedback")) {
@@ -375,7 +404,7 @@ function liveFixture() {
       ]);
     }
     if (method === "GET" && path === `/repos/${REPOSITORY}/pulls/840/commits`) {
-      return json([sourceCommit]);
+      return json([state.sourceCommit]);
     }
     if (method === "GET" && path === `/repos/${REPOSITORY}/pulls/840/reviews`) {
       return json(state.sourceReviews);
@@ -396,7 +425,10 @@ function liveFixture() {
       state.mainRefReads += 1;
       const moved = state.moveMainAtRead === state.mainRefReads;
       return json({
-        object: { sha: moved ? OTHER_SHA : BASE_SHA, type: "commit" },
+        object: {
+          sha: moved ? OTHER_SHA : state.currentMainSha,
+          type: "commit",
+        },
         ref: "refs/heads/main",
       });
     }
@@ -422,10 +454,17 @@ function liveFixture() {
       method === "GET" &&
       path === `/repos/${REPOSITORY}/git/trees/${HEAD_TREE_SHA}`
     ) {
-      return json({ sha: HEAD_TREE_SHA, tree: headEntries, truncated: false });
+      return json({
+        sha: HEAD_TREE_SHA,
+        tree: state.headEntries,
+        truncated: false,
+      });
     }
     if (method === "GET" && path.includes(`/git/blobs/`)) {
       const sha = path.split("/").at(-1);
+      if (state.blobResponses.has(sha)) {
+        return json(state.blobResponses.get(sha));
+      }
       const content = contentBySha.get(sha);
       if (content === undefined) return json({ message: "Not Found" }, 404);
       return json(blobResponse(content));
@@ -525,10 +564,10 @@ function liveFixture() {
           call.url.pathname === `/repos/${REPOSITORY}/git/commits`,
       );
       return json({
-        message: stageCommitCall.body.message,
-        parents: [{ sha: BASE_SHA }],
-        sha: STAGED_COMMIT_SHA,
-        tree: { sha: STAGED_TREE_SHA },
+        message: state.stagedCommitMessage ?? stageCommitCall.body.message,
+        parents: [{ sha: state.stagedCommitParentSha }],
+        sha: state.stagedCommitSha,
+        tree: { sha: state.stagedCommitTreeSha },
       });
     }
     if (
@@ -537,7 +576,7 @@ function liveFixture() {
     ) {
       return json({
         sha: STAGED_TREE_SHA,
-        tree: stagedEntries,
+        tree: state.stagedEntries,
         truncated: false,
       });
     }
@@ -570,9 +609,11 @@ function liveFixture() {
           sha: STAGED_COMMIT_SHA,
         },
         html_url: `https://github.com/${REPOSITORY}/pull/841`,
+        maintainer_can_modify: body.maintainer_can_modify,
         number: 841,
         state: "open",
         title: body.title,
+        user: PREPARE_BOT,
       };
       if (state.pullCreateRaces) {
         state.censusPulls = [state.openedPull];
@@ -592,8 +633,12 @@ function liveFixture() {
 async function census(fixture, overrides = {}) {
   return censusOsvActionsCompanionLive({
     baseDirectory: fixture.baseDirectory,
+    expectedBaseSha: BASE_SHA,
     expectedHeadSha: HEAD_SHA,
     fetchImpl: fixture.fetchImpl,
+    prepareAppSlug: PREPARE_APP_SLUG,
+    prepareBotId: PREPARE_BOT_ID,
+    prepareBotLogin: PREPARE_BOT_LOGIN,
     pullRequestNumber: 840,
     processorRunAttempt: 1,
     processorRunId: PROCESSOR_RUN_ID,
@@ -606,9 +651,14 @@ async function census(fixture, overrides = {}) {
 
 async function stage(fixture, censusReceipt = null) {
   return stageOsvActionsCompanionLive({
+    baseDirectory: fixture.baseDirectory,
     censusReceipt: censusReceipt ?? (await census(fixture)),
+    expectedBaseSha: BASE_SHA,
     expectedHeadSha: HEAD_SHA,
     fetchImpl: fixture.fetchImpl,
+    prepareAppSlug: PREPARE_APP_SLUG,
+    prepareBotId: PREPARE_BOT_ID,
+    prepareBotLogin: PREPARE_BOT_LOGIN,
     pullRequestNumber: 840,
     processorRunAttempt: 1,
     processorRunId: PROCESSOR_RUN_ID,
@@ -621,9 +671,14 @@ async function stage(fixture, censusReceipt = null) {
 
 async function open(fixture, stageReceipt) {
   return openOsvActionsCompanionLive({
+    baseDirectory: fixture.baseDirectory,
+    expectedBaseSha: BASE_SHA,
     expectedHeadSha: HEAD_SHA,
     fetchImpl: fixture.fetchImpl,
     openToken: OPEN_TOKEN,
+    prepareAppSlug: PREPARE_APP_SLUG,
+    prepareBotId: PREPARE_BOT_ID,
+    prepareBotLogin: PREPARE_BOT_LOGIN,
     pullRequestNumber: 840,
     processorRunAttempt: 1,
     processorRunId: PROCESSOR_RUN_ID,
@@ -632,6 +687,21 @@ async function open(fixture, stageReceipt) {
     stageReceipt,
     workflowSha: WORKFLOW_SHA,
   });
+}
+
+async function closedCompanionFixture({ merged = true } = {}) {
+  const fixture = liveFixture();
+  const sealed = await census(fixture);
+  const staged = await stage(fixture, sealed);
+  const pull = existingPull({
+    body: sealed.plan.pullRequestBody,
+    branchRef: staged.branchRef,
+    merged,
+    state: "closed",
+    title: sealed.plan.pullRequestTitle,
+  });
+  fixture.state.censusPulls = [pull];
+  return { fixture, pull, sealed, staged };
 }
 
 test("stages and opens the #840 OSV companion with an 11-digit run ID and isolated authorities", async () => {
@@ -792,7 +862,7 @@ test("a late unresolved review thread prevents the pull request write", async ()
   const fixture = liveFixture();
   const staged = await stage(fixture);
   fixture.state.lateThreadAtCompanionCensus =
-    fixture.state.companionCensusReads + 2;
+    fixture.state.companionCensusReads + 3;
   await assert.rejects(open(fixture, staged), (error) => {
     assert.equal(error instanceof ActionsCompanionLiveError, true);
     assert.equal(error.code, "source-feedback-changed");
@@ -1029,6 +1099,187 @@ test("closed companions become bounded terminal no-ops and mismatches fail close
   ];
   await assert.rejects(census(mismatchFixture), (error) => {
     assert.equal(error.code, "terminal-companion-pr-mismatch");
+    return true;
+  });
+});
+
+test("terminal convergence uses the historical base after main moves and the branch disappears", async () => {
+  const { fixture, pull, sealed, staged } = await closedCompanionFixture();
+  fixture.state.branchCreated = false;
+  fixture.state.currentMainSha = OTHER_SHA;
+  pull.base.sha = OTHER_SHA;
+  const mainRefReads = fixture.state.mainRefReads;
+  const mutations = fixture.state.calls.filter(isRepositoryMutation).length;
+  const terminalCallsStart = fixture.state.calls.length;
+
+  const plannedStageTerminal = await stage(fixture, sealed);
+  assert.equal(plannedStageTerminal.result, "terminal");
+  const plannedOpenTerminal = await open(fixture, staged);
+  assert.equal(plannedOpenTerminal.result, "terminal");
+
+  const terminalCensus = await census(fixture);
+  const terminalStage = await stage(fixture, terminalCensus);
+  const terminalOpen = await open(fixture, terminalStage);
+  assert.equal(terminalCensus.reason, "merged");
+  assert.equal(terminalStage.reason, "merged");
+  assert.equal(terminalOpen.reason, "merged");
+  assert.equal(fixture.state.mainRefReads, mainRefReads);
+  assert.equal(
+    fixture.state.calls.filter(isRepositoryMutation).length,
+    mutations,
+  );
+  assert.equal(
+    fixture.state.calls
+      .slice(terminalCallsStart)
+      .every(({ authorization }) => authorization === `Bearer ${READ_TOKEN}`),
+    true,
+  );
+});
+
+test("terminal convergence authenticates the Prepare App bot", async () => {
+  const actors = [
+    { id: PREPARE_BOT_ID + 1, login: PREPARE_BOT_LOGIN, type: "Bot" },
+    { id: PREPARE_BOT_ID, login: "attacker[bot]", type: "Bot" },
+    { id: PREPARE_BOT_ID, login: PREPARE_BOT_LOGIN, type: "User" },
+  ];
+  for (const actor of actors) {
+    const prepared = await closedCompanionFixture();
+    prepared.pull.user = actor;
+    await assert.rejects(census(prepared.fixture), (error) => {
+      assert.equal(error instanceof ActionsCompanionLiveError, true);
+      assert.equal(error.code, "terminal-companion-author-mismatch");
+      return true;
+    });
+  }
+
+  const fixture = liveFixture();
+  fixture.state.prepareBot.id += 1;
+  await assert.rejects(census(fixture), (error) => {
+    assert.equal(error.code, "prepare-app-bot-mismatch");
+    return true;
+  });
+});
+
+test("terminal convergence rejects a source commit or tree outside the historical plan", async () => {
+  const parentAttack = await closedCompanionFixture();
+  parentAttack.fixture.state.sourceCommit.parents = [{ sha: OTHER_SHA }];
+  await assert.rejects(census(parentAttack.fixture), (error) => {
+    assert.equal(error.name, "CompanionRejection");
+    assert.equal(error.reason, "source-commit-parent-mismatch");
+    return true;
+  });
+
+  const treeAttack = await closedCompanionFixture();
+  treeAttack.fixture.state.headEntries = [
+    ...treeAttack.fixture.state.headEntries,
+    treeEntry("attacker-source.txt", "unplanned source content\n"),
+  ];
+  await assert.rejects(census(treeAttack.fixture), (error) => {
+    assert.equal(error.code, "historical-source-tree-has-unplanned-changes");
+    return true;
+  });
+});
+
+test("terminal convergence rejects an incomplete or stale historical checkout", async () => {
+  const incomplete = await closedCompanionFixture();
+  rmSync(join(incomplete.fixture.baseDirectory, "README.md"));
+  await assert.rejects(census(incomplete.fixture), (error) => {
+    assert.equal(error.code, "base-directory-is-incomplete");
+    return true;
+  });
+
+  const stale = await closedCompanionFixture();
+  writeFileSync(join(stale.fixture.baseDirectory, "README.md"), "stale\n");
+  await assert.rejects(census(stale.fixture), (error) => {
+    assert.equal(error.code, "base-directory-does-not-match-current-main");
+    return true;
+  });
+});
+
+test("terminal convergence rejects a forged companion commit, tree, or blob", async () => {
+  const commitIdentityAttack = await closedCompanionFixture();
+  commitIdentityAttack.fixture.state.stagedCommitSha = OTHER_SHA;
+  await assert.rejects(census(commitIdentityAttack.fixture), (error) => {
+    assert.equal(error.code, "staged-commit-response-invalid");
+    return true;
+  });
+
+  const commitParentAttack = await closedCompanionFixture();
+  commitParentAttack.fixture.state.stagedCommitParentSha = OTHER_SHA;
+  await assert.rejects(census(commitParentAttack.fixture), (error) => {
+    assert.equal(error.code, "staged-commit-response-invalid");
+    return true;
+  });
+
+  const commitMessageAttack = await closedCompanionFixture();
+  commitMessageAttack.fixture.state.stagedCommitMessage = [
+    "attacker-controlled commit",
+    "",
+    `Source-PR: #840`,
+    `Source-Head: ${HEAD_SHA}`,
+    `Companion-Plan: ${commitMessageAttack.sealed.plan.planDigest}`,
+  ].join("\n");
+  await assert.rejects(census(commitMessageAttack.fixture), (error) => {
+    assert.equal(error.code, "staged-commit-response-invalid");
+    return true;
+  });
+
+  const treeAttack = await closedCompanionFixture();
+  treeAttack.fixture.state.stagedEntries = [
+    ...treeAttack.fixture.state.stagedEntries,
+    treeEntry("attacker-companion.txt", "unplanned companion content\n"),
+  ];
+  await assert.rejects(census(treeAttack.fixture), (error) => {
+    assert.equal(error.code, "staged-tree-has-unplanned-changes");
+    return true;
+  });
+
+  const emptyTreeAttack = await closedCompanionFixture();
+  emptyTreeAttack.fixture.state.stagedEntries = [
+    ...emptyTreeAttack.fixture.state.stagedEntries,
+    {
+      mode: "040000",
+      path: "attacker-empty-tree",
+      sha: OTHER_SHA,
+      type: "tree",
+    },
+  ];
+  await assert.rejects(census(emptyTreeAttack.fixture), (error) => {
+    assert.equal(error.code, "staged-tree-has-unplanned-changes");
+    return true;
+  });
+
+  for (const editIndex of [0, 1]) {
+    const blobAttack = await closedCompanionFixture();
+    const edit = blobAttack.sealed.plan.edits[editIndex];
+    const forged = blobResponse(`forged result content ${editIndex}\n`);
+    forged.sha = edit.resultBlobSha;
+    blobAttack.fixture.state.blobResponses.set(edit.resultBlobSha, forged);
+    await assert.rejects(census(blobAttack.fixture), (error) => {
+      assert.equal(error.code, "git-blob-response-invalid");
+      return true;
+    });
+  }
+});
+
+test("terminal stage and open repeat exact object verification", async () => {
+  const stageAttack = await closedCompanionFixture();
+  const terminalCensus = await census(stageAttack.fixture);
+  stageAttack.fixture.state.stagedEntries = [
+    ...stageAttack.fixture.state.stagedEntries,
+    treeEntry("late-stage-attack.txt", "late attack\n"),
+  ];
+  await assert.rejects(stage(stageAttack.fixture, terminalCensus), (error) => {
+    assert.equal(error.code, "staged-tree-has-unplanned-changes");
+    return true;
+  });
+
+  const openAttack = await closedCompanionFixture();
+  const openCensus = await census(openAttack.fixture);
+  const terminalStage = await stage(openAttack.fixture, openCensus);
+  openAttack.fixture.state.stagedCommitMessage = "late open attack";
+  await assert.rejects(open(openAttack.fixture, terminalStage), (error) => {
+    assert.equal(error.code, "staged-commit-response-invalid");
     return true;
   });
 });
