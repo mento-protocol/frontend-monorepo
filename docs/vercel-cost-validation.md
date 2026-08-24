@@ -211,9 +211,10 @@ and tree-sealed capture-directory format as preview and main evidence; the
 audit never trusts an unsealed sample JSON file.
 
 GitHub can omit labels for skipped, startup-failed, or short-lived terminal
-jobs. The audit retains those job IDs without inferring a runner class. The
-source-bound detailed usage export owns standard/larger SKU classification and
-must reconcile its standard minutes to all terminal collector jobs.
+jobs. The audit retains those job IDs without inferring a runner class. Skipped
+jobs consume no runner minutes and can have inverted synthetic timestamps. The
+source-bound detailed usage export owns standard/larger SKU classification.
+Its standard minutes must stay within the explicit collector tolerance below.
 
 A run that crosses `startUtc` invalidates that start boundary; extending the
 end cannot repair it. Preserve the failed private tree outside the collector's
@@ -349,8 +350,8 @@ issue, pull request, workflow artifact, job summary, or log:
 - raw Vercel FOCUS JSONL, saved deployment-page envelopes and original page
   responses, normalized deployment-census JSONL, census proofs, and the
   manifest;
-- the GitHub detailed-usage CSV, audit-log export or REST transcript, metadata, and canonical
-  GitHub Actions proof;
+- the GitHub detailed-usage CSV, audit-log export, zero-result screenshot, or
+  REST transcript, metadata, and canonical GitHub Actions proof;
 - project or team IDs not already public;
 - absolute `EffectiveCost`, `BilledCost`, allocation, plan, price, or invoice
   values;
@@ -373,8 +374,13 @@ Wait at least 12 hours after the exclusive interval end so GitHub's documented
 storage lag can settle. In the GitHub billing web UI, request the **detailed**
 usage CSV for the exact complete UTC days in the half-open interval. Keep the
 download unchanged; the report covers all paid products and the normalizer
-selects only exact `Actions`, organization, repository, SKU, unit, and
-workflow-path matches.
+selects exact lowercase product `actions`, organization `mento-protocol`, short
+CSV repository `frontend-monorepo`, SKU, unit, and deployment workflow-path
+matches. It also retains known storage SKUs with a blank workflow path as a
+repository-level upper bound. It ignores other products, repositories, and
+canonical nondeployment workflow or GitHub `dynamic/<owner>/<name>` identities.
+A nonblank workflow path must match one of those two canonical forms. Malformed
+and whitespace-only paths fail closed.
 
 Inspect its shape before writing metadata:
 
@@ -388,7 +394,9 @@ The inspector accepts one UTF-8 BOM, quoted RFC 4180 fields, and reordered
 exact columns. It writes only header names and distinct products, SKUs, units,
 repositories, and workflow paths to its private output. It never prints CSV
 rows, quantities, or amounts. Review any new value; `build` rejects unknown
-Actions SKUs and units instead of guessing.
+selected Actions SKUs and units instead of guessing. Workflow suffixes must use
+a canonical Git ref or a lowercase 40-character commit SHA. Dynamic identity
+segments cannot be `.` or `..`.
 
 Create canonical mode-`0600`
 `.vercel-cost-evidence/github/raw/detailed-usage.metadata.json`. Read the exact
@@ -420,7 +428,7 @@ the whole-second floor of the boundary record's `recordedAtUtc` through a
 timestamp strictly after the terminal sample's `capturedAtUtc`. Use the exact phrase
 `repo:mento-protocol/frontend-monorepo action:repo.access
 created:>=<queryStartUtc> created:<queryEndUtcExclusive>`. Preserve the literal
-query and exact bounds in metadata. Choose exactly one of the two evidence
+query and exact bounds in metadata. Choose exactly one of the three evidence
 routes below. Do not combine their files or fields.
 
 ### Owner web JSON export (Free and Enterprise plans)
@@ -440,7 +448,7 @@ mode-`0600` `.vercel-cost-evidence/github/raw/audit-log.metadata.json`:
 
 ```json
 {
-  "schema": "vercel-cost-github-audit-export-metadata:v2",
+  "schema": "vercel-cost-github-audit-export-metadata:v3",
   "source": "github-org-audit-log-owner-web-json-export",
   "format": "json-array",
   "repository": "mento-protocol/frontend-monorepo",
@@ -471,6 +479,56 @@ private export completion screen or equivalent operator record with the
 evidence package. Any visibility row remains valid source data but makes the
 proof ineligible.
 
+### Owner web zero-result attestation (Free and Enterprise plans)
+
+GitHub can hide **Export** when the exact owner audit-log query has no matching
+events. In that case, keep the exact signed-in page URL and capture an
+unobscured PNG that shows the zero-result message after the covering query end.
+Do not fabricate an empty JSON export. Use this route only when the page shows
+`We couldn’t find any events matching your search.` and renders no export
+control.
+
+Create canonical mode-`0600`
+`.vercel-cost-evidence/github/raw/audit-log.metadata.json`:
+
+```json
+{
+  "schema": "vercel-cost-github-audit-export-metadata:v3",
+  "source": "github-org-audit-log-owner-web-zero-result-attestation",
+  "format": "browser-screenshot-png",
+  "repository": "mento-protocol/frontend-monorepo",
+  "startUtc": "<START_UTC_FROM_PRIVATE_INTERVAL>",
+  "endUtcExclusive": "<CURRENT_END_UTC_EXCLUSIVE_FROM_PRIVATE_LEDGER>",
+  "queryStartUtc": "<whole-second floor of boundary recordedAtUtc>",
+  "queryEndUtcExclusive": "<strictly after terminal sample capturedAtUtc>",
+  "capturedAtUtc": "<at or after queryEndUtcExclusive>",
+  "queryPhrase": "<the exact phrase above>",
+  "pageUrl": "<exact github.com audit-log URL with only q=<queryPhrase>>",
+  "zeroResultText": "We couldn’t find any events matching your search.",
+  "eventCount": 0,
+  "screenshotByteLength": 1234,
+  "screenshotSha256": "<lowercase SHA-256 of the exact image bytes>",
+  "ownerAttestation": {
+    "role": "admin",
+    "zeroResultVisible": true,
+    "exportControlAvailable": false,
+    "pageError": null
+  }
+}
+```
+
+Set `format` to `browser-screenshot-png`. This route binds the exact query URL,
+zero-result text, image bytes, and owner attestation. The URL cannot contain
+userinfo, a custom port, or a fragment. It does not claim that GitHub produced
+an export. The bounded reader rejects the image above 25 MiB before loading its
+bytes. The validator requires an image of at least 640 by 480 pixels. It
+validates PNG chunks, checksums, and decompressed scanlines. The proof records
+the derived pixel dimensions. Chunk names must use valid ASCII bytes and the PNG
+reserved bit. The zlib stream must consume all IDAT bytes. JPEG input is
+unsupported because the standalone validator does not include a complete JPEG
+decoder.
+If any matching event exists, use the unchanged owner web JSON export instead.
+
 ### REST Link transcript (Enterprise Cloud only)
 
 Organizations entitled to the organization audit-log REST endpoint may use
@@ -492,7 +550,7 @@ invalid until replaced:
 
 ```json
 {
-  "schema": "vercel-cost-github-audit-export-metadata:v2",
+  "schema": "vercel-cost-github-audit-export-metadata:v3",
   "source": "github-org-audit-log-rest-link-transcript",
   "format": "http-link-transcript-json-array-pages",
   "repository": "mento-protocol/frontend-monorepo",
@@ -514,9 +572,11 @@ invalid until replaced:
 ```
 
 Each `pageUrls` entry must preserve the same phrase, include, order, and
-per-page parameters and must be unique. Cursor parameters may differ. The
-transcript's `next` links must equal the next entries exactly, and the final
-page must have no next link.
+per-page parameters and must be unique. The first page has no cursor. Each later
+page has exactly one nonempty `after` or `before` cursor. No URL can contain
+userinfo, a port, a fragment, a duplicate parameter, or another query key. The
+transcript's `next` links must equal the next entries exactly, and the final page
+must have no next link.
 
 Build the proof without network access or credentials:
 
@@ -532,31 +592,47 @@ pnpm vercel:cost:github -- build \
 
 For the Enterprise REST route, replace the one web-export option with
 `--audit-rest-transcript .vercel-cost-evidence/github/raw/audit-log.transcript.txt`.
-The CLI requires exactly one of these two options.
+For a zero-result page with no export control, use
+`--audit-web-zero-screenshot .vercel-cost-evidence/github/raw/audit-log.zero-results.png`.
+The CLI requires exactly one of these three options.
 
 All inputs and outputs must share one real `.vercel-cost-evidence/` tree with
 mode-`0700` directories and mode-`0600` files. Publication is fsynced and
 no-overwrite; archive or delete an obsolete proof deliberately before rebuilding.
+The canonical output schema is `vercel-cost-github-actions-proof:v4`. Rebuild
+all v3 proofs from their bound raw sources. The audit metadata schema is v3.
 The proof binds raw-file SHA-256s, the exact interval, the six deployment
 workflow paths, checked-in standard/larger runner SKU allowlists, units, exact
 decimal billing amounts, the complete frozen collector tree, and audit
-source evidence. The REST source proves its cursor chain. The web source binds
-its explicit owner attestation while recording the absence of provider
-pagination and signature proof. Unknown SKUs, a visibility event in the
-covering range,
-interval-crossing jobs, nonzero larger-runner minutes, nonzero custom-image
-storage, nonzero standard-runner net cost, or disagreement between billed
-standard minutes and the collector's per-job rounded total makes the proof
-ineligible.
+source evidence. The REST source proves its cursor chain. The web export and
+zero-result sources bind explicit owner attestations while recording the
+absence of provider pagination and signature proof. The builder rejects unknown
+selected SKUs, fractional or unsafe runner minutes, and storage quantities that
+cannot round-trip through the analyzer number type without decimal drift. A
+visibility event in the covering range, interval-crossing non-skipped jobs,
+nonzero larger-runner minutes, nonzero custom-image storage, nonzero runner or
+storage net cost, or a billed standard-minute difference larger than the
+collector tolerance makes the proof ineligible.
 
-`artifactStorageGbHours` receives the billed `actions_storage` quantity only
-when the detailed report attributes a nonzero row to one of the six allowlisted
-deployment workflows. `cacheStorageGbHours` applies the same rule to billed
+The detailed usage CSV is the billing source of record. The collector derives a
+corroborative total from second-resolution REST job timestamps and rounds each
+non-skipped job up to a whole minute. Those timestamps are not metering
+receipts. The proof keeps the exact-match result and the signed collector-minus-
+CSV delta. The collector may exceed the CSV by at most one minute per 1,000
+reconstructed minutes, capped at 10 minutes. A CSV total above the complete
+collector fails closed. Windows below 1,000 minutes still require exact
+equality. This tolerance applies only to GitHub billing corroboration. It does
+not change, round, or weaken issue #842's 90% normalized Vercel Build CPU gate.
+
+`artifactStorageGbHours` receives the billed `actions_storage` quantity for an
+allowlisted deployment workflow. If GitHub leaves the workflow path blank, it
+receives the complete repository quantity as a conservative upper bound. The
+proof records that row count and does not claim that all repository storage came
+from this migration. `cacheStorageGbHours` applies the same rule to billed
 `actions_cache_storage`, which represents billable cache overage after GitHub
-allowances, not physical cache size. A nonzero repository-level storage row
-with a blank workflow path is an unattributed upper bound and fails the proof;
-do not claim it was added by this migration. Collector snapshots are diagnostic
-and do not replace attributable GB-hour quantities.
+allowances, not physical cache size. All retained storage rows must have zero
+net cost. Collector snapshots are diagnostic and do not replace billing
+GB-hour quantities.
 
 ## Source-of-truth intervals
 

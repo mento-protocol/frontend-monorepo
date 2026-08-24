@@ -12,6 +12,7 @@ import {
   lstatSync,
   openSync,
   readFileSync,
+  readSync,
   readdirSync,
   realpathSync,
   unlinkSync,
@@ -20,6 +21,7 @@ import {
 import { basename, dirname, relative, resolve, sep } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { inflateSync } from "node:zlib";
 
 import {
   GITHUB_BILLING_WORKFLOW_PATHS,
@@ -27,14 +29,16 @@ import {
 } from "./vercel-cost-observation.mjs";
 
 export const GITHUB_ACTIONS_PROOF_SCHEMA =
-  "vercel-cost-github-actions-proof:v3";
+  "vercel-cost-github-actions-proof:v4";
 export const GITHUB_USAGE_METADATA_SCHEMA =
   "vercel-cost-github-usage-export-metadata:v1";
 export const GITHUB_AUDIT_METADATA_SCHEMA =
-  "vercel-cost-github-audit-export-metadata:v2";
+  "vercel-cost-github-audit-export-metadata:v3";
 
 const REPOSITORY = "mento-protocol/frontend-monorepo";
 const ORGANIZATION = "mento-protocol";
+const USAGE_PRODUCT = "actions";
+const USAGE_REPOSITORY = "frontend-monorepo";
 const CATALOG_VERSION = "github-actions-skus:2026-08-13";
 const DIGEST_PATTERN = /^[a-f0-9]{64}$/;
 const DECIMAL_PATTERN = /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
@@ -108,6 +112,20 @@ const AUDIT_REST_SOURCE = "github-org-audit-log-rest-link-transcript";
 const AUDIT_REST_FORMAT = "http-link-transcript-json-array-pages";
 const AUDIT_WEB_SOURCE = "github-org-audit-log-owner-web-json-export";
 const AUDIT_WEB_FORMAT = "json-array";
+const AUDIT_WEB_ZERO_SOURCE =
+  "github-org-audit-log-owner-web-zero-result-attestation";
+const AUDIT_WEB_ZERO_TEXT = "We couldn’t find any events matching your search.";
+const COLLECTOR_MINUTES_PER_TOLERANCE_MINUTE = 1_000;
+const COLLECTOR_TOLERANCE_CAP_MINUTES = 10;
+const PNG_SIGNATURE = Buffer.from("89504e470d0a1a0a", "hex");
+const SCREENSHOT_MIN_WIDTH = 640;
+const SCREENSHOT_MIN_HEIGHT = 480;
+const SCREENSHOT_MAX_DIMENSION = 16_384;
+const SCREENSHOT_MAX_PIXELS = 16_000_000;
+const SCREENSHOT_MAX_BYTES = 25 * 1_024 * 1_024;
+const PNG_MAX_CHUNKS = 1_024;
+const PNG_MAX_IDAT_CHUNKS = 256;
+const AUDIT_WEB_ZERO_FORMAT = "browser-screenshot-png";
 
 function invariant(condition, message) {
   if (!condition) throw new Error(message);
@@ -236,7 +254,11 @@ function isWithin(parent, child, { allowEqual = false } = {}) {
   );
 }
 
-function readPrivateFile(path, privateRoot, label) {
+function readPrivateFile(path, privateRoot, label, { maxBytes } = {}) {
+  invariant(
+    maxBytes === undefined || (Number.isSafeInteger(maxBytes) && maxBytes >= 0),
+    `${label} byte limit is invalid`,
+  );
   const requested = resolve(path);
   const located = locatePrivatePath(requested);
   invariant(
@@ -259,6 +281,10 @@ function readPrivateFile(path, privateRoot, label) {
     `${label} must use mode 0600`,
   );
   invariant(
+    maxBytes === undefined || requestedStats.size <= maxBytes,
+    `${label} exceeds ${maxBytes} bytes`,
+  );
+  invariant(
     isWithin(privateRoot, canonical),
     `${label} escapes the private root`,
   );
@@ -273,9 +299,31 @@ function readPrivateFile(path, privateRoot, label) {
         opened.dev === requestedStats.dev &&
         opened.ino === requestedStats.ino &&
         opened.nlink === 1 &&
-        (opened.mode & 0o777) === 0o600,
+        (opened.mode & 0o777) === 0o600 &&
+        opened.size === requestedStats.size,
       `${label} changed while opening`,
     );
+    if (maxBytes !== undefined) {
+      invariant(opened.size <= maxBytes, `${label} exceeds ${maxBytes} bytes`);
+      const bytes = Buffer.alloc(opened.size);
+      let offset = 0;
+      while (offset < bytes.length) {
+        const count = readSync(
+          descriptor,
+          bytes,
+          offset,
+          bytes.length - offset,
+          offset,
+        );
+        invariant(count > 0, `${label} changed while reading`);
+        offset += count;
+      }
+      invariant(
+        readSync(descriptor, Buffer.alloc(1), 0, 1, bytes.length) === 0,
+        `${label} changed while reading`,
+      );
+      return bytes;
+    }
     return readFileSync(descriptor);
   } finally {
     closeSync(descriptor);
@@ -547,18 +595,44 @@ function parseUsageMetadata(bytes, observation) {
   return metadata;
 }
 
-function workflowPath(value) {
-  const withoutRef = value.replace(
-    /@(?:refs\/(?:heads|pull|tags)\/[A-Za-z0-9._/-]+|[a-f0-9]{40})$/,
-    "",
+function canonicalGitRef(value) {
+  if (!/^refs\/(?:heads|pull|tags)\/[A-Za-z0-9._/-]+$/.test(value))
+    return false;
+  const components = value.split("/");
+  return (
+    !value.includes("..") &&
+    !value.includes("@{") &&
+    !value.endsWith(".") &&
+    components.every(
+      (component) =>
+        component.length > 0 &&
+        !component.startsWith(".") &&
+        !component.endsWith(".lock"),
+    )
   );
-  if (GITHUB_BILLING_WORKFLOW_PATHS.includes(withoutRef)) return withoutRef;
-  const prefix = `${REPOSITORY}/`;
-  if (withoutRef.startsWith(prefix)) {
-    const path = withoutRef.slice(prefix.length);
-    if (GITHUB_BILLING_WORKFLOW_PATHS.includes(path)) return path;
-  }
-  return null;
+}
+
+function canonicalWorkflowPath(value) {
+  const workflow =
+    /^(?:mento-protocol\/frontend-monorepo\/)?(\.github\/workflows\/[A-Za-z0-9._-]+\.ya?ml)(?:@([A-Za-z0-9._/-]+))?$/.exec(
+      value,
+    );
+  if (
+    workflow &&
+    (workflow[2] === undefined ||
+      /^[a-f0-9]{40}$/.test(workflow[2]) ||
+      canonicalGitRef(workflow[2]))
+  )
+    return workflow[1];
+  const dynamic =
+    /^(?:mento-protocol\/frontend-monorepo\/)?(dynamic\/([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+))$/.exec(
+      value,
+    );
+  return dynamic &&
+    ![dynamic[2], dynamic[3]].includes(".") &&
+    ![dynamic[2], dynamic[3]].includes("..")
+    ? dynamic[1]
+    : null;
 }
 
 function aggregateUsage(csvBytes, metadata) {
@@ -570,15 +644,41 @@ function aggregateUsage(csvBytes, metadata) {
     cacheStorage: emptyMetric(),
     customImageStorage: emptyMetric(),
   };
+  let repositoryActionsRowCount = 0;
   let targetRowCount = 0;
+  let ignoredNonDeploymentRowCount = 0;
+  let repositoryLevelStorageRowCount = 0;
   for (const [index, row] of rows.entries()) {
     const rowNumber = index + 2;
     if (
-      row.product !== "Actions" ||
+      row.product !== USAGE_PRODUCT ||
       row.organization !== ORGANIZATION ||
-      row.repository !== REPOSITORY
+      row.repository !== USAGE_REPOSITORY
     )
       continue;
+    repositoryActionsRowCount += 1;
+    const parsedWorkflowPath = canonicalWorkflowPath(row.workflow_path);
+    invariant(
+      row.workflow_path === "" || parsedWorkflowPath !== null,
+      `GitHub usage CSV row ${rowNumber} workflow_path is malformed`,
+    );
+    const selectedWorkflowPath = GITHUB_BILLING_WORKFLOW_PATHS.includes(
+      parsedWorkflowPath,
+    )
+      ? parsedWorkflowPath
+      : null;
+    if (row.workflow_path === "") {
+      invariant(
+        STORAGE_SKUS.includes(row.sku),
+        `GitHub usage CSV row ${rowNumber} has a blank workflow_path for a non-storage or unknown SKU: ${row.sku}`,
+      );
+    }
+    const repositoryLevelStorage =
+      row.workflow_path === "" && STORAGE_SKUS.includes(row.sku);
+    if (!selectedWorkflowPath && !repositoryLevelStorage) {
+      ignoredNonDeploymentRowCount += 1;
+      continue;
+    }
     targetRowCount += 1;
     invariant(
       KNOWN_ACTIONS_SKUS.has(row.sku),
@@ -599,7 +699,7 @@ function aggregateUsage(csvBytes, metadata) {
         `GitHub usage CSV row ${rowNumber} runner unit is unsupported: ${row.unit_type}`,
       );
       invariant(
-        workflowPath(row.workflow_path),
+        selectedWorkflowPath,
         `GitHub usage CSV row ${rowNumber} workflow_path is outside the deployment allowlist`,
       );
       addMetric(
@@ -615,18 +715,11 @@ function aggregateUsage(csvBytes, metadata) {
         STORAGE_UNITS.has(row.unit_type),
         `GitHub usage CSV row ${rowNumber} storage unit is unsupported: ${row.unit_type}`,
       );
-      const storageQuantity = decimal(
-        row.quantity,
-        `GitHub usage CSV row ${rowNumber} quantity`,
-      );
       invariant(
-        storageQuantity.coefficient === 0n || workflowPath(row.workflow_path),
-        `GitHub usage CSV row ${rowNumber} has nonzero storage without an attributable deployment workflow_path`,
-      );
-      invariant(
-        row.workflow_path === "" || workflowPath(row.workflow_path),
+        row.workflow_path === "" || selectedWorkflowPath,
         `GitHub usage CSV row ${rowNumber} storage workflow_path is outside the deployment allowlist`,
       );
+      if (repositoryLevelStorage) repositoryLevelStorageRowCount += 1;
       const key =
         row.sku === "actions_storage"
           ? "artifactStorage"
@@ -646,7 +739,10 @@ function aggregateUsage(csvBytes, metadata) {
   );
   return {
     sourceRowCount: rows.length,
+    repositoryActionsRowCount,
     targetRowCount,
+    ignoredNonDeploymentRowCount,
+    repositoryLevelStorageRowCount,
     standardRunner: serializeMetric(metrics.standardRunner, "minutes"),
     largerRunner: serializeMetric(metrics.largerRunner, "minutes"),
     artifactStorage: serializeMetric(metrics.artifactStorage, "GB-hours"),
@@ -868,25 +964,54 @@ function validateRestAuditEvidence(transcriptBytes, metadata, observation) {
       page.events.length <= metadata.perPage,
       `GitHub audit transcript page ${index + 1} exceeds perPage`,
     );
-    const pageUrl = new URL(metadata.pageUrls[index]);
+    const rawPageUrl = metadata.pageUrls[index];
+    const pageUrl = new URL(rawPageUrl);
     invariant(
-      pageUrl.protocol === "https:" &&
-        pageUrl.hostname === "api.github.com" &&
+      rawPageUrl.startsWith(
+        `https://api.github.com/orgs/${ORGANIZATION}/audit-log?`,
+      ) &&
+        pageUrl.origin === "https://api.github.com" &&
+        pageUrl.username === "" &&
+        pageUrl.password === "" &&
+        pageUrl.port === "" &&
+        pageUrl.hash === "" &&
         pageUrl.pathname === `/orgs/${ORGANIZATION}/audit-log`,
       `GitHub audit metadata page ${index + 1} URL is unsupported`,
     );
+    const queryKeys = [...pageUrl.searchParams.keys()];
+    const allowedQueryKeys = new Set([
+      "phrase",
+      "include",
+      "order",
+      "per_page",
+      "after",
+      "before",
+    ]);
     invariant(
-      pageUrl.searchParams.get("phrase") === metadata.queryPhrase &&
+      queryKeys.every((key) => allowedQueryKeys.has(key)) &&
+        ["phrase", "include", "order", "per_page"].every(
+          (key) =>
+            queryKeys.filter((candidate) => candidate === key).length === 1,
+        ) &&
+        queryKeys.filter((key) => key === "after").length <= 1 &&
+        queryKeys.filter((key) => key === "before").length <= 1 &&
+        pageUrl.searchParams.get("phrase") === metadata.queryPhrase &&
         pageUrl.searchParams.get("include") === metadata.include &&
         pageUrl.searchParams.get("order") === metadata.order &&
         pageUrl.searchParams.get("per_page") === String(metadata.perPage),
       `GitHub audit metadata page ${index + 1} URL does not bind the query`,
     );
+    const after = pageUrl.searchParams.get("after");
+    const before = pageUrl.searchParams.get("before");
     invariant(
-      index !== 0 ||
-        (!pageUrl.searchParams.has("after") &&
-          !pageUrl.searchParams.has("before")),
+      index !== 0 || (after === null && before === null),
       "GitHub audit metadata first page must be cursor-free",
+    );
+    invariant(
+      index === 0 ||
+        ((after !== null) !== (before !== null) &&
+          (after ?? before).length > 0),
+      `GitHub audit metadata page ${index + 1} must have exactly one nonempty cursor`,
     );
     const expectedNext = metadata.pageUrls[index + 1] ?? null;
     invariant(
@@ -1007,6 +1132,270 @@ function validateWebAuditEvidence(exportBytes, metadata, observation) {
   };
 }
 
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function validateScreenshotDimensions(width, height) {
+  invariant(
+    Number.isSafeInteger(width) &&
+      Number.isSafeInteger(height) &&
+      width >= SCREENSHOT_MIN_WIDTH &&
+      height >= SCREENSHOT_MIN_HEIGHT &&
+      width <= SCREENSHOT_MAX_DIMENSION &&
+      height <= SCREENSHOT_MAX_DIMENSION &&
+      width * height <= SCREENSHOT_MAX_PIXELS,
+    `GitHub zero-result audit screenshot dimensions must be between ${SCREENSHOT_MIN_WIDTH}x${SCREENSHOT_MIN_HEIGHT} and ${SCREENSHOT_MAX_DIMENSION}x${SCREENSHOT_MAX_DIMENSION} with at most ${SCREENSHOT_MAX_PIXELS} pixels`,
+  );
+  return { width, height };
+}
+
+function validatePngScreenshot(bytes) {
+  invariant(
+    bytes.length >= 45 &&
+      bytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE),
+    "GitHub zero-result audit screenshot is not a complete PNG",
+  );
+  let offset = PNG_SIGNATURE.length;
+  let image = null;
+  let channels = null;
+  let sawIdat = false;
+  let idatEnded = false;
+  let sawIend = false;
+  let chunkCount = 0;
+  const idatChunks = [];
+  while (offset < bytes.length) {
+    chunkCount += 1;
+    invariant(
+      chunkCount <= PNG_MAX_CHUNKS,
+      `GitHub zero-result audit PNG exceeds ${PNG_MAX_CHUNKS} chunks`,
+    );
+    invariant(
+      offset + 12 <= bytes.length,
+      "GitHub zero-result audit PNG has a truncated chunk",
+    );
+    const length = bytes.readUInt32BE(offset);
+    invariant(
+      length <= bytes.length - offset - 12,
+      "GitHub zero-result audit PNG chunk length is invalid",
+    );
+    const typeBytes = bytes.subarray(offset + 4, offset + 8);
+    invariant(
+      [...typeBytes].every(
+        (byte) =>
+          (byte >= 0x41 && byte <= 0x5a) || (byte >= 0x61 && byte <= 0x7a),
+      ),
+      "GitHub zero-result audit PNG chunk type is invalid",
+    );
+    invariant(
+      (typeBytes[2] & 0x20) === 0,
+      "GitHub zero-result audit PNG chunk reserved bit is invalid",
+    );
+    const type = typeBytes.toString("ascii");
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + length;
+    invariant(
+      bytes.readUInt32BE(dataEnd) ===
+        crc32(bytes.subarray(offset + 4, dataEnd)),
+      `GitHub zero-result audit PNG ${type} checksum is invalid`,
+    );
+    invariant(
+      offset !== PNG_SIGNATURE.length || type === "IHDR",
+      "GitHub zero-result audit PNG must start with IHDR",
+    );
+    if (type === "IHDR") {
+      invariant(
+        image === null && length === 13,
+        "GitHub zero-result audit PNG has an invalid IHDR",
+      );
+      const width = bytes.readUInt32BE(dataStart);
+      const height = bytes.readUInt32BE(dataStart + 4);
+      const bitDepth = bytes[dataStart + 8];
+      const colorType = bytes[dataStart + 9];
+      const channelCount = new Map([
+        [0, 1],
+        [2, 3],
+        [4, 2],
+        [6, 4],
+      ]).get(colorType);
+      invariant(
+        bitDepth === 8 && channelCount !== undefined,
+        "GitHub zero-result audit PNG must use 8-bit non-indexed pixels",
+      );
+      invariant(
+        bytes[dataStart + 10] === 0 &&
+          bytes[dataStart + 11] === 0 &&
+          bytes[dataStart + 12] === 0,
+        "GitHub zero-result audit PNG compression, filtering, or interlace method is unsupported",
+      );
+      image = validateScreenshotDimensions(width, height);
+      channels = channelCount;
+    } else if (type === "IDAT") {
+      invariant(
+        image !== null &&
+          !idatEnded &&
+          length > 0 &&
+          idatChunks.length < PNG_MAX_IDAT_CHUNKS,
+        "GitHub zero-result audit PNG has misplaced IDAT data",
+      );
+      sawIdat = true;
+      idatChunks.push(bytes.subarray(dataStart, dataEnd));
+    } else {
+      if (sawIdat) idatEnded = true;
+      invariant(
+        type === "IEND" || (typeBytes[0] & 0x20) !== 0,
+        `GitHub zero-result audit PNG has an unsupported critical chunk: ${type}`,
+      );
+      if (type === "IEND") {
+        invariant(
+          length === 0 && dataEnd + 4 === bytes.length,
+          "GitHub zero-result audit PNG has an invalid IEND",
+        );
+        sawIend = true;
+      }
+    }
+    offset = dataEnd + 4;
+  }
+  invariant(
+    image !== null && sawIdat && sawIend,
+    "GitHub zero-result audit PNG is incomplete",
+  );
+  const rowBytes = image.width * channels;
+  const expectedInflatedLength = (rowBytes + 1) * image.height;
+  const compressedPixels = Buffer.concat(idatChunks);
+  let inflated;
+  try {
+    inflated = inflateSync(compressedPixels, {
+      info: true,
+      maxOutputLength: expectedInflatedLength,
+    });
+  } catch {
+    throw new Error("GitHub zero-result audit PNG pixel data is invalid");
+  }
+  invariant(
+    inflated.engine.bytesWritten === compressedPixels.length,
+    "GitHub zero-result audit PNG has trailing compressed data",
+  );
+  const pixels = inflated.buffer;
+  invariant(
+    pixels.length === expectedInflatedLength,
+    "GitHub zero-result audit PNG pixel length is invalid",
+  );
+  for (let row = 0; row < image.height; row += 1) {
+    invariant(
+      pixels[row * (rowBytes + 1)] <= 4,
+      `GitHub zero-result audit PNG row ${row + 1} has an invalid filter`,
+    );
+  }
+  return image;
+}
+
+function validateScreenshot(bytes) {
+  invariant(
+    bytes.length <= SCREENSHOT_MAX_BYTES,
+    `GitHub zero-result audit screenshot exceeds ${SCREENSHOT_MAX_BYTES} bytes`,
+  );
+  return validatePngScreenshot(bytes);
+}
+
+function validateWebZeroAuditEvidence(screenshotBytes, metadata, observation) {
+  exactKeys(
+    metadata,
+    [
+      "schema",
+      "source",
+      "format",
+      "repository",
+      "startUtc",
+      "endUtcExclusive",
+      "queryStartUtc",
+      "queryEndUtcExclusive",
+      "capturedAtUtc",
+      "queryPhrase",
+      "pageUrl",
+      "zeroResultText",
+      "eventCount",
+      "screenshotByteLength",
+      "screenshotSha256",
+      "ownerAttestation",
+    ],
+    "GitHub audit metadata",
+  );
+  invariant(
+    metadata.source === AUDIT_WEB_ZERO_SOURCE &&
+      metadata.format === AUDIT_WEB_ZERO_FORMAT,
+    "GitHub zero-result audit metadata source or format is unsupported",
+  );
+  validateAuditMetadataCommon(metadata, observation);
+  invariant(
+    metadata.eventCount === 0,
+    "GitHub zero-result audit metadata eventCount must be zero",
+  );
+  invariant(
+    Number.isSafeInteger(metadata.screenshotByteLength) &&
+      metadata.screenshotByteLength === screenshotBytes.length,
+    "GitHub audit metadata does not bind the zero-result screenshot byte length",
+  );
+  invariant(
+    DIGEST_PATTERN.test(metadata.screenshotSha256) &&
+      metadata.screenshotSha256 === sha256(screenshotBytes),
+    "GitHub audit metadata does not bind the zero-result screenshot bytes",
+  );
+  const screenshot = validateScreenshot(screenshotBytes);
+  const pageUrl = new URL(metadata.pageUrl);
+  const expectedPageUrl = new URL(
+    `https://github.com/organizations/${ORGANIZATION}/settings/audit-log`,
+  );
+  expectedPageUrl.searchParams.set("q", metadata.queryPhrase);
+  invariant(
+    metadata.pageUrl === expectedPageUrl.toString() &&
+      pageUrl.origin === "https://github.com" &&
+      pageUrl.username === "" &&
+      pageUrl.password === "" &&
+      pageUrl.port === "" &&
+      pageUrl.hash === "" &&
+      pageUrl.pathname ===
+        `/organizations/${ORGANIZATION}/settings/audit-log` &&
+      [...pageUrl.searchParams.keys()].length === 1 &&
+      pageUrl.searchParams.get("q") === metadata.queryPhrase,
+    "GitHub zero-result audit page URL does not bind the exact query",
+  );
+  invariant(
+    metadata.zeroResultText === AUDIT_WEB_ZERO_TEXT,
+    "GitHub zero-result audit text is unsupported",
+  );
+  const attestation = exactKeys(
+    metadata.ownerAttestation,
+    ["role", "zeroResultVisible", "exportControlAvailable", "pageError"],
+    "GitHub audit ownerAttestation",
+  );
+  invariant(
+    attestation.role === "admin",
+    "GitHub zero-result audit page must be attested by an organization admin owner",
+  );
+  invariant(
+    attestation.zeroResultVisible === true &&
+      attestation.exportControlAvailable === false &&
+      attestation.pageError === null,
+    "GitHub zero-result audit page attestation is incomplete",
+  );
+  return {
+    source: metadata.source,
+    format: metadata.format,
+    pageCount: 1,
+    eventCount: 0,
+    repositoryAccessEventCount: 0,
+    screenshot,
+  };
+}
+
 function validateAuditEvidence(evidenceBytes, metadataBytes, observation) {
   const metadata = parseJson(metadataBytes, "GitHub audit metadata");
   invariant(
@@ -1021,6 +1410,9 @@ function validateAuditEvidence(evidenceBytes, metadataBytes, observation) {
   if (metadata.source === AUDIT_WEB_SOURCE) {
     return validateWebAuditEvidence(evidenceBytes, metadata, observation);
   }
+  if (metadata.source === AUDIT_WEB_ZERO_SOURCE) {
+    return validateWebZeroAuditEvidence(evidenceBytes, metadata, observation);
+  }
   throw new Error("GitHub audit metadata source is unsupported");
 }
 
@@ -1028,6 +1420,9 @@ function collectorRunnerMinutes(observation) {
   let minutes = 0;
   let jobCount = 0;
   for (const job of observation.runnerJobs) {
+    // GitHub assigns synthetic timestamps to skipped jobs. The timestamps can
+    // be inverted, and skipped jobs do not consume runner minutes.
+    if (job.conclusion === "skipped") continue;
     if (!job.startedAtUtc && !job.completedAtUtc) continue;
     invariant(
       job.startedAtUtc && job.completedAtUtc,
@@ -1049,7 +1444,12 @@ function collectorRunnerMinutes(observation) {
     minutes += Math.ceil((completed - started) / 60_000);
     jobCount += 1;
   }
-  return { minutes, jobCount, rounding: "ceil-each-job-to-whole-minute" };
+  return {
+    minutes,
+    jobCount,
+    rounding:
+      "ceil-each-non-skipped-job-from-second-resolution-rest-timestamps",
+  };
 }
 
 function numberFromDecimal(value, label) {
@@ -1057,6 +1457,32 @@ function numberFromDecimal(value, label) {
   invariant(
     Number.isFinite(number) && number >= 0,
     `${label} is outside the analyzer number range`,
+  );
+  const [mantissa, exponentText = "0"] = String(number).split("e");
+  const [integer, fraction = ""] = mantissa.split(".");
+  const exponent = Number(exponentText);
+  let scale = fraction.length - exponent;
+  let coefficient = BigInt(`${integer}${fraction}`);
+  if (scale < 0) {
+    coefficient *= 10n ** BigInt(-scale);
+    scale = 0;
+  }
+  invariant(
+    normalizeDecimal({ coefficient, scale }) === value,
+    `${label} loses precision in the analyzer number range`,
+  );
+  return number;
+}
+
+function safeIntegerFromDecimal(value, label) {
+  invariant(
+    /^(?:0|[1-9][0-9]*)$/.test(value),
+    `${label} must be a whole number`,
+  );
+  const number = Number(value);
+  invariant(
+    Number.isSafeInteger(number),
+    `${label} is outside the analyzer safe-integer range`,
   );
   return number;
 }
@@ -1087,15 +1513,22 @@ function buildProofData({
     privateRoot,
     "GitHub usage metadata",
   );
-  const auditEvidenceBytes = readPrivateFile(
-    auditEvidencePath,
-    privateRoot,
-    "GitHub audit evidence",
-  );
   const auditMetadataRead = readPrivateJson(
     auditMetadataPath,
     privateRoot,
     "GitHub audit metadata",
+  );
+  const auditEvidenceBytes = readPrivateFile(
+    auditEvidencePath,
+    privateRoot,
+    "GitHub audit evidence",
+    {
+      maxBytes:
+        expectedAuditSource === AUDIT_WEB_ZERO_SOURCE ||
+        auditMetadataRead.value?.source === AUDIT_WEB_ZERO_SOURCE
+          ? SCREENSHOT_MAX_BYTES
+          : undefined,
+    },
   );
   const usageMetadata = parseUsageMetadata(
     usageMetadataRead.bytes,
@@ -1112,11 +1545,11 @@ function buildProofData({
     "GitHub audit evidence source conflicts with the selected CLI option",
   );
   const collector = collectorRunnerMinutes(observation);
-  const standardRunnerMinutes = numberFromDecimal(
+  const standardRunnerMinutes = safeIntegerFromDecimal(
     usage.standardRunner.quantity,
     "Standard runner minutes",
   );
-  const largerRunnerMinutes = numberFromDecimal(
+  const largerRunnerMinutes = safeIntegerFromDecimal(
     usage.largerRunner.quantity,
     "Larger runner minutes",
   );
@@ -1128,22 +1561,41 @@ function buildProofData({
     usage.cacheStorage.quantity,
     "Cache storage GB-hours",
   );
-  const customImageStorageGbHours = numberFromDecimal(
-    usage.customImageStorage.quantity,
-    "Custom image storage GB-hours",
-  );
   const standardNetZero = usage.standardRunner.netAmountUsd === "0";
+  const largerRunnerNetZero = usage.largerRunner.netAmountUsd === "0";
+  const artifactStorageNetZero = usage.artifactStorage.netAmountUsd === "0";
+  const cacheStorageNetZero = usage.cacheStorage.netAmountUsd === "0";
+  const customImageStorageNetZero =
+    usage.customImageStorage.netAmountUsd === "0";
   const runnerMinutesMatch =
     Number.isSafeInteger(standardRunnerMinutes) &&
     standardRunnerMinutes === collector.minutes;
+  const collectorMinusUsageRunnerMinutes = Number.isSafeInteger(
+    standardRunnerMinutes,
+  )
+    ? collector.minutes - standardRunnerMinutes
+    : null;
+  const runnerMinuteTolerance = Math.min(
+    COLLECTOR_TOLERANCE_CAP_MINUTES,
+    Math.floor(collector.minutes / COLLECTOR_MINUTES_PER_TOLERANCE_MINUTE),
+  );
+  const runnerMinutesWithinCollectorTolerance =
+    collectorMinusUsageRunnerMinutes !== null &&
+    collectorMinusUsageRunnerMinutes >= 0 &&
+    collectorMinusUsageRunnerMinutes <= runnerMinuteTolerance;
   const repositoryPublicEntireWindow =
     observation.repositoryPublicAtEverySample &&
     audit.repositoryAccessEventCount === 0;
-  const customImageStorageZero = customImageStorageGbHours === 0;
+  const largerRunnerMinutesZero = usage.largerRunner.quantity === "0";
+  const customImageStorageZero = usage.customImageStorage.quantity === "0";
   const eligibleForAnalyzer =
-    runnerMinutesMatch &&
+    runnerMinutesWithinCollectorTolerance &&
     standardNetZero &&
-    largerRunnerMinutes === 0 &&
+    largerRunnerNetZero &&
+    artifactStorageNetZero &&
+    cacheStorageNetZero &&
+    customImageStorageNetZero &&
+    largerRunnerMinutesZero &&
     customImageStorageZero &&
     repositoryPublicEntireWindow;
   return {
@@ -1203,7 +1655,8 @@ function buildProofData({
     },
     catalog: {
       version: CATALOG_VERSION,
-      product: "Actions",
+      product: USAGE_PRODUCT,
+      repository: USAGE_REPOSITORY,
       standardRunnerSkus: STANDARD_RUNNER_SKUS,
       largerRunnerSkus: LARGER_RUNNER_SKUS,
       storageSkus: STORAGE_SKUS,
@@ -1221,13 +1674,24 @@ function buildProofData({
       auditSource: audit.source,
       auditFormat: audit.format,
       auditEvidenceUnitCount: audit.pageCount,
+      auditScreenshotPixelWidth: audit.screenshot?.width ?? null,
+      auditScreenshotPixelHeight: audit.screenshot?.height ?? null,
       repositoryAccessEventCount: audit.repositoryAccessEventCount,
       repositoryPublicEntireWindow,
     },
     reconciliation: {
       standardRunnerMinutesMatchCollector: runnerMinutesMatch,
+      collectorMinusUsageStandardRunnerMinutes:
+        collectorMinusUsageRunnerMinutes,
+      standardRunnerMinuteTolerance: runnerMinuteTolerance,
+      standardRunnerMinutesWithinCollectorTolerance:
+        runnerMinutesWithinCollectorTolerance,
       publicStandardRunnerNetAmountZero: standardNetZero,
-      largerRunnerMinutesZero: largerRunnerMinutes === 0,
+      largerRunnerNetAmountZero: largerRunnerNetZero,
+      artifactStorageNetAmountZero: artifactStorageNetZero,
+      cacheStorageNetAmountZero: cacheStorageNetZero,
+      customImageStorageNetAmountZero: customImageStorageNetZero,
+      largerRunnerMinutesZero,
       customImageStorageZero,
     },
     billingSemantics: {
@@ -1240,13 +1704,17 @@ function buildProofData({
       cacheScope:
         "actions_cache_storage is billable cache usage after GitHub allowances, not physical cache size",
       storageAttribution:
-        "nonzero storage is accepted only when the detailed report assigns it to one allowlisted deployment workflow; repository-level blank-path storage is not attributed to the migration",
+        "workflow-attributed storage uses the deployment allowlist; blank-path storage uses the complete repository total as a conservative upper bound and is not claimed as migration-only",
       csvCompleteness:
         "GitHub detailed web CSV has no machine-verifiable completion marker; the bound metadata is a maintainer attestation after the documented storage lag",
+      collectorReconciliation:
+        "the detailed usage CSV is the billing source of record; the complete second-resolution REST job collector may exceed it by at most one minute per 1,000 reconstructed minutes, capped at 10 minutes; a CSV total above the collector fails closed",
       auditCompleteness:
         audit.source === AUDIT_REST_SOURCE
           ? "REST evidence binds a cursor-free first page and the complete exact Link next chain"
-          : "owner web JSON export completeness is maintainer-attested; GitHub provides no pagination proof or provider signature, and hard-limits exports at 100 MB compressed or 10 minutes processing time",
+          : audit.source === AUDIT_WEB_SOURCE
+            ? "owner web JSON export completeness is maintainer-attested; GitHub provides no pagination proof or provider signature, and hard-limits exports at 100 MB compressed or 10 minutes processing time"
+            : "owner web zero-result completeness is maintainer-attested and bound to the exact query URL, visible zero-result text, and screenshot bytes; GitHub renders no export control for an empty result",
     },
     analyzerFragment: {
       standardRunnerMinutes,
@@ -1266,10 +1734,11 @@ export function buildGitHubActionsCostProof(options) {
   const auditInputs = [
     options.auditRestTranscript,
     options.auditWebExport,
+    options.auditWebZeroScreenshot,
   ].filter((value) => typeof value === "string" && value.length > 0);
   invariant(
     auditInputs.length === 1,
-    "Exactly one of auditRestTranscript or auditWebExport is required",
+    "Exactly one audit evidence input is required",
   );
   return buildProofData({
     proofPath,
@@ -1278,7 +1747,9 @@ export function buildGitHubActionsCostProof(options) {
     auditEvidencePath: resolve(auditInputs[0]),
     expectedAuditSource: options.auditRestTranscript
       ? AUDIT_REST_SOURCE
-      : AUDIT_WEB_SOURCE,
+      : options.auditWebExport
+        ? AUDIT_WEB_SOURCE
+        : AUDIT_WEB_ZERO_SOURCE,
     auditMetadataPath: resolve(options.auditMetadata),
     observationRoot: resolve(options.observationRoot),
   });
@@ -1331,6 +1802,7 @@ export function validateGitHubActionsCostProof(proofPath) {
       privateRoot,
       "GitHub audit metadata path",
     ),
+    expectedAuditSource: proof.visibility?.auditSource,
     observationRoot: resolveSource(
       absoluteProof,
       proof.sources.observation.path,
@@ -1477,7 +1949,7 @@ function recoverPrivateOutputPublication(path, privateRoot) {
 }
 
 function usage() {
-  return "Usage: vercel-cost-github-actions.mjs inspect --usage-csv <private.csv> --output <inspection.json> | build --usage-csv <private.csv> --usage-metadata <metadata.json> (--audit-rest-transcript <transcript.txt> | --audit-web-export <export.json>) --audit-metadata <metadata.json> --observation-root <root> --output <proof.json>";
+  return "Usage: vercel-cost-github-actions.mjs inspect --usage-csv <private.csv> --output <inspection.json> | build --usage-csv <private.csv> --usage-metadata <metadata.json> (--audit-rest-transcript <transcript.txt> | --audit-web-export <export.json> | --audit-web-zero-screenshot <screenshot.png>) --audit-metadata <metadata.json> --observation-root <root> --output <proof.json>";
 }
 
 function parseArguments(argv) {
@@ -1511,9 +1983,11 @@ function parseArguments(argv) {
       required.every((key) => Object.hasOwn(options, key)),
       usage(),
     );
-    const auditInputs = ["auditRestTranscript", "auditWebExport"].filter(
-      (key) => Object.hasOwn(options, key),
-    );
+    const auditInputs = [
+      "auditRestTranscript",
+      "auditWebExport",
+      "auditWebZeroScreenshot",
+    ].filter((key) => Object.hasOwn(options, key));
     invariant(auditInputs.length === 1, usage());
     invariant(
       Object.keys(options).every(
