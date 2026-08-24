@@ -841,10 +841,10 @@ took 4 minutes 5 seconds. The comparison projects a reduction of 12 minutes
 pure-control-plane change after the planner update was main release
 [32767236124](https://github.com/mento-protocol/frontend-monorepo/actions/runs/32767236124)
 for merge `5b9b5d0b`. It completed in 4 minutes 48 seconds. This was 11 minutes
-41 seconds, or 70.9 percent, faster than the baseline. Its release plan had
-empty staged, active, and shadow target sets and completed with the `no-target`
-outcome. The no-target route still binds the exact successful main CI attempt
-and publishes the exact-main
+41 seconds, or a 70.9 percent reduction in duration compared with the baseline.
+Its release plan had empty staged, active, and shadow target sets and completed
+with the `no-target` outcome. The no-target route still binds the exact
+successful main CI attempt and publishes the exact-main
 `Dependabot Post-Merge Verification` receipt. It skips candidate staging,
 provider mutation transitions, Chromium installation, and public runtime smoke
 only when its evidence binds an explicit empty affected-target set. Affected
