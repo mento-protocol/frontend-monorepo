@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { after } from "node:test";
 import {
@@ -13,6 +14,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import process from "node:process";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -26,14 +28,22 @@ import {
   stageOsvActionsCompanionLive,
 } from "./dependabot-actions-companion-live.mjs";
 import {
+  canonicalJson,
   OSV_MIRROR_TEST_PATH,
   OSV_REPORTER_ACTION,
   OSV_SCANNER_ACTION,
   OSV_WORKFLOW_PATH,
 } from "./dependabot-actions-companion.mjs";
+import {
+  DEPENDABOT_ACTIONS_COMPANION_SOAK_SCHEMA,
+  validateDependabotActionsCompanionSoakArtifact,
+} from "./dependabot-production-soak.mjs";
 
 const SCRIPT_PATH = fileURLToPath(
   new URL("./dependabot-actions-companion-live.mjs", import.meta.url),
+);
+const SOAK_SCRIPT_PATH = fileURLToPath(
+  new URL("./dependabot-production-soak.mjs", import.meta.url),
 );
 const REPOSITORY = "mento-protocol/frontend-monorepo";
 const FROM_SHA = "a".repeat(40);
@@ -50,7 +60,7 @@ const READ_TOKEN = "read-token";
 const STAGE_TOKEN = "stage-token";
 const OPEN_TOKEN = "open-token";
 const PROCESSOR_RUN_ID = 32_720_811_102;
-const PREPARE_APP_SLUG = "dependabot-companion-prepare";
+const PREPARE_APP_SLUG = "mento-dependabot-prepare";
 const PREPARE_BOT_ID = 91_840;
 const PREPARE_BOT_LOGIN = `${PREPARE_APP_SLUG}[bot]`;
 const PREPARE_BOT = {
@@ -613,6 +623,7 @@ function liveFixture() {
     }
     if (method === "POST" && path === `/repos/${REPOSITORY}/pulls`) {
       state.openedPull = {
+        auto_merge: null,
         base: {
           ref: "main",
           repo: { full_name: REPOSITORY },
@@ -627,6 +638,7 @@ function liveFixture() {
         },
         html_url: `https://github.com/${REPOSITORY}/pull/841`,
         maintainer_can_modify: body.maintainer_can_modify,
+        merged_at: null,
         number: 841,
         state: "open",
         title: body.title,
@@ -786,6 +798,88 @@ test("stages and opens the #840 OSV companion with an 11-digit run ID and isolat
     state: "open",
     url: `https://github.com/${REPOSITORY}/pull/841`,
   });
+
+  const evidenceDirectory = mkdtempSync(
+    join(tmpdir(), "dependabot-companion-evidence-"),
+  );
+  TEMP_DIRECTORIES.push(evidenceDirectory);
+  const evidencePaths = Object.fromEntries(
+    ["artifact", "census", "open", "partial", "pull", "stage"].map((name) => [
+      name,
+      join(evidenceDirectory, `${name}.json`),
+    ]),
+  );
+  const receiptBytes = (receipt) => Buffer.from(`${canonicalJson(receipt)}\n`);
+  writeFileSync(evidencePaths.census, receiptBytes(sealed));
+  writeFileSync(evidencePaths.stage, receiptBytes(staged));
+  writeFileSync(evidencePaths.open, receiptBytes(opened));
+  writeFileSync(evidencePaths.pull, JSON.stringify(fixture.state.openedPull));
+
+  const partialRun = spawnSync(
+    process.execPath,
+    [
+      SOAK_SCRIPT_PATH,
+      "companion-stage",
+      "--census",
+      evidencePaths.census,
+      "--stage",
+      evidencePaths.stage,
+      "--output",
+      evidencePaths.partial,
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(partialRun.status, 0, partialRun.stderr);
+  const artifactRun = spawnSync(
+    process.execPath,
+    [
+      SOAK_SCRIPT_PATH,
+      "companion-open",
+      "--partial",
+      evidencePaths.partial,
+      "--open",
+      evidencePaths.open,
+      "--pull",
+      evidencePaths.pull,
+      "--output",
+      evidencePaths.artifact,
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(artifactRun.status, 0, artifactRun.stderr);
+  const artifactBytes = readFileSync(evidencePaths.artifact);
+  const artifact = JSON.parse(artifactBytes);
+  assert.equal(artifact.schema, DEPENDABOT_ACTIONS_COMPANION_SOAK_SCHEMA);
+  assert.equal(artifactBytes.toString(), `${canonicalJson(artifact)}\n`);
+  assert.equal(artifactBytes.byteLength <= 16 * 1024, true);
+  validateDependabotActionsCompanionSoakArtifact(artifact);
+  assert.equal(artifact.case.pr.number, 840);
+  assert.equal(artifact.case.companion.pr.number, 841);
+  assert.equal(artifact.case.companion.commitSha, STAGED_COMMIT_SHA);
+  assert.equal(artifact.case.planDigest, sealed.plan.planDigest);
+  assert.equal(
+    artifact.case.processor.checkId,
+    sealed.authority.processor.checkId,
+  );
+  assert.deepEqual(
+    artifact.case.receipts,
+    Object.fromEntries(
+      [
+        ["census", sealed, evidencePaths.census],
+        ["open", opened, evidencePaths.open],
+        ["stage", staged, evidencePaths.stage],
+      ].map(([name, receipt, path]) => [
+        name,
+        {
+          receiptSha256: createHash("sha256")
+            .update(readFileSync(path))
+            .digest("hex"),
+          result: receipt.result,
+          schema: receipt.schema,
+        },
+      ]),
+    ),
+  );
 
   const mutations = fixture.state.calls.filter(isRepositoryMutation);
   assert.deepEqual(

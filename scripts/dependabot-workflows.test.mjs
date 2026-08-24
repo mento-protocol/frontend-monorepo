@@ -764,7 +764,7 @@ test("Wagmi paths share one use-sync-external-store peer snapshot", () => {
 
 test("embedded workflow JavaScript parses before GitHub executes it", () => {
   const expectedModuleCounts = new Map([
-    [processorPath, 9],
+    [processorPath, 11],
     [dependabotReviewPath, 6],
     [preparedIntakePath, 1],
     [repairPath, 3],
@@ -1875,11 +1875,17 @@ exit 64
         trustedRoot,
         "dependabot-actions-companion-live.mjs",
       );
-      assert.equal(result.githubOutput, `path=${trustedAdapter}\n`, jobName);
+      const trustedSoak = join(trustedRoot, "dependabot-production-soak.mjs");
+      assert.equal(
+        result.githubOutput,
+        `path=${trustedAdapter}\nsoak_path=${trustedSoak}\n`,
+        jobName,
+      );
       for (const source of [
         "dependabot-actions-companion-live.mjs",
         "dependabot-actions-companion.mjs",
         "dependabot-preparation-receipts.mjs",
+        "dependabot-production-soak.mjs",
         "dependabot-processor.mjs",
       ]) {
         assert.equal(
@@ -1889,18 +1895,20 @@ exit 64
         );
       }
 
-      const imported = spawnSync(
-        process.execPath,
-        [
-          "--input-type=module",
-          "--eval",
-          'import { pathToFileURL } from "node:url"; await import(pathToFileURL(process.argv[2]).href);',
-          "materialization-test",
-          trustedAdapter,
-        ],
-        { encoding: "utf8" },
-      );
-      assert.equal(imported.status, 0, `${jobName}: ${imported.stderr}`);
+      for (const trustedSource of [trustedAdapter, trustedSoak]) {
+        const imported = spawnSync(
+          process.execPath,
+          [
+            "--input-type=module",
+            "--eval",
+            'import { pathToFileURL } from "node:url"; await import(pathToFileURL(process.argv[2]).href);',
+            "materialization-test",
+            trustedSource,
+          ],
+          { encoding: "utf8" },
+        );
+        assert.equal(imported.status, 0, `${jobName}: ${imported.stderr}`);
+      }
     }
   } finally {
     rmSync(temporaryDirectory, { force: true, recursive: true });
@@ -2382,6 +2390,7 @@ test("OSV companion staging waits for finalization and isolates each write token
   );
   assert.deepEqual(stageJob.permissions, readPermissions);
   assert.deepEqual(stageJob.outputs, {
+    soak_partial: "${{ steps.stage.outputs.soak_partial }}",
     stage_receipt: "${{ steps.stage.outputs.stage_receipt }}",
     stage_result: "${{ steps.stage.outputs.stage_result }}",
   });
@@ -2451,6 +2460,13 @@ test("OSV companion staging waits for finalization and isolates each write token
     materialize.run,
     /dependabot-preparation-receipts\.mjs\?ref=\$WORKFLOW_SHA/u,
   );
+  assert.match(
+    materialize.run,
+    /dependabot-production-soak\.mjs\?ref=\$WORKFLOW_SHA/u,
+  );
+  assert.match(materialize.run, /test -s "\$trusted_soak"/u);
+  assert.match(materialize.run, /chmod 0500 "\$trusted_soak"/u);
+  assert.match(materialize.run, /soak_path=\$trusted_soak/u);
   assert.equal(
     census.env.DEPENDABOT_COMPANION_GITHUB_TOKEN,
     "${{ github.token }}",
@@ -2520,6 +2536,27 @@ test("OSV companion staging waits for finalization and isolates each write token
   assert.match(stage.run, /--run-id "\$PROCESSOR_RUN_ID"/u);
   assert.match(stage.run, /stage_receipt=.*base64/su);
   assert.match(stage.run, /stage_result=/u);
+  assert.equal(
+    stage.env.SOAK_HELPER_PATH,
+    "${{ steps.companion-adapter.outputs.soak_path }}",
+  );
+  assert.equal(
+    stage.env.SOAK_PARTIAL_PATH,
+    "${{ runner.temp }}/dependabot-actions-companion-soak-partial.json",
+  );
+  assert.match(stage.run, /if \[ "\$stage_result" = "staged" \]; then/u);
+  assert.match(
+    stage.run,
+    /node "\$SOAK_HELPER_PATH" companion-stage[\s\S]*--census "\$CENSUS_RESULT_PATH"[\s\S]*--stage "\$STAGE_RESULT_PATH"[\s\S]*--output "\$SOAK_PARTIAL_PATH"/u,
+  );
+  assert.match(stage.run, /bytes\.byteLength > 16 \* 1024/u);
+  assert.match(stage.run, /canonicalJson\(partial\)/u);
+  assert.match(stage.run, /dependabot-actions-companion-soak-partial:v1/u);
+  assert.match(stage.run, /soak_partial=.*toString\("base64"\)/su);
+  assert.ok(
+    stage.run.indexOf('throw new Error("Invalid companion stage receipt")') <
+      stage.run.indexOf('node "$SOAK_HELPER_PATH" companion-stage'),
+  );
   assert.ok(
     stage.run.indexOf("bytes.byteLength") < stage.run.indexOf("JSON.parse"),
   );
@@ -2556,6 +2593,9 @@ test("OSV companion staging waits for finalization and isolates each write token
       "Bind the pull-request token to the exact Prepare App bot",
       "Revalidate the staged head and open its companion pull request",
       "Confirm the exact App-authored companion pull request",
+      "Build the redacted companion soak evidence",
+      "Upload the redacted companion soak evidence",
+      "Summarize the redacted companion soak evidence",
     ],
   );
   const openCheckout = openJob.steps.find((step) =>
@@ -2577,6 +2617,15 @@ test("OSV companion staging waits for finalization and isolates each write token
   const confirmation = openJob.steps.find((step) =>
     step.name.startsWith("Confirm the exact App-authored"),
   );
+  const soakEvidence = openJob.steps.find((step) =>
+    step.name.startsWith("Build the redacted companion soak evidence"),
+  );
+  const soakUpload = openJob.steps.find(
+    (step) => step.id === "upload-soak-evidence",
+  );
+  const soakSummary = openJob.steps.find((step) =>
+    step.name.startsWith("Summarize the redacted companion soak evidence"),
+  );
   assert.ok(openToken);
   assert.ok(openCheckout);
   assert.ok(openIdentity);
@@ -2584,6 +2633,9 @@ test("OSV companion staging waits for finalization and isolates each write token
   assert.ok(open);
   assert.ok(openMaterialize);
   assert.ok(confirmation);
+  assert.ok(soakEvidence);
+  assert.ok(soakUpload);
+  assert.ok(soakSummary);
   assert.equal(
     openCheckout.uses,
     "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
@@ -2609,6 +2661,13 @@ test("OSV companion staging waits for finalization and isolates each write token
     openMaterialize.run,
     /dependabot-preparation-receipts\.mjs\?ref=\$WORKFLOW_SHA/u,
   );
+  assert.match(
+    openMaterialize.run,
+    /dependabot-production-soak\.mjs\?ref=\$WORKFLOW_SHA/u,
+  );
+  assert.match(openMaterialize.run, /test -s "\$trusted_soak"/u);
+  assert.match(openMaterialize.run, /chmod 0500 "\$trusted_soak"/u);
+  assert.match(openMaterialize.run, /soak_path=\$trusted_soak/u);
   assert.equal(
     openToken.uses,
     "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
@@ -2628,6 +2687,21 @@ test("OSV companion staging waits for finalization and isolates each write token
     decode.env.STAGE_RECEIPT_BASE64,
     "${{ needs.actions-companion-stage.outputs.stage_receipt }}",
   );
+  assert.equal(
+    decode.env.SOAK_PARTIAL_BASE64,
+    "${{ needs.actions-companion-stage.outputs.soak_partial }}",
+  );
+  assert.equal(
+    decode.env.SOAK_PARTIAL_PATH,
+    "${{ runner.temp }}/dependabot-actions-companion-soak-partial.json",
+  );
+  assert.match(decode.run, /partialBytes\.byteLength > 16 \* 1024/u);
+  assert.match(
+    decode.run,
+    /partialBytes\.toString\("base64"\) !== partialEncoded/u,
+  );
+  assert.match(decode.run, /canonicalJson\(partial\)/u);
+  assert.match(decode.run, /dependabot-actions-companion-soak-partial:v1/u);
   assert.ok(
     decode.run.indexOf("bytes.byteLength") < decode.run.indexOf("JSON.parse"),
   );
@@ -2680,6 +2754,52 @@ test("OSV companion staging waits for finalization and isolates each write token
   assert.match(confirmation.run, /pull\.maintainer_can_modify !== false/u);
   assert.match(confirmation.run, /pull\.merged_at !== null/u);
   assert.match(confirmation.run, /pull\.auto_merge !== null/u);
+  assert.match(
+    soakEvidence.run,
+    /node "\$SOAK_HELPER_PATH" companion-open[\s\S]*--partial "\$SOAK_PARTIAL_PATH"[\s\S]*--open "\$OPEN_RESULT_PATH"[\s\S]*--pull "\$PR_SNAPSHOT_PATH"[\s\S]*--output "\$SOAK_EVIDENCE_PATH"/u,
+  );
+  assert.match(soakEvidence.run, /bytes\.byteLength > 16 \* 1024/u);
+  assert.match(soakEvidence.run, /canonicalJson\(evidence\)/u);
+  assert.match(soakEvidence.run, /dependabot-actions-companion-soak:v1/u);
+  assert.ok(
+    openJob.steps.indexOf(confirmation) < openJob.steps.indexOf(soakEvidence),
+  );
+  assert.ok(
+    openJob.steps.indexOf(soakEvidence) < openJob.steps.indexOf(soakUpload),
+  );
+  assert.ok(
+    openJob.steps.indexOf(soakUpload) < openJob.steps.indexOf(soakSummary),
+  );
+  assert.equal(
+    soakUpload.uses,
+    "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+  );
+  assert.deepEqual(soakUpload.with, {
+    name: "dependabot-actions-companion-soak-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.evaluate.outputs.actions_companion_pr_number }}",
+    path: "${{ runner.temp }}/dependabot-actions-companion-soak.json",
+    "if-no-files-found": "error",
+    "retention-days": 90,
+  });
+  assert.equal(
+    soakSummary.env.ARTIFACT_DIGEST,
+    "${{ steps.upload-soak-evidence.outputs.artifact-digest }}",
+  );
+  assert.equal(
+    soakSummary.env.ARTIFACT_ID,
+    "${{ steps.upload-soak-evidence.outputs.artifact-id }}",
+  );
+  assert.equal(
+    soakSummary.env.ARTIFACT_URL,
+    "${{ steps.upload-soak-evidence.outputs.artifact-url }}",
+  );
+  assert.match(soakSummary.run, /GITHUB_STEP_SUMMARY/u);
+  assert.match(soakSummary.run, /gh run download \$RUN_ID/u);
+  assert.match(soakSummary.run, /--repo \$REPOSITORY/u);
+  assert.match(soakSummary.run, /--name \$ARTIFACT_NAME/u);
+  assert.match(
+    soakSummary.run,
+    /--dir \/tmp\/dependabot-actions-companion-soak/u,
+  );
   assert.equal(
     JSON.stringify(openJob).split(
       "${{ steps.companion-open-token.outputs.token }}",
@@ -2689,6 +2809,12 @@ test("OSV companion staging waits for finalization and isolates each write token
   assert.deepEqual(
     openJob.steps.filter((step) => step.uses?.startsWith("actions/checkout@")),
     [openCheckout],
+  );
+  assert.equal(
+    openJob.steps.some((step) =>
+      step.uses?.startsWith("actions/download-artifact@"),
+    ),
+    false,
   );
   assert.doesNotMatch(
     JSON.stringify(openJob),

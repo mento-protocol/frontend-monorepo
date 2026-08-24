@@ -313,7 +313,10 @@ workflow, receipt, reviewer, policy, or runbook changes. Run
 production evidence report. Before changing a pending row to passed, revalidate
 its exact PR, check, workflow-run, and authority evidence against live GitHub.
 The typed companion row also requires the exact source and companion PRs and
-the distinct census, stage, and open receipt hashes.
+the distinct census, stage, and open receipt hashes. Its successful opener
+uploads a redacted `dependabot-actions-companion-soak-<run>-<attempt>-<pr>`
+artifact. Use the import command in `docs/dependabot-automation.md` only after
+live revalidation.
 The offline command does not certify GitHub provenance.
 Follow `docs/dependabot-automation.md` and
 ADRs 0006, 0008, and 0009 for the complete contract.

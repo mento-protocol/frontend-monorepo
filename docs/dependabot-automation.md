@@ -988,6 +988,26 @@ exact source and companion PRs, companion branch and commit, workflow and
 Processor run attempts, one plan digest, and distinct census, stage, and open
 receipt SHA-256 hashes.
 
+The successful opener uploads one redacted artifact. It hashes the exact
+canonical receipt bytes, including their trailing LF. It does not retain the
+raw receipts. Download and import a candidate manifest with:
+
+```bash
+gh run download <run-id> \
+  --repo mento-protocol/frontend-monorepo \
+  --name dependabot-actions-companion-soak-<run-id>-<attempt>-<source-pr> \
+  --dir /tmp/dependabot-actions-companion-soak
+node scripts/dependabot-production-soak.mjs import-typed-companion \
+  --artifact /tmp/dependabot-actions-companion-soak/dependabot-actions-companion-soak.json \
+  --manifest docs/dependabot-production-soak.json \
+  --output /tmp/dependabot-production-soak.candidate.json
+```
+
+The importer creates a new file and never overwrites its output. Revalidate
+the artifact's PRs, workflow run and attempt, Processor check and run, and
+receipt bindings against live GitHub. Only then replace the checked-in manifest
+and regenerate the Markdown report.
+
 Run the opt-in public-registry Next source-preserving sync proof after changing
 the typed generator or its pnpm contract:
 

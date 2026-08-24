@@ -568,7 +568,10 @@ The soak command validates an offline observational report. Revalidate every
 exact PR, check, workflow run, and authority claim against live GitHub before
 changing a pending row to passed. The typed companion row also requires the
 exact source and companion PRs and the distinct census, stage, and open receipt
-hashes. Offline validation does not certify GitHub provenance.
+hashes. Its successful opener uploads a redacted
+`dependabot-actions-companion-soak-<run>-<attempt>-<pr>` artifact. Download it
+and use the importer documented in the Dependabot runbook only after live
+revalidation. Offline validation does not certify GitHub provenance.
 
 See the [Dependabot processing runbook](docs/dependabot-automation.md) and
 [ADR 0006](docs/adr/0006-dependabot-processing-controller.md) with its native

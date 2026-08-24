@@ -88,6 +88,10 @@ The workflow separates branch staging from PR creation:
   historical source/base plan from immutable commits and verifies the exact
   companion commit, parent, tree, and result blobs. It does not depend on a
   surviving companion branch ref or mutable current-base state.
+- After exact PR confirmation, the opening job publishes one redacted
+  observational artifact. It binds the source, companion, workflow, Processor,
+  plan, and SHA-256 hashes of the exact canonical census, stage, and open
+  receipt bytes. It does not publish the raw receipts or grant authority.
 
 Install the Prepare App with Contents, Pull requests, and Workflows write
 permissions. Each token request still receives only the permissions required

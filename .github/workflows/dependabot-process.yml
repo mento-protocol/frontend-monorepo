@@ -525,6 +525,7 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
+      soak_partial: ${{ steps.stage.outputs.soak_partial }}
       stage_receipt: ${{ steps.stage.outputs.stage_receipt }}
       stage_result: ${{ steps.stage.outputs.stage_result }}
     steps:
@@ -552,6 +553,7 @@ jobs:
           trusted_adapter="$trusted_root/dependabot-actions-companion-live.mjs"
           trusted_processor="$trusted_root/dependabot-processor.mjs"
           trusted_receipts="$trusted_root/dependabot-preparation-receipts.mjs"
+          trusted_soak="$trusted_root/dependabot-production-soak.mjs"
           resolved_sha="$(gh api "repos/$REPOSITORY/commits/$WORKFLOW_SHA" --jq .sha)"
           test "$resolved_sha" = "$WORKFLOW_SHA"
           gh api \
@@ -570,15 +572,22 @@ jobs:
             -H "Accept: application/vnd.github.raw+json" \
             "repos/$REPOSITORY/contents/scripts/dependabot-preparation-receipts.mjs?ref=$WORKFLOW_SHA" \
             > "$trusted_receipts"
+          gh api \
+            -H "Accept: application/vnd.github.raw+json" \
+            "repos/$REPOSITORY/contents/scripts/dependabot-production-soak.mjs?ref=$WORKFLOW_SHA" \
+            > "$trusted_soak"
           test -s "$trusted_helper"
           test -s "$trusted_adapter"
           test -s "$trusted_processor"
           test -s "$trusted_receipts"
+          test -s "$trusted_soak"
           chmod 0400 "$trusted_helper"
           chmod 0400 "$trusted_processor"
           chmod 0400 "$trusted_receipts"
           chmod 0500 "$trusted_adapter"
+          chmod 0500 "$trusted_soak"
           echo "path=$trusted_adapter" >> "$GITHUB_OUTPUT"
+          echo "soak_path=$trusted_soak" >> "$GITHUB_OUTPUT"
 
       - name: Census the inert exact-base checkout without App credentials
         id: census
@@ -742,6 +751,8 @@ jobs:
           PROCESSOR_RUN_ATTEMPT: ${{ github.run_attempt }}
           PROCESSOR_RUN_ID: ${{ github.run_id }}
           REPOSITORY: ${{ github.repository }}
+          SOAK_HELPER_PATH: ${{ steps.companion-adapter.outputs.soak_path }}
+          SOAK_PARTIAL_PATH: ${{ runner.temp }}/dependabot-actions-companion-soak-partial.json
           STAGE_RESULT_PATH: ${{ runner.temp }}/dependabot-actions-companion-stage.json
           WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: |
@@ -772,7 +783,7 @@ jobs:
             --run-attempt "$PROCESSOR_RUN_ATTEMPT" \
             --run-id "$PROCESSOR_RUN_ID" \
             --workflow-sha "$WORKFLOW_SHA"
-          node --input-type=module --eval '
+          stage_result="$(node --input-type=module --eval '
             import { Buffer } from "node:buffer";
             import { appendFileSync, readFileSync } from "node:fs";
             import { dirname, resolve } from "node:path";
@@ -830,7 +841,44 @@ jobs:
                 staged ? Buffer.from(raw, "utf8").toString("base64") : ""
               }\n` + `stage_result=${receipt.result}\n`,
             );
-          '
+            process.stdout.write(receipt.result);
+          ')"
+          if [ "$stage_result" = "staged" ]; then
+            node "$SOAK_HELPER_PATH" companion-stage \
+              --census "$CENSUS_RESULT_PATH" \
+              --stage "$STAGE_RESULT_PATH" \
+              --output "$SOAK_PARTIAL_PATH"
+            node --input-type=module --eval '
+              import { Buffer } from "node:buffer";
+              import { appendFileSync, readFileSync } from "node:fs";
+              import { dirname, resolve } from "node:path";
+              import { pathToFileURL } from "node:url";
+
+              const bytes = readFileSync(process.env.SOAK_PARTIAL_PATH);
+              if (bytes.byteLength < 1 || bytes.byteLength > 16 * 1024) {
+                throw new Error("Companion soak partial is too large");
+              }
+              const raw = bytes.toString("utf8");
+              const partial = JSON.parse(raw);
+              const helper = resolve(
+                dirname(process.env.ADAPTER_PATH),
+                "dependabot-actions-companion.mjs",
+              );
+              const { canonicalJson } = await import(pathToFileURL(helper).href);
+              if (
+                !Buffer.from(raw, "utf8").equals(bytes) ||
+                raw !== `${canonicalJson(partial)}\n` ||
+                partial.schema !==
+                  "dependabot-actions-companion-soak-partial:v1"
+              ) {
+                throw new Error("Companion soak partial is invalid");
+              }
+              appendFileSync(
+                process.env.GITHUB_OUTPUT,
+                `soak_partial=${bytes.toString("base64")}\n`,
+              );
+            '
+          fi
 
   actions-companion-open:
     name: Open the staged OSV companion for human review
@@ -873,6 +921,7 @@ jobs:
           trusted_adapter="$trusted_root/dependabot-actions-companion-live.mjs"
           trusted_processor="$trusted_root/dependabot-processor.mjs"
           trusted_receipts="$trusted_root/dependabot-preparation-receipts.mjs"
+          trusted_soak="$trusted_root/dependabot-production-soak.mjs"
           resolved_sha="$(gh api "repos/$REPOSITORY/commits/$WORKFLOW_SHA" --jq .sha)"
           test "$resolved_sha" = "$WORKFLOW_SHA"
           gh api \
@@ -891,15 +940,22 @@ jobs:
             -H "Accept: application/vnd.github.raw+json" \
             "repos/$REPOSITORY/contents/scripts/dependabot-preparation-receipts.mjs?ref=$WORKFLOW_SHA" \
             > "$trusted_receipts"
+          gh api \
+            -H "Accept: application/vnd.github.raw+json" \
+            "repos/$REPOSITORY/contents/scripts/dependabot-production-soak.mjs?ref=$WORKFLOW_SHA" \
+            > "$trusted_soak"
           test -s "$trusted_helper"
           test -s "$trusted_adapter"
           test -s "$trusted_processor"
           test -s "$trusted_receipts"
+          test -s "$trusted_soak"
           chmod 0400 "$trusted_helper"
           chmod 0400 "$trusted_processor"
           chmod 0400 "$trusted_receipts"
           chmod 0500 "$trusted_adapter"
+          chmod 0500 "$trusted_soak"
           echo "path=$trusted_adapter" >> "$GITHUB_OUTPUT"
+          echo "soak_path=$trusted_soak" >> "$GITHUB_OUTPUT"
 
       - name: Decode and validate the exact stage receipt
         shell: bash
@@ -911,6 +967,8 @@ jobs:
           PROCESSOR_RUN_ATTEMPT: ${{ github.run_attempt }}
           PROCESSOR_RUN_ID: ${{ github.run_id }}
           REPOSITORY: ${{ github.repository }}
+          SOAK_PARTIAL_BASE64: ${{ needs.actions-companion-stage.outputs.soak_partial }}
+          SOAK_PARTIAL_PATH: ${{ runner.temp }}/dependabot-actions-companion-soak-partial.json
           STAGE_RECEIPT_BASE64: ${{ needs.actions-companion-stage.outputs.stage_receipt }}
           STAGE_RECEIPT_PATH: ${{ runner.temp }}/dependabot-actions-companion-stage.json
           WORKFLOW_SHA: ${{ github.workflow_sha }}
@@ -975,6 +1033,40 @@ jobs:
               receipt.processorRunAttempt < 1
             ) {
               throw new Error("Invalid decoded companion stage receipt");
+            }
+
+            const partialEncoded = process.env.SOAK_PARTIAL_BASE64;
+            if (
+              !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+                partialEncoded ?? "",
+              )
+            ) {
+              throw new Error("Companion soak partial base64 is invalid");
+            }
+            const partialBytes = Buffer.from(partialEncoded, "base64");
+            if (
+              partialBytes.byteLength < 1 ||
+              partialBytes.byteLength > 16 * 1024 ||
+              partialBytes.toString("base64") !== partialEncoded
+            ) {
+              throw new Error("Companion soak partial base64 is not canonical");
+            }
+            writeFileSync(process.env.SOAK_PARTIAL_PATH, partialBytes, {
+              flag: "wx",
+              mode: 0o600,
+            });
+            const partialRaw = readFileSync(
+              process.env.SOAK_PARTIAL_PATH,
+              "utf8",
+            );
+            const partial = JSON.parse(partialRaw);
+            if (
+              !Buffer.from(partialRaw, "utf8").equals(partialBytes) ||
+              partialRaw !== `${canonicalJson(partial)}\n` ||
+              partial.schema !==
+                "dependabot-actions-companion-soak-partial:v1"
+            ) {
+              throw new Error("Decoded companion soak partial is invalid");
             }
           '
 
@@ -1169,6 +1261,93 @@ jobs:
               throw new Error("Opened companion pull request binding changed");
             }
           '
+
+      - name: Build the redacted companion soak evidence
+        if: >-
+          steps.open.outputs.open_result == 'opened' ||
+          steps.open.outputs.open_result == 'already-open'
+        shell: bash
+        env:
+          ADAPTER_PATH: ${{ steps.companion-adapter.outputs.path }}
+          OPEN_RESULT_PATH: ${{ runner.temp }}/dependabot-actions-companion-open.json
+          PR_SNAPSHOT_PATH: ${{ runner.temp }}/dependabot-actions-companion-pull.json
+          SOAK_EVIDENCE_PATH: ${{ runner.temp }}/dependabot-actions-companion-soak.json
+          SOAK_HELPER_PATH: ${{ steps.companion-adapter.outputs.soak_path }}
+          SOAK_PARTIAL_PATH: ${{ runner.temp }}/dependabot-actions-companion-soak-partial.json
+        run: |
+          set -euo pipefail
+          node "$SOAK_HELPER_PATH" companion-open \
+            --partial "$SOAK_PARTIAL_PATH" \
+            --open "$OPEN_RESULT_PATH" \
+            --pull "$PR_SNAPSHOT_PATH" \
+            --output "$SOAK_EVIDENCE_PATH"
+          node --input-type=module --eval '
+            import { Buffer } from "node:buffer";
+            import { readFileSync } from "node:fs";
+            import { dirname, resolve } from "node:path";
+            import { pathToFileURL } from "node:url";
+
+            const bytes = readFileSync(process.env.SOAK_EVIDENCE_PATH);
+            if (bytes.byteLength < 1 || bytes.byteLength > 16 * 1024) {
+              throw new Error("Companion soak evidence is too large");
+            }
+            const raw = bytes.toString("utf8");
+            const evidence = JSON.parse(raw);
+            const helper = resolve(
+              dirname(process.env.ADAPTER_PATH),
+              "dependabot-actions-companion.mjs",
+            );
+            const { canonicalJson } = await import(pathToFileURL(helper).href);
+            if (
+              !Buffer.from(raw, "utf8").equals(bytes) ||
+              raw !== `${canonicalJson(evidence)}\n` ||
+              evidence.schema !== "dependabot-actions-companion-soak:v1"
+            ) {
+              throw new Error("Companion soak evidence is invalid");
+            }
+          '
+
+      - name: Upload the redacted companion soak evidence
+        if: >-
+          steps.open.outputs.open_result == 'opened' ||
+          steps.open.outputs.open_result == 'already-open'
+        id: upload-soak-evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dependabot-actions-companion-soak-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.evaluate.outputs.actions_companion_pr_number }}
+          path: ${{ runner.temp }}/dependabot-actions-companion-soak.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Summarize the redacted companion soak evidence
+        if: steps.upload-soak-evidence.outcome == 'success'
+        shell: bash
+        env:
+          ARTIFACT_DIGEST: ${{ steps.upload-soak-evidence.outputs.artifact-digest }}
+          ARTIFACT_ID: ${{ steps.upload-soak-evidence.outputs.artifact-id }}
+          ARTIFACT_NAME: dependabot-actions-companion-soak-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.evaluate.outputs.actions_companion_pr_number }}
+          ARTIFACT_URL: ${{ steps.upload-soak-evidence.outputs.artifact-url }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          test -n "$ARTIFACT_URL"
+          test -n "$ARTIFACT_DIGEST"
+          {
+            echo "### Dependabot typed companion soak evidence"
+            echo
+            echo "- Artifact: [$ARTIFACT_NAME]($ARTIFACT_URL)"
+            echo "- Artifact ID: \`$ARTIFACT_ID\`"
+            echo "- Artifact digest: \`$ARTIFACT_DIGEST\`"
+            echo
+            echo '```bash'
+            echo "gh run download $RUN_ID \\\"
+            echo "  --repo $REPOSITORY \\\"
+            echo "  --name $ARTIFACT_NAME \\\"
+            echo "  --dir /tmp/dependabot-actions-companion-soak"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   retry-claude-review:
     name: Retry one authenticated transient Claude provider failure

@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import process from "node:process";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { canonicalJson } from "./dependabot-actions-companion.mjs";
 import {
+  DEPENDABOT_ACTIONS_COMPANION_SOAK_SCHEMA,
   DEPENDABOT_PRODUCTION_SOAK_SCHEMA,
   renderDependabotProductionSoak,
   validateDependabotProductionSoakManifest,
@@ -42,21 +46,10 @@ function manifestWithPassedTypedCompanion() {
   const processorRunId = 40_001;
   const processorRunAttempt = 1;
   const planDigest = "d".repeat(64);
-  const receipt = (receiptSha256, schema, result, extra = {}) => ({
-    companionBranchRef,
-    planDigest,
-    processorRunAttempt,
-    processorRunId,
+  const receipt = (receiptSha256, schema, result) => ({
     receiptSha256,
     result,
     schema,
-    sourceBaseSha,
-    sourceHeadSha,
-    sourcePullRequestNumber,
-    workflowRunAttempt,
-    workflowRunId,
-    workflowSha,
-    ...extra,
   });
   value.cases[5] = {
     companion: {
@@ -76,6 +69,7 @@ function manifestWithPassedTypedCompanion() {
       },
     },
     id: "typed-actions-companion",
+    planDigest,
     pr: {
       authorLogin: "dependabot[bot]",
       baseRef: "main",
@@ -90,16 +84,12 @@ function manifestWithPassedTypedCompanion() {
     },
     processor: {
       checkId: 70_001,
-      conclusion: "failure",
       dependencyGroup: "github-actions-manual",
       dependencyNames: [
         "google/osv-scanner-action/osv-scanner-action",
         "google/osv-scanner-action/osv-reporter-action",
       ],
       disposition: "manual-review",
-      externalId:
-        `dependabot-processor:v2:pr=${sourcePullRequestNumber}:head=${sourceHeadSha}:` +
-        `mode=prepare:repair=1:packet=false:digest=none:run=${processorRunId}:attempt=${processorRunAttempt}`,
       headSha: sourceHeadSha,
       workflowRunAttempt: processorRunAttempt,
       workflowRunId: processorRunId,
@@ -115,20 +105,17 @@ function manifestWithPassedTypedCompanion() {
         "c".repeat(64),
         "dependabot-actions-companion-live-open:v1",
         "opened",
-        { companionCommitSha, companionPullRequestNumber },
       ),
       stage: receipt(
         "b".repeat(64),
         "dependabot-actions-companion-live-stage:v1",
         "staged",
-        { companionCommitSha },
       ),
     },
     status: "passed",
     summary:
       "A current production run created an exact typed OSV companion pull request.",
     workflow: {
-      conclusion: "success",
       runAttempt: workflowRunAttempt,
       runId: workflowRunId,
       workflowSha,
@@ -205,9 +192,9 @@ test("typed Actions companion PASS evidence rejects focused binding mismatches",
   const cases = [
     {
       mutate(value) {
-        value.cases[5].receipts.census.sourceBaseSha = "4".repeat(40);
+        value.cases[5].processor.headSha = "4".repeat(40);
       },
-      pattern: /does not bind the exact source PR, head, and base/,
+      pattern: /does not bind the exact typed OSV classification/,
     },
     {
       mutate(value) {
@@ -217,33 +204,21 @@ test("typed Actions companion PASS evidence rejects focused binding mismatches",
     },
     {
       mutate(value) {
-        value.cases[5].receipts.stage.workflowRunAttempt += 1;
+        value.cases[5].workflow.workflowSha = "4".repeat(40);
       },
-      pattern: /does not bind the exact workflow run and attempt/,
+      pattern: /does not bind the exact typed OSV classification/,
     },
     {
       mutate(value) {
-        value.cases[5].receipts.open.processorRunId += 1;
+        value.cases[5].planDigest = "not-a-digest";
       },
-      pattern: /does not bind the exact processor run and attempt/,
+      pattern: /must be a SHA-256 digest/,
     },
     {
       mutate(value) {
-        value.cases[5].receipts.stage.companionCommitSha = "4".repeat(40);
+        value.cases[5].receipts.stage.schema = "wrong:v1";
       },
-      pattern: /does not bind the exact companion commit/,
-    },
-    {
-      mutate(value) {
-        value.cases[5].receipts.open.companionPullRequestNumber += 1;
-      },
-      pattern: /does not bind the exact companion PR/,
-    },
-    {
-      mutate(value) {
-        value.cases[5].receipts.stage.planDigest = "e".repeat(64);
-      },
-      pattern: /do not bind one exact companion plan/,
+      pattern: /schema or result is invalid/,
     },
     {
       mutate(value) {
@@ -267,6 +242,66 @@ test("typed Actions companion PASS evidence rejects focused binding mismatches",
       () => validateDependabotProductionSoakManifest(value),
       pattern,
     );
+  }
+});
+
+test("the importer replaces only the typed case and refuses to overwrite", () => {
+  const directory = mkdtempSync(join(tmpdir(), "dependabot-soak-import-"));
+  try {
+    const original = manifest();
+    const passed = manifestWithPassedTypedCompanion();
+    const capturedAt = "2026-08-24T12:00:00Z";
+    const artifactPath = join(directory, "artifact.json");
+    const outputPath = join(directory, "manifest.json");
+    const artifact = {
+      capturedAt,
+      case: passed.cases[5],
+      repository: original.repository,
+      schema: DEPENDABOT_ACTIONS_COMPANION_SOAK_SCHEMA,
+    };
+    writeFileSync(artifactPath, `${canonicalJson(artifact)}\n`);
+
+    const imported = spawnSync(
+      process.execPath,
+      [
+        scriptPath,
+        "import-typed-companion",
+        "--artifact",
+        artifactPath,
+        "--manifest",
+        manifestPath,
+        "--output",
+        outputPath,
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(imported.status, 0, imported.stderr);
+    const raw = readFileSync(outputPath, "utf8");
+    const value = JSON.parse(raw);
+    assert.equal(raw, `${canonicalJson(value)}\n`);
+    assert.equal(value.capturedAt, capturedAt);
+    assert.deepEqual(value.cases.slice(0, 5), original.cases.slice(0, 5));
+    assert.deepEqual(value.cases[5], artifact.case);
+    validateDependabotProductionSoakManifest(value);
+
+    const repeated = spawnSync(
+      process.execPath,
+      [
+        scriptPath,
+        "import-typed-companion",
+        "--artifact",
+        artifactPath,
+        "--manifest",
+        manifestPath,
+        "--output",
+        outputPath,
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(repeated.status, 1);
+    assert.match(repeated.stderr, /exist/u);
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
   }
 });
 
