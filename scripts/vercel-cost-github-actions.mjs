@@ -27,7 +27,7 @@ import {
 } from "./vercel-cost-observation.mjs";
 
 export const GITHUB_ACTIONS_PROOF_SCHEMA =
-  "vercel-cost-github-actions-proof:v2";
+  "vercel-cost-github-actions-proof:v3";
 export const GITHUB_USAGE_METADATA_SCHEMA =
   "vercel-cost-github-usage-export-metadata:v1";
 export const GITHUB_AUDIT_METADATA_SCHEMA =
@@ -1254,6 +1254,8 @@ function buildProofData({
       artifactStorageGbHours,
       cacheStorageGbHours,
       repositoryPublicEntireWindow,
+      mainDeploymentObservationOpportunities:
+        observation.mainDeploymentObservationOpportunities,
     },
     eligibleForAnalyzer,
   };

@@ -57,7 +57,7 @@ function csvRow(values) {
     .join(",");
 }
 
-function createObservation(evidenceRoot) {
+function createObservation(evidenceRoot, { runnerLabels }) {
   const root = directory(join(evidenceRoot, "github-observation-v2"));
   directory(join(root, "boundary"));
   const boundary = {
@@ -134,7 +134,20 @@ function createObservation(evidenceRoot) {
       trackedRunIds: [],
     },
     startBoundaryRunStates: [],
-    workflowRuns: [],
+    workflowRuns: ["100", "101", "102", "103"].map((id, index) => ({
+      id,
+      runAttempt: 1,
+      path: ".github/workflows/vercel-main-deployment.yml",
+      event: "workflow_run",
+      status: "completed",
+      conclusion: "success",
+      createdAtUtc: `2026-07-${17 + index}T01:00:00.000Z`,
+      updatedAtUtc: `2026-07-${17 + index}T01:05:00.000Z`,
+      headSha: "a".repeat(40),
+      headBranch: "main",
+      displayTitle: "Vercel Main Deployment",
+      htmlUrl: `https://github.com/${REPOSITORY}/actions/runs/${id}`,
+    })),
     pendingRunIds: [],
     runnerJobs: [
       {
@@ -144,10 +157,21 @@ function createObservation(evidenceRoot) {
         name: "Build deployment targets",
         status: "completed",
         conclusion: "success",
-        labels: ["ubuntu-latest"],
+        labels: runnerLabels,
         startedAtUtc: "2026-07-17T01:00:00.000Z",
         completedAtUtc: "2026-07-17T06:00:00.000Z",
       },
+      ...["100", "101", "102", "103"].map((runId, index) => ({
+        runId,
+        runAttempt: 1,
+        jobId: String(2100 + index),
+        name: "Verify exact successful CI attempt",
+        status: "completed",
+        conclusion: "success",
+        labels: ["ubuntu-latest"],
+        startedAtUtc: `2026-07-${17 + index}T01:00:00.000Z`,
+        completedAtUtc: `2026-07-${17 + index}T01:00:00.000Z`,
+      })),
     ],
     cacheSnapshot: { entryCount: 0, totalBytes: 0, entries: [] },
     artifactSnapshot: { entryCount: 0, totalBytes: 0, entries: [] },
@@ -178,8 +202,12 @@ function createObservation(evidenceRoot) {
     endUtcExclusive: SYNTHETIC_END,
     generatedAtUtc: "2026-07-23T00:02:00.000Z",
     completeUtcDays: 7,
-    inventory: {},
-    derived: { allSampledRepositoryVisibilityPublic: true },
+    inventory: { requiredMainRunIds: ["100", "101", "102", "103"] },
+    derived: {
+      allSampledRepositoryVisibilityPublic: true,
+      mainDeploymentObservationOpportunities: 4,
+      observedUnknownRunnerJobIds: runnerLabels.length === 0 ? ["2000"] : [],
+    },
     unresolved: ["githubAuthoritativeRunnerMinutes"],
     gaps: ["manual-provider-and-closeout-evidence-unresolved"],
     analyzerFragmentComplete: false,
@@ -190,10 +218,14 @@ function createObservation(evidenceRoot) {
 
 export function createSyntheticGitHubActionsEvidence(
   parent,
-  { auditSource = "rest", auditEvents = [] } = {},
+  {
+    auditSource = "rest",
+    auditEvents = [],
+    runnerLabels = ["ubuntu-latest"],
+  } = {},
 ) {
   const evidenceRoot = directory(join(parent, ".vercel-cost-evidence"));
-  const observationRoot = createObservation(evidenceRoot);
+  const observationRoot = createObservation(evidenceRoot, { runnerLabels });
   const rawRoot = directory(join(evidenceRoot, "github", "raw"));
   const outputRoot = directory(join(evidenceRoot, "github"));
   const headers = [

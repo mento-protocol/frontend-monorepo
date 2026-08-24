@@ -195,6 +195,7 @@ test("computes the issue #523 target-mix formula across a changed preview/main m
   );
   evidence.postCutover.correctness.eligibleFirstPreviews = 8;
   evidence.postCutover.correctness.eligibleFirstPreviewOpportunities = 8;
+  evidence.postCutover.correctness.mainDeploymentObservationOpportunities = 6;
   evidence.postCutover.correctness.mainDeploymentObservationsCompleted = 6;
 
   const analysis = analyzeVercelCostEvidence(evidence);
@@ -235,8 +236,10 @@ test("normalizes gross minutes by complete UTC days", () => {
   });
 });
 
-test("reports duplicate rate and raw minutes per trusted PR push", () => {
-  const analysis = analyzeVercelCostEvidence(fixture());
+test("reports duplicate rate and cost-window minutes per trusted PR push", () => {
+  const evidence = fixture();
+  evidence.postCutover.trustedDeployedCodePrPushes = 20;
+  const analysis = analyzeVercelCostEvidence(evidence);
 
   assert.equal(analysis.attemptsPerEligibleEvent.total, 1);
   assert.deepEqual(analysis.attemptsPerEligibleEvent.targets, {
@@ -245,13 +248,40 @@ test("reports duplicate rate and raw minutes per trusted PR push", () => {
     reserve: 1,
     ui: 1,
   });
-  assert.equal(analysis.postCutoverMinutesPerTrustedPrPush.total, 2.7);
-  assert.deepEqual(analysis.postCutoverMinutesPerTrustedPrPush.targets, {
-    app: 1,
-    governance: 1,
-    reserve: 0.4,
-    ui: 0.3,
-  });
+  assert.equal(
+    analysis.postCutoverMinutesPerCostWindowTrustedPrPush.total,
+    2.7,
+  );
+  assert.deepEqual(
+    analysis.postCutoverMinutesPerCostWindowTrustedPrPush.targets,
+    {
+      app: 1,
+      governance: 1,
+      reserve: 0.4,
+      ui: 0.3,
+    },
+  );
+  assert.equal(analysis.costWindowTrustedDeployedCodePrPushes, 10);
+  assert.equal(analysis.trustedDeployedCodePrPushes, 20);
+});
+
+test("fails the observation when the cost window has no trusted PR pushes", () => {
+  const evidence = fixture();
+  evidence.postCutover.costWindowTrustedDeployedCodePrPushes = 0;
+
+  const analysis = analyzeVercelCostEvidence(evidence);
+
+  assert.equal(analysis.observationPass, false);
+  assert.equal(analysis.pass, false);
+  assert.ok(
+    analysis.reasons.includes(
+      "cost-window-trusted-deployed-code-pr-pushes-missing",
+    ),
+  );
+  assert.equal(
+    analysis.postCutoverMinutesPerCostWindowTrustedPrPush.total,
+    null,
+  );
 });
 
 test("keeps private financial and FOCUS provenance out of public output", () => {
@@ -284,7 +314,14 @@ test("keeps private financial and FOCUS provenance out of public output", () => 
   assert.match(markdown, /Burst first-plus-latest checks completed: 2\/2/);
   assert.match(markdown, /Legacy v2 health checks completed: 7\/7/);
   assert.match(markdown, /Main deployment observations completed: 4\/4/);
-  assert.match(markdown, /Trusted deployed-code same-repository PR pushes: 10/);
+  assert.match(
+    markdown,
+    /Correctness-window trusted deployed-code same-repository PR pushes: 10/,
+  );
+  assert.match(
+    markdown,
+    /Cost-window trusted deployed-code same-repository PR pushes: 10/,
+  );
   assert.match(
     markdown,
     /\| app \| 200\.00 \| 200\.00 \| 10\.00 \| 10\.00 \| 100\.00 \| 90\.00% \|/,
@@ -315,6 +352,7 @@ test("reports public-safe GitHub, correctness, event, and attribution evidence",
       legacyV2DeploymentAttempts: 0,
       manualDeploymentAttempts: 0,
       unknownDeploymentAttempts: 0,
+      suppressedNativeDeploymentAttempts: 0,
     },
     attributionMethod: "project-total-no-exclusions",
     migratedDeploymentCensus: {
@@ -332,7 +370,7 @@ test("reports public-safe GitHub, correctness, event, and attribution evidence",
   });
   assert.deepEqual(analysis.mainDeploymentObservations, {
     completed: 4,
-    eligibleEvents: 4,
+    opportunities: 4,
     failures: 0,
   });
   assert.equal(
@@ -420,7 +458,7 @@ test("requires the migrated preview/main census to reconcile exactly", () => {
   );
 });
 
-test("binds complete main observations to derived main eligible events", () => {
+test("binds complete main observations to explicit observation opportunities", () => {
   const incomplete = fixture();
   incomplete.postCutover.correctness.mainDeploymentObservationsCompleted = 3;
   const incompleteAnalysis = analyzeVercelCostEvidence(incomplete);
@@ -443,7 +481,7 @@ test("binds complete main observations to derived main eligible events", () => {
   tooManyCompleted.postCutover.correctness.mainDeploymentObservationsCompleted = 5;
   assert.throws(
     () => validateVercelCostEvidence(tooManyCompleted),
-    /mainDeploymentObservationsCompleted cannot exceed derived main eligible events/,
+    /mainDeploymentObservationsCompleted cannot exceed mainDeploymentObservationOpportunities/,
   );
 
   const tooManyFailures = fixture();
@@ -483,6 +521,7 @@ test("reports a truthful zero-event main denominator without changing target-mix
       0,
     );
   }
+  evidence.postCutover.correctness.mainDeploymentObservationOpportunities = 0;
   evidence.postCutover.correctness.mainDeploymentObservationsCompleted = 0;
 
   const analysis = analyzeVercelCostEvidence(evidence);
@@ -491,7 +530,7 @@ test("reports a truthful zero-event main denominator without changing target-mix
   assert.equal(analysis.normalized.minutes.savings, MINIMUM_NORMALIZED_SAVINGS);
   assert.deepEqual(analysis.mainDeploymentObservations, {
     completed: 0,
-    eligibleEvents: 0,
+    opportunities: 0,
     failures: 0,
   });
   assert.match(markdown, /Main deployment observations completed: 0\/0/);
@@ -790,7 +829,8 @@ test("rejects excluded deployment activity before normalization", () => {
 
 test("enforces the observation duration, PR sample, and GitHub billing gates", () => {
   const evidence = fixture();
-  evidence.postCutover.period.endUtcExclusive = "2026-07-22T00:00:00.000Z";
+  evidence.postCutover.observationPeriod.endUtcExclusive =
+    "2026-07-22T00:00:00.000Z";
   evidence.postCutover.trustedDeployedCodePrPushes = 9;
   evidence.postCutover.correctness.eligibleFirstPreviews = 9;
   evidence.postCutover.correctness.eligibleFirstPreviewOpportunities = 9;
@@ -935,14 +975,9 @@ test("rejects contradictory correctness observation counts", () => {
     /eligibleFirstPreviewOpportunities cannot exceed trustedDeployedCodePrPushes/,
   );
 
-  const missingPreviewCensus = fixture();
-  movePreviewCensusToMain(missingPreviewCensus);
-  missingPreviewCensus.postCutover.correctness.mainDeploymentObservationsCompleted =
-    postCutoverSourceTotal(missingPreviewCensus, "main", "eligibleEvents");
-  assert.throws(
-    () => validateVercelCostEvidence(missingPreviewCensus),
-    /eligibleFirstPreviews cannot exceed derived preview eligible events/,
-  );
+  const independentCostCensus = fixture();
+  movePreviewCensusToMain(independentCostCensus);
+  assert.doesNotThrow(() => validateVercelCostEvidence(independentCostCensus));
 });
 
 test("does not equate trusted PR pushes with preview target events", () => {
@@ -957,9 +992,6 @@ test("does not equate trusted PR pushes with preview target events", () => {
     previewEligibleEvents;
   evidence.postCutover.correctness.eligibleFirstPreviewOpportunities =
     previewEligibleEvents;
-  evidence.postCutover.correctness.mainDeploymentObservationsCompleted =
-    postCutoverSourceTotal(evidence, "main", "eligibleEvents");
-
   assert.equal(previewEligibleEvents, 3);
   assert.equal(evidence.postCutover.trustedDeployedCodePrPushes, 10);
   assert.equal(analyzeVercelCostEvidence(evidence).pass, true);
@@ -983,19 +1015,29 @@ test("requires the baseline to end before cutover", () => {
   );
 });
 
-test("rejects non-daily ranges and non-FOCUS provenance", () => {
+test("accepts aligned provider days and rejects partial periods and non-FOCUS provenance", () => {
+  const providerAligned = fixture();
+  providerAligned.postCutover.period.startUtc = "2026-07-16T07:00:00.000Z";
+  providerAligned.postCutover.period.endUtcExclusive =
+    "2026-07-23T07:00:00.000Z";
+  assert.doesNotThrow(() => validateVercelCostEvidence(providerAligned));
+
   const nonDaily = fixture();
   nonDaily.postCutover.period.startUtc = "2026-07-16T01:00:00.000Z";
   assert.throws(
     () => validateVercelCostEvidence(nonDaily),
-    /exact UTC midnight boundary/,
+    /complete 24-hour periods/,
   );
 
   const wrongUnit = fixture();
   wrongUnit.baseline.period.consumedUnit = "hours";
+  assert.throws(() => validateVercelCostEvidence(wrongUnit), /must be minute/);
+
+  const wrongService = fixture();
+  wrongService.baseline.period.serviceName = "Bandwidth";
   assert.throws(
-    () => validateVercelCostEvidence(wrongUnit),
-    /must be Build CPU Minutes/,
+    () => validateVercelCostEvidence(wrongService),
+    /serviceName must be Build CPU Minutes/,
   );
 
   const badDigest = fixture();
@@ -1138,15 +1180,166 @@ test("loads and reconciles raw FOCUS project totals and deployment census source
     assert.equal(analysis.sourceEvidence.projectTotalsReconciled, true);
     assert.equal(analysis.sourceEvidence.deploymentCensusComplete, true);
     assert.equal(analysis.sourceEvidence.githubActionsProofReconciled, true);
+    assert.equal(
+      analysis.sourceEvidence.deployments.postCutover
+        .costWindowUnexplainedNativeBuilds,
+      0,
+    );
     assert.deepEqual(
       analysis.sourceEvidence.deployments.postCutover.targets.app.sources,
       {
         "github-actions-prebuilt": 4,
         "vercel-native": 0,
+        "vercel-native-suppressed": 0,
         manual: 0,
         unknown: 0,
       },
     );
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("reconciles a source-bound native suppression record without counting a build", () => {
+  const temporaryDirectory = mkdtempSync(
+    join(tmpdir(), "vercel-manifest-suppressed-native-"),
+  );
+  try {
+    const evidence = fixture();
+    evidence.postCutover.targets.app.excluded.suppressedNativeDeploymentAttempts = 1;
+    const aggregatePath = join(temporaryDirectory, "aggregate.json");
+    writeFileSync(aggregatePath, `${JSON.stringify(evidence, null, 2)}\n`);
+
+    const manifest = manifestForAggregate(aggregatePath, temporaryDirectory);
+    const originalPost = readFileSync(
+      resolve(fixtureDirectory, "post.deployments.jsonl"),
+      "utf8",
+    );
+    const suppressed = {
+      deploymentId: "dpl_PAppSuppressed1",
+      target: "app",
+      path: "preview",
+      source: "vercel-native-suppressed",
+      outcome: "canceled",
+      sourceSha: "2000000000000000000000000000000000000001",
+      createdAtUtc: "2026-07-21T01:00:00.000Z",
+      evidenceUrl: "https://app-suppressed.vercel.app/",
+    };
+    const postRaw = `${originalPost}${JSON.stringify(suppressed)}\n`;
+    const postPath = join(temporaryDirectory, "post.deployments.jsonl");
+    writeFileSync(postPath, postRaw);
+    manifest.windows.postCutover.deploymentCensusJsonl = postPath;
+    bindDeploymentCensus(
+      manifest,
+      "postCutover",
+      temporaryDirectory,
+      postRaw,
+      evidence,
+    );
+    const manifestPath = join(temporaryDirectory, "manifest.json");
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const analysis = analyzeVercelCostManifest(manifestPath);
+    assert.equal(analysis.pass, true);
+    assert.equal(
+      analysis.eventCensus.app.postCutover.excluded
+        .suppressedNativeDeploymentAttempts,
+      1,
+    );
+    assert.equal(analysis.correctness.unexplainedNativeBuilds, 0);
+    assert.equal(
+      analysis.sourceEvidence.deployments.postCutover.targets.app.sources[
+        "vercel-native-suppressed"
+      ],
+      1,
+    );
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("keeps cost-window native builds separate from observation correctness", () => {
+  const temporaryDirectory = mkdtempSync(
+    join(tmpdir(), "vercel-manifest-native-window-separation-"),
+  );
+  try {
+    const evidence = fixture();
+    evidence.postCutover.costWindowTrustedDeployedCodePrPushes = 9;
+    const aggregatePath = join(temporaryDirectory, "aggregate.json");
+    writeFileSync(aggregatePath, `${JSON.stringify(evidence, null, 2)}\n`);
+
+    const manifest = manifestForAggregate(aggregatePath, temporaryDirectory);
+    const rows = readFileSync(
+      resolve(fixtureDirectory, "post.deployments.jsonl"),
+      "utf8",
+    )
+      .trimEnd()
+      .split("\n")
+      .map((row) => JSON.parse(row));
+    rows[0].source = "vercel-native";
+    const postRaw = `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`;
+    const postPath = join(temporaryDirectory, "post.deployments.jsonl");
+    writeFileSync(postPath, postRaw);
+    manifest.windows.postCutover.deploymentCensusJsonl = postPath;
+    bindDeploymentCensus(
+      manifest,
+      "postCutover",
+      temporaryDirectory,
+      postRaw,
+      evidence,
+    );
+    const manifestPath = join(temporaryDirectory, "manifest.json");
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const analysis = analyzeVercelCostManifest(manifestPath);
+    assert.equal(analysis.pass, false);
+    assert.equal(analysis.observationPass, false);
+    assert.ok(
+      analysis.reasons.includes("cost-window-unexplained-native-builds"),
+    );
+    assert.match(
+      formatVercelCostMarkdown(analysis),
+      /Observation gate: \*\*FAIL\*\*/,
+    );
+    assert.equal(analysis.correctness.unexplainedNativeBuilds, 0);
+    assert.equal(
+      analysis.sourceEvidence.deployments.postCutover
+        .costWindowUnexplainedNativeBuilds,
+      1,
+    );
+    assert.equal(
+      analysis.sourceEvidence.deployments.postCutover.targets.app.sources[
+        "vercel-native"
+      ],
+      1,
+    );
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("keeps observation native builds separate from the cost census", () => {
+  const temporaryDirectory = mkdtempSync(
+    join(tmpdir(), "vercel-manifest-observation-native-separation-"),
+  );
+  try {
+    const evidence = fixture();
+    evidence.postCutover.correctness.unexplainedNativeBuilds = 1;
+    const aggregatePath = join(temporaryDirectory, "aggregate.json");
+    writeFileSync(aggregatePath, `${JSON.stringify(evidence, null, 2)}\n`);
+    const manifest = manifestForAggregate(aggregatePath, temporaryDirectory);
+    const manifestPath = join(temporaryDirectory, "manifest.json");
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const analysis = analyzeVercelCostManifest(manifestPath);
+    assert.equal(analysis.pass, false);
+    assert.equal(analysis.correctness.unexplainedNativeBuilds, 1);
+    assert.equal(
+      analysis.sourceEvidence.deployments.postCutover
+        .costWindowUnexplainedNativeBuilds,
+      0,
+    );
+    assert.ok(analysis.reasons.includes("unexplained-native-builds"));
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });
   }
@@ -1177,7 +1370,7 @@ test("rebuilds the GitHub Actions proof from a bound owner web audit export", ()
   }
 });
 
-test("filters non-Usage FOCUS rows before reconciling usage totals", () => {
+test("filters non-Usage and out-of-scope FOCUS rows before reconciling totals", () => {
   const temporaryDirectory = mkdtempSync(
     join(tmpdir(), "vercel-focus-filter-"),
   );
@@ -1190,14 +1383,27 @@ test("filters non-Usage FOCUS rows before reconciling usage totals", () => {
       ChargeCategory: "Credit",
       ChargePeriodStart: "2026-07-01T00:00:00Z",
       ChargePeriodEnd: "2026-07-15T00:00:00Z",
+      ServiceName: "Build CPU Minutes",
       ConsumedQuantity: "-240",
-      ConsumedUnit: "Build CPU Minutes",
+      ConsumedUnit: "minute",
       EffectiveCost: "-48",
       BilledCost: "-48",
       BillingCurrency: "USD",
       Tags: { ProjectName: "app.mento.org" },
     };
-    const raw = `${original}${JSON.stringify(creditRow)}\n`;
+    const unrelatedRow = {
+      ChargeCategory: "Usage",
+      ChargePeriodStart: "2026-07-01T00:00:00Z",
+      ChargePeriodEnd: "2026-07-15T00:00:00Z",
+      ServiceName: "Build CPU Minutes",
+      ConsumedQuantity: "100",
+      ConsumedUnit: "second",
+      EffectiveCost: "1",
+      BilledCost: "1",
+      BillingCurrency: "EUR",
+      Tags: { ProjectName: "other-project" },
+    };
+    const raw = `${original}${JSON.stringify(creditRow)}\n${JSON.stringify(unrelatedRow)}\n`;
     const focusPath = join(temporaryDirectory, "baseline.focus.jsonl");
     writeFileSync(focusPath, raw);
     const evidence = fixture();
@@ -1212,6 +1418,33 @@ test("filters non-Usage FOCUS rows before reconciling usage totals", () => {
     const analysis = analyzeVercelCostManifest(manifestPath);
     assert.equal(analysis.pass, true);
     assert.equal(analysis.sourceEvidence.rawFocusReconciled, true);
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("fails closed when a Build CPU usage row has the wrong unit", () => {
+  const temporaryDirectory = mkdtempSync(join(tmpdir(), "vercel-focus-unit-"));
+  try {
+    const raw = readFileSync(
+      resolve(fixtureDirectory, "baseline.focus.jsonl"),
+      "utf8",
+    ).replace('"ConsumedUnit":"minute"', '"ConsumedUnit":"second"');
+    const focusPath = join(temporaryDirectory, "baseline.focus.jsonl");
+    writeFileSync(focusPath, raw);
+    const evidence = fixture();
+    evidence.baseline.period.focusExportSha256 = sha256(raw);
+    const aggregatePath = join(temporaryDirectory, "aggregate.json");
+    writeFileSync(aggregatePath, `${JSON.stringify(evidence, null, 2)}\n`);
+    const manifest = manifestForAggregate(aggregatePath, temporaryDirectory);
+    manifest.windows.baseline.focusJsonl = focusPath;
+    const manifestPath = join(temporaryDirectory, "manifest.json");
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    assert.throws(
+      () => analyzeVercelCostManifest(manifestPath),
+      /baseline FOCUS JSONL row 1\.ConsumedUnit must be minute/,
+    );
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });
   }
@@ -1566,6 +1799,36 @@ test("binds manifest v3 to the exact GitHub Actions proof and aggregate fields",
     assert.throws(
       () => analyzeVercelCostManifest(mismatchPath),
       /standardRunnerMinutes does not reconcile/,
+    );
+
+    const mismatchedOpportunities = fixture();
+    mismatchedOpportunities.postCutover.correctness.mainDeploymentObservationOpportunities = 0;
+    mismatchedOpportunities.postCutover.correctness.mainDeploymentObservationsCompleted = 0;
+    const opportunityAggregatePath = join(
+      temporaryDirectory,
+      "mismatch-opportunities-aggregate.json",
+    );
+    writeFileSync(
+      opportunityAggregatePath,
+      `${JSON.stringify(mismatchedOpportunities, null, 2)}\n`,
+    );
+    const opportunityManifest = structuredClone(manifest);
+    opportunityManifest.aggregate = opportunityAggregatePath;
+    opportunityManifest.githubActionsEvidence = {
+      proof: github.proofPath,
+      proofSha256: github.proofSha256,
+    };
+    const opportunityManifestPath = join(
+      temporaryDirectory,
+      "mismatch-opportunities.json",
+    );
+    writeFileSync(
+      opportunityManifestPath,
+      `${JSON.stringify(opportunityManifest, null, 2)}\n`,
+    );
+    assert.throws(
+      () => analyzeVercelCostManifest(opportunityManifestPath),
+      /mainDeploymentObservationOpportunities does not reconcile/,
     );
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });

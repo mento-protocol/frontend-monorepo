@@ -23,15 +23,16 @@ import { fileURLToPath } from "node:url";
 
 import { canonicalizeMainCandidateVercelMetadata } from "./vercel-main-candidate.mjs";
 
-export const VERCEL_DEPLOYMENT_PAGES_SCHEMA = "vercel-deployment-pages:v1";
+export const VERCEL_DEPLOYMENT_PAGES_SCHEMA = "vercel-deployment-pages:v2";
 export const VERCEL_DEPLOYMENT_CENSUS_PROOF_SCHEMA =
-  "vercel-deployment-census-proof:v1";
+  "vercel-deployment-census-proof:v2";
 
 const TARGETS = Object.freeze(["app", "governance", "reserve", "ui"]);
 const PATHS = Object.freeze(["preview", "main", "legacy-v2", "unknown"]);
 const SOURCES = Object.freeze([
   "github-actions-prebuilt",
   "vercel-native",
+  "vercel-native-suppressed",
   "manual",
   "unknown",
 ]);
@@ -91,6 +92,7 @@ const CANONICAL_UTC_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const MAX_INPUT_BYTES = 64 * 1024 * 1024;
 const MAX_PAGES_PER_PROJECT = 100;
 const PAGE_LIMIT = 100;
+const DAY_MILLISECONDS = 24 * 60 * 60 * 1_000;
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -151,18 +153,8 @@ function canonicalWindow(value) {
   assertExactKeys(value, WINDOW_KEYS, "window");
   const start = canonicalUtc(value.startUtc, "window.startUtc");
   const end = canonicalUtc(value.endUtcExclusive, "window.endUtcExclusive");
-  if (
-    start >= end ||
-    new Date(start).getUTCHours() !== 0 ||
-    new Date(start).getUTCMinutes() !== 0 ||
-    new Date(start).getUTCSeconds() !== 0 ||
-    new Date(start).getUTCMilliseconds() !== 0 ||
-    new Date(end).getUTCHours() !== 0 ||
-    new Date(end).getUTCMinutes() !== 0 ||
-    new Date(end).getUTCSeconds() !== 0 ||
-    new Date(end).getUTCMilliseconds() !== 0
-  ) {
-    throw new Error("window must be a nonempty complete-UTC-day interval");
+  if (start >= end || (end - start) % DAY_MILLISECONDS !== 0) {
+    throw new Error("window must contain one or more complete 24-hour periods");
   }
   return { start, end };
 }
@@ -378,26 +370,29 @@ function rawEnvironment(deployment, label) {
     deployment,
     "customEnvironment",
   );
-  let customEnvironmentSlug = null;
-  if (
+  const customEnvironmentConfigured =
     deployment.customEnvironment !== undefined &&
-    deployment.customEnvironment !== null
-  ) {
+    deployment.customEnvironment !== null;
+  let customEnvironmentSlug = null;
+  if (customEnvironmentConfigured) {
     const customEnvironment = assertObject(
       deployment.customEnvironment,
       `${label}.customEnvironment`,
     );
-    customEnvironmentSlug = assertString(
-      customEnvironment.slug,
-      `${label}.customEnvironment.slug`,
-      undefined,
-      128,
-    );
+    if (customEnvironment.slug !== undefined) {
+      customEnvironmentSlug = assertString(
+        customEnvironment.slug,
+        `${label}.customEnvironment.slug`,
+        undefined,
+        128,
+      );
+    }
   }
   return {
     targetPresent,
     target,
     customEnvironmentPresent,
+    customEnvironmentConfigured,
     customEnvironmentSlug,
   };
 }
@@ -520,14 +515,17 @@ function normalizeDeployment({
     ((environment.targetPresent &&
       environment.target !== null &&
       environment.target !== "preview") ||
-      (environment.customEnvironmentPresent &&
-        environment.customEnvironmentSlug !== null))
+      environment.customEnvironmentConfigured)
   ) {
     throw new Error(`${label} preview environment conflicts with its path`);
   }
   const requiresGitIdentity =
     ["preview", "main"].includes(annotation.path) &&
-    ["github-actions-prebuilt", "vercel-native"].includes(annotation.source);
+    [
+      "github-actions-prebuilt",
+      "vercel-native",
+      "vercel-native-suppressed",
+    ].includes(annotation.source);
   if (
     (requiresGitIdentity || annotation.path === "legacy-v2") &&
     (git === null ||
@@ -546,16 +544,15 @@ function normalizeDeployment({
       assertPreviewSignature({ meta, git, target, label });
     } else if (annotation.path === "main") {
       assertMainSignature({ meta, git, target, projectId, label });
-      const expectedEnvironment =
+      const expectedTarget = target === "app" ? null : "production";
+      const customEnvironmentMismatch =
         target === "app"
-          ? { target: null, customEnvironmentSlug: "v3" }
-          : { target: "production", customEnvironmentSlug: null };
+          ? environment.customEnvironmentPresent &&
+            environment.customEnvironmentSlug !== "v3"
+          : environment.customEnvironmentConfigured;
       if (
-        (environment.targetPresent &&
-          environment.target !== expectedEnvironment.target) ||
-        (environment.customEnvironmentPresent &&
-          environment.customEnvironmentSlug !==
-            expectedEnvironment.customEnvironmentSlug)
+        (environment.targetPresent && environment.target !== expectedTarget) ||
+        customEnvironmentMismatch
       ) {
         throw new Error(
           `${label} GitHub main environment conflicts with its target`,
@@ -567,7 +564,7 @@ function normalizeDeployment({
       );
     }
   } else if (
-    annotation.source === "vercel-native" &&
+    ["vercel-native", "vercel-native-suppressed"].includes(annotation.source) &&
     signatureKeys.length !== 0
   ) {
     throw new Error(
@@ -575,8 +572,21 @@ function normalizeDeployment({
     );
   }
 
-  if (annotation.source === "vercel-native" && deployment.prebuilt === true) {
+  if (
+    ["vercel-native", "vercel-native-suppressed"].includes(annotation.source) &&
+    deployment.prebuilt === true
+  ) {
     throw new Error(`${label}.prebuilt conflicts with its annotated source`);
+  }
+  if (annotation.source === "vercel-native-suppressed") {
+    if (
+      !["preview", "main"].includes(annotation.path) ||
+      deployment.source !== "git" ||
+      readyState !== "CANCELED" ||
+      (deployment.buildingAt !== undefined && deployment.buildingAt !== null)
+    ) {
+      throw new Error(`${label} native suppression signature is malformed`);
+    }
   }
   if (annotation.path === "legacy-v2") {
     if (
@@ -586,7 +596,7 @@ function normalizeDeployment({
       git.ref !== "v2" ||
       !environment.targetPresent ||
       environment.target !== "production" ||
-      environment.customEnvironmentSlug !== null
+      environment.customEnvironmentConfigured
     ) {
       throw new Error(`${label} legacy-v2 signature is malformed`);
     }

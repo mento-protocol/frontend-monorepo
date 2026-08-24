@@ -154,12 +154,17 @@ function rawDeployment(row, pullRequestNumber, projectIds) {
         value.target = "production";
       }
     }
-  } else if (row.source === "vercel-native") {
+  } else if (
+    ["vercel-native", "vercel-native-suppressed"].includes(row.source)
+  ) {
     value.prebuilt = false;
     value.meta = gitMetadata(
       row.sourceSha,
       row.path === "legacy-v2" ? "v2" : row.path,
     );
+    if (row.source === "vercel-native-suppressed") {
+      value.source = "git";
+    }
     if (["main", "legacy-v2"].includes(row.path)) {
       value.target = "production";
     }

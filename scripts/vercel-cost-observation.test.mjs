@@ -20,6 +20,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+  ANALYZER_FRAGMENT_SCHEMA,
   GITHUB_SAMPLE_SCHEMA,
   MAIN_CAPTURE_SCHEMA,
   OBSERVATION_AUDIT_SCHEMA,
@@ -30,10 +31,12 @@ import {
   assertMainDeployShaBinding,
   assertTerminalSampleCoverage,
   bindUniquePreviewReferences,
+  deriveRequiredMainRunIds,
   deriveMainTerminalRoute,
   environmentWithoutGhTokens,
   runVercelCostObservation,
   selectLatestTerminalSample,
+  validateGitHubBillingObservation,
 } from "./vercel-cost-observation.mjs";
 import {
   compactPreviewJournal,
@@ -56,6 +59,85 @@ const START = "2026-07-29T00:00:00.000Z";
 const END = "2026-08-05T00:00:00.000Z";
 const CAPTURED_AT = "2026-08-05T00:01:00.000Z";
 const INITIALIZED_AT = "2026-07-28T23:50:00.000Z";
+
+test("main opportunities require a successful exact-CI gate job", () => {
+  const workflowRuns = [
+    {
+      id: "9100",
+      runAttempt: 1,
+      path: ".github/workflows/vercel-main-deployment.yml",
+      event: "workflow_run",
+      createdAtUtc: "2026-07-30T02:00:00.000Z",
+    },
+    {
+      id: "9200",
+      runAttempt: 1,
+      path: ".github/workflows/vercel-main-deployment.yml",
+      event: "workflow_run",
+      createdAtUtc: "2026-07-30T03:00:00.000Z",
+    },
+  ];
+  const runnerJobs = [
+    {
+      runId: "9100",
+      runAttempt: 1,
+      name: "Verify exact successful CI attempt",
+      status: "completed",
+      conclusion: "success",
+    },
+    {
+      runId: "9200",
+      runAttempt: 1,
+      name: "Verify exact successful CI attempt",
+      status: "completed",
+      conclusion: "skipped",
+    },
+  ];
+
+  assert.deepEqual(
+    deriveRequiredMainRunIds(workflowRuns, runnerJobs, {
+      startUtc: START,
+      endUtcExclusive: END,
+    }),
+    ["9100"],
+  );
+});
+
+test("a later failed rerun does not erase a main deployment opportunity", () => {
+  const workflowRuns = [
+    {
+      id: "9300",
+      runAttempt: 2,
+      path: ".github/workflows/vercel-main-deployment.yml",
+      event: "workflow_run",
+      createdAtUtc: "2026-07-30T04:00:00.000Z",
+    },
+  ];
+  const runnerJobs = [
+    {
+      runId: "9300",
+      runAttempt: 1,
+      name: "Verify exact successful CI attempt",
+      status: "completed",
+      conclusion: "success",
+    },
+    {
+      runId: "9300",
+      runAttempt: 2,
+      name: "Verify exact successful CI attempt",
+      status: "completed",
+      conclusion: "skipped",
+    },
+  ];
+
+  assert.deepEqual(
+    deriveRequiredMainRunIds(workflowRuns, runnerJobs, {
+      startUtc: START,
+      endUtcExclusive: END,
+    }),
+    ["9300"],
+  );
+});
 
 test("legacy journal fixture locks the retired Markdown and JSON bytes", () => {
   const expected = `<!-- vercel-preview-journal:v2 -->
@@ -3734,6 +3816,16 @@ test("audit writes a deterministic incomplete analyzer fragment and fails closed
       "utf8",
     ),
   );
+  assert.equal(fragment.schema, ANALYZER_FRAGMENT_SCHEMA);
+  assert.deepEqual(fragment.observationPeriod, {
+    startUtc: START,
+    endUtcExclusive: END,
+  });
+  assert.equal(
+    fragment.mainDeploymentObservationOpportunities,
+    audit.inventory.requiredMainRunIds.length,
+  );
+  assert.equal(Object.hasOwn(fragment, "period"), false);
   assert.equal(fragment.complete, false);
   assert.equal(fragment.targets, null);
   assert.equal(
@@ -3765,6 +3857,172 @@ test("audit writes a deterministic incomplete analyzer fragment and fails closed
       }),
     /audit already exists/,
   );
+});
+
+test("audit records empty runner labels for detailed billing reconciliation", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  seedAuditEligiblePreviewCaptures(cwd);
+  const run = {
+    id: 98_401,
+    run_attempt: 1,
+    path: ".github/workflows/vercel-preview-worker.yml",
+    event: "workflow_dispatch",
+    status: "completed",
+    conclusion: "success",
+    created_at: "2026-08-01T02:00:00.000Z",
+    updated_at: "2026-08-01T02:01:00.000Z",
+    head_sha: "f".repeat(40),
+    head_branch: "main",
+    display_title: "runner-label reconciliation fixture",
+    html_url:
+      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/98401",
+  };
+  runVercelCostObservation({
+    argv: ["sample-github"],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: fakeGh(
+      githubSampleRoutes({
+        runs: [run],
+        jobsByRun: new Map([
+          [
+            "98401",
+            [
+              {
+                id: 98_402,
+                run_attempt: 1,
+                name: "skipped job",
+                status: "completed",
+                conclusion: "skipped",
+                labels: [],
+                started_at: "2026-08-01T02:00:10.000Z",
+                completed_at: "2026-08-01T02:00:10.000Z",
+              },
+              {
+                id: 98_403,
+                run_attempt: 1,
+                name: "short terminal job",
+                status: "completed",
+                conclusion: "success",
+                labels: [],
+                started_at: "2026-08-01T02:00:20.000Z",
+                completed_at: "2026-08-01T02:00:26.000Z",
+              },
+            ],
+          ],
+        ]),
+      }),
+    ),
+    stdout: output().stream,
+  });
+
+  const result = runVercelCostObservation({
+    argv: ["audit", "--end", END],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: () => {
+      throw new Error("audit must remain offline");
+    },
+    stdout: output().stream,
+  });
+  assert.equal(result.exitCode, 1);
+  const root = observationRoot(cwd);
+  const audit = JSON.parse(readFileSync(join(root, "audit.json"), "utf8"));
+  assert.deepEqual(audit.gaps, [
+    "manual-provider-and-closeout-evidence-unresolved",
+  ]);
+  assert.deepEqual(audit.derived.observedUnknownRunnerJobIds, [
+    "98402",
+    "98403",
+  ]);
+  assert.equal(validateGitHubBillingObservation(root).runnerJobs.length, 2);
+  audit.derived.observedUnknownRunnerJobIds = ["98402"];
+  writeFileSync(join(root, "audit.json"), canonicalBytes(audit), {
+    mode: 0o600,
+  });
+  assert.throws(
+    () => validateGitHubBillingObservation(root),
+    /runner-label gap IDs does not match/,
+  );
+});
+
+test("audit ignores excluded failed-CI main captures in completeness checks", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  seedAuditEligiblePreviewCaptures(cwd);
+  const run = {
+    id: 94_100,
+    run_attempt: 1,
+    name: "Vercel Main Deployment",
+    path: ".github/workflows/vercel-main-deployment.yml",
+    event: "workflow_run",
+    status: "completed",
+    conclusion: "skipped",
+    created_at: "2026-08-01T03:00:00.000Z",
+    updated_at: "2026-08-01T03:01:00.000Z",
+    head_sha: "e".repeat(40),
+    head_branch: "main",
+    display_title: "failed upstream CI no-op",
+    html_url:
+      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/94100",
+  };
+  const jobs = [
+    {
+      id: 94_101,
+      run_attempt: 1,
+      name: "Verify exact successful CI attempt",
+      status: "completed",
+      conclusion: "skipped",
+      labels: ["ubuntu-latest"],
+      started_at: "2026-08-01T03:00:10.000Z",
+      completed_at: "2026-08-01T03:00:10.000Z",
+    },
+  ];
+  runVercelCostObservation({
+    argv: ["sample-github"],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: fakeGh(
+      githubSampleRoutes({
+        runs: [run],
+        jobsByRun: new Map([["94100", jobs]]),
+      }),
+    ),
+    stdout: output().stream,
+  });
+  writeSealedCapture(join(observationRoot(cwd), "main", "94100", "attempt-1"), {
+    schema: MAIN_CAPTURE_SCHEMA,
+    repository: "mento-protocol/frontend-monorepo",
+    runId: "94100",
+    runAttempt: 1,
+    runCompletedAtUtc: "2026-08-01T03:01:00.000Z",
+    conclusion: "skipped",
+    canonicalDerivedFacts: {
+      githubEvidenceComplete: false,
+      releaseTerminalEvidenceComplete: false,
+      terminalRoute: { reason: "upstream-ci-not-successful" },
+    },
+    unresolvedProviderFields: [],
+    files: [],
+  });
+
+  const result = runVercelCostObservation({
+    argv: ["audit", "--end", END],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: () => {
+      throw new Error("audit must remain offline");
+    },
+    stdout: output().stream,
+  });
+  assert.equal(result.exitCode, 1);
+  const audit = JSON.parse(
+    readFileSync(join(observationRoot(cwd), "audit.json"), "utf8"),
+  );
+  assert.deepEqual(audit.inventory.requiredMainRunIds, []);
+  assert.deepEqual(audit.inventory.mainAttemptTerminalAnomalies, []);
+  assert.equal(audit.gaps.includes("incomplete-main-github-evidence"), false);
 });
 
 test("audit recovers when its deterministic fragment exists without the commit marker", () => {
@@ -4129,7 +4387,7 @@ test("audit does not classify an unstarted skipped job as an unknown runner", ()
         stdout: output().stream,
       }),
     (error) => {
-      assert.match(error.message, /missing-main-captures/);
+      assert.doesNotMatch(error.message, /missing-main-captures/);
       assert.doesNotMatch(error.message, /unknown-runner-labels/);
       return true;
     },

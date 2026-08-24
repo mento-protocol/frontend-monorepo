@@ -61,7 +61,7 @@ export const MAIN_CAPTURE_SCHEMA = "vercel-cost-main-observation-capture:v2";
 export const GITHUB_SAMPLE_SCHEMA = "vercel-cost-github-sample:v2";
 export const OBSERVATION_AUDIT_SCHEMA = "vercel-cost-observation-audit:v2";
 export const ANALYZER_FRAGMENT_SCHEMA =
-  "vercel-cost-analyzer-postcutover-fragment:v3";
+  "vercel-cost-analyzer-postcutover-fragment:v4";
 const CAPTURE_SEAL_SCHEMA = "vercel-cost-capture-seal:v2";
 const START_BOUNDARY_RUN_COVERAGE_SCHEMA =
   "vercel-cost-start-boundary-run-coverage:v1";
@@ -3424,6 +3424,45 @@ function exactUniqueIds(values, label) {
   return ids.sort();
 }
 
+export function deriveRequiredMainRunIds(workflowRuns, runnerJobs, interval) {
+  invariant(Array.isArray(workflowRuns), "Workflow runs must be an array");
+  invariant(Array.isArray(runnerJobs), "Runner jobs must be an array");
+  // An opportunity is one workflow run. A rerun does not erase an earlier
+  // attempt that passed the exact-CI gate and could have deployed. The audit
+  // captures every attempt for each qualifying run.
+  const runIdsWithSuccessfulCiGate = new Set(
+    runnerJobs
+      .filter(
+        (job) =>
+          job.name === "Verify exact successful CI attempt" &&
+          job.status === "completed" &&
+          job.conclusion === "success",
+      )
+      .map((job) => positiveId(job.runId, "Runner job run ID")),
+  );
+  return workflowRuns
+    .filter(
+      (run) =>
+        run.path === MAIN_WORKFLOW_PATH &&
+        run.event === "workflow_run" &&
+        runIdsWithSuccessfulCiGate.has(positiveId(run.id, "Workflow run ID")) &&
+        withinInterval(run.createdAtUtc, interval),
+    )
+    .map((run) => run.id);
+}
+
+function runnerJobIdsWithoutStandardLabels(runnerJobs) {
+  invariant(Array.isArray(runnerJobs), "Runner jobs must be an array");
+  return runnerJobs
+    .filter(
+      (job) =>
+        (job.startedAtUtc || job.completedAtUtc) &&
+        (job.labels.length === 0 ||
+          !job.labels.some((label) => STANDARD_RUNNER_LABELS.has(label))),
+    )
+    .map((job) => job.jobId);
+}
+
 function exactIdSet(values, expected, label) {
   invariant(
     canonicalJson(exactUniqueIds(values, label)) ===
@@ -3619,19 +3658,36 @@ export function validateGitHubBillingObservation(rootPath) {
     interval,
     requiredWorkflowPaths: [...OBSERVED_WORKFLOW_PATHS].sort(),
   });
+  const requiredMainRunIds = exactUniqueIds(
+    deriveRequiredMainRunIds(
+      latestSample.workflowRuns,
+      latestSample.runnerJobs,
+      interval,
+    ),
+    "Terminal sample required main run IDs",
+  );
+  exactIdSet(
+    audit.inventory?.requiredMainRunIds,
+    requiredMainRunIds,
+    "GitHub billing observation required main run IDs",
+  );
+  invariant(
+    audit.derived?.mainDeploymentObservationOpportunities ===
+      requiredMainRunIds.length,
+    "GitHub billing observation main opportunity count conflicts",
+  );
   invariant(
     samples.every((sample) => sample.repositoryVisibility?.publicAtSample),
     "GitHub billing observation does not prove public visibility at every sample",
   );
-  const unknownRunnerJobs = latestSample.runnerJobs.filter(
-    (job) =>
-      (job.startedAtUtc || job.completedAtUtc) &&
-      (job.labels.length === 0 ||
-        !job.labels.some((label) => STANDARD_RUNNER_LABELS.has(label))),
-  );
-  invariant(
-    unknownRunnerJobs.length === 0,
-    "GitHub billing observation contains an unknown runner label",
+  // GitHub can return an empty label list for skipped, startup-failed, and
+  // short-lived terminal jobs. Keep every job in the minute reconciliation.
+  // The source-bound detailed usage export classifies standard and larger
+  // runner SKUs and remains the authority for the zero-larger-runner gate.
+  exactIdSet(
+    audit.derived?.observedUnknownRunnerJobIds,
+    runnerJobIdsWithoutStandardLabels(latestSample.runnerJobs),
+    "GitHub billing observation runner-label gap IDs",
   );
   const treeFiles = listPrivateFiles(root, root);
   return {
@@ -3647,6 +3703,7 @@ export function validateGitHubBillingObservation(rootPath) {
     terminalSampleCapturedAtUtc: latestSample.capturedAtUtc,
     repositoryPublicAtEverySample: true,
     runnerJobs: latestSample.runnerJobs,
+    mainDeploymentObservationOpportunities: requiredMainRunIds.length,
   };
 }
 
@@ -4098,14 +4155,15 @@ function auditObservation({ root, end, now }) {
       );
     })
     .map((run) => run.id);
-  const requiredMainRunIds = inventoryRuns
-    .filter(
-      (run) =>
-        run.path === MAIN_WORKFLOW_PATH &&
-        run.event === "workflow_run" &&
-        withinInterval(run.createdAtUtc, interval),
-    )
-    .map((run) => run.id);
+  const requiredMainRunIds = deriveRequiredMainRunIds(
+    inventoryRuns,
+    latestSample?.runnerJobs ?? [],
+    interval,
+  );
+  const requiredMainRunIdSet = new Set(requiredMainRunIds.map(String));
+  const requiredMainCaptures = mainCaptures.filter((capture) =>
+    requiredMainRunIdSet.has(String(capture.runId)),
+  );
   const previewByRun = new Map(
     previewCaptures.map((capture) => [capture.eventRunId, capture]),
   );
@@ -4133,7 +4191,7 @@ function auditObservation({ root, end, now }) {
       );
     })
     .map((run) => run.id);
-  const mainAttemptTerminalAnomalies = mainCaptures
+  const mainAttemptTerminalAnomalies = requiredMainCaptures
     .filter(
       (capture) =>
         !capture.canonicalDerivedFacts.releaseTerminalEvidenceComplete,
@@ -4158,22 +4216,17 @@ function auditObservation({ root, end, now }) {
     gaps.push("incomplete-preview-evidence");
   }
   if (
-    mainCaptures.some(
+    requiredMainCaptures.some(
       (capture) => !capture.canonicalDerivedFacts.githubEvidenceComplete,
     )
   ) {
     gaps.push("incomplete-main-github-evidence");
   }
   const relevantJobs = latestSample?.runnerJobs ?? [];
-  const unknownRunnerJobs = relevantJobs
-    .filter(
-      (job) =>
-        (job.startedAtUtc || job.completedAtUtc) &&
-        (job.labels.length === 0 ||
-          !job.labels.some((label) => STANDARD_RUNNER_LABELS.has(label))),
-    )
-    .map((job) => job.jobId);
-  if (unknownRunnerJobs.length > 0) gaps.push("unknown-runner-labels");
+  const unknownRunnerJobs = runnerJobIdsWithoutStandardLabels(relevantJobs);
+  // Preserve missing or nonstandard labels for private audit evidence. Do not
+  // make them a collector gap: the detailed usage proof classifies runner SKUs
+  // and reconciles its standard minutes to every terminal collector job.
   if (
     samples.length === 0 ||
     samples.some((sample) => !sample.repositoryVisibility?.publicAtSample)
@@ -4351,6 +4404,7 @@ function auditObservation({ root, end, now }) {
         samples.every((sample) => sample.repositoryVisibility?.publicAtSample),
       observedUnknownRunnerJobIds: unknownRunnerJobs,
       mainAttemptTerminalAnomalyCount: mainAttemptTerminalAnomalies.length,
+      mainDeploymentObservationOpportunities: requiredMainRunIds.length,
     },
     unresolved,
     gaps: uniqueGaps,
@@ -4360,11 +4414,9 @@ function auditObservation({ root, end, now }) {
   const fragment = {
     schema: ANALYZER_FRAGMENT_SCHEMA,
     repository: OBSERVATION_REPOSITORY,
-    period: {
+    observationPeriod: {
       startUtc: interval.startUtc,
       endUtcExclusive,
-      billingIngestionComplete: null,
-      invoiceFinal: null,
     },
     trustedDeployedCodePrPushes: eligiblePreviewCaptures.length,
     eligibleFirstPreviewOpportunities,
@@ -4373,6 +4425,7 @@ function auditObservation({ root, end, now }) {
     smokeOrE2eChecksCompleted: null,
     burstFirstPlusLatestCheckOpportunities: null,
     burstFirstPlusLatestChecksCompleted: null,
+    mainDeploymentObservationOpportunities: requiredMainRunIds.length,
     mainDeploymentObservationsCompleted: null,
     mainDeploymentObservationFailures: null,
     legacyV2HealthCheckOpportunities: null,
