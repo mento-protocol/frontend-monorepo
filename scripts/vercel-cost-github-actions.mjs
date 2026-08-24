@@ -648,6 +648,7 @@ function aggregateUsage(csvBytes, metadata) {
   let targetRowCount = 0;
   let ignoredNonDeploymentRowCount = 0;
   let repositoryLevelStorageRowCount = 0;
+  const storageAttributionGroups = new Map();
   for (const [index, row] of rows.entries()) {
     const rowNumber = index + 2;
     if (
@@ -720,6 +721,18 @@ function aggregateUsage(csvBytes, metadata) {
         `GitHub usage CSV row ${rowNumber} storage workflow_path is outside the deployment allowlist`,
       );
       if (repositoryLevelStorage) repositoryLevelStorageRowCount += 1;
+      const storageGroupKey = `${row.date}\0${row.sku}`;
+      const storageAttribution = storageAttributionGroups.get(
+        storageGroupKey,
+      ) ?? {
+        date: row.date,
+        sku: row.sku,
+        sources: new Set(),
+      };
+      storageAttribution.sources.add(
+        repositoryLevelStorage ? "repository" : "workflow",
+      );
+      storageAttributionGroups.set(storageGroupKey, storageAttribution);
       const key =
         row.sku === "actions_storage"
           ? "artifactStorage"
@@ -728,6 +741,12 @@ function aggregateUsage(csvBytes, metadata) {
             : "customImageStorage";
       addMetric(metrics, key, row, rowNumber);
     }
+  }
+  for (const storageAttribution of storageAttributionGroups.values()) {
+    invariant(
+      storageAttribution.sources.size === 1,
+      `GitHub usage CSV mixes repository-level and workflow-attributed ${storageAttribution.sku} rows on ${storageAttribution.date}`,
+    );
   }
   invariant(
     targetRowCount > 0,

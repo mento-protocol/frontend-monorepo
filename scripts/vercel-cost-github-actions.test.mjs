@@ -999,6 +999,62 @@ test("retains blank-path repository storage as a conservative upper bound", () =
   }
 });
 
+test("rejects mixed storage attribution for the same date and SKU", () => {
+  for (const [sku, quantity, needsWorkflowRow = false] of [
+    ["actions_storage", "5"],
+    ["actions_cache_storage", "50"],
+    ["actions_custom_image_storage", "3", true],
+  ]) {
+    const root = workspace();
+    try {
+      const evidence = createSyntheticGitHubActionsEvidence(root);
+      rewrite(evidence.usageCsv, (value) => {
+        const rows = [];
+        if (needsWorkflowRow) {
+          rows.push(
+            `2026-07-17,actions,${sku},${quantity},GB-Hours,0,0,0,0,,mento-protocol,frontend-monorepo,.github/workflows/vercel-preview-worker.yml,`,
+          );
+        }
+        rows.push(
+          `2026-07-17,actions,${sku},${quantity},GB-Hours,0,0,0,0,,mento-protocol,frontend-monorepo,,`,
+        );
+        return `${value.trimEnd()}\n${rows.join("\n")}\n`;
+      });
+      rebindUsageMetadata(evidence);
+      assert.throws(
+        () => buildGitHubActionsCostProof(evidence),
+        new RegExp(
+          `mixes repository-level and workflow-attributed ${sku} rows on 2026-07-17`,
+        ),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("aggregates one storage SKU across dates and same-source dimensions", () => {
+  const root = workspace();
+  try {
+    const evidence = createSyntheticGitHubActionsEvidence(root);
+    rewrite(evidence.usageCsv, (value) => {
+      const rows = [
+        "2026-07-18,actions,actions_storage,7,GB-Hours,0,0,0,0,,mento-protocol,frontend-monorepo,,",
+        "2026-07-18,actions,actions_storage,2,GB-Hours,0,0,0,0,octocat,mento-protocol,frontend-monorepo,,cost-center",
+      ];
+      return `${value.trimEnd()}\n${rows.join("\n")}\n`;
+    });
+    rebindUsageMetadata(evidence);
+    const proof = buildGitHubActionsCostProof(evidence);
+    assert.equal(proof.usage.repositoryLevelStorageRowCount, 2);
+    assert.equal(proof.usage.artifactStorage.quantity, "14");
+    assert.equal(proof.usage.artifactStorage.rowCount, 3);
+    assert.equal(proof.eligibleForAnalyzer, true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("makes nonzero storage net cost ineligible", () => {
   const root = workspace();
   try {

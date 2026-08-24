@@ -380,7 +380,10 @@ matches. It also retains known storage SKUs with a blank workflow path as a
 repository-level upper bound. It ignores other products, repositories, and
 canonical nondeployment workflow or GitHub `dynamic/<owner>/<name>` identities.
 A nonblank workflow path must match one of those two canonical forms. Malformed
-and whitespace-only paths fail closed.
+and whitespace-only paths fail closed. The check groups storage rows by exact
+date and SKU. Each group must use either blank-path repository attribution or
+allowlisted workflow attribution. A mix of both attribution levels fails
+closed. Rows on different dates remain additive. Each SKU remains independent.
 
 Inspect its shape before writing metadata:
 
@@ -626,13 +629,17 @@ not change, round, or weaken issue #842's 90% normalized Vercel Build CPU gate.
 
 `artifactStorageGbHours` receives the billed `actions_storage` quantity for an
 allowlisted deployment workflow. If GitHub leaves the workflow path blank, it
-receives the complete repository quantity as a conservative upper bound. The
+receives the repository-attributed quantity as a conservative upper bound. The
 proof records that row count and does not claim that all repository storage came
-from this migration. `cacheStorageGbHours` applies the same rule to billed
+from this migration. The proof rejects a date and SKU that has both blank-path
+and allowlisted workflow rows because GitHub does not identify the blank row as
+a subtotal or a separate charge. It aggregates rows for the same SKU across
+different dates. It keeps each SKU in a separate attribution group.
+`cacheStorageGbHours` applies the same rule to billed
 `actions_cache_storage`, which represents billable cache overage after GitHub
 allowances, not physical cache size. All retained storage rows must have zero
-net cost. Collector snapshots are diagnostic and do not replace billing
-GB-hour quantities.
+net cost. Collector snapshots are diagnostic and do not replace billing GB-hour
+quantities.
 
 ## Source-of-truth intervals
 
