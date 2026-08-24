@@ -369,6 +369,7 @@ function refreshReceiptCheck(
     id = state === "requested" ? 20_001 : 20_002,
     parentHeadSha = HEAD_SHA,
     previousBaseSha = MERGE_SHA,
+    pullRequestNumber = 123,
     requestCheckId = 20_001,
     requestDigest,
     workflowContext = WORKFLOW_CONTEXT,
@@ -383,7 +384,7 @@ function refreshReceiptCheck(
     prepareBotId: PREPARE_ACTOR.botId,
     prepareBotLogin: PREPARE_ACTOR.botLogin,
     previousBaseSha,
-    pullRequestNumber: 123,
+    pullRequestNumber,
     repository: REPOSITORY,
     schema: DEPENDABOT_REFRESH_SCHEMA,
     state: "requested",
@@ -401,7 +402,7 @@ function refreshReceiptCheck(
         };
   const checkHeadSha = state === "requested" ? parentHeadSha : headSha;
   return trustedReceiptCheck({
-    externalId: `${DEPENDABOT_REFRESH_SCHEMA}:pr=123:head=${checkHeadSha}:state=${state}:digest=${digest(receipt)}:run=${workflowContext.workflowRunId}:attempt=${workflowContext.workflowRunAttempt}`,
+    externalId: `${DEPENDABOT_REFRESH_SCHEMA}:pr=${pullRequestNumber}:head=${checkHeadSha}:state=${state}:digest=${digest(receipt)}:run=${workflowContext.workflowRunId}:attempt=${workflowContext.workflowRunAttempt}`,
     headSha: checkHeadSha,
     id,
     name: "Dependabot Refresh",
@@ -3475,6 +3476,64 @@ test("processor check publication preserves each fail-closed disposition", async
   }
 });
 
+test("manual-review processor checks explain the deterministic next action without a packet", async () => {
+  const current = snapshot({
+    metadata: {
+      dependencyNames: ["google/osv-scanner-action"],
+      immutableEvidence: { valid: true },
+      packageEcosystem: "github-actions",
+      updateType: "minor",
+    },
+    pullRequest: {
+      files: [
+        {
+          ...PACKAGE_BLOB,
+          filename: ".github/workflows/_osv-scanner-readonly.yml",
+        },
+      ],
+    },
+  });
+  const published = [];
+  const result = await processDependabotSweep({
+    adapter: {
+      collectPullRequestSnapshot: async () => current,
+      getOutstandingDependabotAutoMergeRequests: async () => [],
+      getOutstandingDependabotProcessorApprovals:
+        noOutstandingProcessorApprovals,
+      publishProcessorCheck: async (input) => published.push(input),
+    },
+    input: {
+      mode: "prepare",
+      outstandingAutoMergeRequests: [],
+      pullRequests: [current],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    },
+    publishChecks: true,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+
+  assert.equal(result.evaluations[0].disposition, "manual-review");
+  assert.equal(
+    result.evaluations[0].risk.reason,
+    "sensitive-auth-deployment-or-workflow-policy-action",
+  );
+  assert.equal(published.length, 1);
+  assert.equal(published[0].repairPacket, null);
+  assert.equal(
+    published[0].summary,
+    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: take over manually; verify exact head/base, required checks, resolved feedback, current approval, and mergeability, then merge.",
+  );
+
+  const receipt = processorRepairReceipt(1, {
+    mode: "prepare",
+    packet: false,
+  });
+  receipt.outputSummary = published[0].summary;
+  assert.equal(receipt.outputText, null);
+  assert.notEqual(parseDependabotProcessorReceipt(receipt, REPOSITORY), null);
+});
+
 test("unchanged trusted Processor receipts suppress check churn without hiding drift", async () => {
   const matchingReceipt = processorRepairReceipt(1, {
     id: 62_001,
@@ -3483,7 +3542,7 @@ test("unchanged trusted Processor receipts suppress check churn without hiding d
   });
   matchingReceipt.outputSummary = "Disposition: eligible-observed";
 
-  const run = async (current) => {
+  const run = async (current, mode = "observe") => {
     const published = [];
     await processDependabotSweep({
       adapter: {
@@ -3497,7 +3556,7 @@ test("unchanged trusted Processor receipts suppress check churn without hiding d
         },
       },
       input: {
-        mode: "observe",
+        mode,
         outstandingAutoMergeRequests: [],
         pullRequests: [structuredClone(current)],
         repository: REPOSITORY,
@@ -3531,6 +3590,35 @@ test("unchanged trusted Processor receipts suppress check churn without hiding d
   const malformedPublication = await run(newerMalformed);
   assert.equal(malformedPublication.length, 1);
   assert.equal(malformedPublication[0].disposition, "eligible-observed");
+
+  const sensitiveMetadata = {
+    dependencyNames: ["google/osv-scanner-action"],
+    immutableEvidence: { valid: true },
+    packageEcosystem: "github-actions",
+    updateType: "minor",
+  };
+  const actionableSummary =
+    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: take over manually; verify exact head/base, required checks, resolved feedback, current approval, and mergeability, then merge.";
+  const actionableReceipt = processorRepairReceipt(1, {
+    id: 62_003,
+    mode: "prepare",
+    packet: false,
+  });
+  actionableReceipt.outputSummary = actionableSummary;
+  const unchangedManual = snapshot({ metadata: sensitiveMetadata });
+  unchangedManual.checks.push(actionableReceipt);
+  assert.deepEqual(await run(unchangedManual, "prepare"), []);
+
+  const legacyManualReceipt = {
+    ...actionableReceipt,
+    id: 62_004,
+    outputSummary: "Disposition: manual-review",
+  };
+  const legacyManual = snapshot({ metadata: sensitiveMetadata });
+  legacyManual.checks.push(legacyManualReceipt);
+  const actionablePublication = await run(legacyManual, "prepare");
+  assert.equal(actionablePublication.length, 1);
+  assert.equal(actionablePublication[0].summary, actionableSummary);
 });
 
 test("deterministic lockfile and version-skew failures remain branch-repairable", () => {
@@ -11841,6 +11929,7 @@ test("published processor checks carry exact-head durable repair receipts and ob
     repairAttempt: 2,
     repairPacket,
     repository: REPOSITORY,
+    summary: "Disposition: repair-required",
     workflowContext: WORKFLOW_CONTEXT,
   });
   const publishedPacketText = bodies[0].output.text;
@@ -11871,6 +11960,7 @@ test("published processor checks carry exact-head durable repair receipts and ob
       repairAttempt: 1,
       repairPacket,
       repository: REPOSITORY,
+      summary: "Disposition: repair-required",
       workflowContext: WORKFLOW_CONTEXT,
     }),
     /Observe processor checks cannot issue repair packets/,
@@ -11898,6 +11988,8 @@ test("processor checks keep safe non-packet dispositions neutral and fail packet
       workflowContext: WORKFLOW_CONTEXT,
     },
   ).repairPacket;
+  const actionableManualSummary =
+    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: take over manually; verify exact head/base, required checks, resolved feedback, current approval, and mergeability, then merge.";
   const cases = [
     {
       disposition: "prepare-candidate",
@@ -11922,6 +12014,13 @@ test("processor checks keep safe non-packet dispositions neutral and fail packet
       expectedConclusion: "neutral",
       mode: "observe",
       repairPacket: null,
+    },
+    {
+      disposition: "manual-review",
+      expectedConclusion: "failure",
+      mode: "prepare",
+      repairPacket: null,
+      summary: actionableManualSummary,
     },
     {
       disposition: "waiting-checks",
@@ -11952,6 +12051,7 @@ test("processor checks keep safe non-packet dispositions neutral and fail packet
       repairAttempt: 1,
       repairPacket: testCase.repairPacket,
       repository: REPOSITORY,
+      summary: testCase.summary ?? `Disposition: ${testCase.disposition}`,
       workflowContext: WORKFLOW_CONTEXT,
     });
   }
@@ -11959,6 +12059,26 @@ test("processor checks keep safe non-packet dispositions neutral and fail packet
   assert.deepEqual(
     bodies.map(({ conclusion }) => conclusion),
     cases.map(({ expectedConclusion }) => expectedConclusion),
+  );
+  const manualBody =
+    bodies[
+      cases.findIndex(({ disposition }) => disposition === "manual-review")
+    ];
+  assert.equal(manualBody.output.summary, actionableManualSummary);
+  assert.equal(Object.hasOwn(manualBody.output, "text"), false);
+  await assert.rejects(
+    adapter.publishProcessorCheck({
+      disposition: "manual-review",
+      headSha: HEAD_SHA,
+      mode: "prepare",
+      pullRequestNumber: 123,
+      repairAttempt: 1,
+      repairPacket: null,
+      repository: REPOSITORY,
+      summary: "Disposition: manual-review",
+      workflowContext: WORKFLOW_CONTEXT,
+    }),
+    /canonical disposition/,
   );
 });
 
@@ -12080,6 +12200,7 @@ test("authority check publications bind their exact Actions run URL and reject m
         repairAttempt: 1,
         repairPacket: null,
         repository: REPOSITORY,
+        summary: "Disposition: prepare-candidate",
         workflowContext,
       }),
       /workflow run ID/i,

@@ -91,6 +91,12 @@ const PULL_REQUEST_REVIEW_STATES = new Set([
   "PENDING",
 ]);
 const PROCESSOR_CHECK_NAME = "Dependabot Processor";
+const MANUAL_REVIEW_ACTION =
+  "take over manually; verify exact head/base, required checks, resolved feedback, current approval, and mergeability, then merge";
+const MANUAL_REVIEW_SUMMARY_PATTERN = new RegExp(
+  `^Disposition: manual-review\\. Reason: [a-z0-9]+(?:-[a-z0-9]+)*\\. Next action: ${MANUAL_REVIEW_ACTION.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}\\.$`,
+  "u",
+);
 const REFRESH_CHECK_NAME = "Dependabot Refresh";
 const REPAIR_CHECK_NAME = "Dependabot Repair";
 const ALL_CLEAR_CHECK_NAME = "Dependabot ALL CLEAR";
@@ -4638,6 +4644,37 @@ function recommendedDisposition({
   return "eligible-observed";
 }
 
+function manualReviewSummaryReason(evaluation) {
+  const preparing = evaluation.mode === "prepare";
+  if (
+    (preparing && evaluation.risk.preparable !== true) ||
+    (!preparing && evaluation.risk.autoApprovable !== true)
+  ) {
+    return evaluation.risk.reason;
+  }
+  if (
+    preparing &&
+    evaluation.changedPaths.some(prepareRefMutationForbiddenPath) &&
+    (evaluation.repairAttempts.preparationKind !== "native" ||
+      evaluation.repairAttempts.pendingRefreshCompletion !== null ||
+      evaluation.repairAttempts.pendingRefreshRequest !== null ||
+      evaluation.base.current !== true)
+  ) {
+    return "protected-ref-mutation-requires-current-native-head";
+  }
+  return preparing
+    ? "prepare-authority-not-proven"
+    : "automatic-approval-authority-not-proven";
+}
+
+function processorCheckSummary(evaluation) {
+  const disposition = evaluation.disposition;
+  if (evaluation.repairPacket !== null || disposition !== "manual-review") {
+    return `Disposition: ${disposition}`;
+  }
+  return `Disposition: ${disposition}. Reason: ${manualReviewSummaryReason(evaluation)}. Next action: ${MANUAL_REVIEW_ACTION}.`;
+}
+
 function autonomousRepairPathForbidden(path) {
   return (
     typeof path !== "string" ||
@@ -7421,6 +7458,7 @@ export function createLiveGitHubAdapter({
       repairAttempt,
       repairPacket,
       repository,
+      summary,
       workflowContext,
     }) => {
       invariant(
@@ -7436,6 +7474,16 @@ export function createLiveGitHubAdapter({
       invariant(
         Number.isSafeInteger(repairAttempt) && repairAttempt >= 1,
         "Processor check repair attempt must be a positive safe integer",
+      );
+      invariant(
+        typeof summary === "string" &&
+          summary.length > 0 &&
+          summary.length <= 512 &&
+          !/[\r\n]/.test(summary) &&
+          (repairPacket === null && disposition === "manual-review"
+            ? MANUAL_REVIEW_SUMMARY_PATTERN.test(summary)
+            : summary === `Disposition: ${disposition}`),
+        "Processor check summary must match its canonical disposition",
       );
       invariant(
         mode !== "observe" || repairPacket === null,
@@ -7469,7 +7517,7 @@ export function createLiveGitHubAdapter({
         headSha,
         name: PROCESSOR_CHECK_NAME,
         output: {
-          summary: `Disposition: ${disposition}`,
+          summary,
           text: packetText ?? undefined,
           title: `Dependabot processor: ${disposition}`,
         },
@@ -7998,7 +8046,7 @@ function processorCheckAlreadyPublished({ evaluation, result, snapshot }) {
     parsed.attempt === result.repairAttempt &&
     parsed.packetIssued === packetIssued &&
     parsed.packetDigest === packetDigest &&
-    parsed.check.outputSummary === `Disposition: ${result.disposition}`
+    parsed.check.outputSummary === processorCheckSummary(result)
   );
 }
 
@@ -8912,6 +8960,7 @@ async function processFinalizePhase({
         repairAttempt: result.repairAttempt,
         repairPacket: result.repairPacket,
         repository: evaluation.repository,
+        summary: processorCheckSummary(result),
         workflowContext,
       });
       mutations.push({

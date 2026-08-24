@@ -138,6 +138,9 @@ pnpm dependabot:process -- evaluate --input path/to/snapshot.json --mode observe
 # Test Dependabot policy, CLI, and trusted-workflow contracts without network access
 pnpm dependabot:process:test
 
+# Render and validate the checked-in Dependabot production soak evidence
+pnpm dependabot:soak
+
 # Remind on newly added architecture-significant workflows/workspaces
 pnpm adr:check
 
@@ -394,7 +397,14 @@ non-authorizing evidence for human handling, and `prepare` may refresh, apply
 at most two bounded
 repairs, re-review, satisfy receipt-bound feedback, create the ruleset-required
 processor approval, and publish `Dependabot ALL CLEAR`. It never merges or
-enables native auto-merge. A maintainer performs the final squash merge.
+enables native auto-merge. A maintainer performs the final squash merge through
+one of two explicit paths. A prepared change requires a successful exact-head
+`Dependabot ALL CLEAR` check and its exact processor approval. A
+`manual-review` change requires an explicit maintainer takeover. Before merging
+it, verify the exact current head and base, all repository-required checks,
+resolved feedback, a current human approval, and mergeability. The packetless
+failed `Dependabot Processor` check is non-required and intentionally waived
+for this manual path.
 
 Native events from the exact Dependabot bot sender enter through the credentialless
 `.github/workflows/dependabot-intake.yml`. Refresh/Repair successors enter
@@ -413,7 +423,11 @@ bytes as one `text/plain` document tool result, bypassing Claude Code 2.1.234's
 30,000-character Bash text-result persistence. It emits canonical exact-head
 results; validated findings can feed a bounded repair, while a missing, failed,
 interrupted, empty, persisted/truncated, or otherwise invalid diff remains
-retry-first.
+retry-first. The processor may rerun the exact trusted review twice for a
+bounded transient provider status. It reruns only when that failure remains the
+newest trusted exact-head Claude result. Attempt three is terminal. The retry
+job has Actions write and read-only PR/check access. It has no repository-write,
+check-write, App, or Claude credential.
 
 Repair planning uses a separate least-privilege boundary. A trusted read-only
 step materializes and seals the exact packet-bound compare, Git blobs, failed
@@ -455,6 +469,13 @@ even when GitHub retargets the comment's current commit after a branch refresh.
 The ALL CLEAR receipt keeps the dependency risk/update metadata for the human
 decision.
 
+Sensitive and self-reviewing Actions remain manual. This includes OSV
+scanner/reporter updates. The workflow contract requires exactly one scanner
+step and one reporter step. Both actions must use full lowercase 40-character
+SHA pins at the same revision. The test does not mirror the current revision in
+another source file. Use the explicit `manual-review` maintainer takeover path
+for these updates. Never report this path as Dependabot ALL CLEAR.
+
 Configure the repository-scoped Prepare App with variables
 `DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,
 `DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG`,
@@ -462,11 +483,11 @@ Configure the repository-scoped Prepare App with variables
 `DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN`, plus secret
 `DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY`. The short-lived token exists
 only in a repair-staging, ref-mutation/refresh, or authenticated-dispatch job.
-A separate no-App-token finalize phase owns approval and ALL CLEAR. Install the App with only `contents:
-write` and `pull-requests: write`; update-branch needs both. Refresh tokens
-request both permissions, while repair and dispatch tokens are downscoped to
-Contents write. Grant no bypass, Actions, workflow, deployment, package, or
-provider permission. Contents write technically reaches GitHub's merge
+A separate no-App-token finalize phase owns approval and ALL CLEAR. Install the
+App with `contents: write` and `pull-requests: write`. Update-branch and Refresh
+need both permissions. Repair and dispatch request only Contents. Grant no
+bypass, Actions, workflow, deployment, package, environment, or provider
+permission. Contents write technically reaches GitHub's merge
 endpoint, so the reviewed code contains no merge call and revokes the token
 before approval; the final merge remains human.
 
@@ -488,7 +509,8 @@ Processor check.
 A packetless Processor check is a non-authorizing status record. It does not
 enter repair-receipt or attempt accounting. Only a `packet=true` check can bind
 repair authority, and that check requires terminal-success workflow
-provenance.
+provenance. Packetless manual checks include one deterministic reason and next
+action in their bounded summary.
 
 The authority receipts are `Dependabot Refresh`
 (`dependabot-refresh:v1`), `Dependabot Repair Intent`
@@ -537,7 +559,13 @@ Run the network-free evaluator and contract suite with:
 ```bash
 pnpm dependabot:process -- evaluate --input path/to/snapshot.json --mode observe
 pnpm dependabot:process:test
+pnpm dependabot:soak
 ```
+
+The soak command validates an offline observational report. Revalidate every
+exact PR, check, workflow run, and authority claim against live GitHub before
+changing a pending row to passed. Offline validation does not certify GitHub
+provenance.
 
 See the [Dependabot processing runbook](docs/dependabot-automation.md) and
 [ADR 0006](docs/adr/0006-dependabot-processing-controller.md) with its native
@@ -657,7 +685,8 @@ The repository is set up with GitHub Actions for CI:
   time; it never merges. Native/prepared intake and Claude-review completions
   resume processing, with ten-minute reconciliation for missed events. There is no
   `workflow_dispatch` path. Unknown mode or evidence stays observe-only and
-  manual/veto policy can only remove authority. See
+  manual/veto policy can only remove authority. Sensitive Actions remain manual
+  and receive an actionable Processor summary. See
   [the operator runbook](docs/dependabot-automation.md) and
   [ADR 0006](docs/adr/0006-dependabot-processing-controller.md) with its native
   rewrite boundary in

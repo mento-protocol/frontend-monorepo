@@ -3,14 +3,14 @@ title: A trusted controller prepares exact-head Dependabot pull requests for hum
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-08-22
+last_verified: 2026-08-24
 scope: ci/dependabot-processing
 date: 2026-08-10
 ---
 
 # ADR 0006 — A trusted controller prepares exact-head Dependabot pull requests for human merge
 
-**Status:** Accepted, amended Aug 14 and Aug 22 2026
+**Status:** Accepted, amended Aug 14, Aug 22, and Aug 24 2026
 **Scope:** ci/dependabot-processing
 
 ## Context
@@ -58,9 +58,16 @@ normalize to `observe` before any credential is available.
 
 No mode merges, calls a merge endpoint, invokes `gh pr merge`, enables native
 auto-merge, or creates a merge-queue entry. Retire the merge mode, merge code,
-merge-token minting, and merge App configuration. The maintainer performs the
-normal squash merge only while GitHub still shows the exact successful ALL
-CLEAR head.
+merge-token minting, and merge App configuration.
+
+A maintainer performs the final squash merge through one of two explicit
+paths. A prepared change requires a successful exact-head `Dependabot ALL
+CLEAR` check and its exact processor approval. A `manual-review` change
+requires an explicit maintainer takeover. Before merging it, verify the exact
+current head and base, all repository-required checks, resolved feedback, a
+current human approval, and mergeability. The packetless failed `Dependabot
+Processor` check is non-required and intentionally waived for this manual path.
+The manual path does not produce or claim ALL CLEAR.
 
 ### Native and prepared intake remain distinct
 
@@ -133,7 +140,13 @@ Dependabot review and Claude repair prefer the `ANTHROPIC_API_KEY` secret. They
 use `CLAUDE_CODE_OAUTH_TOKEN` only when the API-key secret is absent. A bounded
 post-action diagnostic reports only the CLI subtype, error flag, terminal
 reason, and numeric API status. It never logs the model result, prompt, tool
-output, or diff.
+output, or diff. The publisher records a canonical non-authorizing failure
+receipt. The processor can rerun the exact failed review workflow twice for an
+authenticated transient provider status. It reruns only when that failure
+remains the newest trusted exact-head Claude result and the failed review used
+the current processor workflow SHA. The isolated retry job
+receives only Actions write and read-only PR/check access. Attempt three is
+terminal.
 
 ### Preparation eligibility is broader than automatic eligibility
 
@@ -163,12 +176,12 @@ The Prepare App is repository-scoped. Configure its client ID, exact App slug,
 bot account ID/login, and private key. Mint only short-lived installation tokens
 and verify the returned App slug plus live bot identity before use.
 
-Install the App with only `contents: write` and `pull-requests: write`;
-GitHub's update-branch endpoint requires both. The processor's refresh token
-requests both permissions. Git Data repair and terminal-dispatch tokens are
-explicitly downscoped to Contents write. The App receives no bypass, Actions,
-workflow, deployment, package, environment, or provider permission. Never
-reuse the normal workflow token, preview App, deployment/provider token,
+Install the App with `contents: write` and `pull-requests: write`. The
+processor's Refresh token requests Contents and Pull requests write because
+GitHub's update-branch endpoint requires both. Git Data Repair and
+terminal-dispatch tokens request only Contents write. The App receives no
+bypass, Actions, deployment, package, environment, or provider permission.
+Never reuse the normal workflow token, preview App, deployment/provider token,
 registry credential, or PAT.
 
 Contents write also makes GitHub's merge endpoint technically available; GitHub

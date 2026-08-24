@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
   appendFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -19,6 +20,7 @@ import {
   planVercelDeployments,
   runTurboAffectedPlan,
   VERCEL_DEPLOYMENTS,
+  VERCEL_PROVEN_NON_RUNTIME_EXACT_PATHS,
 } from "./plan-vercel-deployments.mjs";
 
 const scriptPath = fileURLToPath(
@@ -26,19 +28,16 @@ const scriptPath = fileURLToPath(
 );
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 
-const DEPENDABOT_CONTROL_PLANE_FILES = [
-  "scripts/dependabot-claude-review-tool-guard.mjs",
-  "scripts/dependabot-preparation-receipts.mjs",
-  "scripts/dependabot-preparation-receipts.test.mjs",
-  "scripts/dependabot-prepared-review.mjs",
-  "scripts/dependabot-prepared-review.test.mjs",
-  "scripts/dependabot-processor.mjs",
-  "scripts/dependabot-processor.test.mjs",
-  "scripts/dependabot-protected-runtime-sync.mjs",
-  "scripts/dependabot-protected-runtime-sync.test.mjs",
-  "scripts/dependabot-repair-evidence-tool-guard.mjs",
-  "scripts/dependabot-workflows.test.mjs",
-];
+test("the exact non-runtime allowlist is immutable and checked in", () => {
+  assert.equal(Object.isFrozen(VERCEL_PROVEN_NON_RUNTIME_EXACT_PATHS), true);
+  assert.equal(
+    new Set(VERCEL_PROVEN_NON_RUNTIME_EXACT_PATHS).size,
+    VERCEL_PROVEN_NON_RUNTIME_EXACT_PATHS.length,
+  );
+  for (const path of VERCEL_PROVEN_NON_RUNTIME_EXACT_PATHS) {
+    assert.equal(existsSync(join(repoRoot, path)), true, path);
+  }
+});
 
 function commit(directory, message) {
   execFileSync("git", ["add", "--all"], { cwd: directory });
@@ -201,11 +200,10 @@ for (const globalPath of [
 
 for (const path of [
   "docs/vercel-deployments.md",
-  "README.md",
   "apps/governance.mento.org/e2e/lock.spec.ts",
   "apps/app.mento.org/e2e/preview/smoke.spec.ts",
   "apps/ui.mento.org/e2e/showcase.visual.spec.ts",
-  ...DEPENDABOT_CONTROL_PLANE_FILES,
+  ...VERCEL_PROVEN_NON_RUNTIME_EXACT_PATHS,
 ]) {
   test(`returns no deployments for proven non-runtime change ${path}`, () => {
     withFixture(path, (fixture) => {
@@ -224,9 +222,12 @@ for (const path of [
 for (const path of [
   "scripts/dependabot-processor.mjs.bak",
   "scripts/dependabot-unreviewed-helper.mjs",
+  ".github/workflows/dependabot-action-companion.yml",
+  ".github/workflows/dependabot-unreviewed-helper.yml",
 ]) {
   test(`fails closed for unknown Dependabot near-match ${path}`, () => {
     withFixture(path, (fixture) => {
+      const workflowPath = path.startsWith(".github/workflows/");
       let turboCalled = false;
       const plan = planVercelDeployments({
         repoRoot: fixture.directory,
@@ -238,8 +239,11 @@ for (const path of [
         },
       });
       assert.deepEqual(plan.deployments, VERCEL_DEPLOYMENTS);
-      assert.equal(plan.reason, "turbo-planning-failed");
-      assert.equal(turboCalled, true);
+      assert.equal(
+        plan.reason,
+        workflowPath ? "global-build-input" : "turbo-planning-failed",
+      );
+      assert.equal(turboCalled, !workflowPath);
     });
   });
 }
@@ -262,6 +266,76 @@ test("a Dependabot control-plane change mixed with app runtime affects app", () 
     rmSync(fixture.directory, { force: true, recursive: true });
   }
 });
+
+test("a Dependabot workflow change mixed with app runtime fails closed", () => {
+  const fixture = createFixture([
+    ".github/workflows/dependabot-process.yml",
+    "apps/app.mento.org/app/page.tsx",
+  ]);
+  try {
+    const plan = planVercelDeployments({
+      repoRoot: fixture.directory,
+      base: fixture.base,
+      head: fixture.head,
+      runTurbo: () =>
+        assert.fail("Turbo must not narrow a mixed workflow diff"),
+    });
+    assert.deepEqual(plan.deployments, VERCEL_DEPLOYMENTS);
+    assert.equal(plan.reason, "global-build-input");
+  } finally {
+    rmSync(fixture.directory, { force: true, recursive: true });
+  }
+});
+
+test("the exact Dependabot workflow control plane is non-runtime-only", () => {
+  const fixture = createFixture([
+    ".github/workflows/dependabot-claude-review.yml",
+    ".github/workflows/dependabot-prepare-repair.yml",
+    "docs/dependabot-automation.md",
+    "scripts/dependabot-preparation-receipts.test.mjs",
+  ]);
+  try {
+    const plan = planVercelDeployments({
+      repoRoot: fixture.directory,
+      base: fixture.base,
+      head: fixture.head,
+      runTurbo: () =>
+        assert.fail("Turbo must not run for the exact control plane"),
+    });
+    assert.deepEqual(plan.deployments, []);
+    assert.equal(plan.reason, "non-runtime-only");
+  } finally {
+    rmSync(fixture.directory, { force: true, recursive: true });
+  }
+});
+
+for (const dangerousPath of [
+  ".github/workflows/ci.yml",
+  ".github/workflows/vercel-main-deployment.yml",
+  "package.json",
+  "pnpm-lock.yaml",
+  "scripts/security-headers.mjs",
+]) {
+  test(`a Dependabot workflow mixed with ${dangerousPath} fails closed`, () => {
+    const fixture = createFixture([
+      ".github/workflows/dependabot-claude-review.yml",
+      dangerousPath,
+    ]);
+    try {
+      const plan = planVercelDeployments({
+        repoRoot: fixture.directory,
+        base: fixture.base,
+        head: fixture.head,
+        runTurbo: () =>
+          assert.fail("Turbo must not narrow a mixed workflow diff"),
+      });
+      assert.deepEqual(plan.deployments, VERCEL_DEPLOYMENTS);
+      assert.equal(plan.reason, "global-build-input");
+    } finally {
+      rmSync(fixture.directory, { force: true, recursive: true });
+    }
+  });
+}
 
 test("a Dependabot control-plane change mixed with security headers fails closed", () => {
   const fixture = createFixture([
