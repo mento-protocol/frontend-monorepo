@@ -215,7 +215,6 @@ jobs:
     timeout-minutes: 10
     runs-on: ubuntu-latest
     permissions:
-      checks: write
       contents: read
     env:
       TURBO_TOKEN: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.TURBO_TOKEN || '' }}
@@ -256,6 +255,7 @@ jobs:
         uses: trunk-io/trunk-action@e1234e67a86010d61ddac8d8ebf4b783e2ffd2fa # v2.0.0
         with:
           cache: ${{ needs.changes.outputs.allow_repository_credentials == 'true' }}
+          save-annotations: true
 
   ci:
     name: Build and Test

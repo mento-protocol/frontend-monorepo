@@ -348,10 +348,7 @@ test("repaired Dependabot PR jobs retain native secret and credential isolation"
   }
 
   const ci = workflow(".github/workflows/ci.yml");
-  assert.deepEqual(ci.jobs.static.permissions, {
-    checks: "write",
-    contents: "read",
-  });
+  assert.deepEqual(ci.jobs.static.permissions, { contents: "read" });
   const trunk = ci.jobs.static.steps.find((step) =>
     step.uses?.startsWith("trunk-io/trunk-action@"),
   );
@@ -359,6 +356,11 @@ test("repaired Dependabot PR jobs retain native secret and credential isolation"
     trunk.with?.cache,
     "${{ needs.changes.outputs.allow_repository_credentials == 'true' }}",
     "Trunk must disable its internal cache for prepared Dependabot PRs",
+  );
+  assert.equal(
+    trunk.with?.["save-annotations"],
+    true,
+    "Trunk must save annotations without granting candidate jobs checks write access",
   );
 });
 
