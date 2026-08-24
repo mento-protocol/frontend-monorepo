@@ -286,6 +286,9 @@ function liveFixture() {
     mainRefReads: 0,
     moveMainAtRead: null,
     openedPull: null,
+    processorExactRunAttempt: 1,
+    processorExactRunHttpStatus: 200,
+    processorLatestRunAttempt: 1,
     processorSummary:
       "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: create a maintainer-authored companion or replacement PR.",
     processorRunConclusion: null,
@@ -336,6 +339,17 @@ function liveFixture() {
   };
   state.headEntries = headEntries;
   state.sourceCommit = sourceCommit;
+  const processorRun = (runAttempt) => ({
+    conclusion: state.processorRunConclusion,
+    event: state.processorRunEvent,
+    head_branch: "main",
+    head_sha: WORKFLOW_SHA,
+    id: PROCESSOR_RUN_ID,
+    path: ".github/workflows/dependabot-process.yml",
+    repository: { full_name: REPOSITORY },
+    run_attempt: runAttempt,
+    status: state.processorRunStatus,
+  });
 
   const fetchImpl = async (url, options = {}) => {
     const parsed = new URL(url);
@@ -494,19 +508,22 @@ function liveFixture() {
     }
     if (
       method === "GET" &&
+      path ===
+        `/repos/${REPOSITORY}/actions/runs/${PROCESSOR_RUN_ID}/attempts/1`
+    ) {
+      if (state.processorExactRunHttpStatus !== 200) {
+        return json(
+          { message: "Processor run attempt unavailable" },
+          state.processorExactRunHttpStatus,
+        );
+      }
+      return json(processorRun(state.processorExactRunAttempt));
+    }
+    if (
+      method === "GET" &&
       path === `/repos/${REPOSITORY}/actions/runs/${PROCESSOR_RUN_ID}`
     ) {
-      return json({
-        conclusion: state.processorRunConclusion,
-        event: state.processorRunEvent,
-        head_branch: "main",
-        head_sha: WORKFLOW_SHA,
-        id: PROCESSOR_RUN_ID,
-        path: ".github/workflows/dependabot-process.yml",
-        repository: { full_name: REPOSITORY },
-        run_attempt: 1,
-        status: state.processorRunStatus,
-      });
+      return json(processorRun(state.processorLatestRunAttempt));
     }
 
     const companionRefPrefix = `/repos/${REPOSITORY}/git/ref/heads/dependabot-companion/`;
@@ -956,6 +973,63 @@ test("same-run authority accepts human approval and rejects processor approval",
   assert.equal(prior.orchestratorRunAttempt, 3);
   assert.equal(prior.processorRunId, PROCESSOR_RUN_ID);
   assert.equal(prior.processorRunAttempt, 1);
+});
+
+test("reuses a completed Processor receipt from an earlier attempt of the same run", async () => {
+  const fixture = liveFixture();
+  fixture.state.processorLatestRunAttempt = 2;
+  fixture.state.processorRunConclusion = "success";
+  fixture.state.processorRunStatus = "completed";
+
+  const sealed = await census(fixture, { processorRunAttempt: 2 });
+  assert.equal(sealed.orchestratorRunAttempt, 2);
+  assert.equal(sealed.processorRunId, PROCESSOR_RUN_ID);
+  assert.equal(sealed.processorRunAttempt, 1);
+  assert.equal(
+    fixture.state.calls.some(
+      ({ method, url }) =>
+        method === "GET" &&
+        url.pathname ===
+          `/repos/${REPOSITORY}/actions/runs/${PROCESSOR_RUN_ID}/attempts/1`,
+    ),
+    true,
+  );
+  assert.equal(
+    fixture.state.calls.some(
+      ({ method, url }) =>
+        method === "GET" &&
+        url.pathname ===
+          `/repos/${REPOSITORY}/actions/runs/${PROCESSOR_RUN_ID}`,
+    ),
+    false,
+  );
+});
+
+test("exact Processor attempt lookup fails closed on mismatch or fetch failure", async () => {
+  const mismatchFixture = liveFixture();
+  mismatchFixture.state.processorExactRunAttempt = 2;
+  await assert.rejects(
+    census(mismatchFixture, { processorRunAttempt: 2 }),
+    (error) => {
+      assert.equal(error.code, "processor-run-invalid");
+      return true;
+    },
+  );
+  assert.equal(mismatchFixture.state.calls.some(isRepositoryMutation), false);
+
+  const fetchFailureFixture = liveFixture();
+  fetchFailureFixture.state.processorExactRunHttpStatus = 500;
+  await assert.rejects(
+    census(fetchFailureFixture, { processorRunAttempt: 2 }),
+    (error) => {
+      assert.equal(error.code, "github-api-request-failed");
+      return true;
+    },
+  );
+  assert.equal(
+    fetchFailureFixture.state.calls.some(isRepositoryMutation),
+    false,
+  );
 });
 
 test("open rejects compact receipt tampering before using PR authority", async () => {

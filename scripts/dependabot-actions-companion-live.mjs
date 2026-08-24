@@ -1330,10 +1330,12 @@ async function trustedProcessorState(
   ) {
     reject("processor-check-invalid");
   }
-  const { data: run } = await readApi.request(
-    "GET",
-    `/repos/${REQUIRED_REPOSITORY}/actions/runs/${runId}`,
-  );
+  const reusableReceipt =
+    runId !== expectedRunId || runAttempt !== expectedRunAttempt;
+  const runPath = reusableReceipt
+    ? `/repos/${REQUIRED_REPOSITORY}/actions/runs/${runId}/attempts/${runAttempt}`
+    : `/repos/${REQUIRED_REPOSITORY}/actions/runs/${runId}`;
+  const { data: run } = await readApi.request("GET", runPath);
   if (
     run?.id !== runId ||
     run?.run_attempt !== runAttempt ||

@@ -983,7 +983,10 @@ pnpm dependabot:soak
 Before changing a pending row to passed, revalidate its exact PR, check,
 workflow-run, and authority evidence against live GitHub. The offline command
 checks schema, internal bindings, evidence reuse, and generated Markdown. It
-does not certify GitHub provenance.
+does not certify GitHub provenance. A passed typed companion case must bind the
+exact source and companion PRs, companion branch and commit, workflow and
+Processor run attempts, one plan digest, and distinct census, stage, and open
+receipt SHA-256 hashes.
 
 Run the opt-in public-registry Next source-preserving sync proof after changing
 the typed generator or its pnpm contract:

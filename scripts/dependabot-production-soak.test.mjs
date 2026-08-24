@@ -26,6 +26,117 @@ function manifest() {
   return JSON.parse(readFileSync(manifestPath, "utf8"));
 }
 
+function manifestWithPassedTypedCompanion() {
+  const value = manifest();
+  const sourceHeadSha = "1".repeat(40);
+  const sourceBaseSha = "2".repeat(40);
+  const companionCommitSha = "3".repeat(40);
+  const workflowSha = "5".repeat(40);
+  const sourcePullRequestNumber = 901;
+  const companionPullRequestNumber = 902;
+  const companionBranchRef =
+    `dependabot-companion/osv-pr-${sourcePullRequestNumber}-` +
+    sourceHeadSha.slice(0, 12);
+  const workflowRunId = 40_002;
+  const workflowRunAttempt = 2;
+  const processorRunId = 40_001;
+  const processorRunAttempt = 1;
+  const planDigest = "d".repeat(64);
+  const receipt = (receiptSha256, schema, result, extra = {}) => ({
+    companionBranchRef,
+    planDigest,
+    processorRunAttempt,
+    processorRunId,
+    receiptSha256,
+    result,
+    schema,
+    sourceBaseSha,
+    sourceHeadSha,
+    sourcePullRequestNumber,
+    workflowRunAttempt,
+    workflowRunId,
+    workflowSha,
+    ...extra,
+  });
+  value.cases[5] = {
+    companion: {
+      branchRef: companionBranchRef,
+      commitSha: companionCommitSha,
+      pr: {
+        authorLogin: "mento-dependabot-prepare[bot]",
+        baseRef: "main",
+        baseSha: sourceBaseSha,
+        headRef: companionBranchRef,
+        headSha: companionCommitSha,
+        mergedAt: null,
+        mergeSha: null,
+        number: companionPullRequestNumber,
+        state: "open",
+        url: `https://github.com/mento-protocol/frontend-monorepo/pull/${companionPullRequestNumber}`,
+      },
+    },
+    id: "typed-actions-companion",
+    pr: {
+      authorLogin: "dependabot[bot]",
+      baseRef: "main",
+      baseSha: sourceBaseSha,
+      headRef: "dependabot/github_actions/github-actions-manual-example",
+      headSha: sourceHeadSha,
+      mergedAt: null,
+      mergeSha: null,
+      number: sourcePullRequestNumber,
+      state: "open",
+      url: `https://github.com/mento-protocol/frontend-monorepo/pull/${sourcePullRequestNumber}`,
+    },
+    processor: {
+      checkId: 70_001,
+      conclusion: "failure",
+      dependencyGroup: "github-actions-manual",
+      dependencyNames: [
+        "google/osv-scanner-action/osv-scanner-action",
+        "google/osv-scanner-action/osv-reporter-action",
+      ],
+      disposition: "manual-review",
+      externalId:
+        `dependabot-processor:v2:pr=${sourcePullRequestNumber}:head=${sourceHeadSha}:` +
+        `mode=prepare:repair=1:packet=false:digest=none:run=${processorRunId}:attempt=${processorRunAttempt}`,
+      headSha: sourceHeadSha,
+      workflowRunAttempt: processorRunAttempt,
+      workflowRunId: processorRunId,
+      workflowSha,
+    },
+    receipts: {
+      census: receipt(
+        "a".repeat(64),
+        "dependabot-actions-companion-live-census:v1",
+        "planned",
+      ),
+      open: receipt(
+        "c".repeat(64),
+        "dependabot-actions-companion-live-open:v1",
+        "opened",
+        { companionCommitSha, companionPullRequestNumber },
+      ),
+      stage: receipt(
+        "b".repeat(64),
+        "dependabot-actions-companion-live-stage:v1",
+        "staged",
+        { companionCommitSha },
+      ),
+    },
+    status: "passed",
+    summary:
+      "A current production run created an exact typed OSV companion pull request.",
+    workflow: {
+      conclusion: "success",
+      runAttempt: workflowRunAttempt,
+      runId: workflowRunId,
+      workflowSha,
+    },
+  };
+  return value;
+}
+
 test("the checked-in production evidence renders the checked-in soak report", () => {
   const value = manifest();
   assert.equal(value.schema, DEPENDABOT_PRODUCTION_SOAK_SCHEMA);
@@ -74,6 +185,89 @@ test("the CLI only renders or checks the observational report", () => {
     removedCompletionRun.stderr,
     /Unsupported argument: --require-complete/,
   );
+});
+
+test("typed Actions companion PASS evidence binds the exact production chain", () => {
+  const value = manifestWithPassedTypedCompanion();
+  const validated = validateDependabotProductionSoakManifest(value);
+  assert.equal(validated.validated[5].entry.status, "passed");
+  const rendered = renderDependabotProductionSoak(value);
+  assert.match(rendered, /4 of 6 cases observed; 2 pending/);
+  assert.match(rendered, /source \[#901\][\s\S]*companion \[#902\]/);
+  assert.match(rendered, /workflow 40002 attempt 2/);
+  assert.match(
+    rendered,
+    /Exact receipt SHA-256 digests: census `a{64}`, stage `b{64}`, open `c{64}`/,
+  );
+});
+
+test("typed Actions companion PASS evidence rejects focused binding mismatches", () => {
+  const cases = [
+    {
+      mutate(value) {
+        value.cases[5].receipts.census.sourceBaseSha = "4".repeat(40);
+      },
+      pattern: /does not bind the exact source PR, head, and base/,
+    },
+    {
+      mutate(value) {
+        value.cases[5].companion.pr.headSha = "4".repeat(40);
+      },
+      pattern: /does not bind the exact branch, commit, and base/,
+    },
+    {
+      mutate(value) {
+        value.cases[5].receipts.stage.workflowRunAttempt += 1;
+      },
+      pattern: /does not bind the exact workflow run and attempt/,
+    },
+    {
+      mutate(value) {
+        value.cases[5].receipts.open.processorRunId += 1;
+      },
+      pattern: /does not bind the exact processor run and attempt/,
+    },
+    {
+      mutate(value) {
+        value.cases[5].receipts.stage.companionCommitSha = "4".repeat(40);
+      },
+      pattern: /does not bind the exact companion commit/,
+    },
+    {
+      mutate(value) {
+        value.cases[5].receipts.open.companionPullRequestNumber += 1;
+      },
+      pattern: /does not bind the exact companion PR/,
+    },
+    {
+      mutate(value) {
+        value.cases[5].receipts.stage.planDigest = "e".repeat(64);
+      },
+      pattern: /do not bind one exact companion plan/,
+    },
+    {
+      mutate(value) {
+        value.cases[5].receipts.open.receiptSha256 =
+          value.cases[5].receipts.census.receiptSha256;
+      },
+      pattern: /must use distinct exact receipt digests/,
+    },
+    {
+      mutate(value) {
+        value.cases[5].receipts.census.receiptSha256 = "not-a-digest";
+      },
+      pattern: /must be a SHA-256 digest/,
+    },
+  ];
+
+  for (const { mutate, pattern } of cases) {
+    const value = manifestWithPassedTypedCompanion();
+    mutate(value);
+    assert.throws(
+      () => validateDependabotProductionSoakManifest(value),
+      pattern,
+    );
+  }
 });
 
 test("the soak manifest rejects incomplete or contradictory evidence", () => {

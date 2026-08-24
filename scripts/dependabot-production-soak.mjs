@@ -34,6 +34,11 @@ const ALL_CLEAR_EXTERNAL_ID_PATTERN =
 const PROCESSOR_EXTERNAL_ID_PATTERN =
   /^dependabot-processor:v2:pr=(\d+):head=([0-9a-f]{40}):mode=prepare:repair=(\d+):packet=false:digest=none:run=(\d+):attempt=(\d+)$/;
 const POST_MERGE_EXTERNAL_ID_PATTERN = /^dependabot-post-merge:(\d+):(\d+)$/;
+const PREPARE_BOT_LOGIN = "mento-dependabot-prepare[bot]";
+const TYPED_ACTIONS_DEPENDENCIES = Object.freeze([
+  "google/osv-scanner-action/osv-reporter-action",
+  "google/osv-scanner-action/osv-scanner-action",
+]);
 const PREPARED_OPERATION_KINDS = new Set([
   "next-catalog-override-sync",
   "vercel-cli-runtime-sync",
@@ -72,6 +77,13 @@ function nonNegativeInteger(value, label) {
 
 function exactSha(value, label) {
   invariant(SHA_PATTERN.test(value ?? ""), `${label} must be a full SHA`);
+}
+
+function exactDigest(value, label) {
+  invariant(
+    DIGEST_PATTERN.test(value ?? ""),
+    `${label} must be a SHA-256 digest`,
+  );
 }
 
 function exactTimestamp(value, label) {
@@ -392,17 +404,15 @@ function validateMergedCase(entry, manifest) {
   return { allClearUrls, mainCiUrls, postMergeUrls };
 }
 
-function validateManualCase(entry, manifest) {
-  const label = `case ${entry.id}`;
+function validateManualProcessor(
+  processor,
+  pr,
+  repository,
+  label,
+  { requireBaseMatch = true } = {},
+) {
   exactKeys(
-    entry,
-    ["authority", "id", "pr", "processor", "status", "summary"],
-    label,
-  );
-  invariant(entry.id === "manual-actions", `${label} is not manual Actions`);
-  validatePullRequest(entry.pr, manifest.repository, "open", label);
-  exactKeys(
-    entry.processor,
+    processor,
     [
       "checkId",
       "conclusion",
@@ -417,51 +427,67 @@ function validateManualCase(entry, manifest) {
     ],
     `${label}.processor`,
   );
-  positiveInteger(entry.processor.checkId, `${label}.processor.checkId`);
+  positiveInteger(processor.checkId, `${label}.processor.checkId`);
+  positiveInteger(processor.workflowRunId, `${label}.processor.workflowRunId`);
   positiveInteger(
-    entry.processor.workflowRunId,
-    `${label}.processor.workflowRunId`,
-  );
-  positiveInteger(
-    entry.processor.workflowRunAttempt,
+    processor.workflowRunAttempt,
     `${label}.processor.workflowRunAttempt`,
   );
-  exactSha(entry.processor.workflowSha, `${label}.processor.workflowSha`);
+  exactSha(processor.workflowSha, `${label}.processor.workflowSha`);
   invariant(
-    entry.processor.workflowSha === entry.pr.baseSha &&
-      entry.processor.headSha === entry.pr.headSha,
+    (!requireBaseMatch || processor.workflowSha === pr.baseSha) &&
+      processor.headSha === pr.headSha,
     `${label}.processor does not bind the exact controller and PR head`,
   );
   invariant(
-    entry.processor.conclusion === "failure" &&
-      entry.processor.disposition === "manual-review" &&
-      entry.processor.dependencyGroup === "github-actions-manual",
+    processor.conclusion === "failure" &&
+      processor.disposition === "manual-review" &&
+      processor.dependencyGroup === "github-actions-manual",
     `${label}.processor is not a manual-review classification`,
   );
   invariant(
-    Array.isArray(entry.processor.dependencyNames) &&
-      entry.processor.dependencyNames.length > 0 &&
-      entry.processor.dependencyNames.every(
+    Array.isArray(processor.dependencyNames) &&
+      processor.dependencyNames.length > 0 &&
+      processor.dependencyNames.every(
         (name) => typeof name === "string" && name.length > 0,
       ) &&
-      new Set(entry.processor.dependencyNames).size ===
-        entry.processor.dependencyNames.length,
+      new Set(processor.dependencyNames).size ===
+        processor.dependencyNames.length,
     `${label}.processor dependency metadata is invalid`,
   );
-  const external = PROCESSOR_EXTERNAL_ID_PATTERN.exec(
-    entry.processor.externalId,
-  );
+  const external = PROCESSOR_EXTERNAL_ID_PATTERN.exec(processor.externalId);
   invariant(external !== null, `${label}.processor.externalId is invalid`);
-  invariant(Number(external[1]) === entry.pr.number, `${label} PR mismatch`);
-  invariant(external[2] === entry.pr.headSha, `${label} head mismatch`);
+  invariant(Number(external[1]) === pr.number, `${label} PR mismatch`);
+  invariant(external[2] === pr.headSha, `${label} head mismatch`);
   invariant(
     Number(external[3]) >= 1 && Number(external[3]) <= 2,
     `${label} attempt is invalid`,
   );
   invariant(
-    Number(external[4]) === entry.processor.workflowRunId &&
-      Number(external[5]) === entry.processor.workflowRunAttempt,
+    Number(external[4]) === processor.workflowRunId &&
+      Number(external[5]) === processor.workflowRunAttempt,
     `${label}.processor workflow provenance mismatch`,
+  );
+  return {
+    processorCheckUrl: checkUrl(repository, processor.checkId),
+    processorRunUrl: workflowRunUrl(repository, processor.workflowRunId),
+  };
+}
+
+function validateManualCase(entry, manifest) {
+  const label = `case ${entry.id}`;
+  exactKeys(
+    entry,
+    ["authority", "id", "pr", "processor", "status", "summary"],
+    label,
+  );
+  invariant(entry.id === "manual-actions", `${label} is not manual Actions`);
+  validatePullRequest(entry.pr, manifest.repository, "open", label);
+  const processorUrls = validateManualProcessor(
+    entry.processor,
+    entry.pr,
+    manifest.repository,
+    label,
   );
   exactKeys(
     entry.authority,
@@ -492,12 +518,266 @@ function validateManualCase(entry, manifest) {
       `${label}.authority.${key} must be zero`,
     );
   }
+  return processorUrls;
+}
+
+function validateTypedCompanionPullRequest(
+  companion,
+  sourcePr,
+  repository,
+  label,
+) {
+  exactKeys(companion, ["branchRef", "commitSha", "pr"], `${label}.companion`);
+  exactSha(companion.commitSha, `${label}.companion.commitSha`);
+  const expectedBranch =
+    `dependabot-companion/osv-pr-${sourcePr.number}-` +
+    sourcePr.headSha.slice(0, 12);
+  invariant(
+    companion.branchRef === expectedBranch,
+    `${label}.companion.branchRef does not bind the source PR and head`,
+  );
+  exactKeys(
+    companion.pr,
+    [
+      "authorLogin",
+      "baseRef",
+      "baseSha",
+      "headRef",
+      "headSha",
+      "mergedAt",
+      "mergeSha",
+      "number",
+      "state",
+      "url",
+    ],
+    `${label}.companion.pr`,
+  );
+  positiveInteger(companion.pr.number, `${label}.companion.pr.number`);
+  invariant(
+    companion.pr.number !== sourcePr.number &&
+      companion.pr.url === pullRequestUrl(repository, companion.pr.number),
+    `${label}.companion.pr identity is invalid`,
+  );
+  invariant(
+    companion.pr.authorLogin === PREPARE_BOT_LOGIN,
+    `${label}.companion.pr author is not the Prepare App`,
+  );
+  invariant(
+    companion.pr.baseRef === "main" &&
+      companion.pr.baseSha === sourcePr.baseSha &&
+      companion.pr.headRef === companion.branchRef &&
+      companion.pr.headSha === companion.commitSha,
+    `${label}.companion.pr does not bind the exact branch, commit, and base`,
+  );
+  invariant(
+    companion.pr.state === "open" &&
+      companion.pr.mergedAt === null &&
+      companion.pr.mergeSha === null,
+    `${label}.companion.pr is not an open companion`,
+  );
+}
+
+function validateTypedCompanionReceipt(
+  receipt,
+  expected,
+  { bindCommit, bindPullRequest, result, schema },
+) {
+  const keys = [
+    "companionBranchRef",
+    "planDigest",
+    "processorRunAttempt",
+    "processorRunId",
+    "receiptSha256",
+    "result",
+    "schema",
+    "sourceBaseSha",
+    "sourceHeadSha",
+    "sourcePullRequestNumber",
+    "workflowRunAttempt",
+    "workflowRunId",
+    "workflowSha",
+  ];
+  if (bindCommit) keys.push("companionCommitSha");
+  if (bindPullRequest) keys.push("companionPullRequestNumber");
+  exactKeys(receipt, keys, expected.label);
+  exactDigest(receipt.receiptSha256, `${expected.label}.receiptSha256`);
+  exactDigest(receipt.planDigest, `${expected.label}.planDigest`);
+  exactSha(receipt.sourceBaseSha, `${expected.label}.sourceBaseSha`);
+  exactSha(receipt.sourceHeadSha, `${expected.label}.sourceHeadSha`);
+  exactSha(receipt.workflowSha, `${expected.label}.workflowSha`);
+  positiveInteger(
+    receipt.sourcePullRequestNumber,
+    `${expected.label}.sourcePullRequestNumber`,
+  );
+  positiveInteger(receipt.workflowRunId, `${expected.label}.workflowRunId`);
+  positiveInteger(
+    receipt.workflowRunAttempt,
+    `${expected.label}.workflowRunAttempt`,
+  );
+  positiveInteger(receipt.processorRunId, `${expected.label}.processorRunId`);
+  positiveInteger(
+    receipt.processorRunAttempt,
+    `${expected.label}.processorRunAttempt`,
+  );
+  invariant(
+    receipt.schema === schema &&
+      (Array.isArray(result)
+        ? result.includes(receipt.result)
+        : receipt.result === result),
+    `${expected.label} schema or result is invalid`,
+  );
+  invariant(
+    receipt.sourcePullRequestNumber === expected.sourcePr.number &&
+      receipt.sourceHeadSha === expected.sourcePr.headSha &&
+      receipt.sourceBaseSha === expected.sourcePr.baseSha,
+    `${expected.label} does not bind the exact source PR, head, and base`,
+  );
+  invariant(
+    receipt.workflowRunId === expected.workflow.runId &&
+      receipt.workflowRunAttempt === expected.workflow.runAttempt &&
+      receipt.workflowSha === expected.workflow.workflowSha,
+    `${expected.label} does not bind the exact workflow run and attempt`,
+  );
+  invariant(
+    receipt.processorRunId === expected.processor.workflowRunId &&
+      receipt.processorRunAttempt === expected.processor.workflowRunAttempt,
+    `${expected.label} does not bind the exact processor run and attempt`,
+  );
+  invariant(
+    receipt.companionBranchRef === expected.companion.branchRef,
+    `${expected.label} does not bind the exact companion branch`,
+  );
+  if (bindCommit) {
+    exactSha(
+      receipt.companionCommitSha,
+      `${expected.label}.companionCommitSha`,
+    );
+    invariant(
+      receipt.companionCommitSha === expected.companion.commitSha,
+      `${expected.label} does not bind the exact companion commit`,
+    );
+  }
+  if (bindPullRequest) {
+    positiveInteger(
+      receipt.companionPullRequestNumber,
+      `${expected.label}.companionPullRequestNumber`,
+    );
+    invariant(
+      receipt.companionPullRequestNumber === expected.companion.pr.number,
+      `${expected.label} does not bind the exact companion PR`,
+    );
+  }
+}
+
+function validateTypedActionsCompanionCase(entry, manifest) {
+  const label = `case ${entry.id}`;
+  exactKeys(
+    entry,
+    [
+      "companion",
+      "id",
+      "pr",
+      "processor",
+      "receipts",
+      "status",
+      "summary",
+      "workflow",
+    ],
+    label,
+  );
+  invariant(
+    entry.id === "typed-actions-companion",
+    `${label} is not typed Actions companion evidence`,
+  );
+  validatePullRequest(entry.pr, manifest.repository, "open", label);
+  validateTypedCompanionPullRequest(
+    entry.companion,
+    entry.pr,
+    manifest.repository,
+    label,
+  );
+  const processorUrls = validateManualProcessor(
+    entry.processor,
+    entry.pr,
+    manifest.repository,
+    label,
+    { requireBaseMatch: false },
+  );
+  invariant(
+    JSON.stringify([...entry.processor.dependencyNames].sort()) ===
+      JSON.stringify(TYPED_ACTIONS_DEPENDENCIES),
+    `${label}.processor does not bind the exact typed OSV dependency pair`,
+  );
+  exactKeys(
+    entry.workflow,
+    ["conclusion", "runAttempt", "runId", "workflowSha"],
+    `${label}.workflow`,
+  );
+  positiveInteger(entry.workflow.runId, `${label}.workflow.runId`);
+  positiveInteger(entry.workflow.runAttempt, `${label}.workflow.runAttempt`);
+  exactSha(entry.workflow.workflowSha, `${label}.workflow.workflowSha`);
+  invariant(
+    entry.workflow.conclusion === "success" &&
+      entry.workflow.workflowSha === entry.processor.workflowSha,
+    `${label}.workflow is not a successful exact-controller run`,
+  );
+  exactKeys(entry.receipts, ["census", "open", "stage"], `${label}.receipts`);
+  const receiptExpected = {
+    companion: entry.companion,
+    processor: entry.processor,
+    sourcePr: entry.pr,
+    workflow: entry.workflow,
+  };
+  validateTypedCompanionReceipt(
+    entry.receipts.census,
+    { ...receiptExpected, label: `${label}.receipts.census` },
+    {
+      bindCommit: false,
+      bindPullRequest: false,
+      result: "planned",
+      schema: "dependabot-actions-companion-live-census:v1",
+    },
+  );
+  validateTypedCompanionReceipt(
+    entry.receipts.stage,
+    { ...receiptExpected, label: `${label}.receipts.stage` },
+    {
+      bindCommit: true,
+      bindPullRequest: false,
+      result: "staged",
+      schema: "dependabot-actions-companion-live-stage:v1",
+    },
+  );
+  validateTypedCompanionReceipt(
+    entry.receipts.open,
+    { ...receiptExpected, label: `${label}.receipts.open` },
+    {
+      bindCommit: true,
+      bindPullRequest: true,
+      result: ["opened", "already-open"],
+      schema: "dependabot-actions-companion-live-open:v1",
+    },
+  );
+  invariant(
+    new Set([
+      entry.receipts.census.planDigest,
+      entry.receipts.stage.planDigest,
+      entry.receipts.open.planDigest,
+    ]).size === 1,
+    `${label}.receipts do not bind one exact companion plan`,
+  );
+  invariant(
+    new Set([
+      entry.receipts.census.receiptSha256,
+      entry.receipts.stage.receiptSha256,
+      entry.receipts.open.receiptSha256,
+    ]).size === 3,
+    `${label}.receipts must use distinct exact receipt digests`,
+  );
   return {
-    processorCheckUrl: checkUrl(manifest.repository, entry.processor.checkId),
-    processorRunUrl: workflowRunUrl(
-      manifest.repository,
-      entry.processor.workflowRunId,
-    ),
+    ...processorUrls,
+    companionPullRequestUrl: entry.companion.pr.url,
+    workflowRunUrl: workflowRunUrl(manifest.repository, entry.workflow.runId),
   };
 }
 
@@ -546,22 +826,32 @@ export function validateDependabotProductionSoakManifest(manifest) {
     const urls =
       entry.id === "manual-actions"
         ? validateManualCase(entry, manifest)
-        : validateMergedCase(entry, manifest);
+        : entry.id === "typed-actions-companion"
+          ? validateTypedActionsCompanionCase(entry, manifest)
+          : validateMergedCase(entry, manifest);
     validated.push({ entry, urls });
   }
   const observed = validated.filter(({ entry }) => entry.status === "passed");
-  invariant(
-    new Set(observed.map(({ entry }) => entry.pr.number)).size ===
-      observed.length,
-    "passed soak cases must use distinct pull requests",
+  const pullRequestNumbers = observed.flatMap(({ entry }) =>
+    entry.id === "typed-actions-companion"
+      ? [entry.pr.number, entry.companion.pr.number]
+      : [entry.pr.number],
   );
   invariant(
-    new Set(observed.map(({ entry }) => entry.pr.headSha)).size ===
-      observed.length,
+    new Set(pullRequestNumbers).size === pullRequestNumbers.length,
+    "passed soak cases must use distinct pull requests",
+  );
+  const pullRequestHeads = observed.flatMap(({ entry }) =>
+    entry.id === "typed-actions-companion"
+      ? [entry.pr.headSha, entry.companion.pr.headSha]
+      : [entry.pr.headSha],
+  );
+  invariant(
+    new Set(pullRequestHeads).size === pullRequestHeads.length,
     "passed soak cases must use distinct pull request heads",
   );
   const checkIds = observed.flatMap(({ entry }) =>
-    entry.id === "manual-actions"
+    entry.id === "manual-actions" || entry.id === "typed-actions-companion"
       ? [entry.processor.checkId]
       : [entry.allClear.checkId, entry.mainCi.checkId, entry.postMerge.checkId],
   );
@@ -572,18 +862,22 @@ export function validateDependabotProductionSoakManifest(manifest) {
   const workflowRunIds = observed.flatMap(({ entry }) =>
     entry.id === "manual-actions"
       ? [entry.processor.workflowRunId]
-      : [
-          entry.allClear.workflowRunId,
-          entry.mainCi.workflowRunId,
-          entry.postMerge.workflowRunId,
-        ],
+      : entry.id === "typed-actions-companion"
+        ? [...new Set([entry.workflow.runId, entry.processor.workflowRunId])]
+        : [
+            entry.allClear.workflowRunId,
+            entry.mainCi.workflowRunId,
+            entry.postMerge.workflowRunId,
+          ],
   );
   invariant(
     new Set(workflowRunIds).size === workflowRunIds.length,
     "passed soak evidence must use distinct workflow run IDs",
   );
   const processorApprovalIds = observed.flatMap(({ entry }) =>
-    entry.id === "manual-actions" ? [] : [entry.allClear.processorApprovalId],
+    entry.id === "manual-actions" || entry.id === "typed-actions-companion"
+      ? []
+      : [entry.allClear.processorApprovalId],
   );
   invariant(
     new Set(processorApprovalIds).size === processorApprovalIds.length,
@@ -618,6 +912,14 @@ function markdownTable(headers, rows) {
 }
 
 function renderPassed(entry, urls) {
+  if (entry.id === "typed-actions-companion") {
+    return [
+      `source [#${entry.pr.number}](${entry.pr.url}) at \`${shortSha(entry.pr.headSha)}\` -> companion [#${entry.companion.pr.number}](${urls.companionPullRequestUrl}) at \`${shortSha(entry.companion.commitSha)}\``,
+      `[workflow ${entry.workflow.runId} attempt ${entry.workflow.runAttempt}](${urls.workflowRunUrl}) and ` +
+        `[Processor ${entry.processor.checkId}](${urls.processorCheckUrl}) bound branch \`${entry.companion.branchRef}\`. ` +
+        `Exact receipt SHA-256 digests: census \`${entry.receipts.census.receiptSha256}\`, stage \`${entry.receipts.stage.receiptSha256}\`, open \`${entry.receipts.open.receiptSha256}\`.`,
+    ];
+  }
   if (entry.id === "manual-actions") {
     const dependencies = entry.processor.dependencyNames.join(", ");
     return [

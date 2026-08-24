@@ -445,6 +445,8 @@ workflow, receipt, repair, and reviewer contracts. Run
 `pnpm dependabot:soak` to render and validate the offline observational
 production evidence report. Before changing a pending row to passed, revalidate
 its exact PR, check, workflow-run, and authority evidence against live GitHub.
+The typed companion row also requires the exact source and companion PRs and
+the distinct census, stage, and open receipt hashes.
 The offline command does not certify GitHub provenance. The complete operating
 procedure is `docs/dependabot-automation.md`; the architecture decisions are
 ADRs 0006, 0008, and 0009.
