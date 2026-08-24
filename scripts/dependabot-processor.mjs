@@ -91,10 +91,12 @@ const PULL_REQUEST_REVIEW_STATES = new Set([
   "PENDING",
 ]);
 const PROCESSOR_CHECK_NAME = "Dependabot Processor";
-const MANUAL_REVIEW_COMPANION_ACTION =
-  "create a maintainer-authored companion or replacement PR";
-const MANUAL_REVIEW_SUMMARY_PATTERN =
-  /^Disposition: manual-review\. Reason: [a-z0-9]+(?:-[a-z0-9]+)*\. Next action: create a maintainer-authored companion or replacement PR\.$/;
+const MANUAL_REVIEW_ACTION =
+  "complete human review and merge after required checks pass";
+const MANUAL_REVIEW_SUMMARY_PATTERN = new RegExp(
+  `^Disposition: manual-review\\. Reason: [a-z0-9]+(?:-[a-z0-9]+)*\\. Next action: ${MANUAL_REVIEW_ACTION.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}\\.$`,
+  "u",
+);
 const REFRESH_CHECK_NAME = "Dependabot Refresh";
 const REPAIR_CHECK_NAME = "Dependabot Repair";
 const ALL_CLEAR_CHECK_NAME = "Dependabot ALL CLEAR";
@@ -4670,7 +4672,7 @@ function processorCheckSummary(evaluation) {
   if (evaluation.repairPacket !== null || disposition !== "manual-review") {
     return `Disposition: ${disposition}`;
   }
-  return `Disposition: ${disposition}. Reason: ${manualReviewSummaryReason(evaluation)}. Next action: ${MANUAL_REVIEW_COMPANION_ACTION}.`;
+  return `Disposition: ${disposition}. Reason: ${manualReviewSummaryReason(evaluation)}. Next action: ${MANUAL_REVIEW_ACTION}.`;
 }
 
 function autonomousRepairPathForbidden(path) {
@@ -5246,53 +5248,6 @@ function summarizeEvaluations(evaluations) {
   };
 }
 
-export function isTypedOsvActionsCompanionCandidate(evaluation) {
-  const expectedDependencies = [
-    "google/osv-scanner-action/osv-reporter-action",
-    "google/osv-scanner-action/osv-scanner-action",
-  ];
-  const dependencies = Array.isArray(evaluation?.dependencies)
-    ? [...evaluation.dependencies]
-    : [];
-  const dependencyNames = dependencies.map(({ name }) => name).sort();
-  const fromRevisions = new Set(dependencies.map(({ from }) => from));
-  const toRevisions = new Set(dependencies.map(({ to }) => to));
-  return (
-    evaluation?.disposition === "manual-review" &&
-    evaluation?.dependencyGroup === "github-actions-manual" &&
-    evaluation?.risk?.packageEcosystem === "github-actions" &&
-    evaluation?.risk?.reason ===
-      "sensitive-auth-deployment-or-workflow-policy-action" &&
-    JSON.stringify(evaluation?.changedPaths) ===
-      JSON.stringify([".github/workflows/_osv-scanner-readonly.yml"]) &&
-    JSON.stringify(dependencyNames) === JSON.stringify(expectedDependencies) &&
-    fromRevisions.size === 1 &&
-    toRevisions.size === 1 &&
-    SHA_PATTERN.test([...fromRevisions][0] ?? "") &&
-    SHA_PATTERN.test([...toRevisions][0] ?? "") &&
-    [...fromRevisions][0] !== [...toRevisions][0] &&
-    evaluation?.base?.current === true &&
-    SHA_PATTERN.test(evaluation?.base?.currentBaseSha ?? "") &&
-    evaluation?.baseSha === evaluation?.base?.currentBaseSha &&
-    evaluation?.repairAttempts?.valid === true &&
-    evaluation?.repairAttempts?.preparationKind === "native" &&
-    evaluation?.repairAttempts?.pendingRefreshCompletion === null &&
-    evaluation?.repairAttempts?.pendingRefreshRequest === null &&
-    evaluation?.repairAttempts?.currentHeadPacketIssued === false &&
-    evaluation?.identity?.prepareAuthority === true &&
-    evaluation?.feedback?.clear === true &&
-    evaluation?.feedback?.autoMergeEnabled === false &&
-    evaluation?.feedback?.currentProcessorApprovalCount === 0 &&
-    /^dependabot\/github_actions\/github-actions-manual(?:-[a-z0-9._-]+)?$/u.test(
-      evaluation?.headRef ?? "",
-    ) &&
-    SHA_PATTERN.test(evaluation?.headSha ?? "") &&
-    Number.isSafeInteger(evaluation?.pullRequestNumber) &&
-    evaluation.pullRequestNumber >= 1 &&
-    evaluation.pullRequestNumber <= 9_999_999_999
-  );
-}
-
 function outstandingAutoMergeState(input, evaluations) {
   const explicit = input.outstandingAutoMergeRequests;
   const requests = Array.isArray(explicit)
@@ -5535,35 +5490,7 @@ export function evaluateDependabotSweep(input) {
       evaluation.repairPacket = null;
     }
   }
-  const actionsCompanionCandidates =
-    mode === "prepare"
-      ? evaluations.filter(isTypedOsvActionsCompanionCandidate)
-      : [];
-  let actionsCompanionCandidate = null;
-  if (actionsCompanionCandidates.length > 1) {
-    serialization = {
-      ...serialization,
-      actionsCompanionReason: "multiple-actions-companion-candidates",
-    };
-  } else if (
-    mode === "prepare" &&
-    serialization.ready &&
-    prepareCandidate === null &&
-    actionsCompanionCandidates.length === 1
-  ) {
-    const [selected] = actionsCompanionCandidates;
-    actionsCompanionCandidate = {
-      baseSha: selected.base.currentBaseSha,
-      headSha: selected.headSha,
-      pullRequestNumber: selected.pullRequestNumber,
-    };
-    serialization = {
-      ...serialization,
-      actionsCompanionReason: "exact-typed-actions-companion-selected",
-    };
-  }
   return {
-    actionsCompanionCandidate,
     evaluations,
     mergeCandidate: null,
     mode,

@@ -32,7 +32,6 @@ import {
   evaluateDependabotPullRequest,
   evaluateDependabotSweep,
   evaluateFeedbackGate,
-  isTypedOsvActionsCompanionCandidate,
   normalizeProcessorMode,
   normalizeProcessorPhase,
   parseDependabotAllClearReceipt,
@@ -1215,80 +1214,6 @@ function snapshotForPullRequest(pullRequestNumber, headSha) {
     pullRequest: {
       head: {
         ref: `dependabot/github_actions/github-actions-routine-${pullRequestNumber}`,
-        repo: { fullName: REPOSITORY },
-        sha: headSha,
-      },
-      number: pullRequestNumber,
-    },
-  });
-}
-
-function typedOsvSnapshotForPullRequest(
-  pullRequestNumber = 840,
-  headSha = SECOND_HEAD_SHA,
-) {
-  const from = "6".repeat(40);
-  const to = "7".repeat(40);
-  return snapshot({
-    baseAncestry: {
-      aheadBy: 1,
-      baseCommitSha: BASE_SHA,
-      behindBy: 0,
-      currentBaseIsAncestor: true,
-      currentBaseSha: BASE_SHA,
-      headSha,
-      mergeBaseSha: BASE_SHA,
-      status: "ahead",
-    },
-    checks: completeChecks({ headSha, pullRequestNumber }),
-    commits: [
-      {
-        authorLogin: "dependabot[bot]",
-        committerLogin: "dependabot[bot]",
-        sha: headSha,
-        verified: true,
-      },
-    ],
-    expectedHeadSha: headSha,
-    metadata: {
-      dependencies: [
-        {
-          from,
-          name: "google/osv-scanner-action/osv-scanner-action",
-          to,
-          updateType: "minor",
-        },
-        {
-          from,
-          name: "google/osv-scanner-action/osv-reporter-action",
-          to,
-          updateType: "minor",
-        },
-      ],
-      dependencyGroup: "github-actions-manual",
-      dependencyNames: [
-        "google/osv-scanner-action/osv-scanner-action",
-        "google/osv-scanner-action/osv-reporter-action",
-      ],
-      groupedUpdateIntegrity: {
-        declaredUpdateCount: 2,
-        duplicateDependencyRows: false,
-        parsedUpdateCount: 2,
-        valid: true,
-      },
-      immutableEvidence: { valid: true },
-      packageEcosystem: "github-actions",
-      updateType: "minor",
-    },
-    pullRequest: {
-      files: [
-        {
-          ...PACKAGE_BLOB,
-          filename: ".github/workflows/_osv-scanner-readonly.yml",
-        },
-      ],
-      head: {
-        ref: "dependabot/github_actions/github-actions-manual-148744ce4a",
         repo: { fullName: REPOSITORY },
         sha: headSha,
       },
@@ -3597,7 +3522,7 @@ test("manual-review processor checks explain the deterministic next action witho
   assert.equal(published[0].repairPacket, null);
   assert.equal(
     published[0].summary,
-    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: create a maintainer-authored companion or replacement PR.",
+    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: complete human review and merge after required checks pass.",
   );
 
   const receipt = processorRepairReceipt(1, {
@@ -3673,7 +3598,7 @@ test("unchanged trusted Processor receipts suppress check churn without hiding d
     updateType: "minor",
   };
   const actionableSummary =
-    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: create a maintainer-authored companion or replacement PR.";
+    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: complete human review and merge after required checks pass.";
   const actionableReceipt = processorRepairReceipt(1, {
     id: 62_003,
     mode: "prepare",
@@ -7762,259 +7687,6 @@ test("selects at most one prepare candidate per sweep and exposes no merge candi
     "waiting-prepare-serialization",
   );
   assert.equal(result.summary.prepareCandidates, 1);
-});
-
-test("serializes the typed OSV companion only when the preparation lane is empty", () => {
-  const typed = typedOsvSnapshotForPullRequest();
-  const typedOnly = evaluateDependabotSweep({
-    mode: "prepare",
-    pullRequests: [typed],
-    repository: REPOSITORY,
-    workflowContext: WORKFLOW_CONTEXT,
-  });
-  assert.equal(typedOnly.prepareCandidate, null);
-  assert.deepEqual(typedOnly.actionsCompanionCandidate, {
-    baseSha: BASE_SHA,
-    headSha: SECOND_HEAD_SHA,
-    pullRequestNumber: 840,
-  });
-  assert.equal(
-    typedOnly.serialization.actionsCompanionReason,
-    "exact-typed-actions-companion-selected",
-  );
-
-  const ordinary = snapshotForPullRequest(122, HEAD_SHA);
-  const occupied = evaluateDependabotSweep({
-    mode: "prepare",
-    pullRequests: [ordinary, typed],
-    repository: REPOSITORY,
-    workflowContext: WORKFLOW_CONTEXT,
-  });
-  assert.deepEqual(occupied.prepareCandidate, {
-    disposition: "prepare-candidate",
-    headSha: HEAD_SHA,
-    pullRequestNumber: 122,
-  });
-  assert.equal(occupied.actionsCompanionCandidate, null);
-
-  const incumbent = repairPendingSnapshotForPullRequest(123, HEAD_SHA, 61_301);
-  const durable = evaluateDependabotSweep({
-    mode: "prepare",
-    outstandingAutoMergeRequests: [],
-    pullRequests: [typed, incumbent],
-    repository: REPOSITORY,
-    workflowContext: WORKFLOW_CONTEXT,
-  });
-  assert.equal(durable.prepareCandidate?.pullRequestNumber, 123);
-  assert.equal(durable.actionsCompanionCandidate, null);
-
-  const withoutReceipt = typedOsvSnapshotForPullRequest();
-  withoutReceipt.baseline.checks = withoutReceipt.baseline.checks.filter(
-    ({ name }) => name !== "Dependabot Post-Merge Verification",
-  );
-  const blocked = evaluateDependabotSweep({
-    mode: "prepare",
-    pullRequests: [withoutReceipt],
-    repository: REPOSITORY,
-    workflowContext: WORKFLOW_CONTEXT,
-  });
-  assert.equal(blocked.serialization.ready, false);
-  assert.equal(blocked.actionsCompanionCandidate, null);
-
-  const ambiguous = evaluateDependabotSweep({
-    mode: "prepare",
-    pullRequests: [
-      typedOsvSnapshotForPullRequest(840, SECOND_HEAD_SHA),
-      typedOsvSnapshotForPullRequest(841, OTHER_SHA),
-    ],
-    repository: REPOSITORY,
-    workflowContext: WORKFLOW_CONTEXT,
-  });
-  assert.equal(ambiguous.actionsCompanionCandidate, null);
-  assert.equal(
-    ambiguous.serialization.actionsCompanionReason,
-    "multiple-actions-companion-candidates",
-  );
-});
-
-test("typed OSV companion selection requires clear feedback and preparation authority", () => {
-  const result = evaluateDependabotSweep({
-    mode: "prepare",
-    pullRequests: [typedOsvSnapshotForPullRequest()],
-    repository: REPOSITORY,
-    workflowContext: WORKFLOW_CONTEXT,
-  });
-  const [evaluation] = result.evaluations;
-  assert.equal(isTypedOsvActionsCompanionCandidate(evaluation), true);
-  assert.equal(
-    isTypedOsvActionsCompanionCandidate({
-      ...evaluation,
-      feedback: { ...evaluation.feedback, clear: false },
-    }),
-    false,
-  );
-  assert.equal(
-    isTypedOsvActionsCompanionCandidate({
-      ...evaluation,
-      identity: { ...evaluation.identity, prepareAuthority: false },
-    }),
-    false,
-  );
-
-  for (const [label, repairAttempts] of [
-    ["invalid", { ...evaluation.repairAttempts, valid: false }],
-    [
-      "pending refresh completion",
-      {
-        ...evaluation.repairAttempts,
-        pendingRefreshCompletion: { headSha: OTHER_SHA },
-      },
-    ],
-    [
-      "pending refresh request",
-      {
-        ...evaluation.repairAttempts,
-        pendingRefreshRequest: { requestCheckId: 20_001 },
-      },
-    ],
-    [
-      "current-head repair packet",
-      { ...evaluation.repairAttempts, currentHeadPacketIssued: true },
-    ],
-  ]) {
-    assert.equal(
-      isTypedOsvActionsCompanionCandidate({ ...evaluation, repairAttempts }),
-      false,
-      label,
-    );
-  }
-});
-
-test("typed OSV companion sweep rejects active preparation state", () => {
-  const headRef = "dependabot/github_actions/github-actions-manual-148744ce4a";
-  const currentPacket = typedOsvSnapshotForPullRequest();
-  const packetSource = snapshotForPullRequest(840, SECOND_HEAD_SHA);
-  packetSource.checks = completeChecks({
-    conclusions: { ci: "failure" },
-    headSha: SECOND_HEAD_SHA,
-    pullRequestNumber: 840,
-  });
-  const packetEvaluation = evaluateDependabotPullRequest(packetSource, {
-    mode: "prepare",
-    repository: REPOSITORY,
-    workflowContext: WORKFLOW_CONTEXT,
-  });
-  assert.notEqual(packetEvaluation.repairPacket, null);
-  currentPacket.repairHistoryChecks = [
-    processorRepairReceipt(1, {
-      headSha: SECOND_HEAD_SHA,
-      packet: packetEvaluation.repairPacket,
-      packetEncoding: "canonical",
-      pullRequestNumber: 840,
-    }),
-  ];
-
-  const pendingCompletion = typedOsvSnapshotForPullRequest(840, OTHER_SHA);
-  pendingCompletion.baseAncestry = {
-    aheadBy: 2,
-    baseCommitSha: BASE_SHA,
-    behindBy: 0,
-    currentBaseIsAncestor: true,
-    currentBaseSha: BASE_SHA,
-    headSha: OTHER_SHA,
-    mergeBaseSha: BASE_SHA,
-    status: "ahead",
-  };
-  pendingCompletion.checks = completeChecks({
-    headSha: OTHER_SHA,
-    pullRequestNumber: 840,
-  });
-  pendingCompletion.commits = [
-    nativeDependabotCommit(SECOND_HEAD_SHA),
-    {
-      authorId: PREPARE_ACTOR.botId,
-      authorLogin: PREPARE_ACTOR.botLogin,
-      authorType: "Bot",
-      ...GITHUB_SYSTEM_COMMITTER,
-      parents: [SECOND_HEAD_SHA, BASE_SHA],
-      sha: OTHER_SHA,
-      verified: true,
-      verificationReason: "valid",
-    },
-  ];
-  pendingCompletion.feedback = {
-    ...pendingCompletion.feedback,
-    ...nativeForcePushFeedback({
-      afterSha: SECOND_HEAD_SHA,
-      beforeSha: HEAD_SHA,
-      headRef,
-    }),
-  };
-  pendingCompletion.metadata = {
-    ...pendingCompletion.metadata,
-    immutableEvidence: {
-      ...pendingCompletion.metadata.immutableEvidence,
-      seedCommitSha: SECOND_HEAD_SHA,
-      seedCommitTrusted: true,
-    },
-  };
-  pendingCompletion.prepareActor = PREPARE_ACTOR;
-  pendingCompletion.pullRequest = {
-    ...pendingCompletion.pullRequest,
-    author: DEPENDABOT_ACTOR,
-    head: {
-      ...pendingCompletion.pullRequest.head,
-      ref: headRef,
-      sha: OTHER_SHA,
-    },
-  };
-  pendingCompletion.repairHistoryChecks = [
-    refreshReceiptCheck("requested", {
-      headRef,
-      parentHeadSha: SECOND_HEAD_SHA,
-      pullRequestNumber: 840,
-    }),
-  ];
-
-  for (const [label, current, repairField] of [
-    ["current-head repair packet", currentPacket, "currentHeadPacketIssued"],
-    [
-      "pending refresh completion",
-      pendingCompletion,
-      "pendingRefreshCompletion",
-    ],
-  ]) {
-    const result = evaluateDependabotSweep({
-      mode: "prepare",
-      pullRequests: [current],
-      repository: REPOSITORY,
-      workflowContext: WORKFLOW_CONTEXT,
-    });
-    assert.ok(
-      result.evaluations[0].repairAttempts[repairField],
-      `${label}: ${stableJson(result.evaluations[0].repairAttempts)}`,
-    );
-    assert.equal(result.actionsCompanionCandidate, null, label);
-  }
-});
-
-test("an active ALL CLEAR keeps the typed OSV companion out of the write lane", async () => {
-  const incumbent = await activeAllClearSnapshot({
-    approvalId: 7_302,
-    checkId: 63_103,
-    headSha: HEAD_SHA,
-    pullRequestNumber: 124,
-  });
-  const result = evaluateDependabotSweep({
-    mode: "prepare",
-    outstandingAutoMergeRequests: [],
-    pullRequests: [typedOsvSnapshotForPullRequest(), incumbent],
-    repository: REPOSITORY,
-    workflowContext: WORKFLOW_CONTEXT,
-  });
-  assert.equal(result.prepareCandidate?.pullRequestNumber, 124);
-  assert.equal(result.serialization.activeAllClearApprovalId, 7_302);
-  assert.equal(result.actionsCompanionCandidate, null);
 });
 
 test("targeted prepare collection expands globally and preserves an active higher-number ALL CLEAR", async () => {
@@ -12317,7 +11989,7 @@ test("processor checks keep safe non-packet dispositions neutral and fail packet
     },
   ).repairPacket;
   const actionableManualSummary =
-    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: create a maintainer-authored companion or replacement PR.";
+    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: complete human review and merge after required checks pass.";
   const cases = [
     {
       disposition: "prepare-candidate",
