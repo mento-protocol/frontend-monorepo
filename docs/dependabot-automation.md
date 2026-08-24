@@ -3,7 +3,7 @@ title: Dependabot Processing
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-08-23
+last_verified: 2026-08-24
 scope: ci/dependabot-processing
 ---
 
@@ -15,9 +15,11 @@ receipt-bound feedback, approve through the normal processor identity, and
 publish exact-head ALL CLEAR evidence. It never merges and never enables native
 auto-merge.
 
-[ADR 0006](adr/0006-dependabot-processing-controller.md) records this decision.
-This runbook defines the live trust boundaries, receipts, operating sequence,
-and failure handling.
+[ADR 0006](adr/0006-dependabot-processing-controller.md) records the controller
+decision. [ADR 0009](adr/0009-typed-dependabot-actions-companion-pull-requests.md)
+records the typed companion-PR exception for supported sensitive Actions. This
+runbook defines the live trust boundaries, receipts, operating sequence, and
+failure handling.
 
 ## Invariants
 
@@ -156,6 +158,13 @@ Prepare execution has explicit phases:
   branch, independently recollects the exact head and global lane, and alone
   may clean stale processor approvals, post packet-bound replies, approve, and
   publish ALL CLEAR.
+- An exact manual OSV pair update can route to two companion jobs. The staging
+  job creates a new deterministic branch with Contents and Workflows write
+  authority only. The opening job revalidates the branch and opens a non-draft
+  PR with Pull requests write authority only. Both jobs reuse the Processor's
+  complete feedback collector and fail before their write if the bound
+  feedback or human-event evidence changed. Neither job changes the source PR,
+  approves, publishes ALL CLEAR, or merges.
 - A phase-less invocation defaults to `finalize` for compatibility; every
   trusted workflow passes its phase explicitly. An unknown or incompatible
   phase fails closed.
@@ -220,7 +229,12 @@ findings outcomes, `claude-review` check `output.text` is the exact canonical
 `dependabot-claude-review-result:v1` JSON. A provenance-valid
 `verdict="findings"` is deterministic repair input. A missing, malformed,
 incomplete, or infrastructure-failed result is retry-first and cannot become a
-repair packet.
+repair packet. A failed check publishes canonical bounded failure metadata.
+The processor may rerun the exact authenticated review workflow for HTTP 429,
+500, 502, 503, 504, or 529. It permits attempts two and three only, and reruns
+only when the failed check remains the newest trusted exact-head Claude result.
+The retry job has Actions write and read-only PR/check access. It has no
+checkout, repository-write, check-write, App, or Claude credential.
 
 The reviewer reports a transitive dependency change only when the diff shows a
 concrete incompatible constraint or repository defect. An updated direct
@@ -253,12 +267,14 @@ verified against configuration, and the live bot account ID/login/type is
 queried before mutation. Receipt authority records the verified slug and bot
 identity; it does not pretend that a bot user ID is the numeric GitHub App ID.
 
-Install the repository-scoped App with only `contents: write` and
-`pull-requests: write`; GitHub's update-branch endpoint requires both. The
-processor's refresh token requests both permissions. Git Data repair and
-authenticated-dispatch tokens are explicitly downscoped to Contents write.
-Grant no bypass, Actions, workflow, deployment, package, environment, or
-provider permission.
+Install the repository-scoped App with `contents: write`,
+`pull-requests: write`, and `workflows: write`. GitHub's update-branch endpoint
+requires Contents and Pull requests. The typed companion stage needs Contents
+and Workflows because its new branch changes `.github/workflows`. The companion
+stage token requests only those two write permissions. Its separate opening
+token requests only Pull requests write. Refresh requests Contents and Pull
+requests; Repair and authenticated dispatch request only Contents. Grant no
+bypass, Actions, deployment, package, environment, or provider permission.
 
 GitHub does not offer an endpoint-level permission that permits Git writes but
 denies the merge endpoint. Contents write therefore leaves a residual technical
@@ -312,7 +328,8 @@ Handling tier and preparation eligibility are separate:
   ecosystem, and risk tier remain visible to the maintainer.
 - **manual**: sensitive/self-reviewing Actions; workflow-policy, deployment,
   authentication, credential, or security Actions; unknown ecosystem or
-  metadata; and any policy shape not explicitly admitted.
+  metadata; and any policy shape not explicitly admitted. An exact current
+  native OSV scanner/reporter pair can produce the typed companion PR from ADR 0009. The source remains manual and receives no preparation authority.
 - **vetoed**: human veto/close/reopen, untrusted force-push history, unresolved
   or malformed feedback, untrusted actor, or ambiguous/capped evidence.
 
@@ -342,6 +359,39 @@ bounded GraphQL timeline without dropping event order or before/after commit
 pairs. It caches exact historical commit evidence within the processor run.
 Any collection cap, pagination ambiguity, malformed SHA/envelope, unknown
 authority-bearing bot, or identity drift fails closed.
+
+### 1a. Create a typed Actions companion when supported
+
+The OSV companion adapter runs only for one current native
+`github-actions-manual` PR. It re-fetches the exact PR, verified one-parent
+Dependabot commit, current `main` commit/tree, source workflow blobs, labels,
+reviews, auto-merge state, and a complete old-SHA reference census. The source
+workflow must contain only the two same-revision internal OSV action
+replacements. The test mirror must accept the exact same replacements.
+
+Each census and handoff receipt binds the current Processor orchestration run
+and the exact authenticated Processor check run. A check from the current run
+can be in progress. A reused check must come from a completed run at the same
+trusted workflow SHA. This permits check-publication churn suppression without
+accepting stale controller code.
+
+The workflow materializes the companion helper, live adapter, Processor, and
+Processor receipt dependency from that exact trusted workflow SHA. The adapter
+uses the Processor collector to read every bounded thread, reply, review, issue
+comment, label, auto-merge request, close/reopen event, and force-push event. It
+binds the stable feedback digest, PR update token, labels, and human-event
+evidence into the census and stage receipts.
+
+The staging job recomputes a canonical plan, recollects the bound feedback
+immediately before its write, and creates one reserved branch. It never updates
+or force-pushes a ref. The opening job recollects all input and feedback,
+recomputes the plan, verifies the staged parent, tree, blobs, and digests, and
+checks every PR state for the reserved branch. Any changed or blocked feedback,
+mismatched existing branch or PR, or duplicate PR fails closed before the
+write. An exact existing open PR converges without a duplicate write. An exact
+merged or closed-unmerged PR returns a bounded terminal result. A valid new
+case opens one ready-for-review PR with the required Problem and Solution
+sections. Normal CI and human review apply. The source PR stays open and manual.
 
 The controller treats an exact `@dependabot rebase` or `@dependabot recreate`
 issue comment from a trusted maintainer as a branch-maintenance command. It does
@@ -876,7 +926,7 @@ or failed. Follow the managed failure issue and deployment recovery runbook.
 | Snapshot race after one authorized refresh request     | Retry read-only collection within the bounded successor poll.     |
 | Missing/pending current gate or deterministic baseline | Wait for trusted evidence; recollect.                             |
 | Deterministic baseline failure                         | Repair `main`, prove recovery, then refresh affected PRs.         |
-| Provider-only/Claude infrastructure failure            | Retry through the trusted provider path; never patch around it.   |
+| Provider-only/Claude infrastructure failure            | Retry the exact trusted run twice for a bounded transient status. |
 | Provider failure plus deterministic branch failure     | In prepare mode, packetize only the deterministic branch failure. |
 | Repair/recovery infrastructure failure                 | Retry exact evidence twice per phase; then require investigation. |
 | Valid Claude findings                                  | Treat as deterministic packet input, not infrastructure failure.  |
@@ -889,7 +939,8 @@ or failed. Follow the managed failure issue and deployment recovery runbook.
 | Current reviewed pin fails pnpm release-age check      | Add one exact-version exception; remove it after maturity.        |
 | Repair plan malformed/out of scope                     | Fail before App token mutation; escalate manual.                  |
 | Repair attempts exhausted                              | Manual handling; do not reset with rebase/force-push.             |
-| Sensitive/unknown/manual tier                          | Record evidence and require human dependency handling.            |
+| Supported exact OSV manual Actions pair                | Create one typed companion PR; keep both PRs human-merge-only.    |
+| Other sensitive/unknown/manual tier                    | Record actionable evidence and require human handling.            |
 | Human veto/close/reopen or untrusted force-push        | Stop preparation for this PR.                                     |
 | Exact native-to-native Dependabot rewrite chain        | Start a new generation; recollect all exact-head evidence.        |
 | Unresolved/unbound feedback                            | Block; never infer a reply or resolution.                         |
@@ -914,6 +965,18 @@ suite after any related code, workflow, configuration, or documentation change:
 ```bash
 pnpm dependabot:process:test
 ```
+
+Render and validate the checked-in offline observational production soak
+report:
+
+```bash
+pnpm dependabot:soak
+```
+
+Before changing a pending row to passed, revalidate its exact PR, check,
+workflow-run, and authority evidence against live GitHub. The offline command
+checks schema, internal bindings, evidence reuse, and generated Markdown. It
+does not certify GitHub provenance.
 
 Run the opt-in public-registry Next source-preserving sync proof after changing
 the typed generator or its pnpm contract:
@@ -944,6 +1007,7 @@ post-merge proof.
 - [GitHub secure use reference](https://docs.github.com/en/actions/reference/security/secure-use)
 - [Claude Code Action security](https://github.com/anthropics/claude-code-action/blob/main/docs/security.md)
 - [GitHub App installation tokens](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app)
+- [GitHub App Workflows permission](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app#choosing-permissions-for-git-access)
 - [GitHub signature verification for bots](https://docs.github.com/en/authentication/managing-commit-signature-verification/about-commit-signature-verification#signature-verification-for-bots)
 - [Repository dispatch](https://docs.github.com/en/rest/repos/repos#create-a-repository-dispatch-event)
 - [GitHub Checks API](https://docs.github.com/en/rest/checks/runs)

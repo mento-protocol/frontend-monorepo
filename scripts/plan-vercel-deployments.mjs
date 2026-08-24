@@ -22,11 +22,21 @@ const GLOBAL_BUILD_INPUTS = new Set([
   "turbo.json",
 ]);
 
-const PROVEN_NON_RUNTIME_FILES = new Set([
+export const VERCEL_PROVEN_NON_RUNTIME_EXACT_PATHS = Object.freeze([
   "AGENTS.md",
   "CLAUDE.md",
   "LICENSE",
   "README.md",
+  ".github/workflows/dependabot-claude-review.yml",
+  ".github/workflows/dependabot-intake.yml",
+  ".github/workflows/dependabot-prepare-repair.yml",
+  ".github/workflows/dependabot-prepared-head-dispatch.yml",
+  ".github/workflows/dependabot-prepared-head-intake.yml",
+  ".github/workflows/dependabot-process.yml",
+  "scripts/dependabot-actions-companion-live.mjs",
+  "scripts/dependabot-actions-companion-live.test.mjs",
+  "scripts/dependabot-actions-companion.mjs",
+  "scripts/dependabot-actions-companion.test.mjs",
   "scripts/dependabot-claude-review-tool-guard.mjs",
   "scripts/dependabot-preparation-receipts.mjs",
   "scripts/dependabot-preparation-receipts.test.mjs",
@@ -34,11 +44,17 @@ const PROVEN_NON_RUNTIME_FILES = new Set([
   "scripts/dependabot-prepared-review.test.mjs",
   "scripts/dependabot-processor.mjs",
   "scripts/dependabot-processor.test.mjs",
+  "scripts/dependabot-production-soak.mjs",
+  "scripts/dependabot-production-soak.test.mjs",
   "scripts/dependabot-protected-runtime-sync.mjs",
   "scripts/dependabot-protected-runtime-sync.test.mjs",
   "scripts/dependabot-repair-evidence-tool-guard.mjs",
   "scripts/dependabot-workflows.test.mjs",
 ]);
+
+const PROVEN_NON_RUNTIME_EXACT_PATHS = new Set(
+  VERCEL_PROVEN_NON_RUNTIME_EXACT_PATHS,
+);
 
 const PROVEN_NON_RUNTIME_DIRECTORIES = [
   "docs/",
@@ -110,7 +126,7 @@ function isGlobalBuildInput(path) {
 
 function isProvenNonRuntimePath(path) {
   return (
-    PROVEN_NON_RUNTIME_FILES.has(path) ||
+    PROVEN_NON_RUNTIME_EXACT_PATHS.has(path) ||
     PROVEN_NON_RUNTIME_DIRECTORIES.some((directory) =>
       path.startsWith(directory),
     )
@@ -189,10 +205,6 @@ export function planVercelDeployments({
     return failClosed(resolvedBase, resolvedHead, "empty-diff");
   }
 
-  if (changedPaths.some(isGlobalBuildInput)) {
-    return failClosed(resolvedBase, resolvedHead, "global-build-input");
-  }
-
   if (changedPaths.every(isProvenNonRuntimePath)) {
     return {
       deployments: [],
@@ -200,6 +212,10 @@ export function planVercelDeployments({
       head: resolvedHead,
       reason: "non-runtime-only",
     };
+  }
+
+  if (changedPaths.some(isGlobalBuildInput)) {
+    return failClosed(resolvedBase, resolvedHead, "global-build-input");
   }
 
   try {

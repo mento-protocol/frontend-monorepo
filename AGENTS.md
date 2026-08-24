@@ -77,7 +77,12 @@ Dependabot review and Claude repair prefer the `ANTHROPIC_API_KEY` secret. They
 use `CLAUDE_CODE_OAUTH_TOKEN` only when the API-key secret is absent. A bounded
 post-action diagnostic reports only the CLI subtype, error flag, terminal
 reason, and numeric API status. It never logs the model result, prompt, tool
-output, or diff.
+output, or diff. The publisher records canonical non-authorizing failure
+metadata. The processor may rerun the exact trusted review twice for HTTP 429,
+500, 502, 503, 504, or 529. It reruns only when that failure remains the newest
+trusted exact-head Claude result. Attempt three is terminal. The isolated retry
+job has Actions write and read-only PR/check access. It has no repository-write,
+check-write, App, or Claude credential.
 
 `observe` classifies only. `assist` publishes non-authorizing evidence for
 human handling but cannot issue an automatic repair packet. `prepare` may
@@ -114,16 +119,30 @@ response to the comment author's numeric ID, login, and type. A missing, `read`,
 or malformed permission response remains untrusted. All other issue-comment
 feedback continues to use the author-association policy.
 
+One exact current native OSV scanner/reporter update has a typed companion path
+under ADR 0009. The planner accepts only the two same-revision full-SHA
+workflow replacements and their two exact test-mirror replacements. A staging
+job creates one new deterministic branch with Contents and Workflows write
+authority only. A separate opening job revalidates all live input and opens a
+ready PR with Pull requests write authority only. Both jobs reuse the
+Processor's complete feedback gate and recollect its bound digest and
+human-event evidence immediately before a ref or PR write. Neither job mutates
+the source Dependabot branch, approves, publishes ALL CLEAR, enables
+auto-merge, merges, or closes a PR. Every other sensitive Action remains
+manual.
+
 Configure the repository-scoped Prepare App with variables
 `DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,
 `DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG`,
 `DEPENDABOT_PROCESSOR_PREPARE_BOT_ID`, and
 `DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN`, plus secret
-`DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY`. Install the App with only
-`contents: write` and `pull-requests: write`; update-branch needs both. Refresh
-tokens request both permissions, while repair and authenticated-dispatch tokens
-are explicitly downscoped to Contents write. Grant the App no bypass, Actions,
-workflow, deployment, package, or provider permission. Contents write also
+`DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY`. Install the App with
+`contents: write`, `pull-requests: write`, and `workflows: write`.
+Update-branch needs Contents and Pull requests. The typed companion stage needs
+Contents and Workflows. Its separate opener requests only Pull requests.
+Refresh requests Contents and Pull requests. Repair and authenticated dispatch
+request only Contents. Grant the App no bypass, Actions, deployment, package,
+environment, or provider permission. Contents write also
 makes GitHub's merge endpoint technically reachable, so the reviewed workflow
 contains no merge call or merge code and isolates and revokes the token before
 approval. The mutation token is passed to the core only as
@@ -244,7 +263,8 @@ budget. External IDs are digest indexes, never authority alone. Packetless
 `Dependabot Processor` checks are non-authorizing status records. They never
 enter repair-receipt or attempt accounting. Only `packet=true` checks can bind
 a repair packet, and those checks retain strict terminal-success workflow
-provenance.
+provenance. Packetless manual checks include one deterministic reason and next
+action in their bounded summary.
 
 ALL CLEAR requires stable exact identity, current-base ancestry, complete green
 exact-head gates, a clean re-review, clear feedback, satisfied mergeability,
@@ -285,9 +305,13 @@ Multiple such incumbents without one valid active ALL CLEAR fail closed.
 Run
 `pnpm dependabot:process -- evaluate --input path/to/snapshot.json --mode observe`
 for a network-free plan and `pnpm dependabot:process:test` after processor,
-workflow, receipt, reviewer, policy, or runbook changes.
+workflow, receipt, reviewer, policy, or runbook changes. Run
+`pnpm dependabot:soak` to render and validate the offline observational
+production evidence report. Before changing a pending row to passed, revalidate
+its exact PR, check, workflow-run, and authority evidence against live GitHub.
+The offline command does not certify GitHub provenance.
 Follow `docs/dependabot-automation.md` and
-`docs/adr/0006-dependabot-processing-controller.md` for the complete contract.
+ADRs 0006, 0008, and 0009 for the complete contract.
 
 For any protocol-level question that crosses beyond this frontend repo, first
 read the private `mento-master-context` router when the checkout is available:

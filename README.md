@@ -138,6 +138,9 @@ pnpm dependabot:process -- evaluate --input path/to/snapshot.json --mode observe
 # Test Dependabot policy, CLI, and trusted-workflow contracts without network access
 pnpm dependabot:process:test
 
+# Render and validate the checked-in Dependabot production soak evidence
+pnpm dependabot:soak
+
 # Remind on newly added architecture-significant workflows/workspaces
 pnpm adr:check
 
@@ -413,7 +416,11 @@ bytes as one `text/plain` document tool result, bypassing Claude Code 2.1.234's
 30,000-character Bash text-result persistence. It emits canonical exact-head
 results; validated findings can feed a bounded repair, while a missing, failed,
 interrupted, empty, persisted/truncated, or otherwise invalid diff remains
-retry-first.
+retry-first. The processor may rerun the exact trusted review twice for a
+bounded transient provider status. It reruns only when that failure remains the
+newest trusted exact-head Claude result. Attempt three is terminal. The retry
+job has Actions write and read-only PR/check access. It has no repository-write,
+check-write, App, or Claude credential.
 
 Repair planning uses a separate least-privilege boundary. A trusted read-only
 step materializes and seals the exact packet-bound compare, Git blobs, failed
@@ -455,6 +462,17 @@ even when GitHub retargets the comment's current commit after a branch refresh.
 The ALL CLEAR receipt keeps the dependency risk/update metadata for the human
 decision.
 
+ADR 0009 adds one typed companion path for an exact current native OSV
+scanner/reporter pair. A staging job accepts only the two same-revision
+full-SHA workflow replacements and their exact test-mirror replacements. It
+creates one deterministic branch with Contents and Workflows write authority.
+A separate job revalidates the staged head and opens a ready PR with Pull
+requests write authority. Both jobs reuse the Processor's complete feedback
+gate and recollect bound feedback and human-event evidence immediately before a
+ref or PR write. Neither job changes the source branch, approves, publishes ALL
+CLEAR, enables auto-merge, merges, or closes a PR. Other sensitive Actions
+remain manual.
+
 Configure the repository-scoped Prepare App with variables
 `DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,
 `DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG`,
@@ -462,11 +480,13 @@ Configure the repository-scoped Prepare App with variables
 `DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN`, plus secret
 `DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY`. The short-lived token exists
 only in a repair-staging, ref-mutation/refresh, or authenticated-dispatch job.
-A separate no-App-token finalize phase owns approval and ALL CLEAR. Install the App with only `contents:
-write` and `pull-requests: write`; update-branch needs both. Refresh tokens
-request both permissions, while repair and dispatch tokens are downscoped to
-Contents write. Grant no bypass, Actions, workflow, deployment, package, or
-provider permission. Contents write technically reaches GitHub's merge
+A separate no-App-token finalize phase owns approval and ALL CLEAR. Install the
+App with `contents: write`, `pull-requests: write`, and `workflows: write`.
+Update-branch needs Contents and Pull requests. The typed companion stage needs
+Contents and Workflows; its opener requests only Pull requests. Refresh
+requests Contents and Pull requests. Repair and dispatch request only Contents.
+Grant no bypass, Actions, deployment, package, environment, or provider
+permission. Contents write technically reaches GitHub's merge
 endpoint, so the reviewed code contains no merge call and revokes the token
 before approval; the final merge remains human.
 
@@ -488,7 +508,8 @@ Processor check.
 A packetless Processor check is a non-authorizing status record. It does not
 enter repair-receipt or attempt accounting. Only a `packet=true` check can bind
 repair authority, and that check requires terminal-success workflow
-provenance.
+provenance. Packetless manual checks include one deterministic reason and next
+action in their bounded summary.
 
 The authority receipts are `Dependabot Refresh`
 (`dependabot-refresh:v1`), `Dependabot Repair Intent`
@@ -537,12 +558,20 @@ Run the network-free evaluator and contract suite with:
 ```bash
 pnpm dependabot:process -- evaluate --input path/to/snapshot.json --mode observe
 pnpm dependabot:process:test
+pnpm dependabot:soak
 ```
+
+The soak command validates an offline observational report. Revalidate every
+exact PR, check, workflow run, and authority claim against live GitHub before
+changing a pending row to passed. Offline validation does not certify GitHub
+provenance.
 
 See the [Dependabot processing runbook](docs/dependabot-automation.md) and
 [ADR 0006](docs/adr/0006-dependabot-processing-controller.md) with its native
 rewrite boundary in
-[ADR 0008](docs/adr/0008-authenticated-dependabot-native-generation-boundaries.md).
+[ADR 0008](docs/adr/0008-authenticated-dependabot-native-generation-boundaries.md),
+and the typed Actions companion boundary in
+[ADR 0009](docs/adr/0009-typed-dependabot-actions-companion-pull-requests.md).
 
 #### When to Use Catalog vs Direct Versions
 
@@ -657,11 +686,14 @@ The repository is set up with GitHub Actions for CI:
   time; it never merges. Native/prepared intake and Claude-review completions
   resume processing, with ten-minute reconciliation for missed events. There is no
   `workflow_dispatch` path. Unknown mode or evidence stays observe-only and
-  manual/veto policy can only remove authority. See
+  manual/veto policy can only remove authority. An exact OSV pair can produce a
+  separate typed companion PR; it receives no automatic merge authority. See
   [the operator runbook](docs/dependabot-automation.md) and
   [ADR 0006](docs/adr/0006-dependabot-processing-controller.md) with its native
   rewrite boundary in
-  [ADR 0008](docs/adr/0008-authenticated-dependabot-native-generation-boundaries.md).
+  [ADR 0008](docs/adr/0008-authenticated-dependabot-native-generation-boundaries.md)
+  and its typed Actions companion boundary in
+  [ADR 0009](docs/adr/0009-typed-dependabot-actions-companion-pull-requests.md).
 - **CD**: GitHub Actions automatically builds `app.mento.org`,
   `governance.mento.org`, `reserve.mento.org`, and `ui.mento.org` previews for
   trusted same-repository PRs with exact-SHA aggregate `Vercel Preview`
