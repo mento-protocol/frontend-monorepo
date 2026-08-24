@@ -124,18 +124,18 @@ const dependabotReview = workflow(dependabotReviewPath);
 const humanReview = workflow(humanReviewPath);
 
 const claudeAction =
-  "anthropics/claude-code-action@9d7150bc8a3dae8149739a88019d192b579ad90c";
+  "anthropics/claude-code-action@459ad358ae43fea66bfefd0a1f8d840b4b9791fb";
 const claudeBaseAction =
-  "anthropics/claude-code-action/base-action@9d7150bc8a3dae8149739a88019d192b579ad90c";
+  "anthropics/claude-code-action/base-action@459ad358ae43fea66bfefd0a1f8d840b4b9791fb";
 const claudePluginMarketplace = "./.claude-code-plugin-marketplace";
 const claudeCodeReviewPlugin = `${claudePluginMarketplace}/plugins/code-review`;
 const claudePluginMarketplaceRef = "2bb60696142b493eafaeacfe00eac51d16c50c4f";
 const osvReusableWorkflow =
-  "google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@8deb546fdb875b9996d27d4950be7312dac076a1";
+  "google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@6e4298ebc4db23e847df9b2e2de2939d6f066c67";
 const osvScannerAction =
-  "google/osv-scanner-action/osv-scanner-action@06b2ab4348248b456ee06c9e953637f55e03504f";
+  "google/osv-scanner-action/osv-scanner-action@baa4139e56d6312335d899e6ba045fa16d1d3d0b";
 const osvReporterAction =
-  "google/osv-scanner-action/osv-reporter-action@06b2ab4348248b456ee06c9e953637f55e03504f";
+  "google/osv-scanner-action/osv-reporter-action@baa4139e56d6312335d899e6ba045fa16d1d3d0b";
 
 const forbiddenCandidateSurfaces =
   /actions\/(?:download-artifact|upload-artifact|cache)@|cache-dependency-path|gh pr checkout|git (?:checkout|switch|fetch)|node_modules|pnpm install|npm (?:ci|install)|yarn install/;
@@ -2231,8 +2231,8 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
   assert.equal(printedPagePolicy.status, 0, printedPagePolicy.stderr);
   const pagePolicy = JSON.parse(printedPagePolicy.stdout);
   assert.deepEqual(pagePolicy, {
-    claudeCodeActionRef: "9d7150bc8a3dae8149739a88019d192b579ad90c",
-    claudeCodeVersion: "2.1.233",
+    claudeCodeActionRef: "459ad358ae43fea66bfefd0a1f8d840b4b9791fb",
+    claudeCodeVersion: "2.1.234",
     evidenceMaxLineBytes: 4 * 1024,
     jsonMaxBytes: 12_500,
     jsonMaxLines: 2_000,

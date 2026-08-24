@@ -177,14 +177,9 @@ trunk check --exclude=-markdownlint
 
 ### GitHub Actions
 
-The CI workflow ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) uses the official Trunk action:
-
-```yaml
-- name: Trunk Code Quality
-  uses: trunk-io/trunk-action@v1
-  with:
-    check-mode: all
-```
+The CI workflow ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) uses
+the official Trunk action with a full SHA pin. It enables the Trunk cache only
+when the CI scope planner permits repository credentials.
 
 This ensures the same linting rules run in CI as in local development.
 
