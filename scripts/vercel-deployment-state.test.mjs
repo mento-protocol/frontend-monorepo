@@ -1740,6 +1740,21 @@ test("CLI parser accepts only each command's exact option set", () => {
       "--root-directory",
       "apps/app.mento.org",
     ],
+    [
+      "project",
+      "--project-id",
+      "prj_test",
+      "--project-name",
+      "app.mento.org",
+      "--root-directory",
+      "apps/app.mento.org",
+      "--expected-build-machine-type",
+      "standard",
+      "--expected-build-machine-selection",
+      "fixed",
+      "--expected-elastic-concurrency-enabled",
+      "false",
+    ],
   ];
   for (const argv of cases) {
     const parsed = parseArguments(argv);
@@ -1854,6 +1869,208 @@ test("network subcommands construct a client only after strict parsing", async (
   assert.equal(clientsConstructed, 1);
   assert.equal(stdout, "Vercel project configuration verified\n");
   assert.doesNotMatch(stdout, /test-token-never-printed/);
+});
+
+test("project CLI passes optional resource configuration expectations", async () => {
+  let clientsConstructed = 0;
+  let received;
+  const clientFactory = () => {
+    clientsConstructed += 1;
+    return {
+      assertProject: async (expected) => {
+        received = expected;
+      },
+    };
+  };
+  const baseArguments = [
+    "project",
+    "--project-id",
+    "prj_test123",
+    "--project-name",
+    "app.mento.org",
+    "--root-directory",
+    "apps/app.mento.org",
+  ];
+
+  await assert.rejects(
+    () =>
+      runCli({
+        argv: [
+          ...baseArguments,
+          "--expected-elastic-concurrency-enabled",
+          "disabled",
+        ],
+        env: {},
+        clientFactory,
+      }),
+    /must be true or false/,
+  );
+  assert.equal(clientsConstructed, 0);
+
+  await assert.rejects(
+    () =>
+      runCli({
+        argv: [...baseArguments, "--expected-build-machine-type", "unknown"],
+        env: {},
+        clientFactory,
+      }),
+    /build machine type is malformed/,
+  );
+  assert.equal(clientsConstructed, 0);
+
+  await assert.rejects(
+    () =>
+      runCli({
+        argv: [
+          ...baseArguments,
+          "--expected-build-machine-selection",
+          "unknown",
+        ],
+        env: {},
+        clientFactory,
+      }),
+    /build machine selection is malformed/,
+  );
+  assert.equal(clientsConstructed, 0);
+
+  await runCli({
+    argv: [
+      ...baseArguments,
+      "--expected-build-machine-type",
+      "standard",
+      "--expected-build-machine-selection",
+      "fixed",
+      "--expected-elastic-concurrency-enabled",
+      "false",
+    ],
+    env: {},
+    stdout: { write: () => {} },
+    clientFactory,
+  });
+  assert.equal(clientsConstructed, 1);
+  assert.deepEqual(received, {
+    projectId: "prj_test123",
+    projectName: "app.mento.org",
+    rootDirectory: "apps/app.mento.org",
+    expectedBuildMachineType: "standard",
+    expectedBuildMachineSelection: "fixed",
+    expectedElasticConcurrencyEnabled: false,
+  });
+});
+
+test("project inspector optionally validates exact resource configuration", async () => {
+  const expected = {
+    projectId: "prj_governance123",
+    projectName: "governance.mento.org",
+    rootDirectory: "apps/governance.mento.org",
+  };
+  const project = {
+    id: expected.projectId,
+    name: expected.projectName,
+    rootDirectory: expected.rootDirectory,
+    resourceConfig: {
+      buildMachineType: "standard",
+      buildMachineSelection: "fixed",
+      elasticConcurrencyEnabled: false,
+    },
+  };
+  const client = new VercelStateClient({
+    token: "fixture-token",
+    teamId: "team_fixture123",
+    fetchImplementation: async () => {
+      throw new Error("unused");
+    },
+  });
+  client.inspectProject = async () => project;
+
+  await assert.doesNotReject(() => client.assertProject(expected));
+  await assert.doesNotReject(() =>
+    client.assertProject({
+      ...expected,
+      expectedBuildMachineType: "standard",
+      expectedBuildMachineSelection: "fixed",
+      expectedElasticConcurrencyEnabled: false,
+    }),
+  );
+  await assert.rejects(
+    () =>
+      client.assertProject({
+        ...expected,
+        expectedBuildMachineType: "turbo",
+      }),
+    /Unexpected Vercel project build machine type/,
+  );
+  await assert.rejects(
+    () =>
+      client.assertProject({
+        ...expected,
+        expectedBuildMachineSelection: "elastic",
+      }),
+    /Unexpected Vercel project build machine selection/,
+  );
+  await assert.rejects(
+    () =>
+      client.assertProject({
+        ...expected,
+        expectedElasticConcurrencyEnabled: true,
+      }),
+    /Unexpected Vercel project elastic concurrency state/,
+  );
+  await assert.rejects(
+    () =>
+      client.assertProject({
+        ...expected,
+        expectedElasticConcurrencyEnabled: "false",
+      }),
+    /Expected project elastic concurrency state is malformed/,
+  );
+  await assert.rejects(
+    () =>
+      client.assertProject({
+        ...expected,
+        expectedBuildMachineType: "unknown",
+      }),
+    /Expected project build machine type is malformed/,
+  );
+  await assert.rejects(
+    () =>
+      client.assertProject({
+        ...expected,
+        expectedBuildMachineSelection: "unknown",
+      }),
+    /Expected project build machine selection is malformed/,
+  );
+
+  client.inspectProject = async () => ({
+    id: expected.projectId,
+    name: expected.projectName,
+    rootDirectory: expected.rootDirectory,
+  });
+  await assert.doesNotReject(() => client.assertProject(expected));
+  await assert.rejects(
+    () =>
+      client.assertProject({
+        ...expected,
+        expectedBuildMachineType: "standard",
+      }),
+    /Unexpected Vercel project build machine type/,
+  );
+  await assert.rejects(
+    () =>
+      client.assertProject({
+        ...expected,
+        expectedBuildMachineSelection: "fixed",
+      }),
+    /Unexpected Vercel project build machine selection/,
+  );
+  await assert.rejects(
+    () =>
+      client.assertProject({
+        ...expected,
+        expectedElasticConcurrencyEnabled: false,
+      }),
+    /Unexpected Vercel project elastic concurrency state/,
+  );
 });
 
 test("private canonical output is exclusive, mode 0600, and symlink-safe", (t) => {
