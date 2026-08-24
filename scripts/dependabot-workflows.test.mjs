@@ -132,10 +132,6 @@ const claudeCodeReviewPlugin = `${claudePluginMarketplace}/plugins/code-review`;
 const claudePluginMarketplaceRef = "2bb60696142b493eafaeacfe00eac51d16c50c4f";
 const osvReusableWorkflow =
   "google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@6e4298ebc4db23e847df9b2e2de2939d6f066c67";
-const osvScannerAction =
-  "google/osv-scanner-action/osv-scanner-action@ffa0a5f39214d80778c9b494822d94d0d9668458";
-const osvReporterAction =
-  "google/osv-scanner-action/osv-reporter-action@ffa0a5f39214d80778c9b494822d94d0d9668458";
 
 const forbiddenCandidateSurfaces =
   /actions\/(?:download-artifact|upload-artifact|cache)@|cache-dependency-path|gh pr checkout|git (?:checkout|switch|fetch)|node_modules|pnpm install|npm (?:ci|install)|yarn install/;
@@ -436,18 +432,31 @@ test("main pushes publish only deterministic supply-chain baselines", () => {
     step.uses?.startsWith("actions/checkout@"),
   );
   assert.equal(readOnlyCheckout.with["persist-credentials"], false);
-  const scanner = readOnlySteps.find((step) =>
+  const scannerSteps = readOnlySteps.filter((step) =>
     step.uses?.startsWith("google/osv-scanner-action/osv-scanner-action@"),
   );
-  assert.equal(scanner.uses, osvScannerAction);
+  assert.equal(scannerSteps.length, 1);
+  const [scanner] = scannerSteps;
+  const scannerRevision =
+    /^google\/osv-scanner-action\/osv-scanner-action@([0-9a-f]{40})$/u.exec(
+      scanner.uses,
+    )?.[1];
+  assert.ok(scannerRevision);
   assert.equal(scanner["continue-on-error"], true);
   assert.match(scanner.with["scan-args"], /--output=results\.json/);
   assert.match(scanner.with["scan-args"], /--format=json/);
   assert.match(scanner.with["scan-args"], /\$\{\{ inputs\.scan-args \}\}/);
-  const reporter = readOnlySteps.find((step) =>
+  const reporterSteps = readOnlySteps.filter((step) =>
     step.uses?.startsWith("google/osv-scanner-action/osv-reporter-action@"),
   );
-  assert.equal(reporter.uses, osvReporterAction);
+  assert.equal(reporterSteps.length, 1);
+  const [reporter] = reporterSteps;
+  const reporterRevision =
+    /^google\/osv-scanner-action\/osv-reporter-action@([0-9a-f]{40})$/u.exec(
+      reporter.uses,
+    )?.[1];
+  assert.ok(reporterRevision);
+  assert.equal(reporterRevision, scannerRevision);
   assert.match(reporter.with["scan-args"], /--output=results\.sarif/);
   assert.match(reporter.with["scan-args"], /--new=results\.json/);
   assert.match(reporter.with["scan-args"], /--gh-annotations=false/);
@@ -764,7 +773,7 @@ test("Wagmi paths share one use-sync-external-store peer snapshot", () => {
 
 test("embedded workflow JavaScript parses before GitHub executes it", () => {
   const expectedModuleCounts = new Map([
-    [processorPath, 13],
+    [processorPath, 4],
     [dependabotReviewPath, 6],
     [preparedIntakePath, 1],
     [repairPath, 3],
@@ -1902,108 +1911,6 @@ exit 64
   }
 });
 
-test("the exact-SHA companion materialization imports every local dependency", () => {
-  const temporaryDirectory = mkdtempSync(
-    join(tmpdir(), "dependabot-companion-materialization-"),
-  );
-  const mockBin = join(temporaryDirectory, "bin");
-  const mockGh = join(mockBin, "gh");
-  const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
-  const repository = "mento-protocol/frontend-monorepo";
-  const workflowSha = "d".repeat(40);
-
-  try {
-    mkdirSync(mockBin, { recursive: true });
-    writeFileSync(
-      mockGh,
-      `#!/usr/bin/env bash
-set -euo pipefail
-test "$GH_TOKEN" = "$EXPECTED_READ_TOKEN"
-for argument in "$@"; do
-  if [[ "$argument" == repos/*/commits/* ]]; then
-    test "$argument" = "repos/$REPOSITORY/commits/$WORKFLOW_SHA"
-    printf '%s\\n' "$WORKFLOW_SHA"
-    exit 0
-  fi
-  if [[ "$argument" == repos/*/contents/* ]]; then
-    source_path="\${argument#*contents/}"
-    source_path="\${source_path%%\\?ref=*}"
-    test "$argument" = "repos/$REPOSITORY/contents/$source_path?ref=$WORKFLOW_SHA"
-    test -f "$MOCK_REPOSITORY_ROOT/$source_path"
-    /bin/cat "$MOCK_REPOSITORY_ROOT/$source_path"
-    exit 0
-  fi
-done
-exit 64
-`,
-    );
-    chmodSync(mockGh, 0o500);
-
-    for (const jobName of [
-      "actions-companion-stage",
-      "actions-companion-open",
-    ]) {
-      const step = processor.jobs[jobName].steps.find(
-        ({ id }) => id === "companion-adapter",
-      );
-      const runnerTemp = join(temporaryDirectory, jobName);
-      mkdirSync(runnerTemp, { recursive: true });
-      const result = runBashStep(step, {
-        EXPECTED_READ_TOKEN: "normal-read-token",
-        GH_TOKEN: "normal-read-token",
-        MOCK_REPOSITORY_ROOT: repositoryRoot,
-        PATH: `${mockBin}:${process.env.PATH}`,
-        REPOSITORY: repository,
-        RUNNER_TEMP: runnerTemp,
-        WORKFLOW_SHA: workflowSha,
-      });
-      assert.equal(result.status, 0, `${jobName}: ${result.stderr}`);
-
-      const trustedRoot = join(runnerTemp, "dependabot-actions-companion");
-      const trustedAdapter = join(
-        trustedRoot,
-        "dependabot-actions-companion-live.mjs",
-      );
-      const trustedSoak = join(trustedRoot, "dependabot-production-soak.mjs");
-      assert.equal(
-        result.githubOutput,
-        `path=${trustedAdapter}\nsoak_path=${trustedSoak}\n`,
-        jobName,
-      );
-      for (const source of [
-        "dependabot-actions-companion-live.mjs",
-        "dependabot-actions-companion.mjs",
-        "dependabot-preparation-receipts.mjs",
-        "dependabot-production-soak.mjs",
-        "dependabot-processor.mjs",
-      ]) {
-        assert.equal(
-          readFileSync(join(trustedRoot, source), "utf8"),
-          read(`scripts/${source}`),
-          `${jobName}: ${source}`,
-        );
-      }
-
-      for (const trustedSource of [trustedAdapter, trustedSoak]) {
-        const imported = spawnSync(
-          process.execPath,
-          [
-            "--input-type=module",
-            "--eval",
-            'import { pathToFileURL } from "node:url"; await import(pathToFileURL(process.argv[2]).href);',
-            "materialization-test",
-            trustedSource,
-          ],
-          { encoding: "utf8" },
-        );
-        assert.equal(imported.status, 0, `${jobName}: ${imported.stderr}`);
-      }
-    }
-  } finally {
-    rmSync(temporaryDirectory, { force: true, recursive: true });
-  }
-});
-
 test("the exact-SHA terminal source materialization imports every local dependency", () => {
   const temporaryDirectory = mkdtempSync(
     join(tmpdir(), "dependabot-terminal-source-materialization-"),
@@ -2129,14 +2036,6 @@ test("processor normalizes only exact human-merge-only modes", () => {
   }
 
   assert.deepEqual(evaluateJob.outputs, {
-    actions_companion_base_sha:
-      "${{ steps.evaluation.outputs.actions_companion_base_sha }}",
-    actions_companion_candidate:
-      "${{ steps.evaluation.outputs.actions_companion_candidate }}",
-    actions_companion_head_sha:
-      "${{ steps.evaluation.outputs.actions_companion_head_sha }}",
-    actions_companion_pr_number:
-      "${{ steps.evaluation.outputs.actions_companion_pr_number }}",
     claude_retry_candidate:
       "${{ steps.target.outputs.claude_retry_candidate }}",
     claude_run_attempt: "${{ steps.target.outputs.claude_run_attempt }}",
@@ -2231,14 +2130,12 @@ test("initial evaluation exports only validated prepare routing booleans", () =>
     pullRequestNumber: 777,
   });
   const resultFor = ({
-    actionsCompanionCandidate = null,
     prepareCandidate = null,
     mode = "prepare",
     repository = "mento-protocol/frontend-monorepo",
     schema = "dependabot-processor:v2",
     serialization = { ready: true },
   } = {}) => ({
-    actionsCompanionCandidate,
     evaluations: prepareCandidate === null ? [] : [{ ...prepareCandidate }],
     mode,
     prepareCandidate,
@@ -2256,12 +2153,6 @@ test("initial evaluation exports only validated prepare routing booleans", () =>
       PR_NUMBERS: "all",
       REPOSITORY: "mento-protocol/frontend-monorepo",
     });
-  const noCompanionRouting =
-    "actions_companion_base_sha=\n" +
-    "actions_companion_candidate=false\n" +
-    "actions_companion_head_sha=\n" +
-    "actions_companion_pr_number=\n";
-
   try {
     for (const [disposition, expectedPending, expectedRequired] of [
       [null, false, false],
@@ -2286,8 +2177,7 @@ test("initial evaluation exports only validated prepare routing booleans", () =>
       assert.equal(
         result.githubOutput,
         `refresh_pending=${expectedPending}\n` +
-          `refresh_required=${expectedRequired}\n` +
-          noCompanionRouting,
+          `refresh_required=${expectedRequired}\n`,
       );
     }
 
@@ -2295,122 +2185,9 @@ test("initial evaluation exports only validated prepare routing booleans", () =>
     assert.equal(observe.status, 0, observe.stderr);
     assert.equal(
       observe.githubOutput,
-      "refresh_pending=false\nrefresh_required=false\n" + noCompanionRouting,
+      "refresh_pending=false\nrefresh_required=false\n",
     );
 
-    const companionCandidate = {
-      base: { current: true, currentBaseSha: "a".repeat(40) },
-      baseSha: "a".repeat(40),
-      changedPaths: [".github/workflows/_osv-scanner-readonly.yml"],
-      dependencies: [
-        {
-          from: "b".repeat(40),
-          name: "google/osv-scanner-action/osv-scanner-action",
-          to: "c".repeat(40),
-        },
-        {
-          from: "b".repeat(40),
-          name: "google/osv-scanner-action/osv-reporter-action",
-          to: "c".repeat(40),
-        },
-      ],
-      dependencyGroup: "github-actions-manual",
-      disposition: "manual-review",
-      feedback: {
-        autoMergeEnabled: false,
-        currentProcessorApprovalCount: 0,
-      },
-      headRef: "dependabot/github_actions/github-actions-manual-148744ce4a",
-      headSha: "d".repeat(40),
-      pullRequestNumber: 840,
-      repairAttempts: { preparationKind: "native" },
-      risk: {
-        packageEcosystem: "github-actions",
-        reason: "sensitive-auth-deployment-or-workflow-policy-action",
-      },
-    };
-    const companionSelection = {
-      baseSha: "a".repeat(40),
-      headSha: "d".repeat(40),
-      pullRequestNumber: 840,
-    };
-    const companion = runRouting({
-      actionsCompanionCandidate: companionSelection,
-      evaluations: [companionCandidate],
-      mode: "prepare",
-      prepareCandidate: null,
-      repository: "mento-protocol/frontend-monorepo",
-      schema: "dependabot-processor:v2",
-      serialization: { ready: true },
-    });
-    assert.equal(companion.status, 0, companion.stderr);
-    assert.equal(
-      companion.githubOutput,
-      "refresh_pending=false\n" +
-        "refresh_required=false\n" +
-        `actions_companion_base_sha=${"a".repeat(40)}\n` +
-        "actions_companion_candidate=true\n" +
-        `actions_companion_head_sha=${"d".repeat(40)}\n` +
-        "actions_companion_pr_number=840\n",
-    );
-
-    for (const invalidCandidate of [
-      {
-        ...companionCandidate,
-        base: { current: true, currentBaseSha: "a".repeat(39) },
-        baseSha: "a".repeat(39),
-      },
-      {
-        ...companionCandidate,
-        base: {
-          current: true,
-          currentBaseSha: `${"a".repeat(39)}\nforged-output=true`,
-        },
-        baseSha: `${"a".repeat(39)}\nforged-output=true`,
-      },
-      {
-        ...companionCandidate,
-        baseSha: "f".repeat(40),
-      },
-    ]) {
-      const invalidBase = runRouting({
-        actionsCompanionCandidate: null,
-        evaluations: [invalidCandidate],
-        mode: "prepare",
-        prepareCandidate: null,
-        repository: "mento-protocol/frontend-monorepo",
-        schema: "dependabot-processor:v2",
-        serialization: { ready: true },
-      });
-      assert.equal(invalidBase.status, 0, invalidBase.stderr);
-      assert.equal(
-        invalidBase.githubOutput,
-        "refresh_pending=false\n" +
-          "refresh_required=false\n" +
-          noCompanionRouting,
-      );
-      assert.doesNotMatch(invalidBase.githubOutput, /forged-output/u);
-    }
-
-    const ambiguousCompanion = runRouting({
-      actionsCompanionCandidate: null,
-      evaluations: [companionCandidate, { ...companionCandidate }],
-      mode: "prepare",
-      prepareCandidate: null,
-      repository: "mento-protocol/frontend-monorepo",
-      schema: "dependabot-processor:v2",
-      serialization: {
-        actionsCompanionReason: "multiple-actions-companion-candidates",
-        ready: true,
-      },
-    });
-    assert.equal(ambiguousCompanion.status, 0, ambiguousCompanion.stderr);
-    assert.equal(
-      ambiguousCompanion.githubOutput,
-      "refresh_pending=false\n" +
-        "refresh_required=false\n" +
-        noCompanionRouting,
-    );
     const observeCandidate = runRouting(
       resultFor({
         mode: "observe",
@@ -2479,547 +2256,6 @@ test("initial evaluation exports only validated prepare routing booleans", () =>
   } finally {
     rmSync(temporaryDirectory, { force: true, recursive: true });
   }
-});
-
-test("OSV companion staging waits for finalization and isolates each write token", () => {
-  const stageJob = processor.jobs["actions-companion-stage"];
-  const openJob = processor.jobs["actions-companion-open"];
-  const readPermissions = {
-    actions: "read",
-    checks: "read",
-    contents: "read",
-    "pull-requests": "read",
-  };
-
-  assert.ok(stageJob);
-  assert.deepEqual(stageJob.needs, ["evaluate", "prepare-finalize"]);
-  assert.match(stageJob.if, /^always\(\)/u);
-  assert.match(stageJob.if, /needs\.evaluate\.result == 'success'/u);
-  assert.match(stageJob.if, /needs\.prepare-finalize\.result == 'success'/u);
-  assert.match(
-    stageJob.if,
-    /needs\.evaluate\.outputs\.actions_companion_candidate == 'true'/u,
-  );
-  assert.match(
-    stageJob.if,
-    /needs\.prepare-finalize\.outputs\.actions_companion_candidate == 'true'/u,
-  );
-  for (const field of ["base_sha", "head_sha", "pr_number"]) {
-    assert.match(
-      stageJob.if,
-      new RegExp(
-        `needs\\.prepare-finalize\\.outputs\\.actions_companion_${field} == needs\\.evaluate\\.outputs\\.actions_companion_${field}`,
-        "u",
-      ),
-    );
-  }
-  assert.deepEqual(stageJob.permissions, readPermissions);
-  assert.deepEqual(stageJob.outputs, {
-    soak_partial: "${{ steps.stage.outputs.soak_partial }}",
-    stage_receipt: "${{ steps.stage.outputs.stage_receipt }}",
-    stage_result: "${{ steps.stage.outputs.stage_result }}",
-  });
-  assert.deepEqual(
-    stageJob.steps.map(({ name }) => name),
-    [
-      "Checkout the exact evaluated current main for inert census",
-      "Bind current main to the exact evaluated base before App authority",
-      "Materialize the companion adapter from the exact trusted workflow SHA",
-      "Census the inert exact-base checkout without App credentials",
-      "Create an isolated workflow-staging App token",
-      "Bind the staging token to the exact Prepare App bot",
-      "Revalidate and stage the exact companion tree",
-    ],
-  );
-
-  const checkout = stageJob.steps.find((step) =>
-    step.name.startsWith("Checkout the exact evaluated current main"),
-  );
-  assert.ok(checkout);
-  assert.equal(
-    checkout.uses,
-    "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-  );
-  assert.deepEqual(checkout.with, {
-    "fetch-depth": 1,
-    "persist-credentials": false,
-    ref: "refs/heads/main",
-    repository: "mento-protocol/frontend-monorepo",
-  });
-  assert.doesNotMatch(checkout.with.ref, /\$\{\{/u);
-  const bindBase = stageJob.steps.find((step) =>
-    step.name.startsWith("Bind current main to the exact evaluated base"),
-  );
-  assert.ok(bindBase);
-  assert.match(bindBase.run, /rev-parse HEAD/u);
-  assert.match(bindBase.run, /EXPECTED_BASE_SHA/u);
-  assert.ok(
-    stageJob.steps.indexOf(bindBase) <
-      stageJob.steps.indexOf(
-        stageJob.steps.find((step) => step.id === "companion-stage-token"),
-      ),
-  );
-
-  const materialize = stageJob.steps.find(
-    (step) =>
-      step.name ===
-      "Materialize the companion adapter from the exact trusted workflow SHA",
-  );
-  const census = stageJob.steps.find((step) =>
-    step.name.startsWith("Census the inert exact-base checkout"),
-  );
-  const stageToken = stageJob.steps.find(
-    (step) => step.id === "companion-stage-token",
-  );
-  const stageIdentity = stageJob.steps.find((step) =>
-    step.name.startsWith("Bind the staging token"),
-  );
-  const stage = stageJob.steps.find((step) => step.id === "stage");
-  assert.ok(materialize);
-  assert.ok(census);
-  assert.ok(stageToken);
-  assert.ok(stageIdentity);
-  assert.ok(stage);
-  assert.equal(census.id, "census");
-  assert.equal(materialize.env.GH_TOKEN, "${{ github.token }}");
-  assert.equal(materialize.env.WORKFLOW_SHA, "${{ github.workflow_sha }}");
-  assert.match(materialize.run, /commits\/\$WORKFLOW_SHA/u);
-  assert.match(
-    materialize.run,
-    /dependabot-actions-companion\.mjs\?ref=\$WORKFLOW_SHA/u,
-  );
-  assert.match(
-    materialize.run,
-    /dependabot-actions-companion-live\.mjs\?ref=\$WORKFLOW_SHA/u,
-  );
-  assert.match(
-    materialize.run,
-    /dependabot-processor\.mjs\?ref=\$WORKFLOW_SHA/u,
-  );
-  assert.match(
-    materialize.run,
-    /dependabot-preparation-receipts\.mjs\?ref=\$WORKFLOW_SHA/u,
-  );
-  assert.match(
-    materialize.run,
-    /dependabot-production-soak\.mjs\?ref=\$WORKFLOW_SHA/u,
-  );
-  assert.match(materialize.run, /test -s "\$trusted_soak"/u);
-  assert.match(materialize.run, /chmod 0500 "\$trusted_soak"/u);
-  assert.match(materialize.run, /soak_path=\$trusted_soak/u);
-  assert.equal(
-    census.env.DEPENDABOT_COMPANION_GITHUB_TOKEN,
-    "${{ github.token }}",
-  );
-  assert.equal(
-    census.env.EXPECTED_BASE_SHA,
-    "${{ needs.evaluate.outputs.actions_companion_base_sha }}",
-  );
-  assert.doesNotMatch(JSON.stringify(census.env), /APP_TOKEN|secrets\./u);
-  assert.match(census.run, /census\s+\\/u);
-  assert.match(census.run, /--base "\$EXPECTED_BASE_SHA"/u);
-  assert.match(census.run, /--base-dir "\$BASE_DIRECTORY"/u);
-  assert.match(census.run, /--prepare-app-slug "\$EXPECTED_PREPARE_APP_SLUG"/u);
-  assert.match(census.run, /--prepare-bot-id "\$EXPECTED_PREPARE_BOT_ID"/u);
-  assert.match(
-    census.run,
-    /--prepare-bot-login "\$EXPECTED_PREPARE_BOT_LOGIN"/u,
-  );
-  assert.match(census.run, /--run-attempt "\$PROCESSOR_RUN_ATTEMPT"/u);
-  assert.match(census.run, /--run-id "\$PROCESSOR_RUN_ID"/u);
-  assert.match(census.run, /rev-parse HEAD.*EXPECTED_BASE_SHA/su);
-  assert.match(census.run, /stage_token_required=/u);
-  assert.ok(
-    census.run.indexOf("bytes.byteLength") < census.run.indexOf("JSON.parse"),
-  );
-
-  assert.equal(
-    stageToken.uses,
-    "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
-  );
-  assert.deepEqual(stageToken.with, {
-    "client-id": "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID }}",
-    "private-key":
-      "${{ secrets.DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY }}",
-    owner: "mento-protocol",
-    repositories: "frontend-monorepo",
-    "permission-contents": "write",
-    "permission-workflows": "write",
-  });
-  assert.equal(Object.hasOwn(stageToken.with, "skip-token-revoke"), false);
-  assert.equal(
-    stageToken.if,
-    "steps.census.outputs.stage_token_required == 'true'",
-  );
-  assert.equal(stageIdentity.if, stageToken.if);
-  assert.match(stageIdentity.run, /ACTUAL_APP_SLUG.*EXPECTED_APP_SLUG/su);
-  assert.match(stageIdentity.run, /actual_bot_id.*EXPECTED_BOT_ID/su);
-  assert.equal(
-    stage.env.DEPENDABOT_COMPANION_GITHUB_TOKEN,
-    "${{ github.token }}",
-  );
-  assert.equal(
-    stage.env.DEPENDABOT_COMPANION_STAGE_APP_TOKEN,
-    "${{ steps.companion-stage-token.outputs.token }}",
-  );
-  assert.match(stage.run, /stage\s+\\/u);
-  assert.match(stage.run, /--base "\$EXPECTED_BASE_SHA"/u);
-  assert.match(stage.run, /--base-dir "\$BASE_DIRECTORY"/u);
-  assert.match(stage.run, /--census "\$CENSUS_RESULT_PATH"/u);
-  assert.match(stage.run, /--prepare-app-slug "\$EXPECTED_PREPARE_APP_SLUG"/u);
-  assert.match(stage.run, /--prepare-bot-id "\$EXPECTED_PREPARE_BOT_ID"/u);
-  assert.match(
-    stage.run,
-    /--prepare-bot-login "\$EXPECTED_PREPARE_BOT_LOGIN"/u,
-  );
-  assert.match(stage.run, /--run-attempt "\$PROCESSOR_RUN_ATTEMPT"/u);
-  assert.match(stage.run, /--run-id "\$PROCESSOR_RUN_ID"/u);
-  assert.match(stage.run, /stage_receipt=.*base64/su);
-  assert.match(stage.run, /stage_result=/u);
-  assert.equal(
-    stage.env.SOAK_HELPER_PATH,
-    "${{ steps.companion-adapter.outputs.soak_path }}",
-  );
-  assert.equal(
-    stage.env.SOAK_PARTIAL_PATH,
-    "${{ runner.temp }}/dependabot-actions-companion-soak-partial.json",
-  );
-  assert.match(stage.run, /if \[ "\$stage_result" = "staged" \]; then/u);
-  assert.match(
-    stage.run,
-    /node "\$SOAK_HELPER_PATH" companion-stage[\s\S]*--census "\$CENSUS_RESULT_PATH"[\s\S]*--stage "\$STAGE_RESULT_PATH"[\s\S]*--output "\$SOAK_PARTIAL_PATH"/u,
-  );
-  assert.match(stage.run, /bytes\.byteLength > 16 \* 1024/u);
-  assert.match(stage.run, /canonicalJson\(partial\)/u);
-  assert.match(stage.run, /dependabot-actions-companion-soak-partial:v1/u);
-  assert.match(stage.run, /soak_partial=.*toString\("base64"\)/su);
-  assert.ok(
-    stage.run.indexOf('throw new Error("Invalid companion stage receipt")') <
-      stage.run.indexOf('node "$SOAK_HELPER_PATH" companion-stage'),
-  );
-  assert.ok(
-    stage.run.indexOf("bytes.byteLength") < stage.run.indexOf("JSON.parse"),
-  );
-  assert.equal(Object.hasOwn(stage, "if"), false);
-  assert.equal(
-    JSON.stringify(stageJob).split(
-      "${{ steps.companion-stage-token.outputs.token }}",
-    ).length - 1,
-    1,
-  );
-  assert.doesNotMatch(
-    JSON.stringify(stageJob),
-    /permission-pull-requests":"write|DEPENDABOT_COMPANION_OPEN_APP_TOKEN|checks":"write|\/reviews|\/comments|enablePullRequestAutoMerge|\/merge/u,
-  );
-
-  assert.ok(openJob);
-  assert.deepEqual(openJob.needs, ["evaluate", "actions-companion-stage"]);
-  assert.match(
-    openJob.if,
-    /needs\.actions-companion-stage\.result == 'success'/u,
-  );
-  assert.match(
-    openJob.if,
-    /needs\.actions-companion-stage\.outputs\.stage_result == 'staged'/u,
-  );
-  assert.deepEqual(openJob.permissions, readPermissions);
-  assert.deepEqual(
-    openJob.steps.map(({ name }) => name),
-    [
-      "Materialize the companion adapter from the exact trusted workflow SHA",
-      "Materialize the exact historical base without workflow credentials",
-      "Audit the historical base before pull-request authority",
-      "Decode and validate the exact stage receipt",
-      "Create an isolated pull-request App token",
-      "Bind the pull-request token to the exact Prepare App bot",
-      "Revalidate the staged head and open its companion pull request",
-      "Confirm the exact App-authored companion pull request",
-      "Build the redacted companion soak evidence",
-      "Upload the redacted companion soak evidence",
-      "Summarize the redacted companion soak evidence",
-    ],
-  );
-  const historicalBase = openJob.steps.find((step) =>
-    step.name.startsWith(
-      "Materialize the exact historical base without workflow credentials",
-    ),
-  );
-  const historicalAudit = openJob.steps.find((step) =>
-    step.name.startsWith("Audit the historical base"),
-  );
-  const openToken = openJob.steps.find(
-    (step) => step.id === "companion-open-token",
-  );
-  const openIdentity = openJob.steps.find((step) =>
-    step.name.startsWith("Bind the pull-request token"),
-  );
-  const decode = openJob.steps.find((step) =>
-    step.name.startsWith("Decode and validate the exact stage receipt"),
-  );
-  const open = openJob.steps.find((step) => step.id === "open");
-  const openMaterialize = openJob.steps.find(
-    (step) => step.id === "companion-adapter",
-  );
-  const confirmation = openJob.steps.find((step) =>
-    step.name.startsWith("Confirm the exact App-authored"),
-  );
-  const soakEvidence = openJob.steps.find((step) =>
-    step.name.startsWith("Build the redacted companion soak evidence"),
-  );
-  const soakUpload = openJob.steps.find(
-    (step) => step.id === "upload-soak-evidence",
-  );
-  const soakSummary = openJob.steps.find((step) =>
-    step.name.startsWith("Summarize the redacted companion soak evidence"),
-  );
-  assert.ok(openToken);
-  assert.ok(historicalBase);
-  assert.ok(historicalAudit);
-  assert.ok(openIdentity);
-  assert.ok(decode);
-  assert.ok(open);
-  assert.ok(openMaterialize);
-  assert.ok(confirmation);
-  assert.ok(soakEvidence);
-  assert.ok(soakUpload);
-  assert.ok(soakSummary);
-  assert.equal(
-    openJob.steps.some((step) => step.uses?.startsWith("actions/checkout@")),
-    false,
-  );
-  assert.equal(Object.hasOwn(historicalBase.env, "GH_TOKEN"), false);
-  assert.doesNotMatch(JSON.stringify(historicalBase), /APP_TOKEN|secrets\./u);
-  assert.match(historicalBase.run, /git init --bare/u);
-  assert.match(historicalBase.run, /--depth=1 origin "\$EXPECTED_BASE_SHA"/u);
-  assert.match(historicalBase.run, /FETCH_HEAD\^\{commit\}/u);
-  assert.match(historicalBase.run, /git -C "\$object_store" archive/u);
-  assert.equal(
-    historicalAudit.env.DEPENDABOT_COMPANION_GITHUB_TOKEN,
-    "${{ github.token }}",
-  );
-  assert.doesNotMatch(JSON.stringify(historicalAudit), /APP_TOKEN|secrets\./u);
-  assert.match(historicalAudit.run, /verify-base\s+\\/u);
-  assert.match(
-    historicalAudit.run,
-    /dependabot-actions-companion-base-verification:v1/u,
-  );
-  assert.ok(
-    openJob.steps.indexOf(historicalAudit) < openJob.steps.indexOf(openToken),
-  );
-  assert.match(
-    openMaterialize.run,
-    /dependabot-actions-companion\.mjs\?ref=\$WORKFLOW_SHA/u,
-  );
-  assert.match(
-    openMaterialize.run,
-    /dependabot-actions-companion-live\.mjs\?ref=\$WORKFLOW_SHA/u,
-  );
-  assert.match(
-    openMaterialize.run,
-    /dependabot-processor\.mjs\?ref=\$WORKFLOW_SHA/u,
-  );
-  assert.match(
-    openMaterialize.run,
-    /dependabot-preparation-receipts\.mjs\?ref=\$WORKFLOW_SHA/u,
-  );
-  assert.match(
-    openMaterialize.run,
-    /dependabot-production-soak\.mjs\?ref=\$WORKFLOW_SHA/u,
-  );
-  assert.match(openMaterialize.run, /test -s "\$trusted_soak"/u);
-  assert.match(openMaterialize.run, /chmod 0500 "\$trusted_soak"/u);
-  assert.match(openMaterialize.run, /soak_path=\$trusted_soak/u);
-  assert.equal(
-    openToken.uses,
-    "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
-  );
-  assert.deepEqual(openToken.with, {
-    "client-id": "${{ vars.DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID }}",
-    "private-key":
-      "${{ secrets.DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY }}",
-    owner: "mento-protocol",
-    repositories: "frontend-monorepo",
-    "permission-pull-requests": "write",
-  });
-  assert.equal(Object.hasOwn(openToken.with, "skip-token-revoke"), false);
-  assert.match(openIdentity.run, /ACTUAL_APP_SLUG.*EXPECTED_APP_SLUG/su);
-  assert.match(openIdentity.run, /actual_bot_id.*EXPECTED_BOT_ID/su);
-  assert.equal(
-    decode.env.STAGE_RECEIPT_BASE64,
-    "${{ needs.actions-companion-stage.outputs.stage_receipt }}",
-  );
-  assert.equal(
-    decode.env.SOAK_PARTIAL_BASE64,
-    "${{ needs.actions-companion-stage.outputs.soak_partial }}",
-  );
-  assert.equal(
-    decode.env.SOAK_PARTIAL_PATH,
-    "${{ runner.temp }}/dependabot-actions-companion-soak-partial.json",
-  );
-  assert.match(decode.run, /partialBytes\.byteLength > 16 \* 1024/u);
-  assert.match(
-    decode.run,
-    /partialBytes\.toString\("base64"\) !== partialEncoded/u,
-  );
-  assert.match(decode.run, /canonicalJson\(partial\)/u);
-  assert.match(decode.run, /dependabot-actions-companion-soak-partial:v1/u);
-  assert.ok(
-    decode.run.indexOf("bytes.byteLength") < decode.run.indexOf("JSON.parse"),
-  );
-  assert.equal(
-    open.env.DEPENDABOT_COMPANION_GITHUB_TOKEN,
-    "${{ github.token }}",
-  );
-  assert.equal(
-    open.env.DEPENDABOT_COMPANION_OPEN_APP_TOKEN,
-    "${{ steps.companion-open-token.outputs.token }}",
-  );
-  assert.equal(
-    open.env.BASE_DIRECTORY,
-    "${{ steps.historical-base.outputs.path }}",
-  );
-  assert.match(open.run, /open\s+\\/u);
-  assert.match(open.run, /--base "\$EXPECTED_BASE_SHA"/u);
-  assert.match(open.run, /--base-dir "\$BASE_DIRECTORY"/u);
-  assert.match(open.run, /--prepare-app-slug "\$EXPECTED_PREPARE_APP_SLUG"/u);
-  assert.match(open.run, /--prepare-bot-id "\$EXPECTED_PREPARE_BOT_ID"/u);
-  assert.match(open.run, /--prepare-bot-login "\$EXPECTED_PREPARE_BOT_LOGIN"/u);
-  assert.match(open.run, /--staged "\$STAGE_RECEIPT_PATH"/u);
-  assert.match(open.run, /--run-attempt "\$PROCESSOR_RUN_ATTEMPT"/u);
-  assert.match(open.run, /--run-id "\$PROCESSOR_RUN_ID"/u);
-  assert.match(open.run, /already-open/u);
-  assert.ok(
-    open.run.indexOf("bytes.byteLength") < open.run.indexOf("JSON.parse"),
-  );
-  for (const boundary of [census, stage, decode, open]) {
-    assert.match(
-      boundary.run,
-      /receipt\.orchestratorRunId !== Number\(process\.env\.PROCESSOR_RUN_ID\)/u,
-    );
-    assert.match(
-      boundary.run,
-      /receipt\.orchestratorRunAttempt !==[\s\S]*PROCESSOR_RUN_ATTEMPT/u,
-    );
-    assert.match(
-      boundary.run,
-      /Number\.isSafeInteger\(receipt\.processorRunId\)/u,
-    );
-    assert.match(
-      boundary.run,
-      /Number\.isSafeInteger\(receipt\.processorRunAttempt\)/u,
-    );
-  }
-  assert.match(confirmation.if, /open_result == 'opened'/u);
-  assert.match(confirmation.if, /open_result == 'already-open'/u);
-  assert.match(confirmation.run, /pull\.user\?\.id.*EXPECTED_BOT_ID/su);
-  assert.match(confirmation.run, /pull\.user\?\.login.*EXPECTED_BOT_LOGIN/su);
-  assert.match(confirmation.run, /pull\.user\?\.type !== "Bot"/u);
-  assert.match(confirmation.run, /pull\.head\?\.sha !== receipt\.commitSha/u);
-  assert.match(confirmation.run, /pull\.base\?\.sha !== expected\.baseSha/u);
-  assert.match(confirmation.run, /pull\.maintainer_can_modify !== false/u);
-  assert.match(confirmation.run, /pull\.merged_at !== null/u);
-  assert.match(confirmation.run, /pull\.auto_merge !== null/u);
-  assert.match(
-    soakEvidence.run,
-    /node "\$SOAK_HELPER_PATH" companion-open[\s\S]*--partial "\$SOAK_PARTIAL_PATH"[\s\S]*--open "\$OPEN_RESULT_PATH"[\s\S]*--pull "\$PR_SNAPSHOT_PATH"[\s\S]*--output "\$SOAK_EVIDENCE_PATH"/u,
-  );
-  assert.match(soakEvidence.run, /bytes\.byteLength > 16 \* 1024/u);
-  assert.match(soakEvidence.run, /canonicalJson\(evidence\)/u);
-  assert.match(soakEvidence.run, /dependabot-actions-companion-soak:v1/u);
-  assert.ok(
-    openJob.steps.indexOf(confirmation) < openJob.steps.indexOf(soakEvidence),
-  );
-  assert.ok(
-    openJob.steps.indexOf(soakEvidence) < openJob.steps.indexOf(soakUpload),
-  );
-  assert.ok(
-    openJob.steps.indexOf(soakUpload) < openJob.steps.indexOf(soakSummary),
-  );
-  assert.equal(
-    soakUpload.uses,
-    "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-  );
-  assert.deepEqual(soakUpload.with, {
-    name: "dependabot-actions-companion-soak-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.evaluate.outputs.actions_companion_pr_number }}",
-    path: "${{ runner.temp }}/dependabot-actions-companion-soak.json",
-    "if-no-files-found": "error",
-    "retention-days": 90,
-  });
-  assert.equal(
-    soakSummary.env.ARTIFACT_DIGEST,
-    "${{ steps.upload-soak-evidence.outputs.artifact-digest }}",
-  );
-  assert.equal(
-    soakSummary.env.ARTIFACT_ID,
-    "${{ steps.upload-soak-evidence.outputs.artifact-id }}",
-  );
-  assert.equal(
-    soakSummary.env.ARTIFACT_URL,
-    "${{ steps.upload-soak-evidence.outputs.artifact-url }}",
-  );
-  assert.match(soakSummary.run, /GITHUB_STEP_SUMMARY/u);
-  assert.match(soakSummary.run, /gh run download \$RUN_ID/u);
-  assert.match(soakSummary.run, /--repo \$REPOSITORY/u);
-  assert.match(soakSummary.run, /--name \$ARTIFACT_NAME/u);
-  assert.match(
-    soakSummary.run,
-    /--dir \/tmp\/dependabot-actions-companion-soak/u,
-  );
-  const summaryDirectory = mkdtempSync(
-    join(tmpdir(), "dependabot-companion-summary-"),
-  );
-  try {
-    const summaryPath = join(summaryDirectory, "summary.md");
-    const summaryResult = spawnSync("bash", ["-c", soakSummary.run], {
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        ARTIFACT_DIGEST: "sha256:artifact-digest",
-        ARTIFACT_ID: "123",
-        ARTIFACT_NAME: "dependabot-actions-companion-soak-456-1-840",
-        ARTIFACT_URL: "https://github.com/example/artifacts/123",
-        GITHUB_STEP_SUMMARY: summaryPath,
-        REPOSITORY: "mento-protocol/frontend-monorepo",
-        RUN_ID: "456",
-      },
-    });
-    assert.equal(summaryResult.status, 0, summaryResult.stderr);
-    assert.equal(
-      readFileSync(summaryPath, "utf8"),
-      "### Dependabot typed companion soak evidence\n\n" +
-        "- Artifact: [dependabot-actions-companion-soak-456-1-840](https://github.com/example/artifacts/123)\n" +
-        "- Artifact ID: `123`\n" +
-        "- Artifact digest: `sha256:artifact-digest`\n\n" +
-        "```bash\n" +
-        "gh run download 456 \\\n" +
-        "  --repo mento-protocol/frontend-monorepo \\\n" +
-        "  --name dependabot-actions-companion-soak-456-1-840 \\\n" +
-        "  --dir /tmp/dependabot-actions-companion-soak\n" +
-        "```\n",
-    );
-  } finally {
-    rmSync(summaryDirectory, { force: true, recursive: true });
-  }
-  assert.equal(
-    JSON.stringify(openJob).split(
-      "${{ steps.companion-open-token.outputs.token }}",
-    ).length - 1,
-    1,
-  );
-  assert.deepEqual(
-    openJob.steps.filter((step) => step.uses?.startsWith("actions/checkout@")),
-    [],
-  );
-  assert.equal(
-    openJob.steps.some((step) =>
-      step.uses?.startsWith("actions/download-artifact@"),
-    ),
-    false,
-  );
-  assert.doesNotMatch(
-    JSON.stringify(openJob),
-    /permission-(?:contents|workflows)":"write|DEPENDABOT_COMPANION_STAGE_APP_TOKEN|checks":"write|\/reviews|\/comments|enablePullRequestAutoMerge|\/merge/u,
-  );
 });
 
 test("refresh request publication has checks authority but no branch credential", () => {
@@ -3302,15 +2538,7 @@ test("only the prepare mutator receives the refresh-capable App token", () => {
   }
 
   for (const [jobName, job] of Object.entries(processor.jobs)) {
-    if (
-      new Set([
-        "prepare-mutate",
-        "actions-companion-stage",
-        "actions-companion-open",
-      ]).has(jobName)
-    ) {
-      continue;
-    }
+    if (jobName === "prepare-mutate") continue;
     assert.doesNotMatch(
       JSON.stringify(job),
       /DEPENDABOT_PROCESSOR_PREPARE_APP_(?:CLIENT_ID|PRIVATE_KEY)/,
@@ -3372,16 +2600,7 @@ test("prepare finalization has approval authority but no branch-write credential
     "pull-requests": "write",
     statuses: "read",
   });
-  assert.deepEqual(finalizeJob.outputs, {
-    actions_companion_base_sha:
-      "${{ steps.finalize.outputs.actions_companion_base_sha }}",
-    actions_companion_candidate:
-      "${{ steps.finalize.outputs.actions_companion_candidate }}",
-    actions_companion_head_sha:
-      "${{ steps.finalize.outputs.actions_companion_head_sha }}",
-    actions_companion_pr_number:
-      "${{ steps.finalize.outputs.actions_companion_pr_number }}",
-  });
+  assert.equal(Object.hasOwn(finalizeJob, "outputs"), false);
   assert.deepEqual(
     finalizeJob.steps.filter((step) => Object.hasOwn(step, "uses")),
     [],
@@ -3392,12 +2611,20 @@ test("prepare finalization has approval authority but no branch-write credential
       step.name === "Recollect exact state and publish human-only readiness",
   );
   assert.ok(invocation);
-  assert.equal(invocation.id, "finalize");
+  assert.equal(Object.hasOwn(invocation, "id"), false);
   assert.match(invocation.run, /process\s+\\/);
   assert.match(invocation.run, /--phase finalize/);
-  assert.match(invocation.run, /--mode prepare/);
-  assert.match(invocation.run, /> "\$FINALIZE_RESULT_PATH"/);
-  assert.match(invocation.run, /actionsCompanionCandidate/);
+  assert.match(invocation.run, /--mode prepare\s*$/u);
+  assert.doesNotMatch(invocation.run, />|--input-type=module/);
+  assert.deepEqual(Object.keys(invocation.env).sort(), [
+    "DEPENDABOT_PROCESSOR_GITHUB_TOKEN",
+    "DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG",
+    "DEPENDABOT_PROCESSOR_PREPARE_BOT_ID",
+    "DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN",
+    "PROCESSOR_PATH",
+    "PR_NUMBERS",
+    "REPOSITORY",
+  ]);
   assert.equal(
     invocation.env.DEPENDABOT_PROCESSOR_GITHUB_TOKEN,
     "${{ github.token }}",
@@ -3421,102 +2648,6 @@ test("prepare finalization has approval authority but no branch-write credential
     raw,
     /PREPARE_APP_CLIENT_ID|PREPARE_APP_PRIVATE_KEY|REPAIR_TOKEN|REPAIR_APP|create-github-app-token|secrets\./,
   );
-});
-
-test("prepare finalization exports only its recollected open-lane companion", () => {
-  const finalize = processor.jobs["prepare-finalize"].steps.find(
-    (step) => step.id === "finalize",
-  );
-  const temporaryDirectory = mkdtempSync(
-    join(tmpdir(), "dependabot-finalize-routing-"),
-  );
-  const mockProcessor = join(temporaryDirectory, "mock-processor.mjs");
-  writeFileSync(
-    mockProcessor,
-    "process.stdout.write(process.env.MOCK_FINALIZE_RESULT);\n",
-  );
-  const evaluation = {
-    base: { currentBaseSha: "a".repeat(40) },
-    baseSha: "a".repeat(40),
-    disposition: "manual-review",
-    headSha: "b".repeat(40),
-    pullRequestNumber: 840,
-  };
-  const companion = {
-    baseSha: "a".repeat(40),
-    headSha: "b".repeat(40),
-    pullRequestNumber: 840,
-  };
-  const resultFor = ({
-    actionsCompanionCandidate = companion,
-    evaluations = [evaluation],
-    prepareCandidate = null,
-    serialization = { ready: true },
-  } = {}) => ({
-    actionsCompanionCandidate,
-    evaluations,
-    mode: "prepare",
-    mutations: [],
-    phase: "finalize",
-    prepareCandidate,
-    repository: "mento-protocol/frontend-monorepo",
-    schema: "dependabot-processor:v2",
-    serialization,
-  });
-  const runFinalize = (result) =>
-    runBashStep(finalize, {
-      DEPENDABOT_PROCESSOR_GITHUB_TOKEN: "normal-read-token",
-      FINALIZE_RESULT_PATH: join(temporaryDirectory, "result.json"),
-      MOCK_FINALIZE_RESULT: JSON.stringify(result),
-      PATH: process.env.PATH,
-      PROCESSOR_PATH: mockProcessor,
-      PR_NUMBERS: "all",
-      REPOSITORY: "mento-protocol/frontend-monorepo",
-    });
-
-  try {
-    const selected = runFinalize(resultFor());
-    assert.equal(selected.status, 0, selected.stderr);
-    assert.equal(
-      selected.githubOutput,
-      `actions_companion_base_sha=${"a".repeat(40)}\n` +
-        "actions_companion_candidate=true\n" +
-        `actions_companion_head_sha=${"b".repeat(40)}\n` +
-        "actions_companion_pr_number=840\n",
-    );
-
-    const occupied = runFinalize(
-      resultFor({
-        actionsCompanionCandidate: null,
-        prepareCandidate: {
-          disposition: "prepare-candidate",
-          headSha: "c".repeat(40),
-          pullRequestNumber: 841,
-        },
-      }),
-    );
-    assert.equal(occupied.status, 0, occupied.stderr);
-    assert.equal(
-      occupied.githubOutput,
-      "actions_companion_base_sha=\n" +
-        "actions_companion_candidate=false\n" +
-        "actions_companion_head_sha=\n" +
-        "actions_companion_pr_number=\n",
-    );
-
-    const changed = runFinalize(
-      resultFor({
-        actionsCompanionCandidate: {
-          ...companion,
-          headSha: "d".repeat(40),
-        },
-      }),
-    );
-    assert.notEqual(changed.status, 0);
-    assert.equal(changed.githubOutput, "");
-  } finally {
-    rmSync(temporaryDirectory, { force: true, recursive: true });
-  }
 });
 
 test("the processor workflow contains no merge or native auto-merge authority", () => {
@@ -5538,8 +4669,6 @@ test("no workflow can automatically merge Dependabot pull requests", () => {
   const forbiddenMergeAuthority =
     /gh\s+pr\s+merge|enablePullRequestAutoMerge|mergePullRequest|\/pulls\/[^\s"'`]*\/merge|pulls\.merge|DEPENDABOT_PROCESSOR_MERGE_/;
   const trustedSources = [
-    "scripts/dependabot-actions-companion-live.mjs",
-    "scripts/dependabot-actions-companion.mjs",
     "scripts/dependabot-preparation-receipts.mjs",
     "scripts/dependabot-prepared-review.mjs",
     "scripts/dependabot-processor.mjs",
