@@ -79,6 +79,10 @@ jobs:
       pull-requests: read
       statuses: read
     outputs:
+      claude_retry_candidate: ${{ steps.target.outputs.claude_retry_candidate }}
+      claude_run_attempt: ${{ steps.target.outputs.claude_run_attempt }}
+      claude_run_id: ${{ steps.target.outputs.claude_run_id }}
+      claude_run_title: ${{ steps.target.outputs.claude_run_title }}
       expected_head_sha: ${{ steps.target.outputs.expected_head_sha }}
       pr_numbers: ${{ steps.target.outputs.pr_numbers }}
       processor_mode: ${{ steps.mode.outputs.processor_mode }}
@@ -91,6 +95,7 @@ jobs:
         shell: bash
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          CURRENT_WORKFLOW_SHA: ${{ github.workflow_sha }}
           EVENT_NAME: ${{ github.event_name }}
           INTAKE_ACTOR_LOGIN: ${{ github.event.workflow_run.actor.login }}
           INTAKE_ACTOR_ID: ${{ github.event.workflow_run.actor.id }}
@@ -118,6 +123,10 @@ jobs:
 
           case "$EVENT_NAME" in
             workflow_run)
+              claude_retry_candidate=false
+              claude_run_attempt=
+              claude_run_id=
+              claude_run_title=
               test "$INTAKE_STATUS" = "completed"
               test "$INTAKE_HEAD_REPOSITORY" = "$REPOSITORY"
               [[ "$INTAKE_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
@@ -184,6 +193,8 @@ jobs:
                   followup_kind="prepared-intake"
                   ;;
                 .github/workflows/dependabot-claude-review.yml|.github/workflows/dependabot-claude-review.yml@main)
+                  [[ "$CURRENT_WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]
+                  test "$INTAKE_HEAD_SHA" = "$CURRENT_WORKFLOW_SHA"
                   case "$INTAKE_CONCLUSION" in
                     success|failure) ;;
                     *) exit 1 ;;
@@ -210,6 +221,13 @@ jobs:
                     exit 1
                   fi
                   followup_kind="claude-review"
+                  claude_run_attempt="$INTAKE_RUN_ATTEMPT"
+                  claude_run_id="$INTAKE_RUN_ID"
+                  claude_run_title="$INTAKE_TITLE"
+                  if test "$INTAKE_CONCLUSION" = "failure" && \
+                    (( INTAKE_RUN_ATTEMPT <= 2 )); then
+                    claude_retry_candidate=true
+                  fi
                   ;;
                 *) exit 1 ;;
               esac
@@ -219,6 +237,10 @@ jobs:
               echo "operation_code=${operation_code:-}" >> "$GITHUB_OUTPUT"
               echo "operation_check_id=${operation_check_id:-}" >> "$GITHUB_OUTPUT"
               echo "operation_digest=${operation_digest:-}" >> "$GITHUB_OUTPUT"
+              echo "claude_retry_candidate=$claude_retry_candidate" >> "$GITHUB_OUTPUT"
+              echo "claude_run_attempt=$claude_run_attempt" >> "$GITHUB_OUTPUT"
+              echo "claude_run_id=$claude_run_id" >> "$GITHUB_OUTPUT"
+              echo "claude_run_title=$claude_run_title" >> "$GITHUB_OUTPUT"
               ;;
             repository_dispatch)
               node --input-type=module --eval '
@@ -242,10 +264,12 @@ jobs:
               '
               echo "pr_numbers=all" >> "$GITHUB_OUTPUT"
               echo "expected_head_sha=" >> "$GITHUB_OUTPUT"
+              echo "claude_retry_candidate=false" >> "$GITHUB_OUTPUT"
               ;;
             schedule)
               echo "pr_numbers=all" >> "$GITHUB_OUTPUT"
               echo "expected_head_sha=" >> "$GITHUB_OUTPUT"
+              echo "claude_retry_candidate=false" >> "$GITHUB_OUTPUT"
               ;;
             *) exit 1 ;;
           esac
@@ -313,6 +337,7 @@ jobs:
           PROCESSOR_PATH: ${{ steps.processor.outputs.path }}
           PR_NUMBERS: ${{ steps.target.outputs.pr_numbers }}
           REPOSITORY: ${{ github.repository }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: |
           set -euo pipefail
           arguments=(
@@ -416,6 +441,370 @@ jobs:
                 `refresh_required=${candidate?.disposition === "refresh-required"}\n`,
             );
           '
+
+  retry-claude-review:
+    name: Retry one authenticated transient Claude provider failure
+    needs: evaluate
+    if: >-
+      needs.evaluate.result == 'success' &&
+      needs.evaluate.outputs.claude_retry_candidate == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      checks: read
+      pull-requests: read
+    steps:
+      # This job can rerun only the exact failed trusted workflow. It has no
+      # checkout, candidate execution, repository mutation, check write, App
+      # credential, or Claude credential.
+      - name: Revalidate the exact transient receipt and rerun its workflow
+        shell: bash
+        env:
+          EXPECTED_HEAD_SHA: ${{ needs.evaluate.outputs.expected_head_sha }}
+          EXPECTED_RUN_ATTEMPT: ${{ needs.evaluate.outputs.claude_run_attempt }}
+          EXPECTED_RUN_ID: ${{ needs.evaluate.outputs.claude_run_id }}
+          EXPECTED_RUN_TITLE: ${{ needs.evaluate.outputs.claude_run_title }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.evaluate.outputs.pr_numbers }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          test "$REPOSITORY" = "mento-protocol/frontend-monorepo"
+          [[ "$EXPECTED_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]{0,9}$ ]]
+          [[ "$EXPECTED_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$EXPECTED_RUN_ATTEMPT" =~ ^[12]$ ]]
+          [[ "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+          pr_snapshot="$RUNNER_TEMP/dependabot-claude-retry-pr.json"
+          gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" \
+            --jq '{number,state,draft,user:{login:.user.login,type:.user.type},head:{sha:.head.sha,repo:{full_name:.head.repo.full_name}},base:{ref:.base.ref,repo:{full_name:.base.repo.full_name}}}' \
+            > "$pr_snapshot"
+          jq -e \
+            --arg headSha "$EXPECTED_HEAD_SHA" \
+            --arg repository "$REPOSITORY" \
+            --argjson prNumber "$PR_NUMBER" \
+            '
+              .number == $prNumber and
+              .state == "open" and
+              .draft == false and
+              .user.login == "dependabot[bot]" and
+              .user.type == "Bot" and
+              .head.sha == $headSha and
+              .head.repo.full_name == $repository and
+              .base.ref == "main" and
+              .base.repo.full_name == $repository
+            ' "$pr_snapshot" > /dev/null
+
+          run_snapshot="$RUNNER_TEMP/dependabot-claude-retry-run.json"
+          gh api "repos/$REPOSITORY/actions/runs/$EXPECTED_RUN_ID" \
+            --jq '{id,run_attempt,status,conclusion,event,path,head_branch,head_sha,display_title,repository:{full_name:.repository.full_name}}' \
+            > "$run_snapshot"
+          jq -e \
+            --arg displayTitle "$EXPECTED_RUN_TITLE" \
+            --arg repository "$REPOSITORY" \
+            --arg workflowSha "$WORKFLOW_SHA" \
+            --argjson runAttempt "$EXPECTED_RUN_ATTEMPT" \
+            --argjson runId "$EXPECTED_RUN_ID" \
+            '
+              .id == $runId and
+              .run_attempt == $runAttempt and
+              .status == "completed" and
+              .conclusion == "failure" and
+              .event == "workflow_run" and
+              (.path == ".github/workflows/dependabot-claude-review.yml" or
+               .path == ".github/workflows/dependabot-claude-review.yml@main") and
+              .head_branch == "main" and
+              .head_sha == $workflowSha and
+              .repository.full_name == $repository and
+              .display_title == $displayTitle
+            ' "$run_snapshot" > /dev/null
+
+          collect_check_runs() {
+            local destination="$1"
+            local collected=0
+            local expected_total=""
+            local page=1
+            printf '[]\n' > "$destination"
+
+            while (( page <= 20 )); do
+              local page_snapshot="${destination%.json}-page-$page.json"
+              gh api --method GET \
+                "repos/$REPOSITORY/commits/$EXPECTED_HEAD_SHA/check-runs" \
+                -f check_name=claude-review \
+                -f filter=all \
+                -F per_page=100 \
+                -F page="$page" \
+                --jq '{total_count,check_runs}' > "$page_snapshot"
+              jq -e '
+                type == "object" and
+                (.total_count | type == "number" and floor == . and . >= 0 and . <= 2000) and
+                (.check_runs | type == "array" and length <= 100) and
+                all(.check_runs[];
+                  type == "object" and
+                  (.id | type == "number" and floor == . and . >= 1 and . <= 9007199254740991)
+                )
+              ' "$page_snapshot" > /dev/null
+
+              local page_total
+              local page_count
+              page_total="$(jq -r '.total_count' "$page_snapshot")"
+              page_count="$(jq -r '.check_runs | length' "$page_snapshot")"
+              if test -z "$expected_total"; then
+                expected_total="$page_total"
+              else
+                test "$page_total" -eq "$expected_total"
+              fi
+              test $(( collected + page_count )) -le "$expected_total"
+
+              local merged_snapshot="${destination%.json}-merged.json"
+              jq -s '.[0] + .[1].check_runs' \
+                "$destination" "$page_snapshot" > "$merged_snapshot"
+              mv "$merged_snapshot" "$destination"
+              collected=$(( collected + page_count ))
+              if test "$collected" -eq "$expected_total"; then
+                break
+              fi
+              test "$page_count" -eq 100
+              test "$page" -lt 20
+              page=$(( page + 1 ))
+            done
+
+            test -n "$expected_total"
+            test "$collected" -eq "$expected_total"
+            test "$(jq '[.[].id] | unique | length' "$destination")" -eq "$collected"
+          }
+
+          all_checks_snapshot="$RUNNER_TEMP/dependabot-claude-retry-checks.json"
+          collect_check_runs "$all_checks_snapshot"
+
+          expected_external_id="dependabot-claude-review:v1:pr=$PR_NUMBER:sha=$EXPECTED_HEAD_SHA:run=$EXPECTED_RUN_ID:attempt=$EXPECTED_RUN_ATTEMPT"
+          check_snapshot="$RUNNER_TEMP/dependabot-claude-retry-check.json"
+          jq \
+            --arg externalId "$expected_external_id" \
+            --arg headSha "$EXPECTED_HEAD_SHA" \
+            --arg repository "$REPOSITORY" \
+            --argjson runId "$EXPECTED_RUN_ID" \
+            '[.[] | select(
+              .app.id == 15368 and
+              .name == "claude-review" and
+              .head_sha == $headSha and
+              .status == "completed" and
+              .conclusion == "failure" and
+              .external_id == $externalId and
+              (.details_url == "https://github.com/" + $repository + "/actions/runs/" + ($runId | tostring) or
+               .details_url == "https://github.com/" + $repository + "/runs/" + (.id | tostring))
+            )]' "$all_checks_snapshot" > "$check_snapshot"
+          test "$(jq 'length' "$check_snapshot")" = "1"
+          canonical_checks="$RUNNER_TEMP/dependabot-claude-retry-canonical-checks.tsv"
+          jq -r \
+            --arg headSha "$EXPECTED_HEAD_SHA" \
+            --arg repository "$REPOSITORY" \
+            --argjson prNumber "$PR_NUMBER" \
+            '
+              .[] |
+              select(
+                .app.id == 15368 and
+                .name == "claude-review" and
+                .head_sha == $headSha and
+                .status == "completed" and
+                (.conclusion == "success" or .conclusion == "failure")
+              ) |
+              (.external_id |
+                try capture("^dependabot-claude-review:v1:pr=(?<pr>[1-9][0-9]{0,9}):sha=(?<sha>[0-9a-f]{40}):run=(?<run>[1-9][0-9]*):attempt=(?<attempt>[1-9][0-9]*)$")
+                catch null) as $receipt |
+              select(
+                $receipt != null and
+                $receipt.pr == ($prNumber | tostring) and
+                $receipt.sha == $headSha
+              ) |
+              ($receipt.run | tonumber) as $runId |
+              ($receipt.attempt | tonumber) as $runAttempt |
+              select(
+                $runId >= 1 and $runId <= 9007199254740991 and ($runId | floor) == $runId and
+                $runAttempt >= 1 and $runAttempt <= 9007199254740991 and ($runAttempt | floor) == $runAttempt and
+                (.details_url == "https://github.com/" + $repository + "/actions/runs/" + ($runId | tostring) or
+                 .details_url == "https://github.com/" + $repository + "/runs/" + (.id | tostring))
+              ) |
+              [.id, $runId, $runAttempt, .conclusion, .external_id] |
+              @tsv
+            ' "$all_checks_snapshot" > "$canonical_checks"
+
+          trusted_checks="$RUNNER_TEMP/dependabot-claude-retry-trusted-checks.json"
+          printf '[]\n' > "$trusted_checks"
+          while IFS=$'\t' read -r check_id run_id run_attempt conclusion external_id; do
+            test -n "$check_id" || continue
+            trusted_run_snapshot="$RUNNER_TEMP/dependabot-claude-retry-run-$run_id-$run_attempt.json"
+            gh api \
+              "repos/$REPOSITORY/actions/runs/$run_id/attempts/$run_attempt" \
+              --jq '{id,run_attempt,status,conclusion,event,path,head_branch,head_sha,display_title,repository:{full_name:.repository.full_name}}' \
+              > "$trusted_run_snapshot"
+            if ! jq -e \
+              --arg checkConclusion "$conclusion" \
+              --arg headSha "$EXPECTED_HEAD_SHA" \
+              --arg repository "$REPOSITORY" \
+              --arg workflowSha "$WORKFLOW_SHA" \
+              --argjson prNumber "$PR_NUMBER" \
+              --argjson runAttempt "$run_attempt" \
+              --argjson runId "$run_id" \
+              '
+                .id == $runId and
+                .run_attempt == $runAttempt and
+                .status == "completed" and
+                .conclusion == $checkConclusion and
+                .event == "workflow_run" and
+                (.path == ".github/workflows/dependabot-claude-review.yml" or
+                 .path == ".github/workflows/dependabot-claude-review.yml@main") and
+                .head_branch == "main" and
+                .head_sha == $workflowSha and
+                .repository.full_name == $repository and
+                (
+                  (.display_title |
+                    (capture("^dependabot-claude-review:v1 \\| source=dependabot-intake:v1 \\| repository=(?<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+) \\| pr=(?<pr>[1-9][0-9]{0,9}) \\| sha=(?<sha>[0-9a-f]{40}) \\| action=(?<action>opened|synchronize|reopened) \\| receipt=true$") // null)) as $native |
+                  (.display_title |
+                    (capture("^dependabot-claude-review:v1 \\| source=dependabot-prepared-head:v1\\|p=(?<pr>[1-9][0-9]{0,9})\\|h=(?<sha>[0-9a-f]{40})\\|o=(?<operation>[rp])\\|c=(?<count>[1-9][0-9]*)\\|d=(?<digest>[0-9a-f]{64})\\|ok=true$") // null)) as $prepared |
+                  ($native != null and
+                   $native.repository == $repository and
+                   $native.pr == ($prNumber | tostring) and
+                   $native.sha == $headSha) or
+                  ($prepared != null and
+                   $prepared.pr == ($prNumber | tostring) and
+                   $prepared.sha == $headSha)
+                )
+              ' "$trusted_run_snapshot" > /dev/null; then
+              continue
+            fi
+
+            next_trusted_checks="$RUNNER_TEMP/dependabot-claude-retry-trusted-next.json"
+            jq \
+              --arg conclusion "$conclusion" \
+              --arg externalId "$external_id" \
+              --argjson checkId "$check_id" \
+              --argjson runAttempt "$run_attempt" \
+              --argjson runId "$run_id" \
+              '. + [{checkId:$checkId,conclusion:$conclusion,externalId:$externalId,runAttempt:$runAttempt,runId:$runId}]' \
+              "$trusted_checks" > "$next_trusted_checks"
+            mv "$next_trusted_checks" "$trusted_checks"
+          done < "$canonical_checks"
+
+          candidate_check_id="$(jq -r '.[0].id' "$check_snapshot")"
+          test "$(jq \
+            --arg externalId "$expected_external_id" \
+            --argjson checkId "$candidate_check_id" \
+            '[.[] | select(.checkId == $checkId and .externalId == $externalId)] | length' \
+            "$trusted_checks")" -eq 1
+          newest_trusted_check_id="$(jq -r 'max_by(.checkId).checkId // empty' "$trusted_checks")"
+          test -n "$newest_trusted_check_id"
+          if test "$candidate_check_id" -ne "$newest_trusted_check_id"; then
+            echo "Skipping stale Claude retry because a newer trusted exact-head review result exists."
+            exit 0
+          fi
+
+          classification="$(jq -er \
+            --arg headSha "$EXPECTED_HEAD_SHA" \
+            --arg repository "$REPOSITORY" \
+            --argjson prNumber "$PR_NUMBER" \
+            --argjson runAttempt "$EXPECTED_RUN_ATTEMPT" \
+            --argjson runId "$EXPECTED_RUN_ID" \
+            '
+              .[0].output.text |
+              fromjson |
+              if .schema == "dependabot-claude-review-failure:v1" then
+                if
+                  type == "object" and
+                  (keys | sort) == [
+                    "apiStatus",
+                    "failureKind",
+                    "headSha",
+                    "pullRequestNumber",
+                    "repository",
+                    "retryable",
+                    "runAttempt",
+                    "runId",
+                    "schema"
+                  ] and
+                  .repository == $repository and
+                  .pullRequestNumber == $prNumber and
+                  .headSha == $headSha and
+                  .runId == $runId and
+                  .runAttempt == $runAttempt and
+                  (.retryable | type) == "boolean" and
+                  (
+                    .apiStatus == null or
+                    ((.apiStatus | type) == "number" and
+                     (.apiStatus | floor) == .apiStatus and
+                     .apiStatus >= 100 and .apiStatus <= 599)
+                  )
+                then
+                  if
+                    .failureKind == "provider-transient" and
+                    .retryable == true and
+                    (.apiStatus == 429 or
+                     .apiStatus == 500 or
+                     .apiStatus == 502 or
+                     .apiStatus == 503 or
+                     .apiStatus == 504 or
+                     .apiStatus == 529)
+                  then "retry"
+                  elif
+                    (.failureKind == "provider-terminal" or
+                     .failureKind == "review-completed" or
+                     .failureKind == "review-failed" or
+                     .failureKind == "review-unavailable") and
+                    .retryable == false
+                  then "no-retry"
+                  else error("invalid Claude failure classification")
+                  end
+                else error("invalid Claude failure receipt")
+                end
+              elif .schema == "dependabot-claude-review-result:v1" then
+                if
+                  type == "object" and
+                  (keys | sort) == [
+                    "findings",
+                    "headSha",
+                    "pullRequestNumber",
+                    "repository",
+                    "reviewCompleted",
+                    "schema",
+                    "verdict"
+                  ] and
+                  .repository == $repository and
+                  .pullRequestNumber == $prNumber and
+                  .headSha == $headSha and
+                  .reviewCompleted == true and
+                  .verdict == "findings" and
+                  (.findings | type) == "array" and
+                  (.findings | length) >= 1 and
+                  (.findings | length) <= 20 and
+                  all(.findings[];
+                    type == "object" and
+                    (keys | sort) == ["line", "path", "summary", "title"] and
+                    (.title | type) == "string" and
+                    (.title | length) >= 1 and (.title | length) <= 160 and
+                    (.path | type) == "string" and
+                    (.path | length) >= 1 and (.path | length) <= 300 and
+                    (.line | type) == "number" and
+                    (.line | floor) == .line and .line >= 1 and
+                    (.summary | type) == "string" and
+                    (.summary | length) >= 1 and (.summary | length) <= 1000)
+                then "no-retry"
+                else error("invalid Claude findings result")
+                end
+              else error("unsupported Claude check schema")
+              end
+            ' "$check_snapshot")"
+
+          if test "$classification" = "no-retry"; then
+            echo "Skipping Claude retry because the newest trusted result is deterministic or non-retryable."
+            exit 0
+          fi
+          test "$classification" = "retry"
+
+          gh api --method POST \
+            "repos/$REPOSITORY/actions/runs/$EXPECTED_RUN_ID/rerun"
 
   process:
     name: Revalidate exact heads without branch-write authority

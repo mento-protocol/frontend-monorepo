@@ -824,9 +824,29 @@ workflow changes, and cross-workspace inputs such as the lockfile, root package
 configuration, `turbo.json`, patches, or shared security headers. Proven
 documentation and test-only paths return an empty deployment list. The exact
 reviewed Dependabot control-plane files in the planner also return an empty
-list. This rule lists each file. It does not match the
-`scripts/dependabot-` prefix. A new, renamed, or near-match file remains unknown
-and therefore fails closed until the planner lists it explicitly.
+list. The workflow allowlist contains only the intake, prepared-head intake,
+processor, Claude review, repair, and prepared-head dispatch paths. The planner
+applies this exception only when every changed path is proven non-runtime. A
+workflow change mixed with an application, package,
+lockfile, security-header, CI, Vercel, unknown, renamed, or near-match path
+still selects all four deployments. The rule lists each file. It does not match
+the `scripts/dependabot-` or `.github/workflows/dependabot-` prefix.
+
+The measured pure-control-plane baseline was main release
+[32613743546](https://github.com/mento-protocol/frontend-monorepo/actions/runs/32613743546)
+at 16 minutes 29 seconds. Proven no-target control run
+[32589062985](https://github.com/mento-protocol/frontend-monorepo/actions/runs/32589062985)
+took 4 minutes 5 seconds. The comparison projects a reduction of 12 minutes
+24 seconds, or 75 percent, for that release shape. The first merged
+pure-control-plane change after this planner update must confirm the reduction
+on the production path. The no-target route still binds the exact successful
+main CI attempt and publishes the exact-main
+`Dependabot Post-Merge Verification` receipt. It skips candidate staging,
+provider mutation transitions, Chromium installation, and public runtime smoke
+only when its evidence binds an explicit empty affected-target set. Affected
+and mixed releases retain exact-SHA
+candidate staging, journal checkpoints, bounded recovery, public runtime smoke,
+and the final provider census.
 
 ### Trusted-base execution
 

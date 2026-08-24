@@ -3,7 +3,7 @@ title: Dependabot Processing
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-08-23
+last_verified: 2026-08-24
 scope: ci/dependabot-processing
 ---
 
@@ -15,9 +15,18 @@ receipt-bound feedback, approve through the normal processor identity, and
 publish exact-head ALL CLEAR evidence. It never merges and never enables native
 auto-merge.
 
-[ADR 0006](adr/0006-dependabot-processing-controller.md) records this decision.
-This runbook defines the live trust boundaries, receipts, operating sequence,
-and failure handling.
+A maintainer performs the final squash merge through one of two explicit
+paths. A prepared change requires a successful exact-head `Dependabot ALL
+CLEAR` check and its exact processor approval. A `manual-review` change
+requires an explicit maintainer takeover. Before merging it, verify the exact
+current head and base, all repository-required checks, resolved feedback, a
+current human approval, and mergeability. The packetless failed `Dependabot
+Processor` check is non-required and intentionally waived for this manual path.
+The manual path does not produce or claim ALL CLEAR.
+
+[ADR 0006](adr/0006-dependabot-processing-controller.md) records the controller
+decision. This runbook defines the live trust boundaries, receipts, operating
+sequence, and failure handling.
 
 ## Invariants
 
@@ -28,6 +37,8 @@ Keep these properties true in code, workflows, rulesets, and operation:
 - No workflow or controller code calls a merge endpoint, runs `gh pr merge`,
   enables auto-merge, or holds a merge queue entry. A maintainer performs the
   final squash merge.
+- Prepared changes use the exact-head ALL CLEAR path. Manual-review changes use
+  the explicit maintainer takeover path and never claim ALL CLEAR.
 - Every decision, packet, mutation, review, reply, approval, and readiness
   receipt binds the exact repository, PR, branch, current base, and head.
 - Any push invalidates all earlier current-head gates and review evidence.
@@ -156,6 +167,9 @@ Prepare execution has explicit phases:
   branch, independently recollects the exact head and global lane, and alone
   may clean stale processor approvals, post packet-bound replies, approve, and
   publish ALL CLEAR.
+- Sensitive and self-reviewing Actions remain manual. The Processor publishes
+  the exact reason and tells the maintainer to complete human review. It never
+  creates a replacement branch or pull request.
 - A phase-less invocation defaults to `finalize` for compatibility; every
   trusted workflow passes its phase explicitly. An unknown or incompatible
   phase fails closed.
@@ -220,7 +234,14 @@ findings outcomes, `claude-review` check `output.text` is the exact canonical
 `dependabot-claude-review-result:v1` JSON. A provenance-valid
 `verdict="findings"` is deterministic repair input. A missing, malformed,
 incomplete, or infrastructure-failed result is retry-first and cannot become a
-repair packet.
+repair packet. A failed check publishes canonical bounded failure metadata.
+The processor may rerun the exact authenticated review workflow for HTTP 429,
+500, 502, 503, 504, or 529. It permits attempts two and three only, and reruns
+only when the failed check remains the newest trusted exact-head Claude result.
+The review run must use the current processor workflow SHA. A superseded
+default-branch workflow run cannot receive the current Claude credential.
+The retry job has Actions write and read-only PR/check access. It has no
+checkout, repository-write, check-write, App, or Claude credential.
 
 The reviewer reports a transitive dependency change only when the diff shows a
 concrete incompatible constraint or repository defect. An updated direct
@@ -253,12 +274,11 @@ verified against configuration, and the live bot account ID/login/type is
 queried before mutation. Receipt authority records the verified slug and bot
 identity; it does not pretend that a bot user ID is the numeric GitHub App ID.
 
-Install the repository-scoped App with only `contents: write` and
-`pull-requests: write`; GitHub's update-branch endpoint requires both. The
-processor's refresh token requests both permissions. Git Data repair and
-authenticated-dispatch tokens are explicitly downscoped to Contents write.
-Grant no bypass, Actions, workflow, deployment, package, environment, or
-provider permission.
+Install the repository-scoped App with `contents: write` and
+`pull-requests: write`. GitHub's update-branch endpoint and Refresh require both
+permissions. Repair and authenticated dispatch request only Contents. Grant no
+bypass, Actions, workflow, deployment, package, environment, or provider
+permission.
 
 GitHub does not offer an endpoint-level permission that permits Git writes but
 denies the merge endpoint. Contents write therefore leaves a residual technical
@@ -312,7 +332,9 @@ Handling tier and preparation eligibility are separate:
   ecosystem, and risk tier remain visible to the maintainer.
 - **manual**: sensitive/self-reviewing Actions; workflow-policy, deployment,
   authentication, credential, or security Actions; unknown ecosystem or
-  metadata; and any policy shape not explicitly admitted.
+  metadata; and any policy shape not explicitly admitted. These changes receive
+  no preparation authority. The Processor publishes a failed, packetless,
+  non-required check with an actionable maintainer-takeover summary.
 - **vetoed**: human veto/close/reopen, untrusted force-push history, unresolved
   or malformed feedback, untrusted actor, or ambiguous/capped evidence.
 
@@ -342,6 +364,12 @@ bounded GraphQL timeline without dropping event order or before/after commit
 pairs. It caches exact historical commit evidence within the processor run.
 Any collection cap, pagination ambiguity, malformed SHA/envelope, unknown
 authority-bearing bot, or identity drift fails closed.
+
+The local read-only OSV workflow has one extra invariant. Its contract test
+requires exactly one scanner action and one reporter action. Both actions must
+use full lowercase 40-character SHA pins at the same revision. The test checks
+the structure and parity. It does not copy the current revision into a second
+constant that Dependabot must also update.
 
 The controller treats an exact `@dependabot rebase` or `@dependabot recreate`
 issue comment from a trusted maintainer as a branch-maintenance command. It does
@@ -862,7 +890,8 @@ After merge, keep the lane occupied until the exact merge SHA has:
 1. successful full default-branch `CI/CD`;
 2. the applicable `Vercel Main Deployment`; and
 3. successful exact-main `Dependabot Post-Merge Verification` with terminal
-   release, smoke, and recovery evidence, or a verified no-target outcome.
+   release, smoke, and recovery evidence, or a verified no-target outcome that
+   binds an explicit empty affected-target set.
 
 Do not admit another ALL CLEAR candidate while main CI/release proof is missing
 or failed. Follow the managed failure issue and deployment recovery runbook.
@@ -876,7 +905,7 @@ or failed. Follow the managed failure issue and deployment recovery runbook.
 | Snapshot race after one authorized refresh request     | Retry read-only collection within the bounded successor poll.     |
 | Missing/pending current gate or deterministic baseline | Wait for trusted evidence; recollect.                             |
 | Deterministic baseline failure                         | Repair `main`, prove recovery, then refresh affected PRs.         |
-| Provider-only/Claude infrastructure failure            | Retry through the trusted provider path; never patch around it.   |
+| Provider-only/Claude infrastructure failure            | Retry the exact trusted run twice for a bounded transient status. |
 | Provider failure plus deterministic branch failure     | In prepare mode, packetize only the deterministic branch failure. |
 | Repair/recovery infrastructure failure                 | Retry exact evidence twice per phase; then require investigation. |
 | Valid Claude findings                                  | Treat as deterministic packet input, not infrastructure failure.  |
@@ -889,14 +918,14 @@ or failed. Follow the managed failure issue and deployment recovery runbook.
 | Current reviewed pin fails pnpm release-age check      | Add one exact-version exception; remove it after maturity.        |
 | Repair plan malformed/out of scope                     | Fail before App token mutation; escalate manual.                  |
 | Repair attempts exhausted                              | Manual handling; do not reset with rebase/force-push.             |
-| Sensitive/unknown/manual tier                          | Record evidence and require human dependency handling.            |
+| Sensitive/unknown/manual tier                          | Record actionable evidence and require human review.              |
 | Human veto/close/reopen or untrusted force-push        | Stop preparation for this PR.                                     |
 | Exact native-to-native Dependabot rewrite chain        | Start a new generation; recollect all exact-head evidence.        |
 | Unresolved/unbound feedback                            | Block; never infer a reply or resolution.                         |
 | Auto-merge request or competing candidate              | Remove only exact safe stale authority, recollect, or block.      |
 | Mergeability/ruleset/review unsatisfied                | Do not approve or publish ALL CLEAR.                              |
 | Finalize drift after approval                          | Dismiss processor approval and reprocess.                         |
-| ALL CLEAR published                                    | Human verifies current head and clicks Merge.                     |
+| ALL CLEAR published                                    | Human verifies the prepared path and clicks Merge.                |
 | Main CI/release proof failed                           | Keep lane occupied and follow recovery.                           |
 | Ambiguous/capped evidence                              | Fail closed and require operator investigation.                   |
 
@@ -914,6 +943,18 @@ suite after any related code, workflow, configuration, or documentation change:
 ```bash
 pnpm dependabot:process:test
 ```
+
+Render and validate the checked-in offline observational production soak
+report:
+
+```bash
+pnpm dependabot:soak
+```
+
+Before changing a pending row to passed, revalidate its exact PR, check,
+workflow-run, and authority evidence against live GitHub. The offline command
+checks schema, internal bindings, evidence reuse, and generated Markdown. It
+does not certify GitHub provenance.
 
 Run the opt-in public-registry Next source-preserving sync proof after changing
 the typed generator or its pnpm contract:

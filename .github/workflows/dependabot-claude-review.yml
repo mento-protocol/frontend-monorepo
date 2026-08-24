@@ -371,6 +371,9 @@ jobs:
       issues: read
       pull-requests: read
     outputs:
+      api_status: ${{ steps.diagnostics.outputs.api_status }}
+      failure_kind: ${{ steps.diagnostics.outputs.failure_kind }}
+      retryable: ${{ steps.diagnostics.outputs.retryable }}
       structured_output: ${{ steps.claude-review.outputs.structured_output }}
     steps:
       - name: Revalidate the exact PR identity immediately before review
@@ -519,6 +522,7 @@ jobs:
             --json-schema '{"type":"object","additionalProperties":false,"required":["schema","repository","pullRequestNumber","headSha","reviewCompleted","verdict","findings"],"properties":{"schema":{"const":"dependabot-claude-review-result:v1"},"repository":{"const":"mento-protocol/frontend-monorepo"},"pullRequestNumber":{"type":"integer","minimum":1},"headSha":{"type":"string","pattern":"^[0-9a-f]{40}$"},"reviewCompleted":{"type":"boolean"},"verdict":{"enum":["clean","findings"]},"findings":{"type":"array","maxItems":20,"items":{"type":"object","additionalProperties":false,"required":["title","path","line","summary"],"properties":{"title":{"type":"string","minLength":1,"maxLength":160},"path":{"type":"string","minLength":1,"maxLength":300},"line":{"type":"integer","minimum":1},"summary":{"type":"string","minLength":1,"maxLength":1000}}}}}}'
 
       - name: Report sanitized Claude terminal diagnostics
+        id: diagnostics
         if: ${{ always() }}
         continue-on-error: true
         shell: bash
@@ -528,25 +532,59 @@ jobs:
           set -u
           expected="$RUNNER_TEMP/claude-execution-output.json"
           diagnostic=unavailable
+          api_status=none
+          failure_kind=review-unavailable
+          retryable=false
           if test "$CLAUDE_EXECUTION_FILE" = "$expected" && \
             test -f "$expected" && ! test -L "$expected"; then
             bytes="$(wc -c < "$expected" | tr -d ' ')"
             if [[ "$bytes" =~ ^[0-9]+$ ]] && \
               (( bytes >= 2 && bytes <= 2097152 )); then
-              diagnostic="$(jq -r '
+              sanitized="$RUNNER_TEMP/claude-terminal-diagnostics.json"
+              if jq -e '
                 def safe_label:
                   if type == "string" and test("^[A-Za-z0-9_-]{1,64}$") then . else "unknown" end;
                 def safe_status:
-                  if type == "number" and floor == . and . >= 100 and . <= 599 then tostring else "none" end;
+                  if type == "number" and floor == . and . >= 100 and . <= 599 then . else null end;
                 (if type == "array" then [.[] | select(type == "object" and .type == "result")] else [] end) as $results |
-                if ($results | length) != 1 then "unavailable"
+                if ($results | length) != 1 then empty
                 else $results[0] |
-                  "subtype=\(.subtype | safe_label) is_error=\(.is_error == true) terminal_reason=\(.terminal_reason | safe_label) api_error_status=\(.api_error_status | safe_status)"
+                  {
+                    subtype: (.subtype | safe_label),
+                    isError: (.is_error == true),
+                    terminalReason: (.terminal_reason | safe_label),
+                    apiStatus: (.api_error_status | safe_status)
+                  }
                 end
-              ' "$expected" 2>/dev/null)" || diagnostic=unavailable
+              ' "$expected" > "$sanitized" 2>/dev/null; then
+                subtype="$(jq -r '.subtype' "$sanitized")"
+                is_error="$(jq -r '.isError' "$sanitized")"
+                terminal_reason="$(jq -r '.terminalReason' "$sanitized")"
+                api_status="$(jq -r '.apiStatus // "none"' "$sanitized")"
+                diagnostic="subtype=$subtype is_error=$is_error terminal_reason=$terminal_reason api_error_status=$api_status"
+                if test "$is_error" = "true" && \
+                  test "$terminal_reason" = "api_error"; then
+                  case "$api_status" in
+                    429|500|502|503|504|529)
+                      failure_kind=provider-transient
+                      retryable=true
+                      ;;
+                    *)
+                      failure_kind=provider-terminal
+                      ;;
+                  esac
+                elif test "$is_error" = "false"; then
+                  failure_kind=review-completed
+                else
+                  failure_kind=review-failed
+                fi
+              fi
             fi
           fi
           printf 'Claude terminal diagnostics: %s\n' "$diagnostic"
+          printf 'api_status=%s\n' "$api_status" >> "$GITHUB_OUTPUT"
+          printf 'failure_kind=%s\n' "$failure_kind" >> "$GITHUB_OUTPUT"
+          printf 'retryable=%s\n' "$retryable" >> "$GITHUB_OUTPUT"
 
       - name: Require a completed exact diff read
         if: ${{ always() }}
@@ -656,6 +694,9 @@ jobs:
         env:
           CHECK_DETAILS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           CHECK_EXTERNAL_ID: dependabot-claude-review:v1:pr=${{ needs.preflight.outputs.pr_number }}:sha=${{ needs.preflight.outputs.head_sha }}:run=${{ github.run_id }}:attempt=${{ github.run_attempt }}
+          CLAUDE_API_STATUS: ${{ needs.review.outputs.api_status }}
+          CLAUDE_FAILURE_KIND: ${{ needs.review.outputs.failure_kind }}
+          CLAUDE_RETRYABLE: ${{ needs.review.outputs.retryable }}
           EXPECTED_HEAD_SHA: ${{ needs.preflight.outputs.head_sha }}
           GH_TOKEN: ${{ github.token }}
           POST_IDENTITY_STABLE: ${{ steps.postflight.outputs.stable }}
@@ -667,6 +708,7 @@ jobs:
           set -euo pipefail
           [[ "$EXPECTED_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
 
           review_result_file="$RUNNER_TEMP/dependabot-claude-review-result.json"
           valid_review=false
@@ -718,7 +760,56 @@ jobs:
 
           conclusion=failure
           summary="Claude review failed, returned an invalid result, or the exact PR identity changed."
-          text="No validated review findings are available. Open the trusted reviewer run for failure diagnostics."
+          failure_kind=review-unavailable
+          api_status_json=null
+          retryable=false
+          if test "$POST_IDENTITY_STABLE" = "true" && \
+            test "$CLAUDE_RETRYABLE" = "true" && \
+            test "$CLAUDE_FAILURE_KIND" = "provider-transient"; then
+            case "$CLAUDE_API_STATUS" in
+              429|500|502|503|504|529)
+                failure_kind=provider-transient
+                api_status_json="$CLAUDE_API_STATUS"
+                if (( GITHUB_RUN_ATTEMPT <= 2 )); then
+                  retryable=true
+                  summary="Claude review hit a transient provider error (HTTP $CLAUDE_API_STATUS). A bounded retry is available."
+                else
+                  retryable=false
+                  summary="Claude review hit a transient provider error (HTTP $CLAUDE_API_STATUS). The bounded retry limit is exhausted."
+                fi
+                ;;
+            esac
+          elif test "$POST_IDENTITY_STABLE" = "true"; then
+            case "$CLAUDE_FAILURE_KIND" in
+              provider-terminal|review-completed|review-failed|review-unavailable)
+                failure_kind="$CLAUDE_FAILURE_KIND"
+                ;;
+            esac
+            case "$CLAUDE_API_STATUS" in
+              [1-5][0-9][0-9]) api_status_json="$CLAUDE_API_STATUS" ;;
+            esac
+          fi
+          text="$(jq -S -c -n \
+            --arg failureKind "$failure_kind" \
+            --arg headSha "$EXPECTED_HEAD_SHA" \
+            --arg repository "$REPOSITORY" \
+            --arg schema "dependabot-claude-review-failure:v1" \
+            --argjson apiStatus "$api_status_json" \
+            --argjson pullRequestNumber "$PR_NUMBER" \
+            --argjson retryable "$retryable" \
+            --argjson runAttempt "$GITHUB_RUN_ATTEMPT" \
+            --argjson runId "$GITHUB_RUN_ID" \
+            '{
+              apiStatus: $apiStatus,
+              failureKind: $failureKind,
+              headSha: $headSha,
+              pullRequestNumber: $pullRequestNumber,
+              repository: $repository,
+              retryable: $retryable,
+              runAttempt: $runAttempt,
+              runId: $runId,
+              schema: $schema
+            }')"
           if test "$POST_IDENTITY_STABLE" = "true" && \
             test "$valid_review" = "true" && \
             jq -e \

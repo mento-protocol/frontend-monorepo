@@ -44,6 +44,7 @@ pnpm ci:action-pins:test             # Test the action-pin scanner and REST mate
 pnpm ci:change-plan:test             # Test PR scoping, full main pushes, mandatory Trunk, and fail-closed behavior
 pnpm dependabot:process -- evaluate --input path/to/snapshot.json --mode observe  # Evaluate a saved Dependabot snapshot
 pnpm dependabot:process:test         # Test Dependabot policy, CLI, and trusted-workflow contracts
+pnpm dependabot:soak                # Render and validate the production soak evidence
 NEXT_CATALOG_SYNC_INTEGRATION=1 pnpm exec node --test scripts/dependabot-protected-runtime-sync.test.mjs  # Run the networked source-preserving Next sync proof
 pnpm adr:check                       # Advisory reminder for new architecture-significant workflows/workspaces
 pnpm adr:check:test                  # Test the offline ADR trigger and repository wiring
@@ -169,8 +170,14 @@ Dependabot preparation is human-merge-only. The trusted default-branch
 `.github/workflows/dependabot-process.yml` controller supports exact
 `observe`, `assist`, and `prepare` modes. Empty, legacy `merge`, unknown,
 case, and whitespace variants become `observe`. No processor path merges or
-enables auto-merge. A maintainer clicks Merge only while the exact head carries
-a successful `Dependabot ALL CLEAR` receipt.
+enables auto-merge. A maintainer performs the final squash merge through one of
+two explicit paths. A prepared change requires a successful exact-head
+`Dependabot ALL CLEAR` check and its exact processor approval. A
+`manual-review` change requires an explicit maintainer takeover. Before merging
+it, verify the exact current head and base, all repository-required checks,
+resolved feedback, a current human approval, and mergeability. The packetless
+failed `Dependabot Processor` check is non-required and intentionally waived
+for this manual path.
 
 `.github/workflows/dependabot-intake.yml` remains the credentialless v1 event
 boundary for exact Dependabot-bot senders. A Refresh or Repair successor uses
@@ -215,7 +222,11 @@ Dependabot review and Claude repair prefer the `ANTHROPIC_API_KEY` secret. They
 use `CLAUDE_CODE_OAUTH_TOKEN` only when the API-key secret is absent. A bounded
 post-action diagnostic reports only the CLI subtype, error flag, terminal
 reason, and numeric API status. It never logs the model result, prompt, tool
-output, or diff.
+output, or diff. The publisher records canonical non-authorizing failure
+metadata. The processor may rerun the exact trusted review twice for HTTP 429,
+500, 502, 503, 504, or 529. It reruns only when that failure remains the newest
+trusted exact-head Claude result. Attempt three is terminal. The retry job has
+no repository-write, check-write, App, or Claude credential.
 
 Mode authority is:
 
@@ -249,16 +260,23 @@ later force-push events must have later timestamps. Their destinations must
 remain an exact signed Dependabot chain. `@dependabot rebase` cannot reset that
 history.
 
+Sensitive and self-reviewing Actions remain manual. This includes OSV
+scanner/reporter updates. The workflow contract requires exactly one scanner
+step and one reporter step. Both actions must use full lowercase 40-character
+SHA pins at the same revision. The test does not copy a specific revision into
+another source file. Use the explicit `manual-review` maintainer takeover path
+for these updates. Never report this path as Dependabot ALL CLEAR.
+
 Configure the repository-scoped Prepare App with Actions variables
 `DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,
 `DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG`,
 `DEPENDABOT_PROCESSOR_PREPARE_BOT_ID`, and
 `DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN`, plus secret
-`DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY`. Install it with only
-`contents: write` and `pull-requests: write`, because update-branch needs both.
-The refresh token requests both permissions; repair and authenticated-dispatch
-tokens are downscoped to Contents write. Grant no bypass, Actions, workflow,
-deployment, package, or provider permission. Contents write also makes
+`DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY`. Install it with
+`contents: write` and `pull-requests: write`. Update-branch and Refresh need
+both permissions. Repair and authenticated dispatch request only Contents.
+Grant no bypass, Actions, workflow, deployment, package, environment, or
+provider permission. Contents write also makes
 GitHub's merge endpoint technically reachable; the reviewed workflows contain
 no merge call, isolate the token to repair-staging, ref-mutation/refresh, and
 authenticated-dispatch jobs, and revoke it before finalize approval. Never reuse the normal `GITHUB_TOKEN`, preview App,
@@ -301,7 +319,8 @@ publishing another packet or identical check.
 A packetless Processor check is a non-authorizing status record. It does not
 enter repair-receipt or attempt accounting. Only a `packet=true` check can bind
 repair authority, and that check requires terminal-success workflow
-provenance.
+provenance. Packetless manual checks include one deterministic reason and next
+action in the bounded summary.
 
 The typed check contracts are `Dependabot Refresh`
 (`dependabot-refresh:v1`), `Dependabot Repair Intent`
@@ -419,10 +438,13 @@ waits. Multiple such incumbents without a valid active ALL CLEAR fail closed.
 Use
 `pnpm dependabot:process -- evaluate --input path/to/snapshot.json --mode observe`
 for a network-free plan and `pnpm dependabot:process:test` for the processor,
-workflow, receipt, repair, and reviewer contracts. The complete operating
+workflow, receipt, repair, and reviewer contracts. Run
+`pnpm dependabot:soak` to render and validate the offline observational
+production evidence report. Before changing a pending row to passed, revalidate
+its exact PR, check, workflow-run, and authority evidence against live GitHub.
+The offline command does not certify GitHub provenance. The complete operating
 procedure is `docs/dependabot-automation.md`; the architecture decisions are
-`docs/adr/0006-dependabot-processing-controller.md` and
-`docs/adr/0008-authenticated-dependabot-native-generation-boundaries.md`.
+ADRs 0006 and 0008.
 The automatic `.github/workflows/vercel-main-deployment.yml` path runs only
 from the exact successful `CI/CD` attempt for `main`. Its global mode is
 `active`, and the current per-target `mainOwnershipMode` map assigns App,
