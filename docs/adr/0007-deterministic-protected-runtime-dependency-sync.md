@@ -151,11 +151,11 @@ exact plan equality. The existing unreachable App commit, Repair Intent,
 non-force ref move, completed Repair receipt, post-move recovery, prepared-head
 intake, clean re-review, gate recollection, processor approval, and ALL CLEAR
 contracts remain unchanged. The Prepare App installation has repository-scoped
-Contents, Pull requests, and Workflows write permissions. Workflows write is
-for the separate typed Actions companion path in ADR 0009. Each job requests
-only its required subset. Existing protected-runtime repair and refresh tokens
-do not request Workflows write. The processor never merges or enables native
-auto-merge; a maintainer still performs the final squash merge.
+Contents and Pull requests write permissions. Each job requests only its
+required subset. Protected-runtime repair tokens request Contents write;
+refresh tokens request Contents and Pull requests write. The processor never
+merges or enables native auto-merge; a maintainer still performs the final
+squash merge.
 
 Pull-request preview workers validate the candidate contract, manifests, and
 locks only as an internally consistent data tuple. Credentialed preview builds

@@ -49,4 +49,3 @@ adds a high-signal surface without a numbered ADR.
 | [0006](0006-dependabot-processing-controller.md)                      | Trusted default-branch policy processes Dependabot PRs through exact-head release proof   |
 | [0007](0007-deterministic-protected-runtime-dependency-sync.md)       | Typed deterministic repairs synchronize protected runtime dependencies                    |
 | [0008](0008-authenticated-dependabot-native-generation-boundaries.md) | Exact native Dependabot rewrite chains start new preparation generations                  |
-| [0009](0009-typed-dependabot-actions-companion-pull-requests.md)      | Typed companion PRs carry supported sensitive Actions updates across protected boundaries |

@@ -169,17 +169,13 @@ The Prepare App is repository-scoped. Configure its client ID, exact App slug,
 bot account ID/login, and private key. Mint only short-lived installation tokens
 and verify the returned App slug plus live bot identity before use.
 
-Install the App with `contents: write`, `pull-requests: write`, and
-`workflows: write`. ADR 0009 adds the Workflows permission for one typed
-sensitive-Actions companion path. The companion staging token requests only
-Contents and Workflows write. Its separate PR-opening token requests only Pull
-requests write. The processor's Refresh token requests Contents and Pull
-requests write because GitHub's update-branch endpoint requires both. Git Data
-Repair and terminal-dispatch tokens request only Contents write. No existing
-Refresh or Repair token receives Workflows write. The App receives no bypass,
-Actions, deployment, package, environment, or provider permission. Never reuse
-the normal workflow token, preview App, deployment/provider token, registry
-credential, or PAT.
+Install the App with `contents: write` and `pull-requests: write`. The
+processor's Refresh token requests Contents and Pull requests write because
+GitHub's update-branch endpoint requires both. Git Data Repair and
+terminal-dispatch tokens request only Contents write. The App receives no
+bypass, Actions, deployment, package, environment, or provider permission.
+Never reuse the normal workflow token, preview App, deployment/provider token,
+registry credential, or PAT.
 
 Contents write also makes GitHub's merge endpoint technically available; GitHub
 has no endpoint-specific deny for this combination. We therefore do not claim
