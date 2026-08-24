@@ -1293,8 +1293,13 @@ test("keeps cost-window native builds separate from observation correctness", ()
 
     const analysis = analyzeVercelCostManifest(manifestPath);
     assert.equal(analysis.pass, false);
+    assert.equal(analysis.observationPass, false);
     assert.ok(
       analysis.reasons.includes("cost-window-unexplained-native-builds"),
+    );
+    assert.match(
+      formatVercelCostMarkdown(analysis),
+      /Observation gate: \*\*FAIL\*\*/,
     );
     assert.equal(analysis.correctness.unexplainedNativeBuilds, 0);
     assert.equal(

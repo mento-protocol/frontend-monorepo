@@ -4160,6 +4160,10 @@ function auditObservation({ root, end, now }) {
     latestSample?.runnerJobs ?? [],
     interval,
   );
+  const requiredMainRunIdSet = new Set(requiredMainRunIds.map(String));
+  const requiredMainCaptures = mainCaptures.filter((capture) =>
+    requiredMainRunIdSet.has(String(capture.runId)),
+  );
   const previewByRun = new Map(
     previewCaptures.map((capture) => [capture.eventRunId, capture]),
   );
@@ -4187,7 +4191,7 @@ function auditObservation({ root, end, now }) {
       );
     })
     .map((run) => run.id);
-  const mainAttemptTerminalAnomalies = mainCaptures
+  const mainAttemptTerminalAnomalies = requiredMainCaptures
     .filter(
       (capture) =>
         !capture.canonicalDerivedFacts.releaseTerminalEvidenceComplete,
@@ -4212,7 +4216,7 @@ function auditObservation({ root, end, now }) {
     gaps.push("incomplete-preview-evidence");
   }
   if (
-    mainCaptures.some(
+    requiredMainCaptures.some(
       (capture) => !capture.canonicalDerivedFacts.githubEvidenceComplete,
     )
   ) {

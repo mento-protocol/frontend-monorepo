@@ -2125,9 +2125,12 @@ export function analyzeVercelCostManifest(inputPath) {
     costWindowUnexplainedNativeBuilds > 0
       ? ["cost-window-unexplained-native-builds"]
       : [];
+  const observationPass =
+    analysis.observationPass && sourceReasons.length === 0;
   return {
     ...analysis,
-    pass: analysis.pass && sourceReasons.length === 0,
+    observationPass,
+    pass: observationPass && analysis.closeoutPass,
     reasons: [...analysis.reasons, ...sourceReasons],
     sourceEvidence: {
       rawFocusReconciled: true,

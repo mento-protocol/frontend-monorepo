@@ -3947,6 +3947,84 @@ test("audit records empty runner labels for detailed billing reconciliation", ()
   );
 });
 
+test("audit ignores excluded failed-CI main captures in completeness checks", () => {
+  const cwd = workspace();
+  runInit(cwd);
+  seedAuditEligiblePreviewCaptures(cwd);
+  const run = {
+    id: 94_100,
+    run_attempt: 1,
+    name: "Vercel Main Deployment",
+    path: ".github/workflows/vercel-main-deployment.yml",
+    event: "workflow_run",
+    status: "completed",
+    conclusion: "skipped",
+    created_at: "2026-08-01T03:00:00.000Z",
+    updated_at: "2026-08-01T03:01:00.000Z",
+    head_sha: "e".repeat(40),
+    head_branch: "main",
+    display_title: "failed upstream CI no-op",
+    html_url:
+      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/94100",
+  };
+  const jobs = [
+    {
+      id: 94_101,
+      run_attempt: 1,
+      name: "Verify exact successful CI attempt",
+      status: "completed",
+      conclusion: "skipped",
+      labels: ["ubuntu-latest"],
+      started_at: "2026-08-01T03:00:10.000Z",
+      completed_at: "2026-08-01T03:00:10.000Z",
+    },
+  ];
+  runVercelCostObservation({
+    argv: ["sample-github"],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: fakeGh(
+      githubSampleRoutes({
+        runs: [run],
+        jobsByRun: new Map([["94100", jobs]]),
+      }),
+    ),
+    stdout: output().stream,
+  });
+  writeSealedCapture(join(observationRoot(cwd), "main", "94100", "attempt-1"), {
+    schema: MAIN_CAPTURE_SCHEMA,
+    repository: "mento-protocol/frontend-monorepo",
+    runId: "94100",
+    runAttempt: 1,
+    runCompletedAtUtc: "2026-08-01T03:01:00.000Z",
+    conclusion: "skipped",
+    canonicalDerivedFacts: {
+      githubEvidenceComplete: false,
+      releaseTerminalEvidenceComplete: false,
+      terminalRoute: { reason: "upstream-ci-not-successful" },
+    },
+    unresolvedProviderFields: [],
+    files: [],
+  });
+
+  const result = runVercelCostObservation({
+    argv: ["audit", "--end", END],
+    cwd,
+    now: () => new Date(CAPTURED_AT),
+    gh: () => {
+      throw new Error("audit must remain offline");
+    },
+    stdout: output().stream,
+  });
+  assert.equal(result.exitCode, 1);
+  const audit = JSON.parse(
+    readFileSync(join(observationRoot(cwd), "audit.json"), "utf8"),
+  );
+  assert.deepEqual(audit.inventory.requiredMainRunIds, []);
+  assert.deepEqual(audit.inventory.mainAttemptTerminalAnomalies, []);
+  assert.equal(audit.gaps.includes("incomplete-main-github-evidence"), false);
+});
+
 test("audit recovers when its deterministic fragment exists without the commit marker", () => {
   const cwd = workspace();
   runInit(cwd);
