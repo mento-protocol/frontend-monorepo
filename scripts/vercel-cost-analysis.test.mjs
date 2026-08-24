@@ -265,6 +265,25 @@ test("reports duplicate rate and cost-window minutes per trusted PR push", () =>
   assert.equal(analysis.trustedDeployedCodePrPushes, 20);
 });
 
+test("fails the observation when the cost window has no trusted PR pushes", () => {
+  const evidence = fixture();
+  evidence.postCutover.costWindowTrustedDeployedCodePrPushes = 0;
+
+  const analysis = analyzeVercelCostEvidence(evidence);
+
+  assert.equal(analysis.observationPass, false);
+  assert.equal(analysis.pass, false);
+  assert.ok(
+    analysis.reasons.includes(
+      "cost-window-trusted-deployed-code-pr-pushes-missing",
+    ),
+  );
+  assert.equal(
+    analysis.postCutoverMinutesPerCostWindowTrustedPrPush.total,
+    null,
+  );
+});
+
 test("keeps private financial and FOCUS provenance out of public output", () => {
   const analysis = analyzeVercelCostEvidence(fixture());
   const markdown = formatVercelCostMarkdown(analysis);

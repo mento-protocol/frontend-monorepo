@@ -852,7 +852,8 @@ ledger rather than entering a blanket success value:
   denominator. The preview census is target-level deployment evidence. Do not
   force a one-to-one relationship between these intervals or counts. One push
   can fan out to several targets. First-plus-latest batching or path-aware
-  preview reuse can avoid a distinct deployment for a later push.
+  preview reuse can avoid a distinct deployment for a later push. A passing
+  observation requires a nonzero cost-window denominator.
 - `smokeOrE2eCheckOpportunities` counts the smoke/E2E checks required by the
   observed trusted PR pushes; it must cover at least every such push.
   `smokeOrE2eChecksCompleted` counts all finished checks, whether passing or
@@ -861,9 +862,12 @@ ledger rather than entering a blanket success value:
   sequences, and `burstFirstPlusLatestChecksCompleted` counts the sequences
   whose first-plus-latest outcome was fully verified. At least one sequence is
   required.
-- `mainDeploymentObservationOpportunities` counts main events in the correctness
-  interval. `mainDeploymentObservationsCompleted` counts those events for which
-  the complete main-deployment ledger record was verified. One completed
+- `mainDeploymentObservationOpportunities` counts downstream main workflow runs
+  in the correctness interval whose `Verify exact successful CI attempt` job
+  completed successfully. A downstream no-op triggered by failed or canceled CI
+  is not an opportunity. A deployment failure after a successful gate remains
+  an opportunity. `mainDeploymentObservationsCompleted` counts those events for
+  which the complete main-deployment ledger record was verified. One completed
   observation includes the exact-SHA CI gate, planner base and range, selected
   targets, stale-main decision, activation or recovery result, public-domain
   SHA, native duplicate result, and legacy-v2 health result.

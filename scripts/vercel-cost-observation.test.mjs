@@ -31,6 +31,7 @@ import {
   assertMainDeployShaBinding,
   assertTerminalSampleCoverage,
   bindUniquePreviewReferences,
+  deriveRequiredMainRunIds,
   deriveMainTerminalRoute,
   environmentWithoutGhTokens,
   runVercelCostObservation,
@@ -58,6 +59,45 @@ const START = "2026-07-29T00:00:00.000Z";
 const END = "2026-08-05T00:00:00.000Z";
 const CAPTURED_AT = "2026-08-05T00:01:00.000Z";
 const INITIALIZED_AT = "2026-07-28T23:50:00.000Z";
+
+test("main opportunities require a successful exact-CI gate job", () => {
+  const workflowRuns = [
+    {
+      id: "9100",
+      path: ".github/workflows/vercel-main-deployment.yml",
+      event: "workflow_run",
+      createdAtUtc: "2026-07-30T02:00:00.000Z",
+    },
+    {
+      id: "9200",
+      path: ".github/workflows/vercel-main-deployment.yml",
+      event: "workflow_run",
+      createdAtUtc: "2026-07-30T03:00:00.000Z",
+    },
+  ];
+  const runnerJobs = [
+    {
+      runId: "9100",
+      name: "Verify exact successful CI attempt",
+      status: "completed",
+      conclusion: "success",
+    },
+    {
+      runId: "9200",
+      name: "Verify exact successful CI attempt",
+      status: "completed",
+      conclusion: "skipped",
+    },
+  ];
+
+  assert.deepEqual(
+    deriveRequiredMainRunIds(workflowRuns, runnerJobs, {
+      startUtc: START,
+      endUtcExclusive: END,
+    }),
+    ["9100"],
+  );
+});
 
 test("legacy journal fixture locks the retired Markdown and JSON bytes", () => {
   const expected = `<!-- vercel-preview-journal:v2 -->
@@ -4229,7 +4269,7 @@ test("audit does not classify an unstarted skipped job as an unknown runner", ()
         stdout: output().stream,
       }),
     (error) => {
-      assert.match(error.message, /missing-main-captures/);
+      assert.doesNotMatch(error.message, /missing-main-captures/);
       assert.doesNotMatch(error.message, /unknown-runner-labels/);
       return true;
     },

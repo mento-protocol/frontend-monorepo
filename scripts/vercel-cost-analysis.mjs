@@ -1185,6 +1185,13 @@ export function analyzeVercelCostEvidence(evidence) {
     "rollback-procedure-not-verified",
     reasons,
   );
+  const costWindowPrPushes =
+    evidence.postCutover.costWindowTrustedDeployedCodePrPushes;
+  reason(
+    costWindowPrPushes === 0,
+    "cost-window-trusted-deployed-code-pr-pushes-missing",
+    reasons,
+  );
   const observationPass = reasons.length === 0;
   const closeoutComplete = CLOSEOUT_KEYS.every(
     (key) => evidence.closeout[key] === true,
@@ -1195,8 +1202,6 @@ export function analyzeVercelCostEvidence(evidence) {
     reasons,
   );
 
-  const costWindowPrPushes =
-    evidence.postCutover.costWindowTrustedDeployedCodePrPushes;
   const totalAttemptsPerEligibleEvent =
     totalPostEvents === 0
       ? null

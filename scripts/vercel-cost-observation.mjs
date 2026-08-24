@@ -3424,13 +3424,25 @@ function exactUniqueIds(values, label) {
   return ids.sort();
 }
 
-function deriveRequiredMainRunIds(workflowRuns, interval) {
+export function deriveRequiredMainRunIds(workflowRuns, runnerJobs, interval) {
   invariant(Array.isArray(workflowRuns), "Workflow runs must be an array");
+  invariant(Array.isArray(runnerJobs), "Runner jobs must be an array");
+  const successfulCiGateRunIds = new Set(
+    runnerJobs
+      .filter(
+        (job) =>
+          job.name === "Verify exact successful CI attempt" &&
+          job.status === "completed" &&
+          job.conclusion === "success",
+      )
+      .map((job) => positiveId(job.runId, "Runner job run ID")),
+  );
   return workflowRuns
     .filter(
       (run) =>
         run.path === MAIN_WORKFLOW_PATH &&
         run.event === "workflow_run" &&
+        successfulCiGateRunIds.has(positiveId(run.id, "Workflow run ID")) &&
         withinInterval(run.createdAtUtc, interval),
     )
     .map((run) => run.id);
@@ -3644,7 +3656,11 @@ export function validateGitHubBillingObservation(rootPath) {
     requiredWorkflowPaths: [...OBSERVED_WORKFLOW_PATHS].sort(),
   });
   const requiredMainRunIds = exactUniqueIds(
-    deriveRequiredMainRunIds(latestSample.workflowRuns, interval),
+    deriveRequiredMainRunIds(
+      latestSample.workflowRuns,
+      latestSample.runnerJobs,
+      interval,
+    ),
     "Terminal sample required main run IDs",
   );
   exactIdSet(
@@ -4136,7 +4152,11 @@ function auditObservation({ root, end, now }) {
       );
     })
     .map((run) => run.id);
-  const requiredMainRunIds = deriveRequiredMainRunIds(inventoryRuns, interval);
+  const requiredMainRunIds = deriveRequiredMainRunIds(
+    inventoryRuns,
+    latestSample?.runnerJobs ?? [],
+    interval,
+  );
   const previewByRun = new Map(
     previewCaptures.map((capture) => [capture.eventRunId, capture]),
   );
