@@ -5274,7 +5274,11 @@ export function isTypedOsvActionsCompanionCandidate(evaluation) {
     evaluation?.base?.current === true &&
     SHA_PATTERN.test(evaluation?.base?.currentBaseSha ?? "") &&
     evaluation?.baseSha === evaluation?.base?.currentBaseSha &&
+    evaluation?.repairAttempts?.valid === true &&
     evaluation?.repairAttempts?.preparationKind === "native" &&
+    evaluation?.repairAttempts?.pendingRefreshCompletion === null &&
+    evaluation?.repairAttempts?.pendingRefreshRequest === null &&
+    evaluation?.repairAttempts?.currentHeadPacketIssued === false &&
     evaluation?.identity?.prepareAuthority === true &&
     evaluation?.feedback?.clear === true &&
     evaluation?.feedback?.autoMergeEnabled === false &&

@@ -370,6 +370,7 @@ function refreshReceiptCheck(
     id = state === "requested" ? 20_001 : 20_002,
     parentHeadSha = HEAD_SHA,
     previousBaseSha = MERGE_SHA,
+    pullRequestNumber = 123,
     requestCheckId = 20_001,
     requestDigest,
     workflowContext = WORKFLOW_CONTEXT,
@@ -384,7 +385,7 @@ function refreshReceiptCheck(
     prepareBotId: PREPARE_ACTOR.botId,
     prepareBotLogin: PREPARE_ACTOR.botLogin,
     previousBaseSha,
-    pullRequestNumber: 123,
+    pullRequestNumber,
     repository: REPOSITORY,
     schema: DEPENDABOT_REFRESH_SCHEMA,
     state: "requested",
@@ -402,7 +403,7 @@ function refreshReceiptCheck(
         };
   const checkHeadSha = state === "requested" ? parentHeadSha : headSha;
   return trustedReceiptCheck({
-    externalId: `${DEPENDABOT_REFRESH_SCHEMA}:pr=123:head=${checkHeadSha}:state=${state}:digest=${digest(receipt)}:run=${workflowContext.workflowRunId}:attempt=${workflowContext.workflowRunAttempt}`,
+    externalId: `${DEPENDABOT_REFRESH_SCHEMA}:pr=${pullRequestNumber}:head=${checkHeadSha}:state=${state}:digest=${digest(receipt)}:run=${workflowContext.workflowRunId}:attempt=${workflowContext.workflowRunAttempt}`,
     headSha: checkHeadSha,
     id,
     name: "Dependabot Refresh",
@@ -7859,6 +7860,142 @@ test("typed OSV companion selection requires clear feedback and preparation auth
     }),
     false,
   );
+
+  for (const [label, repairAttempts] of [
+    ["invalid", { ...evaluation.repairAttempts, valid: false }],
+    [
+      "pending refresh completion",
+      {
+        ...evaluation.repairAttempts,
+        pendingRefreshCompletion: { headSha: OTHER_SHA },
+      },
+    ],
+    [
+      "pending refresh request",
+      {
+        ...evaluation.repairAttempts,
+        pendingRefreshRequest: { requestCheckId: 20_001 },
+      },
+    ],
+    [
+      "current-head repair packet",
+      { ...evaluation.repairAttempts, currentHeadPacketIssued: true },
+    ],
+  ]) {
+    assert.equal(
+      isTypedOsvActionsCompanionCandidate({ ...evaluation, repairAttempts }),
+      false,
+      label,
+    );
+  }
+});
+
+test("typed OSV companion sweep rejects active preparation state", () => {
+  const headRef = "dependabot/github_actions/github-actions-manual-148744ce4a";
+  const currentPacket = typedOsvSnapshotForPullRequest();
+  const packetSource = snapshotForPullRequest(840, SECOND_HEAD_SHA);
+  packetSource.checks = completeChecks({
+    conclusions: { ci: "failure" },
+    headSha: SECOND_HEAD_SHA,
+    pullRequestNumber: 840,
+  });
+  const packetEvaluation = evaluateDependabotPullRequest(packetSource, {
+    mode: "prepare",
+    repository: REPOSITORY,
+    workflowContext: WORKFLOW_CONTEXT,
+  });
+  assert.notEqual(packetEvaluation.repairPacket, null);
+  currentPacket.repairHistoryChecks = [
+    processorRepairReceipt(1, {
+      headSha: SECOND_HEAD_SHA,
+      packet: packetEvaluation.repairPacket,
+      packetEncoding: "canonical",
+      pullRequestNumber: 840,
+    }),
+  ];
+
+  const pendingCompletion = typedOsvSnapshotForPullRequest(840, OTHER_SHA);
+  pendingCompletion.baseAncestry = {
+    aheadBy: 2,
+    baseCommitSha: BASE_SHA,
+    behindBy: 0,
+    currentBaseIsAncestor: true,
+    currentBaseSha: BASE_SHA,
+    headSha: OTHER_SHA,
+    mergeBaseSha: BASE_SHA,
+    status: "ahead",
+  };
+  pendingCompletion.checks = completeChecks({
+    headSha: OTHER_SHA,
+    pullRequestNumber: 840,
+  });
+  pendingCompletion.commits = [
+    nativeDependabotCommit(SECOND_HEAD_SHA),
+    {
+      authorId: PREPARE_ACTOR.botId,
+      authorLogin: PREPARE_ACTOR.botLogin,
+      authorType: "Bot",
+      ...GITHUB_SYSTEM_COMMITTER,
+      parents: [SECOND_HEAD_SHA, BASE_SHA],
+      sha: OTHER_SHA,
+      verified: true,
+      verificationReason: "valid",
+    },
+  ];
+  pendingCompletion.feedback = {
+    ...pendingCompletion.feedback,
+    ...nativeForcePushFeedback({
+      afterSha: SECOND_HEAD_SHA,
+      beforeSha: HEAD_SHA,
+      headRef,
+    }),
+  };
+  pendingCompletion.metadata = {
+    ...pendingCompletion.metadata,
+    immutableEvidence: {
+      ...pendingCompletion.metadata.immutableEvidence,
+      seedCommitSha: SECOND_HEAD_SHA,
+      seedCommitTrusted: true,
+    },
+  };
+  pendingCompletion.prepareActor = PREPARE_ACTOR;
+  pendingCompletion.pullRequest = {
+    ...pendingCompletion.pullRequest,
+    author: DEPENDABOT_ACTOR,
+    head: {
+      ...pendingCompletion.pullRequest.head,
+      ref: headRef,
+      sha: OTHER_SHA,
+    },
+  };
+  pendingCompletion.repairHistoryChecks = [
+    refreshReceiptCheck("requested", {
+      headRef,
+      parentHeadSha: SECOND_HEAD_SHA,
+      pullRequestNumber: 840,
+    }),
+  ];
+
+  for (const [label, current, repairField] of [
+    ["current-head repair packet", currentPacket, "currentHeadPacketIssued"],
+    [
+      "pending refresh completion",
+      pendingCompletion,
+      "pendingRefreshCompletion",
+    ],
+  ]) {
+    const result = evaluateDependabotSweep({
+      mode: "prepare",
+      pullRequests: [current],
+      repository: REPOSITORY,
+      workflowContext: WORKFLOW_CONTEXT,
+    });
+    assert.ok(
+      result.evaluations[0].repairAttempts[repairField],
+      `${label}: ${stableJson(result.evaluations[0].repairAttempts)}`,
+    );
+    assert.equal(result.actionsCompanionCandidate, null, label);
+  }
 });
 
 test("an active ALL CLEAR keeps the typed OSV companion out of the write lane", async () => {
