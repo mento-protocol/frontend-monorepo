@@ -26,7 +26,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      data-mento-queue-canary="842-first"
+    >
       <body className={inter.className}>
         <AppShell>{children}</AppShell>
       </body>
