@@ -1,35 +1,12 @@
 #!/usr/bin/env node
 
-import { Buffer } from "node:buffer";
-import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-import {
-  canonicalJson,
-  verifyOsvActionsCompanionPlan,
-} from "./dependabot-actions-companion.mjs";
-import {
-  ACTIONS_COMPANION_LIVE_CENSUS_SCHEMA,
-  ACTIONS_COMPANION_LIVE_OPEN_SCHEMA,
-  ACTIONS_COMPANION_LIVE_STAGE_SCHEMA,
-} from "./dependabot-actions-companion-live.mjs";
-
 export const DEPENDABOT_PRODUCTION_SOAK_SCHEMA =
   "dependabot-production-soak:v1";
-export const DEPENDABOT_ACTIONS_COMPANION_SOAK_PARTIAL_SCHEMA =
-  "dependabot-actions-companion-soak-partial:v1";
-export const DEPENDABOT_ACTIONS_COMPANION_SOAK_SCHEMA =
-  "dependabot-actions-companion-soak:v1";
-
-const MAX_CENSUS_RECEIPT_BYTES = 8 * 1024 * 1024 + 1;
-const MAX_STAGE_RECEIPT_BYTES = 8 * 1024 + 1;
-const MAX_OPEN_RECEIPT_BYTES = 8 * 1024 + 1;
-const MAX_PULL_SNAPSHOT_BYTES = 512 * 1024;
-const MAX_SOAK_MANIFEST_BYTES = 1024 * 1024;
-export const MAX_DEPENDABOT_ACTIONS_COMPANION_SOAK_BYTES = 16 * 1024;
 
 const CASE_ORDER = Object.freeze([
   "native-green-npm",
@@ -37,7 +14,6 @@ const CASE_ORDER = Object.freeze([
   "repairable-npm",
   "routine-actions",
   "manual-actions",
-  "typed-actions-companion",
 ]);
 
 const CASE_LABELS = Object.freeze({
@@ -46,7 +22,6 @@ const CASE_LABELS = Object.freeze({
   "repairable-npm": "Repairable npm",
   "routine-actions": "Routine Actions",
   "manual-actions": "Manual Actions",
-  "typed-actions-companion": "Typed Actions companion",
 });
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
@@ -57,12 +32,6 @@ const ALL_CLEAR_EXTERNAL_ID_PATTERN =
 const PROCESSOR_EXTERNAL_ID_PATTERN =
   /^dependabot-processor:v2:pr=(\d+):head=([0-9a-f]{40}):mode=prepare:repair=(\d+):packet=false:digest=none:run=(\d+):attempt=(\d+)$/;
 const POST_MERGE_EXTERNAL_ID_PATTERN = /^dependabot-post-merge:(\d+):(\d+)$/;
-const PREPARE_BOT_LOGIN = "mento-dependabot-prepare[bot]";
-const TYPED_COMPANION_REPOSITORY = "mento-protocol/frontend-monorepo";
-const TYPED_ACTIONS_DEPENDENCIES = Object.freeze([
-  "google/osv-scanner-action/osv-reporter-action",
-  "google/osv-scanner-action/osv-scanner-action",
-]);
 const PREPARED_OPERATION_KINDS = new Set([
   "next-catalog-override-sync",
   "vercel-cli-runtime-sync",
@@ -85,61 +54,6 @@ function exactKeys(value, keys, label) {
   );
 }
 
-function canonicalJsonBytes(value) {
-  return Buffer.from(`${canonicalJson(value)}\n`, "utf8");
-}
-
-function sha256Bytes(bytes) {
-  return createHash("sha256").update(bytes).digest("hex");
-}
-
-function bytes(value, label) {
-  const result = Buffer.isBuffer(value) ? value : Buffer.from(value);
-  invariant(result.byteLength > 0, `${label} must not be empty`);
-  return result;
-}
-
-function parseJsonBytes(
-  value,
-  label,
-  maximumBytes,
-  { canonical = false } = {},
-) {
-  const rawBytes = bytes(value, label);
-  invariant(
-    rawBytes.byteLength <= maximumBytes,
-    `${label} exceeds its byte limit`,
-  );
-  const raw = rawBytes.toString("utf8");
-  invariant(
-    Buffer.from(raw, "utf8").equals(rawBytes),
-    `${label} is not strict UTF-8`,
-  );
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    invariant(false, `${label} is not valid JSON`);
-  }
-  if (canonical) {
-    invariant(
-      raw === `${canonicalJson(parsed)}\n`,
-      `${label} is not canonical JSON with one trailing LF`,
-    );
-  }
-  return { bytes: rawBytes, parsed };
-}
-
-function writeNewCanonicalJson(path, value, label, maximumBytes) {
-  nonEmptyString(path, `${label} output path`);
-  const output = canonicalJsonBytes(value);
-  invariant(
-    output.byteLength <= maximumBytes,
-    `${label} exceeds its byte limit`,
-  );
-  writeFileSync(resolve(path), output, { flag: "wx", mode: 0o600 });
-}
-
 function positiveInteger(value, label) {
   invariant(
     Number.isSafeInteger(value) && value > 0,
@@ -156,13 +70,6 @@ function nonNegativeInteger(value, label) {
 
 function exactSha(value, label) {
   invariant(SHA_PATTERN.test(value ?? ""), `${label} must be a full SHA`);
-}
-
-function exactDigest(value, label) {
-  invariant(
-    DIGEST_PATTERN.test(value ?? ""),
-    `${label} must be a SHA-256 digest`,
-  );
 }
 
 function exactTimestamp(value, label) {
@@ -190,525 +97,6 @@ function checkUrl(repository, checkId) {
 
 function workflowRunUrl(repository, runId) {
   return `https://github.com/${repository}/actions/runs/${runId}`;
-}
-
-function receiptProjection(receiptSha256, schema, result, label) {
-  exactDigest(receiptSha256, `${label}.receiptSha256`);
-  nonEmptyString(schema, `${label}.schema`);
-  nonEmptyString(result, `${label}.result`);
-  return { receiptSha256, result, schema };
-}
-
-function validateReceiptProjection(value, expected, label) {
-  exactKeys(value, ["receiptSha256", "result", "schema"], label);
-  exactDigest(value.receiptSha256, `${label}.receiptSha256`);
-  invariant(
-    value.schema === expected.schema &&
-      (Array.isArray(expected.result)
-        ? expected.result.includes(value.result)
-        : value.result === expected.result),
-    `${label} schema or result is invalid`,
-  );
-}
-
-function sourcePullProjection(sourcePull, repository) {
-  return {
-    authorLogin: sourcePull.author.login,
-    baseRef: sourcePull.base.ref,
-    baseSha: sourcePull.base.sha,
-    headRef: sourcePull.head.ref,
-    headSha: sourcePull.head.sha,
-    mergedAt: null,
-    mergeSha: null,
-    number: sourcePull.number,
-    state: sourcePull.state,
-    url: pullRequestUrl(repository, sourcePull.number),
-  };
-}
-
-function exactBindings(actual, expected, label) {
-  for (const [key, value] of Object.entries(expected)) {
-    invariant(actual?.[key] === value, `${label}.${key} does not match`);
-  }
-}
-
-function validateCensusReceiptBytes(value) {
-  const parsed = parseJsonBytes(
-    value,
-    "companion census receipt",
-    MAX_CENSUS_RECEIPT_BYTES,
-    { canonical: true },
-  );
-  const receipt = parsed.parsed;
-  exactKeys(
-    receipt,
-    [
-      "authority",
-      "censusDigest",
-      "input",
-      "orchestratorRunAttempt",
-      "orchestratorRunId",
-      "plan",
-      "processorRunAttempt",
-      "processorRunId",
-      "repository",
-      "result",
-      "schema",
-      "sourceHeadSha",
-      "sourcePullRequestNumber",
-      "workflowSha",
-    ],
-    "companion census receipt",
-  );
-  exactBindings(
-    receipt,
-    {
-      repository: TYPED_COMPANION_REPOSITORY,
-      result: "planned",
-      schema: ACTIONS_COMPANION_LIVE_CENSUS_SCHEMA,
-    },
-    "companion census receipt",
-  );
-  exactDigest(receipt.censusDigest, "companion census receipt.censusDigest");
-  const { censusDigest, ...core } = receipt;
-  invariant(
-    censusDigest === sha256Bytes(Buffer.from(canonicalJson(core), "utf8")),
-    "companion census receipt self-digest is invalid",
-  );
-  for (const key of [
-    "orchestratorRunAttempt",
-    "orchestratorRunId",
-    "processorRunAttempt",
-    "processorRunId",
-    "sourcePullRequestNumber",
-  ]) {
-    positiveInteger(receipt[key], `companion census receipt.${key}`);
-  }
-  exactSha(receipt.sourceHeadSha, "companion census receipt.sourceHeadSha");
-  exactSha(receipt.workflowSha, "companion census receipt.workflowSha");
-  invariant(
-    verifyOsvActionsCompanionPlan(receipt.input, receipt.plan).eligible,
-    "companion census receipt plan is invalid",
-  );
-  const sourcePull = receipt.input.sourcePullRequest;
-  const pr = sourcePullProjection(sourcePull, receipt.repository);
-  validatePullRequest(
-    pr,
-    receipt.repository,
-    "open",
-    "companion census receipt",
-  );
-  const dependencyNames = sourcePull.metadata.dependencies.map(
-    ({ name }) => name,
-  );
-  invariant(
-    sourcePull.metadata.dependencyGroup === "github-actions-manual" &&
-      sourcePull.metadata.packageEcosystem === "github-actions" &&
-      JSON.stringify([...dependencyNames].sort()) ===
-        JSON.stringify(TYPED_ACTIONS_DEPENDENCIES) &&
-      receipt.input.processor.disposition === "manual-review" &&
-      sourcePull.number === receipt.sourcePullRequestNumber &&
-      sourcePull.head.sha === receipt.sourceHeadSha &&
-      sourcePull.base.sha === receipt.input.currentBase.commitSha,
-    "companion census receipt source or classification is invalid",
-  );
-  exactDigest(
-    receipt.plan.planDigest,
-    "companion census receipt.plan.planDigest",
-  );
-  exactKeys(
-    receipt.authority.processor,
-    ["checkId", "runAttempt", "runId"],
-    "companion census receipt.authority.processor",
-  );
-  positiveInteger(
-    receipt.authority.processor.checkId,
-    "companion census receipt.authority.processor.checkId",
-  );
-  invariant(
-    receipt.authority.processor.runId === receipt.processorRunId &&
-      receipt.authority.processor.runAttempt === receipt.processorRunAttempt,
-    "companion census receipt processor binding is invalid",
-  );
-  return {
-    dependencyNames,
-    pr,
-    receipt,
-    receiptSha256: sha256Bytes(parsed.bytes),
-  };
-}
-
-function validateStageReceiptBytes(value, census) {
-  const parsed = parseJsonBytes(
-    value,
-    "companion stage receipt",
-    MAX_STAGE_RECEIPT_BYTES,
-    { canonical: true },
-  );
-  const receipt = parsed.parsed;
-  exactSha(receipt.commitSha, "companion stage receipt.commitSha");
-  exactDigest(receipt.planDigest, "companion stage receipt.planDigest");
-  exactBindings(
-    receipt,
-    {
-      branchRef: census.receipt.plan.branchRef,
-      orchestratorRunAttempt: census.receipt.orchestratorRunAttempt,
-      orchestratorRunId: census.receipt.orchestratorRunId,
-      parentCommitSha: census.pr.baseSha,
-      planDigest: census.receipt.plan.planDigest,
-      processorRunAttempt: census.receipt.processorRunAttempt,
-      processorRunId: census.receipt.processorRunId,
-      repository: census.receipt.repository,
-      result: "staged",
-      schema: ACTIONS_COMPANION_LIVE_STAGE_SCHEMA,
-      sourceHeadSha: census.receipt.sourceHeadSha,
-      sourcePullRequestNumber: census.receipt.sourcePullRequestNumber,
-      workflowSha: census.receipt.workflowSha,
-    },
-    "companion stage receipt",
-  );
-  return { receipt, receiptSha256: sha256Bytes(parsed.bytes) };
-}
-
-export function createDependabotActionsCompanionSoakPartial({
-  censusReceiptBytes,
-  stageReceiptBytes,
-}) {
-  const census = validateCensusReceiptBytes(censusReceiptBytes);
-  const stage = validateStageReceiptBytes(stageReceiptBytes, census);
-  invariant(
-    census.receiptSha256 !== stage.receiptSha256,
-    "companion census and stage receipt hashes must be distinct",
-  );
-  const partial = {
-    companion: {
-      branchRef: stage.receipt.branchRef,
-      commitSha: stage.receipt.commitSha,
-    },
-    planDigest: stage.receipt.planDigest,
-    pr: census.pr,
-    processor: {
-      checkId: census.receipt.authority.processor.checkId,
-      dependencyGroup: "github-actions-manual",
-      dependencyNames: census.dependencyNames,
-      disposition: "manual-review",
-      headSha: census.receipt.sourceHeadSha,
-      workflowRunAttempt: census.receipt.processorRunAttempt,
-      workflowRunId: census.receipt.processorRunId,
-      workflowSha: census.receipt.workflowSha,
-    },
-    receipts: {
-      census: receiptProjection(
-        census.receiptSha256,
-        census.receipt.schema,
-        census.receipt.result,
-        "companion census projection",
-      ),
-      stage: receiptProjection(
-        stage.receiptSha256,
-        stage.receipt.schema,
-        stage.receipt.result,
-        "companion stage projection",
-      ),
-    },
-    repository: census.receipt.repository,
-    schema: DEPENDABOT_ACTIONS_COMPANION_SOAK_PARTIAL_SCHEMA,
-    workflow: {
-      runAttempt: census.receipt.orchestratorRunAttempt,
-      runId: census.receipt.orchestratorRunId,
-      workflowSha: census.receipt.workflowSha,
-    },
-  };
-  validateDependabotActionsCompanionSoakPartial(partial);
-  invariant(
-    canonicalJsonBytes(partial).byteLength <=
-      MAX_DEPENDABOT_ACTIONS_COMPANION_SOAK_BYTES,
-    "companion soak partial exceeds its byte limit",
-  );
-  return partial;
-}
-
-export function validateDependabotActionsCompanionSoakPartial(partial) {
-  exactKeys(
-    partial,
-    [
-      "companion",
-      "planDigest",
-      "pr",
-      "processor",
-      "receipts",
-      "repository",
-      "schema",
-      "workflow",
-    ],
-    "companion soak partial",
-  );
-  invariant(
-    partial.schema === DEPENDABOT_ACTIONS_COMPANION_SOAK_PARTIAL_SCHEMA &&
-      partial.repository === TYPED_COMPANION_REPOSITORY,
-    "companion soak partial identity is invalid",
-  );
-  validatePullRequest(
-    partial.pr,
-    partial.repository,
-    "open",
-    "companion soak partial",
-  );
-  exactDigest(partial.planDigest, "companion soak partial.planDigest");
-  exactKeys(
-    partial.companion,
-    ["branchRef", "commitSha"],
-    "companion soak partial.companion",
-  );
-  exactSha(
-    partial.companion.commitSha,
-    "companion soak partial.companion.commitSha",
-  );
-  invariant(
-    partial.companion.branchRef ===
-      `dependabot-companion/osv-pr-${partial.pr.number}-${partial.pr.headSha.slice(0, 12)}`,
-    "companion soak partial branch does not bind the source pull request",
-  );
-  validateTypedCompanionProcessor(
-    partial.processor,
-    partial.pr,
-    partial.workflow,
-    "companion soak partial",
-  );
-  exactKeys(
-    partial.receipts,
-    ["census", "stage"],
-    "companion soak partial.receipts",
-  );
-  validateReceiptProjection(
-    partial.receipts.census,
-    { result: "planned", schema: ACTIONS_COMPANION_LIVE_CENSUS_SCHEMA },
-    "companion soak partial.receipts.census",
-  );
-  validateReceiptProjection(
-    partial.receipts.stage,
-    { result: "staged", schema: ACTIONS_COMPANION_LIVE_STAGE_SCHEMA },
-    "companion soak partial.receipts.stage",
-  );
-  invariant(
-    partial.receipts.census.receiptSha256 !==
-      partial.receipts.stage.receiptSha256,
-    "companion soak partial receipt hashes must be distinct",
-  );
-  return partial;
-}
-
-function validateOpenReceiptBytes(value, partial) {
-  const parsed = parseJsonBytes(
-    value,
-    "companion open receipt",
-    MAX_OPEN_RECEIPT_BYTES,
-    { canonical: true },
-  );
-  const receipt = parsed.parsed;
-  invariant(
-    new Set(["opened", "already-open"]).has(receipt.result),
-    "companion open receipt result is invalid",
-  );
-  exactBindings(
-    receipt,
-    {
-      branchRef: partial.companion.branchRef,
-      commitSha: partial.companion.commitSha,
-      orchestratorRunAttempt: partial.workflow.runAttempt,
-      orchestratorRunId: partial.workflow.runId,
-      planDigest: partial.planDigest,
-      processorRunAttempt: partial.processor.workflowRunAttempt,
-      processorRunId: partial.processor.workflowRunId,
-      repository: partial.repository,
-      schema: ACTIONS_COMPANION_LIVE_OPEN_SCHEMA,
-      sourceHeadSha: partial.pr.headSha,
-      sourcePullRequestNumber: partial.pr.number,
-      workflowSha: partial.workflow.workflowSha,
-    },
-    "companion open receipt",
-  );
-  exactKeys(
-    receipt.companionPullRequest,
-    ["baseSha", "draft", "headSha", "number", "state", "url"],
-    "companion open receipt.companionPullRequest",
-  );
-  positiveInteger(
-    receipt.companionPullRequest.number,
-    "companion open receipt.companionPullRequest.number",
-  );
-  invariant(
-    receipt.companionPullRequest.baseSha === partial.pr.baseSha &&
-      receipt.companionPullRequest.draft === false &&
-      receipt.companionPullRequest.headSha === partial.companion.commitSha &&
-      receipt.companionPullRequest.state === "open" &&
-      receipt.companionPullRequest.url ===
-        pullRequestUrl(partial.repository, receipt.companionPullRequest.number),
-    "companion open receipt pull request binding is invalid",
-  );
-  return { receipt, receiptSha256: sha256Bytes(parsed.bytes) };
-}
-
-function validateConfirmedCompanionPull(value, partial, openReceipt) {
-  const parsed = parseJsonBytes(
-    value,
-    "confirmed companion pull request snapshot",
-    MAX_PULL_SNAPSHOT_BYTES,
-  );
-  const pull = parsed.parsed;
-  positiveInteger(pull?.number, "confirmed companion pull request.number");
-  positiveInteger(pull?.user?.id, "confirmed companion pull request.user.id");
-  invariant(
-    pull.number === openReceipt.companionPullRequest.number &&
-      pull.html_url === openReceipt.companionPullRequest.url &&
-      pull.state === "open" &&
-      pull.draft === false &&
-      pull.merged_at === null &&
-      pull.auto_merge === null &&
-      pull.maintainer_can_modify === false &&
-      pull.user.login === PREPARE_BOT_LOGIN &&
-      pull.user.type === "Bot" &&
-      pull.head?.ref === partial.companion.branchRef &&
-      pull.head?.sha === partial.companion.commitSha &&
-      pull.head?.repo?.full_name === partial.repository &&
-      pull.base?.ref === "main" &&
-      pull.base?.sha === partial.pr.baseSha &&
-      pull.base?.repo?.full_name === partial.repository,
-    "confirmed companion pull request does not bind the open receipt",
-  );
-  return {
-    authorLogin: pull.user.login,
-    baseRef: pull.base.ref,
-    baseSha: pull.base.sha,
-    headRef: pull.head.ref,
-    headSha: pull.head.sha,
-    mergedAt: pull.merged_at,
-    mergeSha: null,
-    number: pull.number,
-    state: pull.state,
-    url: pull.html_url,
-  };
-}
-
-function currentTimestamp() {
-  return new Date().toISOString().replace(/\.\d{3}Z$/u, "Z");
-}
-
-export function createDependabotActionsCompanionSoakArtifact({
-  capturedAt = currentTimestamp(),
-  openReceiptBytes,
-  partialBytes,
-  pullSnapshotBytes,
-}) {
-  exactTimestamp(capturedAt, "companion soak artifact.capturedAt");
-  const partial = parseJsonBytes(
-    partialBytes,
-    "companion soak partial",
-    MAX_DEPENDABOT_ACTIONS_COMPANION_SOAK_BYTES,
-    { canonical: true },
-  ).parsed;
-  validateDependabotActionsCompanionSoakPartial(partial);
-  const open = validateOpenReceiptBytes(openReceiptBytes, partial);
-  invariant(
-    new Set([
-      partial.receipts.census.receiptSha256,
-      partial.receipts.stage.receiptSha256,
-      open.receiptSha256,
-    ]).size === 3,
-    "companion receipt hashes must be distinct",
-  );
-  const companionPullRequest = validateConfirmedCompanionPull(
-    pullSnapshotBytes,
-    partial,
-    open.receipt,
-  );
-  const artifact = {
-    capturedAt,
-    case: {
-      companion: {
-        ...partial.companion,
-        pr: companionPullRequest,
-      },
-      id: "typed-actions-companion",
-      planDigest: partial.planDigest,
-      pr: partial.pr,
-      processor: partial.processor,
-      receipts: {
-        ...partial.receipts,
-        open: receiptProjection(
-          open.receiptSha256,
-          open.receipt.schema,
-          open.receipt.result,
-          "companion open projection",
-        ),
-      },
-      status: "passed",
-      summary:
-        "A production run created and bound an exact typed OSV companion pull request.",
-      workflow: partial.workflow,
-    },
-    repository: partial.repository,
-    schema: DEPENDABOT_ACTIONS_COMPANION_SOAK_SCHEMA,
-  };
-  validateDependabotActionsCompanionSoakArtifact(artifact);
-  invariant(
-    canonicalJsonBytes(artifact).byteLength <=
-      MAX_DEPENDABOT_ACTIONS_COMPANION_SOAK_BYTES,
-    "companion soak artifact exceeds its byte limit",
-  );
-  return artifact;
-}
-
-export function validateDependabotActionsCompanionSoakArtifact(artifact) {
-  exactKeys(
-    artifact,
-    ["capturedAt", "case", "repository", "schema"],
-    "companion soak artifact",
-  );
-  invariant(
-    artifact.schema === DEPENDABOT_ACTIONS_COMPANION_SOAK_SCHEMA &&
-      artifact.repository === TYPED_COMPANION_REPOSITORY,
-    "companion soak artifact identity is invalid",
-  );
-  exactTimestamp(artifact.capturedAt, "companion soak artifact.capturedAt");
-  validateTypedActionsCompanionCase(artifact.case, {
-    repository: artifact.repository,
-  });
-  return artifact;
-}
-
-export function importDependabotActionsCompanionSoakArtifact({
-  artifactBytes,
-  manifest,
-}) {
-  const artifact = parseJsonBytes(
-    artifactBytes,
-    "companion soak artifact",
-    MAX_DEPENDABOT_ACTIONS_COMPANION_SOAK_BYTES,
-    { canonical: true },
-  ).parsed;
-  validateDependabotActionsCompanionSoakArtifact(artifact);
-  validateDependabotProductionSoakManifest(manifest);
-  invariant(
-    artifact.repository === manifest.repository,
-    "companion soak artifact repository does not match the manifest",
-  );
-  invariant(
-    Date.parse(artifact.capturedAt) >= Date.parse(manifest.capturedAt),
-    "companion soak artifact predates the manifest capture",
-  );
-  const imported = structuredClone(manifest);
-  imported.capturedAt = artifact.capturedAt;
-  const typedIndex = imported.cases.findIndex(
-    ({ id }) => id === "typed-actions-companion",
-  );
-  invariant(
-    typedIndex >= 0,
-    "typed companion case is missing from the manifest",
-  );
-  imported.cases[typedIndex] = structuredClone(artifact.case);
-  validateDependabotProductionSoakManifest(imported);
-  return imported;
 }
 
 function validatePullRequest(pr, repository, expectedState, label) {
@@ -1002,15 +390,17 @@ function validateMergedCase(entry, manifest) {
   return { allClearUrls, mainCiUrls, postMergeUrls };
 }
 
-function validateManualProcessor(
-  processor,
-  pr,
-  repository,
-  label,
-  { requireBaseMatch = true } = {},
-) {
+function validateManualCase(entry, manifest) {
+  const label = `case ${entry.id}`;
   exactKeys(
-    processor,
+    entry,
+    ["authority", "id", "pr", "processor", "status", "summary"],
+    label,
+  );
+  invariant(entry.id === "manual-actions", `${label} is not manual Actions`);
+  validatePullRequest(entry.pr, manifest.repository, "open", label);
+  exactKeys(
+    entry.processor,
     [
       "checkId",
       "conclusion",
@@ -1025,67 +415,51 @@ function validateManualProcessor(
     ],
     `${label}.processor`,
   );
-  positiveInteger(processor.checkId, `${label}.processor.checkId`);
-  positiveInteger(processor.workflowRunId, `${label}.processor.workflowRunId`);
+  positiveInteger(entry.processor.checkId, `${label}.processor.checkId`);
   positiveInteger(
-    processor.workflowRunAttempt,
+    entry.processor.workflowRunId,
+    `${label}.processor.workflowRunId`,
+  );
+  positiveInteger(
+    entry.processor.workflowRunAttempt,
     `${label}.processor.workflowRunAttempt`,
   );
-  exactSha(processor.workflowSha, `${label}.processor.workflowSha`);
+  exactSha(entry.processor.workflowSha, `${label}.processor.workflowSha`);
   invariant(
-    (!requireBaseMatch || processor.workflowSha === pr.baseSha) &&
-      processor.headSha === pr.headSha,
+    entry.processor.workflowSha === entry.pr.baseSha &&
+      entry.processor.headSha === entry.pr.headSha,
     `${label}.processor does not bind the exact controller and PR head`,
   );
   invariant(
-    processor.conclusion === "failure" &&
-      processor.disposition === "manual-review" &&
-      processor.dependencyGroup === "github-actions-manual",
+    entry.processor.conclusion === "failure" &&
+      entry.processor.disposition === "manual-review" &&
+      entry.processor.dependencyGroup === "github-actions-manual",
     `${label}.processor is not a manual-review classification`,
   );
   invariant(
-    Array.isArray(processor.dependencyNames) &&
-      processor.dependencyNames.length > 0 &&
-      processor.dependencyNames.every(
+    Array.isArray(entry.processor.dependencyNames) &&
+      entry.processor.dependencyNames.length > 0 &&
+      entry.processor.dependencyNames.every(
         (name) => typeof name === "string" && name.length > 0,
       ) &&
-      new Set(processor.dependencyNames).size ===
-        processor.dependencyNames.length,
+      new Set(entry.processor.dependencyNames).size ===
+        entry.processor.dependencyNames.length,
     `${label}.processor dependency metadata is invalid`,
   );
-  const external = PROCESSOR_EXTERNAL_ID_PATTERN.exec(processor.externalId);
+  const external = PROCESSOR_EXTERNAL_ID_PATTERN.exec(
+    entry.processor.externalId,
+  );
   invariant(external !== null, `${label}.processor.externalId is invalid`);
-  invariant(Number(external[1]) === pr.number, `${label} PR mismatch`);
-  invariant(external[2] === pr.headSha, `${label} head mismatch`);
+  invariant(Number(external[1]) === entry.pr.number, `${label} PR mismatch`);
+  invariant(external[2] === entry.pr.headSha, `${label} head mismatch`);
   invariant(
     Number(external[3]) >= 1 && Number(external[3]) <= 2,
     `${label} attempt is invalid`,
   );
   invariant(
-    Number(external[4]) === processor.workflowRunId &&
-      Number(external[5]) === processor.workflowRunAttempt,
+    Number(external[4]) === entry.processor.workflowRunId &&
+      Number(external[5]) === entry.processor.workflowRunAttempt,
     `${label}.processor workflow provenance mismatch`,
-  );
-  return {
-    processorCheckUrl: checkUrl(repository, processor.checkId),
-    processorRunUrl: workflowRunUrl(repository, processor.workflowRunId),
-  };
-}
-
-function validateManualCase(entry, manifest) {
-  const label = `case ${entry.id}`;
-  exactKeys(
-    entry,
-    ["authority", "id", "pr", "processor", "status", "summary"],
-    label,
-  );
-  invariant(entry.id === "manual-actions", `${label} is not manual Actions`);
-  validatePullRequest(entry.pr, manifest.repository, "open", label);
-  const processorUrls = validateManualProcessor(
-    entry.processor,
-    entry.pr,
-    manifest.repository,
-    label,
   );
   exactKeys(
     entry.authority,
@@ -1101,8 +475,8 @@ function validateManualCase(entry, manifest) {
   );
   exactTimestamp(entry.authority.capturedAt, `${label}.authority.capturedAt`);
   invariant(
-    Date.parse(entry.authority.capturedAt) <= Date.parse(manifest.capturedAt),
-    `${label}.authority capture is later than the manifest capture`,
+    entry.authority.capturedAt === manifest.capturedAt,
+    `${label}.authority capture must match the manifest capture`,
   );
   for (const key of [
     "allClearCheckCount",
@@ -1116,180 +490,12 @@ function validateManualCase(entry, manifest) {
       `${label}.authority.${key} must be zero`,
     );
   }
-  return processorUrls;
-}
-
-function validateTypedCompanionPullRequest(
-  companion,
-  sourcePr,
-  repository,
-  label,
-) {
-  exactKeys(companion, ["branchRef", "commitSha", "pr"], `${label}.companion`);
-  exactSha(companion.commitSha, `${label}.companion.commitSha`);
-  const expectedBranch =
-    `dependabot-companion/osv-pr-${sourcePr.number}-` +
-    sourcePr.headSha.slice(0, 12);
-  invariant(
-    companion.branchRef === expectedBranch,
-    `${label}.companion.branchRef does not bind the source PR and head`,
-  );
-  exactKeys(
-    companion.pr,
-    [
-      "authorLogin",
-      "baseRef",
-      "baseSha",
-      "headRef",
-      "headSha",
-      "mergedAt",
-      "mergeSha",
-      "number",
-      "state",
-      "url",
-    ],
-    `${label}.companion.pr`,
-  );
-  positiveInteger(companion.pr.number, `${label}.companion.pr.number`);
-  invariant(
-    companion.pr.number !== sourcePr.number &&
-      companion.pr.url === pullRequestUrl(repository, companion.pr.number),
-    `${label}.companion.pr identity is invalid`,
-  );
-  invariant(
-    companion.pr.authorLogin === PREPARE_BOT_LOGIN,
-    `${label}.companion.pr author is not the Prepare App`,
-  );
-  invariant(
-    companion.pr.baseRef === "main" &&
-      companion.pr.baseSha === sourcePr.baseSha &&
-      companion.pr.headRef === companion.branchRef &&
-      companion.pr.headSha === companion.commitSha,
-    `${label}.companion.pr does not bind the exact branch, commit, and base`,
-  );
-  invariant(
-    companion.pr.state === "open" &&
-      companion.pr.mergedAt === null &&
-      companion.pr.mergeSha === null,
-    `${label}.companion.pr is not an open companion`,
-  );
-}
-
-function validateTypedCompanionProcessor(processor, pr, workflow, label) {
-  exactKeys(
-    processor,
-    [
-      "checkId",
-      "dependencyGroup",
-      "dependencyNames",
-      "disposition",
-      "headSha",
-      "workflowRunAttempt",
-      "workflowRunId",
-      "workflowSha",
-    ],
-    `${label}.processor`,
-  );
-  positiveInteger(processor.checkId, `${label}.processor.checkId`);
-  positiveInteger(processor.workflowRunId, `${label}.processor.workflowRunId`);
-  positiveInteger(
-    processor.workflowRunAttempt,
-    `${label}.processor.workflowRunAttempt`,
-  );
-  exactSha(processor.workflowSha, `${label}.processor.workflowSha`);
-  invariant(
-    processor.headSha === pr.headSha &&
-      processor.workflowSha === workflow.workflowSha &&
-      processor.disposition === "manual-review" &&
-      processor.dependencyGroup === "github-actions-manual" &&
-      Array.isArray(processor.dependencyNames) &&
-      JSON.stringify([...processor.dependencyNames].sort()) ===
-        JSON.stringify(TYPED_ACTIONS_DEPENDENCIES),
-    `${label}.processor does not bind the exact typed OSV classification`,
-  );
   return {
-    processorCheckUrl: checkUrl(TYPED_COMPANION_REPOSITORY, processor.checkId),
+    processorCheckUrl: checkUrl(manifest.repository, entry.processor.checkId),
     processorRunUrl: workflowRunUrl(
-      TYPED_COMPANION_REPOSITORY,
-      processor.workflowRunId,
+      manifest.repository,
+      entry.processor.workflowRunId,
     ),
-  };
-}
-
-function validateTypedActionsCompanionCase(entry, manifest) {
-  const label = `case ${entry.id}`;
-  exactKeys(
-    entry,
-    [
-      "companion",
-      "id",
-      "planDigest",
-      "pr",
-      "processor",
-      "receipts",
-      "status",
-      "summary",
-      "workflow",
-    ],
-    label,
-  );
-  invariant(
-    entry.id === "typed-actions-companion",
-    `${label} is not typed Actions companion evidence`,
-  );
-  validatePullRequest(entry.pr, manifest.repository, "open", label);
-  validateTypedCompanionPullRequest(
-    entry.companion,
-    entry.pr,
-    manifest.repository,
-    label,
-  );
-  exactDigest(entry.planDigest, `${label}.planDigest`);
-  exactKeys(
-    entry.workflow,
-    ["runAttempt", "runId", "workflowSha"],
-    `${label}.workflow`,
-  );
-  positiveInteger(entry.workflow.runId, `${label}.workflow.runId`);
-  positiveInteger(entry.workflow.runAttempt, `${label}.workflow.runAttempt`);
-  exactSha(entry.workflow.workflowSha, `${label}.workflow.workflowSha`);
-  const processorUrls = validateTypedCompanionProcessor(
-    entry.processor,
-    entry.pr,
-    entry.workflow,
-    label,
-  );
-  exactKeys(entry.receipts, ["census", "open", "stage"], `${label}.receipts`);
-  validateReceiptProjection(
-    entry.receipts.census,
-    { result: "planned", schema: ACTIONS_COMPANION_LIVE_CENSUS_SCHEMA },
-    `${label}.receipts.census`,
-  );
-  validateReceiptProjection(
-    entry.receipts.stage,
-    { result: "staged", schema: ACTIONS_COMPANION_LIVE_STAGE_SCHEMA },
-    `${label}.receipts.stage`,
-  );
-  validateReceiptProjection(
-    entry.receipts.open,
-    {
-      result: ["opened", "already-open"],
-      schema: ACTIONS_COMPANION_LIVE_OPEN_SCHEMA,
-    },
-    `${label}.receipts.open`,
-  );
-  invariant(
-    new Set([
-      entry.receipts.census.receiptSha256,
-      entry.receipts.stage.receiptSha256,
-      entry.receipts.open.receiptSha256,
-    ]).size === 3,
-    `${label}.receipts must use distinct exact receipt digests`,
-  );
-  return {
-    ...processorUrls,
-    companionPullRequestUrl: entry.companion.pr.url,
-    workflowRunUrl: workflowRunUrl(manifest.repository, entry.workflow.runId),
   };
 }
 
@@ -1316,7 +522,7 @@ export function validateDependabotProductionSoakManifest(manifest) {
   invariant(
     JSON.stringify(manifest.cases.map(({ id }) => id)) ===
       JSON.stringify(CASE_ORDER),
-    "manifest cases must contain the six canonical cases in order",
+    "manifest cases must contain the five canonical cases in order",
   );
 
   const validated = [];
@@ -1338,32 +544,22 @@ export function validateDependabotProductionSoakManifest(manifest) {
     const urls =
       entry.id === "manual-actions"
         ? validateManualCase(entry, manifest)
-        : entry.id === "typed-actions-companion"
-          ? validateTypedActionsCompanionCase(entry, manifest)
-          : validateMergedCase(entry, manifest);
+        : validateMergedCase(entry, manifest);
     validated.push({ entry, urls });
   }
   const observed = validated.filter(({ entry }) => entry.status === "passed");
-  const pullRequestNumbers = observed.flatMap(({ entry }) =>
-    entry.id === "typed-actions-companion"
-      ? [entry.pr.number, entry.companion.pr.number]
-      : [entry.pr.number],
-  );
   invariant(
-    new Set(pullRequestNumbers).size === pullRequestNumbers.length,
+    new Set(observed.map(({ entry }) => entry.pr.number)).size ===
+      observed.length,
     "passed soak cases must use distinct pull requests",
   );
-  const pullRequestHeads = observed.flatMap(({ entry }) =>
-    entry.id === "typed-actions-companion"
-      ? [entry.pr.headSha, entry.companion.pr.headSha]
-      : [entry.pr.headSha],
-  );
   invariant(
-    new Set(pullRequestHeads).size === pullRequestHeads.length,
+    new Set(observed.map(({ entry }) => entry.pr.headSha)).size ===
+      observed.length,
     "passed soak cases must use distinct pull request heads",
   );
   const checkIds = observed.flatMap(({ entry }) =>
-    entry.id === "manual-actions" || entry.id === "typed-actions-companion"
+    entry.id === "manual-actions"
       ? [entry.processor.checkId]
       : [entry.allClear.checkId, entry.mainCi.checkId, entry.postMerge.checkId],
   );
@@ -1374,22 +570,18 @@ export function validateDependabotProductionSoakManifest(manifest) {
   const workflowRunIds = observed.flatMap(({ entry }) =>
     entry.id === "manual-actions"
       ? [entry.processor.workflowRunId]
-      : entry.id === "typed-actions-companion"
-        ? [...new Set([entry.workflow.runId, entry.processor.workflowRunId])]
-        : [
-            entry.allClear.workflowRunId,
-            entry.mainCi.workflowRunId,
-            entry.postMerge.workflowRunId,
-          ],
+      : [
+          entry.allClear.workflowRunId,
+          entry.mainCi.workflowRunId,
+          entry.postMerge.workflowRunId,
+        ],
   );
   invariant(
     new Set(workflowRunIds).size === workflowRunIds.length,
     "passed soak evidence must use distinct workflow run IDs",
   );
   const processorApprovalIds = observed.flatMap(({ entry }) =>
-    entry.id === "manual-actions" || entry.id === "typed-actions-companion"
-      ? []
-      : [entry.allClear.processorApprovalId],
+    entry.id === "manual-actions" ? [] : [entry.allClear.processorApprovalId],
   );
   invariant(
     new Set(processorApprovalIds).size === processorApprovalIds.length,
@@ -1424,14 +616,6 @@ function markdownTable(headers, rows) {
 }
 
 function renderPassed(entry, urls) {
-  if (entry.id === "typed-actions-companion") {
-    return [
-      `source [#${entry.pr.number}](${entry.pr.url}) at \`${shortSha(entry.pr.headSha)}\` -> companion [#${entry.companion.pr.number}](${urls.companionPullRequestUrl}) at \`${shortSha(entry.companion.commitSha)}\``,
-      `[workflow ${entry.workflow.runId} attempt ${entry.workflow.runAttempt}](${urls.workflowRunUrl}) and ` +
-        `[Processor ${entry.processor.checkId}](${urls.processorCheckUrl}) bound branch \`${entry.companion.branchRef}\`. ` +
-        `Exact receipt SHA-256 digests: census \`${entry.receipts.census.receiptSha256}\`, stage \`${entry.receipts.stage.receiptSha256}\`, open \`${entry.receipts.open.receiptSha256}\`.`,
-    ];
-  }
   if (entry.id === "manual-actions") {
     const dependencies = entry.processor.dependencyNames.join(", ");
     return [
@@ -1519,97 +703,8 @@ function parseArguments(arguments_) {
   return { checkPath, manifestPath };
 }
 
-function parseCommandPaths(arguments_, expectedNames) {
-  invariant(
-    arguments_.length === expectedNames.length * 2,
-    "Command arguments are incomplete",
-  );
-  const expected = new Set(expectedNames.map((name) => `--${name}`));
-  const result = {};
-  for (let index = 0; index < arguments_.length; index += 2) {
-    const option = arguments_[index];
-    const value = arguments_[index + 1];
-    invariant(expected.has(option), `Unsupported argument: ${option}`);
-    const name = option.slice(2);
-    invariant(result[name] === undefined, `Duplicate argument: ${option}`);
-    nonEmptyString(value, `${option} path`);
-    result[name] = value;
-  }
-  invariant(
-    expectedNames.every((name) => result[name] !== undefined),
-    "Command arguments are incomplete",
-  );
-  return result;
-}
-
 function runCli() {
-  const arguments_ = process.argv.slice(2);
-  const [command, ...commandArguments] = arguments_;
-  if (command === "companion-stage") {
-    const paths = parseCommandPaths(commandArguments, [
-      "census",
-      "stage",
-      "output",
-    ]);
-    const partial = createDependabotActionsCompanionSoakPartial({
-      censusReceiptBytes: readFileSync(resolve(paths.census)),
-      stageReceiptBytes: readFileSync(resolve(paths.stage)),
-    });
-    writeNewCanonicalJson(
-      paths.output,
-      partial,
-      "companion soak partial",
-      MAX_DEPENDABOT_ACTIONS_COMPANION_SOAK_BYTES,
-    );
-    process.stdout.write(`${paths.output} created\n`);
-    return;
-  }
-  if (command === "companion-open") {
-    const paths = parseCommandPaths(commandArguments, [
-      "partial",
-      "open",
-      "pull",
-      "output",
-    ]);
-    const artifact = createDependabotActionsCompanionSoakArtifact({
-      openReceiptBytes: readFileSync(resolve(paths.open)),
-      partialBytes: readFileSync(resolve(paths.partial)),
-      pullSnapshotBytes: readFileSync(resolve(paths.pull)),
-    });
-    writeNewCanonicalJson(
-      paths.output,
-      artifact,
-      "companion soak artifact",
-      MAX_DEPENDABOT_ACTIONS_COMPANION_SOAK_BYTES,
-    );
-    process.stdout.write(`${paths.output} created\n`);
-    return;
-  }
-  if (command === "import-typed-companion") {
-    const paths = parseCommandPaths(commandArguments, [
-      "artifact",
-      "manifest",
-      "output",
-    ]);
-    const manifest = parseJsonBytes(
-      readFileSync(resolve(paths.manifest)),
-      "production soak manifest",
-      MAX_SOAK_MANIFEST_BYTES,
-    ).parsed;
-    const imported = importDependabotActionsCompanionSoakArtifact({
-      artifactBytes: readFileSync(resolve(paths.artifact)),
-      manifest,
-    });
-    writeNewCanonicalJson(
-      paths.output,
-      imported,
-      "production soak manifest",
-      MAX_SOAK_MANIFEST_BYTES,
-    );
-    process.stdout.write(`${paths.output} created\n`);
-    return;
-  }
-  const { checkPath, manifestPath } = parseArguments(arguments_);
+  const { checkPath, manifestPath } = parseArguments(process.argv.slice(2));
   const manifest = JSON.parse(readFileSync(resolve(manifestPath), "utf8"));
   const rendered = renderDependabotProductionSoak(manifest);
   if (checkPath !== null) {

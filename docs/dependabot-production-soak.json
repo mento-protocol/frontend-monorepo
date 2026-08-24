@@ -163,11 +163,6 @@
         "refreshCheckCount": 0,
         "repairCheckCount": 0
       }
-    },
-    {
-      "id": "typed-actions-companion",
-      "status": "pending",
-      "summary": "No current-controller production run has produced and bound the exact census, stage, and open receipts for a typed Actions companion PR. PR #840 predates this path and proves only manual source classification."
     }
   ]
 }
