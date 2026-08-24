@@ -38,14 +38,19 @@ test("the checked-in production evidence renders the checked-in soak report", ()
       ["repairable-npm", "passed"],
       ["routine-actions", "pending"],
       ["manual-actions", "passed"],
+      ["typed-actions-companion", "pending"],
     ],
   );
   const rendered = renderDependabotProductionSoak(value);
   assert.equal(rendered, readFileSync(reportPath, "utf8"));
-  assert.match(rendered, /3 of 5 cases observed; 2 pending/);
+  assert.match(rendered, /3 of 6 cases observed; 3 pending/);
   assert.match(rendered, /#777[\s\S]*10 refreshes, 1 repair/);
   assert.match(rendered, /#723[\s\S]*1 refresh, 1 repair/);
   assert.match(rendered, /#840[\s\S]*no processor approval/);
+  assert.match(
+    rendered,
+    /Typed Actions companion[\s\S]*exact census, stage, and open receipts/,
+  );
   assert.match(rendered, /does not authenticate GitHub evidence/);
   assert.match(rendered, /maintainer must revalidate the exact live GitHub PR/);
   assert.doesNotMatch(rendered, /require-complete/);
@@ -77,7 +82,7 @@ test("the soak manifest rejects incomplete or contradictory evidence", () => {
       mutate(value) {
         [value.cases[0], value.cases[1]] = [value.cases[1], value.cases[0]];
       },
-      pattern: /five canonical cases in order/,
+      pattern: /six canonical cases in order/,
     },
     {
       mutate(value) {
@@ -141,6 +146,18 @@ test("the soak manifest rejects incomplete or contradictory evidence", () => {
         value.cases[1].postMerge.headSha = value.cases[1].pr.headSha;
       },
       pattern: /not terminal exact-merge proof/,
+    },
+    {
+      mutate(value) {
+        value.cases[1].postMerge.outcome = "no-target";
+      },
+      pattern: /does not prove an affected release/,
+    },
+    {
+      mutate(value) {
+        value.cases[5].status = "passed";
+      },
+      pattern: /keys are invalid/,
     },
     {
       mutate(value) {

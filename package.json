@@ -14,7 +14,7 @@
     "clean": "rm -rf .turbo && turbo run clean",
     "dependabot:process": "node scripts/dependabot-processor.mjs",
     "dependabot:process:test": "node --test scripts/dependabot-actions-companion.test.mjs scripts/dependabot-actions-companion-live.test.mjs scripts/dependabot-preparation-receipts.test.mjs scripts/dependabot-processor.test.mjs scripts/dependabot-production-soak.test.mjs scripts/dependabot-protected-runtime-sync.test.mjs scripts/dependabot-prepared-review.test.mjs scripts/dependabot-workflows.test.mjs",
-    "dependabot:soak": "node scripts/dependabot-production-soak.mjs",
+    "dependabot:soak": "node scripts/dependabot-production-soak.mjs --check docs/dependabot-production-soak.md",
     "dev": "turbo run dev",
     "dev:app.mento.org": "turbo run dev --filter=app.mento.org",
     "dev:governance.mento.org": "turbo run dev --filter=governance.mento.org",

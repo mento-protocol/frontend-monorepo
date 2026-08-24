@@ -14,6 +14,7 @@ const CASE_ORDER = Object.freeze([
   "repairable-npm",
   "routine-actions",
   "manual-actions",
+  "typed-actions-companion",
 ]);
 
 const CASE_LABELS = Object.freeze({
@@ -22,6 +23,7 @@ const CASE_LABELS = Object.freeze({
   "repairable-npm": "Repairable npm",
   "routine-actions": "Routine Actions",
   "manual-actions": "Manual Actions",
+  "typed-actions-companion": "Typed Actions companion",
 });
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
@@ -303,10 +305,10 @@ function validatePostMerge(postMerge, pr, repository, label) {
     `${label}.postMerge is not terminal exact-merge proof`,
   );
   invariant(
-    new Set(["active-committed", "current-release-verified", "no-target"]).has(
+    new Set(["active-committed", "current-release-verified"]).has(
       postMerge.outcome,
     ),
-    `${label}.postMerge.outcome is not accepted`,
+    `${label}.postMerge.outcome does not prove an affected release`,
   );
   const external = POST_MERGE_EXTERNAL_ID_PATTERN.exec(postMerge.externalId);
   invariant(external !== null, `${label}.postMerge.externalId is invalid`);
@@ -522,7 +524,7 @@ export function validateDependabotProductionSoakManifest(manifest) {
   invariant(
     JSON.stringify(manifest.cases.map(({ id }) => id)) ===
       JSON.stringify(CASE_ORDER),
-    "manifest cases must contain the five canonical cases in order",
+    "manifest cases must contain the six canonical cases in order",
   );
 
   const validated = [];
