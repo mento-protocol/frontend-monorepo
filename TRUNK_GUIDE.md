@@ -179,7 +179,8 @@ trunk check --exclude=-markdownlint
 
 The CI workflow ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) uses
 the official Trunk action with a full SHA pin. It enables the Trunk cache only
-when the CI scope planner permits repository credentials.
+when the CI scope planner permits repository credentials. The static analysis
+job grants `checks: write` only so Trunk can publish check-run annotations.
 
 This ensures the same linting rules run in CI as in local development.
 

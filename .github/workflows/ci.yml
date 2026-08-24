@@ -215,6 +215,7 @@ jobs:
     timeout-minutes: 10
     runs-on: ubuntu-latest
     permissions:
+      checks: write
       contents: read
     env:
       TURBO_TOKEN: ${{ needs.changes.outputs.allow_repository_credentials == 'true' && secrets.TURBO_TOKEN || '' }}

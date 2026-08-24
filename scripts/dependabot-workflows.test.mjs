@@ -348,7 +348,10 @@ test("repaired Dependabot PR jobs retain native secret and credential isolation"
   }
 
   const ci = workflow(".github/workflows/ci.yml");
-  assert.deepEqual(ci.jobs.static.permissions, { contents: "read" });
+  assert.deepEqual(ci.jobs.static.permissions, {
+    checks: "write",
+    contents: "read",
+  });
   const trunk = ci.jobs.static.steps.find((step) =>
     step.uses?.startsWith("trunk-io/trunk-action@"),
   );

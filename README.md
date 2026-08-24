@@ -819,6 +819,7 @@ The CI pipeline uses the [Trunk GitHub Action](https://github.com/trunk-io/trunk
 
 - Install Trunk CLI in the CI environment
 - Run the same linting and formatting checks as local development
+- Publish inline findings with the static job's scoped `checks: write` permission
 - Ensure consistent code quality across all environments
 
 ### Turborepo Remote Caching

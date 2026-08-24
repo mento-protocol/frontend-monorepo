@@ -63,7 +63,7 @@ jobs:
     permissions:
       actions: read
       contents: read
-    # Pinned to v2.5.0. scan-args is scoped to the lockfile + the repo config:
+    # Pinned to v2.5.1. scan-args is scoped to the lockfile + the repo config:
     # with --lockfile, osv-scanner does NOT auto-discover osv-scanner.toml, so
     # --config is required. node_modules is gitignored and not scanned.
     uses: ./.github/workflows/_osv-scanner-readonly.yml
