@@ -29,7 +29,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      data-mento-queue-canary="842-first"
+      data-mento-queue-canary="842-latest"
     >
       <body className={inter.className}>
         <AppShell>{children}</AppShell>
