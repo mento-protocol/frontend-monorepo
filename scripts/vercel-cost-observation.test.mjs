@@ -64,12 +64,14 @@ test("main opportunities require a successful exact-CI gate job", () => {
   const workflowRuns = [
     {
       id: "9100",
+      runAttempt: 1,
       path: ".github/workflows/vercel-main-deployment.yml",
       event: "workflow_run",
       createdAtUtc: "2026-07-30T02:00:00.000Z",
     },
     {
       id: "9200",
+      runAttempt: 1,
       path: ".github/workflows/vercel-main-deployment.yml",
       event: "workflow_run",
       createdAtUtc: "2026-07-30T03:00:00.000Z",
@@ -78,12 +80,14 @@ test("main opportunities require a successful exact-CI gate job", () => {
   const runnerJobs = [
     {
       runId: "9100",
+      runAttempt: 1,
       name: "Verify exact successful CI attempt",
       status: "completed",
       conclusion: "success",
     },
     {
       runId: "9200",
+      runAttempt: 1,
       name: "Verify exact successful CI attempt",
       status: "completed",
       conclusion: "skipped",
@@ -96,6 +100,42 @@ test("main opportunities require a successful exact-CI gate job", () => {
       endUtcExclusive: END,
     }),
     ["9100"],
+  );
+});
+
+test("a later failed rerun does not erase a main deployment opportunity", () => {
+  const workflowRuns = [
+    {
+      id: "9300",
+      runAttempt: 2,
+      path: ".github/workflows/vercel-main-deployment.yml",
+      event: "workflow_run",
+      createdAtUtc: "2026-07-30T04:00:00.000Z",
+    },
+  ];
+  const runnerJobs = [
+    {
+      runId: "9300",
+      runAttempt: 1,
+      name: "Verify exact successful CI attempt",
+      status: "completed",
+      conclusion: "success",
+    },
+    {
+      runId: "9300",
+      runAttempt: 2,
+      name: "Verify exact successful CI attempt",
+      status: "completed",
+      conclusion: "skipped",
+    },
+  ];
+
+  assert.deepEqual(
+    deriveRequiredMainRunIds(workflowRuns, runnerJobs, {
+      startUtc: START,
+      endUtcExclusive: END,
+    }),
+    ["9300"],
   );
 });
 

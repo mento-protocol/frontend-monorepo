@@ -1180,6 +1180,11 @@ test("loads and reconciles raw FOCUS project totals and deployment census source
     assert.equal(analysis.sourceEvidence.projectTotalsReconciled, true);
     assert.equal(analysis.sourceEvidence.deploymentCensusComplete, true);
     assert.equal(analysis.sourceEvidence.githubActionsProofReconciled, true);
+    assert.equal(
+      analysis.sourceEvidence.deployments.postCutover
+        .costWindowUnexplainedNativeBuilds,
+      0,
+    );
     assert.deepEqual(
       analysis.sourceEvidence.deployments.postCutover.targets.app.sources,
       {
@@ -1248,6 +1253,84 @@ test("reconciles a source-bound native suppression record without counting a bui
       ],
       1,
     );
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("keeps cost-window native builds separate from observation correctness", () => {
+  const temporaryDirectory = mkdtempSync(
+    join(tmpdir(), "vercel-manifest-native-window-separation-"),
+  );
+  try {
+    const evidence = fixture();
+    evidence.postCutover.costWindowTrustedDeployedCodePrPushes = 9;
+    const aggregatePath = join(temporaryDirectory, "aggregate.json");
+    writeFileSync(aggregatePath, `${JSON.stringify(evidence, null, 2)}\n`);
+
+    const manifest = manifestForAggregate(aggregatePath, temporaryDirectory);
+    const rows = readFileSync(
+      resolve(fixtureDirectory, "post.deployments.jsonl"),
+      "utf8",
+    )
+      .trimEnd()
+      .split("\n")
+      .map((row) => JSON.parse(row));
+    rows[0].source = "vercel-native";
+    const postRaw = `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`;
+    const postPath = join(temporaryDirectory, "post.deployments.jsonl");
+    writeFileSync(postPath, postRaw);
+    manifest.windows.postCutover.deploymentCensusJsonl = postPath;
+    bindDeploymentCensus(
+      manifest,
+      "postCutover",
+      temporaryDirectory,
+      postRaw,
+      evidence,
+    );
+    const manifestPath = join(temporaryDirectory, "manifest.json");
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const analysis = analyzeVercelCostManifest(manifestPath);
+    assert.equal(analysis.correctness.unexplainedNativeBuilds, 0);
+    assert.equal(
+      analysis.sourceEvidence.deployments.postCutover
+        .costWindowUnexplainedNativeBuilds,
+      1,
+    );
+    assert.equal(
+      analysis.sourceEvidence.deployments.postCutover.targets.app.sources[
+        "vercel-native"
+      ],
+      1,
+    );
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("keeps observation native builds separate from the cost census", () => {
+  const temporaryDirectory = mkdtempSync(
+    join(tmpdir(), "vercel-manifest-observation-native-separation-"),
+  );
+  try {
+    const evidence = fixture();
+    evidence.postCutover.correctness.unexplainedNativeBuilds = 1;
+    const aggregatePath = join(temporaryDirectory, "aggregate.json");
+    writeFileSync(aggregatePath, `${JSON.stringify(evidence, null, 2)}\n`);
+    const manifest = manifestForAggregate(aggregatePath, temporaryDirectory);
+    const manifestPath = join(temporaryDirectory, "manifest.json");
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const analysis = analyzeVercelCostManifest(manifestPath);
+    assert.equal(analysis.pass, false);
+    assert.equal(analysis.correctness.unexplainedNativeBuilds, 1);
+    assert.equal(
+      analysis.sourceEvidence.deployments.postCutover
+        .costWindowUnexplainedNativeBuilds,
+      0,
+    );
+    assert.ok(analysis.reasons.includes("unexplained-native-builds"));
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });
   }

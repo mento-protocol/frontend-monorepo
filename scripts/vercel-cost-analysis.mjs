@@ -1793,7 +1793,7 @@ function reconcileDeploymentCensusJsonl(
     ]),
   );
   const anomalyReasons = new Map();
-  let unexplainedNativeBuilds = 0;
+  let costWindowUnexplainedNativeBuilds = 0;
   const periodStart = Date.parse(aggregateWindow.period.startUtc);
   const periodEnd = Date.parse(aggregateWindow.period.endUtcExclusive);
 
@@ -1892,7 +1892,7 @@ function reconcileDeploymentCensusJsonl(
         readyByEvent.set(eventKey, readyRows);
       }
       if (windowName === "postCutover" && row.source === "vercel-native") {
-        unexplainedNativeBuilds += 1;
+        costWindowUnexplainedNativeBuilds += 1;
         reasons.push("unexplained-native-build");
       }
     } else if (suppressed) {
@@ -1956,19 +1956,11 @@ function reconcileDeploymentCensusJsonl(
       `${label} trusted preview SHA count does not reconcile to costWindowTrustedDeployedCodePrPushes`,
     );
   }
-  if (
-    windowName === "postCutover" &&
-    unexplainedNativeBuilds !==
-      aggregateWindow.correctness.unexplainedNativeBuilds
-  ) {
-    throw new Error(
-      `${label}.unexplainedNativeBuilds does not reconcile to the correctness ledger`,
-    );
-  }
-
   const rowsById = new Map(rows.map((row) => [row.deploymentId, row]));
   return {
     targets: summaries,
+    costWindowUnexplainedNativeBuilds:
+      windowName === "postCutover" ? costWindowUnexplainedNativeBuilds : null,
     anomalies: [...anomalyReasons.entries()].map(([deploymentId, reasons]) => {
       const row = rowsById.get(deploymentId);
       return {

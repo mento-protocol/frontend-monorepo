@@ -863,10 +863,12 @@ ledger rather than entering a blanket success value:
   whose first-plus-latest outcome was fully verified. At least one sequence is
   required.
 - `mainDeploymentObservationOpportunities` counts downstream main workflow runs
-  in the correctness interval whose `Verify exact successful CI attempt` job
-  completed successfully. A downstream no-op triggered by failed or canceled CI
-  is not an opportunity. A deployment failure after a successful gate remains
-  an opportunity. `mainDeploymentObservationsCompleted` counts those events for
+  in the correctness interval where at least one attempt's
+  `Verify exact successful CI attempt` job completed successfully. A later
+  rerun does not erase an earlier qualifying attempt. The audit captures every
+  attempt for each qualifying run. A downstream no-op triggered only by failed
+  or cancelled CI is not an opportunity. A deployment failure after a
+  successful gate remains an opportunity. `mainDeploymentObservationsCompleted` counts those events for
   which the complete main-deployment ledger record was verified. One completed
   observation includes the exact-SHA CI gate, planner base and range, selected
   targets, stale-main decision, activation or recovery result, public-domain
@@ -874,6 +876,10 @@ ledger rather than entering a blanket success value:
   `mainDeploymentObservationFailures` counts completed observations where any
   one of those checks failed. Completed observations must equal explicit
   opportunities; the truthful value is `0/0` when no main event occurred.
+- `unexplainedNativeBuilds` belongs to the correctness observation interval.
+  The source evidence reports `costWindowUnexplainedNativeBuilds` separately
+  for the provider-aligned post-cutover cost census. Do not force these counts
+  to match when the intervals differ.
 - `legacyV2HealthCheckOpportunities` counts the v2 health verifications recorded
   for the observation and final closeout, and `legacyV2HealthChecksCompleted`
   counts the checks that finished. At least one health check is required.

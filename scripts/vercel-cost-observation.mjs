@@ -3427,7 +3427,10 @@ function exactUniqueIds(values, label) {
 export function deriveRequiredMainRunIds(workflowRuns, runnerJobs, interval) {
   invariant(Array.isArray(workflowRuns), "Workflow runs must be an array");
   invariant(Array.isArray(runnerJobs), "Runner jobs must be an array");
-  const successfulCiGateRunIds = new Set(
+  // An opportunity is one workflow run. A rerun does not erase an earlier
+  // attempt that passed the exact-CI gate and could have deployed. The audit
+  // captures every attempt for each qualifying run.
+  const runIdsWithSuccessfulCiGate = new Set(
     runnerJobs
       .filter(
         (job) =>
@@ -3442,7 +3445,7 @@ export function deriveRequiredMainRunIds(workflowRuns, runnerJobs, interval) {
       (run) =>
         run.path === MAIN_WORKFLOW_PATH &&
         run.event === "workflow_run" &&
-        successfulCiGateRunIds.has(positiveId(run.id, "Workflow run ID")) &&
+        runIdsWithSuccessfulCiGate.has(positiveId(run.id, "Workflow run ID")) &&
         withinInterval(run.createdAtUtc, interval),
     )
     .map((run) => run.id);
