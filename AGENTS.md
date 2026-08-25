@@ -309,6 +309,11 @@ workflow, receipt, reviewer, policy, or runbook changes. Run
 production evidence report. Before changing a pending row to passed, revalidate
 its exact PR, check, workflow-run, and authority evidence against live GitHub.
 The offline command does not certify GitHub provenance.
+When a Dependabot job-level callback guard duplicates a downstream validator,
+keep their accepted receipt forms identical. Match the grouped acceptance
+expression in the structural test and reject the paired `receipt=false` and
+`|ok=false` acceptance fragments. Positive checks for allowed suffixes alone
+do not prove this boundary.
 Follow `docs/dependabot-automation.md` and
 ADRs 0006 and 0008 for the complete contract.
 
