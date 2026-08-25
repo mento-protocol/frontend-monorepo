@@ -1,5 +1,6 @@
 "use client";
 
+// #842 billing-window seed: exercise all four preview targets without changing runtime behavior.
 // Export all components from a single file for easier imports
 export * from "./components/mode-toggle";
 
