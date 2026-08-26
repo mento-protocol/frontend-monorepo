@@ -64,8 +64,9 @@ Keep these properties true in code, workflows, rulesets, and operation:
   `main` can block an unrelated update. Permit only exact-version exclusions
   that match the current reviewed catalog pin or lockfile package. Remove each
   exclusion after the release matures or when the reviewed reference changes.
-  Run `pnpm install --lockfile-only --config.minimumReleaseAge=10080` and
-  require no `pnpm-lock.yaml` change before you remove the exception.
+  After you remove an exception, run
+  `pnpm install --lockfile-only --config.minimumReleaseAge=10080`. Require no
+  `pnpm-lock.yaml` change before you commit the removal.
 - Keep the root `zustand>use-sync-external-store` override at `1.4.0` while the
   application and Wormhole wallet paths share Wagmi. This prevents pnpm from
   creating separate `@wagmi/core` peer snapshots for those paths. Upgrade the
