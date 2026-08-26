@@ -3,7 +3,7 @@ title: Dependabot Processing
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-08-24
+last_verified: 2026-08-26
 scope: ci/dependabot-processing
 ---
 
@@ -62,8 +62,10 @@ Keep these properties true in code, workflows, rulesets, and operation:
 - Dependabot applies the npm cooldown as pnpm's `minimumReleaseAge` during
   lockfile generation. A young dependency already reviewed and pinned on
   `main` can block an unrelated update. Permit only exact-version exclusions
-  that match the current reviewed pin. Remove each exclusion after the release
-  matures or when the pin changes.
+  that match the current reviewed catalog pin or lockfile package. Remove each
+  exclusion after the release matures or when the reviewed reference changes.
+  Run `pnpm install --lockfile-only --config.minimumReleaseAge=10080` and
+  require no `pnpm-lock.yaml` change before you remove the exception.
 - Keep the root `zustand>use-sync-external-store` override at `1.4.0` while the
   application and Wormhole wallet paths share Wagmi. This prevents pnpm from
   creating separate `@wagmi/core` peer snapshots for those paths. Upgrade the

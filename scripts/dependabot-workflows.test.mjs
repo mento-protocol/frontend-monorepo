@@ -726,14 +726,9 @@ test("pnpm release-age exclusions stay exact and bounded", () => {
     "@turbo/windows-arm64@2.10.11",
   ];
 
-  assert.deepEqual(workspace.minimumReleaseAgeExclude, [
-    "@mento-protocol/mento-sdk@3.4.0",
-    ...turboReleaseAgeExclusions,
-  ]);
-  assert.equal(
-    workspace.catalog["@mento-protocol/mento-sdk"],
-    "3.4.0",
-    "remove the release-age exclusion when the reviewed catalog pin changes",
+  assert.deepEqual(
+    workspace.minimumReleaseAgeExclude,
+    turboReleaseAgeExclusions,
   );
 
   const lockfile = parse(read("pnpm-lock.yaml"), { uniqueKeys: true });
