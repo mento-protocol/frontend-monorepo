@@ -1244,12 +1244,12 @@ test("app candidate command return uses one monotonic journal sequence", () => {
   );
 });
 
-test("journal upload acknowledgement is exact and uses fourteen-day retention", async () => {
+test("journal upload acknowledgement is exact and uses seven-day retention", async () => {
   const journal = prepared();
   const uploads = [];
   await persistMainTransactionJournal(journal, acknowledgedUploader(uploads));
   assert.equal(uploads.length, 1);
-  assert.equal(uploads[0].retentionDays, 14);
+  assert.equal(uploads[0].retentionDays, 7);
   assert.equal(
     uploads[0].artifactName,
     mainTransactionJournalArtifactName(journal),

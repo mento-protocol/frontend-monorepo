@@ -50,7 +50,6 @@ import {
   materializeVercelRepoLink,
   parseVercelDeploymentLookup,
   parseVercelDeploymentJson,
-  PILOT_TARGET,
   PREBUILT_TARGETS,
   prepareVercelPullStaging,
   queryVercelDeployments,
@@ -64,7 +63,7 @@ import {
   trustedVercelCliPath,
   validateExactSha,
   validateGitBranch,
-  validatePilotContract,
+  validatePrebuiltContract,
   validateSourceCheckout,
   withValidatedPrebuiltUpload,
 } from "./vercel-prebuilt-workflow.mjs";
@@ -73,7 +72,7 @@ import { sharpRuntimePlatform } from "./next-sharp-output-tracing.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const DEPLOYMENT_ID = "m-ui-0123456789abcdef012";
-const DEPLOYMENT_URL = "https://ui-pilot-abc.vercel.app";
+const DEPLOYMENT_URL = "https://ui-preview-abc.vercel.app";
 const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const BUILD_ENVIRONMENT_SCRIPT = fileURLToPath(
   new URL("./vercel-build-environment.mjs", import.meta.url),
@@ -247,23 +246,27 @@ const CONTROLLER_KEY = `vercel-preview:v1:pr:519:target:ui:sha:${SHA}`;
 const LOOKUP_STARTED_AT = 1_720_000_000_000;
 const LOOKUP_NOW = LOOKUP_STARTED_AT + 60_000;
 
-function pilotContract(overrides = {}) {
+function automaticContract(overrides = {}) {
   return {
-    ...PILOT_TARGET,
+    ...PREBUILT_TARGETS.ui,
+    githubEnvironment: "preview/ui/pr-519",
+    vercelEnvironment: "preview",
+    vercelTarget: "preview",
+    deploymentMode: "preview",
     deployPermitted: true,
     commitSha: SHA,
-    gitBranch: "feature/ui-pilot",
+    gitBranch: "feature/ui-preview",
     vercelOrgId: "team_example",
     vercelProjectId: "prj_example",
-    idempotencyKey: `vercel-pilot:v1:ui:sha:${SHA}:run:1:attempt:1`,
-    pullRequestNumber: "",
-    provenance: "manual-pilot",
+    idempotencyKey: `vercel-preview:v1:pr:519:target:ui:sha:${SHA}`,
+    pullRequestNumber: "519",
+    provenance: "preview-controller:v2",
     workflowRunUrl:
       "https://github.com/mento-protocol/frontend-monorepo/actions/runs/1",
     githubRepository: "mento-protocol/frontend-monorepo",
     githubRef: "refs/heads/main",
     githubWorkflowRef:
-      "mento-protocol/frontend-monorepo/.github/workflows/vercel-prebuilt-pilot.yml@refs/heads/main",
+      "mento-protocol/frontend-monorepo/.github/workflows/vercel-preview-worker.yml@refs/heads/main",
     ...overrides,
   };
 }
@@ -350,57 +353,29 @@ function materializeFixture(fixture) {
   });
 }
 
-test("pilot contract accepts only the UI preview mapping and exact SHA", () => {
-  assert.deepEqual(validatePilotContract(pilotContract()), pilotContract());
-  assert.throws(
-    () =>
-      validatePilotContract(
-        pilotContract({
-          ...PREBUILT_TARGETS.app,
-          githubEnvironment: PILOT_TARGET.githubEnvironment,
-        }),
-      ),
-    /manual pilot is restricted to the UI target/,
-  );
+test("automatic preview contract binds PR, environment, provenance, and exact SHA", () => {
+  const automatic = automaticContract();
+  assert.deepEqual(validatePrebuiltContract(automatic), automatic);
   for (const overrides of [
-    { logicalTarget: "app" },
+    { githubEnvironment: "preview/ui/pr-520" },
+    { idempotencyKey: `vercel-preview:v1:pr:520:target:ui:sha:${SHA}` },
+    { pullRequestNumber: "520" },
+    { provenance: "unknown" },
     { deploymentMode: "staged-production" },
     { vercelTarget: "production" },
     { commitSha: "main" },
     { gitBranch: "dependabot/npm_and_yarn/example-1.0.0" },
     { deployPermitted: false },
     { githubRepository: "someone/fork" },
-    { githubRef: "refs/heads/feature/ui-pilot" },
+    { githubRef: "refs/heads/feature/ui-preview" },
     {
       githubWorkflowRef:
-        "mento-protocol/frontend-monorepo/.github/workflows/vercel-prebuilt-pilot.yml@refs/heads/feature",
+        "mento-protocol/frontend-monorepo/.github/workflows/other.yml@refs/heads/main",
     },
   ]) {
-    assert.throws(() => validatePilotContract(pilotContract(overrides)));
-  }
-});
-
-test("automatic preview contract binds PR, environment, provenance, and exact SHA", () => {
-  const automatic = pilotContract({
-    githubEnvironment: "preview/ui/pr-519",
-    idempotencyKey: `vercel-preview:v1:pr:519:target:ui:sha:${SHA}`,
-    pullRequestNumber: "519",
-    provenance: "preview-controller:v2",
-    githubWorkflowRef:
-      "mento-protocol/frontend-monorepo/.github/workflows/vercel-preview-worker.yml@refs/heads/main",
-  });
-  assert.deepEqual(validatePilotContract(automatic), automatic);
-  for (const overrides of [
-    { githubEnvironment: "preview/ui/pr-520" },
-    { idempotencyKey: `vercel-preview:v1:pr:520:target:ui:sha:${SHA}` },
-    { pullRequestNumber: "520" },
-    { provenance: "manual-pilot" },
-    {
-      githubWorkflowRef:
-        "mento-protocol/frontend-monorepo/.github/workflows/vercel-prebuilt-pilot.yml@refs/heads/main",
-    },
-  ]) {
-    assert.throws(() => validatePilotContract({ ...automatic, ...overrides }));
+    assert.throws(() =>
+      validatePrebuiltContract({ ...automatic, ...overrides }),
+    );
   }
 });
 
@@ -412,7 +387,7 @@ test("automatic preview contract accepts only the four literal target mappings",
     "ui",
   ]);
   for (const target of Object.values(PREBUILT_TARGETS)) {
-    const automatic = pilotContract({
+    const automatic = automaticContract({
       ...target,
       githubEnvironment: `preview/${target.logicalTarget}/pr-519`,
       idempotencyKey: `vercel-preview:v1:pr:519:target:${target.logicalTarget}:sha:${SHA}`,
@@ -421,7 +396,7 @@ test("automatic preview contract accepts only the four literal target mappings",
       githubWorkflowRef:
         "mento-protocol/frontend-monorepo/.github/workflows/vercel-preview-worker.yml@refs/heads/main",
     });
-    assert.deepEqual(validatePilotContract(automatic), automatic);
+    assert.deepEqual(validatePrebuiltContract(automatic), automatic);
 
     const wrongTarget =
       target.logicalTarget === "ui"
@@ -436,14 +411,14 @@ test("automatic preview contract accepts only the four literal target mappings",
       },
     ]) {
       assert.throws(() =>
-        validatePilotContract({ ...automatic, ...mismatched }),
+        validatePrebuiltContract({ ...automatic, ...mismatched }),
       );
     }
   }
   for (const logicalTarget of ["unknown", "__proto__", "constructor"]) {
     assert.throws(() =>
-      validatePilotContract(
-        pilotContract({
+      validatePrebuiltContract(
+        automaticContract({
           logicalTarget,
           provenance: "preview-controller:v2",
         }),
@@ -454,7 +429,7 @@ test("automatic preview contract accepts only the four literal target mappings",
 
 test("branch and SHA validation rejects mutable, option-like, and control input", () => {
   assert.equal(validateExactSha(SHA), SHA);
-  assert.equal(validateGitBranch("feature/ui-pilot"), "feature/ui-pilot");
+  assert.equal(validateGitBranch("feature/ui-preview"), "feature/ui-preview");
   for (const branch of ["-main", " main", "main\nother", "refs/heads/main"]) {
     assert.throws(() => validateGitBranch(branch));
   }
@@ -558,7 +533,7 @@ test("source validation rejects a commit not reachable from the supplied branch"
 test("pinned CLI arguments preserve preview branch and exact commit metadata", () => {
   assert.deepEqual(
     buildVercelPullArguments({
-      gitBranch: "feature/ui-pilot",
+      gitBranch: "feature/ui-preview",
       projectId: "prj_example",
     }),
     [
@@ -567,7 +542,7 @@ test("pinned CLI arguments preserve preview branch and exact commit metadata", (
       "--environment",
       "preview",
       "--git-branch",
-      "feature/ui-pilot",
+      "feature/ui-preview",
       "--project",
       "prj_example",
     ],
@@ -584,7 +559,7 @@ test("pinned CLI arguments preserve preview branch and exact commit metadata", (
   const deploy = buildVercelDeployArguments({
     projectId: "prj_example",
     commitSha: SHA,
-    gitBranch: "feature/ui-pilot",
+    gitBranch: "feature/ui-preview",
     idempotencyKey: CONTROLLER_KEY,
   });
   assert.deepEqual(deploy, [
@@ -604,7 +579,7 @@ test("pinned CLI arguments preserve preview branch and exact commit metadata", (
     "--meta",
     `githubCommitSha=${SHA}`,
     "--meta",
-    "githubCommitRef=feature/ui-pilot",
+    "githubCommitRef=feature/ui-preview",
     "--meta",
     `mentoControllerKey=${CONTROLLER_KEY}`,
   ]);
@@ -710,7 +685,7 @@ function lookupDeployment(overrides = {}) {
       githubCommitOrg: "mento-protocol",
       githubCommitRepo: "frontend-monorepo",
       githubCommitSha: SHA,
-      githubCommitRef: "feature/ui-pilot",
+      githubCommitRef: "feature/ui-preview",
       mentoControllerKey: CONTROLLER_KEY,
     },
     ...overrides,
@@ -722,7 +697,7 @@ function lookupOptions() {
     projectId: "prj_example",
     vercelOrgId: "team_example",
     commitSha: SHA,
-    gitBranch: "feature/ui-pilot",
+    gitBranch: "feature/ui-preview",
     idempotencyKey: CONTROLLER_KEY,
     startedAtMs: LOOKUP_STARTED_AT,
     nowMs: LOOKUP_NOW,
@@ -736,7 +711,7 @@ test("ambiguous upload lookup uses supported filters and validates the exact met
   assert.equal(url.searchParams.get("projectId"), "prj_example");
   assert.equal(url.searchParams.get("teamId"), "team_example");
   assert.equal(url.searchParams.get("target"), "preview");
-  assert.equal(url.searchParams.get("branch"), "feature/ui-pilot");
+  assert.equal(url.searchParams.get("branch"), "feature/ui-preview");
   assert.equal(url.searchParams.get("sha"), SHA);
   assert.equal(url.searchParams.get("limit"), "100");
   assert.deepEqual([...url.searchParams.keys()].sort(), [

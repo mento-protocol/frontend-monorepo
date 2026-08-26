@@ -245,17 +245,17 @@ connect only on an allowlisted team preview host.
 
 GitHub-built workers call the reusable workflow directly before posting a
 successful canonical Deployment status. Ordinary previews for App, Governance,
-Reserve, and UI are GitHub-owned. App and Governance enter the transitional
+Reserve, and UI are GitHub-owned. App and Governance enter the bounded
 `.github/workflows/preview-smoke.yml` native adapter only during bounded
 target-local preview rollback. The adapter accepts only the exact Vercel bot,
 exact `Preview – <project>` environment, successful status, empty native
 Deployment payload, and exact project-slug team hostname. Every qualifying
 event runs the full smoke; the adapter does not query or reuse earlier statuses
 or use a lossy shared concurrency group, and has no PAT or Vercel credential.
-It is retained only for rollback proof and is removed during #523 cleanup after
-the required observation period; its presence does not enable ordinary native
-branch previews. Target-local or full-native `main` rollback does not change
-this GitHub preview ownership. Conversely, a target-local preview rollback uses
+It exists only for the documented target-local preview rollback proof. Its
+presence does not enable ordinary native branch previews. Target-local or
+full-native `main` rollback does not change this GitHub preview ownership.
+Conversely, a target-local preview rollback uses
 the exact native-preview/GitHub-main branch rules and does not restore native
 main ownership.
 

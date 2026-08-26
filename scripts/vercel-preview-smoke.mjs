@@ -214,28 +214,6 @@ function validateControllerTuple(values, common) {
   };
 }
 
-function validateManualPilotTuple(values, common) {
-  invariant(
-    common.logicalTarget === "ui",
-    "Manual pilot smoke supports only UI",
-  );
-  const runId = positiveInteger(values.workflowRunId, "Workflow run ID");
-  const runAttempt = positiveInteger(
-    values.workflowRunAttempt,
-    "Workflow run attempt",
-  );
-  const expectedKey = `vercel-pilot:v1:ui:sha:${common.commitSha}:run:${runId}:attempt:${runAttempt}`;
-  invariant(
-    values.verificationKey === expectedKey,
-    "Manual pilot verification key does not match the tuple",
-  );
-  optionalEmpty(values.pullRequestNumber, "Pull request number");
-  return {
-    ...validateCredentialedTuple(values, common),
-    pullRequestNumber: null,
-  };
-}
-
 function validateNativeTuple(values, common) {
   invariant(
     common.logicalTarget === "app" || common.logicalTarget === "governance",
@@ -294,7 +272,7 @@ export function validatePreviewSmokeTuple(values) {
   const verificationMode = requiredText(
     values.verificationMode,
     "Verification mode",
-    /^(?:controller|manual-pilot|native-adapter)$/,
+    /^(?:controller|native-adapter)$/,
     32,
   );
   const verificationKey = requiredText(
@@ -321,8 +299,6 @@ export function validatePreviewSmokeTuple(values) {
 
   if (verificationMode === "native-adapter")
     return validateNativeTuple(values, common);
-  if (verificationMode === "manual-pilot")
-    return validateManualPilotTuple(values, common);
   return validateControllerTuple(values, common);
 }
 
@@ -694,8 +670,6 @@ function tupleFromEnvironment(environment = process.env) {
     githubDeploymentId: environment.GITHUB_DEPLOYMENT_ID,
     verificationMode: environment.VERIFICATION_MODE,
     verificationKey: environment.VERIFICATION_KEY,
-    workflowRunId: environment.WORKFLOW_RUN_ID,
-    workflowRunAttempt: environment.WORKFLOW_RUN_ATTEMPT,
     vercelDeploymentId: environment.VERCEL_DEPLOYMENT_ID,
     nextDeploymentId: environment.MENTO_NEXT_DEPLOYMENT_ID,
     expectedProjectId: environment.EXPECTED_PROJECT_ID,

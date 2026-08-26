@@ -1528,8 +1528,8 @@ test("every durable current-attempt journal upload has the canonical downloaded 
       count += 1;
       assert.equal(
         upload.with["retention-days"],
-        14,
-        `journal upload must outlive the observation window: ${groupName}/${upload.name}`,
+        7,
+        `journal upload must use the standard retention: ${groupName}/${upload.name}`,
       );
       assert.match(
         upload.with.path,
@@ -1810,7 +1810,7 @@ test("ordinary stages retain protected runtime isolation and create-only uploads
     assert.equal(jobSteps.at(-1), cleanup);
     const diagnostics = named(job, "browser diagnostics on failure");
     assert.equal(diagnostics.uses, UPLOAD_PIN);
-    assert.equal(diagnostics.with["retention-days"], 14);
+    assert.equal(diagnostics.with["retention-days"], 7);
     assert.doesNotMatch(JSON.stringify(workflow.jobs[job]), /\.vercel\/output/);
   }
 });

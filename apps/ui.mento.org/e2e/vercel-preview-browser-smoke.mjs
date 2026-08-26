@@ -13,8 +13,6 @@ const MAX_NEXT_STATIC_ASSET_REQUESTS = 5_000;
 const NEXT_STATIC_ASSET_IDLE_MS = 250;
 const AUTOMATIC_KEY_PATTERN =
   /^vercel-preview:v1:pr:[1-9][0-9]*:target:ui:sha:([0-9a-f]{40})$/;
-const PILOT_KEY_PATTERN =
-  /^vercel-pilot:v1:ui:sha:([0-9a-f]{40}):run:[1-9][0-9]*:attempt:[1-9][0-9]*$/;
 
 function requiredText(value, label, pattern) {
   if (
@@ -59,11 +57,9 @@ export function validateBrowserSmokeInput(values) {
   const idempotencyKey = requiredText(
     values.idempotencyKey,
     "Deployment idempotency key",
-    /^(?:vercel-preview|vercel-pilot):/,
+    /^vercel-preview:/,
   );
-  const keyMatch =
-    AUTOMATIC_KEY_PATTERN.exec(idempotencyKey) ??
-    PILOT_KEY_PATTERN.exec(idempotencyKey);
+  const keyMatch = AUTOMATIC_KEY_PATTERN.exec(idempotencyKey);
   if (!keyMatch || keyMatch[1] !== commitSha) {
     throw new Error(
       "Deployment idempotency key does not match the exact commit SHA",

@@ -153,7 +153,7 @@ pnpm vercel:primitives:test
 # Test canonical read-only Vercel state and guarded alias-drift evidence
 pnpm vercel:deployment-state:test
 
-# Test manual and automatic Vercel workflows, exact-main gating, transactions, and smoke
+# Test Vercel preview and main workflows, exact-main gating, transactions, and smoke
 pnpm vercel:workflow:test
 
 # Test preview state, reusable smoke trust, native-adapter, and Git ownership
@@ -168,46 +168,6 @@ pnpm --filter app.mento.org test:production-shadow:routing
 # Verify exact Next.js and Vercel CLI custom deployment-ID prerequisites
 pnpm vercel:versions:check
 
-# Capture the private, append-only GitHub side of the #523 observation.
-# Before substituting these deliberately invalid placeholders, read and verify
-# the current private interval.json and interval-extensions ledger. Reuse their
-# exact start/current end, or use a separately approved interval for a new tree.
-START_UTC='<START_UTC>'
-END_UTC_EXCLUSIVE='<END_UTC_EXCLUSIVE>'
-pnpm vercel:cost:observe -- init --start "$START_UTC" --end "$END_UTC_EXCLUSIVE"
-pnpm vercel:cost:observe -- capture-preview --pr <number> --event-run-id <controller-run-id>
-pnpm vercel:cost:observe -- capture-main --run-id <main-deployment-run-id>
-# Run at useful checkpoints and after the final end boundary
-pnpm vercel:cost:observe -- sample-github
-# Re-run init with the same start and a later end before audit if the window
-# needs more eligible pushes or has boundary-straddling work. Verify the
-# append-only ledger again, then substitute a separately reviewed later end.
-EXTENDED_END_UTC_EXCLUSIVE='<EXTENDED_END_UTC_EXCLUSIVE>'
-pnpm vercel:cost:observe -- init --start "$START_UTC" --end "$EXTENDED_END_UTC_EXCLUSIVE"
-# Repairable GitHub gaps leave collection mutable; a clean audit preflight
-# permanently freezes this interval before writing the private evidence-join fragment.
-# Read the canonical current end back from interval.json plus its latest valid
-# extension. Never audit an earlier scheduled end after the ledger was extended.
-CURRENT_END_UTC_EXCLUSIVE='<CURRENT_END_UTC_EXCLUSIVE>'
-pnpm vercel:cost:observe -- audit --end "$CURRENT_END_UTC_EXCLUSIVE"
-
-# Normalize complete saved Vercel v7 pages without network access. Output and
-# proof share one private directory; rerun the exact command after interruption.
-pnpm vercel:cost:normalize-deployments --input <private-pages-envelope.json> --output <private-dir/census.jsonl> --proof <private-dir/census-proof.json>
-
-# Test and run the private collector, census normalizer, and redaction-safe analyzer
-pnpm vercel:cost:test
-# Inspect the private detailed-usage shape, then build the source-bound GitHub
-# Actions proof after collecting its metadata and one complete audit source.
-pnpm vercel:cost:github -- inspect --usage-csv .vercel-cost-evidence/github/raw/detailed-usage.csv --output .vercel-cost-evidence/github/usage-shape.json
-# Use exactly one audit source: --audit-web-export, entitled Enterprise Cloud
-# --audit-rest-transcript, or --audit-web-zero-screenshot when an exact empty
-# owner query renders no Export control.
-pnpm vercel:cost:github -- build --usage-csv .vercel-cost-evidence/github/raw/detailed-usage.csv --usage-metadata .vercel-cost-evidence/github/raw/detailed-usage.metadata.json --audit-web-export .vercel-cost-evidence/github/raw/audit-log.web-export.json --audit-metadata .vercel-cost-evidence/github/raw/audit-log.metadata.json --observation-root .vercel-cost-evidence/github-observation-v2 --output .vercel-cost-evidence/github/postcutover.github-actions.json
-# The analyzer rebuilds baseline/post censuses and canonical proofs from their
-# raw saved deployment pages before applying the #523 target-mix formula, and
-# manifest v3 also revalidates the GitHub Actions proof from its raw sources.
-pnpm vercel:cost:analyze --input .vercel-cost-evidence/manifest.json --format markdown
 ```
 
 Two always-run checks protect the policy on every pull request:
@@ -766,10 +726,9 @@ The repository is set up with GitHub Actions for CI:
   only; native Vercel deployment status and browser evidence separately prove
   that the preview works. The native `deployment_status` smoke adapter remains
   solely for bounded App/Governance rollback verification and does not imply
-  that ordinary native branch previews remain enabled. Its removal is deferred
-  to the migration cleanup in
-  [issue #523](https://github.com/mento-protocol/frontend-monorepo/issues/523),
-  after the required observation period. A target-local main rollback restores
+  that ordinary native branch previews remain enabled. It exists only for the
+  documented App and Governance target-local preview rollback paths. A
+  target-local main rollback restores
   only the target's native `main` path and changes only its main ownership mode
   to `shadow`; previews remain GitHub-owned. A target-local preview rollback
   changes only preview ownership and preserves GitHub-owned `main`.
@@ -783,8 +742,8 @@ The repository is set up with GitHub Actions for CI:
   [ADR 0005](docs/adr/0005-stable-main-release-identity-and-rerun-admission.md)
   for stable release identity and provider-side rerun reconciliation, and
   [`docs/vercel-deployments.md`](docs/vercel-deployments.md) for the four-target
-  preview controller, active main transaction, historical shadow canary, and
-  rollback procedures.
+  preview controller, active main transaction, production-shadow verification,
+  and rollback procedures.
 
   The manual `Vercel Production Shadow` workflow can build App custom `v3`
   without deploying it and upload Governance, Reserve, and UI production

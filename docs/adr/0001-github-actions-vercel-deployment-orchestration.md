@@ -3,15 +3,14 @@ title: GitHub Actions owns Vercel build and deployment orchestration; Vercel rem
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-07-24
+last_verified: 2026-08-26
 scope: ci/deployment
 date: 2026-07
 ---
 
 # ADR 0001 — GitHub Actions owns Vercel build and deployment orchestration; Vercel remains hosting and runtime
 
-**Status:** Accepted (Jul 2026); previews cut over and the active-main topology
-is configured, with live #522 cutover evidence still pending.
+**Status:** Accepted (Jul 2026); preview and active-main cutovers are complete.
 **Scope:** ci/deployment
 
 ## Context
@@ -148,12 +147,12 @@ Each worker creates or reuses one GitHub Deployment whose `ref` is the selected
 status. Every selected target runs direct smoke against its immutable URL before
 success. App and governance retain a rollback-only native `deployment_status`
 adapter for bounded target-local recovery; it is not an ordinary native preview
-path. Its removal is deferred to #523 cleanup after the required observation
-period. A status created with the repository
+path. It exists only because these documented rollback paths require native
+deployment proof. A status created with the repository
 `GITHUB_TOKEN` is evidence, not a trigger contract.
 
 The direct smoke is one credential-free reusable workflow shared by all four
-targets and the temporary native adapter. Its input is an already verified,
+targets and the bounded native adapter. Its input is an already verified,
 mode-discriminated metadata tuple; it never looks up deployment metadata with a
 token. Native App/Governance events are accepted only for the exact Vercel bot,
 exact preview environment, empty native payload, successful status, and exact
@@ -297,16 +296,16 @@ A durable journal existed only for the latter two outcomes, which required
 `verified-no-mutation`; the other two required `not-required`. The final job
 validated that matrix without ending the job, wrote either the full success
 evidence or a minimal redacted failure graph, uploaded
-`vercel-main-evidence-${run_id}-${run_attempt}` for 14 days, and only then
+`vercel-main-evidence-${run_id}-${run_attempt}` for seven days, and only then
 returned the terminal result.
 
-The active topology designed for the separately reviewed PR-B cutover enables
+The active topology from the separately reviewed PR-B cutover enables
 active mutation and disables the replaced native `main` paths in the same
 commit. The checked-in global mode is `active`, and all four per-target main
 ownership entries are `github`. App always retains `v2: true`; legacy
 `v2 -> production` remains Vercel-Git-owned and is verified independently
-before and after activation or recovery. This ADR does not claim that the live
-#522 cutover evidence has been accepted.
+before and after activation or recovery. The live #522 cutover evidence is
+accepted.
 
 `git.deploymentEnabled` branch rules disable only replaced native paths. The app
 configuration always retains `v2: true`. Outside a bounded shadow canary or
@@ -343,22 +342,20 @@ domain after rollback. App `v3` recovers each reviewed alias independently to
 its captured immutable URL, then verifies `v2-app.mento.org` is unchanged.
 Commands such as `latest` are never rollback evidence.
 
-### Cost and success gate
+### Accepted cost outcome
 
-The migration succeeds only after at least seven complete post-cutover days and
-ten eligible trusted PR pushes show at least a 90% target-mix-normalized
-reduction in raw Vercel Build CPU minutes for the migrated paths. Project totals
-qualify only when the complete preview/main deployment census proves zero
-legacy-v2, manual, or unknown attempts in both comparison windows. Evidence also
-tracks standard/larger runner usage, storage added by the migration, queue and
-build durations, duplicate attempts, first-preview delivery, path-planning
-correctness, smoke results, and preserved app `v2` activity.
+The fixed measurement interval recorded 16 Build CPU minutes. Its
+target-mix-normalized counterfactual was 100.23649463908816 Build CPU minutes.
+The reduction was 84.03774986584511%, reported as 84.04%.
+
+The original acceptance gate required a reduction of at least 90%, so that
+gate returned false. On 2026-08-26, the maintainer accepted the measured 84.04%
+reduction as a successful product outcome. This decision preserves the original
+gate result and closes the cost-success decision.
 
 Account-specific prices, allocations, invoices, and absolute cost values remain
-private. Public evidence contains redacted aggregates and reproducible formulas
-only. If the threshold, correctness, security, or service-quality gates fail,
-the epic remains open and the unexplained build source gets a focused follow-up
-instead of being normalized away.
+private. This ADR records only the accepted Build CPU aggregate and formula
+inputs.
 
 ## Alternatives considered
 
@@ -438,28 +435,27 @@ failure of the hosting/runtime platform.
 - The legacy app `v2` path intentionally remains exceptional and must be tested
   independently during every ownership change and rollback exercise.
 - The ADR should be reconsidered if repository visibility changes, standard
-  runner billing or limits materially change, Actions reliability/latency is
-  worse than the acceptance bounds, normalized savings miss the threshold, or
-  Vercel introduces a simpler build-offload mechanism with equivalent security
-  and transaction semantics.
+  runner billing or limits materially change, Actions reliability or latency
+  becomes unacceptable, or Vercel introduces a simpler build-offload mechanism
+  with equivalent security and transaction semantics.
 
 ## Evidence
 
 ### Tracked rollout
 
-Rollout status reverified on 2026-07-24:
+Rollout status reverified on 2026-08-26:
 
-| Issue                                                                  | Responsibility                                                 | Adoption status                                              |
-| ---------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------ |
-| [#515](https://github.com/mento-protocol/frontend-monorepo/issues/515) | Epic and non-negotiable behavior                               | Open; rollout owner                                          |
-| [#516](https://github.com/mento-protocol/frontend-monorepo/issues/516) | Planner, deployment ID, environment primitives                 | Complete                                                     |
-| [#517](https://github.com/mento-protocol/frontend-monorepo/issues/517) | Maintainer-provisioned credentials and mapping                 | Complete                                                     |
-| [#518](https://github.com/mento-protocol/frontend-monorepo/issues/518) | Manual no-cutover UI pilot and cost go/no-go                   | Complete                                                     |
-| [#519](https://github.com/mento-protocol/frontend-monorepo/issues/519) | Automatic UI previews and durable batching                     | Complete                                                     |
-| [#520](https://github.com/mento-protocol/frontend-monorepo/issues/520) | App, governance, and reserve preview cutover                   | Complete                                                     |
-| [#521](https://github.com/mento-protocol/frontend-monorepo/issues/521) | Main shadow proof and app `v3` semantics                       | Complete                                                     |
-| [#522](https://github.com/mento-protocol/frontend-monorepo/issues/522) | Main transaction, cutover, rollback, and app `v2` preservation | Open; active topology configured, live cutover proof pending |
-| [#523](https://github.com/mento-protocol/frontend-monorepo/issues/523) | Observation, savings proof, and migration cleanup              | Open; analyzer preparation merged, observation not started   |
+| Issue                                                                  | Responsibility                                                 | Adoption status                              |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------- |
+| [#515](https://github.com/mento-protocol/frontend-monorepo/issues/515) | Epic and non-negotiable behavior                               | Open; rollout owner                          |
+| [#516](https://github.com/mento-protocol/frontend-monorepo/issues/516) | Planner, deployment ID, environment primitives                 | Complete                                     |
+| [#517](https://github.com/mento-protocol/frontend-monorepo/issues/517) | Maintainer-provisioned credentials and mapping                 | Complete                                     |
+| [#518](https://github.com/mento-protocol/frontend-monorepo/issues/518) | Manual no-cutover UI pilot and cost go/no-go                   | Complete                                     |
+| [#519](https://github.com/mento-protocol/frontend-monorepo/issues/519) | Automatic UI previews and durable batching                     | Complete                                     |
+| [#520](https://github.com/mento-protocol/frontend-monorepo/issues/520) | App, governance, and reserve preview cutover                   | Complete                                     |
+| [#521](https://github.com/mento-protocol/frontend-monorepo/issues/521) | Main shadow proof and app `v3` semantics                       | Complete                                     |
+| [#522](https://github.com/mento-protocol/frontend-monorepo/issues/522) | Main transaction, cutover, rollback, and app `v2` preservation | Complete                                     |
+| [#523](https://github.com/mento-protocol/frontend-monorepo/issues/523) | Observation, savings proof, and migration cleanup              | 84.04% accepted; final cleanup pending merge |
 
 Merged implementation evidence:
 
@@ -469,11 +465,7 @@ Merged implementation evidence:
   fail-closed planning, deployment IDs, build-environment contract, and pinned
   prebuilt prerequisites; closes #516.
 - [PR #525](https://github.com/mento-protocol/frontend-monorepo/pull/525) —
-  manual exact-SHA UI prebuilt pilot implementation; #518 remains open pending
-  its privileged run and evidence.
-- [PR #528](https://github.com/mento-protocol/frontend-monorepo/pull/528) —
-  public-safe cost-analysis tooling in preparation for #523; it does not start
-  the observation window.
+  historical exact-SHA UI prebuilt pilot implementation; #518 is complete.
 - [PR #604](https://github.com/mento-protocol/frontend-monorepo/pull/604) and
   [PR #609](https://github.com/mento-protocol/frontend-monorepo/pull/609) —
   final Governance and App preview-ownership cutovers; all four ordinary
@@ -486,23 +478,20 @@ Merged implementation evidence:
 Canonical repository evidence:
 
 - [`docs/vercel-deployments.md`](../vercel-deployments.md) — current target,
-  environment, build, pilot, and security runbook.
+  environment, build, rollback, and security runbook.
 - `scripts/plan-vercel-deployments.mjs` and its offline fixtures — fail-closed
   affected-target planning.
 - `scripts/vercel-prebuilt.mjs` and `scripts/vercel-build-environment.mjs` —
   pinned-version, deployment-ID, output, and environment contracts.
-- `.github/workflows/vercel-prebuilt-pilot.yml` and
-  `.github/workflows/_vercel-prebuilt.yml` — merged manual pilot path, not an
-  automatic cutover.
+- `.github/workflows/vercel-preview-worker.yml` and
+  `.github/workflows/_vercel-prebuilt.yml` — active automatic preview worker and
+  reusable prebuilt pipeline.
 - `.github/workflows/vercel-main-deployment.yml`,
   `scripts/vercel-main-deployment.mjs`, and the exact-attempt, served-SHA,
   transaction, ownership-partition, active mutation, recovery, duplicate-census,
   and runtime helpers — historical PR-A shadow proof and the active-main
   contract.
-- [`docs/vercel-cost-validation.md`](../vercel-cost-validation.md) — private
-  evidence boundary and public aggregate acceptance calculations.
-
-Primary platform references, verified at adoption:
+  Primary platform references, verified at adoption:
 
 - [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
   and [GitHub-hosted runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)

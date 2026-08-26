@@ -26,7 +26,7 @@ export const SELECTION_RECEIPT_SCHEMA = "vercel-preview-selection:v2";
 export const CONTROLLER_SCHEMA = "vercel-preview-controller:v2";
 export const PREVIEW_JOURNAL_SCHEMA = "vercel-preview-journal:v2";
 export const PREVIEW_JOURNAL_MARKER = "<!-- vercel-preview-journal:v2 -->";
-export const PREVIEW_OBSERVATION_RECEIPT_SCHEMA =
+const PREVIEW_OBSERVATION_RECEIPT_SCHEMA =
   "vercel-preview-observation-receipt:v1";
 const PREVIEW_OBSERVATION_ARTIFACT_PREFIX =
   "vercel-preview-observation-receipt-v1";
@@ -183,7 +183,7 @@ const CONTROLLER_SYNTHETIC_RESULT_STATES = new Map([
   [NATIVE_OWNED_SELECTION_REASON, "error"],
 ]);
 
-export function isSupportedControllerSyntheticPreviewResult(result) {
+function isSupportedControllerSyntheticPreviewResult(result) {
   return (
     result?.github_deployment_id === null &&
     CONTROLLER_SYNTHETIC_RESULT_STATES.get(result.terminal_reason) ===
@@ -191,7 +191,7 @@ export function isSupportedControllerSyntheticPreviewResult(result) {
   );
 }
 
-export function isSupportedEvidenceFreeRecoveredFailure(result) {
+function isSupportedEvidenceFreeRecoveredFailure(result) {
   return (
     result?.github_deployment_id !== null &&
     result?.state === "failure" &&

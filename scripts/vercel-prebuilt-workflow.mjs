@@ -77,16 +77,6 @@ export const PREBUILT_TARGETS = Object.freeze(
   ),
 );
 
-// Preserve the Phase A manual pilot contract while the reusable internals are
-// prepared for the four literal automatic-preview callers.
-export const PILOT_TARGET = Object.freeze({
-  ...PREBUILT_TARGETS.ui,
-  githubEnvironment: "vercel-preview-ui",
-  vercelEnvironment: "preview",
-  vercelTarget: "preview",
-  deploymentMode: "preview",
-});
-
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const VERCEL_DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
 const PINNED_VERCEL_CLI_STORE_PATTERN = new RegExp(
@@ -149,8 +139,6 @@ const UPLOAD_LOOKUP_ATTEMPTS = 3;
 const UPLOAD_LOOKUP_DELAY_MS = 1_000;
 const UPLOAD_LOOKUP_WINDOW_MS = 45 * 60 * 1_000;
 const TRUSTED_CALLER_WORKFLOW = {
-  "manual-pilot":
-    "mento-protocol/frontend-monorepo/.github/workflows/vercel-prebuilt-pilot.yml@refs/heads/main",
   "preview-controller:v2":
     "mento-protocol/frontend-monorepo/.github/workflows/vercel-preview-worker.yml@refs/heads/main",
 };
@@ -264,14 +252,14 @@ function validateAutomaticPreviewIdentity(values) {
   }
 }
 
-function validatePrebuiltContract(values) {
+export function validatePrebuiltContract(values) {
   validateExactSha(values.commitSha);
   validateGitBranch(values.gitBranch);
   if (values.gitBranch.startsWith("dependabot/")) {
     throw new Error("Dependabot branches cannot receive preview credentials");
   }
 
-  const target = validatePrebuiltTargetMapping(values);
+  validatePrebuiltTargetMapping(values);
   for (const [name, actual] of Object.entries({
     vercelEnvironment: values.vercelEnvironment,
     vercelTarget: values.vercelTarget,
@@ -289,16 +277,7 @@ function validatePrebuiltContract(values) {
       "The prebuilt workflow may run only in mento-protocol/frontend-monorepo",
     );
   }
-  if (values.provenance === "manual-pilot") {
-    if (
-      target.logicalTarget !== "ui" ||
-      values.githubEnvironment !== PILOT_TARGET.githubEnvironment
-    ) {
-      throw new Error("The manual pilot is restricted to the UI target");
-    }
-  } else {
-    validateAutomaticPreviewIdentity(values);
-  }
+  validateAutomaticPreviewIdentity(values);
   if (values.githubRef !== "refs/heads/main") {
     throw new Error("The prebuilt workflow must be dispatched from main");
   }
@@ -310,11 +289,6 @@ function validatePrebuiltContract(values) {
   requiredText(values.idempotencyKey, "Deployment idempotency key");
   requiredText(values.workflowRunUrl, "Workflow run URL");
   return values;
-}
-
-// Keep the original public name while the manual pilot remains a supported caller.
-export function validatePilotContract(values) {
-  return validatePrebuiltContract(values);
 }
 
 function git(repoRoot, arguments_, run = spawnSync) {

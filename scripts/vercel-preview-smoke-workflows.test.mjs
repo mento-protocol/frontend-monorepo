@@ -55,7 +55,7 @@ test("reusable preview smoke is workflow_call-only, secretless, and target-bound
   );
   assert.ok(diagnostics);
   assert.equal(diagnostics.if, "failure()");
-  assert.equal(diagnostics.with["retention-days"], 14);
+  assert.equal(diagnostics.with["retention-days"], 7);
   assert.doesNotMatch(
     read(reusablePath),
     /secrets\.|github\.token|GITHUB_TOKEN|VERCEL_TOKEN|TURBO_TOKEN|SENTRY_AUTH_TOKEN|ETHERSCAN_API_KEY/,

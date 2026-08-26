@@ -506,7 +506,7 @@ artifact survives without weakening the sentinel.
 
 Both paths append their canonical redacted report to `$GITHUB_STEP_SUMMARY` and
 upload the exact JSON as artifact
-`vercel-main-evidence-${run_id}-${run_attempt}` with 14-day retention. Link the
+`vercel-main-evidence-${run_id}-${run_attempt}` with seven-day retention. Link the
 first merged PR-A run and artifact on issue #522 or its PR; do not embed observed
 IDs in this canonical runbook. The evidence contains only:
 
@@ -902,8 +902,8 @@ The result is deterministic for the same four inputs, differs between targets
 and reruns, is at most 32 characters, uses only Vercel's supported character
 set, and never begins with the reserved `dpl_` prefix.
 
-Manual shadow and pilot workflows retain that per-attempt Next.js deployment ID
-as build provenance. Active-main uses the target-specific candidate ID
+The Vercel Production Shadow workflow retains that per-attempt Next.js
+deployment ID as build provenance. Active-main uses the target-specific candidate ID
 (`releaseId + target`) for its Next.js deployment ID across downstream reruns;
 release ID is repository, exact SHA, and validated upstream CI run ID. The
 downstream run-and-attempt key continues to identify each active-main journal
@@ -1508,7 +1508,7 @@ rejects any ambient protection header, handles each redirect as a new browser
 request, and origin-checks main-frame navigation throughout the smoke and after
 every target interaction. HTTP readiness also uses manual redirects and rejects
 a cross-origin redirect. The fresh smoke job never links or executes candidate
-`node_modules`. Failure uploads only screenshots/video for fourteen days; tracing
+`node_modules`. Failure uploads only screenshots/video for seven days; tracing
 stays disabled to keep diagnostic artifacts bounded.
 
 Do not run the manual pilot until the required GitHub Environment, repository
@@ -1568,187 +1568,28 @@ workflow performs no explicit alias assignment, promotion,
 environment-configuration, ownership, or protected/custom production-domain
 mutation.
 
-## Cost validation preparation
+## Current ordinary-project build settings
 
-The network-free analyzer and private/public evidence boundary for the final
-build-minute observation are documented in
-[Vercel build-minute validation](vercel-cost-validation.md). Preparing that
-tool does not start the observation window; collection begins only after the
-four-target preview and active-main ownership have live cutover proof.
+UI, Reserve, and Governance use these project-level Vercel settings:
 
-## External Standard-build cost pilot
+- `resourceConfig.buildMachineType`: `standard`
+- `resourceConfig.buildMachineSelection`: `fixed`
+- `resourceConfig.elasticConcurrencyEnabled`: `false`
 
-[Issue #842](https://github.com/mento-protocol/frontend-monorepo/issues/842)
-tests whether Vercel's project-level build settings remove the measured
-four-minute Build CPU floor from GitHub-prebuilt deployments. This is an
-external Vercel project setting. It does not change a workflow, ownership mode,
-deployment path, or any target's `vercel.json`. Keep every `vercel.json` file
-unchanged during the pilot, expansion, and rollback.
+App is excluded. Its custom `v3` deployment and native `v2 -> production` path
+share one Vercel project. A project-level setting change could affect both
+paths and increase activation-recovery risk.
 
-### Target order and App exclusion
-
-Change one ordinary project at a time in this order:
-
-1. UI is the pilot.
-2. Reserve is eligible only after the UI canary passes.
-3. Governance is eligible only after the Reserve canary passes.
-
-Use project-level settings. Do not use Vercel's team-wide bulk setting. All
-three ordinary projects are required for the widest savings margin, but each
-expansion remains contingent on the preceding project's complete canary and
-queue evidence.
-
-Do not include App in this change. Its custom-`v3` activation uses a bounded
-120-second deployment command. Under provider queueing, a candidate could
-remain queued after that command ends, finish later, and move reviewed aliases
-after the controller has entered an unknown-result or recovery path. The
-preserved native `v2 -> production` path shares the same project setting, while
-the FOCUS export provides only project-level Build CPU attribution. A
-project-level change therefore cannot isolate custom `v3` from native `v2` and
-would add activation-recovery and billing-attribution risks to this
-ordinary-project pilot.
-
-### Exact external setting
-
-In the selected project's Vercel dashboard, use **Settings > Build and
-Deployment** and select these values:
-
-- **Build Machine:** **Standard** (4 vCPUs and 8 GB memory).
-- **On-Demand Concurrent Builds:** **Disabled**.
-
-The equivalent minimal
-[`PATCH /v9/projects/{idOrName}`](https://vercel.com/docs/rest-api/projects/update-an-existing-project)
-request body is:
-
-```json
-{
-  "resourceConfig": {
-    "buildMachineType": "standard",
-    "buildMachineSelection": "fixed",
-    "elasticConcurrencyEnabled": false
-  }
-}
-```
-
-Send `buildMachineSelection: "fixed"` explicitly. Vercel models machine type
-and machine selection as separate fields. An elastic selection can override
-the concrete type. Do not send or clear `buildQueue`: its
-`SKIP_NAMESPACE_QUEUE` and `WAIT_FOR_NAMESPACE_QUEUE` values select behavior
-only while On-Demand Concurrent Builds is enabled. They do not represent the
-disabled state.
-
-Before the UI pilot, open one read-only billing question through the logged-in
-Vercel support path. Do not ask support to change a project. Ask Vercel to
-confirm both mappings in writing:
-
-1. Does each `vercel deploy --prebuilt` deployment consume the one-minute
-   On-Demand Concurrent Builds increment while that setting is enabled, even
-   though Vercel receives prebuilt output?
-2. With the Standard build machine and On-Demand Concurrent Builds disabled,
-   does a FOCUS Build CPU record have zero `ConsumedQuantity`, no record, or a
-   nonzero `ConsumedQuantity`? Ask Vercel to identify the unit and rounding
-   rule.
-
-Vercel's public project and build documentation does not define either
-mapping. Record the support case and response as provider evidence. The answer
-can explain the result, but it does not replace the fresh FOCUS measurement.
-
-Immediately before the change, save a private
+The read-only `project` mode in `scripts/vercel-deployment-state.mjs` remains
+available to verify a project's reviewed ID, name, and Root Directory. It does
+not change the project. Use the Vercel dashboard or the read-only
 [`GET /v9/projects/{idOrName}`](https://vercel.com/docs/rest-api/projects/find-a-project-by-id-or-name)
-response and a dashboard screenshot. Immediately afterward, repeat both reads.
-The post-change project override must report
-`resourceConfig.buildMachineType == "standard"` and
-`resourceConfig.buildMachineSelection == "fixed"` and
-`resourceConfig.elasticConcurrencyEnabled == false`. If
-`resourceConfig.buildMachineSelection` is absent or `"elastic"`, stop. The
-effective machine selection is not proven. `defaultResourceConfig` describes
-the team default and does not prove the project override. The response fields
-are optional in Vercel's schema. If a required project value is omitted or
-ambiguous, do not infer it from the team default. Stop and obtain
-effective-project confirmation before expansion. Keep project IDs, raw
-responses, and screenshots private.
+response to verify the effective resource settings. Do not infer project
+settings from team defaults.
 
-With `VERCEL_TOKEN` and `VERCEL_ORG_ID` supplied through the operator's normal
-secret environment, run the read-only project inspector. Never put the token on
-the command line:
-
-```bash
-node scripts/vercel-deployment-state.mjs project \
-  --project-id "$VERCEL_PROJECT_ID_UI" \
-  --project-name ui.mento.org \
-  --root-directory apps/ui.mento.org \
-  --expected-build-machine-type standard \
-  --expected-build-machine-selection fixed \
-  --expected-elastic-concurrency-enabled false
-```
-
-Substitute the selected ordinary project's reviewed ID, name, and Root
-Directory during expansion. The command prints only
-`Vercel project configuration verified` on success. It performs no project
-mutation.
-
-### Queue, canary, expansion, and rollback
-
-Before each project change, establish a no-push window for that target. Drain
-its GitHub preview workers, `Vercel Main Deployment` work, and Vercel
-deployments in queued or building state. Capture the exact prior dashboard
-source and values before the mutation. Do not mutate a project unless that
-capture gives an exact rollback source and value for `buildMachineType` and
-`buildMachineSelection`, and `elasticConcurrencyEnabled`. Do not cancel an
-active release to create the window.
-
-After the setting changes, run one bounded automatic-preview scheduler canary
-for the selected target. Push one target-affecting commit to a canary PR. After
-the controller selects its first SHA and while that target's worker or provider
-deployment is queued or running, push exactly one later target-affecting commit
-to the same PR. Do not add a third target-affecting push or overlap this test
-with a `main` deployment for that project. Require the automatic controller's
-first-plus-latest contract: the selected first SHA must run to a terminal
-result without being skipped or canceled, and the latest SHA must then be
-selected and deployed. This validates both selected SHAs under the fixed
-project setting. Require the exact-SHA selections, immutable-URL smokes,
-latest-SHA browser checks, sentinel, and deployment census to pass. Require the
-selected provider deployments to leave queued or building state before their
-GitHub jobs become terminal.
-
-After the scheduler canary passes and every related queue drains, run the
-existing `Vercel Production Shadow` workflow once as paired build, upload, and
-smoke proof. Use its reviewed current-`main` inputs. Do not overlap it with an
-active `Vercel Main Deployment`. Inspect the selected ordinary target's exact
-SHA, prebuilt deployment, immutable-URL smoke, browser result, alias topology,
-and deployment census. The workflow serializes Governance, Reserve, and UI, so
-this paired run does not prove concurrent-build or queue behavior. The
-automatic first-plus-latest canary is the required scheduler proof. It also
-serializes the selected target's two provider deployments. Production Shadow
-validates the ordinary `main` upload path, but neither canary guarantees that
-two Vercel deployment requests overlap. If provider contention occurs
-naturally, record its queue timing. Do not require or infer forced provider
-contention.
-
-Record GitHub and Vercel request, queue, start, and terminal times for both
-canary paths. Stop the rollout if a provider wait exceeds 15 minutes, a
-selected prebuilt job exceeds 20 minutes, the selected first preview SHA is
-skipped or canceled, or a provider deployment remains queued or building after
-its GitHub job becomes terminal. A duplicate, failed smoke, alias or served-SHA
-change, or ambiguous project-setting read also stops the rollout.
-
-Expand only after the scheduler and Production Shadow proofs pass
-and the project setting remains exact. Apply the same procedure to Reserve,
-then Governance. Do not manufacture or wait for a `main` release. Record the
-next natural target-affecting `main` release as separate observation evidence;
-its absence does not block expansion. Do not start the corrective cost interval
-until the Governance proofs pass and all three ordinary projects and deployment
-queues are stable.
-
-On any failure, keep later projects unchanged. Drain the affected target and
-restore the exact pre-change values through the same reviewed dashboard source.
-If rollback uses the API, send only explicit values whose restore semantics are
-confirmed by the captured project response. Do not assume that
-`buildMachineType: null` clears a project override. Use an API clearing value
-only after Vercel confirms its semantics for this endpoint. This pilot never
-changes `buildQueue`, so rollback does not invent a queue mode. Repeat the
-target's scheduler and Production Shadow proofs after rollback before reopening
-normal pushes.
+Before any future setting change or rollback, capture the exact current values
+and their source. Restore only exact prior values with known endpoint semantics.
+Do not assume that a `null` value clears a project override.
 
 ## Current reusable prebuilt core interface
 
@@ -1825,404 +1666,23 @@ derived materialization remain runner-private through the build, are
 revalidated afterward, and are removed only by the trusted handoff/final
 cleanup after the candidate UID has been killed and proven stopped.
 
-## Historical Phase A manual UI prebuilt pilot (audit record)
-
-> **Historical evidence only.** This section preserves the Phase A pilot's
-> controls and native-preview comparison procedure for audit. It is not a
-> current operator entry point: under Phase B, do not dispatch the manual pilot
-> or expect a same-SHA native UI branch preview. Current operators must use the
-> [Phase B canary and rollback procedures](#ui-vercel-git-cutover-phase-b).
-> The commands and implementation details below are retained only as audited
-> Phase A evidence and must not be treated as a supported Phase B procedure.
-
-During Phase A, `.github/workflows/vercel-prebuilt-pilot.yml` was the only entry
-point for the first prebuilt preview. It had only a manual `workflow_dispatch`
-trigger and accepted exactly three selectors: the fixed `ui` target, an
-immutable lowercase 40-character commit SHA, and the same-repository branch
-that contained that SHA. It did not replace or disable the Vercel Git
-integration. Native Vercel Git previews remained the source of truth while the
-pilot gathered functional and timing evidence.
-
-The Phase A caller mapped only the UI preview configuration:
-
-- repository variables `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID_UI`, and
-  `TURBO_TEAM`;
-- repository secrets `VERCEL_TOKEN_PREVIEW`, `TURBO_TOKEN`, and
-  `TURBO_REMOTE_CACHE_SIGNATURE_KEY`.
-
-The reusable worker declared each secret separately. It never inherited all
-caller secrets, received a production Vercel token, selected a production
-GitHub environment, or passed a token on a command line. The separate smoke job
-received no Vercel or Turbo credential and had only `contents: read` permission;
-the immutable preview therefore had to be publicly reachable for the pilot.
-
-The reusable contract accepted only `refs/heads/main` and the exact main-branch
-pilot caller identity. A dispatch selecting another branch, tag, or caller was
-rejected before candidate dependency or build code executed.
-
-### Historical Phase A dispatch procedure
-
-This was a privileged maintainer action, not an automatic PR trigger. Phase A
-maintainers dispatched only after reviewing the selected SHA and accepting its
-same-repository author as trusted: dependency installation and the UI build
-executed that source with the pulled UI preview variables and signed Turbo cache
-credentials. The candidate process never received the Vercel token, but it
-could read its own build inputs and execute arbitrary build code. Fork sources
-could not be selected, and the workflow rejected Dependabot branches.
-
-The dispatch was accepted only from `refs/heads/main`. The caller invoked the
-reusable worker from the same main commit, and the worker validated the caller
-workflow identity again before any candidate code or credentialed step ran. A
-dispatch selecting another branch or tag was rejected before the reusable job
-received its preview credentials.
-
-Phase A maintainers chose a SHA that already had a native Vercel Git UI preview
-and a branch that contained it. They verified both locally before dispatching:
-
-```bash
-SHA="<lowercase-40-character-sha>"
-BRANCH="<same-repository-branch>"
-git check-ref-format --branch "$BRANCH"
-git fetch --no-tags origin "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
-git merge-base --is-ancestor "$SHA" "refs/remotes/origin/$BRANCH"
-gh workflow run vercel-prebuilt-pilot.yml \
-  --ref main \
-  -f target=ui \
-  -f commit_sha="$SHA" \
-  -f git_branch="$BRANCH"
-```
-
-The workflow independently rejected malformed, option-like, newline-bearing,
-missing, or unreachable refs. It checked out the exact SHA with full history
-and used the recorded `HEAD` for the custom Next deployment ID, Vercel metadata,
-GitHub Deployment ref, smoke evidence, and outputs.
-
-The Phase A pilot did not dispatch from a pull-request ref. After the main-only
-guard, the workflow controller was checked out from the trusted
-`github.workflow_sha`; the requested source was checked out separately and was
-never executed automatically with preview credentials. Candidate dependency
-lifecycle scripts were disabled. The worker also restored the controller from
-its trusted workflow SHA after dependency installation and again after the
-candidate build, before output assertion, upload, and inspection.
-
-The Vercel CLI was a separate trusted tool install. Pinned pnpm `10.34.4` read
-the main controller's exact `package.json` and frozen `pnpm-lock.yaml`, disabled
-lifecycle scripts and `.pnpmfile.cjs` hooks, and copied packages into a
-runner-owned directory outside the checkout. Its `--modules-dir` and
-`--virtual-store-dir` values are validated relative paths from the controller
-to that directory; pnpm treats an absolute `--modules-dir` as project-relative
-and would otherwise materialize the CLI at the wrong path. The zero-network
-fixture requires the already-hydrated package store with `--offline`; it cannot
-contact the registry to repair missing data.
-The hosted setup-node location is treated only as a trusted staging input
-because runner-image permissions can make that original path writable by the
-isolated candidate UID. The credentialed build job does not use
-`pnpm/action-setup`: its standalone update path installs `@pnpm/exe`, whose
-`preinstall` lifecycle runs before a downloaded target can be authenticated.
-Instead, pinned setup-node first provides Node.js and its bundled npm with
-package-manager caching explicitly disabled. Trusted controller code validates
-the exact manifest and complete npm lockfile under
-`scripts/vercel-pnpm-bootstrap`, then copies them into a fresh fixed directory
-under the job-scoped Vercel isolation work root.
-
-Each build job derives that boundary from the immutable Actions run identity:
-`/var/lib/mento-vercel-runtime-<run-id>-<run-attempt>` is a fresh root-owned
-`0711` directory, its `.mento-vercel-runtime` marker is a root-owned `0400`
-file containing the exact run ID and attempt, and `work/` is a runner-owned
-`0711` directory. Before creating it, the worker proves `/`, `/var`, and
-`/var/lib` are real root-owned directories with no group or other write bit.
-The root-owned outer directory prevents the isolated candidate from replacing
-the runner-owned work entry through a writable parent; the work directory
-allows traversal to reviewed fixed children without allowing the candidate to
-list, create, rename, or remove those children. The workflow does not grant
-ACLs or loosen permissions on runner home or workspace ancestors.
-
-That lock has one dependency only: `@pnpm/linux-x64@10.34.4` from the official
-npm registry with its reviewed sha512 SRI. The worker runs `npm ci` outside the
-checkout with lifecycle scripts, audit, and funding calls disabled; ambient npm
-configuration, cache, home, and temporary state are replaced with fresh
-runner-owned paths. It never executes npm's `.bin` shim. Trusted code requires
-the literal installed `node_modules/@pnpm/linux-x64/pnpm` to remain inside the
-fixed staging root, be a single-link runner-owned regular file, declare the
-expected Linux x64 package metadata and no lifecycle scripts, and match
-SHA-256
-`e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193`.
-Only after that source digest passes does the worker make an independent
-read-only copy under the protected tool directory, re-hash the copy, execute
-its absolute path to require version `10.34.4`, and remove the extraction plus
-npm cache.
-
-The protected copy is then placed on `PATH` and revalidated before a second,
-cache-only setup-node invocation. That invocation deliberately has no
-`node-version`, `node-version-file`, or architecture input, so pinned
-setup-node skips Node installation and cannot prepend another Node tool
-directory before it asks the already-authenticated pnpm for its store path.
-The resolved store is runner-owned and proven non-writable by the candidate.
-Before candidate code starts, Node.js is likewise copied into the protected
-tool directory, and only the protected copies install trusted controller
-tools.
-
-Candidate-controlled installs use a separate JavaScript pnpm runtime pinned by
-`scripts/vercel-pnpm-runtime/package.json` and its standalone frozen lockfile.
-That manifest is deliberately outside the workspace globs, staged under
-`$TRUSTED_VERCEL_TOOLS_PATH/pnpm-runtime`, and installed with lifecycle scripts
-disabled and package copies rather than links to candidate-writable storage.
-Before staging, the controller requires the manifest to match its exact allowed
-fields and binds the complete one-importer lockfile bytes to
-`PINNED_PNPM_RUNTIME_LOCKFILE_SHA256`; this rejects extra dependency/config
-sections, custom tarballs, changed integrity, or extra importers/packages before
-the bootstrap install. Any Phase A pnpm bump had to update the bootstrap npm
-manifest and lockfile, reviewed registry SRI and Linux x64 executable digest,
-isolated JavaScript-runtime manifest and pnpm lockfile, `PINNED_PNPM_VERSION`,
-and both complete-lockfile digests together. On a non-Linux development host,
-`npm install --package-lock-only --force` could be used only to regenerate this
-Linux-specific lock; the CI installation was never allowed to use `--force`.
-The protected launcher always uses protected Node plus that runtime's
-`pnpm.cjs`; it disables pnpm's package-manager self-switch and strict patch
-version check so an older candidate `packageManager` field cannot silently
-downgrade the trusted runtime or reject the intentional patched v10 version.
-This removes the standalone executable's own image from the cross-identity
-execution path: the pilot failed when that image was not effectively readable
-after switching to the isolated candidate identity, even though the
-runner-owned executable checks had passed. Candidate pnpm probes execute from
-the candidate-owned home rather than the runner workspace, which is
-intentionally not readable after the identity switch. The root and
-candidate-runtime pnpm locks remain covered by OSV and sha512/registry
-validation. The bootstrap npm lock has a separate OSV job, exact byte/shape
-validation, npm's SRI enforcement, and a Linux CI installation that hashes the executable before
-running it.
-Before any credentialed command, the worker proves the runtime root, its
-replacement-relevant parents, Node.js, pnpm, and the CLI are not candidate
-writable; it also proves the CLI resolves inside the protected directory, its
-package version is exactly the contract's `vercelVersion`, and protected `node <cli> --version`
-executes successfully. It then switches to the dedicated candidate UID and
-executes the protected pnpm launcher once before materializing or running the
-selected source, proving that every isolation ancestor is searchable by that
-identity. The workflow test suite repeats the CLI install with the actual
-pinned pnpm version in a temporary checkout while retaining a frozen-lockfile
-failure boundary.
-
-The candidate dependency install intentionally does **not** reuse setup-node's
-runner-owned pnpm store, even though the candidate is proven unable to write it.
-Its isolated `HOME` and XDG directories place that store under the disposable
-candidate home, which is deleted before upload. Sharing a runner store here
-would let selected source code mutate cache state that an Actions post-step
-could save from the trusted `main` run if an isolation boundary regressed.
-Phase A treated candidate dependency installation as a cold, measured pilot
-cost and recorded its duration separately from `vercel build`. The signed Turbo
-remote build cache remained enabled, and its hit/miss evidence remained part of
-the historical comparison.
-
-Before candidate installation, the worker proves the checked-out index tree is
-the exact selected commit tree. The candidate UID cannot write `/var/lib`, the
-run-scoped root, its marker, or the runner-owned work directory. A trusted,
-bounded materializer then lists the exact commit with `git ls-tree`, reads every
-raw blob with `git cat-file`, and writes only supported regular files and
-symbolic links into the fixed candidate-source child that is subsequently
-handed to the candidate UID. It rejects unsafe paths, unsupported modes
-(including gitlinks), oversized trees, and filesystem collisions. Reading raw
-objects deliberately bypasses both archive attributes (`export-ignore` and
-`export-subst`) and checkout filters (`eol`, `ident`, and custom filters), so
-the candidate always receives the selected commit's stored bytes.
-
-The always-run cleanup is authorized separately from normal job success. A
-readiness flag is written only after the root, work directory, and run marker
-pass their exact ownership, mode, path, and content checks. The candidate
-identity similarly records its UID and GID before its readiness flag. Cleanup
-does nothing when no proven root exists, but fails closed if an unproven root
-does exist. For a proven root it revalidates the protected ancestors and marker,
-matches every removable child to its fixed path, kills and verifies all
-candidate-UID processes, removes the known state without crossing filesystems,
-removes the empty work and outer directories, and proves the outer root is
-absent before deleting the recorded candidate user and group. Unexpected
-top-level state or a pre-existing/unmatched candidate identity is never deleted.
-
-### Historical Phase A Root Directory and command sequence
-
-The pinned Vercel CLI commands executed from monorepo-shaped roots. Before
-`vercel pull`, the worker created a fresh runner-owned staging tree at a fixed
-path under `$VERCEL_ISOLATION_ROOT`. That tree contains only real
-`apps/ui.mento.org` directory components and an ephemeral repo-level link built
-from trusted repository variables; it contains no checked-out candidate file.
-This lets the contract-pinned CLI resolve the configured UI Root Directory without giving
-the token-bearing pull command a candidate-controlled write path. The pulled
-mapping and project-local state are:
-
-```text
-.vercel/repo.json
-apps/ui.mento.org/.vercel/project.json
-apps/ui.mento.org/.vercel/.env.preview.local
-apps/ui.mento.org/.vercel/output/
-```
-
-The repo link contains only the organization ID, project ID, `origin` remote
-name, and `apps/ui.mento.org` directory mapping; it contains no token or
-environment value. After pull, the worker recursively requires the staging
-tree to contain exactly the expected directories and three regular files
-(`repo.json`, `project.json`, and `.env.preview.local`), all runner-owned,
-single-linked, size-bounded, and inaccessible to other users. It rejects
-symlinks, hardlinks, special nodes, extra entries, unsafe ownership, and unsafe
-permissions. With the candidate UID stopped, a trusted root helper removes any
-candidate-provided `.vercel` paths and copies only those three files into new
-candidate-owned directories. Before that copy, the worker validates the UI
-preview build-variable contract directly against the runner-owned staging
-tree. After the copy, clean-environment trusted root helpers validate the exact
-candidate-owned tree and read only the non-secret repo/project mapping: first
-after staging, again with exact-SHA provenance immediately before build, and
-once more for the project/output contract after the candidate build has been
-stopped. These helpers may traverse and `lstat` the candidate-owned `0700` /
-`0600` state, but they never parse the candidate copy of
-`.env.preview.local`; environment values are parsed only from the runner-owned
-staging tree. The internal `validate-candidate-pull` controller action exists
-for this privileged check and is not an operator-facing command. The
-controller validates the ID variables but deliberately withholds them from the
-Vercel CLI child process: the contract-pinned CLI otherwise gives those variables
-precedence over `repo.json` and loses the monorepo Root Directory mapping.
-
-The credentialed worker ran this sequence in one standard `ubuntu-latest` job:
-
-1. create the fresh runner-owned pull staging and exact repo-level UI link;
-2. run `vercel pull --yes --environment preview --git-branch
-<validated-branch>` only inside that staging tree;
-3. recursively validate the pulled tree;
-4. run the equivalent of `pnpm vercel:env:check --target ui --environment
-preview --project-directory "$VERCEL_ISOLATION_ROOT/mento-vercel-pull-staging/apps/ui.mento.org"`
-   against that runner-owned tree, with explicit preview system constants
-   overriding pulled values;
-5. copy only the three required files into freshly created candidate `.vercel`
-   directories, then use the trusted privileged controller to prove their
-   exact ownership, permissions, shape, and project mapping while the candidate
-   UID has no process;
-6. immediately before build, repeat the trusted privileged exact-SHA
-   provenance, candidate-tree, and project-mapping checks;
-7. `vercel build --yes --standalone --target preview` as the isolated candidate UID with
-   `VERCEL_BUILD_MONOREPO_SUPPORT=1`, the signed Turbo remote cache, immutable
-   Git metadata, and generated `MENTO_NEXT_DEPLOYMENT_ID`;
-8. stop all candidate-UID processes, then use the trusted privileged controller
-   to assert the UI project mapping, Build Output API v3 config, custom
-   deployment ID, preview target, pinned CLI build record, output ownership,
-   safe filesystem shape, and runner-owned exact-SHA provenance;
-9. create a runner-owned upload handoff containing only the validated output,
-   trusted project settings, repo link, and exact-SHA provenance;
-10. `vercel deploy --prebuilt --target preview --archive=tgz --format=json`;
-11. `vercel inspect --wait --timeout 5m --format=json --scope <org-id>`. The
-    explicit scope prevents inspection from falling back to the token owner's
-    default Vercel team.
-
-The standalone build flag is mandatory for the narrow upload handoff. Without
-it, Vercel function configs can retain repo-root `filePathMap` references into
-the build tree (including `node_modules`) that no longer exists after the
-candidate source is removed. Standalone mode inlines those dependencies into
-the function output; the trusted output validator rejects every non-empty
-`filePathMap` before the handoff or upload can proceed. Standalone function
-bundles may retain package-manager symlinks, but validation permits only direct,
-relative file or directory links whose lexical and canonical targets remain
-inside the same physical `.func` directory. A bounded relative link to a
-missing in-function target is allowed because dependency tracing can preserve
-unused package-manager links; absolute links, escaping links, and link chains
-remain rejected. Before reading or copying the handoff, the validator also caps
-each `.vc-config.json` at 1 MiB, each regular file at 250 MiB, and the complete
-output at 1 GiB.
-
-Only after that job emitted the verified immutable URL did a second trusted job
-perform direct HTTP smoke of the URL, navigation, custom build identity,
-representative JS/CSS/font assets, and preview security headers. That smoke job
-checks out only `github.workflow_sha`; it never checks out or executes the
-deployment source, downloads an executable artifact, or receives a
-Vercel/Turbo/protection-bypass credential. A third always-run trusted job owns
-the terminal GitHub Deployment status.
-
-The upload command supplies `githubCommitOrg`, `githubCommitRepo`,
-`githubCommitSha`, and `githubCommitRef`. It intentionally omits
-`githubDeployment=1`, so Vercel cannot create a duplicate GitHub Deployment.
-The build output never becomes a GitHub artifact and never crosses jobs.
-
-The Next.js builder can legitimately represent multiple prerender routes with
-relative symbolic links to one generated function directory. Output validation
-permits only bounded, control-character-free `functions/**/*.func` aliases to a
-directly materialized `.func` directory in that same output tree. Absolute,
-broken, chained, cyclic, non-function, file-targeting, ancestor/self, and
-escaping links remain rejected. The trusted handoff preserves accepted links
-without dereferencing them and changes the link ownership explicitly before
-applying the same validation again immediately before upload.
-
-The contract-pinned CLI gates its local Root Directory monorepo defaults behind
-`VERCEL_BUILD_MONOREPO_SUPPORT=1`. The worker supplies that trusted constant to
-the clean candidate environment so the CLI activates its Turborepo default,
-`turbo run build`, for the Root Directory project. Turbo then included upstream
-workspace packages such as `@mento-protocol/ui` before the selected Next.js
-app. The Phase A design required this internal, version-coupled flag to be
-re-audited whenever the pinned CLI changed and forbade replacing it with a
-separate app dependency prebuild, which would have duplicated work before the
-CLI's own build and could have diverged from Vercel's project settings.
-
-### Historical Phase A canonical GitHub Deployment
-
-The worker owned one explicit REST Deployment for the exact SHA. It used only
-`contents: read` and `deployments: write`; no job-level Actions environment was
-declared, so GitHub did not create an implicit event-SHA Deployment. The create
-request used `auto_merge: false`, empty required contexts, the deterministic
-`vercel-preview-ui` environment, and transient/non-production flags.
-
-The run-scoped pilot key is:
-
-```text
-vercel-pilot:v1:ui:sha:<sha>:run:<run_id>:attempt:<run_attempt>
-```
-
-Retries with that exact key reused the existing record. A deliberate workflow
-rerun had a different attempt key and created a new pilot attempt. Only
-non-secret provenance was stored in the payload.
-
-Statuses progressed through `queued` and `in_progress`. `success` was posted
-with the immutable Vercel `environment_url` and Actions `log_url` only after
-direct smoke passed. Build, deploy, or smoke failures posted `failure`;
-cancellation or controller/infrastructure failures posted `error`. The
-`if: always()` lifecycle job closed any record that did not reach success. It
-was independent of best-effort timing and run-summary steps, so a metrics
-failure could not overwrite a verified deployment's lifecycle truth. The
-reusable workflow published `deployment_url` only from the smoke-backed success
-step; it never fell back to the unverified upload output.
-
-A Deployment or status created with the repository `GITHUB_TOKEN` does not
-trigger another workflow run. Therefore workers call the secretless
-`.github/workflows/_vercel-preview-smoke.yml` directly before terminal success;
-they never depend on `deployment_status` recursion. Do not add a PAT to force
-that recursion. The dedicated worker-dispatch credential is not an exception;
-its sole purpose is the automatic controller's worker `workflow_dispatch` POST
-described below.
-
-### Historical Phase A evidence and browser verification
-
-The Phase A run summary recorded the exact SHA, immutable URL, Vercel Deployment
-ID, GitHub Deployment ID, build duration, upload duration, and total controller
-duration. Turbo printed remote-cache hit/miss evidence in the build log. Phase A
-reviewers compared those values with the same-SHA native Vercel Git preview but
-did not infer billing savings from elapsed time alone.
-
-Phase A acceptance also required the repository browser protocol on the
-immutable GitHub-built URL: reviewers verified page rendering and primary
-navigation, inspected console errors and failed network requests, confirmed
-static assets/fonts, and compared security headers plus Vercel toolbar/CSP
-behavior with the native preview. They attached the URL and concise evidence to
-the PR or issue. This same-SHA native comparison is intentionally unavailable
-after Phase B disables native UI branch previews; current validation uses the
-[Phase B canary and rollback procedures](#ui-vercel-git-cutover-phase-b).
-
-The cost go/no-go record in issue #518 and the Phase A live-canary evidence
-below were prerequisites for the final UI Git-ownership cutover. The current
-Phase B ownership model reflects that gate having completed.
-
 ## Reusable secretless preview verification
 
 `.github/workflows/_vercel-preview-smoke.yml` is the one smoke implementation
 for App, Governance, Reserve, and UI. Its caller supplies an already verified,
 target-bound tuple: logical target, immutable team URL, exact SHA, canonical
 GitHub Deployment ID, mode-specific verification key, and trusted deployment
-metadata. Controller/manual-pilot mode additionally binds the literal Vercel
+metadata. Controller mode additionally binds the literal Vercel
 project, Vercel Deployment ID, and target-specific Next.js deployment ID.
 Native-adapter mode is restricted to App/Governance and binds the exact native
 environment plus Vercel bot identity; it cannot fabricate a controller key.
+
+A Deployment or status created with the repository `GITHUB_TOKEN` does not
+trigger another workflow run. GitHub-built workers therefore call the
+secretless reusable smoke workflow directly before terminal success. Do not add
+a PAT to force deployment-status recursion. The dedicated worker-dispatch
+credential authorizes only the controller's exact worker `workflow_dispatch`
+request.
 
 The reusable workflow declares no secrets and performs no authenticated Vercel
 or GitHub lookup. It validates the tuple before any request, checks the root
@@ -2243,7 +1703,7 @@ static asset redirects outside the immutable origin. Any retained conflicting
 marker fails. Native rollback previews do not claim a custom deployment ID and
 keep their existing identity-free adapter contract.
 
-The transitional `.github/workflows/preview-smoke.yml` native adapter classifies
+The bounded `.github/workflows/preview-smoke.yml` native adapter classifies
 only exact successful `Preview – app.mento.org` and
 `Preview – governance.mento.org` events created by Vercel's fixed bot identity
 on the exact project-slug team host. App and Governance enter only during
@@ -2257,9 +1717,8 @@ one-full-smoke-per-event contract. The appended terminal status is bounded,
 run-specific evidence only. The adapter receives no PAT, Vercel token, Turbo
 token, or application secret and remains available only for those bounded
 rollback paths. Its presence is not an ordinary native branch-preview path.
-Removal is deliberately deferred to the migration cleanup in
-[#523](https://github.com/mento-protocol/frontend-monorepo/issues/523) until the
-required observation period proves that no surviving rollback path needs it.
+It exists only for the documented App and Governance target-local preview
+rollback proof.
 
 ## Automatic trusted four-target previews (current v2 controller)
 
@@ -2419,29 +1878,18 @@ job waits outside the per-PR writer queue for that event's terminal status
 decision and complete selection/result graph. It then uploads one artifact named
 `vercel-preview-observation-receipt-v1-<event-run-id>` with 14-day retention.
 The artifact binds the original event run ID, source journal digest, and a
-canonical event-scoped graph digest. It exists only to preserve
-cost-observation evidence after safe
-terminal compaction; it is never state, reconciliation, status, dispatch, or
-deployment authority. The private collector prefers this exact validated
-artifact whenever it exists and falls back to the live journal when it does
-not. This keeps a later push from making the retained live graph authoritative
-for an older settled event. If both sources lack the requested event, the
-collector searches only `pull_request_target` runs of the controller workflow
-on the requested historical run's validated, URL-encoded head branch. It reads at most five
-100-run pages until it reaches the exact requested run. It then checks at most
-64 completed later runs in nearest-first order. Each candidate lookup uses the
-exact per-run artifact name. The collector accepts a candidate only when its
-canonical receipt binds that run, contains the marked requested event, and has
-an admission cursor through the covering event. It does not enumerate all
-repository artifacts. An unrelated or ambiguous artifact, an invalid receipt,
-or an exhausted bound fails closed.
+canonical event-scoped graph digest. Its retained operational purpose is to
+authorize safe journal-capacity checkpointing above the 40,000-byte soft
+threshold. It is never state, reconciliation, status, dispatch, or deployment
+authority.
 
-The trusted upload step writes the artifact only
-after the controller validates and materializes the event's full canonical
-journal graph. A later exact artifact therefore retains the admitted prefix
-that it contains, even if an earlier event's own artifact is missing. A workflow
-rerun reuses the existing immutable artifact instead of uploading another copy
-under the same event-run name.
+The trusted upload step writes the artifact only after the controller validates
+and materializes the event's full canonical journal graph. A later exact
+artifact therefore retains the admitted prefix that it contains, even if an
+earlier event's own artifact is missing. A workflow rerun reuses the existing
+immutable artifact instead of uploading another copy under the same event-run
+name. An expired, unrelated, ambiguous, or invalid artifact cannot authorize a
+capacity checkpoint.
 
 At the 40,000-byte soft threshold, selection, worker-evidence,
 result-recovery, and state writers can checkpoint only the longest safe prefix
@@ -3608,56 +3056,12 @@ Keep App in shadow mode until a new independently reviewed cutover repeats the
 full acceptance matrix. Never touch Governance, Reserve, UI, production domains,
 or recreate Governance QA as part of this rollback.
 
-### Phase A canary evidence template
-
-Phase A kept native Vercel Git UI previews enabled. For every canary, record the
-PR, exact SHA(s), controller/worker run URLs, controller key/digest, canonical
-GitHub Deployment ID, GitHub-built immutable URL, native Vercel immutable URL,
-canonical journal comment ID/revision/`journal_digest`/`state.receipts_digest`,
-terminal `Vercel Preview` status, and browser evidence.
-
-The Phase A gate required all of these before changing the ruleset or starting
-Phase B:
-
-1. trusted UI-affecting A produces both native and GitHub previews;
-2. rapid UI pushes A -> B -> C deploy A then C, with B durably coalesced;
-3. a docs-only PR creates no Deployment and succeeds as no-runtime;
-4. a docs-only push after runtime work reuses the prior immutable URL;
-5. after the controller is idle, a later UI-runtime SHA E deploys normally;
-6. replaying an event, reconciliation request, and terminal callback is
-   idempotent: it creates no second worker, GitHub Deployment, Vercel preview,
-   journal, journal entry, or conflicting status, and it preserves the original
-   journal comment ID;
-7. fork and Dependabot PRs succeed unsupported without a Deployment/worker,
-   with Dependabot proven through the credentialless intake and trusted
-   exact-head follow-up;
-8. a controlled build/smoke failure posts terminal failure and bounded retry;
-9. cancelling a worker before Deployment creation produces one canonical
-   `error` Deployment/result and advances the latest desired SHA;
-10. close/reopen and a force-reset SHA revisit preserve distinct epochs;
-11. one old-epoch callback terminalizes only its own journal evidence;
-12. after the clean-cutover cleanup, exact validated legacy comments are absent
-    while human, malformed, unknown-bot, and journal comments remain untouched;
-13. representative strict-ruleset merges still work.
-
-For the GitHub-built immutable URL, follow the repository browser protocol:
-verify rendering and primary navigation, inspect console errors and failed
-network requests, confirm JS/CSS/font assets, and compare security headers plus
-Vercel toolbar/CSP behavior with the native preview. A canary is not accepted
-from workflow logs alone.
-
-The Phase A ruleset change was gated on recent successful-deploy, no-runtime,
-runtime-reuse, coalesced, after-idle, idempotent replay/reconcile,
-unsupported-trust, failure, cancellation, and old-epoch evidence.
-
 ## UI Vercel Git cutover (Phase B)
 
 Phase B established UI's GitHub-owned branch-preview state. At that point App
 remained shadowed until its separate cutover; App has since joined Governance,
-Reserve, and UI in the current all-GitHub-owned preview map. Phase B's completed
-precondition was that
-every Phase A dual-path canary above passed and its GitHub-built/native-preview
-evidence was recorded. This separate merge paired
+Reserve, and UI in the current all-GitHub-owned preview map. The completed
+cutover followed the recorded dual-path canary evidence. This separate merge paired
 `VERCEL_PREVIEW_CONTROLLER_MODE: active` in
 `.github/workflows/vercel-preview-controller.yml` with the following exact
 `apps/ui.mento.org/vercel.json`, preserving its schema and unrelated keys:
@@ -3821,26 +3225,3 @@ branch and is not evidence that every active Phase B branch was restored. The
 rollback PR's `Vercel Preview` owner-selection result is not native deployment
 or browser evidence; require both separately anywhere preview readiness gates a
 merge. Do not change production domains, other apps, or recreate Governance QA.
-
-### Historical Phase A pilot cleanup
-
-This is historical Phase A evidence, not a current Phase B operation. After the
-Phase A pilot evidence was saved, a maintainer could remove only that pilot's
-immutable preview using the preview-scoped CLI credential:
-
-```bash
-export VERCEL_TOKEN="<preview-scoped-token>"
-pnpm exec vercel remove "<immutable-vercel-deployment-url-or-id>" --yes
-```
-
-Confirm the value is the unique pilot URL or `dpl_` ID from the run summary.
-Never pass a production domain or alias, and do not change Vercel Git settings.
-Do not use this retired pilot command to remove current controller-managed
-previews.
-
-The complete zero-network pilot and automatic-preview suites are:
-
-```bash
-pnpm vercel:workflow:test
-pnpm vercel:preview:test
-```

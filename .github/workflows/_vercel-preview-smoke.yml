@@ -20,7 +20,7 @@ on:
         required: true
         type: string
       verification_mode:
-        description: controller, manual-pilot, or native-adapter
+        description: controller or native-adapter
         required: true
         type: string
       verification_key:
@@ -140,8 +140,6 @@ jobs:
       VERCEL_DEPLOYMENT_URL: ${{ inputs.deployment_url }}
       VERIFICATION_KEY: ${{ inputs.verification_key }}
       VERIFICATION_MODE: ${{ inputs.verification_mode }}
-      WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
-      WORKFLOW_RUN_ID: ${{ github.run_id }}
     outputs:
       deployment_url: ${{ steps.tuple.outputs.deployment_url }}
       expected_sha: ${{ steps.tuple.outputs.expected_sha }}
@@ -190,4 +188,4 @@ jobs:
           name: preview-smoke-${{ inputs.logical_target }}-${{ inputs.expected_sha }}-${{ inputs.github_deployment_id }}
           path: apps/app.mento.org/test-results/
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 7
