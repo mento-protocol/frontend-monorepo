@@ -139,7 +139,7 @@ jobs:
 
       - name: Install trusted-base planner dependencies without lifecycle scripts
         working-directory: source
-        run: pnpm install --ignore-scripts --frozen-lockfile
+        run: pnpm --filter frontend-monorepo install --ignore-scripts --frozen-lockfile
 
       - name: Compute exact before-to-head deployment plan
         id: plan
@@ -462,7 +462,7 @@ jobs:
 
       - name: Install trusted-base planner dependencies without lifecycle scripts
         working-directory: source
-        run: pnpm install --ignore-scripts --frozen-lockfile
+        run: pnpm --filter frontend-monorepo install --ignore-scripts --frozen-lockfile
 
       - name: Compute exact base-to-head bootstrap plan
         id: plan

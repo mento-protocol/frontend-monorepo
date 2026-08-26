@@ -731,6 +731,50 @@ test("candidate pnpm commands enter an authenticated readable cwd after privileg
   );
 });
 
+test("candidate install and build resolve the same isolated pnpm store", () => {
+  const install = candidateAction.runs.steps.find(
+    (step) => step.name === "Install frozen dependencies as candidate",
+  );
+  const build = candidateAction.runs.steps.find(
+    (step) => step.name === "Build prebuilt output as candidate",
+  );
+  assert.ok(install);
+  assert.ok(build);
+
+  for (const step of [install, build]) {
+    assert.match(step.run, /HOME="\$CANDIDATE_HOME_PATH"/);
+    assert.match(step.run, /TMPDIR="\$CANDIDATE_HOME_PATH\/tmp"/);
+    assert.match(step.run, /XDG_CACHE_HOME="\$CANDIDATE_HOME_PATH\/cache"/);
+    assert.match(step.run, /XDG_CONFIG_HOME="\$CANDIDATE_HOME_PATH\/config"/);
+    assert.match(step.run, /XDG_DATA_HOME="\$CANDIDATE_HOME_PATH\/data"/);
+  }
+
+  assert.match(
+    install.run,
+    /"\$PNPM_BIN" --dir "\$CANDIDATE_SOURCE_PATH" install \\\n\s+--frozen-lockfile \\\n\s+--ignore-scripts \\\n\s+2>&1\n/,
+  );
+  assert.doesNotMatch(
+    candidateActionSource,
+    /--store-dir|PNPM_HOME|PNPM_STORE/,
+  );
+  assert.doesNotMatch(
+    candidateActionSource,
+    /\$CANDIDATE_HOME_PATH\/pnpm-store/,
+  );
+
+  const isolation = candidateAction.runs.steps.find(
+    (step) => step.name === "Prepare isolated exact-SHA candidate source",
+  );
+  assert.match(
+    isolation.run,
+    /"\$CANDIDATE_HOME_PATH\/data" \\\n\s+"\$CANDIDATE_HOME_PATH\/tmp"\n/,
+  );
+  assert.match(
+    isolation.run,
+    /"\$CANDIDATE_HOME_PATH\/data" \\\n\s+"\$CANDIDATE_HOME_PATH\/tmp"; do\n/,
+  );
+});
+
 test("fresh smoke jobs never reuse candidate dependencies or command files", () => {
   for (const target of ["governance", "reserve", "ui"]) {
     const job = workflow.jobs[`smoke-${target}`];

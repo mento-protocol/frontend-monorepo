@@ -777,7 +777,13 @@ The repository is set up with GitHub Actions for CI:
 
 Dependency-installing jobs use `.github/actions/pnpm-install`, which pins the
 Node/pnpm bootstrap, relies on `actions/setup-node` as the single pnpm-store
-cache owner, and enforces `pnpm install --frozen-lockfile`. Prepared Dependabot
+cache owner, and enforces `pnpm install --frozen-lockfile`. Its optional
+`filter` input adds one `--filter` to that command; the default empty value
+installs every workspace project. Every `vercel-main-deployment.yml` job sets it
+to `frontend-monorepo`, and so does the secretless `_vercel-preview-smoke.yml`
+job, because their orchestration and smoke scripts need no app or package
+workspace; `vercel-preview-controller.yml` narrows its own raw
+`pnpm --filter frontend-monorepo install` the same way. Prepared Dependabot
 runs disable that cache and the Trunk action cache through the same positive
 repository-credential grant.
 Production-shadow candidate builds instead use the dedicated-UID

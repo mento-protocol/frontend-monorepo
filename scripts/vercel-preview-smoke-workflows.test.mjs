@@ -68,6 +68,12 @@ test("reusable smoke validates metadata before common and target-specific browse
   const checkout = smoke.steps[0];
   assert.equal(checkout.with.ref, "${{ github.workflow_sha }}");
   assert.equal(checkout.with["persist-credentials"], false);
+  const install = smoke.steps.find(({ name }) =>
+    name.startsWith("Install trusted smoke"),
+  );
+  assert.equal(install.uses, "./.github/actions/pnpm-install");
+  assert.equal(install.with["ignore-scripts"], "true");
+  assert.equal(install.with.filter, "frontend-monorepo");
   assert.ok(
     names.indexOf("Validate the complete credential-free deployment tuple") <
       names.indexOf(
@@ -89,7 +95,10 @@ test("reusable smoke validates metadata before common and target-specific browse
     wallet.if,
     /logical_target == 'app'.*logical_target == 'governance'/,
   );
-  assert.equal(wallet.run, "pnpm --filter app.mento.org test:preview");
+  assert.equal(
+    wallet.run,
+    "pnpm exec playwright test --config apps/app.mento.org/playwright.preview.config.ts",
+  );
   const genericBrowser = smoke.steps.find(({ name }) =>
     name.startsWith("Run App, Governance, or Reserve"),
   );

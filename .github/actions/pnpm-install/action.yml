@@ -25,6 +25,10 @@ inputs:
     description: Whether to disable package lifecycle scripts and pnpmfile hooks during installation
     required: false
     default: "false"
+  filter:
+    description: Optional pnpm workspace filter restricting the install to one workspace project; empty installs every workspace project
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -53,14 +57,26 @@ runs:
       if: inputs.ignore-scripts == 'true'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
-      run: >-
-        env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE
-        -u GITHUB_STEP_SUMMARY pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
+      env:
+        INSTALL_FILTER: ${{ inputs.filter }}
+      run: |
+        set --
+        if [ -n "$INSTALL_FILTER" ]; then
+          set -- --filter "$INSTALL_FILTER"
+        fi
+        env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE \
+          -u GITHUB_STEP_SUMMARY pnpm "$@" install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
 
     - name: Install dependencies
       if: inputs.ignore-scripts != 'true'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
-      run: >-
-        env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE
-        -u GITHUB_STEP_SUMMARY pnpm install --frozen-lockfile
+      env:
+        INSTALL_FILTER: ${{ inputs.filter }}
+      run: |
+        set --
+        if [ -n "$INSTALL_FILTER" ]; then
+          set -- --filter "$INSTALL_FILTER"
+        fi
+        env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE \
+          -u GITHUB_STEP_SUMMARY pnpm "$@" install --frozen-lockfile

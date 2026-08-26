@@ -248,9 +248,17 @@ excludes project IDs, protected snapshots, deployment URLs, and credentials.
 
 This planner install disables lifecycle scripts and `.pnpmfile.cjs` hooks. It
 uses the shared action's lockfile-keyed pnpm-store cache, not a restored
-`node_modules` tree; `pnpm install --frozen-lockfile --ignore-scripts
---ignore-pnpmfile` still validates the source dependency graph. Do not move
-`VERCEL_TOKEN` to the job or install-step environment to optimize this path.
+`node_modules` tree; `pnpm --filter frontend-monorepo install --frozen-lockfile
+--ignore-scripts --ignore-pnpmfile` still validates the source dependency graph,
+because `--frozen-lockfile` compares the lockfile against every workspace
+manifest regardless of the filter. Every `vercel-main-deployment.yml` job passes
+`filter: frontend-monorepo` to `.github/actions/pnpm-install`: the orchestration
+scripts these jobs run import only Node.js built-ins and their own sibling
+modules, so the app and package workspaces are never needed. The two Chromium
+steps therefore call the root `pnpm exec playwright install --with-deps
+chromium`; `scripts/vercel-preview-browser-smoke.mjs` resolves `@playwright/test`
+upward to that same root `node_modules`. Do not move `VERCEL_TOKEN` to the job or
+install-step environment to optimize this path.
 
 For a target whose `mainOwnershipMode` is `shadow`, native Vercel may already
 serve `DEPLOY_SHA` before this workflow reaches planning. The planner then uses
@@ -859,15 +867,17 @@ the trusted base's pinned Turbo dependency graph. The automatic controller
 first checks out the immutable `github.workflow_sha` with full history. It then
 requires the exact trusted base to be an ancestor of that workflow commit before
 materializing it, fetches the candidate only as an inert Git object, installs
-trusted-base dependencies without lifecycle scripts, and executes the base's
-planner. Dependency caching is disabled in these planner jobs so they never
-restore or save a shared Actions cache across this trust boundary:
+the trusted base's root workspace project without lifecycle scripts, and
+executes the base's planner. The filter is safe because the planner needs only
+the root `turbo` binary and reads workspace manifests plus the lockfile, never
+per-package `node_modules`. Dependency caching is disabled in these planner jobs
+so they never restore or save a shared Actions cache across this trust boundary:
 
 ```bash
 git merge-base --is-ancestor "$BASE_SHA" "$WORKFLOW_SHA"
 git checkout --detach "$BASE_SHA"
 git fetch --force --no-tags origin "$HEAD_SHA"
-pnpm install --ignore-scripts --frozen-lockfile
+pnpm --filter frontend-monorepo install --ignore-scripts --frozen-lockfile
 node scripts/plan-vercel-deployments.mjs \
   --base "$BASE_SHA" \
   --head "$HEAD_SHA"
