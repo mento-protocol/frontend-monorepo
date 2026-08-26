@@ -83,9 +83,25 @@ corrective evidence. Vercel's public documentation does not state whether a
 prebuilt upload consumes the one-minute On-Demand Concurrent Builds increment
 or which FOCUS `ConsumedQuantity` result follows from Standard plus On-Demand
 Concurrent Builds disabled. The fresh billing export and complete deployment
-census decide the measured gate. The measurement can finish before support
-answers, but issue #842 remains open until Vercel confirms the charging rule or
-a maintainer explicitly changes that acceptance criterion.
+census decide the measured gate. The measurement could finish before support
+answered. The original criterion kept issue #842 open until Vercel confirmed
+the charging rule or a maintainer changed that criterion.
+
+The fixed corrective interval was
+`[2026-08-25T07:00:00.000Z, 2026-08-26T07:00:00.000Z)`. Fresh provider evidence
+reported 16 Build CPU minutes against a target-mix counterfactual of
+`100.23649463908816` minutes. The normalized saving was
+`84.03774986584511%`, so the immutable 90% gate remained false. On 2026-08-26,
+the maintainer accepted 84.04% as the product outcome and changed the #842
+acceptance criterion. The provider support case remains open and unanswered.
+This product decision does not alter the sealed measurement or its historical
+90% result.
+
+The decision changes only the savings target. It does not waive the sealed
+billing-ingestion and final-invoice blockers, the unanswered provider case, or
+the five strict main-deployment failures in runs `32283571311`, `32382097990`,
+`32471088506`, `32633658106`, and `32648329877`. The original analyzer must
+remain nonzero while those conditions remain unresolved.
 
 Run the same target-mix calculation and keep the exact `90%` threshold. Do not
 infer savings from the project setting or from Vercel's statement that Standard
@@ -1115,23 +1131,26 @@ same-repository PR push in the observation window. Extra failed, cancelled, or
 rerun attempts remain visible in attempts-per-event but are not mislabeled as
 duplicate deployments.
 
-## Cleanup after a passing observation
+## Migration cleanup disposition
 
-Do not remove migration scaffolding in the preparation PR. After the final
-analysis passes, diff the merged #519-#522 implementation and remove only items
-proven migration-only:
+The maintainer accepted the fixed corrective result on 2026-08-26. The cleanup
+removes only the retired manual prebuilt caller and its compatibility contract.
+The following dispositions apply:
 
-- manual pilot workflow if the production runbook fully supersedes it;
-- PR-A-only global-shadow canary workflow branches and fixtures, while
+- remove the retired manual prebuilt workflow, caller provenance, smoke mode,
+  and pilot-only tests;
+- preserve PR-A global-shadow support while
   preserving the target-local main `shadow` ownership mode and full-native
   rollback contract;
-- legacy `deployment_status` preview-smoke handling only when no surviving
-  native path consumes it;
-- duplicate migration-only logs while retaining stable deployment summaries.
+- retain `deployment_status` preview-smoke handling because App and Governance
+  target-local preview rollback still consumes it;
+- retain the stable deployment summaries and journals. No separate duplicate
+  migration-only logger exists.
 
 Set the corresponding `closeout` flags only after each disposition is complete;
 the analyzer deliberately keeps `pass: false` and exits nonzero while the report
-is `observation-only`, even when `observationPass` is true.
+is `observation-only`. The maintainer product decision does not rewrite the
+immutable analyzer threshold.
 
 Preserve the planner and tests, reusable prebuilt workflow, active preview/main
 workflows, stable sentinels, rollback runbook, topology/environment semantics,

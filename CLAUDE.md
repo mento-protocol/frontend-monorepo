@@ -71,7 +71,7 @@ pnpm fork:seed:monad                 # Same safe clock; Reserve collateral + rea
 pnpm pr:description:test             # Test the required PR-description format validator
 pnpm vercel:deployment-state:test    # Test canonical read-only Vercel state and alias-drift evidence
 pnpm vercel:primitives:test          # Test affected planning, custom deployment IDs, and build-env contracts
-pnpm vercel:workflow:test            # Test manual and automatic Vercel workflows, exact-main gating, transactions, and smoke
+pnpm vercel:workflow:test            # Test Vercel preview and main workflows, exact-main gating, transactions, and smoke
 pnpm vercel:preview:test             # Test preview state plus reusable smoke trust, native-adapter, and Git-ownership boundaries
 pnpm vercel:production-shadow:test   # Test state allowlisting, shadow helpers, and workflow invariants
 pnpm --filter app.mento.org test:production-shadow:routing  # Prove bypass headers do not cross Chromium redirects
@@ -147,13 +147,13 @@ All preview verification lives in the secretless reusable
 `.github/workflows/_vercel-preview-smoke.yml`: common immutable-URL, metadata,
 header, asset, console, and browser checks plus target-specific App/Governance
 wallet flow, Reserve tab/data interaction, or UI deployment-identity flow. The
-temporary `.github/workflows/preview-smoke.yml` adapter calls that reusable
+`.github/workflows/preview-smoke.yml` adapter calls that reusable
 workflow only for exact native Vercel App/Governance successes created during
 a bounded target-local rollback; it performs no status lookup or reuse and
 receives no deployment credential. Ordinary previews for all four targets are
-GitHub-owned and do not use this adapter. The adapter remains temporarily for
-rollback proof and is removed only in #523 cleanup after the required
-observation period. A target-local `main` rollback does not change preview
+GitHub-owned and do not use this adapter. The migration cleanup retains this
+adapter because the documented App and Governance target-local preview
+rollbacks require it. A target-local `main` rollback does not change preview
 ownership, and a target-local preview rollback uses native-preview/GitHub-main
 branch rules so it does not change main ownership. GitHub-built workers call the reusable
 workflow directly because a `GITHUB_TOKEN` Deployment status is evidence, not

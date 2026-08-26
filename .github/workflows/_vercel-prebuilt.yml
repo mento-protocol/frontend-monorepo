@@ -60,14 +60,12 @@ on:
         required: true
         type: string
       pull_request_number:
-        description: Optional pull request provenance
-        required: false
-        default: ""
+        description: Controller pull request number
+        required: true
         type: string
       provenance:
-        description: Optional non-secret controller provenance
-        required: false
-        default: ""
+        description: Non-secret controller provenance
+        required: true
         type: string
     secrets:
       etherscan_api_key:
@@ -1594,7 +1592,7 @@ jobs:
       deployment_url: ${{ needs.prebuilt.outputs.verified_deployment_url }}
       expected_sha: ${{ needs.prebuilt.outputs.commit_sha }}
       github_deployment_id: ${{ needs.prebuilt.outputs.github_deployment_id }}
-      verification_mode: ${{ inputs.provenance == 'manual-pilot' && 'manual-pilot' || 'controller' }}
+      verification_mode: controller
       verification_key: ${{ inputs.deployment_idempotency_key }}
       metadata_logical_target: ${{ inputs.logical_target }}
       metadata_target: ${{ inputs.vercel_target }}

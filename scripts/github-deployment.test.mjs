@@ -16,14 +16,14 @@ const RUN_URL =
 
 function deploymentRequest(overrides = {}) {
   return buildCreateDeploymentRequest({
-    idempotencyKey: `vercel-pilot:v1:ui:sha:${SHA}:run:123:attempt:1`,
+    idempotencyKey: `vercel-preview:v1:pr:518:target:ui:sha:${SHA}`,
     logicalTarget: "ui",
     sha: SHA,
-    gitRef: "feature/ui-pilot",
+    gitRef: "feature/ui-preview",
     workflowRunUrl: RUN_URL,
     pullRequestNumber: "518",
-    provenance: "manual-pilot",
-    environment: "vercel-preview-ui",
+    provenance: "preview-controller:v2",
+    environment: "preview/ui/pr-518",
     ...overrides,
   });
 }
@@ -34,19 +34,19 @@ test("create request is exact-SHA, transient, non-production, and secretless", (
     ref: SHA,
     auto_merge: false,
     required_contexts: [],
-    environment: "vercel-preview-ui",
+    environment: "preview/ui/pr-518",
     transient_environment: true,
     production_environment: false,
     description: "Vercel prebuilt ui preview",
     payload: {
       controller_schema: "mento-vercel-prebuilt/v2",
-      idempotency_key: `vercel-pilot:v1:ui:sha:${SHA}:run:123:attempt:1`,
+      idempotency_key: `vercel-preview:v1:pr:518:target:ui:sha:${SHA}`,
       logical_target: "ui",
       sha: SHA,
-      git_ref: "feature/ui-pilot",
+      git_ref: "feature/ui-preview",
       workflow_run_url: RUN_URL,
       pull_request_number: 518,
-      provenance: "manual-pilot",
+      provenance: "preview-controller:v2",
     },
   });
   assert.doesNotMatch(
@@ -86,17 +86,19 @@ test("same idempotency identity reuses one GitHub Deployment", async () => {
       path: "/deployments",
       query: {
         sha: SHA,
-        environment: "vercel-preview-ui",
+        environment: "preview/ui/pr-518",
         per_page: "100",
       },
     },
   ]);
 });
 
-test("a distinct run-attempt idempotency key creates a new Deployment", async () => {
+test("a distinct controller idempotency key creates a new Deployment", async () => {
   const previous = deploymentRequest();
   const request = deploymentRequest({
-    idempotencyKey: `vercel-pilot:v1:ui:sha:${SHA}:run:123:attempt:2`,
+    idempotencyKey: `vercel-preview:v1:pr:519:target:ui:sha:${SHA}`,
+    pullRequestNumber: "519",
+    environment: "preview/ui/pr-519",
   });
   const calls = [];
   const api = async (call) => {
@@ -160,13 +162,13 @@ test("status requests require smoke URL evidence before success", () => {
   assert.deepEqual(
     buildStatusRequest({
       state: "success",
-      environmentUrl: "https://ui-pilot-abc.vercel.app",
+      environmentUrl: "https://ui-preview-abc.vercel.app",
       logUrl: RUN_URL,
       description: "Prebuilt preview verified",
     }),
     {
       state: "success",
-      environment_url: "https://ui-pilot-abc.vercel.app/",
+      environment_url: "https://ui-preview-abc.vercel.app/",
       log_url: RUN_URL,
       description: "Prebuilt preview verified",
       auto_inactive: false,
@@ -185,7 +187,7 @@ test("status requests require smoke URL evidence before success", () => {
     () =>
       buildStatusRequest({
         state: "failure",
-        environmentUrl: "https://ui-pilot-abc.vercel.app",
+        environmentUrl: "https://ui-preview-abc.vercel.app",
         logUrl: RUN_URL,
         description: "failed",
       }),
@@ -195,7 +197,7 @@ test("status requests require smoke URL evidence before success", () => {
     () =>
       buildStatusRequest({
         state: "success",
-        environmentUrl: "http://ui-pilot-abc.vercel.app",
+        environmentUrl: "http://ui-preview-abc.vercel.app",
         logUrl: RUN_URL,
         description: "Prebuilt preview verified",
       }),

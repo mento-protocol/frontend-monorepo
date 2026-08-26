@@ -153,7 +153,7 @@ pnpm vercel:primitives:test
 # Test canonical read-only Vercel state and guarded alias-drift evidence
 pnpm vercel:deployment-state:test
 
-# Test manual and automatic Vercel workflows, exact-main gating, transactions, and smoke
+# Test Vercel preview and main workflows, exact-main gating, transactions, and smoke
 pnpm vercel:workflow:test
 
 # Test preview state, reusable smoke trust, native-adapter, and Git ownership
@@ -766,10 +766,9 @@ The repository is set up with GitHub Actions for CI:
   only; native Vercel deployment status and browser evidence separately prove
   that the preview works. The native `deployment_status` smoke adapter remains
   solely for bounded App/Governance rollback verification and does not imply
-  that ordinary native branch previews remain enabled. Its removal is deferred
-  to the migration cleanup in
-  [issue #523](https://github.com/mento-protocol/frontend-monorepo/issues/523),
-  after the required observation period. A target-local main rollback restores
+  that ordinary native branch previews remain enabled. The migration cleanup
+  retains this adapter because the documented App and Governance target-local
+  preview rollbacks require it. A target-local main rollback restores
   only the target's native `main` path and changes only its main ownership mode
   to `shadow`; previews remain GitHub-owned. A target-local preview rollback
   changes only preview ownership and preserves GitHub-owned `main`.

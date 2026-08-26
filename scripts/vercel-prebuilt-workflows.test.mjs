@@ -14,57 +14,10 @@ function workflow(relativePath) {
 }
 
 const reusablePath = ".github/workflows/_vercel-prebuilt.yml";
-const pilotPath = ".github/workflows/vercel-prebuilt-pilot.yml";
-
-test("manual pilot exposes only the three UI-only deployment selectors", () => {
-  const pilot = workflow(pilotPath);
-  assert.deepEqual(Object.keys(pilot.on), ["workflow_dispatch"]);
-  assert.deepEqual(Object.keys(pilot.on.workflow_dispatch.inputs), [
-    "target",
-    "commit_sha",
-    "git_branch",
-  ]);
-  assert.deepEqual(pilot.on.workflow_dispatch.inputs.target.options, ["ui"]);
-  assert.equal(pilot.on.workflow_dispatch.inputs.target.default, "ui");
-  assert.equal(pilot.on.workflow_dispatch.inputs.commit_sha.required, true);
-  assert.equal(pilot.on.workflow_dispatch.inputs.git_branch.required, true);
-  assert.equal(
-    pilot.jobs["deploy-ui-preview"].with.logical_target,
-    "${{ inputs.target }}",
-  );
-  assert.equal(
-    pilot.jobs["deploy-ui-preview"].with.expected_root_directory,
-    "apps/ui.mento.org",
-  );
-  assert.equal(pilot.jobs["deploy-ui-preview"].with.deployment_mode, "preview");
-  assert.equal(pilot.jobs["deploy-ui-preview"].with.vercel_target, "preview");
-  assert.equal(
-    pilot.jobs["deploy-ui-preview"].with.vercel_environment,
-    "preview",
-  );
-  assert.match(
-    pilot.jobs["deploy-ui-preview"].if,
-    /github\.ref == 'refs\/heads\/main'/,
-  );
-  assert.match(
-    pilot.jobs["deploy-ui-preview"].if,
-    /vercel-prebuilt-pilot\.yml@refs\/heads\/main/,
-  );
-  assert.equal(
-    pilot.jobs["deploy-ui-preview"].uses,
-    "./.github/workflows/_vercel-prebuilt.yml",
-  );
-});
 
 test("build, smoke, and finalizer jobs keep separate least-privilege tokens", () => {
   const deploymentWriter = { contents: "read", deployments: "write" };
-  const pilot = workflow(pilotPath);
   const reusable = workflow(reusablePath);
-  assert.deepEqual(pilot.permissions, deploymentWriter);
-  assert.deepEqual(
-    pilot.jobs["deploy-ui-preview"].permissions,
-    deploymentWriter,
-  );
   assert.deepEqual(reusable.permissions, {});
   assert.deepEqual(reusable.jobs.prebuilt.permissions, deploymentWriter);
   assert.deepEqual(reusable.jobs.smoke.permissions, { contents: "read" });
@@ -91,6 +44,8 @@ test("reusable workflow declares exact inputs, explicit secrets, and evidence ou
     "deploy_permitted",
     "github_environment",
     "deployment_idempotency_key",
+    "pull_request_number",
+    "provenance",
     "turbo_team",
   ]) {
     assert.equal(
@@ -118,12 +73,11 @@ test("reusable workflow declares exact inputs, explicit secrets, and evidence ou
     "deploy_duration_ms",
     "total_duration_ms",
   ]);
-  assert.doesNotMatch(read(pilotPath), /secrets:\s*inherit/);
+  assert.doesNotMatch(read(reusablePath), /secrets:\s*inherit/);
 });
 
 test("preview credentials keep Governance explorer access target-local and never expose Sentry", () => {
   const reusable = workflow(reusablePath);
-  const pilot = workflow(pilotPath);
   const worker = workflow(".github/workflows/vercel-preview-worker.yml");
   const steps = reusable.jobs.prebuilt.steps;
   const nonGovernance = steps.find(
@@ -178,11 +132,6 @@ test("preview credentials keep Governance explorer access target-local and never
     read(reusablePath),
     /SENTRY_AUTH_TOKEN|secrets:\s*inherit/,
   );
-  assert.deepEqual(Object.keys(pilot.jobs["deploy-ui-preview"].secrets), [
-    "turbo_remote_cache_signature_key",
-    "turbo_token",
-    "vercel_token",
-  ]);
   assert.deepEqual(Object.keys(worker.jobs["deploy-ui-preview"].secrets), [
     "turbo_remote_cache_signature_key",
     "turbo_token",
@@ -224,8 +173,8 @@ test("runner-side Governance validation never traverses the distinct candidate i
   );
 });
 
-test("pilot maps only preview credentials and never exposes a production path", () => {
-  const raw = read(pilotPath);
+test("preview worker maps only preview credentials and never exposes a production path", () => {
+  const raw = read(".github/workflows/vercel-preview-worker.yml");
   assert.match(raw, /VERCEL_TOKEN_PREVIEW/);
   assert.match(raw, /VERCEL_PROJECT_ID_UI/);
   assert.doesNotMatch(raw, /VERCEL_AUTOMATION_BYPASS_SECRET|bypass/i);
@@ -669,11 +618,9 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
 });
 
 test("main-only controller is restored after every candidate-code phase", () => {
-  const pilot = workflow(pilotPath);
   const reusable = workflow(reusablePath);
   const steps = reusable.jobs.prebuilt.steps;
   const names = steps.map(({ name }) => name);
-  assert.match(pilot.jobs["deploy-ui-preview"].if, /refs\/heads\/main/);
   const controllerCheckouts = steps.filter(
     ({ uses, with: options }) =>
       uses?.startsWith("actions/checkout@") && options?.path === "controller",
@@ -839,8 +786,7 @@ test("uncredentialed smoke gates the always-run trusted lifecycle finalizer", ()
     deployment_url: "${{ needs.prebuilt.outputs.verified_deployment_url }}",
     expected_sha: "${{ needs.prebuilt.outputs.commit_sha }}",
     github_deployment_id: "${{ needs.prebuilt.outputs.github_deployment_id }}",
-    verification_mode:
-      "${{ inputs.provenance == 'manual-pilot' && 'manual-pilot' || 'controller' }}",
+    verification_mode: "controller",
     verification_key: "${{ inputs.deployment_idempotency_key }}",
     metadata_logical_target: "${{ inputs.logical_target }}",
     metadata_target: "${{ inputs.vercel_target }}",
@@ -973,15 +919,10 @@ test("workflow restores signed Turbo cache and immutable Vercel build metadata",
   assert.doesNotMatch(raw, /--token/);
 });
 
-test("manual pilot is intentionally absent from operational failure notifications", () => {
-  const notifier = read(".github/workflows/ci-failure-notifier.yml");
-  assert.doesNotMatch(notifier, /Vercel Prebuilt Pilot/);
-});
-
 test("runbook records GITHUB_TOKEN non-recursion and the no-PAT direct-smoke rule", () => {
   const docs = read("docs/vercel-deployments.md");
   assert.match(docs, /GITHUB_TOKEN/);
   assert.match(docs, /does not\s+trigger another workflow run/);
-  assert.match(docs, /Do not add a PAT/);
+  assert.match(docs, /Do not add\s+a PAT/);
   assert.match(docs, /workflow_dispatch/);
 });

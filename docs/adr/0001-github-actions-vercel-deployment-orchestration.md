@@ -148,12 +148,12 @@ Each worker creates or reuses one GitHub Deployment whose `ref` is the selected
 status. Every selected target runs direct smoke against its immutable URL before
 success. App and governance retain a rollback-only native `deployment_status`
 adapter for bounded target-local recovery; it is not an ordinary native preview
-path. Its removal is deferred to #523 cleanup after the required observation
-period. A status created with the repository
+path. The migration cleanup retains it because these documented rollback paths
+still require native deployment proof. A status created with the repository
 `GITHUB_TOKEN` is evidence, not a trigger contract.
 
 The direct smoke is one credential-free reusable workflow shared by all four
-targets and the temporary native adapter. Its input is an already verified,
+targets and the bounded native adapter. Its input is an already verified,
 mode-discriminated metadata tuple; it never looks up deployment metadata with a
 token. Native App/Governance events are accepted only for the exact Vercel bot,
 exact preview environment, empty native payload, successful status, and exact
@@ -447,19 +447,19 @@ failure of the hosting/runtime platform.
 
 ### Tracked rollout
 
-Rollout status reverified on 2026-07-24:
+Rollout status reverified on 2026-08-26:
 
-| Issue                                                                  | Responsibility                                                 | Adoption status                                              |
-| ---------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------ |
-| [#515](https://github.com/mento-protocol/frontend-monorepo/issues/515) | Epic and non-negotiable behavior                               | Open; rollout owner                                          |
-| [#516](https://github.com/mento-protocol/frontend-monorepo/issues/516) | Planner, deployment ID, environment primitives                 | Complete                                                     |
-| [#517](https://github.com/mento-protocol/frontend-monorepo/issues/517) | Maintainer-provisioned credentials and mapping                 | Complete                                                     |
-| [#518](https://github.com/mento-protocol/frontend-monorepo/issues/518) | Manual no-cutover UI pilot and cost go/no-go                   | Complete                                                     |
-| [#519](https://github.com/mento-protocol/frontend-monorepo/issues/519) | Automatic UI previews and durable batching                     | Complete                                                     |
-| [#520](https://github.com/mento-protocol/frontend-monorepo/issues/520) | App, governance, and reserve preview cutover                   | Complete                                                     |
-| [#521](https://github.com/mento-protocol/frontend-monorepo/issues/521) | Main shadow proof and app `v3` semantics                       | Complete                                                     |
-| [#522](https://github.com/mento-protocol/frontend-monorepo/issues/522) | Main transaction, cutover, rollback, and app `v2` preservation | Open; active topology configured, live cutover proof pending |
-| [#523](https://github.com/mento-protocol/frontend-monorepo/issues/523) | Observation, savings proof, and migration cleanup              | Open; analyzer preparation merged, observation not started   |
+| Issue                                                                  | Responsibility                                                 | Adoption status                                |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------- | ---------------------------------------------- |
+| [#515](https://github.com/mento-protocol/frontend-monorepo/issues/515) | Epic and non-negotiable behavior                               | Open; rollout owner                            |
+| [#516](https://github.com/mento-protocol/frontend-monorepo/issues/516) | Planner, deployment ID, environment primitives                 | Complete                                       |
+| [#517](https://github.com/mento-protocol/frontend-monorepo/issues/517) | Maintainer-provisioned credentials and mapping                 | Complete                                       |
+| [#518](https://github.com/mento-protocol/frontend-monorepo/issues/518) | Manual no-cutover UI pilot and cost go/no-go                   | Complete                                       |
+| [#519](https://github.com/mento-protocol/frontend-monorepo/issues/519) | Automatic UI previews and durable batching                     | Complete                                       |
+| [#520](https://github.com/mento-protocol/frontend-monorepo/issues/520) | App, governance, and reserve preview cutover                   | Complete                                       |
+| [#521](https://github.com/mento-protocol/frontend-monorepo/issues/521) | Main shadow proof and app `v3` semantics                       | Complete                                       |
+| [#522](https://github.com/mento-protocol/frontend-monorepo/issues/522) | Main transaction, cutover, rollback, and app `v2` preservation | Complete                                       |
+| [#523](https://github.com/mento-protocol/frontend-monorepo/issues/523) | Observation, savings proof, and migration cleanup              | 84.04% accepted; migration cleanup in progress |
 
 Merged implementation evidence:
 
@@ -469,8 +469,7 @@ Merged implementation evidence:
   fail-closed planning, deployment IDs, build-environment contract, and pinned
   prebuilt prerequisites; closes #516.
 - [PR #525](https://github.com/mento-protocol/frontend-monorepo/pull/525) —
-  manual exact-SHA UI prebuilt pilot implementation; #518 remains open pending
-  its privileged run and evidence.
+  historical exact-SHA UI prebuilt pilot implementation; #518 is complete.
 - [PR #528](https://github.com/mento-protocol/frontend-monorepo/pull/528) —
   public-safe cost-analysis tooling in preparation for #523; it does not start
   the observation window.
@@ -486,14 +485,14 @@ Merged implementation evidence:
 Canonical repository evidence:
 
 - [`docs/vercel-deployments.md`](../vercel-deployments.md) — current target,
-  environment, build, pilot, and security runbook.
+  environment, build, rollback, and security runbook.
 - `scripts/plan-vercel-deployments.mjs` and its offline fixtures — fail-closed
   affected-target planning.
 - `scripts/vercel-prebuilt.mjs` and `scripts/vercel-build-environment.mjs` —
   pinned-version, deployment-ID, output, and environment contracts.
-- `.github/workflows/vercel-prebuilt-pilot.yml` and
-  `.github/workflows/_vercel-prebuilt.yml` — merged manual pilot path, not an
-  automatic cutover.
+- `.github/workflows/vercel-preview-worker.yml` and
+  `.github/workflows/_vercel-prebuilt.yml` — active automatic preview worker and
+  reusable prebuilt pipeline.
 - `.github/workflows/vercel-main-deployment.yml`,
   `scripts/vercel-main-deployment.mjs`, and the exact-attempt, served-SHA,
   transaction, ownership-partition, active mutation, recovery, duplicate-census,
