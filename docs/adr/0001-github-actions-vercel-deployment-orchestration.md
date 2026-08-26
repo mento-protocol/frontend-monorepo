@@ -455,7 +455,7 @@ Rollout status reverified on 2026-08-26:
 | [#520](https://github.com/mento-protocol/frontend-monorepo/issues/520) | App, governance, and reserve preview cutover                   | Complete                                     |
 | [#521](https://github.com/mento-protocol/frontend-monorepo/issues/521) | Main shadow proof and app `v3` semantics                       | Complete                                     |
 | [#522](https://github.com/mento-protocol/frontend-monorepo/issues/522) | Main transaction, cutover, rollback, and app `v2` preservation | Complete                                     |
-| [#523](https://github.com/mento-protocol/frontend-monorepo/issues/523) | Observation, savings proof, and migration cleanup              | 84.04% accepted; final cleanup pending merge |
+| [#523](https://github.com/mento-protocol/frontend-monorepo/issues/523) | Observation, savings proof, and migration cleanup              | 84.04% accepted; cleanup complete in PR #853 |
 
 Merged implementation evidence:
 
