@@ -902,8 +902,8 @@ The result is deterministic for the same four inputs, differs between targets
 and reruns, is at most 32 characters, uses only Vercel's supported character
 set, and never begins with the reserved `dpl_` prefix.
 
-Manual shadow and pilot workflows retain that per-attempt Next.js deployment ID
-as build provenance. Active-main uses the target-specific candidate ID
+The Vercel Production Shadow workflow retains that per-attempt Next.js
+deployment ID as build provenance. Active-main uses the target-specific candidate ID
 (`releaseId + target`) for its Next.js deployment ID across downstream reruns;
 release ID is repository, exact SHA, and validated upstream CI run ID. The
 downstream run-and-attempt key continues to identify each active-main journal
