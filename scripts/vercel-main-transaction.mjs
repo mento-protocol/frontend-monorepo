@@ -1228,7 +1228,7 @@ export async function persistMainTransactionJournal(journal, uploadJournal) {
     receipt = await uploadJournal({
       artifactName,
       journal: clone(canonical),
-      retentionDays: 14,
+      retentionDays: 7,
     });
   } catch {
     throw new MainTransactionError("Journal artifact upload failed", {

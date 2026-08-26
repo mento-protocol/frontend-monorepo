@@ -48,16 +48,6 @@ pnpm dependabot:soak                # Render and validate the production soak ev
 NEXT_CATALOG_SYNC_INTEGRATION=1 pnpm exec node --test scripts/dependabot-protected-runtime-sync.test.mjs  # Run the networked source-preserving Next sync proof
 pnpm adr:check                       # Advisory reminder for new architecture-significant workflows/workspaces
 pnpm adr:check:test                  # Test the offline ADR trigger and repository wiring
-pnpm vercel:cost:test                # Test private GitHub billing proof, saved-page census normalization, target-mix analysis, and closeout gates
-pnpm vercel:cost:observe -- init --start <START_UTC> --end <END_UTC_EXCLUSIVE>  # Verify the private interval/extension ledger first; initialize or append a later pre-audit end
-pnpm vercel:cost:observe -- capture-preview --pr <number> --event-run-id <id>  # Freeze one preview event from the live journal or its 14-day receipt artifact
-pnpm vercel:cost:observe -- capture-main --run-id <id>  # Freeze every attempt, log, and available journal for one main release
-pnpm vercel:cost:observe -- sample-github  # Snapshot visibility, runs, runner labels, caches, and artifacts
-pnpm vercel:cost:observe -- audit --end <CURRENT_END_UTC_EXCLUSIVE>  # Read the canonical end from the verified private ledger; once clean, freeze and emit the incomplete private evidence-join fragment
-pnpm vercel:cost:github -- inspect --usage-csv <private.csv> --output <private-shape.json>  # Inspect detailed-usage CSV shape without exposing amounts
-pnpm vercel:cost:github -- build --usage-csv <private.csv> --usage-metadata <metadata.json> --audit-web-export <export.json> --audit-metadata <metadata.json> --observation-root <root> --output <proof.json>  # Use one audit source: web export, Enterprise REST transcript, or owner zero-result screenshot
-pnpm vercel:cost:normalize-deployments --input <private-pages-envelope.json> --output <private-dir/census.jsonl> --proof <private-dir/census-proof.json>  # Crash-resumably normalize saved Vercel v7 pages; rerun the exact command after interruption
-pnpm vercel:cost:analyze --input <private-evidence-manifest.json> --format markdown  # Reconcile FOCUS project totals only after complete zero-exclusion censuses
 trunk check --fix                     # Lint with autofix
 trunk fmt                             # Format
 pnpm test                            # Run tests
@@ -151,9 +141,9 @@ wallet flow, Reserve tab/data interaction, or UI deployment-identity flow. The
 workflow only for exact native Vercel App/Governance successes created during
 a bounded target-local rollback; it performs no status lookup or reuse and
 receives no deployment credential. Ordinary previews for all four targets are
-GitHub-owned and do not use this adapter. The migration cleanup retains this
-adapter because the documented App and Governance target-local preview
-rollbacks require it. A target-local `main` rollback does not change preview
+GitHub-owned and do not use this adapter. This adapter exists only for
+documented App and Governance target-local preview rollback proof. A
+target-local `main` rollback does not change preview
 ownership, and a target-local preview rollback uses native-preview/GitHub-main
 branch rules so it does not change main ownership. GitHub-built workers call the reusable
 workflow directly because a `GITHUB_TOKEN` Deployment status is evidence, not

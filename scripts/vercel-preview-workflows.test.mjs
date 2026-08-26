@@ -1034,7 +1034,6 @@ test("runbook covers v2 migration, four-target canaries, cutover, and exact roll
     "Keep `VERCEL_PREVIEW_CONTROLLER_MODE` set to `active`",
     "intentionally deferred stale PR",
     "shadow activation",
-    "Phase A canary evidence template",
     "repository browser protocol",
     "UI Vercel Git cutover (Phase B)",
     '"**": false',

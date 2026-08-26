@@ -26,8 +26,6 @@ export { canonicalizeDeploymentUrl, canonicalizeHostname };
 
 const API_ORIGIN = "https://api.vercel.com";
 const SHA_PATTERN = /^[A-Fa-f0-9]{40}$/;
-const VERCEL_BUILD_MACHINE_TYPES = new Set(["enhanced", "standard", "turbo"]);
-const VERCEL_BUILD_MACHINE_SELECTIONS = new Set(["elastic", "fixed"]);
 
 export const CANONICAL_STATE_KEYS = Object.freeze([
   "alias",
@@ -209,13 +207,6 @@ const CLI_OPTIONS = Object.freeze({
   "planning-snapshot": Object.freeze(["spec", "output"]),
   project: Object.freeze(["project-id", "project-name", "root-directory"]),
   snapshot: Object.freeze(["spec", "output"]),
-});
-const CLI_OPTIONAL_OPTIONS = Object.freeze({
-  project: Object.freeze([
-    "expected-build-machine-type",
-    "expected-build-machine-selection",
-    "expected-elastic-concurrency-enabled",
-  ]),
 });
 const APP_CANDIDATE_PENDING_STATES = new Set([
   "BUILDING",
@@ -1479,36 +1470,9 @@ export class VercelStateClient {
     });
   }
 
-  async assertProject({
-    projectId,
-    projectName,
-    rootDirectory,
-    expectedBuildMachineType,
-    expectedBuildMachineSelection,
-    expectedElasticConcurrencyEnabled,
-  }) {
+  async assertProject({ projectId, projectName, rootDirectory }) {
     requireIdentifier(projectId, "Expected project ID");
     requireIdentifier(projectName, "Expected project name");
-    if (
-      expectedBuildMachineType !== undefined &&
-      !VERCEL_BUILD_MACHINE_TYPES.has(expectedBuildMachineType)
-    ) {
-      throw new Error("Expected project build machine type is malformed");
-    }
-    if (
-      expectedBuildMachineSelection !== undefined &&
-      !VERCEL_BUILD_MACHINE_SELECTIONS.has(expectedBuildMachineSelection)
-    ) {
-      throw new Error("Expected project build machine selection is malformed");
-    }
-    if (
-      expectedElasticConcurrencyEnabled !== undefined &&
-      typeof expectedElasticConcurrencyEnabled !== "boolean"
-    ) {
-      throw new Error(
-        "Expected project elastic concurrency state is malformed",
-      );
-    }
     if (
       typeof rootDirectory !== "string" ||
       !/^apps\/[A-Za-z0-9._-]+$/.test(rootDirectory)
@@ -1525,26 +1489,6 @@ export class VercelStateClient {
     }
     if (project.rootDirectory !== rootDirectory) {
       throw new Error("Unexpected Vercel project Root Directory");
-    }
-    if (
-      expectedBuildMachineType !== undefined &&
-      project.resourceConfig?.buildMachineType !== expectedBuildMachineType
-    ) {
-      throw new Error("Unexpected Vercel project build machine type");
-    }
-    if (
-      expectedBuildMachineSelection !== undefined &&
-      project.resourceConfig?.buildMachineSelection !==
-        expectedBuildMachineSelection
-    ) {
-      throw new Error("Unexpected Vercel project build machine selection");
-    }
-    if (
-      expectedElasticConcurrencyEnabled !== undefined &&
-      project.resourceConfig?.elasticConcurrencyEnabled !==
-        expectedElasticConcurrencyEnabled
-    ) {
-      throw new Error("Unexpected Vercel project elastic concurrency state");
     }
   }
 }
@@ -3292,11 +3236,7 @@ export function parseArguments(argv) {
     );
   }
   const command = argv[0];
-  const required = new Set(CLI_OPTIONS[command]);
-  const allowed = new Set([
-    ...required,
-    ...(CLI_OPTIONAL_OPTIONS[command] ?? []),
-  ]);
+  const allowed = new Set(CLI_OPTIONS[command]);
   const options = Object.create(null);
   for (let index = 1; index < argv.length; index += 2) {
     const argument = argv[index];
@@ -3320,29 +3260,13 @@ export function parseArguments(argv) {
     }
     options[name] = value;
   }
-  if ([...required].some((name) => !Object.hasOwn(options, name))) {
+  if (
+    Object.keys(options).length !== allowed.size ||
+    [...allowed].some((name) => !Object.hasOwn(options, name))
+  ) {
     throw new Error("Vercel deployment state required option is missing");
   }
   return { command, options };
-}
-
-function parseOptionalBoolean(value, label) {
-  if (value === undefined) return undefined;
-  if (value === "true") return true;
-  if (value === "false") return false;
-  throw new Error(`${label} must be true or false`);
-}
-
-function parseOptionalBuildMachineType(value) {
-  if (value === undefined) return undefined;
-  if (VERCEL_BUILD_MACHINE_TYPES.has(value)) return value;
-  throw new Error("Expected project build machine type is malformed");
-}
-
-function parseOptionalBuildMachineSelection(value) {
-  if (value === undefined) return undefined;
-  if (VERCEL_BUILD_MACHINE_SELECTIONS.has(value)) return value;
-  throw new Error("Expected project build machine selection is malformed");
 }
 
 function readJson(path, label) {
@@ -3518,23 +3442,6 @@ export async function runCli({
   clientFactory = (options) => new VercelStateClient(options),
 } = {}) {
   const { command, options } = parseArguments(argv);
-  const expectedBuildMachineType =
-    command === "project"
-      ? parseOptionalBuildMachineType(options["expected-build-machine-type"])
-      : undefined;
-  const expectedBuildMachineSelection =
-    command === "project"
-      ? parseOptionalBuildMachineSelection(
-          options["expected-build-machine-selection"],
-        )
-      : undefined;
-  const expectedElasticConcurrencyEnabled =
-    command === "project"
-      ? parseOptionalBoolean(
-          options["expected-elastic-concurrency-enabled"],
-          "Expected project elastic concurrency state",
-        )
-      : undefined;
 
   if (command === "compare") {
     compareProtectedSnapshots(
@@ -3631,15 +3538,6 @@ export async function runCli({
       projectId: options["project-id"],
       projectName: options["project-name"],
       rootDirectory: options["root-directory"],
-      ...(expectedBuildMachineType === undefined
-        ? {}
-        : { expectedBuildMachineType }),
-      ...(expectedBuildMachineSelection === undefined
-        ? {}
-        : { expectedBuildMachineSelection }),
-      ...(expectedElasticConcurrencyEnabled === undefined
-        ? {}
-        : { expectedElasticConcurrencyEnabled }),
     });
     stdout.write("Vercel project configuration verified\n");
   }

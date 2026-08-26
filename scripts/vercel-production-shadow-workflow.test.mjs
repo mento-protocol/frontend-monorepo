@@ -1356,7 +1356,7 @@ test("artifacts contain only failure-safe browser diagnostics", () => {
   for (const step of uploadSteps) {
     assert.equal(step.if, "failure()");
     assert.equal(step.with.path, "apps/app.mento.org/test-results/");
-    assert.equal(step.with["retention-days"], 14);
+    assert.equal(step.with["retention-days"], 7);
     assert.doesNotMatch(step.with.path, /\.vercel|\.env/);
   }
   assert.doesNotMatch(

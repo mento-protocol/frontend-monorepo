@@ -188,4 +188,4 @@ jobs:
           name: preview-smoke-${{ inputs.logical_target }}-${{ inputs.expected_sha }}-${{ inputs.github_deployment_id }}
           path: apps/app.mento.org/test-results/
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 7

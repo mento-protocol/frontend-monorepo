@@ -116,17 +116,10 @@ materializes the event's canonical journal graph. Therefore a later exact
 artifact transitively retains every earlier admitted receipt in that graph,
 including an earlier event whose own artifact is missing.
 
-The private cost collector prefers the requested event's exact artifact. If
-that artifact and the live event are both absent, it searches the controller
-workflow runs on the requested historical run's validated head branch. The search is
-bounded to five 100-run pages and 64 completed later candidates. It checks
-candidates nearest-first and downloads only an exact per-run artifact. A
-covering receipt must bind the candidate run, contain the marked requested
-event, and carry an admission cursor through the covering event. The collector
-does not depend on the current checkpoint. It does not enumerate repository-wide
-artifacts. This keeps transitive evidence usable after later checkpoints replace
-the checkpoint event. Any identity conflict, ambiguity, or bound exhaustion
-fails closed.
+The artifact's retained operational purpose is safe capacity checkpointing
+above the 40,000-byte soft threshold. It is not an alternate journal or a
+source of status, reconciliation, dispatch, or deployment authority. An
+expired, unrelated, ambiguous, or invalid artifact cannot authorize a fold.
 
 The checkpoint folds only through that cutoff. It retains every later live
 event and every selection whose selected or coalesced event run ID binds it to
@@ -345,58 +338,24 @@ check or deployment.
 
 ### Clean cutover, cleanup, and rollback
 
-Admission-cursor rollout is also intentionally single-path. First merge a
-precursor that emits strict numbered event/inert titles and numbered bootstrap
-receipts without enforcing the cursor. Verify one live canary. Then update
-enforcement PR #586 exactly once, wait for its strict `synchronize` receipt,
-freeze it, and drain controller, worker, intake, and callback activity plus all
-unfinished durable ownership before merging it. Its close may fail admission
-because the new implementation was not yet live on the default branch; that
-one rollout edge is repaired only after merge. From the new default branch,
-drain again and dispatch one closed bootstrap for #586. The exact
-`repository_dispatch` run ID/number/title, numeric workflow ID/path,
-repository, receipt, cursor, and terminal closed state must agree, with no
-planner, worker, Deployment, or pending-status side effect. Finish or rerun the
-same run's reconciliation (or dispatch an explicit reconcile after a committed
-receipt) and recheck the terminal state. A second distinct closed bootstrap is
-forbidden. Keep pull-request lifecycle mutations frozen, inventory every other
-open canonical v2 journal without an admission cursor, drain its unfinished
-ownership, and immediately bootstrap every inventoried journal before lifting
-the freeze. This inventory includes #535. Do not resume pushes, retargets,
-reopens, or closes until every numbered bootstrap and cursor is proven. Delayed
-pre-floor runs authenticate exactly and perform no writes; missing receipts
-above the floor defer while running and fail closed when completed. No old
-branch proof, inferred synchronize floor, or dual admission reader remains.
+The admission-cursor and v1-to-v2 cutovers are complete. The durable recovery
+rule remains single-path. Freeze pull-request lifecycle changes. Drain the
+preview controller, worker, intake, and callback workflows. Prove that each
+affected journal has no unfinished ownership before a reset or schema change.
 
-There is no dual-read period and no compatibility path for v1 journals or
-already-running v1 workers. Before merging v2, operators establish a no-push
-window; drain or cancel every preview controller, worker, and intake run; and
-inventory the exact comment ID of every open participating PR's trusted
-`<!-- vercel-preview-journal:v1 -->` comment. The cutover must not proceed while
-a v1 run can still write a journal, dispatch work, or publish preview state.
-The v2 implementation contains no v1 reader, writer, presentation upgrader,
-payload importer, deleter, rematerializer, or compatibility worker.
+For an existing v2 journal that needs a new admission floor, dispatch one fresh
+bootstrap from the current default branch. Build its state only from current
+live pull-request metadata and a fresh fail-closed four-target plan. Require the
+exact workflow identity, receipt, cursor, journal state, and aggregate status to
+agree. If a job fails after it commits the receipt, rerun that job in the same
+workflow run. Do not dispatch a second distinct bootstrap for the same reset.
 
-After the merge, every open participating pull request is bootstrapped from its
-current live PR metadata and a fresh fail-closed four-target plan. Bootstrap
-creates an independent v2 journal epoch; it does not import, translate, trust,
-or reconcile the v1 payload. Operators must prove exactly one trusted
-`<!-- vercel-preview-journal:v2 -->` comment with a stable ID, all four target
-states/checkpoints, and an exact-head aggregate status consistent with worker,
-Deployment, native-owner, or no-runtime evidence.
-
-Only after every open PR's v2 journal is proven may an operator manually delete
-the inventoried v1 comment IDs. Each deletion rereads and requires the exact
-recorded ID, exact `github-actions[bot]` author, and complete v1 journal marker.
-Unknown, malformed, human, review, and third-party-bot comments are never
-deleted. Cleanup is an operator step; it is deliberately absent from v2 runtime
-code.
-
-Rollback is a v2 roll-forward restart, not a data migration. Operators first
-drain or cancel v2 controller and worker runs, merge the reviewed corrective
-change, and bootstrap v2 afresh from live pull-request state. Never restore the
-v1 controller, import a v1 payload, rematerialize a deleted v1 journal, or claim
-continuity with the discarded epoch.
+Runtime code has no v1 reader, writer, importer, deleter, rematerializer,
+compatibility worker, or dual-read path. Never restore or import v1 state. If a
+corrective journal change is required, use a v2 roll-forward restart: drain the
+writers, merge the reviewed correction, and bootstrap fresh v2 state from live
+pull-request data. Do not edit a journal by hand or claim continuity with a
+discarded epoch.
 
 ## Alternatives considered
 

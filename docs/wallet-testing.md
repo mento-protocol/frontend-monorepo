@@ -252,10 +252,10 @@ exact `Preview – <project>` environment, successful status, empty native
 Deployment payload, and exact project-slug team hostname. Every qualifying
 event runs the full smoke; the adapter does not query or reuse earlier statuses
 or use a lossy shared concurrency group, and has no PAT or Vercel credential.
-The migration cleanup retains it because the documented target-local preview
-rollbacks require this proof path. Its presence does not enable ordinary native
-branch previews. Target-local or full-native `main` rollback does not change
-this GitHub preview ownership. Conversely, a target-local preview rollback uses
+It exists only for the documented target-local preview rollback proof. Its
+presence does not enable ordinary native branch previews. Target-local or
+full-native `main` rollback does not change this GitHub preview ownership.
+Conversely, a target-local preview rollback uses
 the exact native-preview/GitHub-main branch rules and does not restore native
 main ownership.
 

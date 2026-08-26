@@ -374,7 +374,7 @@ jobs:
           name: ${{ steps.journal.outputs.journal_artifact_name }}
           path: ${{ runner.temp }}/inherited-recovery-artifact/main-journal.json
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
       - name: Checkpoint inherited recovery journal receipt and history
         env:
           ARTIFACT_ID: ${{ steps.upload-prepared.outputs.artifact-id }}
@@ -419,7 +419,7 @@ jobs:
           name: ${{ steps.initialize.outputs.journal_artifact_name }}
           path: ${{ runner.temp }}/inherited-initialized-artifact/main-journal.json
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
       - name: Checkpoint initialized inherited recovery journal
         env:
           ARTIFACT_ID: ${{ steps.upload-initialized.outputs.artifact-id }}
@@ -963,7 +963,7 @@ jobs:
             name: "vercel-main-governance-${{ github.run_id }}-${{ github.run_attempt }}",
             path: trusted-after-build/apps/app.mento.org/test-results/,
             if-no-files-found: ignore,
-            retention-days: 14,
+            retention-days: 7,
           }
       - name: Remove authenticated governance runtime
         if: ${{ always() }}
@@ -1166,7 +1166,7 @@ jobs:
             name: "vercel-main-reserve-${{ github.run_id }}-${{ github.run_attempt }}",
             path: trusted-after-build/apps/app.mento.org/test-results/,
             if-no-files-found: ignore,
-            retention-days: 14,
+            retention-days: 7,
           }
       - name: Remove authenticated reserve runtime
         if: ${{ always() }}
@@ -1368,7 +1368,7 @@ jobs:
             name: "vercel-main-ui-${{ github.run_id }}-${{ github.run_attempt }}",
             path: trusted-after-build/apps/app.mento.org/test-results/,
             if-no-files-found: ignore,
-            retention-days: 14,
+            retention-days: 7,
           }
       - name: Remove authenticated UI runtime
         if: ${{ always() }}
@@ -1764,7 +1764,7 @@ jobs:
           name: ${{ steps.journal.outputs.journal_artifact_name }}
           path: ${{ runner.temp }}/prepared-journal-artifact/main-journal.json
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
       - name: Materialize current-attempt prepared journal checkpoint
         if: >-
           steps.freshness.outputs.status == 'fresh' &&
@@ -2078,7 +2078,7 @@ jobs:
           name: ${{ steps.finalize.outputs.journal_artifact_name }}
           path: ${{ runner.temp }}/committed-journal-artifact/main-journal.json
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
       - name: Checkpoint the committed terminal journal
         if: >-
           steps.freshness.outputs.status == 'fresh' &&
@@ -2404,7 +2404,7 @@ jobs:
           name: ${{ steps.initialize.outputs.journal_artifact_name }}
           path: ${{ runner.temp }}/recovery-initialized-artifact/main-journal.json
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
       - name: Checkpoint initialized recovery journal
         if: >-
           steps.journal-presence.outputs.has_journal == 'true' &&

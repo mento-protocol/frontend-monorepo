@@ -92,7 +92,7 @@ runs:
         name: ${{ steps.dispatch.outputs.journal_artifact_name }}
         path: ${{ runner.temp }}/active-${{ inputs.slot }}-started-artifact/main-journal.json
         if-no-files-found: error
-        retention-days: 14
+        retention-days: 7
 
     - name: Checkpoint the uploaded intent
       id: checkpoint-started
@@ -182,7 +182,7 @@ runs:
         name: ${{ steps.returned.outputs.journal_artifact_name }}
         path: ${{ runner.temp }}/active-${{ inputs.slot }}-returned-artifact/main-journal.json
         if-no-files-found: error
-        retention-days: 14
+        retention-days: 7
 
     - name: Checkpoint the uploaded command return
       id: checkpoint-returned
@@ -272,7 +272,7 @@ runs:
         name: ${{ steps.verify.outputs.journal_artifact_name }}
         path: ${{ runner.temp }}/active-${{ inputs.slot }}-verified-artifact/main-journal.json
         if-no-files-found: error
-        retention-days: 14
+        retention-days: 7
 
     - name: Checkpoint the uploaded verified mapping
       id: checkpoint-verified
@@ -339,7 +339,7 @@ runs:
         name: ${{ steps.verify-app-candidate.outputs.journal_artifact_name }}
         path: ${{ runner.temp }}/active-${{ inputs.slot }}-app-verified-artifact/main-journal.json
         if-no-files-found: error
-        retention-days: 14
+        retention-days: 7
 
     - name: Checkpoint the completed App verification
       id: checkpoint-app-verified

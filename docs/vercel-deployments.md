@@ -506,7 +506,7 @@ artifact survives without weakening the sentinel.
 
 Both paths append their canonical redacted report to `$GITHUB_STEP_SUMMARY` and
 upload the exact JSON as artifact
-`vercel-main-evidence-${run_id}-${run_attempt}` with 14-day retention. Link the
+`vercel-main-evidence-${run_id}-${run_attempt}` with seven-day retention. Link the
 first merged PR-A run and artifact on issue #522 or its PR; do not embed observed
 IDs in this canonical runbook. The evidence contains only:
 
@@ -1508,7 +1508,7 @@ rejects any ambient protection header, handles each redirect as a new browser
 request, and origin-checks main-frame navigation throughout the smoke and after
 every target interaction. HTTP readiness also uses manual redirects and rejects
 a cross-origin redirect. The fresh smoke job never links or executes candidate
-`node_modules`. Failure uploads only screenshots/video for fourteen days; tracing
+`node_modules`. Failure uploads only screenshots/video for seven days; tracing
 stays disabled to keep diagnostic artifacts bounded.
 
 Do not run the manual pilot until the required GitHub Environment, repository
@@ -1568,192 +1568,28 @@ workflow performs no explicit alias assignment, promotion,
 environment-configuration, ownership, or protected/custom production-domain
 mutation.
 
-## Cost validation preparation
+## Current ordinary-project build settings
 
-The network-free analyzer and private/public evidence boundary for the final
-build-minute observation are documented in
-[Vercel build-minute validation](vercel-cost-validation.md). Preparing that
-tool does not start the observation window; collection begins only after the
-four-target preview and active-main ownership have live cutover proof.
+UI, Reserve, and Governance use these project-level Vercel settings:
 
-## External Standard-build cost pilot
+- `resourceConfig.buildMachineType`: `standard`
+- `resourceConfig.buildMachineSelection`: `fixed`
+- `resourceConfig.elasticConcurrencyEnabled`: `false`
 
-[Issue #842](https://github.com/mento-protocol/frontend-monorepo/issues/842)
-tests whether Vercel's project-level build settings remove the measured
-four-minute Build CPU floor from GitHub-prebuilt deployments. This is an
-external Vercel project setting. It does not change a workflow, ownership mode,
-deployment path, or any target's `vercel.json`. Keep every `vercel.json` file
-unchanged during the pilot, expansion, and rollback.
+App is excluded. Its custom `v3` deployment and native `v2 -> production` path
+share one Vercel project. A project-level setting change could affect both
+paths and increase activation-recovery risk.
 
-The fixed corrective interval measured 84.04% target-mix-normalized savings.
-On 2026-08-26, the maintainer accepted that result as the product outcome. The
-provider support case remains open and unanswered. The accepted result does not
-rewrite the sealed 90% measurement gate.
-
-### Target order and App exclusion
-
-Change one ordinary project at a time in this order:
-
-1. UI is the pilot.
-2. Reserve is eligible only after the UI canary passes.
-3. Governance is eligible only after the Reserve canary passes.
-
-Use project-level settings. Do not use Vercel's team-wide bulk setting. All
-three ordinary projects are required for the widest savings margin, but each
-expansion remains contingent on the preceding project's complete canary and
-queue evidence.
-
-Do not include App in this change. Its custom-`v3` activation uses a bounded
-120-second deployment command. Under provider queueing, a candidate could
-remain queued after that command ends, finish later, and move reviewed aliases
-after the controller has entered an unknown-result or recovery path. The
-preserved native `v2 -> production` path shares the same project setting, while
-the FOCUS export provides only project-level Build CPU attribution. A
-project-level change therefore cannot isolate custom `v3` from native `v2` and
-would add activation-recovery and billing-attribution risks to this
-ordinary-project pilot.
-
-### Exact external setting
-
-In the selected project's Vercel dashboard, use **Settings > Build and
-Deployment** and select these values:
-
-- **Build Machine:** **Standard** (4 vCPUs and 8 GB memory).
-- **On-Demand Concurrent Builds:** **Disabled**.
-
-The equivalent minimal
-[`PATCH /v9/projects/{idOrName}`](https://vercel.com/docs/rest-api/projects/update-an-existing-project)
-request body is:
-
-```json
-{
-  "resourceConfig": {
-    "buildMachineType": "standard",
-    "buildMachineSelection": "fixed",
-    "elasticConcurrencyEnabled": false
-  }
-}
-```
-
-Send `buildMachineSelection: "fixed"` explicitly. Vercel models machine type
-and machine selection as separate fields. An elastic selection can override
-the concrete type. Do not send or clear `buildQueue`: its
-`SKIP_NAMESPACE_QUEUE` and `WAIT_FOR_NAMESPACE_QUEUE` values select behavior
-only while On-Demand Concurrent Builds is enabled. They do not represent the
-disabled state.
-
-Before the UI pilot, open one read-only billing question through the logged-in
-Vercel support path. Do not ask support to change a project. Ask Vercel to
-confirm both mappings in writing:
-
-1. Does each `vercel deploy --prebuilt` deployment consume the one-minute
-   On-Demand Concurrent Builds increment while that setting is enabled, even
-   though Vercel receives prebuilt output?
-2. With the Standard build machine and On-Demand Concurrent Builds disabled,
-   does a FOCUS Build CPU record have zero `ConsumedQuantity`, no record, or a
-   nonzero `ConsumedQuantity`? Ask Vercel to identify the unit and rounding
-   rule.
-
-Vercel's public project and build documentation does not define either
-mapping. Record the support case and response as provider evidence. The answer
-can explain the result, but it does not replace the fresh FOCUS measurement.
-
-Immediately before the change, save a private
+The read-only `project` mode in `scripts/vercel-deployment-state.mjs` remains
+available to verify a project's reviewed ID, name, and Root Directory. It does
+not change the project. Use the Vercel dashboard or the read-only
 [`GET /v9/projects/{idOrName}`](https://vercel.com/docs/rest-api/projects/find-a-project-by-id-or-name)
-response and a dashboard screenshot. Immediately afterward, repeat both reads.
-The post-change project override must report
-`resourceConfig.buildMachineType == "standard"` and
-`resourceConfig.buildMachineSelection == "fixed"` and
-`resourceConfig.elasticConcurrencyEnabled == false`. If
-`resourceConfig.buildMachineSelection` is absent or `"elastic"`, stop. The
-effective machine selection is not proven. `defaultResourceConfig` describes
-the team default and does not prove the project override. The response fields
-are optional in Vercel's schema. If a required project value is omitted or
-ambiguous, do not infer it from the team default. Stop and obtain
-effective-project confirmation before expansion. Keep project IDs, raw
-responses, and screenshots private.
+response to verify the effective resource settings. Do not infer project
+settings from team defaults.
 
-With `VERCEL_TOKEN` and `VERCEL_ORG_ID` supplied through the operator's normal
-secret environment, run the read-only project inspector. Never put the token on
-the command line:
-
-```bash
-node scripts/vercel-deployment-state.mjs project \
-  --project-id "$VERCEL_PROJECT_ID_UI" \
-  --project-name ui.mento.org \
-  --root-directory apps/ui.mento.org \
-  --expected-build-machine-type standard \
-  --expected-build-machine-selection fixed \
-  --expected-elastic-concurrency-enabled false
-```
-
-Substitute the selected ordinary project's reviewed ID, name, and Root
-Directory during expansion. The command prints only
-`Vercel project configuration verified` on success. It performs no project
-mutation.
-
-### Queue, canary, expansion, and rollback
-
-Before each project change, establish a no-push window for that target. Drain
-its GitHub preview workers, `Vercel Main Deployment` work, and Vercel
-deployments in queued or building state. Capture the exact prior dashboard
-source and values before the mutation. Do not mutate a project unless that
-capture gives an exact rollback source and value for `buildMachineType` and
-`buildMachineSelection`, and `elasticConcurrencyEnabled`. Do not cancel an
-active release to create the window.
-
-After the setting changes, run one bounded automatic-preview scheduler canary
-for the selected target. Push one target-affecting commit to a canary PR. After
-the controller selects its first SHA and while that target's worker or provider
-deployment is queued or running, push exactly one later target-affecting commit
-to the same PR. Do not add a third target-affecting push or overlap this test
-with a `main` deployment for that project. Require the automatic controller's
-first-plus-latest contract: the selected first SHA must run to a terminal
-result without being skipped or canceled, and the latest SHA must then be
-selected and deployed. This validates both selected SHAs under the fixed
-project setting. Require the exact-SHA selections, immutable-URL smokes,
-latest-SHA browser checks, sentinel, and deployment census to pass. Require the
-selected provider deployments to leave queued or building state before their
-GitHub jobs become terminal.
-
-After the scheduler canary passes and every related queue drains, run the
-existing `Vercel Production Shadow` workflow once as paired build, upload, and
-smoke proof. Use its reviewed current-`main` inputs. Do not overlap it with an
-active `Vercel Main Deployment`. Inspect the selected ordinary target's exact
-SHA, prebuilt deployment, immutable-URL smoke, browser result, alias topology,
-and deployment census. The workflow serializes Governance, Reserve, and UI, so
-this paired run does not prove concurrent-build or queue behavior. The
-automatic first-plus-latest canary is the required scheduler proof. It also
-serializes the selected target's two provider deployments. Production Shadow
-validates the ordinary `main` upload path, but neither canary guarantees that
-two Vercel deployment requests overlap. If provider contention occurs
-naturally, record its queue timing. Do not require or infer forced provider
-contention.
-
-Record GitHub and Vercel request, queue, start, and terminal times for both
-canary paths. Stop the rollout if a provider wait exceeds 15 minutes, a
-selected prebuilt job exceeds 20 minutes, the selected first preview SHA is
-skipped or canceled, or a provider deployment remains queued or building after
-its GitHub job becomes terminal. A duplicate, failed smoke, alias or served-SHA
-change, or ambiguous project-setting read also stops the rollout.
-
-Expand only after the scheduler and Production Shadow proofs pass
-and the project setting remains exact. Apply the same procedure to Reserve,
-then Governance. Do not manufacture or wait for a `main` release. Record the
-next natural target-affecting `main` release as separate observation evidence;
-its absence does not block expansion. Do not start the corrective cost interval
-until the Governance proofs pass and all three ordinary projects and deployment
-queues are stable.
-
-On any failure, keep later projects unchanged. Drain the affected target and
-restore the exact pre-change values through the same reviewed dashboard source.
-If rollback uses the API, send only explicit values whose restore semantics are
-confirmed by the captured project response. Do not assume that
-`buildMachineType: null` clears a project override. Use an API clearing value
-only after Vercel confirms its semantics for this endpoint. This pilot never
-changes `buildQueue`, so rollback does not invent a queue mode. Repeat the
-target's scheduler and Production Shadow proofs after rollback before reopening
-normal pushes.
+Before any future setting change or rollback, capture the exact current values
+and their source. Restore only exact prior values with known endpoint semantics.
+Do not assume that a `null` value clears a project override.
 
 ## Current reusable prebuilt core interface
 
@@ -1881,8 +1717,8 @@ one-full-smoke-per-event contract. The appended terminal status is bounded,
 run-specific evidence only. The adapter receives no PAT, Vercel token, Turbo
 token, or application secret and remains available only for those bounded
 rollback paths. Its presence is not an ordinary native branch-preview path.
-The migration cleanup retains it because the documented App and Governance
-target-local preview rollbacks still require this proof path.
+It exists only for the documented App and Governance target-local preview
+rollback proof.
 
 ## Automatic trusted four-target previews (current v2 controller)
 
@@ -2042,29 +1878,18 @@ job waits outside the per-PR writer queue for that event's terminal status
 decision and complete selection/result graph. It then uploads one artifact named
 `vercel-preview-observation-receipt-v1-<event-run-id>` with 14-day retention.
 The artifact binds the original event run ID, source journal digest, and a
-canonical event-scoped graph digest. It exists only to preserve
-cost-observation evidence after safe
-terminal compaction; it is never state, reconciliation, status, dispatch, or
-deployment authority. The private collector prefers this exact validated
-artifact whenever it exists and falls back to the live journal when it does
-not. This keeps a later push from making the retained live graph authoritative
-for an older settled event. If both sources lack the requested event, the
-collector searches only `pull_request_target` runs of the controller workflow
-on the requested historical run's validated, URL-encoded head branch. It reads at most five
-100-run pages until it reaches the exact requested run. It then checks at most
-64 completed later runs in nearest-first order. Each candidate lookup uses the
-exact per-run artifact name. The collector accepts a candidate only when its
-canonical receipt binds that run, contains the marked requested event, and has
-an admission cursor through the covering event. It does not enumerate all
-repository artifacts. An unrelated or ambiguous artifact, an invalid receipt,
-or an exhausted bound fails closed.
+canonical event-scoped graph digest. Its retained operational purpose is to
+authorize safe journal-capacity checkpointing above the 40,000-byte soft
+threshold. It is never state, reconciliation, status, dispatch, or deployment
+authority.
 
-The trusted upload step writes the artifact only
-after the controller validates and materializes the event's full canonical
-journal graph. A later exact artifact therefore retains the admitted prefix
-that it contains, even if an earlier event's own artifact is missing. A workflow
-rerun reuses the existing immutable artifact instead of uploading another copy
-under the same event-run name.
+The trusted upload step writes the artifact only after the controller validates
+and materializes the event's full canonical journal graph. A later exact
+artifact therefore retains the admitted prefix that it contains, even if an
+earlier event's own artifact is missing. A workflow rerun reuses the existing
+immutable artifact instead of uploading another copy under the same event-run
+name. An expired, unrelated, ambiguous, or invalid artifact cannot authorize a
+capacity checkpoint.
 
 At the 40,000-byte soft threshold, selection, worker-evidence,
 result-recovery, and state writers can checkpoint only the longest safe prefix
@@ -3231,56 +3056,12 @@ Keep App in shadow mode until a new independently reviewed cutover repeats the
 full acceptance matrix. Never touch Governance, Reserve, UI, production domains,
 or recreate Governance QA as part of this rollback.
 
-### Phase A canary evidence template
-
-Phase A kept native Vercel Git UI previews enabled. For every canary, record the
-PR, exact SHA(s), controller/worker run URLs, controller key/digest, canonical
-GitHub Deployment ID, GitHub-built immutable URL, native Vercel immutable URL,
-canonical journal comment ID/revision/`journal_digest`/`state.receipts_digest`,
-terminal `Vercel Preview` status, and browser evidence.
-
-The Phase A gate required all of these before changing the ruleset or starting
-Phase B:
-
-1. trusted UI-affecting A produces both native and GitHub previews;
-2. rapid UI pushes A -> B -> C deploy A then C, with B durably coalesced;
-3. a docs-only PR creates no Deployment and succeeds as no-runtime;
-4. a docs-only push after runtime work reuses the prior immutable URL;
-5. after the controller is idle, a later UI-runtime SHA E deploys normally;
-6. replaying an event, reconciliation request, and terminal callback is
-   idempotent: it creates no second worker, GitHub Deployment, Vercel preview,
-   journal, journal entry, or conflicting status, and it preserves the original
-   journal comment ID;
-7. fork and Dependabot PRs succeed unsupported without a Deployment/worker,
-   with Dependabot proven through the credentialless intake and trusted
-   exact-head follow-up;
-8. a controlled build/smoke failure posts terminal failure and bounded retry;
-9. cancelling a worker before Deployment creation produces one canonical
-   `error` Deployment/result and advances the latest desired SHA;
-10. close/reopen and a force-reset SHA revisit preserve distinct epochs;
-11. one old-epoch callback terminalizes only its own journal evidence;
-12. after the clean-cutover cleanup, exact validated legacy comments are absent
-    while human, malformed, unknown-bot, and journal comments remain untouched;
-13. representative strict-ruleset merges still work.
-
-For the GitHub-built immutable URL, follow the repository browser protocol:
-verify rendering and primary navigation, inspect console errors and failed
-network requests, confirm JS/CSS/font assets, and compare security headers plus
-Vercel toolbar/CSP behavior with the native preview. A canary is not accepted
-from workflow logs alone.
-
-The Phase A ruleset change was gated on recent successful-deploy, no-runtime,
-runtime-reuse, coalesced, after-idle, idempotent replay/reconcile,
-unsupported-trust, failure, cancellation, and old-epoch evidence.
-
 ## UI Vercel Git cutover (Phase B)
 
 Phase B established UI's GitHub-owned branch-preview state. At that point App
 remained shadowed until its separate cutover; App has since joined Governance,
-Reserve, and UI in the current all-GitHub-owned preview map. Phase B's completed
-precondition was that
-every Phase A dual-path canary above passed and its GitHub-built/native-preview
-evidence was recorded. This separate merge paired
+Reserve, and UI in the current all-GitHub-owned preview map. The completed
+cutover followed the recorded dual-path canary evidence. This separate merge paired
 `VERCEL_PREVIEW_CONTROLLER_MODE: active` in
 `.github/workflows/vercel-preview-controller.yml` with the following exact
 `apps/ui.mento.org/vercel.json`, preserving its schema and unrelated keys:

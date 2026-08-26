@@ -993,7 +993,7 @@ jobs:
           name: production-shadow-governance-${{ github.run_id }}-${{ github.run_attempt }}
           path: apps/app.mento.org/test-results/
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 7
 
   smoke-reserve:
     name: Smoke reserve from fresh trusted state
@@ -1039,7 +1039,7 @@ jobs:
           name: production-shadow-reserve-${{ github.run_id }}-${{ github.run_attempt }}
           path: apps/app.mento.org/test-results/
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 7
 
   smoke-ui:
     name: Smoke UI from fresh trusted state
@@ -1085,7 +1085,7 @@ jobs:
           name: production-shadow-ui-${{ github.run_id }}-${{ github.run_attempt }}
           path: apps/app.mento.org/test-results/
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 7
 
   final-alias-comparison:
     name: Final protected-domain comparison
