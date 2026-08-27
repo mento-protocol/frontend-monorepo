@@ -740,7 +740,7 @@ test("pnpm release-age exclusions stay exact and bounded", () => {
   }
 });
 
-test("Wormhole Connect allows the reviewed Lucide 1.x catalog release", () => {
+test("Wormhole Connect owns isolated UI dependencies", () => {
   const appManifest = JSON.parse(read("apps/app.mento.org/package.json"));
   const uiManifest = JSON.parse(read("packages/ui/package.json"));
   const workspace = parse(read("pnpm-workspace.yaml"), { uniqueKeys: true });
@@ -748,29 +748,47 @@ test("Wormhole Connect allows the reviewed Lucide 1.x catalog release", () => {
   const appLucide =
     lockfile.importers["apps/app.mento.org"].dependencies["lucide-react"];
   const wormholePackage =
-    lockfile.packages["@wormhole-foundation/wormhole-connect@5.1.0"];
+    lockfile.packages["@wormhole-foundation/wormhole-connect@6.0.0"];
   const wormholeSnapshots = Object.entries(lockfile.snapshots).filter(([key]) =>
-    key.startsWith("@wormhole-foundation/wormhole-connect@5.1.0("),
+    key.startsWith("@wormhole-foundation/wormhole-connect@6.0.0("),
   );
   const approvedResolvedLucide = /^1\.31\.0(?:\(|$)/;
+  const widgetResolvedLucide = /^0\.554\.0(?:\(|$)/;
+  const widgetOnlyUiDependencies = [
+    "@emotion/react",
+    "@emotion/styled",
+    "@mui/icons-material",
+    "@mui/material",
+    "@mui/styled-engine",
+    "@mui/system",
+  ];
+  const allowedPeerVersions =
+    workspace.peerDependencyRules?.allowedVersions ?? {};
 
+  assert.equal(
+    appManifest.dependencies["@wormhole-foundation/wormhole-connect"],
+    "^6.0.0",
+  );
   assert.equal(appManifest.dependencies["lucide-react"], "catalog:");
   assert.equal(uiManifest.dependencies["lucide-react"], "^1.28.0");
   assert.equal(workspace.catalog["lucide-react"], "^1.28.0");
   assert.equal(appLucide.specifier, "catalog:");
   assert.match(appLucide.version, approvedResolvedLucide);
-  assert.equal(wormholePackage.peerDependencies["lucide-react"], "^0.554.0");
   assert.equal(
-    workspace.peerDependencyRules.allowedVersions[
-      "@wormhole-foundation/wormhole-connect@5.1.0>lucide-react"
-    ],
-    "^1.28.0",
+    Object.keys(allowedPeerVersions).some((selector) =>
+      selector.startsWith("@wormhole-foundation/wormhole-connect@"),
+    ),
+    false,
   );
+  assert.equal(wormholePackage.peerDependencies["lucide-react"], undefined);
   assert.equal(wormholeSnapshots.length, 1);
-  assert.match(
-    wormholeSnapshots[0][1].dependencies["lucide-react"],
-    approvedResolvedLucide,
-  );
+
+  const wormholeDependencies = wormholeSnapshots[0][1].dependencies;
+  for (const packageName of widgetOnlyUiDependencies) {
+    assert.equal(appManifest.dependencies[packageName], undefined);
+    assert.ok(wormholeDependencies[packageName]);
+  }
+  assert.match(wormholeDependencies["lucide-react"], widgetResolvedLucide);
 });
 
 test("Wagmi paths share one use-sync-external-store peer snapshot", () => {

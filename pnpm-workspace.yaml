@@ -40,10 +40,6 @@ catalog:
   vitest: 3.2.6
   "@vitest/coverage-v8": 3.2.6
 
-peerDependencyRules:
-  allowedVersions:
-    "@wormhole-foundation/wormhole-connect@5.1.0>lucide-react": ^1.28.0
-
 # Dependabot maps its seven-day npm cooldown to pnpm minimumReleaseAge.
 minimumReleaseAgeExclude:
   # Remove after 2026-08-25T15:17:37.059Z or when the reviewed lock entry changes.

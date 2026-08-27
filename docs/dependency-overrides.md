@@ -136,6 +136,12 @@ shared application bundle. The route config in
 `@wormhole-foundation/wormhole-connect/ntt` subpath; that value import belongs
 to the bridge route chunk.
 
+Wormhole's [v5 to v6 migration guide](https://wormhole.com/docs/products/connect/guides/upgrade/#v5-to-v6)
+lists `nttRoutes` as unchanged. This integration uses
+`nttRoutes(nttConfig)` and neither imports a removed automatic route nor matches
+legacy route-name strings, so the major upgrade needs no bridge source changes.
+The helper continues to supply the NTT manual and Executor routes.
+
 The report-only CSP records the bridge's reviewed runtime egress in
 `apps/app.mento.org/app-report-only-csp.mjs`. Wormhole Connect and its route
 SDKs use `li.quest` for transfer analytics, `explorer-api.mayan.finance` for
@@ -143,19 +149,15 @@ Mayan swap status, and `executor.labsapis.com` for NTT transaction status.
 Keep those entries exact and app-local. Do not authorize dependency-default RPC
 origins for chains outside the configured Celo, Monad, and Polygon routes.
 
-The app declares `@mui/icons-material`, `@mui/material`,
-`@mui/styled-engine`, `@mui/system`, `@emotion/react`, and `@emotion/styled`
-only to satisfy Wormhole Connect peer ranges. There are no direct TypeScript,
-TSX, or app config imports of those packages in `apps/app.mento.org`. Do not
-remove them independently, and do not start using them directly in Mento UI
-code.
+Wormhole Connect 6.0.0 owns its MUI, Emotion, and Lucide dependencies.
+`app.mento.org` therefore does not declare MUI or Emotion packages solely for
+the widget, and Mento source must not import those packages directly. Keep that
+UI framework isolated to the lazy-loaded bridge route.
 
-Wormhole Connect 5.1.0 declares `lucide-react` as a `^0.554.0` peer. The bridge
-widget uses the catalog's reviewed Lucide 1.x release. The targeted
-`peerDependencyRules.allowedVersions` entry in `pnpm-workspace.yaml` records
-this tested compatibility exception only for Wormhole Connect 5.1.0. Remove the
-entry with a reviewed Wormhole Connect upgrade whose peer contract supports
-Lucide 1.x.
+The app separately uses the catalog's reviewed Lucide 1.x release. The widget
+resolves its own `^0.554.0` direct dependency, so the former
+`peerDependencyRules.allowedVersions` exception is no longer necessary. Do not
+force either Lucide version across the incompatible major ranges.
 
 As of the August 2026 remediation, `osv-scanner.toml` has 20 ignored
 vulnerability blocks, and 11 blocks document the Wormhole Connect dependency
