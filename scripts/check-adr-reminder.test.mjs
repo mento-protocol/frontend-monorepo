@@ -254,7 +254,15 @@ test("repository wiring keeps the reminder advisory and discoverable", () => {
     packageJson.scripts["adr:check:test"],
     "node --test scripts/check-adr-reminder.test.mjs",
   );
-  assert.match(packageJson.scripts.test, /pnpm adr:check:test/);
+  // `pnpm test` is sharded for CI; it must still reach the ADR reminder suite.
+  assert.equal(
+    packageJson.scripts.test,
+    "pnpm test:ci:workspaces && pnpm test:ci:vercel",
+  );
+  assert.match(
+    packageJson.scripts["test:ci:workspaces"],
+    /pnpm adr:check:test/,
+  );
   assert.match(
     trunk,
     /- id: adr-reminder-pre-push\n(?: {6}[^\n]+\n)* {6}run: pnpm adr:check\n {6}triggers:\n {8}- git_hooks: \[pre-push\]/,

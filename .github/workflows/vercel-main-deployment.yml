@@ -218,12 +218,17 @@ jobs:
 
   restore-inherited-release:
     name: Restore inherited active release into this attempt
-    # No `always()`: GitHub's implicit needs-success keeps every inherited
-    # public mutation behind the exact-attempt CI success gate.
-    needs: [wait-for-ci, require-ci-success, provider-preplan]
+    # No `always()`: GitHub's implicit needs-success binds the read-only
+    # planning prefix, and the in-job gate below binds the CI verdict. This job
+    # takes no `require-ci-success` edge, so its skip on the fast path resolves
+    # with `provider-preplan` instead of waiting for the gate job; the gate step
+    # at index 1 still precedes every credentialed or mutating step.
+    needs: [wait-for-ci, provider-preplan]
     if: needs.provider-preplan.outputs.decision == 'restore-before-planning'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # The in-job gate can consume the CLI's 30-minute bounded await before this
+    # job's own 60-minute recovery budget starts.
+    timeout-minutes: 90
     environment:
       name: vercel-cli-production
       deployment: false # trunk-ignore(actionlint/syntax-check): Pinned actionlint has not learned GitHub's deployment key.
@@ -234,7 +239,6 @@ jobs:
       UPSTREAM_RUN_ID: ${{ needs.wait-for-ci.outputs.upstream_run_id }}
       UPSTREAM_RUN_ATTEMPT: ${{ needs.wait-for-ci.outputs.upstream_run_attempt }}
       UPSTREAM_RUN_URL: ${{ needs.wait-for-ci.outputs.upstream_run_url }}
-      BUILD_AND_TEST_JOB_URL: ${{ needs.require-ci-success.outputs.build_and_test_job_url }}
       MAIN_PREPLAN_HANDOFF: ${{ needs.provider-preplan.outputs.handoff }}
       VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
       VERCEL_PROJECT_ID_GOVERNANCE: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
@@ -249,6 +253,15 @@ jobs:
             persist-credentials: false,
             ref: "${{ github.workflow_sha }}",
           }
+      # The exact CI verdict, required in-job before any credentialed or
+      # mutating step. Only the credential-free controller checkout above may
+      # precede it. This is a step, never a job, so it mints no second
+      # gate-named job record for the duplicate-run probe to find.
+      - name: Require the exact successful upstream attempt
+        id: gate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/vercel-main-ci-attempt.mjs require-success
       - name: Check out exact admitted inherited recovery source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -722,22 +735,25 @@ jobs:
 
   prepare-release:
     name: Capture and materialize the current active release
-    needs:
-      [
-        wait-for-ci,
-        require-ci-success,
-        provider-preplan,
-        restore-inherited-release,
-      ]
+    # Every step of this job is read-only, so it takes no `require-ci-success`
+    # edge and overlaps CI with the census. Its in-job gate below binds the CI
+    # verdict before the one step that consumes the sentinel. Dropping that edge
+    # also dropped the de-facto cancellation guard it provided — a cancelled run
+    # resolved the gate job `cancelled` and skipped this job with it — so
+    # `!cancelled()` is now asserted literally, like the stage jobs below.
+    needs: [wait-for-ci, provider-preplan, restore-inherited-release]
     if: >-
-      always() && needs.wait-for-ci.result == 'success' &&
-      needs.require-ci-success.result == 'success' &&
+      always() && !cancelled() && needs.wait-for-ci.result == 'success' &&
       needs.provider-preplan.result == 'success' &&
       (needs.restore-inherited-release.result == 'skipped' ||
       (needs.restore-inherited-release.result == 'success' &&
       needs.restore-inherited-release.outputs.outcome == 'recovered'))
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # The gate is the penultimate step, so the 25-minute census budget runs
+    # first and the CLI's 30-minute bounded await starts after it. The budget is
+    # the sum, so a slow CI attempt fails closed on the CLI's own bounded-await
+    # error rather than on GitHub's generic job timeout.
+    timeout-minutes: 55
     environment:
       name: vercel-cli-production
       deployment: false # trunk-ignore(actionlint/syntax-check): Pinned actionlint has not learned GitHub's deployment key.
@@ -754,7 +770,6 @@ jobs:
       UPSTREAM_RUN_ID: ${{ needs.wait-for-ci.outputs.upstream_run_id }}
       UPSTREAM_RUN_ATTEMPT: ${{ needs.wait-for-ci.outputs.upstream_run_attempt }}
       UPSTREAM_RUN_URL: ${{ needs.wait-for-ci.outputs.upstream_run_url }}
-      BUILD_AND_TEST_JOB_URL: ${{ needs.require-ci-success.outputs.build_and_test_job_url }}
       VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
       VERCEL_PROJECT_ID_GOVERNANCE: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
       VERCEL_PROJECT_ID_RESERVE: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
@@ -826,8 +841,18 @@ jobs:
       - name: Reject a second inherited restore decision
         env: { DECISION: "${{ steps.decide.outputs.decision }}" }
         run: test "$DECISION" != restore-before-planning
+      # Everything above is read-only and overlaps CI. This step binds the exact
+      # CI verdict and derives the same sentinel the gate job publishes, so the
+      # encoded execution below still cites a proven `Build and Test` job.
+      - name: Require the exact successful upstream attempt
+        id: gate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/vercel-main-ci-attempt.mjs require-success
       - name: Create and encode release execution
         id: execution
+        env:
+          BUILD_AND_TEST_JOB_URL: ${{ steps.gate.outputs.build_and_test_job_url }}
         run: >-
           node scripts/vercel-main-release-cli.mjs execution --preplan "$RUNNER_TEMP/preplan.json"
           --discovery "$RUNNER_TEMP/discovery.json" --planning-snapshot "$RUNNER_TEMP/planning.json"

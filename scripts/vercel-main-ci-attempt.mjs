@@ -683,7 +683,8 @@ export async function verifyMainCiAttempt({
  *
  * Only the exact run identity is asserted. The attempt's jobs are deliberately
  * not read: `.github/workflows/ci.yml` gives the `Build and Test` sentinel
- * `needs: [changes, build, test, static]`, and GitHub creates a job record only
+ * `needs: [changes, build, test-workspaces, test-vercel, static]`, and GitHub
+ * creates a job record only
  * once a job's `needs` resolve, so the sentinel does not exist until CI is
  * seconds from finishing. Waiting for it here would erase the whole point of
  * the early delivery. `require-ci-success` owns that record.

@@ -222,14 +222,53 @@ function transitiveNeeds(jobName, seen = new Set()) {
   return seen;
 }
 
-function nodeSubcommands(jobName) {
-  return steps(jobName)
-    .flatMap((step) => [
-      ...String(step.run ?? "").matchAll(
-        /node scripts\/([A-Za-z0-9-]+\.mjs) ([a-z0-9-]+)/g,
-      ),
-    ])
-    .map((match) => `${match[1]} ${match[2]}`);
+function subcommandsOf(step) {
+  return [
+    ...String(step.run ?? "").matchAll(
+      /node scripts\/([A-Za-z0-9-]+\.mjs) ([a-z0-9-]+)/g,
+    ),
+  ].map((match) => `${match[1]} ${match[2]}`);
+}
+
+// The exact-attempt CI verdict has two placement forms: a `require-ci-success`
+// `needs` edge, or this literal step run inside the job itself. The in-job form
+// protects only the steps after it, so its index is asserted against every
+// credentialed or mutating step in the same job.
+const IN_JOB_GATE_RUN =
+  "node scripts/vercel-main-ci-attempt.mjs require-success";
+
+// Mutation jobs allowed to substitute an in-job gate for the gate `needs` edge.
+// `stage-*`, `activate-and-verify`, and `recover-main-deployment` may never be
+// converted to that form.
+const IN_JOB_GATED_MUTATORS = ["restore-inherited-release"];
+
+const GATE_NAME_TEMPLATE = mainDeploymentGateJobName("<runId>", "<runAttempt>");
+const GATE_NAME_PREFIX = GATE_NAME_TEMPLATE.slice(
+  0,
+  GATE_NAME_TEMPLATE.indexOf("<runId>"),
+);
+
+const MUTATION_REACH =
+  /vercel-main-active-transition|vercel-main-active-recovery-transition|vercel-candidate-build|vercel-protected-runtime|vercel-production-shadow\.mjs (?:pull|deploy)|candidate-finalize|promote|--skip-domain/;
+
+function inJobGateIndex(jobName) {
+  return steps(jobName).findIndex((step) =>
+    String(step.run ?? "").includes(IN_JOB_GATE_RUN),
+  );
+}
+
+function preGateBoundary(jobName) {
+  const gateIndex = inJobGateIndex(jobName);
+  return gateIndex === -1 ? steps(jobName).length : gateIndex;
+}
+
+function credentialOrMutationIndexes(jobName) {
+  return steps(jobName).flatMap((step, index) =>
+    /secrets\./.test(JSON.stringify(step)) ||
+    MUTATION_ADAPTERS.includes(step.uses ?? "")
+      ? [index]
+      : [],
+  );
 }
 
 test("the exact-attempt success gate is credential-free and precedes every provider write", () => {
@@ -260,39 +299,65 @@ test("the exact-attempt success gate is credential-free and precedes every provi
     build_and_test_job_url: "${{ steps.gate.outputs.build_and_test_job_url }}",
   });
   assert.equal(command("require-ci-success", "require-success").id, "gate");
-  const consumers = Object.entries(workflow.jobs).filter(
-    ([, job]) => job.env?.BUILD_AND_TEST_JOB_URL !== undefined,
-  );
-  for (const [jobName, job] of consumers) {
-    assert.ok(
-      (job.needs ?? []).includes("require-ci-success"),
-      `${jobName} reads the gate output and must depend on the gate`,
-    );
-  }
-  assert.deepEqual(
-    consumers.map(([jobName, job]) => [
-      jobName,
-      job.env.BUILD_AND_TEST_JOB_URL,
-    ]),
+
+  // Every `BUILD_AND_TEST_JOB_URL` binding in the workflow, at whatever scope,
+  // with the owning step id when the binding is on a step.
+  const sentinelBindings = stringsWithPaths(workflow)
+    .filter(({ path }) => path.at(-1) === "BUILD_AND_TEST_JOB_URL")
+    .map(({ path, value }) => {
+      assert.equal(path[0], "jobs", "the sentinel is never bound above a job");
+      const jobName = path[1];
+      const scope =
+        path[2] === "steps"
+          ? (steps(jobName)[path[3]].id ?? `step ${path[3]}`)
+          : "job";
+      return [jobName, scope, value];
+    });
+  assert.deepEqual(sentinelBindings, [
     [
-      [
-        "restore-inherited-release",
-        "${{ needs.require-ci-success.outputs.build_and_test_job_url }}",
-      ],
-      [
-        "prepare-release",
-        "${{ needs.require-ci-success.outputs.build_and_test_job_url }}",
-      ],
-      [
-        "activate-and-verify",
-        "${{ needs.require-ci-success.outputs.build_and_test_job_url }}",
-      ],
-      [
-        "recover-main-deployment",
-        "${{ needs.require-ci-success.outputs.build_and_test_job_url }}",
-      ],
+      "prepare-release",
+      "execution",
+      "${{ steps.gate.outputs.build_and_test_job_url }}",
     ],
-  );
+    [
+      "activate-and-verify",
+      "job",
+      "${{ needs.require-ci-success.outputs.build_and_test_job_url }}",
+    ],
+    [
+      "recover-main-deployment",
+      "job",
+      "${{ needs.require-ci-success.outputs.build_and_test_job_url }}",
+    ],
+  ]);
+
+  // Whichever placement form a reader uses, the verdict it cites must already
+  // be proven: a gate-job output requires the gate `needs` edge, and an in-job
+  // step output requires a `gate` step at a strictly lower index.
+  for (const { path, value } of stringsWithPaths(workflow)) {
+    if (value.includes("needs.require-ci-success.outputs.")) {
+      assert.equal(path[0], "jobs");
+      assert.ok(
+        (workflow.jobs[path[1]].needs ?? []).includes("require-ci-success"),
+        `${path[1]} reads the gate output and must depend on the gate`,
+      );
+    }
+    if (!value.includes("steps.gate.outputs.build_and_test_job_url")) continue;
+    assert.equal(path[0], "jobs");
+    const jobName = path[1];
+    const gateIndex = inJobGateIndex(jobName);
+    assert.ok(
+      gateIndex >= 0,
+      `${jobName} reads an in-job sentinel and must run the gate CLI in-job`,
+    );
+    assert.equal(steps(jobName)[gateIndex].id, "gate");
+    if (path[2] === "steps") {
+      assert.ok(
+        path[3] > gateIndex,
+        `${jobName} may read the in-job sentinel only after its gate step`,
+      );
+    }
+  }
 
   const gateSteps = steps("require-ci-success");
   assert.equal(gateSteps.length, 3);
@@ -361,6 +426,25 @@ test("the sentinel job record cannot exist while a requested delivery admits", (
     /listMainCiAttemptJobs|SENTINEL/,
     "early admission may not read or wait for the attempt's jobs",
   );
+
+  // `require-success` runs in three places. Only the gate job's own record is
+  // an artifact of the duplicate-run probe, which matches a job NAME: an in-job
+  // step never appears in the attempt's jobs listing, so the two overlapping
+  // invocations cannot mint a second gate marker or break the probe's
+  // `gates.length === 1` requirement.
+  assert.deepEqual(
+    Object.keys(workflow.jobs).filter(
+      (jobName) => inJobGateIndex(jobName) !== -1,
+    ),
+    ["require-ci-success", "restore-inherited-release", "prepare-release"],
+  );
+  assert.deepEqual(
+    Object.entries(workflow.jobs)
+      .filter(([, job]) => String(job.name ?? "").startsWith(GATE_NAME_PREFIX))
+      .map(([jobName]) => jobName),
+    ["require-ci-success"],
+    "only the gate job may carry the marker the duplicate probe matches",
+  );
 });
 
 test("every public-mutation job requires the exact-attempt CI success gate", () => {
@@ -374,8 +458,41 @@ test("every public-mutation job requires the exact-attempt CI success gate", () 
     "activate-and-verify",
     "recover-main-deployment",
   ]);
+  // Only the pinned set may substitute an in-job gate for the gate edge; every
+  // other mutator must keep the graph edge.
+  assert.deepEqual(
+    mutators.filter((jobName) => inJobGateIndex(jobName) !== -1),
+    IN_JOB_GATED_MUTATORS,
+  );
   for (const jobName of mutators) {
     const job = workflow.jobs[jobName];
+    if (IN_JOB_GATED_MUTATORS.includes(jobName)) {
+      assert.equal(
+        (job.needs ?? []).includes("require-ci-success"),
+        false,
+        `${jobName} substitutes an in-job gate for the gate edge`,
+      );
+      const gateIndex = inJobGateIndex(jobName);
+      const gateStep = steps(jobName)[gateIndex];
+      assert.equal(gateStep.id, "gate");
+      assert.equal(gateStep.run, IN_JOB_GATE_RUN);
+      assert.deepEqual(gateStep.env, { GITHUB_TOKEN: "${{ github.token }}" });
+      assert.doesNotMatch(JSON.stringify(gateStep), /secrets\.|VERCEL_/);
+      for (const index of credentialOrMutationIndexes(jobName)) {
+        assert.ok(
+          gateIndex < index,
+          `${jobName} must run its in-job gate before step ${index}`,
+        );
+      }
+      // An in-job gate protects only the steps after it, so implicit
+      // needs-success must still bind everything before it.
+      assert.doesNotMatch(
+        String(job.if ?? ""),
+        /always\(\)/,
+        `${jobName} must keep implicit needs-success for its pre-gate prefix`,
+      );
+      continue;
+    }
     assert.ok(
       (job.needs ?? []).includes("require-ci-success"),
       `${jobName} must depend on the CI success gate`,
@@ -391,17 +508,22 @@ test("every public-mutation job requires the exact-attempt CI success gate", () 
     }
   }
 
-  // Every job that can start before the gate concludes, and the credentialed
-  // subset of it.
+  // Every job that can start before the gate job concludes, and the
+  // credentialed subset of it.
   const preGate = Object.keys(workflow.jobs).filter(
     (jobName) =>
       jobName !== "require-ci-success" &&
       !transitiveNeeds(jobName).has("require-ci-success"),
   );
-  assert.deepEqual(preGate, ["wait-for-ci", "provider-preplan"]);
+  assert.deepEqual(preGate, [
+    "wait-for-ci",
+    "provider-preplan",
+    "restore-inherited-release",
+    "prepare-release",
+  ]);
   assert.deepEqual(
     preGate.filter((jobName) => workflow.jobs[jobName].environment),
-    ["provider-preplan"],
+    ["provider-preplan", "restore-inherited-release", "prepare-release"],
   );
 });
 
@@ -415,18 +537,37 @@ test("pre-gate credentialed jobs execute only read-only provider commands", () =
     "vercel-main-provider-cli.mjs preplan-discover",
     "vercel-main-provider-cli.mjs preplan-decide",
   ]);
-  for (const jobName of ["wait-for-ci", "provider-preplan"]) {
-    for (const subcommand of nodeSubcommands(jobName)) {
-      assert.ok(
-        readOnly.has(subcommand) ||
-          subcommand === "vercel-main-ci-attempt.mjs admit",
-        `${jobName} may not run ${subcommand} before the CI success gate`,
+  // The allowlist above never widens. A `secrets.`-bearing pre-gate step is
+  // legal only while every node subcommand it runs is on this list, which is
+  // why such a step may never be a composite action.
+  for (const jobName of [
+    "wait-for-ci",
+    "provider-preplan",
+    "restore-inherited-release",
+    "prepare-release",
+  ]) {
+    const jobSteps = steps(jobName);
+    const boundary = preGateBoundary(jobName);
+    for (const step of jobSteps.slice(0, boundary)) {
+      for (const subcommand of subcommandsOf(step)) {
+        assert.ok(
+          readOnly.has(subcommand) ||
+            subcommand === "vercel-main-ci-attempt.mjs admit",
+          `${jobName} may not run ${subcommand} before the CI success gate`,
+        );
+      }
+      assert.equal(
+        /secrets\./.test(JSON.stringify(step)) && step.uses !== undefined,
+        false,
+        `${jobName} may not hand a credential to a composite action before the CI success gate`,
       );
     }
-    const jobSource = JSON.stringify(workflow.jobs[jobName]);
     assert.doesNotMatch(
-      jobSource,
-      /vercel-main-active-transition|vercel-main-active-recovery-transition|vercel-candidate-build|vercel-protected-runtime|vercel-production-shadow\.mjs (?:pull|deploy)|candidate-finalize|promote|--skip-domain/,
+      JSON.stringify({
+        ...workflow.jobs[jobName],
+        steps: jobSteps.slice(0, boundary),
+      }),
+      MUTATION_REACH,
       `${jobName} may not reach a mutation adapter before the CI success gate`,
     );
   }
@@ -578,11 +719,7 @@ test("inherited restoration proves and validates reuse before a durable bounded 
   const jobName = "restore-inherited-release";
   const job = workflow.jobs[jobName];
   const jobSteps = steps(jobName);
-  assert.deepEqual(job.needs, [
-    "wait-for-ci",
-    "require-ci-success",
-    "provider-preplan",
-  ]);
+  assert.deepEqual(job.needs, ["wait-for-ci", "provider-preplan"]);
   assert.equal(
     job.if,
     "needs.provider-preplan.outputs.decision == 'restore-before-planning'",
@@ -590,13 +727,25 @@ test("inherited restoration proves and validates reuse before a durable bounded 
   assert.doesNotMatch(
     job.if,
     /always\(\)/,
-    "implicit needs-success keeps inherited restoration behind the CI gate",
+    "implicit needs-success binds the pre-gate prefix and the in-job gate binds the CI verdict",
   );
+  // The in-job gate can consume the CLI's 30-minute bounded await before this
+  // job's own recovery budget starts.
+  assert.equal(job["timeout-minutes"], 90);
+  // This job derives no sentinel and reads none: the only reader of
+  // `BUILD_AND_TEST_JOB_URL` is `prepare-release`'s execution step.
+  assert.equal(job.env.BUILD_AND_TEST_JOB_URL, undefined);
   assert.deepEqual(job.environment, {
     name: "vercel-cli-production",
     deployment: false,
   });
   assert.equal(job.outputs.outcome, "${{ steps.outcome.outputs.outcome }}");
+
+  // Only the credential-free immutable controller checkout may precede the
+  // in-job gate, so the pre-gate surface is trivially read-only.
+  assert.equal(jobSteps[0].uses, CHECKOUT);
+  assert.equal(jobSteps[0].with.ref, "${{ github.workflow_sha }}");
+  assert.equal(inJobGateIndex(jobName), 1);
 
   const checkouts = checkoutSteps(jobName);
   assert.equal(checkouts.length, 2);
@@ -939,17 +1088,18 @@ test("release preparation starts only after inherited recovery and replans from 
   const jobSteps = steps(jobName);
   assert.deepEqual(job.needs, [
     "wait-for-ci",
-    "require-ci-success",
     "provider-preplan",
     "restore-inherited-release",
   ]);
   const normalizedCondition = job.if.replace(/\s+/g, " ");
   assert.match(normalizedCondition, /always\(\)/);
+  // Dropping the gate `needs` edge also dropped the cancellation guard that
+  // edge provided, so the condition must assert `!cancelled()` literally.
+  assert.match(normalizedCondition, /!cancelled\(\)/);
   assert.match(normalizedCondition, /needs\.wait-for-ci\.result == 'success'/);
-  assert.match(
-    normalizedCondition,
-    /needs\.require-ci-success\.result == 'success'/,
-  );
+  // Every step of this job is read-only, so it takes no gate edge at all; its
+  // in-job gate below binds the verdict before the sentinel is consumed.
+  assert.doesNotMatch(normalizedCondition, /require-ci-success/);
   assert.match(
     normalizedCondition,
     /needs\.provider-preplan\.result == 'success'/,
@@ -967,6 +1117,11 @@ test("release preparation starts only after inherited recovery and replans from 
     deployment: false,
   });
   assert.equal(job.env.MAIN_PREPLAN_HANDOFF, undefined);
+  // The gate is the penultimate step, so the census budget runs first and the
+  // CLI's 30-minute bounded await starts after it. The budget must be the sum
+  // (25 + 30) or a slow CI attempt dies on GitHub's generic job timeout instead
+  // of the CLI's fail-closed bounded-await error.
+  assert.equal(job["timeout-minutes"], 55);
   assert.deepEqual(
     Object.fromEntries(
       [
@@ -974,7 +1129,6 @@ test("release preparation starts only after inherited recovery and replans from 
         "UPSTREAM_RUN_ID",
         "UPSTREAM_RUN_ATTEMPT",
         "UPSTREAM_RUN_URL",
-        "BUILD_AND_TEST_JOB_URL",
       ].map((name) => [name, job.env[name]]),
     ),
     {
@@ -983,10 +1137,11 @@ test("release preparation starts only after inherited recovery and replans from 
       UPSTREAM_RUN_ATTEMPT:
         "${{ needs.wait-for-ci.outputs.upstream_run_attempt }}",
       UPSTREAM_RUN_URL: "${{ needs.wait-for-ci.outputs.upstream_run_url }}",
-      BUILD_AND_TEST_JOB_URL:
-        "${{ needs.require-ci-success.outputs.build_and_test_job_url }}",
     },
   );
+  // A job-level `env:` cannot read `steps.*`, so the sentinel binds on the one
+  // step that consumes it.
+  assert.equal(job.env.BUILD_AND_TEST_JOB_URL, undefined);
 
   const checkouts = checkoutSteps(jobName);
   assert.equal(checkouts.length, 2);
@@ -1064,12 +1219,29 @@ test("release preparation starts only after inherited recovery and replans from 
     execution.run,
     /release-cli\.mjs execution[\s\S]*--preplan[\s\S]*--discovery[\s\S]*--planning-snapshot[\s\S]*--legacy-snapshot/,
   );
+  assert.equal(
+    execution.env.BUILD_AND_TEST_JOB_URL,
+    "${{ steps.gate.outputs.build_and_test_job_url }}",
+  );
+  assert.doesNotMatch(JSON.stringify(execution), /secrets\./);
   assert.ok(jobSteps.indexOf(install) < jobSteps.indexOf(specs));
   assert.ok(jobSteps.indexOf(specs) < jobSteps.indexOf(snapshots));
   assert.ok(jobSteps.indexOf(snapshots) < jobSteps.indexOf(discovery));
   assert.ok(jobSteps.indexOf(discovery) < jobSteps.indexOf(decision));
   assert.ok(jobSteps.indexOf(decision) < jobSteps.indexOf(rejectRestore));
-  assert.ok(jobSteps.indexOf(rejectRestore) < jobSteps.indexOf(execution));
+
+  // The gate is the penultimate step: the whole read-only census overlaps CI,
+  // the fresh-census check still runs before the verdict, and the single
+  // sentinel-consuming step runs after it.
+  const gateIndex = inJobGateIndex(jobName);
+  assert.equal(gateIndex, jobSteps.length - 2);
+  assert.equal(jobSteps[gateIndex].id, "gate");
+  assert.equal(jobSteps[gateIndex].run, IN_JOB_GATE_RUN);
+  assert.deepEqual(jobSteps[gateIndex].env, {
+    GITHUB_TOKEN: "${{ github.token }}",
+  });
+  assert.ok(jobSteps.indexOf(rejectRestore) < gateIndex);
+  assert.equal(jobSteps.indexOf(execution), gateIndex + 1);
 });
 
 test("ordinary targets materialize execution and use create-or-reuse provider handoffs", () => {

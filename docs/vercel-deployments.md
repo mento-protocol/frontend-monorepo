@@ -119,16 +119,22 @@ The two deliveries differ only in their verdict assertions:
 Admission cannot observe the `Build and Test` sentinel, and does not try.
 GitHub creates a job record only once that job's `needs` resolve, and
 `.github/workflows/ci.yml` gives the sentinel
-`needs: [changes, build, test, static]`. Measured on real runs, the record's
-`created_at` equals the completion of the last of those jobs, roughly 150–180
-seconds after `run_started_at` and seconds before `CI/CD` itself concludes. A
+`needs: [changes, build, test-workspaces, test-vercel, static]`. Measured on
+real runs, the record's
+`created_at` equals the completion of the last of those jobs, roughly 150–190
+seconds after `run_started_at` and seconds before `CI/CD` itself concludes. On
+CI run `33084029561` it was 187 seconds in, only 5 seconds before the run
+concluded. A
 `requested` delivery admits within about fifteen seconds of the run starting,
 so waiting for that record would fail closed on every push and would erase the
 overlap the early delivery exists for. `require-ci-success` is the earliest job
 in which the record is guaranteed to exist, so it derives the sentinel and
 publishes the exact `Build and Test` job URL as its own job output.
 `pnpm vercel:workflow:test` pins that coupling against the real `ci.yml` job
-graph.
+graph. That 5-second margin is also why `prepare-release` waits for the full
+`require-success` verdict rather than polling for the record's mere existence:
+an existence-only poll would buy under five seconds and would cite a sentinel
+whose conclusion nothing read.
 
 The job then requires `github.workflow_ref` to identify
 `.github/workflows/vercel-main-deployment.yml` on `refs/heads/main`,
@@ -163,58 +169,104 @@ owns the CI verdict. It is credential-free by construction: no `environment`, no
   `success` in the attempt-specific, fully paginated jobs endpoint, then
   publishes that exact job URL as the `build_and_test_job_url` job output.
 
-`restore-inherited-release`, `prepare-release`, `activate-and-verify`, and
-`recover-main-deployment` read `BUILD_AND_TEST_JOB_URL` from that gate output,
-so the sentinel evidence bound into the release plan comes from the job that
-proved the verdict. `provider-preplan` runs before the gate and needs no
-sentinel, so it carries none.
+`activate-and-verify` and `recover-main-deployment` read
+`BUILD_AND_TEST_JOB_URL` from that gate job output. `prepare-release` runs the
+same `require-success` CLI in-job and binds the sentinel from its own
+`steps.gate` output onto the single step that consumes it, so the evidence in
+the release plan still comes from a proven verdict.
+`provider-preplan` and `restore-inherited-release` need no sentinel and carry
+none.
 
 A failed, timed-out, or cancelled gate skips every mutating job and fails the
 `Vercel Main Deployment` check, exactly as a red CI does today.
+`prepare-release` and a selected `restore-inherited-release` instead fail at
+their own in-job gate step, so a red CI grows the failed-job list by one or two
+jobs; the `result` verdict is unchanged.
 
 ### Read-only pre-gate window
 
-`provider-preplan` is the only job that may run before the CI verdict, and it is
-also the first credential-bearing main-release job. It captures the reviewed
-protected mappings and legacy App `v2` snapshot, then discovers provider
-candidates that carry canonical stable release manifests. Admission itself
-remains token-free with respect to Vercel, and there is still no GitHub artifact
-or prior-attempt gate between it and provider reconciliation. This is a
-deliberate
-amendment to the trust model: a credentialed but read-only job now observes
-provider state while CI is still running, because CI (about three minutes) is
-only hideable behind the run-start latency, admission, and preplan. Every
-provider write still waits for the gate.
+Four jobs may start before the gate job concludes:
 
-`provider-preplan` may run only these commands:
+- `wait-for-ci`, which is token-free with respect to Vercel;
+- `provider-preplan`, the first credential-bearing main-release job. It
+  captures the reviewed protected mappings and legacy App `v2` snapshot, then
+  discovers provider candidates that carry canonical stable release manifests;
+- `restore-inherited-release`, whose entire pre-gate surface is one immutable
+  controller checkout before its in-job gate at step index 1; and
+- `prepare-release`, which is read-only from its first step to its last and
+  runs the same allowlisted census commands as `provider-preplan` before
+  self-gating ahead of its one sentinel-consuming step.
+
+There is still no GitHub artifact or prior-attempt gate between admission and
+provider reconciliation. This is a deliberate amendment to the trust model:
+credentialed but read-only jobs now observe provider state while CI is still
+running, because CI (about three minutes) is only hideable behind the run-start
+latency, admission, preplan, and release preparation. Every provider write
+still waits for the gate.
+
+A pre-gate job may run only these commands:
 `vercel-main-deployment.mjs validate-source|create-spec`,
 `vercel-deployment-state.mjs planning-snapshot|snapshot`, and
-`vercel-main-provider-cli.mjs preplan-discover|preplan-decide`. It may not use
+`vercel-main-provider-cli.mjs preplan-discover|preplan-decide`, plus
+`vercel-main-ci-attempt.mjs admit` in admission. The allowlist did not widen
+for this change. It may not use
 `./.github/actions/vercel-main-active-transition`,
 `./.github/actions/vercel-main-active-recovery-transition`,
 `./.github/actions/vercel-candidate-build`,
 `./.github/actions/vercel-protected-runtime`, or
-`vercel-production-shadow.mjs pull|deploy`. `pnpm vercel:workflow:test` enforces
-that allowlist and also asserts that `wait-for-ci` and `provider-preplan` are
-the only jobs without the gate in their transitive `needs`.
+`vercel-production-shadow.mjs pull|deploy`. Enforcement is index-aware:
+`pnpm vercel:workflow:test` computes each job's pre-gate boundary — its in-job
+gate index, or its whole step list when it has none — and requires every node
+subcommand before that boundary to be on the allowlist, no mutation adapter to
+appear before it, and no credentialed pre-gate step to be a composite action.
+The same test pins the pre-gate set to exactly these four jobs and their
+credentialed subset to the last three.
 
 ### Gate placement
 
-`prepare-release`, `restore-inherited-release`, `stage-governance`,
-`stage-reserve`, `stage-ui`, `activate-and-verify`, and
-`recover-main-deployment` all take `require-ci-success` as a direct `needs`
-edge. Every one of those conditions that uses `always()` — which disables
-GitHub's implicit needs-success — additionally asserts
-`needs.require-ci-success.result == 'success'` literally.
-`restore-inherited-release` deliberately keeps no `always()`, so implicit
-needs-success alone keeps its ten bounded recovery transitions behind the gate.
+The exact-attempt verdict has two placement forms.
 
-`prepare-release` is gated even though it is read-only. It depends on
-`restore-inherited-release`, whose skip cannot resolve before the gate is
-terminal, so gating it costs nothing and keeps the pre-gate window to one job.
-A staged candidate upload (`vercel deploy --prebuilt --prod --skip-domain`)
-moves the target's reviewed generated Vercel system aliases, so staging counts
-as a provider write and stays gated.
+`stage-app`, `stage-governance`, `stage-reserve`, `stage-ui`,
+`activate-and-verify`, and `recover-main-deployment` take `require-ci-success`
+as a direct `needs` edge. Every one of those conditions that uses `always()` —
+which disables GitHub's implicit needs-success — additionally asserts
+`needs.require-ci-success.result == 'success'` literally. A staged candidate
+upload (`vercel deploy --prebuilt --prod --skip-domain`) moves the target's
+reviewed generated Vercel system aliases, so staging counts as a provider write
+and stays behind that edge.
+
+`restore-inherited-release` runs the same credential-free
+`scripts/vercel-main-ci-attempt.mjs require-success` as its own step at index 1,
+directly after the immutable controller checkout and before every credentialed
+or mutating step. It keeps no `always()`, so implicit needs-success binds that
+one-checkout prefix while the in-job gate binds the verdict for the rest,
+including its ten bounded recovery transitions. It carries the edge form
+nowhere, because its skip on the fast path would otherwise hold the whole graph
+behind the gate job: on deployment run `33084034097` the skipped job resolved at
+exactly the gate job's completion.
+
+`prepare-release` is read-only end to end, so it takes neither form for write
+safety. It self-gates only to derive the sentinel, immediately before its final
+`Create and encode release execution` step. `pnpm vercel:workflow:test` pins
+that the in-job form is used by exactly `restore-inherited-release` among the
+mutation jobs, that its gate step index is strictly below every credentialed or
+mutating step, and that `prepare-release`'s gate is the penultimate step.
+
+Both in-job gates raise their job's timeout by the CLI's full 30-minute bounded
+await on top of the job's own work budget, so a slow or queued CI attempt fails
+closed on the CLI's explicit bounded-await error rather than on GitHub's generic
+job timeout: `restore-inherited-release` 60 → 90 minutes and `prepare-release`
+25 → 55 minutes. The two budgets compose the same way even though the gates sit
+at opposite ends of their jobs. `restore-inherited-release` gates at step index
+1, so the await runs first and its 60-minute recovery budget follows.
+`prepare-release` gates penultimately, so its 25-minute census budget runs first
+and the await follows. Either order costs the sum.
+
+`prepare-release` also asserts `!cancelled()` literally. Leaving the gate
+`needs` edge removed the guard that edge used to provide: on a cancelled run the
+gate job resolved `cancelled` and the job skipped with it, whereas `always()`
+alone would now start the credentialed census on the common fast path, where
+`restore-inherited-release` resolves `skipped`.
 
 ### Duplicate completed-event runs
 
@@ -227,6 +279,11 @@ exactly one job named
 that sibling's run ID. The sibling must be a `workflow_run`-triggered run of
 `.github/workflows/vercel-main-deployment.yml` on `main` with canonical API and
 web URLs, and it must not be this run.
+
+The probe matches a job **name**, so the in-job `require-success` steps in
+`restore-inherited-release` and `prepare-release` create no second gate-name
+artifact: a step never appears in the attempt's jobs listing, and the probe's
+requirement of exactly one such job still holds.
 
 Both conditions are load-bearing. The gate job proves the sibling reached the
 same CI verdict for the same attempt; the sibling's own conclusion proves it
@@ -768,15 +825,52 @@ admission and `provider-preplan`, so its component saving is roughly 1m17s.
 The parallel `stage-app` change removes about 125 seconds of App
 preflight/pull/build/proof from the activation job and adds about 25-60
 seconds of payload download, extraction, and re-verification, so its component
-saving is roughly 65-100 seconds. The combined projection is therefore about
-2m20s-3m, or roughly 15.3-15.9 minutes push to live; re-measure it from the
-first post-merge runs. The overlap figure assumes admission finishes in seconds,
+saving is roughly 65-100 seconds. The first post-merge run measured 16m32s
+push to green (run 33084034097, 2026-08-27), with the difference from the
+projection attributable to run variance. The overlap figure assumes admission finishes in seconds,
 which is why it reads no jobs: in the same run the `Build and Test` record did
 not exist until 2m50s in, so any wait on it would have consumed the whole
-saving. Gating `prepare-release` and `restore-inherited-release`
-with `needs` edges rather than an in-job step costs about 76 seconds of further
-overlap and is retained deliberately: it keeps a single, graph-checkable
-invariant that every public-mutation job requires the gate.
+saving.
+
+A later change recovered the rest of that overlap. On deployment run
+`33084034097` the skipped `restore-inherited-release` reported both its start
+and its completion at 14:49:00, exactly the gate job's completion, and
+`prepare-release` then ran 14:49:04–14:50:30, of which only the final
+1-second `Create and encode release execution` step needed the sentinel; the
+stages started at 14:50:33. Moving both jobs off the gate `needs` edge — an
+in-job gate for restoration, a self-gate before the sentinel consumer for
+preparation — starts `prepare-release` at about 14:47:33 and the stages at
+about 14:49:07, a measured 86-second saving with an honest range of 70–90
+seconds, against that run's 190-second CI.
+
+That 86 seconds is the value at a 190-second CI, not a constant. The pre-gate
+prefix — run-start latency, admission, preplan, and `prepare-release`'s census —
+runs 187 seconds from the push and does not depend on how long CI takes. It is
+therefore a floor: once CI finishes inside it, the stages start at about that
+floor however fast CI gets. Against CI's 190 seconds the overlap hid CI with
+about 3 seconds of slack. Below roughly 3.1 minutes of CI the prefix is the
+critical path, and the overlap saving becomes the gap between that floor and the
+unoverlapped path — CI, then the gate job, the skipped restore, and the full
+86-second census — so it shrinks by one second for every second CI drops.
+
+The unit-suite sharding landed in the same change and is expected to put CI
+under that floor, so the two savings do not add. Sharding's benefit lands
+almost entirely on the `CI/CD` check itself, which is PR feedback. The deploy
+path inherits only what CI ran past the prefix: on the measured run that is the
+3-second overrun plus the gate's 5-second poll interval, so roughly 8 seconds,
+not the whole shard saving. Re-measure both the sharded CI wall and the pre-gate
+prefix from the first post-merge runs. If the sharded wall does land below 187
+seconds, the next push-to-live win has to come out of the prefix — run-start
+latency, admission, preplan, or the census — and not out of CI.
+
+The cost is a wider census window. `prepare-release`'s wholly fresh provider
+census now completes before CI succeeds rather than after, so the
+census-to-first-mutation gap grows from roughly 8–50 seconds to roughly
+16–77 seconds on the fast path, and up to the remaining CI time (bounded by the
+30-minute await) on a slow CI. `queue: single` means nothing else writes those
+mappings meanwhile, and every stage and activation adapter re-asserts the prior
+it is replacing against the execution blob before mutating, so drift still
+fails closed at mutation time.
 
 Generic JSON bridge inputs and outputs remain capped at 256 KiB. Full active
 journal history and terminal proofs alone use dedicated 1 MiB ceilings. That
@@ -1838,7 +1932,11 @@ pnpm vercel:production-shadow:test
 pnpm --filter app.mento.org test:production-shadow:routing
 ```
 
-They are stages near the start of the canonical root `pnpm test` command. The
+Every `vercel:*:test` command above is part of the `pnpm test:ci:vercel` shard
+of the canonical root `pnpm test` command; CI runs that shard as its own
+`Unit tests (Vercel contracts)` job in parallel with `Unit tests (workspaces)`,
+which owns `pnpm adr:check:test`. `test:production-shadow:routing` is a
+Playwright check outside `pnpm test`. The
 suites cover app/package graph fixtures, fail-closed cases, output ordering,
 every deployment-ID constraint, prebuilt-config matching, prerequisite versions,
 all target/environment classifications, canonical alias mappings, guarded

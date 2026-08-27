@@ -233,3 +233,114 @@ test("documentation-only changes retain the always-on Trunk static checks", () =
     "the required sentinel must demand successful static analysis",
   );
 });
+
+// The two unit shards must stay an exact partition of the root `pnpm test`
+// command. Proving (a) `test` is literally the two shard scripts, (b) each CI
+// shard runs exactly one of them, and (c) the shards share no sub-suite makes
+// "no suite was dropped" structural: a suite can only leave a shard by leaving
+// the canonical local command with it.
+const SHARD_SCRIPTS = ["test:ci:workspaces", "test:ci:vercel"];
+
+function readPackageScripts() {
+  return JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  ).scripts;
+}
+
+function subSuites(scripts, name) {
+  return (scripts[name].match(/pnpm [\w:-]+/g) ?? []).map((token) =>
+    token.slice("pnpm ".length),
+  );
+}
+
+test("the root test command is exactly the two CI unit shards", () => {
+  const scripts = readPackageScripts();
+
+  assert.equal(
+    scripts.test,
+    `pnpm ${SHARD_SCRIPTS[0]} && pnpm ${SHARD_SCRIPTS[1]}`,
+    "`pnpm test` must stay the union of the CI shards so local and CI coverage cannot diverge",
+  );
+
+  const seen = new Map();
+  for (const shard of SHARD_SCRIPTS) {
+    assert.ok(scripts[shard], `${shard} must exist`);
+    for (const suite of subSuites(scripts, shard)) {
+      assert.ok(
+        scripts[suite],
+        `${shard} references an undefined script: ${suite}`,
+      );
+      assert.equal(
+        seen.has(suite),
+        false,
+        `${suite} runs in both shards; the shards must partition the suite`,
+      );
+      seen.set(suite, shard);
+    }
+  }
+
+  assert.match(
+    scripts["test:ci:workspaces"],
+    /turbo run test$/,
+    "the workspace shard must still run the vitest workspace projects",
+  );
+});
+
+test("both unit shards are gated on the quality plan and feed the sentinel", () => {
+  const workflow = readFileSync(
+    new URL("../.github/workflows/ci.yml", import.meta.url),
+    "utf8",
+  );
+
+  const shardJobs = {
+    "test-workspaces": "test:ci:workspaces",
+    "test-vercel": "test:ci:vercel",
+  };
+
+  for (const [jobId, script] of Object.entries(shardJobs)) {
+    const job = new RegExp(`^ {2}${jobId}:\\n([\\s\\S]*?)^ {2}\\w`, "m").exec(
+      workflow,
+    )?.[1];
+    assert.ok(job, `the workflow must define the ${jobId} shard`);
+    assert.match(
+      job,
+      /^ {4}if: needs\.changes\.outputs\.run_quality == 'true'$/m,
+      `${jobId} must skip exactly when the planner reports a documentation-only diff`,
+    );
+    assert.match(
+      job,
+      /- name: Install pnpm dependencies\n {8}uses: \.\/\.github\/actions\/pnpm-install/,
+      `${jobId} must install through the trusted composite action`,
+    );
+    assert.match(
+      job,
+      new RegExp(`run: pnpm ${script.replaceAll(":", "\\:")}$`, "m"),
+      `${jobId} must run the ${script} shard`,
+    );
+  }
+
+  assert.match(
+    workflow,
+    /^ {4}needs: \[changes, build, test-workspaces, test-vercel, static\]$/m,
+    "the required sentinel must record both shards",
+  );
+  assert.doesNotMatch(
+    workflow,
+    /needs\.test\./,
+    "the single unsharded test job must be gone from the sentinel wiring",
+  );
+  for (const label of ["workspaces", "Vercel contracts"]) {
+    assert.ok(
+      workflow.includes(`"Unit tests (${label}):$TEST_`),
+      `the sentinel must require the '${label}' shard result`,
+    );
+  }
+  assert.match(
+    workflow,
+    /TEST_VERCEL_RESULT: \$\{\{ needs\.test-vercel\.result \}\}/,
+  );
+  assert.match(
+    workflow,
+    /TEST_WORKSPACES_RESULT: \$\{\{ needs\.test-workspaces\.result \}\}/,
+  );
+});

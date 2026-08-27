@@ -309,7 +309,15 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
     manifest.scripts["supply-chain:lockfile-lint:test"],
     /scripts\/brace-expansion-regression\.test\.mjs/,
   );
-  assert.match(manifest.scripts.test, /pnpm supply-chain:lockfile-lint:test/);
+  // `pnpm test` is sharded for CI; it must still reach the lockfile-lint suite.
+  assert.equal(
+    manifest.scripts.test,
+    "pnpm test:ci:workspaces && pnpm test:ci:vercel",
+  );
+  assert.match(
+    manifest.scripts["test:ci:workspaces"],
+    /pnpm supply-chain:lockfile-lint:test/,
+  );
   assert.deepEqual(bootstrapManifest.dependencies, {
     "@pnpm/linux-x64": "10.34.4",
   });
