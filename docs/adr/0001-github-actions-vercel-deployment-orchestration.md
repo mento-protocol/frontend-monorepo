@@ -299,6 +299,31 @@ evidence or a minimal redacted failure graph, uploaded
 `vercel-main-evidence-${run_id}-${run_attempt}` for seven days, and only then
 returned the terminal result.
 
+A later amendment widened that admission without weakening it. The workflow now
+subscribes to both the `requested` and `completed` `workflow_run` activity
+types, so read-only planning overlaps CI, and exact-attempt success authority
+moved from admission into a dedicated credential-free gate job that every
+public-mutation job requires. That job's name binds the exact upstream run and
+attempt, which is the only durable proof a later run can query. A `completed`
+delivery still performs the full terminal verification and deploys unless a
+deployment run for that exact upstream attempt both passed the gate and
+concluded `success`. See the
+runbook sections "Exact upstream attempt
+admission", "Exact-attempt CI success gate", "Read-only pre-gate window", "Gate
+placement", and "Duplicate completed-event runs" in
+[docs/vercel-deployments.md](../vercel-deployments.md).
+
+The same amendment moved the app `v3` build out of the activation job into a
+parallel `stage-app` job, so all four targets build concurrently. `stage-app`
+still creates no provider deployment. It hands the verified output to
+activation within the same run attempt as one uncompressed archive whose
+SHA-256 digest, byte count, artifact name, run attempt, and candidate ID travel
+as job outputs through the `needs` graph. That payload is transport, never
+authority: activation re-establishes every property of the tree in its own
+attempt before the transaction, so GitHub artifacts remain no alternate
+cross-attempt authority. See "Same-run App custom-`v3` payload handoff" in
+[docs/vercel-deployments.md](../vercel-deployments.md).
+
 The active topology from the separately reviewed PR-B cutover enables
 active mutation and disables the replaced native `main` paths in the same
 commit. The checked-in global mode is `active`, and all four per-target main
