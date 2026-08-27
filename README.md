@@ -676,7 +676,9 @@ The repository is set up with GitHub Actions for CI:
   respectively. Ordinary pull requests therefore have no native Vercel branch
   preview path. GitHub Actions is also the configured automatic `main` owner
   for all four targets. The automatic `Vercel Main Deployment` workflow runs
-  in global `active` mode after the exact successful `CI/CD` attempt, with all
+  in global `active` mode, starting when the `CI/CD` `main` run is requested and
+  performing every public mutation only after its exact-attempt CI success
+  gate, with all
   four per-target `mainOwnershipMode` values set to `github`. Governance,
   Reserve, and UI stage, verify, and promote exact immutable deployments. App
   builds and deploys its custom `v3` output, then verifies or assigns only its
@@ -758,14 +760,17 @@ The repository is set up with GitHub Actions for CI:
   guarded manual operator recovery, and direct smoke are documented in the same
   runbook.
 
-  `Vercel Main Deployment` starts only after the exact successful `CI/CD`
-  `main` attempt and literal `Build and Test` job. It plans from each target's
+  `Vercel Main Deployment` starts when that `CI/CD` `main` run is requested and
+  overlaps read-only planning with CI. It performs every public mutation only
+  after its exact-attempt success gate proves that run and its literal
+  `Build and Test` job succeeded. It plans from each target's
   currently served SHA, so coalesced pushes cannot omit an affected change.
   Governance, Reserve, and UI stage immutable production candidates with
   `--prod --skip-domain` and run direct browser smoke before exact promotion.
-  App custom `v3` remains build-only until its activation turn because its
-  upload moves attached `v3` domains; the controller then deploys the verified
-  output and reconciles every reviewed alias. The three ordinary public custom
+  App custom `v3` is built in its own parallel stage job and remains
+  build-only until its activation turn because its upload moves attached `v3`
+  domains; the controller then verifies the transferred output, deploys it, and
+  reconciles every reviewed alias. The three ordinary public custom
   domains are their only protected runtime and rollback aliases; generated
   Vercel aliases are candidate evidence only. A durable redacted journal
   records intent and verified state around every public mutation. The final

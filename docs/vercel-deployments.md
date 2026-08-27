@@ -40,10 +40,47 @@ and may also move Vercel's exact creator-scoped generated alias.
 
 `.github/workflows/vercel-main-deployment.yml`, named
 `Vercel Main Deployment`, owns the automatic `main` path tracked in
-[#522](https://github.com/mento-protocol/frontend-monorepo/issues/522). A
-completed successful `CI/CD` push run on `main` starts it through
-`workflow_run`. Its concurrency group keeps an in-progress run and at most one
-pending run; ordering is never trusted for correctness.
+[#522](https://github.com/mento-protocol/frontend-monorepo/issues/522). It
+subscribes to both `workflow_run` activity types of the `CI/CD` push workflow
+on `main`, `types: [requested, completed]`:
+
+- the `requested` delivery starts the release run concurrently with CI. It
+  admits the exact non-terminal attempt and runs only read-only planning until
+  the separate success gate proves the CI verdict; and
+- a `completed` delivery for a successful CI attempt is the takeover or no-op
+  run. It performs today's full terminal verification and deploys unless a
+  deployment run for that exact upstream attempt both passed the success gate
+  and concluded `success`. A `completed` delivery whose CI attempt did not
+  conclude `success` is never admitted, so it neither takes over nor
+  deduplicates.
+
+Whether GitHub redelivers `requested` for a re-run of a `main` CI attempt is not
+verified here, and both outcomes are safe. If it does not fire, the re-run
+produces exactly one deployment run with today's semantics. If it does,
+`assertNonTerminal` accepts the re-queued attempt, the gate binds
+`runId + run_attempt`, and the attempt-2 `completed` delivery deduplicates
+against the attempt-2 marker, so the run count matches an ordinary push.
+
+The exact upstream attempt is bound into the success gate job's name,
+`Require the exact successful CI attempt for upstream <runId> attempt
+<runAttempt>`. That name is the only durable, queryable proof that a given
+deployment run already passed the CI verdict for that attempt: a
+`workflow_run`-triggered run object names no triggering run.
+`scripts/vercel-main-ci-attempt.mjs` owns its exact format, and
+`pnpm vercel:workflow:test` pins the job's `name` against it.
+
+The workflow deliberately sets no `run-name`. As the preview-recovery contract
+below already records, GitHub's Actions REST API reports a configured dynamic
+`run-name` in both `name` and `display_title`, and both
+`.github/workflows/ci-failure-notifier.yml` and `scripts/ci-failure-issue.mjs`
+identify this workflow by that `name` field. The gate job's name carries the
+marker instead, which also makes the duplicate proof a single artifact.
+
+The concurrency group is unchanged (`vercel-main-deployment`,
+`cancel-in-progress: false`, `queue: single`). It now carries up to two runs per
+commit: it keeps an in-progress run and at most one pending run, and a newer
+arrival replaces an older pending one. Ordering is never trusted for
+correctness.
 
 The workflow keeps orchestration and pinned artifact transfers in YAML. Tested
 Node modules own exact-attempt validation, served-SHA planning, canonical
@@ -54,36 +91,184 @@ in-memory callback is durable. `pnpm vercel:workflow:test` is the executable
 source of truth for the literal job graph and the exact command-to-artifact
 handoffs.
 
-### Exact upstream attempt and source gate
+### Exact upstream attempt admission
 
 `wait-for-ci` is token-free with respect to Vercel. It sets `DEPLOY_SHA` only
 from `github.event.workflow_run.head_sha` and validates the event plus GitHub
-API record with `scripts/vercel-main-ci-attempt.mjs`. The accepted run must:
+API record with `scripts/vercel-main-ci-attempt.mjs admit`. The accepted run
+must:
 
 - belong to `mento-protocol/frontend-monorepo`;
-- be the completed successful `CI/CD` push workflow at
-  `.github/workflows/ci.yml` on branch `main`;
+- be the `CI/CD` push workflow at `.github/workflows/ci.yml` on branch `main`;
 - identify the exact event run ID, run attempt, and lowercase 40-character
-  `DEPLOY_SHA`;
-- return exactly one literal `Build and Test` job from the
-  attempt-specific, fully paginated jobs endpoint, and that job must have
-  concluded `success`.
+  `DEPLOY_SHA`, with canonical API and web URLs.
+
+The two deliveries differ only in their verdict assertions:
+
+- on a `completed` payload the event and the API record must both be
+  `status: completed` with `conclusion: success`, and the attempt-specific,
+  fully paginated jobs endpoint must return exactly one literal
+  `Build and Test` job that concluded `success` — the previous `verify`
+  behaviour, byte for byte; and
+- on a `requested` payload both the event and the API record must be
+  non-terminal (`conclusion` is `null` and `status` is not `completed`). The
+  attempt's jobs are deliberately not read at all. An attempt that has already
+  concluded when the early run reads it is rejected; the `completed` delivery
+  then takes over.
+
+Admission cannot observe the `Build and Test` sentinel, and does not try.
+GitHub creates a job record only once that job's `needs` resolve, and
+`.github/workflows/ci.yml` gives the sentinel
+`needs: [changes, build, test, static]`. Measured on real runs, the record's
+`created_at` equals the completion of the last of those jobs, roughly 150–180
+seconds after `run_started_at` and seconds before `CI/CD` itself concludes. A
+`requested` delivery admits within about fifteen seconds of the run starting,
+so waiting for that record would fail closed on every push and would erase the
+overlap the early delivery exists for. `require-ci-success` is the earliest job
+in which the record is guaranteed to exist, so it derives the sentinel and
+publishes the exact `Build and Test` job URL as its own job output.
+`pnpm vercel:workflow:test` pins that coupling against the real `ci.yml` job
+graph.
 
 The job then requires `github.workflow_ref` to identify
 `.github/workflows/vercel-main-deployment.yml` on `refs/heads/main`,
 `github.workflow_sha == DEPLOY_SHA`, checked-out `HEAD == DEPLOY_SHA`, and
 `DEPLOY_SHA` to be the freshly fetched `origin/main` tip after first proving
 ancestry. A mismatched workflow definition or superseded source exits before
-any Vercel environment or credential is available. The gate records only the
-attempt-qualified upstream run URL, exact `Build and Test` job URL, and
-`DEPLOY_SHA`; release execution validates the attempt suffix against the
-separately admitted run attempt.
+any Vercel environment or credential is available. That proof now runs roughly
+three minutes earlier, which shrinks the window in which a fast-follow push
+supersedes it. Admission records only the attempt-qualified upstream run URL,
+`DEPLOY_SHA`, the admission mode, and the deploy mode; release execution
+validates the attempt suffix against the separately admitted run attempt.
 
-`provider-preplan` is the first credential-bearing main-release job. It captures
-the reviewed protected mappings and legacy App `v2` snapshot, then discovers
-provider candidates that carry canonical stable release manifests. The exact-CI
-source gate remains token-free with respect to Vercel; there is no GitHub
-artifact or prior-attempt gate between it and provider reconciliation.
+### Exact-attempt CI success gate
+
+`require-ci-success`, whose name is prefixed
+`Require the exact successful CI attempt` and always carries the
+`for upstream <runId> attempt <runAttempt>` suffix the duplicate probe matches,
+owns the CI verdict. It is credential-free by construction: no `environment`, no
+`secrets.` reference, no source checkout, no install, and only the workflow's
+`contents: read` plus `actions: read` permissions. It runs
+`scripts/vercel-main-ci-attempt.mjs require-success`, which:
+
+- re-reads the event payload and requires `DEPLOY_SHA`, `UPSTREAM_RUN_ID`, and
+  `UPSTREAM_RUN_ATTEMPT` from admission to equal the event's own head SHA, run
+  ID, and run attempt;
+- polls only that exact run every five seconds until `status` is `completed`,
+  re-validating the full run identity on every response, bounded at 30 minutes
+  of await inside a 35-minute job timeout;
+- requires `conclusion: success`, with any other terminal conclusion throwing
+  immediately and without further polling; and
+- requires exactly one literal `Build and Test` job that is `completed` and
+  `success` in the attempt-specific, fully paginated jobs endpoint, then
+  publishes that exact job URL as the `build_and_test_job_url` job output.
+
+`restore-inherited-release`, `prepare-release`, `activate-and-verify`, and
+`recover-main-deployment` read `BUILD_AND_TEST_JOB_URL` from that gate output,
+so the sentinel evidence bound into the release plan comes from the job that
+proved the verdict. `provider-preplan` runs before the gate and needs no
+sentinel, so it carries none.
+
+A failed, timed-out, or cancelled gate skips every mutating job and fails the
+`Vercel Main Deployment` check, exactly as a red CI does today.
+
+### Read-only pre-gate window
+
+`provider-preplan` is the only job that may run before the CI verdict, and it is
+also the first credential-bearing main-release job. It captures the reviewed
+protected mappings and legacy App `v2` snapshot, then discovers provider
+candidates that carry canonical stable release manifests. Admission itself
+remains token-free with respect to Vercel, and there is still no GitHub artifact
+or prior-attempt gate between it and provider reconciliation. This is a
+deliberate
+amendment to the trust model: a credentialed but read-only job now observes
+provider state while CI is still running, because CI (about three minutes) is
+only hideable behind the run-start latency, admission, and preplan. Every
+provider write still waits for the gate.
+
+`provider-preplan` may run only these commands:
+`vercel-main-deployment.mjs validate-source|create-spec`,
+`vercel-deployment-state.mjs planning-snapshot|snapshot`, and
+`vercel-main-provider-cli.mjs preplan-discover|preplan-decide`. It may not use
+`./.github/actions/vercel-main-active-transition`,
+`./.github/actions/vercel-main-active-recovery-transition`,
+`./.github/actions/vercel-candidate-build`,
+`./.github/actions/vercel-protected-runtime`, or
+`vercel-production-shadow.mjs pull|deploy`. `pnpm vercel:workflow:test` enforces
+that allowlist and also asserts that `wait-for-ci` and `provider-preplan` are
+the only jobs without the gate in their transitive `needs`.
+
+### Gate placement
+
+`prepare-release`, `restore-inherited-release`, `stage-governance`,
+`stage-reserve`, `stage-ui`, `activate-and-verify`, and
+`recover-main-deployment` all take `require-ci-success` as a direct `needs`
+edge. Every one of those conditions that uses `always()` — which disables
+GitHub's implicit needs-success — additionally asserts
+`needs.require-ci-success.result == 'success'` literally.
+`restore-inherited-release` deliberately keeps no `always()`, so implicit
+needs-success alone keeps its ten bounded recovery transitions behind the gate.
+
+`prepare-release` is gated even though it is read-only. It depends on
+`restore-inherited-release`, whose skip cannot resolve before the gate is
+terminal, so gating it costs nothing and keeps the pre-gate window to one job.
+A staged candidate upload (`vercel deploy --prebuilt --prod --skip-domain`)
+moves the target's reviewed generated Vercel system aliases, so staging counts
+as a provider write and stays gated.
+
+### Duplicate completed-event runs
+
+The `completed` delivery is a no-op only when exactly one strictly validated
+sibling deployment run for this `DEPLOY_SHA` exists, that sibling run itself is
+`status: completed` with `conclusion: success`, and its latest attempt contains
+exactly one job named
+`Require the exact successful CI attempt for upstream <runId> attempt
+<runAttempt>` for this exact upstream attempt, concluded `success` and bound to
+that sibling's run ID. The sibling must be a `workflow_run`-triggered run of
+`.github/workflows/vercel-main-deployment.yml` on `main` with canonical API and
+web URLs, and it must not be this run.
+
+Both conditions are load-bearing. The gate job proves the sibling reached the
+same CI verdict for the same attempt; the sibling's own conclusion proves it
+actually finished the release. A sibling that passed the gate and then failed in
+`provider-preplan`, `prepare-release`, a stage, or `activate-and-verify` left
+`main` undeployed, so it must not suppress this delivery. `queue: single` holds
+this run until the sibling leaves the queue, so the sibling is already terminal
+when the probe reads it.
+
+Every other observation deploys: zero or multiple siblings, a sibling run that
+is unfinished, failed, cancelled, or missing a conclusion, a gate job bound to
+a different upstream run or attempt, a missing, duplicated, failed, or
+still-running gate job, a listing above the 100-run bound, or any API or schema
+error. Refusing to deploy on ambiguity can strand `main`,
+while a redundant run is serialized by `queue: single` and routed by the stable
+release manifest to `verify-existing-release` and its journal-free
+`current-release-verified` route, which creates no journal and executes no
+public mutation (see the reconciliation decisions above).
+
+Operationally: an early-run failure at any point — before or after the gate —
+is picked up automatically by the `completed` delivery, which then deploys with
+the full terminal verification and reconciles against the stable release
+manifest exactly as a `Re-run all jobs` would. A post-gate failure that left a
+partial forward prefix is therefore resumed or restored by that takeover rather
+than waiting for an operator. Only a failure of the `completed` delivery itself
+is operator-owned. A failed early run leaves its own red check on the commit
+that the later green takeover run does not replace, so a commit can legitimately
+carry one red and one green `Vercel Main Deployment` run; read them together and
+treat the newest run as the verdict. Because deduplication requires the sibling
+run to have concluded `success`, a failed release always leaves the newest run
+red, which keeps `.github/workflows/ci-failure-notifier.yml` reporting it.
+
+A duplicate no-op run also skips `wait-for-ci`'s exact-source checkout and
+proof. It deploys nothing, and because it starts only after the sibling run
+leaves the single deployment queue, the `main` tip may legitimately have moved
+by then. Every run that can still reach a provider write proves its source
+exactly as before.
+
+The duplicate no-op skips every release job, reports
+`Report a deduplicated upstream-attempt no-op` in the run summary naming the
+sibling run URL, ends the `Vercel Main Deployment` check green, and publishes no
+`Dependabot Post-Merge Verification` check.
 
 One observation epoch captures the complete main and legacy snapshots,
 rediscovers provider candidates, and decides from two fresh sequential main
@@ -321,16 +506,40 @@ redirect handling and requires an exact same-URL 2xx response with the expected
 `X-Mento-Deployment-Sha`; the candidate receipt continues to record the root
 immutable deployment URL.
 
-App has no separate staged Vercel deployment because its custom `v3` upload is
-itself activation. When App is selected, the workflow performs `vercel pull`
-plus the protected custom-`v3` build and output validation before the
-transaction. If App is in `shadowTargets`, it stops there and binds the
-build-only preparation into terminal evidence; it never creates a provider
-deployment. If App is in
+App has no separate staged Vercel _deployment_ because its custom `v3` upload
+is itself activation. It does have its own stage _job_. When App is selected,
+`stage-app` runs the candidate preflight, `vercel pull`, the protected
+custom-`v3` build, and output validation in parallel with the three ordinary
+stages. That job creates no provider deployment: it never uploads a candidate
+and never finalizes one. The coordinator no longer builds; it verifies and
+materializes the transferred output before the transaction. If App is in
+`shadowTargets`, the release stops there and binds the build-only preparation
+into terminal evidence. If App is in
 `activeTargets`, its activation turn runs
 `vercel deploy --prebuilt --target=v3`, discovers the unique deployment bound
 to the journal identity, and verifies or assigns only the reviewed `v3`
 aliases. App never uses `--prod`, `--skip-domain`, or `vercel promote`.
+
+Because `stage-app` runs in parallel, a failed ordinary stage no longer aborts
+the release before the App build starts; that build cost is now spent
+regardless. This is deliberate and has no safety consequence: staging creates
+no public mapping, the App build creates no provider deployment, and the
+coordinator still refuses to proceed when any selected stage did not succeed.
+
+Moving the preflight into `stage-app` also widened the gap between the
+`create`/`reuse` verdict and the App transaction by roughly the longest ordinary
+stage plus the coordinator's checkout, install, freshness, and payload
+verification. The coordinator does not re-run the preflight; it consumes
+`needs.stage-app.outputs.action` and asserts only that the stage job's candidate
+ID equals the one this attempt derived itself, which binds the intent rather
+than provider state. A stale `reuse` is still covered:
+`Freshly smoke and finalize only a reused App candidate` re-inspects and
+re-smokes that candidate in the current attempt and fails closed if it vanished.
+A stale `create` is the exposed direction — a candidate with that ID could have
+appeared meanwhile — and it degrades to a duplicate candidate that the active
+duplicate census absorbs, never to a public mutation. `queue: single` serializes
+deployment runs and nothing else creates App `v3` candidates, so the practical
+risk is low, but the staleness window is real and is not re-checked.
 
 App candidate reuse is narrower because its `v3` deployment can move protected
 generated aliases. The current coordinator must reconcile the candidate with
@@ -340,10 +549,60 @@ can proceed. It may skip only the duplicate `app_v3_deploy` operation. It must
 not resume a prior journal's mutation sequence or accept raw Vercel metadata as
 proof.
 
+#### Same-run App custom-`v3` payload handoff
+
+Within one run attempt, `stage-app` hands its verified output to
+`activate-and-verify` as a single archive uploaded under
+`vercel-main-app-v3-payload-<run id>-<run attempt>`. The payload is transport,
+never authority.
+
+`stage-app` publishes the archive's SHA-256 digest, byte count, artifact name,
+run attempt, and candidate ID as job outputs. Those values flow through the
+`needs` graph, are fixed when the job completes, and no later artifact write
+can change them. Before extracting, the coordinator requires the stage attempt
+to equal its own `GITHUB_RUN_ATTEMPT`, the file to match the recorded size and
+digest exactly, and the destination inside the protected isolation root to be
+fresh. After extracting, it re-runs the same
+`vercel-production-shadow.mjs assert-output` contract, binding the tree to this
+attempt's candidate intent, `DEPLOY_SHA`, reviewed Root Directory,
+organization and project, Build Output API version, pinned Vercel CLI, and
+runner ownership. It also asserts that the stage job's candidate ID equals the
+candidate ID this attempt derived itself.
+
+This does not weaken "GitHub artifacts and prior job history are not alternate
+cross-attempt authority". The payload carries no release, mapping, or journal
+state, and every property it must have is re-established in the current
+attempt. A "Re-run failed jobs" attempt fails closed at the coordinator's
+payload-attempt check, before any credentialed work; the operator path for this
+workflow is "Re-run all jobs". That is not new: `createMainStageBarrier`
+already rejects a prior attempt's ordinary stage receipts.
+
+The archive contract is narrow. It is created so that symlinks, exact modes,
+and single links survive: `--format=pax`, `--sort=name`, `--numeric-owner`,
+`--hard-dereference`, and never `--dereference`. It is extracted with
+`--preserve-permissions --no-same-owner`. Both halves are required, because
+`actions/upload-artifact` on a raw directory dereferences the intra-output
+symlinks `assertSafeOutputTree` accepts and drops the `0600` modes
+`assertOwnedMappingFile` requires. It stays
+uncompressed so the seal depends on no external compression binary; the upload
+deflates it on the wire. Its members are exactly the two names already on the
+protected-runtime cleanup allowlist, so extraction reconstitutes the fixed
+`$ISOLATION_ROOT/mento-vercel-production-upload-source` deploy working
+directory and leaves no extra state. The coordinator re-checks the
+isolation-root entry set after extraction and fails closed on anything else,
+which also proves no candidate build ever ran in the coordinator.
+
 ### Active transaction, durable journal, and recovery
 
 The coordinator validates that every selected ordinary stage succeeded and
 every unselected stage skipped, then revalidates the captured prior mappings.
+It validates `stage-app` against a literal expectation table instead of a
+candidate receipt, because App stages a build rather than a provider
+deployment: App not selected means the job skipped with no action and no
+payload; App active with a `create` preflight means the job succeeded with a
+payload from this exact attempt; App active with a `reuse` preflight means the
+job succeeded with no payload; App shadow-only means the job succeeded with a
+payload from this exact attempt and no preflight action.
 It checks the remote `main` SHA before preparing the transaction. If `main`
 advanced before any durable intent or public mutation, the newer workflow owns
 convergence and the current run exits without activation.
@@ -491,6 +750,33 @@ final-only rerun does the same. It never downloads verdict artifacts, resumes a
 prior journal, or reconstructs a final verdict from earlier attempts. An absent,
 malformed, mismatched, or incomplete receipt/evidence pair fails closed instead
 of treating the process outcome as deployment success.
+
+The `result` job publishes the exact-SHA `Dependabot Post-Merge Verification`
+check only when admission succeeded, `require-ci-success` succeeded, and the
+deploy mode is `deploy`. Both added conditions preserve today's behaviour: a red
+CI publishes nothing, and the duplicate no-op does not publish a second failing
+copy of the same check on the same SHA. The `Fail closed before release
+execution exists` sentinel fires whenever no release execution exists and the
+deploy mode is not the proven `already-deployed` no-op, so a failed admission
+that emits no deploy mode still ends red.
+
+Measured baseline and per-change projections, both from CI run
+`33052008461` and deployment run `33052232367` on `54422f5c` (2026-08-27):
+push to activation was 17m54s and push to a green check 18m14s, with CI itself
+2m56s. The CI-overlap change hides about 84 seconds of that CI time behind
+admission and `provider-preplan`, so its component saving is roughly 1m17s.
+The parallel `stage-app` change removes about 125 seconds of App
+preflight/pull/build/proof from the activation job and adds about 25-60
+seconds of payload download, extraction, and re-verification, so its component
+saving is roughly 65-100 seconds. The combined projection is therefore about
+2m20s-3m, or roughly 15.3-15.9 minutes push to live; re-measure it from the
+first post-merge runs. The overlap figure assumes admission finishes in seconds,
+which is why it reads no jobs: in the same run the `Build and Test` record did
+not exist until 2m50s in, so any wait on it would have consumed the whole
+saving. Gating `prepare-release` and `restore-inherited-release`
+with `needs` edges rather than an in-job step costs about 76 seconds of further
+overlap and is retained deliberately: it keeps a single, graph-checkable
+invariant that every public-mutation job requires the gate.
 
 Generic JSON bridge inputs and outputs remain capped at 256 KiB. Full active
 journal history and terminal proofs alone use dedicated 1 MiB ceilings. That
@@ -1562,7 +1848,12 @@ canonical Vercel state fixtures, read-only protected mapping failures, workflow
 structure, and direct runtime-smoke structure. `vercel:workflow:test` also
 covers exact-attempt main CI, served-SHA planning, state discovery,
 transaction/recovery, public runtime, controller, and automatic-workflow
-structure. Those commands are offline and do not contact or mutate Vercel. The
+structure. It also pins the parallel `stage-app` job and the same-run App
+custom-`v3` payload handoff: the job graph, its build gate, the archive's tar
+flags and its ban on symlink flattening, the digest and byte count travelling
+as job outputs, the coordinator's payload-attempt and digest checks, the
+post-extraction `assert-output` re-verification, and the coordinator's
+inability to build a candidate or re-run the App preflight. Those commands are offline and do not contact or mutate Vercel. The
 separate routing
 regression starts two loopback origins and the Playwright-pinned Chromium to
 prove a cross-origin redirect cannot inherit a protection header.

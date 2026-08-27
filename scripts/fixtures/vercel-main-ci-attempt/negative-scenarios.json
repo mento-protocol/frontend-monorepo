@@ -39,6 +39,11 @@
     "property": "conclusion",
     "value": "cancelled"
   },
+  "unknown-action": {
+    "target": "event",
+    "property": "action",
+    "value": "in_progress"
+  },
   "api-failure": {
     "fault": "http-500"
   },

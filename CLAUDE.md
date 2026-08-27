@@ -435,15 +435,26 @@ its exact PR, check, workflow-run, and authority evidence against live GitHub.
 The offline command does not certify GitHub provenance. The complete operating
 procedure is `docs/dependabot-automation.md`; the architecture decisions are
 ADRs 0006 and 0008.
-The automatic `.github/workflows/vercel-main-deployment.yml` path runs only
-from the exact successful `CI/CD` attempt for `main`. Its global mode is
+The automatic `.github/workflows/vercel-main-deployment.yml` path starts when
+the exact `CI/CD` push run for `main` is requested and runs read-only planning
+concurrently with CI. A separate credential-free
+`Require the exact successful CI attempt` gate job must succeed before any
+provider write: candidate uploads, inherited restoration, activation, and
+recovery. A later `completed` delivery for a successful CI attempt deploys with full
+terminal verification
+unless a deployment run for that exact upstream attempt both passed the gate and
+concluded `success`, so a run that failed after the gate is taken over rather
+than deduplicated away; a failed CI attempt's `completed` delivery is never
+admitted. Its global mode is
 `active`, and the current per-target `mainOwnershipMode` map assigns App,
 Governance, Reserve, and UI to `github`. Planning emits
 `vercel-main-plan:v2`: all selected targets stage or build, `activeTargets`
 mutate public mappings, and `shadowTargets` prove the same candidates without
 public mutation. Governance, Reserve, and UI promote exact staged deployments;
 App deploys its verified custom `v3` output and verifies or assigns only the
-reviewed aliases. Legacy App `v2 -> production` remains native. Planning uses
+reviewed aliases. App builds that custom `v3` output in a parallel `stage-app`
+job and hands the verified tree to activation as one digest-bound, same-attempt
+payload. Legacy App `v2 -> production` remains native. Planning uses
 the SHA each public target actually serves, and every credential-bearing job
 uses only `vercel-cli-production` with `deployment: false`. The exact-attempt
 gate, repeated freshness checks, durable journal, active duplicate census,
