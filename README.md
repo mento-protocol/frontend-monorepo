@@ -632,7 +632,7 @@ feat(ui): add new button component
 
 The repository is set up with GitHub Actions for CI:
 
-- **CI**: On every PR, it plans the changed-file scope, fans build, unit tests, and static analysis out in parallel, then reports the existing required `Build and Test` sentinel. Markdown- and `docs/**`-only PRs skip builds, unit tests, type checking, and Knip, but retain the Trunk static checks for Markdown validation and secret scanning. Scope-planning errors and all other PR paths fail closed into full validation. Every `main` push runs the full suite so a successful `CI/CD` workflow is trustworthy recovery evidence for the failure notifier.
+- **CI**: On every PR, it plans the changed-file scope, fans build, two unit-test shards, and static analysis out in parallel, then reports the existing required `Build and Test` sentinel. The shards partition the root `pnpm test` command: `Unit tests (workspaces)` runs `pnpm test:ci:workspaces` (ADR, Dependabot, and lockfile-lint suites plus the Turborepo workspace tests) and `Unit tests (Vercel contracts)` runs `pnpm test:ci:vercel` (the Vercel deployment contract suites). Sharding shortens CI's critical path, which is the point for PR feedback. The main deployment pipeline does not inherit that saving one-for-one: its own read-only pre-gate prefix runs about 187 seconds regardless of CI and floors when staging can start, so the deploy path inherits only whatever CI was above that floor. [docs/vercel-deployments.md](docs/vercel-deployments.md) carries the measurement and the re-measure note. Markdown- and `docs/**`-only PRs skip builds, both unit shards, type checking, and Knip, but retain the Trunk static checks for Markdown validation and secret scanning. Scope-planning errors and all other PR paths fail closed into full validation. Every `main` push runs the full suite so a successful `CI/CD` workflow is trustworthy recovery evidence for the failure notifier.
 - **Quality budgets**: The always-reported [Quality Budgets](docs/quality-budgets.md)
   check enforces production-source coverage and gzip route limits. Its general
   CI failure notifier opens or updates one issue for an operational workflow
@@ -761,7 +761,8 @@ The repository is set up with GitHub Actions for CI:
   runbook.
 
   `Vercel Main Deployment` starts when that `CI/CD` `main` run is requested and
-  overlaps read-only planning with CI. It performs every public mutation only
+  overlaps read-only planning and release preparation with CI. It performs every
+  public mutation only
   after its exact-attempt success gate proves that run and its literal
   `Build and Test` job succeeded. It plans from each target's
   currently served SHA, so coalesced pushes cannot omit an affected change.
@@ -798,8 +799,12 @@ overrides the trusted composite's Node version and disables its cache;
 zero-dependency jobs may set up Node directly.
 
 The docs-only decision is implemented by `scripts/ci-change-plan.mjs` and
-covered by `pnpm ci:change-plan:test`, which the Unit tests job runs before the
-workspace test suite. The always-run sentinel accepts skipped build and unit
+covered by `pnpm ci:change-plan:test`, which the `Unit tests (workspaces)` shard
+runs before its own suites. That suite also pins the shard partition itself:
+`pnpm test` must stay exactly `pnpm test:ci:workspaces && pnpm test:ci:vercel`,
+each CI shard must run exactly one of those scripts, the two must share no
+sub-suite, and both must carry the `run_quality` gate and feed the sentinel. The
+always-run sentinel accepts skipped build and unit
 test jobs only when that planner explicitly reports a documentation-only diff;
 the static-analysis job must always succeed. Its dependency-heavy type-check
 and Knip steps follow the planner, while Trunk remains mandatory for every diff.

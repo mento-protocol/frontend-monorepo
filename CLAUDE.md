@@ -50,7 +50,9 @@ pnpm adr:check                       # Advisory reminder for new architecture-si
 pnpm adr:check:test                  # Test the offline ADR trigger and repository wiring
 trunk check --fix                     # Lint with autofix
 trunk fmt                             # Format
-pnpm test                            # Run tests
+pnpm test                            # Run tests (both CI unit shards, serially)
+pnpm test:ci:workspaces              # CI unit shard 1: ADR/Dependabot/lockfile suites + turbo workspace tests
+pnpm test:ci:vercel                  # CI unit shard 2: Vercel deployment contract suites
 pnpm quality:budgets:test            # Unit/structural tests for quality gates + notifier
 pnpm quality:coverage                # Enforce measured coverage floors in tested workspaces
 pnpm quality:budgets                 # Coverage + production builds + route bundle limits
@@ -437,10 +439,12 @@ procedure is `docs/dependabot-automation.md`; the architecture decisions are
 ADRs 0006 and 0008.
 The automatic `.github/workflows/vercel-main-deployment.yml` path starts when
 the exact `CI/CD` push run for `main` is requested and runs read-only planning
-concurrently with CI. A separate credential-free
-`Require the exact successful CI attempt` gate job must succeed before any
-provider write: candidate uploads, inherited restoration, activation, and
-recovery. A later `completed` delivery for a successful CI attempt deploys with full
+and release preparation concurrently with CI. A separate credential-free
+`Require the exact successful CI attempt` gate job must succeed before candidate
+uploads, activation, and recovery. Inherited restoration is bound by the same
+`require-success` check invoked in-job, before any credentialed or mutating
+step, rather than by a `needs` edge on that gate job. A later `completed`
+delivery for a successful CI attempt deploys with full
 terminal verification
 unless a deployment run for that exact upstream attempt both passed the gate and
 concluded `success`, so a run that failed after the gate is taken over rather

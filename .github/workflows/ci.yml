@@ -155,8 +155,13 @@ jobs:
       - name: Build
         run: pnpm build
 
-  test:
-    name: Unit tests
+  # The unit suite is sharded so it stops being CI's critical path. The two
+  # shards partition the root `pnpm test` command exactly: this one runs the
+  # workspace vitest projects plus the non-Vercel script suites, `test-vercel`
+  # runs the Vercel deployment contract suites. `scripts/ci-change-plan.test.mjs`
+  # pins that partition, the shared `run_quality` gate, and the sentinel wiring.
+  test-workspaces:
+    name: Unit tests (workspaces)
     needs: changes
     if: needs.changes.outputs.run_quality == 'true'
     timeout-minutes: 10
@@ -207,7 +212,31 @@ jobs:
             || { echo "::error::wagmi.ts no longer gates connectors on isE2eTestMode()"; exit 1; }
           pnpm --filter @repo/web3 exec vitest run src/config/e2e-mode.test.ts
       - name: Test
-        run: pnpm test
+        run: pnpm test:ci:workspaces
+
+  # The Vercel contract suites are pure `node --test` structure checks over
+  # workflow YAML, scripts, and fixtures. They read no repository secret or
+  # variable, so this shard carries no job-level environment.
+  test-vercel:
+    name: Unit tests (Vercel contracts)
+    needs: changes
+    if: needs.changes.outputs.run_quality == 'true'
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Install pnpm dependencies
+        uses: ./.github/actions/pnpm-install
+        with:
+          cache: ${{ needs.changes.outputs.allow_repository_credentials == 'true' }}
+      - name: Test
+        run: pnpm test:ci:vercel
 
   static:
     name: Static analysis
@@ -259,7 +288,7 @@ jobs:
 
   ci:
     name: Build and Test
-    needs: [changes, build, test, static]
+    needs: [changes, build, test-workspaces, test-vercel, static]
     if: always()
     timeout-minutes: 2
     runs-on: ubuntu-latest
@@ -272,7 +301,8 @@ jobs:
           CHANGES_RESULT: ${{ needs.changes.result }}
           RUN_QUALITY: ${{ needs.changes.outputs.run_quality }}
           STATIC_RESULT: ${{ needs.static.result }}
-          TEST_RESULT: ${{ needs.test.result }}
+          TEST_VERCEL_RESULT: ${{ needs.test-vercel.result }}
+          TEST_WORKSPACES_RESULT: ${{ needs.test-workspaces.result }}
         shell: bash
         run: |
           set -euo pipefail
@@ -298,7 +328,8 @@ jobs:
           failed=0
           for result in \
             "Build:$BUILD_RESULT" \
-            "Unit tests:$TEST_RESULT"; do
+            "Unit tests (workspaces):$TEST_WORKSPACES_RESULT" \
+            "Unit tests (Vercel contracts):$TEST_VERCEL_RESULT"; do
             name=${result%%:*}
             value=${result#*:}
             if [[ "$value" != "$expected" ]]; then

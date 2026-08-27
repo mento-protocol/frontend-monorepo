@@ -377,7 +377,8 @@ test("admits a requested delivery without claiming the CI verdict", async () => 
 
 test("early admission never waits for the sentinel job record", async () => {
   // `.github/workflows/ci.yml` gives the `Build and Test` sentinel
-  // `needs: [changes, build, test, static]`, and GitHub creates a job record
+  // `needs: [changes, build, test-workspaces, test-vercel, static]`, and GitHub
+  // creates a job record
   // only once a job's `needs` resolve. A `requested` delivery admits within
   // seconds of the run starting, minutes before that record exists, so reading
   // the attempt's jobs at all would make every early run fail closed and erase
@@ -404,6 +405,31 @@ test("early admission never waits for the sentinel job record", async () => {
   assert.equal(result.admission_mode, "early");
   assert.equal(result.build_and_test_job_id, undefined);
   assert.equal(result.build_and_test_job_url, undefined);
+});
+
+test("requiring the CI verdict mints no gate marker of its own", () => {
+  // `require-success` runs in three places: the gate job itself, and in-job
+  // inside `restore-inherited-release` and `prepare-release`, which trade the
+  // gate `needs` edge for an in-job step so they can overlap CI. The
+  // duplicate-run probe matches a job NAME produced only by
+  // `mainDeploymentGateJobName`, and requires exactly one such job in the
+  // sibling attempt. `requireMainCiSuccess` must therefore never touch that
+  // helper: it is a pure attempt-verdict function, so a second invocation
+  // cannot create a competing marker or perturb `decideMainCiDeployMode`.
+  const source = readFileSync(
+    new URL("./vercel-main-ci-attempt.mjs", import.meta.url),
+    "utf8",
+  );
+  const start = source.indexOf("export async function requireMainCiSuccess");
+  assert.ok(start > 0, "requireMainCiSuccess must remain an exported function");
+  const body = source.slice(start);
+  const end = body.indexOf("\n}\n");
+  assert.ok(end > 0, "requireMainCiSuccess body terminator not found");
+  assert.doesNotMatch(
+    body.slice(0, end + 3),
+    /mainDeploymentGateJobName|MAIN_DEPLOYMENT_GATE/,
+    "the CI verdict may not derive or publish the gate job marker",
+  );
 });
 
 test("rejects a requested delivery whose attempt already concluded", async () => {

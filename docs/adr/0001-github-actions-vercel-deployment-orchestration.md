@@ -308,7 +308,19 @@ attempt, which is the only durable proof a later run can query. A `completed`
 delivery for a successful CI attempt still performs the full terminal
 verification and deploys unless a deployment run for that exact upstream
 attempt both passed the gate and concluded `success`; a failed attempt's
-`completed` delivery is never admitted. See the
+`completed` delivery is never admitted.
+
+That success authority is one credential-free check with two placement forms.
+Every candidate-upload, activation, and recovery job takes a `needs` edge on the
+gate job. `restore-inherited-release` instead runs the same check as its own
+first executable step, because its skip on the fast path would otherwise hold
+the whole graph behind the gate job; implicit needs-success binds its
+one-checkout prefix and the in-job check binds the verdict before any
+credentialed or mutating step. `prepare-release` left the gate `needs` edge
+entirely: it is read-only end to end, and now derives the sentinel from its own
+bounded `require-success` call immediately before the single step that consumes
+it. The structural workflow test asserts the ordering by step index, not by
+convention, and pins which jobs may use the in-job form. See the
 runbook sections "Exact upstream attempt
 admission", "Exact-attempt CI success gate", "Read-only pre-gate window", "Gate
 placement", and "Duplicate completed-event runs" in

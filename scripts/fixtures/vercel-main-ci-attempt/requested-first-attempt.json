@@ -82,7 +82,7 @@
           "workflow_name": "CI/CD",
           "head_branch": "main",
           "head_sha": "0123456789abcdef0123456789abcdef01234567",
-          "name": "Unit tests",
+          "name": "Unit tests (workspaces)",
           "run_url": "https://api.github.com/repos/mento-protocol/frontend-monorepo/actions/runs/40000000001",
           "url": "https://api.github.com/repos/mento-protocol/frontend-monorepo/actions/jobs/90000000011",
           "html_url": "https://github.com/mento-protocol/frontend-monorepo/actions/runs/40000000001/job/90000000011",
