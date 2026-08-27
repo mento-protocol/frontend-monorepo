@@ -423,8 +423,10 @@ test("requiring the CI verdict mints no gate marker of its own", () => {
   const start = source.indexOf("export async function requireMainCiSuccess");
   assert.ok(start > 0, "requireMainCiSuccess must remain an exported function");
   const body = source.slice(start);
+  const end = body.indexOf("\n}\n");
+  assert.ok(end > 0, "requireMainCiSuccess body terminator not found");
   assert.doesNotMatch(
-    body.slice(0, body.indexOf("\n}\n") + 3),
+    body.slice(0, end + 3),
     /mainDeploymentGateJobName|MAIN_DEPLOYMENT_GATE/,
     "the CI verdict may not derive or publish the gate job marker",
   );
