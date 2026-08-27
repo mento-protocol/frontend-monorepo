@@ -370,14 +370,12 @@ runs:
           "$CANDIDATE_HOME_PATH/cache" \
           "$CANDIDATE_HOME_PATH/config" \
           "$CANDIDATE_HOME_PATH/data" \
-          "$CANDIDATE_HOME_PATH/pnpm-store" \
           "$CANDIDATE_HOME_PATH/tmp"
         for candidate_home_entry in \
           "$CANDIDATE_HOME_PATH" \
           "$CANDIDATE_HOME_PATH/cache" \
           "$CANDIDATE_HOME_PATH/config" \
           "$CANDIDATE_HOME_PATH/data" \
-          "$CANDIDATE_HOME_PATH/pnpm-store" \
           "$CANDIDATE_HOME_PATH/tmp"; do
           if ! sudo --non-interactive /usr/bin/test -d "$candidate_home_entry" ||
             sudo --non-interactive /usr/bin/test -L "$candidate_home_entry" ||
@@ -470,7 +468,6 @@ runs:
           NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-}" \
           NO_PROXY="${NO_PROXY:-}" \
           PATH="$safe_path" \
-          PNPM_HOME="$CANDIDATE_HOME_PATH/pnpm" \
           SSL_CERT_FILE="${SSL_CERT_FILE:-}" \
           TMPDIR="$CANDIDATE_HOME_PATH/tmp" \
           XDG_CACHE_HOME="$CANDIDATE_HOME_PATH/cache" \
@@ -486,7 +483,6 @@ runs:
           "$PNPM_BIN" --dir "$CANDIDATE_SOURCE_PATH" install \
           --frozen-lockfile \
           --ignore-scripts \
-          --store-dir "$CANDIDATE_HOME_PATH/pnpm-store" \
           2>&1
         candidate_status=$?
         set -e

@@ -238,6 +238,7 @@ test("preplan installs the admitted source without lifecycle scripts before prot
   assert.deepEqual(install.with, {
     "working-directory": "source",
     "ignore-scripts": "true",
+    filter: "frontend-monorepo",
   });
   assert.ok(
     steps("provider-preplan").indexOf(install) <
@@ -251,10 +252,54 @@ test("preplan installs the admitted source without lifecycle scripts before prot
       "Install dependencies without lifecycle scripts or pnpmfile hooks",
   );
   assert.equal(isolatedInstall.if, "inputs.ignore-scripts == 'true'");
-  assert.match(
+  assert.equal(pnpmInstallAction.inputs.filter.required, false);
+  assert.equal(pnpmInstallAction.inputs.filter.default, "");
+  assert.deepEqual(isolatedInstall.env, {
+    INSTALL_FILTER: "${{ inputs.filter }}",
+  });
+  assert.equal(
     isolatedInstall.run,
-    /pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile/,
+    [
+      "set --",
+      'if [ -n "$INSTALL_FILTER" ]; then',
+      '  set -- --filter "$INSTALL_FILTER"',
+      "fi",
+      "env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE \\",
+      '  -u GITHUB_STEP_SUMMARY pnpm "$@" install --frozen-lockfile --ignore-scripts --ignore-pnpmfile',
+      "",
+    ].join("\n"),
   );
+  const scriptedInstall = pnpmInstallAction.runs.steps.find(
+    (step) => step.name === "Install dependencies",
+  );
+  assert.equal(scriptedInstall.if, "inputs.ignore-scripts != 'true'");
+  assert.deepEqual(scriptedInstall.env, {
+    INSTALL_FILTER: "${{ inputs.filter }}",
+  });
+  assert.equal(
+    scriptedInstall.run,
+    [
+      "set --",
+      'if [ -n "$INSTALL_FILTER" ]; then',
+      '  set -- --filter "$INSTALL_FILTER"',
+      "fi",
+      "env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE \\",
+      '  -u GITHUB_STEP_SUMMARY pnpm "$@" install --frozen-lockfile',
+      "",
+    ].join("\n"),
+  );
+});
+
+test("every workflow install narrows pnpm to the root workspace project", () => {
+  const installs = Object.entries(workflow.jobs).flatMap(([jobName, job]) =>
+    stepsUsing(job.steps ?? [], "./.github/actions/pnpm-install").map(
+      (step) => [jobName, step],
+    ),
+  );
+  assert.equal(installs.length, 8);
+  for (const [jobName, install] of installs) {
+    assert.equal(install.with.filter, "frontend-monorepo", jobName);
+  }
 });
 
 test("inherited restoration proves and validates reuse before a durable bounded recovery", () => {
@@ -296,6 +341,7 @@ test("inherited restoration proves and validates reuse before a durable bounded 
   assert.deepEqual(install.with, {
     "working-directory": "source",
     "ignore-scripts": "true",
+    filter: "frontend-monorepo",
   });
   const firstProviderAccess = jobSteps.find(
     (step) =>
@@ -675,6 +721,7 @@ test("release preparation starts only after inherited recovery and replans from 
   assert.deepEqual(install.with, {
     "working-directory": "source",
     "ignore-scripts": "true",
+    filter: "frontend-monorepo",
   });
   const protectedSteps = jobSteps.filter(
     (step) =>
@@ -812,6 +859,7 @@ test("active coordinator validates stage handoffs and prepares App without deplo
   assert.deepEqual(install.with, {
     "working-directory": "source",
     "ignore-scripts": "true",
+    filter: "frontend-monorepo",
   });
   assert.ok(jobSteps.indexOf(proof) < jobSteps.indexOf(install));
 
@@ -1022,7 +1070,11 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
     steps("recover-main-deployment").find(
       (step) => step.uses === "./.github/actions/pnpm-install",
     ).with,
-    { "working-directory": "source", "ignore-scripts": "true" },
+    {
+      "working-directory": "source",
+      "ignore-scripts": "true",
+      filter: "frontend-monorepo",
+    },
   );
   const runtime = named(
     "recover-main-deployment",
@@ -1710,6 +1762,7 @@ test("ordinary stages retain protected runtime isolation and create-only uploads
     const install = named(job, "without lifecycle scripts");
     assert.equal(install.with["working-directory"], "source");
     assert.equal(install.with["ignore-scripts"], "true");
+    assert.equal(install.with.filter, "frontend-monorepo");
     assert.ok(jobSteps.indexOf(proof) < jobSteps.indexOf(install));
     const runtime = named(job, `Prepare protected ${label} runtime`);
     assert.equal(runtime.uses, "./.github/actions/vercel-protected-runtime");
@@ -1936,9 +1989,10 @@ test("coordinator checkpoints the forward journal before six bounded mutations a
     /needs\.prepare-release\.outputs\.has_active_targets == 'true'/,
   );
   assert.equal(chromium["working-directory"], "source");
-  assert.match(
+  assert.equal(
     chromium.run,
-    /pnpm --filter app\.mento\.org exec playwright[\s\S]*install --with-deps chromium/,
+    "env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE " +
+      "-u GITHUB_STEP_SUMMARY pnpm exec playwright install --with-deps chromium",
   );
   const publicUrls = {
     app: "https://app.mento.org/",

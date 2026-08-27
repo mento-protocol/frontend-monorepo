@@ -108,7 +108,12 @@ jobs:
           git -C "$SOURCE_PATH" fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
           node scripts/vercel-main-deployment.mjs validate-source
       - uses: ./.github/actions/pnpm-install
-        with: { working-directory: source, ignore-scripts: "true" }
+        with:
+          {
+            working-directory: source,
+            ignore-scripts: "true",
+            filter: frontend-monorepo,
+          }
       - name: Capture reviewed main and legacy snapshots
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
@@ -213,7 +218,12 @@ jobs:
           node scripts/vercel-main-deployment.mjs validate-recovery-source
       - name: Install exact inherited recovery source without lifecycle scripts
         uses: ./.github/actions/pnpm-install
-        with: { working-directory: source, ignore-scripts: "true" }
+        with:
+          {
+            working-directory: source,
+            ignore-scripts: "true",
+            filter: frontend-monorepo,
+          }
       - name: Materialize strict inherited recovery decision
         id: inherited
         run: node scripts/vercel-main-provider-cli.mjs preplan-materialize --output "$RUNNER_TEMP/inherited-preplan.json"
@@ -720,7 +730,12 @@ jobs:
           node scripts/vercel-main-deployment.mjs validate-source
       - name: Install exact release preparation source without lifecycle scripts
         uses: ./.github/actions/pnpm-install
-        with: { working-directory: source, ignore-scripts: "true" }
+        with:
+          {
+            working-directory: source,
+            ignore-scripts: "true",
+            filter: frontend-monorepo,
+          }
       - name: Materialize fresh release preparation specifications
         run: |
           node scripts/vercel-main-deployment.mjs create-spec --scope main --output "$RUNNER_TEMP/main-spec.json"
@@ -814,7 +829,12 @@ jobs:
           node scripts/vercel-main-deployment.mjs validate-source
       - name: Install exact governance source without lifecycle scripts
         uses: ./.github/actions/pnpm-install
-        with: { working-directory: source, ignore-scripts: "true" }
+        with:
+          {
+            working-directory: source,
+            ignore-scripts: "true",
+            filter: frontend-monorepo,
+          }
       - name: Materialize execution and create governance current intent
         id: intent
         run: |
@@ -1018,7 +1038,12 @@ jobs:
           node scripts/vercel-main-deployment.mjs validate-source
       - name: Install exact reserve source without lifecycle scripts
         uses: ./.github/actions/pnpm-install
-        with: { working-directory: source, ignore-scripts: "true" }
+        with:
+          {
+            working-directory: source,
+            ignore-scripts: "true",
+            filter: frontend-monorepo,
+          }
       - name: Materialize execution and create reserve current intent
         id: intent
         run: |
@@ -1221,7 +1246,12 @@ jobs:
           node scripts/vercel-main-deployment.mjs validate-source
       - name: Install exact UI source without lifecycle scripts
         uses: ./.github/actions/pnpm-install
-        with: { working-directory: source, ignore-scripts: "true" }
+        with:
+          {
+            working-directory: source,
+            ignore-scripts: "true",
+            filter: frontend-monorepo,
+          }
       - name: Materialize execution and create UI current intent
         id: intent
         run: |
@@ -1426,7 +1456,12 @@ jobs:
           node scripts/vercel-main-deployment.mjs validate-source
       - name: Install exact activation source without lifecycle scripts
         uses: ./.github/actions/pnpm-install
-        with: { working-directory: source, ignore-scripts: "true" }
+        with:
+          {
+            working-directory: source,
+            ignore-scripts: "true",
+            filter: frontend-monorepo,
+          }
       - name: Materialize execution and private coordinator artifacts
         run: |
           set -euo pipefail
@@ -1921,7 +1956,7 @@ jobs:
         working-directory: source
         run: >-
           env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE
-          -u GITHUB_STEP_SUMMARY pnpm --filter app.mento.org exec playwright
+          -u GITHUB_STEP_SUMMARY pnpm exec playwright
           install --with-deps chromium
       - name: Run selected App public runtime smoke
         if: >-
@@ -2223,7 +2258,12 @@ jobs:
           node scripts/vercel-main-deployment.mjs validate-recovery-source
       - name: Install exact recovery source without lifecycle scripts
         uses: ./.github/actions/pnpm-install
-        with: { working-directory: source, ignore-scripts: "true" }
+        with:
+          {
+            working-directory: source,
+            ignore-scripts: "true",
+            filter: frontend-monorepo,
+          }
       - name: Prepare protected recovery runtime
         id: recovery-runtime
         uses: ./.github/actions/vercel-protected-runtime
@@ -2736,7 +2776,7 @@ jobs:
         working-directory: source
         run: >-
           env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STATE
-          -u GITHUB_STEP_SUMMARY pnpm --filter app.mento.org exec playwright
+          -u GITHUB_STEP_SUMMARY pnpm exec playwright
           install --with-deps chromium
       - name: Run restored App public runtime smoke
         if: steps.recovery-terminal.outputs.outcome == 'recovered'

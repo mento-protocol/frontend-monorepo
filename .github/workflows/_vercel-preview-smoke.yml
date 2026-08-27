@@ -154,6 +154,9 @@ jobs:
 
       - name: Install trusted smoke dependencies
         uses: ./.github/actions/pnpm-install
+        with:
+          ignore-scripts: "true"
+          filter: frontend-monorepo
 
       - name: Validate the complete credential-free deployment tuple
         id: tuple
@@ -166,7 +169,7 @@ jobs:
         if: inputs.logical_target == 'app' || inputs.logical_target == 'governance'
         env:
           PREVIEW_URL: ${{ inputs.deployment_url }}
-        run: pnpm --filter app.mento.org test:preview
+        run: pnpm exec playwright test --config apps/app.mento.org/playwright.preview.config.ts
 
       - name: Run App, Governance, or Reserve browser smoke
         if: inputs.logical_target != 'ui'

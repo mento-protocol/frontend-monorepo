@@ -237,8 +237,9 @@ implementation for App, Governance, Reserve, and UI. It validates a trusted,
 target-bound deployment tuple, then runs common immutable-host, security-header,
 representative-asset, console, and same-origin network checks. App and
 Governance additionally run
-`PREVIEW_URL=<deployment url> pnpm --filter app.mento.org test:preview`
-(config: `apps/app.mento.org/playwright.preview.config.ts`, spec:
+`PREVIEW_URL=<deployment url> pnpm exec playwright test --config apps/app.mento.org/playwright.preview.config.ts`
+from the repository root (the job installs only the root workspace project, so
+the app has no `node_modules` of its own; spec:
 `apps/app.mento.org/e2e/preview/smoke.spec.ts`). That flow checks that the
 deployed bundle lists the real wallet options and that the mock wallet can
 connect only on an allowlisted team preview host.

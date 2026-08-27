@@ -460,7 +460,15 @@ test("planner materializes only trusted-base code without shared caches", () => 
     assert.equal(Object.hasOwn(nodeSetup.with, "cache"), false);
     assert.equal(Object.hasOwn(nodeSetup.with, "cache-dependency-path"), false);
     assert.doesNotMatch(raw, /actions\/cache|cache-dependency-path/);
-    assert.match(raw, /pnpm install --ignore-scripts --frozen-lockfile/);
+    assert.equal(
+      job.steps.find((step) =>
+        String(step.name ?? "").startsWith(
+          "Install trusted-base planner dependencies",
+        ),
+      ).run,
+      "pnpm --filter frontend-monorepo install --ignore-scripts --frozen-lockfile",
+    );
+    assert.doesNotMatch(raw, /pnpm install --ignore-scripts/);
     assert.match(raw, /plan-vercel-deployments\.mjs/);
     assert.doesNotMatch(raw, /secrets\.|VERCEL_TOKEN|TURBO_TOKEN/);
   }
