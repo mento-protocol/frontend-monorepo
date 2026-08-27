@@ -440,10 +440,12 @@ the exact `CI/CD` push run for `main` is requested and runs read-only planning
 concurrently with CI. A separate credential-free
 `Require the exact successful CI attempt` gate job must succeed before any
 provider write: candidate uploads, inherited restoration, activation, and
-recovery. A later `completed` delivery deploys with full terminal verification
+recovery. A later `completed` delivery for a successful CI attempt deploys with full
+terminal verification
 unless a deployment run for that exact upstream attempt both passed the gate and
 concluded `success`, so a run that failed after the gate is taken over rather
-than deduplicated away. Its global mode is
+than deduplicated away; a failed CI attempt's `completed` delivery is never
+admitted. Its global mode is
 `active`, and the current per-target `mainOwnershipMode` map assigns App,
 Governance, Reserve, and UI to `github`. Planning emits
 `vercel-main-plan:v2`: all selected targets stage or build, `activeTargets`

@@ -354,11 +354,16 @@ When adding or renaming an operational workflow, update its static allowlist and
 the structural test in the same PR. Never execute a triggering head SHA from
 this privileged `workflow_run` workflow.
 
-`.github/workflows/vercel-main-deployment.yml` automatically consumes only the
-exact successful `CI/CD` `main` attempt and runs with the global controller in
-`active` mode. Its token-free gate must bind the event run/attempt, literal
-`Build and Test` job, workflow definition, checked-out source, and `DEPLOY_SHA`
-before any job can use `vercel-cli-production`. Planning starts from each
+`.github/workflows/vercel-main-deployment.yml` starts on the exact `CI/CD`
+`main` attempt's `requested` delivery, runs read-only admission and pre-plan
+concurrently with CI, and runs with the global controller in `active` mode. A
+successful `completed` delivery is the takeover or deduplication path. The
+credential-free `require-ci-success` gate binds the event run/attempt, literal
+`Build and Test` job, workflow definition, checked-out source, and `DEPLOY_SHA`,
+and must succeed before any provider write. Exactly one credentialed job may
+run before the gate: the read-only `provider-preplan` census, whose command
+allowlist and the gate edge on every public-mutation job are pinned by the
+structural workflow test. Planning starts from each
 target's actual served SHA. The strict `vercel-main-plan:v2` handoff contains
 the canonical four-target `mainOwnershipMode` map and deterministic
 `stagedTargets`, `activeTargets`, and `shadowTargets` partitions. The current

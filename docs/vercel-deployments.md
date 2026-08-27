@@ -47,9 +47,12 @@ on `main`, `types: [requested, completed]`:
 - the `requested` delivery starts the release run concurrently with CI. It
   admits the exact non-terminal attempt and runs only read-only planning until
   the separate success gate proves the CI verdict; and
-- the `completed` delivery is the takeover or no-op run. It performs today's
-  full terminal verification and deploys unless a deployment run for that exact
-  upstream attempt both passed the success gate and concluded `success`.
+- a `completed` delivery for a successful CI attempt is the takeover or no-op
+  run. It performs today's full terminal verification and deploys unless a
+  deployment run for that exact upstream attempt both passed the success gate
+  and concluded `success`. A `completed` delivery whose CI attempt did not
+  conclude `success` is never admitted, so it neither takes over nor
+  deduplicates.
 
 Whether GitHub redelivers `requested` for a re-run of a `main` CI attempt is not
 verified here, and both outcomes are safe. If it does not fire, the re-run
@@ -757,11 +760,17 @@ execution exists` sentinel fires whenever no release execution exists and the
 deploy mode is not the proven `already-deployed` no-op, so a failed admission
 that emits no deploy mode still ends red.
 
-Measured effect of overlapping CI with admission and pre-plan, from CI run
-`33052008461` and deployment run `33052232367` on `54422f5c`: push to activation
-was 17m54s and push to a green check 18m14s, with CI itself 2m56s. Admission and
-`provider-preplan` now hide about 84 seconds of that CI time, so the expected
-saving is roughly 1m17s. That figure assumes admission finishes in seconds,
+Measured baseline and per-change projections, both from CI run
+`33052008461` and deployment run `33052232367` on `54422f5c` (2026-08-27):
+push to activation was 17m54s and push to a green check 18m14s, with CI itself
+2m56s. The CI-overlap change hides about 84 seconds of that CI time behind
+admission and `provider-preplan`, so its component saving is roughly 1m17s.
+The parallel `stage-app` change removes about 125 seconds of App
+preflight/pull/build/proof from the activation job and adds about 25-60
+seconds of payload download, extraction, and re-verification, so its component
+saving is roughly 65-100 seconds. The combined projection is therefore about
+2m20s-3m, or roughly 15.3-15.9 minutes push to live; re-measure it from the
+first post-merge runs. The overlap figure assumes admission finishes in seconds,
 which is why it reads no jobs: in the same run the `Build and Test` record did
 not exist until 2m50s in, so any wait on it would have consumed the whole
 saving. Gating `prepare-release` and `restore-inherited-release`

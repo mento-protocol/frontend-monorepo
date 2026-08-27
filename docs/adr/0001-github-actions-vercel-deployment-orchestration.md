@@ -305,9 +305,10 @@ types, so read-only planning overlaps CI, and exact-attempt success authority
 moved from admission into a dedicated credential-free gate job that every
 public-mutation job requires. That job's name binds the exact upstream run and
 attempt, which is the only durable proof a later run can query. A `completed`
-delivery still performs the full terminal verification and deploys unless a
-deployment run for that exact upstream attempt both passed the gate and
-concluded `success`. See the
+delivery for a successful CI attempt still performs the full terminal
+verification and deploys unless a deployment run for that exact upstream
+attempt both passed the gate and concluded `success`; a failed attempt's
+`completed` delivery is never admitted. See the
 runbook sections "Exact upstream attempt
 admission", "Exact-attempt CI success gate", "Read-only pre-gate window", "Gate
 placement", and "Duplicate completed-event runs" in
