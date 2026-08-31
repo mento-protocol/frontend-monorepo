@@ -124,14 +124,14 @@ const dependabotReview = workflow(dependabotReviewPath);
 const humanReview = workflow(humanReviewPath);
 
 const claudeAction =
-  "anthropics/claude-code-action@459ad358ae43fea66bfefd0a1f8d840b4b9791fb";
+  "anthropics/claude-code-action@e5ad3c7725bc2459721893f88879fef9dbcf97b0";
 const claudeBaseAction =
-  "anthropics/claude-code-action/base-action@459ad358ae43fea66bfefd0a1f8d840b4b9791fb";
+  "anthropics/claude-code-action/base-action@e5ad3c7725bc2459721893f88879fef9dbcf97b0";
 const claudePluginMarketplace = "./.claude-code-plugin-marketplace";
 const claudeCodeReviewPlugin = `${claudePluginMarketplace}/plugins/code-review`;
 const claudePluginMarketplaceRef = "2bb60696142b493eafaeacfe00eac51d16c50c4f";
 const osvReusableWorkflow =
-  "google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@6e4298ebc4db23e847df9b2e2de2939d6f066c67";
+  "google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@8e5cf47b818121e8b405931c82126c2630b0b20d";
 
 const forbiddenCandidateSurfaces =
   /actions\/(?:download-artifact|upload-artifact|cache)@|cache-dependency-path|gh pr checkout|git (?:checkout|switch|fetch)|node_modules|pnpm install|npm (?:ci|install)|yarn install/;
@@ -442,10 +442,21 @@ test("main pushes publish only deterministic supply-chain baselines", () => {
       scanner.uses,
     )?.[1];
   assert.ok(scannerRevision);
+  assert.equal(scanner.id, "scan");
   assert.equal(scanner["continue-on-error"], true);
   assert.match(scanner.with["scan-args"], /--output=results\.json/);
   assert.match(scanner.with["scan-args"], /--format=json/);
   assert.match(scanner.with["scan-args"], /\$\{\{ inputs\.scan-args \}\}/);
+  const completionGuards = readOnlySteps.filter(
+    (step) => step.name === "Check that the scan completed",
+  );
+  assert.equal(completionGuards.length, 1);
+  const [completionGuard] = completionGuards;
+  assert.equal(completionGuard.if, "${{ steps.scan.outcome == 'failure' }}");
+  assert.equal(completionGuard.shell, "bash");
+  assert.deepEqual(completionGuard.env, { RESULTS: "results.json" });
+  assert.match(completionGuard.run, /if \[ ! -s "\$\{RESULTS\}" \]; then/);
+  assert.match(completionGuard.run, /exit 1/);
   const reporterSteps = readOnlySteps.filter((step) =>
     step.uses?.startsWith("google/osv-scanner-action/osv-reporter-action@"),
   );
@@ -457,6 +468,12 @@ test("main pushes publish only deterministic supply-chain baselines", () => {
     )?.[1];
   assert.ok(reporterRevision);
   assert.equal(reporterRevision, scannerRevision);
+  assert.ok(
+    readOnlySteps.indexOf(scanner) < readOnlySteps.indexOf(completionGuard),
+  );
+  assert.ok(
+    readOnlySteps.indexOf(completionGuard) < readOnlySteps.indexOf(reporter),
+  );
   assert.match(reporter.with["scan-args"], /--output=results\.sarif/);
   assert.match(reporter.with["scan-args"], /--new=results\.json/);
   assert.match(reporter.with["scan-args"], /--gh-annotations=false/);
@@ -2933,8 +2950,8 @@ test("repair planning, validation, mutation, and receipt publication stay isolat
   assert.equal(printedPagePolicy.status, 0, printedPagePolicy.stderr);
   const pagePolicy = JSON.parse(printedPagePolicy.stdout);
   assert.deepEqual(pagePolicy, {
-    claudeCodeActionRef: "459ad358ae43fea66bfefd0a1f8d840b4b9791fb",
-    claudeCodeVersion: "2.1.234",
+    claudeCodeActionRef: "e5ad3c7725bc2459721893f88879fef9dbcf97b0",
+    claudeCodeVersion: "2.1.243",
     evidenceMaxLineBytes: 4 * 1024,
     jsonMaxBytes: 12_500,
     jsonMaxLines: 2_000,

@@ -386,7 +386,7 @@ fail-closed `PreToolUse` guard to authorize one exact bound repository-scoped
 no-token assertion require the same successful, complete foreground diff
 result. The post-hook seals the original bytes in a
 `dependabot-claude-review-tool-completed:v2` receipt, then delivers those exact
-bytes as one `text/plain` document tool result, bypassing Claude Code 2.1.234's
+bytes as one `text/plain` document tool result, bypassing Claude Code 2.1.243's
 30,000-character Bash text-result persistence. It emits canonical exact-head
 results; validated findings can feed a bounded repair, while a missing, failed,
 interrupted, empty, persisted/truncated, or otherwise invalid diff remains
