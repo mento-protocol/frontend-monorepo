@@ -1,4 +1,4 @@
-import { expect } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { connectedMonadTest as test } from "../fixtures";
 import { createRpcClient } from "./rpc";
 
@@ -29,11 +29,35 @@ import { createRpcClient } from "./rpc";
 const RPC_URL = "http://127.0.0.1:8546";
 const MONAD_CHAIN_ID = "0x8f"; // 143
 const ACCT0 = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
+const EURM = "0x4D502d735B4C574B487Ed641ae87cEaE884731C7";
 const USDM = "0xBC69212B8E4d445b2307C9D32dD68E2A4Df00115";
+const EURM_USDM_POOL = "0x93e15A22fDa39FEfcCCe82D387A09cCF030EAD61";
 
 const { rpc, snapshot, revert, erc20BalanceOf } = createRpcClient(RPC_URL);
 
 let snapshotId: string | undefined;
+
+async function switchConnectedWalletToMonad(page: Page) {
+  await expect(
+    page.getByText("0xf39F...2266").filter({ visible: true }),
+  ).toBeVisible({ timeout: 20_000 });
+
+  const switchButton = page.getByRole("button", {
+    name: "Switch to Monad",
+    exact: true,
+  });
+  await expect(switchButton).toBeVisible({ timeout: 20_000 });
+  await switchButton.click();
+  await expect(switchButton).toBeHidden({ timeout: 20_000 });
+}
+
+function parse18Decimal(value: string): bigint {
+  const [whole, fraction = ""] = value.split(".");
+  if (!whole || fraction.length > 18 || !/^\d+$/.test(whole + fraction)) {
+    throw new Error(`Invalid 18-decimal token amount: ${value}`);
+  }
+  return BigInt(whole) * 10n ** 18n + BigInt(fraction.padEnd(18, "0"));
+}
 
 // Preflight: fail fast with an actionable message if the Monad fork is not up,
 // instead of an opaque "TypeError: fetch failed" from snapshot() in beforeEach.
@@ -97,24 +121,9 @@ test("swaps 1 EURm for USDm on Monad (chain 143)", async ({ page }) => {
   // The header renders both a mobile (`md:hidden`) and a desktop
   // (`md:block hidden`) ConnectButton simultaneously — filter to the one
   // actually visible at this project's viewport instead of `.first()`.
-  await expect(
-    page.getByText("0xf39F...2266").filter({ visible: true }),
-  ).toBeVisible({
-    timeout: 20_000,
-  });
-
-  // The mock connector joins on Celo (chains[0]); /swap/monad targets chain
-  // 143, so the ChainMismatchBanner offers a switch. `exact: true` targets the
-  // banner's "Switch to Monad" and not the swap form's own disabled
-  // "Switch to Monad to swap" CTA. Drive the real UI, then wait for the banner
-  // to clear (walletChainId === 143 hides it).
-  const switchButton = page.getByRole("button", {
-    name: "Switch to Monad",
-    exact: true,
-  });
-  await expect(switchButton).toBeVisible({ timeout: 20_000 });
-  await switchButton.click();
-  await expect(switchButton).toBeHidden({ timeout: 20_000 });
+  // The mock connector joins on Celo (chains[0]). Drive the real chain switch
+  // before interacting with the Monad form.
+  await switchConnectedWalletToMonad(page);
 
   await page.getByTestId("sellAmountInput").fill("1");
 
@@ -161,3 +170,56 @@ test("swaps 1 EURm for USDm on Monad (chain 143)", async ({ page }) => {
   const balanceAfter = await erc20BalanceOf(USDM, ACCT0);
   expect(balanceAfter > balanceBefore).toBe(true);
 });
+
+for (const { symbol, token } of [
+  { symbol: "EURm", token: EURM },
+  { symbol: "USDm", token: USDM },
+]) {
+  test(`single-token MAX spends the exact ${symbol} balance on Monad`, async ({
+    page,
+  }) => {
+    const selectedBalanceBefore = await erc20BalanceOf(token, ACCT0);
+    const lpBalanceBefore = await erc20BalanceOf(EURM_USDM_POOL, ACCT0);
+    expect(selectedBalanceBefore).toBeGreaterThan(0n);
+
+    await page.goto(`/pools/monad/${EURM_USDM_POOL}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await switchConnectedWalletToMonad(page);
+
+    await page.getByRole("button", { name: "Single token" }).click();
+    const tokenSelect = page.getByRole("combobox", { name: /deposit token/i });
+    await tokenSelect.click();
+    await page.getByRole("option", { name: symbol, exact: true }).click();
+    await page
+      .getByRole("button", { name: `MAX ${symbol}`, exact: true })
+      .click();
+
+    const amountInput = page.getByRole("textbox", {
+      name: `Deposit amount in ${symbol}`,
+    });
+    await expect(amountInput).not.toHaveValue("");
+    const displayedAmount = await amountInput.inputValue();
+    expect(parse18Decimal(displayedAmount)).toBe(selectedBalanceBefore);
+
+    // Use the form CTA's stable full-width class. Its text can briefly change
+    // while the hook refreshes, which makes a text-only locator fall through
+    // to the tab button between the enabled check and click.
+    const submit = page.locator("main button.w-full").last();
+    await expect(submit).toHaveText("Add Liquidity", { timeout: 30_000 });
+    await expect(submit).toBeEnabled({ timeout: 30_000 });
+    await submit.click();
+
+    await expect(
+      page.getByRole("dialog", { name: "Add Liquidity" }),
+    ).toContainText("All steps completed successfully.", { timeout: 90_000 });
+
+    const selectedBalanceAfter = await erc20BalanceOf(token, ACCT0);
+    const lpBalanceAfter = await erc20BalanceOf(EURM_USDM_POOL, ACCT0);
+    expect(selectedBalanceBefore - selectedBalanceAfter).toBe(
+      parse18Decimal(displayedAmount),
+    );
+    expect(selectedBalanceAfter).toBe(0n);
+    expect(lpBalanceAfter).toBeGreaterThan(lpBalanceBefore);
+  });
+}

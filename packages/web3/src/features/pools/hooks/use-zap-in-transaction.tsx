@@ -14,6 +14,13 @@ import { useChainId, usePublicClient, useSendTransaction } from "wagmi";
 import { showLiquiditySuccessToast } from "../liquidity-toast";
 import type { PoolDisplay, SlippageOption } from "../types";
 import { getTransactionErrorMessage } from "../types";
+import {
+  assertBindingZapInPlan,
+  bindSelectedTokenMinimum,
+  deriveBindingZapInPlan,
+  toSdkZapInSplitRatio,
+  toZapInProtocolFeeBps,
+} from "../zap-in-split";
 
 const FPMM_FACTORY_POOL_ABI = parseAbi([
   "function getPool(address tokenA, address tokenB) view returns (address)",
@@ -195,17 +202,54 @@ export function useZapInTransaction(pool: PoolDisplay, chainId?: ChainId) {
 
         if (!publicClient) throw new Error("Public client not available");
         const block = await publicClient.getBlock();
+        if (block.number == null) throw new Error("Latest block not available");
         const deadline = block.timestamp + BigInt(20 * 60);
 
-        const result = await sdk.liquidity.buildZapInTransaction({
+        const [probe, reserves, protocolFee] = await Promise.all([
+          sdk.liquidity.prepareZapIn({
+            poolAddress: pool.poolAddr,
+            tokenIn,
+            amountIn,
+            amountInSplit: toSdkZapInSplitRatio(5_000),
+            recipient,
+            options: { slippageTolerance: 0, deadline },
+          }),
+          publicClient.readContract({
+            address: pool.poolAddr as Address,
+            abi: FPMM_ABI,
+            functionName: "getReserves",
+            blockNumber: block.number,
+          }),
+          publicClient.readContract({
+            address: pool.poolAddr as Address,
+            abi: FPMM_ABI,
+            functionName: "protocolFee",
+            blockNumber: block.number,
+          }),
+        ]);
+        const [reserve0, reserve1] = reserves as readonly [
+          bigint,
+          bigint,
+          bigint,
+        ];
+        const plan = deriveBindingZapInPlan({
+          prepared: probe,
+          reserve0,
+          reserve1,
+          protocolFeeBps: toZapInProtocolFeeBps(protocolFee as bigint),
+        });
+
+        const rawResult = await sdk.liquidity.buildZapInTransaction({
           poolAddress: pool.poolAddr,
           tokenIn,
           amountIn,
-          amountInSplit: 0.5,
+          amountInSplit: plan.projection.sdkSplitRatio,
           recipient,
           owner: recipient,
           options: { slippageTolerance: slippage, deadline },
         });
+        assertBindingZapInPlan(rawResult.zapIn, plan);
+        const result = bindSelectedTokenMinimum(rawResult, recipient);
 
         try {
           await publicClient.estimateGas({

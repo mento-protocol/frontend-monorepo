@@ -1,11 +1,18 @@
-import { getMentoSdk } from "@/features/sdk";
+import { getMentoSdk, getPublicClient } from "@/features/sdk";
 import { useDebounce } from "@/utils/debounce";
+import { FPMM_ABI } from "@mento-protocol/mento-sdk";
 import { useQuery } from "@tanstack/react-query";
-import { parseUnits } from "viem";
+import { parseUnits, type Address } from "viem";
 import { useChainId } from "wagmi";
 import type { ChainId } from "@/config/chains";
 import type { PoolDisplay, SlippageOption } from "../types";
 import { LP_TOTAL_SUPPLY_HOLDER } from "../types";
+import {
+  assertBindingZapInPlan,
+  deriveBindingZapInPlan,
+  toSdkZapInSplitRatio,
+  toZapInProtocolFeeBps,
+} from "../zap-in-split";
 
 export interface ZapInQuoteResult {
   estimatedMinLiquidity: bigint;
@@ -49,10 +56,13 @@ export function useZapInQuote({
     queryFn: async () => {
       if (!isValidAmount) return null;
 
-      const sdk = await getMentoSdk(resolvedChainId);
+      const [sdk, publicClient] = await Promise.all([
+        getMentoSdk(resolvedChainId),
+        Promise.resolve(getPublicClient(resolvedChainId)),
+      ]);
 
       const tokenDecimals =
-        tokenIn === pool.token0.address
+        tokenIn.toLowerCase() === pool.token0.address.toLowerCase()
           ? pool.token0.decimals
           : pool.token1.decimals;
 
@@ -60,13 +70,46 @@ export function useZapInQuote({
 
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
 
-      const quote = await sdk.liquidity.quoteZapIn(
-        pool.poolAddr,
+      const blockNumber = await publicClient.getBlockNumber();
+      const [probe, reserves, protocolFee] = await Promise.all([
+        sdk.liquidity.prepareZapIn({
+          poolAddress: pool.poolAddr,
+          tokenIn,
+          amountIn: amountInWei,
+          amountInSplit: toSdkZapInSplitRatio(5_000),
+          recipient: tokenIn,
+          options: { slippageTolerance: 0, deadline },
+        }),
+        publicClient.readContract({
+          address: pool.poolAddr as Address,
+          abi: FPMM_ABI,
+          functionName: "getReserves",
+          blockNumber,
+        }),
+        publicClient.readContract({
+          address: pool.poolAddr as Address,
+          abi: FPMM_ABI,
+          functionName: "protocolFee",
+          blockNumber,
+        }),
+      ]);
+      const [reserve0, reserve1] = reserves;
+      const plan = deriveBindingZapInPlan({
+        prepared: probe,
+        reserve0,
+        reserve1,
+        protocolFeeBps: toZapInProtocolFeeBps(protocolFee),
+      });
+
+      const prepared = await sdk.liquidity.prepareZapIn({
+        poolAddress: pool.poolAddr,
         tokenIn,
-        amountInWei,
-        0.5, // amountInSplit: fraction of input to swap
-        { slippageTolerance: slippage, deadline },
-      );
+        amountIn: amountInWei,
+        amountInSplit: plan.projection.sdkSplitRatio,
+        recipient: tokenIn,
+        options: { slippageTolerance: slippage, deadline },
+      });
+      assertBindingZapInPlan(prepared.details, plan);
 
       // Get LP token total supply for share calculation
       const lpBalance = await sdk.liquidity.getLPTokenBalance(
@@ -75,16 +118,17 @@ export function useZapInQuote({
       );
 
       return {
-        estimatedMinLiquidity: quote.estimatedMinLiquidity,
-        amountOutFromA: quote.amountOutFromA,
-        amountOutFromB: quote.amountOutFromB,
-        amountAMin: quote.amountAMin,
-        amountBMin: quote.amountBMin,
+        estimatedMinLiquidity: prepared.quote.estimatedMinLiquidity,
+        amountOutFromA: prepared.quote.amountOutFromA,
+        amountOutFromB: prepared.quote.amountOutFromB,
+        amountAMin: prepared.quote.amountAMin,
+        amountBMin: prepared.quote.amountBMin,
         totalSupply: lpBalance.totalSupply,
       };
     },
     enabled: isValidAmount,
-    staleTime: 5000,
+    staleTime: 0,
     gcTime: 30_000,
+    refetchOnMount: "always",
   });
 }
