@@ -3,7 +3,7 @@ title: Dependabot Processing
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-08-26
+last_verified: 2026-08-31
 scope: ci/dependabot-processing
 ---
 
@@ -18,15 +18,53 @@ auto-merge.
 A maintainer performs the final squash merge through one of two explicit
 paths. A prepared change requires a successful exact-head `Dependabot ALL
 CLEAR` check and its exact processor approval. A `manual-review` change
-requires an explicit maintainer takeover. Before merging it, verify the exact
-current head and base, all repository-required checks, resolved feedback, a
-current human approval, and mergeability. The packetless failed `Dependabot
-Processor` check is non-required and intentionally waived for this manual path.
+requires an explicit maintainer takeover. A maintainer agent may update the
+branch, resolve conflicts, fix valid findings, validate, push, reply to every
+review comment, and resolve eligible threads. At handoff, the agent must report
+the exact final head and stop. It must not dismiss a review, submit a review
+approval, create a processor approval, publish or claim `Dependabot ALL CLEAR`,
+enable auto-merge, or merge. Before merging the change,
+verify the exact current head and base, all
+repository-required checks, resolved feedback, a current human approval, the
+ruleset-required approval after the latest push, and mergeability. The
+packetless failed `Dependabot Processor` check is non-required and
+intentionally waived for this manual path.
 The manual path does not produce or claim ALL CLEAR.
 
 [ADR 0006](adr/0006-dependabot-processing-controller.md) records the controller
 decision. This runbook defines the live trust boundaries, receipts, operating
 sequence, and failure handling.
+
+## Maintainer-agent takeover
+
+Use this procedure only after a maintainer explicitly takes over a
+`manual-review` pull request. It prepares the branch for human review. It does
+not grant processor authority.
+
+1. Record the pull request number, head ref and SHA, and base ref and SHA. Use a
+   clean checkout whose `HEAD` equals the pull request head.
+2. Inspect the complete dependency and workflow diff. For workflow changes,
+   verify events, permissions, credentials, gates, and commands.
+3. Merge the current base into the pull request branch. Do not rebase or force
+   push. Resolve each conflict against the reviewed dependency change.
+4. Fix valid findings and synchronize coupled policy tests and documentation.
+   Run the affected repository gates before each push.
+5. Push to the explicit pull request head ref. Re-read the pull request and
+   require its head SHA to equal the local `HEAD`.
+6. Reinspect the complete pull request diff. Reply to every review comment.
+   Resolve a thread only after a fix or a technical `Won't fix:` reply. Never
+   dismiss a review. Repeat the fix, push, feedback, and check loop until the
+   reported head is stable.
+7. Report the exact final head SHA and stop. Do not submit a review approval,
+   create a processor approval, publish or claim `Dependabot ALL CLEAR`, enable
+   auto-merge, or merge.
+
+Require a current human approval and the ruleset-required approval after the
+latest push. One eligible human approval can satisfy both requirements.
+Revalidate the exact head and base, required checks, resolved feedback,
+approvals, mergeability, and absence of auto-merge. Waive only the packetless,
+non-required `Dependabot Processor` check. A maintainer then performs the
+squash merge.
 
 ## Invariants
 

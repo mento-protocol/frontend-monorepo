@@ -92,7 +92,7 @@ const PULL_REQUEST_REVIEW_STATES = new Set([
 ]);
 const PROCESSOR_CHECK_NAME = "Dependabot Processor";
 const MANUAL_REVIEW_ACTION =
-  "take over manually; verify exact head/base, required checks, resolved feedback, current approval, and mergeability, then merge";
+  "have a maintainer agent update the branch, resolve conflicts, fix valid findings, validate, push, reply to every review comment, and resolve eligible threads, then report the exact final head and stop; do not dismiss a review, submit a review approval, create a processor approval, publish or claim Dependabot ALL CLEAR, enable auto-merge, or merge";
 const MANUAL_REVIEW_SUMMARY_PATTERN = new RegExp(
   `^Disposition: manual-review\\. Reason: [a-z0-9]+(?:-[a-z0-9]+)*\\. Next action: ${MANUAL_REVIEW_ACTION.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}\\.$`,
   "u",

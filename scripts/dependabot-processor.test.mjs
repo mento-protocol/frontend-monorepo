@@ -3522,7 +3522,7 @@ test("manual-review processor checks explain the deterministic next action witho
   assert.equal(published[0].repairPacket, null);
   assert.equal(
     published[0].summary,
-    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: take over manually; verify exact head/base, required checks, resolved feedback, current approval, and mergeability, then merge.",
+    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: have a maintainer agent update the branch, resolve conflicts, fix valid findings, validate, push, reply to every review comment, and resolve eligible threads, then report the exact final head and stop; do not dismiss a review, submit a review approval, create a processor approval, publish or claim Dependabot ALL CLEAR, enable auto-merge, or merge.",
   );
 
   const receipt = processorRepairReceipt(1, {
@@ -3598,7 +3598,7 @@ test("unchanged trusted Processor receipts suppress check churn without hiding d
     updateType: "minor",
   };
   const actionableSummary =
-    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: take over manually; verify exact head/base, required checks, resolved feedback, current approval, and mergeability, then merge.";
+    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: have a maintainer agent update the branch, resolve conflicts, fix valid findings, validate, push, reply to every review comment, and resolve eligible threads, then report the exact final head and stop; do not dismiss a review, submit a review approval, create a processor approval, publish or claim Dependabot ALL CLEAR, enable auto-merge, or merge.";
   const actionableReceipt = processorRepairReceipt(1, {
     id: 62_003,
     mode: "prepare",
@@ -3612,7 +3612,8 @@ test("unchanged trusted Processor receipts suppress check churn without hiding d
   const legacyManualReceipt = {
     ...actionableReceipt,
     id: 62_004,
-    outputSummary: "Disposition: manual-review",
+    outputSummary:
+      "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: take over manually; verify exact head/base, required checks, resolved feedback, current approval, and mergeability, then merge.",
   };
   const legacyManual = snapshot({ metadata: sensitiveMetadata });
   legacyManual.checks.push(legacyManualReceipt);
@@ -11989,7 +11990,7 @@ test("processor checks keep safe non-packet dispositions neutral and fail packet
     },
   ).repairPacket;
   const actionableManualSummary =
-    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: take over manually; verify exact head/base, required checks, resolved feedback, current approval, and mergeability, then merge.";
+    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: have a maintainer agent update the branch, resolve conflicts, fix valid findings, validate, push, reply to every review comment, and resolve eligible threads, then report the exact final head and stop; do not dismiss a review, submit a review approval, create a processor approval, publish or claim Dependabot ALL CLEAR, enable auto-merge, or merge.";
   const cases = [
     {
       disposition: "prepare-candidate",

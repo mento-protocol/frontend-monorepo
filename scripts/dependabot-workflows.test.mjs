@@ -558,6 +558,26 @@ test("canonical instructions keep prepared and manual-review merge paths distinc
     );
     assert.match(
       source,
+      /A maintainer agent may update the branch, resolve conflicts, fix valid findings, validate, push, reply to every review comment, and resolve eligible threads\./u,
+      path,
+    );
+    assert.match(
+      source,
+      /At handoff, the agent must report the exact final head and stop\./u,
+      path,
+    );
+    assert.match(
+      source,
+      /It must not dismiss a review, submit a review approval, create a processor approval, publish or claim `Dependabot ALL CLEAR`, enable auto-merge, or merge\./u,
+      path,
+    );
+    assert.match(
+      source,
+      /a current human approval, the ruleset-required approval after the latest push, and mergeability\./u,
+      path,
+    );
+    assert.match(
+      source,
       /The packetless failed `Dependabot Processor` check is non-required and intentionally waived for this manual path\./u,
       path,
     );
