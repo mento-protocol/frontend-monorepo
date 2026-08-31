@@ -14,6 +14,11 @@ import { useChainId, usePublicClient, useSendTransaction } from "wagmi";
 import { showLiquiditySuccessToast } from "../liquidity-toast";
 import type { PoolDisplay, SlippageOption } from "../types";
 import { getTransactionErrorMessage } from "../types";
+import {
+  assertBindingZapInPlan,
+  bindSelectedTokenMinimum,
+  prepareBindingZapInPlan,
+} from "../zap-in-split";
 
 const FPMM_FACTORY_POOL_ABI = parseAbi([
   "function getPool(address tokenA, address tokenB) view returns (address)",
@@ -191,21 +196,29 @@ export function useZapInTransaction(pool: PoolDisplay, chainId?: ChainId) {
       setIsBuilding(true);
       setBuildError(null);
       try {
-        const sdk = await getMentoSdk(resolvedChainId);
+        const mentoClient = await getMentoSdk(resolvedChainId);
 
         if (!publicClient) throw new Error("Public client not available");
-        const block = await publicClient.getBlock();
-        const deadline = block.timestamp + BigInt(20 * 60);
+        const { deadline, plan } = await prepareBindingZapInPlan({
+          mentoClient,
+          publicClient,
+          poolAddress: pool.poolAddr as Address,
+          tokenIn,
+          amountIn,
+          recipient,
+        });
 
-        const result = await sdk.liquidity.buildZapInTransaction({
+        const rawResult = await mentoClient.liquidity.buildZapInTransaction({
           poolAddress: pool.poolAddr,
           tokenIn,
           amountIn,
-          amountInSplit: 0.5,
+          amountInSplit: plan.projection.sdkSplitRatio,
           recipient,
           owner: recipient,
           options: { slippageTolerance: slippage, deadline },
         });
+        assertBindingZapInPlan(rawResult.zapIn, plan);
+        const result = bindSelectedTokenMinimum(rawResult, recipient);
 
         try {
           await publicClient.estimateGas({

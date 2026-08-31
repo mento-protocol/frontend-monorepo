@@ -429,6 +429,92 @@ describe("AddLiquidityForm canonical transaction flows", () => {
   });
 
   it.each([
+    {
+      symbol: "EURm",
+      selectedToken: EURM,
+      walletBalance: walletEURm,
+      inputAmount: "2199.275594139894034278",
+      summaryAmount: "2,199.275594139894034278",
+    },
+    {
+      symbol: "USDm",
+      selectedToken: USDM,
+      walletBalance: walletUSDm,
+      inputAmount: "2500",
+      summaryAmount: "2,500",
+    },
+  ])(
+    "keeps the exact $symbol MAX amount through preview, click-time, and post-approval builds",
+    async ({
+      symbol,
+      selectedToken,
+      walletBalance,
+      inputAmount,
+      summaryAmount,
+    }) => {
+      const previewBuild = makeZapBuild({
+        token: selectedToken,
+        approvalData: `0xpreview-${symbol.toLowerCase()}`,
+        zapData: "0xpreview-zap",
+      });
+      const clickTimeBuild = makeZapBuild({
+        token: selectedToken,
+        approvalData: `0xclick-${symbol.toLowerCase()}`,
+        zapData: "0xclick-zap",
+      });
+      const postApprovalBuild = makeZapBuild({
+        token: selectedToken,
+        zapData: "0xpost-approval-zap",
+      });
+      currentZapPreviewBuild = previewBuild;
+      mocks.buildZapInTransaction
+        .mockReset()
+        .mockResolvedValueOnce(previewBuild)
+        .mockResolvedValueOnce(clickTimeBuild)
+        .mockResolvedValueOnce(postApprovalBuild);
+
+      render(<AddLiquidityForm pool={pool} />);
+      fireEvent.click(screen.getByRole("button", { name: "Single token" }));
+      if (selectedToken === USDM) {
+        fireEvent.change(screen.getByTestId("token-select"), {
+          target: { value: USDM },
+        });
+      }
+      fireEvent.click(screen.getByRole("button", { name: `MAX ${symbol}` }));
+
+      await waitFor(() =>
+        expect(mocks.buildZapInTransaction).toHaveBeenCalledTimes(1),
+      );
+      expect(
+        (
+          screen.getByLabelText(
+            `Deposit amount in ${symbol}`,
+          ) as HTMLInputElement
+        ).value,
+      ).toBe(inputAmount);
+      expect(screen.getByText(summaryAmount)).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: "Add Liquidity" }));
+
+      await waitFor(() =>
+        expect(mocks.buildZapInTransaction).toHaveBeenCalledTimes(3),
+      );
+      for (const call of mocks.buildZapInTransaction.mock.calls) {
+        expect(call.slice(0, 4)).toEqual([
+          selectedToken,
+          walletBalance,
+          OWNER,
+          0.3,
+        ]);
+      }
+      expect(sentTransactions).toEqual([
+        clickTimeBuild.approval?.params,
+        postApprovalBuild.zapIn.params,
+      ]);
+    },
+  );
+
+  it.each([
     ["EURm", EURM],
     ["USDm", USDM],
   ])(
