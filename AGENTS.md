@@ -66,7 +66,7 @@ A paired `PostToolUse` guard validates the same successful, complete foreground
 diff result, seals its original bytes in a
 `dependabot-claude-review-tool-completed:v2` receipt, and delivers those exact
 bytes as one `text/plain` document tool result. The document bypasses Claude
-Code 2.1.234's 30,000-character Bash text-result persistence. A later no-token
+Code 2.1.243's 30,000-character Bash text-result persistence. A later no-token
 step requires the receipt before the review job can succeed. Missing, failed,
 interrupted, empty, or persisted/truncated diff output is retry-first. The job
 emits bounded canonical JSON and never checks out, caches, downloads, installs,
