@@ -8,7 +8,7 @@ import type { Address } from "viem";
 import type { PoolDisplay, SlippageOption } from "../types";
 
 const mocks = vi.hoisted(() => ({
-  getBlockNumber: vi.fn(),
+  getBlock: vi.fn(),
   getLPTokenBalance: vi.fn(),
   getMentoSdk: vi.fn(),
   getPublicClient: vi.fn(),
@@ -35,6 +35,7 @@ const POOL: Address = "0x0000000000000000000000000000000000000001";
 const TOKEN_0: Address = "0x0000000000000000000000000000000000000002";
 const TOKEN_1: Address = "0x0000000000000000000000000000000000000003";
 const FACTORY: Address = "0x0000000000000000000000000000000000000004";
+const ROUTER: Address = "0x0000000000000000000000000000000000000005";
 
 const pool: PoolDisplay = {
   poolAddr: POOL,
@@ -89,7 +90,7 @@ function makePrepared({
     routesB,
     quote,
     details: {
-      params: { to: POOL, data: "0x", value: "0" },
+      params: { to: ROUTER, data: "0x", value: "0" },
       poolAddress: POOL,
       tokenIn: selectedIsToken0 ? TOKEN_0 : TOKEN_1,
       amountIn: amountInA + amountInB,
@@ -130,20 +131,26 @@ function wrapper({ children }: { children: React.ReactNode }) {
 describe("useZapInQuote", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(Date, "now").mockReturnValue(1_000_000);
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
-    mocks.getBlockNumber.mockResolvedValue(777n);
+    mocks.getBlock.mockResolvedValue({ number: 777n, timestamp: 1_000n });
     mocks.readContract.mockImplementation(
-      async ({ functionName }: { functionName: string }) => {
+      async ({
+        args,
+        functionName,
+      }: {
+        args?: readonly unknown[];
+        functionName: string;
+      }) => {
         if (functionName === "getReserves") return [20_000_000n, 10_000_000n];
         if (functionName === "protocolFee") return 50n;
+        if (functionName === "getAmountsOut") return [args?.[0], 500_000n];
         throw new Error(`Unexpected contract read: ${functionName}`);
       },
     );
     mocks.getPublicClient.mockReturnValue({
-      getBlockNumber: mocks.getBlockNumber,
+      getBlock: mocks.getBlock,
       readContract: mocks.readContract,
     });
     mocks.getLPTokenBalance.mockResolvedValue({ totalSupply: 9_999_999n });
@@ -192,16 +199,24 @@ describe("useZapInQuote", () => {
       slippage,
     }) => {
       mocks.readContract.mockImplementation(
-        async ({ functionName }: { functionName: string }) => {
+        async ({
+          args,
+          functionName,
+        }: {
+          args?: readonly unknown[];
+          functionName: string;
+        }) => {
           if (functionName === "getReserves") return reserves;
           if (functionName === "protocolFee") return 50n;
+          if (functionName === "getAmountsOut") return [args?.[0], 500_000n];
           throw new Error(`Unexpected contract read: ${functionName}`);
         },
       );
       const probeQuote = {
         estimatedMinLiquidity: 1n,
-        amountOutFromA: selectedToken === "token1" ? 500_000n : 0n,
-        amountOutFromB: selectedToken === "token0" ? 500_000n : 0n,
+        // The shared planner must ignore this unpinned SDK output.
+        amountOutFromA: selectedToken === "token1" ? 400_000n : 0n,
+        amountOutFromB: selectedToken === "token0" ? 400_000n : 0n,
         amountAMin: 1n,
         amountBMin: 1n,
       };
@@ -239,12 +254,20 @@ describe("useZapInQuote", () => {
 
       expect(mocks.getMentoSdk).toHaveBeenCalledWith(143);
       expect(mocks.getPublicClient).toHaveBeenCalledWith(143);
-      expect(mocks.getBlockNumber).toHaveBeenCalledTimes(1);
-      expect(mocks.readContract).toHaveBeenCalledTimes(2);
+      expect(mocks.getBlock).toHaveBeenCalledTimes(1);
+      expect(mocks.readContract).toHaveBeenCalledTimes(3);
       expect(mocks.readContract).toHaveBeenCalledWith(
         expect.objectContaining({
           address: POOL,
           functionName: "getReserves",
+          blockNumber: 777n,
+        }),
+      );
+      expect(mocks.readContract).toHaveBeenCalledWith(
+        expect.objectContaining({
+          address: ROUTER,
+          args: [500_000n, expect.any(Array)],
+          functionName: "getAmountsOut",
           blockNumber: 777n,
         }),
       );

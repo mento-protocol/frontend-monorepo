@@ -93,6 +93,9 @@ const pool: PoolDisplay = {
 let liveReserve0 = 10_000_000n;
 let liveReserve1 = 20_000_000n;
 let liveProtocolFee = 0n;
+let pinnedProbeAmountOut = PROBE_AMOUNT;
+let pinnedProbeEchoesInput = true;
+let pinnedProbeHasOutput = true;
 let routeValidationAmountOut = 100n;
 
 function makeDetails({
@@ -210,6 +213,15 @@ function getReadFunctionNames(): string[] {
   );
 }
 
+function getUnpinnedReadFunctionNames(): string[] {
+  return mocks.readContract.mock.calls
+    .map(
+      ([request]) => request as { blockNumber?: bigint; functionName: string },
+    )
+    .filter(({ blockNumber }) => blockNumber == null)
+    .map(({ functionName }) => functionName);
+}
+
 function decodeBoundZapIn(build: ZapInTransaction) {
   const decoded = decodeFunctionData({
     abi: ROUTER_ABI,
@@ -236,9 +248,16 @@ describe("useZapInTransaction binding build", () => {
     liveReserve0 = 10_000_000n;
     liveReserve1 = 20_000_000n;
     liveProtocolFee = 0n;
+    pinnedProbeAmountOut = PROBE_AMOUNT;
+    pinnedProbeEchoesInput = true;
+    pinnedProbeHasOutput = true;
     routeValidationAmountOut = 100n;
     mocks.readContract.mockImplementation(
-      async (request: { args?: readonly unknown[]; functionName: string }) => {
+      async (request: {
+        args?: readonly unknown[];
+        blockNumber?: bigint;
+        functionName: string;
+      }) => {
         switch (request.functionName) {
           case "getReserves":
             return [liveReserve0, liveReserve1, 0n] as const;
@@ -246,7 +265,17 @@ describe("useZapInTransaction binding build", () => {
             return liveProtocolFee;
           case "getAmountsOut": {
             const amountIn = request.args?.[0] as bigint;
-            return [amountIn, routeValidationAmountOut];
+            if (request.blockNumber != null && !pinnedProbeHasOutput) {
+              return [amountIn];
+            }
+            return [
+              request.blockNumber != null && !pinnedProbeEchoesInput
+                ? amountIn + 1n
+                : amountIn,
+              request.blockNumber == null
+                ? routeValidationAmountOut
+                : pinnedProbeAmountOut,
+            ];
           }
           case "getPool":
             return POOL_ADDRESS;
@@ -323,6 +352,14 @@ describe("useZapInTransaction binding build", () => {
           address: POOL_ADDRESS,
           blockNumber: BLOCK_NUMBER,
           functionName: "getReserves",
+        }),
+      );
+      expect(mocks.readContract).toHaveBeenCalledWith(
+        expect.objectContaining({
+          address: ROUTER,
+          args: [PROBE_AMOUNT, expect.any(Array)],
+          blockNumber: BLOCK_NUMBER,
+          functionName: "getAmountsOut",
         }),
       );
       expect(mocks.readContract).toHaveBeenCalledWith(
@@ -438,11 +475,13 @@ describe("useZapInTransaction binding build", () => {
           request as { blockNumber?: bigint; functionName: string },
       )
       .filter(({ functionName }) =>
-        ["getReserves", "protocolFee"].includes(functionName),
+        ["getReserves", "protocolFee", "getAmountsOut"].includes(functionName),
       );
     expect(stateReads.map(({ blockNumber }) => blockNumber)).toEqual([
       777n,
       777n,
+      777n,
+      778n,
       778n,
       778n,
     ]);
@@ -459,7 +498,7 @@ describe("useZapInTransaction binding build", () => {
     const hook = renderHook(() => useZapInTransaction(pool, 143));
 
     expect(await buildTransaction(hook, TOKEN_1 as Address)).toBeNull();
-    expect(getReadFunctionNames()).not.toContain("getAmountsOut");
+    expect(getUnpinnedReadFunctionNames()).not.toContain("getAmountsOut");
     expect(hook.result.current.buildResult).toBeNull();
     expect(hook.result.current.buildError).toBe(
       "This single-token amount cannot be simulated right now. Try a smaller amount, higher slippage, or balanced mode.",
@@ -476,7 +515,7 @@ describe("useZapInTransaction binding build", () => {
     const hook = renderHook(() => useZapInTransaction(pool, 143));
 
     expect(await buildTransaction(hook, TOKEN_1 as Address)).toBeNull();
-    expect(getReadFunctionNames()).not.toContain("getAmountsOut");
+    expect(getUnpinnedReadFunctionNames()).not.toContain("getAmountsOut");
     expect(hook.result.current.buildError).toBe(
       "Pool liquidity is insufficient for this single-token amount.",
     );
@@ -493,7 +532,7 @@ describe("useZapInTransaction binding build", () => {
     const hook = renderHook(() => useZapInTransaction(pool, 143));
 
     expect(await buildTransaction(hook, TOKEN_1 as Address)).toBeNull();
-    expect(getReadFunctionNames()).toContain("getAmountsOut");
+    expect(getUnpinnedReadFunctionNames()).toContain("getAmountsOut");
     expect(hook.result.current.buildError).toBe(
       "Pool liquidity is insufficient for this single-token amount.",
     );
@@ -514,6 +553,30 @@ describe("useZapInTransaction binding build", () => {
 
     expect(await buildTransaction(hook, TOKEN_1 as Address)).toBeNull();
     expect(mocks.estimateGas).not.toHaveBeenCalled();
+    expect(hook.result.current.buildError).toBe(
+      "Unable to prepare single-token liquidity right now.",
+    );
+  });
+
+  it("fails closed when the pinned Router probe omits its output", async () => {
+    configureBindingBuild("token1", false);
+    pinnedProbeHasOutput = false;
+    const hook = renderHook(() => useZapInTransaction(pool, 143));
+
+    expect(await buildTransaction(hook, TOKEN_1 as Address)).toBeNull();
+    expect(mocks.buildZapInTransaction).not.toHaveBeenCalled();
+    expect(hook.result.current.buildError).toBe(
+      "Unable to prepare single-token liquidity right now.",
+    );
+  });
+
+  it("fails closed when the pinned Router probe changes its input", async () => {
+    configureBindingBuild("token1", false);
+    pinnedProbeEchoesInput = false;
+    const hook = renderHook(() => useZapInTransaction(pool, 143));
+
+    expect(await buildTransaction(hook, TOKEN_1 as Address)).toBeNull();
+    expect(mocks.buildZapInTransaction).not.toHaveBeenCalled();
     expect(hook.result.current.buildError).toBe(
       "Unable to prepare single-token liquidity right now.",
     );

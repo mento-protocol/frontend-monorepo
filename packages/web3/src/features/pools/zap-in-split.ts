@@ -1,12 +1,22 @@
 import {
+  FPMM_ABI,
   ROUTER_ABI,
+  type Mento,
   type PreparedZapIn,
   type ZapInDetails,
   type ZapInTransaction,
 } from "@mento-protocol/mento-sdk";
-import { encodeFunctionData, type Address } from "viem";
+import {
+  encodeFunctionData,
+  type Account,
+  type Address,
+  type Chain,
+  type PublicClient,
+  type Transport,
+} from "viem";
 
 const ZAP_IN_SPLIT_BPS_DENOMINATOR = 10_000;
+const ZAP_IN_DEADLINE_SECONDS = 20n * 60n;
 
 export type ZapInSelectedToken = "token0" | "token1";
 
@@ -61,6 +71,11 @@ export interface BindingZapInPlan {
   tokenB: string;
   targetFactory: string;
   swapFactory: string;
+}
+
+interface PreparedBindingZapInPlan {
+  deadline: bigint;
+  plan: BindingZapInPlan;
 }
 
 function validateBasisPoints(value: number, label: string): void {
@@ -232,6 +247,13 @@ export function projectZapInSplit({
 export function findBindingZapInSplit(
   input: FindBindingZapInSplitInput,
 ): ZapInSplitProjection {
+  // These values do not change during the scan. Validate them before the
+  // loop so an invalid pool snapshot fails with its specific error.
+  assertPositive(input.amountIn, "amountIn");
+  assertPositive(input.reserve0, "reserve0");
+  assertPositive(input.reserve1, "reserve1");
+  validateBasisPoints(input.protocolFeeBps, "protocolFeeBps");
+
   const start = input.selectedToken === "token0" ? 9_999 : 1;
   const end = input.selectedToken === "token0" ? 0 : 10_000;
   const step = input.selectedToken === "token0" ? -1 : 1;
@@ -268,6 +290,7 @@ function getZapInRouteShape(details: ZapInDetails): {
   swapMovesTargetReserves: boolean;
   swapAmount: bigint;
   swapFactory: string;
+  swapRoutes: ZapInDetails["routesA"];
 } {
   if (details.amountInA + details.amountInB !== details.amountIn) {
     throw new Error("Zap-in split amounts do not sum to the input amount");
@@ -309,6 +332,7 @@ function getZapInRouteShape(details: ZapInDetails): {
     swapMovesTargetReserves: true,
     swapAmount: selectedIsTokenA ? details.amountInB : details.amountInA,
     swapFactory: swapRoute.factory,
+    swapRoutes,
   };
 }
 
@@ -319,20 +343,18 @@ function getZapInRouteShape(details: ZapInDetails): {
  */
 export function deriveBindingZapInPlan({
   prepared,
+  probeAmountOut,
   reserve0,
   reserve1,
   protocolFeeBps,
 }: {
   prepared: PreparedZapIn;
+  probeAmountOut: bigint;
   reserve0: bigint;
   reserve1: bigint;
   protocolFeeBps: number;
 }): BindingZapInPlan {
   const route = getZapInRouteShape(prepared.details);
-  const probeAmountOut =
-    route.selectedToken === "token0"
-      ? prepared.quote.amountOutFromB
-      : prepared.quote.amountOutFromA;
   assertPositive(route.swapAmount, "probeSwapAmount");
   assertPositive(probeAmountOut, "probeAmountOut");
 
@@ -355,6 +377,91 @@ export function deriveBindingZapInPlan({
     tokenB: prepared.details.zapParams.tokenB,
     targetFactory: prepared.details.zapParams.factory,
     swapFactory: route.swapFactory,
+  };
+}
+
+/**
+ * Reads every split-calculation value from one block. The SDK probe supplies
+ * the supported direct route. Its unpinned quote output is not used.
+ */
+export async function prepareBindingZapInPlan<
+  TTransport extends Transport,
+  TChain extends Chain | undefined,
+  TAccount extends Account | undefined,
+>({
+  sdk,
+  publicClient,
+  poolAddress,
+  tokenIn,
+  amountIn,
+  recipient,
+}: {
+  sdk: Pick<Mento, "liquidity">;
+  publicClient: PublicClient<TTransport, TChain, TAccount>;
+  poolAddress: Address;
+  tokenIn: Address;
+  amountIn: bigint;
+  recipient: Address;
+}): Promise<PreparedBindingZapInPlan> {
+  const block = await publicClient.getBlock();
+  if (block.number == null) throw new Error("Latest block not available");
+
+  const blockNumber = block.number;
+  const deadline = block.timestamp + ZAP_IN_DEADLINE_SECONDS;
+  const [prepared, reserves, protocolFee] = await Promise.all([
+    sdk.liquidity.prepareZapIn({
+      poolAddress,
+      tokenIn,
+      amountIn,
+      amountInSplit: toSdkZapInSplitRatio(5_000),
+      recipient,
+      options: { slippageTolerance: 0, deadline },
+    }),
+    publicClient.readContract({
+      address: poolAddress,
+      abi: FPMM_ABI,
+      functionName: "getReserves",
+      blockNumber,
+    }),
+    publicClient.readContract({
+      address: poolAddress,
+      abi: FPMM_ABI,
+      functionName: "protocolFee",
+      blockNumber,
+    }),
+  ]);
+
+  const route = getZapInRouteShape(prepared.details);
+  const amounts = await publicClient.readContract({
+    address: prepared.details.params.to as Address,
+    abi: ROUTER_ABI,
+    functionName: "getAmountsOut",
+    args: [route.swapAmount, route.swapRoutes],
+    blockNumber,
+  });
+  if (amounts.length !== route.swapRoutes.length + 1) {
+    throw new Error("The pinned zap-in probe returned an invalid route quote");
+  }
+  if (amounts[0] !== route.swapAmount) {
+    throw new Error(
+      "The pinned zap-in probe returned a different input amount",
+    );
+  }
+  const probeAmountOut = amounts.at(-1);
+  if (probeAmountOut == null) {
+    throw new Error("The pinned zap-in probe returned no output amount");
+  }
+
+  const [reserve0, reserve1] = reserves;
+  return {
+    deadline,
+    plan: deriveBindingZapInPlan({
+      prepared,
+      probeAmountOut,
+      reserve0,
+      reserve1,
+      protocolFeeBps: toZapInProtocolFeeBps(protocolFee),
+    }),
   };
 }
 

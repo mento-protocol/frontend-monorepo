@@ -191,6 +191,14 @@ for (const { symbol, token } of [
     const tokenSelect = page.getByRole("combobox", { name: /deposit token/i });
     await tokenSelect.click();
     await page.getByRole("option", { name: symbol, exact: true }).click();
+
+    // The token balance query can finish after the form becomes interactive.
+    // Wait for the selected balance before exercising MAX, or an early click
+    // correctly copies the still-loading zero value into the input.
+    await expect(
+      page.getByText(/^Balance:/).filter({ visible: true }),
+    ).toHaveText(/^Balance:\s*(?!0(?:\.0+)?$)\S+/, { timeout: 20_000 });
+
     await page
       .getByRole("button", { name: `MAX ${symbol}`, exact: true })
       .click();

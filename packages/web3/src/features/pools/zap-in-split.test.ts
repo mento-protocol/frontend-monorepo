@@ -200,6 +200,26 @@ describe("findBindingZapInSplit", () => {
     expect(projection.selectedTokenRefund).toBe(0n);
     expect(projection.generatedTokenRefund).toBe(13_620_487_490_367_056n);
   });
+
+  it("rejects an invalid snapshot before it requests a route quote", () => {
+    let quoteCalls = 0;
+
+    expect(() =>
+      findBindingZapInSplit({
+        amountIn: 1_000_000n,
+        selectedToken: "token0",
+        reserve0: 0n,
+        reserve1: 20_000_000n,
+        swapMovesTargetReserves: true,
+        protocolFeeBps: 50,
+        getAmountOut: () => {
+          quoteCalls += 1;
+          return 1n;
+        },
+      }),
+    ).toThrow("reserve0 must be greater than zero");
+    expect(quoteCalls).toBe(0);
+  });
 });
 
 describe("split precision and reserve projection", () => {
@@ -259,6 +279,8 @@ describe("split precision and reserve projection", () => {
 });
 
 describe("deriveBindingZapInPlan", () => {
+  // These pure split cases use no protocol fee. The hook cases use the live
+  // 50-basis-point fee and therefore select the adjacent basis-point splits.
   it.each([
     {
       selectedToken: "token0" as const,
@@ -277,6 +299,7 @@ describe("deriveBindingZapInPlan", () => {
     ({ selectedToken, reserve0, reserve1, expectedSplitBps }) => {
       const plan = deriveBindingZapInPlan({
         prepared: makePreparedProbe(selectedToken),
+        probeAmountOut: 500_000n,
         reserve0,
         reserve1,
         protocolFeeBps: 0,
@@ -306,6 +329,7 @@ describe("deriveBindingZapInPlan", () => {
     expect(() =>
       deriveBindingZapInPlan({
         prepared,
+        probeAmountOut: 500_000n,
         reserve0: 10_000_000n,
         reserve1: 20_000_000n,
         protocolFeeBps: 0,
@@ -322,6 +346,7 @@ describe("deriveBindingZapInPlan", () => {
     expect(() =>
       deriveBindingZapInPlan({
         prepared,
+        probeAmountOut: 500_000n,
         reserve0: 20_000_000n,
         reserve1: 10_000_000n,
         protocolFeeBps: 0,
