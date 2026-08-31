@@ -32,7 +32,8 @@ jobs:
           persist-credentials: false
 
       - name: Scan the selected lockfile
-        uses: google/osv-scanner-action/osv-scanner-action@ffa0a5f39214d80778c9b494822d94d0d9668458 # v2.5.1
+        id: scan
+        uses: google/osv-scanner-action/osv-scanner-action@8e5cf47b818121e8b405931c82126c2630b0b20d # v2.5.1
         with:
           scan-args: |-
             --output=results.json
@@ -40,8 +41,21 @@ jobs:
             ${{ inputs.scan-args }}
         continue-on-error: true
 
+      # The scanner also exits non-zero when it finds vulnerabilities. Let the
+      # reporter handle that case, but fail if the scanner wrote no results.
+      - name: Check that the scan completed
+        if: ${{ steps.scan.outcome == 'failure' }}
+        shell: bash
+        env:
+          RESULTS: results.json
+        run: |
+          if [ ! -s "${RESULTS}" ]; then
+            echo '::error::OSV-Scanner failed without writing results.json. Failing instead of reporting a clean scan.'
+            exit 1
+          fi
+
       - name: Fail on detected vulnerabilities
-        uses: google/osv-scanner-action/osv-reporter-action@ffa0a5f39214d80778c9b494822d94d0d9668458 # v2.5.1
+        uses: google/osv-scanner-action/osv-reporter-action@8e5cf47b818121e8b405931c82126c2630b0b20d # v2.5.1
         with:
           scan-args: |-
             --output=results.sarif
