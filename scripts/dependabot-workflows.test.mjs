@@ -575,7 +575,7 @@ test("canonical instructions keep prepared and manual-review merge paths distinc
     );
     assert.match(
       source,
-      /A maintainer agent may update the branch, resolve conflicts, fix valid findings, validate, push, reply to every review comment, and resolve eligible threads\./u,
+      /A maintainer agent may merge the current base into the branch without rebasing or force-pushing, resolve conflicts, fix valid findings, validate, push, reply to every review comment, and resolve eligible threads\./u,
       path,
     );
     assert.match(
@@ -590,7 +590,7 @@ test("canonical instructions keep prepared and manual-review merge paths distinc
     );
     assert.match(
       source,
-      /a current human approval, the ruleset-required approval after the latest push, and mergeability\./u,
+      /a current human approval, the ruleset-required approval after the latest push, mergeability, and absence of auto-merge\./u,
       path,
     );
     assert.match(
