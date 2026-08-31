@@ -3522,9 +3522,9 @@ test("manual-review processor checks explain the deterministic next action witho
   assert.equal(published[0].repairPacket, null);
   assert.equal(
     published[0].summary,
-    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: after explicit maintainer takeover, require no auto-merge before work/push; agent may merge current base without rebasing or force-pushing, fix findings, validate, push, get exact-head CodeRabbit review, reply to comments, resolve threads, and recheck head/base; report final head and stop; never dismiss or approve reviews, create processor approval, claim Dependabot ALL CLEAR, enable auto-merge, or merge.",
+    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: after explicit maintainer takeover, ensure no auto-merge before work/push; merge current base, never rebase/force-push; fix, validate, push; require existing CodeRabbit App review by exact coderabbitai[bot], immutable commit_id=head, and resolved feedback; recheck/report final head/base; stop; never dismiss/approve reviews, create processor approval, claim Dependabot ALL CLEAR, enable auto-merge, or merge.",
   );
-  assert.equal(published[0].summary.length, 510);
+  assert.equal(published[0].summary.length, 511);
 
   const receipt = processorRepairReceipt(1, {
     mode: "prepare",
@@ -3599,7 +3599,7 @@ test("unchanged trusted Processor receipts suppress check churn without hiding d
     updateType: "minor",
   };
   const actionableSummary =
-    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: after explicit maintainer takeover, require no auto-merge before work/push; agent may merge current base without rebasing or force-pushing, fix findings, validate, push, get exact-head CodeRabbit review, reply to comments, resolve threads, and recheck head/base; report final head and stop; never dismiss or approve reviews, create processor approval, claim Dependabot ALL CLEAR, enable auto-merge, or merge.";
+    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: after explicit maintainer takeover, ensure no auto-merge before work/push; merge current base, never rebase/force-push; fix, validate, push; require existing CodeRabbit App review by exact coderabbitai[bot], immutable commit_id=head, and resolved feedback; recheck/report final head/base; stop; never dismiss/approve reviews, create processor approval, claim Dependabot ALL CLEAR, enable auto-merge, or merge.";
   const actionableReceipt = processorRepairReceipt(1, {
     id: 62_003,
     mode: "prepare",
@@ -11991,7 +11991,7 @@ test("processor checks keep safe non-packet dispositions neutral and fail packet
     },
   ).repairPacket;
   const actionableManualSummary =
-    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: after explicit maintainer takeover, require no auto-merge before work/push; agent may merge current base without rebasing or force-pushing, fix findings, validate, push, get exact-head CodeRabbit review, reply to comments, resolve threads, and recheck head/base; report final head and stop; never dismiss or approve reviews, create processor approval, claim Dependabot ALL CLEAR, enable auto-merge, or merge.";
+    "Disposition: manual-review. Reason: sensitive-auth-deployment-or-workflow-policy-action. Next action: after explicit maintainer takeover, ensure no auto-merge before work/push; merge current base, never rebase/force-push; fix, validate, push; require existing CodeRabbit App review by exact coderabbitai[bot], immutable commit_id=head, and resolved feedback; recheck/report final head/base; stop; never dismiss/approve reviews, create processor approval, claim Dependabot ALL CLEAR, enable auto-merge, or merge.";
   const cases = [
     {
       disposition: "prepare-candidate",

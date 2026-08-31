@@ -92,7 +92,7 @@ const PULL_REQUEST_REVIEW_STATES = new Set([
 ]);
 const PROCESSOR_CHECK_NAME = "Dependabot Processor";
 const MANUAL_REVIEW_ACTION =
-  "after explicit maintainer takeover, require no auto-merge before work/push; agent may merge current base without rebasing or force-pushing, fix findings, validate, push, get exact-head CodeRabbit review, reply to comments, resolve threads, and recheck head/base; report final head and stop; never dismiss or approve reviews, create processor approval, claim Dependabot ALL CLEAR, enable auto-merge, or merge";
+  "after explicit maintainer takeover, ensure no auto-merge before work/push; merge current base, never rebase/force-push; fix, validate, push; require existing CodeRabbit App review by exact coderabbitai[bot], immutable commit_id=head, and resolved feedback; recheck/report final head/base; stop; never dismiss/approve reviews, create processor approval, claim Dependabot ALL CLEAR, enable auto-merge, or merge";
 const MANUAL_REVIEW_SUMMARY_PATTERN = new RegExp(
   `^Disposition: manual-review\\. Reason: [a-z0-9]+(?:-[a-z0-9]+)*\\. Next action: ${MANUAL_REVIEW_ACTION.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}\\.$`,
   "u",
