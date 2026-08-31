@@ -196,11 +196,11 @@ export function useZapInTransaction(pool: PoolDisplay, chainId?: ChainId) {
       setIsBuilding(true);
       setBuildError(null);
       try {
-        const sdk = await getMentoSdk(resolvedChainId);
+        const mentoClient = await getMentoSdk(resolvedChainId);
 
         if (!publicClient) throw new Error("Public client not available");
         const { deadline, plan } = await prepareBindingZapInPlan({
-          sdk,
+          mentoClient,
           publicClient,
           poolAddress: pool.poolAddr as Address,
           tokenIn,
@@ -208,7 +208,7 @@ export function useZapInTransaction(pool: PoolDisplay, chainId?: ChainId) {
           recipient,
         });
 
-        const rawResult = await sdk.liquidity.buildZapInTransaction({
+        const rawResult = await mentoClient.liquidity.buildZapInTransaction({
           poolAddress: pool.poolAddr,
           tokenIn,
           amountIn,

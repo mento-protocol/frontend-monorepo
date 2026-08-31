@@ -35,7 +35,7 @@ const POOL: Address = "0x0000000000000000000000000000000000000001";
 const TOKEN_0: Address = "0x0000000000000000000000000000000000000002";
 const TOKEN_1: Address = "0x0000000000000000000000000000000000000003";
 const FACTORY: Address = "0x0000000000000000000000000000000000000004";
-const ROUTER: Address = "0x0000000000000000000000000000000000000005";
+const routerAddress: Address = "0x0000000000000000000000000000000000000005";
 
 const pool: PoolDisplay = {
   poolAddr: POOL,
@@ -90,7 +90,7 @@ function makePrepared({
     routesB,
     quote,
     details: {
-      params: { to: ROUTER, data: "0x", value: "0" },
+      params: { to: routerAddress, data: "0x", value: "0" },
       poolAddress: POOL,
       tokenIn: selectedIsToken0 ? TOKEN_0 : TOKEN_1,
       amountIn: amountInA + amountInB,
@@ -265,7 +265,7 @@ describe("useZapInQuote", () => {
       );
       expect(mocks.readContract).toHaveBeenCalledWith(
         expect.objectContaining({
-          address: ROUTER,
+          address: routerAddress,
           args: [500_000n, expect.any(Array)],
           functionName: "getAmountsOut",
           blockNumber: 777n,

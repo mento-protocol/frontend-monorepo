@@ -53,7 +53,7 @@ export function useZapInQuote({
     queryFn: async () => {
       if (!isValidAmount) return null;
 
-      const [sdk, publicClient] = await Promise.all([
+      const [mentoClient, publicClient] = await Promise.all([
         getMentoSdk(resolvedChainId),
         Promise.resolve(getPublicClient(resolvedChainId)),
       ]);
@@ -66,7 +66,7 @@ export function useZapInQuote({
       const amountInWei = parseUnits(debouncedAmount, tokenDecimals);
 
       const { deadline, plan } = await prepareBindingZapInPlan({
-        sdk,
+        mentoClient,
         publicClient,
         poolAddress: pool.poolAddr as Address,
         tokenIn: tokenIn as Address,
@@ -74,7 +74,7 @@ export function useZapInQuote({
         recipient: tokenIn as Address,
       });
 
-      const prepared = await sdk.liquidity.prepareZapIn({
+      const prepared = await mentoClient.liquidity.prepareZapIn({
         poolAddress: pool.poolAddr,
         tokenIn,
         amountIn: amountInWei,
@@ -85,7 +85,7 @@ export function useZapInQuote({
       assertBindingZapInPlan(prepared.details, plan);
 
       // Get LP token total supply for share calculation
-      const lpBalance = await sdk.liquidity.getLPTokenBalance(
+      const lpBalance = await mentoClient.liquidity.getLPTokenBalance(
         pool.poolAddr,
         LP_TOTAL_SUPPLY_HOLDER,
       );

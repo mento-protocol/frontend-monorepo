@@ -389,14 +389,14 @@ export async function prepareBindingZapInPlan<
   TChain extends Chain | undefined,
   TAccount extends Account | undefined,
 >({
-  sdk,
+  mentoClient,
   publicClient,
   poolAddress,
   tokenIn,
   amountIn,
   recipient,
 }: {
-  sdk: Pick<Mento, "liquidity">;
+  mentoClient: Pick<Mento, "liquidity">;
   publicClient: PublicClient<TTransport, TChain, TAccount>;
   poolAddress: Address;
   tokenIn: Address;
@@ -409,7 +409,7 @@ export async function prepareBindingZapInPlan<
   const blockNumber = block.number;
   const deadline = block.timestamp + ZAP_IN_DEADLINE_SECONDS;
   const [prepared, reserves, protocolFee] = await Promise.all([
-    sdk.liquidity.prepareZapIn({
+    mentoClient.liquidity.prepareZapIn({
       poolAddress,
       tokenIn,
       amountIn,
