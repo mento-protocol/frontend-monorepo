@@ -18,15 +18,24 @@ auto-merge.
 A maintainer performs the final squash merge through one of two explicit
 paths. A prepared change requires a successful exact-head `Dependabot ALL
 CLEAR` check and its exact processor approval. A `manual-review` change
-requires an explicit maintainer takeover. A maintainer agent may merge the
-current base into the branch without rebasing or force-pushing, resolve
-conflicts, fix valid findings, validate, push, reply to every review comment,
-and resolve eligible threads. At handoff, the agent must report the exact final
-head and stop. It must not dismiss a review, submit a review approval, create a
-processor approval, publish or claim `Dependabot ALL CLEAR`, enable auto-merge,
-or merge. Before merging the change,
-verify the exact current head and base, all
-repository-required checks, resolved feedback, a current human approval, the
+requires an explicit maintainer takeover. A maintainer agent must confirm that
+`autoMergeRequest` is `null` before any branch mutation and immediately before
+each push. It may then merge the current base into the branch without rebasing
+or force-pushing, resolve conflicts, fix valid findings, validate, and push.
+After each push, it must request a new review from the existing CodeRabbit
+GitHub App. It must require the exact `coderabbitai[bot]` Bot identity and a
+review record whose immutable `commit_id` equals the pushed head. It must reply
+to every review comment and resolve eligible threads. At handoff, the agent
+must re-read the live head and base SHAs. If the head differs from local `HEAD`
+or the base differs from the merged base, it must repeat the loop. It must
+report the exact final head and stop. It must not dismiss a review, submit a
+review approval,
+create a processor approval, publish or claim `Dependabot ALL CLEAR`, enable
+auto-merge, or merge. Human approval is not required for this preparation
+handoff. All other required checks must pass, and all feedback must be resolved,
+on the exact final head and base. Before merging the change, verify the exact
+current head and base, all repository-required checks, resolved feedback, a
+current human approval, the
 ruleset-required approval after the latest push, mergeability, and absence of
 auto-merge. The packetless failed `Dependabot Processor` check is non-required
 and intentionally waived for this manual path.
@@ -42,23 +51,46 @@ Use this procedure only after a maintainer explicitly takes over a
 `manual-review` pull request. It prepares the branch for human review. It does
 not grant processor authority.
 
-1. Record the pull request number, head ref and SHA, and base ref and SHA. Use a
-   clean checkout whose `HEAD` equals the pull request head.
+1. Record the pull request number, head ref and SHA, base ref and SHA, and live
+   `autoMergeRequest`. Require `autoMergeRequest` to be `null` before any branch
+   mutation. Stop and report the blocker if it is present. Use a clean checkout
+   whose `HEAD` equals the pull request head.
 2. Inspect the complete dependency and workflow diff. For workflow changes,
    verify events, permissions, credentials, gates, and commands.
-3. Merge the current base into the pull request branch. Do not rebase or force
-   push. Resolve each conflict against the reviewed dependency change.
+3. Re-read the live base SHA, then merge that base into the pull request branch.
+   Do not rebase or force-push. Resolve each conflict against the reviewed
+   dependency change.
 4. Fix valid findings and synchronize coupled policy tests and documentation.
    Run the affected repository gates before each push.
-5. Push to the explicit pull request head ref. Re-read the pull request and
-   require its head SHA to equal the local `HEAD`.
-6. Reinspect the complete pull request diff. Reply to every review comment.
-   Resolve a thread only after a fix or a technical `Won't fix:` reply. Never
-   dismiss a review. Repeat the fix, push, feedback, and check loop until the
-   reported head is stable.
-7. Report the exact final head SHA and stop. Do not submit a review approval,
-   create a processor approval, publish or claim `Dependabot ALL CLEAR`, enable
-   auto-merge, or merge.
+5. Immediately before each push, re-read `autoMergeRequest` and the live base
+   SHA. Require `autoMergeRequest` to be `null`. If the base moved, return to
+   step 3. Push to the explicit pull request head ref only after both checks
+   pass. Re-read the pull request and require its head SHA to equal local
+   `HEAD`.
+6. Post the exact `@coderabbitai review` command to request a new review from
+   the existing CodeRabbit GitHub App. Accept only a new review from the exact
+   `coderabbitai[bot]` Bot identity whose review record has an immutable
+   `commit_id` equal to the current head. Do not use an inline comment's mutable
+   `commit_id` as this proof. If no exact-head CodeRabbit review completes, stop
+   and report the blocker. Do not add a review workflow or credential path
+   during takeover. Reinspect the complete pull request diff. Reply to every
+   review comment. Resolve a thread only after a fix or a technical
+   `Won't fix:` reply. Never dismiss a review.
+7. Immediately before handoff, re-read the live head SHA, base SHA, and
+   `autoMergeRequest`. Require `autoMergeRequest` to be `null`, the head to
+   equal local `HEAD`, and the base to equal the base merged in step 3. If the
+   head or base changed, repeat steps 1 through 7 from a clean checkout at the
+   live head. Repeat the fix, push, CodeRabbit review, feedback, and check loop
+   until all three values are stable. Require all repository-required exact-head
+   checks to pass, all feedback to be resolved, and live `mergeable` to be
+   `MERGEABLE` before handoff.
+8. Report the exact final head and base SHAs, then stop. Do not submit a review
+   approval, create a processor approval, publish or claim
+   `Dependabot ALL CLEAR`, enable auto-merge, or merge.
+
+Human approval is not required for the preparation handoff. Report its absence
+as the expected remaining merge boundary. The exact-head CodeRabbit review is
+evidence for preparation. It does not replace the required human approval.
 
 Require a current human approval and the ruleset-required approval after the
 latest push. One eligible human approval can satisfy both requirements.
