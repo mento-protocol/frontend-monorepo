@@ -575,6 +575,46 @@ test("canonical instructions keep prepared and manual-review merge paths distinc
     );
     assert.match(
       source,
+      /A maintainer agent must confirm that `autoMergeRequest` is `null` before any branch mutation and immediately before each push\./u,
+      path,
+    );
+    assert.match(
+      source,
+      /It may then merge the current base into the branch without rebasing or force-pushing, resolve conflicts, fix valid findings, validate, and push\./u,
+      path,
+    );
+    assert.match(
+      source,
+      /After each push, it must request a new review from the existing CodeRabbit GitHub App\. It must require the exact `coderabbitai\[bot\]` Bot identity and a review record whose immutable `commit_id` equals the pushed head\. It must reply to every review comment and resolve eligible threads\./u,
+      path,
+    );
+    assert.match(
+      source,
+      /At handoff, the agent must re-read the live head and base SHAs\. If the head differs from local `HEAD` or the base differs from the merged base, it must repeat the loop\. It must report the exact final head and stop\./u,
+      path,
+    );
+    assert.match(
+      source,
+      /It must not dismiss a review, submit a review approval, create a processor approval, publish or claim `Dependabot ALL CLEAR`, enable auto-merge, or merge\./u,
+      path,
+    );
+    assert.match(
+      source,
+      /Human approval is not required for this preparation handoff\./u,
+      path,
+    );
+    assert.match(
+      source,
+      /All other required checks must pass, and all feedback must be resolved, on the exact final head and base\./u,
+      path,
+    );
+    assert.match(
+      source,
+      /a current human approval, the ruleset-required approval after the latest push, mergeability, and absence of auto-merge\./u,
+      path,
+    );
+    assert.match(
+      source,
       /The packetless failed `Dependabot Processor` check is non-required and intentionally waived for this manual path\./u,
       path,
     );
@@ -584,6 +624,54 @@ test("canonical instructions keep prepared and manual-review merge paths distinc
       path,
     );
   }
+
+  const runbook = read("docs/dependabot-automation.md").replace(/\s+/gu, " ");
+  const takeover = runbook.slice(
+    runbook.indexOf("## Maintainer-agent takeover"),
+    runbook.indexOf("## Invariants"),
+  );
+  const beforeMutationGuard = takeover.indexOf(
+    "Require `autoMergeRequest` to be `null` before any branch mutation.",
+  );
+  const branchMutation = takeover.indexOf(
+    "merge that base into the pull request branch.",
+  );
+  const beforePushGuard = takeover.indexOf(
+    "Immediately before each push, re-read `autoMergeRequest` and the live base SHA.",
+  );
+  const push = takeover.indexOf(
+    "Push to the explicit pull request head ref only after both checks pass.",
+  );
+  const reviewRequest = takeover.indexOf(
+    "Post the exact `@coderabbitai review` command",
+  );
+  const handoffRecheck = takeover.indexOf(
+    "Immediately before handoff, re-read the live head SHA, base SHA, and `autoMergeRequest`.",
+  );
+  assert.ok(beforeMutationGuard >= 0 && beforeMutationGuard < branchMutation);
+  assert.ok(beforePushGuard >= 0 && beforePushGuard < push);
+  assert.ok(push >= 0 && push < reviewRequest);
+  assert.ok(reviewRequest < handoffRecheck);
+  assert.match(
+    takeover,
+    /Post the exact `@coderabbitai review` command to request a new review from the existing CodeRabbit GitHub App\./u,
+  );
+  assert.match(
+    takeover,
+    /Accept only a new review from the exact `coderabbitai\[bot\]` Bot identity whose review record has an immutable `commit_id` equal to the current head\./u,
+  );
+  assert.match(
+    takeover,
+    /Do not use an inline comment's mutable `commit_id` as this proof\./u,
+  );
+  assert.match(
+    takeover,
+    /Immediately before handoff, re-read the live head SHA, base SHA, and `autoMergeRequest`\./u,
+  );
+  assert.match(
+    takeover,
+    /Require all repository-required exact-head checks to pass, all feedback to be resolved, and live `mergeable` to be `MERGEABLE` before handoff\./u,
+  );
 });
 
 test("npm group routing isolates sensitive dependencies and covers the workspace", () => {

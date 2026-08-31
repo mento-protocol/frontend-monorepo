@@ -3,14 +3,14 @@ title: A trusted controller prepares exact-head Dependabot pull requests for hum
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-08-24
+last_verified: 2026-08-31
 scope: ci/dependabot-processing
 date: 2026-08-10
 ---
 
 # ADR 0006 — A trusted controller prepares exact-head Dependabot pull requests for human merge
 
-**Status:** Accepted, amended Aug 14, Aug 22, and Aug 24 2026
+**Status:** Accepted, amended Aug 14, Aug 22, Aug 24, and Aug 31 2026
 **Scope:** ci/dependabot-processing
 
 ## Context
@@ -63,10 +63,27 @@ merge-token minting, and merge App configuration.
 A maintainer performs the final squash merge through one of two explicit
 paths. A prepared change requires a successful exact-head `Dependabot ALL
 CLEAR` check and its exact processor approval. A `manual-review` change
-requires an explicit maintainer takeover. Before merging it, verify the exact
+requires an explicit maintainer takeover. A maintainer agent must confirm that
+`autoMergeRequest` is `null` before any branch mutation and immediately before
+each push. It may then merge the current base into the branch without rebasing
+or force-pushing, resolve conflicts, fix valid findings, validate, and push.
+After each push, it must request a new review from the existing CodeRabbit
+GitHub App. It must require the exact `coderabbitai[bot]` Bot identity and a
+review record whose immutable `commit_id` equals the pushed head. It must reply
+to every review comment and resolve eligible threads. At handoff, the agent
+must re-read the live head and base SHAs. If the head differs from local `HEAD`
+or the base differs from the merged base, it must repeat the loop. It must
+report the exact final head and stop. It must not dismiss a review, submit a
+review approval,
+create a processor approval, publish or claim `Dependabot ALL CLEAR`, enable
+auto-merge, or merge. Human approval is not required for this preparation
+handoff. All other required checks must pass, and all feedback must be resolved,
+on the exact final head and base. Before merging the change, verify the exact
 current head and base, all repository-required checks, resolved feedback, a
-current human approval, and mergeability. The packetless failed `Dependabot
-Processor` check is non-required and intentionally waived for this manual path.
+current human approval, the
+ruleset-required approval after the latest push, mergeability, and absence of
+auto-merge. The packetless failed `Dependabot Processor` check is non-required
+and intentionally waived for this manual path.
 The manual path does not produce or claim ALL CLEAR.
 
 ### Native and prepared intake remain distinct
