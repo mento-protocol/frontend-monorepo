@@ -303,6 +303,10 @@ function canonicalizeOptionalDeploymentAliases(
   creatorUsername,
   environment,
 ) {
+  // An absent alias list is the sealed-manifest recompute form: capture-time
+  // snapshot states always carry aliases (the protected-snapshot validation
+  // dereferences state.aliases), and manifest planning leaves proved their
+  // topology when the manifest was sealed.
   if (value === undefined) return null;
   if (!Array.isArray(value)) {
     activationError(target, "alias-set-ambiguous");
@@ -336,11 +340,14 @@ function canonicalizeOptionalDeploymentAliases(
   // set and never the retired alias. Any mixture of the two is an inconsistent
   // transition state and fails closed.
   if (isTransitionalAppPriorEnvironment(target, environment)) {
-    if (
-      JSON.stringify(generatedAliases) !==
-      JSON.stringify([TRANSITIONAL_APP_PRIOR_GENERATED_ALIAS])
-    ) {
-      activationError(target, "alias-set-ambiguous");
+    // Manifest planning leaves strip generated aliases by contract, so a
+    // v3-shaped prior carries either no generated alias (leaf form) or
+    // exactly the retiring environment's generated alias (snapshot form) —
+    // never anything else.
+    for (const alias of generatedAliases) {
+      if (alias !== TRANSITIONAL_APP_PRIOR_GENERATED_ALIAS) {
+        activationError(target, "alias-set-ambiguous");
+      }
     }
     return sorted;
   }

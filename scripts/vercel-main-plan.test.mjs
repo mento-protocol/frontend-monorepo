@@ -709,6 +709,18 @@ test("App couples its transitional alias topology to the v3 environment", () => 
     "app",
     "alias-set-ambiguous",
   );
+
+  // The sealed-manifest recompute form omits the alias list for every
+  // target; a v3-shaped App leaf must still recompute (its topology was
+  // proven when the manifest was sealed at capture time).
+  const v3RecomputeForm = fixture();
+  v3RecomputeForm.mode = "active";
+  v3RecomputeForm.mainOwnershipMode = ownershipMode("github");
+  for (const state of v3RecomputeForm.priorStates.app.states) {
+    assert.equal(state.customEnvironmentSlug, "v3");
+    delete state.aliases;
+  }
+  assert.equal(runFixture(v3RecomputeForm).plan.priors[0].target, "app");
 });
 
 for (const [name, mutate, expectedReason, expectedServedSha] of [
