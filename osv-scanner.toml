@@ -86,6 +86,38 @@ id = "GHSA-wcpc-wj8m-hjx6"
 ignoreUntil = 2026-11-30T00:00:00Z
 reason = "protobufjs 6.x advisory — no safe fix path; remaining instance is @confio/ics23@0.6.8 via wormhole-connect, and 7.x is an unsafe major jump for Cosmos proof parsing."
 
+[[IgnoredVulns]]
+id = "GHSA-vcc3-ghjq-m6fr"
+# decode-uri-component ReDoS-style DoS (CVE-2026-45822, moderate), published
+# 2026-08-31. The lockfile resolves a single decode-uri-component@0.2.2 whose
+# only consumer is query-string@7.1.3, reached through @walletconnect/utils
+# 2.19.x/2.21.x -> @walletconnect/core, sign-client, universal-provider, and
+# ethereum-provider.
+#
+# The advertised fix does NOT apply here. OSV's only fixed release is 0.5.0,
+# and 0.5.0 (like 0.4.x) is ESM-only: `"type": "module"` with a single
+# `export default`. query-string@7.1.3 is CommonJS and does
+# `const decodeComponent = require('decode-uri-component')` at index.js line 3,
+# then calls it. Under require(ESM) that yields the namespace object
+# `{ __esModule, default }`, so the call throws
+# `TypeError: decodeComponent is not a function` — verified by running exactly
+# that require-and-call against 0.5.0 on this repo's Node. An override would
+# therefore break WalletConnect at runtime in every app.
+#
+# Upgrading query-string does not help either: every release through the
+# current 9.5.0 still depends on decode-uri-component ^0.4.1, which is also
+# affected, and 8.x+ is ESM-only so it breaks the same CommonJS consumer.
+#
+# Remaining real fixes, both too invasive for an allowlist-renewal PR:
+#   1. `pnpm patch` decode-uri-component@0.2.2 to backport upstream commit
+#      fa479daf. That is a 94-line file replaced by a 172-line rewrite, so it
+#      needs review, not a mechanical bump.
+#   2. Wait for @walletconnect/utils to move off query-string 7.x.
+# TODO: Re-evaluate at ignoreUntil — check whether @walletconnect/utils has
+# dropped query-string 7.x or a CommonJS-compatible fixed release exists.
+ignoreUntil = 2026-11-30T00:00:00Z
+reason = "No compatible fix: the only fixed decode-uri-component release (0.5.0) is ESM-only, and its sole consumer query-string@7.1.3 is CommonJS and require()s it, so an override throws TypeError at runtime; every query-string release still depends on an affected 0.4.x."
+
 # ---------------------------------------------------------------------------
 # Batch added 2026-05-15 alongside the Trove Activity panel PR.
 # Existing osv-scanner.toml entries cover older transitive-dep advisories

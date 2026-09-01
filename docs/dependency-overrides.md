@@ -159,13 +159,32 @@ resolves its own `^0.554.0` direct dependency, so the former
 `peerDependencyRules.allowedVersions` exception is no longer necessary. Do not
 force either Lucide version across the incompatible major ranges.
 
-As of the August 2026 remediation, `osv-scanner.toml` has 20 ignored
+As of the September 2026 renewal, `osv-scanner.toml` has 21 ignored
 vulnerability blocks, and 11 blocks document the Wormhole Connect dependency
 chain. That cluster is protobufjs including `@protobufjs/utf8`. Axios, valibot,
 ip-address, and uuid are no longer suppressed because reviewed override floors
-resolve fixed releases. Do not attribute the elliptic, bigint-buffer, or
-Metro-only image-size suppressions to Wormhole; their documented chains are
-separate.
+resolve fixed releases. Do not attribute the elliptic, bigint-buffer,
+decode-uri-component, or Metro-only image-size suppressions to Wormhole; their
+documented chains are separate.
+
+## When an override is the wrong instrument
+
+A range-scoped floor only works when the fixed release is drop-in for the
+consumers already in the tree. Check the module format before adding one: if
+the fixed release is ESM-only and a CommonJS consumer `require()`s it, the
+override resolves cleanly, installs cleanly, and then throws
+`TypeError: <name> is not a function` at runtime, because `require()` of an ESM
+module yields the namespace object rather than the default export.
+
+`decode-uri-component` (GHSA-vcc3-ghjq-m6fr) is the worked example. Its only
+fixed release, 0.5.0, is ESM-only; its only consumer, `query-string@7.1.3`
+under `@walletconnect/utils`, is CommonJS and requires it. Upgrading
+`query-string` does not help either — every release through 9.5.0 still depends
+on an affected `decode-uri-component@^0.4.1`, and 8.x+ is ESM-only. The
+suppression in `osv-scanner.toml` records that analysis and the two remaining
+real fixes (`pnpm patch` the backport, or wait for WalletConnect to drop
+query-string 7.x). Verify a proposed floor against the consumer's module system
+before you add it, not after the preview breaks.
 
 Removing Wormhole Connect is intentionally out of scope for this document. At
 the next quarterly dependency review, check `/bridge` traffic in Vercel
