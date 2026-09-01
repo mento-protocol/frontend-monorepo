@@ -108,9 +108,16 @@ test("only App carries a bounded transitional GitHub-owned configuration", () =>
     [
       {
         $schema: "https://openapi.vercel.sh/vercel.json",
-        git: { deploymentEnabled: false },
+        git: { deploymentEnabled: { "**": false, v2: true } },
       },
     ],
+  );
+  assert.equal(
+    previewOwnerForVercelConfiguration("app", {
+      $schema: "https://openapi.vercel.sh/vercel.json",
+      git: { deploymentEnabled: { "**": false, v2: true } },
+    }),
+    "github-actions",
   );
   assert.equal(
     previewOwnerForVercelConfiguration("app", {
@@ -128,7 +135,9 @@ test("only App carries a bounded transitional GitHub-owned configuration", () =>
       () =>
         previewOwnerForVercelConfiguration(
           target,
-          structuredClone(PREVIEW_TARGET_CONFIG.app.activeVercelConfiguration),
+          structuredClone(
+            PREVIEW_TARGET_CONFIG.app.transitionalGithubVercelConfigurations[0],
+          ),
         ),
       new RegExp(`Candidate ${target} Vercel configuration is not recognized`),
     );

@@ -19,14 +19,13 @@ const PRODUCER_JOBS = new Set([
   "recover-main-deployment",
 ]);
 const TARGETS = Object.freeze(["governance", "reserve", "ui", "app"]);
-const OPERATION_TARGETS = Object.freeze([...TARGETS, "legacy-app"]);
+const OPERATION_TARGETS = Object.freeze([...TARGETS]);
 const OPERATION_TYPES = Object.freeze([
   "promote",
   "app_v3_deploy",
   "app_alias_set",
   "ordinary_rollback",
   "app_alias_restore",
-  "legacy_emergency_restore",
 ]);
 const OPERATION_STATES = Object.freeze([
   "started",
@@ -76,7 +75,6 @@ const RECEIPT_KEYS = Object.freeze([
   "finalCensus",
   "stateProof",
   "publicSmoke",
-  "freshLegacyV2",
   "mutationCount",
   "rollbackTargets",
   "affectedOperations",
@@ -115,80 +113,68 @@ const AFFECTED_OPERATION_KEYS = Object.freeze([
 
 export const MAIN_TERMINAL_RECEIPT_OUTCOMES = Object.freeze({
   "active-committed": Object.freeze({
-    proofs: ["passed", "passed", "passed", "passed", "passed"],
+    proofs: ["passed", "passed", "passed", "passed"],
     journal: "committed",
     minMutations: 1,
     rollback: "empty",
   }),
   recovered: Object.freeze({
-    proofs: ["passed", "passed", "passed", "passed", "passed"],
+    proofs: ["passed", "passed", "passed", "passed"],
     journal: "recovered",
     minMutations: 1,
     rollback: "required",
   }),
   "recovered-census-unproven": Object.freeze({
-    proofs: ["passed", "unsafe", "unsafe", "passed", "passed"],
+    proofs: ["passed", "unsafe", "unsafe", "passed"],
     journal: "recovered",
     minMutations: 1,
     rollback: "required",
   }),
   "verified-noop": Object.freeze({
-    proofs: ["passed", "passed", "passed", "passed", "passed"],
+    proofs: ["passed", "passed", "passed", "passed"],
     journal: "not-applicable",
     mutations: 0,
     rollback: "empty",
   }),
   "current-release-verified": Object.freeze({
-    proofs: ["passed", "passed", "passed", "passed", "passed"],
+    proofs: ["passed", "passed", "passed", "passed"],
     journal: "not-applicable",
     mutations: 0,
     rollback: "empty",
   }),
   "no-target": Object.freeze({
-    proofs: [
-      "not-required",
-      "not-required",
-      "not-required",
-      "not-required",
-      "passed",
-    ],
+    proofs: ["not-required", "not-required", "not-required", "not-required"],
     journal: "not-applicable",
     mutations: 0,
     rollback: "empty",
   }),
   "superseded-before-journal": Object.freeze({
-    proofs: [
-      "superseded",
-      "superseded",
-      "superseded",
-      "not-required",
-      "passed",
-    ],
+    proofs: ["superseded", "superseded", "superseded", "not-required"],
     journal: "not-applicable",
     mutations: 0,
     rollback: "empty",
   }),
   "shadow-prepared": Object.freeze({
-    proofs: ["passed", "passed", "prepared", "passed", "passed"],
+    proofs: ["passed", "passed", "prepared", "passed"],
     journal: "not-applicable",
     mutations: 0,
     rollback: "empty",
   }),
   "manual-intervention": Object.freeze({
-    proofs: ["unsafe", "unsafe", "unsafe", "not-required", "passed"],
+    proofs: ["unsafe", "unsafe", "unsafe", "not-required"],
     journal: "manual-intervention",
     minMutations: 1,
     rollback: "any",
     affectedOperations: "required",
   }),
   "recovery-failed": Object.freeze({
-    proofs: ["unsafe", "unsafe", "unsafe", "not-required", "passed"],
+    proofs: ["unsafe", "unsafe", "unsafe", "not-required"],
     journal: "recovery-failed",
     rollback: "empty",
     affectedOperations: "empty",
   }),
   "preparation-failed-before-journal": Object.freeze({
-    proofs: ["unsafe", "unsafe", "unsafe", "not-required", "passed"],
+    proofs: ["unsafe", "unsafe", "unsafe", "not-required"],
     journal: "not-applicable",
     mutations: 0,
     rollback: "empty",
@@ -444,9 +430,7 @@ function canonicalAffectedOperations(value) {
           alias !== null)) ||
       (operation.type === "app_v3_deploy" &&
         (operation.target !== "app" || alias !== null)) ||
-      (appAlias && (operation.target !== "app" || alias === null)) ||
-      (operation.type === "legacy_emergency_restore" &&
-        (operation.target !== "legacy-app" || alias === null))
+      (appAlias && (operation.target !== "app" || alias === null))
     ) {
       throw new Error(
         "Main terminal receipt affected operation identity is malformed",
@@ -512,7 +496,6 @@ function assertOutcomeContract(receipt) {
     receipt.finalCensus,
     receipt.stateProof,
     receipt.publicSmoke,
-    receipt.freshLegacyV2,
   ];
   if (
     JSON.stringify(proofs.map((proof) => proof.status)) !==
@@ -663,10 +646,6 @@ function canonicalReceipt(value, { checkDigest = true } = {}) {
       value.publicSmoke,
       "Main terminal receipt public smoke",
     ),
-    freshLegacyV2: canonicalProof(
-      value.freshLegacyV2,
-      "Main terminal receipt fresh legacy v2",
-    ),
     mutationCount: canonicalMutationCount(value.mutationCount),
     rollbackTargets: canonicalRollbackTargets(value.rollbackTargets),
     affectedOperations: canonicalAffectedOperations(value.affectedOperations),
@@ -716,7 +695,6 @@ export function createMainTerminalReceipt(input) {
     finalCensus: input.finalCensus,
     stateProof: input.stateProof,
     publicSmoke: input.publicSmoke,
-    freshLegacyV2: input.freshLegacyV2,
     mutationCount: input.mutationCount,
     rollbackTargets: input.rollbackTargets,
     affectedOperations: input.affectedOperations,

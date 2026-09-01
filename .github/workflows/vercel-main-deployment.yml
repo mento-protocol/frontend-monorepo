@@ -160,15 +160,13 @@ jobs:
             ignore-scripts: "true",
             filter: frontend-monorepo,
           }
-      - name: Capture reviewed main and legacy snapshots
+      - name: Capture reviewed main snapshot
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
         run: |
           node scripts/vercel-main-deployment.mjs create-spec --scope main --output "$RUNNER_TEMP/main-spec.json"
-          node scripts/vercel-main-deployment.mjs create-spec --scope legacy --output "$RUNNER_TEMP/legacy-spec.json"
           node scripts/vercel-deployment-state.mjs planning-snapshot --spec "$RUNNER_TEMP/main-spec.json" --output "$RUNNER_TEMP/planning.json"
-          node scripts/vercel-deployment-state.mjs snapshot --spec "$RUNNER_TEMP/legacy-spec.json" --output "$RUNNER_TEMP/legacy.json"
           umask 077
           jq -n --arg app "$VERCEL_PROJECT_ID_APP" --arg governance "$VERCEL_PROJECT_ID_GOVERNANCE" --arg reserve "$VERCEL_PROJECT_ID_RESERVE" --arg ui "$VERCEL_PROJECT_ID_UI" '{app:$app,governance:$governance,reserve:$reserve,ui:$ui}' > "$RUNNER_TEMP/projects.json"
       - name: Discover protected provider candidates
@@ -177,7 +175,7 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
         run: >-
           node scripts/vercel-main-provider-cli.mjs preplan-discover
-          --planning-snapshot "$RUNNER_TEMP/planning.json" --legacy-snapshot "$RUNNER_TEMP/legacy.json"
+          --planning-snapshot "$RUNNER_TEMP/planning.json"
           --project-ids "$RUNNER_TEMP/projects.json" --output "$RUNNER_TEMP/discovery.json"
       - name: Decide from a fresh stable provider census
         id: decide
@@ -189,7 +187,6 @@ jobs:
           node scripts/vercel-main-provider-cli.mjs preplan-decide \
             --discovery "$RUNNER_TEMP/discovery.json" \
             --planning-snapshot "$RUNNER_TEMP/planning.json" \
-            --legacy-snapshot "$RUNNER_TEMP/legacy.json" \
             --output "$RUNNER_TEMP/preplan.json" || status=$?
           if [ "$status" -eq 0 ]; then
             exit 0
@@ -202,18 +199,13 @@ jobs:
           node scripts/vercel-deployment-state.mjs planning-snapshot \
             --spec "$RUNNER_TEMP/main-spec.json" \
             --output "$RUNNER_TEMP/planning-retry.json"
-          node scripts/vercel-deployment-state.mjs snapshot \
-            --spec "$RUNNER_TEMP/legacy-spec.json" \
-            --output "$RUNNER_TEMP/legacy-retry.json"
           node scripts/vercel-main-provider-cli.mjs preplan-discover \
             --planning-snapshot "$RUNNER_TEMP/planning-retry.json" \
-            --legacy-snapshot "$RUNNER_TEMP/legacy-retry.json" \
             --project-ids "$RUNNER_TEMP/projects.json" \
             --output "$RUNNER_TEMP/discovery-retry.json"
           node scripts/vercel-main-provider-cli.mjs preplan-decide \
             --discovery "$RUNNER_TEMP/discovery-retry.json" \
             --planning-snapshot "$RUNNER_TEMP/planning-retry.json" \
-            --legacy-snapshot "$RUNNER_TEMP/legacy-retry.json" \
             --output "$RUNNER_TEMP/preplan-retry.json"
 
   restore-inherited-release:
@@ -301,7 +293,6 @@ jobs:
       - name: Materialize inherited mapping specifications
         run: |
           node scripts/vercel-main-deployment.mjs create-spec --scope main --output "$RUNNER_TEMP/main-spec.json"
-          node scripts/vercel-main-deployment.mjs create-spec --scope legacy --output "$RUNNER_TEMP/legacy-spec.json"
       - name: Create inherited governance candidate intent
         if: contains(fromJSON(steps.inherited.outputs.inherited_candidate_targets), 'governance')
         run: >-
@@ -424,13 +415,12 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
         run: |
           node scripts/vercel-deployment-state.mjs planning-snapshot --spec "$RUNNER_TEMP/main-spec.json" --output "$RUNNER_TEMP/current-planning.json"
-          node scripts/vercel-deployment-state.mjs snapshot --spec "$RUNNER_TEMP/legacy-spec.json" --output "$RUNNER_TEMP/current-legacy.json"
-          node scripts/vercel-main-provider-cli.mjs canonical-mappings --planning-snapshot "$RUNNER_TEMP/current-planning.json" --legacy-snapshot "$RUNNER_TEMP/current-legacy.json" --output "$RUNNER_TEMP/current-mappings.json"
+          node scripts/vercel-main-provider-cli.mjs canonical-mappings --planning-snapshot "$RUNNER_TEMP/current-planning.json" --output "$RUNNER_TEMP/current-mappings.json"
       - name: Create a current-attempt inherited recovery journal
         id: journal
         run: >-
           node scripts/vercel-main-release-cli.mjs inherited-recovery-journal
-          --preplan "$RUNNER_TEMP/inherited-preplan.json" --legacy-snapshot "$RUNNER_TEMP/current-legacy.json"
+          --preplan "$RUNNER_TEMP/inherited-preplan.json"
           --current-mappings "$RUNNER_TEMP/current-mappings.json" --candidate-receipts "$RUNNER_TEMP/inherited-candidate-receipts.json"
           --journal-output "$RUNNER_TEMP/inherited-recovery-journal.json" --plan-output "$RUNNER_TEMP/inherited-recovery-plan.json"
       - name: Stage current-attempt recovery journal under its canonical artifact basename
@@ -608,7 +598,7 @@ jobs:
         id: recovery-head-5
         if: ${{ always() && !failure() && !cancelled() }}
         run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/inherited-journals" --output "$RUNNER_TEMP/inherited-head-5.json"
-      - name: Restore bounded inherited transition 6
+      - name: Restore terminal inherited transition 6
         if: ${{ steps.recovery-head-5.outputs.highest_status != 'recovered' }}
         uses: ./.github/actions/vercel-main-active-recovery-transition
         env:
@@ -623,90 +613,6 @@ jobs:
             operation-cwd: "${{ github.workspace }}/source",
             recovery-plan: "${{ runner.temp }}/inherited-recovery-plan.json",
             slot: "6",
-            vercel-cli: "${{ steps.recovery-runtime.outputs.vercel-cli }}",
-          }
-      - name: Inspect inherited recovery head 6
-        id: recovery-head-6
-        if: ${{ always() && !failure() && !cancelled() }}
-        run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/inherited-journals" --output "$RUNNER_TEMP/inherited-head-6.json"
-      - name: Restore bounded inherited transition 7
-        if: ${{ steps.recovery-head-6.outputs.highest_status != 'recovered' }}
-        uses: ./.github/actions/vercel-main-active-recovery-transition
-        env:
-          {
-            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
-            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
-          }
-        with:
-          {
-            controller-path: "${{ github.workspace }}",
-            journal-directory: "${{ runner.temp }}/inherited-journals",
-            operation-cwd: "${{ github.workspace }}/source",
-            recovery-plan: "${{ runner.temp }}/inherited-recovery-plan.json",
-            slot: "7",
-            vercel-cli: "${{ steps.recovery-runtime.outputs.vercel-cli }}",
-          }
-      - name: Inspect inherited recovery head 7
-        id: recovery-head-7
-        if: ${{ always() && !failure() && !cancelled() }}
-        run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/inherited-journals" --output "$RUNNER_TEMP/inherited-head-7.json"
-      - name: Restore bounded inherited transition 8
-        if: ${{ steps.recovery-head-7.outputs.highest_status != 'recovered' }}
-        uses: ./.github/actions/vercel-main-active-recovery-transition
-        env:
-          {
-            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
-            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
-          }
-        with:
-          {
-            controller-path: "${{ github.workspace }}",
-            journal-directory: "${{ runner.temp }}/inherited-journals",
-            operation-cwd: "${{ github.workspace }}/source",
-            recovery-plan: "${{ runner.temp }}/inherited-recovery-plan.json",
-            slot: "8",
-            vercel-cli: "${{ steps.recovery-runtime.outputs.vercel-cli }}",
-          }
-      - name: Inspect inherited recovery head 8
-        id: recovery-head-8
-        if: ${{ always() && !failure() && !cancelled() }}
-        run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/inherited-journals" --output "$RUNNER_TEMP/inherited-head-8.json"
-      - name: Restore bounded inherited transition 9
-        if: ${{ steps.recovery-head-8.outputs.highest_status != 'recovered' }}
-        uses: ./.github/actions/vercel-main-active-recovery-transition
-        env:
-          {
-            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
-            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
-          }
-        with:
-          {
-            controller-path: "${{ github.workspace }}",
-            journal-directory: "${{ runner.temp }}/inherited-journals",
-            operation-cwd: "${{ github.workspace }}/source",
-            recovery-plan: "${{ runner.temp }}/inherited-recovery-plan.json",
-            slot: "9",
-            vercel-cli: "${{ steps.recovery-runtime.outputs.vercel-cli }}",
-          }
-      - name: Inspect inherited recovery head 9
-        id: recovery-head-9
-        if: ${{ always() && !failure() && !cancelled() }}
-        run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/inherited-journals" --output "$RUNNER_TEMP/inherited-head-9.json"
-      - name: Restore terminal inherited transition 10
-        if: ${{ steps.recovery-head-9.outputs.highest_status != 'recovered' }}
-        uses: ./.github/actions/vercel-main-active-recovery-transition
-        env:
-          {
-            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
-            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
-          }
-        with:
-          {
-            controller-path: "${{ github.workspace }}",
-            journal-directory: "${{ runner.temp }}/inherited-journals",
-            operation-cwd: "${{ github.workspace }}/source",
-            recovery-plan: "${{ runner.temp }}/inherited-recovery-plan.json",
-            slot: "10",
             vercel-cli: "${{ steps.recovery-runtime.outputs.vercel-cli }}",
           }
       - name: Read final canonical inherited recovery head
@@ -809,23 +715,21 @@ jobs:
       - name: Materialize fresh release preparation specifications
         run: |
           node scripts/vercel-main-deployment.mjs create-spec --scope main --output "$RUNNER_TEMP/main-spec.json"
-          node scripts/vercel-main-deployment.mjs create-spec --scope legacy --output "$RUNNER_TEMP/legacy-spec.json"
           umask 077
           jq -n --arg app "$VERCEL_PROJECT_ID_APP" --arg governance "$VERCEL_PROJECT_ID_GOVERNANCE" --arg reserve "$VERCEL_PROJECT_ID_RESERVE" --arg ui "$VERCEL_PROJECT_ID_UI" '{app:$app,governance:$governance,reserve:$reserve,ui:$ui}' > "$RUNNER_TEMP/projects.json"
-      - name: Capture wholly fresh main and full legacy snapshots
+      - name: Capture a wholly fresh main snapshot
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
         run: |
           node scripts/vercel-deployment-state.mjs planning-snapshot --spec "$RUNNER_TEMP/main-spec.json" --output "$RUNNER_TEMP/planning.json"
-          node scripts/vercel-deployment-state.mjs snapshot --spec "$RUNNER_TEMP/legacy-spec.json" --output "$RUNNER_TEMP/legacy.json"
       - name: Discover a wholly fresh provider candidate census
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
         run: >-
           node scripts/vercel-main-provider-cli.mjs preplan-discover
-          --planning-snapshot "$RUNNER_TEMP/planning.json" --legacy-snapshot "$RUNNER_TEMP/legacy.json"
+          --planning-snapshot "$RUNNER_TEMP/planning.json"
           --project-ids "$RUNNER_TEMP/projects.json" --output "$RUNNER_TEMP/discovery.json"
       - name: Decide from the wholly fresh provider census
         id: decide
@@ -836,7 +740,6 @@ jobs:
           node scripts/vercel-main-provider-cli.mjs preplan-decide
           --discovery "$RUNNER_TEMP/discovery.json"
           --planning-snapshot "$RUNNER_TEMP/planning.json"
-          --legacy-snapshot "$RUNNER_TEMP/legacy.json"
           --output "$RUNNER_TEMP/preplan.json"
       - name: Reject a second inherited restore decision
         env: { DECISION: "${{ steps.decide.outputs.decision }}" }
@@ -856,7 +759,7 @@ jobs:
         run: >-
           node scripts/vercel-main-release-cli.mjs execution --preplan "$RUNNER_TEMP/preplan.json"
           --discovery "$RUNNER_TEMP/discovery.json" --planning-snapshot "$RUNNER_TEMP/planning.json"
-          --legacy-snapshot "$RUNNER_TEMP/legacy.json" --output "$RUNNER_TEMP/execution.json"
+          --output "$RUNNER_TEMP/execution.json"
 
   stage-app:
     name: Build App custom-v3 candidate output
@@ -1802,7 +1705,6 @@ jobs:
           printf 'null\n' > "$RUNNER_TEMP/null.json"
           printf '[]\n' > "$RUNNER_TEMP/empty-history.json"
           node scripts/vercel-main-deployment.mjs create-spec --scope main --output "$RUNNER_TEMP/main-spec.json"
-          node scripts/vercel-main-deployment.mjs create-spec --scope legacy --output "$RUNNER_TEMP/legacy-spec.json"
       - name: Validate literal stage results, receipts, and App payload identity
         env:
           APP_ACTION: ${{ needs.stage-app.outputs.action || 'none' }}
@@ -1870,14 +1772,6 @@ jobs:
             test "$APP_PAYLOAD_SHA256" = none
             test "$APP_PAYLOAD_ATTEMPT" = none
           fi
-      - name: Capture a fresh legacy proof for every successful terminal route
-        env:
-          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
-        run: >-
-          node scripts/vercel-deployment-state.mjs snapshot
-          --spec "$RUNNER_TEMP/legacy-spec.json"
-          --output "$RUNNER_TEMP/route-legacy.json"
       - name: Check remote main freshness before App preparation
         if: needs.prepare-release.outputs.no_target != 'true'
         id: freshness
@@ -1895,7 +1789,6 @@ jobs:
             --final-mappings "$RUNNER_TEMP/null.json" \
             --freshness "$RUNNER_TEMP/null.json" \
             --journal-history "$RUNNER_TEMP/empty-history.json" \
-            --legacy-v2 "$RUNNER_TEMP/route-legacy.json" \
             --outcome no-target \
             --proofs-output "$RUNNER_TEMP/terminal-proofs.json" \
             --public-smokes "$RUNNER_TEMP/null.json" \
@@ -1913,7 +1806,6 @@ jobs:
             --final-mappings "$RUNNER_TEMP/null.json" \
             --freshness "$RUNNER_TEMP/preparation-freshness.json" \
             --journal-history "$RUNNER_TEMP/empty-history.json" \
-            --legacy-v2 "$RUNNER_TEMP/route-legacy.json" \
             --outcome superseded-before-journal \
             --proofs-output "$RUNNER_TEMP/terminal-proofs.json" \
             --public-smokes "$RUNNER_TEMP/null.json" \
@@ -2122,8 +2014,7 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
         run: |
           node scripts/vercel-deployment-state.mjs planning-snapshot --spec "$RUNNER_TEMP/main-spec.json" --output "$RUNNER_TEMP/shadow-planning.json"
-          node scripts/vercel-deployment-state.mjs snapshot --spec "$RUNNER_TEMP/legacy-spec.json" --output "$RUNNER_TEMP/shadow-legacy.json"
-          node scripts/vercel-main-provider-cli.mjs canonical-mappings --planning-snapshot "$RUNNER_TEMP/shadow-planning.json" --legacy-snapshot "$RUNNER_TEMP/shadow-legacy.json" --output "$RUNNER_TEMP/shadow-mappings.json"
+          node scripts/vercel-main-provider-cli.mjs canonical-mappings --planning-snapshot "$RUNNER_TEMP/shadow-planning.json" --output "$RUNNER_TEMP/shadow-mappings.json"
       - name: Materialize shadow-only terminal artifacts without a journal
         if: >-
           steps.freshness.outputs.status == 'fresh' &&
@@ -2136,7 +2027,7 @@ jobs:
           done
           node scripts/vercel-main-deployment.mjs active-public-smokes --execution "$RUNNER_TEMP/execution.json" --stage-barrier "$RUNNER_TEMP/stage-barrier.json" --app "$RUNNER_TEMP/shadow-app-runtime-smoke.json" --governance "$RUNNER_TEMP/shadow-governance-runtime-smoke.json" --reserve "$RUNNER_TEMP/shadow-reserve-runtime-smoke.json" --ui "$RUNNER_TEMP/shadow-ui-runtime-smoke.json" --output "$RUNNER_TEMP/shadow-public-smokes.json"
           node scripts/vercel-main-deployment.mjs active-terminal-state-proof --execution "$RUNNER_TEMP/execution.json" --stage-barrier "$RUNNER_TEMP/stage-barrier.json" --state-proof "$RUNNER_TEMP/null.json" --output "$RUNNER_TEMP/shadow-terminal-state-proof.json"
-          node scripts/vercel-main-release-cli.mjs terminal-artifacts --active-evidence-output "$RUNNER_TEMP/active-evidence.json" --execution "$RUNNER_TEMP/execution.json" --final-census "$RUNNER_TEMP/shadow-terminal-state-proof.json" --final-mappings "$RUNNER_TEMP/shadow-mappings.json" --freshness "$RUNNER_TEMP/null.json" --journal-history "$RUNNER_TEMP/empty-history.json" --legacy-v2 "$RUNNER_TEMP/shadow-legacy.json" --outcome shadow-prepared --proofs-output "$RUNNER_TEMP/terminal-proofs.json" --public-smokes "$RUNNER_TEMP/shadow-public-smokes.json" --stage-results "$RUNNER_TEMP/null.json" --state-proof "$RUNNER_TEMP/shadow-terminal-state-proof.json"
+          node scripts/vercel-main-release-cli.mjs terminal-artifacts --active-evidence-output "$RUNNER_TEMP/active-evidence.json" --execution "$RUNNER_TEMP/execution.json" --final-census "$RUNNER_TEMP/shadow-terminal-state-proof.json" --final-mappings "$RUNNER_TEMP/shadow-mappings.json" --freshness "$RUNNER_TEMP/null.json" --journal-history "$RUNNER_TEMP/empty-history.json" --outcome shadow-prepared --proofs-output "$RUNNER_TEMP/terminal-proofs.json" --public-smokes "$RUNNER_TEMP/shadow-public-smokes.json" --stage-results "$RUNNER_TEMP/null.json" --state-proof "$RUNNER_TEMP/shadow-terminal-state-proof.json"
           echo 'outcome=shadow-prepared' >> "$GITHUB_OUTPUT"
       - name: Capture fresh full mappings and create the forward journal
         if: >-
@@ -2149,8 +2040,7 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
         run: |
           node scripts/vercel-deployment-state.mjs planning-snapshot --spec "$RUNNER_TEMP/main-spec.json" --output "$RUNNER_TEMP/current-planning.json"
-          node scripts/vercel-deployment-state.mjs snapshot --spec "$RUNNER_TEMP/legacy-spec.json" --output "$RUNNER_TEMP/current-legacy.json"
-          node scripts/vercel-main-provider-cli.mjs canonical-mappings --planning-snapshot "$RUNNER_TEMP/current-planning.json" --legacy-snapshot "$RUNNER_TEMP/current-legacy.json" --output "$RUNNER_TEMP/current-mappings.json"
+          node scripts/vercel-main-provider-cli.mjs canonical-mappings --planning-snapshot "$RUNNER_TEMP/current-planning.json" --output "$RUNNER_TEMP/current-mappings.json"
           node scripts/vercel-main-release-cli.mjs forward-journal --execution "$RUNNER_TEMP/execution.json" --current-mappings "$RUNNER_TEMP/current-mappings.json" --candidate-receipts "$RUNNER_TEMP/all-candidate-receipts.json" --output "$RUNNER_TEMP/prepared-journal.json"
       - name: Stage prepared journal under its canonical artifact basename
         if: >-
@@ -2440,7 +2330,6 @@ jobs:
           node scripts/vercel-main-deployment.mjs active-canonical-mappings --mapping-spec "$RUNNER_TEMP/final-mapping-spec.json" --mappings "$RUNNER_TEMP/final-mappings-raw.json" --output "$RUNNER_TEMP/final-mappings.json"
           node scripts/vercel-deployment-state.mjs active-proof --spec "$RUNNER_TEMP/final-state-spec.json" --output "$RUNNER_TEMP/final-state-proof.json"
           node scripts/vercel-main-deployment.mjs active-terminal-state-proof --execution "$RUNNER_TEMP/execution.json" --stage-barrier "$RUNNER_TEMP/stage-barrier.json" --state-proof "$RUNNER_TEMP/final-state-proof.json" --output "$RUNNER_TEMP/terminal-state-proof.json"
-          node scripts/vercel-deployment-state.mjs snapshot --spec "$RUNNER_TEMP/legacy-spec.json" --output "$RUNNER_TEMP/final-legacy.json"
       - name: Finalize only the canonically proven committed journal
         if: >-
           steps.freshness.outputs.status == 'fresh' &&
@@ -2518,7 +2407,6 @@ jobs:
             --final-mappings "$RUNNER_TEMP/final-mappings.json" \
             --freshness "$RUNNER_TEMP/null.json" \
             --journal-history "$RUNNER_TEMP/final-history.json" \
-            --legacy-v2 "$RUNNER_TEMP/final-legacy.json" \
             --outcome active-committed \
             --proofs-output "$RUNNER_TEMP/terminal-proofs.json" \
             --public-smokes "$RUNNER_TEMP/public-smokes.json" \
@@ -2539,7 +2427,6 @@ jobs:
             --final-mappings "$RUNNER_TEMP/final-mappings.json" \
             --freshness "$RUNNER_TEMP/final-freshness.json" \
             --journal-history "$RUNNER_TEMP/empty-history.json" \
-            --legacy-v2 "$RUNNER_TEMP/final-legacy.json" \
             --outcome current-release-verified \
             --proofs-output "$RUNNER_TEMP/terminal-proofs.json" \
             --public-smokes "$RUNNER_TEMP/public-smokes.json" \
@@ -2660,7 +2547,6 @@ jobs:
           jq -e '.manifest' "$RUNNER_TEMP/execution.json" > "$RUNNER_TEMP/manifest.json"
           printf 'null\n' > "$RUNNER_TEMP/null.json"
           printf '[]\n' > "$RUNNER_TEMP/empty-history.json"
-          node scripts/vercel-main-deployment.mjs create-spec --scope legacy --output "$RUNNER_TEMP/legacy-spec.json"
       - name: Derive exact current-attempt journal identity
         id: journal-identity
         run: node scripts/vercel-main-deployment.mjs active-journal-identity
@@ -2944,7 +2830,7 @@ jobs:
         id: recovery-head-5
         if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && !failure() && !cancelled() }}
         run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/current-attempt-journals" --output "$RUNNER_TEMP/recovery-head-5.json"
-      - name: Restore bounded recovery transition 6
+      - name: Restore terminal recovery transition 6
         if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && steps.recovery-head-5.outputs.highest_status != 'recovered' && steps.recovery-head-5.outputs.highest_status != 'manual_intervention' }}
         uses: ./.github/actions/vercel-main-active-recovery-transition
         env:
@@ -2959,90 +2845,6 @@ jobs:
             operation-cwd: "${{ github.workspace }}/source",
             recovery-plan: "${{ runner.temp }}/recovery-plan.json",
             slot: "6",
-            vercel-cli: "${{ steps.recovery-runtime.outputs.vercel-cli }}",
-          }
-      - name: Inspect recovery head 6
-        id: recovery-head-6
-        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && !failure() && !cancelled() }}
-        run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/current-attempt-journals" --output "$RUNNER_TEMP/recovery-head-6.json"
-      - name: Restore bounded recovery transition 7
-        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && steps.recovery-head-6.outputs.highest_status != 'recovered' && steps.recovery-head-6.outputs.highest_status != 'manual_intervention' }}
-        uses: ./.github/actions/vercel-main-active-recovery-transition
-        env:
-          {
-            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
-            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
-          }
-        with:
-          {
-            controller-path: "${{ github.workspace }}",
-            journal-directory: "${{ runner.temp }}/current-attempt-journals",
-            operation-cwd: "${{ github.workspace }}/source",
-            recovery-plan: "${{ runner.temp }}/recovery-plan.json",
-            slot: "7",
-            vercel-cli: "${{ steps.recovery-runtime.outputs.vercel-cli }}",
-          }
-      - name: Inspect recovery head 7
-        id: recovery-head-7
-        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && !failure() && !cancelled() }}
-        run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/current-attempt-journals" --output "$RUNNER_TEMP/recovery-head-7.json"
-      - name: Restore bounded recovery transition 8
-        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && steps.recovery-head-7.outputs.highest_status != 'recovered' && steps.recovery-head-7.outputs.highest_status != 'manual_intervention' }}
-        uses: ./.github/actions/vercel-main-active-recovery-transition
-        env:
-          {
-            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
-            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
-          }
-        with:
-          {
-            controller-path: "${{ github.workspace }}",
-            journal-directory: "${{ runner.temp }}/current-attempt-journals",
-            operation-cwd: "${{ github.workspace }}/source",
-            recovery-plan: "${{ runner.temp }}/recovery-plan.json",
-            slot: "8",
-            vercel-cli: "${{ steps.recovery-runtime.outputs.vercel-cli }}",
-          }
-      - name: Inspect recovery head 8
-        id: recovery-head-8
-        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && !failure() && !cancelled() }}
-        run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/current-attempt-journals" --output "$RUNNER_TEMP/recovery-head-8.json"
-      - name: Restore bounded recovery transition 9
-        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && steps.recovery-head-8.outputs.highest_status != 'recovered' && steps.recovery-head-8.outputs.highest_status != 'manual_intervention' }}
-        uses: ./.github/actions/vercel-main-active-recovery-transition
-        env:
-          {
-            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
-            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
-          }
-        with:
-          {
-            controller-path: "${{ github.workspace }}",
-            journal-directory: "${{ runner.temp }}/current-attempt-journals",
-            operation-cwd: "${{ github.workspace }}/source",
-            recovery-plan: "${{ runner.temp }}/recovery-plan.json",
-            slot: "9",
-            vercel-cli: "${{ steps.recovery-runtime.outputs.vercel-cli }}",
-          }
-      - name: Inspect recovery head 9
-        id: recovery-head-9
-        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && !failure() && !cancelled() }}
-        run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/current-attempt-journals" --output "$RUNNER_TEMP/recovery-head-9.json"
-      - name: Restore terminal recovery transition 10
-        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && steps.recovery-head-9.outputs.highest_status != 'recovered' && steps.recovery-head-9.outputs.highest_status != 'manual_intervention' }}
-        uses: ./.github/actions/vercel-main-active-recovery-transition
-        env:
-          {
-            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
-            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
-          }
-        with:
-          {
-            controller-path: "${{ github.workspace }}",
-            journal-directory: "${{ runner.temp }}/current-attempt-journals",
-            operation-cwd: "${{ github.workspace }}/source",
-            recovery-plan: "${{ runner.temp }}/recovery-plan.json",
-            slot: "10",
             vercel-cli: "${{ steps.recovery-runtime.outputs.vercel-cli }}",
           }
       - name: Read final current-attempt recovery head
@@ -3066,28 +2868,13 @@ jobs:
             manual_intervention) echo 'outcome=manual-intervention' >> "$GITHUB_OUTPUT" ;;
             *) exit 1 ;;
           esac
-      - name: Capture fresh full legacy proof
-        if: >-
-          always() && !cancelled() &&
-          steps.journal-presence.outcome == 'success' &&
-          (steps.journal-presence.outputs.has_journal != 'true' ||
-          steps.recovery-failed.outputs.outcome == 'recovery-failed' ||
-          steps.recovery-failed.outputs.outcome == 'terminal-bypass' ||
-          (steps.initialize.outputs.transition_kind == 'journal' && !failure()))
-        env:
-          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
-        run: >-
-          node scripts/vercel-deployment-state.mjs snapshot
-          --spec "$RUNNER_TEMP/legacy-spec.json"
-          --output "$RUNNER_TEMP/recovery-final-legacy.json"
       - name: Materialize recovery-failed terminal artifacts without a recovery journal
         id: recovery-failed-terminal
         if: ${{ always() && !cancelled() && steps.recovery-failed.outputs.outcome == 'recovery-failed' }}
         run: |
           set -euo pipefail
           install -m 0600 "$RUNNER_TEMP/current-attempt-journals/current-history.json" "$RUNNER_TEMP/recovery-current-history.json"
-          node scripts/vercel-main-release-cli.mjs terminal-artifacts --active-evidence-output "$RUNNER_TEMP/recovery-evidence.json" --execution "$RUNNER_TEMP/execution.json" --final-census "$RUNNER_TEMP/null.json" --final-mappings "$RUNNER_TEMP/null.json" --freshness "$RUNNER_TEMP/null.json" --journal-history "$RUNNER_TEMP/recovery-current-history.json" --legacy-v2 "$RUNNER_TEMP/recovery-final-legacy.json" --outcome recovery-failed --proofs-output "$RUNNER_TEMP/recovery-proofs.json" --public-smokes "$RUNNER_TEMP/null.json" --stage-results "$RUNNER_TEMP/null.json" --state-proof "$RUNNER_TEMP/null.json"
+          node scripts/vercel-main-release-cli.mjs terminal-artifacts --active-evidence-output "$RUNNER_TEMP/recovery-evidence.json" --execution "$RUNNER_TEMP/execution.json" --final-census "$RUNNER_TEMP/null.json" --final-mappings "$RUNNER_TEMP/null.json" --freshness "$RUNNER_TEMP/null.json" --journal-history "$RUNNER_TEMP/recovery-current-history.json" --outcome recovery-failed --proofs-output "$RUNNER_TEMP/recovery-proofs.json" --public-smokes "$RUNNER_TEMP/null.json" --stage-results "$RUNNER_TEMP/null.json" --state-proof "$RUNNER_TEMP/null.json"
           echo 'outcome=recovery-failed' >> "$GITHUB_OUTPUT"
       - name: Materialize preparation failure terminal artifacts without a journal
         id: preparation-failure-terminal
@@ -3104,7 +2891,7 @@ jobs:
             app_result="$COORDINATOR_RESULT"
           fi
           node scripts/vercel-main-release-cli.mjs terminal-stage-results --execution "$RUNNER_TEMP/execution.json" --app-result "$app_result" --governance-result "$GOVERNANCE_RESULT" --reserve-result "$RESERVE_RESULT" --ui-result "$UI_RESULT" --coordinator-result "$COORDINATOR_RESULT" --output "$RUNNER_TEMP/preparation-stage-results.json"
-          node scripts/vercel-main-release-cli.mjs terminal-artifacts --active-evidence-output "$RUNNER_TEMP/recovery-evidence.json" --execution "$RUNNER_TEMP/execution.json" --final-census "$RUNNER_TEMP/null.json" --final-mappings "$RUNNER_TEMP/null.json" --freshness "$RUNNER_TEMP/null.json" --journal-history "$RUNNER_TEMP/empty-history.json" --legacy-v2 "$RUNNER_TEMP/recovery-final-legacy.json" --outcome preparation-failed-before-journal --proofs-output "$RUNNER_TEMP/recovery-proofs.json" --public-smokes "$RUNNER_TEMP/null.json" --stage-results "$RUNNER_TEMP/preparation-stage-results.json" --state-proof "$RUNNER_TEMP/null.json"
+          node scripts/vercel-main-release-cli.mjs terminal-artifacts --active-evidence-output "$RUNNER_TEMP/recovery-evidence.json" --execution "$RUNNER_TEMP/execution.json" --final-census "$RUNNER_TEMP/null.json" --final-mappings "$RUNNER_TEMP/null.json" --freshness "$RUNNER_TEMP/null.json" --journal-history "$RUNNER_TEMP/empty-history.json" --outcome preparation-failed-before-journal --proofs-output "$RUNNER_TEMP/recovery-proofs.json" --public-smokes "$RUNNER_TEMP/null.json" --stage-results "$RUNNER_TEMP/preparation-stage-results.json" --state-proof "$RUNNER_TEMP/null.json"
           echo 'outcome=preparation-failed-before-journal' >> "$GITHUB_OUTPUT"
       - name: Derive recovery terminal state specification
         if: steps.recovery-terminal.outcome == 'success'
@@ -3224,7 +3011,7 @@ jobs:
             public_smokes="$RUNNER_TEMP/null.json"
             test -s "$final_census"
           fi
-          node scripts/vercel-main-release-cli.mjs terminal-artifacts --active-evidence-output "$RUNNER_TEMP/recovery-evidence.json" --execution "$RUNNER_TEMP/execution.json" --final-census "$final_census" --final-mappings "$RUNNER_TEMP/recovery-final-mappings.json" --freshness "$RUNNER_TEMP/null.json" --journal-history "$RUNNER_TEMP/recovered-history.json" --legacy-v2 "$RUNNER_TEMP/recovery-final-legacy.json" --outcome "$terminal_outcome" --proofs-output "$RUNNER_TEMP/recovery-proofs.json" --public-smokes "$public_smokes" --stage-results "$RUNNER_TEMP/null.json" --state-proof "$state_proof"
+          node scripts/vercel-main-release-cli.mjs terminal-artifacts --active-evidence-output "$RUNNER_TEMP/recovery-evidence.json" --execution "$RUNNER_TEMP/execution.json" --final-census "$final_census" --final-mappings "$RUNNER_TEMP/recovery-final-mappings.json" --freshness "$RUNNER_TEMP/null.json" --journal-history "$RUNNER_TEMP/recovered-history.json" --outcome "$terminal_outcome" --proofs-output "$RUNNER_TEMP/recovery-proofs.json" --public-smokes "$public_smokes" --stage-results "$RUNNER_TEMP/null.json" --state-proof "$state_proof"
           echo "outcome=$terminal_outcome" >> "$GITHUB_OUTPUT"
       - name: Publish recovery terminal producer outputs
         id: terminal

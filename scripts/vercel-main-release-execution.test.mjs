@@ -13,7 +13,6 @@ import { createMainReleaseManifest } from "./vercel-main-release-reconciliation.
 
 const SHA = "a".repeat(40);
 const PRIOR_SHA = "b".repeat(40);
-const V2_SHA = "c".repeat(40);
 const TARGETS = ["app", "governance", "reserve", "ui"];
 const RELEASE_ORDER = ["governance", "reserve", "ui", "app"];
 
@@ -93,35 +92,8 @@ function manifest(stagedTargets = TARGETS) {
   });
 }
 
-function legacyAppV2() {
-  return {
-    alias: "v2-app.mento.org",
-    deploymentId: "dpl_legacyV2Prior123",
-    deploymentUrl: "https://legacy-v2-prior.vercel.app",
-    creatorUsername: "mentolabs",
-    projectId: "prj_app",
-    projectName: "app.mento.org",
-    readyState: "READY",
-    target: "production",
-    customEnvironmentSlug: null,
-    git: {
-      org: "mento-protocol",
-      repo: "frontend-monorepo",
-      ref: "v2",
-      sha: V2_SHA,
-    },
-    aliases: [
-      "appmentoorg-git-v2-mentolabs.vercel.app",
-      "appmentoorg-mentolabs.vercel.app",
-      "appmentoorg.vercel.app",
-      "v2-app.mento.org",
-    ],
-  };
-}
-
 function execution(stagedTargets = TARGETS) {
   const release = manifest(stagedTargets);
-  const legacy = legacyAppV2();
   return createMainReleaseExecution({
     decision:
       stagedTargets.length === 0
@@ -140,12 +112,10 @@ function execution(stagedTargets = TARGETS) {
       buildAndTestJobUrl:
         "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123/job/456",
     },
-    legacyAppV2: legacy,
     selection: createMainReleaseSelection({
       providerDiscoveryDigest: "c".repeat(64),
       planningSnapshotDigest: "d".repeat(64),
       rollbackOnlyTargets: release.rollbackOnlyTargets,
-      legacyAppV2: legacy,
       projectIds: Object.fromEntries(
         RELEASE_ORDER.map((target) => [target, `prj_${target}`]),
       ),
@@ -232,7 +202,7 @@ test("execution rejects an altered projection, selection, or current upstream", 
   );
 });
 
-test("execution selection binds discovery, projects, manifest, ownership, and legacy", () => {
+test("execution selection binds discovery, projects, manifest, and ownership", () => {
   const value = execution(["governance"]);
   for (const selection of [
     { ...value.selection, providerDiscoveryDigest: "invalid" },
@@ -260,10 +230,6 @@ test("execution selection binds discovery, projects, manifest, ownership, and le
         ...value.selection.selectedManifest,
         releasePlanDigest: "e".repeat(64),
       },
-    },
-    {
-      ...value.selection,
-      legacyAppV2Digest: "f".repeat(64),
     },
   ]) {
     assert.throws(
@@ -371,28 +337,46 @@ test("execution binds both upstream URLs to the exact repository run and attempt
   }
 });
 
-test("execution rejects stale or malformed legacy v2 state", () => {
+// The retired legacy App deployment owned the execution's ninth key and the
+// selection's fifth. Neither may re-enter a canonical execution.
+test("execution and selection reject retired legacy App v2 fields", () => {
   const value = execution(["app"]);
+  assert.deepEqual(Object.keys(value), [
+    "schema",
+    "decision",
+    "reason",
+    "manifest",
+    "upstream",
+    "selection",
+    "projection",
+  ]);
+  assert.deepEqual(Object.keys(value.selection), [
+    "schema",
+    "providerDiscoveryDigest",
+    "planningSnapshotDigest",
+    "rollbackOnlyTargets",
+    "projectIds",
+    "mode",
+    "mainOwnershipMode",
+    "selectedManifest",
+  ]);
   assert.throws(
     () =>
       assertMainReleaseExecution({
         ...value,
-        legacyAppV2: {
-          ...value.legacyAppV2,
-          git: { ...value.legacyAppV2.git, ref: "main" },
-        },
+        legacyAppV2: { alias: "v2-app.mento.org" },
       }),
-    /legacy App v2/,
+    /Main release execution contains forbidden or missing fields/,
   );
   assert.throws(
     () =>
       assertMainReleaseExecution({
         ...value,
-        legacyAppV2: {
-          ...value.legacyAppV2,
-          deploymentId: value.manifest.originalPriors.app.deploymentId,
+        selection: {
+          ...value.selection,
+          legacyAppV2Digest: "f".repeat(64),
         },
       }),
-    /legacy App v2/,
+    /Main release selection contains forbidden or missing fields/,
   );
 });

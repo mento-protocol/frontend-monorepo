@@ -15,16 +15,6 @@ const NATIVE_VERCEL_CONFIGURATION = Object.freeze({
   }),
 });
 
-const APP_NATIVE_VERCEL_CONFIGURATION = Object.freeze({
-  $schema: "https://openapi.vercel.sh/vercel.json",
-  git: Object.freeze({
-    deploymentEnabled: Object.freeze({
-      "dependabot/**": false,
-      v2: true,
-    }),
-  }),
-});
-
 const ACTIVE_GITHUB_VERCEL_CONFIGURATION = Object.freeze({
   $schema: "https://openapi.vercel.sh/vercel.json",
   git: Object.freeze({
@@ -32,24 +22,22 @@ const ACTIVE_GITHUB_VERCEL_CONFIGURATION = Object.freeze({
   }),
 });
 
-const APP_ACTIVE_GITHUB_VERCEL_CONFIGURATION = Object.freeze({
-  $schema: "https://openapi.vercel.sh/vercel.json",
-  git: Object.freeze({
-    deploymentEnabled: Object.freeze({ "**": false, v2: true }),
-  }),
-});
+// The App's active shape before the MGP-18 v2 retirement. Recognition-only:
+// it lets the trusted controller classify open pre-retirement PR heads as
+// GitHub-owned. It is never a reviewed or tracked configuration, and it is
+// removed in the v3-normalization tighten step.
+const TRANSITIONAL_PRE_RETIREMENT_APP_ACTIVE_VERCEL_CONFIGURATION =
+  Object.freeze({
+    $schema: "https://openapi.vercel.sh/vercel.json",
+    git: Object.freeze({
+      deploymentEnabled: Object.freeze({ "**": false, v2: true }),
+    }),
+  });
 
 const MAIN_SHADOW_GITHUB_VERCEL_CONFIGURATION = Object.freeze({
   $schema: "https://openapi.vercel.sh/vercel.json",
   git: Object.freeze({
     deploymentEnabled: Object.freeze({ "**": false, main: true }),
-  }),
-});
-
-const APP_MAIN_SHADOW_GITHUB_VERCEL_CONFIGURATION = Object.freeze({
-  $schema: "https://openapi.vercel.sh/vercel.json",
-  git: Object.freeze({
-    deploymentEnabled: Object.freeze({ "**": false, main: true, v2: true }),
   }),
 });
 
@@ -59,17 +47,6 @@ const PREVIEW_SHADOW_GITHUB_MAIN_VERCEL_CONFIGURATION = Object.freeze({
     deploymentEnabled: Object.freeze({
       "dependabot/**": false,
       main: false,
-    }),
-  }),
-});
-
-const APP_PREVIEW_SHADOW_GITHUB_MAIN_VERCEL_CONFIGURATION = Object.freeze({
-  $schema: "https://openapi.vercel.sh/vercel.json",
-  git: Object.freeze({
-    deploymentEnabled: Object.freeze({
-      "dependabot/**": false,
-      main: false,
-      v2: true,
     }),
   }),
 });
@@ -163,20 +140,20 @@ export const PREVIEW_TARGET_CONFIG = Object.freeze({
     ownershipMode: PREVIEW_OWNERSHIP_MODES.GITHUB,
     mainOwnershipMode: MAIN_OWNERSHIP_MODES.GITHUB,
     vercelConfigurationPath: "apps/app.mento.org/vercel.json",
-    activeVercelConfiguration: APP_ACTIVE_GITHUB_VERCEL_CONFIGURATION,
-    mainShadowVercelConfiguration: APP_MAIN_SHADOW_GITHUB_VERCEL_CONFIGURATION,
+    activeVercelConfiguration: ACTIVE_GITHUB_VERCEL_CONFIGURATION,
+    mainShadowVercelConfiguration: MAIN_SHADOW_GITHUB_VERCEL_CONFIGURATION,
     previewShadowVercelConfiguration:
-      APP_PREVIEW_SHADOW_GITHUB_MAIN_VERCEL_CONFIGURATION,
-    nativeVercelConfiguration: APP_NATIVE_VERCEL_CONFIGURATION,
-    // Bounded transition for the MGP-18 v2 retirement (PR #879). Once the
-    // legacy App `v2` deployment is retired, `apps/app.mento.org/vercel.json`
-    // becomes the generic active shape the other three targets already use.
-    // The trusted controller runs the default branch's constants, so `main`
-    // must recognize that shape before the PR adopting it can pass the
-    // required `Vercel Preview` status. Remove this entry once the migration
-    // completes.
+      PREVIEW_SHADOW_GITHUB_MAIN_VERCEL_CONFIGURATION,
+    nativeVercelConfiguration: NATIVE_VERCEL_CONFIGURATION,
+    // Bounded transition for the MGP-18 v2 retirement. The App's reviewed
+    // configurations are now the generic shapes, but open pull requests
+    // branched before the retirement still carry the pre-retirement active
+    // shape at their heads. The trusted controller runs the default branch's
+    // constants, so it must keep recognizing that retired shape as
+    // GitHub-owned until those heads are refreshed. Remove this entry in the
+    // v3-normalization tighten step.
     transitionalGithubVercelConfigurations: [
-      ACTIVE_GITHUB_VERCEL_CONFIGURATION,
+      TRANSITIONAL_PRE_RETIREMENT_APP_ACTIVE_VERCEL_CONFIGURATION,
     ],
   }),
   governance: targetConfiguration({

@@ -196,11 +196,6 @@
       "deploymentId": "dpl_uiprior123",
       "deploymentUrl": "https://ui-prior.vercel.app",
       "aliases": ["ui.mento.org"]
-    },
-    "legacy-app": {
-      "deploymentId": "dpl_legacyPrior123",
-      "deploymentUrl": "https://legacy-prior.vercel.app",
-      "aliases": ["v2-app.mento.org"]
     }
   },
   "startMappings": {
@@ -235,13 +230,6 @@
         "alias": "ui.mento.org",
         "deploymentId": "dpl_uiprior123",
         "deploymentUrl": "https://ui-prior.vercel.app"
-      }
-    ],
-    "legacy-app": [
-      {
-        "alias": "v2-app.mento.org",
-        "deploymentId": "dpl_legacyPrior123",
-        "deploymentUrl": "https://legacy-prior.vercel.app"
       }
     ]
   },

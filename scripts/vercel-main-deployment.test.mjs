@@ -45,6 +45,7 @@ import {
   assertMainStageBarrier,
   assertMainActiveTerminalEvidenceArtifact,
   assertMainActiveTerminalProofs,
+  MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS,
   assertMainDeploymentHandoff,
   assertMainFinalResults,
   assertMainStageResult,
@@ -84,7 +85,6 @@ import {
   createMainDeploymentFailureEvidence,
   createMainJournalArtifactIdentity,
   createMainWorkflowRunUrl,
-  createMainLegacyAliasSpec,
   createMainProtectedAliasSpec,
   createMainStageResult,
   createMainTransactionInputs,
@@ -163,45 +163,14 @@ function allProtectedStates() {
   const states = Object.values(source.priorStates).flatMap(
     (group) => group.states,
   );
-  states.push({
-    alias: "v2-app.mento.org",
-    deploymentId: "dpl_legacyV2123",
-    deploymentUrl: "https://appmento-jbhj7crjl-mentolabs.vercel.app",
-    creatorUsername: "chapati",
-    projectId: projectIds.app,
-    projectName: "app.mento.org",
-    readyState: "READY",
-    target: "production",
-    customEnvironmentSlug: null,
-    git: {
-      org: "mento-protocol",
-      repo: "frontend-monorepo",
-      ref: "v2",
-      sha: "9999999999999999999999999999999999999999",
-    },
-    aliases: [
-      "appmentoorg-git-v2-mentolabs.vercel.app",
-      "appmentoorg-mentolabs.vercel.app",
-      "appmentoorg.vercel.app",
-      "v2-app.mento.org",
-    ],
-  });
   return states.sort((left, right) => left.alias.localeCompare(right.alias));
 }
 
 function planningSnapshot() {
   return {
     schema: "vercel-main-planning-snapshot:v1",
-    states: allProtectedStates().filter(
-      (state) => state.alias !== "v2-app.mento.org",
-    ),
+    states: allProtectedStates(),
   };
-}
-
-function legacySnapshot() {
-  return allProtectedStates().filter(
-    (state) => state.alias === "v2-app.mento.org",
-  );
 }
 
 function gitAdapter() {
@@ -247,7 +216,6 @@ function plan({
     deploySha: SHA,
     projectIds,
     planningSnapshot: planningSnapshot(),
-    legacySnapshot: legacySnapshot(),
     rollbackOnlyTargets: [],
     upstream: upstream(),
     gitAdapter: gitAdapter(),
@@ -318,12 +286,10 @@ function releaseManifestForPlan(deploymentPlan) {
 
 function releaseExecutionForPlan(deploymentPlan) {
   const manifest = releaseManifestForPlan(deploymentPlan);
-  const legacyAppV2 = deploymentPlan.legacySnapshot[0];
   const selection = createMainReleaseSelection({
     providerDiscoveryDigest: "f".repeat(64),
     planningSnapshotDigest: "e".repeat(64),
     rollbackOnlyTargets: manifest.rollbackOnlyTargets,
-    legacyAppV2,
     projectIds: Object.fromEntries(
       ["governance", "reserve", "ui", "app"].map((target) => [
         target,
@@ -345,7 +311,6 @@ function releaseExecutionForPlan(deploymentPlan) {
         : "current-main-release-is-an-interrupted-prefix",
     manifest,
     upstream: deploymentPlan.upstream,
-    legacyAppV2,
     selection,
   });
 }
@@ -407,23 +372,17 @@ function currentCandidateReceipt(execution, target) {
 
 function currentCanonicalMappings(deploymentPlan) {
   const byAlias = new Map();
-  for (const state of [
-    ...deploymentPlan.protectedSnapshot.states,
-    ...deploymentPlan.legacySnapshot,
-  ]) {
+  for (const state of deploymentPlan.protectedSnapshot.states) {
     for (const alias of state.aliases) byAlias.set(alias, state);
   }
-  const targets = ["governance", "reserve", "ui", "app", "legacy-app"];
+  const targets = ["governance", "reserve", "ui", "app"];
   return {
     schema: "vercel-main-canonical-mappings:v1",
     mappings: Object.fromEntries(
       targets.map((target) => {
-        const aliases =
-          target === "legacy-app"
-            ? deploymentPlan.legacySnapshot[0].aliases
-            : deploymentPlan.planning.priors.find(
-                (entry) => entry.target === target,
-              ).aliases;
+        const aliases = deploymentPlan.planning.priors.find(
+          (entry) => entry.target === target,
+        ).aliases;
         return [
           target,
           aliases.map((alias) => {
@@ -772,26 +731,7 @@ function activeStateProof({
       ];
     }),
   );
-  return createActiveDeploymentStateProof({
-    spec,
-    deployments,
-    legacyV2: {
-      ownership: "native-vercel-git",
-      state: {
-        alias: spec.legacyAppV2.alias,
-        deploymentId: spec.legacyAppV2.deployment,
-        deploymentUrl: spec.legacyAppV2.deploymentUrl,
-        creatorUsername: null,
-        projectId: spec.legacyAppV2.projectId,
-        projectName: spec.legacyAppV2.projectName,
-        readyState: "READY",
-        target: "production",
-        customEnvironmentSlug: null,
-        git: { ...spec.legacyAppV2.git },
-        aliases: [spec.legacyAppV2.alias],
-      },
-    },
-  });
+  return createActiveDeploymentStateProof({ spec, deployments });
 }
 
 function terminalStateProof({ execution, stateProof, appPreparation = null }) {
@@ -838,10 +778,6 @@ function committedTerminalProofs({
     finalCensus: { status: "passed", artifact: terminalState },
     stateProof: { status: "passed", artifact: terminalState },
     publicSmoke: { status: "passed", artifact: evidence.publicSmokes },
-    freshLegacyV2: {
-      status: "passed",
-      artifact: execution.legacyAppV2,
-    },
     mutationCount: evidence.publicServingMutationCommands,
     rollbackTargets: [],
     affectedOperations: [],
@@ -898,9 +834,6 @@ function providerMappings(execution, mappings) {
       .map((alias) => byAlias.get(alias))
       .toSorted((left, right) => left.alias.localeCompare(right.alias));
   }
-  grouped["legacy-app"] = execution.legacyAppV2.aliases
-    .map((alias) => byAlias.get(alias))
-    .toSorted((left, right) => left.alias.localeCompare(right.alias));
   return {
     schema: "vercel-main-canonical-mappings:v1",
     mappings: grouped,
@@ -924,9 +857,10 @@ function priorPublicSmokes(execution) {
   );
 }
 
-test("protected spec binds every reviewed main alias and legacy v2", () => {
+// MGP-18 retired the legacy App deployment. The protected spec is exactly the
+// five reviewed main aliases; nothing may re-admit the legacy topology.
+test("protected spec binds exactly the five reviewed main aliases", () => {
   const spec = createMainProtectedAliasSpec({ projectIds });
-  const legacy = createMainLegacyAliasSpec({ projectIds });
   assert.equal(spec.length, 5);
   assert.deepEqual(
     spec.map((entry) => entry.alias),
@@ -942,20 +876,21 @@ test("protected spec binds every reviewed main alias and legacy v2", () => {
     spec.filter((entry) => entry.projectName === "app.mento.org").length,
     2,
   );
-  assert.deepEqual(legacy, [
-    {
-      alias: "v2-app.mento.org",
-      projectId: projectIds.app,
-      projectName: "app.mento.org",
-      target: "production",
-      customEnvironmentSlug: null,
-      git: {
-        org: "mento-protocol",
-        repo: "frontend-monorepo",
-        ref: "v2",
-      },
-    },
-  ]);
+  for (const entry of spec) {
+    assert.equal(entry.git.ref, "main");
+  }
+  for (const retired of [
+    "v2-app.mento.org",
+    "appmentoorg-git-v2-mentolabs.vercel.app",
+    "appmentoorg-mentolabs.vercel.app",
+    "appmentoorg.vercel.app",
+  ]) {
+    assert.equal(
+      spec.some((entry) => entry.alias === retired),
+      false,
+    );
+  }
+  assert.equal(MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS, 5);
 });
 
 test("controller CLI accepts only each command's exact non-duplicated options", () => {
@@ -1249,20 +1184,12 @@ test("controller CLI accepts only each command's exact non-duplicated options", 
       "plan",
       "--planning-snapshot",
       "/tmp/main.json",
-      "--legacy-snapshot",
-      "/tmp/legacy.json",
       "--output",
       "/tmp/plan.json",
     ],
     ["freshness"],
     ["journal-name"],
-    [
-      "revalidate-prior",
-      "--planning-snapshot",
-      "/tmp/main.json",
-      "--legacy-snapshot",
-      "/tmp/legacy.json",
-    ],
+    ["revalidate-prior", "--planning-snapshot", "/tmp/main.json"],
     [
       "candidate-intent",
       "--execution",
@@ -1329,7 +1256,7 @@ test("controller CLI accepts only each command's exact non-duplicated options", 
       "--scope",
       "main",
       "--scope",
-      "legacy",
+      "main",
       "--output",
       "/tmp/spec.json",
     ],
@@ -1343,7 +1270,7 @@ test("controller CLI accepts only each command's exact non-duplicated options", 
       "--output",
       "/tmp/evidence.json",
       "--plan",
-      "/tmp/legacy-plan.json",
+      "/tmp/plan.json",
       "--receipt",
       "cmVjZWlwdA",
     ],
@@ -1908,10 +1835,7 @@ test("canonical evidence records planning, candidates, timings, cache, journal, 
   assert.equal(evidence.journal.journalArtifactId, "98123");
   assert.equal(evidence.journal.sequence, 0);
   assert.equal(evidence.journal.status, "prepared");
-  assert.equal(evidence.legacy.alias, "v2-app.mento.org");
-  assert.equal(evidence.legacy.ref, "v2");
-  assert.equal(evidence.legacy.readyState, "READY");
-  assert.equal(evidence.legacy.health, "passed");
+  assert.equal(Object.hasOwn(evidence, "legacy"), false);
   assert.deepEqual(evidence.stages.governance.verification, {
     canonicalState: "passed",
     immutableSmoke: "passed",
@@ -1932,7 +1856,7 @@ test("canonical evidence records planning, candidates, timings, cache, journal, 
     /Public-serving activation, alias, promotion, rollback, and recovery commands: `0`/,
   );
   assert.match(summary, /Unaliased ordinary staging uploads/);
-  assert.match(summary, /legacy-app/);
+  assert.doesNotMatch(summary, /legacy-app|v2-app\.mento\.org/);
   assert.doesNotMatch(
     JSON.stringify(evidence),
     /creatorUsername|VERCEL_TOKEN|SENTRY_AUTH_TOKEN|github_event|rawResponse/,
@@ -2293,7 +2217,7 @@ test("failure-evidence CLI writes one canonical report when the planner output i
   }
 });
 
-test("plan handoff binds upstream receipt, protected state, served-SHA plan, and legacy prior", () => {
+test("plan handoff binds upstream receipt, protected state, and served-SHA plan", () => {
   const result = plan();
   assert.equal(result.schema, MAIN_DEPLOYMENT_SCHEMA);
   assert.equal(result.mode, "shadow");
@@ -2305,17 +2229,15 @@ test("plan handoff binds upstream receipt, protected state, served-SHA plan, and
     "ui",
   ]);
   assert.equal(result.protectedSnapshot.states.length, 5);
-  assert.equal(result.legacySnapshot.length, 1);
-  assert.deepEqual(result.legacyPrior, {
-    deploymentId: "dpl_legacyV2123",
-    deploymentUrl: "https://appmento-jbhj7crjl-mentolabs.vercel.app",
-    aliases: [
-      "appmentoorg-git-v2-mentolabs.vercel.app",
-      "appmentoorg-mentolabs.vercel.app",
-      "appmentoorg.vercel.app",
-      "v2-app.mento.org",
-    ],
-  });
+  assert.deepEqual(Object.keys(result), [
+    "schema",
+    "mode",
+    "deploySha",
+    "upstream",
+    "projectIds",
+    "protectedSnapshot",
+    "planning",
+  ]);
   assert.deepEqual(assertMainDeploymentHandoff(result), result);
   assert.throws(
     () =>
@@ -2325,9 +2247,16 @@ test("plan handoff binds upstream receipt, protected state, served-SHA plan, and
       }),
     /forbidden or missing fields/,
   );
+  // MGP-18 retired the legacy App deployment; the handoff may not carry it.
+  for (const retired of ["legacySnapshot", "legacyPrior"]) {
+    assert.throws(
+      () => assertMainDeploymentHandoff({ ...result, [retired]: [] }),
+      /forbidden or missing fields/,
+    );
+  }
 });
 
-test("legacy plan CLI conservatively selects every rollback-only main target", () => {
+test("plan CLI conservatively selects every rollback-only main target", () => {
   const directory = mkdtempSync(join(tmpdir(), "vercel-main-plan-"));
   try {
     const sourcePath = fileURLToPath(new URL("..", import.meta.url));
@@ -2339,10 +2268,8 @@ test("legacy plan CLI conservatively selects every rollback-only main target", (
 
     const planPath = join(directory, "plan.json");
     const planningSnapshotPath = join(directory, "planning-snapshot.json");
-    const legacySnapshotPath = join(directory, "legacy-snapshot.json");
     const githubOutput = join(directory, "github-output");
     writeFileSync(planningSnapshotPath, JSON.stringify(planningSnapshot()));
-    writeFileSync(legacySnapshotPath, JSON.stringify(legacySnapshot()));
     writeFileSync(githubOutput, "");
 
     const result = spawnSync(
@@ -2352,8 +2279,6 @@ test("legacy plan CLI conservatively selects every rollback-only main target", (
         "plan",
         "--planning-snapshot",
         planningSnapshotPath,
-        "--legacy-snapshot",
-        legacySnapshotPath,
         "--output",
         planPath,
       ],
@@ -2481,7 +2406,6 @@ for (const [name, mutate, reason] of [
       deploySha: SHA,
       projectIds,
       planningSnapshot: snapshot,
-      legacySnapshot: legacySnapshot(),
       rollbackOnlyTargets: [],
       upstream: upstream(),
       gitAdapter: gitAdapter(),
@@ -2729,43 +2653,13 @@ test("selected stages must succeed and unselected stages must be skipped", () =>
 
 test("protected rollback identity remains stable while ordinary generated aliases move", () => {
   const deploymentPlan = plan();
-  const incompleteLegacyTopology = legacySnapshot();
-  incompleteLegacyTopology[0].aliases = ["v2-app.mento.org"];
-  assert.throws(
-    () =>
-      createMainDeploymentPlan({
-        mode: MAIN_DEPLOYMENT_MODE,
-        mainOwnershipMode: ownership({
-          app: MAIN_OWNERSHIP_MODES.SHADOW,
-          governance: MAIN_OWNERSHIP_MODES.SHADOW,
-          reserve: MAIN_OWNERSHIP_MODES.SHADOW,
-          ui: MAIN_OWNERSHIP_MODES.SHADOW,
-        }),
-        deploySha: SHA,
-        projectIds,
-        planningSnapshot: planningSnapshot(),
-        legacySnapshot: incompleteLegacyTopology,
-        rollbackOnlyTargets: [],
-        upstream: upstream(),
-        gitAdapter: gitAdapter(),
-        runPlanner: ({ base, head }) => ({
-          base,
-          head,
-          deployments: ["app"],
-          reason: "affected-packages",
-        }),
-      }),
-    /Legacy app generated-alias topology mismatch/,
-  );
   assert.deepEqual(
     assertProtectedSnapshotMatchesPlan({
       plan: deploymentPlan,
       planningSnapshot: planningSnapshot(),
-      legacySnapshot: legacySnapshot(),
     }),
     {
       protectedSnapshot: deploymentPlan.protectedSnapshot,
-      legacySnapshot: deploymentPlan.legacySnapshot,
     },
   );
   const drifted = structuredClone(planningSnapshot());
@@ -2775,7 +2669,6 @@ test("protected rollback identity remains stable while ordinary generated aliase
       assertProtectedSnapshotMatchesPlan({
         plan: deploymentPlan,
         planningSnapshot: drifted,
-        legacySnapshot: legacySnapshot(),
       }),
     /drifted/,
   );
@@ -2799,7 +2692,6 @@ test("protected rollback identity remains stable while ordinary generated aliase
       assertProtectedSnapshotMatchesPlan({
         plan: deploymentPlan,
         planningSnapshot: changed,
-        legacySnapshot: legacySnapshot(),
       }),
     );
   }
@@ -2809,7 +2701,6 @@ test("protected rollback identity remains stable while ordinary generated aliase
     assertProtectedSnapshotMatchesPlan({
       plan: deploymentPlan,
       planningSnapshot: refreshedGitEvidence,
-      legacySnapshot: legacySnapshot(),
     }),
   );
   const ordinaryGeneratedAliasesMoved = structuredClone(planningSnapshot());
@@ -2822,19 +2713,20 @@ test("protected rollback identity remains stable while ordinary generated aliase
     assertProtectedSnapshotMatchesPlan({
       plan: deploymentPlan,
       planningSnapshot: ordinaryGeneratedAliasesMoved,
-      legacySnapshot: legacySnapshot(),
     }),
   );
-  const legacyAliasDrift = structuredClone(legacySnapshot());
-  legacyAliasDrift[0].aliases = [
-    "v2-app.mento.org",
-    "unexpected-legacy-alias.vercel.app",
-  ];
+  // MGP-18 retired the legacy App deployment. Its aliases can no longer enter
+  // the protected snapshot, so injecting one must fail closed.
+  const retiredLegacyAlias = structuredClone(planningSnapshot());
+  retiredLegacyAlias.states.push({
+    ...retiredLegacyAlias.states[0],
+    alias: "v2-app.mento.org",
+    aliases: ["v2-app.mento.org"],
+  });
   assert.throws(() =>
     assertProtectedSnapshotMatchesPlan({
       plan: deploymentPlan,
-      planningSnapshot: planningSnapshot(),
-      legacySnapshot: legacyAliasDrift,
+      planningSnapshot: retiredLegacyAlias,
     }),
   );
   for (const mutate of [
@@ -2863,7 +2755,6 @@ test("protected rollback identity remains stable while ordinary generated aliase
       assertProtectedSnapshotMatchesPlan({
         plan: deploymentPlan,
         planningSnapshot: changed,
-        legacySnapshot: legacySnapshot(),
       }),
     );
   }
@@ -2885,7 +2776,6 @@ test("protected rollback identity remains stable while ordinary generated aliase
       deploySha: SHA,
       projectIds,
       planningSnapshot: captured,
-      legacySnapshot: legacySnapshot(),
       rollbackOnlyTargets: [],
       upstream: upstream(),
       gitAdapter: gitAdapter(),
@@ -2900,7 +2790,6 @@ test("protected rollback identity remains stable while ordinary generated aliase
       assertProtectedSnapshotMatchesPlan({
         plan: ambiguityPlan,
         planningSnapshot: planningSnapshot(),
-        legacySnapshot: legacySnapshot(),
       }),
     );
   }
@@ -2962,7 +2851,6 @@ test("transaction inputs bind ordered priors, release identity, and fresh start 
     "governance",
     "reserve",
     "ui",
-    "legacy-app",
   ]);
   assert.deepEqual(Object.keys(inputs.candidates), [
     "app",
@@ -2976,11 +2864,10 @@ test("transaction inputs bind ordered priors, release identity, and fresh start 
     "governance",
     "reserve",
     "ui",
-    "legacy-app",
   ]);
   assert.equal(
-    inputs.startMappings["legacy-app"][0].deploymentId,
-    inputs.prior["legacy-app"].deploymentId,
+    inputs.startMappings.app[0].deploymentId,
+    inputs.prior.app.deploymentId,
   );
   assert.equal(appProof().deployReachable, false);
   assert.equal(appProof().sentryAuthToken, "");
@@ -3301,10 +3188,7 @@ test("active state spec binds the highest journal and exact stage handoffs", asy
       expected.projects.reserve.expectedDisposition,
       "githubShadowStage",
     );
-    assert.equal(
-      expected.legacyAppV2.deployment,
-      deploymentPlan.legacySnapshot[0].deploymentId,
-    );
+    assert.equal(Object.hasOwn(expected, "legacyAppV2"), false);
     assert.deepEqual(
       createMainActiveAliasMappingSpec({
         plan: deploymentPlan,
@@ -3315,13 +3199,9 @@ test("active state spec binds the highest journal and exact stage handoffs", asy
       [
         "app.mento.org",
         "appmentoorg-env-v3-mentolabs.vercel.app",
-        "appmentoorg-git-v2-mentolabs.vercel.app",
-        "appmentoorg-mentolabs.vercel.app",
-        "appmentoorg.vercel.app",
         "governance.mento.org",
         "reserve.mento.org",
         "ui.mento.org",
-        "v2-app.mento.org",
       ],
     );
     assert.throws(
@@ -3454,14 +3334,7 @@ test("governance-only smoke materialization pipes through finalization and evide
   assert.deepEqual(stateProof.projects.ui.ids.inertCanceled, [
     "dpl_uicanceled123",
   ]);
-  const boundFinalMappings = activeFinalMappings(harness).map((entry) =>
-    harness.inputs.prior["legacy-app"].aliases.includes(entry.alias)
-      ? {
-          ...entry,
-          projectId: harness.inputs.release.originalPriors.app.projectId,
-        }
-      : entry,
-  );
+  const boundFinalMappings = activeFinalMappings(harness);
   const finalized = reduceMainActiveTransition({
     preparedJournal: history[0],
     activeTargets: ["governance"],
@@ -3506,14 +3379,12 @@ test("governance-only smoke materialization pipes through finalization and evide
   assert.equal(evidence.stateProofSummary.targets.ui.counts.inertCanceled, 1);
   assert.deepEqual(Object.keys(evidence.stateProofSummary.targets.ui.counts), [
     "scanned",
-    ...ACTIVE_STATE_CLASSIFICATIONS.filter(
-      (classification) => classification !== "legacyV2",
-    ),
+    ...ACTIVE_STATE_CLASSIFICATIONS,
   ]);
-  assert.equal(
-    Object.hasOwn(evidence.stateProofSummary.targets.ui.counts, "legacyV2"),
-    false,
-  );
+  // MGP-18 retired the legacy App classification and its summary field.
+  assert.equal(ACTIVE_STATE_CLASSIFICATIONS.includes("legacyV2"), false);
+  assert.equal(ACTIVE_STATE_CLASSIFICATIONS.length, 7);
+  assert.equal(Object.hasOwn(evidence.stateProofSummary, "legacyAppV2"), false);
 });
 
 test("active controller commits exact ordered mutations and emits canonical redacted evidence", async () => {
@@ -3568,7 +3439,7 @@ test("active controller commits exact ordered mutations and emits canonical reda
   assert.equal(evidence.schema, MAIN_ACTIVE_EVIDENCE_SCHEMA);
   assert.equal(evidence.journal.highestStatus, "committed");
   assert.equal(evidence.orderedVerifiedOperations.length, 6);
-  assert.equal(evidence.finalMappings.length, 9);
+  assert.equal(evidence.finalMappings.length, 5);
   assert.equal(
     evidence.stateProofSummary.proofSchema,
     ACTIVE_DEPLOYMENT_STATE_PROOF_SCHEMA,
@@ -3601,9 +3472,7 @@ test("active controller commits exact ordered mutations and emits canonical reda
     /state proof summary identity is invalid/,
   );
   const incompleteClassificationSummary = structuredClone(evidence);
-  const requiredClassification = ACTIVE_STATE_CLASSIFICATIONS.find(
-    (classification) => classification !== "legacyV2",
-  );
+  const requiredClassification = ACTIVE_STATE_CLASSIFICATIONS[0];
   delete incompleteClassificationSummary.stateProofSummary.targets.ui.counts[
     requiredClassification
   ];
@@ -3749,7 +3618,6 @@ test("production-shaped all-target terminal artifacts cover the five-operation c
     publicSmokes: activePublicSmokes(transaction),
     stateProof: completeStateProof,
     finalCensus: completeStateProof,
-    freshLegacyV2: harness.plan.legacySnapshot,
     freshness: null,
     runId: "800",
     runAttempt: "3",
@@ -3811,7 +3679,6 @@ test("production-shaped all-target terminal artifacts cover the five-operation c
     publicSmokes: null,
     stateProof: null,
     finalCensus: null,
-    freshLegacyV2: harness.plan.legacySnapshot,
     freshness: null,
     stageResults: null,
     runId: "800",
@@ -3909,7 +3776,6 @@ test("execution-bound terminal artifacts derive committed and verified-noop proo
     publicSmokes: activePublicSmokes(committed),
     stateProof: committedTerminalStateProof,
     finalCensus: committedTerminalStateProof,
-    freshLegacyV2: committedHarness.plan.legacySnapshot,
     freshness: null,
     runId: "800",
     runAttempt: "3",
@@ -3940,7 +3806,6 @@ test("execution-bound terminal artifacts derive committed and verified-noop proo
         publicSmokes: activePublicSmokes(committed),
         stateProof: tamperedPriorProof,
         finalCensus: tamperedPriorProof,
-        freshLegacyV2: committedHarness.plan.legacySnapshot,
         freshness: null,
         runId: "800",
         runAttempt: "3",
@@ -3975,7 +3840,6 @@ test("execution-bound terminal artifacts derive committed and verified-noop proo
     publicSmokes: priorPublicSmokes(noopExecution),
     stateProof: noopStateProof,
     finalCensus: noopStateProof,
-    freshLegacyV2: noopPlan.legacySnapshot,
     freshness: null,
     runId: "800",
     runAttempt: "3",
@@ -4003,34 +3867,34 @@ test("execution-bound terminal artifacts derive committed and verified-noop proo
         publicSmokes: priorPublicSmokes(noopExecution),
         stateProof: noopStateProof,
         finalCensus: noopStateProof,
-        freshLegacyV2: noopPlan.legacySnapshot,
         freshness: null,
         runId: "800",
         runAttempt: "3",
       }),
     /journal head conflicts/,
   );
-  assert.throws(
-    () =>
-      createMainActiveTerminalArtifacts({
-        execution: noopExecution,
-        outcome: "verified-noop",
-        journalHistory: activeHistoryDocument([prepared]),
-        finalMappings: providerMappings(noopExecution, priorMappings),
-        publicSmokes: priorPublicSmokes(noopExecution),
-        stateProof: noopStateProof,
-        finalCensus: noopStateProof,
-        freshLegacyV2: [
-          {
-            ...noopPlan.legacySnapshot[0],
-            deploymentId: "dpl_wrongLegacy123",
-          },
-        ],
-        freshness: null,
-        runId: "800",
-        runAttempt: "3",
-      }),
-    /fresh legacy v2 snapshot conflicts/,
+  // MGP-18 retired the legacy App proof; the artifacts no longer emit one and
+  // a supplied legacy snapshot is ignored rather than bound.
+  const retiredLegacyArtifacts = createMainActiveTerminalArtifacts({
+    execution: noopExecution,
+    outcome: "verified-noop",
+    journalHistory: activeHistoryDocument([prepared]),
+    finalMappings: providerMappings(noopExecution, priorMappings),
+    publicSmokes: priorPublicSmokes(noopExecution),
+    stateProof: noopStateProof,
+    finalCensus: noopStateProof,
+    freshness: null,
+    runId: "800",
+    runAttempt: "3",
+    freshLegacyV2: [{ alias: "v2-app.mento.org" }],
+  });
+  assert.equal(
+    Object.hasOwn(retiredLegacyArtifacts.proofs, "freshLegacyV2"),
+    false,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(retiredLegacyArtifacts),
+    /v2-app\.mento\.org/,
   );
 
   const supersededFreshness = createMainActiveFreshness({
@@ -4045,7 +3909,6 @@ test("execution-bound terminal artifacts derive committed and verified-noop proo
     publicSmokes: null,
     stateProof: null,
     finalCensus: null,
-    freshLegacyV2: noopPlan.legacySnapshot,
     freshness: supersededFreshness,
     runId: "800",
     runAttempt: "3",
@@ -4064,7 +3927,6 @@ test("execution-bound terminal artifacts derive committed and verified-noop proo
         publicSmokes: null,
         stateProof: null,
         finalCensus: null,
-        freshLegacyV2: noopPlan.legacySnapshot,
         freshness: createMainActiveFreshness({
           deploySha: SHA,
           observedSha: SHA,
@@ -4148,7 +4010,6 @@ test("execution-bound recovered terminal artifacts prove rollback to every origi
     publicSmokes: priorPublicSmokes(execution),
     stateProof,
     finalCensus: stateProof,
-    freshLegacyV2: deploymentPlan.legacySnapshot,
     freshness: null,
     runId: "800",
     runAttempt: "3",
@@ -4175,7 +4036,6 @@ test("execution-bound recovered terminal artifacts prove rollback to every origi
         publicSmokes: priorPublicSmokes(execution),
         stateProof,
         finalCensus: stateProof,
-        freshLegacyV2: deploymentPlan.legacySnapshot,
         freshness: null,
         runId: "800",
         runAttempt: "3",
@@ -4251,7 +4111,6 @@ test("recovered terminal preserves verified rollback evidence when final provide
     publicSmokes: priorPublicSmokes(execution),
     stateProof: null,
     finalCensus: censusFailure,
-    freshLegacyV2: deploymentPlan.legacySnapshot,
     freshness: null,
     runId: "800",
     runAttempt: "3",
@@ -4286,7 +4145,6 @@ test("recovered terminal preserves verified rollback evidence when final provide
         publicSmokes: priorPublicSmokes(execution),
         stateProof: null,
         finalCensus: { ...censusFailure, category: "unbounded-provider-error" },
-        freshLegacyV2: deploymentPlan.legacySnapshot,
         freshness: null,
         runId: "800",
         runAttempt: "3",
@@ -4522,7 +4380,6 @@ test("manual terminal handoff binds its affected-operation set to the exact curr
     publicSmokes: null,
     stateProof,
     finalCensus: stateProof,
-    freshLegacyV2: deploymentPlan.legacySnapshot,
     freshness: null,
     stageResults: null,
     runId: "800",
@@ -4638,7 +4495,6 @@ test("recovery-failed terminal artifacts preserve a durable journal without reco
       publicSmokes: null,
       stateProof: null,
       finalCensus: null,
-      freshLegacyV2: deploymentPlan.legacySnapshot,
       freshness: null,
       stageResults: null,
       runId: "800",
@@ -4734,7 +4590,6 @@ test("recovery-failed terminal artifacts preserve a durable journal without reco
     publicSmokes: null,
     stateProof: null,
     finalCensus: null,
-    freshLegacyV2: deploymentPlan.legacySnapshot,
     freshness: null,
     stageResults: null,
     runId: "800",
@@ -4762,10 +4617,6 @@ test("recovery-failed terminal artifacts preserve a durable journal without reco
       field,
     );
   }
-  assert.throws(
-    () => createMainActiveTerminalArtifacts({ ...inputs, freshLegacyV2: null }),
-    /Canonical deployment state is malformed/,
-  );
 });
 
 test("preparation failure terminal artifacts bind exact target results without provider claims", () => {
@@ -4794,7 +4645,6 @@ test("preparation failure terminal artifacts bind exact target results without p
     publicSmokes: null,
     stateProof: null,
     finalCensus: null,
-    freshLegacyV2: deploymentPlan.legacySnapshot,
     freshness: null,
     stageResults,
     runId: "800",
@@ -4887,7 +4737,6 @@ test("preparation failure terminal artifacts bind exact target results without p
       publicSmokes: null,
       stateProof: null,
       finalCensus: null,
-      freshLegacyV2: scenarioPlan.legacySnapshot,
       freshness: null,
       stageResults: {
         schema: "vercel-main-stage-results:v2",
@@ -4961,7 +4810,6 @@ test("preparation failure terminal artifacts bind exact target results without p
           publicSmokes: null,
           stateProof: null,
           finalCensus: null,
-          freshLegacyV2: deploymentPlan.legacySnapshot,
           freshness: null,
           stageResults: invalid,
           runId: "800",
@@ -4985,7 +4833,6 @@ test("preparation failure terminal artifacts bind exact target results without p
         publicSmokes: null,
         stateProof: null,
         finalCensus: null,
-        freshLegacyV2: appSelectedPlan.legacySnapshot,
         freshness: null,
         stageResults: {
           schema: "vercel-main-stage-results:v2",
@@ -5015,7 +4862,6 @@ test("preparation failure terminal artifacts bind exact target results without p
         publicSmokes: null,
         stateProof: null,
         finalCensus: null,
-        freshLegacyV2: deploymentPlan.legacySnapshot,
         freshness: null,
         stageResults,
         runId: "800",
@@ -5040,7 +4886,6 @@ test("terminal evidence restore renders preparation failure evidence", async () 
       publicSmokes: null,
       stateProof: null,
       finalCensus: null,
-      freshLegacyV2: deploymentPlan.legacySnapshot,
       freshness: null,
       stageResults: {
         schema: "vercel-main-stage-results:v2",
@@ -5231,11 +5076,6 @@ test("terminal evidence CLI creates a bounded receipt and restores committed evi
         target: "app",
         alias,
       })),
-      ...recoveryJournal.prior["legacy-app"].aliases.map((alias) => ({
-        type: "legacy_emergency_restore",
-        target: "legacy-app",
-        alias,
-      })),
     ];
     for (const intent of maximalRecoveryIntents) {
       recoveryJournal = startMainTransactionOperation(recoveryJournal, intent);
@@ -5292,7 +5132,6 @@ test("terminal evidence CLI creates a bounded receipt and restores committed evi
       publicSmokes: priorPublicSmokes(execution),
       stateProof: maximalRecoveryStateProof,
       finalCensus: maximalRecoveryStateProof,
-      freshLegacyV2: harness.plan.legacySnapshot,
       freshness: null,
       runId: "800",
       runAttempt: "3",
@@ -5592,15 +5431,10 @@ test("terminal evidence CLI creates a bounded receipt and restores committed evi
         }),
       /producer attempt exceeds final attempt/,
     );
-    const changedLegacyAppV2 = {
-      ...execution.legacyAppV2,
-      deploymentId: "dpl_otherLegacyV2123",
-    };
-    const changedLegacySelection = createMainReleaseSelection({
-      providerDiscoveryDigest: execution.selection.providerDiscoveryDigest,
+    const changedSelection = createMainReleaseSelection({
+      providerDiscoveryDigest: "b".repeat(64),
       planningSnapshotDigest: execution.selection.planningSnapshotDigest,
       rollbackOnlyTargets: execution.selection.rollbackOnlyTargets,
-      legacyAppV2: changedLegacyAppV2,
       projectIds: execution.selection.projectIds,
       mode: execution.selection.mode,
       mainOwnershipMode: execution.selection.mainOwnershipMode,
@@ -5641,14 +5475,7 @@ test("terminal evidence CLI creates a bounded receipt and restores committed evi
         },
         "3",
       ],
-      [
-        {
-          ...execution,
-          legacyAppV2: changedLegacyAppV2,
-          selection: changedLegacySelection,
-        },
-        "2",
-      ],
+      [{ ...execution, selection: changedSelection }, "2"],
     ]) {
       assert.throws(
         () =>
@@ -5691,7 +5518,7 @@ test("terminal evidence CLI creates a bounded receipt and restores committed evi
   }
 });
 
-test("terminal evidence preserves every safe-noop outcome and requires fresh legacy v2 proof", () => {
+test("terminal evidence preserves every safe-noop outcome", () => {
   const cases = [
     {
       reason: "no-target",
@@ -5741,10 +5568,7 @@ test("terminal evidence preserves every safe-noop outcome and requires fresh leg
       runAttempt: "3",
       workflowRunUrl: WORKFLOW_RUN_URL,
     });
-    const unchangedMappings = [
-      ...Object.values(execution.manifest.originalPriors),
-      execution.legacyAppV2,
-    ]
+    const unchangedMappings = Object.values(execution.manifest.originalPriors)
       .flatMap((state) =>
         state.aliases.map((alias) => ({
           alias,
@@ -5798,10 +5622,6 @@ test("terminal evidence preserves every safe-noop outcome and requires fresh leg
       finalCensus: proof(statuses[1], "final-census"),
       stateProof: proof(statuses[2], "state-proof"),
       publicSmoke: proof(statuses[3], "public-smoke"),
-      freshLegacyV2: {
-        status: "passed",
-        artifact: execution.legacyAppV2,
-      },
       mutationCount: 0,
       rollbackTargets: [],
       affectedOperations: [],
@@ -5820,7 +5640,7 @@ test("terminal evidence preserves every safe-noop outcome and requires fresh leg
       repository: "mento-protocol/frontend-monorepo",
     });
     assert.equal(terminal.receipt.outcome, reason);
-    assert.equal(terminal.receipt.freshLegacyV2.status, "passed");
+    assert.equal(Object.hasOwn(terminal.receipt, "freshLegacyV2"), false);
     assert.deepEqual(
       restoreMainActiveTerminalEvidence({
         encodedReceipt: terminal.encodedReceipt,
@@ -5836,6 +5656,7 @@ test("terminal evidence preserves every safe-noop outcome and requires fresh leg
       }).artifact,
       evidence,
     );
+    // MGP-18 retired the legacy App proof; it may not re-enter the handoff.
     assert.throws(
       () =>
         createMainActiveTerminalHandoff({
@@ -5846,10 +5667,7 @@ test("terminal evidence preserves every safe-noop outcome and requires fresh leg
             ...proofs,
             freshLegacyV2: {
               status: "passed",
-              artifact: {
-                ...execution.legacyAppV2,
-                deploymentId: "dpl_attacker123",
-              },
+              artifact: { alias: "v2-app.mento.org" },
             },
           },
           deploySha: SHA,
@@ -5859,7 +5677,7 @@ test("terminal evidence preserves every safe-noop outcome and requires fresh leg
           producerRunAttempt: "3",
           repository: "mento-protocol/frontend-monorepo",
         }),
-      /fresh legacy v2 proof conflicts with execution/,
+      /forbidden or missing fields/,
     );
   }
 });
@@ -5972,10 +5790,6 @@ test("terminal evidence wraps and restores verified-noop failure evidence", () =
     finalCensus: { status: "passed", artifact: stateProof },
     stateProof: { status: "passed", artifact: stateProof },
     publicSmoke: { status: "passed", artifact: evidence.publicSmokes },
-    freshLegacyV2: {
-      status: "passed",
-      artifact: execution.legacyAppV2,
-    },
     mutationCount: 0,
     rollbackTargets: [],
     affectedOperations: [],
@@ -6228,11 +6042,6 @@ test("active canonical mappings bind canonical active and current captures", asy
         target: "reserve",
       },
       { alias: "ui.mento.org", projectId: "prj_ui123", target: "ui" },
-      {
-        alias: "v2-app.mento.org",
-        projectId: "prj_app123",
-        target: "legacy-app",
-      },
     ],
   };
   const currentSpec = {
@@ -6254,11 +6063,6 @@ test("active canonical mappings bind canonical active and current captures", asy
         target: "reserve",
       },
       { alias: "ui.mento.org", projectId: "prj_ui456", target: "ui" },
-      {
-        alias: "v2-app.mento.org",
-        projectId: "prj_app456",
-        target: "legacy-app",
-      },
     ],
   };
   const mappingsFor = (spec, deploymentSuffix) =>
@@ -6266,9 +6070,6 @@ test("active canonical mappings bind canonical active and current captures", asy
       alias: binding.alias,
       deploymentId: `dpl_${deploymentSuffix}${index + 1}`,
       deploymentUrl: `https://deployment-${deploymentSuffix}-${index + 1}.vercel.app`,
-      ...(binding.target === "legacy-app"
-        ? { projectId: binding.projectId }
-        : {}),
     }));
   const activeMappings = mappingsFor(activeSpec, "active");
   const currentMappings = mappingsFor(currentSpec, "current");
@@ -6279,13 +6080,6 @@ test("active canonical mappings bind canonical active and current captures", asy
       reserve: [activeMappings[2]],
       ui: [activeMappings[3]],
       app: [activeMappings[0]],
-      "legacy-app": [
-        {
-          alias: activeMappings[4].alias,
-          deploymentId: activeMappings[4].deploymentId,
-          deploymentUrl: activeMappings[4].deploymentUrl,
-        },
-      ],
     },
   };
   assert.deepEqual(
@@ -6307,13 +6101,6 @@ test("active canonical mappings bind canonical active and current captures", asy
         reserve: [currentMappings[2]],
         ui: [currentMappings[3]],
         app: [currentMappings[0]],
-        "legacy-app": [
-          {
-            alias: currentMappings[4].alias,
-            deploymentId: currentMappings[4].deploymentId,
-            deploymentUrl: currentMappings[4].deploymentUrl,
-          },
-        ],
       },
     },
   );
@@ -6335,11 +6122,9 @@ test("active canonical mappings bind canonical active and current captures", asy
       "missing target",
       {
         ...activeSpec,
-        bindings: activeSpec.bindings.filter(
-          ({ target }) => target !== "legacy-app",
-        ),
+        bindings: activeSpec.bindings.filter(({ target }) => target !== "ui"),
       },
-      activeMappings.filter(({ alias }) => alias !== "v2-app.mento.org"),
+      activeMappings.filter(({ alias }) => alias !== "ui.mento.org"),
       /target coverage is incomplete/,
     ],
     [
@@ -6355,24 +6140,30 @@ test("active canonical mappings bind canonical active and current captures", asy
       /conflicts with its spec/,
     ],
     [
-      "legacy project mismatch",
-      activeSpec,
-      activeMappings.map((mapping) =>
-        mapping.alias === "v2-app.mento.org"
-          ? { ...mapping, projectId: "prj_wrong123" }
-          : mapping,
-      ),
-      /conflicts with its spec/,
+      "retired legacy target binding",
+      {
+        ...activeSpec,
+        bindings: [
+          ...activeSpec.bindings,
+          {
+            alias: "v2-app.mento.org",
+            projectId: "prj_app123",
+            target: "legacy-app",
+          },
+        ],
+      },
+      activeMappings,
+      /bindings are ambiguous|bindings are not canonical|bound mappings are incomplete/,
     ],
     [
-      "ordinary project field",
+      "project field on any mapping",
       activeSpec,
       activeMappings.map((mapping) =>
         mapping.alias === "app.mento.org"
           ? { ...mapping, projectId: "prj_app123" }
           : mapping,
       ),
-      /conflicts with its spec/,
+      /forbidden or missing fields/,
     ],
     [
       "duplicate specification binding",
@@ -6380,7 +6171,7 @@ test("active canonical mappings bind canonical active and current captures", asy
         ...activeSpec,
         bindings: [
           activeSpec.bindings[0],
-          { ...activeSpec.bindings[0], target: "legacy-app" },
+          { ...activeSpec.bindings[0], target: "governance" },
           ...activeSpec.bindings.slice(2),
         ],
       },
@@ -6462,7 +6253,6 @@ test("active and current-release mapping-spec producers bind terminal captures",
     reason: "current-main-release-already-complete",
     manifest: activeExecution.manifest,
     upstream: activeExecution.upstream,
-    legacyAppV2: activeExecution.legacyAppV2,
     selection: activeExecution.selection,
   });
   const currentBarrier = createMainStageBarrier({
@@ -6502,16 +6292,13 @@ test("active and current-release mapping-spec producers bind terminal captures",
     assert.equal(spec.schema, ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA, name);
     assert.deepEqual(
       new Set(spec.bindings.map(({ target }) => target)),
-      new Set(["governance", "reserve", "ui", "app", "legacy-app"]),
+      new Set(["governance", "reserve", "ui", "app"]),
       name,
     );
     const rawMappings = spec.bindings.map((binding, index) => ({
       alias: binding.alias,
       deploymentId: `dpl_mapping${index + 1}`,
       deploymentUrl: `https://${name.replaceAll(" ", "-")}-${index + 1}.vercel.app`,
-      ...(binding.target === "legacy-app"
-        ? { projectId: binding.projectId }
-        : {}),
     }));
     const canonical = createMainActiveCanonicalMappings({
       mappingSpec: spec,
@@ -6520,7 +6307,7 @@ test("active and current-release mapping-spec producers bind terminal captures",
     assert.deepEqual(canonical, {
       schema: "vercel-main-canonical-mappings:v1",
       mappings: Object.fromEntries(
-        ["governance", "reserve", "ui", "app", "legacy-app"].map((target) => [
+        ["governance", "reserve", "ui", "app"].map((target) => [
           target,
           spec.bindings
             .map((binding, index) => ({ binding, mapping: rawMappings[index] }))
@@ -6579,29 +6366,12 @@ test("active recovery planning and execution hand off exact reverse mutations an
     currentMappings,
     appCandidateMatches: [],
   });
-  const legacyAliases = new Set(started.prior["legacy-app"].aliases);
-  const projectBoundMappings = currentMappings.map((entry) =>
-    legacyAliases.has(entry.alias)
-      ? {
-          ...entry,
-          projectId: started.release.originalPriors.app.projectId,
-        }
-      : entry,
-  );
-  assert.deepEqual(
-    planMainActiveRecovery({
-      journalHistory: [prepared, started],
-      deploySha: SHA,
-      runId: "800",
-      runAttempt: "3",
-      currentMappings: projectBoundMappings,
-    }),
-    recoveryPlan,
-  );
-  const wrongProjectMappings = structuredClone(projectBoundMappings);
-  wrongProjectMappings.find((entry) =>
-    legacyAliases.has(entry.alias),
-  ).projectId = "prj_wrong123";
+  // MGP-18 retired the legacy App binding. No recovery mapping may carry a
+  // project ID any more.
+  const projectBoundMappings = currentMappings.map((entry) => ({
+    ...entry,
+    projectId: started.release.originalPriors.app.projectId,
+  }));
   assert.throws(
     () =>
       planMainActiveRecovery({
@@ -6609,9 +6379,9 @@ test("active recovery planning and execution hand off exact reverse mutations an
         deploySha: SHA,
         runId: "800",
         runAttempt: "3",
-        currentMappings: wrongProjectMappings,
+        currentMappings: projectBoundMappings,
       }),
-    /project binding is inconsistent/,
+    /forbidden or missing fields/,
   );
   assert.equal(recoveryPlan.decision, "recover");
   assert.deepEqual(recoveryPlan.rollbackStateTargets, ["governance"]);
@@ -6628,13 +6398,11 @@ test("active recovery planning and execution hand off exact reverse mutations an
       .flatMap(({ aliases }) => aliases)
       .toSorted(),
   );
-  assert.equal(mappingSpec.bindings.length, 9);
+  assert.equal(mappingSpec.bindings.length, 5);
   for (const binding of mappingSpec.bindings) {
-    const projectTarget =
-      binding.target === "legacy-app" ? "app" : binding.target;
     assert.equal(
       binding.projectId,
-      started.release.originalPriors[projectTarget].projectId,
+      started.release.originalPriors[binding.target].projectId,
     );
   }
   const boundMappings = mappingSpec.bindings.map((binding) => {
@@ -6643,9 +6411,6 @@ test("active recovery planning and execution hand off exact reverse mutations an
       alias: binding.alias,
       deploymentId: prior.deploymentId,
       deploymentUrl: prior.deploymentUrl,
-      ...(binding.target === "legacy-app"
-        ? { projectId: binding.projectId }
-        : {}),
     };
   });
   const canonicalMappings = createMainActiveRecoveryCanonicalMappings({
@@ -6659,10 +6424,9 @@ test("active recovery planning and execution hand off exact reverse mutations an
     "reserve",
     "ui",
     "app",
-    "legacy-app",
   ]);
   assert.equal(
-    Object.hasOwn(canonicalMappings.mappings["legacy-app"][0], "projectId"),
+    Object.hasOwn(canonicalMappings.mappings.app[0], "projectId"),
     false,
   );
   for (const [name, mutate, pattern] of [
@@ -6677,13 +6441,12 @@ test("active recovery planning and execution hand off exact reverse mutations an
       /bound mappings are incomplete/,
     ],
     [
-      "wrong legacy project",
+      "retired legacy project binding",
       (value) => {
-        value.find(({ alias }) => legacyAliases.has(alias)).projectId =
-          "prj_wrong123";
+        value[0].projectId = "prj_wrong123";
         return value;
       },
-      /conflicts with its spec/,
+      /forbidden or missing fields/,
     ],
     [
       "noncanonical alias order",
@@ -6755,21 +6518,22 @@ test("active recovery planning and execution hand off exact reverse mutations an
       }),
     /identity/,
   );
-  const incompleteLegacy = structuredClone(prepared);
-  incompleteLegacy.prior["legacy-app"].aliases = ["v2-app.mento.org"];
-  incompleteLegacy.startMappings["legacy-app"] = [
-    incompleteLegacy.startMappings["legacy-app"].find(
-      ({ alias }) => alias === "v2-app.mento.org",
-    ),
-  ];
+  // MGP-18 retired the legacy App deployment. A journal that re-introduces its
+  // prior no longer matches the reviewed four-target shape.
+  const retiredLegacyPrior = structuredClone(prepared);
+  retiredLegacyPrior.prior["legacy-app"] = {
+    deploymentId: "dpl_legacyPrior123",
+    deploymentUrl: "https://legacy-prior.vercel.app",
+    aliases: ["v2-app.mento.org"],
+  };
   assert.throws(
     () =>
       createMainActiveRecoveryMappingSpec({
-        journalHistory: [incompleteLegacy],
+        journalHistory: [retiredLegacyPrior],
         runId: "800",
         runAttempt: "3",
       }),
-    /legacy App topology is incomplete/,
+    /keys are missing, extra, or out of order/,
   );
 
   const execution = releaseExecutionForPlan(deploymentPlan);
@@ -6827,10 +6591,7 @@ test("active recovery planning and execution hand off exact reverse mutations an
     recoveryStateSpec.projects.governance.deploymentId,
     started.candidates.governance.deploymentId,
   );
-  assert.equal(
-    recoveryStateSpec.legacyAppV2.deployment,
-    execution.legacyAppV2.deploymentId,
-  );
+  assert.equal(Object.hasOwn(recoveryStateSpec, "legacyAppV2"), false);
   const recoveryProof = activeStateProof({ spec: recoveryStateSpec });
   assert.equal(recoveryProof.outcome, "proven");
   assert.throws(
@@ -6948,7 +6709,6 @@ test("active recovery terminal evidence handles unstarted and unresolved App can
     publicSmokes: priorPublicSmokes(execution),
     stateProof,
     finalCensus: stateProof,
-    freshLegacyV2: deploymentPlan.legacySnapshot,
     freshness: null,
     runId: "800",
     runAttempt: "3",
@@ -7012,7 +6772,6 @@ test("active recovery terminal evidence handles unstarted and unresolved App can
         publicSmokes: priorPublicSmokes(execution),
         stateProof: unexpectedAppCandidateProof,
         finalCensus: unexpectedAppCandidateProof,
-        freshLegacyV2: deploymentPlan.legacySnapshot,
         freshness: null,
         runId: "800",
         runAttempt: "3",
@@ -7063,7 +6822,6 @@ test("active recovery terminal evidence handles unstarted and unresolved App can
     publicSmokes: null,
     stateProof: manualStateProof,
     finalCensus: manualStateProof,
-    freshLegacyV2: deploymentPlan.legacySnapshot,
     freshness: null,
     runId: "800",
     runAttempt: "3",
@@ -7168,7 +6926,6 @@ test("unknown App controller recovery produces fail-closed terminal evidence aft
   const mappingStates = {
     app: "prior",
     governance: "candidate",
-    "legacy-app": "prior",
     reserve: "candidate",
     ui: "candidate",
   };
@@ -7246,7 +7003,6 @@ test("unknown App controller recovery produces fail-closed terminal evidence aft
     publicSmokes: null,
     stateProof,
     finalCensus: stateProof,
-    freshLegacyV2: deploymentPlan.legacySnapshot,
     freshness: null,
     runId: "800",
     runAttempt: "3",
@@ -7517,7 +7273,6 @@ test("current release verification is journal-free and binds its barrier candida
     reason: "current-main-release-already-complete",
     manifest: base.manifest,
     upstream: base.upstream,
-    legacyAppV2: base.legacyAppV2,
     selection: base.selection,
   });
   const barrier = createMainStageBarrier({
@@ -7579,11 +7334,6 @@ test("current release verification is journal-free and binds its barrier candida
         ),
       ),
   );
-  mappings.push(
-    ...execution.legacyAppV2.aliases.map((alias) =>
-      mapping(alias, execution.legacyAppV2),
-    ),
-  );
   const smokes = createMainCurrentActivePublicSmokes({
     execution,
     barrier,
@@ -7604,7 +7354,6 @@ test("current release verification is journal-free and binds its barrier candida
     publicSmokes: smokes,
     stateProof: terminalState,
     finalCensus: terminalState,
-    freshLegacyV2: deploymentPlan.legacySnapshot,
     freshness: createMainActiveFreshness({ deploySha: SHA, observedSha: SHA }),
     runId: "800",
     runAttempt: "3",
@@ -7812,7 +7561,6 @@ test("active final-result matrix preserves safe noops and fails every recovery o
     reason: "current-main-release-already-complete",
     manifest: currentReleaseBase.manifest,
     upstream: currentReleaseBase.upstream,
-    legacyAppV2: currentReleaseBase.legacyAppV2,
     selection: currentReleaseBase.selection,
   });
   const cases = [

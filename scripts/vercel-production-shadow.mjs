@@ -977,14 +977,6 @@ export function createProtectedAliasSpec({ appV3AliasesJson, projectIds }) {
     customEnvironmentSlug: "v3",
     git: expectedGit("main"),
   }));
-  entries.push({
-    alias: "v2-app.mento.org",
-    projectId: appProjectId,
-    projectName: "app.mento.org",
-    target: "production",
-    customEnvironmentSlug: null,
-    git: expectedGit("v2"),
-  });
   for (const target of ["governance", "reserve", "ui"]) {
     entries.push({
       alias: `${target}.mento.org`,
@@ -2379,9 +2371,8 @@ export function writePilotSummary({
   const v3States = baseline
     .filter((state) => state.customEnvironmentSlug === "v3")
     .sort((left, right) => left.alias.localeCompare(right.alias));
-  const legacy = baseline.find((state) => state.alias === "v2-app.mento.org");
-  if (v3States.length === 0 || !legacy) {
-    throw new Error("Pilot baseline is missing app v3 or legacy v2 state");
+  if (v3States.length === 0) {
+    throw new Error("Pilot baseline is missing app v3 state");
   }
   if (new Set(v3States.map((state) => state.deploymentId)).size !== 1) {
     throw new Error("Pilot baseline has divergent app-v3 deployments");
@@ -2464,11 +2455,10 @@ export function writePilotSummary({
     "",
     "| Target | Build target | Deployment ID / URL | Runtime/browser | Protected mappings | Turbo cache | Timing | Result |",
     "|---|---|---|---|---|---|---|---|",
-    `| app | v3 | build-only Outcome B (Next ID \`${appDeploymentId}\`) | deferred by design | app/v2 unchanged | ${appCacheHits} hit / ${appCacheMisses} miss | build ${appBuildDuration} ms; job ${appTotalDuration} ms | pass |`,
+    `| app | v3 | build-only Outcome B (Next ID \`${appDeploymentId}\`) | deferred by design | app v3 unchanged | ${appCacheHits} hit / ${appCacheMisses} miss | build ${appBuildDuration} ms; job ${appTotalDuration} ms | pass |`,
     `| governance | production | \`${deployments.governance.id}\` / ${deployments.governance.url} | pass | unchanged | ${deployments.governance.cacheHits} hit / ${deployments.governance.cacheMisses} miss | build ${deployments.governance.buildDurationMs} ms; deploy ${deployments.governance.deployDurationMs} ms; job ${deployments.governance.totalDurationMs} ms | pass |`,
     `| reserve | production | \`${deployments.reserve.id}\` / ${deployments.reserve.url} | pass | unchanged | ${deployments.reserve.cacheHits} hit / ${deployments.reserve.cacheMisses} miss | build ${deployments.reserve.buildDurationMs} ms; deploy ${deployments.reserve.deployDurationMs} ms; job ${deployments.reserve.totalDurationMs} ms | pass |`,
     `| ui | production | \`${deployments.ui.id}\` / ${deployments.ui.url} | pass | unchanged | ${deployments.ui.cacheHits} hit / ${deployments.ui.cacheMisses} miss | build ${deployments.ui.buildDurationMs} ms; deploy ${deployments.ui.deployDurationMs} ms; job ${deployments.ui.totalDurationMs} ms | pass |`,
-    `| legacy app | v2 production | \`${legacy.deploymentId}\` / ${canonicalizeDeploymentUrl(legacy.deploymentUrl)} | public health pass | unchanged | n/a | n/a | pass |`,
     "",
     `- Reviewed app-v3 aliases: ${v3States.map((state) => `\`${state.alias}\``).join(", ")}`,
     `- Captured prior app-v3 deployment: \`${v3States[0].deploymentId}\` / ${canonicalizeDeploymentUrl(v3States[0].deploymentUrl)}`,
