@@ -24,7 +24,7 @@ name: Supply Chain
 #   6. version-skew     — every cataloged dep is "catalog:" or the exact catalog
 #                         version (no silent drift off the shared catalog).
 #                         Main pushes run only these two deterministic jobs so
-#                         Dependabot can bind failures to an exact main baseline.
+#                         each success is valid main-branch recovery evidence.
 #
 # Repository-wide suppressions live in osv-scanner.toml. Advisories suppressed
 # across configured scanners must stay in sync with the `allow-ghsas` list in

@@ -31,9 +31,7 @@ env:
          github.event.pull_request.head.repo.full_name == github.repository &&
          github.event.pull_request.head.ref != 'dependabot' &&
          !startsWith(github.event.pull_request.head.ref, 'dependabot/') &&
-         github.event.sender.type == 'User' &&
-         github.event.sender.id != 315967666 &&
-         github.event.sender.login != 'mento-dependabot-prepare[bot]') }}
+         github.event.sender.type == 'User') }}
   TURBO_TEAM: ${{ vars.TURBO_TEAM }}
   # Pinned Celo mainnet block for the anvil fork: keeps the run deterministic
   # and makes anvil's RPC cache (~/.foundry/cache) reusable across runs.

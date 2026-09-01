@@ -3072,7 +3072,6 @@ jobs:
     timeout-minutes: 10
     permissions:
       actions: read
-      checks: write
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -3137,59 +3136,6 @@ jobs:
         run: >-
           node scripts/vercel-main-deployment.mjs final-active
           --execution "$RUNNER_TEMP/execution.json"
-      - name: Publish exact Dependabot post-merge verification
-        if: >-
-          ${{ always() && needs.wait-for-ci.result == 'success' &&
-          needs.require-ci-success.result == 'success' &&
-          needs.wait-for-ci.outputs.deploy_mode == 'deploy' }}
-        env:
-          DEPLOY_SHA: ${{ needs.wait-for-ci.outputs.deploy_sha }}
-          FAIL_AFTER_EVIDENCE: ${{ steps.final-active.outputs.fail_after_evidence }}
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_OUTCOME: ${{ steps.final-active.outputs.release_outcome }}
-          RELEASE_REASON: ${{ steps.final-active.outputs.reason }}
-          REPOSITORY: ${{ github.repository }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          TERMINAL_RESTORED: ${{ steps.terminal-restore.outputs.terminal_restored }}
-        run: |
-          set -euo pipefail
-          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]
-
-          conclusion=failure
-          case "$RELEASE_REASON" in
-            active-committed|current-release-verified|no-target)
-              if [ "$TERMINAL_RESTORED" = true ] && \
-                [ "$RELEASE_OUTCOME" = success ] && \
-                [ "$FAIL_AFTER_EVIDENCE" = false ]; then
-                conclusion=success
-              fi
-              ;;
-          esac
-
-          jq -n \
-            --arg conclusion "$conclusion" \
-            --arg deploy_sha "$DEPLOY_SHA" \
-            --arg details_url "$RUN_URL" \
-            --arg external_id "dependabot-post-merge:${{ github.run_id }}:${{ github.run_attempt }}" \
-            --arg release_outcome "${RELEASE_OUTCOME:-missing}" \
-            --arg release_reason "${RELEASE_REASON:-missing}" \
-            --arg terminal_restored "${TERMINAL_RESTORED:-false}" \
-            '{
-              name: "Dependabot Post-Merge Verification",
-              head_sha: $deploy_sha,
-              status: "completed",
-              conclusion: $conclusion,
-              details_url: $details_url,
-              external_id: $external_id,
-              output: {
-                title: "Dependabot post-merge release proof",
-                summary: ("release_outcome=" + $release_outcome + "; reason=" + $release_reason + "; terminal_restored=" + $terminal_restored)
-              }
-            }' > "$RUNNER_TEMP/dependabot-post-merge-check.json"
-          gh api --method POST \
-            "repos/$REPOSITORY/check-runs" \
-            --input "$RUNNER_TEMP/dependabot-post-merge-check.json" \
-            > /dev/null
       - name: Fail after terminal evidence for an unsafe final graph
         if: ${{ always() && needs.prepare-release.result == 'success' }}
         env:

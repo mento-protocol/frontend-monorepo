@@ -1,6 +1,5 @@
 const TRACKED_EVENTS = new Set([
   "push",
-  "repository_dispatch",
   "schedule",
   "workflow_dispatch",
   "workflow_run",
@@ -13,42 +12,7 @@ const FAILURE_CONCLUSIONS = new Set([
 ]);
 const NOTIFIER_WORKFLOW_NAME = "CI Failure Notifier";
 const TAG_PUSH_WORKFLOW_NAMES = new Set(["Publish UI Package"]);
-const DEPENDABOT_PROCESSOR_WORKFLOW_PATH =
-  ".github/workflows/dependabot-process.yml";
-const DEPENDABOT_REPAIR_WORKFLOW_PATH =
-  ".github/workflows/dependabot-prepare-repair.yml";
-const DEPENDABOT_PREPARED_DISPATCH_WORKFLOW_PATH =
-  ".github/workflows/dependabot-prepared-head-dispatch.yml";
-const DEPENDABOT_PREPARED_INTAKE_WORKFLOW_PATH =
-  ".github/workflows/dependabot-prepared-head-intake.yml";
-// GitHub exposes `run-name` through run.name for these workflows. The exact
-// repository path is the stable source identity; display_title carries data.
-const DEPENDABOT_WORKFLOW_NAMES_BY_PATH = new Map([
-  [DEPENDABOT_PROCESSOR_WORKFLOW_PATH, "Dependabot Processor"],
-  [DEPENDABOT_REPAIR_WORKFLOW_PATH, "Dependabot Prepare Repair"],
-  [
-    DEPENDABOT_PREPARED_DISPATCH_WORKFLOW_PATH,
-    "Dependabot Prepared Head Dispatch",
-  ],
-  [DEPENDABOT_PREPARED_INTAKE_WORKFLOW_PATH, "Dependabot Prepared Head Intake"],
-]);
-const DEPENDABOT_PROCESSOR_SWEEP_TITLE =
-  "Dependabot processor | event=repository_dispatch | target=scope=open";
 const VERCEL_MAIN_WORKFLOW_NAME = "Vercel Main Deployment";
-const DEPENDABOT_PROCESSOR_PR_TITLE =
-  /^Dependabot processor \| event=workflow_run \| receipt=dependabot-intake:v1 \| repository=mento-protocol\/frontend-monorepo \| pr=([1-9][0-9]{0,9}) \| sha=[0-9a-f]{40} \| action=(?:opened|synchronize|reopened) \| receipt=true$/;
-const DEPENDABOT_PROCESSOR_PREPARED_TITLE =
-  /^Dependabot processor \| event=workflow_run \| receipt=dependabot-prepared-head:v1\|p=([1-9][0-9]{0,9})\|h=[0-9a-f]{40}\|o=[rp]\|c=[1-9][0-9]*\|d=[0-9a-f]{64}\|ok=true$/;
-const DEPENDABOT_PROCESSOR_NATIVE_REVIEW_TITLE =
-  /^Dependabot processor \| event=workflow_run \| receipt=dependabot-claude-review:v1 \| source=dependabot-intake:v1 \| repository=mento-protocol\/frontend-monorepo \| pr=([1-9][0-9]{0,9}) \| sha=[0-9a-f]{40} \| action=(?:opened|synchronize|reopened) \| receipt=true$/;
-const DEPENDABOT_PROCESSOR_PREPARED_REVIEW_TITLE =
-  /^Dependabot processor \| event=workflow_run \| receipt=dependabot-claude-review:v1 \| source=dependabot-prepared-head:v1\|p=([1-9][0-9]{0,9})\|h=[0-9a-f]{40}\|o=[rp]\|c=[1-9][0-9]*\|d=[0-9a-f]{64}\|ok=true$/;
-const DEPENDABOT_REPAIR_TITLE =
-  /^dependabot-repair(?:-recover)?:v1 \| pr=([1-9][0-9]{0,9}) \| head=[0-9a-f]{40} \| check=[1-9][0-9]* \| digest=[0-9a-f]{64} \| retry=[0-2]$/;
-const DEPENDABOT_PREPARED_INTAKE_TITLE =
-  /^dependabot-prepared-head:v1\|p=([1-9][0-9]{0,9})\|h=[0-9a-f]{40}\|o=[rp]\|c=[1-9][0-9]*\|d=[0-9a-f]{64}\|ok=true$/;
-const DEPENDABOT_PREPARED_DISPATCH_TITLE =
-  /^dependabot-prepared-dispatch:v1 \| source=(?:Dependabot Processor|Dependabot Prepare Repair) \| run=[1-9][0-9]* \| attempt=[1-9][0-9]*$/;
 
 function runPosition(run) {
   return [run.run_number ?? 0, run.run_attempt ?? 1];
@@ -71,51 +35,7 @@ function runIdentity(run) {
   return `${runId}:${run.run_attempt ?? 1}`;
 }
 
-function workflowPathMatches(run, expectedPath) {
-  return run.path === expectedPath || run.path === `${expectedPath}@main`;
-}
-
-function dependabotAutomationPrTarget(run) {
-  const title = String(run.display_title ?? "");
-  let patterns = [];
-  if (
-    workflowPathMatches(run, DEPENDABOT_PROCESSOR_WORKFLOW_PATH) &&
-    run.event === "workflow_run"
-  ) {
-    patterns = [
-      DEPENDABOT_PROCESSOR_PR_TITLE,
-      DEPENDABOT_PROCESSOR_PREPARED_TITLE,
-      DEPENDABOT_PROCESSOR_NATIVE_REVIEW_TITLE,
-      DEPENDABOT_PROCESSOR_PREPARED_REVIEW_TITLE,
-    ];
-  } else if (
-    workflowPathMatches(run, DEPENDABOT_REPAIR_WORKFLOW_PATH) &&
-    run.event === "repository_dispatch"
-  ) {
-    patterns = [DEPENDABOT_REPAIR_TITLE];
-  } else if (
-    workflowPathMatches(run, DEPENDABOT_PREPARED_INTAKE_WORKFLOW_PATH) &&
-    run.event === "repository_dispatch"
-  ) {
-    patterns = [DEPENDABOT_PREPARED_INTAKE_TITLE];
-  }
-  const match = patterns.map((pattern) => pattern.exec(title)).find(Boolean);
-  return match ? `pr=${match[1]}` : null;
-}
-
-function isDependabotProcessorSweep(run, defaultBranch, repositoryFullName) {
-  return (
-    workflowPathMatches(run, DEPENDABOT_PROCESSOR_WORKFLOW_PATH) &&
-    run.event === "repository_dispatch" &&
-    run.display_title === DEPENDABOT_PROCESSOR_SWEEP_TITLE &&
-    run.head_branch === defaultBranch &&
-    run.head_repository?.full_name === repositoryFullName
-  );
-}
-
 function targetRefFor(run, defaultBranch) {
-  const dependabotTarget = dependabotAutomationPrTarget(run);
-  if (dependabotTarget) return dependabotTarget;
   return (
     run.head_branch || (run.event === "push" ? "release tag" : defaultBranch)
   );
@@ -136,9 +56,7 @@ function runLink(run) {
 }
 
 function workflowNameFor(run) {
-  const path = String(run.path ?? "");
-  const canonicalPath = path.endsWith("@main") ? path.slice(0, -5) : path;
-  return DEPENDABOT_WORKFLOW_NAMES_BY_PATH.get(canonicalPath) ?? run.name;
+  return run.name;
 }
 
 function issueTitle(run, targetRef) {
@@ -176,7 +94,6 @@ function recoveryBody(existingBody, run, targetRef) {
 }
 
 function isRelevantRun(run, defaultBranch, repositoryFullName) {
-  const dependabotTarget = dependabotAutomationPrTarget(run);
   const isOperationalPush =
     run.event === "push" &&
     (run.head_branch === defaultBranch ||
@@ -184,19 +101,9 @@ function isRelevantRun(run, defaultBranch, repositoryFullName) {
   const isOperationalRun =
     run.event === "schedule" ||
     isOperationalPush ||
-    isDependabotProcessorSweep(run, defaultBranch, repositoryFullName) ||
-    (run.event === "repository_dispatch" &&
-      dependabotTarget !== null &&
-      run.head_branch === defaultBranch &&
-      run.head_repository?.full_name === repositoryFullName) ||
     (run.event === "workflow_dispatch" && run.head_branch === defaultBranch) ||
     (run.event === "workflow_run" &&
-      (run.name === VERCEL_MAIN_WORKFLOW_NAME ||
-        dependabotTarget !== null ||
-        (workflowPathMatches(run, DEPENDABOT_PREPARED_DISPATCH_WORKFLOW_PATH) &&
-          DEPENDABOT_PREPARED_DISPATCH_TITLE.test(
-            String(run.display_title ?? ""),
-          ))) &&
+      run.name === VERCEL_MAIN_WORKFLOW_NAME &&
       run.head_branch === defaultBranch &&
       run.head_repository?.full_name === repositoryFullName);
 

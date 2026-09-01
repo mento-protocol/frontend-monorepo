@@ -219,15 +219,25 @@ for (const path of [
   });
 }
 
+test("the exact dependency policy files are proven non-runtime", () => {
+  assert.deepEqual(VERCEL_PROVEN_NON_RUNTIME_EXACT_PATHS, [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "LICENSE",
+    "README.md",
+    ".github/dependabot.yml",
+    "scripts/dependency-policy.test.mjs",
+  ]);
+});
+
 for (const path of [
-  "scripts/dependabot-processor.mjs.bak",
-  "scripts/dependabot-unreviewed-helper.mjs",
-  ".github/workflows/dependabot-action-companion.yml",
-  ".github/workflows/dependabot-unreviewed-helper.yml",
+  ".github/dependabot.yaml",
+  ".github/dependabot.yml.bak",
+  "scripts/dependency-policy.mjs",
+  "scripts/dependency-policy.test.mjs.bak",
 ]) {
-  test(`fails closed for unknown Dependabot near-match ${path}`, () => {
+  test(`fails closed for unknown dependency policy near-match ${path}`, () => {
     withFixture(path, (fixture) => {
-      const workflowPath = path.startsWith(".github/workflows/");
       let turboCalled = false;
       const plan = planVercelDeployments({
         repoRoot: fixture.directory,
@@ -239,18 +249,15 @@ for (const path of [
         },
       });
       assert.deepEqual(plan.deployments, VERCEL_DEPLOYMENTS);
-      assert.equal(
-        plan.reason,
-        workflowPath ? "global-build-input" : "turbo-planning-failed",
-      );
-      assert.equal(turboCalled, !workflowPath);
+      assert.equal(plan.reason, "turbo-planning-failed");
+      assert.equal(turboCalled, true);
     });
   });
 }
 
-test("a Dependabot control-plane change mixed with app runtime affects app", () => {
+test("a dependency policy change mixed with app runtime affects app", () => {
   const fixture = createFixture([
-    "scripts/dependabot-processor.mjs",
+    ".github/dependabot.yml",
     "apps/app.mento.org/app/page.tsx",
   ]);
   try {
@@ -267,10 +274,10 @@ test("a Dependabot control-plane change mixed with app runtime affects app", () 
   }
 });
 
-test("a Dependabot workflow change mixed with app runtime fails closed", () => {
+test("the exact dependency policy files are non-runtime-only together", () => {
   const fixture = createFixture([
-    ".github/workflows/dependabot-process.yml",
-    "apps/app.mento.org/app/page.tsx",
+    ".github/dependabot.yml",
+    "scripts/dependency-policy.test.mjs",
   ]);
   try {
     const plan = planVercelDeployments({
@@ -278,29 +285,7 @@ test("a Dependabot workflow change mixed with app runtime fails closed", () => {
       base: fixture.base,
       head: fixture.head,
       runTurbo: () =>
-        assert.fail("Turbo must not narrow a mixed workflow diff"),
-    });
-    assert.deepEqual(plan.deployments, VERCEL_DEPLOYMENTS);
-    assert.equal(plan.reason, "global-build-input");
-  } finally {
-    rmSync(fixture.directory, { force: true, recursive: true });
-  }
-});
-
-test("the exact Dependabot workflow control plane is non-runtime-only", () => {
-  const fixture = createFixture([
-    ".github/workflows/dependabot-claude-review.yml",
-    ".github/workflows/dependabot-prepare-repair.yml",
-    "docs/dependabot-automation.md",
-    "scripts/dependabot-preparation-receipts.test.mjs",
-  ]);
-  try {
-    const plan = planVercelDeployments({
-      repoRoot: fixture.directory,
-      base: fixture.base,
-      head: fixture.head,
-      runTurbo: () =>
-        assert.fail("Turbo must not run for the exact control plane"),
+        assert.fail("Turbo must not run for exact dependency policy files"),
     });
     assert.deepEqual(plan.deployments, []);
     assert.equal(plan.reason, "non-runtime-only");
@@ -316,11 +301,8 @@ for (const dangerousPath of [
   "pnpm-lock.yaml",
   "scripts/security-headers.mjs",
 ]) {
-  test(`a Dependabot workflow mixed with ${dangerousPath} fails closed`, () => {
-    const fixture = createFixture([
-      ".github/workflows/dependabot-claude-review.yml",
-      dangerousPath,
-    ]);
+  test(`a dependency policy change mixed with ${dangerousPath} fails closed`, () => {
+    const fixture = createFixture([".github/dependabot.yml", dangerousPath]);
     try {
       const plan = planVercelDeployments({
         repoRoot: fixture.directory,
@@ -336,30 +318,6 @@ for (const dangerousPath of [
     }
   });
 }
-
-test("a Dependabot control-plane change mixed with security headers fails closed", () => {
-  const fixture = createFixture([
-    "scripts/dependabot-processor.mjs",
-    "scripts/security-headers.mjs",
-  ]);
-  try {
-    let turboCalled = false;
-    const plan = planVercelDeployments({
-      repoRoot: fixture.directory,
-      base: fixture.base,
-      head: fixture.head,
-      runTurbo: () => {
-        turboCalled = true;
-        return turboPlan([]);
-      },
-    });
-    assert.deepEqual(plan.deployments, VERCEL_DEPLOYMENTS);
-    assert.equal(plan.reason, "global-build-input");
-    assert.equal(turboCalled, false);
-  } finally {
-    rmSync(fixture.directory, { force: true, recursive: true });
-  }
-});
 
 for (const path of [
   "apps/app.mento.org/app/runtime-notes.md",

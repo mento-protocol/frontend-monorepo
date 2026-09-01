@@ -16,8 +16,7 @@ concurrency:
 
 env:
   # GitHub suppresses repository credentials for native Dependabot events.
-  # A Prepare App ref move changes only the event sender. Recreate the native
-  # boundary from the signed PR identities before any candidate step starts.
+  # Enforce the same boundary before any candidate step starts.
   ALLOW_REPOSITORY_CREDENTIALS: >-
     ${{ github.event_name != 'pull_request' ||
         (github.event.pull_request.user.type == 'User' &&
@@ -26,9 +25,7 @@ env:
          github.event.pull_request.head.repo.full_name == github.repository &&
          github.event.pull_request.head.ref != 'dependabot' &&
          !startsWith(github.event.pull_request.head.ref, 'dependabot/') &&
-         github.event.sender.type == 'User' &&
-         github.event.sender.id != 315967666 &&
-         github.event.sender.login != 'mento-dependabot-prepare[bot]') }}
+         github.event.sender.type == 'User') }}
   TURBO_TEAM: ${{ vars.TURBO_TEAM }}
 
 jobs:

@@ -1,17 +1,27 @@
 ---
 title: Protected runtime dependency rotations use deterministic typed repair operations
-status: active
+status: archived
 owner: eng
-canonical: true
-last_verified: 2026-08-24
+canonical: false
+last_verified: 2026-09-01
 scope: ci/dependabot-protected-runtime-sync
 date: 2026-08-14
+superseded_by: "0009"
 ---
 
 # ADR 0007 — Protected runtime dependency rotations use deterministic typed repair operations
 
-**Status:** Accepted
+**Status:** Superseded by ADR 0009 on 2026-09-01
 **Scope:** ci/dependabot-protected-runtime-sync
+
+This ADR records the retired typed repair architecture.
+[ADR 0009](0009-external-agent-dependabot-preparation.md) makes protected
+runtime rotations an external-agent or maintainer procedure with existing
+repository validators.
+
+> Archive notice: The remainder of this file is historical. Do not run its
+> commands or use its operation protocol. Use ADR 0009 and the active manual or
+> external-agent rotation procedure.
 
 ## Context
 

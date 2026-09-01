@@ -1,17 +1,26 @@
 ---
 title: Authenticated native Dependabot rewrites start new preparation generations
-status: active
+status: archived
 owner: eng
-canonical: true
-last_verified: 2026-08-22
+canonical: false
+last_verified: 2026-09-01
 scope: ci/dependabot-native-generation
 date: 2026-08-22
+superseded_by: "0009"
 ---
 
 # ADR 0008 — Authenticated native Dependabot rewrites start new preparation generations
 
-**Status:** Accepted
+**Status:** Superseded by ADR 0009 on 2026-09-01
 **Scope:** ci/dependabot-native-generation
+
+This ADR records the retired repository-hosted generation boundary.
+[ADR 0009](0009-external-agent-dependabot-preparation.md) replaces it with
+live exact-head verification during each external-agent preparation run.
+
+> Archive notice: The remainder of this file is historical. Do not run its
+> commands or apply its generation rules. Use ADR 0009 and the active
+> Dependabot preparation runbook.
 
 ## Context
 

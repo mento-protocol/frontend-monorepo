@@ -4,7 +4,7 @@ updates:
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: monthly
+      interval: weekly
       day: monday
       time: "06:00" # trunk-ignore(yamllint/quoted-strings)
       timezone: UTC
@@ -18,8 +18,6 @@ updates:
       # a malicious release that gets yanked days after publication.
       semver-patch-days: 7
 
-    # The five npm PRs open when the isolated Vercel lane launched exhausted
-    # the prior limit. Keep one additional slot for that dedicated rotation.
     open-pull-requests-limit: 6
 
     labels:
@@ -30,9 +28,8 @@ updates:
       prefix-development: chore(deps-dev)
 
     groups:
-      # The protected deployment runtime mirrors the root Vercel CLI pin. Keep
-      # routine CLI rotations isolated so the processor can apply its exact,
-      # model-free runtime synchronizer before asking a maintainer to merge.
+      # The protected deployment runtime mirrors the root Vercel CLI pin.
+      # Keep routine CLI rotations isolated for focused review.
       vercel-cli:
         applies-to: version-updates
         patterns:
@@ -104,7 +101,19 @@ updates:
           - minor
           - patch
 
-      # Catch-all so ungrouped production stragglers arrive as one monthly PR
+      test-toolchain:
+        applies-to: version-updates
+        dependency-type: development
+        patterns:
+          - vite
+          - vitest
+          - "@vitest/*"
+        update-types:
+          - major
+          - minor
+          - patch
+
+      # Catch-all so ungrouped production stragglers arrive as one weekly PR
       # instead of one PR each. Explicit exclusions preserve the named group
       # boundaries even if the group order changes later.
       production-misc:
@@ -162,6 +171,9 @@ updates:
           - "*"
         exclude-patterns:
           - vercel
+          - vite
+          - vitest
+          - "@vitest/*"
 
       vercel-cli-security:
         applies-to: security-updates
@@ -206,10 +218,8 @@ updates:
         patterns:
           - "*"
         exclude-patterns:
-          # These actions participate in dependency review, code scanning, or
-          # the processor's own trust boundary. Keep their updates isolated so
-          # one sensitive pin cannot lend authority to an otherwise routine
-          # grouped update.
+          # These actions create credentials, review dependencies, or publish
+          # security results. Keep their updates isolated from routine pins.
           - actions/create-github-app-token
           - actions/dependency-review-action
           - anthropics/*

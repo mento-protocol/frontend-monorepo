@@ -46,6 +46,7 @@ adds a high-signal surface without a numbered ADR.
 | [0003](0003-preview-worker-dispatch-authentication.md)                | A dedicated repository-scoped credential dispatches preview workers                       |
 | [0004](0004-one-way-vercel-build-environment-materialization.md)      | Preview candidates receive only a one-way exact allowlist of Vercel-pulled variables      |
 | [0005](0005-stable-main-release-identity-and-rerun-admission.md)      | Stable provider release manifests reconcile reruns; mutations remain attempt-scoped       |
-| [0006](0006-dependabot-processing-controller.md)                      | Trusted default-branch policy processes Dependabot PRs through exact-head release proof   |
-| [0007](0007-deterministic-protected-runtime-dependency-sync.md)       | Typed deterministic repairs synchronize protected runtime dependencies                    |
-| [0008](0008-authenticated-dependabot-native-generation-boundaries.md) | Exact native Dependabot rewrite chains start new preparation generations                  |
+| [0006](0006-dependabot-processing-controller.md)                      | Archived: repository-hosted Dependabot preparation; superseded by ADR 0009                |
+| [0007](0007-deterministic-protected-runtime-dependency-sync.md)       | Archived: typed protected-runtime dependency repair; superseded by ADR 0009               |
+| [0008](0008-authenticated-dependabot-native-generation-boundaries.md) | Archived: native Dependabot generation authentication; superseded by ADR 0009             |
+| [0009](0009-external-agent-dependabot-preparation.md)                 | Weekly runtime-neutral external-agent preparation with human approval and squash merge    |
