@@ -1430,6 +1430,48 @@ scope documented below.
 | reserve    | `SENTRY_AUTH_TOKEN`                     | production semantics only | `sensitive-non-exportable` |
 | ui         | `NEXT_PUBLIC_STORAGE_URL`               | preview, production       | `vercel-pull`              |
 
+### Governance Graph API key scopes
+
+Governance uses separate The Graph API keys for production and pre-production
+builds. Both keys are public browser configuration. Domain restrictions and
+monthly spending limits control their use.
+
+- The Production-scoped `NEXT_PUBLIC_GRAPH_API_KEY` uses the
+  `Mento Governance Production` key. The Graph Studio restricts this key to
+  `governance.mento.org` and `*-mentolabs.vercel.app`, restricts queries to
+  subgraphs `8C3iY7M5mPqYVFYENS6vFSsseZUtuWM5xTLiAqguGG4f` and
+  `DQVQkbu1zmuHuW99zqBTVNA8wMidfwHrDEUtaVvzyyRL`, and limits spending to USD 5
+  per month. The Vercel suffix lets the controller verify an immutable
+  production candidate before it promotes the candidate.
+- The Preview- and Development-scoped `NEXT_PUBLIC_GRAPH_API_KEY` uses the
+  `Mento Governance Preview` key. The Graph Studio restricts this key to
+  `*-mentolabs.vercel.app` and `localhost`, and restricts queries to subgraphs
+  `8C3iY7M5mPqYVFYENS6vFSsseZUtuWM5xTLiAqguGG4f` and
+  `DQVQkbu1zmuHuW99zqBTVNA8wMidfwHrDEUtaVvzyyRL`. The spending limit is USD 1
+  per month. Vercel shows these scopes together as
+  `All Pre-Production Environments`. The preview proposal list uses the mainnet
+  subgraph. Preview server-rendered proposal metadata uses the Celo Sepolia
+  subgraph.
+
+Do not assign the production key to a pre-production environment. Do not add
+`*.vercel.app` to either key because that wildcard covers Vercel projects
+outside Mento. Keep the `*-mentolabs.vercel.app` domain on the production key so
+the controller can test a staged candidate before promotion.
+
+Browser requests supply their current origin. Server-rendered Graph requests
+use `apps/governance.mento.org/app/graphql/graph-request-origin.ts`. Production
+requests send `https://governance.mento.org`. Preview requests require Vercel's
+runtime `VERCEL_URL`, validate the `*-mentolabs.vercel.app` suffix, and send that
+exact origin. Local development sends `http://localhost:3002`. Keep `VERCEL_URL`
+in the Governance build task's `passThroughEnv` list so Turbo permits this
+provider-supplied runtime variable without adding it to the build cache key.
+
+Vercel environment-variable changes apply only to new deployments. Wait for a
+fresh `main` push that selects Governance to run the repository-owned production
+controller. A `docs/**`-only push is non-runtime-only and does not select a
+deployment target. Do not use the Vercel dashboard Redeploy action because the
+repository-owned controller is the only supported production owner.
+
 The code also has optional build-time reads that alter behavior only when set:
 RPC overrides (`NEXT_PUBLIC_RPC_URL`, chain-specific RPC variables), feature and
 test flags (`NEXT_PUBLIC_ENABLE_DEBUG`, `NEXT_PUBLIC_E2E_TEST`,
