@@ -28,6 +28,7 @@ export const VERCEL_PROVEN_NON_RUNTIME_EXACT_PATHS = Object.freeze([
   "LICENSE",
   "README.md",
   ".github/dependabot.yml",
+  ".github/dependabot-prep-policy.json",
   "scripts/dependency-policy.test.mjs",
 ]);
 

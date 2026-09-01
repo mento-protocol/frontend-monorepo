@@ -346,27 +346,55 @@ All packages referencing `"react": "catalog:"` will automatically use the new ve
 #### Dependabot preparation
 
 Dependabot creates native npm and GitHub Actions pull requests each Monday at
-06:00 UTC. An external agent sweep starts each Monday at 10:15 UTC. OpenClaw
-is the current scheduled operator. The repository contract is runtime-neutral:
+06:00 UTC. An OpenClaw job is installed for Monday at 10:15 UTC. It remains
+disabled until the one-time cutover in the runbook passes. After activation,
+OpenClaw is the scheduled operator. The repository contract is runtime-neutral:
 a manual sweep may use Codex, Claude Code, OpenClaw, or another compatible
 agent runtime. Version 1 has no event webhook or standing poller.
 
 The agent invokes the generic `dependabot-prep` skill. That skill discovers and
 prepares update pull requests across JavaScript repositories. This repository's
 Mento-specific policy remains in
-[`docs/dependabot-automation.md`](docs/dependabot-automation.md).
+[`docs/dependabot-automation.md`](docs/dependabot-automation.md) and
+`.github/dependabot-prep-policy.json`.
 
-Preparation uses one isolated worktree per pull request. It includes exact bot
-and ref verification, full dependency and lockfile review, base-branch
-synchronization without rebase or force-push, required compatibility fixes,
-repository validation, current-head review, and feedback resolution. Next.js
-and Vercel updates also rotate the protected runtime files described in
+The operator-controlled scheduler pins the reviewed skill by canonical source
+path and SHA-256 digest. Every write-capable run verifies that pin before it
+uses repository-write authority. A skill update keeps the schedule disabled
+until byte-identical installation and a supervised rehearsal pass.
+It also pins the trusted pre-model launcher and any runtime-specific
+instruction-isolation adapter by canonical path and SHA-256 digest. That
+launcher establishes a repository-instruction-free or proved exact-base launch
+context before the model starts. A current-host test must prove that access to a
+candidate clone cannot load its instruction files, execute its configuration,
+or make a candidate-triggered network request. A manual session without that
+pre-model proof remains read-only until it is relaunched.
+If an exact-base launch sees `main` move, it must stop writes and relaunch from
+the new base. An instruction-free launch must discard stale policy, candidate
+state, and evidence, then rebind policy and restart classification.
+The scheduler also pins and tests the skill's bundled one-shot exact-CAS push
+adapter, credential helper, and exact Git, Node, and GitHub CLI provider
+toolchain.
+Scheduled and manual write runs share one operator-owned repository lease, so
+only one sweep can mutate the repository at a time.
+
+The skill is read-only by default. A scheduled or manual write invocation must
+grant each mutation class explicitly. Preparation uses a sanitized standalone
+clone for each pull request and does not execute candidate code. Exact-head
+secretless CI provides validation. It includes exact bot, lineage, and ref
+verification, trusted-base policy binding, complete feedback history, full
+dependency and lockfile review, base-branch synchronization without rebase or
+force-push, required compatibility fixes, current-head review, and feedback
+responses. Next.js and Vercel protected-runtime rotations always require the
+maintainer takeover in
 [`docs/dependency-overrides.md`](docs/dependency-overrides.md).
 
-Sensitive or self-reviewing Actions remain manual. The agent never approves,
-dismisses a review, enables auto-merge, or merges. It reports
-`prepared for maintainer decision`, `blocked`, `manual`, or `read-only`, with
-the exact final head and base, checks, review state, dependency risk, and
+Pre-existing non-native heads remain manual across invocations. Actions refs
+are never mutated. A non-sensitive Actions update can pass only on its current,
+unchanged native green head. Sensitive or self-reviewing Actions remain manual.
+The agent never approves, dismisses a review, enables auto-merge, or merges. It
+reports `prepared for maintainer decision`, `blocked`, `manual`, or `read-only`,
+with the exact final head and base, checks, review state, dependency risk, and
 blockers. A maintainer provides the current human approval and performs the
 final squash merge.
 
@@ -480,10 +508,19 @@ The repository is set up with GitHub Actions for CI:
   CI failure notifier opens or updates one issue for an operational workflow
   failure and closes the issue after recovery.
 - **Dependabot preparation**: Native npm and GitHub Actions updates open at
-  06:00 UTC each Monday. The external-agent sweep starts at 10:15 UTC and
-  invokes the runtime-neutral `dependabot-prep` skill. The agent prepares
-  exact PR heads and reports evidence. It never approves or merges. A
-  maintainer gives the final approval and performs the squash merge. See
+  06:00 UTC each Monday. A disabled OpenClaw job is installed for 10:15 UTC and
+  will invoke the runtime-neutral `dependabot-prep` skill with bounded write
+  grants after the one-time cutover passes. Its declaration pins the canonical
+  skill source, trusted pre-model launcher, and any runtime-specific
+  instruction-isolation adapter by canonical path and reviewed SHA-256 digest
+  for every write-capable run. The launcher establishes a trusted launch context
+  and passes a current-host candidate-instruction isolation test before the
+  model starts. An unproved manual session remains read-only.
+  The default branch path edits a sanitized standalone clone without executing
+  candidate code, then relies on exact-head secretless CI. It leaves Actions
+  refs unchanged and treats a pre-existing non-native head as manual. The agent
+  prepares admitted exact PR heads and reports evidence. It never approves or
+  merges. A maintainer gives the final approval and performs the squash merge. See
   [the preparation runbook](docs/dependabot-automation.md) and
   [ADR 0009](docs/adr/0009-external-agent-dependabot-preparation.md).
 - **CD**: GitHub Actions automatically builds `app.mento.org`,

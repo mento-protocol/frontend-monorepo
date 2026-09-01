@@ -36,55 +36,127 @@ to the helper must select the Celo app, Celo governance, and Monad E2E lanes.
 ## Dependabot preparation
 
 Dependabot opens native npm and GitHub Actions pull requests each Monday at
-06:00 UTC. An external agent sweep starts each Monday at 10:15 UTC. OpenClaw
-is the current scheduled operator. Manual sweeps may use Codex, Claude Code,
-OpenClaw, or another compatible agent runtime. Version 1 has no event webhook
-or standing poller.
+06:00 UTC. An OpenClaw job is installed for Monday at 10:15 UTC. Keep it
+disabled until the one-time cutover in `docs/dependabot-automation.md` passes.
+After activation, OpenClaw is the scheduled operator. Manual sweeps may use
+Codex, Claude Code, OpenClaw, or another compatible agent runtime. Version 1 has
+no event webhook or standing poller.
 
 Invoke the installed, generic `dependabot-prep` skill for each sweep. The skill
 defines the runtime-neutral discovery and preparation loop. This section and
-[`docs/dependabot-automation.md`](docs/dependabot-automation.md) define the
-Mento-specific policy and validation. Keep repository-specific rules out of the
-generic skill.
+[`docs/dependabot-automation.md`](docs/dependabot-automation.md), together with
+`.github/dependabot-prep-policy.json`, define the Mento-specific policy,
+identity tuples, history rules, and validation. Keep repository-specific rules
+out of the generic skill.
 
-The agent may inspect, update, validate, and push a Dependabot branch from one
-isolated worktree per pull request. It may reply to review comments and resolve
-eligible threads. It must not submit an
-approval, dismiss a review, enable auto-merge, merge, or use a merge queue. A
-maintainer provides the current human approval and performs the final squash
-merge.
+The scheduled declaration must bind the canonical skill source path and its
+reviewed SHA-256 digest. It must also bind the canonical paths and reviewed
+SHA-256 digests of the trusted pre-model launcher, any runtime-specific
+instruction-isolation adapter, and the skill's bundled one-shot exact-CAS push
+adapter and credential helper. The launcher must verify every pin before it
+starts the model.
+
+Every write-capable session must start in an operator-owned,
+repository-instruction-free context outside every checkout, or in a clean,
+ordinary-file-only checkout proved before model launch to equal the exact live
+base SHA. The launcher must keep candidate clones outside the runtime project
+root. It must pass a current-host test that proves candidate-path access cannot
+auto-import candidate `AGENTS.md`, `CLAUDE.md`, or another supported instruction
+file. Bind that result to the exact runtime binary, version, configuration,
+launcher, adapter, host, and access operations. A model statement is not proof.
+The same test must prove that candidate-path read, edit, and command access
+starts no candidate process, loads no candidate configuration, and makes no
+candidate-triggered network request. Never start a shell or PTY in the
+candidate clone.
+An instruction-free launch must discard stale policy, candidate state, and
+evidence, then rebind policy and restart classification after `main` moves. An
+exact-base launch must stop writes and relaunch from the new base. A multi-base
+invocation requires the instruction-free context or one launcher process per
+exact base.
+An existing manual session without this pre-model proof stays read-only. Exit
+and relaunch it through the trusted launcher before granting a write class.
+
+Disable the schedule before a skill, launcher, or adapter digest rotation.
+Review and install byte-identical copies, update each expected digest, rerun the
+current-host boundary test, and complete the supervised rehearsal before
+re-enabling it.
+
+The scheduled declaration must also bind the complete repository, checkout,
+target, timing, timeout, worker, grant, denial, GitHub operator, credential
+source, and repository-lease contract from the runbook. Scheduled and manual
+write runs use the same atomic operator-owned lease. Never take over an existing
+or stale lease.
+
+The scheduled invocation enables write mode and grants branch updates, review
+requests, digest-bound top-level feedback responses, review replies, and one
+proven infrastructure rerun. It does not grant status chatter or review-thread
+resolution. A manual invocation must grant each required mutation class
+explicitly. The scheduled path uses a sanitized standalone clone and must not
+execute candidate code. Exact-head secretless CI provides validation. Local
+candidate execution requires a separate `execute` grant and a tested isolation
+adapter. It must not submit an approval, dismiss a review, enable auto-merge,
+merge, or use a merge queue. A maintainer provides the current human approval
+and performs the final squash merge.
 
 For each pull request:
 
-1. Verify the exact Dependabot bot identity, `dependabot/**` head ref, `main`
-   base, live head SHA, and live base SHA. Require `autoMergeRequest` to be
-   `null` before any mutation, immediately before each push, at handoff, and
-   before the human merge.
-2. Inspect the complete manifest, lockfile, workflow, and transitive dependency
-   diff. Review release notes and migration guidance. Treat an unknown package,
-   source, ecosystem, or unexpected changed path as a blocker.
-3. Merge the current base into the branch. Do not rebase or force-push. Resolve
-   conflicts without dropping the requested dependency change. Re-read the
-   base before each push and repeat the merge when it moved.
+1. Query the live pull request. Bind repository instructions and validation
+   commands to its exact base SHA. Verify the exact Dependabot bot identity,
+   native generation, `dependabot/**` head ref, `main` base, live head SHA, and
+   live base SHA. A pre-existing non-native head is `manual`. During one
+   uninterrupted invocation, admit only the exact non-force transitions that
+   the agent creates and reads back. Require `autoMergeRequest` to be `null`
+   before any mutation, immediately before each push, at handoff, and before
+   the human merge.
+2. Paginate every issue comment, review comment, review, thread, label, and
+   timeline page before mutation. Apply the exact maintainer, veto-label,
+   close/reopen, branch-command, review-request, and force-push rules in
+   `.github/dependabot-prep-policy.json`. Inspect the complete manifest,
+   lockfile, workflow, and transitive dependency diff. Review release notes and
+   migration guidance. Treat an unknown package, source, ecosystem, or
+   unexpected changed path as a blocker.
+3. Never mutate a ref whose live inventory contains `.github/workflows/**` or
+   `.github/actions/**`. Also require the candidate delta from the authenticated
+   old head to contain zero such paths before commit, in the independent
+   post-commit quarantine, and immediately before push. A non-sensitive Actions
+   update can pass only on a current, unchanged, native and green head. For an
+   admitted npm update, merge the current base with no-commit and no-fast-forward
+   behavior. Create one two-parent merge commit, one one-parent repair commit on
+   an already-current base, or no commit. Never rebase, force-push, or create an
+   empty second commit.
 4. Apply only changes needed for the dependency update or valid review
-   findings. Follow [`docs/dependency-overrides.md`](docs/dependency-overrides.md)
-   for Next.js and Vercel protected-runtime rotations. Keep GitHub Actions on
-   full lowercase 40-character SHA pins. Classify sensitive or self-reviewing
+   findings. Classify every Next.js or Vercel protected-runtime rotation as
+   `manual`. Follow [`docs/dependency-overrides.md`](docs/dependency-overrides.md)
+   only during the maintainer takeover. Keep GitHub Actions on full lowercase
+   40-character SHA pins. Classify sensitive or self-reviewing
    Actions as `manual`. This includes OSV scanner/reporter updates. Keep the OSV
    scanner and reporter at one step each and at the same revision.
-5. Run `pnpm dependency:policy:test` plus every affected repository gate. Run
-   the protected-runtime validators from `docs/dependency-overrides.md` when
-   Next.js, Vercel, root overrides, or the standalone runtime changes.
-6. Push only to the verified pull-request head with an explicit refspec.
-   Request a new review from the existing CodeRabbit GitHub App after each
-   push. Accept only the exact
-   `coderabbitai[bot]` Bot identity and a review whose immutable `commit_id`
-   equals the pushed head. Reply to every review comment. Resolve a thread only
-   after the fix or a technical `Won't fix:` reply.
+5. Do not run repository commands in the scheduled no-exec clone. After each
+   push, require exact-head CI to run `pnpm dependency:policy:test` plus every
+   affected repository gate. Require the override validators from
+   `docs/dependency-overrides.md` when a root override changes. If a required
+   repair or generated file cannot be produced without candidate execution,
+   classify the pull request as `manual`.
+6. Push only to the verified pull-request head with an explicit refspec and an
+   exact expected-old-head lease after an independent fast-forward proof. Use a
+   reviewed one-shot HTTPS credential adapter. Never persist the helper or put
+   its token in a URL, argument, log, or file. Remove the adapter immediately
+   after the push attempt.
+   Do not push when the native head is already current and needs no repair.
+   Post the exact `@coderabbitai review` issue comment once per pushed head to
+   request a new review from the existing CodeRabbit GitHub App. Bind the
+   request to the current invocation, stable comment ID, operator tuple, and
+   exact head. Accept only numeric ID `136622811`, login
+   `coderabbitai[bot]`, type `Bot`, and a review whose immutable `commit_id`
+   equals the pushed head. Reply to every review comment. Never resolve or
+   unresolve a review thread. Record each answered thread for the maintainer to
+   resolve at the final gate.
 7. Re-read the live head and base. Repeat the loop if either differs from the
-   validated local state. Handoff requires passing required checks, resolved
-   feedback, a current-head CodeRabbit review, and `MERGEABLE` state on the
-   exact final head and base.
+   prepared state. Handoff requires passing required checks from their expected
+   check-run Apps or commit-status creators and workflows, answers for every
+   actionable item, a current-head CodeRabbit review, and `MERGEABLE` state on
+   the exact final head and base. List every answered but unresolved thread.
+   Thread resolution and human approval remain separate final gates.
 
 Report one verdict: `prepared for maintainer decision`, `blocked`, `manual`, or
 `read-only`. Include the pull request, exact final head and base SHAs,

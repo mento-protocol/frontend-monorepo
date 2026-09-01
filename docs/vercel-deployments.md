@@ -1192,11 +1192,13 @@ malformed Turbo output, a change with no deployable task, deployment-planner or
 workflow changes, and cross-workspace inputs such as the lockfile, root package
 configuration, `turbo.json`, patches, or shared security headers. Proven
 documentation and test-only paths return an empty deployment list. There is no
-dependency-maintenance workflow or script exception. A workflow change mixed
-with an application, package, lockfile, security-header, CI, Vercel, unknown,
-renamed, or near-match path still selects all four deployments. Every retained
-non-runtime exception names an exact reviewed file. It does not use a workflow
-or script prefix.
+dependency-maintenance workflow exception or prefix-based script exception.
+The exact `.github/dependabot.yml`, `.github/dependabot-prep-policy.json`, and
+`scripts/dependency-policy.test.mjs` files are retained non-runtime exceptions.
+A workflow change mixed with an application, package, lockfile,
+security-header, CI, Vercel, unknown, renamed, or near-match path still selects
+all four deployments. Every retained non-runtime exception names an exact
+reviewed file. It does not use a workflow or script prefix.
 
 The measured full-release baseline was main release
 [32613743546](https://github.com/mento-protocol/frontend-monorepo/actions/runs/32613743546)
@@ -1611,22 +1613,22 @@ the two reviewed package-name false positives for Vercel's unrelated `sandbox`
 CLI dependency. Root application suppressions cannot mask a standalone CLI
 vulnerability.
 
-Protected-runtime rotations are prepared by an external agent or maintainer
-through the coupled procedure in
+The generic external agent only inventories a protected-runtime rotation and
+reports `manual`. An authenticated maintainer prepares it outside
+`dependabot-prep` through the coupled procedure in
 [dependency-overrides.md](dependency-overrides.md). The procedure reviews the
 exact public npm metadata, updates the root and standalone manifests and
 lockfiles, updates the byte-bound contract, and runs the existing independent
 validators. It rejects prerelease, downgrade, unknown registry, unexplained
-builder-key, override, generator, or unrelated lockfile drift for manual
-handling.
+builder-key, override, generator, or unrelated lockfile drift.
 
 Pull-request preview workers treat the candidate contract, manifest, and locks
 as fixed-path data and verify that tuple for internal consistency. That check
 does not select or install the candidate CLI. Every credentialed preview build
 continues to stage the protected CLI from the trusted default-branch controller
 runtime, so a candidate cannot authorize the tool that validates or uploads its
-own output. Before handoff, the agent or maintainer also proves the requested
-CLI with a fresh secretless frozen standalone install and exact
+own output. Before handoff, the authenticated maintainer also proves the
+requested CLI with a fresh secretless frozen standalone install and exact
 `node <cli> --version` check. Candidate execution can veto staging but cannot
 select the protected CLI or emit deployment authority. After the reviewed PR
 merges, the exact-main deployment controller adopts the new contract and uses

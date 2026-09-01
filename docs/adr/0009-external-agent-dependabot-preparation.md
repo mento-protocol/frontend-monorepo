@@ -43,9 +43,9 @@ sequence, while this repository keeps its security and validation rules local.
 ### Use a weekly external-agent sweep
 
 Dependabot checks the npm and GitHub Actions ecosystems each Monday at 06:00
-UTC. An external-agent sweep starts each Monday at 10:15 UTC. The current
-scheduler launches the sweep through OpenClaw. This is deployment configuration,
-not part of the repository contract.
+UTC. An OpenClaw job is installed for Monday at 10:15 UTC. It stays disabled
+until the one-time cutover passes. After activation, OpenClaw launches the
+sweep. This is deployment configuration, not part of the repository contract.
 
 The four-hour and fifteen-minute delay lets Dependabot create or refresh its
 native pull requests before the sweep. Version 1 does not add an event webhook
@@ -60,35 +60,106 @@ Every scheduled or manual sweep invokes the installed generic
 another compatible runtime. The repository does not depend on one runtime's
 prompt format, command syntax, memory store, or model provider.
 
+The operator-controlled scheduler records the canonical skill source path and
+reviewed SHA-256 digest. Every write-capable run verifies both values before it
+uses repository-write authority. A digest rotation requires a disabled
+schedule, complete skill review, byte-identical installation, updated expected
+digest, and a supervised rehearsal.
+
+Write authority also requires an operator-owned boundary before the model
+starts. The scheduler pins the canonical paths and reviewed SHA-256 digests of
+the trusted pre-model launcher and any runtime-specific instruction-isolation
+adapter. The launcher verifies those pins, the skill pin, and the exact runtime
+binary, version, and instruction-discovery configuration before it starts the
+model.
+
+The launcher uses one of two contexts. It can use an operator-owned,
+repository-instruction-free directory outside every checkout. It can instead
+use a trusted materialization that it proves is a clean, ordinary-file-only
+checkout of the authenticated exact live base SHA before model launch. A
+candidate clone, candidate branch, mutable controller checkout, or unverified
+repository directory cannot be the runtime project root.
+
+An instruction-free launch must discard stale policy, candidate state, and
+evidence, then rebind policy and restart classification when a base moves. An
+exact-base launch cannot unload instructions that entered the model context.
+Any base movement in that mode ends write authority and requires a fresh
+materialization and model relaunch. A multi-base invocation uses the
+instruction-free context or one launcher process per distinct exact base OID.
+
+Before a write-capable launch on a host, and after any bound input changes, the
+launcher runs a no-credential test against the exact runtime and access path.
+The test places unique sentinel instructions in every supported instruction
+location in a disposable candidate clone. It proves with machine-verifiable
+runtime evidence that reading, editing, or using a command working directory in
+that clone cannot add candidate instructions to the active instruction set. A
+model statement is not evidence. The same test uses hostile shell, autoenv, Git,
+editor, formatter, language-server, watcher, and package-tool sentinels. It must
+prove that the exact access operations start no candidate process, load no
+candidate configuration, and make no candidate-triggered network request. Bind
+the result to the host, runtime, configuration, launcher, adapter, and exact
+access operations. A runtime that cannot prove these properties remains
+read-only. A manual session that did not start through this boundary also
+remains read-only until it is stopped and relaunched.
+
+The scheduler also binds the repository, controller checkout, target set,
+schedule, timeout, worker limit, exact write grants, denied mutation classes,
+GitHub operator identity and credential source, and one operator-owned
+repository lease. Scheduled and manual write runs use the same atomic lease.
+They do not remove or take over an existing or stale lease. This prevents two
+sweeps from posting or mutating against the same live state. Cutover verifies
+the complete disabled declaration, exercises a second-lease failure, and reads
+the complete declaration again after enable.
+
 The generic skill owns the reusable sequence:
 
-1. discover live Dependabot pull requests;
-2. authenticate exact bot, repository, head ref, head SHA, base, and absence of
-   auto-merge;
-3. use one isolated worktree per pull request;
-4. classify under repository policy;
-5. merge the current base without rebase or force-push;
-6. inspect, repair, and validate the dependency update;
-7. push only to the existing verified ref with an explicit refspec;
-8. request and complete current-head review and feedback; and
-9. hand off exact head, base, checks, review, feedback, risk, and blockers.
+1. discover live Dependabot pull requests and paginate every feedback and
+   timeline surface before mutation;
+2. bind repository policy to the exact trusted base SHA;
+3. authenticate exact bot, repository, native head lineage, head ref, head SHA,
+   base, and absence of auto-merge;
+4. use a sanitized standalone clone and sealed bundle without candidate
+   execution;
+5. classify under repository policy;
+6. merge the current base with one inspected no-commit/no-fast-forward merge,
+   without rebase or force-push;
+7. inspect and repair the dependency update as data, then validate it through
+   exact-head secretless CI;
+8. push only to the existing verified ref with an explicit refspec, exact
+   expected-old-head lease, explicit branch grant, and the generic skill's
+   reviewed one-shot exact-CAS push adapter;
+9. request and complete current-head review and feedback under separate grants;
+   and
+10. hand off exact head, base, type-specific check-run or commit-status
+    provenance, review, feedback, risk, and blockers.
 
 Repository rules take precedence. `AGENTS.md` and
 [`docs/dependabot-automation.md`](../dependabot-automation.md) define the Mento
 classification, protected-runtime procedure, commands, secret boundaries, and
-human handoff.
+human handoff. `.github/dependabot-prep-policy.json` defines the exact Mento
+identity, veto, intervention, force-push, and Actions-ref rules.
 
 ### Keep preparation separate from merge authority
 
-The external agent may update and push a Dependabot branch. It may request
-review, reply to review comments, and resolve eligible answered threads. It
-must not approve, dismiss a review, change auto-merge, merge, close, or enqueue
-the pull request.
+Read-only is the default. The scheduled operator grants branch updates, review
+requests, comments, replies, and one proven infrastructure rerun. It does not
+grant review-thread resolution. Manual operators grant each permitted mutation
+class explicitly.
+The scheduled operator does not grant local candidate execution. The external
+agent must not approve, dismiss a review, change auto-merge, merge, close, or
+enqueue the pull request.
 
 The agent requires live `autoMergeRequest: null` before any branch mutation,
 immediately before each push, and at handoff. It merges the current base into
 the branch. It never rebases or force-pushes. Any push invalidates prior
 current-head check and review evidence.
+
+Each invocation starts from an authenticated native Dependabot head. A
+pre-existing non-native head is manual because this design has no durable,
+independently verified cross-runtime preparation ledger. During one
+uninterrupted invocation, the agent admits only its exact non-force transitions.
+It creates one two-parent merge commit, one one-parent repair commit on an
+already-current base, or no commit. It never creates an empty second commit.
 
 Preparation ends with one of four reports: `prepared for maintainer decision`,
 `manual`, `blocked`, or `read-only`. A maintainer then revalidates the exact
@@ -103,21 +174,25 @@ and security-policy changes require an explicit maintainer decision. Sensitive
 or self-reviewing GitHub Actions remain manual. This includes the paired OSV
 scanner and reporter.
 
-Non-sensitive npm and Actions updates can be prepared when the agent completes
-the repository checks and exact-head review. Grouped updates and major updates
-receive full diff and release review; grouping never reduces scope.
+Non-sensitive npm updates can be prepared when the agent completes the
+repository checks and exact-head review. The agent never mutates an Actions
+ref. A non-sensitive Actions update can pass only on its current, unchanged,
+native green head. Grouped updates and major updates receive full diff and
+release review; grouping never reduces scope.
 
 ### Rotate protected runtime dependencies through repository procedures
 
 Next.js and Vercel CLI updates can change both the ordinary workspace and the
-standalone Vercel deployment runtime. The external agent or a maintainer must
-rotate all coupled manifests, overrides, lockfiles, and contract digests in one
-pull request. It must use the existing independent validators documented in
+standalone Vercel deployment runtime. The pull request must rotate all coupled
+manifests, overrides, lockfiles, and contract digests together. Exact-head CI
+must run the independent validators documented in
 [`docs/dependency-overrides.md`](../dependency-overrides.md).
 
-If the complete rotation cannot be reproduced and validated, the result is
-`manual`. The agent must not restore the old workspace version only to satisfy
-a skew check.
+The generic agent always reports these rotations as `manual`. It does not
+prepare or push them, even with an `execute` grant. An authenticated maintainer
+performs the documented provenance review and source-bound lockfile generation.
+The agent must not restore the old workspace version only to satisfy a skew
+check.
 
 ### Preserve secretless pull-request boundaries
 
@@ -127,6 +202,14 @@ do not persist checkout credentials. The read-only Vercel preview intake still
 authenticates the exact Dependabot event before trusted default-branch code
 publishes a preview-disabled status. The external-agent design does not widen
 preview, deployment, cache, package, environment, or workflow authority.
+
+External preparation uses a separate clone made from sealed exact-SHA bundles.
+The scheduled path uses sanitized trusted Git and structured edits only. It does
+not execute candidate hooks, package-manager commands, tests, builds,
+generators, plugins, local binaries, or configuration. Existing secretless
+pull-request CI is the candidate-execution and validation boundary. A required
+repair that needs local execution remains manual unless a separate `execute`
+grant and tested isolation adapter exist.
 
 ### Remove repository-hosted preparation machinery
 
@@ -138,6 +221,33 @@ repository validators used by external or manual preparation.
 
 This decision supersedes ADRs 0006, 0007, and 0008. Those ADRs remain archived
 as historical records.
+
+The cutover spans both sides of the file deletion. An explicitly authorized
+human operator acts outside every `dependabot-prep` invocation. Before this
+decision reaches `main`, the operator freezes all Dependabot merges, cancels and
+reads back every native auto-merge request, disables the old workflows, revokes
+the Prepare App and repository-specific model credential, removes the five
+processor variables and Prepare App private-key secret, and deletes or expires
+every rerunnable old workflow run. A blocked freeze, auto-merge cancellation,
+shared-credential cleanup, or nonterminal old run blocks the retirement merge.
+The zero-rerun proof prevents an old workflow from using the retained shared
+Claude OAuth fallback.
+
+The operator holds the shared repository write lease from before the first
+cutover mutation through the final authority readback. This blocks a scheduled
+or manual write-capable preparation run from changing the same pull requests
+during cutover. An existing or stale lease blocks the cutover.
+
+After the deletion reaches `main`, the operator removes stale processor
+authority, verifies every live ruleset and branch-protection rule, closes only
+the enumerated obsolete bot-managed notifier issues, and completes a final
+authority readback. The operator then verifies the shared skill and pre-model
+launcher boundary in Codex, Claude Code, and OpenClaw, completes one read-only
+inventory and one supervised no-exec preparation, and only then enables the
+weekly schedule. The merge freeze remains until the final readback proves that
+no old processor approval, `Dependabot ALL CLEAR`, native auto-merge request,
+required old check, App actor, or App bypass remains on any open pull request.
+The exact checklist is in the active runbook.
 
 ## Alternatives considered
 
@@ -174,10 +284,22 @@ for routine updates. Sensitive updates still use the manual outcome.
 - A failed scheduled operator run does not receive an in-repository retry. A
   maintainer must invoke the skill manually or wait for the next sweep.
 - The scheduled operator needs bounded GitHub authority to push existing
-  Dependabot refs, reply to comments, and resolve threads. It receives no
-  approval or merge authority.
+  Dependabot refs and reply to comments. It receives no thread-resolution,
+  approval, or merge authority.
+- The current OpenClaw credential has broader technical repository authority.
+  The skill provides a procedural boundary, not token-level least privilege.
+  This residual replaces the dedicated Prepare App and controller.
+- The scheduled path cannot produce a repair that requires local candidate
+  execution. It reports that pull request as manual instead of rebuilding a
+  second CI system outside GitHub.
+- A later invocation cannot resume a head changed by a prior agent. It reports
+  that pre-existing non-native head as manual. This is the cost of removing the
+  durable processor lineage authority.
 - The preparation logic becomes reusable from Codex, Claude Code, OpenClaw,
   and other compatible runtimes and across JavaScript repositories.
+- A manual session cannot gain write authority after launch. The operator must
+  relaunch it through the reviewed boundary and retain current-host instruction
+  isolation evidence.
 - Repository policy becomes smaller and easier to audit. Mento-specific risk,
   validation, protected-runtime, and secretless-preview rules remain explicit.
 - Exact-head checks and review remain necessary. Agent evidence is a current
@@ -187,7 +309,7 @@ for routine updates. Sensitive updates still use the manual outcome.
 
 The agent fails closed on identity drift, base or head drift, auto-merge state,
 unknown dependency input, unrelated lockfile changes, validation failure,
-missing current-head review, unresolved feedback, or mergeability failure. It
+missing current-head review, unanswered feedback, or mergeability failure. It
 reports `manual` or `blocked` with the exact reason and does not merge.
 
 If the scheduled run misses a week, use a manual `dependabot-prep` invocation.

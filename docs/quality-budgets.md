@@ -85,15 +85,13 @@ that would mix server/build-cache artifacts into the browser budget.
 `.github/workflows/ci-failure-notifier.yml`. It ignores pull-request and feature
 branch runs; branch protection already surfaces those failures. It tracks
 default-branch `push`, `schedule`, and `workflow_dispatch` runs plus allowlisted
-release-tag `push` workflows. Repository-dispatch and `workflow_run` monitoring
-are fail-closed. The trusted script accepts only exact workflow paths and
-bounded case-sensitive titles that are present in its static allowlist. It
-rejects a path mismatch, malformed title, unrecognized event, or
-non-default-branch definition. Managed issue prose uses the canonical workflow
-name from the trusted path. It partitions state by source workflow,
-operational trigger, and target ref; the target is the authenticated
-pull-request number when an allowlisted title carries one and the branch or tag
-otherwise. It then:
+release-tag `push` workflows. It accepts `workflow_run` only for the
+repository-owned `Vercel Main Deployment` workflow on the default branch. It
+does not monitor `repository_dispatch`. The workflow trigger supplies a static
+name allowlist, and the trusted script rejects an unrecognized event, wrong
+branch, fork, or notifier self-callback. Managed issue prose uses the upstream
+workflow name. It partitions state by source workflow, operational trigger, and
+branch or tag. It then:
 
 - opens one bot-authored, marker-keyed issue per partition on failure;
 - updates/reopens that same issue for repeated failures in the partition;

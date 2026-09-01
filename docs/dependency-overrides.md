@@ -29,11 +29,20 @@ The workspace and standalone runtime resolve legacy v2 consumers to upstream
 only the exact reviewed nanoid 3.3.18 pair. Do not restore a retired patch or
 cross-paired manifest and lockfile state.
 
-An external agent may prepare a protected-runtime rotation only through the
-coupled procedures below. A maintainer may perform the same procedure manually.
-Keep all coupled files in one pull request. If any step or validator cannot be
-completed, report the update as `manual`. Do not restore an old workspace
+The scheduled no-exec agent must classify every protected-runtime rotation as
+`manual`. It must not run a metadata query, package-manager command, generator,
+install, test, build, or smoke command from this procedure. The generic external
+agent must not prepare or push this rotation, even when it has an `execute`
+grant. An authenticated maintainer takes over the branch outside the generic
+skill. Keep all coupled files in one pull request. If any step or validator
+cannot be completed, keep the update `manual`. Do not restore an old workspace
 version only to make the protected-runtime check pass.
+
+The checked-in validators prove candidate self-consistency and the expected
+registry-only runtime shape. They do not prove that candidate-authored metadata
+came from the public npm registry. They also do not prove that a generated root
+lockfile preserved every unrelated source entry. The maintainer must establish
+those two facts independently before push.
 
 ### Vercel CLI rotation
 
@@ -46,42 +55,19 @@ or minor release.
 2. Read the target release's builder peer map from npm. Review every key and
    major-version change. Set the standalone runtime dependencies to that exact
    peer map plus the exact target `vercel` version. Copy the complete root
-   `pnpm.overrides` object into the standalone manifest.
-
-   ```bash
-   node --input-type=module -e '
-   import { execFileSync } from "node:child_process";
-   import { readFile, writeFile } from "node:fs/promises";
-   const root = JSON.parse(await readFile("package.json", "utf8"));
-   const vercelVersion = root.devDependencies.vercel;
-   const peers = JSON.parse(execFileSync(
-     "npm",
-     ["view", `vercel@${vercelVersion}`, "peerDependencies", "--json"],
-     { encoding: "utf8" },
-   ));
-   const path = "scripts/vercel-cli-runtime/package.json";
-   const runtime = JSON.parse(await readFile(path, "utf8"));
-   runtime.dependencies = Object.fromEntries(
-     Object.entries({ ...peers, vercel: vercelVersion }).sort(([a], [b]) =>
-       a.localeCompare(b),
-     ),
-   );
-   runtime.pnpm.overrides = root.pnpm.overrides;
-   await writeFile(path, `${JSON.stringify(runtime, null, 2)}\n`);
-   '
-   ```
+   `pnpm.overrides` object into the standalone manifest. Fetch the exact version
+   document directly from `https://registry.npmjs.org`. Bind its bytes and
+   digest to the review record. Require the expected package name, version,
+   tarball host, integrity, peer map, optional-peer map, Node engine, and binary
+   shape. Reject registry redirection or missing fields.
 
 3. Regenerate only the standalone lockfile from a fresh isolated directory.
    Use the repository's exact pnpm 10.34.4. Disable lifecycle scripts,
-   pnpmfile loading, and workspace discovery.
-
-   ```bash
-   runtime_dir="$(mktemp -d)"
-   cp scripts/vercel-cli-runtime/package.json "$runtime_dir/package.json"
-   CI=true pnpm --dir "$runtime_dir" install --lockfile-only --ignore-scripts --ignore-pnpmfile --ignore-workspace
-   mv "$runtime_dir/pnpm-lock.yaml" scripts/vercel-cli-runtime/pnpm-lock.yaml
-   rm -rf "$runtime_dir"
-   ```
+   pnpmfile loading, and workspace discovery. Use an empty temporary home and
+   user configuration. Set the registry explicitly to
+   `https://registry.npmjs.org/`. Reject `configDependencies`, hooks, patches,
+   workspace links, or another package-manager extension before generation.
+   Verify the pnpm executable and exact version before it reads the candidate.
 
 4. Review the root and standalone lockfile diffs. Update
    `scripts/vercel-cli-runtime/contract.json` with the target Vercel version,
@@ -106,13 +92,17 @@ workspace `catalog:` references. Then:
 
 1. Start from the live Dependabot or maintainer branch. Review the requested
    Next.js release, migration notes, peer ranges, engines, and lockfile closure.
-2. Update the catalog and root override. Regenerate the root lockfile from that
-   exact branch without lifecycle scripts or pnpmfile loading. Reject unrelated
-   dependency movement instead of accepting a wholesale lockfile rewrite.
-
-   ```bash
-   CI=true pnpm install --lockfile-only --ignore-scripts --ignore-pnpmfile
-   ```
+   Fetch the exact public npm version documents for `next`, `@next/env`, each
+   platform SWC package, and each changed runtime dependency. Bind their bytes
+   and digests to the review record. Verify integrity, peer maps, optional-peer
+   metadata, engines, and the retained snapshot peer context.
+2. Update the catalog and root override. Generate the target closure in a clean
+   disposable directory with exact pnpm 10.34.4, an empty temporary home and
+   user configuration, the explicit public registry, disabled lifecycle
+   scripts, and disabled pnpmfile loading. Reject `configDependencies`, hooks,
+   patches, or another package-manager extension before generation. Import only
+   the requested Next.js runtime closure into the source root lockfile. Preserve
+   every unrelated source byte and resolution. Reject a wholesale rewrite.
 
 3. Copy the complete root override map into the standalone manifest. Regenerate
    the standalone lockfile with the isolated command from the Vercel procedure.
@@ -128,47 +118,16 @@ workspace `catalog:` references. Then:
 
 ### Protected-runtime validation
 
-After the manifest and standalone lockfile are final, use this read-only command
-to render the candidate contract values. Review the output, then update
-`contract.json`. The validators remain the authority.
+After generation, compare each output with the recorded source bytes. For a
+Vercel-only rotation, permit only the exact Vercel regions in the root lockfile.
+For a Next.js rotation, permit only the exact target runtime closure. Reject an
+unrelated key, resolution, integrity, snapshot, override, patch, or metadata
+change. Compute each contract digest from the final reviewed bytes. Do not copy
+a candidate-provided digest without recomputing it.
 
-```bash
-node --input-type=module <<'NODE'
-import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
-
-const sha256 = (value) =>
-  createHash("sha256").update(value).digest("hex");
-const mapDigest = (value) =>
-  sha256(JSON.stringify(Object.fromEntries(
-    Object.entries(value).sort(([left], [right]) => left.localeCompare(right)),
-  )));
-const root = JSON.parse(await readFile("package.json", "utf8"));
-const manifestPath = "scripts/vercel-cli-runtime/package.json";
-const lockPath = "scripts/vercel-cli-runtime/pnpm-lock.yaml";
-const contractPath = "scripts/vercel-cli-runtime/contract.json";
-const manifestBytes = await readFile(manifestPath);
-const lockBytes = await readFile(lockPath);
-const manifest = JSON.parse(manifestBytes);
-const contract = JSON.parse(await readFile(contractPath, "utf8"));
-const version = root.devDependencies.vercel;
-const escapedVersion = version.replaceAll(".", "\\.");
-const matches = [...lockBytes.toString("utf8").matchAll(new RegExp(
-  `^  vercel@${escapedVersion}:\\n    resolution: \\{integrity: (sha512-[A-Za-z0-9+/]{86}==)\\}$`,
-  "gmu",
-))];
-if (matches.length !== 1) throw new Error("Vercel registry integrity is ambiguous");
-console.log(JSON.stringify({
-  lockfileSha256: sha256(lockBytes),
-  manifestSha256: sha256(manifestBytes),
-  overridesSha256: mapDigest(root.pnpm.overrides),
-  registryIntegrity: matches[0][1],
-  runtimeDependenciesSha256: mapDigest(manifest.dependencies),
-  schema: contract.schema,
-  vercelVersion: version,
-}, null, 2));
-NODE
-```
+The commands below validate the checked-in candidate. They are necessary, but
+they do not replace the public-registry provenance and source-bound lockfile
+comparison above.
 
 Run all of these commands after either rotation:
 
@@ -183,10 +142,9 @@ pnpm vercel:workflow:test
 
 Run a frozen root install and the affected application build for a Next.js
 rotation. Run a fresh secretless standalone install and exact
-`node <vercel-cli> --version` smoke for a Vercel rotation. The external agent
-then follows the exact-head review and handoff contract in
-[`dependabot-automation.md`](dependabot-automation.md). A maintainer still
-provides the final approval and squash merge.
+`node <vercel-cli> --version` smoke for a Vercel rotation. The maintainer then
+follows the normal exact-head review and merge gates. The generic
+`dependabot-prep` agent reports this pull request as `manual`.
 
 Never run a general workspace install to regenerate the standalone lockfile.
 That can admit workspace links into a runtime whose isolation depends on a

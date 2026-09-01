@@ -16,12 +16,12 @@ superseded_by: "0009"
 
 This ADR records the retired typed repair architecture.
 [ADR 0009](0009-external-agent-dependabot-preparation.md) makes protected
-runtime rotations an external-agent or maintainer procedure with existing
-repository validators.
+runtime rotations a maintainer-only manual procedure with existing repository
+validators.
 
 > Archive notice: The remainder of this file is historical. Do not run its
-> commands or use its operation protocol. Use ADR 0009 and the active manual or
-> external-agent rotation procedure.
+> commands or use its operation protocol. Use ADR 0009 and the active maintainer
+> rotation procedure.
 
 ## Context
 
