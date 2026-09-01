@@ -10,7 +10,7 @@
         "VERCEL_TARGET_ENV",
         "VERCEL_GIT_COMMIT_SHA"
       ],
-      "passThroughEnv": ["VERCEL_URL"],
+      "passThroughEnv": ["$TURBO_EXTENDS$", "VERCEL_URL"],
       "inputs": ["$TURBO_EXTENDS$", "$TURBO_ROOT$/scripts/security-headers.mjs"]
     }
   }
