@@ -37,13 +37,6 @@ export const MAIN_ACTIVE_APP_ALIASES = Object.freeze([
   "app.mento.org",
   "appmentoorg-env-v3-mentolabs.vercel.app",
 ]);
-export const MAIN_ACTIVE_LEGACY_ALIAS = "v2-app.mento.org";
-export const MAIN_ACTIVE_LEGACY_ALIASES = Object.freeze([
-  "appmentoorg-git-v2-mentolabs.vercel.app",
-  "appmentoorg-mentolabs.vercel.app",
-  "appmentoorg.vercel.app",
-  MAIN_ACTIVE_LEGACY_ALIAS,
-]);
 export const MAIN_ACTIVE_COMMAND_TIMEOUT_MS = 120_000;
 
 const TARGET_ALIASES = Object.freeze({
@@ -51,7 +44,6 @@ const TARGET_ALIASES = Object.freeze({
   governance: Object.freeze(["governance.mento.org"]),
   reserve: Object.freeze(["reserve.mento.org"]),
   ui: Object.freeze(["ui.mento.org"]),
-  "legacy-app": MAIN_ACTIVE_LEGACY_ALIASES,
 });
 
 const COMMAND_ENVIRONMENT_NAMES = Object.freeze([
@@ -92,16 +84,6 @@ const ALIAS_KEYS = Object.freeze([
   "kind",
   "target",
   "alias",
-  "deploymentId",
-  "deploymentUrl",
-  "arguments",
-]);
-const LEGACY_ALIAS_KEYS = Object.freeze([
-  "kind",
-  "target",
-  "alias",
-  "aliases",
-  "projectId",
   "deploymentId",
   "deploymentUrl",
   "arguments",
@@ -237,43 +219,6 @@ function freezeCommand(command) {
   if (Array.isArray(command.aliases)) Object.freeze(command.aliases);
   Object.freeze(command.arguments);
   return Object.freeze(command);
-}
-
-function canonicalLegacyTopology(aliases, projectId) {
-  if (!Array.isArray(aliases)) {
-    throw new MainActiveAdapterError(
-      "Legacy app aliases must be an array",
-      "MAIN_ACTIVE_INPUT_REJECTED",
-    );
-  }
-  const canonicalAliases = aliases.map((alias) => {
-    try {
-      return canonicalizeHostname(alias);
-    } catch {
-      throw new MainActiveAdapterError(
-        "Legacy app alias is malformed",
-        "MAIN_ACTIVE_INPUT_REJECTED",
-      );
-    }
-  });
-  if (
-    new Set(canonicalAliases).size !== canonicalAliases.length ||
-    JSON.stringify(canonicalAliases) !==
-      JSON.stringify(MAIN_ACTIVE_LEGACY_ALIASES)
-  ) {
-    throw new MainActiveAdapterError(
-      "Legacy app aliases must exactly match the reviewed v2 topology",
-      "MAIN_ACTIVE_INPUT_REJECTED",
-    );
-  }
-  return {
-    aliases: Object.freeze([...canonicalAliases]),
-    projectId: requireString(
-      projectId,
-      "Legacy app project ID",
-      IDENTIFIER_PATTERN,
-    ),
-  };
 }
 
 function canonicalDeploymentIdentity(value, label) {
@@ -571,40 +516,6 @@ export function buildMainActiveAppAliasRestoreSequence(options) {
   );
 }
 
-export function buildMainActiveLegacyAliasRestoreCommand(options) {
-  assertExactKeys(
-    options,
-    ["alias", "aliases", "projectId", "deploymentId", "deploymentUrl"],
-    "Legacy alias restore input",
-  );
-  const topology = canonicalLegacyTopology(options.aliases, options.projectId);
-  return buildAliasCommand({
-    kind: "legacy-alias-restore",
-    target: "legacy-app",
-    alias: requireAlias(options.alias, topology.aliases, "Legacy app alias"),
-    deploymentId: options.deploymentId,
-    deploymentUrl: options.deploymentUrl,
-    ...topology,
-  });
-}
-
-export function buildMainActiveLegacyAliasRestoreSequence(options) {
-  assertExactKeys(
-    options,
-    ["aliases", "projectId", "deploymentId", "deploymentUrl"],
-    "Legacy alias restore sequence input",
-  );
-  const topology = canonicalLegacyTopology(options.aliases, options.projectId);
-  return Object.freeze(
-    topology.aliases.map((alias) =>
-      buildMainActiveLegacyAliasRestoreCommand({
-        alias,
-        ...options,
-      }),
-    ),
-  );
-}
-
 function sameJson(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -665,15 +576,6 @@ export function assertMainActiveCommandDescriptor(value) {
     assertExactKeys(value, PROMOTION_KEYS, "Rollback command");
     expected = buildMainActiveRollbackCommand({
       target: value.target,
-      deploymentId: value.deploymentId,
-      deploymentUrl: value.deploymentUrl,
-    });
-  } else if (value.kind === "legacy-alias-restore") {
-    assertExactKeys(value, LEGACY_ALIAS_KEYS, "Legacy alias command");
-    expected = buildMainActiveLegacyAliasRestoreCommand({
-      alias: value.alias,
-      aliases: value.aliases,
-      projectId: value.projectId,
       deploymentId: value.deploymentId,
       deploymentUrl: value.deploymentUrl,
     });
@@ -1051,7 +953,7 @@ export async function resolveMainActiveAppCandidate({
   });
 }
 
-function canonicalMapping(value, expectedProjectId = null) {
+function canonicalMapping(value) {
   const keys = Object.keys(value ?? {});
   if (
     !hasExactKeys(value, MAPPING_KEYS) &&
@@ -1066,20 +968,11 @@ function canonicalMapping(value, expectedProjectId = null) {
   ) {
     throw new Error("project ID");
   }
-  if (
-    expectedProjectId !== null &&
-    (!keys.includes("projectId") || value.projectId !== expectedProjectId)
-  ) {
-    throw new Error("project binding");
-  }
-  const mapping = {
+  return {
     alias: canonicalizeHostname(value.alias),
     deploymentId: requireDeploymentId(value.deploymentId),
     deploymentUrl: requireDeploymentUrl(value.deploymentUrl),
   };
-  return expectedProjectId === null
-    ? mapping
-    : { ...mapping, projectId: expectedProjectId };
 }
 
 function reviewedMappingAliases(target, aliases) {
@@ -1127,27 +1020,19 @@ export async function inspectMainActiveMapping({
       "MAIN_ACTIVE_MAPPING_FAILED",
     );
   }
-  let expectedProjectId = null;
-  let aliases;
-  if (canonicalTarget === "legacy-app") {
-    const topology = canonicalLegacyTopology(requestedAliases, projectId);
-    aliases = [...topology.aliases];
-    expectedProjectId = topology.projectId;
-  } else {
-    if (projectId !== undefined) {
-      throw new MainActiveAdapterError(
-        "Only legacy mapping inspection accepts a project binding",
-        "MAIN_ACTIVE_INPUT_REJECTED",
-      );
-    }
-    aliases = reviewedMappingAliases(canonicalTarget, requestedAliases);
+  if (projectId !== undefined) {
+    throw new MainActiveAdapterError(
+      "Protected mapping inspection does not accept a project binding",
+      "MAIN_ACTIVE_INPUT_REJECTED",
+    );
   }
+  const aliases = reviewedMappingAliases(canonicalTarget, requestedAliases);
   let mappings;
   try {
     const captured = await captureMappings(Object.freeze([...aliases]));
     if (!Array.isArray(captured)) throw new Error("mapping array");
     mappings = captured
-      .map((mapping) => canonicalMapping(mapping, expectedProjectId))
+      .map((mapping) => canonicalMapping(mapping))
       .sort((left, right) => left.alias.localeCompare(right.alias));
     const mappingState = classifyMainTransactionMapping({
       aliases,

@@ -54,7 +54,7 @@ function affectedOperation(overrides = {}) {
 
 function receiptInput(outcome = "active-committed") {
   const contract = MAIN_TERMINAL_RECEIPT_OUTCOMES[outcome];
-  const [mapping, census, state, smoke, legacy] = contract.proofs;
+  const [mapping, census, state, smoke] = contract.proofs;
   return {
     ...IDENTITY,
     producerRunAttempt: "2",
@@ -69,7 +69,6 @@ function receiptInput(outcome = "active-committed") {
     finalCensus: proof(census, "census"),
     stateProof: proof(state, "state"),
     publicSmoke: proof(smoke, "smoke"),
-    freshLegacyV2: proof(legacy, "legacy"),
     mutationCount: contract.mutations ?? contract.minMutations ?? 0,
     rollbackTargets: contract.rollback === "required" ? ["governance"] : [],
     affectedOperations:
@@ -94,6 +93,103 @@ test("terminal receipt is canonical, self-digested, and compactly encoded", () =
     receipt.digest,
     createMainTerminalReceipt(receiptInput()).digest,
   );
+});
+
+// The retired legacy App deployment owned the 24th receipt key, the fifth
+// operation target, and the sixth operation type. None may re-enter.
+test("receipt shape is exactly the twenty-three reviewed keys", () => {
+  const receipt = createMainTerminalReceipt(receiptInput());
+  assert.deepEqual(Object.keys(receipt), [
+    "schema",
+    "repository",
+    "deploySha",
+    "upstreamRunId",
+    "upstreamRunAttempt",
+    "workflowRunId",
+    "producerRunAttempt",
+    "producerJob",
+    "releaseId",
+    "releaseManifestDigest",
+    "releasePlanDigest",
+    "releaseExecutionDigest",
+    "evidenceDigest",
+    "outcome",
+    "finalMapping",
+    "finalCensus",
+    "stateProof",
+    "publicSmoke",
+    "mutationCount",
+    "rollbackTargets",
+    "affectedOperations",
+    "journal",
+    "digest",
+  ]);
+  assert.equal(Object.keys(receipt).length, 23);
+  for (const contract of Object.values(MAIN_TERMINAL_RECEIPT_OUTCOMES)) {
+    assert.equal(contract.proofs.length, 4);
+  }
+  assert.throws(
+    () =>
+      assertMainTerminalReceipt(
+        { ...receipt, freshLegacyV2: proof("passed", "legacy") },
+        IDENTITY,
+      ),
+    /keys are missing, extra, or out of order/,
+  );
+});
+
+test("affected operations admit exactly four targets and five operation types", () => {
+  const input = receiptInput("manual-intervention");
+  const accepted = new Set();
+  for (const [target, type, alias] of [
+    ["governance", "promote", null],
+    ["reserve", "promote", null],
+    ["ui", "promote", null],
+    ["app", "app_v3_deploy", null],
+    ["app", "app_alias_set", "app.mento.org"],
+    ["governance", "ordinary_rollback", null],
+    ["app", "app_alias_restore", "app.mento.org"],
+  ]) {
+    const receipt = createMainTerminalReceipt({
+      ...input,
+      affectedOperations: [affectedOperation({ target, type, alias })],
+    });
+    assert.equal(receipt.affectedOperations[0].target, target);
+    accepted.add(target);
+    accepted.add(type);
+  }
+  assert.equal(
+    [...accepted].filter((value) =>
+      ["governance", "reserve", "ui", "app"].includes(value),
+    ).length,
+    4,
+  );
+  assert.equal(
+    [...accepted].filter((value) =>
+      [
+        "promote",
+        "app_v3_deploy",
+        "app_alias_set",
+        "ordinary_rollback",
+        "app_alias_restore",
+      ].includes(value),
+    ).length,
+    5,
+  );
+  for (const [target, type, alias] of [
+    ["legacy-app", "app_alias_restore", "v2-app.mento.org"],
+    ["app", "legacy_emergency_restore", "v2-app.mento.org"],
+    ["legacy-app", "legacy_emergency_restore", "v2-app.mento.org"],
+  ]) {
+    assert.throws(
+      () =>
+        createMainTerminalReceipt({
+          ...input,
+          affectedOperations: [affectedOperation({ target, type, alias })],
+        }),
+      /affected operation (?:target|type) is malformed/,
+    );
+  }
 });
 
 test("every terminal receipt outcome has a strict proof and journal contract", () => {
@@ -136,9 +232,8 @@ test("recovery failure has a recovery-only, dynamic, tamper-evident terminal han
       receipt.finalCensus.status,
       receipt.stateProof.status,
       receipt.publicSmoke.status,
-      receipt.freshLegacyV2.status,
     ],
-    ["unsafe", "unsafe", "unsafe", "not-required", "passed"],
+    ["unsafe", "unsafe", "unsafe", "not-required"],
   );
   assert.deepEqual(receipt.journal, {
     status: "recovery-failed",
@@ -220,9 +315,8 @@ test("recovered unproven census has a recovery-only durable terminal handoff", (
       receipt.finalCensus.status,
       receipt.stateProof.status,
       receipt.publicSmoke.status,
-      receipt.freshLegacyV2.status,
     ],
-    ["passed", "unsafe", "unsafe", "passed", "passed"],
+    ["passed", "unsafe", "unsafe", "passed"],
   );
   assert.equal(receipt.journal.status, "recovered");
   assert.deepEqual(receipt.rollbackTargets, ["governance"]);
@@ -281,7 +375,6 @@ test("current-release verification is a journal-free, zero-mutation success", ()
     receipt.finalCensus,
     receipt.stateProof,
     receipt.publicSmoke,
-    receipt.freshLegacyV2,
   ]) {
     assert.equal(proof.status, "passed");
     assert.match(proof.digest, /^[a-f0-9]{64}$/);
@@ -337,7 +430,7 @@ test("current-release verification rejects journals, mutations, and incomplete p
   }
 });
 
-test("no-target receipt binds fresh legacy-v2 evidence after coordinator execution", () => {
+test("no-target receipt binds release identity after coordinator execution", () => {
   const noTarget = createMainTerminalReceipt(receiptInput("no-target"));
   assert.equal(noTarget.releaseId, IDENTITY.releaseId);
   assert.equal(noTarget.releasePlanDigest, IDENTITY.releasePlanDigest);
@@ -349,14 +442,13 @@ test("no-target receipt binds fresh legacy-v2 evidence after coordinator executi
     status: "not-required",
     digest: null,
   });
-  assert.equal(noTarget.freshLegacyV2.status, "passed");
   assert.equal(
     createMainTerminalReceipt(receiptInput("superseded-before-journal"))
-      .freshLegacyV2.status,
-    "passed",
+      .publicSmoke.status,
+    "not-required",
   );
   assert.equal(
-    createMainTerminalReceipt(receiptInput("shadow-prepared")).freshLegacyV2
+    createMainTerminalReceipt(receiptInput("shadow-prepared")).publicSmoke
       .status,
     "passed",
   );

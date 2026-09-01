@@ -3,14 +3,15 @@ title: Stable active-main release identity and provider-side rerun reconciliatio
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-08-13
+last_verified: 2026-09-01
 scope: ci/deployment/main-reruns
 date: 2026-07
 ---
 
 # ADR 0005 — Stable active-main release identity and provider-side rerun reconciliation
 
-**Status:** Accepted (Jul 2026)
+**Status:** Accepted (Jul 2026). Amended 2026-09-01 to retire the legacy App
+v2 continuity proof per MGP-18.
 **Scope:** ci/deployment/main-reruns
 
 ## Context
@@ -207,6 +208,18 @@ every other non-prefix state still require manual intervention.
 - Missing, conflicting, or ambiguous provider evidence stops the release rather
   than selecting a guess. Operators use the documented recovery and rollback
   procedures; they do not create a legacy alternate path.
+
+## Amendment — 2026-09-01: legacy App v2 retired (MGP-18)
+
+Governance proposal MGP-18 passed. The legacy App v2 continuity proof — the
+independently verified `v2 -> production` deployment, project, environment,
+ref, SHA, and alias-topology identity described above (the "legacy v2"
+reference at line 69, the App v3 restriction rationale at lines 112-115, and
+the "legacy-v2" evidence bullet at line 243) — is no longer part of the
+terminal evidence set. The bounded recovery-operation envelope at line 149
+also drops from six forward plus nine recovery operations to six forward plus
+five recovery operations (three ordinary and two App-alias transitions). The
+custom-v3 App path is unchanged by this amendment.
 
 ## Trust, evidence, and failure handling
 

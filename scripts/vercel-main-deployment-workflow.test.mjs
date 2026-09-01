@@ -21,8 +21,6 @@ import {
 import { mainDeploymentGateJobName } from "./vercel-main-ci-attempt.mjs";
 import {
   MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS,
-  MAIN_DURABLE_LEGACY_RECOVERY_ALIASES,
-  MAIN_LEGACY_REQUIRED_ALIAS_TOPOLOGY,
   MAIN_ORDINARY_TARGETS,
 } from "./vercel-main-deployment.mjs";
 
@@ -583,10 +581,11 @@ test("provider preplan retries only typed drift with one wholly fresh observatio
     deployment: false,
   });
   const capture = command("provider-preplan", "planning-snapshot");
-  assert.match(capture.run, /snapshot --spec .*legacy/);
+  assert.match(capture.run, /create-spec --scope main/);
+  assert.doesNotMatch(capture.run, /legacy/);
   assert.match(
     command("provider-preplan", "preplan-discover").run,
-    /--planning-snapshot .*--legacy-snapshot/,
+    /--planning-snapshot .*--project-ids/,
   );
   const decision = command("provider-preplan", "preplan-decide");
   assert.equal((decision.run.match(/preplan-decide/g) ?? []).length, 2);
@@ -602,11 +601,10 @@ test("provider preplan retries only typed drift with one wholly fresh observatio
   assert.doesNotMatch(decision.run, /\b(?:for|while|until)\b/);
   assert.match(
     decision.run,
-    /planning-snapshot[\s\S]*planning-retry\.json[\s\S]*snapshot[\s\S]*legacy-retry\.json[\s\S]*preplan-discover[\s\S]*discovery-retry\.json[\s\S]*preplan-decide[\s\S]*preplan-retry\.json/,
+    /planning-snapshot[\s\S]*planning-retry\.json[\s\S]*preplan-discover[\s\S]*discovery-retry\.json[\s\S]*preplan-decide[\s\S]*preplan-retry\.json/,
   );
   for (const [retryFile, expectedReferences] of Object.entries({
     "planning-retry.json": 3,
-    "legacy-retry.json": 3,
     "discovery-retry.json": 2,
     "preplan-retry.json": 1,
   })) {
@@ -809,7 +807,7 @@ test("inherited restoration proves and validates reuse before a durable bounded 
   );
   const mappingSpecs = named(jobName, "inherited mapping specifications");
   assert.match(mappingSpecs.run, /create-spec --scope main/);
-  assert.match(mappingSpecs.run, /create-spec --scope legacy/);
+  assert.doesNotMatch(mappingSpecs.run, /legacy/);
 
   const strictReceipts = command(jobName, "inherited-candidate-receipts");
   for (const target of ["governance", "reserve", "ui", "app"]) {
@@ -877,7 +875,7 @@ test("inherited restoration proves and validates reuse before a durable bounded 
     "Recapture authoritative inherited mappings",
   );
   assert.match(authoritativeMappings.run, /planning-snapshot/);
-  assert.match(authoritativeMappings.run, /snapshot --spec .*legacy-spec/);
+  assert.doesNotMatch(authoritativeMappings.run, /legacy/);
   assert.match(authoritativeMappings.run, /canonical-mappings/);
   const journal = command(jobName, "inherited-recovery-journal");
   assert.equal(
@@ -889,7 +887,7 @@ test("inherited restoration proves and validates reuse before a durable bounded 
   );
   assert.match(
     journal.run,
-    /--preplan[\s\S]*--legacy-snapshot[\s\S]*--current-mappings[\s\S]*--candidate-receipts[\s\S]*--journal-output[\s\S]*--plan-output/,
+    /--preplan[\s\S]*--current-mappings[\s\S]*--candidate-receipts[\s\S]*--journal-output[\s\S]*--plan-output/,
   );
   assert.ok(jobSteps.indexOf(journalDeploySha) < jobSteps.indexOf(journal));
 
@@ -1171,7 +1169,7 @@ test("release preparation starts only after inherited recovery and replans from 
   assert.deepEqual(
     protectedSteps.map((step) => step.name),
     [
-      "Capture wholly fresh main and full legacy snapshots",
+      "Capture a wholly fresh main snapshot",
       "Discover a wholly fresh provider candidate census",
       "Decide from the wholly fresh provider census",
     ],
@@ -1183,10 +1181,7 @@ test("release preparation starts only after inherited recovery and replans from 
   assert.ok(jobSteps.indexOf(install) < jobSteps.indexOf(protectedSteps[0]));
 
   const specs = named(jobName, "fresh release preparation specifications");
-  const snapshots = named(
-    jobName,
-    "wholly fresh main and full legacy snapshots",
-  );
+  const snapshots = named(jobName, "wholly fresh main snapshot");
   const discovery = command(jobName, "preplan-discover");
   const decision = named(
     jobName,
@@ -1198,17 +1193,15 @@ test("release preparation starts only after inherited recovery and replans from 
   );
   const execution = named(jobName, "Create and encode release execution");
   assert.match(specs.run, /create-spec --scope main/);
-  assert.match(specs.run, /create-spec --scope legacy/);
+  assert.doesNotMatch(specs.run, /legacy/);
   assert.match(snapshots.run, /planning-snapshot/);
-  assert.match(snapshots.run, /snapshot --spec .*legacy-spec/);
-  assert.match(
-    discovery.run,
-    /--planning-snapshot[\s\S]*--legacy-snapshot[\s\S]*--project-ids/,
-  );
+  assert.doesNotMatch(snapshots.run, /legacy/);
+  assert.match(discovery.run, /--planning-snapshot[\s\S]*--project-ids/);
   assert.match(
     decision.run,
-    /preplan-decide[\s\S]*--discovery[\s\S]*--planning-snapshot[\s\S]*--legacy-snapshot/,
+    /preplan-decide[\s\S]*--discovery[\s\S]*--planning-snapshot/,
   );
+  assert.doesNotMatch(decision.run, /legacy/);
   assert.equal(
     rejectRestore.env.DECISION,
     "${{ steps.decide.outputs.decision }}",
@@ -1217,7 +1210,7 @@ test("release preparation starts only after inherited recovery and replans from 
   assert.equal(execution.id, "execution");
   assert.match(
     execution.run,
-    /release-cli\.mjs execution[\s\S]*--preplan[\s\S]*--discovery[\s\S]*--planning-snapshot[\s\S]*--legacy-snapshot/,
+    /release-cli\.mjs execution[\s\S]*--preplan[\s\S]*--discovery[\s\S]*--planning-snapshot/,
   );
   assert.equal(
     execution.env.BUILD_AND_TEST_JOB_URL,
@@ -2038,10 +2031,10 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
     (step) =>
       step.uses === "./.github/actions/vercel-main-active-recovery-transition",
   );
-  assert.equal(transitions.length, 10);
+  assert.equal(transitions.length, MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS + 1);
   assert.deepEqual(
     transitions.map((step) => step.with.slot),
-    ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
+    ["1", "2", "3", "4", "5", "6"],
   );
   for (const transition of transitions) {
     assert.match(
@@ -2109,7 +2102,7 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
   assert.match(recoveryFailedTerminal.run, /set -euo pipefail/);
   assert.match(
     recoveryFailedTerminal.run,
-    /install -m 0600 "\$RUNNER_TEMP\/current-attempt-journals\/current-history\.json" "\$RUNNER_TEMP\/recovery-current-history\.json"[\s\S]*terminal-artifacts[\s\S]*--journal-history "\$RUNNER_TEMP\/recovery-current-history\.json"[\s\S]*--legacy-v2[\s\S]*recovery-final-legacy[\s\S]*--outcome recovery-failed/,
+    /install -m 0600 "\$RUNNER_TEMP\/current-attempt-journals\/current-history\.json" "\$RUNNER_TEMP\/recovery-current-history\.json"[\s\S]*terminal-artifacts[\s\S]*--journal-history "\$RUNNER_TEMP\/recovery-current-history\.json"[\s\S]*--outcome recovery-failed/,
   );
   assert.doesNotMatch(
     recoveryFailedTerminal.run,
@@ -2123,19 +2116,6 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
   assert.doesNotMatch(
     JSON.stringify(recoveryFailedTerminal),
     /VERCEL_(?:ORG_ID|TOKEN)|vercel-main-active-recovery-transition/,
-  );
-  const freshLegacyProof = named(
-    "recover-main-deployment",
-    "Capture fresh full legacy proof",
-  );
-  assert.match(freshLegacyProof.if, /always\(\)[\s\S]*!cancelled\(\)/);
-  assert.match(
-    freshLegacyProof.if,
-    /steps\.recovery-failed\.outputs\.outcome == 'recovery-failed'/,
-  );
-  assert.match(
-    freshLegacyProof.if,
-    /steps\.recovery-failed\.outputs\.outcome == 'terminal-bypass'/,
   );
   assert.match(
     command("recover-main-deployment", "active-recovery-state-spec").run,
@@ -2171,7 +2151,7 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
   );
   assert.match(
     recoveredTerminal.run,
-    /terminal-artifacts[\s\S]*recovery-final-mappings[\s\S]*recovery-final-legacy/,
+    /terminal-artifacts[\s\S]*recovery-final-mappings/,
   );
   assert.match(
     recoveredTerminal.run,
@@ -2462,7 +2442,7 @@ test("provider and release handoffs stay compact job outputs rather than plan JS
   assert.doesNotMatch(workflowSource, /plan-main-deployments/);
   assert.match(
     command("prepare-release", "vercel-main-release-cli.mjs execution").run,
-    /--preplan[\s\S]*--discovery[\s\S]*--planning-snapshot[\s\S]*--legacy-snapshot/,
+    /--preplan[\s\S]*--discovery[\s\S]*--planning-snapshot/,
   );
   assert.match(
     named("prepare-release", "Reject a second inherited restore decision").run,
@@ -2724,7 +2704,7 @@ test("coordinator checkpoints the forward journal before six bounded mutations a
   assert.match(journal.run, /--current-mappings/);
   assert.match(journal.run, /--candidate-receipts/);
   assert.match(journal.run, /planning-snapshot/);
-  assert.match(journal.run, /snapshot --spec .*legacy-spec/);
+  assert.doesNotMatch(journal.run, /legacy/);
   assert.match(journal.run, /canonical-mappings[\s\S]*forward-journal/);
   const prepared = named(coordinator, "Checkpoint prepared journal");
   const preparedCheckpoint = named(
@@ -2884,7 +2864,7 @@ test("coordinator checkpoints the forward journal before six bounded mutations a
   assert.match(finalProof.run, /current-release-state-spec/);
   assert.match(finalProof.run, /active-proof/);
   assert.match(finalProof.run, /active-terminal-state-proof/);
-  assert.match(finalProof.run, /snapshot --spec .*legacy-spec/);
+  assert.doesNotMatch(finalProof.run, /legacy/);
   assert.match(
     finalize.run,
     /active-event-finalize[\s\S]*run-active[\s\S]*committed-journal/,
@@ -2921,7 +2901,6 @@ test("coordinator checkpoints the forward journal before six bounded mutations a
     "--final-census",
     "--final-mappings",
     "--journal-history",
-    "--legacy-v2",
     "--public-smokes",
     "--stage-results",
     "--state-proof",
@@ -2969,7 +2948,7 @@ test("a complete same-release re-verifies current state without a journal or pub
     current.run,
     /--freshness "\$RUNNER_TEMP\/final-freshness\.json"/,
   );
-  assert.match(current.run, /--legacy-v2 "\$RUNNER_TEMP\/final-legacy\.json"/);
+  assert.doesNotMatch(current.run, /--legacy-v2/);
   assert.match(
     current.run,
     /--public-smokes "\$RUNNER_TEMP\/public-smokes\.json"/,
@@ -3280,23 +3259,17 @@ test("result publishes an exact-SHA Dependabot release proof before failing clos
   );
 });
 
-test("legacy reducer constants and action pin boundaries stay covered while old artifact admission is gone", () => {
-  assert.deepEqual(MAIN_LEGACY_REQUIRED_ALIAS_TOPOLOGY, [
-    "appmentoorg-git-v2-mentolabs.vercel.app",
-    "appmentoorg-mentolabs.vercel.app",
-    "appmentoorg.vercel.app",
-    "v2-app.mento.org",
-  ]);
-  assert.deepEqual(
-    MAIN_DURABLE_LEGACY_RECOVERY_ALIASES,
-    MAIN_LEGACY_REQUIRED_ALIAS_TOPOLOGY,
-  );
+// MGP-18 retired the legacy App deployment. Recovery now compensates only the
+// three ordinary targets and the two reviewed App v3 aliases, and no workflow
+// step may reference the retired snapshot, spec, or terminal proof again.
+test("reducer constants and action pin boundaries stay covered while the retired legacy path is gone", () => {
   assert.equal(
     MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS,
-    MAIN_ORDINARY_TARGETS.length +
-      MAIN_ACTIVE_APP_ALIASES.length +
-      MAIN_DURABLE_LEGACY_RECOVERY_ALIASES.length,
+    MAIN_ORDINARY_TARGETS.length + MAIN_ACTIVE_APP_ALIASES.length,
   );
+  assert.equal(MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS, 5);
+  assert.doesNotMatch(workflowSource, /legacy/i);
+  assert.doesNotMatch(workflowSource, /v2-app\.mento\.org/);
   assert.ok(MAIN_ACTIVE_COMMAND_TIMEOUT_MS > 0);
   assert.match(forwardSource, /Upload the durable intent before mutation/);
   assert.match(recoverySource, /Upload recovery intent before mutation/);

@@ -2,11 +2,6 @@ import { createHash } from "node:crypto";
 import { Buffer } from "node:buffer";
 
 import {
-  assertCanonicalOutput,
-  canonicalizeDeploymentUrl,
-  canonicalizeHostname,
-} from "./vercel-deployment-state.mjs";
-import {
   MAIN_RELEASE_ACTIVATION_ORDER,
   assertMainReleaseManifest,
 } from "./vercel-main-release-reconciliation.mjs";
@@ -20,22 +15,12 @@ const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const POSITIVE_ID_PATTERN = /^[1-9][0-9]*$/;
 const DIGEST_PATTERN = /^[a-f0-9]{64}$/;
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
-const LEGACY_ALIAS = "v2-app.mento.org";
-const LEGACY_ALIASES = Object.freeze(
-  [
-    LEGACY_ALIAS,
-    "appmentoorg-git-v2-mentolabs.vercel.app",
-    "appmentoorg-mentolabs.vercel.app",
-    "appmentoorg.vercel.app",
-  ].sort(),
-);
 const EXECUTION_KEYS = Object.freeze([
   "schema",
   "decision",
   "reason",
   "manifest",
   "upstream",
-  "legacyAppV2",
   "selection",
   "projection",
 ]);
@@ -44,7 +29,6 @@ const SELECTION_KEYS = Object.freeze([
   "providerDiscoveryDigest",
   "planningSnapshotDigest",
   "rollbackOnlyTargets",
-  "legacyAppV2Digest",
   "projectIds",
   "mode",
   "mainOwnershipMode",
@@ -162,34 +146,6 @@ function canonicalUpstream(value, manifest) {
   };
 }
 
-function canonicalLegacyAppV2(value, manifest) {
-  const state = assertCanonicalOutput(value);
-  if (
-    Array.isArray(state) ||
-    canonicalizeHostname(state.alias) !== LEGACY_ALIAS ||
-    canonicalizeDeploymentUrl(state.deploymentUrl) !== state.deploymentUrl ||
-    state.projectId !== manifest.originalPriors.app.projectId ||
-    state.projectName !== "app.mento.org" ||
-    state.readyState !== "READY" ||
-    state.target !== "production" ||
-    state.customEnvironmentSlug !== null ||
-    state.git.org !== "mento-protocol" ||
-    state.git.repo !== "frontend-monorepo" ||
-    state.git.ref !== "v2" ||
-    !SHA_PATTERN.test(state.git.sha) ||
-    JSON.stringify(state.aliases) !== JSON.stringify(LEGACY_ALIASES) ||
-    state.deploymentId === manifest.originalPriors.app.deploymentId ||
-    state.deploymentUrl === manifest.originalPriors.app.deploymentUrl
-  ) {
-    throw new Error("Main release execution legacy App v2 state is invalid");
-  }
-  return structuredClone(state);
-}
-
-function digest(value) {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
-}
-
 function canonicalRollbackOnlyTargets(value) {
   if (
     !Array.isArray(value) ||
@@ -211,7 +167,7 @@ function canonicalRollbackOnlyTargets(value) {
   return canonical;
 }
 
-function canonicalSelection(value, manifest, legacyAppV2) {
+function canonicalSelection(value, manifest) {
   assertExactKeys(value, SELECTION_KEYS, "Main release selection");
   if (value.schema !== MAIN_RELEASE_SELECTION_SCHEMA) {
     throw new Error("Main release selection schema is unsupported");
@@ -244,8 +200,7 @@ function canonicalSelection(value, manifest, legacyAppV2) {
       JSON.stringify(MAIN_RELEASE_ACTIVATION_ORDER) ||
     value.mode !== manifest.mode ||
     JSON.stringify(value.mainOwnershipMode) !==
-      JSON.stringify(manifest.mainOwnershipMode) ||
-    value.legacyAppV2Digest !== digest(legacyAppV2)
+      JSON.stringify(manifest.mainOwnershipMode)
   ) {
     throw new Error(
       "Main release selection context conflicts with its provider evidence",
@@ -264,7 +219,6 @@ function canonicalSelection(value, manifest, legacyAppV2) {
       DIGEST_PATTERN,
     ),
     rollbackOnlyTargets,
-    legacyAppV2Digest: value.legacyAppV2Digest,
     projectIds,
     mode: manifest.mode,
     mainOwnershipMode: structuredClone(manifest.mainOwnershipMode),
@@ -276,28 +230,24 @@ export function createMainReleaseSelection({
   providerDiscoveryDigest,
   planningSnapshotDigest,
   rollbackOnlyTargets,
-  legacyAppV2,
   projectIds,
   mode,
   mainOwnershipMode,
   selectedManifest,
 }) {
   const manifest = assertMainReleaseManifest(selectedManifest);
-  const legacy = canonicalLegacyAppV2(legacyAppV2, manifest);
   return canonicalSelection(
     {
       schema: MAIN_RELEASE_SELECTION_SCHEMA,
       providerDiscoveryDigest,
       planningSnapshotDigest,
       rollbackOnlyTargets,
-      legacyAppV2Digest: digest(legacy),
       projectIds,
       mode,
       mainOwnershipMode,
       selectedManifest: manifest,
     },
     manifest,
-    legacy,
   );
 }
 
@@ -365,20 +315,17 @@ export function createMainReleaseExecution({
   reason,
   manifest,
   upstream,
-  legacyAppV2,
   selection,
 }) {
   const release = assertMainReleaseManifest(manifest);
   const selected = canonicalDecision(decision, reason);
-  const legacy = canonicalLegacyAppV2(legacyAppV2, release);
   return assertMainReleaseExecution({
     schema: MAIN_RELEASE_EXECUTION_SCHEMA,
     decision: selected.decision,
     reason: selected.reason,
     manifest: release,
     upstream: canonicalUpstream(upstream, release),
-    legacyAppV2: legacy,
-    selection: canonicalSelection(selection, release, legacy),
+    selection: canonicalSelection(selection, release),
     projection: projectionFromManifest(release),
   });
 }
@@ -390,8 +337,7 @@ export function assertMainReleaseExecution(value, expected = {}) {
   }
   const manifest = assertMainReleaseManifest(value.manifest);
   const selected = canonicalDecision(value.decision, value.reason);
-  const legacyAppV2 = canonicalLegacyAppV2(value.legacyAppV2, manifest);
-  const selection = canonicalSelection(value.selection, manifest, legacyAppV2);
+  const selection = canonicalSelection(value.selection, manifest);
   assertSelectionRollbackCoverage(selected.decision, manifest, selection);
   const canonical = {
     schema: MAIN_RELEASE_EXECUTION_SCHEMA,
@@ -399,7 +345,6 @@ export function assertMainReleaseExecution(value, expected = {}) {
     reason: selected.reason,
     manifest,
     upstream: canonicalUpstream(value.upstream, manifest),
-    legacyAppV2,
     selection,
     projection: canonicalProjection(value.projection, manifest),
   };

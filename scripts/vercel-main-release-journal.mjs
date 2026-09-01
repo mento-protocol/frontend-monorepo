@@ -1,5 +1,4 @@
 import {
-  assertCanonicalOutput,
   canonicalizeDeploymentUrl,
   canonicalizeHostname,
 } from "./vercel-deployment-state.mjs";
@@ -21,11 +20,8 @@ import {
 } from "./vercel-main-transaction.mjs";
 
 const APP_FIRST_TARGETS = Object.freeze(["app", "governance", "reserve", "ui"]);
-const MAPPING_TARGETS = Object.freeze([
-  ...MAIN_RELEASE_ACTIVATION_ORDER,
-  "legacy-app",
-]);
-const PROTECTED_TARGETS = Object.freeze([...APP_FIRST_TARGETS, "legacy-app"]);
+const MAPPING_TARGETS = Object.freeze([...MAIN_RELEASE_ACTIVATION_ORDER]);
+const PROTECTED_TARGETS = Object.freeze([...APP_FIRST_TARGETS]);
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const POSITIVE_ID_PATTERN = /^[1-9][0-9]*$/;
 const DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
@@ -76,29 +72,7 @@ function canonicalIdentity({ deploySha, runId, runAttempt }) {
   };
 }
 
-function canonicalLegacyState(value, appProjectId) {
-  const snapshot = assertCanonicalOutput(value);
-  if (!Array.isArray(snapshot) || snapshot.length !== 1) {
-    throw new Error("Main journal legacy snapshot must contain one state");
-  }
-  const state = snapshot[0];
-  if (
-    state.alias !== "v2-app.mento.org" ||
-    state.projectId !== appProjectId ||
-    state.projectName !== "app.mento.org" ||
-    state.readyState !== "READY" ||
-    state.target !== "production" ||
-    state.customEnvironmentSlug !== null ||
-    state.git.org !== "mento-protocol" ||
-    state.git.repo !== "frontend-monorepo" ||
-    state.git.ref !== "v2"
-  ) {
-    throw new Error("Main journal legacy snapshot identity is invalid");
-  }
-  return structuredClone(state);
-}
-
-function canonicalMappings({ value, manifest, legacyAppV2 }) {
+function canonicalMappings({ value, manifest }) {
   assertExactKeys(
     value,
     ["schema", "mappings"],
@@ -114,10 +88,7 @@ function canonicalMappings({ value, manifest, legacyAppV2 }) {
   );
   const result = {};
   for (const target of MAPPING_TARGETS) {
-    const aliases =
-      target === "legacy-app"
-        ? legacyAppV2.aliases
-        : manifest.originalPriors[target].aliases;
+    const aliases = manifest.originalPriors[target].aliases;
     const mappings = value.mappings[target];
     if (!Array.isArray(mappings) || mappings.length !== aliases.length) {
       throw new Error(`Main journal ${target} mappings are incomplete`);
@@ -143,29 +114,13 @@ function canonicalMappings({ value, manifest, legacyAppV2 }) {
       return canonical;
     });
   }
-  if (
-    result["legacy-app"].some(
-      (legacyMapping) =>
-        legacyMapping.deploymentId !== legacyAppV2.deploymentId ||
-        legacyMapping.deploymentUrl !== legacyAppV2.deploymentUrl,
-    )
-  ) {
-    throw new Error("Main journal legacy mapping changed after capture");
-  }
   return result;
 }
 
-function priorState(manifest, legacyAppV2) {
+function priorState(manifest) {
   return Object.fromEntries(
     PROTECTED_TARGETS.map((target) => {
-      const value =
-        target === "legacy-app"
-          ? {
-              deploymentId: legacyAppV2.deploymentId,
-              deploymentUrl: legacyAppV2.deploymentUrl,
-              aliases: legacyAppV2.aliases,
-            }
-          : manifest.originalPriors[target];
+      const value = manifest.originalPriors[target];
       return [
         target,
         {
@@ -295,23 +250,18 @@ function candidateState({ manifest, identity, candidateReceipts, pendingApp }) {
 
 function createJournal({
   manifest,
-  legacyAppV2,
   currentMappings,
   candidateReceipts,
   identity,
   pendingApp,
   allowTerminalAppRecoveryResidual = false,
 }) {
-  const mappings = canonicalMappings({
-    value: currentMappings,
-    manifest,
-    legacyAppV2,
-  });
+  const mappings = canonicalMappings({ value: currentMappings, manifest });
   return createPreparedMainTransactionJournal({
     ...identity,
     mode: manifest.mode,
     release: manifest,
-    prior: priorState(manifest, legacyAppV2),
+    prior: priorState(manifest),
     // The transaction schema has a distinct canonical order for its mutable
     // protected surfaces. Provider mappings are ordered for release evidence;
     // never let that evidence order leak into the current-attempt journal.
@@ -343,7 +293,6 @@ export function createMainForwardTransactionJournal({
   });
   return createJournal({
     manifest: execution.manifest,
-    legacyAppV2: execution.legacyAppV2,
     currentMappings,
     candidateReceipts,
     identity,
@@ -355,7 +304,6 @@ export function createMainInheritedRecoveryJournal({
   preplan,
   nextDeploySha,
   nextUpstreamRunId,
-  legacySnapshot,
   currentMappings,
   candidateReceipts,
   runId,
@@ -376,13 +324,8 @@ export function createMainInheritedRecoveryJournal({
     runId,
     runAttempt,
   });
-  const legacyAppV2 = canonicalLegacyState(
-    legacySnapshot,
-    manifest.originalPriors.app.projectId,
-  );
   const journal = createJournal({
     manifest,
-    legacyAppV2,
     currentMappings,
     candidateReceipts,
     identity,

@@ -224,34 +224,6 @@ function planningSnapshot(patches = {}) {
   return { schema: "vercel-main-planning-snapshot:v1", states };
 }
 
-function legacySnapshot() {
-  return [
-    {
-      alias: "v2-app.mento.org",
-      deploymentId: "dpl_legacyV2A123",
-      deploymentUrl: "https://app-v2.vercel.app",
-      creatorUsername: "fixture-author",
-      projectId: "prj_app123",
-      projectName: "app.mento.org",
-      readyState: "READY",
-      target: "production",
-      customEnvironmentSlug: null,
-      git: {
-        org: "mento-protocol",
-        repo: "frontend-monorepo",
-        ref: "v2",
-        sha: "b".repeat(40),
-      },
-      aliases: [
-        "appmentoorg-git-v2-mentolabs.vercel.app",
-        "appmentoorg-mentolabs.vercel.app",
-        "appmentoorg.vercel.app",
-        "v2-app.mento.org",
-      ],
-    },
-  ];
-}
-
 function projectIds() {
   return fixtureInput().projectIds;
 }
@@ -309,14 +281,8 @@ async function captureRejection(operation, pattern) {
   assert.fail("Expected operation to reject");
 }
 
-function planningStateClient(
-  firstSnapshot,
-  secondSnapshot = firstSnapshot,
-  firstLegacySnapshot = legacySnapshot(),
-  secondLegacySnapshot = firstLegacySnapshot,
-) {
+function planningStateClient(firstSnapshot, secondSnapshot = firstSnapshot) {
   let calls = 0;
-  let legacyCalls = 0;
   return {
     mainPlanningAliasState: async ({ alias }) => {
       const source =
@@ -326,17 +292,7 @@ function planningStateClient(
         source.states.find((state) => state.alias === alias),
       );
     },
-    canonicalLegacyV2State: async () => {
-      const source =
-        legacyCalls === 0 ? firstLegacySnapshot : secondLegacySnapshot;
-      legacyCalls += 1;
-      return {
-        ownership: "native-vercel-git",
-        state: structuredClone(source[0]),
-      };
-    },
     calls: () => calls,
-    legacyCalls: () => legacyCalls,
   };
 }
 
@@ -408,56 +364,29 @@ function aliasSubsets(values) {
   );
 }
 
-test("canonical mappings preserve all reviewed aliases and optional fresh legacy v2", async (t) => {
+test("canonical mappings preserve exactly the four reviewed target alias sets", async (t) => {
   const context = testContext(t);
   const expected = createMainCanonicalMappings({
     planningSnapshot: planningSnapshot(),
     projectIds: projectIds(),
-    legacySnapshot: legacySnapshot(),
   });
   assert.deepEqual(Object.keys(expected.mappings), [
     "governance",
     "reserve",
     "ui",
     "app",
-    "legacy-app",
   ]);
   assert.deepEqual(
     expected.mappings.app.map(({ alias }) => alias),
     ["app.mento.org", "appmentoorg-env-v3-mentolabs.vercel.app"],
   );
-  assert.deepEqual(expected.mappings["legacy-app"], [
-    {
-      alias: "appmentoorg-git-v2-mentolabs.vercel.app",
-      deploymentId: "dpl_legacyV2A123",
-      deploymentUrl: "https://app-v2.vercel.app",
-    },
-    {
-      alias: "appmentoorg-mentolabs.vercel.app",
-      deploymentId: "dpl_legacyV2A123",
-      deploymentUrl: "https://app-v2.vercel.app",
-    },
-    {
-      alias: "appmentoorg.vercel.app",
-      deploymentId: "dpl_legacyV2A123",
-      deploymentUrl: "https://app-v2.vercel.app",
-    },
-    {
-      alias: "v2-app.mento.org",
-      deploymentId: "dpl_legacyV2A123",
-      deploymentUrl: "https://app-v2.vercel.app",
-    },
-  ]);
+  // The retired legacy App topology must never re-enter the canonical set.
+  assert.doesNotMatch(JSON.stringify(expected.mappings), /v2-app\.mento\.org/);
 
   const planningPath = writeJson(
     context.directory,
     "planning.json",
     planningSnapshot(),
-  );
-  const legacyPath = writeJson(
-    context.directory,
-    "legacy.json",
-    legacySnapshot(),
   );
   const output = join(context.directory, "mappings.json");
   await runMainProviderCli({
@@ -465,8 +394,6 @@ test("canonical mappings preserve all reviewed aliases and optional fresh legacy
       "canonical-mappings",
       "--planning-snapshot",
       planningPath,
-      "--legacy-snapshot",
-      legacyPath,
       "--output",
       output,
     ],
@@ -508,16 +435,21 @@ test("canonical mappings preserve all reviewed aliases and optional fresh legacy
       }),
     /deployment ID is malformed/,
   );
-  const malformedLegacy = legacySnapshot();
-  malformedLegacy[0].deploymentId = "legacy-id";
-  assert.throws(
-    () =>
-      createMainCanonicalMappings({
-        planningSnapshot: planningSnapshot(),
-        projectIds: projectIds(),
-        legacySnapshot: malformedLegacy,
-      }),
-    /deployment ID is malformed/,
+  await assert.rejects(
+    runMainProviderCli({
+      argv: [
+        "canonical-mappings",
+        "--planning-snapshot",
+        planningPath,
+        "--legacy-snapshot",
+        planningPath,
+        "--output",
+        join(context.directory, "retired-legacy.json"),
+      ],
+      env: context.env,
+      stdout: context.stdout,
+    }),
+    /option/,
   );
 });
 
@@ -539,11 +471,6 @@ test("preplan discovery groups mapped manifests and marks unowned mappings rollb
     },
   });
   const planningPath = writeJson(context.directory, "planning.json", snapshot);
-  const legacyPath = writeJson(
-    context.directory,
-    "legacy.json",
-    legacySnapshot(),
-  );
   const projectsPath = writeJson(
     context.directory,
     "projects.json",
@@ -589,8 +516,6 @@ test("preplan discovery groups mapped manifests and marks unowned mappings rollb
       "preplan-discover",
       "--planning-snapshot",
       planningPath,
-      "--legacy-snapshot",
-      legacyPath,
       "--project-ids",
       projectsPath,
       "--output",
@@ -638,11 +563,6 @@ test("preplan decision binds current SHA and upstream run to one exact release I
   chmodSync(context.githubOutput, 0o644);
   const snapshot = planningSnapshot();
   const planningPath = writeJson(context.directory, "planning.json", snapshot);
-  const legacyPath = writeJson(
-    context.directory,
-    "legacy.json",
-    legacySnapshot(),
-  );
   const projectsPath = writeJson(
     context.directory,
     "projects.json",
@@ -654,8 +574,6 @@ test("preplan decision binds current SHA and upstream run to one exact release I
       "preplan-discover",
       "--planning-snapshot",
       planningPath,
-      "--legacy-snapshot",
-      legacyPath,
       "--project-ids",
       projectsPath,
       "--output",
@@ -684,8 +602,6 @@ test("preplan decision binds current SHA and upstream run to one exact release I
       discoveryPath,
       "--planning-snapshot",
       planningPath,
-      "--legacy-snapshot",
-      legacyPath,
       "--output",
       output,
     ],
@@ -694,7 +610,6 @@ test("preplan decision binds current SHA and upstream run to one exact release I
     stateClientFactory: () => liveClient,
   });
   assert.equal(liveClient.calls(), snapshot.states.length * 2);
-  assert.equal(liveClient.legacyCalls(), 2);
   assert.equal(result.decision, "capture-new-baseline");
   const expectedReleaseId = generateVercelMainReleaseId({
     repository: "mento-protocol/frontend-monorepo",
@@ -794,11 +709,6 @@ test("preplan decision restores a manifest-bound mixed App recovery residual", a
     ),
   );
   const planningPath = writeJson(context.directory, "planning.json", snapshot);
-  const legacyPath = writeJson(
-    context.directory,
-    "legacy.json",
-    legacySnapshot(),
-  );
   const projectsPath = writeJson(
     context.directory,
     "projects.json",
@@ -810,8 +720,6 @@ test("preplan decision restores a manifest-bound mixed App recovery residual", a
       "preplan-discover",
       "--planning-snapshot",
       planningPath,
-      "--legacy-snapshot",
-      legacyPath,
       "--project-ids",
       projectsPath,
       "--output",
@@ -845,8 +753,6 @@ test("preplan decision restores a manifest-bound mixed App recovery residual", a
       discoveryPath,
       "--planning-snapshot",
       planningPath,
-      "--legacy-snapshot",
-      legacyPath,
       "--output",
       output,
     ],
@@ -1115,11 +1021,6 @@ test("preplan decision rejects alias drift after discovery before baseline or ro
   const context = testContext(t);
   const original = planningSnapshot();
   const planningPath = writeJson(context.directory, "planning.json", original);
-  const legacyPath = writeJson(
-    context.directory,
-    "legacy.json",
-    legacySnapshot(),
-  );
   const projectsPath = writeJson(
     context.directory,
     "projects.json",
@@ -1131,8 +1032,6 @@ test("preplan decision rejects alias drift after discovery before baseline or ro
       "preplan-discover",
       "--planning-snapshot",
       planningPath,
-      "--legacy-snapshot",
-      legacyPath,
       "--project-ids",
       projectsPath,
       "--output",
@@ -1174,8 +1073,6 @@ test("preplan decision rejects alias drift after discovery before baseline or ro
             discoveryPath,
             "--planning-snapshot",
             planningPath,
-            "--legacy-snapshot",
-            legacyPath,
             "--output",
             output,
           ],
@@ -1210,8 +1107,6 @@ test("preplan decision rejects alias drift after discovery before baseline or ro
           discoveryPath,
           "--planning-snapshot",
           planningPath,
-          "--legacy-snapshot",
-          legacyPath,
           "--output",
           join(context.directory, "planning-timeout.json"),
         ],
@@ -1248,8 +1143,6 @@ test("preplan decision rejects alias drift after discovery before baseline or ro
           discoveryPath,
           "--planning-snapshot",
           planningPath,
-          "--legacy-snapshot",
-          legacyPath,
           "--output",
           reconciliationOutput,
         ],
@@ -1280,81 +1173,32 @@ test("preplan decision rejects alias drift after discovery before baseline or ro
     /test-secret-token|prj_private123|\/private\/provider\/path/,
   );
 
-  const changedLegacy = legacySnapshot();
-  changedLegacy[0] = {
-    ...changedLegacy[0],
-    deploymentId: "dpl_changedLegacyV2A123",
-    deploymentUrl: "https://changed-legacy-v2.vercel.app",
-  };
-  const changedLegacyPath = writeJson(
-    context.directory,
-    "legacy-changed.json",
-    changedLegacy,
-  );
-  await assert.rejects(
-    () =>
-      runMainProviderCli({
-        argv: [
-          "preplan-decide",
-          "--discovery",
-          discoveryPath,
-          "--planning-snapshot",
-          planningPath,
-          "--legacy-snapshot",
-          changedLegacyPath,
-          "--output",
-          join(context.directory, "legacy-drift.json"),
-        ],
-        env: context.env,
-        stdout: context.stdout,
-        stateClientFactory: () => planningStateClient(original),
-      }),
-    /Legacy v2 mapping changed/,
-  );
-  assert.equal(readFileSync(context.githubOutput, "utf8"), "");
-
-  for (const [client, failureCode] of [
-    [
-      planningStateClient(original, original, legacySnapshot(), changedLegacy),
-      "legacy-census-unstable",
-    ],
-    [
-      planningStateClient(original, original, changedLegacy, changedLegacy),
-      "legacy-census-stale",
-    ],
-  ]) {
-    const output = join(context.directory, `${failureCode}-decision.json`);
-    const legacyDriftError = await captureRejection(
+  // MGP-18 retired the legacy App census. Neither pre-plan command may accept
+  // a legacy snapshot again, so the option itself must stay unsupported.
+  for (const command of ["preplan-discover", "preplan-decide"]) {
+    await assert.rejects(
       () =>
         runMainProviderCli({
           argv: [
-            "preplan-decide",
-            "--discovery",
-            discoveryPath,
+            command,
+            ...(command === "preplan-decide"
+              ? ["--discovery", discoveryPath]
+              : ["--project-ids", projectsPath]),
             "--planning-snapshot",
             planningPath,
             "--legacy-snapshot",
-            legacyPath,
+            planningPath,
             "--output",
-            output,
+            join(context.directory, `${command}-retired-legacy.json`),
           ],
           env: context.env,
           stdout: context.stdout,
-          stateClientFactory: () => client,
+          stateClientFactory: () => planningStateClient(original),
         }),
-      /Vercel provider census failed/,
+      /option/,
     );
-    assert.throws(() => statSync(output));
-    assert.equal(
-      renderMainProviderCliFailure(legacyDriftError),
-      `Vercel main provider command failed (${failureCode})\n`,
-    );
-    assert.equal(
-      mainProviderCliFailureExitCode(legacyDriftError),
-      MAIN_PROVIDER_CLI_RETRY_EXIT_CODE,
-    );
-    assert.equal(readFileSync(context.githubOutput, "utf8"), "");
   }
+  assert.equal(readFileSync(context.githubOutput, "utf8"), "");
 });
 
 test("candidate preflight performs a stable double census and emits create", async (t) => {

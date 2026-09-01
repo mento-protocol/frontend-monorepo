@@ -699,8 +699,7 @@ The repository is set up with GitHub Actions for CI:
   four per-target `mainOwnershipMode` values set to `github`. Governance,
   Reserve, and UI stage, verify, and promote exact immutable deployments. App
   builds and deploys its custom `v3` output, then verifies or assigns only its
-  reviewed aliases. The legacy App `v2 -> production` path remains native and
-  is checked independently. The removed Governance QA environment is not part
+  reviewed aliases. The removed Governance QA environment is not part
   of this topology.
 
   Main planning uses strict `vercel-main-plan:v2` evidence. `stagedTargets`
@@ -725,7 +724,7 @@ The repository is set up with GitHub Actions for CI:
   cross-attempt work. The compact terminal receipt and evidence are the only
   final-verdict handoff and support final-only reruns. A completed release emits
   `current-release-verified` only after fresh mapping, census/state, raw
-  public-runtime-smoke, legacy `v2`, and freshness proof; it creates no journal
+  public-runtime-smoke, and freshness proof; it creates no journal
   and executes no public mutation. App shadow preparation is build-only terminal
   evidence, never a provider deployment. Every other non-prefix, ambiguous,
   conflicting, or incomplete provider state fails closed before production work
@@ -740,7 +739,11 @@ The repository is set up with GitHub Actions for CI:
   native-preview/GitHub-main state disables `main` while leaving unspecified
   preview branches enabled, so a target-local preview rollback cannot recreate
   a native main deployment. Unknown or contradictory configuration fails
-  closed.
+  closed. A bounded per-target transitional list adds extra exact GitHub-owned
+  shapes the recognizer accepts while a target migrates to a new reviewed
+  configuration, because the controller runs the default branch's constants;
+  only App carries one today, for the MGP-18 `v2` retirement, and each entry is
+  removed once its migration completes.
   During rollback, `Vercel Preview` proves owner selection and journal drain
   only; native Vercel deployment status and browser evidence separately prove
   that the preview works. The native `deployment_status` smoke adapter remains

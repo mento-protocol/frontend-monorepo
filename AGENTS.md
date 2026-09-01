@@ -414,8 +414,7 @@ Every selected Governance, Reserve, and UI target stages and verifies an
 immutable candidate with `--prod --skip-domain`. Only an `activeTargets` member
 may mutate its public mapping: ordinary targets promote the exact staged
 deployment, while App deploys the verified custom-`v3` output and verifies or
-assigns only its reviewed aliases. App's legacy `v2 -> production` path remains
-native and is verified independently. Before and after each public mutation,
+assigns only its reviewed aliases. Before and after each public mutation,
 the controller rechecks freshness and protected state and persists the next
 durable journal transition. Recovery restores exact captured mappings in
 reverse mutation order and treats unknown operator-owned state as manual
@@ -430,7 +429,7 @@ Ordinary reruns reuse only the exact stable candidate identified by the release
 manifest, one provider candidate, and fresh deployment inspection/smoke. A
 complete release takes the journal-free `current-release-verified` route: it
 rechecks current mappings, deployment census/state, raw public runtime smokes,
-fresh legacy App `v2`, and freshness without replaying a mutation. An
+and freshness without replaying a mutation. An
 interrupted release uses a new current-attempt journal and current
 protected-state snapshot. App shadow preparation is build-only terminal
 evidence, never a provider deployment. The terminal receipt and evidence are
@@ -445,7 +444,7 @@ native-preview/GitHub-main branch rules and does not restore native `main`. A
 full-native rollback is a separate coordinated procedure. For ordinary
 targets, the public custom domain is the only protected
 runtime and rollback alias; generated project/team and creator-scoped aliases
-are candidate evidence only. Keep App `v2` native and never recreate the removed
+are candidate evidence only. Never recreate the removed
 Governance QA environment. The historical PR-A canary, active transaction,
 public runtime proof, journal, recovery, target-local rollback, and full-native
 restoration contracts live in `docs/vercel-deployments.md`.
@@ -465,7 +464,7 @@ all build-boundary state below the target-scoped, authenticated
 `/var/lib/mento-vercel-runtime-<run>-<attempt>-<target>/work` root, seal
 `RUNNER_TEMP` to runner-owned mode `0700` before candidate execution, and
 reauthenticate and remove the exact runtime in a final `if: always()` step.
-Preserve App custom `v3` as build-only and preserve the App `v2` alias.
+Preserve App custom `v3` as build-only.
 Governance, Reserve, and UI uploads must avoid custom production domains and
 must expose the immutable deployment hostname through the deployment URL/state
 identity. The provider alias list must contain the target's reviewed literal

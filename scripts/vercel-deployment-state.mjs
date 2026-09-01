@@ -62,20 +62,15 @@ const ACTIVE_STATE_TARGETS = Object.freeze([
 const ACTIVE_PROTECTED_ALIASES = Object.freeze([
   "app.mento.org",
   "appmentoorg-env-v3-mentolabs.vercel.app",
-  "appmentoorg-git-v2-mentolabs.vercel.app",
-  "appmentoorg-mentolabs.vercel.app",
-  "appmentoorg.vercel.app",
   "governance.mento.org",
   "reserve.mento.org",
   "ui.mento.org",
-  "v2-app.mento.org",
 ]);
 const ACTIVE_MAPPING_TARGETS = Object.freeze([
   "app",
   "governance",
   "reserve",
   "ui",
-  "legacy-app",
 ]);
 const ACTIVE_STATE_SPEC_KEYS = Object.freeze([
   "schema",
@@ -89,7 +84,6 @@ const ACTIVE_STATE_SPEC_KEYS = Object.freeze([
   "activeTargets",
   "shadowTargets",
   "projects",
-  "legacyAppV2",
 ]);
 const ACTIVE_STATE_PROJECT_SPEC_KEYS = Object.freeze([
   "projectId",
@@ -99,17 +93,6 @@ const ACTIVE_STATE_PROJECT_SPEC_KEYS = Object.freeze([
   "deploymentUrl",
   "target",
   "customEnvironmentSlug",
-]);
-const ACTIVE_STATE_LEGACY_SPEC_KEYS = Object.freeze([
-  "alias",
-  "deployment",
-  "deploymentUrl",
-  "projectId",
-  "projectName",
-  "readyState",
-  "target",
-  "customEnvironmentSlug",
-  "git",
 ]);
 const ACTIVE_STATE_PROOF_KEYS = Object.freeze([
   "schema",
@@ -123,7 +106,6 @@ const ACTIVE_STATE_PROOF_KEYS = Object.freeze([
   "activeTargets",
   "shadowTargets",
   "projects",
-  "legacyAppV2",
 ]);
 const ACTIVE_STATE_PROJECT_PROOF_KEYS = Object.freeze([
   "projectId",
@@ -161,19 +143,6 @@ export const ACTIVE_STATE_CLASSIFICATIONS = Object.freeze([
   "manualDuplicates",
   "inertCanceled",
   "unknown",
-  "legacyV2",
-]);
-const ACTIVE_STATE_LEGACY_PROOF_KEYS = Object.freeze([
-  "alias",
-  "deploymentId",
-  "deploymentUrl",
-  "projectId",
-  "projectName",
-  "readyState",
-  "target",
-  "customEnvironmentSlug",
-  "git",
-  "ownership",
 ]);
 const APP_TRANSACTION_CANDIDATE_KEYS = Object.freeze([
   "deploymentId",
@@ -1349,56 +1318,6 @@ export class VercelStateClient {
     });
   }
 
-  async canonicalLegacyV2State(spec) {
-    assertStateExpectation(spec, { requireDeployment: true });
-    if (
-      spec.alias !== "v2-app.mento.org" ||
-      spec.projectName !== "app.mento.org" ||
-      spec.target !== "production" ||
-      spec.customEnvironmentSlug !== null ||
-      spec.git?.org !== "mento-protocol" ||
-      spec.git?.repo !== "frontend-monorepo" ||
-      spec.git?.ref !== "v2"
-    ) {
-      throw new Error("Legacy App v2 expectation is malformed");
-    }
-    const aliasResponse = await this.resolveAlias(spec.alias);
-    const lookup = canonicalizeAliasLookup(spec.alias, aliasResponse);
-    if (
-      lookup.deploymentId !== spec.deployment ||
-      lookup.projectId !== spec.projectId
-    ) {
-      throw new Error("Legacy App v2 alias mapping does not match");
-    }
-    const deploymentResponse = await this.inspectDeployment(
-      lookup.deploymentId,
-    );
-    const aliasesResponse = await this.listDeploymentAliases(
-      lookup.deploymentId,
-    );
-    const confirmedAliasResponse = await this.resolveAlias(spec.alias);
-    const confirmedLookup = canonicalizeAliasLookup(
-      spec.alias,
-      confirmedAliasResponse,
-    );
-    if (
-      confirmedLookup.deploymentId !== lookup.deploymentId ||
-      confirmedLookup.projectId !== lookup.projectId
-    ) {
-      throw new Error("Legacy App v2 alias mapping changed during inspection");
-    }
-    return {
-      ownership: "native-vercel-git",
-      state: canonicalizeDeploymentState({
-        alias: spec.alias,
-        aliasResponse: confirmedAliasResponse,
-        deploymentResponse,
-        aliasesResponse,
-        expected: spec,
-      }),
-    };
-  }
-
   async mainPlanningAliasState(spec) {
     assertStateExpectation(spec);
     const aliasResponse = await this.resolveAlias(spec.alias);
@@ -1590,7 +1509,6 @@ function assertBoundActiveAliasMappings(value, spec) {
     if (
       expected === undefined ||
       seen.has(alias) ||
-      (!hasProjectId && expected.target === "legacy-app") ||
       (hasProjectId &&
         requireIdentifier(
           entry.projectId,
@@ -1608,9 +1526,7 @@ function assertBoundActiveAliasMappings(value, spec) {
       ),
       deploymentUrl: canonicalizeDeploymentUrl(entry.deploymentUrl),
     };
-    return expected.target === "legacy-app"
-      ? { ...mapping, projectId: expected.projectId }
-      : mapping;
+    return mapping;
   });
   if (seen.size !== expectedByAlias.size) {
     throw new Error("Bound active alias mappings are incomplete");
@@ -1667,8 +1583,8 @@ function assertStateExpectation(expected, { requireDeployment = false } = {}) {
   if (expected.git?.repo !== "frontend-monorepo") {
     throw new Error("Expected Git repository must be frontend-monorepo");
   }
-  if (!["main", "v2"].includes(expected.git?.ref)) {
-    throw new Error("Expected Git ref must be main or v2");
+  if (expected.git?.ref !== "main") {
+    throw new Error("Expected Git ref must be main");
   }
   if (
     expected.git.sha !== undefined &&
@@ -1980,38 +1896,6 @@ export function assertActiveDeploymentStateSpec(spec) {
     projects: spec.projects,
     label: "Active deployment state spec",
   });
-  assertExactKeys(
-    spec.legacyAppV2,
-    ACTIVE_STATE_LEGACY_SPEC_KEYS,
-    "Legacy App v2 state",
-  );
-  assertStateExpectation(spec.legacyAppV2, { requireDeployment: true });
-  const legacyDeploymentId = requireDeploymentId(
-    spec.legacyAppV2.deployment,
-    "Legacy App v2 deployment ID",
-  );
-  const legacyDeploymentUrl = canonicalizeDeploymentUrl(
-    spec.legacyAppV2.deploymentUrl,
-  );
-  if (
-    spec.legacyAppV2.alias !== "v2-app.mento.org" ||
-    spec.legacyAppV2.projectId !== spec.projects.app.projectId ||
-    spec.legacyAppV2.projectName !== "app.mento.org" ||
-    spec.legacyAppV2.readyState !== "READY" ||
-    spec.legacyAppV2.target !== "production" ||
-    spec.legacyAppV2.customEnvironmentSlug !== null ||
-    spec.legacyAppV2.git.org !== "mento-protocol" ||
-    spec.legacyAppV2.git.repo !== "frontend-monorepo" ||
-    spec.legacyAppV2.git.ref !== "v2" ||
-    typeof spec.legacyAppV2.git.sha !== "string" ||
-    !SHA_PATTERN.test(spec.legacyAppV2.git.sha) ||
-    spec.legacyAppV2.git.sha !== spec.legacyAppV2.git.sha.toLowerCase() ||
-    legacyDeploymentUrl !== spec.legacyAppV2.deploymentUrl ||
-    deploymentIds.has(legacyDeploymentId) ||
-    deploymentUrls.has(legacyDeploymentUrl)
-  ) {
-    throw new Error("Legacy App v2 state is malformed");
-  }
   return spec;
 }
 
@@ -2201,66 +2085,6 @@ function canonicalActiveDeploymentRecord(
   };
 }
 
-function matchesLegacyV2Identity(identity, legacy) {
-  return (
-    identity !== null &&
-    identity.deploymentId === legacy.deployment &&
-    identity.deploymentUrl === legacy.deploymentUrl &&
-    identity.projectId === legacy.projectId &&
-    identity.projectName === legacy.projectName &&
-    identity.readyState === "READY" &&
-    identity.target === "production" &&
-    identity.customEnvironmentSlug === null &&
-    identity.git.org === "mento-protocol" &&
-    identity.git.repo === "frontend-monorepo" &&
-    identity.git.ref === "v2" &&
-    identity.git.sha === legacy.git.sha
-  );
-}
-
-function canonicalLegacyV2Proof(spec, legacyV2) {
-  if (!legacyV2 || typeof legacyV2 !== "object" || Array.isArray(legacyV2)) {
-    throw new Error("Legacy App v2 state is unproven");
-  }
-  assertExactKeys(
-    legacyV2,
-    ["ownership", "state"],
-    "Legacy App v2 capture proof",
-  );
-  if (legacyV2.ownership !== "native-vercel-git") {
-    throw new Error("Legacy App v2 state is unproven");
-  }
-  const state = assertCanonicalOutput(legacyV2.state);
-  if (
-    state.alias !== spec.alias ||
-    state.deploymentId !== spec.deployment ||
-    state.deploymentUrl !== spec.deploymentUrl ||
-    state.projectId !== spec.projectId ||
-    state.projectName !== spec.projectName ||
-    state.readyState !== "READY" ||
-    state.target !== "production" ||
-    state.customEnvironmentSlug !== null ||
-    state.git.org !== "mento-protocol" ||
-    state.git.repo !== "frontend-monorepo" ||
-    state.git.ref !== "v2" ||
-    state.git.sha !== spec.git.sha
-  ) {
-    throw new Error("Legacy App v2 state is unproven");
-  }
-  return {
-    alias: state.alias,
-    deploymentId: state.deploymentId,
-    deploymentUrl: state.deploymentUrl,
-    projectId: state.projectId,
-    projectName: state.projectName,
-    readyState: state.readyState,
-    target: state.target,
-    customEnvironmentSlug: state.customEnvironmentSlug,
-    git: { ...state.git },
-    ownership: "native-vercel-git",
-  };
-}
-
 function matchesReleaseRollbackPrior(identity, logicalTarget, spec) {
   const prior = spec.releaseManifest.originalPriors[logicalTarget];
   const project = spec.projects[logicalTarget];
@@ -2297,11 +2121,7 @@ function sortedUniqueIds(values, label) {
   return values;
 }
 
-export function createActiveDeploymentStateProof({
-  spec,
-  deployments,
-  legacyV2,
-}) {
+export function createActiveDeploymentStateProof({ spec, deployments }) {
   const canonicalSpec = assertActiveDeploymentStateSpec(spec);
   assertExactKeys(
     deployments,
@@ -2347,12 +2167,6 @@ export function createActiveDeploymentStateProof({
       );
       let classification = "unknown";
       if (
-        logicalTarget === "app" &&
-        requestedId === canonicalSpec.legacyAppV2.deployment &&
-        matchesLegacyV2Identity(identity, canonicalSpec.legacyAppV2)
-      ) {
-        classification = "legacyV2";
-      } else if (
         matchesInertCanceledDeployment(
           identity,
           requestedId,
@@ -2478,7 +2292,6 @@ export function createActiveDeploymentStateProof({
     activeTargets: [...canonicalSpec.activeTargets],
     shadowTargets: [...canonicalSpec.shadowTargets],
     projects,
-    legacyAppV2: canonicalLegacyV2Proof(canonicalSpec.legacyAppV2, legacyV2),
   });
 }
 
@@ -2784,7 +2597,6 @@ export function assertActiveDeploymentStateProof(value) {
         }
         if (
           classification !== "unknown" &&
-          classification !== "legacyV2" &&
           classification !== "inertCanceled" &&
           !recordMatchesActiveProjectTopology(record, project, value.deploySha)
         ) {
@@ -2811,10 +2623,7 @@ export function assertActiveDeploymentStateProof(value) {
             (mainOwnershipMode[logicalTarget] !== "github" ||
               priorServedSha !== value.deploySha ||
               record.deploymentId !== priorDeploymentId ||
-              record.deploymentUrl !== priorDeploymentUrl)) ||
-          (classification === "legacyV2" &&
-            (logicalTarget !== "app" ||
-              record.deploymentId !== value.legacyAppV2.deploymentId))
+              record.deploymentUrl !== priorDeploymentUrl))
         ) {
           throw new Error(
             `${logicalTarget} ${classification} deployment classification is malformed`,
@@ -2868,64 +2677,7 @@ export function assertActiveDeploymentStateProof(value) {
       project.counts.manualDuplicates === 0 &&
       project.counts.unknown === 0;
   }
-  assertExactKeys(
-    value.legacyAppV2,
-    ACTIVE_STATE_LEGACY_PROOF_KEYS,
-    "Legacy App v2 proof",
-  );
-  assertCanonicalOutput({
-    alias: value.legacyAppV2.alias,
-    deploymentId: value.legacyAppV2.deploymentId,
-    deploymentUrl: value.legacyAppV2.deploymentUrl,
-    creatorUsername: null,
-    projectId: value.legacyAppV2.projectId,
-    projectName: value.legacyAppV2.projectName,
-    readyState: value.legacyAppV2.readyState,
-    target: value.legacyAppV2.target,
-    customEnvironmentSlug: value.legacyAppV2.customEnvironmentSlug,
-    git: value.legacyAppV2.git,
-    aliases: [value.legacyAppV2.alias],
-  });
-  requireDeploymentId(
-    value.legacyAppV2.deploymentId,
-    "Legacy App v2 proof deployment ID",
-  );
-  if (
-    value.legacyAppV2.alias !== "v2-app.mento.org" ||
-    value.legacyAppV2.projectId !== value.projects.app.projectId ||
-    value.legacyAppV2.projectName !== "app.mento.org" ||
-    value.legacyAppV2.readyState !== "READY" ||
-    value.legacyAppV2.target !== "production" ||
-    value.legacyAppV2.customEnvironmentSlug !== null ||
-    value.legacyAppV2.git.org !== "mento-protocol" ||
-    value.legacyAppV2.git.repo !== "frontend-monorepo" ||
-    value.legacyAppV2.git.ref !== "v2" ||
-    value.legacyAppV2.ownership !== "native-vercel-git" ||
-    expectedDeploymentIds.has(value.legacyAppV2.deploymentId) ||
-    expectedDeploymentUrls.has(value.legacyAppV2.deploymentUrl) ||
-    value.projects.app.ids.legacyV2.some(
-      (deploymentId) => deploymentId !== value.legacyAppV2.deploymentId,
-    ) ||
-    value.projects.app.records.legacyV2.some(
-      (record) =>
-        record.deploymentId !== value.legacyAppV2.deploymentId ||
-        record.deploymentUrl !== value.legacyAppV2.deploymentUrl ||
-        record.projectId !== value.legacyAppV2.projectId ||
-        record.projectName !== value.legacyAppV2.projectName ||
-        record.readyState !== value.legacyAppV2.readyState ||
-        record.target !== value.legacyAppV2.target ||
-        record.customEnvironmentSlug !==
-          value.legacyAppV2.customEnvironmentSlug ||
-        JSON.stringify(record.git) !== JSON.stringify(value.legacyAppV2.git) ||
-        record.workflowMetadataMatches !== false,
-    ) ||
-    ACTIVE_STATE_TARGETS.filter((target) => target !== "app").some(
-      (target) =>
-        value.projects[target].ids.legacyV2.length !== 0 ||
-        value.projects[target].records.legacyV2.length !== 0,
-    ) ||
-    value.outcome !== (proven ? "proven" : "unproven")
-  ) {
+  if (value.outcome !== (proven ? "proven" : "unproven")) {
     throw new Error("Active deployment state proof outcome is malformed");
   }
   return value;
@@ -2936,8 +2688,7 @@ export async function captureActiveDeploymentStateProof(client, spec) {
   if (
     !client ||
     typeof client.listExactShaDeploymentIds !== "function" ||
-    typeof client.inspectDeployment !== "function" ||
-    typeof client.canonicalLegacyV2State !== "function"
+    typeof client.inspectDeployment !== "function"
   ) {
     throw new Error("Active deployment state client is malformed");
   }
@@ -2982,9 +2733,6 @@ export async function captureActiveDeploymentStateProof(client, spec) {
       });
     }
   }
-  const legacyV2 = await client.canonicalLegacyV2State(
-    canonicalSpec.legacyAppV2,
-  );
   const listedAfter = await captureInventory(
     "confirmed active deployment listing",
   );
@@ -2996,7 +2744,6 @@ export async function captureActiveDeploymentStateProof(client, spec) {
   return createActiveDeploymentStateProof({
     spec: canonicalSpec,
     deployments,
-    legacyV2,
   });
 }
 

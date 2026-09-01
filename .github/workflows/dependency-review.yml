@@ -23,9 +23,13 @@ jobs:
         # enforce it here: fail the workflow on/after the expiry until the
         # allowlist below is re-evaluated. Keep this date in sync with the
         # matching osv-scanner.toml ignoreUntil for the protobufjs 6.x advisories.
-        # Renewed 2026-06-05 → 2026-09-01 (90 days).
+        # Renewed 2026-09-01 → 2026-11-30 (90 days). The Wormhole Connect v6
+        # upgrade did not clear the chain: pnpm-lock.yaml still resolves
+        # protobufjs@6.11.4 with @confio/ics23@0.6.8 as its only consumer, and
+        # OSV lists no 6.x fix for any of the three GHSAs (first fixed releases
+        # are 7.5.5, 7.6.1, and 7.6.3).
         run: |
-          expiry=2026-09-01
+          expiry=2026-11-30
           today=$(date -u +%Y-%m-%d)
           if [ "$today" \> "$expiry" ] || [ "$today" = "$expiry" ]; then
             echo "::error::allow-ghsas expiry reached ($expiry). Re-evaluate the protobufjs 6.x advisories in .github/workflows/dependency-review.yml and osv-scanner.toml before bumping the expiry."
@@ -40,8 +44,9 @@ jobs:
           # Mirrors the protobufjs 6.x ignores that affect both scanners.
           # OSV-only metadata corrections are not allowlisted here.
           # protobufjs 6.x advisories: no safe fix path; only remaining consumer is
-          # deprecated/unmaintained @confio/ics23@0.6.8 in the wormhole-connect/Cosmos
-          # stack, which declares protobufjs ^6.8.8. Forcing 7.x is a semver-major
-          # jump that risks silent IBC proof corruption.
+          # deprecated/unmaintained @confio/ics23@0.6.8, reached through
+          # wormhole-connect v6 → @wormhole-foundation/sdk-cosmwasm* 4.9.1 →
+          # @cosmjs/stargate@0.32.4. It declares protobufjs ^6.8.8, so forcing
+          # 7.x is a semver-major jump that risks silent IBC proof corruption.
           # Expiry is enforced by the "Enforce allow-ghsas expiry" step above.
           allow-ghsas: GHSA-xq3m-2v4x-88gg,GHSA-f38q-mgvj-vph7,GHSA-wcpc-wj8m-hjx6
