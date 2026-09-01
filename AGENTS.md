@@ -8,6 +8,11 @@ Architectural decisions live under `docs/adr/`. Use
 `docs/pr-checklists/architecture-decisions.md` to decide whether a change needs
 one, and run the advisory `pnpm adr:check` reminder before publishing.
 
+When an app-level Turbo task adds `passThroughEnv`, include
+`"$TURBO_EXTENDS$"` before app-specific names. A child `passThroughEnv` array
+replaces the root array. Without the sentinel, the task drops root build secrets
+such as `CHAINALYSIS_API_KEY` and `ETHERSCAN_API_KEY`.
+
 ## Pull request state
 
 Always create pull requests as normal, ready-for-review PRs directly. Never
