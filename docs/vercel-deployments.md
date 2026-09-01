@@ -1448,6 +1448,29 @@ scope documented below.
 | reserve    | `SENTRY_AUTH_TOKEN`                     | production semantics only | `sensitive-non-exportable` |
 | ui         | `NEXT_PUBLIC_STORAGE_URL`               | preview, production       | `vercel-pull`              |
 
+### Governance Graph API key scopes
+
+Governance uses separate The Graph API keys for production and pre-production
+builds. Both keys are public browser configuration. Domain restrictions and
+monthly spending limits control their use.
+
+- The Production-scoped `NEXT_PUBLIC_GRAPH_API_KEY` uses the
+  `Mento Governance Production` key. The Graph Studio restricts this key to
+  `governance.mento.org` and limits spending to USD 5 per month.
+- The Preview- and Development-scoped `NEXT_PUBLIC_GRAPH_API_KEY` uses the
+  `Mento Governance Preview` key. The Graph Studio restricts this key to
+  `*.vercel.app` and `localhost` and limits spending to USD 1 per month. Vercel
+  shows these scopes together as `All Pre-Production Environments`.
+
+Do not assign the production key to a pre-production environment. Do not add
+`*.vercel.app` to the production key because that wildcard covers Vercel
+projects outside Mento.
+
+Vercel environment-variable changes apply only to new deployments. Wait for a
+fresh `main` push to run the repository-owned production controller. Do not use
+the Vercel dashboard Redeploy action. That action creates a deployment outside
+the controller's release transaction and cannot supply its deployment evidence.
+
 The code also has optional build-time reads that alter behavior only when set:
 RPC overrides (`NEXT_PUBLIC_RPC_URL`, chain-specific RPC variables), feature and
 test flags (`NEXT_PUBLIC_ENABLE_DEBUG`, `NEXT_PUBLIC_E2E_TEST`,
