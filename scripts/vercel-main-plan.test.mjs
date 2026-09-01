@@ -660,6 +660,57 @@ test("App accepts a v3-shaped prior and a production prior", () => {
   );
 });
 
+// TRANSITION-V3-PRIOR
+// The generated-alias topology and the deployment environment are one shape,
+// not two independent allowances. Validated separately, a production-shaped
+// deployment still carrying the retired v3 alias — or a v3-shaped prior already
+// carrying the production set — would be captured as a valid rollback prior.
+test("App couples its transitional alias topology to the v3 environment", () => {
+  const accepted = fixture();
+  accepted.mode = "active";
+  accepted.mainOwnershipMode = ownershipMode("github");
+  const acceptedState = accepted.priorStates.app.states[0];
+  assert.equal(acceptedState.target, null);
+  assert.equal(acceptedState.customEnvironmentSlug, "v3");
+  assert.deepEqual(acceptedState.aliases, [
+    "app.mento.org",
+    "appmentoorg-env-v3-mentolabs.vercel.app",
+  ]);
+  assert.equal(runFixture(accepted).plan.priors[0].target, "app");
+
+  const productionWithRetiredAlias = productionAppPrior(fixture());
+  productionWithRetiredAlias.mode = "active";
+  productionWithRetiredAlias.mainOwnershipMode = ownershipMode("github");
+  for (const state of productionWithRetiredAlias.priorStates.app.states) {
+    state.aliases = [
+      ...state.aliases,
+      "appmentoorg-env-v3-mentolabs.vercel.app",
+    ].toSorted();
+  }
+  assertActivationError(
+    () => runFixture(productionWithRetiredAlias),
+    "app",
+    "alias-set-ambiguous",
+  );
+
+  const v3WithProductionAliases = fixture();
+  v3WithProductionAliases.mode = "active";
+  v3WithProductionAliases.mainOwnershipMode = ownershipMode("github");
+  for (const state of v3WithProductionAliases.priorStates.app.states) {
+    assert.equal(state.customEnvironmentSlug, "v3");
+    state.aliases = [
+      "app.mento.org",
+      PRODUCTION_GENERATED_ALIAS_CONTRACTS.app.generatedProjectAlias,
+      PRODUCTION_GENERATED_ALIAS_CONTRACTS.app.generatedProjectDefaultAlias,
+    ].toSorted();
+  }
+  assertActivationError(
+    () => runFixture(v3WithProductionAliases),
+    "app",
+    "alias-set-ambiguous",
+  );
+});
+
 for (const [name, mutate, expectedReason, expectedServedSha] of [
   [
     "missing",

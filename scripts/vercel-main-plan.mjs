@@ -297,7 +297,12 @@ function canonicalizeReviewedAliases(aliases, target) {
   return normalized;
 }
 
-function canonicalizeOptionalDeploymentAliases(value, target, creatorUsername) {
+function canonicalizeOptionalDeploymentAliases(
+  value,
+  target,
+  creatorUsername,
+  environment,
+) {
   if (value === undefined) return null;
   if (!Array.isArray(value)) {
     activationError(target, "alias-set-ambiguous");
@@ -324,14 +329,24 @@ function canonicalizeOptionalDeploymentAliases(value, target, creatorUsername) {
   const generatedAliases = sorted.filter(
     (alias) => !reviewedAliases.has(alias),
   );
-  // TRANSITION-V3-PRIOR: the v3-shaped App prior carries the retiring custom
-  // environment's generated alias instead of the production generated set.
-  if (
-    target === "app" &&
-    JSON.stringify(generatedAliases) ===
+  // TRANSITION-V3-PRIOR: the generated-alias topology and the deployment
+  // environment are one shape, never two independent allowances. A v3-shaped
+  // App prior carries exactly the retiring custom environment's generated
+  // alias; a production-shaped prior carries exactly the reviewed production
+  // set and never the retired alias. Any mixture of the two is an inconsistent
+  // transition state and fails closed.
+  if (isTransitionalAppPriorEnvironment(target, environment)) {
+    if (
+      JSON.stringify(generatedAliases) !==
       JSON.stringify([TRANSITIONAL_APP_PRIOR_GENERATED_ALIAS])
-  ) {
+    ) {
+      activationError(target, "alias-set-ambiguous");
+    }
     return sorted;
+  }
+  // The retired alias cannot re-enter through a production-shaped prior.
+  if (generatedAliases.includes(TRANSITIONAL_APP_PRIOR_GENERATED_ALIAS)) {
+    activationError(target, "alias-set-ambiguous");
   }
   try {
     assertOnlyExpectedProductionGeneratedAliases({
@@ -482,6 +497,7 @@ function canonicalizePriorGroup({ target, group, projectId }) {
       state.aliases,
       target,
       state.creatorUsername,
+      state,
     );
     if (aliases !== null) {
       if (

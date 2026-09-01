@@ -2923,8 +2923,14 @@ test("pilot summary records exact build, staging, and rollback evidence", () => 
     writePilotSummary(summaryInput);
     const summary = readFileSync(summaryPath, "utf8");
     assert.match(summary, new RegExp(SHA));
-    assert.match(summary, /build-only Outcome B/);
-    assert.match(summary, /m-app-0123456789abcdef012/);
+    // The App shadow builds the ordinary production output and never deploys
+    // it, so the summary must report a production build-only row. Claiming the
+    // retired custom environment would misreport what the run validated.
+    assert.match(
+      summary,
+      /\| app \| production \| build-only, not deployed \(Next ID `m-app-0123456789abcdef012`\)/,
+    );
+    assert.doesNotMatch(summary, /Outcome B|\| app \| v3 \||app v3 unchanged/);
     assert.match(
       summary,
       /vercel alias set https:\/\/app-v3-old\.vercel\.app app\.mento\.org/,

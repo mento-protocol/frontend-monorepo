@@ -1878,6 +1878,35 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
     /steps\.journal-presence\.outputs\.has_journal != 'true'/,
   );
   assert.doesNotMatch(preparationFailure.run, /vercel-main-stage-results:v1/);
+  // App stages its own candidate, so every stage result is the literal job
+  // result of that stage job. The coordinator result never stands in for the
+  // App stage, and nothing re-derives it from the execution projection.
+  for (const [variable, job] of [
+    ["APP_RESULT", "stage-app"],
+    ["GOVERNANCE_RESULT", "stage-governance"],
+    ["RESERVE_RESULT", "stage-reserve"],
+    ["UI_RESULT", "stage-ui"],
+  ]) {
+    assert.equal(
+      preparationFailure.env[variable],
+      `\${{ needs.${job}.result }}`,
+    );
+    assert.match(
+      preparationFailure.run,
+      new RegExp(`terminal-stage-results[\\s\\S]*\\$${variable}`),
+    );
+  }
+  assert.equal(
+    preparationFailure.env.COORDINATOR_RESULT,
+    "${{ needs.activate-and-verify.result }}",
+  );
+  assert.doesNotMatch(
+    preparationFailure.run,
+    /--app-result "\$COORDINATOR_RESULT"|app_result=|\bjq\b/,
+  );
+  assert.ok(
+    workflow.jobs["recover-main-deployment"].needs.includes("stage-app"),
+  );
   const recoveryFailedTerminal = named(
     "recover-main-deployment",
     "recovery-failed terminal artifacts",

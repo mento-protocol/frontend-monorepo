@@ -2637,17 +2637,14 @@ jobs:
         id: preparation-failure-terminal
         if: steps.journal-presence.outputs.has_journal != 'true'
         env:
+          APP_RESULT: ${{ needs.stage-app.result }}
           COORDINATOR_RESULT: ${{ needs.activate-and-verify.result }}
           GOVERNANCE_RESULT: ${{ needs.stage-governance.result }}
           RESERVE_RESULT: ${{ needs.stage-reserve.result }}
           UI_RESULT: ${{ needs.stage-ui.result }}
         run: |
           set -euo pipefail
-          app_result=skipped
-          if jq -e '.projection.stagedTargets | index("app")' "$RUNNER_TEMP/execution.json" >/dev/null; then
-            app_result="$COORDINATOR_RESULT"
-          fi
-          node scripts/vercel-main-release-cli.mjs terminal-stage-results --execution "$RUNNER_TEMP/execution.json" --app-result "$app_result" --governance-result "$GOVERNANCE_RESULT" --reserve-result "$RESERVE_RESULT" --ui-result "$UI_RESULT" --coordinator-result "$COORDINATOR_RESULT" --output "$RUNNER_TEMP/preparation-stage-results.json"
+          node scripts/vercel-main-release-cli.mjs terminal-stage-results --execution "$RUNNER_TEMP/execution.json" --app-result "$APP_RESULT" --governance-result "$GOVERNANCE_RESULT" --reserve-result "$RESERVE_RESULT" --ui-result "$UI_RESULT" --coordinator-result "$COORDINATOR_RESULT" --output "$RUNNER_TEMP/preparation-stage-results.json"
           node scripts/vercel-main-release-cli.mjs terminal-artifacts --active-evidence-output "$RUNNER_TEMP/recovery-evidence.json" --execution "$RUNNER_TEMP/execution.json" --final-census "$RUNNER_TEMP/null.json" --final-mappings "$RUNNER_TEMP/null.json" --freshness "$RUNNER_TEMP/null.json" --journal-history "$RUNNER_TEMP/empty-history.json" --outcome preparation-failed-before-journal --proofs-output "$RUNNER_TEMP/recovery-proofs.json" --public-smokes "$RUNNER_TEMP/null.json" --stage-results "$RUNNER_TEMP/preparation-stage-results.json" --state-proof "$RUNNER_TEMP/null.json"
           echo 'outcome=preparation-failed-before-journal' >> "$GITHUB_OUTPUT"
       - name: Derive recovery terminal state specification

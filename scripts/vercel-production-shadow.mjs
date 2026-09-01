@@ -2462,7 +2462,7 @@ export function writePilotSummary({
     "",
     "| Target | Build target | Deployment ID / URL | Runtime/browser | Protected mappings | Turbo cache | Timing | Result |",
     "|---|---|---|---|---|---|---|---|",
-    `| app | v3 | build-only Outcome B (Next ID \`${appDeploymentId}\`) | deferred by design | app v3 unchanged | ${appCacheHits} hit / ${appCacheMisses} miss | build ${appBuildDuration} ms; job ${appTotalDuration} ms | pass |`,
+    `| app | production | build-only, not deployed (Next ID \`${appDeploymentId}\`) | deferred by design | unchanged | ${appCacheHits} hit / ${appCacheMisses} miss | build ${appBuildDuration} ms; job ${appTotalDuration} ms | pass |`,
     `| governance | production | \`${deployments.governance.id}\` / ${deployments.governance.url} | pass | unchanged | ${deployments.governance.cacheHits} hit / ${deployments.governance.cacheMisses} miss | build ${deployments.governance.buildDurationMs} ms; deploy ${deployments.governance.deployDurationMs} ms; job ${deployments.governance.totalDurationMs} ms | pass |`,
     `| reserve | production | \`${deployments.reserve.id}\` / ${deployments.reserve.url} | pass | unchanged | ${deployments.reserve.cacheHits} hit / ${deployments.reserve.cacheMisses} miss | build ${deployments.reserve.buildDurationMs} ms; deploy ${deployments.reserve.deployDurationMs} ms; job ${deployments.reserve.totalDurationMs} ms | pass |`,
     `| ui | production | \`${deployments.ui.id}\` / ${deployments.ui.url} | pass | unchanged | ${deployments.ui.cacheHits} hit / ${deployments.ui.cacheMisses} miss | build ${deployments.ui.buildDurationMs} ms; deploy ${deployments.ui.deployDurationMs} ms; job ${deployments.ui.totalDurationMs} ms | pass |`,
@@ -2879,7 +2879,7 @@ if (isCliEntrypoint()) {
         deploymentId: process.env.MENTO_NEXT_DEPLOYMENT_ID,
       }),
     );
-    process.stdout.write("App v3 build-only Outcome B verified\n");
+    process.stdout.write("App production build-only proof verified\n");
   } else if (command === "assert-generated-aliases") {
     assertOnlyExpectedVercelGeneratedAliases(
       readJson(options.input, "Staged deployment state"),
