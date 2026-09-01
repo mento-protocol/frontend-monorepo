@@ -28,9 +28,9 @@ domain restrictions and spending limits.
 
 - Vercel Production uses the `Mento Governance Production` key. The Graph
   Studio permits `governance.mento.org` and `*-mentolabs.vercel.app`, restricts
-  queries to the `mento-governance-celo` subgraph, and limits spending to USD 5
-  per month. The Vercel suffix lets the production controller verify a staged
-  Governance candidate before promotion.
+  queries to the `mento-governance-celo` and `mento-governance-celo-sepolia`
+  subgraphs, and limits spending to USD 5 per month. The Vercel suffix lets the
+  production controller verify a staged Governance candidate before promotion.
 - Vercel Preview and Development use the `Mento Governance Preview` key. The
   Graph Studio permits `*-mentolabs.vercel.app` and `localhost`, restricts
   queries to the `mento-governance-celo` and `mento-governance-celo-sepolia`

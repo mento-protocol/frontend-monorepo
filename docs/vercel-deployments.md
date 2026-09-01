@@ -1439,8 +1439,9 @@ monthly spending limits control their use.
 - The Production-scoped `NEXT_PUBLIC_GRAPH_API_KEY` uses the
   `Mento Governance Production` key. The Graph Studio restricts this key to
   `governance.mento.org` and `*-mentolabs.vercel.app`, restricts queries to
-  subgraph `8C3iY7M5mPqYVFYENS6vFSsseZUtuWM5xTLiAqguGG4f`, and limits spending to
-  USD 5 per month. The Vercel suffix lets the controller verify an immutable
+  subgraphs `8C3iY7M5mPqYVFYENS6vFSsseZUtuWM5xTLiAqguGG4f` and
+  `DQVQkbu1zmuHuW99zqBTVNA8wMidfwHrDEUtaVvzyyRL`, and limits spending to USD 5
+  per month. The Vercel suffix lets the controller verify an immutable
   production candidate before it promotes the candidate.
 - The Preview- and Development-scoped `NEXT_PUBLIC_GRAPH_API_KEY` uses the
   `Mento Governance Preview` key. The Graph Studio restricts this key to
