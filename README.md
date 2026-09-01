@@ -183,12 +183,20 @@ changes to either policy workflow, checker, or fixture suite must also require
 protected human/code-owner review or an organization required-workflow rule;
 the two status contexts alone are not a tamper-proof approval boundary.
 Canonical structure changes such as pnpm/Node versions, commands, or triggers
-intentionally require a protected two-PR transition: first teach the trusted
-checker to allow the transition while retaining the old workflow, then change
-the workflow and tighten the checker. Immutable action SHA bumps are normalized
-by the checker and can remain a single PR. When adding or updating a third-party
-action, pin its full 40-character commit SHA and retain the release tag as an
-inline comment (for example, `uses: org/action@<sha> # v1.2.3`).
+intentionally require a protected two-PR transition. The first pull request
+teaches the trusted checker to allow the transition while the workflows and
+root package-manager declaration stay unchanged. For a pnpm transition, the
+checker accepts only the paired old or paired target workflow versions. The
+second pull request changes the root declaration and both workflow pins
+together, then tightens the checker to the target version. A mixed workflow
+pair is invalid. An explicit workflow version that differs from the root
+`packageManager` value also makes `pnpm/action-setup` fail before the
+checker runs. Require both Action Pin Policy checks on each stage's exact head
+and base. Revalidate after any head or base change. Immutable action SHA bumps
+are normalized by the checker and can remain a single PR. When adding or
+updating a third-party action, pin its full 40-character commit SHA and retain
+the release tag as an inline comment (for example,
+`uses: org/action@<sha> # v1.2.3`).
 
 #### App-Specific Linting
 

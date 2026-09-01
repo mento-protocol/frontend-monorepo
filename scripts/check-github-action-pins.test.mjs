@@ -76,6 +76,13 @@ function policyWorkflowWithPnpmVersion(path, version) {
   return source.replace(current, `version: ${version}`);
 }
 
+/** @param {string} root @param {string} version */
+function writePolicyWorkflowsWithPnpmVersion(root, version) {
+  for (const path of POLICY_WORKFLOW_PATHS) {
+    write(root, path, policyWorkflowWithPnpmVersion(path, version));
+  }
+}
+
 /** @param {unknown} actual @param {unknown} expected @param {string} message */
 function equal(actual, expected, message) {
   if (actual !== expected) {
@@ -1278,24 +1285,94 @@ test("allows immutable action SHA bumps in canonical policy workflows", () => {
   }
 });
 
-test("rejects policy pnpm version drift after the protected transition", () => {
-  for (const version of ["10.24.0", "10.34.5"]) {
-    for (const path of POLICY_WORKFLOW_PATHS) {
-      const root = fixtureRoot(`policy-pnpm-${version}-fail`);
-      try {
-        write(root, path, policyWorkflowWithPnpmVersion(path, version));
+test("allows both paired pnpm versions during the protected transition", () => {
+  for (const version of ["10.34.4", "10.34.5"]) {
+    const root = fixtureRoot(`policy-pnpm-${version}-pass`);
+    try {
+      writePolicyWorkflowsWithPnpmVersion(root, version);
 
-        const result = runChecker(root);
-        equal(result.status, 1, result.stdout);
-        contains(result.stderr, path, "policy path");
-        contains(
-          result.stderr,
-          "does not match the trusted action-pin workflow structure",
-          "strict pnpm field",
-        );
-      } finally {
-        rmSync(root, { recursive: true, force: true });
-      }
+      const result = runChecker(root);
+      equal(result.status, 0, result.stderr);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("rejects pnpm versions outside the protected transition", () => {
+  for (const path of POLICY_WORKFLOW_PATHS) {
+    const root = fixtureRoot("policy-pnpm-arbitrary-fail");
+    try {
+      write(root, path, policyWorkflowWithPnpmVersion(path, "10.34.6"));
+
+      const result = runChecker(root);
+      equal(result.status, 1, result.stdout);
+      contains(result.stderr, path, "policy path");
+      contains(
+        result.stderr,
+        "Setup PNPM version must be one of: 10.34.4, 10.34.5",
+        "allowed pnpm versions",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("rejects mixed pnpm versions during the protected transition", () => {
+  for (const [trustedVersion, sourceVersion] of [
+    ["10.34.4", "10.34.5"],
+    ["10.34.5", "10.34.4"],
+  ]) {
+    const root = fixtureRoot(
+      `policy-pnpm-mixed-${trustedVersion}-${sourceVersion}-fail`,
+    );
+    try {
+      write(
+        root,
+        POLICY_WORKFLOW_PATHS[0],
+        policyWorkflowWithPnpmVersion(POLICY_WORKFLOW_PATHS[0], trustedVersion),
+      );
+      write(
+        root,
+        POLICY_WORKFLOW_PATHS[1],
+        policyWorkflowWithPnpmVersion(POLICY_WORKFLOW_PATHS[1], sourceVersion),
+      );
+
+      const result = runChecker(root);
+      equal(result.status, 1, result.stdout);
+      contains(
+        result.stderr,
+        "both workflows must use the same Setup PNPM version",
+        "paired pnpm versions",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("keeps non-pnpm policy fields strict during the transition", () => {
+  for (const path of POLICY_WORKFLOW_PATHS) {
+    const root = fixtureRoot("policy-pnpm-other-field-fail");
+    try {
+      writePolicyWorkflowsWithPnpmVersion(root, "10.34.5");
+      const updated = policyWorkflowWithPnpmVersion(path, "10.34.5").replace(
+        "node-version: 22",
+        "node-version: 23",
+      );
+      write(root, path, updated);
+
+      const result = runChecker(root);
+      equal(result.status, 1, result.stdout);
+      contains(result.stderr, path, "policy path");
+      contains(
+        result.stderr,
+        "does not match the trusted action-pin workflow structure",
+        "strict non-pnpm field",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   }
 });
