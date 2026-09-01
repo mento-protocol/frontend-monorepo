@@ -297,7 +297,6 @@ jobs:
           candidates=(
             https://celo-rpc.publicnode.com
             https://celo.api.onfinality.io/public
-            https://1rpc.io/celo
             https://rpc.ankr.com/celo
             https://celo.drpc.org
             https://forno.celo.org
@@ -353,12 +352,13 @@ jobs:
           # then started returning 403 "Archive requests require a personal
           # token" mid-seed and anvil panicked. Only true archive nodes can
           # also answer ~28h (100k blocks) below the fork block, so require
-          # that as well.
+          # that as well. Do not use 1rpc.io: its anonymous endpoint passed
+          # this probe, then exhausted its quota during the #527 failure
+          # streak.
           deep_hex=$(printf '0x%x' $((FORK_BLOCK - 100000)))
           candidates=(
             https://celo-rpc.publicnode.com
             https://celo.api.onfinality.io/public
-            https://1rpc.io/celo
             https://rpc.ankr.com/celo
             https://celo.drpc.org
             https://forno.celo.org
@@ -583,7 +583,6 @@ jobs:
           candidates=(
             https://celo-rpc.publicnode.com
             https://celo.api.onfinality.io/public
-            https://1rpc.io/celo
             https://rpc.ankr.com/celo
             https://celo.drpc.org
             https://forno.celo.org
@@ -642,12 +641,13 @@ jobs:
           # then started returning 403 "Archive requests require a personal
           # token" mid-seed and anvil panicked. Only true archive nodes can
           # also answer ~28h (100k blocks) below the fork block, so require
-          # that as well.
+          # that as well. Do not use 1rpc.io: its anonymous endpoint passed
+          # this probe, then exhausted its quota during the #527 failure
+          # streak.
           deep_hex=$(printf '0x%x' $((FORK_BLOCK - 100000)))
           candidates=(
             https://celo-rpc.publicnode.com
             https://celo.api.onfinality.io/public
-            https://1rpc.io/celo
             https://rpc.ankr.com/celo
             https://celo.drpc.org
             https://forno.celo.org

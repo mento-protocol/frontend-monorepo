@@ -158,6 +158,25 @@ test("default-branch visual successes prove that both surfaces recovered", () =>
   );
 });
 
+test("the Celo E2E fork excludes the exhausted anonymous 1RPC endpoint", () => {
+  const workflow = read(".github/workflows/e2e.yml");
+  const celoCandidateLists = [
+    ...workflow.matchAll(
+      / {6}- name: (?:Resolve nightly fork block \(scheduled runs only\)|Select fork RPC \(archive state at the pinned block required\))\n[\s\S]*? {10}candidates=\(\n((?: {12}https:\/\/[^\n]+\n)+) {10}\)/g,
+    ),
+  ].map((match) => match[1]);
+
+  assert.doesNotMatch(workflow, /https:\/\/1rpc\.io\/celo/);
+  assert.equal(celoCandidateLists.length, 4);
+  for (const candidates of celoCandidateLists) {
+    assert.equal(
+      [...candidates.matchAll(/https:\/\/rpc\.ankr\.com\/celo/g)].length,
+      1,
+      "each Celo head and archive candidate list must retain Ankr once",
+    );
+  }
+});
+
 test("the notifier is loop-safe, secretless, and least privilege", () => {
   const workflow = read(".github/workflows/ci-failure-notifier.yml");
   const monitoredNames = [
