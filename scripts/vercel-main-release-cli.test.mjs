@@ -157,34 +157,6 @@ function manifest(
   });
 }
 
-function legacy() {
-  return [
-    {
-      alias: "v2-app.mento.org",
-      deploymentId: "dpl_legacyV2Prior123",
-      deploymentUrl: "https://legacy-v2-prior.vercel.app",
-      creatorUsername: "mentolabs",
-      projectId: "prj_app",
-      projectName: "app.mento.org",
-      readyState: "READY",
-      target: "production",
-      customEnvironmentSlug: null,
-      git: {
-        org: "mento-protocol",
-        repo: "frontend-monorepo",
-        ref: "v2",
-        sha: "c".repeat(40),
-      },
-      aliases: [
-        "appmentoorg-git-v2-mentolabs.vercel.app",
-        "appmentoorg-mentolabs.vercel.app",
-        "appmentoorg.vercel.app",
-        "v2-app.mento.org",
-      ],
-    },
-  ];
-}
-
 function preplan(releaseManifest, decision = "resume-existing-release") {
   const reason =
     decision === "resume-existing-release"
@@ -291,14 +263,10 @@ function discovery(
   snapshot,
   { empty = false, rollbackOnlyTargets = [] } = {},
 ) {
-  const legacyState = legacy()[0];
   return {
     schema: "vercel-main-provider-discovery:v2",
     planningSnapshotDigest: createHash("sha256")
       .update(JSON.stringify(snapshot))
-      .digest("hex"),
-    legacyAppV2Digest: createHash("sha256")
-      .update(JSON.stringify(legacyState))
       .digest("hex"),
     projectIds: {
       app: "prj_app",
@@ -341,7 +309,6 @@ function environment(directory) {
 }
 
 function executionFor(releaseManifest) {
-  const legacyState = legacy()[0];
   return createMainReleaseExecution({
     decision:
       releaseManifest.stagedTargets.length === 0
@@ -358,12 +325,10 @@ function executionFor(releaseManifest) {
       runUrl: `https://github.com/mento-protocol/frontend-monorepo/actions/runs/${releaseManifest.upstreamRunId}/attempts/2`,
       buildAndTestJobUrl: `https://github.com/mento-protocol/frontend-monorepo/actions/runs/${releaseManifest.upstreamRunId}/job/456`,
     },
-    legacyAppV2: legacyState,
     selection: createMainReleaseSelection({
       providerDiscoveryDigest: "c".repeat(64),
       planningSnapshotDigest: "d".repeat(64),
       rollbackOnlyTargets: releaseManifest.rollbackOnlyTargets,
-      legacyAppV2: legacyState,
       projectIds: Object.fromEntries(
         RELEASE_ORDER.map((target) => [target, `prj_${target}`]),
       ),
@@ -550,22 +515,6 @@ function currentReleaseFixture() {
   const deploymentStateProof = createActiveDeploymentStateProof({
     spec: stateSpec,
     deployments,
-    legacyV2: {
-      ownership: "native-vercel-git",
-      state: {
-        alias: stateSpec.legacyAppV2.alias,
-        deploymentId: stateSpec.legacyAppV2.deployment,
-        deploymentUrl: stateSpec.legacyAppV2.deploymentUrl,
-        creatorUsername: null,
-        projectId: stateSpec.legacyAppV2.projectId,
-        projectName: stateSpec.legacyAppV2.projectName,
-        readyState: "READY",
-        target: "production",
-        customEnvironmentSlug: null,
-        git: { ...stateSpec.legacyAppV2.git },
-        aliases: [stateSpec.legacyAppV2.alias],
-      },
-    },
   });
   assert.equal(deploymentStateProof.outcome, "proven");
   const terminalStateProof = createMainActiveTerminalStateProof({
@@ -578,11 +527,8 @@ function currentReleaseFixture() {
   const finalMappings = {
     schema: "vercel-main-canonical-mappings:v1",
     mappings: Object.fromEntries(
-      [...TARGETS, "legacy-app"].map((target) => {
-        const prior =
-          target === "legacy-app"
-            ? execution.legacyAppV2
-            : execution.manifest.originalPriors[target];
+      TARGETS.map((target) => {
+        const prior = execution.manifest.originalPriors[target];
         const candidate =
           target === "governance" ? governanceReceipt.candidate : prior;
         return [
@@ -613,7 +559,6 @@ function currentReleaseFixture() {
   return {
     execution,
     finalMappings,
-    freshLegacyV2: [execution.legacyAppV2],
     freshness: {
       schema: "vercel-main-active-freshness:v1",
       status: "fresh",
@@ -632,7 +577,6 @@ function executionArguments(
     census,
     preplanValue = preplan(release),
     discoveryValue = discovery(release, census),
-    legacyValue = legacy(),
     suffix = "",
   },
 ) {
@@ -644,8 +588,6 @@ function executionArguments(
     write(directory, `discovery${suffix}.json`, discoveryValue),
     "--planning-snapshot",
     write(directory, `planning${suffix}.json`, census),
-    "--legacy-snapshot",
-    write(directory, `legacy${suffix}.json`, legacyValue),
     "--output",
     join(directory, `execution${suffix}.json`),
   ];
@@ -658,7 +600,6 @@ test("execution diagnostics use an exhaustive fixed allowlist", () => {
     discovery: "main-release-execution-discovery",
     "planning-snapshot": "main-release-execution-planning-snapshot",
     "project-census": "main-release-execution-project-census",
-    legacy: "main-release-execution-legacy",
     "canonical-mappings": "main-release-execution-canonical-mappings",
     "preplan-recompute": "main-release-execution-preplan-recompute",
     ownership: "main-release-execution-ownership",
@@ -761,12 +702,6 @@ test("real execution failures report the phase reached by the entrypoint", async
   const release = manifest();
   const census = planningSnapshot(release);
   const providerDiscovery = discovery(release, census);
-  const changedLegacy = legacy();
-  changedLegacy[0] = {
-    ...changedLegacy[0],
-    deploymentId: "dpl_changedLegacyV2Prior123",
-    deploymentUrl: "https://changed-legacy-v2-prior.vercel.app",
-  };
   const cases = [
     {
       phase: "discovery",
@@ -781,10 +716,6 @@ test("real execution failures report the phase reached by the entrypoint", async
       mutateEnvironment(env) {
         env.VERCEL_PROJECT_ID_UI = "prj_other";
       },
-    },
-    {
-      phase: "legacy",
-      inputs: { legacyValue: changedLegacy },
     },
     {
       phase: "preplan-recompute",
@@ -863,8 +794,6 @@ test("CLI entrypoint does not leak execution input paths or environment values",
       join(directory, "discovery.json"),
       "--planning-snapshot",
       join(directory, "planning.json"),
-      "--legacy-snapshot",
-      join(directory, "legacy.json"),
       "--output",
       join(directory, "execution.json"),
     ],
@@ -972,8 +901,6 @@ test("execution consumes the exact provider manifest without a new baseline", as
       write(directory, "discovery.json", providerDiscovery),
       "--planning-snapshot",
       write(directory, "planning.json", census),
-      "--legacy-snapshot",
-      write(directory, "legacy.json", legacy()),
       "--output",
       output,
     ],
@@ -1083,8 +1010,6 @@ test("existing release execution rejects a replacement baseline", async (t) => {
         write(directory, "discovery.json", discovery(release, census)),
         "--planning-snapshot",
         write(directory, "planning.json", census),
-        "--legacy-snapshot",
-        write(directory, "legacy.json", legacy()),
         "--baseline",
         write(directory, "baseline.json", release),
         "--output",
@@ -1262,7 +1187,7 @@ test("execution rejects provider evidence that does not select the supplied rele
   }
 });
 
-test("execution rejects ownership, census, and valid legacy drift", async (t) => {
+test("execution rejects ownership and census drift", async (t) => {
   const directory = realpathSync(
     mkdtempSync(join(tmpdir(), "main-release-cli-")),
   );
@@ -1332,23 +1257,22 @@ test("execution rejects ownership, census, and valid legacy drift", async (t) =>
     /provider discovery conflicts/,
   );
 
-  const changedLegacy = legacy();
-  changedLegacy[0] = {
-    ...changedLegacy[0],
-    deploymentId: "dpl_changedLegacyV2Prior123",
-    deploymentUrl: "https://changed-legacy-v2-prior.vercel.app",
-  };
+  // MGP-18 retired the legacy App census. The execution command no longer
+  // accepts a legacy snapshot, so the option itself must stay unsupported.
   await assert.rejects(
     runMainReleaseCli({
-      argv: executionArguments(directory, {
-        release,
-        census,
-        legacyValue: changedLegacy,
-        suffix: "-legacy",
-      }),
+      argv: [
+        ...executionArguments(directory, {
+          release,
+          census,
+          suffix: "-retired-legacy",
+        }),
+        "--legacy-snapshot",
+        write(directory, "retired-legacy.json", census),
+      ],
       env: environment(directory),
     }),
-    /legacy v2 state changed/,
+    /option/,
   );
 });
 
@@ -1386,12 +1310,10 @@ test("release CLI rejects linked private inputs and outputs", async (t) => {
       buildAndTestJobUrl:
         "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123/job/456",
     },
-    legacyAppV2: legacy()[0],
     selection: createMainReleaseSelection({
       providerDiscoveryDigest: "c".repeat(64),
       planningSnapshotDigest: "d".repeat(64),
       rollbackOnlyTargets: release.rollbackOnlyTargets,
-      legacyAppV2: legacy()[0],
       projectIds: Object.fromEntries(
         RELEASE_ORDER.map((target) => [target, `prj_${target}`]),
       ),
@@ -1420,7 +1342,6 @@ test("materialize binds retained output to the exact SHA and upstream run", asyn
   );
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const release = manifest();
-  const legacyState = legacy()[0];
   const value = createMainReleaseExecution({
     decision: "verify-existing-release",
     reason: "current-main-release-already-complete",
@@ -1433,12 +1354,10 @@ test("materialize binds retained output to the exact SHA and upstream run", asyn
       buildAndTestJobUrl:
         "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123/job/456",
     },
-    legacyAppV2: legacyState,
     selection: createMainReleaseSelection({
       providerDiscoveryDigest: "c".repeat(64),
       planningSnapshotDigest: "d".repeat(64),
       rollbackOnlyTargets: release.rollbackOnlyTargets,
-      legacyAppV2: legacyState,
       projectIds: Object.fromEntries(
         RELEASE_ORDER.map((target) => [target, `prj_${target}`]),
       ),
@@ -1803,8 +1722,6 @@ test("terminal artifact CLI writes execution-bound safe-noop evidence without pl
   const proofsOutput = join(directory, "terminal-proofs.json");
   const nullPath = write(directory, "terminal-null.json", null);
   const argumentsFor = ({
-    legacyValue = [execution.legacyAppV2],
-    legacyName = "terminal-legacy.json",
     evidenceOutputPath = evidenceOutput,
     proofsOutputPath = proofsOutput,
   } = {}) => [
@@ -1821,8 +1738,6 @@ test("terminal artifact CLI writes execution-bound safe-noop evidence without pl
     nullPath,
     "--journal-history",
     write(directory, "terminal-empty-history.json", []),
-    "--legacy-v2",
-    write(directory, legacyName, legacyValue),
     "--outcome",
     "no-target",
     "--proofs-output",
@@ -1844,7 +1759,8 @@ test("terminal artifact CLI writes execution-bound safe-noop evidence without pl
   );
   assert.equal(artifacts.evidence.reason, "no-target");
   assert.equal(artifacts.proofs.outcome, "no-target");
-  assert.equal(artifacts.proofs.freshLegacyV2.status, "passed");
+  assert.equal(artifacts.proofs.publicSmoke.status, "not-required");
+  assert.equal(Object.hasOwn(artifacts.proofs, "freshLegacyV2"), false);
   assert.deepEqual(
     JSON.parse(readFileSync(evidenceOutput, "utf8")),
     artifacts.evidence,
@@ -1853,20 +1769,18 @@ test("terminal artifact CLI writes execution-bound safe-noop evidence without pl
     JSON.parse(readFileSync(proofsOutput, "utf8")),
     artifacts.proofs,
   );
+  // MGP-18 retired the legacy App proof. The option itself must stay
+  // unsupported so no caller can reintroduce a legacy terminal artifact.
   await assert.rejects(
     runMainReleaseCli({
-      argv: argumentsFor({
-        legacyValue: [
-          {
-            ...execution.legacyAppV2,
-            deploymentId: "dpl_wrongLegacy123",
-          },
-        ],
-        legacyName: "terminal-wrong-legacy.json",
-      }),
+      argv: [
+        ...argumentsFor(),
+        "--legacy-v2",
+        write(directory, "retired-terminal-legacy.json", []),
+      ],
       env: environment(directory),
     }),
-    /fresh legacy v2 snapshot conflicts/,
+    /option/,
   );
 
   const secret = "terminal-artifact-path-secret";
@@ -1892,20 +1806,6 @@ test("terminal artifact CLI writes execution-bound safe-noop evidence without pl
     `${secret}-missing-history.json`,
   );
   await assertEntrypointFailure(malformedInput, "read-inputs");
-  await assertEntrypointFailure(
-    argumentsFor({
-      evidenceOutputPath: join(directory, "create-evidence.json"),
-      proofsOutputPath: join(directory, "create-proofs.json"),
-      legacyValue: [
-        {
-          ...execution.legacyAppV2,
-          deploymentId: "dpl_wrongLegacy123",
-        },
-      ],
-      legacyName: "create-wrong-legacy.json",
-    }),
-    "create-artifacts",
-  );
   const blockedEvidenceOutput = write(
     directory,
     `${secret}-blocked-evidence.json`,
@@ -1960,8 +1860,6 @@ test("terminal artifact CLI fully re-verifies an already-current release without
     write(directory, "current-release-freshness.json", freshness),
     "--journal-history",
     write(directory, "current-release-history.json", journalHistory),
-    "--legacy-v2",
-    write(directory, "current-release-legacy-v2.json", fixture.freshLegacyV2),
     "--outcome",
     "current-release-verified",
     "--proofs-output",
@@ -1995,7 +1893,7 @@ test("terminal artifact CLI fully re-verifies an already-current release without
   assert.equal(artifacts.proofs.finalCensus.status, "passed");
   assert.equal(artifacts.proofs.stateProof.status, "passed");
   assert.equal(artifacts.proofs.publicSmoke.status, "passed");
-  assert.equal(artifacts.proofs.freshLegacyV2.status, "passed");
+  assert.equal(Object.hasOwn(artifacts.proofs, "freshLegacyV2"), false);
   assert.equal(
     artifacts.proofs.publicSmoke.artifact.governance.runtime.interaction,
     "governance-voting-power-navigation",
@@ -2113,8 +2011,6 @@ test("terminal artifact CLI materializes a pre-journal preparation failure from 
       nullPath,
       "--journal-history",
       write(directory, "history.json", []),
-      "--legacy-v2",
-      write(directory, "legacy.json", [execution.legacyAppV2]),
       "--outcome",
       "preparation-failed-before-journal",
       "--proofs-output",
@@ -2161,7 +2057,6 @@ test("forward journal uses only asserted execution, fresh mappings, and current-
   );
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const release = manifest([]);
-  const legacyState = legacy()[0];
   const execution = createMainReleaseExecution({
     decision: "verify-existing-release",
     reason: "current-main-release-already-complete",
@@ -2174,12 +2069,10 @@ test("forward journal uses only asserted execution, fresh mappings, and current-
       buildAndTestJobUrl:
         "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123/job/456",
     },
-    legacyAppV2: legacyState,
     selection: createMainReleaseSelection({
       providerDiscoveryDigest: "c".repeat(64),
       planningSnapshotDigest: "d".repeat(64),
       rollbackOnlyTargets: release.rollbackOnlyTargets,
-      legacyAppV2: legacyState,
       projectIds: Object.fromEntries(
         RELEASE_ORDER.map((target) => [target, `prj_${target}`]),
       ),
@@ -2197,7 +2090,6 @@ test("forward journal uses only asserted execution, fresh mappings, and current-
       reserve: execution.projection.projectIds.reserve,
       ui: execution.projection.projectIds.ui,
     },
-    legacySnapshot: [legacyState],
   });
   const output = join(directory, "forward-journal.json");
   const value = await runMainReleaseCli({
@@ -2260,7 +2152,6 @@ test("a mixed App-only residual creates only an inherited recovery journal", asy
   );
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const release = manifest(TARGETS);
-  const legacyState = legacy()[0];
   const mappings = createMainCanonicalMappings({
     planningSnapshot: planningSnapshot(release),
     projectIds: {
@@ -2269,7 +2160,6 @@ test("a mixed App-only residual creates only an inherited recovery journal", asy
       reserve: "prj_reserve",
       ui: "prj_ui",
     },
-    legacySnapshot: [legacyState],
   });
   const movedAppAlias = release.originalPriors.app.aliases[0];
   for (const target of RELEASE_ORDER) {
@@ -2331,8 +2221,6 @@ test("a mixed App-only residual creates only an inherited recovery journal", asy
       "inherited-recovery-journal",
       "--preplan",
       write(directory, "preplan.json", inheritedPreplan),
-      "--legacy-snapshot",
-      write(directory, "legacy.json", [legacyState]),
       "--current-mappings",
       write(directory, "recovery-mappings.json", mappings),
       "--candidate-receipts",
@@ -2384,7 +2272,6 @@ test("inherited recovery journal binds a partial prefix to current-attempt recei
     "governance",
   ]);
 
-  const legacyState = legacy()[0];
   const mappings = createMainCanonicalMappings({
     planningSnapshot: planningSnapshot(release),
     projectIds: {
@@ -2393,7 +2280,6 @@ test("inherited recovery journal binds a partial prefix to current-attempt recei
       reserve: "prj_reserve",
       ui: "prj_ui",
     },
-    legacySnapshot: [legacyState],
   });
   const candidateReceipts = {
     app: null,
@@ -2408,8 +2294,6 @@ test("inherited recovery journal binds a partial prefix to current-attempt recei
       "inherited-recovery-journal",
       "--preplan",
       write(directory, "inherited-preplan.json", inheritedPreplan),
-      "--legacy-snapshot",
-      write(directory, "inherited-legacy.json", [legacyState]),
       "--current-mappings",
       write(directory, "inherited-mappings.json", mappings),
       "--candidate-receipts",

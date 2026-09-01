@@ -3,7 +3,7 @@ title: GitHub Actions owns Vercel build and deployment orchestration; Vercel rem
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-08-26
+last_verified: 2026-09-01
 scope: ci/deployment
 date: 2026-07
 ---
@@ -11,6 +11,7 @@ date: 2026-07
 # ADR 0001 — GitHub Actions owns Vercel build and deployment orchestration; Vercel remains hosting and runtime
 
 **Status:** Accepted (Jul 2026); preview and active-main cutovers are complete.
+Amended 2026-09-01 to retire the legacy App v2 path per MGP-18.
 **Scope:** ci/deployment
 
 ## Context
@@ -476,6 +477,21 @@ failure of the hosting/runtime platform.
   runner billing or limits materially change, Actions reliability or latency
   becomes unacceptable, or Vercel introduces a simpler build-offload mechanism
   with equivalent security and transaction semantics.
+
+## Amendment — 2026-09-01: legacy App v2 retired (MGP-18)
+
+Governance proposal MGP-18 passed. The legacy App v2 path is removed from the
+pipeline: Vercel-native Git production from branch `v2` serving
+`v2-app.mento.org` no longer exists. The `app v2` row of the target table
+above (lines 49–55) no longer exists. The design goal to preserve app `v2`
+(lines 75–76) and the Git-integration retention rationale for `v2` (lines
+85–87) no longer apply. Every "App always retains `v2: true`" statement above
+(lines 241, 343–349, 363, 380, 473, 495) is historical: `apps/app.mento.org/vercel.json`
+is now `{"git":{"deploymentEnabled":false}}`, like the other three apps.
+Recovery now has five static turns (three ordinary plus two App-alias
+transitions) instead of nine. The custom-v3 App path is unchanged by this
+amendment. A follow-up change (planned) will also normalize the App target
+to the ordinary production target described elsewhere in this ADR.
 
 ## Evidence
 

@@ -191,7 +191,6 @@ function priorState() {
     governance: deploymentRecord("governance", ["governance.mento.org"]),
     reserve: deploymentRecord("reserve", ["reserve.mento.org"]),
     ui: deploymentRecord("ui", ["ui.mento.org"]),
-    "legacy-app": deploymentRecord("legacy", ["v2-app.mento.org"]),
   };
 }
 
@@ -1674,9 +1673,6 @@ test("ordinary recovery is planned and executed in reverse activation order", as
     restoreAppAlias: async () => {
       throw new Error("unreachable");
     },
-    restoreLegacyAlias: async () => {
-      throw new Error("unreachable");
-    },
     inspectMapping: async (_entry, context) => ({
       mappingState: context.phase === "recovery-final" ? "prior" : "candidate",
     }),
@@ -1762,9 +1758,6 @@ test("forged recovery action fields never reach inspection or mutation adapters"
           adapterCalls += 1;
         },
         restoreAppAlias: async () => {
-          adapterCalls += 1;
-        },
-        restoreLegacyAlias: async () => {
           adapterCalls += 1;
         },
         inspectMapping: async () => {
@@ -2191,49 +2184,55 @@ test("unexpected app mapping is never overwritten", () => {
   );
 });
 
-test("legacy v2 is untouched normally and restored only from the exact app candidate", () => {
+// MGP-18 retired the legacy App deployment. Recovery no longer models a
+// legacy prior, slot, action kind, operation type, or decision reason.
+test("retired legacy App v2 cannot re-enter the transaction recovery model", () => {
   const initial = prepared({ app: "known" });
   const started = startMainTransactionOperation(initial, {
     type: "app_v3_deploy",
     target: "app",
   });
-  const legacyAlias = started.prior["legacy-app"].aliases[0];
-  const untouched = planMainTransactionRecovery({
+  assert.equal(started.prior["legacy-app"], undefined);
+  const plan = planMainTransactionRecovery({
     journal: started,
     currentMappings: currentMappings(started),
   });
+  assert.deepEqual(
+    plan.actions.map(({ target, alias }) => ({ target, alias })),
+    [...started.prior.app.aliases]
+      .reverse()
+      .map((alias) => ({ target: "app", alias })),
+  );
   assert.equal(
-    untouched.actions.find((entry) => entry.alias === legacyAlias).kind,
-    "verified_noop",
+    plan.actions.some(({ kind }) => kind === "legacy_emergency_restore"),
+    false,
   );
+  assert.notEqual(plan.reason, "legacy-alias-moved-to-transaction-candidate");
 
-  const emergency = planMainTransactionRecovery({
-    journal: started,
-    currentMappings: currentMappings(started, {
-      [legacyAlias]: started.candidates.app,
-    }),
-  });
-  const restore = emergency.actions.find(
-    (entry) => entry.alias === legacyAlias,
+  assert.throws(
+    () =>
+      startMainTransactionOperation(initial, {
+        type: "legacy_emergency_restore",
+        target: "legacy-app",
+        alias: "v2-app.mento.org",
+      }),
+    /type is unsupported|target is unsupported/,
   );
-  assert.equal(restore.kind, "legacy_emergency_restore");
-  assert.equal(
-    restore.priorDeploymentUrl,
-    started.prior["legacy-app"].deploymentUrl,
+  assert.throws(
+    () =>
+      createPreparedMainTransactionJournalImpl({
+        ...identity,
+        mode: "active",
+        release: releaseForTargets(),
+        prior: {
+          ...priorState(),
+          "legacy-app": deploymentRecord("legacy", ["v2-app.mento.org"]),
+        },
+        startMappings: startMappingsAtPrior(priorState()),
+        candidates: candidateState(),
+      }),
+    /prior/,
   );
-  assert.equal(emergency.forceFailure, true);
-  assert.equal(emergency.reason, "legacy-alias-moved-to-transaction-candidate");
-
-  const operator = planMainTransactionRecovery({
-    journal: started,
-    currentMappings: currentMappings(started, {
-      [legacyAlias]: {
-        deploymentId: "dpl_operator123",
-        deploymentUrl: "https://operator.vercel.app",
-      },
-    }),
-  });
-  assert.equal(operator.decision, "manual_intervention");
 });
 
 test("recovered and committed histories bypass repeat recovery", () => {
@@ -2279,7 +2278,6 @@ test("shadow execution exercises preparation, freshness, persistence, and recove
       assignAlias: forbidden,
       ordinaryRollback: forbidden,
       restoreAppAlias: forbidden,
-      restoreLegacyAlias: forbidden,
     },
   });
   assert.equal(result.outcome, "shadow-prepared");
@@ -2595,11 +2593,11 @@ test("active mode stops at the next freshness barrier and preserves the last dur
   assert.equal(uploads.at(-1).status, "verified");
 });
 
-test("active mode never commits when final legacy v2 mapping changed", async () => {
+test("active mode never commits when a final protected mapping changed", async () => {
   const harness = activeMutationHarness({
     onProtectedInspection: ({ phase, mappings, prior }) => {
       if (phase !== "transaction-commit") return;
-      const alias = prior["legacy-app"].aliases[0];
+      const alias = prior.ui.aliases[0];
       mappings.set(
         alias,
         mapping(alias, {
@@ -2623,7 +2621,7 @@ test("active mode never commits when final legacy v2 mapping changed", async () 
     }),
     (error) => {
       assert.ok(error instanceof MainTransactionError);
-      assert.equal(error.code, "LEGACY_V2_INVARIANT_FAILED");
+      assert.equal(error.code, "FINAL_MAPPING_VERIFICATION_FAILED");
       assert.equal(error.journal.status, "verified");
       return true;
     },
@@ -2676,7 +2674,7 @@ function preparedWithCandidatePrefix(prefix) {
   });
 }
 
-test("v3 journal binds durable release, all-five priors, and exact start mappings", () => {
+test("v3 journal binds durable release, all four priors, and exact start mappings", () => {
   const journal = prepared();
   assert.equal(journal.schema, 3);
   assert.equal(journal.release.deploySha, journal.deploySha);
@@ -2685,7 +2683,6 @@ test("v3 journal binds durable release, all-five priors, and exact start mapping
     "governance",
     "reserve",
     "ui",
-    "legacy-app",
   ]);
   assert.deepEqual(
     Object.keys(journal.startMappings),
@@ -2883,32 +2880,6 @@ test("v3 release reconciliation rejects non-prefix inherited mappings", () => {
     () => assertMainTransactionJournal(invalid),
     /activation prefix/,
   );
-});
-
-test("fresh legacy v2 capture may differ across current attempts", () => {
-  const release = releaseForTargets(["governance"]);
-  const makeJournal = (deploymentId) => {
-    const prior = priorState();
-    prior["legacy-app"] = {
-      ...prior["legacy-app"],
-      deploymentId,
-    };
-    return createPreparedMainTransactionJournalImpl({
-      ...identity,
-      mode: "active",
-      release,
-      prior,
-      startMappings: startMappingsAtPrior(prior),
-      candidates: candidateState({ app: null }, ["governance"]),
-    });
-  };
-  const first = makeJournal("dpl_legacyFirst123");
-  const second = makeJournal("dpl_legacySecond123");
-  assert.notEqual(
-    first.prior["legacy-app"].deploymentId,
-    second.prior["legacy-app"].deploymentId,
-  );
-  assert.equal(first.release.releaseId, second.release.releaseId);
 });
 
 test("one, two, and three inherited targets receive reverse recovery authority", () => {

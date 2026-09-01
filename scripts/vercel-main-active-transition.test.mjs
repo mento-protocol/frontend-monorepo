@@ -71,10 +71,7 @@ function receipt(journal, artifactId = "9001") {
 function mappings(journal, candidateTargets = []) {
   return Object.entries(journal.prior)
     .flatMap(([target, prior]) => {
-      const candidate =
-        target === "legacy-app"
-          ? journal.candidates.app
-          : journal.candidates[target];
+      const candidate = journal.candidates[target];
       const selected = candidateTargets.includes(target) ? candidate : prior;
       return prior.aliases.map((alias) => ({
         alias,

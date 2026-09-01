@@ -113,12 +113,6 @@ function prior() {
     governance: record("governance", ["governance.mento.org"]),
     reserve: record("reserve", ["reserve.mento.org"]),
     ui: record("ui", ["ui.mento.org"]),
-    "legacy-app": record("legacy", [
-      "appmentoorg-git-v2-mentolabs.vercel.app",
-      "appmentoorg-mentolabs.vercel.app",
-      "appmentoorg.vercel.app",
-      "v2-app.mento.org",
-    ]),
   };
 }
 
@@ -355,11 +349,7 @@ function currentMappings(journal, states = {}) {
   return Object.entries(journal.prior)
     .flatMap(([target, captured]) => {
       const selected =
-        states[target] === "candidate"
-          ? target === "legacy-app"
-            ? journal.candidates.app
-            : journal.candidates[target]
-          : captured;
+        states[target] === "candidate" ? journal.candidates[target] : captured;
       return captured.aliases.map((alias) => ({
         alias,
         deploymentId: selected.deploymentId,
@@ -370,24 +360,14 @@ function currentMappings(journal, states = {}) {
 }
 
 function recoveryCurrentMappings(journal, states = {}) {
-  const legacyAliases = new Set(journal.prior["legacy-app"].aliases);
-  const legacyProjectId = journal.release.originalPriors.app.projectId;
-  return currentMappings(journal, states).map((mapping) =>
-    legacyAliases.has(mapping.alias)
-      ? { ...mapping, projectId: legacyProjectId }
-      : mapping,
-  );
+  return currentMappings(journal, states);
 }
 
 function groupedCurrentMappings(journal, states = {}) {
   return Object.fromEntries(
     Object.entries(journal.prior).map(([target, captured]) => {
       const selected =
-        states[target] === "candidate"
-          ? target === "legacy-app"
-            ? journal.candidates.app
-            : journal.candidates[target]
-          : captured;
+        states[target] === "candidate" ? journal.candidates[target] : captured;
       return [
         target,
         captured.aliases.map((alias) => ({
@@ -535,7 +515,6 @@ function activeStateProof(
       ];
     }),
   );
-  const legacy = journal.prior["legacy-app"];
   const releaseManifest = release(activeTargets, {
     shadowTargets,
     mainOwnershipMode,
@@ -552,22 +531,6 @@ function activeStateProof(
     activeTargets,
     shadowTargets,
     projects,
-    legacyAppV2: {
-      alias: "v2-app.mento.org",
-      deployment: legacy.deploymentId,
-      deploymentUrl: legacy.deploymentUrl,
-      projectId: PROJECT_IDS.app,
-      projectName: "app.mento.org",
-      readyState: "READY",
-      target: "production",
-      customEnvironmentSlug: null,
-      git: {
-        org: "mento-protocol",
-        repo: "frontend-monorepo",
-        ref: "v2",
-        sha: "1111111111111111111111111111111111111111",
-      },
-    },
   };
   const deployments = Object.fromEntries(
     TARGETS.map((target) => {
@@ -591,26 +554,7 @@ function activeStateProof(
       return [target, entries];
     }),
   );
-  return createActiveDeploymentStateProof({
-    spec,
-    deployments,
-    legacyV2: {
-      ownership: "native-vercel-git",
-      state: {
-        alias: "v2-app.mento.org",
-        deploymentId: legacy.deploymentId,
-        deploymentUrl: legacy.deploymentUrl,
-        creatorUsername: null,
-        projectId: PROJECT_IDS.app,
-        projectName: "app.mento.org",
-        readyState: "READY",
-        target: "production",
-        customEnvironmentSlug: null,
-        git: { ...spec.legacyAppV2.git },
-        aliases: [...legacy.aliases],
-      },
-    },
-  });
+  return createActiveDeploymentStateProof({ spec, deployments });
 }
 
 function runtimeSmoke(target, deploySha = SHA) {
@@ -1586,24 +1530,25 @@ test("unknown App recovery compensates ordinary targets before manual interventi
     );
     assert.equal(
       terminal.journal.operations.some(
-        (operation) =>
-          operation.type === "app_alias_restore" ||
-          operation.type === "legacy_emergency_restore",
+        (operation) => operation.type === "app_alias_restore",
       ),
       false,
     );
   }
 });
 
-test("legacy recovery command binds the full reviewed topology and App project", () => {
+// MGP-18 retired the legacy App deployment. Recovery may only restore the two
+// reviewed App v3 aliases, and no controller path may emit a legacy command.
+test("App recovery command binds only the reviewed v3 aliases", () => {
   const initial = prepared(["app"], { appKnown: true });
   const started = startMainTransactionOperation(initial, {
     type: "app_v3_deploy",
     target: "app",
   });
-  const legacyAlias = "v2-app.mento.org";
+  assert.equal(started.prior["legacy-app"], undefined);
+  const appAlias = started.prior.app.aliases.at(-1);
   const moved = currentMappings(started).map((mapping) =>
-    mapping.alias === legacyAlias
+    mapping.alias === appAlias
       ? {
           ...mapping,
           deploymentId: started.candidates.app.deploymentId,
@@ -1616,6 +1561,10 @@ test("legacy recovery command binds the full reviewed topology and App project",
     currentMappings: moved,
   });
   assert.equal(plan.decision, "recover");
+  assert.equal(
+    plan.actions.some(({ target }) => target === "legacy-app"),
+    false,
+  );
   const history = [initial, started];
   const recovering = reduceMainActiveRecoveryTransition({
     recoveryPlan: plan,
@@ -1627,7 +1576,7 @@ test("legacy recovery command binds the full reviewed topology and App project",
   history.push(recovering.journal);
   const boundMoved = recoveryCurrentMappings(recovering.journal).map(
     (mapping) =>
-      mapping.alias === legacyAlias
+      mapping.alias === appAlias
         ? {
             ...mapping,
             deploymentId: started.candidates.app.deploymentId,
@@ -1652,16 +1601,10 @@ test("legacy recovery command binds the full reviewed topology and App project",
       currentMappings: boundMoved,
     }),
   });
-  assert.equal(authorized.command.kind, "legacy-alias-restore");
-  assert.equal(authorized.command.alias, legacyAlias);
-  assert.deepEqual(
-    authorized.command.aliases,
-    started.prior["legacy-app"].aliases,
-  );
-  assert.equal(
-    authorized.command.projectId,
-    started.release.originalPriors.app.projectId,
-  );
+  assert.equal(authorized.command.kind, "app-alias-restore");
+  assert.equal(authorized.command.alias, appAlias);
+  assert.equal(Object.hasOwn(authorized.command, "aliases"), false);
+  assert.equal(Object.hasOwn(authorized.command, "projectId"), false);
 });
 
 test("provider census rejects ambiguous App discovery before recovery", () => {
@@ -1925,7 +1868,7 @@ test("history loader rejects multi-link and oversized journal files", () => {
 test("fresh App provider census accepts one stable candidate and rejects a third deployment", async () => {
   const journal = prepared(["app"], { appKnown: true });
   const mappings = Object.fromEntries(
-    ["governance", "reserve", "ui", "app", "legacy-app"].map((target) => [
+    ["governance", "reserve", "ui", "app"].map((target) => [
       target,
       journal.prior[target].aliases.map((alias) => ({
         alias,
