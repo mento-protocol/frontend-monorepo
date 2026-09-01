@@ -10,13 +10,13 @@ name: Supply Chain
 #   1. osv              — osv-scanner against the application lockfile, reading
 #                         the repository-wide osv-scanner.toml.
 #   2. osv-pnpm-runtime — a separately configured scan of the exact isolated
-#                         trusted-tool lockfile. Its config contains only the
-#                         short-lived pnpm metadata correction, so that advisory
-#                         cannot mask a vulnerable pnpm elsewhere in the repo.
+#                         trusted-tool lockfile. Its config contains no ignored
+#                         vulnerabilities. The lockfile guard independently
+#                         rejects affected pnpm releases.
 #   3. osv-vercel-cli-runtime — scans the standalone Vercel CLI lockfile with
 #                               only its two package-name false positives.
 #   4. osv-pnpm-bootstrap — scans the exact npm-locked Linux bootstrap artifact
-#                           without sharing the pnpm-runtime suppression.
+#                           without a vulnerability suppression config.
 #                           All scans run on every PR + a daily cron (24h
 #                           disclosure backstop for new CVEs and expired ignores).
 #   5. lockfile-lint    — sha512 integrity + registry-poisoning gate, plus a
@@ -78,8 +78,8 @@ jobs:
     permissions:
       actions: read
       contents: read
-    # Keep the malformed-advisory correction scoped to this exact one-package
-    # lockfile instead of suppressing the GHSA repository-wide.
+    # Keep the no-ignore runtime config bound to this exact one-package
+    # lockfile. Active pnpm advisories must fail this dedicated scan.
     uses: ./.github/workflows/_osv-scanner-readonly.yml
     with:
       scan-args: |-
@@ -189,9 +189,9 @@ jobs:
           pnpm_binary=node_modules/@pnpm/linux-x64/pnpm
           test -f "$pnpm_binary"
           test ! -L "$pnpm_binary"
-          echo "e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193  $pnpm_binary" |
+          echo "69a535476f407fb0f64427913c2b592ca2ed6bf93f92e2cb82a32349e31f36eb  $pnpm_binary" |
             sha256sum --check --strict
-          "$pnpm_binary" --version | grep -Fxq "10.34.4"
+          "$pnpm_binary" --version | grep -Fxq "10.34.5"
 
   version-skew:
     name: catalog version-skew

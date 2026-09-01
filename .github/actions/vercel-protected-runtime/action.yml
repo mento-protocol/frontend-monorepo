@@ -189,7 +189,7 @@ runs:
       shell: bash
       env:
         CONTROLLER_PATH: ${{ inputs.controller-path }}
-        EXPECTED_PNPM_LINUX_X64_SHA256: e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193
+        EXPECTED_PNPM_LINUX_X64_SHA256: 69a535476f407fb0f64427913c2b592ca2ed6bf93f92e2cb82a32349e31f36eb
         ISOLATION_ROOT: ${{ steps.contract.outputs.isolation_root }}
         SOURCE_PATH: ${{ inputs.source-path }}
         TOOLS_PATH: ${{ steps.contract.outputs.tools_path }}
@@ -293,7 +293,7 @@ runs:
         node_bin="$TOOLS_PATH/bin/node"
         pnpm_bootstrap="$TOOLS_PATH/bootstrap-bin/pnpm"
         if [ "$(/usr/bin/sha256sum "$pnpm_bootstrap" | /usr/bin/cut -d ' ' -f1)" != "$EXPECTED_PNPM_LINUX_X64_SHA256" ] ||
-          [ "$("$pnpm_bootstrap" --version)" != 10.34.4 ]; then
+          [ "$("$pnpm_bootstrap" --version)" != 10.34.5 ]; then
           echo "Protected pnpm bootstrap does not match the reviewed release" >&2
           exit 1
         fi
@@ -447,7 +447,7 @@ runs:
             process.stdout.write(contract.vercelVersion);
           ' "$contract_path"
         )"
-        [ "$("$pnpm_bin" --version)" = 10.34.4 ]
+        [ "$("$pnpm_bin" --version)" = 10.34.5 ]
         [ "$("$node_bin" "$vercel_cli" --version)" = "$pinned_vercel_version" ]
 
         /bin/rm -rf -- \

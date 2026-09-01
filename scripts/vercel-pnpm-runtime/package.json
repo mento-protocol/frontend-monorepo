@@ -4,6 +4,6 @@
   "private": true,
   "description": "Isolated pnpm runtime for candidate-controlled Vercel builds",
   "dependencies": {
-    "pnpm": "10.34.4"
+    "pnpm": "10.34.5"
   }
 }

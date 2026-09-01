@@ -233,7 +233,8 @@ For each pull request:
    repair commit on an already-current base, or no commit. Never create an empty
    second commit.
 4. Preserve the requested update while fixing conflicts and valid findings.
-   Classify every Next.js or Vercel protected-runtime rotation as `manual`.
+   Classify every Next.js, Vercel CLI, or protected pnpm runtime or bootstrap
+   rotation as `manual`.
    Follow [`docs/dependency-overrides.md`](docs/dependency-overrides.md) only
    during the maintainer takeover. Keep Actions on full SHA pins. Classify
    sensitive or self-reviewing Actions, including OSV

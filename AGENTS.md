@@ -125,8 +125,9 @@ For each pull request:
    an already-current base, or no commit. Never rebase, force-push, or create an
    empty second commit.
 4. Apply only changes needed for the dependency update or valid review
-   findings. Classify every Next.js or Vercel protected-runtime rotation as
-   `manual`. Follow [`docs/dependency-overrides.md`](docs/dependency-overrides.md)
+   findings. Classify every Next.js, Vercel CLI, or protected pnpm runtime or
+   bootstrap rotation as `manual`. Follow
+   [`docs/dependency-overrides.md`](docs/dependency-overrides.md)
    only during the maintainer takeover. Keep GitHub Actions on full lowercase
    40-character SHA pins. Classify sensitive or self-reviewing
    Actions as `manual`. This includes OSV scanner/reporter updates. Keep the OSV

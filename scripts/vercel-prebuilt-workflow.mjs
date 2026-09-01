@@ -114,20 +114,20 @@ const TRUSTED_TOOLS_DIRECTORY = "mento-vercel-trusted-tools";
 const PNPM_BOOTSTRAP_DIRECTORY = "mento-vercel-pnpm-bootstrap";
 const PNPM_RUNTIME_DIRECTORY = "pnpm-runtime";
 const VERCEL_CLI_RUNTIME_DIRECTORY = "vercel-cli-runtime";
-const PINNED_PNPM_VERSION = "10.34.4";
+const PINNED_PNPM_VERSION = "10.34.5";
 const PINNED_PNPM_BOOTSTRAP_LOCKFILE_SHA256 =
-  "1f8083495d03d348edb41b529f266807173860558b346128ae63f29f2f331c4d";
+  "026c63f7151719b5b902e303c7a12f69708958dba7fda4d67f9d6930e73e84b1";
 const PINNED_PNPM_LINUX_X64_RESOLVED =
-  "https://registry.npmjs.org/@pnpm/linux-x64/-/linux-x64-10.34.4.tgz";
+  "https://registry.npmjs.org/@pnpm/linux-x64/-/linux-x64-10.34.5.tgz";
 const PINNED_PNPM_LINUX_X64_INTEGRITY =
-  "sha512-6gsJT9HUs1kBsJANC5SEJNRGAMzjGMKgxEtCvPLYd7NIktbh1GH5Ktcu7nLYcbxX8SirCHHzhZiMolW0mvzoqA==";
+  "sha512-blNFcW3EVmOkeZYnkY5lraD1+oqiFvSByMT3GTRGKp7P7C4PtHixLQJLe2AzJ4rLimFjgqfHg0Cf/Si/9bZlHQ==";
 const PINNED_PNPM_LINUX_X64_SHA256 =
-  "e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193";
+  "69a535476f407fb0f64427913c2b592ca2ed6bf93f92e2cb82a32349e31f36eb";
 // Exact bytes of the one-importer JavaScript runtime lockfile. This pins the
 // package identity, absence of custom tarball resolution, and sha512 integrity
 // before the authenticated bootstrap installs anything from it.
 const PINNED_PNPM_RUNTIME_LOCKFILE_SHA256 =
-  "c0dbb0f05ade0e4a8db501e5eb25ebe3c2f2794feed1caec2cf4df6c4583715a";
+  "0783b592d00ca163da921eefdc8ef35904ab9c96d959faddab3bafabe9f2dacb";
 const PULLED_ENVIRONMENT_FILE = ".env.preview.local";
 const MAX_PULLED_ENVIRONMENT_BYTES = 16 * 1_024 * 1_024;
 const MAX_SOURCE_ENTRIES = 20_000;

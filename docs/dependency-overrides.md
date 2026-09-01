@@ -30,19 +30,61 @@ only the exact reviewed nanoid 3.3.18 pair. Do not restore a retired patch or
 cross-paired manifest and lockfile state.
 
 The scheduled no-exec agent must classify every protected-runtime rotation as
-`manual`. It must not run a metadata query, package-manager command, generator,
-install, test, build, or smoke command from this procedure. The generic external
-agent must not prepare or push this rotation, even when it has an `execute`
-grant. An authenticated maintainer takes over the branch outside the generic
-skill. Keep all coupled files in one pull request. If any step or validator
-cannot be completed, keep the update `manual`. Do not restore an old workspace
-version only to make the protected-runtime check pass.
+`manual`. This includes Next.js, the Vercel CLI, and the protected pnpm runtime
+and bootstrap. It must not run a metadata query, package-manager command,
+generator, install, test, build, or smoke command from this procedure. The
+generic external agent must not prepare or push this rotation, even when it has
+an `execute` grant. An authenticated maintainer takes over the branch outside
+the generic skill. Keep all coupled files in one pull request. If any step or
+validator cannot be completed, keep the update `manual`. Do not restore an old
+workspace version only to make the protected-runtime check pass.
 
 The checked-in validators prove candidate self-consistency and the expected
 registry-only runtime shape. They do not prove that candidate-authored metadata
 came from the public npm registry. They also do not prove that a generated root
 lockfile preserved every unrelated source entry. The maintainer must establish
 those two facts independently before push.
+
+### Protected pnpm runtime rotation
+
+Use this path when the root `packageManager`, protected Vercel pnpm runtime, or
+Linux bootstrap must move.
+
+1. Review the upstream advisory and release. Fetch the exact public npm version
+   documents for `pnpm` and `@pnpm/linux-x64`. Bind their bytes and digests to
+   the review record. For `pnpm`, require the exact name, version, npmjs tarball
+   host, integrity, Node engine, and binary map. For `@pnpm/linux-x64`, require
+   the exact name, version, npmjs tarball host, integrity, binary map,
+   `os: ["linux"]`, and `cpu: ["x64"]`. Reject a redirect, prerelease,
+   downgrade, or unexplained metadata change.
+2. Move the root package-manager declaration, Action setup pins, protected
+   runtime checks, bootstrap checks, controller constants, and their tests to
+   the same exact version. Update only the one-package pnpm lock and bootstrap
+   npm lock entries with the reviewed public registry URLs and integrities.
+   Recompute the extracted Linux executable SHA-256 and the byte SHA-256 of both
+   regenerated locks. Review and update
+   `PINNED_PNPM_LINUX_X64_SHA256`,
+   `PINNED_PNPM_BOOTSTRAP_LOCKFILE_SHA256`, and
+   `PINNED_PNPM_RUNTIME_LOCKFILE_SHA256`.
+3. Remove an obsolete OSV exception only after the exact target lock passes
+   without it. Do not add an exception for an active advisory. Update the
+   lockfile lint advisory floors so the replaced vulnerable release cannot
+   return. Require the exact-head
+   `osv-scanner (trusted pnpm runtime) / osv-scan` CI job to pass with
+   no ignored vulnerability.
+4. Review every changed path. Run the full protected pnpm validation:
+
+   ```bash
+   pnpm dependency:policy:test
+   pnpm ci:action-pins:test
+   pnpm ci:action-pins
+   pnpm supply-chain:lockfile-lint:test
+   pnpm supply-chain:lockfile-lint
+   pnpm supply-chain:version-skew
+   pnpm vercel:versions:check
+   pnpm vercel:production-shadow:test
+   pnpm vercel:workflow:test
+   ```
 
 ### Vercel CLI rotation
 
@@ -62,7 +104,7 @@ or minor release.
    shape. Reject registry redirection or missing fields.
 
 3. Regenerate only the standalone lockfile from a fresh isolated directory.
-   Use the repository's exact pnpm 10.34.4. Disable lifecycle scripts,
+   Use the repository's exact pnpm 10.34.5. Disable lifecycle scripts,
    pnpmfile loading, and workspace discovery. Use an empty temporary home and
    user configuration. Set the registry explicitly to
    `https://registry.npmjs.org/`. Reject `configDependencies`, hooks, patches,
@@ -97,7 +139,7 @@ workspace `catalog:` references. Then:
    and digests to the review record. Verify integrity, peer maps, optional-peer
    metadata, engines, and the retained snapshot peer context.
 2. Update the catalog and root override. Generate the target closure in a clean
-   disposable directory with exact pnpm 10.34.4, an empty temporary home and
+   disposable directory with exact pnpm 10.34.5, an empty temporary home and
    user configuration, the explicit public registry, disabled lifecycle
    scripts, and disabled pnpmfile loading. Reject `configDependencies`, hooks,
    patches, or another package-manager extension before generation. Import only
@@ -129,7 +171,7 @@ The commands below validate the checked-in candidate. They are necessary, but
 they do not replace the public-registry provenance and source-bound lockfile
 comparison above.
 
-Run all of these commands after either rotation:
+Run all of these commands after a Next.js or Vercel CLI rotation:
 
 ```bash
 pnpm dependency:policy:test

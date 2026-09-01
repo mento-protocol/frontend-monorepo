@@ -312,8 +312,9 @@ movement as `manual` or `blocked`. Treat wallet, signing, transaction, bridge,
 authentication, deployment, credential, and security-policy changes as
 `manual` unless a maintainer explicitly directs preparation.
 
-Classify every Next.js or Vercel protected-runtime rotation as `manual`. The
-generic agent may inventory the coupled files and explain the required takeover.
+Classify every Next.js, Vercel CLI, or protected pnpm runtime or bootstrap
+rotation as `manual`. The generic agent may inventory the coupled files and
+explain the required takeover.
 It must not prepare or push the rotation. Follow
 [`dependency-overrides.md`](dependency-overrides.md) during the maintainer
 takeover. Do not restore the old version only to make a skew check pass.
@@ -379,8 +380,9 @@ responses, monitoring, and evidence handoff.
 
 Apply this repository's classification, identity, history, Actions-ref,
 protected-runtime, and secretless-CI rules at each skill decision point. Bind
-them to the exact live base SHA. Stop with `manual` for every Next.js or Vercel
-protected-runtime rotation. Select validation from the matrix below. Never
+them to the exact live base SHA. Stop with `manual` for every Next.js, Vercel
+CLI, or protected pnpm runtime or bootstrap rotation. Select validation from
+the matrix below. Never
 resolve or unresolve a review thread. A maintainer performs thread resolution,
 approval, and the squash merge.
 
@@ -395,7 +397,8 @@ grant and a tested isolation adapter.
 | Any Dependabot policy or update               | `pnpm dependency:policy:test`                                                                       |
 | GitHub Action pin                             | `pnpm ci:action-pins:test`                                                                          |
 | Root catalog or override                      | `pnpm supply-chain:version-skew` and `pnpm supply-chain:lockfile-lint`                              |
-| Next.js or Vercel protected runtime           | `pnpm vercel:versions:check`, `pnpm vercel:production-shadow:test`, and `pnpm vercel:workflow:test` |
+| Next.js or Vercel CLI                         | `pnpm vercel:versions:check`, `pnpm vercel:production-shadow:test`, and `pnpm vercel:workflow:test` |
+| Protected pnpm runtime or bootstrap           | The [full protected pnpm validation](dependency-overrides.md#protected-pnpm-runtime-rotation)       |
 | Application or shared-package behavior        | Affected type, lint, unit, build, and browser gates from `CLAUDE.md`                                |
 | Architecture-significant workflow or boundary | `pnpm adr:check` plus a new ADR when required                                                       |
 
@@ -455,23 +458,23 @@ deployment result under the normal repository release runbook.
 
 ## Failure handling
 
-| Condition                                            | Result                                                       |
-| ---------------------------------------------------- | ------------------------------------------------------------ |
-| Identity, ref, base, or author mismatch              | `blocked`; do not mutate                                     |
-| `autoMergeRequest` is not `null`                     | `blocked`; do not change it                                  |
-| Sensitive or self-reviewing Action                   | `manual`; report the review needed                           |
-| Unknown package, source, ecosystem, or changed path  | `manual` or `blocked`                                        |
-| Next.js or Vercel protected-runtime rotation         | `manual`; require the documented maintainer takeover         |
-| Base moves before push or handoff                    | restart instruction-free, or relaunch exact-base             |
-| Head moves outside the local push                    | discard stale evidence and restart from the live head        |
-| Required validation fails                            | fix the update-specific defect or report `blocked`           |
-| Local execution is required but no adapter exists    | `manual`; do not execute candidate code                      |
-| Session lacks trusted pre-model launch proof         | `read-only`; stop and relaunch through the reviewed boundary |
-| Candidate instruction isolation test fails or drifts | `read-only`; fix and re-review the launcher or adapter       |
-| Selected exact-head CI coverage is absent            | `blocked`; do not claim preparation                          |
-| Current-head review does not complete                | `blocked`; do not substitute an older review                 |
-| Feedback remains unanswered                          | `blocked`; identify each remaining item                      |
-| Scheduled job does not run                           | use a manual invocation or wait for the next Monday sweep    |
+| Condition                                                   | Result                                                       |
+| ----------------------------------------------------------- | ------------------------------------------------------------ |
+| Identity, ref, base, or author mismatch                     | `blocked`; do not mutate                                     |
+| `autoMergeRequest` is not `null`                            | `blocked`; do not change it                                  |
+| Sensitive or self-reviewing Action                          | `manual`; report the review needed                           |
+| Unknown package, source, ecosystem, or changed path         | `manual` or `blocked`                                        |
+| Next.js, Vercel CLI, or protected pnpm runtime or bootstrap | `manual`; require the documented maintainer takeover         |
+| Base moves before push or handoff                           | restart instruction-free, or relaunch exact-base             |
+| Head moves outside the local push                           | discard stale evidence and restart from the live head        |
+| Required validation fails                                   | fix the update-specific defect or report `blocked`           |
+| Local execution is required but no adapter exists           | `manual`; do not execute candidate code                      |
+| Session lacks trusted pre-model launch proof                | `read-only`; stop and relaunch through the reviewed boundary |
+| Candidate instruction isolation test fails or drifts        | `read-only`; fix and re-review the launcher or adapter       |
+| Selected exact-head CI coverage is absent                   | `blocked`; do not claim preparation                          |
+| Current-head review does not complete                       | `blocked`; do not substitute an older review                 |
+| Feedback remains unanswered                                 | `blocked`; identify each remaining item                      |
+| Scheduled job does not run                                  | use a manual invocation or wait for the next Monday sweep    |
 
 ## One-time cutover
 

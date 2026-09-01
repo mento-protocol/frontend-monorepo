@@ -183,9 +183,11 @@ release review; grouping never reduces scope.
 ### Rotate protected runtime dependencies through repository procedures
 
 Next.js and Vercel CLI updates can change both the ordinary workspace and the
-standalone Vercel deployment runtime. The pull request must rotate all coupled
-manifests, overrides, lockfiles, and contract digests together. Exact-head CI
-must run the independent validators documented in
+standalone Vercel deployment runtime. Protected pnpm updates also span the root
+package-manager declaration, workflow setup pins, controller checks, Linux
+bootstrap, and standalone pnpm runtime. The pull request must rotate all
+coupled manifests, overrides, lockfiles, pins, and contract digests together.
+Exact-head CI must run the independent validators documented in
 [`docs/dependency-overrides.md`](../dependency-overrides.md).
 
 The generic agent always reports these rotations as `manual`. It does not

@@ -1613,14 +1613,24 @@ the two reviewed package-name false positives for Vercel's unrelated `sandbox`
 CLI dependency. Root application suppressions cannot mask a standalone CLI
 vulnerability.
 
+The root `packageManager`, protected pnpm runtime, Linux bootstrap, workflow
+setup pins, and trusted controller checks use one exact pnpm release. Rotate
+them together with the public-registry procedure in
+[`dependency-overrides.md`](dependency-overrides.md). The dedicated pnpm OSV
+configuration contains no ignored vulnerability. An active advisory requires a
+fixed release.
+
 The generic external agent only inventories a protected-runtime rotation and
 reports `manual`. An authenticated maintainer prepares it outside
 `dependabot-prep` through the coupled procedure in
-[dependency-overrides.md](dependency-overrides.md). The procedure reviews the
-exact public npm metadata, updates the root and standalone manifests and
-lockfiles, updates the byte-bound contract, and runs the existing independent
-validators. It rejects prerelease, downgrade, unknown registry, unexplained
-builder-key, override, generator, or unrelated lockfile drift.
+[dependency-overrides.md](dependency-overrides.md). For Next.js or Vercel CLI,
+the procedure reviews exact public npm metadata, updates the root and standalone
+manifests and lockfiles, and updates the byte-bound contract. It rejects
+prerelease, downgrade, unknown registry, unexplained builder-key, override,
+generator, or unrelated lockfile drift. For protected pnpm, it updates the root
+declaration, workflow setup pins, Linux bootstrap, standalone runtime, exact
+lock bytes, and extracted executable digest together. Both procedures run the
+existing independent validators.
 
 Pull-request preview workers treat the candidate contract, manifest, and locks
 as fixed-path data and verify that tuple for internal consistency. That check

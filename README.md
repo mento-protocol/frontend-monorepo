@@ -385,8 +385,8 @@ secretless CI provides validation. It includes exact bot, lineage, and ref
 verification, trusted-base policy binding, complete feedback history, full
 dependency and lockfile review, base-branch synchronization without rebase or
 force-push, required compatibility fixes, current-head review, and feedback
-responses. Next.js and Vercel protected-runtime rotations always require the
-maintainer takeover in
+responses. Next.js, Vercel CLI, and protected pnpm runtime or bootstrap
+rotations always require the maintainer takeover in
 [`docs/dependency-overrides.md`](docs/dependency-overrides.md).
 
 Pre-existing non-native heads remain manual across invocations. Actions refs

@@ -27,7 +27,7 @@ const POLICY_WORKFLOW_FIXTURES = new Map(
     readFileSync(resolve(path), "utf8"),
   ]),
 );
-const CURRENT_POLICY_PNPM_VERSION = "10.34.4";
+const CURRENT_POLICY_PNPM_VERSION = "10.34.5";
 const VERCEL_PREVIEW_CONTROLLER_PATH =
   ".github/workflows/vercel-preview-controller.yml";
 const VERCEL_PREVIEW_CONTROLLER_FIXTURE = readFileSync(
@@ -1279,7 +1279,7 @@ test("allows immutable action SHA bumps in canonical policy workflows", () => {
 });
 
 test("rejects policy pnpm version drift after the protected transition", () => {
-  for (const version of ["10.24.0", "10.34.5"]) {
+  for (const version of ["10.24.0", "10.34.4"]) {
     for (const path of POLICY_WORKFLOW_PATHS) {
       const root = fixtureRoot(`policy-pnpm-${version}-fail`);
       try {
