@@ -4,15 +4,16 @@ reason = "bigint-buffer vulnerability is in transitive deps; no direct fix avail
 
 [[IgnoredVulns]]
 id = "GHSA-848j-6mx2-7j84"
-# No official upstream fix exists for elliptic as of 2026-04-21.
-# Pulled in via multiple independent chains: @cosmjs/crypto,
-# @toruslabs/eccrypto, and tiny-secp256k1. Removing any single chain will NOT
-# eliminate the vulnerability.
-# Renewed 2026-06-05 — osv-scanner confirms no FIXED VERSION upstream; renewed
-# for 90 days per the toml's renewal guidance.
+# No official upstream fix exists for elliptic. Pulled in via multiple
+# independent chains: @cosmjs/crypto, @toruslabs/eccrypto, @walletconnect/utils,
+# browserify-sign, create-ecdh, and tiny-secp256k1. Removing any single chain
+# will NOT eliminate the vulnerability.
+# Renewed 2026-09-01 — OSV records `last_affected: 6.6.1` with no fixed event,
+# and 6.6.1 (published 2024-11-13) is still the newest release on npm, so no
+# override target exists. Renewed for 90 days per the toml's renewal guidance.
 # TODO: Remove once upstream releases a patched version.
-ignoreUntil = 2026-09-01T00:00:00Z
-reason = "No upstream fix available for elliptic yet; pulled in via multiple chains (@cosmjs/crypto, @toruslabs/eccrypto, tiny-secp256k1)."
+ignoreUntil = 2026-11-30T00:00:00Z
+reason = "No upstream fix available for elliptic yet; every published version through the current 6.6.1 is affected, and it is pulled in via multiple independent chains (@cosmjs/crypto, @toruslabs/eccrypto, @walletconnect/utils, tiny-secp256k1)."
 
 [[IgnoredVulns]]
 id = "GHSA-5p2g-fcmc-qvqq"
@@ -44,17 +45,21 @@ reason = "minimatch ReDoS in transitive deps; pre-existing"
 
 [[IgnoredVulns]]
 id = "GHSA-xq3m-2v4x-88gg"
-# protobufjs 6.11.5 vulnerability. Pulled in via @confio/ics23@0.6.8 which is
+# protobufjs 6.11.4 vulnerability. Pulled in via @confio/ics23@0.6.8 which is
 # deprecated/unmaintained and declares protobufjs ^6.8.8. Forcing it to 7.x is
 # a semver-major jump (dropped `long` dep, changed 64-bit integer handling)
 # that risks silently corrupting IBC/Cosmos proof parsing in the wormhole-connect
 # bridge stack used by app.mento.org. 7.x/8.x consumers are already covered by
 # the narrower pnpm overrides.
-# Renewed 2026-06-05 — @confio/ics23 still in tree, no upstream movement; renewed
-# for 90 days per the toml's renewal guidance.
+# Renewed 2026-09-01 — the Wormhole Connect v6 upgrade did not clear the chain.
+# pnpm-lock.yaml still resolves protobufjs@6.11.4, whose only consumer is
+# @confio/ics23@0.6.8, reached through wormhole-connect v6 →
+# @wormhole-foundation/sdk-cosmwasm* 4.9.1 → @cosmjs/stargate@0.32.4. OSV lists
+# the first fix as 7.5.5, so no 6.x patch exists. Renewed for 90 days per the
+# toml's renewal guidance.
 # TODO: Re-evaluate at ignoreUntil — check whether @confio/ics23 has been
 # removed from the dep tree or a safe fix path exists upstream.
-ignoreUntil = 2026-09-01T00:00:00Z
+ignoreUntil = 2026-11-30T00:00:00Z
 reason = "protobufjs 6.x advisory — no safe fix path; @confio/ics23@0.6.8 is deprecated and 7.x is an unsafe major jump for Cosmos proof parsing."
 
 [[IgnoredVulns]]
@@ -63,8 +68,10 @@ id = "GHSA-f38q-mgvj-vph7"
 # by pnpm overrides; the remaining 6.x instance is the same @confio/ics23
 # wormhole-connect chain documented above, where forcing 7.x is a semver-major
 # jump with Cosmos proof parsing risk.
+# Renewed 2026-09-01 — chain unchanged after the Wormhole Connect v6 upgrade;
+# OSV lists the first fix as 7.6.3, so no 6.x patch exists.
 # TODO: Re-evaluate at ignoreUntil alongside GHSA-xq3m-2v4x-88gg.
-ignoreUntil = 2026-09-01T00:00:00Z
+ignoreUntil = 2026-11-30T00:00:00Z
 reason = "protobufjs 6.x advisory — no safe fix path; remaining instance is @confio/ics23@0.6.8 via wormhole-connect, and 7.x is an unsafe major jump for Cosmos proof parsing."
 
 [[IgnoredVulns]]
@@ -73,9 +80,43 @@ id = "GHSA-wcpc-wj8m-hjx6"
 # pnpm overrides; the remaining 6.x instance is the same @confio/ics23
 # wormhole-connect chain documented above, where forcing 7.x is a semver-major
 # jump with Cosmos proof parsing risk.
+# Renewed 2026-09-01 — chain unchanged after the Wormhole Connect v6 upgrade;
+# OSV lists the first fix as 7.6.1, so no 6.x patch exists.
 # TODO: Re-evaluate at ignoreUntil alongside GHSA-xq3m-2v4x-88gg.
-ignoreUntil = 2026-09-01T00:00:00Z
+ignoreUntil = 2026-11-30T00:00:00Z
 reason = "protobufjs 6.x advisory — no safe fix path; remaining instance is @confio/ics23@0.6.8 via wormhole-connect, and 7.x is an unsafe major jump for Cosmos proof parsing."
+
+[[IgnoredVulns]]
+id = "GHSA-vcc3-ghjq-m6fr"
+# decode-uri-component ReDoS-style DoS (CVE-2026-45822, moderate), published
+# 2026-08-31. The lockfile resolves a single decode-uri-component@0.2.2 whose
+# only consumer is query-string@7.1.3, reached through @walletconnect/utils
+# 2.19.x/2.21.x -> @walletconnect/core, sign-client, universal-provider, and
+# ethereum-provider.
+#
+# The advertised fix does NOT apply here. OSV's only fixed release is 0.5.0,
+# and 0.5.0 (like 0.4.x) is ESM-only: `"type": "module"` with a single
+# `export default`. query-string@7.1.3 is CommonJS and does
+# `const decodeComponent = require('decode-uri-component')` at index.js line 3,
+# then calls it. Under require(ESM) that yields the namespace object
+# `{ __esModule, default }`, so the call throws
+# `TypeError: decodeComponent is not a function` — verified by running exactly
+# that require-and-call against 0.5.0 on this repo's Node. An override would
+# therefore break WalletConnect at runtime in every app.
+#
+# Upgrading query-string does not help either: every release through the
+# current 9.5.0 still depends on decode-uri-component ^0.4.1, which is also
+# affected, and 8.x+ is ESM-only so it breaks the same CommonJS consumer.
+#
+# Remaining real fixes, both too invasive for an allowlist-renewal PR:
+#   1. `pnpm patch` decode-uri-component@0.2.2 to backport upstream commit
+#      fa479daf. That is a 94-line file replaced by a 172-line rewrite, so it
+#      needs review, not a mechanical bump.
+#   2. Wait for @walletconnect/utils to move off query-string 7.x.
+# TODO: Re-evaluate at ignoreUntil — check whether @walletconnect/utils has
+# dropped query-string 7.x or a CommonJS-compatible fixed release exists.
+ignoreUntil = 2026-11-30T00:00:00Z
+reason = "No compatible fix: the only fixed decode-uri-component release (0.5.0) is ESM-only, and its sole consumer query-string@7.1.3 is CommonJS and require()s it, so an override throws TypeError at runtime; every query-string release still depends on an affected 0.4.x."
 
 # ---------------------------------------------------------------------------
 # Batch added 2026-05-15 alongside the Trove Activity panel PR.
