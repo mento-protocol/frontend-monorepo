@@ -286,6 +286,64 @@ test("full native rollback keeps the Dependabot exclusion and App v2", () => {
   }
 });
 
+test("every target configuration exposes the exact reviewed field set", () => {
+  for (const target of PREVIEW_TARGETS) {
+    assert.deepEqual(Object.keys(PREVIEW_TARGET_CONFIG[target]), [
+      "logicalTarget",
+      "workspacePackage",
+      "expectedRootDirectory",
+      "projectVariable",
+      "ownershipMode",
+      "mainOwnershipMode",
+      "vercelConfigurationPath",
+      "activeVercelConfiguration",
+      "mainShadowVercelConfiguration",
+      "previewShadowVercelConfiguration",
+      "nativeVercelConfiguration",
+      "transitionalGithubVercelConfigurations",
+      "trackedVercelConfiguration",
+    ]);
+    assert.ok(Object.isFrozen(PREVIEW_TARGET_CONFIG[target]));
+  }
+});
+
+// Transitional entries let the default-branch controller recognize a shape a
+// PR is about to adopt. They must stay deliberate: only App carries one, for
+// the MGP-18 v2 retirement, and it is removed once that migration completes.
+test("only App carries a bounded transitional GitHub-owned configuration", () => {
+  const transitional =
+    PREVIEW_TARGET_CONFIG.app.transitionalGithubVercelConfigurations;
+  assert.ok(Object.isFrozen(transitional));
+  assert.equal(transitional.length, 1);
+  assertExactOwnership(structuredClone(transitional[0]), transitional[0]);
+  assert.deepEqual(transitional[0], {
+    $schema: "https://openapi.vercel.sh/vercel.json",
+    git: { deploymentEnabled: false },
+  });
+  assert.equal(
+    transitional[0],
+    PREVIEW_TARGET_CONFIG.governance.activeVercelConfiguration,
+  );
+  // The transitional shape must not collide with any of App's four exact
+  // states, or the recognizer would classify one candidate two ways.
+  for (const exactState of [
+    PREVIEW_TARGET_CONFIG.app.activeVercelConfiguration,
+    PREVIEW_TARGET_CONFIG.app.mainShadowVercelConfiguration,
+    PREVIEW_TARGET_CONFIG.app.previewShadowVercelConfiguration,
+    PREVIEW_TARGET_CONFIG.app.nativeVercelConfiguration,
+  ]) {
+    assert.notDeepEqual(transitional[0], exactState);
+  }
+  // App still tracks its current v2-aware shape on this branch.
+  assert.notDeepEqual(configuration("app"), transitional[0]);
+  for (const target of ["governance", "reserve", "ui"]) {
+    assert.deepEqual(
+      PREVIEW_TARGET_CONFIG[target].transitionalGithubVercelConfigurations,
+      [],
+    );
+  }
+});
+
 test("current rollout keeps every branch-preview target GitHub-only", () => {
   assert.deepEqual(
     PREVIEW_TARGETS.filter(

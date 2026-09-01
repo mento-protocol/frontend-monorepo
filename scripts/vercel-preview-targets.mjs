@@ -115,7 +115,13 @@ function targetConfiguration({
   mainShadowVercelConfiguration,
   previewShadowVercelConfiguration,
   nativeVercelConfiguration,
+  transitionalGithubVercelConfigurations = [],
 }) {
+  if (!Array.isArray(transitionalGithubVercelConfigurations)) {
+    throw new Error(
+      "Transitional GitHub Vercel configurations must be an exact reviewed list",
+    );
+  }
   return Object.freeze({
     logicalTarget,
     workspacePackage,
@@ -128,6 +134,15 @@ function targetConfiguration({
     mainShadowVercelConfiguration,
     previewShadowVercelConfiguration,
     nativeVercelConfiguration,
+    // Bounded, per-target list of additional exact GitHub-owned shapes the
+    // trusted controller must recognize while a target migrates from one
+    // reviewed configuration to another. It is empty unless a migration is in
+    // flight, and each entry is removed once that migration completes.
+    transitionalGithubVercelConfigurations: Object.freeze(
+      transitionalGithubVercelConfigurations.map((configuration) =>
+        Object.freeze(configuration),
+      ),
+    ),
     trackedVercelConfiguration: vercelConfigurationForOwnership({
       previewOwnershipMode: ownershipMode,
       mainOwnershipMode,
@@ -153,6 +168,16 @@ export const PREVIEW_TARGET_CONFIG = Object.freeze({
     previewShadowVercelConfiguration:
       APP_PREVIEW_SHADOW_GITHUB_MAIN_VERCEL_CONFIGURATION,
     nativeVercelConfiguration: APP_NATIVE_VERCEL_CONFIGURATION,
+    // Bounded transition for the MGP-18 v2 retirement (PR #879). Once the
+    // legacy App `v2` deployment is retired, `apps/app.mento.org/vercel.json`
+    // becomes the generic active shape the other three targets already use.
+    // The trusted controller runs the default branch's constants, so `main`
+    // must recognize that shape before the PR adopting it can pass the
+    // required `Vercel Preview` status. Remove this entry once the migration
+    // completes.
+    transitionalGithubVercelConfigurations: [
+      ACTIVE_GITHUB_VERCEL_CONFIGURATION,
+    ],
   }),
   governance: targetConfiguration({
     logicalTarget: "governance",

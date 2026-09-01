@@ -3942,6 +3942,11 @@ export function previewOwnerForVercelConfiguration(target, configuration) {
     [
       targetConfiguration.activeVercelConfiguration,
       targetConfiguration.mainShadowVercelConfiguration,
+      // Bounded per-target migration shapes. A PR that changes a target's
+      // reviewed configuration cannot be recognized until the default branch
+      // learns the new shape first, because the controller runs main's
+      // constants.
+      ...targetConfiguration.transitionalGithubVercelConfigurations,
     ].some((expected) => candidate === canonicalJson(expected))
   ) {
     return PREVIEW_OWNER_GITHUB;

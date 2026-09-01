@@ -2142,6 +2142,22 @@ GitHub-owned configuration. Every selected historical event is rechecked at its
 own SHA after PR-lineage proof. Missing, oversized, malformed, or unknown
 content fails closed before any worker-dispatch request.
 
+The controller always runs the default branch's constants, so a PR that changes
+a target's reviewed `vercel.json` shape can never be recognized until `main`
+learns that shape first: the required `Vercel Preview` status fails with
+`Candidate <target> Vercel configuration is not recognized`. The optional
+per-target `transitionalGithubVercelConfigurations` list in
+`scripts/vercel-preview-targets.mjs` resolves that ordering. Each entry is one
+additional exact GitHub-owned configuration the recognizer accepts alongside
+`activeVercelConfiguration` and `mainShadowVercelConfiguration`. It grants no
+new state, changes no tracked configuration, and never widens the
+native-owned side; every other candidate still fails closed. Add an entry in
+its own PR, merge that PR first, then merge the PR that adopts the shape, and
+delete the entry once the migration completes. The list is empty for every
+target except App, which carries the generic active shape
+(`"deploymentEnabled": false`) for the MGP-18 `v2` retirement. Executable pins
+keep the other three targets empty so transitions stay deliberate.
+
 `active` creates at most one independent worker per affected target and
 rechecks the current and selected immutable ownership inputs immediately before
 the dispatch credential can make its only POST. A selected native-owned receipt
