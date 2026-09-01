@@ -93,7 +93,54 @@ test("preview owner classification accepts both exact main states independently"
         "native-vercel",
       );
     }
+    for (const transitional of targetConfiguration.transitionalGithubVercelConfigurations) {
+      assert.equal(
+        previewOwnerForVercelConfiguration(target, transitional),
+        "github-actions",
+      );
+    }
   }
+});
+
+test("only App carries a bounded transitional GitHub-owned configuration", () => {
+  assert.deepEqual(
+    PREVIEW_TARGET_CONFIG.app.transitionalGithubVercelConfigurations,
+    [
+      {
+        $schema: "https://openapi.vercel.sh/vercel.json",
+        git: { deploymentEnabled: false },
+      },
+    ],
+  );
+  assert.equal(
+    previewOwnerForVercelConfiguration("app", {
+      $schema: "https://openapi.vercel.sh/vercel.json",
+      git: { deploymentEnabled: false },
+    }),
+    "github-actions",
+  );
+  for (const target of PREVIEW_TARGETS.filter((value) => value !== "app")) {
+    assert.deepEqual(
+      PREVIEW_TARGET_CONFIG[target].transitionalGithubVercelConfigurations,
+      [],
+    );
+    assert.throws(
+      () =>
+        previewOwnerForVercelConfiguration(
+          target,
+          structuredClone(PREVIEW_TARGET_CONFIG.app.activeVercelConfiguration),
+        ),
+      new RegExp(`Candidate ${target} Vercel configuration is not recognized`),
+    );
+  }
+  assert.throws(
+    () =>
+      previewOwnerForVercelConfiguration("app", {
+        $schema: "https://openapi.vercel.sh/vercel.json",
+        git: { deploymentEnabled: { "feature/**": false } },
+      }),
+    /Candidate app Vercel configuration is not recognized/,
+  );
 });
 
 function reconcilePreview(options) {

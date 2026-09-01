@@ -740,7 +740,11 @@ The repository is set up with GitHub Actions for CI:
   native-preview/GitHub-main state disables `main` while leaving unspecified
   preview branches enabled, so a target-local preview rollback cannot recreate
   a native main deployment. Unknown or contradictory configuration fails
-  closed.
+  closed. A bounded per-target transitional list adds extra exact GitHub-owned
+  shapes the recognizer accepts while a target migrates to a new reviewed
+  configuration, because the controller runs the default branch's constants;
+  only App carries one today, for the MGP-18 `v2` retirement, and each entry is
+  removed once its migration completes.
   During rollback, `Vercel Preview` proves owner selection and journal drain
   only; native Vercel deployment status and browser evidence separately prove
   that the preview works. The native `deployment_status` smoke adapter remains
