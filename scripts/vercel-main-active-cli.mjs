@@ -485,9 +485,7 @@ function validateCommandExecutionResult(value, descriptor) {
 function validateMappingOutput(value, spec) {
   assertExactKeys(value, MAPPING_OUTPUT_KEYS, "Mapping inspection");
   if (
-    !["app", "governance", "reserve", "ui", "legacy-app"].includes(
-      value.target,
-    ) ||
+    !["app", "governance", "reserve", "ui"].includes(value.target) ||
     !["prior", "candidate", "partial", "unexpected"].includes(
       value.mappingState,
     ) ||

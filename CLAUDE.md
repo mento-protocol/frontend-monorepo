@@ -475,7 +475,7 @@ public mutation. Governance, Reserve, and UI promote exact staged deployments;
 App deploys its verified custom `v3` output and verifies or assigns only the
 reviewed aliases. App builds that custom `v3` output in a parallel `stage-app`
 job and hands the verified tree to activation as one digest-bound, same-attempt
-payload. Legacy App `v2 -> production` remains native. Planning uses
+payload. Planning uses
 the SHA each public target actually serves, and every credential-bearing job
 uses only `vercel-cli-production` with `deployment: false`. The exact-attempt
 gate, repeated freshness checks, durable journal, active duplicate census,
@@ -501,7 +501,7 @@ App restoration authority only and never forward resumption. It never resumes
 a prior journal or treats GitHub artifacts as cross-attempt authority. The compact
 terminal receipt and evidence are the only final-verdict handoff and support
 final-only reruns. A completed release emits `current-release-verified` only
-after fresh mapping, census/state, raw public-runtime-smoke, legacy `v2`, and
+after fresh mapping, census/state, raw public-runtime-smoke, and
 freshness proof; it creates no journal and executes no public mutation. App
 shadow preparation is build-only terminal evidence and never creates a provider
 deployment. Every other non-prefix, ambiguous, conflicting, or incomplete

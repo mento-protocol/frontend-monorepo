@@ -139,13 +139,9 @@ export const MAIN_ORDINARY_TARGETS = Object.freeze([
   "ui",
 ]);
 
-// The complete proof classifies legacy App v2 per project. The compact
-// terminal summary binds that deployment once through its legacyAppV2 field.
 const ACTIVE_STATE_SUMMARY_COUNT_KEYS = Object.freeze([
   "scanned",
-  ...ACTIVE_STATE_CLASSIFICATIONS.filter(
-    (classification) => classification !== "legacyV2",
-  ),
+  ...ACTIVE_STATE_CLASSIFICATIONS,
 ]);
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
@@ -169,9 +165,7 @@ const PLAN_KEYS = Object.freeze([
   "upstream",
   "projectIds",
   "protectedSnapshot",
-  "legacySnapshot",
   "planning",
-  "legacyPrior",
 ]);
 const UPSTREAM_KEYS = Object.freeze([
   "runId",
@@ -201,26 +195,8 @@ const VERIFICATION_KEYS = Object.freeze([
   "immutableSmoke",
   "protectedMappings",
 ]);
-const LEGACY_ALIAS = "v2-app.mento.org";
-const LEGACY_GENERATED_BRANCH_SLUG = "git-v2";
-const LEGACY_GENERATED_SCOPE_SLUG = "mentolabs";
-const LEGACY_GENERATED_BRANCH_ALIAS = `appmentoorg-${LEGACY_GENERATED_BRANCH_SLUG}-${LEGACY_GENERATED_SCOPE_SLUG}.vercel.app`;
-const LEGACY_GENERATED_SCOPE_ALIAS = `appmentoorg-${LEGACY_GENERATED_SCOPE_SLUG}.vercel.app`;
-const LEGACY_GENERATED_PROJECT_DEFAULT_ALIAS = "appmentoorg.vercel.app";
-export const MAIN_LEGACY_REQUIRED_ALIAS_TOPOLOGY = Object.freeze(
-  [
-    LEGACY_ALIAS,
-    LEGACY_GENERATED_BRANCH_ALIAS,
-    LEGACY_GENERATED_SCOPE_ALIAS,
-    LEGACY_GENERATED_PROJECT_DEFAULT_ALIAS,
-  ].sort(),
-);
-export const MAIN_DURABLE_LEGACY_RECOVERY_ALIASES =
-  MAIN_LEGACY_REQUIRED_ALIAS_TOPOLOGY;
 export const MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS =
-  MAIN_ORDINARY_TARGETS.length +
-  MAIN_TARGET_CONTRACTS.app.aliases.length +
-  MAIN_DURABLE_LEGACY_RECOVERY_ALIASES.length;
+  MAIN_ORDINARY_TARGETS.length + MAIN_TARGET_CONTRACTS.app.aliases.length;
 const MAX_JSON_BYTES = 256 * 1024;
 export const MAIN_ACTIVE_JOURNAL_HISTORY_MAX_JSON_BYTES = 1024 * 1024;
 export const MAIN_ACTIVE_TERMINAL_PROOFS_MAX_JSON_BYTES = 1024 * 1024;
@@ -230,7 +206,6 @@ const CANONICAL_MAPPING_TARGETS = Object.freeze([
   "reserve",
   "ui",
   "app",
-  "legacy-app",
 ]);
 const CLI_COMMAND_OPTIONS = Object.freeze({
   "active-event-authorize": Object.freeze([
@@ -413,7 +388,7 @@ const CLI_COMMAND_OPTIONS = Object.freeze({
   freshness: Object.freeze([]),
   "journal-name": Object.freeze([]),
   "final-active": Object.freeze(["execution"]),
-  plan: Object.freeze(["legacy-snapshot", "output", "planning-snapshot"]),
+  plan: Object.freeze(["output", "planning-snapshot"]),
   "plan-active-recovery": Object.freeze([
     "current-mappings",
     "journal-history",
@@ -439,7 +414,7 @@ const CLI_COMMAND_OPTIONS = Object.freeze({
   ]),
   "prepare-journal": Object.freeze(["output"]),
   "recover-shadow": Object.freeze(["journal"]),
-  "revalidate-prior": Object.freeze(["legacy-snapshot", "planning-snapshot"]),
+  "revalidate-prior": Object.freeze(["planning-snapshot"]),
   "run-active": Object.freeze([
     "execution",
     "event",
@@ -694,20 +669,6 @@ export function createMainProtectedAliasSpec({ projectIds }) {
   return assertSnapshotSpec(spec);
 }
 
-export function createMainLegacyAliasSpec({ projectIds }) {
-  const ids = canonicalProjectIds(projectIds);
-  return assertSnapshotSpec([
-    {
-      alias: LEGACY_ALIAS,
-      projectId: ids.app,
-      projectName: MAIN_TARGET_CONTRACTS.app.projectName,
-      target: "production",
-      customEnvironmentSlug: null,
-      git: expectedGit("v2"),
-    },
-  ]);
-}
-
 function canonicalPlanningSnapshotForSpec({ snapshot, projectIds }) {
   const canonical = assertMainPlanningSnapshot(snapshot);
   const spec = createMainProtectedAliasSpec({ projectIds });
@@ -743,30 +704,6 @@ function canonicalPlanningSnapshotForSpec({ snapshot, projectIds }) {
   return { schema: canonical.schema, states: ordered };
 }
 
-function canonicalLegacySnapshotForSpec({ snapshot, projectIds }) {
-  assertCanonicalOutput(snapshot);
-  const spec = createMainLegacyAliasSpec({ projectIds });
-  if (!Array.isArray(snapshot) || snapshot.length !== 1) {
-    throw new Error("Legacy snapshot must contain exactly v2-app.mento.org");
-  }
-  const state = snapshot[0];
-  const expected = spec[0];
-  if (
-    state.alias !== expected.alias ||
-    state.projectId !== expected.projectId ||
-    state.projectName !== expected.projectName ||
-    state.target !== expected.target ||
-    state.customEnvironmentSlug !== expected.customEnvironmentSlug ||
-    state.git.org !== expected.git.org ||
-    state.git.repo !== expected.git.repo ||
-    state.git.ref !== expected.git.ref ||
-    state.readyState !== "READY"
-  ) {
-    throw new Error("Legacy app rollback state is ambiguous");
-  }
-  return [state];
-}
-
 function groupSnapshot(snapshot, target) {
   const aliases = MAIN_TARGET_CONTRACTS[target].aliases;
   const states = snapshot.filter((state) => aliases.includes(state.alias));
@@ -797,42 +734,6 @@ function canonicalPrior(value, label) {
   };
 }
 
-function legacyPriorFromSnapshot(snapshot, projectId) {
-  const states = snapshot.filter((state) => state.alias === LEGACY_ALIAS);
-  if (states.length !== 1) {
-    throw new Error("Legacy app rollback state is ambiguous");
-  }
-  const state = states[0];
-  const legacyIdentityIsAmbiguous =
-    state.projectId !== projectId ||
-    state.projectName !== "app.mento.org" ||
-    state.target !== "production" ||
-    state.customEnvironmentSlug !== null ||
-    state.git.org !== "mento-protocol" ||
-    state.git.repo !== "frontend-monorepo" ||
-    state.git.ref !== "v2" ||
-    state.readyState !== "READY";
-  if (legacyIdentityIsAmbiguous) {
-    throw new Error("Legacy app rollback state is ambiguous");
-  }
-  if (
-    JSON.stringify(state.aliases) !==
-    JSON.stringify(MAIN_LEGACY_REQUIRED_ALIAS_TOPOLOGY)
-  ) {
-    throw new Error(
-      `Legacy app generated-alias topology mismatch: ${JSON.stringify({ actualAliases: state.aliases, creatorUsername: state.creatorUsername, expectedAliasTopologies: [MAIN_LEGACY_REQUIRED_ALIAS_TOPOLOGY] })}`,
-    );
-  }
-  return canonicalPrior(
-    {
-      deploymentId: state.deploymentId,
-      deploymentUrl: state.deploymentUrl,
-      aliases: MAIN_DURABLE_LEGACY_RECOVERY_ALIASES,
-    },
-    "Legacy app prior",
-  );
-}
-
 function canonicalUpstream(upstream) {
   assertExactKeys(upstream, UPSTREAM_KEYS, "Upstream CI receipt");
   return {
@@ -852,7 +753,6 @@ export function createMainDeploymentPlan({
   deploySha,
   projectIds,
   planningSnapshot,
-  legacySnapshot,
   rollbackOnlyTargets,
   upstream,
   repoRoot = process.cwd(),
@@ -866,10 +766,6 @@ export function createMainDeploymentPlan({
   const ids = canonicalProjectIds(projectIds);
   const protectedSnapshot = canonicalPlanningSnapshotForSpec({
     snapshot: planningSnapshot,
-    projectIds: ids,
-  });
-  const strictLegacySnapshot = canonicalLegacySnapshotForSpec({
-    snapshot: legacySnapshot,
     projectIds: ids,
   });
   const priorStates = Object.fromEntries(
@@ -896,9 +792,7 @@ export function createMainDeploymentPlan({
     upstream: canonicalUpstream(upstream),
     projectIds: ids,
     protectedSnapshot,
-    legacySnapshot: strictLegacySnapshot,
     planning,
-    legacyPrior: legacyPriorFromSnapshot(strictLegacySnapshot, ids.app),
   };
   return assertMainDeploymentHandoff(result);
 }
@@ -918,17 +812,9 @@ export function assertMainDeploymentHandoff(value) {
     snapshot: value.protectedSnapshot,
     projectIds,
   });
-  const legacySnapshot = canonicalLegacySnapshotForSpec({
-    snapshot: value.legacySnapshot,
-    projectIds,
-  });
   const planning = assertMainDeploymentPlan(value.planning);
   if (planning.deploySha !== deploySha || planning.mode !== value.mode) {
     throw new Error("Served-SHA plan does not match its workflow handoff");
-  }
-  const legacyPrior = legacyPriorFromSnapshot(legacySnapshot, projectIds.app);
-  if (JSON.stringify(legacyPrior) !== JSON.stringify(value.legacyPrior)) {
-    throw new Error("Legacy app prior changed inside the plan handoff");
   }
   return {
     schema: value.schema,
@@ -937,9 +823,7 @@ export function assertMainDeploymentHandoff(value) {
     upstream,
     projectIds,
     protectedSnapshot,
-    legacySnapshot,
     planning,
-    legacyPrior,
   };
 }
 
@@ -1391,7 +1275,7 @@ function releaseManifestFromHandoff(handoff) {
 
 function startMappingsFromPrior(prior) {
   return Object.fromEntries(
-    ["app", "governance", "reserve", "ui", "legacy-app"].map((target) => [
+    ["app", "governance", "reserve", "ui"].map((target) => [
       target,
       prior[target].aliases.map((alias) => ({
         alias,
@@ -1478,7 +1362,6 @@ export function createMainTransactionInputs({
     governance: priorByTarget.governance,
     reserve: priorByTarget.reserve,
     ui: priorByTarget.ui,
-    "legacy-app": canonicalPrior(handoff.legacyPrior, "Legacy app prior"),
   };
   const release = releaseManifestFromHandoff(handoff);
   const appIntent = handoff.planning.stagedTargets.includes("app")
@@ -1997,7 +1880,6 @@ export function createMainCurrentActiveDeploymentStateSpec({
       }),
     ),
   );
-  const legacy = current.execution.legacyAppV2;
   return assertActiveDeploymentStateSpec({
     schema: ACTIVE_DEPLOYMENT_STATE_SPEC_SCHEMA,
     deploySha: current.execution.manifest.deploySha,
@@ -2010,17 +1892,6 @@ export function createMainCurrentActiveDeploymentStateSpec({
     activeTargets,
     shadowTargets,
     projects,
-    legacyAppV2: {
-      alias: legacy.alias,
-      deployment: legacy.deploymentId,
-      deploymentUrl: legacy.deploymentUrl,
-      projectId: legacy.projectId,
-      projectName: legacy.projectName,
-      readyState: legacy.readyState,
-      target: legacy.target,
-      customEnvironmentSlug: legacy.customEnvironmentSlug,
-      git: { ...legacy.git },
-    },
   });
 }
 
@@ -2038,7 +1909,6 @@ export function createMainCurrentReleaseVerifiedDeploymentStateSpec({
   });
   const { stagedTargets, activeTargets, shadowTargets } =
     currentStateProjection(current);
-  const legacy = current.execution.legacyAppV2;
   return assertActiveDeploymentStateSpec({
     schema: ACTIVE_DEPLOYMENT_STATE_SPEC_SCHEMA,
     deploySha: current.execution.manifest.deploySha,
@@ -2062,17 +1932,6 @@ export function createMainCurrentReleaseVerifiedDeploymentStateSpec({
         }),
       ),
     ),
-    legacyAppV2: {
-      alias: legacy.alias,
-      deployment: legacy.deploymentId,
-      deploymentUrl: legacy.deploymentUrl,
-      projectId: legacy.projectId,
-      projectName: legacy.projectName,
-      readyState: legacy.readyState,
-      target: legacy.target,
-      customEnvironmentSlug: legacy.customEnvironmentSlug,
-      git: { ...legacy.git },
-    },
   });
 }
 
@@ -2126,10 +1985,7 @@ export function createMainCurrentActiveAliasMappingSpec({
         highest.prior[target].aliases,
       ]),
     ),
-    projectIds: {
-      ...current.execution.projection.projectIds,
-      "legacy-app": current.execution.legacyAppV2.projectId,
-    },
+    projectIds: current.execution.projection.projectIds,
   });
 }
 
@@ -2151,12 +2007,8 @@ export function createMainCurrentReleaseVerifiedAliasMappingSpec({
       reserve: current.execution.manifest.originalPriors.reserve.aliases,
       ui: current.execution.manifest.originalPriors.ui.aliases,
       app: current.execution.manifest.originalPriors.app.aliases,
-      "legacy-app": current.execution.legacyAppV2.aliases,
     },
-    projectIds: {
-      ...current.execution.projection.projectIds,
-      "legacy-app": current.execution.legacyAppV2.projectId,
-    },
+    projectIds: current.execution.projection.projectIds,
   });
 }
 
@@ -2186,27 +2038,17 @@ export function createMainActiveRecoveryMappingSpec({
   const release = assertMainReleaseManifest(highest.release);
   const bindings = [];
   const aliases = new Set();
-  for (const target of ["app", "governance", "reserve", "ui", "legacy-app"]) {
-    const releaseTarget =
-      target === "legacy-app"
-        ? release.originalPriors.app
-        : release.originalPriors[target];
+  for (const target of ["app", "governance", "reserve", "ui"]) {
+    const releaseTarget = release.originalPriors[target];
     const prior = highest.prior[target];
     if (
-      target !== "legacy-app" &&
-      (!sameJson(prior.aliases, releaseTarget.aliases) ||
-        prior.deploymentId !== releaseTarget.deploymentId ||
-        prior.deploymentUrl !== releaseTarget.deploymentUrl)
+      !sameJson(prior.aliases, releaseTarget.aliases) ||
+      prior.deploymentId !== releaseTarget.deploymentId ||
+      prior.deploymentUrl !== releaseTarget.deploymentUrl
     ) {
       throw new Error(
         `Active recovery ${target} prior conflicts with the release`,
       );
-    }
-    if (
-      target === "legacy-app" &&
-      !sameJson(prior.aliases, MAIN_LEGACY_REQUIRED_ALIAS_TOPOLOGY)
-    ) {
-      throw new Error("Active recovery legacy App topology is incomplete");
     }
     for (const alias of prior.aliases) {
       if (aliases.has(alias)) {
@@ -2230,8 +2072,7 @@ export function createMainActiveRecoveryMappingSpec({
 
 // The provider captures bound mappings as a flat alias list. Validate that
 // capture against an exact canonical binding specification before grouping it
-// into the transaction's canonical target shape. Project IDs remain only long
-// enough to bind legacy App mappings, then never enter terminal artifacts.
+// into the transaction's canonical target shape.
 export function createMainActiveCanonicalMappings({ mappingSpec, mappings }) {
   const spec = assertActiveAliasMappingSpec(mappingSpec);
   assertSameJson(mappingSpec, spec, "Active canonical mapping specification");
@@ -2249,12 +2090,9 @@ export function createMainActiveCanonicalMappings({ mappingSpec, mappings }) {
   }
   const bound = mappings.map((value, index) => {
     const binding = spec.bindings[index];
-    const hasProjectId = Object.hasOwn(value ?? {}, "projectId");
     assertExactKeys(
       value,
-      hasProjectId
-        ? ["alias", "deploymentId", "deploymentUrl", "projectId"]
-        : ["alias", "deploymentId", "deploymentUrl"],
+      ["alias", "deploymentId", "deploymentUrl"],
       `Active canonical bound mapping ${index + 1}`,
     );
     const alias = canonicalizeHostname(value.alias);
@@ -2267,25 +2105,11 @@ export function createMainActiveCanonicalMappings({ mappingSpec, mappings }) {
     if (
       alias !== binding.alias ||
       value.alias !== alias ||
-      value.deploymentUrl !== deploymentUrl ||
-      (binding.target === "legacy-app"
-        ? !hasProjectId ||
-          requireString(
-            value.projectId,
-            `Active canonical bound mapping ${index + 1} project ID`,
-          ) !== binding.projectId
-        : hasProjectId)
+      value.deploymentUrl !== deploymentUrl
     ) {
       throw new Error("Active canonical bound mapping conflicts with its spec");
     }
-    return {
-      alias,
-      deploymentId,
-      deploymentUrl,
-      ...(binding.target === "legacy-app"
-        ? { projectId: binding.projectId }
-        : {}),
-    };
+    return { alias, deploymentId, deploymentUrl };
   });
   assertSameJson(mappings, bound, "Active canonical bound mappings");
   return {
@@ -2374,27 +2198,6 @@ export function createMainActiveRecoveryDeploymentStateSpec({
     (target) =>
       release.stagedTargets.includes(target) && !active.includes(target),
   );
-  const legacy = releaseExecution.legacyAppV2;
-  const capturedLegacy = highest.prior["legacy-app"];
-  if (
-    legacy.alias !== LEGACY_ALIAS ||
-    !sameJson(legacy.aliases, MAIN_LEGACY_REQUIRED_ALIAS_TOPOLOGY) ||
-    legacy.deploymentId !== capturedLegacy.deploymentId ||
-    legacy.deploymentUrl !== capturedLegacy.deploymentUrl ||
-    !sameJson(legacy.aliases, capturedLegacy.aliases) ||
-    legacy.projectId !== release.originalPriors.app.projectId ||
-    legacy.projectName !== "app.mento.org" ||
-    legacy.readyState !== "READY" ||
-    legacy.target !== "production" ||
-    legacy.customEnvironmentSlug !== null ||
-    legacy.git?.org !== "mento-protocol" ||
-    legacy.git.repo !== "frontend-monorepo" ||
-    legacy.git.ref !== "v2"
-  ) {
-    throw new Error(
-      "Active recovery state spec legacy v2 capture is incomplete",
-    );
-  }
   const projects = Object.fromEntries(
     STAGE_BARRIER_TARGETS.map((target) => {
       const isActive = active.includes(target);
@@ -2461,17 +2264,6 @@ export function createMainActiveRecoveryDeploymentStateSpec({
     activeTargets: active,
     shadowTargets: shadow,
     projects,
-    legacyAppV2: {
-      alias: legacy.alias,
-      deployment: legacy.deploymentId,
-      deploymentUrl: legacy.deploymentUrl,
-      projectId: legacy.projectId,
-      projectName: legacy.projectName,
-      readyState: legacy.readyState,
-      target: legacy.target,
-      customEnvironmentSlug: legacy.customEnvironmentSlug,
-      git: { ...legacy.git },
-    },
   });
 }
 
@@ -2896,7 +2688,6 @@ export function createMainActiveDeploymentStateSpec({
       ];
     }),
   );
-  const legacy = handoff.legacySnapshot[0];
   return assertActiveDeploymentStateSpec({
     schema: ACTIVE_DEPLOYMENT_STATE_SPEC_SCHEMA,
     deploySha: canonicalJournal.deploySha,
@@ -2909,17 +2700,6 @@ export function createMainActiveDeploymentStateSpec({
     activeTargets: planning.activeTargets,
     shadowTargets: planning.shadowTargets,
     projects,
-    legacyAppV2: {
-      alias: legacy.alias,
-      deployment: legacy.deploymentId,
-      deploymentUrl: legacy.deploymentUrl,
-      projectId: legacy.projectId,
-      projectName: legacy.projectName,
-      readyState: legacy.readyState,
-      target: legacy.target,
-      customEnvironmentSlug: legacy.customEnvironmentSlug,
-      git: { ...legacy.git },
-    },
   });
 }
 
@@ -2949,10 +2729,7 @@ export function createMainActiveAliasMappingSpec({
         highest.prior[target].aliases,
       ]),
     ),
-    projectIds: {
-      ...handoff.projectIds,
-      "legacy-app": handoff.projectIds.app,
-    },
+    projectIds: handoff.projectIds,
   });
 }
 
@@ -3150,7 +2927,6 @@ export async function runMainActiveTransaction({
     "inspectProtectedMappings",
     "ordinaryRollback",
     "restoreAppAlias",
-    "restoreLegacyAlias",
   ]) {
     if (typeof adapters[name] === "function") {
       mutationAdapters[name] = adapters[name];
@@ -3222,26 +2998,13 @@ function canonicalRecoveryPlannerMappings(journal, value) {
   if (!Array.isArray(value)) {
     throw new Error("Active recovery current mappings must be an array");
   }
-  const legacyAliases = new Set(journal.prior["legacy-app"].aliases);
-  const legacyProjectId = journal.release.originalPriors.app.projectId;
   return value.map((mapping, index) => {
-    const hasProjectId = Object.hasOwn(mapping ?? {}, "projectId");
     assertExactKeys(
       mapping,
-      hasProjectId
-        ? ["alias", "deploymentId", "deploymentUrl", "projectId"]
-        : ["alias", "deploymentId", "deploymentUrl"],
+      ["alias", "deploymentId", "deploymentUrl"],
       `Active recovery current mapping ${index + 1}`,
     );
     const alias = canonicalizeHostname(mapping.alias);
-    if (
-      hasProjectId &&
-      (!legacyAliases.has(alias) || mapping.projectId !== legacyProjectId)
-    ) {
-      throw new Error(
-        "Active recovery legacy App project binding is inconsistent",
-      );
-    }
     return {
       alias,
       deploymentId: requireString(
@@ -3306,7 +3069,6 @@ export async function runMainActiveRecovery({ recoveryPlan, adapters }) {
       uploadJournal,
       ordinaryRollback: publicMutation("ordinaryRollback"),
       restoreAppAlias: publicMutation("restoreAppAlias"),
-      restoreLegacyAlias: publicMutation("restoreLegacyAlias"),
       inspectMapping: adapters.inspectMapping,
       verifyMapping: adapters.verifyMapping,
     });
@@ -3347,18 +3109,10 @@ export async function runMainActiveRecovery({ recoveryPlan, adapters }) {
   }
 }
 
-export function assertProtectedSnapshotMatchesPlan({
-  plan,
-  planningSnapshot,
-  legacySnapshot,
-}) {
+export function assertProtectedSnapshotMatchesPlan({ plan, planningSnapshot }) {
   const handoff = assertMainDeploymentHandoff(plan);
   const currentPlanning = canonicalPlanningSnapshotForSpec({
     snapshot: planningSnapshot,
-    projectIds: handoff.projectIds,
-  });
-  const currentLegacy = canonicalLegacySnapshotForSpec({
-    snapshot: legacySnapshot,
     projectIds: handoff.projectIds,
   });
   const rollbackIdentity = (snapshot) =>
@@ -3384,17 +3138,13 @@ export function assertProtectedSnapshotMatchesPlan({
     });
   if (
     JSON.stringify(rollbackIdentity(currentPlanning)) !==
-      JSON.stringify(rollbackIdentity(handoff.protectedSnapshot)) ||
-    JSON.stringify(currentLegacy) !== JSON.stringify(handoff.legacySnapshot)
+    JSON.stringify(rollbackIdentity(handoff.protectedSnapshot))
   ) {
     throw new Error(
       "Protected mappings or rollback state drifted after planning",
     );
   }
-  return {
-    protectedSnapshot: currentPlanning,
-    legacySnapshot: currentLegacy,
-  };
+  return { protectedSnapshot: currentPlanning };
 }
 
 export function readRemoteMainSha({
@@ -3568,7 +3318,6 @@ export async function runMainShadowTransaction({
         assignAlias: forbidden,
         ordinaryRollback: forbidden,
         restoreAppAlias: forbidden,
-        restoreLegacyAlias: forbidden,
       },
     });
   } catch (error) {
@@ -3884,16 +3633,6 @@ export function createMainDeploymentEvidence({
   ) {
     throw new Error("Recovery evidence does not match journal durability");
   }
-  const legacyState = handoff.legacySnapshot[0];
-  const legacy = {
-    alias: LEGACY_ALIAS,
-    deploymentId: handoff.legacyPrior.deploymentId,
-    deploymentUrl: handoff.legacyPrior.deploymentUrl,
-    servedSha: legacyState.git.sha,
-    ref: legacyState.git.ref,
-    readyState: legacyState.readyState,
-    health: "passed",
-  };
   const freshness = {
     "no-target": {
       beforeAppPreparation: "not-run",
@@ -3925,7 +3664,6 @@ export function createMainDeploymentEvidence({
       buildAndTestConclusion: "success",
     },
     planning: handoff.planning,
-    legacy,
     stages: canonicalStages,
     app: canonicalApp,
     coordinator: coordinatorEvidence,
@@ -4016,9 +3754,9 @@ function canonicalFinalMappings(journal, value, { exact = true } = {}) {
     throw new Error("Active final mappings must be an array");
   }
   const expectedByAlias = new Map();
-  for (const target of ["app", "governance", "reserve", "ui", "legacy-app"]) {
+  for (const target of ["app", "governance", "reserve", "ui"]) {
     const mapping =
-      target === "legacy-app" || journal.candidates[target] === null
+      journal.candidates[target] === null
         ? journal.prior[target]
         : journal.candidates[target];
     for (const alias of journal.prior[target].aliases) {
@@ -4036,25 +3774,11 @@ function canonicalFinalMappings(journal, value, { exact = true } = {}) {
     if (expected === undefined || seen.has(alias)) {
       throw new Error("Active final mappings contain an unknown alias");
     }
-    const hasProjectId = Object.hasOwn(entry ?? {}, "projectId");
     assertExactKeys(
       entry,
-      hasProjectId
-        ? ["alias", "deploymentId", "deploymentUrl", "projectId"]
-        : ["alias", "deploymentId", "deploymentUrl"],
+      ["alias", "deploymentId", "deploymentUrl"],
       `Active final mapping ${index + 1}`,
     );
-    if (
-      (expected.target === "legacy-app" &&
-        hasProjectId &&
-        requireString(
-          entry.projectId,
-          `Active final mapping ${alias} project ID`,
-        ) !== expected.projectId) ||
-      (expected.target !== "legacy-app" && hasProjectId)
-    ) {
-      throw new Error("Active final mapping project binding is invalid");
-    }
     seen.add(alias);
     const mapping = {
       alias,
@@ -4115,9 +3839,6 @@ function canonicalCurrentReleaseVerifiedMappings({
       .aliases) {
       expectedByAlias.set(alias, expected);
     }
-  }
-  for (const alias of current.execution.legacyAppV2.aliases) {
-    expectedByAlias.set(alias, current.execution.legacyAppV2);
   }
   const seen = new Set();
   const mappings = value.map((entry, index) => {
@@ -4263,7 +3984,6 @@ function summarizeActiveDeploymentStateProof(
     projectIds = null,
     expectedDeploymentIds = null,
     originalPriors = null,
-    legacyState = null,
     requireProven = false,
   },
 ) {
@@ -4310,25 +4030,6 @@ function summarizeActiveDeploymentStateProof(
       );
     }
   }
-  if (legacyState !== null) {
-    const expectedLegacy = {
-      alias: legacyState.alias,
-      deploymentId: legacyState.deploymentId,
-      deploymentUrl: legacyState.deploymentUrl,
-      projectId: legacyState.projectId,
-      projectName: legacyState.projectName,
-      readyState: legacyState.readyState,
-      target: legacyState.target,
-      customEnvironmentSlug: legacyState.customEnvironmentSlug,
-      git: legacyState.git,
-      ownership: "native-vercel-git",
-    };
-    if (JSON.stringify(proof.legacyAppV2) !== JSON.stringify(expectedLegacy)) {
-      throw new Error(
-        "Active deployment state proof does not match legacy App v2",
-      );
-    }
-  }
   return {
     proofSchema: proof.schema,
     outcome: proof.outcome,
@@ -4351,10 +4052,6 @@ function summarizeActiveDeploymentStateProof(
         ];
       }),
     ),
-    legacyAppV2: {
-      deploymentId: proof.legacyAppV2.deploymentId,
-      ownership: proof.legacyAppV2.ownership,
-    },
   };
 }
 
@@ -4463,7 +4160,6 @@ export function createMainActiveDeploymentEvidence({
     originalPriors: Object.fromEntries(
       handoff.planning.priors.map((prior) => [prior.target, prior]),
     ),
-    legacyState: handoff.legacySnapshot[0],
     requireProven: true,
   });
   return {
@@ -4745,7 +4441,6 @@ export function renderMainActiveDeploymentEvidence(evidence) {
       (target) =>
         `\`${target}:${evidence.stateProofSummary.targets[target].expectedDisposition ?? "unselected"}\``,
     ).join(", ")}`,
-    `- Legacy v2: \`${evidence.stateProofSummary.legacyAppV2.ownership}\` at \`${evidence.stateProofSummary.legacyAppV2.deploymentId}\``,
     "- Recovery: `not-required`; ordinary rollback-state targets: none",
     "",
   ].join("\n");
@@ -4871,7 +4566,6 @@ export function renderMainDeploymentEvidence(evidence) {
           prior.servedSha ? `\`${prior.servedSha}\`` : "unknown"
         } | ${prior.aliases.map((alias) => `\`${alias}\``).join(", ")} |`,
     ),
-    `| legacy-app | \`${evidence.legacy.deploymentId}\` / ${evidence.legacy.deploymentUrl} | \`${evidence.legacy.servedSha}\` (\`${evidence.legacy.ref}\`, \`${evidence.legacy.readyState}\`, health \`${evidence.legacy.health}\`) | \`${evidence.legacy.alias}\` |`,
     "",
     "#### Served-SHA ranges and selection reasons",
     "",
@@ -5447,7 +5141,6 @@ export function assertMainActiveTerminalProofs(value) {
       "finalCensus",
       "stateProof",
       "publicSmoke",
-      "freshLegacyV2",
       "mutationCount",
       "rollbackTargets",
       "affectedOperations",
@@ -5501,10 +5194,6 @@ export function assertMainActiveTerminalProofs(value) {
     value.publicSmoke,
     "Main terminal public smoke proof",
   );
-  const freshLegacyV2 = canonicalTerminalProof(
-    value.freshLegacyV2,
-    "Main terminal fresh legacy v2 proof",
-  );
   const journal = canonicalTerminalProof(
     value.journal,
     "Main terminal journal proof",
@@ -5539,7 +5228,6 @@ export function assertMainActiveTerminalProofs(value) {
     finalCensus,
     stateProof,
     publicSmoke,
-    freshLegacyV2,
     mutationCount,
     rollbackTargets,
     affectedOperations,
@@ -5608,7 +5296,7 @@ function canonicalTerminalProviderMappings(value) {
   if (value.schema !== "vercel-main-canonical-mappings:v1") {
     throw new Error("Terminal canonical mapping schema is unsupported");
   }
-  const targets = ["governance", "reserve", "ui", "app", "legacy-app"];
+  const targets = ["governance", "reserve", "ui", "app"];
   assertExactKeys(value.mappings, targets, "Terminal canonical mappings");
   return targets.flatMap((target) => {
     if (!Array.isArray(value.mappings[target])) {
@@ -5616,20 +5304,6 @@ function canonicalTerminalProviderMappings(value) {
     }
     return value.mappings[target];
   });
-}
-
-function canonicalTerminalFreshLegacyV2(value, execution) {
-  assertCanonicalOutput(value);
-  if (
-    !Array.isArray(value) ||
-    value.length !== 1 ||
-    !sameJson(value[0], execution.legacyAppV2)
-  ) {
-    throw new Error(
-      "Terminal fresh legacy v2 snapshot conflicts with the execution",
-    );
-  }
-  return value[0];
 }
 
 function terminalExpectedCandidateIds(highest, planning) {
@@ -5718,7 +5392,6 @@ function canonicalCompleteTerminalStateProof({
     expectedDeploymentIds:
       expectedCandidateIds ?? terminalExpectedCandidateIds(highest, planning),
     originalPriors: execution.manifest.originalPriors,
-    legacyState: execution.legacyAppV2,
     requireProven: true,
   });
   return terminalProof.artifact;
@@ -5729,9 +5402,6 @@ function assertTerminalMappingsArePriors(mappings, execution) {
   for (const target of MAIN_DEPLOYMENT_TARGETS) {
     const prior = execution.manifest.originalPriors[target];
     for (const alias of prior.aliases) priorByAlias.set(alias, prior);
-  }
-  for (const alias of execution.legacyAppV2.aliases) {
-    priorByAlias.set(alias, execution.legacyAppV2);
   }
   for (const mapping of mappings) {
     const prior = priorByAlias.get(mapping.alias);
@@ -5830,11 +5500,8 @@ function canonicalTerminalAffectedOperations(value) {
         "app_alias_set",
         "ordinary_rollback",
         "app_alias_restore",
-        "legacy_emergency_restore",
       ].includes(operation.type) ||
-      !["app", "governance", "reserve", "ui", "legacy-app"].includes(
-        operation.target,
-      ) ||
+      !["app", "governance", "reserve", "ui"].includes(operation.target) ||
       !["started", "command_returned", "verified"].includes(operation.state) ||
       ![null, "success", "unknown"].includes(operation.commandOutcome) ||
       ![
@@ -6057,7 +5724,6 @@ export function createMainActiveTerminalArtifacts({
   publicSmokes,
   stateProof,
   finalCensus,
-  freshLegacyV2,
   freshness,
   stageResults = null,
   runId,
@@ -6092,10 +5758,6 @@ export function createMainActiveTerminalArtifacts({
     runId: canonicalRunId,
     runAttempt: canonicalRunAttempt,
   });
-  const legacyState = canonicalTerminalFreshLegacyV2(
-    freshLegacyV2,
-    releaseExecution,
-  );
   const manifest = releaseExecution.manifest;
   const proofIdentity = {
     schema: MAIN_ACTIVE_TERMINAL_PROOFS_SCHEMA,
@@ -6159,10 +5821,6 @@ export function createMainActiveTerminalArtifacts({
       publicSmoke: terminalProof({
         status: "not-required",
         artifact: null,
-      }),
-      freshLegacyV2: terminalProof({
-        status: "passed",
-        artifact: legacyState,
       }),
       mutationCount: 0,
       rollbackTargets: [],
@@ -6245,7 +5903,6 @@ export function createMainActiveTerminalArtifacts({
         projectIds: releaseExecution.projection.projectIds,
         expectedDeploymentIds,
         originalPriors: manifest.originalPriors,
-        legacyState: releaseExecution.legacyAppV2,
         requireProven: true,
       },
     );
@@ -6292,7 +5949,6 @@ export function createMainActiveTerminalArtifacts({
         artifact: terminalState.artifact,
       }),
       publicSmoke: terminalProof({ status: "passed", artifact: smokes }),
-      freshLegacyV2: terminalProof({ status: "passed", artifact: legacyState }),
       mutationCount: 0,
       rollbackTargets: [],
       affectedOperations: [],
@@ -6466,10 +6122,6 @@ export function createMainActiveTerminalArtifacts({
       producerJob: "activate-and-verify",
       outcome,
       ...statuses,
-      freshLegacyV2: terminalProof({
-        status: "passed",
-        artifact: legacyState,
-      }),
       mutationCount: 0,
       rollbackTargets: [],
       affectedOperations: [],
@@ -6533,7 +6185,6 @@ export function createMainActiveTerminalArtifacts({
       finalCensus: terminalProof({ status: "unsafe", artifact: evidence }),
       stateProof: terminalProof({ status: "unsafe", artifact: evidence }),
       publicSmoke: terminalProof({ status: "not-required", artifact: null }),
-      freshLegacyV2: terminalProof({ status: "passed", artifact: legacyState }),
       mutationCount: counts.started,
       rollbackTargets: [],
       affectedOperations: [],
@@ -6604,7 +6255,6 @@ export function createMainActiveTerminalArtifacts({
       finalCensus: terminalProof({ status: "unsafe", artifact: censusFailure }),
       stateProof: terminalProof({ status: "unsafe", artifact: censusFailure }),
       publicSmoke: terminalProof({ status: "passed", artifact: smokes }),
-      freshLegacyV2: terminalProof({ status: "passed", artifact: legacyState }),
       mutationCount: counts.started,
       rollbackTargets,
       affectedOperations: [],
@@ -6746,7 +6396,6 @@ export function createMainActiveTerminalArtifacts({
               planning,
             ),
             originalPriors: manifest.originalPriors,
-            legacyState: releaseExecution.legacyAppV2,
             requireProven: true,
           },
         ),
@@ -6808,10 +6457,6 @@ export function createMainActiveTerminalArtifacts({
       publicSmoke: terminalProof({
         status: manual ? "not-required" : "passed",
         artifact: manual ? null : smokes,
-      }),
-      freshLegacyV2: terminalProof({
-        status: "passed",
-        artifact: legacyState,
       }),
       mutationCount: counts.started,
       rollbackTargets,
@@ -6922,9 +6567,8 @@ function canonicalActiveVerifiedOperations(value) {
         "app_alias_set",
         "ordinary_rollback",
         "app_alias_restore",
-        "legacy_emergency_restore",
       ].includes(operation.type) ||
-      ![...MAIN_DEPLOYMENT_TARGETS, "legacy-app"].includes(operation.target)
+      !MAIN_DEPLOYMENT_TARGETS.includes(operation.target)
     ) {
       throw new Error("Nested active verified operation is unsupported");
     }
@@ -6987,9 +6631,6 @@ function canonicalNestedFinalMappings(value, execution) {
     const prior = priors.get(target);
     for (const alias of prior.aliases) expectedByAlias.set(alias, target);
   }
-  for (const alias of execution.legacyAppV2.aliases) {
-    expectedByAlias.set(alias, "legacy-app");
-  }
   const seen = new Set();
   const deploymentByTarget = new Map();
   const canonical = value.map((entry, index) => {
@@ -7021,10 +6662,8 @@ function canonicalNestedFinalMappings(value, execution) {
       throw new Error("Nested active target aliases disagree");
     }
     deploymentByTarget.set(target, mapping);
-    const mustRemainPrior =
-      target === "legacy-app" || !planning.activeTargets.includes(target);
-    const prior =
-      target === "legacy-app" ? execution.legacyAppV2 : priors.get(target);
+    const mustRemainPrior = !planning.activeTargets.includes(target);
+    const prior = priors.get(target);
     if (
       mustRemainPrior &&
       (mapping.deploymentId !== prior.deploymentId ||
@@ -7056,7 +6695,7 @@ function canonicalNestedStateProofSummary(
   }
   assertExactKeys(
     value,
-    ["proofSchema", "outcome", "transactionId", "targets", "legacyAppV2"],
+    ["proofSchema", "outcome", "transactionId", "targets"],
     "Nested active state proof summary",
   );
   if (
@@ -7119,35 +6758,11 @@ function canonicalNestedStateProofSummary(
       ];
     }),
   );
-  assertExactKeys(
-    value.legacyAppV2,
-    ["deploymentId", "ownership"],
-    "Nested active legacy v2 state proof",
-  );
-  const legacyAppV2 = {
-    deploymentId: requireString(
-      value.legacyAppV2.deploymentId,
-      "Nested active legacy v2 deployment ID",
-      DEPLOYMENT_ID_PATTERN,
-    ),
-    ownership: requireString(
-      value.legacyAppV2.ownership,
-      "Nested active legacy v2 ownership",
-      /^[a-z][a-z0-9-]*$/,
-    ),
-  };
-  if (
-    legacyAppV2.deploymentId !== execution.legacyAppV2.deploymentId ||
-    legacyAppV2.ownership !== "native-vercel-git"
-  ) {
-    throw new Error("Nested active legacy v2 state proof conflicts");
-  }
   return {
     proofSchema: value.proofSchema,
     outcome: value.outcome,
     transactionId: value.transactionId,
     targets,
-    legacyAppV2,
   };
 }
 
@@ -8012,23 +7627,6 @@ function assertMainActiveTerminalReleaseInputs({
   };
 }
 
-function assertFreshLegacyV2TerminalProof(artifact, execution) {
-  assertCanonicalOutput(artifact);
-  if (
-    !sameJson(
-      canonicalTerminalArtifact(artifact, "Fresh legacy v2 state"),
-      canonicalTerminalArtifact(
-        execution.legacyAppV2,
-        "Release execution legacy v2 state",
-      ),
-    )
-  ) {
-    throw new Error(
-      "Main terminal fresh legacy v2 proof conflicts with execution",
-    );
-  }
-}
-
 function assertTerminalStateProofMatchesEvidence({
   proof,
   evidence,
@@ -8079,7 +7677,6 @@ function assertTerminalStateProofMatchesEvidence({
           ]),
         ),
         originalPriors: execution.manifest.originalPriors,
-        legacyState: execution.legacyAppV2,
         requireProven: true,
       })
     : summarizeActiveDeploymentStateProof(raw, {
@@ -8104,9 +7701,6 @@ function assertTerminalStateProofMatchesEvidence({
       for (const alias of execution.manifest.originalPriors[target].aliases) {
         expectedByAlias.set(alias, expected);
       }
-    }
-    for (const alias of execution.legacyAppV2.aliases) {
-      expectedByAlias.set(alias, execution.legacyAppV2);
     }
     for (const mapping of evidence.finalMappings) {
       const expected = expectedByAlias.get(mapping.alias);
@@ -8266,8 +7860,6 @@ function assertMainActiveTerminalProofBindings({
       );
     }
   }
-  assertFreshLegacyV2TerminalProof(proofs.freshLegacyV2.artifact, execution);
-
   if (evidence.finalMappings !== undefined && evidence.finalMappings !== null) {
     if (
       proofs.finalMapping.artifact === null ||
@@ -8490,7 +8082,6 @@ export function createMainActiveTerminalHandoff({
     finalCensus: canonicalProofs.finalCensus.receipt,
     stateProof: canonicalProofs.stateProof.receipt,
     publicSmoke: canonicalProofs.publicSmoke.receipt,
-    freshLegacyV2: canonicalProofs.freshLegacyV2.receipt,
     mutationCount: canonicalProofs.mutationCount,
     rollbackTargets: canonicalProofs.rollbackTargets,
     affectedOperations: canonicalProofs.affectedOperations,
@@ -9359,7 +8950,7 @@ export async function runMainDeploymentCli({
       currentMappings: {
         schema: "vercel-main-canonical-mappings:v1",
         mappings: Object.fromEntries(
-          ["governance", "reserve", "ui", "app", "legacy-app"].map((target) => [
+          ["governance", "reserve", "ui", "app"].map((target) => [
             target,
             preparedJournal.startMappings[target],
           ]),
@@ -9618,19 +9209,14 @@ export async function runMainDeploymentCli({
     return;
   }
   if (command === "create-spec") {
-    const scope = options.scope;
-    if (!["main", "legacy"].includes(scope)) {
-      throw new Error("create-spec requires scope main or legacy");
+    if (options.scope !== "main") {
+      throw new Error("create-spec requires scope main");
     }
     writeCanonicalJson(
       options.output,
-      scope === "main"
-        ? createMainProtectedAliasSpec({
-            projectIds: projectIdsFromEnvironment(values),
-          })
-        : createMainLegacyAliasSpec({
-            projectIds: projectIdsFromEnvironment(values),
-          }),
+      createMainProtectedAliasSpec({
+        projectIds: projectIdsFromEnvironment(values),
+      }),
     );
     return;
   }
@@ -9705,10 +9291,6 @@ export async function runMainDeploymentCli({
         options["planning-snapshot"],
         "Main planning snapshot",
       ),
-      legacySnapshot: readJson(
-        options["legacy-snapshot"],
-        "Legacy app snapshot",
-      ),
       rollbackOnlyTargets: MAIN_DEPLOYMENT_TARGETS,
       upstream: {
         runId: values.UPSTREAM_RUN_ID,
@@ -9755,10 +9337,6 @@ export async function runMainDeploymentCli({
       planningSnapshot: readJson(
         options["planning-snapshot"],
         "Current main planning snapshot",
-      ),
-      legacySnapshot: readJson(
-        options["legacy-snapshot"],
-        "Current legacy snapshot",
       ),
     });
     return;

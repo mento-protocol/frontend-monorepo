@@ -513,7 +513,7 @@ test("candidate-modified validators remain inert during trusted validation", () 
   }
 });
 
-test("protected spec includes v3, v2, and every ordinary production alias", () => {
+test("protected spec includes v3 and every ordinary production alias", () => {
   const spec = createProtectedAliasSpec({
     appV3AliasesJson: JSON.stringify([
       "app.mento.org",
@@ -529,29 +529,16 @@ test("protected spec includes v3, v2, and every ordinary production alias", () =
       "governance.mento.org",
       "reserve.mento.org",
       "ui.mento.org",
-      "v2-app.mento.org",
     ],
   );
   assert.equal(
     spec.find((entry) => entry.alias === "app.mento.org").customEnvironmentSlug,
     "v3",
   );
-  assert.equal(
-    spec.find((entry) => entry.alias === "v2-app.mento.org").git.ref,
-    "v2",
-  );
   assert.throws(
     () =>
       createProtectedAliasSpec({
         appV3AliasesJson: '["appmentoorg-env-v3-mentolabs.vercel.app"]',
-        projectIds: projectIds(),
-      }),
-    /must exactly match/,
-  );
-  assert.throws(
-    () =>
-      createProtectedAliasSpec({
-        appV3AliasesJson: '["app.mento.org","v2-app.mento.org"]',
         projectIds: projectIds(),
       }),
     /must exactly match/,
@@ -565,6 +552,49 @@ test("protected spec includes v3, v2, and every ordinary production alias", () =
       }),
     /must exactly match/,
   );
+});
+
+test("the retired app v2 topology cannot re-enter the protected spec", () => {
+  const retiredAppV2Aliases = [
+    "v2-app.mento.org",
+    "appmentoorg-git-v2-mentolabs.vercel.app",
+    "appmentoorg-mentolabs.vercel.app",
+    "appmentoorg.vercel.app",
+  ];
+  const spec = createProtectedAliasSpec({
+    appV3AliasesJson: JSON.stringify([
+      "app.mento.org",
+      "appmentoorg-env-v3-mentolabs.vercel.app",
+    ]),
+    projectIds: projectIds(),
+  });
+  assert.equal(spec.length, 5);
+  for (const entry of spec) {
+    assert.equal(retiredAppV2Aliases.includes(entry.alias), false);
+    assert.notEqual(entry.git.ref, "v2");
+  }
+  for (const retired of retiredAppV2Aliases) {
+    assert.throws(
+      () =>
+        createProtectedAliasSpec({
+          appV3AliasesJson: JSON.stringify([
+            "app.mento.org",
+            "appmentoorg-env-v3-mentolabs.vercel.app",
+            retired,
+          ]),
+          projectIds: projectIds(),
+        }),
+      /must exactly match/,
+    );
+    assert.throws(
+      () =>
+        createProtectedAliasSpec({
+          appV3AliasesJson: JSON.stringify(["app.mento.org", retired]),
+          projectIds: projectIds(),
+        }),
+      /must exactly match/,
+    );
+  }
 });
 
 test("immutable-source validation binds workflow identity before Git reads", () => {
@@ -2788,48 +2818,43 @@ test("pilot summary records exact build, staging, and rollback evidence", () => 
     deployDurationMs: "50",
     totalDurationMs: "200",
   });
+  const summaryInput = {
+    path: summaryPath,
+    sha: SHA,
+    runUrl:
+      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123",
+    workflowDurationMs: "1000",
+    baseline: [
+      {
+        alias: "app.mento.org",
+        deploymentId: "dpl_appv3old123",
+        deploymentUrl: "https://app-v3-old.vercel.app",
+        customEnvironmentSlug: "v3",
+      },
+      {
+        alias: "appmentoorg-env-v3-mentolabs.vercel.app",
+        deploymentId: "dpl_appv3old123",
+        deploymentUrl: "https://app-v3-old.vercel.app",
+        customEnvironmentSlug: "v3",
+      },
+    ],
+    app: {
+      nextDeploymentId: "m-app-0123456789abcdef012",
+      buildDurationMs: "100",
+      totalDurationMs: "150",
+      cacheHits: "1",
+      cacheMisses: "2",
+    },
+    governance: {
+      ...ordinary("governance"),
+      cacheHits: "2",
+      cacheMisses: "1",
+    },
+    reserve: { ...ordinary("reserve"), cacheHits: "0", cacheMisses: "3" },
+    ui: { ...ordinary("ui"), cacheHits: "3", cacheMisses: "0" },
+  };
   try {
-    writePilotSummary({
-      path: summaryPath,
-      sha: SHA,
-      runUrl:
-        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123",
-      workflowDurationMs: "1000",
-      baseline: [
-        {
-          alias: "app.mento.org",
-          deploymentId: "dpl_appv3old123",
-          deploymentUrl: "https://app-v3-old.vercel.app",
-          customEnvironmentSlug: "v3",
-        },
-        {
-          alias: "appmentoorg-env-v3-mentolabs.vercel.app",
-          deploymentId: "dpl_appv3old123",
-          deploymentUrl: "https://app-v3-old.vercel.app",
-          customEnvironmentSlug: "v3",
-        },
-        {
-          alias: "v2-app.mento.org",
-          deploymentId: "dpl_appv2old123",
-          deploymentUrl: "https://app-v2-old.vercel.app",
-          customEnvironmentSlug: null,
-        },
-      ],
-      app: {
-        nextDeploymentId: "m-app-0123456789abcdef012",
-        buildDurationMs: "100",
-        totalDurationMs: "150",
-        cacheHits: "1",
-        cacheMisses: "2",
-      },
-      governance: {
-        ...ordinary("governance"),
-        cacheHits: "2",
-        cacheMisses: "1",
-      },
-      reserve: { ...ordinary("reserve"), cacheHits: "0", cacheMisses: "3" },
-      ui: { ...ordinary("ui"), cacheHits: "3", cacheMisses: "0" },
-    });
+    writePilotSummary(summaryInput);
     const summary = readFileSync(summaryPath, "utf8");
     assert.match(summary, new RegExp(SHA));
     assert.match(summary, /build-only Outcome B/);
@@ -2842,6 +2867,22 @@ test("pilot summary records exact build, staging, and rollback evidence", () => 
     assert.match(summary, /Whole workflow duration: 1000 ms/);
     assert.match(summary, /2 hit \/ 1 miss/);
     assert.doesNotMatch(summary, /fixture-token|test-value-not-printed/);
+    assert.doesNotMatch(summary, /legacy|v2-app\.mento\.org|v2 production/);
+    assert.throws(
+      () =>
+        writePilotSummary({
+          ...summaryInput,
+          baseline: [
+            {
+              alias: "v2-app.mento.org",
+              deploymentId: "dpl_appv2old123",
+              deploymentUrl: "https://app-v2-old.vercel.app",
+              customEnvironmentSlug: null,
+            },
+          ],
+        }),
+      /missing app v3 state/,
+    );
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

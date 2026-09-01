@@ -228,60 +228,94 @@ test("every target exposes four distinct exact preview and main ownership states
   );
 });
 
-test("active ownership disables every native branch except App v2", () => {
-  assert.deepEqual(
-    PREVIEW_TARGET_CONFIG.app.activeVercelConfiguration.git.deploymentEnabled,
-    { "**": false, v2: true },
-  );
-  for (const target of ["governance", "reserve", "ui"]) {
+test("active ownership disables every native branch for every target", () => {
+  for (const target of PREVIEW_TARGETS) {
     assert.equal(
       PREVIEW_TARGET_CONFIG[target].activeVercelConfiguration.git
         .deploymentEnabled,
       false,
     );
   }
+  assert.equal(
+    PREVIEW_TARGET_CONFIG.app.activeVercelConfiguration,
+    PREVIEW_TARGET_CONFIG.governance.activeVercelConfiguration,
+  );
 });
 
 test("main-shadow rollback keeps previews GitHub-owned and main native", () => {
-  assert.deepEqual(
-    PREVIEW_TARGET_CONFIG.app.mainShadowVercelConfiguration.git
-      .deploymentEnabled,
-    { "**": false, main: true, v2: true },
-  );
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of PREVIEW_TARGETS) {
     assert.deepEqual(
       PREVIEW_TARGET_CONFIG[target].mainShadowVercelConfiguration.git
         .deploymentEnabled,
       { "**": false, main: true },
     );
   }
+  assert.equal(
+    PREVIEW_TARGET_CONFIG.app.mainShadowVercelConfiguration,
+    PREVIEW_TARGET_CONFIG.governance.mainShadowVercelConfiguration,
+  );
 });
 
 test("preview-shadow rollback keeps native previews and GitHub-owned main independent", () => {
-  assert.deepEqual(
-    PREVIEW_TARGET_CONFIG.app.previewShadowVercelConfiguration.git
-      .deploymentEnabled,
-    { "dependabot/**": false, main: false, v2: true },
-  );
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of PREVIEW_TARGETS) {
     assert.deepEqual(
       PREVIEW_TARGET_CONFIG[target].previewShadowVercelConfiguration.git
         .deploymentEnabled,
       { "dependabot/**": false, main: false },
     );
   }
+  assert.equal(
+    PREVIEW_TARGET_CONFIG.app.previewShadowVercelConfiguration,
+    PREVIEW_TARGET_CONFIG.governance.previewShadowVercelConfiguration,
+  );
 });
 
-test("full native rollback keeps the Dependabot exclusion and App v2", () => {
-  assert.deepEqual(
-    PREVIEW_TARGET_CONFIG.app.nativeVercelConfiguration.git.deploymentEnabled,
-    { "dependabot/**": false, v2: true },
-  );
-  for (const target of ["governance", "reserve", "ui"]) {
+test("full native rollback keeps only the Dependabot exclusion", () => {
+  for (const target of PREVIEW_TARGETS) {
     assert.deepEqual(
       PREVIEW_TARGET_CONFIG[target].nativeVercelConfiguration.git
         .deploymentEnabled,
       { "dependabot/**": false },
+    );
+  }
+  assert.equal(
+    PREVIEW_TARGET_CONFIG.app.nativeVercelConfiguration,
+    PREVIEW_TARGET_CONFIG.governance.nativeVercelConfiguration,
+  );
+});
+
+// The retired legacy App deployment was the only reviewed state that ever
+// enabled a native Git branch build. No ownership state may re-admit one.
+test("no reviewed ownership state re-enables the retired legacy branch", () => {
+  for (const target of PREVIEW_TARGETS) {
+    const targetConfiguration = PREVIEW_TARGET_CONFIG[target];
+    for (const exactState of [
+      targetConfiguration.activeVercelConfiguration,
+      targetConfiguration.mainShadowVercelConfiguration,
+      targetConfiguration.previewShadowVercelConfiguration,
+      targetConfiguration.nativeVercelConfiguration,
+      targetConfiguration.trackedVercelConfiguration,
+    ]) {
+      const { deploymentEnabled } = exactState.git;
+      if (deploymentEnabled === false) {
+        continue;
+      }
+      assert.ok(
+        !Object.hasOwn(deploymentEnabled, "v2"),
+        `${target} must not re-enable the retired legacy branch`,
+      );
+      assert.deepEqual(
+        Object.keys(deploymentEnabled).filter((branch) => branch !== "main"),
+        Object.keys(deploymentEnabled).filter(
+          (branch) => branch !== "main" && deploymentEnabled[branch] === false,
+        ),
+        `${target} must not enable any branch other than main`,
+      );
+    }
+    assert.equal(
+      JSON.stringify(configuration(target)).includes('"v2"'),
+      false,
+      `${target} vercel.json must not re-enable the retired legacy branch`,
     );
   }
 });
@@ -316,14 +350,14 @@ test("only App carries a bounded transitional GitHub-owned configuration", () =>
   assert.ok(Object.isFrozen(transitional));
   assert.equal(transitional.length, 1);
   assertExactOwnership(structuredClone(transitional[0]), transitional[0]);
+  // The entry is the retired pre-MGP-18 active shape, kept recognition-only
+  // so open pull requests branched before the retirement stay classified as
+  // GitHub-owned until their heads refresh. It is the single place the
+  // retired `v2` branch key may still appear.
   assert.deepEqual(transitional[0], {
     $schema: "https://openapi.vercel.sh/vercel.json",
-    git: { deploymentEnabled: false },
+    git: { deploymentEnabled: { "**": false, v2: true } },
   });
-  assert.equal(
-    transitional[0],
-    PREVIEW_TARGET_CONFIG.governance.activeVercelConfiguration,
-  );
   // The transitional shape must not collide with any of App's four exact
   // states, or the recognizer would classify one candidate two ways.
   for (const exactState of [
@@ -334,7 +368,7 @@ test("only App carries a bounded transitional GitHub-owned configuration", () =>
   ]) {
     assert.notDeepEqual(transitional[0], exactState);
   }
-  // App still tracks its current v2-aware shape on this branch.
+  // The tracked file is the generic active shape, never the retired one.
   assert.notDeepEqual(configuration("app"), transitional[0]);
   for (const target of ["governance", "reserve", "ui"]) {
     assert.deepEqual(

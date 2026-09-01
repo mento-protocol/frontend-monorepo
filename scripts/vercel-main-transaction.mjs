@@ -26,13 +26,7 @@ const NUMERIC_ID_PATTERN = /^[1-9][0-9]*$/;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9._-]+$/;
 const DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
 const ORDINARY_TARGETS = Object.freeze(["governance", "reserve", "ui"]);
-const PROTECTED_TARGETS = Object.freeze([
-  "app",
-  "governance",
-  "reserve",
-  "ui",
-  "legacy-app",
-]);
+const PROTECTED_TARGETS = Object.freeze(["app", "governance", "reserve", "ui"]);
 const CANDIDATE_TARGETS = Object.freeze(["app", "governance", "reserve", "ui"]);
 const MODES = Object.freeze(["shadow", "active"]);
 const STATUSES = Object.freeze([
@@ -51,7 +45,6 @@ const OPERATION_TYPES = Object.freeze([
   "app_alias_set",
   "ordinary_rollback",
   "app_alias_restore",
-  "legacy_emergency_restore",
 ]);
 const FORWARD_OPERATION_TYPES = new Set([
   "promote",
@@ -61,7 +54,6 @@ const FORWARD_OPERATION_TYPES = new Set([
 const RECOVERY_OPERATION_TYPES = new Set([
   "ordinary_rollback",
   "app_alias_restore",
-  "legacy_emergency_restore",
 ]);
 const OPERATION_STATES = Object.freeze([
   "started",
@@ -149,7 +141,6 @@ const START_MAPPING_TARGETS = Object.freeze([
   "governance",
   "reserve",
   "ui",
-  "legacy-app",
 ]);
 const RECOVERY_PLAN_KEYS = Object.freeze([
   "decision",
@@ -478,13 +469,6 @@ function canonicalStartMappings(startMappings, prior) {
       ].sort((left, right) => left.alias.localeCompare(right.alias)),
     ]),
   );
-  for (const mapping of canonical["legacy-app"]) {
-    if (!sameDeployment(mapping, prior["legacy-app"])) {
-      throw new Error(
-        "Legacy App start mapping must be the fresh captured prior",
-      );
-    }
-  }
   return canonical;
 }
 
@@ -562,16 +546,6 @@ function assertOperationTarget(type, target, alias, journal) {
   ) {
     throw new Error(`${type} must bind one reviewed app-v3 alias`);
   }
-  if (
-    type === "legacy_emergency_restore" &&
-    (target !== "legacy-app" ||
-      alias === null ||
-      !journal.prior["legacy-app"].aliases.includes(alias))
-  ) {
-    throw new Error(
-      "legacy_emergency_restore must bind a captured legacy alias",
-    );
-  }
 }
 
 function canonicalOperation(operation, journal) {
@@ -623,10 +597,7 @@ function canonicalOperation(operation, journal) {
   if (candidateDeploymentId === null && operation.type !== "app_v3_deploy") {
     throw new Error("Only app_v3_deploy may start before candidate discovery");
   }
-  const expectedCandidate =
-    operation.target === "legacy-app"
-      ? journal.candidates.app
-      : journal.candidates[operation.target];
+  const expectedCandidate = journal.candidates[operation.target];
   if (expectedCandidate === null) {
     throw new Error("Operation target was not selected for this transaction");
   }
@@ -797,10 +768,7 @@ function operationIntent(journal, { target, type, alias = null }) {
   const canonicalAlias = alias === null ? null : canonicalizeHostname(alias);
   assertOperationTarget(type, target, canonicalAlias, journal);
   const prior = journal.prior[target];
-  const candidate =
-    target === "legacy-app"
-      ? journal.candidates.app
-      : journal.candidates[target];
+  const candidate = journal.candidates[target];
   return {
     target,
     type,
@@ -1843,10 +1811,7 @@ function canonicalAllCurrentMappings(journal, currentMappings) {
 function action(kind, journal, operation, additional = {}) {
   const target = additional.target ?? operation.target;
   const prior = journal.prior[target];
-  const candidate =
-    target === "legacy-app"
-      ? journal.candidates.app
-      : journal.candidates[target];
+  const candidate = journal.candidates[target];
   return {
     kind,
     target,
@@ -1891,11 +1856,7 @@ export function planMainTransactionRecovery({
     const appAliasesMoved = canonical.prior.app.aliases.some(
       (alias) => !sameDeployment(mappings.get(alias), canonical.prior.app),
     );
-    const legacyMoved = canonical.prior["legacy-app"].aliases.some(
-      (alias) =>
-        !sameDeployment(mappings.get(alias), canonical.prior["legacy-app"]),
-    );
-    if (appAliasesMoved || legacyMoved) {
+    if (appAliasesMoved) {
       try {
         appCandidate = resolveUniqueAppTransactionCandidate(
           canonical,
@@ -1924,9 +1885,7 @@ export function planMainTransactionRecovery({
   const actions = [];
   const handledOrdinaryTargets = new Set();
   const handledAppAliases = new Set();
-  let legacyHandled = false;
   let manual = false;
-  let emergencyLegacyRestore = false;
   for (const operation of [...starts].reverse()) {
     if (operation.type === "promote") {
       if (handledOrdinaryTargets.has(operation.target)) continue;
@@ -2028,41 +1987,6 @@ export function planMainTransactionRecovery({
           );
         }
       }
-      if (!legacyHandled) {
-        legacyHandled = true;
-        for (const alias of canonical.prior["legacy-app"].aliases) {
-          const mapping = mappings.get(alias);
-          if (sameDeployment(mapping, canonical.prior["legacy-app"])) {
-            actions.push(
-              action("verified_noop", recoveryJournal, operation, {
-                target: "legacy-app",
-                alias,
-                mappingState: "prior",
-              }),
-            );
-          } else if (
-            appCandidate?.deploymentId &&
-            sameDeployment(mapping, appCandidate)
-          ) {
-            emergencyLegacyRestore = true;
-            actions.push(
-              action("legacy_emergency_restore", recoveryJournal, operation, {
-                target: "legacy-app",
-                alias,
-              }),
-            );
-          } else {
-            manual = true;
-            actions.push(
-              action("manual_intervention", recoveryJournal, operation, {
-                target: "legacy-app",
-                alias,
-                mappingState: "unexpected",
-              }),
-            );
-          }
-        }
-      }
     }
   }
   return {
@@ -2075,9 +1999,7 @@ export function planMainTransactionRecovery({
           : manual
             ? "unexpected-protected-mapping"
             : "app-candidate-unresolved-after-start"
-        : emergencyLegacyRestore
-          ? "legacy-alias-moved-to-transaction-candidate"
-          : "started-operations-require-verification-or-recovery",
+        : "started-operations-require-verification-or-recovery",
     journal: canonical,
     actions,
     rollbackStateTargets: actions
@@ -2092,7 +2014,6 @@ function recoveryActionSlots(journal) {
   const slots = [];
   const handledOrdinaryTargets = new Set();
   const handledAppAliases = new Set();
-  let legacyHandled = false;
   for (const operation of [...startedForwardOperations(journal)].reverse()) {
     if (operation.type === "promote") {
       if (handledOrdinaryTargets.has(operation.target)) continue;
@@ -2129,16 +2050,6 @@ function recoveryActionSlots(journal) {
         operation,
       });
     }
-    if (legacyHandled) continue;
-    legacyHandled = true;
-    for (const alias of journal.prior["legacy-app"].aliases) {
-      slots.push({
-        category: "legacy",
-        target: "legacy-app",
-        alias,
-        operation,
-      });
-    }
   }
   return slots;
 }
@@ -2152,11 +2063,6 @@ function canonicalRecoveryAction(entry, slot, journal, index) {
       "ordinary_rollback",
     ]),
     app: new Set(["verified_noop", "manual_intervention", "app_alias_restore"]),
-    legacy: new Set([
-      "verified_noop",
-      "manual_intervention",
-      "legacy_emergency_restore",
-    ]),
   };
   if (!allowedKinds[slot.category].has(entry?.kind)) {
     throw new Error(`${label} kind does not match its recovery slot`);
@@ -2165,8 +2071,7 @@ function canonicalRecoveryAction(entry, slot, journal, index) {
   const expectedKeys =
     entry.kind === "ordinary_rollback"
       ? [...RECOVERY_ACTION_BASE_KEYS, "aliases", "entersRollbackState"]
-      : entry.kind === "app_alias_restore" ||
-          entry.kind === "legacy_emergency_restore"
+      : entry.kind === "app_alias_restore"
         ? [...RECOVERY_ACTION_BASE_KEYS, "alias"]
         : [
             ...RECOVERY_ACTION_BASE_KEYS,
@@ -2200,10 +2105,7 @@ function canonicalRecoveryAction(entry, slot, journal, index) {
       entersRollbackState: true,
     };
   }
-  if (
-    entry.kind === "app_alias_restore" ||
-    entry.kind === "legacy_emergency_restore"
-  ) {
+  if (entry.kind === "app_alias_restore") {
     if (expected.candidateDeploymentId === null) {
       throw new Error(`${label} cannot restore an unknown app candidate`);
     }
@@ -2301,13 +2203,8 @@ export function assertMainTransactionRecoveryPlan(plan) {
   const hasAmbiguousAppAction =
     hasUnresolvedStartedApp &&
     actions.some(
-      (entry) =>
-        entry.kind === "manual_intervention" &&
-        (entry.target === "app" || entry.target === "legacy-app"),
+      (entry) => entry.kind === "manual_intervention" && entry.target === "app",
     );
-  const hasLegacyEmergency = actions.some(
-    (entry) => entry.kind === "legacy_emergency_restore",
-  );
   const decision =
     hasManualAction || hasUnresolvedStartedApp
       ? "manual_intervention"
@@ -2319,9 +2216,7 @@ export function assertMainTransactionRecoveryPlan(plan) {
         : hasManualAction
           ? "unexpected-protected-mapping"
           : "app-candidate-unresolved-after-start"
-      : hasLegacyEmergency
-        ? "legacy-alias-moved-to-transaction-candidate"
-        : "started-operations-require-verification-or-recovery";
+      : "started-operations-require-verification-or-recovery";
   if (
     plan.decision !== decision ||
     plan.reason !== reason ||
@@ -2635,13 +2530,6 @@ function recoveryIntent(action) {
       alias: action.alias,
     };
   }
-  if (action.kind === "legacy_emergency_restore") {
-    return {
-      type: "legacy_emergency_restore",
-      target: "legacy-app",
-      alias: action.alias,
-    };
-  }
   throw new Error("Recovery action does not mutate a mapping");
 }
 
@@ -2650,7 +2538,6 @@ export async function executeMainTransactionRecovery({
   uploadJournal,
   ordinaryRollback,
   restoreAppAlias,
-  restoreLegacyAlias,
   inspectMapping,
   verifyMapping,
 }) {
@@ -2678,11 +2565,7 @@ export async function executeMainTransactionRecovery({
       throw error;
     }
   };
-  const mutationKinds = new Set([
-    "ordinary_rollback",
-    "app_alias_restore",
-    "legacy_emergency_restore",
-  ]);
+  const mutationKinds = new Set(["ordinary_rollback", "app_alias_restore"]);
   if (
     canonicalPlan.actions.length > 0 &&
     typeof inspectMapping !== "function"
@@ -2698,7 +2581,6 @@ export async function executeMainTransactionRecovery({
   for (const [kind, adapter] of [
     ["ordinary_rollback", ordinaryRollback],
     ["app_alias_restore", restoreAppAlias],
-    ["legacy_emergency_restore", restoreLegacyAlias],
   ]) {
     if (
       canonicalPlan.actions.some((entry) => entry.kind === kind) &&
@@ -2722,11 +2604,9 @@ export async function executeMainTransactionRecovery({
       mappingState === "prior"
         ? "verified_noop"
         : mappingState === "candidate"
-          ? entry.target === "legacy-app"
-            ? "legacy_emergency_restore"
-            : entry.target === "app"
-              ? "app_alias_restore"
-              : "ordinary_rollback"
+          ? entry.target === "app"
+            ? "app_alias_restore"
+            : "ordinary_rollback"
           : ["partial", "unexpected"].includes(mappingState)
             ? "manual_intervention"
             : null;
@@ -2762,11 +2642,7 @@ export async function executeMainTransactionRecovery({
       continue;
     }
     const adapter =
-      entry.kind === "ordinary_rollback"
-        ? ordinaryRollback
-        : entry.kind === "app_alias_restore"
-          ? restoreAppAlias
-          : restoreLegacyAlias;
+      entry.kind === "ordinary_rollback" ? ordinaryRollback : restoreAppAlias;
     highest = await executeJournaledMainMutation({
       journal: highest,
       intent: recoveryIntent(entry),
@@ -2817,7 +2693,6 @@ const MAIN_MUTATION_ADAPTERS = Object.freeze([
   "inspectProtectedMappings",
   "ordinaryRollback",
   "restoreAppAlias",
-  "restoreLegacyAlias",
 ]);
 
 function validateMainMutationAdapters(mutationAdapters) {
@@ -2876,30 +2751,6 @@ async function inspectActiveProtectedMappings({
   }
 }
 
-async function assertLegacyV2Invariant({
-  journal,
-  inspectProtectedMappings,
-  phase,
-}) {
-  const mappings = await inspectActiveProtectedMappings({
-    journal,
-    inspectProtectedMappings,
-    phase,
-  });
-  const legacy = journal.prior["legacy-app"];
-  if (
-    legacy.aliases.some((alias) => !sameDeployment(mappings.get(alias), legacy))
-  ) {
-    throw new MainTransactionError(
-      "Legacy App v2 mapping differs from its captured prior",
-      {
-        code: "LEGACY_V2_INVARIANT_FAILED",
-        journal,
-      },
-    );
-  }
-}
-
 async function assertActiveFinalMappings({
   journal,
   inspectProtectedMappings,
@@ -2911,7 +2762,7 @@ async function assertActiveFinalMappings({
   });
   for (const target of PROTECTED_TARGETS) {
     const expected =
-      target === "legacy-app" || journal.candidates[target] === null
+      journal.candidates[target] === null
         ? journal.prior[target]
         : journal.candidates[target];
     if (
@@ -2923,10 +2774,7 @@ async function assertActiveFinalMappings({
       throw new MainTransactionError(
         "Final protected mappings do not match the transaction",
         {
-          code:
-            target === "legacy-app"
-              ? "LEGACY_V2_INVARIANT_FAILED"
-              : "FINAL_MAPPING_VERIFICATION_FAILED",
+          code: "FINAL_MAPPING_VERIFICATION_FAILED",
           journal,
         },
       );
@@ -3095,33 +2943,18 @@ export async function runMainTransaction({
     executeMutation,
     allowedPreMutationStates = ["prior"],
   }) => {
-    const operationJournal = highest;
     highest = await executeJournaledMainMutation({
-      journal: operationJournal,
+      journal: highest,
       intent,
       uploadJournal,
       assertFreshness,
       allowedPreMutationStates,
-      inspectMutationState: async (context) => {
-        await assertLegacyV2Invariant({
-          journal: operationJournal,
-          inspectProtectedMappings,
-          phase: `${intent.type}:${context.phase}`,
-        });
-        return inspectMapping(context);
-      },
+      inspectMutationState: inspectMapping,
       executeMutation: async (context) => {
         mutationCallbacksCalled += 1;
         return executeMutation(context);
       },
-      verifyMapping: async (context) => {
-        await assertLegacyV2Invariant({
-          journal: operationJournal,
-          inspectProtectedMappings,
-          phase: `${intent.type}:post-command`,
-        });
-        return verifyMapping(context);
-      },
+      verifyMapping,
     });
     lastDurableJournal = highest;
   };
@@ -3146,11 +2979,6 @@ export async function runMainTransaction({
     for (const alias of highest.prior.app.aliases) {
       const intent = { type: "app_alias_set", target: "app", alias };
       await assertFresh(assertFreshness, "pre-alias", highest);
-      await assertLegacyV2Invariant({
-        journal: highest,
-        inspectProtectedMappings,
-        phase: "app_alias_set:selection",
-      });
       let aliasState;
       try {
         const inspection = await inspectMapping({

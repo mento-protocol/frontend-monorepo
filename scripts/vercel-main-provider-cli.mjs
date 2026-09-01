@@ -30,7 +30,6 @@ import { fileURLToPath } from "node:url";
 
 import {
   VercelStateClient,
-  assertCanonicalOutput,
   assertMainPlanningAppV3Topology,
   assertMainPlanningSnapshot,
   canonicalizeDeploymentUrl,
@@ -77,28 +76,13 @@ const MAIN_CANDIDATE_SMOKE_PATHS = Object.freeze({
 });
 const MAIN_CANDIDATE_SMOKE_MAX_ATTEMPTS = 4;
 const MAIN_CANDIDATE_SMOKE_RETRY_DELAY_MS = 1_000;
-const LEGACY_ALIAS = "v2-app.mento.org";
-const LEGACY_ALIASES = Object.freeze(
-  [
-    LEGACY_ALIAS,
-    "appmentoorg-git-v2-mentolabs.vercel.app",
-    "appmentoorg-mentolabs.vercel.app",
-    "appmentoorg.vercel.app",
-  ].sort(),
-);
 const CLI_OPTIONS = Object.freeze({
   "preplan-discover": Object.freeze([
     "planning-snapshot",
-    "legacy-snapshot",
     "project-ids",
     "output",
   ]),
-  "preplan-decide": Object.freeze([
-    "discovery",
-    "planning-snapshot",
-    "legacy-snapshot",
-    "output",
-  ]),
+  "preplan-decide": Object.freeze(["discovery", "planning-snapshot", "output"]),
   "preplan-materialize": Object.freeze(["output"]),
   "canonical-mappings": Object.freeze(["planning-snapshot", "output"]),
   "candidate-preflight": Object.freeze(["intent", "output"]),
@@ -107,7 +91,6 @@ const CLI_OPTIONS = Object.freeze({
   "candidate-finalize-inherited": Object.freeze(["intent", "smoke", "output"]),
 });
 const OPTIONAL_OPTIONS = Object.freeze({
-  "canonical-mappings": new Set(["legacy-snapshot"]),
   "candidate-finalize": new Set(["preflight"]),
 });
 const DISCOVERY_SCHEMA = "vercel-main-preplan-candidate-discovery:v2";
@@ -133,7 +116,7 @@ const CANDIDATE_SMOKE_FAILURE_CODES = new Set([
   "candidate-smoke-edge-transient-exhausted",
 ]);
 const SAFE_MAIN_PROVIDER_FAILURE_CODES = new Set([
-  ...["planning-census", "legacy-census"].flatMap((stage) => [
+  ...["planning-census"].flatMap((stage) => [
     `${stage}-read-timeout`,
     `${stage}-read-transport`,
     `${stage}-read-rate-limited`,
@@ -150,14 +133,10 @@ const SAFE_MAIN_PROVIDER_FAILURE_CODES = new Set([
 const RETRYABLE_MAIN_PROVIDER_FAILURE_CODES = new Set([
   "planning-census-unstable",
   "planning-census-stale",
-  "legacy-census-unstable",
-  "legacy-census-stale",
 ]);
 const MAIN_PROVIDER_OBSERVATION_FAILURE = Object.freeze({
   planningUnstable: "planning-census-unstable",
   planningStale: "planning-census-stale",
-  legacyUnstable: "legacy-census-unstable",
-  legacyStale: "legacy-census-stale",
 });
 
 function isPlainObject(value) {
@@ -232,19 +211,7 @@ function planningSnapshotDigest(value) {
   return digest(assertMainPlanningSnapshot(value));
 }
 
-export function digestMainLegacyV2Snapshot(value) {
-  const snapshot = assertCanonicalOutput(value);
-  if (!Array.isArray(snapshot) || snapshot.length !== 1) {
-    throw new Error("Legacy v2 snapshot must contain exactly one state");
-  }
-  return digest(snapshot[0]);
-}
-
-export function createMainCanonicalMappings({
-  planningSnapshot,
-  projectIds,
-  legacySnapshot = null,
-}) {
+export function createMainCanonicalMappings({ planningSnapshot, projectIds }) {
   const snapshot = assertMainPlanningSnapshot(planningSnapshot);
   const projects = canonicalProjectIds(projectIds);
   const expectedAliases = MAIN_RELEASE_ACTIVATION_ORDER.flatMap(
@@ -300,31 +267,6 @@ export function createMainCanonicalMappings({
       );
     }
     mappings[target] = states.map(mappingFromState);
-  }
-
-  if (legacySnapshot !== null) {
-    assertCanonicalOutput(legacySnapshot);
-    if (!Array.isArray(legacySnapshot) || legacySnapshot.length !== 1) {
-      throw new Error("Legacy v2 snapshot must contain exactly one state");
-    }
-    const state = legacySnapshot[0];
-    if (
-      state.alias !== LEGACY_ALIAS ||
-      state.projectId !== projects.app ||
-      state.projectName !== MAIN_TARGET_CONTRACTS.app.projectName ||
-      state.target !== "production" ||
-      state.customEnvironmentSlug !== null ||
-      state.readyState !== "READY" ||
-      state.git.org !== "mento-protocol" ||
-      state.git.repo !== "frontend-monorepo" ||
-      state.git.ref !== "v2" ||
-      JSON.stringify(state.aliases) !== JSON.stringify(LEGACY_ALIASES)
-    ) {
-      throw new Error("Legacy v2 snapshot identity or topology conflicts");
-    }
-    mappings["legacy-app"] = state.aliases.map((alias) =>
-      mappingFromState({ ...state, alias }),
-    );
   }
 
   return {
@@ -390,65 +332,31 @@ function assertDiscovery(value) {
   return value;
 }
 
-function createDiscoveryEnvelope({
-  planningSnapshot,
-  legacySnapshot,
-  projectIds,
-  discovery,
-}) {
+function createDiscoveryEnvelope({ planningSnapshot, projectIds, discovery }) {
   return {
     schema: MAIN_PROVIDER_DISCOVERY_SCHEMA,
     planningSnapshotDigest: planningSnapshotDigest(planningSnapshot),
-    legacyAppV2Digest: digestMainLegacyV2Snapshot(legacySnapshot),
     projectIds: canonicalProjectIds(projectIds),
     discovery: assertDiscovery(discovery),
-  };
-}
-
-function legacyV2Expectation(snapshot) {
-  const canonical = assertCanonicalOutput(snapshot);
-  if (!Array.isArray(canonical) || canonical.length !== 1) {
-    throw new Error("Legacy v2 snapshot must contain exactly one state");
-  }
-  const state = canonical[0];
-  return {
-    alias: state.alias,
-    deployment: state.deploymentId,
-    deploymentUrl: state.deploymentUrl,
-    projectId: state.projectId,
-    projectName: state.projectName,
-    readyState: state.readyState,
-    target: state.target,
-    customEnvironmentSlug: state.customEnvironmentSlug,
-    git: structuredClone(state.git),
   };
 }
 
 export function assertMainProviderDiscovery(value) {
   assertExactKeys(
     value,
-    [
-      "schema",
-      "planningSnapshotDigest",
-      "legacyAppV2Digest",
-      "projectIds",
-      "discovery",
-    ],
+    ["schema", "planningSnapshotDigest", "projectIds", "discovery"],
     "Main provider discovery",
   );
   if (
     value.schema !== MAIN_PROVIDER_DISCOVERY_SCHEMA ||
     typeof value.planningSnapshotDigest !== "string" ||
-    !DIGEST_PATTERN.test(value.planningSnapshotDigest) ||
-    typeof value.legacyAppV2Digest !== "string" ||
-    !DIGEST_PATTERN.test(value.legacyAppV2Digest)
+    !DIGEST_PATTERN.test(value.planningSnapshotDigest)
   ) {
     throw new Error("Main provider discovery identity is malformed");
   }
   return {
     schema: value.schema,
     planningSnapshotDigest: value.planningSnapshotDigest,
-    legacyAppV2Digest: value.legacyAppV2Digest,
     projectIds: canonicalProjectIds(value.projectIds),
     discovery: assertDiscovery(value.discovery),
   };
@@ -874,47 +782,6 @@ async function captureStableBoundPlanningSnapshot({
   return second;
 }
 
-async function captureStableBoundLegacyV2Snapshot({
-  client,
-  legacySnapshot,
-  expectedDigest,
-}) {
-  if (!client || typeof client.canonicalLegacyV2State !== "function") {
-    throw new Error("Fresh legacy v2 state client is required");
-  }
-  const expectation = legacyV2Expectation(legacySnapshot);
-  const capture = async () => {
-    const proof = await client.canonicalLegacyV2State(expectation);
-    if (!isPlainObject(proof)) {
-      throw new Error("Fresh legacy v2 state proof is malformed");
-    }
-    assertExactKeys(
-      proof,
-      ["ownership", "state"],
-      "Fresh legacy v2 state proof",
-    );
-    if (proof.ownership !== "native-vercel-git") {
-      throw new Error("Fresh legacy v2 state proof is malformed");
-    }
-    return assertCanonicalOutput([proof.state]);
-  };
-  const first = await capture();
-  const second = await capture();
-  if (JSON.stringify(first) !== JSON.stringify(second)) {
-    throw providerObservationFailure(
-      MAIN_PROVIDER_OBSERVATION_FAILURE.legacyUnstable,
-      "Legacy v2 mapping changed during decision census",
-    );
-  }
-  if (digestMainLegacyV2Snapshot(second) !== expectedDigest) {
-    throw providerObservationFailure(
-      MAIN_PROVIDER_OBSERVATION_FAILURE.legacyStale,
-      "Legacy v2 mapping changed between discovery and decision",
-    );
-  }
-  return second;
-}
-
 export function encodeMainPreplanHandoff(
   value,
   { nextDeploySha, nextUpstreamRunId },
@@ -1161,13 +1028,6 @@ export async function runMainProviderCli({
         runnerTemp,
       ),
       projectIds: projectIdsFromEnvironment(env),
-      legacySnapshot: Object.hasOwn(options, "legacy-snapshot")
-        ? readPrivateJson(
-            options["legacy-snapshot"],
-            "Legacy v2 snapshot",
-            runnerTemp,
-          )
-        : null,
     });
     writePrivateJson(options.output, mappings, runnerTemp);
     stdout.write("Canonical main mappings written\n");
@@ -1187,15 +1047,9 @@ export async function runMainProviderCli({
       "Main planning snapshot",
       runnerTemp,
     );
-    const legacySnapshot = readPrivateJson(
-      options["legacy-snapshot"],
-      "Main provider legacy v2 snapshot",
-      runnerTemp,
-    );
     const currentMappings = createMainCanonicalMappings({
       planningSnapshot,
       projectIds,
-      legacySnapshot,
     }).mappings;
     const discovery = assertDiscovery(
       await discoverMainPreplanCandidateReleases({
@@ -1216,7 +1070,6 @@ export async function runMainProviderCli({
     );
     const result = createDiscoveryEnvelope({
       planningSnapshot,
-      legacySnapshot,
       projectIds,
       discovery,
     });
@@ -1263,15 +1116,9 @@ export async function runMainProviderCli({
       "Main planning snapshot",
       runnerTemp,
     );
-    const suppliedLegacySnapshot = readPrivateJson(
-      options["legacy-snapshot"],
-      "Main provider legacy v2 snapshot",
-      runnerTemp,
-    );
     createMainCanonicalMappings({
       planningSnapshot: suppliedSnapshot,
       projectIds: projects,
-      legacySnapshot: suppliedLegacySnapshot,
     });
     if (
       planningSnapshotDigest(suppliedSnapshot) !==
@@ -1279,14 +1126,6 @@ export async function runMainProviderCli({
     ) {
       throw new Error(
         "Main planning snapshot changed between discovery and decision",
-      );
-    }
-    if (
-      digestMainLegacyV2Snapshot(suppliedLegacySnapshot) !==
-      discovery.legacyAppV2Digest
-    ) {
-      throw new Error(
-        "Legacy v2 mapping changed between discovery and decision",
       );
     }
     const liveClient = stateClientFactory({
@@ -1302,20 +1141,10 @@ export async function runMainProviderCli({
           expectedDigest: discovery.planningSnapshotDigest,
         }),
     );
-    const freshLegacySnapshot = await runClassifiedProviderCensus(
-      "legacy-census",
-      () =>
-        captureStableBoundLegacyV2Snapshot({
-          client: liveClient,
-          legacySnapshot: suppliedLegacySnapshot,
-          expectedDigest: discovery.legacyAppV2Digest,
-        }),
-    );
     const { result, releaseId } = runClassifiedProviderReconciliation(() => {
       const { mappings: allMappings } = createMainCanonicalMappings({
         planningSnapshot: freshSnapshot,
         projectIds: projects,
-        legacySnapshot: freshLegacySnapshot,
       });
       const currentMappings = Object.fromEntries(
         MAIN_RELEASE_ACTIVATION_ORDER.map((target) => [

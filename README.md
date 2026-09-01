@@ -699,8 +699,7 @@ The repository is set up with GitHub Actions for CI:
   four per-target `mainOwnershipMode` values set to `github`. Governance,
   Reserve, and UI stage, verify, and promote exact immutable deployments. App
   builds and deploys its custom `v3` output, then verifies or assigns only its
-  reviewed aliases. The legacy App `v2 -> production` path remains native and
-  is checked independently. The removed Governance QA environment is not part
+  reviewed aliases. The removed Governance QA environment is not part
   of this topology.
 
   Main planning uses strict `vercel-main-plan:v2` evidence. `stagedTargets`
@@ -725,7 +724,7 @@ The repository is set up with GitHub Actions for CI:
   cross-attempt work. The compact terminal receipt and evidence are the only
   final-verdict handoff and support final-only reruns. A completed release emits
   `current-release-verified` only after fresh mapping, census/state, raw
-  public-runtime-smoke, legacy `v2`, and freshness proof; it creates no journal
+  public-runtime-smoke, and freshness proof; it creates no journal
   and executes no public mutation. App shadow preparation is build-only terminal
   evidence, never a provider deployment. Every other non-prefix, ambiguous,
   conflicting, or incomplete provider state fails closed before production work

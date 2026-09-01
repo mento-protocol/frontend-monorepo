@@ -33,7 +33,6 @@ import {
   buildMainActiveAppAliasRestoreCommand,
   buildMainActiveAppAliasSetCommand,
   buildMainActiveAppDeployCommand,
-  buildMainActiveLegacyAliasRestoreCommand,
   buildMainActivePromotionCommand,
   buildMainActiveRollbackCommand,
 } from "./vercel-main-active.mjs";
@@ -68,19 +67,9 @@ const DEPLOYMENT_TARGETS = Object.freeze([
   "reserve",
   "ui",
 ]);
-const PROTECTED_TARGETS = Object.freeze([
-  "app",
-  "governance",
-  "reserve",
-  "ui",
-  "legacy-app",
-]);
+const PROTECTED_TARGETS = Object.freeze(["app", "governance", "reserve", "ui"]);
 const FORWARD_TYPES = new Set(["promote", "app_v3_deploy", "app_alias_set"]);
-const RECOVERY_TYPES = new Set([
-  "ordinary_rollback",
-  "app_alias_restore",
-  "legacy_emergency_restore",
-]);
+const RECOVERY_TYPES = new Set(["ordinary_rollback", "app_alias_restore"]);
 const PUBLIC_URLS = Object.freeze({
   app: "https://app.mento.org/",
   governance: "https://governance.mento.org/",
@@ -379,38 +368,20 @@ function assertFreshSha(value, journal) {
   }
 }
 
-function canonicalCurrentMappings(
-  journal,
-  value,
-  { requireLegacyProjectBinding = false } = {},
-) {
+function canonicalCurrentMappings(journal, value) {
   if (!Array.isArray(value)) {
     throw new Error("Current protected mappings must be an array");
   }
   const expectedAliases = PROTECTED_TARGETS.flatMap(
     (target) => journal.prior[target].aliases,
   ).sort();
-  const legacyAliases = new Set(journal.prior["legacy-app"].aliases);
-  const legacyProjectId = journal.release.originalPriors.app.projectId;
   const canonical = value.map((mapping, index) => {
-    const hasProjectId = Object.hasOwn(mapping ?? {}, "projectId");
     assertExactKeys(
       mapping,
-      hasProjectId
-        ? ["alias", "deploymentId", "deploymentUrl", "projectId"]
-        : ["alias", "deploymentId", "deploymentUrl"],
+      ["alias", "deploymentId", "deploymentUrl"],
       `Current protected mapping ${index + 1}`,
     );
     const alias = canonicalizeHostname(mapping.alias);
-    const legacy = legacyAliases.has(alias);
-    if (
-      (hasProjectId && (!legacy || mapping.projectId !== legacyProjectId)) ||
-      (requireLegacyProjectBinding && legacy && !hasProjectId)
-    ) {
-      throw new Error(
-        "Current legacy App mapping project binding is inconsistent",
-      );
-    }
     return {
       alias,
       deploymentId: requireDeploymentId(
@@ -473,10 +444,7 @@ function assertForwardReleaseOrdering(journal, currentMappings) {
 }
 
 function mappingState(journal, currentMappings, target) {
-  const candidate =
-    target === "legacy-app"
-      ? journal.candidates.app
-      : journal.candidates[target];
+  const candidate = journal.candidates[target];
   if (candidate?.deploymentId === null || candidate === null) return "unknown";
   return classifyMainTransactionMapping({
     aliases: journal.prior[target].aliases,
@@ -490,10 +458,7 @@ function mappingState(journal, currentMappings, target) {
 }
 
 function aliasMappingState(journal, currentMappings, alias, target = "app") {
-  const candidate =
-    target === "legacy-app"
-      ? journal.candidates.app
-      : journal.candidates[target];
+  const candidate = journal.candidates[target];
   if (candidate?.deploymentId === null || candidate === null) return "unknown";
   return classifyMainTransactionMapping({
     aliases: [alias],
@@ -507,19 +472,6 @@ function aliasMappingState(journal, currentMappings, alias, target = "app") {
       aliases: [alias],
     },
   });
-}
-
-function assertLegacyPrior(journal, currentMappings) {
-  const prior = journal.prior["legacy-app"];
-  for (const alias of prior.aliases) {
-    const mapping = currentMappings.find((entry) => entry.alias === alias);
-    if (
-      mapping.deploymentId !== prior.deploymentId ||
-      mapping.deploymentUrl !== prior.deploymentUrl
-    ) {
-      throw new Error("Legacy App v2 mapping differs from its captured prior");
-    }
-  }
 }
 
 function lastEvents(journal) {
@@ -794,15 +746,6 @@ function commandForOperation(journal, operation) {
       deploymentUrl: operation.priorDeploymentUrl,
     });
   }
-  if (operation.type === "legacy_emergency_restore") {
-    return buildMainActiveLegacyAliasRestoreCommand({
-      alias: operation.alias,
-      aliases: journal.prior["legacy-app"].aliases,
-      projectId: journal.release.originalPriors.app.projectId,
-      deploymentId: operation.priorDeploymentId,
-      deploymentUrl: operation.priorDeploymentUrl,
-    });
-  }
   throw new Error("Journal operation has no active command descriptor");
 }
 
@@ -999,15 +942,6 @@ function canonicalStateProof(journal, planning, value) {
       );
     }
   }
-  const legacy = journal.prior["legacy-app"];
-  if (
-    !legacy.aliases.includes(proof.legacyAppV2.alias) ||
-    proof.legacyAppV2.deploymentId !== legacy.deploymentId ||
-    proof.legacyAppV2.deploymentUrl !== legacy.deploymentUrl ||
-    proof.legacyAppV2.projectId !== planning.projectIds.app
-  ) {
-    throw new Error("Active deployment state proof legacy v2 is inconsistent");
-  }
   return proof;
 }
 
@@ -1044,16 +978,6 @@ function assertFinalMappings(journal, planning, proof, currentMappings) {
       )
     ) {
       throw new Error(`Final mapping ${target} is invalid`);
-    }
-  }
-  const legacy = proof.legacyAppV2;
-  for (const alias of journal.prior["legacy-app"].aliases) {
-    const mapping = currentMappings.find((entry) => entry.alias === alias);
-    if (
-      mapping.deploymentId !== legacy.deploymentId ||
-      mapping.deploymentUrl !== legacy.deploymentUrl
-    ) {
-      throw new Error("Final legacy App v2 mapping is invalid");
     }
   }
 }
@@ -1119,7 +1043,6 @@ export function reduceMainActiveTransition({
       input.currentMappings,
     );
     assertForwardReleaseOrdering(highest, currentMappings);
-    assertLegacyPrior(highest, currentMappings);
     if (input.kind === "dispatch") {
       if (highest.status === "committed") {
         return noJournalTransition(highest, "committed", "complete");
@@ -1191,7 +1114,6 @@ export function reduceMainActiveTransition({
       highest,
       input.currentMappings,
     );
-    assertLegacyPrior(highest, currentMappings);
     const operation = requireLatestOperation(
       highest,
       "command_returned",
@@ -1322,13 +1244,6 @@ function recoveryIntent(action) {
   if (action.kind === "app_alias_restore") {
     return { type: "app_alias_restore", target: "app", alias: action.alias };
   }
-  if (action.kind === "legacy_emergency_restore") {
-    return {
-      type: "legacy_emergency_restore",
-      target: "legacy-app",
-      alias: action.alias,
-    };
-  }
   return null;
 }
 
@@ -1377,14 +1292,7 @@ function liveRecoveryIntent(action, journal, currentMappings) {
       },
     };
   }
-  return {
-    kind: "mutation",
-    intent: {
-      type: "legacy_emergency_restore",
-      target: "legacy-app",
-      alias: action.alias,
-    },
-  };
+  throw new Error("Recovery action has no active mutation intent");
 }
 
 function recoveryMappingState(journal, currentMappings, operation) {
@@ -1506,7 +1414,6 @@ export function reduceMainActiveRecoveryTransition({
     const currentMappings = canonicalCurrentMappings(
       highest,
       input.currentMappings,
-      { requireLegacyProjectBinding: true },
     );
     if (input.kind === "dispatch") {
       const next = nextRecoveryAction(highest, plan, currentMappings);
@@ -1597,7 +1504,6 @@ export function reduceMainActiveRecoveryTransition({
   const currentMappings = canonicalCurrentMappings(
     highest,
     input.currentMappings,
-    { requireLegacyProjectBinding: true },
   );
   const operation = requireLatestOperation(
     highest,
@@ -1727,31 +1633,9 @@ function releasePriorFromManifest(manifest) {
   );
 }
 
-function currentLegacyPrior(currentMappings) {
-  const mappings = currentMappings?.["legacy-app"];
-  if (!Array.isArray(mappings) || mappings.length === 0) {
-    throw new Error("Fresh legacy App v2 mapping is required");
-  }
-  const aliases = mappings.map((mapping) => mapping.alias).toSorted();
-  const deploymentIds = new Set(
-    mappings.map((mapping) => mapping.deploymentId),
-  );
-  const deploymentUrls = new Set(
-    mappings.map((mapping) => mapping.deploymentUrl),
-  );
-  if (deploymentIds.size !== 1 || deploymentUrls.size !== 1) {
-    throw new Error("Fresh legacy App v2 mapping is inconsistent");
-  }
-  return {
-    deploymentId: [...deploymentIds][0],
-    deploymentUrl: [...deploymentUrls][0],
-    aliases,
-  };
-}
-
-// A recovery attempt has a new downstream identity and captures its own v2
-// baseline before any restore command. The manifest remains stable identity;
-// this journal is the only mutation authority for the current attempt.
+// A recovery attempt has a new downstream identity. The manifest remains
+// stable identity; this journal is the only mutation authority for the
+// current attempt.
 export function createCurrentMainActiveRecoveryJournal({
   inheritedJournal,
   identity,
@@ -1763,10 +1647,7 @@ export function createCurrentMainActiveRecoveryJournal({
     currentMappings,
   });
   const release = assertMainReleaseManifest(inherited.release);
-  const prior = {
-    ...releasePriorFromManifest(release),
-    "legacy-app": currentLegacyPrior(currentMappings),
-  };
+  const prior = releasePriorFromManifest(release);
   const recovery = createPreparedMainTransactionJournal({
     ...identity,
     deploySha: release.deploySha,
@@ -1893,16 +1774,8 @@ export function decideMainActiveAppRecoverySafety({
   );
   if (app?.state === "prior") return plan;
   try {
-    const capturedLegacy = current.prior["legacy-app"];
-    const observedLegacy = currentMappings["legacy-app"];
-    if (!sameSnapshot(observedLegacy, current.startMappings["legacy-app"])) {
-      throw new Error("Current attempt legacy v2 mapping changed");
-    }
-    if (
-      capturedLegacy.deploymentId !==
-      current.startMappings["legacy-app"][0].deploymentId
-    ) {
-      throw new Error("Current attempt did not capture legacy v2");
+    if (!sameSnapshot(currentMappings.app, current.startMappings.app)) {
+      throw new Error("Current attempt App mapping changed");
     }
   } catch (error) {
     return {

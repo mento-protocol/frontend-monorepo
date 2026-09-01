@@ -5,15 +5,11 @@ import process from "node:process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import {
-  assertCanonicalOutput,
-  assertMainPlanningSnapshot,
-} from "./vercel-deployment-state.mjs";
+import { assertMainPlanningSnapshot } from "./vercel-deployment-state.mjs";
 import {
   appendGithubOutputs,
   assertMainProviderDiscovery,
   createMainCanonicalMappings,
-  digestMainLegacyV2Snapshot,
   readPrivateJson,
   reviewedRunnerTemp,
   writePrivateJson,
@@ -59,7 +55,6 @@ const EXECUTION_DIAGNOSTIC_PHASES = Object.freeze({
   DISCOVERY: "discovery",
   PLANNING_SNAPSHOT: "planning-snapshot",
   PROJECT_CENSUS: "project-census",
-  LEGACY: "legacy",
   CANONICAL_MAPPINGS: "canonical-mappings",
   PREPLAN_RECOMPUTE: "preplan-recompute",
   OWNERSHIP: "ownership",
@@ -87,7 +82,6 @@ export const MAIN_RELEASE_EXECUTION_DIAGNOSTIC_CODES = Object.freeze({
     "main-release-execution-planning-snapshot",
   [EXECUTION_DIAGNOSTIC_PHASES.PROJECT_CENSUS]:
     "main-release-execution-project-census",
-  [EXECUTION_DIAGNOSTIC_PHASES.LEGACY]: "main-release-execution-legacy",
   [EXECUTION_DIAGNOSTIC_PHASES.CANONICAL_MAPPINGS]:
     "main-release-execution-canonical-mappings",
   [EXECUTION_DIAGNOSTIC_PHASES.PREPLAN_RECOMPUTE]:
@@ -159,7 +153,6 @@ const OPTIONS = Object.freeze({
     "preplan",
     "discovery",
     "planning-snapshot",
-    "legacy-snapshot",
     "output",
   ]),
   "forward-journal": Object.freeze([
@@ -170,7 +163,6 @@ const OPTIONS = Object.freeze({
   ]),
   "inherited-recovery-journal": Object.freeze([
     "preplan",
-    "legacy-snapshot",
     "current-mappings",
     "candidate-receipts",
     "journal-output",
@@ -203,7 +195,6 @@ const OPTIONS = Object.freeze({
     "final-mappings",
     "freshness",
     "journal-history",
-    "legacy-v2",
     "outcome",
     "proofs-output",
     "public-smokes",
@@ -514,14 +505,6 @@ function currentUpstream(env) {
   };
 }
 
-function exactLegacyState(value) {
-  const snapshot = assertCanonicalOutput(value);
-  if (!Array.isArray(snapshot) || snapshot.length !== 1) {
-    throw new Error("Main release legacy snapshot must contain one state");
-  }
-  return snapshot[0];
-}
-
 function digest(value) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
@@ -678,11 +661,6 @@ export async function runMainReleaseCli({
         "Main terminal final census",
         runnerTemp,
       ),
-      freshLegacyV2: readPrivateJson(
-        options["legacy-v2"],
-        "Main terminal fresh legacy v2 snapshot",
-        runnerTemp,
-      ),
       freshness: readPrivateJson(
         options.freshness,
         "Main terminal freshness proof",
@@ -783,11 +761,6 @@ export async function runMainReleaseCli({
       ),
       nextDeploySha: identity.deploySha,
       nextUpstreamRunId: identity.upstreamRunId,
-      legacySnapshot: readPrivateJson(
-        options["legacy-snapshot"],
-        "Main inherited recovery legacy snapshot",
-        runnerTemp,
-      ),
       currentMappings: readPrivateJson(
         options["current-mappings"],
         "Main inherited recovery current mappings",
@@ -857,21 +830,6 @@ export async function runMainReleaseCli({
       "Main release provider discovery conflicts with the supplied census",
     );
   }
-  markExecutionPhase(executionDiagnostics, EXECUTION_DIAGNOSTIC_PHASES.LEGACY);
-  const legacyAppV2 = exactLegacyState(
-    readPrivateJson(
-      options["legacy-snapshot"],
-      "Main legacy v2 snapshot",
-      runnerTemp,
-    ),
-  );
-  if (
-    digestMainLegacyV2Snapshot([legacyAppV2]) !== discovery.legacyAppV2Digest
-  ) {
-    throw new Error(
-      "Main release legacy v2 state changed after provider discovery",
-    );
-  }
   markExecutionPhase(
     executionDiagnostics,
     EXECUTION_DIAGNOSTIC_PHASES.CANONICAL_MAPPINGS,
@@ -879,7 +837,6 @@ export async function runMainReleaseCli({
   const currentMappings = createMainCanonicalMappings({
     planningSnapshot,
     projectIds,
-    legacySnapshot: [legacyAppV2],
   }).mappings;
   markExecutionPhase(
     executionDiagnostics,
@@ -948,7 +905,6 @@ export async function runMainReleaseCli({
     providerDiscoveryDigest: digest(discovery),
     planningSnapshotDigest: discovery.planningSnapshotDigest,
     rollbackOnlyTargets: discovery.discovery.rollbackOnlyTargets,
-    legacyAppV2,
     projectIds: Object.fromEntries(
       ["governance", "reserve", "ui", "app"].map((target) => [
         target,
@@ -968,7 +924,6 @@ export async function runMainReleaseCli({
     reason: preplan.reason,
     manifest,
     upstream: currentUpstream(env),
-    legacyAppV2,
     selection,
   });
   const canonical = assertMainReleaseExecution(execution, identity);
