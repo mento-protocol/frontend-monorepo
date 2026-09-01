@@ -27,13 +27,19 @@ The Graph API keys so production and pre-production traffic have separate
 domain restrictions and spending limits.
 
 - Vercel Production uses the `Mento Governance Production` key. The Graph
-  Studio permits `governance.mento.org` and limits spending to USD 5 per month.
+  Studio permits `governance.mento.org` and `*-mentolabs.vercel.app`, restricts
+  queries to the `mento-governance-celo` subgraph, and limits spending to USD 5
+  per month. The Vercel suffix lets the production controller verify a staged
+  Governance candidate before promotion.
 - Vercel Preview and Development use the `Mento Governance Preview` key. The
-  Graph Studio permits `*.vercel.app` and `localhost` and limits spending to
-  USD 1 per month.
+  Graph Studio permits `*-mentolabs.vercel.app` and `localhost`, restricts
+  queries to the `mento-governance-celo` and `mento-governance-celo-sepolia`
+  subgraphs, and limits spending to USD 1 per month.
 
 Use the Development-scoped value for local development. Do not copy the
-production key into a local or preview environment. See
+production key into a local or preview environment. Server-rendered Graph
+requests validate Vercel's runtime `VERCEL_URL` and send the matching allowed
+origin. Production requests send `https://governance.mento.org`. See
 [`docs/vercel-deployments.md`](../../docs/vercel-deployments.md#governance-graph-api-key-scopes)
 for the deployment procedure.
 

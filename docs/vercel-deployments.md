@@ -1456,15 +1456,32 @@ monthly spending limits control their use.
 
 - The Production-scoped `NEXT_PUBLIC_GRAPH_API_KEY` uses the
   `Mento Governance Production` key. The Graph Studio restricts this key to
-  `governance.mento.org` and limits spending to USD 5 per month.
+  `governance.mento.org` and `*-mentolabs.vercel.app`, restricts queries to
+  subgraph `8C3iY7M5mPqYVFYENS6vFSsseZUtuWM5xTLiAqguGG4f`, and limits spending to
+  USD 5 per month. The Vercel suffix lets the controller verify an immutable
+  production candidate before it promotes the candidate.
 - The Preview- and Development-scoped `NEXT_PUBLIC_GRAPH_API_KEY` uses the
   `Mento Governance Preview` key. The Graph Studio restricts this key to
-  `*.vercel.app` and `localhost` and limits spending to USD 1 per month. Vercel
-  shows these scopes together as `All Pre-Production Environments`.
+  `*-mentolabs.vercel.app` and `localhost`, and restricts queries to subgraphs
+  `8C3iY7M5mPqYVFYENS6vFSsseZUtuWM5xTLiAqguGG4f` and
+  `DQVQkbu1zmuHuW99zqBTVNA8wMidfwHrDEUtaVvzyyRL`. The spending limit is USD 1
+  per month. Vercel shows these scopes together as
+  `All Pre-Production Environments`. The preview proposal list uses the mainnet
+  subgraph. Preview server-rendered proposal metadata uses the Celo Sepolia
+  subgraph.
 
 Do not assign the production key to a pre-production environment. Do not add
-`*.vercel.app` to the production key because that wildcard covers Vercel
-projects outside Mento.
+`*.vercel.app` to either key because that wildcard covers Vercel projects
+outside Mento. Keep the `*-mentolabs.vercel.app` domain on the production key so
+the controller can test a staged candidate before promotion.
+
+Browser requests supply their current origin. Server-rendered Graph requests
+use `apps/governance.mento.org/app/graphql/graph-request-origin.ts`. Production
+requests send `https://governance.mento.org`. Preview requests require Vercel's
+runtime `VERCEL_URL`, validate the `*-mentolabs.vercel.app` suffix, and send that
+exact origin. Local development sends `http://localhost:3002`. Keep `VERCEL_URL`
+in the Governance build task's `passThroughEnv` list so Turbo permits this
+provider-supplied runtime variable without adding it to the build cache key.
 
 Vercel environment-variable changes apply only to new deployments. Wait for a
 fresh `main` push that selects Governance to run the repository-owned production
