@@ -1467,9 +1467,10 @@ Do not assign the production key to a pre-production environment. Do not add
 projects outside Mento.
 
 Vercel environment-variable changes apply only to new deployments. Wait for a
-fresh `main` push to run the repository-owned production controller. Do not use
-the Vercel dashboard Redeploy action. That action creates a deployment outside
-the controller's release transaction and cannot supply its deployment evidence.
+fresh `main` push that selects Governance to run the repository-owned production
+controller. A `docs/**`-only push is non-runtime-only and does not select a
+deployment target. Do not use the Vercel dashboard Redeploy action because the
+repository-owned controller is the only supported production owner.
 
 The code also has optional build-time reads that alter behavior only when set:
 RPC overrides (`NEXT_PUBLIC_RPC_URL`, chain-specific RPC variables), feature and
