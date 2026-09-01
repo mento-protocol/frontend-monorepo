@@ -30,7 +30,6 @@ import { fileURLToPath } from "node:url";
 
 import {
   VercelStateClient,
-  assertMainPlanningAppV3Topology,
   assertMainPlanningSnapshot,
   canonicalizeDeploymentUrl,
 } from "./vercel-deployment-state.mjs";
@@ -56,6 +55,7 @@ import {
   decideMainPreplanReconciliation,
 } from "./vercel-main-release-reconciliation.mjs";
 import {
+  acceptsPriorEnvironment,
   MAIN_DEPLOYMENT_TARGETS,
   MAIN_TARGET_CONTRACTS,
 } from "./vercel-main-plan.mjs";
@@ -239,8 +239,9 @@ export function createMainCanonicalMappings({ planningSnapshot, projectIds }) {
       if (
         state.projectId !== projects[target] ||
         state.projectName !== contract.projectName ||
-        state.target !== contract.target ||
-        state.customEnvironmentSlug !== contract.customEnvironmentSlug ||
+        // TRANSITION-V3-PRIOR: the deployment `app.mento.org` served before
+        // this release is still in the retiring `v3` custom environment.
+        !acceptsPriorEnvironment(target, state) ||
         state.readyState !== "READY" ||
         !state.aliases.includes(state.alias)
       ) {
@@ -249,18 +250,9 @@ export function createMainCanonicalMappings({ planningSnapshot, projectIds }) {
         );
       }
     }
-    let topologyConflict = false;
-    if (target === "app") {
-      try {
-        assertMainPlanningAppV3Topology(states, contract.aliases);
-      } catch {
-        topologyConflict = true;
-      }
-    } else {
-      topologyConflict = states.some(
-        (state) => !sameDeployment(states[0], state),
-      );
-    }
+    const topologyConflict = states.some(
+      (state) => !sameDeployment(states[0], state),
+    );
     if (topologyConflict) {
       throw new Error(
         `Main planning snapshot topology conflicts for ${target}`,

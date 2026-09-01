@@ -234,7 +234,7 @@ function productionOutputFixture(logicalTarget = "governance") {
   writeFileSync(
     join(outputDirectory, "builds.json"),
     JSON.stringify({
-      target: logicalTarget === "app" ? "v3" : "production",
+      target: "production",
       cliVersion: PINNED_VERCEL_CLI_VERSION,
     }),
   );
@@ -977,11 +977,50 @@ test("observed runs allow only the base alias plus one exact optional creator al
         },
         "governance",
       ),
+    /Canonical deployment environment is malformed/,
+  );
+  // The retiring `v3` custom environment survives canonical validation only as
+  // the transitional App prior, so App is the one target that can still reach
+  // the ordinary-production branch with a custom-environment deployment.
+  assert.throws(
+    () =>
+      assertOnlyExpectedVercelGeneratedAliases(
+        {
+          ...expected,
+          projectName: "app.mento.org",
+          target: null,
+          customEnvironmentSlug: "v3",
+        },
+        "app",
+      ),
     /not an ordinary production deployment/,
   );
   assert.throws(
     () => assertOnlyExpectedVercelGeneratedAliases(expected, "app"),
-    /does not support production generated-alias verification/,
+    /project does not match literal target/,
+  );
+  const appCandidate = {
+    ...expected,
+    projectName: "app.mento.org",
+    aliases: [PRODUCTION_SHADOW_TARGETS.app.generatedProjectAlias],
+  };
+  assert.equal(
+    assertOnlyExpectedVercelGeneratedAliases(appCandidate, "app"),
+    appCandidate,
+  );
+  assert.throws(
+    () =>
+      assertOnlyExpectedVercelGeneratedAliases(
+        {
+          ...appCandidate,
+          aliases: [
+            PRODUCTION_SHADOW_TARGETS.app.generatedProjectAlias,
+            "appmentoorg-git-main-mentolabs.vercel.app",
+          ].sort(),
+        },
+        "app",
+      ),
+    /generated-alias topology mismatch/,
   );
   assert.throws(
     () => assertOnlyExpectedVercelGeneratedAliases(expected, "unknown"),
@@ -1004,12 +1043,13 @@ test("observed runs allow only the base alias plus one exact optional creator al
 test("ordinary production targets pin reviewed generated project aliases", () => {
   assert.deepEqual(
     Object.fromEntries(
-      ["governance", "reserve", "ui"].map((target) => [
+      ["app", "governance", "reserve", "ui"].map((target) => [
         target,
         PRODUCTION_SHADOW_TARGETS[target].generatedProjectAlias,
       ]),
     ),
     {
+      app: "appmentoorg-mentolabs.vercel.app",
       governance: "governancementoorg-mentolabs.vercel.app",
       reserve: "reservementoorg-mentolabs.vercel.app",
       ui: "uimentoorg-mentolabs.vercel.app",
@@ -1017,7 +1057,7 @@ test("ordinary production targets pin reviewed generated project aliases", () =>
   );
   assert.deepEqual(
     Object.fromEntries(
-      ["governance", "reserve", "ui"].map((target) => [
+      ["app", "governance", "reserve", "ui"].map((target) => [
         target,
         {
           projectSlug: PRODUCTION_SHADOW_TARGETS[target].generatedProjectSlug,
@@ -1026,6 +1066,7 @@ test("ordinary production targets pin reviewed generated project aliases", () =>
       ]),
     ),
     {
+      app: { projectSlug: "appmentoorg", scopeSlug: "mentolabs" },
       governance: {
         projectSlug: "governancementoorg",
         scopeSlug: "mentolabs",
@@ -1034,23 +1075,22 @@ test("ordinary production targets pin reviewed generated project aliases", () =>
       ui: { projectSlug: "uimentoorg", scopeSlug: "mentolabs" },
     },
   );
-  assert.equal(PRODUCTION_SHADOW_TARGETS.app.generatedProjectAlias, null);
-  assert.equal(PRODUCTION_SHADOW_TARGETS.app.generatedProjectSlug, null);
-  assert.equal(PRODUCTION_SHADOW_TARGETS.app.generatedScopeSlug, null);
-});
-
-test("custom-v3 pull selects the custom target without a preview-only branch override", () => {
   assert.deepEqual(
-    buildProductionShadowPullArguments({
-      logicalTarget: "app",
-      projectId: "prj_app123",
-    }),
-    ["pull", "--yes", "--environment", "v3", "--project", "prj_app123"],
+    {
+      generatedGitMainAlias:
+        PRODUCTION_SHADOW_TARGETS.app.generatedGitMainAlias,
+      generatedProjectDefaultAlias:
+        PRODUCTION_SHADOW_TARGETS.app.generatedProjectDefaultAlias,
+    },
+    {
+      generatedGitMainAlias: "appmentoorg-git-main-mentolabs.vercel.app",
+      generatedProjectDefaultAlias: "appmentoorg.vercel.app",
+    },
   );
 });
 
 test("production pull selects production without a preview-only branch override", () => {
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of ["app", "governance", "reserve", "ui"]) {
     assert.deepEqual(
       buildProductionShadowPullArguments({
         logicalTarget: target,
@@ -1069,22 +1109,7 @@ test("production pull selects production without a preview-only branch override"
 });
 
 test("pinned CLI build and deploy arguments bind each literal project and target", () => {
-  assert.deepEqual(
-    buildProductionShadowBuildArguments({
-      logicalTarget: "app",
-      projectId: "prj_app123",
-    }),
-    [
-      "build",
-      "--yes",
-      "--standalone",
-      "--target",
-      "v3",
-      "--project",
-      "prj_app123",
-    ],
-  );
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of ["app", "governance", "reserve", "ui"]) {
     assert.deepEqual(
       buildProductionShadowBuildArguments({
         logicalTarget: target,
@@ -1128,14 +1153,6 @@ test("pinned CLI build and deploy arguments bind each literal project and target
     ]);
     assert.doesNotMatch(deploy.join(" "), /--token|githubDeployment|promote/);
   }
-  assert.throws(() =>
-    buildProductionShadowDeployArguments({
-      logicalTarget: "app",
-      projectId: "prj_app123",
-      deploySha: SHA,
-      transaction: "123-1-app",
-    }),
-  );
   const mainTransaction = `main-${SHA}-456-2`;
   const mainDeploy = buildProductionShadowDeployArguments({
     logicalTarget: "governance",
@@ -1271,7 +1288,7 @@ test("repo-linked settings use exact repo identity for all four targets", () => 
       writeFileSync(
         join(output, "builds.json"),
         JSON.stringify({
-          target: target === "app" ? "v3" : "production",
+          target: "production",
           cliVersion: PINNED_VERCEL_CLI_VERSION,
         }),
       );
@@ -1811,7 +1828,7 @@ test("runner pull staging, candidate copy, and upload proof reject external refe
       writeFileSync(
         join(output, "builds.json"),
         JSON.stringify({
-          target: target === "app" ? "v3" : "production",
+          target: "production",
           cliVersion: PINNED_VERCEL_CLI_VERSION,
         }),
         { mode: 0o600 },
@@ -2614,7 +2631,7 @@ test("trusted builds reject every post-build project-link mutation before deploy
         writeFileSync(
           join(output, "builds.json"),
           JSON.stringify({
-            target: target === "app" ? "v3" : "production",
+            target: "production",
             cliVersion: PINNED_VERCEL_CLI_VERSION,
           }),
         );
@@ -2771,14 +2788,63 @@ test("app proof encodes Outcome B without a reachable deploy", () => {
     sha: SHA,
     deploymentId: "m-app-example123",
   });
-  assert.equal(proof.environment, "v3");
-  assert.equal(proof.vercelEnv, "preview");
-  assert.equal(proof.sentryAuthToken, "explicit-empty");
+  assert.equal(proof.environment, "production");
+  assert.equal(proof.vercelEnv, "production");
+  assert.equal(proof.vercelTargetEnv, "production");
+  assert.equal(proof.nextPublicVercelEnv, "production");
+  assert.equal(Object.hasOwn(proof, "sentryAuthToken"), false);
   assert.equal(proof.deployReachable, false);
   assert.equal(
     proof.futureActivationCommand,
-    "vercel deploy --prebuilt --target=v3 --archive=tgz --format=json",
+    "vercel deploy --prebuilt --prod --skip-domain --archive=tgz --format=json",
   );
+  assert.deepEqual(proof.futureMetadata, [
+    "githubCommitOrg=mento-protocol",
+    "githubCommitRepo=frontend-monorepo",
+    "githubCommitRef=main",
+    `githubCommitSha=${SHA}`,
+    "mentoTransaction=<run_id>-<run_attempt>-app",
+  ]);
+});
+
+test("the retired app custom v3 environment cannot re-enter a target contract", () => {
+  for (const [target, contract] of Object.entries(PRODUCTION_SHADOW_TARGETS)) {
+    assert.equal(contract.pullEnvironment, "production", target);
+    assert.deepEqual(
+      contract.buildArguments,
+      ["build", "--yes", "--standalone", "--prod"],
+      target,
+    );
+    assert.deepEqual(
+      contract.deployArguments,
+      [
+        "deploy",
+        "--prebuilt",
+        "--prod",
+        "--skip-domain",
+        "--archive=tgz",
+        "--format=json",
+        "--yes",
+      ],
+      target,
+    );
+    assert.doesNotMatch(
+      buildProductionShadowPullArguments({
+        logicalTarget: target,
+        projectId: `prj_${target}123`,
+      }).join(" "),
+      /v3/,
+      target,
+    );
+    assert.doesNotMatch(
+      buildProductionShadowBuildArguments({
+        logicalTarget: target,
+        projectId: `prj_${target}123`,
+      }).join(" "),
+      /--target|v3/,
+      target,
+    );
+  }
 });
 
 test("canonical output creation refuses candidate-precreated symlinks", () => {

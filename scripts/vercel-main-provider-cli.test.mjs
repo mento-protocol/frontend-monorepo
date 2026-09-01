@@ -159,7 +159,7 @@ function releaseManifest({
   return createMainReleaseManifest({ upstreamRunId, plan, originalPriors });
 }
 
-function productionShapedDecision({ productionIdPaddingBytes = 26 } = {}) {
+function productionShapedDecision({ productionIdPaddingBytes = 40 } = {}) {
   const manifest = releaseManifest({
     active: true,
     productionIdPaddingBytes,
@@ -378,7 +378,7 @@ test("canonical mappings preserve exactly the four reviewed target alias sets", 
   ]);
   assert.deepEqual(
     expected.mappings.app.map(({ alias }) => alias),
-    ["app.mento.org", "appmentoorg-env-v3-mentolabs.vercel.app"],
+    ["app.mento.org"],
   );
   // The retired legacy App topology must never re-enter the canonical set.
   assert.doesNotMatch(JSON.stringify(expected.mappings), /v2-app\.mento\.org/);
@@ -414,16 +414,18 @@ test("canonical mappings preserve exactly the four reviewed target alias sets", 
       }),
     /identity conflicts/,
   );
-  const wrongTopology = planningSnapshot({
-    "app.mento.org": { deploymentId: "dpl_other123" },
+  // Every reviewed target maps exactly one alias, so a snapshot that omits the
+  // reviewed App alias is incomplete rather than topologically conflicting.
+  const missingAppAlias = planningSnapshot({
+    "app.mento.org": { alias: "appmentoorg-env-v3-mentolabs.vercel.app" },
   });
   assert.throws(
     () =>
       createMainCanonicalMappings({
-        planningSnapshot: wrongTopology,
+        planningSnapshot: missingAppAlias,
         projectIds: projectIds(),
       }),
-    /topology conflicts/,
+    /does not exactly cover reviewed aliases/,
   );
   assert.throws(
     () =>
@@ -675,7 +677,7 @@ test("preplan decision binds current SHA and upstream run to one exact release I
   );
 });
 
-test("preplan decision restores a manifest-bound mixed App recovery residual", async (t) => {
+test("preplan decision restores a manifest-bound App recovery residual", async (t) => {
   const context = testContext(t);
   const inherited = releaseManifest({
     deploySha: "c".repeat(40),
@@ -768,12 +770,9 @@ test("preplan decision restores a manifest-bound mixed App recovery residual", a
     targets: ["app"],
     aliases: [candidateAlias],
   });
-  assert.deepEqual(result.rollbackOnlyTargets, [
-    "app",
-    "governance",
-    "reserve",
-    "ui",
-  ]);
+  // App now maps exactly one alias, so its single mapped deployment carries
+  // the release metadata and App is no longer rollback-only.
+  assert.deepEqual(result.rollbackOnlyTargets, ["governance", "reserve", "ui"]);
   assert.deepEqual(readJson(output), result);
 });
 
@@ -1427,9 +1426,12 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
   );
 });
 
-test("inherited ordinary candidate finalization uses the fixed served-prior alias contract", async (t) => {
+// Inherited restoration finalizes the candidate a reviewed alias currently
+// serves, so every main target — App included — proves its protected alias
+// through the served-prior contract.
+test("inherited candidate finalization uses the fixed served-prior alias contract", async (t) => {
   const context = testContext(t);
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of ["app", "governance", "reserve", "ui"]) {
     const intent = candidateIntent(target);
     const response = deploymentResponse(intent);
     const intentPath = writeJson(

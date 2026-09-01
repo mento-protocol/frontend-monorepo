@@ -12,10 +12,6 @@ import {
   reconcileMainRelease,
   reconcileMainReleaseForRecovery,
 } from "./vercel-main-release-reconciliation.mjs";
-import {
-  assertMainCandidateReceipt,
-  createMainCandidateIntent,
-} from "./vercel-main-candidate.mjs";
 
 const MAIN_TRANSACTION_SCHEMA = 3;
 export const MAIN_TRANSACTION_REPOSITORY = "mento-protocol/frontend-monorepo";
@@ -25,7 +21,14 @@ const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const NUMERIC_ID_PATTERN = /^[1-9][0-9]*$/;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9._-]+$/;
 const DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
-const ORDINARY_TARGETS = Object.freeze(["governance", "reserve", "ui"]);
+// Every main target promotes and rolls back. `app` additionally carries the
+// transitional bridge alias operations.
+const PROMOTABLE_TARGETS = Object.freeze([
+  "governance",
+  "reserve",
+  "ui",
+  "app",
+]);
 const PROTECTED_TARGETS = Object.freeze(["app", "governance", "reserve", "ui"]);
 const CANDIDATE_TARGETS = Object.freeze(["app", "governance", "reserve", "ui"]);
 const MODES = Object.freeze(["shadow", "active"]);
@@ -41,16 +44,11 @@ const STATUSES = Object.freeze([
 ]);
 const OPERATION_TYPES = Object.freeze([
   "promote",
-  "app_v3_deploy",
   "app_alias_set",
   "ordinary_rollback",
   "app_alias_restore",
 ]);
-const FORWARD_OPERATION_TYPES = new Set([
-  "promote",
-  "app_v3_deploy",
-  "app_alias_set",
-]);
+const FORWARD_OPERATION_TYPES = new Set(["promote", "app_alias_set"]);
 const RECOVERY_OPERATION_TYPES = new Set([
   "ordinary_rollback",
   "app_alias_restore",
@@ -123,19 +121,6 @@ const CURRENT_MAPPING_KEYS = Object.freeze([
   "deploymentId",
   "deploymentUrl",
 ]);
-const APP_CANDIDATE_MATCH_KEYS = Object.freeze([
-  "deploymentId",
-  "deploymentUrl",
-  "projectId",
-  "projectName",
-  "deploySha",
-  "releaseId",
-  "candidateId",
-  "target",
-  "customEnvironmentSlug",
-  "immutableSmoke",
-  "metrics",
-]);
 const START_MAPPING_TARGETS = Object.freeze([
   "app",
   "governance",
@@ -149,7 +134,6 @@ const RECOVERY_PLAN_KEYS = Object.freeze([
   "actions",
   "rollbackStateTargets",
   "forceFailure",
-  "discoveredAppCandidate",
 ]);
 const INHERITED_RECOVERY_PLAN_KEYS = Object.freeze([
   "decision",
@@ -272,19 +256,10 @@ function canonicalMetrics(value, label) {
   return { buildDurationMs: null, deploymentDurationMs: null, cacheHit: null };
 }
 
-function canonicalDiscovery(
-  discovery,
-  release,
-  target,
-  label,
-  { pendingApp = false } = {},
-) {
+function canonicalDiscovery(discovery, release, target, label) {
   assertExactKeys(discovery, DISCOVERY_KEYS, label);
   const expected = release.originalPriors[target];
-  const environment =
-    target === "app"
-      ? { target: "app", customEnvironmentSlug: "v3" }
-      : { target, customEnvironmentSlug: null };
+  const environment = { target, customEnvironmentSlug: null };
   const canonical = {
     releaseId: requireString(
       discovery.releaseId,
@@ -313,14 +288,11 @@ function canonicalDiscovery(
     ),
     target: discovery.target,
     customEnvironmentSlug: discovery.customEnvironmentSlug,
-    immutableSmoke:
-      pendingApp && discovery.immutableSmoke === null
-        ? null
-        : canonicalSmoke(
-            discovery.immutableSmoke,
-            `${label} immutable smoke`,
-            release.deploySha,
-          ),
+    immutableSmoke: canonicalSmoke(
+      discovery.immutableSmoke,
+      `${label} immutable smoke`,
+      release.deploySha,
+    ),
     metrics: canonicalMetrics(discovery.metrics, `${label} reuse metrics`),
   };
   if (
@@ -351,17 +323,13 @@ function canonicalCandidateRecord(record, target, release, prior) {
   if ((deploymentId === null) !== (deploymentUrl === null)) {
     throw new Error(`${label} ID and URL must both be known or both be null`);
   }
-  if (target !== "app" && deploymentId === null) {
+  // Every selected target — App included — stages an exact provider candidate
+  // before activation.
+  if (deploymentId === null) {
     throw new Error(`${label} must identify the staged deployment`);
   }
-  if (deploymentId !== null && record.discovery === null) {
+  if (record.discovery === null) {
     throw new Error(`${label} stable provider metadata is required`);
-  }
-  if (target === "app" && record.discovery === null) {
-    throw new Error("Candidate app stable provider metadata is required");
-  }
-  if (target !== "app" && deploymentId === null) {
-    throw new Error(`${label} must identify the staged deployment`);
   }
   const aliases = canonicalAliases(record.aliases, `${label} aliases`);
   if (JSON.stringify(aliases) !== JSON.stringify(prior.aliases)) {
@@ -371,18 +339,12 @@ function canonicalCandidateRecord(record, target, release, prior) {
     deploymentId,
     deploymentUrl,
     aliases,
-    discovery:
-      record.discovery === null
-        ? null
-        : canonicalDiscovery(
-            record.discovery,
-            release,
-            target,
-            `${label} discovery`,
-            {
-              pendingApp: target === "app" && deploymentId === null,
-            },
-          ),
+    discovery: canonicalDiscovery(
+      record.discovery,
+      release,
+      target,
+      `${label} discovery`,
+    ),
   };
 }
 
@@ -527,16 +489,33 @@ function assertJournalReleaseBindings({
   });
 }
 
+// TRANSITION-V3-PRIOR
+// `vercel rollback` only restores a production deployment. While the App
+// prior is still the v3-shaped deployment the retiring custom environment
+// served, App compensation is the bridge alias restore, never a rollback.
+export function isProductionShapedPrior(release, target) {
+  const prior = release?.originalPriors?.[target];
+  return (
+    prior?.target === "production" && prior?.customEnvironmentSlug === null
+  );
+}
+
 function assertOperationTarget(type, target, alias, journal) {
-  const isOrdinary = ORDINARY_TARGETS.includes(target);
+  const isPromotable = PROMOTABLE_TARGETS.includes(target);
   if (
     (type === "promote" || type === "ordinary_rollback") &&
-    (!isOrdinary || alias !== null)
+    (!isPromotable || alias !== null)
   ) {
-    throw new Error(`${type} must bind one ordinary target without an alias`);
+    throw new Error(`${type} must bind one main target without an alias`);
   }
-  if (type === "app_v3_deploy" && (target !== "app" || alias !== null)) {
-    throw new Error("app_v3_deploy must bind the app target");
+  if (
+    type === "ordinary_rollback" &&
+    target === "app" &&
+    !isProductionShapedPrior(journal.release, "app")
+  ) {
+    throw new Error(
+      "ordinary_rollback cannot restore a non-production app prior",
+    );
   }
   if (
     (type === "app_alias_set" || type === "app_alias_restore") &&
@@ -544,7 +523,7 @@ function assertOperationTarget(type, target, alias, journal) {
       alias === null ||
       !journal.prior.app.aliases.includes(alias))
   ) {
-    throw new Error(`${type} must bind one reviewed app-v3 alias`);
+    throw new Error(`${type} must bind one reviewed app alias`);
   }
 }
 
@@ -594,8 +573,8 @@ function canonicalOperation(operation, journal) {
       "Operation candidate ID and URL must both be known or both be null",
     );
   }
-  if (candidateDeploymentId === null && operation.type !== "app_v3_deploy") {
-    throw new Error("Only app_v3_deploy may start before candidate discovery");
+  if (candidateDeploymentId === null) {
+    throw new Error("Every operation binds its exact staged candidate");
   }
   const expectedCandidate = journal.candidates[operation.target];
   if (expectedCandidate === null) {
@@ -807,38 +786,7 @@ function sameJson(left, right) {
 function validateCandidateEvolution(previous, current) {
   for (const target of CANDIDATE_TARGETS) {
     if (sameJson(previous[target], current[target])) continue;
-    if (target !== "app") {
-      throw new Error("Journal candidates changed after preparation");
-    }
-    const before = previous.app;
-    const after = current.app;
-    const discoveryAttached =
-      before?.discovery !== null &&
-      after?.discovery !== null &&
-      before.discovery.immutableSmoke === null &&
-      after.discovery.immutableSmoke !== null &&
-      sameJson(
-        {
-          ...before.discovery,
-          immutableSmoke: null,
-        },
-        {
-          ...after.discovery,
-          immutableSmoke: null,
-        },
-      );
-    if (
-      before === null ||
-      after === null ||
-      before.deploymentId !== null ||
-      before.deploymentUrl !== null ||
-      after.deploymentId === null ||
-      after.deploymentUrl === null ||
-      !sameJson(before.aliases, after.aliases) ||
-      (!sameJson(before.discovery, after.discovery) && !discoveryAttached)
-    ) {
-      throw new Error("App candidate evolution is not monotonic");
-    }
+    throw new Error("Journal candidates changed after preparation");
   }
 }
 
@@ -902,9 +850,24 @@ function startedForwardOperations(journal) {
   const starts = journal.operations.filter(
     (operation) =>
       operation.state === "started" &&
-      ["promote", "app_v3_deploy", "app_alias_set"].includes(operation.type),
+      FORWARD_OPERATION_TYPES.has(operation.type),
   );
   return starts;
+}
+
+// TRANSITION-V3-PRIOR
+// `app.mento.org` is still assigned to the retiring `v3` custom environment,
+// so `vercel promote` moves the App production environment without moving the
+// reviewed App domain. The App promote is therefore verified at `prior` — it
+// must leave the reviewed domain exactly where it was — and the bridge
+// `app_alias_set` that immediately follows carries the reviewed
+// prior -> candidate mapping proof. After the dashboard domain move the App
+// promote verifies at `candidate` like every other target and this exception
+// is deleted with the bridge slot.
+export function expectedVerifiedMappingStateFor(operation) {
+  return operation.type === "promote" && operation.target === "app"
+    ? "prior"
+    : "candidate";
 }
 
 function isOperationVerified(journal, operationId) {
@@ -912,7 +875,7 @@ function isOperationVerified(journal, operationId) {
   return (
     last.state === "verified" &&
     last.commandOutcome === "success" &&
-    last.mappingState === "candidate"
+    last.mappingState === expectedVerifiedMappingStateFor(last)
   );
 }
 
@@ -1253,8 +1216,6 @@ export function startMainTransactionOperation(journal, intent) {
         (operation) =>
           operation.type === "promote" && operation.target === resolved.target,
       )) ||
-    (resolved.type === "app_v3_deploy" &&
-      forwardStarts.some((operation) => operation.type === "app_v3_deploy")) ||
     (resolved.type === "app_alias_set" &&
       forwardStarts.some(
         (operation) =>
@@ -1285,7 +1246,7 @@ export function recordMainTransactionCommandReturned(
   journal,
   { operationId, outcome, candidate = null },
 ) {
-  let canonical = assertMainTransactionJournal(journal);
+  const canonical = assertMainTransactionJournal(journal);
   const previous = lastOperationEvent(canonical, operationId);
   if (previous.state !== "started") {
     throw new Error("Operation is not waiting for a command result");
@@ -1293,44 +1254,12 @@ export function recordMainTransactionCommandReturned(
   if (!["success", "unknown"].includes(outcome)) {
     throw new Error("Command result must be success or unknown");
   }
+  // No activation command creates a deployment, so a command return never
+  // discovers a candidate.
   if (candidate !== null) {
-    if (previous.type !== "app_v3_deploy") {
-      throw new Error("Only app_v3_deploy may discover a candidate");
-    }
-    const app = canonical.candidates.app;
-    if (app === null) {
-      throw new Error("The transaction did not prepare an app candidate");
-    }
-    const discovered = canonicalizeAppCandidateMatch(candidate, app.discovery);
-    if (
-      app.deploymentId !== null &&
-      (app.deploymentId !== discovered.deploymentId ||
-        app.deploymentUrl !== discovered.deploymentUrl)
-    ) {
-      throw new Error("App candidate conflicts with the journal");
-    }
-    canonical = {
-      ...canonical,
-      candidates: {
-        ...canonical.candidates,
-        app: {
-          ...app,
-          deploymentId: discovered.deploymentId,
-          deploymentUrl: discovered.deploymentUrl,
-        },
-      },
-    };
+    throw new Error("Activation commands never discover a candidate");
   }
-  const appCandidate = canonical.candidates.app;
-  const candidateIdentity =
-    previous.type === "app_v3_deploy" && appCandidate?.deploymentId
-      ? {
-          candidateDeploymentId: appCandidate.deploymentId,
-          candidateDeploymentUrl: appCandidate.deploymentUrl,
-        }
-      : {};
   return appendOperationEvent(canonical, previous, {
-    ...candidateIdentity,
     state: "command_returned",
     commandOutcome: outcome,
   });
@@ -1356,186 +1285,6 @@ export function recordMainTransactionVerified(
     mappingState,
     rollbackState,
   });
-}
-
-export function attachDiscoveredAppCandidate(journal, match) {
-  const canonical = assertMainTransactionJournal(journal);
-  if (canonical.candidates.app === null) {
-    throw new Error("The transaction did not prepare an app candidate");
-  }
-  const candidate = canonicalizeAppCandidateMatch(
-    match,
-    canonical.candidates.app.discovery,
-  );
-  if (
-    canonical.candidates.app.deploymentId !== null &&
-    (canonical.candidates.app.deploymentId !== candidate.deploymentId ||
-      canonical.candidates.app.deploymentUrl !== candidate.deploymentUrl)
-  ) {
-    throw new Error("App candidate conflicts with the journal");
-  }
-  if (canonical.candidates.app.deploymentId !== null) return canonical;
-  return nextJournal(canonical, {
-    candidates: {
-      ...canonical.candidates,
-      app: {
-        ...canonical.candidates.app,
-        deploymentId: candidate.deploymentId,
-        deploymentUrl: candidate.deploymentUrl,
-      },
-    },
-  });
-}
-
-function expectedAppCandidateIntent(journal) {
-  return createMainCandidateIntent({
-    target: "app",
-    deploySha: journal.release.deploySha,
-    upstreamRunId: journal.release.upstreamRunId,
-    originRunId: journal.runId,
-    originAttempt: journal.runAttempt,
-    originTransactionId: journal.transactionId,
-    projectId: journal.release.originalPriors.app.projectId,
-    projectName: journal.release.originalPriors.app.projectName,
-    releaseManifest: journal.release,
-  });
-}
-
-export function attachMainTransactionAppCandidateReceipt(journal, rawReceipt) {
-  const canonical = assertMainTransactionJournal(journal);
-  const app = canonical.candidates.app;
-  if (app === null) {
-    throw new Error("The transaction did not prepare an app candidate");
-  }
-  const receipt = assertMainCandidateReceipt(
-    rawReceipt,
-    expectedAppCandidateIntent(canonical),
-  );
-  const candidate = {
-    deploymentId: receipt.candidate.deploymentId,
-    deploymentUrl: receipt.candidate.deploymentUrl,
-    aliases: app.aliases,
-    discovery: {
-      releaseId: receipt.intent.releaseId,
-      candidateId: receipt.intent.candidateId,
-      projectId: receipt.candidate.projectId,
-      projectName: receipt.candidate.projectName,
-      deploySha: receipt.intent.deploySha,
-      target: "app",
-      customEnvironmentSlug: receipt.intent.environment.customEnvironmentSlug,
-      immutableSmoke: receipt.immutableSmoke,
-      metrics: receipt.metrics,
-    },
-  };
-  if (app.deploymentId !== null) {
-    if (!sameJson(app, candidate)) {
-      throw new Error("App candidate receipt conflicts with the journal");
-    }
-    return canonical;
-  }
-  if (
-    app.discovery.immutableSmoke !== null ||
-    !sameJson(
-      {
-        ...app.discovery,
-        immutableSmoke: null,
-      },
-      {
-        ...candidate.discovery,
-        immutableSmoke: null,
-      },
-    )
-  ) {
-    throw new Error("App candidate receipt conflicts with stable intent");
-  }
-  return nextJournal(canonical, {
-    candidates: {
-      ...canonical.candidates,
-      app: candidate,
-    },
-  });
-}
-
-function canonicalizeAppCandidateMatch(match, discovery) {
-  assertExactKeys(match, APP_CANDIDATE_MATCH_KEYS, "App candidate match");
-  const canonical = {
-    deploymentId: requireDeploymentId(
-      match.deploymentId,
-      "App candidate deployment ID",
-    ),
-    deploymentUrl: canonicalizeDeploymentUrl(match.deploymentUrl),
-    projectId: requireString(
-      match.projectId,
-      "App candidate project ID",
-      IDENTIFIER_PATTERN,
-    ),
-    projectName: requireString(
-      match.projectName,
-      "App candidate project name",
-      IDENTIFIER_PATTERN,
-    ),
-    deploySha: requireString(
-      match.deploySha,
-      "App candidate deploy SHA",
-      SHA_PATTERN,
-    ),
-    releaseId: requireString(
-      match.releaseId,
-      "App candidate release ID",
-      IDENTIFIER_PATTERN,
-    ),
-    candidateId: requireString(
-      match.candidateId,
-      "App candidate ID",
-      IDENTIFIER_PATTERN,
-    ),
-    target: match.target,
-    customEnvironmentSlug: match.customEnvironmentSlug,
-    immutableSmoke: canonicalSmoke(
-      match.immutableSmoke,
-      "App candidate immutable smoke",
-      discovery.deploySha,
-    ),
-    metrics: canonicalMetrics(match.metrics, "App candidate reuse metrics"),
-  };
-  for (const key of DISCOVERY_KEYS) {
-    const matches =
-      key === "immutableSmoke" || key === "metrics"
-        ? sameJson(canonical[key], discovery[key])
-        : canonical[key] === discovery[key];
-    if (!matches) {
-      throw new Error(`App candidate ${key} does not match discovery metadata`);
-    }
-  }
-  return canonical;
-}
-
-export function resolveUniqueAppTransactionCandidate(journal, matches) {
-  const canonical = assertMainTransactionJournal(journal);
-  const app = canonical.candidates.app;
-  if (app === null) throw new Error("The transaction has no app candidate");
-  if (app.deploymentId !== null) {
-    if (matches !== undefined && (!Array.isArray(matches) || matches.length)) {
-      throw new Error("Known app candidate must not be rediscovered");
-    }
-    return app;
-  }
-  if (!Array.isArray(matches)) {
-    throw new Error("App candidate discovery results must be an array");
-  }
-  const canonicalMatches = matches.map((match) =>
-    canonicalizeAppCandidateMatch(match, app.discovery),
-  );
-  if (canonicalMatches.length !== 1) {
-    throw new Error(
-      `App candidate discovery must return exactly one match; received ${canonicalMatches.length}`,
-    );
-  }
-  return {
-    ...app,
-    deploymentId: canonicalMatches[0].deploymentId,
-    deploymentUrl: canonicalMatches[0].deploymentUrl,
-  };
 }
 
 export function assertMainTransactionJournalHistory(
@@ -1716,7 +1465,7 @@ function decideRecoveryFromJournal(journal) {
 export function markMainTransactionCommitted(journal) {
   const canonical = assertMainTransactionJournal(journal);
   if (canonical.status === "committed") return canonical;
-  const ordinaryOperations = ORDINARY_TARGETS.map((target) => {
+  const selectedOperations = PROMOTABLE_TARGETS.map((target) => {
     const candidate = canonical.candidates[target];
     if (candidate === null) return null;
     const state = classifyMainTransactionMapping({
@@ -1731,23 +1480,10 @@ export function markMainTransactionCommitted(journal) {
       "Transaction cannot commit from an unsupported start mapping",
     );
   }).filter((operation) => operation !== null);
-  const selectedOperations = [
-    ...ordinaryOperations,
-    ...(canonical.candidates.app === null ||
-    canonical.candidates.app.deploymentId !== null
-      ? []
-      : [{ target: "app", type: "app_v3_deploy" }]),
-  ];
   // App alias completeness is owned by the final protected-mapping verifier.
   // The journal commit gate binds the selected immutable deployment itself.
   const selectedOperationsVerified = selectedOperations.every(
     ({ target, type }) => {
-      if (
-        type === "app_v3_deploy" &&
-        canonical.candidates.app.deploymentId === null
-      ) {
-        return false;
-      }
       const operation = startedForwardOperations(canonical).find(
         (entry) => entry.type === type && entry.target === target,
       );
@@ -1824,12 +1560,21 @@ function action(kind, journal, operation, additional = {}) {
   };
 }
 
-export function planMainTransactionRecovery({
-  journal,
-  currentMappings,
-  appCandidateMatches = [],
-}) {
-  let canonical = assertMainTransactionJournal(journal);
+// TRANSITION-V3-PRIOR
+// True when the App promote slot needs no compensation of its own because the
+// bridge restore in the same plan returns every reviewed App alias to the
+// captured prior. A production-shaped App prior is compensated by an ordinary
+// rollback instead, and partial alias coverage stays manual.
+function transitionalAppPromoteIsRestored(journal, target, restoredAppAliases) {
+  return (
+    target === "app" &&
+    !isProductionShapedPrior(journal.release, "app") &&
+    journal.prior.app.aliases.every((alias) => restoredAppAliases.has(alias))
+  );
+}
+
+export function planMainTransactionRecovery({ journal, currentMappings }) {
+  const canonical = assertMainTransactionJournal(journal);
   // The recovery job validates the complete immutable artifact history before
   // passing its highest snapshot to this pure planner.
   const recoveryDecision = decideRecoveryFromJournal(canonical);
@@ -1841,55 +1586,24 @@ export function planMainTransactionRecovery({
       actions: [],
       rollbackStateTargets: [],
       forceFailure: false,
-      discoveredAppCandidate: null,
     };
   }
   const mappings = canonicalAllCurrentMappings(canonical, currentMappings);
   const starts = startedForwardOperations(canonical);
-  const appWasStarted = starts.some(
-    (operation) => operation.type === "app_v3_deploy",
-  );
-  let appCandidate = canonical.candidates.app;
-  let discoveredAppCandidate = null;
-  let appCandidateAmbiguous = false;
-  if (appWasStarted && appCandidate?.deploymentId === null) {
-    const appAliasesMoved = canonical.prior.app.aliases.some(
-      (alias) => !sameDeployment(mappings.get(alias), canonical.prior.app),
-    );
-    if (appAliasesMoved) {
-      try {
-        appCandidate = resolveUniqueAppTransactionCandidate(
-          canonical,
-          appCandidateMatches,
-        );
-        discoveredAppCandidate = {
-          deploymentId: appCandidate.deploymentId,
-          deploymentUrl: appCandidate.deploymentUrl,
-          ...appCandidate.discovery,
-        };
-      } catch {
-        // Preserve the uncertain App mapping for manual intervention, but
-        // continue planning independent, exact ordinary-target compensation.
-        appCandidateAmbiguous = true;
-      }
-    }
-  }
-  const recoveryJournal =
-    discoveredAppCandidate === null
-      ? canonical
-      : attachDiscoveredAppCandidate(canonical, discoveredAppCandidate);
-  const appCandidateUnresolved =
-    appWasStarted &&
-    recoveryJournal.candidates.app?.deploymentId === null &&
-    discoveredAppCandidate === null;
+  const appCandidate = canonical.candidates.app;
+  const recoveryJournal = canonical;
   const actions = [];
-  const handledOrdinaryTargets = new Set();
+  const handledPromoteTargets = new Set();
   const handledAppAliases = new Set();
+  // TRANSITION-V3-PRIOR: reverse activation order plans the bridge alias
+  // before the App promote, so the promote slot already knows whether the
+  // bridge returns every reviewed App alias to the captured prior.
+  const restoredAppAliases = new Set();
   let manual = false;
   for (const operation of [...starts].reverse()) {
     if (operation.type === "promote") {
-      if (handledOrdinaryTargets.has(operation.target)) continue;
-      handledOrdinaryTargets.add(operation.target);
+      if (handledPromoteTargets.has(operation.target)) continue;
+      handledPromoteTargets.add(operation.target);
       const candidate = canonical.candidates[operation.target];
       const targetMappings = canonical.prior[operation.target].aliases.map(
         (alias) => mappings.get(alias),
@@ -1906,11 +1620,35 @@ export function planMainTransactionRecovery({
             mappingState: "prior",
           }),
         );
-      } else if (mappingState === "candidate") {
+      } else if (
+        mappingState === "candidate" &&
+        // TRANSITION-V3-PRIOR: a Vercel rollback restores a production
+        // deployment. A v3-shaped App prior has none, so a moved App mapping
+        // is compensated by the bridge alias restore, never by a rollback.
+        (operation.target !== "app" ||
+          isProductionShapedPrior(canonical.release, "app"))
+      ) {
         actions.push(
           action("ordinary_rollback", recoveryJournal, operation, {
             aliases: canonical.prior[operation.target].aliases,
             entersRollbackState: true,
+          }),
+        );
+      } else if (
+        mappingState === "candidate" &&
+        transitionalAppPromoteIsRestored(
+          canonical,
+          operation.target,
+          restoredAppAliases,
+        )
+      ) {
+        // TRANSITION-V3-PRIOR: the reviewed App domain only moved because the
+        // bridge alias set ran, and this plan restores every reviewed App
+        // alias to the captured prior. The promote slot is then a compensated
+        // noop, exactly as it is when the bridge never started.
+        actions.push(
+          action("verified_noop", recoveryJournal, operation, {
+            mappingState: "candidate",
           }),
         );
       } else {
@@ -1930,6 +1668,7 @@ export function planMainTransactionRecovery({
       handledAppAliases.add(operation.alias);
       const mapping = mappings.get(operation.alias);
       if (sameDeployment(mapping, canonical.prior.app)) {
+        restoredAppAliases.add(operation.alias);
         actions.push(
           action("verified_noop", recoveryJournal, operation, {
             alias: operation.alias,
@@ -1940,6 +1679,7 @@ export function planMainTransactionRecovery({
         appCandidate?.deploymentId &&
         sameDeployment(mapping, appCandidate)
       ) {
+        restoredAppAliases.add(operation.alias);
         actions.push(
           action("app_alias_restore", recoveryJournal, operation, {
             alias: operation.alias,
@@ -1956,68 +1696,29 @@ export function planMainTransactionRecovery({
       }
       continue;
     }
-    if (operation.type === "app_v3_deploy") {
-      for (const alias of [...canonical.prior.app.aliases].reverse()) {
-        if (handledAppAliases.has(alias)) continue;
-        handledAppAliases.add(alias);
-        const mapping = mappings.get(alias);
-        if (sameDeployment(mapping, canonical.prior.app)) {
-          actions.push(
-            action("verified_noop", recoveryJournal, operation, {
-              alias,
-              mappingState: "prior",
-            }),
-          );
-        } else if (
-          appCandidate?.deploymentId &&
-          sameDeployment(mapping, appCandidate)
-        ) {
-          actions.push(
-            action("app_alias_restore", recoveryJournal, operation, {
-              alias,
-            }),
-          );
-        } else {
-          manual = true;
-          actions.push(
-            action("manual_intervention", recoveryJournal, operation, {
-              alias,
-              mappingState: "unexpected",
-            }),
-          );
-        }
-      }
-    }
   }
   return {
-    decision:
-      manual || appCandidateUnresolved ? "manual_intervention" : "recover",
-    reason:
-      manual || appCandidateUnresolved
-        ? appCandidateAmbiguous
-          ? "app-candidate-ambiguous-after-mapping-moved"
-          : manual
-            ? "unexpected-protected-mapping"
-            : "app-candidate-unresolved-after-start"
-        : "started-operations-require-verification-or-recovery",
+    decision: manual ? "manual_intervention" : "recover",
+    reason: manual
+      ? "unexpected-protected-mapping"
+      : "started-operations-require-verification-or-recovery",
     journal: canonical,
     actions,
     rollbackStateTargets: actions
       .filter((entry) => entry.kind === "ordinary_rollback")
       .map((entry) => entry.target),
     forceFailure: true, // Recovery never converts a failed activation into a green release.
-    discoveredAppCandidate,
   };
 }
 
 function recoveryActionSlots(journal) {
   const slots = [];
-  const handledOrdinaryTargets = new Set();
+  const handledPromoteTargets = new Set();
   const handledAppAliases = new Set();
   for (const operation of [...startedForwardOperations(journal)].reverse()) {
     if (operation.type === "promote") {
-      if (handledOrdinaryTargets.has(operation.target)) continue;
-      handledOrdinaryTargets.add(operation.target);
+      if (handledPromoteTargets.has(operation.target)) continue;
+      handledPromoteTargets.add(operation.target);
       slots.push({
         category: "ordinary",
         target: operation.target,
@@ -2039,22 +1740,17 @@ function recoveryActionSlots(journal) {
       });
       continue;
     }
-    if (operation.type !== "app_v3_deploy") continue;
-    for (const alias of [...journal.prior.app.aliases].reverse()) {
-      if (handledAppAliases.has(alias)) continue;
-      handledAppAliases.add(alias);
-      slots.push({
-        category: "app",
-        target: "app",
-        alias,
-        operation,
-      });
-    }
   }
   return slots;
 }
 
-function canonicalRecoveryAction(entry, slot, journal, index) {
+function canonicalRecoveryAction(
+  entry,
+  slot,
+  journal,
+  index,
+  restoredAppAliases,
+) {
   const label = `Recovery action ${index + 1}`;
   const allowedKinds = {
     ordinary: new Set([
@@ -2112,11 +1808,28 @@ function canonicalRecoveryAction(entry, slot, journal, index) {
     return { ...expected, alias: slot.alias };
   }
 
+  // TRANSITION-V3-PRIOR: an App promote whose reviewed domain moved to the
+  // candidate has no production-shaped prior to roll back to. When the bridge
+  // restore in this same plan returns every reviewed App alias to that prior,
+  // the promote slot is a compensated noop; without complete restore coverage
+  // it is manual. Every other promote slot compensates `candidate` with a
+  // rollback, so that state stays inadmissible there.
+  const appPromoteRestored =
+    slot.category === "ordinary" &&
+    transitionalAppPromoteIsRestored(journal, slot.target, restoredAppAliases);
+  const manualPromoteStates =
+    slot.category === "ordinary" && slot.target === "app"
+      ? new Set([
+          "partial",
+          "unexpected",
+          ...(appPromoteRestored ? [] : ["candidate"]),
+        ])
+      : new Set(["partial", "unexpected"]);
   const allowedMappingStates =
     entry.kind === "verified_noop"
-      ? new Set(["prior"])
+      ? new Set(appPromoteRestored ? ["prior", "candidate"] : ["prior"])
       : slot.category === "ordinary"
-        ? new Set(["partial", "unexpected"])
+        ? manualPromoteStates
         : new Set(["unexpected"]);
   if (!allowedMappingStates.has(entry.mappingState)) {
     throw new Error(`${label} mapping state is inconsistent with its kind`);
@@ -2140,8 +1853,7 @@ export function assertMainTransactionRecoveryPlan(plan) {
       plan.actions.length !== 0 ||
       !Array.isArray(plan.rollbackStateTargets) ||
       plan.rollbackStateTargets.length !== 0 ||
-      plan.forceFailure !== false ||
-      plan.discoveredAppCandidate !== null
+      plan.forceFailure !== false
     ) {
       throw new Error(
         "Recovery plan does not match the journal recovery decision",
@@ -2154,27 +1866,10 @@ export function assertMainTransactionRecoveryPlan(plan) {
       actions: [],
       rollbackStateTargets: [],
       forceFailure: false,
-      discoveredAppCandidate: null,
     };
   }
 
-  let effectiveJournal = journal;
-  let discoveredAppCandidate = null;
-  if (plan.discoveredAppCandidate !== null) {
-    if (journal.candidates.app?.deploymentId !== null) {
-      throw new Error("Known app candidate must not be rediscovered");
-    }
-    effectiveJournal = attachDiscoveredAppCandidate(
-      journal,
-      plan.discoveredAppCandidate,
-    );
-    discoveredAppCandidate = {
-      deploymentId: effectiveJournal.candidates.app.deploymentId,
-      deploymentUrl: effectiveJournal.candidates.app.deploymentUrl,
-      ...effectiveJournal.candidates.app.discovery,
-    };
-  }
-
+  const effectiveJournal = journal;
   if (!Array.isArray(plan.actions)) {
     throw new Error("Recovery plan actions are malformed");
   }
@@ -2182,8 +1877,27 @@ export function assertMainTransactionRecoveryPlan(plan) {
   if (plan.actions.length !== slots.length) {
     throw new Error("Recovery plan actions do not cover the journal exactly");
   }
+  // TRANSITION-V3-PRIOR: the App aliases this plan itself returns to the
+  // captured prior, which is the only thing that can compensate an App promote
+  // while the reviewed domain still lives in the retiring custom environment.
+  const restoredAppAliases = new Set(
+    plan.actions.flatMap((entry, index) => {
+      const slot = slots[index];
+      if (slot.category !== "app") return [];
+      const restores =
+        entry?.kind === "app_alias_restore" ||
+        (entry?.kind === "verified_noop" && entry?.mappingState === "prior");
+      return restores ? [slot.alias] : [];
+    }),
+  );
   const actions = plan.actions.map((entry, index) =>
-    canonicalRecoveryAction(entry, slots[index], effectiveJournal, index),
+    canonicalRecoveryAction(
+      entry,
+      slots[index],
+      effectiveJournal,
+      index,
+      restoredAppAliases,
+    ),
   );
   const rollbackStateTargets = actions
     .filter((entry) => entry.kind === "ordinary_rollback")
@@ -2194,29 +1908,10 @@ export function assertMainTransactionRecoveryPlan(plan) {
   const hasManualAction = actions.some(
     (entry) => entry.kind === "manual_intervention",
   );
-  const hasUnresolvedStartedApp =
-    discoveredAppCandidate === null &&
-    journal.candidates.app?.deploymentId === null &&
-    startedForwardOperations(journal).some(
-      (operation) => operation.type === "app_v3_deploy",
-    );
-  const hasAmbiguousAppAction =
-    hasUnresolvedStartedApp &&
-    actions.some(
-      (entry) => entry.kind === "manual_intervention" && entry.target === "app",
-    );
-  const decision =
-    hasManualAction || hasUnresolvedStartedApp
-      ? "manual_intervention"
-      : "recover";
-  const reason =
-    hasManualAction || hasUnresolvedStartedApp
-      ? hasAmbiguousAppAction
-        ? "app-candidate-ambiguous-after-mapping-moved"
-        : hasManualAction
-          ? "unexpected-protected-mapping"
-          : "app-candidate-unresolved-after-start"
-      : "started-operations-require-verification-or-recovery";
+  const decision = hasManualAction ? "manual_intervention" : "recover";
+  const reason = hasManualAction
+    ? "unexpected-protected-mapping"
+    : "started-operations-require-verification-or-recovery";
   if (
     plan.decision !== decision ||
     plan.reason !== reason ||
@@ -2231,7 +1926,6 @@ export function assertMainTransactionRecoveryPlan(plan) {
     actions,
     rollbackStateTargets,
     forceFailure: true,
-    discoveredAppCandidate,
   };
 }
 
@@ -2624,16 +2318,6 @@ export async function executeMainTransactionRecovery({
       );
     }
   }
-  if (
-    canonicalPlan.discoveredAppCandidate &&
-    highest.candidates.app?.deploymentId === null
-  ) {
-    highest = attachDiscoveredAppCandidate(
-      highest,
-      canonicalPlan.discoveredAppCandidate,
-    );
-    highest = await persistNext(highest);
-  }
   highest = startMainTransactionRecovery(highest);
   highest = await persistNext(highest);
   for (const entry of canonicalPlan.actions) {
@@ -2686,7 +2370,6 @@ export async function executeMainTransactionRecovery({
 
 const MAIN_MUTATION_ADAPTERS = Object.freeze([
   "promote",
-  "deployAppV3",
   "assignAlias",
   "inspectMapping",
   "verifyMapping",
@@ -2805,29 +2488,23 @@ export async function runMainTransaction({
     startMappings,
     candidates,
   });
-  const selectedOrdinaryTargets = ORDINARY_TARGETS.filter(
+  const selectedPromoteTargets = PROMOTABLE_TARGETS.filter(
     (target) => prepared.candidates[target] !== null,
   );
   const appSelected = prepared.candidates.app !== null;
-  const appRequiresDeploy =
-    appSelected && prepared.candidates.app.deploymentId === null;
   let promote;
-  let deployAppV3;
   let assignAlias;
   let inspectMapping;
   let verifyMapping;
   let inspectProtectedMappings;
   if (mode === "active") {
-    if (selectedOrdinaryTargets.length > 0) {
+    if (selectedPromoteTargets.length > 0) {
       promote = requireMainMutationAdapter(mutationAdapters, "promote");
-    }
-    if (appRequiresDeploy) {
-      deployAppV3 = requireMainMutationAdapter(mutationAdapters, "deployAppV3");
     }
     if (appSelected) {
       assignAlias = requireMainMutationAdapter(mutationAdapters, "assignAlias");
     }
-    if (selectedOrdinaryTargets.length > 0 || appSelected) {
+    if (selectedPromoteTargets.length > 0 || appSelected) {
       inspectMapping = requireMainMutationAdapter(
         mutationAdapters,
         "inspectMapping",
@@ -2949,6 +2626,7 @@ export async function runMainTransaction({
       uploadJournal,
       assertFreshness,
       allowedPreMutationStates,
+      expectedVerifiedMappingState: expectedVerifiedMappingStateFor(intent),
       inspectMutationState: inspectMapping,
       executeMutation: async (context) => {
         mutationCallbacksCalled += 1;
@@ -2959,23 +2637,17 @@ export async function runMainTransaction({
     lastDurableJournal = highest;
   };
 
-  for (const target of selectedOrdinaryTargets) {
+  for (const target of selectedPromoteTargets) {
     await executeActiveMutation({
       intent: { type: "promote", target },
       executeMutation: promote,
     });
   }
   if (appSelected) {
-    // For app_v3_deploy, mappingState "candidate" means the adapter verified
-    // the exact bound deployment ID/URL is READY. Reviewed aliases are
-    // deliberately excluded here and reconciled independently below because
-    // Vercel may move all, some, or none of them as part of the deployment.
-    if (appRequiresDeploy) {
-      await executeActiveMutation({
-        intent: { type: "app_v3_deploy", target: "app" },
-        executeMutation: deployAppV3,
-      });
-    }
+    // TRANSITION-V3-PRIOR: the App promote above leaves the reviewed App
+    // domain at its prior because that domain is still assigned to the
+    // retiring custom environment. The bridge alias set below carries it to
+    // the promoted candidate. Delete the bridge after the domain move.
     for (const alias of highest.prior.app.aliases) {
       const intent = { type: "app_alias_set", target: "app", alias };
       await assertFresh(assertFreshness, "pre-alias", highest);
@@ -2993,7 +2665,7 @@ export async function runMainTransaction({
       if (aliasState === "candidate") continue;
       if (aliasState !== "prior") {
         throw new MainTransactionError(
-          "Reviewed App v3 alias is neither at prior nor candidate",
+          "Reviewed App alias is neither at prior nor candidate",
           {
             code: "PROTECTED_MAPPING_DRIFT",
             journal: highest,

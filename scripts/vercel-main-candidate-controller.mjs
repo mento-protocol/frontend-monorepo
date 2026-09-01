@@ -36,15 +36,6 @@ const EMPTY_REUSE_METRICS = Object.freeze({
   cacheHit: null,
 });
 
-function assertAliasTopologyTarget(intent, aliasTopologyMode) {
-  if (
-    intent.target === "app" &&
-    aliasTopologyMode !== PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.CANDIDATE
-  ) {
-    throw new Error("Alternate candidate alias topology excludes App");
-  }
-}
-
 function canonicalAdmissionPreflight(value, intent, candidate) {
   if (value === null) return null;
   const preflight = assertMainCandidatePreflight(value);
@@ -68,7 +59,6 @@ function resolvedAliasTopologyMode(
 ) {
   if (
     aliasTopologyMode !== PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.CANDIDATE ||
-    intent.target === "app" ||
     admissionPreflight === null
   ) {
     return aliasTopologyMode;
@@ -345,7 +335,6 @@ async function resolveMainCandidateHandoffForAliasTopology(
   aliasTopologyMode,
 ) {
   const canonicalIntent = assertMainCandidateIntent(intent);
-  assertAliasTopologyTarget(canonicalIntent, aliasTopologyMode);
   if (
     !provider ||
     typeof provider.listCandidateDeploymentIds !== "function" ||
@@ -448,42 +437,37 @@ function assertMainCandidateCanonicalState(
   ) {
     throw new Error("Main candidate canonical state conflicts with receipt");
   }
-  if (intent.target !== "app") {
-    const immutableHostname = new URL(canonicalState.deploymentUrl).hostname;
+  const immutableHostname = new URL(canonicalState.deploymentUrl).hostname;
+  if (
+    canonicalState.alias !== immutableHostname ||
+    canonicalState.aliases.includes(immutableHostname)
+  ) {
+    throw new Error(
+      "Main candidate canonical state violates immutable-host separation",
+    );
+  }
+  let generatedAliases = canonicalState.aliases;
+  if (
+    aliasTopologyMode === PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR
+  ) {
+    const protectedAliases = MAIN_TARGET_CONTRACTS[intent.target].aliases;
     if (
-      canonicalState.alias !== immutableHostname ||
-      canonicalState.aliases.includes(immutableHostname)
+      protectedAliases.some((alias) => !canonicalState.aliases.includes(alias))
     ) {
       throw new Error(
-        "Main candidate canonical state violates immutable-host separation",
+        "Served-prior candidate canonical state is missing its reviewed protected alias",
       );
     }
-    let generatedAliases = canonicalState.aliases;
-    if (
-      aliasTopologyMode ===
-      PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR
-    ) {
-      const protectedAliases = MAIN_TARGET_CONTRACTS[intent.target].aliases;
-      if (
-        protectedAliases.some(
-          (alias) => !canonicalState.aliases.includes(alias),
-        )
-      ) {
-        throw new Error(
-          "Served-prior candidate canonical state is missing its reviewed protected alias",
-        );
-      }
-      generatedAliases = canonicalState.aliases.filter(
-        (alias) => !protectedAliases.includes(alias),
-      );
-    }
-    assertOnlyExpectedProductionGeneratedAliases({
-      aliases: generatedAliases,
-      creatorUsername: canonicalState.creatorUsername,
-      logicalTarget: intent.target,
-      mode: aliasTopologyMode,
-    });
+    generatedAliases = canonicalState.aliases.filter(
+      (alias) => !protectedAliases.includes(alias),
+    );
   }
+  assertOnlyExpectedProductionGeneratedAliases({
+    aliases: generatedAliases,
+    creatorUsername: canonicalState.creatorUsername,
+    logicalTarget: intent.target,
+    mode: aliasTopologyMode,
+  });
   return canonicalState;
 }
 
@@ -508,7 +492,6 @@ function assertMainCandidateHandoffForAliasTopology(
     "Main candidate handoff",
   );
   const intent = assertMainCandidateIntent(value.intent);
-  assertAliasTopologyTarget(intent, aliasTopologyMode);
   if (
     value.schema !== MAIN_CANDIDATE_HANDOFF_SCHEMA ||
     JSON.stringify(value.metrics) !== JSON.stringify(EMPTY_REUSE_METRICS)

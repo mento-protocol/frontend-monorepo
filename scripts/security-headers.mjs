@@ -68,9 +68,9 @@ export function buildSecurityHeaders({ reportOnlyCsp } = {}) {
 
 /**
  * Vercel injects the preview feedback widget from https://vercel.live on
- * standard preview deployments. Use the target environment because App's
- * production-serving custom `v3` target deliberately builds with
- * `VERCEL_ENV=preview`.
+ * standard preview deployments. Select on the target environment rather than
+ * `VERCEL_ENV`, which a custom environment reports as `preview` even when it
+ * serves the public domain.
  *
  * @param {string | undefined} reportOnlyCsp
  * @returns {string | undefined}

@@ -108,8 +108,7 @@ runs:
           "$NODE_BIN" "$CONTROLLER_PATH/scripts/vercel-production-shadow.mjs" \
           check-build-inputs
         case "$LOGICAL_TARGET" in
-          app) build_environment=v3 ;;
-          governance|reserve|ui) build_environment=production ;;
+          app|governance|reserve|ui) build_environment=production ;;
           *) echo "Unknown production-shadow target" >&2; exit 1 ;;
         esac
         "$NODE_BIN" "$CONTROLLER_PATH/scripts/vercel-build-environment.mjs" \
@@ -583,8 +582,7 @@ runs:
           VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
           "$NODE_BIN" "$CONTROLLER_PATH/scripts/vercel-production-shadow.mjs" validate-candidate-pull
         case "$LOGICAL_TARGET" in
-          app) build_arguments=(build --yes --standalone --target v3 --project "$VERCEL_PROJECT_ID") ;;
-          governance|reserve|ui) build_arguments=(build --yes --standalone --prod --project "$VERCEL_PROJECT_ID") ;;
+          app|governance|reserve|ui) build_arguments=(build --yes --standalone --prod --project "$VERCEL_PROJECT_ID") ;;
           *) echo "Unknown production-shadow target" >&2; exit 1 ;;
         esac
         safe_path="$(dirname "$NODE_BIN"):/usr/local/bin:/usr/bin:/bin"

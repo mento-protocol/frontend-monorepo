@@ -394,12 +394,9 @@ function materializeCandidateReceipts({ execution, encoded, attempt }) {
         return [target, null];
       }
       if (value === "none") {
-        if (target !== "app") {
-          throw new Error(
-            `Selected main release target ${target} requires a receipt`,
-          );
-        }
-        return [target, null];
+        throw new Error(
+          `Selected main release target ${target} requires a receipt`,
+        );
       }
       const expected = expectedCandidateIntent({
         execution,

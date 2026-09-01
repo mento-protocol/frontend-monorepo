@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto";
 
 import {
+  acceptsPriorEnvironment,
   MAIN_DEPLOYMENT_TARGETS,
   MAIN_TARGET_CONTRACTS,
+  TRANSITIONAL_APP_PRIOR_GENERATED_ALIAS,
   assertMainDeploymentPlan,
+  isTransitionalAppPriorEnvironment,
   partitionMainOwnership,
   planMainDeployments,
 } from "./vercel-main-plan.mjs";
@@ -81,7 +84,9 @@ const CANDIDATE_KEYS = Object.freeze([
   "deploymentUrl",
   "manifest",
 ]);
-const TARGET_STATES = new Set(["prior", "mixed", "candidate"]);
+// A reviewed target maps exactly one alias, so its release state is either
+// wholly prior or wholly candidate. "mixed" is only ever malformed evidence.
+const TARGET_STATES = new Set(["prior", "candidate"]);
 const PREPARATION_STATES = new Set([
   "ready",
   "failed",
@@ -178,13 +183,28 @@ function canonicalOwnership(mode, mainOwnershipMode) {
   };
 }
 
-function canonicalAliases(value, target, label) {
+// TRANSITION-V3-PRIOR
+// The reviewed App alias topology a pre-conversion release manifest was sealed
+// with. It is the single permitted difference between a legacy manifest and a
+// current one; every other field is validated by the same machinery either way.
+const TRANSITIONAL_PRE_CONVERSION_APP_ALIASES = Object.freeze([
+  "app.mento.org",
+  TRANSITIONAL_APP_PRIOR_GENERATED_ALIAS,
+]);
+
+function reviewedAliasContract(target, appAliases) {
+  return target === "app" && appAliases !== null
+    ? appAliases
+    : MAIN_TARGET_CONTRACTS[target].aliases;
+}
+
+function canonicalAliases(value, target, label, appAliases = null) {
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error(`${label} is malformed`);
   }
   const aliases = value.map(canonicalizeHostname);
   const canonical = [...new Set(aliases)].sort();
-  const expected = [...MAIN_TARGET_CONTRACTS[target].aliases].sort();
+  const expected = [...reviewedAliasContract(target, appAliases)].sort();
   if (
     JSON.stringify(value) !== JSON.stringify(canonical) ||
     JSON.stringify(canonical) !== JSON.stringify(expected)
@@ -274,7 +294,7 @@ function classifyPlanningGitEvidence(leaves) {
   return { reason: null, servedSha };
 }
 
-function canonicalPlanningLeaves(value, target, prior, label) {
+function canonicalPlanningLeaves(value, target, prior, label, appAliases) {
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error(`${label} is malformed`);
   }
@@ -286,6 +306,7 @@ function canonicalPlanningLeaves(value, target, prior, label) {
       leaf.aliases,
       target,
       `${leafLabel} aliases`,
+      appAliases,
     );
     if (
       leaf.deploymentId !== prior.deploymentId ||
@@ -322,9 +343,17 @@ function canonicalPlanningLeaves(value, target, prior, label) {
   return leaves;
 }
 
-function canonicalPrior(value, target, label) {
+function canonicalPrior(value, target, label, appAliases = null) {
   assertExactKeys(value, PRIOR_KEYS, label);
   const contract = MAIN_TARGET_CONTRACTS[target];
+  // TRANSITION-V3-PRIOR: the App prior is still the v3-shaped deployment
+  // `app.mento.org` served before this release until the domain move.
+  const environment = acceptsPriorEnvironment(target, value)
+    ? {
+        target: value.target,
+        customEnvironmentSlug: value.customEnvironmentSlug,
+      }
+    : null;
   const servedSha =
     value.servedSha === null
       ? null
@@ -336,7 +365,12 @@ function canonicalPrior(value, target, label) {
       DEPLOYMENT_ID_PATTERN,
     ),
     deploymentUrl: canonicalizeDeploymentUrl(value.deploymentUrl),
-    aliases: canonicalAliases(value.aliases, target, `${label} aliases`),
+    aliases: canonicalAliases(
+      value.aliases,
+      target,
+      `${label} aliases`,
+      appAliases,
+    ),
     projectId: requireString(
       value.projectId,
       `${label} project ID`,
@@ -344,14 +378,16 @@ function canonicalPrior(value, target, label) {
     ),
     projectName: contract.projectName,
     readyState: "READY",
-    target: contract.target,
-    customEnvironmentSlug: contract.customEnvironmentSlug,
+    target: environment === null ? contract.target : environment.target,
+    customEnvironmentSlug:
+      environment === null
+        ? contract.customEnvironmentSlug
+        : environment.customEnvironmentSlug,
   };
   if (
     value.projectName !== contract.projectName ||
     value.readyState !== "READY" ||
-    value.target !== contract.target ||
-    value.customEnvironmentSlug !== contract.customEnvironmentSlug
+    environment === null
   ) {
     throw new Error(`${label} planning identity is malformed`);
   }
@@ -360,6 +396,7 @@ function canonicalPrior(value, target, label) {
     target,
     prior,
     `${label} planning leaves`,
+    appAliases,
   );
   const planningGit = classifyPlanningGitEvidence(planningLeaves);
   if (planningGit.servedSha !== servedSha) {
@@ -473,7 +510,7 @@ export function createMainReleaseManifest({
   };
 }
 
-export function assertMainReleaseManifest(value) {
+function assertReleaseManifest(value, appAliases) {
   assertExactKeys(value, MANIFEST_KEYS, "Main release manifest");
   if (
     value.schema !== MAIN_RELEASE_MANIFEST_SCHEMA ||
@@ -539,6 +576,7 @@ export function assertMainReleaseManifest(value) {
         value.originalPriors[target],
         target,
         `Main release manifest ${target} prior`,
+        appAliases,
       ),
     ]),
   );
@@ -567,6 +605,33 @@ export function assertMainReleaseManifest(value) {
     originalPriors,
     releasePlanDigest: value.releasePlanDigest,
   };
+}
+
+export function assertMainReleaseManifest(value) {
+  return assertReleaseManifest(value, null);
+}
+
+// TRANSITION-V3-PRIOR
+// A release manifest sealed before the App moved to the production environment
+// is validated by exactly the machinery above, with exactly one difference
+// permitted: the App prior carries the retired two-alias topology. Every other
+// field — all four priors, their exact key sets, planning leaves, ownership,
+// target partitions, and the stable release identity — must still be a
+// structurally valid current manifest, so a corrupt manifest is never mistaken
+// for a legacy one. Delete with the bridge slot in the tighten PR.
+export function assertTransitionalPreConversionReleaseManifest(value) {
+  const manifest = assertReleaseManifest(
+    value,
+    TRANSITIONAL_PRE_CONVERSION_APP_ALIASES,
+  );
+  if (
+    JSON.stringify(manifest.originalPriors.app.aliases) !==
+      JSON.stringify([...TRANSITIONAL_PRE_CONVERSION_APP_ALIASES].sort()) ||
+    !isTransitionalAppPriorEnvironment("app", manifest.originalPriors.app)
+  ) {
+    throw new Error("Main release manifest is not a pre-conversion manifest");
+  }
+  return manifest;
 }
 
 function planningGitForRecompute(git) {
@@ -723,7 +788,9 @@ function classifyTarget({ target, prior, candidate, mappings }) {
       : priorAliases === mappings.length
         ? "prior"
         : "mixed";
-  if (!TARGET_STATES.has(state) || (state === "mixed" && target !== "app")) {
+  // Every reviewed target maps exactly one alias, so a mixed state can only
+  // come from malformed evidence.
+  if (!TARGET_STATES.has(state)) {
     throw new Error(`${target} release mapping state is unsupported`);
   }
   return {
@@ -739,7 +806,7 @@ function isTerminalAppRecoveryResidual(targets) {
   return (
     targets.length > 1 &&
     targets.at(-1)?.target === "app" &&
-    ["candidate", "mixed"].includes(targets.at(-1)?.state) &&
+    targets.at(-1)?.state === "candidate" &&
     targets.slice(0, -1).every(({ state }) => state === "prior")
   );
 }
@@ -756,7 +823,7 @@ function assertActivationPrefix(
   }
 
   let reachedFrontier = false;
-  for (const [index, target] of targets.entries()) {
+  for (const target of targets) {
     if (target.state === "candidate") {
       if (reachedFrontier) {
         throw new Error(
@@ -764,15 +831,6 @@ function assertActivationPrefix(
         );
       }
       continue;
-    }
-    if (target.state === "mixed") {
-      if (
-        reachedFrontier ||
-        target.target !== "app" ||
-        index !== targets.length - 1
-      ) {
-        throw new Error("Mixed App mappings are outside the release frontier");
-      }
     }
     reachedFrontier = true;
   }

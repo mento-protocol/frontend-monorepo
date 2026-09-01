@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { deflateRawSync } from "node:zlib";
 
 import {
+  MAIN_CANDIDATE_MANIFEST_CHUNK_BYTES,
   createMainCandidateIntent,
   createMainCandidateReceipt,
   createMainCandidateVercelMetadata,
+  isTransitionalPreConversionCandidateMetadata,
 } from "./vercel-main-candidate.mjs";
 import {
   assertMainCandidateHandoff,
@@ -21,6 +26,7 @@ import {
   planMainDeployments,
 } from "./vercel-main-plan.mjs";
 import { PRODUCTION_GENERATED_ALIAS_CONTRACTS } from "./vercel-production-generated-aliases.mjs";
+import { generateVercelMainCandidateDeploymentId } from "./vercel-prebuilt.mjs";
 
 const fixtureUrl = new URL(
   "./fixtures/vercel-main-plan/valid-priors.json",
@@ -644,51 +650,49 @@ test("deserialized ordinary handoffs reject mutable generated aliases as the imm
   }
 });
 
-test("App candidate finalization remains on the custom-v3 contract path", async () => {
-  const handoff = await resolveHandoff("app", []);
+// App is an ordinary production candidate: it proves the same reviewed
+// generated-alias topology as every other target, in both candidate and
+// served-prior modes.
+test("App candidate finalization uses the ordinary generated-alias contract", async () => {
+  const handoff = await resolveHandoff("app", [
+    "appmentoorg-mentolabs.vercel.app",
+  ]);
   assert.equal(handoff.intent.target, "app");
-  assert.deepEqual(handoff.canonicalState.aliases, []);
+  assert.deepEqual(handoff.canonicalState.aliases, [
+    "appmentoorg-mentolabs.vercel.app",
+  ]);
   assert.deepEqual(assertMainCandidateHandoff(handoff), handoff);
+
+  await assert.rejects(
+    () => resolveHandoff("app", []),
+    /generated-alias topology mismatch/,
+  );
+  await assert.rejects(
+    () => resolveHandoff("app", ["appmentoorg.vercel.app"]),
+    /generated-alias topology mismatch/,
+  );
 });
 
-test("served-prior finalization rejects App before zero-census resolution or create-handoff assertion", async () => {
-  const currentIntent = intent("app");
-  let listCalls = 0;
-  const provider = {
-    listCandidateDeploymentIds: async () => {
-      listCalls += 1;
-      return { deploymentIds: [], complete: true };
-    },
-    inspectCandidate: async () =>
-      assert.fail("zero-census App inspection must not run"),
-  };
+test("App served-prior finalization proves its reviewed protected alias", async () => {
+  const servedPrior = await resolveHandoff(
+    "app",
+    ["app.mento.org", "appmentoorg-mentolabs.vercel.app"],
+    { servedPrior: true },
+  );
+  assert.deepEqual(
+    assertMainServedPriorCandidateHandoff(servedPrior),
+    servedPrior,
+  );
   await assert.rejects(
     () =>
-      resolveMainServedPriorCandidateHandoff({
-        intent: currentIntent,
-        provider,
-        smokeCandidate: async () =>
-          assert.fail("zero-census App smoke must not run"),
+      resolveHandoff("app", ["appmentoorg-mentolabs.vercel.app"], {
+        servedPrior: true,
       }),
-    /excludes App/,
-  );
-  assert.equal(listCalls, 0);
-
-  const createHandoff = await resolveMainCandidateHandoff({
-    intent: currentIntent,
-    provider,
-    smokeCandidate: async () =>
-      assert.fail("zero-census App smoke must not run"),
-  });
-  assert.equal(createHandoff.action, "create");
-  assert.equal(listCalls, 2);
-  assert.throws(
-    () => assertMainServedPriorCandidateHandoff(createHandoff),
-    /excludes App/,
+    /missing its reviewed protected alias/,
   );
 });
 
-test("pre-plan mapped inspection reconstructs an older App v3 candidate without a current intent", async () => {
+test("pre-plan mapped inspection reconstructs a marked current-contract candidate", async () => {
   const oldIntent = intent("app");
   const response = deploymentResponse(oldIntent);
   const provider = createMainCandidateVercelProvider({
@@ -714,9 +718,319 @@ test("pre-plan mapped inspection reconstructs an older App v3 candidate without 
       target: mapped.canonicalState.target,
       customEnvironmentSlug: mapped.canonicalState.customEnvironmentSlug,
     },
-    { target: null, customEnvironmentSlug: "v3" },
+    { target: "production", customEnvironmentSlug: null },
   );
   assert.equal(mapped.canonicalState.git.sha, oldIntent.deploySha);
+});
+
+// TRANSITION-V3-PRIOR: exactly what production serves on the first run after
+// this conversion. The deployment `app.mento.org` maps is v3-shaped and every
+// mapping - App and ordinary alike - is sealed with a release manifest whose
+// App prior still carries the retiring two-alias `v3` topology.
+const PRE_CONVERSION_APP_ALIASES = Object.freeze([
+  "app.mento.org",
+  "appmentoorg-env-v3-mentolabs.vercel.app",
+]);
+
+function applyPreConversionAppTopology(manifest) {
+  const prior = manifest.originalPriors.app;
+  prior.target = null;
+  prior.customEnvironmentSlug = "v3";
+  prior.aliases = [...PRE_CONVERSION_APP_ALIASES];
+  const leaf = prior.planningLeaves[0];
+  prior.planningLeaves = PRE_CONVERSION_APP_ALIASES.map((alias) => ({
+    ...leaf,
+    alias,
+    aliases: [...PRE_CONVERSION_APP_ALIASES],
+    target: null,
+    customEnvironmentSlug: "v3",
+  }));
+  return manifest;
+}
+
+// An independent pin of the sealed wire format. A pre-conversion candidate's
+// stable digest is a sha256 over exactly this body, with the retiring `v3`
+// environment for App and the legacy manifest for every target. Rebinding it -
+// rather than swapping only the encoded manifest - is what makes the fixture a
+// genuine legacy seal instead of a corrupt one.
+const CANDIDATE_INTENT_SCHEMA = "vercel-main-candidate-intent:v3";
+const CANDIDATE_REPOSITORY = "mento-protocol/frontend-monorepo";
+
+function sealedEnvironment(target) {
+  return target === "app"
+    ? { target: null, customEnvironmentSlug: "v3" }
+    : { target: "production", customEnvironmentSlug: null };
+}
+
+function sealedMetadata(currentIntent, mutate, overrides = {}) {
+  const manifest = mutate(structuredClone(currentIntent.releaseManifest));
+  const { target, deploySha, projectId, projectName } = currentIntent;
+  const candidateId = generateVercelMainCandidateDeploymentId({
+    repository: CANDIDATE_REPOSITORY,
+    target,
+    commitSha: deploySha,
+    upstreamRunId: currentIntent.upstreamRunId,
+  });
+  const stableIntentDigest = createHash("sha256")
+    .update(
+      JSON.stringify({
+        schema: CANDIDATE_INTENT_SCHEMA,
+        repository: CANDIDATE_REPOSITORY,
+        releaseId: manifest.releaseId,
+        candidateId,
+        target,
+        environment: sealedEnvironment(target),
+        deploySha,
+        upstreamRunId: currentIntent.upstreamRunId,
+        source: "cli",
+        projectId,
+        projectName,
+        releaseManifest: manifest,
+      }),
+    )
+    .digest("hex");
+  const encoded = deflateRawSync(
+    Buffer.from(JSON.stringify(manifest), "utf8"),
+    {
+      level: 9,
+    },
+  ).toString("base64url");
+  const chunks = encoded.match(
+    new RegExp(`.{1,${MAIN_CANDIDATE_MANIFEST_CHUNK_BYTES}}`, "g"),
+  );
+  const metadata = createMainCandidateVercelMetadata({ intent: currentIntent });
+  for (const key of Object.keys(metadata)) {
+    if (key.startsWith("mentoReleaseManifestChunk")) delete metadata[key];
+  }
+  metadata.mentoReleaseId = manifest.releaseId;
+  metadata.mentoCandidateId = candidateId;
+  metadata.mentoNextDeploymentId = candidateId;
+  metadata.mentoStableIntentDigest = stableIntentDigest;
+  metadata.mentoReleaseManifestChunkCount = String(chunks.length);
+  for (const [index, chunk] of chunks.entries()) {
+    metadata[`mentoReleaseManifestChunk${index}`] = chunk;
+  }
+  const sealed = { ...metadata, ...overrides };
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) delete sealed[key];
+  }
+  return sealed;
+}
+
+function preConversionMetadata(currentIntent, overrides = {}) {
+  return sealedMetadata(
+    currentIntent,
+    applyPreConversionAppTopology,
+    overrides,
+  );
+}
+
+function mappedProvider(response) {
+  return createMainCandidateVercelProvider({
+    client: {
+      requestWithRetry: async () =>
+        assert.fail("mapped inspection does not list by a new release"),
+      inspectDeployment: async () => response,
+      listDeploymentAliases: async () => ({ aliases: [] }),
+    },
+  });
+}
+
+test("pre-plan mapped inspection treats every pre-conversion sealed mapping as rollback-only", async () => {
+  for (const target of ["governance", "reserve", "ui", "app"]) {
+    const oldIntent = intent(target);
+    const response = deploymentResponse(oldIntent);
+    response.meta = { ...response.meta, ...preConversionMetadata(oldIntent) };
+    if (target === "app") {
+      response.target = null;
+      response.customEnvironment = { slug: "v3" };
+    }
+    const mapped = await mappedProvider(response).inspectMappedCandidate({
+      deploymentId: response.id,
+      target,
+      projectId: oldIntent.projectId,
+    });
+    assert.equal(mapped.metadata, null);
+    assert.deepEqual(
+      {
+        target: mapped.canonicalState.target,
+        customEnvironmentSlug: mapped.canonicalState.customEnvironmentSlug,
+      },
+      target === "app"
+        ? { target: null, customEnvironmentSlug: "v3" }
+        : { target: "production", customEnvironmentSlug: null },
+    );
+  }
+});
+
+// The legacy App topology is an allowance, never a bypass: a seal that carries
+// it but is corrupt anywhere else is not a pre-conversion mapping and must
+// still fail the run closed rather than be downgraded to a rollback-only prior.
+// Each case asserts the classification directly, then asserts that discovery
+// still refuses the deployment.
+test("a corrupt seal carrying the pre-conversion App topology still fails closed", async () => {
+  const oldIntent = intent("app");
+  const context = {
+    target: "app",
+    projectId: oldIntent.projectId,
+    projectName: oldIntent.projectName,
+    deploySha: oldIntent.deploySha,
+  };
+  assert.equal(
+    isTransitionalPreConversionCandidateMetadata(
+      preConversionMetadata(oldIntent),
+      context,
+    ),
+    true,
+  );
+  for (const [name, mutate, overrides] of [
+    [
+      "manifest carries only the App prior",
+      (manifest) => {
+        applyPreConversionAppTopology(manifest);
+        manifest.originalPriors = { app: manifest.originalPriors.app };
+        return manifest;
+      },
+      {},
+    ],
+    [
+      "another target's prior",
+      (manifest) => {
+        applyPreConversionAppTopology(manifest);
+        manifest.originalPriors.governance.aliases = ["app.mento.org"];
+        return manifest;
+      },
+      {},
+    ],
+    [
+      "manifest key set",
+      (manifest) => ({ ...applyPreConversionAppTopology(manifest), extra: 1 }),
+      {},
+    ],
+    [
+      "release ID",
+      (manifest) => {
+        applyPreConversionAppTopology(manifest);
+        manifest.releaseId = `mr-${"0".repeat(18)}`;
+        return manifest;
+      },
+      {},
+    ],
+    [
+      "candidate ID",
+      applyPreConversionAppTopology,
+      { mentoCandidateId: `mr-app-${"0".repeat(18)}` },
+    ],
+    [
+      "stable intent digest",
+      applyPreConversionAppTopology,
+      { mentoStableIntentDigest: "0".repeat(64) },
+    ],
+    [
+      "audit origin",
+      applyPreConversionAppTopology,
+      { mentoOriginRunId: undefined },
+    ],
+  ]) {
+    const metadata = sealedMetadata(oldIntent, mutate, overrides);
+    assert.equal(
+      isTransitionalPreConversionCandidateMetadata(metadata, context),
+      false,
+      name,
+    );
+    const response = deploymentResponse(oldIntent);
+    response.target = null;
+    response.customEnvironment = { slug: "v3" };
+    response.meta = { ...response.meta, ...metadata };
+    if (Object.hasOwn(overrides, "mentoOriginRunId")) {
+      delete response.meta.mentoOriginRunId;
+    }
+    await assert.rejects(
+      () =>
+        mappedProvider(response).inspectMappedCandidate({
+          deploymentId: response.id,
+          target: "app",
+          projectId: oldIntent.projectId,
+        }),
+      /Main (?:release manifest|candidate)/,
+      name,
+    );
+  }
+});
+
+// The observed deployment is part of the seal: a legacy manifest that does not
+// bind the project or SHA discovery actually read is not a legacy mapping.
+test("a pre-conversion seal is rejected when it does not bind the observed deployment", () => {
+  const oldIntent = intent("app");
+  const metadata = preConversionMetadata(oldIntent);
+  for (const context of [
+    {
+      target: "app",
+      projectId: "prj_other",
+      projectName: oldIntent.projectName,
+      deploySha: oldIntent.deploySha,
+    },
+    {
+      target: "app",
+      projectId: oldIntent.projectId,
+      projectName: oldIntent.projectName,
+      deploySha: "b".repeat(40),
+    },
+    {
+      target: "governance",
+      projectId: oldIntent.projectId,
+      projectName: "governance.mento.org",
+      deploySha: oldIntent.deploySha,
+    },
+  ]) {
+    assert.equal(
+      isTransitionalPreConversionCandidateMetadata(metadata, context),
+      false,
+    );
+  }
+});
+
+test("only the exact pre-conversion App topology is admitted as rollback-only", async () => {
+  const oldIntent = intent("app");
+  for (const mutate of [
+    // The retiring two-alias topology without the retiring environment.
+    (manifest) => {
+      applyPreConversionAppTopology(manifest);
+      manifest.originalPriors.app.target = "production";
+      manifest.originalPriors.app.customEnvironmentSlug = null;
+      for (const leaf of manifest.originalPriors.app.planningLeaves) {
+        leaf.target = "production";
+        leaf.customEnvironmentSlug = null;
+      }
+      return manifest;
+    },
+    // The retiring environment with a third alias.
+    (manifest) => {
+      applyPreConversionAppTopology(manifest);
+      manifest.originalPriors.app.aliases.push("appmentoorg.vercel.app");
+      return manifest;
+    },
+    // A current-contract manifest that is merely unreadable.
+    (manifest) => {
+      manifest.originalPriors.governance.aliases = ["app.mento.org"];
+      return manifest;
+    },
+  ]) {
+    const response = deploymentResponse(oldIntent);
+    response.meta = {
+      ...response.meta,
+      ...sealedMetadata(oldIntent, mutate),
+    };
+    await assert.rejects(
+      () =>
+        mappedProvider(response).inspectMappedCandidate({
+          deploymentId: response.id,
+          target: "app",
+          projectId: oldIntent.projectId,
+        }),
+      /Main release manifest/,
+    );
+  }
 });
 
 test("pre-plan release census resolves one exact staged candidate without prior GitHub artifacts", async () => {
@@ -854,9 +1168,7 @@ test("mapped inspection admits unmarked priors regardless of optional provider s
           target: mapped.canonicalState.target,
           customEnvironmentSlug: mapped.canonicalState.customEnvironmentSlug,
         },
-        target === "app"
-          ? { target: null, customEnvironmentSlug: "v3" }
-          : { target: "production", customEnvironmentSlug: null },
+        { target: "production", customEnvironmentSlug: null },
       );
     }
   }

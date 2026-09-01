@@ -75,7 +75,6 @@ const PULL_STAGING_DIRECTORY = "mento-vercel-production-pull-staging";
 const BUILD_ENVIRONMENT_DIRECTORY = "mento-vercel-production-build-environment";
 const CANDIDATE_SOURCE_DIRECTORY = "mento-vercel-production-candidate-source";
 const UPLOAD_SOURCE_DIRECTORY = "mento-vercel-production-upload-source";
-const EXPLICIT_EMPTY = "explicit-empty";
 const MAX_SOURCE_ENTRIES = 20_000;
 const MAX_SOURCE_PATH_BYTES = 4_096;
 const MAX_SOURCE_BLOB_BYTES = 32 * 1_024 * 1_024;
@@ -100,12 +99,18 @@ export const PRODUCTION_SHADOW_TARGETS = {
   app: {
     projectName: "app.mento.org",
     rootDirectory: "apps/app.mento.org",
-    pullEnvironment: "v3",
-    buildArguments: ["build", "--yes", "--standalone", "--target", "v3"],
-    deployArguments: null,
-    generatedProjectAlias: null,
-    generatedProjectSlug: null,
-    generatedScopeSlug: null,
+    pullEnvironment: "production",
+    buildArguments: ["build", "--yes", "--standalone", "--prod"],
+    ...PRODUCTION_GENERATED_ALIAS_CONTRACTS.app,
+    deployArguments: [
+      "deploy",
+      "--prebuilt",
+      "--prod",
+      "--skip-domain",
+      "--archive=tgz",
+      "--format=json",
+      "--yes",
+    ],
   },
   governance: {
     projectName: "governance.mento.org",
@@ -1636,7 +1641,7 @@ export function buildProductionShadowDeployArguments({
 }) {
   const contract = targetContract(logicalTarget);
   if (contract.deployArguments === null) {
-    throw new Error("The app v3 target is build-only in the production shadow");
+    throw new Error("Production-shadow target is build-only");
   }
   const sha = requireString(
     deploySha,
@@ -1650,7 +1655,7 @@ export function buildProductionShadowDeployArguments({
           `mentoTransaction=${requireString(
             transaction,
             "Production-shadow transaction",
-            /^(?:[1-9][0-9]*-[1-9][0-9]*-(?:governance|reserve|ui)|main-[0-9a-f]{40}-[1-9][0-9]*-[1-9][0-9]*)$/,
+            /^(?:[1-9][0-9]*-[1-9][0-9]*-(?:app|governance|reserve|ui)|main-[0-9a-f]{40}-[1-9][0-9]*-[1-9][0-9]*)$/,
           )}`,
         ]
       : Object.entries(candidateMetadata)
@@ -1765,7 +1770,7 @@ export function assertProductionShadowOutput({
   }
   const config = readJson(configPath, "Prebuilt output config");
   const buildRecord = readJson(buildsPath, "Vercel CLI build record");
-  const expectedTarget = logicalTarget === "app" ? "v3" : "production";
+  const expectedTarget = "production";
   if (config.version !== 3) {
     throw new Error("Prebuilt output is not Build Output API version 3");
   }
@@ -2324,6 +2329,9 @@ export function assertOnlyExpectedVercelGeneratedAliases(state, logicalTarget) {
   return state;
 }
 
+// The manual production shadow still stages App as a build-only observation:
+// it proves the exact production output without creating a deployment. The
+// automatic main pipeline is the only path that deploys and activates App.
 export function createAppBuildOnlyProof({ sha, deploymentId }) {
   const normalizedSha = requireString(
     sha,
@@ -2333,15 +2341,14 @@ export function createAppBuildOnlyProof({ sha, deploymentId }) {
   return {
     target: "app",
     sha: normalizedSha,
-    environment: "v3",
-    vercelEnv: "preview",
-    vercelTargetEnv: "v3",
-    nextPublicVercelEnv: "preview",
+    environment: "production",
+    vercelEnv: "production",
+    vercelTargetEnv: "production",
+    nextPublicVercelEnv: "production",
     nextDeploymentId: requireString(deploymentId, "Next deployment ID"),
-    sentryAuthToken: EXPLICIT_EMPTY,
     deployReachable: false,
     futureActivationCommand:
-      "vercel deploy --prebuilt --target=v3 --archive=tgz --format=json",
+      "vercel deploy --prebuilt --prod --skip-domain --archive=tgz --format=json",
     futureMetadata: [
       "githubCommitOrg=mento-protocol",
       "githubCommitRepo=frontend-monorepo",
