@@ -293,9 +293,12 @@ all build-boundary state below the target-scoped, authenticated
 `/var/lib/mento-vercel-runtime-<run>-<attempt>-<target>/work` root, seal
 `RUNNER_TEMP` to runner-owned mode `0700` before candidate execution, and
 reauthenticate and remove the exact runtime in a final `if: always()` step.
-Preserve App's production build as build-only in this manual pilot; only the
-automatic main pipeline deploys and activates it.
-Governance, Reserve, and UI uploads must avoid custom production domains and
+The manual pilot stages an App production candidate with
+`--prod --skip-domain` like every ordinary target; only the automatic main
+pipeline promotes and activates it, and the pilot never mutates a protected
+domain. Pilot browser coverage spans Governance, Reserve, and UI only, so the
+App evidence row reports the runtime check as not run.
+Governance, Reserve, UI, and App uploads must avoid custom production domains and
 must expose the immutable deployment hostname through the deployment URL/state
 identity. The provider alias list must contain the target's reviewed literal
 base project/team alias and may contain at most one author alias derived exactly
