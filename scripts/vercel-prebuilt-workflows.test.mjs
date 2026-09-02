@@ -4,6 +4,7 @@ import { test } from "node:test";
 
 import { parse } from "yaml";
 import { PINNED_VERCEL_CLI_VERSION } from "./vercel-cli-runtime-contract.mjs";
+import { PINNED_PNPM_LINUX_X64_SHA256 } from "./vercel-prebuilt-workflow.mjs";
 
 function read(relativePath) {
   return readFileSync(new URL(`../${relativePath}`, import.meta.url), "utf8");
@@ -14,8 +15,6 @@ function workflow(relativePath) {
 }
 
 const reusablePath = ".github/workflows/_vercel-prebuilt.yml";
-const PINNED_PNPM_LINUX_X64_SHA256 =
-  "69a535476f407fb0f64427913c2b592ca2ed6bf93f92e2cb82a32349e31f36eb";
 
 test("build, smoke, and finalizer jobs keep separate least-privilege tokens", () => {
   const deploymentWriter = { contents: "read", deployments: "write" };

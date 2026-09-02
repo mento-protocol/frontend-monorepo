@@ -235,15 +235,16 @@ fails closed before the release continues.
 
 Every selected target — Governance, Reserve, UI, and App — stages and verifies
 an immutable candidate with `--prod --skip-domain`. Only an `activeTargets`
-member may mutate its public mapping: every target promotes its exact staged
-deployment. App's promote is verified to leave `app.mento.org` at its prior,
-and one transitional bridge alias-set transition then repoints the domain to
-the candidate — a carry-over from the retiring App custom `v3` environment,
-removed once the domain moves into Production. Before and after each public mutation,
+member may mutate its public mapping. Each active target promotes its exact
+staged deployment. Each shadow target stops after staged verification. When App
+is active, its promote is verified to leave `app.mento.org` at its prior, and one
+transitional bridge alias-set transition then repoints the domain to the
+candidate — a carry-over from the retiring App custom `v3` environment, removed
+once the domain moves into Production. Before and after each public mutation,
 the controller rechecks freshness and protected state and persists the next
-durable journal transition. Recovery restores exact captured mappings in
-reverse mutation order and treats unknown operator-owned state as manual
-intervention. The final evidence includes an active duplicate-deployment census
+durable journal transition. Recovery restores exact captured mappings in reverse
+mutation order and treats unknown operator-owned state as manual intervention.
+The final evidence includes an active duplicate-deployment census
 and fails if Vercel produced an unexpected serving or pending deployment for a
 replaced `main` path. If the release plan has no expected candidate for a
 project, an exact-project, exact-SHA deployment in terminal `CANCELED` state

@@ -121,7 +121,7 @@ const PINNED_PNPM_LINUX_X64_RESOLVED =
   "https://registry.npmjs.org/@pnpm/linux-x64/-/linux-x64-10.34.5.tgz";
 const PINNED_PNPM_LINUX_X64_INTEGRITY =
   "sha512-blNFcW3EVmOkeZYnkY5lraD1+oqiFvSByMT3GTRGKp7P7C4PtHixLQJLe2AzJ4rLimFjgqfHg0Cf/Si/9bZlHQ==";
-const PINNED_PNPM_LINUX_X64_SHA256 =
+export const PINNED_PNPM_LINUX_X64_SHA256 =
   "69a535476f407fb0f64427913c2b592ca2ed6bf93f92e2cb82a32349e31f36eb";
 // Exact bytes of the one-importer JavaScript runtime lockfile. This pins the
 // package identity, absence of custom tarball resolution, and sha512 integrity

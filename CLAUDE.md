@@ -287,12 +287,13 @@ admitted. Its global mode is
 Governance, Reserve, and UI to `github`. Planning emits
 `vercel-main-plan:v2`: all selected targets stage or build, `activeTargets`
 mutate public mappings, and `shadowTargets` prove the same candidates without
-public mutation. Governance, Reserve, UI, and App all stage and promote exact
-staged deployments; App's `stage-app` build and upload work exactly like the
-other three. App promotes last and is verified to leave `app.mento.org` at its
-prior, then one transitional bridge `alias set` transition repoints the domain
-to the candidate — a carry-over from the retiring App custom `v3` environment,
-removed once the domain moves into the Production environment. Planning uses
+public mutation. Governance, Reserve, UI, and App all stage exact deployments.
+Only active targets promote them; shadow targets stop after staged verification.
+App's `stage-app` build and upload work exactly like the other three. When App is
+active, it promotes last and is verified to leave `app.mento.org` at its prior.
+One transitional bridge `alias set` transition then repoints the domain to the
+candidate — a carry-over from the retiring App custom `v3` environment, removed
+once the domain moves into the Production environment. Planning uses
 the SHA each public target actually serves, and every credential-bearing job
 uses only `vercel-cli-production` with `deployment: false`. The exact-attempt
 gate, repeated freshness checks, durable journal, active duplicate census,
