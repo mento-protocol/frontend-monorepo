@@ -57,7 +57,7 @@
     "@graphql-codegen/typescript-operations": "^6.1.5",
     "@graphql-codegen/typescript-react-apollo": "^4.4.2",
     "@mento-protocol/mento-sdk": "catalog:",
-    "@playwright/test": "1.61.1",
+    "@playwright/test": "1.62.1",
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@repo/vitest-config": "workspace:*",
