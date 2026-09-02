@@ -97,6 +97,38 @@ test("reused-candidate mode permits only the surviving candidate alias subset", 
 // deployment gives it every production domain its project has, retired and
 // redirect-configured ones included, so an exact generated-alias set is not a
 // property a prior can be held to. Malformed evidence still fails closed.
+// Regression guard for the incident that blocked every main deploy after the
+// first App production promote. A fixed allowlist of "the domains we expect
+// today" is precisely what failed closed when an unrelated project domain rode
+// along, so a served prior must keep accepting domains this pipeline never
+// reviewed. Re-introducing an allowlist here re-creates that outage.
+test("an operator-added project domain on a served prior never fails the release closed", () => {
+  for (const alias of [
+    "operator-added.mento.org",
+    "marketing-preview.mento.org",
+    "appmentoorg-git-feature-mentolabs.vercel.app",
+    "appmentoorg-env-v3-mentolabs.vercel.app",
+    "v2-app.mento.org",
+  ]) {
+    const aliases = [alias, "appmentoorg-mentolabs.vercel.app"].toSorted();
+    assert.deepEqual(
+      assertOnlyExpectedProductionGeneratedAliases({
+        aliases,
+        creatorUsername: CREATOR_USERNAME,
+        logicalTarget: "app",
+        mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
+        foreignProtectedAliases: [
+          "governance.mento.org",
+          "reserve.mento.org",
+          "ui.mento.org",
+        ],
+      }),
+      aliases,
+      alias,
+    );
+  }
+});
+
 test("served-prior mode tolerates unowned project domains but rejects malformed evidence", () => {
   const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS.governance;
   for (const [name, aliases] of [
