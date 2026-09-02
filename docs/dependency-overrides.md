@@ -14,6 +14,28 @@ sync is a requirement, not a suggestion — a catalog bump for an overridden
 package is silently defeated otherwise (this happened to `zod`; see the table
 below).
 
+## Protected pnpm setup transition
+
+The root `packageManager` value and both action-policy workflow pins must
+use one exact pnpm version. A protected pnpm rotation uses two pull requests
+because the trusted base checker cannot accept the new workflow structure until
+its transition rule is on the default branch.
+
+The first pull request changes only the trusted checker, its tests, and these
+instructions. It keeps the root declaration and both workflow pins on the old
+version. The checker accepts only the paired old or paired target workflow
+versions. It rejects a mixed pair and every unrelated workflow change.
+Both Action Pin Policy checks must pass on the exact head and base.
+
+After the first pull request merges, the second pull request moves the root
+declaration, both workflow pins, the protected runtime and bootstrap, and all
+coupled checks to the target version. It also removes the temporary old version
+from the checker. Do not split those second-stage files across pull requests.
+An explicit workflow version that differs from the root declaration makes
+`pnpm/action-setup` fail before the checker runs. Both Action Pin Policy
+checks must pass on the second pull request's exact head and base. Revalidate
+both stages after any head or base change.
+
 ## Standalone Vercel CLI override mirror
 
 The protected production-shadow and automatic main-deployment jobs install
