@@ -22,7 +22,6 @@ const TARGETS = Object.freeze(["governance", "reserve", "ui", "app"]);
 const OPERATION_TARGETS = Object.freeze([...TARGETS]);
 const OPERATION_TYPES = Object.freeze([
   "promote",
-  "app_v3_deploy",
   "app_alias_set",
   "ordinary_rollback",
   "app_alias_restore",
@@ -419,17 +418,14 @@ function canonicalAffectedOperations(value) {
         "Main terminal receipt affected operation state is malformed",
       );
     }
-    const ordinary =
+    const promotion =
       operation.type === "promote" || operation.type === "ordinary_rollback";
     const appAlias =
       operation.type === "app_alias_set" ||
       operation.type === "app_alias_restore";
     if (
-      (ordinary &&
-        (!["governance", "reserve", "ui"].includes(operation.target) ||
-          alias !== null)) ||
-      (operation.type === "app_v3_deploy" &&
-        (operation.target !== "app" || alias !== null)) ||
+      (promotion &&
+        (!OPERATION_TARGETS.includes(operation.target) || alias !== null)) ||
       (appAlias && (operation.target !== "app" || alias === null))
     ) {
       throw new Error(

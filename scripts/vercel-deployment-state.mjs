@@ -21,6 +21,7 @@ import {
 } from "./vercel-deployment-url.mjs";
 import { canonicalizeMainCandidateVercelMetadata } from "./vercel-main-candidate.mjs";
 import { assertMainReleaseManifest } from "./vercel-main-release-reconciliation.mjs";
+import { isTransitionalAppPriorEnvironment } from "./vercel-main-plan.mjs";
 
 export { canonicalizeDeploymentUrl, canonicalizeHostname };
 
@@ -61,7 +62,6 @@ const ACTIVE_STATE_TARGETS = Object.freeze([
 ]);
 const ACTIVE_PROTECTED_ALIASES = Object.freeze([
   "app.mento.org",
-  "appmentoorg-env-v3-mentolabs.vercel.app",
   "governance.mento.org",
   "reserve.mento.org",
   "ui.mento.org",
@@ -144,50 +144,17 @@ export const ACTIVE_STATE_CLASSIFICATIONS = Object.freeze([
   "inertCanceled",
   "unknown",
 ]);
-const APP_TRANSACTION_CANDIDATE_KEYS = Object.freeze([
-  "deploymentId",
-  "deploymentUrl",
-  "projectId",
-  "projectName",
-  "deploySha",
-  "runId",
-  "runAttempt",
-  "transactionId",
-  "customEnvironmentSlug",
-]);
-const APP_TRANSACTION_EXPECTATION_KEYS = Object.freeze([
-  "projectId",
-  "projectName",
-  "deploySha",
-  "runId",
-  "runAttempt",
-  "transactionId",
-  "customEnvironmentSlug",
-  "nextDeploymentId",
-]);
 const CREATOR_USERNAME_PATTERN =
   /^(?=.{1,63}$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const CLI_OPTIONS = Object.freeze({
   "active-proof": Object.freeze(["spec", "output"]),
   "alias-mappings": Object.freeze(["spec", "output"]),
-  "app-candidate": Object.freeze(["expected", "output"]),
   compare: Object.freeze(["before", "after"]),
   deployment: Object.freeze(["expected", "output"]),
   "planning-snapshot": Object.freeze(["spec", "output"]),
   project: Object.freeze(["project-id", "project-name", "root-directory"]),
   snapshot: Object.freeze(["spec", "output"]),
 });
-const APP_CANDIDATE_PENDING_STATES = new Set([
-  "BUILDING",
-  "INITIALIZING",
-  "QUEUED",
-]);
-
-function sleep(milliseconds) {
-  return new Promise((resolvePromise) => {
-    setTimeout(resolvePromise, milliseconds);
-  });
-}
 
 class CanonicalDriftError extends Error {}
 
@@ -450,147 +417,6 @@ function canonicalizeRunTransaction(value) {
     : null;
 }
 
-function canonicalAppTransactionExpectation(value) {
-  assertExactKeys(
-    value,
-    APP_TRANSACTION_EXPECTATION_KEYS,
-    "App transaction candidate expectation",
-  );
-  const canonical = {
-    projectId: requireIdentifier(value.projectId, "App project ID"),
-    projectName: requireIdentifier(value.projectName, "App project name"),
-    deploySha: requireIdentifier(
-      value.deploySha,
-      "App deploy SHA",
-    ).toLowerCase(),
-    runId: requireIdentifier(String(value.runId), "App run ID"),
-    runAttempt: requireIdentifier(String(value.runAttempt), "App run attempt"),
-    transactionId: requireIdentifier(value.transactionId, "App transaction ID"),
-    customEnvironmentSlug: value.customEnvironmentSlug,
-    nextDeploymentId: requireIdentifier(
-      value.nextDeploymentId,
-      "App custom Next deployment ID",
-    ),
-  };
-  if (
-    canonical.projectName !== "app.mento.org" ||
-    !SHA_PATTERN.test(canonical.deploySha) ||
-    !/^[1-9][0-9]*$/.test(canonical.runId) ||
-    !/^[1-9][0-9]*$/.test(canonical.runAttempt) ||
-    !/^main-[a-f0-9]{32}$/.test(canonical.transactionId) ||
-    canonical.customEnvironmentSlug !== "v3" ||
-    canonical.nextDeploymentId.length > 32 ||
-    canonical.nextDeploymentId.startsWith("dpl_") ||
-    !/^[A-Za-z0-9_-]+$/.test(canonical.nextDeploymentId)
-  ) {
-    throw new Error("App transaction candidate expectation is malformed");
-  }
-  return canonical;
-}
-
-export function canonicalizeAppTransactionCandidate({
-  deploymentResponse,
-  expected,
-}) {
-  if (
-    !deploymentResponse ||
-    typeof deploymentResponse !== "object" ||
-    Array.isArray(deploymentResponse)
-  ) {
-    throw new Error("App transaction candidate response is malformed");
-  }
-  const expectation = canonicalAppTransactionExpectation(expected);
-  const deploymentId = requireIdentifier(
-    deploymentResponse.id,
-    "App candidate deployment ID",
-  );
-  if (!deploymentId.startsWith("dpl_")) {
-    throw new Error("App candidate deployment ID is malformed");
-  }
-  const deploymentUrl = canonicalizeDeploymentUrl(deploymentResponse.url);
-  const projectId = consistentString("project ID", [
-    deploymentResponse.projectId,
-    deploymentResponse.project?.id,
-  ]);
-  const projectName = consistentString("project name", [
-    deploymentResponse.name,
-    deploymentResponse.project?.name,
-  ]);
-  const readyState = consistentString("readiness", [
-    deploymentResponse.readyState,
-  ]);
-  const git = canonicalizeGit(deploymentResponse);
-  const target = deploymentResponse.target ?? null;
-  const customEnvironmentSlug =
-    deploymentResponse.customEnvironment?.slug ?? null;
-  const meta = deploymentResponse.meta;
-  if (!meta || typeof meta !== "object" || Array.isArray(meta)) {
-    throw new Error("App transaction candidate metadata is malformed");
-  }
-  const runId = meta.mentoRunId;
-  const runAttempt = meta.mentoRunAttempt;
-  const transactionId = meta.mentoTransactionId;
-  const nextDeploymentId = meta.mentoNextDeploymentId;
-  if (
-    projectId !== expectation.projectId ||
-    projectName !== expectation.projectName ||
-    readyState !== "READY" ||
-    target !== null ||
-    customEnvironmentSlug !== expectation.customEnvironmentSlug ||
-    git.org !== "mento-protocol" ||
-    git.repo !== "frontend-monorepo" ||
-    git.ref !== "main" ||
-    git.sha !== expectation.deploySha ||
-    runId !== expectation.runId ||
-    runAttempt !== expectation.runAttempt ||
-    transactionId !== expectation.transactionId ||
-    nextDeploymentId !== expectation.nextDeploymentId
-  ) {
-    throw new Error("App transaction candidate identity does not match");
-  }
-  const result = {
-    deploymentId,
-    deploymentUrl,
-    projectId,
-    projectName,
-    deploySha: git.sha,
-    runId,
-    runAttempt,
-    transactionId,
-    customEnvironmentSlug,
-  };
-  return assertAppTransactionCandidateOutput(result);
-}
-
-export function assertAppTransactionCandidateOutput(value) {
-  assertExactKeys(
-    value,
-    APP_TRANSACTION_CANDIDATE_KEYS,
-    "App transaction candidate",
-  );
-  if (
-    typeof value.deploymentId !== "string" ||
-    !/^dpl_[A-Za-z0-9]+$/.test(value.deploymentId) ||
-    canonicalizeDeploymentUrl(value.deploymentUrl) !== value.deploymentUrl ||
-    typeof value.projectId !== "string" ||
-    !/^[A-Za-z0-9._-]+$/.test(value.projectId) ||
-    value.projectName !== "app.mento.org" ||
-    typeof value.deploySha !== "string" ||
-    !SHA_PATTERN.test(value.deploySha) ||
-    value.deploySha !== value.deploySha.toLowerCase() ||
-    typeof value.runId !== "string" ||
-    !/^[1-9][0-9]*$/.test(value.runId) ||
-    typeof value.runAttempt !== "string" ||
-    !/^[1-9][0-9]*$/.test(value.runAttempt) ||
-    typeof value.transactionId !== "string" ||
-    !/^main-[a-f0-9]{32}$/.test(value.transactionId) ||
-    value.customEnvironmentSlug !== "v3"
-  ) {
-    throw new Error("App transaction candidate output is malformed");
-  }
-  return value;
-}
-
 export function canonicalizeAliasMapping({
   alias,
   aliasResponse,
@@ -793,12 +619,12 @@ export function canonicalizeMainPlanningDeploymentState({
   );
   assertExpected(projectName, expected.projectName, "project name");
   assertExpected(readyState, expected.readyState ?? "READY", "readiness");
-  assertExpected(target, expected.target, "target");
-  assertExpected(
+  assertExpectedPriorEnvironment({
+    projectName,
+    target,
     customEnvironmentSlug,
-    expected.customEnvironmentSlug,
-    "custom environment",
-  );
+    expected,
+  });
 
   const aliases = canonicalizeAliases(aliasesResponse);
   if (
@@ -824,6 +650,34 @@ export function canonicalizeMainPlanningDeploymentState({
     git,
     aliases,
   };
+}
+
+// TRANSITION-V3-PRIOR
+// Main planning capture reads the deployment a reviewed alias currently
+// serves. The App spec is production-shaped from the day the App owns
+// production, but `app.mento.org` keeps serving the v3-shaped prior until the
+// dashboard domain move, so exactly that one alternative shape is accepted for
+// the App project. Nothing else relaxes.
+function assertExpectedPriorEnvironment({
+  projectName,
+  target,
+  customEnvironmentSlug,
+  expected,
+}) {
+  if (
+    projectName === "app.mento.org" &&
+    expected.target === "production" &&
+    expected.customEnvironmentSlug === null &&
+    isTransitionalAppPriorEnvironment("app", { target, customEnvironmentSlug })
+  ) {
+    return;
+  }
+  assertExpected(target, expected.target, "target");
+  assertExpected(
+    customEnvironmentSlug,
+    expected.customEnvironmentSlug,
+    "custom environment",
+  );
 }
 
 function assertExactKeys(value, keys, label) {
@@ -870,9 +724,12 @@ export function assertCanonicalOutput(value) {
     }
     const isProduction =
       state.target === "production" && state.customEnvironmentSlug === null;
-    const isAppV3 =
-      state.target === null && state.customEnvironmentSlug === "v3";
-    if (!isProduction && !isAppV3) {
+    // TRANSITION-V3-PRIOR: the App deployment `app.mento.org` served before
+    // this release is still in the retiring `v3` custom environment.
+    const isTransitionalAppPrior =
+      state.projectName === "app.mento.org" &&
+      isTransitionalAppPriorEnvironment("app", state);
+    if (!isProduction && !isTransitionalAppPrior) {
       throw new Error("Canonical deployment environment is malformed");
     }
     assertExactKeys(state.git, CANONICAL_GIT_KEYS, "Canonical Git state");
@@ -1098,76 +955,6 @@ export class VercelStateClient {
     return this.requestWithRetry(`/v9/projects/${encodeURIComponent(id)}`);
   }
 
-  async listAppTransactionDeploymentIds(expected, { maximumPages = 5 } = {}) {
-    const expectation = canonicalAppTransactionExpectation(expected);
-    if (
-      !Number.isSafeInteger(maximumPages) ||
-      maximumPages < 1 ||
-      maximumPages > 5
-    ) {
-      throw new Error("App candidate pagination limit is malformed");
-    }
-    const ids = [];
-    const seenIds = new Set();
-    const seenCursors = new Set();
-    let cursor = null;
-    for (let page = 1; page <= maximumPages; page += 1) {
-      const url = new URL("/v6/deployments", API_ORIGIN);
-      url.searchParams.set("projectId", expectation.projectId);
-      url.searchParams.set("target", "v3");
-      url.searchParams.set("limit", "100");
-      url.searchParams.set(
-        "meta-mentoTransactionId",
-        expectation.transactionId,
-      );
-      if (cursor !== null) url.searchParams.set("until", cursor);
-      const response = await this.requestWithRetry(
-        `${url.pathname}${url.search}`,
-      );
-      if (
-        !response ||
-        typeof response !== "object" ||
-        Array.isArray(response) ||
-        !Array.isArray(response.deployments) ||
-        !response.pagination ||
-        typeof response.pagination !== "object" ||
-        Array.isArray(response.pagination)
-      ) {
-        throw new Error("App candidate deployment list is malformed");
-      }
-      for (const summary of response.deployments) {
-        if (!summary || typeof summary !== "object" || Array.isArray(summary)) {
-          throw new Error("App candidate deployment summary is malformed");
-        }
-        const id = requireIdentifier(
-          consistentString("ID", [summary.uid, summary.id]),
-          "App candidate deployment ID",
-        );
-        if (!id.startsWith("dpl_") || seenIds.has(id)) {
-          throw new Error("App candidate deployment list is ambiguous");
-        }
-        seenIds.add(id);
-        ids.push(id);
-      }
-      const next = response.pagination.next ?? null;
-      if (next === null) return ids;
-      const nextCursor =
-        typeof next === "number" && Number.isSafeInteger(next)
-          ? String(next)
-          : next;
-      if (
-        typeof nextCursor !== "string" ||
-        !/^[1-9][0-9]*$/.test(nextCursor) ||
-        seenCursors.has(nextCursor)
-      ) {
-        throw new Error("App candidate pagination cursor is malformed");
-      }
-      seenCursors.add(nextCursor);
-      cursor = nextCursor;
-    }
-    throw new Error("App candidate pagination exceeded its bounded limit");
-  }
-
   async listExactShaDeploymentIds({ projectId, deploySha }) {
     const canonicalProjectId = requireIdentifier(
       projectId,
@@ -1226,66 +1013,6 @@ export class VercelStateClient {
       seenIds.add(id);
     }
     return [...seenIds].sort();
-  }
-
-  async discoverAppTransactionCandidate(
-    expected,
-    {
-      maximumAttempts = 6,
-      sleepImplementation = sleep,
-      stabilizationDelayMs = 2_000,
-    } = {},
-  ) {
-    const expectation = canonicalAppTransactionExpectation(expected);
-    if (
-      !Number.isSafeInteger(maximumAttempts) ||
-      maximumAttempts < 1 ||
-      maximumAttempts > 10 ||
-      typeof sleepImplementation !== "function" ||
-      !Number.isSafeInteger(stabilizationDelayMs) ||
-      stabilizationDelayMs < 0 ||
-      stabilizationDelayMs > 10_000
-    ) {
-      throw new Error("App candidate stabilization limits are malformed");
-    }
-    for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
-      const ids = await this.listAppTransactionDeploymentIds(expectation);
-      if (ids.length > 1) {
-        throw new Error(
-          `App transaction candidate discovery requires exactly one match; received ${ids.length}`,
-        );
-      }
-      if (ids.length === 1) {
-        const deploymentResponse = await this.requestWithRetry(
-          `/v13/deployments/${encodeURIComponent(ids[0])}?withGitRepoInfo=true`,
-        );
-        const readyState = consistentString("readiness", [
-          deploymentResponse?.readyState,
-        ]);
-        if (readyState === "READY") {
-          return canonicalizeAppTransactionCandidate({
-            deploymentResponse,
-            expected: expectation,
-          });
-        }
-        if (!APP_CANDIDATE_PENDING_STATES.has(readyState)) {
-          throw new Error("App transaction candidate did not become READY");
-        }
-        canonicalizeAppTransactionCandidate({
-          deploymentResponse: {
-            ...deploymentResponse,
-            readyState: "READY",
-          },
-          expected: expectation,
-        });
-      }
-      if (attempt < maximumAttempts) {
-        await sleepImplementation(stabilizationDelayMs);
-      }
-    }
-    throw new Error(
-      "App transaction candidate did not stabilize within the bounded window",
-    );
   }
 
   async canonicalAliasState(spec) {
@@ -1595,9 +1322,13 @@ function assertStateExpectation(expected, { requireDeployment = false } = {}) {
   }
   const isProduction =
     expected.target === "production" && expected.customEnvironmentSlug === null;
-  const isAppV3 =
-    expected.target === null && expected.customEnvironmentSlug === "v3";
-  if (!isProduction && !isAppV3) {
+  // TRANSITION-V3-PRIOR: the manual production-shadow protected-alias spec
+  // still describes the App `v3` custom environment. Main planning specs are
+  // production-shaped; only observed App priors may still be v3-shaped.
+  const isTransitionalAppPrior =
+    expected.projectName === "app.mento.org" &&
+    isTransitionalAppPriorEnvironment("app", expected);
+  if (!isProduction && !isTransitionalAppPrior) {
     throw new Error("Expected deployment environment is malformed");
   }
   if (expected.readyState !== undefined && expected.readyState !== "READY") {
@@ -1652,10 +1383,14 @@ function requirePositiveIdentifier(value, label) {
   return value;
 }
 
+// Every main target now censuses its own ordinary production environment. The
+// exact-SHA census never observes a prior, so it needs no prior-shape
+// tolerance: a v3-shaped App deployment can never carry the release SHA.
 function activeProjectEnvironment(target) {
-  return target === "app"
-    ? { target: null, customEnvironmentSlug: "v3" }
-    : { target: "production", customEnvironmentSlug: null };
+  if (!ACTIVE_STATE_TARGETS.includes(target)) {
+    throw new Error("Active state target is unsupported");
+  }
+  return { target: "production", customEnvironmentSlug: null };
 }
 
 function canonicalActiveStateTargets(value, label) {
@@ -1676,36 +1411,24 @@ function canonicalActiveStateTargets(value, label) {
   return value;
 }
 
-function plannedDispositionForTarget(
-  logicalTarget,
-  activeTargets,
-  shadowTargets,
-) {
-  if (activeTargets.includes(logicalTarget)) return "githubPrebuilt";
-  if (logicalTarget !== "app" && shadowTargets.includes(logicalTarget)) {
-    return "githubShadowStage";
-  }
-  return null;
-}
-
-// App recovery evidence may carry a zero-candidate recoveredPrior expectation
-// when its v3 deploy never started or when a manual-intervention terminal cannot
-// prove whether a started command created a detached candidate. In the latter
-// case this is fail-closed evidence, not proof that no candidate exists: any
-// matching candidate makes the state proof unproven. Ordinary targets always
-// have an exact staged candidate before activation.
+// Every selected target — App included — now stages an exact candidate before
+// activation, so an active project always has a planned disposition and an
+// exact expected deployment.
+//
+// A shadow target is proven by its own stage job and is never mutated by the
+// activation transaction, so the current-attempt journal holds no candidate for
+// it. Terminal recovery evidence therefore cannot name a shadow target's staged
+// deployment and declares no expectation for it. That is fail-closed evidence,
+// not proof that no staged deployment exists: any deployment that classifies as
+// a shadow stage makes the state proof unproven.
 function expectedActiveStateDisposition({
   logicalTarget,
   activeTargets,
   shadowTargets,
   project,
 }) {
-  const planned = plannedDispositionForTarget(
-    logicalTarget,
-    activeTargets,
-    shadowTargets,
-  );
-  if (project.expectedDisposition !== "recoveredPrior") return planned;
+  if (activeTargets.includes(logicalTarget)) return "githubPrebuilt";
+  if (!shadowTargets.includes(logicalTarget)) return null;
   const deploymentId = Object.hasOwn(project, "deploymentId")
     ? project.deploymentId
     : project.expectedDeploymentId;
@@ -1713,16 +1436,13 @@ function expectedActiveStateDisposition({
     ? project.deploymentUrl
     : project.expectedDeploymentUrl;
   if (
-    logicalTarget !== "app" ||
-    planned !== "githubPrebuilt" ||
-    deploymentId !== null ||
-    deploymentUrl !== null
+    deploymentId === null &&
+    deploymentUrl === null &&
+    project.expectedDisposition === null
   ) {
-    throw new Error(
-      `${logicalTarget} recovered-prior deployment expectation is malformed`,
-    );
+    return null;
   }
-  return "recoveredPrior";
+  return "githubShadowStage";
 }
 
 function canonicalMainOwnershipMode(value) {
@@ -1852,10 +1572,7 @@ export function assertActiveDeploymentStateSpec(spec) {
     });
     let deploymentId = null;
     let deploymentUrl = null;
-    if (
-      expectedDisposition === null ||
-      expectedDisposition === "recoveredPrior"
-    ) {
+    if (expectedDisposition === null) {
       if (project.deploymentId !== null || project.deploymentUrl !== null) {
         throw new Error(
           `${logicalTarget} planned active deployment expectation is malformed`,
@@ -2487,10 +2204,7 @@ export function assertActiveDeploymentStateProof(value) {
         `${logicalTarget} active proof prior served SHA is malformed`,
       );
     }
-    if (
-      expectedDisposition === null ||
-      expectedDisposition === "recoveredPrior"
-    ) {
+    if (expectedDisposition === null) {
       if (
         project.expectedDeploymentId !== null ||
         project.expectedDeploymentUrl !== null
@@ -2747,69 +2461,6 @@ export async function captureActiveDeploymentStateProof(client, spec) {
   });
 }
 
-export function assertMainPlanningAppV3Topology(groupStates, reviewedAliases) {
-  const canonicalReviewedAliases = reviewedAliases.toSorted();
-  const deploymentIds = new Map();
-  const deploymentUrls = new Map();
-  const partitions = new Map();
-  for (const state of groupStates) {
-    if (!state.aliases.includes(state.alias)) {
-      throw new Error(
-        "Main planning app-v3 deployment omits its mapped reviewed alias",
-      );
-    }
-    if (
-      state.aliases.some((alias) => !canonicalReviewedAliases.includes(alias))
-    ) {
-      throw new Error(
-        "Main planning app-v3 aliases do not exactly match the reviewed set",
-      );
-    }
-    const knownUrl = deploymentIds.get(state.deploymentId);
-    const knownId = deploymentUrls.get(state.deploymentUrl);
-    if (
-      (knownUrl !== undefined && knownUrl !== state.deploymentUrl) ||
-      (knownId !== undefined && knownId !== state.deploymentId)
-    ) {
-      throw new Error("Main planning app-v3 deployment identity conflicts");
-    }
-    deploymentIds.set(state.deploymentId, state.deploymentUrl);
-    deploymentUrls.set(state.deploymentUrl, state.deploymentId);
-    const partitionKey = JSON.stringify([
-      state.deploymentId,
-      state.deploymentUrl,
-    ]);
-    const partition = partitions.get(partitionKey) ?? {
-      aliases: [],
-      deploymentAliasSet: JSON.stringify(state.aliases),
-    };
-    if (partition.deploymentAliasSet !== JSON.stringify(state.aliases)) {
-      throw new Error("Main planning deployment alias sets conflict");
-    }
-    partition.aliases.push(state.alias);
-    partitions.set(partitionKey, partition);
-  }
-  const observedAliases = [];
-  for (const partition of partitions.values()) {
-    const mappedAliases = partition.aliases.toSorted();
-    const deploymentAliases = JSON.parse(partition.deploymentAliasSet);
-    if (JSON.stringify(deploymentAliases) !== JSON.stringify(mappedAliases)) {
-      throw new Error(
-        "Main planning app-v3 deployment aliases do not match their mapped reviewed aliases",
-      );
-    }
-    observedAliases.push(...deploymentAliases);
-  }
-  if (
-    JSON.stringify(observedAliases.toSorted()) !==
-    JSON.stringify(canonicalReviewedAliases)
-  ) {
-    throw new Error(
-      "Main planning app-v3 aliases do not exactly match the reviewed set",
-    );
-  }
-}
-
 export async function captureMainPlanningSnapshot(client, spec) {
   assertSnapshotSpec(spec);
   if (spec.some((entry) => entry.git.ref !== "main")) {
@@ -2840,19 +2491,24 @@ export async function captureMainPlanningSnapshot(client, spec) {
   for (const [key, reviewedAliases] of groups) {
     const [projectId, projectName, target, customEnvironmentSlug] =
       JSON.parse(key);
+    // TRANSITION-V3-PRIOR: the App group's spec is production-shaped while the
+    // deployment `app.mento.org` still serves may be v3-shaped. Every group
+    // keeps the single-deployment invariant either way.
+    const acceptsGroupEnvironment = (state) =>
+      (state.target === target &&
+        state.customEnvironmentSlug === customEnvironmentSlug) ||
+      (projectName === "app.mento.org" &&
+        target === "production" &&
+        customEnvironmentSlug === null &&
+        isTransitionalAppPriorEnvironment("app", state));
     const groupStates = ordered.filter(
       (state) =>
         state.projectId === projectId &&
         state.projectName === projectName &&
-        state.target === target &&
-        state.customEnvironmentSlug === customEnvironmentSlug,
+        acceptsGroupEnvironment(state),
     );
     if (groupStates.length !== reviewedAliases.length) {
       throw new Error("Main planning alias group is incomplete");
-    }
-    if (customEnvironmentSlug === "v3") {
-      assertMainPlanningAppV3Topology(groupStates, reviewedAliases);
-      continue;
     }
     if (
       new Set(groupStates.map((state) => state.deploymentId)).size !== 1 ||
@@ -3139,15 +2795,6 @@ export function writeMainPlanningSnapshot(path, value, options = {}) {
   );
 }
 
-export function writeAppTransactionCandidate(path, value, options = {}) {
-  return writeValidatedPrivateJson(
-    path,
-    value,
-    assertAppTransactionCandidateOutput,
-    options,
-  );
-}
-
 export function writeActiveDeploymentStateProof(path, value, options = {}) {
   return writeValidatedPrivateJson(
     path,
@@ -3265,14 +2912,6 @@ export async function runCli({
       runnerTemp: env.RUNNER_TEMP,
     });
     stdout.write("Canonical main planning snapshot written\n");
-  } else if (command === "app-candidate") {
-    const result = await client.discoverAppTransactionCandidate(
-      readJson(options.expected, "App candidate expectation"),
-    );
-    writeAppTransactionCandidate(options.output, result, {
-      runnerTemp: env.RUNNER_TEMP,
-    });
-    stdout.write("Canonical App transaction candidate written\n");
   } else if (command === "deployment") {
     const expected = readJson(options.expected, "Deployment expectation");
     const result = await client.canonicalDeploymentState(expected);

@@ -15,14 +15,12 @@ import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
 import {
-  MAIN_ACTIVE_APP_ALIASES,
+  MAIN_ACTIVE_APP_BRIDGE_ALIASES,
   MAIN_ACTIVE_COMMAND_TIMEOUT_MS,
+  MAIN_ACTIVE_PROMOTABLE_TARGETS,
 } from "./vercel-main-active.mjs";
 import { mainDeploymentGateJobName } from "./vercel-main-ci-attempt.mjs";
-import {
-  MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS,
-  MAIN_ORDINARY_TARGETS,
-} from "./vercel-main-deployment.mjs";
+import { MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS } from "./vercel-main-deployment.mjs";
 
 const read = (path) =>
   readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -833,20 +831,19 @@ test("inherited restoration proves and validates reuse before a durable bounded 
         `steps\\.inherited-${target}-preflight\\.outputs\\.action.*= reuse`,
       ),
     );
-    const finalizeCommand =
-      target === "app" ? "candidate-finalize" : "candidate-finalize-inherited";
+    // Inherited restoration always finalizes the candidate the reviewed alias
+    // currently serves, so every target — App included — proves its protected
+    // alias through the served-prior contract, never the candidate contract.
     assert.match(
       finalize.run,
       new RegExp(
-        `candidate-smoke[\\s\\S]*vercel-main-provider-cli\\.mjs ${finalizeCommand} --intent`,
+        "candidate-smoke[\\s\\S]*vercel-main-provider-cli\\.mjs candidate-finalize-inherited --intent",
       ),
     );
-    if (target !== "app") {
-      assert.doesNotMatch(
-        finalize.run,
-        /vercel-main-provider-cli\.mjs candidate-finalize --intent/,
-      );
-    }
+    assert.doesNotMatch(
+      finalize.run,
+      /vercel-main-provider-cli\.mjs candidate-finalize --intent/,
+    );
     assert.ok(jobSteps.indexOf(intent) < jobSteps.indexOf(preflight));
     assert.ok(jobSteps.indexOf(preflight) < jobSteps.indexOf(finalize));
     assert.ok(jobSteps.indexOf(finalize) < jobSteps.indexOf(strictReceipts));
@@ -1029,7 +1026,7 @@ test("inherited restoration proves and validates reuse before a durable bounded 
   }
 });
 
-test("only inherited ordinary restoration uses inherited candidate finalization", () => {
+test("only inherited restoration uses inherited candidate finalization", () => {
   const inheritedFinalizers = Object.entries(workflow.jobs).flatMap(
     ([jobName, job]) =>
       (job.steps ?? [])
@@ -1053,6 +1050,10 @@ test("only inherited ordinary restoration uses inherited candidate finalization"
       jobName: "restore-inherited-release",
       id: "inherited-ui-finalize",
     },
+    {
+      jobName: "restore-inherited-release",
+      id: "inherited-app-finalize",
+    },
   ]);
   assert.doesNotMatch(
     `${forwardSource}\n${recoverySource}`,
@@ -1060,7 +1061,7 @@ test("only inherited ordinary restoration uses inherited candidate finalization"
   );
   assert.doesNotMatch(workflowSource, /--alias-topology-mode/);
 
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of ["app", "governance", "reserve", "ui"]) {
     const finalize = command(`stage-${target}`, "candidate-finalize");
     assert.match(
       finalize.run,
@@ -1068,15 +1069,22 @@ test("only inherited ordinary restoration uses inherited candidate finalization"
     );
     assert.doesNotMatch(finalize.run, /candidate-finalize-inherited/);
   }
-  assert.match(
+  // A served-prior candidate carries the reviewed protected alias, which the
+  // candidate contract forbids, so inherited App restoration cannot re-enter
+  // the ordinary `candidate-finalize` path.
+  assert.doesNotMatch(
     workflow.jobs["restore-inherited-release"].steps.find(
       (step) => step.id === "inherited-app-finalize",
     ).run,
     /vercel-main-provider-cli\.mjs candidate-finalize --intent/,
   );
-  assert.match(
-    named("activate-and-verify", "only a reused App candidate").run,
-    /vercel-main-provider-cli\.mjs candidate-finalize --intent/,
+  // The coordinator no longer finalizes any candidate: every stage job owns
+  // its own smoke and receipt.
+  assert.equal(
+    steps("activate-and-verify").some((step) =>
+      step.run?.includes("candidate-finalize"),
+    ),
+    false,
   );
 });
 
@@ -1237,8 +1245,8 @@ test("release preparation starts only after inherited recovery and replans from 
   assert.equal(jobSteps.indexOf(execution), gateIndex + 1);
 });
 
-test("ordinary targets materialize execution and use create-or-reuse provider handoffs", () => {
-  for (const target of ["governance", "reserve", "ui"]) {
+test("every main target materializes execution and uses create-or-reuse provider handoffs", () => {
+  for (const target of ["app", "governance", "reserve", "ui"]) {
     const job = `stage-${target}`;
     const stage = workflow.jobs[job];
     assert.equal(stage["timeout-minutes"], 50);
@@ -1287,7 +1295,7 @@ test("ordinary targets materialize execution and use create-or-reuse provider ha
   }
 });
 
-test("App builds its custom-v3 candidate in a parallel stage job", () => {
+test("App stages its production candidate exactly like every other target", () => {
   const jobName = "stage-app";
   const job = workflow.jobs[jobName];
   const jobSteps = steps(jobName);
@@ -1310,84 +1318,40 @@ test("App builds its custom-v3 candidate in a parallel stage job", () => {
   });
   assert.equal(job.env.LOGICAL_TARGET, "app");
   assert.equal(job.env.VERCEL_TOKEN, undefined);
+  // The App stage now hands over a candidate receipt like the ordinary stages;
+  // the retired same-run custom-v3 payload handoff has no output left.
   assert.deepEqual(job.outputs, {
-    action: "${{ steps.preflight.outputs.action }}",
-    candidate_id: "${{ steps.intent.outputs.candidate_id }}",
-    payload_artifact: "${{ steps.seal.outputs.artifact_name }}",
-    payload_attempt: "${{ steps.seal.outputs.run_attempt }}",
-    payload_bytes: "${{ steps.seal.outputs.bytes }}",
-    payload_sha256: "${{ steps.seal.outputs.sha256 }}",
+    receipt: "${{ steps.finalize.outputs.receipt }}",
+    evidence: "${{ steps.terminal.outputs.evidence }}",
   });
-  // The job creates no provider deployment: it never uploads a candidate and
-  // never finalizes one.
-  assert.equal(
-    jobSteps.some((step) =>
-      step.run?.includes("vercel-production-shadow.mjs deploy"),
-    ),
-    false,
-  );
-  assert.equal(
-    jobSteps.some((step) => step.run?.includes("candidate-finalize")),
-    false,
-  );
-
-  const checkouts = checkoutSteps(jobName);
-  assert.equal(checkouts.length, 2);
-  assert.deepEqual(checkouts[0].with, {
-    "fetch-depth": 1,
-    "persist-credentials": false,
-    ref: "${{ github.workflow_sha }}",
-  });
-  assert.deepEqual(checkouts[1].with, {
-    "fetch-depth": 0,
-    path: "source",
-    "persist-credentials": false,
-    ref: "${{ needs.wait-for-ci.outputs.deploy_sha }}",
-  });
-  const proof = sourceProof(jobName);
-  assert.equal(proof.env.GITHUB_WORKFLOW_SHA, "${{ github.workflow_sha }}");
-  const install = named(jobName, "without lifecycle scripts");
-  assert.deepEqual(install.with, {
-    "working-directory": "source",
-    "ignore-scripts": "true",
-    filter: "frontend-monorepo",
-  });
-  const intent = command(jobName, "candidate-intent --execution");
-  assert.match(intent.run, /release-cli\.mjs materialize/);
-  assert.match(intent.run, /--target app/);
-  const runtime = named(jobName, "Prepare protected App runtime");
-  assert.equal(runtime.uses, "./.github/actions/vercel-protected-runtime");
-  assert.equal(runtime.with.operation, "prepare");
-  assert.equal(runtime.with["logical-target"], "app");
-  assert.match(command(jobName, "check-versions").run, /check-versions/);
-
-  const preflight = command(jobName, "candidate-preflight");
-  assert.equal(
-    preflight.if,
-    "contains(fromJSON(needs.prepare-release.outputs.active_targets), 'app')",
-  );
-  assert.equal(
-    preflight.env.VERCEL_TOKEN,
-    "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
-  );
-  const buildGate =
-    "steps.preflight.outputs.action == 'create' || " +
-    "contains(fromJSON(needs.prepare-release.outputs.shadow_targets), 'app')";
-  const rootCheck = named(
-    jobName,
-    "Validate App project link and Root Directory",
-  );
-  assert.match(rootCheck.run, /--project-name app\.mento\.org/);
-  assert.match(rootCheck.run, /--root-directory apps\/app\.mento\.org/);
-  for (const step of [
-    named(jobName, "Prepare runner-owned App custom-v3 pull staging"),
-    named(jobName, "Pull App custom-v3 configuration"),
-    rootCheck,
+  for (const retired of [
+    "action",
+    "candidate_id",
+    "payload_artifact",
+    "payload_attempt",
+    "payload_bytes",
+    "payload_sha256",
   ]) {
-    assert.equal(step.if.replace(/\s+/g, " ").trim(), buildGate);
+    assert.equal(job.outputs[retired], undefined, retired);
   }
-  const build = named(jobName, "Build exact App custom-v3 output");
-  assert.equal(build.if.replace(/\s+/g, " ").trim(), buildGate);
+  const jobSource = JSON.stringify(job);
+  assert.doesNotMatch(jobSource, /app-v3-payload|app-v3-output|--target v3/);
+  assert.doesNotMatch(jobSource, /VERCEL_TARGET_ENV.{0,4}v3/);
+
+  const deploy = command(jobName, 'vercel-production-shadow.mjs" deploy');
+  assert.equal(deploy.if, "steps.preflight.outputs.action == 'create'");
+  assert.match(deploy.run, /--candidate-metadata /);
+  assert.match(deploy.run, /--expected /);
+  assert.equal(
+    deploy.env.SOURCE_PATH,
+    "${{ steps.runtime.outputs.upload-source-path }}",
+  );
+  const finalize = command(jobName, "candidate-finalize");
+  assert.match(finalize.run, /candidate-smoke/);
+  assert.match(finalize.run, /--preflight /);
+
+  const build = named(jobName, "Build and upload app");
+  assert.equal(build.if, "steps.preflight.outputs.action == 'create'");
   assert.equal(build.uses, "./.github/actions/vercel-candidate-build");
   assert.equal(build.with["logical-target"], "app");
   assert.equal(build.with["expected-root-directory"], "apps/app.mento.org");
@@ -1395,86 +1359,22 @@ test("App builds its custom-v3 candidate in a parallel stage job", () => {
     build.with["vercel-project-id"],
     "${{ vars.VERCEL_PROJECT_ID_APP }}",
   );
-  assert.equal(
-    build.with["deploy-sha"],
-    "${{ needs.wait-for-ci.outputs.deploy_sha }}",
-  );
-  assert.equal(
-    build.with["next-deployment-id"],
-    "${{ steps.intent.outputs.candidate_id }}",
-  );
-  assert.equal(build.env.VERCEL_TARGET_ENV, "v3");
-  assert.equal(build.env.NEXT_PUBLIC_VERCEL_ENV, "preview");
-  assert.equal(build.env.VERCEL_ENV, "preview");
-  for (const secret of ["ETHERSCAN_API_KEY", "SENTRY_AUTH_TOKEN"]) {
-    assert.equal(build.env[secret], undefined);
-  }
+  assert.equal(build.env.VERCEL_ENV, "production");
+  assert.equal(build.env.VERCEL_TARGET_ENV, "production");
+  assert.equal(build.env.NEXT_PUBLIC_VERCEL_ENV, "production");
+  assert.equal(build.env.SENTRY_AUTH_TOKEN, "${{ secrets.SENTRY_AUTH_TOKEN }}");
+  assert.equal(build.env.ETHERSCAN_API_KEY, undefined);
 
-  // The handoff must keep intra-output symlinks, exact modes, and single
-  // links; `actions/upload-artifact` on a raw directory would lose all three.
-  const seal = named(jobName, "Seal the immutable App custom-v3 payload");
-  assert.equal(seal.if, "steps.build.outcome == 'success'");
-  assert.equal(
-    seal.env.ISOLATION_ROOT,
-    "${{ steps.runtime.outputs.isolation-root }}",
-  );
-  assert.equal(
-    seal.env.UPLOAD_SOURCE_PATH,
-    "${{ steps.runtime.outputs.upload-source-path }}",
-  );
-  for (const flag of [
-    "--create",
-    "--format=pax",
-    "--sort=name",
-    "--numeric-owner",
-    "--hard-dereference",
-    "--no-xattrs",
-    "--no-acls",
-    "--no-selinux",
-    '--directory "$ISOLATION_ROOT"',
-  ]) {
-    assert.ok(seal.run.includes(flag), `payload seal must pass ${flag}`);
-  }
-  assert.doesNotMatch(seal.run, /--dereference\b|\s-h\s/);
-  assert.match(seal.run, /sha256sum "\$payload"/);
-  assert.match(
-    seal.run,
-    /artifact_name=vercel-main-app-v3-payload-\$GITHUB_RUN_ID-\$GITHUB_RUN_ATTEMPT/,
-  );
-  assert.match(seal.run, /run_attempt=\$GITHUB_RUN_ATTEMPT/);
-  // The journal history scan globs `vercel-main-journal-<transactionId>-*`;
-  // the payload name can never be swept into it.
-  assert.doesNotMatch(seal.run, /artifact_name=vercel-main-journal-/);
-
-  const upload = named(jobName, "Upload the exact App custom-v3 payload");
-  assert.equal(upload.if, "steps.seal.outcome == 'success'");
-  assert.equal(upload.uses, UPLOAD_PIN);
-  assert.equal(upload.with.name, "${{ steps.seal.outputs.artifact_name }}");
-  assert.equal(upload.with["if-no-files-found"], "error");
-  assert.equal(upload.with["retention-days"], 1);
-  // The archive stays uncompressed so the seal needs no external compression
-  // binary; the upload deflates it instead.
-  assert.equal(upload.with["compression-level"], 1);
-  assert.doesNotMatch(seal.run, /--zstd|--gzip|--xz|--bzip2/);
-
-  const cleanup = named(jobName, "Remove authenticated App runtime");
+  const cleanup = named(jobName, "Remove authenticated app runtime");
   assert.equal(cleanup.if, "${{ always() }}");
   assert.deepEqual(cleanup.with, {
     operation: "cleanup",
     "logical-target": "app",
   });
-  assert.ok(jobSteps.indexOf(proof) < jobSteps.indexOf(install));
-  assert.ok(jobSteps.indexOf(install) < jobSteps.indexOf(intent));
-  assert.ok(jobSteps.indexOf(intent) < jobSteps.indexOf(runtime));
-  assert.ok(jobSteps.indexOf(runtime) < jobSteps.indexOf(preflight));
-  assert.ok(jobSteps.indexOf(preflight) < jobSteps.indexOf(rootCheck));
-  assert.ok(jobSteps.indexOf(rootCheck) < jobSteps.indexOf(build));
-  assert.ok(jobSteps.indexOf(build) < jobSteps.indexOf(seal));
-  assert.ok(jobSteps.indexOf(seal) < jobSteps.indexOf(upload));
   assert.equal(jobSteps.at(-1), cleanup);
 });
 
-test("active coordinator validates stage handoffs and prepares App without deploying", () => {
+test("active coordinator validates stage receipts and never builds or deploys", () => {
   const jobName = "activate-and-verify";
   const coordinator = workflow.jobs[jobName];
   const jobSteps = steps(jobName);
@@ -1512,7 +1412,7 @@ test("active coordinator validates stage handoffs and prepares App without deplo
   assert.ok(jobSteps.indexOf(proof) < jobSteps.indexOf(install));
 
   const stageValidation = named(jobName, "Validate literal stage results");
-  for (const target of ["GOVERNANCE", "RESERVE", "UI"]) {
+  for (const target of ["APP", "GOVERNANCE", "RESERVE", "UI"]) {
     const dependency = target.toLowerCase();
     assert.equal(
       stageValidation.env[`${target}_RESULT`],
@@ -1531,8 +1431,8 @@ test("active coordinator validates stage handoffs and prepares App without deplo
   assert.match(stageValidation.run, /test "\$result" = skipped/);
   assert.match(stageValidation.run, /test "\$receipt" != none/);
   assert.match(stageValidation.run, /test "\$receipt" = none/);
-  // App stages a build rather than a provider deployment, so its literal
-  // expectation is the graph plus a same-attempt payload identity.
+  // The App stage hands over a candidate receipt like every other stage; the
+  // retired same-run payload identity has no environment left.
   assert.deepEqual(
     Object.fromEntries(
       [
@@ -1540,36 +1440,26 @@ test("active coordinator validates stage handoffs and prepares App without deplo
         "APP_ACTIVE",
         "APP_PAYLOAD_ATTEMPT",
         "APP_PAYLOAD_SHA256",
-        "APP_RESULT",
-        "APP_SELECTED",
       ].map((name) => [name, stageValidation.env[name]]),
     ),
     {
-      APP_ACTION: "${{ needs.stage-app.outputs.action || 'none' }}",
-      APP_ACTIVE:
-        "${{ contains(fromJSON(needs.prepare-release.outputs.active_targets), 'app') }}",
-      APP_PAYLOAD_ATTEMPT:
-        "${{ needs.stage-app.outputs.payload_attempt || 'none' }}",
-      APP_PAYLOAD_SHA256:
-        "${{ needs.stage-app.outputs.payload_sha256 || 'none' }}",
-      APP_RESULT: "${{ needs.stage-app.result }}",
-      APP_SELECTED:
-        "${{ contains(fromJSON(needs.prepare-release.outputs.targets), 'app') }}",
+      APP_ACTION: undefined,
+      APP_ACTIVE: undefined,
+      APP_PAYLOAD_ATTEMPT: undefined,
+      APP_PAYLOAD_SHA256: undefined,
     },
   );
-  assert.match(stageValidation.run, /test "\$APP_RESULT" = success/);
-  assert.match(stageValidation.run, /test "\$APP_RESULT" = skipped/);
-  assert.match(stageValidation.run, /create \| reuse\) ;;/);
-  assert.match(stageValidation.run, /test "\$APP_ACTION" = none/);
-  assert.match(stageValidation.run, /test "\$APP_PAYLOAD_SHA256" = none/);
-  assert.match(stageValidation.run, /test "\$\{#APP_PAYLOAD_SHA256\}" -eq 64/);
-  assert.match(stageValidation.run, /\*\[!0-9a-f\]\*\) exit 1 ;;/);
-  assert.match(
-    stageValidation.run,
-    /test "\$APP_PAYLOAD_ATTEMPT" = "\$GITHUB_RUN_ATTEMPT"/,
+  assert.match(stageValidation.run, /validate_stage app /);
+  assert.match(stageValidation.run, /test "\$result" = success/);
+  assert.match(stageValidation.run, /test "\$receipt" != none/);
+  assert.match(stageValidation.run, /test "\$result" = skipped/);
+  assert.match(stageValidation.run, /test "\$receipt" = none/);
+  // The retired same-run App payload handoff cannot re-enter the coordinator.
+  assert.doesNotMatch(
+    JSON.stringify(coordinator),
+    /payload_sha256|payload_artifact|payload_bytes|payload_attempt|app-v3-payload/,
   );
-
-  const freshness = named(jobName, "freshness before App preparation");
+  const freshness = named(jobName, "freshness before activation");
   const noTarget = named(jobName, "no-target terminal artifacts");
   const superseded = named(jobName, "superseded terminal artifacts");
   assert.equal(
@@ -1587,25 +1477,17 @@ test("active coordinator validates stage handoffs and prepares App without deplo
     /terminal-artifacts[\s\S]*--outcome superseded-before-journal/,
   );
 
-  const runtime = named(
-    jobName,
-    "Prepare protected activation runtime independent of App reuse",
+  const runtime = named(jobName, "Prepare protected activation runtime");
+  assert.equal(
+    runtime.if.replace(/\s+/g, " ").trim(),
+    "steps.freshness.outputs.status == 'fresh' && " +
+      "needs.prepare-release.outputs.has_active_targets == 'true'",
   );
-  assert.match(runtime.if, /steps\.freshness\.outputs\.status == 'fresh'/);
-  assert.match(
-    runtime.if,
-    /needs\.prepare-release\.outputs\.has_active_targets == 'true'/,
-  );
-  assert.match(runtime.if, /outputs\.targets\), 'app'/);
   assert.equal(runtime.uses, "./.github/actions/vercel-protected-runtime");
   assert.equal(runtime.with.operation, "prepare");
   assert.equal(runtime.with["logical-target"], "app");
-  assert.match(
-    command(jobName, "candidate-intent --execution").run,
-    /--target app/,
-  );
-  // The App custom-`v3` build moved to `stage-app`; the coordinator may only
-  // verify and materialize the transferred output.
+  // Every candidate is built and uploaded in its own stage job; the
+  // coordinator only promotes and verifies.
   assert.equal(
     jobSteps.some(
       (step) => step.uses === "./.github/actions/vercel-candidate-build",
@@ -1616,102 +1498,35 @@ test("active coordinator validates stage handoffs and prepares App without deplo
   assert.equal(
     jobSteps.some((step) => step.run?.includes("candidate-preflight")),
     false,
-    "the coordinator never re-runs the App candidate preflight",
-  );
-  const payloadGate =
-    "steps.freshness.outputs.status == 'fresh' && " +
-    "needs.stage-app.outputs.payload_sha256 != ''";
-  const bind = named(jobName, "Bind the App stage candidate");
-  assert.equal(
-    bind.env.INTENT_CANDIDATE_ID,
-    "${{ steps.app-intent.outputs.candidate_id }}",
+    "the coordinator never re-runs a candidate preflight",
   );
   assert.equal(
-    bind.env.STAGE_CANDIDATE_ID,
-    "${{ needs.stage-app.outputs.candidate_id }}",
-  );
-  assert.match(
-    bind.run,
-    /test "\$INTENT_CANDIDATE_ID" = "\$STAGE_CANDIDATE_ID"/,
-  );
-  const payloadDownload = named(jobName, "Download the exact current-attempt");
-  assert.equal(payloadDownload.uses, DOWNLOAD_PIN);
-  assert.equal(
-    payloadDownload.with.name,
-    "${{ needs.stage-app.outputs.payload_artifact }}",
-  );
-  assert.equal(payloadDownload.with["run-id"], "${{ github.run_id }}");
-  assert.equal(payloadDownload.with["github-token"], "${{ github.token }}");
-  assert.equal(payloadDownload.if.replace(/\s+/g, " ").trim(), payloadGate);
-  const payloadVerify = named(jobName, "Verify and materialize");
-  assert.equal(payloadVerify.if.replace(/\s+/g, " ").trim(), payloadGate);
-  assert.equal(
-    payloadVerify.env.EXPECTED_SHA256,
-    "${{ needs.stage-app.outputs.payload_sha256 }}",
+    jobSteps.some((step) => step.run?.includes("candidate-finalize")),
+    false,
+    "the coordinator never finalizes a candidate",
   );
   assert.equal(
-    payloadVerify.env.EXPECTED_BYTES,
-    "${{ needs.stage-app.outputs.payload_bytes }}",
-  );
-  for (const flag of [
-    "--extract",
-    "--preserve-permissions",
-    "--no-same-owner",
-    "--no-xattrs",
-    "--no-acls",
-    "--no-selinux",
-  ]) {
-    assert.ok(
-      payloadVerify.run.includes(flag),
-      `payload extraction must pass ${flag}`,
-    );
-  }
-  assert.doesNotMatch(payloadVerify.run, /--zstd|--gzip|--xz|--bzip2/);
-  assert.match(payloadVerify.run, /sha256sum --check --strict --status/);
-  assert.match(payloadVerify.run, /payload destination is not fresh/);
-  assert.match(
-    payloadVerify.run,
-    /Unexpected protected work entry after payload extraction/,
-  );
-  const outputAssertion = named(jobName, "Assert the exact App custom-v3");
-  assert.equal(outputAssertion.if.replace(/\s+/g, " ").trim(), payloadGate);
-  assert.match(
-    outputAssertion.run,
-    /vercel-production-shadow\.mjs assert-output/,
+    jobSteps.some((step) => step.run?.includes("app-build-proof")),
+    false,
+    "the retired App build proof cannot re-enter the coordinator",
   );
   assert.equal(
-    outputAssertion.env.MENTO_NEXT_DEPLOYMENT_ID,
-    "${{ steps.app-intent.outputs.candidate_id }}",
+    jobSteps.some((step) => step.uses === DOWNLOAD_PIN),
+    false,
+    "the coordinator downloads no same-run payload",
   );
-  assert.equal(
-    outputAssertion.env.SOURCE_PATH,
-    "${{ steps.app-runtime.outputs.upload-source-path }}",
-  );
-  const buildProof = named(jobName, "Prove exact App build before any upload");
-  assert.match(buildProof.run, /app-build-proof/);
-  assert.equal(buildProof.if.replace(/\s+/g, " ").trim(), payloadGate);
-  assert.match(
-    named(jobName, "Create App current-attempt build intent").if,
-    /outputs\.targets\), 'app'/,
-  );
-  const reuseFinalize = named(jobName, "only a reused App candidate");
-  assert.equal(
-    reuseFinalize.if.replace(/\s+/g, " ").trim(),
-    "steps.freshness.outputs.status == 'fresh' && " +
-      "needs.stage-app.outputs.action == 'reuse'",
-  );
-  assert.match(reuseFinalize.run, /candidate-smoke[\s\S]*candidate-finalize/);
   const strictReceipts = command(jobName, "candidate-receipts");
   assert.match(
     strictReceipts.run,
     /--app[\s\S]*--governance[\s\S]*--reserve[\s\S]*--ui/,
   );
+  assert.match(
+    strictReceipts.run,
+    /--app "\$\{\{ needs\.stage-app\.outputs\.receipt \|\| 'none' \}\}"/,
+  );
   assert.doesNotMatch(strictReceipts.run, /\bjq\b/);
   const coordinatorRuns = jobSteps.map((step) => step.run ?? "").join("\n");
-  assert.doesNotMatch(
-    coordinatorRuns,
-    /vercel-production-shadow\.mjs deploy --target app/,
-  );
+  assert.doesNotMatch(coordinatorRuns, /vercel-production-shadow\.mjs deploy/);
   const shadowTerminal = named(jobName, "shadow-only terminal artifacts");
   assert.match(shadowTerminal.if, /has_active_targets != 'true'/);
   assert.match(shadowTerminal.run, /--outcome shadow-prepared/);
@@ -1725,31 +1540,14 @@ test("active coordinator validates stage handoffs and prepares App without deplo
   assert.ok(jobSteps.indexOf(install) < jobSteps.indexOf(stageValidation));
   assert.ok(jobSteps.indexOf(stageValidation) < jobSteps.indexOf(freshness));
   assert.ok(jobSteps.indexOf(freshness) < jobSteps.indexOf(runtime));
-  assert.ok(jobSteps.indexOf(runtime) < jobSteps.indexOf(bind));
-  assert.ok(jobSteps.indexOf(bind) < jobSteps.indexOf(payloadDownload));
-  assert.ok(
-    jobSteps.indexOf(payloadDownload) < jobSteps.indexOf(payloadVerify),
-  );
-  assert.ok(
-    jobSteps.indexOf(payloadVerify) < jobSteps.indexOf(outputAssertion),
-  );
-  assert.ok(jobSteps.indexOf(outputAssertion) < jobSteps.indexOf(buildProof));
-  // The transferred tree must be re-verified before the first public mutation,
-  // and the digest it is verified against must arrive through the `needs`
-  // graph rather than be recomputed from the downloaded bytes.
+  assert.ok(jobSteps.indexOf(runtime) < jobSteps.indexOf(strictReceipts));
   const firstTransition = stepsUsing(
     jobSteps,
     "./.github/actions/vercel-main-active-transition",
   )[0];
   assert.ok(
-    jobSteps.indexOf(outputAssertion) < jobSteps.indexOf(firstTransition),
+    jobSteps.indexOf(strictReceipts) < jobSteps.indexOf(firstTransition),
   );
-  assert.ok(
-    jobSteps.indexOf(buildProof) <
-      jobSteps.indexOf(command(jobName, "candidate-receipts")),
-  );
-  assert.match(payloadVerify.run, /sha256sum --check/);
-  assert.doesNotMatch(payloadVerify.run, /sha256=|>> "\$GITHUB_OUTPUT"/);
   const cleanup = named(jobName, "Remove authenticated App runtime");
   assert.equal(cleanup.if, "${{ always() }}");
   assert.equal(cleanup.uses, "./.github/actions/vercel-protected-runtime");
@@ -1778,29 +1576,20 @@ test("forward composite binds every reducer turn to execution, barrier, and prep
   assert.match(forwardSource, new RegExp(UPLOAD_PIN));
 });
 
-test("forward App v3 deploy atomically adds the provider receipt before aliases can run", () => {
-  assert.match(forwardSource, /app_v3_deploy/);
-  const appFinalize = forward.runs.steps.find((step) =>
-    step.run?.includes("candidate-finalize"),
+// The forward composite is uniform: no App-only finalization or second
+// verification turn survives the App custom-environment retirement.
+test("forward composite has no App-only branch", () => {
+  assert.doesNotMatch(forwardSource, /app_v3_deploy/);
+  assert.doesNotMatch(forwardSource, /active-event-verify-app/);
+  assert.doesNotMatch(forwardSource, /candidate-finalize/);
+  assert.doesNotMatch(forwardSource, /app-operation-cwd/);
+  assert.equal(
+    forward.runs.steps.filter((step) =>
+      step.run?.includes("active-event-verify "),
+    ).length,
+    1,
   );
-  assert.ok(
-    appFinalize,
-    "missing App provider finalization after the authorized deploy",
-  );
-  assert.match(appFinalize.if, /app_v3_deploy/);
-  assert.match(appFinalize.run, /candidate-smoke[\s\S]*candidate-finalize/);
-  assert.match(appFinalize.run, /--intent/);
-  assert.match(appFinalize.run, /--smoke/);
-  const verifyApp = forward.runs.steps.find((step) =>
-    step.run?.includes("active-event-verify-app"),
-  );
-  assert.ok(verifyApp, "missing App-specific post-deploy journal verification");
-  assert.match(verifyApp.if, /app_v3_deploy/);
-  assert.match(verifyApp.run, /--app-candidate-receipt/);
-  assert.match(verifyApp.run, /--app-deployment/);
-  assert.match(verifyApp.run, /run-active/);
 });
-
 test("recovery is a bounded exact-current-attempt transaction with no cross-attempt authority", () => {
   const recoveryJob = workflow.jobs["recover-main-deployment"];
   assert.deepEqual(recoveryJob.needs, [
@@ -2089,6 +1878,35 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
     /steps\.journal-presence\.outputs\.has_journal != 'true'/,
   );
   assert.doesNotMatch(preparationFailure.run, /vercel-main-stage-results:v1/);
+  // App stages its own candidate, so every stage result is the literal job
+  // result of that stage job. The coordinator result never stands in for the
+  // App stage, and nothing re-derives it from the execution projection.
+  for (const [variable, job] of [
+    ["APP_RESULT", "stage-app"],
+    ["GOVERNANCE_RESULT", "stage-governance"],
+    ["RESERVE_RESULT", "stage-reserve"],
+    ["UI_RESULT", "stage-ui"],
+  ]) {
+    assert.equal(
+      preparationFailure.env[variable],
+      `\${{ needs.${job}.result }}`,
+    );
+    assert.match(
+      preparationFailure.run,
+      new RegExp(`terminal-stage-results[\\s\\S]*\\$${variable}`),
+    );
+  }
+  assert.equal(
+    preparationFailure.env.COORDINATOR_RESULT,
+    "${{ needs.activate-and-verify.result }}",
+  );
+  assert.doesNotMatch(
+    preparationFailure.run,
+    /--app-result "\$COORDINATOR_RESULT"|app_result=|\bjq\b/,
+  );
+  assert.ok(
+    workflow.jobs["recover-main-deployment"].needs.includes("stage-app"),
+  );
   const recoveryFailedTerminal = named(
     "recover-main-deployment",
     "recovery-failed terminal artifacts",
@@ -2315,11 +2133,20 @@ test("shadow and no-target paths remain release execution decisions, never termi
 });
 
 test("all public mutation paths have bounded timeouts and journal uploads", () => {
+  // Forward slots are one promote per main target plus the transitional
+  // bridge alias set for `app.mento.org`.
   assert.equal(
     (workflow.jobs["activate-and-verify"].steps ?? []).filter(
       (step) => step.uses === "./.github/actions/vercel-main-active-transition",
     ).length,
-    6,
+    MAIN_ACTIVE_PROMOTABLE_TARGETS.length +
+      MAIN_ACTIVE_APP_BRIDGE_ALIASES.length,
+  );
+  assert.equal(
+    (workflow.jobs["activate-and-verify"].steps ?? []).filter(
+      (step) => step.uses === "./.github/actions/vercel-main-active-transition",
+    ).length,
+    5,
   );
   assert.match(forwardSource, /Upload the durable intent before mutation/);
   assert.match(recoverySource, /Upload recovery intent before mutation/);
@@ -2370,7 +2197,7 @@ test("every durable current-attempt journal upload has the canonical downloaded 
       );
     }
   }
-  assert.equal(count, 12);
+  assert.equal(count, 11);
 });
 
 test("production jobs keep the immutable controller checkout and source jobs use the admitted SHA", () => {
@@ -2475,8 +2302,14 @@ test("ordinary candidates emit a current-attempt intent before create and a rece
   }
 });
 
-test("ordinary stages retain protected runtime isolation and create-only uploads", () => {
+test("every main stage retains protected runtime isolation and create-only uploads", () => {
   const contracts = {
+    app: {
+      project: "${{ vars.VERCEL_PROJECT_ID_APP }}",
+      projectName: "app.mento.org",
+      root: "apps/app.mento.org",
+      secrets: ["SENTRY_AUTH_TOKEN"],
+    },
     governance: {
       project: "${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}",
       projectName: "governance.mento.org",
@@ -2640,8 +2473,9 @@ test("ordinary stages retain protected runtime isolation and create-only uploads
   }
 });
 
-test("ordinary stage job targets reach the production-shadow CLI at runtime", () => {
+test("every main stage job target reaches the production-shadow CLI at runtime", () => {
   const contracts = {
+    app: "apps/app.mento.org",
     governance: "apps/governance.mento.org",
     reserve: "apps/reserve.mento.org",
     ui: "apps/ui.mento.org",
@@ -2693,13 +2527,13 @@ test("ordinary stage job targets reach the production-shadow CLI at runtime", ()
   }
 });
 
-test("coordinator checkpoints the forward journal before six bounded mutations and commits from final proof", () => {
+test("coordinator checkpoints the forward journal before five bounded mutations and commits from final proof", () => {
   const coordinator = "activate-and-verify";
   const jobSteps = steps(coordinator);
   const barrier = command(coordinator, "stage-barrier");
   const journal = command(coordinator, "forward-journal");
   assert.match(barrier.run, /candidate-receipts/);
-  assert.match(barrier.run, /app-preparation/);
+  assert.doesNotMatch(barrier.run, /app-preparation/);
   assert.match(journal.run, /--execution/);
   assert.match(journal.run, /--current-mappings/);
   assert.match(journal.run, /--candidate-receipts/);
@@ -2715,10 +2549,10 @@ test("coordinator checkpoints the forward journal before six bounded mutations a
     jobSteps,
     "./.github/actions/vercel-main-active-transition",
   );
-  assert.equal(transitions.length, 6);
+  assert.equal(transitions.length, 5);
   assert.deepEqual(
     transitions.map((step) => step.with.slot),
-    ["1", "2", "3", "4", "5", "6"],
+    ["1", "2", "3", "4", "5"],
   );
   for (const transition of transitions) {
     assert.match(transition.if, /steps\.freshness\.outputs\.status == 'fresh'/);
@@ -2730,10 +2564,7 @@ test("coordinator checkpoints the forward journal before six bounded mutations a
       transition.if,
       /needs\.prepare-release\.outputs\.decision != 'verify-existing-release'/,
     );
-    assert.equal(
-      transition.with["app-operation-cwd"],
-      "${{ steps.app-runtime.outputs.upload-source-path }}",
-    );
+    assert.equal(transition.with["app-operation-cwd"], undefined);
     assert.equal(
       transition.with["vercel-cli"],
       "${{ steps.app-runtime.outputs.vercel-cli }}",
@@ -3259,15 +3090,20 @@ test("result publishes an exact-SHA Dependabot release proof before failing clos
   );
 });
 
-// MGP-18 retired the legacy App deployment. Recovery now compensates only the
-// three ordinary targets and the two reviewed App v3 aliases, and no workflow
-// step may reference the retired snapshot, spec, or terminal proof again.
+// MGP-18 retired the legacy App deployment and the App custom `v3`
+// environment. Recovery now compensates one rollback slot per main target
+// plus the transitional bridge alias, and no workflow step may reference the
+// retired snapshot, spec, or terminal proof again.
 test("reducer constants and action pin boundaries stay covered while the retired legacy path is gone", () => {
   assert.equal(
     MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS,
-    MAIN_ORDINARY_TARGETS.length + MAIN_ACTIVE_APP_ALIASES.length,
+    MAIN_ACTIVE_PROMOTABLE_TARGETS.length +
+      MAIN_ACTIVE_APP_BRIDGE_ALIASES.length,
   );
   assert.equal(MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS, 5);
+  assert.deepEqual(MAIN_ACTIVE_APP_BRIDGE_ALIASES, ["app.mento.org"]);
+  assert.doesNotMatch(workflowSource, /appmentoorg-env-v3/);
+  assert.doesNotMatch(workflowSource, /app_v3_deploy/);
   assert.doesNotMatch(workflowSource, /legacy/i);
   assert.doesNotMatch(workflowSource, /v2-app\.mento\.org/);
   assert.ok(MAIN_ACTIVE_COMMAND_TIMEOUT_MS > 0);

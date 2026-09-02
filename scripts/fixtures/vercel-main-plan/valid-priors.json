@@ -38,27 +38,6 @@
             "app.mento.org",
             "appmentoorg-env-v3-mentolabs.vercel.app"
           ]
-        },
-        {
-          "alias": "appmentoorg-env-v3-mentolabs.vercel.app",
-          "deploymentId": "dpl_appA123",
-          "deploymentUrl": "https://app-main-a.vercel.app",
-          "creatorUsername": "fixture-author",
-          "projectId": "prj_app123",
-          "projectName": "app.mento.org",
-          "readyState": "READY",
-          "target": null,
-          "customEnvironmentSlug": "v3",
-          "git": {
-            "org": "mento-protocol",
-            "repo": "frontend-monorepo",
-            "ref": "main",
-            "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-          },
-          "aliases": [
-            "app.mento.org",
-            "appmentoorg-env-v3-mentolabs.vercel.app"
-          ]
         }
       ]
     },

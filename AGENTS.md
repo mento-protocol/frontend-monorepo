@@ -415,11 +415,13 @@ resumes or treats a prior attempt's journal artifact as cross-attempt authority.
 Every other non-prefix, ambiguous, conflicting, or incomplete provider state
 fails closed before the release continues.
 
-Every selected Governance, Reserve, and UI target stages and verifies an
-immutable candidate with `--prod --skip-domain`. Only an `activeTargets` member
-may mutate its public mapping: ordinary targets promote the exact staged
-deployment, while App deploys the verified custom-`v3` output and verifies or
-assigns only its reviewed aliases. Before and after each public mutation,
+Every selected target — Governance, Reserve, UI, and App — stages and verifies
+an immutable candidate with `--prod --skip-domain`. Only an `activeTargets`
+member may mutate its public mapping: every target promotes its exact staged
+deployment. App's promote is verified to leave `app.mento.org` at its prior,
+and one transitional bridge alias-set transition then repoints the domain to
+the candidate — a carry-over from the retiring App custom `v3` environment,
+removed once the domain moves into Production. Before and after each public mutation,
 the controller rechecks freshness and protected state and persists the next
 durable journal transition. Recovery restores exact captured mappings in
 reverse mutation order and treats unknown operator-owned state as manual
@@ -469,7 +471,8 @@ all build-boundary state below the target-scoped, authenticated
 `/var/lib/mento-vercel-runtime-<run>-<attempt>-<target>/work` root, seal
 `RUNNER_TEMP` to runner-owned mode `0700` before candidate execution, and
 reauthenticate and remove the exact runtime in a final `if: always()` step.
-Preserve App custom `v3` as build-only.
+Preserve App's production build as build-only in this manual pilot; only the
+automatic main pipeline deploys and activates it.
 Governance, Reserve, and UI uploads must avoid custom production domains and
 must expose the immutable deployment hostname through the deployment URL/state
 identity. The provider alias list must contain the target's reviewed literal

@@ -493,6 +493,24 @@ transitions) instead of nine. The custom-v3 App path is unchanged by this
 amendment. A follow-up change (planned) will also normalize the App target
 to the ordinary production target described elsewhere in this ADR.
 
+That follow-up shipped. App now stages and promotes through the native
+Production environment like every other target, instead of deploying a
+separate custom-`v3` output: `stage-app` builds and uploads a real candidate
+with production semantics, and activation promotes it with the same `vercel
+promote` command Governance, Reserve, and UI use. The custom `v3` environment
+is being retired in three steps — this normalization, a manual dashboard move
+of the `app.mento.org` domain into the Production environment, and a follow-up
+tighten PR — because a promote cannot repoint a domain that still lives in a
+different environment. Until the domain moves, one transitional bridge
+`vercel alias set` transition repoints `app.mento.org` from prior to candidate
+immediately after each App promote; recovery uses `app_alias_restore` for
+that alias while the App prior remains v3-shaped, and `ordinary_rollback` once
+it is production-shaped. The v3-specific deploy command
+(`vercel deploy --prebuilt --target=v3`), the same-run App payload handoff
+between `stage-app` and activation, and the post-hoc App candidate-discovery
+machinery are all removed; App now carries a known staged `deploymentId`
+before activation, exactly like every other target.
+
 ## Evidence
 
 ### Tracked rollout

@@ -28,21 +28,13 @@ import {
   runMainActiveCli,
 } from "./vercel-main-active-cli.mjs";
 import {
-  MAIN_ACTIVE_APP_ALIASES,
-  buildMainActiveAppDeployCommand,
+  MAIN_ACTIVE_APP_BRIDGE_ALIASES,
   buildMainActivePromotionCommand,
   runMainActiveVercelCommand,
 } from "./vercel-main-active.mjs";
-import { MAIN_TARGET_CONTRACTS } from "./vercel-main-plan.mjs";
-import { createMainReleaseManifest } from "./vercel-main-release-reconciliation.mjs";
-import {
-  createMainCandidateIntent,
-  createMainCandidateVercelMetadata,
-} from "./vercel-main-candidate.mjs";
 import { PINNED_VERCEL_CLI_VERSION } from "./vercel-cli-runtime-contract.mjs";
 
 const TOKEN = ["test", "main", "active", "token", "never", "output"].join("-");
-const DEPLOY_SHA = "0123456789abcdef0123456789abcdef01234567";
 const PRIOR = Object.freeze({
   deploymentId: "dpl_Prior123",
   deploymentUrl: "https://prior-main.vercel.app",
@@ -51,91 +43,6 @@ const CANDIDATE = Object.freeze({
   deploymentId: "dpl_Candidate123",
   deploymentUrl: "https://candidate-main.vercel.app",
 });
-
-function appCandidateMetadata() {
-  const targets = ["app", "governance", "reserve", "ui"];
-  const priorSha = "1111111111111111111111111111111111111111";
-  const plan = {
-    schema: "vercel-main-plan:v2",
-    mode: "active",
-    deploySha: DEPLOY_SHA,
-    mainOwnershipMode: Object.fromEntries(
-      targets.map((target) => [target, "github"]),
-    ),
-    stagedTargets: ["app"],
-    activeTargets: ["app"],
-    shadowTargets: [],
-    plan: ["app"],
-    priors: targets.map((target) => ({
-      target,
-      deploymentId: `dpl_${target}Prior123`,
-      deploymentUrl: `https://${target}-prior.vercel.app`,
-      aliases: [...MAIN_TARGET_CONTRACTS[target].aliases],
-      servedSha: priorSha,
-    })),
-    ranges: [
-      {
-        base: priorSha,
-        head: DEPLOY_SHA,
-        kind: "served",
-        reason: "global-build-input",
-        targets,
-        deployments: ["app"],
-      },
-    ],
-    reasons: [{ target: "app", base: priorSha, reason: "global-build-input" }],
-  };
-  const releaseManifest = createMainReleaseManifest({
-    upstreamRunId: "700",
-    plan,
-    originalPriors: Object.fromEntries(
-      ["governance", "reserve", "ui", "app"].map((target) => {
-        const contract = MAIN_TARGET_CONTRACTS[target];
-        const aliases = [...contract.aliases].sort();
-        const prior = {
-          deploymentId: `dpl_${target}Prior123`,
-          deploymentUrl: `https://${target}-prior.vercel.app`,
-          aliases,
-          projectId: `prj_${target}123`,
-          projectName: contract.projectName,
-          readyState: "READY",
-          target: contract.target,
-          customEnvironmentSlug: contract.customEnvironmentSlug,
-        };
-        return [
-          target,
-          {
-            ...prior,
-            planningLeaves: aliases.map((alias) => ({
-              alias,
-              ...prior,
-              git: {
-                status: "complete",
-                org: "mento-protocol",
-                repo: "frontend-monorepo",
-                ref: "main",
-                sha: priorSha,
-              },
-            })),
-            servedSha: priorSha,
-          },
-        ];
-      }),
-    ),
-  });
-  return createMainCandidateVercelMetadata({
-    intent: createMainCandidateIntent({
-      target: "app",
-      deploySha: DEPLOY_SHA,
-      upstreamRunId: "700",
-      originRunId: "1234",
-      originAttempt: "2",
-      originTransactionId: "main-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      projectId: "prj_app123",
-      releaseManifest,
-    }),
-  });
-}
 
 function privateTestDirectory(testContext) {
   const directory = mkdtempSync(join(process.cwd(), ".main-active-cli-test-"));
@@ -169,59 +76,6 @@ function executionEnvironment(directory, overrides = {}) {
   };
 }
 
-function appExpectation() {
-  const candidateMetadata = appCandidateMetadata();
-  return {
-    projectId: "prj_app123",
-    projectName: "app.mento.org",
-    deploySha: DEPLOY_SHA,
-    runId: "1234",
-    runAttempt: "2",
-    transactionId: "main-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    customEnvironmentSlug: "v3",
-    nextDeploymentId: candidateMetadata.mentoNextDeploymentId,
-    candidateMetadata,
-  };
-}
-
-function appCommand() {
-  const expectation = appExpectation();
-  return buildMainActiveAppDeployCommand({
-    projectId: expectation.projectId,
-    deploySha: expectation.deploySha,
-    runId: expectation.runId,
-    runAttempt: expectation.runAttempt,
-    transactionId: expectation.transactionId,
-    nextDeploymentId: expectation.nextDeploymentId,
-    candidateMetadata: expectation.candidateMetadata,
-  });
-}
-
-function appCandidate(overrides = {}) {
-  const expectation = appExpectation();
-  return {
-    deploymentId: CANDIDATE.deploymentId,
-    deploymentUrl: CANDIDATE.deploymentUrl,
-    projectId: expectation.projectId,
-    projectName: expectation.projectName,
-    deploySha: expectation.deploySha,
-    runId: expectation.runId,
-    runAttempt: expectation.runAttempt,
-    transactionId: expectation.transactionId,
-    customEnvironmentSlug: expectation.customEnvironmentSlug,
-    ...overrides,
-  };
-}
-
-function commandResult(overrides = {}) {
-  return {
-    outcome: "unknown",
-    reason: "lost-output",
-    candidate: null,
-    ...overrides,
-  };
-}
-
 function mapping(alias, deployment) {
   return {
     alias,
@@ -235,7 +89,7 @@ function mappingSpec(overrides = {}) {
   return {
     schema: MAIN_ACTIVE_MAPPING_SPEC_SCHEMA,
     target: "app",
-    aliases: [...MAIN_ACTIVE_APP_ALIASES],
+    aliases: [...MAIN_ACTIVE_APP_BRIDGE_ALIASES],
     priorDeployment: PRIOR,
     candidateDeployment: CANDIDATE,
     ...overrides,
@@ -246,18 +100,23 @@ test("CLI parser accepts only exact command option sets and no credential argume
   for (const argv of [
     ["execute", "--descriptor", "descriptor.json", "--output", "result.json"],
     ["mapping", "--spec", "spec.json", "--output", "mapping.json"],
-    [
-      "app-candidate",
-      "--expectation",
-      "expectation.json",
-      "--command-result",
-      "command.json",
-      "--output",
-      "candidate.json",
-    ],
   ]) {
     assert.equal(parseMainActiveCliArguments(argv).command, argv[0]);
   }
+  // The retired App candidate discovery verb cannot re-enter the CLI.
+  assert.throws(
+    () =>
+      parseMainActiveCliArguments([
+        "app-candidate",
+        "--expectation",
+        "expectation.json",
+        "--command-result",
+        "command.json",
+        "--output",
+        "candidate.json",
+      ]),
+    /command is missing or unsupported/,
+  );
 
   for (const argv of [
     [],
@@ -502,7 +361,7 @@ test("execute publishes canonical evidence after a command replaces its output",
   }
 });
 
-test("execute writes canonical unknown evidence for nonzero, timeout, and lost output", async (t) => {
+test("execute writes canonical unknown evidence for nonzero, timeout, and lost results", async (t) => {
   const directory = privateTestDirectory(t);
   const env = executionEnvironment(directory);
   const scenarios = [
@@ -536,15 +395,18 @@ test("execute writes canonical unknown evidence for nonzero, timeout, and lost o
       reason: "timeout",
     },
     {
-      name: "lost-output",
-      command: appCommand(),
+      name: "lost-result",
+      command: buildMainActivePromotionCommand({
+        target: "app",
+        ...CANDIDATE,
+      }),
       result: {
-        status: 0,
+        status: null,
         signal: null,
         stdout: `{"secret":"${TOKEN}"}`,
         stderr: TOKEN,
       },
-      reason: "lost-output",
+      reason: "lost-result",
     },
   ];
 
@@ -576,51 +438,35 @@ test("execute writes canonical unknown evidence for nonzero, timeout, and lost o
   }
 });
 
-test("execute binds candidate presence to the exact command descriptor", async (t) => {
+// No activation command creates a deployment, so a reported candidate is
+// always lost evidence.
+test("execute rejects any command result that reports a candidate", async (t) => {
   const directory = privateTestDirectory(t);
   const env = executionEnvironment(directory);
-  const appDescriptor = writePrivateJson(
-    directory,
-    "app-descriptor.json",
-    appCommand(),
-  );
-  const appOutput = join(directory, "app-command-result.json");
-  await runMainActiveCli({
-    argv: ["execute", "--descriptor", appDescriptor, "--output", appOutput],
-    env,
-    stdout: { write: () => {} },
-    commandExecutor: () => ({
-      outcome: "success",
-      reason: null,
-      candidate: CANDIDATE,
-    }),
-  });
-  assert.deepEqual(JSON.parse(readFileSync(appOutput, "utf8")), {
-    outcome: "success",
-    reason: null,
-    candidate: CANDIDATE,
-  });
-
-  const ordinaryDescriptor = writePrivateJson(
-    directory,
-    "ordinary-descriptor.json",
-    buildMainActivePromotionCommand({
-      target: "ui",
-      ...CANDIDATE,
-    }),
-  );
-  for (const [name, descriptor, candidate] of [
-    ["ordinary-with-candidate", ordinaryDescriptor, CANDIDATE],
-    ["app-without-candidate", appDescriptor, null],
+  for (const [name, descriptor] of [
+    [
+      "app-promote",
+      buildMainActivePromotionCommand({ target: "app", ...CANDIDATE }),
+    ],
+    [
+      "ordinary-promote",
+      buildMainActivePromotionCommand({ target: "ui", ...CANDIDATE }),
+    ],
   ]) {
+    const descriptorPath = writePrivateJson(
+      directory,
+      `${name}-descriptor.json`,
+      descriptor,
+    );
     const output = join(directory, `${name}.json`);
     await runMainActiveCli({
-      argv: ["execute", "--descriptor", descriptor, "--output", output],
+      argv: ["execute", "--descriptor", descriptorPath, "--output", output],
       env,
+      stdout: { write: () => {} },
       commandExecutor: () => ({
         outcome: "success",
         reason: null,
-        candidate,
+        candidate: CANDIDATE,
       }),
     });
     assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), {
@@ -729,7 +575,7 @@ test("stable mapping uses bounded retries, double observation, and canonical pri
         async aliasMapping(alias) {
           const count = (attempts.get(alias) ?? 0) + 1;
           attempts.set(alias, count);
-          if (alias === MAIN_ACTIVE_APP_ALIASES[0] && count < 3) {
+          if (count < 3) {
             throw new Error(`${TOKEN}: transient API failure`);
           }
           return mapping(alias, CANDIDATE);
@@ -743,47 +589,26 @@ test("stable mapping uses bounded retries, double observation, and canonical pri
   assert.equal(result.mappingState, "candidate");
   assert.deepEqual(
     result.mappings.map(({ alias }) => alias),
-    MAIN_ACTIVE_APP_ALIASES,
+    MAIN_ACTIVE_APP_BRIDGE_ALIASES,
   );
-  assert.equal(attempts.get(MAIN_ACTIVE_APP_ALIASES[0]), 4);
-  assert.equal(attempts.get(MAIN_ACTIVE_APP_ALIASES[1]), 2);
+  assert.equal(attempts.get(MAIN_ACTIVE_APP_BRIDGE_ALIASES[0]), 4);
   assert.equal(statSync(output).mode & 0o777, 0o600);
   assert.equal(stdout, "Canonical protected mapping inspection written\n");
   assert.doesNotMatch(readFileSync(output, "utf8"), new RegExp(TOKEN));
 });
 
-test("mapping preserves partial App state and exact reviewed alias subsets", async (t) => {
+test("mapping preserves exact reviewed App alias state", async (t) => {
   const directory = privateTestDirectory(t);
   const env = executionEnvironment(directory);
-  const deployments = new Map([
-    [MAIN_ACTIVE_APP_ALIASES[0], CANDIDATE],
-    [MAIN_ACTIVE_APP_ALIASES[1], PRIOR],
-  ]);
+  const deployments = new Map([[MAIN_ACTIVE_APP_BRIDGE_ALIASES[0], CANDIDATE]]);
   const client = {
     aliasMapping: async (alias) => mapping(alias, deployments.get(alias)),
   };
 
-  const partialSpec = writePrivateJson(
-    directory,
-    "partial-spec.json",
-    mappingSpec(),
-  );
-  const partialOutput = join(directory, "partial-result.json");
-  await runMainActiveCli({
-    argv: ["mapping", "--spec", partialSpec, "--output", partialOutput],
-    env,
-    stdout: { write: () => {} },
-    stateClientFactory: () => client,
-  });
-  assert.equal(
-    JSON.parse(readFileSync(partialOutput, "utf8")).mappingState,
-    "partial",
-  );
-
   const subsetSpec = writePrivateJson(
     directory,
     "subset-spec.json",
-    mappingSpec({ aliases: [MAIN_ACTIVE_APP_ALIASES[0]] }),
+    mappingSpec({ aliases: [MAIN_ACTIVE_APP_BRIDGE_ALIASES[0]] }),
   );
   const subsetOutput = join(directory, "subset-result.json");
   await runMainActiveCli({
@@ -796,7 +621,7 @@ test("mapping preserves partial App state and exact reviewed alias subsets", asy
   assert.equal(subset.mappingState, "candidate");
   assert.deepEqual(
     subset.mappings.map(({ alias }) => alias),
-    [MAIN_ACTIVE_APP_ALIASES[0]],
+    [MAIN_ACTIVE_APP_BRIDGE_ALIASES[0]],
   );
 });
 
@@ -806,7 +631,7 @@ test("mapping fails closed on an alias race, exhausted retries, or unreviewed su
   const raceSpec = writePrivateJson(
     directory,
     "race-spec.json",
-    mappingSpec({ aliases: [MAIN_ACTIVE_APP_ALIASES[0]] }),
+    mappingSpec({ aliases: [MAIN_ACTIVE_APP_BRIDGE_ALIASES[0]] }),
   );
   let reads = 0;
   await assert.rejects(
@@ -839,7 +664,7 @@ test("mapping fails closed on an alias race, exhausted retries, or unreviewed su
             throw new Error(`${TOKEN}: raw API error`);
           },
         },
-        [MAIN_ACTIVE_APP_ALIASES[0]],
+        [MAIN_ACTIVE_APP_BRIDGE_ALIASES[0]],
         { retryDelayMs: 0, sleepImplementation: async () => {} },
       ),
     (error) => {
@@ -873,133 +698,6 @@ test("mapping fails closed on an alias race, exhausted retries, or unreviewed su
         }),
       }),
     /not allowlisted/,
-  );
-});
-
-test("App candidate resolves an unknown command through one exact canonical discovery", async (t) => {
-  const directory = privateTestDirectory(t);
-  const env = executionEnvironment(directory);
-  const expectation = writePrivateJson(
-    directory,
-    "app-expectation.json",
-    appExpectation(),
-  );
-  const command = writePrivateJson(
-    directory,
-    "app-command-result.json",
-    commandResult(),
-  );
-  const output = join(directory, "app-resolution.json");
-  const seen = [];
-  let stdout = "";
-
-  await runMainActiveCli({
-    argv: [
-      "app-candidate",
-      "--expectation",
-      expectation,
-      "--command-result",
-      command,
-      "--output",
-      output,
-    ],
-    env,
-    stdout: { write: (value) => (stdout += value) },
-    stateClientFactory: ({ token, teamId }) => ({
-      async discoverAppTransactionCandidate(value) {
-        assert.equal(token, TOKEN);
-        assert.equal(teamId, env.VERCEL_ORG_ID);
-        seen.push(value);
-        return appCandidate();
-      },
-    }),
-  });
-
-  const canonicalExpectation = { ...appExpectation() };
-  delete canonicalExpectation.candidateMetadata;
-  assert.deepEqual(seen, [canonicalExpectation]);
-  assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), {
-    commandOutcome: "unknown",
-    candidate: appCandidate(),
-  });
-  assert.equal(statSync(output).mode & 0o777, 0o600);
-  assert.equal(stdout, "Canonical App candidate resolution written\n");
-});
-
-test("App candidate discovery fails closed for zero, multiple, or conflicting matches", async (t) => {
-  const directory = privateTestDirectory(t);
-  const env = executionEnvironment(directory);
-  const expectation = writePrivateJson(
-    directory,
-    "app-expectation.json",
-    appExpectation(),
-  );
-  const command = writePrivateJson(
-    directory,
-    "app-command-result.json",
-    commandResult(),
-  );
-  for (const scenario of ["zero", "multiple"]) {
-    const output = join(directory, `${scenario}-resolution.json`);
-    await assert.rejects(
-      () =>
-        runMainActiveCli({
-          argv: [
-            "app-candidate",
-            "--expectation",
-            expectation,
-            "--command-result",
-            command,
-            "--output",
-            output,
-          ],
-          env,
-          stateClientFactory: () => ({
-            discoverAppTransactionCandidate: async () => {
-              throw new Error(`${TOKEN}: ${scenario} matching deployments`);
-            },
-          }),
-        }),
-      (error) => {
-        assert.match(error.message, /discovery failed closed/);
-        assert.doesNotMatch(error.message, new RegExp(TOKEN));
-        return true;
-      },
-    );
-    assert.equal(existsSync(output), false);
-  }
-
-  const successfulCommand = writePrivateJson(
-    directory,
-    "successful-app-command.json",
-    commandResult({
-      outcome: "success",
-      reason: null,
-      candidate: CANDIDATE,
-    }),
-  );
-  await assert.rejects(
-    () =>
-      runMainActiveCli({
-        argv: [
-          "app-candidate",
-          "--expectation",
-          expectation,
-          "--command-result",
-          successfulCommand,
-          "--output",
-          join(directory, "conflict-resolution.json"),
-        ],
-        env,
-        stateClientFactory: () => ({
-          discoverAppTransactionCandidate: async () =>
-            appCandidate({
-              deploymentId: "dpl_Different123",
-              deploymentUrl: "https://different-main.vercel.app",
-            }),
-        }),
-      }),
-    /conflicts with discovered candidate/,
   );
 });
 

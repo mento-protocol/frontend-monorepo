@@ -31,10 +31,7 @@ function plan(stagedTargets = TARGETS) {
     shadowTargets: [],
     priors: TARGETS.map((target) => ({
       target,
-      aliases:
-        target === "app"
-          ? ["app.mento.org", "appmentoorg-env-v3-mentolabs.vercel.app"]
-          : [`${target}.mento.org`],
+      aliases: [`${target}.mento.org`],
       deploymentId: `dpl_${target}Prior123`,
       deploymentUrl: `https://${target}-prior.vercel.app`,
       servedSha: PRIOR_SHA,
@@ -57,8 +54,8 @@ function originalPriors(planning) {
         projectId: `prj_${prior.target}`,
         projectName: `${prior.target}.mento.org`,
         readyState: "READY",
-        target: prior.target === "app" ? null : "production",
-        customEnvironmentSlug: prior.target === "app" ? "v3" : null,
+        target: "production",
+        customEnvironmentSlug: null,
         planningLeaves: prior.aliases.map((alias) => ({
           alias,
           deploymentId: prior.deploymentId,
@@ -67,8 +64,8 @@ function originalPriors(planning) {
           projectId: `prj_${prior.target}`,
           projectName: `${prior.target}.mento.org`,
           readyState: "READY",
-          target: prior.target === "app" ? null : "production",
-          customEnvironmentSlug: prior.target === "app" ? "v3" : null,
+          target: "production",
+          customEnvironmentSlug: null,
           git: {
             status: "complete",
             org: "mento-protocol",

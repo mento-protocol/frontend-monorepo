@@ -387,7 +387,7 @@ jobs:
           node scripts/vercel-main-provider-cli.mjs candidate-preflight
           --intent "$RUNNER_TEMP/inherited-app-intent.json"
           --output "$RUNNER_TEMP/inherited-app-preflight.json"
-      - name: Freshly smoke and finalize inherited App candidate without pending state
+      - name: Freshly smoke and finalize inherited App candidate
         if: contains(fromJSON(steps.inherited.outputs.inherited_candidate_targets), 'app')
         id: inherited-app-finalize
         env:
@@ -396,7 +396,7 @@ jobs:
         run: |
           test "${{ steps.inherited-app-preflight.outputs.action }}" = reuse
           node scripts/vercel-main-provider-cli.mjs candidate-smoke --intent "$RUNNER_TEMP/inherited-app-intent.json" --output "$RUNNER_TEMP/inherited-app-smoke.json"
-          node scripts/vercel-main-provider-cli.mjs candidate-finalize --intent "$RUNNER_TEMP/inherited-app-intent.json" --smoke "$RUNNER_TEMP/inherited-app-smoke.json" --output "$RUNNER_TEMP/inherited-app-receipt.json"
+          node scripts/vercel-main-provider-cli.mjs candidate-finalize-inherited --intent "$RUNNER_TEMP/inherited-app-intent.json" --smoke "$RUNNER_TEMP/inherited-app-smoke.json" --output "$RUNNER_TEMP/inherited-app-receipt.json"
       - name: Materialize strict inherited candidate receipts
         env:
           APP_RECEIPT: ${{ steps.inherited-app-finalize.outputs.receipt || 'none' }}
@@ -762,13 +762,13 @@ jobs:
           --output "$RUNNER_TEMP/execution.json"
 
   stage-app:
-    name: Build App custom-v3 candidate output
+    name: Stage app candidate
     needs: [wait-for-ci, require-ci-success, prepare-release]
-    # Same status contract as the ordinary stages: `prepare-release` can succeed
-    # through its explicit skipped-restore route, and `always()` disables
-    # implicit needs-success, so the exact-attempt CI success gate is asserted
-    # literally. This job creates no provider deployment; it only builds and
-    # hands the exact custom-`v3` output to activation.
+    # `prepare-release` can succeed through its explicit skipped-restore route.
+    # Override GitHub's implicit success() so that skipped ancestor cannot poison
+    # a selected stage after the release has been materialized successfully.
+    # `always()` also disables implicit needs-success, so the exact-attempt CI
+    # success gate must be asserted here explicitly.
     if: >-
       always() && !cancelled() && needs.wait-for-ci.result == 'success' &&
       needs.require-ci-success.result == 'success' &&
@@ -780,12 +780,8 @@ jobs:
       name: vercel-cli-production
       deployment: false # trunk-ignore(actionlint/syntax-check): Pinned actionlint has not learned GitHub's deployment key.
     outputs:
-      action: ${{ steps.preflight.outputs.action }}
-      candidate_id: ${{ steps.intent.outputs.candidate_id }}
-      payload_artifact: ${{ steps.seal.outputs.artifact_name }}
-      payload_attempt: ${{ steps.seal.outputs.run_attempt }}
-      payload_bytes: ${{ steps.seal.outputs.bytes }}
-      payload_sha256: ${{ steps.seal.outputs.sha256 }}
+      receipt: ${{ steps.finalize.outputs.receipt }}
+      evidence: ${{ steps.terminal.outputs.evidence }}
     env:
       DEPLOY_SHA: ${{ needs.wait-for-ci.outputs.deploy_sha }}
       UPSTREAM_RUN_ID: ${{ needs.wait-for-ci.outputs.upstream_run_id }}
@@ -795,7 +791,7 @@ jobs:
       VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_APP }}
       VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
     steps:
-      - name: Check out trusted App controller
+      - name: Check out trusted app controller
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
@@ -803,7 +799,7 @@ jobs:
             persist-credentials: false,
             ref: "${{ github.workflow_sha }}",
           }
-      - name: Check out exact App source
+      - name: Check out exact app source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           {
@@ -812,12 +808,12 @@ jobs:
             persist-credentials: false,
             ref: "${{ needs.wait-for-ci.outputs.deploy_sha }}",
           }
-      - name: Prove exact App source
+      - name: Prove exact app source
         env: { GITHUB_WORKFLOW_SHA: "${{ github.workflow_sha }}" }
         run: |
           git -C "$SOURCE_PATH" fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
           node scripts/vercel-main-deployment.mjs validate-source
-      - name: Install exact App source without lifecycle scripts
+      - name: Install exact app source without lifecycle scripts
         uses: ./.github/actions/pnpm-install
         with:
           {
@@ -825,12 +821,12 @@ jobs:
             ignore-scripts: "true",
             filter: frontend-monorepo,
           }
-      - name: Materialize execution and create App current intent
+      - name: Materialize execution and create app current intent
         id: intent
         run: |
           node scripts/vercel-main-release-cli.mjs materialize --output "$RUNNER_TEMP/execution.json"
-          node scripts/vercel-main-deployment.mjs candidate-intent --execution "$RUNNER_TEMP/execution.json" --target app --output "$RUNNER_TEMP/app-intent.json"
-      - name: Prepare protected App runtime
+          node scripts/vercel-main-deployment.mjs candidate-intent --execution "$RUNNER_TEMP/execution.json" --target app --output "$RUNNER_TEMP/intent.json"
+      - name: Prepare protected app runtime
         id: runtime
         uses: ./.github/actions/vercel-protected-runtime
         with:
@@ -840,75 +836,70 @@ jobs:
             controller-path: "${{ github.workspace }}",
             source-path: "${{ github.workspace }}/source",
           }
-      - name: Verify pinned App prerequisites
+      - name: Verify pinned app prerequisites
         run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-prebuilt.mjs check-versions --repo-root "$SOURCE_PATH"
-      - name: Preflight an App candidate only when App has activation authority
-        if: contains(fromJSON(needs.prepare-release.outputs.active_targets), 'app')
-        id: preflight
+      - name: Prepare runner-owned app pull staging
         env:
-          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
-        run: |
-          node scripts/vercel-main-provider-cli.mjs candidate-preflight --intent "$RUNNER_TEMP/app-intent.json" --output "$RUNNER_TEMP/app-preflight.json"
-      - name: Prepare runner-owned App custom-v3 pull staging
-        if: >-
-          steps.preflight.outputs.action == 'create' ||
-          contains(fromJSON(needs.prepare-release.outputs.shadow_targets), 'app')
+          {
+            PULL_STAGING_PATH: "${{ steps.runtime.outputs.pull-staging-path }}",
+            SOURCE_PATH: "${{ steps.runtime.outputs.pull-staging-path }}",
+            VERCEL_ISOLATION_ROOT: "${{ steps.runtime.outputs.isolation-root }}",
+            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
+          }
+        run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-production-shadow.mjs prepare-pull-staging
+      - name: Pull app production configuration
         env:
-          PULL_STAGING_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
-          SOURCE_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
-          VERCEL_ISOLATION_ROOT: ${{ steps.runtime.outputs.isolation-root }}
-          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-        run: >-
-          ${{ steps.runtime.outputs.node-bin }}
-          scripts/vercel-production-shadow.mjs prepare-pull-staging
-      - name: Pull App custom-v3 configuration
-        if: >-
-          steps.preflight.outputs.action == 'create' ||
-          contains(fromJSON(needs.prepare-release.outputs.shadow_targets), 'app')
+          {
+            SOURCE_PATH: "${{ steps.runtime.outputs.pull-staging-path }}",
+            TRUSTED_NODE_PATH: "${{ steps.runtime.outputs.node-bin }}",
+            TRUSTED_VERCEL_CLI_PATH: "${{ steps.runtime.outputs.vercel-cli }}",
+            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
+            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
+          }
+        run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-production-shadow.mjs pull
+      - name: Validate app project and Root Directory
         env:
-          SOURCE_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
-          TRUSTED_NODE_PATH: ${{ steps.runtime.outputs.node-bin }}
-          TRUSTED_VERCEL_CLI_PATH: ${{ steps.runtime.outputs.vercel-cli }}
-          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
-        run: >-
-          ${{ steps.runtime.outputs.node-bin }}
-          scripts/vercel-production-shadow.mjs pull
-      - name: Validate App project link and Root Directory
-        if: >-
-          steps.preflight.outputs.action == 'create' ||
-          contains(fromJSON(needs.prepare-release.outputs.shadow_targets), 'app')
-        env:
-          PULL_STAGING_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
-          SOURCE_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
-          VERCEL_ISOLATION_ROOT: ${{ steps.runtime.outputs.isolation-root }}
-          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+          {
+            PULL_STAGING_PATH: "${{ steps.runtime.outputs.pull-staging-path }}",
+            SOURCE_PATH: "${{ steps.runtime.outputs.pull-staging-path }}",
+            VERCEL_ISOLATION_ROOT: "${{ steps.runtime.outputs.isolation-root }}",
+            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
+            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
+          }
         run: |
           "${{ steps.runtime.outputs.node-bin }}" scripts/vercel-production-shadow.mjs validate-pull-staging
           "${{ steps.runtime.outputs.node-bin }}" scripts/vercel-deployment-state.mjs project --project-id "$VERCEL_PROJECT_ID" --project-name app.mento.org --root-directory apps/app.mento.org
-      - name: Build exact App custom-v3 output without deploying
-        if: >-
-          steps.preflight.outputs.action == 'create' ||
-          contains(fromJSON(needs.prepare-release.outputs.shadow_targets), 'app')
+      - name: Preflight app candidate provider
+        id: preflight
+        env:
+          {
+            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
+            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
+          }
+        run: node scripts/vercel-main-provider-cli.mjs candidate-preflight --intent "$RUNNER_TEMP/intent.json" --output "$RUNNER_TEMP/preflight.json"
+      - name: Materialize app candidate metadata
+        if: steps.preflight.outputs.action == 'create'
+        run: node scripts/vercel-main-deployment.mjs candidate-metadata --intent "$RUNNER_TEMP/intent.json" --output "$RUNNER_TEMP/app-candidate-metadata.json"
+      - name: Build and upload app only when candidate creation is authorized
         id: build
+        if: steps.preflight.outputs.action == 'create'
         env:
           CI: 1
           MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.intent.outputs.candidate_id }}
-          NEXT_PUBLIC_VERCEL_ENV: preview
+          NEXT_PUBLIC_VERCEL_ENV: production
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
           TURBO_TEAM: ${{ vars.TURBO_TEAM }}
           TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
           VERCEL: 1
-          VERCEL_ENV: preview
+          VERCEL_ENV: production
           VERCEL_GIT_COMMIT_REF: main
           VERCEL_GIT_COMMIT_SHA: ${{ needs.wait-for-ci.outputs.deploy_sha }}
           VERCEL_GIT_PROVIDER: github
           VERCEL_GIT_REPO_OWNER: mento-protocol
           VERCEL_GIT_REPO_SLUG: frontend-monorepo
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-          VERCEL_TARGET_ENV: v3
+          VERCEL_TARGET_ENV: production
         uses: ./.github/actions/vercel-candidate-build
         with:
           controller-path: ${{ github.workspace }}
@@ -934,66 +925,52 @@ jobs:
           expected-root-directory: apps/app.mento.org
           vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
           vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_APP }}
-      # Same-run transport only. The archive carries no release, mapping, or
-      # journal authority: the digest, byte count, artifact name, and run
-      # attempt travel as job outputs through the `needs` graph, and activation
-      # re-establishes every property of the tree in its own attempt.
-      # `actions/upload-artifact` on a raw directory would dereference the
-      # intra-output symlinks the validator accepts and drop the 0600 mapping
-      # modes it requires, so the handoff is one archive instead. The archive
-      # itself stays uncompressed so the seal depends on no external
-      # compression binary; the upload deflates it on the wire.
-      - name: Seal the immutable App custom-v3 payload
-        id: seal
-        if: steps.build.outcome == 'success'
-        env:
-          ISOLATION_ROOT: ${{ steps.runtime.outputs.isolation-root }}
-          UPLOAD_SOURCE_PATH: ${{ steps.runtime.outputs.upload-source-path }}
-        run: |
-          set -euo pipefail
-          umask 077
-          upload_name=mento-vercel-production-upload-source
-          provenance_name="$upload_name.provenance.json"
-          test "$UPLOAD_SOURCE_PATH" = "$ISOLATION_ROOT/$upload_name"
-          test ! -L "$UPLOAD_SOURCE_PATH"
-          test -d "$UPLOAD_SOURCE_PATH"
-          test ! -L "$UPLOAD_SOURCE_PATH.provenance.json"
-          test -f "$UPLOAD_SOURCE_PATH.provenance.json"
-          install -d -m 0700 "$RUNNER_TEMP/app-v3-payload"
-          payload="$RUNNER_TEMP/app-v3-payload/app-v3-output.tar"
-          tar \
-            --create \
-            --file "$payload" \
-            --directory "$ISOLATION_ROOT" \
-            --format=pax \
-            --sort=name \
-            --numeric-owner \
-            --hard-dereference \
-            --no-xattrs \
-            --no-acls \
-            --no-selinux \
-            -- "$upload_name" "$provenance_name"
-          bytes="$(stat -c %s "$payload")"
-          digest="$(sha256sum "$payload" | cut -d ' ' -f1)"
+      - name: Restore trusted app controller after build
+        if: steps.preflight.outputs.action == 'create'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
           {
-            echo "artifact_name=vercel-main-app-v3-payload-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-            echo "bytes=$bytes"
-            echo "run_attempt=$GITHUB_RUN_ATTEMPT"
-            echo "sha256=$digest"
-          } >> "$GITHUB_OUTPUT"
-          echo "App custom-v3 payload: $bytes bytes"
-      - name: Upload the exact App custom-v3 payload
-        if: steps.seal.outcome == 'success'
+            fetch-depth: 1,
+            path: trusted-after-build,
+            persist-credentials: false,
+            ref: "${{ github.workflow_sha }}",
+          }
+      - name: Upload app candidate without public custom domains
+        if: steps.preflight.outputs.action == 'create'
+        env:
+          {
+            SOURCE_PATH: "${{ steps.runtime.outputs.upload-source-path }}",
+            TRUSTED_NODE_PATH: "${{ steps.runtime.outputs.node-bin }}",
+            TRUSTED_VERCEL_CLI_PATH: "${{ steps.runtime.outputs.vercel-cli }}",
+            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
+            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
+          }
+        run: ${{ steps.runtime.outputs.node-bin }} "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" deploy --candidate-metadata "$RUNNER_TEMP/app-candidate-metadata.json" --expected "$RUNNER_TEMP/app-deployment-expectation.json"
+      - name: Freshly smoke and finalize app candidate
+        id: finalize
+        env:
+          {
+            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
+            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
+          }
+        run: |
+          node scripts/vercel-main-provider-cli.mjs candidate-smoke --intent "$RUNNER_TEMP/intent.json" --output "$RUNNER_TEMP/smoke.json"
+          node scripts/vercel-main-provider-cli.mjs candidate-finalize --intent "$RUNNER_TEMP/intent.json" --smoke "$RUNNER_TEMP/smoke.json" --preflight "$RUNNER_TEMP/preflight.json" --output "$RUNNER_TEMP/receipt.json"
+      - name: Publish app terminal outputs
+        id: terminal
+        if: ${{ always() }}
+        run: echo "evidence=${{ steps.finalize.outputs.receipt }}" >> "$GITHUB_OUTPUT"
+      - name: Upload app browser diagnostics on failure
+        if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           {
-            name: "${{ steps.seal.outputs.artifact_name }}",
-            path: "${{ runner.temp }}/app-v3-payload/app-v3-output.tar",
-            compression-level: 1,
-            if-no-files-found: error,
-            retention-days: 1,
+            name: "vercel-main-app-${{ github.run_id }}-${{ github.run_attempt }}",
+            path: trusted-after-build/apps/app.mento.org/test-results/,
+            if-no-files-found: ignore,
+            retention-days: 7,
           }
-      - name: Remove authenticated App runtime
+      - name: Remove authenticated app runtime
         if: ${{ always() }}
         uses: ./.github/actions/vercel-protected-runtime
         with: { operation: cleanup, logical-target: app }
@@ -1705,12 +1682,9 @@ jobs:
           printf 'null\n' > "$RUNNER_TEMP/null.json"
           printf '[]\n' > "$RUNNER_TEMP/empty-history.json"
           node scripts/vercel-main-deployment.mjs create-spec --scope main --output "$RUNNER_TEMP/main-spec.json"
-      - name: Validate literal stage results, receipts, and App payload identity
+      - name: Validate literal stage results and receipts
         env:
-          APP_ACTION: ${{ needs.stage-app.outputs.action || 'none' }}
-          APP_ACTIVE: ${{ contains(fromJSON(needs.prepare-release.outputs.active_targets), 'app') }}
-          APP_PAYLOAD_ATTEMPT: ${{ needs.stage-app.outputs.payload_attempt || 'none' }}
-          APP_PAYLOAD_SHA256: ${{ needs.stage-app.outputs.payload_sha256 || 'none' }}
+          APP_RECEIPT: ${{ needs.stage-app.outputs.receipt || 'none' }}
           APP_RESULT: ${{ needs.stage-app.result }}
           APP_SELECTED: ${{ contains(fromJSON(needs.prepare-release.outputs.targets), 'app') }}
           GOVERNANCE_RECEIPT: ${{ needs.stage-governance.outputs.receipt || 'none' }}
@@ -1737,42 +1711,11 @@ jobs:
               test "$receipt" = none
             fi
           }
+          validate_stage app "$APP_SELECTED" "$APP_RESULT" "$APP_RECEIPT"
           validate_stage governance "$GOVERNANCE_SELECTED" "$GOVERNANCE_RESULT" "$GOVERNANCE_RECEIPT"
           validate_stage reserve "$RESERVE_SELECTED" "$RESERVE_RESULT" "$RESERVE_RECEIPT"
           validate_stage ui "$UI_SELECTED" "$UI_RESULT" "$UI_RECEIPT"
-          # App stages a build, never a provider deployment, so its expectation
-          # is a literal graph rather than a candidate receipt:
-          #   unselected            -> skipped, no action, no payload
-          #   active and `create`   -> success, payload from this exact attempt
-          #   active and `reuse`    -> success, no payload
-          #   shadow only           -> success, payload from this exact attempt
-          if [ "$APP_SELECTED" = true ]; then
-            test "$APP_RESULT" = success
-            if [ "$APP_ACTIVE" = true ]; then
-              case "$APP_ACTION" in
-                create | reuse) ;;
-                *) exit 1 ;;
-              esac
-            else
-              test "$APP_ACTION" = none
-            fi
-            if [ "$APP_ACTION" = reuse ]; then
-              test "$APP_PAYLOAD_SHA256" = none
-              test "$APP_PAYLOAD_ATTEMPT" = none
-            else
-              test "${#APP_PAYLOAD_SHA256}" -eq 64
-              case "$APP_PAYLOAD_SHA256" in
-                *[!0-9a-f]*) exit 1 ;;
-              esac
-              test "$APP_PAYLOAD_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"
-            fi
-          else
-            test "$APP_RESULT" = skipped
-            test "$APP_ACTION" = none
-            test "$APP_PAYLOAD_SHA256" = none
-            test "$APP_PAYLOAD_ATTEMPT" = none
-          fi
-      - name: Check remote main freshness before App preparation
+      - name: Check remote main freshness before activation
         if: needs.prepare-release.outputs.no_target != 'true'
         id: freshness
         run: >-
@@ -1812,11 +1755,10 @@ jobs:
             --stage-results "$RUNNER_TEMP/null.json" \
             --state-proof "$RUNNER_TEMP/null.json"
           echo "outcome=superseded-before-journal" >> "$GITHUB_OUTPUT"
-      - name: Prepare protected activation runtime independent of App reuse
+      - name: Prepare protected activation runtime
         if: >-
           steps.freshness.outputs.status == 'fresh' &&
-          (needs.prepare-release.outputs.has_active_targets == 'true' ||
-          contains(fromJSON(needs.prepare-release.outputs.targets), 'app'))
+          needs.prepare-release.outputs.has_active_targets == 'true'
         id: app-runtime
         uses: ./.github/actions/vercel-protected-runtime
         with:
@@ -1829,181 +1771,24 @@ jobs:
       - name: Verify pinned activation prerequisites
         if: >-
           steps.freshness.outputs.status == 'fresh' &&
-          (needs.prepare-release.outputs.has_active_targets == 'true' ||
-          contains(fromJSON(needs.prepare-release.outputs.targets), 'app'))
+          needs.prepare-release.outputs.has_active_targets == 'true'
         run: ${{ steps.app-runtime.outputs.node-bin }} scripts/vercel-prebuilt.mjs check-versions --repo-root "$SOURCE_PATH"
-      - name: Create App current-attempt build intent
-        if: >-
-          steps.freshness.outputs.status == 'fresh' &&
-          contains(fromJSON(needs.prepare-release.outputs.targets), 'app')
-        id: app-intent
-        run: |
-          node scripts/vercel-main-deployment.mjs candidate-intent --execution "$RUNNER_TEMP/execution.json" --target app --output "$RUNNER_TEMP/app-intent.json"
-      - name: Bind the App stage candidate to this attempt's intent
-        if: >-
-          steps.freshness.outputs.status == 'fresh' &&
-          contains(fromJSON(needs.prepare-release.outputs.targets), 'app')
-        env:
-          INTENT_CANDIDATE_ID: ${{ steps.app-intent.outputs.candidate_id }}
-          STAGE_CANDIDATE_ID: ${{ needs.stage-app.outputs.candidate_id }}
-        run: |
-          set -euo pipefail
-          test -n "$INTENT_CANDIDATE_ID"
-          test "$INTENT_CANDIDATE_ID" = "$STAGE_CANDIDATE_ID"
-      - name: Download the exact current-attempt App custom-v3 payload
-        if: >-
-          steps.freshness.outputs.status == 'fresh' &&
-          needs.stage-app.outputs.payload_sha256 != ''
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          github-token: ${{ github.token }}
-          name: ${{ needs.stage-app.outputs.payload_artifact }}
-          path: ${{ runner.temp }}/app-v3-payload
-          run-id: ${{ github.run_id }}
-      - name: Verify and materialize the exact App custom-v3 payload
-        if: >-
-          steps.freshness.outputs.status == 'fresh' &&
-          needs.stage-app.outputs.payload_sha256 != ''
-        id: app-payload
-        env:
-          EXPECTED_BYTES: ${{ needs.stage-app.outputs.payload_bytes }}
-          EXPECTED_SHA256: ${{ needs.stage-app.outputs.payload_sha256 }}
-          ISOLATION_ROOT: ${{ steps.app-runtime.outputs.isolation-root }}
-          UPLOAD_SOURCE_PATH: ${{ steps.app-runtime.outputs.upload-source-path }}
-        run: |
-          set -euo pipefail
-          umask 022
-          upload_name=mento-vercel-production-upload-source
-          provenance_name="$upload_name.provenance.json"
-          payload="$RUNNER_TEMP/app-v3-payload/app-v3-output.tar"
-          case "$EXPECTED_SHA256" in
-            *[!0-9a-f]*) exit 1 ;;
-          esac
-          test "${#EXPECTED_SHA256}" -eq 64
-          case "$EXPECTED_BYTES" in
-            '' | *[!0-9]*) exit 1 ;;
-          esac
-          test "$EXPECTED_BYTES" -gt 0
-          test -n "$ISOLATION_ROOT"
-          test "$UPLOAD_SOURCE_PATH" = "$ISOLATION_ROOT/$upload_name"
-          test ! -L "$payload"
-          test -f "$payload"
-          test "$(stat -c %s "$payload")" = "$EXPECTED_BYTES"
-          printf '%s  %s\n' "$EXPECTED_SHA256" "$payload" |
-            sha256sum --check --strict --status
-          for fresh_path in "$UPLOAD_SOURCE_PATH" "$UPLOAD_SOURCE_PATH.provenance.json"; do
-            if [ -e "$fresh_path" ] || [ -L "$fresh_path" ]; then
-              echo "App custom-v3 payload destination is not fresh" >&2
-              exit 1
-            fi
-          done
-          tar \
-            --extract \
-            --file "$payload" \
-            --directory "$ISOLATION_ROOT" \
-            --preserve-permissions \
-            --no-same-owner \
-            --no-xattrs \
-            --no-acls \
-            --no-selinux \
-            -- "$upload_name" "$provenance_name"
-          while IFS= read -r entry; do
-            case "$entry" in
-              mento-vercel-trusted-tools | \
-                mento-vercel-npm-cache | \
-                mento-vercel-npm-home | \
-                mento-vercel-pnpm-bootstrap | \
-                mento-vercel-npm-tmp | \
-                "$upload_name" | \
-                "$provenance_name") ;;
-              *)
-                echo "Unexpected protected work entry after payload extraction: $entry" >&2
-                exit 1
-                ;;
-            esac
-          done < <(
-            find "$ISOLATION_ROOT" -mindepth 1 -maxdepth 1 -printf '%f\n' |
-              LC_ALL=C sort
-          )
-          rm -f -- "$payload"
-      - name: Assert the exact App custom-v3 output tree
-        if: >-
-          steps.freshness.outputs.status == 'fresh' &&
-          needs.stage-app.outputs.payload_sha256 != ''
-        env:
-          LOGICAL_TARGET: app
-          MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.app-intent.outputs.candidate_id }}
-          SOURCE_PATH: ${{ steps.app-runtime.outputs.upload-source-path }}
-          VERCEL_ISOLATION_ROOT: ${{ steps.app-runtime.outputs.isolation-root }}
-          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_APP }}
-        run: |
-          set -euo pipefail
-          EXPECTED_OUTPUT_GID="$(id -g)" \
-          EXPECTED_OUTPUT_UID="$(id -u)" \
-          EXPECTED_PROVENANCE_UID="$(id -u)" \
-            "${{ steps.app-runtime.outputs.node-bin }}" \
-            scripts/vercel-production-shadow.mjs assert-output
-      - name: Prove exact App build before any upload
-        if: >-
-          steps.freshness.outputs.status == 'fresh' &&
-          needs.stage-app.outputs.payload_sha256 != ''
-        run: >-
-          node scripts/vercel-main-deployment.mjs app-build-proof
-          --intent "$RUNNER_TEMP/app-intent.json"
-          --output "$RUNNER_TEMP/app-preparation.json"
-      - name: Freshly smoke and finalize only a reused App candidate
-        if: >-
-          steps.freshness.outputs.status == 'fresh' &&
-          needs.stage-app.outputs.action == 'reuse'
-        id: app-reuse-finalize
-        env:
-          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
-        run: |
-          node scripts/vercel-main-provider-cli.mjs candidate-smoke --intent "$RUNNER_TEMP/app-intent.json" --output "$RUNNER_TEMP/app-smoke.json"
-          node scripts/vercel-main-provider-cli.mjs candidate-finalize --intent "$RUNNER_TEMP/app-intent.json" --smoke "$RUNNER_TEMP/app-smoke.json" --output "$RUNNER_TEMP/app-receipt.json"
-      - name: Seal an App operation handoff only when App has activation authority
-        if: >-
-          steps.freshness.outputs.status == 'fresh' &&
-          contains(fromJSON(needs.prepare-release.outputs.active_targets), 'app')
-        env:
-          APP_ACTION: ${{ needs.stage-app.outputs.action }}
-          APP_OPERATION_CWD: ${{ steps.app-runtime.outputs.upload-source-path }}
-        run: |
-          set -euo pipefail
-          case "$APP_OPERATION_CWD" in
-            /*) ;;
-            *) exit 1 ;;
-          esac
-          if [ "$APP_ACTION" = create ]; then
-            test -s "$RUNNER_TEMP/app-preparation.json"
-            test -d "$APP_OPERATION_CWD"
-          else
-            install -m 0600 "$RUNNER_TEMP/null.json" "$RUNNER_TEMP/app-preparation.json"
-            install -d -m 0700 "$APP_OPERATION_CWD"
-          fi
-      - name: Materialize an absent App preparation for non-App releases
-        if: >-
-          steps.freshness.outputs.status == 'fresh' &&
-          !contains(fromJSON(needs.prepare-release.outputs.targets), 'app')
-        run: install -m 0600 "$RUNNER_TEMP/null.json" "$RUNNER_TEMP/app-preparation.json"
       - name: Materialize strict selected current-attempt candidate receipts
         if: steps.freshness.outputs.status == 'fresh'
         run: >-
           node scripts/vercel-main-release-cli.mjs candidate-receipts
           --execution "$RUNNER_TEMP/execution.json"
-          --app "${{ steps.app-reuse-finalize.outputs.receipt || 'none' }}"
+          --app "${{ needs.stage-app.outputs.receipt || 'none' }}"
           --governance "${{ needs.stage-governance.outputs.receipt || 'none' }}"
           --reserve "${{ needs.stage-reserve.outputs.receipt || 'none' }}"
           --ui "${{ needs.stage-ui.outputs.receipt || 'none' }}"
           --output "$RUNNER_TEMP/all-candidate-receipts.json"
-      - name: Create the exact stage barrier before App deployment
+      - name: Create the exact stage barrier before activation
         if: steps.freshness.outputs.status == 'fresh'
         id: barrier
         run: >-
           node scripts/vercel-main-deployment.mjs stage-barrier --execution "$RUNNER_TEMP/execution.json"
-          --candidate-receipts "$RUNNER_TEMP/all-candidate-receipts.json" --app-preparation "$RUNNER_TEMP/app-preparation.json"
+          --candidate-receipts "$RUNNER_TEMP/all-candidate-receipts.json"
           --output "$RUNNER_TEMP/stage-barrier.json"
       - name: Capture fresh unchanged mappings for a shadow-only release
         if: >-
@@ -2088,7 +1873,6 @@ jobs:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
         with:
-          app-operation-cwd: ${{ steps.app-runtime.outputs.upload-source-path }}
           controller-path: ${{ github.workspace }}
           execution: ${{ runner.temp }}/execution.json
           journal-directory: ${{ runner.temp }}/active-journals
@@ -2110,7 +1894,6 @@ jobs:
           }
         with:
           {
-            app-operation-cwd: "${{ steps.app-runtime.outputs.upload-source-path }}",
             controller-path: "${{ github.workspace }}",
             execution: "${{ runner.temp }}/execution.json",
             journal-directory: "${{ runner.temp }}/active-journals",
@@ -2133,7 +1916,6 @@ jobs:
           }
         with:
           {
-            app-operation-cwd: "${{ steps.app-runtime.outputs.upload-source-path }}",
             controller-path: "${{ github.workspace }}",
             execution: "${{ runner.temp }}/execution.json",
             journal-directory: "${{ runner.temp }}/active-journals",
@@ -2156,7 +1938,6 @@ jobs:
           }
         with:
           {
-            app-operation-cwd: "${{ steps.app-runtime.outputs.upload-source-path }}",
             controller-path: "${{ github.workspace }}",
             execution: "${{ runner.temp }}/execution.json",
             journal-directory: "${{ runner.temp }}/active-journals",
@@ -2179,36 +1960,12 @@ jobs:
           }
         with:
           {
-            app-operation-cwd: "${{ steps.app-runtime.outputs.upload-source-path }}",
             controller-path: "${{ github.workspace }}",
             execution: "${{ runner.temp }}/execution.json",
             journal-directory: "${{ runner.temp }}/active-journals",
             operation-cwd: "${{ github.workspace }}/source",
             prepared-journal: "${{ runner.temp }}/prepared-journal.json",
             slot: "5",
-            stage-barrier: "${{ runner.temp }}/stage-barrier.json",
-            vercel-cli: "${{ steps.app-runtime.outputs.vercel-cli }}",
-          }
-      - name: Activate bounded Vercel transition 6
-        if: >-
-          steps.freshness.outputs.status == 'fresh' &&
-          needs.prepare-release.outputs.has_active_targets == 'true' &&
-          needs.prepare-release.outputs.decision != 'verify-existing-release'
-        uses: ./.github/actions/vercel-main-active-transition
-        env:
-          {
-            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
-            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
-          }
-        with:
-          {
-            app-operation-cwd: "${{ steps.app-runtime.outputs.upload-source-path }}",
-            controller-path: "${{ github.workspace }}",
-            execution: "${{ runner.temp }}/execution.json",
-            journal-directory: "${{ runner.temp }}/active-journals",
-            operation-cwd: "${{ github.workspace }}/source",
-            prepared-journal: "${{ runner.temp }}/prepared-journal.json",
-            slot: "6",
             stage-barrier: "${{ runner.temp }}/stage-barrier.json",
             vercel-cli: "${{ steps.app-runtime.outputs.vercel-cli }}",
           }
@@ -2880,17 +2637,14 @@ jobs:
         id: preparation-failure-terminal
         if: steps.journal-presence.outputs.has_journal != 'true'
         env:
+          APP_RESULT: ${{ needs.stage-app.result }}
           COORDINATOR_RESULT: ${{ needs.activate-and-verify.result }}
           GOVERNANCE_RESULT: ${{ needs.stage-governance.result }}
           RESERVE_RESULT: ${{ needs.stage-reserve.result }}
           UI_RESULT: ${{ needs.stage-ui.result }}
         run: |
           set -euo pipefail
-          app_result=skipped
-          if jq -e '.projection.stagedTargets | index("app")' "$RUNNER_TEMP/execution.json" >/dev/null; then
-            app_result="$COORDINATOR_RESULT"
-          fi
-          node scripts/vercel-main-release-cli.mjs terminal-stage-results --execution "$RUNNER_TEMP/execution.json" --app-result "$app_result" --governance-result "$GOVERNANCE_RESULT" --reserve-result "$RESERVE_RESULT" --ui-result "$UI_RESULT" --coordinator-result "$COORDINATOR_RESULT" --output "$RUNNER_TEMP/preparation-stage-results.json"
+          node scripts/vercel-main-release-cli.mjs terminal-stage-results --execution "$RUNNER_TEMP/execution.json" --app-result "$APP_RESULT" --governance-result "$GOVERNANCE_RESULT" --reserve-result "$RESERVE_RESULT" --ui-result "$UI_RESULT" --coordinator-result "$COORDINATOR_RESULT" --output "$RUNNER_TEMP/preparation-stage-results.json"
           node scripts/vercel-main-release-cli.mjs terminal-artifacts --active-evidence-output "$RUNNER_TEMP/recovery-evidence.json" --execution "$RUNNER_TEMP/execution.json" --final-census "$RUNNER_TEMP/null.json" --final-mappings "$RUNNER_TEMP/null.json" --freshness "$RUNNER_TEMP/null.json" --journal-history "$RUNNER_TEMP/empty-history.json" --outcome preparation-failed-before-journal --proofs-output "$RUNNER_TEMP/recovery-proofs.json" --public-smokes "$RUNNER_TEMP/null.json" --stage-results "$RUNNER_TEMP/preparation-stage-results.json" --state-proof "$RUNNER_TEMP/null.json"
           echo 'outcome=preparation-failed-before-journal' >> "$GITHUB_OUTPUT"
       - name: Derive recovery terminal state specification

@@ -42,7 +42,7 @@ function affectedOperation(overrides = {}) {
   return {
     operationId: "op-0001",
     target: "app",
-    type: "app_v3_deploy",
+    type: "promote",
     alias: null,
     state: "started",
     commandOutcome: null,
@@ -138,15 +138,16 @@ test("receipt shape is exactly the twenty-three reviewed keys", () => {
   );
 });
 
-test("affected operations admit exactly four targets and five operation types", () => {
+test("affected operations admit exactly four targets and four operation types", () => {
   const input = receiptInput("manual-intervention");
   const accepted = new Set();
   for (const [target, type, alias] of [
     ["governance", "promote", null],
     ["reserve", "promote", null],
     ["ui", "promote", null],
-    ["app", "app_v3_deploy", null],
+    ["app", "promote", null],
     ["app", "app_alias_set", "app.mento.org"],
+    ["app", "ordinary_rollback", null],
     ["governance", "ordinary_rollback", null],
     ["app", "app_alias_restore", "app.mento.org"],
   ]) {
@@ -168,18 +169,20 @@ test("affected operations admit exactly four targets and five operation types", 
     [...accepted].filter((value) =>
       [
         "promote",
-        "app_v3_deploy",
         "app_alias_set",
         "ordinary_rollback",
         "app_alias_restore",
       ].includes(value),
     ).length,
-    5,
+    4,
   );
+  // Neither the retired legacy path nor the retired App custom-environment
+  // deploy may re-enter the receipt contract.
   for (const [target, type, alias] of [
     ["legacy-app", "app_alias_restore", "v2-app.mento.org"],
     ["app", "legacy_emergency_restore", "v2-app.mento.org"],
     ["legacy-app", "legacy_emergency_restore", "v2-app.mento.org"],
+    ["app", "app_v3_deploy", null],
   ]) {
     assert.throws(
       () =>
@@ -644,7 +647,7 @@ test("manual receipt carries an exact canonical affected-operation set without i
     affectedOperation({
       operationId: "op-0001",
       target: "app",
-      type: "app_v3_deploy",
+      type: "promote",
     }),
     affectedOperation({
       operationId: "op-0002",

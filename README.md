@@ -697,10 +697,12 @@ The repository is set up with GitHub Actions for CI:
   performing every public mutation only after its exact-attempt CI success
   gate, with all
   four per-target `mainOwnershipMode` values set to `github`. Governance,
-  Reserve, and UI stage, verify, and promote exact immutable deployments. App
-  builds and deploys its custom `v3` output, then verifies or assigns only its
-  reviewed aliases. The removed Governance QA environment is not part
-  of this topology.
+  Reserve, UI, and App stage, verify, and promote exact immutable deployments.
+  App's promote is verified to leave `app.mento.org` at its prior, then one
+  transitional bridge alias-set transition repoints the domain to the
+  candidate — a carry-over from the retiring App custom `v3` environment,
+  removed once the domain moves into the Production environment. The removed
+  Governance QA environment is not part of this topology.
 
   Main planning uses strict `vercel-main-plan:v2` evidence. `stagedTargets`
   contains every selected target, while deterministic `activeTargets` and
@@ -767,8 +769,8 @@ The repository is set up with GitHub Actions for CI:
   preview controller, active main transaction, production-shadow verification,
   and rollback procedures.
 
-  The manual `Vercel Production Shadow` workflow can build App custom `v3`
-  without deploying it and upload Governance, Reserve, and UI production
+  The manual `Vercel Production Shadow` workflow can build App's production
+  output without deploying it and upload Governance, Reserve, and UI production
   artifacts without custom production domains. Each staged ordinary
   deployment exposes its immutable hostname through the deployment URL/state
   identity. Vercel's provider alias list must contain the reviewed base
@@ -786,14 +788,14 @@ The repository is set up with GitHub Actions for CI:
   after its exact-attempt success gate proves that run and its literal
   `Build and Test` job succeeded. It plans from each target's
   currently served SHA, so coalesced pushes cannot omit an affected change.
-  Governance, Reserve, and UI stage immutable production candidates with
+  Governance, Reserve, UI, and App stage immutable production candidates with
   `--prod --skip-domain` and run direct browser smoke before exact promotion.
-  App custom `v3` is built in its own parallel stage job and remains
-  build-only until its activation turn because its upload moves attached `v3`
-  domains; the controller then verifies the transferred output, deploys it, and
-  reconciles every reviewed alias. The three ordinary public custom
-  domains are their only protected runtime and rollback aliases; generated
-  Vercel aliases are candidate evidence only. A durable redacted journal
+  App promotes last, verified to leave `app.mento.org` at its prior, then one
+  transitional bridge alias-set transition repoints the domain to the
+  candidate — a carry-over from the retiring App custom `v3` environment,
+  removed once the domain moves into the Production environment. All four
+  public custom domains are their only protected runtime and rollback aliases;
+  generated Vercel aliases are candidate evidence only. A durable redacted journal
   records intent and verified state around every public mutation. The final
   evidence also proves whether any replaced native `main` path attempted a
   duplicate deployment. See the active-main and rollback sections of

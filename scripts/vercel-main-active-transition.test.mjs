@@ -8,12 +8,6 @@ import {
   MAIN_ACTIVE_EVENT_SCHEMA,
   reduceMainActiveTransition,
 } from "./vercel-main-active-controller.mjs";
-import {
-  canonicalizeMainCandidateVercelMetadata,
-  createMainCandidateIntent,
-  createMainCandidateReceipt,
-  createMainCandidateVercelMetadata,
-} from "./vercel-main-candidate.mjs";
 import { mainTransactionJournalArtifactName } from "./vercel-main-transaction.mjs";
 
 const read = (path) =>
@@ -27,33 +21,10 @@ const preparedFixture = JSON.parse(
 );
 const TARGETS = ["app", "governance", "reserve", "ui"];
 
-function preparedFor(activeTargets, { pendingApp = false } = {}) {
+function preparedFor(activeTargets) {
   const journal = structuredClone(preparedFixture);
   for (const target of TARGETS) {
     if (!activeTargets.includes(target)) journal.candidates[target] = null;
-  }
-  if (pendingApp) {
-    const intent = createMainCandidateIntent({
-      target: "app",
-      deploySha: journal.release.deploySha,
-      upstreamRunId: journal.release.upstreamRunId,
-      originRunId: journal.runId,
-      originAttempt: journal.runAttempt,
-      originTransactionId: journal.transactionId,
-      projectId: journal.release.originalPriors.app.projectId,
-      projectName: journal.release.originalPriors.app.projectName,
-      releaseManifest: journal.release,
-    });
-    journal.candidates.app = {
-      ...journal.candidates.app,
-      deploymentId: null,
-      deploymentUrl: null,
-      discovery: {
-        ...journal.candidates.app.discovery,
-        candidateId: intent.candidateId,
-        immutableSmoke: null,
-      },
-    };
   }
   return journal;
 }
@@ -101,54 +72,6 @@ function reduce(initial, history, input, activeTargets) {
     ),
     history,
     event: input,
-  });
-}
-
-function appCandidateReceipt(journal) {
-  const intent = createMainCandidateIntent({
-    target: "app",
-    deploySha: journal.release.deploySha,
-    upstreamRunId: journal.release.upstreamRunId,
-    originRunId: journal.runId,
-    originAttempt: journal.runAttempt,
-    originTransactionId: journal.transactionId,
-    projectId: journal.release.originalPriors.app.projectId,
-    projectName: journal.release.originalPriors.app.projectName,
-    releaseManifest: journal.release,
-  });
-  const metadata = canonicalizeMainCandidateVercelMetadata(
-    createMainCandidateVercelMetadata({ intent }),
-    {
-      target: "app",
-      deploySha: intent.deploySha,
-      projectId: intent.projectId,
-      projectName: intent.projectName,
-    },
-  );
-  return createMainCandidateReceipt({
-    intent,
-    candidate: {
-      deploymentId: "dpl_appCandidate123",
-      deploymentUrl: "https://app-candidate.vercel.app",
-      projectId: intent.projectId,
-      projectName: intent.projectName,
-      readyState: "READY",
-      target: null,
-      customEnvironmentSlug: "v3",
-      source: "cli",
-      git: {
-        org: "mento-protocol",
-        repo: "frontend-monorepo",
-        ref: "main",
-        sha: intent.deploySha,
-      },
-      metadata,
-    },
-    immutableSmoke: {
-      immutableUrl: "https://app-candidate.vercel.app",
-      servedSha: intent.deploySha,
-      status: "passed",
-    },
   });
 }
 
@@ -203,93 +126,6 @@ function driveToCommandReturn(
   return { authorized, returned, history };
 }
 
-test("App command output stays pending until its receipt attaches canonical smoke", () => {
-  const activeTargets = ["app"];
-  const initial = preparedFor(activeTargets, { pendingApp: true });
-  const providerReceipt = appCandidateReceipt(initial);
-  const { history, returned } = driveToCommandReturn(initial, activeTargets, {
-    commandResult: {
-      outcome: "success",
-      reason: null,
-      candidate: {
-        deploymentId: "dpl_appCliOutput123",
-        deploymentUrl: "https://app-cli-output.vercel.app",
-      },
-    },
-  });
-
-  assert.equal(returned.journal.status, "command_returned");
-  assert.equal(returned.journal.operations.at(-1).state, "command_returned");
-  assert.equal(returned.journal.candidates.app.deploymentId, null);
-  assert.equal(returned.journal.candidates.app.deploymentUrl, null);
-  assert.equal(returned.journal.candidates.app.discovery.immutableSmoke, null);
-
-  const appDeployment = {
-    deploymentId: providerReceipt.candidate.deploymentId,
-    deploymentUrl: providerReceipt.candidate.deploymentUrl,
-    readyState: "READY",
-  };
-
-  const attached = reduce(
-    initial,
-    history,
-    event("verify", {
-      uploadReceipt: receipt(history.at(-1)),
-      freshSha: initial.deploySha,
-      currentMappings: mappings(history.at(-1)),
-      appCandidateReceipt: providerReceipt,
-      appDeployment,
-    }),
-    activeTargets,
-  );
-  assert.equal(attached.journal.status, "command_returned");
-  assert.equal(attached.journal.operations.at(-1).state, "command_returned");
-  assert.equal(
-    attached.journal.candidates.app.deploymentId,
-    "dpl_appCandidate123",
-  );
-  assert.deepEqual(
-    attached.journal.candidates.app.discovery.immutableSmoke,
-    providerReceipt.immutableSmoke,
-  );
-  assert.equal(attached.afterUploadAction, "verify");
-  history.push(attached.journal);
-
-  assert.throws(
-    () =>
-      reduce(
-        initial,
-        history,
-        event("dispatch", {
-          uploadReceipt: receipt(history.at(-1)),
-          freshSha: initial.deploySha,
-          currentMappings: mappings(history.at(-1)),
-        }),
-        activeTargets,
-      ),
-    /already in progress/,
-  );
-
-  const verified = reduce(
-    initial,
-    history,
-    event("verify", {
-      uploadReceipt: receipt(history.at(-1)),
-      freshSha: initial.deploySha,
-      currentMappings: mappings(history.at(-1)),
-      appCandidateReceipt: null,
-      appDeployment,
-    }),
-    activeTargets,
-  );
-  assert.equal(verified.journal.status, "verified");
-  assert.equal(verified.journal.operations.at(-1).state, "verified");
-  assert.equal(verified.journal.operations.at(-1).mappingState, "candidate");
-  assert.equal(verified.afterUploadAction, "dispatch");
-  assert.equal(verified.confirmedMutationCommands, 1);
-  assert.equal(verified.possibleMutationCommands, 1);
-});
-
 test("ordinary mappings remain a one-turn verification", () => {
   const activeTargets = ["governance"];
   const initial = preparedFor(activeTargets);
@@ -301,8 +137,6 @@ test("ordinary mappings remain a one-turn verification", () => {
       uploadReceipt: receipt(history.at(-1)),
       freshSha: initial.deploySha,
       currentMappings: mappings(history.at(-1), ["governance"]),
-      appCandidateReceipt: null,
-      appDeployment: null,
     }),
     activeTargets,
   );
@@ -316,7 +150,6 @@ test("active checkpoints stage canonical files before replacing pre-existing des
     ["checkpoint-started", "started"],
     ["checkpoint-returned", "returned"],
     ["checkpoint-verified", "verified"],
-    ["checkpoint-app-verified", "app-verified"],
   ];
 
   for (const [checkpointId, checkpointName] of checkpoints) {
@@ -358,46 +191,32 @@ test("active checkpoints stage canonical files before replacing pre-existing des
   );
 });
 
-test("the composite checkpoints the App attachment before a receipt-free second turn", () => {
+// The activation composite is now uniform: one authorize, one command, one
+// verification turn, and no App-only branch.
+test("the composite has exactly one verification turn and no App-only branch", () => {
   const steps = action.runs.steps;
-  const attachment = steps.find((step) => step.id === "verify");
-  const attachmentCheckpoint = steps.find(
+  const verify = steps.find((step) => step.id === "verify");
+  const verifiedCheckpoint = steps.find(
     (step) => step.id === "checkpoint-verified",
   );
-  const complete = steps.find((step) => step.id === "verify-app-candidate");
-  const upload = steps.find((step) => step.id === "upload-app-verified");
-  const checkpoint = steps.find(
-    (step) => step.id === "checkpoint-app-verified",
+  assert.ok(verify, "missing the verification turn");
+  assert.ok(verifiedCheckpoint, "missing the durable verified checkpoint");
+  assert.match(verify.run, /active-event-verify /);
+  assert.equal(
+    verify.if.replace(/\s+/g, " ").trim(),
+    "steps.checkpoint-returned.outcome == 'success'",
   );
-
-  assert.match(attachment.run, /active-event-verify-app/);
-  assert.match(attachment.run, /--app-candidate-receipt/);
-  assert.ok(
-    attachmentCheckpoint,
-    "missing durable checkpoint after receipt attachment",
+  // The retired App custom-environment deploy and its second verification
+  // turn cannot re-enter the composite.
+  assert.doesNotMatch(actionSource, /app_v3_deploy/);
+  assert.doesNotMatch(actionSource, /active-event-verify-app/);
+  assert.doesNotMatch(actionSource, /app-candidate-receipt/);
+  assert.doesNotMatch(actionSource, /app-operation-cwd/);
+  assert.equal(
+    steps.filter((step) => step.id === "verify-app-candidate").length,
+    0,
   );
-  assert.ok(complete, "missing the second App verification turn");
-  assert.match(complete.if, /checkpoint-verified/);
-  assert.match(complete.if, /after_upload_action == 'verify'/);
-  assert.match(complete.if, /app_v3_deploy/);
-  assert.match(complete.run, /active-freshness/);
-  assert.match(complete.run, /current-receipt\.json/);
-  assert.match(complete.run, /current-history\.json/);
-  assert.match(complete.run, /install -m 0600 \/dev\/null/);
-  assert.match(complete.run, /printf '%s\\n' null/);
-  assert.match(complete.run, /active-event-verify-app/);
-  assert.match(
-    complete.run,
-    /--app-candidate-receipt .*app-null-receipt\.json/,
-  );
-  assert.match(complete.run, /--app-deployment .*app-deployment\.json/);
-  assert.doesNotMatch(complete.run, /jq -n/);
-  assert.match(complete.run, /run-active/);
-  assert.ok(upload, "missing upload of the completed App verification");
-  assert.ok(checkpoint, "missing checkpoint of the completed App verification");
-  assert.ok(steps.indexOf(attachmentCheckpoint) < steps.indexOf(complete));
-  assert.ok(steps.indexOf(complete) < steps.indexOf(upload));
-  assert.ok(steps.indexOf(upload) < steps.indexOf(checkpoint));
+  assert.ok(steps.indexOf(verify) < steps.indexOf(verifiedCheckpoint));
   assert.equal(
     steps.filter(
       (step) =>

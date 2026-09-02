@@ -2,9 +2,13 @@ import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import { deflateRawSync, inflateRawSync } from "node:zlib";
 
-import { assertMainReleaseManifest } from "./vercel-main-release-reconciliation.mjs";
+import {
+  assertMainReleaseManifest,
+  assertTransitionalPreConversionReleaseManifest,
+} from "./vercel-main-release-reconciliation.mjs";
 import { generateVercelMainCandidateDeploymentId } from "./vercel-prebuilt.mjs";
 import { canonicalizeDeploymentUrl } from "./vercel-deployment-url.mjs";
+import { TRANSITIONAL_APP_PRIOR_ENVIRONMENT } from "./vercel-main-plan.mjs";
 
 const MAIN_CANDIDATE_INTENT_SCHEMA = "vercel-main-candidate-intent:v3";
 const MAIN_CANDIDATE_RECEIPT_SCHEMA = "vercel-main-candidate-receipt:v3";
@@ -130,13 +134,12 @@ function digest(value) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+// Every main candidate is an ordinary production deployment.
 function expectedEnvironment(target) {
   if (!MAIN_CANDIDATE_TARGETS.includes(target)) {
     throw new Error(`Unknown main candidate target: ${String(target)}`);
   }
-  return target === "app"
-    ? { target: null, customEnvironmentSlug: "v3" }
-    : { target: "production", customEnvironmentSlug: null };
+  return { target: "production", customEnvironmentSlug: null };
 }
 
 function expectedProjectName(target) {
@@ -204,14 +207,31 @@ function stableIntentBody({
   };
 }
 
-function canonicalStableContext({
-  target,
-  deploySha,
-  upstreamRunId,
-  projectId,
-  projectName,
-  releaseManifest,
-}) {
+// TRANSITION-V3-PRIOR
+// A candidate sealed before the App moved to the production environment bound
+// its stable digest to the retiring `v3` environment and to a manifest whose
+// App prior carried the retired two-alias topology. `preConversion` selects
+// exactly that pair of legacy inputs; every other check below is unchanged, so
+// legacy metadata is validated as strictly as current metadata.
+const CURRENT_CONTRACT = Object.freeze({
+  assertManifest: assertMainReleaseManifest,
+  preConversion: false,
+});
+const PRE_CONVERSION_CONTRACT = Object.freeze({
+  assertManifest: assertTransitionalPreConversionReleaseManifest,
+  preConversion: true,
+});
+
+function stableContextEnvironment(target, preConversion) {
+  return preConversion && target === "app"
+    ? { ...TRANSITIONAL_APP_PRIOR_ENVIRONMENT }
+    : expectedEnvironment(target);
+}
+
+function canonicalStableContext(
+  { target, deploySha, upstreamRunId, projectId, projectName, releaseManifest },
+  { assertManifest, preConversion } = CURRENT_CONTRACT,
+) {
   const canonicalTarget = requireString(
     target,
     "Main candidate target",
@@ -234,7 +254,7 @@ function canonicalStableContext({
   if (projectName !== expectedProjectName(canonicalTarget)) {
     throw new Error("Main candidate project name conflicts with target");
   }
-  const manifest = assertMainReleaseManifest(releaseManifest);
+  const manifest = assertManifest(releaseManifest);
   if (
     manifest.deploySha !== canonicalDeploySha ||
     manifest.upstreamRunId !== canonicalUpstreamRunId ||
@@ -250,7 +270,7 @@ function canonicalStableContext({
     commitSha: canonicalDeploySha,
     upstreamRunId: canonicalUpstreamRunId,
   });
-  const environment = expectedEnvironment(canonicalTarget);
+  const environment = stableContextEnvironment(canonicalTarget, preConversion);
   const source = "cli";
   const body = stableIntentBody({
     releaseId,
@@ -382,7 +402,7 @@ export function mainCandidateVercelMetadataByteLength(metadata) {
   return Buffer.byteLength(JSON.stringify(candidateMetadata), "utf8");
 }
 
-function decodeManifest(metadata) {
+function decodeManifestBody(metadata) {
   const count = Number(metadata.mentoReleaseManifestChunkCount);
   if (
     !Number.isInteger(count) ||
@@ -439,7 +459,12 @@ function decodeManifest(metadata) {
       `Main candidate release manifest encoding is malformed: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  const manifest = assertMainReleaseManifest(parsed);
+  return parsed;
+}
+
+function decodeManifest(metadata, assertManifest) {
+  const parsed = decodeManifestBody(metadata);
+  const manifest = assertManifest(parsed);
   if (JSON.stringify(manifest) !== JSON.stringify(parsed)) {
     throw new Error("Main candidate release manifest is not canonical");
   }
@@ -493,7 +518,7 @@ function auditOriginFromMetadata(metadata) {
   });
 }
 
-export function canonicalizeMainCandidateVercelMetadata(metadata, context) {
+function canonicalizeCandidateMetadata(metadata, context, contract) {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
     throw new Error("Main candidate Vercel metadata is malformed");
   }
@@ -525,7 +550,7 @@ export function canonicalizeMainCandidateVercelMetadata(metadata, context) {
   ) {
     throw new Error("Main candidate Vercel metadata schema is malformed");
   }
-  const manifest = decodeManifest(metadata);
+  const manifest = decodeManifest(metadata, contract.assertManifest);
   const allowedMetadataKeys = new Set([
     "mentoCandidateSchema",
     "mentoReleaseId",
@@ -552,14 +577,17 @@ export function canonicalizeMainCandidateVercelMetadata(metadata, context) {
   if (!context || typeof context !== "object" || Array.isArray(context)) {
     throw new Error("Main candidate metadata context is required");
   }
-  const stable = canonicalStableContext({
-    target: context.target,
-    deploySha: context.deploySha,
-    upstreamRunId: manifest.upstreamRunId,
-    projectId: context.projectId,
-    projectName: context.projectName,
-    releaseManifest: manifest,
-  });
+  const stable = canonicalStableContext(
+    {
+      target: context.target,
+      deploySha: context.deploySha,
+      upstreamRunId: manifest.upstreamRunId,
+      projectId: context.projectId,
+      projectName: context.projectName,
+      releaseManifest: manifest,
+    },
+    contract,
+  );
   if (
     metadata.mentoReleaseId !== stable.releaseId ||
     metadata.mentoCandidateId !== stable.candidateId ||
@@ -576,6 +604,32 @@ export function canonicalizeMainCandidateVercelMetadata(metadata, context) {
     stableIntentDigest: stable.stableIntentDigest,
     auditOrigin: auditOriginFromMetadata(metadata),
   };
+}
+
+export function canonicalizeMainCandidateVercelMetadata(metadata, context) {
+  return canonicalizeCandidateMetadata(metadata, context, CURRENT_CONTRACT);
+}
+
+// TRANSITION-V3-PRIOR
+// True only for metadata that is a complete, internally consistent candidate
+// seal from before the App moved to the production environment: the same schema,
+// key allowlist, size bound, manifest structure, stable release/candidate
+// identity, digest, and audit origin the current contract requires, with the
+// two legacy inputs — the retired App alias topology in the manifest and the
+// `v3` environment in the App stable digest — substituted for their current
+// values. A corrupt or partially legacy seal fails every one of those checks
+// and is not admitted here, so it still reaches the ordinary assertion path and
+// fails the run closed. Delete this with the bridge slot in the tighten PR.
+export function isTransitionalPreConversionCandidateMetadata(
+  metadata,
+  context,
+) {
+  try {
+    canonicalizeCandidateMetadata(metadata, context, PRE_CONVERSION_CONTRACT);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function canonicalCandidate(value, intent) {

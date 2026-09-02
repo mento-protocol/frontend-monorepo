@@ -14,6 +14,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  acceptsPriorEnvironment,
   MAIN_DEPLOYMENT_MODES,
   MAIN_DEPLOYMENT_TARGETS,
   MAIN_TARGET_CONTRACTS,
@@ -35,7 +36,6 @@ import {
   runMainTransaction,
 } from "./vercel-main-transaction.mjs";
 import {
-  assertMainCandidateIntent,
   assertMainCandidateReceipt,
   createMainCandidateIntent,
   createMainCandidateVercelMetadata,
@@ -138,6 +138,12 @@ export const MAIN_ORDINARY_TARGETS = Object.freeze([
   "reserve",
   "ui",
 ]);
+// Every main target promotes and rolls back through the activation
+// transaction.
+export const MAIN_PROMOTABLE_TARGETS = Object.freeze([
+  ...MAIN_ORDINARY_TARGETS,
+  "app",
+]);
 
 const ACTIVE_STATE_SUMMARY_COUNT_KEYS = Object.freeze([
   "scanned",
@@ -195,12 +201,14 @@ const VERIFICATION_KEYS = Object.freeze([
   "immutableSmoke",
   "protectedMappings",
 ]);
+// One compensation slot per started forward operation: a rollback slot for
+// every promotable target plus one bridge alias-restore slot for each
+// reviewed App alias.
 export const MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS =
-  MAIN_ORDINARY_TARGETS.length + MAIN_TARGET_CONTRACTS.app.aliases.length;
+  MAIN_PROMOTABLE_TARGETS.length + MAIN_TARGET_CONTRACTS.app.aliases.length;
 const MAX_JSON_BYTES = 256 * 1024;
 export const MAIN_ACTIVE_JOURNAL_HISTORY_MAX_JSON_BYTES = 1024 * 1024;
 export const MAIN_ACTIVE_TERMINAL_PROOFS_MAX_JSON_BYTES = 1024 * 1024;
-const APP_BUILD_PROOF_SCHEMA = "vercel-main-app-build:v2";
 const CANONICAL_MAPPING_TARGETS = Object.freeze([
   "governance",
   "reserve",
@@ -242,15 +250,7 @@ const CLI_COMMAND_OPTIONS = Object.freeze({
     "output",
     "receipt",
   ]),
-  "active-event-verify-app": Object.freeze([
-    "app-candidate-receipt",
-    "app-deployment",
-    "authorization",
-    "current-mappings",
-    "freshness",
-    "output",
-    "receipt",
-  ]),
+
   "active-command-descriptor": Object.freeze(["authorization", "output"]),
   "active-evidence": Object.freeze([
     "final-mappings",
@@ -372,8 +372,7 @@ const CLI_COMMAND_OPTIONS = Object.freeze({
     "output",
     "receipt",
   ]),
-  "app-build-proof": Object.freeze(["intent", "output"]),
-  "app-candidate-expectation": Object.freeze(["journal", "output"]),
+
   "candidate-intent": Object.freeze(["execution", "output", "target"]),
   "candidate-metadata": Object.freeze(["intent", "output"]),
   "create-release-manifest": Object.freeze([
@@ -424,12 +423,7 @@ const CLI_COMMAND_OPTIONS = Object.freeze({
     "prepared-journal",
     "stage-barrier",
   ]),
-  "stage-barrier": Object.freeze([
-    "app-preparation",
-    "candidate-receipts",
-    "execution",
-    "output",
-  ]),
+  "stage-barrier": Object.freeze(["candidate-receipts", "execution", "output"]),
   "run-active-recovery": Object.freeze([
     "event",
     "journal-history",
@@ -680,25 +674,24 @@ function canonicalPlanningSnapshotForSpec({ snapshot, projectIds }) {
   );
   for (const [index, state] of ordered.entries()) {
     const expected = spec[index];
+    // TRANSITION-V3-PRIOR: `app.mento.org` still serves the v3-shaped
+    // deployment it served before this release until the dashboard domain
+    // move, so the App prior may carry that one alternative shape.
+    const target = MAIN_DEPLOYMENT_TARGETS.find((candidate) =>
+      MAIN_TARGET_CONTRACTS[candidate].aliases.includes(expected.alias),
+    );
     if (
       state.alias !== expected.alias ||
       state.projectId !== expected.projectId ||
       state.projectName !== expected.projectName ||
-      state.target !== expected.target ||
-      state.customEnvironmentSlug !== expected.customEnvironmentSlug ||
+      target === undefined ||
+      !acceptsPriorEnvironment(target, state) ||
       state.readyState !== "READY" ||
       !state.aliases.includes(expected.alias)
     ) {
       throw new Error(
         `Protected snapshot state is ambiguous for ${expected.alias}`,
       );
-    }
-    if (
-      expected.customEnvironmentSlug === "v3" &&
-      JSON.stringify(state.aliases) !==
-        JSON.stringify([...MAIN_TARGET_CONTRACTS.app.aliases])
-    ) {
-      throw new Error("Protected App alias set is ambiguous");
     }
   }
   return { schema: canonical.schema, states: ordered };
@@ -1088,125 +1081,6 @@ export function validateMainStageJobs({ plan, jobs, runId, runAttempt }) {
   };
 }
 
-export function createMainAppTransactionMetadata({
-  deploySha,
-  runId,
-  runAttempt,
-  transactionId,
-  nextDeploymentId,
-}) {
-  return {
-    githubCommitOrg: "mento-protocol",
-    githubCommitRepo: "frontend-monorepo",
-    githubCommitRef: "main",
-    githubCommitSha: requireSha(deploySha),
-    mentoTransactionId: requireString(
-      transactionId,
-      "App transaction ID",
-      /^main-[a-f0-9]{32}$/,
-    ),
-    mentoRunId: requirePositiveId(runId, "App run ID"),
-    mentoRunAttempt: requirePositiveId(runAttempt, "App run attempt"),
-    mentoNextDeploymentId: requireString(
-      nextDeploymentId,
-      "App custom Next deployment ID",
-      /^(?!dpl_)[A-Za-z0-9_-]{1,32}$/,
-    ),
-  };
-}
-
-export function createMainAppBuildProof({ intent }) {
-  const candidateIntent = assertMainCandidateIntent(intent);
-  if (
-    candidateIntent.target !== "app" ||
-    candidateIntent.environment.target !== null ||
-    candidateIntent.environment.customEnvironmentSlug !== "v3"
-  ) {
-    throw new Error(
-      "App build proof requires the exact App v3 candidate intent",
-    );
-  }
-  const identity = {
-    repository: MAIN_TRANSACTION_REPOSITORY,
-    deploySha: candidateIntent.deploySha,
-    runId: candidateIntent.originRunId,
-    runAttempt: candidateIntent.originAttempt,
-  };
-  const transactionId = createMainTransactionId(identity);
-  if (candidateIntent.originTransactionId !== transactionId) {
-    throw new Error(
-      "App candidate intent transaction differs from its current-attempt identity",
-    );
-  }
-  const nextDeploymentId = candidateIntent.candidateId;
-  return {
-    schema: APP_BUILD_PROOF_SCHEMA,
-    intent: candidateIntent,
-    target: "app",
-    deploySha: identity.deploySha,
-    runId: identity.runId,
-    runAttempt: identity.runAttempt,
-    transactionId,
-    projectId: candidateIntent.projectId,
-    projectName: "app.mento.org",
-    customEnvironmentSlug: "v3",
-    vercelEnv: "preview",
-    vercelTargetEnv: "v3",
-    nextPublicVercelEnv: "preview",
-    sentryAuthToken: "",
-    nextDeploymentId,
-    deployReachable: false,
-    metadata: createMainAppTransactionMetadata({
-      ...identity,
-      transactionId,
-      nextDeploymentId,
-    }),
-    candidateMetadata: createMainCandidateVercelMetadata({
-      intent: candidateIntent,
-    }),
-  };
-}
-
-export function createMainAppCandidateExpectation({ journal, projectId }) {
-  const canonical = assertMainTransactionJournal(journal);
-  const app = canonical.candidates.app;
-  if (app === null || app.discovery === null) {
-    throw new Error("Journal does not contain App candidate discovery");
-  }
-  if (app.discovery.projectId !== projectId) {
-    throw new Error("App recovery project does not match the journal");
-  }
-  const nextDeploymentId = generateVercelMainCandidateDeploymentId({
-    repository: canonical.repository,
-    target: "app",
-    commitSha: canonical.deploySha,
-    upstreamRunId: canonical.release.upstreamRunId,
-  });
-  if (app.discovery.candidateId !== nextDeploymentId) {
-    throw new Error(
-      "App recovery candidate differs from the stable release ID",
-    );
-  }
-  return {
-    projectId: requireString(projectId, "App project ID"),
-    projectName: "app.mento.org",
-    deploySha: canonical.deploySha,
-    runId: canonical.runId,
-    runAttempt: canonical.runAttempt,
-    transactionId: canonical.transactionId,
-    customEnvironmentSlug: "v3",
-    nextDeploymentId,
-  };
-}
-
-function assertAppBuildProof(proof, intent) {
-  const expected = createMainAppBuildProof({ intent });
-  if (JSON.stringify(expected) !== JSON.stringify(proof)) {
-    throw new Error("App v3 build proof is invalid");
-  }
-  return expected;
-}
-
 function releaseManifestFromHandoff(handoff) {
   const originalPriors = Object.fromEntries(
     ["governance", "reserve", "ui", "app"].map((target) => {
@@ -1307,7 +1181,7 @@ function v3Candidate(candidate, target, release) {
       projectName: prior.projectName,
       deploySha: release.deploySha,
       target,
-      customEnvironmentSlug: target === "app" ? "v3" : null,
+      customEnvironmentSlug: null,
       immutableSmoke: {
         immutableUrl: deploymentUrl,
         servedSha: release.deploySha,
@@ -1325,7 +1199,6 @@ function v3Candidate(candidate, target, release) {
 export function createMainTransactionInputs({
   plan,
   stageJobs,
-  appBuildProof = null,
   appCandidateReceipt = null,
   runId,
   runAttempt,
@@ -1380,27 +1253,20 @@ export function createMainTransactionInputs({
   let appCandidate = null;
   let appReceipt = null;
   if (handoff.planning.stagedTargets.includes("app")) {
-    if ((appBuildProof === null) === (appCandidateReceipt === null)) {
+    if (appCandidateReceipt === null) {
       throw new Error(
-        "Selected app requires exactly one build proof or provider candidate receipt",
+        "Selected app requires its exact provider candidate receipt",
       );
     }
-    appReceipt =
-      appCandidateReceipt === null
-        ? null
-        : assertMainCandidateReceipt(appCandidateReceipt);
-    if (appReceipt === null) {
-      assertAppBuildProof(appBuildProof, appIntent);
-    } else if (
-      JSON.stringify(appReceipt.intent) !== JSON.stringify(appIntent)
-    ) {
+    appReceipt = assertMainCandidateReceipt(appCandidateReceipt);
+    if (JSON.stringify(appReceipt.intent) !== JSON.stringify(appIntent)) {
       throw new Error(
         "App provider candidate receipt differs from the selected deployment",
       );
     }
     appCandidate = {
-      deploymentId: appReceipt?.candidate.deploymentId ?? null,
-      deploymentUrl: appReceipt?.candidate.deploymentUrl ?? null,
+      deploymentId: appReceipt.candidate.deploymentId,
+      deploymentUrl: appReceipt.candidate.deploymentUrl,
       aliases: [...prior.app.aliases],
       discovery: {
         projectId: handoff.projectIds.app,
@@ -1409,13 +1275,11 @@ export function createMainTransactionInputs({
         runId: identity.runId,
         runAttempt: identity.runAttempt,
         transactionId,
-        customEnvironmentSlug: "v3",
+        customEnvironmentSlug: null,
       },
     };
-  } else if (appBuildProof !== null || appCandidateReceipt !== null) {
-    throw new Error(
-      "Unselected app returned build proof or provider candidate receipt",
-    );
+  } else if (appCandidateReceipt !== null) {
+    throw new Error("Unselected app returned a provider candidate receipt");
   }
   const candidates = {
     app: appCandidate,
@@ -1444,7 +1308,6 @@ export function createMainTransactionInputs({
 export function createMainActiveTransactionInputs({
   plan,
   stageJobs,
-  appBuildProof = null,
   appCandidateReceipt = null,
   runId,
   runAttempt,
@@ -1453,7 +1316,6 @@ export function createMainActiveTransactionInputs({
   const inputs = createMainTransactionInputs({
     plan: handoff,
     stageJobs,
-    appBuildProof,
     appCandidateReceipt,
     runId,
     runAttempt,
@@ -1539,20 +1401,12 @@ export function createMainCurrentCandidateIntent({
   );
 }
 
-function canonicalAppPreparation(value, execution, identity) {
-  return assertAppBuildProof(
-    value,
-    expectedCurrentCandidateIntent(execution, identity, "app"),
-  );
-}
-
 // This is the only stage handoff the automatic controller accepts. It binds
 // every candidate to the asserted execution and this downstream attempt,
 // while keeping shadow receipts out of transaction mutation authority.
 export function createMainStageBarrier({
   execution,
   candidateReceipts,
-  appPreparation,
   runId,
   runAttempt,
 }) {
@@ -1573,19 +1427,6 @@ export function createMainStageBarrier({
       stages[target] = {
         kind: "not-selected",
         receipt: null,
-        preparation: null,
-      };
-      continue;
-    }
-    if (target === "app" && receipt === null) {
-      stages.app = {
-        kind: "pending-app",
-        receipt: null,
-        preparation: canonicalAppPreparation(
-          appPreparation,
-          current.execution,
-          current.identity,
-        ),
       };
       continue;
     }
@@ -1602,11 +1443,7 @@ export function createMainStageBarrier({
           target,
         ),
       ),
-      preparation: null,
     };
-  }
-  if (stages.app.kind !== "pending-app" && appPreparation !== null) {
-    throw new Error("Unexpected App preparation proof");
   }
   return {
     schema: MAIN_STAGE_BARRIER_SCHEMA,
@@ -1657,13 +1494,10 @@ export function assertMainStageBarrier(
     const stage = value.stages[target];
     assertExactKeys(
       stage,
-      ["kind", "receipt", "preparation"],
+      ["kind", "receipt"],
       `Current main barrier ${target}`,
     );
-    if (
-      !["not-selected", "receipt", "pending-app"].includes(stage.kind) ||
-      (stage.kind === "pending-app" && target !== "app")
-    ) {
+    if (!["not-selected", "receipt"].includes(stage.kind)) {
       throw new Error(`Current main barrier ${target} kind is invalid`);
     }
   }
@@ -1675,7 +1509,6 @@ export function assertMainStageBarrier(
         value.stages[target]?.receipt ?? null,
       ]),
     ),
-    appPreparation: value.stages.app?.preparation ?? null,
     runId: current.identity.runId,
     runAttempt: current.identity.runAttempt,
   });
@@ -1715,9 +1548,6 @@ export function createMainCurrentActiveInputs({
     STAGE_BARRIER_TARGETS.map((target) => {
       const stage = canonicalBarrier.stages[target];
       if (stage.kind === "not-selected") return [target, null];
-      if (stage.kind === "pending-app") {
-        return [target, { deploymentId: null, deploymentUrl: null }];
-      }
       return [
         target,
         {
@@ -1801,7 +1631,7 @@ function currentStateProject({ current, barrier, target, candidate }) {
   const stage = barrier.stages[target];
   const expected = isActive
     ? candidate
-    : isShadow && target !== "app" && stage.receipt !== null
+    : isShadow && stage.receipt !== null
       ? {
           deploymentId: stage.receipt.candidate.deploymentId,
           deploymentUrl: stage.receipt.candidate.deploymentUrl,
@@ -1819,13 +1649,13 @@ function currentStateProject({ current, barrier, target, candidate }) {
       projectName: `${target}.mento.org`,
       expectedDisposition: isActive
         ? "githubPrebuilt"
-        : isShadow && target !== "app"
+        : isShadow
           ? "githubShadowStage"
           : null,
       deploymentId: expected?.deploymentId ?? null,
       deploymentUrl: expected?.deploymentUrl ?? null,
-      target: target === "app" ? null : "production",
-      customEnvironmentSlug: target === "app" ? "v3" : null,
+      target: "production",
+      customEnvironmentSlug: null,
     },
   ];
 }
@@ -2203,22 +2033,11 @@ export function createMainActiveRecoveryDeploymentStateSpec({
       const isActive = active.includes(target);
       const isShadow = shadow.includes(target);
       const candidate = highest.candidates[target];
-      const appDeployStarted = highest.operations.some(
-        (operation) => operation.type === "app_v3_deploy",
-      );
-      const recoveredPriorApp =
-        target === "app" &&
-        isActive &&
-        candidate !== null &&
-        candidate.deploymentId === null &&
-        candidate.deploymentUrl === null &&
-        (!appDeployStarted || highest.status === "manual_intervention");
       if (
-        (isActive || (isShadow && target !== "app")) &&
+        isActive &&
         (candidate === null ||
           candidate.deploymentId === null ||
-          candidate.deploymentUrl === null) &&
-        !recoveredPriorApp
+          candidate.deploymentUrl === null)
       ) {
         throw new Error(
           `Active recovery state spec ${target} candidate is incomplete`,
@@ -2229,23 +2048,22 @@ export function createMainActiveRecoveryDeploymentStateSpec({
           `Active recovery state spec ${target} has an unselected candidate`,
         );
       }
+      // A shadow target is never mutated by this transaction and never enters
+      // the current-attempt journal, so terminal recovery evidence has no
+      // deployment to name for it. Declaring no expectation keeps the census
+      // fail-closed: a staged shadow deployment leaves the proof unproven.
+      const bound = isActive ? candidate : null;
       const prior = release.originalPriors[target];
       return [
         target,
         {
           projectId: prior.projectId,
           projectName: `${target}.mento.org`,
-          expectedDisposition: recoveredPriorApp
-            ? "recoveredPrior"
-            : isActive
-              ? "githubPrebuilt"
-              : isShadow && target !== "app"
-                ? "githubShadowStage"
-                : null,
-          deploymentId: candidate?.deploymentId ?? null,
-          deploymentUrl: candidate?.deploymentUrl ?? null,
-          target: target === "app" ? null : "production",
-          customEnvironmentSlug: target === "app" ? "v3" : null,
+          expectedDisposition: isActive ? "githubPrebuilt" : null,
+          deploymentId: bound?.deploymentId ?? null,
+          deploymentUrl: bound?.deploymentUrl ?? null,
+          target: "production",
+          customEnvironmentSlug: null,
         },
       ];
     }),
@@ -2438,47 +2256,14 @@ export function createMainCurrentActivePublicSmokes({
 function canonicalTerminalStateProof(value, { execution, runId, runAttempt }) {
   assertExactKeys(
     value,
-    [
-      "schema",
-      "deploymentStateProof",
-      "currentReleaseCandidates",
-      "appShadowPreparation",
-    ],
+    ["schema", "deploymentStateProof", "currentReleaseCandidates"],
     "Main terminal state proof",
   );
   const current = currentAttemptIdentity({ execution, runId, runAttempt });
   if (value.schema !== MAIN_TERMINAL_STATE_PROOF_SCHEMA) {
     throw new Error("Main terminal state proof schema is unsupported");
   }
-  const appIsShadow =
-    current.execution.projection.shadowTargets.includes("app");
-  assertExactKeys(
-    value.appShadowPreparation,
-    ["digest", "preparation"],
-    "Main terminal App shadow preparation",
-  );
-  let preparation = null;
-  let digest = null;
-  if (appIsShadow) {
-    preparation = canonicalAppPreparation(
-      value.appShadowPreparation.preparation,
-      current.execution,
-      current.identity,
-    );
-    digest = requireString(
-      value.appShadowPreparation.digest,
-      "Main terminal App shadow preparation digest",
-      /^[a-f0-9]{64}$/,
-    );
-    if (digest !== digestCanonicalJson(preparation)) {
-      throw new Error("Main terminal App shadow preparation digest conflicts");
-    }
-  } else if (
-    value.appShadowPreparation.preparation !== null ||
-    value.appShadowPreparation.digest !== null
-  ) {
-    throw new Error("Main terminal App shadow preparation is unexpected");
-  }
+
   const deploymentStateProof =
     value.deploymentStateProof === null
       ? null
@@ -2567,7 +2352,6 @@ function canonicalTerminalStateProof(value, { execution, runId, runAttempt }) {
     schema: MAIN_TERMINAL_STATE_PROOF_SCHEMA,
     deploymentStateProof,
     currentReleaseCandidates,
-    appShadowPreparation: { digest, preparation },
   };
 }
 
@@ -2584,9 +2368,6 @@ export function createMainActiveTerminalStateProof({
     runId: current.identity.runId,
     runAttempt: current.identity.runAttempt,
   });
-  const preparation = current.execution.projection.shadowTargets.includes("app")
-    ? canonicalBarrier.stages.app.preparation
-    : null;
   return canonicalTerminalStateProof(
     {
       schema: MAIN_TERMINAL_STATE_PROOF_SCHEMA,
@@ -2607,10 +2388,6 @@ export function createMainActiveTerminalStateProof({
             : null,
         ]),
       ),
-      appShadowPreparation: {
-        preparation,
-        digest: preparation === null ? null : digestCanonicalJson(preparation),
-      },
     },
     { execution: current.execution, ...current.identity },
   );
@@ -2649,22 +2426,21 @@ export function createMainActiveDeploymentStateSpec({
   const projects = Object.fromEntries(
     MAIN_DEPLOYMENT_TARGETS.map((target) => {
       const active = planning.activeTargets.includes(target);
-      const shadowStage =
-        target !== "app" && planning.shadowTargets.includes(target);
+      const shadowStage = planning.shadowTargets.includes(target);
       const expected = active
         ? canonicalJournal.candidates[target]
         : shadowStage
           ? stages[target]?.candidate
           : null;
+      const stageCandidate = MAIN_ORDINARY_TARGETS.includes(target)
+        ? stages[target]?.candidate
+        : expected;
       if (
         active &&
         (expected?.deploymentId === null ||
           expected === null ||
-          (target !== "app" &&
-            (expected.deploymentId !==
-              stages[target]?.candidate?.deploymentId ||
-              expected.deploymentUrl !==
-                stages[target]?.candidate?.deploymentUrl)))
+          expected.deploymentId !== stageCandidate?.deploymentId ||
+          expected.deploymentUrl !== stageCandidate?.deploymentUrl)
       ) {
         throw new Error(
           `Active state spec ${target} candidate is incomplete or inconsistent`,
@@ -2682,8 +2458,8 @@ export function createMainActiveDeploymentStateSpec({
               : null,
           deploymentId: expected?.deploymentId ?? null,
           deploymentUrl: expected?.deploymentUrl ?? null,
-          target: target === "app" ? null : "production",
-          customEnvironmentSlug: target === "app" ? "v3" : null,
+          target: "production",
+          customEnvironmentSlug: null,
         },
       ];
     }),
@@ -2813,7 +2589,6 @@ function activeRunHandoff({
 export async function runMainActiveTransaction({
   plan,
   stageJobs,
-  appBuildProof,
   appCandidateReceipt = null,
   runId,
   runAttempt,
@@ -2823,7 +2598,6 @@ export async function runMainActiveTransaction({
   const inputs = createMainActiveTransactionInputs({
     plan,
     stageJobs,
-    appBuildProof,
     appCandidateReceipt,
     runId,
     runAttempt,
@@ -3259,7 +3033,7 @@ export function assertUploadedPreparedJournal({
 export async function runMainShadowTransaction({
   plan,
   stageJobs,
-  appBuildProof,
+  appCandidateReceipt = null,
   runId,
   runAttempt,
   journalBytes,
@@ -3270,7 +3044,7 @@ export async function runMainShadowTransaction({
   const inputs = createMainTransactionInputs({
     plan,
     stageJobs,
-    appBuildProof,
+    appCandidateReceipt,
     runId,
     runAttempt,
   });
@@ -4059,7 +3833,7 @@ function canonicalRollbackStateTargets(value) {
   if (
     !Array.isArray(value) ||
     new Set(value).size !== value.length ||
-    value.some((target) => !MAIN_ORDINARY_TARGETS.includes(target))
+    value.some((target) => !MAIN_PROMOTABLE_TARGETS.includes(target))
   ) {
     throw new Error("Active rollback-state targets are invalid");
   }
@@ -5443,7 +5217,7 @@ function terminalRollbackTargets(highest) {
       operation.rollbackState === "entered",
   );
   const targets = new Set(operations.map((operation) => operation.target));
-  return MAIN_ORDINARY_TARGETS.filter((target) => targets.has(target));
+  return MAIN_PROMOTABLE_TARGETS.filter((target) => targets.has(target));
 }
 
 const TERMINAL_AFFECTED_OPERATION_KEYS = Object.freeze([
@@ -5496,7 +5270,6 @@ function canonicalTerminalAffectedOperations(value) {
     if (
       ![
         "promote",
-        "app_v3_deploy",
         "app_alias_set",
         "ordinary_rollback",
         "app_alias_restore",
@@ -6563,7 +6336,6 @@ function canonicalActiveVerifiedOperations(value) {
     if (
       ![
         "promote",
-        "app_v3_deploy",
         "app_alias_set",
         "ordinary_rollback",
         "app_alias_restore",
@@ -8185,9 +7957,9 @@ function writeMainActiveTransition({
   return result;
 }
 
-function appProofFromEnvironment(values) {
-  return values.APP_BUILD_PROOF
-    ? parseJson(values.APP_BUILD_PROOF, "App build proof")
+function appCandidateReceiptFromEnvironment(values) {
+  return values.APP_CANDIDATE_RECEIPT
+    ? parseJson(values.APP_CANDIDATE_RECEIPT, "App candidate receipt")
     : null;
 }
 
@@ -8310,20 +8082,11 @@ function buildMainActiveEvent(command, options) {
       result: readJson(options.result, "Active command result"),
     });
   }
-  if (
-    command === "active-event-verify" ||
-    command === "active-event-verify-app"
-  ) {
-    const authorization = authorizationFromTransition(
+  if (command === "active-event-verify") {
+    authorizationFromTransition(
       options.authorization,
       "Active verification authorization",
     );
-    const appVerification = command === "active-event-verify-app";
-    if ((authorization.command.kind === "app-v3-deploy") !== appVerification) {
-      throw new Error(
-        "Active verification materializer does not match the authorized command",
-      );
-    }
     return createMainActiveTransitionEvent({
       schema: "vercel-main-active-event:v1",
       kind: "verify",
@@ -8333,15 +8096,6 @@ function buildMainActiveEvent(command, options) {
         options["current-mappings"],
         "Active current mappings",
       ),
-      appCandidateReceipt: appVerification
-        ? readJson(
-            options["app-candidate-receipt"],
-            "Active App candidate receipt",
-          )
-        : null,
-      appDeployment: appVerification
-        ? readJson(options["app-deployment"], "Active App deployment")
-        : null,
     });
   }
   if (kind === "finalize") {
@@ -8638,10 +8392,6 @@ export async function runMainDeploymentCli({
       candidateReceipts: readJson(
         options["candidate-receipts"],
         "Current main candidate receipts",
-      ),
-      appPreparation: readJson(
-        options["app-preparation"],
-        "Current App preparation",
       ),
       runId: values.GITHUB_RUN_ID,
       runAttempt: values.GITHUB_RUN_ATTEMPT,
@@ -9341,24 +9091,7 @@ export async function runMainDeploymentCli({
     });
     return;
   }
-  if (command === "app-build-proof") {
-    const proof = createMainAppBuildProof({
-      intent: readJson(options.intent, "Current App candidate intent"),
-    });
-    writeCanonicalJson(options.output, proof);
-    appendOutput(values.GITHUB_OUTPUT, "proof", JSON.stringify(proof));
-    return proof;
-  }
-  if (command === "app-candidate-expectation") {
-    writeCanonicalJson(
-      options.output,
-      createMainAppCandidateExpectation({
-        journal: readJson(options.journal, "Prepared transaction journal"),
-        projectId: values.VERCEL_PROJECT_ID_APP,
-      }),
-    );
-    return;
-  }
+
   if (command === "stage-result") {
     const result = createMainStageResult({
       target: values.LOGICAL_TARGET,
@@ -9393,7 +9126,7 @@ export async function runMainDeploymentCli({
     const journal = createPreparedMainJournal({
       plan: parseJson(values.PLAN_JSON, "Main deployment plan"),
       stageJobs: stageJobsFromEnvironment(values),
-      appBuildProof: appProofFromEnvironment(values),
+      appCandidateReceipt: appCandidateReceiptFromEnvironment(values),
       runId: values.GITHUB_RUN_ID,
       runAttempt: values.GITHUB_RUN_ATTEMPT,
     });
@@ -9411,7 +9144,7 @@ export async function runMainDeploymentCli({
     const result = await runMainShadowTransaction({
       plan: parseJson(values.PLAN_JSON, "Main deployment plan"),
       stageJobs: stageJobsFromEnvironment(values),
-      appBuildProof: appProofFromEnvironment(values),
+      appCandidateReceipt: appCandidateReceiptFromEnvironment(values),
       runId: values.GITHUB_RUN_ID,
       runAttempt: values.GITHUB_RUN_ATTEMPT,
       journalBytes,
