@@ -920,11 +920,15 @@ App now promotes and is verified exactly like Governance, Reserve, and UI:
   only operation types; `app_alias_set`, `app_alias_restore`, and the
   bridge-specific `verified_noop` rule are deleted;
 - prior-facing and candidate-facing validation both require the production
-  shape (`target: "production"`, `customEnvironmentSlug: null`) for App. The
-  retired v3 shape (`target: null`, `customEnvironmentSlug: "v3"`) fails
-  closed like any other unexpected shape, and pre-conversion legacy-sealed
-  manifests fail closed again — the transitional rollback-only admission for
-  them is gone;
+  shape (`target: "production"`, `customEnvironmentSlug: null`) for App. A
+  provider deployment in the retired v3 environment (`target: null`,
+  `customEnvironmentSlug: "v3"`) fails closed before its metadata is read.
+  One narrow historical admission remains, permanently: a mapped production
+  deployment whose immutable seal carries a bridge-era release manifest —
+  fully valid under the current contract except for the exact bridge-era App
+  prior shape — is classified as an unmarked rollback-only prior. Seals are
+  immutable and an operator rollback can re-map one at any time. Any other
+  deviation in such a seal still fails closed;
 - `grep -rn TRANSITION-V3-PRIOR scripts/` returns nothing; every tolerance site
   and its comment are deleted;
 - the retired generated alias `appmentoorg-env-v3-mentolabs.vercel.app` is

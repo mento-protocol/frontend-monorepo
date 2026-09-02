@@ -512,10 +512,14 @@ is retired: `ENVIRONMENT_SEMANTICS.v3` is deleted from
 `scripts/vercel-build-environment.mjs`, `TARGET_ENVIRONMENTS.app` is
 `["preview", "production"]`, and the retired generated alias
 `appmentoorg-env-v3-mentolabs.vercel.app` is rejected everywhere. Every
-`TRANSITION-V3-PRIOR` tolerance — the App-only prior shape, the
-bridge-specific `verified_noop` recovery rule, and the pre-conversion
-legacy-seal admission — is deleted; App's prior is now held to the same
-production contract as its candidate, exactly like every other target. The
+`TRANSITION-V3-PRIOR` tolerance — the App-only prior shape and the
+bridge-specific `verified_noop` recovery rule — is deleted; App's prior is
+now held to the same production contract as its candidate, exactly like
+every other target. One narrow admission remains permanently: an immutable
+bridge-era sealed manifest on a mapped production deployment — valid under
+the current contract except for the exact bridge-era App prior shape — is
+admitted as an unmarked rollback-only prior, because seals are immutable and
+operator rollbacks can re-map one at any time. The
 v3-specific deploy command (`vercel deploy --prebuilt --target=v3`), the
 same-run App payload handoff between `stage-app` and activation, and the
 post-hoc App candidate-discovery machinery remain removed; App carries a
