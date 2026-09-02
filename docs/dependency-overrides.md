@@ -38,9 +38,8 @@ both stages after any head or base change.
 
 ## Standalone Vercel CLI override mirror
 
-The protected production-shadow and automatic main-deployment jobs install
-Vercel from the standalone `scripts/vercel-cli-runtime` package instead of the
-root workspace. Its `pnpm.overrides` object must remain deeply equal to the
+The protected automatic main-deployment jobs install Vercel from the standalone
+`scripts/vercel-cli-runtime` package instead of the root workspace. Its `pnpm.overrides` object must remain deeply equal to the
 root `package.json` object. The standalone package must also pin the exact
 Vercel CLI version and every Vercel builder peer as a direct dependency. This
 keeps protected frozen installs inside the reviewed registry-only lockfile.

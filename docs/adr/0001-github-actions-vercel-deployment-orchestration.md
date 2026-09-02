@@ -528,6 +528,24 @@ target. Provider-side, `app.mento.org` is a Production-environment domain and
 `v2-app.mento.org` is a 308 redirect to it; the `v3` custom environment is
 empty and is deleted from the Vercel project after this PR merges.
 
+## Amendment — 2026-09-02: manual production-shadow pilot retired
+
+The manually dispatched `Vercel Production Shadow` workflow is removed.
+It rehearsed a release — building all four targets, uploading production-shaped
+deployments with `--skip-domain`, smoking the immutable URLs, and writing an
+evidence summary — without touching a public domain. Preview deployments cover
+pre-merge verification, and the automatic `Vercel Main Deployment` workflow now
+stages and verifies every target on `main`, so the pilot's rehearsal added cost
+without adding proof. Every trust boundary it proved stays in force: the same
+`scripts/vercel-production-shadow.mjs` toolkit (kept under its old name to avoid
+churn), the `vercel-candidate-build` and `vercel-protected-runtime` composite
+actions, and their structural tests still build and upload every staged main
+candidate. Removed with the workflow: the pilot's baseline alias census and
+protected-alias comparison, its evidence-summary rendering, its final job-result
+gate, and the App-side Playwright production-shadow smoke and routing
+regression. Sections above that describe the pilot as part of the rollout are
+historical.
+
 ## Evidence
 
 ### Tracked rollout
