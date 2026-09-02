@@ -71,6 +71,7 @@ export function assertOnlyExpectedProductionGeneratedAliases({
   creatorUsername,
   logicalTarget,
   mode,
+  foreignProtectedAliases = [],
 }) {
   const contract = targetContract(logicalTarget);
   assertCanonicalCreatorUsername(creatorUsername);
@@ -131,15 +132,54 @@ export function assertOnlyExpectedProductionGeneratedAliases({
     }
   }
 
-  const allowedAliases =
-    mode === PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR
-      ? new Set([
-          generatedGitMainAlias,
-          generatedProjectDefaultAlias,
-          generatedProjectAlias,
-          ...allowedCreatorAliases,
-        ])
-      : new Set([generatedProjectAlias, ...allowedCreatorAliases]);
+  if (mode === PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR) {
+    // A served prior is provider state this pipeline does not own. Promoting a
+    // deployment makes it the project's production deployment, so it also
+    // carries every other production domain the project has — retired ones,
+    // redirect-configured ones, and operator-added ones included.
+    //
+    // Validating that set here cannot govern it. `vercel promote <candidate>`
+    // and `vercel rollback <prior>` are both whole-deployment commands that
+    // name no alias, and every journal operation binds a target with
+    // `alias === null` (see assertOperationTarget in
+    // vercel-main-transaction.mjs). The project's production domains therefore
+    // move wholesale on promote and are restored wholesale by the compensating
+    // rollback to the captured prior deployment ID. That symmetry is what makes
+    // a reviewed-alias journal sufficient: the pipeline's guarantee is that it
+    // can put production back exactly as it found it, and a whole-deployment
+    // rollback delivers that for riders as much as for reviewed domains.
+    //
+    // Refusing a rider here never prevented its movement — it only refused to
+    // plan the release at all, which is precisely the incident that blocked
+    // every main deploy after the first App production promote. Re-introducing
+    // a fixed allowlist would brick the pipeline again the next time an
+    // operator legitimately attaches a domain. What this function does not do
+    // is claim riders are verified: `assertActiveFinalMappings` verifies the
+    // reviewed aliases only, and that scope is unchanged.
+    //
+    // What must never appear is another main target's reviewed protected
+    // domain: that is real cross-target contamination and stays fail-closed.
+    let foreign;
+    try {
+      foreign = new Set(
+        foreignProtectedAliases.map((alias) => canonicalizeHostname(alias)),
+      );
+    } catch {
+      throw new Error("Production generated-alias topology is malformed");
+    }
+    const contaminated = canonicalAliases.filter((alias) => foreign.has(alias));
+    if (contaminated.length > 0) {
+      throw new Error(
+        `Production ${logicalTarget} ${mode} carries another target's reviewed protected domain: ${JSON.stringify(contaminated)}`,
+      );
+    }
+    return canonicalAliases;
+  }
+
+  const allowedAliases = new Set([
+    generatedProjectAlias,
+    ...allowedCreatorAliases,
+  ]);
   const topologyMatches =
     mode === PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.CANDIDATE
       ? canonicalAliases.includes(generatedProjectAlias) &&

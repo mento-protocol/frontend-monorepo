@@ -594,9 +594,10 @@ test("App plans from exactly one reviewed alias", () => {
 });
 
 // MGP-18 retired the App custom `v3` environment. Every App prior is now held
-// to exactly the same production contract as every other target's, and the
-// retiring environment's shape can no longer re-enter through the prior.
-test("App priors are production-shaped and the retired v3 shape cannot re-enter", () => {
+// to exactly the same production *environment* contract as every other
+// target's, so the retiring environment's shape can no longer re-enter there.
+// Its alias list is a different matter: that is unowned provider state.
+test("App priors are production-shaped and carry the project's other domains", () => {
   const steady = fixture();
   steady.mode = "active";
   steady.mainOwnershipMode = ownershipMode("github");
@@ -638,42 +639,43 @@ test("App priors are production-shaped and the retired v3 shape cannot re-enter"
     );
   }
 
-  // The retired custom environment's generated alias is rejected for every
-  // target, and so is any other foreign alias.
+  // Promoting App made its production deployment carry every production domain
+  // the project has, retired and redirect-configured ones included. Those ride
+  // along on the served prior and must not fail the release closed — this is
+  // exactly what blocked every main deploy after the first bridge-era promote.
   for (const alias of [
     "appmentoorg-env-v3-mentolabs.vercel.app",
-    "appmentoorg-env-v4-mentolabs.vercel.app",
+    "v2-app.mento.org",
+    "appmentoorg-operator-mentolabs.vercel.app",
   ]) {
-    const foreignAlias = fixture();
-    foreignAlias.mode = "active";
-    foreignAlias.mainOwnershipMode = ownershipMode("github");
-    for (const state of foreignAlias.priorStates.app.states) {
+    const carried = fixture();
+    carried.mode = "active";
+    carried.mainOwnershipMode = ownershipMode("github");
+    for (const state of carried.priorStates.app.states) {
+      state.aliases = [...state.aliases, alias].toSorted();
+    }
+    assert.equal(runFixture(carried).plan.priors[0].target, "app", alias);
+  }
+
+  // Another main target's reviewed protected domain is the one alias condition
+  // that still fails closed.
+  for (const alias of [
+    "governance.mento.org",
+    "reserve.mento.org",
+    "ui.mento.org",
+  ]) {
+    const crossed = fixture();
+    crossed.mode = "active";
+    crossed.mainOwnershipMode = ownershipMode("github");
+    for (const state of crossed.priorStates.app.states) {
       state.aliases = [...state.aliases, alias].toSorted();
     }
     assertActivationError(
-      () => runFixture(foreignAlias),
+      () => runFixture(crossed),
       "app",
       "alias-set-ambiguous",
     );
   }
-
-  // A production-shaped App prior that carries only the reviewed alias plus
-  // the retired one — the exact pre-retirement two-alias topology — is
-  // rejected too.
-  const retiredTopology = fixture();
-  retiredTopology.mode = "active";
-  retiredTopology.mainOwnershipMode = ownershipMode("github");
-  for (const state of retiredTopology.priorStates.app.states) {
-    state.aliases = [
-      "app.mento.org",
-      "appmentoorg-env-v3-mentolabs.vercel.app",
-    ].toSorted();
-  }
-  assertActivationError(
-    () => runFixture(retiredTopology),
-    "app",
-    "alias-set-ambiguous",
-  );
 
   // Every reviewed production generated alias stays admissible.
   const reviewedTopology = fixture();
@@ -1406,77 +1408,24 @@ const activationAmbiguities = [
     },
   },
   {
-    name: "unknown generated alias",
-    target: "governance",
-    code: "alias-set-ambiguous",
-    mutate(input) {
-      input.priorStates.governance.states[0].aliases.push("attacker.invalid");
-      input.priorStates.governance.states[0].aliases.sort();
-    },
-  },
-  {
-    name: "wrong-target generated alias",
+    name: "malformed alias hostname",
     target: "governance",
     code: "alias-set-ambiguous",
     mutate(input) {
       input.priorStates.governance.states[0].aliases.push(
-        PRODUCTION_GENERATED_ALIAS_CONTRACTS.reserve.generatedProjectAlias,
+        "https://attacker.invalid/path",
       );
       input.priorStates.governance.states[0].aliases.sort();
     },
   },
   {
-    name: "operator-scoped alias",
+    // The reviewed mappings crossing is the one alias condition a served prior
+    // may never present.
+    name: "another target's reviewed protected domain",
     target: "governance",
     code: "alias-set-ambiguous",
     mutate(input) {
-      input.priorStates.governance.states[0].aliases.push(
-        "governancementoorg-operator-mentolabs.vercel.app",
-      );
-      input.priorStates.governance.states[0].aliases.sort();
-    },
-  },
-  {
-    name: "custom alias",
-    target: "governance",
-    code: "alias-set-ambiguous",
-    mutate(input) {
-      input.priorStates.governance.states[0].aliases.push(
-        "governance-preview.mento.org",
-      );
-      input.priorStates.governance.states[0].aliases.sort();
-    },
-  },
-  {
-    name: "creator near-miss alias",
-    target: "governance",
-    code: "alias-set-ambiguous",
-    mutate(input) {
-      input.priorStates.governance.states[0].aliases.push(
-        "governancementoorg-fixture-author2-mentolabs.vercel.app",
-      );
-      input.priorStates.governance.states[0].aliases.sort();
-    },
-  },
-  {
-    name: "git branch near-miss alias",
-    target: "governance",
-    code: "alias-set-ambiguous",
-    mutate(input) {
-      input.priorStates.governance.states[0].aliases.push(
-        "governancementoorg-git-feature-mentolabs.vercel.app",
-      );
-      input.priorStates.governance.states[0].aliases.sort();
-    },
-  },
-  {
-    name: "project-default near-miss alias",
-    target: "governance",
-    code: "alias-set-ambiguous",
-    mutate(input) {
-      input.priorStates.governance.states[0].aliases.push(
-        "governancementoorg2.vercel.app",
-      );
+      input.priorStates.governance.states[0].aliases.push("app.mento.org");
       input.priorStates.governance.states[0].aliases.sort();
     },
   },

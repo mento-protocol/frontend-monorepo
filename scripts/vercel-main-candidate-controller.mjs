@@ -15,6 +15,7 @@ import {
 import {
   MAIN_DEPLOYMENT_TARGETS,
   MAIN_TARGET_CONTRACTS,
+  foreignReviewedAliases,
 } from "./vercel-main-plan.mjs";
 import {
   MAIN_RELEASE_ACTIVATION_ORDER,
@@ -467,6 +468,7 @@ function assertMainCandidateCanonicalState(
     creatorUsername: canonicalState.creatorUsername,
     logicalTarget: intent.target,
     mode: aliasTopologyMode,
+    foreignProtectedAliases: foreignReviewedAliases(intent.target),
   });
   return canonicalState;
 }

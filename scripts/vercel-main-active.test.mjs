@@ -181,6 +181,44 @@ test("promotion builder accepts only an exact ordinary deployment identity", () 
   );
 });
 
+// The activation mutation and its compensation are both whole-deployment
+// commands that name no alias. That symmetry is what makes a reviewed-alias
+// journal sufficient: whatever set of production domains a promote moves, the
+// rollback to the captured prior deployment ID moves back. Served-prior alias
+// validation cannot govern that set, so it does not try to.
+test("promote and rollback are wholesale deployment commands that name no alias", () => {
+  const promote = buildMainActivePromotionCommand({
+    target: "app",
+    ...APP_CANDIDATE,
+  });
+  const rollback = buildMainActiveRollbackCommand({
+    target: "app",
+    ...APP_PRIOR,
+  });
+  assert.deepEqual(promote.arguments, [
+    "promote",
+    APP_CANDIDATE.deploymentId,
+    "--yes",
+  ]);
+  assert.deepEqual(rollback.arguments, [
+    "rollback",
+    APP_PRIOR.deploymentId,
+    "--yes",
+  ]);
+  for (const command of [promote, rollback]) {
+    assert.equal(Object.hasOwn(command, "alias"), false);
+    assert.equal(Object.hasOwn(command, "aliases"), false);
+    // No argument is a hostname: neither command can address a single domain.
+    for (const argument of command.arguments) {
+      assert.doesNotMatch(argument, /\./, argument);
+    }
+  }
+  // Both commands address the same deployment identifier shape, so the
+  // compensation is the exact inverse of the mutation.
+  assert.equal(promote.arguments[1], APP_CANDIDATE.deploymentId);
+  assert.equal(rollback.arguments[1], APP_PRIOR.deploymentId);
+});
+
 test("recovery builders use only captured exact prior identities", () => {
   const rollback = buildMainActiveRollbackCommand({
     target: "ui",
