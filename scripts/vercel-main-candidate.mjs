@@ -597,13 +597,24 @@ export function canonicalizeMainCandidateVercelMetadata(metadata, context) {
 // allowlist, size bound, manifest structure, stable release/candidate identity,
 // digest, and audit origin the current contract requires, with the single
 // permitted difference being the manifest's App prior — the retired `v3`
-// custom environment and one of that environment's two alias topologies. The
-// candidate's own environment is still production, because a deployment served
-// from the retired environment fails its production expectation long before
-// its metadata is read. A corrupt or partially bridge-era seal fails one of
-// those checks and is not admitted here, so it still reaches the ordinary
-// assertion path and fails the run closed. Seals are immutable, so this
-// admission is permanent.
+// custom environment and one of that environment's two alias topologies. A
+// corrupt or partially bridge-era seal fails one of those checks and is not
+// admitted here, so it still reaches the ordinary assertion path and fails the
+// run closed. Seals are immutable, so this admission is permanent.
+//
+// The stable body stays production-shaped for every target, deliberately.
+// Verified by generating seals with the real modules at each merge commit
+// (see `scripts/fixtures/vercel-main-candidate/historical-seals.json`):
+//   - 3df6e091 (#890, bridge era) sealed App stable bodies with
+//     `{target: "production", customEnvironmentSlug: null}` — its `v3` stable
+//     body existed only on a read-side classifier, never on a sealing path.
+//   - 1a362e5d (#879, pre-conversion) is the only code that ever bound
+//     `{target: null, customEnvironmentSlug: "v3"}` into a stable body, and
+//     only for App. Those App deployments live in the retired environment, so
+//     `inspectDeploymentRecord` rejects them on the production expectation long
+//     before their metadata is read.
+// Admitting a `v3` stable body here would therefore admit a digest shape no
+// reachable deployment carries, so it is refused.
 export function isBridgeEraCandidateMetadata(metadata, context) {
   try {
     canonicalizeCandidateMetadata(

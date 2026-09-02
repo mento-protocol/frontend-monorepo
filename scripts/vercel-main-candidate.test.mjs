@@ -16,6 +16,7 @@ import {
   createMainCandidateVercelMetadata,
   decodeMainCandidateReceipt,
   encodeMainCandidateReceipt,
+  isBridgeEraCandidateMetadata,
   mainCandidateVercelMetadataByteLength,
   resolveMainCandidateProviderState,
 } from "./vercel-main-candidate.mjs";
@@ -465,4 +466,145 @@ test("every main candidate uses the ordinary production environment", () => {
       customEnvironmentSlug: null,
     });
   }
+});
+
+// The historical wire format, pinned against seals produced by the REAL modules
+// at the named merge commits rather than by re-implementing those modules here.
+// Seals are immutable, so these bytes are exactly what `inspectMappedCandidate`
+// meets when a reviewed domain is rolled back to such a deployment.
+const HISTORICAL_SEALS = JSON.parse(
+  readFileSync(
+    new URL(
+      "./fixtures/vercel-main-candidate/historical-seals.json",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+);
+
+test("historical seal fixtures record the exact stable-body environment each era wrote", () => {
+  // PR #890 sealed every target's stable body with the ordinary production
+  // environment, App included, even though the manifest it embedded still
+  // carried the v3-shaped App prior. Only the pre-conversion App seal ever
+  // bound the retired custom environment into a stable body.
+  assert.deepEqual(HISTORICAL_SEALS.bridgeEra.manifestAppPrior, {
+    target: null,
+    customEnvironmentSlug: "v3",
+    aliases: ["app.mento.org"],
+  });
+  for (const target of ["app", "governance"]) {
+    assert.deepEqual(
+      HISTORICAL_SEALS.bridgeEra.seals[target].stableBodyEnvironment,
+      { target: "production", customEnvironmentSlug: null },
+      target,
+    );
+  }
+  assert.deepEqual(HISTORICAL_SEALS.preConversion.manifestAppPrior, {
+    target: null,
+    customEnvironmentSlug: "v3",
+    aliases: ["app.mento.org", "appmentoorg-env-v3-mentolabs.vercel.app"],
+  });
+  assert.deepEqual(
+    HISTORICAL_SEALS.preConversion.seals.governance.stableBodyEnvironment,
+    { target: "production", customEnvironmentSlug: null },
+  );
+  assert.deepEqual(
+    HISTORICAL_SEALS.preConversion.seals.app.stableBodyEnvironment,
+    { target: null, customEnvironmentSlug: "v3" },
+  );
+});
+
+test("a genuine bridge-era seal is admitted as a bridge-era mapping", () => {
+  for (const [era, target] of [
+    ["bridgeEra", "app"],
+    ["bridgeEra", "governance"],
+    ["preConversion", "governance"],
+  ]) {
+    const { deployment, context } = HISTORICAL_SEALS[era].seals[target];
+    assert.equal(
+      isBridgeEraCandidateMetadata(deployment.meta, context),
+      true,
+      `${era}/${target}`,
+    );
+    // The strict current contract still refuses it, which is exactly why the
+    // bridge-era admission has to exist.
+    assert.throws(
+      () => canonicalizeMainCandidateVercelMetadata(deployment.meta, context),
+      /Main release manifest/,
+      `${era}/${target}`,
+    );
+  }
+});
+
+test("no corruption of a genuine bridge-era seal is admitted", () => {
+  const { deployment, context } = HISTORICAL_SEALS.bridgeEra.seals.app;
+  for (const [name, override] of [
+    ["digest", { mentoStableIntentDigest: "0".repeat(64) }],
+    ["release ID", { mentoReleaseId: `mr-${"0".repeat(24)}` }],
+    ["candidate ID", { mentoCandidateId: `mr-app-${"0".repeat(18)}` }],
+    ["next deployment ID", { mentoNextDeploymentId: "m-app-tampered" }],
+    ["chunk count", { mentoReleaseManifestChunkCount: "99" }],
+    ["encoding", { mentoReleaseManifestEncoding: "identity:v1" }],
+    ["schema", { mentoCandidateSchema: "vercel-main-candidate-metadata:v2" }],
+  ]) {
+    assert.equal(
+      isBridgeEraCandidateMetadata(
+        { ...deployment.meta, ...override },
+        context,
+      ),
+      false,
+      name,
+    );
+  }
+  // Rebinding the seal to another project, SHA, or target is not the observed
+  // mapping and must not be admitted either.
+  for (const [name, changed] of [
+    ["project", { ...context, projectId: "prj_other" }],
+    ["SHA", { ...context, deploySha: "b".repeat(40) }],
+    [
+      "target",
+      { ...context, target: "governance", projectName: "governance.mento.org" },
+    ],
+  ]) {
+    assert.equal(
+      isBridgeEraCandidateMetadata(deployment.meta, changed),
+      false,
+      name,
+    );
+  }
+});
+
+test("a current-contract seal is never admitted through the bridge-era path", () => {
+  const currentIntent = intent({ target: "app" });
+  const metadata = createMainCandidateVercelMetadata({ intent: currentIntent });
+  const context = {
+    target: "app",
+    projectId: currentIntent.projectId,
+    projectName: currentIntent.projectName,
+    deploySha: currentIntent.deploySha,
+  };
+  assert.equal(
+    canonicalizeMainCandidateVercelMetadata(metadata, context).releaseManifest
+      .originalPriors.app.target,
+    "production",
+  );
+  assert.equal(isBridgeEraCandidateMetadata(metadata, context), false);
+});
+
+// The pre-conversion App seal is the one seal that ever bound the retired
+// custom environment into its stable body, and it is unreachable: that
+// deployment lived in the retired environment, so record inspection rejects it
+// long before its metadata is read. Admitting its digest shape would be an
+// over-admission, so the bridge-era path refuses it.
+test("the pre-conversion App seal stays unreachable rather than over-admitted", () => {
+  const { deployment, context } = HISTORICAL_SEALS.preConversion.seals.app;
+  assert.deepEqual(
+    { target: deployment.target, slug: deployment.customEnvironmentSlug },
+    { target: null, slug: "v3" },
+  );
+  assert.equal(isBridgeEraCandidateMetadata(deployment.meta, context), false);
+  assert.throws(
+    () => canonicalizeMainCandidateVercelMetadata(deployment.meta, context),
+    /Main release manifest/,
+  );
 });

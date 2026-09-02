@@ -849,6 +849,57 @@ function mappedProvider(response) {
 // prior, or the two-alias topology before it - stays readable permanently and
 // classifies as an unmarked rollback-only prior. The deployments themselves are
 // ordinary production deployments; only the manifest's App prior differs.
+// End-to-end proof against seals produced by the REAL modules at merge commits
+// 3df6e091 (#890) and 1a362e5d (#879). This is the exact wire format the
+// currently serving App production deployment carries, so pre-planning must
+// classify it rather than abort.
+const HISTORICAL_SEALS = JSON.parse(
+  readFileSync(
+    new URL(
+      "./fixtures/vercel-main-candidate/historical-seals.json",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+);
+
+test("pre-planning classifies a genuine historical seal as rollback-only", async () => {
+  for (const [era, target] of [
+    ["bridgeEra", "app"],
+    ["bridgeEra", "governance"],
+    ["preConversion", "governance"],
+  ]) {
+    const { deployment } = HISTORICAL_SEALS[era].seals[target];
+    const response = {
+      ...deployment,
+      customEnvironment:
+        deployment.customEnvironmentSlug === null
+          ? undefined
+          : { slug: deployment.customEnvironmentSlug },
+      meta: {
+        ...deployment.meta,
+        githubCommitSha: deployment.meta.githubCommitSha,
+      },
+    };
+    delete response.customEnvironmentSlug;
+    const mapped = await mappedProvider(response).inspectMappedCandidate({
+      deploymentId: response.id,
+      target,
+      projectId: deployment.projectId,
+    });
+    assert.equal(mapped.metadata, null, `${era}/${target}`);
+    assert.equal(mapped.canonicalState.deploymentId, deployment.id);
+    assert.deepEqual(
+      {
+        target: mapped.canonicalState.target,
+        customEnvironmentSlug: mapped.canonicalState.customEnvironmentSlug,
+      },
+      { target: "production", customEnvironmentSlug: null },
+      `${era}/${target}`,
+    );
+  }
+});
+
 test("a mapping sealed during or before the bridge era is admitted as rollback-only", async () => {
   for (const aliases of [BRIDGE_ERA_APP_ALIASES, PRE_CONVERSION_APP_ALIASES]) {
     for (const target of ["governance", "reserve", "ui", "app"]) {
