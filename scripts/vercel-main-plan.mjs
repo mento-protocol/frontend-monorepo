@@ -112,44 +112,17 @@ export const MAIN_TARGET_CONTRACTS = Object.freeze({
   }),
 });
 
-// TRANSITION-V3-PRIOR
-// `app.mento.org` is still assigned to the retiring `v3` custom environment
-// until the dashboard domain move, so the deployment it served before this
-// release is still v3-shaped and still carries the custom environment's
-// generated alias. Prior-facing validation accepts that exact shape for App
-// only. Candidates, staged deployments, promote verification, and final
-// mappings stay production-shaped. Delete this block, its call sites, and the
-// bridge alias slot in the tighten PR.
-export const TRANSITIONAL_APP_PRIOR_ENVIRONMENT = Object.freeze({
-  target: null,
-  customEnvironmentSlug: "v3",
-});
-export const TRANSITIONAL_APP_PRIOR_GENERATED_ALIAS =
-  "appmentoorg-env-v3-mentolabs.vercel.app";
-
-// TRANSITION-V3-PRIOR
-export function isTransitionalAppPriorEnvironment(target, environment) {
-  return (
-    target === "app" &&
-    environment?.target === TRANSITIONAL_APP_PRIOR_ENVIRONMENT.target &&
-    environment?.customEnvironmentSlug ===
-      TRANSITIONAL_APP_PRIOR_ENVIRONMENT.customEnvironmentSlug
-  );
-}
-
-// TRANSITION-V3-PRIOR
 // True when `environment` is an acceptable shape for the deployment a reviewed
-// alias served before this release. Never call this for a candidate.
+// alias served before this release. Every main target — App included — serves
+// its reviewed alias from the ordinary production environment, so a prior is
+// held to exactly the same environment contract as a candidate.
 export function acceptsPriorEnvironment(target, environment) {
   const contract = MAIN_TARGET_CONTRACTS[target];
   if (contract === undefined) return false;
-  if (
+  return (
     environment?.target === contract.target &&
     environment?.customEnvironmentSlug === contract.customEnvironmentSlug
-  ) {
-    return true;
-  }
-  return isTransitionalAppPriorEnvironment(target, environment);
+  );
 }
 
 const PRIOR_STATE_REQUIRED_KEYS = Object.freeze([
@@ -297,12 +270,7 @@ function canonicalizeReviewedAliases(aliases, target) {
   return normalized;
 }
 
-function canonicalizeOptionalDeploymentAliases(
-  value,
-  target,
-  creatorUsername,
-  environment,
-) {
+function canonicalizeOptionalDeploymentAliases(value, target, creatorUsername) {
   // An absent alias list is the sealed-manifest recompute form: capture-time
   // snapshot states always carry aliases (the protected-snapshot validation
   // dereferences state.aliases), and manifest planning leaves proved their
@@ -333,28 +301,10 @@ function canonicalizeOptionalDeploymentAliases(
   const generatedAliases = sorted.filter(
     (alias) => !reviewedAliases.has(alias),
   );
-  // TRANSITION-V3-PRIOR: the generated-alias topology and the deployment
-  // environment are one shape, never two independent allowances. A v3-shaped
-  // App prior carries exactly the retiring custom environment's generated
-  // alias; a production-shaped prior carries exactly the reviewed production
-  // set and never the retired alias. Any mixture of the two is an inconsistent
-  // transition state and fails closed.
-  if (isTransitionalAppPriorEnvironment(target, environment)) {
-    // Manifest planning leaves strip generated aliases by contract, so a
-    // v3-shaped prior carries either no generated alias (leaf form) or
-    // exactly the retiring environment's generated alias (snapshot form) —
-    // never anything else.
-    for (const alias of generatedAliases) {
-      if (alias !== TRANSITIONAL_APP_PRIOR_GENERATED_ALIAS) {
-        activationError(target, "alias-set-ambiguous");
-      }
-    }
-    return sorted;
-  }
-  // The retired alias cannot re-enter through a production-shaped prior.
-  if (generatedAliases.includes(TRANSITIONAL_APP_PRIOR_GENERATED_ALIAS)) {
-    activationError(target, "alias-set-ambiguous");
-  }
+  // Every prior is production-shaped, so its generated aliases must be exactly
+  // the reviewed production set. The retired `v3` custom environment's
+  // generated alias is not in that set — and its `env-` label is a reserved
+  // creator namespace — so it can never re-enter here.
   try {
     assertOnlyExpectedProductionGeneratedAliases({
       aliases: generatedAliases,
@@ -477,7 +427,6 @@ function canonicalizePriorGroup({ target, group, projectId }) {
     ) {
       activationError(target, "project-identity-ambiguous");
     }
-    // TRANSITION-V3-PRIOR: App priors may still be v3-shaped.
     if (!acceptsPriorEnvironment(target, state)) {
       activationError(target, "environment-identity-ambiguous");
     }
@@ -504,7 +453,6 @@ function canonicalizePriorGroup({ target, group, projectId }) {
       state.aliases,
       target,
       state.creatorUsername,
-      state,
     );
     if (aliases !== null) {
       if (

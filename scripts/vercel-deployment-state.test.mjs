@@ -668,26 +668,25 @@ test("main planning snapshot rejects rollback, alias-set, and mapping-race ambig
     /changed during inspection/,
   );
 
-  const appFixture = fixture("valid-custom-v3.json");
-  const appBase = canonicalizePlanningFixture(appFixture);
   await assert.rejects(
     () =>
       captureMainPlanningSnapshot(
         {
           mainPlanningAliasState: async (entry) => ({
-            ...appBase,
+            ...base,
             alias: entry.alias,
-            aliases: ["appmentoorg-env-v3-mentolabs.vercel.app"],
+            aliases: ["governancementoorg-mentolabs.vercel.app"],
           }),
         },
-        [{ alias: "app.mento.org", ...appFixture.expected }],
+        [{ alias: "governance.mento.org", ...production.expected }],
       ),
     /omits a reviewed protected alias/,
   );
 });
 
-// TRANSITION-V3-PRIOR
-test("main planning snapshot accepts a v3-shaped App prior for a production spec", async () => {
+// MGP-18 retired the App custom `v3` environment. Main planning capture holds
+// every reviewed alias to the production spec it was given, for every project.
+test("main planning snapshot requires a production App prior and rejects the retired v3 shape", async () => {
   const appFixture = fixture("valid-custom-v3.json");
   const appBase = canonicalizePlanningFixture(appFixture);
   const productionSpec = [
@@ -698,21 +697,25 @@ test("main planning snapshot accepts a v3-shaped App prior for a production spec
       customEnvironmentSlug: null,
     },
   ];
-  const snapshot = await captureMainPlanningSnapshot(
-    {
-      mainPlanningAliasState: async (entry) => ({
-        ...appBase,
-        alias: entry.alias,
-        aliases: ["app.mento.org", "appmentoorg-env-v3-mentolabs.vercel.app"],
-      }),
-    },
-    productionSpec,
+  await assert.rejects(
+    () =>
+      captureMainPlanningSnapshot(
+        {
+          mainPlanningAliasState: async (entry) => ({
+            ...appBase,
+            alias: entry.alias,
+            aliases: [
+              "app.mento.org",
+              "appmentoorg-env-v3-mentolabs.vercel.app",
+            ],
+          }),
+        },
+        productionSpec,
+      ),
+    /alias group is incomplete/,
   );
-  assert.equal(snapshot.states.length, 1);
-  assert.equal(snapshot.states[0].target, null);
-  assert.equal(snapshot.states[0].customEnvironmentSlug, "v3");
 
-  // The steady-state production App prior stays acceptable.
+  // The production App prior is the only acceptable shape.
   const productionBase = canonicalizePlanningFixture(
     fixture("valid-production.json"),
   );
@@ -731,7 +734,7 @@ test("main planning snapshot accepts a v3-shaped App prior for a production spec
   assert.equal(steady.states[0].target, "production");
   assert.equal(steady.states[0].customEnvironmentSlug, null);
 
-  // The tolerance is App-only: a v3-shaped ordinary prior never groups.
+  // A v3-shaped ordinary prior never groups either.
   await assert.rejects(
     () =>
       captureMainPlanningSnapshot(
@@ -763,24 +766,34 @@ test("main planning snapshot accepts a v3-shaped App prior for a production spec
   );
 });
 
-// TRANSITION-V3-PRIOR
-test("planning capture accepts the v3-shaped App prior only for app.mento.org", () => {
+// The retired custom environment cannot re-enter planning capture through any
+// project, `app.mento.org` included.
+test("planning capture rejects the retired v3 App prior for every project", () => {
   const appFixture = fixture("valid-custom-v3.json");
   const productionExpectation = {
     ...appFixture.expected,
     target: "production",
     customEnvironmentSlug: null,
   };
-  const tolerated = canonicalizeMainPlanningDeploymentState({
-    aliasResponse: appFixture.aliasResponse,
-    deploymentResponse: appFixture.deploymentResponse,
-    aliasesResponse: appFixture.aliasesResponse,
-    expected: productionExpectation,
-  });
-  assert.equal(tolerated.target, null);
-  assert.equal(tolerated.customEnvironmentSlug, "v3");
+  for (const deploymentResponse of [
+    appFixture.deploymentResponse,
+    {
+      ...appFixture.deploymentResponse,
+      customEnvironment: { slug: "preview" },
+    },
+  ]) {
+    assert.throws(
+      () =>
+        canonicalizeMainPlanningDeploymentState({
+          aliasResponse: appFixture.aliasResponse,
+          deploymentResponse,
+          aliasesResponse: appFixture.aliasesResponse,
+          expected: productionExpectation,
+        }),
+      /Unexpected deployment target/,
+    );
+  }
 
-  // A different project never gets the tolerance.
   assert.throws(
     () =>
       canonicalizeMainPlanningDeploymentState({
@@ -802,19 +815,11 @@ test("planning capture accepts the v3-shaped App prior only for app.mento.org", 
     /Unexpected deployment target/,
   );
 
-  // A preview-shaped App prior never gets the tolerance.
+  // No protected-alias specification may name a custom environment.
   assert.throws(
     () =>
-      canonicalizeMainPlanningDeploymentState({
-        aliasResponse: appFixture.aliasResponse,
-        deploymentResponse: {
-          ...appFixture.deploymentResponse,
-          customEnvironment: { slug: "preview" },
-        },
-        aliasesResponse: appFixture.aliasesResponse,
-        expected: productionExpectation,
-      }),
-    /Unexpected deployment target/,
+      assertSnapshotSpec([{ alias: "app.mento.org", ...appFixture.expected }]),
+    /Expected deployment environment is malformed/,
   );
 });
 
@@ -1386,6 +1391,15 @@ test("canonical output boundary rejects every non-allowlisted field", () => {
         git: { ...state.git, token: "test-value-must-not-print" },
       }),
     /forbidden fields/,
+  );
+  // The retired v2 branch cannot re-enter the canonical Git contract.
+  assert.throws(
+    () =>
+      assertCanonicalOutput({
+        ...state,
+        git: { ...state.git, ref: "v2" },
+      }),
+    /Canonical Git state is malformed/,
   );
   assert.throws(
     () =>
@@ -2031,23 +2045,25 @@ test("protected snapshot capture rejects an alias mapping race", async () => {
   );
 });
 
-test("reviewed custom-v3 aliases must converge on one immutable deployment", async () => {
-  const base = canonicalizeFixture(fixture("valid-custom-v3.json"));
+test("reviewed protected aliases must converge on one immutable deployment", async () => {
+  const base = canonicalizeFixture(fixture("valid-production.json"));
+  const expected = fixture("valid-production.json").expected;
   const client = {
     canonicalAliasState: async (entry) => ({
       ...base,
       alias: entry.alias,
       deploymentId:
-        entry.alias === "app.mento.org" ? base.deploymentId : "dpl_other123",
+        entry.alias === "governance.mento.org"
+          ? base.deploymentId
+          : "dpl_other123",
     }),
   };
-  const expected = fixture("valid-custom-v3.json").expected;
   await assert.rejects(
     () =>
       captureProtectedSnapshot(client, [
-        { alias: "app.mento.org", ...expected },
+        { alias: "governance.mento.org", ...expected },
         {
-          alias: "appmentoorg-env-v3-mentolabs.vercel.app",
+          alias: "governancementoorg-mentolabs.vercel.app",
           ...expected,
         },
       ]),
@@ -2055,27 +2071,58 @@ test("reviewed custom-v3 aliases must converge on one immutable deployment", asy
   );
 });
 
-test("reviewed custom-v3 aliases exactly equal the current two-alias topology", async () => {
-  const base = canonicalizeFixture(fixture("valid-custom-v3.json"));
-  const expected = fixture("valid-custom-v3.json").expected;
-  const aliases = ["app.mento.org", "appmentoorg-env-v3-mentolabs.vercel.app"];
+test("every reviewed protected alias must be carried by its deployment", async () => {
+  const base = canonicalizeFixture(fixture("valid-production.json"));
+  const expected = fixture("valid-production.json").expected;
+  const aliases = [
+    "governance.mento.org",
+    "governancementoorg-mentolabs.vercel.app",
+  ];
   const client = {
     canonicalAliasState: async (entry) => ({ ...base, alias: entry.alias }),
   };
   const exact = aliases.map((alias) => ({ alias, ...expected }));
   assert.equal((await captureProtectedSnapshot(client, exact)).length, 2);
-
-  await assert.rejects(
-    () => captureProtectedSnapshot(client, exact.slice(0, 1)),
-    /do not exactly match the deployment alias set/,
+  assert.equal(
+    (await captureProtectedSnapshot(client, exact.slice(0, 1))).length,
+    1,
   );
+
   await assert.rejects(
     () =>
       captureProtectedSnapshot(client, [
         ...exact,
-        { alias: "unexpected-v3.mento.org", ...expected },
+        { alias: "unexpected.mento.org", ...expected },
       ]),
-    /do not exactly match the deployment alias set/,
+    /does not exactly match the deployment alias set/,
+  );
+});
+
+// MGP-18 retired the App custom `v3` environment. No protected-alias
+// specification may name a custom environment again, and no deployment served
+// from one may be captured.
+test("a custom-environment protected-alias specification cannot re-enter", () => {
+  const appFixture = fixture("valid-custom-v3.json");
+  assert.throws(
+    () =>
+      assertSnapshotSpec([{ alias: "app.mento.org", ...appFixture.expected }]),
+    /Expected deployment environment is malformed/,
+  );
+  // A deployment still served from the retired custom environment fails the
+  // production expectation the spec is now forced to carry.
+  assert.throws(
+    () =>
+      canonicalizeDeploymentState({
+        aliasResponse: appFixture.aliasResponse,
+        deploymentResponse: appFixture.deploymentResponse,
+        aliasesResponse: appFixture.aliasesResponse,
+        expected: {
+          ...appFixture.expected,
+          target: "production",
+          customEnvironmentSlug: null,
+        },
+      }),
+    /Unexpected deployment target/,
   );
 });
 

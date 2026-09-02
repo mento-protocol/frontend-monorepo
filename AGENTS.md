@@ -418,10 +418,10 @@ fails closed before the release continues.
 Every selected target — Governance, Reserve, UI, and App — stages and verifies
 an immutable candidate with `--prod --skip-domain`. Only an `activeTargets`
 member may mutate its public mapping: every target promotes its exact staged
-deployment. App's promote is verified to leave `app.mento.org` at its prior,
-and one transitional bridge alias-set transition then repoints the domain to
-the candidate — a carry-over from the retiring App custom `v3` environment,
-removed once the domain moves into Production. Before and after each public mutation,
+deployment. App's promote is verified at `candidate`, exactly like every other
+target — `promote` and `ordinary_rollback` are the only operation types, and
+there is no bridge alias and no custom `v3` environment. Before and after each
+public mutation,
 the controller rechecks freshness and protected state and persists the next
 durable journal transition. Recovery restores exact captured mappings in
 reverse mutation order and treats unknown operator-owned state as manual
@@ -438,8 +438,12 @@ complete release takes the journal-free `current-release-verified` route: it
 rechecks current mappings, deployment census/state, raw public runtime smokes,
 and freshness without replaying a mutation. An
 interrupted release uses a new current-attempt journal and current
-protected-state snapshot. App shadow preparation is build-only terminal
-evidence, never a provider deployment. The terminal receipt and evidence are
+protected-state snapshot. In the automatic pipeline's shadow mode, App
+preparation is build-only terminal evidence and creates no provider deployment.
+The separate manual production-shadow pilot does create a staged App production
+deployment (`--prod --skip-domain`), which moves no protected domain; its
+browser coverage spans governance, reserve, and UI only, so its App evidence row
+reports the runtime check as not run. The terminal receipt and evidence are
 the only compact final-verdict handoff and support final-only reruns. A release
 identity is evidence lookup only; it never authorizes a prior attempt's
 mutation sequence.

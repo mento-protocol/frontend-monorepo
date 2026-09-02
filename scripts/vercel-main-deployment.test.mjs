@@ -119,6 +119,7 @@ import {
 import * as mainDeploymentModule from "./vercel-main-deployment.mjs";
 import {
   classifyMainTransactionMapping,
+  expectedVerifiedMappingStateFor,
   finishMainTransactionRecovery,
   markMainTransactionCommitted,
   mainTransactionJournalArtifactName,
@@ -138,11 +139,12 @@ import {
   generateVercelDeploymentId,
   generateVercelMainCandidateDeploymentId,
 } from "./vercel-prebuilt.mjs";
+import * as mainPlanModule from "./vercel-main-plan.mjs";
 import {
+  acceptsPriorEnvironment,
   MAIN_DEPLOYMENT_TARGETS,
   MAIN_TARGET_CONTRACTS,
 } from "./vercel-main-plan.mjs";
-import { PRODUCTION_GENERATED_ALIAS_CONTRACTS } from "./vercel-production-generated-aliases.mjs";
 
 const SHA = "dddddddddddddddddddddddddddddddddddddddd";
 const OTHER_SHA = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
@@ -161,29 +163,12 @@ function digestJson(value) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
-// TRANSITION-V3-PRIOR: the shared plan fixture carries the FIRST-RUN App prior,
-// which is still v3-shaped (`target: null`, `customEnvironmentSlug: "v3"`, plus
-// the retiring custom environment's generated alias).
-// `canonicalPlanningSnapshotForSpec` accepts that shape through
-// `acceptsPriorEnvironment`; this helper produces the steady-state production
-// prior every later run observes, which is the default here because it is the
-// only App prior an App rollback can restore.
-function productionAppPrior(states) {
-  for (const state of states) {
-    if (state.projectName !== MAIN_TARGET_CONTRACTS.app.projectName) continue;
-    state.target = MAIN_TARGET_CONTRACTS.app.target;
-    state.customEnvironmentSlug =
-      MAIN_TARGET_CONTRACTS.app.customEnvironmentSlug;
-    state.aliases = [
-      "app.mento.org",
-      PRODUCTION_GENERATED_ALIAS_CONTRACTS.app.generatedProjectAlias,
-      PRODUCTION_GENERATED_ALIAS_CONTRACTS.app.generatedProjectDefaultAlias,
-    ].toSorted();
-  }
-  return states;
-}
-
-function transitionalProtectedStates() {
+// MGP-18 retired the App custom `v3` environment, so the shared plan fixture
+// carries the one steady-state App prior every run observes: `production`
+// target, no custom environment, and exactly the reviewed production aliases.
+// There is no second accepted prior shape and therefore no conversion helper —
+// the App prior is read straight from the fixture like every other target's.
+function allProtectedStates() {
   const source = structuredClone(fixture);
   const states = Object.values(source.priorStates).flatMap(
     (group) => group.states,
@@ -191,26 +176,10 @@ function transitionalProtectedStates() {
   return states.sort((left, right) => left.alias.localeCompare(right.alias));
 }
 
-function allProtectedStates() {
-  return productionAppPrior(transitionalProtectedStates());
-}
-
-// The steady-state snapshot is the default because it is the only App prior
-// shape that can exercise an App rollback. TRANSITION-V3-PRIOR: the
-// fixture's own App prior is the first post-cutover run, where
-// `app.mento.org` still serves the deployment the retiring custom
-// environment created; that shape is covered by its own test.
 function planningSnapshot() {
   return {
     schema: "vercel-main-planning-snapshot:v1",
     states: allProtectedStates(),
-  };
-}
-
-function transitionalPlanningSnapshot() {
-  return {
-    schema: "vercel-main-planning-snapshot:v1",
-    states: transitionalProtectedStates(),
   };
 }
 
@@ -526,7 +495,6 @@ function mapping(alias, deployment) {
 function activeHarness({
   deploymentPlan = null,
   ownershipMap = ownership(),
-  appAliasesMovedByDeploy = [],
 } = {}) {
   const reviewedPlan =
     deploymentPlan ?? activePlan({ mainOwnershipMode: ownershipMap });
@@ -547,7 +515,6 @@ function activeHarness({
   const journalHistory = [];
   // The App candidate is staged before activation like every other target, so
   // it carries its provider deployment identity from the very first journal.
-  const appCandidate = inputs.candidates.app;
   const candidateFor = (target) => inputs.candidates[target];
   const mappingState = (context) => {
     const operation = context.operation ?? context.intent;
@@ -571,26 +538,16 @@ function activeHarness({
         artifactId: String(5000 + journal.sequence),
       };
     },
+    // `app.mento.org` now lives in the ordinary production environment, so an
+    // App promote moves the reviewed App domain exactly like every other
+    // target's promote moves its own. There is no bridge alias adapter.
     promote: async ({ operation }) => {
-      // TRANSITION-V3-PRIOR: `app.mento.org` is still assigned to the retiring
-      // v3 custom environment, so promoting the App candidate into production
-      // does not move the reviewed App domain. The bridge alias set does.
-      if (operation.target === "app") {
-        for (const alias of appAliasesMovedByDeploy) {
-          mappings.set(alias, mapping(alias, appCandidate));
-        }
-        return { outcome: "success" };
-      }
       for (const alias of inputs.prior[operation.target].aliases) {
         mappings.set(
           alias,
           mapping(alias, inputs.candidates[operation.target]),
         );
       }
-      return { outcome: "success" };
-    },
-    assignAlias: async ({ operation }) => {
-      mappings.set(operation.alias, mapping(operation.alias, appCandidate));
       return { outcome: "success" };
     },
     inspectMapping: async (context) => ({
@@ -926,9 +883,10 @@ test("protected spec binds exactly the four reviewed main aliases", () => {
       false,
     );
   }
-  assert.equal(MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS, 5);
-  // Pin the derivation, not just the number: one rollback slot per promotable
-  // target plus one bridge alias-restore slot per reviewed App alias.
+  assert.equal(MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS, 4);
+  // Pin the derivation, not just the number: exactly one rollback slot per
+  // promotable target. MGP-18 retired the extra bridge alias-restore slot, so
+  // the reviewed App alias count no longer contributes a compensation slot.
   assert.deepEqual(
     [...MAIN_PROMOTABLE_TARGETS],
     ["governance", "reserve", "ui", "app"],
@@ -936,42 +894,79 @@ test("protected spec binds exactly the four reviewed main aliases", () => {
   assert.deepEqual([...MAIN_TARGET_CONTRACTS.app.aliases], ["app.mento.org"]);
   assert.equal(
     MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS,
-    MAIN_PROMOTABLE_TARGETS.length + MAIN_TARGET_CONTRACTS.app.aliases.length,
+    MAIN_PROMOTABLE_TARGETS.length,
   );
 });
 
-// TRANSITION-V3-PRIOR
-test("planning accepts the v3-shaped App prior the first post-cutover run sees", () => {
-  const transitional = transitionalPlanningSnapshot();
-  const appState = transitional.states.find(
+// Replaces the retired "planning accepts the v3-shaped App prior the first
+// post-cutover run sees" tolerance. MGP-18 deleted `acceptsPriorEnvironment`'s
+// App-only alternative shape, so every prior — App included — is held to the
+// same production contract a candidate is, and the retiring custom
+// environment's shape and generated alias fail closed on the way in.
+test("planning holds the App prior to the same production contract as every other target", () => {
+  // The shared fixture is the production-shaped steady state, not the retired
+  // first-run shape.
+  const appState = planningSnapshot().states.find(
     ({ alias }) => alias === "app.mento.org",
   );
-  assert.equal(appState.target, null);
-  assert.equal(appState.customEnvironmentSlug, "v3");
+  assert.equal(appState.target, "production");
+  assert.equal(appState.customEnvironmentSlug, null);
   assert.deepEqual(appState.aliases, [
     "app.mento.org",
-    "appmentoorg-env-v3-mentolabs.vercel.app",
+    "appmentoorg-git-main-mentolabs.vercel.app",
+    "appmentoorg-mentolabs.vercel.app",
+    "appmentoorg.vercel.app",
   ]);
-
-  const transitionalPlan = activePlan({ snapshot: transitional });
-  const transitionalPrior = transitionalPlan.planning.priors.find(
-    (entry) => entry.target === "app",
-  );
-  assert.deepEqual(transitionalPrior.aliases, ["app.mento.org"]);
-  // The steady-state prior plans to the identical rollback identity.
   assert.deepEqual(
-    activePlan().planning.priors.find((entry) => entry.target === "app"),
-    transitionalPrior,
-  );
-  // The handoff round-trips its own transitional snapshot.
-  assert.deepEqual(
-    assertMainDeploymentHandoff(transitionalPlan),
-    transitionalPlan,
+    assertMainDeploymentHandoff(activePlan()),
+    activePlan(),
+    "the handoff round-trips the production-shaped snapshot",
   );
 
-  // The tolerance admits exactly one alternative shape, for App only, and the
-  // rest of the protected-snapshot comparison stays strict.
+  // The retired tolerance and its call-site helpers are gone from the planner.
+  for (const retired of [
+    "TRANSITIONAL_APP_PRIOR_ENVIRONMENT",
+    "TRANSITIONAL_APP_PRIOR_GENERATED_ALIAS",
+    "isTransitionalAppPriorEnvironment",
+  ]) {
+    assert.equal(mainPlanModule[retired], undefined, retired);
+  }
+  // `acceptsPriorEnvironment` is strict for every target: production target,
+  // null custom environment, no App exception.
+  for (const target of MAIN_DEPLOYMENT_TARGETS) {
+    assert.equal(
+      acceptsPriorEnvironment(target, {
+        target: "production",
+        customEnvironmentSlug: null,
+      }),
+      true,
+      target,
+    );
+    for (const rejected of [
+      { target: null, customEnvironmentSlug: "v3" },
+      { target: "preview", customEnvironmentSlug: null },
+      { target: "production", customEnvironmentSlug: "v3" },
+    ]) {
+      assert.equal(
+        acceptsPriorEnvironment(target, rejected),
+        false,
+        `${target} ${JSON.stringify(rejected)}`,
+      );
+    }
+  }
+
+  // Every retired prior shape now fails closed in planning, for App exactly as
+  // for the ordinary targets.
   for (const [name, mutate, pattern] of [
+    [
+      "v3-shaped App prior",
+      (states) => {
+        const app = states.find(({ alias }) => alias === "app.mento.org");
+        app.target = null;
+        app.customEnvironmentSlug = "v3";
+      },
+      /Canonical deployment environment is malformed/,
+    ],
     [
       "preview-shaped App prior",
       (states) => {
@@ -992,6 +987,17 @@ test("planning accepts the v3-shaped App prior the first post-cutover run sees",
       /Canonical deployment environment is malformed/,
     ],
     [
+      "retired v3 generated alias on a production-shaped App prior",
+      (states) => {
+        const app = states.find(({ alias }) => alias === "app.mento.org");
+        app.aliases = [
+          ...app.aliases,
+          "appmentoorg-env-v3-mentolabs.vercel.app",
+        ].toSorted();
+      },
+      /app/,
+    ],
+    [
       "wrong App project",
       (states) => {
         states.find(({ alias }) => alias === "app.mento.org").projectId =
@@ -1000,7 +1006,7 @@ test("planning accepts the v3-shaped App prior the first post-cutover run sees",
       /Protected snapshot state is ambiguous for app\.mento\.org/,
     ],
   ]) {
-    const invalid = transitionalPlanningSnapshot();
+    const invalid = planningSnapshot();
     mutate(invalid.states);
     assert.throws(() => activePlan({ snapshot: invalid }), pattern, name);
   }
@@ -3956,7 +3962,7 @@ test("active controller commits exact ordered mutations and emits canonical reda
   });
   assert.equal(result.outcome, "active-committed");
   assert.equal(result.highestJournalStatus, "committed");
-  assert.equal(result.publicServingMutationCommands, 5);
+  assert.equal(result.publicServingMutationCommands, 4);
   assert.deepEqual(
     result.journal.operations
       .filter((operation) => operation.state === "verified")
@@ -3965,18 +3971,36 @@ test("active controller commits exact ordered mutations and emits canonical reda
       ["promote", "governance", null],
       ["promote", "reserve", null],
       ["promote", "ui", null],
+      // The App promote carries `app.mento.org` itself, so no bridge alias
+      // operation follows it.
       ["promote", "app", null],
-      // TRANSITION-V3-PRIOR: the App promote leaves `app.mento.org` at its
-      // prior, so exactly one bridge alias set carries it to the candidate.
-      ["app_alias_set", "app", "app.mento.org"],
     ],
   );
-  assert.equal(
-    result.journal.operations.some(
-      (operation) => operation.type === "app_v3_deploy",
-    ),
-    false,
-  );
+  // Neither the retired legacy verb nor either retired bridge operation may
+  // appear in a committed journal again.
+  for (const retired of [
+    "app_v3_deploy",
+    "app_alias_set",
+    "app_alias_restore",
+  ]) {
+    assert.equal(
+      result.journal.operations.some((operation) => operation.type === retired),
+      false,
+      retired,
+    );
+  }
+  // Every verified forward operation, App included, is verified at
+  // `candidate`; `prior` is no longer an admissible verified App state.
+  for (const operation of result.journal.operations.filter(
+    (entry) => entry.state === "verified",
+  )) {
+    assert.equal(operation.mappingState, "candidate", operation.target);
+    assert.equal(
+      expectedVerifiedMappingStateFor(operation),
+      "candidate",
+      operation.target,
+    );
+  }
 
   const evidence = createMainActiveDeploymentEvidence({
     plan: harness.plan,
@@ -4001,7 +4025,7 @@ test("active controller commits exact ordered mutations and emits canonical reda
   });
   assert.equal(evidence.schema, MAIN_ACTIVE_EVIDENCE_SCHEMA);
   assert.equal(evidence.journal.highestStatus, "committed");
-  assert.equal(evidence.orderedVerifiedOperations.length, 5);
+  assert.equal(evidence.orderedVerifiedOperations.length, 4);
   assert.equal(evidence.finalMappings.length, 4);
   assert.equal(
     evidence.stateProofSummary.proofSchema,
@@ -4010,7 +4034,7 @@ test("active controller commits exact ordered mutations and emits canonical reda
   assert.deepEqual(evidence.recovery.rollbackStateTargets, []);
   assert.match(
     renderMainActiveDeploymentEvidence(evidence),
-    /Public-serving mutation commands: `5`/,
+    /Public-serving mutation commands: `4`/,
   );
   const execution = releaseExecutionForPlan(harness.plan);
   assert.deepEqual(
@@ -4076,7 +4100,7 @@ test("active controller commits exact ordered mutations and emits canonical reda
           runAttempt: "3",
         }),
         rollbackStateTargets: [],
-        publicServingMutationCommands: 5,
+        publicServingMutationCommands: 4,
         recoveryOutcome: "not-required",
         runId: "800",
         runAttempt: "3",
@@ -4086,7 +4110,7 @@ test("active controller commits exact ordered mutations and emits canonical reda
   );
 });
 
-test("production-shaped all-target terminal artifacts cover the five-operation committed journal", async () => {
+test("production-shaped all-target terminal artifacts cover the four-operation committed journal", async () => {
   const harness = activeHarness();
   const transaction = await runMainActiveTransaction({
     plan: harness.plan,
@@ -4141,7 +4165,7 @@ test("production-shaped all-target terminal artifacts cover the five-operation c
     runAttempt: "3",
   });
 
-  assert.equal(transaction.publicServingMutationCommands, 5);
+  assert.equal(transaction.publicServingMutationCommands, 4);
   assert.equal(
     productionJournalHistory.at(-1).sequence,
     productionJournalHistory.length - 1,
@@ -4154,10 +4178,9 @@ test("production-shaped all-target terminal artifacts cover the five-operation c
       ["promote", "governance", null],
       ["promote", "reserve", null],
       ["promote", "ui", null],
+      // The App promote carries the reviewed App domain itself; the retired
+      // bridge alias set has no slot left in a committed journal.
       ["promote", "app", null],
-      // TRANSITION-V3-PRIOR: one bridge alias set carries the reviewed App
-      // domain from its prior to the promoted candidate.
-      ["app_alias_set", "app", "app.mento.org"],
     ],
   );
   assert.deepEqual(artifacts.evidence.planning.activeTargets, [
@@ -4172,9 +4195,11 @@ test("production-shaped all-target terminal artifacts cover the five-operation c
     "reserve",
     "ui",
   ]);
-  assert.equal(artifacts.evidence.orderedVerifiedOperations.length, 5);
-  assert.equal(artifacts.proofs.mutationCount, 5);
-  assert.equal(artifacts.proofs.journal.artifact.length, 17);
+  assert.equal(artifacts.evidence.orderedVerifiedOperations.length, 4);
+  assert.equal(artifacts.proofs.mutationCount, 4);
+  // One prepared snapshot, three journals per promote, and the committed
+  // snapshot: 1 + 4 * 3 + 1.
+  assert.equal(artifacts.proofs.journal.artifact.length, 14);
 
   const evidenceBytes = Buffer.byteLength(
     `${JSON.stringify(artifacts.evidence)}\n`,
@@ -4219,8 +4244,8 @@ test("production-shaped all-target terminal artifacts cover the five-operation c
     coordinator: "failure",
     recovery: "failure",
   });
-  assert.equal(recoveryFailedArtifacts.proofs.mutationCount, 5);
-  assert.equal(recoveryFailedArtifacts.proofs.journal.artifact.length, 17);
+  assert.equal(recoveryFailedArtifacts.proofs.mutationCount, 4);
+  assert.equal(recoveryFailedArtifacts.proofs.journal.artifact.length, 14);
 
   const recoveryFailedTerminal = createMainActiveTerminalHandoff({
     activeEvidence: recoveryFailedArtifacts.evidence,
@@ -4797,40 +4822,48 @@ test("manual terminal affected operations preserve ordinary, App, mixed, rollbac
     runAttempt: "3",
   });
   // `app_v3_deploy` is not an operation type any more; the App promotes.
-  assert.throws(
-    () =>
-      startMainTransactionOperation(appPrepared, {
-        type: "app_v3_deploy",
-        target: "app",
-      }),
-    /Operation type is unsupported/,
-  );
+  // MGP-18 retired both bridge operations with it, so neither `app_alias_set`
+  // nor `app_alias_restore` can re-enter a journal either.
+  for (const retired of [
+    "app_v3_deploy",
+    "app_alias_set",
+    "app_alias_restore",
+  ]) {
+    assert.throws(
+      () =>
+        startMainTransactionOperation(appPrepared, {
+          type: retired,
+          target: "app",
+          alias: "app.mento.org",
+        }),
+      /Operation type is unsupported/,
+      retired,
+    );
+  }
   const appDeployStarted = startMainTransactionOperation(appPrepared, {
     type: "promote",
     target: "app",
   });
-  // TRANSITION-V3-PRIOR: an App promote is verified at `prior`.
-  const appDeployVerified = complete(appDeployStarted, {
-    mappingState: "prior",
-  });
-  const appAlias = appDeployVerified.prior.app.aliases[0];
-  assert.deepEqual(appDeployVerified.prior.app.aliases, ["app.mento.org"]);
-  const appAliasVerified = complete(
-    startMainTransactionOperation(appDeployVerified, {
-      type: "app_alias_set",
-      target: "app",
-      alias: appAlias,
-    }),
-    { mappingState: "candidate" },
+  // The App promote now carries `app.mento.org` itself, so it is verified at
+  // `candidate` like every other target. `prior` is no longer the expected
+  // verified state for an App promote.
+  assert.equal(
+    expectedVerifiedMappingStateFor({ type: "promote", target: "app" }),
+    "candidate",
   );
+  assert.notEqual(
+    expectedVerifiedMappingStateFor({ type: "promote", target: "app" }),
+    "prior",
+  );
+  const appDeployVerified = complete(appDeployStarted, {
+    mappingState: "candidate",
+  });
+  assert.deepEqual(appDeployVerified.prior.app.aliases, ["app.mento.org"]);
   assert.deepEqual(
-    createMainTerminalAffectedOperations(manualize(appAliasVerified)).map(
+    createMainTerminalAffectedOperations(manualize(appDeployVerified)).map(
       ({ type, target, alias }) => ({ type, target, alias }),
     ),
-    [
-      { type: "promote", target: "app", alias: null },
-      { type: "app_alias_set", target: "app", alias: appAlias },
-    ],
+    [{ type: "promote", target: "app", alias: null }],
   );
   const unknownAppResult = recordMainTransactionCommandReturned(
     appDeployStarted,
@@ -5618,23 +5651,30 @@ test("terminal evidence CLI creates a bounded receipt and restores committed evi
       ...transaction.journalHistory.slice(0, -1),
       recoveryJournal,
     ];
-    // The maximal compensation set is one rollback per promotable target plus
-    // one bridge alias restore per reviewed App alias.
-    const maximalRecoveryIntents = [
-      ...MAIN_PROMOTABLE_TARGETS.map((target) => ({
-        type: "ordinary_rollback",
-        target,
-        alias: null,
-      })),
-      ...recoveryJournal.prior.app.aliases.map((alias) => ({
-        type: "app_alias_restore",
-        target: "app",
-        alias,
-      })),
-    ];
+    // The maximal compensation set is exactly one rollback per promotable
+    // target. MGP-18 retired the extra bridge alias-restore slots, so no
+    // alias-carrying recovery intent can enlarge this set again.
+    const maximalRecoveryIntents = MAIN_PROMOTABLE_TARGETS.map((target) => ({
+      type: "ordinary_rollback",
+      target,
+      alias: null,
+    }));
     assert.equal(
       maximalRecoveryIntents.length,
       MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS,
+    );
+    assert.equal(
+      maximalRecoveryIntents.every((intent) => intent.alias === null),
+      true,
+    );
+    assert.throws(
+      () =>
+        startMainTransactionOperation(recoveryJournal, {
+          type: "app_alias_restore",
+          target: "app",
+          alias: recoveryJournal.prior.app.aliases[0],
+        }),
+      /Operation type is unsupported/,
     );
     for (const intent of maximalRecoveryIntents) {
       recoveryJournal = startMainTransactionOperation(recoveryJournal, intent);
@@ -5697,11 +5737,16 @@ test("terminal evidence CLI creates a bounded receipt and restores committed evi
     });
     const maximalProofJson = `${JSON.stringify(maximalRecoveryArtifacts.proofs)}\n`;
     const maximalProofBytes = Buffer.byteLength(maximalProofJson, "utf8");
-    // Re-pinned for the four-alias topology: the maximal case still needs far
-    // more than the 256 KiB default JSON cap, so the 1 MiB proofs budget is
-    // load-bearing, but the retired fifth reviewed alias no longer inflates it.
+    // The load-bearing claim is unchanged: the maximal recovery case still
+    // exceeds the 256 KiB default JSON cap, so the 1 MiB proofs budget is
+    // required. Re-pinned for the four-slot topology — MGP-18 retired the
+    // bridge alias-restore slot, which shrank the maximal journal.
     assert.ok(
-      maximalProofBytes > 400 * 1024,
+      maximalProofBytes > 256 * 1024,
+      `maximal recovery proofs unexpectedly use only ${maximalProofBytes} bytes`,
+    );
+    assert.ok(
+      maximalProofBytes > 320 * 1024,
       `maximal recovery proofs unexpectedly use only ${maximalProofBytes} bytes`,
     );
     assert.ok(
@@ -6388,12 +6433,13 @@ test("terminal evidence wraps and restores verified-noop failure evidence", () =
   );
 });
 
-// Replaces the retired "the App deploy already moved zero, one, or two
-// aliases" matrix. The App now maps exactly one reviewed alias, and
-// TRANSITION-V3-PRIOR requires its promote to leave that alias at the prior,
-// so a reviewed App alias that already points at the candidate is a drift the
+// Replaces the retired "the App activation binds exactly one bridge alias"
+// matrix. MGP-18 moved `app.mento.org` into the ordinary production
+// environment, so the App promote carries the reviewed domain itself: the
+// activation emits exactly one App mutation, never an alias operation, and a
+// reviewed App alias pointing at an unrelated deployment is still a drift the
 // activation must fail closed on rather than silently skip.
-test("active App activation binds exactly one bridge alias and fails closed on App alias drift", async () => {
+test("active App activation is a single ordinary promote and no bridge alias operation can re-enter", async () => {
   assert.deepEqual([...MAIN_TARGET_CONTRACTS.app.aliases], ["app.mento.org"]);
   const clean = activeHarness();
   const result = await runMainActiveTransaction({
@@ -6406,25 +6452,34 @@ test("active App activation binds exactly one bridge alias and fails closed on A
     adapters: clean.adapters,
   });
   assert.equal(result.outcome, "active-committed");
-  assert.equal(result.publicServingMutationCommands, 5);
+  assert.equal(result.publicServingMutationCommands, 4);
+  // Exactly one verified App operation, and it is an ordinary promote.
   assert.deepEqual(
     result.journal.operations
       .filter(
         (operation) =>
-          operation.type === "app_alias_set" && operation.state === "verified",
+          operation.target === "app" && operation.state === "verified",
       )
-      .map((operation) => operation.alias),
-    // TRANSITION-V3-PRIOR: exactly one bridge alias.
-    ["app.mento.org"],
+      .map((operation) => [operation.type, operation.alias]),
+    [["promote", null]],
   );
+  // No journal operation of any target carries an alias any more.
+  for (const operation of result.journal.operations) {
+    assert.equal(operation.alias, null, operation.type);
+  }
+  // The harness itself may not offer an alias-mutating adapter.
+  for (const retired of ["assignAlias", "restoreAppAlias", "deployAppV3"]) {
+    assert.equal(clean.adapters[retired], undefined, retired);
+  }
 
-  const drifted = activeHarness({
-    appAliasesMovedByDeploy: ["app.mento.org"],
+  // A reviewed App alias serving an unrelated deployment is drift, not a
+  // completed prefix, and must not be promoted over.
+  const drifted = activeHarness();
+  drifted.mappings.set("app.mento.org", {
+    alias: "app.mento.org",
+    deploymentId: "dpl_unrelateddrift",
+    deploymentUrl: "https://app-unrelated-drift.vercel.app",
   });
-  drifted.mappings.set(
-    "app.mento.org",
-    mapping("app.mento.org", drifted.inputs.candidates.app),
-  );
   await assert.rejects(
     () =>
       runMainActiveTransaction({
@@ -6456,8 +6511,9 @@ test("active controller keeps mixed shadow targets out of public mutation and ev
     adapters: harness.adapters,
   });
   assert.deepEqual(result.shadowTargets, ["governance"]);
-  // Reserve + UI + App promotes plus the one App bridge alias set.
-  assert.equal(result.publicServingMutationCommands, 4);
+  // Reserve + UI + App promotes. The App contributes exactly one command like
+  // every other target now that the bridge alias set is retired.
+  assert.equal(result.publicServingMutationCommands, 3);
   assert.equal(
     result.journal.operations.some(
       (operation) =>

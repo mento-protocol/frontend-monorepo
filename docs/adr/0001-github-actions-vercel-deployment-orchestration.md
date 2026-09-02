@@ -3,7 +3,7 @@ title: GitHub Actions owns Vercel build and deployment orchestration; Vercel rem
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-09-01
+last_verified: 2026-09-02
 scope: ci/deployment
 date: 2026-07
 ---
@@ -11,7 +11,9 @@ date: 2026-07
 # ADR 0001 — GitHub Actions owns Vercel build and deployment orchestration; Vercel remains hosting and runtime
 
 **Status:** Accepted (Jul 2026); preview and active-main cutovers are complete.
-Amended 2026-09-01 to retire the legacy App v2 path per MGP-18.
+Amended 2026-09-01 to retire the legacy App v2 path per MGP-18. Amended
+2026-09-02 to retire the App custom `v3` environment and its transitional
+bridge, completing MGP-18's normalization.
 **Scope:** ci/deployment
 
 ## Context
@@ -478,7 +480,7 @@ failure of the hosting/runtime platform.
   becomes unacceptable, or Vercel introduces a simpler build-offload mechanism
   with equivalent security and transaction semantics.
 
-## Amendment — 2026-09-01: legacy App v2 retired (MGP-18)
+## Amendment — 2026-09-01 to 2026-09-02: App normalized under MGP-18
 
 Governance proposal MGP-18 passed. The legacy App v2 path is removed from the
 pipeline: Vercel-native Git production from branch `v2` serving
@@ -493,23 +495,33 @@ transitions) instead of nine. The custom-v3 App path is unchanged by this
 amendment. A follow-up change (planned) will also normalize the App target
 to the ordinary production target described elsewhere in this ADR.
 
-That follow-up shipped. App now stages and promotes through the native
-Production environment like every other target, instead of deploying a
-separate custom-`v3` output: `stage-app` builds and uploads a real candidate
-with production semantics, and activation promotes it with the same `vercel
-promote` command Governance, Reserve, and UI use. The custom `v3` environment
-is being retired in three steps — this normalization, a manual dashboard move
-of the `app.mento.org` domain into the Production environment, and a follow-up
-tighten PR — because a promote cannot repoint a domain that still lives in a
-different environment. Until the domain moves, one transitional bridge
-`vercel alias set` transition repoints `app.mento.org` from prior to candidate
-immediately after each App promote; recovery uses `app_alias_restore` for
-that alias while the App prior remains v3-shaped, and `ordinary_rollback` once
-it is production-shaped. The v3-specific deploy command
-(`vercel deploy --prebuilt --target=v3`), the same-run App payload handoff
-between `stage-app` and activation, and the post-hoc App candidate-discovery
-machinery are all removed; App now carries a known staged `deploymentId`
-before activation, exactly like every other target.
+That follow-up shipped, in three steps: normalizing App onto the same
+staged-production model as every other target; a manual dashboard move of the
+`app.mento.org` domain into the Production environment; and a final tighten
+step that removed every transitional mechanism the move needed. All three are
+complete. App now stages and promotes through the native Production
+environment exactly like Governance, Reserve, and UI: `stage-app` builds and
+uploads a real candidate with production semantics, and activation promotes
+it with the same `vercel promote` command every other target uses, verified
+at `candidate`. There is no bridge alias operation; `promote` and
+`ordinary_rollback` are the only operation types, and recovery is back down to
+four static turns — one per promotable target (Governance, Reserve, UI, App) —
+instead of the five the bridge slot required. The custom `v3` environment
+is retired: `ENVIRONMENT_SEMANTICS.v3` is deleted from
+`scripts/vercel-build-environment.mjs`, `TARGET_ENVIRONMENTS.app` is
+`["preview", "production"]`, and the retired generated alias
+`appmentoorg-env-v3-mentolabs.vercel.app` is rejected everywhere. Every
+`TRANSITION-V3-PRIOR` tolerance — the App-only prior shape, the
+bridge-specific `verified_noop` recovery rule, and the pre-conversion
+legacy-seal admission — is deleted; App's prior is now held to the same
+production contract as its candidate, exactly like every other target. The
+v3-specific deploy command (`vercel deploy --prebuilt --target=v3`), the
+same-run App payload handoff between `stage-app` and activation, and the
+post-hoc App candidate-discovery machinery remain removed; App carries a
+known staged `deploymentId` before activation, exactly like every other
+target. Provider-side, `app.mento.org` is a Production-environment domain and
+`v2-app.mento.org` is a 308 redirect to it; the `v3` custom environment is
+empty and is deleted from the Vercel project after this PR merges.
 
 ## Evidence
 

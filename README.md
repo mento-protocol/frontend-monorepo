@@ -706,10 +706,9 @@ The repository is set up with GitHub Actions for CI:
   gate, with all
   four per-target `mainOwnershipMode` values set to `github`. Governance,
   Reserve, UI, and App stage, verify, and promote exact immutable deployments.
-  App's promote is verified to leave `app.mento.org` at its prior, then one
-  transitional bridge alias-set transition repoints the domain to the
-  candidate — a carry-over from the retiring App custom `v3` environment,
-  removed once the domain moves into the Production environment. The removed
+  App's promote is verified at `candidate`, exactly like every other target:
+  `promote` and `ordinary_rollback` are the only operation types, and there is
+  no bridge alias and no custom `v3` environment. The removed
   Governance QA environment is not part of this topology.
 
   Main planning uses strict `vercel-main-plan:v2` evidence. `stagedTargets`
@@ -735,8 +734,12 @@ The repository is set up with GitHub Actions for CI:
   final-verdict handoff and support final-only reruns. A completed release emits
   `current-release-verified` only after fresh mapping, census/state, raw
   public-runtime-smoke, and freshness proof; it creates no journal
-  and executes no public mutation. App shadow preparation is build-only terminal
-  evidence, never a provider deployment. Every other non-prefix, ambiguous,
+  and executes no public mutation. In the automatic pipeline's shadow mode, App
+  preparation is build-only terminal evidence and creates no provider
+  deployment. The separate manual production-shadow pilot does create a staged
+  App production deployment (`--prod --skip-domain`), which moves no protected
+  domain; its browser coverage spans governance, reserve, and UI only, so its
+  App evidence row reports the runtime check as not run. Every other non-prefix, ambiguous,
   conflicting, or incomplete provider state fails closed before production work
   continues.
   The version-controlled preview-controller mode is `active`; per-target
@@ -752,8 +755,9 @@ The repository is set up with GitHub Actions for CI:
   closed. A bounded per-target transitional list adds extra exact GitHub-owned
   shapes the recognizer accepts while a target migrates to a new reviewed
   configuration, because the controller runs the default branch's constants;
-  only App carries one today, for the MGP-18 `v2` retirement, and each entry is
-  removed once its migration completes.
+  the list is empty for all four targets today — App's MGP-18 `v2`-retirement
+  entry was removed once that migration completed — and an entry is added only
+  while a migration is in flight.
   During rollback, `Vercel Preview` proves owner selection and journal drain
   only; native Vercel deployment status and browser evidence separately prove
   that the preview works. The native `deployment_status` smoke adapter remains
@@ -798,10 +802,9 @@ The repository is set up with GitHub Actions for CI:
   currently served SHA, so coalesced pushes cannot omit an affected change.
   Governance, Reserve, UI, and App stage immutable production candidates with
   `--prod --skip-domain` and run direct browser smoke before exact promotion.
-  App promotes last, verified to leave `app.mento.org` at its prior, then one
-  transitional bridge alias-set transition repoints the domain to the
-  candidate — a carry-over from the retiring App custom `v3` environment,
-  removed once the domain moves into the Production environment. All four
+  App promotes last, verified at `candidate`, exactly like every other target
+  — `promote` and `ordinary_rollback` are the only operation types, and there
+  is no bridge alias and no custom `v3` environment. All four
   public custom domains are their only protected runtime and rollback aliases;
   generated Vercel aliases are candidate evidence only. A durable redacted journal
   records intent and verified state around every public mutation. The final

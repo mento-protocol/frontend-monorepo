@@ -10,6 +10,7 @@ import {
   buildProductionShadowDeployArguments,
   buildProductionShadowPullArguments,
   PRODUCTION_SHADOW_TARGETS,
+  SMOKED_PRODUCTION_SHADOW_TARGETS,
 } from "./vercel-production-shadow.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
@@ -85,10 +86,13 @@ test("workflow is manual-only and requires exact deployment identity", () => {
   assert.equal(workflow.name, "Vercel Production Shadow");
   assert.deepEqual(Object.keys(workflow.on), ["workflow_dispatch"]);
   assert.equal(workflow.on.workflow_dispatch.inputs.deploy_sha.required, true);
-  assert.equal(
-    workflow.on.workflow_dispatch.inputs.app_v3_aliases_json.required,
-    true,
-  );
+  // MGP-18 retired the App custom `v3` environment, so the reviewed-alias
+  // dispatch input is gone: the protected spec is derived entirely from the
+  // trusted default-branch contract.
+  assert.deepEqual(Object.keys(workflow.on.workflow_dispatch.inputs), [
+    "deploy_sha",
+  ]);
+  assert.doesNotMatch(workflowSource, /app_v3_aliases_json|APP_V3_ALIASES/);
   assert.deepEqual(workflow.permissions, { contents: "read" });
   assert.doesNotMatch(workflowSource, /deployments:\s*write/);
   assert.doesNotMatch(workflowSource, /pull_request|deployment_status|push:/);
@@ -1111,7 +1115,10 @@ test("ordinary targets use isolated builds, runner-owned handoff, and fresh smok
 });
 
 test("ordinary uploads stop forward mutation after any prior drift failure", () => {
-  const sequence = ["governance", "reserve", "ui"];
+  // Every ordinary upload is serialized behind the previous target and its
+  // smoke. App joined the chain last when MGP-18 made it an ordinary staged
+  // target; it has no smoke job, so nothing follows it.
+  const sequence = ["governance", "reserve", "ui", "app"];
   for (const [index, target] of sequence.entries()) {
     const steps = workflow.jobs[target].steps;
     const targetLabel = target === "ui" ? "UI" : target;
@@ -1144,11 +1151,13 @@ test("ordinary uploads stop forward mutation after any prior drift failure", () 
   }
 });
 
-test("app Outcome B has no reachable deploy or production command", () => {
+// The App is an ordinary staged shadow target since MGP-18: it uploads the
+// same `--prod --skip-domain` deployment governance does, and it is last in
+// the serialized chain so no upload follows a prior drift failure.
+test("app stages production exactly like the ordinary targets", () => {
   const source = jobSource("app");
   assert.match(source, /vercel-production-shadow\.mjs"? prepare-pull-staging/);
   assert.match(source, /vercel-production-shadow\.mjs"? pull/);
-  assert.doesNotMatch(source, /vercel-production-shadow\.mjs"? assert-output/);
   const build = stepNamed("app", "Build app production output and assert it");
   assert.equal(build.uses, "./.github/actions/vercel-candidate-build");
   assert.equal(build.with["logical-target"], "app");
@@ -1165,14 +1174,42 @@ test("app Outcome B has no reachable deploy or production command", () => {
     candidateActionSource,
     /SENTRY_AUTH_TOKEN="\$\{SENTRY_AUTH_TOKEN:-\}"/,
   );
-  assert.match(source, /app-proof/);
-  // App now builds the ordinary production output, so the build-only property
-  // is proven by the manual job source alone: it never runs the deploy
-  // subcommand and never issues a promotion or alias mutation.
-  assert.doesNotMatch(
-    source,
-    /vercel-production-shadow\.mjs"? deploy|--prod|--skip-domain|promote|alias set/,
+  // The retired build-only proof and its CLI verb are gone.
+  assert.doesNotMatch(source, /app-proof|Outcome B|build-only/);
+  // The App upload runs the same trusted deploy verb and issues no promotion
+  // or alias mutation of its own.
+  assert.match(
+    stepNamed(
+      "app",
+      "Upload unchanged app output without custom production domains",
+    ).run,
+    /vercel-production-shadow\.mjs"? deploy --expected/,
   );
+  // `--target <logical>` selects a Mento target for a trusted script; the
+  // Vercel CLI's environment selector never appears.
+  assert.doesNotMatch(source, /promote|alias set/);
+  assert.doesNotMatch(source, /--target[= ](?:v3|preview|production)\b/);
+  // App is last in the serialized chain.
+  assert.deepEqual(workflow.jobs.app.needs, [
+    "preflight",
+    "baseline",
+    "governance",
+    "reserve",
+    "ui",
+    "smoke-ui",
+  ]);
+  // The pilot has no App smoke job, and the summary contract names exactly the
+  // targets that do have one. App evidence must therefore never claim browser
+  // coverage.
+  assert.equal(workflow.jobs["smoke-app"], undefined);
+  assert.deepEqual(
+    Object.keys(workflow.jobs)
+      .filter((name) => name.startsWith("smoke-"))
+      .map((name) => name.slice("smoke-".length))
+      .sort(),
+    [...SMOKED_PRODUCTION_SHADOW_TARGETS].sort(),
+  );
+  assert.equal(SMOKED_PRODUCTION_SHADOW_TARGETS.includes("app"), false);
   assert.deepEqual(
     buildProductionShadowPullArguments({
       logicalTarget: "app",
@@ -1241,11 +1278,13 @@ test("the retired app custom v3 environment cannot re-enter the build action", (
       target,
     );
   }
-  // The reviewed v3 protected-alias dispatch input stays pinned: it names the
-  // aliases the retiring custom environment must not move, not a build target.
-  assert.equal(
-    workflow.on.workflow_dispatch.inputs.app_v3_aliases_json.required,
-    true,
+  // The retired custom environment cannot re-enter the workflow at all: not as
+  // a dispatch input, an alias, or a CLI target selector.
+  assert.doesNotMatch(workflowSource, /app_v3_aliases_json|APP_V3_ALIASES/);
+  assert.doesNotMatch(workflowSource, /appmentoorg-env-v3/);
+  assert.doesNotMatch(
+    workflowSource,
+    /--target[= ](?:v3|preview|production)\b/,
   );
 });
 

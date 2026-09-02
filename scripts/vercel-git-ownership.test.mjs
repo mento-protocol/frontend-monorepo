@@ -342,39 +342,33 @@ test("every target configuration exposes the exact reviewed field set", () => {
 });
 
 // Transitional entries let the default-branch controller recognize a shape a
-// PR is about to adopt. They must stay deliberate: only App carries one, for
-// the MGP-18 v2 retirement, and it is removed once that migration completes.
-test("only App carries a bounded transitional GitHub-owned configuration", () => {
-  const transitional =
-    PREVIEW_TARGET_CONFIG.app.transitionalGithubVercelConfigurations;
-  assert.ok(Object.isFrozen(transitional));
-  assert.equal(transitional.length, 1);
-  assertExactOwnership(structuredClone(transitional[0]), transitional[0]);
-  // The entry is the retired pre-MGP-18 active shape, kept recognition-only
-  // so open pull requests branched before the retirement stay classified as
-  // GitHub-owned until their heads refresh. It is the single place the
-  // retired `v2` branch key may still appear.
-  assert.deepEqual(transitional[0], {
+// PR is about to adopt. The mechanism stays; the MGP-18 v2-retirement entry is
+// gone because every open head now carries the generic active shape. No target
+// may carry an entry without a migration in flight, and the retired
+// pre-retirement App shape must no longer be recognized anywhere.
+test("no target carries a transitional GitHub-owned configuration", () => {
+  const retiredAppShape = {
     $schema: "https://openapi.vercel.sh/vercel.json",
     git: { deploymentEnabled: { "**": false, v2: true } },
-  });
-  // The transitional shape must not collide with any of App's four exact
-  // states, or the recognizer would classify one candidate two ways.
-  for (const exactState of [
-    PREVIEW_TARGET_CONFIG.app.activeVercelConfiguration,
-    PREVIEW_TARGET_CONFIG.app.mainShadowVercelConfiguration,
-    PREVIEW_TARGET_CONFIG.app.previewShadowVercelConfiguration,
-    PREVIEW_TARGET_CONFIG.app.nativeVercelConfiguration,
-  ]) {
-    assert.notDeepEqual(transitional[0], exactState);
+  };
+  for (const target of PREVIEW_TARGETS) {
+    const transitional =
+      PREVIEW_TARGET_CONFIG[target].transitionalGithubVercelConfigurations;
+    assert.ok(Object.isFrozen(transitional));
+    assert.deepEqual(transitional, []);
   }
-  // The tracked file is the generic active shape, never the retired one.
-  assert.notDeepEqual(configuration("app"), transitional[0]);
-  for (const target of ["governance", "reserve", "ui"]) {
-    assert.deepEqual(
-      PREVIEW_TARGET_CONFIG[target].transitionalGithubVercelConfigurations,
-      [],
-    );
+  // The retired `v2` branch key cannot re-enter any reviewed exact state.
+  for (const target of PREVIEW_TARGETS) {
+    for (const exactState of [
+      PREVIEW_TARGET_CONFIG[target].activeVercelConfiguration,
+      PREVIEW_TARGET_CONFIG[target].mainShadowVercelConfiguration,
+      PREVIEW_TARGET_CONFIG[target].previewShadowVercelConfiguration,
+      PREVIEW_TARGET_CONFIG[target].nativeVercelConfiguration,
+      PREVIEW_TARGET_CONFIG[target].trackedVercelConfiguration,
+      configuration(target),
+    ]) {
+      assert.notDeepEqual(exactState, retiredAppShape);
+    }
   }
 });
 

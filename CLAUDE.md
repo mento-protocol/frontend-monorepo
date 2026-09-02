@@ -473,11 +473,10 @@ Governance, Reserve, and UI to `github`. Planning emits
 mutate public mappings, and `shadowTargets` prove the same candidates without
 public mutation. Governance, Reserve, UI, and App all stage and promote exact
 staged deployments; App's `stage-app` build and upload work exactly like the
-other three. App promotes last and is verified to leave `app.mento.org` at its
-prior, then one transitional bridge `alias set` transition repoints the domain
-to the candidate — a carry-over from the retiring App custom `v3` environment,
-removed once the domain moves into the Production environment. Planning uses
-the SHA each public target actually serves, and every credential-bearing job
+other three. App promotes last and is verified at `candidate`, exactly like
+every other target: `promote` and `ordinary_rollback` are the only operation
+types, and there is no bridge alias and no custom `v3` environment. Planning
+uses the SHA each public target actually serves, and every credential-bearing job
 uses only `vercel-cli-production` with `deployment: false`. The exact-attempt
 gate, repeated freshness checks, durable journal, active duplicate census,
 canonical redacted evidence, public runtime smoke, App real-wallet check,
@@ -503,9 +502,13 @@ a prior journal or treats GitHub artifacts as cross-attempt authority. The compa
 terminal receipt and evidence are the only final-verdict handoff and support
 final-only reruns. A completed release emits `current-release-verified` only
 after fresh mapping, census/state, raw public-runtime-smoke, and
-freshness proof; it creates no journal and executes no public mutation. App
-shadow preparation is build-only terminal evidence and never creates a provider
-deployment. Every other non-prefix, ambiguous, conflicting, or incomplete
+freshness proof; it creates no journal and executes no public mutation. In the
+automatic pipeline's shadow mode, App preparation is build-only terminal
+evidence and creates no provider deployment. The separate manual
+production-shadow pilot does create a staged App production deployment
+(`--prod --skip-domain`), which moves no protected domain; its browser coverage
+spans governance, reserve, and UI only, so its App evidence row reports the
+runtime check as not run. Every other non-prefix, ambiguous, conflicting, or incomplete
 provider state fails closed before production work continues.
 
 ## Coding Conventions

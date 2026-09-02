@@ -2,15 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  MAIN_ACTIVE_APP_BRIDGE_ALIASES,
   MAIN_ACTIVE_COMMAND_TIMEOUT_MS,
   MAIN_ACTIVE_PROMOTABLE_TARGETS,
   MainActiveAdapterError,
   assertMainActiveCommandDescriptor,
-  buildMainActiveAppAliasRestoreCommand,
-  buildMainActiveAppAliasRestoreSequence,
-  buildMainActiveAppAliasSetCommand,
-  buildMainActiveAppAliasSetSequence,
   buildMainActivePromotionCommand,
   buildMainActivePromotionSequence,
   buildMainActiveRollbackCommand,
@@ -74,15 +69,11 @@ test("reviewed target and alias order is literal and immutable", () => {
     "ui",
     "app",
   ]);
-  // TRANSITION-V3-PRIOR: exactly one bridge alias.
-  assert.deepEqual(MAIN_ACTIVE_APP_BRIDGE_ALIASES, ["app.mento.org"]);
-  assert.deepEqual(
-    MAIN_ACTIVE_APP_BRIDGE_ALIASES,
-    MAIN_TARGET_CONTRACTS.app.aliases,
-  );
+  // Every main target maps exactly one reviewed alias, App included, and
+  // `vercel promote` carries it. No builder assigns an alias any more.
+  assert.deepEqual(MAIN_TARGET_CONTRACTS.app.aliases, ["app.mento.org"]);
   assert.equal(MAIN_ACTIVE_COMMAND_TIMEOUT_MS, 120_000);
   assert.equal(Object.isFrozen(MAIN_ACTIVE_PROMOTABLE_TARGETS), true);
-  assert.equal(Object.isFrozen(MAIN_ACTIVE_APP_BRIDGE_ALIASES), true);
 });
 
 test("ordinary promotion sequence is always governance, reserve, ui", () => {
@@ -190,31 +181,6 @@ test("promotion builder accepts only an exact ordinary deployment identity", () 
   );
 });
 
-test("App bridge alias commands cover exactly the reviewed App domain", () => {
-  const sequence = buildMainActiveAppAliasSetSequence(APP_CANDIDATE);
-  assert.deepEqual(
-    sequence.map(({ alias }) => alias),
-    MAIN_ACTIVE_APP_BRIDGE_ALIASES,
-  );
-  for (const command of sequence) {
-    assert.deepEqual(command.arguments, [
-      "alias",
-      "set",
-      APP_CANDIDATE.deploymentUrl,
-      command.alias,
-    ]);
-    assert.deepEqual(assertMainActiveCommandDescriptor(command), command);
-  }
-  assert.throws(
-    () =>
-      buildMainActiveAppAliasSetCommand({
-        alias: "v2-app.mento.org",
-        ...APP_CANDIDATE,
-      }),
-    /not allowlisted/,
-  );
-});
-
 test("recovery builders use only captured exact prior identities", () => {
   const rollback = buildMainActiveRollbackCommand({
     target: "ui",
@@ -225,32 +191,23 @@ test("recovery builders use only captured exact prior identities", () => {
     ORDINARY_PRIOR.deploymentId,
     "--yes",
   ]);
-
-  const appRestores = buildMainActiveAppAliasRestoreSequence(APP_PRIOR);
-  assert.deepEqual(
-    appRestores.map(({ arguments: argumentsList }) => argumentsList),
-    MAIN_ACTIVE_APP_BRIDGE_ALIASES.map((alias) => [
-      "alias",
-      "set",
-      APP_PRIOR.deploymentUrl,
-      alias,
-    ]),
-  );
-  assert.equal(
-    assertMainActiveCommandDescriptor(
-      buildMainActiveAppAliasRestoreCommand({
-        alias: MAIN_ACTIVE_APP_BRIDGE_ALIASES[0],
-        ...APP_PRIOR,
-      }),
-    ).kind,
-    "app-alias-restore",
-  );
+  assert.deepEqual(assertMainActiveCommandDescriptor(rollback), rollback);
+  const appRollback = buildMainActiveRollbackCommand({
+    target: "app",
+    ...APP_PRIOR,
+  });
+  assert.deepEqual(appRollback.arguments, [
+    "rollback",
+    APP_PRIOR.deploymentId,
+    "--yes",
+  ]);
+  assert.deepEqual(assertMainActiveCommandDescriptor(appRollback), appRollback);
 });
 
-// The retired legacy App deployment was the only alias topology a restore
-// command could bind outside the reviewed App v3 aliases. Nothing may
-// re-admit it as a target, an alias, or a command kind.
-test("the retired legacy App target cannot re-enter any command builder", () => {
+// The retired legacy App deployment and the retired transitional bridge alias
+// commands are both gone. Nothing may re-admit either as a target, an alias,
+// or a command kind, and no built command may issue `vercel alias`.
+test("the retired legacy target and bridge alias commands cannot re-enter", () => {
   const prior = {
     deploymentId: "dpl_LegacyPrior123",
     deploymentUrl: "https://legacy-prior.vercel.app",
@@ -264,35 +221,42 @@ test("the retired legacy App target cannot re-enter any command builder", () => 
       /Promotable target is not allowlisted/,
     );
   }
-  for (const alias of [
-    "v2-app.mento.org",
-    "appmentoorg-env-v3-mentolabs.vercel.app",
-    "appmentoorg-git-v2-mentolabs.vercel.app",
-    "appmentoorg-mentolabs.vercel.app",
-    "appmentoorg.vercel.app",
+  for (const kind of [
+    "app-alias-set",
+    "app-alias-restore",
+    "legacy-alias-restore",
   ]) {
-    assert.equal(MAIN_ACTIVE_APP_BRIDGE_ALIASES.includes(alias), false);
-    assert.throws(
-      () => buildMainActiveAppAliasRestoreCommand({ alias, ...prior }),
-      /not allowlisted/,
-    );
-    assert.throws(
-      () => buildMainActiveAppAliasSetCommand({ alias, ...prior }),
-      /not allowlisted/,
-    );
+    for (const alias of [
+      "app.mento.org",
+      "v2-app.mento.org",
+      "appmentoorg-env-v3-mentolabs.vercel.app",
+    ]) {
+      assert.throws(
+        () =>
+          assertMainActiveCommandDescriptor({
+            kind,
+            target: "app",
+            alias,
+            ...prior,
+            arguments: ["alias", "set", prior.deploymentUrl, alias],
+          }),
+        /Vercel command kind is not allowlisted/,
+        `${kind} ${alias}`,
+      );
+    }
   }
+  // Even under an allowlisted kind, `alias` is a forbidden argument.
+  const promote = buildMainActivePromotionCommand({
+    target: "app",
+    ...APP_CANDIDATE,
+  });
   assert.throws(
     () =>
       assertMainActiveCommandDescriptor({
-        kind: "legacy-alias-restore",
-        target: "legacy-app",
-        alias: "v2-app.mento.org",
-        aliases: ["v2-app.mento.org"],
-        projectId: "prj_app123",
-        ...prior,
-        arguments: ["alias", "set", prior.deploymentUrl, "v2-app.mento.org"],
+        ...promote,
+        arguments: ["alias", "set", APP_CANDIDATE.deploymentUrl],
       }),
-    /Vercel command kind is not allowlisted/,
+    /descriptor was altered|forbidden deployment mode/,
   );
 });
 
@@ -494,14 +458,14 @@ test("missing token and malformed execution paths fail before spawning", () => {
   assert.equal(calls, 0);
 });
 
-// TRANSITION-V3-PRIOR: the bridge alias is the App target's only reviewed
-// alias, so a per-alias inspection covers exactly it.
+// The App target maps exactly one reviewed alias, so a per-alias inspection
+// covers exactly it.
 test("the reviewed App alias is inspected on its own", async () => {
   const captureMappings = async (aliases) =>
     aliases.map((alias) => mapping(alias, APP_CANDIDATE));
   const inspection = await inspectMainActiveMapping({
     target: "app",
-    aliases: [MAIN_ACTIVE_APP_BRIDGE_ALIASES[0]],
+    aliases: [MAIN_TARGET_CONTRACTS.app.aliases[0]],
     priorDeployment: APP_PRIOR,
     candidateDeployment: APP_CANDIDATE,
     captureMappings,
@@ -577,7 +541,7 @@ test("mapping inspection captures only exact reviewed aliases and canonical fiel
       return aliases.map((alias) => mapping(alias, APP_CANDIDATE));
     },
   });
-  assert.deepEqual(calls, [MAIN_ACTIVE_APP_BRIDGE_ALIASES]);
+  assert.deepEqual(calls, [MAIN_TARGET_CONTRACTS.app.aliases]);
   assert.equal(inspection.mappingState, "candidate");
   assert.deepEqual(inspection.mappings, [
     {

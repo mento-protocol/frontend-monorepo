@@ -102,23 +102,14 @@ test("preview owner classification accepts both exact main states independently"
   }
 });
 
-test("only App carries a bounded transitional GitHub-owned configuration", () => {
-  assert.deepEqual(
-    PREVIEW_TARGET_CONFIG.app.transitionalGithubVercelConfigurations,
-    [
-      {
-        $schema: "https://openapi.vercel.sh/vercel.json",
-        git: { deploymentEnabled: { "**": false, v2: true } },
-      },
-    ],
-  );
-  assert.equal(
-    previewOwnerForVercelConfiguration("app", {
-      $schema: "https://openapi.vercel.sh/vercel.json",
-      git: { deploymentEnabled: { "**": false, v2: true } },
-    }),
-    "github-actions",
-  );
+// The transitional recognition mechanism stays available for a future
+// migration, but no target declares an entry today, and the retired
+// pre-MGP-18 App shape can no longer be recognized for any target.
+test("no target carries a transitional GitHub-owned configuration", () => {
+  const retiredAppShape = {
+    $schema: "https://openapi.vercel.sh/vercel.json",
+    git: { deploymentEnabled: { "**": false, v2: true } },
+  };
   assert.equal(
     previewOwnerForVercelConfiguration("app", {
       $schema: "https://openapi.vercel.sh/vercel.json",
@@ -126,7 +117,7 @@ test("only App carries a bounded transitional GitHub-owned configuration", () =>
     }),
     "github-actions",
   );
-  for (const target of PREVIEW_TARGETS.filter((value) => value !== "app")) {
+  for (const target of PREVIEW_TARGETS) {
     assert.deepEqual(
       PREVIEW_TARGET_CONFIG[target].transitionalGithubVercelConfigurations,
       [],
@@ -135,9 +126,7 @@ test("only App carries a bounded transitional GitHub-owned configuration", () =>
       () =>
         previewOwnerForVercelConfiguration(
           target,
-          structuredClone(
-            PREVIEW_TARGET_CONFIG.app.transitionalGithubVercelConfigurations[0],
-          ),
+          structuredClone(retiredAppShape),
         ),
       new RegExp(`Candidate ${target} Vercel configuration is not recognized`),
     );

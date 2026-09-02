@@ -31,8 +31,6 @@ import {
 import {
   assertMainActiveCommandDescriptor,
   assertMainActiveCommandResult,
-  buildMainActiveAppAliasRestoreCommand,
-  buildMainActiveAppAliasSetCommand,
   buildMainActivePromotionCommand,
   buildMainActiveRollbackCommand,
   MAIN_ACTIVE_PROMOTABLE_TARGETS,
@@ -64,8 +62,8 @@ const DEPLOYMENT_TARGETS = Object.freeze([
   "ui",
 ]);
 const PROTECTED_TARGETS = Object.freeze(["app", "governance", "reserve", "ui"]);
-const FORWARD_TYPES = new Set(["promote", "app_alias_set"]);
-const RECOVERY_TYPES = new Set(["ordinary_rollback", "app_alias_restore"]);
+const FORWARD_TYPES = new Set(["promote"]);
+const RECOVERY_TYPES = new Set(["ordinary_rollback"]);
 const PUBLIC_URLS = Object.freeze({
   app: "https://app.mento.org/",
   governance: "https://governance.mento.org/",
@@ -453,23 +451,6 @@ function mappingState(journal, currentMappings, target) {
   });
 }
 
-function aliasMappingState(journal, currentMappings, alias, target = "app") {
-  const candidate = journal.candidates[target];
-  if (candidate?.deploymentId === null || candidate === null) return "unknown";
-  return classifyMainTransactionMapping({
-    aliases: [alias],
-    currentMappings: mappingsForAliases(currentMappings, [alias]),
-    prior: {
-      ...journal.prior[target],
-      aliases: [alias],
-    },
-    candidate: {
-      ...candidate,
-      aliases: [alias],
-    },
-  });
-}
-
 function lastEvents(journal) {
   const events = new Map();
   for (const operation of journal.operations) {
@@ -673,23 +654,9 @@ function commandForOperation(journal, operation) {
       deploymentUrl: operation.candidateDeploymentUrl,
     });
   }
-  if (operation.type === "app_alias_set") {
-    return buildMainActiveAppAliasSetCommand({
-      alias: operation.alias,
-      deploymentId: operation.candidateDeploymentId,
-      deploymentUrl: operation.candidateDeploymentUrl,
-    });
-  }
   if (operation.type === "ordinary_rollback") {
     return buildMainActiveRollbackCommand({
       target: operation.target,
-      deploymentId: operation.priorDeploymentId,
-      deploymentUrl: operation.priorDeploymentUrl,
-    });
-  }
-  if (operation.type === "app_alias_restore") {
-    return buildMainActiveAppAliasRestoreCommand({
-      alias: operation.alias,
       deploymentId: operation.priorDeploymentId,
       deploymentUrl: operation.priorDeploymentUrl,
     });
@@ -710,9 +677,6 @@ function requireLatestOperation(journal, state, types) {
 }
 
 function forwardOperationPreState(journal, currentMappings, operation) {
-  if (operation.type === "app_alias_set") {
-    return aliasMappingState(journal, currentMappings, operation.alias);
-  }
   return mappingState(journal, currentMappings, operation.target);
 }
 
@@ -720,10 +684,6 @@ function nextForwardIntent(journal, currentMappings) {
   const latest = lastEvents(journal);
   for (const start of operationStarts(journal, FORWARD_TYPES)) {
     const last = latest.get(start.operationId);
-    // TRANSITION-V3-PRIOR: the App promote is verified at `prior`, every other
-    // forward operation at `candidate`. Comparing against the per-operation
-    // expectation is what lets a verified App promote advance to the bridge
-    // alias set instead of entering recovery.
     if (
       last.state === "verified" &&
       (last.commandOutcome !== "success" ||
@@ -744,30 +704,13 @@ function nextForwardIntent(journal, currentMappings) {
     // promoted a prefix. Current provider mappings, rather than the absence of
     // a current-attempt journal operation, determine whether this target still
     // needs a mutation.
-    //
-    // TRANSITION-V3-PRIOR: the App promote does not move the reviewed App
-    // domain, so an App mapping already at the candidate proves an earlier
-    // attempt completed the whole App prefix — promote plus bridge — and this
-    // attempt has nothing left to do for App.
     if (state === "candidate") {
       continue;
     }
     if (state === "prior" && existing === undefined) {
       return { kind: "intent", intent };
     }
-    if (state !== "prior" || target !== "app") {
-      return { kind: "recovery-required" };
-    }
-  }
-  if (journal.candidates.app !== null) {
-    for (const alias of journal.prior.app.aliases) {
-      const intent = { type: "app_alias_set", target: "app", alias };
-      if (matchingForwardStart(journal, intent) !== undefined) continue;
-      const state = aliasMappingState(journal, currentMappings, alias);
-      if (state === "candidate") continue;
-      if (state === "prior") return { kind: "intent", intent };
-      return { kind: "recovery-required" };
-    }
+    return { kind: "recovery-required" };
   }
   return { kind: "complete" };
 }
@@ -1036,10 +979,7 @@ export function reduceMainActiveTransition({
       "command_returned",
       FORWARD_TYPES,
     );
-    const state =
-      operation.type === "app_alias_set"
-        ? aliasMappingState(highest, currentMappings, operation.alias)
-        : mappingState(highest, currentMappings, operation.target);
+    const state = mappingState(highest, currentMappings, operation.target);
     const verified = recordMainTransactionVerified(highest, {
       operationId: operation.operationId,
       mappingState: state,
@@ -1120,9 +1060,6 @@ function recoveryIntent(action) {
   if (action.kind === "ordinary_rollback") {
     return { type: "ordinary_rollback", target: action.target };
   }
-  if (action.kind === "app_alias_restore") {
-    return { type: "app_alias_restore", target: "app", alias: action.alias };
-  }
   return null;
 }
 
@@ -1144,54 +1081,22 @@ function liveRecoveryIntent(action, journal, currentMappings) {
   if (action.kind !== "verified_noop") {
     return { kind: "mutation", intent: recoveryIntent(action) };
   }
-  const state =
-    action.alias === undefined
-      ? mappingState(journal, currentMappings, action.target)
-      : aliasMappingState(
-          journal,
-          currentMappings,
-          action.alias,
-          action.target,
-        );
+  const state = mappingState(journal, currentMappings, action.target);
   if (state === "prior") return { kind: "noop", intent: null };
   if (state !== "candidate") return { kind: "manual", intent: null };
-  if (action.alias === undefined) {
-    // TRANSITION-V3-PRIOR: a promote slot compensates with a rollback, which
-    // only restores a production deployment. A v3-shaped App prior has none,
-    // so a drifted App promote slot is manual.
-    if (
-      action.target !== "app" ||
-      isProductionShapedPrior(journal.release, "app")
-    ) {
-      return {
-        kind: "mutation",
-        intent: { type: "ordinary_rollback", target: action.target },
-      };
-    }
+  // A promote slot compensates with a rollback, which only restores a
+  // production deployment. Every reviewed prior is production-shaped; anything
+  // else stays manual.
+  if (!isProductionShapedPrior(journal.release, action.target)) {
     return { kind: "manual", intent: null };
   }
-  if (action.target === "app") {
-    return {
-      kind: "mutation",
-      intent: {
-        type: "app_alias_restore",
-        target: "app",
-        alias: action.alias,
-      },
-    };
-  }
-  throw new Error("Recovery action has no active mutation intent");
+  return {
+    kind: "mutation",
+    intent: { type: "ordinary_rollback", target: action.target },
+  };
 }
 
 function recoveryMappingState(journal, currentMappings, operation) {
-  if (operation.alias !== null) {
-    return aliasMappingState(
-      journal,
-      currentMappings,
-      operation.alias,
-      operation.target,
-    );
-  }
   return mappingState(journal, currentMappings, operation.target);
 }
 
@@ -1208,15 +1113,7 @@ function nextRecoveryAction(journal, plan, currentMappings) {
     const start = matchingRecoveryStart(journal, live.intent);
     if (start === null) {
       const intent = live.intent;
-      const state =
-        intent.alias === undefined
-          ? mappingState(journal, currentMappings, intent.target)
-          : aliasMappingState(
-              journal,
-              currentMappings,
-              intent.alias,
-              intent.target,
-            );
+      const state = mappingState(journal, currentMappings, intent.target);
       if (state === "prior") continue;
       if (state !== "candidate") {
         manualInterventionRequired = true;
@@ -1586,9 +1483,9 @@ export function planFreshInheritedMainActiveRecovery({
   return { ...plan, reconciliation };
 }
 
-// App has two protected environments. A moved v3 mapping is recoverable only
-// when this current attempt first captured the v2 mapping. An unmapped third
-// deployment or a candidate left by another attempt stops for manual work.
+// A moved App mapping is recoverable only when this current attempt first
+// captured the mapping it is restoring. An unmapped third deployment or a
+// candidate left by another attempt stops for manual work.
 export function decideMainActiveAppRecoverySafety({
   inheritedJournal,
   currentJournal = null,
@@ -1668,7 +1565,7 @@ export function decideMainActiveAppRecoverySafety({
   } catch (error) {
     return {
       decision: "manual-intervention",
-      reason: "app-v3-recovery-journal-is-not-safe",
+      reason: "app-recovery-journal-is-not-safe",
       error: error instanceof Error ? error.message : String(error),
       reconciliation: plan.reconciliation,
       actions: [],

@@ -26,8 +26,8 @@
           "projectId": "prj_app123",
           "projectName": "app.mento.org",
           "readyState": "READY",
-          "target": null,
-          "customEnvironmentSlug": "v3",
+          "target": "production",
+          "customEnvironmentSlug": null,
           "git": {
             "org": "mento-protocol",
             "repo": "frontend-monorepo",
@@ -36,7 +36,9 @@
           },
           "aliases": [
             "app.mento.org",
-            "appmentoorg-env-v3-mentolabs.vercel.app"
+            "appmentoorg-git-main-mentolabs.vercel.app",
+            "appmentoorg-mentolabs.vercel.app",
+            "appmentoorg.vercel.app"
           ]
         }
       ]

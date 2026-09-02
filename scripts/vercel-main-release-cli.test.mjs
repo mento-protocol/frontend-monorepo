@@ -2245,8 +2245,9 @@ test("a mixed App-only residual creates only an inherited recovery journal", asy
       target,
       alias,
     })),
-    [{ kind: "app_alias_restore", target: "app", alias: movedAppAlias }],
+    [{ kind: "ordinary_rollback", target: "app", alias: undefined }],
   );
+  assert.equal(movedAppAlias, "app.mento.org");
 });
 
 test("inherited recovery journal binds a partial prefix to current-attempt receipts and exact outputs", async (t) => {

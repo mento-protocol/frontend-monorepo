@@ -28,10 +28,12 @@ import {
   runMainActiveCli,
 } from "./vercel-main-active-cli.mjs";
 import {
-  MAIN_ACTIVE_APP_BRIDGE_ALIASES,
   buildMainActivePromotionCommand,
   runMainActiveVercelCommand,
 } from "./vercel-main-active.mjs";
+import { MAIN_TARGET_CONTRACTS } from "./vercel-main-plan.mjs";
+
+const APP_REVIEWED_ALIASES = MAIN_TARGET_CONTRACTS.app.aliases;
 import { PINNED_VERCEL_CLI_VERSION } from "./vercel-cli-runtime-contract.mjs";
 
 const TOKEN = ["test", "main", "active", "token", "never", "output"].join("-");
@@ -89,7 +91,7 @@ function mappingSpec(overrides = {}) {
   return {
     schema: MAIN_ACTIVE_MAPPING_SPEC_SCHEMA,
     target: "app",
-    aliases: [...MAIN_ACTIVE_APP_BRIDGE_ALIASES],
+    aliases: [...APP_REVIEWED_ALIASES],
     priorDeployment: PRIOR,
     candidateDeployment: CANDIDATE,
     ...overrides,
@@ -589,9 +591,9 @@ test("stable mapping uses bounded retries, double observation, and canonical pri
   assert.equal(result.mappingState, "candidate");
   assert.deepEqual(
     result.mappings.map(({ alias }) => alias),
-    MAIN_ACTIVE_APP_BRIDGE_ALIASES,
+    APP_REVIEWED_ALIASES,
   );
-  assert.equal(attempts.get(MAIN_ACTIVE_APP_BRIDGE_ALIASES[0]), 4);
+  assert.equal(attempts.get(APP_REVIEWED_ALIASES[0]), 4);
   assert.equal(statSync(output).mode & 0o777, 0o600);
   assert.equal(stdout, "Canonical protected mapping inspection written\n");
   assert.doesNotMatch(readFileSync(output, "utf8"), new RegExp(TOKEN));
@@ -600,7 +602,7 @@ test("stable mapping uses bounded retries, double observation, and canonical pri
 test("mapping preserves exact reviewed App alias state", async (t) => {
   const directory = privateTestDirectory(t);
   const env = executionEnvironment(directory);
-  const deployments = new Map([[MAIN_ACTIVE_APP_BRIDGE_ALIASES[0], CANDIDATE]]);
+  const deployments = new Map([[APP_REVIEWED_ALIASES[0], CANDIDATE]]);
   const client = {
     aliasMapping: async (alias) => mapping(alias, deployments.get(alias)),
   };
@@ -608,7 +610,7 @@ test("mapping preserves exact reviewed App alias state", async (t) => {
   const subsetSpec = writePrivateJson(
     directory,
     "subset-spec.json",
-    mappingSpec({ aliases: [MAIN_ACTIVE_APP_BRIDGE_ALIASES[0]] }),
+    mappingSpec({ aliases: [APP_REVIEWED_ALIASES[0]] }),
   );
   const subsetOutput = join(directory, "subset-result.json");
   await runMainActiveCli({
@@ -621,7 +623,7 @@ test("mapping preserves exact reviewed App alias state", async (t) => {
   assert.equal(subset.mappingState, "candidate");
   assert.deepEqual(
     subset.mappings.map(({ alias }) => alias),
-    [MAIN_ACTIVE_APP_BRIDGE_ALIASES[0]],
+    [APP_REVIEWED_ALIASES[0]],
   );
 });
 
@@ -631,7 +633,7 @@ test("mapping fails closed on an alias race, exhausted retries, or unreviewed su
   const raceSpec = writePrivateJson(
     directory,
     "race-spec.json",
-    mappingSpec({ aliases: [MAIN_ACTIVE_APP_BRIDGE_ALIASES[0]] }),
+    mappingSpec({ aliases: [APP_REVIEWED_ALIASES[0]] }),
   );
   let reads = 0;
   await assert.rejects(
@@ -664,7 +666,7 @@ test("mapping fails closed on an alias race, exhausted retries, or unreviewed su
             throw new Error(`${TOKEN}: raw API error`);
           },
         },
-        [MAIN_ACTIVE_APP_BRIDGE_ALIASES[0]],
+        [APP_REVIEWED_ALIASES[0]],
         { retryDelayMs: 0, sleepImplementation: async () => {} },
       ),
     (error) => {

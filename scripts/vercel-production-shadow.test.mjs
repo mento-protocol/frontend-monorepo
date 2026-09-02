@@ -42,7 +42,6 @@ import {
   buildProductionShadowBuildArguments,
   buildProductionShadowDeployArguments,
   buildProductionShadowPullArguments,
-  createAppBuildOnlyProof,
   createDeploymentExpectation,
   createProtectedAliasSpec,
   createProductionShadowUploadHandoff,
@@ -80,6 +79,7 @@ import {
   assertProductionShadowServerIdentity,
 } from "../apps/app.mento.org/e2e/production-shadow/deployment-identity.mjs";
 import { MAIN_TARGET_CONTRACTS } from "./vercel-main-plan.mjs";
+import { assertSnapshotSpec } from "./vercel-deployment-state.mjs";
 import { createMainReleaseManifest } from "./vercel-main-release-reconciliation.mjs";
 import {
   createMainCandidateIntent,
@@ -513,88 +513,68 @@ test("candidate-modified validators remain inert during trusted validation", () 
   }
 });
 
-test("protected spec includes v3 and every ordinary production alias", () => {
-  const spec = createProtectedAliasSpec({
-    appV3AliasesJson: JSON.stringify([
-      "app.mento.org",
-      "appmentoorg-env-v3-mentolabs.vercel.app",
-    ]),
-    projectIds: projectIds(),
-  });
+// MGP-18 retired the App custom `v3` environment, so the protected spec is
+// exactly the four reviewed production domains and takes no reviewed-alias
+// dispatch input at all.
+test("protected spec is exactly the four reviewed production domains", () => {
+  const spec = createProtectedAliasSpec({ projectIds: projectIds() });
   assert.deepEqual(
     spec.map((entry) => entry.alias),
     [
       "app.mento.org",
-      "appmentoorg-env-v3-mentolabs.vercel.app",
       "governance.mento.org",
       "reserve.mento.org",
       "ui.mento.org",
     ],
   );
+  for (const entry of spec) {
+    assert.equal(entry.target, "production");
+    assert.equal(entry.customEnvironmentSlug, null);
+    assert.equal(entry.git.ref, "main");
+  }
   assert.equal(
-    spec.find((entry) => entry.alias === "app.mento.org").customEnvironmentSlug,
-    "v3",
+    spec.find((entry) => entry.alias === "app.mento.org").projectId,
+    projectIds().app,
   );
+  // An unbuildable spec still fails closed on a missing project ID.
   assert.throws(
     () =>
       createProtectedAliasSpec({
-        appV3AliasesJson: '["appmentoorg-env-v3-mentolabs.vercel.app"]',
-        projectIds: projectIds(),
+        projectIds: { ...projectIds(), app: "" },
       }),
-    /must exactly match/,
+    /app project ID is required/,
   );
-  assert.throws(
-    () =>
-      createProtectedAliasSpec({
-        appV3AliasesJson:
-          '["app.mento.org","appmentoorg-env-v3-mentolabs.vercel.app","unexpected.vercel.app"]',
-        projectIds: projectIds(),
-      }),
-    /must exactly match/,
+  // The retired reviewed-alias input has no effect: it is not read at all.
+  assert.deepEqual(
+    createProtectedAliasSpec({
+      appV3AliasesJson: JSON.stringify([
+        "app.mento.org",
+        "appmentoorg-env-v3-mentolabs.vercel.app",
+      ]),
+      projectIds: projectIds(),
+    }),
+    spec,
   );
 });
 
-test("the retired app v2 topology cannot re-enter the protected spec", () => {
-  const retiredAppV2Aliases = [
+test("the retired app v2 and v3 topologies cannot re-enter the protected spec", () => {
+  const retiredAliases = [
     "v2-app.mento.org",
     "appmentoorg-git-v2-mentolabs.vercel.app",
+    "appmentoorg-env-v3-mentolabs.vercel.app",
     "appmentoorg-mentolabs.vercel.app",
     "appmentoorg.vercel.app",
   ];
-  const spec = createProtectedAliasSpec({
-    appV3AliasesJson: JSON.stringify([
-      "app.mento.org",
-      "appmentoorg-env-v3-mentolabs.vercel.app",
-    ]),
-    projectIds: projectIds(),
-  });
-  assert.equal(spec.length, 5);
+  const spec = createProtectedAliasSpec({ projectIds: projectIds() });
+  assert.equal(spec.length, 4);
   for (const entry of spec) {
-    assert.equal(retiredAppV2Aliases.includes(entry.alias), false);
+    assert.equal(retiredAliases.includes(entry.alias), false);
     assert.notEqual(entry.git.ref, "v2");
+    assert.notEqual(entry.customEnvironmentSlug, "v3");
   }
-  for (const retired of retiredAppV2Aliases) {
-    assert.throws(
-      () =>
-        createProtectedAliasSpec({
-          appV3AliasesJson: JSON.stringify([
-            "app.mento.org",
-            "appmentoorg-env-v3-mentolabs.vercel.app",
-            retired,
-          ]),
-          projectIds: projectIds(),
-        }),
-      /must exactly match/,
-    );
-    assert.throws(
-      () =>
-        createProtectedAliasSpec({
-          appV3AliasesJson: JSON.stringify(["app.mento.org", retired]),
-          projectIds: projectIds(),
-        }),
-      /must exactly match/,
-    );
-  }
+  // The spec must also survive the canonical specification contract, which
+  // rejects any custom environment outright.
+  assert.doesNotThrow(() => assertSnapshotSpec(spec));
 });
 
 test("immutable-source validation binds workflow identity before Git reads", () => {
@@ -979,9 +959,8 @@ test("observed runs allow only the base alias plus one exact optional creator al
       ),
     /Canonical deployment environment is malformed/,
   );
-  // The retiring `v3` custom environment survives canonical validation only as
-  // the transitional App prior, so App is the one target that can still reach
-  // the ordinary-production branch with a custom-environment deployment.
+  // The retired `v3` custom environment no longer survives canonical
+  // validation for any target, App included.
   assert.throws(
     () =>
       assertOnlyExpectedVercelGeneratedAliases(
@@ -993,7 +972,7 @@ test("observed runs allow only the base alias plus one exact optional creator al
         },
         "app",
       ),
-    /not an ordinary production deployment/,
+    /Canonical deployment environment is malformed/,
   );
   assert.throws(
     () => assertOnlyExpectedVercelGeneratedAliases(expected, "app"),
@@ -2783,28 +2762,35 @@ test("trusted child processes strip GitHub command files", () => {
   );
 });
 
-test("app proof encodes Outcome B without a reachable deploy", () => {
-  const proof = createAppBuildOnlyProof({
-    sha: SHA,
-    deploymentId: "m-app-example123",
-  });
-  assert.equal(proof.environment, "production");
-  assert.equal(proof.vercelEnv, "production");
-  assert.equal(proof.vercelTargetEnv, "production");
-  assert.equal(proof.nextPublicVercelEnv, "production");
-  assert.equal(Object.hasOwn(proof, "sentryAuthToken"), false);
-  assert.equal(proof.deployReachable, false);
-  assert.equal(
-    proof.futureActivationCommand,
-    "vercel deploy --prebuilt --prod --skip-domain --archive=tgz --format=json",
+// The App is an ordinary staged shadow target since MGP-18: it uploads the
+// same `--prod --skip-domain` deployment the other three do, so the retired
+// build-only proof and its CLI verb are gone and cannot re-enter.
+test("the retired app build-only proof cannot re-enter", () => {
+  const source = readFileSync(
+    new URL("./vercel-production-shadow.mjs", import.meta.url),
+    "utf8",
   );
-  assert.deepEqual(proof.futureMetadata, [
-    "githubCommitOrg=mento-protocol",
-    "githubCommitRepo=frontend-monorepo",
-    "githubCommitRef=main",
-    `githubCommitSha=${SHA}`,
-    "mentoTransaction=<run_id>-<run_attempt>-app",
-  ]);
+  assert.doesNotMatch(source, /createAppBuildOnlyProof|app-proof/);
+  assert.doesNotMatch(source, /deployReachable|futureActivationCommand/);
+  assert.doesNotMatch(source, /APP_V3_ALIASES_JSON|appV3AliasesJson/);
+  assert.doesNotMatch(source, /appmentoorg-env-v3/);
+  assert.deepEqual(
+    buildProductionShadowDeployArguments({
+      logicalTarget: "app",
+      projectId: "prj_app123",
+      deploySha: SHA,
+      transaction: "123-1-app",
+    }).slice(0, 7),
+    [
+      "deploy",
+      "--prebuilt",
+      "--prod",
+      "--skip-domain",
+      "--archive=tgz",
+      "--format=json",
+      "--yes",
+    ],
+  );
 });
 
 test("the retired app custom v3 environment cannot re-enter a target contract", () => {
@@ -2893,24 +2879,13 @@ test("pilot summary records exact build, staging, and rollback evidence", () => 
     baseline: [
       {
         alias: "app.mento.org",
-        deploymentId: "dpl_appv3old123",
-        deploymentUrl: "https://app-v3-old.vercel.app",
-        customEnvironmentSlug: "v3",
-      },
-      {
-        alias: "appmentoorg-env-v3-mentolabs.vercel.app",
-        deploymentId: "dpl_appv3old123",
-        deploymentUrl: "https://app-v3-old.vercel.app",
-        customEnvironmentSlug: "v3",
+        deploymentId: "dpl_appPriorOld123",
+        deploymentUrl: "https://app-prior-old.vercel.app",
+        target: "production",
+        customEnvironmentSlug: null,
       },
     ],
-    app: {
-      nextDeploymentId: "m-app-0123456789abcdef012",
-      buildDurationMs: "100",
-      totalDurationMs: "150",
-      cacheHits: "1",
-      cacheMisses: "2",
-    },
+    app: { ...ordinary("app"), cacheHits: "1", cacheMisses: "2" },
     governance: {
       ...ordinary("governance"),
       cacheHits: "2",
@@ -2923,17 +2898,37 @@ test("pilot summary records exact build, staging, and rollback evidence", () => 
     writePilotSummary(summaryInput);
     const summary = readFileSync(summaryPath, "utf8");
     assert.match(summary, new RegExp(SHA));
-    // The App shadow builds the ordinary production output and never deploys
-    // it, so the summary must report a production build-only row. Claiming the
-    // retired custom environment would misreport what the run validated.
+    // The App is an ordinary staged shadow target now: the summary reports a
+    // real deployment row and a `vercel rollback` recovery command, never the
+    // retired build-only row or an `alias set`. Its runtime/browser cell must
+    // report not-run, because the pilot has no App smoke job.
     assert.match(
       summary,
-      /\| app \| production \| build-only, not deployed \(Next ID `m-app-0123456789abcdef012`\)/,
+      /\| app \| production \| `dpl_app123` \/ https:\/\/app-immutable\.vercel\.app \| not-run \(no App smoke spec yet\) \| unchanged \|/,
     );
-    assert.doesNotMatch(summary, /Outcome B|\| app \| v3 \||app v3 unchanged/);
+    // Only the three smoked targets may claim a browser pass.
+    assert.deepEqual(
+      [
+        ...summary.matchAll(/^\| (\w+) \| production \|[^|]+\| ([^|]+)\|/gm),
+      ].map((match) => [match[1], match[2].trim()]),
+      [
+        ["app", "not-run (no App smoke spec yet)"],
+        ["governance", "pass"],
+        ["reserve", "pass"],
+        ["ui", "pass"],
+      ],
+    );
     assert.match(
       summary,
-      /vercel alias set https:\/\/app-v3-old\.vercel\.app app\.mento\.org/,
+      /Browser coverage spans governance, reserve, ui only; the pilot has no App smoke spec yet/,
+    );
+    assert.doesNotMatch(
+      summary,
+      /Outcome B|build-only|\| app \| v3 \||app-v3|alias set/,
+    );
+    assert.match(
+      summary,
+      /Copy-safe app rollback command: `vercel rollback dpl_appPriorOld123 --yes`/,
     );
     assert.match(summary, /dpl_governance123/);
     assert.match(summary, /Whole workflow duration: 1000 ms/);
@@ -2949,11 +2944,30 @@ test("pilot summary records exact build, staging, and rollback evidence", () => 
               alias: "v2-app.mento.org",
               deploymentId: "dpl_appv2old123",
               deploymentUrl: "https://app-v2-old.vercel.app",
+              target: "production",
               customEnvironmentSlug: null,
             },
           ],
         }),
-      /missing app v3 state/,
+      /missing app production state/,
+    );
+    // A baseline App state still served from the retired custom environment is
+    // not admissible evidence.
+    assert.throws(
+      () =>
+        writePilotSummary({
+          ...summaryInput,
+          baseline: [
+            {
+              alias: "app.mento.org",
+              deploymentId: "dpl_appv3old123",
+              deploymentUrl: "https://app-v3-old.vercel.app",
+              target: null,
+              customEnvironmentSlug: "v3",
+            },
+          ],
+        }),
+      /app state is not production-shaped/,
     );
   } finally {
     rmSync(directory, { recursive: true, force: true });

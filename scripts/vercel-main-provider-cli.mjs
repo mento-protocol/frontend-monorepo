@@ -239,8 +239,6 @@ export function createMainCanonicalMappings({ planningSnapshot, projectIds }) {
       if (
         state.projectId !== projects[target] ||
         state.projectName !== contract.projectName ||
-        // TRANSITION-V3-PRIOR: the deployment `app.mento.org` served before
-        // this release is still in the retiring `v3` custom environment.
         !acceptsPriorEnvironment(target, state) ||
         state.readyState !== "READY" ||
         !state.aliases.includes(state.alias)

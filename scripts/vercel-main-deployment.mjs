@@ -201,11 +201,10 @@ const VERIFICATION_KEYS = Object.freeze([
   "immutableSmoke",
   "protectedMappings",
 ]);
-// One compensation slot per started forward operation: a rollback slot for
-// every promotable target plus one bridge alias-restore slot for each
-// reviewed App alias.
+// One compensation slot per started forward operation: one rollback slot for
+// every promotable target, and nothing else.
 export const MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS =
-  MAIN_PROMOTABLE_TARGETS.length + MAIN_TARGET_CONTRACTS.app.aliases.length;
+  MAIN_PROMOTABLE_TARGETS.length;
 const MAX_JSON_BYTES = 256 * 1024;
 export const MAIN_ACTIVE_JOURNAL_HISTORY_MAX_JSON_BYTES = 1024 * 1024;
 export const MAIN_ACTIVE_TERMINAL_PROOFS_MAX_JSON_BYTES = 1024 * 1024;
@@ -674,9 +673,6 @@ function canonicalPlanningSnapshotForSpec({ snapshot, projectIds }) {
   );
   for (const [index, state] of ordered.entries()) {
     const expected = spec[index];
-    // TRANSITION-V3-PRIOR: `app.mento.org` still serves the v3-shaped
-    // deployment it served before this release until the dashboard domain
-    // move, so the App prior may carry that one alternative shape.
     const target = MAIN_DEPLOYMENT_TARGETS.find((candidate) =>
       MAIN_TARGET_CONTRACTS[candidate].aliases.includes(expected.alias),
     );
@@ -2691,7 +2687,7 @@ export async function runMainActiveTransaction({
     });
   };
   const mutationAdapters = {};
-  for (const name of ["promote", "deployAppV3", "assignAlias"]) {
+  for (const name of ["promote"]) {
     const adapter = publicMutation(name);
     if (typeof adapter === "function") mutationAdapters[name] = adapter;
   }
@@ -2700,7 +2696,6 @@ export async function runMainActiveTransaction({
     "verifyMapping",
     "inspectProtectedMappings",
     "ordinaryRollback",
-    "restoreAppAlias",
   ]) {
     if (typeof adapters[name] === "function") {
       mutationAdapters[name] = adapters[name];
@@ -2842,7 +2837,6 @@ export async function runMainActiveRecovery({ recoveryPlan, adapters }) {
       plan: recoveryPlan,
       uploadJournal,
       ordinaryRollback: publicMutation("ordinaryRollback"),
-      restoreAppAlias: publicMutation("restoreAppAlias"),
       inspectMapping: adapters.inspectMapping,
       verifyMapping: adapters.verifyMapping,
     });
@@ -3088,10 +3082,7 @@ export async function runMainShadowTransaction({
       },
       mutationAdapters: {
         promote: forbidden,
-        deployAppV3: forbidden,
-        assignAlias: forbidden,
         ordinaryRollback: forbidden,
-        restoreAppAlias: forbidden,
       },
     });
   } catch (error) {
@@ -4373,7 +4364,7 @@ export function renderMainDeploymentEvidence(evidence) {
     }),
     evidence.app === null
       ? "| app | not built | n/a | n/a | n/a |"
-      : `| app | build-only Next ID \`${evidence.app.nextDeploymentId}\` | exact custom-v3 build proof; deploy unreachable | ${evidence.app.metrics.buildDurationMs} / n/a / ${evidence.app.metrics.totalDurationMs} ms | ${evidence.app.metrics.turboCacheHits} hit / ${evidence.app.metrics.turboCacheMisses} miss |`,
+      : `| app | build-only Next ID \`${evidence.app.nextDeploymentId}\` | exact production build proof; deploy unreachable | ${evidence.app.metrics.buildDurationMs} / n/a / ${evidence.app.metrics.totalDurationMs} ms | ${evidence.app.metrics.turboCacheHits} hit / ${evidence.app.metrics.turboCacheMisses} miss |`,
     "",
     `- Coordinator: \`${evidence.coordinator.outcome}\` in ${evidence.coordinator.totalDurationMs} ms`,
     `- Journal: ${
@@ -5268,12 +5259,7 @@ function canonicalTerminalAffectedOperations(value) {
       /^op-[0-9]{4}$/,
     );
     if (
-      ![
-        "promote",
-        "app_alias_set",
-        "ordinary_rollback",
-        "app_alias_restore",
-      ].includes(operation.type) ||
+      !["promote", "ordinary_rollback"].includes(operation.type) ||
       !["app", "governance", "reserve", "ui"].includes(operation.target) ||
       !["started", "command_returned", "verified"].includes(operation.state) ||
       ![null, "success", "unknown"].includes(operation.commandOutcome) ||
@@ -6334,12 +6320,7 @@ function canonicalActiveVerifiedOperations(value) {
     }
     seen.add(operationId);
     if (
-      ![
-        "promote",
-        "app_alias_set",
-        "ordinary_rollback",
-        "app_alias_restore",
-      ].includes(operation.type) ||
+      !["promote", "ordinary_rollback"].includes(operation.type) ||
       !MAIN_DEPLOYMENT_TARGETS.includes(operation.target)
     ) {
       throw new Error("Nested active verified operation is unsupported");

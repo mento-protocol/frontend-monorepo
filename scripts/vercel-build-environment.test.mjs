@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
@@ -24,7 +30,7 @@ const scriptPath = fileURLToPath(
 );
 
 const TARGET_ENVIRONMENTS = {
-  app: ["preview", "v3", "production"],
+  app: ["preview", "production"],
   governance: ["preview", "production"],
   reserve: ["preview", "production"],
   ui: ["preview", "production"],
@@ -69,23 +75,37 @@ test("every target/environment has classified required build variables", () => {
   }
 });
 
-test("system semantics preserve app v3 as preview", () => {
-  const requirements = getVercelBuildRequirements("app", "v3");
+// MGP-18 retired the App custom `v3` environment. The App builds production
+// semantics like every other target, and the retired environment cannot
+// re-enter through any target.
+test("app production semantics are ordinary and the retired v3 environment is gone", () => {
+  const requirements = getVercelBuildRequirements("app", "production");
   const constants = Object.fromEntries(
     requirements
       .filter((requirement) => requirement.expectedValue !== undefined)
       .map((requirement) => [requirement.name, requirement.expectedValue]),
   );
   assert.deepEqual(constants, {
-    VERCEL_ENV: "preview",
-    VERCEL_TARGET_ENV: "v3",
-    NEXT_PUBLIC_VERCEL_ENV: "preview",
+    VERCEL_ENV: "production",
+    VERCEL_TARGET_ENV: "production",
+    NEXT_PUBLIC_VERCEL_ENV: "production",
   });
   assert.equal(
     requirements.some(
       (requirement) => requirement.name === "SENTRY_AUTH_TOKEN",
     ),
-    false,
+    true,
+  );
+  for (const target of ["app", "governance", "reserve", "ui"]) {
+    assert.throws(
+      () => getVercelBuildRequirements(target, "v3"),
+      new RegExp(`Unsupported ${target} environment: v3`),
+    );
+  }
+  assert.doesNotMatch(
+    readFileSync(scriptPath, "utf8"),
+    /v3/,
+    "the retired v3 environment must not re-enter the build contract",
   );
 });
 
@@ -334,11 +354,11 @@ test("missing Vercel-pulled files fail closed without exposing values", () => {
         loadVercelPulledEnvironment({
           target: "app",
           projectDirectory: directory,
-          environment: "v3",
+          environment: "production",
           values: { SECRET_VALUE: "do-not-print-this-secret-value" },
         }),
       (error) => {
-        assert.match(error.message, /.env.v3.local/);
+        assert.match(error.message, /\.env\.production\.local/);
         assert.doesNotMatch(error.message, /do-not-print-this-secret-value/);
         return true;
       },
@@ -495,13 +515,13 @@ test("governance preview requires its explicit explorer key without exposing val
 });
 
 test("constant mismatches reveal only variable names", () => {
-  const values = validValues("app", "v3");
+  const values = validValues("app", "preview");
   values.VERCEL_ENV = "secretly-wrong";
   assert.throws(
     () =>
       validateVercelBuildEnvironment({
         target: "app",
-        environment: "v3",
+        environment: "preview",
         values,
       }),
     (error) => {
@@ -514,5 +534,5 @@ test("constant mismatches reveal only variable names", () => {
 
 test("unsupported target/environment combinations fail before validation", () => {
   assert.throws(() => getVercelBuildRequirements("unknown", "preview"));
-  assert.throws(() => getVercelBuildRequirements("reserve", "v3"));
+  assert.throws(() => getVercelBuildRequirements("app", "v3"));
 });
