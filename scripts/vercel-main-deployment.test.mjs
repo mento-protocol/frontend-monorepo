@@ -144,6 +144,7 @@ import {
   acceptsPriorEnvironment,
   MAIN_DEPLOYMENT_TARGETS,
   MAIN_TARGET_CONTRACTS,
+  riderAliasesFrom,
 } from "./vercel-main-plan.mjs";
 
 const SHA = "dddddddddddddddddddddddddddddddddddddddd";
@@ -260,6 +261,7 @@ function releaseManifestForPlan(deploymentPlan) {
           deploymentId: planned.deploymentId,
           deploymentUrl: planned.deploymentUrl,
           aliases: [...planned.aliases],
+          riderAliases: riderAliasesFrom(first.aliases, planned.aliases),
           projectId: first.projectId,
           projectName: first.projectName,
           readyState: first.readyState,
@@ -2129,7 +2131,7 @@ test("canonical evidence records planning, candidates, timings, cache, journal, 
     runAttempt: "3",
     workflowRunUrl: WORKFLOW_RUN_URL,
   });
-  assert.equal(evidence.schema, "vercel-main-evidence:v1");
+  assert.equal(evidence.schema, "vercel-main-evidence:v2");
   assert.equal(evidence.workflowRunUrl, WORKFLOW_RUN_URL);
   assert.deepEqual(evidence.planning.priors, deploymentPlan.planning.priors);
   assert.deepEqual(evidence.planning.ranges, deploymentPlan.planning.ranges);
@@ -2159,7 +2161,46 @@ test("canonical evidence records planning, candidates, timings, cache, journal, 
     beforeTransaction: "fresh",
   });
   assert.deepEqual(evidence.ordinaryRollbackStateTargets, []);
+  // Rider domains are named per target beside the reviewed aliases they move
+  // with, and the header row pins the column.
+  assert.deepEqual(evidence.riderAliases, {
+    app: [
+      "appmentoorg-git-main-mentolabs.vercel.app",
+      "appmentoorg-mentolabs.vercel.app",
+      "appmentoorg.vercel.app",
+    ],
+    governance: [
+      "governancementoorg-git-main-mentolabs.vercel.app",
+      "governancementoorg-mentolabs.vercel.app",
+      "governancementoorg.vercel.app",
+    ],
+    reserve: [
+      "reservementoorg-git-main-mentolabs.vercel.app",
+      "reservementoorg-mentolabs.vercel.app",
+      "reservementoorg.vercel.app",
+    ],
+    ui: [
+      "uimentoorg-git-main-mentolabs.vercel.app",
+      "uimentoorg-mentolabs.vercel.app",
+      "uimentoorg.vercel.app",
+    ],
+  });
   const summary = renderMainDeploymentEvidence(evidence);
+  assert.match(
+    summary,
+    /\| Target \| Deployment \| Served SHA \| Reviewed aliases \| Rider domains \|/,
+  );
+  assert.match(
+    summary,
+    /\| app \|.*\| `app\.mento\.org` \| appmentoorg-git-main-mentolabs\.vercel\.app, appmentoorg-mentolabs\.vercel\.app, appmentoorg\.vercel\.app \|/,
+  );
+  assert.match(summary, /Rider domains are the other domains/);
+  const withoutRiders = structuredClone(evidence);
+  withoutRiders.riderAliases.ui = [];
+  assert.match(
+    renderMainDeploymentEvidence(withoutRiders),
+    /\| ui \|.*\| `ui\.mento\.org` \| none \|/,
+  );
   assert.match(summary, /Served deployment priors/);
   assert.match(summary, /Served-SHA ranges and selection reasons/);
   assert.match(summary, /Candidate evidence/);
@@ -4031,9 +4072,53 @@ test("active controller commits exact ordered mutations and emits canonical reda
     ACTIVE_DEPLOYMENT_STATE_PROOF_SCHEMA,
   );
   assert.deepEqual(evidence.recovery.rollbackStateTargets, []);
+  // The committed active evidence pins its exact key order, including the
+  // rider map it now publishes.
+  assert.deepEqual(Object.keys(evidence), [
+    "schema",
+    "mode",
+    "repository",
+    "deploySha",
+    "workflowDefinitionSha",
+    "runId",
+    "runAttempt",
+    "workflowRunUrl",
+    "planning",
+    "riderAliases",
+    "journal",
+    "orderedVerifiedOperations",
+    "freshness",
+    "finalMappings",
+    "publicSmokes",
+    "stateProofSummary",
+    "recovery",
+    "publicServingMutationCommands",
+    "outcome",
+  ]);
+  assert.deepEqual(evidence.riderAliases.governance, [
+    "governancementoorg-git-main-mentolabs.vercel.app",
+    "governancementoorg-mentolabs.vercel.app",
+    "governancementoorg.vercel.app",
+  ]);
+  const activeSummary = renderMainActiveDeploymentEvidence(evidence);
+  assert.match(activeSummary, /Public-serving mutation commands: `4`/);
   assert.match(
-    renderMainActiveDeploymentEvidence(evidence),
-    /Public-serving mutation commands: `4`/,
+    activeSummary,
+    /- Rider domains moved with `app`: appmentoorg-git-main-mentolabs\.vercel\.app, appmentoorg-mentolabs\.vercel\.app, appmentoorg\.vercel\.app/,
+  );
+  // "none" and "unknown" are distinct: a rider-less deployment against a
+  // release manifest that predates rider capture.
+  const emptyRiders = structuredClone(evidence);
+  emptyRiders.riderAliases.ui = [];
+  assert.match(
+    renderMainActiveDeploymentEvidence(emptyRiders),
+    /- Rider domains moved with `ui`: none/,
+  );
+  const unknownRiders = structuredClone(evidence);
+  unknownRiders.riderAliases.reserve = null;
+  assert.match(
+    renderMainActiveDeploymentEvidence(unknownRiders),
+    /- Rider domains moved with `reserve`: unknown/,
   );
   const execution = releaseExecutionForPlan(harness.plan);
   assert.deepEqual(
@@ -4045,6 +4130,33 @@ test("active controller commits exact ordered mutations and emits canonical reda
     }),
     evidence,
   );
+  // The terminal reader re-derives the rider map from the release manifest, so
+  // a rewritten one is refused even though riders decide nothing.
+  const forgedRiders = structuredClone(evidence);
+  forgedRiders.riderAliases.ui = ["attacker.example"];
+  assert.throws(
+    () =>
+      assertMainActiveTerminalEvidenceArtifact(forgedRiders, {
+        execution,
+        runId: "800",
+        runAttempt: "3",
+        outcome: "active-committed",
+      }),
+    /Nested active deployment evidence/,
+  );
+  const droppedRiders = structuredClone(evidence);
+  delete droppedRiders.riderAliases;
+  assert.throws(
+    () =>
+      assertMainActiveTerminalEvidenceArtifact(droppedRiders, {
+        execution,
+        runId: "800",
+        runAttempt: "3",
+        outcome: "active-committed",
+      }),
+    /Nested active deployment evidence contains forbidden or missing fields/,
+  );
+
   const staleProofSchema = structuredClone(evidence);
   staleProofSchema.stateProofSummary.proofSchema = `${ACTIVE_DEPLOYMENT_STATE_PROOF_SCHEMA}:stale`;
   assert.throws(

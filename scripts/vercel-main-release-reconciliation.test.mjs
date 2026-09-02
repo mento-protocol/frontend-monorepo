@@ -9,6 +9,7 @@ import {
   createMainReleaseManifest,
   decideMainPreplanReconciliation,
   decideMainReleaseReconciliation,
+  manifestRiderAliases,
   recomputeMainReleasePlan,
   reconcileMainRelease,
   reconcileMainReleaseForRecovery,
@@ -94,7 +95,16 @@ function gitEvidence(overrides = {}) {
   };
 }
 
-function prior(target, { servedSha = PRIOR_SHA, git = gitEvidence() } = {}) {
+function prior(
+  target,
+  {
+    servedSha = PRIOR_SHA,
+    git = gitEvidence(),
+    riderAliases = [
+      PRODUCTION_GENERATED_ALIAS_CONTRACTS[target].generatedProjectAlias,
+    ],
+  } = {},
+) {
   const contract = MAIN_TARGET_CONTRACTS[target];
   const base = {
     deploymentId: deploymentId(target, "prior"),
@@ -111,6 +121,7 @@ function prior(target, { servedSha = PRIOR_SHA, git = gitEvidence() } = {}) {
     deploymentId: base.deploymentId,
     deploymentUrl: base.deploymentUrl,
     aliases: base.aliases,
+    riderAliases: [...riderAliases].sort(),
     projectId: base.projectId,
     projectName: base.projectName,
     readyState: base.readyState,
@@ -405,7 +416,7 @@ test("rollback-only targets persist canonically and reproduce the forced plan", 
     plan: releasePlan,
     originalPriors,
   });
-  assert.equal(releaseManifest.schema, "vercel-main-release-manifest:v2");
+  assert.equal(releaseManifest.schema, "vercel-main-release-manifest:v3");
   assert.deepEqual(releaseManifest.rollbackOnlyTargets, [...TARGET_ORDER]);
   assert.deepEqual(
     recomputeMainReleasePlan({
@@ -1348,3 +1359,305 @@ for (const [name, candidateCount, expectedDecision] of [
     );
   });
 }
+
+const PRIOR_KEYS_V3 = [
+  "deploymentId",
+  "deploymentUrl",
+  "aliases",
+  "riderAliases",
+  "projectId",
+  "projectName",
+  "readyState",
+  "target",
+  "customEnvironmentSlug",
+  "planningLeaves",
+  "servedSha",
+];
+const PRIOR_KEYS_V2 = PRIOR_KEYS_V3.filter((key) => key !== "riderAliases");
+
+// A rider-less `:v2` seal of the same release: exactly one key fewer per prior.
+function withoutRiderAliases(releaseManifest) {
+  const downgraded = structuredClone(releaseManifest);
+  downgraded.schema = "vercel-main-release-manifest:v2";
+  for (const target of MAIN_RELEASE_ACTIVATION_ORDER) {
+    delete downgraded.originalPriors[target].riderAliases;
+  }
+  return downgraded;
+}
+
+function downgradeReleaseState(state) {
+  const downgraded = structuredClone(state);
+  downgraded.manifest = withoutRiderAliases(state.manifest);
+  for (const target of Object.keys(downgraded.candidates)) {
+    if (downgraded.candidates[target] !== null) {
+      downgraded.candidates[target].manifest = downgraded.manifest;
+    }
+  }
+  return downgraded;
+}
+
+// Everything a caller may act on. The manifest itself is deliberately excluded:
+// it is the one thing a rider-less seal legitimately differs in.
+function decisionShape(reconciliation) {
+  return {
+    schema: reconciliation.schema,
+    targets: reconciliation.targets.map(({ target, state, startMappings }) => ({
+      target,
+      state,
+      startMappings,
+    })),
+    observedTargets: reconciliation.observedTargets.map(
+      ({ target, state, startMappings }) => ({ target, state, startMappings }),
+    ),
+    inheritedCandidateTargets: reconciliation.inheritedCandidateTargets,
+    inheritedCandidateAliases: reconciliation.inheritedCandidateAliases,
+    allCandidate: reconciliation.allCandidate,
+    allPrior: reconciliation.allPrior,
+    frontier: reconciliation.frontier,
+  };
+}
+
+test("release manifest v3 names rider domains under an exact prior key order", () => {
+  const releaseManifest = manifest();
+  assert.equal(releaseManifest.schema, "vercel-main-release-manifest:v3");
+  for (const target of MAIN_RELEASE_ACTIVATION_ORDER) {
+    assert.deepEqual(
+      Object.keys(releaseManifest.originalPriors[target]),
+      PRIOR_KEYS_V3,
+    );
+    assert.deepEqual(releaseManifest.originalPriors[target].riderAliases, [
+      PRODUCTION_GENERATED_ALIAS_CONTRACTS[target].generatedProjectAlias,
+    ]);
+    // Planning leaves stay on the reviewed topology: riders belong to the
+    // deployment, not to any one reviewed alias.
+    for (const leaf of releaseManifest.originalPriors[target].planningLeaves) {
+      assert.equal(Object.hasOwn(leaf, "riderAliases"), false);
+    }
+  }
+  assert.deepEqual(assertMainReleaseManifest(releaseManifest), releaseManifest);
+});
+
+test("v3 rider domains are canonical, bounded, and disjoint from reviewed aliases", () => {
+  const releaseManifest = manifest();
+  const missing = structuredClone(releaseManifest);
+  delete missing.originalPriors.ui.riderAliases;
+  assert.throws(
+    () => assertMainReleaseManifest(missing),
+    /prior keys are missing, extra, or out of order/,
+  );
+
+  const unsorted = structuredClone(releaseManifest);
+  unsorted.originalPriors.ui.riderAliases = [
+    "uimentoorg.vercel.app",
+    "uimentoorg-mentolabs.vercel.app",
+  ];
+  assert.throws(
+    () => assertMainReleaseManifest(unsorted),
+    /rider aliases is not canonical/,
+  );
+
+  const duplicated = structuredClone(releaseManifest);
+  duplicated.originalPriors.ui.riderAliases = [
+    "uimentoorg-mentolabs.vercel.app",
+    "uimentoorg-mentolabs.vercel.app",
+  ];
+  assert.throws(
+    () => assertMainReleaseManifest(duplicated),
+    /rider aliases is not canonical/,
+  );
+
+  const overlapping = structuredClone(releaseManifest);
+  overlapping.originalPriors.ui.riderAliases = ["ui.mento.org"];
+  assert.throws(
+    () => assertMainReleaseManifest(overlapping),
+    /rider aliases overlap the reviewed topology/,
+  );
+
+  const malformed = structuredClone(releaseManifest);
+  malformed.originalPriors.ui.riderAliases = ["not a hostname"];
+  assert.throws(
+    () => assertMainReleaseManifest(malformed),
+    /rider aliases is malformed/,
+  );
+
+  const oversized = structuredClone(releaseManifest);
+  oversized.originalPriors.ui.riderAliases = Array.from(
+    { length: 33 },
+    (_unused, index) => `rider-${String(index).padStart(3, "0")}.example`,
+  );
+  assert.throws(
+    () => assertMainReleaseManifest(oversized),
+    /rider aliases is malformed/,
+  );
+});
+
+test("a v2 manifest without rider domains still decodes and classifies exactly as before", () => {
+  const state = releaseState({ candidateCount: 2 });
+  const downgraded = downgradeReleaseState(state);
+  const decoded = assertMainReleaseManifest(downgraded.manifest);
+
+  assert.equal(decoded.schema, "vercel-main-release-manifest:v2");
+  assert.deepEqual(decoded, downgraded.manifest);
+  // Re-validating a decoded manifest is stable, which is what candidate seal
+  // comparison depends on.
+  assert.deepEqual(assertMainReleaseManifest(decoded), decoded);
+  for (const target of MAIN_RELEASE_ACTIVATION_ORDER) {
+    assert.deepEqual(
+      Object.keys(decoded.originalPriors[target]),
+      PRIOR_KEYS_V2,
+    );
+    assert.equal(manifestRiderAliases(decoded, target), null);
+    assert.deepEqual(manifestRiderAliases(state.manifest, target), [
+      PRODUCTION_GENERATED_ALIAS_CONTRACTS[target].generatedProjectAlias,
+    ]);
+  }
+
+  // Identity, digests, and every reuse or rollback classification are unmoved.
+  assert.equal(decoded.releaseId, state.manifest.releaseId);
+  assert.equal(decoded.releasePlanDigest, state.manifest.releasePlanDigest);
+  assert.deepEqual(
+    decisionShape(reconcileMainRelease(downgraded)),
+    decisionShape(reconcileMainRelease(state)),
+  );
+  assert.deepEqual(
+    decisionShape(reconcileMainReleaseForRecovery(downgraded)),
+    decisionShape(reconcileMainReleaseForRecovery(state)),
+  );
+
+  const mixedSeal = structuredClone(downgraded);
+  mixedSeal.candidates.governance.manifest = structuredClone(state.manifest);
+  assert.throws(
+    () => reconcileMainRelease(mixedSeal),
+    /Release candidates disagree on their stable manifest/,
+  );
+});
+
+test("rider domains never influence selection, verification, or recovery", () => {
+  for (const candidateCount of [0, 2, 4]) {
+    const withRiders = releaseState({ candidateCount });
+    const withoutRiders = downgradeReleaseState(withRiders);
+    const emptyRiders = structuredClone(withRiders);
+    for (const target of MAIN_RELEASE_ACTIVATION_ORDER) {
+      emptyRiders.manifest.originalPriors[target].riderAliases = [];
+    }
+    for (const target of Object.keys(emptyRiders.candidates)) {
+      if (emptyRiders.candidates[target] !== null) {
+        emptyRiders.candidates[target].manifest = emptyRiders.manifest;
+      }
+    }
+
+    const expected = decisionShape(reconcileMainRelease(withRiders));
+    for (const variant of [withRiders, withoutRiders, emptyRiders]) {
+      assert.deepEqual(decisionShape(reconcileMainRelease(variant)), expected);
+      assert.deepEqual(
+        decisionShape(reconcileMainReleaseForRecovery(variant)),
+        decisionShape(reconcileMainReleaseForRecovery(withRiders)),
+      );
+      assert.deepEqual(
+        decideMainReleaseReconciliation({
+          reconciliation: reconcileMainRelease(variant),
+          currentMain: true,
+          preparation: "ready",
+        }),
+        decideMainReleaseReconciliation({
+          reconciliation: reconcileMainRelease(withRiders),
+          currentMain: true,
+          preparation: "ready",
+        }),
+      );
+      assert.deepEqual(
+        createInheritedRollbackAuthorization({
+          reconciliation: reconcileMainReleaseForRecovery(variant),
+          reason: "first-forward-command",
+        }),
+        createInheritedRollbackAuthorization({
+          reconciliation: reconcileMainReleaseForRecovery(withRiders),
+          reason: "first-forward-command",
+        }),
+      );
+    }
+  }
+});
+
+test("rider domains do not move a pre-plan reconciliation decision", () => {
+  const state = releaseState({ candidateCount: 2 });
+  const downgraded = downgradeReleaseState(state);
+  const preplanInput = (value) => ({
+    nextDeploySha: SHA,
+    nextUpstreamRunId: "700",
+    candidateReleases: [candidateRelease(value)],
+    currentMappings: value.currentMappings,
+    rollbackOnlyTargets: [],
+  });
+  const withRiders = decideMainPreplanReconciliation(preplanInput(state));
+  const withoutRiders = decideMainPreplanReconciliation(
+    preplanInput(downgraded),
+  );
+  assert.equal(withoutRiders.decision, withRiders.decision);
+  assert.equal(withoutRiders.reason, withRiders.reason);
+  assert.deepEqual(
+    withoutRiders.rollbackAuthorization,
+    withRiders.rollbackAuthorization,
+  );
+  assert.deepEqual(
+    decisionShape(withoutRiders.reconciliation),
+    decisionShape(withRiders.reconciliation),
+  );
+  assert.equal(
+    withoutRiders.reconciliation.manifest.schema,
+    "vercel-main-release-manifest:v2",
+  );
+});
+
+test("a v2 manifest recomputes the same forced plan as its v3 successor", () => {
+  const originalPriors = Object.fromEntries(
+    MAIN_RELEASE_ACTIVATION_ORDER.map((target) => [target, prior(target)]),
+  );
+  const { projectIds, priorStates } = plannerInputs(originalPriors);
+  const gitAdapter = {
+    firstParent() {
+      return "b".repeat(40);
+    },
+    isAncestor() {
+      return true;
+    },
+    resolveCommit(sha) {
+      return sha;
+    },
+  };
+  const runPlanner = () =>
+    assert.fail("rollback-only targets must bypass path-aware planning");
+  const releasePlan = planMainDeployments({
+    mode: "active",
+    mainOwnershipMode: {
+      app: "github",
+      governance: "github",
+      reserve: "github",
+      ui: "github",
+    },
+    deploySha: SHA,
+    projectIds,
+    priorStates,
+    rollbackOnlyTargets: [...TARGET_ORDER],
+    gitAdapter,
+    runPlanner,
+  });
+  const releaseManifest = createMainReleaseManifest({
+    upstreamRunId: "700",
+    plan: releasePlan,
+    originalPriors,
+  });
+  const downgraded = withoutRiderAliases(releaseManifest);
+  assert.deepEqual(
+    recomputeMainReleasePlan({
+      manifest: downgraded,
+      gitAdapter,
+      runPlanner,
+    }),
+    recomputeMainReleasePlan({
+      manifest: releaseManifest,
+      gitAdapter,
+      runPlanner,
+    }),
+  );
+});

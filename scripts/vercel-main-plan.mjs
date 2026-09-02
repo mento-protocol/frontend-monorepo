@@ -121,6 +121,31 @@ export function foreignReviewedAliases(target) {
   ).flatMap((candidate) => [...MAIN_TARGET_CONTRACTS[candidate].aliases]);
 }
 
+// The maximum number of rider domains one deployment may carry in the durable
+// release manifest. The manifest is deflated into an immutable candidate seal
+// under a 16 KiB raw bound, so the informational list stays bounded too.
+export const MAX_RIDER_ALIASES = 32;
+
+// Rider domains: every canonical hostname a deployment carries beyond the
+// reviewed aliases this pipeline records and verifies. `vercel promote` and
+// `vercel rollback` are whole-deployment commands, so a project's other
+// production domains move with every release whether or not they are named.
+// Naming them is visibility only: no selection, verification, or recovery
+// decision reads a rider list.
+export function riderAliasesFrom(deploymentAliases, reviewedAliases) {
+  if (!Array.isArray(deploymentAliases) || !Array.isArray(reviewedAliases)) {
+    throw new Error("Rider alias inputs are malformed");
+  }
+  const reviewed = new Set(
+    reviewedAliases.map((alias) => canonicalizeHostname(alias)),
+  );
+  return [
+    ...new Set(deploymentAliases.map((alias) => canonicalizeHostname(alias))),
+  ]
+    .filter((alias) => !reviewed.has(alias))
+    .sort();
+}
+
 // True when `environment` is an acceptable shape for the deployment a reviewed
 // alias served before this release. Every main target — App included — serves
 // its reviewed alias from the ordinary production environment, so a prior is

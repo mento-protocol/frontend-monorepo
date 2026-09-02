@@ -11,6 +11,7 @@ import {
   MainActivationStateError,
   partitionMainOwnership,
   planMainDeployments,
+  riderAliasesFrom,
 } from "./vercel-main-plan.mjs";
 import { PRODUCTION_GENERATED_ALIAS_CONTRACTS } from "./vercel-production-generated-aliases.mjs";
 
@@ -1675,4 +1676,49 @@ test("the same canonical evidence produces byte-identical JSON", () => {
   const first = runFixture(structuredClone(input)).plan;
   const second = runFixture(structuredClone(input)).plan;
   assert.equal(JSON.stringify(first), JSON.stringify(second));
+});
+
+test("rider aliases are the canonical remainder of a deployment's alias set", () => {
+  assert.deepEqual(
+    riderAliasesFrom(
+      [
+        "APPMENTOORG-mentolabs.vercel.app",
+        "app.mento.org",
+        "appmentoorg.vercel.app",
+        "appmentoorg-mentolabs.vercel.app",
+      ],
+      ["app.mento.org"],
+    ),
+    ["appmentoorg-mentolabs.vercel.app", "appmentoorg.vercel.app"],
+  );
+  assert.deepEqual(riderAliasesFrom(["ui.mento.org"], ["ui.mento.org"]), []);
+  assert.throws(
+    () => riderAliasesFrom("ui.mento.org", ["ui.mento.org"]),
+    /Rider alias inputs are malformed/,
+  );
+});
+
+test("rider domains on a served prior never change the planned result", () => {
+  const base = fixture();
+  base.mode = "active";
+  base.mainOwnershipMode = ownershipMode("github");
+  const bare = structuredClone(base);
+  for (const target of MAIN_DEPLOYMENT_TARGETS) {
+    for (const state of bare.priorStates[target].states) {
+      state.aliases = [...MAIN_TARGET_CONTRACTS[target].aliases].toSorted();
+    }
+  }
+  const crowded = structuredClone(base);
+  for (const target of MAIN_DEPLOYMENT_TARGETS) {
+    for (const state of crowded.priorStates[target].states) {
+      state.aliases = [
+        ...state.aliases,
+        `${target}-retired.mento.org`,
+        `${PRODUCTION_GENERATED_ALIAS_CONTRACTS[target].generatedProjectSlug}-operator-mentolabs.vercel.app`,
+      ].toSorted();
+    }
+  }
+  const expected = runFixture(base).plan;
+  assert.deepEqual(runFixture(bare).plan, expected);
+  assert.deepEqual(runFixture(crowded).plan, expected);
 });

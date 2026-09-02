@@ -4,6 +4,7 @@ import {
   acceptsPriorEnvironment,
   MAIN_DEPLOYMENT_TARGETS,
   MAIN_TARGET_CONTRACTS,
+  MAX_RIDER_ALIASES,
   assertMainDeploymentPlan,
   partitionMainOwnership,
   planMainDeployments,
@@ -14,7 +15,23 @@ import {
 } from "./vercel-deployment-url.mjs";
 import { generateVercelMainReleaseId } from "./vercel-prebuilt.mjs";
 
-const MAIN_RELEASE_MANIFEST_SCHEMA = "vercel-main-release-manifest:v2";
+// A release manifest is durable cross-run state, and every candidate seal
+// embeds an immutable copy of the one its release was planned from. `:v3` adds
+// the per-target `riderAliases` list; `:v2` seals predate it and can never grow
+// the field. Both decode, and a decoded manifest keeps the schema tag it was
+// sealed with, so re-validating a decoded manifest is stable. The difference is
+// exactly one key: a `:v2` prior has no `riderAliases`, a `:v3` prior must have
+// it. Everything else is validated identically, so a corrupt manifest is never
+// mistaken for an older one. Readers that want the list use
+// `manifestRiderAliases`, which answers `null` for "this manifest predates
+// rider capture" — never "this deployment carried no riders".
+const MAIN_RELEASE_MANIFEST_SCHEMA_V2 = "vercel-main-release-manifest:v2";
+const MAIN_RELEASE_MANIFEST_SCHEMA_V3 = "vercel-main-release-manifest:v3";
+const MAIN_RELEASE_MANIFEST_SCHEMAS = Object.freeze([
+  MAIN_RELEASE_MANIFEST_SCHEMA_V2,
+  MAIN_RELEASE_MANIFEST_SCHEMA_V3,
+]);
+const MAIN_RELEASE_MANIFEST_SCHEMA = MAIN_RELEASE_MANIFEST_SCHEMA_V3;
 const MAIN_RELEASE_RECONCILIATION_SCHEMA =
   "vercel-main-release-reconciliation:v1";
 const MAIN_PREPLAN_RECONCILIATION_SCHEMA =
@@ -45,10 +62,23 @@ const MANIFEST_KEYS = Object.freeze([
   "originalPriors",
   "releasePlanDigest",
 ]);
-const PRIOR_KEYS = Object.freeze([
+const PRIOR_KEYS_V2 = Object.freeze([
   "deploymentId",
   "deploymentUrl",
   "aliases",
+  "projectId",
+  "projectName",
+  "readyState",
+  "target",
+  "customEnvironmentSlug",
+  "planningLeaves",
+  "servedSha",
+]);
+const PRIOR_KEYS_V3 = Object.freeze([
+  "deploymentId",
+  "deploymentUrl",
+  "aliases",
+  "riderAliases",
   "projectId",
   "projectName",
   "readyState",
@@ -184,8 +214,10 @@ function canonicalOwnership(mode, mainOwnershipMode) {
 // A candidate seal is immutable, so a manifest sealed while `app.mento.org`
 // still hung off the retired `v3` custom environment stays readable forever: an
 // operator may re-map such a deployment by rolling back at any time. Exactly
-// one difference from the current contract is permitted, and only on the App
-// prior — the deployment the reviewed App domain served *before* that release:
+// one difference from the current environment contract is permitted, and only
+// on the App prior — the deployment the reviewed App domain served *before*
+// that release (this is independent of the manifest schema tag, which admits
+// `:v2` and `:v3` on every path):
 // the retired custom environment, with either the single reviewed alias that
 // the bridge era sealed or the two-alias topology that preceded it. Every other
 // field of every prior is validated by the same machinery either way, so a
@@ -229,6 +261,32 @@ function canonicalAliases(value, target, label, bridgeEraAppAliases = null) {
     JSON.stringify(canonical) !== JSON.stringify(expected)
   ) {
     throw new Error(`${label} does not match the reviewed topology`);
+  }
+  return canonical;
+}
+
+// Rider domains are informational, so this checks shape only: canonical
+// hostnames, sorted, deduplicated, bounded, and disjoint from the reviewed
+// topology recorded beside them. Which riders are acceptable stays a planning
+// question — `canonicalizeOptionalDeploymentAliases` already refuses another
+// main target's reviewed protected domain before a manifest is ever built.
+function canonicalRiderAliases(value, reviewedAliases, label) {
+  if (!Array.isArray(value) || value.length > MAX_RIDER_ALIASES) {
+    throw new Error(`${label} is malformed`);
+  }
+  let aliases;
+  try {
+    aliases = value.map(canonicalizeHostname);
+  } catch {
+    throw new Error(`${label} is malformed`);
+  }
+  const canonical = [...new Set(aliases)].sort();
+  if (JSON.stringify(value) !== JSON.stringify(canonical)) {
+    throw new Error(`${label} is not canonical`);
+  }
+  const reviewed = new Set(reviewedAliases);
+  if (canonical.some((alias) => reviewed.has(alias))) {
+    throw new Error(`${label} overlap the reviewed topology`);
   }
   return canonical;
 }
@@ -368,8 +426,14 @@ function canonicalPlanningLeaves(
   return leaves;
 }
 
-function canonicalPrior(value, target, label, bridgeEraAppAliases = null) {
-  assertExactKeys(value, PRIOR_KEYS, label);
+function canonicalPrior(
+  value,
+  target,
+  label,
+  { bridgeEraAppAliases = null, schema = MAIN_RELEASE_MANIFEST_SCHEMA } = {},
+) {
+  const carriesRiders = schema === MAIN_RELEASE_MANIFEST_SCHEMA_V3;
+  assertExactKeys(value, carriesRiders ? PRIOR_KEYS_V3 : PRIOR_KEYS_V2, label);
   const contract = MAIN_TARGET_CONTRACTS[target];
   // Every prior is held to the same production environment contract as a
   // candidate, except an App prior inside a bridge-era manifest, which carries
@@ -388,6 +452,12 @@ function canonicalPrior(value, target, label, bridgeEraAppAliases = null) {
     value.servedSha === null
       ? null
       : requireString(value.servedSha, `${label} served SHA`, SHA_PATTERN);
+  const aliases = canonicalAliases(
+    value.aliases,
+    target,
+    `${label} aliases`,
+    bridgeEraAppAliases,
+  );
   const prior = {
     deploymentId: requireString(
       value.deploymentId,
@@ -395,12 +465,16 @@ function canonicalPrior(value, target, label, bridgeEraAppAliases = null) {
       DEPLOYMENT_ID_PATTERN,
     ),
     deploymentUrl: canonicalizeDeploymentUrl(value.deploymentUrl),
-    aliases: canonicalAliases(
-      value.aliases,
-      target,
-      `${label} aliases`,
-      bridgeEraAppAliases,
-    ),
+    aliases,
+    ...(carriesRiders
+      ? {
+          riderAliases: canonicalRiderAliases(
+            value.riderAliases,
+            aliases,
+            `${label} rider aliases`,
+          ),
+        }
+      : {}),
     projectId: requireString(
       value.projectId,
       `${label} project ID`,
@@ -543,11 +617,12 @@ export function createMainReleaseManifest({
 function assertReleaseManifest(value, bridgeEraAppAliases) {
   assertExactKeys(value, MANIFEST_KEYS, "Main release manifest");
   if (
-    value.schema !== MAIN_RELEASE_MANIFEST_SCHEMA ||
+    !MAIN_RELEASE_MANIFEST_SCHEMAS.includes(value.schema) ||
     value.repository !== REPOSITORY
   ) {
     throw new Error("Main release manifest schema is unsupported");
   }
+  const schema = value.schema;
   const deploySha = requireString(
     value.deploySha,
     "Main release manifest SHA",
@@ -606,7 +681,7 @@ function assertReleaseManifest(value, bridgeEraAppAliases) {
         value.originalPriors[target],
         target,
         `Main release manifest ${target} prior`,
-        bridgeEraAppAliases,
+        { bridgeEraAppAliases, schema },
       ),
     ]),
   );
@@ -622,7 +697,7 @@ function assertReleaseManifest(value, bridgeEraAppAliases) {
     throw new Error("Main release manifest stable identity conflicts");
   }
   return {
-    schema: MAIN_RELEASE_MANIFEST_SCHEMA,
+    schema,
     repository: REPOSITORY,
     releaseId: expectedReleaseId,
     deploySha,
@@ -639,6 +714,16 @@ function assertReleaseManifest(value, bridgeEraAppAliases) {
 
 export function assertMainReleaseManifest(value) {
   return assertReleaseManifest(value, null);
+}
+
+// The rider domains a target's served prior carried, or `null` when the
+// manifest is a `:v2` seal that predates rider capture. Evidence renders that
+// difference as "unknown" rather than "none": a manifest without the field
+// proves nothing about what rode along. This is a reporting accessor — no
+// selection, verification, or recovery decision may call it.
+export function manifestRiderAliases(manifest, target) {
+  const riders = manifest?.originalPriors?.[target]?.riderAliases;
+  return Array.isArray(riders) ? [...riders] : null;
 }
 
 // Admits a manifest that is a structurally valid current manifest in every

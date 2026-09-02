@@ -20,6 +20,7 @@ import {
   MAIN_TARGET_CONTRACTS,
   assertMainDeploymentPlan,
   planMainDeployments,
+  riderAliasesFrom,
 } from "./vercel-main-plan.mjs";
 import {
   MAIN_TRANSACTION_MODE,
@@ -43,6 +44,7 @@ import {
 import {
   assertMainReleaseManifest,
   createMainReleaseManifest,
+  manifestRiderAliases,
 } from "./vercel-main-release-reconciliation.mjs";
 import {
   assertMainReleaseExecution,
@@ -104,9 +106,12 @@ export {
 
 export const MAIN_DEPLOYMENT_SCHEMA = "vercel-main-deployment:v1";
 export const MAIN_STAGE_SCHEMA = "vercel-main-stage:v1";
-export const MAIN_EVIDENCE_SCHEMA = "vercel-main-evidence:v1";
+// `:v2` of both evidence schemas adds the per-target `riderAliases` map. Both
+// are same-run artifacts, so a plain bump is enough — nothing durable carries
+// an older one.
+export const MAIN_EVIDENCE_SCHEMA = "vercel-main-evidence:v2";
 export const MAIN_FAILURE_EVIDENCE_SCHEMA = "vercel-main-failure-evidence:v1";
-export const MAIN_ACTIVE_EVIDENCE_SCHEMA = "vercel-main-active-evidence:v1";
+export const MAIN_ACTIVE_EVIDENCE_SCHEMA = "vercel-main-active-evidence:v2";
 export const MAIN_ACTIVE_CURRENT_RELEASE_EVIDENCE_SCHEMA =
   "vercel-main-active-current-release-evidence:v1";
 export const MAIN_ACTIVE_SAFE_NOOP_EVIDENCE_SCHEMA =
@@ -1108,6 +1113,10 @@ function releaseManifestFromHandoff(handoff) {
           deploymentId: planned.deploymentId,
           deploymentUrl: planned.deploymentUrl,
           aliases: [...planned.aliases],
+          // Every other domain the served deployment carried. Informational:
+          // the release evidence names what a promote repointed, and no
+          // selection, verification, or recovery decision reads this list.
+          riderAliases: riderAliasesFrom(first.aliases, planned.aliases),
           projectId: first.projectId,
           projectName: first.projectName,
           readyState: first.readyState,
@@ -3239,6 +3248,39 @@ export function createMainDeploymentFailureEvidence({
   };
 }
 
+// Rider domains for evidence, per target. `null` marks a release manifest that
+// predates rider capture (`vercel-main-release-manifest:v2`); evidence renders
+// that as "unknown", never as "none". Nothing here feeds a decision: the map is
+// derived, published, and re-derived when the terminal artifact is re-read.
+function riderAliasEvidence(manifest) {
+  return Object.fromEntries(
+    MAIN_DEPLOYMENT_TARGETS.map((target) => [
+      target,
+      manifestRiderAliases(manifest, target),
+    ]),
+  );
+}
+
+function riderAliasEvidenceFromSnapshot(handoff) {
+  return Object.fromEntries(
+    MAIN_DEPLOYMENT_TARGETS.map((target) => {
+      const reviewed = [...MAIN_TARGET_CONTRACTS[target].aliases];
+      const leaf = handoff.protectedSnapshot.states.find((state) =>
+        reviewed.includes(state.alias),
+      );
+      if (leaf === undefined) {
+        throw new Error(`Rider evidence is missing the ${target} served prior`);
+      }
+      return [target, riderAliasesFrom(leaf.aliases, reviewed)];
+    }),
+  );
+}
+
+function formatRiderAliases(riders) {
+  if (riders === null) return "unknown";
+  return riders.length === 0 ? "none" : riders.join(", ");
+}
+
 export function createMainDeploymentEvidence({
   plan,
   stages,
@@ -3429,6 +3471,7 @@ export function createMainDeploymentEvidence({
       buildAndTestConclusion: "success",
     },
     planning: handoff.planning,
+    riderAliases: riderAliasEvidenceFromSnapshot(handoff),
     stages: canonicalStages,
     app: canonicalApp,
     coordinator: coordinatorEvidence,
@@ -3937,6 +3980,9 @@ export function createMainActiveDeploymentEvidence({
     runAttempt: expectedRunAttempt,
     workflowRunUrl: expectedWorkflowRunUrl,
     planning,
+    riderAliases: riderAliasEvidence(
+      assertMainReleaseManifest(highest.release),
+    ),
     journal: {
       transactionId: highest.transactionId,
       artifactName: mainTransactionJournalArtifactName(highest),
@@ -4206,6 +4252,14 @@ export function renderMainActiveDeploymentEvidence(evidence) {
       (target) =>
         `\`${target}:${evidence.stateProofSummary.targets[target].expectedDisposition ?? "unselected"}\``,
     ).join(", ")}`,
+    // Every domain a promote moved with the reviewed alias, named but not
+    // verified. "unknown" means the release manifest predates rider capture.
+    ...MAIN_DEPLOYMENT_TARGETS.map(
+      (target) =>
+        `- Rider domains moved with \`${target}\`: ${formatRiderAliases(
+          evidence.riderAliases[target],
+        )}`,
+    ),
     "- Recovery: `not-required`; ordinary rollback-state targets: none",
     "",
   ].join("\n");
@@ -4323,14 +4377,18 @@ export function renderMainDeploymentEvidence(evidence) {
     "",
     "#### Served deployment priors",
     "",
-    "| Target | Deployment | Served SHA | Reviewed aliases |",
-    "|---|---|---|---|",
+    "| Target | Deployment | Served SHA | Reviewed aliases | Rider domains |",
+    "|---|---|---|---|---|",
     ...evidence.planning.priors.map(
       (prior) =>
         `| ${prior.target} | \`${prior.deploymentId}\` / ${prior.deploymentUrl} | ${
           prior.servedSha ? `\`${prior.servedSha}\`` : "unknown"
-        } | ${prior.aliases.map((alias) => `\`${alias}\``).join(", ")} |`,
+        } | ${prior.aliases.map((alias) => `\`${alias}\``).join(", ")} | ${formatRiderAliases(
+          evidence.riderAliases[prior.target],
+        )} |`,
     ),
+    "",
+    "Rider domains are the other domains each served deployment carried. A promote or rollback moves them wholesale with the reviewed alias; they are named here for visibility, and only the reviewed aliases are verified.",
     "",
     "#### Served-SHA ranges and selection reasons",
     "",
@@ -6119,6 +6177,7 @@ export function createMainActiveTerminalArtifacts({
         runAttempt: canonicalRunAttempt,
         workflowRunUrl: terminalWorkflowRunUrl(canonicalRunId),
         planning,
+        riderAliases: riderAliasEvidence(manifest),
         journal: {
           transactionId: highest.transactionId,
           artifactName: mainTransactionJournalArtifactName(highest),
@@ -6823,6 +6882,7 @@ export function assertMainActiveTerminalEvidenceArtifact(
         "runAttempt",
         "workflowRunUrl",
         "planning",
+        "riderAliases",
         "journal",
         "orderedVerifiedOperations",
         "freshness",
@@ -6924,6 +6984,8 @@ export function assertMainActiveTerminalEvidenceArtifact(
       runAttempt: identity.runAttempt,
       workflowRunUrl: identity.workflowRunUrl,
       planning,
+      // Re-derived from the release manifest, never trusted from the artifact.
+      riderAliases: riderAliasEvidence(manifest),
       journal,
       orderedVerifiedOperations,
       freshness,

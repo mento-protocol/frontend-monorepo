@@ -57,6 +57,7 @@ function manifest(stagedTargets = []) {
             deploymentId: prior.deploymentId,
             deploymentUrl: prior.deploymentUrl,
             aliases: prior.aliases,
+            riderAliases: [],
             projectId: `prj_${target}`,
             projectName: `${target}.mento.org`,
             readyState: "READY",

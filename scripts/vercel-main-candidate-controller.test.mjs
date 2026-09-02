@@ -54,6 +54,7 @@ function intent() {
           deploymentId: prior.deploymentId,
           deploymentUrl: prior.deploymentUrl,
           aliases: prior.aliases,
+          riderAliases: [],
           projectId: state.projectId,
           projectName: state.projectName,
           readyState: "READY",
