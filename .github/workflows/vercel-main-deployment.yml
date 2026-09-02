@@ -2144,7 +2144,6 @@ jobs:
             --journal-history "$RUNNER_TEMP/empty-history.json" \
             --outcome current-release-verified \
             --proofs-output "$RUNNER_TEMP/terminal-proofs.json" \
-            --rider-census "$RUNNER_TEMP/current-planning.json" \
             --public-smokes "$RUNNER_TEMP/public-smokes.json" \
             --stage-results "$RUNNER_TEMP/null.json" \
             --state-proof "$RUNNER_TEMP/terminal-state-proof.json"

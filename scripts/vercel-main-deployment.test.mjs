@@ -8781,6 +8781,24 @@ test("active failure evidence never claims zero after a mutation may have starte
     renderMainActiveDeploymentFailureEvidence(evidence),
     /- Rider domains moved: unknown \(no census in this job\)/,
   );
+  // But an outcome whose journal proves zero mutation commands moved nothing,
+  // and must not imply movement its own mutation count has ruled out.
+  const provenNoMutation = createMainActiveDeploymentFailureEvidence({
+    ...base,
+    journalHistory: [prepared],
+    publicServingMutationCommands: 0,
+    recoveryOutcome: "verified-no-mutation",
+    errorCode: "VERIFIED_NO_MUTATION",
+  });
+  assert.equal(provenNoMutation.riderAliases, null);
+  assert.equal(provenNoMutation.publicServingMutationCommands, 0);
+  const noMutationSummary =
+    renderMainActiveDeploymentFailureEvidence(provenNoMutation);
+  assert.match(
+    noMutationSummary,
+    /- Rider domains moved: none \(no mutation in this run\)/,
+  );
+  assert.doesNotMatch(noMutationSummary, /Rider domains moved: unknown/);
   const withRiders = createMainActiveDeploymentFailureEvidence({
     ...base,
     publicServingMutationCommands: 1,

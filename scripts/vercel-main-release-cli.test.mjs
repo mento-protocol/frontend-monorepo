@@ -56,6 +56,7 @@ import {
   createMainCurrentActivePublicSmokes,
   createMainCurrentReleaseVerifiedDeploymentStateSpec,
   createMainStageBarrier,
+  renderMainCurrentReleaseVerificationEvidence,
 } from "./vercel-main-deployment.mjs";
 import { createActiveDeploymentStateProof } from "./vercel-deployment-state.mjs";
 
@@ -1892,6 +1893,17 @@ test("terminal artifact CLI fully re-verifies an already-current release without
     "vercel-main-active-current-release-evidence:v2",
   );
   assert.equal(artifacts.proofs.outcome, "current-release-verified");
+  // This branch never captures a planning snapshot, so it supplies no census
+  // and must say it moved nothing rather than that movement is unknown.
+  assert.equal(artifacts.evidence.riderAliases, null);
+  const currentReleaseSummary = renderMainCurrentReleaseVerificationEvidence(
+    artifacts.evidence,
+  );
+  assert.match(
+    currentReleaseSummary,
+    /- Rider domains moved: none \(no mutation in this run\)/,
+  );
+  assert.doesNotMatch(currentReleaseSummary, /Rider domains moved: unknown/);
   assert.equal(artifacts.proofs.mutationCount, 0);
   assert.deepEqual(artifacts.proofs.rollbackTargets, []);
   assert.deepEqual(artifacts.proofs.affectedOperations, []);

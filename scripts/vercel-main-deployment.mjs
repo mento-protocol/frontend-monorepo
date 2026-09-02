@@ -3371,9 +3371,19 @@ function formatRiderAliases(entry) {
 
 // One line per target that actually promoted. Targets this release did not
 // promote moved nothing, so they get no line at all.
-function renderRiderAliasLines(riderAliases, targets) {
+//
+// With no census, what the report may claim depends on whether this run could
+// have moved anything. An outcome whose journal proves zero public-serving
+// mutation commands moved nothing, and "unknown" there would contradict the
+// mutation count printed beside it. "unknown" is reserved for the case it
+// actually describes: a mutation may have started and this job has no census.
+function renderRiderAliasLines(riderAliases, targets, { mutated }) {
   if (riderAliases === null) {
-    return ["- Rider domains moved: unknown (no census in this job)"];
+    return [
+      mutated
+        ? "- Rider domains moved: unknown (no census in this job)"
+        : "- Rider domains moved: none (no mutation in this run)",
+    ];
   }
   return targets.map(
     (target) =>
@@ -4372,6 +4382,7 @@ export function renderMainActiveDeploymentEvidence(evidence) {
     ...renderRiderAliasLines(
       evidence.riderAliases,
       evidence.planning.activeTargets,
+      { mutated: evidence.publicServingMutationCommands > 0 },
     ),
     "- Recovery: `not-required`; ordinary rollback-state targets: none",
     "",
@@ -4398,10 +4409,13 @@ export function renderMainCurrentReleaseVerificationEvidence(evidence) {
       (target) => `\`${target}:${evidence.publicSmokes[target].status}\``,
     ).join(", ")}`,
     `- Canonical deployment state proof: \`${evidence.stateProofSummary.proofSchema}\` is \`${evidence.stateProofSummary.outcome}\``,
-    // The verified release's own promotes moved these, in an earlier attempt.
+    // This run verifies an already-complete release and mutates nothing; the
+    // promotes that moved these domains belong to the earlier attempt, which
+    // this job took no census of. It must not imply movement here.
     ...renderRiderAliasLines(
       evidence.riderAliases,
       evidence.planning.activeTargets,
+      { mutated: false },
     ),
     "- Active journal: `not-applicable`",
     "- Public-serving mutation commands: `0`",
@@ -4469,10 +4483,12 @@ export function renderMainActiveDeploymentFailureEvidence(evidence) {
         .join(", ") || "none"
     }`,
     // A promote that was later recovered or left for manual intervention still
-    // moved these domains; the terminal report has to name them.
+    // moved these domains; the terminal report has to name them. A
+    // `verified-noop` proves zero mutation commands, so it says so instead.
     ...renderRiderAliasLines(
       evidence.riderAliases,
       Object.keys(evidence.riderAliases ?? {}),
+      { mutated: evidence.publicServingMutationCommands > 0 },
     ),
     "- Outcome: `failed`; publish this evidence before failing the release.",
     "",

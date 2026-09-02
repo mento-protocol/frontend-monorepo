@@ -3158,3 +3158,57 @@ test("root workflow keeps direct Vercel mutation commands inside reviewed adapte
   assert.doesNotMatch(workflowSource, /--token\b/);
   assert.doesNotMatch(workflowSource, /\.vercel\/output/);
 });
+
+// A supplied rider census is read immediately by `terminal-artifacts`, so a
+// step that passes one must be unreachable unless the file exists. Every
+// consumer therefore needs an earlier producer in the same job whose condition
+// holds whenever the consumer's does. Getting this wrong fails the terminal
+// handoff on a real merge, which is how a visibility-only field could take
+// production verification down.
+test("every rider census passed to terminal-artifacts has a producer under the same conditions", () => {
+  const conjuncts = (step) =>
+    typeof step.if === "string"
+      ? step.if
+          .split("&&")
+          .map((part) => part.trim().replace(/\s+/g, " "))
+          .filter((part) => part.length > 0)
+      : [];
+  let consumers = 0;
+  for (const jobName of Object.keys(workflow.jobs)) {
+    const jobSteps = steps(jobName);
+    for (const [index, step] of jobSteps.entries()) {
+      const run = step.run ?? "";
+      if (!run.includes("terminal-artifacts")) continue;
+      const census = run.match(/--rider-census "([^"]+)"/);
+      if (census === null) continue;
+      consumers += 1;
+      const path = census[1];
+      const consumerConditions = new Set(conjuncts(step));
+      const producer = jobSteps
+        .slice(0, index)
+        .find(
+          (candidate) =>
+            (candidate.run ?? "").includes(`--output "${path}"`) &&
+            conjuncts(candidate).every((part) => consumerConditions.has(part)),
+        );
+      assert.ok(
+        producer !== undefined,
+        `${jobName}: "${step.name}" passes --rider-census ${path} with no earlier producer whose condition is implied by its own`,
+      );
+    }
+  }
+  // Guard the guard: if the flag is ever dropped entirely this test must not
+  // silently pass on an empty set.
+  assert.equal(consumers, 1);
+});
+
+test("the journal-free existing-release verification passes no rider census", () => {
+  const currentRelease = named(
+    "activate-and-verify",
+    "already-current release terminal",
+  );
+  assert.match(currentRelease.if, /decision == 'verify-existing-release'/);
+  // That branch never captures a planning snapshot, so it must not claim one.
+  assert.doesNotMatch(currentRelease.run, /--rider-census/);
+  assert.match(currentRelease.run, /--outcome current-release-verified/);
+});

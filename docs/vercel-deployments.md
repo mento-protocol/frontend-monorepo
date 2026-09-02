@@ -881,14 +881,30 @@ per target and at `MAIN_RIDER_ALIAS_BYTE_BUDGET` (4096 bytes) across the map,
 with `omitted` counting what the caps dropped. Truncation is deliberate and
 deterministic: visibility must never become a new way for a deploy to fail, and
 the budget sits far below the 64 KiB terminal-evidence and 256 KiB bridge caps
-so the rider map can never be what overruns an artifact. A whole map of `null`
-means the producing job took no census — the recovery jobs have none — and
-renders as `unknown` rather than as `none`. The terminal reader carries the map
-rather than re-deriving it (riders are mutable, and a later read would
-legitimately disagree), but still holds it to the canonical shape, the caps, and
-the promoted-target scope. Wiring a census into the recovery terminal producer
-is deliberately left as follow-up: it would add a credentialed provider read to
-the recovery path.
+so the rider map can never be what overruns an artifact.
+
+A whole map of `null` means the producing job took no census, and how that
+renders depends on whether the run could have moved anything at all. When the
+journal proves zero public-serving mutation commands — `verified-noop`, and the
+journal-free `current-release-verified` path — the report says
+`none (no mutation in this run)`; claiming `unknown` there would contradict the
+mutation count printed beside it. `unknown (no census in this job)` is reserved
+for the case it describes: a mutation may have started and this job has no
+census, which is the recovery jobs' situation.
+
+Only jobs that already capture a planning snapshot may pass `--rider-census`,
+and the option is read immediately, so a step that supplies a path the job does
+not produce fails the terminal handoff outright. The
+`verify-existing-release` branch of `activate-and-verify` captures no snapshot
+and therefore supplies none. A structural workflow test requires every
+`terminal-artifacts` invocation that passes `--rider-census` to have an earlier
+producer of that file in the same job whose condition is implied by its own.
+
+The terminal reader carries the map rather than re-deriving it (riders are
+mutable, and a later read would legitimately disagree), but still holds it to
+the canonical shape, the caps, and the promoted-target scope. Wiring a census
+into the recovery terminal producer is deliberately left as follow-up: it would
+add a credentialed provider read to the recovery path.
 
 The `result` job evaluates the terminal receipt and evidence and sets the
 `Vercel Main Deployment` workflow outcome. The `Fail closed before release
