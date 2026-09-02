@@ -1,0 +1,175 @@
+{
+  "schema": "dependabot-prep-policy:v1",
+  "repository": "mento-protocol/frontend-monorepo",
+  "baseRef": "main",
+  "identities": {
+    "pullRequestAuthor": {
+      "id": 49699333,
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    },
+    "forcePushActor": {
+      "id": 49699333,
+      "login": "dependabot",
+      "type": "Bot"
+    },
+    "nativeCommitAuthor": {
+      "id": 49699333,
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    },
+    "nativeCommitters": [
+      {
+        "id": 49699333,
+        "login": "dependabot[bot]",
+        "type": "Bot"
+      },
+      {
+        "id": 19864447,
+        "login": "web-flow",
+        "type": "User"
+      }
+    ]
+  },
+  "nativeCommit": {
+    "parentCount": 1,
+    "verified": true,
+    "verificationReason": "valid"
+  },
+  "trustedMaintainer": {
+    "associations": ["COLLABORATOR", "MEMBER", "OWNER"],
+    "branchMaintenancePermissions": ["admin", "write"]
+  },
+  "vetoLabels": [
+    "dependencies:manual",
+    "dependabot:manual",
+    "do-not-merge",
+    "no-auto-merge",
+    "processor:veto"
+  ],
+  "branchMaintenance": {
+    "commands": ["@dependabot rebase", "@dependabot recreate"],
+    "requirePositiveCommentId": true,
+    "requireUneditedComment": true,
+    "requireValidUtcTimestamps": true,
+    "rebaseResetsForcePushHistory": false,
+    "recreateStartsGenerationAfterComment": true
+  },
+  "feedback": {
+    "requireCompletePagination": true,
+    "reviewRequest": {
+      "acceptedStates": ["APPROVED", "COMMENTED"],
+      "body": "@coderabbitai review",
+      "reviewer": {
+        "id": 136622811,
+        "login": "coderabbitai[bot]",
+        "type": "Bot"
+      },
+      "requiresAuthenticatedOperator": true,
+      "requiresAppendOnlyInvocationRecords": true,
+      "requiresExactHeadBindingAtCreation": true,
+      "requiresStableCommentId": true,
+      "historicalAuthenticatedHeadsRemainAdmitted": true
+    },
+    "topLevelResponse": {
+      "markerSchema": "dependabot-prep-comment:v1",
+      "requiresAppendOnlyInvocationRecord": true,
+      "requiresAuthenticatedOperator": true,
+      "requiresExactHeadBindingAtCreation": true,
+      "requiresRootBodyDigest": true,
+      "requiresRootIdDigest": true,
+      "requiresStableCommentId": true,
+      "requiresVisibleBodyDigest": true
+    },
+    "dependabotOperationalComments": {
+      "actor": {
+        "id": 49699333,
+        "login": "dependabot[bot]",
+        "type": "Bot"
+      },
+      "associations": ["CONTRIBUTOR", "NONE"],
+      "bodyRule": "any-bounded-body",
+      "maximumBodyLength": 50000
+    },
+    "informationalBotIssueComments": {
+      "maximumBodyLength": 50000,
+      "rules": [
+        {
+          "actor": {
+            "id": 41898282,
+            "login": "github-actions[bot]",
+            "type": "Bot"
+          },
+          "app": { "id": 15368, "slug": "github-actions" },
+          "associations": ["NONE"],
+          "predicates": [
+            {
+              "kind": "startsWith",
+              "value": "<!-- vercel-preview-journal:v2 -->"
+            },
+            {
+              "kind": "includes",
+              "value": "**No reviewer action is required.**"
+            }
+          ]
+        },
+        {
+          "actor": {
+            "id": 62215774,
+            "login": "argos-ci[bot]",
+            "type": "Bot"
+          },
+          "app": { "id": 57576, "slug": "argos-ci" },
+          "associations": ["NONE"],
+          "predicates": [
+            {
+              "kind": "startsWith",
+              "value": "**The latest updates on your projects.** Learn more about [Argos notifications ↗︎](https://argos-ci.com/docs/learn/review-workflow/pull-request-comments)"
+            }
+          ]
+        },
+        {
+          "actor": {
+            "id": 35613825,
+            "login": "vercel[bot]",
+            "type": "Bot"
+          },
+          "app": { "id": 8329, "slug": "vercel" },
+          "associations": ["NONE"],
+          "predicates": [{ "kind": "startsWith", "value": "[vc]: " }]
+        },
+        {
+          "actor": {
+            "id": 199175422,
+            "login": "chatgpt-codex-connector[bot]",
+            "type": "Bot"
+          },
+          "app": { "id": 1144995, "slug": "chatgpt-codex-connector" },
+          "associations": ["NONE"],
+          "predicates": [
+            {
+              "kind": "startsWith",
+              "value": "Codex Review: Didn't find any major issues."
+            }
+          ]
+        }
+      ]
+    },
+    "trustedMaintainerIssueComment": "manual-unless-exact-branch-command-or-current-invocation-procedural-comment",
+    "unknownOrMalformedBotFeedback": "blocked"
+  },
+  "history": {
+    "closeOrReopenByNonDependabot": "manual",
+    "existingNonNativeHead": "manual",
+    "forcePushRequiresCompletePagination": true,
+    "forcePushRequiresContinuousShas": true,
+    "forcePushRequiresNonCyclicShas": true,
+    "forcePushRequiresOrderedUtcTimestamps": true,
+    "forcePushRequiresUniqueEventIds": true,
+    "unknownForcePush": "blocked"
+  },
+  "githubActions": {
+    "refMutation": "forbidden",
+    "requiresCurrentNativeGreenHead": true
+  }
+}

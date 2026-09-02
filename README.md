@@ -36,7 +36,7 @@ frontend-monorepo/
 ├── .trunk/                   # Trunk CLI configuration and cache
 ├── docs/
 │   ├── adr/                  # Architecture decision records and lifecycle
-│   └── dependabot-automation.md # Dependabot processor operator runbook
+│   └── dependabot-automation.md # External-agent Dependabot preparation runbook
 ├── turbo.json                # Turborepo configuration
 └── pnpm-workspace.yaml       # PNPM workspace configuration
 ```
@@ -132,14 +132,8 @@ pnpm ci:action-pins
 # Run the action-pin scanner and REST materializer fixture suites
 pnpm ci:action-pins:test
 
-# Evaluate a saved Dependabot snapshot in observe mode (separator required)
-pnpm dependabot:process -- evaluate --input path/to/snapshot.json --mode observe
-
-# Test Dependabot policy, CLI, and trusted-workflow contracts without network access
-pnpm dependabot:process:test
-
-# Render and validate the checked-in Dependabot production soak evidence
-pnpm dependabot:soak
+# Test the native Dependabot schedule, grouping, and dependency policy
+pnpm dependency:policy:test
 
 # Remind on newly added architecture-significant workflows/workspaces
 pnpm adr:check
@@ -357,206 +351,65 @@ To update a dependency version across the entire monorepo:
 
 All packages referencing `"react": "catalog:"` will automatically use the new version.
 
-#### Dependabot Processing
+#### Dependabot preparation
 
-Dependabot preparation is human-merge-only. The trusted controller supports
-exact `observe`, `assist`, and `prepare` modes; missing, legacy `merge`,
-or unknown values become `observe`. `observe` classifies, `assist` publishes
-non-authorizing evidence for human handling, and `prepare` may refresh, apply
-at most two bounded
-repairs, re-review, satisfy receipt-bound feedback, create the ruleset-required
-processor approval, and publish `Dependabot ALL CLEAR`. It never merges or
-enables native auto-merge. A maintainer performs the final squash merge through
-one of two explicit paths. A prepared change requires a successful exact-head
-`Dependabot ALL CLEAR` check and its exact processor approval. A
-`manual-review` change requires an explicit maintainer takeover. A maintainer
-agent must confirm that `autoMergeRequest` is `null` before any branch mutation
-and immediately before each push. It may then merge the current base into the
-branch without rebasing or force-pushing, resolve conflicts, fix valid findings,
-validate, and push. After each push, it must request a new review from the
-existing CodeRabbit GitHub App. It must require the exact `coderabbitai[bot]`
-Bot identity and a review record whose immutable `commit_id` equals the pushed
-head. It must reply to every review comment and resolve eligible threads. At
-handoff, the agent must re-read the live head and base SHAs. If the head differs
-from local `HEAD` or the base differs from the merged base, it must repeat the
-loop. It must report the exact final head and stop. It must not dismiss a
-review, submit a review
-approval, create a processor approval, publish or claim
-`Dependabot ALL CLEAR`, enable auto-merge, or merge. Human approval is not
-required for this preparation handoff. All other required checks must pass, and
-all feedback must be resolved, on the exact final head and base. Before merging
-the change, verify the exact current head and base, all repository-required
-checks, resolved feedback, a current human
-approval, the ruleset-required approval after the latest push, mergeability,
-and absence of auto-merge. The packetless failed
-`Dependabot Processor` check is non-required and intentionally waived for this
-manual path.
+Dependabot creates native npm and GitHub Actions pull requests each Monday at
+06:00 UTC. An OpenClaw job is installed for Monday at 10:15 UTC. It remains
+disabled until the one-time cutover in the runbook passes. After activation,
+OpenClaw is the scheduled operator. The repository contract is runtime-neutral:
+a manual sweep may use Codex, Claude Code, OpenClaw, or another compatible
+agent runtime. Version 1 has no event webhook or standing poller.
 
-Native events from the exact Dependabot bot sender enter through the credentialless
-`.github/workflows/dependabot-intake.yml`. Refresh/Repair successors enter
-through the distinct credentialless
-`.github/workflows/dependabot-prepared-head-intake.yml`, which authenticates
-the exact Prepare App bot, a bounded nine-key dispatch, and the completed
-operation receipt. `.github/workflows/dependabot-claude-review.yml` handles
-both sources without candidate checkout or execution. Its read-only job
-restricts built-in tools to Bash, denies every MCP tool, and uses a trusted
-fail-closed `PreToolUse` guard to authorize one exact bound repository-scoped
-`gh pr diff` command per run attempt. A paired `PostToolUse` guard and a later
-no-token assertion require the same successful, complete foreground diff
-result. The post-hook seals the original bytes in a
-`dependabot-claude-review-tool-completed:v2` receipt, then delivers those exact
-bytes as one `text/plain` document tool result, bypassing Claude Code 2.1.243's
-30,000-character Bash text-result persistence. It emits canonical exact-head
-results; validated findings can feed a bounded repair, while a missing, failed,
-interrupted, empty, persisted/truncated, or otherwise invalid diff remains
-retry-first. The processor may rerun the exact trusted review twice for a
-bounded transient provider status. It reruns only when that failure remains the
-newest trusted exact-head Claude result. Attempt three is terminal. The retry
-job has Actions write and read-only PR/check access. It has no repository-write,
-check-write, App, or Claude credential.
+The agent invokes the generic `dependabot-prep` skill. That skill discovers and
+prepares update pull requests across JavaScript repositories. This repository's
+Mento-specific policy remains in
+[`docs/dependabot-automation.md`](docs/dependabot-automation.md) and
+`.github/dependabot-prep-policy.json`.
 
-Repair planning uses a separate least-privilege boundary. A trusted read-only
-step materializes and seals the exact packet-bound compare, Git blobs, failed
-job logs, and findings. The token-free planner may only use guarded `Read` and
-`Grep` calls inside that evidence directory; paired hooks and a postflight
-assertion require a successful exact evidence read, and large files require
-explicit one-based bounded Read pages. `Grep` may locate the relevant ranges. A
-secretless validator then re-fetches every input through the exact Git blob API before any staged
-commit or branch mutation can occur.
+The operator-controlled scheduler pins the reviewed skill by canonical source
+path and SHA-256 digest. Every write-capable run verifies that pin before it
+uses repository-write authority. A skill update keeps the schedule disabled
+until byte-identical installation and a supervised rehearsal pass.
+It also pins the trusted pre-model launcher and any runtime-specific
+instruction-isolation adapter by canonical path and SHA-256 digest. That
+launcher establishes a repository-instruction-free or proved exact-base launch
+context before the model starts. A current-host test must prove that access to a
+candidate clone cannot load its instruction files, execute its configuration,
+or make a candidate-triggered network request. A manual session without that
+pre-model proof remains read-only until it is relaunched.
+If an exact-base launch sees `main` move, it must stop writes and relaunch from
+the new base. An instruction-free launch must discard stale policy, candidate
+state, and evidence, then rebind policy and restart classification.
+The scheduler also pins and tests the skill's bundled one-shot exact-CAS push
+adapter, credential helper, and exact Git, Node, and GitHub CLI provider
+toolchain.
+Scheduled and manual write runs share one operator-owned repository lease, so
+only one sweep can mutate the repository at a time.
 
-Stable same-major Vercel updates and the exact `frontend-core` Next catalog
-update use typed v3 model-free plans. The Next operation updates the workspace
-catalog and root `pnpm.overrides` together. It uses pnpm 10.34.4 for one target
-solve, imports only the authenticated Next runtime closure into the sealed
-source lock, and preserves unrelated source resolutions. An independent job
-reproduces the plan. A terminal no-output job then runs the candidate CLI under
-a separate non-sudo account with read-only trusted inputs, no registered runner
-action or post action, and no secret or write authority.
+The skill is read-only by default. A scheduled or manual write invocation must
+grant each mutation class explicitly. Preparation uses a sanitized standalone
+clone for each pull request and does not execute candidate code. Exact-head
+secretless CI provides validation. It includes exact bot, lineage, and ref
+verification, trusted-base policy binding, complete feedback history, full
+dependency and lockfile review, base-branch synchronization without rebase or
+force-push, required compatibility fixes, current-head review, and feedback
+responses. Next.js, Vercel CLI, and protected pnpm runtime or bootstrap
+rotations always require the maintainer takeover in
+[`docs/dependency-overrides.md`](docs/dependency-overrides.md).
 
-The preparable tier includes verified npm updates, including grouped and major
-updates. Verified non-sensitive GitHub Actions updates may be prepared only
-while their native Dependabot head is current and green. The Prepare App never
-refreshes or repairs a generation whose live diff contains
-`.github/workflows/**` or `.github/actions/**`. Each ref mutator re-fetches the
-exact file inventory immediately before its write. It revalidates the exact
-current ref and moves only the intent-bound successor with `force=false`, so a
-non-fast-forward drift is rejected. A stale or failing Actions update becomes
-`manual-repair-required`. Sensitive
-self-reviewing Actions; workflow-policy, deployment, authentication, credential,
-or security changes; unknown metadata; untrusted force-push histories; human
-vetoes; unresolved feedback outside an exact packet-bound repair; and exhausted
-repairs remain blocked. A complete native-to-native Dependabot rewrite chain
-starts a new generation. A typed Vercel or Next sync can bind only its exact
-structured Cursor finding. The finding must match the operation's source and
-target versions, exact root manifest or lockfile path, and a review commit from
-the authenticated prepare lineage. This includes a reviewed intermediate repair
-head that remains in the authenticated lineage after a required refresh. The packet binds the immutable original review commit
-even when GitHub retargets the comment's current commit after a branch refresh.
-The ALL CLEAR receipt keeps the dependency risk/update metadata for the human
-decision.
+Pre-existing non-native heads remain manual across invocations. Actions refs
+are never mutated. A non-sensitive Actions update can pass only on its current,
+unchanged native green head. Sensitive or self-reviewing Actions remain manual.
+The agent never approves, dismisses a review, enables auto-merge, or merges. It
+reports `prepared for maintainer decision`, `blocked`, `manual`, or `read-only`,
+with the exact final head and base, checks, review state, dependency risk, and
+blockers. A maintainer provides the current human approval and performs the
+final squash merge.
 
-Sensitive and self-reviewing Actions remain manual. This includes OSV
-scanner/reporter updates. The workflow contract requires exactly one scanner
-step and one reporter step. Both actions must use full lowercase 40-character
-SHA pins at the same revision. The test does not mirror the current revision in
-another source file. Use the explicit `manual-review` maintainer takeover path
-for these updates. Never report this path as Dependabot ALL CLEAR.
-
-Configure the repository-scoped Prepare App with variables
-`DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,
-`DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG`,
-`DEPENDABOT_PROCESSOR_PREPARE_BOT_ID`, and
-`DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN`, plus secret
-`DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY`. The short-lived token exists
-only in a repair-staging, ref-mutation/refresh, or authenticated-dispatch job.
-A separate no-App-token finalize phase owns approval and ALL CLEAR. Install the
-App with `contents: write` and `pull-requests: write`. Update-branch and Refresh
-need both permissions. Repair and dispatch request only Contents. Grant no
-bypass, Actions, workflow, deployment, package, environment, or provider
-permission. Contents write technically reaches GitHub's merge
-endpoint, so the reviewed code contains no merge call and revokes the token
-before approval; the final merge remains human.
-
-After an App ref move, the Prepare App is the pull-request event sender. Direct
-PR workflows grant repository credentials only to a same-repository `User` PR
-author and `User` sender. Direct PR and candidate jobs for prepared Dependabot
-heads therefore receive no repository secrets, do not persist checkout
-credentials, and disable dependency, Foundry, and Trunk caches. Pull-request
-supply-chain scans use the local `_osv-scanner-readonly.yml` adapter and remain
-read-only. Schedule and manual scans own SARIF write authority.
-
-Only an exact `refresh-pending` result mints the processor's refresh-capable
-Prepare App token. Repair staging, repair mutation, and authenticated dispatch
-mint separate downscoped Prepare App tokens. Native green heads skip mutation
-and can finalize without App configuration. A same-head `repair-pending` result
-keeps its original packet/run and emits no duplicate packet or identical
-Processor check.
-
-A packetless Processor check is a non-authorizing status record. It does not
-enter repair-receipt or attempt accounting. Only a `packet=true` check can bind
-repair authority, and that check requires terminal-success workflow
-provenance. Packetless manual checks include one deterministic reason and next
-action in their bounded summary.
-
-The authority receipts are `Dependabot Refresh`
-(`dependabot-refresh:v1`), `Dependabot Repair Intent`
-(`dependabot-repair-intent:v1`), `Dependabot Repair`
-(`dependabot-repair:v1`), and `Dependabot ALL CLEAR`
-(`dependabot-all-clear:v1`). They bind canonical JSON to the exact PR,
-old/new/base commits, workflow SHA/run/attempt, App bot identity when used, and
-operation digests. Refresh requires an old-head request plus the exact
-two-parent result and does not consume the two-repair budget. Repair requires a
-v2 generic or v3 typed Processor packet, a durable packet/plan/tree-bound intent
-before the exact ref move, and one exact-parent App commit whose GitHub
-verification is valid.
-If the run fails, is cancelled, times out, needs action, or has a startup
-failure after the ref move, a checks-only recovery revalidates the exact intent
-and current head before publishing the completed receipt. Normal pre-move work
-and checks-only recovery each get at most two exact-evidence infrastructure
-retries, separate from the two-commit repair limit.
-
-A sole valid ALL CLEAR receipt plus its exact processor approval stays pinned,
-including during a run triggered for another PR, until the human merge and its
-post-merge proof complete or current evidence invalidates it.
-
-ALL CLEAR means the exact head is on current `main`, every gate and clean
-re-review passed, feedback is clear, mergeability/ruleset/review state is
-satisfied, the exact processor approval exists, and no auto-merge or competing
-candidate exists. Keep one candidate serialized until the human merge SHA has
-default-branch CI and release proof. A late comment or new `main` commit can
-invalidate this snapshot before the click.
-
-A failed post-approval validation publishes an automation-invalidating
-exact-head failure before it dismisses the processor approval. The optional
-failed check does not remove GitHub merge authority; dismissal does. Finalize
-replaces that failure with a neutral, non-authorizing tombstone only after fresh
-evidence proves no processor approval, `REVIEW_REQUIRED`, `BLOCKED`, and no
-auto-merge. It proves the same state again before it creates a new approval.
-A later run changes a persisted tombstone back to failure before it trusts that
-state. Failed recovery restores every attempted target, dismisses every
-observed processor approval, and disables a sole exact auto-merge request.
-Multiple, malformed, or ambiguous auto-merge requests remain blocking and fail
-closed. Post-approval failure uses the same rollback, including when the
-approval response is ambiguous. Two consecutive paired global scans must then
-prove both authority inventories empty within five attempts.
-
-Run the network-free evaluator and contract suite with:
-
-```bash
-pnpm dependabot:process -- evaluate --input path/to/snapshot.json --mode observe
-pnpm dependabot:process:test
-pnpm dependabot:soak
-```
-
-The soak command validates an offline observational report. Revalidate every
-exact PR, check, workflow run, and authority claim against live GitHub before
-changing a pending row to passed. Offline validation does not certify GitHub
-provenance.
-
-See the [Dependabot processing runbook](docs/dependabot-automation.md) and
-[ADR 0006](docs/adr/0006-dependabot-processing-controller.md) with its native
-rewrite boundary in
-[ADR 0008](docs/adr/0008-authenticated-dependabot-native-generation-boundaries.md).
+Dependabot pull requests remain secretless. The read-only Vercel preview intake
+validates their exact identity and lets trusted default-branch code publish a
+preview-disabled status. It never gives candidate code a preview credential or
+repository write token.
 
 #### When to Use Catalog vs Direct Versions
 
@@ -657,26 +510,27 @@ feat(ui): add new button component
 
 The repository is set up with GitHub Actions for CI:
 
-- **CI**: On every PR, it plans the changed-file scope, fans build, two unit-test shards, and static analysis out in parallel, then reports the existing required `Build and Test` sentinel. The shards partition the root `pnpm test` command: `Unit tests (workspaces)` runs `pnpm test:ci:workspaces` (ADR, Dependabot, and lockfile-lint suites plus the Turborepo workspace tests) and `Unit tests (Vercel contracts)` runs `pnpm test:ci:vercel` (the Vercel deployment contract suites). Sharding shortens CI's critical path, which is the point for PR feedback. The main deployment pipeline does not inherit that saving one-for-one: its own read-only pre-gate prefix runs about 187 seconds regardless of CI and floors when staging can start, so the deploy path inherits only whatever CI was above that floor. [docs/vercel-deployments.md](docs/vercel-deployments.md) carries the measurement and the re-measure note. Markdown- and `docs/**`-only PRs skip builds, both unit shards, type checking, and Knip, but retain the Trunk static checks for Markdown validation and secret scanning. Scope-planning errors and all other PR paths fail closed into full validation. Every `main` push runs the full suite so a successful `CI/CD` workflow is trustworthy recovery evidence for the failure notifier.
+- **CI**: On every PR, it plans the changed-file scope, fans build, two unit-test shards, and static analysis out in parallel, then reports the existing required `Build and Test` sentinel. The shards partition the root `pnpm test` command: `Unit tests (workspaces)` runs `pnpm test:ci:workspaces` (ADR, dependency-policy, and lockfile-lint suites plus the Turborepo workspace tests) and `Unit tests (Vercel contracts)` runs `pnpm test:ci:vercel` (the Vercel deployment contract suites). Sharding shortens CI's critical path, which is the point for PR feedback. The main deployment pipeline does not inherit that saving one-for-one: its own read-only pre-gate prefix runs about 187 seconds regardless of CI and floors when staging can start, so the deploy path inherits only whatever CI was above that floor. [docs/vercel-deployments.md](docs/vercel-deployments.md) carries the measurement and the re-measure note. Markdown- and `docs/**`-only PRs skip builds, both unit shards, type checking, and Knip, but retain the Trunk static checks for Markdown validation and secret scanning. Scope-planning errors and all other PR paths fail closed into full validation. Every `main` push runs the full suite so a successful `CI/CD` workflow is trustworthy recovery evidence for the failure notifier.
 - **Quality budgets**: The always-reported [Quality Budgets](docs/quality-budgets.md)
   check enforces production-source coverage and gzip route limits. Its general
   CI failure notifier opens or updates one issue for an operational workflow
   failure and closes the issue after recovery.
-- **Dependabot processing**: A credentialless intake exposes only bounded PR
-  identity to trusted `workflow_run` consumers. A separate credentialless
-  prepared-head intake authenticates exact Refresh/Repair successors from the
-  Prepare App. The bounded `dependabot-process` repository dispatch remains an
-  operator sweep. The default-branch processor revalidates the exact head,
-  attributes base failures, and may fully prepare one ALL CLEAR candidate at a
-  time; it never merges. Native/prepared intake and Claude-review completions
-  resume processing, with ten-minute reconciliation for missed events. There is no
-  `workflow_dispatch` path. Unknown mode or evidence stays observe-only and
-  manual/veto policy can only remove authority. Sensitive Actions remain manual
-  and receive an actionable Processor summary. See
-  [the operator runbook](docs/dependabot-automation.md) and
-  [ADR 0006](docs/adr/0006-dependabot-processing-controller.md) with its native
-  rewrite boundary in
-  [ADR 0008](docs/adr/0008-authenticated-dependabot-native-generation-boundaries.md).
+- **Dependabot preparation**: Native npm and GitHub Actions updates open at
+  06:00 UTC each Monday. A disabled OpenClaw job is installed for 10:15 UTC and
+  will invoke the runtime-neutral `dependabot-prep` skill with bounded write
+  grants after the one-time cutover passes. Its declaration pins the canonical
+  skill source, trusted pre-model launcher, and any runtime-specific
+  instruction-isolation adapter by canonical path and reviewed SHA-256 digest
+  for every write-capable run. The launcher establishes a trusted launch context
+  and passes a current-host candidate-instruction isolation test before the
+  model starts. An unproved manual session remains read-only.
+  The default branch path edits a sanitized standalone clone without executing
+  candidate code, then relies on exact-head secretless CI. It leaves Actions
+  refs unchanged and treats a pre-existing non-native head as manual. The agent
+  prepares admitted exact PR heads and reports evidence. It never approves or
+  merges. A maintainer gives the final approval and performs the squash merge. See
+  [the preparation runbook](docs/dependabot-automation.md) and
+  [ADR 0009](docs/adr/0009-external-agent-dependabot-preparation.md).
 - **CD**: GitHub Actions automatically builds `app.mento.org`,
   `governance.mento.org`, `reserve.mento.org`, and `ui.mento.org` previews for
   trusted same-repository PRs with exact-SHA aggregate `Vercel Preview`
@@ -822,8 +676,8 @@ installs every workspace project. Every `vercel-main-deployment.yml` job sets it
 to `frontend-monorepo`, and so does the secretless `_vercel-preview-smoke.yml`
 job, because their orchestration and smoke scripts need no app or package
 workspace; `vercel-preview-controller.yml` narrows its own raw
-`pnpm --filter frontend-monorepo install` the same way. Prepared Dependabot
-runs disable that cache and the Trunk action cache through the same positive
+`pnpm --filter frontend-monorepo install` the same way. Dependabot runs disable
+that cache and the Trunk action cache through the same positive
 repository-credential grant.
 Production-shadow candidate builds instead use the dedicated-UID
 `.github/actions/vercel-candidate-build` boundary documented in the deployment

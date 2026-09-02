@@ -15,9 +15,9 @@
  *      registry is configured (i.e. all packages resolve from the default
  *      https://registry.npmjs.org).
  *
- *   3. pnpm advisory guard: while OSV misclassifies patched pnpm 10.x releases,
- *      reject every actually affected pnpm package version explicitly. This
- *      keeps the narrowly scoped scanner correction from masking a downgrade.
+ *   3. pnpm advisory guard: reject every affected pnpm package version
+ *      explicitly. This enforces the fixed floors independently from scanner
+ *      behavior and configuration.
  *
  *   4. brace-expansion advisory guard: the OSV correction for the reviewed
  *      2.1.2 backport is advisory-wide. Reject every affected <=5.0.7 release
@@ -88,8 +88,9 @@ if (!existsSync(lockfilePath)) {
 const lockfileText = readFileSync(lockfilePath, "utf8");
 
 /**
- * GHSA-gj8w-mvpf-x27x affects pnpm <10.34.2 and >=11.0.0 <11.5.3.
- * Fail closed on non-stable versions while the OSV metadata correction exists.
+ * The active pnpm advisory floors are 10.34.5 and 11.11.0.
+ * These floors cover GHSA-gj8w-mvpf-x27x and GHSA-vx52-2968-3vc6.
+ * Fail closed on non-stable and older-major releases.
  * @param {string} version
  */
 function isAffectedPnpmVersion(version) {
@@ -103,15 +104,15 @@ function isAffectedPnpmVersion(version) {
     return 0;
   };
   if (value[0] < 10) return true;
-  if (value[0] === 10) return compare([10, 34, 2]) < 0;
-  if (value[0] === 11) return compare([11, 5, 3]) < 0;
+  if (value[0] === 10) return compare([10, 34, 5]) < 0;
+  if (value[0] === 11) return compare([11, 11, 0]) < 0;
   return false;
 }
 
 for (const match of lockfileText.matchAll(/^ {2}'?pnpm@([^':\s]+)'?:\s*$/gm)) {
   if (isAffectedPnpmVersion(match[1])) {
     fail(
-      `pnpm ${match[1]} is affected by GHSA-gj8w-mvpf-x27x; require >=10.34.2 below v11 or >=11.5.3 on v11.`,
+      `pnpm ${match[1]} is below the fixed floors for GHSA-gj8w-mvpf-x27x and GHSA-vx52-2968-3vc6; require >=10.34.5 below v11 or >=11.11.0 on v11.`,
     );
   }
 }

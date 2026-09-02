@@ -406,7 +406,7 @@ runs:
           exit 1
         fi
         if ! candidate_probe "$PNPM_BIN" --version |
-          /usr/bin/grep -Fxq "10.34.4"; then
+          /usr/bin/grep -Fxq "10.34.5"; then
           echo "Candidate cannot execute protected path: $PNPM_BIN" >&2
           exit 1
         fi
