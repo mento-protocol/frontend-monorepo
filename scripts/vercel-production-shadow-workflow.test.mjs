@@ -1149,7 +1149,7 @@ test("app Outcome B has no reachable deploy or production command", () => {
   assert.match(source, /vercel-production-shadow\.mjs"? prepare-pull-staging/);
   assert.match(source, /vercel-production-shadow\.mjs"? pull/);
   assert.doesNotMatch(source, /vercel-production-shadow\.mjs"? assert-output/);
-  const build = stepNamed("app", "Build app custom v3 and assert output");
+  const build = stepNamed("app", "Build app production output and assert it");
   assert.equal(build.uses, "./.github/actions/vercel-candidate-build");
   assert.equal(build.with["logical-target"], "app");
   assert.equal(build.with["expected-root-directory"], "apps/app.mento.org");
@@ -1157,15 +1157,18 @@ test("app Outcome B has no reachable deploy or production command", () => {
     build.with["upload-source-path"],
     "${{ steps.runtime.outputs.upload-source-path }}",
   );
-  assert.match(source, /NEXT_PUBLIC_VERCEL_ENV: preview/);
-  assert.match(source, /VERCEL_ENV: preview/);
-  assert.match(source, /VERCEL_TARGET_ENV: v3/);
-  assert.doesNotMatch(source, /SENTRY_AUTH_TOKEN:/);
+  assert.match(source, /NEXT_PUBLIC_VERCEL_ENV: production/);
+  assert.match(source, /VERCEL_ENV: production/);
+  assert.match(source, /VERCEL_TARGET_ENV: production/);
+  assert.equal(build.env.SENTRY_AUTH_TOKEN, "${{ secrets.SENTRY_AUTH_TOKEN }}");
   assert.match(
     candidateActionSource,
     /SENTRY_AUTH_TOKEN="\$\{SENTRY_AUTH_TOKEN:-\}"/,
   );
   assert.match(source, /app-proof/);
+  // App now builds the ordinary production output, so the build-only property
+  // is proven by the manual job source alone: it never runs the deploy
+  // subcommand and never issues a promotion or alias mutation.
   assert.doesNotMatch(
     source,
     /vercel-production-shadow\.mjs"? deploy|--prod|--skip-domain|promote|alias set/,
@@ -1175,30 +1178,74 @@ test("app Outcome B has no reachable deploy or production command", () => {
       logicalTarget: "app",
       projectId: "prj_app123",
     }),
-    ["pull", "--yes", "--environment", "v3", "--project", "prj_app123"],
+    ["pull", "--yes", "--environment", "production", "--project", "prj_app123"],
   );
   assert.deepEqual(
     buildProductionShadowBuildArguments({
       logicalTarget: "app",
       projectId: "prj_app123",
     }),
-    [
-      "build",
-      "--yes",
-      "--standalone",
-      "--target",
-      "v3",
-      "--project",
-      "prj_app123",
-    ],
+    ["build", "--yes", "--standalone", "--prod", "--project", "prj_app123"],
   );
-  assert.throws(() =>
+  assert.deepEqual(
     buildProductionShadowDeployArguments({
       logicalTarget: "app",
       projectId: "prj_app123",
       deploySha: SHA,
       transaction: "123-1-app",
     }),
+    [
+      "deploy",
+      "--prebuilt",
+      "--prod",
+      "--skip-domain",
+      "--archive=tgz",
+      "--format=json",
+      "--yes",
+      "--project",
+      "prj_app123",
+      "--meta",
+      "githubCommitOrg=mento-protocol",
+      "--meta",
+      "githubCommitRepo=frontend-monorepo",
+      "--meta",
+      "githubCommitRef=main",
+      "--meta",
+      `githubCommitSha=${SHA}`,
+      "--meta",
+      "mentoTransaction=123-1-app",
+    ],
+  );
+});
+
+test("the retired app custom v3 environment cannot re-enter the build action", () => {
+  assert.doesNotMatch(candidateActionSource, /v3/);
+  assert.match(
+    candidateActionSource,
+    /app\|governance\|reserve\|ui\) build_environment=production ;;/,
+  );
+  assert.match(
+    candidateActionSource,
+    /app\|governance\|reserve\|ui\) build_arguments=\(build --yes --standalone --prod --project "\$VERCEL_PROJECT_ID"\) ;;/,
+  );
+  const appSource = jobSource("app");
+  assert.doesNotMatch(
+    appSource,
+    /--target v3|VERCEL_TARGET_ENV: v3|VERCEL_ENV: preview|NEXT_PUBLIC_VERCEL_ENV: preview/,
+  );
+  for (const [target, contract] of Object.entries(PRODUCTION_SHADOW_TARGETS)) {
+    assert.equal(contract.pullEnvironment, "production", target);
+    assert.deepEqual(
+      contract.buildArguments,
+      ["build", "--yes", "--standalone", "--prod"],
+      target,
+    );
+  }
+  // The reviewed v3 protected-alias dispatch input stays pinned: it names the
+  // aliases the retiring custom environment must not move, not a build target.
+  assert.equal(
+    workflow.on.workflow_dispatch.inputs.app_v3_aliases_json.required,
+    true,
   );
 });
 
@@ -1208,11 +1255,7 @@ test("candidate builds are standalone and external references fail before handof
   );
   assert.match(
     build.run,
-    /app\) build_arguments=\(build --yes --standalone --target v3 --project "\$VERCEL_PROJECT_ID"\)/,
-  );
-  assert.match(
-    build.run,
-    /governance\|reserve\|ui\) build_arguments=\(build --yes --standalone --prod --project "\$VERCEL_PROJECT_ID"\)/,
+    /app\|governance\|reserve\|ui\) build_arguments=\(build --yes --standalone --prod --project "\$VERCEL_PROJECT_ID"\)/,
   );
   assert.ok(
     build.run.indexOf("validate-candidate-pull") <
@@ -1274,7 +1317,9 @@ test("candidate builds are standalone and external references fail before handof
 
 test("build-variable scopes preserve production Sentry behavior", () => {
   const expectedBuildSecrets = {
-    app: {},
+    app: {
+      SENTRY_AUTH_TOKEN: "${{ secrets.SENTRY_AUTH_TOKEN }}",
+    },
     governance: {
       ETHERSCAN_API_KEY: "${{ secrets.ETHERSCAN_API_KEY }}",
       SENTRY_AUTH_TOKEN: "${{ secrets.SENTRY_AUTH_TOKEN }}",
@@ -1284,10 +1329,17 @@ test("build-variable scopes preserve production Sentry behavior", () => {
     },
     ui: {},
   };
+  const expectedBuildStepNames = {
+    app: "Build app production output and assert it",
+    governance: "Build governance production and assert output",
+    reserve: "Build reserve production and assert output",
+    ui: "Build UI production and assert output",
+  };
   for (const [target, expected] of Object.entries(expectedBuildSecrets)) {
-    const buildSteps = stepsMatching(target, /^Build .+ and assert output$/);
+    const buildSteps = stepsMatching(target, /^Build /);
     assert.equal(buildSteps.length, 1);
     const [build] = buildSteps;
+    assert.equal(build.name, expectedBuildStepNames[target]);
     assert.equal(build.env.VERCEL_TOKEN, undefined);
     assert.equal(build.env.TURBO_TEAM, "${{ vars.TURBO_TEAM }}");
     assert.equal(build.env.TURBO_TOKEN, "${{ secrets.TURBO_TOKEN }}");
@@ -1312,7 +1364,7 @@ test("build-variable scopes preserve production Sentry behavior", () => {
       assert.doesNotThrow(() =>
         validateVercelBuildCredentialBoundary({
           target: "app",
-          environment: "v3",
+          environment: "production",
           pulledValues: {},
           explicitValues: build.env,
         }),
@@ -1384,7 +1436,7 @@ test("build-variable scopes preserve production Sentry behavior", () => {
   assert.doesNotMatch(candidateActionSource, /VERCEL_TOKEN/);
   assert.equal(
     (workflowSource.match(/secrets\.SENTRY_AUTH_TOKEN/g) ?? []).length,
-    2,
+    3,
   );
   assert.equal(
     (workflowSource.match(/secrets\.ETHERSCAN_API_KEY/g) ?? []).length,

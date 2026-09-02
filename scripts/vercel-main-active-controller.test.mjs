@@ -43,9 +43,7 @@ import {
   decideMainPreplanReconciliation,
 } from "./vercel-main-release-reconciliation.mjs";
 import {
-  canonicalizeMainCandidateVercelMetadata,
   createMainCandidateIntent,
-  createMainCandidateReceipt,
   createMainCandidateVercelMetadata,
 } from "./vercel-main-candidate.mjs";
 
@@ -53,6 +51,8 @@ const SHA = "0123456789abcdef0123456789abcdef01234567";
 const RUN_ID = "123456789";
 const RUN_ATTEMPT = "2";
 const TARGETS = ["app", "governance", "reserve", "ui"];
+// TRANSITION-V3-PRIOR: the App target now maps exactly one reviewed alias.
+const APP_ALIAS = "app.mento.org";
 const PROJECT_IDS = {
   app: "prj_app123",
   governance: "prj_governance123",
@@ -89,7 +89,7 @@ function candidate(name, aliases, release) {
       projectName: prior.projectName,
       deploySha: SHA,
       target: name,
-      customEnvironmentSlug: name === "app" ? "v3" : null,
+      customEnvironmentSlug: null,
       immutableSmoke: {
         immutableUrl: `https://${name}-candidate.vercel.app`,
         servedSha: SHA,
@@ -106,10 +106,7 @@ function candidate(name, aliases, release) {
 
 function prior() {
   return {
-    app: record("app", [
-      "app.mento.org",
-      "appmentoorg-env-v3-mentolabs.vercel.app",
-    ]),
+    app: record("app", ["app.mento.org"]),
     governance: record("governance", ["governance.mento.org"]),
     reserve: record("reserve", ["reserve.mento.org"]),
     ui: record("ui", ["ui.mento.org"]),
@@ -201,10 +198,8 @@ function release(
   });
 }
 
-function prepared(
-  activeTargets,
-  { appKnown = false, startCandidateTargets = [] } = {},
-) {
+// Every selected target stages an exact candidate before activation.
+function prepared(activeTargets, { startCandidateTargets = [] } = {}) {
   const captured = prior();
   const manifest = release(activeTargets);
   const transactionIdentity = {
@@ -216,8 +211,8 @@ function prepared(
   const candidates = {
     app: activeTargets.includes("app")
       ? {
-          deploymentId: appKnown ? "dpl_appCandidate123" : null,
-          deploymentUrl: appKnown ? "https://app-candidate.vercel.app" : null,
+          deploymentId: "dpl_appCandidate123",
+          deploymentUrl: "https://app-candidate.vercel.app",
           aliases: [...captured.app.aliases],
           discovery: candidate("app", captured.app.aliases, manifest).discovery,
         }
@@ -253,85 +248,6 @@ function prepared(
       }),
     ),
     candidates,
-  });
-}
-
-function preparedPendingApp() {
-  const initial = prepared(["app"]);
-  const intent = createMainCandidateIntent({
-    target: "app",
-    deploySha: initial.deploySha,
-    upstreamRunId: initial.release.upstreamRunId,
-    originRunId: initial.runId,
-    originAttempt: initial.runAttempt,
-    originTransactionId: initial.transactionId,
-    projectId: initial.release.originalPriors.app.projectId,
-    projectName: initial.release.originalPriors.app.projectName,
-    releaseManifest: initial.release,
-  });
-  return {
-    ...initial,
-    candidates: {
-      ...initial.candidates,
-      app: {
-        ...initial.candidates.app,
-        deploymentId: null,
-        deploymentUrl: null,
-        discovery: {
-          ...initial.candidates.app.discovery,
-          candidateId: intent.candidateId,
-          immutableSmoke: null,
-        },
-      },
-    },
-  };
-}
-
-function appCandidateReceipt(journal) {
-  const intent = createMainCandidateIntent({
-    target: "app",
-    deploySha: journal.deploySha,
-    upstreamRunId: journal.release.upstreamRunId,
-    originRunId: journal.runId,
-    originAttempt: journal.runAttempt,
-    originTransactionId: journal.transactionId,
-    projectId: journal.release.originalPriors.app.projectId,
-    projectName: journal.release.originalPriors.app.projectName,
-    releaseManifest: journal.release,
-  });
-  const metadata = canonicalizeMainCandidateVercelMetadata(
-    createMainCandidateVercelMetadata({ intent }),
-    {
-      target: "app",
-      deploySha: intent.deploySha,
-      projectId: intent.projectId,
-      projectName: intent.projectName,
-    },
-  );
-  return createMainCandidateReceipt({
-    intent,
-    candidate: {
-      deploymentId: "dpl_appCandidate123",
-      deploymentUrl: "https://app-candidate.vercel.app",
-      projectId: intent.projectId,
-      projectName: intent.projectName,
-      readyState: "READY",
-      target: null,
-      customEnvironmentSlug: "v3",
-      source: "cli",
-      git: {
-        org: "mento-protocol",
-        repo: "frontend-monorepo",
-        ref: "main",
-        sha: intent.deploySha,
-      },
-      metadata,
-    },
-    immutableSmoke: {
-      immutableUrl: "https://app-candidate.vercel.app",
-      servedSha: intent.deploySha,
-      status: "passed",
-    },
   });
 }
 
@@ -509,8 +425,8 @@ function activeStateProof(
               : null,
           deploymentId: expected?.deploymentId ?? null,
           deploymentUrl: expected?.deploymentUrl ?? null,
-          target: target === "app" ? null : "production",
-          customEnvironmentSlug: target === "app" ? "v3" : null,
+          target: "production",
+          customEnvironmentSlug: null,
         },
       ];
     }),
@@ -653,8 +569,6 @@ function runOrdinaryForward() {
       currentMappings: currentMappings(history.at(-1), {
         governance: "candidate",
       }),
-      appCandidateReceipt: null,
-      appDeployment: null,
     }),
     ["governance"],
   );
@@ -731,6 +645,85 @@ test("dispatch resumes a candidate prefix by promoting only the prior suffix", (
   assert.equal(dispatched.journal.operations.at(-1).type, "promote");
   assert.equal(dispatched.journal.operations.at(-1).target, "reserve");
   assert.equal(dispatched.afterUploadAction, "authorize");
+});
+
+// TRANSITION-V3-PRIOR
+// `vercel promote` moves the App production environment but cannot move
+// `app.mento.org` while that domain still lives in the retiring custom
+// environment, so the App promote verifies at `prior`. The forward scan must
+// compare every verified operation against its own expected mapping state, or
+// the verified App promote reads as drift and the bridge alias set never runs.
+test("a verified App promote at prior dispatches the bridge alias set", () => {
+  const initial = prepared(["app"]);
+  const history = [];
+  const initialized = reduceForward(initial, history, event("initialize"), [
+    "app",
+  ]);
+  history.push(initialized.journal);
+  const dispatched = reduceForward(
+    initial,
+    history,
+    event("dispatch", {
+      uploadReceipt: receipt(history.at(-1)),
+      freshSha: SHA,
+      currentMappings: currentMappings(history.at(-1)),
+    }),
+    ["app"],
+  );
+  assert.equal(dispatched.journal.operations.at(-1).type, "promote");
+  assert.equal(dispatched.journal.operations.at(-1).target, "app");
+  history.push(dispatched.journal);
+  const authorized = reduceForward(
+    initial,
+    history,
+    event("authorize", {
+      uploadReceipt: receipt(history.at(-1)),
+      freshSha: SHA,
+      currentMappings: currentMappings(history.at(-1)),
+    }),
+    ["app"],
+  );
+  const returned = reduceForward(
+    initial,
+    history,
+    event("command-returned", {
+      uploadReceipt: receipt(history.at(-1)),
+      operationId: authorized.operationId,
+      command: authorized.command,
+      result: { outcome: "success", reason: null, candidate: null },
+    }),
+    ["app"],
+  );
+  history.push(returned.journal);
+  // The promote succeeded and left the reviewed App domain exactly where it
+  // was, which is the whole point of the transitional verification state.
+  const verified = reduceForward(
+    initial,
+    history,
+    event("verify", {
+      uploadReceipt: receipt(history.at(-1)),
+      freshSha: SHA,
+      currentMappings: currentMappings(history.at(-1)),
+    }),
+    ["app"],
+  );
+  assert.equal(verified.journal.operations.at(-1).mappingState, "prior");
+  assert.equal(verified.afterUploadAction, "dispatch");
+  history.push(verified.journal);
+  const bridge = reduceForward(
+    initial,
+    history,
+    event("dispatch", {
+      uploadReceipt: receipt(history.at(-1)),
+      freshSha: SHA,
+      currentMappings: currentMappings(history.at(-1)),
+    }),
+    ["app"],
+  );
+  assert.equal(bridge.transitionKind, "journal");
+  assert.equal(bridge.journal.operations.at(-1).type, "app_alias_set");
+  assert.equal(bridge.journal.operations.at(-1).alias, APP_ALIAS);
+  assert.equal(bridge.afterUploadAction, "authorize");
 });
 
 test("dispatch routes an unexpected ordinary mapping to recovery", () => {
@@ -1033,145 +1026,8 @@ test("shadow final mapping accepts the bound prior and rejects unbound same-SHA 
   }
 });
 
-test("lost App output routes to recovery without provider match authority", () => {
-  const initial = prepared(["app"]);
-  const history = [
-    reduceForward(initial, [], event("initialize"), ["app"]).journal,
-  ];
-  const dispatched = reduceForward(
-    initial,
-    history,
-    event("dispatch", {
-      uploadReceipt: receipt(history.at(-1)),
-      freshSha: SHA,
-      currentMappings: currentMappings(history.at(-1)),
-    }),
-    ["app"],
-  );
-  history.push(dispatched.journal);
-  const authorized = reduceForward(
-    initial,
-    history,
-    event("authorize", {
-      uploadReceipt: receipt(history.at(-1)),
-      freshSha: SHA,
-      currentMappings: currentMappings(history.at(-1)),
-    }),
-    ["app"],
-  );
-  assert.match(authorized.command.nextDeploymentId, /^mr-app-[a-f0-9]{18}$/);
-  const returned = reduceForward(
-    initial,
-    history,
-    event("command-returned", {
-      uploadReceipt: receipt(history.at(-1)),
-      operationId: authorized.operationId,
-      command: authorized.command,
-      result: { outcome: "unknown", reason: "lost-output", candidate: null },
-    }),
-    ["app"],
-  );
-  history.push(returned.journal);
-  const verified = reduceForward(
-    initial,
-    history,
-    event("verify", {
-      uploadReceipt: receipt(history.at(-1)),
-      freshSha: SHA,
-      currentMappings: currentMappings(history.at(-1)),
-      appCandidateReceipt: null,
-      appDeployment: null,
-    }),
-    ["app"],
-  );
-  assert.equal(verified.journal.sequence, returned.journal.sequence + 1);
-  assert.equal(verified.journal.status, "verified");
-  assert.equal(
-    verified.journal.operations.length,
-    returned.journal.operations.length + 1,
-  );
-  assert.equal(verified.journal.candidates.app.deploymentId, null);
-  assert.equal(verified.journal.operations.at(-1).mappingState, "unknown");
-  assert.equal(verified.afterUploadAction, "recover");
-});
-
-test("App command output remains pending until the finalized receipt attaches candidate authority", () => {
-  const initial = preparedPendingApp();
-  const history = [
-    reduceForward(initial, [], event("initialize"), ["app"]).journal,
-  ];
-  const dispatched = reduceForward(
-    initial,
-    history,
-    event("dispatch", {
-      uploadReceipt: receipt(history.at(-1)),
-      freshSha: SHA,
-      currentMappings: currentMappings(history.at(-1)),
-    }),
-    ["app"],
-  );
-  history.push(dispatched.journal);
-  const authorized = reduceForward(
-    initial,
-    history,
-    event("authorize", {
-      uploadReceipt: receipt(history.at(-1)),
-      freshSha: SHA,
-      currentMappings: currentMappings(history.at(-1)),
-    }),
-    ["app"],
-  );
-  const returned = reduceForward(
-    initial,
-    history,
-    event("command-returned", {
-      uploadReceipt: receipt(history.at(-1)),
-      operationId: authorized.operationId,
-      command: authorized.command,
-      result: {
-        outcome: "success",
-        reason: null,
-        candidate: {
-          deploymentId: "dpl_appCliOutput123",
-          deploymentUrl: "https://app-cli-output.vercel.app",
-        },
-      },
-    }),
-    ["app"],
-  );
-  assert.equal(returned.journal.candidates.app.deploymentId, null);
-  assert.equal(returned.journal.candidates.app.discovery.immutableSmoke, null);
-  history.push(returned.journal);
-
-  const finalizedReceipt = appCandidateReceipt(initial);
-  const attached = reduceForward(
-    initial,
-    history,
-    event("verify", {
-      uploadReceipt: receipt(history.at(-1)),
-      freshSha: SHA,
-      currentMappings: currentMappings(history.at(-1)),
-      appCandidateReceipt: finalizedReceipt,
-      appDeployment: null,
-    }),
-    ["app"],
-  );
-  assert.equal(
-    attached.journal.candidates.app.deploymentId,
-    finalizedReceipt.candidate.deploymentId,
-  );
-  assert.equal(
-    attached.journal.candidates.app.deploymentUrl,
-    finalizedReceipt.candidate.deploymentUrl,
-  );
-  assert.deepEqual(
-    attached.journal.candidates.app.discovery.immutableSmoke,
-    finalizedReceipt.immutableSmoke,
-  );
-});
-
 test("provider-stable App candidates replace recovery discovery", () => {
-  const providerResolved = prepared(["app"], { appKnown: true });
+  const providerResolved = prepared(["app"]);
   assert.equal(
     providerResolved.candidates.app.discovery.metrics.cacheHit,
     null,
@@ -1396,8 +1252,14 @@ test("recovery reducer checkpoints safe reverse recovery before manual intervent
   assert.equal(terminal.afterUploadAction, "fail-after-evidence");
 });
 
-test("unknown App recovery compensates ordinary targets before manual intervention", () => {
-  for (const appMovesAfterPlanning of [false, true]) {
+// TRANSITION-V3-PRIOR
+// An App promote never moves the reviewed App domain while that domain is
+// still served by the retiring custom environment, so an unknown App promote
+// that left the domain at its prior is a verified noop. A domain that moved to
+// an unexpected deployment is manual, and every started ordinary promote is
+// still compensated in reverse activation order.
+test("App promote recovery is a noop at prior and manual on an unexpected mapping", () => {
+  for (const appMappingMoved of [false, true]) {
     const initial = prepared(["app", "governance", "reserve", "ui"]);
     const history = [initial];
     let highest = initial;
@@ -1419,7 +1281,7 @@ test("unknown App recovery compensates ordinary targets before manual interventi
       history.push(highest);
     }
     const appStarted = startMainTransactionOperation(highest, {
-      type: "app_v3_deploy",
+      type: "promote",
       target: "app",
     });
     history.push(appStarted);
@@ -1434,116 +1296,48 @@ test("unknown App recovery compensates ordinary targets before manual interventi
       reserve: "candidate",
       ui: "candidate",
     };
+    const observed = currentMappings(highest, ordinaryStates).map((entry) =>
+      appMappingMoved && entry.alias === APP_ALIAS
+        ? {
+            ...entry,
+            deploymentId: "dpl_unexpectedApp123",
+            deploymentUrl: "https://unexpected-app.vercel.app",
+          }
+        : entry,
+    );
     const plan = planMainTransactionRecovery({
       journal: highest,
-      currentMappings: currentMappings(highest, ordinaryStates),
+      currentMappings: observed,
     });
-    assert.equal(plan.decision, "manual_intervention");
-    assert.equal(plan.reason, "app-candidate-unresolved-after-start");
-
-    const recovering = reduceMainActiveRecoveryTransition({
-      recoveryPlan: plan,
-      history,
-      event: recoveryEvent("initialize", {
-        uploadReceipt: receipt(highest),
-      }),
-    });
-    history.push(recovering.journal);
-
-    const movedAppAlias = highest.prior.app.aliases[1];
-    const liveMappings = () =>
-      recoveryCurrentMappings(history.at(-1), ordinaryStates).map((mapping) =>
-        appMovesAfterPlanning && mapping.alias === movedAppAlias
-          ? {
-              ...mapping,
-              deploymentId: "dpl_unresolvedApp123",
-              deploymentUrl: "https://unresolved-app.vercel.app",
-            }
-          : mapping,
-      );
-
-    for (const target of ["ui", "reserve", "governance"]) {
-      const started = reduceMainActiveRecoveryTransition({
-        recoveryPlan: plan,
-        history,
-        event: recoveryEvent("dispatch", {
-          uploadReceipt: receipt(history.at(-1)),
-          currentMappings: liveMappings(),
-        }),
-      });
-      assert.equal(started.journal.operations.at(-1).type, "ordinary_rollback");
-      assert.equal(started.journal.operations.at(-1).target, target);
-      history.push(started.journal);
-
-      const authorized = reduceMainActiveRecoveryTransition({
-        recoveryPlan: plan,
-        history,
-        event: recoveryEvent("authorize", {
-          uploadReceipt: receipt(history.at(-1)),
-          currentMappings: liveMappings(),
-        }),
-      });
-      const returned = reduceMainActiveRecoveryTransition({
-        recoveryPlan: plan,
-        history,
-        event: recoveryEvent("command-returned", {
-          uploadReceipt: receipt(history.at(-1)),
-          operationId: authorized.operationId,
-          command: authorized.command,
-          result: { outcome: "success", reason: null, candidate: null },
-        }),
-      });
-      history.push(returned.journal);
-
-      delete ordinaryStates[target];
-      const verified = reduceMainActiveRecoveryTransition({
-        recoveryPlan: plan,
-        history,
-        event: recoveryEvent("verify", {
-          uploadReceipt: receipt(history.at(-1)),
-          currentMappings: liveMappings(),
-        }),
-      });
-      assert.equal(verified.journal.operations.at(-1).mappingState, "prior");
-      history.push(verified.journal);
-    }
-
-    const terminal = reduceMainActiveRecoveryTransition({
-      recoveryPlan: plan,
-      history,
-      event: recoveryEvent("dispatch", {
-        uploadReceipt: receipt(history.at(-1)),
-        currentMappings: liveMappings(),
-      }),
-    });
-    assert.equal(terminal.journal.status, "manual_intervention");
-    assert.equal(terminal.afterUploadAction, "fail-after-evidence");
     assert.deepEqual(
-      terminal.journal.operations
-        .filter(
-          (operation) =>
-            operation.type === "ordinary_rollback" &&
-            operation.state === "started",
-        )
-        .map((operation) => operation.target),
-      ["ui", "reserve", "governance"],
+      plan.actions.map(({ kind, target }) => [target, kind]),
+      [
+        ["app", appMappingMoved ? "manual_intervention" : "verified_noop"],
+        ["ui", "ordinary_rollback"],
+        ["reserve", "ordinary_rollback"],
+        ["governance", "ordinary_rollback"],
+      ],
     );
     assert.equal(
-      terminal.journal.operations.some(
-        (operation) => operation.type === "app_alias_restore",
-      ),
-      false,
+      plan.decision,
+      appMappingMoved ? "manual_intervention" : "recover",
     );
+    assert.deepEqual(plan.rollbackStateTargets, [
+      "ui",
+      "reserve",
+      "governance",
+    ]);
   }
 });
 
-// MGP-18 retired the legacy App deployment. Recovery may only restore the two
-// reviewed App v3 aliases, and no controller path may emit a legacy command.
-test("App recovery command binds only the reviewed v3 aliases", () => {
-  const initial = prepared(["app"], { appKnown: true });
+// MGP-18 retired the legacy App deployment. Recovery may only restore the
+// reviewed App domain, and no controller path may emit a legacy command.
+test("App recovery command binds only the reviewed App alias", () => {
+  const initial = prepared(["app"]);
   const started = startMainTransactionOperation(initial, {
-    type: "app_v3_deploy",
+    type: "app_alias_set",
     target: "app",
+    alias: APP_ALIAS,
   });
   assert.equal(started.prior["legacy-app"], undefined);
   const appAlias = started.prior.app.aliases.at(-1);
@@ -1608,7 +1402,7 @@ test("App recovery command binds only the reviewed v3 aliases", () => {
 });
 
 test("provider census rejects ambiguous App discovery before recovery", () => {
-  const providerResolved = prepared(["app"], { appKnown: true });
+  const providerResolved = prepared(["app"]);
   assert.equal(
     providerResolved.candidates.app.discovery.releaseId.length > 0,
     true,
@@ -1866,7 +1660,7 @@ test("history loader rejects multi-link and oversized journal files", () => {
 });
 
 test("fresh App provider census accepts one stable candidate and rejects a third deployment", async () => {
-  const journal = prepared(["app"], { appKnown: true });
+  const journal = prepared(["app"]);
   const mappings = Object.fromEntries(
     ["governance", "reserve", "ui", "app"].map((target) => [
       target,
@@ -1896,7 +1690,7 @@ test("fresh App provider census accepts one stable candidate and rejects a third
 });
 
 test("fresh forward reconciliation rejects an App-only recovery residual", () => {
-  const journal = prepared(TARGETS, { appKnown: true });
+  const journal = prepared(TARGETS);
   const mappings = groupedCurrentMappings(journal, { app: "candidate" });
 
   assert.throws(
@@ -1923,7 +1717,7 @@ test("fresh forward reconciliation rejects an App-only recovery residual", () =>
 });
 
 test("forward dispatch and authorize reject a fresh App-only recovery residual", () => {
-  const initial = prepared(TARGETS, { appKnown: true });
+  const initial = prepared(TARGETS);
   const initialized = reduceForward(initial, [], event("initialize"), TARGETS);
   const residual = currentMappings(initialized.journal, {
     app: "candidate",
@@ -1972,7 +1766,7 @@ test("forward dispatch and authorize reject a fresh App-only recovery residual",
 });
 
 test("current-attempt inherited recovery binds the inherited release SHA and completes", () => {
-  const inherited = prepared(TARGETS, { appKnown: true });
+  const inherited = prepared(TARGETS);
   const observed = groupedCurrentMappings(inherited, {
     governance: "candidate",
   });
@@ -2069,16 +1863,11 @@ test("current-attempt inherited recovery binds the inherited release SHA and com
   assert.equal(terminal.afterUploadAction, "continue-after-recovery");
 });
 
-test("mixed App-only recovery residual restores its moved alias before a fresh baseline", () => {
-  const inherited = prepared(TARGETS, { appKnown: true });
+test("App-only recovery residual restores its moved alias before a fresh baseline", () => {
+  const inherited = prepared(TARGETS);
   const observed = groupedCurrentMappings(inherited, { app: "candidate" });
-  const priorAlias = inherited.prior.app.aliases[0];
-  observed.app[0] = {
-    alias: priorAlias,
-    deploymentId: inherited.prior.app.deploymentId,
-    deploymentUrl: inherited.prior.app.deploymentUrl,
-  };
-  const movedAlias = inherited.prior.app.aliases[1];
+  const movedAlias = APP_ALIAS;
+  assert.deepEqual(inherited.prior.app.aliases, [APP_ALIAS]);
   const { journal: current } = createCurrentMainActiveRecoveryJournal({
     inheritedJournal: inherited,
     identity: {
@@ -2195,7 +1984,7 @@ test("mixed App-only recovery residual restores its moved alias before a fresh b
 });
 
 test("inherited recovery refuses missing, divergent, and all-candidate current journals", () => {
-  const inherited = prepared(TARGETS, { appKnown: true });
+  const inherited = prepared(TARGETS);
   const partial = groupedCurrentMappings(inherited, {
     governance: "candidate",
     reserve: "candidate",

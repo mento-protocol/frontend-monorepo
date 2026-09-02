@@ -270,6 +270,62 @@ Dependabot pull requests stay secretless. Do not admit them to credentialed
 Vercel Preview workers or broaden
 the same-repository `User` author/sender credential rule.
 
+The automatic `.github/workflows/vercel-main-deployment.yml` path starts when
+the exact `CI/CD` push run for `main` is requested and runs read-only planning
+and release preparation concurrently with CI. A separate credential-free
+`Require the exact successful CI attempt` gate job must succeed before candidate
+uploads, activation, and recovery. Inherited restoration is bound by the same
+`require-success` check invoked in-job, before any credentialed or mutating
+step, rather than by a `needs` edge on that gate job. A later `completed`
+delivery for a successful CI attempt deploys with full
+terminal verification
+unless a deployment run for that exact upstream attempt both passed the gate and
+concluded `success`, so a run that failed after the gate is taken over rather
+than deduplicated away; a failed CI attempt's `completed` delivery is never
+admitted. Its global mode is
+`active`, and the current per-target `mainOwnershipMode` map assigns App,
+Governance, Reserve, and UI to `github`. Planning emits
+`vercel-main-plan:v2`: all selected targets stage or build, `activeTargets`
+mutate public mappings, and `shadowTargets` prove the same candidates without
+public mutation. Governance, Reserve, UI, and App all stage and promote exact
+staged deployments; App's `stage-app` build and upload work exactly like the
+other three. App promotes last and is verified to leave `app.mento.org` at its
+prior, then one transitional bridge `alias set` transition repoints the domain
+to the candidate — a carry-over from the retiring App custom `v3` environment,
+removed once the domain moves into the Production environment. Planning uses
+the SHA each public target actually serves, and every credential-bearing job
+uses only `vercel-cli-production` with `deployment: false`. The exact-attempt
+gate, repeated freshness checks, durable journal, active duplicate census,
+canonical redacted evidence, public runtime smoke, App real-wallet check,
+target-local main rollback, and separate full-native restoration procedures
+are in `docs/vercel-deployments.md`. Ordinary previews remain GitHub-owned
+during either rollback procedure. The removed Governance QA environment is not
+part of the deployment topology.
+
+Active-main release identity is stable across downstream reruns: it binds
+repository, exact SHA, and validated upstream CI run ID; target-specific
+candidate identity adds the target. The provider-side stable release manifest
+is the sole durable cross-attempt authority. Mutation transaction IDs and
+journals remain downstream run-and-attempt scoped. Before planning, a later
+attempt reconciles provider mappings and candidates with that manifest. It
+reuses a completed release, resumes or restores an interrupted forward prefix
+as appropriate, or restores the exact terminal App recovery residual through a
+fresh current-attempt journal before new planning. That residual requires at
+least one active non-App target, every active non-App target at its original
+prior, and every reviewed App alias at either its captured prior or one
+manifest-bound candidate, with at least one alias at the candidate; it grants
+App restoration authority only and never forward resumption. It never resumes
+a prior journal or treats GitHub artifacts as cross-attempt authority. The compact
+terminal receipt and evidence are the only final-verdict handoff and support
+final-only reruns. A completed release emits `current-release-verified` only
+after fresh mapping, census/state, raw public-runtime-smoke, and
+freshness proof; it creates no journal and executes no public mutation. App
+shadow preparation stages and verifies a real Production candidate, then stops
+without promotion or protected-domain/public mapping mutation. Its receipt is
+terminal non-authorizing evidence. Every other non-prefix, ambiguous,
+conflicting, or incomplete provider state fails closed before production work
+continues.
+
 ## Coding Conventions
 
 - **Naming:** PascalCase for components, camelCase for variables/functions

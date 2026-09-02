@@ -87,13 +87,10 @@ export const CURRENT_MAIN_OWNERSHIP_MODE = Object.freeze(
 
 export const MAIN_TARGET_CONTRACTS = Object.freeze({
   app: Object.freeze({
-    aliases: Object.freeze([
-      "app.mento.org",
-      "appmentoorg-env-v3-mentolabs.vercel.app",
-    ]),
-    customEnvironmentSlug: "v3",
+    aliases: Object.freeze(["app.mento.org"]),
+    customEnvironmentSlug: null,
     projectName: "app.mento.org",
-    target: null,
+    target: "production",
   }),
   governance: Object.freeze({
     aliases: Object.freeze(["governance.mento.org"]),
@@ -114,6 +111,46 @@ export const MAIN_TARGET_CONTRACTS = Object.freeze({
     target: "production",
   }),
 });
+
+// TRANSITION-V3-PRIOR
+// `app.mento.org` is still assigned to the retiring `v3` custom environment
+// until the dashboard domain move, so the deployment it served before this
+// release is still v3-shaped and still carries the custom environment's
+// generated alias. Prior-facing validation accepts that exact shape for App
+// only. Candidates, staged deployments, promote verification, and final
+// mappings stay production-shaped. Delete this block, its call sites, and the
+// bridge alias slot in the tighten PR.
+export const TRANSITIONAL_APP_PRIOR_ENVIRONMENT = Object.freeze({
+  target: null,
+  customEnvironmentSlug: "v3",
+});
+export const TRANSITIONAL_APP_PRIOR_GENERATED_ALIAS =
+  "appmentoorg-env-v3-mentolabs.vercel.app";
+
+// TRANSITION-V3-PRIOR
+export function isTransitionalAppPriorEnvironment(target, environment) {
+  return (
+    target === "app" &&
+    environment?.target === TRANSITIONAL_APP_PRIOR_ENVIRONMENT.target &&
+    environment?.customEnvironmentSlug ===
+      TRANSITIONAL_APP_PRIOR_ENVIRONMENT.customEnvironmentSlug
+  );
+}
+
+// TRANSITION-V3-PRIOR
+// True when `environment` is an acceptable shape for the deployment a reviewed
+// alias served before this release. Never call this for a candidate.
+export function acceptsPriorEnvironment(target, environment) {
+  const contract = MAIN_TARGET_CONTRACTS[target];
+  if (contract === undefined) return false;
+  if (
+    environment?.target === contract.target &&
+    environment?.customEnvironmentSlug === contract.customEnvironmentSlug
+  ) {
+    return true;
+  }
+  return isTransitionalAppPriorEnvironment(target, environment);
+}
 
 const PRIOR_STATE_REQUIRED_KEYS = Object.freeze([
   "alias",
@@ -260,7 +297,16 @@ function canonicalizeReviewedAliases(aliases, target) {
   return normalized;
 }
 
-function canonicalizeOptionalDeploymentAliases(value, target, creatorUsername) {
+function canonicalizeOptionalDeploymentAliases(
+  value,
+  target,
+  creatorUsername,
+  environment,
+) {
+  // An absent alias list is the sealed-manifest recompute form: capture-time
+  // snapshot states always carry aliases (the protected-snapshot validation
+  // dereferences state.aliases), and manifest planning leaves proved their
+  // topology when the manifest was sealed.
   if (value === undefined) return null;
   if (!Array.isArray(value)) {
     activationError(target, "alias-set-ambiguous");
@@ -283,25 +329,41 @@ function canonicalizeOptionalDeploymentAliases(value, target, creatorUsername) {
       activationError(target, "alias-set-ambiguous");
     }
   }
-  if (
-    target === "app" &&
-    JSON.stringify(sorted) !==
-      JSON.stringify([...MAIN_TARGET_CONTRACTS.app.aliases].toSorted())
-  ) {
+  const reviewedAliases = new Set(MAIN_TARGET_CONTRACTS[target].aliases);
+  const generatedAliases = sorted.filter(
+    (alias) => !reviewedAliases.has(alias),
+  );
+  // TRANSITION-V3-PRIOR: the generated-alias topology and the deployment
+  // environment are one shape, never two independent allowances. A v3-shaped
+  // App prior carries exactly the retiring custom environment's generated
+  // alias; a production-shaped prior carries exactly the reviewed production
+  // set and never the retired alias. Any mixture of the two is an inconsistent
+  // transition state and fails closed.
+  if (isTransitionalAppPriorEnvironment(target, environment)) {
+    // Manifest planning leaves strip generated aliases by contract, so a
+    // v3-shaped prior carries either no generated alias (leaf form) or
+    // exactly the retiring environment's generated alias (snapshot form) —
+    // never anything else.
+    for (const alias of generatedAliases) {
+      if (alias !== TRANSITIONAL_APP_PRIOR_GENERATED_ALIAS) {
+        activationError(target, "alias-set-ambiguous");
+      }
+    }
+    return sorted;
+  }
+  // The retired alias cannot re-enter through a production-shaped prior.
+  if (generatedAliases.includes(TRANSITIONAL_APP_PRIOR_GENERATED_ALIAS)) {
     activationError(target, "alias-set-ambiguous");
   }
-  if (target !== "app") {
-    const reviewedAliases = new Set(MAIN_TARGET_CONTRACTS[target].aliases);
-    try {
-      assertOnlyExpectedProductionGeneratedAliases({
-        aliases: sorted.filter((alias) => !reviewedAliases.has(alias)),
-        creatorUsername,
-        logicalTarget: target,
-        mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
-      });
-    } catch {
-      activationError(target, "alias-set-ambiguous");
-    }
+  try {
+    assertOnlyExpectedProductionGeneratedAliases({
+      aliases: generatedAliases,
+      creatorUsername,
+      logicalTarget: target,
+      mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
+    });
+  } catch {
+    activationError(target, "alias-set-ambiguous");
   }
   return sorted;
 }
@@ -415,10 +477,8 @@ function canonicalizePriorGroup({ target, group, projectId }) {
     ) {
       activationError(target, "project-identity-ambiguous");
     }
-    if (
-      state.target !== contract.target ||
-      state.customEnvironmentSlug !== contract.customEnvironmentSlug
-    ) {
+    // TRANSITION-V3-PRIOR: App priors may still be v3-shaped.
+    if (!acceptsPriorEnvironment(target, state)) {
       activationError(target, "environment-identity-ambiguous");
     }
     if (state.readyState !== "READY") {
@@ -444,6 +504,7 @@ function canonicalizePriorGroup({ target, group, projectId }) {
       state.aliases,
       target,
       state.creatorUsername,
+      state,
     );
     if (aliases !== null) {
       if (

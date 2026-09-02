@@ -14,6 +14,28 @@ sync is a requirement, not a suggestion — a catalog bump for an overridden
 package is silently defeated otherwise (this happened to `zod`; see the table
 below).
 
+## Protected pnpm setup transition
+
+The root `packageManager` value and both action-policy workflow pins must
+use one exact pnpm version. A protected pnpm rotation uses two pull requests
+because the trusted base checker cannot accept the new workflow structure until
+its transition rule is on the default branch.
+
+The first pull request changes only the trusted checker, its tests, and these
+instructions. It keeps the root declaration and both workflow pins on the old
+version. The checker accepts only the paired old or paired target workflow
+versions. It rejects a mixed pair and every unrelated workflow change.
+Both Action Pin Policy checks must pass on the exact head and base.
+
+After the first pull request merges, the second pull request moves the root
+declaration, both workflow pins, the protected runtime and bootstrap, and all
+coupled checks to the target version. It also removes the temporary old version
+from the checker. Do not split those second-stage files across pull requests.
+An explicit workflow version that differs from the root declaration makes
+`pnpm/action-setup` fail before the checker runs. Both Action Pin Policy
+checks must pass on the second pull request's exact head and base. Revalidate
+both stages after any head or base change.
+
 ## Standalone Vercel CLI override mirror
 
 The protected production-shadow and automatic main-deployment jobs install
@@ -35,9 +57,12 @@ and bootstrap. It must not run a metadata query, package-manager command,
 generator, install, test, build, or smoke command from this procedure. The
 generic external agent must not prepare or push this rotation, even when it has
 an `execute` grant. An authenticated maintainer takes over the branch outside
-the generic skill. Keep all coupled files in one pull request. If any step or
-validator cannot be completed, keep the update `manual`. Do not restore an old
-workspace version only to make the protected-runtime check pass.
+the generic skill. Keep every coupled Next.js or Vercel CLI file in one pull
+request. For protected pnpm, keep the checker-only first pull request separate,
+then keep every runtime, bootstrap, workflow pin, check, and digest change in
+the atomic second pull request. If any step or validator cannot be completed,
+keep the update `manual`. Do not restore an old workspace version only to make
+the protected-runtime check pass.
 
 The checked-in validators prove candidate self-consistency and the expected
 registry-only runtime shape. They do not prove that candidate-authored metadata
@@ -47,7 +72,8 @@ those two facts independently before push.
 
 ### Protected pnpm runtime rotation
 
-Use this path when the root `packageManager`, protected Vercel pnpm runtime, or
+Use this second-stage path after the checker-only transition rule is on the
+default branch and the root `packageManager`, protected Vercel pnpm runtime, or
 Linux bootstrap must move.
 
 1. Review the upstream advisory and release. Fetch the exact public npm version
@@ -58,9 +84,10 @@ Linux bootstrap must move.
    `os: ["linux"]`, and `cpu: ["x64"]`. Reject a redirect, prerelease,
    downgrade, or unexplained metadata change.
 2. Move the root package-manager declaration, Action setup pins, protected
-   runtime checks, bootstrap checks, controller constants, and their tests to
-   the same exact version. Update only the one-package pnpm lock and bootstrap
-   npm lock entries with the reviewed public registry URLs and integrities.
+   runtime checks, bootstrap checks, trusted protected-runtime and
+   action-policy constants, and their tests to the same exact version. Update
+   only the one-package pnpm lock and bootstrap npm lock entries with the
+   reviewed public registry URLs and integrities.
    Recompute the extracted Linux executable SHA-256 and the byte SHA-256 of both
    regenerated locks. Review and update
    `PINNED_PNPM_LINUX_X64_SHA256`,

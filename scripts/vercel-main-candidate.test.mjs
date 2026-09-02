@@ -458,15 +458,11 @@ test("candidate receipt job output encoding is canonical and intent-bound", () =
   );
 });
 
-test("App and ordinary candidates use their exact environments", () => {
-  const app = intent({ target: "app" });
-  assert.deepEqual(app.environment, {
-    target: null,
-    customEnvironmentSlug: "v3",
-  });
-  const ui = intent();
-  assert.deepEqual(ui.environment, {
-    target: "production",
-    customEnvironmentSlug: null,
-  });
+test("every main candidate uses the ordinary production environment", () => {
+  for (const target of ["app", "governance", "reserve", "ui"]) {
+    assert.deepEqual(intent({ target }).environment, {
+      target: "production",
+      customEnvironmentSlug: null,
+    });
+  }
 });

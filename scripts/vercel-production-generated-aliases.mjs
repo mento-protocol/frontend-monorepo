@@ -5,6 +5,13 @@ const CREATOR_USERNAME_PATTERN =
 const RESERVED_CREATOR_PREFIXES = Object.freeze(["env-", "git-"]);
 
 export const PRODUCTION_GENERATED_ALIAS_CONTRACTS = Object.freeze({
+  app: Object.freeze({
+    generatedGitMainAlias: "appmentoorg-git-main-mentolabs.vercel.app",
+    generatedProjectDefaultAlias: "appmentoorg.vercel.app",
+    generatedProjectAlias: "appmentoorg-mentolabs.vercel.app",
+    generatedProjectSlug: "appmentoorg",
+    generatedScopeSlug: "mentolabs",
+  }),
   governance: Object.freeze({
     generatedGitMainAlias: "governancementoorg-git-main-mentolabs.vercel.app",
     generatedProjectDefaultAlias: "governancementoorg.vercel.app",

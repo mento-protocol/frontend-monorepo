@@ -33,10 +33,7 @@ function plan(stagedTargets) {
     shadowTargets: [],
     priors: TARGETS.map((target) => ({
       target,
-      aliases:
-        target === "app"
-          ? ["app.mento.org", "appmentoorg-env-v3-mentolabs.vercel.app"]
-          : [`${target}.mento.org`],
+      aliases: [`${target}.mento.org`],
       deploymentId: `dpl_${target}Prior123`,
       deploymentUrl: `https://${target}-prior.vercel.app`,
       servedSha: PRIOR_SHA,
@@ -63,8 +60,8 @@ function manifest(stagedTargets = []) {
             projectId: `prj_${target}`,
             projectName: `${target}.mento.org`,
             readyState: "READY",
-            target: target === "app" ? null : "production",
-            customEnvironmentSlug: target === "app" ? "v3" : null,
+            target: "production",
+            customEnvironmentSlug: null,
             planningLeaves: prior.aliases.map((alias) => ({
               alias,
               deploymentId: prior.deploymentId,
@@ -73,8 +70,8 @@ function manifest(stagedTargets = []) {
               projectId: `prj_${target}`,
               projectName: `${target}.mento.org`,
               readyState: "READY",
-              target: target === "app" ? null : "production",
-              customEnvironmentSlug: target === "app" ? "v3" : null,
+              target: "production",
+              customEnvironmentSlug: null,
               git: {
                 status: "complete",
                 org: "mento-protocol",
@@ -288,15 +285,23 @@ test("canonical mappings reject incomplete alias coverage and noncanonical order
     /app mappings are incomplete/,
   );
 
+  // Every reviewed target maps exactly one alias, so noncanonical order is
+  // only observable on a target with an appended second mapping.
   const swappedAliases = structuredClone(base);
-  swappedAliases.mappings.app = [...swappedAliases.mappings.app].reverse();
+  swappedAliases.mappings.app = [
+    {
+      ...swappedAliases.mappings.app[0],
+      alias: "zzz-app.mento.org",
+    },
+    ...swappedAliases.mappings.app,
+  ];
   assert.throws(
     () =>
       forwardJournal({
         execution: releaseExecution,
         currentMappings: swappedAliases,
       }),
-    /app aliases are not canonical/,
+    /app aliases are not canonical|app mappings are incomplete/,
   );
 
   const malformedId = structuredClone(base);

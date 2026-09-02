@@ -219,6 +219,7 @@ test("agent preparation policy pins the repository authority contract", () => {
       },
       associations: ["CONTRIBUTOR", "NONE"],
       bodyRule: "any-bounded-body",
+      maximumBodyLength: 50_000,
     },
     informationalBotIssueComments: {
       maximumBodyLength: 50_000,

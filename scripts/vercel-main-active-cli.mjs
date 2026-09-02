@@ -34,12 +34,10 @@ import {
   assertMainActiveCommandDescriptor,
   assertMainActiveCommandResult,
   inspectMainActiveMapping,
-  resolveMainActiveAppCandidate,
   runMainActiveVercelCommand,
 } from "./vercel-main-active.mjs";
 import {
   VercelStateClient,
-  assertAppTransactionCandidateOutput,
   canonicalizeDeploymentUrl,
   canonicalizeHostname,
 } from "./vercel-deployment-state.mjs";
@@ -51,7 +49,6 @@ const DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
 const CLI_OPTIONS = Object.freeze({
   execute: Object.freeze(["descriptor", "output"]),
   mapping: Object.freeze(["spec", "output"]),
-  "app-candidate": Object.freeze(["expectation", "command-result", "output"]),
 });
 const MAPPING_SPEC_KEYS = Object.freeze([
   "schema",
@@ -527,34 +524,6 @@ function validateMappingOutput(value, spec) {
   return value;
 }
 
-function validateAppResolution(value, expectation, commandResult) {
-  assertExactKeys(
-    value,
-    ["commandOutcome", "candidate"],
-    "App candidate resolution",
-  );
-  if (!["success", "unknown"].includes(value.commandOutcome)) {
-    throw new Error("App candidate command outcome is malformed");
-  }
-  const canonicalCommandResult = assertMainActiveCommandResult(commandResult);
-  const candidate = assertAppTransactionCandidateOutput(value.candidate);
-  if (
-    value.commandOutcome !== canonicalCommandResult.outcome ||
-    [
-      "projectId",
-      "projectName",
-      "deploySha",
-      "runId",
-      "runAttempt",
-      "transactionId",
-      "customEnvironmentSlug",
-    ].some((key) => candidate[key] !== expectation[key])
-  ) {
-    throw new Error("App candidate resolution conflicts with its inputs");
-  }
-  return value;
-}
-
 function sleep(milliseconds) {
   return new Promise((resolvePromise) =>
     setTimeout(resolvePromise, milliseconds),
@@ -718,35 +687,6 @@ export async function runMainActiveCli({
       throw error;
     }
     stdout.write("Canonical protected mapping inspection written\n");
-  } else {
-    const expectation = readPrivateJson(
-      options.expectation,
-      "App candidate expectation",
-      runnerTemp,
-    );
-    const commandResult = readPrivateJson(
-      options["command-result"],
-      "Vercel command result",
-      runnerTemp,
-    );
-    const output = reservePrivateJsonOutput(options.output, runnerTemp);
-    let result;
-    try {
-      const client = createStateClient(env, stateClientFactory);
-      result = await resolveMainActiveAppCandidate({
-        commandResult,
-        expectation,
-        discoverCandidate: (expected) =>
-          client.discoverAppTransactionCandidate(expected),
-      });
-      completePrivateJsonOutput(output, result, (value) =>
-        validateAppResolution(value, expectation, commandResult),
-      );
-    } catch (error) {
-      abortPrivateJsonOutput(output);
-      throw error;
-    }
-    stdout.write("Canonical App candidate resolution written\n");
   }
 }
 

@@ -177,12 +177,20 @@ changes to either policy workflow, checker, or fixture suite must also require
 protected human/code-owner review or an organization required-workflow rule;
 the two status contexts alone are not a tamper-proof approval boundary.
 Canonical structure changes such as pnpm/Node versions, commands, or triggers
-intentionally require a protected two-PR transition: first teach the trusted
-checker to allow the transition while retaining the old workflow, then change
-the workflow and tighten the checker. Immutable action SHA bumps are normalized
-by the checker and can remain a single PR. When adding or updating a third-party
-action, pin its full 40-character commit SHA and retain the release tag as an
-inline comment (for example, `uses: org/action@<sha> # v1.2.3`).
+intentionally require a protected two-PR transition. The first pull request
+teaches the trusted checker to allow the transition while the workflows and
+root package-manager declaration stay unchanged. For a pnpm transition, the
+checker accepts only the paired old or paired target workflow versions. The
+second pull request changes the root declaration and both workflow pins
+together, then tightens the checker to the target version. A mixed workflow
+pair is invalid. An explicit workflow version that differs from the root
+`packageManager` value also makes `pnpm/action-setup` fail before the
+checker runs. Require both Action Pin Policy checks on each stage's exact head
+and base. Revalidate after any head or base change. Immutable action SHA bumps
+are normalized by the checker and can remain a single PR. When adding or
+updating a third-party action, pin its full 40-character commit SHA and retain
+the release tag as an inline comment (for example,
+`uses: org/action@<sha> # v1.2.3`).
 
 #### App-Specific Linting
 
@@ -551,10 +559,12 @@ The repository is set up with GitHub Actions for CI:
   performing every public mutation only after its exact-attempt CI success
   gate, with all
   four per-target `mainOwnershipMode` values set to `github`. Governance,
-  Reserve, and UI stage, verify, and promote exact immutable deployments. App
-  builds and deploys its custom `v3` output, then verifies or assigns only its
-  reviewed aliases. The removed Governance QA environment is not part
-  of this topology.
+  Reserve, UI, and App stage, verify, and promote exact immutable deployments.
+  App's promote is verified to leave `app.mento.org` at its prior, then one
+  transitional bridge alias-set transition repoints the domain to the
+  candidate — a carry-over from the retiring App custom `v3` environment,
+  removed once the domain moves into the Production environment. The removed
+  Governance QA environment is not part of this topology.
 
   Main planning uses strict `vercel-main-plan:v2` evidence. `stagedTargets`
   contains every selected target, while deterministic `activeTargets` and
@@ -579,10 +589,11 @@ The repository is set up with GitHub Actions for CI:
   final-verdict handoff and support final-only reruns. A completed release emits
   `current-release-verified` only after fresh mapping, census/state, raw
   public-runtime-smoke, and freshness proof; it creates no journal
-  and executes no public mutation. App shadow preparation is build-only terminal
-  evidence, never a provider deployment. Every other non-prefix, ambiguous,
-  conflicting, or incomplete provider state fails closed before production work
-  continues.
+  and executes no public mutation. App shadow preparation stages and verifies a
+  real Production candidate, then stops without promotion or protected-domain
+  or public mapping mutation. Its receipt is terminal non-authorizing evidence.
+  Every other non-prefix, ambiguous, conflicting, or incomplete provider state
+  fails closed before production work continues.
   The version-controlled preview-controller mode is `active`; per-target
   preview ownership and exact expected Vercel configurations are executable
   invariants. The trusted preview controller reads every selected target's
@@ -621,8 +632,8 @@ The repository is set up with GitHub Actions for CI:
   preview controller, active main transaction, production-shadow verification,
   and rollback procedures.
 
-  The manual `Vercel Production Shadow` workflow can build App custom `v3`
-  without deploying it and upload Governance, Reserve, and UI production
+  The manual `Vercel Production Shadow` workflow can build App's production
+  output without deploying it and upload Governance, Reserve, and UI production
   artifacts without custom production domains. Each staged ordinary
   deployment exposes its immutable hostname through the deployment URL/state
   identity. Vercel's provider alias list must contain the reviewed base
@@ -640,14 +651,14 @@ The repository is set up with GitHub Actions for CI:
   after its exact-attempt success gate proves that run and its literal
   `Build and Test` job succeeded. It plans from each target's
   currently served SHA, so coalesced pushes cannot omit an affected change.
-  Governance, Reserve, and UI stage immutable production candidates with
+  Governance, Reserve, UI, and App stage immutable production candidates with
   `--prod --skip-domain` and run direct browser smoke before exact promotion.
-  App custom `v3` is built in its own parallel stage job and remains
-  build-only until its activation turn because its upload moves attached `v3`
-  domains; the controller then verifies the transferred output, deploys it, and
-  reconciles every reviewed alias. The three ordinary public custom
-  domains are their only protected runtime and rollback aliases; generated
-  Vercel aliases are candidate evidence only. A durable redacted journal
+  App promotes last, verified to leave `app.mento.org` at its prior, then one
+  transitional bridge alias-set transition repoints the domain to the
+  candidate — a carry-over from the retiring App custom `v3` environment,
+  removed once the domain moves into the Production environment. All four
+  public custom domains are their only protected runtime and rollback aliases;
+  generated Vercel aliases are candidate evidence only. A durable redacted journal
   records intent and verified state around every public mutation. The final
   evidence also proves whether any replaced native `main` path attempted a
   duplicate deployment. See the active-main and rollback sections of

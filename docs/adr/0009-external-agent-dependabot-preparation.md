@@ -184,11 +184,14 @@ release review; grouping never reduces scope.
 
 Next.js and Vercel CLI updates can change both the ordinary workspace and the
 standalone Vercel deployment runtime. Protected pnpm updates also span the root
-package-manager declaration, workflow setup pins, controller checks, Linux
-bootstrap, and standalone pnpm runtime. The pull request must rotate all
-coupled manifests, overrides, lockfiles, pins, and contract digests together.
-Exact-head CI must run the independent validators documented in
-[`docs/dependency-overrides.md`](../dependency-overrides.md).
+package-manager declaration, workflow setup pins, trusted protected-runtime
+and action-policy checks, Linux bootstrap, and standalone pnpm runtime. A
+checker-only first pull request must land the protected transition rule before
+these states can move. The second pull request must rotate all coupled
+manifests, overrides, lockfiles, pins, and contract digests together, then
+remove the temporary old pnpm version from the checker. Exact-head CI must pass
+both action-policy checks and the independent validators documented in
+[`docs/dependency-overrides.md`](../dependency-overrides.md) on both stages.
 
 The generic agent always reports these rotations as `manual`. It does not
 prepare or push them, even with an `execute` grant. An authenticated maintainer

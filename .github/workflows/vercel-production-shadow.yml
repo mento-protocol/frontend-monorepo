@@ -4,8 +4,8 @@ name: Vercel Production Shadow
 # custom production domains, but implicitly move the target's reviewed generated
 # project/team alias. The workflow issues no explicit alias assignment,
 # promotion, environment-configuration, ownership, or protected-domain
-# mutation. App custom v3 is build-only because the pinned CLI has no documented
-# non-activating custom-environment deploy.
+# mutation. App stays build-only in this manual pilot: only the automatic main
+# pipeline uploads and activates an App production candidate.
 #checkov:skip=CKV_GHA_7:Immutable SHA and reviewed alias inputs are mandatory for this manual pilot.
 on:
   workflow_dispatch:
@@ -138,7 +138,7 @@ jobs:
         run: node scripts/vercel-production-shadow.mjs emit-output --name snapshot --input "$RUNNER_TEMP/baseline.json"
 
   app:
-    name: Build app custom v3 (Outcome B)
+    name: Build app production output (Outcome B)
     needs: [preflight, baseline]
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -201,7 +201,7 @@ jobs:
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_APP }}
         run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-production-shadow.mjs prepare-pull-staging
 
-      - name: Pull app custom-v3 configuration
+      - name: Pull app production configuration
         env:
           LOGICAL_TARGET: app
           SOURCE_PATH: ${{ steps.runtime.outputs.pull-staging-path }}
@@ -233,18 +233,19 @@ jobs:
           next_deployment_id="$("${{ steps.runtime.outputs.node-bin }}" scripts/vercel-prebuilt.mjs deployment-id --target app --sha "$DEPLOY_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT")"
           echo "next_deployment_id=$next_deployment_id" >> "$GITHUB_OUTPUT"
 
-      - name: Build app custom v3 and assert output
+      - name: Build app production output and assert it
         id: build
         env:
           CI: 1
           LOGICAL_TARGET: app
           MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.identity.outputs.next_deployment_id }}
-          NEXT_PUBLIC_VERCEL_ENV: preview
+          NEXT_PUBLIC_VERCEL_ENV: production
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
           TURBO_TEAM: ${{ vars.TURBO_TEAM }}
           TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
           VERCEL: 1
-          VERCEL_ENV: preview
+          VERCEL_ENV: production
           VERCEL_GIT_COMMIT_REF: main
           VERCEL_GIT_COMMIT_SHA: ${{ needs.preflight.outputs.deploy_sha }}
           VERCEL_GIT_PROVIDER: github
@@ -252,7 +253,7 @@ jobs:
           VERCEL_GIT_REPO_SLUG: frontend-monorepo
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_APP }}
-          VERCEL_TARGET_ENV: v3
+          VERCEL_TARGET_ENV: production
         uses: ./.github/actions/vercel-candidate-build
         with:
           controller-path: ${{ github.workspace }}

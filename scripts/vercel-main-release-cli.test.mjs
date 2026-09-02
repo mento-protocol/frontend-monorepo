@@ -90,10 +90,7 @@ function planning(
     shadowTargets: [],
     priors: TARGETS.map((target) => ({
       target,
-      aliases:
-        target === "app"
-          ? ["app.mento.org", "appmentoorg-env-v3-mentolabs.vercel.app"]
-          : [`${target}.mento.org`],
+      aliases: [`${target}.mento.org`],
       deploymentId: `dpl_${target}Prior123`,
       deploymentUrl: `https://${target}-prior.vercel.app`,
       servedSha: PRIOR_SHA,
@@ -125,8 +122,8 @@ function manifest(
           projectId: `prj_${target}`,
           projectName: `${target}.mento.org`,
           readyState: "READY",
-          target: target === "app" ? null : "production",
-          customEnvironmentSlug: target === "app" ? "v3" : null,
+          target: "production",
+          customEnvironmentSlug: null,
           planningLeaves: prior.aliases.map((alias) => ({
             alias,
             deploymentId: prior.deploymentId,
@@ -135,8 +132,8 @@ function manifest(
             projectId: `prj_${target}`,
             projectName: `${target}.mento.org`,
             readyState: "READY",
-            target: target === "app" ? null : "production",
-            customEnvironmentSlug: target === "app" ? "v3" : null,
+            target: "production",
+            customEnvironmentSlug: null,
             git: {
               status: "complete",
               org: "mento-protocol",
@@ -377,8 +374,8 @@ function currentAttemptReceipt(
       projectId: prior.projectId,
       projectName: prior.projectName,
       readyState: "READY",
-      target: target === "app" ? null : "production",
-      customEnvironmentSlug: target === "app" ? "v3" : null,
+      target: "production",
+      customEnvironmentSlug: null,
       source: "cli",
       git: {
         org: "mento-protocol",
@@ -1434,27 +1431,30 @@ test("candidate receipt materializer binds every selected job output to the exac
     "--ui",
     ui,
   ];
-  const pending = await runMainReleaseCli({
-    argv: argv(),
+  // Every selected target, App included, hands over an exact staged receipt.
+  await assert.rejects(
+    () =>
+      runMainReleaseCli({
+        argv: argv(),
+        env: environment(directory),
+      }),
+    /app requires a receipt/,
+  );
+
+  const appReceipt = currentAttemptReceipt(release, "app");
+  const complete = await runMainReleaseCli({
+    argv: argv({
+      app: encodeMainCandidateReceipt(appReceipt),
+    }),
     env: environment(directory),
   });
-  assert.deepEqual(pending, {
-    app: null,
+  assert.deepEqual(complete, {
+    app: appReceipt,
     governance: governanceReceipt,
     reserve: null,
     ui: null,
   });
-  assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), pending);
-
-  const appReceipt = currentAttemptReceipt(release, "app");
-  const reused = await runMainReleaseCli({
-    argv: argv({
-      app: encodeMainCandidateReceipt(appReceipt),
-      destination: join(directory, "receipts-reused-app.json"),
-    }),
-    env: environment(directory),
-  });
-  assert.deepEqual(reused.app, appReceipt);
+  assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), complete);
 
   const noTargetRelease = manifest([]);
   assert.deepEqual(
@@ -1515,10 +1515,17 @@ test("candidate receipt materializer binds every selected job output to the exac
       pattern: /not from the current attempt/,
     },
   ];
+  const appEncoded = encodeMainCandidateReceipt(appReceipt);
+  cases.push({
+    name: "missing-selected-app",
+    app: "none",
+    pattern: /app requires a receipt/,
+  });
   for (const [index, scenario] of cases.entries()) {
     await assert.rejects(
       runMainReleaseCli({
         argv: argv({
+          app: scenario.app ?? appEncoded,
           governance: scenario.governance ?? governanceEncoded,
           reserve: scenario.reserve ?? "none",
           destination: join(directory, `receipts-invalid-${index}.json`),
@@ -1534,7 +1541,7 @@ test("candidate receipt materializer binds every selected job output to the exac
       argv: [
         "candidate-receipts",
         "--app",
-        "none",
+        appEncoded,
         "--execution",
         executionPath,
         "--governance",

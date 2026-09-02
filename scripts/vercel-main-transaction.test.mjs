@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
+import * as mainTransactionModule from "./vercel-main-transaction.mjs";
 import {
   MAIN_TRANSACTION_MODE,
   MAIN_TRANSACTION_REPOSITORY,
@@ -9,8 +10,7 @@ import {
   assertMainInheritedTransactionRecoveryPlan,
   assertMainTransactionJournal,
   assertMainTransactionJournalHistory,
-  attachDiscoveredAppCandidate,
-  attachMainTransactionAppCandidateReceipt,
+  assertMainTransactionRecoveryPlan,
   classifyMainTransactionMapping,
   createMainTransactionId,
   createPreparedMainTransactionJournal as createPreparedMainTransactionJournalImpl,
@@ -22,27 +22,27 @@ import {
   markMainTransactionCommitted,
   persistMainTransactionJournal,
   planInheritedMainTransactionRecovery,
+  expectedVerifiedMappingStateFor,
+  isProductionShapedPrior,
   planMainTransactionRecovery,
   recordMainTransactionCommandReturned,
   recordMainTransactionVerified,
-  resolveUniqueAppTransactionCandidate,
   runMainTransaction as runMainTransactionImpl,
   selectHighestMainTransactionJournal,
   startMainTransactionOperation,
   startInheritedMainTransactionRecovery,
   startMainTransactionRecovery,
 } from "./vercel-main-transaction.mjs";
-import { MAIN_TARGET_CONTRACTS } from "./vercel-main-plan.mjs";
+import {
+  MAIN_TARGET_CONTRACTS,
+  TRANSITIONAL_APP_PRIOR_ENVIRONMENT,
+  TRANSITIONAL_APP_PRIOR_GENERATED_ALIAS,
+} from "./vercel-main-plan.mjs";
 import {
   createMainReleaseManifest,
   MAIN_RELEASE_ACTIVATION_ORDER,
 } from "./vercel-main-release-reconciliation.mjs";
-import {
-  canonicalizeMainCandidateVercelMetadata,
-  createMainCandidateIntent,
-  createMainCandidateReceipt,
-  createMainCandidateVercelMetadata,
-} from "./vercel-main-candidate.mjs";
+import { createMainCandidateIntent } from "./vercel-main-candidate.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const OTHER_SHA = "abcdef0123456789abcdef0123456789abcdef01";
@@ -62,7 +62,9 @@ function deploymentRecord(name, aliases) {
   };
 }
 
-function releasePrior(target) {
+// `environment` overrides the shape of the deployment the reviewed aliases
+// served before this release. Only the TRANSITION-V3-PRIOR App prior uses it.
+function releasePrior(target, environment) {
   const contract = MAIN_TARGET_CONTRACTS[target];
   const aliases = [...contract.aliases].sort();
   const shared = {
@@ -72,8 +74,11 @@ function releasePrior(target) {
     projectId: `prj_${target}123`,
     projectName: contract.projectName,
     readyState: "READY",
-    target: contract.target,
-    customEnvironmentSlug: contract.customEnvironmentSlug,
+    target: environment === undefined ? contract.target : environment.target,
+    customEnvironmentSlug:
+      environment === undefined
+        ? contract.customEnvironmentSlug
+        : environment.customEnvironmentSlug,
   };
   return {
     ...shared,
@@ -137,16 +142,29 @@ function releasePlan(activeTargets = TARGET_ORDER, mode = "active") {
   };
 }
 
-function releaseForTargets(activeTargets = TARGET_ORDER, mode = "active") {
+function releaseForTargets(
+  activeTargets = TARGET_ORDER,
+  mode = "active",
+  priorEnvironments = {},
+) {
   return createMainReleaseManifest({
     upstreamRunId: "700",
     plan: releasePlan(activeTargets, mode),
     originalPriors: Object.fromEntries(
       MAIN_RELEASE_ACTIVATION_ORDER.map((target) => [
         target,
-        releasePrior(target),
+        releasePrior(target, priorEnvironments[target]),
       ]),
     ),
+  });
+}
+
+// TRANSITION-V3-PRIOR
+// The first activation after the cutover still finds `app.mento.org` assigned
+// to the retiring `v3` custom environment, so the App prior is v3-shaped.
+function releaseWithV3AppPrior(activeTargets = TARGET_ORDER) {
+  return releaseForTargets(activeTargets, "active", {
+    app: TRANSITIONAL_APP_PRIOR_ENVIRONMENT,
   });
 }
 
@@ -159,7 +177,7 @@ function candidateDiscovery(target, releaseManifest) {
     projectName: prior.projectName,
     deploySha: SHA,
     target,
-    customEnvironmentSlug: target === "app" ? "v3" : null,
+    customEnvironmentSlug: null,
     immutableSmoke: {
       immutableUrl: `https://${target}-candidate.vercel.app`,
       servedSha: SHA,
@@ -184,10 +202,7 @@ function candidateRecord(name, aliases, releaseManifest) {
 
 function priorState() {
   return {
-    app: deploymentRecord("app", [
-      "app.mento.org",
-      "appmentoorg-env-v3-mentolabs.vercel.app",
-    ]),
+    app: deploymentRecord("app", ["app.mento.org"]),
     governance: deploymentRecord("governance", ["governance.mento.org"]),
     reserve: deploymentRecord("reserve", ["reserve.mento.org"]),
     ui: deploymentRecord("ui", ["ui.mento.org"]),
@@ -199,7 +214,7 @@ function appDiscovery(releaseManifest = releaseForTargets()) {
 }
 
 function candidateState(
-  { app = "unknown" } = {},
+  { app = true } = {},
   activeTargets = TARGET_ORDER,
   mode = "active",
 ) {
@@ -208,12 +223,11 @@ function candidateState(
   const selected = new Set(mode === "shadow" ? [] : activeTargets);
   return {
     app:
-      app === null || !selected.has("app")
+      app === null || app === false || !selected.has("app")
         ? null
         : {
-            deploymentId: app === "known" ? "dpl_appCandidate123" : null,
-            deploymentUrl:
-              app === "known" ? "https://app-candidate.vercel.app" : null,
+            deploymentId: "dpl_appCandidate123",
+            deploymentUrl: "https://app-candidate.vercel.app",
             aliases: [...prior.app.aliases],
             discovery: appDiscovery(releaseManifest),
           },
@@ -309,57 +323,9 @@ function appCandidateMatch(overrides = {}) {
   };
 }
 
-function appCandidateReceipt({
-  releaseManifest = releaseForTargets(["app"]),
-  immutableSmoke = {
-    immutableUrl: "https://app-candidate.vercel.app",
-    servedSha: SHA,
-    status: "passed",
-  },
-} = {}) {
-  const intent = createMainCandidateIntent({
-    target: "app",
-    deploySha: releaseManifest.deploySha,
-    upstreamRunId: releaseManifest.upstreamRunId,
-    originRunId: identity.runId,
-    originAttempt: identity.runAttempt,
-    originTransactionId: createMainTransactionId(identity),
-    projectId: releaseManifest.originalPriors.app.projectId,
-    projectName: releaseManifest.originalPriors.app.projectName,
-    releaseManifest,
-  });
-  const metadata = canonicalizeMainCandidateVercelMetadata(
-    createMainCandidateVercelMetadata({ intent }),
-    {
-      target: "app",
-      deploySha: intent.deploySha,
-      projectId: intent.projectId,
-      projectName: intent.projectName,
-    },
-  );
-  return createMainCandidateReceipt({
-    intent,
-    candidate: {
-      deploymentId: "dpl_appCandidate123",
-      deploymentUrl: "https://app-candidate.vercel.app",
-      projectId: intent.projectId,
-      projectName: intent.projectName,
-      readyState: "READY",
-      target: null,
-      customEnvironmentSlug: "v3",
-      source: "cli",
-      git: {
-        org: "mento-protocol",
-        repo: "frontend-monorepo",
-        ref: "main",
-        sha: intent.deploySha,
-      },
-      metadata,
-    },
-    immutableSmoke,
-  });
-}
-
+// The retired pending-App shape: a candidate record that names no staged
+// provider deployment yet. Every selected target now stages one before
+// activation, so preparing this shape must fail.
 function preparedPendingApp() {
   const release = releaseForTargets(["app"]);
   const prior = priorState();
@@ -445,26 +411,22 @@ function acknowledgedUploader(log = []) {
 }
 
 function activeMutationHarness({
-  appAliasesMovedByDeploy = [],
-  unexpectedAppAliasAfterDeploy = null,
+  appAliasMovedByPromote = false,
+  unexpectedAppAliasAfterPromote = null,
   onProtectedInspection,
 } = {}) {
   const prior = priorState();
   const candidates = candidateState();
-  const knownAppCandidate = candidateState({ app: "known" }).app;
+  const knownAppCandidate = candidates.app;
   const events = [];
   const mappings = new Map(
     Object.values(prior).flatMap((record) =>
       record.aliases.map((alias) => [alias, mapping(alias, record)]),
     ),
   );
-  let appDeployed = false;
 
   const operationMappingState = (context) => {
     const operation = context.operation ?? context.intent;
-    if (operation.type === "app_v3_deploy") {
-      return appDeployed ? "candidate" : "prior";
-    }
     const target = operation.target;
     const aliases =
       operation.alias === null || operation.alias === undefined
@@ -474,7 +436,7 @@ function activeMutationHarness({
       aliases,
       currentMappings: aliases.map((alias) => mappings.get(alias)),
       prior: prior[target],
-      candidate: target === "app" ? knownAppCandidate : candidates[target],
+      candidate: candidates[target],
     });
   };
 
@@ -486,34 +448,30 @@ function activeMutationHarness({
     mutationAdapters: {
       promote: async ({ operation }) => {
         events.push(`mutate:${operation.type}:${operation.target}`);
+        // TRANSITION-V3-PRIOR: an App promote leaves the reviewed App
+        // domain at its prior because that domain is still assigned to the
+        // retiring custom environment; the bridge alias set moves it.
+        if (operation.target === "app") {
+          if (appAliasMovedByPromote) {
+            for (const alias of prior.app.aliases) {
+              mappings.set(alias, mapping(alias, knownAppCandidate));
+            }
+          }
+          if (unexpectedAppAliasAfterPromote !== null) {
+            mappings.set(
+              unexpectedAppAliasAfterPromote,
+              mapping(unexpectedAppAliasAfterPromote, {
+                deploymentId: "dpl_operator123",
+                deploymentUrl: "https://operator.vercel.app",
+              }),
+            );
+          }
+          return { outcome: "success" };
+        }
         for (const alias of prior[operation.target].aliases) {
           mappings.set(alias, mapping(alias, candidates[operation.target]));
         }
         return { outcome: "success" };
-      },
-      deployAppV3: async ({ operation }) => {
-        events.push(`mutate:${operation.type}:${operation.target}`);
-        appDeployed = true;
-        const movedAliases =
-          appAliasesMovedByDeploy === "all"
-            ? prior.app.aliases
-            : appAliasesMovedByDeploy;
-        for (const alias of movedAliases) {
-          mappings.set(alias, mapping(alias, knownAppCandidate));
-        }
-        if (unexpectedAppAliasAfterDeploy !== null) {
-          mappings.set(
-            unexpectedAppAliasAfterDeploy,
-            mapping(unexpectedAppAliasAfterDeploy, {
-              deploymentId: "dpl_operator123",
-              deploymentUrl: "https://operator.vercel.app",
-            }),
-          );
-        }
-        return {
-          outcome: "success",
-          candidate: appCandidateMatch(),
-        };
       },
       assignAlias: async ({ operation }) => {
         events.push(
@@ -557,9 +515,11 @@ function transitionSuccessfulOperation(journal, intent) {
   return {
     started,
     returned,
+    // TRANSITION-V3-PRIOR: an App promote is verified at `prior`, every other
+    // forward operation at `candidate`.
     verified: recordMainTransactionVerified(returned, {
       operationId,
-      mappingState: "candidate",
+      mappingState: expectedVerifiedMappingStateFor(intent),
     }),
   };
 }
@@ -615,7 +575,7 @@ test("prepared journal is canonical, redacted, and names an immutable artifact",
   assert.equal(journal.status, "prepared");
   assert.equal(journal.runId, identity.runId);
   assert.equal(journal.runAttempt, identity.runAttempt);
-  assert.equal(journal.candidates.app.deploymentId, null);
+  assert.equal(journal.candidates.app.deploymentId, "dpl_appCandidate123");
   assert.equal(
     mainTransactionJournalArtifactName(journal),
     `vercel-main-journal-${journal.transactionId}-000000`,
@@ -658,6 +618,25 @@ test("prepared journal is canonical, redacted, and names an immutable artifact",
         },
       }),
     /does not match stable provider identity/,
+  );
+  // Every selected target, App included, stages its provider deployment
+  // before activation, so a candidate without one is rejected outright.
+  assert.throws(
+    () =>
+      createPreparedMainTransactionJournal({
+        ...identity,
+        mode: "active",
+        prior: priorState(),
+        candidates: {
+          ...candidateState(),
+          app: {
+            ...candidateState().app,
+            deploymentId: null,
+            deploymentUrl: null,
+          },
+        },
+      }),
+    /Candidate app must identify the staged deployment/,
   );
 });
 
@@ -838,21 +817,38 @@ test("adjacent journal snapshots append exactly one helper-legal event", () => {
     /differs from its legal helper append/,
   );
 
+  // Candidates are staged before activation, so no snapshot may attach or
+  // evolve one, and a snapshot that appends no event must be a legal status
+  // transition.
   const appInitial = preparedForTargets(["app"]);
-  const appStarted = startMainTransactionOperation(appInitial, {
-    type: "app_v3_deploy",
-    target: "app",
-  });
-  const attached = attachDiscoveredAppCandidate(
-    appStarted,
-    appCandidateMatch(),
+  assert.throws(
+    () =>
+      assertMainTransactionJournalHistory([
+        appInitial,
+        {
+          ...appInitial,
+          sequence: appInitial.sequence + 1,
+          candidates: {
+            ...appInitial.candidates,
+            app: {
+              ...appInitial.candidates.app,
+              deploymentId: "dpl_appCandidate456",
+              deploymentUrl: "https://app-candidate-two.vercel.app",
+            },
+          },
+        },
+      ]),
+    /Journal candidates changed after preparation/,
   );
   assert.throws(
     () =>
       assertMainTransactionJournalHistory([
         appInitial,
-        appStarted,
-        { ...attached, status: "recovering" },
+        {
+          ...appInitial,
+          sequence: appInitial.sequence + 1,
+          status: "verified",
+        },
       ]),
     /did not append one legal event/,
   );
@@ -1069,7 +1065,7 @@ test("commit requires one verified forward operation for every selected candidat
     { type: "promote", target: "governance" },
     { type: "promote", target: "reserve" },
     { type: "promote", target: "ui" },
-    { type: "app_v3_deploy", target: "app" },
+    { type: "promote", target: "app" },
   ]) {
     fullyVerified = transitionSuccessfulOperation(
       fullyVerified,
@@ -1110,23 +1106,33 @@ test("commit requires mutations only for ordinary targets that started at prior"
   );
 });
 
-test("selected app commit requires its exact candidate discovery", () => {
+// Replaces the retired "pending App candidate cannot commit" guard: an App
+// candidate that names no staged deployment can no longer be prepared at all.
+test("selected app commit requires its exact staged candidate", () => {
   const selected = preparedForTargets(["app"]);
-  const verifiedWithoutCandidate = transitionSuccessfulOperation(selected, {
-    type: "app_v3_deploy",
-    target: "app",
-  }).verified;
-  assert.equal(verifiedWithoutCandidate.candidates.app.deploymentId, null);
+  assert.equal(selected.candidates.app.deploymentId, "dpl_appCandidate123");
+  assert.deepEqual(
+    selected.candidates.app.discovery,
+    appDiscovery(selected.release),
+  );
   assert.throws(
-    () => markMainTransactionCommitted(verifiedWithoutCandidate),
-    /incomplete operations/,
+    () => preparedPendingApp(),
+    /Candidate app must identify the staged deployment/,
+  );
+  assert.throws(
+    () =>
+      startMainTransactionOperation(preparedForTargets([]), {
+        type: "promote",
+        target: "app",
+      }),
+    /Every operation binds its exact staged candidate/,
   );
 });
 
 test("app alias completeness is a final mapping-verification boundary", () => {
   const selected = preparedForTargets(["app"], { app: "known" });
   const appVerified = transitionSuccessfulOperation(selected, {
-    type: "app_v3_deploy",
+    type: "promote",
     target: "app",
   }).verified;
   assert.equal(
@@ -1136,6 +1142,72 @@ test("app alias completeness is a final mapping-verification boundary", () => {
     false,
   );
   assert.equal(markMainTransactionCommitted(appVerified).status, "committed");
+});
+
+// TRANSITION-V3-PRIOR
+test("App promote verifies at prior and its bridge alias set verifies at candidate", () => {
+  assert.equal(
+    expectedVerifiedMappingStateFor({ type: "promote", target: "app" }),
+    "prior",
+  );
+  for (const target of ["governance", "reserve", "ui"]) {
+    assert.equal(
+      expectedVerifiedMappingStateFor({ type: "promote", target }),
+      "candidate",
+    );
+  }
+  for (const operation of [
+    { type: "app_alias_set", target: "app" },
+    { type: "app_alias_restore", target: "app" },
+    { type: "ordinary_rollback", target: "app" },
+  ]) {
+    assert.equal(expectedVerifiedMappingStateFor(operation), "candidate");
+  }
+
+  const initial = preparedForTargets(["app"]);
+  const alias = initial.prior.app.aliases[0];
+  const promoted = transitionSuccessfulOperation(initial, {
+    type: "promote",
+    target: "app",
+  }).verified;
+  assert.deepEqual(
+    [
+      promoted.operations.at(-1).type,
+      promoted.operations.at(-1).commandOutcome,
+      promoted.operations.at(-1).mappingState,
+    ],
+    ["promote", "success", "prior"],
+  );
+  const bridged = transitionSuccessfulOperation(promoted, {
+    type: "app_alias_set",
+    target: "app",
+    alias,
+  }).verified;
+  assert.deepEqual(
+    [
+      bridged.operations.at(-1).type,
+      bridged.operations.at(-1).alias,
+      bridged.operations.at(-1).mappingState,
+    ],
+    ["app_alias_set", alias, "candidate"],
+  );
+  assert.equal(markMainTransactionCommitted(bridged).status, "committed");
+
+  // An App promote that reached the candidate is not a verified App promote.
+  const movedPromote = transitionSuccessfulOperation(initial, {
+    type: "promote",
+    target: "app",
+  }).returned;
+  assert.throws(
+    () =>
+      markMainTransactionCommitted(
+        recordMainTransactionVerified(movedPromote, {
+          operationId: movedPromote.operations.at(-1).operationId,
+          mappingState: "candidate",
+        }),
+      ),
+    /incomplete operations/,
+  );
 });
 
 test("duplicate forward mutations are rejected after a verified attempt", () => {
@@ -1154,20 +1226,20 @@ test("duplicate forward mutations are rejected after a verified attempt", () => 
   assert.throws(
     () =>
       startMainTransactionOperation(preparedForTargets([], { app: "known" }), {
-        type: "app_v3_deploy",
+        type: "promote",
         target: "app",
       }),
-    /not selected/,
+    /Every operation binds its exact staged candidate/,
   );
 
   const appDeploy = transitionSuccessfulOperation(
     preparedForTargets(["app"], { app: "known" }),
-    { type: "app_v3_deploy", target: "app" },
+    { type: "promote", target: "app" },
   ).verified;
   assert.throws(
     () =>
       startMainTransactionOperation(appDeploy, {
-        type: "app_v3_deploy",
+        type: "promote",
         target: "app",
       }),
     /already recorded/,
@@ -1190,53 +1262,46 @@ test("duplicate forward mutations are rejected after a verified attempt", () => 
   );
 });
 
-test("known app candidate may only evolve once from exact discovery metadata", () => {
+// Replaces the retired "candidate discovered during activation" model: the
+// staging apparatus is gone and no activation command may introduce one.
+test("app candidate is staged at preparation and never discovered later", () => {
+  for (const name of [
+    "attachDiscoveredAppCandidate",
+    "attachMainTransactionAppCandidateReceipt",
+    "resolveUniqueAppTransactionCandidate",
+  ]) {
+    assert.equal(mainTransactionModule[name], undefined, name);
+  }
   const initial = prepared();
-  const attached = attachDiscoveredAppCandidate(initial, appCandidateMatch());
-  assert.equal(attached.sequence, 1);
-  assert.equal(attached.candidates.app.deploymentId, "dpl_appCandidate123");
-  assert.deepEqual(
-    resolveUniqueAppTransactionCandidate(initial, [appCandidateMatch()]),
-    attached.candidates.app,
-  );
-  assert.throws(
-    () => resolveUniqueAppTransactionCandidate(initial, []),
-    /exactly one match/,
-  );
+  assert.equal(initial.candidates.app.deploymentId, "dpl_appCandidate123");
+  const started = startMainTransactionOperation(initial, {
+    type: "promote",
+    target: "app",
+  });
   assert.throws(
     () =>
-      resolveUniqueAppTransactionCandidate(initial, [
-        appCandidateMatch(),
-        appCandidateMatch({
-          deploymentId: "dpl_appCandidate456",
-          deploymentUrl: "https://app-candidate-two.vercel.app",
-        }),
-      ]),
-    /exactly one match/,
-  );
-  assert.throws(
-    () =>
-      attachDiscoveredAppCandidate(
-        initial,
-        appCandidateMatch({ deploySha: OTHER_SHA }),
-      ),
-    /does not match discovery metadata/,
+      recordMainTransactionCommandReturned(started, {
+        operationId: started.operations.at(-1).operationId,
+        outcome: "success",
+        candidate: appCandidateMatch(),
+      }),
+    /Activation commands never discover a candidate/,
   );
 });
 
-test("app candidate command return uses one monotonic journal sequence", () => {
+test("app activation events use one monotonic journal sequence", () => {
   const initial = prepared();
   const started = startMainTransactionOperation(initial, {
-    type: "app_v3_deploy",
+    type: "promote",
     target: "app",
   });
   const returned = recordMainTransactionCommandReturned(started, {
     operationId: started.operations.at(-1).operationId,
     outcome: "success",
-    candidate: appCandidateMatch(),
   });
   assert.equal(started.sequence, 1);
   assert.equal(returned.sequence, 2);
+  assert.deepEqual(returned.candidates, initial.candidates);
   assert.equal(returned.candidates.app.deploymentId, "dpl_appCandidate123");
   assert.doesNotThrow(() =>
     assertMainTransactionJournalHistory([initial, started, returned]),
@@ -1608,13 +1673,45 @@ test("mapping classifier distinguishes prior, candidate, partial, and unexpected
     "candidate",
   );
   assert.equal(
-    classify([mapping(aliases[0], prior), mapping(aliases[1], candidate)]),
+    classify([
+      mapping(aliases[0], {
+        deploymentId: "dpl_operator123",
+        deploymentUrl: "https://operator.vercel.app",
+      }),
+    ]),
+    "unexpected",
+  );
+
+  // Every reviewed target now maps exactly one alias, so `partial` and a
+  // mixed `unexpected` are only reachable through the classifier's own
+  // multi-alias contract.
+  const multiPrior = deploymentRecord("multi", [
+    "multi-one.mento.org",
+    "multi-two.mento.org",
+  ]);
+  const multiCandidate = {
+    deploymentId: "dpl_multiCandidate123",
+    deploymentUrl: "https://multi-candidate.vercel.app",
+    aliases: [...multiPrior.aliases],
+  };
+  const classifyMulti = (records) =>
+    classifyMainTransactionMapping({
+      aliases: multiPrior.aliases,
+      currentMappings: records,
+      prior: multiPrior,
+      candidate: multiCandidate,
+    });
+  assert.equal(
+    classifyMulti([
+      mapping(multiPrior.aliases[0], multiPrior),
+      mapping(multiPrior.aliases[1], multiCandidate),
+    ]),
     "partial",
   );
   assert.equal(
-    classify([
-      mapping(aliases[0], prior),
-      mapping(aliases[1], {
+    classifyMulti([
+      mapping(multiPrior.aliases[0], multiPrior),
+      mapping(multiPrior.aliases[1], {
         deploymentId: "dpl_operator123",
         deploymentUrl: "https://operator.vercel.app",
       }),
@@ -1776,7 +1873,11 @@ test("forged recovery action fields never reach inspection or mutation adapters"
 
   const appStarted = startMainTransactionOperation(
     preparedForTargets(["app"], { app: "known" }),
-    { type: "app_v3_deploy", target: "app" },
+    {
+      type: "app_alias_set",
+      target: "app",
+      alias: priorState().app.aliases[0],
+    },
   );
   const movedAlias = appStarted.prior.app.aliases[0];
   const appPlan = planMainTransactionRecovery({
@@ -1788,9 +1889,7 @@ test("forged recovery action fields never reach inspection or mutation adapters"
   const restore = appPlan.actions.find(
     (entry) => entry.kind === "app_alias_restore",
   );
-  restore.alias = appStarted.prior.app.aliases.find(
-    (alias) => alias !== movedAlias,
-  );
+  restore.alias = "app-forged.mento.org";
   let appInspections = 0;
   await assert.rejects(
     executeMainTransactionRecovery({
@@ -1900,10 +1999,12 @@ test("a noop that moves after planning cannot be recorded as recovered", async (
   );
 });
 
-test("app discovery and recovery-start uploads retain the prior durable snapshot", async () => {
-  const started = startMainTransactionOperation(preparedForTargets(["app"]), {
-    type: "app_v3_deploy",
+test("app recovery-start uploads retain the prior durable snapshot", async () => {
+  const initial = preparedForTargets(["app"]);
+  const started = startMainTransactionOperation(initial, {
+    type: "app_alias_set",
     target: "app",
+    alias: initial.prior.app.aliases[0],
   });
   const movedAlias = started.prior.app.aliases[0];
   const plan = planMainTransactionRecovery({
@@ -1914,11 +2015,14 @@ test("app discovery and recovery-start uploads retain the prior durable snapshot
         deploymentUrl: "https://app-candidate.vercel.app",
       },
     }),
-    appCandidateMatches: [appCandidateMatch()],
   });
+  assert.deepEqual(
+    plan.actions.map(({ kind, alias }) => ({ kind, alias })),
+    [{ kind: "app_alias_restore", alias: movedAlias }],
+  );
   for (const [failAt, expected] of [
     [1, { sequence: started.sequence, status: "started" }],
-    [2, { sequence: started.sequence + 1, status: "started" }],
+    [2, { sequence: started.sequence + 1, status: "recovering" }],
   ]) {
     let attempts = 0;
     await assert.rejects(
@@ -2015,98 +2119,86 @@ test("manual intervention on one target does not skip safe reverse recovery else
   assert.equal(result.status, "manual_intervention");
 });
 
-test("app recovery restores only exact transaction-candidate aliases", () => {
+test("app recovery restores only the exact transaction-candidate mapping", () => {
   const initial = prepared();
+  const alias = initial.prior.app.aliases[0];
   const started = startMainTransactionOperation(initial, {
-    type: "app_v3_deploy",
+    type: "app_alias_set",
     target: "app",
+    alias,
   });
-  const returned = recordMainTransactionCommandReturned(started, {
-    operationId: started.operations.at(-1).operationId,
-    outcome: "success",
-    candidate: appCandidateMatch(),
-  });
-  const aliases = returned.prior.app.aliases;
   const plan = planMainTransactionRecovery({
-    journal: returned,
-    currentMappings: currentMappings(returned, {
-      [aliases[0]]: returned.prior.app,
-      [aliases[1]]: returned.candidates.app,
+    journal: started,
+    currentMappings: currentMappings(started, {
+      [alias]: started.candidates.app,
     }),
   });
   assert.equal(plan.decision, "recover");
   const appActions = plan.actions.filter((entry) => entry.target === "app");
   assert.deepEqual(
     appActions.map((entry) => [entry.kind, entry.alias]),
-    [
-      ["app_alias_restore", aliases[1]],
-      ["verified_noop", aliases[0]],
-    ],
+    [["app_alias_restore", alias]],
   );
   assert.equal(
     appActions[0].priorDeploymentUrl,
-    returned.prior.app.deploymentUrl,
+    started.prior.app.deploymentUrl,
   );
   assert.equal(
     appActions[0].candidateDeploymentId,
-    returned.candidates.app.deploymentId,
+    started.candidates.app.deploymentId,
+  );
+
+  const foreign = planMainTransactionRecovery({
+    journal: started,
+    currentMappings: currentMappings(started, {
+      [alias]: {
+        deploymentId: "dpl_operator123",
+        deploymentUrl: "https://operator.vercel.app",
+      },
+    }),
+  });
+  assert.equal(foreign.decision, "manual_intervention");
+  assert.deepEqual(
+    foreign.actions.map(({ kind, alias: actionAlias }) => [kind, actionAlias]),
+    [["manual_intervention", alias]],
   );
 });
 
-test("unknown App candidate remains manual with or without mapping movement", () => {
+// Replaces the retired "unknown App candidate" recovery model: the App
+// candidate is always staged, so recovery never resolves one and its
+// unresolved/ambiguous reasons no longer exist.
+test("staged App candidate removes the unresolved-candidate recovery model", () => {
+  assert.throws(
+    () => preparedPendingApp(),
+    /Candidate app must identify the staged deployment/,
+  );
   const initial = prepared();
+  const movedAlias = initial.prior.app.aliases[0];
   const started = startMainTransactionOperation(initial, {
-    type: "app_v3_deploy",
+    type: "app_alias_set",
     target: "app",
+    alias: movedAlias,
   });
-  const priorPlan = planMainTransactionRecovery({
+  const plan = planMainTransactionRecovery({
     journal: started,
-    currentMappings: currentMappings(started),
+    currentMappings: currentMappings(started, {
+      [movedAlias]: started.candidates.app,
+    }),
+    // Recovery no longer consults provider candidate matches.
     appCandidateMatches: [],
   });
-  assert.equal(priorPlan.decision, "manual_intervention");
-  assert.equal(priorPlan.reason, "app-candidate-unresolved-after-start");
-  assert.ok(priorPlan.actions.every((entry) => entry.kind === "verified_noop"));
-
-  const movedAlias = started.prior.app.aliases[0];
-  const movedMappings = currentMappings(started, {
-    [movedAlias]: {
-      deploymentId: "dpl_appCandidate123",
-      deploymentUrl: "https://app-candidate.vercel.app",
-    },
-  });
-  for (const matches of [
-    [],
-    [
-      appCandidateMatch(),
-      appCandidateMatch({
-        deploymentId: "dpl_appCandidate456",
-        deploymentUrl: "https://app-candidate-two.vercel.app",
-      }),
-    ],
-  ]) {
-    const plan = planMainTransactionRecovery({
-      journal: started,
-      currentMappings: movedMappings,
-      appCandidateMatches: matches,
-    });
-    assert.equal(plan.decision, "manual_intervention");
-    assert.equal(plan.reason, "app-candidate-ambiguous-after-mapping-moved");
-    assert.ok(plan.actions.length > 0);
-  }
-  const unique = planMainTransactionRecovery({
-    journal: started,
-    currentMappings: movedMappings,
-    appCandidateMatches: [appCandidateMatch()],
-  });
-  assert.equal(unique.decision, "recover");
+  assert.equal(plan.decision, "recover");
   assert.equal(
-    unique.actions.find((entry) => entry.alias === movedAlias).kind,
+    plan.reason,
+    "started-operations-require-verification-or-recovery",
+  );
+  assert.equal(
+    plan.actions.find((entry) => entry.alias === movedAlias).kind,
     "app_alias_restore",
   );
 });
 
-test("ambiguous App recovery retains safe ordinary rollback actions", () => {
+test("manual App recovery retains safe ordinary rollback actions", () => {
   let highest = prepared();
   for (const target of ["governance", "reserve", "ui"]) {
     highest = transitionSuccessfulOperation(highest, {
@@ -2115,7 +2207,7 @@ test("ambiguous App recovery retains safe ordinary rollback actions", () => {
     }).verified;
   }
   highest = startMainTransactionOperation(highest, {
-    type: "app_v3_deploy",
+    type: "promote",
     target: "app",
   });
   highest = recordMainTransactionCommandReturned(highest, {
@@ -2131,7 +2223,7 @@ test("ambiguous App recovery retains safe ordinary rollback actions", () => {
       ]),
     ),
   );
-  const movedAppAlias = highest.prior.app.aliases[1];
+  const movedAppAlias = highest.prior.app.aliases[0];
   overrides[movedAppAlias] = {
     deploymentId: "dpl_unresolvedApp123",
     deploymentUrl: "https://unresolved-app.vercel.app",
@@ -2139,17 +2231,16 @@ test("ambiguous App recovery retains safe ordinary rollback actions", () => {
   const plan = planMainTransactionRecovery({
     journal: highest,
     currentMappings: currentMappings(highest, overrides),
-    appCandidateMatches: [],
   });
 
   assert.equal(plan.decision, "manual_intervention");
-  assert.equal(plan.reason, "app-candidate-ambiguous-after-mapping-moved");
+  assert.equal(plan.reason, "unexpected-protected-mapping");
   assert.ok(
     plan.actions.some(
       (entry) =>
         entry.kind === "manual_intervention" &&
         entry.target === "app" &&
-        entry.alias === movedAppAlias,
+        entry.mappingState === "unexpected",
     ),
   );
   assert.deepEqual(
@@ -2163,11 +2254,12 @@ test("ambiguous App recovery retains safe ordinary rollback actions", () => {
 
 test("unexpected app mapping is never overwritten", () => {
   const initial = prepared({ app: "known" });
+  const alias = initial.prior.app.aliases[0];
   const started = startMainTransactionOperation(initial, {
-    type: "app_v3_deploy",
+    type: "app_alias_set",
     target: "app",
+    alias,
   });
-  const alias = started.prior.app.aliases[0];
   const plan = planMainTransactionRecovery({
     journal: started,
     currentMappings: currentMappings(started, {
@@ -2189,8 +2281,9 @@ test("unexpected app mapping is never overwritten", () => {
 test("retired legacy App v2 cannot re-enter the transaction recovery model", () => {
   const initial = prepared({ app: "known" });
   const started = startMainTransactionOperation(initial, {
-    type: "app_v3_deploy",
+    type: "app_alias_set",
     target: "app",
+    alias: initial.prior.app.aliases[0],
   });
   assert.equal(started.prior["legacy-app"], undefined);
   const plan = planMainTransactionRecovery({
@@ -2235,6 +2328,274 @@ test("retired legacy App v2 cannot re-enter the transaction recovery model", () 
   );
 });
 
+// TRANSITION-V3-PRIOR
+// The first activation after the cutover still finds a v3-shaped App prior.
+// `vercel rollback` restores a production deployment, which that prior is not,
+// so a moved App promote is manual and the bridge restore is the only
+// compensation for the reviewed domain.
+test("first-run App recovery cannot roll back a v3-shaped App prior", () => {
+  const prior = priorState();
+  const journal = createPreparedMainTransactionJournalImpl({
+    ...identity,
+    mode: "active",
+    release: releaseWithV3AppPrior(),
+    prior,
+    startMappings: startMappingsAtPrior(prior),
+    candidates: candidateState(),
+  });
+  assert.equal(isProductionShapedPrior(journal.release, "app"), false);
+  for (const target of ["governance", "reserve", "ui"]) {
+    assert.equal(isProductionShapedPrior(journal.release, target), true);
+  }
+
+  const alias = journal.prior.app.aliases[0];
+  const started = startMainTransactionOperation(journal, {
+    type: "promote",
+    target: "app",
+  });
+  const plan = planMainTransactionRecovery({
+    journal: started,
+    currentMappings: currentMappings(started, {
+      [alias]: started.candidates.app,
+    }),
+  });
+  assert.equal(plan.decision, "manual_intervention");
+  assert.deepEqual(
+    plan.actions.map(({ kind, target, mappingState }) => ({
+      kind,
+      target,
+      mappingState,
+    })),
+    [{ kind: "manual_intervention", target: "app", mappingState: "candidate" }],
+  );
+  assert.deepEqual(plan.rollbackStateTargets, []);
+  // The manual plan must survive its own strict validator: a promote slot that
+  // cannot roll back is a legal manual action.
+  assert.deepEqual(assertMainTransactionRecoveryPlan(plan), plan);
+
+  assert.throws(
+    () =>
+      startMainTransactionOperation(startMainTransactionRecovery(started), {
+        type: "ordinary_rollback",
+        target: "app",
+      }),
+    /ordinary_rollback cannot restore a non-production app prior/,
+  );
+  assert.doesNotThrow(() =>
+    startMainTransactionOperation(startMainTransactionRecovery(started), {
+      type: "app_alias_restore",
+      target: "app",
+      alias,
+    }),
+  );
+});
+
+// TRANSITION-V3-PRIOR
+// The whole forward path ran and the run failed after the bridge alias set.
+// The bridge restore returns the only reviewed App alias to the captured v3
+// prior, which is the entire compensation available for a v3-shaped App prior,
+// so the App promote slot is a compensated noop and recovery must not escalate
+// the interruption to a human.
+test("first-run App recovery compensates a bridged promote with its alias restore", () => {
+  const prior = priorState();
+  let journal = createPreparedMainTransactionJournalImpl({
+    ...identity,
+    mode: "active",
+    release: releaseWithV3AppPrior(),
+    prior,
+    startMappings: startMappingsAtPrior(prior),
+    candidates: candidateState(),
+  });
+  const alias = journal.prior.app.aliases[0];
+  for (const target of ["governance", "reserve", "ui"]) {
+    const started = startMainTransactionOperation(journal, {
+      type: "promote",
+      target,
+    });
+    const operationId = started.operations.at(-1).operationId;
+    journal = recordMainTransactionVerified(
+      recordMainTransactionCommandReturned(started, {
+        operationId,
+        outcome: "success",
+      }),
+      { operationId, mappingState: "candidate" },
+    );
+  }
+  const appPromoted = startMainTransactionOperation(journal, {
+    type: "promote",
+    target: "app",
+  });
+  const appPromoteId = appPromoted.operations.at(-1).operationId;
+  journal = recordMainTransactionVerified(
+    recordMainTransactionCommandReturned(appPromoted, {
+      operationId: appPromoteId,
+      outcome: "success",
+    }),
+    { operationId: appPromoteId, mappingState: "prior" },
+  );
+  const bridged = startMainTransactionOperation(journal, {
+    type: "app_alias_set",
+    target: "app",
+    alias,
+  });
+
+  const plan = planMainTransactionRecovery({
+    journal: bridged,
+    currentMappings: currentMappings(bridged, {
+      [alias]: bridged.candidates.app,
+      "governance.mento.org": bridged.candidates.governance,
+      "reserve.mento.org": bridged.candidates.reserve,
+      "ui.mento.org": bridged.candidates.ui,
+    }),
+  });
+  assert.equal(plan.decision, "recover");
+  assert.equal(
+    plan.reason,
+    "started-operations-require-verification-or-recovery",
+  );
+  assert.deepEqual(
+    plan.actions.map((entry) => ({
+      kind: entry.kind,
+      target: entry.target,
+      alias: entry.alias ?? null,
+      mappingState: entry.mappingState ?? null,
+    })),
+    [
+      {
+        kind: "app_alias_restore",
+        target: "app",
+        alias,
+        mappingState: null,
+      },
+      {
+        kind: "verified_noop",
+        target: "app",
+        alias: null,
+        mappingState: "candidate",
+      },
+      {
+        kind: "ordinary_rollback",
+        target: "ui",
+        alias: null,
+        mappingState: null,
+      },
+      {
+        kind: "ordinary_rollback",
+        target: "reserve",
+        alias: null,
+        mappingState: null,
+      },
+      {
+        kind: "ordinary_rollback",
+        target: "governance",
+        alias: null,
+        mappingState: null,
+      },
+    ],
+  );
+  assert.deepEqual(plan.rollbackStateTargets, ["ui", "reserve", "governance"]);
+  assert.deepEqual(assertMainTransactionRecoveryPlan(plan), plan);
+
+  // Without the bridge restore covering the reviewed alias the same promote
+  // stays manual: a v3-shaped prior has nothing to roll back to.
+  const unbridged = planMainTransactionRecovery({
+    journal: appPromoted,
+    currentMappings: currentMappings(appPromoted, {
+      [alias]: appPromoted.candidates.app,
+      "governance.mento.org": appPromoted.candidates.governance,
+      "reserve.mento.org": appPromoted.candidates.reserve,
+      "ui.mento.org": appPromoted.candidates.ui,
+    }),
+  });
+  assert.equal(unbridged.decision, "manual_intervention");
+  assert.equal(
+    unbridged.actions.find((entry) => entry.target === "app").kind,
+    "manual_intervention",
+  );
+});
+
+// TRANSITION-V3-PRIOR
+// Once `app.mento.org` is a production App deployment, App recovers like every
+// other main target.
+test("steady-state App recovery rolls back a production-shaped App prior", () => {
+  const initial = prepared();
+  assert.equal(isProductionShapedPrior(initial.release, "app"), true);
+  const alias = initial.prior.app.aliases[0];
+  const started = startMainTransactionOperation(initial, {
+    type: "promote",
+    target: "app",
+  });
+  const plan = planMainTransactionRecovery({
+    journal: started,
+    currentMappings: currentMappings(started, {
+      [alias]: started.candidates.app,
+    }),
+  });
+  assert.equal(plan.decision, "recover");
+  assert.deepEqual(
+    plan.actions.map(({ kind, target, aliases, entersRollbackState }) => ({
+      kind,
+      target,
+      aliases,
+      entersRollbackState,
+    })),
+    [
+      {
+        kind: "ordinary_rollback",
+        target: "app",
+        aliases: [alias],
+        entersRollbackState: true,
+      },
+    ],
+  );
+  assert.deepEqual(plan.rollbackStateTargets, ["app"]);
+  assert.deepEqual(assertMainTransactionRecoveryPlan(plan), plan);
+
+  const rollbackStarted = startMainTransactionOperation(
+    startMainTransactionRecovery(started),
+    { type: "ordinary_rollback", target: "app" },
+  );
+  assert.deepEqual(
+    [
+      rollbackStarted.operations.at(-1).type,
+      rollbackStarted.operations.at(-1).target,
+      rollbackStarted.operations.at(-1).alias,
+    ],
+    ["ordinary_rollback", "app", null],
+  );
+});
+
+test("retired app_v3_deploy operation type cannot re-enter the transaction model", () => {
+  const journal = prepared();
+  assert.throws(
+    () =>
+      startMainTransactionOperation(journal, {
+        type: "app_v3_deploy",
+        target: "app",
+      }),
+    /Operation type is unsupported/,
+  );
+  const started = startMainTransactionOperation(journal, {
+    type: "promote",
+    target: "app",
+  });
+  const forged = {
+    ...started,
+    operations: started.operations.map((operation) => ({
+      ...operation,
+      type: "app_v3_deploy",
+    })),
+  };
+  assert.throws(
+    () => assertMainTransactionJournal(forged),
+    /Operation type is unsupported/,
+  );
+  assert.throws(
+    () => assertMainTransactionJournalHistory([journal, forged]),
+    /Operation type is unsupported/,
+  );
+});
+
 test("recovered and committed histories bypass repeat recovery", () => {
   const initial = preparedForTargets([], { app: "known" });
   const committed = markMainTransactionCommitted(initial);
@@ -2274,7 +2635,6 @@ test("shadow execution exercises preparation, freshness, persistence, and recove
     },
     mutationAdapters: {
       promote: forbidden,
-      deployAppV3: forbidden,
       assignAlias: forbidden,
       ordinaryRollback: forbidden,
       restoreAppAlias: forbidden,
@@ -2337,7 +2697,9 @@ test("active mode promotes ordinary targets sequentially and activates App last"
 
   assert.equal(result.outcome, "active-committed");
   assert.equal(result.journal.status, "committed");
-  assert.equal(result.mutationCallbacksCalled, 6);
+  assert.equal(result.mutationCallbacksCalled, 5);
+  // TRANSITION-V3-PRIOR: App promotes last, then the bridge alias set carries
+  // the reviewed domain from the prior to the promoted candidate.
   assert.deepEqual(
     result.journal.operations
       .filter((operation) => operation.state === "started")
@@ -2346,9 +2708,24 @@ test("active mode promotes ordinary targets sequentially and activates App last"
       ["promote", "governance", null],
       ["promote", "reserve", null],
       ["promote", "ui", null],
-      ["app_v3_deploy", "app", null],
+      ["promote", "app", null],
       ["app_alias_set", "app", "app.mento.org"],
-      ["app_alias_set", "app", "appmentoorg-env-v3-mentolabs.vercel.app"],
+    ],
+  );
+  assert.deepEqual(
+    result.journal.operations
+      .filter((operation) => operation.state === "verified")
+      .map((operation) => [
+        operation.type,
+        operation.target,
+        operation.mappingState,
+      ]),
+    [
+      ["promote", "governance", "candidate"],
+      ["promote", "reserve", "candidate"],
+      ["promote", "ui", "candidate"],
+      ["promote", "app", "prior"],
+      ["app_alias_set", "app", "candidate"],
     ],
   );
   assert.deepEqual(
@@ -2357,9 +2734,8 @@ test("active mode promotes ordinary targets sequentially and activates App last"
       "mutate:promote:governance",
       "mutate:promote:reserve",
       "mutate:promote:ui",
-      "mutate:app_v3_deploy:app",
+      "mutate:promote:app",
       "mutate:app_alias_set:app:app.mento.org",
-      "mutate:app_alias_set:app:appmentoorg-env-v3-mentolabs.vercel.app",
     ],
   );
   for (const [index, event] of events.entries()) {
@@ -2368,7 +2744,7 @@ test("active mode promotes ordinary targets sequentially and activates App last"
   }
   assert.equal(events[0], "upload:prepared:none");
   assert.match(events.at(-1), /^upload:committed:op-[0-9]{4}$/);
-  assert.equal(freshness.filter((phase) => phase === "pre-command").length, 6);
+  assert.equal(freshness.filter((phase) => phase === "pre-command").length, 5);
   assert.equal(freshness.at(-1), "transaction-commit");
   assert.equal(
     result.journal.candidates.app.deploymentId,
@@ -2380,10 +2756,10 @@ test("active mode promotes ordinary targets sequentially and activates App last"
   });
 });
 
-test("active mode treats App aliases already moved by v3 deployment as verified noops", async () => {
-  const harness = activeMutationHarness({
-    appAliasesMovedByDeploy: "all",
-  });
+// TRANSITION-V3-PRIOR
+test("active mode treats a reviewed App alias already at the candidate as a verified noop", async () => {
+  const harness = activeMutationHarness();
+  const baseInspectMapping = harness.mutationAdapters.inspectMapping;
   const result = await runMainTransaction({
     mode: "active",
     identity,
@@ -2391,7 +2767,19 @@ test("active mode treats App aliases already moved by v3 deployment as verified 
     candidates: harness.candidates,
     assertFreshness: async () => ({ sha: SHA }),
     uploadJournal: acknowledgedUploader(),
-    mutationAdapters: harness.mutationAdapters,
+    mutationAdapters: {
+      ...harness.mutationAdapters,
+      inspectMapping: async (context) => {
+        if (context.phase === "alias-selection") {
+          // The reviewed domain reached the promoted candidate on its own
+          // between the App promote and the bridge alias set.
+          for (const alias of harness.prior.app.aliases) {
+            harness.mappings.set(alias, mapping(alias, harness.candidates.app));
+          }
+        }
+        return baseInspectMapping(context);
+      },
+    },
   });
 
   assert.equal(result.journal.status, "committed");
@@ -2408,17 +2796,16 @@ test("active mode treats App aliases already moved by v3 deployment as verified 
       "mutate:promote:governance",
       "mutate:promote:reserve",
       "mutate:promote:ui",
-      "mutate:app_v3_deploy:app",
+      "mutate:promote:app",
     ],
   );
 });
 
-test("active mode assigns only the reviewed App alias still at prior", async () => {
-  const harness = activeMutationHarness({
-    appAliasesMovedByDeploy: ["app.mento.org"],
-  });
+// TRANSITION-V3-PRIOR
+test("active mode binds the staged App candidate and assigns only aliases still at prior", async () => {
+  const harness = activeMutationHarness();
   const baseVerifyMapping = harness.mutationAdapters.verifyMapping;
-  let verifiedAppDeployment = null;
+  let verifiedAppPromote = null;
   const result = await runMainTransaction({
     mode: "active",
     identity,
@@ -2429,24 +2816,21 @@ test("active mode assigns only the reviewed App alias still at prior", async () 
     mutationAdapters: {
       ...harness.mutationAdapters,
       verifyMapping: async (context) => {
-        if (context.operation.type === "app_v3_deploy") {
-          verifiedAppDeployment = {
+        if (
+          context.operation.type === "promote" &&
+          context.operation.target === "app"
+        ) {
+          verifiedAppPromote = {
             deploymentId: context.operation.candidateDeploymentId,
             deploymentUrl: context.operation.candidateDeploymentUrl,
             readyState: "READY",
           };
+          // The promote moves the App production environment, never the
+          // reviewed domain that still belongs to the `v3` environment.
           assert.deepEqual(
             harness.mappings.get("app.mento.org"),
-            mapping("app.mento.org", candidateState({ app: "known" }).app),
+            mapping("app.mento.org", harness.prior.app),
           );
-          assert.deepEqual(
-            harness.mappings.get("appmentoorg-env-v3-mentolabs.vercel.app"),
-            mapping(
-              "appmentoorg-env-v3-mentolabs.vercel.app",
-              harness.prior.app,
-            ),
-          );
-          return { mappingState: "candidate" };
         }
         return baseVerifyMapping(context);
       },
@@ -2455,7 +2839,7 @@ test("active mode assigns only the reviewed App alias still at prior", async () 
 
   assert.equal(result.journal.status, "committed");
   assert.equal(result.mutationCallbacksCalled, 5);
-  assert.deepEqual(verifiedAppDeployment, {
+  assert.deepEqual(verifiedAppPromote, {
     deploymentId: "dpl_appCandidate123",
     deploymentUrl: "https://app-candidate.vercel.app",
     readyState: "READY",
@@ -2467,17 +2851,57 @@ test("active mode assigns only the reviewed App alias still at prior", async () 
           operation.type === "app_alias_set" && operation.state === "started",
       )
       .map((operation) => operation.alias),
-    ["appmentoorg-env-v3-mentolabs.vercel.app"],
+    ["app.mento.org"],
   );
   assert.deepEqual(
     harness.events.filter((event) => event.startsWith("mutate:app_alias_set")),
-    ["mutate:app_alias_set:app:appmentoorg-env-v3-mentolabs.vercel.app"],
+    ["mutate:app_alias_set:app:app.mento.org"],
+  );
+  assert.deepEqual(
+    harness.mappings.get("app.mento.org"),
+    mapping("app.mento.org", harness.candidates.app),
+  );
+});
+
+// TRANSITION-V3-PRIOR
+test("active mode rejects an App promote that moved the reviewed domain", async () => {
+  const harness = activeMutationHarness({ appAliasMovedByPromote: true });
+  const uploads = [];
+
+  await assert.rejects(
+    runMainTransaction({
+      mode: "active",
+      identity,
+      prior: harness.prior,
+      candidates: harness.candidates,
+      assertFreshness: async () => ({ sha: SHA }),
+      uploadJournal: acknowledgedUploader(uploads),
+      mutationAdapters: harness.mutationAdapters,
+    }),
+    (error) => {
+      assert.ok(error instanceof MainTransactionError);
+      assert.equal(error.code, "MUTATION_VERIFICATION_FAILED");
+      assert.equal(error.journal.status, "verified");
+      assert.deepEqual(
+        [
+          error.journal.operations.at(-1).type,
+          error.journal.operations.at(-1).target,
+          error.journal.operations.at(-1).mappingState,
+        ],
+        ["promote", "app", "candidate"],
+      );
+      return true;
+    },
+  );
+  assert.equal(
+    harness.events.some((event) => event.startsWith("mutate:app_alias_set")),
+    false,
   );
 });
 
 test("active mode rejects an unexpected reviewed App alias before journaling or command", async () => {
   const harness = activeMutationHarness({
-    unexpectedAppAliasAfterDeploy: "app.mento.org",
+    unexpectedAppAliasAfterPromote: "app.mento.org",
   });
   const uploads = [];
 
@@ -2493,9 +2917,67 @@ test("active mode rejects an unexpected reviewed App alias before journaling or 
     }),
     (error) => {
       assert.ok(error instanceof MainTransactionError);
+      assert.equal(error.code, "MUTATION_VERIFICATION_FAILED");
+      assert.equal(error.journal.status, "verified");
+      assert.deepEqual(
+        [
+          error.journal.operations.at(-1).type,
+          error.journal.operations.at(-1).target,
+          error.journal.operations.at(-1).mappingState,
+        ],
+        ["promote", "app", "unexpected"],
+      );
+      return true;
+    },
+  );
+  assert.equal(
+    harness.events.some((event) => event.startsWith("mutate:app_alias_set")),
+    false,
+  );
+  assert.equal(
+    uploads.some(({ journal }) =>
+      journal.operations.some(
+        (operation) => operation.type === "app_alias_set",
+      ),
+    ),
+    false,
+  );
+});
+
+test("active mode rejects a drifted reviewed App alias before journaling the bridge", async () => {
+  const harness = activeMutationHarness();
+  const baseInspectMapping = harness.mutationAdapters.inspectMapping;
+  const uploads = [];
+
+  await assert.rejects(
+    runMainTransaction({
+      mode: "active",
+      identity,
+      prior: harness.prior,
+      candidates: harness.candidates,
+      assertFreshness: async () => ({ sha: SHA }),
+      uploadJournal: acknowledgedUploader(uploads),
+      mutationAdapters: {
+        ...harness.mutationAdapters,
+        inspectMapping: async (context) => {
+          if (context.phase === "alias-selection") {
+            return { mappingState: "unexpected" };
+          }
+          return baseInspectMapping(context);
+        },
+      },
+    }),
+    (error) => {
+      assert.ok(error instanceof MainTransactionError);
       assert.equal(error.code, "PROTECTED_MAPPING_DRIFT");
       assert.equal(error.journal.status, "verified");
-      assert.equal(error.journal.operations.at(-1).type, "app_v3_deploy");
+      assert.deepEqual(
+        [
+          error.journal.operations.at(-1).type,
+          error.journal.operations.at(-1).target,
+        ],
+        ["promote", "app"],
+      );
       return true;
     },
   );
@@ -2688,7 +3170,8 @@ test("v3 journal binds durable release, all four priors, and exact start mapping
     Object.keys(journal.startMappings),
     Object.keys(journal.prior),
   );
-  assert.equal(journal.candidates.app.deploymentId, null);
+  assert.equal(journal.candidates.app.deploymentId, "dpl_appCandidate123");
+  assert.deepEqual(journal.prior.app.aliases, ["app.mento.org"]);
 });
 
 test("v3 history freezes release and start mappings", () => {
@@ -2711,140 +3194,41 @@ test("v3 history freezes release and start mappings", () => {
   );
 });
 
-test("fresh App placeholder remains valid until exact provider discovery", () => {
+// Replaces the retired "placeholder until discovery" guard: the staged App
+// candidate must name its deployment and prove its immutable smoke at
+// preparation time.
+test("staged App candidate must identify its deployment and prove its smoke", () => {
   const initial = preparedForTargets(["app"]);
-  assert.equal(initial.candidates.app.deploymentId, null);
-  const resolved = attachDiscoveredAppCandidate(initial, appCandidateMatch());
-  assert.equal(resolved.candidates.app.deploymentId, "dpl_appCandidate123");
-  const tampered = appCandidateMatch({
-    immutableSmoke: {
-      ...appCandidateMatch().immutableSmoke,
-      servedSha: OTHER_SHA,
-    },
-  });
+  assert.equal(initial.candidates.app.deploymentId, "dpl_appCandidate123");
   assert.throws(
-    () => attachDiscoveredAppCandidate(initial, tampered),
-    /immutable smoke|does not prove/,
-  );
-});
-
-test("pending App stable intent attaches one exact finalized receipt monotonically", () => {
-  const initial = preparedPendingApp();
-  assert.equal(initial.candidates.app.deploymentId, null);
-  assert.equal(initial.candidates.app.discovery.immutableSmoke, null);
-  const receipt = appCandidateReceipt({ releaseManifest: initial.release });
-  const attached = attachMainTransactionAppCandidateReceipt(initial, receipt);
-  assert.equal(attached.sequence, initial.sequence + 1);
-  assert.equal(
-    attached.candidates.app.deploymentId,
-    receipt.candidate.deploymentId,
-  );
-  assert.deepEqual(
-    attached.candidates.app.discovery.immutableSmoke,
-    receipt.immutableSmoke,
-  );
-  assert.deepEqual(
-    assertMainTransactionJournalHistory([initial, attached]).at(-1),
-    attached,
-  );
-  assert.deepEqual(
-    attachMainTransactionAppCandidateReceipt(attached, receipt),
-    attached,
-  );
-});
-
-test("pending App receipt attachment rejects stable intent, candidate, and smoke mismatch", () => {
-  const initial = preparedPendingApp();
-  const receipt = appCandidateReceipt({ releaseManifest: initial.release });
-  const cases = [
-    {
-      ...receipt,
-      intent: {
-        ...receipt.intent,
-        originRunId: "999",
-      },
-    },
-    {
-      ...receipt,
-      candidate: {
-        ...receipt.candidate,
-        projectId: "prj_other123",
-      },
-    },
-    {
-      ...receipt,
-      immutableSmoke: {
-        ...receipt.immutableSmoke,
-        servedSha: OTHER_SHA,
-      },
-    },
-  ];
-  for (const value of cases) {
-    assert.throws(
-      () => attachMainTransactionAppCandidateReceipt(initial, value),
-      /intent|candidate|smoke|digest|conflict/,
-    );
-  }
-});
-
-test("runner loss around App deploy never authorizes aliases before finalized receipt", () => {
-  const initial = preparedPendingApp();
-  assert.throws(
-    () =>
-      startMainTransactionOperation(initial, {
-        type: "app_alias_set",
-        target: "app",
-        alias: initial.prior.app.aliases[0],
-      }),
-    /candidate|app_v3_deploy/,
-  );
-  const started = startMainTransactionOperation(initial, {
-    type: "app_v3_deploy",
-    target: "app",
-  });
-  assert.equal(
-    decideMainTransactionRecovery([initial, started]).decision,
-    "recover",
-  );
-  const returnedWithoutReceipt = recordMainTransactionCommandReturned(started, {
-    operationId: started.operations.at(-1).operationId,
-    outcome: "success",
-  });
-  assert.equal(returnedWithoutReceipt.candidates.app.deploymentId, null);
-  assert.equal(
-    decideMainTransactionRecovery([initial, started, returnedWithoutReceipt])
-      .decision,
-    "recover",
+    () => preparedPendingApp(),
+    /Candidate app must identify the staged deployment/,
   );
   assert.throws(
     () =>
-      startMainTransactionOperation(returnedWithoutReceipt, {
-        type: "app_alias_set",
-        target: "app",
-        alias: initial.prior.app.aliases[0],
+      createPreparedMainTransactionJournal({
+        ...identity,
+        mode: "active",
+        prior: priorState(),
+        candidates: {
+          ...candidateState(),
+          app: {
+            ...candidateState().app,
+            discovery: {
+              ...appDiscovery(),
+              immutableSmoke: {
+                ...appDiscovery().immutableSmoke,
+                servedSha: OTHER_SHA,
+              },
+            },
+          },
+        },
       }),
-    /state|candidate/,
-  );
-  const checkpointed = attachMainTransactionAppCandidateReceipt(
-    returnedWithoutReceipt,
-    appCandidateReceipt({ releaseManifest: initial.release }),
-  );
-  assert.equal(
-    checkpointed.candidates.app.discovery.immutableSmoke.status,
-    "passed",
-  );
-  assert.deepEqual(
-    assertMainTransactionJournalHistory([
-      initial,
-      started,
-      returnedWithoutReceipt,
-      checkpointed,
-    ]).at(-1),
-    checkpointed,
+    /does not prove the candidate SHA/,
   );
 });
 
-test("known provider App candidate skips deploy but still reconciles aliases", async () => {
+test("selected App target promotes its staged candidate and reconciles its alias", async () => {
   const harness = activeMutationHarness();
   const candidates = candidateState({ app: "known" }, ["app"]);
   const result = await runMainTransaction({
@@ -2858,15 +3242,12 @@ test("known provider App candidate skips deploy but still reconciles aliases", a
   });
   assert.equal(result.outcome, "active-committed");
   assert.equal(
-    harness.events.some((entry) => entry === "mutate:app_v3_deploy:app"),
+    harness.events.some((entry) => entry.startsWith("mutate:app_v3_deploy")),
     false,
   );
   assert.deepEqual(
-    harness.events.filter((entry) => entry.startsWith("mutate:app_alias_set")),
-    [
-      "mutate:app_alias_set:app:app.mento.org",
-      "mutate:app_alias_set:app:appmentoorg-env-v3-mentolabs.vercel.app",
-    ],
+    harness.events.filter((entry) => entry.startsWith("mutate:")),
+    ["mutate:promote:app", "mutate:app_alias_set:app:app.mento.org"],
   );
 });
 
@@ -2945,31 +3326,56 @@ test("inherited recovery binds the fresh journal and untampered restore plan", (
   );
 });
 
-test("mixed App inheritance restores only moved aliases before earlier targets", () => {
-  const journal = structuredClone(preparedWithCandidatePrefix(3));
-  const alias = journal.startMappings.app[0].alias;
-  journal.startMappings.app[0] = mapping(alias, journal.candidates.app);
+// Replaces the retired "mixed App inheritance" case: every reviewed target now
+// maps exactly one alias, so a per-target mixed state is unreachable and the
+// retired v3 generated alias cannot re-enter the journal.
+test("single-alias targets make a mixed inherited App state unreachable", () => {
+  const journal = preparedWithCandidatePrefix(3);
+  for (const target of MAIN_RELEASE_ACTIVATION_ORDER) {
+    assert.deepEqual(journal.prior[target].aliases, [
+      ...MAIN_TARGET_CONTRACTS[target].aliases,
+    ]);
+  }
+
+  const forgedMapping = structuredClone(journal);
+  forgedMapping.startMappings.app = [
+    ...forgedMapping.startMappings.app,
+    mapping(
+      TRANSITIONAL_APP_PRIOR_GENERATED_ALIAS,
+      forgedMapping.candidates.app,
+    ),
+  ];
+  assert.throws(
+    () => assertMainTransactionJournal(forgedMapping),
+    /do not exactly cover protected aliases/,
+  );
+
+  const forgedPrior = structuredClone(journal);
+  const forgedAliases = [
+    ...forgedPrior.prior.app.aliases,
+    TRANSITIONAL_APP_PRIOR_GENERATED_ALIAS,
+  ].sort();
+  forgedPrior.prior.app.aliases = forgedAliases;
+  forgedPrior.candidates.app.aliases = [...forgedAliases];
+  forgedPrior.startMappings.app = forgedAliases.map((alias) =>
+    mapping(alias, forgedPrior.prior.app),
+  );
+  assert.throws(
+    () => assertMainTransactionJournal(forgedPrior),
+    /Journal prior conflicts with the durable release manifest/,
+  );
+
+  // The App target is inherited whole, never half-moved.
+  const moved = structuredClone(journal);
+  moved.startMappings.app = moved.startMappings.app.map(({ alias }) =>
+    mapping(alias, moved.candidates.app),
+  );
   const plan = planInheritedMainTransactionRecovery({
-    journal,
+    journal: moved,
     reason: "main-stale-before-forward",
   });
-  assert.equal(plan.decision, "restore-inherited");
-  assert.deepEqual(plan.rollbackAuthority.targets, [
-    "governance",
-    "reserve",
-    "ui",
-    "app",
-  ]);
-  assert.deepEqual(
-    plan.actions.map(({ target }) => target),
-    ["app", "ui", "reserve", "governance"],
-  );
-  assert.deepEqual(
-    plan.actions
-      .filter(({ target }) => target === "app")
-      .map((action) => action.alias),
-    [alias],
-  );
+  assert.equal(plan.decision, "verify-noop");
+  assert.deepEqual(plan.rollbackAuthority, { targets: [], aliases: [] });
 });
 
 test("terminal App recovery residual restores both reviewed aliases only", () => {
