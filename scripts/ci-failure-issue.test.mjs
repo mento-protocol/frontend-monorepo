@@ -3,15 +3,6 @@ import { test } from "node:test";
 
 import { reconcileCiFailureIssue } from "./ci-failure-issue.mjs";
 
-const DEPENDABOT_PROCESSOR_WORKFLOW_PATH =
-  ".github/workflows/dependabot-process.yml";
-const DEPENDABOT_REPAIR_WORKFLOW_PATH =
-  ".github/workflows/dependabot-prepare-repair.yml";
-const DEPENDABOT_PREPARED_DISPATCH_WORKFLOW_PATH =
-  ".github/workflows/dependabot-prepared-head-dispatch.yml";
-const DEPENDABOT_PREPARED_INTAKE_WORKFLOW_PATH =
-  ".github/workflows/dependabot-prepared-head-intake.yml";
-
 function managedMarker(event = "push", targetRef = "main") {
   return `<!-- managed-ci-failure:77:${event}:${encodeURIComponent(targetRef)} -->`;
 }
@@ -44,104 +35,6 @@ function mainDeploymentRun(overrides = {}) {
     path: ".github/workflows/vercel-main-deployment.yml",
     event: "workflow_run",
     ...overrides,
-  });
-}
-
-function dependabotProcessorRun(overrides = {}) {
-  const {
-    target = "pr=711",
-    display_title: explicitDisplayTitle,
-    name: explicitName,
-    ...runOverrides
-  } = overrides;
-  const targetValue = String(target).replace(/^pr=/, "");
-  const displayTitle =
-    explicitDisplayTitle ??
-    (target === "ignored"
-      ? "Dependabot processor | event=workflow_run | target=ignored"
-      : `Dependabot processor | event=workflow_run | receipt=dependabot-intake:v1 | repository=mento-protocol/frontend-monorepo | pr=${targetValue} | sha=${"a".repeat(40)} | action=synchronize | receipt=true`);
-  return workflowRun({
-    name: explicitName ?? displayTitle,
-    path: DEPENDABOT_PROCESSOR_WORKFLOW_PATH,
-    event: "workflow_run",
-    display_title: displayTitle,
-    ...runOverrides,
-  });
-}
-
-function dependabotProcessorSweepRun(overrides = {}) {
-  const {
-    display_title: explicitDisplayTitle,
-    name: explicitName,
-    ...runOverrides
-  } = overrides;
-  const displayTitle =
-    explicitDisplayTitle ??
-    "Dependabot processor | event=repository_dispatch | target=scope=open";
-  return workflowRun({
-    name: explicitName ?? displayTitle,
-    path: DEPENDABOT_PROCESSOR_WORKFLOW_PATH,
-    event: "repository_dispatch",
-    display_title: displayTitle,
-    ...runOverrides,
-  });
-}
-
-function dependabotRepairRun(overrides = {}) {
-  const {
-    pr = 711,
-    recovery = false,
-    retry = 0,
-    display_title: explicitDisplayTitle,
-    name: explicitName,
-    ...runOverrides
-  } = overrides;
-  const displayTitle =
-    explicitDisplayTitle ??
-    `dependabot-repair${recovery ? "-recover" : ""}:v1 | pr=${pr} | head=${"a".repeat(40)} | check=123 | digest=${"b".repeat(64)} | retry=${retry}`;
-  return workflowRun({
-    name: explicitName ?? displayTitle,
-    path: DEPENDABOT_REPAIR_WORKFLOW_PATH,
-    event: "repository_dispatch",
-    display_title: displayTitle,
-    ...runOverrides,
-  });
-}
-
-function dependabotPreparedIntakeRun(overrides = {}) {
-  const {
-    pr = 711,
-    display_title: explicitDisplayTitle,
-    name: explicitName,
-    ...runOverrides
-  } = overrides;
-  const displayTitle =
-    explicitDisplayTitle ??
-    `dependabot-prepared-head:v1|p=${pr}|h=${"a".repeat(40)}|o=p|c=123|d=${"b".repeat(64)}|ok=true`;
-  return workflowRun({
-    name: explicitName ?? displayTitle,
-    path: DEPENDABOT_PREPARED_INTAKE_WORKFLOW_PATH,
-    event: "repository_dispatch",
-    display_title: displayTitle,
-    ...runOverrides,
-  });
-}
-
-function dependabotPreparedDispatchRun(overrides = {}) {
-  const {
-    display_title: explicitDisplayTitle,
-    name: explicitName,
-    ...runOverrides
-  } = overrides;
-  const displayTitle =
-    explicitDisplayTitle ??
-    "dependabot-prepared-dispatch:v1 | source=Dependabot Prepare Repair | run=123 | attempt=1";
-  return workflowRun({
-    name: explicitName ?? displayTitle,
-    path: DEPENDABOT_PREPARED_DISPATCH_WORKFLOW_PATH,
-    event: "workflow_run",
-    display_title: displayTitle,
-    ...runOverrides,
   });
 }
 
@@ -428,180 +321,6 @@ test("exposes the manual trigger in the incident title", async () => {
   );
 });
 
-test("tracks repository-dispatch processor sweeps on the default branch", async () => {
-  const run = dependabotProcessorSweepRun();
-  assert.equal(run.name, run.display_title);
-  assert.notEqual(run.name, "Dependabot Processor");
-  const { github, context, calls } = harness({ run });
-  const result = await reconcileCiFailureIssue({ github, context });
-
-  assert.deepEqual(result, { action: "opened", issueNumber: 91 });
-  assert.equal(
-    calls.create[0].title,
-    "CI: Dependabot Processor is failing (main; repository_dispatch)",
-  );
-});
-
-test("uses the exact path instead of a custom run name for Dependabot identity", async () => {
-  const run = dependabotProcessorRun({
-    name: "a custom title that is not an identity",
-  });
-  const { github, context, calls } = harness({ run });
-  const result = await reconcileCiFailureIssue({ github, context });
-
-  assert.deepEqual(result, { action: "opened", issueNumber: 91 });
-  assert.equal(
-    calls.create[0].title,
-    "CI: Dependabot Processor is failing (pr=711; workflow_run)",
-  );
-  assert.match(
-    calls.create[0].body,
-    /The \*\*Dependabot Processor\*\* workflow/,
-  );
-  assert.doesNotMatch(calls.create[0].body, /a custom title/);
-});
-
-test("accepts only GitHub's exact main-qualified Dependabot path form", async () => {
-  for (const run of [
-    dependabotProcessorSweepRun({
-      path: `${DEPENDABOT_PROCESSOR_WORKFLOW_PATH}@main`,
-    }),
-    dependabotProcessorRun({
-      path: `${DEPENDABOT_PROCESSOR_WORKFLOW_PATH}@main`,
-    }),
-    dependabotRepairRun({
-      path: `${DEPENDABOT_REPAIR_WORKFLOW_PATH}@main`,
-    }),
-    dependabotPreparedIntakeRun({
-      path: `${DEPENDABOT_PREPARED_INTAKE_WORKFLOW_PATH}@main`,
-    }),
-    dependabotPreparedDispatchRun({
-      path: `${DEPENDABOT_PREPARED_DISPATCH_WORKFLOW_PATH}@main`,
-    }),
-  ]) {
-    const { github, context } = harness({ run });
-    const result = await reconcileCiFailureIssue({ github, context });
-    assert.deepEqual(result, { action: "opened", issueNumber: 91 });
-  }
-});
-
-test("does not accept a Dependabot name and title without the exact workflow path", async () => {
-  const wrongPath = ".github/workflows/quality-budgets.yml";
-  for (const run of [
-    dependabotProcessorSweepRun({
-      name: "Dependabot Processor",
-      path: wrongPath,
-    }),
-    dependabotProcessorRun({
-      name: "Dependabot Processor",
-      path: wrongPath,
-    }),
-    dependabotRepairRun({
-      name: "Dependabot Prepare Repair",
-      path: wrongPath,
-    }),
-    dependabotPreparedIntakeRun({
-      name: "Dependabot Prepared Head Intake",
-      path: wrongPath,
-    }),
-    dependabotPreparedDispatchRun({
-      name: "Dependabot Prepared Head Dispatch",
-      path: wrongPath,
-    }),
-  ]) {
-    const { github, context, calls } = harness({ run });
-    const result = await reconcileCiFailureIssue({ github, context });
-    assert.deepEqual(result, { action: "ignored", reason: "untracked-run" });
-    assert.equal(calls.listRuns, 0);
-    assert.equal(calls.listIssues, 0);
-  }
-
-  const spoofedMainPath = dependabotProcessorRun({
-    path: `${DEPENDABOT_PROCESSOR_WORKFLOW_PATH}@main@main`,
-  });
-  const { github, context } = harness({ run: spoofedMainPath });
-  assert.deepEqual(await reconcileCiFailureIssue({ github, context }), {
-    action: "ignored",
-    reason: "untracked-run",
-  });
-});
-
-test("partitions repair, recovery, and prepared-intake incidents by exact pull request", async () => {
-  for (const run of [
-    dependabotRepairRun(),
-    dependabotRepairRun({ recovery: true, retry: 2 }),
-    dependabotPreparedIntakeRun(),
-  ]) {
-    const { github, context, calls } = harness({ run });
-    const result = await reconcileCiFailureIssue({ github, context });
-
-    assert.deepEqual(result, { action: "opened", issueNumber: 91 });
-    assert.match(calls.create[0].title, /\(pr=711; repository_dispatch\)$/);
-    assert.match(
-      calls.create[0].body,
-      /managed-ci-failure:77:repository_dispatch:pr%3D711/,
-    );
-  }
-});
-
-test("tracks an exact terminal prepared-head dispatcher failure", async () => {
-  const run = dependabotPreparedDispatchRun();
-  const { github, context, calls } = harness({ run });
-  const result = await reconcileCiFailureIssue({ github, context });
-
-  assert.deepEqual(result, { action: "opened", issueNumber: 91 });
-  assert.equal(
-    calls.create[0].title,
-    "CI: Dependabot Prepared Head Dispatch is failing (main; workflow_run)",
-  );
-});
-
-test("rejects malformed or deliberately skipped preparation workflow titles", async () => {
-  for (const run of [
-    dependabotRepairRun({
-      display_title: `dependabot-repair:v1 | pr=711 | head=${"a".repeat(40)} | check=123`,
-    }),
-    dependabotPreparedIntakeRun({
-      display_title: `dependabot-prepared-head:v1|p=711|h=${"a".repeat(40)}|o=p|c=123|d=${"b".repeat(64)}|ok=false`,
-    }),
-    dependabotPreparedDispatchRun({
-      display_title:
-        "dependabot-prepared-dispatch:v1 | source=unknown | run=123 | attempt=1",
-    }),
-  ]) {
-    const { github, context, calls } = harness({ run });
-    const result = await reconcileCiFailureIssue({ github, context });
-    assert.deepEqual(result, { action: "ignored", reason: "untracked-run" });
-    assert.equal(calls.listRuns, 0);
-    assert.equal(calls.listIssues, 0);
-  }
-});
-
-test("repository-dispatch monitoring rejects noncanonical processor sweeps", async () => {
-  for (const run of [
-    workflowRun({
-      event: "repository_dispatch",
-      display_title:
-        "Dependabot processor | event=repository_dispatch | target=scope=open",
-    }),
-    dependabotProcessorSweepRun({ display_title: "Dependabot processor" }),
-    dependabotProcessorSweepRun({
-      display_title:
-        "DEPENDABOT PROCESSOR | event=repository_dispatch | target=scope=open",
-    }),
-    dependabotProcessorSweepRun({ head_branch: "feature/example" }),
-    dependabotProcessorSweepRun({
-      head_repository: { full_name: "contributor/frontend-monorepo" },
-    }),
-  ]) {
-    const { github, context, calls } = harness({ run });
-    const result = await reconcileCiFailureIssue({ github, context });
-    assert.deepEqual(result, { action: "ignored", reason: "untracked-run" });
-    assert.equal(calls.listRuns, 0);
-    assert.equal(calls.listIssues, 0);
-  }
-});
-
 test("opens and updates the managed main-deployment workflow_run issue", async () => {
   const firstFailure = mainDeploymentRun({ run_number: 30 });
   const openedHarness = harness({ run: firstFailure });
@@ -648,99 +367,10 @@ test("a later main-deployment workflow_run success closes only its partition", a
   assert.match(calls.update[0].body, /run #32/);
 });
 
-test("tracks the trusted Dependabot processor workflow_run", async () => {
-  const run = dependabotProcessorRun({ run_number: 40 });
-  const { github, context, calls } = harness({ run });
-  const result = await reconcileCiFailureIssue({ github, context });
-
-  assert.deepEqual(result, { action: "opened", issueNumber: 91 });
-  assert.equal(
-    calls.create[0].title,
-    "CI: Dependabot Processor is failing (pr=711; workflow_run)",
-  );
-  assert.match(
-    calls.create[0].body,
-    /managed-ci-failure:77:workflow_run:pr%3D711/,
-  );
-});
-
-test("partitions prepared and reviewer processor callbacks by pull request", async () => {
-  const titles = [
-    `Dependabot processor | event=workflow_run | receipt=dependabot-prepared-head:v1|p=711|h=${"a".repeat(40)}|o=p|c=123|d=${"b".repeat(64)}|ok=true`,
-    `Dependabot processor | event=workflow_run | receipt=dependabot-claude-review:v1 | source=dependabot-intake:v1 | repository=mento-protocol/frontend-monorepo | pr=711 | sha=${"a".repeat(40)} | action=synchronize | receipt=true`,
-    `Dependabot processor | event=workflow_run | receipt=dependabot-claude-review:v1 | source=dependabot-prepared-head:v1|p=711|h=${"a".repeat(40)}|o=r|c=123|d=${"b".repeat(64)}|ok=true`,
-  ];
-  for (const display_title of titles) {
-    const run = dependabotProcessorRun({ display_title });
-    const { github, context, calls } = harness({ run });
-    const result = await reconcileCiFailureIssue({ github, context });
-    assert.deepEqual(result, { action: "opened", issueNumber: 91 });
-    assert.match(calls.create[0].title, /\(pr=711; workflow_run\)$/);
-  }
-});
-
-test("processor workflow_run recovery is partitioned by pull request", async () => {
-  const failure = dependabotProcessorRun({ run_number: 40, target: "pr=711" });
-  const otherSuccess = dependabotProcessorRun({
-    conclusion: "success",
-    run_number: 41,
-    target: "pr=712",
-  });
-  const matchingSuccess = dependabotProcessorRun({
-    conclusion: "success",
-    run_number: 42,
-    target: "pr=711",
-  });
-  const existing = managedIssue({
-    body: `failure\n\n${managedMarker("workflow_run", "pr=711")}`,
-  });
-
-  const otherHarness = harness({
-    run: otherSuccess,
-    issues: [existing],
-    latestRuns: [otherSuccess, failure],
-  });
-  const otherResult = await reconcileCiFailureIssue(otherHarness);
-  assert.deepEqual(otherResult, {
-    action: "ignored",
-    reason: "nothing-to-close",
-  });
-  assert.equal(otherHarness.calls.update.length, 0);
-
-  const matchingHarness = harness({
-    run: matchingSuccess,
-    issues: [existing],
-    latestRuns: [matchingSuccess, otherSuccess, failure],
-  });
-  const matchingResult = await reconcileCiFailureIssue(matchingHarness);
-  assert.deepEqual(matchingResult, { action: "closed", issueNumber: 42 });
-  assert.equal(matchingHarness.calls.update[0].state, "closed");
-});
-
-test("ignores processor workflow_run completions without one bounded PR target", async () => {
-  for (const run of [
-    dependabotProcessorRun({ target: "ignored" }),
-    dependabotProcessorRun({ target: "pr=0" }),
-    dependabotProcessorRun({ target: "pr=711-extra" }),
-    dependabotProcessorRun({
-      display_title:
-        "Dependabot processor | event=workflow_run | receipt=dependabot-intake:v1 | repository=other/repo | pr=711 | sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa | action=synchronize | receipt=true",
-    }),
-    dependabotProcessorRun({ display_title: "Dependabot processor" }),
-  ]) {
-    const { github, context, calls } = harness({ run });
-    const result = await reconcileCiFailureIssue({ github, context });
-    assert.deepEqual(result, { action: "ignored", reason: "untracked-run" });
-    assert.equal(calls.listRuns, 0);
-    assert.equal(calls.listIssues, 0);
-  }
-});
-
 test("workflow_run monitoring rejects unrelated workflows, wrong branches, and forks", async () => {
   for (const run of [
     workflowRun({ event: "workflow_run", name: "Quality Budgets" }),
     mainDeploymentRun({ head_branch: "feature/example" }),
-    dependabotProcessorRun({ head_branch: "feature/example" }),
     mainDeploymentRun({
       head_repository: { full_name: "contributor/frontend-monorepo" },
     }),
@@ -823,9 +453,10 @@ test("a later scheduled success recovers only the scheduled partition", async ()
   assert.doesNotMatch(calls.update[0].body, /run #14/);
 });
 
-test("ignores pull-request, feature push/dispatch, and cancelled runs", async () => {
+test("ignores non-operational events, feature runs, and cancelled runs", async () => {
   for (const run of [
     workflowRun({ event: "pull_request" }),
+    workflowRun({ event: "repository_dispatch" }),
     workflowRun({ head_branch: "feature/example" }),
     workflowRun({ event: "workflow_dispatch", head_branch: "feature/example" }),
     workflowRun({ conclusion: "cancelled" }),

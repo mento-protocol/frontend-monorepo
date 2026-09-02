@@ -3,7 +3,7 @@ title: Stable active-main release identity and provider-side rerun reconciliatio
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-09-01
+last_verified: 2026-09-02
 scope: ci/deployment/main-reruns
 date: 2026-07
 ---
@@ -11,7 +11,8 @@ date: 2026-07
 # ADR 0005 — Stable active-main release identity and provider-side rerun reconciliation
 
 **Status:** Accepted (Jul 2026). Amended 2026-09-01 to retire the legacy App
-v2 continuity proof per MGP-18.
+v2 continuity proof per MGP-18. Amended 2026-09-02 to stage App through the
+Production environment.
 **Scope:** ci/deployment/main-reruns
 
 ## Context
@@ -132,8 +133,9 @@ aliases, wrong-target aliases, and unknown aliases remain blockers. A candidate
 absent from the trusted preflight still requires its reviewed generated project
 alias, and any candidate change after that preflight fails closed.
 
-When App belongs to `shadowTargets`, its protected custom-`v3` preparation is
-build-only terminal evidence. It never creates a provider deployment or gains
+When App belongs to `shadowTargets`, it stages and verifies a real Production
+candidate. It stops without promotion or protected-domain/public mapping
+mutation. Its receipt is terminal non-authorizing evidence and grants no
 public-mutation authority.
 
 ### Final verdict handoff
@@ -219,7 +221,18 @@ the "legacy-v2" evidence bullet at line 243) — is no longer part of the
 terminal evidence set. The bounded recovery-operation envelope at line 149
 also drops from six forward plus nine recovery operations to six forward plus
 five recovery operations (three ordinary and two App-alias transitions). The
-custom-v3 App path is unchanged by this amendment.
+custom-v3 App path was unchanged by this amendment and was later retired by the
+2026-09-02 amendment below.
+
+## Amendment — 2026-09-02: App stages through Production
+
+App now stages an immutable Production candidate through the same provider
+deployment model as the other targets. Active mode promotes that exact
+candidate and uses one transitional alias-set operation while
+`app.mento.org` remains attached to the retiring custom `v3` environment.
+Shadow mode retains the staged provider deployment as terminal,
+non-authorizing evidence and performs no promotion, protected-domain mutation,
+or other public mapping change.
 
 ## Trust, evidence, and failure handling
 

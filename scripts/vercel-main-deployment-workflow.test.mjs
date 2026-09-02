@@ -3015,79 +3015,13 @@ test("result restores the compact handoff then fails closed from the literal fin
   assert.match(terminalReceiptSource, /producer attempt exceeds final attempt/);
 });
 
-test("result publishes an exact-SHA Dependabot release proof before failing closed", () => {
+test("result evaluates the final graph with read-only repository access", () => {
   const result = workflow.jobs.result;
   assert.deepEqual(result.permissions, {
     actions: "read",
-    checks: "write",
     contents: "read",
   });
-
-  const publish = named(
-    "result",
-    "Publish exact Dependabot post-merge verification",
-  );
-  // Both added clauses are load-bearing for the Dependabot ALL CLEAR contract:
-  // a red CI must publish nothing, and the duplicate no-op must not publish a
-  // second failing copy on the same SHA.
-  assert.equal(
-    publish.if.replace(/\s+/g, " ").trim(),
-    "${{ always() && needs.wait-for-ci.result == 'success' && " +
-      "needs.require-ci-success.result == 'success' && " +
-      "needs.wait-for-ci.outputs.deploy_mode == 'deploy' }}",
-  );
-  assert.equal(
-    publish.env.DEPLOY_SHA,
-    "${{ needs.wait-for-ci.outputs.deploy_sha }}",
-  );
-  assert.equal(
-    publish.env.RELEASE_OUTCOME,
-    "${{ steps.final-active.outputs.release_outcome }}",
-  );
-  assert.equal(
-    publish.env.RELEASE_REASON,
-    "${{ steps.final-active.outputs.reason }}",
-  );
-  assert.equal(
-    publish.env.TERMINAL_RESTORED,
-    "${{ steps.terminal-restore.outputs.terminal_restored }}",
-  );
-  assert.equal(publish.env.GH_TOKEN, "${{ github.token }}");
-  assert.equal(
-    publish.env.RUN_URL,
-    "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-  );
-  assert.match(publish.run, /\[0-9a-f\]\{40\}/);
-  assert.match(
-    publish.run,
-    /active-committed\|current-release-verified\|no-target/,
-  );
-  assert.match(publish.run, /TERMINAL_RESTORED.*true/s);
-  assert.match(publish.run, /RELEASE_OUTCOME.*success/s);
-  assert.match(publish.run, /FAIL_AFTER_EVIDENCE.*false/s);
-  assert.match(publish.run, /Dependabot Post-Merge Verification/);
-  assert.match(publish.run, /head_sha: \$deploy_sha/);
-  assert.match(publish.run, /--arg details_url "\$RUN_URL"/);
-  assert.match(
-    publish.run,
-    /--arg external_id "dependabot-post-merge:\$\{\{ github\.run_id \}\}:\$\{\{ github\.run_attempt \}\}"/,
-  );
-  assert.match(publish.run, /details_url: \$details_url/);
-  assert.match(publish.run, /external_id: \$external_id/);
-  assert.match(publish.run, /gh api --method POST/);
-  assert.match(publish.run, /repos\/\$REPOSITORY\/check-runs/);
-  assert.doesNotMatch(
-    publish.run,
-    /--admin|recovered\||superseded\||shadow-prepared\|/,
-  );
-
-  const finalFailure = named(
-    "result",
-    "Fail after terminal evidence for an unsafe final graph",
-  );
-  assert.ok(
-    steps("result").indexOf(publish) < steps("result").indexOf(finalFailure),
-  );
+  assert.doesNotMatch(JSON.stringify(result.steps), /check-runs/u);
 });
 
 // MGP-18 retired the legacy App deployment and the App custom `v3`

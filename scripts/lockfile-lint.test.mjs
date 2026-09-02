@@ -446,7 +446,7 @@ test("fails when an allowlisted tarball resolution has an unknown field", () => 
   );
 });
 
-test("rejects pnpm 10.24.0 while the scanner metadata correction exists", () => {
+test("rejects pnpm below the active advisory floors", () => {
   const { exitCode, stdout, stderr } = run(
     makeLockfile([{ name: "pnpm@10.24.0", integrity: VALID_SHA512 }]),
   );
@@ -455,14 +455,52 @@ test("rejects pnpm 10.24.0 while the scanner metadata correction exists", () => 
     `Expected vulnerable pnpm to fail, got ${exitCode}\n${stdout}\n${stderr}`,
   );
   assert(
-    stderr.includes("pnpm 10.24.0 is affected by GHSA-gj8w-mvpf-x27x"),
+    stderr.includes("GHSA-gj8w-mvpf-x27x and GHSA-vx52-2968-3vc6"),
     `expected pnpm advisory failure: ${stderr}`,
   );
 });
 
-test("accepts patched pnpm 10.34.4 under the scanner metadata correction", () => {
+test("rejects pnpm 10.34.4 for GHSA-vx52-2968-3vc6", () => {
   const { exitCode, stdout, stderr } = run(
     makeLockfile([{ name: "pnpm@10.34.4", integrity: VALID_SHA512 }]),
+  );
+  assert(
+    exitCode !== 0,
+    `Expected vulnerable pnpm to fail, got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+  assert(
+    stderr.includes("GHSA-vx52-2968-3vc6"),
+    `expected pnpm advisory failure: ${stderr}`,
+  );
+});
+
+test("accepts patched pnpm 10.34.5", () => {
+  const { exitCode, stdout, stderr } = run(
+    makeLockfile([{ name: "pnpm@10.34.5", integrity: VALID_SHA512 }]),
+  );
+  assert(
+    exitCode === 0,
+    `Expected patched pnpm to pass, got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+});
+
+test("rejects pnpm 11.10.0 for GHSA-vx52-2968-3vc6", () => {
+  const { exitCode, stdout, stderr } = run(
+    makeLockfile([{ name: "pnpm@11.10.0", integrity: VALID_SHA512 }]),
+  );
+  assert(
+    exitCode !== 0,
+    `Expected vulnerable pnpm to fail, got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+  assert(
+    stderr.includes("GHSA-vx52-2968-3vc6"),
+    `expected pnpm advisory failure: ${stderr}`,
+  );
+});
+
+test("accepts patched pnpm 11.11.0", () => {
+  const { exitCode, stdout, stderr } = run(
+    makeLockfile([{ name: "pnpm@11.11.0", integrity: VALID_SHA512 }]),
   );
   assert(
     exitCode === 0,

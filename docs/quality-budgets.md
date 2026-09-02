@@ -85,24 +85,13 @@ that would mix server/build-cache artifacts into the browser budget.
 `.github/workflows/ci-failure-notifier.yml`. It ignores pull-request and feature
 branch runs; branch protection already surfaces those failures. It tracks
 default-branch `push`, `schedule`, and `workflow_dispatch` runs plus allowlisted
-release-tag `push` workflows. Repository-dispatch monitoring accepts only the
-canonical default-branch `Dependabot Processor` sweep and exact, bounded
-`Dependabot Prepare Repair` or `Dependabot Prepared Head Intake` titles. Repair
-monitoring includes both exact bounded normal and recovery titles with their
-infrastructure retry count. The trusted script revalidates each case-sensitive
-identity. It binds each Dependabot source to its exact
-`.github/workflows/*.yml` path or exact `@main` form because GitHub exposes a custom `run-name` through
-`workflow_run.name`; the separately validated `display_title` carries the
-bounded receipt grammar. Malformed repair titles, path mismatches, and
-prepared-intake `ok=false` skips are ignored. Managed issue prose uses the
-canonical workflow name derived from that trusted path. It also monitors
-repository-owned, default-branch `workflow_run` completions for `Vercel Main
-Deployment`, `Dependabot Prepared Head Dispatch`, and `Dependabot Processor`
-runs whose title exactly carries a valid native-intake, prepared-intake, or
-Claude-review source receipt. Valid non-targeted intake and terminal-dispatch
-skips are ignored. It partitions state by source workflow, operational trigger,
-and target ref; the target is the PR number whenever the authenticated title
-carries one and the branch or tag otherwise. It then:
+release-tag `push` workflows. It accepts `workflow_run` only for the
+repository-owned `Vercel Main Deployment` workflow on the default branch. It
+does not monitor `repository_dispatch`. The workflow trigger supplies a static
+name allowlist, and the trusted script rejects an unrecognized event, wrong
+branch, fork, or notifier self-callback. Managed issue prose uses the upstream
+workflow name. It partitions state by source workflow, operational trigger, and
+branch or tag. It then:
 
 - opens one bot-authored, marker-keyed issue per partition on failure;
 - updates/reopens that same issue for repeated failures in the partition;

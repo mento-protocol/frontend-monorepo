@@ -326,8 +326,8 @@ exactly as before.
 
 The duplicate no-op skips every release job, reports
 `Report a deduplicated upstream-attempt no-op` in the run summary naming the
-sibling run URL, ends the `Vercel Main Deployment` check green, and publishes no
-`Dependabot Post-Merge Verification` check.
+sibling run URL, and ends the `Vercel Main Deployment` check green. It creates
+no release execution and performs no provider write.
 
 One observation epoch captures the complete main snapshot, rediscovers
 provider candidates, and decides from two fresh sequential main censuses. If
@@ -745,14 +745,12 @@ prior journal, or reconstructs a final verdict from earlier attempts. An absent,
 malformed, mismatched, or incomplete receipt/evidence pair fails closed instead
 of treating the process outcome as deployment success.
 
-The `result` job publishes the exact-SHA `Dependabot Post-Merge Verification`
-check only when admission succeeded, `require-ci-success` succeeded, and the
-deploy mode is `deploy`. Both added conditions preserve today's behaviour: a red
-CI publishes nothing, and the duplicate no-op does not publish a second failing
-copy of the same check on the same SHA. The `Fail closed before release
+The `result` job evaluates the terminal receipt and evidence and sets the
+`Vercel Main Deployment` workflow outcome. The `Fail closed before release
 execution exists` sentinel fires whenever no release execution exists and the
-deploy mode is not the proven `already-deployed` no-op, so a failed admission
-that emits no deploy mode still ends red.
+deploy mode is not the proven `already-deployed` no-op. A failed admission that
+emits no deploy mode therefore still ends red. The duplicate no-op remains the
+only journal-free successful path without release execution.
 
 Measured baseline and per-change projections, both from CI run
 `33052008461` and deployment run `33052232367` on `54422f5c` (2026-08-27):
@@ -1192,35 +1190,31 @@ This includes invalid or non-ancestral commits, an empty or unreadable diff,
 malformed Turbo output, a change with no deployable task, deployment-planner or
 workflow changes, and cross-workspace inputs such as the lockfile, root package
 configuration, `turbo.json`, patches, or shared security headers. Proven
-documentation and test-only paths return an empty deployment list. The exact
-reviewed Dependabot control-plane files in the planner also return an empty
-list. The workflow allowlist contains only the intake, prepared-head intake,
-processor, Claude review, repair, and prepared-head dispatch paths. The planner
-applies this exception only when every changed path is proven non-runtime. A
-workflow change mixed with an application, package,
-lockfile, security-header, CI, Vercel, unknown, renamed, or near-match path
-still selects all four deployments. The rule lists each file. It does not match
-the `scripts/dependabot-` or `.github/workflows/dependabot-` prefix.
+documentation and test-only paths return an empty deployment list. There is no
+dependency-maintenance workflow exception or prefix-based script exception.
+The exact `.github/dependabot.yml`, `.github/dependabot-prep-policy.json`, and
+`scripts/dependency-policy.test.mjs` files are retained non-runtime exceptions.
+A workflow change mixed with an application, package, lockfile,
+security-header, CI, Vercel, unknown, renamed, or near-match path still selects
+all four deployments. Every retained non-runtime exception names an exact
+reviewed file. It does not use a workflow or script prefix.
 
-The measured pure-control-plane baseline was main release
+The measured full-release baseline was main release
 [32613743546](https://github.com/mento-protocol/frontend-monorepo/actions/runs/32613743546)
-at 16 minutes 29 seconds. Proven no-target control run
+at 16 minutes 29 seconds. Proven no-target run
 [32589062985](https://github.com/mento-protocol/frontend-monorepo/actions/runs/32589062985)
 took 4 minutes 5 seconds. The comparison projects a reduction of 12 minutes
-24 seconds, or 75 percent, for that release shape. The first merged
-pure-control-plane change after the planner update was main release
+24 seconds, or 75 percent, for that release shape. Main release
 [32767236124](https://github.com/mento-protocol/frontend-monorepo/actions/runs/32767236124)
-for merge `5b9b5d0b`. It completed in 4 minutes 48 seconds. This was 11 minutes
+for merge `5b9b5d0b` completed in 4 minutes 48 seconds. This was 11 minutes
 41 seconds, or a 70.9 percent reduction in duration compared with the baseline.
 Its release plan had empty staged, active, and shadow target sets and completed
 with the `no-target` outcome. The no-target route still binds the exact
-successful main CI attempt and publishes the exact-main
-`Dependabot Post-Merge Verification` receipt. It skips candidate staging,
-provider mutation transitions, Chromium installation, and public runtime smoke
-only when its evidence binds an explicit empty affected-target set. Affected
-and mixed releases retain exact-SHA
-candidate staging, journal checkpoints, bounded recovery, public runtime smoke,
-and the final provider census.
+successful main CI attempt. It skips candidate staging, provider mutation
+transitions, Chromium installation, and public runtime smoke only when its
+evidence binds an explicit empty affected-target set. Affected and mixed
+releases retain exact-SHA candidate staging, journal checkpoints, bounded
+recovery, public runtime smoke, and the final provider census.
 
 ### Trusted-base execution
 
@@ -1623,30 +1617,38 @@ the two reviewed package-name false positives for Vercel's unrelated `sandbox`
 CLI dependency. Root application suppressions cannot mask a standalone CLI
 vulnerability.
 
-Stable same-major patch/minor rotations use the Dependabot processor's typed,
-model-free `vercel-cli-runtime-sync` repair. Trusted default-branch code binds
-the exact refreshed-head inputs, both exact public npm release records, root
-overrides, and pnpm 10.34.4. It changes only the exact Vercel regions of the
-root lock, preserves every other refreshed-head byte, and regenerates the
-standalone lock twice with byte-identical output. Only the root package/lock, standalone
-package/lock, and contract JSON may change. The independent validator repeats
-generation before the existing staged commit, Intent, non-force ref move, and
-Repair receipt path. Candidate source cannot supply or extend the operation or
-its allowlist. Major, prerelease, dependency-key-set, override, registry,
-generator, or byte drift fails closed for human handling.
+The root `packageManager`, protected pnpm runtime, Linux bootstrap, workflow
+setup pins, and trusted controller checks use one exact pnpm release. First
+land the checker-only transition rule described in
+[`dependency-overrides.md`](dependency-overrides.md). Then rotate the root
+declaration, runtime, bootstrap, both workflow pins, and coupled checks together
+in the second pull request. Remove the temporary old version from the checker
+in that same second stage. The dedicated pnpm OSV configuration contains no
+ignored vulnerability. An active advisory requires a fixed release.
+
+The generic external agent only inventories a protected-runtime rotation and
+reports `manual`. An authenticated maintainer prepares it outside
+`dependabot-prep` through the coupled procedure in
+[dependency-overrides.md](dependency-overrides.md). For Next.js or Vercel CLI,
+the procedure reviews exact public npm metadata, updates the root and standalone
+manifests and lockfiles, and updates the byte-bound contract. It rejects
+prerelease, downgrade, unknown registry, unexplained builder-key, override,
+generator, or unrelated lockfile drift. For protected pnpm, it updates the root
+declaration, workflow setup pins, Linux bootstrap, standalone runtime, exact
+lock bytes, and extracted executable digest together. Both procedures run the
+existing independent validators.
 
 Pull-request preview workers treat the candidate contract, manifest, and locks
 as fixed-path data and verify that tuple for internal consistency. That check
 does not select or install the candidate CLI. Every credentialed preview build
 continues to stage the protected CLI from the trusted default-branch controller
 runtime, so a candidate cannot authorize the tool that validates or uploads its
-own output. The repair workflow separately proves the requested CLI with a
-secretless frozen standalone install and exact `node <cli> --version` check in
-a fresh terminal no-output job after trusted plan validation. Candidate
-execution can veto staging but cannot change the validated plan or emit
-downstream authority.
-After the reviewed PR merges, the exact-main deployment controller adopts the
-new contract and uses that protected version.
+own output. Before handoff, the authenticated maintainer also proves the
+requested CLI with a fresh secretless frozen standalone install and exact
+`node <cli> --version` check. Candidate execution can veto staging but cannot
+select the protected CLI or emit deployment authority. After the reviewed PR
+merges, the exact-main deployment controller adopts the new contract and uses
+that protected version.
 
 The raw Vercel-pulled `.env.<target>.local` remains private and runner-owned.
 Before staging settings into candidate storage, the trusted controller parses
