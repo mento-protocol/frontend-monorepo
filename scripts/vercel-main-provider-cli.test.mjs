@@ -1504,9 +1504,14 @@ test("inherited candidate finalization uses the fixed served-prior alias contrac
         /missing its reviewed protected alias/,
       ],
       [
-        "unknown-residual",
-        [protectedAlias, `${target}-unknown.vercel.app`].toSorted(),
-        /served-prior generated-alias topology mismatch/,
+        // A served prior may carry the project's other production domains, but
+        // never another main target's reviewed protected domain.
+        "foreign-reviewed-domain",
+        [
+          protectedAlias,
+          MAIN_TARGET_CONTRACTS[otherTarget].aliases[0],
+        ].toSorted(),
+        /carries another target's reviewed protected domain/,
       ],
     ]) {
       writeFileSync(context.githubOutput, "", { mode: 0o600 });

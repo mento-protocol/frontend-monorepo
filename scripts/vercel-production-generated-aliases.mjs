@@ -71,6 +71,7 @@ export function assertOnlyExpectedProductionGeneratedAliases({
   creatorUsername,
   logicalTarget,
   mode,
+  foreignProtectedAliases = [],
 }) {
   const contract = targetContract(logicalTarget);
   assertCanonicalCreatorUsername(creatorUsername);
@@ -131,15 +132,39 @@ export function assertOnlyExpectedProductionGeneratedAliases({
     }
   }
 
-  const allowedAliases =
-    mode === PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR
-      ? new Set([
-          generatedGitMainAlias,
-          generatedProjectDefaultAlias,
-          generatedProjectAlias,
-          ...allowedCreatorAliases,
-        ])
-      : new Set([generatedProjectAlias, ...allowedCreatorAliases]);
+  if (mode === PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR) {
+    // A served prior is provider state this pipeline does not own. Promoting a
+    // deployment makes it the project's production deployment, so it also
+    // carries every other production domain the project has — retired ones and
+    // redirect-configured ones included. Those are inert for a rollback target,
+    // whose identity is its immutable deployment ID and URL, and whose
+    // reviewed-alias-to-single-deployment invariant is enforced by the caller.
+    // Requiring an exact generated-alias set here failed the whole release
+    // closed the first time an unrelated project domain rode along.
+    //
+    // What must never appear is another main target's reviewed protected
+    // domain: that is real cross-target contamination and stays fail-closed.
+    let foreign;
+    try {
+      foreign = new Set(
+        foreignProtectedAliases.map((alias) => canonicalizeHostname(alias)),
+      );
+    } catch {
+      throw new Error("Production generated-alias topology is malformed");
+    }
+    const contaminated = canonicalAliases.filter((alias) => foreign.has(alias));
+    if (contaminated.length > 0) {
+      throw new Error(
+        `Production ${logicalTarget} ${mode} carries another target's reviewed protected domain: ${JSON.stringify(contaminated)}`,
+      );
+    }
+    return canonicalAliases;
+  }
+
+  const allowedAliases = new Set([
+    generatedProjectAlias,
+    ...allowedCreatorAliases,
+  ]);
   const topologyMatches =
     mode === PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.CANDIDATE
       ? canonicalAliases.includes(generatedProjectAlias) &&

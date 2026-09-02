@@ -987,13 +987,12 @@ test("planning holds the App prior to the same production contract as every othe
       /Canonical deployment environment is malformed/,
     ],
     [
-      "retired v3 generated alias on a production-shaped App prior",
+      // A served prior may carry the project's other production domains, but
+      // never another main target's reviewed protected domain.
+      "another target's reviewed domain on the App prior",
       (states) => {
         const app = states.find(({ alias }) => alias === "app.mento.org");
-        app.aliases = [
-          ...app.aliases,
-          "appmentoorg-env-v3-mentolabs.vercel.app",
-        ].toSorted();
+        app.aliases = [...app.aliases, "governance.mento.org"].toSorted();
       },
       /app/,
     ],

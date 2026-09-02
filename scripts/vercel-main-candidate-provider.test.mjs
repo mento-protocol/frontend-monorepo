@@ -537,9 +537,15 @@ test("automatic inherited ordinary finalization requires its protected alias and
         /missing its reviewed protected alias/,
       ],
       [
-        "unknown generated residual",
-        [protectedAlias, `${target}-unknown.vercel.app`].toSorted(),
-        /served-prior generated-alias topology mismatch/,
+        // A served prior may carry the project's other production domains, but
+        // never another main target's reviewed protected domain.
+        "another target's reviewed protected domain",
+        [
+          protectedAlias,
+          MAIN_TARGET_CONTRACTS[otherTarget].aliases[0],
+          contract.generatedProjectAlias,
+        ].toSorted(),
+        /carries another target's reviewed protected domain/,
       ],
     ]) {
       await assert.rejects(

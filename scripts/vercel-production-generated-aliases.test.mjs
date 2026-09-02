@@ -93,14 +93,24 @@ test("reused-candidate mode permits only the surviving candidate alias subset", 
   }
 });
 
-test("served-prior mode rejects aliases outside the finite reviewed set", () => {
+// A served prior is provider state this pipeline does not own. Promoting a
+// deployment gives it every production domain its project has, retired and
+// redirect-configured ones included, so an exact generated-alias set is not a
+// property a prior can be held to. Malformed evidence still fails closed.
+test("served-prior mode tolerates unowned project domains but rejects malformed evidence", () => {
   const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS.governance;
   for (const [name, aliases] of [
-    ["unknown", ["attacker.invalid"]],
-    ["custom", ["governance-preview.mento.org"]],
     [
-      "wrong target",
-      [PRODUCTION_GENERATED_ALIAS_CONTRACTS.reserve.generatedProjectAlias],
+      "retired custom-environment alias",
+      ["appmentoorg-env-v3-mentolabs.vercel.app"],
+    ],
+    ["retired legacy domain", ["v2-app.mento.org"]],
+    ["operator-added project domain", ["governance-preview.mento.org"]],
+    [
+      "unreviewed Git branch",
+      [
+        `${contract.generatedProjectSlug}-git-feature-${contract.generatedScopeSlug}.vercel.app`,
+      ],
     ],
     [
       "creator near miss",
@@ -108,12 +118,21 @@ test("served-prior mode rejects aliases outside the finite reviewed set", () => 
         `${contract.generatedProjectSlug}-fixture-author2-${contract.generatedScopeSlug}.vercel.app`,
       ],
     ],
-    [
-      "unreviewed Git branch",
-      [
-        `${contract.generatedProjectSlug}-git-feature-${contract.generatedScopeSlug}.vercel.app`,
-      ],
-    ],
+  ]) {
+    assert.deepEqual(
+      assertOnlyExpectedProductionGeneratedAliases({
+        aliases,
+        creatorUsername: CREATOR_USERNAME,
+        logicalTarget: "governance",
+        mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
+      }),
+      aliases,
+      name,
+    );
+  }
+  // Malformed alias evidence is still inadmissible: the prior's alias list has
+  // to be a canonical, deduplicated, sorted hostname set.
+  for (const [name, aliases] of [
     [
       "duplicate",
       [contract.generatedProjectAlias, contract.generatedProjectAlias],
@@ -122,6 +141,7 @@ test("served-prior mode rejects aliases outside the finite reviewed set", () => 
       "unsorted",
       [contract.generatedProjectAlias, contract.generatedGitMainAlias],
     ],
+    ["malformed hostname", ["https://attacker.invalid/path"]],
   ]) {
     assert.throws(
       () =>
@@ -131,9 +151,88 @@ test("served-prior mode rejects aliases outside the finite reviewed set", () => 
           logicalTarget: "governance",
           mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
         }),
-      /generated-alias topology/,
+      /generated-alias topology is malformed/,
       name,
     );
+  }
+});
+
+// The one thing a served prior may never carry is another main target's
+// reviewed protected domain: that would mean the reviewed mappings had crossed.
+test("served-prior mode fails closed on another target's reviewed protected domain", () => {
+  for (const [name, aliases] of [
+    ["one foreign reviewed domain", ["app.mento.org"]],
+    ["several foreign reviewed domains", ["app.mento.org", "ui.mento.org"]],
+    [
+      "foreign reviewed domain beside a legitimate project domain",
+      ["app.mento.org", "governancementoorg.vercel.app"],
+    ],
+  ]) {
+    assert.throws(
+      () =>
+        assertOnlyExpectedProductionGeneratedAliases({
+          aliases: [...aliases].toSorted(),
+          creatorUsername: CREATOR_USERNAME,
+          logicalTarget: "governance",
+          mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
+          foreignProtectedAliases: [
+            "app.mento.org",
+            "reserve.mento.org",
+            "ui.mento.org",
+          ],
+        }),
+      /carries another target's reviewed protected domain/,
+      name,
+    );
+  }
+  // The target's own reviewed domain is never foreign to itself.
+  assert.deepEqual(
+    assertOnlyExpectedProductionGeneratedAliases({
+      aliases: ["governance.mento.org"],
+      creatorUsername: CREATOR_USERNAME,
+      logicalTarget: "governance",
+      mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
+      foreignProtectedAliases: [
+        "app.mento.org",
+        "reserve.mento.org",
+        "ui.mento.org",
+      ],
+    }),
+    ["governance.mento.org"],
+  );
+});
+
+// Candidate validation is untouched: a fresh upload that carries anything
+// beyond its project alias and creator alias still fails closed.
+test("candidate mode still rejects every alias a served prior now tolerates", () => {
+  for (const alias of [
+    "appmentoorg-env-v3-mentolabs.vercel.app",
+    "v2-app.mento.org",
+    "governance-preview.mento.org",
+    PRODUCTION_GENERATED_ALIAS_CONTRACTS.governance.generatedGitMainAlias,
+    PRODUCTION_GENERATED_ALIAS_CONTRACTS.governance
+      .generatedProjectDefaultAlias,
+  ]) {
+    for (const mode of [
+      PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.CANDIDATE,
+      PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.REUSED_CANDIDATE,
+    ]) {
+      assert.throws(
+        () =>
+          assertOnlyExpectedProductionGeneratedAliases({
+            aliases: [
+              alias,
+              PRODUCTION_GENERATED_ALIAS_CONTRACTS.governance
+                .generatedProjectAlias,
+            ].toSorted(),
+            creatorUsername: CREATOR_USERNAME,
+            logicalTarget: "governance",
+            mode,
+          }),
+        /generated-alias topology mismatch/,
+        `${mode} ${alias}`,
+      );
+    }
   }
 });
 

@@ -112,6 +112,15 @@ export const MAIN_TARGET_CONTRACTS = Object.freeze({
   }),
 });
 
+// Every reviewed protected domain that belongs to a main target other than
+// `target`. None of them may appear on the deployment `target`'s reviewed alias
+// serves.
+export function foreignReviewedAliases(target) {
+  return MAIN_DEPLOYMENT_TARGETS.filter(
+    (candidate) => candidate !== target,
+  ).flatMap((candidate) => [...MAIN_TARGET_CONTRACTS[candidate].aliases]);
+}
+
 // True when `environment` is an acceptable shape for the deployment a reviewed
 // alias served before this release. Every main target — App included — serves
 // its reviewed alias from the ordinary production environment, so a prior is
@@ -301,16 +310,18 @@ function canonicalizeOptionalDeploymentAliases(value, target, creatorUsername) {
   const generatedAliases = sorted.filter(
     (alias) => !reviewedAliases.has(alias),
   );
-  // Every prior is production-shaped, so its generated aliases must be exactly
-  // the reviewed production set. The retired `v3` custom environment's
-  // generated alias is not in that set — and its `env-` label is a reserved
-  // creator namespace — so it can never re-enter here.
+  // The deployment a reviewed alias currently serves is provider state this
+  // pipeline does not own: a promoted production deployment also carries the
+  // project's other production domains. Those are inert for a rollback target.
+  // What stays fail-closed is another main target's reviewed protected domain
+  // appearing here, which would mean the reviewed mappings had crossed.
   try {
     assertOnlyExpectedProductionGeneratedAliases({
       aliases: generatedAliases,
       creatorUsername,
       logicalTarget: target,
       mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
+      foreignProtectedAliases: foreignReviewedAliases(target),
     });
   } catch {
     activationError(target, "alias-set-ambiguous");
