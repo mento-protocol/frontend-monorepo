@@ -19,6 +19,7 @@ import {
   MAIN_DEPLOYMENT_TARGETS,
   MAIN_TARGET_CONTRACTS,
   assertMainDeploymentPlan,
+  foreignReviewedAliases,
   planMainDeployments,
   riderAliasesFrom,
 } from "./vercel-main-plan.mjs";
@@ -44,7 +45,6 @@ import {
 import {
   assertMainReleaseManifest,
   createMainReleaseManifest,
-  manifestRiderAliases,
 } from "./vercel-main-release-reconciliation.mjs";
 import {
   assertMainReleaseExecution,
@@ -106,18 +106,19 @@ export {
 
 export const MAIN_DEPLOYMENT_SCHEMA = "vercel-main-deployment:v1";
 export const MAIN_STAGE_SCHEMA = "vercel-main-stage:v1";
-// `:v2` of both evidence schemas adds the per-target `riderAliases` map. Both
-// are same-run artifacts, so a plain bump is enough — nothing durable carries
-// an older one.
+// `:v2` of each evidence schema below adds the per-target `riderAliases` map to
+// every outcome that can represent a public mapping mutation. All are same-run
+// artifacts, so plain bumps are enough — nothing durable carries an older one,
+// and riders are deliberately absent from everything that is.
 export const MAIN_EVIDENCE_SCHEMA = "vercel-main-evidence:v2";
 export const MAIN_FAILURE_EVIDENCE_SCHEMA = "vercel-main-failure-evidence:v1";
 export const MAIN_ACTIVE_EVIDENCE_SCHEMA = "vercel-main-active-evidence:v2";
 export const MAIN_ACTIVE_CURRENT_RELEASE_EVIDENCE_SCHEMA =
-  "vercel-main-active-current-release-evidence:v1";
+  "vercel-main-active-current-release-evidence:v2";
 export const MAIN_ACTIVE_SAFE_NOOP_EVIDENCE_SCHEMA =
   "vercel-main-active-safe-noop-evidence:v1";
 export const MAIN_ACTIVE_FAILURE_EVIDENCE_SCHEMA =
-  "vercel-main-active-failure-evidence:v1";
+  "vercel-main-active-failure-evidence:v2";
 export const MAIN_ACTIVE_CENSUS_FAILURE_SCHEMA =
   "vercel-main-active-census-failure:v1";
 export const MAIN_ACTIVE_PREPARATION_FAILURE_EVIDENCE_SCHEMA =
@@ -1113,10 +1114,6 @@ function releaseManifestFromHandoff(handoff) {
           deploymentId: planned.deploymentId,
           deploymentUrl: planned.deploymentUrl,
           aliases: [...planned.aliases],
-          // Every other domain the served deployment carried. Informational:
-          // the release evidence names what a promote repointed, and no
-          // selection, verification, or recovery decision reads this list.
-          riderAliases: riderAliasesFrom(first.aliases, planned.aliases),
           projectId: first.projectId,
           projectName: first.projectName,
           readyState: first.readyState,
@@ -3248,37 +3245,142 @@ export function createMainDeploymentFailureEvidence({
   };
 }
 
-// Rider domains for evidence, per target. `null` marks a release manifest that
-// predates rider capture (`vercel-main-release-manifest:v2`); evidence renders
-// that as "unknown", never as "none". Nothing here feeds a decision: the map is
-// derived, published, and re-derived when the terminal artifact is re-read.
-function riderAliasEvidence(manifest) {
-  return Object.fromEntries(
-    MAIN_DEPLOYMENT_TARGETS.map((target) => [
-      target,
-      manifestRiderAliases(manifest, target),
-    ]),
-  );
-}
+// Rider evidence bounds. Riders are informational, and a project may
+// legitimately hold many long domains, so they are truncated rather than
+// allowed to fail a release: visibility must never become a new way for a
+// deploy to go red. That was the whole shape of the incident #898 fixed.
+// The budget is deliberately far below the 64 KiB base64url terminal-evidence
+// cap (MAIN_TERMINAL_EVIDENCE_MAX_ENCODED_BYTES) and the 256 KiB generic JSON
+// bridge cap, so the rider map can never be what pushes an artifact over.
+export const MAIN_RIDER_ALIAS_TARGET_LIMIT = 16;
+export const MAIN_RIDER_ALIAS_BYTE_BUDGET = 4096;
+const RIDER_ENTRY_KEYS = Object.freeze(["aliases", "omitted"]);
 
-function riderAliasEvidenceFromSnapshot(handoff) {
+// Truncation is deterministic — canonical sorted order, a fixed per-target
+// count cap, then a shared byte budget consumed in target order — so the same
+// observation always yields the same evidence.
+function boundRiderAliases(byTarget) {
+  let remaining = MAIN_RIDER_ALIAS_BYTE_BUDGET;
   return Object.fromEntries(
-    MAIN_DEPLOYMENT_TARGETS.map((target) => {
-      const reviewed = [...MAIN_TARGET_CONTRACTS[target].aliases];
-      const leaf = handoff.protectedSnapshot.states.find((state) =>
-        reviewed.includes(state.alias),
-      );
-      if (leaf === undefined) {
-        throw new Error(`Rider evidence is missing the ${target} served prior`);
+    Object.entries(byTarget).map(([target, riders]) => {
+      const capped = riders.slice(0, MAIN_RIDER_ALIAS_TARGET_LIMIT);
+      const kept = [];
+      for (const alias of capped) {
+        const cost = Buffer.byteLength(alias, "utf8") + 3;
+        if (cost > remaining) break;
+        remaining -= cost;
+        kept.push(alias);
       }
-      return [target, riderAliasesFrom(leaf.aliases, reviewed)];
+      return [target, { aliases: kept, omitted: riders.length - kept.length }];
     }),
   );
 }
 
-function formatRiderAliases(riders) {
-  if (riders === null) return "unknown";
-  return riders.length === 0 ? "none" : riders.join(", ");
+// The rider domains each named target's served prior carried, observed in this
+// run's own planning census. `promote` moves them off that prior onto the
+// candidate and the compensating `rollback` restores them, so for a promoted
+// target this names exactly what the release repointed.
+function riderAliasEvidenceFromStates(states, targets) {
+  return boundRiderAliases(
+    Object.fromEntries(
+      targets.map((target) => {
+        const reviewed = [...MAIN_TARGET_CONTRACTS[target].aliases];
+        const leaf = states.find((state) => reviewed.includes(state.alias));
+        if (leaf === undefined) {
+          throw new Error(
+            `Rider evidence is missing the ${target} served prior`,
+          );
+        }
+        return [target, riderAliasesFrom(leaf.aliases, reviewed)];
+      }),
+    ),
+  );
+}
+
+function riderAliasEvidenceFromSnapshot(handoff, targets) {
+  return riderAliasEvidenceFromStates(
+    handoff.protectedSnapshot.states,
+    targets,
+  );
+}
+
+// Structural validation only. The rider map is carried, never re-derived: the
+// terminal producer has no alias census of its own, and riders are mutable
+// provider state that a later read would legitimately disagree with. What is
+// enforced is that the map is canonical, bounded, and scoped to targets this
+// release actually promoted.
+function canonicalRiderAliasEvidence(value, allowedTargets, label) {
+  if (value === null) return null;
+  const expectedTargets = MAIN_DEPLOYMENT_TARGETS.filter((target) =>
+    allowedTargets.includes(target),
+  );
+  assertExactKeys(value, expectedTargets, label);
+  let remaining = MAIN_RIDER_ALIAS_BYTE_BUDGET;
+  return Object.fromEntries(
+    expectedTargets.map((target) => {
+      const entry = value[target];
+      assertExactKeys(entry, RIDER_ENTRY_KEYS, `${label} ${target}`);
+      if (
+        !Array.isArray(entry.aliases) ||
+        entry.aliases.length > MAIN_RIDER_ALIAS_TARGET_LIMIT ||
+        !Number.isSafeInteger(entry.omitted) ||
+        entry.omitted < 0
+      ) {
+        throw new Error(`${label} ${target} is malformed`);
+      }
+      let aliases;
+      try {
+        aliases = entry.aliases.map((alias) => canonicalizeHostname(alias));
+      } catch {
+        throw new Error(`${label} ${target} is malformed`);
+      }
+      // A rider list may name anything the project carries except a reviewed
+      // protected domain: its own would be a duplicate of `aliases`, and
+      // another main target's would be cross-target contamination, which stays
+      // fail-closed everywhere it can appear.
+      const reviewed = new Set([
+        ...MAIN_TARGET_CONTRACTS[target].aliases,
+        ...foreignReviewedAliases(target),
+      ]);
+      if (
+        JSON.stringify(aliases) !== JSON.stringify(entry.aliases) ||
+        new Set(aliases).size !== aliases.length ||
+        JSON.stringify(aliases) !== JSON.stringify([...aliases].sort()) ||
+        aliases.some((alias) => reviewed.has(alias))
+      ) {
+        throw new Error(`${label} ${target} is not canonical`);
+      }
+      for (const alias of aliases) {
+        remaining -= Buffer.byteLength(alias, "utf8") + 3;
+      }
+      if (remaining < 0) {
+        throw new Error(`${label} exceeds its byte budget`);
+      }
+      return [target, { aliases, omitted: entry.omitted }];
+    }),
+  );
+}
+
+function formatRiderAliases(entry) {
+  if (entry === undefined || entry === null) return "unknown";
+  const names = entry.aliases.join(", ") || "none";
+  return entry.omitted > 0
+    ? `${names} (+${entry.omitted} more, truncated)`
+    : names;
+}
+
+// One line per target that actually promoted. Targets this release did not
+// promote moved nothing, so they get no line at all.
+function renderRiderAliasLines(riderAliases, targets) {
+  if (riderAliases === null) {
+    return ["- Rider domains moved: unknown (no census in this job)"];
+  }
+  return targets.map(
+    (target) =>
+      `- Rider domains moved with \`${target}\`: ${formatRiderAliases(
+        riderAliases[target],
+      )}`,
+  );
 }
 
 export function createMainDeploymentEvidence({
@@ -3471,7 +3573,11 @@ export function createMainDeploymentEvidence({
       buildAndTestConclusion: "success",
     },
     planning: handoff.planning,
-    riderAliases: riderAliasEvidenceFromSnapshot(handoff),
+    // Shadow mode promotes nothing, so this is the served-prior census for
+    // every target, not a record of movement. The renderer says so.
+    riderAliases: riderAliasEvidenceFromSnapshot(handoff, [
+      ...MAIN_DEPLOYMENT_TARGETS,
+    ]),
     stages: canonicalStages,
     app: canonicalApp,
     coordinator: coordinatorEvidence,
@@ -3980,8 +4086,10 @@ export function createMainActiveDeploymentEvidence({
     runAttempt: expectedRunAttempt,
     workflowRunUrl: expectedWorkflowRunUrl,
     planning,
-    riderAliases: riderAliasEvidence(
-      assertMainReleaseManifest(highest.release),
+    // Only the targets this release promoted moved anything.
+    riderAliases: riderAliasEvidenceFromSnapshot(
+      handoff,
+      planning.activeTargets,
     ),
     journal: {
       transactionId: highest.transactionId,
@@ -4087,6 +4195,8 @@ export function createMainActiveDeploymentFailureEvidence({
   publicSmokes = null,
   stateProof = null,
   rollbackStateTargets = [],
+  riderAliases = null,
+  riderTargets = [],
   publicServingMutationCommands,
   coordinatorOutcome,
   recoveryOutcome,
@@ -4201,6 +4311,11 @@ export function createMainActiveDeploymentFailureEvidence({
     publicSmokes: canonicalFailurePublicSmokes(publicSmokes),
     stateProofSummary,
     rollbackStateTargets: canonicalRollbackStateTargets(rollbackStateTargets),
+    riderAliases: canonicalRiderAliasEvidence(
+      riderAliases,
+      riderTargets,
+      "Active failure rider domains",
+    ),
     publicServingMutationCommands: mutationCount,
     coordinatorOutcome: requireString(
       coordinatorOutcome,
@@ -4252,13 +4367,11 @@ export function renderMainActiveDeploymentEvidence(evidence) {
       (target) =>
         `\`${target}:${evidence.stateProofSummary.targets[target].expectedDisposition ?? "unselected"}\``,
     ).join(", ")}`,
-    // Every domain a promote moved with the reviewed alias, named but not
-    // verified. "unknown" means the release manifest predates rider capture.
-    ...MAIN_DEPLOYMENT_TARGETS.map(
-      (target) =>
-        `- Rider domains moved with \`${target}\`: ${formatRiderAliases(
-          evidence.riderAliases[target],
-        )}`,
+    // Every domain each promote moved with the reviewed alias, named but not
+    // verified. Targets this release did not promote get no line.
+    ...renderRiderAliasLines(
+      evidence.riderAliases,
+      evidence.planning.activeTargets,
     ),
     "- Recovery: `not-required`; ordinary rollback-state targets: none",
     "",
@@ -4285,6 +4398,11 @@ export function renderMainCurrentReleaseVerificationEvidence(evidence) {
       (target) => `\`${target}:${evidence.publicSmokes[target].status}\``,
     ).join(", ")}`,
     `- Canonical deployment state proof: \`${evidence.stateProofSummary.proofSchema}\` is \`${evidence.stateProofSummary.outcome}\``,
+    // The verified release's own promotes moved these, in an earlier attempt.
+    ...renderRiderAliasLines(
+      evidence.riderAliases,
+      evidence.planning.activeTargets,
+    ),
     "- Active journal: `not-applicable`",
     "- Public-serving mutation commands: `0`",
     "",
@@ -4350,6 +4468,12 @@ export function renderMainActiveDeploymentFailureEvidence(evidence) {
         .map((target) => `\`${target}\``)
         .join(", ") || "none"
     }`,
+    // A promote that was later recovered or left for manual intervention still
+    // moved these domains; the terminal report has to name them.
+    ...renderRiderAliasLines(
+      evidence.riderAliases,
+      Object.keys(evidence.riderAliases ?? {}),
+    ),
     "- Outcome: `failed`; publish this evidence before failing the release.",
     "",
   ].join("\n");
@@ -4377,7 +4501,7 @@ export function renderMainDeploymentEvidence(evidence) {
     "",
     "#### Served deployment priors",
     "",
-    "| Target | Deployment | Served SHA | Reviewed aliases | Rider domains |",
+    "| Target | Deployment | Served SHA | Reviewed aliases | Rider domains (served prior) |",
     "|---|---|---|---|---|",
     ...evidence.planning.priors.map(
       (prior) =>
@@ -4388,7 +4512,7 @@ export function renderMainDeploymentEvidence(evidence) {
         )} |`,
     ),
     "",
-    "Rider domains are the other domains each served deployment carried. A promote or rollback moves them wholesale with the reviewed alias; they are named here for visibility, and only the reviewed aliases are verified.",
+    "Rider domains are the other domains each served prior carried at planning time. A promote or rollback moves them wholesale with the reviewed alias; this shadow run promotes nothing, so they are a census, not a record of movement. Only the reviewed aliases are verified.",
     "",
     "#### Served-SHA ranges and selection reasons",
     "",
@@ -5543,11 +5667,22 @@ export function createMainActiveTerminalArtifacts({
   finalCensus,
   freshness,
   stageResults = null,
+  // This run's own planning snapshot, supplied by the jobs that took one. The
+  // terminal producer has no alias census of its own, so `null` means "this
+  // job did not observe one" and renders as unknown rather than as none.
+  riderCensus = null,
   runId,
   runAttempt,
 }) {
   const releaseExecution = assertMainReleaseExecution(execution);
   const planning = activePlanningFromExecution(releaseExecution);
+  const riders =
+    riderCensus === null
+      ? null
+      : riderAliasEvidenceFromStates(
+          assertMainPlanningSnapshot(riderCensus).states,
+          planning.activeTargets,
+        );
   const canonicalRunId = requirePositiveId(runId, "Terminal producer run ID");
   const canonicalRunAttempt = requirePositiveId(
     runAttempt,
@@ -5745,6 +5880,9 @@ export function createMainActiveTerminalArtifacts({
       runAttempt: canonicalRunAttempt,
       workflowRunUrl: terminalWorkflowRunUrl(canonicalRunId),
       planning,
+      // An earlier attempt's promote is what serves production here, so these
+      // are the domains that release moved.
+      riderAliases: riders,
       freshness: [{ phase: "current-release-verification", status: "fresh" }],
       finalMappings: mappings,
       publicSmokes: smokes,
@@ -6177,7 +6315,7 @@ export function createMainActiveTerminalArtifacts({
         runAttempt: canonicalRunAttempt,
         workflowRunUrl: terminalWorkflowRunUrl(canonicalRunId),
         planning,
-        riderAliases: riderAliasEvidence(manifest),
+        riderAliases: riders,
         journal: {
           transactionId: highest.transactionId,
           artifactName: mainTransactionJournalArtifactName(highest),
@@ -6240,6 +6378,10 @@ export function createMainActiveTerminalArtifacts({
         publicSmokes: smokes,
         stateProof: completeStateProof,
         rollbackStateTargets: rollbackTargets,
+        // A recovered or manual outcome still moved these domains before the
+        // compensating rollback, so the terminal report must name them.
+        riderAliases: riders,
+        riderTargets: planning.activeTargets,
         publicServingMutationCommands: counts.started,
         coordinatorOutcome: "active-failed",
         recoveryOutcome:
@@ -6702,6 +6844,7 @@ export function assertMainActiveTerminalEvidenceArtifact(
         "runAttempt",
         "workflowRunUrl",
         "planning",
+        "riderAliases",
         "freshness",
         "finalMappings",
         "publicSmokes",
@@ -6764,6 +6907,11 @@ export function assertMainActiveTerminalEvidenceArtifact(
       runAttempt: identity.runAttempt,
       workflowRunUrl: identity.workflowRunUrl,
       planning,
+      riderAliases: canonicalRiderAliasEvidence(
+        value.riderAliases,
+        planning.activeTargets,
+        "Nested current release rider domains",
+      ),
       freshness,
       finalMappings,
       publicSmokes,
@@ -6985,7 +7133,13 @@ export function assertMainActiveTerminalEvidenceArtifact(
       workflowRunUrl: identity.workflowRunUrl,
       planning,
       // Re-derived from the release manifest, never trusted from the artifact.
-      riderAliases: riderAliasEvidence(manifest),
+      // Carried, not re-derived: riders are mutable provider state and this
+      // reader has no census of its own. Validated for shape and scope only.
+      riderAliases: canonicalRiderAliasEvidence(
+        value.riderAliases,
+        planning.activeTargets,
+        "Nested active rider domains",
+      ),
       journal,
       orderedVerifiedOperations,
       freshness,
@@ -7027,6 +7181,7 @@ export function assertMainActiveTerminalEvidenceArtifact(
       "publicSmokes",
       "stateProofSummary",
       "rollbackStateTargets",
+      "riderAliases",
       "publicServingMutationCommands",
       "coordinatorOutcome",
       "recoveryOutcome",
@@ -7187,6 +7342,11 @@ export function assertMainActiveTerminalEvidenceArtifact(
     publicSmokes,
     stateProofSummary,
     rollbackStateTargets,
+    riderAliases: canonicalRiderAliasEvidence(
+      value.riderAliases,
+      activePlanningFromExecution(releaseExecution).activeTargets,
+      "Nested active failure rider domains",
+    ),
     publicServingMutationCommands: mutationCount,
     coordinatorOutcome,
     recoveryOutcome,

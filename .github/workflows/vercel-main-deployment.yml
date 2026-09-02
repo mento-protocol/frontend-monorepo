@@ -2124,6 +2124,7 @@ jobs:
             --outcome active-committed \
             --proofs-output "$RUNNER_TEMP/terminal-proofs.json" \
             --public-smokes "$RUNNER_TEMP/public-smokes.json" \
+            --rider-census "$RUNNER_TEMP/current-planning.json" \
             --stage-results "$RUNNER_TEMP/null.json" \
             --state-proof "$RUNNER_TEMP/terminal-state-proof.json"
           echo "outcome=active-committed" >> "$GITHUB_OUTPUT"
@@ -2143,6 +2144,7 @@ jobs:
             --journal-history "$RUNNER_TEMP/empty-history.json" \
             --outcome current-release-verified \
             --proofs-output "$RUNNER_TEMP/terminal-proofs.json" \
+            --rider-census "$RUNNER_TEMP/current-planning.json" \
             --public-smokes "$RUNNER_TEMP/public-smokes.json" \
             --stage-results "$RUNNER_TEMP/null.json" \
             --state-proof "$RUNNER_TEMP/terminal-state-proof.json"

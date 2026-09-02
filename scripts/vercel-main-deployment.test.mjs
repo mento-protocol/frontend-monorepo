@@ -96,6 +96,8 @@ import {
   readRemoteMainSha,
   recoverMainShadowTransaction,
   renderMainActiveDeploymentEvidence,
+  MAIN_RIDER_ALIAS_BYTE_BUDGET,
+  MAIN_RIDER_ALIAS_TARGET_LIMIT,
   renderMainActiveDeploymentFailureEvidence,
   renderMainActiveSafeNoopEvidence,
   renderMainDeploymentEvidence,
@@ -144,7 +146,6 @@ import {
   acceptsPriorEnvironment,
   MAIN_DEPLOYMENT_TARGETS,
   MAIN_TARGET_CONTRACTS,
-  riderAliasesFrom,
 } from "./vercel-main-plan.mjs";
 
 const SHA = "dddddddddddddddddddddddddddddddddddddddd";
@@ -261,7 +262,6 @@ function releaseManifestForPlan(deploymentPlan) {
           deploymentId: planned.deploymentId,
           deploymentUrl: planned.deploymentUrl,
           aliases: [...planned.aliases],
-          riderAliases: riderAliasesFrom(first.aliases, planned.aliases),
           projectId: first.projectId,
           projectName: first.projectName,
           readyState: first.readyState,
@@ -2161,44 +2161,36 @@ test("canonical evidence records planning, candidates, timings, cache, journal, 
     beforeTransaction: "fresh",
   });
   assert.deepEqual(evidence.ordinaryRollbackStateTargets, []);
-  // Rider domains are named per target beside the reviewed aliases they move
-  // with, and the header row pins the column.
-  assert.deepEqual(evidence.riderAliases, {
-    app: [
+  // Shadow mode promotes nothing, so the rider column is the served-prior
+  // census for all four targets and the caption says exactly that.
+  assert.deepEqual(Object.keys(evidence.riderAliases), [
+    "app",
+    "governance",
+    "reserve",
+    "ui",
+  ]);
+  assert.deepEqual(evidence.riderAliases.app, {
+    aliases: [
       "appmentoorg-git-main-mentolabs.vercel.app",
       "appmentoorg-mentolabs.vercel.app",
       "appmentoorg.vercel.app",
     ],
-    governance: [
-      "governancementoorg-git-main-mentolabs.vercel.app",
-      "governancementoorg-mentolabs.vercel.app",
-      "governancementoorg.vercel.app",
-    ],
-    reserve: [
-      "reservementoorg-git-main-mentolabs.vercel.app",
-      "reservementoorg-mentolabs.vercel.app",
-      "reservementoorg.vercel.app",
-    ],
-    ui: [
-      "uimentoorg-git-main-mentolabs.vercel.app",
-      "uimentoorg-mentolabs.vercel.app",
-      "uimentoorg.vercel.app",
-    ],
+    omitted: 0,
   });
   const summary = renderMainDeploymentEvidence(evidence);
   assert.match(
     summary,
-    /\| Target \| Deployment \| Served SHA \| Reviewed aliases \| Rider domains \|/,
+    /\| Target \| Deployment \| Served SHA \| Reviewed aliases \| Rider domains \(served prior\) \|/,
   );
   assert.match(
     summary,
     /\| app \|.*\| `app\.mento\.org` \| appmentoorg-git-main-mentolabs\.vercel\.app, appmentoorg-mentolabs\.vercel\.app, appmentoorg\.vercel\.app \|/,
   );
-  assert.match(summary, /Rider domains are the other domains/);
-  const withoutRiders = structuredClone(evidence);
-  withoutRiders.riderAliases.ui = [];
+  assert.match(summary, /this shadow run promotes nothing/);
+  const noRiders = structuredClone(evidence);
+  noRiders.riderAliases.ui = { aliases: [], omitted: 0 };
   assert.match(
-    renderMainDeploymentEvidence(withoutRiders),
+    renderMainDeploymentEvidence(noRiders),
     /\| ui \|.*\| `ui\.mento\.org` \| none \|/,
   );
   assert.match(summary, /Served deployment priors/);
@@ -4073,7 +4065,7 @@ test("active controller commits exact ordered mutations and emits canonical reda
   );
   assert.deepEqual(evidence.recovery.rollbackStateTargets, []);
   // The committed active evidence pins its exact key order, including the
-  // rider map it now publishes.
+  // rider map. Riders are same-run observation, never release identity.
   assert.deepEqual(Object.keys(evidence), [
     "schema",
     "mode",
@@ -4095,30 +4087,46 @@ test("active controller commits exact ordered mutations and emits canonical reda
     "publicServingMutationCommands",
     "outcome",
   ]);
-  assert.deepEqual(evidence.riderAliases.governance, [
-    "governancementoorg-git-main-mentolabs.vercel.app",
-    "governancementoorg-mentolabs.vercel.app",
-    "governancementoorg.vercel.app",
-  ]);
+  // Only promoted targets appear, and each entry is the bounded census shape.
+  assert.deepEqual(
+    Object.keys(evidence.riderAliases),
+    evidence.planning.activeTargets,
+  );
+  assert.deepEqual(evidence.riderAliases.governance, {
+    aliases: [
+      "governancementoorg-git-main-mentolabs.vercel.app",
+      "governancementoorg-mentolabs.vercel.app",
+      "governancementoorg.vercel.app",
+    ],
+    omitted: 0,
+  });
   const activeSummary = renderMainActiveDeploymentEvidence(evidence);
   assert.match(activeSummary, /Public-serving mutation commands: `4`/);
   assert.match(
     activeSummary,
     /- Rider domains moved with `app`: appmentoorg-git-main-mentolabs\.vercel\.app, appmentoorg-mentolabs\.vercel\.app, appmentoorg\.vercel\.app/,
   );
-  // "none" and "unknown" are distinct: a rider-less deployment against a
-  // release manifest that predates rider capture.
+  // "none", truncation, and "unknown" are three distinct statements.
   const emptyRiders = structuredClone(evidence);
-  emptyRiders.riderAliases.ui = [];
+  emptyRiders.riderAliases.ui = { aliases: [], omitted: 0 };
   assert.match(
     renderMainActiveDeploymentEvidence(emptyRiders),
     /- Rider domains moved with `ui`: none/,
   );
+  const truncatedRiders = structuredClone(evidence);
+  truncatedRiders.riderAliases.ui = {
+    aliases: ["uimentoorg.vercel.app"],
+    omitted: 2,
+  };
+  assert.match(
+    renderMainActiveDeploymentEvidence(truncatedRiders),
+    /- Rider domains moved with `ui`: uimentoorg\.vercel\.app \(\+2 more, truncated\)/,
+  );
   const unknownRiders = structuredClone(evidence);
-  unknownRiders.riderAliases.reserve = null;
+  unknownRiders.riderAliases = null;
   assert.match(
     renderMainActiveDeploymentEvidence(unknownRiders),
-    /- Rider domains moved with `reserve`: unknown/,
+    /- Rider domains moved: unknown \(no census in this job\)/,
   );
   const execution = releaseExecutionForPlan(harness.plan);
   assert.deepEqual(
@@ -4130,19 +4138,37 @@ test("active controller commits exact ordered mutations and emits canonical reda
     }),
     evidence,
   );
-  // The terminal reader re-derives the rider map from the release manifest, so
-  // a rewritten one is refused even though riders decide nothing.
-  const forgedRiders = structuredClone(evidence);
-  forgedRiders.riderAliases.ui = ["attacker.example"];
+  // The terminal reader carries riders rather than re-deriving them, but still
+  // holds them to the canonical shape and to the promoted-target scope.
+  const unscopedRiders = structuredClone(evidence);
+  unscopedRiders.riderAliases = {
+    ...evidence.riderAliases,
+    app: { aliases: ["governance.mento.org"], omitted: 0 },
+  };
   assert.throws(
     () =>
-      assertMainActiveTerminalEvidenceArtifact(forgedRiders, {
+      assertMainActiveTerminalEvidenceArtifact(unscopedRiders, {
         execution,
         runId: "800",
         runAttempt: "3",
         outcome: "active-committed",
       }),
-    /Nested active deployment evidence/,
+    /Nested active rider domains app is not canonical/,
+  );
+  const unsortedRiders = structuredClone(evidence);
+  unsortedRiders.riderAliases.ui = {
+    aliases: ["uimentoorg.vercel.app", "uimentoorg-mentolabs.vercel.app"],
+    omitted: 0,
+  };
+  assert.throws(
+    () =>
+      assertMainActiveTerminalEvidenceArtifact(unsortedRiders, {
+        execution,
+        runId: "800",
+        runAttempt: "3",
+        outcome: "active-committed",
+      }),
+    /Nested active rider domains ui is not canonical/,
   );
   const droppedRiders = structuredClone(evidence);
   delete droppedRiders.riderAliases;
@@ -4156,7 +4182,6 @@ test("active controller commits exact ordered mutations and emits canonical reda
       }),
     /Nested active deployment evidence contains forbidden or missing fields/,
   );
-
   const staleProofSchema = structuredClone(evidence);
   staleProofSchema.stateProofSummary.proofSchema = `${ACTIVE_DEPLOYMENT_STATE_PROOF_SCHEMA}:stale`;
   assert.throws(
@@ -8748,6 +8773,62 @@ test("active failure evidence never claims zero after a mutation may have starte
     renderMainActiveDeploymentFailureEvidence(evidence),
     /Public-serving mutation commands: `1`/,
   );
+  // A recovered or manual outcome still moved domains before the compensating
+  // rollback, so failure evidence names them too — and says "unknown" rather
+  // than "none" when the producing job observed no census.
+  assert.equal(evidence.riderAliases, null);
+  assert.match(
+    renderMainActiveDeploymentFailureEvidence(evidence),
+    /- Rider domains moved: unknown \(no census in this job\)/,
+  );
+  const withRiders = createMainActiveDeploymentFailureEvidence({
+    ...base,
+    publicServingMutationCommands: 1,
+    riderAliases: {
+      governance: {
+        aliases: ["governancementoorg-mentolabs.vercel.app"],
+        omitted: 0,
+      },
+    },
+    riderTargets: ["governance"],
+  });
+  assert.deepEqual(withRiders.riderAliases, {
+    governance: {
+      aliases: ["governancementoorg-mentolabs.vercel.app"],
+      omitted: 0,
+    },
+  });
+  assert.match(
+    renderMainActiveDeploymentFailureEvidence(withRiders),
+    /- Rider domains moved with `governance`: governancementoorg-mentolabs\.vercel\.app/,
+  );
+  // Riders never widen scope: a target this release did not promote cannot
+  // appear, and a foreign reviewed domain is still cross-target contamination.
+  assert.throws(
+    () =>
+      createMainActiveDeploymentFailureEvidence({
+        ...base,
+        publicServingMutationCommands: 1,
+        riderAliases: {
+          governance: { aliases: [], omitted: 0 },
+          ui: { aliases: [], omitted: 0 },
+        },
+        riderTargets: ["governance"],
+      }),
+    /Active failure rider domains contains forbidden or missing fields/,
+  );
+  assert.throws(
+    () =>
+      createMainActiveDeploymentFailureEvidence({
+        ...base,
+        publicServingMutationCommands: 1,
+        riderAliases: {
+          governance: { aliases: ["app.mento.org"], omitted: 0 },
+        },
+        riderTargets: ["governance"],
+      }),
+    /Active failure rider domains governance is not canonical/,
+  );
 
   const ambiguous = createMainActiveDeploymentFailureEvidence({
     ...base,
@@ -8974,4 +9055,98 @@ test("final-active CLI process fails closed when the evaluator throws", () => {
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+// Rider evidence is visibility, so a project with many or long domains must
+// never be able to fail a release: the census truncates, deterministically,
+// and says how much it dropped.
+test("rider evidence truncates rather than letting visibility fail a release", () => {
+  const crowded = planningSnapshot();
+  const many = Array.from(
+    { length: 40 },
+    (_unused, index) =>
+      `appmentoorg-${String(index).padStart(3, "0")}-mentolabs.vercel.app`,
+  );
+  for (const state of crowded.states) {
+    if (state.alias === "app.mento.org") {
+      state.aliases = [...state.aliases, ...many].toSorted();
+    }
+  }
+  const build = () => {
+    const deploymentPlan = plan({ snapshot: structuredClone(crowded) });
+    const jobs = stageJobs(deploymentPlan);
+    const identity = createMainJournalArtifactIdentity({
+      deploySha: SHA,
+      runId: "800",
+      runAttempt: "3",
+    });
+    return createMainDeploymentEvidence({
+      plan: deploymentPlan,
+      stages: Object.fromEntries(
+        ["governance", "reserve", "ui"].map((target) => [
+          target,
+          {
+            handoff: jobs[target].handoff,
+            nextDeploymentId: generateVercelDeploymentId({
+              target,
+              commitSha: SHA,
+              runId: "800",
+              runAttempt: "3",
+            }),
+            metrics: {
+              buildDurationMs: "10000",
+              deployDurationMs: "2000",
+              totalDurationMs: "20000",
+              turboCacheHits: "3",
+              turboCacheMisses: "1",
+            },
+          },
+        ]),
+      ),
+      app: {
+        nextDeploymentId: appReceipt().intent.candidateId,
+        metrics: {
+          buildDurationMs: "12000",
+          totalDurationMs: "18000",
+          turboCacheHits: "5",
+          turboCacheMisses: "2",
+        },
+      },
+      coordinator: {
+        outcome: "shadow-prepared",
+        transactionId: identity.transactionId,
+        artifactName: identity.artifactName,
+        artifactId: "98123",
+        totalDurationMs: "25000",
+      },
+      recovery: { outcome: "verified-no-mutation" },
+      runId: "800",
+      runAttempt: "3",
+      workflowRunUrl: WORKFLOW_RUN_URL,
+    });
+  };
+  const evidence = build();
+  const app = evidence.riderAliases.app;
+  assert.equal(app.aliases.length, MAIN_RIDER_ALIAS_TARGET_LIMIT);
+  assert.equal(app.omitted, 43 - MAIN_RIDER_ALIAS_TARGET_LIMIT);
+  assert.deepEqual(app.aliases, [...app.aliases].sort());
+  const bytes = Object.values(evidence.riderAliases).reduce(
+    (total, entry) =>
+      total +
+      entry.aliases.reduce(
+        (inner, alias) => inner + Buffer.byteLength(alias, "utf8") + 3,
+        0,
+      ),
+    0,
+  );
+  assert.ok(
+    bytes <= MAIN_RIDER_ALIAS_BYTE_BUDGET,
+    `rider bytes ${bytes} exceed the budget`,
+  );
+  assert.match(
+    renderMainDeploymentEvidence(evidence),
+    /\(\+27 more, truncated\)/,
+  );
+  // Deterministic: the same census renders identically on every attempt.
+  assert.deepEqual(build().riderAliases, evidence.riderAliases);
 });

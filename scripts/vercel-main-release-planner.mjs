@@ -2,7 +2,6 @@ import {
   MAIN_DEPLOYMENT_TARGETS,
   MAIN_TARGET_CONTRACTS,
   planMainDeployments,
-  riderAliasesFrom,
 } from "./vercel-main-plan.mjs";
 import {
   assertMainPlanningSnapshot,
@@ -118,15 +117,10 @@ function originalPrior({ target, states, planned }) {
   ) {
     throw new Error(`Main release baseline ${target} prior is ambiguous`);
   }
-  const reviewedAliases = [...planned.aliases].sort();
   return {
     deploymentId: first.deploymentId,
     deploymentUrl: first.deploymentUrl,
-    aliases: reviewedAliases,
-    // Everything else the served deployment carried. Recorded so the release
-    // evidence names every domain a promote repointed; never read by a
-    // selection, verification, or recovery decision.
-    riderAliases: riderAliasesFrom(first.aliases, reviewedAliases),
+    aliases: [...planned.aliases].sort(),
     projectId: first.projectId,
     projectName: first.projectName,
     readyState: first.readyState,

@@ -2756,6 +2756,12 @@ test("coordinator checkpoints the forward journal before four bounded mutations 
     terminalArtifacts.run,
     /--final-mappings "\$RUNNER_TEMP\/final-mappings\.json"/,
   );
+  // The rider census is this job's own planning snapshot, so a promoted
+  // target's moved domains are named from an observation, never from a seal.
+  assert.match(
+    terminalArtifacts.run,
+    /--rider-census "\$RUNNER_TEMP\/current-planning\.json"/,
+  );
   for (const input of [
     "--final-census",
     "--final-mappings",

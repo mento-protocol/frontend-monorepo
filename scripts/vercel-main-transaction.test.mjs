@@ -38,7 +38,6 @@ import {
   assertMainReleaseManifest,
   createMainReleaseManifest,
   MAIN_RELEASE_ACTIVATION_ORDER,
-  manifestRiderAliases,
 } from "./vercel-main-release-reconciliation.mjs";
 import { createMainCandidateIntent } from "./vercel-main-candidate.mjs";
 
@@ -80,7 +79,6 @@ function releasePrior(target, environment) {
     deploymentId: `dpl_${target}Prior123`,
     deploymentUrl: `https://${target}-prior.vercel.app`,
     aliases,
-    riderAliases: [],
     projectId: `prj_${target}123`,
     projectName: contract.projectName,
     readyState: "READY",
@@ -90,13 +88,11 @@ function releasePrior(target, environment) {
         ? contract.customEnvironmentSlug
         : environment.customEnvironmentSlug,
   };
-  const leafBase = { ...shared };
-  delete leafBase.riderAliases;
   return {
     ...shared,
     planningLeaves: aliases.map((alias) => ({
       alias,
-      ...leafBase,
+      ...shared,
       git: {
         status: "complete",
         org: "mento-protocol",
@@ -648,17 +644,6 @@ test("static fixture remains compatible with the canonical journal schema", () =
   assert.equal(canonical.mode, "active");
   assert.equal(canonical.status, "prepared");
   assert.equal(canonical.transactionId, createMainTransactionId(canonical));
-  // The fixture is a durable `:v2` seal: it predates rider capture, decodes
-  // unchanged, and reports its riders as unknown rather than as none.
-  const release = assertMainReleaseManifest(canonical.release);
-  assert.equal(release.schema, "vercel-main-release-manifest:v2");
-  for (const target of ["app", "governance", "reserve", "ui"]) {
-    assert.equal(
-      Object.hasOwn(release.originalPriors[target], "riderAliases"),
-      false,
-    );
-    assert.equal(manifestRiderAliases(release, target), null);
-  }
 });
 
 test("operation snapshots form an append-only monotonic history", () => {

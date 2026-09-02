@@ -51,7 +51,6 @@ function originalPriors(planning) {
         deploymentId: prior.deploymentId,
         deploymentUrl: prior.deploymentUrl,
         aliases: prior.aliases,
-        riderAliases: [],
         projectId: `prj_${prior.target}`,
         projectName: `${prior.target}.mento.org`,
         readyState: "READY",

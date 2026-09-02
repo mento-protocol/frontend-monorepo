@@ -198,10 +198,13 @@ const OPTIONS = Object.freeze({
     "outcome",
     "proofs-output",
     "public-smokes",
+    "rider-census",
     "stage-results",
     "state-proof",
   ]),
 });
+
+const OPTIONAL_OPTIONS = new Set(["rider-census"]);
 
 function createExecutionDiagnostics() {
   let phase = EXECUTION_DIAGNOSTIC_PHASES.INPUT;
@@ -298,7 +301,13 @@ function parseArguments(argv) {
     throw new Error("Main release command is missing or unsupported");
   }
   const command = argv[0];
-  const required = new Set(OPTIONS[command]);
+  const accepted = new Set(OPTIONS[command]);
+  // Only the rider census is optional: it is same-run visibility data that the
+  // recovery jobs have no way to observe, and a missing census must never be
+  // able to fail a release.
+  const required = new Set(
+    [...accepted].filter((name) => !OPTIONAL_OPTIONS.has(name)),
+  );
   const options = Object.create(null);
   for (let index = 1; index < argv.length; index += 2) {
     const flag = argv[index];
@@ -312,7 +321,7 @@ function parseArguments(argv) {
       throw new Error("Main release arguments are malformed");
     }
     const name = flag.slice(2);
-    if (!required.has(name) || Object.hasOwn(options, name)) {
+    if (!accepted.has(name) || Object.hasOwn(options, name)) {
       throw new Error("Main release option is unsupported or duplicated");
     }
     options[name] = value;
@@ -668,6 +677,16 @@ export async function runMainReleaseCli({
         "Main terminal stage results",
         runnerTemp,
       ),
+      // Optional: this run's planning snapshot, for naming the rider domains
+      // the release moved. Jobs without one publish "unknown".
+      riderCensus:
+        options["rider-census"] === undefined
+          ? null
+          : readPrivateJson(
+              options["rider-census"],
+              "Main terminal rider census",
+              runnerTemp,
+            ),
     };
     markTerminalArtifactPhase(
       terminalArtifactDiagnostics,

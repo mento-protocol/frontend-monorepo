@@ -150,22 +150,19 @@ function activeReleaseManifest({
         deploymentId: `dpl_${target}Prior123`,
         deploymentUrl: `https://${target}-prior.vercel.app`,
         aliases,
-        riderAliases: [],
         projectId: projects[target].projectId,
         projectName: projects[target].projectName,
         readyState: "READY",
         target: contract.target,
         customEnvironmentSlug: contract.customEnvironmentSlug,
       };
-      const leafBase = { ...prior };
-      delete leafBase.riderAliases;
       return [
         target,
         {
           ...prior,
           planningLeaves: aliases.map((alias) => ({
             alias,
-            ...leafBase,
+            ...prior,
             git: {
               status: "complete",
               org: "mento-protocol",

@@ -355,21 +355,16 @@ authority. It binds repository, release ID, `DEPLOY_SHA`, validated upstream
 run, ownership mode, staged and active targets, release-plan digest, and every
 captured protected rollback prior.
 
-Its schema tag is `vercel-main-release-manifest:v3`. Each prior carries the
-exact ordered key set `deploymentId`, `deploymentUrl`, `aliases`,
-`riderAliases`, `projectId`, `projectName`, `readyState`, `target`,
-`customEnvironmentSlug`, `planningLeaves`, `servedSha`. `riderAliases` is the
-canonical, sorted, deduplicated list of every other domain the served
-deployment carried, bounded at 32 entries and disjoint from `aliases`. The
-reader also accepts `vercel-main-release-manifest:v2`, whose priors are the
-same key set minus `riderAliases` — candidate seals are immutable, so a `:v2`
-seal stays readable forever and stays valid for reuse and rollback
-classification. Exactly one key separates the two shapes; every other field is
-validated identically, so a corrupt manifest is never mistaken for an older
-one. A decoded manifest keeps the schema tag it was sealed with, and a `:v2`
-prior reports its riders as unknown, never as none. Planning leaves are
-unchanged in both: riders belong to the deployment, not to any one reviewed
-alias, and the release-plan digest does not cover them.
+Its schema tag stays `vercel-main-release-manifest:v2`, and rider domains are
+deliberately **not** in it. A candidate upload runs `--prod --skip-domain`,
+which moves the project's generated aliases off the still-serving prior, so two
+attempts of one release legitimately observe different rider sets. The manifest
+is embedded in every candidate seal and compared byte-for-byte when a later
+attempt discovers an existing candidate, so a sealed rider list would make an
+interrupted release unresumable: the deterministic candidate would be found and
+then rejected for a manifest difference that reflects nothing but provider
+drift. Riders never enter the manifest, the candidate seal, the journal, the
+release-plan digest, or any other identity- or digest-bound value.
 
 A provider census must be complete and
 stable, each candidate must carry one exact canonical manifest, and the current
@@ -491,13 +486,14 @@ domain, which would mean the reviewed mappings had crossed. Candidate and reused
 candidate topologies keep their exact generated-alias contract, and a fresh
 candidate carries no rider because it has not been promoted yet.
 
-Riders are named but never verified. Each target's rider set is recorded in the
-release manifest as `originalPriors[target].riderAliases` and rendered in the
-terminal evidence, so a reader can see every domain a release repointed.
-Nothing in selection, verification, or recovery reads that list:
-`assertActiveFinalMappings` still verifies the reviewed aliases only, and the
-planner validates and then discards the provider's alias evidence. Custom,
-wrong-target, near-miss, and unknown aliases on a candidate still fail closed.
+Riders are named but never verified, and they are same-run evidence only. Each
+job that takes a planning census derives the rider set from that census and
+publishes it in its evidence artifact, so a reader can see every domain a
+release repointed. Nothing in selection, verification, or recovery reads the
+list: `assertActiveFinalMappings` still verifies the reviewed aliases only, and
+the planner validates and then discards the provider's alias evidence. Custom,
+wrong-target, near-miss, and unknown aliases on a candidate still fail closed,
+and a foreign reviewed protected domain is refused in a rider list too.
 
 Planning compares each target's served SHA with `DEPLOY_SHA`; it does not use
 the triggering push's `before` field. For a GitHub-owned target, an exact
@@ -775,12 +771,30 @@ of treating the process outcome as deployment success.
 
 The receipt keeps its `vercel-main-terminal-receipt:v3` schema and its exact
 key set: it carries proof digests, never artifacts, so rider domains are not
-part of it. They travel in the terminal evidence artifact instead. Committed
-active evidence is `vercel-main-active-evidence:v2`, whose exact key order now
-includes `riderAliases` — one entry per target, either the canonical sorted
-rider list or `null` when the release manifest is a `:v2` seal that predates
-rider capture. The terminal reader re-derives that map from the release
-manifest and refuses a rewritten one, even though riders decide nothing.
+part of it. They travel in the terminal evidence artifact instead. Every
+evidence schema that can represent a public mapping mutation carries a
+`riderAliases` map in its exact key order: `vercel-main-active-evidence:v2`,
+`vercel-main-active-current-release-evidence:v2`, and
+`vercel-main-active-failure-evidence:v2`, so a recovered, manual-intervention,
+or already-current outcome names the domains its promote moved. Outcomes that
+mutate nothing — safe-noop, preparation failure, `no-target` — carry no map.
+
+The map holds one entry per target the release actually promoted; a target that
+was not selected, is shadow-owned, or was never promoted moved nothing and gets
+no entry and no rendered line. Each entry is `{aliases, omitted}`: canonical,
+sorted, deduplicated hostnames, capped at `MAIN_RIDER_ALIAS_TARGET_LIMIT` (16)
+per target and at `MAIN_RIDER_ALIAS_BYTE_BUDGET` (4096 bytes) across the map,
+with `omitted` counting what the caps dropped. Truncation is deliberate and
+deterministic: visibility must never become a new way for a deploy to fail, and
+the budget sits far below the 64 KiB terminal-evidence and 256 KiB bridge caps
+so the rider map can never be what overruns an artifact. A whole map of `null`
+means the producing job took no census — the recovery jobs have none — and
+renders as `unknown` rather than as `none`. The terminal reader carries the map
+rather than re-deriving it (riders are mutable, and a later read would
+legitimately disagree), but still holds it to the canonical shape, the caps, and
+the promoted-target scope. Wiring a census into the recovery terminal producer
+is deliberately left as follow-up: it would add a credentialed provider read to
+the recovery path.
 
 The `result` job evaluates the terminal receipt and evidence and sets the
 `Vercel Main Deployment` workflow outcome. The `Fail closed before release
@@ -873,8 +887,9 @@ IDs in this canonical runbook. The evidence contains only:
 
 - downstream workflow run ID, attempt, URL, and exact workflow-definition SHA;
 - upstream run ID/attempt, `Build and Test` URL/conclusion, and `DEPLOY_SHA`;
-- each target's canonical prior deployment ID/URL, public aliases, rider
-  domains, served SHA, planner range, reason, and selected/skipped outcome;
+- each target's canonical prior deployment ID/URL, public aliases, served-prior
+  rider domains, served SHA, planner range, reason, and selected/skipped
+  outcome;
 - each selected ordinary staged deployment ID/URL plus canonical state,
   immutable browser/runtime/security, and protected-mapping results;
 - App build result and validated deterministic Next deployment ID, without a

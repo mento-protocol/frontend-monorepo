@@ -165,22 +165,19 @@ function release(
       const value = captured[target];
       const shared = {
         ...value,
-        riderAliases: [],
         projectId: PROJECT_IDS[target],
         projectName: contract.projectName,
         readyState: "READY",
         target: contract.target,
         customEnvironmentSlug: contract.customEnvironmentSlug,
       };
-      const leafBase = { ...shared };
-      delete leafBase.riderAliases;
       return [
         target,
         {
           ...shared,
           planningLeaves: shared.aliases.map((alias) => ({
             alias,
-            ...leafBase,
+            ...shared,
             git: {
               status: "complete",
               org: "mento-protocol",

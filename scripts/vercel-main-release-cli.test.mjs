@@ -119,7 +119,6 @@ function manifest(
           deploymentId: prior.deploymentId,
           deploymentUrl: prior.deploymentUrl,
           aliases: prior.aliases,
-          riderAliases: [],
           projectId: `prj_${target}`,
           projectName: `${target}.mento.org`,
           readyState: "READY",
@@ -1890,7 +1889,7 @@ test("terminal artifact CLI fully re-verifies an already-current release without
   });
   assert.equal(
     artifacts.evidence.schema,
-    "vercel-main-active-current-release-evidence:v1",
+    "vercel-main-active-current-release-evidence:v2",
   );
   assert.equal(artifacts.proofs.outcome, "current-release-verified");
   assert.equal(artifacts.proofs.mutationCount, 0);
