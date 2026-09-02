@@ -32,11 +32,13 @@ per-target `shadow` or `github` mode live together in
 guards, and ownership tests import or structurally verify that source; do not
 copy a second ownership table into executable code.
 
-The guarded manual production-shadow pilot remains an operator tool. Like the
-historical automatic PR-A shadow path, it does not promote or mutate a
-protected/custom production domain or deployment ownership. Each ordinary
-upload implicitly moves the target's reviewed base generated project/team alias
-and may also move Vercel's exact creator-scoped generated alias.
+The manual production-shadow pilot workflow is retired (2026-09-02); preview
+deployments cover pre-merge verification. Staged main candidates keep its
+non-promoting property: like the historical automatic PR-A shadow path, an
+upload does not promote or mutate a protected/custom production domain or
+deployment ownership. Each ordinary upload implicitly moves the target's
+reviewed base generated project/team alias and may also move Vercel's exact
+creator-scoped generated alias.
 
 ## Automatic active main deployment
 
@@ -558,8 +560,8 @@ must never inspect 1Password or another credential store.
 Every ordinary member of `stagedTargets` uses production build semantics and
 `vercel deploy --prebuilt --prod --skip-domain`. The stage jobs reuse the
 protected #521 candidate UID/runtime boundary, inspect exact deployment state,
-recheck drift, and run the credential-free production-shadow browser smoke
-against the immutable staged URL. These uploads may move only the reviewed
+recheck drift, and run the credential-free candidate HTTP smoke against the
+immutable staged URL. These uploads may move only the reviewed
 generated Vercel system aliases described below. Those aliases are evidence of
 the candidate upload, never runtime-smoke endpoints or rollback mappings. The
 uploads cannot move protected or custom production domains.
@@ -632,6 +634,98 @@ contract, its digest/byte-count job outputs, and the coordinator's
 post-extraction `assert-output` re-verification — no longer exists. `stage-app`
 now uploads its own candidate directly, like every other target, so no tree
 ever needs to travel between jobs.
+
+### Reviewed generated-alias topology
+
+Every staged upload runs `vercel deploy --prebuilt --prod --skip-domain`,
+which moves only the reviewed generated Vercel system aliases described
+here. These aliases are candidate-upload evidence, never runtime-smoke
+endpoints or rollback mappings.
+
+`--skip-domain` suppresses custom production-domain assignment. Vercel's
+[generated-URL contract](https://vercel.com/docs/deployments/generated-urls)
+documents a CLI project/scope URL and, for Team deployments, an optional
+project/author/scope URL. The immutable deployment hostname remains separate
+deployment identity. Read-only evidence matched both documented provider alias
+forms: run `30034411210` exposed only the base alias, while run `30037927329`
+exposed the base alias plus the creator-scoped alias. The CLI offers no
+supported zero-generated-alias mode.
+
+The controller pins the project and scope slugs for each literal target and
+requires its base alias:
+
+- App: `appmentoorg-mentolabs.vercel.app`
+- Governance: `governancementoorg-mentolabs.vercel.app`
+- Reserve: `reservementoorg-mentolabs.vercel.app`
+- UI: `uimentoorg-mentolabs.vercel.app`
+
+It permits at most one additional alias: the exact
+`<project-slug>-<creator-username>-<scope-slug>.vercel.app` value derived from
+the same deployment response's canonical `creator.username`. The canonical
+state retains only that sanitized username; creator IDs, email, avatar, display
+name, Git author metadata, and `GITHUB_ACTOR` cannot authorize an alias. A
+creator username beginning with the reserved `git-` or `env-` generated-alias
+namespace can still produce the required base-only topology, but cannot
+authorize an author alias because that hostname is indistinguishable from
+Vercel's documented Git branch or custom-environment form. A
+creator whose full project/author/scope label exceeds DNS's 63-character limit
+can also use only the base topology; the provider's documented truncation is
+not stable enough to authorize without a reviewed contract update. A
+missing base alias, creator-less or wrong-author alias, protected/custom domain,
+branch or global alias, wrong-target alias, second author alias, immutable
+hostname in the alias list, or malformed canonical evidence fails closed. The
+read-only state inspector normalizes and deduplicates raw provider aliases;
+persisted canonical evidence must remain deduplicated and sorted.
+
+That base-required topology applies to an ordinary candidate absent from the
+trusted preflight. A candidate captured there before the job could build one
+may use a canonical subset of only the reviewed project/scope and creator
+aliases, including the empty subset, because recovery promotion can move both
+aliases back to the prior deployment. A `create-if-zero` preflight does not
+receive this relaxed topology. The
+immutable hostname, protected/custom domains, project-default alias, Git alias,
+wrong-target alias, and every other alias remain forbidden.
+
+Served-prior planning uses a separate finite contract because generated aliases
+can move independently of the protected production domain. For all four
+targets — App included, now that its prior is always production-shaped — a
+served deployment may retain any canonical subset of its reviewed base
+project/scope alias, exact project-default alias, exact canonical creator
+alias when that name is safe, and literal native-Git `main` alias:
+
+- App: `appmentoorg-mentolabs.vercel.app`, `appmentoorg.vercel.app`, and
+  `appmentoorg-git-main-mentolabs.vercel.app`
+- Governance: `governancementoorg-mentolabs.vercel.app`,
+  `governancementoorg.vercel.app`, and
+  `governancementoorg-git-main-mentolabs.vercel.app`
+- Reserve: `reservementoorg-mentolabs.vercel.app`,
+  `reservementoorg.vercel.app`, and
+  `reservementoorg-git-main-mentolabs.vercel.app`
+- UI: `uimentoorg-mentolabs.vercel.app`, `uimentoorg.vercel.app`, and
+  `uimentoorg-git-main-mentolabs.vercel.app`
+
+After validating that finite set, the planner removes all generated-alias
+evidence from the canonical prior. None of these aliases is a protected mapping
+or rollback input. Another project's default alias, another Git branch, a
+custom or wrong-target alias, a creator or project-default near miss, an unknown
+alias, or duplicate or unsorted canonical evidence fails closed.
+For `restore-before-planning`, the workflow calls
+`candidate-finalize-inherited`, which is fixed to this served-prior mode for
+every inherited target — App, Governance, Reserve, and UI. A target only enters
+inherited restoration once all of its reviewed aliases already map to the
+inherited candidate, so that candidate necessarily carries its protected public
+alias. Ordinary `candidate-finalize` forbids a protected alias on a candidate,
+so it cannot finalize any inherited target, App included. Ordinary
+`candidate-finalize` requires the base alias for a candidate absent from its
+trusted preflight and allows the reviewed detached subset only for the exact
+candidate already captured there. The inherited finalizer requires the target's exact protected
+public alias in the deployment's full alias list, removes that reviewed alias,
+then validates the remaining generated aliases against the finite served-prior
+set.
+Protected-domain before/after equality remains the decisive proof that the
+upload did not activate protected/custom production traffic. A future
+provider-generated alias topology must fail first and receive a reviewed
+contract update rather than being accepted implicitly.
 
 ### Active transaction, durable journal, and recovery
 
@@ -1138,8 +1232,7 @@ native Vercel:
   `scripts/vercel-cli-runtime/contract.json` in both the root `devDependencies`
   and standalone `scripts/vercel-cli-runtime/package.json` dependency. The root dependency
   remains available for reviewed operator commands; protected
-  production-shadow and main-deployment jobs install only the standalone
-  runtime. The project owner approved the dependency as part of delivering the
+  main-deployment jobs install only the standalone runtime. The project owner approved the dependency as part of delivering the
   epic. The stable npm version was re-queried on 2026-07-14 before it was
   pinned.
 - Resolved Next.js: `16.2.11` in `pnpm-lock.yaml`.
@@ -1287,8 +1380,7 @@ The result is deterministic for the same four inputs, differs between targets
 and reruns, is at most 32 characters, uses only Vercel's supported character
 set, and never begins with the reserved `dpl_` prefix.
 
-The Vercel Production Shadow workflow retains that per-attempt Next.js
-deployment ID as build provenance. Active-main uses the target-specific candidate ID
+Active-main uses the target-specific candidate ID
 (`releaseId + target`) for its Next.js deployment ID across downstream reruns;
 release ID is repository, exact SHA, and validated upstream CI run ID. The
 downstream run-and-attempt key continues to identify each active-main journal
@@ -1325,8 +1417,8 @@ unverified artifact, or pass an invented deployment-ID option to
 
 Vercel system variables are injected on Vercel's builders, but a local
 `vercel build` used for a prebuilt deployment does not receive those platform
-values automatically. GitHub-built preview, production-shadow, and main
-workflows restore the following safe constants before validating and building:
+values automatically. GitHub-built preview and main workflows restore the
+following safe constants before validating and building:
 
 | Deployment environment | `VERCEL_ENV` | `VERCEL_TARGET_ENV` | `NEXT_PUBLIC_VERCEL_ENV` |
 | ---------------------- | ------------ | ------------------- | ------------------------ |
@@ -1379,9 +1471,9 @@ unrepresentable required value, missing scoped secret, or cross-target
 Sensitive name fails closed. The checker prints variable names on failure but
 never values.
 
-The production-shadow workflow uses a separate runner-owned staging boundary.
+Staged main candidates use a separate runner-owned staging boundary.
 `PROJECT_DIRECTORY` must be the directory in which the Vercel CLI writes its
-`.vercel` state. The production-shadow workflow launches the CLI from the
+`.vercel` state. The main workflow launches the CLI from the
 monorepo root, but first materializes a trusted root `.vercel/repo.json` mapping
 and selects the literal project with `--project`. The contract-pinned CLI then writes
 the pulled environment and project settings below `apps/<target>/.vercel`, so
@@ -1507,9 +1599,9 @@ The following Vercel build-value mirrors come from issue #517:
   production build step only.
 - `vercel-cli-production` environment secret `SENTRY_AUTH_TOKEN`: expose only
   to the app, governance, or reserve production build step that consumes it.
-  Both App's `stage-app` build and the manual production-shadow pilot's App
-  build now receive it like Governance and Reserve, uploading Sentry source
-  maps for App's production output for the first time.
+  App's `stage-app` build now receives it like Governance and Reserve,
+  uploading Sentry source maps for App's production output for the first
+  time.
 - Standard previews: no `SENTRY_AUTH_TOKEN`; the isolated build child
   materializes an explicit empty override when the caller omits it.
 
@@ -1541,434 +1633,6 @@ are maintainer-entered. Automation must not discover, export, recover, or print
 them, and a Vercel Sensitive value must never be assumed to appear in
 `vercel pull` output.
 
-## Manual production-shadow pilot
-
-`.github/workflows/vercel-production-shadow.yml` is a manual-only,
-non-promoting pilot. Its ordinary uploads implicitly move the reviewed generated
-system aliases but do not move protected/custom production domains. Dispatch it
-from `main` with:
-
-- `deploy_sha`: a full 40-character commit SHA that exactly equals the fetched
-  `refs/remotes/origin/main` tip.
-
-The workflow will not read a credential manager or attempt to recover a
-missing credential.
-
-Every credential-bearing job uses the dedicated `vercel-cli-production` GitHub
-Environment with `deployment: false`. This prevents an implicit GitHub
-Deployment whose ref could differ from `deploy_sha`. The token-free preflight
-also verifies the canonical repository, the workflow definition on `main`, and
-first proves `deploy_sha` is an ancestor of the freshly fetched `origin/main`.
-It then requires exact equality among `${{ github.workflow_sha }}`, `deploy_sha`,
-the fetched `origin/main` tip, and the checked-out `HEAD` before any job can
-reference production credentials. That validated SHA is the preflight output;
-every later trusted controller, source, post-build, smoke, and final-comparison
-checkout consumes only that output.
-Each fresh smoke checkout and the credential-bearing final comparison fetches
-`origin/main` and reruns the same ancestry, tip, workflow-SHA, and `HEAD` guard
-before installing dependencies or mapping a production token.
-
-Every source-consuming job separates the trusted controller, immutable source,
-candidate execution, and upload handoff. Preflight checks the workflow
-definition's `${{ github.workflow_sha }}` at the workspace root. After proving
-it is the requested current-main commit, downstream jobs check out the
-preflight-issued immutable SHA for validators, state readers, CLI orchestration,
-drift evidence, and the runner-owned `source/` build input. Before candidate
-code can run, the workflow materializes exact protected
-Node, pnpm, and Vercel CLI paths outside candidate control, pulls Vercel settings
-with the production token under a private `077` umask into a fresh runner-owned
-staging tree, and validates that tree's complete file set, ownership, project
-mapping, and Root Directory.
-
-Each target job derives a distinct authenticated runtime from the immutable
-Actions identity:
-`/var/lib/mento-vercel-runtime-<run-id>-<run-attempt>-<target>`. The outer
-directory and its readiness marker are root-owned; the marker binds the exact
-run ID, attempt, and literal target. Its `work/` child is a runner-owned `0711`
-isolation root. Protected tools, pull staging, one-way build-environment
-materialization, candidate source and home, and the verified upload handoff use
-reviewed fixed children of that root. None of this build-boundary state lives
-under `RUNNER_TEMP`.
-
-Before the dedicated candidate UID starts, the candidate-build action seals
-`RUNNER_TEMP` to runner-owned mode `0700` and proves the directory remains
-canonical. This keeps GitHub command files such as `GITHUB_ENV`,
-`GITHUB_OUTPUT`, `GITHUB_PATH`, `GITHUB_STATE`, and `GITHUB_STEP_SUMMARY`
-outside candidate traversal even if the hosted image originally created the
-temporary root with broader permissions. Setup-provided Node and package
-manager paths are staging inputs only: the action copies and verifies the
-executables under the authenticated runtime, and every post-candidate Node
-command uses that protected copy. A final `if: always()` cleanup
-reauthenticates the root and marker before removing the exact target-scoped
-runtime after upload and evidence work; it refuses ambiguous or unexpected
-state.
-
-The protected production-shadow Vercel CLI is a standalone frozen install.
-Trusted controller code reads the exact active version, manifest/runtime
-dependency digests, npm registry integrity, standalone lock digest, and root
-override digest from `scripts/vercel-cli-runtime/contract.json`. It requires
-the standalone manifest to contain that exact Vercel version and every CLI
-builder dependency as exact direct dependencies, and requires its
-`pnpm.overrides` object to equal the root security overrides. The checked-in
-runtime and trusted controller use only that exact contract/manifests/lock
-tuple. The controller rejects a cross-paired or unreviewed state, all
-patched-dependency metadata, and patch artifacts. The current runtime uses
-upstream fixed `brace-expansion@2.1.4`. It copies the manifest and lockfile as
-independent runner-owned `0444`, single-link files under
-`$TOOLS_PATH/vercel-cli-runtime`; CI never generates or updates that lockfile.
-The protected pnpm runtime installs there with `--frozen-lockfile`,
-`--ignore-scripts`, `--ignore-workspace`, and `--package-import-method copy`.
-It does not install or filter the root workspace, so `workspace:` dependencies
-cannot create links back into the controller checkout. After installation, the
-action requires the package name/version, CLI path, ownership, permissions, and
-link counts to match the fixed contract, then rejects every symbolic link whose
-resolved target escapes `$TOOLS_PATH`. The standalone lock receives the same
-registry/integrity lint as the root lock. Its dedicated OSV policy contains
-the two reviewed package-name false positives for Vercel's unrelated `sandbox`
-CLI dependency. Root application suppressions cannot mask a standalone CLI
-vulnerability.
-
-The root `packageManager`, protected pnpm runtime, Linux bootstrap, workflow
-setup pins, and trusted controller checks use one exact pnpm release. First
-land the checker-only transition rule described in
-[`dependency-overrides.md`](dependency-overrides.md). Then rotate the root
-declaration, runtime, bootstrap, both workflow pins, and coupled checks together
-in the second pull request. Remove the temporary old version from the checker
-in that same second stage. The dedicated pnpm OSV configuration contains no
-ignored vulnerability. An active advisory requires a fixed release.
-
-The generic external agent only inventories a protected-runtime rotation and
-reports `manual`. An authenticated maintainer prepares it outside
-`dependabot-prep` through the coupled procedure in
-[dependency-overrides.md](dependency-overrides.md). For Next.js or Vercel CLI,
-the procedure reviews exact public npm metadata, updates the root and standalone
-manifests and lockfiles, and updates the byte-bound contract. It rejects
-prerelease, downgrade, unknown registry, unexplained builder-key, override,
-generator, or unrelated lockfile drift. For protected pnpm, it updates the root
-declaration, workflow setup pins, Linux bootstrap, standalone runtime, exact
-lock bytes, and extracted executable digest together. Both procedures run the
-existing independent validators.
-
-Pull-request preview workers treat the candidate contract, manifest, and locks
-as fixed-path data and verify that tuple for internal consistency. That check
-does not select or install the candidate CLI. Every credentialed preview build
-continues to stage the protected CLI from the trusted default-branch controller
-runtime, so a candidate cannot authorize the tool that validates or uploads its
-own output. Before handoff, the authenticated maintainer also proves the
-requested CLI with a fresh secretless frozen standalone install and exact
-`node <cli> --version` check. Candidate execution can veto staging but cannot
-select the protected CLI or emit deployment authority. After the reviewed PR
-merges, the exact-main deployment controller adopts the new contract and uses
-that protected version.
-
-The raw Vercel-pulled `.env.<target>.local` remains private and runner-owned.
-Before staging settings into candidate storage, the trusted controller parses
-that file, selects only the target/environment variables classified
-`vercel-pull` in `scripts/vercel-build-environment.mjs`, and serializes them into
-a fresh canonical `0600` file below a runner-owned `0700` materialization root.
-Unknown values and sensitive values such as `SENTRY_AUTH_TOKEN`,
-`ETHERSCAN_API_KEY`, or `CHAINALYSIS_API_KEY` are never copied into candidate
-storage. The controller proves the raw file's inode and bytes did not change,
-reasserts the materialized and candidate files are the exact canonical
-allowlist, rechecks the materialization before handoff, and deletes the raw and
-materialized roots during boundary teardown.
-
-`.github/actions/vercel-candidate-build/action.yml` then creates the dedicated
-system identity `mento-vercel-build`, binds its numeric UID/GID to a private
-runner-owned marker, and materializes the exact commit directly from bounded raw
-Git tree/blob objects into a fresh candidate-owned tree. This deliberately does
-not use `git archive` or checkout filters: candidate-controlled
-`.gitattributes` entries such as `export-ignore`, `export-subst`, `ident`, or
-line-ending conversion cannot omit or rewrite build input. Gitlinks and unsafe
-paths are rejected before any candidate source is written. Dependency
-installation and `vercel build` run through `env -i` plus `setpriv` with an
-isolated HOME, temporary directory, XDG directories, pnpm store, and an
-allowlisted PATH containing the exact protected executables. Lifecycle scripts
-are disabled. The action first proves that this UID cannot write the workspace,
-trusted controller, sealed runner temporary root, immutable checkout, lockfile,
-authenticated runtime root, work directory, or protected tools. GitHub
-command-file paths and the production Vercel token are absent from candidate
-processes. A UID-wide
-kill and process check runs after install, after build, before handoff, and
-during final teardown; teardown deletes the account only when its live UID/GID
-still matches that marker.
-
-The trusted controller validates candidate ownership, the exact output tree,
-custom deployment ID, project mapping, and source provenance. Every shadow
-build uses Vercel's `--standalone` mode so function inputs are copied into the
-output tree. Before handoff, and again on the runner-owned upload tree, the
-controller parses every `.vc-config.json` and rejects invalid or oversized
-configs plus every non-empty `filePathMap`; a candidate path such as
-`../../proc/self/environ` therefore cannot make the later token-bearing uploader
-read outside the handoff. Only then does it copy the prebuilt output and
-validated Vercel mapping into a fresh runner-owned, non-writable-by-candidate
-upload tree. The candidate UID/group and all candidate and pull-staging paths
-are deleted before any upload or later production-token step. A fresh
-`trusted-after-build/` checkout owns deploy, state, evidence, and read-only alias
-checks, and upload reads only the runner-owned handoff. Canonical temporary JSON
-uses exclusive, no-follow creation, and shell-created evidence files enable
-`noclobber`; a precreated file or symlink therefore fails the job instead of
-replacing controller or evidence content.
-
-Browser smokes run in separate jobs from fresh checkouts of the exact
-preflight-issued workflow/source SHA with freshly installed trusted dependencies
-and Chromium. They never reuse
-the candidate checkout, candidate `node_modules`, or candidate command files;
-they receive neither production credentials nor a protected GitHub Environment.
-
-### Protected-domain transaction boundary
-
-Before building, the workflow uses `scripts/vercel-deployment-state.mjs` to
-capture an allowlisted snapshot of all four production domains: app,
-governance, reserve, and UI. The state helper calls only Vercel's read
-endpoints for aliases, deployments, deployment aliases, and projects. It
-emits only canonical project, deployment, readiness, environment, Git, and
-alias fields; raw API responses, protection bypass data, and environment
-arrays never enter logs or artifacts.
-
-App, governance, reserve, and UI each execute this staged sequence. App is
-an ordinary staged shadow target like the other three; its job is serialized
-last, after `governance`, `reserve`, `ui`, and `smoke-ui`, so a drift caught
-by an earlier target's smoke still stops the run before App builds:
-
-```text
-runner:    vercel pull --yes --environment=production
-candidate: vercel build --yes --standalone --prod
-runner:    validate -> immutable handoff -> destroy candidate boundary
-runner:    vercel deploy --prebuilt --prod --skip-domain --archive=tgz --format=json
-```
-
-`--skip-domain` suppresses custom production-domain assignment. Vercel's
-[generated-URL contract](https://vercel.com/docs/deployments/generated-urls)
-documents a CLI project/scope URL and, for Team deployments, an optional
-project/author/scope URL. The immutable deployment hostname remains separate
-deployment identity. Read-only evidence matched both documented provider alias
-forms: run `30034411210` exposed only the base alias, while run `30037927329`
-exposed the base alias plus the creator-scoped alias. The CLI offers no
-supported zero-generated-alias mode.
-
-The controller pins the project and scope slugs for each literal target and
-requires its base alias:
-
-- App: `appmentoorg-mentolabs.vercel.app`
-- Governance: `governancementoorg-mentolabs.vercel.app`
-- Reserve: `reservementoorg-mentolabs.vercel.app`
-- UI: `uimentoorg-mentolabs.vercel.app`
-
-It permits at most one additional alias: the exact
-`<project-slug>-<creator-username>-<scope-slug>.vercel.app` value derived from
-the same deployment response's canonical `creator.username`. The canonical
-state retains only that sanitized username; creator IDs, email, avatar, display
-name, Git author metadata, and `GITHUB_ACTOR` cannot authorize an alias. A
-creator username beginning with the reserved `git-` or `env-` generated-alias
-namespace can still produce the required base-only topology, but cannot
-authorize an author alias because that hostname is indistinguishable from
-Vercel's documented Git branch or custom-environment form. A
-creator whose full project/author/scope label exceeds DNS's 63-character limit
-can also use only the base topology; the provider's documented truncation is
-not stable enough to authorize without a reviewed contract update. A
-missing base alias, creator-less or wrong-author alias, protected/custom domain,
-branch or global alias, wrong-target alias, second author alias, immutable
-hostname in the alias list, or malformed canonical evidence fails closed. The
-read-only state inspector normalizes and deduplicates raw provider aliases;
-persisted canonical evidence must remain deduplicated and sorted.
-
-That base-required topology applies to an ordinary candidate absent from the
-trusted preflight. A candidate captured there before the job could build one
-may use a canonical subset of only the reviewed project/scope and creator
-aliases, including the empty subset, because recovery promotion can move both
-aliases back to the prior deployment. A `create-if-zero` preflight does not
-receive this relaxed topology. The
-immutable hostname, protected/custom domains, project-default alias, Git alias,
-wrong-target alias, and every other alias remain forbidden.
-
-Served-prior planning uses a separate finite contract because generated aliases
-can move independently of the protected production domain. For all four
-targets — App included, now that its prior is always production-shaped — a
-served deployment may retain any canonical subset of its reviewed base
-project/scope alias, exact project-default alias, exact canonical creator
-alias when that name is safe, and literal native-Git `main` alias:
-
-- App: `appmentoorg-mentolabs.vercel.app`, `appmentoorg.vercel.app`, and
-  `appmentoorg-git-main-mentolabs.vercel.app`
-- Governance: `governancementoorg-mentolabs.vercel.app`,
-  `governancementoorg.vercel.app`, and
-  `governancementoorg-git-main-mentolabs.vercel.app`
-- Reserve: `reservementoorg-mentolabs.vercel.app`,
-  `reservementoorg.vercel.app`, and
-  `reservementoorg-git-main-mentolabs.vercel.app`
-- UI: `uimentoorg-mentolabs.vercel.app`, `uimentoorg.vercel.app`, and
-  `uimentoorg-git-main-mentolabs.vercel.app`
-
-After validating that finite set, the planner removes all generated-alias
-evidence from the canonical prior. None of these aliases is a protected mapping
-or rollback input. Another project's default alias, another Git branch, a
-custom or wrong-target alias, a creator or project-default near miss, an unknown
-alias, or duplicate or unsorted canonical evidence fails closed.
-For `restore-before-planning`, the workflow calls
-`candidate-finalize-inherited`, which is fixed to this served-prior mode for
-every inherited target — App, Governance, Reserve, and UI. A target only enters
-inherited restoration once all of its reviewed aliases already map to the
-inherited candidate, so that candidate necessarily carries its protected public
-alias. Ordinary `candidate-finalize` forbids a protected alias on a candidate,
-so it cannot finalize any inherited target, App included. Ordinary
-`candidate-finalize` requires the base alias for a candidate absent from its
-trusted preflight and allows the reviewed detached subset only for the exact
-candidate already captured there. The inherited finalizer requires the target's exact protected
-public alias in the deployment's full alias list, removes that reviewed alias,
-then validates the remaining generated aliases against the finite served-prior
-set.
-Protected-domain before/after equality remains the decisive proof that the
-upload did not activate protected/custom production traffic. A future
-provider-generated alias topology must fail first and receive a reviewed
-contract update rather than being accepted implicitly.
-
-Each command is launched at the monorepo root with an explicit literal
-`--project` argument. The controller removes `VERCEL_ORG_ID` and
-`VERCEL_PROJECT_ID` only from the CLI child environment after validating them
-and writing the trusted repo mapping; the contract-pinned CLI otherwise gives those variables
-precedence and loses the Root Directory. Authentication remains in the narrowly
-scoped `VERCEL_TOKEN` environment for API, pull, deploy, and alias-check steps,
-but
-`vercel build` receives no production token. The non-exportable
-`SENTRY_AUTH_TOKEN` and `ETHERSCAN_API_KEY` mirrors exist only on the literal
-build step that needs them. Before every literal build, the trusted controller
-requires the names `TURBO_TEAM`, `TURBO_TOKEN`, and
-`TURBO_REMOTE_CACHE_SIGNATURE_KEY` without printing their values, then runs the
-target environment checker. No deployment-protection bypass is mapped; direct
-health and browser checks must succeed through the public immutable URLs. Pulled
-project state and prebuilt output must exist below the matching
-`apps/<target>/.vercel` path.
-
-The uploaded `apps/<target>/.vercel/output` is the exact output whose custom
-Next deployment ID was asserted and copied into the runner-owned handoff. It is
-never transferred as a GitHub artifact.
-Each staged state must prove the literal project, `production` target, `READY`
-state, exact repository/ref/SHA metadata, and an `alias` equal to the immutable
-hostname in `deploymentUrl`. Its provider-reported alias set must contain
-the target's reviewed base generated project/team alias and at most the exact
-creator-scoped alias described above before smoke begins.
-Smoke and browser verification use only the immutable deployment URL; the
-generated alias is state evidence, never the runtime test endpoint. The browser
-then proves critical security headers, a stable page marker, and a
-target-specific non-transaction interaction.
-Protected alias mappings are compared after each upload and once again at the
-end. Once the candidate build boundary and fresh trusted-controller checkout
-both succeed, an always-run read-only check executes immediately after every
-deploy attempt, including failed deploy attempts, before state polling,
-Chromium installation, or smoke checks. Candidate-boundary or trusted-checkout
-failure never exposes the production token to this check. Any drift fails the
-run without executing an alias, deploy, promotion, or rollback command. The
-failure contains only canonical alias plus before/current deployment IDs and
-immutable URLs, followed by manual operator instructions. The final all-target
-comparison has its own fresh trusted checkout and likewise cannot receive the
-production token when that checkout fails.
-
-On drift, stop all forward work. Confirm the change is not an intentional or
-concurrent activation, re-resolve every affected alias, and require it still to
-match the reported canonical current ID/URL. Only then may an operator run the
-listed `vercel alias set <captured-prior-immutable-url> <alias>` command
-manually. Capture and compare the complete protected snapshot afterward. Never
-automate this restoration and never restore by a mutable `latest` lookup. The
-final job repeats the same read-only check directly from the trusted workflow
-tree and does not install or execute candidate dependencies.
-
-### App is an ordinary staged shadow target
-
-MGP-18's final tighten step removed App's build-only special case. The app job
-now runs the same staged sequence as Governance, Reserve, and UI:
-
-```text
-runner:    vercel pull --yes --environment=production
-candidate: vercel build --yes --standalone --prod
-runner:    validate -> immutable handoff -> destroy candidate boundary
-runner:    vercel deploy --prebuilt --prod --skip-domain --archive=tgz --format=json
-```
-
-App builds with production semantics — `VERCEL_ENV=production`,
-`VERCEL_TARGET_ENV=production`, `NEXT_PUBLIC_VERCEL_ENV=production`, and a real
-`SENTRY_AUTH_TOKEN` — the same as its `stage-app` build in the automatic main
-pipeline, and now uploads a real, non-promoting deployment the same way. As
-with the other three targets, `--skip-domain` keeps `app.mento.org` untouched;
-the automatic `Vercel Main Deployment` workflow remains the only path that
-promotes an App production candidate. The job verifies its deployment's
-provenance, readiness, immutable URL, and generated aliases with
-`assert-generated-aliases --target app`, and both the per-job and final
-protected-mapping comparisons cover App exactly like every other target.
-
-There is no dedicated `smoke-app` job yet: Governance, Reserve, and UI each get
-a separate browser-smoke job against their staged URL (see "Direct
-production-shadow smoke" below); App does not. Adding one is tracked as
-follow-up work.
-
-The pilot evidence says so plainly rather than inheriting the other targets'
-result. `SMOKED_PRODUCTION_SHADOW_TARGETS` names the three targets that do have
-a smoke job, the summary's App row renders its Runtime/browser cell as
-`not-run (no App smoke spec yet)`, and the summary states that browser coverage
-spans governance, reserve, and UI only. A broken App deployment therefore
-cannot produce evidence that claims browser coverage it never had.
-
-### Direct production-shadow smoke
-
-The `deployment_status`-driven preview smoke is not reused for production
-shadow artifacts. Staged governance, reserve, and UI URLs run the direct command
-below in separate fresh trusted smoke jobs:
-
-```bash
-PRODUCTION_SHADOW_TARGET=governance \
-PRODUCTION_SHADOW_URL=https://<immutable>.vercel.app \
-PRODUCTION_SHADOW_EXPECTED_DEPLOYMENT_ID=<generated-build-id> \
-PRODUCTION_SHADOW_EXPECTED_SHA=<40-character-current-main-sha> \
-pnpm --filter app.mento.org test:production-shadow
-```
-
-Before this smoke starts, the stage job's trusted state helper independently
-proves the immutable deployment's exact repository, ref, SHA, project,
-production target, transaction, and READY state against Vercel's API. The smoke
-job checks out the exact preflight-issued SHA into a fresh workspace, installs
-its own trusted dependencies and Chromium, and consumes only the canonical
-deployment URL, expected custom ID, and exact SHA from prior jobs. The browser
-smoke then checks
-bounded HTTP readiness, document status, stable target content, one
-safe interaction, critical security headers, uncaught page errors, console
-errors, failed document/script/style requests from any origin, critical HTTP
-responses with status 400 or higher from any origin, the exact custom Next
-build ID, and the exact deployed SHA from the build-bound
-`X-Mento-Deployment-Sha` response header. The raw server response's leading
-`<html>` start tag must contain exactly one quoted, case-insensitive
-`data-dpl-id` attribute with the expected value. For Governance, Reserve, and
-UI, the smoke accepts React removing the server-injected marker during
-hydration only when every observed same-origin `/_next/static/` request carries
-exactly one matching `?dpl=` value and Playwright classified representative
-requests as a JavaScript script and a CSS stylesheet. Any retained conflicting
-marker fails. A static-asset redirect must retain the same immutable origin and
-identity. The shared identity monitor waits for all observed static requests to
-finish and for a quiet window both before and after reading the DOM marker, then
-checks before and after the interaction so late chunks cannot introduce a mixed
-build. No deployment-protection header is supplied. The request policy
-rejects any ambient protection header, handles each redirect as a new browser
-request, and origin-checks main-frame navigation throughout the smoke and after
-every target interaction. HTTP readiness also uses manual redirects and rejects
-a cross-origin redirect. The fresh smoke job never links or executes candidate
-`node_modules`. Failure uploads only screenshots/video for seven days; tracing
-stays disabled to keep diagnostic artifacts bounded.
-
-Do not run the manual pilot until the required GitHub Environment, repository
-variables, production token, and mirrored build-variable names are confirmed
-present. The workflow itself performs no Vercel Git
-setting, explicit alias, promotion, environment-configuration, ownership,
-protected/custom production-domain, or serving-deployment cleanup command. Each
-ordinary deploy still performs the bounded implicit movement of its reviewed
-generated system aliases: the required project/scope alias and, when Vercel
-emits it, the exact creator-scoped project/creator/scope alias.
-
-Each candidate build must emit exactly one canonical Turbo
-`Cached: X cached, Y total` line. Missing, duplicate, malformed, or impossible
-counts fail the job. The final summary records hits and misses for every target,
-per-target build/deploy/job timing, and whole-workflow duration measured from
-the first preflight step; the original cache summaries remain in their build
-logs.
-
 ## Tests
 
 The ADR, primitive, read-only state-inspector, reusable-workflow, and
@@ -1981,21 +1645,22 @@ pnpm vercel:deployment-state:test
 pnpm vercel:workflow:test
 pnpm vercel:preview:test
 pnpm vercel:production-shadow:test
-pnpm --filter app.mento.org test:production-shadow:routing
 ```
 
 Every `vercel:*:test` command above is part of the `pnpm test:ci:vercel` shard
 of the canonical root `pnpm test` command; CI runs that shard as its own
 `Unit tests (Vercel contracts)` job in parallel with `Unit tests (workspaces)`,
-which owns `pnpm adr:check:test`. `test:production-shadow:routing` is a
-Playwright check outside `pnpm test`. The
+which owns `pnpm adr:check:test`. The
 suites cover app/package graph fixtures, fail-closed cases, output ordering,
 every deployment-ID constraint, prebuilt-config matching, prerequisite versions,
 all target/environment classifications, canonical alias mappings, guarded
 rollback evidence, exclusive private-file output, and redaction-safe
-missing-variable and API-error handling. The production-shadow command adds
-canonical Vercel state fixtures, read-only protected mapping failures, workflow
-structure, and direct runtime-smoke structure. `vercel:workflow:test` also
+missing-variable and API-error handling. `pnpm vercel:production-shadow:test`
+covers the staged-candidate toolkit
+(`scripts/vercel-production-shadow.mjs`, still named for the retired pilot) and
+the shared `vercel-candidate-build` and `vercel-protected-runtime` composite
+actions the main pipeline builds every candidate with.
+`vercel:workflow:test` also
 covers exact-attempt main CI, served-SHA planning, state discovery,
 transaction/recovery, public runtime, controller, and automatic-workflow
 structure. It also pins that `stage-app` stages and promotes exactly like
@@ -2005,21 +1670,10 @@ App custom-`v3` payload handoff (its job outputs, archive tar flags, and
 post-extraction `assert-output` re-verification) has no output or job-source
 match left. It also pins that `promote` and `ordinary_rollback` are the only
 operation types and that `TRANSITION-V3-PRIOR` has no remaining match. Those
-commands are offline and do not contact or mutate Vercel. The
-separate routing
-regression starts two loopback origins and the Playwright-pinned Chromium to
-prove a cross-origin redirect cannot inherit a protection header.
+commands are offline and do not contact or mutate Vercel.
 
 The test commands above perform no Vercel API call, build upload, deployment,
-alias mutation, environment-configuration mutation, or Git-ownership change. The
-manual production-shadow workflow described above does use read-only Vercel API
-checks and stages ordinary-project deployments without promoting
-protected/custom production domains. Each upload implicitly moves the target's
-reviewed generated system aliases: the required project/scope alias and, when
-Vercel emits it, the exact creator-scoped project/creator/scope alias. The
-workflow performs no explicit alias assignment, promotion,
-environment-configuration, ownership, or protected/custom production-domain
-mutation.
+alias mutation, environment-configuration mutation, or Git-ownership change.
 
 ## Current ordinary-project build settings
 

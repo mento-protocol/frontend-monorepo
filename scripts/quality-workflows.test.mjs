@@ -187,7 +187,6 @@ test("the notifier is loop-safe, secretless, and least privilege", () => {
     ".github/workflows/scorecard.yml",
     ".github/workflows/supply-chain.yml",
     ".github/workflows/vercel-main-deployment.yml",
-    ".github/workflows/vercel-production-shadow.yml",
     ".github/workflows/visual.yml",
   ].map((path) => /^name: (.+)$/m.exec(read(path))?.[1]);
 
@@ -196,7 +195,6 @@ test("the notifier is loop-safe, secretless, and least privilege", () => {
   assert.match(workflow, /^ {6}- Quality Budgets$/m);
   assert.match(workflow, /^ {6}- Supply Chain$/m);
   assert.match(workflow, /^ {6}- Vercel Main Deployment$/m);
-  assert.match(workflow, /^ {6}- Vercel Production Shadow$/m);
   assert.ok(
     monitoredNames.every(Boolean),
     "every monitored workflow must declare a top-level name",

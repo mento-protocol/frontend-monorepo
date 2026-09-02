@@ -12,7 +12,6 @@ on:
       - Scorecard supply-chain security
       - Supply Chain
       - Vercel Main Deployment
-      - Vercel Production Shadow
       - Visual Regression
     types: [completed]
 

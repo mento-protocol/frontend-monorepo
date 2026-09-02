@@ -24,9 +24,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
-  assertEvidenceFiles,
   assertCandidateProductionShadowPull,
-  assertFinalJobResults,
   assertMaterializedProductionShadowBuildEnvironment,
   assertProtectedIsolationChild,
   assertProductionShadowBuildInputs,
@@ -34,7 +32,6 @@ import {
   assertProductionShadowPullStaging,
   assertProductionShadowReadyForUpload,
   assertOnlyExpectedVercelGeneratedAliases,
-  assertProtectedAliasesUnchanged,
   assertPulledProductionShadowProject,
   assertRequiredVariableNames,
   assignProductionShadowMaterializationOwnership,
@@ -43,12 +40,10 @@ import {
   buildProductionShadowDeployArguments,
   buildProductionShadowPullArguments,
   createDeploymentExpectation,
-  createProtectedAliasSpec,
   createProductionShadowUploadHandoff,
   deployProductionShadowCandidate,
   environmentForTrustedChild,
   environmentForVercelCli,
-  fetchWithOriginBoundRedirects,
   materializeExactGitTree,
   materializeProductionShadowLink,
   parseTurboCacheSummary,
@@ -59,10 +54,7 @@ import {
   REQUIRED_BUILD_CACHE_VARIABLE_NAMES,
   runProductionShadowVercel,
   stageProductionShadowPullForCandidate,
-  validateDispatchContext,
   validateImmutableMainSource,
-  waitForHealthyUrls,
-  writePilotSummary,
 } from "./vercel-production-shadow.mjs";
 import { PINNED_VERCEL_CLI_VERSION } from "./vercel-cli-runtime-contract.mjs";
 import {
@@ -70,16 +62,7 @@ import {
   parseVercelPulledEnvironment,
   serializeVercelPulledEnvironment,
 } from "./vercel-build-environment.mjs";
-import {
-  assertProductionShadowOrigin,
-  productionShadowRequestHeaders,
-} from "../apps/app.mento.org/e2e/production-shadow/request-policy.mjs";
-import {
-  assertProductionShadowHydratedIdentity,
-  assertProductionShadowServerIdentity,
-} from "../apps/app.mento.org/e2e/production-shadow/deployment-identity.mjs";
 import { MAIN_TARGET_CONTRACTS } from "./vercel-main-plan.mjs";
-import { assertSnapshotSpec } from "./vercel-deployment-state.mjs";
 import { createMainReleaseManifest } from "./vercel-main-release-reconciliation.mjs";
 import {
   createMainCandidateIntent,
@@ -176,15 +159,6 @@ function ordinaryCandidateMetadata(overrides = {}) {
     releaseManifest,
   });
   return createMainCandidateVercelMetadata({ intent });
-}
-
-function projectIds() {
-  return {
-    app: "prj_app123",
-    governance: "prj_governance123",
-    reserve: "prj_reserve123",
-    ui: "prj_ui123",
-  };
 }
 
 function defaultPulledEnvironment(logicalTarget) {
@@ -396,25 +370,6 @@ test("build-boundary CLI commands use the protected isolation root", () => {
   );
 });
 
-test("dispatch context accepts only canonical main and immutable SHA", () => {
-  const input = {
-    repository: "mento-protocol/frontend-monorepo",
-    ref: "refs/heads/main",
-    workflowRef:
-      "mento-protocol/frontend-monorepo/.github/workflows/vercel-production-shadow.yml@refs/heads/main",
-    deploySha: SHA.toUpperCase(),
-  };
-  assert.equal(validateDispatchContext(input), SHA);
-  for (const override of [
-    { repository: "fork/frontend-monorepo" },
-    { ref: "refs/heads/feature" },
-    { workflowRef: input.workflowRef.replace("main", "feature") },
-    { deploySha: "main" },
-  ]) {
-    assert.throws(() => validateDispatchContext({ ...input, ...override }));
-  }
-});
-
 test("immutable-source validation requires the exact fetched main and HEAD", () => {
   const calls = [];
   const execute = (_command, argumentsList) => {
@@ -511,70 +466,6 @@ test("candidate-modified validators remain inert during trusted validation", () 
   } finally {
     rmSync(sourcePath, { recursive: true, force: true });
   }
-});
-
-// MGP-18 retired the App custom `v3` environment, so the protected spec is
-// exactly the four reviewed production domains and takes no reviewed-alias
-// dispatch input at all.
-test("protected spec is exactly the four reviewed production domains", () => {
-  const spec = createProtectedAliasSpec({ projectIds: projectIds() });
-  assert.deepEqual(
-    spec.map((entry) => entry.alias),
-    [
-      "app.mento.org",
-      "governance.mento.org",
-      "reserve.mento.org",
-      "ui.mento.org",
-    ],
-  );
-  for (const entry of spec) {
-    assert.equal(entry.target, "production");
-    assert.equal(entry.customEnvironmentSlug, null);
-    assert.equal(entry.git.ref, "main");
-  }
-  assert.equal(
-    spec.find((entry) => entry.alias === "app.mento.org").projectId,
-    projectIds().app,
-  );
-  // An unbuildable spec still fails closed on a missing project ID.
-  assert.throws(
-    () =>
-      createProtectedAliasSpec({
-        projectIds: { ...projectIds(), app: "" },
-      }),
-    /app project ID is required/,
-  );
-  // The retired reviewed-alias input has no effect: it is not read at all.
-  assert.deepEqual(
-    createProtectedAliasSpec({
-      appV3AliasesJson: JSON.stringify([
-        "app.mento.org",
-        "appmentoorg-env-v3-mentolabs.vercel.app",
-      ]),
-      projectIds: projectIds(),
-    }),
-    spec,
-  );
-});
-
-test("the retired app v2 and v3 topologies cannot re-enter the protected spec", () => {
-  const retiredAliases = [
-    "v2-app.mento.org",
-    "appmentoorg-git-v2-mentolabs.vercel.app",
-    "appmentoorg-env-v3-mentolabs.vercel.app",
-    "appmentoorg-mentolabs.vercel.app",
-    "appmentoorg.vercel.app",
-  ];
-  const spec = createProtectedAliasSpec({ projectIds: projectIds() });
-  assert.equal(spec.length, 4);
-  for (const entry of spec) {
-    assert.equal(retiredAliases.includes(entry.alias), false);
-    assert.notEqual(entry.git.ref, "v2");
-    assert.notEqual(entry.customEnvironmentSlug, "v3");
-  }
-  // The spec must also survive the canonical specification contract, which
-  // rejects any custom environment outright.
-  assert.doesNotThrow(() => assertSnapshotSpec(spec));
 });
 
 test("immutable-source validation binds workflow identity before Git reads", () => {
@@ -2885,120 +2776,6 @@ test("canonical output creation refuses candidate-precreated symlinks", () => {
   }
 });
 
-test("pilot summary records exact build, staging, and rollback evidence", () => {
-  const directory = mkdtempSync(join(tmpdir(), "shadow-summary-"));
-  const summaryPath = join(directory, "summary.md");
-  const ordinary = (target) => ({
-    id: `dpl_${target}123`,
-    url: `https://${target}-immutable.vercel.app`,
-    buildDurationMs: "100",
-    deployDurationMs: "50",
-    totalDurationMs: "200",
-  });
-  const summaryInput = {
-    path: summaryPath,
-    sha: SHA,
-    runUrl:
-      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123",
-    workflowDurationMs: "1000",
-    baseline: [
-      {
-        alias: "app.mento.org",
-        deploymentId: "dpl_appPriorOld123",
-        deploymentUrl: "https://app-prior-old.vercel.app",
-        target: "production",
-        customEnvironmentSlug: null,
-      },
-    ],
-    app: { ...ordinary("app"), cacheHits: "1", cacheMisses: "2" },
-    governance: {
-      ...ordinary("governance"),
-      cacheHits: "2",
-      cacheMisses: "1",
-    },
-    reserve: { ...ordinary("reserve"), cacheHits: "0", cacheMisses: "3" },
-    ui: { ...ordinary("ui"), cacheHits: "3", cacheMisses: "0" },
-  };
-  try {
-    writePilotSummary(summaryInput);
-    const summary = readFileSync(summaryPath, "utf8");
-    assert.match(summary, new RegExp(SHA));
-    // The App is an ordinary staged shadow target now: the summary reports a
-    // real deployment row and a `vercel rollback` recovery command, never the
-    // retired build-only row or an `alias set`. Its runtime/browser cell must
-    // report not-run, because the pilot has no App smoke job.
-    assert.match(
-      summary,
-      /\| app \| production \| `dpl_app123` \/ https:\/\/app-immutable\.vercel\.app \| not-run \(no App smoke spec yet\) \| unchanged \|/,
-    );
-    // Only the three smoked targets may claim a browser pass.
-    assert.deepEqual(
-      [
-        ...summary.matchAll(/^\| (\w+) \| production \|[^|]+\| ([^|]+)\|/gm),
-      ].map((match) => [match[1], match[2].trim()]),
-      [
-        ["app", "not-run (no App smoke spec yet)"],
-        ["governance", "pass"],
-        ["reserve", "pass"],
-        ["ui", "pass"],
-      ],
-    );
-    assert.match(
-      summary,
-      /Browser coverage spans governance, reserve, ui only; the pilot has no App smoke spec yet/,
-    );
-    assert.doesNotMatch(
-      summary,
-      /Outcome B|build-only|\| app \| v3 \||app-v3|alias set/,
-    );
-    assert.match(
-      summary,
-      /Copy-safe app rollback command: `vercel rollback dpl_appPriorOld123 --yes`/,
-    );
-    assert.match(summary, /dpl_governance123/);
-    assert.match(summary, /Whole workflow duration: 1000 ms/);
-    assert.match(summary, /2 hit \/ 1 miss/);
-    assert.doesNotMatch(summary, /fixture-token|test-value-not-printed/);
-    assert.doesNotMatch(summary, /legacy|v2-app\.mento\.org|v2 production/);
-    assert.throws(
-      () =>
-        writePilotSummary({
-          ...summaryInput,
-          baseline: [
-            {
-              alias: "v2-app.mento.org",
-              deploymentId: "dpl_appv2old123",
-              deploymentUrl: "https://app-v2-old.vercel.app",
-              target: "production",
-              customEnvironmentSlug: null,
-            },
-          ],
-        }),
-      /missing app production state/,
-    );
-    // A baseline App state still served from the retired custom environment is
-    // not admissible evidence.
-    assert.throws(
-      () =>
-        writePilotSummary({
-          ...summaryInput,
-          baseline: [
-            {
-              alias: "app.mento.org",
-              deploymentId: "dpl_appv3old123",
-              deploymentUrl: "https://app-v3-old.vercel.app",
-              target: null,
-              customEnvironmentSlug: "v3",
-            },
-          ],
-        }),
-      /app state is not production-shaped/,
-    );
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
 test("fixture variable failures reveal only the fake missing name", () => {
   const secret = "test-value-not-printed";
   assert.equal(
@@ -3046,323 +2823,6 @@ test("every shadow build requires the exact remote-cache variable names", () => 
     );
   }
   assert.doesNotThrow(() => assertProductionShadowBuildInputs(values));
-});
-
-test("evidence scanner rejects sensitive field names", () => {
-  const safe = fileURLToPath(
-    new URL(
-      "./fixtures/vercel-deployment-state/valid-production.json",
-      import.meta.url,
-    ),
-  );
-  const unsafe = fileURLToPath(
-    new URL(
-      "./fixtures/vercel-deployment-state/sensitive-response.json",
-      import.meta.url,
-    ),
-  );
-  assert.doesNotThrow(() => assertEvidenceFiles([safe]));
-  assert.throws(() => assertEvidenceFiles([unsafe]), /forbidden/);
-});
-
-function protectedAliasBaseline() {
-  return [
-    {
-      alias: "app.mento.org",
-      deploymentId: "dpl_appold123",
-      deploymentUrl: "https://app-old.vercel.app",
-      projectId: "prj_app123",
-    },
-    {
-      alias: "governance.mento.org",
-      deploymentId: "dpl_governanceold123",
-      deploymentUrl: "https://governance-old.vercel.app",
-      projectId: "prj_governance123",
-    },
-  ];
-}
-
-test("protected alias drift fails read-only with canonical operator evidence", async () => {
-  const baseline = protectedAliasBaseline();
-  const reads = [];
-  await assert.rejects(
-    () =>
-      assertProtectedAliasesUnchanged({
-        baseline,
-        client: {
-          aliasMapping: async (alias) => {
-            reads.push(alias);
-            if (alias === "governance.mento.org") {
-              return {
-                alias,
-                deploymentId: "dpl_governancenew123",
-                deploymentUrl: "https://governance-new.vercel.app",
-                projectId: "prj_governance123",
-              };
-            }
-            return {
-              alias,
-              deploymentId: "dpl_appold123",
-              deploymentUrl: "https://app-old.vercel.app",
-              projectId: "prj_app123",
-            };
-          },
-        },
-      }),
-    (error) => {
-      assert.match(error.message, /read-only and attempted no repair/);
-      assert.match(error.message, /dpl_governanceold123/);
-      assert.match(error.message, /governance-old\.vercel\.app/);
-      assert.match(error.message, /dpl_governancenew123/);
-      assert.match(error.message, /governance-new\.vercel\.app/);
-      assert.match(
-        error.message,
-        /vercel alias set https:\/\/governance-old\.vercel\.app governance\.mento\.org/,
-      );
-      assert.match(error.message, /confirm there is no concurrent/);
-      return true;
-    },
-  );
-  assert.deepEqual(reads, ["app.mento.org", "governance.mento.org"]);
-});
-
-test("protected alias check no-ops only for exact ID, URL, and project matches", async () => {
-  const baseline = protectedAliasBaseline();
-  assert.deepEqual(
-    await assertProtectedAliasesUnchanged({
-      baseline,
-      client: {
-        aliasMapping: async (alias) => {
-          const state = baseline.find((entry) => entry.alias === alias);
-          return { ...state };
-        },
-      },
-    }),
-    [],
-  );
-  await assert.rejects(
-    () =>
-      assertProtectedAliasesUnchanged({
-        baseline,
-        client: {
-          aliasMapping: async (alias) => {
-            const state = baseline.find((entry) => entry.alias === alias);
-            return alias === "app.mento.org"
-              ? { ...state, projectId: "prj_other123" }
-              : { ...state };
-          },
-        },
-      }),
-    /Protected alias drift detected/,
-  );
-});
-
-test("protected alias check propagates unreadable mappings without writes", async () => {
-  await assert.rejects(
-    () =>
-      assertProtectedAliasesUnchanged({
-        baseline: protectedAliasBaseline(),
-        client: {
-          aliasMapping: async () => {
-            throw new Error("missing mapping");
-          },
-        },
-      }),
-    /missing mapping/,
-  );
-});
-
-test("bounded health checks pass without logging response bodies", async () => {
-  const calls = [];
-  await waitForHealthyUrls({
-    urls: ["governance.mento.org"],
-    attempts: 2,
-    delayMs: 0,
-    fetchImplementation: async (url, options) => {
-      calls.push({ url, options });
-      return {
-        status: calls.length === 1 ? 503 : 204,
-        headers: { get: () => null },
-      };
-    },
-  });
-  assert.equal(calls.length, 2);
-  assert.equal(calls[0].options.headers, undefined);
-  assert.equal(calls[0].options.redirect, "manual");
-});
-
-test("health checks never follow a cross-origin redirect", async () => {
-  const calls = [];
-  await assert.rejects(
-    () =>
-      fetchWithOriginBoundRedirects({
-        url: "https://governance-immutable.vercel.app",
-        fetchImplementation: async (url, options) => {
-          calls.push({ url, options });
-          return {
-            status: 302,
-            headers: { get: () => "https://attacker.example/collect" },
-          };
-        },
-      }),
-    /redirected outside its immutable origin/,
-  );
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, "https://governance-immutable.vercel.app");
-  assert.equal(calls[0].options.headers, undefined);
-  assert.equal(calls[0].options.redirect, "manual");
-});
-
-test("browser request policy rejects protection headers", () => {
-  assert.deepEqual(
-    productionShadowRequestHeaders({
-      existingHeaders: { Accept: "text/javascript" },
-    }),
-    { Accept: "text/javascript" },
-  );
-  for (const name of [
-    "x-vercel-protection-bypass",
-    "X-Vercel-Protection-Bypass",
-  ]) {
-    assert.throws(
-      () =>
-        productionShadowRequestHeaders({
-          existingHeaders: { [name]: "must-be-rejected" },
-        }),
-      /forbidden protection header/,
-    );
-  }
-  assert.equal(
-    assertProductionShadowOrigin(
-      "https://governance-immutable.vercel.app/path",
-      "https://governance-immutable.vercel.app",
-    ),
-    true,
-  );
-  assert.throws(() =>
-    assertProductionShadowOrigin(
-      "https://attacker.example/collect",
-      "https://governance-immutable.vercel.app",
-    ),
-  );
-});
-
-test("production-shadow identity keeps server HTML strict and uses settled asset proof after hydration", () => {
-  const expectedDeploymentId = "m-ui-0123456789abcdef012";
-  const expectedOrigin = "https://ui-immutable.vercel.app";
-  const exactAssets = [
-    `${expectedOrigin}/_next/static/app.js?dpl=${expectedDeploymentId}`,
-    `${expectedOrigin}/_next/static/app.css?dpl=${expectedDeploymentId}`,
-  ];
-
-  assert.doesNotThrow(() =>
-    assertProductionShadowServerIdentity(
-      `<!DOCTYPE html>
-        <HTML lang=en DATA-DPL-ID = '${expectedDeploymentId}'>
-          <body data-dpl-id="ignored">
-            <script>const marker = 'data-dpl-id="ignored"'</script>
-          </body>
-        </HTML>`,
-      expectedDeploymentId,
-    ),
-  );
-  for (const html of [
-    "<html></html>",
-    '<html data-dpl-id="m-ui-fffffffffffffffffff"></html>',
-    `<html data-dpl-id=${expectedDeploymentId}></html>`,
-    `<html x-data-dpl-id="${expectedDeploymentId}"></html>`,
-    `<script>"<html data-dpl-id='${expectedDeploymentId}'>"</script><html data-dpl-id="${expectedDeploymentId}"></html>`,
-    `<html><body><script>const fake = 'data-dpl-id="${expectedDeploymentId}"'</script></body></html>`,
-    `<html data-dpl-id="${expectedDeploymentId}" DATA-DPL-ID="${expectedDeploymentId}"></html>`,
-    `<html data-dpl-id="${expectedDeploymentId}" data-dpl-id="m-ui-fffffffffffffffffff"></html>`,
-    `<!DOCTYPE html "><html data-dpl-id="m-ui-fffffffffffffffffff">"><html data-dpl-id="${expectedDeploymentId}"><body>x</body></html>`,
-    `<!-- opener --!><html data-dpl-id="m-ui-fffffffffffffffffff"><!-- --><html data-dpl-id="${expectedDeploymentId}"><body>x</body></html>`,
-    `<!DOCTYPE html><html foo=bar">junk" data-dpl-id="${expectedDeploymentId}"><body>x</body></html>`,
-  ]) {
-    assert.throws(
-      () => assertProductionShadowServerIdentity(html, expectedDeploymentId),
-      /server HTML does not carry only the expected build deployment ID/,
-    );
-  }
-
-  for (const target of ["governance", "reserve", "ui"]) {
-    assert.doesNotThrow(() =>
-      assertProductionShadowHydratedIdentity({
-        target,
-        expectedDeploymentId,
-        renderedDeploymentId: null,
-        assetReferences: exactAssets,
-        expectedOrigin,
-      }),
-    );
-    assert.throws(
-      () =>
-        assertProductionShadowHydratedIdentity({
-          target,
-          expectedDeploymentId,
-          renderedDeploymentId: "m-ui-fffffffffffffffffff",
-          assetReferences: exactAssets,
-          expectedOrigin,
-        }),
-      /conflicting deployment ID/,
-    );
-    for (const assetReferences of [
-      [exactAssets[0]],
-      [exactAssets[0], `${expectedOrigin}/_next/static/app.css`],
-      [
-        exactAssets[0],
-        `${expectedOrigin}/_next/static/app.css?dpl=m-ui-fffffffffffffffffff`,
-      ],
-      [
-        exactAssets[0],
-        `${expectedOrigin}/_next/static/app.css?dpl=${expectedDeploymentId}&dpl=${expectedDeploymentId}`,
-      ],
-      [
-        exactAssets[0],
-        `https://assets.example.invalid/_next/static/app.css?dpl=${expectedDeploymentId}`,
-      ],
-    ]) {
-      assert.throws(() =>
-        assertProductionShadowHydratedIdentity({
-          target,
-          expectedDeploymentId,
-          renderedDeploymentId: null,
-          assetReferences,
-          expectedOrigin,
-        }),
-      );
-    }
-    assert.doesNotThrow(() =>
-      assertProductionShadowHydratedIdentity({
-        target,
-        expectedDeploymentId,
-        renderedDeploymentId: expectedDeploymentId,
-        assetReferences: exactAssets,
-        expectedOrigin,
-      }),
-    );
-  }
-});
-
-test("stable final gate fails skipped, cancelled, or failed dependencies", () => {
-  const results = Object.fromEntries(
-    [
-      "preflight",
-      "baseline",
-      "app",
-      "governance",
-      "smokeGovernance",
-      "reserve",
-      "smokeReserve",
-      "ui",
-      "smokeUi",
-      "finalAliasComparison",
-    ].map((name) => [name, "success"]),
-  );
-  assert.doesNotThrow(() => assertFinalJobResults(results));
-  for (const result of ["skipped", "cancelled", "failure"]) {
-    assert.throws(() => assertFinalJobResults({ ...results, reserve: result }));
-  }
 });
 
 test("fixtures are themselves free of accidental credential material", () => {

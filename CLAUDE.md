@@ -62,8 +62,7 @@ pnpm vercel:deployment-state:test    # Test canonical read-only Vercel state and
 pnpm vercel:primitives:test          # Test affected planning, custom deployment IDs, and build-env contracts
 pnpm vercel:workflow:test            # Test Vercel preview and main workflows, exact-main gating, transactions, and smoke
 pnpm vercel:preview:test             # Test preview state plus reusable smoke trust, native-adapter, and Git-ownership boundaries
-pnpm vercel:production-shadow:test   # Test state allowlisting, shadow helpers, and workflow invariants
-pnpm --filter app.mento.org test:production-shadow:routing  # Prove bypass headers do not cross Chromium redirects
+pnpm vercel:production-shadow:test   # Test the staged-candidate toolkit and shared candidate-build actions
 pnpm vercel:versions:check           # Verify pinned Next.js/Vercel CLI custom-ID prerequisites
 pnpm vercel:plan --base <sha> --head <sha>  # Emit the fail-closed Vercel target plan
 gh pr view --json body --jq .body | pnpm pr:description:check  # Validate the current PR body
@@ -148,10 +147,6 @@ branch rules so it does not change main ownership. GitHub-built workers call the
 workflow directly because a `GITHUB_TOKEN` Deployment status is evidence, not
 a downstream trigger contract. The automatic exact-SHA controller, bootstrap,
 canary, cutover, and rollback contract is in `docs/vercel-deployments.md`.
-
-Manual staged production URLs use the separate target-aware
-`test:production-shadow` command documented in `docs/vercel-deployments.md`; it
-never enables the mock wallet.
 
 ## Dependabot preparation
 
@@ -320,12 +315,9 @@ final-only reruns. A completed release emits `current-release-verified` only
 after fresh mapping, census/state, raw public-runtime-smoke, and
 freshness proof; it creates no journal and executes no public mutation. In the
 automatic pipeline's shadow mode, App preparation is build-only terminal
-evidence and creates no provider deployment. The separate manual
-production-shadow pilot does create a staged App production deployment
-(`--prod --skip-domain`), which moves no protected domain; its browser coverage
-spans governance, reserve, and UI only, so its App evidence row reports the
-runtime check as not run. Every other non-prefix, ambiguous, conflicting, or incomplete
-provider state fails closed before production work continues.
+evidence and creates no provider deployment. Every other non-prefix, ambiguous,
+conflicting, or incomplete provider state fails closed before production work
+continues.
 
 ## Coding Conventions
 

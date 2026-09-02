@@ -153,11 +153,8 @@ pnpm vercel:workflow:test
 # Test preview state, reusable smoke trust, native-adapter, and Git ownership
 pnpm vercel:preview:test
 
-# Test production-shadow state, workflow, and runtime-smoke invariants
+# Test the staged-candidate toolkit and shared candidate-build actions
 pnpm vercel:production-shadow:test
-
-# Run the real two-origin Chromium protection-header isolation regression
-pnpm --filter app.mento.org test:production-shadow:routing
 
 # Verify exact Next.js and Vercel CLI custom deployment-ID prerequisites
 pnpm vercel:versions:check
@@ -590,10 +587,7 @@ The repository is set up with GitHub Actions for CI:
   public-runtime-smoke, and freshness proof; it creates no journal
   and executes no public mutation. In the automatic pipeline's shadow mode, App
   preparation is build-only terminal evidence and creates no provider
-  deployment. The separate manual production-shadow pilot does create a staged
-  App production deployment (`--prod --skip-domain`), which moves no protected
-  domain; its browser coverage spans governance, reserve, and UI only, so its
-  App evidence row reports the runtime check as not run. Every other non-prefix, ambiguous,
+  deployment. Every other non-prefix, ambiguous,
   conflicting, or incomplete provider state fails closed before production work
   continues.
   The version-controlled preview-controller mode is `active`; per-target
@@ -632,21 +626,18 @@ The repository is set up with GitHub Actions for CI:
   [ADR 0005](docs/adr/0005-stable-main-release-identity-and-rerun-admission.md)
   for stable release identity and provider-side rerun reconciliation, and
   [`docs/vercel-deployments.md`](docs/vercel-deployments.md) for the four-target
-  preview controller, active main transaction, production-shadow verification,
+  preview controller, active main transaction, staged-candidate verification,
   and rollback procedures.
 
-  The manual `Vercel Production Shadow` workflow can build App's production
-  output without deploying it and upload Governance, Reserve, and UI production
-  artifacts without custom production domains. Each staged ordinary
-  deployment exposes its immutable hostname through the deployment URL/state
-  identity. Vercel's provider alias list must contain the reviewed base
-  project/team alias and may also contain one exact creator-scoped alias derived
-  from the canonical deployment `creator.username`. The upload implicitly moves
-  those generated system aliases, while the workflow performs no explicit alias, promote,
-  environment-configuration, ownership, or protected/custom production-domain
-  mutation. Its exact-SHA contract, read-only protected-domain drift checks,
-  guarded manual operator recovery, and direct smoke are documented in the same
-  runbook.
+  Each staged ordinary deployment exposes its immutable hostname through the
+  deployment URL/state identity. Vercel's provider alias list must contain the
+  reviewed base project/team alias and may also contain one exact creator-scoped
+  alias derived from the canonical deployment `creator.username`. The upload
+  implicitly moves those generated system aliases, while the workflow performs
+  no explicit alias, promote, environment-configuration, ownership, or
+  protected/custom production-domain mutation. The exact-SHA contract,
+  protected-domain drift checks, and guarded manual operator recovery are
+  documented in the same runbook.
 
   `Vercel Main Deployment` starts when that `CI/CD` `main` run is requested and
   overlaps read-only planning and release preparation with CI. It performs every
