@@ -2,6 +2,16 @@
 
 /* eslint-disable turbo/no-undeclared-env-vars -- This direct Actions controller does not run through Turbo. */
 
+// Staged-candidate toolkit for the automatic `Vercel Main Deployment`
+// workflow. Despite the file name, this is not a separate pilot: the retired
+// manual production-shadow workflow is gone, and every verb below runs from
+// `.github/workflows/vercel-main-deployment.yml` or
+// `.github/actions/vercel-candidate-build`. It pulls production settings,
+// materializes the exact-SHA candidate tree, hands the prebuilt output to the
+// runner, and uploads the non-promoting `--prod --skip-domain` candidate that
+// the main pipeline later promotes. The file keeps its name to avoid churn in
+// the workflow, action, and test references that point at it.
+
 import { Buffer } from "node:buffer";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
@@ -50,9 +60,6 @@ import {
 import {
   assertCanonicalOutput,
   canonicalizeDeploymentUrl,
-  canonicalizeHostname,
-  captureAliasMappings,
-  VercelStateClient,
 } from "./vercel-deployment-state.mjs";
 import { canonicalizeMainCandidateVercelMetadata } from "./vercel-main-candidate.mjs";
 import {
@@ -63,10 +70,6 @@ import {
 
 const SHA_PATTERN = /^[A-Fa-f0-9]{40}$/;
 const DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
-const EXPECTED_WORKFLOW_REF =
-  "mento-protocol/frontend-monorepo/.github/workflows/vercel-production-shadow.yml@refs/heads/main";
-const FORBIDDEN_EVIDENCE_PATTERN =
-  /protectionBypass|buildEnv|VERCEL_TOKEN|SENTRY_AUTH_TOKEN|ETHERSCAN_API_KEY|authorization|cookie/i;
 const PULL_STAGING_DIRECTORY = "mento-vercel-production-pull-staging";
 const BUILD_ENVIRONMENT_DIRECTORY = "mento-vercel-production-build-environment";
 const CANDIDATE_SOURCE_DIRECTORY = "mento-vercel-production-candidate-source";
@@ -774,14 +777,6 @@ function readJson(path, label) {
   }
 }
 
-function readEnvironmentJson(name, label) {
-  try {
-    return JSON.parse(requireString(process.env[name], name));
-  } catch {
-    throw new Error(`${label} is missing or malformed`);
-  }
-}
-
 function writePrivateJson(path, value) {
   const resolved = resolve(path);
   const descriptor = openSync(
@@ -822,24 +817,6 @@ function appendOutput(name, value, outputPath = process.env.GITHUB_OUTPUT) {
     throw new Error("GitHub output is malformed");
   }
   writeFileSync(outputPath, `${name}=${value}\n`, { flag: "a" });
-}
-
-export function validateDispatchContext({
-  repository,
-  ref,
-  workflowRef,
-  deploySha,
-}) {
-  if (repository !== "mento-protocol/frontend-monorepo") {
-    throw new Error("Production shadow runs only in the canonical repository");
-  }
-  if (ref !== "refs/heads/main") {
-    throw new Error("Production shadow must be dispatched from main");
-  }
-  if (workflowRef !== EXPECTED_WORKFLOW_REF) {
-    throw new Error("Production shadow workflow must come from main");
-  }
-  return requireString(deploySha, "deploy_sha", SHA_PATTERN).toLowerCase();
 }
 
 function validateImmutableMainSourceWithPolicy({
@@ -941,21 +918,6 @@ function expectedGit(ref) {
     repo: "frontend-monorepo",
     ref,
   };
-}
-
-// Every reviewed protected domain is one production deployment of its own
-// project. The App is no different since MGP-18 retired its custom `v3`
-// environment, so the spec needs no dispatch input.
-export function createProtectedAliasSpec({ projectIds }) {
-  const entries = ["app", "governance", "reserve", "ui"].map((target) => ({
-    alias: `${target}.mento.org`,
-    projectId: requireString(projectIds[target], `${target} project ID`),
-    projectName: `${target}.mento.org`,
-    target: "production",
-    customEnvironmentSlug: null,
-    git: expectedGit("main"),
-  }));
-  return entries.sort((left, right) => left.alias.localeCompare(right.alias));
 }
 
 export function materializeProductionShadowLink({
@@ -2292,142 +2254,6 @@ export function assertOnlyExpectedVercelGeneratedAliases(state, logicalTarget) {
   return state;
 }
 
-// The pilot's Playwright production-shadow spec covers exactly these targets.
-// App stages a real production deployment but has no smoke spec yet, so its
-// evidence row must claim no runtime or browser coverage rather than inherit
-// the other targets' pass.
-export const SMOKED_PRODUCTION_SHADOW_TARGETS = Object.freeze([
-  "governance",
-  "reserve",
-  "ui",
-]);
-const PRODUCTION_SHADOW_RUNTIME_EVIDENCE = Object.freeze({
-  app: "not-run (no App smoke spec yet)",
-  governance: "pass",
-  reserve: "pass",
-  ui: "pass",
-});
-
-export function writePilotSummary({
-  path,
-  baseline,
-  sha,
-  runUrl,
-  workflowDurationMs,
-  app,
-  governance,
-  reserve,
-  ui,
-}) {
-  const normalizedSha = requireString(
-    sha,
-    "Deployment SHA",
-    SHA_PATTERN,
-  ).toLowerCase();
-  // The reviewed App domain is an ordinary production mapping since MGP-18
-  // retired the custom `v3` environment. Its captured prior is recorded next
-  // to the other three so the pilot keeps a copy-safe rollback record.
-  const appPriorStates = baseline
-    .filter((state) => state.alias === "app.mento.org")
-    .sort((left, right) => left.alias.localeCompare(right.alias));
-  if (appPriorStates.length === 0) {
-    throw new Error("Pilot baseline is missing app production state");
-  }
-  if (
-    appPriorStates.some(
-      (state) =>
-        state.target !== "production" || state.customEnvironmentSlug !== null,
-    )
-  ) {
-    throw new Error("Pilot baseline app state is not production-shaped");
-  }
-  if (new Set(appPriorStates.map((state) => state.deploymentId)).size !== 1) {
-    throw new Error("Pilot baseline has divergent app deployments");
-  }
-  const checkedDeployment = (value, label) => ({
-    id: requireString(
-      value.id,
-      `${label} deployment ID`,
-      DEPLOYMENT_ID_PATTERN,
-    ),
-    url: canonicalizeDeploymentUrl(value.url),
-    buildDurationMs: requireString(
-      value.buildDurationMs,
-      `${label} build duration`,
-      /^[0-9]+$/,
-    ),
-    deployDurationMs: requireString(
-      value.deployDurationMs,
-      `${label} deploy duration`,
-      /^[0-9]+$/,
-    ),
-    totalDurationMs: requireString(
-      value.totalDurationMs,
-      `${label} total duration`,
-      /^[0-9]+$/,
-    ),
-    cacheHits: requireString(
-      value.cacheHits,
-      `${label} Turbo cache hits`,
-      /^[0-9]+$/,
-    ),
-    cacheMisses: requireString(
-      value.cacheMisses,
-      `${label} Turbo cache misses`,
-      /^[0-9]+$/,
-    ),
-  });
-  const deployments = {
-    app: checkedDeployment(app, "App"),
-    governance: checkedDeployment(governance, "Governance"),
-    reserve: checkedDeployment(reserve, "Reserve"),
-    ui: checkedDeployment(ui, "UI"),
-  };
-  const totalWorkflowDuration = requireString(
-    workflowDurationMs,
-    "Whole workflow duration",
-    /^[0-9]+$/,
-  );
-  const lines = [
-    "### Production-shadow pilot evidence",
-    "",
-    `- Workflow run: ${requireString(runUrl, "Workflow run URL")}`,
-    `- Exact deployment SHA: \`${normalizedSha}\``,
-    `- Whole workflow duration: ${totalWorkflowDuration} ms`,
-    `- Pinned Vercel CLI: \`${PINNED_VERCEL_CLI_VERSION}\``,
-    "- Project Root Directories verified: `apps/app.mento.org`, `apps/governance.mento.org`, `apps/reserve.mento.org`, `apps/ui.mento.org`",
-    "",
-    "| Target | Build target | Deployment ID / URL | Runtime/browser | Protected mappings | Turbo cache | Timing | Result |",
-    "|---|---|---|---|---|---|---|---|",
-    ...["app", "governance", "reserve", "ui"].map((target) => {
-      const entry = deployments[target];
-      return `| ${target} | production | \`${entry.id}\` / ${entry.url} | ${PRODUCTION_SHADOW_RUNTIME_EVIDENCE[target]} | unchanged | ${entry.cacheHits} hit / ${entry.cacheMisses} miss | build ${entry.buildDurationMs} ms; deploy ${entry.deployDurationMs} ms; job ${entry.totalDurationMs} ms | pass |`;
-    }),
-    "",
-    `- Browser coverage spans ${SMOKED_PRODUCTION_SHADOW_TARGETS.join(", ")} only; the pilot has no App smoke spec yet, so the App row claims no runtime or browser evidence.`,
-    `- Reviewed app production aliases: ${appPriorStates.map((state) => `\`${state.alias}\``).join(", ")}`,
-    `- Captured prior app production deployment: \`${appPriorStates[0].deploymentId}\` / ${canonicalizeDeploymentUrl(appPriorStates[0].deploymentUrl)}`,
-    `- Copy-safe app rollback command: \`vercel rollback ${appPriorStates[0].deploymentId} --yes\``,
-    "- Real required-variable names passed preflight; the synthetic `FIXTURE_REQUIRED_SECRET` failure is covered by the offline primitive suite.",
-    "- Turbo cache hit/miss counts are parsed fail-closed from each build's single canonical summary; the original summaries remain in the build logs.",
-    "- No raw Vercel response, pulled environment, `.vercel/output`, credential, or protection-bypass value was uploaded.",
-    "",
-  ];
-  writeFileSync(resolve(path), lines.join("\n"), { flag: "a" });
-}
-
-export function assertEvidenceFiles(files) {
-  if (!Array.isArray(files) || files.length === 0) {
-    throw new Error("Evidence file list must be non-empty");
-  }
-  for (const path of files) {
-    const evidence = readFileSync(resolve(path), "utf8");
-    if (FORBIDDEN_EVIDENCE_PATTERN.test(evidence)) {
-      throw new Error("Evidence contains a forbidden sensitive field name");
-    }
-  }
-}
-
 export function assertRequiredVariableNames(names, values = process.env) {
   if (!Array.isArray(names) || names.length === 0) {
     throw new Error("Required variable-name list must be non-empty");
@@ -2457,161 +2283,6 @@ export function assertProductionShadowBuildInputs(values = process.env) {
   );
 }
 
-export async function assertProtectedAliasesUnchanged({ baseline, client }) {
-  if (!Array.isArray(baseline) || baseline.length === 0) {
-    throw new Error("Protected alias baseline is malformed");
-  }
-  const baselineByAlias = new Map();
-  for (const state of baseline) {
-    const alias = canonicalizeHostname(state.alias);
-    if (baselineByAlias.has(alias)) {
-      throw new Error("Protected alias baseline contains duplicates");
-    }
-    baselineByAlias.set(alias, {
-      alias,
-      deploymentId: requireString(
-        state.deploymentId,
-        "Baseline deployment ID",
-        DEPLOYMENT_ID_PATTERN,
-      ),
-      deploymentUrl: canonicalizeDeploymentUrl(state.deploymentUrl),
-      projectId: requireIdentifier(state.projectId, "Baseline project ID"),
-    });
-  }
-  const current = await captureAliasMappings(client, [
-    ...baselineByAlias.keys(),
-  ]);
-  const drift = current.filter((mapping) => {
-    const before = baselineByAlias.get(mapping.alias);
-    return (
-      before.deploymentId !== mapping.deploymentId ||
-      before.deploymentUrl !== mapping.deploymentUrl ||
-      before.projectId !== mapping.projectId
-    );
-  });
-  if (drift.length === 0) return [];
-
-  const evidence = drift.map((mapping) => {
-    const before = baselineByAlias.get(mapping.alias);
-    return {
-      alias: mapping.alias,
-      before: {
-        deploymentId: before.deploymentId,
-        deploymentUrl: before.deploymentUrl,
-      },
-      current: {
-        deploymentId: mapping.deploymentId,
-        deploymentUrl: mapping.deploymentUrl,
-      },
-      restoreCommand: `vercel alias set ${before.deploymentUrl} ${mapping.alias}`,
-    };
-  });
-  throw new Error(
-    [
-      "Protected alias drift detected; the shadow pilot is read-only and attempted no repair.",
-      `Canonical drift: ${JSON.stringify(evidence)}`,
-      "Operator recovery: stop forward work; confirm there is no concurrent or intentional activation; re-resolve every alias and require it to still match the canonical current ID/URL above; only then run the listed restore command manually; finally capture and compare the full protected snapshot again.",
-    ].join(" "),
-  );
-}
-
-export function assertFinalJobResults(results) {
-  const required = [
-    "preflight",
-    "baseline",
-    "app",
-    "governance",
-    "smokeGovernance",
-    "reserve",
-    "smokeReserve",
-    "ui",
-    "smokeUi",
-    "finalAliasComparison",
-  ];
-  for (const name of required) {
-    if (results[name] !== "success") {
-      throw new Error(
-        `Required production-shadow job did not succeed: ${name}`,
-      );
-    }
-  }
-}
-
-export async function fetchWithOriginBoundRedirects({
-  url,
-  signal,
-  fetchImplementation = fetch,
-  maximumRedirects = 5,
-}) {
-  const allowedOrigin = new URL(url).origin;
-  let currentUrl = url;
-  for (
-    let redirectCount = 0;
-    redirectCount <= maximumRedirects;
-    redirectCount += 1
-  ) {
-    const response = await fetchImplementation(currentUrl, {
-      redirect: "manual",
-      signal,
-    });
-    if (response.status < 300 || response.status >= 400) return response;
-    const location = response.headers?.get("location");
-    if (!location || redirectCount === maximumRedirects) {
-      throw new Error("Protected host returned an invalid redirect");
-    }
-    const nextUrl = new URL(location, currentUrl);
-    if (nextUrl.origin !== allowedOrigin) {
-      throw new Error("Protected host redirected outside its immutable origin");
-    }
-    currentUrl = nextUrl.toString();
-  }
-  throw new Error("Protected host exceeded its redirect limit");
-}
-
-export async function waitForHealthyUrls({
-  urls,
-  attempts = 4,
-  delayMs = 2_000,
-  fetchImplementation = fetch,
-}) {
-  if (!Array.isArray(urls) || urls.length === 0) {
-    throw new Error("Health-check URL list must be non-empty");
-  }
-  await Promise.all(
-    urls.map(async (value) => {
-      const hostname = canonicalizeHostname(value);
-      const url = `https://${hostname}`;
-      let healthy = false;
-      for (let attempt = 1; attempt <= attempts; attempt += 1) {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 15_000);
-        try {
-          const response = await fetchWithOriginBoundRedirects({
-            url,
-            signal: controller.signal,
-            fetchImplementation,
-          });
-          if (response.status >= 200 && response.status < 300) {
-            healthy = true;
-            break;
-          }
-        } catch {
-          // Retry only; response bodies and errors are intentionally not logged.
-        } finally {
-          clearTimeout(timeout);
-        }
-        if (attempt < attempts) {
-          await new Promise((resolveDelay) =>
-            setTimeout(resolveDelay, delayMs),
-          );
-        }
-      }
-      if (!healthy)
-        throw new Error(`Protected hostname is not healthy: ${hostname}`);
-    }),
-  );
-}
-
 function parseArguments(argv) {
   const options = {};
   for (let index = 1; index < argv.length; index += 1) {
@@ -2631,37 +2302,7 @@ function isCliEntrypoint() {
 
 if (isCliEntrypoint()) {
   const { command, options } = parseArguments(process.argv.slice(2));
-  if (command === "validate-context") {
-    const sha = validateDispatchContext({
-      repository: process.env.GITHUB_REPOSITORY,
-      ref: process.env.GITHUB_REF,
-      workflowRef: process.env.GITHUB_WORKFLOW_REF,
-      deploySha: process.env.DEPLOY_SHA,
-    });
-    appendOutput("deploy_sha", sha);
-    process.stdout.write("Production-shadow dispatch context verified\n");
-  } else if (command === "validate-source") {
-    const sha = validateImmutableMainSource({
-      deploySha: process.env.DEPLOY_SHA,
-      workflowSha: process.env.GITHUB_WORKFLOW_SHA,
-      sourcePath: trustedSourcePath(),
-    });
-    appendOutput("deploy_sha", sha);
-    process.stdout.write("Immutable main source verified\n");
-  } else if (command === "create-spec") {
-    writePrivateJson(
-      options.output,
-      createProtectedAliasSpec({
-        projectIds: {
-          app: process.env.VERCEL_PROJECT_ID_APP,
-          governance: process.env.VERCEL_PROJECT_ID_GOVERNANCE,
-          reserve: process.env.VERCEL_PROJECT_ID_RESERVE,
-          ui: process.env.VERCEL_PROJECT_ID_UI,
-        },
-      }),
-    );
-    process.stdout.write("Protected alias specification written\n");
-  } else if (command === "prepare-link") {
+  if (command === "prepare-link") {
     materializeProductionShadowLink({
       repoRoot: trustedSourcePath(),
       logicalTarget: process.env.LOGICAL_TARGET,
@@ -2804,35 +2445,6 @@ if (isCliEntrypoint()) {
     appendOutput("deploy_duration_ms", String(Date.now() - startedAt));
     writePrivateJson(options.expected, expectation);
     process.stdout.write("Canonical deployment identity written\n");
-  } else if (command === "assert-generated-aliases") {
-    assertOnlyExpectedVercelGeneratedAliases(
-      readJson(options.input, "Staged deployment state"),
-      options.target,
-    );
-    process.stdout.write(
-      "Staged production deployment identity and generated-alias topology verified\n",
-    );
-  } else if (command === "evidence") {
-    assertEvidenceFiles(readJson(options.files, "Evidence file list"));
-    process.stdout.write("Canonical evidence scan passed\n");
-  } else if (command === "check-aliases") {
-    await assertProtectedAliasesUnchanged({
-      baseline: options.baseline
-        ? readJson(options.baseline, "Baseline snapshot")
-        : readEnvironmentJson("BASELINE_JSON", "Baseline snapshot"),
-      client: new VercelStateClient({
-        token: process.env.VERCEL_TOKEN,
-        teamId: process.env.VERCEL_ORG_ID,
-      }),
-    });
-    process.stdout.write("Protected alias mappings remain unchanged\n");
-  } else if (command === "final") {
-    assertFinalJobResults(JSON.parse(process.env.JOB_RESULTS_JSON ?? "{}"));
-    process.stdout.write("All production-shadow jobs succeeded\n");
-  } else if (command === "emit-output") {
-    const value = JSON.stringify(readJson(options.input, "Canonical output"));
-    appendOutput(options.name, value);
-    process.stdout.write("Canonical GitHub output written\n");
   } else if (command === "cache-summary") {
     const cache = parseTurboCacheSummary(
       readFileSync(resolve(options.input), "utf8"),
@@ -2840,66 +2452,9 @@ if (isCliEntrypoint()) {
     appendOutput("turbo_cache_hits", String(cache.hits));
     appendOutput("turbo_cache_misses", String(cache.misses));
     process.stdout.write("Canonical Turbo cache summary verified\n");
-  } else if (command === "summary") {
-    writePilotSummary({
-      path: process.env.GITHUB_STEP_SUMMARY,
-      baseline: JSON.parse(process.env.BASELINE_JSON ?? "[]"),
-      sha: process.env.DEPLOY_SHA,
-      runUrl: process.env.WORKFLOW_RUN_URL,
-      workflowDurationMs: process.env.WORKFLOW_DURATION_MS,
-      app: {
-        id: process.env.APP_DEPLOYMENT_ID,
-        url: process.env.APP_DEPLOYMENT_URL,
-        buildDurationMs: process.env.APP_BUILD_DURATION_MS,
-        deployDurationMs: process.env.APP_DEPLOY_DURATION_MS,
-        totalDurationMs: process.env.APP_TOTAL_DURATION_MS,
-        cacheHits: process.env.APP_TURBO_CACHE_HITS,
-        cacheMisses: process.env.APP_TURBO_CACHE_MISSES,
-      },
-      governance: {
-        id: process.env.GOVERNANCE_DEPLOYMENT_ID,
-        url: process.env.GOVERNANCE_DEPLOYMENT_URL,
-        buildDurationMs: process.env.GOVERNANCE_BUILD_DURATION_MS,
-        deployDurationMs: process.env.GOVERNANCE_DEPLOY_DURATION_MS,
-        totalDurationMs: process.env.GOVERNANCE_TOTAL_DURATION_MS,
-        cacheHits: process.env.GOVERNANCE_TURBO_CACHE_HITS,
-        cacheMisses: process.env.GOVERNANCE_TURBO_CACHE_MISSES,
-      },
-      reserve: {
-        id: process.env.RESERVE_DEPLOYMENT_ID,
-        url: process.env.RESERVE_DEPLOYMENT_URL,
-        buildDurationMs: process.env.RESERVE_BUILD_DURATION_MS,
-        deployDurationMs: process.env.RESERVE_DEPLOY_DURATION_MS,
-        totalDurationMs: process.env.RESERVE_TOTAL_DURATION_MS,
-        cacheHits: process.env.RESERVE_TURBO_CACHE_HITS,
-        cacheMisses: process.env.RESERVE_TURBO_CACHE_MISSES,
-      },
-      ui: {
-        id: process.env.UI_DEPLOYMENT_ID,
-        url: process.env.UI_DEPLOYMENT_URL,
-        buildDurationMs: process.env.UI_BUILD_DURATION_MS,
-        deployDurationMs: process.env.UI_DEPLOY_DURATION_MS,
-        totalDurationMs: process.env.UI_TOTAL_DURATION_MS,
-        cacheHits: process.env.UI_TURBO_CACHE_HITS,
-        cacheMisses: process.env.UI_TURBO_CACHE_MISSES,
-      },
-    });
-    process.stdout.write("Production-shadow pilot summary written\n");
-  } else if (command === "health") {
-    const urls = options.spec
-      ? readJson(options.spec, "Protected alias specification").map(
-          (entry) => entry.alias,
-        )
-      : options.url
-        ? [options.url]
-        : JSON.parse(process.env.HEALTH_URLS_JSON ?? "[]");
-    await waitForHealthyUrls({
-      urls,
-    });
-    process.stdout.write("Protected host health checks passed\n");
   } else {
     throw new Error(
-      "Usage: vercel-production-shadow.mjs validate-context|validate-source|create-spec|prepare-link|prepare-pull-staging|pull|materialize-source|validate-pull-staging|stage-pull|validate-candidate-pull|validate-pull|check-build-inputs|build|create-handoff|assert-output|deploy|assert-generated-aliases|evidence|check-aliases|final|emit-output|cache-summary|summary|health",
+      "Usage: vercel-production-shadow.mjs prepare-link|prepare-pull-staging|pull|materialize-source|validate-pull-staging|stage-pull|validate-candidate-pull|validate-pull|check-build-inputs|build|create-handoff|assert-output|deploy|cache-summary",
     );
   }
 }

@@ -258,10 +258,7 @@ and freshness without replaying a mutation. An
 interrupted release uses a new current-attempt journal and current
 protected-state snapshot. In the automatic pipeline's shadow mode, App
 preparation is build-only terminal evidence and creates no provider deployment.
-The separate manual production-shadow pilot does create a staged App production
-deployment (`--prod --skip-domain`), which moves no protected domain; its
-browser coverage spans governance, reserve, and UI only, so its App evidence row
-reports the runtime check as not run. The terminal receipt and evidence are
+The terminal receipt and evidence are
 the only compact final-verdict handoff and support final-only reruns. A release
 identity is evidence lookup only; it never authorizes a prior attempt's
 mutation sequence.
@@ -278,26 +275,23 @@ Governance QA environment. The historical PR-A canary, active transaction,
 public runtime proof, journal, recovery, target-local rollback, and full-native
 restoration contracts live in `docs/vercel-deployments.md`.
 
-`.github/workflows/vercel-production-shadow.yml` is manual-only and
-non-promoting. Ordinary uploads implicitly move the target's reviewed generated
-base project/team alias and may also move Vercel's exact creator-scoped alias,
-but the workflow issues no explicit alias assignment, promotion,
-environment-configuration, ownership, or protected-domain mutation. Candidate
-dependency installation and builds must run under its dedicated UID boundary
+Staged main candidates are non-promoting. Ordinary uploads implicitly move the
+target's reviewed generated base project/team alias and may also move Vercel's
+exact creator-scoped alias, but the workflow issues no explicit alias
+assignment, promotion, environment-configuration, ownership, or protected-domain
+mutation. Candidate
+dependency installation and builds must run under their dedicated UID boundary
 with exact protected tools, private-umask runner-owned pull staging, raw
 Git-object materialization of the exact commit (never archive/checkout filters),
-and a runner-owned verified output handoff. Browser smoke must use a fresh
+and a runner-owned verified output handoff. Candidate smoke must use a fresh
 trusted checkout and dependencies, never candidate `node_modules`; tear down
 every candidate boundary before upload or later production-token checks. Keep
 all build-boundary state below the target-scoped, authenticated
 `/var/lib/mento-vercel-runtime-<run>-<attempt>-<target>/work` root, seal
 `RUNNER_TEMP` to runner-owned mode `0700` before candidate execution, and
 reauthenticate and remove the exact runtime in a final `if: always()` step.
-The manual pilot stages an App production candidate with
-`--prod --skip-domain` like every ordinary target; only the automatic main
-pipeline promotes and activates it, and the pilot never mutates a protected
-domain. Pilot browser coverage spans Governance, Reserve, and UI only, so the
-App evidence row reports the runtime check as not run.
+`stage-app` stages an App production candidate with `--prod --skip-domain` like
+every ordinary target; only the activation turn promotes it.
 Governance, Reserve, UI, and App uploads must avoid custom production domains and
 must expose the immutable deployment hostname through the deployment URL/state
 identity. The provider alias list must contain the target's reviewed literal
