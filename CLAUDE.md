@@ -58,6 +58,8 @@ pnpm fork:seed                       # Select a safe FX-open clock, fund fork ac
 pnpm fork:monad                      # Local anvil fork of Monad mainnet (chain 143, port 8546; no --celo)
 pnpm fork:seed:monad                 # Same safe clock; Reserve collateral + real swap-to-seed
 pnpm pr:description:test             # Test the required PR-description format validator
+pnpm troves:subgraph:check           # Probe the trove-history subgraph endpoints (network)
+pnpm troves:subgraph:check:test      # Offline unit tests for the trove-history endpoint checker
 pnpm vercel:deployment-state:test    # Test canonical read-only Vercel state and alias-drift evidence
 pnpm vercel:primitives:test          # Test affected planning, custom deployment IDs, and build-env contracts
 pnpm vercel:workflow:test            # Test Vercel preview and main workflows, exact-main gating, transactions, and smoke

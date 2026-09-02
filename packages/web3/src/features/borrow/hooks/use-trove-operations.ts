@@ -5,7 +5,10 @@ import {
 } from "@mento-protocol/mento-sdk";
 import { useChainId, usePublicClient } from "wagmi";
 import { formatSubgraphTroveId } from "../subgraph-id";
-import { getTrovesSubgraphUrl } from "../troves-subgraph";
+import {
+  getTrovesSubgraphHeaders,
+  getTrovesSubgraphUrl,
+} from "../troves-subgraph";
 
 // Mirrors the subgraph's TroveOperationKind enum. Order matches
 // `ITroveEvents.Operation` in the Liquity v2 fork's contracts.
@@ -225,7 +228,7 @@ export function useTroveOperations(
 
       const response = await fetch(subgraphUrl!, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getTrovesSubgraphHeaders(subgraphUrl!),
         body: JSON.stringify({
           query: TROVE_HISTORY_QUERY,
           variables: {

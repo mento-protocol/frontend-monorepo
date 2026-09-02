@@ -41,6 +41,7 @@ export function buildAppReportOnlyCsp({
     "https://polygon-amoy.drpc.org",
     "https://sepolia.base.org",
     "https://api.studio.thegraph.com",
+    "https://gateway.thegraph.com",
     "https://api.coingecko.com",
     "https://api.wormholescan.io",
     "https://api.web3modal.org",
