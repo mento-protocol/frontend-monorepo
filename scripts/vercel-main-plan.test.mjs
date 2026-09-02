@@ -29,21 +29,6 @@ function setTargetSha(input, target, sha) {
   }
 }
 
-// TRANSITION-V3-PRIOR: the steady-state App prior after the first release
-// promotes App into its own production environment.
-function productionAppPrior(input) {
-  for (const state of input.priorStates.app.states) {
-    state.target = "production";
-    state.customEnvironmentSlug = null;
-    state.aliases = [
-      "app.mento.org",
-      PRODUCTION_GENERATED_ALIAS_CONTRACTS.app.generatedProjectAlias,
-      PRODUCTION_GENERATED_ALIAS_CONTRACTS.app.generatedProjectDefaultAlias,
-    ].toSorted();
-  }
-  return input;
-}
-
 function setAllTargetShas(input, sha) {
   for (const target of MAIN_DEPLOYMENT_TARGETS) {
     setTargetSha(input, target, sha);
@@ -608,119 +593,100 @@ test("App plans from exactly one reviewed alias", () => {
   );
 });
 
-// TRANSITION-V3-PRIOR
-test("App accepts a v3-shaped prior and a production prior", () => {
-  const transitional = fixture();
-  transitional.mode = "active";
-  transitional.mainOwnershipMode = ownershipMode("github");
-  const transitionalState = transitional.priorStates.app.states[0];
-  assert.equal(transitionalState.target, null);
-  assert.equal(transitionalState.customEnvironmentSlug, "v3");
-  assert.deepEqual(transitionalState.aliases, [
-    "app.mento.org",
-    "appmentoorg-env-v3-mentolabs.vercel.app",
-  ]);
-  const { plan: transitionalPlan } = runFixture(transitional);
-  assert.deepEqual(transitionalPlan.priors[0], {
+// MGP-18 retired the App custom `v3` environment. Every App prior is now held
+// to exactly the same production contract as every other target's, and the
+// retiring environment's shape can no longer re-enter through the prior.
+test("App priors are production-shaped and the retired v3 shape cannot re-enter", () => {
+  const steady = fixture();
+  steady.mode = "active";
+  steady.mainOwnershipMode = ownershipMode("github");
+  const steadyState = steady.priorStates.app.states[0];
+  assert.equal(steadyState.target, "production");
+  assert.equal(steadyState.customEnvironmentSlug, null);
+  const { plan: steadyPlan } = runFixture(steady);
+  assert.deepEqual(steadyPlan.priors[0], {
     target: "app",
     aliases: ["app.mento.org"],
     deploymentId: "dpl_appA123",
     deploymentUrl: "https://app-main-a.vercel.app",
     servedSha: "a".repeat(40),
   });
-
-  const steady = productionAppPrior(fixture());
-  steady.mode = "active";
-  steady.mainOwnershipMode = ownershipMode("github");
-  const { plan: steadyPlan } = runFixture(steady);
-  assert.deepEqual(steadyPlan.priors[0], transitionalPlan.priors[0]);
-
-  // A preview-shaped App prior is still ambiguous.
-  const preview = fixture();
-  for (const state of preview.priorStates.app.states) {
-    state.target = null;
-    state.customEnvironmentSlug = "preview";
+  // The production-shaped App prior recomputes identically from the
+  // sealed-manifest leaf form, which omits the alias list.
+  const recomputeForm = fixture();
+  recomputeForm.mode = "active";
+  recomputeForm.mainOwnershipMode = ownershipMode("github");
+  for (const state of recomputeForm.priorStates.app.states) {
+    delete state.aliases;
   }
-  assertActivationError(
-    () => runFixture(preview),
-    "app",
-    "environment-identity-ambiguous",
+  assert.deepEqual(
+    runFixture(recomputeForm).plan.priors[0],
+    steadyPlan.priors[0],
   );
 
-  // The transitional generated alias is the only tolerated extra alias.
-  const foreignAlias = fixture();
-  foreignAlias.priorStates.app.states[0].aliases = [
-    "app.mento.org",
-    "appmentoorg-env-v4-mentolabs.vercel.app",
-  ];
-  assertActivationError(
-    () => runFixture(foreignAlias),
-    "app",
-    "alias-set-ambiguous",
-  );
-});
+  // A v3-shaped App prior is rejected exactly like a preview-shaped one.
+  for (const slug of ["v3", "preview"]) {
+    const custom = fixture();
+    for (const state of custom.priorStates.app.states) {
+      state.target = null;
+      state.customEnvironmentSlug = slug;
+    }
+    assertActivationError(
+      () => runFixture(custom),
+      "app",
+      "environment-identity-ambiguous",
+    );
+  }
 
-// TRANSITION-V3-PRIOR
-// The generated-alias topology and the deployment environment are one shape,
-// not two independent allowances. Validated separately, a production-shaped
-// deployment still carrying the retired v3 alias — or a v3-shaped prior already
-// carrying the production set — would be captured as a valid rollback prior.
-test("App couples its transitional alias topology to the v3 environment", () => {
-  const accepted = fixture();
-  accepted.mode = "active";
-  accepted.mainOwnershipMode = ownershipMode("github");
-  const acceptedState = accepted.priorStates.app.states[0];
-  assert.equal(acceptedState.target, null);
-  assert.equal(acceptedState.customEnvironmentSlug, "v3");
-  assert.deepEqual(acceptedState.aliases, [
-    "app.mento.org",
+  // The retired custom environment's generated alias is rejected for every
+  // target, and so is any other foreign alias.
+  for (const alias of [
     "appmentoorg-env-v3-mentolabs.vercel.app",
-  ]);
-  assert.equal(runFixture(accepted).plan.priors[0].target, "app");
+    "appmentoorg-env-v4-mentolabs.vercel.app",
+  ]) {
+    const foreignAlias = fixture();
+    foreignAlias.mode = "active";
+    foreignAlias.mainOwnershipMode = ownershipMode("github");
+    for (const state of foreignAlias.priorStates.app.states) {
+      state.aliases = [...state.aliases, alias].toSorted();
+    }
+    assertActivationError(
+      () => runFixture(foreignAlias),
+      "app",
+      "alias-set-ambiguous",
+    );
+  }
 
-  const productionWithRetiredAlias = productionAppPrior(fixture());
-  productionWithRetiredAlias.mode = "active";
-  productionWithRetiredAlias.mainOwnershipMode = ownershipMode("github");
-  for (const state of productionWithRetiredAlias.priorStates.app.states) {
+  // A production-shaped App prior that carries only the reviewed alias plus
+  // the retired one — the exact pre-retirement two-alias topology — is
+  // rejected too.
+  const retiredTopology = fixture();
+  retiredTopology.mode = "active";
+  retiredTopology.mainOwnershipMode = ownershipMode("github");
+  for (const state of retiredTopology.priorStates.app.states) {
     state.aliases = [
-      ...state.aliases,
+      "app.mento.org",
       "appmentoorg-env-v3-mentolabs.vercel.app",
     ].toSorted();
   }
   assertActivationError(
-    () => runFixture(productionWithRetiredAlias),
+    () => runFixture(retiredTopology),
     "app",
     "alias-set-ambiguous",
   );
 
-  const v3WithProductionAliases = fixture();
-  v3WithProductionAliases.mode = "active";
-  v3WithProductionAliases.mainOwnershipMode = ownershipMode("github");
-  for (const state of v3WithProductionAliases.priorStates.app.states) {
-    assert.equal(state.customEnvironmentSlug, "v3");
+  // Every reviewed production generated alias stays admissible.
+  const reviewedTopology = fixture();
+  reviewedTopology.mode = "active";
+  reviewedTopology.mainOwnershipMode = ownershipMode("github");
+  for (const state of reviewedTopology.priorStates.app.states) {
     state.aliases = [
       "app.mento.org",
       PRODUCTION_GENERATED_ALIAS_CONTRACTS.app.generatedProjectAlias,
       PRODUCTION_GENERATED_ALIAS_CONTRACTS.app.generatedProjectDefaultAlias,
     ].toSorted();
   }
-  assertActivationError(
-    () => runFixture(v3WithProductionAliases),
-    "app",
-    "alias-set-ambiguous",
-  );
-
-  // The sealed-manifest recompute form omits the alias list for every
-  // target; a v3-shaped App leaf must still recompute (its topology was
-  // proven when the manifest was sealed at capture time).
-  const v3RecomputeForm = fixture();
-  v3RecomputeForm.mode = "active";
-  v3RecomputeForm.mainOwnershipMode = ownershipMode("github");
-  for (const state of v3RecomputeForm.priorStates.app.states) {
-    assert.equal(state.customEnvironmentSlug, "v3");
-    delete state.aliases;
-  }
-  assert.equal(runFixture(v3RecomputeForm).plan.priors[0].target, "app");
+  assert.equal(runFixture(reviewedTopology).plan.priors[0].target, "app");
 });
 
 for (const [name, mutate, expectedReason, expectedServedSha] of [
@@ -1547,7 +1513,7 @@ const activationAmbiguities = [
     },
   },
   {
-    // TRANSITION-V3-PRIOR: the tolerance is App-only.
+    // The retired custom environment cannot re-enter through any target.
     name: "v3-shaped governance prior",
     target: "governance",
     code: "environment-identity-ambiguous",

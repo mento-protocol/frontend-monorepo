@@ -577,7 +577,7 @@ jobs:
         id: recovery-head-4
         if: ${{ always() && !failure() && !cancelled() }}
         run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/inherited-journals" --output "$RUNNER_TEMP/inherited-head-4.json"
-      - name: Restore bounded inherited transition 5
+      - name: Restore terminal inherited transition 5
         if: ${{ steps.recovery-head-4.outputs.highest_status != 'recovered' }}
         uses: ./.github/actions/vercel-main-active-recovery-transition
         env:
@@ -592,27 +592,6 @@ jobs:
             operation-cwd: "${{ github.workspace }}/source",
             recovery-plan: "${{ runner.temp }}/inherited-recovery-plan.json",
             slot: "5",
-            vercel-cli: "${{ steps.recovery-runtime.outputs.vercel-cli }}",
-          }
-      - name: Inspect inherited recovery head 5
-        id: recovery-head-5
-        if: ${{ always() && !failure() && !cancelled() }}
-        run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/inherited-journals" --output "$RUNNER_TEMP/inherited-head-5.json"
-      - name: Restore terminal inherited transition 6
-        if: ${{ steps.recovery-head-5.outputs.highest_status != 'recovered' }}
-        uses: ./.github/actions/vercel-main-active-recovery-transition
-        env:
-          {
-            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
-            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
-          }
-        with:
-          {
-            controller-path: "${{ github.workspace }}",
-            journal-directory: "${{ runner.temp }}/inherited-journals",
-            operation-cwd: "${{ github.workspace }}/source",
-            recovery-plan: "${{ runner.temp }}/inherited-recovery-plan.json",
-            slot: "6",
             vercel-cli: "${{ steps.recovery-runtime.outputs.vercel-cli }}",
           }
       - name: Read final canonical inherited recovery head
@@ -1947,28 +1926,6 @@ jobs:
             stage-barrier: "${{ runner.temp }}/stage-barrier.json",
             vercel-cli: "${{ steps.app-runtime.outputs.vercel-cli }}",
           }
-      - name: Activate bounded Vercel transition 5
-        if: >-
-          steps.freshness.outputs.status == 'fresh' &&
-          needs.prepare-release.outputs.has_active_targets == 'true' &&
-          needs.prepare-release.outputs.decision != 'verify-existing-release'
-        uses: ./.github/actions/vercel-main-active-transition
-        env:
-          {
-            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
-            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
-          }
-        with:
-          {
-            controller-path: "${{ github.workspace }}",
-            execution: "${{ runner.temp }}/execution.json",
-            journal-directory: "${{ runner.temp }}/active-journals",
-            operation-cwd: "${{ github.workspace }}/source",
-            prepared-journal: "${{ runner.temp }}/prepared-journal.json",
-            slot: "5",
-            stage-barrier: "${{ runner.temp }}/stage-barrier.json",
-            vercel-cli: "${{ steps.app-runtime.outputs.vercel-cli }}",
-          }
       - name: Install trusted Chromium for final public runtime checks
         if: >-
           steps.freshness.outputs.status == 'fresh' &&
@@ -2566,7 +2523,7 @@ jobs:
         id: recovery-head-4
         if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && !failure() && !cancelled() }}
         run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/current-attempt-journals" --output "$RUNNER_TEMP/recovery-head-4.json"
-      - name: Restore bounded recovery transition 5
+      - name: Restore terminal recovery transition 5
         if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && steps.recovery-head-4.outputs.highest_status != 'recovered' && steps.recovery-head-4.outputs.highest_status != 'manual_intervention' }}
         uses: ./.github/actions/vercel-main-active-recovery-transition
         env:
@@ -2581,27 +2538,6 @@ jobs:
             operation-cwd: "${{ github.workspace }}/source",
             recovery-plan: "${{ runner.temp }}/recovery-plan.json",
             slot: "5",
-            vercel-cli: "${{ steps.recovery-runtime.outputs.vercel-cli }}",
-          }
-      - name: Inspect recovery head 5
-        id: recovery-head-5
-        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && !failure() && !cancelled() }}
-        run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/current-attempt-journals" --output "$RUNNER_TEMP/recovery-head-5.json"
-      - name: Restore terminal recovery transition 6
-        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && steps.recovery-head-5.outputs.highest_status != 'recovered' && steps.recovery-head-5.outputs.highest_status != 'manual_intervention' }}
-        uses: ./.github/actions/vercel-main-active-recovery-transition
-        env:
-          {
-            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
-            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
-          }
-        with:
-          {
-            controller-path: "${{ github.workspace }}",
-            journal-directory: "${{ runner.temp }}/current-attempt-journals",
-            operation-cwd: "${{ github.workspace }}/source",
-            recovery-plan: "${{ runner.temp }}/recovery-plan.json",
-            slot: "6",
             vercel-cli: "${{ steps.recovery-runtime.outputs.vercel-cli }}",
           }
       - name: Read final current-attempt recovery head

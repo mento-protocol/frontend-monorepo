@@ -51,7 +51,7 @@ const SHA = "0123456789abcdef0123456789abcdef01234567";
 const RUN_ID = "123456789";
 const RUN_ATTEMPT = "2";
 const TARGETS = ["app", "governance", "reserve", "ui"];
-// TRANSITION-V3-PRIOR: the App target now maps exactly one reviewed alias.
+// Every main target, App included, maps exactly one reviewed alias.
 const APP_ALIAS = "app.mento.org";
 const PROJECT_IDS = {
   app: "prj_app123",
@@ -647,13 +647,11 @@ test("dispatch resumes a candidate prefix by promoting only the prior suffix", (
   assert.equal(dispatched.afterUploadAction, "authorize");
 });
 
-// TRANSITION-V3-PRIOR
-// `vercel promote` moves the App production environment but cannot move
-// `app.mento.org` while that domain still lives in the retiring custom
-// environment, so the App promote verifies at `prior`. The forward scan must
-// compare every verified operation against its own expected mapping state, or
-// the verified App promote reads as drift and the bridge alias set never runs.
-test("a verified App promote at prior dispatches the bridge alias set", () => {
+// MGP-18 moved `app.mento.org` into the production environment, so
+// `vercel promote` carries it and the App promote verifies at `candidate` like
+// every other target. An App promote whose reviewed domain is still at the
+// prior is drift and must route to recovery; no bridge alias set follows it.
+test("an App promote verified at prior routes to recovery instead of a bridge alias set", () => {
   const initial = prepared(["app"]);
   const history = [];
   const initialized = reduceForward(initial, history, event("initialize"), [
@@ -695,9 +693,9 @@ test("a verified App promote at prior dispatches the bridge alias set", () => {
     ["app"],
   );
   history.push(returned.journal);
-  // The promote succeeded and left the reviewed App domain exactly where it
-  // was, which is the whole point of the transitional verification state.
-  const verified = reduceForward(
+  // The promote succeeded but the reviewed App domain is still at the prior.
+  // That is drift now, not the expected verified state.
+  const stalled = reduceForward(
     initial,
     history,
     event("verify", {
@@ -707,23 +705,40 @@ test("a verified App promote at prior dispatches the bridge alias set", () => {
     }),
     ["app"],
   );
-  assert.equal(verified.journal.operations.at(-1).mappingState, "prior");
+  assert.equal(stalled.journal.operations.at(-1).mappingState, "prior");
+  assert.equal(stalled.afterUploadAction, "recover");
+
+  // The App promote carrying its reviewed domain to the candidate is the only
+  // verified forward state, and nothing follows it: activation is complete.
+  const verified = reduceForward(
+    initial,
+    history,
+    event("verify", {
+      uploadReceipt: receipt(history.at(-1)),
+      freshSha: SHA,
+      currentMappings: currentMappings(history.at(-1), { app: "candidate" }),
+    }),
+    ["app"],
+  );
+  assert.equal(verified.journal.operations.at(-1).mappingState, "candidate");
   assert.equal(verified.afterUploadAction, "dispatch");
   history.push(verified.journal);
-  const bridge = reduceForward(
+  const next = reduceForward(
     initial,
     history,
     event("dispatch", {
       uploadReceipt: receipt(history.at(-1)),
       freshSha: SHA,
-      currentMappings: currentMappings(history.at(-1)),
+      currentMappings: currentMappings(history.at(-1), { app: "candidate" }),
     }),
     ["app"],
   );
-  assert.equal(bridge.transitionKind, "journal");
-  assert.equal(bridge.journal.operations.at(-1).type, "app_alias_set");
-  assert.equal(bridge.journal.operations.at(-1).alias, APP_ALIAS);
-  assert.equal(bridge.afterUploadAction, "authorize");
+  assert.equal(next.transitionKind, "await-final-proof");
+  assert.equal(
+    next.journal?.operations.some((operation) => operation.alias !== null) ??
+      false,
+    false,
+  );
 });
 
 test("dispatch routes an unexpected ordinary mapping to recovery", () => {
@@ -1252,14 +1267,13 @@ test("recovery reducer checkpoints safe reverse recovery before manual intervent
   assert.equal(terminal.afterUploadAction, "fail-after-evidence");
 });
 
-// TRANSITION-V3-PRIOR
-// An App promote never moves the reviewed App domain while that domain is
-// still served by the retiring custom environment, so an unknown App promote
-// that left the domain at its prior is a verified noop. A domain that moved to
-// an unexpected deployment is manual, and every started ordinary promote is
-// still compensated in reverse activation order.
-test("App promote recovery is a noop at prior and manual on an unexpected mapping", () => {
-  for (const appMappingMoved of [false, true]) {
+// An unknown App promote that left the reviewed App domain at its prior is a
+// verified noop. One that moved it to the candidate is compensated by an
+// ordinary rollback exactly like every other target, and one that moved it to
+// an unexpected deployment is manual. Every started promote is compensated in
+// reverse activation order.
+test("App promote recovery is a noop at prior, a rollback at candidate, and manual on an unexpected mapping", () => {
+  for (const appMapping of ["prior", "candidate", "unexpected"]) {
     const initial = prepared(["app", "governance", "reserve", "ui"]);
     const history = [initial];
     let highest = initial;
@@ -1296,8 +1310,11 @@ test("App promote recovery is a noop at prior and manual on an unexpected mappin
       reserve: "candidate",
       ui: "candidate",
     };
-    const observed = currentMappings(highest, ordinaryStates).map((entry) =>
-      appMappingMoved && entry.alias === APP_ALIAS
+    const observed = currentMappings(highest, {
+      ...ordinaryStates,
+      ...(appMapping === "candidate" ? { app: "candidate" } : {}),
+    }).map((entry) =>
+      appMapping === "unexpected" && entry.alias === APP_ALIAS
         ? {
             ...entry,
             deploymentId: "dpl_unexpectedApp123",
@@ -1309,20 +1326,27 @@ test("App promote recovery is a noop at prior and manual on an unexpected mappin
       journal: highest,
       currentMappings: observed,
     });
+    const appKind = {
+      prior: "verified_noop",
+      candidate: "ordinary_rollback",
+      unexpected: "manual_intervention",
+    }[appMapping];
     assert.deepEqual(
       plan.actions.map(({ kind, target }) => [target, kind]),
       [
-        ["app", appMappingMoved ? "manual_intervention" : "verified_noop"],
+        ["app", appKind],
         ["ui", "ordinary_rollback"],
         ["reserve", "ordinary_rollback"],
         ["governance", "ordinary_rollback"],
       ],
+      appMapping,
     );
     assert.equal(
       plan.decision,
-      appMappingMoved ? "manual_intervention" : "recover",
+      appMapping === "unexpected" ? "manual_intervention" : "recover",
     );
     assert.deepEqual(plan.rollbackStateTargets, [
+      ...(appMapping === "candidate" ? ["app"] : []),
       "ui",
       "reserve",
       "governance",
@@ -1330,14 +1354,26 @@ test("App promote recovery is a noop at prior and manual on an unexpected mappin
   }
 });
 
-// MGP-18 retired the legacy App deployment. Recovery may only restore the
-// reviewed App domain, and no controller path may emit a legacy command.
-test("App recovery command binds only the reviewed App alias", () => {
+// MGP-18 retired the legacy App deployment and the transitional bridge alias
+// operations. App recovery is an ordinary rollback, and no controller path may
+// emit a legacy or alias command.
+test("App recovery rolls back and no alias operation can re-enter", () => {
   const initial = prepared(["app"]);
+  for (const type of ["app_alias_set", "app_alias_restore"]) {
+    assert.throws(
+      () =>
+        startMainTransactionOperation(initial, {
+          type,
+          target: "app",
+          alias: APP_ALIAS,
+        }),
+      /Operation type is unsupported/,
+      type,
+    );
+  }
   const started = startMainTransactionOperation(initial, {
-    type: "app_alias_set",
+    type: "promote",
     target: "app",
-    alias: APP_ALIAS,
   });
   assert.equal(started.prior["legacy-app"], undefined);
   const appAlias = started.prior.app.aliases.at(-1);
@@ -1395,8 +1431,14 @@ test("App recovery command binds only the reviewed App alias", () => {
       currentMappings: boundMoved,
     }),
   });
-  assert.equal(authorized.command.kind, "app-alias-restore");
-  assert.equal(authorized.command.alias, appAlias);
+  assert.equal(authorized.command.kind, "ordinary-rollback");
+  assert.equal(authorized.command.target, "app");
+  assert.deepEqual(authorized.command.arguments, [
+    "rollback",
+    started.prior.app.deploymentId,
+    "--yes",
+  ]);
+  assert.equal(Object.hasOwn(authorized.command, "alias"), false);
   assert.equal(Object.hasOwn(authorized.command, "aliases"), false);
   assert.equal(Object.hasOwn(authorized.command, "projectId"), false);
 });
@@ -1709,10 +1751,12 @@ test("fresh forward reconciliation rejects an App-only recovery residual", () =>
   });
   assert.equal(recovery.decision, "restore-inherited");
   assert.deepEqual(
-    recovery.actions.map(({ kind, alias }) => ({ kind, alias })),
-    [...journal.prior.app.aliases]
-      .reverse()
-      .map((alias) => ({ kind: "app_alias_restore", alias })),
+    recovery.actions.map(({ kind, target, alias }) => ({
+      kind,
+      target,
+      alias,
+    })),
+    [{ kind: "ordinary_rollback", target: "app", alias: undefined }],
   );
 });
 
@@ -1863,7 +1907,7 @@ test("current-attempt inherited recovery binds the inherited release SHA and com
   assert.equal(terminal.afterUploadAction, "continue-after-recovery");
 });
 
-test("App-only recovery residual restores its moved alias before a fresh baseline", () => {
+test("App-only recovery residual rolls back its moved mapping before a fresh baseline", () => {
   const inherited = prepared(TARGETS);
   const observed = groupedCurrentMappings(inherited, { app: "candidate" });
   const movedAlias = APP_ALIAS;
@@ -1886,8 +1930,8 @@ test("App-only recovery residual restores its moved alias before a fresh baselin
   });
   assert.equal(plan.decision, "restore-inherited");
   assert.deepEqual(
-    plan.actions.map(({ kind, alias }) => ({ kind, alias })),
-    [{ kind: "app_alias_restore", alias: movedAlias }],
+    plan.actions.map(({ kind, target, alias }) => ({ kind, target, alias })),
+    [{ kind: "ordinary_rollback", target: "app", alias: undefined }],
   );
 
   const history = [current];
@@ -1929,8 +1973,10 @@ test("App-only recovery residual restores its moved alias before a fresh baselin
         currentMappings: liveMappings(),
       }),
     });
-    assert.equal(authorized.command.kind, "app-alias-restore");
-    assert.equal(authorized.command.alias, expectedAlias);
+    assert.equal(authorized.command.kind, "ordinary-rollback");
+    assert.equal(authorized.command.target, "app");
+    assert.equal(Object.hasOwn(authorized.command, "alias"), false);
+    assert.equal(movedAliases.has(expectedAlias), true);
 
     const returned = reduceMainActiveRecoveryTransition({
       recoveryPlan: plan,

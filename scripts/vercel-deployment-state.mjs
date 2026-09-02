@@ -21,7 +21,6 @@ import {
 } from "./vercel-deployment-url.mjs";
 import { canonicalizeMainCandidateVercelMetadata } from "./vercel-main-candidate.mjs";
 import { assertMainReleaseManifest } from "./vercel-main-release-reconciliation.mjs";
-import { isTransitionalAppPriorEnvironment } from "./vercel-main-plan.mjs";
 
 export { canonicalizeDeploymentUrl, canonicalizeHostname };
 
@@ -619,12 +618,12 @@ export function canonicalizeMainPlanningDeploymentState({
   );
   assertExpected(projectName, expected.projectName, "project name");
   assertExpected(readyState, expected.readyState ?? "READY", "readiness");
-  assertExpectedPriorEnvironment({
-    projectName,
-    target,
+  assertExpected(target, expected.target, "target");
+  assertExpected(
     customEnvironmentSlug,
-    expected,
-  });
+    expected.customEnvironmentSlug,
+    "custom environment",
+  );
 
   const aliases = canonicalizeAliases(aliasesResponse);
   if (
@@ -650,34 +649,6 @@ export function canonicalizeMainPlanningDeploymentState({
     git,
     aliases,
   };
-}
-
-// TRANSITION-V3-PRIOR
-// Main planning capture reads the deployment a reviewed alias currently
-// serves. The App spec is production-shaped from the day the App owns
-// production, but `app.mento.org` keeps serving the v3-shaped prior until the
-// dashboard domain move, so exactly that one alternative shape is accepted for
-// the App project. Nothing else relaxes.
-function assertExpectedPriorEnvironment({
-  projectName,
-  target,
-  customEnvironmentSlug,
-  expected,
-}) {
-  if (
-    projectName === "app.mento.org" &&
-    expected.target === "production" &&
-    expected.customEnvironmentSlug === null &&
-    isTransitionalAppPriorEnvironment("app", { target, customEnvironmentSlug })
-  ) {
-    return;
-  }
-  assertExpected(target, expected.target, "target");
-  assertExpected(
-    customEnvironmentSlug,
-    expected.customEnvironmentSlug,
-    "custom environment",
-  );
 }
 
 function assertExactKeys(value, keys, label) {
@@ -722,21 +693,16 @@ export function assertCanonicalOutput(value) {
     if (state.readyState !== "READY") {
       throw new Error("Canonical deployment readiness must be READY");
     }
-    const isProduction =
-      state.target === "production" && state.customEnvironmentSlug === null;
-    // TRANSITION-V3-PRIOR: the App deployment `app.mento.org` served before
-    // this release is still in the retiring `v3` custom environment.
-    const isTransitionalAppPrior =
-      state.projectName === "app.mento.org" &&
-      isTransitionalAppPriorEnvironment("app", state);
-    if (!isProduction && !isTransitionalAppPrior) {
+    // Every canonical main deployment — prior or candidate — is an ordinary
+    // production deployment. No custom environment is admissible.
+    if (state.target !== "production" || state.customEnvironmentSlug !== null) {
       throw new Error("Canonical deployment environment is malformed");
     }
     assertExactKeys(state.git, CANONICAL_GIT_KEYS, "Canonical Git state");
     if (
       state.git.org !== "mento-protocol" ||
       state.git.repo !== "frontend-monorepo" ||
-      !["main", "v2"].includes(state.git.ref) ||
+      state.git.ref !== "main" ||
       typeof state.git.sha !== "string" ||
       !SHA_PATTERN.test(state.git.sha) ||
       state.git.sha !== state.git.sha.toLowerCase()
@@ -1320,15 +1286,12 @@ function assertStateExpectation(expected, { requireDeployment = false } = {}) {
   ) {
     throw new Error("Expected Git SHA is malformed");
   }
-  const isProduction =
-    expected.target === "production" && expected.customEnvironmentSlug === null;
-  // TRANSITION-V3-PRIOR: the manual production-shadow protected-alias spec
-  // still describes the App `v3` custom environment. Main planning specs are
-  // production-shaped; only observed App priors may still be v3-shaped.
-  const isTransitionalAppPrior =
-    expected.projectName === "app.mento.org" &&
-    isTransitionalAppPriorEnvironment("app", expected);
-  if (!isProduction && !isTransitionalAppPrior) {
+  // Every protected-alias specification — main planning and the manual
+  // production shadow alike — describes an ordinary production deployment.
+  if (
+    expected.target !== "production" ||
+    expected.customEnvironmentSlug !== null
+  ) {
     throw new Error("Expected deployment environment is malformed");
   }
   if (expected.readyState !== undefined && expected.readyState !== "READY") {
@@ -1383,9 +1346,8 @@ function requirePositiveIdentifier(value, label) {
   return value;
 }
 
-// Every main target now censuses its own ordinary production environment. The
-// exact-SHA census never observes a prior, so it needs no prior-shape
-// tolerance: a v3-shaped App deployment can never carry the release SHA.
+// Every main target censuses its own ordinary production environment. No
+// custom environment is admissible for any target.
 function activeProjectEnvironment(target) {
   if (!ACTIVE_STATE_TARGETS.includes(target)) {
     throw new Error("Active state target is unsupported");
@@ -2491,21 +2453,14 @@ export async function captureMainPlanningSnapshot(client, spec) {
   for (const [key, reviewedAliases] of groups) {
     const [projectId, projectName, target, customEnvironmentSlug] =
       JSON.parse(key);
-    // TRANSITION-V3-PRIOR: the App group's spec is production-shaped while the
-    // deployment `app.mento.org` still serves may be v3-shaped. Every group
-    // keeps the single-deployment invariant either way.
-    const acceptsGroupEnvironment = (state) =>
-      (state.target === target &&
-        state.customEnvironmentSlug === customEnvironmentSlug) ||
-      (projectName === "app.mento.org" &&
-        target === "production" &&
-        customEnvironmentSlug === null &&
-        isTransitionalAppPriorEnvironment("app", state));
+    // Every group's observed deployment must carry the exact environment its
+    // spec names, and the group keeps the single-deployment invariant.
     const groupStates = ordered.filter(
       (state) =>
         state.projectId === projectId &&
         state.projectName === projectName &&
-        acceptsGroupEnvironment(state),
+        state.target === target &&
+        state.customEnvironmentSlug === customEnvironmentSlug,
     );
     if (groupStates.length !== reviewedAliases.length) {
       throw new Error("Main planning alias group is incomplete");
@@ -2543,26 +2498,23 @@ export async function captureProtectedSnapshot(client, spec) {
   for (const entry of spec) {
     snapshot.push(await client.canonicalAliasState(entry));
   }
-  const customV3States = snapshot.filter(
-    (state) => state.customEnvironmentSlug === "v3",
-  );
-  if (
-    customV3States.length > 0 &&
-    new Set(customV3States.map((state) => state.deploymentId)).size !== 1
-  ) {
-    throw new Error("Reviewed app-v3 aliases do not share one deployment");
+  // Every reviewed alias of one project must be served by the same immutable
+  // deployment, and that deployment must actually carry the reviewed alias.
+  // MGP-18 retired the App custom `v3` environment, so this invariant applies
+  // uniformly instead of only to that environment's alias pair.
+  const groups = new Map();
+  for (const state of snapshot) {
+    if (!state.aliases.includes(state.alias)) {
+      throw new Error(
+        "Reviewed protected alias does not exactly match the deployment alias set",
+      );
+    }
+    const key = JSON.stringify([state.projectId, state.projectName]);
+    groups.set(key, [...(groups.get(key) ?? []), state]);
   }
-  if (customV3States.length > 0) {
-    const reviewedV3Aliases = spec
-      .filter((entry) => entry.customEnvironmentSlug === "v3")
-      .map((entry) => canonicalizeHostname(entry.alias))
-      .sort();
-    for (const state of customV3States) {
-      if (JSON.stringify(state.aliases) !== JSON.stringify(reviewedV3Aliases)) {
-        throw new Error(
-          "Reviewed app-v3 aliases do not exactly match the deployment alias set",
-        );
-      }
+  for (const states of groups.values()) {
+    if (new Set(states.map((state) => state.deploymentId)).size !== 1) {
+      throw new Error("Reviewed protected aliases do not share one deployment");
     }
   }
   return snapshot.sort((left, right) => left.alias.localeCompare(right.alias));

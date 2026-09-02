@@ -3,12 +3,11 @@ import { createHash } from "node:crypto";
 import { deflateRawSync, inflateRawSync } from "node:zlib";
 
 import {
+  assertBridgeEraReleaseManifest,
   assertMainReleaseManifest,
-  assertTransitionalPreConversionReleaseManifest,
 } from "./vercel-main-release-reconciliation.mjs";
 import { generateVercelMainCandidateDeploymentId } from "./vercel-prebuilt.mjs";
 import { canonicalizeDeploymentUrl } from "./vercel-deployment-url.mjs";
-import { TRANSITIONAL_APP_PRIOR_ENVIRONMENT } from "./vercel-main-plan.mjs";
 
 const MAIN_CANDIDATE_INTENT_SCHEMA = "vercel-main-candidate-intent:v3";
 const MAIN_CANDIDATE_RECEIPT_SCHEMA = "vercel-main-candidate-receipt:v3";
@@ -207,30 +206,9 @@ function stableIntentBody({
   };
 }
 
-// TRANSITION-V3-PRIOR
-// A candidate sealed before the App moved to the production environment bound
-// its stable digest to the retiring `v3` environment and to a manifest whose
-// App prior carried the retired two-alias topology. `preConversion` selects
-// exactly that pair of legacy inputs; every other check below is unchanged, so
-// legacy metadata is validated as strictly as current metadata.
-const CURRENT_CONTRACT = Object.freeze({
-  assertManifest: assertMainReleaseManifest,
-  preConversion: false,
-});
-const PRE_CONVERSION_CONTRACT = Object.freeze({
-  assertManifest: assertTransitionalPreConversionReleaseManifest,
-  preConversion: true,
-});
-
-function stableContextEnvironment(target, preConversion) {
-  return preConversion && target === "app"
-    ? { ...TRANSITIONAL_APP_PRIOR_ENVIRONMENT }
-    : expectedEnvironment(target);
-}
-
 function canonicalStableContext(
   { target, deploySha, upstreamRunId, projectId, projectName, releaseManifest },
-  { assertManifest, preConversion } = CURRENT_CONTRACT,
+  assertManifest = assertMainReleaseManifest,
 ) {
   const canonicalTarget = requireString(
     target,
@@ -270,7 +248,7 @@ function canonicalStableContext(
     commitSha: canonicalDeploySha,
     upstreamRunId: canonicalUpstreamRunId,
   });
-  const environment = stableContextEnvironment(canonicalTarget, preConversion);
+  const environment = expectedEnvironment(canonicalTarget);
   const source = "cli";
   const body = stableIntentBody({
     releaseId,
@@ -518,7 +496,7 @@ function auditOriginFromMetadata(metadata) {
   });
 }
 
-function canonicalizeCandidateMetadata(metadata, context, contract) {
+function canonicalizeCandidateMetadata(metadata, context, assertManifest) {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
     throw new Error("Main candidate Vercel metadata is malformed");
   }
@@ -550,7 +528,7 @@ function canonicalizeCandidateMetadata(metadata, context, contract) {
   ) {
     throw new Error("Main candidate Vercel metadata schema is malformed");
   }
-  const manifest = decodeManifest(metadata, contract.assertManifest);
+  const manifest = decodeManifest(metadata, assertManifest);
   const allowedMetadataKeys = new Set([
     "mentoCandidateSchema",
     "mentoReleaseId",
@@ -586,7 +564,7 @@ function canonicalizeCandidateMetadata(metadata, context, contract) {
       projectName: context.projectName,
       releaseManifest: manifest,
     },
-    contract,
+    assertManifest,
   );
   if (
     metadata.mentoReleaseId !== stable.releaseId ||
@@ -607,25 +585,43 @@ function canonicalizeCandidateMetadata(metadata, context, contract) {
 }
 
 export function canonicalizeMainCandidateVercelMetadata(metadata, context) {
-  return canonicalizeCandidateMetadata(metadata, context, CURRENT_CONTRACT);
+  return canonicalizeCandidateMetadata(
+    metadata,
+    context,
+    assertMainReleaseManifest,
+  );
 }
 
-// TRANSITION-V3-PRIOR
 // True only for metadata that is a complete, internally consistent candidate
-// seal from before the App moved to the production environment: the same schema,
-// key allowlist, size bound, manifest structure, stable release/candidate
-// identity, digest, and audit origin the current contract requires, with the
-// two legacy inputs — the retired App alias topology in the manifest and the
-// `v3` environment in the App stable digest — substituted for their current
-// values. A corrupt or partially legacy seal fails every one of those checks
-// and is not admitted here, so it still reaches the ordinary assertion path and
-// fails the run closed. Delete this with the bridge slot in the tighten PR.
-export function isTransitionalPreConversionCandidateMetadata(
-  metadata,
-  context,
-) {
+// seal whose embedded release manifest is bridge-era: the same schema, key
+// allowlist, size bound, manifest structure, stable release/candidate identity,
+// digest, and audit origin the current contract requires, with the single
+// permitted difference being the manifest's App prior — the retired `v3`
+// custom environment and one of that environment's two alias topologies. A
+// corrupt or partially bridge-era seal fails one of those checks and is not
+// admitted here, so it still reaches the ordinary assertion path and fails the
+// run closed. Seals are immutable, so this admission is permanent.
+//
+// The stable body stays production-shaped for every target, deliberately.
+// Verified by generating seals with the real modules at each merge commit
+// (see `scripts/fixtures/vercel-main-candidate/historical-seals.json`):
+//   - 3df6e091 (#890, bridge era) sealed App stable bodies with
+//     `{target: "production", customEnvironmentSlug: null}` — its `v3` stable
+//     body existed only on a read-side classifier, never on a sealing path.
+//   - 1a362e5d (#879, pre-conversion) is the only code that ever bound
+//     `{target: null, customEnvironmentSlug: "v3"}` into a stable body, and
+//     only for App. Those App deployments live in the retired environment, so
+//     `inspectDeploymentRecord` rejects them on the production expectation long
+//     before their metadata is read.
+// Admitting a `v3` stable body here would therefore admit a digest shape no
+// reachable deployment carries, so it is refused.
+export function isBridgeEraCandidateMetadata(metadata, context) {
   try {
-    canonicalizeCandidateMetadata(metadata, context, PRE_CONVERSION_CONTRACT);
+    canonicalizeCandidateMetadata(
+      metadata,
+      context,
+      assertBridgeEraReleaseManifest,
+    );
     return true;
   } catch {
     return false;

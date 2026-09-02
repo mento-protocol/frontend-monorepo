@@ -10,7 +10,7 @@ import {
   createMainCandidateIntent,
   createMainCandidateReceipt,
   createMainCandidateVercelMetadata,
-  isTransitionalPreConversionCandidateMetadata,
+  isBridgeEraCandidateMetadata,
 } from "./vercel-main-candidate.mjs";
 import {
   assertMainCandidateHandoff,
@@ -723,43 +723,51 @@ test("pre-plan mapped inspection reconstructs a marked current-contract candidat
   assert.equal(mapped.canonicalState.git.sha, oldIntent.deploySha);
 });
 
-// TRANSITION-V3-PRIOR: exactly what production serves on the first run after
-// this conversion. The deployment `app.mento.org` maps is v3-shaped and every
-// mapping - App and ordinary alike - is sealed with a release manifest whose
-// App prior still carries the retiring two-alias `v3` topology.
+// A candidate seal is immutable, so a manifest sealed while `app.mento.org`
+// still hung off the retired `v3` custom environment stays readable forever.
+// These helpers build both shapes that environment ever sealed - the bridge
+// era's single reviewed App alias and the two-alias topology that preceded it -
+// digest-rebound so each fixture is a genuine seal rather than a corrupt one.
+const BRIDGE_ERA_APP_ALIASES = Object.freeze(["app.mento.org"]);
 const PRE_CONVERSION_APP_ALIASES = Object.freeze([
   "app.mento.org",
   "appmentoorg-env-v3-mentolabs.vercel.app",
 ]);
 
-function applyPreConversionAppTopology(manifest) {
-  const prior = manifest.originalPriors.app;
-  prior.target = null;
-  prior.customEnvironmentSlug = "v3";
-  prior.aliases = [...PRE_CONVERSION_APP_ALIASES];
-  const leaf = prior.planningLeaves[0];
-  prior.planningLeaves = PRE_CONVERSION_APP_ALIASES.map((alias) => ({
-    ...leaf,
-    alias,
-    aliases: [...PRE_CONVERSION_APP_ALIASES],
-    target: null,
-    customEnvironmentSlug: "v3",
-  }));
-  return manifest;
+function applyBridgeEraAppTopology(aliases) {
+  return (manifest) => {
+    const prior = manifest.originalPriors.app;
+    prior.target = null;
+    prior.customEnvironmentSlug = "v3";
+    prior.aliases = [...aliases].toSorted();
+    const leaf = prior.planningLeaves[0];
+    prior.planningLeaves = [...aliases].toSorted().map((alias) => ({
+      ...leaf,
+      alias,
+      aliases: [...aliases].toSorted(),
+      target: null,
+      customEnvironmentSlug: "v3",
+    }));
+    return manifest;
+  };
 }
 
-// An independent pin of the sealed wire format. A pre-conversion candidate's
-// stable digest is a sha256 over exactly this body, with the retiring `v3`
-// environment for App and the legacy manifest for every target. Rebinding it -
-// rather than swapping only the encoded manifest - is what makes the fixture a
-// genuine legacy seal instead of a corrupt one.
+const applyPreConversionAppTopology = applyBridgeEraAppTopology(
+  PRE_CONVERSION_APP_ALIASES,
+);
+
+// An independent pin of the sealed wire format. A bridge-era candidate's stable
+// digest is a sha256 over exactly this body: the ordinary production
+// environment for every target - a deployment served from the retired custom
+// environment fails its production expectation long before its metadata is
+// read - and the bridge-era manifest. Rebinding it, rather than swapping only
+// the encoded manifest, is what makes the fixture a genuine seal instead of a
+// corrupt one.
 const CANDIDATE_INTENT_SCHEMA = "vercel-main-candidate-intent:v3";
 const CANDIDATE_REPOSITORY = "mento-protocol/frontend-monorepo";
 
-function sealedEnvironment(target) {
-  return target === "app"
-    ? { target: null, customEnvironmentSlug: "v3" }
-    : { target: "production", customEnvironmentSlug: null };
+function sealedEnvironment() {
+  return { target: "production", customEnvironmentSlug: null };
 }
 
 function sealedMetadata(currentIntent, mutate, overrides = {}) {
@@ -779,7 +787,7 @@ function sealedMetadata(currentIntent, mutate, overrides = {}) {
         releaseId: manifest.releaseId,
         candidateId,
         target,
-        environment: sealedEnvironment(target),
+        environment: sealedEnvironment(),
         deploySha,
         upstreamRunId: currentIntent.upstreamRunId,
         source: "cli",
@@ -836,39 +844,108 @@ function mappedProvider(response) {
   });
 }
 
-test("pre-plan mapped inspection treats every pre-conversion sealed mapping as rollback-only", async () => {
-  for (const target of ["governance", "reserve", "ui", "app"]) {
-    const oldIntent = intent(target);
-    const response = deploymentResponse(oldIntent);
-    response.meta = { ...response.meta, ...preConversionMetadata(oldIntent) };
-    if (target === "app") {
-      response.target = null;
-      response.customEnvironment = { slug: "v3" };
-    }
+// Seals are immutable. A mapping sealed while `app.mento.org` still hung off
+// the retired `v3` custom environment - the bridge era's single-alias App
+// prior, or the two-alias topology before it - stays readable permanently and
+// classifies as an unmarked rollback-only prior. The deployments themselves are
+// ordinary production deployments; only the manifest's App prior differs.
+// End-to-end proof against seals produced by the REAL modules at merge commits
+// 3df6e091 (#890) and 1a362e5d (#879). This is the exact wire format the
+// currently serving App production deployment carries, so pre-planning must
+// classify it rather than abort.
+const HISTORICAL_SEALS = JSON.parse(
+  readFileSync(
+    new URL(
+      "./fixtures/vercel-main-candidate/historical-seals.json",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+);
+
+test("pre-planning classifies a genuine historical seal as rollback-only", async () => {
+  for (const [era, target] of [
+    ["bridgeEra", "app"],
+    ["bridgeEra", "governance"],
+    ["preConversion", "governance"],
+  ]) {
+    const { deployment } = HISTORICAL_SEALS[era].seals[target];
+    const response = {
+      ...deployment,
+      customEnvironment:
+        deployment.customEnvironmentSlug === null
+          ? undefined
+          : { slug: deployment.customEnvironmentSlug },
+      meta: {
+        ...deployment.meta,
+        githubCommitSha: deployment.meta.githubCommitSha,
+      },
+    };
+    delete response.customEnvironmentSlug;
     const mapped = await mappedProvider(response).inspectMappedCandidate({
       deploymentId: response.id,
       target,
-      projectId: oldIntent.projectId,
+      projectId: deployment.projectId,
     });
-    assert.equal(mapped.metadata, null);
+    assert.equal(mapped.metadata, null, `${era}/${target}`);
+    assert.equal(mapped.canonicalState.deploymentId, deployment.id);
     assert.deepEqual(
       {
         target: mapped.canonicalState.target,
         customEnvironmentSlug: mapped.canonicalState.customEnvironmentSlug,
       },
-      target === "app"
-        ? { target: null, customEnvironmentSlug: "v3" }
-        : { target: "production", customEnvironmentSlug: null },
+      { target: "production", customEnvironmentSlug: null },
+      `${era}/${target}`,
     );
   }
 });
 
-// The legacy App topology is an allowance, never a bypass: a seal that carries
-// it but is corrupt anywhere else is not a pre-conversion mapping and must
-// still fail the run closed rather than be downgraded to a rollback-only prior.
-// Each case asserts the classification directly, then asserts that discovery
-// still refuses the deployment.
-test("a corrupt seal carrying the pre-conversion App topology still fails closed", async () => {
+test("a mapping sealed during or before the bridge era is admitted as rollback-only", async () => {
+  for (const aliases of [BRIDGE_ERA_APP_ALIASES, PRE_CONVERSION_APP_ALIASES]) {
+    for (const target of ["governance", "reserve", "ui", "app"]) {
+      const oldIntent = intent(target);
+      const response = deploymentResponse(oldIntent);
+      response.meta = {
+        ...response.meta,
+        ...sealedMetadata(oldIntent, applyBridgeEraAppTopology(aliases)),
+      };
+      const mapped = await mappedProvider(response).inspectMappedCandidate({
+        deploymentId: response.id,
+        target,
+        projectId: oldIntent.projectId,
+      });
+      assert.equal(mapped.metadata, null, `${target} ${aliases.length}`);
+      assert.deepEqual(
+        {
+          target: mapped.canonicalState.target,
+          customEnvironmentSlug: mapped.canonicalState.customEnvironmentSlug,
+        },
+        { target: "production", customEnvironmentSlug: null },
+      );
+    }
+  }
+  // The deployment itself is still held to the production contract: one served
+  // from the retired custom environment is rejected before its metadata is even
+  // read, so the manifest admission can never launder a v3 deployment in.
+  const appIntent = intent("app");
+  const v3Response = deploymentResponse(appIntent);
+  v3Response.target = null;
+  v3Response.customEnvironment = { slug: "v3" };
+  await assert.rejects(
+    () =>
+      mappedProvider(v3Response).inspectMappedCandidate({
+        deploymentId: v3Response.id,
+        target: "app",
+        projectId: appIntent.projectId,
+      }),
+    /Unexpected deployment target/,
+  );
+});
+
+// The bridge-era App prior is an allowance, never a bypass: a seal that carries
+// it but is corrupt anywhere else is not a bridge-era mapping and must still
+// fail the run closed rather than be downgraded to a rollback-only prior.
+test("a corrupt seal carrying the bridge-era App topology still fails closed", async () => {
   const oldIntent = intent("app");
   const context = {
     target: "app",
@@ -876,11 +953,10 @@ test("a corrupt seal carrying the pre-conversion App topology still fails closed
     projectName: oldIntent.projectName,
     deploySha: oldIntent.deploySha,
   };
+  // The uncorrupted fixture is genuinely admitted, so each case below isolates
+  // exactly one corruption.
   assert.equal(
-    isTransitionalPreConversionCandidateMetadata(
-      preConversionMetadata(oldIntent),
-      context,
-    ),
+    isBridgeEraCandidateMetadata(preConversionMetadata(oldIntent), context),
     true,
   );
   for (const [name, mutate, overrides] of [
@@ -933,14 +1009,8 @@ test("a corrupt seal carrying the pre-conversion App topology still fails closed
     ],
   ]) {
     const metadata = sealedMetadata(oldIntent, mutate, overrides);
-    assert.equal(
-      isTransitionalPreConversionCandidateMetadata(metadata, context),
-      false,
-      name,
-    );
+    assert.equal(isBridgeEraCandidateMetadata(metadata, context), false, name);
     const response = deploymentResponse(oldIntent);
-    response.target = null;
-    response.customEnvironment = { slug: "v3" };
     response.meta = { ...response.meta, ...metadata };
     if (Object.hasOwn(overrides, "mentoOriginRunId")) {
       delete response.meta.mentoOriginRunId;
@@ -958,69 +1028,67 @@ test("a corrupt seal carrying the pre-conversion App topology still fails closed
   }
 });
 
-// The observed deployment is part of the seal: a legacy manifest that does not
-// bind the project or SHA discovery actually read is not a legacy mapping.
-test("a pre-conversion seal is rejected when it does not bind the observed deployment", () => {
+// Only the two topologies the retired custom environment actually sealed are
+// admitted. Every near miss - the retired alias set without the retired
+// environment, the retired environment with an extra alias, or an ordinary
+// unreadable manifest - fails closed.
+test("only the two exact bridge-era App topologies are admitted", async () => {
   const oldIntent = intent("app");
-  const metadata = preConversionMetadata(oldIntent);
-  for (const context of [
-    {
-      target: "app",
-      projectId: "prj_other",
-      projectName: oldIntent.projectName,
-      deploySha: oldIntent.deploySha,
-    },
-    {
-      target: "app",
-      projectId: oldIntent.projectId,
-      projectName: oldIntent.projectName,
-      deploySha: "b".repeat(40),
-    },
-    {
-      target: "governance",
-      projectId: oldIntent.projectId,
-      projectName: "governance.mento.org",
-      deploySha: oldIntent.deploySha,
-    },
+  const context = {
+    target: "app",
+    projectId: oldIntent.projectId,
+    projectName: oldIntent.projectName,
+    deploySha: oldIntent.deploySha,
+  };
+  for (const [name, mutate] of [
+    [
+      // A production-shaped App prior carrying the retired two-alias topology
+      // was never sealed by any code.
+      "retired aliases without the retired environment",
+      (manifest) => {
+        applyPreConversionAppTopology(manifest);
+        manifest.originalPriors.app.target = "production";
+        manifest.originalPriors.app.customEnvironmentSlug = null;
+        for (const leaf of manifest.originalPriors.app.planningLeaves) {
+          leaf.target = "production";
+          leaf.customEnvironmentSlug = null;
+        }
+        return manifest;
+      },
+    ],
+    [
+      "the retired environment with a third alias",
+      (manifest) => {
+        applyPreConversionAppTopology(manifest);
+        manifest.originalPriors.app.aliases.push("appmentoorg.vercel.app");
+        return manifest;
+      },
+    ],
+    [
+      "a current-contract manifest that is merely unreadable",
+      (manifest) => {
+        manifest.originalPriors.governance.aliases = ["app.mento.org"];
+        return manifest;
+      },
+    ],
+    [
+      // The retired environment may only ever appear on the App prior.
+      "the retired environment on an ordinary prior",
+      (manifest) => {
+        manifest.originalPriors.governance.target = null;
+        manifest.originalPriors.governance.customEnvironmentSlug = "v3";
+        for (const leaf of manifest.originalPriors.governance.planningLeaves) {
+          leaf.target = null;
+          leaf.customEnvironmentSlug = "v3";
+        }
+        return manifest;
+      },
+    ],
   ]) {
-    assert.equal(
-      isTransitionalPreConversionCandidateMetadata(metadata, context),
-      false,
-    );
-  }
-});
-
-test("only the exact pre-conversion App topology is admitted as rollback-only", async () => {
-  const oldIntent = intent("app");
-  for (const mutate of [
-    // The retiring two-alias topology without the retiring environment.
-    (manifest) => {
-      applyPreConversionAppTopology(manifest);
-      manifest.originalPriors.app.target = "production";
-      manifest.originalPriors.app.customEnvironmentSlug = null;
-      for (const leaf of manifest.originalPriors.app.planningLeaves) {
-        leaf.target = "production";
-        leaf.customEnvironmentSlug = null;
-      }
-      return manifest;
-    },
-    // The retiring environment with a third alias.
-    (manifest) => {
-      applyPreConversionAppTopology(manifest);
-      manifest.originalPriors.app.aliases.push("appmentoorg.vercel.app");
-      return manifest;
-    },
-    // A current-contract manifest that is merely unreadable.
-    (manifest) => {
-      manifest.originalPriors.governance.aliases = ["app.mento.org"];
-      return manifest;
-    },
-  ]) {
+    const metadata = sealedMetadata(oldIntent, mutate);
+    assert.equal(isBridgeEraCandidateMetadata(metadata, context), false, name);
     const response = deploymentResponse(oldIntent);
-    response.meta = {
-      ...response.meta,
-      ...sealedMetadata(oldIntent, mutate),
-    };
+    response.meta = { ...response.meta, ...metadata };
     await assert.rejects(
       () =>
         mappedProvider(response).inspectMappedCandidate({
@@ -1029,8 +1097,18 @@ test("only the exact pre-conversion App topology is admitted as rollback-only", 
           projectId: oldIntent.projectId,
         }),
       /Main release manifest/,
+      name,
     );
   }
+  // A current-contract seal must never be laundered through the bridge-era
+  // admission either.
+  assert.equal(
+    isBridgeEraCandidateMetadata(
+      createMainCandidateVercelMetadata({ intent: oldIntent }),
+      context,
+    ),
+    false,
+  );
 });
 
 test("pre-plan release census resolves one exact staged candidate without prior GitHub artifacts", async () => {

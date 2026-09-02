@@ -469,11 +469,12 @@ function mappingSpec(value) {
   };
 }
 
-function validateCommandExecutionResult(value, descriptor) {
+// Every activation command promotes or rolls back an existing deployment, so
+// no command result may carry a newly created candidate. The retired
+// `app-v3-deploy` kind was the only one that ever did.
+function validateCommandExecutionResult(value) {
   const canonical = assertMainActiveCommandResult(value);
-  const expectsCandidate =
-    descriptor.kind === "app-v3-deploy" && canonical.outcome === "success";
-  if ((canonical.candidate !== null) !== expectsCandidate) {
+  if (canonical.candidate !== null) {
     throw new Error("Vercel command result conflicts with its descriptor");
   }
   return canonical;
@@ -645,12 +646,12 @@ export async function runMainActiveCli({
         result = { outcome: "unknown", reason: "spawn-error", candidate: null };
       }
       try {
-        result = validateCommandExecutionResult(result, descriptor);
+        result = validateCommandExecutionResult(result);
       } catch {
         result = { outcome: "unknown", reason: "lost-result", candidate: null };
       }
       completePrivateJsonOutput(output, result, (value) =>
-        validateCommandExecutionResult(value, descriptor),
+        validateCommandExecutionResult(value),
       );
     } catch (error) {
       if (!commandStarted) abortPrivateJsonOutput(output);

@@ -14,8 +14,8 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
+import * as mainActive from "./vercel-main-active.mjs";
 import {
-  MAIN_ACTIVE_APP_BRIDGE_ALIASES,
   MAIN_ACTIVE_COMMAND_TIMEOUT_MS,
   MAIN_ACTIVE_PROMOTABLE_TARGETS,
 } from "./vercel-main-active.mjs";
@@ -948,6 +948,8 @@ test("inherited restoration proves and validates reuse before a durable bounded 
     jobSteps,
     "./.github/actions/vercel-main-active-recovery-transition",
   );
+  // Four mutation slots — one rollback per main target — plus the terminal
+  // slot that turns an unrecovered head into a terminal status.
   assert.equal(transitions.length, MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS + 1);
   assert.deepEqual(
     transitions.map((step) => step.with.slot),
@@ -955,6 +957,14 @@ test("inherited restoration proves and validates reuse before a durable bounded 
       { length: MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS + 1 },
       (_, index) => String(index + 1),
     ),
+  );
+  assert.deepEqual(
+    transitions.map((step) => step.with.slot),
+    ["1", "2", "3", "4", "5"],
+  );
+  assert.equal(
+    named(jobName, "Restore terminal inherited transition 5").with.slot,
+    "5",
   );
   for (const transition of transitions) {
     assert.equal(
@@ -1820,10 +1830,17 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
     (step) =>
       step.uses === "./.github/actions/vercel-main-active-recovery-transition",
   );
+  // Four mutation slots — one rollback per main target — plus the terminal
+  // slot that turns an unrecovered head into a terminal status.
   assert.equal(transitions.length, MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS + 1);
   assert.deepEqual(
     transitions.map((step) => step.with.slot),
-    ["1", "2", "3", "4", "5", "6"],
+    ["1", "2", "3", "4", "5"],
+  );
+  assert.equal(
+    named("recover-main-deployment", "Restore terminal recovery transition 5")
+      .with.slot,
+    "5",
   );
   for (const transition of transitions) {
     assert.match(
@@ -2133,21 +2150,22 @@ test("shadow and no-target paths remain release execution decisions, never termi
 });
 
 test("all public mutation paths have bounded timeouts and journal uploads", () => {
-  // Forward slots are one promote per main target plus the transitional
-  // bridge alias set for `app.mento.org`.
-  assert.equal(
-    (workflow.jobs["activate-and-verify"].steps ?? []).filter(
-      (step) => step.uses === "./.github/actions/vercel-main-active-transition",
-    ).length,
-    MAIN_ACTIVE_PROMOTABLE_TARGETS.length +
-      MAIN_ACTIVE_APP_BRIDGE_ALIASES.length,
+  // Forward slots are exactly one promote per main target. MGP-18 retired the
+  // transitional bridge alias set for `app.mento.org`, so there is no extra
+  // App-only slot and no alias slot can re-enter here.
+  const forwardTransitions = (
+    workflow.jobs["activate-and-verify"].steps ?? []
+  ).filter(
+    (step) => step.uses === "./.github/actions/vercel-main-active-transition",
   );
   assert.equal(
-    (workflow.jobs["activate-and-verify"].steps ?? []).filter(
-      (step) => step.uses === "./.github/actions/vercel-main-active-transition",
-    ).length,
-    5,
+    forwardTransitions.length,
+    MAIN_ACTIVE_PROMOTABLE_TARGETS.length,
   );
+  assert.equal(forwardTransitions.length, 4);
+  for (const transition of forwardTransitions) {
+    assert.equal(transition.with.alias, undefined, transition.name);
+  }
   assert.match(forwardSource, /Upload the durable intent before mutation/);
   assert.match(recoverySource, /Upload recovery intent before mutation/);
 });
@@ -2527,7 +2545,7 @@ test("every main stage job target reaches the production-shadow CLI at runtime",
   }
 });
 
-test("coordinator checkpoints the forward journal before five bounded mutations and commits from final proof", () => {
+test("coordinator checkpoints the forward journal before four bounded mutations and commits from final proof", () => {
   const coordinator = "activate-and-verify";
   const jobSteps = steps(coordinator);
   const barrier = command(coordinator, "stage-barrier");
@@ -2549,12 +2567,22 @@ test("coordinator checkpoints the forward journal before five bounded mutations 
     jobSteps,
     "./.github/actions/vercel-main-active-transition",
   );
-  assert.equal(transitions.length, 5);
+  assert.equal(transitions.length, 4);
+  assert.equal(transitions.length, MAIN_ACTIVE_PROMOTABLE_TARGETS.length);
   assert.deepEqual(
     transitions.map((step) => step.with.slot),
-    ["1", "2", "3", "4", "5"],
+    ["1", "2", "3", "4"],
+  );
+  // The retired bridge occupied a fifth forward slot. Neither that step nor an
+  // alias-carrying forward slot may return.
+  assert.equal(
+    jobSteps.find((step) =>
+      step.name?.includes("Activate bounded Vercel transition 5"),
+    ),
+    undefined,
   );
   for (const transition of transitions) {
+    assert.equal(transition.with.alias, undefined, transition.name);
     assert.match(transition.if, /steps\.freshness\.outputs\.status == 'fresh'/);
     assert.match(
       transition.if,
@@ -3024,19 +3052,49 @@ test("result evaluates the final graph with read-only repository access", () => 
   assert.doesNotMatch(JSON.stringify(result.steps), /check-runs/u);
 });
 
-// MGP-18 retired the legacy App deployment and the App custom `v3`
-// environment. Recovery now compensates one rollback slot per main target
-// plus the transitional bridge alias, and no workflow step may reference the
-// retired snapshot, spec, or terminal proof again.
+// MGP-18 retired the legacy App deployment, the App custom `v3` environment,
+// and the transitional bridge alias that carried `app.mento.org` between them.
+// Recovery now compensates exactly one rollback slot per main target, and no
+// workflow step may reference the retired snapshot, spec, alias operation, or
+// terminal proof again.
 test("reducer constants and action pin boundaries stay covered while the retired legacy path is gone", () => {
   assert.equal(
     MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS,
-    MAIN_ACTIVE_PROMOTABLE_TARGETS.length +
-      MAIN_ACTIVE_APP_BRIDGE_ALIASES.length,
+    MAIN_ACTIVE_PROMOTABLE_TARGETS.length,
   );
-  assert.equal(MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS, 5);
-  assert.deepEqual(MAIN_ACTIVE_APP_BRIDGE_ALIASES, ["app.mento.org"]);
+  assert.equal(MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS, 4);
+  // The bridge topology cannot re-enter: its constant and both command
+  // builders are gone from the adapter module.
+  for (const retired of [
+    "MAIN_ACTIVE_APP_BRIDGE_ALIASES",
+    "buildMainActiveAppAliasSetCommand",
+    "buildMainActiveAppAliasSetSequence",
+    "buildMainActiveAppAliasRestoreCommand",
+    "buildMainActiveAppAliasRestoreSequence",
+  ]) {
+    assert.equal(mainActive[retired], undefined, retired);
+  }
+  assert.doesNotMatch(workflowSource, /app_alias_set|app_alias_restore/);
   assert.doesNotMatch(workflowSource, /appmentoorg-env-v3/);
+  // `--target` survives only as this repository's own logical-target flag on
+  // first-party CLI subcommands. A Vercel custom-environment selector such as
+  // `--target v3` or `--target=production` fails this pin.
+  const targetFlags = [...workflowSource.matchAll(/--target[= ](\S+)/g)].map(
+    (match) => match[1],
+  );
+  assert.ok(targetFlags.length > 0);
+  for (const value of targetFlags) {
+    assert.ok(
+      MAIN_ACTIVE_PROMOTABLE_TARGETS.includes(value),
+      `--target ${value} is not a reviewed logical target`,
+    );
+  }
+  // The only surviving `alias` token is the read-only state query. An
+  // `alias set` step or a re-added alias operation name fails this pin.
+  assert.deepEqual(
+    [...new Set([...workflowSource.matchAll(/alias[\w-]*/g)].map((m) => m[0]))],
+    ["alias-mappings"],
+  );
   assert.doesNotMatch(workflowSource, /app_v3_deploy/);
   assert.doesNotMatch(workflowSource, /legacy/i);
   assert.doesNotMatch(workflowSource, /v2-app\.mento\.org/);

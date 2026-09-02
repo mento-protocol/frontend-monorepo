@@ -15,10 +15,10 @@ The separate automatic `Vercel Main Deployment` workflow is configured as the
 active `main` owner for App, Governance, Reserve, and UI. It runs after
 successful `main` CI, plans from the SHA each public target actually serves,
 stages and verifies all four selected targets, and activates only the plan's
-GitHub-owned targets. App now stages and promotes through the same production
-model as every other target; a transitional bridge alias keeps `app.mento.org`
-repointed until the App project's domain moves into the Production
-environment (see "Transition state" below).
+GitHub-owned targets. App stages and promotes through the same production
+model as every other target: one `vercel promote`, verified at candidate, with
+no bridge alias and no custom environment (see "Transition complete
+(2026-09-02)" below).
 The repository configuration contains no Governance QA environment.
 
 The automatic preview controller's version-controlled
@@ -574,11 +574,9 @@ unselected means skipped with none). If App is in `shadowTargets`, the release
 stops there with a genuine staged-but-unpromoted App deployment. If App is in
 `activeTargets`, its activation turn runs `vercel promote
 <exact-staged-id-or-url>`, the same command every other target uses, verified
-to leave `app.mento.org` at its captured prior — the domain still lives in the
-retiring `v3` custom environment, so a promote cannot move it. One further
-bridge `vercel alias set <candidate-immutable-url> app.mento.org` transition
-immediately follows, repointing the reviewed domain from prior to candidate
-and proving it. See "Transition state" below.
+to leave `app.mento.org` at its candidate — App's domain lives in the ordinary
+Production environment, so the promote alone carries it. See "Transition
+complete (2026-09-02)" below.
 
 Because `stage-app` runs in parallel, a failed ordinary stage no longer aborts
 the release before the App build starts; that build cost is now spent
@@ -653,10 +651,7 @@ can continue. Every forward operation follows the same durable sequence:
 
 Governance, Reserve, UI, and App use
 `vercel promote <exact-staged-id-or-url>` in canonical target order. App
-promotes last and is verified to leave `app.mento.org` at its captured prior;
-one bridge `vercel alias set <candidate-immutable-url> app.mento.org`
-transition immediately follows, repointing the reviewed domain from prior to
-candidate. See "Transition state" below.
+promotes last and is verified at candidate, the same as every other target.
 The protected executor binds every Vercel mutation to the validated
 `VERCEL_ORG_ID` with the CLI's explicit `--scope` option; the durable command
 descriptor cannot supply or override that runner-owned scope.
@@ -665,12 +660,12 @@ enter the mutation list. After all active operations and public smokes pass,
 the controller persists the committed journal state.
 
 The checked-in all-GitHub-owned path is statically unrolled for up to the
-prepared snapshot, three snapshots for each of the five forward operations
-(Governance, Reserve, UI, App's promote, and App's bridge alias set), then the
-committed snapshot: at most 17 journal artifacts (1 prepared + 5 × 3 + 1
-committed). App's bridge alias-set can already move the reviewed domain, so a
-later turn safely stops at the reducer's no-journal final-proof transition and
-does not upload an unused snapshot. The
+prepared snapshot, three snapshots for each of the four forward operations
+(Governance, Reserve, UI, App — one promote per promotable target), then the
+committed snapshot: at most 14 journal artifacts (1 prepared + 4 × 3 + 1
+committed; sequence 0 through 13). A promote can already move its reviewed
+domain, so a later turn safely stops at the reducer's no-journal final-proof
+transition and does not upload an unused snapshot. The
 reusable transition action accepts only a reviewed reducer authorization; it
 does not accept a raw Vercel command or target name. This keeps the
 upload-before-mutation boundary visible in the workflow while avoiding shell
@@ -686,10 +681,10 @@ the highest valid snapshot. A prepared transaction with no started mutation is
 either verified as already restored or compensated in reverse mutation order
 to the exact captured prior mapping. An unexpected operator-owned mapping
 records manual intervention instead of overwriting it. The workflow
-therefore has five static recovery turns — one compensation slot for each of
-the four promotable targets (Governance, Reserve, UI, App) plus one further
-slot for App's bridge alias restore — followed by one final terminalization
-invocation: six composite invocations per recovery unrolling.
+therefore has four static recovery turns — one compensation slot for each of
+the four promotable targets (Governance, Reserve, UI, App) — followed by one
+final terminalization invocation: five composite invocations per recovery
+unrolling.
 `recover-main-deployment` carries a 60-minute job timeout and
 `restore-inherited-release` carries a 90-minute job timeout; each bounds those
 composite invocations at the 120-second command limit alongside checkout, API
@@ -809,11 +804,11 @@ fails closed at mutation time.
 
 Generic JSON bridge inputs and outputs remain capped at 256 KiB. Full active
 journal history and terminal proofs alone use dedicated 1 MiB ceilings. That
-bound admits the structurally limited 10-operation transaction envelope: five
-forward operations (one promote per promotable target plus App's bridge alias
-set) plus five recovery operations (one compensation slot per promotable
-target plus App's bridge alias restore). It does not widen single-journal,
-provider-discovery, plan, mapping, smoke, or other workflow inputs.
+bound admits the structurally limited 8-operation transaction envelope: four
+forward operations (one promote per promotable target) plus four recovery
+operations (one compensation slot per promotable target). It does not widen
+single-journal, provider-discovery, plan, mapping, smoke, or other workflow
+inputs.
 
 ### Historical PR-A shadow canary and copy-safe diagnostics
 
@@ -909,59 +904,45 @@ from exact immutable IDs. Before every command it uploads a `started` journal;
 after the command it inspects exact public mapping and uploads the verified
 next sequence. Governance, Reserve, UI, and App all use
 `vercel promote <exact-staged-id-or-url>`, in that canonical order. App's
-promote is verified to leave `app.mento.org` at its captured prior — the
-domain still lives in the retiring `v3` custom environment — then one bridge
-`vercel alias set <candidate-immutable-url> app.mento.org` transition
-repoints and proves it. See "Transition state" below. The executor adds the
-validated runner-owned `VERCEL_ORG_ID` as the exact CLI `--scope`; command
-descriptors cannot select a different account.
+promote is verified at `candidate`, the same as every other target — the
+domain lives in the ordinary Production environment, so the promote carries
+it directly. The executor adds the validated runner-owned `VERCEL_ORG_ID` as
+the exact CLI `--scope`; command descriptors cannot select a different
+account.
 
-#### Transition state (until the app.mento.org domain move)
+#### Transition complete (2026-09-02)
 
-App converted from the custom-`v3` deploy model to the ordinary
-staged-production model, but `app.mento.org` itself has not moved yet: it is
-still assigned to the retiring `v3` custom environment until an operator moves
-it into the App project's Production environment through the Vercel dashboard.
-Until that move:
+MGP-18's final tighten step removed every transitional mechanism that carried
+`app.mento.org` while it still lived in the retiring `v3` custom environment.
+App now promotes and is verified exactly like Governance, Reserve, and UI:
 
-- App's promote deliberately verifies at `prior`, never `candidate` — a
-  promote cannot repoint a domain that lives in a different environment. The
-  bridge `app_alias_set`/`app_alias_restore` alias transition is the only
-  operation that actually moves `app.mento.org`, and it is proved
-  independently.
-- Prior-facing capture, planning, journal, and recovery code accepts both the
-  new production shape (`target: "production"`, `customEnvironmentSlug: null`)
-  and the retiring v3 shape (`target: null`, `customEnvironmentSlug: "v3"`) for
-  the deployment `app.mento.org` served before a release. Candidate-facing
-  validation — staged deployments, promote verification, final mappings — only
-  ever accepts the production shape.
-- Every tolerance site carries a `TRANSITION-V3-PRIOR` comment
-  (`grep -rn TRANSITION-V3-PRIOR scripts/`); each one is deleted, along with
-  the bridge alias slot itself, in the follow-up tighten PR once the domain has
-  moved and every served App prior is production-shaped.
-- Recovery mirrors the same split: while the App prior is still v3-shaped, App
-  compensation is `app_alias_restore` (restore the bridge alias to its
-  captured prior), never `ordinary_rollback` — `vercel rollback` only restores
-  a production deployment. Once the App prior is production-shaped,
-  `ordinary_rollback` applies to App exactly like every other target. When the
-  bridge already moved `app.mento.org` and the plan restores every reviewed App
-  alias to that captured prior, the App promote slot is a compensated noop, so
-  an interruption after the bridge recovers without a human. A moved reviewed
-  alias that no restore covers stays `manual_intervention`.
-- Pre-plan discovery reads the release manifest sealed into each mapped
-  deployment. Every deployment sealed before this conversion carries the
-  retiring two-alias App prior topology, which the current manifest contract
-  refuses, so those mappings are treated as unmarked rollback-only priors on
-  the first post-merge run: all four targets are selected and no stale release
-  is resumed. A mapping earns that classification only by passing the whole
-  candidate-seal contract — schema, key allowlist, size bound, all four
-  original priors and their exact key sets, stable release and candidate
-  identity, stable intent digest, and audit origin, each bound to the project
-  and SHA actually observed — with exactly two legacy inputs substituted: the
-  retired App alias topology in the manifest and the `v3` environment in the
-  App stable digest. A seal that carries the legacy App topology but is corrupt
-  anywhere else is not a pre-conversion mapping and still fails the run closed.
-  This self-heals after the first release.
+- there is no bridge alias operation. `promote` and `ordinary_rollback` are the
+  only operation types; `app_alias_set`, `app_alias_restore`, and the
+  bridge-specific `verified_noop` rule are deleted;
+- prior-facing and candidate-facing validation both require the production
+  shape (`target: "production"`, `customEnvironmentSlug: null`) for App. A
+  provider deployment in the retired v3 environment (`target: null`,
+  `customEnvironmentSlug: "v3"`) fails closed before its metadata is read.
+  One narrow historical admission remains, permanently: a mapped production
+  deployment whose immutable seal carries a bridge-era release manifest —
+  fully valid under the current contract except for the exact bridge-era App
+  prior shape — is classified as an unmarked rollback-only prior. Seals are
+  immutable and an operator rollback can re-map one at any time. Any other
+  deviation in such a seal still fails closed;
+- `grep -rn TRANSITION-V3-PRIOR scripts/` returns nothing; every tolerance site
+  and its comment are deleted;
+- the retired generated alias `appmentoorg-env-v3-mentolabs.vercel.app` is
+  rejected everywhere it could appear — priors, candidates, and manual-pilot
+  input; and
+- `ENVIRONMENT_SEMANTICS.v3` is deleted from
+  `scripts/vercel-build-environment.mjs`; `TARGET_ENVIRONMENTS.app` is
+  `["preview", "production"]`, the same shape as every other target. No v3
+  environment semantics exist anywhere in this repository.
+
+Provider-side, `app.mento.org` is a Production-environment domain,
+`v2-app.mento.org` is a 308 redirect to `app.mento.org`, and the `v3` custom
+environment is empty. It is deleted from the Vercel project after this PR
+merges.
 
 After active-mode activation, run the credential-free public smoke for every
 selected target with its literal URL:
@@ -1037,19 +1018,10 @@ vercel rollback <captured-prior-id-or-url>
 
 Then bounded-wait for readiness, inspect every reviewed public custom domain,
 verify the exact captured prior ID, run the public browser smoke, and record
-that the project entered rollback state. Never substitute `latest`.
-
-TRANSITION-V3-PRIOR: while `app.mento.org` still serves the v3-shaped prior,
-`vercel rollback` cannot apply to App — that command only restores a
-production deployment. Restore the bridge alias instead:
-
-```text
-vercel alias set <captured-prior-immutable-url> app.mento.org
-```
-
-Verify the alias. Once the App prior is production-shaped, App recovers
-through the same `vercel rollback` as every other target, and this exception
-is deleted with the bridge slot.
+that the project entered rollback state. Never substitute `latest`. App's
+prior is always production-shaped, so App recovers through this same
+`vercel rollback` command as every other target — there is no separate App
+exception.
 
 ### Target-local main ownership rollback
 
@@ -1058,13 +1030,8 @@ without disabling proven GitHub-owned targets:
 
 1. In one reviewed recovery PR, change only that target's
    `mainOwnershipMode` from `github` to `shadow` and restore its exact native
-   `main` branch rule. Governance, Reserve, UI, and (once its domain has moved
-   into Production) App use `{"**": false, "main": true}`. Do not use this
-   procedure for App while `app.mento.org` is still assigned to the retiring
-   `v3` custom environment: a native `main` branch rule would create a
-   production-target deployment without moving that domain. Recover App
-   through the bridge alias-restore procedure above until the domain moves.
-   Keep the global main controller `active`.
+   `main` branch rule. Governance, Reserve, UI, and App all use
+   `{"**": false, "main": true}`. Keep the global main controller `active`.
 2. Leave every target's preview `ownershipMode` as `github` and leave the
    preview controller `active`. Main rollback never re-enables ordinary native
    branch previews.
@@ -1082,9 +1049,6 @@ without disabling proven GitHub-owned targets:
 6. Before a later re-cutover, repeat the shadow proof, then change that target's
    main ownership map and exact Vercel branch rule back to the GitHub pairing in
    one reviewed commit.
-7. For App, while the domain has not yet moved, verify `app.mento.org` still
-   resolves through the bridge alias to its production candidate. After the
-   domain move, verify App `main -> production` like every other target.
 
 Restoring only `vercel.json` is insufficient after `vercel rollback`; the exact
 promote/canary sequence proves native automatic ownership has resumed.
@@ -1105,9 +1069,7 @@ native Vercel:
 4. Keep all four previews GitHub-owned unless a separate reviewed preview
    rollback is required. Do not couple main-owner restoration to preview
    ownership or recreate the removed Governance QA environment.
-5. For App, while the domain has not yet moved into Production, verify
-   `app.mento.org` still resolves through the bridge alias; afterward verify
-   App `main -> production` like every other target.
+5. Verify App `main -> production` like every other target.
 6. Before any rollback that removes a target's catch-all branch rule, confirm
    the retired `v2` branch is deleted and the App project's production-branch
    setting no longer names it. A branch-rule map without a matching rule
@@ -1313,14 +1275,13 @@ workflows restore the following safe constants before validating and building:
 | ---------------------- | ------------ | ------------------- | ------------------------ |
 | Standard preview       | `preview`    | `preview`           | `preview`                |
 | Production             | `production` | `production`        | `production`             |
-| App custom `v3`        | `preview`    | `v3`                | `preview`                |
 
-App's `main` deployment now uses the Production row, like every other target,
-and receives `SENTRY_AUTH_TOKEN` for the first time. The `v3` row is
-superseded: no live path builds App with it any more, but the
-`ENVIRONMENT_SEMANTICS.v3` entry in `scripts/vercel-build-environment.mjs` and
-the CLI's `--target v3` option still exist provider-side until the
-domain-move tighten step deletes the retiring custom environment.
+App's `main` build uses the Production row, like every other target, and
+receives `SENTRY_AUTH_TOKEN`. MGP-18's final tighten step deleted the
+`ENVIRONMENT_SEMANTICS.v3` entry from `scripts/vercel-build-environment.mjs`;
+`TARGET_ENVIRONMENTS.app` is `["preview", "production"]`, the same shape as
+every other target. No v3 build environment exists anywhere in this
+repository.
 
 The repository's Vercel-system-variable reads are deliberately limited:
 
@@ -1333,8 +1294,7 @@ The repository's Vercel-system-variable reads are deliberately limited:
 - `VERCEL_TARGET_ENV` selects preview-only CSP allowances in
   `scripts/security-headers.mjs`. Only the literal `preview` target permits the
   Vercel toolbar origin; App's production target remains strict, same as
-  Governance, Reserve, and UI. The now-unused `v3` row would have kept that
-  same strict behavior even though it built with `VERCEL_ENV=preview`.
+  Governance, Reserve, and UI.
 - No other Vercel system variable is a required build-time input in the current
   application source. A future read must be added to this contract and its
   fixture tests before the workflows may rely on it.
@@ -1381,13 +1341,12 @@ or invalid pulled file fails closed. Its machine-readable inventory is available
 directly:
 
 Production-shadow pulls intentionally omit `--git-branch`: the contract-pinned CLI
-accepts that option only with the `preview` target. `--environment v3` or
-`--environment production` selects the exact custom or production
-configuration; the guarded source SHA, `VERCEL_GIT_COMMIT_REF=main`, and deploy
-metadata carry exact-main provenance independently. Those are raw, explicit Git
-identity and provenance fields; they do not claim Vercel provider-linked
-branch-domain behavior. `githubDeployment=1` remains intentionally forbidden by
-the issue contract.
+accepts that option only with the `preview` target. Every target, App
+included, pulls with `--environment production`; the guarded source SHA,
+`VERCEL_GIT_COMMIT_REF=main`, and deploy metadata carry exact-main provenance
+independently. Those are raw, explicit Git identity and provenance fields;
+they do not claim Vercel provider-linked branch-domain behavior.
+`githubDeployment=1` remains intentionally forbidden by the issue contract.
 
 ```bash
 node scripts/vercel-build-environment.mjs inventory \
@@ -1404,9 +1363,9 @@ scope documented below.
 
 | Target     | Variable                                | Required environments     | CI classification          |
 | ---------- | --------------------------------------- | ------------------------- | -------------------------- |
-| app        | `NEXT_PUBLIC_STORAGE_URL`               | preview, `v3`, production | `vercel-pull`              |
-| app        | `NEXT_PUBLIC_WALLET_CONNECT_ID`         | preview, `v3`, production | `vercel-pull`              |
-| app        | `NEXT_PUBLIC_SENTRY_DSN_SWAP`           | preview, `v3`, production | `vercel-pull`              |
+| app        | `NEXT_PUBLIC_STORAGE_URL`               | preview, production       | `vercel-pull`              |
+| app        | `NEXT_PUBLIC_WALLET_CONNECT_ID`         | preview, production       | `vercel-pull`              |
+| app        | `NEXT_PUBLIC_SENTRY_DSN_SWAP`           | preview, production       | `vercel-pull`              |
 | app        | `SENTRY_AUTH_TOKEN`                     | production semantics only | `sensitive-non-exportable` |
 | governance | `NEXT_PUBLIC_BLOCKSCOUT_API_URL`        | preview, production       | `vercel-pull`              |
 | governance | `NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL`    | preview, production       | `vercel-pull`              |
@@ -1533,15 +1492,10 @@ system aliases but do not move protected/custom production domains. Dispatch it
 from `main` with:
 
 - `deploy_sha`: a full 40-character commit SHA that exactly equals the fetched
-  `refs/remotes/origin/main` tip;
-- `app_v3_aliases_json`: the exact reviewed JSON array
-  `["app.mento.org","appmentoorg-env-v3-mentolabs.vercel.app"]` for the app
-  project's custom `v3` deployment. It must not omit either entry or add
-  another alias.
+  `refs/remotes/origin/main` tip.
 
-Do not guess the alias list. Capture it read-only, review it, then use the exact
-literal array for the pilot and record it for the activation issue. The workflow
-will not read a credential manager or attempt to recover a missing credential.
+The workflow will not read a credential manager or attempt to recover a
+missing credential.
 
 Every credential-bearing job uses the dedicated `vercel-cli-production` GitHub
 Environment with `deployment: false`. This prevents an implicit GitHub
@@ -1708,18 +1662,17 @@ they receive neither production credentials nor a protected GitHub Environment.
 ### Protected-domain transaction boundary
 
 Before building, the workflow uses `scripts/vercel-deployment-state.mjs` to
-capture an allowlisted snapshot for the reviewed app-v3 aliases and the
-governance, reserve, and UI production domains. The
-state helper calls only Vercel's read endpoints for aliases, deployments,
-deployment aliases, and projects. It emits only canonical project, deployment,
-readiness, environment, Git, and alias fields; raw API responses, protection
-bypass data, and environment arrays never enter logs or artifacts.
-The reviewed app-v3 input must exactly equal the deployment's complete,
-normalized alias set. The current reviewed topology has two entries:
-`app.mento.org` and `appmentoorg-env-v3-mentolabs.vercel.app`. An omitted or
-extra alias fails baseline capture.
+capture an allowlisted snapshot of all four production domains: app,
+governance, reserve, and UI. The state helper calls only Vercel's read
+endpoints for aliases, deployments, deployment aliases, and projects. It
+emits only canonical project, deployment, readiness, environment, Git, and
+alias fields; raw API responses, protection bypass data, and environment
+arrays never enter logs or artifacts.
 
-Governance, reserve, and UI each execute this staged sequence:
+App, governance, reserve, and UI each execute this staged sequence. App is
+an ordinary staged shadow target like the other three; its job is serialized
+last, after `governance`, `reserve`, `ui`, and `smoke-ui`, so a drift caught
+by an earlier target's smoke still stops the run before App builds:
 
 ```text
 runner:    vercel pull --yes --environment=production
@@ -1740,6 +1693,7 @@ supported zero-generated-alias mode.
 The controller pins the project and scope slugs for each literal target and
 requires its base alias:
 
+- App: `appmentoorg-mentolabs.vercel.app`
 - Governance: `governancementoorg-mentolabs.vercel.app`
 - Reserve: `reservementoorg-mentolabs.vercel.app`
 - UI: `uimentoorg-mentolabs.vercel.app`
@@ -1772,11 +1726,14 @@ immutable hostname, protected/custom domains, project-default alias, Git alias,
 wrong-target alias, and every other alias remain forbidden.
 
 Served-prior planning uses a separate finite contract because generated aliases
-can move independently of the protected custom domain. For Governance, Reserve,
-and UI, a served deployment may retain any canonical subset of its reviewed
-base project/scope alias, exact project-default alias, exact canonical creator
+can move independently of the protected production domain. For all four
+targets — App included, now that its prior is always production-shaped — a
+served deployment may retain any canonical subset of its reviewed base
+project/scope alias, exact project-default alias, exact canonical creator
 alias when that name is safe, and literal native-Git `main` alias:
 
+- App: `appmentoorg-mentolabs.vercel.app`, `appmentoorg.vercel.app`, and
+  `appmentoorg-git-main-mentolabs.vercel.app`
 - Governance: `governancementoorg-mentolabs.vercel.app`,
   `governancementoorg.vercel.app`, and
   `governancementoorg-git-main-mentolabs.vercel.app`
@@ -1859,33 +1816,40 @@ automate this restoration and never restore by a mutable `latest` lookup. The
 final job repeats the same read-only check directly from the trusted workflow
 tree and does not install or execute candidate dependencies.
 
-### App production build-only Outcome B
+### App is an ordinary staged shadow target
 
-The app job runs only:
+MGP-18's final tighten step removed App's build-only special case. The app job
+now runs the same staged sequence as Governance, Reserve, and UI:
 
 ```text
-vercel pull --yes --environment=production
-vercel build --yes --standalone --prod
+runner:    vercel pull --yes --environment=production
+candidate: vercel build --yes --standalone --prod
+runner:    validate -> immutable handoff -> destroy candidate boundary
+runner:    vercel deploy --prebuilt --prod --skip-domain --archive=tgz --format=json
 ```
 
-App builds with production semantics here — `VERCEL_ENV=production`,
+App builds with production semantics — `VERCEL_ENV=production`,
 `VERCEL_TARGET_ENV=production`, `NEXT_PUBLIC_VERCEL_ENV=production`, and a real
 `SENTRY_AUTH_TOKEN` — the same as its `stage-app` build in the automatic main
-pipeline. The job stays build-only by design, not by CLI limitation: the
-automatic `Vercel Main Deployment` workflow is the only path that deploys and
-activates an App production candidate. This manual pilot never creates an App
-URL.
+pipeline, and now uploads a real, non-promoting deployment the same way. As
+with the other three targets, `--skip-domain` keeps `app.mento.org` untouched;
+the automatic `Vercel Main Deployment` workflow remains the only path that
+promotes an App production candidate. The job verifies its deployment's
+provenance, readiness, immutable URL, and generated aliases with
+`assert-generated-aliases --target app`, and both the per-job and final
+protected-mapping comparisons cover App exactly like every other target.
 
-The job still records the activation shape this pilot itself would use if it
-ever deployed:
+There is no dedicated `smoke-app` job yet: Governance, Reserve, and UI each get
+a separate browser-smoke job against their staged URL (see "Direct
+production-shadow smoke" below); App does not. Adding one is tracked as
+follow-up work.
 
-```text
-vercel deploy --prebuilt --prod --skip-domain --archive=tgz --format=json
-```
-
-That is exactly the command the automatic pipeline's `stage-app` job already
-runs; this pilot deliberately does not run it, to keep App's one real
-production activation on the automatic path only.
+The pilot evidence says so plainly rather than inheriting the other targets'
+result. `SMOKED_PRODUCTION_SHADOW_TARGETS` names the three targets that do have
+a smoke job, the summary's App row renders its Runtime/browser cell as
+`not-run (no App smoke spec yet)`, and the summary states that browser coverage
+spans governance, reserve, and UI only. A broken App deployment therefore
+cannot produce evidence that claims browser coverage it never had.
 
 ### Direct production-shadow smoke
 
@@ -1933,8 +1897,8 @@ a cross-origin redirect. The fresh smoke job never links or executes candidate
 stays disabled to keep diagnostic artifacts bounded.
 
 Do not run the manual pilot until the required GitHub Environment, repository
-variables, production token, mirrored build-variable names, and reviewed app-v3
-alias list are confirmed present. The workflow itself performs no Vercel Git
+variables, production token, and mirrored build-variable names are confirmed
+present. The workflow itself performs no Vercel Git
 setting, explicit alias, promotion, environment-configuration, ownership,
 protected/custom production-domain, or serving-deployment cleanup command. Each
 ordinary deploy still performs the bounded implicit movement of its reviewed
@@ -1977,12 +1941,14 @@ canonical Vercel state fixtures, read-only protected mapping failures, workflow
 structure, and direct runtime-smoke structure. `vercel:workflow:test` also
 covers exact-attempt main CI, served-SHA planning, state discovery,
 transaction/recovery, public runtime, controller, and automatic-workflow
-structure. It also pins that `stage-app` now stages and promotes exactly like
-Governance, Reserve, and UI — five forward transition slots, the required
+structure. It also pins that `stage-app` stages and promotes exactly like
+Governance, Reserve, and UI — four forward transition slots, the required
 candidate receipt, and no App-only carve-out — and that the retired same-run
 App custom-`v3` payload handoff (its job outputs, archive tar flags, and
 post-extraction `assert-output` re-verification) has no output or job-source
-match left. Those commands are offline and do not contact or mutate Vercel. The
+match left. It also pins that `promote` and `ordinary_rollback` are the only
+operation types and that `TRANSITION-V3-PRIOR` has no remaining match. Those
+commands are offline and do not contact or mutate Vercel. The
 separate routing
 regression starts two loopback origins and the Playwright-pinned Chromium to
 prove a cross-origin redirect cannot inherit a protection header.
@@ -2007,9 +1973,8 @@ UI, Reserve, and Governance use these project-level Vercel settings:
 - `resourceConfig.elasticConcurrencyEnabled`: `false`
 
 App is excluded. Its production deployment shares one Vercel project with
-App's preview builds and the retiring custom `v3` environment. A project-level
-setting change could affect more than the intended target and increase
-activation-recovery risk.
+App's preview builds. A project-level setting change could affect more than
+the intended target and increase activation-recovery risk.
 
 The read-only `project` mode in `scripts/vercel-deployment-state.mjs` remains
 available to verify a project's reviewed ID, name, and Root Directory. It does
@@ -2185,13 +2150,13 @@ additional exact GitHub-owned configuration the recognizer accepts alongside
 new state, changes no tracked configuration, and never widens the
 native-owned side; every other candidate still fails closed. Add an entry in
 its own PR, merge that PR first, then merge the PR that adopts the shape, and
-delete the entry once the migration completes. The list is empty for every
-target except App, which carries the retired pre-MGP-18 active shape
-(`{"**": false, "v2": true}`) so open pull requests branched before the `v2`
-retirement stay recognized as GitHub-owned until their heads refresh. The
-entry is recognition-only and is removed in the v3-normalization tighten
-step. Executable pins keep the other three targets empty so transitions stay
-deliberate.
+delete the entry once the migration completes. The mechanism stays, but the
+list is empty for all four targets: MGP-18's final tighten step removed App's
+transitional pre-retirement active shape (`{"**": false, "v2": true}`) now
+that every open head carries the generic active shape. No target may carry an
+entry without a migration in flight, and the retired shape can no longer be
+recognized anywhere. Executable pins keep every target's list empty so
+transitions stay deliberate.
 
 `active` creates at most one independent worker per affected target and
 rechecks the current and selected immutable ownership inputs immediately before
@@ -3096,6 +3061,11 @@ Note (2026-09-01): MGP-18 retired the legacy App v2 path. The "App `v2`/`v3`
 behavior" reference above is historical; App's `v2 -> production` path no
 longer exists.
 
+Note (2026-09-02): MGP-18's final tighten step also retired App's custom `v3`
+environment. The "`v3`" half of the reference above is historical too; App now
+deploys and promotes through the ordinary production environment like every
+other target.
+
 The version-controlled pair is preparation, not proof that Reserve has cut
 over successfully. Before accepting the cutover, inventory and rebase every
 Reserve-runtime validation branch that still carries the native configuration.
@@ -3250,6 +3220,10 @@ Note (2026-09-01): MGP-18 retired the legacy App v2 path referenced above (in
 the PR-scope paragraph and the acceptance matrix); App's `v2 -> production`
 path no longer exists.
 
+Note (2026-09-02): MGP-18's final tighten step also retired App's custom `v3`
+environment referenced above; App now deploys and promotes through the
+ordinary production environment like every other target.
+
 Do not call Governance cut over, begin the App cutover, or close the rollout
 item until both the exact-head matrix and the fresh post-merge Governance
 canary pass. Workflow logs, Reserve evidence, a native `main` deployment, or a
@@ -3378,6 +3352,11 @@ Governance QA environment.
 Note (2026-09-01): MGP-18 retired the legacy App v2 path. The current
 `apps/app.mento.org/vercel.json` is `{"git":{"deploymentEnabled":false}}`, like
 the other three apps; the `v2: true` entry shown above no longer exists.
+
+Note (2026-09-02): MGP-18's final tighten step also retired App's custom `v3`
+build, activation, domain, and rollback semantics referenced above. App now
+builds, deploys, and promotes through the ordinary production environment,
+the same as Governance, Reserve, and UI, with no separate `v3` target.
 
 The version-controlled pair is preparation, not proof that App has cut over
 successfully. Before accepting the cutover, inventory and rebase every
@@ -3516,6 +3495,11 @@ or recreate Governance QA as part of this rollback.
 
 Note (2026-09-01): MGP-18 retired the legacy App v2 path. This rollback
 procedure and its configuration shapes no longer carry a `v2` entry.
+
+Note (2026-09-02): MGP-18's final tighten step also retired App's custom `v3`
+environment. The "App `main -> v3`" references above are historical; App's
+`main` now deploys and promotes through the ordinary production environment,
+the same as every other target.
 
 ## UI Vercel Git cutover (Phase B)
 

@@ -235,12 +235,11 @@ fails closed before the release continues.
 
 Every selected target — Governance, Reserve, UI, and App — stages and verifies
 an immutable candidate with `--prod --skip-domain`. Only an `activeTargets`
-member may mutate its public mapping. Each active target promotes its exact
-staged deployment. Each shadow target stops after staged verification. When App
-is active, its promote is verified to leave `app.mento.org` at its prior, and one
-transitional bridge alias-set transition then repoints the domain to the
-candidate — a carry-over from the retiring App custom `v3` environment, removed
-once the domain moves into Production. Before and after each public mutation,
+member may mutate its public mapping: every target promotes its exact staged
+deployment. App's promote is verified at `candidate`, exactly like every other
+target — `promote` and `ordinary_rollback` are the only operation types, and
+there is no bridge alias and no custom `v3` environment. Before and after each
+public mutation,
 the controller rechecks freshness and protected state and persists the next
 durable journal transition. Recovery restores exact captured mappings in reverse
 mutation order and treats unknown operator-owned state as manual intervention.
@@ -257,12 +256,15 @@ complete release takes the journal-free `current-release-verified` route: it
 rechecks current mappings, deployment census/state, raw public runtime smokes,
 and freshness without replaying a mutation. An
 interrupted release uses a new current-attempt journal and current
-protected-state snapshot. App shadow preparation stages and verifies a real
-Production candidate, then stops without promotion or protected-domain/public
-mapping mutation. Its receipt is terminal non-authorizing evidence. The
-terminal receipt and evidence are the only compact final-verdict handoff and
-support final-only reruns. A release identity is evidence lookup only; it never
-authorizes a prior attempt's mutation sequence.
+protected-state snapshot. In the automatic pipeline's shadow mode, App
+preparation is build-only terminal evidence and creates no provider deployment.
+The separate manual production-shadow pilot does create a staged App production
+deployment (`--prod --skip-domain`), which moves no protected domain; its
+browser coverage spans governance, reserve, and UI only, so its App evidence row
+reports the runtime check as not run. The terminal receipt and evidence are
+the only compact final-verdict handoff and support final-only reruns. A release
+identity is evidence lookup only; it never authorizes a prior attempt's
+mutation sequence.
 
 Target-local main rollback restores only that target's reviewed native `main`
 configuration and changes only its `mainOwnershipMode` to `shadow`; ordinary
@@ -291,9 +293,12 @@ all build-boundary state below the target-scoped, authenticated
 `/var/lib/mento-vercel-runtime-<run>-<attempt>-<target>/work` root, seal
 `RUNNER_TEMP` to runner-owned mode `0700` before candidate execution, and
 reauthenticate and remove the exact runtime in a final `if: always()` step.
-Preserve App's production build as build-only in this manual pilot; only the
-automatic main pipeline deploys and activates it.
-Governance, Reserve, and UI uploads must avoid custom production domains and
+The manual pilot stages an App production candidate with
+`--prod --skip-domain` like every ordinary target; only the automatic main
+pipeline promotes and activates it, and the pilot never mutates a protected
+domain. Pilot browser coverage spans Governance, Reserve, and UI only, so the
+App evidence row reports the runtime check as not run.
+Governance, Reserve, UI, and App uploads must avoid custom production domains and
 must expose the immutable deployment hostname through the deployment URL/state
 identity. The provider alias list must contain the target's reviewed literal
 base project/team alias and may contain at most one author alias derived exactly

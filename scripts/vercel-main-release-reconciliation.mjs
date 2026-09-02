@@ -4,9 +4,7 @@ import {
   acceptsPriorEnvironment,
   MAIN_DEPLOYMENT_TARGETS,
   MAIN_TARGET_CONTRACTS,
-  TRANSITIONAL_APP_PRIOR_GENERATED_ALIAS,
   assertMainDeploymentPlan,
-  isTransitionalAppPriorEnvironment,
   partitionMainOwnership,
   planMainDeployments,
 } from "./vercel-main-plan.mjs";
@@ -183,28 +181,49 @@ function canonicalOwnership(mode, mainOwnershipMode) {
   };
 }
 
-// TRANSITION-V3-PRIOR
-// The reviewed App alias topology a pre-conversion release manifest was sealed
-// with. It is the single permitted difference between a legacy manifest and a
-// current one; every other field is validated by the same machinery either way.
-const TRANSITIONAL_PRE_CONVERSION_APP_ALIASES = Object.freeze([
-  "app.mento.org",
-  TRANSITIONAL_APP_PRIOR_GENERATED_ALIAS,
+// A candidate seal is immutable, so a manifest sealed while `app.mento.org`
+// still hung off the retired `v3` custom environment stays readable forever: an
+// operator may re-map such a deployment by rolling back at any time. Exactly
+// one difference from the current contract is permitted, and only on the App
+// prior — the deployment the reviewed App domain served *before* that release:
+// the retired custom environment, with either the single reviewed alias that
+// the bridge era sealed or the two-alias topology that preceded it. Every other
+// field of every prior is validated by the same machinery either way, so a
+// corrupt manifest is never mistaken for a bridge-era one. This admission is
+// permanent, not transitional.
+const BRIDGE_ERA_APP_PRIOR_ENVIRONMENT = Object.freeze({
+  target: null,
+  customEnvironmentSlug: "v3",
+});
+const BRIDGE_ERA_APP_ALIAS_TOPOLOGIES = Object.freeze([
+  Object.freeze(["app.mento.org"]),
+  Object.freeze(["app.mento.org", "appmentoorg-env-v3-mentolabs.vercel.app"]),
 ]);
 
-function reviewedAliasContract(target, appAliases) {
-  return target === "app" && appAliases !== null
-    ? appAliases
+function reviewedAliasContract(target, bridgeEraAppAliases) {
+  return target === "app" && bridgeEraAppAliases !== null
+    ? bridgeEraAppAliases
     : MAIN_TARGET_CONTRACTS[target].aliases;
 }
 
-function canonicalAliases(value, target, label, appAliases = null) {
+function isBridgeEraAppPriorEnvironment(target, value) {
+  return (
+    target === "app" &&
+    value?.target === BRIDGE_ERA_APP_PRIOR_ENVIRONMENT.target &&
+    value?.customEnvironmentSlug ===
+      BRIDGE_ERA_APP_PRIOR_ENVIRONMENT.customEnvironmentSlug
+  );
+}
+
+function canonicalAliases(value, target, label, bridgeEraAppAliases = null) {
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error(`${label} is malformed`);
   }
   const aliases = value.map(canonicalizeHostname);
   const canonical = [...new Set(aliases)].sort();
-  const expected = [...reviewedAliasContract(target, appAliases)].sort();
+  const expected = [
+    ...reviewedAliasContract(target, bridgeEraAppAliases),
+  ].sort();
   if (
     JSON.stringify(value) !== JSON.stringify(canonical) ||
     JSON.stringify(canonical) !== JSON.stringify(expected)
@@ -294,7 +313,13 @@ function classifyPlanningGitEvidence(leaves) {
   return { reason: null, servedSha };
 }
 
-function canonicalPlanningLeaves(value, target, prior, label, appAliases) {
+function canonicalPlanningLeaves(
+  value,
+  target,
+  prior,
+  label,
+  bridgeEraAppAliases = null,
+) {
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error(`${label} is malformed`);
   }
@@ -306,7 +331,7 @@ function canonicalPlanningLeaves(value, target, prior, label, appAliases) {
       leaf.aliases,
       target,
       `${leafLabel} aliases`,
-      appAliases,
+      bridgeEraAppAliases,
     );
     if (
       leaf.deploymentId !== prior.deploymentId ||
@@ -343,12 +368,17 @@ function canonicalPlanningLeaves(value, target, prior, label, appAliases) {
   return leaves;
 }
 
-function canonicalPrior(value, target, label, appAliases = null) {
+function canonicalPrior(value, target, label, bridgeEraAppAliases = null) {
   assertExactKeys(value, PRIOR_KEYS, label);
   const contract = MAIN_TARGET_CONTRACTS[target];
-  // TRANSITION-V3-PRIOR: the App prior is still the v3-shaped deployment
-  // `app.mento.org` served before this release until the domain move.
-  const environment = acceptsPriorEnvironment(target, value)
+  // Every prior is held to the same production environment contract as a
+  // candidate, except an App prior inside a bridge-era manifest, which carries
+  // the retired custom environment the reviewed domain served from back then.
+  const accepted =
+    acceptsPriorEnvironment(target, value) ||
+    (bridgeEraAppAliases !== null &&
+      isBridgeEraAppPriorEnvironment(target, value));
+  const environment = accepted
     ? {
         target: value.target,
         customEnvironmentSlug: value.customEnvironmentSlug,
@@ -369,7 +399,7 @@ function canonicalPrior(value, target, label, appAliases = null) {
       value.aliases,
       target,
       `${label} aliases`,
-      appAliases,
+      bridgeEraAppAliases,
     ),
     projectId: requireString(
       value.projectId,
@@ -396,7 +426,7 @@ function canonicalPrior(value, target, label, appAliases = null) {
     target,
     prior,
     `${label} planning leaves`,
-    appAliases,
+    bridgeEraAppAliases,
   );
   const planningGit = classifyPlanningGitEvidence(planningLeaves);
   if (planningGit.servedSha !== servedSha) {
@@ -510,7 +540,7 @@ export function createMainReleaseManifest({
   };
 }
 
-function assertReleaseManifest(value, appAliases) {
+function assertReleaseManifest(value, bridgeEraAppAliases) {
   assertExactKeys(value, MANIFEST_KEYS, "Main release manifest");
   if (
     value.schema !== MAIN_RELEASE_MANIFEST_SCHEMA ||
@@ -576,7 +606,7 @@ function assertReleaseManifest(value, appAliases) {
         value.originalPriors[target],
         target,
         `Main release manifest ${target} prior`,
-        appAliases,
+        bridgeEraAppAliases,
       ),
     ]),
   );
@@ -611,27 +641,36 @@ export function assertMainReleaseManifest(value) {
   return assertReleaseManifest(value, null);
 }
 
-// TRANSITION-V3-PRIOR
-// A release manifest sealed before the App moved to the production environment
-// is validated by exactly the machinery above, with exactly one difference
-// permitted: the App prior carries the retired two-alias topology. Every other
-// field — all four priors, their exact key sets, planning leaves, ownership,
-// target partitions, and the stable release identity — must still be a
-// structurally valid current manifest, so a corrupt manifest is never mistaken
-// for a legacy one. Delete with the bridge slot in the tighten PR.
-export function assertTransitionalPreConversionReleaseManifest(value) {
-  const manifest = assertReleaseManifest(
-    value,
-    TRANSITIONAL_PRE_CONVERSION_APP_ALIASES,
-  );
-  if (
-    JSON.stringify(manifest.originalPriors.app.aliases) !==
-      JSON.stringify([...TRANSITIONAL_PRE_CONVERSION_APP_ALIASES].sort()) ||
-    !isTransitionalAppPriorEnvironment("app", manifest.originalPriors.app)
-  ) {
-    throw new Error("Main release manifest is not a pre-conversion manifest");
+// Admits a manifest that is a structurally valid current manifest in every
+// respect except its App prior, which carries the retired `v3` custom
+// environment and one of the two alias topologies that environment ever had.
+// A candidate seal is immutable, so this stays reachable permanently: rolling
+// a reviewed domain back to a deployment sealed during or before the bridge
+// era re-maps such a manifest. The caller treats the result as an unmarked
+// rollback-only prior — no attempt of the current release can reconcile or
+// resume it — and anything corrupt elsewhere still fails closed here.
+export function assertBridgeEraReleaseManifest(value) {
+  let lastError;
+  for (const aliases of BRIDGE_ERA_APP_ALIAS_TOPOLOGIES) {
+    let manifest;
+    try {
+      manifest = assertReleaseManifest(value, aliases);
+    } catch (error) {
+      lastError = error;
+      continue;
+    }
+    if (
+      JSON.stringify(manifest.originalPriors.app.aliases) ===
+        JSON.stringify([...aliases].sort()) &&
+      isBridgeEraAppPriorEnvironment("app", manifest.originalPriors.app)
+    ) {
+      return manifest;
+    }
+    lastError = new Error("Main release manifest is not a bridge-era manifest");
   }
-  return manifest;
+  throw (
+    lastError ?? new Error("Main release manifest is not a bridge-era manifest")
+  );
 }
 
 function planningGitForRecompute(git) {

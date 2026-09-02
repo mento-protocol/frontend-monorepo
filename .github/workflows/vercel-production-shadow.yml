@@ -1,21 +1,17 @@
 name: Vercel Production Shadow
 
-# Manual, non-promoting production pilot. Ordinary uploads avoid protected and
-# custom production domains, but implicitly move the target's reviewed generated
+# Manual, non-promoting production pilot. Ordinary uploads avoid protected
+# production domains, but implicitly move the target's reviewed generated
 # project/team alias. The workflow issues no explicit alias assignment,
 # promotion, environment-configuration, ownership, or protected-domain
-# mutation. App stays build-only in this manual pilot: only the automatic main
-# pipeline uploads and activates an App production candidate.
-#checkov:skip=CKV_GHA_7:Immutable SHA and reviewed alias inputs are mandatory for this manual pilot.
+# mutation. All four targets, App included, stage the same way; only the
+# automatic main pipeline activates a candidate.
+#checkov:skip=CKV_GHA_7:An immutable SHA input is mandatory for this manual pilot.
 on:
   workflow_dispatch:
     inputs:
       deploy_sha:
         description: Full immutable current-main commit SHA to build
-        required: true
-        type: string
-      app_v3_aliases_json:
-        description: Reviewed JSON array of every intentional app v3 alias
         required: true
         type: string
 
@@ -108,7 +104,6 @@ jobs:
 
       - name: Materialize reviewed protected-alias specification
         env:
-          APP_V3_ALIASES_JSON: ${{ inputs.app_v3_aliases_json }}
           VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
           VERCEL_PROJECT_ID_GOVERNANCE: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
           VERCEL_PROJECT_ID_RESERVE: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
@@ -138,18 +133,21 @@ jobs:
         run: node scripts/vercel-production-shadow.mjs emit-output --name snapshot --input "$RUNNER_TEMP/baseline.json"
 
   app:
-    name: Build app production output (Outcome B)
-    needs: [preflight, baseline]
+    name: Stage app production
+    needs: [preflight, baseline, governance, reserve, ui, smoke-ui]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     environment:
       name: vercel-cli-production
       deployment: false
     outputs:
+      deployment_id: ${{ steps.deploy.outputs.vercel_deployment_id }}
+      deployment_url: ${{ steps.deploy.outputs.vercel_deployment_url }}
       next_deployment_id: ${{ steps.identity.outputs.next_deployment_id }}
       build_duration_ms: ${{ steps.build.outputs.build_duration_ms }}
       turbo_cache_hits: ${{ steps.build.outputs.turbo_cache_hits }}
       turbo_cache_misses: ${{ steps.build.outputs.turbo_cache_misses }}
+      deploy_duration_ms: ${{ steps.deploy.outputs.deploy_duration_ms }}
       total_duration_ms: ${{ steps.total.outputs.total_duration_ms }}
     steps:
       - name: Start app job timing
@@ -281,21 +279,67 @@ jobs:
           vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_APP }}
 
       - name: Restore trusted controller after candidate build
+        id: trusted
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           path: trusted-after-build
           persist-credentials: false
           ref: ${{ needs.preflight.outputs.deploy_sha }}
-
-      - name: Record static app Outcome B proof
+      - name: Upload unchanged app output without custom production domains
+        id: deploy
         env:
           DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
-          MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.identity.outputs.next_deployment_id }}
+          LOGICAL_TARGET: app
+          SOURCE_PATH: ${{ steps.runtime.outputs.upload-source-path }}
+          TRUSTED_NODE_PATH: ${{ steps.runtime.outputs.node-bin }}
+          TRUSTED_VERCEL_CLI_PATH: ${{ steps.runtime.outputs.vercel-cli }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_APP }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: ${{ steps.runtime.outputs.node-bin }} "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" deploy --expected "$RUNNER_TEMP/app-expected.json"
+      - name: Fail read-only on protected alias drift after app deploy
+        if: ${{ always() && steps.build.outcome == 'success' && steps.trusted.outcome == 'success' }}
+        env:
+          BASELINE_JSON: ${{ needs.baseline.outputs.snapshot }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: >-
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs"
+          check-aliases
+      - name: Prove every protected mapping remains unchanged
+        env:
+          BASELINE_JSON: ${{ needs.baseline.outputs.snapshot }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
+          VERCEL_PROJECT_ID_GOVERNANCE: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
+          VERCEL_PROJECT_ID_RESERVE: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
+          VERCEL_PROJECT_ID_UI: ${{ vars.VERCEL_PROJECT_ID_UI }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
         run: |
-          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" app-proof --output "$RUNNER_TEMP/app-proof.json"
+          umask 077
           set -o noclobber
-          printf '["%s"]\n' "$RUNNER_TEMP/app-proof.json" > "$RUNNER_TEMP/evidence-files.json"
+          printf '%s\n' "$BASELINE_JSON" > "$RUNNER_TEMP/app-compare-baseline.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" create-spec --output "$RUNNER_TEMP/protected-spec.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" snapshot --spec "$RUNNER_TEMP/protected-spec.json" --output "$RUNNER_TEMP/current.json"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" compare --before "$RUNNER_TEMP/app-compare-baseline.json" --after "$RUNNER_TEMP/current.json"
+      - name: Verify app deployment provenance, readiness, immutable URL and generated aliases
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: |
+          verified=false
+          for attempt in {1..12}; do
+            echo "Verifying app deployment (attempt $attempt/12)"
+            if "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-deployment-state.mjs" deployment --expected "$RUNNER_TEMP/app-expected.json" --output "$RUNNER_TEMP/app-state.json"; then verified=true; break; fi
+            sleep 5
+          done
+          "$verified"
+          "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" assert-generated-aliases --target app --input "$RUNNER_TEMP/app-state.json"
+      - name: Scan app canonical evidence
+        run: |
+          set -o noclobber
+          printf '["%s","%s"]\n' "$RUNNER_TEMP/app-state.json" "$RUNNER_TEMP/current.json" > "$RUNNER_TEMP/evidence-files.json"
           "${{ steps.runtime.outputs.node-bin }}" "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" evidence --files "$RUNNER_TEMP/evidence-files.json"
 
       - name: Measure app job duration
@@ -479,7 +523,6 @@ jobs:
           check-aliases
       - name: Prove every protected mapping remains unchanged
         env:
-          APP_V3_ALIASES_JSON: ${{ inputs.app_v3_aliases_json }}
           BASELINE_JSON: ${{ needs.baseline.outputs.snapshot }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
@@ -692,7 +735,6 @@ jobs:
           check-aliases
       - name: Prove every protected mapping remains unchanged
         env:
-          APP_V3_ALIASES_JSON: ${{ inputs.app_v3_aliases_json }}
           BASELINE_JSON: ${{ needs.baseline.outputs.snapshot }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
@@ -904,7 +946,6 @@ jobs:
           check-aliases
       - name: Prove every protected mapping remains unchanged
         env:
-          APP_V3_ALIASES_JSON: ${{ inputs.app_v3_aliases_json }}
           BASELINE_JSON: ${{ needs.baseline.outputs.snapshot }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
@@ -1134,7 +1175,6 @@ jobs:
           check-aliases
       - name: Capture and compare final protected mappings
         env:
-          APP_V3_ALIASES_JSON: ${{ inputs.app_v3_aliases_json }}
           BASELINE_JSON: ${{ needs.baseline.outputs.snapshot }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
@@ -1164,9 +1204,11 @@ jobs:
           needs.smoke-ui.result == 'success'
         env:
           APP_BUILD_DURATION_MS: ${{ needs.app.outputs.build_duration_ms }}
+          APP_DEPLOY_DURATION_MS: ${{ needs.app.outputs.deploy_duration_ms }}
+          APP_DEPLOYMENT_ID: ${{ needs.app.outputs.deployment_id }}
+          APP_DEPLOYMENT_URL: ${{ needs.app.outputs.deployment_url }}
           APP_TURBO_CACHE_HITS: ${{ needs.app.outputs.turbo_cache_hits }}
           APP_TURBO_CACHE_MISSES: ${{ needs.app.outputs.turbo_cache_misses }}
-          APP_NEXT_DEPLOYMENT_ID: ${{ needs.app.outputs.next_deployment_id }}
           APP_TOTAL_DURATION_MS: ${{ needs.app.outputs.total_duration_ms }}
           BASELINE_JSON: ${{ needs.baseline.outputs.snapshot }}
           DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}

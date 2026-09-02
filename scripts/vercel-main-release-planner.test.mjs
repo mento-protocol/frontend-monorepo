@@ -232,10 +232,21 @@ test("baseline accepts every finite ordinary generated-alias subset and recomput
 test("production-shaped baseline alias supersets remain fail-closed", () => {
   const cases = [
     {
-      name: "App extra alias",
+      // MGP-18 retired the App custom `v3` environment: its generated alias
+      // cannot re-enter a production-shaped App prior.
+      name: "App retired v3 alias",
       target: "app",
       mutate(aliases) {
-        aliases.push("appmentoorg-git-main-mentolabs.vercel.app");
+        aliases.push("appmentoorg-env-v3-mentolabs.vercel.app");
+        aliases.sort();
+      },
+      error: /alias-set-ambiguous/,
+    },
+    {
+      name: "App foreign generated alias",
+      target: "app",
+      mutate(aliases) {
+        aliases.push("appmentoorg-attacker-mentolabs.vercel.app");
         aliases.sort();
       },
       error: /alias-set-ambiguous/,

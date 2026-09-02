@@ -4,7 +4,7 @@ import {
   assertMainCandidateIntent,
   canonicalizeMainCandidateVercelMetadata,
   createMainCandidateIntent,
-  isTransitionalPreConversionCandidateMetadata,
+  isBridgeEraCandidateMetadata,
 } from "./vercel-main-candidate.mjs";
 import { generateVercelMainCandidateDeploymentId } from "./vercel-prebuilt.mjs";
 import { assertMainReleaseManifest } from "./vercel-main-release-reconciliation.mjs";
@@ -193,14 +193,16 @@ export function createMainCandidateVercelProvider({ client, intent }) {
     if (!hasReservedCandidateMetadata(rawMetadata)) {
       return { canonicalState: state, metadata: null };
     }
-    // TRANSITION-V3-PRIOR: a mapping sealed before the App moved to the
-    // production environment carries a release manifest built against the
-    // retiring two-alias App topology. No attempt of this release can reconcile
-    // or resume that release, so the mapping is an unmarked rollback-only prior.
+    // A mapping sealed while `app.mento.org` still hung off the retired `v3`
+    // custom environment carries a release manifest built against that
+    // environment's App prior. No attempt of this release can reconcile or
+    // resume that release, so the mapping is an unmarked rollback-only prior.
     // The seal is validated in full against the observed deployment, exactly as
-    // a current seal is, before it earns that classification.
+    // a current seal is, before it earns that classification. Seals are
+    // immutable and an operator may roll back to such a deployment at any
+    // time, so this classification is permanent.
     if (
-      isTransitionalPreConversionCandidateMetadata(rawMetadata, {
+      isBridgeEraCandidateMetadata(rawMetadata, {
         target,
         projectId: state.projectId,
         projectName: state.projectName,

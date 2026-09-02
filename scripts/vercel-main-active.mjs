@@ -30,12 +30,6 @@ export const MAIN_ACTIVE_PROMOTABLE_TARGETS = Object.freeze([
   "ui",
   "app",
 ]);
-// TRANSITION-V3-PRIOR: the bridge keeps `app.mento.org` pointing at the App
-// production candidate while the domain is still assigned to the retiring `v3`
-// custom environment. Delete with the bridge slot after the domain move.
-export const MAIN_ACTIVE_APP_BRIDGE_ALIASES = Object.freeze([
-  ...MAIN_TARGET_CONTRACTS.app.aliases,
-]);
 export const MAIN_ACTIVE_COMMAND_TIMEOUT_MS = 120_000;
 
 const TARGET_ALIASES = Object.freeze(
@@ -65,14 +59,6 @@ const COMMAND_ENVIRONMENT_NAMES = Object.freeze([
 const PROMOTION_KEYS = Object.freeze([
   "kind",
   "target",
-  "deploymentId",
-  "deploymentUrl",
-  "arguments",
-]);
-const ALIAS_KEYS = Object.freeze([
-  "kind",
-  "target",
-  "alias",
   "deploymentId",
   "deploymentUrl",
   "arguments",
@@ -261,68 +247,6 @@ export function buildMainActivePromotionSequence(entries) {
   );
 }
 
-function buildAliasCommand({
-  kind,
-  target,
-  alias,
-  aliases,
-  projectId,
-  deploymentId,
-  deploymentUrl,
-}) {
-  const identity = canonicalDeploymentIdentity(
-    { deploymentId, deploymentUrl },
-    "Alias deployment",
-  );
-  const binding =
-    aliases === undefined
-      ? {}
-      : {
-          aliases: [...aliases],
-          projectId,
-        };
-  return freezeCommand({
-    kind,
-    target,
-    alias,
-    ...binding,
-    ...identity,
-    arguments: ["alias", "set", identity.deploymentUrl, alias],
-  });
-}
-
-export function buildMainActiveAppAliasSetCommand(options) {
-  assertExactKeys(
-    options,
-    ["alias", "deploymentId", "deploymentUrl"],
-    "App alias input",
-  );
-  return buildAliasCommand({
-    kind: "app-alias-set",
-    target: "app",
-    alias: requireAlias(
-      options.alias,
-      MAIN_ACTIVE_APP_BRIDGE_ALIASES,
-      "App bridge alias",
-    ),
-    deploymentId: options.deploymentId,
-    deploymentUrl: options.deploymentUrl,
-  });
-}
-
-export function buildMainActiveAppAliasSetSequence(options) {
-  assertExactKeys(
-    options,
-    ["deploymentId", "deploymentUrl"],
-    "App alias sequence input",
-  );
-  return Object.freeze(
-    MAIN_ACTIVE_APP_BRIDGE_ALIASES.map((alias) =>
-      buildMainActiveAppAliasSetCommand({ alias, ...options }),
-    ),
-  );
-}
-
 export function buildMainActiveRollbackCommand(options) {
   assertExactKeys(
     options,
@@ -343,38 +267,6 @@ export function buildMainActiveRollbackCommand(options) {
     ...prior,
     arguments: ["rollback", prior.deploymentId, "--yes"],
   });
-}
-
-export function buildMainActiveAppAliasRestoreCommand(options) {
-  assertExactKeys(
-    options,
-    ["alias", "deploymentId", "deploymentUrl"],
-    "App alias restore input",
-  );
-  return buildAliasCommand({
-    kind: "app-alias-restore",
-    target: "app",
-    alias: requireAlias(
-      options.alias,
-      MAIN_ACTIVE_APP_BRIDGE_ALIASES,
-      "App bridge alias",
-    ),
-    deploymentId: options.deploymentId,
-    deploymentUrl: options.deploymentUrl,
-  });
-}
-
-export function buildMainActiveAppAliasRestoreSequence(options) {
-  assertExactKeys(
-    options,
-    ["deploymentId", "deploymentUrl"],
-    "App alias restore sequence input",
-  );
-  return Object.freeze(
-    MAIN_ACTIVE_APP_BRIDGE_ALIASES.map((alias) =>
-      buildMainActiveAppAliasRestoreCommand({ alias, ...options }),
-    ),
-  );
 }
 
 function sameJson(left, right) {
@@ -423,17 +315,6 @@ export function assertMainActiveCommandDescriptor(value) {
       deploymentId: value.deploymentId,
       deploymentUrl: value.deploymentUrl,
     });
-  } else if (["app-alias-set", "app-alias-restore"].includes(value.kind)) {
-    assertExactKeys(value, ALIAS_KEYS, "Alias command");
-    const input = {
-      alias: value.alias,
-      deploymentId: value.deploymentId,
-      deploymentUrl: value.deploymentUrl,
-    };
-    expected =
-      value.kind === "app-alias-set"
-        ? buildMainActiveAppAliasSetCommand(input)
-        : buildMainActiveAppAliasRestoreCommand(input);
   } else {
     throw new MainActiveAdapterError(
       "Vercel command kind is not allowlisted",
@@ -447,13 +328,14 @@ export function assertMainActiveCommandDescriptor(value) {
       "MAIN_ACTIVE_COMMAND_REJECTED",
     );
   }
-  // The activation transaction only promotes, rolls back, and sets aliases.
-  // It never creates a deployment, so no descriptor may carry `deploy` or a
-  // custom-environment target selector.
+  // The activation transaction only promotes and rolls back. It never creates
+  // a deployment or moves a domain, so no descriptor may carry `deploy`,
+  // `alias`, or a custom-environment target selector.
   if (
     value.arguments.some(
       (argument) =>
         argument === "deploy" ||
+        argument === "alias" ||
         argument === "--prebuilt" ||
         argument.startsWith("--target"),
     )
