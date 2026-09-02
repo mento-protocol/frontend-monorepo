@@ -2196,7 +2196,7 @@ export function createDeploymentExpectation({
     expectation.transaction = requireString(
       transaction,
       "Workflow transaction",
-      /^(?:[1-9][0-9]*-[1-9][0-9]*-(?:governance|reserve|ui)|main-[0-9a-f]{40}-[1-9][0-9]*-[1-9][0-9]*)$/,
+      /^(?:[1-9][0-9]*-[1-9][0-9]*-(?:app|governance|reserve|ui)|main-[0-9a-f]{40}-[1-9][0-9]*-[1-9][0-9]*)$/,
     );
   }
   return expectation;

@@ -666,6 +666,31 @@ test("deployment expectation fixes production provenance and exact SHA", () => {
       },
     },
   );
+  // The App target stages like every ordinary target, so its workflow
+  // transaction suffix is admissible; unknown suffixes stay rejected.
+  assert.equal(
+    createDeploymentExpectation({
+      deployment: "dpl_abc123",
+      deploymentUrl: "https://app-immutable.vercel.app",
+      projectId: "prj_app123",
+      projectName: "app.mento.org",
+      sha: SHA,
+      transaction: "123-1-app",
+    }).transaction,
+    "123-1-app",
+  );
+  assert.throws(
+    () =>
+      createDeploymentExpectation({
+        deployment: "dpl_abc123",
+        deploymentUrl: "https://app-immutable.vercel.app",
+        projectId: "prj_app123",
+        projectName: "app.mento.org",
+        sha: SHA,
+        transaction: "123-1-legacy-app",
+      }),
+    /Workflow transaction/,
+  );
 });
 
 test("observed runs allow only the base alias plus one exact optional creator alias", () => {
