@@ -171,10 +171,20 @@ function safeJobUrl(value) {
 // count here, and counting one line too many can only hide a marker, never
 // expose one. The notifier's own bodies contain no fence, so nothing it writes
 // can be swallowed by this.
-const FENCE_LINE_PATTERN = /^[^\S\r\n]*(`{3,}|~{3,})(.*)$/;
+const FENCE_LINE_PATTERN = /^([^\S\r\n]*)(`{3,}|~{3,})(.*)$/;
+// A closer is held to GitHub's own rule instead: at most three ASCII spaces
+// before it, and no tab or Unicode blank at all. Reading a closer where GitHub
+// reads content is the one direction that hands a quoted marker back out.
+const CLOSER_INDENT_PATTERN = /^ {0,3}$/;
 // GFM allows only spaces and tabs after a closing delimiter. Unicode blanks
 // such as U+00A0 leave the fence open, which is the fail-closed direction.
 const ASCII_BLANK_PATTERN = /^[ \t]*$/;
+// Raw HTML, refused rather than parsed. GFM has seven HTML block types with
+// their own interruption rules, and a marker quoted inside <pre>, <div>,
+// <table> or a comment that spans lines renders as text while a line scanner
+// still sees it at root level. The notifier writes no line that opens with
+// `<` except the marker itself, so refusing every other one costs nothing.
+const HTML_LINE_PATTERN = /^[^\S\r\n]*</;
 
 /**
  * Read one line as a CommonMark fence delimiter, or `undefined` when it is not
@@ -184,13 +194,19 @@ const ASCII_BLANK_PATTERN = /^[ \t]*$/;
 function fenceOn(line) {
   const match = FENCE_LINE_PATTERN.exec(line);
   if (match === null) return undefined;
-  const [, run, rest] = match;
+  const [, indent, run, rest] = match;
   if (run.startsWith("`") && rest.includes("`")) return undefined;
   return {
     character: run[0],
     length: run.length,
-    closes: ASCII_BLANK_PATTERN.test(rest),
+    closes:
+      CLOSER_INDENT_PATTERN.test(indent) && ASCII_BLANK_PATTERN.test(rest),
   };
+}
+
+/** The split above already consumed the CR that ended a CRLF line. */
+function stripCarriageReturn(line) {
+  return line.endsWith("\r") ? line.slice(0, -1) : line;
 }
 
 /**
@@ -201,21 +217,26 @@ function fenceOn(line) {
  * an indented copy as a list-item continuation or an indented code block, so
  * anything but an exact match is a quotation.
  */
-export function bodyCarriesMarker(body, marker) {
-  if (typeof body !== "string") return false;
-  let open;
+export function markerLineIndex(body, marker) {
+  if (typeof body !== "string") return -1;
+  const lines = body.split(/\r?\n/).map(stripCarriageReturn);
 
-  for (const raw of body.split(/\r?\n/)) {
-    // A stray carriage return is the only trailing character tolerated; the
-    // split above already consumed the ones that ended a CRLF line.
-    const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+  // Any raw HTML anywhere fails the whole body closed, wherever it sits
+  // relative to the marker: an unclosed block reaches forward, and a comment
+  // that opens on one line swallows every line until it ends.
+  if (lines.some((line) => line !== marker && HTML_LINE_PATTERN.test(line))) {
+    return -1;
+  }
+
+  let open;
+  for (const [index, line] of lines.entries()) {
     const fence = fenceOn(line);
     if (open === undefined) {
       if (fence !== undefined) {
         open = fence;
         continue;
       }
-      if (line === marker) return true;
+      if (line === marker) return index;
       continue;
     }
     // Only the opener's own character, at its own length or longer, closes it.
@@ -230,7 +251,11 @@ export function bodyCarriesMarker(body, marker) {
       open = undefined;
     }
   }
-  return false;
+  return -1;
+}
+
+export function bodyCarriesMarker(body, marker) {
+  return markerLineIndex(body, marker) !== -1;
 }
 
 function degradationReason(error) {
@@ -413,10 +438,12 @@ export function failureBody(run, targetRef, marker, evidence = { jobs: [] }) {
  * routing rule stays "the marker sits on its own line" for closed issues too.
  */
 function recoveryBody(existingBody, run, targetRef, marker) {
-  const lines = String(existingBody ?? "")
-    .trim()
-    .split(/\r?\n/);
-  const markerIndex = lines.findLastIndex((line) => line.trim() === marker);
+  const trimmed = String(existingBody ?? "").trim();
+  const lines = trimmed.split(/\r?\n/);
+  // The parser that routed the issue chooses the cut, so the recovery note can
+  // never land after a quoted copy of the marker. Both split the same string
+  // the same way, so the index lines up.
+  const markerIndex = markerLineIndex(trimmed, marker);
   const head = (markerIndex === -1 ? lines : lines.slice(0, markerIndex))
     .join("\n")
     .trimEnd();
@@ -426,7 +453,7 @@ function recoveryBody(existingBody, run, targetRef, marker) {
     "",
     "## Recovery",
     "",
-    `${codeSpan(workflowNameFor(run))} recovered for ${codeSpan(sanitizeField(targetRef))} in ${runLink(run)}.`,
+    `The ${codeSpan(workflowNameFor(run))} workflow recovered for ${codeSpan(sanitizeField(targetRef))} in ${runLink(run)}.`,
     "",
     marker,
   ].join("\n");

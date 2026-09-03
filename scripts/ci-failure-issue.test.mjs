@@ -1077,6 +1077,60 @@ test("only an exact root-level line carries the marker", () => {
   );
 });
 
+test("an indented closing delimiter does not close a fence", () => {
+  const marker = managedMarker();
+
+  assert.ok(
+    !bodyCarriesMarker(["```", "    ```", marker, "```"].join("\n"), marker),
+    "four spaces before a closer leaves the block open",
+  );
+  assert.ok(
+    !bodyCarriesMarker(["```", "\t```", marker, "```"].join("\n"), marker),
+    "a tab before a closer leaves the block open",
+  );
+  assert.ok(
+    !bodyCarriesMarker(["```", "\u00a0```", marker, "```"].join("\n"), marker),
+    "a non-breaking space before a closer leaves the block open",
+  );
+  assert.ok(
+    bodyCarriesMarker(["```", "   ```", marker].join("\n"), marker),
+    "three spaces before a closer still closes",
+  );
+  assert.ok(
+    bodyCarriesMarker(["    ```", "```", marker].join("\n"), marker),
+    "an opener still counts at any indentation",
+  );
+});
+
+test("a raw HTML line fails the whole body closed", () => {
+  const marker = managedMarker();
+
+  assert.ok(
+    !bodyCarriesMarker(["<pre>", marker, "</pre>"].join("\n"), marker),
+    "a marker inside <pre> must not route",
+  );
+  assert.ok(
+    !bodyCarriesMarker(["<div>", marker, "</div>"].join("\n"), marker),
+    "a marker inside <div> must not route",
+  );
+  assert.ok(
+    !bodyCarriesMarker(["<table>", marker, "</table>"].join("\n"), marker),
+    "a marker inside <table> must not route",
+  );
+  assert.ok(
+    !bodyCarriesMarker(["<!-- open", marker, "-->"].join("\n"), marker),
+    "a marker inside a comment that spans lines must not route",
+  );
+  assert.ok(
+    !bodyCarriesMarker([marker, "", "  <span>x</span>"].join("\n"), marker),
+    "an HTML line after the marker still fails the body closed",
+  );
+  assert.ok(
+    bodyCarriesMarker(["text", marker, "more"].join("\n"), marker),
+    "a body whose only < line is the marker still routes",
+  );
+});
+
 test("a quoted marker in a human issue does not hijack reconciliation", async () => {
   const impostor = {
     number: 77,
@@ -1147,6 +1201,125 @@ test("a non-breaking space cannot close a fence holding a marker", async () => {
 
   assert.deepEqual(result, { action: "opened", issueNumber: 91 });
   assert.equal(calls.update.length, 0);
+});
+
+test("a marker inside a raw HTML block does not route", async () => {
+  const impostor = {
+    number: 77,
+    state: "open",
+    body: ["<pre>", managedMarker(), "</pre>"].join("\n"),
+    user: { login: "github-actions[bot]" },
+  };
+  const { github, context, calls } = harness({ issues: [impostor] });
+  const result = await reconcileCiFailureIssue({ github, context });
+
+  assert.deepEqual(result, { action: "opened", issueNumber: 91 });
+  assert.equal(calls.update.length, 0);
+});
+
+test("a marker under an indented closing delimiter does not route", async () => {
+  const impostor = {
+    number: 77,
+    state: "open",
+    body: ["```", "    ```", managedMarker(), "```"].join("\n"),
+    user: { login: "github-actions[bot]" },
+  };
+  const { github, context, calls } = harness({ issues: [impostor] });
+  const result = await reconcileCiFailureIssue({ github, context });
+
+  assert.deepEqual(result, { action: "opened", issueNumber: 91 });
+  assert.equal(calls.update.length, 0);
+});
+
+test("a decoy indented marker fails the body closed", async () => {
+  const impostor = managedIssue({
+    body: ["failure", "", managedMarker(), "", `  ${managedMarker()}`].join(
+      "\n",
+    ),
+  });
+  const { github, context, calls } = harness({ issues: [impostor] });
+  const result = await reconcileCiFailureIssue({ github, context });
+
+  assert.deepEqual(result, { action: "opened", issueNumber: 91 });
+  assert.equal(calls.update.length, 0);
+});
+
+test("recovery cuts at the routed marker, not a later copy", async () => {
+  const run = workflowRun({ conclusion: "success", run_number: 13 });
+  const existing = managedIssue({
+    body: [
+      "failure",
+      "",
+      managedMarker(),
+      "",
+      "stale tail",
+      "",
+      managedMarker(),
+    ].join("\n"),
+  });
+  const { github, context, calls } = harness({ run, issues: [existing] });
+  const result = await reconcileCiFailureIssue({ github, context });
+
+  assert.deepEqual(result, { action: "closed", issueNumber: 42 });
+  const body = calls.update[0].body;
+  assert.ok(
+    !body.includes("stale tail"),
+    "everything after the routed marker is replaced",
+  );
+  assert.equal(
+    body.split("\n").filter((line) => line === managedMarker()).length,
+    1,
+    "exactly one marker line survives",
+  );
+  assert.equal(body.trimEnd().split("\n").at(-1), managedMarker());
+  assert.match(body, /## Recovery/);
+});
+
+test("a generated failure body routes back to itself", async () => {
+  const job = failedJob({
+    name: `<script>evil</script> ${managedMarker()}`,
+    steps: [{ name: "<div> ``` step", conclusion: "failure" }],
+  });
+  const { github, context, calls } = harness({ jobs: [job] });
+  await reconcileCiFailureIssue({ github, context });
+
+  const body = calls.create[0].body;
+  assert.ok(
+    bodyCarriesMarker(body, managedMarker()),
+    "a generated body must route back to itself",
+  );
+  assert.deepEqual(
+    body
+      .split("\n")
+      .filter((line) => line !== managedMarker() && /^\s*</.test(line)),
+    [],
+    "no generated line opens with <",
+  );
+  assert.deepEqual(
+    body.split("\n").filter((line) => /^\s*(`{3,}|~{3,})/.test(line)),
+    [],
+    "no generated line opens a fence",
+  );
+});
+
+test("a recovery body with a fence-like workflow name still routes", async () => {
+  const run = workflowRun({
+    conclusion: "success",
+    run_number: 13,
+    name: "``` odd",
+  });
+  const { github, context, calls } = harness({
+    run,
+    issues: [managedIssue()],
+  });
+  const result = await reconcileCiFailureIssue({ github, context });
+
+  assert.deepEqual(result, { action: "closed", issueNumber: 42 });
+  const body = calls.update[0].body;
+  assert.ok(
+    bodyCarriesMarker(body, managedMarker()),
+    "the recovery line must not open a fence above the marker",
+  );
 });
 
 test("recovery keeps the marker on the last line", async () => {
