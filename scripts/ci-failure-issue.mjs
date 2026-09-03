@@ -166,16 +166,14 @@ function safeJobUrl(value) {
   }
 }
 
-// Indentation is deliberately unbounded, which is wider than GFM: a fence that
-// only a container makes valid (four spaces inside a list item, say) must still
-// count here, and counting one line too many can only hide a marker, never
-// expose one. The notifier's own bodies contain no fence, so nothing it writes
-// can be swallowed by this.
-const FENCE_LINE_PATTERN = /^([^\S\r\n]*)(`{3,}|~{3,})(.*)$/;
-// A closer is held to GitHub's own rule instead: at most three ASCII spaces
-// before it, and no tab or Unicode blank at all. Reading a closer where GitHub
-// reads content is the one direction that hands a quoted marker back out.
-const CLOSER_INDENT_PATTERN = /^ {0,3}$/;
+// A fence delimiter, opener and closer alike, is a line indented by at most
+// three ASCII spaces, exactly as GitHub reads one. A deeper indent is not the
+// conservative direction here, because it inverts the fence state rather than
+// widening it: given a four-space delimiter, then a bare one, then the marker,
+// GitHub reads the first line as indented code and the second as the real
+// opener, leaving the marker inside a block, while a scanner that opens on the
+// first line closes on the second and reads the marker at root level.
+const FENCE_LINE_PATTERN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
 // GFM allows only spaces and tabs after a closing delimiter. Unicode blanks
 // such as U+00A0 leave the fence open, which is the fail-closed direction.
 const ASCII_BLANK_PATTERN = /^[ \t]*$/;
@@ -194,13 +192,12 @@ const HTML_LINE_PATTERN = /^[^\S\r\n]*</;
 function fenceOn(line) {
   const match = FENCE_LINE_PATTERN.exec(line);
   if (match === null) return undefined;
-  const [, indent, run, rest] = match;
+  const [, run, rest] = match;
   if (run.startsWith("`") && rest.includes("`")) return undefined;
   return {
     character: run[0],
     length: run.length,
-    closes:
-      CLOSER_INDENT_PATTERN.test(indent) && ASCII_BLANK_PATTERN.test(rest),
+    closes: ASCII_BLANK_PATTERN.test(rest),
   };
 }
 
