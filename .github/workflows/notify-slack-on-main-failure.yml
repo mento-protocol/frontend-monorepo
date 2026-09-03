@@ -113,7 +113,12 @@ jobs:
       )
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions: {}
+    # `actions: read` is the single scope the freshness reconciliation below
+    # needs to list this workflow's completed runs. Nothing else is granted:
+    # the Slack credential goes to Slack, and this job writes nothing back to
+    # GitHub.
+    permissions:
+      actions: read
     # Server-side branch gate: the `slack-ci-notifications` environment allows
     # `main` only, so GitHub blocks this job on any other ref before it starts.
     # `deployment: false` keeps it out of the Deployments tab, matching
@@ -122,7 +127,92 @@ jobs:
       name: slack-ci-notifications
       deployment: false # trunk-ignore(actionlint/syntax-check): Pinned actionlint has not learned GitHub's deployment key.
     steps:
+      # A `workflow_run` callback can arrive out of order: run N's failure can
+      # land after run N+1 already succeeded, and an older attempt can land
+      # after a successful rerun. `scripts/ci-failure-issue.mjs` handles that
+      # by reconciling every callback to the latest decisive run in its
+      # partition (`workflow_id` + `event` + target ref) and acting on THAT
+      # run, so it closes or leaves closed the managed issue. Slack is not
+      # idempotent the way one managed issue is, so the mirror here is:
+      # post only when the triggering run is itself the latest decisive run in
+      # its partition. A newer decisive run either succeeded — nothing to
+      # announce — or failed and owns its own message.
+      #
+      # Fails open: any API error, or a callback run missing from the page,
+      # posts anyway. A rare duplicate beats a dropped alert.
+      - name: Reconcile against the latest decisive run
+        id: freshness
+        if: github.event_name != 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          API_URL: ${{ github.api_url }}
+          REPOSITORY: ${{ github.repository }}
+          # All GitHub-controlled scalars. WORKFLOW_ID is additionally checked
+          # to be digits before it reaches the request URL.
+          WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+          EVENT: ${{ github.event.workflow_run.event }}
+          RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          if ! printf '%s' "$WORKFLOW_ID" | grep -Eq '^[0-9]+$'; then
+            echo "Unexpected workflow id; posting without reconciliation."
+            echo "stale=false" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # One page of 100 completed runs, newest first, filtered to this
+          # callback's own event — the same query shape
+          # `listCompletedWorkflowRuns()` uses. The callback run is always well
+          # inside that window in practice; if it is not, the comparison below
+          # simply fails open.
+          if ! RUNS=$(curl -fsS \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            --get \
+            --data-urlencode "event=$EVENT" \
+            --data-urlencode "status=completed" \
+            --data-urlencode "exclude_pull_requests=true" \
+            --data-urlencode "per_page=100" \
+            "$API_URL/repos/$REPOSITORY/actions/workflows/$WORKFLOW_ID/runs"); then
+            echo "Could not list workflow runs; posting without reconciliation."
+            echo "stale=false" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # `isDecisiveRun()` is `success` plus FAILURE_CONCLUSIONS, and
+          # `compareRuns()` orders by run_number then run_attempt. The target
+          # ref uses the same fallback as `targetRefFor()`. Every value reaches
+          # jq through --arg or stdin; nothing is interpolated into the shell.
+          STALE=$(printf '%s' "$RUNS" | jq -r \
+            --arg event "$EVENT" \
+            --arg head_branch "$HEAD_BRANCH" \
+            --arg default_branch "$DEFAULT_BRANCH" \
+            --argjson number "${RUN_NUMBER:-0}" \
+            --argjson attempt "${RUN_ATTEMPT:-1}" '
+              (if $head_branch != "" then $head_branch elif $event == "push" then "release tag" else $default_branch end) as $target
+              | ["success", "action_required", "failure", "startup_failure", "timed_out"] as $decisive
+              | [ .workflow_runs[]
+                  | select(.status == "completed")
+                  | select(.conclusion as $c | $decisive | index($c))
+                  | select((if (.head_branch // "") != "" then .head_branch elif $event == "push" then "release tag" else $default_branch end) == $target)
+                  | [(.run_number // 0), (.run_attempt // 1)]
+                ]
+              | map(select(. > [$number, $attempt]))
+              | length > 0
+            ')
+
+          if [ "$STALE" = "true" ]; then
+            echo "A newer decisive run of this workflow already concluded; skipping the Slack post."
+          fi
+          echo "stale=$STALE" >>"$GITHUB_OUTPUT"
+
       - name: Post to the ci-failures channel
+        if: steps.freshness.outputs.stale != 'true'
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           IS_TEST: ${{ github.event_name == 'workflow_dispatch' }}

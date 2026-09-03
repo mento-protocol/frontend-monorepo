@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
@@ -299,10 +298,17 @@ test("the Slack notifier watches the issue notifier's allowlist and never shells
   assert.match(slack, /^ {2}workflow_dispatch:$/m);
   assert.doesNotMatch(slack, /^ {4}inputs:$/m);
 
-  // Least privilege: the GITHUB_TOKEN needs nothing; the credential goes to
-  // Slack, not GitHub. The only secret referenced is the Slack bot token.
+  // Least privilege: nothing at the workflow level, and the single `actions:
+  // read` scope the freshness reconciliation needs at the job level. The
+  // credential that matters goes to Slack, not GitHub, and this job writes
+  // nothing back.
   assert.match(slack, /^permissions: \{\}$/m);
-  assert.match(slack, /^ {4}permissions: \{\}$/m);
+  assert.match(slack, /^ {4}permissions:\n {6}actions: read$/m);
+  assert.doesNotMatch(
+    slack,
+    /^ {6}(?!actions: read$)[a-z-]+: (read|write)$/m,
+    "the job must grant no scope beyond actions: read",
+  );
   const referencedSecrets = new Set(
     [...slack.matchAll(/secrets\.([A-Z0-9_]+)/g)].map((match) => match[1]),
   );
@@ -362,15 +368,20 @@ test("the Slack notifier watches the issue notifier's allowlist and never shells
   ].map((match) => match[1]);
   assert.equal(
     runBlocks.length,
-    1,
-    "the notifier must have exactly one run block",
+    2,
+    "the notifier must have exactly the freshness and post run blocks",
+  );
+  assert.match(
+    runBlocks[0],
+    /actions\/workflows\/\$WORKFLOW_ID\/runs/,
+    "the first run block must be the freshness reconciliation",
+  );
+  assert.match(
+    runBlocks[1],
+    /curl -fsS -X POST https:\/\/slack\.com\/api\/chat\.postMessage/,
+    "the second run block must be the Slack post body",
   );
   for (const block of runBlocks) {
-    assert.match(
-      block,
-      /curl -fsS -X POST https:\/\/slack\.com\/api\/chat\.postMessage/,
-      "the captured run block must be the Slack post body",
-    );
     assert.doesNotMatch(
       block,
       /\$\{\{/,
@@ -432,10 +443,18 @@ test("the Slack notifier names the same target ref as the managed issue", () => 
     /^ {10}DEFAULT_BRANCH: \$\{\{ github\.event\.repository\.default_branch \}\}$/m,
   );
 
-  // Prove the jq mirror computes what targetRefFor computes. GitHub renders a
-  // null head_branch as an empty string, which is the case that matters.
+  // Prove the mirrored semantics match targetRefFor. This gate must run with
+  // nothing but Node and no network, so the jq expression is reimplemented
+  // here rather than shelled out to; the exact-text assertions above are what
+  // catch the workflow drifting away from this reimplementation.
   const targetRefFor = (run, defaultBranch) =>
     run.head_branch || (run.event === "push" ? "release tag" : defaultBranch);
+  const jqTargetRef = (headBranch, event, defaultBranch) =>
+    headBranch !== ""
+      ? headBranch
+      : event === "push"
+        ? "release tag"
+        : defaultBranch;
   const cases = [
     { head_branch: "main", event: "push" },
     { head_branch: "", event: "push" },
@@ -445,29 +464,198 @@ test("the Slack notifier names the same target ref as the managed issue", () => 
     { head_branch: "main", event: "workflow_run" },
   ];
   for (const run of cases) {
-    const actual = execFileSync(
-      "jq",
-      [
-        "-rn",
-        "--arg",
-        "head_branch",
-        run.head_branch,
-        "--arg",
-        "event",
-        run.event,
-        "--arg",
-        "default_branch",
-        "main",
-        mirror,
-      ],
-      { stdio: ["ignore", "pipe", "pipe"] },
-    )
-      .toString()
-      .trim();
     assert.equal(
-      actual,
+      jqTargetRef(run.head_branch, run.event, "main"),
       targetRefFor(run, "main"),
-      `jq mirror diverged for ${run.event} with head_branch "${run.head_branch}"`,
+      `mirror diverged for ${run.event} with head_branch "${run.head_branch}"`,
+    );
+  }
+});
+
+test("the Slack notifier suppresses the same stale callbacks the issue notifier reconciles away", () => {
+  const slack = read(".github/workflows/notify-slack-on-main-failure.yml");
+  const issueScript = read("scripts/ci-failure-issue.mjs");
+
+  // Parity anchors on the three pieces of the issue notifier's freshness rule.
+  // If any changes, this fails and forces the jq mirror to change with it.
+  assert.match(
+    issueScript,
+    /function runPosition\(run\) \{\n {2}return \[run\.run_number \?\? 0, run\.run_attempt \?\? 1\];\n\}/,
+    "runPosition changed; update the freshness mirror in the Slack notifier",
+  );
+  assert.match(
+    issueScript,
+    /return leftNumber - rightNumber \|\| leftAttempt - rightAttempt;/,
+    "compareRuns changed; update the freshness mirror in the Slack notifier",
+  );
+  assert.match(
+    issueScript,
+    /run\.conclusion === "success" \|\| FAILURE_CONCLUSIONS\.has\(run\.conclusion\)/,
+    "isDecisiveRun changed; update the freshness mirror in the Slack notifier",
+  );
+
+  // The gate itself, and the query shape it mirrors.
+  assert.match(
+    slack,
+    /^ {4}permissions:\n {6}actions: read$/m,
+    "the freshness step needs exactly actions: read and nothing more",
+  );
+  assert.match(
+    slack,
+    /^ {8}if: steps\.freshness\.outputs\.stale != 'true'$/m,
+    "the Slack post must be gated on the freshness reconciliation",
+  );
+  assert.match(
+    slack,
+    /^ {8}if: github\.event_name != 'workflow_dispatch'$/m,
+    "the smoke test must skip reconciliation entirely",
+  );
+  for (const parameter of [
+    "event=$EVENT",
+    "status=completed",
+    "exclude_pull_requests=true",
+    "per_page=100",
+  ]) {
+    assert.ok(
+      slack.includes(`--data-urlencode "${parameter}"`),
+      `the run query must mirror listCompletedWorkflowRuns (${parameter})`,
+    );
+  }
+  const decisiveInWorkflow =
+    /\[("success", "action_required", "failure", "startup_failure", "timed_out")\] as \$decisive/.exec(
+      slack,
+    )?.[1];
+  assert.equal(
+    decisiveInWorkflow,
+    '"success", "action_required", "failure", "startup_failure", "timed_out"',
+    "the decisive set must be success plus FAILURE_CONCLUSIONS",
+  );
+  assert.ok(
+    slack.includes(
+      "| map(select(. > [$number, $attempt]))\n              | length > 0",
+    ),
+    "staleness must be: some decisive run in the partition sorts after this one",
+  );
+
+  // Reference: the issue notifier reconciles a callback to the latest decisive
+  // run in its partition and acts on that run. Mirror: the Slack post is
+  // suppressed exactly when that reconciliation would pick a different run.
+  const runPosition = (run) => [run.run_number ?? 0, run.run_attempt ?? 1];
+  const compareRuns = (left, right) => {
+    const [ln, la] = runPosition(left);
+    const [rn, ra] = runPosition(right);
+    return ln - rn || la - ra;
+  };
+  const decisive = new Set([
+    "success",
+    "action_required",
+    "failure",
+    "startup_failure",
+    "timed_out",
+  ]);
+  const targetRefFor = (run, defaultBranch) =>
+    run.head_branch || (run.event === "push" ? "release tag" : defaultBranch);
+  const referenceReconcilesAway = (callback, runs, defaultBranch) => {
+    const partition = targetRefFor(callback, defaultBranch);
+    const latest = [callback, ...runs]
+      .filter(
+        (candidate) =>
+          candidate.status === "completed" &&
+          decisive.has(candidate.conclusion) &&
+          targetRefFor(candidate, defaultBranch) === partition,
+      )
+      .sort((left, right) => compareRuns(right, left))[0];
+    return latest !== undefined && compareRuns(latest, callback) !== 0;
+  };
+  // The jq pipeline, reimplemented: is any decisive run in the same partition
+  // ordered after the callback?
+  const workflowSkips = (callback, runs, defaultBranch) => {
+    const partition =
+      callback.head_branch !== ""
+        ? callback.head_branch
+        : callback.event === "push"
+          ? "release tag"
+          : defaultBranch;
+    return runs
+      .filter((candidate) => candidate.status === "completed")
+      .filter((candidate) => decisive.has(candidate.conclusion))
+      .filter((candidate) => {
+        const headBranch = candidate.head_branch ?? "";
+        const ref =
+          headBranch !== ""
+            ? headBranch
+            : callback.event === "push"
+              ? "release tag"
+              : defaultBranch;
+        return ref === partition;
+      })
+      .some(
+        (candidate) =>
+          compareRuns(candidate, {
+            run_number: callback.run_number,
+            run_attempt: callback.run_attempt,
+          }) > 0,
+      );
+  };
+
+  const callback = {
+    status: "completed",
+    conclusion: "failure",
+    head_branch: "main",
+    event: "push",
+    run_number: 11,
+    run_attempt: 1,
+  };
+  const scenarios = [
+    { name: "callback is the newest decisive run", runs: [], skip: false },
+    {
+      name: "a newer run already succeeded",
+      runs: [{ ...callback, conclusion: "success", run_number: 12 }],
+      skip: true,
+    },
+    {
+      name: "a newer attempt of the same run succeeded",
+      runs: [{ ...callback, conclusion: "success", run_attempt: 2 }],
+      skip: true,
+    },
+    {
+      name: "a newer run also failed and owns its own message",
+      runs: [{ ...callback, run_number: 12 }],
+      skip: true,
+    },
+    {
+      name: "the newer run was cancelled, which is not decisive",
+      runs: [{ ...callback, conclusion: "cancelled", run_number: 12 }],
+      skip: false,
+    },
+    {
+      name: "the newer run belongs to another partition",
+      runs: [
+        {
+          ...callback,
+          conclusion: "success",
+          head_branch: "release-1",
+          run_number: 99,
+        },
+      ],
+      skip: false,
+    },
+    {
+      name: "an older run succeeded after this failure",
+      runs: [{ ...callback, conclusion: "success", run_number: 10 }],
+      skip: false,
+    },
+  ];
+  for (const scenario of scenarios) {
+    assert.equal(
+      workflowSkips(callback, scenario.runs, "main"),
+      scenario.skip,
+      `workflow mirror wrong: ${scenario.name}`,
+    );
+    assert.equal(
+      referenceReconcilesAway(callback, scenario.runs, "main"),
+      scenario.skip,
+      `the issue notifier disagrees: ${scenario.name}`,
     );
   }
 });

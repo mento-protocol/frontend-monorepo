@@ -155,8 +155,9 @@ workflow reaches two places. `.github/workflows/ci-failure-notifier.yml` opens
 or updates one managed GitHub issue per partition and closes it after recovery.
 `.github/workflows/notify-slack-on-main-failure.yml` posts the same failure to
 Slack's `#ci-failures` with links to the run and to the managed issue. Both
-watch the same static workflow allowlist and alert on the same conclusion set,
-so adding or renaming an operational workflow means updating both lists and
+watch the same static workflow allowlist, alert on the same conclusion set, and
+reconcile an out-of-order callback to the latest decisive run the same way, so
+adding or renaming an operational workflow means updating both lists and
 `scripts/quality-workflows.test.mjs` in the same PR. Run the Slack workflow's
 bare `workflow_dispatch` from the Actions tab to smoke-test the wiring; it
 posts a fixed "🧪 wiring test" message and changes nothing else. Only the

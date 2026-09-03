@@ -194,8 +194,11 @@ evidence; pull requests remain path-gated per surface.
 allowlist and posts the same failures to Slack's `#ci-failures` with a link to
 the run and to the managed issue; it opens no issue and duplicates no issue
 logic. It alerts on exactly the `FAILURE_CONCLUSIONS` set from
-`scripts/ci-failure-issue.mjs` and mirrors that script's `targetRefFor()`
-fallback in jq, both pinned by parity tests. Its bare `workflow_dispatch` posts
+`scripts/ci-failure-issue.mjs`, mirrors that script's `targetRefFor()` fallback
+in jq, and mirrors its latest-decisive-run reconciliation so an out-of-order
+callback cannot announce a failure the managed issue has already closed; all
+three are pinned by parity tests. That reconciliation is the only reason the
+job holds `actions: read`. Its bare `workflow_dispatch` posts
 a fixed "🧪 wiring test" message so the Slack wiring can be smoke-tested from
 the Actions tab. Every event is gated on `github.ref` being the default branch,
 and the job runs in the `main`-only `slack-ci-notifications` environment, so a

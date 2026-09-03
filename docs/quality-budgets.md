@@ -139,11 +139,20 @@ Because the notifier checks out nothing, it cannot import `targetRefFor()`. It
 mirrors that function in jq — `head_branch`, else `release tag` for a `push`,
 else the default branch — so a scheduled run or a tag push with a null
 `head_branch` names the same ref the managed issue does. A parity test pins the
-source of `targetRefFor()` and runs the jq mirror over both null forms.
+source of `targetRefFor()`, pins the jq expression's exact text, and checks
+both null forms.
+
+Those parity tests reimplement the jq semantics in JavaScript rather than
+shelling out to `jq`. `pnpm quality:budgets:test` is a required gate and must
+run with nothing but Node and pnpm — no network, and no binary outside the
+documented prerequisites. Pin drift with exact-text assertions; never add a
+tool dependency to make a gate runnable.
 
 It uses `secrets.SLACK_BOT_TOKEN` (which needs Slack's `chat:write.public`
-scope) and grants the `GITHUB_TOKEN` no permissions at all: the credential goes
-to Slack, not to GitHub. It checks out no code and runs no action. Every
+scope). The workflow grants no permissions; the job grants exactly
+`actions: read`, the single scope the freshness reconciliation below needs to
+list this workflow's completed runs. It writes nothing back to GitHub, checks
+out no code, and runs no action. Every
 `workflow_run` field it reports — commit title included — is bound to an
 environment variable and passed to `jq --arg`, never interpolated into the
 shell, because a commit title can contain backticks or `$(…)`. The commit title
@@ -153,6 +162,30 @@ render as a real mass-page mention.
 Its bare `workflow_dispatch` (no inputs; checkov `CKV_GHA_7` forbids them)
 posts a fixed "🧪 wiring test" message. The workflow must be on `main` to be
 dispatchable at all, so the smoke test can only be run after it has merged.
+
+### Suppressing stale callbacks
+
+A `workflow_run` callback can arrive out of order: run N's failure can land
+after run N+1 already succeeded, and an older attempt can land after a
+successful rerun. `reconcileCiFailureIssue()` handles that by resolving every
+callback to the latest decisive run in its partition — `workflow_id` plus
+`event` plus target ref, ordered by `run_number` then `run_attempt`, where
+"decisive" is `success` plus `FAILURE_CONCLUSIONS` — and acting on that run, so
+it closes or leaves closed the managed issue.
+
+Slack is not idempotent the way one managed issue is, so the mirror is: post
+only when the triggering run is itself the latest decisive run in its
+partition. A newer decisive run either succeeded, in which case there is
+nothing to announce, or failed and owns its own message. A `Reconcile against
+the latest decisive run` step lists the workflow's completed runs for the
+callback's own event with `actions: read` and sets a `stale` output the post
+step is gated on; the smoke-test dispatch skips it entirely.
+
+It fails open. Any API error, an unexpected workflow id, or a callback run
+outside the fetched page posts anyway — a rare duplicate beats a dropped alert.
+Parity is pinned by exact-source assertions on `runPosition()`, `compareRuns()`,
+and `isDecisiveRun()`, by exact-text assertions on the jq pipeline, and by a
+scenario table asserting the mirror and the reference agree on all seven cases.
 
 ### Keeping the Slack token off non-default branches
 
