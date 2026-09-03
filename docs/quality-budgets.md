@@ -122,24 +122,60 @@ notify it.
 `.github/workflows/notify-slack-on-main-failure.yml` is the push-notification
 side channel for the same failures. It watches the identical static workflow
 allowlist and applies the identical admission rules, then narrows to the
-`failure`, `startup_failure`, and `timed_out` conclusions and posts one message
-to `#ci-failures` through Slack's `chat.postMessage`. The message links the
-failed run and the managed-issue search; it opens, updates, and closes nothing,
-so the issue lifecycle above stays the single source of truth.
+`FAILURE_CONCLUSIONS` set from `scripts/ci-failure-issue.mjs`
+(`action_required`, `failure`, `startup_failure`, `timed_out`) and posts one
+message to `#ci-failures` through Slack's `chat.postMessage`. A structural test
+reads that set out of the script, so the two notifiers cannot drift apart on
+which conclusions count. The message links the failed run and the managed-issue
+search; it opens, updates, and closes nothing, so the issue lifecycle above
+stays the single source of truth.
 
-It uses the org-shared `secrets.SLACK_BOT_TOKEN` (which needs Slack's
-`chat:write.public` scope) and grants the `GITHUB_TOKEN` no permissions at all:
-the credential goes to Slack, not to GitHub. It checks out no code and runs no
-action. Every `workflow_run` field it reports — commit title included — is
-bound to an environment variable and passed to `jq --arg`, never interpolated
-into the shell, because a commit title can contain backticks or `$(…)`. The
-commit title is additionally escaped for Slack mrkdwn so a title like
-`<!channel>` cannot render as a real mass-page mention.
+`chat.postMessage` accepts a channel name for a public channel, so the payload
+passes `#ci-failures` rather than an encoded ID. Configure an ID instead only
+if the channel is ever renamed; the step fails loudly on a `channel_not_found`
+response either way.
+
+Because the notifier checks out nothing, it cannot import `targetRefFor()`. It
+mirrors that function in jq — `head_branch`, else `release tag` for a `push`,
+else the default branch — so a scheduled run or a tag push with a null
+`head_branch` names the same ref the managed issue does. A parity test pins the
+source of `targetRefFor()` and runs the jq mirror over both null forms.
+
+It uses `secrets.SLACK_BOT_TOKEN` (which needs Slack's `chat:write.public`
+scope) and grants the `GITHUB_TOKEN` no permissions at all: the credential goes
+to Slack, not to GitHub. It checks out no code and runs no action. Every
+`workflow_run` field it reports — commit title included — is bound to an
+environment variable and passed to `jq --arg`, never interpolated into the
+shell, because a commit title can contain backticks or `$(…)`. The commit title
+is additionally escaped for Slack mrkdwn so a title like `<!channel>` cannot
+render as a real mass-page mention.
 
 Its bare `workflow_dispatch` (no inputs; checkov `CKV_GHA_7` forbids them)
-posts a fixed "🧪 wiring test" message. Because `workflow_dispatch` only offers
-the default branch, the smoke test can only be run after the workflow has
-merged to `main`.
+posts a fixed "🧪 wiring test" message. The workflow must be on `main` to be
+dispatchable at all, so the smoke test can only be run after it has merged.
+
+### Keeping the Slack token off non-default branches
+
+`gh workflow run --ref <branch>` runs the workflow version on that ref, so a
+branch-selected dispatch of an edited copy would otherwise read
+`SLACK_BOT_TOKEN`. Two layers narrow that:
+
+1. The job's `if:` requires `github.ref` to equal the default branch for every
+   event, so a branch dispatch skips before any step reads the secret. GitHub
+   always sets the ref to the default branch for `workflow_run`, so real
+   notifications are unaffected.
+2. The job declares the `slack-ci-notifications` GitHub Environment, whose
+   deployment branch policy allows `main` only. GitHub enforces that
+   server-side before the job starts — the same shape
+   `vercel-main-deployment.yml` uses with `vercel-cli-production`.
+
+Neither layer is complete while `SLACK_BOT_TOKEN` stays an org-shared secret,
+because an attacker editing this file on their own branch can delete both. The
+control becomes airtight only once the token is an **environment** secret on
+`slack-ci-notifications` and the org-level copy is removed: a copy without the
+`environment:` key then resolves an empty token. Note that push access already
+grants every repository and organization secret through an ordinary `on: push`
+workflow, so this is hardening rather than a repair of a unique hole.
 
 When adding or renaming an operational workflow, add its exact top-level `name`
 to both notifiers' `workflow_run.workflows` lists and update

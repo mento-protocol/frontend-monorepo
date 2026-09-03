@@ -193,8 +193,14 @@ evidence; pull requests remain path-gated per surface.
 `.github/workflows/notify-slack-on-main-failure.yml` watches that same static
 allowlist and posts the same failures to Slack's `#ci-failures` with a link to
 the run and to the managed issue; it opens no issue and duplicates no issue
-logic. Its bare `workflow_dispatch` posts a fixed "🧪 wiring test" message so
-the Slack wiring can be smoke-tested from the Actions tab.
+logic. It alerts on exactly the `FAILURE_CONCLUSIONS` set from
+`scripts/ci-failure-issue.mjs` and mirrors that script's `targetRefFor()`
+fallback in jq, both pinned by parity tests. Its bare `workflow_dispatch` posts
+a fixed "🧪 wiring test" message so the Slack wiring can be smoke-tested from
+the Actions tab. Every event is gated on `github.ref` being the default branch,
+and the job runs in the `main`-only `slack-ci-notifications` environment, so a
+branch-selected dispatch cannot reach `SLACK_BOT_TOKEN`; that becomes airtight
+only once the token is an environment secret there rather than org-shared.
 When adding or renaming an operational workflow, update both static allowlists
 and the structural tests in the same PR. Never execute a triggering head SHA
 from these privileged `workflow_run` workflows.

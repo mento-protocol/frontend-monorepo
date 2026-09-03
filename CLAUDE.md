@@ -155,11 +155,15 @@ workflow reaches two places. `.github/workflows/ci-failure-notifier.yml` opens
 or updates one managed GitHub issue per partition and closes it after recovery.
 `.github/workflows/notify-slack-on-main-failure.yml` posts the same failure to
 Slack's `#ci-failures` with links to the run and to the managed issue. Both
-watch the same static workflow allowlist, so adding or renaming an operational
-workflow means updating both lists and `scripts/quality-workflows.test.mjs` in
-the same PR. Run the Slack workflow's bare `workflow_dispatch` from the Actions
-tab to smoke-test the wiring; it posts a fixed "🧪 wiring test" message and
-changes nothing else.
+watch the same static workflow allowlist and alert on the same conclusion set,
+so adding or renaming an operational workflow means updating both lists and
+`scripts/quality-workflows.test.mjs` in the same PR. Run the Slack workflow's
+bare `workflow_dispatch` from the Actions tab to smoke-test the wiring; it
+posts a fixed "🧪 wiring test" message and changes nothing else. Only the
+default-branch copy can post: every event is gated on `github.ref`, and the job
+runs in the `main`-only `slack-ci-notifications` environment.
+`docs/quality-budgets.md` records why that is hardening rather than a complete
+control while `SLACK_BOT_TOKEN` remains org-shared.
 
 ## Dependabot preparation
 

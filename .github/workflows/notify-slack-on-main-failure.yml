@@ -25,9 +25,29 @@ name: Notify Slack on main-branch workflow failure
 #     `workflow_dispatch` runs, the allowlisted release-tag `push` workflow,
 #     and the repository-owned `Vercel Main Deployment` `workflow_run`.
 #   - `workflow_dispatch` (no inputs — checkov CKV_GHA_7 forbids them) lets you
-#     smoke-test the wiring by posting a fixed "🧪 wiring test" message.
-#     `workflow_dispatch` only offers the default branch, so the smoke test can
-#     only be run after this file has merged to `main`.
+#     smoke-test the wiring by posting a fixed "🧪 wiring test" message. The
+#     workflow must be on `main` to be dispatchable at all, so the smoke test
+#     can only be run after this file has merged.
+#
+# Token exposure and the branch-selected dispatch:
+#   `gh workflow run --ref <branch>` runs the workflow VERSION on that ref, so
+#   a collaborator with push access could otherwise dispatch an edited copy and
+#   read `SLACK_BOT_TOKEN`. Two layers narrow that:
+#     1. The job's `if:` requires `github.ref` to be the default branch for
+#        EVERY event, so a branch dispatch skips before a step can read the
+#        secret. For `workflow_run` GitHub always sets the ref to the default
+#        branch, so real notifications are unaffected.
+#     2. The job runs in the `slack-ci-notifications` GitHub Environment, whose
+#        deployment branch policy allows `main` only. GitHub enforces that
+#        server-side, before the job starts — the same shape
+#        `vercel-main-deployment.yml` uses with `vercel-cli-production`.
+#   Neither layer is complete while `SLACK_BOT_TOKEN` is an org-shared secret:
+#   an attacker editing this file on their own branch can delete both. The
+#   control only becomes airtight once the token is an ENVIRONMENT secret on
+#   `slack-ci-notifications` and the org-level copy is removed, at which point
+#   a copy without the `environment:` key resolves an empty token. Note that
+#   push access already grants every repo and org secret through an ordinary
+#   `on: push` workflow, so this is a hardening step, not a new exposure.
 #
 # This workflow never checks out or executes the triggering head SHA. It reads
 # `workflow_run` metadata into env and posts to Slack.
@@ -50,42 +70,57 @@ permissions: {}
 jobs:
   notify:
     name: post failure to Slack
+    # The first clause runs for EVERY event: only the default-branch copy of
+    # this workflow may reach the Slack token. See "Token exposure" above.
     # Test-fire path: `workflow_dispatch` always posts (no failure gate).
     # Real path: post only for a watched workflow's admitted failing run.
-    # Catch every silent-failure conclusion, not just plain `failure`:
+    # The conclusion list is exactly `FAILURE_CONCLUSIONS` from
+    # `scripts/ci-failure-issue.mjs`, so Slack covers the same incident set the
+    # managed issue does:
     #   - failure          -> a step exited non-zero
     #   - timed_out        -> the runner exceeded the job timeout
     #   - startup_failure  -> the runner could not start the job
+    #   - action_required  -> the run stalled waiting on manual approval
     # Skip `cancelled` (usually a manual operator action) and `success`,
-    # `neutral`, `skipped`, and `action_required` (not failures).
+    # `neutral`, and `skipped` (not failures).
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
       (
-        contains(fromJSON('["failure", "startup_failure", "timed_out"]'), github.event.workflow_run.conclusion) &&
+        github.event_name == 'workflow_dispatch' ||
         (
-          github.event.workflow_run.event == 'schedule' ||
+          contains(fromJSON('["action_required", "failure", "startup_failure", "timed_out"]'), github.event.workflow_run.conclusion) &&
           (
-            github.event.workflow_run.event == 'push' &&
+            github.event.workflow_run.event == 'schedule' ||
             (
-              github.event.workflow_run.head_branch == github.event.repository.default_branch ||
-              github.event.workflow_run.name == 'Publish UI Package'
+              github.event.workflow_run.event == 'push' &&
+              (
+                github.event.workflow_run.head_branch == github.event.repository.default_branch ||
+                github.event.workflow_run.name == 'Publish UI Package'
+              )
+            ) ||
+            (
+              github.event.workflow_run.event == 'workflow_dispatch' &&
+              github.event.workflow_run.head_branch == github.event.repository.default_branch
+            ) ||
+            (
+              github.event.workflow_run.event == 'workflow_run' &&
+              github.event.workflow_run.name == 'Vercel Main Deployment' &&
+              github.event.workflow_run.head_branch == github.event.repository.default_branch &&
+              github.event.workflow_run.head_repository.full_name == github.repository
             )
-          ) ||
-          (
-            github.event.workflow_run.event == 'workflow_dispatch' &&
-            github.event.workflow_run.head_branch == github.event.repository.default_branch
-          ) ||
-          (
-            github.event.workflow_run.event == 'workflow_run' &&
-            github.event.workflow_run.name == 'Vercel Main Deployment' &&
-            github.event.workflow_run.head_branch == github.event.repository.default_branch &&
-            github.event.workflow_run.head_repository.full_name == github.repository
           )
         )
       )
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
+    # Server-side branch gate: the `slack-ci-notifications` environment allows
+    # `main` only, so GitHub blocks this job on any other ref before it starts.
+    # `deployment: false` keeps it out of the Deployments tab, matching
+    # `vercel-main-deployment.yml`'s use of `vercel-cli-production`.
+    environment:
+      name: slack-ci-notifications
+      deployment: false # trunk-ignore(actionlint/syntax-check): Pinned actionlint has not learned GitHub's deployment key.
     steps:
       - name: Post to the ci-failures channel
         env:
@@ -104,7 +139,12 @@ jobs:
           ACTOR: ${{ github.event.workflow_run.triggering_actor.login }}
           EVENT: ${{ github.event.workflow_run.event }}
           CONCLUSION: ${{ github.event.workflow_run.conclusion }}
-          TARGET_REF: ${{ github.event.workflow_run.head_branch }}
+          # GitHub omits head_branch for some scheduled runs and for tag
+          # pushes, which renders here as an empty string. The jq expression
+          # below applies the same event-aware fallback as `targetRefFor()` in
+          # scripts/ci-failure-issue.mjs, so both notifiers name the same ref.
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
 
@@ -150,8 +190,10 @@ jobs:
               --arg actor "$ACTOR" \
               --arg event "$EVENT" \
               --arg conclusion "$CONCLUSION" \
-              --arg ref "$TARGET_REF" \
+              --arg head_branch "$HEAD_BRANCH" \
+              --arg default_branch "$DEFAULT_BRANCH" \
               '($msg | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;")) as $safe_msg
+               | (if $head_branch != "" then $head_branch elif $event == "push" then "release tag" else $default_branch end) as $ref
                | (if $actor != "" and $actor != "null" then "\n*Triggered by:* " + $actor + " (`" + $event + "`)" else "\n*Triggered by:* `" + $event + "`" end) as $actor_line
                | ("https://github.com/" + $repo + "/issues?q=" + ("is:issue is:open in:title CI: " + $wf + " is failing" | @uri)) as $issue_url
                | {

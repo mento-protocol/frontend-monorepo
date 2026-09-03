@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
@@ -307,19 +308,46 @@ test("the Slack notifier watches the issue notifier's allowlist and never shells
   );
   assert.deepEqual([...referencedSecrets], ["SLACK_BOT_TOKEN"]);
 
+  // The Slack side channel must cover exactly the incident set the issue
+  // notifier treats as a failure, minus the `success` recovery conclusion it
+  // uses to close issues.
   const conclusions =
     /contains\(fromJSON\('(\[[^']+\])'\), github\.event\.workflow_run\.conclusion\)/.exec(
       slack,
     )?.[1];
-  assert.deepEqual(JSON.parse(conclusions ?? "[]"), [
-    "failure",
-    "startup_failure",
-    "timed_out",
-  ]);
+  const issueFailureConclusions = [
+    ...(/const FAILURE_CONCLUSIONS = new Set\(\[\n((?: {2}"[a-z_]+",\n)+)\]\)/
+      .exec(read("scripts/ci-failure-issue.mjs"))?.[1]
+      ?.matchAll(/"([a-z_]+)"/g) ?? []),
+  ].map((match) => match[1]);
+  assert.deepEqual(
+    JSON.parse(conclusions ?? "[]"),
+    issueFailureConclusions,
+    "Slack must alert on the same conclusions the issue notifier tracks",
+  );
+  assert.ok(
+    issueFailureConclusions.includes("action_required"),
+    "the parity anchor must actually have read the issue notifier's set",
+  );
   assert.match(
     slack,
     /github\.event_name == 'workflow_dispatch' \|\|/,
     "workflow_dispatch must bypass the failure gate for the smoke test",
+  );
+
+  // A branch-selected `gh workflow run --ref <branch>` runs that branch's copy
+  // of this file. Two layers keep the Slack token off a non-default ref: the
+  // ref equality below, which gates EVERY event, and the environment, whose
+  // deployment branch policy GitHub enforces server-side before the job runs.
+  assert.match(
+    slack,
+    /^ {6}github\.ref == format\('refs\/heads\/\{0\}', github\.event\.repository\.default_branch\) &&$/m,
+    "every event must be gated on the default branch before a step reads the secret",
+  );
+  assert.match(
+    slack,
+    /^ {4}environment:\n {6}name: slack-ci-notifications\n {6}deployment: false/m,
+    "the credential-bearing job must run in the branch-policy-protected environment",
   );
   assert.match(
     slack,
@@ -349,7 +377,13 @@ test("the Slack notifier watches the issue notifier's allowlist and never shells
       "no GitHub expression may be interpolated into the shell",
     );
   }
-  for (const variable of ["COMMIT_MSG", "WORKFLOW_NAME", "ACTOR", "RUN_URL"]) {
+  for (const variable of [
+    "COMMIT_MSG",
+    "WORKFLOW_NAME",
+    "ACTOR",
+    "RUN_URL",
+    "HEAD_BRANCH",
+  ]) {
     assert.match(
       slack,
       new RegExp(
@@ -374,4 +408,66 @@ test("the Slack notifier watches the issue notifier's allowlist and never shells
   // triggering head SHA.
   assert.doesNotMatch(slack, /actions\/checkout/);
   assert.doesNotMatch(slack, /^ {6}- uses:/m);
+});
+
+test("the Slack notifier names the same target ref as the managed issue", () => {
+  const slack = read(".github/workflows/notify-slack-on-main-failure.yml");
+
+  // Parity anchor. The Slack notifier checks out nothing, so it cannot import
+  // targetRefFor(); it mirrors the expression in jq instead. If the source
+  // below changes, this fails and forces the jq mirror to change with it.
+  assert.match(
+    read("scripts/ci-failure-issue.mjs"),
+    /function targetRefFor\(run, defaultBranch\) \{\n {2}return \(\n {4}run\.head_branch \|\| \(run\.event === "push" \? "release tag" : defaultBranch\)\n {2}\);\n\}/,
+    "targetRefFor changed; update the jq mirror in the Slack notifier",
+  );
+  const mirror =
+    'if $head_branch != "" then $head_branch elif $event == "push" then "release tag" else $default_branch end';
+  assert.ok(
+    slack.includes(`| (${mirror}) as $ref`),
+    "the Slack notifier must apply the event-aware target-ref fallback",
+  );
+  assert.match(
+    slack,
+    /^ {10}DEFAULT_BRANCH: \$\{\{ github\.event\.repository\.default_branch \}\}$/m,
+  );
+
+  // Prove the jq mirror computes what targetRefFor computes. GitHub renders a
+  // null head_branch as an empty string, which is the case that matters.
+  const targetRefFor = (run, defaultBranch) =>
+    run.head_branch || (run.event === "push" ? "release tag" : defaultBranch);
+  const cases = [
+    { head_branch: "main", event: "push" },
+    { head_branch: "", event: "push" },
+    { head_branch: "", event: "schedule" },
+    { head_branch: "", event: "workflow_dispatch" },
+    { head_branch: "", event: "workflow_run" },
+    { head_branch: "main", event: "workflow_run" },
+  ];
+  for (const run of cases) {
+    const actual = execFileSync(
+      "jq",
+      [
+        "-rn",
+        "--arg",
+        "head_branch",
+        run.head_branch,
+        "--arg",
+        "event",
+        run.event,
+        "--arg",
+        "default_branch",
+        "main",
+        mirror,
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    )
+      .toString()
+      .trim();
+    assert.equal(
+      actual,
+      targetRefFor(run, "main"),
+      `jq mirror diverged for ${run.event} with head_branch "${run.head_branch}"`,
+    );
+  }
 });
