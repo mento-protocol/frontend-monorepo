@@ -3316,6 +3316,7 @@ export function reconcileState({
     results: epochResults.map(canonicalJson).sort(),
   });
   const sameEpoch = previous?.epoch?.anchor_run_id === epochAnchorRunId;
+  const liveEventRunIds = new Set(events.map((event) => event.event_run_id));
   const controllerTargetUrl = optionalHttpsUrl(controllerUrl, "Controller URL");
   const targetStates = {};
   const targetStatuses = {};
@@ -3487,6 +3488,8 @@ export function reconcileState({
     const selectedRunIds = new Set(
       targetSelections.map((selection) => selection.selection_receipt_run_id),
     );
+    const checkpointFoldedRunIds =
+      checkpointTarget?.folded_event_run_ids ?? null;
     const coalescedToByRun = new Map();
     for (const selection of targetSelections) {
       const selectedEvent = candidateByRun.get(
@@ -3499,13 +3502,49 @@ export function reconcileState({
         const coalescedIndex = candidates.findIndex(
           (event) => event.event_run_id === coalescedRunId,
         );
+        // A checkpoint folds a strict lineage prefix into its cumulative
+        // digest and drops those event receipts. A durable later selection
+        // keeps naming the coalesced identities it batched away, so one of
+        // them can outlive its own receipt. That is settled checkpoint
+        // evidence, not contradictory ownership, only when the checkpoint
+        // itself proves the identity: the fold recorded it, in lineage order,
+        // as a receipt this target's retained selections still name.
+        //
+        // Membership carries the ordering too. Every recorded identity was
+        // folded, so it sits at or before the checkpoint anchor, and the
+        // anchor precedes every live candidate. When the selection receipt is
+        // itself folded — kept only as the checkpoint's pending owner or
+        // runtime event — both identities appear in that lineage-ordered list
+        // and their recorded positions decide the order. Workflow run IDs
+        // never enter this proof: a lifecycle receipt can arrive late and
+        // carry a lower run ID than the receipts it follows.
+        //
+        // A checkpoint written before this evidence existed records nothing,
+        // so every folded identity under it fails closed. So does an identity
+        // that is live but outside this target's candidate lineage, one the
+        // fold never covered, and one holding a current-epoch result or
+        // selection.
+        const foldedIndex = checkpointFoldedRunIds
+          ? checkpointFoldedRunIds.indexOf(coalescedRunId)
+          : -1;
+        const foldedSelectionIndex = checkpointFoldedRunIds
+          ? checkpointFoldedRunIds.indexOf(selection.selection_receipt_run_id)
+          : -1;
+        const checkpointSettled =
+          coalescedIndex < 0 &&
+          selectedCheckpoint !== null &&
+          !liveEventRunIds.has(coalescedRunId) &&
+          foldedIndex >= 0 &&
+          (foldedSelectionIndex < 0 || foldedIndex < foldedSelectionIndex);
         invariant(
-          coalescedIndex >= 0 &&
-            coalescedIndex < selectedIndex &&
+          (checkpointSettled ||
+            (coalescedIndex >= 0 && coalescedIndex < selectedIndex)) &&
             !resultByRun.has(coalescedRunId) &&
             !selectedRunIds.has(coalescedRunId),
           `${target} coalescing evidence contradicts durable ownership`,
         );
+        // A folded identity keeps its owner recorded here. Skipping it would
+        // let two durable selections claim the same receipt unchallenged.
         const prior = coalescedToByRun.get(coalescedRunId);
         invariant(
           !prior || prior.event_run_id === selectedEvent.event_run_id,
@@ -3662,12 +3701,17 @@ export function reconcileState({
           )
         : -1;
       const coalescingStartIndex = pendingOwnerResult ? 0 : completedIndex + 1;
+      // A retained selection keeps owning every identity it already coalesced,
+      // including one whose own receipt a checkpoint folded away. Claiming it
+      // again here would leave two durable selections naming it, which every
+      // later reconciliation rejects as conflicting coalescing evidence.
       const coalescedReceiptRunIds = candidates
         .slice(coalescingStartIndex, selectedIndex)
         .filter(
           (event) =>
             !resultByRun.has(event.event_run_id) &&
-            !selectedRunIds.has(event.event_run_id),
+            !selectedRunIds.has(event.event_run_id) &&
+            !coalescedToByRun.has(event.event_run_id),
         )
         .map((event) => event.event_run_id);
       nextDispatches.push({
@@ -4207,11 +4251,32 @@ function validatePreviewCheckpoint(value, expectedPr) {
       targets[target],
       `${target} preview checkpoint`,
     );
+    // Checkpoints written before folded membership evidence existed omit
+    // folded_event_run_ids. They stay readable, and reconciliation fails
+    // closed on every folded identity under them rather than assuming one.
     invariant(
-      Object.keys(targetCheckpoint).sort().join(",") ===
+      [
+        "first_eligible_sha,folded_event_run_ids,last_successful_runtime_sha,last_successful_runtime_url,latest_desired_sha,latest_runtime_event,pending_owner_attempt_count,pending_owner_event,pending_owner_key_digest,status",
         "first_eligible_sha,last_successful_runtime_sha,last_successful_runtime_url,latest_desired_sha,latest_runtime_event,pending_owner_attempt_count,pending_owner_event,pending_owner_key_digest,status",
+      ].includes(Object.keys(targetCheckpoint).sort().join(",")),
       `${target} preview checkpoint fields are invalid`,
     );
+    if (Object.hasOwn(targetCheckpoint, "folded_event_run_ids")) {
+      const foldedRunIds = targetCheckpoint.folded_event_run_ids;
+      invariant(
+        Array.isArray(foldedRunIds) && foldedRunIds.length <= MAX_RECEIPTS,
+        `${target} checkpoint folded receipt evidence is invalid`,
+      );
+      const seenFoldedRunIds = new Set();
+      for (const runId of foldedRunIds) {
+        invariant(
+          exactRunId(runId, `${target} checkpoint folded receipt`) === runId &&
+            !seenFoldedRunIds.has(runId),
+          `${target} checkpoint folded receipt evidence is invalid`,
+        );
+        seenFoldedRunIds.add(runId);
+      }
+    }
     for (const [name, sha] of [
       ["first eligible", targetCheckpoint.first_eligible_sha],
       ["latest desired", targetCheckpoint.latest_desired_sha],
@@ -5030,6 +5095,19 @@ export function compactPreviewJournal(
     pull,
     journal.checkpoint,
   );
+  // The epoch reconciliation will read this checkpoint under. That is always
+  // the persisted one: a reader that finds a checkpoint resolves the epoch
+  // from state, never from the anchor it just computed. Compaction can see a
+  // newer anchor than state does — a reopened receipt can land before state
+  // reconciliation runs — so following the computed anchor here would build
+  // membership for an epoch no reader will ask about.
+  //
+  // Binding to the persisted epoch also keeps the evidence bounded. Selections
+  // from retired epochs vouch for nothing: an unresolved owner retires across
+  // an epoch boundary and keeps naming its coalesced identities, so carrying
+  // their membership forward would grow the list without bound until the
+  // writer rejected its own checkpoint.
+  const currentEpochAnchorRunId = state.epoch.anchor_run_id;
   const fullTailEvent = closure ?? lineage.at(-1) ?? null;
   const partialCheckpoint = throughEventRunId !== null;
   const cutoffRunId = partialCheckpoint
@@ -5221,6 +5299,36 @@ export function compactPreviewJournal(
         ),
       }
     : { events: [], selections: [], worker_evidence: [], results: [] };
+  // Membership evidence for the identities this fold removes. A retained
+  // selection can name a receipt the fold drops, and reconciliation may only
+  // treat that identity as settled when the checkpoint proves it existed and
+  // says where it sat. The list is lineage-ordered, so it carries the ordering
+  // proof as well. Scope is one epoch: only selections in the epoch this
+  // checkpoint will be read under contribute names, and the lineage it draws
+  // from is that same epoch, so the list can never exceed one epoch's receipts
+  // no matter how many epochs retire an unresolved owner.
+  const foldedLineageRunIds = checkpointLineage.map(
+    (event) => event.event_run_id,
+  );
+  for (const target of PREVIEW_TARGETS) {
+    const namedRunIds = new Set(
+      retainedReceipts.selections
+        .filter(
+          (selection) =>
+            selection.target === target &&
+            selection.epoch_anchor_run_id === currentEpochAnchorRunId,
+        )
+        .flatMap((selection) => [
+          selection.selection_receipt_run_id,
+          ...selection.coalesced_receipt_run_ids,
+        ]),
+    );
+    const priorFolded =
+      journal.checkpoint?.targets[target].folded_event_run_ids ?? [];
+    checkpointTargets[target].folded_event_run_ids = [
+      ...new Set([...priorFolded, ...foldedLineageRunIds]),
+    ].filter((runId) => namedRunIds.has(runId));
+  }
   const prunedReceipts = {
     events: checkpointEvents,
     selections: journal.receipts.selections.filter(
@@ -5771,8 +5879,38 @@ function foldCheckpointSemanticEvent(journal, event) {
     worker_evidence: [],
     results: [],
   };
+  // This fold removes one more receipt, so record it wherever a retained
+  // selection still names it. It is a semantic duplicate of the checkpoint
+  // anchor, which is the last folded position, so it appends in lineage order.
+  const foldedTargets = Object.fromEntries(
+    PREVIEW_TARGETS.map((target) => {
+      const targetCheckpoint = structuredClone(checkpoint.targets[target]);
+      const named = journal.receipts.selections.some(
+        (selection) =>
+          selection.target === target &&
+          (selection.selection_receipt_run_id === event.event_run_id ||
+            selection.coalesced_receipt_run_ids.includes(event.event_run_id)),
+      );
+      if (!named || !Object.hasOwn(targetCheckpoint, "folded_event_run_ids")) {
+        return [target, targetCheckpoint];
+      }
+      return [
+        target,
+        {
+          ...targetCheckpoint,
+          folded_event_run_ids: [
+            ...new Set([
+              ...targetCheckpoint.folded_event_run_ids,
+              event.event_run_id,
+            ]),
+          ],
+        },
+      ];
+    }),
+  );
   journal.checkpoint = {
     ...structuredClone(checkpoint),
+    targets: foldedTargets,
     sequence: checkpoint.sequence + 1,
     cumulative_receipts_digest: digest({
       previous: checkpoint.cumulative_receipts_digest,
