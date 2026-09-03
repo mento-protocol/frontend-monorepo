@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -53,8 +53,14 @@ function dependabotPatternMatches(pattern, dependency) {
   return new RegExp(`^${escaped.replaceAll("\\*", ".*")}$`).test(dependency);
 }
 
-function dependabotGroupMatches(group, dependency, dependencyType, updateType) {
-  if ((group["applies-to"] ?? "version-updates") !== "version-updates") {
+function dependabotGroupMatches(
+  group,
+  dependency,
+  dependencyType,
+  updateType,
+  appliesTo = "version-updates",
+) {
+  if ((group["applies-to"] ?? "version-updates") !== appliesTo) {
     return false;
   }
   if (group["dependency-type"] && group["dependency-type"] !== dependencyType) {
@@ -71,6 +77,26 @@ function dependabotGroupMatches(group, dependency, dependencyType, updateType) {
   );
 }
 
+function matchingDependabotGroups(
+  groups,
+  dependency,
+  dependencyType,
+  updateType,
+  appliesTo = "version-updates",
+) {
+  return Object.entries(groups)
+    .filter(([, group]) =>
+      dependabotGroupMatches(
+        group,
+        dependency,
+        dependencyType,
+        updateType,
+        appliesTo,
+      ),
+    )
+    .map(([name]) => name);
+}
+
 function firstDependabotGroup(groups, dependency, dependencyType, updateType) {
   return Object.entries(groups).find(([, group]) =>
     dependabotGroupMatches(group, dependency, dependencyType, updateType),
@@ -84,17 +110,26 @@ const CLAUDE_CODE_REVIEW_PLUGIN = `${CLAUDE_PLUGIN_MARKETPLACE}/plugins/code-rev
 const CLAUDE_PLUGIN_MARKETPLACE_REF =
   "2bb60696142b493eafaeacfe00eac51d16c50c4f";
 const DEPENDABOT_POLICY_TOP_LEVEL_KEYS = [
+  "admission",
   "baseRef",
   "branchMaintenance",
+  "credentialBoundary",
+  "evidence",
   "feedback",
   "githubActions",
   "history",
   "identities",
+  "lineageReceipts",
+  "manualResearch",
   "nativeCommit",
+  "operationalExit",
+  "preparationModes",
+  "protectedPaths",
   "repository",
   "schema",
   "trustedMaintainer",
   "vetoLabels",
+  "writeAuthorization",
 ];
 function hasExactKeys(value, expected) {
   return (
@@ -130,7 +165,7 @@ test("agent preparation policy pins the repository authority contract", () => {
   assert.throws(() => authorityJson('{"schema":"first","schema":"second"}'));
   assert.throws(() =>
     authorityJson(
-      '{"schema":"dependabot-prep-policy:v1","identities":{"pullRequestAuthor":{},"pullRequestAuthor":{}}}',
+      '{"schema":"dependabot-prep-policy:v2","identities":{"pullRequestAuthor":{},"pullRequestAuthor":{}}}',
     ),
   );
   const policy = authorityJson(read(".github/dependabot-prep-policy.json"));
@@ -142,7 +177,7 @@ test("agent preparation policy pins the repository authority contract", () => {
     ),
     false,
   );
-  assert.equal(policy.schema, "dependabot-prep-policy:v1");
+  assert.equal(policy.schema, "dependabot-prep-policy:v2");
   assert.equal(policy.repository, "mento-protocol/frontend-monorepo");
   assert.equal(policy.baseRef, "main");
   assert.deepEqual(policy.identities, {
@@ -167,6 +202,185 @@ test("agent preparation policy pins the repository authority contract", () => {
     verified: true,
     verificationReason: "valid",
   });
+  assert.deepEqual(policy.credentialBoundary, {
+    modelGhConfig: "/var/lib/dependabot/gh",
+    modelCredential: "absent",
+    mutatorGhConfig: "/var/lib/dependabot-mutator/gh",
+    mutatorCredentialOwner: "dedicated-nologin-identity",
+    broker: "/opt/dependabot-prep/mutation-broker.mjs",
+    client: "/opt/dependabot-prep/mutation-client.mjs",
+    socket: "/run/dependabot-prep/broker.sock",
+    readOperations: [
+      "rest-get-fixed-repository",
+      "graphql-template-pull-request-force-push-history",
+      "graphql-template-pull-request-review-threads",
+    ],
+    writeOperations: {
+      branch: ["exact-cas-push", "exact-cas-base-sync"],
+      "branch-maintenance": ["exact-dependabot-recreate"],
+      "review-request": ["exact-coderabbit-review-request"],
+      comment: ["bounded-top-level-comment"],
+      reply: ["bounded-review-comment-reply"],
+    },
+    directAuthenticatedGh: "forbidden",
+  });
+  assert.deepEqual(policy.evidence, {
+    normalization: {
+      requiredFields: [
+        "normalizedBy",
+        "normalizationStatus",
+        "normalizationNote",
+      ],
+      statusValues: ["verified", "rejected"],
+      preparedRequiresVerified: true,
+      preparedRequiresCompletePagination: true,
+      preparedShaFormat: "40-lowercase-hex-git-oid",
+      nonPreparedUnknownShaValue: "unknown",
+      nonPreparedUnknownShaFields: ["generationBaseSha", "policySha"],
+      currentTargetBaseShaRequired: true,
+      rejectedEvidenceResult: "blocked-not-operational-failure",
+    },
+    shaRoles: {
+      generationBaseSha: "native-generation-ancestry-anchor",
+      currentTargetBaseSha: "live-base-ref-oid-used-for-preparation",
+      policySha: "git-blob-oid-of-policy-at-current-target-base",
+    },
+    forcePushTimeline: {
+      source: "graphql",
+      connection: "PullRequest.timelineItems",
+      itemType: "HeadRefForcePushedEvent",
+      beforeOidField: "beforeCommit.oid",
+      afterOidField: "afterCommit.oid",
+      requireCompletePagination: true,
+      resultEvidenceField: "forcePushHistory",
+      resultFields: [
+        "source",
+        "eventType",
+        "paginationComplete",
+        "transitions",
+      ],
+      resultTransitionFields: [
+        "eventId",
+        "createdAt",
+        "beforeSha",
+        "afterSha",
+        "actorLogin",
+        "actorType",
+        "actorId",
+      ],
+      normalizedFields: [
+        "eventType",
+        "paginationComplete",
+        "source",
+        "transitions",
+      ],
+      normalizedTransitionFields: [
+        "actorId",
+        "actorLogin",
+        "actorType",
+        "afterSha",
+        "beforeSha",
+        "createdAt",
+        "eventId",
+      ],
+      missingOid: "blocked",
+    },
+    repositoryRules: {
+      appliedBranchRulesEndpoint:
+        "/repos/{owner}/{repo}/rules/branches/{branch}",
+      rulesetsEndpoint: "/repos/{owner}/{repo}/rulesets",
+      rulesetEndpoint: "/repos/{owner}/{repo}/rulesets/{rulesetId}",
+      requireCompletePagination: true,
+      requireFullRulesetReadback: true,
+      resultEvidenceField: "repositoryRules",
+      resultFields: [
+        "source",
+        "branchRulesEndpoint",
+        "rulesetsEndpoint",
+        "paginationComplete",
+        "summary",
+      ],
+      normalizedFields: [
+        "branchRulesEndpoint",
+        "branchRules",
+        "complete",
+        "evidenceSha256",
+        "paginationComplete",
+        "rulesets",
+        "rulesetsEndpoint",
+        "source",
+        "targetRefName",
+      ],
+      legacyBranchProtection: "not-authoritative",
+      unreadable: "blocked",
+    },
+    mutationLineage: {
+      resultEvidenceField: "mutationLineage",
+      requiredFields: [
+        "complete",
+        "finalHeadSha",
+        "nativeLineageSha256",
+        "originHeadSha",
+        "source",
+        "transitions",
+      ],
+      sourceFields: ["kind", "modelWritable", "mutationAuthority"],
+      requiredSource: {
+        kind: "root-owned-mutation-receipts",
+        modelWritable: false,
+        mutationAuthority: false,
+      },
+      transitionFields: [
+        "kind",
+        "newHeadSha",
+        "oldHeadSha",
+        "receiptFile",
+        "receiptSha256",
+      ],
+      transitionKinds: ["exact-cas-push", "exact-cas-base-sync"],
+      preparedRequiresComplete: true,
+      preparedFinalHeadMustMatch: true,
+    },
+    generationTransition: {
+      resultEvidenceField: "generationTransition",
+      ordinaryValue: null,
+      rejectedValue: null,
+      recreateFields: [
+        "boundaryAfterSha",
+        "boundaryBeforeSha",
+        "boundaryCreatedAt",
+        "boundaryEventId",
+        "commentCreatedAt",
+        "commentId",
+        "commentUpdatedAt",
+        "kind",
+        "oldHeadSha",
+        "oldNativeOriginHeadSha",
+        "operator",
+        "receiptFile",
+        "receiptSha256",
+        "requestSha256",
+        "requestedTargetBaseSha",
+        "source",
+      ],
+      requiredKind: "controller-recreate",
+      requiredSource: {
+        kind: "root-owned-recreate-receipt",
+        modelWritable: false,
+        mutationAuthority: false,
+      },
+      receiptAuthority: "/var/lib/dependabot/lineage/recreates",
+      commentMustBeUnedited: true,
+      boundary:
+        "first-normalized-force-push-after-comment-from-exact-old-head",
+      requiresNoHistoricalReplay: true,
+      requiredBaseBindings: [
+        "generationBaseSha",
+        "currentTargetBaseSha",
+        "requestedTargetBaseSha",
+      ],
+    },
+  });
   assert.deepEqual(policy.trustedMaintainer, {
     associations: ["COLLABORATOR", "MEMBER", "OWNER"],
     branchMaintenancePermissions: ["admin", "write"],
@@ -185,6 +399,17 @@ test("agent preparation policy pins the repository authority contract", () => {
     requireValidUtcTimestamps: true,
     rebaseResetsForcePushHistory: false,
     recreateStartsGenerationAfterComment: true,
+    controllerRecreate: {
+      operation: "recreate",
+      grant: "recreate",
+      body: "@dependabot recreate",
+      eligibleEcosystem: "npm",
+      processingMode: "full",
+      requiresAuthenticatedNativeGeneration: true,
+      oncePerExactNativeGeneration: true,
+      postComment: "wait-for-and-reauthenticate-new-native-generation",
+      refMutationAuthority: "dependabot-only",
+    },
   });
   assert.deepEqual(policy.feedback, {
     requireCompletePagination: true,
@@ -289,7 +514,8 @@ test("agent preparation policy pins the repository authority contract", () => {
   });
   assert.deepEqual(policy.history, {
     closeOrReopenByNonDependabot: "manual",
-    existingNonNativeHead: "manual",
+    existingNonNativeHead:
+      "admit-only-complete-validated-broker-receipt-chain",
     forcePushRequiresCompletePagination: true,
     forcePushRequiresContinuousShas: true,
     forcePushRequiresNonCyclicShas: true,
@@ -297,9 +523,489 @@ test("agent preparation policy pins the repository authority contract", () => {
     forcePushRequiresUniqueEventIds: true,
     unknownForcePush: "blocked",
   });
+  assert.deepEqual(policy.admission, {
+    ordinaryNpm: {
+      ecosystem: "npm",
+      allowedProcessingModes: ["full", "sync-only"],
+      originalAllowedExactPaths: [
+        "package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+      ],
+      originalAllowedPathSuffixes: ["/package.json"],
+      forbiddenPathPrefixes: [
+        "scripts/vercel-cli-runtime/",
+        "scripts/vercel-pnpm-runtime/",
+        "scripts/vercel-pnpm-bootstrap/",
+      ],
+      finalForbiddenPathPrefixes: [
+        "scripts/vercel-cli-runtime/",
+        "scripts/vercel-pnpm-runtime/",
+        "scripts/vercel-pnpm-bootstrap/",
+      ],
+      finalPathRule: "reviewed-nonprotected-compatibility-repair",
+      candidateAuthoredRepair: {
+        requiresSeparateCleanBaseSync: true,
+        commitShape: "one-parent-from-exact-old-head",
+        pathStatus: "modified-existing-nonprotected-only",
+        allowedPathPrefixes: ["apps/", "packages/"],
+        dependencyManifestOrLockfileMutation: "forbidden",
+        finalDependencyTuples: "exact-authenticated-native-tuples",
+      },
+      excludedPackages: [
+        "next",
+        "vercel",
+        "pnpm",
+        "@pnpm/linux-x64",
+        "@playwright/test",
+        "@argos-ci/playwright",
+      ],
+      excludedPackagePrefixes: [],
+      manualRiskPackagePatterns: [
+        "wagmi",
+        "viem",
+        "viem-*",
+        "@wagmi/*",
+        "@rainbow-me/*",
+        "@metamask/*",
+        "ethers",
+        "ethers-*",
+        "@mento-protocol/*",
+        "@wormhole-foundation/*",
+        "@solana/*",
+        "@walletconnect/*",
+        "@reown/*",
+        "@celo/*",
+        "@ledgerhq/*",
+        "@trezor/*",
+        "@safe-global/*",
+        "@noble/*",
+        "@scure/*",
+        "*wallet*",
+        "*web3*",
+      ],
+      versionTransition: {
+        accepted: "strict-forward-stable-semver-with-identical-range-prefix",
+        unsupportedOrAmbiguous: "manual",
+      },
+      unknownDependency: "manual",
+    },
+    ordinaryNpmInitialState: {
+      behindCurrentTargetBase: "admissible-work",
+      conflicting: "admissible-work",
+      redRequiredChecks: "admissible-work",
+    },
+    protectedRuntimeManual: {
+      packages: [
+        "vercel",
+        "pnpm",
+        "@pnpm/linux-x64",
+        "@playwright/test",
+        "@argos-ci/playwright",
+      ],
+      packagePrefixes: [],
+      forbiddenPathPrefixes: [
+        "scripts/vercel-cli-runtime/",
+        "scripts/vercel-pnpm-runtime/",
+        "scripts/vercel-pnpm-bootstrap/",
+      ],
+      next: {
+        package: "next",
+        manualUpdateTypes: ["semver-minor", "semver-major"],
+        outOfContractPatch: true,
+      },
+    },
+    nextPatch: {
+      package: "next",
+      updateType: "semver-patch-only",
+      processingMode: "full",
+      originalDelta: "exact-next-dependency-and-lockfile-tuple-only",
+      allowedRegions: {
+        "pnpm-workspace.yaml": ["catalog.next"],
+        "package.json": ["pnpm.overrides.next"],
+        "pnpm-lock.yaml": ["exact-next-runtime-closure"],
+        "scripts/vercel-cli-runtime/package.json": ["pnpm.overrides.next"],
+        "scripts/vercel-cli-runtime/pnpm-lock.yaml": [
+          "exact-next-runtime-closure",
+        ],
+        "scripts/vercel-cli-runtime/contract.json": [
+          "lockfileSha256",
+          "manifestSha256",
+          "overridesSha256",
+        ],
+      },
+      agentRepair: "bounded-data-only-within-exact-tuple",
+      derivation: "deterministic-without-candidate-execution",
+      candidateExecution: "forbidden",
+      packageManagerExecution: "forbidden",
+      allOtherContent: "byte-and-mode-identical-to-currentTargetBaseSha",
+      unexpectedAmbiguousOrUnproducible: "manual",
+      finalGate: "same-as-admission.finalGate",
+    },
+    nextMinorOrMajor: {
+      package: "next",
+      updateTypes: ["semver-minor", "semver-major"],
+      processingMode: "manual",
+    },
+    finalGate: {
+      containsCurrentTargetBase: true,
+      exactHeadRequiredChecks: "passing",
+      exactHeadCodeRabbitReview: true,
+      feedback: "answered",
+      mergeability: "MERGEABLE",
+      autoMergeRequest: null,
+      requiredCheckProducers: [
+        {
+          acceptedConclusions: ["success", "neutral", "skipped"],
+          app: { id: 15368, slug: "github-actions" },
+          context: "Build and Test",
+          integrationId: 15368,
+          kind: "check-run",
+          workflow: {
+            event: "pull_request",
+            id: 156727246,
+            path: ".github/workflows/ci.yml",
+          },
+        },
+        {
+          acceptedConclusions: ["success", "neutral", "skipped"],
+          app: { id: 15368, slug: "github-actions" },
+          context: "Visual Regression (ui.mento.org)",
+          integrationId: 15368,
+          kind: "check-run",
+          workflow: {
+            event: "pull_request",
+            id: 296885588,
+            path: ".github/workflows/visual.yml",
+          },
+        },
+        {
+          acceptedConclusions: ["success", "neutral", "skipped"],
+          app: { id: 15368, slug: "github-actions" },
+          context: "osv-scanner / osv-scan",
+          integrationId: 15368,
+          kind: "check-run",
+          workflow: {
+            event: "pull_request",
+            id: 297207753,
+            path: ".github/workflows/supply-chain.yml",
+          },
+        },
+        {
+          acceptedStates: ["success"],
+          context: "Vercel Preview",
+          creator: {
+            id: 41898282,
+            login: "github-actions[bot]",
+            type: "Bot",
+          },
+          integrationId: 15368,
+          kind: "commit-status",
+          workflow: {
+            event: "pull_request_target",
+            id: 314322382,
+            path: ".github/workflows/vercel-preview-intake.yml",
+          },
+        },
+      ],
+    },
+  });
+  assert.deepEqual(policy.preparationModes, {
+    full: {
+      scope: "ordinary-npm-or-constrained-next-patch",
+      allowsBaseSynchronization: true,
+      allowsBoundedDataOnlyRepairs: true,
+    },
+    "sync-only": {
+      scope: "policy-admitted-npm-without-agent-authored-repair",
+      allowsBaseSynchronization: true,
+      allowsBoundedDataOnlyRepairs: false,
+    },
+    "review-only": {
+      scope: "unchanged-current-native-head",
+      allowsBaseSynchronization: false,
+      allowsBoundedDataOnlyRepairs: false,
+    },
+    manual: {
+      scope: "human-or-other-controller-reserved",
+      allowsBaseSynchronization: false,
+      allowsBoundedDataOnlyRepairs: false,
+    },
+  });
+  assert.deepEqual(policy.protectedPaths, {
+    prefixes: [".github/workflows/", ".github/actions/"],
+    originalPullRequestDelta: "must-not-contain-protected-paths",
+    protectedTreePrecondition: {
+      requiresIndependentVerification: true,
+      oldHead: "byte-and-mode-identical-to-currentTargetBaseSha",
+      candidate: "byte-and-mode-identical-to-currentTargetBaseSha",
+      agentEdit: "forbidden",
+      conflictResolution: "forbidden",
+      verifyBeforeCommit: true,
+      verifyInIndependentQuarantine: true,
+      verifyImmediatelyBeforeMutation: true,
+      mismatch: "recreate-or-manual-before-ref-mutation",
+      workflowsWriteGrant: "forbidden",
+    },
+    directPullRequestChanges: "no-ref-mutation",
+  });
   assert.deepEqual(policy.githubActions, {
+    ecosystem: "github-actions",
     refMutation: "forbidden",
-    requiresCurrentNativeGreenHead: true,
+    sensitiveOrSelfReviewingProcessingMode: "manual",
+    nonRoutineVersionUpdateProcessingMode: "manual",
+    securityUpdates: { processingMode: "manual" },
+    ambiguousOrMixed: "manual",
+    preparedRequiresUnchangedNativeGreenHead: true,
+    routineGroup: {
+      name: "github-actions-routine",
+      headRefPrefix: "dependabot/github_actions/github-actions-routine",
+      appliesTo: "version-updates",
+      updateTypes: ["semver-minor", "semver-patch"],
+      processingMode: "review-only",
+      dependencyMatch: "authenticated-same-line-uses-ref-rotations",
+      requiredRefFormat: "40-lowercase-hex-git-oid",
+      originalAllowedPathPrefixes: [".github/workflows/"],
+      sensitiveActionPatterns: [
+        "actions/create-github-app-token",
+        "actions/dependency-review-action",
+        "anthropics/*",
+        "dependabot/*",
+        "github/codeql-action*",
+        "google/osv-scanner-action*",
+        "ossf/scorecard-action",
+      ],
+    },
+  });
+  assert.deepEqual(policy.manualResearch, {
+    requiredForManualVerdict: true,
+    dependencyInventoryField: "dependencies",
+    dependencyInventory:
+      "nonempty-unique-exact-name-fromVersion-toVersion-tuples",
+    packageCoverage: "exact-pull-request-dependency-set",
+    packageTupleEqualityRequired: true,
+    authoritativeSources: [
+      "upstream-changelog",
+      "upstream-release-notes",
+      "upstream-migration-guide",
+      "upstream-security-advisory",
+      "upstream-project-or-package-fallback",
+    ],
+    desiredSourceKinds: [
+      "changelog",
+      "release-notes",
+      "migration-guide",
+      "security-advisory",
+    ],
+    fallbackSourceKind: "upstream-project-or-package",
+    fallbackAllowedOnlyWhenAllDesiredSourceKindsAbsent: true,
+    missingDesiredSourceKindsField: "missingSourceKinds",
+    missingDesiredSourceKinds:
+      "record-exact-absent-set-and-lower-confidence",
+    minimumLiveVerifiedAuthoritativeUrlsPerPackageTuple: 1,
+    liveVerification: "required-per-exact-package-tuple",
+    requiredFields: [
+      "status",
+      "overallRecommendation",
+      "repositoryImpact",
+      "riskLevel",
+      "confidenceLevel",
+      "confidenceRationale",
+      "packages",
+      "sourceFailures",
+    ],
+    statusValues: ["complete", "partial", "unavailable"],
+    packageRequiredFields: [
+      "name",
+      "fromVersion",
+      "toVersion",
+      "changeSummary",
+      "breakingChanges",
+      "recommendation",
+      "riskLevel",
+      "confidenceLevel",
+      "confidenceRationale",
+      "sourceStatus",
+      "sourceNote",
+      "missingSourceKinds",
+      "sources",
+    ],
+    sourceRequiredFields: [
+      "kind",
+      "url",
+      "title",
+      "versionCoverage",
+      "verifiedAt",
+    ],
+    sourceKinds: [
+      "changelog",
+      "release-notes",
+      "migration-guide",
+      "security-advisory",
+      "upstream-project-or-package",
+    ],
+    sourceUrlScheme: "https",
+    verifiedOrPartialSourceRequiresHttpsUrl: true,
+    acceptedSourceRequiresLiveFetch: true,
+    acceptedSourceRequiresAuthoritativeUpstreamOwnership: true,
+    sourceStatusValues: ["verified", "partial", "missing", "ambiguous"],
+    riskLevels: ["low", "medium", "high", "critical", "unknown"],
+    confidenceLevels: ["low", "medium", "high"],
+    noLiveVerifiedAuthoritativeSource: "operational-research-incomplete",
+    operationalResearchIncompleteStatus: "unavailable",
+    operationalResearchIncompleteRequiresLauncherFailure: true,
+    incompleteSourceCoverageConfidence: "low-or-medium-only",
+    candidateExecution: "forbidden",
+  });
+  assert.deepEqual(policy.lineageReceipts, {
+    schema: "dependabot-prep-mutation-receipt:v1",
+    broker: "/opt/dependabot-prep/mutation-broker.mjs",
+    client: "/opt/dependabot-prep/mutation-client.mjs",
+    socket: "/run/dependabot-prep/broker.sock",
+    store: "/var/lib/dependabot/lineage/receipts",
+    intentStore: "/var/lib/dependabot/lineage/intents",
+    pendingStore: "/var/lib/dependabot/lineage/pending",
+    operationLock: "/var/lib/dependabot/lineage/operation.lock",
+    intentSchema: "dependabot-prep-mutation-intent:v1",
+    intentRequiredFields: [
+      "schema",
+      "recordedAt",
+      "repository",
+      "pullRequestNumber",
+      "headRefName",
+      "mutation",
+      "processingMode",
+      "runId",
+      "runAuthorizationSha256",
+      "oldHeadSha",
+      "proposedNewHeadSha",
+      "requestedTargetBaseSha",
+      "policy",
+      "operator",
+      "nativeAnchor",
+    ],
+    intentProposedNewHeadSha: {
+      "exact-cas-push": "40-lowercase-hex-git-oid",
+      "exact-cas-base-sync": "40-lowercase-hex-git-oid",
+    },
+    intentNativeAnchorFields: [
+      "generationBaseSha",
+      "nativeOriginHeadSha",
+      "nativeLineageSha256",
+    ],
+    intentArm: "durable-before-network-mutation",
+    mutationSerialization: "global-atomic-directory-lock",
+    intentFinalization:
+      "durable-receipt-reread-then-pending-rename-unlink-and-directory-fsync",
+    recovery:
+      "block-all-ref-mutation-until-explicit-human-forensic-recovery-no-automatic-delete-or-retry",
+    writer: "root-owned-pinned-least-privilege-service",
+    write: "atomic-before-control-returns-after-push-readback",
+    mutationKinds: ["exact-cas-push", "exact-cas-base-sync"],
+    requiredFields: [
+      "sequence",
+      "previousReceiptSha256",
+      "recordedAt",
+      "repository",
+      "pullRequestNumber",
+      "headRefName",
+      "mutation",
+      "processingMode",
+      "runAuthorizationSha256",
+      "oldHeadSha",
+      "newHeadSha",
+      "currentTargetBaseSha",
+      "postMutationTargetBaseSha",
+      "baseMoved",
+      "policy",
+      "runId",
+      "operator",
+      "evidence",
+      "components",
+    ],
+    policyFields: ["commitSha", "blobSha", "sha256"],
+    operatorFields: ["id", "login", "type"],
+    evidenceFields: [
+      "liveHeadSha",
+      "commitParents",
+      "protectedTreeSha256",
+      "generationBaseSha",
+      "nativeOriginHeadSha",
+      "nativeLineageSha256",
+    ],
+    componentFields: [
+      "pinsSha256",
+      "toolchainManifestSha256",
+      "skillSha256",
+      "brokerSha256",
+      "workerSha256",
+    ],
+    transition: "exact-non-force-parent-to-head",
+    crossInvocationCommand: "dependabot-lineage <pr> <ref> <headOid>",
+    crossInvocationAdmission: "complete-broker-verified-receipt-chain-only",
+    missingInvalidOrAmbiguous: "manual",
+  });
+  assert.deepEqual(policy.writeAuthorization, {
+    orchestrator: "/opt/dependabot-prep/authorized-run",
+    implementation: "/opt/dependabot-prep/authorized-run.mjs",
+    selftestOrchestrator: "/opt/dependabot-prep/selftest-run",
+    selftestAttester: "/opt/dependabot-prep/selftest-attest.mjs",
+    selftestAttestation: "/etc/dependabot-prep/selftest-attestation.json",
+    writeCommandArgv: ["sudo", "/opt/dependabot-prep/authorized-run"],
+    scheduledGrants: [
+      "branch",
+      "recreate",
+      "review-request",
+      "comment",
+      "reply",
+    ],
+    scheduledDeniedGrants: [
+      "rerun",
+      "execute",
+      "thread-resolution",
+      "approve",
+      "dismiss-review",
+      "auto-merge",
+      "merge",
+      "close",
+      "enqueue",
+    ],
+    directLauncherWrite: "refuse",
+    directLauncherNonWriteOperations: [
+      "run --read-only",
+      "status",
+    ],
+    rootOnlyMaintenanceOperations: ["pin", "selftest-run"],
+    dependabotMaintenanceOperations: ["lease-clear"],
+    capability: {
+      kind: "root-owned-short-lived-nonce",
+      lifetime: "single-run",
+      requiredBindings: [
+        "mode",
+        "grants",
+        "runId",
+        "authorizerPid",
+        "authorizerBootId",
+        "authorizerStartTimeTicks",
+      ],
+      authorizerProcess: "live-root-pid-boot-id-and-start-time-required",
+      modelWritable: false,
+      brokerRequiresCapability: true,
+    },
+  });
+  assert.deepEqual(policy.operationalExit, {
+    completeValidatedInventory: 0,
+    operationalFailure: 1,
+    pinOrSelftestDrift: 2,
+    activeLeaseContention: 3,
+    perPullRequestManualOrBlockedIsOperationalFailure: false,
+    countBuckets: ["verdict", "processingMode"],
+    machineFields: [
+      "reportExit",
+      "operationalStatus",
+      "resultStatus",
+      "counts",
+    ],
   });
 });
 
@@ -1229,16 +1935,68 @@ test("Wagmi paths share one use-sync-external-store peer snapshot", () => {
   );
 });
 
-test("Dependabot groups isolate sensitive and test-toolchain updates", () => {
+test("Dependabot groups isolate protected runtimes and couple test tooling", () => {
   const config = yaml(".github/dependabot.yml");
+  const policy = authorityJson(read(".github/dependabot-prep-policy.json"));
   const npmConfig = config.updates.find(
     (update) => update["package-ecosystem"] === "npm",
   );
-  const actionsConfig = config.updates.find(
+  const actionsConfigs = config.updates.filter(
     (update) => update["package-ecosystem"] === "github-actions",
   );
+  const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+  const localActionRoot = join(repositoryRoot, ".github/actions");
+  const nestedActionDirectories = filesBelow(localActionRoot)
+    .filter((path) => /(?:^|\/)action\.ya?ml$/u.test(path))
+    .map((path) => `/${relative(repositoryRoot, dirname(path))}`)
+    .sort();
+  assert.equal(actionsConfigs.length, 2);
+  const actionsConfig = actionsConfigs.find(
+    (update) => update.directory === "/",
+  );
+  const localActionsConfig = actionsConfigs.find((update) => update.directories);
+  assert.equal(actionsConfig.directories, undefined);
+  assert.equal(localActionsConfig.directory, undefined);
+  assert.deepEqual(
+    [...localActionsConfig.directories].sort(),
+    nestedActionDirectories,
+    "the exact local Action manifest directories need Dependabot coverage",
+  );
+  assert.equal(
+    new Set(localActionsConfig.directories).size,
+    localActionsConfig.directories.length,
+    "local Action directories must not be duplicated",
+  );
+  assert.equal(
+    localActionsConfig.directories.includes("/"),
+    false,
+    "the local Action entry must not overlap the root workflow entry",
+  );
+  for (const field of [
+    "schedule",
+    "cooldown",
+    "open-pull-requests-limit",
+    "labels",
+    "commit-message",
+  ]) {
+    assert.deepEqual(
+      localActionsConfig[field],
+      actionsConfig[field],
+      `local Actions must preserve root ${field} semantics`,
+    );
+  }
+  assert.deepEqual(localActionsConfig.groups, {
+    "github-actions-local-manual": {
+      "applies-to": "version-updates",
+      patterns: ["*"],
+    },
+    "github-actions-local-security-manual": {
+      "applies-to": "security-updates",
+      patterns: ["*"],
+    },
+  });
 
-  for (const update of [npmConfig, actionsConfig]) {
+  for (const update of [npmConfig, ...actionsConfigs]) {
     assert.deepEqual(update.schedule, {
       interval: "weekly",
       day: "monday",
@@ -1246,7 +2004,7 @@ test("Dependabot groups isolate sensitive and test-toolchain updates", () => {
       timezone: "UTC",
     });
   }
-  assert.ok(npmConfig["open-pull-requests-limit"] >= 6);
+  assert.equal(npmConfig["open-pull-requests-limit"], 12);
   assert.deepEqual(npmConfig.cooldown, {
     "default-days": 7,
     "semver-major-days": 21,
@@ -1262,10 +2020,119 @@ test("Dependabot groups isolate sensitive and test-toolchain updates", () => {
     "applies-to": "security-updates",
     patterns: ["vercel"],
   });
-  assert.ok(npmConfig.groups.tooling["exclude-patterns"].includes("vercel"));
-  assert.ok(
-    npmConfig.groups["security-tooling"]["exclude-patterns"].includes("vercel"),
-  );
+  assert.deepEqual(npmConfig.groups["next-runtime"], {
+    "applies-to": "version-updates",
+    patterns: ["next"],
+    "update-types": ["major", "minor", "patch"],
+  });
+  assert.deepEqual(npmConfig.groups["next-runtime-security"], {
+    "applies-to": "security-updates",
+    patterns: ["next"],
+  });
+  assert.deepEqual(npmConfig.groups["playwright-runtime"], {
+    "applies-to": "version-updates",
+    patterns: ["@playwright/test", "@argos-ci/playwright"],
+    "update-types": ["major", "minor", "patch"],
+  });
+  assert.deepEqual(npmConfig.groups["playwright-runtime-security"], {
+    "applies-to": "security-updates",
+    patterns: ["@playwright/test", "@argos-ci/playwright"],
+  });
+  assert.deepEqual(npmConfig.groups["pnpm-runtime"], {
+    "applies-to": "version-updates",
+    patterns: ["pnpm", "@pnpm/linux-x64"],
+    "update-types": ["major", "minor", "patch"],
+  });
+  assert.deepEqual(npmConfig.groups["pnpm-runtime-security"], {
+    "applies-to": "security-updates",
+    patterns: ["pnpm", "@pnpm/linux-x64"],
+  });
+  const protectedRuntimeDependencies = [
+    "vercel",
+    "next",
+    "@playwright/test",
+    "@argos-ci/playwright",
+    "pnpm",
+    "@pnpm/linux-x64",
+  ];
+  const protectedVersionGroups = {
+    vercel: "vercel-cli",
+    next: "next-runtime",
+    "@playwright/test": "playwright-runtime",
+    "@argos-ci/playwright": "playwright-runtime",
+    pnpm: "pnpm-runtime",
+    "@pnpm/linux-x64": "pnpm-runtime",
+  };
+  const protectedSecurityGroups = {
+    vercel: "vercel-cli-security",
+    next: "next-runtime-security",
+    "@playwright/test": "playwright-runtime-security",
+    "@argos-ci/playwright": "playwright-runtime-security",
+    pnpm: "pnpm-runtime-security",
+    "@pnpm/linux-x64": "pnpm-runtime-security",
+  };
+  for (const dependencyType of ["production", "development"]) {
+    for (const [dependency, expectedGroup] of Object.entries(
+      protectedVersionGroups,
+    )) {
+      const updateTypes =
+        dependency === "vercel"
+          ? ["minor", "patch"]
+          : ["major", "minor", "patch"];
+      for (const updateType of updateTypes) {
+        assert.deepEqual(
+          matchingDependabotGroups(
+            npmConfig.groups,
+            dependency,
+            dependencyType,
+            updateType,
+          ),
+          [expectedGroup],
+          `${dependency} ${updateType} must not overlap an ordinary version-update group`,
+        );
+      }
+    }
+    for (const [dependency, expectedGroup] of Object.entries(
+      protectedSecurityGroups,
+    )) {
+      assert.deepEqual(
+        matchingDependabotGroups(
+          npmConfig.groups,
+          dependency,
+          dependencyType,
+          "patch",
+          "security-updates",
+        ),
+        [expectedGroup],
+        `${dependency} must not overlap a catch-all security group`,
+      );
+    }
+  }
+  for (const groupName of [
+    "production-misc",
+    "tooling",
+    "security-runtime",
+    "security-tooling",
+  ]) {
+    for (const dependency of protectedRuntimeDependencies) {
+      assert.ok(
+        npmConfig.groups[groupName]["exclude-patterns"].includes(dependency),
+        `${groupName} must exclude protected ${dependency}`,
+      );
+    }
+  }
+  for (const dependencyType of ["production", "development"]) {
+    assert.deepEqual(
+      matchingDependabotGroups(
+        npmConfig.groups,
+        "vercel",
+        dependencyType,
+        "major",
+      ),
+      [],
+      "a Vercel major must stay an ungrouped protected update",
+    );
+  }
   for (const dependencyType of ["production", "development"]) {
     for (const updateType of ["minor", "patch"]) {
       assert.equal(
@@ -1277,6 +2144,35 @@ test("Dependabot groups isolate sensitive and test-toolchain updates", () => {
         ),
         "vercel-cli",
       );
+      assert.equal(
+        firstDependabotGroup(
+          npmConfig.groups,
+          "next",
+          dependencyType,
+          updateType,
+        ),
+        "next-runtime",
+      );
+      for (const dependency of ["@playwright/test", "@argos-ci/playwright"]) {
+        assert.equal(
+          firstDependabotGroup(
+            npmConfig.groups,
+            dependency,
+            dependencyType,
+            updateType,
+          ),
+          "playwright-runtime",
+        );
+      }
+      assert.equal(
+        firstDependabotGroup(
+          npmConfig.groups,
+          "pnpm",
+          dependencyType,
+          updateType,
+        ),
+        "pnpm-runtime",
+      );
     }
   }
   assert.deepEqual(npmConfig.groups["test-toolchain"], {
@@ -1287,14 +2183,15 @@ test("Dependabot groups isolate sensitive and test-toolchain updates", () => {
   });
   for (const dependency of ["vite", "vitest", "@vitest/coverage-v8"]) {
     for (const updateType of ["major", "minor", "patch"]) {
-      assert.equal(
-        firstDependabotGroup(
+      assert.deepEqual(
+        matchingDependabotGroups(
           npmConfig.groups,
           dependency,
           "development",
           updateType,
         ),
-        "test-toolchain",
+        ["test-toolchain"],
+        `${dependency} must be coupled only through test-toolchain`,
       );
     }
   }
@@ -1303,17 +2200,29 @@ test("Dependabot groups isolate sensitive and test-toolchain updates", () => {
   }
 
   const namedProductionGroups = ["frontend-core", "web3-stack", "ui-styling"];
+  assert.deepEqual(
+    policy.admission.ordinaryNpm.manualRiskPackagePatterns,
+    npmConfig.groups["web3-stack"].patterns,
+    "broker manual-risk patterns must match the focused web3 group",
+  );
   const namedProductionPatterns = namedProductionGroups.flatMap(
     (groupName) => npmConfig.groups[groupName].patterns,
   );
+  const protectedProductionPatterns = [
+    ...npmConfig.groups["next-runtime"].patterns,
+    ...npmConfig.groups["playwright-runtime"].patterns,
+    ...npmConfig.groups["vercel-cli"].patterns,
+    ...npmConfig.groups["pnpm-runtime"].patterns,
+  ];
   assert.deepEqual(
     [...npmConfig.groups["production-misc"]["exclude-patterns"]].sort(),
-    [...namedProductionPatterns].sort(),
-    "production-misc exclusions must exactly mirror named production groups",
+    [
+      ...new Set([...namedProductionPatterns, ...protectedProductionPatterns]),
+    ].sort(),
+    "production-misc exclusions must mirror named and protected production groups",
   );
   for (const [groupName, dependencies] of Object.entries({
     "frontend-core": [
-      "next",
       "react",
       "react-dom",
       "@types/react",
@@ -1387,21 +2296,50 @@ test("Dependabot groups isolate sensitive and test-toolchain updates", () => {
     "tooling",
   );
 
+  assert.deepEqual(npmConfig.groups["web3-stack-security"], {
+    "applies-to": "security-updates",
+    patterns: policy.admission.ordinaryNpm.manualRiskPackagePatterns,
+  });
+  const securityExclusions = [
+    ...protectedRuntimeDependencies,
+    ...policy.admission.ordinaryNpm.manualRiskPackagePatterns,
+  ];
   assert.deepEqual(npmConfig.groups["security-runtime"], {
     "applies-to": "security-updates",
     "dependency-type": "production",
+    patterns: ["*"],
+    "exclude-patterns": securityExclusions,
   });
   assert.deepEqual(npmConfig.groups["security-tooling"], {
     "applies-to": "security-updates",
     "dependency-type": "development",
     patterns: ["*"],
-    "exclude-patterns": ["vercel"],
+    "exclude-patterns": securityExclusions,
   });
+  for (const dependency of expectedSensitiveDependencies) {
+    for (const dependencyType of ["production", "development"]) {
+      assert.deepEqual(
+        matchingDependabotGroups(
+          npmConfig.groups,
+          dependency,
+          dependencyType,
+          "patch",
+          "security-updates",
+        ),
+        ["web3-stack-security"],
+        `${dependency} security update must stay in the manual-risk group`,
+      );
+    }
+  }
   assert.equal(npmConfig.ignore, undefined);
 
   const routine = actionsConfig.groups["github-actions-routine"];
   const manual = actionsConfig.groups["github-actions-manual"];
   assert.deepEqual(manual.patterns, routine["exclude-patterns"]);
+  assert.deepEqual(
+    policy.githubActions.routineGroup.sensitiveActionPatterns,
+    routine["exclude-patterns"],
+  );
   const actionDependencies = new Set();
   const githubRoot = fileURLToPath(new URL("../.github/", import.meta.url));
   for (const path of filesBelow(githubRoot).filter((entry) =>
@@ -1530,5 +2468,96 @@ test("canonical instructions preserve the external preparation boundary", () => 
       /(?:human approval.{0,80}(?:separate|final)|(?:separate|final).{0,80}human approval|maintainer.{0,80}(?:human|final) approval)/iu,
       path,
     );
+  }
+});
+
+test("canonical instructions pin Dependabot preparation policy v2", () => {
+  for (const path of [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    "docs/dependabot-automation.md",
+    "docs/adr/0009-external-agent-dependabot-preparation.md",
+  ]) {
+    const source = read(path).replace(/\s+/gu, " ");
+    assert.match(source, /generationBaseSha/iu, path);
+    assert.match(source, /currentTargetBaseSha/iu, path);
+    assert.match(source, /policySha/iu, path);
+    assert.match(
+      source,
+      /full.{0,80}sync-only.{0,80}review-only.{0,80}manual/iu,
+      path,
+    );
+    assert.match(
+      source,
+      /(?:changelog|release notes).{0,180}risk.{0,80}confidence/iu,
+      path,
+    );
+    assert.match(source, /live-verif/iu, path);
+    assert.match(source, /authoritative upstream HTTPS URL/iu, path);
+    assert.match(source, /upstream project or package page/iu, path);
+    assert.match(source, /operationally incomplete/iu, path);
+    assert.match(source, /critical.{0,20}unknown/iu, path);
+    assert.match(
+      source,
+      /(?:byte-and-mode|byte-for-byte.{0,40}mode-for-mode)/iu,
+      path,
+    );
+    assert.match(
+      source,
+      /(?:does not grant|grants neither|no).{0,80}(?:check reruns|`rerun`)/iu,
+      path,
+    );
+    assert.match(
+      source,
+      /(?:(?:Next\.js|`next`).{0,120}patch|patch.{0,120}(?:Next\.js|`next`)).{0,120}`full`/iu,
+      path,
+    );
+    assert.match(
+      source,
+      /Next.{0,100}(?:minor.{0,40}major|minor\/major).{0,100}`manual`/iu,
+      path,
+    );
+    assert.match(source, /\/opt\/dependabot-prep\/authorized-run/u, path);
+    assert.match(source, /\/opt\/dependabot-prep\/authorized-run\.mjs/u, path);
+    assert.match(source, /sudo \/opt\/dependabot-prep\/selftest-run/u, path);
+    assert.match(source, /\/etc\/dependabot-prep\/selftest-attestation\.json/u, path);
+    assert.match(source, /\/var\/lib\/dependabot\/gh/u, path);
+    assert.match(source, /\/var\/lib\/dependabot-mutator\/gh/u, path);
+    assert.match(source, /(?:no credential|empty)/iu, path);
+  }
+
+  for (const path of [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "docs/dependabot-automation.md",
+    "docs/adr/0009-external-agent-dependabot-preparation.md",
+  ]) {
+    const source = read(path).replace(/\s+/gu, " ");
+    assert.match(source, /HeadRefForcePushedEvent/iu, path);
+    assert.match(source, /rules\/branches/iu, path);
+    assert.match(
+      source,
+      /complete.{0,80}(?:inventory|sweep).{0,80}(?:exit|exits) `?0/iu,
+      path,
+    );
+    assert.match(source, /root-owned.{0,120}receipt/iu, path);
+  }
+
+  const overrideRunbook = read("docs/dependency-overrides.md").replace(
+    /\s+/gu,
+    " ",
+  );
+  assert.match(
+    overrideRunbook,
+    /semver-patch-only Next\.js.{0,120}`full`/iu,
+  );
+  for (const field of [
+    "lockfileSha256",
+    "manifestSha256",
+    "overridesSha256",
+    "runtimeDependenciesSha256",
+  ]) {
+    assert.match(overrideRunbook, new RegExp(field, "u"));
   }
 });
