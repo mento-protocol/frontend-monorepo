@@ -3198,8 +3198,160 @@ test("every rider census passed to terminal-artifacts has a producer under the s
     }
   }
   // Guard the guard: if the flag is ever dropped entirely this test must not
-  // silently pass on an empty set.
-  assert.equal(consumers, 1);
+  // silently pass on an empty set. One activation consumer and both recovery
+  // consumers that can report a started mutation.
+  assert.equal(consumers, 3);
+});
+
+// The recovery job's two census producers state their condition as the exact
+// string their consumer states. That is stronger than the subset rule above:
+// the census cannot start running in a case the consumer does not cover, and
+// cannot stop running in a case the consumer does.
+test("each recovery rider census producer states its consumer's exact condition", () => {
+  const jobSteps = steps("recover-main-deployment");
+  const pairs = [
+    [
+      "Census rider domains the failed promote left in place",
+      "Materialize recovery-failed terminal artifacts without a recovery journal",
+      "$RUNNER_TEMP/recovery-failed-planning.json",
+    ],
+    [
+      "Census rider domains after the compensating rollback",
+      "Materialize recovered or manual terminal artifacts",
+      "$RUNNER_TEMP/recovered-planning.json",
+    ],
+  ];
+  for (const [producerName, consumerName, path] of pairs) {
+    const producer = jobSteps.find((step) => step.name === producerName);
+    const consumer = jobSteps.find((step) => step.name === consumerName);
+    assert.ok(producer !== undefined, producerName);
+    assert.ok(consumer !== undefined, consumerName);
+    assert.equal(producer.if, consumer.if);
+    assert.ok(jobSteps.indexOf(producer) < jobSteps.indexOf(consumer));
+    assert.ok(producer.run.includes(`--output "${path}"`));
+    assert.ok(consumer.run.includes(`--rider-census "${path}"`));
+    // The same read-only census verb the activation job uses, against this
+    // job's own main specification. No mutating verb may appear here.
+    assert.match(
+      producer.run,
+      /node scripts\/vercel-deployment-state\.mjs planning-snapshot --spec "\$RUNNER_TEMP\/main-spec\.json"/,
+    );
+    assert.equal(
+      producer.env.VERCEL_TOKEN,
+      "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
+    );
+  }
+  // The specification both producers read is materialized unconditionally,
+  // before either of them can run.
+  const spec = jobSteps.find(
+    (step) =>
+      step.name ===
+      "Materialize current execution manifest and recovery specifications",
+  );
+  assert.match(
+    spec.run,
+    /create-spec --scope main --output "\$RUNNER_TEMP\/main-spec\.json"/,
+  );
+  assert.equal(spec.if, undefined);
+  for (const [producerName] of pairs) {
+    assert.ok(
+      jobSteps.indexOf(spec) <
+        jobSteps.indexOf(jobSteps.find((step) => step.name === producerName)),
+    );
+  }
+});
+
+// The post-recovery census must observe the state recovery left behind, not the
+// state it started from, so every compensation slot precedes it.
+test("the post-recovery rider census runs after every compensation slot", () => {
+  const jobSteps = steps("recover-main-deployment");
+  const census = jobSteps.findIndex(
+    (step) =>
+      step.name === "Census rider domains after the compensating rollback",
+  );
+  assert.ok(census > 0);
+  const slots = jobSteps.filter((step) =>
+    /^Restore (?:bounded|terminal) recovery transition \d$/.test(
+      step.name ?? "",
+    ),
+  );
+  assert.equal(slots.length, 5);
+  for (const slot of slots) {
+    assert.ok(jobSteps.indexOf(slot) < census, slot.name);
+  }
+  // And inside the protected runtime this job already holds: prepared before,
+  // torn down after.
+  const prepare = jobSteps.findIndex(
+    (step) => step.name === "Prepare protected recovery runtime",
+  );
+  const cleanup = jobSteps.findIndex(
+    (step) => step.name === "Remove authenticated recovery runtime",
+  );
+  assert.ok(prepare >= 0 && prepare < census);
+  assert.ok(cleanup > census);
+  // The failed-recovery census shares that boundary.
+  const failedCensus = jobSteps.findIndex(
+    (step) =>
+      step.name === "Census rider domains the failed promote left in place",
+  );
+  assert.ok(prepare < failedCensus && failedCensus < cleanup);
+});
+
+// Riders are informational: no selection, verification, or recovery decision
+// reads them. A census read this job cannot complete must therefore degrade to
+// a null snapshot — which renders as unknown — instead of taking the terminal
+// evidence with it. Anything outside the reader's own failure vocabulary still
+// fails the step closed, after the null census is written.
+test("a recovery rider census that cannot be read degrades to unknown, not to a lost handoff", () => {
+  const jobSteps = steps("recover-main-deployment");
+  const producers = jobSteps.filter((step) =>
+    (step.name ?? "").startsWith("Census rider domains"),
+  );
+  assert.equal(producers.length, 2);
+  for (const producer of producers) {
+    const path = producer.run.match(/--output "([^"]+)"/)[1];
+    // Written 0600 so the terminal reader's private-file check accepts it.
+    assert.match(producer.run, /umask 077/);
+    assert.ok(producer.run.includes(`printf 'null\\n' > "${path}"`));
+    for (const category of [
+      "provider-read-timeout",
+      "provider-read-transport",
+      "provider-read-rate-limited",
+      "provider-read-http",
+      "provider-read-malformed",
+      "state-validation-failed",
+    ]) {
+      assert.ok(
+        producer.run.includes(
+          `'Vercel deployment state failed category=${category}') ;;`,
+        ),
+        `${producer.name}: ${category}`,
+      );
+    }
+    // An unrecognized failure still fails the step, but only after the null
+    // census exists. The failed-recovery consumer runs under `always()`, so a
+    // producer that exited before writing would leave it reading a path that
+    // is not there and lose the terminal evidence outright.
+    assert.match(producer.run, /\*\) read_outcome=unrecognized ;;/);
+    assert.doesNotMatch(producer.run, /\*\) exit 1 ;;/);
+    const write = producer.run.indexOf(`printf 'null\\n' > "${path}"`);
+    const fail = producer.run.indexOf('test "$read_outcome" = recognized');
+    assert.ok(fail > write, producer.name);
+  }
+});
+
+// `restore-inherited-release` publishes no terminal evidence at all — the
+// result job restores only the activation or recovery producer's handoff — so
+// it has no rider line to fill in and must not grow a census consumer.
+test("the inherited restoration job publishes no terminal evidence and needs no census", () => {
+  const jobSteps = steps("restore-inherited-release");
+  for (const step of jobSteps) {
+    assert.doesNotMatch(step.run ?? "", /terminal-artifacts|--rider-census/);
+  }
+  assert.deepEqual(
+    Object.keys(workflow.jobs["restore-inherited-release"].outputs),
+    ["outcome"],
+  );
 });
 
 test("the journal-free existing-release verification passes no rider census", () => {
