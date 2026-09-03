@@ -269,3 +269,109 @@ test("the general notifier replaces the legacy supply-chain-only issue job", () 
   assert.doesNotMatch(supplyChainWorkflow, /supply-chain-cron-failure/);
   assert.match(supplyChainWorkflow, /ci-failure-notifier\.yml/);
 });
+
+test("the Slack notifier watches the issue notifier's allowlist and never shells untrusted metadata", () => {
+  const slack = read(".github/workflows/notify-slack-on-main-failure.yml");
+  const issueNotifier = read(".github/workflows/ci-failure-notifier.yml");
+  const allowlistOf = (workflow) =>
+    [
+      ...(/workflows:\n((?: {6}- .+\n)+) {4}types:/
+        .exec(workflow)?.[1]
+        ?.matchAll(/^ {6}- (.+)$/gm) ?? []),
+    ].map((match) => match[1]);
+
+  assert.match(slack, /^name: Notify Slack on main-branch workflow failure$/m);
+  assert.deepEqual(
+    allowlistOf(slack),
+    allowlistOf(issueNotifier),
+    "both notifiers must watch exactly the same operational workflows",
+  );
+  assert.ok(allowlistOf(slack).length > 0, "the allowlist must not be empty");
+  assert.doesNotMatch(
+    slack,
+    /^ {6}- Notify Slack on main-branch workflow failure$/m,
+    "the Slack notifier must not watch itself",
+  );
+
+  // The smoke test is a bare workflow_dispatch: checkov CKV_GHA_7 forbids
+  // workflow_dispatch inputs.
+  assert.match(slack, /^ {2}workflow_dispatch:$/m);
+  assert.doesNotMatch(slack, /^ {4}inputs:$/m);
+
+  // Least privilege: the GITHUB_TOKEN needs nothing; the credential goes to
+  // Slack, not GitHub. The only secret referenced is the Slack bot token.
+  assert.match(slack, /^permissions: \{\}$/m);
+  assert.match(slack, /^ {4}permissions: \{\}$/m);
+  const referencedSecrets = new Set(
+    [...slack.matchAll(/secrets\.([A-Z0-9_]+)/g)].map((match) => match[1]),
+  );
+  assert.deepEqual([...referencedSecrets], ["SLACK_BOT_TOKEN"]);
+
+  const conclusions =
+    /contains\(fromJSON\('(\[[^']+\])'\), github\.event\.workflow_run\.conclusion\)/.exec(
+      slack,
+    )?.[1];
+  assert.deepEqual(JSON.parse(conclusions ?? "[]"), [
+    "failure",
+    "startup_failure",
+    "timed_out",
+  ]);
+  assert.match(
+    slack,
+    /github\.event_name == 'workflow_dispatch' \|\|/,
+    "workflow_dispatch must bypass the failure gate for the smoke test",
+  );
+  assert.match(
+    slack,
+    /github\.event\.workflow_run\.head_branch == github\.event\.repository\.default_branch/,
+  );
+
+  // Injection safety: attacker-controlled workflow_run metadata (a commit
+  // title can contain backticks or $(…)) must reach the shell only as an
+  // environment variable, never as a `${{ }}` expansion inside `run:`.
+  const runBlocks = [
+    ...slack.matchAll(/^ {8}run: \|\n((?: {10}[^\n]*\n|\n)+)/gm),
+  ].map((match) => match[1]);
+  assert.equal(
+    runBlocks.length,
+    1,
+    "the notifier must have exactly one run block",
+  );
+  for (const block of runBlocks) {
+    assert.match(
+      block,
+      /curl -fsS -X POST https:\/\/slack\.com\/api\/chat\.postMessage/,
+      "the captured run block must be the Slack post body",
+    );
+    assert.doesNotMatch(
+      block,
+      /\$\{\{/,
+      "no GitHub expression may be interpolated into the shell",
+    );
+  }
+  for (const variable of ["COMMIT_MSG", "WORKFLOW_NAME", "ACTOR", "RUN_URL"]) {
+    assert.match(
+      slack,
+      new RegExp(
+        `^ {10}${variable}: \\$\\{\\{ github\\.event\\.workflow_run\\.`,
+        "m",
+      ),
+      `${variable} must be bound in env:, not interpolated`,
+    );
+  }
+  assert.match(
+    slack,
+    /--arg msg "\$COMMIT_MSG"/,
+    "the commit title must be passed to jq via --arg so jq escapes it",
+  );
+  assert.match(
+    slack,
+    /gsub\("&"; "&amp;"\) \| gsub\("<"; "&lt;"\) \| gsub\(">"; "&gt;"\)/,
+    "the commit title must be escaped for Slack mrkdwn before insertion",
+  );
+
+  // This privileged workflow_run listener must never check out or execute the
+  // triggering head SHA.
+  assert.doesNotMatch(slack, /actions\/checkout/);
+  assert.doesNotMatch(slack, /^ {6}- uses:/m);
+});

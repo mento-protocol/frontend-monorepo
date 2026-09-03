@@ -148,6 +148,19 @@ workflow directly because a `GITHUB_TOKEN` Deployment status is evidence, not
 a downstream trigger contract. The automatic exact-SHA controller, bootstrap,
 canary, cutover, and rollback contract is in `docs/vercel-deployments.md`.
 
+## CI failure notifications
+
+A failing `main`, scheduled, or release-tag run of a watched operational
+workflow reaches two places. `.github/workflows/ci-failure-notifier.yml` opens
+or updates one managed GitHub issue per partition and closes it after recovery.
+`.github/workflows/notify-slack-on-main-failure.yml` posts the same failure to
+Slack's `#ci-failures` with links to the run and to the managed issue. Both
+watch the same static workflow allowlist, so adding or renaming an operational
+workflow means updating both lists and `scripts/quality-workflows.test.mjs` in
+the same PR. Run the Slack workflow's bare `workflow_dispatch` from the Actions
+tab to smoke-test the wiring; it posts a fixed "🧪 wiring test" message and
+changes nothing else.
+
 ## Dependabot preparation
 
 Dependabot opens native npm and GitHub Actions pull requests each Monday at

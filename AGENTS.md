@@ -190,9 +190,14 @@ documentation-only scoping applies only to pull requests.
 `Visual Regression` filters default-branch pushes to visual-impact paths and
 runs both surfaces whenever it starts, making workflow success valid recovery
 evidence; pull requests remain path-gated per surface.
-When adding or renaming an operational workflow, update its static allowlist and
-the structural test in the same PR. Never execute a triggering head SHA from
-this privileged `workflow_run` workflow.
+`.github/workflows/notify-slack-on-main-failure.yml` watches that same static
+allowlist and posts the same failures to Slack's `#ci-failures` with a link to
+the run and to the managed issue; it opens no issue and duplicates no issue
+logic. Its bare `workflow_dispatch` posts a fixed "🧪 wiring test" message so
+the Slack wiring can be smoke-tested from the Actions tab.
+When adding or renaming an operational workflow, update both static allowlists
+and the structural tests in the same PR. Never execute a triggering head SHA
+from these privileged `workflow_run` workflows.
 
 `.github/workflows/vercel-main-deployment.yml` starts on the exact `CI/CD`
 `main` attempt's `requested` delivery, runs read-only admission, pre-plan, and

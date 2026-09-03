@@ -117,7 +117,32 @@ event-time trusted `github.workflow_sha` and never the triggering SHA. Its own n
 from the static source-workflow list, so its issue mutations cannot recursively
 notify it.
 
+## Slack notification
+
+`.github/workflows/notify-slack-on-main-failure.yml` is the push-notification
+side channel for the same failures. It watches the identical static workflow
+allowlist and applies the identical admission rules, then narrows to the
+`failure`, `startup_failure`, and `timed_out` conclusions and posts one message
+to `#ci-failures` through Slack's `chat.postMessage`. The message links the
+failed run and the managed-issue search; it opens, updates, and closes nothing,
+so the issue lifecycle above stays the single source of truth.
+
+It uses the org-shared `secrets.SLACK_BOT_TOKEN` (which needs Slack's
+`chat:write.public` scope) and grants the `GITHUB_TOKEN` no permissions at all:
+the credential goes to Slack, not to GitHub. It checks out no code and runs no
+action. Every `workflow_run` field it reports — commit title included — is
+bound to an environment variable and passed to `jq --arg`, never interpolated
+into the shell, because a commit title can contain backticks or `$(…)`. The
+commit title is additionally escaped for Slack mrkdwn so a title like
+`<!channel>` cannot render as a real mass-page mention.
+
+Its bare `workflow_dispatch` (no inputs; checkov `CKV_GHA_7` forbids them)
+posts a fixed "🧪 wiring test" message. Because `workflow_dispatch` only offers
+the default branch, the smoke test can only be run after the workflow has
+merged to `main`.
+
 When adding or renaming an operational workflow, add its exact top-level `name`
-to the notifier's `workflow_run.workflows` list and update
-`scripts/quality-workflows.test.mjs`. Run `pnpm quality:budgets:test` before
-shipping the workflow change.
+to both notifiers' `workflow_run.workflows` lists and update
+`scripts/quality-workflows.test.mjs`; a structural test asserts the two lists
+stay identical. Run `pnpm quality:budgets:test` before shipping the workflow
+change.

