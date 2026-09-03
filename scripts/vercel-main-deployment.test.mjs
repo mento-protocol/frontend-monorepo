@@ -4824,9 +4824,38 @@ test("recovered terminal preserves verified rollback evidence when final provide
     stateProof: null,
     finalCensus: censusFailure,
     freshness: null,
+    riderCensus: planningSnapshot(),
     runId: "800",
     runAttempt: "3",
   });
+  // The final provider census is unproven; the rider census is a separate
+  // read with its own outcome, so a successful one is still reported.
+  assert.deepEqual(Object.keys(artifacts.evidence.riderAliases), [
+    "governance",
+  ]);
+  assert.match(
+    renderMainActiveDeploymentFailureEvidence(artifacts.evidence),
+    /- Rider domains moved with `governance`: governancementoorg-git-main-mentolabs\.vercel\.app/,
+  );
+  // Both reads can fail independently; a job that lost only the rider census
+  // still publishes its unproven-state evidence, and says unknown.
+  const withoutRiderCensus = createMainActiveTerminalArtifacts({
+    execution,
+    outcome: "recovered-census-unproven",
+    journalHistory: activeHistoryDocument(recoveredHistory),
+    finalMappings: providerMappings(execution, priorMappings),
+    publicSmokes: priorPublicSmokes(execution),
+    stateProof: null,
+    finalCensus: censusFailure,
+    freshness: null,
+    runId: "800",
+    runAttempt: "3",
+  });
+  assert.equal(withoutRiderCensus.evidence.riderAliases, null);
+  assert.match(
+    renderMainActiveDeploymentFailureEvidence(withoutRiderCensus.evidence),
+    /- Rider domains moved: unknown \(no census in this job\)/,
+  );
   assert.equal(artifacts.proofs.outcome, "recovered-census-unproven");
   assert.equal(artifacts.proofs.finalMapping.status, "passed");
   assert.equal(artifacts.proofs.publicSmoke.status, "passed");
@@ -5339,6 +5368,139 @@ test("recovery-failed terminal artifacts preserve a durable journal without reco
       field,
     );
   }
+});
+
+// The recovery job now takes its own read-only census, so a failed recovery
+// names the domains the forward promote moved instead of reporting them as
+// unknown. Nothing else about the outcome changes: riders are informational,
+// and the journal, proofs, and receipt keys stay exactly as they were.
+test("a failed recovery names the rider domains its census observed", () => {
+  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const execution = releaseExecutionForPlan(deploymentPlan);
+  const prepared = createPreparedMainActiveJournal({
+    plan: deploymentPlan,
+    stageJobs: stageJobs(deploymentPlan),
+    appCandidateReceipt: null,
+    runId: "800",
+    runAttempt: "3",
+  });
+  const started = startMainTransactionOperation(prepared, {
+    type: "promote",
+    target: "governance",
+  });
+  const inputs = {
+    execution,
+    outcome: "recovery-failed",
+    journalHistory: activeHistoryDocument([prepared, started]),
+    finalMappings: null,
+    publicSmokes: null,
+    stateProof: null,
+    finalCensus: null,
+    freshness: null,
+    stageResults: null,
+    runId: "800",
+    runAttempt: "3",
+  };
+  const withoutCensus = createMainActiveTerminalArtifacts(inputs);
+  assert.equal(withoutCensus.evidence.riderAliases, null);
+  assert.equal(withoutCensus.evidence.publicServingMutationCommands, 1);
+  assert.match(
+    renderMainActiveDeploymentFailureEvidence(withoutCensus.evidence),
+    /- Rider domains moved: unknown \(no census in this job\)/,
+  );
+
+  const withCensus = createMainActiveTerminalArtifacts({
+    ...inputs,
+    riderCensus: planningSnapshot(),
+  });
+  // Scoped to the targets this release promoted, never to every main target.
+  assert.deepEqual(Object.keys(withCensus.evidence.riderAliases), [
+    "governance",
+  ]);
+  assert.deepEqual(withCensus.evidence.riderAliases.governance, {
+    aliases: [
+      "governancementoorg-git-main-mentolabs.vercel.app",
+      "governancementoorg-mentolabs.vercel.app",
+      "governancementoorg.vercel.app",
+    ],
+    omitted: 0,
+  });
+  const summary = renderMainActiveDeploymentFailureEvidence(
+    withCensus.evidence,
+  );
+  assert.match(
+    summary,
+    /- Rider domains moved with `governance`: governancementoorg-git-main-mentolabs\.vercel\.app, governancementoorg-mentolabs\.vercel\.app, governancementoorg\.vercel\.app/,
+  );
+  assert.doesNotMatch(summary, /Rider domains moved: unknown/);
+  // The census adds the rider map and changes nothing else: same outcome, same
+  // journal claims, same mutation count, same proof statuses. The three unsafe
+  // proofs carry this outcome's evidence, so they differ only by that map.
+  assert.deepEqual(
+    { ...withCensus.evidence, riderAliases: null },
+    withoutCensus.evidence,
+  );
+  for (const key of [
+    "outcome",
+    "producerJob",
+    "mutationCount",
+    "rollbackTargets",
+    "affectedOperations",
+    "journal",
+    "publicSmoke",
+  ]) {
+    assert.deepEqual(withCensus.proofs[key], withoutCensus.proofs[key], key);
+  }
+  for (const key of ["finalMapping", "finalCensus", "stateProof"]) {
+    assert.equal(withCensus.proofs[key].status, "unsafe", key);
+    assert.deepEqual(withCensus.proofs[key].artifact, withCensus.evidence, key);
+  }
+  const terminal = createMainActiveTerminalHandoff({
+    activeEvidence: withCensus.evidence,
+    releaseManifest: execution.manifest,
+    execution,
+    proofs: withCensus.proofs,
+    deploySha: SHA,
+    upstreamRunId: "123456",
+    upstreamRunAttempt: "2",
+    workflowRunId: "800",
+    producerRunAttempt: "3",
+    repository: "mento-protocol/frontend-monorepo",
+  });
+  assert.equal(terminal.receipt.outcome, "recovery-failed");
+  assert.deepEqual(
+    restoreMainActiveTerminalEvidence({
+      encodedReceipt: terminal.encodedReceipt,
+      encodedEvidence: terminal.encodedEvidence,
+      releaseManifest: execution.manifest,
+      execution,
+      deploySha: SHA,
+      upstreamRunId: "123456",
+      upstreamRunAttempt: "2",
+      workflowRunId: "800",
+      finalRunAttempt: "4",
+      repository: "mento-protocol/frontend-monorepo",
+    }).artifact,
+    withCensus.evidence,
+  );
+  // A census that names a target this release did not promote is still
+  // rejected, censused or not.
+  assert.throws(
+    () =>
+      createMainActiveTerminalArtifacts({
+        ...inputs,
+        execution: releaseExecutionForPlan(
+          activePlan({ deployments: ["governance"] }),
+        ),
+        riderCensus: {
+          ...planningSnapshot(),
+          states: planningSnapshot().states.filter(
+            (state) => !state.alias.startsWith("governance."),
+          ),
+        },
+      }),
+    /missing the governance served prior/,
+  );
 });
 
 test("preparation failure terminal artifacts bind exact target results without provider claims", () => {

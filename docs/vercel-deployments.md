@@ -491,7 +491,9 @@ candidate carries no rider because it has not been promoted yet.
 Riders are named but never verified, and they are same-run evidence only. Each
 job that takes a planning census derives the rider set from that census and
 publishes it in its evidence artifact, so a reader can see every domain a
-release repointed. Nothing in selection, verification, or recovery reads the
+release repointed — including from the recovery job, which censuses after its
+compensating rollback, or before any compensation on the branch that runs none.
+Nothing in selection, verification, or recovery reads the
 list: `assertActiveFinalMappings` still verifies the reviewed aliases only, and
 the planner validates and then discards the provider's alias evidence. Custom,
 wrong-target, near-miss, and unknown aliases on a candidate still fail closed,
@@ -889,22 +891,64 @@ journal proves zero public-serving mutation commands — `verified-noop`, and th
 journal-free `current-release-verified` path — the report says
 `none (no mutation in this run)`; claiming `unknown` there would contradict the
 mutation count printed beside it. `unknown (no census in this job)` is reserved
-for the case it describes: a mutation may have started and this job has no
-census, which is the recovery jobs' situation.
+for the case it describes: a mutation may have started and the job holds no
+census. Every job that can report a started mutation now takes one, so that
+line means exactly one thing: the census read itself did not complete.
 
-Only jobs that already capture a planning snapshot may pass `--rider-census`,
-and the option is read immediately, so a step that supplies a path the job does
-not produce fails the terminal handoff outright. The
-`verify-existing-release` branch of `activate-and-verify` captures no snapshot
-and therefore supplies none. A structural workflow test requires every
-`terminal-artifacts` invocation that passes `--rider-census` to have an earlier
-producer of that file in the same job whose condition is implied by its own.
+`recover-main-deployment` takes two censuses, each with the same read-only
+`planning-snapshot` verb the activation job uses, against the same
+`create-spec --scope main` specification, inside the protected recovery runtime
+the job already prepares for `vercel rollback`. Both are read-only, so neither
+is a new credential exposure.
+
+- **After the compensation slots**, for the `recovered`,
+  `recovered-census-unproven`, and `manual-intervention` outcomes. It reports
+  what each target's reviewed protected domain travels with once recovery is
+  finished: the riders a completed rollback restored onto the prior, or, where
+  a target was left forward for manual intervention, the ones still riding with
+  the candidate.
+- **Before any compensation**, for `recovery-failed` — that branch runs no
+  slot, so the provider still serves whatever the forward promote left, and the
+  census names the domains that promote moved and nothing moved back.
+
+Together they answer the reader's question — what did this release move — from
+the state each branch actually ends in. A second, pre-recovery census on the
+recovered branch was considered and rejected: for a completed rollback its
+result is the same set observed a moment earlier, the differences it could show
+are provider-generated alias churn the pipeline already declares
+non-authoritative, and carrying two maps would bump an evidence schema for a
+field no decision reads. `preparation-failed-before-journal` needs no census —
+it proves no journal was ever created, so its evidence carries no rider line at
+all.
+
+Riders are informational: no selection, verification, or recovery decision
+reads them. A recovery census read that cannot complete therefore degrades to a
+null snapshot — rendered as `unknown (no census in this job)` — instead of
+failing its step and taking the terminal evidence with it. The degradation is
+bounded to the reader's own failure vocabulary (`provider-read-timeout`,
+`-transport`, `-rate-limited`, `-http`, `-malformed`, and
+`state-validation-failed`); any other stderr still fails the census step closed,
+but only after the null census is written, so the `recovery-failed` consumer —
+which runs under `always()` — publishes its evidence instead of dying on a path
+that is not there. A target left
+mid-recovery whose reviewed domains no longer share one deployment fails the
+planning capture as `state-validation-failed`, so that case reports `unknown`
+rather than a misleading set.
+
+Only jobs that capture a planning snapshot may pass `--rider-census`, and the
+option is read immediately, so a step that supplies a path the job does not
+produce fails the terminal handoff outright. The `verify-existing-release`
+branch of `activate-and-verify` captures no snapshot and therefore supplies
+none, and `restore-inherited-release` publishes no terminal evidence at all, so
+it has no rider line to fill and takes no census. A structural workflow test
+requires every `terminal-artifacts` invocation that passes `--rider-census` to
+have an earlier producer of that file in the same job whose condition is
+implied by its own; both recovery producers state their consumer's exact
+condition, which is stronger.
 
 The terminal reader carries the map rather than re-deriving it (riders are
 mutable, and a later read would legitimately disagree), but still holds it to
-the canonical shape, the caps, and the promoted-target scope. Wiring a census
-into the recovery terminal producer is deliberately left as follow-up: it would
-add a credentialed provider read to the recovery path.
+the canonical shape, the caps, and the promoted-target scope.
 
 The `result` job evaluates the terminal receipt and evidence and sets the
 `Vercel Main Deployment` workflow outcome. The `Fail closed before release

@@ -1926,6 +1926,28 @@ test("terminal artifact CLI fully re-verifies an already-current release without
     artifacts.proofs,
   );
 
+  // A recovery job whose census read could not complete still passes the flag,
+  // pointing at a file holding `null`. The option must read that as "this job
+  // observed no census" rather than rejecting it, because that is what keeps
+  // the terminal handoff alive when only the informational read failed.
+  const nullCensus = await runMainReleaseCli({
+    argv: [
+      // Both producer outputs are create-only, so the rerun needs its own.
+      ...argumentsFor().map((value) =>
+        value === evidenceOutput
+          ? join(directory, "current-release-evidence-null-census.json")
+          : value === proofsOutput
+            ? join(directory, "current-release-proofs-null-census.json")
+            : value,
+      ),
+      "--rider-census",
+      write(directory, "current-release-null-rider-census.json", null),
+    ],
+    env: environment(directory),
+  });
+  assert.equal(nullCensus.evidence.riderAliases, null);
+  assert.deepEqual(nullCensus.evidence, artifacts.evidence);
+
   const wrongExecution = structuredClone(fixture.execution);
   wrongExecution.decision = "resume-existing-release";
   const malformedWrapper = structuredClone(fixture.terminalStateProof);

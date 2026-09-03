@@ -3377,6 +3377,8 @@ function formatRiderAliases(entry) {
 // mutation commands moved nothing, and "unknown" there would contradict the
 // mutation count printed beside it. "unknown" is reserved for the case it
 // actually describes: a mutation may have started and this job has no census.
+// Every job that can report a started mutation now takes one, so "unknown"
+// narrows to the census read that could not complete.
 function renderRiderAliasLines(riderAliases, targets, { mutated }) {
   if (riderAliases === null) {
     return [
@@ -5685,7 +5687,10 @@ export function createMainActiveTerminalArtifacts({
   stageResults = null,
   // This run's own planning snapshot, supplied by the jobs that took one. The
   // terminal producer has no alias census of its own, so `null` means "this
-  // job did not observe one" and renders as unknown rather than as none.
+  // job did not observe one" and renders as unknown rather than as none. Both
+  // the activation and the recovery job supply one; a recovery job whose census
+  // read could not complete supplies a null snapshot, which is what keeps
+  // unknown reachable and honest.
   riderCensus = null,
   runId,
   runAttempt,
@@ -6143,6 +6148,11 @@ export function createMainActiveTerminalArtifacts({
       workflowRunUrl: terminalWorkflowRunUrl(canonicalRunId),
       mainOwnershipMode: planning.mainOwnershipMode,
       journalHistory: history,
+      // No compensation ran, so these domains are still wherever the forward
+      // promote left them. Naming them is the whole point of the census on
+      // this branch.
+      riderAliases: riders,
+      riderTargets: planning.activeTargets,
       publicServingMutationCommands: counts.started,
       coordinatorOutcome: "active-failed",
       recoveryOutcome: "recovery-failed",
@@ -6212,6 +6222,11 @@ export function createMainActiveTerminalArtifacts({
       finalMappings: mappings,
       publicSmokes: smokes,
       rollbackStateTargets: rollbackTargets,
+      // The final provider census is unproven, but the rider census is a
+      // separate read with its own outcome. When it succeeded, the domains the
+      // release moved and the rollback restored are still nameable here.
+      riderAliases: riders,
+      riderTargets: planning.activeTargets,
       publicServingMutationCommands: counts.started,
       coordinatorOutcome: "active-failed",
       recoveryOutcome: "recovered",
