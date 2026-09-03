@@ -1,6 +1,5 @@
 "use client";
 
-import { env } from "@/env.mjs";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   useCallback,
@@ -240,7 +239,6 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
     selectedTokenOutSymbol,
     {
       chainId: formChainId,
-      insufficientLiquidityFallbackUrl: env.NEXT_PUBLIC_BANNER_LINK,
     },
   );
 

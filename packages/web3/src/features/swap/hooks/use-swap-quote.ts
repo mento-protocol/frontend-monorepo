@@ -54,7 +54,6 @@ interface UseSwapQuoteOptions {
   skipDebugLogs?: boolean;
   debounceMs?: number;
   validatePoolLiquidity?: boolean;
-  insufficientLiquidityFallbackUrl?: string;
   chainId?: number;
 }
 
@@ -98,7 +97,6 @@ export function useSwapQuote(
     skipDebugLogs = !IS_DEBUG,
     debounceMs = 350,
     validatePoolLiquidity = true,
-    insufficientLiquidityFallbackUrl,
     chainId: chainIdOverride,
   } = options;
   const walletChainId = useChainId();
@@ -329,15 +327,8 @@ export function useSwapQuote(
       fromTokenSymbol: fromToken?.symbol,
       toTokenSymbol: toToken?.symbol,
       chainId,
-      insufficientLiquidityFallbackUrl,
     });
-  }, [
-    error,
-    fromToken?.symbol,
-    toToken?.symbol,
-    chainId,
-    insufficientLiquidityFallbackUrl,
-  ]);
+  }, [error, fromToken?.symbol, toToken?.symbol, chainId]);
 
   const hasInsufficientLiquidityError = useMemo(
     () => isInsufficientLiquidityError(error),
@@ -446,14 +437,10 @@ export function useOptimizedSwapQuote(
   amount: string | number,
   tokenInSymbol: TokenSymbol | undefined,
   tokenOutSymbol: TokenSymbol | undefined,
-  options: Pick<
-    UseSwapQuoteOptions,
-    "chainId" | "insufficientLiquidityFallbackUrl"
-  > = {},
+  options: Pick<UseSwapQuoteOptions, "chainId"> = {},
 ) {
   const mainQuote = useSwapQuote(amount, tokenInSymbol, tokenOutSymbol, {
     chainId: options.chainId,
-    insufficientLiquidityFallbackUrl: options.insufficientLiquidityFallbackUrl,
   });
 
   // Calculate USD values - amount is always the input, quote is always the output
