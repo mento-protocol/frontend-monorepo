@@ -16297,3 +16297,183 @@ test("a checkpoint without folded membership evidence fails closed", () => {
     /ui coalescing evidence contradicts durable ownership/,
   );
 });
+
+// Drives `epochs` complete preview epochs. Each one opens a fresh anchor, runs
+// `SYNCS` pushes, resolves the anchor selection, lets the next selection
+// coalesce every intermediate receipt, then folds the whole epoch away with
+// that coalescing owner still unresolved. The unresolved owner retires into the
+// next epoch, so its coalesced identities stay named across epoch boundaries.
+function driveCoalescingEpochs(epochs, { syncs = 16 } = {}) {
+  const epochTimestamp = (index) =>
+    new Date(Date.UTC(2026, 6, 15, 10, 0, 0) + index * 1000).toISOString();
+  const epochSha = (index) => index.toString(16).padStart(40, "0");
+  let clock = 0;
+  let eventRunId = 5_000;
+  let headIndex = 0;
+  let workerRunId = 60_000;
+  let liveEvents = [];
+  let liveSelections = [];
+  let liveResults = [];
+  let state = null;
+  let checkpoint = null;
+  let journal = null;
+  const perEpoch = [];
+
+  for (let epoch = 0; epoch < epochs; epoch += 1) {
+    headIndex += 1;
+    const anchorHead = epochSha(headIndex);
+    const anchorRunId = eventRunId++;
+    const anchorClock = clock++;
+    const epochEvents = [
+      event({
+        run: anchorRunId,
+        action: epoch === 0 ? "opened" : "reopened",
+        head: anchorHead,
+        updated: epochTimestamp(anchorClock),
+      }),
+    ];
+    let tailHead = anchorHead;
+    for (let push = 0; push < syncs; push += 1) {
+      headIndex += 1;
+      const head = epochSha(headIndex);
+      epochEvents.push(
+        event({
+          run: eventRunId++,
+          action: "synchronize",
+          before: tailHead,
+          head,
+          updated: epochTimestamp(clock++),
+        }),
+      );
+      tailHead = head;
+    }
+    const tailClock = clock - 1;
+
+    // The pull sits at the anchor, so only the anchor is in lineage yet.
+    const anchorReconciled = reconcile({
+      events: [...liveEvents, ...epochEvents],
+      results: liveResults,
+      selections: liveSelections,
+      pullRequest: pull({
+        head: anchorHead,
+        updated: epochTimestamp(anchorClock),
+      }),
+      existingState: state,
+      checkpoint,
+    });
+    const anchorState = persistDispatch(anchorReconciled, workerRunId);
+    const anchorSelection = selectionReceiptFromDispatch(
+      anchorState.targets.ui.active,
+    );
+    const anchorResult = result(anchorReconciled.nextDispatch, {
+      runId: workerRunId,
+    });
+    workerRunId += 1;
+    journal = compactPreviewJournal(
+      createPreviewJournal({
+        pr: 519,
+        checkpoint,
+        events: [...liveEvents, ...epochEvents],
+        selections: [...liveSelections, anchorSelection],
+        results: liveResults,
+        state: anchorState,
+      }),
+      { throughEventRunId: anchorRunId },
+    );
+
+    // The pull moves to the tail. The checkpoint's pending owner now holds a
+    // result, so the next selection coalesces every intermediate receipt.
+    const tailPull = pull({
+      head: tailHead,
+      updated: epochTimestamp(tailClock),
+    });
+    const jumped = reconcile({
+      events: journal.receipts.events,
+      results: [...journal.receipts.results, anchorResult],
+      selections: journal.receipts.selections,
+      pullRequest: tailPull,
+      existingState: journal.state,
+      checkpoint: journal.checkpoint,
+    });
+    assert.equal(jumped.nextDispatch.sha, tailHead);
+    assert.equal(
+      jumped.nextDispatch.coalesced_receipt_run_ids.length,
+      syncs - 1,
+    );
+    const tailState = persistDispatch(jumped, workerRunId);
+    workerRunId += 1;
+    const tailSelection = selectionReceiptFromDispatch(
+      tailState.targets.ui.active,
+    );
+
+    // Fold the epoch away with that coalescing owner still unresolved.
+    journal = compactPreviewJournal(
+      createPreviewJournal({
+        pr: 519,
+        checkpoint: journal.checkpoint,
+        events: journal.receipts.events,
+        selections: [...journal.receipts.selections, tailSelection],
+        results: [...journal.receipts.results, anchorResult],
+        state: tailState,
+      }),
+      { throughEventRunId: epochEvents.at(-1).event_run_id },
+    );
+    perEpoch.push({ journal, tailSelection });
+    liveEvents = journal.receipts.events;
+    liveSelections = journal.receipts.selections;
+    liveResults = journal.receipts.results;
+    state = journal.state;
+    checkpoint = journal.checkpoint;
+  }
+  return perEpoch;
+}
+
+test("folded coalescing membership stays bounded across many epochs", () => {
+  const syncs = 16;
+  const perEpoch = driveCoalescingEpochs(13, { syncs });
+  assert.equal(perEpoch.length, 13);
+  for (const [epoch, { journal, tailSelection }] of perEpoch.entries()) {
+    // Every epoch retires one more unresolved owner, so the pressure that
+    // grew the list is still present.
+    assert.equal(journal.state.targets.ui.retired_active.length, epoch);
+    assert.equal(journal.receipts.selections.length, epoch + 1);
+    // Membership never carries a retired epoch's identities forward.
+    assert.deepEqual(journal.checkpoint.targets.ui.folded_event_run_ids, [
+      ...tailSelection.coalesced_receipt_run_ids,
+      tailSelection.selection_receipt_run_id,
+    ]);
+    assert.equal(
+      journal.checkpoint.targets.ui.folded_event_run_ids.length,
+      syncs,
+    );
+  }
+});
+
+test("folded coalescing membership names only current-epoch receipts", () => {
+  const perEpoch = driveCoalescingEpochs(2);
+  const [previous, current] = perEpoch;
+  const retiredRunIds = new Set([
+    ...previous.tailSelection.coalesced_receipt_run_ids,
+    previous.tailSelection.selection_receipt_run_id,
+  ]);
+  const membership = current.journal.checkpoint.targets.ui.folded_event_run_ids;
+  // The retired epoch's owner is still retained and still names its own
+  // coalesced identities, but the checkpoint no longer vouches for them.
+  assert.equal(current.journal.state.targets.ui.retired_active.length, 1);
+  assert.equal(
+    current.journal.receipts.selections.some(
+      (selection) =>
+        selection.selection_receipt_run_id ===
+        previous.tailSelection.selection_receipt_run_id,
+    ),
+    true,
+  );
+  assert.equal(
+    membership.some((runId) => retiredRunIds.has(runId)),
+    false,
+  );
+  assert.deepEqual(membership, [
+    ...current.tailSelection.coalesced_receipt_run_ids,
+    current.tailSelection.selection_receipt_run_id,
+  ]);
+});

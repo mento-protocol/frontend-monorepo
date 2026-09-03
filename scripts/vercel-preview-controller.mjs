@@ -5090,11 +5090,21 @@ export function compactPreviewJournal(
     journal.receipts.events,
     journal.checkpoint,
   );
-  const { closure, lineage } = selectCurrentEpoch(
-    journal.receipts.events,
-    pull,
-    journal.checkpoint,
-  );
+  const {
+    anchor,
+    closure,
+    lineage,
+    checkpoint: selectedCheckpoint,
+  } = selectCurrentEpoch(journal.receipts.events, pull, journal.checkpoint);
+  // The epoch reconciliation will read this checkpoint under. Selections from
+  // retired epochs must not vouch for anything: an unresolved owner retires
+  // across an epoch boundary and keeps naming its coalesced identities, so
+  // carrying their membership forward would grow the evidence without bound
+  // until the writer rejected its own checkpoint.
+  const currentEpochAnchorRunId =
+    selectedCheckpoint === null
+      ? anchor.event_run_id
+      : (state.epoch?.anchor_run_id ?? anchor.event_run_id);
   const fullTailEvent = closure ?? lineage.at(-1) ?? null;
   const partialCheckpoint = throughEventRunId !== null;
   const cutoffRunId = partialCheckpoint
@@ -5290,16 +5300,21 @@ export function compactPreviewJournal(
   // selection can name a receipt the fold drops, and reconciliation may only
   // treat that identity as settled when the checkpoint proves it existed and
   // says where it sat. The list is lineage-ordered, so it carries the ordering
-  // proof as well, and it is scoped to identities a retained selection still
-  // names, which bounds it: entries leave with the selection that referenced
-  // them.
+  // proof as well. Scope is one epoch: only selections in the epoch this
+  // checkpoint will be read under contribute names, and the lineage it draws
+  // from is that same epoch, so the list can never exceed one epoch's receipts
+  // no matter how many epochs retire an unresolved owner.
   const foldedLineageRunIds = checkpointLineage.map(
     (event) => event.event_run_id,
   );
   for (const target of PREVIEW_TARGETS) {
     const namedRunIds = new Set(
       retainedReceipts.selections
-        .filter((selection) => selection.target === target)
+        .filter(
+          (selection) =>
+            selection.target === target &&
+            selection.epoch_anchor_run_id === currentEpochAnchorRunId,
+        )
         .flatMap((selection) => [
           selection.selection_receipt_run_id,
           ...selection.coalesced_receipt_run_ids,
