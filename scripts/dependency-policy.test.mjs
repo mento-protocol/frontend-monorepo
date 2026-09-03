@@ -8,6 +8,7 @@ import {
   readdirSync,
   rmSync,
   symlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -706,7 +707,8 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
     step.uses?.startsWith("actions/checkout@"),
   );
   // Two directories, never one path checked out twice: head content must never
-  // be able to land on top of the tree the base scan reads.
+  // be able to land on top of the tree the base scan reads. The base tree is
+  // then deleted before the head arrives, so the two never coexist.
   assert.equal(checkouts.length, 2);
   const [baseCheckout, checkout] = checkouts;
   assert.equal(baseCheckout.with.path, "base");
@@ -775,6 +777,46 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
   assert.match(baselineGuard.run, /Array\.isArray\(parsed\.results\)/u);
   assert.match(baselineGuard.run, /\{"results":\[\]\}/u);
 
+  // First half of the anti-aliasing pair. Once the baseline is captured the
+  // base tree is deleted, so a candidate symlink has no second tree to name.
+  // Without it a pull request could commit `pnpm-lock.yaml -> ../base/…`, have
+  // the head scan reproduce the baseline, and pass the required check while the
+  // proposed lockfile carried vulnerable dependencies.
+  const baseRemovals = readOnlySteps.filter(
+    (step) => step.name === "Remove the base tree before the head checkout",
+  );
+  assert.equal(baseRemovals.length, 1);
+  const [baseRemoval] = baseRemovals;
+  assert.equal(baseRemoval.if, undefined);
+  assert.equal(baseRemoval.shell, "bash");
+  assert.match(baseRemoval.run, /rm -rf "\$\{GITHUB_WORKSPACE\}\/base"/u);
+  assert.match(baseRemoval.run, /exit 1/u);
+
+  // Second half: every head scan input must resolve to a real file inside the
+  // head checkout. The config toml is validated alongside the lockfile — it is
+  // a scan input too, and the one that decides which advisories are suppressed.
+  const pathGuards = readOnlySteps.filter(
+    (step) =>
+      step.name === "Reject head scan inputs that leave the candidate checkout",
+  );
+  assert.equal(pathGuards.length, 1);
+  const [pathGuard] = pathGuards;
+  assert.equal(pathGuard.if, undefined);
+  assert.equal(pathGuard.shell, "bash");
+  assert.deepEqual(pathGuard.env, {
+    HEAD_SCAN_ARGS: "${{ inputs.head-scan-args }}",
+  });
+  assert.match(pathGuard.run, /--lockfile=\* \| --config=\*/u);
+  assert.ok(
+    readOnlySteps.indexOf(baseRemoval) < readOnlySteps.indexOf(checkout),
+    "the base tree must be gone before the head is checked out",
+  );
+  assert.ok(
+    readOnlySteps.indexOf(checkout) < readOnlySteps.indexOf(pathGuard) &&
+      readOnlySteps.indexOf(pathGuard) < readOnlySteps.indexOf(scanner),
+    "head scan inputs must be validated after the head checkout and before the head scan",
+  );
+
   const completionGuards = readOnlySteps.filter(
     (step) => step.name === "Check that the scan completed",
   );
@@ -830,10 +872,12 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
 
   const order = [
     baseCheckout,
-    checkout,
     scratch,
     baseScanner,
     baselineGuard,
+    baseRemoval,
+    checkout,
+    pathGuard,
     scanner,
     completionGuard,
     reporter,
@@ -841,7 +885,7 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
   assert.deepEqual(
     order,
     [...order].sort((left, right) => left - right),
-    "the checkouts, scratch directory, base scan, baseline, head scan, guard, and reporter must run in that order",
+    "the base checkout, scratch directory, base scan, baseline, base removal, head checkout, input validation, head scan, guard, and reporter must run in that order",
   );
   assert.ok(order.every((index) => index >= 0));
   assert.match(reporter.with["scan-args"], /--gh-annotations=false/u);
@@ -965,6 +1009,121 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
     "dependency-review"
   ].steps.find((step) => step.uses?.startsWith("actions/checkout@"));
   assert.equal(dependencyCheckout.with["persist-credentials"], false);
+});
+
+test("the OSV head scan refuses inputs that leave the candidate checkout", () => {
+  const readOnlyOsv = yaml(".github/workflows/_osv-scanner-readonly.yml");
+  const steps = readOnlyOsv.jobs["osv-scan"].steps;
+  const stepNamed = (name) => {
+    const step = steps.find((candidate) => candidate.name === name);
+    assert.ok(step, `missing step: ${name}`);
+    return step;
+  };
+  const pathGuard = stepNamed(
+    "Reject head scan inputs that leave the candidate checkout",
+  );
+  const baseRemoval = stepNamed(
+    "Remove the base tree before the head checkout",
+  );
+
+  const workspace = mkdtempSync(join(tmpdir(), "osv-scan-inputs-"));
+  try {
+    // A workspace shaped like the job's: a candidate checkout beside a base
+    // tree that has not been removed yet, which is the state the guard has to
+    // survive even when the removal step is defeated.
+    mkdirSync(join(workspace, "candidate", "scripts"), { recursive: true });
+    mkdirSync(join(workspace, "base"), { recursive: true });
+    writeFileSync(
+      join(workspace, "candidate", "pnpm-lock.yaml"),
+      "head lock\n",
+    );
+    writeFileSync(join(workspace, "candidate", "osv-scanner.toml"), "\n");
+    writeFileSync(join(workspace, "base", "pnpm-lock.yaml"), "base lock\n");
+    writeFileSync(join(workspace, "base", "osv-scanner.toml"), "\n");
+    // A lockfile replaced by a symlink into the trusted base tree — the exact
+    // bypass: the head scan would reproduce the baseline and every introduced
+    // vulnerability would look unchanged.
+    symlinkSync(
+      "../base/pnpm-lock.yaml",
+      join(workspace, "candidate", "escape.yaml"),
+    );
+    // The config toml is a scan input too, and the one that decides which
+    // advisories are suppressed.
+    symlinkSync(
+      "../base/osv-scanner.toml",
+      join(workspace, "candidate", "escape.toml"),
+    );
+    // A symlink that stays inside the candidate tree is still rejected: a scan
+    // input must be the file the pull request proposes, not an alias for one.
+    symlinkSync("pnpm-lock.yaml", join(workspace, "candidate", "alias.yaml"));
+    // A symlinked parent directory leaves the final component a real file, so
+    // only resolving the whole path catches it.
+    symlinkSync("../base", join(workspace, "candidate", "aliasdir"));
+
+    const runGuard = (headScanArgs) =>
+      spawnSync("/bin/bash", ["-c", pathGuard.run], {
+        encoding: "utf8",
+        env: {
+          GITHUB_WORKSPACE: workspace,
+          HEAD_SCAN_ARGS: headScanArgs,
+          PATH: "/usr/bin:/bin",
+        },
+      });
+
+    const accepted = runGuard(
+      "--config=candidate/osv-scanner.toml\n--lockfile=candidate/pnpm-lock.yaml",
+    );
+    assert.equal(accepted.status, 0, accepted.stdout + accepted.stderr);
+    assert.match(accepted.stdout, /candidate\/osv-scanner\.toml resolves to/u);
+    assert.match(accepted.stdout, /candidate\/pnpm-lock\.yaml resolves to/u);
+
+    for (const [args, expected] of [
+      // A lockfile symlinked out of the candidate tree.
+      ["--lockfile=candidate/escape.yaml", /is a symlink/u],
+      // The same trick on the config, which suppresses advisories.
+      [
+        "--config=candidate/escape.toml\n--lockfile=candidate/pnpm-lock.yaml",
+        /is a symlink/u,
+      ],
+      // A symlink that never leaves the candidate tree.
+      ["--lockfile=candidate/alias.yaml", /is a symlink/u],
+      // A real file reached through a symlinked parent directory.
+      [
+        "--lockfile=candidate/aliasdir/pnpm-lock.yaml",
+        /outside the candidate/u,
+      ],
+      // An argument that was never rooted at the candidate tree.
+      ["--lockfile=base/pnpm-lock.yaml", /is not rooted at candidate\//u],
+      // A missing input fails closed rather than being skipped.
+      [
+        "--lockfile=candidate/absent.yaml",
+        /is missing or is not a regular file/u,
+      ],
+      // A directory is not a scan input.
+      ["--lockfile=candidate/scripts", /is missing or is not a regular file/u],
+      // Arguments carrying nothing to validate must not pass silently.
+      ["--format=json", /No --lockfile or --config head scan input/u],
+    ]) {
+      const rejected = runGuard(args);
+      assert.notEqual(rejected.status, 0, `accepted ${args}`);
+      assert.match(rejected.stdout, expected);
+      assert.match(rejected.stdout, /^::error::/mu);
+    }
+
+    // The removal step actually removes the tree, and says so.
+    const removal = spawnSync("/bin/bash", ["-c", baseRemoval.run], {
+      encoding: "utf8",
+      env: { GITHUB_WORKSPACE: workspace, PATH: "/usr/bin:/bin" },
+    });
+    assert.equal(removal.status, 0, removal.stdout + removal.stderr);
+    assert.equal(existsSync(join(workspace, "base")), false);
+    // With the base tree gone the escaping symlink dangles, so the guard's
+    // second layer would catch it even if the first were bypassed.
+    const dangling = runGuard("--lockfile=candidate/escape.yaml");
+    assert.notEqual(dangling.status, 0);
+  } finally {
+    rmSync(workspace, { force: true, recursive: true });
+  }
 });
 
 test("pnpm release-age exclusions stay exact and bounded", () => {

@@ -98,9 +98,11 @@ Linux bootstrap must move.
    return. Require the exact-head
    `osv-scanner (trusted pnpm runtime) / osv-scan` CI job to pass with
    no ignored vulnerability. On a pull request that job runs both scans itself:
-   it checks the event's base commit out into `base/`, this branch into
-   `candidate/`, scans each side with that side's own config, and reports only
-   the difference. That does cover removing a suppression or moving to a new
+   it checks the event's base commit out into `base/`, scans it, deletes that
+   tree, checks this branch out into `candidate/`, proves every head scan input
+   resolves to a real file inside `candidate/`, scans it, and reports only the
+   difference. Each side reads its own config. That does cover removing a
+   suppression or moving to a new
    pinned version — both are head-only changes. It does not re-prove that the
    rest of the lockfile is clean. The daily scheduled Supply Chain run is the
    full scan that does; run `workflow_dispatch` on Supply Chain if you need that

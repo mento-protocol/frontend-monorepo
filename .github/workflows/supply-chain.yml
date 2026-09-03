@@ -90,11 +90,12 @@ jobs:
     # --config is required. node_modules is gitignored and not scanned.
     #
     # Pull-request scans are checkout-rooted: the job checks the base commit out
-    # into `base` and this branch into `candidate`, so scan state can live
-    # beside both rather than inside either. Each side reads its own config, so
-    # a pull request that removes a suppression still fails. The scheduled and
-    # manual SARIF jobs below check out at the workspace root, so their paths
-    # stay unprefixed.
+    # into `base`, scans it, deletes that tree, and only then checks this branch
+    # out into `candidate`, so scan state can live beside both rather than
+    # inside either and no candidate symlink can reach the base tree. Each side
+    # reads its own config, so a pull request that removes a suppression still
+    # fails. The scheduled and manual SARIF jobs below check out at the
+    # workspace root, so their paths stay unprefixed.
     uses: ./.github/workflows/_osv-scanner-readonly.yml
     with:
       base-scan-args: |-
