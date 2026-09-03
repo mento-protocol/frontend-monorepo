@@ -194,7 +194,17 @@ jobs:
 
             # `isDecisiveRun()` is `success` plus FAILURE_CONCLUSIONS, and
             # `compareRuns()` orders by run_number then run_attempt. The target
-            # ref uses the same fallback as `targetRefFor()`. `reached` mirrors
+            # ref uses the same fallback as `targetRefFor()`. Candidates must
+            # also be owned by this repository, mirroring the
+            # `head_repository.full_name` clause in `isRelevantRun()`: a fork
+            # PR whose head branch is named `main` produces a skipped-success
+            # `Vercel Main Deployment` run in this same partition, and without
+            # that filter the run would suppress a real failure's message. The
+            # query is already partitioned by event, and `push`, `schedule`,
+            # and `workflow_dispatch` runs are always repository-owned, so the
+            # filter only bites on `workflow_run`. A missing `head_repository`
+            # drops the candidate, which can only add a post, never drop one.
+            # `reached` mirrors
             # the helper's break condition and deliberately spans every run on
             # the page, not just this partition. Every value reaches jq through
             # --arg or stdin; nothing is interpolated into the shell.
@@ -202,6 +212,7 @@ jobs:
               --arg event "$EVENT" \
               --arg head_branch "$HEAD_BRANCH" \
               --arg default_branch "$DEFAULT_BRANCH" \
+              --arg repository "$REPOSITORY" \
               --argjson number "${RUN_NUMBER:-0}" \
               --argjson attempt "${RUN_ATTEMPT:-1}" '
                 (if $head_branch != "" then $head_branch elif $event == "push" then "release tag" else $default_branch end) as $target
@@ -212,6 +223,7 @@ jobs:
                     | select(.status == "completed")
                     | select(.conclusion as $c | $decisive | index($c))
                     | select((if (.head_branch // "") != "" then .head_branch elif $event == "push" then "release tag" else $default_branch end) == $target)
+                    | select((.head_repository.full_name // "") == $repository)
                     | [(.run_number // 0), (.run_attempt // 1)]
                   ] as $decisivePositions
                 | [ ($decisivePositions | map(select(. > [$number, $attempt])) | length > 0),

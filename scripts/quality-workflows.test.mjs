@@ -538,6 +538,27 @@ test("the Slack notifier suppresses the same stale callbacks the issue notifier 
     "staleness must be: some decisive run in the partition sorts after this one",
   );
 
+  // Candidates must also be repository-owned, mirroring the
+  // `head_repository.full_name` clause in isRelevantRun(). A fork PR whose
+  // head branch is named `main` otherwise lands a skipped-success
+  // `Vercel Main Deployment` run in this partition, and it would suppress a
+  // delayed real failure's message.
+  assert.match(
+    issueScript,
+    /run\.head_repository\?\.full_name === repositoryFullName/,
+    "isRelevantRun's repository check changed; update the freshness mirror in the Slack notifier",
+  );
+  assert.ok(
+    slack.includes('--arg repository "$REPOSITORY"'),
+    "the freshness jq must receive this repository through --arg",
+  );
+  assert.ok(
+    slack.includes(
+      '| select((.head_repository.full_name // "") == $repository)',
+    ),
+    "decisive candidates must be filtered to runs this repository owns",
+  );
+
   // A long tail of newer non-decisive runs can push the decisive one past the
   // first page, so the lookup must paginate on the same break condition
   // listCompletedWorkflowRuns() uses: stop once a page holds a run at or
@@ -589,6 +610,16 @@ test("the Slack notifier suppresses the same stale callbacks the issue notifier 
   ]);
   const targetRefFor = (run, defaultBranch) =>
     run.head_branch || (run.event === "push" ? "release tag" : defaultBranch);
+  const repository = "mento-protocol/frontend-monorepo";
+  // isRelevantRun(), restricted to an already event-partitioned candidate
+  // set: only its `workflow_run` branch carries a repository check, because
+  // `push`, `schedule`, and `workflow_dispatch` runs are always
+  // repository-owned.
+  const isRelevant = (run, defaultBranch) =>
+    run.event !== "workflow_run" ||
+    (run.name === "Vercel Main Deployment" &&
+      run.head_branch === defaultBranch &&
+      (run.head_repository?.full_name ?? "") === repository);
   const referenceReconcilesAway = (callback, runs, defaultBranch) => {
     const partition = targetRefFor(callback, defaultBranch);
     const latest = [callback, ...runs]
@@ -596,6 +627,7 @@ test("the Slack notifier suppresses the same stale callbacks the issue notifier 
         (candidate) =>
           candidate.status === "completed" &&
           decisive.has(candidate.conclusion) &&
+          isRelevant(candidate, defaultBranch) &&
           targetRefFor(candidate, defaultBranch) === partition,
       )
       .sort((left, right) => compareRuns(right, left))[0];
@@ -634,6 +666,10 @@ test("the Slack notifier suppresses the same stale callbacks the issue notifier 
         .filter((candidate) => candidate.status === "completed")
         .filter((candidate) => decisive.has(candidate.conclusion))
         .filter(inPartition)
+        .filter(
+          (candidate) =>
+            (candidate.head_repository?.full_name ?? "") === repository,
+        )
         .some((candidate) => compareRuns(candidate, callbackPosition) > 0);
       if (stale) return true;
       const reached = rows.some(
@@ -650,6 +686,7 @@ test("the Slack notifier suppresses the same stale callbacks the issue notifier 
     conclusion: "failure",
     head_branch: "main",
     event: "push",
+    head_repository: { full_name: repository },
     run_number: 11,
     run_attempt: 1,
   };
@@ -720,6 +757,54 @@ test("the Slack notifier suppresses the same stale callbacks the issue notifier 
       `the issue notifier disagrees: ${scenario.name}`,
     );
   }
+
+  // The `Vercel Main Deployment` partition is reached by `workflow_run`, and a
+  // fork PR may name its head branch `main`. Its run lands in this very
+  // partition and concludes `success` because every job skips. Both notifiers
+  // must ignore it; treating it as decisive would suppress the message for a
+  // real deployment failure whose callback arrives later.
+  const workflowRunCallback = {
+    status: "completed",
+    conclusion: "failure",
+    head_branch: "main",
+    event: "workflow_run",
+    name: "Vercel Main Deployment",
+    head_repository: { full_name: repository },
+    run_number: 11,
+    run_attempt: 1,
+  };
+  const forkSuccess = {
+    ...workflowRunCallback,
+    conclusion: "success",
+    run_number: 12,
+    head_repository: { full_name: "outsider/frontend-monorepo" },
+  };
+  assert.equal(
+    workflowSkips(workflowRunCallback, [forkSuccess], "main"),
+    false,
+    "a fork-owned newer success must not suppress the Slack post",
+  );
+  assert.equal(
+    referenceReconcilesAway(workflowRunCallback, [forkSuccess], "main"),
+    false,
+    "the issue notifier ignores the fork run; Slack must agree",
+  );
+  // Control: the same run owned by this repository still suppresses the post,
+  // so the filter narrows to ownership rather than disabling reconciliation.
+  const ownedSuccess = {
+    ...forkSuccess,
+    head_repository: { full_name: repository },
+  };
+  assert.equal(
+    workflowSkips(workflowRunCallback, [ownedSuccess], "main"),
+    true,
+    "a repository-owned newer success must still suppress the Slack post",
+  );
+  assert.equal(
+    referenceReconcilesAway(workflowRunCallback, [ownedSuccess], "main"),
+    true,
+    "the issue notifier reconciles the owned run away; Slack must agree",
+  );
 
   // Prove the pagination scenario is a real regression guard: a lookup capped
   // at one page reports "not stale" for it, which is the bug being fixed.
