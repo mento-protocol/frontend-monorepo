@@ -1,49 +1,106 @@
 # Claude Code on the web — environment notes
 
-Findings from the first cloud session for this repository. A cloud session runs
+Findings from the first cloud sessions for this repository. A cloud session runs
 in an ephemeral container with a fresh clone, and all outbound HTTPS goes
-through a policy-enforcing egress proxy. Two things follow from that, and both
-bite immediately: **nothing is installed unless a setup script installs it**,
-and **any host not on the egress allowlist fails closed**.
+through a policy-enforcing egress proxy. Nothing is installed unless a setup
+script installs it, and there is no setup script configured today, so
+`node_modules` is empty at session start.
 
-Everything below was observed, not assumed. A blocked host is confirmed against
-the proxy's own log (`curl -sS "$HTTPS_PROXY/__agentproxy/status"`, field
-`recentRelayFailures`), because `curl` reports a rejected CONNECT tunnel as exit
-56 / HTTP `000` and that is indistinguishable from a network error.
+Everything here was observed, not inferred. That distinction earned its keep:
+of the three things that broke, only one was actually the egress allowlist, and
+the other two look identical from the outside.
 
-## 1. `pnpm install` fails without a workaround
+## The three failure classes
 
-**`node_modules` is empty at session start** — no setup script is configured, so
-the first thing any session must do is install. That install then fails:
+A `403` tells you almost nothing on its own — three different systems in this
+environment return one. Identify which before trying to fix anything:
 
+| Symptom                                                                         | Cause                                         | Fixed by               |
+| ------------------------------------------------------------------------------- | --------------------------------------------- | ---------------------- |
+| `curl: (56) CONNECT tunnel failed, response 403`, host in `recentRelayFailures` | Egress allowlist                              | Allowlisting the host  |
+| HTTP `403` with a JSON body naming `add_repo`                                   | The session's GitHub repo-access lane         | **Nothing** — see §2   |
+| HTTP `403` only from Node, while `curl` to the same URL returns `200`           | `global.fetch` (undici) ignores `HTTPS_PROXY` | `NODE_USE_ENV_PROXY=1` |
+
+The first is the only one the allowlist governs. Diagnose it with the proxy's
+own log, never with the exit code alone:
+
+```bash
+curl -sS "$HTTPS_PROXY/__agentproxy/status" | jq .recentRelayFailures
 ```
+
+A rejected CONNECT is recorded there. If the host is absent from that list but
+you still got a 403, it came from the origin or from the GitHub lane, and
+widening the allowlist will not help.
+
+## 1. Egress allowlist — resolved
+
+The hosts this repository needs are now reachable. Verified by probing each one
+and confirming an established tunnel:
+
+`codeload.github.com`, `trunk.io`, `api.trunk.io`, `foundry.paradigm.xyz`,
+`forno.celo.org`, `forno.celo-sepolia.celo-testnet.org`, `celo.drpc.org`,
+`celo.rpc.thirdweb.com`, `celo.blockscout.com`, `rpc.ankr.com`, `celoscan.io`,
+`api.celoscan.io`, `sepolia.celoscan.io`, `rpc.monad.xyz`,
+`testnet-rpc.monad.xyz`, `rpc3.monad.xyz`, `monad.drpc.org`, `monadscan.com`,
+`testnet.monadscan.com`, `gateway.thegraph.com`, `api.studio.thegraph.com`,
+`public.chainalysis.com`, `api.vercel.com`, `openapi.vercel.sh`,
+`api.argos-ci.com`, `sentry.io`.
+
+Allowlist changes apply to **already-running** sessions, so there is no need to
+start a new one to test them — re-probe from the session you are in.
+
+`telemetry.vercel.com` is deliberately not allowlisted. It 403s on every
+`next build` and `next typegen`, which is harmless but fills
+`recentRelayFailures` and makes the log useless for real diagnosis. Set
+`NEXT_TELEMETRY_DISABLED=1` instead.
+
+## 2. GitHub source archives are not served, and the allowlist cannot fix it
+
+Two things still fail, for one shared reason. Both return this:
+
+```json
+{
+  "message": "GitHub access to this repository is not enabled for this session. Use add_repo to request access."
+}
+```
+
+That is the session's GitHub repo-access gate, not the egress proxy — the host
+never appears in `recentRelayFailures`. It applies to GitHub's
+**source-archive endpoints**:
+
+- `https://codeload.github.com/<owner>/<repo>/tar.gz|zip/<ref>`
+- `https://github.com/<owner>/<repo>/archive/<ref>.zip`
+- `https://api.github.com/repos/<owner>/<repo>/tarball/<ref>`
+
+**Git protocol reads are served, for any public repository.** `git clone`,
+`git fetch`, and `git ls-remote` over HTTPS all work anonymously. `add_repo`
+confirms this explicitly and attaches nothing: read access "is already
+available … this session's git proxy serves anonymous git reads of public
+GitHub repositories directly." So the split is by _protocol_, not by
+repository: git yes, archive tarballs no. Calling `add_repo` does not change
+it.
+
+### 2a. `pnpm install`
+
+```text
 ERR_PNPM_FETCH_403  GET https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28…: Forbidden - 403
 ```
 
-`codeload.github.com` is not on the egress allowlist. The repository has exactly
-one git-hosted dependency, in the `pnpm-workspace.yaml` catalog:
+The repository has exactly one git-hosted dependency, in the
+`pnpm-workspace.yaml` catalog:
 
 ```yaml
 "@metamask/jazzicon": github:jmrossy/jazzicon#7a8df28974b4e81129bfbe3cab76308b889032a6
 ```
 
-pnpm resolves a `github:` specifier to a `codeload.github.com` tarball, so the
-install dies after resolving all 2547 packages. Note that `.pnpm/` fills up but
-the workspace links are never created, so the failure looks like a _successful_
-install followed by every import being missing.
+pnpm resolves a `github:` specifier to a codeload tarball, so the install dies
+after resolving all 2547 packages. The failure mode is nasty: `.pnpm/` fills up
+but the workspace links are never created, so it reads as a _successful_
+install followed by every import being missing. Check `ls node_modules | wc -l`
+at the root, not just the exit code.
 
-`git` over HTTPS to `github.com` **does** work (the session's git proxy handles
-it) — only the tarball endpoints are blocked. `api.github.com`'s
-`/tarball/` endpoint is blocked too.
-
-### The fix (setup script / allowlist)
-
-Preferred: **add `codeload.github.com` to the egress allowlist.** It is the
-canonical GitHub source-archive host and the dependency is pinned to a full
-commit SHA, so this widens the allowlist by one well-understood host.
-
-Until then, the working session workaround — temporarily point the catalog at
-git instead of the tarball, install, and restore:
+Session workaround — point the catalog at the git protocol, which _is_ served,
+then restore both files:
 
 ```bash
 cp pnpm-workspace.yaml /tmp/ws.bak && cp pnpm-lock.yaml /tmp/lock.bak
@@ -52,77 +109,63 @@ pnpm install --no-frozen-lockfile      # ~46s, succeeds
 cp /tmp/ws.bak pnpm-workspace.yaml && cp /tmp/lock.bak pnpm-lock.yaml
 ```
 
-`node_modules` keeps the package, and `git status` comes back clean. Do **not**
-commit the rewritten specifier or the lockfile it produces: the `github:` form
-is what CI and the lockfile-integrity gate expect.
+`node_modules` keeps the package and `git status` comes back clean. Do **not**
+commit the rewritten specifier or the lockfile it produces.
 
-A setup script should therefore run the install (with whichever of the two
-resolutions is in force) so sessions start with a linked workspace.
+A permanent fix would be to change the catalog to the `git+https://` form for
+everyone. pnpm supports it, it resolves the same commit, and it is not a
+supply-chain regression — the current codeload entry carries
+`{gitHosted: true, tarball: …}` with no integrity hash either. But it rewrites
+`pnpm-lock.yaml` in a repository with lockfile-integrity gates, so it is a
+maintainer's call, not a session's.
 
-## 2. Trunk cannot run at all
+### 2b. Trunk's linter plugins
 
-`trunk` is not on `PATH`, and the launcher cannot fetch it:
-
+```text
+✖ Unable to download plugin https://github.com/trunk-io/plugins/archive/v1.7.3.zip: HTTP 403
 ```
-$ npx --yes @trunkio/launcher check --fix
-✘ Failed to download trunk binary. (HTTP 403 Forbidden)
-```
 
-Both `trunk.io` and `api.trunk.io` are blocked. This means **step 2 of "After
-Making Changes" in `CLAUDE.md` (`trunk check --fix`) is impossible in a cloud
-session**, and so are `trunk fmt`, `pnpm lint`, and `pnpm format`.
-
-### The fix
-
-Allowlist `trunk.io` and `api.trunk.io`, and have the setup script warm the
-binary (`npx @trunkio/launcher --version`) so the first check is not a
-multi-minute download. Trunk also pulls its own linter toolchains (Go, Python
-and Node runtimes plus each linter release), so expect more hosts to surface
-once those two are open; `github.com` releases and `objects.githubusercontent.com`
-already work.
-
-Meanwhile, lint with the underlying tools, which **are** in `node_modules` and
-use the repository's own configs:
+Same gate, same shape. Workaround: clone the pinned tag over git and point
+`.trunk/trunk.yaml` at the local copy instead of the remote URI.
 
 ```bash
-pnpm exec prettier --write <files>     # what trunk's prettier@3.7.4 does
-pnpm exec eslint <files>               # what trunk's eslint@9.39.1 does
+git clone --depth 1 --branch v1.7.3 https://github.com/trunk-io/plugins /opt/trunk-plugins
 ```
 
-That covers the linters that matter for `.mjs`/`.md`/`.json`. It does **not**
-cover `yamllint`, `markdownlint`, `actionlint`, `checkov`, `shellcheck`,
-`gitleaks` or `trufflehog`, so a workflow-file change cannot be fully validated
-locally — it has to be checked in CI. Two notes from this session:
+```yaml
+plugins:
+  sources:
+    - id: trunk
+      local: /opt/trunk-plugins # instead of ref: + uri:
+```
 
-- ESLint for `scripts/**` has no Node globals configured, so `process` and
-  `Buffer` warn as `no-undef`. The repository convention is an explicit
-  `import process from "node:process"` / `import { Buffer } from "node:buffer"`.
-- `pnpm exec eslint` always prints a harmless warning that the `react` package
-  is not installed at the root. It is not a failure.
+That edit is environment-specific and must not be committed. Which is the real
+argument for §5: bake trunk and its plugins into the image so no session has to
+do any of this.
 
-## 3. Blocked hosts
+## 3. Node's `fetch` ignores the proxy
 
-Confirmed `403` on CONNECT from the egress proxy:
+Trunk's own binary download failed with `HTTP 403 Forbidden` even after
+`trunk.io` was allowlisted, while `curl` to the identical URL returned `200`
+and a checksum-matching 12.7 MB tarball. The launcher uses `global.fetch`, and
+Node's undici does not read `HTTPS_PROXY`.
 
-| Host                                   | What breaks                                      | Priority    |
-| -------------------------------------- | ------------------------------------------------ | ----------- |
-| `codeload.github.com`                  | `pnpm install` (see §1)                          | **blocker** |
-| `trunk.io`, `api.trunk.io`             | all linting and formatting (see §2)              | **blocker** |
-| `forno.celo.org`                       | Celo RPC — anything reading mainnet state        | high        |
-| `celo.rpc.thirdweb.com`                | the archive RPC the pinned-block fork probes     | high        |
-| `rpc.monad.xyz`, `monad.drpc.org`      | Monad RPC (chain 143)                            | high        |
-| `api.vercel.com`                       | every Vercel CLI/deployment-state script         | medium      |
-| `api.argos-ci.com`                     | pixel VRT baseline upload                        | medium      |
-| `sentry.io`, `o4508….ingest.sentry.io` | Sentry source-map upload and DSN validation      | low         |
-| `telemetry.vercel.com`                 | nothing — Next.js telemetry, non-fatal but noisy | ignore      |
+```bash
+$ node -e "fetch('https://trunk.io/releases/latest').then(r=>console.log(r.status))"
+403
+$ NODE_USE_ENV_PROXY=1 node -e "fetch('https://trunk.io/releases/latest').then(r=>console.log(r.status))"
+200
+```
 
-Reachable and working: `github.com` (git over HTTPS), `api.github.com`,
-`raw.githubusercontent.com`, `objects.githubusercontent.com`,
-`registry.npmjs.org`, `npm.jsr.io`, `fonts.googleapis.com`.
+`NODE_USE_ENV_PROXY=1` makes undici honour the proxy environment (via
+`EnvHttpProxyAgent`; it warns that it is experimental, harmlessly). With it,
+`npx @trunkio/launcher --version` prints `1.25.0`.
 
-`telemetry.vercel.com` 403s appear during any `next build` or `next typegen` and
-are safe to ignore, but setting `NEXT_TELEMETRY_DISABLED=1` in the environment
-would keep the proxy log readable.
+**Set `NODE_USE_ENV_PROXY=1` in the environment.** It costs nothing and fixes
+this whole class for any tool that reaches the network through `fetch` rather
+than a proxy-aware client. It is not needed for this repository's own scripts —
+`scripts/fork-seed.mjs` and `scripts/fork-seed-monad.mjs` use `fetch`, but only
+against the local anvil fork on `localhost`, which bypasses the proxy anyway.
 
 ## 4. Missing tooling
 
@@ -132,54 +175,70 @@ would keep the proxy log readable.
 | `docker`, `jq`, `unzip`, `python3`, `go`             | yes     | —                                                                 |
 | Chromium + Playwright browsers at `/opt/pw-browsers` | yes     | VRT and E2E                                                       |
 | `anvil`, `cast`, `forge` (Foundry)                   | **no**  | `pnpm fork:mainnet`, `fork:monad`, and every connected-wallet E2E |
-| `trunk`                                              | **no**  | lint/format (see §2)                                              |
+| `trunk`                                              | **no**  | lint/format — installable now, see §3 and §5                      |
 | `gh`                                                 | **no**  | not needed — use the GitHub MCP tools                             |
 
-Foundry plus the RPC hosts in §3 are both required before any of the
-wallet-connected E2E work described in `CLAUDE.md` can run in a cloud session.
-Neither is needed for workflow, script, or unit-test work.
+`foundry.paradigm.xyz` is allowlisted, so `foundryup` can install Foundry; the
+setup script has to actually run it. Foundry plus the RPC hosts are both
+required before any wallet-connected E2E work can run. Neither is needed for
+workflow, script, or unit-test work.
 
-## 5. What does work
-
-With the §1 workaround applied, all of these pass in a cloud session:
-
-```bash
-pnpm check-types          # 8/8 tasks, ~76s (Next route typegen included)
-pnpm test                 # 1182 tests, 0 failures
-pnpm quality:budgets:test # unit/structural gates for the notifier + budgets
-pnpm ci:action-pins       # 28 workflow/composite-action files
-pnpm dependency:policy:test
-```
-
-Missing `.env.local` files are worth knowing about: only `.env.example` is
-checked in, and the env schema fails app startup without one.
-`pnpm check-types` supplies its own dummy values, so it needs nothing, but
-`pnpm build` and `pnpm dev` need `apps/<app>/.env.local` to exist. Dummy values
-are enough for a build (`NEXT_PUBLIC_STORAGE_URL=https://example.com`,
-`NEXT_PUBLIC_WALLET_CONNECT_ID=dummy`, `CHAINALYSIS_API_KEY=dummy`, Sentry vars
-empty); a real `CHAINALYSIS_API_KEY` is needed only to exercise the screening
-path.
-
-## 6. Suggested setup script
+## 5. Suggested setup script
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
 export NEXT_TELEMETRY_DISABLED=1
+# §3 — undici ignores HTTPS_PROXY without this.
+export NODE_USE_ENV_PROXY=1
 
-# Requires codeload.github.com on the egress allowlist; without it, apply the
-# git+https catalog workaround in docs/cloud-sessions.md §1 first.
-pnpm install --frozen-lockfile
+# §2a — the github: catalog entry resolves to a codeload tarball, which this
+# session's GitHub lane does not serve. Rewrite to the git protocol, install,
+# and restore, so the committed lockfile is never modified.
+cp pnpm-workspace.yaml /tmp/ws.bak && cp pnpm-lock.yaml /tmp/lock.bak
+sed -i 's|github:jmrossy/jazzicon#|git+https://github.com/jmrossy/jazzicon.git#|' pnpm-workspace.yaml
+pnpm install --no-frozen-lockfile
+cp /tmp/ws.bak pnpm-workspace.yaml && cp /tmp/lock.bak pnpm-lock.yaml
 
-# Requires trunk.io + api.trunk.io on the allowlist. Warm the binary so the
-# first `trunk check` is not a multi-minute download.
-npx --yes @trunkio/launcher --version || echo "trunk unavailable; see docs/cloud-sessions.md §2"
+# §2b — trunk's plugin bundle is a GitHub archive, also unserved. Clone the
+# pinned tag over git instead. Sessions then point .trunk/trunk.yaml at it with
+# `local:` (an environment-specific edit that must not be committed).
+git clone --depth 1 --branch v1.7.3 \
+  https://github.com/trunk-io/plugins /opt/trunk-plugins
+npx --yes @trunkio/launcher --version   # warm the CLI binary
 
 # Only needed for fork/E2E work.
 # curl -L https://foundry.paradigm.xyz | bash && foundryup
 ```
 
-Order matters: `pnpm install` must come before anything that reads
-`node_modules`, and `pnpm check-types` builds workspace package types, so run it
-rather than a bare `tsc` if a session wants a warm type cache.
+Baking `trunk` and `/opt/trunk-plugins` into the image would be better than
+scripting them, since both of their blockers are structural rather than
+transient.
+
+## 6. What is verified working
+
+```bash
+pnpm check-types          # 8/8 tasks, ~76s (Next route typegen included)
+pnpm test                 # 1182 tests, 0 failures
+pnpm quality:budgets:test
+pnpm ci:action-pins       # 28 workflow/composite-action files
+pnpm dependency:policy:test
+pnpm adr:check
+pnpm exec turbo run build --filter app.mento.org
+```
+
+With §2b and §3 applied, `trunk check` runs the full linter set —
+`actionlint`, `yamllint`, `markdownlint`, `checkov`, `prettier`, `eslint` and
+the rest. That matters more than it sounds: before it worked, workflow and
+Markdown changes could only be validated in CI, because the `pnpm exec
+prettier` / `pnpm exec eslint` fallback covers neither. On its first real run
+`trunk check` immediately found two `markdownlint/MD040` violations in an
+earlier draft of this file that both fallbacks had passed.
+
+Only `.env.example` files are checked in, and the app env schema fails startup
+without a real one. `pnpm check-types` supplies its own dummy values, but
+`pnpm build` and `pnpm dev` need `apps/<app>/.env.local` to exist. Dummy values
+are enough to build (`NEXT_PUBLIC_STORAGE_URL=https://example.com`,
+`NEXT_PUBLIC_WALLET_CONNECT_ID=dummy`, `CHAINALYSIS_API_KEY=dummy`, Sentry vars
+empty); a real `CHAINALYSIS_API_KEY` is needed only to exercise screening.
