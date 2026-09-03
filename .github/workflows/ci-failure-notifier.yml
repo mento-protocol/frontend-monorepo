@@ -62,8 +62,37 @@ jobs:
           persist-credentials: false
           ref: ${{ github.workflow_sha }}
 
+      # The scanner's own structured findings for the failing run, so the managed
+      # Supply Chain issue can name the vulnerable package without reading a job
+      # log. Downloaded, never parsed here: the notifier script validates the
+      # JSON strictly and renders an allowlisted set of fields.
+      #
+      # `github.token`, not a repository secret — the notifier stays secretless,
+      # and `actions: read` above is exactly the artifact-read scope this needs.
+      #
+      # `runner.temp`, deliberately outside the trusted notifier checkout, so no
+      # artifact entry can land on the script that is about to run. The step is
+      # `continue-on-error`: a run with no artifact must still get its issue,
+      # and the script degrades to a documented note rather than a log excerpt.
+      - name: Download the OSV findings artifact
+        if: github.event.workflow_run.name == 'Supply Chain'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: osv-findings
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/osv-findings
+
       - name: Open, update, or close the managed failure issue
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          # Set only for the workflow that uploads a findings artifact, so every
+          # other workflow's issue keeps its previous shape. The run id lets the
+          # script refuse to attribute these findings to a different run, which
+          # reconciliation to a later decisive run would otherwise do.
+          OSV_FINDINGS_DIR: ${{ github.event.workflow_run.name == 'Supply Chain' && format('{0}/osv-findings', runner.temp) || '' }}
+          OSV_FINDINGS_RUN_ID: ${{ github.event.workflow_run.id }}
         with:
           script: |
             const { pathToFileURL } = require("node:url");

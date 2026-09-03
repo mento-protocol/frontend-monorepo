@@ -136,12 +136,90 @@ that starts before this callback reconciles would otherwise report the new
 attempt's jobs under the completed attempt the issue names.
 
 For a failing OSV scan this reports which scan job and which step failed, and
-the run link. The findings themselves stay where they already are: scheduled
-scans upload SARIF to the repository's code-scanning alerts. Rendering an
-allowlisted findings table in the issue would need the scanner's structured
-`results.json` as a run artifact, and the scheduled full scans call the upstream
-`google/osv-scanner-action` reusable workflow, which cannot be given an upload
-step. That is tracked as follow-up work, not worked around by parsing the log.
+the run link. Which package is vulnerable comes from the `## Findings` section
+below, and independently from the SARIF the scheduled scans upload to the
+repository's code-scanning alerts.
+
+### Findings
+
+A `Supply Chain` failure body also carries a `## Findings` table naming the
+vulnerable package. It is rendered from the scanner's own structured output, not
+from a log — the posture above is unchanged.
+
+The upload plumbing is one extra job, `osv-findings` in
+`.github/workflows/supply-chain.yml`. It runs on the same `schedule` and
+`workflow_dispatch` triggers the notifier watches, scans all four lockfiles with
+`--format=json`, and uploads the four documents as the `osv-findings` run
+artifact. It is a separate job rather than a change to the four `*-sarif` jobs
+because those call the upstream `google/osv-scanner-action` reusable workflow,
+which cannot be given an `actions/upload-artifact` step. That costs a duplicate
+scan and buys leaving the audited SARIF path, its `security-events: write`
+permission, and its structural pins untouched.
+
+Two properties keep the evidence honest:
+
+- **The evidence scan cannot drift from the gate scan.** Each scan step repeats
+  its `*-sarif` sibling's `scan-args` verbatim after `--output` and
+  `--format=json`, and `dependency-policy.test.mjs` asserts that pair stays
+  identical. A findings scan reading a different `osv-scanner.toml` would report
+  a different suppression set than the job that actually failed.
+- **The evidence job is never a gate.** Every scan step is
+  `continue-on-error` and the upload is `if: always()`, because the scanner
+  exits non-zero merely for finding something. The job stays green so it never
+  adds a second failing job to the very issue it exists to annotate; the four
+  SARIF jobs remain what turns the workflow red.
+
+The notifier downloads that artifact with `actions/download-artifact`, gated on
+`github.event.workflow_run.name == 'Supply Chain'`, addressing the callback run
+explicitly by `run-id`. It uses `github.token` rather than a repository secret —
+`actions: read` is exactly the artifact-read scope needed — and extracts into
+`runner.temp`, deliberately outside the trusted notifier checkout, so no
+artifact entry can land on the script that is about to run. The step is
+`continue-on-error`, so a run with no artifact still gets its issue.
+
+`scripts/osv-findings.mjs` validates and flattens the documents.
+
+- **Strict schema.** A document that is not an object with a `results` array is
+  rejected whole. Within a valid document, a finding is rendered only when it
+  carries an advisory id, a package name, and a version, and the id matches an
+  OSV identifier shape. Everything else is dropped and counted, never silently
+  discarded; a partially valid document still contributes its valid findings,
+  because the alternative hides a real advisory because an unrelated entry was
+  malformed.
+- **Allowlisted by construction.** Every returned finding is a fresh object
+  carrying exactly `lockfile`, `id`, `packageName`, `version`, `fixedVersion`,
+  and `summary`. No scanner-supplied key, nested object, or free-text blob can
+  reach the issue body by being passed through.
+- **The lockfile label is trusted, not reported.** It comes from the module's
+  own file-to-lockfile table, cross-checked against the workflow by
+  `dependency-policy.test.mjs`, rather than from the scan result's own
+  `source.path`, so a result cannot claim to come from a file it never scanned.
+- **A fixed version is read only from `affected` ranges naming that exact
+  package.** An advisory routinely covers several packages, and quoting
+  another's fixed version beside this package's name would be misleading.
+- **No symlink is followed.** Each file is `lstat`ed and refused unless it is a
+  regular file under a size cap, because an artifact entry can be a symlink and
+  following one would read a file on the runner that no scan produced.
+
+Rendering happens in `scripts/ci-failure-issue.mjs`, so the repository keeps one
+audited Markdown-escaping implementation rather than two. Each field is
+sanitized and quoted as a code span by the same helpers every job and step name
+uses, then its pipes are escaped as `\|` — GFM splits a table row on unescaped
+pipes before it parses inline content, so a pipe inside a code span would
+otherwise end the cell. Stripping control characters is again what stops a
+scanner-supplied summary from forging the managed marker on a line of its own.
+
+Bounding and degradation. At most 25 findings are rendered and the rest are
+counted. When the body hits the 60 KiB cap, findings are dropped before failed
+jobs: the findings table is supplementary, while the job and step list is what
+the issue has always had to carry. An absent artifact, an absent file, an
+unparsable document, and a clean scan each degrade to their own note, and none
+of them ever falls back to reading a log. A findings artifact whose `run-id`
+does not match the reconciled run is refused outright with a note rather than
+reattributed: the download step runs before the script and can only address the
+callback run, while reconciliation may settle on a later decisive run, and
+rendering one run's advisories under another's failure would attribute them to a
+scan that never reported them.
 
 Bounding and degradation. At most 10 failed jobs and 10 failed steps per job are
 listed, and the assembled body is held under 60 KiB against GitHub's

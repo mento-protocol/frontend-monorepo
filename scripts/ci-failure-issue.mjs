@@ -1,3 +1,7 @@
+import process from "node:process";
+
+import { collectOsvFindings } from "./osv-findings.mjs";
+
 const TRACKED_EVENTS = new Set([
   "push",
   "schedule",
@@ -23,6 +27,12 @@ const VERCEL_MAIN_WORKFLOW_NAME = "Vercel Main Deployment";
 // table syntax are printable by the same job, so choosing lines by that
 // structure lets the job choose what gets published. Nothing read from a log
 // reaches this issue. `scripts/ci-failure-issue.test.mjs` pins that on source.
+//
+// Naming the vulnerable package is the one exception, and it is not an
+// exception to that rule: the findings table below comes from the scanner's own
+// `--format=json` artifact via `./osv-findings.mjs`, which reads no log either.
+// That module hands back only scalar fields, and every one of them is
+// sanitized and quoted here, by the same helpers every other field uses.
 const MAX_REPORTED_JOBS = 10;
 const MAX_REPORTED_STEPS = 10;
 const MAX_FIELD_CHARS = 200;
@@ -376,7 +386,60 @@ function renderFailedJob(job) {
   return `- ${name} — ${label}: ${steps}${more}${link}`;
 }
 
-export function failureBody(run, targetRef, marker, evidence = { jobs: [] }) {
+/**
+ * Quote one already-sanitized value as a table cell. GFM splits a row on
+ * unescaped pipes before it parses inline content, so a pipe inside a code span
+ * still ends the cell — `\|` is the documented way to carry one, and a
+ * backslash immediately before a pipe always escapes it, so this holds for a
+ * value that already contained a backslash too.
+ */
+function tableCell(text) {
+  return codeSpan(text).replaceAll("|", "\\|");
+}
+
+const FINDINGS_COLUMNS = [
+  "Advisory",
+  "Package",
+  "Installed",
+  "Fixed in",
+  "Lockfile",
+  "Summary",
+];
+
+/**
+ * Render the scanner's structured findings as a fixed six-column table.
+ *
+ * Only the allowlisted scalar fields `./osv-findings.mjs` returns are rendered,
+ * each sanitized to one capped line and quoted as a code span, so no
+ * scanner-supplied text can open an autolink, a mention, an image, raw HTML or
+ * a fence — or forge the managed marker on a line of its own.
+ */
+function renderOsvFindings(findings) {
+  const header = [
+    `| ${FINDINGS_COLUMNS.join(" | ")} |`,
+    `| ${FINDINGS_COLUMNS.map(() => "---").join(" | ")} |`,
+  ];
+  const rows = findings.map((finding) => {
+    const cells = [
+      sanitizeField(finding.id, "unknown advisory"),
+      sanitizeField(finding.packageName, "unknown package"),
+      sanitizeField(finding.version, "unknown version"),
+      sanitizeField(finding.fixedVersion, "no fix listed"),
+      sanitizeField(finding.lockfile, "unknown lockfile"),
+      sanitizeField(finding.summary, "no summary"),
+    ];
+    return `| ${cells.map((cell) => tableCell(cell)).join(" | ")} |`;
+  });
+  return [...header, ...rows].join("\n");
+}
+
+export function failureBody(
+  run,
+  targetRef,
+  marker,
+  evidence = { jobs: [] },
+  osvFindings,
+) {
   const workflowName = workflowNameFor(run);
   const header = [
     `The ${codeSpan(workflowName)} workflow failed for ${codeSpan(sanitizeField(targetRef))}.`,
@@ -390,15 +453,51 @@ export function failureBody(run, targetRef, marker, evidence = { jobs: [] }) {
   ];
   const footer = [
     "",
-    "These are GitHub's own job and step names. This issue never quotes job log output, because a failing job can print anything into its log; open the linked jobs for the failing lines. Scheduled OSV scans also publish their findings to this repository's code-scanning alerts.",
+    [
+      "These are GitHub's own job and step names.",
+      osvFindings === undefined
+        ? ""
+        : " Any findings table above is rendered from the scanner's own structured results artifact for this run.",
+      " This issue never quotes job log output, because a failing job can print anything into its log; open the linked jobs for the failing lines. Scheduled OSV scans also publish their findings to this repository's code-scanning alerts.",
+    ].join(""),
     "",
     "This issue is managed by the CI Failure Notifier. It is updated for repeated failures and closed automatically after a newer successful run.",
     "",
     marker,
   ];
   const rows = evidence.jobs.map((job) => renderFailedJob(job));
+  const allFindings = osvFindings?.findings ?? [];
 
-  const assemble = (visible, dropped) => {
+  // Present only when a findings artifact was expected for this run, so every
+  // other workflow's issue reads exactly as it did before.
+  const findingsSection = (visibleFindings, droppedFindings) => {
+    if (osvFindings === undefined) return [];
+    const omitted = (osvFindings.omitted ?? 0) + droppedFindings;
+    // Each note is rendered on its own, never joined first: `renderField` caps
+    // at 200 characters, and concatenated notes would lose the last one.
+    const notes = (osvFindings.notes ?? []).map(
+      (note) => `_${renderField(note)}_`,
+    );
+    if (omitted > 0) {
+      notes.push(
+        `_${omitted} further finding${omitted === 1 ? " is" : "s are"} not listed here._`,
+      );
+    }
+    const middle =
+      visibleFindings.length > 0
+        ? renderOsvFindings(visibleFindings)
+        : (notes.shift() ??
+          "_No vulnerability was reported for this run's scanned lockfiles._");
+    return [
+      "",
+      "## Findings",
+      "",
+      middle,
+      ...(notes.length > 0 ? ["", notes.join("\n\n")] : []),
+    ];
+  };
+
+  const assemble = (visible, dropped, visibleFindings, droppedFindings) => {
     const notes = [];
     if (evidence.note) notes.push(`_${evidence.note}_`);
     if (dropped > 0) {
@@ -415,17 +514,27 @@ export function failureBody(run, targetRef, marker, evidence = { jobs: [] }) {
       ...header,
       middle,
       ...(notes.length > 0 ? ["", notes.join("\n\n")] : []),
+      ...findingsSection(visibleFindings, droppedFindings),
       ...footer,
     ].join("\n");
   };
 
   let visible = rows;
   let dropped = 0;
-  let body = assemble(visible, dropped);
+  let visibleFindings = allFindings;
+  let droppedFindings = 0;
+  let body = assemble(visible, dropped, visibleFindings, droppedFindings);
+  // Findings go first: they are supplementary evidence, while the job and step
+  // list is what the issue has always had to carry.
+  while (byteLength(body) > BODY_MAX_BYTES && visibleFindings.length > 0) {
+    visibleFindings = visibleFindings.slice(0, -1);
+    droppedFindings += 1;
+    body = assemble(visible, dropped, visibleFindings, droppedFindings);
+  }
   while (byteLength(body) > BODY_MAX_BYTES && visible.length > 0) {
     visible = visible.slice(0, -1);
     dropped += 1;
-    body = assemble(visible, dropped);
+    body = assemble(visible, dropped, visibleFindings, droppedFindings);
   }
   return body;
 }
@@ -454,6 +563,47 @@ function recoveryBody(existingBody, run, targetRef, marker) {
     "",
     marker,
   ].join("\n");
+}
+
+/**
+ * The structured findings the notifier workflow downloaded for this exact run,
+ * or `undefined` when none was expected.
+ *
+ * `OSV_FINDINGS_DIR` is set only for the workflow that uploads a findings
+ * artifact, so every other workflow's issue keeps its previous shape. The run
+ * ids must match: the download step runs before this script and can only
+ * address the callback run, while reconciliation may settle on a later decisive
+ * run, and rendering one run's advisories under another run's failure would
+ * attribute them to a scan that never reported them.
+ */
+function osvFindingsFor(run, core, env) {
+  const directory = env.OSV_FINDINGS_DIR;
+  if (typeof directory !== "string" || directory.length === 0) return undefined;
+
+  const downloadedRunId = Number(env.OSV_FINDINGS_RUN_ID);
+  if (!Number.isSafeInteger(downloadedRunId) || downloadedRunId !== run.id) {
+    core?.info?.(
+      `The findings artifact was downloaded for run ${env.OSV_FINDINGS_RUN_ID}, not the reconciled run ${run.id}.`,
+    );
+    return {
+      findings: [],
+      omitted: 0,
+      notes: [
+        "The findings artifact available here belongs to a different run than the one reported above, so no package is named.",
+      ],
+    };
+  }
+
+  try {
+    return collectOsvFindings({ directory });
+  } catch (error) {
+    core?.warning?.("Could not read the OSV findings artifact.");
+    return {
+      findings: [],
+      omitted: 0,
+      notes: [`Findings artifact unavailable: ${degradationReason(error)}.`],
+    };
+  }
 }
 
 function isRelevantRun(run, defaultBranch, repositoryFullName) {
@@ -552,7 +702,12 @@ function findLatestDecisiveRun(
     .sort((left, right) => compareRuns(right, left))[0];
 }
 
-export async function reconcileCiFailureIssue({ github, context, core }) {
+export async function reconcileCiFailureIssue({
+  github,
+  context,
+  core,
+  env = process.env,
+}) {
   const run = context.payload.workflow_run;
   const defaultBranch = context.payload.repository.default_branch;
   const repo = context.repo;
@@ -607,7 +762,13 @@ export async function reconcileCiFailureIssue({ github, context, core }) {
       effectiveRun,
       core,
     );
-    const body = failureBody(effectiveRun, targetRef, marker, evidence);
+    const body = failureBody(
+      effectiveRun,
+      targetRef,
+      marker,
+      evidence,
+      osvFindingsFor(effectiveRun, core, env),
+    );
     if (existing) {
       await github.rest.issues.update({
         ...repo,

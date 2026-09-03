@@ -17,6 +17,8 @@ import { fileURLToPath } from "node:url";
 
 import { parse } from "yaml";
 
+import { OSV_FINDINGS_FILES } from "./osv-findings.mjs";
+
 function read(relativePath) {
   return readFileSync(new URL(`../${relativePath}`, import.meta.url), "utf8");
 }
@@ -631,7 +633,13 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
   assert.deepEqual(supplyChain.on.schedule, [{ cron: "17 6 * * *" }]);
   assert.deepEqual(
     Object.keys(supplyChain.jobs).sort(),
-    [...osvJobIds, ...sarifJobIds, "lockfile-lint", "version-skew"].sort(),
+    [
+      ...osvJobIds,
+      ...sarifJobIds,
+      "osv-findings",
+      "lockfile-lint",
+      "version-skew",
+    ].sort(),
   );
 
   for (const jobId of osvJobIds) {
@@ -1009,6 +1017,155 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
     "dependency-review"
   ].steps.find((step) => step.uses?.startsWith("actions/checkout@"));
   assert.equal(dependencyCheckout.with["persist-credentials"], false);
+});
+
+test("the findings artifact scan mirrors the SARIF gate scan exactly", () => {
+  const supplyChain = yaml(".github/workflows/supply-chain.yml");
+  const findings = supplyChain.jobs["osv-findings"];
+
+  // Same trigger as the SARIF jobs, and no `needs` edge: this job produces the
+  // evidence for the same runs the notifier watches.
+  assert.equal(
+    findings.if,
+    "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
+  );
+  assert.equal(findings.needs, undefined);
+  // Strictly less than the SARIF jobs: no `security-events: write`, because
+  // this job publishes nothing, and no `actions: read`, because it reads no
+  // Actions API. Uploading its own artifact needs neither.
+  assert.deepEqual(findings.permissions, { contents: "read" });
+  assert.equal(findings["timeout-minutes"], 15);
+
+  const checkout = findings.steps.find((step) =>
+    step.uses?.startsWith("actions/checkout@"),
+  );
+  assert.equal(checkout.with["persist-credentials"], false);
+
+  // Each findings scan must repeat its SARIF sibling's scan-args verbatim,
+  // after the two evidence-only flags. A findings scan that read a different
+  // config would report a different suppression set than the gate job that
+  // actually failed, so the issue would name the wrong packages — or none.
+  const sarifJobIds = [
+    "osv-sarif",
+    "osv-pnpm-runtime-sarif",
+    "osv-vercel-cli-runtime-sarif",
+    "osv-pnpm-bootstrap-sarif",
+  ];
+  const scanSteps = findings.steps.filter((step) =>
+    step.uses?.startsWith("google/osv-scanner-action/osv-scanner-action@"),
+  );
+  assert.equal(scanSteps.length, OSV_FINDINGS_FILES.length);
+  assert.equal(scanSteps.length, sarifJobIds.length);
+
+  const scannerRevisions = new Set();
+  for (const [index, step] of scanSteps.entries()) {
+    // Evidence, not a gate: the scanner exits non-zero merely for finding
+    // something, and this job must stay green so it never adds a second
+    // failing job to the issue it exists to annotate.
+    assert.equal(step["continue-on-error"], true);
+    scannerRevisions.add(step.uses.split("@")[1]);
+
+    const lines = step.with["scan-args"].trimEnd().split("\n");
+    const { file, lockfile } = OSV_FINDINGS_FILES[index];
+    // The container spelling of GITHUB_WORKSPACE, matched to the
+    // workspace-relative upload path below.
+    assert.equal(lines[0], `--output=/github/workspace/osv-findings/${file}`);
+    assert.equal(lines[1], "--format=json");
+    // The trusted lockfile label `osv-findings.mjs` renders is the one this
+    // step actually scanned, so a result can never name a file it did not come
+    // from.
+    assert.ok(
+      lines.includes(`--lockfile=${lockfile}`),
+      `${file} must be the scan of ${lockfile}`,
+    );
+    assert.equal(
+      lines.slice(2).join("\n"),
+      supplyChain.jobs[sarifJobIds[index]].with["scan-args"].trimEnd(),
+      `${file} must scan exactly what ${sarifJobIds[index]} scans`,
+    );
+  }
+  // One scanner revision across the evidence job and every SARIF gate job.
+  for (const jobId of sarifJobIds) {
+    scannerRevisions.add(supplyChain.jobs[jobId].uses.split("@")[1]);
+  }
+  assert.equal(scannerRevisions.size, 1);
+
+  const upload = findings.steps.find((step) =>
+    step.uses?.startsWith("actions/upload-artifact@"),
+  );
+  // `always()`: a scan step that failed outright still leaves the other results
+  // worth publishing, and the notifier degrades per file.
+  assert.equal(upload.if, "always()");
+  assert.equal(upload.with.name, "osv-findings");
+  assert.equal(upload.with.path, "osv-findings/*.json");
+  // Nothing else may leave this job. A second upload, or a wider path, could
+  // publish a file no strict schema check ever sees.
+  assert.equal(
+    findings.steps.filter((step) =>
+      step.uses?.startsWith("actions/upload-artifact@"),
+    ).length,
+    1,
+  );
+  assert.equal(
+    findings.steps.some((step) =>
+      step.uses?.startsWith("actions/download-artifact@"),
+    ),
+    false,
+  );
+});
+
+test("the notifier reads findings from the artifact and never from a log", () => {
+  const notifier = read(".github/workflows/ci-failure-notifier.yml");
+
+  // The download is gated on the one workflow that uploads a findings
+  // artifact, addresses that run explicitly, and uses the built-in token
+  // rather than a repository secret.
+  assert.match(notifier, /^ {6}- name: Download the OSV findings artifact$/m);
+  assert.match(
+    notifier,
+    /^ {8}if: github\.event\.workflow_run\.name == 'Supply Chain'$/m,
+  );
+  assert.match(notifier, /^ {8}continue-on-error: true$/m);
+  assert.match(notifier, /^ {10}name: osv-findings$/m);
+  assert.match(
+    notifier,
+    /^ {10}run-id: \$\{\{ github\.event\.workflow_run\.id \}\}$/m,
+  );
+  assert.match(notifier, /^ {10}github-token: \$\{\{ github\.token \}\}$/m);
+  // Extracted outside the trusted notifier checkout, so no artifact entry can
+  // land on the script that is about to run.
+  assert.match(
+    notifier,
+    /^ {10}path: \$\{\{ runner\.temp \}\}\/osv-findings$/m,
+  );
+  assert.doesNotMatch(notifier, /secrets\./);
+
+  // The script is told where the artifact went and which run it came from, so
+  // it can refuse to attribute findings to a run it was not downloaded for.
+  assert.match(
+    notifier,
+    /^ {10}OSV_FINDINGS_DIR: \$\{\{ github\.event\.workflow_run\.name == 'Supply Chain' && format\('\{0\}\/osv-findings', runner\.temp\) \|\| '' \}\}$/m,
+  );
+  assert.match(
+    notifier,
+    /^ {10}OSV_FINDINGS_RUN_ID: \$\{\{ github\.event\.workflow_run\.id \}\}$/m,
+  );
+
+  // The posture, pinned on the collector's source too: this module may read
+  // artifact bytes, but nothing here may reach a log body.
+  const source = read("scripts/osv-findings.mjs");
+  for (const forbidden of [
+    "downloadJobLogsForWorkflowRun",
+    "/logs",
+    "##[error]",
+    "child_process",
+    "execSync",
+  ]) {
+    assert.ok(
+      !source.includes(forbidden),
+      `${forbidden} must not appear in the findings collector source`,
+    );
+  }
 });
 
 test("the OSV head scan refuses inputs that leave the candidate checkout", () => {

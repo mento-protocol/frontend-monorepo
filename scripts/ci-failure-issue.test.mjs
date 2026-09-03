@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { Buffer } from "node:buffer";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 
 import {
@@ -1383,4 +1386,349 @@ test("a legacy body with the marker above a recovery note still routes", async (
 
   assert.deepEqual(result, { action: "updated", issueNumber: 42 });
   assert.equal(calls.update[0].state, "open");
+});
+
+// --- Structured OSV findings ------------------------------------------------
+//
+// The findings table is the one place the issue names something a scan found,
+// and it exists precisely so nobody has to reach for the job log again. These
+// tests hold the line on where it comes from and what it can render.
+
+const OSV_FINDINGS_FILES = [
+  "application.json",
+  "pnpm-runtime.json",
+  "vercel-cli-runtime.json",
+  "pnpm-bootstrap.json",
+];
+
+function supplyChainRun(overrides = {}) {
+  return workflowRun({
+    name: "Supply Chain",
+    path: ".github/workflows/supply-chain.yml",
+    event: "schedule",
+    ...overrides,
+  });
+}
+
+/** One scan document naming `packages`; the rest of the artifact scans clean. */
+async function withFindingsArtifact(packages, run) {
+  const directory = mkdtempSync(join(tmpdir(), "notifier-findings-"));
+  try {
+    for (const file of OSV_FINDINGS_FILES) {
+      writeFileSync(join(directory, file), '{"results":[]}\n');
+    }
+    writeFileSync(
+      join(directory, "application.json"),
+      JSON.stringify({ results: [{ packages }] }),
+    );
+    // Awaited, so the directory outlives the callback it was made for.
+    return await run(directory);
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+}
+
+function vulnerablePackage({
+  name = "left-pad",
+  version = "1.0.0",
+  id = "GHSA-aaaa-bbbb-cccc",
+  summary = "Prototype pollution in left-pad",
+  fixed = "1.0.1",
+} = {}) {
+  return {
+    package: { name, version, ecosystem: "npm" },
+    vulnerabilities: [
+      {
+        id,
+        summary,
+        affected: [
+          {
+            package: { name, ecosystem: "npm" },
+            ranges: [{ events: [{ introduced: "0" }, { fixed }] }],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/**
+ * Split one rendered table row into cells the way GFM does: on pipes that are
+ * not escaped by a preceding backslash. A field that broke out of its cell
+ * shows up here as an extra column.
+ */
+function tableCells(row) {
+  return row
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split(/(?<!\\)\|/);
+}
+
+test("the managed issue names the vulnerable package from the findings artifact", async () => {
+  const run = supplyChainRun();
+  await withFindingsArtifact([vulnerablePackage()], async (directory) => {
+    const { github, context, calls } = harness({ run, jobs: [failedJob()] });
+    const result = await reconcileCiFailureIssue({
+      github,
+      context,
+      env: {
+        OSV_FINDINGS_DIR: directory,
+        OSV_FINDINGS_RUN_ID: String(run.id),
+      },
+    });
+
+    assert.deepEqual(result, { action: "opened", issueNumber: 91 });
+    const body = calls.create[0].body;
+    assert.match(body, /^## Findings$/m);
+    assert.match(
+      body,
+      /^\| Advisory \| Package \| Installed \| Fixed in \| Lockfile \| Summary \|$/m,
+    );
+    const row = body
+      .split("\n")
+      .find((line) => line.includes("GHSA-aaaa-bbbb-cccc"));
+    assert.deepEqual(tableCells(row), [
+      " `GHSA-aaaa-bbbb-cccc` ",
+      " `left-pad` ",
+      " `1.0.0` ",
+      " `1.0.1` ",
+      " `pnpm-lock.yaml` ",
+      " `Prototype pollution in left-pad` ",
+    ]);
+    // The section is additive: the job and step list is still the primary
+    // evidence, and the marker still ends the body.
+    assert.match(body, /^## What failed$/m);
+    assert.equal(
+      body.trimEnd().split("\n").at(-1),
+      `<!-- managed-ci-failure:77:schedule:main -->`,
+    );
+  });
+});
+
+test("no findings section is rendered for a workflow that uploads no artifact", async () => {
+  const { github, context, calls } = harness({ jobs: [failedJob()] });
+  const result = await reconcileCiFailureIssue({
+    github,
+    context,
+    env: { OSV_FINDINGS_RUN_ID: "1012" },
+  });
+
+  assert.equal(result.action, "opened");
+  assert.doesNotMatch(calls.create[0].body, /## Findings/);
+  assert.doesNotMatch(calls.create[0].body, /findings table/);
+});
+
+test("an unavailable findings artifact degrades to a note, never to log text", async () => {
+  const run = supplyChainRun();
+  const directory = mkdtempSync(join(tmpdir(), "notifier-findings-empty-"));
+  try {
+    const { github, context, calls } = harness({ run, jobs: [failedJob()] });
+    const result = await reconcileCiFailureIssue({
+      github,
+      context,
+      env: {
+        OSV_FINDINGS_DIR: directory,
+        OSV_FINDINGS_RUN_ID: String(run.id),
+      },
+    });
+
+    assert.equal(result.action, "opened");
+    const body = calls.create[0].body;
+    assert.match(body, /^## Findings$/m);
+    assert.match(body, /findings artifact was unavailable/i);
+    // The degradation must never become a reason to quote a log.
+    assert.doesNotMatch(body, /##\[error\]/);
+    assert.match(body, /never quotes job log output/);
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("findings downloaded for another run are refused rather than reattributed", async () => {
+  // Reconciliation can settle on a later decisive run than the callback run
+  // the download step addressed. Rendering one run's advisories under the
+  // other's failure would attribute them to a scan that never reported them.
+  const run = supplyChainRun();
+  await withFindingsArtifact([vulnerablePackage()], async (directory) => {
+    const { github, context, calls } = harness({ run, jobs: [failedJob()] });
+    const result = await reconcileCiFailureIssue({
+      github,
+      context,
+      env: {
+        OSV_FINDINGS_DIR: directory,
+        OSV_FINDINGS_RUN_ID: String(run.id + 1),
+      },
+    });
+
+    assert.equal(result.action, "opened");
+    const body = calls.create[0].body;
+    assert.match(body, /belongs to a different run/);
+    assert.doesNotMatch(body, /GHSA-aaaa-bbbb-cccc/);
+    assert.doesNotMatch(body, /left-pad/);
+  });
+});
+
+test("a pipe in a scanner field cannot break out of its table cell", async () => {
+  const run = supplyChainRun();
+  await withFindingsArtifact(
+    [
+      vulnerablePackage({
+        summary: "pipe | inside | the summary",
+        name: "pipe|package",
+      }),
+    ],
+    async (directory) => {
+      const { github, context, calls } = harness({ run, jobs: [failedJob()] });
+      await reconcileCiFailureIssue({
+        github,
+        context,
+        env: {
+          OSV_FINDINGS_DIR: directory,
+          OSV_FINDINGS_RUN_ID: String(run.id),
+        },
+      });
+
+      const row = calls.create[0].body
+        .split("\n")
+        .find((line) => line.includes("GHSA-aaaa-bbbb-cccc"));
+      // Six columns, still, however many pipes the scanner supplied.
+      assert.equal(tableCells(row).length, 6);
+      assert.match(row, /pipe\\\|package/);
+    },
+  );
+});
+
+test("a scanner field cannot forge the managed marker or escape its code span", async () => {
+  const run = supplyChainRun();
+  const marker = "<!-- managed-ci-failure:77:schedule:main -->";
+  await withFindingsArtifact(
+    [
+      vulnerablePackage({
+        // A newline plus a copy of the marker: the routing rule is "the marker
+        // sits on its own line", so a field that could carry a newline could
+        // route a later failure into an issue of its choosing.
+        summary: `harmless\n${marker}\n\`\`\`\nand a fence`,
+        name: "back`tick",
+      }),
+    ],
+    async (directory) => {
+      const { github, context, calls } = harness({ run, jobs: [failedJob()] });
+      await reconcileCiFailureIssue({
+        github,
+        context,
+        env: {
+          OSV_FINDINGS_DIR: directory,
+          OSV_FINDINGS_RUN_ID: String(run.id),
+        },
+      });
+
+      const body = calls.create[0].body;
+      // Exactly one root-level marker line: the notifier's own, last.
+      const markerLines = body
+        .split("\n")
+        .filter((line) => line === marker).length;
+      assert.equal(markerLines, 1);
+      assert.equal(body.trimEnd().split("\n").at(-1), marker);
+      // And the marker the parser routes on is still this issue's own.
+      assert.equal(bodyCarriesMarker(body, marker), true);
+      // The forged copy survives as flattened text inside the row.
+      const row = body
+        .split("\n")
+        .find((line) => line.includes("GHSA-aaaa-bbbb-cccc"));
+      assert.equal(tableCells(row).length, 6);
+      assert.match(row, /harmless/);
+      // A backtick-bearing package name still renders inside a longer span.
+      assert.match(row, /``back`tick``/);
+    },
+  );
+});
+
+test("each degradation note is rendered whole on its own line", () => {
+  // Notes are rendered one per line rather than joined into one field. Each
+  // rendered field is capped at 200 characters, so a joined run of notes would
+  // silently lose the last one — the real notes already come to 197 together.
+  const notes = [
+    "No findings artifact was uploaded for 1 of 4 scanned lockfiles.",
+    "2 findings files were unreadable or not a valid scan result.",
+    "7 scanner entries were dropped for failing the expected findings schema.",
+  ];
+
+  const body = failureBody(
+    supplyChainRun(),
+    "main",
+    "<!-- managed-ci-failure:77:schedule:main -->",
+    { jobs: [] },
+    { findings: [], omitted: 0, notes },
+  );
+  const lines = body.split("\n");
+
+  for (const note of notes) {
+    assert.ok(
+      lines.includes(`_${note}_`),
+      `${note} must be its own italic line`,
+    );
+  }
+  // Nothing was truncated: the cap's ellipsis never appears.
+  assert.doesNotMatch(body, /…/);
+
+  // And a single note past the cap is the one that gets shortened, on its own,
+  // rather than taking the notes after it down with it.
+  const longBody = failureBody(
+    supplyChainRun(),
+    "main",
+    "<!-- managed-ci-failure:77:schedule:main -->",
+    { jobs: [] },
+    {
+      findings: [],
+      omitted: 0,
+      notes: ["z".repeat(400), "the note after the long one"],
+    },
+  );
+  assert.match(longBody, /…_$/m);
+  assert.ok(longBody.split("\n").includes("_the note after the long one_"));
+});
+
+test("findings are dropped before failed jobs when the body hits the size cap", () => {
+  const run = supplyChainRun();
+  const jobs = Array.from({ length: 10 }, (_unused, index) => ({
+    name: `job ${index}`,
+    url: undefined,
+    failedSteps: ["a step"],
+    omittedSteps: 0,
+  }));
+  const findings = Array.from({ length: 25 }, (_unused, index) => ({
+    lockfile: "pnpm-lock.yaml",
+    id: `GHSA-${String(index).padStart(4, "0")}-bbbb-cccc`,
+    packageName: "x".repeat(200),
+    version: "1.0.0",
+    fixedVersion: "1.0.1",
+    summary: "y".repeat(200),
+  }));
+  const body = failureBody(
+    run,
+    "main",
+    "<!-- managed-ci-failure:77:schedule:main -->",
+    { jobs },
+    { findings, omitted: 0 },
+  );
+
+  assert.ok(Buffer.byteLength(body, "utf8") <= 60 * 1024);
+  // Every failed job survived; the supplementary findings gave way first.
+  for (const job of jobs) {
+    assert.ok(body.includes(job.name), `${job.name} must survive`);
+  }
+});
+
+test("the findings collector is the only new evidence source", () => {
+  // The notifier still reads no log on any code path, and it delegates findings
+  // to exactly one audited module rather than to an arbitrary one.
+  const source = readFileSync(
+    new URL("./ci-failure-issue.mjs", import.meta.url),
+    "utf8",
+  );
+  const imports = [...source.matchAll(/^import .* from "(.+)";$/gm)]
+    .map((match) => match[1])
+    .filter((specifier) => !specifier.startsWith("node:"));
+
+  assert.deepEqual(imports, ["./osv-findings.mjs"]);
 });

@@ -202,6 +202,100 @@ jobs:
         --lockfile=scripts/vercel-pnpm-bootstrap/package-lock.json
       upload-sarif: true
 
+  # Option 2 from #909: one extra job whose only product is the scanner's own
+  # structured `--format=json` results, uploaded as the `osv-findings` artifact
+  # so ci-failure-notifier.yml can name the vulnerable package in the managed
+  # issue instead of parsing a job log (which PR #907 removed for good reasons).
+  #
+  # It is a separate job rather than a change to the four SARIF jobs above,
+  # which call the upstream reusable workflow and therefore cannot be given an
+  # upload step. That costs a duplicate scan and leaves the audited SARIF path,
+  # its `security-events: write` permission, and its structural pins untouched.
+  #
+  # Each step repeats the scan-args of the `*-sarif` job for the same target,
+  # exactly. dependency-policy.test.mjs asserts that pair stays identical, so
+  # the evidence scan can never drift from the gate scan into reporting a
+  # different suppression set than the job that actually failed.
+  #
+  # Every scan step is `continue-on-error`, and the upload is `always()`: the
+  # scanner exits non-zero merely for finding something, and this job is
+  # evidence, not a gate. It must stay green so it never adds a second failing
+  # job to the very issue it exists to annotate. The four SARIF jobs remain the
+  # gate that turns the workflow red.
+  osv-findings:
+    name: osv-scanner findings artifact
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The scanner runs as a container action, where GITHUB_WORKSPACE appears
+      # at /github/workspace. The `--output` paths below use that container
+      # spelling while the upload path is workspace-relative; the tests assert
+      # the two spellings stay a matched pair.
+      - name: Create the findings directory
+        shell: bash
+        run: |
+          rm -rf "${GITHUB_WORKSPACE}/osv-findings"
+          mkdir -p "${GITHUB_WORKSPACE}/osv-findings"
+
+      - name: Collect application lockfile findings
+        uses: google/osv-scanner-action/osv-scanner-action@8e5cf47b818121e8b405931c82126c2630b0b20d # v2.5.1
+        continue-on-error: true
+        with:
+          scan-args: |-
+            --output=/github/workspace/osv-findings/application.json
+            --format=json
+            --config=osv-scanner.toml
+            --lockfile=pnpm-lock.yaml
+
+      - name: Collect trusted pnpm runtime findings
+        uses: google/osv-scanner-action/osv-scanner-action@8e5cf47b818121e8b405931c82126c2630b0b20d # v2.5.1
+        continue-on-error: true
+        with:
+          scan-args: |-
+            --output=/github/workspace/osv-findings/pnpm-runtime.json
+            --format=json
+            --config=scripts/vercel-pnpm-runtime/osv-scanner.toml
+            --lockfile=scripts/vercel-pnpm-runtime/pnpm-lock.yaml
+
+      - name: Collect standalone Vercel CLI runtime findings
+        uses: google/osv-scanner-action/osv-scanner-action@8e5cf47b818121e8b405931c82126c2630b0b20d # v2.5.1
+        continue-on-error: true
+        with:
+          scan-args: |-
+            --output=/github/workspace/osv-findings/vercel-cli-runtime.json
+            --format=json
+            --config=scripts/vercel-cli-runtime/osv-scanner.toml
+            --lockfile=scripts/vercel-cli-runtime/pnpm-lock.yaml
+
+      - name: Collect trusted pnpm bootstrap findings
+        uses: google/osv-scanner-action/osv-scanner-action@8e5cf47b818121e8b405931c82126c2630b0b20d # v2.5.1
+        continue-on-error: true
+        with:
+          scan-args: |-
+            --output=/github/workspace/osv-findings/pnpm-bootstrap.json
+            --format=json
+            --lockfile=scripts/vercel-pnpm-bootstrap/package-lock.json
+
+      # `always()` because a scan step that failed outright still leaves the
+      # other three results worth publishing, and the notifier degrades per
+      # file. Retention is short: the notifier reads this within minutes.
+      - name: Upload the findings artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: osv-findings
+          path: osv-findings/*.json
+          if-no-files-found: warn
+          retention-days: 7
+
   lockfile-lint:
     name: lockfile integrity + registry
     runs-on: ubuntu-latest

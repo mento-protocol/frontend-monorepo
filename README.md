@@ -36,6 +36,7 @@ frontend-monorepo/
 ├── .trunk/                   # Trunk CLI configuration and cache
 ├── docs/
 │   ├── adr/                  # Architecture decision records and lifecycle
+│   ├── cloud-sessions.md     # Claude Code on the web: setup + egress notes
 │   └── dependabot-automation.md # External-agent Dependabot preparation runbook
 ├── turbo.json                # Turborepo configuration
 └── pnpm-workspace.yaml       # PNPM workspace configuration
@@ -48,6 +49,11 @@ frontend-monorepo/
 - Node.js (v22 or later)
 - PNPM (v10 or later)
 - [Trunk CLI](https://trunk.io/) (automatically installed during development)
+
+Working in a Claude Code cloud session instead? Its container needs a setup
+script and a wider egress allowlist than it currently has — see
+[docs/cloud-sessions.md](docs/cloud-sessions.md) for what fails and how to work
+around it.
 
 ### Installation
 

@@ -166,6 +166,19 @@ runs in the `main`-only `slack-ci-notifications` environment.
 `docs/quality-budgets.md` records why that is hardening rather than a complete
 control while `SLACK_BOT_TOKEN` remains org-shared.
 
+A managed `Supply Chain` issue also names the vulnerable package in a
+`## Findings` table. That table is rendered from the scanner's own
+`--format=json` output, never from a job log: the `osv-findings` job in
+`.github/workflows/supply-chain.yml` uploads the four scan documents as a run
+artifact, the notifier downloads it for that exact run, and
+`scripts/osv-findings.mjs` validates it strictly and returns only allowlisted
+scalar fields. Each findings scan step must repeat its `*-sarif` sibling's
+`scan-args` verbatim — `pnpm dependency:policy:test` asserts it — so the
+evidence scan can never read a different suppression set than the gate job that
+failed. That job is evidence, not a gate: its scan steps are
+`continue-on-error` so it stays green and never adds a second failing job to the
+issue it annotates.
+
 ## Dependabot preparation
 
 Dependabot opens native npm and GitHub Actions pull requests each Monday at
