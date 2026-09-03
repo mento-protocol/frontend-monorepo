@@ -2,10 +2,29 @@ name: Supply Chain
 
 # Dependency supply-chain gates, decoupled from trunk so the pre-push hook
 # never blocks on lockfile CVEs (see .trunk/trunk.yaml — osv-scanner ignores
-# the dependency lockfiles). Pull-request scans use a local read-only adapter
-# because the upstream reusable workflow requests `security-events: write` even
-# when SARIF upload is disabled. Separate schedule/manual jobs publish SARIF
-# with that permission.
+# the dependency lockfiles).
+#
+# Pull requests and main ask different questions:
+#
+#   * Pull request — OSV-Scanner PR mode, as a pair of local read-only jobs per
+#     target: `_osv-scanner-baseline` scans the base branch and publishes the
+#     baseline, `_osv-scanner-readonly` scans this branch and fails only on
+#     vulnerabilities the pull request introduces. An advisory published
+#     against a version already pinned on main therefore no longer turns every
+#     open pull request red for something none of them changed. Splitting the
+#     two scans across two jobs keeps each at one OSV scanner action step, as
+#     AGENTS.md requires.
+#   * Daily cron and manual dispatch — a full scan of the whole lockfile,
+#     which is what catches a newly disclosed CVE against an already-pinned
+#     dependency or an expired ignore. That is the backstop the pull-request
+#     diff deliberately gives up. A scheduled failure becomes one managed
+#     "CI: Supply Chain is failing" issue via ci-failure-notifier.yml.
+#     Main pushes run neither: they run only the two deterministic jobs below,
+#     so each push success stays valid main-branch recovery evidence.
+#
+# The adapter exists because the upstream reusable workflows request
+# `security-events: write` even when SARIF upload is disabled. Separate
+# schedule/manual jobs publish SARIF with that permission.
 #
 #   1. osv              — osv-scanner against the application lockfile, reading
 #                         the repository-wide osv-scanner.toml.
@@ -17,8 +36,11 @@ name: Supply Chain
 #                               only its two package-name false positives.
 #   4. osv-pnpm-bootstrap — scans the exact npm-locked Linux bootstrap artifact
 #                           without a vulnerability suppression config.
-#                           All scans run on every PR + a daily cron (24h
-#                           disclosure backstop for new CVEs and expired ignores).
+#                           Each lockfile is diffed against the base branch on
+#                           every PR, by a `<name>-baseline` job paired with
+#                           the scan job above it, and fully scanned by the
+#                           daily cron (24h disclosure backstop for new CVEs
+#                           and expired ignores).
 #   5. lockfile-lint    — sha512 integrity + registry-poisoning gate, plus a
 #                         real Linux npm-ci proof for the bootstrap lock.
 #   6. version-skew     — every cataloged dep is "catalog:" or the exact catalog
@@ -32,9 +54,9 @@ name: Supply Chain
 # positives remain OSV-only beside their exact lockfile, with source evidence
 # and a short `ignoreUntil`.
 #
-# No path filter on `pull_request`: the osv job is meant to be a required check,
-# and a path-filtered required check that gets skipped sits "pending" forever
-# and blocks merges. The jobs are cheap enough to run on every PR.
+# No path filter on `pull_request`: `osv-scanner / osv-scan` is a required
+# check, and a path-filtered required check that gets skipped sits "pending"
+# forever and blocks merges. The jobs are cheap enough to run on every PR.
 # Scheduled failures are handled by ci-failure-notifier.yml, which owns the
 # repository-wide deduplicated failure issue lifecycle.
 
@@ -57,24 +79,69 @@ concurrency:
 permissions: read-all
 
 jobs:
+  # Each pull-request target is a pair: a baseline job that scans the base
+  # branch, and the scan of this branch that reports only what the pair
+  # differs by. They are separate jobs so each runs exactly one OSV scanner
+  # action step, as AGENTS.md requires. The pair must pass identical scan-args
+  # or the two result sets are not comparable; dependency-policy.test.mjs
+  # asserts that.
+  #
+  # Each scan job runs on `!cancelled()` rather than on its baseline
+  # succeeding. A failed baseline falls back to an empty one and reports a full
+  # scan, so `osv-scanner / osv-scan` never sits skipped, which for a required
+  # check would block every merge.
+  osv-baseline:
+    name: osv-baseline
+    if: github.event_name == 'pull_request'
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/_osv-scanner-baseline.yml
+    with:
+      baseline-artifact: osv-baseline-root
+      scan-args: |-
+        --config=candidate/osv-scanner.toml
+        --lockfile=candidate/pnpm-lock.yaml
+
   osv:
     name: osv-scanner
-    if: github.event_name == 'pull_request'
+    needs: osv-baseline
+    if: ${{ github.event_name == 'pull_request' && !cancelled() }}
     permissions:
       actions: read
       contents: read
     # Pinned to v2.5.1. scan-args is scoped to the lockfile + the repo config:
     # with --lockfile, osv-scanner does NOT auto-discover osv-scanner.toml, so
     # --config is required. node_modules is gitignored and not scanned.
+    #
+    # Pull-request scans are candidate-rooted: the paired jobs check the
+    # repository out into a `candidate` subdirectory so scan state can live
+    # beside it rather than inside it. The scheduled and manual SARIF jobs below
+    # check out at the workspace root, so their paths stay unprefixed.
     uses: ./.github/workflows/_osv-scanner-readonly.yml
     with:
+      baseline-artifact: osv-baseline-root
       scan-args: |-
-        --config=osv-scanner.toml
-        --lockfile=pnpm-lock.yaml
+        --config=candidate/osv-scanner.toml
+        --lockfile=candidate/pnpm-lock.yaml
+
+  osv-pnpm-runtime-baseline:
+    name: osv-baseline (trusted pnpm runtime)
+    if: github.event_name == 'pull_request'
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/_osv-scanner-baseline.yml
+    with:
+      baseline-artifact: osv-baseline-pnpm-runtime
+      scan-args: |-
+        --config=candidate/scripts/vercel-pnpm-runtime/osv-scanner.toml
+        --lockfile=candidate/scripts/vercel-pnpm-runtime/pnpm-lock.yaml
 
   osv-pnpm-runtime:
     name: osv-scanner (trusted pnpm runtime)
-    if: github.event_name == 'pull_request'
+    needs: osv-pnpm-runtime-baseline
+    if: ${{ github.event_name == 'pull_request' && !cancelled() }}
     permissions:
       actions: read
       contents: read
@@ -82,32 +149,62 @@ jobs:
     # lockfile. Active pnpm advisories must fail this dedicated scan.
     uses: ./.github/workflows/_osv-scanner-readonly.yml
     with:
+      baseline-artifact: osv-baseline-pnpm-runtime
       scan-args: |-
-        --config=scripts/vercel-pnpm-runtime/osv-scanner.toml
-        --lockfile=scripts/vercel-pnpm-runtime/pnpm-lock.yaml
+        --config=candidate/scripts/vercel-pnpm-runtime/osv-scanner.toml
+        --lockfile=candidate/scripts/vercel-pnpm-runtime/pnpm-lock.yaml
+
+  osv-vercel-cli-runtime-baseline:
+    name: osv-baseline (standalone Vercel CLI runtime)
+    if: github.event_name == 'pull_request'
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/_osv-scanner-baseline.yml
+    with:
+      baseline-artifact: osv-baseline-vercel-cli-runtime
+      scan-args: |-
+        --config=candidate/scripts/vercel-cli-runtime/osv-scanner.toml
+        --lockfile=candidate/scripts/vercel-cli-runtime/pnpm-lock.yaml
 
   osv-vercel-cli-runtime:
     name: osv-scanner (standalone Vercel CLI runtime)
-    if: github.event_name == 'pull_request'
+    needs: osv-vercel-cli-runtime-baseline
+    if: ${{ github.event_name == 'pull_request' && !cancelled() }}
     permissions:
       actions: read
       contents: read
     uses: ./.github/workflows/_osv-scanner-readonly.yml
     with:
+      baseline-artifact: osv-baseline-vercel-cli-runtime
       scan-args: |-
-        --config=scripts/vercel-cli-runtime/osv-scanner.toml
-        --lockfile=scripts/vercel-cli-runtime/pnpm-lock.yaml
+        --config=candidate/scripts/vercel-cli-runtime/osv-scanner.toml
+        --lockfile=candidate/scripts/vercel-cli-runtime/pnpm-lock.yaml
+
+  osv-pnpm-bootstrap-baseline:
+    name: osv-baseline (trusted pnpm bootstrap)
+    if: github.event_name == 'pull_request'
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/_osv-scanner-baseline.yml
+    with:
+      baseline-artifact: osv-baseline-pnpm-bootstrap
+      scan-args: |-
+        --lockfile=candidate/scripts/vercel-pnpm-bootstrap/package-lock.json
 
   osv-pnpm-bootstrap:
     name: osv-scanner (trusted pnpm bootstrap)
-    if: github.event_name == 'pull_request'
+    needs: osv-pnpm-bootstrap-baseline
+    if: ${{ github.event_name == 'pull_request' && !cancelled() }}
     permissions:
       actions: read
       contents: read
     uses: ./.github/workflows/_osv-scanner-readonly.yml
     with:
+      baseline-artifact: osv-baseline-pnpm-bootstrap
       scan-args: |-
-        --lockfile=scripts/vercel-pnpm-bootstrap/package-lock.json
+        --lockfile=candidate/scripts/vercel-pnpm-bootstrap/package-lock.json
 
   osv-sarif:
     name: osv-scanner SARIF

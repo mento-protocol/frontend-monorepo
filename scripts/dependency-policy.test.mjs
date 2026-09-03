@@ -608,7 +608,7 @@ test("human Claude review rejects a candidate marketplace symlink", () => {
   }
 });
 
-test("pull requests use read-only OSV jobs and trusted runs own SARIF writes", () => {
+test("pull requests diff OSV findings read-only and trusted runs own full SARIF scans", () => {
   const supplyChain = yaml(".github/workflows/supply-chain.yml");
   const readOnlyOsv = yaml(".github/workflows/_osv-scanner-readonly.yml");
   const osvJobIds = [
@@ -618,6 +618,10 @@ test("pull requests use read-only OSV jobs and trusted runs own SARIF writes", (
     "osv-pnpm-bootstrap",
   ];
   const sarifJobIds = osvJobIds.map((jobId) => `${jobId}-sarif`);
+  // "osv" pairs with "osv-baseline"; every other target appends the suffix.
+  const baselineJobIdFor = (jobId) =>
+    jobId === "osv" ? "osv-baseline" : `${jobId}-baseline`;
+  const baselineJobIds = osvJobIds.map(baselineJobIdFor);
   const sarifRevisions = [];
 
   assert.deepEqual(Object.keys(supplyChain.on).sort(), [
@@ -630,21 +634,52 @@ test("pull requests use read-only OSV jobs and trusted runs own SARIF writes", (
   assert.deepEqual(supplyChain.on.schedule, [{ cron: "17 6 * * *" }]);
   assert.deepEqual(
     Object.keys(supplyChain.jobs).sort(),
-    [...osvJobIds, ...sarifJobIds, "lockfile-lint", "version-skew"].sort(),
+    [
+      ...osvJobIds,
+      ...baselineJobIds,
+      ...sarifJobIds,
+      "lockfile-lint",
+      "version-skew",
+    ].sort(),
   );
 
+  const baselineArtifacts = new Set();
   for (const jobId of osvJobIds) {
     const readOnlyJob = supplyChain.jobs[jobId];
-    assert.equal(readOnlyJob.if, "github.event_name == 'pull_request'");
-    assert.deepEqual(readOnlyJob.permissions, {
-      actions: "read",
-      contents: "read",
-    });
+    const baselineJob = supplyChain.jobs[baselineJobIdFor(jobId)];
+    // The scan job must report even when its baseline job failed. A skipped
+    // required check sits pending forever and blocks every merge.
+    assert.equal(
+      readOnlyJob.if,
+      "${{ github.event_name == 'pull_request' && !cancelled() }}",
+    );
+    assert.equal(readOnlyJob.needs, baselineJobIdFor(jobId));
+    assert.equal(baselineJob.if, "github.event_name == 'pull_request'");
+    for (const job of [readOnlyJob, baselineJob]) {
+      assert.deepEqual(job.permissions, {
+        actions: "read",
+        contents: "read",
+      });
+      assert.equal(Object.hasOwn(job.with, "upload-sarif"), false);
+    }
     assert.equal(
       readOnlyJob.uses,
       "./.github/workflows/_osv-scanner-readonly.yml",
     );
-    assert.equal(Object.hasOwn(readOnlyJob.with, "upload-sarif"), false);
+    assert.equal(
+      baselineJob.uses,
+      "./.github/workflows/_osv-scanner-baseline.yml",
+    );
+    // The base and head scans must run identical arguments or their two result
+    // sets are not comparable and the diff is meaningless.
+    assert.equal(baselineJob.with["scan-args"], readOnlyJob.with["scan-args"]);
+    // Both halves must name the same artifact, and no two targets may share
+    // one, or a target would compare against another target's baseline.
+    const artifact = readOnlyJob.with["baseline-artifact"];
+    assert.equal(typeof artifact, "string");
+    assert.equal(baselineJob.with["baseline-artifact"], artifact);
+    assert.equal(baselineArtifacts.has(artifact), false);
+    baselineArtifacts.add(artifact);
 
     const sarifJob = supplyChain.jobs[`${jobId}-sarif`];
     assert.equal(
@@ -693,6 +728,9 @@ test("pull requests use read-only OSV jobs and trusted runs own SARIF writes", (
     step.uses?.startsWith("actions/checkout@"),
   );
   assert.equal(checkout.with["persist-credentials"], false);
+
+  // The base scan is a sibling job, not a second step here, so the OSV scanner
+  // and reporter actions stay at one step each as AGENTS.md requires.
   const scannerSteps = readOnlySteps.filter((step) =>
     step.uses?.startsWith("google/osv-scanner-action/osv-scanner-action@"),
   );
@@ -705,19 +743,45 @@ test("pull requests use read-only OSV jobs and trusted runs own SARIF writes", (
   assert.ok(scannerRevision);
   assert.equal(scanner.id, "scan");
   assert.equal(scanner["continue-on-error"], true);
-  assert.match(scanner.with["scan-args"], /--output=results\.json/u);
   assert.match(scanner.with["scan-args"], /--format=json/u);
   assert.match(scanner.with["scan-args"], /\$\{\{ inputs\.scan-args \}\}/u);
+
+  // The baseline arrives as a run-scoped artifact from the paired base job.
+  const download = readOnlySteps.find((step) =>
+    step.uses?.startsWith("actions/download-artifact@"),
+  );
+  assert.equal(download.with.name, "${{ inputs.baseline-artifact }}");
+  assert.equal(download["continue-on-error"], true);
+
+  // A missing or malformed baseline falls back to an empty one, so every
+  // finding here counts as new. That can only over-report, never under-report,
+  // and it keeps this job reporting when the baseline job failed.
+  const baselineGuards = readOnlySteps.filter(
+    (step) => step.name === "Establish the base vulnerability baseline",
+  );
+  assert.equal(baselineGuards.length, 1);
+  const [baselineGuard] = baselineGuards;
+  assert.equal(baselineGuard.shell, "bash");
+  assert.deepEqual(baselineGuard.env, {
+    BASE_RESULTS: "${{ github.workspace }}/osv-state/old-results.json",
+  });
+  assert.match(baselineGuard.run, /Array\.isArray\(parsed\.results\)/u);
+  assert.match(baselineGuard.run, /\{"results":\[\]\}/u);
 
   const completionGuards = readOnlySteps.filter(
     (step) => step.name === "Check that the scan completed",
   );
   assert.equal(completionGuards.length, 1);
   const [completionGuard] = completionGuards;
-  assert.equal(completionGuard.if, "${{ steps.scan.outcome == 'failure' }}");
+  // Content, not size. A pull request can add a tracked non-empty file, which
+  // is not evidence that a scan ran. The guard is also unconditional, so a
+  // scanner that exits 0 without writing a usable result still fails the job.
+  assert.equal(completionGuard.if, undefined);
   assert.equal(completionGuard.shell, "bash");
-  assert.deepEqual(completionGuard.env, { RESULTS: "results.json" });
-  assert.match(completionGuard.run, /if \[ ! -s "\$\{RESULTS\}" \]; then/u);
+  assert.deepEqual(completionGuard.env, {
+    RESULTS: "${{ github.workspace }}/osv-state/results.json",
+  });
+  assert.match(completionGuard.run, /Array\.isArray\(parsed\.results\)/u);
   assert.match(completionGuard.run, /exit 1/u);
 
   const reporterSteps = readOnlySteps.filter((step) =>
@@ -744,19 +808,183 @@ test("pull requests use read-only OSV jobs and trusted runs own SARIF writes", (
     ),
     scannerRevision,
   );
-  assert.ok(
-    readOnlySteps.indexOf(scanner) < readOnlySteps.indexOf(completionGuard),
+
+  // The directory is cleared before every write, so even if a future change
+  // moved scan state back inside the candidate tree, a tracked file could not
+  // survive to stand in for a result.
+  const scratchSteps = readOnlySteps.filter(
+    (step) =>
+      step.name === "Create the scan state directory beside the checkout",
   );
-  assert.ok(
-    readOnlySteps.indexOf(completionGuard) < readOnlySteps.indexOf(reporter),
+  assert.equal(scratchSteps.length, 1);
+  const [scratch] = scratchSteps;
+  assert.match(scratch.run, /rm -rf "\$\{GITHUB_WORKSPACE\}\/osv-state"/u);
+  assert.match(scratch.run, /mkdir -p "\$\{GITHUB_WORKSPACE\}\/osv-state"/u);
+
+  const order = [
+    checkout,
+    scratch,
+    download,
+    baselineGuard,
+    scanner,
+    completionGuard,
+    reporter,
+  ].map((step) => readOnlySteps.indexOf(step));
+  assert.deepEqual(
+    order,
+    [...order].sort((left, right) => left - right),
+    "the scratch directory, baseline, head scan, guard, and reporter must run in that order",
   );
-  assert.match(reporter.with["scan-args"], /--output=results\.sarif/u);
-  assert.match(reporter.with["scan-args"], /--new=results\.json/u);
+  assert.ok(order.every((index) => index >= 0));
   assert.match(reporter.with["scan-args"], /--gh-annotations=false/u);
   assert.match(reporter.with["scan-args"], /--fail-on-vuln=true/u);
   assert.doesNotMatch(
     JSON.stringify(readOnlyOsv),
     /security-events|upload-sarif|github\/codeql-action|actions\/upload-artifact/u,
+  );
+
+  // No scan input or output may sit inside the checkout. The checkout is
+  // candidate-controlled, so a tracked file at a workspace-relative path could
+  // stand in for a real scan result: as a forged empty baseline that hides an
+  // introduced vulnerability, or as a forged result that satisfies the
+  // completion guard after a scan failed. Both jobs check the repository out
+  // into `candidate/` and keep scan state beside it in `osv-state/`, which a
+  // pull request cannot write to because it can only add files inside its own
+  // tree. GITHUB_WORKSPACE is the one bind mount GitHub documents for container
+  // actions, where it appears at /github/workspace.
+  const scanPathFlag = /--(?:output|old|new)=(\S+)/gu;
+  const assertOutsideCheckout = (step) => {
+    const values = [...step.with["scan-args"].matchAll(scanPathFlag)].map(
+      ([, value]) => value,
+    );
+    assert.ok(values.length > 0);
+    for (const value of values) {
+      assert.ok(
+        value.startsWith("/github/workspace/osv-state/"),
+        `${step.uses} reads or writes ${value} inside the checkout`,
+      );
+    }
+  };
+  assertOutsideCheckout(scanner);
+  assertOutsideCheckout(reporter);
+
+  // The container path the actions write to and the host path the shell guards
+  // read must stay the same file. Container actions see GITHUB_WORKSPACE
+  // mounted at /github/workspace, so the two spellings differ only by prefix.
+  // If they ever drift, the guards would check a file nothing wrote and the
+  // scan would report a clean diff it never computed.
+  const CONTAINER_TEMP = "/github/workspace/";
+  const HOST_TEMP = "${{ github.workspace }}/";
+  const hostPathFor = (containerPath) =>
+    `${HOST_TEMP}${containerPath.slice(CONTAINER_TEMP.length)}`;
+  const scannerOutput = /--output=(\S+)/u.exec(scanner.with["scan-args"])[1];
+  assert.equal(completionGuard.env.RESULTS, hostPathFor(scannerOutput));
+  const reporterOld = /--old=(\S+)/u.exec(reporter.with["scan-args"])[1];
+  assert.equal(baselineGuard.env.BASE_RESULTS, hostPathFor(reporterOld));
+  const reporterNew = /--new=(\S+)/u.exec(reporter.with["scan-args"])[1];
+  assert.equal(
+    reporterNew,
+    scannerOutput,
+    "the reporter must read exactly the file the scanner wrote",
+  );
+
+  // The base scan is its own reusable workflow so that it, too, holds exactly
+  // one OSV scanner action step at the same revision.
+  const baselineOsv = yaml(".github/workflows/_osv-scanner-baseline.yml");
+  assert.deepEqual(Object.keys(baselineOsv.on), ["workflow_call"]);
+  for (const input of ["scan-args", "baseline-artifact"]) {
+    assert.equal(baselineOsv.on.workflow_call.inputs[input].required, true);
+    assert.equal(readOnlyOsv.on.workflow_call.inputs[input].required, true);
+  }
+  assert.deepEqual(baselineOsv.permissions, {
+    actions: "read",
+    contents: "read",
+  });
+  const baselineOsvJob = baselineOsv.jobs["osv-baseline"];
+  assert.deepEqual(baselineOsvJob.permissions, {
+    actions: "read",
+    contents: "read",
+  });
+  const baselineSteps = baselineOsvJob.steps;
+  const baselineCheckout = baselineSteps.find((step) =>
+    step.uses?.startsWith("actions/checkout@"),
+  );
+  // Both sides must come from one event snapshot. A branch name resolves to
+  // whatever main points at when the baseline job starts, while the scan job
+  // always scans the event's fixed merge commit; if main moved in between, a
+  // dependency the new tip fixed would be reported as newly introduced.
+  assert.equal(
+    baselineCheckout.with.ref,
+    "${{ github.event.pull_request.base.sha }}",
+  );
+  assert.notEqual(baselineCheckout.with.ref, "${{ github.base_ref }}");
+  // Scanning the base's own config is what makes removing a suppression fail:
+  // absent from this baseline, present on the head scan.
+  assert.equal(baselineCheckout.with["persist-credentials"], false);
+  const baselineScanners = baselineSteps.filter((step) =>
+    step.uses?.startsWith("google/osv-scanner-action/osv-scanner-action@"),
+  );
+  assert.equal(baselineScanners.length, 1);
+  const [baselineScanner] = baselineScanners;
+  assert.equal(
+    baselineScanner.uses,
+    `google/osv-scanner-action/osv-scanner-action@${scannerRevision}`,
+  );
+  assert.match(
+    baselineScanner.with["scan-args"],
+    /\$\{\{ inputs\.scan-args \}\}/u,
+  );
+  assertOutsideCheckout(baselineScanner);
+  // Same matched-pair rule on the base side: what the container writes is what
+  // the host normalizes and uploads.
+  const baselineOutput = /--output=(\S+)/u.exec(
+    baselineScanner.with["scan-args"],
+  )[1];
+  const baselineNormalize = baselineSteps.find(
+    (step) => step.name === "Normalize the baseline",
+  );
+  assert.equal(baselineNormalize.env.BASE_RESULTS, hostPathFor(baselineOutput));
+  // Both halves must root the checkout under candidate/, or scan state would
+  // land inside the candidate tree again.
+  assert.equal(baselineCheckout.with.path, "candidate");
+  assert.equal(checkout.with.path, "candidate");
+  for (const jobId of osvJobIds) {
+    for (const job of [
+      supplyChain.jobs[jobId],
+      supplyChain.jobs[baselineJobIdFor(jobId)],
+    ]) {
+      for (const [, value] of job.with["scan-args"].matchAll(
+        /--(?:config|lockfile)=(\S+)/gu,
+      )) {
+        assert.ok(
+          value.startsWith("candidate/"),
+          `pull-request scan-args must be candidate-rooted, found ${value}`,
+        );
+      }
+    }
+  }
+
+  // Tripwire: nothing tracked may sit where scan state is written. A pull
+  // request that added such a path fails here rather than silently forging a
+  // result. The jobs also rm -rf the directory before writing to it.
+  const trackedScanState = spawnSync("git", ["ls-files", "-z", "osv-state"], {
+    cwd: fileURLToPath(new URL("..", import.meta.url)),
+    encoding: "utf8",
+  });
+  assert.equal(trackedScanState.status, 0);
+  assert.equal(trackedScanState.stdout, "");
+
+  const baselineUpload = baselineSteps.find((step) =>
+    step.uses?.startsWith("actions/upload-artifact@"),
+  );
+  assert.equal(baselineUpload.with.name, "${{ inputs.baseline-artifact }}");
+  assert.equal(baselineUpload.with.path, hostPathFor(baselineOutput));
+  assert.equal(baselineUpload.with["if-no-files-found"], "error");
+  // The baseline workflow must not grow into a second reporter or a SARIF
+  // writer; publication stays in the scheduled and manual jobs.
+  assert.doesNotMatch(
+    JSON.stringify(baselineOsv),
+    /security-events|upload-sarif|github\/codeql-action|osv-reporter-action/u,
   );
 
   const dependencyReview = yaml(".github/workflows/dependency-review.yml");
