@@ -14,10 +14,24 @@ const STUDIO_CELO =
 const STUDIO_SEPOLIA =
   "https://api.studio.thegraph.com/query/1724470/mento-troves-celo-sepolia/v0.0.1";
 
-async function loadModule(env: Record<string, string | undefined> = {}) {
+// Every env var the module reads. Each case stubs ALL of them, defaulting to
+// unset, so the ambient environment cannot leak in: CI really does define
+// NEXT_PUBLIC_GRAPH_API_KEY (governance uses it), which silently turned the
+// "no key configured" case into "key configured" and failed only in CI.
+const MANAGED_ENV_VARS = [
+  "NEXT_PUBLIC_TROVES_SUBGRAPH_URL",
+  "NEXT_PUBLIC_TROVES_SUBGRAPH_URL_CELO_SEPOLIA",
+  "NEXT_PUBLIC_GRAPH_API_KEY",
+] as const;
+
+type ManagedEnvVar = (typeof MANAGED_ENV_VARS)[number];
+
+async function loadModule(env: Partial<Record<ManagedEnvVar, string>> = {}) {
   vi.resetModules();
-  for (const [key, value] of Object.entries(env)) {
-    vi.stubEnv(key, value as string);
+  for (const key of MANAGED_ENV_VARS) {
+    // `undefined` deletes the variable rather than setting the string
+    // "undefined", which is what makes the unset cases hermetic.
+    vi.stubEnv(key, env[key]);
   }
   return import("./troves-subgraph");
 }
