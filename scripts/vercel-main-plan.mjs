@@ -121,6 +121,33 @@ export function foreignReviewedAliases(target) {
   ).flatMap((candidate) => [...MAIN_TARGET_CONTRACTS[candidate].aliases]);
 }
 
+// Rider domains: every canonical hostname a deployment carries beyond the
+// reviewed aliases this pipeline records and verifies. `vercel promote` and
+// `vercel rollback` are whole-deployment commands, so a project's other
+// production domains move with every release whether or not they are named.
+//
+// Riders are mutable provider state, not release identity. A `--prod
+// --skip-domain` candidate upload moves generated aliases off the still-serving
+// prior, so two attempts of the same release legitimately observe different
+// rider sets. They must therefore never enter the stable release manifest, the
+// candidate seal, or anything else bound into a digest or identity — a sealed
+// rider list would make an interrupted release unresumable. They are captured
+// where they are observed and published as same-run evidence only, and no
+// selection, verification, or recovery decision reads them.
+export function riderAliasesFrom(deploymentAliases, reviewedAliases) {
+  if (!Array.isArray(deploymentAliases) || !Array.isArray(reviewedAliases)) {
+    throw new Error("Rider alias inputs are malformed");
+  }
+  const reviewed = new Set(
+    reviewedAliases.map((alias) => canonicalizeHostname(alias)),
+  );
+  return [
+    ...new Set(deploymentAliases.map((alias) => canonicalizeHostname(alias))),
+  ]
+    .filter((alias) => !reviewed.has(alias))
+    .sort();
+}
+
 // True when `environment` is an acceptable shape for the deployment a reviewed
 // alias served before this release. Every main target — App included — serves
 // its reviewed alias from the ordinary production environment, so a prior is

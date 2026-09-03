@@ -355,7 +355,20 @@ closed.
 The provider-side stable release manifest is the sole durable cross-attempt
 authority. It binds repository, release ID, `DEPLOY_SHA`, validated upstream
 run, ownership mode, staged and active targets, release-plan digest, and every
-captured protected rollback prior. A provider census must be complete and
+captured protected rollback prior.
+
+Its schema tag stays `vercel-main-release-manifest:v2`, and rider domains are
+deliberately **not** in it. A candidate upload runs `--prod --skip-domain`,
+which moves the project's generated aliases off the still-serving prior, so two
+attempts of one release legitimately observe different rider sets. The manifest
+is embedded in every candidate seal and compared byte-for-byte when a later
+attempt discovers an existing candidate, so a sealed rider list would make an
+interrupted release unresumable: the deterministic candidate would be found and
+then rejected for a manifest difference that reflects nothing but provider
+drift. Riders never enter the manifest, the candidate seal, the journal, the
+release-plan digest, or any other identity- or digest-bound value.
+
+A provider census must be complete and
 stable, each candidate must carry one exact canonical manifest, and the current
 protected mappings must form one canonical forward release prefix or the exact
 terminal App recovery residual: at least one active non-App target with every
@@ -461,12 +474,28 @@ contains only the literal public custom domain. Generated project/team,
 project-default, and creator-scoped aliases are not protected aliases or
 rollback inputs. A fresh ordinary candidate must expose the required
 project/scope alias and may also expose only its exact canonical creator alias.
-An already-served prior may instead retain any canonical subset of those
-aliases plus the target's exact project-default alias and native-Git `main`
-branch alias, because later CLI or native-Git deployments can move generated
-aliases while the protected domain stays on that prior. The planner validates
-and then discards this provider evidence; custom, wrong-target, near-miss, and
-unknown aliases fail closed.
+
+An already-served prior is different, for every target. Promoting a deployment
+makes it the project's production deployment, so it also carries every other
+production domain that project has — retired, redirect-configured, and
+operator-added domains included. `vercel promote <candidate>` and
+`vercel rollback <prior>` name no alias, so those **rider domains** move
+wholesale on promote and are restored wholesale by the compensating rollback to
+the captured prior deployment ID. That symmetry is what makes a reviewed-alias
+journal sufficient. A served prior therefore tolerates any rider; the one alias
+condition that still fails closed is another main target's reviewed protected
+domain, which would mean the reviewed mappings had crossed. Candidate and reused
+candidate topologies keep their exact generated-alias contract, and a fresh
+candidate carries no rider because it has not been promoted yet.
+
+Riders are named but never verified, and they are same-run evidence only. Each
+job that takes a planning census derives the rider set from that census and
+publishes it in its evidence artifact, so a reader can see every domain a
+release repointed. Nothing in selection, verification, or recovery reads the
+list: `assertActiveFinalMappings` still verifies the reviewed aliases only, and
+the planner validates and then discards the provider's alias evidence. Custom,
+wrong-target, near-miss, and unknown aliases on a candidate still fail closed,
+and a foreign reviewed protected domain is refused in a rider list too.
 
 Planning compares each target's served SHA with `DEPLOY_SHA`; it does not use
 the triggering push's `before` field. For a GitHub-owned target, an exact
@@ -834,6 +863,49 @@ prior journal, or reconstructs a final verdict from earlier attempts. An absent,
 malformed, mismatched, or incomplete receipt/evidence pair fails closed instead
 of treating the process outcome as deployment success.
 
+The receipt keeps its `vercel-main-terminal-receipt:v3` schema and its exact
+key set: it carries proof digests, never artifacts, so rider domains are not
+part of it. They travel in the terminal evidence artifact instead. Every
+evidence schema that can represent a public mapping mutation carries a
+`riderAliases` map in its exact key order: `vercel-main-active-evidence:v2`,
+`vercel-main-active-current-release-evidence:v2`, and
+`vercel-main-active-failure-evidence:v2`, so a recovered, manual-intervention,
+or already-current outcome names the domains its promote moved. Outcomes that
+mutate nothing — safe-noop, preparation failure, `no-target` — carry no map.
+
+The map holds one entry per target the release actually promoted; a target that
+was not selected, is shadow-owned, or was never promoted moved nothing and gets
+no entry and no rendered line. Each entry is `{aliases, omitted}`: canonical,
+sorted, deduplicated hostnames, capped at `MAIN_RIDER_ALIAS_TARGET_LIMIT` (16)
+per target and at `MAIN_RIDER_ALIAS_BYTE_BUDGET` (4096 bytes) across the map,
+with `omitted` counting what the caps dropped. Truncation is deliberate and
+deterministic: visibility must never become a new way for a deploy to fail, and
+the budget sits far below the 64 KiB terminal-evidence and 256 KiB bridge caps
+so the rider map can never be what overruns an artifact.
+
+A whole map of `null` means the producing job took no census, and how that
+renders depends on whether the run could have moved anything at all. When the
+journal proves zero public-serving mutation commands — `verified-noop`, and the
+journal-free `current-release-verified` path — the report says
+`none (no mutation in this run)`; claiming `unknown` there would contradict the
+mutation count printed beside it. `unknown (no census in this job)` is reserved
+for the case it describes: a mutation may have started and this job has no
+census, which is the recovery jobs' situation.
+
+Only jobs that already capture a planning snapshot may pass `--rider-census`,
+and the option is read immediately, so a step that supplies a path the job does
+not produce fails the terminal handoff outright. The
+`verify-existing-release` branch of `activate-and-verify` captures no snapshot
+and therefore supplies none. A structural workflow test requires every
+`terminal-artifacts` invocation that passes `--rider-census` to have an earlier
+producer of that file in the same job whose condition is implied by its own.
+
+The terminal reader carries the map rather than re-deriving it (riders are
+mutable, and a later read would legitimately disagree), but still holds it to
+the canonical shape, the caps, and the promoted-target scope. Wiring a census
+into the recovery terminal producer is deliberately left as follow-up: it would
+add a credentialed provider read to the recovery path.
+
 The `result` job evaluates the terminal receipt and evidence and sets the
 `Vercel Main Deployment` workflow outcome. The `Fail closed before release
 execution exists` sentinel fires whenever no release execution exists and the
@@ -908,7 +980,7 @@ inputs.
 
 The `result` job evaluates the complete graph without ending the job, then
 writes and uploads one canonical redacted report before it returns the terminal
-result. A safe graph uses schema `vercel-main-evidence:v1`; any failed gate,
+result. A safe graph uses schema `vercel-main-evidence:v2`; any failed gate,
 planner, stage, coordinator, recovery, or final validation uses the separate
 `vercel-main-failure-evidence:v1` schema. Failure evidence records only trusted
 run identity, valid SHA values when available, whether planner output existed,
@@ -925,8 +997,9 @@ IDs in this canonical runbook. The evidence contains only:
 
 - downstream workflow run ID, attempt, URL, and exact workflow-definition SHA;
 - upstream run ID/attempt, `Build and Test` URL/conclusion, and `DEPLOY_SHA`;
-- each target's canonical prior deployment ID/URL, public aliases, served SHA,
-  planner range, reason, and selected/skipped outcome;
+- each target's canonical prior deployment ID/URL, public aliases, served-prior
+  rider domains, served SHA, planner range, reason, and selected/skipped
+  outcome;
 - each selected ordinary staged deployment ID/URL plus canonical state,
   immutable browser/runtime/security, and protected-mapping results;
 - App build result and validated deterministic Next deployment ID, without a
