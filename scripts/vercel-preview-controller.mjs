@@ -3496,7 +3496,10 @@ export function reconcileState({
       const selectedIndex = candidates.findIndex(
         (event) => event.event_run_id === selectedEvent.event_run_id,
       );
-      for (const coalescedRunId of selection.coalesced_receipt_run_ids) {
+      for (const [
+        coalescedPosition,
+        coalescedRunId,
+      ] of selection.coalesced_receipt_run_ids.entries()) {
         const coalescedIndex = candidates.findIndex(
           (event) => event.event_run_id === coalescedRunId,
         );
@@ -3509,11 +3512,28 @@ export function reconcileState({
         // identity that is live but outside this target's candidate lineage,
         // or that holds a current-epoch result or selection, still fails
         // closed.
+        //
+        // Workflow run IDs do not encode lineage order: a lifecycle receipt
+        // can arrive late and carry a lower run ID than the receipts it
+        // follows. The controller records coalesced identities in lineage
+        // order, so a later entry that still resolves inside this target's
+        // candidates, before the selection, proves this earlier entry also
+        // precedes the selection. Fall back to the run-ID ordering only when
+        // the selection retains no such resolvable successor.
+        const precedesSelection =
+          selection.coalesced_receipt_run_ids
+            .slice(coalescedPosition + 1)
+            .some((laterRunId) => {
+              const laterIndex = candidates.findIndex(
+                (event) => event.event_run_id === laterRunId,
+              );
+              return laterIndex >= 0 && laterIndex < selectedIndex;
+            }) || coalescedRunId < selection.selection_receipt_run_id;
         const checkpointSettled =
           coalescedIndex < 0 &&
           selectedCheckpoint !== null &&
           !liveEventRunIds.has(coalescedRunId) &&
-          coalescedRunId < selection.selection_receipt_run_id;
+          precedesSelection;
         invariant(
           (checkpointSettled ||
             (coalescedIndex >= 0 && coalescedIndex < selectedIndex)) &&
@@ -3678,12 +3698,17 @@ export function reconcileState({
           )
         : -1;
       const coalescingStartIndex = pendingOwnerResult ? 0 : completedIndex + 1;
+      // A retained selection keeps owning every identity it already coalesced,
+      // including one whose own receipt a checkpoint folded away. Claiming it
+      // again here would leave two durable selections naming it, which every
+      // later reconciliation rejects as conflicting coalescing evidence.
       const coalescedReceiptRunIds = candidates
         .slice(coalescingStartIndex, selectedIndex)
         .filter(
           (event) =>
             !resultByRun.has(event.event_run_id) &&
-            !selectedRunIds.has(event.event_run_id),
+            !selectedRunIds.has(event.event_run_id) &&
+            !coalescedToByRun.has(event.event_run_id),
         )
         .map((event) => event.event_run_id);
       nextDispatches.push({

@@ -3863,6 +3863,238 @@ test("an unresolvable coalesced receipt outside the checkpoint fails closed", ()
   }
 });
 
+test("a later dispatch does not re-coalesce a receipt a retained selection claims", () => {
+  const laterHead = (0x71).toString(16).padStart(40, "0");
+  const opened = event({
+    run: 2_600,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const events = [
+    opened,
+    event({
+      run: 2_601,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      updated: timestamp(2),
+    }),
+    event({
+      run: 2_602,
+      action: "synchronize",
+      before: SHA.B,
+      head: SHA.C,
+      updated: timestamp(3),
+    }),
+    event({
+      run: 2_603,
+      action: "synchronize",
+      before: SHA.C,
+      head: SHA.D,
+      updated: timestamp(4),
+    }),
+  ];
+  const laterEvent = event({
+    run: 2_604,
+    action: "synchronize",
+    before: SHA.D,
+    head: laterHead,
+    updated: timestamp(5),
+  });
+  const first = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const activeA = persistDispatch(first, 42_600);
+  const selectionA = selectionReceiptFromDispatch(activeA.targets.ui.active);
+  let journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      events,
+      selections: [selectionA],
+      state: activeA,
+    }),
+    { throughEventRunId: 2_600 },
+  );
+  const resultA = result(first.nextDispatch, { runId: 42_600 });
+  const jumped = reconcile({
+    events: journal.receipts.events,
+    results: [resultA],
+    selections: journal.receipts.selections,
+    pullRequest: pull({ head: SHA.D, updated: timestamp(4) }),
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  assert.equal(jumped.nextDispatch.sha, SHA.D);
+  assert.deepEqual(
+    jumped.nextDispatch.coalesced_receipt_run_ids,
+    [2_601, 2_602],
+  );
+
+  const activeD = persistDispatch(jumped, 42_603);
+  const selectionD = selectionReceiptFromDispatch(activeD.targets.ui.active);
+  journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      checkpoint: journal.checkpoint,
+      events: journal.receipts.events,
+      selections: [...journal.receipts.selections, selectionD],
+      workerEvidence: journal.receipts.worker_evidence,
+      results: [resultA],
+      state: activeD,
+    }),
+    { throughEventRunId: 2_602 },
+  );
+  // The checkpoint folded through C, so C survives only as the checkpoint
+  // anchor while the retained D selection still claims it as coalesced.
+  assert.equal(journal.checkpoint.through_event_run_id, 2_602);
+  assert.deepEqual(
+    journal.receipts.events.map((entry) => entry.event_run_id),
+    [2_603],
+  );
+  assert.deepEqual(
+    journal.receipts.selections.map(
+      (selection) => selection.coalesced_receipt_run_ids,
+    ),
+    [[2_601, 2_602]],
+  );
+
+  const resultD = result(jumped.nextDispatch, { runId: 42_603 });
+  const laterPull = pull({ head: laterHead, updated: timestamp(5) });
+  const dispatched = reconcile({
+    events: [...journal.receipts.events, laterEvent],
+    results: [...journal.receipts.results, resultD],
+    selections: journal.receipts.selections,
+    pullRequest: laterPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  assert.equal(dispatched.nextDispatch.sha, laterHead);
+  // C is already claimed by the retained D selection. Claiming it again makes
+  // the two selections contradict each other on the next reconciliation.
+  assert.deepEqual(dispatched.nextDispatch.coalesced_receipt_run_ids, []);
+
+  const activeLater = persistDispatch(dispatched, 42_604);
+  const selectionLater = selectionReceiptFromDispatch(
+    activeLater.targets.ui.active,
+  );
+  const settled = reconcile({
+    events: [...journal.receipts.events, laterEvent],
+    results: [...journal.receipts.results, resultD],
+    selections: [...journal.receipts.selections, selectionLater],
+    pullRequest: laterPull,
+    existingState: activeLater,
+    checkpoint: journal.checkpoint,
+  });
+  assert.equal(settled.state.targets.ui.active.sha, laterHead);
+});
+
+test("a folded coalesced receipt settles when receipts are not run-ID ordered", () => {
+  const opened = event({
+    run: 2_700,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  // Lifecycle receipts arrive out of run-ID order: the later D event holds a
+  // lower run ID than the B and C events it follows in the lineage.
+  const events = [
+    opened,
+    event({
+      run: 2_710,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      updated: timestamp(2),
+    }),
+    event({
+      run: 2_720,
+      action: "synchronize",
+      before: SHA.B,
+      head: SHA.C,
+      updated: timestamp(3),
+    }),
+    event({
+      run: 2_705,
+      action: "synchronize",
+      before: SHA.C,
+      head: SHA.D,
+      updated: timestamp(4),
+    }),
+  ];
+  const currentPull = pull({ head: SHA.D, updated: timestamp(4) });
+  const first = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const activeA = persistDispatch(first, 42_700);
+  const selectionA = selectionReceiptFromDispatch(activeA.targets.ui.active);
+  let journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      events,
+      selections: [selectionA],
+      state: activeA,
+    }),
+    { throughEventRunId: 2_700 },
+  );
+  const resultA = result(first.nextDispatch, { runId: 42_700 });
+  const jumped = reconcile({
+    events: journal.receipts.events,
+    results: [resultA],
+    selections: journal.receipts.selections,
+    pullRequest: currentPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  // The selection is accepted before folding: B and C precede D in the
+  // reconstructed lineage even though their run IDs are higher.
+  assert.equal(jumped.nextDispatch.sha, SHA.D);
+  assert.equal(jumped.nextDispatch.selection_receipt_run_id, 2_705);
+  assert.deepEqual(
+    jumped.nextDispatch.coalesced_receipt_run_ids,
+    [2_710, 2_720],
+  );
+
+  const activeD = persistDispatch(jumped, 42_705);
+  const selectionD = selectionReceiptFromDispatch(activeD.targets.ui.active);
+  journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      checkpoint: journal.checkpoint,
+      events: journal.receipts.events,
+      selections: [...journal.receipts.selections, selectionD],
+      workerEvidence: journal.receipts.worker_evidence,
+      results: [resultA],
+      state: activeD,
+    }),
+    { throughEventRunId: 2_720 },
+  );
+  assert.deepEqual(
+    journal.receipts.events.map((entry) => entry.event_run_id),
+    [2_705],
+  );
+
+  // The same durable selection must stay acceptable: folding B away changed
+  // no ordering evidence.
+  const settled = reconcile({
+    events: journal.receipts.events,
+    results: [
+      ...journal.receipts.results,
+      result(jumped.nextDispatch, { runId: 42_705 }),
+    ],
+    selections: journal.receipts.selections,
+    pullRequest: currentPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  assert.equal(settled.state.status_decisions.at(-1).state, "success");
+  assert.equal(settled.state.status_decisions.at(-1).targets.ui, "deployed");
+  assert.equal(settled.state.targets.ui.active, null);
+  assert.equal(settled.nextDispatch, null);
+});
+
 test("capacity checkpointing uses the latest represented receipt when the live PR is ahead", () => {
   const openedHead = (260).toString(16).padStart(40, "0");
   const opened = event({
