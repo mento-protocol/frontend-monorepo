@@ -10,9 +10,10 @@ name: OSV Scanner Baseline
 # and head scans are two jobs with one scanner step apiece, handing the baseline
 # over as a run-scoped artifact.
 #
-# The base branch is checked out at its own SHA and scanned with its own
-# config, which is what makes a pull request that removes a suppression fail:
-# the advisory is absent from this baseline and present in the head scan.
+# The base is checked out at the exact commit the pull_request event was
+# created from, and scanned with that commit's own config. Scanning the base's
+# own config is what makes a pull request that removes a suppression fail: the
+# advisory is absent from this baseline and present in the head scan.
 
 on:
   workflow_call:
@@ -39,10 +40,16 @@ jobs:
       actions: read
       contents: read
     steps:
-      - name: Check out the base branch
+      # Pin to the exact base commit the pull_request event was created from,
+      # not the base branch name. A branch ref resolves to whatever main points
+      # at when this job starts, while the scan job always scans the event's
+      # fixed merge commit. If main moves in between, the two sides come from
+      # different snapshots: a main tip that fixes a dependency would leave the
+      # older merge commit reporting that dependency as newly introduced.
+      - name: Check out the base commit the event was created from
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.base_ref }}
+          ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
 
       # Scan output must never live in the checkout. A pull request can add a

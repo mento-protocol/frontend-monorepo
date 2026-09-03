@@ -112,7 +112,7 @@ jobs:
         run: |
           set -uo pipefail
           if ! node -e 'const {readFileSync}=require("node:fs");const parsed=JSON.parse(readFileSync(process.env.RESULTS,"utf8"));if(!Array.isArray(parsed.results))throw new Error("no results array");'; then
-            echo "::error::OSV-Scanner did not write a valid ${RESULTS}. Failing instead of reporting a clean scan."
+            echo "::error::OSV-Scanner did not write a valid ${RESULTS}. The scanner writes to /github/runner_temp/osv inside its container, which the runner bind-mounts from RUNNER_TEMP on the host; check that mount first if the scan step itself looks healthy. Failing instead of reporting a clean scan."
             exit 1
           fi
 

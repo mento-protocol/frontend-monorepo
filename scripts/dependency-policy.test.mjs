@@ -862,6 +862,26 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
   assertOutsideCheckout(scanner);
   assertOutsideCheckout(reporter);
 
+  // The container path the actions write to and the host path the shell guards
+  // read must stay the same file. Container actions see RUNNER_TEMP mounted at
+  // /github/runner_temp, so the two spellings must differ only by that prefix.
+  // If they ever drift, the guards would check a file nothing wrote and the
+  // scan would report a clean diff it never computed.
+  const CONTAINER_TEMP = "/github/runner_temp/";
+  const HOST_TEMP = "${{ runner.temp }}/";
+  const hostPathFor = (containerPath) =>
+    `${HOST_TEMP}${containerPath.slice(CONTAINER_TEMP.length)}`;
+  const scannerOutput = /--output=(\S+)/u.exec(scanner.with["scan-args"])[1];
+  assert.equal(completionGuard.env.RESULTS, hostPathFor(scannerOutput));
+  const reporterOld = /--old=(\S+)/u.exec(reporter.with["scan-args"])[1];
+  assert.equal(baselineGuard.env.BASE_RESULTS, hostPathFor(reporterOld));
+  const reporterNew = /--new=(\S+)/u.exec(reporter.with["scan-args"])[1];
+  assert.equal(
+    reporterNew,
+    scannerOutput,
+    "the reporter must read exactly the file the scanner wrote",
+  );
+
   // The base scan is its own reusable workflow so that it, too, holds exactly
   // one OSV scanner action step at the same revision.
   const baselineOsv = yaml(".github/workflows/_osv-scanner-baseline.yml");
@@ -883,9 +903,17 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
   const baselineCheckout = baselineSteps.find((step) =>
     step.uses?.startsWith("actions/checkout@"),
   );
-  // The base branch, scanned with its own config, is what makes removing a
-  // suppression fail: absent from this baseline, present on the head scan.
-  assert.equal(baselineCheckout.with.ref, "${{ github.base_ref }}");
+  // Both sides must come from one event snapshot. A branch name resolves to
+  // whatever main points at when the baseline job starts, while the scan job
+  // always scans the event's fixed merge commit; if main moved in between, a
+  // dependency the new tip fixed would be reported as newly introduced.
+  assert.equal(
+    baselineCheckout.with.ref,
+    "${{ github.event.pull_request.base.sha }}",
+  );
+  assert.notEqual(baselineCheckout.with.ref, "${{ github.base_ref }}");
+  // Scanning the base's own config is what makes removing a suppression fail:
+  // absent from this baseline, present on the head scan.
   assert.equal(baselineCheckout.with["persist-credentials"], false);
   const baselineScanners = baselineSteps.filter((step) =>
     step.uses?.startsWith("google/osv-scanner-action/osv-scanner-action@"),
@@ -901,10 +929,20 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
     /\$\{\{ inputs\.scan-args \}\}/u,
   );
   assertOutsideCheckout(baselineScanner);
+  // Same matched-pair rule on the base side: what the container writes is what
+  // the host normalizes and uploads.
+  const baselineOutput = /--output=(\S+)/u.exec(
+    baselineScanner.with["scan-args"],
+  )[1];
+  const baselineNormalize = baselineSteps.find(
+    (step) => step.name === "Normalize the baseline",
+  );
+  assert.equal(baselineNormalize.env.BASE_RESULTS, hostPathFor(baselineOutput));
   const baselineUpload = baselineSteps.find((step) =>
     step.uses?.startsWith("actions/upload-artifact@"),
   );
   assert.equal(baselineUpload.with.name, "${{ inputs.baseline-artifact }}");
+  assert.equal(baselineUpload.with.path, hostPathFor(baselineOutput));
   assert.equal(baselineUpload.with["if-no-files-found"], "error");
   // The baseline workflow must not grow into a second reporter or a SARIF
   // writer; publication stays in the scheduled and manual jobs.
