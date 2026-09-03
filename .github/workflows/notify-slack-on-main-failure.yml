@@ -188,7 +188,7 @@ jobs:
           # `compareRuns()` orders by run_number then run_attempt. The target
           # ref uses the same fallback as `targetRefFor()`. Every value reaches
           # jq through --arg or stdin; nothing is interpolated into the shell.
-          STALE=$(printf '%s' "$RUNS" | jq -r \
+          if ! STALE=$(printf '%s' "$RUNS" | jq -r \
             --arg event "$EVENT" \
             --arg head_branch "$HEAD_BRANCH" \
             --arg default_branch "$DEFAULT_BRANCH" \
@@ -196,7 +196,7 @@ jobs:
             --argjson attempt "${RUN_ATTEMPT:-1}" '
               (if $head_branch != "" then $head_branch elif $event == "push" then "release tag" else $default_branch end) as $target
               | ["success", "action_required", "failure", "startup_failure", "timed_out"] as $decisive
-              | [ .workflow_runs[]
+              | [ (.workflow_runs // [])[]
                   | select(.status == "completed")
                   | select(.conclusion as $c | $decisive | index($c))
                   | select((if (.head_branch // "") != "" then .head_branch elif $event == "push" then "release tag" else $default_branch end) == $target)
@@ -204,9 +204,16 @@ jobs:
                 ]
               | map(select(. > [$number, $attempt]))
               | length > 0
-            ')
+            '); then
+            echo "Could not evaluate run freshness; posting without reconciliation."
+            echo "stale=false" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
 
-          if [ "$STALE" = "true" ]; then
+          # Anything but a clean `true` posts. Fail open, always.
+          if [ "$STALE" != "true" ]; then
+            STALE=false
+          else
             echo "A newer decisive run of this workflow already concluded; skipping the Slack post."
           fi
           echo "stale=$STALE" >>"$GITHUB_OUTPUT"
