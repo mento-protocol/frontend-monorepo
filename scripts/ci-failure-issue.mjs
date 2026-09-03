@@ -166,7 +166,15 @@ function safeJobUrl(value) {
   }
 }
 
-const FENCE_LINE_PATTERN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+// Indentation is deliberately unbounded, which is wider than GFM: a fence that
+// only a container makes valid (four spaces inside a list item, say) must still
+// count here, and counting one line too many can only hide a marker, never
+// expose one. The notifier's own bodies contain no fence, so nothing it writes
+// can be swallowed by this.
+const FENCE_LINE_PATTERN = /^[^\S\r\n]*(`{3,}|~{3,})(.*)$/;
+// GFM allows only spaces and tabs after a closing delimiter. Unicode blanks
+// such as U+00A0 leave the fence open, which is the fail-closed direction.
+const ASCII_BLANK_PATTERN = /^[ \t]*$/;
 
 /**
  * Read one line as a CommonMark fence delimiter, or `undefined` when it is not
@@ -181,27 +189,33 @@ function fenceOn(line) {
   return {
     character: run[0],
     length: run.length,
-    closes: rest.trim().length === 0,
+    closes: ASCII_BLANK_PATTERN.test(rest),
   };
 }
 
 /**
  * Does `body` carry `marker` as a line of its own, outside any fenced block?
  * Substring matching would let any quoted text route a later failure into the
- * wrong issue, so the marker only counts where the notifier writes it.
+ * wrong issue, so the marker only counts where the notifier writes it: as an
+ * exact root-level line. The notifier never indents or pads it, while GFM reads
+ * an indented copy as a list-item continuation or an indented code block, so
+ * anything but an exact match is a quotation.
  */
 export function bodyCarriesMarker(body, marker) {
   if (typeof body !== "string") return false;
   let open;
 
   for (const raw of body.split(/\r?\n/)) {
-    const fence = fenceOn(raw);
+    // A stray carriage return is the only trailing character tolerated; the
+    // split above already consumed the ones that ended a CRLF line.
+    const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+    const fence = fenceOn(line);
     if (open === undefined) {
       if (fence !== undefined) {
         open = fence;
         continue;
       }
-      if (raw.trim() === marker) return true;
+      if (line === marker) return true;
       continue;
     }
     // Only the opener's own character, at its own length or longer, closes it.

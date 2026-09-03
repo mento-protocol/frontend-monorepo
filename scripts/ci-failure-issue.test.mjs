@@ -957,7 +957,10 @@ test("the marker only routes when it sits on its own line outside a fence", () =
   const marker = managedMarker();
 
   assert.ok(bodyCarriesMarker(`text\n${marker}\nmore`, marker));
-  assert.ok(bodyCarriesMarker(`text\n   ${marker}   \n`, marker));
+  assert.ok(
+    !bodyCarriesMarker(`text\n   ${marker}   \n`, marker),
+    "an indented, padded copy is a quotation, not the sentinel",
+  );
   assert.ok(
     !bodyCarriesMarker(`a quoted ${marker} inside a sentence`, marker),
     "a substring must never route an issue",
@@ -1019,6 +1022,59 @@ test("a fence closes only on its own delimiter", () => {
     bodyCarriesMarker(["   ```", "   ```", marker].join("\n"), marker),
     "three spaces of indentation still fences",
   );
+  assert.ok(
+    !bodyCarriesMarker(
+      ["- quoted", "", "    ```", `    ${marker}`, "    ```"].join("\n"),
+      marker,
+    ),
+    "a fence a list item indents four spaces still fences",
+  );
+  assert.ok(
+    !bodyCarriesMarker(["```", "```\u00a0", marker, "```"].join("\n"), marker),
+    "a non-breaking space after a delimiter does not close a fence",
+  );
+  assert.ok(
+    !bodyCarriesMarker(["```", "```\u2003", marker, "```"].join("\n"), marker),
+    "an em space after a delimiter does not close a fence",
+  );
+  assert.ok(
+    bodyCarriesMarker(["```", "```\t ", marker].join("\n"), marker),
+    "a tab and a space after a delimiter still close a fence",
+  );
+});
+
+test("only an exact root-level line carries the marker", () => {
+  const marker = managedMarker();
+
+  assert.ok(bodyCarriesMarker(`text\n${marker}\nmore`, marker));
+  assert.ok(
+    bodyCarriesMarker(`text\n${marker}\r`, marker),
+    "a trailing carriage return is tolerated",
+  );
+  assert.ok(
+    !bodyCarriesMarker(`text\n ${marker}\n`, marker),
+    "one leading space makes it a quotation",
+  );
+  assert.ok(
+    !bodyCarriesMarker(`text\n\u00a0${marker}\n`, marker),
+    "a leading non-breaking space makes it a quotation",
+  );
+  assert.ok(
+    !bodyCarriesMarker(`text\n${marker} \n`, marker),
+    "one trailing space makes it a quotation",
+  );
+  assert.ok(
+    !bodyCarriesMarker(`text\n\t${marker}\n`, marker),
+    "a leading tab makes it a quotation",
+  );
+  assert.ok(
+    !bodyCarriesMarker(["- quoted", "", `  ${marker}`].join("\n"), marker),
+    "a list-item continuation must not route",
+  );
+  assert.ok(
+    !bodyCarriesMarker(["- quoted", "", `    ${marker}`].join("\n"), marker),
+    "a four-space indented code block must not route",
+  );
 });
 
 test("a quoted marker in a human issue does not hijack reconciliation", async () => {
@@ -1040,6 +1096,50 @@ test("a tilde line inside a backtick fence does not expose a quoted marker", asy
     number: 77,
     state: "open",
     body: ["Look at this:", "```", "~~~", managedMarker(), "```"].join("\n"),
+    user: { login: "github-actions[bot]" },
+  };
+  const { github, context, calls } = harness({ issues: [impostor] });
+  const result = await reconcileCiFailureIssue({ github, context });
+
+  assert.deepEqual(result, { action: "opened", issueNumber: 91 });
+  assert.equal(calls.update.length, 0);
+});
+
+test("an indented fence in a list item does not expose a quoted marker", async () => {
+  const impostor = {
+    number: 77,
+    state: "open",
+    body: ["- quoted", "", "    ```", `    ${managedMarker()}`, "    ```"].join(
+      "\n",
+    ),
+    user: { login: "github-actions[bot]" },
+  };
+  const { github, context, calls } = harness({ issues: [impostor] });
+  const result = await reconcileCiFailureIssue({ github, context });
+
+  assert.deepEqual(result, { action: "opened", issueNumber: 91 });
+  assert.equal(calls.update.length, 0);
+});
+
+test("an indented marker in a list item does not route", async () => {
+  const impostor = {
+    number: 77,
+    state: "open",
+    body: ["- quoted", "", `  ${managedMarker()}`].join("\n"),
+    user: { login: "github-actions[bot]" },
+  };
+  const { github, context, calls } = harness({ issues: [impostor] });
+  const result = await reconcileCiFailureIssue({ github, context });
+
+  assert.deepEqual(result, { action: "opened", issueNumber: 91 });
+  assert.equal(calls.update.length, 0);
+});
+
+test("a non-breaking space cannot close a fence holding a marker", async () => {
+  const impostor = {
+    number: 77,
+    state: "open",
+    body: ["```", "```\u00a0", managedMarker(), "```"].join("\n"),
     user: { login: "github-actions[bot]" },
   };
   const { github, context, calls } = harness({ issues: [impostor] });
