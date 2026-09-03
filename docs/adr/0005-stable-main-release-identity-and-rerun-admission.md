@@ -234,6 +234,23 @@ Shadow mode retains the staged provider deployment as terminal,
 non-authorizing evidence and performs no promotion, protected-domain mutation,
 or other public mapping change.
 
+## Amendment — 2026-09-02: transition complete
+
+The tighten step removed two things: the bridge alias-set operation and the
+App-only prior-shape tolerance. App is now an ordinary production target. It
+matches Governance, Reserve, and UI exactly. The only operation types are
+`promote` and `ordinary_rollback`.
+
+The custom `v3` environment is gone. The legacy `v2` branch and domain are
+also gone. `v2-app.mento.org` now returns a 308 redirect to `app.mento.org`.
+
+This amendment does not change release identity or rerun admission. One
+exception remains: a bridge-era release seal, valid under the current
+contract except for its bridge-era App prior shape, is still admitted as an
+unmarked rollback-only prior. Seals are immutable, and operator rollbacks can
+re-map one at any time. See ADR 0001's 2026-09-02 amendment for the
+mechanism.
+
 ## Trust, evidence, and failure handling
 
 Provider reconciliation and every mutation run in the protected
