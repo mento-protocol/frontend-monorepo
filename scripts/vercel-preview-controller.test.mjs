@@ -16550,3 +16550,72 @@ test("a reopened anchor before reconciliation keeps its persisted epoch membersh
     last.tailSelection.selection_receipt_run_id,
   ]);
 });
+
+test("a recovery bootstrap only escapes a contradictory epoch when PR metadata changed", () => {
+  const opened = event({
+    run: 7_000,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const openedPull = pull({ head: SHA.A, updated: timestamp(1) });
+  const first = reconcile({ events: [opened], pullRequest: openedPull });
+  const activeA = persistDispatch(first, 47_000);
+  // A journal whose persisted receipts contradict the reconciler, created at
+  // the current lifecycle anchor.
+  const contradictory = selectionReceiptFromDispatch({
+    ...activeA.targets.ui.active,
+    coalesced_receipt_run_ids: [9_999],
+  });
+  const broken = {
+    selections: [contradictory],
+    existingState: activeA,
+  };
+  assert.throws(
+    () =>
+      reconcile({
+        ...broken,
+        events: [opened],
+        pullRequest: openedPull,
+      }),
+    /ui coalescing evidence contradicts durable ownership/,
+  );
+
+  // Dispatched with no PR metadata change, the bootstrap snapshots the same
+  // head and updated_at, so its anchor alias key equals the opened anchor's
+  // and selectCurrentEpoch discards it. The broken epoch stays current and
+  // reconciliation repeats the same failure.
+  const aliasing = bootstrapEvent({
+    run: 7_001,
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  assert.throws(
+    () =>
+      reconcile({
+        ...broken,
+        events: [opened, aliasing],
+        pullRequest: openedPull,
+      }),
+    /ui coalescing evidence contradicts durable ownership/,
+  );
+
+  // Changing any PR metadata the alias key covers — here updated_at, as an
+  // edited title or body would — lets the bootstrap anchor a fresh epoch. The
+  // contradicting selection stays bound to the old anchor and is no longer
+  // read.
+  const distinct = bootstrapEvent({
+    run: 7_002,
+    head: SHA.A,
+    updated: timestamp(2),
+  });
+  const recovered = reconcile({
+    ...broken,
+    events: [opened, distinct],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(2) }),
+  });
+  assert.equal(recovered.state.epoch.anchor_run_id, 7_002);
+  assert.equal(recovered.state.epoch.anchor_action, "bootstrap");
+  assert.equal(recovered.nextDispatch.sha, SHA.A);
+  assert.equal(recovered.nextDispatch.selection_receipt_run_id, 7_002);
+});

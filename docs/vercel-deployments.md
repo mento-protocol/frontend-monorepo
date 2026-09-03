@@ -2245,12 +2245,21 @@ selected SHA to the controller epoch and compactly lists intermediate entry
 identities coalesced into the durable later selection. A capacity checkpoint
 retains that selection but folds the coalesced entries themselves once they
 fall inside the checkpointed prefix, so a durable selection can outlive the
-identities it batched away. Reconciliation treats such an identity as settled
-checkpoint evidence: it must have left the live receipt set entirely, precede
-its own selection, and hold no current-epoch result or selection. A coalesced
-identity that is still live but outside the target's candidate lineage, that
-does not precede its selection, or that holds current-epoch ownership still
-fails closed. Intended-run crash
+identities it batched away. The checkpoint therefore records, per target and in
+lineage order, the folded identities its retained selections still name.
+Reconciliation treats a folded identity as settled only when that membership
+proves it. Membership carries the ordering too: a recorded identity sits at or
+before the checkpoint anchor, the anchor precedes every live candidate, and
+when the selection receipt is itself folded both positions come from that same
+ordered list. Workflow run IDs never enter the proof, because a lifecycle
+receipt can arrive late and carry a lower run ID than the receipts it follows.
+Membership is scoped to the persisted epoch, the epoch a reader resolves
+whenever it finds a checkpoint, so it can never exceed one epoch's receipts
+however many epochs retire an unresolved owner. A coalesced identity that is
+still live but outside the target's candidate lineage, one the fold never
+covered, one under a checkpoint written before this evidence existed, or one
+holding a current-epoch result or selection still fails closed. Intended-run
+crash
 recovery queries a fixed `created` window around the persisted dispatch
 timestamp; older lifetime run history cannot exhaust its proof bound, while
 multiple matching runs inside the window fail closed. The bounded terminal
@@ -2579,12 +2588,29 @@ gh api --method POST \
   -F "client_payload[pr_number]=$PR_NUMBER"
 ```
 
-An open-PR bootstrap is also the recovery for a journal whose persisted
-receipts contradict the current reconciler, because the bootstrap receipt
-anchors a fresh epoch and the contradicting receipts stay bound to the old
-epoch anchor. A push or a `vercel-preview-reconcile` dispatch cannot recover
-such a journal: both keep the same epoch and re-read the same receipts. Every
-target rebuilds at the current head after that bootstrap.
+An open-PR bootstrap can recover a journal whose persisted receipts contradict
+the current reconciler, but only when it actually anchors a fresh epoch, and it
+does not always. `prepareBootstrap` snapshots the live pull request, and
+`selectCurrentEpoch` discards a bootstrap whose anchor alias key equals an
+existing non-bootstrap anchor's. That key covers PR state, `updated_at`,
+`closed_at`, the trusted-base, change-base, before, and head SHAs, the base and
+head refs, head repository, author, trust, and the plan. So when the contradictory journal was created at the
+current `opened`, `reopened`, or `edited` anchor and no PR metadata has changed
+since, a dispatched bootstrap aliases that anchor, is discarded, and
+reconciliation repeats the same failure. The aliasing is deliberate: it dedupes
+repeated bootstrap dispatches so a routine one cannot reset the epoch and
+discard in-flight ownership.
+
+To recover such a journal, first change PR metadata the alias key covers, so
+the bootstrap cannot alias: push an empty commit, which changes the head SHA,
+or edit the PR title or body, which changes `updated_at`. Then dispatch the
+bootstrap. It anchors a fresh epoch, the contradicting receipts stay bound to
+the old epoch anchor, and every target rebuilds at the current head. Neither
+step recovers the journal alone: a push or a `vercel-preview-reconcile`
+dispatch keeps the same epoch and re-reads the same receipts, and a bootstrap
+without a metadata change aliases the broken anchor.
+`a recovery bootstrap only escapes a contradictory epoch when PR metadata
+changed` in `scripts/vercel-preview-controller.test.mjs` pins both outcomes.
 
 A closed bootstrap is an exceptional recovery reset, not a way to create a
 journal. It is accepted only when the exact PR is live-closed, exactly one
