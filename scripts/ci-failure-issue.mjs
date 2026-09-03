@@ -14,6 +14,38 @@ const NOTIFIER_WORKFLOW_NAME = "CI Failure Notifier";
 const TAG_PUSH_WORKFLOW_NAMES = new Set(["Publish UI Package"]);
 const VERCEL_MAIN_WORKFLOW_NAME = "Vercel Main Deployment";
 
+// The managed issue reports GitHub's own structured job and step names and
+// never quotes job log output. Log text is attacker-influenceable: a failing
+// job can print whatever a dependency, a test fixture, or an environment dump
+// puts in front of it, and no line-level redaction survives a credential value
+// that carries no keyword of its own or is split across lines. Line-based
+// selectors are just as weak: a runner's error annotations and a scanner's
+// table syntax are printable by the same job, so choosing lines by that
+// structure lets the job choose what gets published. Nothing read from a log
+// reaches this issue. `scripts/ci-failure-issue.test.mjs` pins that on source.
+const MAX_REPORTED_JOBS = 10;
+const MAX_REPORTED_STEPS = 10;
+const MAX_FIELD_CHARS = 200;
+const BODY_MAX_BYTES = 60 * 1024;
+// The notifier job is capped at five minutes; the job listing is the only
+// evidence call left, and a stalled one must not consume that budget.
+const JOB_LIST_DEADLINE_MS = 20_000;
+
+// Applied only to a degradation reason, which is the one free-text field an
+// external system can still put in the body.
+const SECRET_PATTERN =
+  /token|secret|password|passwd|bearer|authorization|ghp_|ghs_|gho_|ghu_|ghr_|github_pat_|-----BEGIN/i;
+// Control and format characters are removed rather than escaped: a newline in a
+// rendered field could otherwise forge the managed marker on its own line.
+const CONTROL_CHARACTER_PATTERN = /[\p{Cc}\p{Cf}]/gu;
+const MARKDOWN_ESCAPE_PATTERN = /([\\`*_[\]<>])/g;
+
+const textEncoder = new TextEncoder();
+
+function byteLength(text) {
+  return textEncoder.encode(text).length;
+}
+
 function runPosition(run) {
   return [run.run_number ?? 0, run.run_attempt ?? 1];
 }
@@ -55,8 +87,14 @@ function runLink(run) {
   return `[run #${run.run_number}, attempt ${run.run_attempt ?? 1}](${run.html_url})`;
 }
 
+/**
+ * A workflow name is set by a workflow file, the same trust class as the job
+ * and step names it sits beside, so it is sanitized the same way. The issue
+ * title takes this plain form because GitHub renders a title as text; the body
+ * quotes it with `codeSpan`.
+ */
 function workflowNameFor(run) {
-  return run.name;
+  return sanitizeField(run.name, "unnamed workflow");
 }
 
 function issueTitle(run, targetRef) {
@@ -67,29 +105,357 @@ function issueTitle(run, targetRef) {
   );
 }
 
-function failureBody(run, targetRef, marker) {
+/**
+ * Flatten one API-supplied name onto a single capped line: strip the control
+ * and format characters, collapse the whitespace, and cap the length. Dropping
+ * the control characters is what stops a name forging the managed marker on a
+ * line of its own. The result still carries its literal Markdown specials, so
+ * it is safe only where Markdown is not interpreted, or where the caller
+ * quotes it.
+ */
+function sanitizeField(value, fallback = "") {
+  const flattened = String(value ?? "")
+    .replace(CONTROL_CHARACTER_PATTERN, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (flattened.length === 0) return fallback;
+  return flattened.length > MAX_FIELD_CHARS
+    ? `${flattened.slice(0, MAX_FIELD_CHARS)}…`
+    : flattened;
+}
+
+/**
+ * Render one API-supplied value as Markdown text: sanitize it, then escape the
+ * Markdown specials. Only the degradation note uses this; every name is quoted
+ * with `codeSpan` instead, because escaping leaves a mention, an autolink and
+ * a bare URL live, and a backslash is literal inside a code span anyway.
+ */
+export function renderField(value, fallback = "") {
+  return sanitizeField(value, fallback).replace(
+    MARKDOWN_ESCAPE_PATTERN,
+    "\\$1",
+  );
+}
+
+/**
+ * Quote already-sanitized text as a code span, which renders it verbatim and
+ * leaves no mention, autolink or emphasis live. CommonMark closes a span at
+ * the first backtick run as long as the one that opened it, and a backslash is
+ * literal in between, so the delimiter has to be longer than every run in the
+ * text. Text that starts or ends with a backtick also takes one space of
+ * padding, which the renderer strips back off.
+ */
+function codeSpan(text) {
+  const value = String(text);
+  const longestRun = (value.match(/`+/g) ?? []).reduce(
+    (longest, run) => Math.max(longest, run.length),
+    0,
+  );
+  const delimiter = "`".repeat(longestRun + 1);
+  const padding = value.startsWith("`") || value.endsWith("`") ? " " : "";
+  return `${delimiter}${padding}${value}${padding}${delimiter}`;
+}
+
+/** Only an https GitHub URL from the API is ever linked. */
+function safeJobUrl(value) {
+  try {
+    const url = new URL(String(value));
+    return url.protocol === "https:" ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// Indentation is deliberately unbounded, which is wider than GFM: a fence that
+// only a container makes valid (four spaces inside a list item, say) must still
+// count here, and counting one line too many can only hide a marker, never
+// expose one. The notifier's own bodies contain no fence, so nothing it writes
+// can be swallowed by this.
+const FENCE_LINE_PATTERN = /^([^\S\r\n]*)(`{3,}|~{3,})(.*)$/;
+// A closer is held to GitHub's own rule instead: at most three ASCII spaces
+// before it, and no tab or Unicode blank at all. Reading a closer where GitHub
+// reads content is the one direction that hands a quoted marker back out.
+const CLOSER_INDENT_PATTERN = /^ {0,3}$/;
+// GFM allows only spaces and tabs after a closing delimiter. Unicode blanks
+// such as U+00A0 leave the fence open, which is the fail-closed direction.
+const ASCII_BLANK_PATTERN = /^[ \t]*$/;
+// Raw HTML, refused rather than parsed. GFM has seven HTML block types with
+// their own interruption rules, and a marker quoted inside <pre>, <div>,
+// <table> or a comment that spans lines renders as text while a line scanner
+// still sees it at root level. The notifier writes no line that opens with
+// `<` except the marker itself, so refusing every other one costs nothing.
+const HTML_LINE_PATTERN = /^[^\S\r\n]*</;
+
+/**
+ * Read one line as a CommonMark fence delimiter, or `undefined` when it is not
+ * one. A backtick opener may not carry a backtick in its info string, and only
+ * a bare delimiter closes a fence, so a line with trailing text is content.
+ */
+function fenceOn(line) {
+  const match = FENCE_LINE_PATTERN.exec(line);
+  if (match === null) return undefined;
+  const [, indent, run, rest] = match;
+  if (run.startsWith("`") && rest.includes("`")) return undefined;
+  return {
+    character: run[0],
+    length: run.length,
+    closes:
+      CLOSER_INDENT_PATTERN.test(indent) && ASCII_BLANK_PATTERN.test(rest),
+  };
+}
+
+/** The split above already consumed the CR that ended a CRLF line. */
+function stripCarriageReturn(line) {
+  return line.endsWith("\r") ? line.slice(0, -1) : line;
+}
+
+/**
+ * Does `body` carry `marker` as a line of its own, outside any fenced block?
+ * Substring matching would let any quoted text route a later failure into the
+ * wrong issue, so the marker only counts where the notifier writes it: as an
+ * exact root-level line. The notifier never indents or pads it, while GFM reads
+ * an indented copy as a list-item continuation or an indented code block, so
+ * anything but an exact match is a quotation.
+ */
+export function markerLineIndex(body, marker) {
+  if (typeof body !== "string") return -1;
+  const lines = body.split(/\r?\n/).map(stripCarriageReturn);
+
+  // Any raw HTML anywhere fails the whole body closed, wherever it sits
+  // relative to the marker: an unclosed block reaches forward, and a comment
+  // that opens on one line swallows every line until it ends.
+  if (lines.some((line) => line !== marker && HTML_LINE_PATTERN.test(line))) {
+    return -1;
+  }
+
+  let open;
+  for (const [index, line] of lines.entries()) {
+    const fence = fenceOn(line);
+    if (open === undefined) {
+      if (fence !== undefined) {
+        open = fence;
+        continue;
+      }
+      if (line === marker) return index;
+      continue;
+    }
+    // Only the opener's own character, at its own length or longer, closes it.
+    // Any other delimiter is content, so a `~~~` line inside a backtick fence
+    // cannot hand the marker back out.
+    if (
+      fence !== undefined &&
+      fence.closes &&
+      fence.character === open.character &&
+      fence.length >= open.length
+    ) {
+      open = undefined;
+    }
+  }
+  return -1;
+}
+
+export function bodyCarriesMarker(body, marker) {
+  return markerLineIndex(body, marker) !== -1;
+}
+
+function degradationReason(error) {
+  const raw =
+    (error?.status ? `HTTP ${error.status}` : "") ||
+    error?.message ||
+    String(error);
+  // Scan the whole flattened message before shortening it: truncating first
+  // would drop a keyword past the cap and publish a value that sat before it.
+  const flattened = String(raw)
+    .replace(CONTROL_CHARACTER_PATTERN, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (flattened.length === 0) return "unknown error";
+  if (SECRET_PATTERN.test(flattened)) return "redacted error";
+  return renderField(flattened.slice(0, MAX_FIELD_CHARS), "unknown error");
+}
+
+function failedStepsFor(job) {
+  const steps = Array.isArray(job?.steps) ? job.steps : [];
+  const failed = steps.filter((step) =>
+    FAILURE_CONCLUSIONS.has(step?.conclusion),
+  );
+  return {
+    // `renderFailedJob` quotes these as code spans, so they keep their literal
+    // Markdown specials: escaping here would only print the backslashes.
+    names: failed
+      .slice(0, MAX_REPORTED_STEPS)
+      .map((step, index) => sanitizeField(step?.name, `step ${index + 1}`)),
+    // Counted, never silently dropped: a job with many failing `if: always()`
+    // cleanup steps would otherwise read as a complete list.
+    omitted: Math.max(0, failed.length - MAX_REPORTED_STEPS),
+  };
+}
+
+/**
+ * Collect the failed jobs of `run` from the workflow-jobs API. This reads only
+ * GitHub's own structure — job names, step names, conclusions — and downloads
+ * no logs. Every failure degrades into a note on the issue; the notifier itself
+ * never fails because evidence could not be read.
+ */
+export async function collectFailureEvidence(
+  github,
+  repo,
+  run,
+  core,
+  { listDeadlineMs = JOB_LIST_DEADLINE_MS } = {},
+) {
+  if (!run?.id) {
+    return { jobs: [], note: "the failed run exposed no job list" };
+  }
+
+  let allJobs;
+  try {
+    allJobs = await github.paginate(
+      github.rest.actions.listJobsForWorkflowRun,
+      {
+        ...repo,
+        run_id: run.id,
+        // Not `latest`: GitHub defines that as the newest execution, so a rerun
+        // that starts before this callback reconciles would hand back the new
+        // attempt's jobs while the issue names the completed one. Ask for every
+        // attempt and select the reconciled one below.
+        filter: "all",
+        per_page: 100,
+        // A stalled listing would otherwise consume the whole job before the
+        // deadline is ever consulted, and no issue would be written at all.
+        request: { signal: AbortSignal.timeout(listDeadlineMs) },
+      },
+    );
+  } catch (error) {
+    core?.warning?.(`Could not list jobs for run ${run.id}.`);
+    return {
+      jobs: [],
+      note: `job list unavailable: ${degradationReason(error)}`,
+    };
+  }
+
+  // A job that carries no `run_attempt` is taken as belonging to this attempt;
+  // one that names a different attempt is another execution's job.
+  const attempt = run.run_attempt ?? 1;
+  const failedJobs = (Array.isArray(allJobs) ? allJobs : []).filter(
+    (job) =>
+      (job?.run_attempt ?? attempt) === attempt &&
+      FAILURE_CONCLUSIONS.has(job?.conclusion),
+  );
+  const reported = failedJobs.slice(0, MAX_REPORTED_JOBS);
+  const jobs = reported.map((job) => {
+    const steps = failedStepsFor(job);
+    return {
+      name: sanitizeField(job?.name, "unnamed job"),
+      url: safeJobUrl(job?.html_url),
+      failedSteps: steps.names,
+      omittedSteps: steps.omitted,
+    };
+  });
+
+  const omitted = failedJobs.length - reported.length;
+  return {
+    jobs,
+    note:
+      omitted > 0
+        ? `${omitted} further failed job${omitted === 1 ? " is" : "s are"} not listed here.`
+        : undefined,
+  };
+}
+
+function renderFailedJob(job) {
+  const link = job.url ? ` ([job log](${job.url}))` : "";
+  const name = codeSpan(job.name);
+  if (job.failedSteps.length === 0) {
+    return `- ${name} — no failed step reported${link}`;
+  }
+  const label = job.failedSteps.length === 1 ? "failed step" : "failed steps";
+  const steps = job.failedSteps.map((step) => codeSpan(step)).join(", ");
+  const omitted = job.omittedSteps ?? 0;
+  const more =
+    omitted > 0
+      ? `, and ${omitted} more failed step${omitted === 1 ? "" : "s"} not shown`
+      : "";
+  return `- ${name} — ${label}: ${steps}${more}${link}`;
+}
+
+export function failureBody(run, targetRef, marker, evidence = { jobs: [] }) {
   const workflowName = workflowNameFor(run);
-  return [
-    `The **${workflowName}** workflow failed for \`${targetRef}\`.`,
+  const header = [
+    `The ${codeSpan(workflowName)} workflow failed for ${codeSpan(sanitizeField(targetRef))}.`,
     "",
     `- Conclusion: \`${run.conclusion}\``,
     `- Trigger: \`${run.event}\``,
     `- Latest failure: ${runLink(run)}`,
     "",
+    "## What failed",
+    "",
+  ];
+  const footer = [
+    "",
+    "These are GitHub's own job and step names. This issue never quotes job log output, because a failing job can print anything into its log; open the linked jobs for the failing lines. Scheduled OSV scans also publish their findings to this repository's code-scanning alerts.",
+    "",
     "This issue is managed by the CI Failure Notifier. It is updated for repeated failures and closed automatically after a newer successful run.",
     "",
     marker,
-  ].join("\n");
+  ];
+  const rows = evidence.jobs.map((job) => renderFailedJob(job));
+
+  const assemble = (visible, dropped) => {
+    const notes = [];
+    if (evidence.note) notes.push(`_${evidence.note}_`);
+    if (dropped > 0) {
+      notes.push(
+        `_${dropped} further failed job${dropped === 1 ? " was" : "s were"} dropped to keep this issue under GitHub's size limit._`,
+      );
+    }
+    const middle =
+      visible.length > 0
+        ? visible.join("\n")
+        : (notes.shift() ??
+          "_No failed job was reported for this run. Open the run for details._");
+    return [
+      ...header,
+      middle,
+      ...(notes.length > 0 ? ["", notes.join("\n\n")] : []),
+      ...footer,
+    ].join("\n");
+  };
+
+  let visible = rows;
+  let dropped = 0;
+  let body = assemble(visible, dropped);
+  while (byteLength(body) > BODY_MAX_BYTES && visible.length > 0) {
+    visible = visible.slice(0, -1);
+    dropped += 1;
+    body = assemble(visible, dropped);
+  }
+  return body;
 }
 
-function recoveryBody(existingBody, run, targetRef) {
-  const workflowName = workflowNameFor(run);
+/**
+ * Append the recovery note while keeping the marker the last line, so the
+ * routing rule stays "the marker sits on its own line" for closed issues too.
+ */
+function recoveryBody(existingBody, run, targetRef, marker) {
+  const trimmed = String(existingBody ?? "").trim();
+  const lines = trimmed.split(/\r?\n/);
+  // The parser that routed the issue chooses the cut, so the recovery note can
+  // never land after a quoted copy of the marker. Both split the same string
+  // the same way, so the index lines up.
+  const markerIndex = markerLineIndex(trimmed, marker);
+  const head = (markerIndex === -1 ? lines : lines.slice(0, markerIndex))
+    .join("\n")
+    .trimEnd();
+
   return [
-    existingBody.trim(),
+    head,
     "",
     "## Recovery",
     "",
-    `**${workflowName}** recovered for \`${targetRef}\` in ${runLink(run)}.`,
+    `The ${codeSpan(workflowNameFor(run))} workflow recovered for ${codeSpan(sanitizeField(targetRef))} in ${runLink(run)}.`,
+    "",
+    marker,
   ].join("\n");
 }
 
@@ -128,7 +494,7 @@ async function findManagedIssue(github, repo, marker) {
         issue.user?.login === "github-actions[bot]",
     )
     .sort((left, right) => right.number - left.number)
-    .find((issue) => issue.body?.includes(marker));
+    .find((issue) => bodyCarriesMarker(issue.body, marker));
 }
 
 async function listCompletedWorkflowRuns(
@@ -238,7 +604,13 @@ export async function reconcileCiFailureIssue({ github, context, core }) {
   const existing = await findManagedIssue(github, repo, marker);
 
   if (FAILURE_CONCLUSIONS.has(effectiveRun.conclusion)) {
-    const body = failureBody(effectiveRun, targetRef, marker);
+    const evidence = await collectFailureEvidence(
+      github,
+      repo,
+      effectiveRun,
+      core,
+    );
+    const body = failureBody(effectiveRun, targetRef, marker, evidence);
     if (existing) {
       await github.rest.issues.update({
         ...repo,
@@ -265,7 +637,12 @@ export async function reconcileCiFailureIssue({ github, context, core }) {
   await github.rest.issues.update({
     ...repo,
     issue_number: existing.number,
-    body: recoveryBody(existing.body ?? marker, effectiveRun, targetRef),
+    body: recoveryBody(
+      existing.body ?? marker,
+      effectiveRun,
+      targetRef,
+      marker,
+    ),
     state: "closed",
     state_reason: "completed",
   });
