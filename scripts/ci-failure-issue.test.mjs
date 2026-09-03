@@ -1027,7 +1027,10 @@ test("a fence closes only on its own delimiter", () => {
       ["- quoted", "", "    ```", `    ${marker}`, "    ```"].join("\n"),
       marker,
     ),
-    "a fence a list item indents four spaces still fences",
+    // No longer a fence at all: a four-space line is indented code, so nothing
+    // opens. The marker is still refused, by the exact-line rule and by the
+    // raw-HTML rule, which is why this case is unaffected by the opener change.
+    "an indented marker in a list item is refused without any fence",
   );
   assert.ok(
     !bodyCarriesMarker(["```", "```\u00a0", marker, "```"].join("\n"), marker),
@@ -1097,8 +1100,28 @@ test("an indented closing delimiter does not close a fence", () => {
     "three spaces before a closer still closes",
   );
   assert.ok(
-    bodyCarriesMarker(["    ```", "```", marker].join("\n"), marker),
-    "an opener still counts at any indentation",
+    !bodyCarriesMarker(["    ```", "```", marker, "```"].join("\n"), marker),
+    "a four-space delimiter is indented code, so the bare line below it opens",
+  );
+  assert.ok(
+    !bodyCarriesMarker(["\t```", "```", marker, "```"].join("\n"), marker),
+    "a tab-indented delimiter is indented code, not an opener",
+  );
+  assert.ok(
+    !bodyCarriesMarker(["\u00a0```", "```", marker, "```"].join("\n"), marker),
+    "a delimiter behind a non-breaking space is not an opener",
+  );
+  assert.ok(
+    !bodyCarriesMarker(["    ~~~", "~~~", marker, "~~~"].join("\n"), marker),
+    "the tilde form inverts the same way",
+  );
+  assert.ok(
+    !bodyCarriesMarker([" ```", marker, " ```"].join("\n"), marker),
+    "one space still opens, so the marker below stays fenced",
+  );
+  assert.ok(
+    !bodyCarriesMarker(["   ```", marker, "   ```"].join("\n"), marker),
+    "three spaces still open, so the marker below stays fenced",
   );
 });
 
