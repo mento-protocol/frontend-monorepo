@@ -1,0 +1,92 @@
+name: OSV Scanner Baseline
+
+# Produces the base-branch vulnerability baseline that
+# `_osv-scanner-readonly.yml` compares this branch against, so a pull request
+# fails only on vulnerabilities it introduces.
+#
+# The base scan lives in its own reusable workflow, and therefore its own job,
+# because AGENTS.md requires the OSV scanner and reporter actions to stay at one
+# step each. Two scan steps in one job would break that contract, so the base
+# and head scans are two jobs with one scanner step apiece, handing the baseline
+# over as a run-scoped artifact.
+#
+# The base branch is checked out at its own SHA and scanned with its own
+# config, which is what makes a pull request that removes a suppression fail:
+# the advisory is absent from this baseline and present in the head scan.
+
+on:
+  workflow_call:
+    inputs:
+      scan-args:
+        description: Exact config and lockfile arguments for this OSV scan
+        required: true
+        type: string
+      baseline-artifact:
+        description: Run-unique artifact name carrying this baseline
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  osv-baseline:
+    name: osv-baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out the base branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.base_ref }}
+          persist-credentials: false
+
+      # Scan output must never live in the checkout. A pull request can add a
+      # tracked file at any workspace path, and a scan that fails without
+      # overwriting it would leave candidate-controlled content standing in for
+      # a real result. RUNNER_TEMP is outside the checkout. Container actions
+      # see it mounted at /github/runner_temp, so the actions below are given
+      # that absolute path while the shell steps use the host path.
+      - name: Create the scan output directory outside the checkout
+        shell: bash
+        run: |
+          rm -rf "${RUNNER_TEMP}/osv"
+          mkdir -p "${RUNNER_TEMP}/osv"
+
+      - name: Scan the selected lockfile on the base branch
+        id: scan
+        uses: google/osv-scanner-action/osv-scanner-action@8e5cf47b818121e8b405931c82126c2630b0b20d # v2.5.1
+        with:
+          scan-args: |-
+            --output=/github/runner_temp/osv/old-results.json
+            --format=json
+            ${{ inputs.scan-args }}
+        continue-on-error: true
+
+      # A base branch that does not carry this lockfile yet, and a base scan
+      # that failed, both fall back to an empty baseline. Every finding on the
+      # head branch then counts as new, which can only over-report.
+      - name: Normalize the baseline
+        shell: bash
+        env:
+          BASE_RESULTS: ${{ runner.temp }}/osv/old-results.json
+        run: |
+          set -uo pipefail
+          if node -e 'const {readFileSync}=require("node:fs");const parsed=JSON.parse(readFileSync(process.env.BASE_RESULTS,"utf8"));if(!Array.isArray(parsed.results))throw new Error("no results array");'; then
+            echo "Base-branch baseline accepted."
+          else
+            echo "::warning::The base-branch OSV scan produced no valid ${BASE_RESULTS}. Treating the base branch as having no known vulnerabilities, so every finding on this branch is reported as newly introduced."
+            printf '{"results":[]}\n' > "${BASE_RESULTS}"
+          fi
+
+      - name: Publish the baseline
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.baseline-artifact }}
+          path: ${{ runner.temp }}/osv/old-results.json
+          retention-days: 1
+          if-no-files-found: error

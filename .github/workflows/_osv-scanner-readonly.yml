@@ -1,26 +1,33 @@
 name: Read-only OSV Scanner
 
-# Pull-request adapter for OSV-Scanner's PR mode: scan the base branch, scan
-# this branch, and fail only on vulnerabilities the pull request introduces.
-# Advisories already present on `main` are the daily scheduled scan's problem,
-# not every open pull request's.
+# Head half of OSV-Scanner PR mode: scan this branch, compare against the
+# base-branch baseline that `_osv-scanner-baseline.yml` published for this run,
+# and fail only on vulnerabilities the pull request introduces. Advisories
+# already present on `main` are the daily scheduled full scan's problem, not
+# every open pull request's.
 #
-# This reproduces the steps of the upstream
-# `google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml`
-# (base scan, head scan, `osv-reporter --old/--new`) against the same pinned
-# action revision. It is not called directly because that upstream workflow
-# declares `security-events: write` at job scope, checks out with persisted
-# credentials, and always runs `actions/upload-artifact`. GitHub rejects a
-# read-only caller before it evaluates the false `upload-sarif` input, so a
-# pull-request scan that used it would have to be granted SARIF write access to
-# untrusted head code. SARIF publication stays in the separate scheduled and
-# manual jobs, which run a full scan.
+# The base scan is a separate job rather than a second step here because
+# AGENTS.md requires the OSV scanner and reporter actions to stay at one step
+# each. This job therefore runs exactly one scanner step and one reporter step.
+#
+# It also does not call the upstream
+# `google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml`,
+# which declares `security-events: write` at job scope, checks out with
+# persisted credentials, and always runs `actions/upload-artifact`. GitHub
+# rejects a read-only caller before it evaluates the false `upload-sarif`
+# input, so calling it would mean granting SARIF write access to untrusted head
+# code. SARIF publication stays in the separate scheduled and manual jobs,
+# which run a full scan.
 
 on:
   workflow_call:
     inputs:
       scan-args:
         description: Exact config and lockfile arguments for this OSV scan
+        required: true
+        type: string
+      baseline-artifact:
+        description: Run-unique artifact name carrying the base-branch baseline
         required: true
         type: string
 
@@ -37,74 +44,75 @@ jobs:
       actions: read
       contents: read
     steps:
-      # fetch-depth: 0 fetches every branch into refs/remotes/origin/*, so the
-      # base checkout below is a local operation and needs no credentials.
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
           persist-credentials: false
 
-      - name: Check out the base branch
+      # Scan input and output must never live in the checkout. A pull request
+      # can add a tracked file at any workspace path, so a scan that fails
+      # without overwriting one would leave candidate-controlled content
+      # standing in for a real result, and a candidate-supplied empty baseline
+      # would hide a vulnerability the pull request introduced. RUNNER_TEMP is
+      # outside the checkout. Container actions see it mounted at
+      # /github/runner_temp, so the actions below are given that absolute path
+      # while the shell steps use the host path.
+      - name: Create the scan output directory outside the checkout
         shell: bash
-        env:
-          BASE_REF: ${{ github.base_ref }}
-        run: git checkout --detach "origin/${BASE_REF}"
+        run: |
+          rm -rf "${RUNNER_TEMP}/osv"
+          mkdir -p "${RUNNER_TEMP}/osv"
 
-      - name: Scan the selected lockfile on the base branch
-        id: scan-base
-        uses: google/osv-scanner-action/osv-scanner-action@8e5cf47b818121e8b405931c82126c2630b0b20d # v2.5.1
+      - name: Download the base-branch baseline
+        id: baseline
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          scan-args: |-
-            --output=old-results.json
-            --format=json
-            ${{ inputs.scan-args }}
+          name: ${{ inputs.baseline-artifact }}
+          path: ${{ runner.temp }}/osv
         continue-on-error: true
 
-      # A base scan produces no results when the lockfile or config this job
-      # scans does not exist on the base branch yet, and when the scan itself
-      # fails. Both cases fall back to an empty baseline, so every finding on
-      # this branch counts as new. That is the strict direction: it can only
-      # report more than the true diff, never fewer.
+      # A baseline job that failed, or an artifact that did not arrive, falls
+      # back to an empty baseline. Every finding here then counts as new, which
+      # can only over-report. That keeps this job reporting even when the
+      # baseline job fails, so the required check never sits pending.
       - name: Establish the base vulnerability baseline
         shell: bash
         env:
-          BASE_RESULTS: old-results.json
+          BASE_RESULTS: ${{ runner.temp }}/osv/old-results.json
         run: |
-          if [ ! -s "${BASE_RESULTS}" ]; then
-            echo "::warning::The base-branch OSV scan produced no ${BASE_RESULTS}. Treating the base branch as having no known vulnerabilities, so every finding on this branch is reported as newly introduced."
+          set -uo pipefail
+          if node -e 'const {readFileSync}=require("node:fs");const parsed=JSON.parse(readFileSync(process.env.BASE_RESULTS,"utf8"));if(!Array.isArray(parsed.results))throw new Error("no results array");'; then
+            echo "Base-branch baseline accepted."
+          else
+            echo "::warning::No valid base-branch baseline reached ${BASE_RESULTS}. Treating the base branch as having no known vulnerabilities, so every finding on this branch is reported as newly introduced."
             printf '{"results":[]}\n' > "${BASE_RESULTS}"
           fi
-
-      - name: Check out this branch
-        shell: bash
-        env:
-          HEAD_SHA: ${{ github.sha }}
-        run: git checkout --detach --force "${HEAD_SHA}"
 
       - name: Scan the selected lockfile
         id: scan
         uses: google/osv-scanner-action/osv-scanner-action@8e5cf47b818121e8b405931c82126c2630b0b20d # v2.5.1
         with:
           scan-args: |-
-            --output=results.json
+            --output=/github/runner_temp/osv/results.json
             --format=json
             ${{ inputs.scan-args }}
         continue-on-error: true
 
-      # The scanner also exits non-zero when it finds vulnerabilities. Let the
-      # reporter handle that case, but fail if the scanner wrote no results.
-      # The reporter reads a missing --new file as "no new vulnerabilities" and
-      # exits 0, so a change that stops the scanner from completing would
-      # otherwise pass as a clean diff.
+      # The scanner also exits non-zero when it finds vulnerabilities, which the
+      # reporter is responsible for acting on. Fail only when the scan did not
+      # produce a usable result: the reporter reads a missing or empty --new
+      # file as "no new vulnerabilities" and exits 0, so a change that stops the
+      # scanner from completing would otherwise pass as a clean diff. The check
+      # is on content, not size, because a non-empty file that is not a scan
+      # result is not evidence of a scan.
       - name: Check that the scan completed
-        if: ${{ steps.scan.outcome == 'failure' }}
         shell: bash
         env:
-          RESULTS: results.json
+          RESULTS: ${{ runner.temp }}/osv/results.json
         run: |
-          if [ ! -s "${RESULTS}" ]; then
-            echo '::error::OSV-Scanner failed without writing results.json. Failing instead of reporting a clean scan.'
+          set -uo pipefail
+          if ! node -e 'const {readFileSync}=require("node:fs");const parsed=JSON.parse(readFileSync(process.env.RESULTS,"utf8"));if(!Array.isArray(parsed.results))throw new Error("no results array");'; then
+            echo "::error::OSV-Scanner did not write a valid ${RESULTS}. Failing instead of reporting a clean scan."
             exit 1
           fi
 
@@ -112,8 +120,8 @@ jobs:
         uses: google/osv-scanner-action/osv-reporter-action@8e5cf47b818121e8b405931c82126c2630b0b20d # v2.5.1
         with:
           scan-args: |-
-            --output=results.sarif
-            --old=old-results.json
-            --new=results.json
+            --output=/github/runner_temp/osv/results.sarif
+            --old=/github/runner_temp/osv/old-results.json
+            --new=/github/runner_temp/osv/results.json
             --gh-annotations=false
             --fail-on-vuln=true
