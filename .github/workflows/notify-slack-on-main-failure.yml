@@ -164,48 +164,81 @@ jobs:
             exit 0
           fi
 
-          # One page of 100 completed runs, newest first, filtered to this
-          # callback's own event — the same query shape
-          # `listCompletedWorkflowRuns()` uses. The callback run is always well
-          # inside that window in practice; if it is not, the comparison below
-          # simply fails open.
-          if ! RUNS=$(curl -fsS \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            --get \
-            --data-urlencode "event=$EVENT" \
-            --data-urlencode "status=completed" \
-            --data-urlencode "exclude_pull_requests=true" \
-            --data-urlencode "per_page=100" \
-            "$API_URL/repos/$REPOSITORY/actions/workflows/$WORKFLOW_ID/runs"); then
-            echo "Could not list workflow runs; posting without reconciliation."
-            echo "stale=false" >>"$GITHUB_OUTPUT"
-            exit 0
-          fi
+          # Pages of 100 completed runs, newest first, filtered to this
+          # callback's own event — the same query `listCompletedWorkflowRuns()`
+          # issues. That helper keeps paginating until a page contains a run at
+          # or before the callback, because a long tail of newer non-decisive
+          # runs (100 cancellations, say) can push the decisive one past the
+          # first page. This loop stops on the same condition, and additionally
+          # as soon as a newer decisive run is found — the only fact it needs.
+          # PAGE_LIMIT bounds the job; exhausting it fails open.
+          STALE=false
+          PAGE=1
+          PAGE_LIMIT=10
+          while [ "$PAGE" -le "$PAGE_LIMIT" ]; do
+            if ! RUNS=$(curl -fsS \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              --get \
+              --data-urlencode "event=$EVENT" \
+              --data-urlencode "status=completed" \
+              --data-urlencode "exclude_pull_requests=true" \
+              --data-urlencode "per_page=100" \
+              --data-urlencode "page=$PAGE" \
+              "$API_URL/repos/$REPOSITORY/actions/workflows/$WORKFLOW_ID/runs"); then
+              echo "Could not list workflow runs; posting without reconciliation."
+              echo "stale=false" >>"$GITHUB_OUTPUT"
+              exit 0
+            fi
 
-          # `isDecisiveRun()` is `success` plus FAILURE_CONCLUSIONS, and
-          # `compareRuns()` orders by run_number then run_attempt. The target
-          # ref uses the same fallback as `targetRefFor()`. Every value reaches
-          # jq through --arg or stdin; nothing is interpolated into the shell.
-          if ! STALE=$(printf '%s' "$RUNS" | jq -r \
-            --arg event "$EVENT" \
-            --arg head_branch "$HEAD_BRANCH" \
-            --arg default_branch "$DEFAULT_BRANCH" \
-            --argjson number "${RUN_NUMBER:-0}" \
-            --argjson attempt "${RUN_ATTEMPT:-1}" '
-              (if $head_branch != "" then $head_branch elif $event == "push" then "release tag" else $default_branch end) as $target
-              | ["success", "action_required", "failure", "startup_failure", "timed_out"] as $decisive
-              | [ (.workflow_runs // [])[]
-                  | select(.status == "completed")
-                  | select(.conclusion as $c | $decisive | index($c))
-                  | select((if (.head_branch // "") != "" then .head_branch elif $event == "push" then "release tag" else $default_branch end) == $target)
-                  | [(.run_number // 0), (.run_attempt // 1)]
-                ]
-              | map(select(. > [$number, $attempt]))
-              | length > 0
-            '); then
-            echo "Could not evaluate run freshness; posting without reconciliation."
+            # `isDecisiveRun()` is `success` plus FAILURE_CONCLUSIONS, and
+            # `compareRuns()` orders by run_number then run_attempt. The target
+            # ref uses the same fallback as `targetRefFor()`. `reached` mirrors
+            # the helper's break condition and deliberately spans every run on
+            # the page, not just this partition. Every value reaches jq through
+            # --arg or stdin; nothing is interpolated into the shell.
+            if ! RESULT=$(printf '%s' "$RUNS" | jq -r \
+              --arg event "$EVENT" \
+              --arg head_branch "$HEAD_BRANCH" \
+              --arg default_branch "$DEFAULT_BRANCH" \
+              --argjson number "${RUN_NUMBER:-0}" \
+              --argjson attempt "${RUN_ATTEMPT:-1}" '
+                (if $head_branch != "" then $head_branch elif $event == "push" then "release tag" else $default_branch end) as $target
+                | ["success", "action_required", "failure", "startup_failure", "timed_out"] as $decisive
+                | (.workflow_runs // []) as $runs
+                | [ $runs[] | [(.run_number // 0), (.run_attempt // 1)] ] as $positions
+                | [ $runs[]
+                    | select(.status == "completed")
+                    | select(.conclusion as $c | $decisive | index($c))
+                    | select((if (.head_branch // "") != "" then .head_branch elif $event == "push" then "release tag" else $default_branch end) == $target)
+                    | [(.run_number // 0), (.run_attempt // 1)]
+                  ] as $decisivePositions
+                | [ ($decisivePositions | map(select(. > [$number, $attempt])) | length > 0),
+                    ($positions | map(select(. <= [$number, $attempt])) | length > 0),
+                    ($runs | length)
+                  ]
+                | @tsv
+              '); then
+              echo "Could not evaluate run freshness; posting without reconciliation."
+              echo "stale=false" >>"$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            IFS=$'\t' read -r PAGE_STALE PAGE_REACHED PAGE_COUNT <<<"$RESULT"
+            if [ "$PAGE_STALE" = "true" ]; then
+              STALE=true
+              break
+            fi
+            # Reached the callback, or ran out of runs: nothing newer remains.
+            if [ "$PAGE_REACHED" = "true" ] || [ "${PAGE_COUNT:-0}" -lt 100 ]; then
+              break
+            fi
+            PAGE=$((PAGE + 1))
+          done
+
+          if [ "$PAGE" -gt "$PAGE_LIMIT" ]; then
+            echo "Reached the $PAGE_LIMIT-page scan limit without finding this run; posting without reconciliation."
             echo "stale=false" >>"$GITHUB_OUTPUT"
             exit 0
           fi

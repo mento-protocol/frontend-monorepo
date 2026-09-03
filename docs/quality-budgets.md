@@ -181,11 +181,21 @@ the latest decisive run` step lists the workflow's completed runs for the
 callback's own event with `actions: read` and sets a `stale` output the post
 step is gated on; the smoke-test dispatch skips it entirely.
 
-It fails open. Any API error, an unexpected workflow id, or a callback run
-outside the fetched page posts anyway — a rare duplicate beats a dropped alert.
-Parity is pinned by exact-source assertions on `runPosition()`, `compareRuns()`,
-and `isDecisiveRun()`, by exact-text assertions on the jq pipeline, and by a
-scenario table asserting the mirror and the reference agree on all seven cases.
+It paginates. `listCompletedWorkflowRuns()` keeps fetching until a page holds a
+run at or before the callback, because a long tail of newer non-decisive runs —
+a hundred cancellations, say — can push the decisive one past the first page.
+The step stops on that same condition, on a short final page, or as soon as it
+finds a newer decisive run, whichever comes first, and is bounded to ten pages.
+
+It fails open. An API error, an unexpected workflow id, malformed or
+unparseable JSON, or exhausting the page limit posts anyway — a rare duplicate
+beats a dropped alert. Parity is pinned by exact-source assertions on
+`runPosition()`, `compareRuns()`, `isDecisiveRun()`, and the helper's
+pagination break, by exact-text assertions on the jq pipeline, the query
+parameters, and the loop, and by a scenario table asserting the mirror and the
+reference agree on all eight cases — including a decisive run beyond page one,
+with a companion assertion proving a single-page lookup would get that case
+wrong.
 
 ### Keeping the Slack token off non-default branches
 

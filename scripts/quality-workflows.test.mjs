@@ -515,6 +515,7 @@ test("the Slack notifier suppresses the same stale callbacks the issue notifier 
     "status=completed",
     "exclude_pull_requests=true",
     "per_page=100",
+    "page=$PAGE",
   ]) {
     assert.ok(
       slack.includes(`--data-urlencode "${parameter}"`),
@@ -532,9 +533,42 @@ test("the Slack notifier suppresses the same stale callbacks the issue notifier 
   );
   assert.ok(
     slack.includes(
-      "| map(select(. > [$number, $attempt]))\n              | length > 0",
+      "($decisivePositions | map(select(. > [$number, $attempt])) | length > 0)",
     ),
     "staleness must be: some decisive run in the partition sorts after this one",
+  );
+
+  // A long tail of newer non-decisive runs can push the decisive one past the
+  // first page, so the lookup must paginate on the same break condition
+  // listCompletedWorkflowRuns() uses: stop once a page holds a run at or
+  // before the callback.
+  assert.match(
+    issueScript,
+    /if \(page\.some\(\(candidate\) => compareRuns\(candidate, callbackRun\) <= 0\)\) \{\n {6}break;\n {4}\}/,
+    "the helper's pagination break changed; update the workflow loop",
+  );
+  assert.ok(
+    slack.includes(
+      "($positions | map(select(. <= [$number, $attempt])) | length > 0)",
+    ),
+    "the loop must mirror the helper's at-or-before-the-callback break",
+  );
+  assert.ok(
+    slack.includes(
+      'if [ "$PAGE_REACHED" = "true" ] || [ "${PAGE_COUNT:-0}" -lt 100 ]; then',
+    ),
+    "pagination must stop on the break condition or a short final page",
+  );
+  assert.match(
+    slack,
+    /^ {10}while \[ "\$PAGE" -le "\$PAGE_LIMIT" \]; do$/m,
+    "the lookup must page rather than read only the newest 100 runs",
+  );
+  assert.ok(
+    slack.includes(
+      'echo "Reached the $PAGE_LIMIT-page scan limit without finding this run; posting without reconciliation."',
+    ),
+    "exhausting the page limit must fail open",
   );
 
   // Reference: the issue notifier reconciles a callback to the latest decisive
@@ -567,35 +601,48 @@ test("the Slack notifier suppresses the same stale callbacks the issue notifier 
       .sort((left, right) => compareRuns(right, left))[0];
     return latest !== undefined && compareRuns(latest, callback) !== 0;
   };
-  // The jq pipeline, reimplemented: is any decisive run in the same partition
-  // ordered after the callback?
-  const workflowSkips = (callback, runs, defaultBranch) => {
+  // The workflow step, reimplemented: page through the runs newest-first, and
+  // on each page ask whether a decisive run in the same partition sorts after
+  // the callback. Stop once a page holds a run at or before the callback, or
+  // the page is short. `runs` here is the full newest-first listing; the
+  // pageSize argument keeps the pagination path testable without 100 fixtures.
+  const workflowSkips = (callback, runs, defaultBranch, pageSize = 100) => {
     const partition =
       callback.head_branch !== ""
         ? callback.head_branch
         : callback.event === "push"
           ? "release tag"
           : defaultBranch;
-    return runs
-      .filter((candidate) => candidate.status === "completed")
-      .filter((candidate) => decisive.has(candidate.conclusion))
-      .filter((candidate) => {
-        const headBranch = candidate.head_branch ?? "";
-        const ref =
-          headBranch !== ""
-            ? headBranch
-            : callback.event === "push"
-              ? "release tag"
-              : defaultBranch;
-        return ref === partition;
-      })
-      .some(
-        (candidate) =>
-          compareRuns(candidate, {
-            run_number: callback.run_number,
-            run_attempt: callback.run_attempt,
-          }) > 0,
+    const inPartition = (candidate) => {
+      const headBranch = candidate.head_branch ?? "";
+      const ref =
+        headBranch !== ""
+          ? headBranch
+          : callback.event === "push"
+            ? "release tag"
+            : defaultBranch;
+      return ref === partition;
+    };
+    const callbackPosition = {
+      run_number: callback.run_number,
+      run_attempt: callback.run_attempt,
+    };
+    const pageLimit = 10;
+    for (let page = 0; page < pageLimit; page += 1) {
+      const rows = runs.slice(page * pageSize, (page + 1) * pageSize);
+      const stale = rows
+        .filter((candidate) => candidate.status === "completed")
+        .filter((candidate) => decisive.has(candidate.conclusion))
+        .filter(inPartition)
+        .some((candidate) => compareRuns(candidate, callbackPosition) > 0);
+      if (stale) return true;
+      const reached = rows.some(
+        (candidate) => compareRuns(candidate, callbackPosition) <= 0,
       );
+      if (reached || rows.length < pageSize) return false;
+    }
+    // Page limit exhausted: fail open.
+    return false;
   };
 
   const callback = {
@@ -645,10 +692,25 @@ test("the Slack notifier suppresses the same stale callbacks the issue notifier 
       runs: [{ ...callback, conclusion: "success", run_number: 10 }],
       skip: false,
     },
+    {
+      // The case a single-page lookup gets wrong: a newer success buried
+      // behind a full page of newer, non-decisive runs.
+      name: "the newer success sits beyond the first page",
+      runs: [
+        ...Array.from({ length: 4 }, (_unused, index) => ({
+          ...callback,
+          conclusion: "cancelled",
+          run_number: 100 - index,
+        })),
+        { ...callback, conclusion: "success", run_number: 12 },
+      ],
+      pageSize: 4,
+      skip: true,
+    },
   ];
   for (const scenario of scenarios) {
     assert.equal(
-      workflowSkips(callback, scenario.runs, "main"),
+      workflowSkips(callback, scenario.runs, "main", scenario.pageSize),
       scenario.skip,
       `workflow mirror wrong: ${scenario.name}`,
     );
@@ -658,4 +720,18 @@ test("the Slack notifier suppresses the same stale callbacks the issue notifier 
       `the issue notifier disagrees: ${scenario.name}`,
     );
   }
+
+  // Prove the pagination scenario is a real regression guard: a lookup capped
+  // at one page reports "not stale" for it, which is the bug being fixed.
+  const buriedSuccess = scenarios.at(-1);
+  assert.equal(
+    workflowSkips(callback, buriedSuccess.runs, "main", 1000),
+    true,
+    "one big page must still find the buried success",
+  );
+  assert.equal(
+    workflowSkips(callback, buriedSuccess.runs.slice(0, 4), "main", 4),
+    false,
+    "the fixture must actually hide the success behind a full first page",
+  );
 });
