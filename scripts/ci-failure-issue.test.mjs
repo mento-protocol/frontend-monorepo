@@ -632,7 +632,7 @@ test("failed steps beyond the cap are counted, not silently dropped", async () =
   await reconcileCiFailureIssue({ github, context });
 
   const body = calls.create[0].body;
-  const row = body.split("\n").find((line) => line.startsWith("- **"));
+  const row = body.split("\n").find((line) => line.startsWith("- `"));
   const listed = [...row.matchAll(/`cleanup \d+`/g)];
   assert.equal(listed.length, 10, "the ten-step cap still holds");
   assert.match(row, /, and 2 more failed steps not shown/);
@@ -690,9 +690,98 @@ test("a hostile job or step name cannot forge body structure", async () => {
     .filter((line) => line.trim() === managedMarker());
   assert.equal(markerLines.length, 1, "a name must not forge a marker line");
   assert.equal(body.trimEnd().split("\n").at(-1), managedMarker());
-  assert.ok(!body.includes("**bold**"));
-  assert.match(body, /\\`backtick\\`/);
-  assert.match(body, /\\\[link\\\]/);
+  // Names are quoted, not escaped. A backslash is literal inside a code span,
+  // so the delimiter is what holds the name in, and the span is also what
+  // keeps emphasis, a mention and an autolink from going live.
+  assert.ok(
+    body.includes("`evil <!-- managed-ci-failure:77:push:main --> **bold**` —"),
+    "a job name stays inside one code span on one line",
+  );
+  assert.ok(
+    body.includes("`` `backtick` and [link](http://x) and <b> ``"),
+    "a step name's own backticks cannot close its span",
+  );
+  assert.ok(!body.includes("\\`"), "a quoted name never carries a backslash");
+});
+
+test("a job name cannot smuggle a live mention or autolink into the issue", async () => {
+  const job = failedJob({
+    name: "notify @mento-protocol/security https://evil.example",
+  });
+  const { github, context, calls } = harness({ jobs: [job] });
+  await reconcileCiFailureIssue({ github, context });
+
+  const body = calls.create[0].body;
+  assert.ok(
+    body.includes("`notify @mento-protocol/security https://evil.example` —"),
+    "the job name is quoted, so its mention and URL stay inert",
+  );
+  assert.equal(
+    body.split("@mento-protocol/security").length - 1,
+    1,
+    "the mention appears once, inside the code span",
+  );
+  assert.equal(
+    body.split("https://evil.example").length - 1,
+    1,
+    "the URL appears once, inside the code span",
+  );
+  assert.ok(
+    !body.includes("**notify"),
+    "a job name is quoted rather than emphasized",
+  );
+});
+
+test("a step name's backticks cannot close its code span", async () => {
+  const job = failedJob({
+    steps: [
+      { name: "run a`b", conclusion: "failure" },
+      { name: "run ```x```", conclusion: "failure" },
+      { name: "```", conclusion: "failure" },
+      { name: "line one\nline two", conclusion: "failure" },
+    ],
+  });
+  const { github, context, calls } = harness({ jobs: [job] });
+  await reconcileCiFailureIssue({ github, context });
+
+  const body = calls.create[0].body;
+  assert.ok(
+    body.includes("``run a`b``"),
+    "one backtick takes a two-backtick delimiter",
+  );
+  assert.ok(
+    body.includes("```` run ```x``` ````"),
+    "a three-backtick run takes a four-backtick delimiter and padding",
+  );
+  assert.ok(
+    body.includes("```` ``` ````"),
+    "a name that is only backticks stays inside its span",
+  );
+  assert.ok(
+    body.includes("`line one line two`"),
+    "a newline in a step name is collapsed, never emitted",
+  );
+  assert.ok(!body.includes("\\`"), "a quoted name never carries a backslash");
+});
+
+test("a hostile workflow name is quoted in the body and flattened in the title", async () => {
+  const run = workflowRun({ name: "Build **bold**\n[link](http://x) @org" });
+  const { github, context, calls } = harness({ run });
+  await reconcileCiFailureIssue({ github, context });
+
+  const created = calls.create[0];
+  assert.equal(
+    created.title,
+    "CI: Build **bold** [link](http://x) @org is failing (main; push)",
+  );
+  assert.ok(!created.title.includes("\n"), "a newline never reaches the title");
+  assert.ok(
+    created.body.includes(
+      "The `Build **bold** [link](http://x) @org` workflow failed for",
+    ),
+    "the workflow name is quoted as code in the body",
+  );
+  assert.equal(created.body.trimEnd().split("\n").at(-1), managedMarker());
 });
 
 test("an over-long name is capped", () => {
@@ -884,11 +973,73 @@ test("the marker only routes when it sits on its own line outside a fence", () =
   assert.ok(!bodyCarriesMarker(undefined, marker));
 });
 
+test("a fence closes only on its own delimiter", () => {
+  const marker = managedMarker();
+
+  assert.ok(
+    !bodyCarriesMarker(["```", "~~~", marker, "```"].join("\n"), marker),
+    "a tilde line must not close a backtick fence",
+  );
+  assert.ok(
+    !bodyCarriesMarker(["~~~", "```", marker, "~~~"].join("\n"), marker),
+    "a backtick line must not close a tilde fence",
+  );
+  assert.ok(
+    !bodyCarriesMarker(["````", "```", marker, "````"].join("\n"), marker),
+    "a three-backtick line must not close a four-backtick fence",
+  );
+  assert.ok(
+    !bodyCarriesMarker(["`````", "```", marker, "`````"].join("\n"), marker),
+    "a shorter line must not close a longer fence",
+  );
+  assert.ok(
+    !bodyCarriesMarker(
+      ["```", "``` trailing", marker, "```"].join("\n"),
+      marker,
+    ),
+    "a delimiter carrying trailing text does not close a fence",
+  );
+  assert.ok(
+    !bodyCarriesMarker(["```", marker].join("\n"), marker),
+    "an unclosed fence holds to the end of the body",
+  );
+  assert.ok(
+    bodyCarriesMarker(["```", "```", marker].join("\n"), marker),
+    "an equal-length fence closes",
+  );
+  assert.ok(
+    bodyCarriesMarker(["```", "`````", marker].join("\n"), marker),
+    "a longer closing fence closes",
+  );
+  assert.ok(
+    bodyCarriesMarker(["~~~", "~~~", marker].join("\n"), marker),
+    "a tilde fence closes on a tilde line",
+  );
+  assert.ok(
+    bodyCarriesMarker(["   ```", "   ```", marker].join("\n"), marker),
+    "three spaces of indentation still fences",
+  );
+});
+
 test("a quoted marker in a human issue does not hijack reconciliation", async () => {
   const impostor = {
     number: 77,
     state: "open",
     body: ["Look at this:", "```text", managedMarker(), "```"].join("\n"),
+    user: { login: "github-actions[bot]" },
+  };
+  const { github, context, calls } = harness({ issues: [impostor] });
+  const result = await reconcileCiFailureIssue({ github, context });
+
+  assert.deepEqual(result, { action: "opened", issueNumber: 91 });
+  assert.equal(calls.update.length, 0);
+});
+
+test("a tilde line inside a backtick fence does not expose a quoted marker", async () => {
+  const impostor = {
+    number: 77,
+    state: "open",
+    body: ["Look at this:", "```", "~~~", managedMarker(), "```"].join("\n"),
     user: { login: "github-actions[bot]" },
   };
   const { github, context, calls } = harness({ issues: [impostor] });

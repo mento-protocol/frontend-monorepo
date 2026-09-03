@@ -87,8 +87,14 @@ function runLink(run) {
   return `[run #${run.run_number}, attempt ${run.run_attempt ?? 1}](${run.html_url})`;
 }
 
+/**
+ * A workflow name is set by a workflow file, the same trust class as the job
+ * and step names it sits beside, so it is sanitized the same way. The issue
+ * title takes this plain form because GitHub renders a title as text; the body
+ * quotes it with `codeSpan`.
+ */
 function workflowNameFor(run) {
-  return run.name;
+  return sanitizeField(run.name, "unnamed workflow");
 }
 
 function issueTitle(run, targetRef) {
@@ -100,23 +106,54 @@ function issueTitle(run, targetRef) {
 }
 
 /**
- * Render one API-supplied name for Markdown: strip control and format
- * characters, collapse whitespace, cap the length, and escape the Markdown
- * specials. Names come from workflow files on the default branch, so this
- * guards against accident and against a name being read as body structure —
- * above all against a forged marker line.
+ * Flatten one API-supplied name onto a single capped line: strip the control
+ * and format characters, collapse the whitespace, and cap the length. Dropping
+ * the control characters is what stops a name forging the managed marker on a
+ * line of its own. The result still carries its literal Markdown specials, so
+ * it is safe only where Markdown is not interpreted, or where the caller
+ * quotes it.
  */
-export function renderField(value, fallback = "") {
+function sanitizeField(value, fallback = "") {
   const flattened = String(value ?? "")
     .replace(CONTROL_CHARACTER_PATTERN, " ")
     .replace(/\s+/g, " ")
     .trim();
   if (flattened.length === 0) return fallback;
-  const capped =
-    flattened.length > MAX_FIELD_CHARS
-      ? `${flattened.slice(0, MAX_FIELD_CHARS)}…`
-      : flattened;
-  return capped.replace(MARKDOWN_ESCAPE_PATTERN, "\\$1");
+  return flattened.length > MAX_FIELD_CHARS
+    ? `${flattened.slice(0, MAX_FIELD_CHARS)}…`
+    : flattened;
+}
+
+/**
+ * Render one API-supplied value as Markdown text: sanitize it, then escape the
+ * Markdown specials. Only the degradation note uses this; every name is quoted
+ * with `codeSpan` instead, because escaping leaves a mention, an autolink and
+ * a bare URL live, and a backslash is literal inside a code span anyway.
+ */
+export function renderField(value, fallback = "") {
+  return sanitizeField(value, fallback).replace(
+    MARKDOWN_ESCAPE_PATTERN,
+    "\\$1",
+  );
+}
+
+/**
+ * Quote already-sanitized text as a code span, which renders it verbatim and
+ * leaves no mention, autolink or emphasis live. CommonMark closes a span at
+ * the first backtick run as long as the one that opened it, and a backslash is
+ * literal in between, so the delimiter has to be longer than every run in the
+ * text. Text that starts or ends with a backtick also takes one space of
+ * padding, which the renderer strips back off.
+ */
+function codeSpan(text) {
+  const value = String(text);
+  const longestRun = (value.match(/`+/g) ?? []).reduce(
+    (longest, run) => Math.max(longest, run.length),
+    0,
+  );
+  const delimiter = "`".repeat(longestRun + 1);
+  const padding = value.startsWith("`") || value.endsWith("`") ? " " : "";
+  return `${delimiter}${padding}${value}${padding}${delimiter}`;
 }
 
 /** Only an https GitHub URL from the API is ever linked. */
@@ -129,6 +166,25 @@ function safeJobUrl(value) {
   }
 }
 
+const FENCE_LINE_PATTERN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+
+/**
+ * Read one line as a CommonMark fence delimiter, or `undefined` when it is not
+ * one. A backtick opener may not carry a backtick in its info string, and only
+ * a bare delimiter closes a fence, so a line with trailing text is content.
+ */
+function fenceOn(line) {
+  const match = FENCE_LINE_PATTERN.exec(line);
+  if (match === null) return undefined;
+  const [, run, rest] = match;
+  if (run.startsWith("`") && rest.includes("`")) return undefined;
+  return {
+    character: run[0],
+    length: run.length,
+    closes: rest.trim().length === 0,
+  };
+}
+
 /**
  * Does `body` carry `marker` as a line of its own, outside any fenced block?
  * Substring matching would let any quoted text route a later failure into the
@@ -136,15 +192,29 @@ function safeJobUrl(value) {
  */
 export function bodyCarriesMarker(body, marker) {
   if (typeof body !== "string") return false;
-  let inFence = false;
+  let open;
 
   for (const raw of body.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (line.startsWith("```") || line.startsWith("~~~")) {
-      inFence = !inFence;
+    const fence = fenceOn(raw);
+    if (open === undefined) {
+      if (fence !== undefined) {
+        open = fence;
+        continue;
+      }
+      if (raw.trim() === marker) return true;
       continue;
     }
-    if (!inFence && line === marker) return true;
+    // Only the opener's own character, at its own length or longer, closes it.
+    // Any other delimiter is content, so a `~~~` line inside a backtick fence
+    // cannot hand the marker back out.
+    if (
+      fence !== undefined &&
+      fence.closes &&
+      fence.character === open.character &&
+      fence.length >= open.length
+    ) {
+      open = undefined;
+    }
   }
   return false;
 }
@@ -171,9 +241,11 @@ function failedStepsFor(job) {
     FAILURE_CONCLUSIONS.has(step?.conclusion),
   );
   return {
+    // `renderFailedJob` quotes these as code spans, so they keep their literal
+    // Markdown specials: escaping here would only print the backslashes.
     names: failed
       .slice(0, MAX_REPORTED_STEPS)
-      .map((step, index) => renderField(step?.name, `step ${index + 1}`)),
+      .map((step, index) => sanitizeField(step?.name, `step ${index + 1}`)),
     // Counted, never silently dropped: a job with many failing `if: always()`
     // cleanup steps would otherwise read as a complete list.
     omitted: Math.max(0, failed.length - MAX_REPORTED_STEPS),
@@ -235,7 +307,7 @@ export async function collectFailureEvidence(
   const jobs = reported.map((job) => {
     const steps = failedStepsFor(job);
     return {
-      name: renderField(job?.name, "unnamed job"),
+      name: sanitizeField(job?.name, "unnamed job"),
       url: safeJobUrl(job?.html_url),
       failedSteps: steps.names,
       omittedSteps: steps.omitted,
@@ -254,23 +326,24 @@ export async function collectFailureEvidence(
 
 function renderFailedJob(job) {
   const link = job.url ? ` ([job log](${job.url}))` : "";
+  const name = codeSpan(job.name);
   if (job.failedSteps.length === 0) {
-    return `- **${job.name}** — no failed step reported${link}`;
+    return `- ${name} — no failed step reported${link}`;
   }
   const label = job.failedSteps.length === 1 ? "failed step" : "failed steps";
-  const steps = job.failedSteps.map((step) => `\`${step}\``).join(", ");
+  const steps = job.failedSteps.map((step) => codeSpan(step)).join(", ");
   const omitted = job.omittedSteps ?? 0;
   const more =
     omitted > 0
       ? `, and ${omitted} more failed step${omitted === 1 ? "" : "s"} not shown`
       : "";
-  return `- **${job.name}** — ${label}: ${steps}${more}${link}`;
+  return `- ${name} — ${label}: ${steps}${more}${link}`;
 }
 
 export function failureBody(run, targetRef, marker, evidence = { jobs: [] }) {
   const workflowName = workflowNameFor(run);
   const header = [
-    `The **${workflowName}** workflow failed for \`${targetRef}\`.`,
+    `The ${codeSpan(workflowName)} workflow failed for ${codeSpan(sanitizeField(targetRef))}.`,
     "",
     `- Conclusion: \`${run.conclusion}\``,
     `- Trigger: \`${run.event}\``,
@@ -339,7 +412,7 @@ function recoveryBody(existingBody, run, targetRef, marker) {
     "",
     "## Recovery",
     "",
-    `**${workflowNameFor(run)}** recovered for \`${targetRef}\` in ${runLink(run)}.`,
+    `${codeSpan(workflowNameFor(run))} recovered for ${codeSpan(sanitizeField(targetRef))} in ${runLink(run)}.`,
     "",
     marker,
   ].join("\n");
