@@ -192,11 +192,18 @@ jobs under the completed attempt the issue names. The excerpt is the OSV-Scanner
 findings table when the log holds one, otherwise the lines around each
 `##[error]`. Excerpts are stripped of ANSI and timestamps; the credential guard
 tests each whole line before the 500-character cap, so shortening can never drop
-a keyword and publish a value from earlier in that line. Excerpts are capped at
-40 lines and 4 KiB per job and 60 KiB per body, with every cut marked. Each
-download carries an abort signal and only the last 2 MiB of a log is decoded. A
-failed listing, download, or evidence deadline degrades to an inline note and
-never fails the notifier.
+a keyword and publish a value from earlier in that line, and a PEM block is
+redacted from `-----BEGIN` through its end marker rather than line by line.
+Degradation reasons are scanned whole before they are shortened, for the same
+reason. Excerpts are capped at 40 lines and 4 KiB per job and 60 KiB per body,
+with every cut marked and the truncation marker counted inside the 40-line cap.
+The job listing and every log download carry abort signals. Logs are streamed
+through a sliding 2 MiB tail window with a 32 MiB hard ceiling rather than
+buffered, no `Range` header is sent (the store ignores suffix ranges and returns
+the whole body), and the first line after any tail cut is discarded because the
+cut can strand a credential's value without its label. A failed listing,
+download, or evidence deadline degrades to an inline note and never fails the
+notifier.
 `CI/CD` forces the full build, unit-test, type-check, Knip, and Trunk suite on
 every default-branch push so a workflow success is valid recovery evidence;
 documentation-only scoping applies only to pull requests.

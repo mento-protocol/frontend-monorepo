@@ -132,21 +132,42 @@ and replaces a matching line with a fixed redaction line — that guard is what
 keeps a runner's `ACTIONS_RUNTIME_TOKEN` echo out of a public issue. The guard
 runs before the 500-character line cap, deliberately: shortening first would
 drop a keyword sitting past the cap and publish an opaque credential from
-earlier in the same line. Bounding then caps each job at 40 lines and 4 KiB,
-reports at most 10 failed jobs, and holds the assembled body under 60 KiB
-against GitHub's 65536-character issue limit. Every cut is marked in place:
-`[… N more log lines truncated]` inside an excerpt, and a counted note for jobs
-whose excerpts were dropped or that were not listed.
+earlier in the same line. A PEM block is redacted as a unit, from `-----BEGIN`
+through the matching `-----END` or to the end of an unterminated block, because
+only its header carries a keyword — line-at-a-time matching would publish the
+base64 body, and a reader could write the header back on. Bounding then caps
+each job at 40 lines and 4 KiB, reports at most 10 failed jobs, and holds the
+assembled body under 60 KiB against GitHub's 65536-character issue limit. Every
+cut is marked in place, and the marker counts against the 40-line cap rather
+than adding a 41st line: `[… N more log lines truncated]` inside an excerpt, and
+a counted note for jobs whose excerpts were dropped or that were not listed.
 
 Evidence is best-effort. A failed job listing or log download degrades to a
 `job list unavailable: <reason>` or `(log excerpt unavailable: <reason>)` note,
 and a reason that itself looks like a credential is reported as
-`redacted error`. Downloads are bounded on both axes so a stalled or enormous
-log cannot push the job past its five-minute timeout: each request carries an
-`AbortSignal` for the smaller of the remaining 90-second evidence budget and a
-20-second per-download cap, and only the last 2 MiB of a log is decoded, which
-is where both `##[error]` and the OSV reporter's table sit. The notifier still
-opens, updates, and closes its issue in every one of those cases.
+`redacted error` — the reason is scanned whole before it is shortened, for the
+same reason the log guard is.
+
+Requests are bounded on both axes so nothing can push the job past its
+five-minute timeout. The job listing carries a 20-second `AbortSignal`; each log
+download carries one for the smaller of the remaining 90-second evidence budget
+and a 20-second per-download cap.
+
+Memory is bounded by streaming. The REST log endpoint answers 302 to a signed
+blob URL, and following that through Octokit would materialise the whole body
+before any slicing, so the notifier takes the redirect manually and streams the
+blob without credentials, holding a sliding 2 MiB tail window and cancelling
+outright past a 32 MiB ceiling. The tail is what matters: both `##[error]` and
+the OSV reporter's table sit at the end of a job log. No `Range` header is sent.
+The store advertises `accept-ranges: bytes` and honours an absolute range
+(`bytes=0-4095` → `206`), but answers a suffix range (`bytes=-N`) with `200` and
+the entire body, so a suffix range would look bounded while downloading
+everything. Whenever a tail cut happens, the first surviving line is discarded:
+the cut can land between a credential's label and its value, leaving a fragment
+that carries the value with no keyword left to match.
+
+The notifier still opens, updates, and closes its issue in every one of those
+cases.
 
 `CI/CD` forces its full build, unit-test, type-check, Knip, and Trunk suite on
 every default-branch push. Documentation-only planning is limited to pull

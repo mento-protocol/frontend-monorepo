@@ -31,6 +31,8 @@ const EVIDENCE_DEADLINE_MS = 90_000;
 // is ever read, so one enormous job log cannot exhaust memory either.
 const MAX_LOG_DOWNLOAD_MS = 20_000;
 const MAX_LOG_BYTES = 2 * 1024 * 1024;
+// A stream that keeps producing past this never yields a usable excerpt anyway.
+const MAX_LOG_STREAM_BYTES = 32 * 1024 * 1024;
 
 // Runner logs arrive as `<ISO timestamp> <ANSI-coloured text>`. Matching the
 // escape characters is the point here, so the control-character rule is off for
@@ -45,6 +47,9 @@ const RUNNER_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z ?/;
 const SECRET_PATTERN =
   /token|secret|password|passwd|bearer|authorization|ghp_|ghs_|gho_|ghu_|ghr_|github_pat_|-----BEGIN/i;
 const REDACTED_LINE = "[redacted: line matched the secret guard]";
+// A PEM block is redacted as a unit: only its header carries a guard keyword.
+const PEM_BEGIN_PATTERN = /-----BEGIN/;
+const PEM_END_PATTERN = /-----END/;
 const ELISION_LINE = "[…]";
 const OSV_FINDING_PATTERN = /^\|\s*https:\/\/osv\.dev\//;
 const OSV_TOTAL_PATTERN = /^Total\s+\d+\s+packages?\s+affected/i;
@@ -117,6 +122,7 @@ function issueTitle(run, targetRef) {
  */
 export function sanitizeLogLines(text) {
   const cleaned = [];
+  let inPemBlock = false;
 
   for (const raw of String(text ?? "").split(/\r?\n/)) {
     const stripped = raw
@@ -130,7 +136,16 @@ export function sanitizeLogLines(text) {
     // let a keyword past the cap fall away and leak an opaque credential that
     // sat earlier in the same line.
     let line;
-    if (SECRET_PATTERN.test(stripped)) {
+    if (inPemBlock) {
+      // A PEM body carries no keyword of its own, so line-at-a-time matching
+      // would publish the base64 payload and let a reader restore the header.
+      // Redact through the end marker, or to the end of an unterminated block.
+      if (PEM_END_PATTERN.test(stripped)) inPemBlock = false;
+      line = REDACTED_LINE;
+    } else if (PEM_BEGIN_PATTERN.test(stripped)) {
+      inPemBlock = !PEM_END_PATTERN.test(stripped);
+      line = REDACTED_LINE;
+    } else if (SECRET_PATTERN.test(stripped)) {
       line = REDACTED_LINE;
     } else if (stripped.length > MAX_LINE_CHARS) {
       line = `${stripped.slice(0, MAX_LINE_CHARS)}…`;
@@ -237,20 +252,25 @@ export function capExcerpt(
 ) {
   let kept = [...lines];
   let dropped = 0;
-
-  if (kept.length > maxLines) {
-    dropped = kept.length - maxLines;
-    kept = keep === "head" ? kept.slice(0, maxLines) : kept.slice(-maxLines);
-  }
-
-  const budget = Math.max(0, maxBytes - TRUNCATION_RESERVE_BYTES);
-  while (kept.length > 0 && byteLength(kept.join("\n")) > budget) {
+  const drop = () => {
     if (keep === "head") kept.pop();
     else kept.shift();
     dropped += 1;
+  };
+
+  // The marker is itself a line of the excerpt, so truncation has to leave room
+  // for it inside `maxLines` rather than append a further line beyond the cap.
+  if (kept.length > maxLines) {
+    const room = Math.max(0, maxLines - 1);
+    dropped = kept.length - room;
+    kept = keep === "head" ? kept.slice(0, room) : kept.slice(-room);
   }
 
+  const budget = Math.max(0, maxBytes - TRUNCATION_RESERVE_BYTES);
+  while (kept.length > 0 && byteLength(kept.join("\n")) > budget) drop();
+
   if (dropped > 0) {
+    while (kept.length > 0 && kept.length + 1 > maxLines) drop();
     const marker = `[… ${dropped} more log line${dropped === 1 ? "" : "s"} truncated]`;
     if (keep === "head") kept.push(marker);
     else kept.unshift(marker);
@@ -263,16 +283,35 @@ function degradationReason(error) {
     (error?.status ? `HTTP ${error.status}` : "") ||
     error?.message ||
     String(error);
-  const flattened = String(raw).replace(/\s+/g, " ").trim().slice(0, 200);
+  // Scan the whole flattened message before shortening it: truncating first
+  // would drop a keyword past the cap and publish a value that sat before it.
+  const flattened = String(raw).replace(/\s+/g, " ").trim();
   if (flattened.length === 0) return "unknown error";
-  return SECRET_PATTERN.test(flattened) ? "redacted error" : flattened;
+  if (SECRET_PATTERN.test(flattened)) return "redacted error";
+  return flattened.slice(0, 200);
 }
 
-function decodeLogPayload(payload) {
+/**
+ * A tail cut lands at an arbitrary byte, so the first surviving line is a
+ * fragment. Dropping it is a redaction rule, not tidiness: the cut can fall
+ * between a credential's label and its value, leaving a fragment that carries
+ * the value with no keyword left for the guard to match.
+ */
+function dropPartialFirstLine(text) {
+  const firstBreak = text.indexOf("\n");
+  return firstBreak === -1 ? "" : text.slice(firstBreak + 1);
+}
+
+/**
+ * Decode a buffered payload, keeping only the tail: a runner writes
+ * `##[error]` at the end of a job, and the OSV reporter prints its table in the
+ * last step. `pretruncated` marks a payload the streaming reader already cut.
+ */
+function decodeLogPayload(payload, pretruncated = false) {
   if (typeof payload === "string") {
-    return payload.length > MAX_LOG_BYTES
-      ? payload.slice(-MAX_LOG_BYTES)
-      : payload;
+    const cut = payload.length > MAX_LOG_BYTES;
+    const text = cut ? payload.slice(-MAX_LOG_BYTES) : payload;
+    return cut || pretruncated ? dropPartialFirstLine(text) : text;
   }
 
   let bytes;
@@ -288,14 +327,78 @@ function decodeLogPayload(payload) {
     throw new Error("the job log response carried no readable text");
   }
 
-  // Only the tail is ever needed: a runner writes `##[error]` at the end of a
-  // job, and the OSV reporter prints its table in the last step. Bounding here
-  // keeps a pathological log from becoming an unbounded array of lines.
-  const tail =
-    bytes.length > MAX_LOG_BYTES
-      ? bytes.subarray(bytes.length - MAX_LOG_BYTES)
-      : bytes;
-  return new TextDecoder().decode(tail);
+  const cut = bytes.length > MAX_LOG_BYTES;
+  const tail = cut ? bytes.subarray(bytes.length - MAX_LOG_BYTES) : bytes;
+  const text = new TextDecoder().decode(tail);
+  return cut || pretruncated ? dropPartialFirstLine(text) : text;
+}
+
+/**
+ * Read a response body while holding at most `MAX_LOG_BYTES` plus one chunk.
+ * Buffering the whole body first and slicing afterwards would let a very large
+ * log exhaust the notifier before it ever writes the issue, so the tail window
+ * slides as chunks arrive and a hard ceiling stops a runaway stream outright.
+ */
+export async function readBoundedResponseText(response) {
+  const reader = response?.body?.getReader?.();
+  if (!reader) return decodeLogPayload(await response.arrayBuffer());
+
+  const tail = [];
+  let held = 0;
+  let total = 0;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_LOG_STREAM_BYTES) {
+      await reader.cancel();
+      throw new Error("the job log exceeded the readable size limit");
+    }
+    tail.push(value);
+    held += value.byteLength;
+    while (tail.length > 1 && held - tail[0].byteLength >= MAX_LOG_BYTES) {
+      held -= tail.shift().byteLength;
+    }
+  }
+
+  const joined = new Uint8Array(held);
+  let offset = 0;
+  for (const chunk of tail) {
+    joined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return decodeLogPayload(joined, total > held);
+}
+
+/**
+ * Fetch one job log, bounded in both time and memory.
+ *
+ * The REST endpoint answers 302 to a signed blob URL. Following that redirect
+ * through Octokit would materialise the whole body before any slicing, so the
+ * redirect is taken manually and the blob is streamed instead. No Range header
+ * is sent: the store advertises `accept-ranges: bytes` but answers a suffix
+ * range (`bytes=-N`) with 200 and the entire body, which would look bounded
+ * while downloading everything. The signed URL is fetched without credentials.
+ */
+async function fetchJobLogText(github, repo, job, signal, fetchImpl) {
+  const response = await github.rest.actions.downloadJobLogsForWorkflowRun({
+    ...repo,
+    job_id: job.id,
+    request: { redirect: "manual", signal },
+  });
+
+  const location = response?.headers?.location;
+  if (typeof location === "string" && location.length > 0) {
+    const blob = await fetchImpl(location, { signal, redirect: "follow" });
+    if (blob?.ok === false) {
+      throw new Error(`the job log store answered HTTP ${blob.status}`);
+    }
+    return readBoundedResponseText(blob);
+  }
+
+  // Already-followed or stubbed responses still get the tail treatment.
+  return decodeLogPayload(response?.data);
 }
 
 /**
@@ -318,7 +421,7 @@ function failedStepNameFor(job) {
   return steps.find((step) => FAILURE_CONCLUSIONS.has(step?.conclusion))?.name;
 }
 
-async function jobExcerpt(github, repo, job, deadline) {
+async function jobExcerpt(github, repo, job, deadline, fetchImpl) {
   const summary = structuredSummaryFor(job);
   if (summary.length > 0) {
     return { source: "summary", lines: capExcerpt(summary, { keep: "head" }) };
@@ -341,12 +444,14 @@ async function jobExcerpt(github, repo, job, deadline) {
       Math.max(0, deadline - Date.now()),
       MAX_LOG_DOWNLOAD_MS,
     );
-    const response = await github.rest.actions.downloadJobLogsForWorkflowRun({
-      ...repo,
-      job_id: job.id,
-      request: { signal: AbortSignal.timeout(budget) },
-    });
-    const lines = sanitizeLogLines(decodeLogPayload(response?.data));
+    const text = await fetchJobLogText(
+      github,
+      repo,
+      job,
+      AbortSignal.timeout(budget),
+      fetchImpl,
+    );
+    const lines = sanitizeLogLines(text);
     if (lines.length === 0) {
       return {
         source: "log",
@@ -382,7 +487,11 @@ export async function collectFailureEvidence(
   repo,
   run,
   core,
-  { deadlineMs = EVIDENCE_DEADLINE_MS } = {},
+  {
+    deadlineMs = EVIDENCE_DEADLINE_MS,
+    listDeadlineMs = MAX_LOG_DOWNLOAD_MS,
+    fetchImpl = fetch,
+  } = {},
 ) {
   if (!run?.id) {
     return { jobs: [], note: "the failed run exposed no job list" };
@@ -402,6 +511,11 @@ export async function collectFailureEvidence(
         // attempt and select the reconciled one below.
         filter: "all",
         per_page: 100,
+        // A stalled listing would otherwise consume the whole job before the
+        // deadline is ever consulted, and no issue would be written at all.
+        // This call runs first and is the prerequisite for any evidence, so it
+        // gets its own fixed ceiling rather than a possibly-spent remainder.
+        request: { signal: AbortSignal.timeout(listDeadlineMs) },
       },
     );
   } catch (error) {
@@ -424,7 +538,7 @@ export async function collectFailureEvidence(
   const jobs = [];
 
   for (const job of reported) {
-    const excerpt = await jobExcerpt(github, repo, job, deadline);
+    const excerpt = await jobExcerpt(github, repo, job, deadline, fetchImpl);
     jobs.push({
       name: job?.name ?? "unnamed job",
       url: job?.html_url,

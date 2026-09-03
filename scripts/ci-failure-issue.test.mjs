@@ -7,6 +7,7 @@ import {
   extractErrorContext,
   extractOsvFindings,
   failureBody,
+  readBoundedResponseText,
   reconcileCiFailureIssue,
   sanitizeLogLines,
 } from "./ci-failure-issue.mjs";
@@ -72,6 +73,50 @@ const SKEW_JOB_LOG = [
 
 /** Sentinel payload for a download that never completes on its own. */
 const NEVER_RESOLVES = Symbol("never-resolves");
+
+// Assembled at runtime so these fixtures do not read as a real key block to the
+// repository's own secret scanner.
+const PEM_KEY_KIND = "PRIVATE KEY";
+const pemHeader = (algorithm) => `-----BEGIN ${algorithm} ${PEM_KEY_KIND}-----`;
+const pemFooter = (algorithm) => `-----END ${algorithm} ${PEM_KEY_KIND}-----`;
+
+/**
+ * A request that settles only when its caller aborts it. The keep-alive timer
+ * is load-bearing: `AbortSignal.timeout()` arms an unref'd timer, so without a
+ * ref'd handle of our own the event loop drains while this promise is still
+ * pending and node:test cancels the test and everything queued behind it.
+ */
+function stallUntilAbort(signal) {
+  return new Promise((_resolve, reject) => {
+    const keepAlive = setTimeout(() => {
+      reject(new Error("the abort signal never fired"));
+    }, 30_000);
+    signal.addEventListener("abort", () => {
+      clearTimeout(keepAlive);
+      reject(signal.reason);
+    });
+  });
+}
+
+/** A Response-like object streaming `chunks` without ever holding them all. */
+function streamingResponse(chunks, { onCancel } = {}) {
+  const encoder = new TextEncoder();
+  let index = 0;
+  return {
+    ok: true,
+    status: 200,
+    reads: () => index,
+    body: {
+      getReader: () => ({
+        read: async () =>
+          index >= chunks.length
+            ? { done: true, value: undefined }
+            : { done: false, value: encoder.encode(chunks[index++]) },
+        cancel: async () => onCancel?.(),
+      }),
+    },
+  };
+}
 
 function failedJob(overrides = {}) {
   return {
@@ -144,6 +189,7 @@ function harness({
   jobs = [],
   jobLogs = {},
   listJobsError,
+  listJobsStalls = false,
 } = {}) {
   const calls = {
     create: [],
@@ -161,9 +207,11 @@ function harness({
     if (method === listJobsForWorkflowRun) {
       calls.listJobs += 1;
       calls.jobsRunId = parameters.run_id;
+      calls.listSignal = parameters.request?.signal;
       assert.equal(parameters.filter, "all");
       assert.equal(parameters.per_page, 100);
       if (listJobsError) throw listJobsError;
+      if (listJobsStalls) return stallUntilAbort(parameters.request.signal);
       return jobs;
     }
     assert.equal(method, listForRepo);
@@ -196,23 +244,11 @@ function harness({
             throw Object.assign(new Error("Not Found"), { status: 404 });
           }
           if (payload instanceof Error) throw payload;
-          // A download that only ever ends when its caller aborts it. The
-          // keep-alive timer is load-bearing: `AbortSignal.timeout()` arms an
-          // unref'd timer, so without a ref'd handle of our own the event loop
-          // drains while this promise is still pending and the runner reports
-          // "Promise resolution is still pending but the event loop has already
-          // resolved" for this test and every one queued behind it.
           if (payload === NEVER_RESOLVES) {
-            const { signal } = parameters.request;
-            return new Promise((_resolve, reject) => {
-              const keepAlive = setTimeout(() => {
-                reject(new Error("the abort signal never fired"));
-              }, 30_000);
-              signal.addEventListener("abort", () => {
-                clearTimeout(keepAlive);
-                reject(signal.reason);
-              });
-            });
+            return stallUntilAbort(parameters.request.signal);
+          }
+          if (typeof payload === "object" && payload?.location) {
+            return { headers: { location: payload.location } };
           }
           return { data: payload };
         },
@@ -652,7 +688,8 @@ test("sanitizing redacts every line that could carry a credential", () => {
       logLine("Authorization: Bearer abcdef"),
       logLine("export GH_PASSWORD=hunter2"),
       logLine("ghp_0123456789abcdefghijklmnopqrstuvwxyz"),
-      logLine("-----BEGIN OPENSSH PRIVATE KEY-----"),
+      logLine(pemHeader("OPENSSH")),
+      logLine(pemFooter("OPENSSH")),
       logLine("safe trailing line"),
     ].join("\n"),
   );
@@ -673,6 +710,71 @@ test("sanitizing redacts every line that could carry a credential", () => {
       `${forbidden} must never reach the issue body`,
     );
   }
+});
+
+test("a whole PEM block is redacted, not only its header", () => {
+  // Only the BEGIN line carries a guard keyword. Line-at-a-time matching would
+  // publish the base64 body, and the header can simply be written back on.
+  const body = [
+    "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABlwAAAAdz",
+    "c2gtcnNhAAAAAwEAAQAAAYEAy8Dbv8prpJ/0kKhlGeJYozo2t60EG8L0561g13R2",
+    "9LZHbJ0FkkCzWzPnMkYJUFP2S1zYlLBBGmkVRuXlPTGrqBiYh1sRfmiPnpWkFDGr",
+  ];
+  const lines = sanitizeLogLines(
+    [
+      logLine("safe leading line"),
+      logLine(pemHeader("OPENSSH")),
+      ...body.map((chunk) => logLine(chunk)),
+      logLine(pemFooter("OPENSSH")),
+      logLine("safe trailing line"),
+    ].join("\n"),
+  );
+
+  assert.deepEqual(lines, [
+    "safe leading line",
+    "[redacted: line matched the secret guard]",
+    "safe trailing line",
+  ]);
+  for (const chunk of body) {
+    assert.ok(
+      !lines.join("\n").includes(chunk),
+      "no part of the key body may reach the issue body",
+    );
+  }
+});
+
+test("an unterminated PEM block is redacted to the end of the excerpt", () => {
+  const lines = sanitizeLogLines(
+    [
+      logLine("safe leading line"),
+      logLine(pemHeader("RSA")),
+      logLine(
+        "MIIEowIBAAKCAQEAx8Dbv8prpJ0kKhlGeJYozo2t60EG8L0561g13R29LZHbJ0Fk",
+      ),
+      logLine(
+        "kCzWzPnMkYJUFP2S1zYlLBBGmkVRuXlPTGrqBiYh1sRfmiPnpWkFDGrqBiYh1sR",
+      ),
+    ].join("\n"),
+  );
+
+  assert.deepEqual(lines, [
+    "safe leading line",
+    "[redacted: line matched the secret guard]",
+  ]);
+});
+
+test("a single-line PEM marker does not swallow the rest of the log", () => {
+  const lines = sanitizeLogLines(
+    [
+      logLine("-----BEGIN CERTIFICATE----- inline -----END CERTIFICATE-----"),
+      logLine("still readable"),
+    ].join("\n"),
+  );
+
+  assert.deepEqual(lines, [
+    "[redacted: line matched the secret guard]",
+    "still readable",
+  ]);
 });
 
 test("the credential guard runs before a long line is shortened", () => {
@@ -780,12 +882,13 @@ test("capping a head-kept excerpt marks the truncation at the end", () => {
     { keep: "head", maxLines: 3, maxBytes: 4_096 },
   );
 
+  // The marker is one of the three allowed lines, not a fourth.
   assert.deepEqual(capped, [
     "row 0",
     "row 1",
-    "row 2",
-    "[… 7 more log lines truncated]",
+    "[… 8 more log lines truncated]",
   ]);
+  assert.ok(capped.length <= 3);
 });
 
 test("capping a tail-kept excerpt marks the truncation at the start", () => {
@@ -794,11 +897,25 @@ test("capping a tail-kept excerpt marks the truncation at the start", () => {
     { keep: "tail", maxLines: 2, maxBytes: 4_096 },
   );
 
-  assert.deepEqual(capped, [
-    "[… 8 more log lines truncated]",
-    "row 8",
-    "row 9",
-  ]);
+  assert.deepEqual(capped, ["[… 9 more log lines truncated]", "row 9"]);
+  assert.ok(capped.length <= 2);
+});
+
+test("a capped excerpt never exceeds the documented 40-line maximum", () => {
+  for (const keep of ["head", "tail"]) {
+    const capped = capExcerpt(
+      Array.from({ length: 500 }, (_, index) => `row ${index}`),
+      { keep },
+    );
+    assert.ok(
+      capped.length <= 40,
+      `${keep}-kept excerpt was ${capped.length} lines`,
+    );
+    assert.equal(
+      capped.filter((line) => /more log lines truncated/.test(line)).length,
+      1,
+    );
+  }
 });
 
 test("capping enforces the byte budget as well as the line budget", () => {
@@ -1127,6 +1244,142 @@ test("the evidence collector stops downloading logs past its deadline", async ()
   assert.equal(
     evidence.jobs[0].failedStep,
     "Fail on newly introduced vulnerabilities",
+  );
+});
+
+test("the partial line at the tail boundary is discarded", async () => {
+  // Place the 2 MiB cut inside a credential's value so the surviving fragment
+  // carries the value with no keyword left for the guard to match.
+  const value = "Z".repeat(40);
+  const secret = `AWS_SECRET_ACCESS_KEY=${value}`;
+  const tail = `\n${SKEW_JOB_LOG}`;
+  const keptSecretChars = 10;
+  const padding = "p".repeat(2 * 1024 * 1024 - keptSecretChars - tail.length);
+  const payload = `head line\n${secret}${padding}${tail}`;
+  const fragment = value.slice(-keptSecretChars);
+
+  const job = failedJob();
+  const { github, context, calls } = harness({
+    jobs: [job],
+    jobLogs: { [job.id]: new TextEncoder().encode(payload) },
+  });
+  await reconcileCiFailureIssue({ github, context });
+
+  const body = calls.create[0].body;
+  assert.match(body, /##\[error\]Process completed with exit code 1\./);
+  assert.ok(
+    !body.includes(fragment),
+    "the value stranded by the boundary cut must never be published",
+  );
+  assert.ok(!body.includes("pppppppppp"), "the partial line must be dropped");
+});
+
+test("a degradation reason is scanned in full before it is shortened", async () => {
+  // The keyword sits past character 200; the opaque value sits before it.
+  const value = "AKIAIOSFODNN7EXAMPLE";
+  const message = `${value} ${"filler ".repeat(40)} authorization refused`;
+  assert.ok(
+    message.indexOf("authorization") > 200,
+    "the keyword must be past the truncation point",
+  );
+
+  const { github, context, calls } = harness({
+    listJobsError: new Error(message),
+  });
+  await reconcileCiFailureIssue({ github, context });
+
+  assert.match(calls.create[0].body, /_job list unavailable: redacted error_/);
+  assert.ok(!calls.create[0].body.includes(value));
+});
+
+test("a stalled job listing is aborted and degrades to a note", async () => {
+  const { github, calls } = harness({ listJobsStalls: true });
+  const startedAt = Date.now();
+  const evidence = await collectFailureEvidence(
+    github,
+    { owner: "mento-protocol", repo: "frontend-monorepo" },
+    workflowRun(),
+    undefined,
+    { listDeadlineMs: 60 },
+  );
+  const elapsed = Date.now() - startedAt;
+
+  assert.ok(
+    calls.listSignal instanceof AbortSignal,
+    "the job listing must carry an abort signal",
+  );
+  assert.deepEqual(evidence.jobs, []);
+  assert.match(evidence.note, /^job list unavailable: /);
+  assert.ok(elapsed < 5_000, `the stalled listing held on for ${elapsed}ms`);
+
+  const body = failureBody(workflowRun(), "main", managedMarker(), evidence);
+  assert.match(body, /^## What failed$/m);
+  assert.equal(body.trimEnd().split("\n").at(-1), managedMarker());
+});
+
+test("a streamed log is read without ever holding more than the tail cap", async () => {
+  // 8 MiB delivered in 64 KiB chunks. The reader must retain at most the 2 MiB
+  // window plus the chunk in hand, so the decoded text cannot exceed the cap.
+  const chunk = "q".repeat(64 * 1024);
+  const chunks = Array.from({ length: 128 }, () => chunk);
+  chunks.push(`\n${SKEW_JOB_LOG}`);
+
+  const text = await readBoundedResponseText(streamingResponse(chunks));
+
+  assert.ok(
+    byteLengthOf(text) <= 2 * 1024 * 1024,
+    `held ${byteLengthOf(text)} bytes, above the 2 MiB cap`,
+  );
+  assert.match(text, /##\[error\]Process completed with exit code 1\./);
+});
+
+test("a runaway stream is cancelled at the hard ceiling", async () => {
+  let cancelled = false;
+  const chunk = "r".repeat(1024 * 1024);
+  const chunks = Array.from({ length: 64 }, () => chunk);
+  const response = streamingResponse(chunks, {
+    onCancel: () => (cancelled = true),
+  });
+
+  await assert.rejects(
+    readBoundedResponseText(response),
+    /exceeded the readable size limit/,
+  );
+  assert.ok(cancelled, "the reader must be cancelled, not drained");
+  // Stopping at the 32 MiB ceiling, not reading all 64 MiB, is the proof that
+  // the body is never materialised in full.
+  assert.equal(response.reads(), 33);
+});
+
+test("the job log redirect is streamed and no Range header is sent", async () => {
+  // The store advertises accept-ranges but answers a suffix range with 200 and
+  // the whole body, so sending one would look bounded while downloading it all.
+  const job = failedJob();
+  const requests = [];
+  const fetchImpl = async (url, init) => {
+    requests.push({ url, init });
+    return streamingResponse([SKEW_JOB_LOG]);
+  };
+  const { github } = harness({
+    jobs: [job],
+    jobLogs: { [job.id]: { location: "https://blob.example/log?sig=abc" } },
+  });
+
+  const evidence = await collectFailureEvidence(
+    github,
+    { owner: "mento-protocol", repo: "frontend-monorepo" },
+    workflowRun(),
+    undefined,
+    { fetchImpl },
+  );
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "https://blob.example/log?sig=abc");
+  assert.equal(requests[0].init.headers, undefined);
+  assert.ok(requests[0].init.signal instanceof AbortSignal);
+  assert.ok(
+    evidence.jobs[0].lines.some((line) => line.includes("##[error]")),
+    "the streamed tail must still produce the excerpt",
   );
 });
 
