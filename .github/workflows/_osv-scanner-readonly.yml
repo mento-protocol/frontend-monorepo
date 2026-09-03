@@ -1,38 +1,41 @@
 name: Read-only OSV Scanner
 
-# Head half of OSV-Scanner PR mode: scan this branch, compare against the
-# base-branch baseline that `_osv-scanner-baseline.yml` published for this run,
-# and fail only on vulnerabilities the pull request introduces. Advisories
-# already present on `main` are the daily scheduled full scan's problem, not
-# every open pull request's.
+# OSV-Scanner PR mode: scan the base commit, scan this branch, and fail only on
+# vulnerabilities the pull request introduces. Advisories already present on
+# `main` are the daily scheduled full scan's problem, not every open pull
+# request's.
 #
-# The base scan is a separate job rather than a second step here because
-# AGENTS.md requires the OSV scanner and reporter actions to stay at one step
-# each. This job therefore runs exactly one scanner step and one reporter step.
-#
-# It also does not call the upstream
-# `google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml`,
-# which declares `security-events: write` at job scope, checks out with
-# persisted credentials, and always runs `actions/upload-artifact`. GitHub
+# Both scans run here, in one job, as upstream's PR mode does. This workflow
+# exists instead of calling
+# `google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml`
+# because that one declares `security-events: write` at job scope, checks out
+# with persisted credentials, and always runs `actions/upload-artifact`. GitHub
 # rejects a read-only caller before it evaluates the false `upload-sarif`
 # input, so calling it would mean granting SARIF write access to untrusted head
 # code. SARIF publication stays in the separate scheduled and manual jobs,
 # which run a full scan.
+#
+# The base tree never coexists with the head tree. The base is checked out,
+# scanned, and deleted before the head is checked out, and every head scan input
+# is then proved to resolve inside the head checkout. Without both guards a
+# pull request could commit a symlink in place of its own lockfile, point it at
+# the trusted base tree, and have the head scan reproduce the baseline — the
+# diff would be empty and the required check would pass while the proposed
+# lockfile carried vulnerable dependencies.
 
 on:
   workflow_call:
     inputs:
-      scan-args:
-        description: Exact config and lockfile arguments for this OSV scan
+      base-scan-args:
+        description: Exact config and lockfile arguments for the base scan, rooted at base/
         required: true
         type: string
-      baseline-artifact:
-        description: Run-unique artifact name carrying the base-branch baseline
+      head-scan-args:
+        description: Exact config and lockfile arguments for the head scan, rooted at candidate/
         required: true
         type: string
 
 permissions:
-  actions: read
   contents: read
 
 jobs:
@@ -41,21 +44,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      actions: read
       contents: read
     steps:
-      # The repository is checked out into a `candidate` subdirectory rather
-      # than the workspace root, so scan state can live beside it at
-      # `<workspace>/osv-state` instead of inside it. A pull request can only
-      # add files within its own tree, so it cannot place anything in
-      # osv-state. The caller's scan-args are therefore candidate-rooted.
-      - name: Check out code
+      # Pin to the exact base commit the pull_request event was created from,
+      # not the base branch name. A branch ref resolves to whatever main points
+      # at when this job starts, while the head scan always scans the event's
+      # fixed merge commit. If main moves in between, the two sides come from
+      # different snapshots: a main tip that fixes a dependency would leave the
+      # older merge commit reporting that dependency as newly introduced.
+      #
+      # The base gets its own directory and is checked out first, while no head
+      # tree exists. Checking one path out twice, or checking the head out
+      # first, would let candidate content stand in for base content.
+      - name: Check out the base commit the event was created from
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: candidate
+          path: base
+          ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
 
-      # Scan input and output must never live in the checkout. A tracked file
+      # Scan input and output must never live in either checkout. A tracked file
       # a pull request added could otherwise stand in for a real result: as a
       # forged empty baseline that hides an introduced vulnerability, or as a
       # forged result that satisfies the completion guard after a scan failed.
@@ -64,24 +72,33 @@ jobs:
       # actions, where it appears at /github/workspace. The actions below are
       # given that absolute container path while the shell steps use the host
       # path, and the tests assert the two spellings stay a matched pair.
-      - name: Create the scan state directory beside the checkout
+      - name: Create the scan state directory beside the checkouts
         shell: bash
         run: |
           rm -rf "${GITHUB_WORKSPACE}/osv-state"
           mkdir -p "${GITHUB_WORKSPACE}/osv-state"
 
-      - name: Download the base-branch baseline
-        id: baseline
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      # The base is scanned with the base's own config. That is what makes a
+      # pull request which removes a suppression fail: the advisory is absent
+      # from this baseline and present in the head scan below. The base scan
+      # needs no path validation of its own — its inputs come from the trusted
+      # base commit, and the candidate tree does not exist yet.
+      - name: Scan the base commit's lockfile
+        id: base-scan
+        uses: google/osv-scanner-action/osv-scanner-action@8e5cf47b818121e8b405931c82126c2630b0b20d # v2.5.1
         with:
-          name: ${{ inputs.baseline-artifact }}
-          path: ${{ github.workspace }}/osv-state
+          scan-args: |-
+            --output=/github/workspace/osv-state/old-results.json
+            --format=json
+            ${{ inputs.base-scan-args }}
         continue-on-error: true
 
-      # A baseline job that failed, or an artifact that did not arrive, falls
-      # back to an empty baseline. Every finding here then counts as new, which
-      # can only over-report. That keeps this job reporting even when the
-      # baseline job fails, so the required check never sits pending.
+      # A base commit that does not carry this lockfile yet, and a base scan
+      # that failed, both fall back to an empty baseline. Every finding on the
+      # head branch then counts as new, which can only over-report. That keeps
+      # this job reporting even when the base scan fails, so the required check
+      # never sits pending. The check is on content, not size, because a
+      # non-empty file that is not a scan result is not evidence of a scan.
       - name: Establish the base vulnerability baseline
         shell: bash
         env:
@@ -89,10 +106,100 @@ jobs:
         run: |
           set -uo pipefail
           if node -e 'const {readFileSync}=require("node:fs");const parsed=JSON.parse(readFileSync(process.env.BASE_RESULTS,"utf8"));if(!Array.isArray(parsed.results))throw new Error("no results array");'; then
-            echo "Base-branch baseline accepted."
+            echo "Base-commit baseline accepted."
           else
-            echo "::warning::No valid base-branch baseline reached ${BASE_RESULTS}. Treating the base branch as having no known vulnerabilities, so every finding on this branch is reported as newly introduced."
+            echo "::warning::The base-commit OSV scan produced no valid ${BASE_RESULTS}. Treating the base branch as having no known vulnerabilities, so every finding on this branch is reported as newly introduced."
             printf '{"results":[]}\n' > "${BASE_RESULTS}"
+          fi
+
+      # First guard against a head scan that reads the base tree: once the
+      # baseline is captured, the base tree is deleted, so there is nothing left
+      # for a candidate symlink to alias into. The baseline itself lives in
+      # osv-state, outside both checkouts, and is unaffected.
+      - name: Remove the base tree before the head checkout
+        shell: bash
+        run: |
+          set -uo pipefail
+          rm -rf "${GITHUB_WORKSPACE}/base"
+          if [ -e "${GITHUB_WORKSPACE}/base" ]; then
+            echo "::error::The base checkout at ${GITHUB_WORKSPACE}/base could not be removed. Refusing to run the head scan while a second tree a candidate symlink could name is still present."
+            exit 1
+          fi
+          echo "Base tree removed before the head checkout."
+
+      # The head goes into `candidate`, a sibling of the deleted base tree, so
+      # it cannot write into the scan state beside it.
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: candidate
+          persist-credentials: false
+
+      # Second guard: prove every head scan input is a real file inside the head
+      # checkout. A pull request controls its own tree, so it can commit a
+      # symlink named `pnpm-lock.yaml`, or a symlinked parent directory, that
+      # resolves somewhere else entirely — and the scanner would happily scan
+      # whatever it found instead of the proposed lockfile. The config toml is
+      # checked the same way; it is a scan input too, and one that decides which
+      # advisories are suppressed.
+      #
+      # Canonicalization is `cd` plus `pwd -P` rather than `realpath`, which has
+      # no portable `-e`. The final path component is rejected outright when it
+      # is a symlink, and every parent component is resolved, so an alias
+      # anywhere along the path is caught.
+      - name: Reject head scan inputs that leave the candidate checkout
+        shell: bash
+        env:
+          HEAD_SCAN_ARGS: ${{ inputs.head-scan-args }}
+        run: |
+          set -uo pipefail
+          candidate_root="$(cd "${GITHUB_WORKSPACE}/candidate" 2>/dev/null && pwd -P)"
+          if [ -z "${candidate_root}" ]; then
+            echo "::error::The candidate checkout is missing, so its scan inputs cannot be validated."
+            exit 1
+          fi
+          checked=0
+          while read -r token; do
+            case "${token}" in
+              --lockfile=* | --config=*) ;;
+              *) continue ;;
+            esac
+            value="${token#*=}"
+            checked=$((checked + 1))
+            case "${value}" in
+              candidate/*) ;;
+              *)
+                echo "::error::Head scan input ${value} is not rooted at candidate/."
+                exit 1
+                ;;
+            esac
+            path="${GITHUB_WORKSPACE}/${value}"
+            if [ -L "${path}" ]; then
+              echo "::error::Head scan input ${value} is a symlink. A symlinked scan input names a file the pull request does not propose, so the scan would not describe this branch."
+              exit 1
+            fi
+            if [ ! -f "${path}" ]; then
+              echo "::error::Head scan input ${value} is missing or is not a regular file."
+              exit 1
+            fi
+            parent="$(cd "$(dirname "${path}")" 2>/dev/null && pwd -P)"
+            if [ -z "${parent}" ]; then
+              echo "::error::Head scan input ${value} has no resolvable parent directory."
+              exit 1
+            fi
+            resolved="${parent}/$(basename "${path}")"
+            case "${resolved}" in
+              "${candidate_root}"/*) ;;
+              *)
+                echo "::error::Head scan input ${value} resolves to ${resolved}, outside the candidate checkout at ${candidate_root}."
+                exit 1
+                ;;
+            esac
+            echo "Head scan input ${value} resolves to ${resolved}, inside the candidate checkout."
+          done < <(printf '%s\n' "${HEAD_SCAN_ARGS}" | tr ' \t' '\n\n')
+          if [ "${checked}" -eq 0 ]; then
+            echo "::error::No --lockfile or --config head scan input was found to validate."
+            exit 1
           fi
 
       - name: Scan the selected lockfile
@@ -102,7 +209,7 @@ jobs:
           scan-args: |-
             --output=/github/workspace/osv-state/results.json
             --format=json
-            ${{ inputs.scan-args }}
+            ${{ inputs.head-scan-args }}
         continue-on-error: true
 
       # The scanner also exits non-zero when it finds vulnerabilities, which the
