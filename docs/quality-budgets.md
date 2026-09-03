@@ -106,7 +106,11 @@ branch or tag. It then:
 A failure body carries a `## What failed` section between the run metadata and
 the managed marker, so the issue states what broke instead of only linking the
 run. For each failed job of the reconciled run it prints the job name, the name
-of the failed step, and one bounded excerpt.
+of the failed step, and one bounded excerpt. Jobs are listed with `filter: all`
+and selected by `run_attempt`, never with `filter: latest`: GitHub defines
+`latest` as the newest execution, so a rerun that starts before this callback
+reconciles would otherwise report the new attempt's jobs under the completed
+attempt the issue names.
 
 The excerpt comes from the job's structured summary when the API exposes one.
 The workflow-jobs API exposes no step output today, so in practice the notifier
@@ -121,21 +125,27 @@ excerpt by content, not by job name:
   the tail of the log when the runner recorded no annotation.
 
 Every excerpt is sanitized and bounded. Sanitizing strips ANSI colouring and the
-per-line runner timestamp, caps a single line at 500 characters, and replaces
-any line matching a defensive credential pattern
+per-line runner timestamp, then tests the whole stripped line against a
+defensive credential pattern
 (`token|secret|password|passwd|bearer|authorization|ghp_|ghs_|gho_|ghu_|ghr_|github_pat_|-----BEGIN`)
-with a fixed redaction line — that guard is what keeps a runner's
-`ACTIONS_RUNTIME_TOKEN` echo out of a public issue. Bounding caps each job at 40
-lines and 4 KiB, reports at most 10 failed jobs, and holds the assembled body
-under 60 KiB against GitHub's 65536-character issue limit. Every cut is marked
-in place: `[… N more log lines truncated]` inside an excerpt, and a counted note
-for jobs whose excerpts were dropped or that were not listed.
+and replaces a matching line with a fixed redaction line — that guard is what
+keeps a runner's `ACTIONS_RUNTIME_TOKEN` echo out of a public issue. The guard
+runs before the 500-character line cap, deliberately: shortening first would
+drop a keyword sitting past the cap and publish an opaque credential from
+earlier in the same line. Bounding then caps each job at 40 lines and 4 KiB,
+reports at most 10 failed jobs, and holds the assembled body under 60 KiB
+against GitHub's 65536-character issue limit. Every cut is marked in place:
+`[… N more log lines truncated]` inside an excerpt, and a counted note for jobs
+whose excerpts were dropped or that were not listed.
 
 Evidence is best-effort. A failed job listing or log download degrades to a
 `job list unavailable: <reason>` or `(log excerpt unavailable: <reason>)` note,
 and a reason that itself looks like a credential is reported as
-`redacted error`. Log downloads also stop after 90 seconds so a pathologically
-large log cannot push the job past its five-minute timeout. The notifier still
+`redacted error`. Downloads are bounded on both axes so a stalled or enormous
+log cannot push the job past its five-minute timeout: each request carries an
+`AbortSignal` for the smaller of the remaining 90-second evidence budget and a
+20-second per-download cap, and only the last 2 MiB of a log is decoded, which
+is where both `##[error]` and the OSV reporter's table sit. The notifier still
 opens, updates, and closes its issue in every one of those cases.
 
 `CI/CD` forces its full build, unit-test, type-check, Knip, and Trunk suite on

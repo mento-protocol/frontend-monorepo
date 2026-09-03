@@ -70,6 +70,9 @@ const SKEW_JOB_LOG = [
   logLine("Post job cleanup."),
 ].join("\n");
 
+/** Sentinel payload for a download that never completes on its own. */
+const NEVER_RESOLVES = Symbol("never-resolves");
+
 function failedJob(overrides = {}) {
   return {
     id: 900_001,
@@ -149,6 +152,7 @@ function harness({
     listIssues: 0,
     listJobs: 0,
     logs: [],
+    signals: [],
   };
   function listWorkflowRuns() {}
   function listForRepo() {}
@@ -157,7 +161,7 @@ function harness({
     if (method === listJobsForWorkflowRun) {
       calls.listJobs += 1;
       calls.jobsRunId = parameters.run_id;
-      assert.equal(parameters.filter, "latest");
+      assert.equal(parameters.filter, "all");
       assert.equal(parameters.per_page, 100);
       if (listJobsError) throw listJobsError;
       return jobs;
@@ -186,11 +190,20 @@ function harness({
         listJobsForWorkflowRun,
         downloadJobLogsForWorkflowRun: async (parameters) => {
           calls.logs.push(parameters.job_id);
+          calls.signals.push(parameters.request?.signal);
           const payload = jobLogs[parameters.job_id];
           if (payload === undefined) {
             throw Object.assign(new Error("Not Found"), { status: 404 });
           }
           if (payload instanceof Error) throw payload;
+          // A download that only ever ends when its caller aborts it.
+          if (payload === NEVER_RESOLVES) {
+            return new Promise((_resolve, reject) => {
+              parameters.request.signal.addEventListener("abort", () =>
+                reject(parameters.request.signal.reason),
+              );
+            });
+          }
           return { data: payload };
         },
       },
@@ -652,6 +665,23 @@ test("sanitizing redacts every line that could carry a credential", () => {
   }
 });
 
+test("the credential guard runs before a long line is shortened", () => {
+  // The keyword sits past the 500-character cap while a credential-shaped value
+  // sits before it. Shortening first would drop the keyword and publish the
+  // value, so the guard must see the whole stripped line.
+  const credential = "AKIAIOSFODNN7EXAMPLE";
+  const raw = `${credential} ${"filler ".repeat(120)} authorization=1`;
+  assert.ok(
+    raw.indexOf("authorization") > 500,
+    "the keyword must be past the cap",
+  );
+
+  const lines = sanitizeLogLines(logLine(raw));
+
+  assert.deepEqual(lines, ["[redacted: line matched the secret guard]"]);
+  assert.ok(!lines.join("\n").includes(credential));
+});
+
 test("sanitizing caps a single runaway line", () => {
   const [line] = sanitizeLogLines(logLine("x".repeat(5_000)));
 
@@ -963,6 +993,105 @@ test("a log excerpt containing a code fence cannot break out of its block", () =
 
   assert.match(body, /^````text$/m);
   assert.equal(body.trimEnd().split("\n").at(-1), managedMarker());
+});
+
+test("a stalled log download is aborted and degrades within the deadline", async () => {
+  const job = failedJob();
+  const { github, calls } = harness({
+    jobs: [job],
+    jobLogs: { [job.id]: NEVER_RESOLVES },
+  });
+  const startedAt = Date.now();
+  const evidence = await collectFailureEvidence(
+    github,
+    { owner: "mento-protocol", repo: "frontend-monorepo" },
+    workflowRun(),
+    undefined,
+    { deadlineMs: 60 },
+  );
+  const elapsed = Date.now() - startedAt;
+
+  assert.equal(calls.logs.length, 1);
+  assert.ok(
+    calls.signals[0] instanceof AbortSignal,
+    "the download must carry an abort signal",
+  );
+  assert.equal(evidence.jobs.length, 1);
+  assert.match(evidence.jobs[0].note, /^log excerpt unavailable: /);
+  assert.ok(
+    elapsed < 5_000,
+    `a stalled download must not hold the job, took ${elapsed}ms`,
+  );
+
+  // The degraded evidence still produces a complete, marker-keyed body.
+  const body = failureBody(workflowRun(), "main", managedMarker(), evidence);
+  assert.match(body, /_\(log excerpt unavailable: /);
+  assert.equal(body.trimEnd().split("\n").at(-1), managedMarker());
+});
+
+test("only the tail of an oversized job log is decoded", async () => {
+  const job = failedJob();
+  // An OSV table at the head, past the 2 MiB cap, and an error annotation at
+  // the tail. Decoding the whole log would let the head win and report the
+  // findings table; the cap must leave only the tail's error context.
+  const filler = `${"n".repeat(200)}\n`.repeat(20_000);
+  const oversized = `${OSV_JOB_LOG}\n${filler}${SKEW_JOB_LOG}`;
+  assert.ok(filler.length > 2 * 1024 * 1024, "the fixture must exceed the cap");
+
+  const { github, context, calls } = harness({
+    jobs: [job],
+    jobLogs: { [job.id]: new TextEncoder().encode(oversized) },
+  });
+  await reconcileCiFailureIssue({ github, context });
+
+  const body = calls.create[0].body;
+  assert.match(body, /##\[error\]Process completed with exit code 1\./);
+  assert.ok(
+    !body.includes("GHSA-vx52-2968-3vc6"),
+    "content past the byte cap must never be decoded",
+  );
+});
+
+test("evidence comes from the reconciled attempt, not the newest one", async () => {
+  const staleAttempt = workflowRun({ id: 4_242, run_attempt: 1 });
+  const firstAttemptJob = failedJob({
+    id: 700_001,
+    name: "attempt 1 job",
+    run_attempt: 1,
+  });
+  const rerunJob = failedJob({
+    id: 700_002,
+    name: "attempt 2 job",
+    run_attempt: 2,
+  });
+  const { github, context, calls } = harness({
+    run: staleAttempt,
+    latestRuns: [staleAttempt],
+    jobs: [rerunJob, firstAttemptJob],
+    jobLogs: {
+      [firstAttemptJob.id]: OSV_JOB_LOG,
+      [rerunJob.id]: SKEW_JOB_LOG,
+    },
+  });
+  const result = await reconcileCiFailureIssue({ github, context });
+
+  assert.deepEqual(result, { action: "opened", issueNumber: 91 });
+  assert.deepEqual(calls.logs, [firstAttemptJob.id]);
+  assert.match(calls.create[0].body, /attempt 1 job/);
+  assert.doesNotMatch(calls.create[0].body, /attempt 2 job/);
+});
+
+test("a job list without attempt numbers is still reported", async () => {
+  const job = failedJob();
+  delete job.run_attempt;
+  const { github, context, calls } = harness({
+    run: workflowRun({ run_attempt: 3 }),
+    jobs: [job],
+    jobLogs: { [job.id]: OSV_JOB_LOG },
+  });
+  await reconcileCiFailureIssue({ github, context });
+
+  assert.match(calls.create[0].body, /GHSA-vx52-2968-3vc6/);
 });
 
 test("the evidence collector stops downloading logs past its deadline", async () => {

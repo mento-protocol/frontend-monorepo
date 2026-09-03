@@ -186,12 +186,17 @@ workflow, operational trigger, and target ref for default-branch, scheduled, and
 release-tag failures, then closes it only after recovery in that same partition.
 Its failure body carries a `## What failed` section: per failed job, the failed
 step plus one bounded excerpt taken from the job's structured summary, or from
-its log under the `actions: read` the job already holds. The excerpt is the
-OSV-Scanner findings table when the log holds one, otherwise the lines around
-each `##[error]`. Excerpts are stripped of ANSI and timestamps, redact any line
-matching the credential guard, and are capped at 40 lines and 4 KiB per job and
-60 KiB per body, with every cut marked. A failed listing or download degrades to
-an inline note and never fails the notifier.
+its log under the `actions: read` the job already holds. Jobs come from
+`filter: all` and are selected by `run_attempt`, so a rerun cannot report its
+jobs under the completed attempt the issue names. The excerpt is the OSV-Scanner
+findings table when the log holds one, otherwise the lines around each
+`##[error]`. Excerpts are stripped of ANSI and timestamps; the credential guard
+tests each whole line before the 500-character cap, so shortening can never drop
+a keyword and publish a value from earlier in that line. Excerpts are capped at
+40 lines and 4 KiB per job and 60 KiB per body, with every cut marked. Each
+download carries an abort signal and only the last 2 MiB of a log is decoded. A
+failed listing, download, or evidence deadline degrades to an inline note and
+never fails the notifier.
 `CI/CD` forces the full build, unit-test, type-check, Knip, and Trunk suite on
 every default-branch push so a workflow success is valid recovery evidence;
 documentation-only scoping applies only to pull requests.

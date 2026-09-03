@@ -27,6 +27,10 @@ const TRUNCATION_RESERVE_BYTES = 64;
 // The notifier job is capped at five minutes. Stop downloading logs well before
 // that so a pathologically large log cannot turn evidence into a timeout.
 const EVIDENCE_DEADLINE_MS = 90_000;
+// No single log download may hold the whole budget, and only the tail of a log
+// is ever read, so one enormous job log cannot exhaust memory either.
+const MAX_LOG_DOWNLOAD_MS = 20_000;
+const MAX_LOG_BYTES = 2 * 1024 * 1024;
 
 // Runner logs arrive as `<ISO timestamp> <ANSI-coloured text>`. Matching the
 // escape characters is the point here, so the control-character rule is off for
@@ -122,11 +126,17 @@ export function sanitizeLogLines(text) {
       .trimEnd();
     if (stripped === "##[endgroup]") continue;
 
-    let line = stripped;
-    if (line.length > MAX_LINE_CHARS) {
-      line = `${line.slice(0, MAX_LINE_CHARS)}…`;
+    // The guard runs against the whole stripped line. Shortening first would
+    // let a keyword past the cap fall away and leak an opaque credential that
+    // sat earlier in the same line.
+    let line;
+    if (SECRET_PATTERN.test(stripped)) {
+      line = REDACTED_LINE;
+    } else if (stripped.length > MAX_LINE_CHARS) {
+      line = `${stripped.slice(0, MAX_LINE_CHARS)}…`;
+    } else {
+      line = stripped;
     }
-    if (SECRET_PATTERN.test(line)) line = REDACTED_LINE;
 
     const previous = cleaned.at(-1);
     if (line === REDACTED_LINE && previous === REDACTED_LINE) continue;
@@ -259,10 +269,33 @@ function degradationReason(error) {
 }
 
 function decodeLogPayload(payload) {
-  if (typeof payload === "string") return payload;
-  if (payload instanceof ArrayBuffer) return new TextDecoder().decode(payload);
-  if (ArrayBuffer.isView(payload)) return new TextDecoder().decode(payload);
-  throw new Error("the job log response carried no readable text");
+  if (typeof payload === "string") {
+    return payload.length > MAX_LOG_BYTES
+      ? payload.slice(-MAX_LOG_BYTES)
+      : payload;
+  }
+
+  let bytes;
+  if (payload instanceof ArrayBuffer) {
+    bytes = new Uint8Array(payload);
+  } else if (ArrayBuffer.isView(payload)) {
+    bytes = new Uint8Array(
+      payload.buffer,
+      payload.byteOffset,
+      payload.byteLength,
+    );
+  } else {
+    throw new Error("the job log response carried no readable text");
+  }
+
+  // Only the tail is ever needed: a runner writes `##[error]` at the end of a
+  // job, and the OSV reporter prints its table in the last step. Bounding here
+  // keeps a pathological log from becoming an unbounded array of lines.
+  const tail =
+    bytes.length > MAX_LOG_BYTES
+      ? bytes.subarray(bytes.length - MAX_LOG_BYTES)
+      : bytes;
+  return new TextDecoder().decode(tail);
 }
 
 /**
@@ -300,9 +333,18 @@ async function jobExcerpt(github, repo, job, deadline) {
   }
 
   try {
+    // Checking the deadline before the request is not enough: a stalled or very
+    // large download would otherwise run until the job itself times out and the
+    // issue would never be written. Abort on the smaller of the remaining
+    // budget and the per-download cap, and let the catch below degrade it.
+    const budget = Math.min(
+      Math.max(0, deadline - Date.now()),
+      MAX_LOG_DOWNLOAD_MS,
+    );
     const response = await github.rest.actions.downloadJobLogsForWorkflowRun({
       ...repo,
       job_id: job.id,
+      request: { signal: AbortSignal.timeout(budget) },
     });
     const lines = sanitizeLogLines(decodeLogPayload(response?.data));
     if (lines.length === 0) {
@@ -354,7 +396,11 @@ export async function collectFailureEvidence(
       {
         ...repo,
         run_id: run.id,
-        filter: "latest",
+        // Not `latest`: GitHub defines that as the newest execution, so a rerun
+        // that starts before this callback reconciles would hand back the new
+        // attempt's jobs while the issue names the completed one. Ask for every
+        // attempt and select the reconciled one below.
+        filter: "all",
         per_page: 100,
       },
     );
@@ -366,8 +412,13 @@ export async function collectFailureEvidence(
     };
   }
 
-  const failedJobs = (Array.isArray(allJobs) ? allJobs : []).filter((job) =>
-    FAILURE_CONCLUSIONS.has(job?.conclusion),
+  // A job that carries no `run_attempt` is taken as belonging to this attempt;
+  // one that names a different attempt is another execution's job.
+  const attempt = run.run_attempt ?? 1;
+  const failedJobs = (Array.isArray(allJobs) ? allJobs : []).filter(
+    (job) =>
+      (job?.run_attempt ?? attempt) === attempt &&
+      FAILURE_CONCLUSIONS.has(job?.conclusion),
   );
   const reported = failedJobs.slice(0, MAX_REPORTED_JOBS);
   const jobs = [];
