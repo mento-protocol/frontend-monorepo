@@ -16418,7 +16418,13 @@ function driveCoalescingEpochs(epochs, { syncs = 16 } = {}) {
       }),
       { throughEventRunId: epochEvents.at(-1).event_run_id },
     );
-    perEpoch.push({ journal, tailSelection });
+    perEpoch.push({
+      journal,
+      tailSelection,
+      tailHead,
+      nextClock: clock,
+      nextEventRunId: eventRunId,
+    });
     liveEvents = journal.receipts.events;
     liveSelections = journal.receipts.selections;
     liveResults = journal.receipts.results;
@@ -16475,5 +16481,72 @@ test("folded coalescing membership names only current-epoch receipts", () => {
   assert.deepEqual(membership, [
     ...current.tailSelection.coalesced_receipt_run_ids,
     current.tailSelection.selection_receipt_run_id,
+  ]);
+});
+
+test("a reopened anchor before reconciliation keeps its persisted epoch membership", () => {
+  const perEpoch = driveCoalescingEpochs(20);
+  const last = perEpoch.at(-1);
+  const journal = last.journal;
+  const persistedEpochAnchorRunId = journal.state.epoch.anchor_run_id;
+  // A near-capacity journal: a full checkpoint only folds above this size
+  // while ownership is in flight, which is what makes the transition reachable.
+  assert.equal(
+    Buffer.byteLength(renderPreviewJournalBody(journal), "utf8") >= 40_000,
+    true,
+  );
+  assert.equal(journal.state.targets.ui.retired_active.length, 19);
+  assert.equal(
+    journal.receipts.selections.some(
+      (selection) =>
+        selection.epoch_anchor_run_id === persistedEpochAnchorRunId &&
+        selection.selection_receipt_run_id ===
+          last.tailSelection.selection_receipt_run_id,
+    ),
+    true,
+  );
+
+  // A reopened anchor lands before state reconciliation runs, so the journal
+  // still carries the previous epoch while the lineage already reads as a new
+  // one.
+  const reopened = event({
+    run: last.nextEventRunId,
+    action: "reopened",
+    head: (0x900).toString(16).padStart(40, "0"),
+    updated: new Date(
+      Date.UTC(2026, 6, 15, 10, 0, 0) + last.nextClock * 1000,
+    ).toISOString(),
+  });
+  const compacted = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      checkpoint: journal.checkpoint,
+      events: [...journal.receipts.events, reopened],
+      selections: journal.receipts.selections,
+      results: journal.receipts.results,
+      state: journal.state,
+    }),
+  );
+  assert.equal(compacted.checkpoint.event.event_run_id, reopened.event_run_id);
+  assert.equal(compacted.state.epoch.anchor_run_id, persistedEpochAnchorRunId);
+  assert.notEqual(reopened.event_run_id, persistedEpochAnchorRunId);
+
+  // Reconciliation resolves the epoch from persisted state, so membership must
+  // have been built for that epoch and not for the newly computed anchor.
+  const reconciled = reconcile({
+    events: compacted.receipts.events,
+    results: compacted.receipts.results,
+    selections: compacted.receipts.selections,
+    pullRequest: pull({
+      head: reopened.head_sha,
+      updated: reopened.pr_updated_at,
+    }),
+    existingState: compacted.state,
+    checkpoint: compacted.checkpoint,
+  });
+  assert.equal(reconciled.state.epoch.anchor_run_id, persistedEpochAnchorRunId);
+  assert.deepEqual(compacted.checkpoint.targets.ui.folded_event_run_ids, [
+    ...last.tailSelection.coalesced_receipt_run_ids,
+    last.tailSelection.selection_receipt_run_id,
   ]);
 });

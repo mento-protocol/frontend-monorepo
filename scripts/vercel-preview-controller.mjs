@@ -5090,21 +5090,24 @@ export function compactPreviewJournal(
     journal.receipts.events,
     journal.checkpoint,
   );
-  const {
-    anchor,
-    closure,
-    lineage,
-    checkpoint: selectedCheckpoint,
-  } = selectCurrentEpoch(journal.receipts.events, pull, journal.checkpoint);
-  // The epoch reconciliation will read this checkpoint under. Selections from
-  // retired epochs must not vouch for anything: an unresolved owner retires
-  // across an epoch boundary and keeps naming its coalesced identities, so
-  // carrying their membership forward would grow the evidence without bound
-  // until the writer rejected its own checkpoint.
-  const currentEpochAnchorRunId =
-    selectedCheckpoint === null
-      ? anchor.event_run_id
-      : (state.epoch?.anchor_run_id ?? anchor.event_run_id);
+  const { closure, lineage } = selectCurrentEpoch(
+    journal.receipts.events,
+    pull,
+    journal.checkpoint,
+  );
+  // The epoch reconciliation will read this checkpoint under. That is always
+  // the persisted one: a reader that finds a checkpoint resolves the epoch
+  // from state, never from the anchor it just computed. Compaction can see a
+  // newer anchor than state does — a reopened receipt can land before state
+  // reconciliation runs — so following the computed anchor here would build
+  // membership for an epoch no reader will ask about.
+  //
+  // Binding to the persisted epoch also keeps the evidence bounded. Selections
+  // from retired epochs vouch for nothing: an unresolved owner retires across
+  // an epoch boundary and keeps naming its coalesced identities, so carrying
+  // their membership forward would grow the list without bound until the
+  // writer rejected its own checkpoint.
+  const currentEpochAnchorRunId = state.epoch.anchor_run_id;
   const fullTailEvent = closure ?? lineage.at(-1) ?? null;
   const partialCheckpoint = throughEventRunId !== null;
   const cutoffRunId = partialCheckpoint
