@@ -330,12 +330,12 @@ authenticated diff and any deterministic data-only repair are confined to the
 exact coupled Next declaration, override, lockfile-closure, and derived
 runtime-contract digest tuple. The Vercel identity and configuration,
 package-manager and runtime pins, workflows, Actions, security policy, and all
-   unrelated bytes and modes must equal `currentTargetBaseSha`, subject to the
-   independently verified protected-tree precondition. The agent cannot execute candidate
+unrelated bytes and modes must equal `currentTargetBaseSha`, subject to the
+independently verified protected-tree precondition. The agent cannot execute candidate
 code or a package manager to produce the tuple; ambiguity or missing generated
 state makes the update `manual`. Next minor and major updates remain `manual`,
-   as do Vercel CLI, protected Playwright, protected pnpm rotations, and packages
-   matching the exact wallet, signing, transaction, or bridge risk patterns.
+as do Vercel CLI, protected Playwright, protected pnpm rotations, and packages
+matching the exact wallet, signing, transaction, or bridge risk patterns.
 
 Ordinary npm admission accepts only strict forward stable-semver transitions
 with an identical range prefix. Downgrades, prereleases, source or protocol

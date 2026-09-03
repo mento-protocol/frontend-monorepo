@@ -371,8 +371,7 @@ test("agent preparation policy pins the repository authority contract", () => {
       },
       receiptAuthority: "/var/lib/dependabot/lineage/recreates",
       commentMustBeUnedited: true,
-      boundary:
-        "first-normalized-force-push-after-comment-from-exact-old-head",
+      boundary: "first-normalized-force-push-after-comment-from-exact-old-head",
       requiresNoHistoricalReplay: true,
       requiredBaseBindings: [
         "generationBaseSha",
@@ -514,8 +513,7 @@ test("agent preparation policy pins the repository authority contract", () => {
   });
   assert.deepEqual(policy.history, {
     closeOrReopenByNonDependabot: "manual",
-    existingNonNativeHead:
-      "admit-only-complete-validated-broker-receipt-chain",
+    existingNonNativeHead: "admit-only-complete-validated-broker-receipt-chain",
     forcePushRequiresCompletePagination: true,
     forcePushRequiresContinuousShas: true,
     forcePushRequiresNonCyclicShas: true,
@@ -800,8 +798,7 @@ test("agent preparation policy pins the repository authority contract", () => {
     fallbackSourceKind: "upstream-project-or-package",
     fallbackAllowedOnlyWhenAllDesiredSourceKindsAbsent: true,
     missingDesiredSourceKindsField: "missingSourceKinds",
-    missingDesiredSourceKinds:
-      "record-exact-absent-set-and-lower-confidence",
+    missingDesiredSourceKinds: "record-exact-absent-set-and-lower-confidence",
     minimumLiveVerifiedAuthoritativeUrlsPerPackageTuple: 1,
     liveVerification: "required-per-exact-package-tuple",
     requiredFields: [
@@ -971,10 +968,7 @@ test("agent preparation policy pins the repository authority contract", () => {
       "enqueue",
     ],
     directLauncherWrite: "refuse",
-    directLauncherNonWriteOperations: [
-      "run --read-only",
-      "status",
-    ],
+    directLauncherNonWriteOperations: ["run --read-only", "status"],
     rootOnlyMaintenanceOperations: ["pin", "selftest-run"],
     dependabotMaintenanceOperations: ["lease-clear"],
     capability: {
@@ -1954,7 +1948,9 @@ test("Dependabot groups isolate protected runtimes and couple test tooling", () 
   const actionsConfig = actionsConfigs.find(
     (update) => update.directory === "/",
   );
-  const localActionsConfig = actionsConfigs.find((update) => update.directories);
+  const localActionsConfig = actionsConfigs.find(
+    (update) => update.directories,
+  );
   assert.equal(actionsConfig.directories, undefined);
   assert.equal(localActionsConfig.directory, undefined);
   assert.deepEqual(
@@ -2521,7 +2517,11 @@ test("canonical instructions pin Dependabot preparation policy v2", () => {
     assert.match(source, /\/opt\/dependabot-prep\/authorized-run/u, path);
     assert.match(source, /\/opt\/dependabot-prep\/authorized-run\.mjs/u, path);
     assert.match(source, /sudo \/opt\/dependabot-prep\/selftest-run/u, path);
-    assert.match(source, /\/etc\/dependabot-prep\/selftest-attestation\.json/u, path);
+    assert.match(
+      source,
+      /\/etc\/dependabot-prep\/selftest-attestation\.json/u,
+      path,
+    );
     assert.match(source, /\/var\/lib\/dependabot\/gh/u, path);
     assert.match(source, /\/var\/lib\/dependabot-mutator\/gh/u, path);
     assert.match(source, /(?:no credential|empty)/iu, path);
@@ -2548,10 +2548,7 @@ test("canonical instructions pin Dependabot preparation policy v2", () => {
     /\s+/gu,
     " ",
   );
-  assert.match(
-    overrideRunbook,
-    /semver-patch-only Next\.js.{0,120}`full`/iu,
-  );
+  assert.match(overrideRunbook, /semver-patch-only Next\.js.{0,120}`full`/iu);
   for (const field of [
     "lockfileSha256",
     "manifestSha256",
@@ -2559,5 +2556,40 @@ test("canonical instructions pin Dependabot preparation policy v2", () => {
     "runtimeDependenciesSha256",
   ]) {
     assert.match(overrideRunbook, new RegExp(field, "u"));
+  }
+});
+
+test("instruction files route every push through the broker and the cutover readback lists the exact scheduled grants", () => {
+  const policy = authorityJson(read(".github/dependabot-prep-policy.json"));
+  const { scheduledGrants, scheduledDeniedGrants } = policy.writeAuthorization;
+  assert.deepEqual(
+    scheduledGrants.filter((grant) => scheduledDeniedGrants.includes(grant)),
+    [],
+    "scheduled and denied grants must be disjoint",
+  );
+  assert.deepEqual([...new Set(scheduledGrants)], scheduledGrants);
+  const readback = `Require only ${scheduledGrants
+    .slice(0, -1)
+    .map((grant) => `\`${grant}\``)
+    .join(", ")}, and \`${scheduledGrants.at(-1)}\` writes.`;
+  assert.ok(
+    read("docs/dependabot-automation.md")
+      .replace(/\s+/gu, " ")
+      .includes(readback),
+    `cutover readback must list the scheduled grants verbatim: ${readback}`,
+  );
+  for (const path of ["AGENTS.md", "CLAUDE.md"]) {
+    const source = read(path).replace(/\s+/gu, " ");
+    assert.doesNotMatch(
+      source,
+      /(?:Use|and) a reviewed one-shot HTTPS credential adapter\./u,
+      `${path} must not instruct the model to operate the credential adapter`,
+    );
+    assert.match(
+      source,
+      /broker(?:'s one-shot)? worker activates the reviewed (?:one-shot )?HTTPS credential adapter under `dependabot-mutator`/u,
+      path,
+    );
+    assert.match(source, /exact-CAS `push` or `sync-base` operation/u, path);
   }
 });

@@ -347,10 +347,12 @@ For each pull request:
    exact-head CI to run `pnpm dependency:policy:test` and all affected gates.
    Require the override validators for root override changes. Use `manual` when
    a required repair needs local candidate execution.
-7. Push only to the verified head ref with an explicit refspec, an exact
-   expected-old-head lease, and a reviewed one-shot HTTPS credential adapter.
-   Independently prove the update is a fast-forward. Never persist the helper
-   or expose its token. Remove the adapter after the attempt. Request a new
+7. Push only to the verified head ref with an explicit refspec and an exact
+   expected-old-head lease, through the root broker's exact-CAS `push` or
+   `sync-base` operation. Independently prove the update is a fast-forward.
+   The broker worker activates the reviewed one-shot HTTPS credential adapter
+   under `dependabot-mutator` and removes it after the attempt; never hold or
+   expose that credential. Request a new
    CodeRabbit review once per eligible exact head, including an unchanged
    `review-only` or no-op head, and again after every push, with one exact
    `@coderabbitai review` issue comment. Bind that request to this invocation's stable comment ID,

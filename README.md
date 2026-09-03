@@ -585,8 +585,9 @@ The repository is set up with GitHub Actions for CI:
   runs the separately pinned `/opt/dependabot-prep/authorized-run.mjs`
   implementation. The root orchestrator's short-lived nonce has `mode: write`,
   is bound to the run, and is mandatory at the mutation broker; direct
-  launcher write mode refuses. Direct read-only, self-test, and status
-  operations remain available; pinning stays root-only maintenance.
+  launcher write mode refuses. Direct read-only and status operations remain
+  available; the self-test runs only through the root `selftest-run`
+  orchestrator, and pinning stays root-only maintenance.
   The default branch path edits a sanitized standalone clone without executing
   candidate code, then relies on exact-head secretless CI. It never mutates a
   direct Actions update: only an authenticated `github-actions-routine` minor

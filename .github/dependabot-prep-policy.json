@@ -600,9 +600,7 @@
       "processingMode": "review-only",
       "dependencyMatch": "authenticated-same-line-uses-ref-rotations",
       "requiredRefFormat": "40-lowercase-hex-git-oid",
-      "originalAllowedPathPrefixes": [
-        ".github/workflows/"
-      ],
+      "originalAllowedPathPrefixes": [".github/workflows/"],
       "sensitiveActionPatterns": [
         "actions/create-github-app-token",
         "actions/dependency-review-action",
@@ -804,10 +802,7 @@
       "enqueue"
     ],
     "directLauncherWrite": "refuse",
-    "directLauncherNonWriteOperations": [
-      "run --read-only",
-      "status"
-    ],
+    "directLauncherNonWriteOperations": ["run --read-only", "status"],
     "rootOnlyMaintenanceOperations": ["pin", "selftest-run"],
     "dependabotMaintenanceOperations": ["lease-clear"],
     "capability": {

@@ -236,10 +236,11 @@ For each pull request:
    repair or generated file cannot be produced without candidate execution,
    classify the pull request as `manual`.
 7. Push only to the verified pull-request head with an explicit refspec and an
-   exact expected-old-head lease after an independent fast-forward proof. Use a
-   reviewed one-shot HTTPS credential adapter. Never persist the helper or put
-   its token in a URL, argument, log, or file. Remove the adapter immediately
-   after the push attempt.
+   exact expected-old-head lease after an independent fast-forward proof. Push
+   only through the root broker's exact-CAS `push` or `sync-base` operation.
+   The broker's one-shot worker activates the reviewed HTTPS credential adapter
+   under `dependabot-mutator` and removes it after the attempt; the model never
+   holds, generates, or interpolates that credential.
    Do not push when the native head is already current and needs no repair.
    Post the exact `@coderabbitai review` issue comment once per eligible exact
    head, including an unchanged `review-only` or no-op head, and again after
