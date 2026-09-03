@@ -15933,3 +15933,367 @@ test("terminalized recovered failure after an older checkpoint reopens once", ()
     null,
   );
 });
+
+test("a full checkpoint fold settles coalescing on out-of-order lineage", () => {
+  // A(4000) -> B(4010) -> C(4005): the selected C receipt carries a lower run
+  // ID than the B receipt it follows.
+  const opened = event({
+    run: 4_000,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const events = [
+    opened,
+    event({
+      run: 4_010,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      updated: timestamp(2),
+    }),
+    event({
+      run: 4_005,
+      action: "synchronize",
+      before: SHA.B,
+      head: SHA.C,
+      updated: timestamp(3),
+    }),
+  ];
+  const currentPull = pull({ head: SHA.C, updated: timestamp(3) });
+  const first = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const activeA = persistDispatch(first, 44_000);
+  const selectionA = selectionReceiptFromDispatch(activeA.targets.ui.active);
+  let journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      events,
+      selections: [selectionA],
+      state: activeA,
+    }),
+    { throughEventRunId: 4_000 },
+  );
+  const resultA = result(first.nextDispatch, { runId: 44_000 });
+  const jumped = reconcile({
+    events: journal.receipts.events,
+    results: [resultA],
+    selections: journal.receipts.selections,
+    pullRequest: currentPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  assert.equal(jumped.nextDispatch.sha, SHA.C);
+  assert.equal(jumped.nextDispatch.selection_receipt_run_id, 4_005);
+  assert.deepEqual(jumped.nextDispatch.coalesced_receipt_run_ids, [4_010]);
+
+  const activeC = persistDispatch(jumped, 44_005);
+  const selectionC = selectionReceiptFromDispatch(activeC.targets.ui.active);
+  // Folding through the tail removes every live receipt, including the C
+  // receipt the selection names, while in-flight ownership keeps that
+  // selection retained. Only the checkpoint anchor survives.
+  journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      checkpoint: journal.checkpoint,
+      events: journal.receipts.events,
+      selections: [...journal.receipts.selections, selectionC],
+      workerEvidence: journal.receipts.worker_evidence,
+      results: [resultA],
+      state: activeC,
+    }),
+    { throughEventRunId: 4_005 },
+  );
+  assert.equal(journal.checkpoint.through_event_run_id, 4_005);
+  assert.deepEqual(journal.receipts.events, []);
+  assert.deepEqual(
+    journal.receipts.selections.map(
+      (selection) => selection.coalesced_receipt_run_ids,
+    ),
+    [[4_010]],
+  );
+
+  const settled = reconcile({
+    events: journal.receipts.events,
+    results: [
+      ...journal.receipts.results,
+      result(jumped.nextDispatch, { runId: 44_005 }),
+    ],
+    selections: journal.receipts.selections,
+    pullRequest: currentPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  assert.equal(settled.state.status_decisions.at(-1).state, "success");
+  assert.equal(settled.state.status_decisions.at(-1).targets.ui, "deployed");
+  assert.equal(settled.state.targets.ui.active, null);
+});
+
+test("a coalesced identity the checkpoint never folded fails closed", () => {
+  const opened = event({
+    run: 2_800,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const events = [
+    opened,
+    event({
+      run: 2_801,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      updated: timestamp(2),
+    }),
+  ];
+  const currentPull = pull({ head: SHA.B, updated: timestamp(2) });
+  const first = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const activeA = persistDispatch(first, 42_800);
+  const selectionA = selectionReceiptFromDispatch(activeA.targets.ui.active);
+  const journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      events,
+      selections: [selectionA],
+      state: activeA,
+    }),
+    { throughEventRunId: 2_800 },
+  );
+  const resultA = result(first.nextDispatch, { runId: 42_800 });
+  const jumped = reconcile({
+    events: journal.receipts.events,
+    results: [resultA],
+    selections: journal.receipts.selections,
+    pullRequest: currentPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  const activeB = persistDispatch(jumped, 42_801);
+  // Run ID 1 is lower than the selection receipt but the checkpoint never
+  // folded it. A lower run ID is not membership evidence.
+  const contradictory = selectionReceiptFromDispatch({
+    ...activeB.targets.ui.active,
+    coalesced_receipt_run_ids: [1],
+  });
+  assert.throws(
+    () =>
+      reconcile({
+        events: journal.receipts.events,
+        results: [resultA],
+        selections: [...journal.receipts.selections, contradictory],
+        pullRequest: currentPull,
+        existingState: activeB,
+        checkpoint: journal.checkpoint,
+      }),
+    /ui coalescing evidence contradicts durable ownership/,
+  );
+});
+
+test("two retained selections cannot both own one folded identity", () => {
+  const laterHead = (0x72).toString(16).padStart(40, "0");
+  const opened = event({
+    run: 2_900,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const events = [
+    opened,
+    event({
+      run: 2_901,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      updated: timestamp(2),
+    }),
+    event({
+      run: 2_902,
+      action: "synchronize",
+      before: SHA.B,
+      head: SHA.C,
+      updated: timestamp(3),
+    }),
+    event({
+      run: 2_903,
+      action: "synchronize",
+      before: SHA.C,
+      head: SHA.D,
+      updated: timestamp(4),
+    }),
+  ];
+  const laterEvent = event({
+    run: 2_904,
+    action: "synchronize",
+    before: SHA.D,
+    head: laterHead,
+    updated: timestamp(5),
+  });
+  const first = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const activeA = persistDispatch(first, 42_900);
+  const selectionA = selectionReceiptFromDispatch(activeA.targets.ui.active);
+  let journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      events,
+      selections: [selectionA],
+      state: activeA,
+    }),
+    { throughEventRunId: 2_900 },
+  );
+  const resultA = result(first.nextDispatch, { runId: 42_900 });
+  const jumped = reconcile({
+    events: journal.receipts.events,
+    results: [resultA],
+    selections: journal.receipts.selections,
+    pullRequest: pull({ head: SHA.D, updated: timestamp(4) }),
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  const activeD = persistDispatch(jumped, 42_903);
+  const selectionD = selectionReceiptFromDispatch(activeD.targets.ui.active);
+  journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      checkpoint: journal.checkpoint,
+      events: journal.receipts.events,
+      selections: [...journal.receipts.selections, selectionD],
+      workerEvidence: journal.receipts.worker_evidence,
+      results: [resultA],
+      state: activeD,
+    }),
+    { throughEventRunId: 2_902 },
+  );
+  const resultD = result(jumped.nextDispatch, { runId: 42_903 });
+  const laterPull = pull({ head: laterHead, updated: timestamp(5) });
+  const dispatched = reconcile({
+    events: [...journal.receipts.events, laterEvent],
+    results: [...journal.receipts.results, resultD],
+    selections: journal.receipts.selections,
+    pullRequest: laterPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  const activeLater = persistDispatch(dispatched, 42_904);
+  // A journal written before the dispatch exclusion landed can hold a later
+  // selection that re-coalesced 2_901, which the checkpoint folded away
+  // entirely: it is not the retained anchor, so nothing resolves it.
+  const legacyLater = selectionReceiptFromDispatch({
+    ...activeLater.targets.ui.active,
+    coalesced_receipt_run_ids: [2_901],
+  });
+  assert.throws(
+    () =>
+      reconcile({
+        events: [...journal.receipts.events, laterEvent],
+        results: [...journal.receipts.results, resultD],
+        selections: [...journal.receipts.selections, legacyLater],
+        pullRequest: laterPull,
+        existingState: activeLater,
+        checkpoint: journal.checkpoint,
+      }),
+    /ui event has conflicting coalescing evidence/,
+  );
+});
+
+test("a checkpoint without folded membership evidence fails closed", () => {
+  const opened = event({
+    run: 3_000,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const events = [
+    opened,
+    event({
+      run: 3_001,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      updated: timestamp(2),
+    }),
+    event({
+      run: 3_002,
+      action: "synchronize",
+      before: SHA.B,
+      head: SHA.C,
+      updated: timestamp(3),
+    }),
+    event({
+      run: 3_003,
+      action: "synchronize",
+      before: SHA.C,
+      head: SHA.D,
+      updated: timestamp(4),
+    }),
+  ];
+  const currentPull = pull({ head: SHA.D, updated: timestamp(4) });
+  const first = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const activeA = persistDispatch(first, 43_000);
+  const selectionA = selectionReceiptFromDispatch(activeA.targets.ui.active);
+  let journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      events,
+      selections: [selectionA],
+      state: activeA,
+    }),
+    { throughEventRunId: 3_000 },
+  );
+  const resultA = result(first.nextDispatch, { runId: 43_000 });
+  const jumped = reconcile({
+    events: journal.receipts.events,
+    results: [resultA],
+    selections: journal.receipts.selections,
+    pullRequest: currentPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  const activeD = persistDispatch(jumped, 43_003);
+  const selectionD = selectionReceiptFromDispatch(activeD.targets.ui.active);
+  journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      checkpoint: journal.checkpoint,
+      events: journal.receipts.events,
+      selections: [...journal.receipts.selections, selectionD],
+      workerEvidence: journal.receipts.worker_evidence,
+      results: [resultA],
+      state: activeD,
+    }),
+    { throughEventRunId: 3_002 },
+  );
+  const settledArguments = {
+    events: journal.receipts.events,
+    results: [
+      ...journal.receipts.results,
+      result(jumped.nextDispatch, { runId: 43_003 }),
+    ],
+    selections: journal.receipts.selections,
+    pullRequest: currentPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  };
+  assert.equal(reconcile(settledArguments).nextDispatch, null);
+
+  // A checkpoint written before this evidence existed proves no membership,
+  // so the same folded identity fails closed instead of being assumed settled.
+  const legacyCheckpoint = structuredClone(journal.checkpoint);
+  for (const target of PREVIEW_TARGETS) {
+    delete legacyCheckpoint.targets[target].folded_event_run_ids;
+  }
+  assert.throws(
+    () => reconcile({ ...settledArguments, checkpoint: legacyCheckpoint }),
+    /ui coalescing evidence contradicts durable ownership/,
+  );
+});
