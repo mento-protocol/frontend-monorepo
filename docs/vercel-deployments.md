@@ -877,13 +877,36 @@ mutate nothing — safe-noop, preparation failure, `no-target` — carry no map.
 
 The map holds one entry per target the release actually promoted; a target that
 was not selected, is shadow-owned, or was never promoted moved nothing and gets
-no entry and no rendered line. Each entry is `{aliases, omitted}`: canonical,
-sorted, deduplicated hostnames, capped at `MAIN_RIDER_ALIAS_TARGET_LIMIT` (16)
-per target and at `MAIN_RIDER_ALIAS_BYTE_BUDGET` (4096 bytes) across the map,
-with `omitted` counting what the caps dropped. Truncation is deliberate and
-deterministic: visibility must never become a new way for a deploy to fail, and
-the budget sits far below the 64 KiB terminal-evidence and 256 KiB bridge caps
-so the rider map can never be what overruns an artifact.
+no entry and no rendered line. "Actually promoted" is read from the journal, not
+from the plan: a failure evidence's scope is the set of targets whose `promote`
+reached the `started` state, the same operation log the mutation count comes
+from. A journal still at `prepared` therefore names nothing, and one that
+started only a prefix of its plan names only that prefix. A committed release
+and an already-current one promoted every active target by construction, so
+their maps stay keyed on exactly those; a failure evidence keys on a canonical
+ordered subset. Both creator and reader also enforce the bound the report makes
+visible: a map may never claim more moved targets than the
+`publicServingMutationCommands` printed beside it, and a run proving zero
+started mutations carries no map at all.
+
+Each entry is `{aliases, omitted}`: canonical, sorted, deduplicated hostnames,
+capped at `MAIN_RIDER_ALIAS_TARGET_LIMIT` (16) per target and at
+`MAIN_RIDER_ALIAS_BYTE_BUDGET` (4096 bytes) across the map, with `omitted`
+counting what the caps dropped. Truncation is deliberate and deterministic:
+visibility must never become a new way for a deploy to fail, and the budget sits
+far below the 64 KiB terminal-evidence and 256 KiB bridge caps so the rider map
+can never be what overruns an artifact.
+
+An entry of `null` is the third state: **not attributed**. Wherever a journal
+exists, each censused target is correlated with the deployment identity
+(`deploymentId` and `deploymentUrl`) this release owned for it — the captured
+prior it would roll back to, or the candidate it promoted. A `manual-intervention`
+is defined by a reviewed protected domain the pipeline can no longer account
+for, and the post-recovery census can still read that domain successfully while
+it points at a third, operator-owned deployment. Those domains are not this
+release's to claim, so the entry becomes `null` and renders as
+`not attributed (deployment this release does not own)`. The unowned
+deployment's hostnames never enter the evidence at all.
 
 A whole map of `null` means the producing job took no census, and how that
 renders depends on whether the run could have moved anything at all. When the
@@ -906,7 +929,8 @@ is a new credential exposure.
   what each target's reviewed protected domain travels with once recovery is
   finished: the riders a completed rollback restored onto the prior, or, where
   a target was left forward for manual intervention, the ones still riding with
-  the candidate.
+  the candidate. Where it finds neither, the entry is `not attributed` rather
+  than a set of somebody else's domains.
 - **Before any compensation**, for `recovery-failed` — that branch runs no
   slot, so the provider still serves whatever the forward promote left, and the
   census names the domains that promote moved and nothing moved back.

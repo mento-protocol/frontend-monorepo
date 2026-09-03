@@ -5503,6 +5503,202 @@ test("a failed recovery names the rider domains its census observed", () => {
   );
 });
 
+// The census observes every planned target, but the plan is an intention. What
+// a release moved is what its journal actually started, and a rider line that
+// outran the mutation count printed beside it would contradict its own report.
+test("rider evidence is scoped to the promotes a journal actually started", () => {
+  const onePlan = activePlan({ deployments: ["governance"] });
+  const oneExecution = releaseExecutionForPlan(onePlan);
+  const onePrepared = createPreparedMainActiveJournal({
+    plan: onePlan,
+    stageJobs: stageJobs(onePlan),
+    appCandidateReceipt: null,
+    runId: "800",
+    runAttempt: "3",
+  });
+  // A journal that never left `prepared` started nothing. Supplying a census
+  // must not turn that into a claim of movement: with no started promote there
+  // is no map, and the report says so from the mutation count.
+  const preparedOnly = createMainActiveTerminalArtifacts({
+    execution: oneExecution,
+    outcome: "recovery-failed",
+    journalHistory: activeHistoryDocument([onePrepared]),
+    finalMappings: null,
+    publicSmokes: null,
+    stateProof: null,
+    finalCensus: null,
+    freshness: null,
+    stageResults: null,
+    riderCensus: planningSnapshot(),
+    runId: "800",
+    runAttempt: "3",
+  });
+  assert.equal(preparedOnly.evidence.publicServingMutationCommands, 0);
+  assert.equal(preparedOnly.evidence.riderAliases, null);
+  const preparedSummary = renderMainActiveDeploymentFailureEvidence(
+    preparedOnly.evidence,
+  );
+  assert.match(
+    preparedSummary,
+    /- Rider domains moved: none \(no mutation in this run\)/,
+  );
+  assert.doesNotMatch(preparedSummary, /Rider domains moved with/);
+  assert.doesNotMatch(preparedSummary, /Rider domains moved: unknown/);
+
+  // A multi-target plan whose journal started only a prefix names only that
+  // prefix. The unstarted target is not merely empty — it has no line at all.
+  const twoPlan = activePlan({ deployments: ["governance", "reserve"] });
+  const twoExecution = releaseExecutionForPlan(twoPlan);
+  const twoPrepared = createPreparedMainActiveJournal({
+    plan: twoPlan,
+    stageJobs: stageJobs(twoPlan),
+    appCandidateReceipt: null,
+    runId: "800",
+    runAttempt: "3",
+  });
+  const prefixStarted = startMainTransactionOperation(twoPrepared, {
+    type: "promote",
+    target: "governance",
+  });
+  const prefix = createMainActiveTerminalArtifacts({
+    execution: twoExecution,
+    outcome: "recovery-failed",
+    journalHistory: activeHistoryDocument([twoPrepared, prefixStarted]),
+    finalMappings: null,
+    publicSmokes: null,
+    stateProof: null,
+    finalCensus: null,
+    freshness: null,
+    stageResults: null,
+    riderCensus: planningSnapshot(),
+    runId: "800",
+    runAttempt: "3",
+  });
+  assert.deepEqual(twoExecution.projection.activeTargets, [
+    "governance",
+    "reserve",
+  ]);
+  assert.equal(prefix.evidence.publicServingMutationCommands, 1);
+  assert.deepEqual(Object.keys(prefix.evidence.riderAliases), ["governance"]);
+  const prefixSummary = renderMainActiveDeploymentFailureEvidence(
+    prefix.evidence,
+  );
+  assert.match(prefixSummary, /- Rider domains moved with `governance`: /);
+  assert.doesNotMatch(prefixSummary, /Rider domains moved with `reserve`/);
+
+  // And the bound is enforced on read, so a rewritten evidence cannot smuggle
+  // movement past the count that contradicts it.
+  const overclaimed = structuredClone(prefix.evidence);
+  overclaimed.publicServingMutationCommands = 0;
+  assert.throws(
+    () =>
+      assertMainActiveTerminalEvidenceArtifact(overclaimed, {
+        execution: twoExecution,
+        runId: "800",
+        runAttempt: "3",
+      }),
+    /claims movement no started mutation supports/,
+  );
+});
+
+// A manual intervention is defined by a reviewed domain the pipeline can no
+// longer account for. Whatever serves it then is operator-owned, and the
+// domains riding with it are not this release's to claim.
+test("a manual intervention never attributes an unowned deployment's domains", () => {
+  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const execution = releaseExecutionForPlan(deploymentPlan);
+  const prepared = createPreparedMainActiveJournal({
+    plan: deploymentPlan,
+    stageJobs: stageJobs(deploymentPlan),
+    appCandidateReceipt: null,
+    runId: "800",
+    runAttempt: "3",
+  });
+  const started = startMainTransactionOperation(prepared, {
+    type: "promote",
+    target: "governance",
+  });
+  const recovering = startMainTransactionRecovery(started);
+  const manual = finishMainTransactionRecovery(recovering, {
+    manualIntervention: true,
+  });
+  const history = [prepared, started, recovering, manual];
+  const priorMappings = Object.values(manual.prior).flatMap((prior) =>
+    prior.aliases.map((alias) => mapping(alias, prior)),
+  );
+  const stateProof = activeStateProof({
+    deploymentPlan,
+    journalHistory: history,
+    jobs: stageJobs(deploymentPlan),
+    runId: "800",
+    runAttempt: "3",
+  });
+  const terminalFor = (riderCensus) =>
+    createMainActiveTerminalArtifacts({
+      execution,
+      outcome: "manual-intervention",
+      journalHistory: activeHistoryDocument(history),
+      finalMappings: providerMappings(execution, priorMappings),
+      publicSmokes: null,
+      stateProof,
+      finalCensus: stateProof,
+      freshness: null,
+      stageResults: null,
+      riderCensus,
+      runId: "800",
+      runAttempt: "3",
+    });
+
+  // Baseline: the reviewed domain still on the prior this release captured is
+  // attributable, and its riders are named.
+  const owned = terminalFor(planningSnapshot());
+  assert.deepEqual(Object.keys(owned.evidence.riderAliases), ["governance"]);
+  assert.deepEqual(owned.evidence.riderAliases.governance, {
+    aliases: [
+      "governancementoorg-git-main-mentolabs.vercel.app",
+      "governancementoorg-mentolabs.vercel.app",
+      "governancementoorg.vercel.app",
+    ],
+    omitted: 0,
+  });
+
+  // Now the reviewed domain points at a third deployment — neither the prior
+  // nor the candidate. Its riders must never be reported as domains this
+  // release moved.
+  const unowned = planningSnapshot();
+  let repointed = 0;
+  for (const state of unowned.states) {
+    if (!state.alias.startsWith("governance.")) continue;
+    state.deploymentId = "dpl_governanceOperatorOwned";
+    state.deploymentUrl = "https://governance-operator-owned.vercel.app";
+    state.aliases = [...state.aliases, "operator-added.mento.org"].sort();
+    repointed += 1;
+  }
+  assert.ok(repointed > 0);
+  const artifacts = terminalFor(unowned);
+  assert.deepEqual(artifacts.evidence.riderAliases, { governance: null });
+  const summary = renderMainActiveDeploymentFailureEvidence(artifacts.evidence);
+  assert.match(
+    summary,
+    /- Rider domains moved with `governance`: not attributed \(deployment this release does not own\)/,
+  );
+  // Nothing the operator's deployment carries leaks into the report.
+  assert.doesNotMatch(summary, /operator-added\.mento\.org/);
+  assert.doesNotMatch(
+    JSON.stringify(artifacts.evidence),
+    /operator-added\.mento\.org|governance-operator-owned/,
+  );
+  // A not-attributed entry still round-trips through the terminal reader.
+  assert.deepEqual(
+    assertMainActiveTerminalEvidenceArtifact(artifacts.evidence, {
+      execution,
+      runId: "800",
+      runAttempt: "3",
+    }),
+    artifacts.evidence,
+  );
+});
+
 test("preparation failure terminal artifacts bind exact target results without provider claims", () => {
   const deploymentPlan = activePlan({
     deployments: ["governance", "reserve"],
@@ -8995,7 +9191,7 @@ test("active failure evidence never claims zero after a mutation may have starte
         },
         riderTargets: ["governance"],
       }),
-    /Active failure rider domains contains forbidden or missing fields/,
+    /Active failure rider domains keys are not a canonical promoted subset/,
   );
   assert.throws(
     () =>
