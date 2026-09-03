@@ -97,7 +97,13 @@ Linux bootstrap must move.
    lockfile lint advisory floors so the replaced vulnerable release cannot
    return. Require the exact-head
    `osv-scanner (trusted pnpm runtime) / osv-scan` CI job to pass with
-   no ignored vulnerability.
+   no ignored vulnerability. On a pull request that job reports only what the
+   pull request introduces relative to `main`, which does cover removing a
+   suppression or moving to a new pinned version — both are head-only changes.
+   It does not re-prove that the rest of the lockfile is clean. The daily
+   scheduled Supply Chain run is the full scan that does; run
+   `workflow_dispatch` on Supply Chain if you need that proof before the next
+   cron.
 4. Review every changed path. Run the full protected pnpm validation:
 
    ```bash

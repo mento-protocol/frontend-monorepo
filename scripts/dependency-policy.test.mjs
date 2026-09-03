@@ -608,7 +608,7 @@ test("human Claude review rejects a candidate marketplace symlink", () => {
   }
 });
 
-test("pull requests use read-only OSV jobs and trusted runs own SARIF writes", () => {
+test("pull requests diff OSV findings read-only and trusted runs own full SARIF scans", () => {
   const supplyChain = yaml(".github/workflows/supply-chain.yml");
   const readOnlyOsv = yaml(".github/workflows/_osv-scanner-readonly.yml");
   const osvJobIds = [
@@ -693,21 +693,69 @@ test("pull requests use read-only OSV jobs and trusted runs own SARIF writes", (
     step.uses?.startsWith("actions/checkout@"),
   );
   assert.equal(checkout.with["persist-credentials"], false);
+  // Every branch must be fetched so the base checkout below is local and
+  // needs no credential.
+  assert.equal(checkout.with["fetch-depth"], 0);
+
+  // PR mode: scan the base branch, scan this branch, report only the
+  // difference. An advisory already present on the base branch must not fail
+  // a pull request that did not introduce it.
+  const baseCheckout = readOnlySteps.find(
+    (step) => step.name === "Check out the base branch",
+  );
+  assert.deepEqual(baseCheckout.env, { BASE_REF: "${{ github.base_ref }}" });
+  assert.match(
+    baseCheckout.run,
+    /git checkout --detach "origin\/\$\{BASE_REF\}"/u,
+  );
+  const headCheckout = readOnlySteps.find(
+    (step) => step.name === "Check out this branch",
+  );
+  assert.deepEqual(headCheckout.env, { HEAD_SHA: "${{ github.sha }}" });
+  assert.match(
+    headCheckout.run,
+    /git checkout --detach --force "\$\{HEAD_SHA\}"/u,
+  );
+
   const scannerSteps = readOnlySteps.filter((step) =>
     step.uses?.startsWith("google/osv-scanner-action/osv-scanner-action@"),
   );
-  assert.equal(scannerSteps.length, 1);
-  const [scanner] = scannerSteps;
-  const scannerRevision =
-    /^google\/osv-scanner-action\/osv-scanner-action@([0-9a-f]{40})$/u.exec(
-      scanner.uses,
-    )?.[1];
+  assert.equal(scannerSteps.length, 2);
+  const [baseScanner, scanner] = scannerSteps;
+  const scannerRevisions = scannerSteps.map(
+    (step) =>
+      /^google\/osv-scanner-action\/osv-scanner-action@([0-9a-f]{40})$/u.exec(
+        step.uses,
+      )?.[1],
+  );
+  const [scannerRevision] = scannerRevisions;
   assert.ok(scannerRevision);
+  assert.deepEqual([...new Set(scannerRevisions)], [scannerRevision]);
+  assert.equal(baseScanner.id, "scan-base");
+  assert.equal(baseScanner["continue-on-error"], true);
+  assert.match(baseScanner.with["scan-args"], /--output=old-results\.json/u);
   assert.equal(scanner.id, "scan");
   assert.equal(scanner["continue-on-error"], true);
   assert.match(scanner.with["scan-args"], /--output=results\.json/u);
-  assert.match(scanner.with["scan-args"], /--format=json/u);
-  assert.match(scanner.with["scan-args"], /\$\{\{ inputs\.scan-args \}\}/u);
+  for (const step of scannerSteps) {
+    assert.match(step.with["scan-args"], /--format=json/u);
+    // Both sides must scan the caller's exact config and lockfile, or the two
+    // result sets are not comparable.
+    assert.match(step.with["scan-args"], /\$\{\{ inputs\.scan-args \}\}/u);
+  }
+
+  // A base branch without this lockfile, or a failed base scan, falls back to
+  // an empty baseline so every finding here counts as new. That can only
+  // over-report, never under-report.
+  const baselineGuards = readOnlySteps.filter(
+    (step) => step.name === "Establish the base vulnerability baseline",
+  );
+  assert.equal(baselineGuards.length, 1);
+  const [baselineGuard] = baselineGuards;
+  assert.equal(baselineGuard.shell, "bash");
+  assert.deepEqual(baselineGuard.env, { BASE_RESULTS: "old-results.json" });
+  assert.match(baselineGuard.run, /if \[ ! -s "\$\{BASE_RESULTS\}" \]; then/u);
+  assert.match(baselineGuard.run, /\{"results":\[\]\}/u);
 
   const completionGuards = readOnlySteps.filter(
     (step) => step.name === "Check that the scan completed",
@@ -744,13 +792,23 @@ test("pull requests use read-only OSV jobs and trusted runs own SARIF writes", (
     ),
     scannerRevision,
   );
-  assert.ok(
-    readOnlySteps.indexOf(scanner) < readOnlySteps.indexOf(completionGuard),
+  const order = [
+    baseCheckout,
+    baseScanner,
+    baselineGuard,
+    headCheckout,
+    scanner,
+    completionGuard,
+    reporter,
+  ].map((step) => readOnlySteps.indexOf(step));
+  assert.deepEqual(
+    order,
+    [...order].sort((left, right) => left - right),
+    "the base scan, baseline fallback, head scan, guard, and reporter must run in that order",
   );
-  assert.ok(
-    readOnlySteps.indexOf(completionGuard) < readOnlySteps.indexOf(reporter),
-  );
+  assert.ok(order.every((index) => index >= 0));
   assert.match(reporter.with["scan-args"], /--output=results\.sarif/u);
+  assert.match(reporter.with["scan-args"], /--old=old-results\.json/u);
   assert.match(reporter.with["scan-args"], /--new=results\.json/u);
   assert.match(reporter.with["scan-args"], /--gh-annotations=false/u);
   assert.match(reporter.with["scan-args"], /--fail-on-vuln=true/u);
