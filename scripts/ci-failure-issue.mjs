@@ -165,12 +165,19 @@ function degradationReason(error) {
   return renderField(flattened.slice(0, MAX_FIELD_CHARS), "unknown error");
 }
 
-function failedStepNamesFor(job) {
+function failedStepsFor(job) {
   const steps = Array.isArray(job?.steps) ? job.steps : [];
-  return steps
-    .filter((step) => FAILURE_CONCLUSIONS.has(step?.conclusion))
-    .slice(0, MAX_REPORTED_STEPS)
-    .map((step, index) => renderField(step?.name, `step ${index + 1}`));
+  const failed = steps.filter((step) =>
+    FAILURE_CONCLUSIONS.has(step?.conclusion),
+  );
+  return {
+    names: failed
+      .slice(0, MAX_REPORTED_STEPS)
+      .map((step, index) => renderField(step?.name, `step ${index + 1}`)),
+    // Counted, never silently dropped: a job with many failing `if: always()`
+    // cleanup steps would otherwise read as a complete list.
+    omitted: Math.max(0, failed.length - MAX_REPORTED_STEPS),
+  };
 }
 
 /**
@@ -225,11 +232,15 @@ export async function collectFailureEvidence(
       FAILURE_CONCLUSIONS.has(job?.conclusion),
   );
   const reported = failedJobs.slice(0, MAX_REPORTED_JOBS);
-  const jobs = reported.map((job) => ({
-    name: renderField(job?.name, "unnamed job"),
-    url: safeJobUrl(job?.html_url),
-    failedSteps: failedStepNamesFor(job),
-  }));
+  const jobs = reported.map((job) => {
+    const steps = failedStepsFor(job);
+    return {
+      name: renderField(job?.name, "unnamed job"),
+      url: safeJobUrl(job?.html_url),
+      failedSteps: steps.names,
+      omittedSteps: steps.omitted,
+    };
+  });
 
   const omitted = failedJobs.length - reported.length;
   return {
@@ -248,7 +259,12 @@ function renderFailedJob(job) {
   }
   const label = job.failedSteps.length === 1 ? "failed step" : "failed steps";
   const steps = job.failedSteps.map((step) => `\`${step}\``).join(", ");
-  return `- **${job.name}** — ${label}: ${steps}${link}`;
+  const omitted = job.omittedSteps ?? 0;
+  const more =
+    omitted > 0
+      ? `, and ${omitted} more failed step${omitted === 1 ? "" : "s"} not shown`
+      : "";
+  return `- **${job.name}** — ${label}: ${steps}${more}${link}`;
 }
 
 export function failureBody(run, targetRef, marker, evidence = { jobs: [] }) {

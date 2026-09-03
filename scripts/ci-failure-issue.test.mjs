@@ -618,6 +618,51 @@ test("every failed step of a job is listed", async () => {
   assert.doesNotMatch(body, /second check/);
 });
 
+test("failed steps beyond the cap are counted, not silently dropped", async () => {
+  // A job with many failing `if: always()` cleanup steps must not read as a
+  // complete list.
+  const steps = [
+    { name: "passing setup", conclusion: "success" },
+    ...Array.from({ length: 12 }, (_, index) => ({
+      name: `cleanup ${index}`,
+      conclusion: index === 11 ? "timed_out" : "failure",
+    })),
+  ];
+  const { github, context, calls } = harness({ jobs: [failedJob({ steps })] });
+  await reconcileCiFailureIssue({ github, context });
+
+  const body = calls.create[0].body;
+  const row = body.split("\n").find((line) => line.startsWith("- **"));
+  const listed = [...row.matchAll(/`cleanup \d+`/g)];
+  assert.equal(listed.length, 10, "the ten-step cap still holds");
+  assert.match(row, /, and 2 more failed steps not shown/);
+  assert.match(row, /`cleanup 9`/);
+  assert.doesNotMatch(row, /`cleanup 10`/);
+  assert.doesNotMatch(row, /passing setup/);
+});
+
+test("a single omitted failed step is reported in the singular", async () => {
+  const steps = Array.from({ length: 11 }, (_, index) => ({
+    name: `check ${index}`,
+    conclusion: "failure",
+  }));
+  const { github, context, calls } = harness({ jobs: [failedJob({ steps })] });
+  await reconcileCiFailureIssue({ github, context });
+
+  assert.match(calls.create[0].body, /, and 1 more failed step not shown/);
+});
+
+test("a job at the cap reports no omission note", async () => {
+  const steps = Array.from({ length: 10 }, (_, index) => ({
+    name: `check ${index}`,
+    conclusion: "failure",
+  }));
+  const { github, context, calls } = harness({ jobs: [failedJob({ steps })] });
+  await reconcileCiFailureIssue({ github, context });
+
+  assert.doesNotMatch(calls.create[0].body, /more failed step/);
+});
+
 test("a job with no failed step still names the job", async () => {
   const job = failedJob({ steps: [{ name: "setup", conclusion: "success" }] });
   const { github, context, calls } = harness({ jobs: [job] });

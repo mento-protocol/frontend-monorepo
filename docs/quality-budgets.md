@@ -145,8 +145,9 @@ step. That is tracked as follow-up work, not worked around by parsing the log.
 
 Bounding and degradation. At most 10 failed jobs and 10 failed steps per job are
 listed, and the assembled body is held under 60 KiB against GitHub's
-65536-character issue limit, with a counted note for anything dropped or not
-listed. The job listing is the only evidence call and carries a 20-second
+65536-character issue limit. Nothing is dropped silently: a job whose failed
+steps exceed the cap carries an explicit `and N more failed steps not shown`,
+and jobs beyond the job cap are counted in their own note. The job listing is the only evidence call and carries a 20-second
 `AbortSignal`, so a stalled listing cannot consume the notifier's five-minute
 job. A failed listing degrades to a `job list unavailable: <reason>` note; a
 reason that itself looks like a credential is reported as `redacted error`, and
