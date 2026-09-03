@@ -399,7 +399,7 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
   assert.doesNotMatch(rootOsvConfig, /GHSA-v2v4-37r5-5v8g/);
   assert.match(
     supplyChain.jobs.osv.with["scan-args"],
-    /--config=osv-scanner\.toml[\s\S]*--lockfile=pnpm-lock\.yaml/,
+    /--config=candidate\/osv-scanner\.toml[\s\S]*--lockfile=candidate\/pnpm-lock\.yaml/,
   );
   assert.doesNotMatch(
     supplyChain.jobs.osv.with["scan-args"],
@@ -407,11 +407,11 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
   );
   assert.match(
     supplyChain.jobs["osv-pnpm-runtime"].with["scan-args"],
-    /--config=scripts\/vercel-pnpm-runtime\/osv-scanner\.toml[\s\S]*--lockfile=scripts\/vercel-pnpm-runtime\/pnpm-lock\.yaml/,
+    /--config=candidate\/scripts\/vercel-pnpm-runtime\/osv-scanner\.toml[\s\S]*--lockfile=candidate\/scripts\/vercel-pnpm-runtime\/pnpm-lock\.yaml/,
   );
   assert.match(
     supplyChain.jobs["osv-vercel-cli-runtime"].with["scan-args"],
-    /--config=scripts\/vercel-cli-runtime\/osv-scanner\.toml[\s\S]*--lockfile=scripts\/vercel-cli-runtime\/pnpm-lock\.yaml/,
+    /--config=candidate\/scripts\/vercel-cli-runtime\/osv-scanner\.toml[\s\S]*--lockfile=candidate\/scripts\/vercel-cli-runtime\/pnpm-lock\.yaml/,
   );
   assert.deepEqual(
     [...vercelCliRuntimeOsvConfig.matchAll(/^id = "([^"]+)"$/gm)].map(
@@ -429,7 +429,7 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
   );
   assert.equal(
     supplyChain.jobs["osv-pnpm-bootstrap"].with["scan-args"].trim(),
-    "--lockfile=scripts/vercel-pnpm-bootstrap/package-lock.json",
+    "--lockfile=candidate/scripts/vercel-pnpm-bootstrap/package-lock.json",
   );
   assert.doesNotMatch(
     supplyChain.jobs["osv-pnpm-bootstrap"].with["scan-args"],

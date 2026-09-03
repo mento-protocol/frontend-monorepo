@@ -46,30 +46,32 @@ jobs:
       # fixed merge commit. If main moves in between, the two sides come from
       # different snapshots: a main tip that fixes a dependency would leave the
       # older merge commit reporting that dependency as newly introduced.
+      #
+      # The checkout goes into a `candidate` subdirectory so scan state can live
+      # beside it rather than inside it, matching the scan job.
       - name: Check out the base commit the event was created from
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          path: candidate
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
 
-      # Scan output must never live in the checkout. A pull request can add a
-      # tracked file at any workspace path, and a scan that fails without
-      # overwriting it would leave candidate-controlled content standing in for
-      # a real result. RUNNER_TEMP is outside the checkout. Container actions
-      # see it mounted at /github/runner_temp, so the actions below are given
-      # that absolute path while the shell steps use the host path.
-      - name: Create the scan output directory outside the checkout
+      # Scan output must never live in the checkout, so it goes beside it. A
+      # pull request can only add files within its own tree, so it cannot place
+      # anything in osv-state. GITHUB_WORKSPACE is the one bind mount GitHub
+      # documents for container actions, where it appears at /github/workspace.
+      - name: Create the scan state directory beside the checkout
         shell: bash
         run: |
-          rm -rf "${RUNNER_TEMP}/osv"
-          mkdir -p "${RUNNER_TEMP}/osv"
+          rm -rf "${GITHUB_WORKSPACE}/osv-state"
+          mkdir -p "${GITHUB_WORKSPACE}/osv-state"
 
       - name: Scan the selected lockfile on the base branch
         id: scan
         uses: google/osv-scanner-action/osv-scanner-action@8e5cf47b818121e8b405931c82126c2630b0b20d # v2.5.1
         with:
           scan-args: |-
-            --output=/github/runner_temp/osv/old-results.json
+            --output=/github/workspace/osv-state/old-results.json
             --format=json
             ${{ inputs.scan-args }}
         continue-on-error: true
@@ -80,7 +82,7 @@ jobs:
       - name: Normalize the baseline
         shell: bash
         env:
-          BASE_RESULTS: ${{ runner.temp }}/osv/old-results.json
+          BASE_RESULTS: ${{ github.workspace }}/osv-state/old-results.json
         run: |
           set -uo pipefail
           if node -e 'const {readFileSync}=require("node:fs");const parsed=JSON.parse(readFileSync(process.env.BASE_RESULTS,"utf8"));if(!Array.isArray(parsed.results))throw new Error("no results array");'; then
@@ -94,6 +96,6 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ inputs.baseline-artifact }}
-          path: ${{ runner.temp }}/osv/old-results.json
+          path: ${{ github.workspace }}/osv-state/old-results.json
           retention-days: 1
           if-no-files-found: error

@@ -100,8 +100,8 @@ jobs:
     with:
       baseline-artifact: osv-baseline-root
       scan-args: |-
-        --config=osv-scanner.toml
-        --lockfile=pnpm-lock.yaml
+        --config=candidate/osv-scanner.toml
+        --lockfile=candidate/pnpm-lock.yaml
 
   osv:
     name: osv-scanner
@@ -113,12 +113,17 @@ jobs:
     # Pinned to v2.5.1. scan-args is scoped to the lockfile + the repo config:
     # with --lockfile, osv-scanner does NOT auto-discover osv-scanner.toml, so
     # --config is required. node_modules is gitignored and not scanned.
+    #
+    # Pull-request scans are candidate-rooted: the paired jobs check the
+    # repository out into a `candidate` subdirectory so scan state can live
+    # beside it rather than inside it. The scheduled and manual SARIF jobs below
+    # check out at the workspace root, so their paths stay unprefixed.
     uses: ./.github/workflows/_osv-scanner-readonly.yml
     with:
       baseline-artifact: osv-baseline-root
       scan-args: |-
-        --config=osv-scanner.toml
-        --lockfile=pnpm-lock.yaml
+        --config=candidate/osv-scanner.toml
+        --lockfile=candidate/pnpm-lock.yaml
 
   osv-pnpm-runtime-baseline:
     name: osv-baseline (trusted pnpm runtime)
@@ -130,8 +135,8 @@ jobs:
     with:
       baseline-artifact: osv-baseline-pnpm-runtime
       scan-args: |-
-        --config=scripts/vercel-pnpm-runtime/osv-scanner.toml
-        --lockfile=scripts/vercel-pnpm-runtime/pnpm-lock.yaml
+        --config=candidate/scripts/vercel-pnpm-runtime/osv-scanner.toml
+        --lockfile=candidate/scripts/vercel-pnpm-runtime/pnpm-lock.yaml
 
   osv-pnpm-runtime:
     name: osv-scanner (trusted pnpm runtime)
@@ -146,8 +151,8 @@ jobs:
     with:
       baseline-artifact: osv-baseline-pnpm-runtime
       scan-args: |-
-        --config=scripts/vercel-pnpm-runtime/osv-scanner.toml
-        --lockfile=scripts/vercel-pnpm-runtime/pnpm-lock.yaml
+        --config=candidate/scripts/vercel-pnpm-runtime/osv-scanner.toml
+        --lockfile=candidate/scripts/vercel-pnpm-runtime/pnpm-lock.yaml
 
   osv-vercel-cli-runtime-baseline:
     name: osv-baseline (standalone Vercel CLI runtime)
@@ -159,8 +164,8 @@ jobs:
     with:
       baseline-artifact: osv-baseline-vercel-cli-runtime
       scan-args: |-
-        --config=scripts/vercel-cli-runtime/osv-scanner.toml
-        --lockfile=scripts/vercel-cli-runtime/pnpm-lock.yaml
+        --config=candidate/scripts/vercel-cli-runtime/osv-scanner.toml
+        --lockfile=candidate/scripts/vercel-cli-runtime/pnpm-lock.yaml
 
   osv-vercel-cli-runtime:
     name: osv-scanner (standalone Vercel CLI runtime)
@@ -173,8 +178,8 @@ jobs:
     with:
       baseline-artifact: osv-baseline-vercel-cli-runtime
       scan-args: |-
-        --config=scripts/vercel-cli-runtime/osv-scanner.toml
-        --lockfile=scripts/vercel-cli-runtime/pnpm-lock.yaml
+        --config=candidate/scripts/vercel-cli-runtime/osv-scanner.toml
+        --lockfile=candidate/scripts/vercel-cli-runtime/pnpm-lock.yaml
 
   osv-pnpm-bootstrap-baseline:
     name: osv-baseline (trusted pnpm bootstrap)
@@ -186,7 +191,7 @@ jobs:
     with:
       baseline-artifact: osv-baseline-pnpm-bootstrap
       scan-args: |-
-        --lockfile=scripts/vercel-pnpm-bootstrap/package-lock.json
+        --lockfile=candidate/scripts/vercel-pnpm-bootstrap/package-lock.json
 
   osv-pnpm-bootstrap:
     name: osv-scanner (trusted pnpm bootstrap)
@@ -199,7 +204,7 @@ jobs:
     with:
       baseline-artifact: osv-baseline-pnpm-bootstrap
       scan-args: |-
-        --lockfile=scripts/vercel-pnpm-bootstrap/package-lock.json
+        --lockfile=candidate/scripts/vercel-pnpm-bootstrap/package-lock.json
 
   osv-sarif:
     name: osv-scanner SARIF

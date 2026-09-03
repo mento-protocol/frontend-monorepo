@@ -763,7 +763,7 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
   const [baselineGuard] = baselineGuards;
   assert.equal(baselineGuard.shell, "bash");
   assert.deepEqual(baselineGuard.env, {
-    BASE_RESULTS: "${{ runner.temp }}/osv/old-results.json",
+    BASE_RESULTS: "${{ github.workspace }}/osv-state/old-results.json",
   });
   assert.match(baselineGuard.run, /Array\.isArray\(parsed\.results\)/u);
   assert.match(baselineGuard.run, /\{"results":\[\]\}/u);
@@ -779,7 +779,7 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
   assert.equal(completionGuard.if, undefined);
   assert.equal(completionGuard.shell, "bash");
   assert.deepEqual(completionGuard.env, {
-    RESULTS: "${{ runner.temp }}/osv/results.json",
+    RESULTS: "${{ github.workspace }}/osv-state/results.json",
   });
   assert.match(completionGuard.run, /Array\.isArray\(parsed\.results\)/u);
   assert.match(completionGuard.run, /exit 1/u);
@@ -809,14 +809,17 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
     scannerRevision,
   );
 
+  // The directory is cleared before every write, so even if a future change
+  // moved scan state back inside the candidate tree, a tracked file could not
+  // survive to stand in for a result.
   const scratchSteps = readOnlySteps.filter(
     (step) =>
-      step.name === "Create the scan output directory outside the checkout",
+      step.name === "Create the scan state directory beside the checkout",
   );
   assert.equal(scratchSteps.length, 1);
   const [scratch] = scratchSteps;
-  assert.match(scratch.run, /rm -rf "\$\{RUNNER_TEMP\}\/osv"/u);
-  assert.match(scratch.run, /mkdir -p "\$\{RUNNER_TEMP\}\/osv"/u);
+  assert.match(scratch.run, /rm -rf "\$\{GITHUB_WORKSPACE\}\/osv-state"/u);
+  assert.match(scratch.run, /mkdir -p "\$\{GITHUB_WORKSPACE\}\/osv-state"/u);
 
   const order = [
     checkout,
@@ -844,8 +847,11 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
   // candidate-controlled, so a tracked file at a workspace-relative path could
   // stand in for a real scan result: as a forged empty baseline that hides an
   // introduced vulnerability, or as a forged result that satisfies the
-  // completion guard after a scan failed. RUNNER_TEMP is outside the checkout,
-  // and container actions see it mounted at /github/runner_temp.
+  // completion guard after a scan failed. Both jobs check the repository out
+  // into `candidate/` and keep scan state beside it in `osv-state/`, which a
+  // pull request cannot write to because it can only add files inside its own
+  // tree. GITHUB_WORKSPACE is the one bind mount GitHub documents for container
+  // actions, where it appears at /github/workspace.
   const scanPathFlag = /--(?:output|old|new)=(\S+)/gu;
   const assertOutsideCheckout = (step) => {
     const values = [...step.with["scan-args"].matchAll(scanPathFlag)].map(
@@ -854,7 +860,7 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
     assert.ok(values.length > 0);
     for (const value of values) {
       assert.ok(
-        value.startsWith("/github/runner_temp/"),
+        value.startsWith("/github/workspace/osv-state/"),
         `${step.uses} reads or writes ${value} inside the checkout`,
       );
     }
@@ -863,12 +869,12 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
   assertOutsideCheckout(reporter);
 
   // The container path the actions write to and the host path the shell guards
-  // read must stay the same file. Container actions see RUNNER_TEMP mounted at
-  // /github/runner_temp, so the two spellings must differ only by that prefix.
+  // read must stay the same file. Container actions see GITHUB_WORKSPACE
+  // mounted at /github/workspace, so the two spellings differ only by prefix.
   // If they ever drift, the guards would check a file nothing wrote and the
   // scan would report a clean diff it never computed.
-  const CONTAINER_TEMP = "/github/runner_temp/";
-  const HOST_TEMP = "${{ runner.temp }}/";
+  const CONTAINER_TEMP = "/github/workspace/";
+  const HOST_TEMP = "${{ github.workspace }}/";
   const hostPathFor = (containerPath) =>
     `${HOST_TEMP}${containerPath.slice(CONTAINER_TEMP.length)}`;
   const scannerOutput = /--output=(\S+)/u.exec(scanner.with["scan-args"])[1];
@@ -938,6 +944,36 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
     (step) => step.name === "Normalize the baseline",
   );
   assert.equal(baselineNormalize.env.BASE_RESULTS, hostPathFor(baselineOutput));
+  // Both halves must root the checkout under candidate/, or scan state would
+  // land inside the candidate tree again.
+  assert.equal(baselineCheckout.with.path, "candidate");
+  assert.equal(checkout.with.path, "candidate");
+  for (const jobId of osvJobIds) {
+    for (const job of [
+      supplyChain.jobs[jobId],
+      supplyChain.jobs[baselineJobIdFor(jobId)],
+    ]) {
+      for (const [, value] of job.with["scan-args"].matchAll(
+        /--(?:config|lockfile)=(\S+)/gu,
+      )) {
+        assert.ok(
+          value.startsWith("candidate/"),
+          `pull-request scan-args must be candidate-rooted, found ${value}`,
+        );
+      }
+    }
+  }
+
+  // Tripwire: nothing tracked may sit where scan state is written. A pull
+  // request that added such a path fails here rather than silently forging a
+  // result. The jobs also rm -rf the directory before writing to it.
+  const trackedScanState = spawnSync("git", ["ls-files", "-z", "osv-state"], {
+    cwd: fileURLToPath(new URL("..", import.meta.url)),
+    encoding: "utf8",
+  });
+  assert.equal(trackedScanState.status, 0);
+  assert.equal(trackedScanState.stdout, "");
+
   const baselineUpload = baselineSteps.find((step) =>
     step.uses?.startsWith("actions/upload-artifact@"),
   );

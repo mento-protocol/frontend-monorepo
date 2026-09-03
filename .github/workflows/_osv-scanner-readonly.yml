@@ -44,31 +44,38 @@ jobs:
       actions: read
       contents: read
     steps:
+      # The repository is checked out into a `candidate` subdirectory rather
+      # than the workspace root, so scan state can live beside it at
+      # `<workspace>/osv-state` instead of inside it. A pull request can only
+      # add files within its own tree, so it cannot place anything in
+      # osv-state. The caller's scan-args are therefore candidate-rooted.
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          path: candidate
           persist-credentials: false
 
-      # Scan input and output must never live in the checkout. A pull request
-      # can add a tracked file at any workspace path, so a scan that fails
-      # without overwriting one would leave candidate-controlled content
-      # standing in for a real result, and a candidate-supplied empty baseline
-      # would hide a vulnerability the pull request introduced. RUNNER_TEMP is
-      # outside the checkout. Container actions see it mounted at
-      # /github/runner_temp, so the actions below are given that absolute path
-      # while the shell steps use the host path.
-      - name: Create the scan output directory outside the checkout
+      # Scan input and output must never live in the checkout. A tracked file
+      # a pull request added could otherwise stand in for a real result: as a
+      # forged empty baseline that hides an introduced vulnerability, or as a
+      # forged result that satisfies the completion guard after a scan failed.
+      #
+      # GITHUB_WORKSPACE is the one bind mount GitHub documents for container
+      # actions, where it appears at /github/workspace. The actions below are
+      # given that absolute container path while the shell steps use the host
+      # path, and the tests assert the two spellings stay a matched pair.
+      - name: Create the scan state directory beside the checkout
         shell: bash
         run: |
-          rm -rf "${RUNNER_TEMP}/osv"
-          mkdir -p "${RUNNER_TEMP}/osv"
+          rm -rf "${GITHUB_WORKSPACE}/osv-state"
+          mkdir -p "${GITHUB_WORKSPACE}/osv-state"
 
       - name: Download the base-branch baseline
         id: baseline
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: ${{ inputs.baseline-artifact }}
-          path: ${{ runner.temp }}/osv
+          path: ${{ github.workspace }}/osv-state
         continue-on-error: true
 
       # A baseline job that failed, or an artifact that did not arrive, falls
@@ -78,7 +85,7 @@ jobs:
       - name: Establish the base vulnerability baseline
         shell: bash
         env:
-          BASE_RESULTS: ${{ runner.temp }}/osv/old-results.json
+          BASE_RESULTS: ${{ github.workspace }}/osv-state/old-results.json
         run: |
           set -uo pipefail
           if node -e 'const {readFileSync}=require("node:fs");const parsed=JSON.parse(readFileSync(process.env.BASE_RESULTS,"utf8"));if(!Array.isArray(parsed.results))throw new Error("no results array");'; then
@@ -93,7 +100,7 @@ jobs:
         uses: google/osv-scanner-action/osv-scanner-action@8e5cf47b818121e8b405931c82126c2630b0b20d # v2.5.1
         with:
           scan-args: |-
-            --output=/github/runner_temp/osv/results.json
+            --output=/github/workspace/osv-state/results.json
             --format=json
             ${{ inputs.scan-args }}
         continue-on-error: true
@@ -108,11 +115,11 @@ jobs:
       - name: Check that the scan completed
         shell: bash
         env:
-          RESULTS: ${{ runner.temp }}/osv/results.json
+          RESULTS: ${{ github.workspace }}/osv-state/results.json
         run: |
           set -uo pipefail
           if ! node -e 'const {readFileSync}=require("node:fs");const parsed=JSON.parse(readFileSync(process.env.RESULTS,"utf8"));if(!Array.isArray(parsed.results))throw new Error("no results array");'; then
-            echo "::error::OSV-Scanner did not write a valid ${RESULTS}. The scanner writes to /github/runner_temp/osv inside its container, which the runner bind-mounts from RUNNER_TEMP on the host; check that mount first if the scan step itself looks healthy. Failing instead of reporting a clean scan."
+            echo "::error::OSV-Scanner did not write a valid ${RESULTS}. The scanner writes to /github/workspace/osv-state inside its container, which is GITHUB_WORKSPACE on the host. Failing instead of reporting a clean scan."
             exit 1
           fi
 
@@ -120,8 +127,8 @@ jobs:
         uses: google/osv-scanner-action/osv-reporter-action@8e5cf47b818121e8b405931c82126c2630b0b20d # v2.5.1
         with:
           scan-args: |-
-            --output=/github/runner_temp/osv/results.sarif
-            --old=/github/runner_temp/osv/old-results.json
-            --new=/github/runner_temp/osv/results.json
+            --output=/github/workspace/osv-state/results.sarif
+            --old=/github/workspace/osv-state/old-results.json
+            --new=/github/workspace/osv-state/results.json
             --gh-annotations=false
             --fail-on-vuln=true
