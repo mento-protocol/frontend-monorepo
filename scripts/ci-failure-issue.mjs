@@ -14,47 +14,31 @@ const NOTIFIER_WORKFLOW_NAME = "CI Failure Notifier";
 const TAG_PUSH_WORKFLOW_NAMES = new Set(["Publish UI Package"]);
 const VERCEL_MAIN_WORKFLOW_NAME = "Vercel Main Deployment";
 
-// Evidence budget. GitHub rejects an issue body over 65536 characters, so each
-// job excerpt is bounded before assembly and the assembled body is re-checked
-// against a lower ceiling that leaves room for the recovery footer.
-const JOB_EXCERPT_MAX_LINES = 40;
-const JOB_EXCERPT_MAX_BYTES = 4096;
-const BODY_MAX_BYTES = 60 * 1024;
+// The managed issue reports GitHub's own structured job and step names and
+// never quotes job log output. Log text is attacker-influenceable: a failing
+// job can print whatever a dependency, a test fixture, or an environment dump
+// puts in front of it, and no line-level redaction survives a credential value
+// that carries no keyword of its own or is split across lines. Line-based
+// selectors are just as weak: a runner's error annotations and a scanner's
+// table syntax are printable by the same job, so choosing lines by that
+// structure lets the job choose what gets published. Nothing read from a log
+// reaches this issue. `scripts/ci-failure-issue.test.mjs` pins that on source.
 const MAX_REPORTED_JOBS = 10;
-const ERROR_CONTEXT_LINES = 12;
-const MAX_LINE_CHARS = 500;
-const TRUNCATION_RESERVE_BYTES = 64;
-// The notifier job is capped at five minutes. Stop downloading logs well before
-// that so a pathologically large log cannot turn evidence into a timeout.
-const EVIDENCE_DEADLINE_MS = 90_000;
-// No single log download may hold the whole budget, and only the tail of a log
-// is ever read, so one enormous job log cannot exhaust memory either.
-const MAX_LOG_DOWNLOAD_MS = 20_000;
-const MAX_LOG_BYTES = 2 * 1024 * 1024;
-// A stream that keeps producing past this never yields a usable excerpt anyway.
-const MAX_LOG_STREAM_BYTES = 32 * 1024 * 1024;
+const MAX_REPORTED_STEPS = 10;
+const MAX_FIELD_CHARS = 200;
+const BODY_MAX_BYTES = 60 * 1024;
+// The notifier job is capped at five minutes; the job listing is the only
+// evidence call left, and a stalled one must not consume that budget.
+const JOB_LIST_DEADLINE_MS = 20_000;
 
-// Runner logs arrive as `<ISO timestamp> <ANSI-coloured text>`. Matching the
-// escape characters is the point here, so the control-character rule is off for
-// this one declaration.
-/* eslint-disable no-control-regex */
-const ANSI_PATTERN =
-  /\x1B\[[0-9;:<=>?]*[\x20-\x2F]*[\x40-\x7E]|\x1B[\x40-\x5F]/g;
-/* eslint-enable no-control-regex */
-const RUNNER_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z ?/;
-// Defensive only: the notifier writes into a public issue, so a line that
-// merely looks like it carries a credential is dropped rather than trimmed.
+// Applied only to a degradation reason, which is the one free-text field an
+// external system can still put in the body.
 const SECRET_PATTERN =
   /token|secret|password|passwd|bearer|authorization|ghp_|ghs_|gho_|ghu_|ghr_|github_pat_|-----BEGIN/i;
-const REDACTED_LINE = "[redacted: line matched the secret guard]";
-// A PEM block is redacted as a unit: only its header carries a guard keyword.
-const PEM_BEGIN_PATTERN = /-----BEGIN/;
-const PEM_END_PATTERN = /-----END/;
-const ELISION_LINE = "[…]";
-const OSV_FINDING_PATTERN = /^\|\s*https:\/\/osv\.dev\//;
-const OSV_TOTAL_PATTERN = /^Total\s+\d+\s+packages?\s+affected/i;
-const TABLE_LINE_PATTERN = /^[|+]/;
-const ERROR_MARKER_PATTERN = /##\[error\]/;
+// Control and format characters are removed rather than escaped: a newline in a
+// rendered field could otherwise forge the managed marker on its own line.
+const CONTROL_CHARACTER_PATTERN = /[\p{Cc}\p{Cf}]/gu;
+const MARKDOWN_ESCAPE_PATTERN = /([\\`*_[\]<>])/g;
 
 const textEncoder = new TextEncoder();
 
@@ -116,166 +100,53 @@ function issueTitle(run, targetRef) {
 }
 
 /**
- * Normalize a raw runner log into printable lines: strip ANSI colouring and the
- * per-line ISO timestamp, cap absurdly long lines, drop group markers, and
- * replace anything that looks like a credential with a fixed redaction line.
+ * Render one API-supplied name for Markdown: strip control and format
+ * characters, collapse whitespace, cap the length, and escape the Markdown
+ * specials. Names come from workflow files on the default branch, so this
+ * guards against accident and against a name being read as body structure —
+ * above all against a forged marker line.
  */
-export function sanitizeLogLines(text) {
-  const cleaned = [];
-  let inPemBlock = false;
+export function renderField(value, fallback = "") {
+  const flattened = String(value ?? "")
+    .replace(CONTROL_CHARACTER_PATTERN, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (flattened.length === 0) return fallback;
+  const capped =
+    flattened.length > MAX_FIELD_CHARS
+      ? `${flattened.slice(0, MAX_FIELD_CHARS)}…`
+      : flattened;
+  return capped.replace(MARKDOWN_ESCAPE_PATTERN, "\\$1");
+}
 
-  for (const raw of String(text ?? "").split(/\r?\n/)) {
-    const stripped = raw
-      .replace(ANSI_PATTERN, "")
-      .replace(RUNNER_TIMESTAMP_PATTERN, "")
-      .replace(/\r/g, "")
-      .trimEnd();
-    if (stripped === "##[endgroup]") continue;
-
-    // The guard runs against the whole stripped line. Shortening first would
-    // let a keyword past the cap fall away and leak an opaque credential that
-    // sat earlier in the same line.
-    let line;
-    if (inPemBlock) {
-      // A PEM body carries no keyword of its own, so line-at-a-time matching
-      // would publish the base64 payload and let a reader restore the header.
-      // Redact through the end marker, or to the end of an unterminated block.
-      if (PEM_END_PATTERN.test(stripped)) inPemBlock = false;
-      line = REDACTED_LINE;
-    } else if (PEM_BEGIN_PATTERN.test(stripped)) {
-      inPemBlock = !PEM_END_PATTERN.test(stripped);
-      line = REDACTED_LINE;
-    } else if (SECRET_PATTERN.test(stripped)) {
-      line = REDACTED_LINE;
-    } else if (stripped.length > MAX_LINE_CHARS) {
-      line = `${stripped.slice(0, MAX_LINE_CHARS)}…`;
-    } else {
-      line = stripped;
-    }
-
-    const previous = cleaned.at(-1);
-    if (line === REDACTED_LINE && previous === REDACTED_LINE) continue;
-    if (line === "" && previous === "") continue;
-    cleaned.push(line);
+/** Only an https GitHub URL from the API is ever linked. */
+function safeJobUrl(value) {
+  try {
+    const url = new URL(String(value));
+    return url.protocol === "https:" ? url.href : undefined;
+  } catch {
+    return undefined;
   }
-
-  while (cleaned.length > 0 && cleaned.at(-1) === "") cleaned.pop();
-  while (cleaned.length > 0 && cleaned[0] === "") cleaned.shift();
-  return cleaned;
 }
 
 /**
- * Pull the OSV-Scanner findings table out of sanitized log lines: every
- * contiguous `+---+` / `| … |` block holding at least one `https://osv.dev/`
- * row, preceded by its `Total N packages affected …` headline when present.
- * Returns an empty array when the log holds no OSV findings.
+ * Does `body` carry `marker` as a line of its own, outside any fenced block?
+ * Substring matching would let any quoted text route a later failure into the
+ * wrong issue, so the marker only counts where the notifier writes it.
  */
-export function extractOsvFindings(lines) {
-  const blocks = [];
-  let current = null;
+export function bodyCarriesMarker(body, marker) {
+  if (typeof body !== "string") return false;
+  let inFence = false;
 
-  lines.forEach((line, index) => {
-    if (TABLE_LINE_PATTERN.test(line)) {
-      current ??= { start: index, lines: [] };
-      current.lines.push(line);
-      return;
+  for (const raw of body.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line.startsWith("```") || line.startsWith("~~~")) {
+      inFence = !inFence;
+      continue;
     }
-    if (current) {
-      blocks.push(current);
-      current = null;
-    }
-  });
-  if (current) blocks.push(current);
-
-  const findingBlocks = blocks.filter((block) =>
-    block.lines.some((line) => OSV_FINDING_PATTERN.test(line)),
-  );
-  if (findingBlocks.length === 0) return [];
-
-  const excerpt = [];
-  for (const block of findingBlocks) {
-    const lookbackStart = Math.max(0, block.start - 4);
-    for (let index = block.start - 1; index >= lookbackStart; index -= 1) {
-      if (OSV_TOTAL_PATTERN.test(lines[index])) {
-        excerpt.push(lines[index]);
-        break;
-      }
-    }
-    excerpt.push(...block.lines);
+    if (!inFence && line === marker) return true;
   }
-  return excerpt;
-}
-
-/**
- * Pull the lines leading up to each `##[error]` annotation. With no annotation
- * at all, fall back to the tail of the log, which is where a runner records the
- * step that ended the job.
- */
-export function extractErrorContext(
-  lines,
-  { contextLines = ERROR_CONTEXT_LINES, maxLines = JOB_EXCERPT_MAX_LINES } = {},
-) {
-  const markers = [];
-  lines.forEach((line, index) => {
-    if (ERROR_MARKER_PATTERN.test(line)) markers.push(index);
-  });
-  if (markers.length === 0) return lines.slice(-maxLines);
-
-  const kept = new Set();
-  for (const marker of markers.slice(-maxLines)) {
-    const start = Math.max(0, marker - contextLines);
-    for (let index = start; index <= marker; index += 1) kept.add(index);
-  }
-
-  const excerpt = [];
-  let previous = null;
-  for (const index of [...kept].sort((left, right) => left - right)) {
-    if (previous !== null && index > previous + 1) excerpt.push(ELISION_LINE);
-    excerpt.push(lines[index]);
-    previous = index;
-  }
-  return excerpt;
-}
-
-/**
- * Bound one job excerpt by line count and byte size. `keep` selects which end
- * survives: `head` for a findings table whose header carries the meaning,
- * `tail` for error context whose last lines carry the failure.
- */
-export function capExcerpt(
-  lines,
-  {
-    keep = "tail",
-    maxLines = JOB_EXCERPT_MAX_LINES,
-    maxBytes = JOB_EXCERPT_MAX_BYTES,
-  } = {},
-) {
-  let kept = [...lines];
-  let dropped = 0;
-  const drop = () => {
-    if (keep === "head") kept.pop();
-    else kept.shift();
-    dropped += 1;
-  };
-
-  // The marker is itself a line of the excerpt, so truncation has to leave room
-  // for it inside `maxLines` rather than append a further line beyond the cap.
-  if (kept.length > maxLines) {
-    const room = Math.max(0, maxLines - 1);
-    dropped = kept.length - room;
-    kept = keep === "head" ? kept.slice(0, room) : kept.slice(-room);
-  }
-
-  const budget = Math.max(0, maxBytes - TRUNCATION_RESERVE_BYTES);
-  while (kept.length > 0 && byteLength(kept.join("\n")) > budget) drop();
-
-  if (dropped > 0) {
-    while (kept.length > 0 && kept.length + 1 > maxLines) drop();
-    const marker = `[… ${dropped} more log line${dropped === 1 ? "" : "s"} truncated]`;
-    if (keep === "head") kept.push(marker);
-    else kept.unshift(marker);
-  }
-  return kept;
+  return false;
 }
 
 function degradationReason(error) {
@@ -285,218 +156,39 @@ function degradationReason(error) {
     String(error);
   // Scan the whole flattened message before shortening it: truncating first
   // would drop a keyword past the cap and publish a value that sat before it.
-  const flattened = String(raw).replace(/\s+/g, " ").trim();
+  const flattened = String(raw)
+    .replace(CONTROL_CHARACTER_PATTERN, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   if (flattened.length === 0) return "unknown error";
   if (SECRET_PATTERN.test(flattened)) return "redacted error";
-  return flattened.slice(0, 200);
+  return renderField(flattened.slice(0, MAX_FIELD_CHARS), "unknown error");
 }
 
-/**
- * A tail cut lands at an arbitrary byte, so the first surviving line is a
- * fragment. Dropping it is a redaction rule, not tidiness: the cut can fall
- * between a credential's label and its value, leaving a fragment that carries
- * the value with no keyword left for the guard to match.
- */
-function dropPartialFirstLine(text) {
-  const firstBreak = text.indexOf("\n");
-  return firstBreak === -1 ? "" : text.slice(firstBreak + 1);
-}
-
-/**
- * Decode a buffered payload, keeping only the tail: a runner writes
- * `##[error]` at the end of a job, and the OSV reporter prints its table in the
- * last step. `pretruncated` marks a payload the streaming reader already cut.
- */
-function decodeLogPayload(payload, pretruncated = false) {
-  if (typeof payload === "string") {
-    const cut = payload.length > MAX_LOG_BYTES;
-    const text = cut ? payload.slice(-MAX_LOG_BYTES) : payload;
-    return cut || pretruncated ? dropPartialFirstLine(text) : text;
-  }
-
-  let bytes;
-  if (payload instanceof ArrayBuffer) {
-    bytes = new Uint8Array(payload);
-  } else if (ArrayBuffer.isView(payload)) {
-    bytes = new Uint8Array(
-      payload.buffer,
-      payload.byteOffset,
-      payload.byteLength,
-    );
-  } else {
-    throw new Error("the job log response carried no readable text");
-  }
-
-  const cut = bytes.length > MAX_LOG_BYTES;
-  const tail = cut ? bytes.subarray(bytes.length - MAX_LOG_BYTES) : bytes;
-  const text = new TextDecoder().decode(tail);
-  return cut || pretruncated ? dropPartialFirstLine(text) : text;
-}
-
-/**
- * Read a response body while holding at most `MAX_LOG_BYTES` plus one chunk.
- * Buffering the whole body first and slicing afterwards would let a very large
- * log exhaust the notifier before it ever writes the issue, so the tail window
- * slides as chunks arrive and a hard ceiling stops a runaway stream outright.
- */
-export async function readBoundedResponseText(response) {
-  const reader = response?.body?.getReader?.();
-  if (!reader) return decodeLogPayload(await response.arrayBuffer());
-
-  const tail = [];
-  let held = 0;
-  let total = 0;
-
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > MAX_LOG_STREAM_BYTES) {
-      await reader.cancel();
-      throw new Error("the job log exceeded the readable size limit");
-    }
-    tail.push(value);
-    held += value.byteLength;
-    while (tail.length > 1 && held - tail[0].byteLength >= MAX_LOG_BYTES) {
-      held -= tail.shift().byteLength;
-    }
-  }
-
-  const joined = new Uint8Array(held);
-  let offset = 0;
-  for (const chunk of tail) {
-    joined.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return decodeLogPayload(joined, total > held);
-}
-
-/**
- * Fetch one job log, bounded in both time and memory.
- *
- * The REST endpoint answers 302 to a signed blob URL. Following that redirect
- * through Octokit would materialise the whole body before any slicing, so the
- * redirect is taken manually and the blob is streamed instead. No Range header
- * is sent: the store advertises `accept-ranges: bytes` but answers a suffix
- * range (`bytes=-N`) with 200 and the entire body, which would look bounded
- * while downloading everything. The signed URL is fetched without credentials.
- */
-async function fetchJobLogText(github, repo, job, signal, fetchImpl) {
-  const response = await github.rest.actions.downloadJobLogsForWorkflowRun({
-    ...repo,
-    job_id: job.id,
-    request: { redirect: "manual", signal },
-  });
-
-  const location = response?.headers?.location;
-  if (typeof location === "string" && location.length > 0) {
-    const blob = await fetchImpl(location, { signal, redirect: "follow" });
-    if (blob?.ok === false) {
-      throw new Error(`the job log store answered HTTP ${blob.status}`);
-    }
-    return readBoundedResponseText(blob);
-  }
-
-  // Already-followed or stubbed responses still get the tail treatment.
-  return decodeLogPayload(response?.data);
-}
-
-/**
- * The workflow-jobs API exposes no step output, so the log is normally the only
- * source. Honour a structured summary when a caller hands one over (the
- * associated check run carries `output.summary`/`output.text`) so no log has to
- * be downloaded for it.
- */
-function structuredSummaryFor(job) {
-  for (const candidate of [job?.output?.summary, job?.output?.text]) {
-    if (typeof candidate !== "string") continue;
-    const lines = sanitizeLogLines(candidate);
-    if (lines.length > 0) return lines;
-  }
-  return [];
-}
-
-function failedStepNameFor(job) {
+function failedStepNamesFor(job) {
   const steps = Array.isArray(job?.steps) ? job.steps : [];
-  return steps.find((step) => FAILURE_CONCLUSIONS.has(step?.conclusion))?.name;
-}
-
-async function jobExcerpt(github, repo, job, deadline, fetchImpl) {
-  const summary = structuredSummaryFor(job);
-  if (summary.length > 0) {
-    return { source: "summary", lines: capExcerpt(summary, { keep: "head" }) };
-  }
-
-  if (Date.now() > deadline) {
-    return {
-      source: "log",
-      lines: [],
-      note: "log excerpt unavailable: the evidence deadline passed",
-    };
-  }
-
-  try {
-    // Checking the deadline before the request is not enough: a stalled or very
-    // large download would otherwise run until the job itself times out and the
-    // issue would never be written. Abort on the smaller of the remaining
-    // budget and the per-download cap, and let the catch below degrade it.
-    const budget = Math.min(
-      Math.max(0, deadline - Date.now()),
-      MAX_LOG_DOWNLOAD_MS,
-    );
-    const text = await fetchJobLogText(
-      github,
-      repo,
-      job,
-      AbortSignal.timeout(budget),
-      fetchImpl,
-    );
-    const lines = sanitizeLogLines(text);
-    if (lines.length === 0) {
-      return {
-        source: "log",
-        lines: [],
-        note: "log excerpt unavailable: the job log was empty",
-      };
-    }
-
-    const findings = extractOsvFindings(lines);
-    if (findings.length > 0) {
-      return { source: "log", lines: capExcerpt(findings, { keep: "head" }) };
-    }
-    return {
-      source: "log",
-      lines: capExcerpt(extractErrorContext(lines), { keep: "tail" }),
-    };
-  } catch (error) {
-    return {
-      source: "log",
-      lines: [],
-      note: `log excerpt unavailable: ${degradationReason(error)}`,
-    };
-  }
+  return steps
+    .filter((step) => FAILURE_CONCLUSIONS.has(step?.conclusion))
+    .slice(0, MAX_REPORTED_STEPS)
+    .map((step, index) => renderField(step?.name, `step ${index + 1}`));
 }
 
 /**
- * Collect one bounded excerpt per failed job of `run`. Every failure here
- * degrades into a note on the issue; the notifier itself never fails because
- * evidence could not be read.
+ * Collect the failed jobs of `run` from the workflow-jobs API. This reads only
+ * GitHub's own structure — job names, step names, conclusions — and downloads
+ * no logs. Every failure degrades into a note on the issue; the notifier itself
+ * never fails because evidence could not be read.
  */
 export async function collectFailureEvidence(
   github,
   repo,
   run,
   core,
-  {
-    deadlineMs = EVIDENCE_DEADLINE_MS,
-    listDeadlineMs = MAX_LOG_DOWNLOAD_MS,
-    fetchImpl = fetch,
-  } = {},
+  { listDeadlineMs = JOB_LIST_DEADLINE_MS } = {},
 ) {
   if (!run?.id) {
     return { jobs: [], note: "the failed run exposed no job list" };
   }
-  const deadline = Date.now() + deadlineMs;
 
   let allJobs;
   try {
@@ -513,8 +205,6 @@ export async function collectFailureEvidence(
         per_page: 100,
         // A stalled listing would otherwise consume the whole job before the
         // deadline is ever consulted, and no issue would be written at all.
-        // This call runs first and is the prerequisite for any evidence, so it
-        // gets its own fixed ceiling rather than a possibly-spent remainder.
         request: { signal: AbortSignal.timeout(listDeadlineMs) },
       },
     );
@@ -535,17 +225,11 @@ export async function collectFailureEvidence(
       FAILURE_CONCLUSIONS.has(job?.conclusion),
   );
   const reported = failedJobs.slice(0, MAX_REPORTED_JOBS);
-  const jobs = [];
-
-  for (const job of reported) {
-    const excerpt = await jobExcerpt(github, repo, job, deadline, fetchImpl);
-    jobs.push({
-      name: job?.name ?? "unnamed job",
-      url: job?.html_url,
-      failedStep: failedStepNameFor(job),
-      ...excerpt,
-    });
-  }
+  const jobs = reported.map((job) => ({
+    name: renderField(job?.name, "unnamed job"),
+    url: safeJobUrl(job?.html_url),
+    failedSteps: failedStepNamesFor(job),
+  }));
 
   const omitted = failedJobs.length - reported.length;
   return {
@@ -557,26 +241,14 @@ export async function collectFailureEvidence(
   };
 }
 
-function fenceFor(text) {
-  const longest = Math.max(
-    0,
-    ...[...String(text).matchAll(/`+/g)].map((match) => match[0].length),
-  );
-  return "`".repeat(Math.max(3, longest + 1));
-}
-
-function renderFailedJobSection(job) {
-  const heading = job.url ? `[${job.name}](${job.url})` : job.name;
-  const section = [`### ${heading}`, ""];
-  if (job.failedStep) section.push(`Failed step: \`${job.failedStep}\``, "");
-  if (job.lines.length > 0) {
-    const excerpt = job.lines.join("\n");
-    const fence = fenceFor(excerpt);
-    section.push(`${fence}text`, excerpt, fence);
-  } else {
-    section.push(`_(${job.note ?? "no excerpt available"})_`);
+function renderFailedJob(job) {
+  const link = job.url ? ` ([job log](${job.url}))` : "";
+  if (job.failedSteps.length === 0) {
+    return `- **${job.name}** — no failed step reported${link}`;
   }
-  return section.join("\n");
+  const label = job.failedSteps.length === 1 ? "failed step" : "failed steps";
+  const steps = job.failedSteps.map((step) => `\`${step}\``).join(", ");
+  return `- **${job.name}** — ${label}: ${steps}${link}`;
 }
 
 export function failureBody(run, targetRef, marker, evidence = { jobs: [] }) {
@@ -593,23 +265,25 @@ export function failureBody(run, targetRef, marker, evidence = { jobs: [] }) {
   ];
   const footer = [
     "",
+    "These are GitHub's own job and step names. This issue never quotes job log output, because a failing job can print anything into its log; open the linked jobs for the failing lines. Scheduled OSV scans also publish their findings to this repository's code-scanning alerts.",
+    "",
     "This issue is managed by the CI Failure Notifier. It is updated for repeated failures and closed automatically after a newer successful run.",
     "",
     marker,
   ];
-  const sections = evidence.jobs.map((job) => renderFailedJobSection(job));
+  const rows = evidence.jobs.map((job) => renderFailedJob(job));
 
   const assemble = (visible, dropped) => {
     const notes = [];
     if (evidence.note) notes.push(`_${evidence.note}_`);
     if (dropped > 0) {
       notes.push(
-        `_Excerpts for ${dropped} further failed job${dropped === 1 ? "" : "s"} were dropped to keep this issue under GitHub's size limit._`,
+        `_${dropped} further failed job${dropped === 1 ? " was" : "s were"} dropped to keep this issue under GitHub's size limit._`,
       );
     }
     const middle =
       visible.length > 0
-        ? visible.join("\n\n")
+        ? visible.join("\n")
         : (notes.shift() ??
           "_No failed job was reported for this run. Open the run for details._");
     return [
@@ -620,7 +294,7 @@ export function failureBody(run, targetRef, marker, evidence = { jobs: [] }) {
     ].join("\n");
   };
 
-  let visible = sections;
+  let visible = rows;
   let dropped = 0;
   let body = assemble(visible, dropped);
   while (byteLength(body) > BODY_MAX_BYTES && visible.length > 0) {
@@ -631,14 +305,27 @@ export function failureBody(run, targetRef, marker, evidence = { jobs: [] }) {
   return body;
 }
 
-function recoveryBody(existingBody, run, targetRef) {
-  const workflowName = workflowNameFor(run);
+/**
+ * Append the recovery note while keeping the marker the last line, so the
+ * routing rule stays "the marker sits on its own line" for closed issues too.
+ */
+function recoveryBody(existingBody, run, targetRef, marker) {
+  const lines = String(existingBody ?? "")
+    .trim()
+    .split(/\r?\n/);
+  const markerIndex = lines.findLastIndex((line) => line.trim() === marker);
+  const head = (markerIndex === -1 ? lines : lines.slice(0, markerIndex))
+    .join("\n")
+    .trimEnd();
+
   return [
-    existingBody.trim(),
+    head,
     "",
     "## Recovery",
     "",
-    `**${workflowName}** recovered for \`${targetRef}\` in ${runLink(run)}.`,
+    `**${workflowNameFor(run)}** recovered for \`${targetRef}\` in ${runLink(run)}.`,
+    "",
+    marker,
   ].join("\n");
 }
 
@@ -677,7 +364,7 @@ async function findManagedIssue(github, repo, marker) {
         issue.user?.login === "github-actions[bot]",
     )
     .sort((left, right) => right.number - left.number)
-    .find((issue) => issue.body?.includes(marker));
+    .find((issue) => bodyCarriesMarker(issue.body, marker));
 }
 
 async function listCompletedWorkflowRuns(
@@ -820,7 +507,12 @@ export async function reconcileCiFailureIssue({ github, context, core }) {
   await github.rest.issues.update({
     ...repo,
     issue_number: existing.number,
-    body: recoveryBody(existing.body ?? marker, effectiveRun, targetRef),
+    body: recoveryBody(
+      existing.body ?? marker,
+      effectiveRun,
+      targetRef,
+      marker,
+    ),
     state: "closed",
     state_reason: "completed",
   });

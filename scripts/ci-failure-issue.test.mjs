@@ -1,140 +1,14 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import {
-  capExcerpt,
+  bodyCarriesMarker,
   collectFailureEvidence,
-  extractErrorContext,
-  extractOsvFindings,
   failureBody,
-  readBoundedResponseText,
   reconcileCiFailureIssue,
-  sanitizeLogLines,
+  renderField,
 } from "./ci-failure-issue.mjs";
-
-const ESC = "\x1B";
-
-/** One runner log line: ISO timestamp, a space, then the raw text. */
-function logLine(text, seconds = 42) {
-  return `2026-09-01T19:55:${String(seconds).padStart(2, "0")}.4230490Z ${text}`;
-}
-
-/**
- * A trimmed copy of a real `osv-scanner / osv-scan` job log, including the
- * `docker run` line whose `ACTIONS_RUNTIME_TOKEN` the secret guard must drop.
- */
-const OSV_JOB_LOG = [
-  logLine("##[group]Run google/osv-scanner-action/osv-reporter-action@v2.5.1"),
-  logLine(`${ESC}[36;1m--fail-on-vuln=true${ESC}[0m`),
-  logLine("##[endgroup]"),
-  logLine(
-    '##[command]/usr/bin/docker run --name osv --rm -e "ACTIONS_RUNTIME_TOKEN" -e "ACTIONS_CACHE_URL" ghcr.io/google/osv-scanner-action:v2.5.1',
-  ),
-  logLine("Warning: --output has been deprecated in favor of --output-files"),
-  logLine(""),
-  logLine(
-    "Total 1 package affected by 1 known vulnerability (0 Critical, 1 High, 0 Medium, 0 Low, 0 Unknown) from 1 ecosystem.",
-  ),
-  logLine("1 vulnerability can be fixed."),
-  logLine(""),
-  logLine(
-    "+-------------------------------------+------+-----------+---------+---------+---------------+--------------------------------------------+",
-  ),
-  logLine(
-    "| OSV URL                             | CVSS | ECOSYSTEM | PACKAGE | VERSION | FIXED VERSION | SOURCE                                     |",
-  ),
-  logLine(
-    "+-------------------------------------+------+-----------+---------+---------+---------------+--------------------------------------------+",
-  ),
-  logLine(
-    "| https://osv.dev/GHSA-vx52-2968-3vc6 | 7.4  | npm       | pnpm    | 10.34.4 | 10.34.5       | scripts/vercel-pnpm-runtime/pnpm-lock.yaml |",
-  ),
-  logLine(
-    "+-------------------------------------+------+-----------+---------+---------+---------------+--------------------------------------------+",
-  ),
-  logLine("Post job cleanup."),
-  logLine("Cleaning up orphan processes"),
-].join("\n");
-
-/** A trimmed copy of a real `catalog version-skew` job log. */
-const SKEW_JOB_LOG = [
-  logLine("ok accepts TanStack catalog-backed override pairs"),
-  logLine(""),
-  logLine("49 passed, 0 failed"),
-  logLine("##[group]Run node scripts/version-skew-check.mjs"),
-  logLine(`${ESC}[36;1mnode scripts/version-skew-check.mjs${ESC}[0m`),
-  logLine("##[endgroup]"),
-  logLine(
-    'error: package.json pnpm.overrides.@tanstack/react-query is "5.90.16" - conflicts with catalog "5.102.5"',
-  ),
-  logLine("##[error]Process completed with exit code 1."),
-  logLine("Post job cleanup."),
-].join("\n");
-
-/** Sentinel payload for a download that never completes on its own. */
-const NEVER_RESOLVES = Symbol("never-resolves");
-
-// Assembled at runtime so these fixtures do not read as a real key block to the
-// repository's own secret scanner.
-const PEM_KEY_KIND = "PRIVATE KEY";
-const pemHeader = (algorithm) => `-----BEGIN ${algorithm} ${PEM_KEY_KIND}-----`;
-const pemFooter = (algorithm) => `-----END ${algorithm} ${PEM_KEY_KIND}-----`;
-
-/**
- * A request that settles only when its caller aborts it. The keep-alive timer
- * is load-bearing: `AbortSignal.timeout()` arms an unref'd timer, so without a
- * ref'd handle of our own the event loop drains while this promise is still
- * pending and node:test cancels the test and everything queued behind it.
- */
-function stallUntilAbort(signal) {
-  return new Promise((_resolve, reject) => {
-    const keepAlive = setTimeout(() => {
-      reject(new Error("the abort signal never fired"));
-    }, 30_000);
-    signal.addEventListener("abort", () => {
-      clearTimeout(keepAlive);
-      reject(signal.reason);
-    });
-  });
-}
-
-/** A Response-like object streaming `chunks` without ever holding them all. */
-function streamingResponse(chunks, { onCancel } = {}) {
-  const encoder = new TextEncoder();
-  let index = 0;
-  return {
-    ok: true,
-    status: 200,
-    reads: () => index,
-    body: {
-      getReader: () => ({
-        read: async () =>
-          index >= chunks.length
-            ? { done: true, value: undefined }
-            : { done: false, value: encoder.encode(chunks[index++]) },
-        cancel: async () => onCancel?.(),
-      }),
-    },
-  };
-}
-
-function failedJob(overrides = {}) {
-  return {
-    id: 900_001,
-    name: "osv-scanner (trusted pnpm runtime) / osv-scan",
-    html_url:
-      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/1234/job/900001",
-    conclusion: "failure",
-    steps: [
-      { name: "Check out code", conclusion: "success" },
-      {
-        name: "Fail on newly introduced vulnerabilities",
-        conclusion: "failure",
-      },
-    ],
-    ...overrides,
-  };
-}
 
 function managedMarker(event = "push", targetRef = "main") {
   return `<!-- managed-ci-failure:77:${event}:${encodeURIComponent(targetRef)} -->`;
@@ -181,13 +55,48 @@ function managedIssue(overrides = {}) {
   };
 }
 
+/**
+ * A request that settles only when its caller aborts it. The keep-alive timer
+ * is load-bearing: `AbortSignal.timeout()` arms an unref'd timer, so without a
+ * ref'd handle of our own the event loop drains while this promise is still
+ * pending and node:test cancels the test and everything queued behind it.
+ */
+function stallUntilAbort(signal) {
+  return new Promise((_resolve, reject) => {
+    const keepAlive = setTimeout(() => {
+      reject(new Error("the abort signal never fired"));
+    }, 30_000);
+    signal.addEventListener("abort", () => {
+      clearTimeout(keepAlive);
+      reject(signal.reason);
+    });
+  });
+}
+
+function failedJob(overrides = {}) {
+  return {
+    id: 900_001,
+    name: "osv-scanner SARIF (trusted pnpm runtime) / osv-scan",
+    html_url:
+      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/1234/job/900001",
+    conclusion: "failure",
+    steps: [
+      { name: "Check out code", conclusion: "success" },
+      {
+        name: "Fail on newly introduced vulnerabilities",
+        conclusion: "failure",
+      },
+    ],
+    ...overrides,
+  };
+}
+
 function harness({
   run = workflowRun(),
   issues = [],
   latestRuns,
   runPages,
   jobs = [],
-  jobLogs = {},
   listJobsError,
   listJobsStalls = false,
 } = {}) {
@@ -197,8 +106,6 @@ function harness({
     listRuns: 0,
     listIssues: 0,
     listJobs: 0,
-    logs: [],
-    signals: [],
   };
   function listWorkflowRuns() {}
   function listForRepo() {}
@@ -236,22 +143,6 @@ function harness({
       actions: {
         listWorkflowRuns,
         listJobsForWorkflowRun,
-        downloadJobLogsForWorkflowRun: async (parameters) => {
-          calls.logs.push(parameters.job_id);
-          calls.signals.push(parameters.request?.signal);
-          const payload = jobLogs[parameters.job_id];
-          if (payload === undefined) {
-            throw Object.assign(new Error("Not Found"), { status: 404 });
-          }
-          if (payload instanceof Error) throw payload;
-          if (payload === NEVER_RESOLVES) {
-            return stallUntilAbort(parameters.request.signal);
-          }
-          if (typeof payload === "object" && payload?.location) {
-            return { headers: { location: payload.location } };
-          }
-          return { data: payload };
-        },
       },
       issues: {
         listForRepo,
@@ -663,367 +554,163 @@ test("tracks release-tag push failures without executing their source", async ()
   );
 });
 
-test("sanitizing strips runner timestamps and ANSI colouring", () => {
-  const lines = sanitizeLogLines(
-    [
-      logLine(`${ESC}[36;1mnode scripts/version-skew-check.mjs${ESC}[0m`),
-      logLine("##[endgroup]"),
-      logLine("plain output"),
-    ].join("\n"),
+test("the module reads no job logs on any code path", () => {
+  // The posture, pinned on the source: nothing here may reach a log body. A
+  // future change that reintroduces log text has to delete this test first.
+  const source = readFileSync(
+    new URL("./ci-failure-issue.mjs", import.meta.url),
+    "utf8",
   );
 
-  assert.deepEqual(lines, [
-    "node scripts/version-skew-check.mjs",
-    "plain output",
-  ]);
-  assert.ok(lines.every((line) => !line.includes(ESC)));
-  assert.ok(lines.every((line) => !/^\d{4}-\d{2}-\d{2}T/.test(line)));
-});
-
-test("sanitizing redacts every line that could carry a credential", () => {
-  const lines = sanitizeLogLines(
-    [
-      logLine("safe leading line"),
-      logLine('docker run -e "ACTIONS_RUNTIME_TOKEN" -e "HOME" image'),
-      logLine("Authorization: Bearer abcdef"),
-      logLine("export GH_PASSWORD=hunter2"),
-      logLine("ghp_0123456789abcdefghijklmnopqrstuvwxyz"),
-      logLine(pemHeader("OPENSSH")),
-      logLine(pemFooter("OPENSSH")),
-      logLine("safe trailing line"),
-    ].join("\n"),
-  );
-
-  assert.deepEqual(lines, [
-    "safe leading line",
-    "[redacted: line matched the secret guard]",
-    "safe trailing line",
-  ]);
   for (const forbidden of [
-    "ACTIONS_RUNTIME_TOKEN",
-    "hunter2",
-    "ghp_",
-    "BEGIN",
+    "downloadJobLogsForWorkflowRun",
+    "/logs",
+    "fetch(",
+    "redirect",
+    "getReader",
+    "arrayBuffer",
+    "TextDecoder",
+    "##[error]",
+    "osv.dev",
   ]) {
     assert.ok(
-      !lines.join("\n").includes(forbidden),
-      `${forbidden} must never reach the issue body`,
+      !source.includes(forbidden),
+      `${forbidden} must not appear in the notifier source`,
     );
   }
 });
 
-test("a whole PEM block is redacted, not only its header", () => {
-  // Only the BEGIN line carries a guard keyword. Line-at-a-time matching would
-  // publish the base64 body, and the header can simply be written back on.
-  const body = [
-    "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABlwAAAAdz",
-    "c2gtcnNhAAAAAwEAAQAAAYEAy8Dbv8prpJ/0kKhlGeJYozo2t60EG8L0561g13R2",
-    "9LZHbJ0FkkCzWzPnMkYJUFP2S1zYlLBBGmkVRuXlPTGrqBiYh1sRfmiPnpWkFDGr",
-  ];
-  const lines = sanitizeLogLines(
-    [
-      logLine("safe leading line"),
-      logLine(pemHeader("OPENSSH")),
-      ...body.map((chunk) => logLine(chunk)),
-      logLine(pemFooter("OPENSSH")),
-      logLine("safe trailing line"),
-    ].join("\n"),
-  );
-
-  assert.deepEqual(lines, [
-    "safe leading line",
-    "[redacted: line matched the secret guard]",
-    "safe trailing line",
-  ]);
-  for (const chunk of body) {
-    assert.ok(
-      !lines.join("\n").includes(chunk),
-      "no part of the key body may reach the issue body",
-    );
-  }
-});
-
-test("an unterminated PEM block is redacted to the end of the excerpt", () => {
-  const lines = sanitizeLogLines(
-    [
-      logLine("safe leading line"),
-      logLine(pemHeader("RSA")),
-      logLine(
-        "MIIEowIBAAKCAQEAx8Dbv8prpJ0kKhlGeJYozo2t60EG8L0561g13R29LZHbJ0Fk",
-      ),
-      logLine(
-        "kCzWzPnMkYJUFP2S1zYlLBBGmkVRuXlPTGrqBiYh1sRfmiPnpWkFDGrqBiYh1sR",
-      ),
-    ].join("\n"),
-  );
-
-  assert.deepEqual(lines, [
-    "safe leading line",
-    "[redacted: line matched the secret guard]",
-  ]);
-});
-
-test("a single-line PEM marker does not swallow the rest of the log", () => {
-  const lines = sanitizeLogLines(
-    [
-      logLine("-----BEGIN CERTIFICATE----- inline -----END CERTIFICATE-----"),
-      logLine("still readable"),
-    ].join("\n"),
-  );
-
-  assert.deepEqual(lines, [
-    "[redacted: line matched the secret guard]",
-    "still readable",
-  ]);
-});
-
-test("the credential guard runs before a long line is shortened", () => {
-  // The keyword sits past the 500-character cap while a credential-shaped value
-  // sits before it. Shortening first would drop the keyword and publish the
-  // value, so the guard must see the whole stripped line.
-  const credential = "AKIAIOSFODNN7EXAMPLE";
-  const raw = `${credential} ${"filler ".repeat(120)} authorization=1`;
-  assert.ok(
-    raw.indexOf("authorization") > 500,
-    "the keyword must be past the cap",
-  );
-
-  const lines = sanitizeLogLines(logLine(raw));
-
-  assert.deepEqual(lines, ["[redacted: line matched the secret guard]"]);
-  assert.ok(!lines.join("\n").includes(credential));
-});
-
-test("sanitizing caps a single runaway line", () => {
-  const [line] = sanitizeLogLines(logLine("x".repeat(5_000)));
-
-  assert.equal(line.length, 501);
-  assert.ok(line.endsWith("…"));
-});
-
-test("the OSV findings table is extracted with its header and headline", () => {
-  const findings = extractOsvFindings(sanitizeLogLines(OSV_JOB_LOG));
-
-  assert.match(
-    findings[0],
-    /^Total 1 package affected by 1 known vulnerability/,
-  );
-  assert.ok(findings.some((line) => /\| OSV URL /.test(line)));
-  assert.ok(
-    findings.some((line) =>
-      line.startsWith("| https://osv.dev/GHSA-vx52-2968-3vc6 |"),
-    ),
-  );
-  assert.ok(findings.some((line) => line.includes("10.34.5")));
-  assert.ok(
-    findings.every((line) => !line.includes("Post job cleanup")),
-    "unrelated log noise must stay out of the table excerpt",
-  );
-});
-
-test("a log without OSV findings yields no findings table", () => {
-  assert.deepEqual(extractOsvFindings(sanitizeLogLines(SKEW_JOB_LOG)), []);
-  assert.deepEqual(
-    extractOsvFindings(["+----+", "| NAME |", "+----+"]),
-    [],
-    "a table with no osv.dev row is not a findings table",
-  );
-});
-
-test("error context keeps the lines leading up to each error annotation", () => {
-  const excerpt = extractErrorContext(sanitizeLogLines(SKEW_JOB_LOG), {
-    contextLines: 3,
-  });
-
-  assert.match(
-    excerpt.at(-1),
-    /##\[error\]Process completed with exit code 1\./,
-  );
-  assert.ok(
-    excerpt.some((line) => line.includes("conflicts with catalog")),
-    "the real error line must survive",
-  );
-  assert.ok(
-    excerpt.every((line) => !line.includes("Post job cleanup")),
-    "context stops at the annotation, not at the end of the log",
-  );
-});
-
-test("error context falls back to the log tail without an annotation", () => {
-  const lines = Array.from({ length: 30 }, (_, index) => `line ${index}`);
-
-  assert.deepEqual(extractErrorContext(lines, { maxLines: 4 }), [
-    "line 26",
-    "line 27",
-    "line 28",
-    "line 29",
-  ]);
-});
-
-test("error context elides the gap between separated annotations", () => {
-  const lines = [
-    "##[error]first",
-    ...Array.from({ length: 20 }, (_, index) => `filler ${index}`),
-    "##[error]second",
-  ];
-  const excerpt = extractErrorContext(lines, { contextLines: 1 });
-
-  assert.deepEqual(excerpt, [
-    "##[error]first",
-    "[…]",
-    "filler 19",
-    "##[error]second",
-  ]);
-});
-
-test("capping a head-kept excerpt marks the truncation at the end", () => {
-  const capped = capExcerpt(
-    Array.from({ length: 10 }, (_, index) => `row ${index}`),
-    { keep: "head", maxLines: 3, maxBytes: 4_096 },
-  );
-
-  // The marker is one of the three allowed lines, not a fourth.
-  assert.deepEqual(capped, [
-    "row 0",
-    "row 1",
-    "[… 8 more log lines truncated]",
-  ]);
-  assert.ok(capped.length <= 3);
-});
-
-test("capping a tail-kept excerpt marks the truncation at the start", () => {
-  const capped = capExcerpt(
-    Array.from({ length: 10 }, (_, index) => `row ${index}`),
-    { keep: "tail", maxLines: 2, maxBytes: 4_096 },
-  );
-
-  assert.deepEqual(capped, ["[… 9 more log lines truncated]", "row 9"]);
-  assert.ok(capped.length <= 2);
-});
-
-test("a capped excerpt never exceeds the documented 40-line maximum", () => {
-  for (const keep of ["head", "tail"]) {
-    const capped = capExcerpt(
-      Array.from({ length: 500 }, (_, index) => `row ${index}`),
-      { keep },
-    );
-    assert.ok(
-      capped.length <= 40,
-      `${keep}-kept excerpt was ${capped.length} lines`,
-    );
-    assert.equal(
-      capped.filter((line) => /more log lines truncated/.test(line)).length,
-      1,
-    );
-  }
-});
-
-test("capping enforces the byte budget as well as the line budget", () => {
-  const capped = capExcerpt(
-    Array.from({ length: 20 }, () => "y".repeat(50)),
-    { keep: "head", maxLines: 20, maxBytes: 200 },
-  );
-  const payload = capped.slice(0, -1).join("\n");
-
-  assert.ok(byteLengthOf(payload) <= 200 - 64, payload.length.toString());
-  assert.match(capped.at(-1), /^\[… \d+ more log lines truncated\]$/);
-});
-
-function byteLengthOf(text) {
-  return new TextEncoder().encode(text).length;
-}
-
-test("failed-job evidence carries the OSV findings table into the issue", async () => {
+test("failed jobs are reported by job and step name only", async () => {
   const job = failedJob();
   const { github, context, calls } = harness({
     jobs: [job, { id: 900_002, name: "passing job", conclusion: "success" }],
-    jobLogs: { [job.id]: OSV_JOB_LOG },
   });
   const result = await reconcileCiFailureIssue({ github, context });
 
   assert.deepEqual(result, { action: "opened", issueNumber: 91 });
   const body = calls.create[0].body;
   assert.equal(calls.listJobs, 1);
-  assert.deepEqual(calls.logs, [job.id], "only failed jobs are fetched");
   assert.match(body, /^## What failed$/m);
+  assert.match(body, /osv-scanner SARIF \(trusted pnpm runtime\) \/ osv-scan/);
+  assert.match(body, /failed step: `Fail on newly introduced vulnerabilities`/);
   assert.match(
     body,
-    /### \[osv-scanner \(trusted pnpm runtime\) \/ osv-scan\]/,
+    /\(\[job log\]\(https:\/\/github\.com\/[^)]+\/job\/900001\)\)/,
   );
-  assert.match(body, /Failed step: `Fail on newly introduced vulnerabilities`/);
-  assert.match(body, /\| https:\/\/osv\.dev\/GHSA-vx52-2968-3vc6 \| 7\.4 /);
-  assert.ok(!body.includes("ACTIONS_RUNTIME_TOKEN"));
+  assert.doesNotMatch(body, /passing job/);
+  assert.match(body, /never quotes job log output/);
   assert.match(body, /managed-ci-failure:77:push:main/);
 });
 
-test("a non-OSV failure reports the lines around its error annotation", async () => {
+test("every failed step of a job is listed", async () => {
   const job = failedJob({
-    id: 900_003,
-    name: "catalog version-skew",
-    steps: [{ name: "catalog version-skew check", conclusion: "failure" }],
+    steps: [
+      { name: "first check", conclusion: "failure" },
+      { name: "second check", conclusion: "success" },
+      { name: "third check", conclusion: "timed_out" },
+    ],
   });
-  const { github, context, calls } = harness({
-    jobs: [job],
-    jobLogs: { [job.id]: SKEW_JOB_LOG },
-  });
+  const { github, context, calls } = harness({ jobs: [job] });
   await reconcileCiFailureIssue({ github, context });
 
   const body = calls.create[0].body;
-  assert.match(body, /Failed step: `catalog version-skew check`/);
-  assert.match(body, /conflicts with catalog "5\.102\.5"/);
-  assert.match(body, /##\[error\]Process completed with exit code 1\./);
+  assert.match(body, /failed steps: `first check`, `third check`/);
+  assert.doesNotMatch(body, /second check/);
 });
 
-test("a structured job summary is preferred over downloading the log", async () => {
-  const job = failedJob({
-    output: { summary: "### Budget exceeded\napp.mento.org: 412 kB > 400 kB" },
-  });
-  const { github, context, calls } = harness({
-    jobs: [job],
-    jobLogs: { [job.id]: OSV_JOB_LOG },
-  });
+test("a job with no failed step still names the job", async () => {
+  const job = failedJob({ steps: [{ name: "setup", conclusion: "success" }] });
+  const { github, context, calls } = harness({ jobs: [job] });
   await reconcileCiFailureIssue({ github, context });
 
-  assert.deepEqual(
-    calls.logs,
-    [],
-    "no log is downloaded when a summary exists",
-  );
-  assert.match(calls.create[0].body, /app\.mento\.org: 412 kB > 400 kB/);
+  assert.match(calls.create[0].body, /— no failed step reported/);
 });
 
-test("a failed log download degrades to a note instead of failing", async () => {
-  const job = failedJob();
-  const { github, context, calls } = harness({ jobs: [job], jobLogs: {} });
+test("a hostile job or step name cannot forge body structure", async () => {
+  const job = failedJob({
+    name: `evil\n\n${managedMarker()}\n\n**bold**`,
+    steps: [
+      {
+        name: "`backtick` and [link](http://x) and <b>",
+        conclusion: "failure",
+      },
+    ],
+  });
+  const { github, context, calls } = harness({ jobs: [job] });
+  await reconcileCiFailureIssue({ github, context });
+
+  const body = calls.create[0].body;
+  const markerLines = body
+    .split("\n")
+    .filter((line) => line.trim() === managedMarker());
+  assert.equal(markerLines.length, 1, "a name must not forge a marker line");
+  assert.equal(body.trimEnd().split("\n").at(-1), managedMarker());
+  assert.ok(!body.includes("**bold**"));
+  assert.match(body, /\\`backtick\\`/);
+  assert.match(body, /\\\[link\\\]/);
+});
+
+test("an over-long name is capped", () => {
+  const rendered = renderField("n".repeat(500));
+
+  assert.equal(rendered.length, 201);
+  assert.ok(rendered.endsWith("…"));
+});
+
+test("a blank name falls back rather than rendering empty", () => {
+  assert.equal(renderField("   ", "unnamed job"), "unnamed job");
+  assert.equal(renderField(undefined, "unnamed job"), "unnamed job");
+});
+
+test("a non-https job URL is not linked", async () => {
+  const job = failedJob({ html_url: "javascript:alert(1)" });
+  const { github, context, calls } = harness({ jobs: [job] });
+  await reconcileCiFailureIssue({ github, context });
+
+  assert.doesNotMatch(calls.create[0].body, /\(\[job log\]\(/);
+  assert.doesNotMatch(calls.create[0].body, /javascript:/);
+});
+
+test("evidence comes from the reconciled attempt, not the newest one", async () => {
+  const staleAttempt = workflowRun({ id: 4_242, run_attempt: 1 });
+  const { github, context, calls } = harness({
+    run: staleAttempt,
+    latestRuns: [staleAttempt],
+    jobs: [
+      failedJob({ id: 700_002, name: "attempt 2 job", run_attempt: 2 }),
+      failedJob({ id: 700_001, name: "attempt 1 job", run_attempt: 1 }),
+    ],
+  });
   const result = await reconcileCiFailureIssue({ github, context });
 
   assert.deepEqual(result, { action: "opened", issueNumber: 91 });
-  assert.match(calls.create[0].body, /_\(log excerpt unavailable: HTTP 404\)_/);
-  assert.match(calls.create[0].body, /Failed step: `Fail on newly introduced/);
-  assert.match(calls.create[0].body, /managed-ci-failure:77:push:main/);
+  assert.match(calls.create[0].body, /attempt 1 job/);
+  assert.doesNotMatch(calls.create[0].body, /attempt 2 job/);
 });
 
-test("an unreadable log payload degrades instead of failing", async () => {
+test("a job list without attempt numbers is still reported", async () => {
   const job = failedJob();
+  delete job.run_attempt;
   const { github, context, calls } = harness({
+    run: workflowRun({ run_attempt: 3 }),
     jobs: [job],
-    jobLogs: { [job.id]: { unexpected: "shape" } },
-  });
-  const result = await reconcileCiFailureIssue({ github, context });
-
-  assert.equal(result.action, "opened");
-  assert.match(calls.create[0].body, /log excerpt unavailable: the job log/);
-});
-
-test("a job log delivered as bytes is decoded", async () => {
-  const job = failedJob();
-  const { github, context, calls } = harness({
-    jobs: [job],
-    jobLogs: { [job.id]: new TextEncoder().encode(OSV_JOB_LOG) },
   });
   await reconcileCiFailureIssue({ github, context });
 
-  assert.match(calls.create[0].body, /GHSA-vx52-2968-3vc6/);
+  assert.match(calls.create[0].body, /osv-scan/);
+});
+
+test("only the first ten failed jobs are listed and the rest are counted", async () => {
+  const jobs = Array.from({ length: 13 }, (_, index) =>
+    failedJob({ id: 910_000 + index, name: `failed job ${index}` }),
+  );
+  const { github, context, calls } = harness({ jobs });
+  await reconcileCiFailureIssue({ github, context });
+
+  const body = calls.create[0].body;
+  assert.match(body, /_3 further failed jobs are not listed here\._/);
+  assert.match(body, /failed job 9/);
+  assert.doesNotMatch(body, /failed job 10/);
 });
 
 test("a failed job list degrades to a note instead of failing", async () => {
@@ -1037,245 +724,7 @@ test("a failed job list degrades to a note instead of failing", async () => {
   assert.match(calls.create[0].body, /managed-ci-failure:77:push:main/);
 });
 
-test("a degradation reason that looks like a credential is withheld", async () => {
-  const { github, context, calls } = harness({
-    listJobsError: new Error("bad credentials for token ghp_abcdefghijklmnop"),
-  });
-  await reconcileCiFailureIssue({ github, context });
-
-  assert.match(calls.create[0].body, /job list unavailable: redacted error/);
-  assert.ok(!calls.create[0].body.includes("ghp_abcdefghijklmnop"));
-});
-
-test("a run with no failed job still produces a stable body", async () => {
-  const { github, context, calls } = harness({
-    jobs: [{ id: 1, name: "passing job", conclusion: "success" }],
-  });
-  const result = await reconcileCiFailureIssue({ github, context });
-
-  assert.deepEqual(result, { action: "opened", issueNumber: 91 });
-  assert.deepEqual(calls.logs, []);
-  assert.match(calls.create[0].body, /^## What failed$/m);
-  assert.match(
-    calls.create[0].body,
-    /_No failed job was reported for this run/,
-  );
-  assert.match(calls.create[0].body, /managed-ci-failure:77:push:main/);
-});
-
-test("only the first ten failed jobs are excerpted and the rest are counted", async () => {
-  const jobs = Array.from({ length: 13 }, (_, index) =>
-    failedJob({ id: 910_000 + index, name: `failed job ${index}` }),
-  );
-  const jobLogs = Object.fromEntries(
-    jobs.map((job) => [job.id, SKEW_JOB_LOG.repeat(20)]),
-  );
-  const { github, context, calls } = harness({ jobs, jobLogs });
-  await reconcileCiFailureIssue({ github, context });
-
-  const body = calls.create[0].body;
-  assert.equal(calls.logs.length, 10);
-  assert.match(body, /_3 further failed jobs are not listed here\._/);
-  assert.ok(
-    byteLengthOf(body) <= 60 * 1024,
-    `body must stay under the issue limit, got ${byteLengthOf(body)}`,
-  );
-  assert.match(body, /managed-ci-failure:77:push:main/);
-});
-
-test("the assembled body drops whole excerpts before exceeding the size limit", () => {
-  const run = workflowRun();
-  const evidence = {
-    jobs: Array.from({ length: 40 }, (_, index) => ({
-      name: `failed job ${index}`,
-      failedStep: "run",
-      source: "log",
-      lines: Array.from({ length: 40 }, () => "z".repeat(100)),
-    })),
-  };
-  const body = failureBody(run, "main", managedMarker(), evidence);
-
-  assert.ok(
-    byteLengthOf(body) <= 60 * 1024,
-    `body must stay under the size limit, got ${byteLengthOf(body)}`,
-  );
-  assert.match(
-    body,
-    /_Excerpts for \d+ further failed jobs were dropped to keep this issue under GitHub's size limit\._/,
-  );
-  assert.match(body, /^## What failed$/m);
-  assert.equal(body.trimEnd().split("\n").at(-1), managedMarker());
-});
-
-test("a log excerpt containing a code fence cannot break out of its block", () => {
-  const body = failureBody(workflowRun(), "main", managedMarker(), {
-    jobs: [
-      {
-        name: "markdown job",
-        source: "log",
-        lines: ["```", "pretend markdown", "```"],
-      },
-    ],
-  });
-
-  assert.match(body, /^````text$/m);
-  assert.equal(body.trimEnd().split("\n").at(-1), managedMarker());
-});
-
-test("a stalled log download is aborted and degrades within the deadline", async () => {
-  const job = failedJob();
-  const { github, calls } = harness({
-    jobs: [job],
-    jobLogs: { [job.id]: NEVER_RESOLVES },
-  });
-  const startedAt = Date.now();
-  const evidence = await collectFailureEvidence(
-    github,
-    { owner: "mento-protocol", repo: "frontend-monorepo" },
-    workflowRun(),
-    undefined,
-    { deadlineMs: 60 },
-  );
-  const elapsed = Date.now() - startedAt;
-
-  assert.equal(calls.logs.length, 1);
-  assert.ok(
-    calls.signals[0] instanceof AbortSignal,
-    "the download must carry an abort signal",
-  );
-  assert.equal(evidence.jobs.length, 1);
-  assert.match(evidence.jobs[0].note, /^log excerpt unavailable: /);
-  assert.ok(
-    elapsed < 5_000,
-    `a stalled download must not hold the job, took ${elapsed}ms`,
-  );
-
-  // The degraded evidence still produces a complete, marker-keyed body.
-  const body = failureBody(workflowRun(), "main", managedMarker(), evidence);
-  assert.match(body, /_\(log excerpt unavailable: /);
-  assert.equal(body.trimEnd().split("\n").at(-1), managedMarker());
-});
-
-test("only the tail of an oversized job log is decoded", async () => {
-  const job = failedJob();
-  // An OSV table at the head, past the 2 MiB cap, and an error annotation at
-  // the tail. Decoding the whole log would let the head win and report the
-  // findings table; the cap must leave only the tail's error context.
-  const filler = `${"n".repeat(200)}\n`.repeat(20_000);
-  const oversized = `${OSV_JOB_LOG}\n${filler}${SKEW_JOB_LOG}`;
-  assert.ok(filler.length > 2 * 1024 * 1024, "the fixture must exceed the cap");
-
-  const { github, context, calls } = harness({
-    jobs: [job],
-    jobLogs: { [job.id]: new TextEncoder().encode(oversized) },
-  });
-  await reconcileCiFailureIssue({ github, context });
-
-  const body = calls.create[0].body;
-  assert.match(body, /##\[error\]Process completed with exit code 1\./);
-  assert.ok(
-    !body.includes("GHSA-vx52-2968-3vc6"),
-    "content past the byte cap must never be decoded",
-  );
-});
-
-test("evidence comes from the reconciled attempt, not the newest one", async () => {
-  const staleAttempt = workflowRun({ id: 4_242, run_attempt: 1 });
-  const firstAttemptJob = failedJob({
-    id: 700_001,
-    name: "attempt 1 job",
-    run_attempt: 1,
-  });
-  const rerunJob = failedJob({
-    id: 700_002,
-    name: "attempt 2 job",
-    run_attempt: 2,
-  });
-  const { github, context, calls } = harness({
-    run: staleAttempt,
-    latestRuns: [staleAttempt],
-    jobs: [rerunJob, firstAttemptJob],
-    jobLogs: {
-      [firstAttemptJob.id]: OSV_JOB_LOG,
-      [rerunJob.id]: SKEW_JOB_LOG,
-    },
-  });
-  const result = await reconcileCiFailureIssue({ github, context });
-
-  assert.deepEqual(result, { action: "opened", issueNumber: 91 });
-  assert.deepEqual(calls.logs, [firstAttemptJob.id]);
-  assert.match(calls.create[0].body, /attempt 1 job/);
-  assert.doesNotMatch(calls.create[0].body, /attempt 2 job/);
-});
-
-test("a job list without attempt numbers is still reported", async () => {
-  const job = failedJob();
-  delete job.run_attempt;
-  const { github, context, calls } = harness({
-    run: workflowRun({ run_attempt: 3 }),
-    jobs: [job],
-    jobLogs: { [job.id]: OSV_JOB_LOG },
-  });
-  await reconcileCiFailureIssue({ github, context });
-
-  assert.match(calls.create[0].body, /GHSA-vx52-2968-3vc6/);
-});
-
-test("the evidence collector stops downloading logs past its deadline", async () => {
-  const job = failedJob();
-  const { github, calls } = harness({
-    jobs: [job],
-    jobLogs: { [job.id]: OSV_JOB_LOG },
-  });
-  const evidence = await collectFailureEvidence(
-    github,
-    { owner: "mento-protocol", repo: "frontend-monorepo" },
-    workflowRun(),
-    undefined,
-    { deadlineMs: -1 },
-  );
-
-  assert.deepEqual(calls.logs, [], "no log is downloaded past the deadline");
-  assert.equal(evidence.jobs.length, 1);
-  assert.equal(
-    evidence.jobs[0].note,
-    "log excerpt unavailable: the evidence deadline passed",
-  );
-  assert.equal(
-    evidence.jobs[0].failedStep,
-    "Fail on newly introduced vulnerabilities",
-  );
-});
-
-test("the partial line at the tail boundary is discarded", async () => {
-  // Place the 2 MiB cut inside a credential's value so the surviving fragment
-  // carries the value with no keyword left for the guard to match.
-  const value = "Z".repeat(40);
-  const secret = `AWS_SECRET_ACCESS_KEY=${value}`;
-  const tail = `\n${SKEW_JOB_LOG}`;
-  const keptSecretChars = 10;
-  const padding = "p".repeat(2 * 1024 * 1024 - keptSecretChars - tail.length);
-  const payload = `head line\n${secret}${padding}${tail}`;
-  const fragment = value.slice(-keptSecretChars);
-
-  const job = failedJob();
-  const { github, context, calls } = harness({
-    jobs: [job],
-    jobLogs: { [job.id]: new TextEncoder().encode(payload) },
-  });
-  await reconcileCiFailureIssue({ github, context });
-
-  const body = calls.create[0].body;
-  assert.match(body, /##\[error\]Process completed with exit code 1\./);
-  assert.ok(
-    !body.includes(fragment),
-    "the value stranded by the boundary cut must never be published",
-  );
-  assert.ok(!body.includes("pppppppppp"), "the partial line must be dropped");
-});
-
 test("a degradation reason is scanned in full before it is shortened", async () => {
-  // The keyword sits past character 200; the opaque value sits before it.
   const value = "AKIAIOSFODNN7EXAMPLE";
   const message = `${value} ${"filler ".repeat(40)} authorization refused`;
   assert.ok(
@@ -1317,70 +766,19 @@ test("a stalled job listing is aborted and degrades to a note", async () => {
   assert.equal(body.trimEnd().split("\n").at(-1), managedMarker());
 });
 
-test("a streamed log is read without ever holding more than the tail cap", async () => {
-  // 8 MiB delivered in 64 KiB chunks. The reader must retain at most the 2 MiB
-  // window plus the chunk in hand, so the decoded text cannot exceed the cap.
-  const chunk = "q".repeat(64 * 1024);
-  const chunks = Array.from({ length: 128 }, () => chunk);
-  chunks.push(`\n${SKEW_JOB_LOG}`);
-
-  const text = await readBoundedResponseText(streamingResponse(chunks));
-
-  assert.ok(
-    byteLengthOf(text) <= 2 * 1024 * 1024,
-    `held ${byteLengthOf(text)} bytes, above the 2 MiB cap`,
-  );
-  assert.match(text, /##\[error\]Process completed with exit code 1\./);
-});
-
-test("a runaway stream is cancelled at the hard ceiling", async () => {
-  let cancelled = false;
-  const chunk = "r".repeat(1024 * 1024);
-  const chunks = Array.from({ length: 64 }, () => chunk);
-  const response = streamingResponse(chunks, {
-    onCancel: () => (cancelled = true),
+test("a run with no failed job still produces a stable body", async () => {
+  const { github, context, calls } = harness({
+    jobs: [{ id: 1, name: "passing job", conclusion: "success" }],
   });
+  const result = await reconcileCiFailureIssue({ github, context });
 
-  await assert.rejects(
-    readBoundedResponseText(response),
-    /exceeded the readable size limit/,
+  assert.deepEqual(result, { action: "opened", issueNumber: 91 });
+  assert.match(calls.create[0].body, /^## What failed$/m);
+  assert.match(
+    calls.create[0].body,
+    /_No failed job was reported for this run/,
   );
-  assert.ok(cancelled, "the reader must be cancelled, not drained");
-  // Stopping at the 32 MiB ceiling, not reading all 64 MiB, is the proof that
-  // the body is never materialised in full.
-  assert.equal(response.reads(), 33);
-});
-
-test("the job log redirect is streamed and no Range header is sent", async () => {
-  // The store advertises accept-ranges but answers a suffix range with 200 and
-  // the whole body, so sending one would look bounded while downloading it all.
-  const job = failedJob();
-  const requests = [];
-  const fetchImpl = async (url, init) => {
-    requests.push({ url, init });
-    return streamingResponse([SKEW_JOB_LOG]);
-  };
-  const { github } = harness({
-    jobs: [job],
-    jobLogs: { [job.id]: { location: "https://blob.example/log?sig=abc" } },
-  });
-
-  const evidence = await collectFailureEvidence(
-    github,
-    { owner: "mento-protocol", repo: "frontend-monorepo" },
-    workflowRun(),
-    undefined,
-    { fetchImpl },
-  );
-
-  assert.equal(requests.length, 1);
-  assert.equal(requests[0].url, "https://blob.example/log?sig=abc");
-  assert.equal(requests[0].init.headers, undefined);
-  assert.ok(requests[0].init.signal instanceof AbortSignal);
-  assert.ok(
-    evidence.jobs[0].lines.some((line) => line.includes("##[error]")),
-    "the streamed tail must still produce the excerpt",
-  );
+  assert.match(calls.create[0].body, /managed-ci-failure:77:push:main/);
 });
 
 test("the evidence collector skips a run that exposes no id", async () => {
@@ -1395,4 +793,102 @@ test("the evidence collector skips a run that exposes no id", async () => {
     jobs: [],
     note: "the failed run exposed no job list",
   });
+});
+
+test("the assembled body drops rows before exceeding the size limit", () => {
+  const evidence = {
+    jobs: Array.from({ length: 400 }, (_, index) => ({
+      name: `failed job ${index} ${"n".repeat(190)}`,
+      url: "https://github.com/mento-protocol/frontend-monorepo/actions/runs/1",
+      failedSteps: Array.from(
+        { length: 10 },
+        (_, step) => `step ${step} ${"s".repeat(180)}`,
+      ),
+    })),
+  };
+  const body = failureBody(workflowRun(), "main", managedMarker(), evidence);
+
+  assert.ok(
+    new TextEncoder().encode(body).length <= 60 * 1024,
+    "the body must stay under the issue size limit",
+  );
+  assert.match(
+    body,
+    /_\d+ further failed jobs were dropped to keep this issue under GitHub's size limit\._/,
+  );
+  assert.equal(body.trimEnd().split("\n").at(-1), managedMarker());
+});
+
+test("the marker only routes when it sits on its own line outside a fence", () => {
+  const marker = managedMarker();
+
+  assert.ok(bodyCarriesMarker(`text\n${marker}\nmore`, marker));
+  assert.ok(bodyCarriesMarker(`text\n   ${marker}   \n`, marker));
+  assert.ok(
+    !bodyCarriesMarker(`a quoted ${marker} inside a sentence`, marker),
+    "a substring must never route an issue",
+  );
+  assert.ok(
+    !bodyCarriesMarker(["```text", marker, "```"].join("\n"), marker),
+    "a fenced block must never route an issue",
+  );
+  assert.ok(
+    !bodyCarriesMarker(["~~~", marker, "~~~"].join("\n"), marker),
+    "a tilde fence must never route an issue",
+  );
+  assert.ok(!bodyCarriesMarker(undefined, marker));
+});
+
+test("a quoted marker in a human issue does not hijack reconciliation", async () => {
+  const impostor = {
+    number: 77,
+    state: "open",
+    body: ["Look at this:", "```text", managedMarker(), "```"].join("\n"),
+    user: { login: "github-actions[bot]" },
+  };
+  const { github, context, calls } = harness({ issues: [impostor] });
+  const result = await reconcileCiFailureIssue({ github, context });
+
+  assert.deepEqual(result, { action: "opened", issueNumber: 91 });
+  assert.equal(calls.update.length, 0);
+});
+
+test("recovery keeps the marker on the last line", async () => {
+  const run = workflowRun({ conclusion: "success", run_number: 13 });
+  const existing = managedIssue({
+    body: ["failure", "", "## What failed", "", managedMarker()].join("\n"),
+  });
+  const { github, context, calls } = harness({ run, issues: [existing] });
+  const result = await reconcileCiFailureIssue({ github, context });
+
+  assert.deepEqual(result, { action: "closed", issueNumber: 42 });
+  const body = calls.update[0].body;
+  assert.match(body, /## Recovery/);
+  assert.equal(body.trimEnd().split("\n").at(-1), managedMarker());
+  assert.equal(
+    body.split("\n").filter((line) => line.trim() === managedMarker()).length,
+    1,
+  );
+  assert.ok(bodyCarriesMarker(body, managedMarker()));
+});
+
+test("a legacy body with the marker above a recovery note still routes", async () => {
+  // Issues closed by the previous format carry the marker mid-body.
+  const legacy = managedIssue({
+    state: "closed",
+    body: [
+      "old failure",
+      "",
+      managedMarker(),
+      "",
+      "## Recovery",
+      "",
+      "ok",
+    ].join("\n"),
+  });
+  const { github, context, calls } = harness({ issues: [legacy] });
+  const result = await reconcileCiFailureIssue({ github, context });
+
+  assert.deepEqual(result, { action: "updated", issueNumber: 42 });
+  assert.equal(calls.update[0].state, "open");
 });

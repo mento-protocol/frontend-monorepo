@@ -105,69 +105,60 @@ branch or tag. It then:
 
 A failure body carries a `## What failed` section between the run metadata and
 the managed marker, so the issue states what broke instead of only linking the
-run. For each failed job of the reconciled run it prints the job name, the name
-of the failed step, and one bounded excerpt. Jobs are listed with `filter: all`
-and selected by `run_attempt`, never with `filter: latest`: GitHub defines
-`latest` as the newest execution, so a rerun that starts before this callback
-reconciles would otherwise report the new attempt's jobs under the completed
-attempt the issue names.
+run. It lists, per failed job of the reconciled run, the job name, the names of
+its failed steps, and a link to that job.
 
-The excerpt comes from the job's structured summary when the API exposes one.
-The workflow-jobs API exposes no step output today, so in practice the notifier
-downloads the job log with `GET /repos/{owner}/{repo}/actions/jobs/{job_id}/logs`
-under the `actions: read` permission the job already holds. It then picks the
-excerpt by content, not by job name:
+**The failure issue never contains raw log text.** Everything it publishes comes
+from GitHub's own structure — the workflow-jobs API's job names, step names, and
+conclusions — and the notifier downloads no logs at all. That is a deliberate
+posture, not a gap:
 
-- an OSV-Scanner findings table — every contiguous `| … |` block holding at
-  least one `https://osv.dev/` row, with its `Total N packages affected …`
-  headline. That is what a daily `Supply Chain` scan failure needs to show; or
-- otherwise the lines leading up to each `##[error]` annotation, falling back to
-  the tail of the log when the runner recorded no annotation.
+- Log text is attacker-influenceable. A failing job prints whatever a
+  dependency, a test fixture, or an environment dump puts in front of it. No
+  line-level redaction holds against a credential value that carries no keyword
+  on its own line (a bare JWT, an `AKIA…`, a deploy token), against a label and
+  value split across two lines, or against an encoded value.
+- Line-based selection is just as weak. A runner's error annotations and a
+  scanner's table syntax are printable by the same job, so selecting lines by
+  that structure would let the job choose which of its own raw lines get
+  published verbatim.
 
-Every excerpt is sanitized and bounded. Sanitizing strips ANSI colouring and the
-per-line runner timestamp, then tests the whole stripped line against a
-defensive credential pattern
-(`token|secret|password|passwd|bearer|authorization|ghp_|ghs_|gho_|ghu_|ghr_|github_pat_|-----BEGIN`)
-and replaces a matching line with a fixed redaction line — that guard is what
-keeps a runner's `ACTIONS_RUNTIME_TOKEN` echo out of a public issue. The guard
-runs before the 500-character line cap, deliberately: shortening first would
-drop a keyword sitting past the cap and publish an opaque credential from
-earlier in the same line. A PEM block is redacted as a unit, from `-----BEGIN`
-through the matching `-----END` or to the end of an unterminated block, because
-only its header carries a keyword — line-at-a-time matching would publish the
-base64 body, and a reader could write the header back on. Bounding then caps
-each job at 40 lines and 4 KiB, reports at most 10 failed jobs, and holds the
-assembled body under 60 KiB against GitHub's 65536-character issue limit. Every
-cut is marked in place, and the marker counts against the 40-line cap rather
-than adding a 41st line: `[… N more log lines truncated]` inside an excerpt, and
-a counted note for jobs whose excerpts were dropped or that were not listed.
+Job and step names are workflow-file structure on the default branch, so they
+are trusted input, but they are still rendered defensively: control and format
+characters are stripped, whitespace is collapsed, the value is capped at 200
+characters, and Markdown specials are escaped. Stripping control characters is
+what stops a name from forging the managed marker on a line of its own. A job
+link is emitted only when the API's URL parses as `https:`.
 
-Evidence is best-effort. A failed job listing or log download degrades to a
-`job list unavailable: <reason>` or `(log excerpt unavailable: <reason>)` note,
-and a reason that itself looks like a credential is reported as
-`redacted error` — the reason is scanned whole before it is shortened, for the
-same reason the log guard is.
+Jobs are listed with `filter: all` and selected by `run_attempt`, never with
+`filter: latest`: GitHub defines `latest` as the newest execution, so a rerun
+that starts before this callback reconciles would otherwise report the new
+attempt's jobs under the completed attempt the issue names.
 
-Requests are bounded on both axes so nothing can push the job past its
-five-minute timeout. The job listing carries a 20-second `AbortSignal`; each log
-download carries one for the smaller of the remaining 90-second evidence budget
-and a 20-second per-download cap.
+For a failing OSV scan this reports which scan job and which step failed, and
+the run link. The findings themselves stay where they already are: scheduled
+scans upload SARIF to the repository's code-scanning alerts. Rendering an
+allowlisted findings table in the issue would need the scanner's structured
+`results.json` as a run artifact, and the scheduled full scans call the upstream
+`google/osv-scanner-action` reusable workflow, which cannot be given an upload
+step. That is tracked as follow-up work, not worked around by parsing the log.
 
-Memory is bounded by streaming. The REST log endpoint answers 302 to a signed
-blob URL, and following that through Octokit would materialise the whole body
-before any slicing, so the notifier takes the redirect manually and streams the
-blob without credentials, holding a sliding 2 MiB tail window and cancelling
-outright past a 32 MiB ceiling. The tail is what matters: both `##[error]` and
-the OSV reporter's table sit at the end of a job log. No `Range` header is sent.
-The store advertises `accept-ranges: bytes` and honours an absolute range
-(`bytes=0-4095` → `206`), but answers a suffix range (`bytes=-N`) with `200` and
-the entire body, so a suffix range would look bounded while downloading
-everything. Whenever a tail cut happens, the first surviving line is discarded:
-the cut can land between a credential's label and its value, leaving a fragment
-that carries the value with no keyword left to match.
+Bounding and degradation. At most 10 failed jobs and 10 failed steps per job are
+listed, and the assembled body is held under 60 KiB against GitHub's
+65536-character issue limit, with a counted note for anything dropped or not
+listed. The job listing is the only evidence call and carries a 20-second
+`AbortSignal`, so a stalled listing cannot consume the notifier's five-minute
+job. A failed listing degrades to a `job list unavailable: <reason>` note; a
+reason that itself looks like a credential is reported as `redacted error`, and
+it is scanned whole before it is shortened so a keyword past the cap cannot fall
+away and strand a value in front of it. The notifier still opens, updates, and
+closes its issue in every one of those cases.
 
-The notifier still opens, updates, and closes its issue in every one of those
-cases.
+Marker routing. The managed marker is matched only where it sits on a line of
+its own, outside any fenced block; a substring match would let quoted text route
+a later failure into the wrong issue. The recovery note is inserted above the
+marker so the marker stays the body's last line, and a body written by the
+previous format, which put recovery text after the marker, still routes.
 
 `CI/CD` forces its full build, unit-test, type-check, Knip, and Trunk suite on
 every default-branch push. Documentation-only planning is limited to pull
@@ -181,9 +172,9 @@ recovered. Pull requests retain the cheaper per-surface changed-file plan.
 
 The notifier uses only the repository `GITHUB_TOKEN`, with `actions: read`,
 `contents: read`, and `issues: write` on its single job. `actions: read` already
-covered the workflow-runs pagination and also covers the job listing and log
-download behind `## What failed`, so reading failure evidence added no
-permission. It checks out the
+covered the workflow-runs pagination and also covers the job listing behind
+`## What failed`, so reading failure evidence added no permission. It checks out
+the
 event-time trusted `github.workflow_sha` and never the triggering SHA. Its own name is absent
 from the static source-workflow list, so its issue mutations cannot recursively
 notify it.

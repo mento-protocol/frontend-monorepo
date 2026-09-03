@@ -184,26 +184,23 @@ the update procedure live in `docs/quality-budgets.md`.
 `.github/workflows/ci-failure-notifier.yml` owns one managed issue per monitored
 workflow, operational trigger, and target ref for default-branch, scheduled, and
 release-tag failures, then closes it only after recovery in that same partition.
-Its failure body carries a `## What failed` section: per failed job, the failed
-step plus one bounded excerpt taken from the job's structured summary, or from
-its log under the `actions: read` the job already holds. Jobs come from
-`filter: all` and are selected by `run_attempt`, so a rerun cannot report its
-jobs under the completed attempt the issue names. The excerpt is the OSV-Scanner
-findings table when the log holds one, otherwise the lines around each
-`##[error]`. Excerpts are stripped of ANSI and timestamps; the credential guard
-tests each whole line before the 500-character cap, so shortening can never drop
-a keyword and publish a value from earlier in that line, and a PEM block is
-redacted from `-----BEGIN` through its end marker rather than line by line.
-Degradation reasons are scanned whole before they are shortened, for the same
-reason. Excerpts are capped at 40 lines and 4 KiB per job and 60 KiB per body,
-with every cut marked and the truncation marker counted inside the 40-line cap.
-The job listing and every log download carry abort signals. Logs are streamed
-through a sliding 2 MiB tail window with a 32 MiB hard ceiling rather than
-buffered, no `Range` header is sent (the store ignores suffix ranges and returns
-the whole body), and the first line after any tail cut is discarded because the
-cut can strand a credential's value without its label. A failed listing,
-download, or evidence deadline degrades to an inline note and never fails the
-notifier.
+Its failure body carries a `## What failed` section listing, per failed job of
+the reconciled run, the job name, its failed step names, and a job link. The
+failure issue never contains raw log text: the notifier downloads no logs and
+publishes only GitHub's own job/step structure, because a failing job can print
+anything into its log and can equally print the annotations and table syntax a
+line-selector would key on. Job and step names are still rendered defensively
+(control characters stripped, whitespace collapsed, capped at 200 characters,
+Markdown escaped) so a name cannot forge the managed marker; a job link is
+emitted only for an `https:` URL. Jobs come from `filter: all` and are selected
+by `run_attempt`, so a rerun cannot report its jobs under the completed attempt
+the issue names. At most 10 jobs and 10 steps per job are listed and the body is
+held under 60 KiB, with counted notes for anything dropped. The job listing is
+the only evidence call, carries a 20-second abort signal, and degrades to an
+inline note; a degradation reason is scanned whole before it is shortened and
+reported as `redacted error` when it looks like a credential. The managed marker
+only routes when it sits on its own line outside a fenced block, and the
+recovery note is inserted above it so it stays the last line.
 `CI/CD` forces the full build, unit-test, type-check, Knip, and Trunk suite on
 every default-branch push so a workflow success is valid recovery evidence;
 documentation-only scoping applies only to pull requests.
