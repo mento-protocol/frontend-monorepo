@@ -511,7 +511,11 @@ The repository is set up with GitHub Actions for CI:
 - **Quality budgets**: The always-reported [Quality Budgets](docs/quality-budgets.md)
   check enforces production-source coverage and gzip route limits. Its general
   CI failure notifier opens or updates one issue for an operational workflow
-  failure and closes the issue after recovery.
+  failure and closes the issue after recovery. The same failures also post to
+  Slack's `#ci-failures` from
+  [`.github/workflows/notify-slack-on-main-failure.yml`](.github/workflows/notify-slack-on-main-failure.yml),
+  which links the run and the managed issue; run that workflow's
+  `workflow_dispatch` from the Actions tab to smoke-test the Slack wiring.
 - **Dependabot preparation**: Native npm and GitHub Actions updates open at
   06:00 UTC each Monday. A disabled OpenClaw job is installed for 10:15 UTC and
   will invoke the runtime-neutral `dependabot-prep` skill with bounded write

@@ -180,7 +180,111 @@ event-time trusted `github.workflow_sha` and never the triggering SHA. Its own n
 from the static source-workflow list, so its issue mutations cannot recursively
 notify it.
 
+## Slack notification
+
+`.github/workflows/notify-slack-on-main-failure.yml` is the push-notification
+side channel for the same failures. It watches the identical static workflow
+allowlist and applies the identical admission rules, then narrows to the
+`FAILURE_CONCLUSIONS` set from `scripts/ci-failure-issue.mjs`
+(`action_required`, `failure`, `startup_failure`, `timed_out`) and posts one
+message to `#ci-failures` through Slack's `chat.postMessage`. A structural test
+reads that set out of the script, so the two notifiers cannot drift apart on
+which conclusions count. The message links the failed run and the managed-issue
+search; it opens, updates, and closes nothing, so the issue lifecycle above
+stays the single source of truth.
+
+`chat.postMessage` accepts a channel name for a public channel, so the payload
+passes `#ci-failures` rather than an encoded ID. Configure an ID instead only
+if the channel is ever renamed; the step fails loudly on a `channel_not_found`
+response either way.
+
+Because the notifier checks out nothing, it cannot import `targetRefFor()`. It
+mirrors that function in jq — `head_branch`, else `release tag` for a `push`,
+else the default branch — so a scheduled run or a tag push with a null
+`head_branch` names the same ref the managed issue does. A parity test pins the
+source of `targetRefFor()`, pins the jq expression's exact text, and checks
+both null forms.
+
+Those parity tests reimplement the jq semantics in JavaScript rather than
+shelling out to `jq`. `pnpm quality:budgets:test` is a required gate and must
+run with nothing but Node and pnpm — no network, and no binary outside the
+documented prerequisites. Pin drift with exact-text assertions; never add a
+tool dependency to make a gate runnable.
+
+It uses `secrets.SLACK_BOT_TOKEN` (which needs Slack's `chat:write.public`
+scope). The workflow grants no permissions; the job grants exactly
+`actions: read`, the single scope the freshness reconciliation below needs to
+list this workflow's completed runs. It writes nothing back to GitHub, checks
+out no code, and runs no action. Every
+`workflow_run` field it reports — commit title included — is bound to an
+environment variable and passed to `jq --arg`, never interpolated into the
+shell, because a commit title can contain backticks or `$(…)`. The commit title
+is additionally escaped for Slack mrkdwn so a title like `<!channel>` cannot
+render as a real mass-page mention.
+
+Its bare `workflow_dispatch` (no inputs; checkov `CKV_GHA_7` forbids them)
+posts a fixed "🧪 wiring test" message. The workflow must be on `main` to be
+dispatchable at all, so the smoke test can only be run after it has merged.
+
+### Suppressing stale callbacks
+
+A `workflow_run` callback can arrive out of order: run N's failure can land
+after run N+1 already succeeded, and an older attempt can land after a
+successful rerun. `reconcileCiFailureIssue()` handles that by resolving every
+callback to the latest decisive run in its partition — `workflow_id` plus
+`event` plus target ref, ordered by `run_number` then `run_attempt`, where
+"decisive" is `success` plus `FAILURE_CONCLUSIONS` — and acting on that run, so
+it closes or leaves closed the managed issue.
+
+Slack is not idempotent the way one managed issue is, so the mirror is: post
+only when the triggering run is itself the latest decisive run in its
+partition. A newer decisive run either succeeded, in which case there is
+nothing to announce, or failed and owns its own message. A `Reconcile against
+the latest decisive run` step lists the workflow's completed runs for the
+callback's own event with `actions: read` and sets a `stale` output the post
+step is gated on; the smoke-test dispatch skips it entirely.
+
+It paginates. `listCompletedWorkflowRuns()` keeps fetching until a page holds a
+run at or before the callback, because a long tail of newer non-decisive runs —
+a hundred cancellations, say — can push the decisive one past the first page.
+The step stops on that same condition, on a short final page, or as soon as it
+finds a newer decisive run, whichever comes first, and is bounded to ten pages.
+
+It fails open. An API error, an unexpected workflow id, malformed or
+unparseable JSON, or exhausting the page limit posts anyway — a rare duplicate
+beats a dropped alert. Parity is pinned by exact-source assertions on
+`runPosition()`, `compareRuns()`, `isDecisiveRun()`, and the helper's
+pagination break, by exact-text assertions on the jq pipeline, the query
+parameters, and the loop, and by a scenario table asserting the mirror and the
+reference agree on all eight cases — including a decisive run beyond page one,
+with a companion assertion proving a single-page lookup would get that case
+wrong.
+
+### Keeping the Slack token off non-default branches
+
+`gh workflow run --ref <branch>` runs the workflow version on that ref, so a
+branch-selected dispatch of an edited copy would otherwise read
+`SLACK_BOT_TOKEN`. Two layers narrow that:
+
+1. The job's `if:` requires `github.ref` to equal the default branch for every
+   event, so a branch dispatch skips before any step reads the secret. GitHub
+   always sets the ref to the default branch for `workflow_run`, so real
+   notifications are unaffected.
+2. The job declares the `slack-ci-notifications` GitHub Environment, whose
+   deployment branch policy allows `main` only. GitHub enforces that
+   server-side before the job starts — the same shape
+   `vercel-main-deployment.yml` uses with `vercel-cli-production`.
+
+Neither layer is complete while `SLACK_BOT_TOKEN` stays an org-shared secret,
+because an attacker editing this file on their own branch can delete both. The
+control becomes airtight only once the token is an **environment** secret on
+`slack-ci-notifications` and the org-level copy is removed: a copy without the
+`environment:` key then resolves an empty token. Note that push access already
+grants every repository and organization secret through an ordinary `on: push`
+workflow, so this is hardening rather than a repair of a unique hole.
+
 When adding or renaming an operational workflow, add its exact top-level `name`
-to the notifier's `workflow_run.workflows` list and update
-`scripts/quality-workflows.test.mjs`. Run `pnpm quality:budgets:test` before
-shipping the workflow change.
+to both notifiers' `workflow_run.workflows` lists and update
+`scripts/quality-workflows.test.mjs`; a structural test asserts the two lists
+stay identical. Run `pnpm quality:budgets:test` before shipping the workflow
+change.
