@@ -101,6 +101,66 @@ branch or tag. It then:
   current state; neutral, skipped, and cancelled runs do not suppress a
   decisive result.
 
+### What failed
+
+A failure body carries a `## What failed` section between the run metadata and
+the managed marker, so the issue states what broke instead of only linking the
+run. It lists, per failed job of the reconciled run, the job name, the names of
+its failed steps, and a link to that job.
+
+**The failure issue never contains raw log text.** Everything it publishes comes
+from GitHub's own structure — the workflow-jobs API's job names, step names, and
+conclusions — and the notifier downloads no logs at all. That is a deliberate
+posture, not a gap:
+
+- Log text is attacker-influenceable. A failing job prints whatever a
+  dependency, a test fixture, or an environment dump puts in front of it. No
+  line-level redaction holds against a credential value that carries no keyword
+  on its own line (a bare JWT, an `AKIA…`, a deploy token), against a label and
+  value split across two lines, or against an encoded value.
+- Line-based selection is just as weak. A runner's error annotations and a
+  scanner's table syntax are printable by the same job, so selecting lines by
+  that structure would let the job choose which of its own raw lines get
+  published verbatim.
+
+Job and step names are workflow-file structure on the default branch, so they
+are trusted input, but they are still rendered defensively: control and format
+characters are stripped, whitespace is collapsed, the value is capped at 200
+characters, and Markdown specials are escaped. Stripping control characters is
+what stops a name from forging the managed marker on a line of its own. A job
+link is emitted only when the API's URL parses as `https:`.
+
+Jobs are listed with `filter: all` and selected by `run_attempt`, never with
+`filter: latest`: GitHub defines `latest` as the newest execution, so a rerun
+that starts before this callback reconciles would otherwise report the new
+attempt's jobs under the completed attempt the issue names.
+
+For a failing OSV scan this reports which scan job and which step failed, and
+the run link. The findings themselves stay where they already are: scheduled
+scans upload SARIF to the repository's code-scanning alerts. Rendering an
+allowlisted findings table in the issue would need the scanner's structured
+`results.json` as a run artifact, and the scheduled full scans call the upstream
+`google/osv-scanner-action` reusable workflow, which cannot be given an upload
+step. That is tracked as follow-up work, not worked around by parsing the log.
+
+Bounding and degradation. At most 10 failed jobs and 10 failed steps per job are
+listed, and the assembled body is held under 60 KiB against GitHub's
+65536-character issue limit. Nothing is dropped silently: a job whose failed
+steps exceed the cap carries an explicit `and N more failed steps not shown`,
+and jobs beyond the job cap are counted in their own note. The job listing is the only evidence call and carries a 20-second
+`AbortSignal`, so a stalled listing cannot consume the notifier's five-minute
+job. A failed listing degrades to a `job list unavailable: <reason>` note; a
+reason that itself looks like a credential is reported as `redacted error`, and
+it is scanned whole before it is shortened so a keyword past the cap cannot fall
+away and strand a value in front of it. The notifier still opens, updates, and
+closes its issue in every one of those cases.
+
+Marker routing. The managed marker is matched only where it sits on a line of
+its own, outside any fenced block; a substring match would let quoted text route
+a later failure into the wrong issue. The recovery note is inserted above the
+marker so the marker stays the body's last line, and a body written by the
+previous format, which put recovery text after the marker, still routes.
+
 `CI/CD` forces its full build, unit-test, type-check, Knip, and Trunk suite on
 every default-branch push. Documentation-only planning is limited to pull
 requests, so a successful default-branch `CI/CD` run proves the previously
@@ -112,7 +172,10 @@ so its workflow-level success proves that either previously failing surface
 recovered. Pull requests retain the cheaper per-surface changed-file plan.
 
 The notifier uses only the repository `GITHUB_TOKEN`, with `actions: read`,
-`contents: read`, and `issues: write` on its single job. It checks out the
+`contents: read`, and `issues: write` on its single job. `actions: read` already
+covered the workflow-runs pagination and also covers the job listing behind
+`## What failed`, so reading failure evidence added no permission. It checks out
+the
 event-time trusted `github.workflow_sha` and never the triggering SHA. Its own name is absent
 from the static source-workflow list, so its issue mutations cannot recursively
 notify it.

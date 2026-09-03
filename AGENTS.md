@@ -186,6 +186,23 @@ the update procedure live in `docs/quality-budgets.md`.
 `.github/workflows/ci-failure-notifier.yml` owns one managed issue per monitored
 workflow, operational trigger, and target ref for default-branch, scheduled, and
 release-tag failures, then closes it only after recovery in that same partition.
+Its failure body carries a `## What failed` section listing, per failed job of
+the reconciled run, the job name, its failed step names, and a job link. The
+failure issue never contains raw log text: the notifier downloads no logs and
+publishes only GitHub's own job/step structure, because a failing job can print
+anything into its log and can equally print the annotations and table syntax a
+line-selector would key on. Job and step names are still rendered defensively
+(control characters stripped, whitespace collapsed, capped at 200 characters,
+Markdown escaped) so a name cannot forge the managed marker; a job link is
+emitted only for an `https:` URL. Jobs come from `filter: all` and are selected
+by `run_attempt`, so a rerun cannot report its jobs under the completed attempt
+the issue names. At most 10 jobs and 10 steps per job are listed and the body is
+held under 60 KiB, with counted notes for anything dropped. The job listing is
+the only evidence call, carries a 20-second abort signal, and degrades to an
+inline note; a degradation reason is scanned whole before it is shortened and
+reported as `redacted error` when it looks like a credential. The managed marker
+only routes when it sits on its own line outside a fenced block, and the
+recovery note is inserted above it so it stays the last line.
 `CI/CD` forces the full build, unit-test, type-check, Knip, and Trunk suite on
 every default-branch push so a workflow success is valid recovery evidence;
 documentation-only scoping applies only to pull requests.
