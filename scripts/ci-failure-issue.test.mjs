@@ -196,12 +196,22 @@ function harness({
             throw Object.assign(new Error("Not Found"), { status: 404 });
           }
           if (payload instanceof Error) throw payload;
-          // A download that only ever ends when its caller aborts it.
+          // A download that only ever ends when its caller aborts it. The
+          // keep-alive timer is load-bearing: `AbortSignal.timeout()` arms an
+          // unref'd timer, so without a ref'd handle of our own the event loop
+          // drains while this promise is still pending and the runner reports
+          // "Promise resolution is still pending but the event loop has already
+          // resolved" for this test and every one queued behind it.
           if (payload === NEVER_RESOLVES) {
+            const { signal } = parameters.request;
             return new Promise((_resolve, reject) => {
-              parameters.request.signal.addEventListener("abort", () =>
-                reject(parameters.request.signal.reason),
-              );
+              const keepAlive = setTimeout(() => {
+                reject(new Error("the abort signal never fired"));
+              }, 30_000);
+              signal.addEventListener("abort", () => {
+                clearTimeout(keepAlive);
+                reject(signal.reason);
+              });
             });
           }
           return { data: payload };
