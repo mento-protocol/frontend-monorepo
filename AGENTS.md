@@ -130,8 +130,10 @@ For each pull request:
    [`docs/dependency-overrides.md`](docs/dependency-overrides.md)
    only during the maintainer takeover. Keep GitHub Actions on full lowercase
    40-character SHA pins. Classify sensitive or self-reviewing
-   Actions as `manual`. This includes OSV scanner/reporter updates. Keep the OSV
-   scanner and reporter at one step each and at the same revision.
+   Actions as `manual`. This includes OSV scanner/reporter updates. Move the OSV
+   scanner action and the OSV reporter action together, to the same pinned
+   revision, in one update. This is a version-pin rule about those two actions.
+   It places no limit on how many times a workflow may invoke either one.
 5. Do not run repository commands in the scheduled no-exec clone. After each
    push, require exact-head CI to run `pnpm dependency:policy:test` plus every
    affected repository gate. Require the override validators from

@@ -8,6 +8,7 @@ import {
   readdirSync,
   rmSync,
   symlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -618,10 +619,6 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
     "osv-pnpm-bootstrap",
   ];
   const sarifJobIds = osvJobIds.map((jobId) => `${jobId}-sarif`);
-  // "osv" pairs with "osv-baseline"; every other target appends the suffix.
-  const baselineJobIdFor = (jobId) =>
-    jobId === "osv" ? "osv-baseline" : `${jobId}-baseline`;
-  const baselineJobIds = osvJobIds.map(baselineJobIdFor);
   const sarifRevisions = [];
 
   assert.deepEqual(Object.keys(supplyChain.on).sort(), [
@@ -634,52 +631,32 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
   assert.deepEqual(supplyChain.on.schedule, [{ cron: "17 6 * * *" }]);
   assert.deepEqual(
     Object.keys(supplyChain.jobs).sort(),
-    [
-      ...osvJobIds,
-      ...baselineJobIds,
-      ...sarifJobIds,
-      "lockfile-lint",
-      "version-skew",
-    ].sort(),
+    [...osvJobIds, ...sarifJobIds, "lockfile-lint", "version-skew"].sort(),
   );
 
-  const baselineArtifacts = new Set();
   for (const jobId of osvJobIds) {
     const readOnlyJob = supplyChain.jobs[jobId];
-    const baselineJob = supplyChain.jobs[baselineJobIdFor(jobId)];
-    // The scan job must report even when its baseline job failed. A skipped
-    // required check sits pending forever and blocks every merge.
-    assert.equal(
-      readOnlyJob.if,
-      "${{ github.event_name == 'pull_request' && !cancelled() }}",
-    );
-    assert.equal(readOnlyJob.needs, baselineJobIdFor(jobId));
-    assert.equal(baselineJob.if, "github.event_name == 'pull_request'");
-    for (const job of [readOnlyJob, baselineJob]) {
-      assert.deepEqual(job.permissions, {
-        actions: "read",
-        contents: "read",
-      });
-      assert.equal(Object.hasOwn(job.with, "upload-sarif"), false);
-    }
+    // One job per target, so no `needs` edge can skip the required check. A
+    // skipped required check sits pending forever and blocks every merge.
+    assert.equal(readOnlyJob.if, "github.event_name == 'pull_request'");
+    assert.equal(readOnlyJob.needs, undefined);
+    // With the artifact hop gone the scan reads no Actions API, so it no longer
+    // asks for `actions: read`.
+    assert.deepEqual(readOnlyJob.permissions, { contents: "read" });
+    assert.equal(Object.hasOwn(readOnlyJob.with, "upload-sarif"), false);
     assert.equal(
       readOnlyJob.uses,
       "./.github/workflows/_osv-scanner-readonly.yml",
     );
-    assert.equal(
-      baselineJob.uses,
-      "./.github/workflows/_osv-scanner-baseline.yml",
-    );
-    // The base and head scans must run identical arguments or their two result
+    // The two sides must scan the same config and lockfile relative paths, each
+    // rooted at its own checkout directory. Anything else and the two result
     // sets are not comparable and the diff is meaningless.
-    assert.equal(baselineJob.with["scan-args"], readOnlyJob.with["scan-args"]);
-    // Both halves must name the same artifact, and no two targets may share
-    // one, or a target would compare against another target's baseline.
-    const artifact = readOnlyJob.with["baseline-artifact"];
-    assert.equal(typeof artifact, "string");
-    assert.equal(baselineJob.with["baseline-artifact"], artifact);
-    assert.equal(baselineArtifacts.has(artifact), false);
-    baselineArtifacts.add(artifact);
+    const baseArgs = readOnlyJob.with["base-scan-args"];
+    const headArgs = readOnlyJob.with["head-scan-args"];
+    assert.equal(typeof baseArgs, "string");
+    assert.equal(typeof headArgs, "string");
+    assert.notEqual(baseArgs, headArgs);
+    assert.equal(headArgs.replaceAll("candidate/", "base/"), baseArgs);
 
     const sarifJob = supplyChain.jobs[`${jobId}-sarif`];
     assert.equal(
@@ -711,51 +688,83 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
   }
 
   assert.deepEqual(Object.keys(readOnlyOsv.on), ["workflow_call"]);
-  assert.equal(readOnlyOsv.on.workflow_call.inputs["scan-args"].required, true);
-  assert.deepEqual(readOnlyOsv.permissions, {
-    actions: "read",
-    contents: "read",
-  });
+  assert.deepEqual(Object.keys(readOnlyOsv.on.workflow_call.inputs).sort(), [
+    "base-scan-args",
+    "head-scan-args",
+  ]);
+  for (const input of ["base-scan-args", "head-scan-args"]) {
+    assert.equal(readOnlyOsv.on.workflow_call.inputs[input].required, true);
+  }
+  assert.deepEqual(readOnlyOsv.permissions, { contents: "read" });
   const readOnlyJob = readOnlyOsv.jobs["osv-scan"];
-  assert.deepEqual(readOnlyJob.permissions, {
-    actions: "read",
-    contents: "read",
-  });
+  assert.deepEqual(readOnlyJob.permissions, { contents: "read" });
+  // A reusable-workflow check reports as `<caller job name> / <called job
+  // name>`, so this name is half of the exact required `osv-scanner / osv-scan`.
   assert.equal(readOnlyJob.name, "osv-scan");
   assert.equal(readOnlyJob["timeout-minutes"], 10);
   const readOnlySteps = readOnlyJob.steps;
-  const checkout = readOnlySteps.find((step) =>
+  const checkouts = readOnlySteps.filter((step) =>
     step.uses?.startsWith("actions/checkout@"),
   );
-  assert.equal(checkout.with["persist-credentials"], false);
+  // Two directories, never one path checked out twice: head content must never
+  // be able to land on top of the tree the base scan reads. The base tree is
+  // then deleted before the head arrives, so the two never coexist.
+  assert.equal(checkouts.length, 2);
+  const [baseCheckout, checkout] = checkouts;
+  assert.equal(baseCheckout.with.path, "base");
+  assert.equal(checkout.with.path, "candidate");
+  // Both sides come from one event snapshot. A branch name resolves to whatever
+  // main points at when this job starts, while the head scan always scans the
+  // event's fixed merge commit; if main moved in between, a dependency the new
+  // tip fixed would be reported as newly introduced.
+  assert.equal(
+    baseCheckout.with.ref,
+    "${{ github.event.pull_request.base.sha }}",
+  );
+  assert.notEqual(baseCheckout.with.ref, "${{ github.base_ref }}");
+  assert.equal(checkout.with.ref, undefined);
+  for (const step of checkouts) {
+    assert.equal(step.with["persist-credentials"], false);
+  }
 
-  // The base scan is a sibling job, not a second step here, so the OSV scanner
-  // and reporter actions stay at one step each as AGENTS.md requires.
+  // Two scanner steps, base and head, plus exactly one reporter: the shape
+  // upstream's PR mode ships. AGENTS.md's OSV rule is about keeping the scanner
+  // and reporter actions at the same pinned revision, asserted below.
   const scannerSteps = readOnlySteps.filter((step) =>
     step.uses?.startsWith("google/osv-scanner-action/osv-scanner-action@"),
   );
-  assert.equal(scannerSteps.length, 1);
-  const [scanner] = scannerSteps;
+  assert.equal(scannerSteps.length, 2);
+  const [baseScanner, scanner] = scannerSteps;
   const scannerRevision =
     /^google\/osv-scanner-action\/osv-scanner-action@([0-9a-f]{40})$/u.exec(
       scanner.uses,
     )?.[1];
   assert.ok(scannerRevision);
+  assert.equal(baseScanner.uses, scanner.uses);
+  assert.equal(baseScanner.id, "base-scan");
   assert.equal(scanner.id, "scan");
-  assert.equal(scanner["continue-on-error"], true);
-  assert.match(scanner.with["scan-args"], /--format=json/u);
-  assert.match(scanner.with["scan-args"], /\$\{\{ inputs\.scan-args \}\}/u);
-
-  // The baseline arrives as a run-scoped artifact from the paired base job.
-  const download = readOnlySteps.find((step) =>
-    step.uses?.startsWith("actions/download-artifact@"),
+  for (const step of scannerSteps) {
+    assert.equal(step["continue-on-error"], true);
+    assert.match(step.with["scan-args"], /--format=json/u);
+  }
+  // Each side takes its own arguments, which is what carries its own config.
+  // Scanning both sides with the head config would let a pull request that
+  // removes a suppression pass, because the advisory would be suppressed in the
+  // baseline too.
+  assert.match(
+    baseScanner.with["scan-args"],
+    /\$\{\{ inputs\.base-scan-args \}\}/u,
   );
-  assert.equal(download.with.name, "${{ inputs.baseline-artifact }}");
-  assert.equal(download["continue-on-error"], true);
+  assert.match(
+    scanner.with["scan-args"],
+    /\$\{\{ inputs\.head-scan-args \}\}/u,
+  );
+  assert.doesNotMatch(baseScanner.with["scan-args"], /inputs\.head-scan-args/u);
+  assert.doesNotMatch(scanner.with["scan-args"], /inputs\.base-scan-args/u);
 
-  // A missing or malformed baseline falls back to an empty one, so every
-  // finding here counts as new. That can only over-report, never under-report,
-  // and it keeps this job reporting when the baseline job failed.
+  // A base scan that failed, or a base commit without this lockfile, falls back
+  // to an empty baseline, so every finding here counts as new. That can only
+  // over-report, never under-report, and it keeps this job reporting.
   const baselineGuards = readOnlySteps.filter(
     (step) => step.name === "Establish the base vulnerability baseline",
   );
@@ -767,6 +776,46 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
   });
   assert.match(baselineGuard.run, /Array\.isArray\(parsed\.results\)/u);
   assert.match(baselineGuard.run, /\{"results":\[\]\}/u);
+
+  // First half of the anti-aliasing pair. Once the baseline is captured the
+  // base tree is deleted, so a candidate symlink has no second tree to name.
+  // Without it a pull request could commit `pnpm-lock.yaml -> ../base/…`, have
+  // the head scan reproduce the baseline, and pass the required check while the
+  // proposed lockfile carried vulnerable dependencies.
+  const baseRemovals = readOnlySteps.filter(
+    (step) => step.name === "Remove the base tree before the head checkout",
+  );
+  assert.equal(baseRemovals.length, 1);
+  const [baseRemoval] = baseRemovals;
+  assert.equal(baseRemoval.if, undefined);
+  assert.equal(baseRemoval.shell, "bash");
+  assert.match(baseRemoval.run, /rm -rf "\$\{GITHUB_WORKSPACE\}\/base"/u);
+  assert.match(baseRemoval.run, /exit 1/u);
+
+  // Second half: every head scan input must resolve to a real file inside the
+  // head checkout. The config toml is validated alongside the lockfile — it is
+  // a scan input too, and the one that decides which advisories are suppressed.
+  const pathGuards = readOnlySteps.filter(
+    (step) =>
+      step.name === "Reject head scan inputs that leave the candidate checkout",
+  );
+  assert.equal(pathGuards.length, 1);
+  const [pathGuard] = pathGuards;
+  assert.equal(pathGuard.if, undefined);
+  assert.equal(pathGuard.shell, "bash");
+  assert.deepEqual(pathGuard.env, {
+    HEAD_SCAN_ARGS: "${{ inputs.head-scan-args }}",
+  });
+  assert.match(pathGuard.run, /--lockfile=\* \| --config=\*/u);
+  assert.ok(
+    readOnlySteps.indexOf(baseRemoval) < readOnlySteps.indexOf(checkout),
+    "the base tree must be gone before the head is checked out",
+  );
+  assert.ok(
+    readOnlySteps.indexOf(checkout) < readOnlySteps.indexOf(pathGuard) &&
+      readOnlySteps.indexOf(pathGuard) < readOnlySteps.indexOf(scanner),
+    "head scan inputs must be validated after the head checkout and before the head scan",
+  );
 
   const completionGuards = readOnlySteps.filter(
     (step) => step.name === "Check that the scan completed",
@@ -814,7 +863,7 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
   // survive to stand in for a result.
   const scratchSteps = readOnlySteps.filter(
     (step) =>
-      step.name === "Create the scan state directory beside the checkout",
+      step.name === "Create the scan state directory beside the checkouts",
   );
   assert.equal(scratchSteps.length, 1);
   const [scratch] = scratchSteps;
@@ -822,10 +871,13 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
   assert.match(scratch.run, /mkdir -p "\$\{GITHUB_WORKSPACE\}\/osv-state"/u);
 
   const order = [
-    checkout,
+    baseCheckout,
     scratch,
-    download,
+    baseScanner,
     baselineGuard,
+    baseRemoval,
+    checkout,
+    pathGuard,
     scanner,
     completionGuard,
     reporter,
@@ -833,25 +885,27 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
   assert.deepEqual(
     order,
     [...order].sort((left, right) => left - right),
-    "the scratch directory, baseline, head scan, guard, and reporter must run in that order",
+    "the base checkout, scratch directory, base scan, baseline, base removal, head checkout, input validation, head scan, guard, and reporter must run in that order",
   );
   assert.ok(order.every((index) => index >= 0));
   assert.match(reporter.with["scan-args"], /--gh-annotations=false/u);
   assert.match(reporter.with["scan-args"], /--fail-on-vuln=true/u);
+  // No SARIF write path, and no artifact hop in either direction: the whole
+  // diff is computed and consumed inside this one job.
   assert.doesNotMatch(
     JSON.stringify(readOnlyOsv),
-    /security-events|upload-sarif|github\/codeql-action|actions\/upload-artifact/u,
+    /security-events|upload-sarif|github\/codeql-action|actions\/(?:upload|download)-artifact/u,
   );
 
-  // No scan input or output may sit inside the checkout. The checkout is
-  // candidate-controlled, so a tracked file at a workspace-relative path could
-  // stand in for a real scan result: as a forged empty baseline that hides an
-  // introduced vulnerability, or as a forged result that satisfies the
-  // completion guard after a scan failed. Both jobs check the repository out
-  // into `candidate/` and keep scan state beside it in `osv-state/`, which a
-  // pull request cannot write to because it can only add files inside its own
-  // tree. GITHUB_WORKSPACE is the one bind mount GitHub documents for container
-  // actions, where it appears at /github/workspace.
+  // No scan input or output may sit inside either checkout. The head checkout
+  // is candidate-controlled, so a tracked file at a workspace-relative path
+  // could stand in for a real scan result: as a forged empty baseline that
+  // hides an introduced vulnerability, or as a forged result that satisfies the
+  // completion guard after a scan failed. The job checks the base out into
+  // `base/`, the head into `candidate/`, and keeps scan state beside both in
+  // `osv-state/`, which a pull request cannot write to because it can only add
+  // files inside its own tree. GITHUB_WORKSPACE is the one bind mount GitHub
+  // documents for container actions, where it appears at /github/workspace.
   const scanPathFlag = /--(?:output|old|new)=(\S+)/gu;
   const assertOutsideCheckout = (step) => {
     const values = [...step.with["scan-args"].matchAll(scanPathFlag)].map(
@@ -865,6 +919,7 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
       );
     }
   };
+  assertOutsideCheckout(baseScanner);
   assertOutsideCheckout(scanner);
   assertOutsideCheckout(reporter);
 
@@ -887,80 +942,45 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
     scannerOutput,
     "the reporter must read exactly the file the scanner wrote",
   );
-
-  // The base scan is its own reusable workflow so that it, too, holds exactly
-  // one OSV scanner action step at the same revision.
-  const baselineOsv = yaml(".github/workflows/_osv-scanner-baseline.yml");
-  assert.deepEqual(Object.keys(baselineOsv.on), ["workflow_call"]);
-  for (const input of ["scan-args", "baseline-artifact"]) {
-    assert.equal(baselineOsv.on.workflow_call.inputs[input].required, true);
-    assert.equal(readOnlyOsv.on.workflow_call.inputs[input].required, true);
-  }
-  assert.deepEqual(baselineOsv.permissions, {
-    actions: "read",
-    contents: "read",
-  });
-  const baselineOsvJob = baselineOsv.jobs["osv-baseline"];
-  assert.deepEqual(baselineOsvJob.permissions, {
-    actions: "read",
-    contents: "read",
-  });
-  const baselineSteps = baselineOsvJob.steps;
-  const baselineCheckout = baselineSteps.find((step) =>
-    step.uses?.startsWith("actions/checkout@"),
-  );
-  // Both sides must come from one event snapshot. A branch name resolves to
-  // whatever main points at when the baseline job starts, while the scan job
-  // always scans the event's fixed merge commit; if main moved in between, a
-  // dependency the new tip fixed would be reported as newly introduced.
-  assert.equal(
-    baselineCheckout.with.ref,
-    "${{ github.event.pull_request.base.sha }}",
-  );
-  assert.notEqual(baselineCheckout.with.ref, "${{ github.base_ref }}");
-  // Scanning the base's own config is what makes removing a suppression fail:
-  // absent from this baseline, present on the head scan.
-  assert.equal(baselineCheckout.with["persist-credentials"], false);
-  const baselineScanners = baselineSteps.filter((step) =>
-    step.uses?.startsWith("google/osv-scanner-action/osv-scanner-action@"),
-  );
-  assert.equal(baselineScanners.length, 1);
-  const [baselineScanner] = baselineScanners;
-  assert.equal(
-    baselineScanner.uses,
-    `google/osv-scanner-action/osv-scanner-action@${scannerRevision}`,
-  );
-  assert.match(
-    baselineScanner.with["scan-args"],
-    /\$\{\{ inputs\.scan-args \}\}/u,
-  );
-  assertOutsideCheckout(baselineScanner);
-  // Same matched-pair rule on the base side: what the container writes is what
-  // the host normalizes and uploads.
-  const baselineOutput = /--output=(\S+)/u.exec(
-    baselineScanner.with["scan-args"],
+  // Same matched-pair rule on the base side: what the base scan's container
+  // writes is the file the fallback guard reads and the reporter compares
+  // against, and the two scans must not write to the same file.
+  const baseScannerOutput = /--output=(\S+)/u.exec(
+    baseScanner.with["scan-args"],
   )[1];
-  const baselineNormalize = baselineSteps.find(
-    (step) => step.name === "Normalize the baseline",
-  );
-  assert.equal(baselineNormalize.env.BASE_RESULTS, hostPathFor(baselineOutput));
-  // Both halves must root the checkout under candidate/, or scan state would
-  // land inside the candidate tree again.
-  assert.equal(baselineCheckout.with.path, "candidate");
-  assert.equal(checkout.with.path, "candidate");
+  assert.equal(baselineGuard.env.BASE_RESULTS, hostPathFor(baseScannerOutput));
+  assert.equal(reporterOld, baseScannerOutput);
+  assert.notEqual(baseScannerOutput, scannerOutput);
+
+  // Every scan path is rooted at its own side's checkout directory, so each
+  // side is scanned with its own config. Scanning the base with the head's
+  // config would suppress an advisory in the baseline that the head removed the
+  // suppression for, and the pull request would pass.
   for (const jobId of osvJobIds) {
-    for (const job of [
-      supplyChain.jobs[jobId],
-      supplyChain.jobs[baselineJobIdFor(jobId)],
+    const job = supplyChain.jobs[jobId];
+    for (const [input, root] of [
+      ["base-scan-args", "base/"],
+      ["head-scan-args", "candidate/"],
     ]) {
-      for (const [, value] of job.with["scan-args"].matchAll(
-        /--(?:config|lockfile)=(\S+)/gu,
-      )) {
+      const values = [
+        ...job.with[input].matchAll(/--(?:config|lockfile)=(\S+)/gu),
+      ].map(([, value]) => value);
+      assert.ok(values.length > 0);
+      for (const value of values) {
         assert.ok(
-          value.startsWith("candidate/"),
-          `pull-request scan-args must be candidate-rooted, found ${value}`,
+          value.startsWith(root),
+          `${jobId} ${input} must be rooted at ${root}, found ${value}`,
         );
       }
+    }
+    // A target either configures both sides or neither, and a configured side
+    // reads the config out of its own checkout.
+    const baseConfig = /--config=(\S+)/u.exec(job.with["base-scan-args"])?.[1];
+    const headConfig = /--config=(\S+)/u.exec(job.with["head-scan-args"])?.[1];
+    assert.equal(baseConfig === undefined, headConfig === undefined);
+    if (baseConfig !== undefined) {
+      assert.ok(baseConfig.startsWith("base/"));
+      assert.ok(headConfig.startsWith("candidate/"));
     }
   }
 
@@ -973,18 +993,15 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
   });
   assert.equal(trackedScanState.status, 0);
   assert.equal(trackedScanState.stdout, "");
-
-  const baselineUpload = baselineSteps.find((step) =>
-    step.uses?.startsWith("actions/upload-artifact@"),
-  );
-  assert.equal(baselineUpload.with.name, "${{ inputs.baseline-artifact }}");
-  assert.equal(baselineUpload.with.path, hostPathFor(baselineOutput));
-  assert.equal(baselineUpload.with["if-no-files-found"], "error");
-  // The baseline workflow must not grow into a second reporter or a SARIF
-  // writer; publication stays in the scheduled and manual jobs.
-  assert.doesNotMatch(
-    JSON.stringify(baselineOsv),
-    /security-events|upload-sarif|github\/codeql-action|osv-reporter-action/u,
+  // The separate baseline workflow is gone; the diff is one job again.
+  assert.equal(
+    existsSync(
+      new URL(
+        "../.github/workflows/_osv-scanner-baseline.yml",
+        import.meta.url,
+      ),
+    ),
+    false,
   );
 
   const dependencyReview = yaml(".github/workflows/dependency-review.yml");
@@ -992,6 +1009,121 @@ test("pull requests diff OSV findings read-only and trusted runs own full SARIF 
     "dependency-review"
   ].steps.find((step) => step.uses?.startsWith("actions/checkout@"));
   assert.equal(dependencyCheckout.with["persist-credentials"], false);
+});
+
+test("the OSV head scan refuses inputs that leave the candidate checkout", () => {
+  const readOnlyOsv = yaml(".github/workflows/_osv-scanner-readonly.yml");
+  const steps = readOnlyOsv.jobs["osv-scan"].steps;
+  const stepNamed = (name) => {
+    const step = steps.find((candidate) => candidate.name === name);
+    assert.ok(step, `missing step: ${name}`);
+    return step;
+  };
+  const pathGuard = stepNamed(
+    "Reject head scan inputs that leave the candidate checkout",
+  );
+  const baseRemoval = stepNamed(
+    "Remove the base tree before the head checkout",
+  );
+
+  const workspace = mkdtempSync(join(tmpdir(), "osv-scan-inputs-"));
+  try {
+    // A workspace shaped like the job's: a candidate checkout beside a base
+    // tree that has not been removed yet, which is the state the guard has to
+    // survive even when the removal step is defeated.
+    mkdirSync(join(workspace, "candidate", "scripts"), { recursive: true });
+    mkdirSync(join(workspace, "base"), { recursive: true });
+    writeFileSync(
+      join(workspace, "candidate", "pnpm-lock.yaml"),
+      "head lock\n",
+    );
+    writeFileSync(join(workspace, "candidate", "osv-scanner.toml"), "\n");
+    writeFileSync(join(workspace, "base", "pnpm-lock.yaml"), "base lock\n");
+    writeFileSync(join(workspace, "base", "osv-scanner.toml"), "\n");
+    // A lockfile replaced by a symlink into the trusted base tree — the exact
+    // bypass: the head scan would reproduce the baseline and every introduced
+    // vulnerability would look unchanged.
+    symlinkSync(
+      "../base/pnpm-lock.yaml",
+      join(workspace, "candidate", "escape.yaml"),
+    );
+    // The config toml is a scan input too, and the one that decides which
+    // advisories are suppressed.
+    symlinkSync(
+      "../base/osv-scanner.toml",
+      join(workspace, "candidate", "escape.toml"),
+    );
+    // A symlink that stays inside the candidate tree is still rejected: a scan
+    // input must be the file the pull request proposes, not an alias for one.
+    symlinkSync("pnpm-lock.yaml", join(workspace, "candidate", "alias.yaml"));
+    // A symlinked parent directory leaves the final component a real file, so
+    // only resolving the whole path catches it.
+    symlinkSync("../base", join(workspace, "candidate", "aliasdir"));
+
+    const runGuard = (headScanArgs) =>
+      spawnSync("/bin/bash", ["-c", pathGuard.run], {
+        encoding: "utf8",
+        env: {
+          GITHUB_WORKSPACE: workspace,
+          HEAD_SCAN_ARGS: headScanArgs,
+          PATH: "/usr/bin:/bin",
+        },
+      });
+
+    const accepted = runGuard(
+      "--config=candidate/osv-scanner.toml\n--lockfile=candidate/pnpm-lock.yaml",
+    );
+    assert.equal(accepted.status, 0, accepted.stdout + accepted.stderr);
+    assert.match(accepted.stdout, /candidate\/osv-scanner\.toml resolves to/u);
+    assert.match(accepted.stdout, /candidate\/pnpm-lock\.yaml resolves to/u);
+
+    for (const [args, expected] of [
+      // A lockfile symlinked out of the candidate tree.
+      ["--lockfile=candidate/escape.yaml", /is a symlink/u],
+      // The same trick on the config, which suppresses advisories.
+      [
+        "--config=candidate/escape.toml\n--lockfile=candidate/pnpm-lock.yaml",
+        /is a symlink/u,
+      ],
+      // A symlink that never leaves the candidate tree.
+      ["--lockfile=candidate/alias.yaml", /is a symlink/u],
+      // A real file reached through a symlinked parent directory.
+      [
+        "--lockfile=candidate/aliasdir/pnpm-lock.yaml",
+        /outside the candidate/u,
+      ],
+      // An argument that was never rooted at the candidate tree.
+      ["--lockfile=base/pnpm-lock.yaml", /is not rooted at candidate\//u],
+      // A missing input fails closed rather than being skipped.
+      [
+        "--lockfile=candidate/absent.yaml",
+        /is missing or is not a regular file/u,
+      ],
+      // A directory is not a scan input.
+      ["--lockfile=candidate/scripts", /is missing or is not a regular file/u],
+      // Arguments carrying nothing to validate must not pass silently.
+      ["--format=json", /No --lockfile or --config head scan input/u],
+    ]) {
+      const rejected = runGuard(args);
+      assert.notEqual(rejected.status, 0, `accepted ${args}`);
+      assert.match(rejected.stdout, expected);
+      assert.match(rejected.stdout, /^::error::/mu);
+    }
+
+    // The removal step actually removes the tree, and says so.
+    const removal = spawnSync("/bin/bash", ["-c", baseRemoval.run], {
+      encoding: "utf8",
+      env: { GITHUB_WORKSPACE: workspace, PATH: "/usr/bin:/bin" },
+    });
+    assert.equal(removal.status, 0, removal.stdout + removal.stderr);
+    assert.equal(existsSync(join(workspace, "base")), false);
+    // With the base tree gone the escaping symlink dangles, so the guard's
+    // second layer would catch it even if the first were bypassed.
+    const dangling = runGuard("--lockfile=candidate/escape.yaml");
+    assert.notEqual(dangling.status, 0);
+  } finally {
+    rmSync(workspace, { force: true, recursive: true });
+  }
 });
 
 test("pnpm release-age exclusions stay exact and bounded", () => {
