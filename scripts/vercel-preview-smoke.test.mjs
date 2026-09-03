@@ -218,10 +218,10 @@ test("native classifier preserves the original Vercel actor trust on maintainer 
 test("native classifier rejects production, inactive, main, controller, and actor-lookalike events", () => {
   const production = nativeEvent("app");
   // Vercel's live GitHub metadata reports this boolean as false even for its
-  // named Production/v3 Deployments. Exact environment names own routing.
+  // named Production Deployments. Exact environment names own routing.
   production.deployment.production_environment = false;
-  production.deployment.environment = "v3 – app.mento.org";
-  production.deployment_status.environment = "v3 – app.mento.org";
+  production.deployment.environment = "Production – app.mento.org";
+  production.deployment_status.environment = "Production – app.mento.org";
   assert.equal(
     classifyNativePreviewEvent(production, runtime()).eligible,
     false,

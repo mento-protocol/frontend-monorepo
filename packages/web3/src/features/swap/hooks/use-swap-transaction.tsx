@@ -47,7 +47,6 @@ export function useSwapTransaction(
     fromAmount: string;
     toAmount: string;
   },
-  insufficientLiquidityFallbackUrl?: string,
 ): {
   sendSwapTx: () => Promise<Address>;
   swapTxResult: Address | undefined;
@@ -177,15 +176,11 @@ export function useSwapTransaction(
         logger.debug("Swap skipped due to prerequisites not being met.");
         return;
       }
-      const toastError = getSwapTransactionErrorMessage(
-        error,
-        {
-          fromTokenSymbol: fromToken,
-          toTokenSymbol: toToken,
-          chainId,
-        },
-        insufficientLiquidityFallbackUrl,
-      );
+      const toastError = getSwapTransactionErrorMessage(error, {
+        fromTokenSymbol: fromToken,
+        toTokenSymbol: toToken,
+        chainId,
+      });
       toast.error(toastError);
       logger.error(`Swap transaction failed: ${error.message}`, error);
     },
