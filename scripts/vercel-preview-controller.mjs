@@ -3316,6 +3316,7 @@ export function reconcileState({
     results: epochResults.map(canonicalJson).sort(),
   });
   const sameEpoch = previous?.epoch?.anchor_run_id === epochAnchorRunId;
+  const liveEventRunIds = new Set(events.map((event) => event.event_run_id));
   const controllerTargetUrl = optionalHttpsUrl(controllerUrl, "Controller URL");
   const targetStates = {};
   const targetStatuses = {};
@@ -3499,13 +3500,28 @@ export function reconcileState({
         const coalescedIndex = candidates.findIndex(
           (event) => event.event_run_id === coalescedRunId,
         );
+        // A checkpoint folds a strict lineage prefix into its cumulative
+        // digest and drops those event receipts. A durable later selection
+        // keeps naming the coalesced identities it batched away, so one of
+        // them can outlive its own receipt. That is settled checkpoint
+        // evidence, not contradictory ownership, when the identity left the
+        // live receipt set entirely and still precedes this selection. An
+        // identity that is live but outside this target's candidate lineage,
+        // or that holds a current-epoch result or selection, still fails
+        // closed.
+        const checkpointSettled =
+          coalescedIndex < 0 &&
+          selectedCheckpoint !== null &&
+          !liveEventRunIds.has(coalescedRunId) &&
+          coalescedRunId < selection.selection_receipt_run_id;
         invariant(
-          coalescedIndex >= 0 &&
-            coalescedIndex < selectedIndex &&
+          (checkpointSettled ||
+            (coalescedIndex >= 0 && coalescedIndex < selectedIndex)) &&
             !resultByRun.has(coalescedRunId) &&
             !selectedRunIds.has(coalescedRunId),
           `${target} coalescing evidence contradicts durable ownership`,
         );
+        if (checkpointSettled) continue;
         const prior = coalescedToByRun.get(coalescedRunId);
         invariant(
           !prior || prior.event_run_id === selectedEvent.event_run_id,

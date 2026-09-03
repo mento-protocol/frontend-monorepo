@@ -2242,7 +2242,15 @@ Reconciliation is lossy/replaceable, but it reconstructs from the journal's
 entries and mutable state, current PR lifecycle evidence, and GitHub/provider
 APIs. Before dispatch, the controller appends a selection entry that binds the
 selected SHA to the controller epoch and compactly lists intermediate entry
-identities coalesced into the durable later selection. Intended-run crash
+identities coalesced into the durable later selection. A capacity checkpoint
+retains that selection but folds the coalesced entries themselves once they
+fall inside the checkpointed prefix, so a durable selection can outlive the
+identities it batched away. Reconciliation treats such an identity as settled
+checkpoint evidence: it must have left the live receipt set entirely, precede
+its own selection, and hold no current-epoch result or selection. A coalesced
+identity that is still live but outside the target's candidate lineage, that
+does not precede its selection, or that holds current-epoch ownership still
+fails closed. Intended-run crash
 recovery queries a fixed `created` window around the persisted dispatch
 timestamp; older lifetime run history cannot exhaust its proof bound, while
 multiple matching runs inside the window fail closed. The bounded terminal
@@ -2570,6 +2578,13 @@ gh api --method POST \
   -f event_type=vercel-preview-reconcile \
   -F "client_payload[pr_number]=$PR_NUMBER"
 ```
+
+An open-PR bootstrap is also the recovery for a journal whose persisted
+receipts contradict the current reconciler, because the bootstrap receipt
+anchors a fresh epoch and the contradicting receipts stay bound to the old
+epoch anchor. A push or a `vercel-preview-reconcile` dispatch cannot recover
+such a journal: both keep the same epoch and re-read the same receipts. Every
+target rebuilds at the current head after that bootstrap.
 
 A closed bootstrap is an exceptional recovery reset, not a way to create a
 journal. It is accepted only when the exact PR is live-closed, exactly one

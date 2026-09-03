@@ -3686,6 +3686,183 @@ test("capacity checkpoints preserve the newest queued runtime before reconciliat
   );
 });
 
+test("a checkpoint-folded coalesced receipt still reconciles its verified result", () => {
+  const opened = event({
+    run: 2_400,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const events = [
+    opened,
+    event({
+      run: 2_401,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      updated: timestamp(2),
+    }),
+    event({
+      run: 2_402,
+      action: "synchronize",
+      before: SHA.B,
+      head: SHA.C,
+      updated: timestamp(3),
+    }),
+    event({
+      run: 2_403,
+      action: "synchronize",
+      before: SHA.C,
+      head: SHA.D,
+      updated: timestamp(4),
+    }),
+  ];
+  const currentPull = pull({ head: SHA.D, updated: timestamp(4) });
+  const first = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const activeA = persistDispatch(first, 42_400);
+  const selectionA = selectionReceiptFromDispatch(activeA.targets.ui.active);
+  let journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      events,
+      selections: [selectionA],
+      state: activeA,
+    }),
+    { throughEventRunId: 2_400 },
+  );
+  const resultA = result(first.nextDispatch, { runId: 42_400 });
+  const jumped = reconcile({
+    events: journal.receipts.events,
+    results: [resultA],
+    selections: journal.receipts.selections,
+    pullRequest: currentPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  assert.equal(jumped.nextDispatch.sha, SHA.D);
+  assert.deepEqual(
+    jumped.nextDispatch.coalesced_receipt_run_ids,
+    [2_401, 2_402],
+  );
+
+  const activeD = persistDispatch(jumped, 42_403);
+  const selectionD = selectionReceiptFromDispatch(activeD.targets.ui.active);
+  journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      checkpoint: journal.checkpoint,
+      events: journal.receipts.events,
+      selections: [...journal.receipts.selections, selectionD],
+      workerEvidence: journal.receipts.worker_evidence,
+      results: [resultA],
+      state: activeD,
+    }),
+    { throughEventRunId: 2_402 },
+  );
+  assert.deepEqual(
+    journal.receipts.events.map((entry) => entry.event_run_id),
+    [2_403],
+  );
+  assert.deepEqual(
+    journal.receipts.selections.map(
+      (selection) => selection.coalesced_receipt_run_ids,
+    ),
+    [[2_401, 2_402]],
+  );
+
+  const settled = reconcile({
+    events: journal.receipts.events,
+    results: [
+      ...journal.receipts.results,
+      result(jumped.nextDispatch, { runId: 42_403 }),
+    ],
+    selections: journal.receipts.selections,
+    pullRequest: currentPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  assert.equal(settled.state.status_decisions.at(-1).state, "success");
+  assert.equal(settled.state.status_decisions.at(-1).targets.ui, "deployed");
+  assert.equal(settled.state.targets.ui.active, null);
+  assert.equal(settled.nextDispatch, null);
+});
+
+test("an unresolvable coalesced receipt outside the checkpoint fails closed", () => {
+  const opened = event({
+    run: 2_500,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const events = [
+    opened,
+    event({
+      run: 2_501,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      targets: ["app"],
+      updated: timestamp(2),
+    }),
+    event({
+      run: 2_502,
+      action: "synchronize",
+      before: SHA.B,
+      head: SHA.C,
+      updated: timestamp(3),
+    }),
+  ];
+  const currentPull = pull({ head: SHA.C, updated: timestamp(3) });
+  const first = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const activeA = persistDispatch(first, 42_500);
+  const selectionA = selectionReceiptFromDispatch(activeA.targets.ui.active);
+  const journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      events,
+      selections: [selectionA],
+      state: activeA,
+    }),
+    { throughEventRunId: 2_500 },
+  );
+  const resultA = result(first.nextDispatch, { runId: 42_500 });
+  const jumped = reconcile({
+    events: journal.receipts.events,
+    results: [resultA],
+    selections: journal.receipts.selections,
+    pullRequest: currentPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  assert.equal(jumped.nextDispatch.sha, SHA.C);
+  assert.deepEqual(jumped.nextDispatch.coalesced_receipt_run_ids, []);
+  const activeC = persistDispatch(jumped, 42_502);
+  for (const coalesced of [2_501, 9_999]) {
+    const contradictory = selectionReceiptFromDispatch({
+      ...activeC.targets.ui.active,
+      coalesced_receipt_run_ids: [coalesced],
+    });
+    assert.throws(
+      () =>
+        reconcile({
+          events: journal.receipts.events,
+          results: [resultA],
+          selections: [...journal.receipts.selections, contradictory],
+          pullRequest: currentPull,
+          existingState: activeC,
+          checkpoint: journal.checkpoint,
+        }),
+      /ui coalescing evidence contradicts durable ownership/,
+    );
+  }
+});
+
 test("capacity checkpointing uses the latest represented receipt when the live PR is ahead", () => {
   const openedHead = (260).toString(16).padStart(40, "0");
   const opened = event({
