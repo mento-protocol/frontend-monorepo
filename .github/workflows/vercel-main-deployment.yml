@@ -2262,6 +2262,7 @@ jobs:
           jq -e '.manifest' "$RUNNER_TEMP/execution.json" > "$RUNNER_TEMP/manifest.json"
           printf 'null\n' > "$RUNNER_TEMP/null.json"
           printf '[]\n' > "$RUNNER_TEMP/empty-history.json"
+          node scripts/vercel-main-deployment.mjs create-spec --scope main --output "$RUNNER_TEMP/main-spec.json"
       - name: Derive exact current-attempt journal identity
         id: journal-identity
         run: node scripts/vercel-main-deployment.mjs active-journal-identity
@@ -2562,13 +2563,47 @@ jobs:
             manual_intervention) echo 'outcome=manual-intervention' >> "$GITHUB_OUTPUT" ;;
             *) exit 1 ;;
           esac
+      # No compensation slot runs on this branch, so the provider still serves
+      # whatever the forward promote left. This read-only census therefore names
+      # the domains that promote moved and that nothing has moved back. Its
+      # condition is the exact condition of the consumer below, so the census
+      # file exists whenever the census flag is read.
+      - name: Census rider domains the failed promote left in place
+        if: ${{ always() && !cancelled() && steps.recovery-failed.outputs.outcome == 'recovery-failed' }}
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if node scripts/vercel-deployment-state.mjs planning-snapshot --spec "$RUNNER_TEMP/main-spec.json" --output "$RUNNER_TEMP/recovery-failed-planning.json" 2>"$RUNNER_TEMP/recovery-failed-planning.stderr"; then
+            exit 0
+          fi
+          # Riders are informational; no decision reads them. A read this job
+          # cannot complete degrades to a null census, which renders as unknown,
+          # rather than destroying the terminal evidence this branch exists to
+          # publish. Anything outside the reader's own failure vocabulary still
+          # fails this step closed — but the null census is written first either
+          # way, so the consumer below never reads a path that does not exist.
+          read_outcome=recognized
+          case "$(<"$RUNNER_TEMP/recovery-failed-planning.stderr")" in
+            'Vercel deployment state failed category=provider-read-timeout') ;;
+            'Vercel deployment state failed category=provider-read-transport') ;;
+            'Vercel deployment state failed category=provider-read-rate-limited') ;;
+            'Vercel deployment state failed category=provider-read-http') ;;
+            'Vercel deployment state failed category=provider-read-malformed') ;;
+            'Vercel deployment state failed category=state-validation-failed') ;;
+            *) read_outcome=unrecognized ;;
+          esac
+          printf 'null\n' > "$RUNNER_TEMP/recovery-failed-planning.json"
+          test "$read_outcome" = recognized
       - name: Materialize recovery-failed terminal artifacts without a recovery journal
         id: recovery-failed-terminal
         if: ${{ always() && !cancelled() && steps.recovery-failed.outputs.outcome == 'recovery-failed' }}
         run: |
           set -euo pipefail
           install -m 0600 "$RUNNER_TEMP/current-attempt-journals/current-history.json" "$RUNNER_TEMP/recovery-current-history.json"
-          node scripts/vercel-main-release-cli.mjs terminal-artifacts --active-evidence-output "$RUNNER_TEMP/recovery-evidence.json" --execution "$RUNNER_TEMP/execution.json" --final-census "$RUNNER_TEMP/null.json" --final-mappings "$RUNNER_TEMP/null.json" --freshness "$RUNNER_TEMP/null.json" --journal-history "$RUNNER_TEMP/recovery-current-history.json" --outcome recovery-failed --proofs-output "$RUNNER_TEMP/recovery-proofs.json" --public-smokes "$RUNNER_TEMP/null.json" --stage-results "$RUNNER_TEMP/null.json" --state-proof "$RUNNER_TEMP/null.json"
+          node scripts/vercel-main-release-cli.mjs terminal-artifacts --active-evidence-output "$RUNNER_TEMP/recovery-evidence.json" --execution "$RUNNER_TEMP/execution.json" --final-census "$RUNNER_TEMP/null.json" --final-mappings "$RUNNER_TEMP/null.json" --freshness "$RUNNER_TEMP/null.json" --journal-history "$RUNNER_TEMP/recovery-current-history.json" --outcome recovery-failed --proofs-output "$RUNNER_TEMP/recovery-proofs.json" --public-smokes "$RUNNER_TEMP/null.json" --rider-census "$RUNNER_TEMP/recovery-failed-planning.json" --stage-results "$RUNNER_TEMP/null.json" --state-proof "$RUNNER_TEMP/null.json"
           echo 'outcome=recovery-failed' >> "$GITHUB_OUTPUT"
       - name: Materialize preparation failure terminal artifacts without a journal
         id: preparation-failure-terminal
@@ -2666,6 +2701,38 @@ jobs:
           --reserve "$RUNNER_TEMP/recovery-reserve-runtime-smoke.json"
           --ui "$RUNNER_TEMP/recovery-ui-runtime-smoke.json"
           --output "$RUNNER_TEMP/recovery-public-smokes.json"
+      # Taken after every compensation slot, so it reports the domains each
+      # target's reviewed protected domain travels with once recovery is
+      # finished: the riders a completed rollback restored onto the prior, or —
+      # where a target was left forward for manual intervention — the ones still
+      # riding with the candidate. Its condition is the exact condition of the
+      # consumer below.
+      - name: Census rider domains after the compensating rollback
+        if: steps.recovery-terminal.outcome == 'success'
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if node scripts/vercel-deployment-state.mjs planning-snapshot --spec "$RUNNER_TEMP/main-spec.json" --output "$RUNNER_TEMP/recovered-planning.json" 2>"$RUNNER_TEMP/recovered-planning.stderr"; then
+            exit 0
+          fi
+          # Same rule as the failed-recovery census: informational evidence never
+          # takes down the terminal handoff, an unrecognized failure still fails
+          # this step closed, and the null census is written first either way.
+          read_outcome=recognized
+          case "$(<"$RUNNER_TEMP/recovered-planning.stderr")" in
+            'Vercel deployment state failed category=provider-read-timeout') ;;
+            'Vercel deployment state failed category=provider-read-transport') ;;
+            'Vercel deployment state failed category=provider-read-rate-limited') ;;
+            'Vercel deployment state failed category=provider-read-http') ;;
+            'Vercel deployment state failed category=provider-read-malformed') ;;
+            'Vercel deployment state failed category=state-validation-failed') ;;
+            *) read_outcome=unrecognized ;;
+          esac
+          printf 'null\n' > "$RUNNER_TEMP/recovered-planning.json"
+          test "$read_outcome" = recognized
       - name: Materialize recovered or manual terminal artifacts
         id: recovered-terminal
         if: steps.recovery-terminal.outcome == 'success'
@@ -2702,7 +2769,7 @@ jobs:
             public_smokes="$RUNNER_TEMP/null.json"
             test -s "$final_census"
           fi
-          node scripts/vercel-main-release-cli.mjs terminal-artifacts --active-evidence-output "$RUNNER_TEMP/recovery-evidence.json" --execution "$RUNNER_TEMP/execution.json" --final-census "$final_census" --final-mappings "$RUNNER_TEMP/recovery-final-mappings.json" --freshness "$RUNNER_TEMP/null.json" --journal-history "$RUNNER_TEMP/recovered-history.json" --outcome "$terminal_outcome" --proofs-output "$RUNNER_TEMP/recovery-proofs.json" --public-smokes "$public_smokes" --stage-results "$RUNNER_TEMP/null.json" --state-proof "$state_proof"
+          node scripts/vercel-main-release-cli.mjs terminal-artifacts --active-evidence-output "$RUNNER_TEMP/recovery-evidence.json" --execution "$RUNNER_TEMP/execution.json" --final-census "$final_census" --final-mappings "$RUNNER_TEMP/recovery-final-mappings.json" --freshness "$RUNNER_TEMP/null.json" --journal-history "$RUNNER_TEMP/recovered-history.json" --outcome "$terminal_outcome" --proofs-output "$RUNNER_TEMP/recovery-proofs.json" --public-smokes "$public_smokes" --rider-census "$RUNNER_TEMP/recovered-planning.json" --stage-results "$RUNNER_TEMP/null.json" --state-proof "$state_proof"
           echo "outcome=$terminal_outcome" >> "$GITHUB_OUTPUT"
       - name: Publish recovery terminal producer outputs
         id: terminal

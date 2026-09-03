@@ -3263,6 +3263,9 @@ function boundRiderAliases(byTarget) {
   let remaining = MAIN_RIDER_ALIAS_BYTE_BUDGET;
   return Object.fromEntries(
     Object.entries(byTarget).map(([target, riders]) => {
+      // A target the census could not attribute to a deployment this release
+      // owned carries no list and consumes no budget.
+      if (riders === null) return [target, null];
       const capped = riders.slice(0, MAIN_RIDER_ALIAS_TARGET_LIMIT);
       const kept = [];
       for (const alias of capped) {
@@ -3276,11 +3279,55 @@ function boundRiderAliases(byTarget) {
   );
 }
 
+// Every deployment identity this release owned for a target: the prior it
+// captured and would roll back to, and the candidate it promoted. A census that
+// finds a reviewed domain served by neither found operator-owned state, and
+// those domains are not this release's to attribute.
+function releaseOwnedDeployments(journal) {
+  return Object.fromEntries(
+    MAIN_DEPLOYMENT_TARGETS.map((target) => [
+      target,
+      [journal.prior[target], journal.candidates[target]]
+        .filter((entry) => entry !== null && entry !== undefined)
+        .map((entry) => ({
+          deploymentId: entry.deploymentId,
+          deploymentUrl: entry.deploymentUrl,
+        })),
+    ]),
+  );
+}
+
+// The targets whose `promote` actually started, read from the same operation
+// log the mutation count is derived from. A rider line therefore cannot claim
+// movement the count printed beside it rules out: a journal still at `prepared`
+// names nothing, and one that started only a prefix of its plan names only that
+// prefix.
+function startedPromoteTargets(journal) {
+  const targets = new Set(
+    journal.operations
+      .filter(
+        (operation) =>
+          operation.type === "promote" && operation.state === "started",
+      )
+      .map((operation) => operation.target),
+  );
+  return MAIN_PROMOTABLE_TARGETS.filter((target) => targets.has(target));
+}
+
 // The rider domains each named target's served prior carried, observed in this
 // run's own planning census. `promote` moves them off that prior onto the
 // candidate and the compensating `rollback` restores them, so for a promoted
 // target this names exactly what the release repointed.
-function riderAliasEvidenceFromStates(states, targets) {
+//
+// `ownedDeployments` is supplied wherever a journal exists. A censused
+// deployment matching neither the captured prior nor the promoted candidate
+// yields a `null` entry — "not attributed" — never somebody else's domains
+// presented as this release's movement.
+function riderAliasEvidenceFromStates(
+  states,
+  targets,
+  ownedDeployments = null,
+) {
   return boundRiderAliases(
     Object.fromEntries(
       targets.map((target) => {
@@ -3290,6 +3337,17 @@ function riderAliasEvidenceFromStates(states, targets) {
           throw new Error(
             `Rider evidence is missing the ${target} served prior`,
           );
+        }
+        const owned = ownedDeployments?.[target];
+        if (
+          owned !== undefined &&
+          !owned.some(
+            (entry) =>
+              entry.deploymentId === leaf.deploymentId &&
+              entry.deploymentUrl === leaf.deploymentUrl,
+          )
+        ) {
+          return [target, null];
         }
         return [target, riderAliasesFrom(leaf.aliases, reviewed)];
       }),
@@ -3309,16 +3367,47 @@ function riderAliasEvidenceFromSnapshot(handoff, targets) {
 // provider state that a later read would legitimately disagree with. What is
 // enforced is that the map is canonical, bounded, and scoped to targets this
 // release actually promoted.
-function canonicalRiderAliasEvidence(value, allowedTargets, label) {
+//
+// `exact` holds where every active target promoted by construction — a
+// committed release and an already-current one. A failure evidence's scope is
+// the journal's started promotes, which is a subset, so it keys on a canonical
+// ordered subset of the active targets instead. Either way no key outside that
+// set is admitted.
+function canonicalRiderAliasEvidence(
+  value,
+  allowedTargets,
+  label,
+  { exact = true } = {},
+) {
   if (value === null) return null;
-  const expectedTargets = MAIN_DEPLOYMENT_TARGETS.filter((target) =>
+  const allowed = MAIN_DEPLOYMENT_TARGETS.filter((target) =>
     allowedTargets.includes(target),
   );
-  assertExactKeys(value, expectedTargets, label);
+  let expectedTargets;
+  if (exact) {
+    assertExactKeys(value, allowed, label);
+    expectedTargets = allowed;
+  } else {
+    if (!isPlainObject(value)) {
+      throw new Error(`${label} is malformed`);
+    }
+    const keys = Object.keys(value);
+    expectedTargets = allowed.filter((target) => keys.includes(target));
+    if (
+      keys.length !== expectedTargets.length ||
+      JSON.stringify(keys) !== JSON.stringify(expectedTargets)
+    ) {
+      throw new Error(`${label} keys are not a canonical promoted subset`);
+    }
+  }
   let remaining = MAIN_RIDER_ALIAS_BYTE_BUDGET;
   return Object.fromEntries(
     expectedTargets.map((target) => {
       const entry = value[target];
+      // `null` is the deliberate "not attributed" entry: this release started a
+      // promote for the target, but the census found its reviewed domain served
+      // by a deployment the release does not own.
+      if (entry === null) return [target, null];
       assertExactKeys(entry, RIDER_ENTRY_KEYS, `${label} ${target}`);
       if (
         !Array.isArray(entry.aliases) ||
@@ -3362,11 +3451,31 @@ function canonicalRiderAliasEvidence(value, allowedTargets, label) {
 }
 
 function formatRiderAliases(entry) {
-  if (entry === undefined || entry === null) return "unknown";
+  if (entry === undefined) return "unknown";
+  // The census found this target's reviewed domain on a deployment neither the
+  // captured prior nor the promoted candidate — operator-owned state a manual
+  // intervention can leave behind. Its domains are reported as unattributable
+  // rather than as domains this release moved.
+  if (entry === null) {
+    return "not attributed (deployment this release does not own)";
+  }
   const names = entry.aliases.join(", ") || "none";
   return entry.omitted > 0
     ? `${names} (+${entry.omitted} more, truncated)`
     : names;
+}
+
+// A rider map may never claim more moved targets than the mutation count
+// printed beside it, and a run that proves zero started mutations must carry no
+// map at all. Both creator and reader enforce this, so a rewritten evidence
+// cannot smuggle movement past the count that contradicts it.
+function assertRiderMutationBound(riderAliases, mutationCount, label) {
+  if (riderAliases === null) return riderAliases;
+  const claimed = Object.keys(riderAliases).length;
+  if (mutationCount === 0 || claimed > mutationCount) {
+    throw new Error(`${label} claims movement no started mutation supports`);
+  }
+  return riderAliases;
 }
 
 // One line per target that actually promoted. Targets this release did not
@@ -3377,6 +3486,8 @@ function formatRiderAliases(entry) {
 // mutation commands moved nothing, and "unknown" there would contradict the
 // mutation count printed beside it. "unknown" is reserved for the case it
 // actually describes: a mutation may have started and this job has no census.
+// Every job that can report a started mutation now takes one, so "unknown"
+// narrows to the census read that could not complete.
 function renderRiderAliasLines(riderAliases, targets, { mutated }) {
   if (riderAliases === null) {
     return [
@@ -4321,9 +4432,14 @@ export function createMainActiveDeploymentFailureEvidence({
     publicSmokes: canonicalFailurePublicSmokes(publicSmokes),
     stateProofSummary,
     rollbackStateTargets: canonicalRollbackStateTargets(rollbackStateTargets),
-    riderAliases: canonicalRiderAliasEvidence(
-      riderAliases,
-      riderTargets,
+    riderAliases: assertRiderMutationBound(
+      canonicalRiderAliasEvidence(
+        riderAliases,
+        riderTargets,
+        "Active failure rider domains",
+        { exact: false },
+      ),
+      mutationCount,
       "Active failure rider domains",
     ),
     publicServingMutationCommands: mutationCount,
@@ -5685,19 +5801,32 @@ export function createMainActiveTerminalArtifacts({
   stageResults = null,
   // This run's own planning snapshot, supplied by the jobs that took one. The
   // terminal producer has no alias census of its own, so `null` means "this
-  // job did not observe one" and renders as unknown rather than as none.
+  // job did not observe one" and renders as unknown rather than as none. Both
+  // the activation and the recovery job supply one; a recovery job whose census
+  // read could not complete supplies a null snapshot, which is what keeps
+  // unknown reachable and honest.
   riderCensus = null,
   runId,
   runAttempt,
 }) {
   const releaseExecution = assertMainReleaseExecution(execution);
   const planning = activePlanningFromExecution(releaseExecution);
-  const riders =
+  const riderStates =
     riderCensus === null
       ? null
+      : assertMainPlanningSnapshot(riderCensus).states;
+  // Scope is decided per outcome, from that outcome's journal, never from the
+  // plan: `planning.activeTargets` is what the release intended to promote, and
+  // a failed or partial release moved a subset of it. An empty scope carries no
+  // map, so the report falls back to the mutation-count-aware line instead of
+  // naming targets nothing touched.
+  const ridersFor = (targets, journal) =>
+    riderStates === null || targets.length === 0
+      ? null
       : riderAliasEvidenceFromStates(
-          assertMainPlanningSnapshot(riderCensus).states,
-          planning.activeTargets,
+          riderStates,
+          targets,
+          releaseOwnedDeployments(journal),
         );
   const canonicalRunId = requirePositiveId(runId, "Terminal producer run ID");
   const canonicalRunAttempt = requirePositiveId(
@@ -5897,8 +6026,14 @@ export function createMainActiveTerminalArtifacts({
       workflowRunUrl: terminalWorkflowRunUrl(canonicalRunId),
       planning,
       // An earlier attempt's promote is what serves production here, so these
-      // are the domains that release moved.
-      riderAliases: riders,
+      // are the domains that release moved. This path is journal-free, so
+      // there is no prior/candidate identity to attribute against; the release
+      // is verified complete, which is what makes the served deployment its
+      // own.
+      riderAliases:
+        riderStates === null
+          ? null
+          : riderAliasEvidenceFromStates(riderStates, planning.activeTargets),
       freshness: [{ phase: "current-release-verification", status: "fresh" }],
       finalMappings: mappings,
       publicSmokes: smokes,
@@ -6143,6 +6278,12 @@ export function createMainActiveTerminalArtifacts({
       workflowRunUrl: terminalWorkflowRunUrl(canonicalRunId),
       mainOwnershipMode: planning.mainOwnershipMode,
       journalHistory: history,
+      // No compensation ran, so these domains are still wherever the forward
+      // promote left them. Naming them is the whole point of the census on
+      // this branch — but only for the promotes that actually started. A
+      // journal still at `prepared` moved nothing and names nothing.
+      riderAliases: ridersFor(startedPromoteTargets(highest), highest),
+      riderTargets: startedPromoteTargets(highest),
       publicServingMutationCommands: counts.started,
       coordinatorOutcome: "active-failed",
       recoveryOutcome: "recovery-failed",
@@ -6212,6 +6353,11 @@ export function createMainActiveTerminalArtifacts({
       finalMappings: mappings,
       publicSmokes: smokes,
       rollbackStateTargets: rollbackTargets,
+      // The final provider census is unproven, but the rider census is a
+      // separate read with its own outcome. When it succeeded, the domains the
+      // release moved and the rollback restored are still nameable here.
+      riderAliases: ridersFor(startedPromoteTargets(highest), highest),
+      riderTargets: startedPromoteTargets(highest),
       publicServingMutationCommands: counts.started,
       coordinatorOutcome: "active-failed",
       recoveryOutcome: "recovered",
@@ -6331,7 +6477,17 @@ export function createMainActiveTerminalArtifacts({
         runAttempt: canonicalRunAttempt,
         workflowRunUrl: terminalWorkflowRunUrl(canonicalRunId),
         planning,
-        riderAliases: riders,
+        // A committed release promoted every active target, so the scope is
+        // exactly those; attribution still applies, because the census must
+        // have found each reviewed domain on the prior this release captured.
+        riderAliases:
+          riderStates === null
+            ? null
+            : riderAliasEvidenceFromStates(
+                riderStates,
+                planning.activeTargets,
+                releaseOwnedDeployments(highest),
+              ),
         journal: {
           transactionId: highest.transactionId,
           artifactName: mainTransactionJournalArtifactName(highest),
@@ -6395,9 +6551,11 @@ export function createMainActiveTerminalArtifacts({
         stateProof: completeStateProof,
         rollbackStateTargets: rollbackTargets,
         // A recovered or manual outcome still moved these domains before the
-        // compensating rollback, so the terminal report must name them.
-        riderAliases: riders,
-        riderTargets: planning.activeTargets,
+        // compensating rollback, so the terminal report must name them — for
+        // the promotes that started, and only where the census still finds a
+        // deployment this release owned.
+        riderAliases: ridersFor(startedPromoteTargets(highest), highest),
+        riderTargets: startedPromoteTargets(highest),
         publicServingMutationCommands: counts.started,
         coordinatorOutcome: "active-failed",
         recoveryOutcome:
@@ -7358,9 +7516,14 @@ export function assertMainActiveTerminalEvidenceArtifact(
     publicSmokes,
     stateProofSummary,
     rollbackStateTargets,
-    riderAliases: canonicalRiderAliasEvidence(
-      value.riderAliases,
-      activePlanningFromExecution(releaseExecution).activeTargets,
+    riderAliases: assertRiderMutationBound(
+      canonicalRiderAliasEvidence(
+        value.riderAliases,
+        activePlanningFromExecution(releaseExecution).activeTargets,
+        "Nested active failure rider domains",
+        { exact: false },
+      ),
+      mutationCount,
       "Nested active failure rider domains",
     ),
     publicServingMutationCommands: mutationCount,
