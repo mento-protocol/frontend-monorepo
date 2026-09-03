@@ -101,6 +101,43 @@ branch or tag. It then:
   current state; neutral, skipped, and cancelled runs do not suppress a
   decisive result.
 
+### What failed
+
+A failure body carries a `## What failed` section between the run metadata and
+the managed marker, so the issue states what broke instead of only linking the
+run. For each failed job of the reconciled run it prints the job name, the name
+of the failed step, and one bounded excerpt.
+
+The excerpt comes from the job's structured summary when the API exposes one.
+The workflow-jobs API exposes no step output today, so in practice the notifier
+downloads the job log with `GET /repos/{owner}/{repo}/actions/jobs/{job_id}/logs`
+under the `actions: read` permission the job already holds. It then picks the
+excerpt by content, not by job name:
+
+- an OSV-Scanner findings table — every contiguous `| … |` block holding at
+  least one `https://osv.dev/` row, with its `Total N packages affected …`
+  headline. That is what a daily `Supply Chain` scan failure needs to show; or
+- otherwise the lines leading up to each `##[error]` annotation, falling back to
+  the tail of the log when the runner recorded no annotation.
+
+Every excerpt is sanitized and bounded. Sanitizing strips ANSI colouring and the
+per-line runner timestamp, caps a single line at 500 characters, and replaces
+any line matching a defensive credential pattern
+(`token|secret|password|passwd|bearer|authorization|ghp_|ghs_|gho_|ghu_|ghr_|github_pat_|-----BEGIN`)
+with a fixed redaction line — that guard is what keeps a runner's
+`ACTIONS_RUNTIME_TOKEN` echo out of a public issue. Bounding caps each job at 40
+lines and 4 KiB, reports at most 10 failed jobs, and holds the assembled body
+under 60 KiB against GitHub's 65536-character issue limit. Every cut is marked
+in place: `[… N more log lines truncated]` inside an excerpt, and a counted note
+for jobs whose excerpts were dropped or that were not listed.
+
+Evidence is best-effort. A failed job listing or log download degrades to a
+`job list unavailable: <reason>` or `(log excerpt unavailable: <reason>)` note,
+and a reason that itself looks like a credential is reported as
+`redacted error`. Log downloads also stop after 90 seconds so a pathologically
+large log cannot push the job past its five-minute timeout. The notifier still
+opens, updates, and closes its issue in every one of those cases.
+
 `CI/CD` forces its full build, unit-test, type-check, Knip, and Trunk suite on
 every default-branch push. Documentation-only planning is limited to pull
 requests, so a successful default-branch `CI/CD` run proves the previously
@@ -112,7 +149,10 @@ so its workflow-level success proves that either previously failing surface
 recovered. Pull requests retain the cheaper per-surface changed-file plan.
 
 The notifier uses only the repository `GITHUB_TOKEN`, with `actions: read`,
-`contents: read`, and `issues: write` on its single job. It checks out the
+`contents: read`, and `issues: write` on its single job. `actions: read` already
+covered the workflow-runs pagination and also covers the job listing and log
+download behind `## What failed`, so reading failure evidence added no
+permission. It checks out the
 event-time trusted `github.workflow_sha` and never the triggering SHA. Its own name is absent
 from the static source-workflow list, so its issue mutations cannot recursively
 notify it.
