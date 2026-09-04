@@ -22,6 +22,7 @@ import {
   normalizePlannerResult,
   parseWorkerRunName,
   previewObservationArtifactName,
+  previewOwnerAtSha,
   previewOwnerForVercelConfiguration,
   publishDependabotUnsupported,
   postWorkerRecoveryError,
@@ -139,6 +140,297 @@ test("no target carries a transitional GitHub-owned configuration", () => {
       }),
     /Candidate app Vercel configuration is not recognized/,
   );
+});
+
+function octokitBodyResponse(body) {
+  return {
+    status: 200,
+    url: "https://api.github.com/repos/mento-protocol/frontend-monorepo/contents/path",
+    headers: { "content-type": "application/json; charset=utf-8" },
+    data: body,
+  };
+}
+
+function octokitTextResponse(text) {
+  return octokitBodyResponse(
+    new Response(text, {
+      headers: { "content-type": "application/json; charset=utf-8" },
+    }).body,
+  );
+}
+
+function octokitJsonResponse(value) {
+  return octokitTextResponse(JSON.stringify(value));
+}
+
+function vercelContentDocument(
+  target,
+  configuration = PREVIEW_TARGET_CONFIG[target].trackedVercelConfiguration,
+) {
+  const path = PREVIEW_TARGET_CONFIG[target].vercelConfigurationPath;
+  const text =
+    typeof configuration === "string"
+      ? configuration
+      : `${JSON.stringify(configuration, null, 2)}\n`;
+  const content = Buffer.from(text, "utf8");
+  return {
+    type: "file",
+    path,
+    encoding: "base64",
+    size: content.length,
+    content: content.toString("base64"),
+  };
+}
+
+function vercelContentResponse(target, configuration) {
+  return octokitJsonResponse(vercelContentDocument(target, configuration));
+}
+
+function repositoryContentError({
+  status,
+  code,
+  cause,
+  httpResponse = status !== undefined,
+  message = "read failed",
+}) {
+  const error = new Error(`fixture repository content ${message}`);
+  if (status !== undefined) {
+    error.name = "RequestError";
+    error.status = status;
+  }
+  if (code !== undefined) error.code = code;
+  if (cause !== undefined) error.cause = cause;
+  if (httpResponse) {
+    error.response = {
+      status,
+      url: "https://api.github.com/repos/mento-protocol/frontend-monorepo/contents/path",
+      headers: { "content-type": "application/json; charset=utf-8" },
+      data: { message: `fixture HTTP ${status}` },
+    };
+  }
+  return error;
+}
+
+function octokitTransportError(code) {
+  return repositoryContentError({
+    status: 500,
+    cause: undiciTransportFailure(code),
+    httpResponse: false,
+    message: "Octokit request failed",
+  });
+}
+
+function undiciTransportFailure(code) {
+  const transportError = new Error("fixture Undici transport failure");
+  transportError.code = code;
+  const fetchError = new TypeError("fetch failed");
+  fetchError.cause = transportError;
+  return fetchError;
+}
+
+function contentReadFixture(outcomes) {
+  const requests = [];
+  let outcomeIndex = 0;
+  return {
+    requests,
+    github: {
+      rest: {
+        repos: {
+          async getContent(request) {
+            requests.push(request);
+            const outcome = outcomes[outcomeIndex];
+            outcomeIndex += 1;
+            assert.notEqual(outcome, undefined, "content outcome must exist");
+            if (outcome instanceof Error) throw outcome;
+            return outcome;
+          },
+        },
+      },
+    },
+  };
+}
+
+test("immutable Vercel configuration reads retry allowlisted HTTP responses", async () => {
+  for (const status of [500, 502, 503, 504]) {
+    const retryDelays = [];
+    const fixture = contentReadFixture([
+      repositoryContentError({ status }),
+      vercelContentResponse("ui"),
+    ]);
+
+    assert.equal(
+      await previewOwnerAtSha(fixture.github, fakeContext(), "ui", SHA.A, {
+        waitForRetry: async (milliseconds) => retryDelays.push(milliseconds),
+      }),
+      "github-actions",
+    );
+    assert.equal(fixture.requests.length, 2, String(status));
+    assert.deepEqual(retryDelays, [250], String(status));
+    assert.strictEqual(fixture.requests[0], fixture.requests[1]);
+    assert.equal(Object.isFrozen(fixture.requests[0]), true);
+    assert.equal(Object.isFrozen(fixture.requests[0].request), true);
+    assert.deepEqual(fixture.requests[0], {
+      owner: "mento-protocol",
+      repo: "frontend-monorepo",
+      path: UI_VERCEL_CONFIGURATION_PATH,
+      ref: SHA.A,
+      request: { parseSuccessResponseBody: false },
+    });
+  }
+});
+
+test("immutable Vercel configuration reads fail closed after three 504s", async () => {
+  const retryDelays = [];
+  const failures = Array.from({ length: 3 }, () =>
+    repositoryContentError({ status: 504 }),
+  );
+  const fixture = contentReadFixture(failures);
+
+  await assert.rejects(
+    previewOwnerAtSha(fixture.github, fakeContext(), "ui", SHA.A, {
+      waitForRetry: async (milliseconds) => retryDelays.push(milliseconds),
+    }),
+    (error) => error === failures.at(-1),
+  );
+  assert.equal(fixture.requests.length, 3);
+  assert.ok(
+    fixture.requests.every((request) => request === fixture.requests[0]),
+  );
+  assert.deepEqual(retryDelays, [250, 500]);
+});
+
+test("immutable Vercel configuration reads never retry non-allowlisted HTTP responses", async () => {
+  for (const status of [400, 403, 404, 409, 422, 429, 501, 505]) {
+    const retryDelays = [];
+    const fixture = contentReadFixture([
+      repositoryContentError({ status, message: `failed with ${status}` }),
+    ]);
+
+    await assert.rejects(
+      previewOwnerAtSha(fixture.github, fakeContext(), "ui", SHA.A, {
+        waitForRetry: async (milliseconds) => retryDelays.push(milliseconds),
+      }),
+      (error) => error.status === status,
+    );
+    assert.equal(fixture.requests.length, 1, String(status));
+    assert.deepEqual(retryDelays, [], String(status));
+  }
+});
+
+test("immutable Vercel configuration validation failures never retry", async () => {
+  const validDocument = vercelContentDocument("ui");
+  const malformedResponses = [
+    {
+      name: "content schema",
+      response: octokitJsonResponse([]),
+      pattern: /must be a plain object/,
+    },
+    {
+      name: "encoding metadata",
+      response: octokitJsonResponse({
+        ...validDocument,
+        encoding: "utf-8",
+      }),
+      pattern: /metadata is invalid/,
+    },
+    {
+      name: "ownership",
+      response: vercelContentResponse("ui", {}),
+      pattern: /configuration is not recognized/,
+    },
+  ];
+
+  for (const scenario of malformedResponses) {
+    const retryDelays = [];
+    const fixture = contentReadFixture([scenario.response]);
+
+    await assert.rejects(
+      previewOwnerAtSha(fixture.github, fakeContext(), "ui", SHA.A, {
+        waitForRetry: async (milliseconds) => retryDelays.push(milliseconds),
+      }),
+      scenario.pattern,
+      scenario.name,
+    );
+    assert.equal(fixture.requests.length, 1, scenario.name);
+    assert.deepEqual(retryDelays, [], scenario.name);
+  }
+});
+
+test("immutable Vercel configuration reads retry a failed response body stream", async () => {
+  const retryDelays = [];
+  const fixture = contentReadFixture([
+    octokitBodyResponse(
+      new ReadableStream({
+        start(controller) {
+          controller.error(undiciTransportFailure("UND_ERR_BODY_TIMEOUT"));
+        },
+      }),
+    ),
+    vercelContentResponse("ui"),
+  ]);
+
+  assert.equal(
+    await previewOwnerAtSha(fixture.github, fakeContext(), "ui", SHA.A, {
+      waitForRetry: async (milliseconds) => retryDelays.push(milliseconds),
+    }),
+    "github-actions",
+  );
+  assert.equal(fixture.requests.length, 2);
+  assert.strictEqual(fixture.requests[0], fixture.requests[1]);
+  assert.equal(Object.isFrozen(fixture.requests[0]), true);
+  assert.equal(Object.isFrozen(fixture.requests[0].request), true);
+  assert.deepEqual(retryDelays, [250]);
+});
+
+test("immutable Vercel configuration reads never retry malformed response JSON", async () => {
+  const retryDelays = [];
+  const fixture = contentReadFixture([octokitTextResponse("{")]);
+  await assert.rejects(
+    previewOwnerAtSha(fixture.github, fakeContext(), "ui", SHA.A, {
+      waitForRetry: async (milliseconds) => retryDelays.push(milliseconds),
+    }),
+    SyntaxError,
+  );
+  assert.equal(fixture.requests.length, 1);
+  assert.deepEqual(retryDelays, []);
+});
+
+test("immutable Vercel configuration reads retry nested Octokit transport failures", async () => {
+  const retryDelays = [];
+  const fixture = contentReadFixture([
+    octokitTransportError("UND_ERR_CONNECT_TIMEOUT"),
+    vercelContentResponse("ui"),
+  ]);
+  assert.equal(
+    await previewOwnerAtSha(fixture.github, fakeContext(), "ui", SHA.A, {
+      waitForRetry: async (milliseconds) => retryDelays.push(milliseconds),
+    }),
+    "github-actions",
+  );
+  assert.equal(fixture.requests.length, 2);
+  assert.deepEqual(retryDelays, [250]);
+});
+
+test("immutable Vercel configuration reads never retry TLS or abort wrappers", async () => {
+  const tlsFailure = octokitTransportError("CERT_HAS_EXPIRED");
+  const abortFailure = new DOMException(
+    "fixture request aborted",
+    "AbortError",
+  );
+  abortFailure.status = 500;
+
+  for (const failure of [tlsFailure, abortFailure]) {
+    const retryDelays = [];
+    const fixture = contentReadFixture([failure]);
+    await assert.rejects(
+      previewOwnerAtSha(fixture.github, fakeContext(), "ui", SHA.A, {
+        waitForRetry: async (milliseconds) => retryDelays.push(milliseconds),
+      }),
+      (error) => error === failure,
+    );
+    assert.equal(fixture.requests.length, 1);
+    assert.deepEqual(retryDelays, []);
+  }
 });
 
 function reconcilePreview(options) {
@@ -5712,25 +6004,15 @@ function fakeGitHub({
               allCandidateTargetsNative && request.ref !== SHA.E
                 ? targetConfiguration.previewShadowVercelConfiguration
                 : targetConfiguration.trackedVercelConfiguration;
-            const text = `${JSON.stringify(configuration, null, 2)}\n`;
-            const content = Buffer.from(text, "utf8");
-            return {
-              data: {
-                type: "file",
-                path: request.path,
-                encoding: "base64",
-                size: content.length,
-                content: content.toString("base64"),
-              },
-            };
+            return vercelContentResponse(target, configuration);
           }
           if (uiVercelContentErrorStatus) {
-            const error = new Error("fixture repository content read failed");
-            error.status = uiVercelContentErrorStatus;
-            throw error;
+            throw repositoryContentError({
+              status: uiVercelContentErrorStatus,
+            });
           }
           if (uiVercelContentResponse !== undefined) {
-            return { data: structuredClone(uiVercelContentResponse) };
+            return octokitJsonResponse(uiVercelContentResponse);
           }
           const configuration =
             (configurationsByRef.has(request.ref)
@@ -5740,20 +6022,7 @@ function fakeGitHub({
                 : transientUiVercelConfigurations.length > 0
                   ? transientUiVercelConfigurations.shift()
                   : uiVercelConfiguration) ?? uiVercelConfiguration;
-          const text =
-            typeof configuration === "string"
-              ? configuration
-              : `${JSON.stringify(configuration, null, 2)}\n`;
-          const content = Buffer.from(text, "utf8");
-          return {
-            data: {
-              type: "file",
-              path: request.path,
-              encoding: "base64",
-              size: content.length,
-              content: content.toString("base64"),
-            },
-          };
+          return vercelContentResponse(target, configuration);
         },
         listDeployments,
         listCommitStatusesForRef,
