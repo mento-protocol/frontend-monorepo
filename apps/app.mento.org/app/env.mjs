@@ -55,6 +55,21 @@ export const env = createEnv({
       (val) => (val === "" ? undefined : val),
       z.string().url().optional(),
     ),
+    // Trove-history subgraph endpoints. Optional: @repo/web3 falls back to the
+    // currently-deployed Studio URLs when unset. Set these to re-point at a new
+    // Studio version label after a subgraph redeploy, or at the decentralized
+    // network gateway once the mainnet subgraph is published.
+    NEXT_PUBLIC_TROVES_SUBGRAPH_URL: z.preprocess(
+      (val) => (val === "" ? undefined : val),
+      z.string().url().optional(),
+    ),
+    NEXT_PUBLIC_TROVES_SUBGRAPH_URL_CELO_SEPOLIA: z.preprocess(
+      (val) => (val === "" ? undefined : val),
+      z.string().url().optional(),
+    ),
+    // Required only when a troves subgraph URL points at
+    // gateway.thegraph.com; Studio endpoints are unauthenticated.
+    NEXT_PUBLIC_GRAPH_API_KEY: z.string().optional(),
   },
   /*
    * Due to how Next.js bundles environment variables on Edge and Client,
@@ -82,5 +97,10 @@ export const env = createEnv({
     NEXT_PUBLIC_MONAD_RPC_URL: process.env.NEXT_PUBLIC_MONAD_RPC_URL,
     NEXT_PUBLIC_MONAD_TESTNET_RPC_URL:
       process.env.NEXT_PUBLIC_MONAD_TESTNET_RPC_URL,
+    NEXT_PUBLIC_TROVES_SUBGRAPH_URL:
+      process.env.NEXT_PUBLIC_TROVES_SUBGRAPH_URL,
+    NEXT_PUBLIC_TROVES_SUBGRAPH_URL_CELO_SEPOLIA:
+      process.env.NEXT_PUBLIC_TROVES_SUBGRAPH_URL_CELO_SEPOLIA,
+    NEXT_PUBLIC_GRAPH_API_KEY: process.env.NEXT_PUBLIC_GRAPH_API_KEY,
   },
 });
