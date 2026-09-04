@@ -1,5 +1,5 @@
 {
-  "schema": "dependabot-prep-policy:v1",
+  "schema": "dependabot-prep-policy:v2",
   "repository": "mento-protocol/frontend-monorepo",
   "baseRef": "main",
   "identities": {
@@ -36,6 +36,183 @@
     "verified": true,
     "verificationReason": "valid"
   },
+  "credentialBoundary": {
+    "modelGhConfig": "/var/lib/dependabot/gh",
+    "modelCredential": "absent",
+    "mutatorGhConfig": "/var/lib/dependabot-mutator/gh",
+    "mutatorCredentialOwner": "dedicated-nologin-identity",
+    "broker": "/opt/dependabot-prep/mutation-broker.mjs",
+    "client": "/opt/dependabot-prep/mutation-client.mjs",
+    "socket": "/run/dependabot-prep/broker.sock",
+    "readOperations": [
+      "rest-get-fixed-repository",
+      "graphql-template-pull-request-force-push-history",
+      "graphql-template-pull-request-review-threads"
+    ],
+    "writeOperations": {
+      "branch": ["exact-cas-push", "exact-cas-base-sync"],
+      "branch-maintenance": ["exact-dependabot-recreate"],
+      "review-request": ["exact-coderabbit-review-request"],
+      "comment": ["bounded-top-level-comment"],
+      "reply": ["bounded-review-comment-reply"]
+    },
+    "directAuthenticatedGh": "forbidden"
+  },
+  "evidence": {
+    "normalization": {
+      "requiredFields": [
+        "normalizedBy",
+        "normalizationStatus",
+        "normalizationNote"
+      ],
+      "statusValues": ["verified", "rejected"],
+      "preparedRequiresVerified": true,
+      "preparedRequiresCompletePagination": true,
+      "preparedShaFormat": "40-lowercase-hex-git-oid",
+      "nonPreparedUnknownShaValue": "unknown",
+      "nonPreparedUnknownShaFields": ["generationBaseSha", "policySha"],
+      "currentTargetBaseShaRequired": true,
+      "rejectedEvidenceResult": "blocked-not-operational-failure"
+    },
+    "shaRoles": {
+      "generationBaseSha": "native-generation-ancestry-anchor",
+      "currentTargetBaseSha": "live-base-ref-oid-used-for-preparation",
+      "policySha": "git-blob-oid-of-policy-at-current-target-base"
+    },
+    "forcePushTimeline": {
+      "source": "graphql",
+      "connection": "PullRequest.timelineItems",
+      "itemType": "HeadRefForcePushedEvent",
+      "beforeOidField": "beforeCommit.oid",
+      "afterOidField": "afterCommit.oid",
+      "requireCompletePagination": true,
+      "resultEvidenceField": "forcePushHistory",
+      "resultFields": [
+        "source",
+        "eventType",
+        "paginationComplete",
+        "transitions"
+      ],
+      "resultTransitionFields": [
+        "eventId",
+        "createdAt",
+        "beforeSha",
+        "afterSha",
+        "actorLogin",
+        "actorType",
+        "actorId"
+      ],
+      "normalizedFields": [
+        "eventType",
+        "paginationComplete",
+        "source",
+        "transitions"
+      ],
+      "normalizedTransitionFields": [
+        "actorId",
+        "actorLogin",
+        "actorType",
+        "afterSha",
+        "beforeSha",
+        "createdAt",
+        "eventId"
+      ],
+      "missingOid": "blocked"
+    },
+    "repositoryRules": {
+      "appliedBranchRulesEndpoint": "/repos/{owner}/{repo}/rules/branches/{branch}",
+      "rulesetsEndpoint": "/repos/{owner}/{repo}/rulesets",
+      "rulesetEndpoint": "/repos/{owner}/{repo}/rulesets/{rulesetId}",
+      "requireCompletePagination": true,
+      "requireFullRulesetReadback": true,
+      "resultEvidenceField": "repositoryRules",
+      "resultFields": [
+        "source",
+        "branchRulesEndpoint",
+        "rulesetsEndpoint",
+        "paginationComplete",
+        "summary"
+      ],
+      "normalizedFields": [
+        "branchRulesEndpoint",
+        "branchRules",
+        "complete",
+        "evidenceSha256",
+        "paginationComplete",
+        "rulesets",
+        "rulesetsEndpoint",
+        "source",
+        "targetRefName"
+      ],
+      "legacyBranchProtection": "not-authoritative",
+      "unreadable": "blocked"
+    },
+    "mutationLineage": {
+      "resultEvidenceField": "mutationLineage",
+      "requiredFields": [
+        "complete",
+        "finalHeadSha",
+        "nativeLineageSha256",
+        "originHeadSha",
+        "source",
+        "transitions"
+      ],
+      "sourceFields": ["kind", "modelWritable", "mutationAuthority"],
+      "requiredSource": {
+        "kind": "root-owned-mutation-receipts",
+        "modelWritable": false,
+        "mutationAuthority": false
+      },
+      "transitionFields": [
+        "kind",
+        "newHeadSha",
+        "oldHeadSha",
+        "receiptFile",
+        "receiptSha256"
+      ],
+      "transitionKinds": ["exact-cas-push", "exact-cas-base-sync"],
+      "preparedRequiresComplete": true,
+      "preparedFinalHeadMustMatch": true
+    },
+    "generationTransition": {
+      "resultEvidenceField": "generationTransition",
+      "ordinaryValue": null,
+      "rejectedValue": null,
+      "recreateFields": [
+        "boundaryAfterSha",
+        "boundaryBeforeSha",
+        "boundaryCreatedAt",
+        "boundaryEventId",
+        "commentCreatedAt",
+        "commentId",
+        "commentUpdatedAt",
+        "kind",
+        "oldHeadSha",
+        "oldNativeOriginHeadSha",
+        "operator",
+        "receiptFile",
+        "receiptSha256",
+        "requestSha256",
+        "requestedTargetBaseSha",
+        "source"
+      ],
+      "requiredKind": "controller-recreate",
+      "requiredSource": {
+        "kind": "root-owned-recreate-receipt",
+        "modelWritable": false,
+        "mutationAuthority": false
+      },
+      "receiptAuthority": "/var/lib/dependabot/lineage/recreates",
+      "commentMustBeUnedited": true,
+      "boundary": "first-normalized-force-push-after-comment-from-exact-old-head",
+      "requiresNoHistoricalReplay": true,
+      "requiredBaseBindings": [
+        "generationBaseSha",
+        "currentTargetBaseSha",
+        "requestedTargetBaseSha"
+      ]
+    }
+  },
   "trustedMaintainer": {
     "associations": ["COLLABORATOR", "MEMBER", "OWNER"],
     "branchMaintenancePermissions": ["admin", "write"]
@@ -53,7 +230,18 @@
     "requireUneditedComment": true,
     "requireValidUtcTimestamps": true,
     "rebaseResetsForcePushHistory": false,
-    "recreateStartsGenerationAfterComment": true
+    "recreateStartsGenerationAfterComment": true,
+    "controllerRecreate": {
+      "operation": "recreate",
+      "grant": "recreate",
+      "body": "@dependabot recreate",
+      "eligibleEcosystem": "npm",
+      "processingMode": "full",
+      "requiresAuthenticatedNativeGeneration": true,
+      "oncePerExactNativeGeneration": true,
+      "postComment": "wait-for-and-reauthenticate-new-native-generation",
+      "refMutationAuthority": "dependabot-only"
+    }
   },
   "feedback": {
     "requireCompletePagination": true,
@@ -160,7 +348,7 @@
   },
   "history": {
     "closeOrReopenByNonDependabot": "manual",
-    "existingNonNativeHead": "manual",
+    "existingNonNativeHead": "admit-only-complete-validated-broker-receipt-chain",
     "forcePushRequiresCompletePagination": true,
     "forcePushRequiresContinuousShas": true,
     "forcePushRequiresNonCyclicShas": true,
@@ -168,8 +356,483 @@
     "forcePushRequiresUniqueEventIds": true,
     "unknownForcePush": "blocked"
   },
+  "admission": {
+    "ordinaryNpm": {
+      "ecosystem": "npm",
+      "allowedProcessingModes": ["full", "sync-only"],
+      "originalAllowedExactPaths": [
+        "package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml"
+      ],
+      "originalAllowedPathSuffixes": ["/package.json"],
+      "forbiddenPathPrefixes": [
+        "scripts/vercel-cli-runtime/",
+        "scripts/vercel-pnpm-runtime/",
+        "scripts/vercel-pnpm-bootstrap/"
+      ],
+      "finalForbiddenPathPrefixes": [
+        "scripts/vercel-cli-runtime/",
+        "scripts/vercel-pnpm-runtime/",
+        "scripts/vercel-pnpm-bootstrap/"
+      ],
+      "finalPathRule": "reviewed-nonprotected-compatibility-repair",
+      "candidateAuthoredRepair": {
+        "requiresSeparateCleanBaseSync": true,
+        "commitShape": "one-parent-from-exact-old-head",
+        "pathStatus": "modified-existing-nonprotected-only",
+        "allowedPathPrefixes": ["apps/", "packages/"],
+        "dependencyManifestOrLockfileMutation": "forbidden",
+        "finalDependencyTuples": "exact-authenticated-native-tuples"
+      },
+      "excludedPackages": [
+        "next",
+        "vercel",
+        "pnpm",
+        "@pnpm/linux-x64",
+        "@playwright/test",
+        "@argos-ci/playwright"
+      ],
+      "excludedPackagePrefixes": [],
+      "manualRiskPackagePatterns": [
+        "wagmi",
+        "viem",
+        "viem-*",
+        "@wagmi/*",
+        "@rainbow-me/*",
+        "@metamask/*",
+        "ethers",
+        "ethers-*",
+        "@mento-protocol/*",
+        "@wormhole-foundation/*",
+        "@solana/*",
+        "@walletconnect/*",
+        "@reown/*",
+        "@celo/*",
+        "@ledgerhq/*",
+        "@trezor/*",
+        "@safe-global/*",
+        "@noble/*",
+        "@scure/*",
+        "*wallet*",
+        "*web3*"
+      ],
+      "versionTransition": {
+        "accepted": "strict-forward-stable-semver-with-identical-range-prefix",
+        "unsupportedOrAmbiguous": "manual"
+      },
+      "unknownDependency": "manual"
+    },
+    "ordinaryNpmInitialState": {
+      "behindCurrentTargetBase": "admissible-work",
+      "conflicting": "admissible-work",
+      "redRequiredChecks": "admissible-work"
+    },
+    "protectedRuntimeManual": {
+      "packages": [
+        "vercel",
+        "pnpm",
+        "@pnpm/linux-x64",
+        "@playwright/test",
+        "@argos-ci/playwright"
+      ],
+      "packagePrefixes": [],
+      "forbiddenPathPrefixes": [
+        "scripts/vercel-cli-runtime/",
+        "scripts/vercel-pnpm-runtime/",
+        "scripts/vercel-pnpm-bootstrap/"
+      ],
+      "next": {
+        "package": "next",
+        "manualUpdateTypes": ["semver-minor", "semver-major"],
+        "outOfContractPatch": true
+      }
+    },
+    "nextPatch": {
+      "package": "next",
+      "updateType": "semver-patch-only",
+      "processingMode": "full",
+      "originalDelta": "exact-next-dependency-and-lockfile-tuple-only",
+      "allowedRegions": {
+        "pnpm-workspace.yaml": ["catalog.next"],
+        "package.json": ["pnpm.overrides.next"],
+        "pnpm-lock.yaml": ["exact-next-runtime-closure"],
+        "scripts/vercel-cli-runtime/package.json": ["pnpm.overrides.next"],
+        "scripts/vercel-cli-runtime/pnpm-lock.yaml": [
+          "exact-next-runtime-closure"
+        ],
+        "scripts/vercel-cli-runtime/contract.json": [
+          "lockfileSha256",
+          "manifestSha256",
+          "overridesSha256"
+        ]
+      },
+      "agentRepair": "bounded-data-only-within-exact-tuple",
+      "derivation": "deterministic-without-candidate-execution",
+      "candidateExecution": "forbidden",
+      "packageManagerExecution": "forbidden",
+      "allOtherContent": "byte-and-mode-identical-to-currentTargetBaseSha",
+      "unexpectedAmbiguousOrUnproducible": "manual",
+      "finalGate": "same-as-admission.finalGate"
+    },
+    "nextMinorOrMajor": {
+      "package": "next",
+      "updateTypes": ["semver-minor", "semver-major"],
+      "processingMode": "manual"
+    },
+    "finalGate": {
+      "containsCurrentTargetBase": true,
+      "exactHeadRequiredChecks": "passing",
+      "exactHeadCodeRabbitReview": true,
+      "feedback": "answered",
+      "mergeability": "MERGEABLE",
+      "autoMergeRequest": null,
+      "requiredCheckProducers": [
+        {
+          "acceptedConclusions": ["success", "neutral", "skipped"],
+          "app": { "id": 15368, "slug": "github-actions" },
+          "context": "Build and Test",
+          "integrationId": 15368,
+          "kind": "check-run",
+          "workflow": {
+            "event": "pull_request",
+            "id": 156727246,
+            "path": ".github/workflows/ci.yml"
+          }
+        },
+        {
+          "acceptedConclusions": ["success", "neutral", "skipped"],
+          "app": { "id": 15368, "slug": "github-actions" },
+          "context": "Visual Regression (ui.mento.org)",
+          "integrationId": 15368,
+          "kind": "check-run",
+          "workflow": {
+            "event": "pull_request",
+            "id": 296885588,
+            "path": ".github/workflows/visual.yml"
+          }
+        },
+        {
+          "acceptedConclusions": ["success", "neutral", "skipped"],
+          "app": { "id": 15368, "slug": "github-actions" },
+          "context": "osv-scanner / osv-scan",
+          "integrationId": 15368,
+          "kind": "check-run",
+          "workflow": {
+            "event": "pull_request",
+            "id": 297207753,
+            "path": ".github/workflows/supply-chain.yml"
+          }
+        },
+        {
+          "acceptedStates": ["success"],
+          "context": "Vercel Preview",
+          "creator": {
+            "id": 41898282,
+            "login": "github-actions[bot]",
+            "type": "Bot"
+          },
+          "integrationId": 15368,
+          "kind": "commit-status",
+          "workflow": {
+            "event": "pull_request_target",
+            "id": 314322382,
+            "path": ".github/workflows/vercel-preview-intake.yml"
+          }
+        }
+      ]
+    }
+  },
+  "preparationModes": {
+    "full": {
+      "scope": "ordinary-npm-or-constrained-next-patch",
+      "allowsBaseSynchronization": true,
+      "allowsBoundedDataOnlyRepairs": true
+    },
+    "sync-only": {
+      "scope": "policy-admitted-npm-without-agent-authored-repair",
+      "allowsBaseSynchronization": true,
+      "allowsBoundedDataOnlyRepairs": false
+    },
+    "review-only": {
+      "scope": "unchanged-current-native-head",
+      "allowsBaseSynchronization": false,
+      "allowsBoundedDataOnlyRepairs": false
+    },
+    "manual": {
+      "scope": "human-or-other-controller-reserved",
+      "allowsBaseSynchronization": false,
+      "allowsBoundedDataOnlyRepairs": false
+    }
+  },
+  "protectedPaths": {
+    "prefixes": [".github/workflows/", ".github/actions/"],
+    "originalPullRequestDelta": "must-not-contain-protected-paths",
+    "protectedTreePrecondition": {
+      "requiresIndependentVerification": true,
+      "oldHead": "byte-and-mode-identical-to-currentTargetBaseSha",
+      "candidate": "byte-and-mode-identical-to-currentTargetBaseSha",
+      "agentEdit": "forbidden",
+      "conflictResolution": "forbidden",
+      "verifyBeforeCommit": true,
+      "verifyInIndependentQuarantine": true,
+      "verifyImmediatelyBeforeMutation": true,
+      "mismatch": "recreate-or-manual-before-ref-mutation",
+      "workflowsWriteGrant": "forbidden"
+    },
+    "directPullRequestChanges": "no-ref-mutation"
+  },
   "githubActions": {
+    "ecosystem": "github-actions",
     "refMutation": "forbidden",
-    "requiresCurrentNativeGreenHead": true
+    "sensitiveOrSelfReviewingProcessingMode": "manual",
+    "nonRoutineVersionUpdateProcessingMode": "manual",
+    "securityUpdates": {
+      "processingMode": "manual"
+    },
+    "ambiguousOrMixed": "manual",
+    "preparedRequiresUnchangedNativeGreenHead": true,
+    "routineGroup": {
+      "name": "github-actions-routine",
+      "headRefPrefix": "dependabot/github_actions/github-actions-routine",
+      "appliesTo": "version-updates",
+      "updateTypes": ["semver-minor", "semver-patch"],
+      "processingMode": "review-only",
+      "dependencyMatch": "authenticated-same-line-uses-ref-rotations",
+      "requiredRefFormat": "40-lowercase-hex-git-oid",
+      "originalAllowedPathPrefixes": [".github/workflows/"],
+      "sensitiveActionPatterns": [
+        "actions/create-github-app-token",
+        "actions/dependency-review-action",
+        "anthropics/*",
+        "dependabot/*",
+        "github/codeql-action*",
+        "google/osv-scanner-action*",
+        "ossf/scorecard-action"
+      ]
+    }
+  },
+  "manualResearch": {
+    "requiredForManualVerdict": true,
+    "dependencyInventoryField": "dependencies",
+    "dependencyInventory": "nonempty-unique-exact-name-fromVersion-toVersion-tuples",
+    "packageCoverage": "exact-pull-request-dependency-set",
+    "packageTupleEqualityRequired": true,
+    "authoritativeSources": [
+      "upstream-changelog",
+      "upstream-release-notes",
+      "upstream-migration-guide",
+      "upstream-security-advisory",
+      "upstream-project-or-package-fallback"
+    ],
+    "desiredSourceKinds": [
+      "changelog",
+      "release-notes",
+      "migration-guide",
+      "security-advisory"
+    ],
+    "fallbackSourceKind": "upstream-project-or-package",
+    "fallbackAllowedOnlyWhenAllDesiredSourceKindsAbsent": true,
+    "missingDesiredSourceKindsField": "missingSourceKinds",
+    "missingDesiredSourceKinds": "record-exact-absent-set-and-lower-confidence",
+    "minimumLiveVerifiedAuthoritativeUrlsPerPackageTuple": 1,
+    "liveVerification": "required-per-exact-package-tuple",
+    "requiredFields": [
+      "status",
+      "overallRecommendation",
+      "repositoryImpact",
+      "riskLevel",
+      "confidenceLevel",
+      "confidenceRationale",
+      "packages",
+      "sourceFailures"
+    ],
+    "statusValues": ["complete", "partial", "unavailable"],
+    "packageRequiredFields": [
+      "name",
+      "fromVersion",
+      "toVersion",
+      "changeSummary",
+      "breakingChanges",
+      "recommendation",
+      "riskLevel",
+      "confidenceLevel",
+      "confidenceRationale",
+      "sourceStatus",
+      "sourceNote",
+      "missingSourceKinds",
+      "sources"
+    ],
+    "sourceRequiredFields": [
+      "kind",
+      "url",
+      "title",
+      "versionCoverage",
+      "verifiedAt"
+    ],
+    "sourceKinds": [
+      "changelog",
+      "release-notes",
+      "migration-guide",
+      "security-advisory",
+      "upstream-project-or-package"
+    ],
+    "sourceUrlScheme": "https",
+    "verifiedOrPartialSourceRequiresHttpsUrl": true,
+    "acceptedSourceRequiresLiveFetch": true,
+    "acceptedSourceRequiresAuthoritativeUpstreamOwnership": true,
+    "sourceStatusValues": ["verified", "partial", "missing", "ambiguous"],
+    "riskLevels": ["low", "medium", "high", "critical", "unknown"],
+    "confidenceLevels": ["low", "medium", "high"],
+    "noLiveVerifiedAuthoritativeSource": "operational-research-incomplete",
+    "operationalResearchIncompleteStatus": "unavailable",
+    "operationalResearchIncompleteRequiresLauncherFailure": true,
+    "incompleteSourceCoverageConfidence": "low-or-medium-only",
+    "candidateExecution": "forbidden"
+  },
+  "lineageReceipts": {
+    "schema": "dependabot-prep-mutation-receipt:v1",
+    "broker": "/opt/dependabot-prep/mutation-broker.mjs",
+    "client": "/opt/dependabot-prep/mutation-client.mjs",
+    "socket": "/run/dependabot-prep/broker.sock",
+    "store": "/var/lib/dependabot/lineage/receipts",
+    "intentStore": "/var/lib/dependabot/lineage/intents",
+    "pendingStore": "/var/lib/dependabot/lineage/pending",
+    "operationLock": "/var/lib/dependabot/lineage/operation.lock",
+    "intentSchema": "dependabot-prep-mutation-intent:v1",
+    "intentRequiredFields": [
+      "schema",
+      "recordedAt",
+      "repository",
+      "pullRequestNumber",
+      "headRefName",
+      "mutation",
+      "processingMode",
+      "runId",
+      "runAuthorizationSha256",
+      "oldHeadSha",
+      "proposedNewHeadSha",
+      "requestedTargetBaseSha",
+      "policy",
+      "operator",
+      "nativeAnchor"
+    ],
+    "intentProposedNewHeadSha": {
+      "exact-cas-push": "40-lowercase-hex-git-oid",
+      "exact-cas-base-sync": "40-lowercase-hex-git-oid"
+    },
+    "intentNativeAnchorFields": [
+      "generationBaseSha",
+      "nativeOriginHeadSha",
+      "nativeLineageSha256"
+    ],
+    "intentArm": "durable-before-network-mutation",
+    "mutationSerialization": "global-atomic-directory-lock",
+    "intentFinalization": "durable-receipt-reread-then-pending-rename-unlink-and-directory-fsync",
+    "recovery": "block-all-ref-mutation-until-explicit-human-forensic-recovery-no-automatic-delete-or-retry",
+    "writer": "root-owned-pinned-least-privilege-service",
+    "write": "atomic-before-control-returns-after-push-readback",
+    "mutationKinds": ["exact-cas-push", "exact-cas-base-sync"],
+    "requiredFields": [
+      "sequence",
+      "previousReceiptSha256",
+      "recordedAt",
+      "repository",
+      "pullRequestNumber",
+      "headRefName",
+      "mutation",
+      "processingMode",
+      "runAuthorizationSha256",
+      "oldHeadSha",
+      "newHeadSha",
+      "currentTargetBaseSha",
+      "postMutationTargetBaseSha",
+      "baseMoved",
+      "policy",
+      "runId",
+      "operator",
+      "evidence",
+      "components"
+    ],
+    "policyFields": ["commitSha", "blobSha", "sha256"],
+    "operatorFields": ["id", "login", "type"],
+    "evidenceFields": [
+      "liveHeadSha",
+      "commitParents",
+      "protectedTreeSha256",
+      "generationBaseSha",
+      "nativeOriginHeadSha",
+      "nativeLineageSha256"
+    ],
+    "componentFields": [
+      "pinsSha256",
+      "toolchainManifestSha256",
+      "skillSha256",
+      "brokerSha256",
+      "workerSha256"
+    ],
+    "transition": "exact-non-force-parent-to-head",
+    "crossInvocationCommand": "dependabot-lineage <pr> <ref> <headOid>",
+    "crossInvocationAdmission": "complete-broker-verified-receipt-chain-only",
+    "missingInvalidOrAmbiguous": "manual"
+  },
+  "writeAuthorization": {
+    "orchestrator": "/opt/dependabot-prep/authorized-run",
+    "implementation": "/opt/dependabot-prep/authorized-run.mjs",
+    "selftestOrchestrator": "/opt/dependabot-prep/selftest-run",
+    "selftestAttester": "/opt/dependabot-prep/selftest-attest.mjs",
+    "selftestAttestation": "/etc/dependabot-prep/selftest-attestation.json",
+    "writeCommandArgv": ["sudo", "/opt/dependabot-prep/authorized-run"],
+    "scheduledGrants": [
+      "branch",
+      "recreate",
+      "review-request",
+      "comment",
+      "reply"
+    ],
+    "scheduledDeniedGrants": [
+      "rerun",
+      "execute",
+      "thread-resolution",
+      "approve",
+      "dismiss-review",
+      "auto-merge",
+      "merge",
+      "close",
+      "enqueue"
+    ],
+    "directLauncherWrite": "refuse",
+    "directLauncherNonWriteOperations": ["run --read-only", "status"],
+    "rootOnlyMaintenanceOperations": ["pin", "selftest-run"],
+    "dependabotMaintenanceOperations": ["lease-clear"],
+    "capability": {
+      "kind": "root-owned-short-lived-nonce",
+      "lifetime": "single-run",
+      "requiredBindings": [
+        "mode",
+        "grants",
+        "runId",
+        "authorizerPid",
+        "authorizerBootId",
+        "authorizerStartTimeTicks"
+      ],
+      "authorizerProcess": "live-root-pid-boot-id-and-start-time-required",
+      "modelWritable": false,
+      "brokerRequiresCapability": true
+    }
+  },
+  "operationalExit": {
+    "completeValidatedInventory": 0,
+    "operationalFailure": 1,
+    "pinOrSelftestDrift": 2,
+    "activeLeaseContention": 3,
+    "perPullRequestManualOrBlockedIsOperationalFailure": false,
+    "countBuckets": ["verdict", "processingMode"],
+    "machineFields": [
+      "reportExit",
+      "operationalStatus",
+      "resultStatus",
+      "counts"
+    ]
   }
 }

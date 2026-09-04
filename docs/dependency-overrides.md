@@ -50,18 +50,35 @@ The workspace and standalone runtime resolve legacy v2 consumers to upstream
 only the exact reviewed nanoid 3.3.18 pair. Do not restore a retired patch or
 cross-paired manifest and lockfile state.
 
-The scheduled no-exec agent must classify every protected-runtime rotation as
-`manual`. This includes Next.js, the Vercel CLI, and the protected pnpm runtime
-and bootstrap. It must not run a metadata query, package-manager command,
-generator, install, test, build, or smoke command from this procedure. The
-generic external agent must not prepare or push this rotation, even when it has
-an `execute` grant. An authenticated maintainer takes over the branch outside
-the generic skill. Keep every coupled Next.js or Vercel CLI file in one pull
-request. For protected pnpm, keep the checker-only first pull request separate,
-then keep every runtime, bootstrap, workflow pin, check, and digest change in
-the atomic second pull request. If any step or validator cannot be completed,
-keep the update `manual`. Do not restore an old workspace version only to make
-the protected-runtime check pass.
+The scheduled no-exec agent must classify every Vercel CLI or protected pnpm
+runtime/bootstrap rotation as `manual`. Next.js minor and major rotations are
+also `manual`. A semver-patch-only Next.js update has one narrow exception: it
+may use `full` only when the original authenticated diff is confined to the
+exact Next declaration, override, lockfile-closure, and derived
+runtime-contract digest tuple, and every repair inside that tuple is
+deterministically derivable as data. Every Vercel identity/configuration field,
+package-manager and runtime pin, workflow, local Action, security-policy field,
+and unrelated byte and mode must equal `currentTargetBaseSha`, subject to the
+independently verified trusted-base carry-forward rule. Any ambiguity, extra
+agent-authored change, or need for a metadata query, package-manager command,
+generator, install, test, build, or smoke command makes the patch `manual`.
+
+The generic external agent must not prepare or push a manual rotation, even
+when it has an `execute` grant. An authenticated maintainer takes over the
+branch outside the generic skill. Keep every coupled Next.js or Vercel CLI file
+in one pull request. For protected pnpm, keep the checker-only first pull
+request separate, then keep every runtime, bootstrap, workflow pin, check, and
+digest change in the atomic second pull request. If any step or validator
+cannot be completed, keep the update `manual`. Do not restore an old workspace
+version only to make the protected-runtime check pass.
+
+The agent's manual result still needs at least one live-verified authoritative
+upstream HTTPS URL for every exact package tuple. If no changelog, release note,
+migration guide, or advisory exists, it may use an authoritative upstream
+project or package page as an explicit fallback, must record the exact missing
+desired source classes, and must lower confidence. If no authoritative URL can
+be verified, research is operationally incomplete and the launcher sweep fails.
+Risk uses `low`, `medium`, `high`, `critical`, or `unknown`.
 
 The checked-in validators prove candidate self-consistency and the expected
 registry-only runtime shape. They do not prove that candidate-authored metadata
@@ -165,7 +182,15 @@ Every Next.js update must move all four coupled states together:
 - the standalone runtime contract and lockfile.
 
 Use the same caret specifier for the catalog and both override maps. Preserve
-workspace `catalog:` references. Then:
+workspace `catalog:` references. For the automatic patch lane, the exact tuple
+is limited to `catalog.next`, both `pnpm.overrides.next` values, the exact Next
+runtime closure in both lockfiles, and the derived `lockfileSha256`,
+`manifestSha256`, and `overridesSha256` contract fields. The Vercel version,
+dependency map, registry integrity, `runtimeDependenciesSha256`, contract
+schema, root `packageManager`, and every other field stay unchanged. If the
+authenticated original diff exceeds that tuple or the no-exec agent cannot
+derive a required tuple edit from trusted data, use the manual procedure below.
+Then:
 
 1. Start from the live Dependabot or maintainer branch. Review the requested
    Next.js release, migration notes, peer ranges, engines, and lockfile closure.
@@ -221,7 +246,9 @@ Run a frozen root install and the affected application build for a Next.js
 rotation. Run a fresh secretless standalone install and exact
 `node <vercel-cli> --version` smoke for a Vercel rotation. The maintainer then
 follows the normal exact-head review and merge gates. The generic
-`dependabot-prep` agent reports this pull request as `manual`.
+`dependabot-prep` agent reports a Next minor/major or out-of-contract patch and
+every Vercel rotation as `manual`; a conforming Next patch relies on these same
+validators from exact-head CI and keeps the normal strict final gate.
 
 Never run a general workspace install to regenerate the standalone lockfile.
 That can admit workspace links into a runtime whose isolation depends on a

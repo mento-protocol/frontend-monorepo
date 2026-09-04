@@ -355,7 +355,7 @@ Dependabot creates native npm and GitHub Actions pull requests each Monday at
 disabled until the one-time cutover in the runbook passes. After activation,
 OpenClaw is the scheduled operator. The repository contract is runtime-neutral:
 a manual sweep may use Codex, Claude Code, OpenClaw, or another compatible
-agent runtime. Version 1 has no event webhook or standing poller.
+agent runtime. Version 2 has no event webhook or standing poller.
 
 The agent invokes the generic `dependabot-prep` skill. That skill discovers and
 prepares update pull requests across JavaScript repositories. This repository's
@@ -367,19 +367,31 @@ The operator-controlled scheduler pins the reviewed skill by canonical source
 path and SHA-256 digest. Every write-capable run verifies that pin before it
 uses repository-write authority. A skill update keeps the schedule disabled
 until byte-identical installation and a supervised rehearsal pass.
-It also pins the trusted pre-model launcher and any runtime-specific
-instruction-isolation adapter by canonical path and SHA-256 digest. That
-launcher establishes a repository-instruction-free or proved exact-base launch
-context before the model starts. A current-host test must prove that access to a
+It also pins the trusted pre-model launcher, root `authorized-run` orchestrator,
+and any runtime-specific instruction-isolation adapter by canonical path and
+SHA-256 digest. The orchestrator is the only write entry point; its short-lived,
+run-bound root nonce is mandatory at the mutation broker. The launcher
+establishes a repository-instruction-free or proved exact-base launch context
+before the model starts. A current-host test must prove that access to a
 candidate clone cannot load its instruction files, execute its configuration,
 or make a candidate-triggered network request. A manual session without that
 pre-model proof remains read-only until it is relaunched.
+Run the activation test only through
+`sudo /opt/dependabot-prep/selftest-run`. It drops to the model identity with no
+supplementary groups or capabilities and seals the validated result as the
+root-owned `/etc/dependabot-prep/selftest-attestation.json`; a model-written
+marker cannot authorize write mode.
 If an exact-base launch sees `main` move, it must stop writes and relaunch from
 the new base. An instruction-free launch must discard stale policy, candidate
 state, and evidence, then rebind policy and restart classification.
 The scheduler also pins and tests the skill's bundled one-shot exact-CAS push
 adapter, credential helper, and exact Git, Node, and GitHub CLI provider
 toolchain.
+The model's `/var/lib/dependabot/gh` stays empty. A separate
+`dependabot-mutator` nologin UID owns the PAT under
+`/var/lib/dependabot-mutator/gh`; the model can use only the pinned broker's
+fixed REST/GraphQL-template read, review-request, comment, reply, push, and sync
+operations, not direct authenticated `gh`.
 Scheduled and manual write runs share one operator-owned repository lease, so
 only one sweep can mutate the repository at a time.
 
@@ -390,18 +402,60 @@ secretless CI provides validation. It includes exact bot, lineage, and ref
 verification, trusted-base policy binding, complete feedback history, full
 dependency and lockfile review, base-branch synchronization without rebase or
 force-push, required compatibility fixes, current-head review, and feedback
-responses. Next.js, Vercel CLI, and protected pnpm runtime or bootstrap
-rotations always require the maintainer takeover in
-[`docs/dependency-overrides.md`](docs/dependency-overrides.md).
+responses. A Next.js patch can use the `full` lane only when its original diff
+and any deterministic data-only repair remain inside the exact coupled Next
+declaration/override/lockfile/runtime-contract tuple, without candidate or
+package-manager execution. Next.js minor/major, Vercel CLI, and protected pnpm
+runtime or bootstrap rotations are `manual` and require the maintainer takeover
+in [`docs/dependency-overrides.md`](docs/dependency-overrides.md); an
+authenticated original patch that changes any Vercel config,
+package-manager/runtime pin, workflow, Action, or security-policy state is
+`manual` too.
+The scheduled invocation does not grant check reruns or candidate execution.
 
-Pre-existing non-native heads remain manual across invocations. Actions refs
-are never mutated. A non-sensitive Actions update can pass only on its current,
-unchanged native green head. Sensitive or self-reviewing Actions remain manual.
+Playwright and protected pnpm runtime updates are also isolated for maintainer
+takeover; Vitest family updates stay coupled. Ordinary npm updates may start
+stale, conflicting, or red. They still must finish on the exact current base
+with green exact-head checks, current-head review, answered feedback, and
+mergeability. Packages matching the exact wallet, signing, transaction, or
+bridge risk patterns remain manual. Ordinary automatic admission accepts only a
+strict forward stable-semver change with an unchanged range prefix. Any later
+compatibility repair requires a separate clean base sync and one child commit;
+it may modify only existing non-protected files below `apps/` or `packages/`,
+never dependency manifests or lockfiles, and the final manifest tuples must equal the authenticated native
+tuples.
+
+Actions refs are never mutated. Only authenticated minor or patch updates from
+the `github-actions-routine` group may use `review-only`, with full lowercase
+40-character SHA refs on an unchanged native green exact head. All major,
+security, sensitive, self-reviewing, ambiguous, and local-Action updates are
+manual. Before an npm synchronization or repair, the old-head workflow and
+local-Action trees must already equal the exact current base byte-for-byte and
+mode-for-mode. GitHub requires workflow-write authority even for base-sourced
+workflow changes; this controller deliberately has none. A mismatch or conflict
+may use one broker-fixed `@dependabot recreate` request for the exact
+authenticated native npm generation, after which the replacement head must be
+fully re-authenticated as a new native generation. Otherwise it is manual. For eligible clean `sync-only`, the root broker creates and verifies the
+exact-base two-parent merge in quarantine, then exact-CAS pushes it through
+`sync-base`. Pre-existing
+non-native heads are admitted only through the root-owned, pinned lineage-receipt
+chain. Every manual outcome includes at least one live-verified authoritative
+upstream HTTPS URL per exact package tuple (a changelog, release note, migration
+guide, or advisory) plus a recommendation, risk, confidence, and explicit
+research uncertainty. When none of those desired source classes exists, an
+authoritative upstream project or package page is the explicit fallback; all
+missing desired source classes are recorded and confidence is lowered. No verifiable authoritative link makes research
+operationally incomplete and prevents a successful sweep.
+
 The agent never approves, dismisses a review, enables auto-merge, or merges. It
 reports `prepared for maintainer decision`, `blocked`, `manual`, or `read-only`,
-with the exact final head and base, checks, review state, dependency risk, and
-blockers. A maintainer provides the current human approval and performs the
-final squash merge.
+with processing mode `full`, `sync-only`, `review-only`, or `manual`, three
+distinct policy/base SHA roles (`generationBaseSha`, `currentTargetBaseSha`, and
+policy-blob `policySha`), exact final head and base, checks, review state,
+dependency risk, and blockers. A valid complete sweep exits `0` even when an
+individual PR is manual or blocked; operational failures remain distinct. A
+maintainer provides the current human approval and performs the final squash
+merge.
 
 Dependabot pull requests remain secretless. The read-only Vercel preview intake
 validates their exact identity and lets trusted default-branch code publish a
@@ -520,16 +574,36 @@ The repository is set up with GitHub Actions for CI:
   06:00 UTC each Monday. A disabled OpenClaw job is installed for 10:15 UTC and
   will invoke the runtime-neutral `dependabot-prep` skill with bounded write
   grants after the one-time cutover passes. Its declaration pins the canonical
-  skill source, trusted pre-model launcher, and any runtime-specific
-  instruction-isolation adapter by canonical path and reviewed SHA-256 digest
-  for every write-capable run. The launcher establishes a trusted launch context
-  and passes a current-host candidate-instruction isolation test before the
-  model starts. An unproved manual session remains read-only.
+  skill source, trusted pre-model launcher, root `authorized-run` orchestrator,
+  and any runtime-specific instruction-isolation adapter by canonical path and
+  reviewed SHA-256 digest for every write-capable run. The launcher establishes
+  a trusted launch context and passes a current-host candidate-instruction
+  isolation test before the model starts. An unproved manual session remains
+  read-only.
+  Write mode uses exact argv
+  `["sudo", "/opt/dependabot-prep/authorized-run"]`; that executable wrapper
+  runs the separately pinned `/opt/dependabot-prep/authorized-run.mjs`
+  implementation. The root orchestrator's short-lived nonce has `mode: write`,
+  is bound to the run, and is mandatory at the mutation broker; direct
+  launcher write mode refuses. Direct read-only and status operations remain
+  available; the self-test runs only through the root `selftest-run`
+  orchestrator, and pinning stays root-only maintenance.
   The default branch path edits a sanitized standalone clone without executing
-  candidate code, then relies on exact-head secretless CI. It leaves Actions
-  refs unchanged and treats a pre-existing non-native head as manual. The agent
-  prepares admitted exact PR heads and reports evidence. It never approves or
-  merges. A maintainer gives the final approval and performs the squash merge. See
+  candidate code, then relies on exact-head secretless CI. It never mutates a
+  direct Actions update: only an authenticated `github-actions-routine` minor
+  or patch with exact full-SHA rotations may pass `review-only` on its unchanged
+  native green exact head. Every major, security, sensitive, self-reviewing,
+  ambiguous, or local-Action update is manual. It treats a pre-existing non-native head as manual
+  unless the root broker proves its complete sealed receipt chain. Manual
+  outcomes include a live-verified authoritative upstream HTTPS URL for every
+  exact package tuple, recommendations, `low`/`medium`/`high`/`critical`/`unknown`
+  risk, and confidence. An upstream project or package page is a fallback only
+  when the desired changelog, release, migration, and advisory classes are all
+  absent; record missing classes and lower confidence. Without a verifiable
+  authoritative link, research is operationally incomplete and the sweep fails.
+  The agent prepares
+  admitted exact PR heads and reports evidence. It never approves or merges. A
+  maintainer gives the final approval and performs the squash merge. See
   [the preparation runbook](docs/dependabot-automation.md) and
   [ADR 0009](docs/adr/0009-external-agent-dependabot-preparation.md).
 - **CD**: GitHub Actions automatically builds `app.mento.org`,

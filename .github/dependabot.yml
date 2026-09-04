@@ -18,7 +18,10 @@ updates:
       # a malicious release that gets yanked days after publication.
       semver-patch-days: 7
 
-    open-pull-requests-limit: 6
+    # Manual/protected runtimes are deliberately isolated from ordinary
+    # libraries. Leave enough room for those focused pull requests plus the
+    # ordinary weekly batches.
+    open-pull-requests-limit: 12
 
     labels:
       - dependencies
@@ -38,10 +41,45 @@ updates:
           - minor
           - patch
 
-      frontend-core:
+      # Next.js is coupled to the protected Vercel deployment contract. Keep it
+      # out of ordinary React updates: strict patches have a narrow full lane,
+      # while minor and major updates remain manual.
+      next-runtime:
         applies-to: version-updates
         patterns:
           - next
+        update-types:
+          - major
+          - minor
+          - patch
+
+      # Playwright updates can require a matching workflow container pin.
+      # Keep that protected-runtime work out of ordinary library batches.
+      playwright-runtime:
+        applies-to: version-updates
+        patterns:
+          - "@playwright/test"
+          - "@argos-ci/playwright"
+        update-types:
+          - major
+          - minor
+          - patch
+
+      # The root package-manager declaration is coupled to workflow, bootstrap,
+      # and standalone protected-runtime pins. Keep it in its own manual lane.
+      pnpm-runtime:
+        applies-to: version-updates
+        patterns:
+          - pnpm
+          - "@pnpm/linux-x64"
+        update-types:
+          - major
+          - minor
+          - patch
+
+      frontend-core:
+        applies-to: version-updates
+        patterns:
           - react
           - react-dom
           - "@types/react"
@@ -122,7 +160,12 @@ updates:
         patterns:
           - "*"
         exclude-patterns:
+          - vercel
           - next
+          - "@playwright/test"
+          - "@argos-ci/playwright"
+          - pnpm
+          - "@pnpm/linux-x64"
           - react
           - react-dom
           - "@types/react"
@@ -171,6 +214,11 @@ updates:
           - "*"
         exclude-patterns:
           - vercel
+          - next
+          - "@playwright/test"
+          - "@argos-ci/playwright"
+          - pnpm
+          - "@pnpm/linux-x64"
           - vite
           - vitest
           - "@vitest/*"
@@ -180,9 +228,84 @@ updates:
         patterns:
           - vercel
 
+      next-runtime-security:
+        applies-to: security-updates
+        patterns:
+          - next
+
+      playwright-runtime-security:
+        applies-to: security-updates
+        patterns:
+          - "@playwright/test"
+          - "@argos-ci/playwright"
+
+      pnpm-runtime-security:
+        applies-to: security-updates
+        patterns:
+          - pnpm
+          - "@pnpm/linux-x64"
+
+      # Keep security updates for the wallet/signing/transaction stack focused
+      # in one manual-review pull request instead of stranding unrelated fixes
+      # in the broad security catch-alls.
+      web3-stack-security:
+        applies-to: security-updates
+        patterns:
+          - wagmi
+          - viem
+          - viem-*
+          - "@wagmi/*"
+          - "@rainbow-me/*"
+          - "@metamask/*"
+          - ethers
+          - ethers-*
+          - "@mento-protocol/*"
+          - "@wormhole-foundation/*"
+          - "@solana/*"
+          - "@walletconnect/*"
+          - "@reown/*"
+          - "@celo/*"
+          - "@ledgerhq/*"
+          - "@trezor/*"
+          - "@safe-global/*"
+          - "@noble/*"
+          - "@scure/*"
+          - "*wallet*"
+          - "*web3*"
+
       security-runtime:
         applies-to: security-updates
         dependency-type: production
+        patterns:
+          - "*"
+        exclude-patterns:
+          - vercel
+          - next
+          - "@playwright/test"
+          - "@argos-ci/playwright"
+          - pnpm
+          - "@pnpm/linux-x64"
+          - wagmi
+          - viem
+          - viem-*
+          - "@wagmi/*"
+          - "@rainbow-me/*"
+          - "@metamask/*"
+          - ethers
+          - ethers-*
+          - "@mento-protocol/*"
+          - "@wormhole-foundation/*"
+          - "@solana/*"
+          - "@walletconnect/*"
+          - "@reown/*"
+          - "@celo/*"
+          - "@ledgerhq/*"
+          - "@trezor/*"
+          - "@safe-global/*"
+          - "@noble/*"
+          - "@scure/*"
+          - "*wallet*"
+          - "*web3*"
 
       security-tooling:
         applies-to: security-updates
@@ -191,8 +314,35 @@ updates:
           - "*"
         exclude-patterns:
           - vercel
+          - next
+          - "@playwright/test"
+          - "@argos-ci/playwright"
+          - pnpm
+          - "@pnpm/linux-x64"
+          - wagmi
+          - viem
+          - viem-*
+          - "@wagmi/*"
+          - "@rainbow-me/*"
+          - "@metamask/*"
+          - ethers
+          - ethers-*
+          - "@mento-protocol/*"
+          - "@wormhole-foundation/*"
+          - "@solana/*"
+          - "@walletconnect/*"
+          - "@reown/*"
+          - "@celo/*"
+          - "@ledgerhq/*"
+          - "@trezor/*"
+          - "@safe-global/*"
+          - "@noble/*"
+          - "@scure/*"
+          - "*wallet*"
+          - "*web3*"
 
-  # GitHub Actions
+  # GitHub Actions. The root entry scans workflows and a root Action manifest;
+  # each nested composite Action directory needs its own non-overlapping entry.
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -243,6 +393,48 @@ updates:
           - ossf/scorecard-action
 
       github-actions-security:
+        # Defense in depth only. GitHub does not currently generate Actions
+        # security updates for the repository's required full-SHA pins.
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  # Dependabot does not recursively discover reusable Actions below
+  # .github/actions from the root entry. Keep these exact roots together and
+  # route every resulting local-Action update to manual review.
+  - package-ecosystem: github-actions
+    directories:
+      - /.github/actions/pnpm-install
+      - /.github/actions/vercel-candidate-build
+      - /.github/actions/vercel-main-active-recovery-transition
+      - /.github/actions/vercel-main-active-transition
+      - /.github/actions/vercel-protected-runtime
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00" # trunk-ignore(yamllint/quoted-strings)
+      timezone: UTC
+
+    cooldown:
+      default-days: 7
+
+    open-pull-requests-limit: 3
+
+    labels:
+      - dependencies
+
+    commit-message:
+      prefix: chore(ci)
+
+    groups:
+      github-actions-local-manual:
+        applies-to: version-updates
+        patterns:
+          - "*"
+
+      github-actions-local-security-manual:
+        # Defense in depth only. GitHub does not currently generate Actions
+        # security updates for the repository's required full-SHA pins.
         applies-to: security-updates
         patterns:
           - "*"
