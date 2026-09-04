@@ -762,12 +762,7 @@
     "lane": "manual-hygiene",
     "processingMode": "manual",
     "finalVerdicts": ["manual", "blocked", "read-only"],
-    "allowedOperations": [
-      "recreate",
-      "request-review",
-      "comment",
-      "reply"
-    ],
+    "allowedOperations": ["recreate", "request-review", "comment", "reply"],
     "forbiddenOperations": [
       "push",
       "sync-base",

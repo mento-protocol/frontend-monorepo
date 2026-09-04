@@ -929,8 +929,7 @@ test("agent preparation policy pins the repository authority contract", () => {
     riskLevels: ["low", "medium", "high", "critical", "unknown"],
     confidenceLevels: ["low", "medium", "high"],
     overallRiskAggregation: "not-lower-than-highest-package-risk",
-    overallConfidenceAggregation:
-      "not-higher-than-lowest-package-confidence",
+    overallConfidenceAggregation: "not-higher-than-lowest-package-confidence",
     noLiveVerifiedAuthoritativeSource: "operational-research-incomplete",
     operationalResearchIncompleteStatus: "unavailable",
     operationalResearchIncompleteRequiresLauncherFailure: true,
@@ -1254,7 +1253,10 @@ test("agent preparation policy pins the repository authority contract", () => {
     false,
   );
   assert.equal(policy.preparationModes.manual.allowsBaseSynchronization, false);
-  assert.equal(policy.preparationModes.manual.allowsBoundedDataOnlyRepairs, false);
+  assert.equal(
+    policy.preparationModes.manual.allowsBoundedDataOnlyRepairs,
+    false,
+  );
   for (const operation of policy.manualHygiene.forbiddenOperations) {
     assert.ok(policy.manualHygiene.forbiddenOperations.includes(operation));
     assert.ok(!policy.manualHygiene.allowedOperations.includes(operation));
@@ -1373,10 +1375,7 @@ test("agent preparation policy pins the repository authority contract", () => {
     selftestOrchestrator: "/opt/dependabot-prep/selftest-run",
     selftestAttester: "/opt/dependabot-prep/selftest-attest.mjs",
     selftestAttestation: "/etc/dependabot-prep/selftest-attestation.json",
-    scheduledWriteCommandArgv: [
-      "sudo",
-      "/opt/dependabot-prep/authorized-run",
-    ],
+    scheduledWriteCommandArgv: ["sudo", "/opt/dependabot-prep/authorized-run"],
     supervisedWriteCommandArgvTemplate: [
       "sudo",
       "/opt/dependabot-prep/authorized-run",
@@ -3013,18 +3012,12 @@ test("canonical instructions pin Dependabot preparation policy v2", () => {
     normalizedRunbook,
     /`manual`.{0,40}`blocked`.{0,120}not by themselves a passed rehearsal/iu,
   );
-  assert.match(
-    normalizedRunbook,
-    /GitHub may still close or retarget/iu,
-  );
+  assert.match(normalizedRunbook, /GitHub may still close or retarget/iu);
   assert.doesNotMatch(
     normalizedRunbook,
     /prevent(?:s|ed|ing)?.{0,100}indirectly clos/iu,
   );
-  assert.match(
-    normalizedRunbook,
-    /145af6e07c4ff728553a46cfda379cd76bb93227/u,
-  );
+  assert.match(normalizedRunbook, /145af6e07c4ff728553a46cfda379cd76bb93227/u);
   assert.match(
     normalizedRunbook,
     /`gh-read`.{0,80}`lineage`.{0,80}`verify-assisted`.{0,80}`selftest`/u,
@@ -3033,10 +3026,7 @@ test("canonical instructions pin Dependabot preparation policy v2", () => {
     normalizedRunbook,
     /`push`.{0,80}`sync-base`.{0,80}`recreate`.{0,80}`request-review`.{0,80}`comment`.{0,80}`reply`.{0,80}`manual-research`/u,
   );
-  assert.match(
-    normalizedRunbook,
-    /`verify-prepared`.{0,80}`run-manifest`/u,
-  );
+  assert.match(normalizedRunbook, /`verify-prepared`.{0,80}`run-manifest`/u);
   assert.doesNotMatch(
     normalizedRunbook,
     /exactly one supervised no-exec preparation/iu,
@@ -3051,7 +3041,11 @@ test("canonical instructions pin Dependabot preparation policy v2", () => {
     const source = read(path).replace(/\s+/gu, " ");
     assert.match(source, /exact scheduled.{0,80}authorized-run/iu, path);
     assert.match(source, /--runtime.{0,80}--target/iu, path);
-    assert.match(source, /(?:nonce|capabil).{0,240}runtime.{0,120}target/iu, path);
+    assert.match(
+      source,
+      /(?:nonce|capabil).{0,240}runtime.{0,120}target/iu,
+      path,
+    );
   }
 
   const overrideRunbook = read("docs/dependency-overrides.md").replace(
