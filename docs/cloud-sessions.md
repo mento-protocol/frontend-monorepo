@@ -2,9 +2,13 @@
 
 Findings from the first cloud sessions for this repository. A cloud session runs
 in an ephemeral container with a fresh clone, and all outbound HTTPS goes
-through a policy-enforcing egress proxy. Nothing is installed unless a setup
-script installs it, and there is no setup script configured today, so
-`node_modules` is empty at session start.
+through a policy-enforcing egress proxy. Nothing is installed unless the setup
+script installs it.
+
+Current state: the egress allowlist (§1), `NODE_USE_ENV_PROXY=1` and
+`NEXT_TELEMETRY_DISABLED=1` (§3), and the setup script (§5) are all configured.
+What remains is inherent rather than pending — the GitHub archive gate in §2,
+which no environment setting can lift.
 
 Everything here was observed, not inferred. That distinction earned its keep:
 of the three things that broke, only one was actually the egress allowlist, and
@@ -112,12 +116,47 @@ cp /tmp/ws.bak pnpm-workspace.yaml && cp /tmp/lock.bak pnpm-lock.yaml
 `node_modules` keeps the package and `git status` comes back clean. Do **not**
 commit the rewritten specifier or the lockfile it produces.
 
-A permanent fix would be to change the catalog to the `git+https://` form for
-everyone. pnpm supports it, it resolves the same commit, and it is not a
-supply-chain regression — the current codeload entry carries
-`{gitHosted: true, tarball: …}` with no integrity hash either. But it rewrites
-`pnpm-lock.yaml` in a repository with lockfile-integrity gates, so it is a
-maintainer's call, not a session's.
+### Why the catalog entry stays on `github:`
+
+Making the `git+https://` form permanent looks like the obvious fix, and it was
+proposed and rejected. It is a real supply-chain regression, not a neutral
+rename, and `scripts/lockfile-lint.mjs` fails it four separate ways:
+
+```text
+✖ Noncanonical top-level packages entry.
+✖ Noncanonical top-level snapshots entry.
+✖ 1 package(s) in pnpm-lock.yaml have a resolution block without a sha512 integrity hash.
+✖ pnpm-lock.yaml has a git-sourced dependency: "git@github.com:jmrossy/jazzicon.git".
+```
+
+Each guard is deliberate, so shipping the change means weakening all four:
+
+- pnpm canonicalizes every GitHub git spelling to `git+ssh://git@github.com/…`,
+  so the lockfile key carries a `#`. Top-level keys containing `#` are rejected
+  outright, in both the `packages` and `snapshots` parsers, to keep a key from
+  smuggling a YAML comment.
+- Git protocols are explicitly excluded from the integrity exemption: treating
+  them as local "would let a PR add an unaudited remote git dep that bypasses
+  the registry gate". pnpm 10 records no integrity for a git resolution, so the
+  form needs a new exemption class the gate's author argued against.
+- `GIT_REPO_ALLOWLIST` is `new Set()` — empty by design, "(none are today)".
+- `REMOTE_TARBALL_ALLOWLIST` pins the exact tarball URL precisely so that
+  repointing jazzicon fails the gate, "forcing a conscious update here rather
+  than silently exempting a different, unaudited tarball".
+
+The current form is the stronger posture: an exact commit tarball whose key and
+resolution URL are both verified. The git form trades that away to save four
+lines of setup script, which is the wrong side of the trade.
+
+For the record, the git form is not a portability problem — only a policy one.
+Despite the lockfile recording `git+ssh://`, pnpm falls back to HTTPS: verified
+with a cold store and cache, the session's `insteadOf` rewrite disabled via
+`GIT_CONFIG_COUNT=0`, and `GIT_SSH_COMMAND=/bin/false`. It installs. The gate is
+the whole objection.
+
+If the git dependency is ever worth removing outright, vendoring this small fork
+into `packages/` would beat both forms — it leaves no non-registry dependency at
+all.
 
 ### 2b. Trunk's linter plugins
 
@@ -139,9 +178,9 @@ plugins:
       local: /opt/trunk-plugins # instead of ref: + uri:
 ```
 
-That edit is environment-specific and must not be committed. Which is the real
-argument for §5: bake trunk and its plugins into the image so no session has to
-do any of this.
+That edit is environment-specific and must not be committed. A session has to
+make it after every container start, so §5 pre-clones the plugins to make it a
+one-line change rather than a network round trip.
 
 ## 3. Node's `fetch` ignores the proxy
 
@@ -175,7 +214,7 @@ against the local anvil fork on `localhost`, which bypasses the proxy anyway.
 | `docker`, `jq`, `unzip`, `python3`, `go`             | yes     | —                                                                 |
 | Chromium + Playwright browsers at `/opt/pw-browsers` | yes     | VRT and E2E                                                       |
 | `anvil`, `cast`, `forge` (Foundry)                   | **no**  | `pnpm fork:mainnet`, `fork:monad`, and every connected-wallet E2E |
-| `trunk`                                              | **no**  | lint/format — installable now, see §3 and §5                      |
+| `trunk`                                              | via §5  | lint/format — the setup script installs it                        |
 | `gh`                                                 | **no**  | not needed — use the GitHub MCP tools                             |
 
 `foundry.paradigm.xyz` is allowlisted, so `foundryup` can install Foundry; the
@@ -183,7 +222,7 @@ setup script has to actually run it. Foundry plus the RPC hosts are both
 required before any wallet-connected E2E work can run. Neither is needed for
 workflow, script, or unit-test work.
 
-## 5. Suggested setup script
+## 5. Setup script
 
 ```bash
 #!/usr/bin/env bash
@@ -212,9 +251,15 @@ npx --yes @trunkio/launcher --version   # warm the CLI binary
 # curl -L https://foundry.paradigm.xyz | bash && foundryup
 ```
 
-Baking `trunk` and `/opt/trunk-plugins` into the image would be better than
-scripting them, since both of their blockers are structural rather than
-transient.
+A cloud environment is configured with a setup script and environment
+variables; there is no container image to customize. So everything above has to
+live in the setup script, and a session still has to point `.trunk/trunk.yaml`
+at `/opt/trunk-plugins` itself (§2b) before running `trunk check`.
+
+Environment variables and the setup script apply from the **next** session
+onwards — unlike egress-allowlist changes, they do not reach a session that is
+already running. Check with `echo $NODE_USE_ENV_PROXY` before assuming a new
+setting is live.
 
 ## 6. What is verified working
 
