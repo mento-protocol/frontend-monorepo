@@ -159,20 +159,30 @@ identity, veto, intervention, force-push, and Actions-ref rules.
 ### Keep preparation separate from merge authority
 
 Read-only is the default. The scheduled operator grants branch updates, one
-fixed-body Dependabot recreation per exact eligible native generation, review
+fixed-body Dependabot recreation under the full native-npm path or the
+`manual-hygiene` lane under a policy-selected recreation profile, review
 requests, comments, and replies. It grants neither check reruns nor
-review-thread resolution. Manual operators grant each permitted mutation class
-explicitly.
+review-thread resolution. Scheduled and supervised target invocations receive
+the same fixed, reviewed grant set. A supervised operator selects only the
+admitted runtime and target, not a per-invocation grant set.
 The scheduled operator does not grant local candidate execution. The external
 agent must not approve, dismiss a review, change auto-merge, merge, close, or
 enqueue the pull request.
 
-Write mode is authorized only through exact argv
-`["sudo", "/opt/dependabot-prep/authorized-run"]`. This executable wrapper runs
+The exact scheduled write argv is
+`["sudo", "/opt/dependabot-prep/authorized-run"]`. A supervised target uses
+`["sudo", "/opt/dependabot-prep/authorized-run", "--runtime", "{codex|claude}", "--target", "{positive-pull-request-number}"]`
+with concrete admitted values. This executable wrapper runs
 the separately pinned implementation at
 `/opt/dependabot-prep/authorized-run.mjs`. The root orchestrator creates a
-short-lived, root-owned nonce whose `mode` is `write`, bound to exact grants,
-run ID, and its live authorizer PID, kernel boot ID, and process start time. The nonce is not model-writable, and the
+short-lived, root-owned nonce whose `mode` is `write`, bound to the resolved
+runtime, nullable scheduled or exact supervised target, exact grants, run ID,
+the canonical sorted launch inventory and its SHA-256, and its live authorizer
+PID, kernel boot ID, process start time, and exact transient systemd unit. Root
+publishes the nonce only after a stable read of the private `expected-prs`.
+Scheduled target `null` still permits writes only to that bound inventory; a
+supervised non-null target requires an exact singleton inventory. The nonce is
+not model-writable, and the
 mutation broker requires it. Direct launcher write mode refuses; direct
 `run --read-only` and `status` remain available. The activation test runs only
 through `sudo /opt/dependabot-prep/selftest-run`; it drops privileges with no
@@ -190,11 +200,17 @@ The model's `dependabot` UID has no GitHub credential and its
 model uses only the pinned broker proxy: fixed-repository REST `GET` and sealed,
 one-page `pull-request-force-push-history` and `pull-request-review-threads`
 GraphQL templates with only PR number and cursor inputs; capability-bound
-CodeRabbit review request,
+root-owned `manual-research` and `verify-assisted` evidence; CodeRabbit review request,
 bounded top-level comment, and bounded review reply operations; and exact-CAS
 push or broker-generated exact-CAS base synchronization for branch writes. This is a
 technical credential boundary, although compromise of the privileged broker or
 mutator credential remains a residual risk.
+The exact client allowlists are read
+`gh-read`/`lineage`/`verify-assisted`/`selftest` and write
+`push`/`sync-base`/`recreate`/`request-review`/`comment`/`reply`/`manual-research`;
+the result verifier may call only `verify-prepared` and `run-manifest` directly.
+Invoke each write client, including `manual-research`, as the sole foreground
+command and preserve its direct exit status and complete output.
 
 The agent requires live `autoMergeRequest: null` before any branch mutation,
 immediately before each push, and at handoff. It merges the current base into
@@ -277,9 +293,12 @@ therefore prove that the protected subtrees at the exact old head already equal
 `currentTargetBaseSha` byte-for-byte and mode-for-mode, then prove the same for
 the quarantined candidate and immediately before mutation. A mismatch is
 ineligible for direct ref mutation; neither the agent nor conflict resolution
-may carry or repair it. The only automated recovery is one broker-fixed
-`@dependabot recreate` request for the exact authenticated native npm
-generation. The controller then waits for a replacement head and restarts full
+may carry or repair it. The `full`-mode automated recovery is one broker-fixed
+`@dependabot recreate` request for an authenticated native npm generation that
+contains exactly one native Dependabot commit. Multi-commit ordinary native
+generations fail closed to `manual`, so the v1 ordinary receipt can never omit
+an interior OID that could later be replayed. The controller then waits for a
+replacement head and restarts full
 native-generation authentication. Failure to obtain an admissible new head is
 `manual` or `blocked`.
 
@@ -318,6 +337,99 @@ ref. Only an authenticated minor or patch version update in the
 new ref is a full lowercase 40-character SHA on its current, unchanged, native
 green head. Major, security, sensitive, self-reviewing, ambiguous, and
 local-Action updates remain manual; grouping never reduces scope.
+
+### Prepare manual pull requests mechanically without accepting their risk
+
+The `manual-hygiene` lane is an exception to "research only" for a small set of
+broker-authenticated mechanical operations while the processing mode and final
+ownership remain `manual`. It may request one fixed Dependabot recreation when
+needed and, on the exact unchanged current or replacement native head, request
+CodeRabbit review and post bounded answers to actionable feedback. It never edits or pushes a branch,
+executes candidate code, reruns checks, approves, dismisses, merges, closes,
+changes auto-merge, or resolves a review thread. It can therefore make a manual
+pull request conflict-free and review-clean without making the dependency
+decision for the maintainer.
+
+Before admitting the lane, the broker exact-validates the complete top-level
+`manualResearch` and `manualHygiene` trusted-base policy contracts. Generic
+research-only manual rows still pass through the pinned launcher and result
+verifier but confer no mutation authority.
+
+Every such operation requires a current-run root-owned
+`dependabot-prep-manual-research-receipt:v1`. It binds the authorized target,
+exact PR/ref/head and native lineage, live base and policy, manual category and
+profile, dependency tuples, research projection, source evidence, and root run
+authorization. The broker revalidates the live bindings and independently
+verifies sources in the policy-mapped upstream repository. The generic
+project/package fallback may support a manual report but cannot authorize an
+operation. A partial packet is report-valid when it retains at least one
+live-verified authoritative source per tuple and discloses every gap; it
+authorizes hygiene only when every tuple also has at least one
+operation-authorizing source. An unavailable packet has at least one tuple with
+no verified source and authorizes no operation. Every gate-input source uses the tuple's exact
+values rendered as `<fromVersion> -> <toVersion>` (for example,
+`2.0.0 -> 3.0.0`); the angle-bracket names are placeholders and must not appear
+in the packet. Serialize the packet as exactly one compact JSON line followed
+by one newline, with no other insignificant whitespace; `jq -c` produces the
+required form. When desired source kinds are known absent but the fallback
+verifies, the research stays partial and retains the fallback while authorizing
+no hygiene. A known source absence is recorded in overall `gaps`, package
+`sourceNote`, and `missingSourceKinds`, with only unverified sources omitted and
+no `sourceFailures` entry unless a fetch or validation actually failed. Overall
+risk cannot be lower than the riskiest package and overall confidence cannot
+exceed the least-confident package.
+After any research receipt is issued, target-base or policy-blob movement ends
+the entire run's mutation path and requires a fresh root-authorized targeted
+run; the same run may not replace the receipt or attempt another mutation. The
+broker anchors the first receipt's base and policy for the entire run; a new
+receipt for a post-recreation head is allowed only while both remain unchanged.
+The receipt binds every authenticated native-prefix commit OID, and the manual
+recreate receipt copies that complete list into the replaced-history
+quarantine. This prevents an intermediate commit from the old native prefix
+from being replayed as part of a supposedly fresh generation.
+
+Recreation uses separate native npm, native GitHub Actions, and legacy recovery
+profiles. Legacy recovery admits only a continuous one-parent suffix by
+`mento-dependabot-prepare[bot]` (ID `315967666`) over an authenticated native
+prefix. That suffix is quarantined, never admitted as trusted lineage, and can
+authorize only one fixed recreation followed by a wholly new native Dependabot
+generation. Immediately before and after every recreation, the broker requires
+the current base's `.github/dependabot.yml` blob to equal
+`145af6e07c4ff728553a46cfda379cd76bb93227`, every old tuple to remain present,
+every new tuple to remain absent, and the PR to remain open with unchanged base,
+head, and null auto-merge. These checks guard the known obsolete-update path;
+they do not eliminate the external-service residual that GitHub may later close
+or retarget the PR, or the race in which the base moves after the final read.
+An assisted-handoff verifier publishes a root-owned
+`dependabot-prep-assisted-handoff-receipt:v1` and reports current-base
+containment, conflict state, complete terminal exact-head CI, current-head
+CodeRabbit state, unanswered findings, answered-but-unresolved threads, and
+null auto-merge state. Red CI is reported, not disguised as a passed
+preparation gate, and the verdict never becomes `prepared`.
+Only the schema-listed `status`, `lane`, `category`, `recreateProfile`,
+`autoMergeRequestNull`, `containsCurrentTargetBase`, `conflictFree`,
+`exactHeadCiComplete`, `exactHeadCiPassed`, `currentHeadReviewTerminal`,
+`unansweredActionableCount`, `answeredButUnresolvedCount`,
+`verificationSha256`, and `note` are copied into `assistedHandoff`.
+`receiptFile`, `receiptSha256`, and `verifiedAt` remain root verification
+metadata outside the result projection.
+Fallback-only partial and unavailable receipts preserve the research report but
+authorize no hygiene. The agent skips `verify-assisted` and emits the
+receipt-bound handoff as `not-attempted` with null observations; unavailable is
+`blocked` in write mode or `read-only` in a dry run. On a replacement head, the
+result retains the already-receipted recreation and generation transition as
+its sole prior action; no later operation is permitted.
+
+Supervised rollout is target-scoped and serial: `#917`, `#892`, `#871`, `#872`,
+`#897`, then `#919`. The PR numbers are an activation plan, not durable policy.
+Every target requires an operation-authorizing root research receipt, a
+root-verified complete assisted-handoff receipt, zero prohibited mutations, and
+released lease and capability; an exit `0` with a merely manual or blocked row
+does not pass. All six must pass before a separate explicit operator
+confirmation. Only after that confirmation may the untargeted scheduled sweep
+use the full authenticated open-Dependabot inventory, category
+priority, and coupled-family serialization. Any non-null root target remains an
+exact one-PR authorization.
 
 Dependabot configuration isolates Next.js, Vercel CLI, Playwright runtime, and
 protected pnpm updates from ordinary libraries, and couples the Vitest family.
@@ -361,9 +473,11 @@ sweep fails. Candidate code is never executed for research.
 ### Separate per-pull-request outcomes from launcher health
 
 A complete schema-valid result covering the exact initial inventory exits `0`
-even when some pull requests are manual or blocked. Exit `1` is an operational
-failure or invalid/incomplete result, exit `2` is pin or self-test drift, and
-exit `3` is active lease contention. Machine-readable status and per-verdict
+even when some pull requests are manual or blocked, unless any manual research
+result is `unavailable`. Unavailable research remains in the validated report
+but makes the sweep operationally incomplete and exits `1`. Other operational
+or invalid/incomplete-result failures also exit `1`, pin or self-test drift
+exits `2`, and active lease contention exits `3`. Machine-readable status and per-verdict
 and per-processing-mode counts preserve both signals. OpenClaw alerts on
 operational failure, not on an accurately reported policy outcome.
 
@@ -440,8 +554,11 @@ authority, verifies every live ruleset and applicable combined branch rule,
 closes only the enumerated obsolete bot-managed notifier issues, and completes
 a final authority readback. The operator then verifies the shared skill and pre-model
 launcher boundary in Codex, Claude Code, and OpenClaw, completes one read-only
-inventory and one supervised no-exec preparation, and only then enables the
-weekly schedule. The merge freeze remains until the final readback proves that
+inventory, and runs the six separately targeted supervised invocations in order:
+`#917`, `#892`, `#871`, `#872`, `#897`, and `#919`. Each must have a
+root-verified complete assisted handoff, zero prohibited mutations, and released
+authorization state. Only after all six pass and the operator separately
+confirms enablement may the weekly schedule be enabled. The merge freeze remains until the final readback proves that
 no old processor approval, `Dependabot ALL CLEAR`, native auto-merge request,
 required old check, App actor, or App bypass remains on any open pull request.
 The exact checklist is in the active runbook.
@@ -493,9 +610,11 @@ for routine updates. Sensitive updates still use the manual outcome.
 - A later invocation can resume only a head proved by the pinned root broker's
   complete receipt chain. Any prior agent head without that proof stays manual.
 - A valid sweep with manual or blocked pull requests is operationally
-  successful and exits `0`; machine-readable counts preserve those outcomes.
-  Alerts are reserved for launcher, evidence, result, pin, self-test, or lease
-  failures.
+  successful and exits `0` unless any manual research result is `unavailable`.
+  Unavailable research remains reportable but makes the sweep operationally
+  incomplete and exits `1`; machine-readable counts preserve those outcomes.
+  Alerts cover unavailable research plus launcher, evidence, result, pin,
+  self-test, or lease failures.
 - The preparation logic becomes reusable from Codex, Claude Code, OpenClaw,
   and other compatible runtimes and across JavaScript repositories.
 - A manual session cannot gain write authority after launch. The operator must

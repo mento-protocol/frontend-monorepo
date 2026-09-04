@@ -370,7 +370,8 @@ until byte-identical installation and a supervised rehearsal pass.
 It also pins the trusted pre-model launcher, root `authorized-run` orchestrator,
 and any runtime-specific instruction-isolation adapter by canonical path and
 SHA-256 digest. The orchestrator is the only write entry point; its short-lived,
-run-bound root nonce is mandatory at the mutation broker. The launcher
+run-bound root nonce binds its live PID, boot ID, start time, and exact transient
+systemd unit and is mandatory at the mutation broker. The launcher
 establishes a repository-instruction-free or proved exact-base launch context
 before the model starts. A current-host test must prove that access to a
 candidate clone cannot load its instruction files, execute its configuration,
@@ -390,13 +391,18 @@ toolchain.
 The model's `/var/lib/dependabot/gh` stays empty. A separate
 `dependabot-mutator` nologin UID owns the PAT under
 `/var/lib/dependabot-mutator/gh`; the model can use only the pinned broker's
-fixed REST/GraphQL-template read, review-request, comment, reply, push, and sync
-operations, not direct authenticated `gh`.
+fixed read clients, `manual-research` and `verify-assisted` evidence operations,
+review-request, comment, reply, recreate, push, and sync operations, not direct
+authenticated `gh`. Every write client, including `manual-research`, runs as the
+sole foreground command with its direct exit status and complete output
+preserved.
 Scheduled and manual write runs share one operator-owned repository lease, so
 only one sweep can mutate the repository at a time.
 
-The skill is read-only by default. A scheduled or manual write invocation must
-grant each mutation class explicitly. Preparation uses a sanitized standalone
+The skill is read-only by default. Scheduled and supervised target write
+invocations receive one fixed, reviewed grant set; a supervised caller selects
+only the admitted runtime and target, not per-invocation grants. Preparation
+uses a sanitized standalone
 clone for each pull request and does not execute candidate code. Exact-head
 secretless CI provides validation. It includes exact bot, lineage, and ref
 verification, trusted-base policy binding, complete feedback history, full
@@ -412,6 +418,39 @@ authenticated original patch that changes any Vercel config,
 package-manager/runtime pin, workflow, Action, or security-policy state is
 `manual` too.
 The scheduled invocation does not grant check reruns or candidate execution.
+
+Manual dependencies can use the narrow `manual-hygiene` lane after their
+source-linked risk research is complete. The root broker may request one fixed
+Dependabot recreation when needed and may request exact-head CodeRabbit review
+or post bounded answers on the current or replacement native head; it never
+edits or pushes the branch, executes candidate code,
+resolves a thread, approves, merges, closes, or changes auto-merge. The result
+stays `manual` even when the assisted handoff is current-base, conflict-free,
+and free of unanswered actionable findings. Red exact-head CI remains visible
+for the maintainer rather than being treated as a passed preparation gate. The
+root research and assisted-handoff receipts are exact-head/base/policy-bound and
+not model-writable. Before and immediately after recreation, the broker requires
+the pinned current-base Dependabot-config blob, old-present/new-absent tuples,
+an open PR, unchanged base and head, and null auto-merge. These checks reduce,
+but cannot eliminate, GitHub's external-service close/retarget risk or a base
+race after the final read.
+After any research receipt is issued, target-base or policy-blob movement ends
+the whole run's mutation path and requires a fresh root-authorized targeted run.
+The broker anchors the first receipt's base and policy for the entire run; a
+post-recreation head may receive a new receipt only while both remain unchanged.
+Fallback-only partial and unavailable research receipts preserve their research
+but authorize no hygiene: `verify-assisted` is skipped and the bound
+`assistedHandoff` is `not-attempted` with null observations. Unavailable
+research is `blocked` in write mode or `read-only` in a dry run. If the receipt
+is for a replacement head, the result retains the already-receipted recreation
+and generation transition as its sole prior action.
+Only `status`, `lane`, `category`, `recreateProfile`, `autoMergeRequestNull`,
+`containsCurrentTargetBase`, `conflictFree`, `exactHeadCiComplete`,
+`exactHeadCiPassed`, `currentHeadReviewTerminal`,
+`unansweredActionableCount`, `answeredButUnresolvedCount`,
+`verificationSha256`, and `note` are copied from `verify-assisted` into
+`assistedHandoff`; `receiptFile`, `receiptSha256`, and `verifiedAt` remain root
+verification metadata outside that projection.
 
 Playwright and protected pnpm runtime updates are also isolated for maintainer
 takeover; Vitest family updates stay coupled. Ordinary npm updates may start
@@ -433,19 +472,22 @@ manual. Before an npm synchronization or repair, the old-head workflow and
 local-Action trees must already equal the exact current base byte-for-byte and
 mode-for-mode. GitHub requires workflow-write authority even for base-sourced
 workflow changes; this controller deliberately has none. A mismatch or conflict
-may use one broker-fixed `@dependabot recreate` request for the exact
+may use the `full`-mode broker-fixed `@dependabot recreate` request for the exact
 authenticated native npm generation, after which the replacement head must be
 fully re-authenticated as a new native generation. Otherwise it is manual. For eligible clean `sync-only`, the root broker creates and verifies the
 exact-base two-parent merge in quarantine, then exact-CAS pushes it through
 `sync-base`. Pre-existing
 non-native heads are admitted only through the root-owned, pinned lineage-receipt
-chain. Every manual outcome includes at least one live-verified authoritative
-upstream HTTPS URL per exact package tuple (a changelog, release note, migration
-guide, or advisory) plus a recommendation, risk, confidence, and explicit
-research uncertainty. When none of those desired source classes exists, an
-authoritative upstream project or package page is the explicit fallback; all
-missing desired source classes are recorded and confidence is lowered. No verifiable authoritative link makes research
-operationally incomplete and prevents a successful sweep.
+chain. Every complete or partial manual research outcome includes at least one
+live-verified authoritative upstream HTTPS URL per exact package tuple (a
+changelog, release note, migration guide, advisory, exact-OID comparison for a
+GitHub Actions tuple, or explicit project/package fallback) plus a
+recommendation, risk, confidence, and explicit research uncertainty. When none
+of the desired source classes exists, an authoritative
+upstream project or package page is the explicit report-only fallback; all
+missing desired source classes are recorded and confidence is lowered. No
+verifiable authoritative link makes research `unavailable`, operationally
+incomplete, and prevents a successful sweep.
 
 The agent never approves, dismisses a review, enables auto-merge, or merges. It
 reports `prepared for maintainer decision`, `blocked`, `manual`, or `read-only`,
@@ -453,9 +495,11 @@ with processing mode `full`, `sync-only`, `review-only`, or `manual`, three
 distinct policy/base SHA roles (`generationBaseSha`, `currentTargetBaseSha`, and
 policy-blob `policySha`), exact final head and base, checks, review state,
 dependency risk, and blockers. A valid complete sweep exits `0` even when an
-individual PR is manual or blocked; operational failures remain distinct. A
-maintainer provides the current human approval and performs the final squash
-merge.
+individual PR is manual or blocked, unless any manual research result is
+`unavailable`; unavailable research is reportable but makes the sweep
+operationally incomplete and exits `1`. Other operational failures remain
+distinct. A maintainer provides the current human approval and performs the
+final squash merge.
 
 Dependabot pull requests remain secretless. The read-only Vercel preview intake
 validates their exact identity and lets trusted default-branch code publish a
@@ -580,11 +624,15 @@ The repository is set up with GitHub Actions for CI:
   a trusted launch context and passes a current-host candidate-instruction
   isolation test before the model starts. An unproved manual session remains
   read-only.
-  Write mode uses exact argv
-  `["sudo", "/opt/dependabot-prep/authorized-run"]`; that executable wrapper
-  runs the separately pinned `/opt/dependabot-prep/authorized-run.mjs`
-  implementation. The root orchestrator's short-lived nonce has `mode: write`,
-  is bound to the run, and is mandatory at the mutation broker; direct
+  The scheduled write uses exact argv
+  `["sudo", "/opt/dependabot-prep/authorized-run"]`; a supervised target uses
+  `["sudo", "/opt/dependabot-prep/authorized-run", "--runtime", "{codex|claude}", "--target", "{positive-pull-request-number}"]`
+  with concrete admitted values. That executable wrapper runs the separately
+  pinned `/opt/dependabot-prep/authorized-run.mjs` implementation. The root
+  orchestrator's short-lived nonce has `mode: write` and binds the stable,
+  canonical launch inventory and digest before model start. An untargeted run
+  is still confined to that exact PR set, while a supervised target requires a
+  singleton set. The nonce is mandatory at the mutation broker; direct
   launcher write mode refuses. Direct read-only and status operations remain
   available; the self-test runs only through the root `selftest-run`
   orchestrator, and pinning stays root-only maintenance.

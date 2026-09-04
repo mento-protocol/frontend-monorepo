@@ -3,7 +3,7 @@ title: Dependabot preparation with external agents
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 scope: dependency-maintenance
 ---
 
@@ -35,21 +35,37 @@ runbook. Stop it and relaunch it through the reviewed launcher.
 
 Read-only is the skill default. The scheduled invocation enables write mode and
 grants `branch`, `recreate`, `review-request`, `comment`, and `reply`.
-`recreate` permits only the broker-fixed `@dependabot recreate` request for one
-exact authenticated native npm generation; it is not a general comment grant.
+`recreate` permits only the broker-fixed `@dependabot recreate` request: either
+the existing `full`-mode path for one exact authenticated native npm generation,
+or the `manual-hygiene` lane under a policy-selected recreation profile with an
+authorizing research receipt. It is not a general comment grant.
 The `comment` grant permits only the digest-bound top-level feedback responses
 defined below. It does not permit status chatter.
-The scheduled invocation grants neither `rerun` nor `execute`. A manual
-invocation must name each required grant explicitly.
+The scheduled invocation grants neither `rerun` nor `execute`. Scheduled and
+supervised target invocations receive the same fixed, reviewed grant set. A
+supervised caller selects only the admitted runtime and target; it cannot choose
+grants per invocation.
 
-Every write-capable run starts through the exact command argv
-`["sudo", "/opt/dependabot-prep/authorized-run"]`. That executable wrapper runs
+The exact scheduled command argv is
+`["sudo", "/opt/dependabot-prep/authorized-run"]`. A supervised targeted run
+uses the exact template
+`["sudo", "/opt/dependabot-prep/authorized-run", "--runtime", "{codex|claude}", "--target", "{positive-pull-request-number}"]`,
+with both placeholders replaced by one admitted value. That executable wrapper runs
 the separately pinned implementation at
 `/opt/dependabot-prep/authorized-run.mjs`. The root orchestrator creates a
 short-lived, root-owned nonce capability whose `mode` binding is `write`, with
-the exact grants, run ID, and a live root authorizer PID, kernel boot ID, and
-process start time. The capability is not
-model-writable, and the mutation broker rejects a request without it. A direct
+the resolved runtime, nullable scheduled or exact supervised target pull-request
+number, exact grants, run ID, the canonical sorted launch inventory and its
+SHA-256, and a live root authorizer PID, kernel boot ID, process start time, and
+exact transient systemd unit. Root publishes the capability only after a stable
+read of the launcher's private `expected-prs`. An untargeted scheduled
+capability binds the target to `null`, but broker writes remain confined to that
+immutable inventory; any non-null target additionally requires the inventory to
+be exactly that singleton. The launcher's `expected-prs` therefore contains the
+full authenticated open Dependabot set for a scheduled run, or exactly that one
+PR for a targeted run.
+The capability is not model-writable, and the mutation broker rejects a request
+without it. A direct
 `sudo -u dependabot /opt/dependabot-prep/launcher run` write invocation must
 refuse. Direct launcher `run --read-only`, `selftest`, and `status` remain
 unable to establish write authority. Direct `run --read-only` and `status`
@@ -208,8 +224,14 @@ pinned broker and client: `gh-read` permits fixed-repository REST `GET` and
 only the sealed `pull-request-force-push-history` and
 `pull-request-review-threads` GraphQL templates. Both accept only
 `pullRequestNumber` and an optional `after` cursor and return one page per call;
-the caller cannot provide a GraphQL document. `request-review`,
-`comment`, and `reply` permit only their named, capability-bound operations.
+the caller cannot provide a GraphQL document. The exact read client operations
+are `gh-read`, `lineage`, `verify-assisted`, and `selftest`; the result verifier
+may call only broker operations `verify-prepared` and `run-manifest`. The exact
+write client operations are `push`, `sync-base`, `recreate`, `request-review`,
+`comment`, `reply`, and `manual-research`. `request-review`, `comment`, and
+`reply` permit only their named, capability-bound operations.
+Invoke each write client, including `manual-research`, as the sole foreground
+command and preserve its direct exit status and complete output.
 Branch writes remain limited to exact-CAS `push` and broker-generated,
 exact-CAS `sync-base`. The PAT itself is technically
 broader than those methods, so the sealed broker, mutator UID, and root-owned
@@ -454,6 +476,119 @@ The processing modes are `full`, `sync-only`, `review-only`, and `manual`:
 - `manual`: a maintainer or another controller owns the change and the agent
   performs research only.
 
+### Manual hygiene lane
+
+`manual-hygiene` is a narrow, broker-enforced exception inside the `manual`
+processing mode. It does not make a manual dependency update automatically
+acceptable and it can never produce `prepared`. Its purpose is to remove
+mechanical review work before the maintainer decides whether to accept the
+dependency risk. The final verdict remains `manual`, `blocked`, or `read-only`.
+Before admitting the lane, the broker exact-validates the complete top-level
+`manualResearch` and `manualHygiene` trusted-base policy contracts. Generic
+research-only manual rows use the pinned launcher and result verifier but
+confer no mutation authority.
+
+The lane may use only one fixed Dependabot recreation, an exact-head CodeRabbit
+review request, a bounded top-level response, and bounded review replies. It
+cannot invoke `push`, `sync-base`, candidate execution, check reruns, approvals,
+review dismissal, merge, close, auto-merge, or review-thread resolution. It
+never edits candidate files or resolves a conflict itself. Recreation delegates
+the replacement generation to Dependabot and is permitted only through the
+broker's exact native npm, native GitHub Actions, or quarantined legacy-suffix
+profile. Immediately before and after issuing the command, the broker requires
+the current target base to contain `.github/dependabot.yml` at exact Git blob
+`145af6e07c4ff728553a46cfda379cd76bb93227`, every old tuple to remain present,
+every new tuple to remain absent, and the pull request to remain open with the
+same base, head, and null auto-merge state. These checks guard the known
+no-longer-needed path, but they cannot guarantee the behavior of GitHub's
+external Dependabot service: GitHub may still close or retarget after the final
+readback, and the target base may race after the last precondition read. Treat
+those as explicit residual risks rather than claiming recreation can never
+indirectly close a pull request. A
+replacement must be a wholly new authenticated native Dependabot generation;
+quarantined preparation-bot commits never become trusted lineage.
+
+Before every permitted operation, the broker requires a current root-owned
+`dependabot-prep-manual-research-receipt:v1` receipt bound to the current run,
+authorized target, pull request, ref, head and native lineage, target base,
+policy, exact dependency tuples, category, profile, research projection, source
+evidence, and root authorization. The receipt store and records are not
+model-writable and confer no mutation authority themselves. The broker rereads
+the current head, base, policy, tuples, and authoritative sources before every
+operation and proceeds only when `authorizesOperations` is true.
+The receipt also binds the complete authenticated native-prefix OID list; a
+recreate receipt carries that list into the replaced-history quarantine so an
+intermediate commit from the old native prefix cannot be replayed as a fresh
+generation.
+After any research receipt is issued, target-base or policy-blob movement ends
+the entire run's mutation path. Do not issue another research receipt or attempt
+another mutation in that run; start a fresh root-authorized targeted run. The
+broker anchors the first receipt's base and policy for the entire run; a new
+receipt for a post-recreation head is allowed only while both remain unchanged.
+Each tuple needs a live-verified, identity-bound GitHub changelog, release,
+migration, or advisory URL in the exact upstream repository mapped by policy;
+an exact-OID comparison is admissible only for a GitHub Actions tuple whose
+from/to versions are exact OIDs. Each gate-input source sets `versionCoverage`
+to the tuple's exact values rendered as `<fromVersion> -> <toVersion>` (for
+example, `2.0.0 -> 3.0.0`); the angle-bracket names are placeholders and must
+not appear in the packet. Serialize the packet as exactly one compact JSON line
+followed by one newline, with no other insignificant whitespace; `jq -c`
+produces the required form. `partial` research is report-valid when every tuple
+has at least one live-verified authoritative source, all gaps are explicit, and
+confidence is at most medium; it authorizes hygiene only when every tuple also
+has an operation-authorizing source.
+The generic `upstream-project-or-package` fallback remains valid for a manual
+research report but never authorizes a hygiene operation. When the desired
+kinds are known absent but the fallback verifies, keep the research `partial`,
+retain the verified fallback, record the absence in `gaps` and `sourceNote`,
+list the absent kinds in `missingSourceKinds`, and take no hygiene action. Use
+`unavailable` only when at least one tuple has no live-verified authoritative
+source at all, and keep that tuple's unverified source list empty.
+`sourceFailures` records actual failed fetches or validations, so it may remain
+empty for a documented known absence. A fallback-only partial or unavailable
+receipt authorizes no operation: preserve its research, skip `verify-assisted`,
+and emit the receipt-bound `manual-hygiene` `assistedHandoff` as
+`not-attempted` with all observations and the verification digest null.
+Unavailable research uses verdict `blocked` in write mode or `read-only` in a
+dry run. A replacement-head result retains its already-receipted recreation
+and generation transition as the sole prior action; the final non-authorizing
+receipt permits nothing later. Overall
+risk cannot be below the highest per-package risk and overall confidence cannot
+exceed the lowest per-package confidence.
+
+An assisted handoff is sealed as a root-owned
+`dependabot-prep-assisted-handoff-receipt:v1`. `complete` requires that the
+exact head contains the current base,
+is conflict-free, has a complete terminal exact-head CI set, has a terminal
+current-head CodeRabbit review, has zero unanswered actionable findings, and
+still has no auto-merge request. CI may still be red: the lane reports that
+separately instead of claiming the preparation gate passed. Replies leave
+answered threads unresolved because only a maintainer may resolve them. The
+verifier double-reads the live head, base, policy, sources, checks, review,
+feedback, and auto-merge state before publishing the non-model-writable receipt.
+Copy only these schema-listed fields from its response into `assistedHandoff`:
+`status`, `lane`, `category`, `recreateProfile`, `autoMergeRequestNull`,
+`containsCurrentTargetBase`, `conflictFree`, `exactHeadCiComplete`,
+`exactHeadCiPassed`, `currentHeadReviewTerminal`,
+`unansweredActionableCount`, `answeredButUnresolvedCount`,
+`verificationSha256`, and `note`. `receiptFile`, `receiptSha256`, and
+`verifiedAt` remain root verification metadata outside that result projection.
+
+Supervised rollout uses one root-bound `--target <PR>` per invocation. The
+target must be one open authenticated Dependabot PR from the launcher's full
+inventory and is included in the root authorization checked by every broker
+operation. The initial rollout order is `#917`, `#892`, `#871`, `#872`, `#897`,
+then `#919`; `#871` and `#872` are separate serial runs because they are one
+coupled Vitest family. Permanent policy contains category priority and family
+serialization, never those transient PR numbers. A target passes only with an
+operation-authorizing root research receipt, a root-verified `complete`
+assisted-handoff receipt, zero prohibited mutations, and released lease and
+capability. All six targets must pass in order, and a separate explicit operator
+confirmation is still required before scheduler enablement. Only after that
+confirmation may an untargeted scheduled run apply the same broker gates across
+the launcher's full authenticated open
+Dependabot inventory; a targeted authorization can never escape its one PR.
+
 An ordinary npm pull request may enter `full` or `sync-only` when its starting
 head is behind `main`, conflicting, or has red required checks. Those are work
 to investigate and attempt, not terminal verdicts. They do not weaken the final
@@ -491,17 +626,21 @@ fetch upstream documentation but must never execute candidate code.
 
 The machine-readable `manualResearch` object contains `status`,
 `overallRecommendation`, `repositoryImpact`, `riskLevel`, `confidenceLevel`,
-`confidenceRationale`, `packages`, and `sourceFailures`. Each package entry
-contains its name, from/to versions, change summary, breaking changes,
+`confidenceRationale`, `gaps`, `sourceFailures`, and `packages`. Each package
+entry contains its name, from/to versions, change summary, breaking changes,
 recommendation, risk, confidence and rationale, source status and note,
 `missingSourceKinds`, and a source list. Each source records `kind`, HTTPS `url`,
 `title`, `versionCoverage`, and `verifiedAt`. A manual result cannot use
 `not-applicable`; `partial` remains valid only when the missing or ambiguous
 evidence is explicit, every tuple still has a live-verified authoritative link,
-and confidence is reduced. If any exact tuple has no such link, set research
-status to `unavailable`: research is operationally incomplete, result validation
-fails, and the launcher sweep exits `1` instead of reporting a successful
-complete sweep. Every per-PR result also contains a unique,
+and confidence is reduced. A fallback-only partial report is preserved but does
+not authorize manual-hygiene operations. If any exact tuple has no such link, set research
+status to `unavailable`: research is operationally incomplete, the validated
+result is still printed, and the launcher sweep exits `1` instead of reporting
+a successful complete sweep. For a known absence, make the overall `gaps`, package
+`sourceNote`, and `missingSourceKinds` explicit, retain any verified fallback,
+and keep only unverified sources out of the list; do not invent a
+`sourceFailures` entry when no fetch or validation failed. Every per-PR result also contains a unique,
 nonempty `dependencies` array of exact `{name, fromVersion, toVersion}` tuples.
 For a manual result, the research package tuples must equal that complete set;
 no grouped dependency may be omitted and no unrelated package may be added.
@@ -614,8 +753,12 @@ quarantined candidate, and immediately before mutation. Any missing, extra,
 content-different, mode-different, candidate-authored, or conflict-resolved
 protected path is `manual` with no push.
 
-For an eligible authenticated native npm generation, the `recreate` grant may
-instead invoke `recreate <pr> <ref> <head> full` once. The dedicated broker
+For an eligible authenticated native npm generation of exactly one native
+Dependabot commit, the `recreate` grant may instead invoke
+`recreate <pr> <ref> <head> full` once. A multi-commit ordinary native
+generation fails closed to `manual`, because the v1 ordinary receipt records no
+interior OIDs and therefore cannot quarantine them against historical replay.
+The dedicated broker
 posts only the exact `@dependabot recreate` body, records and reads back the
 operator comment, and never accepts a caller-supplied body. Wait for a new head,
 then restart all identity, history, force-push, base-policy, and native-lineage
@@ -628,6 +771,9 @@ events still block automated regeneration. The broker also reapplies package,
 path, version, and manual-risk admission before issuing the command.
 If an admissible new native generation does not appear, report `manual` or
 `blocked`; never post the command through the general comment client.
+This is the existing `full`-mode path. The separately specified
+`manual-hygiene` path uses `manual` mode, its exact profile, and an authorizing
+research receipt; it does not weaken any of the intervention checks above.
 
 For a clean `sync-only` branch, use the broker's `sync-base` operation. The
 root-owned worker live-verifies the PR, expected head, current target base, and
@@ -749,13 +895,17 @@ maintainer actions.
 
 Pull-request outcomes and launcher health are independent. A complete,
 schema-valid result that covers exactly the initial live inventory uses exit
-`0`, even when one or more pull requests are `manual` or `blocked`. The result
-and `exit.json` report per-verdict and per-processing-mode counts so a valid
-sweep never looks like a successful preparation of every pull request.
+`0`, even when one or more pull requests are `manual` or `blocked`, except when
+at least one manual research result is `unavailable`. That result remains
+schema-valid and is printed for the operator, but the sweep is operationally
+incomplete and exits `1`. The result and `exit.json` report per-verdict and
+per-processing-mode counts so a valid sweep never looks like a successful
+preparation of every pull request.
 
 Exit `1` means an operational failure: the model, tool, authentication, or
-inventory acquisition failed, or the emitted result was invalid, incomplete,
-or covered a different pull-request set. Exit `2` means pin or self-test drift.
+inventory acquisition failed; manual research was unavailable; or the emitted
+result was invalid, incomplete, or covered a different pull-request set. Exit
+`2` means pin or self-test drift.
 Exit `3` means another valid writer owns the repository lease. OpenClaw alerts
 on those operational outcomes, not on an otherwise complete inventory that
 contains policy blockers. `reportExit`, `operationalStatus`, `resultStatus`, and
@@ -963,9 +1113,11 @@ Detailed resource requirements:
    paths and digests, bound Git, Node, and GitHub CLI identities, empty
    `/var/lib/dependabot/gh`, the dedicated `dependabot-mutator` nologin identity
    and sealed `/var/lib/dependabot-mutator/gh`, pinned broker/client/socket and
-   `gh-read`/`push`/`sync-base`/`recreate`/`request-review`/`comment`/`reply`
-   operation allowlists, selected trusted launch-context mode, and the shared
-   repository lease contract.
+   read client allowlist `gh-read`/`lineage`/`verify-assisted`/`selftest`, write
+   client allowlist
+   `push`/`sync-base`/`recreate`/`request-review`/`comment`/`reply`/`manual-research`,
+   verifier broker allowlist `verify-prepared`/`run-manifest`, selected trusted
+   launch-context mode, and the shared repository lease contract.
    Prove direct `/usr/bin/gh` has no credential. Require only `branch`,
    `recreate`, `review-request`, `comment`, and `reply` writes. Require no `rerun`,
    thread-resolution, `execute`, approval, review dismissal, auto-merge, merge,
@@ -993,12 +1145,19 @@ Detailed resource requirements:
    the missing or failed instruction-isolation test, invalid-capability,
    undeclared-grant, identity-drift, and second-lease tests before restoring the
    reviewed declaration.
-10. Run one read-only OpenClaw inventory. Then run exactly one supervised
-    no-exec preparation on a single ordinary npm pull request through
-    `sudo /opt/dependabot-prep/authorized-run` while it owns the exact repository
-    lease. Recheck the exact pushed head, CI, review, comments, receipt,
-    capability cleanup, lease release, and absence of prohibited mutations.
-11. Enable the Monday 10:15 UTC schedule only after the supervised run passes.
+10. Run one read-only OpenClaw inventory. Then run six separately targeted,
+    serialized supervised invocations through
+    `sudo /opt/dependabot-prep/authorized-run --runtime <codex|claude> --target <PR>`
+    in this exact order: `#917`, `#892`, `#871`, `#872`, `#897`, and `#919`.
+    For every target require an operation-authorizing root research receipt, a
+    root-verified `complete` assisted-handoff receipt, complete terminal
+    exact-head CI evidence even when CI is red, exact review and feedback
+    evidence, null auto-merge, zero prohibited mutations, capability cleanup,
+    and lease release. A `manual`, `blocked`, or `read-only` row and process exit
+    `0` are not by themselves a passed rehearsal. Stop the rollout on the first
+    target that does not satisfy this predicate.
+11. Obtain a separate explicit operator confirmation after all six targeted
+    rehearsals pass. Only then enable the Monday 10:15 UTC schedule.
     Read back the complete live declaration again after enable. Require every
     value from step 9 to remain exact. Any drift disables the schedule and
     blocks cutover.

@@ -41,6 +41,19 @@ function nestedStrings(value) {
   return [];
 }
 
+function valueAtPolicyPath(policy, path) {
+  return path.split(".").reduce((value, segment) => {
+    assert.ok(
+      value !== null &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        Object.hasOwn(value, segment),
+      `manual-hygiene selector references missing policy path ${path}`,
+    );
+    return value[segment];
+  }, policy);
+}
+
 function filesBelow(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
@@ -120,6 +133,7 @@ const DEPENDABOT_POLICY_TOP_LEVEL_KEYS = [
   "history",
   "identities",
   "lineageReceipts",
+  "manualHygiene",
   "manualResearch",
   "nativeCommit",
   "operationalExit",
@@ -210,14 +224,29 @@ test("agent preparation policy pins the repository authority contract", () => {
     broker: "/opt/dependabot-prep/mutation-broker.mjs",
     client: "/opt/dependabot-prep/mutation-client.mjs",
     socket: "/run/dependabot-prep/broker.sock",
+    clientOperationAllowlist: {
+      read: ["gh-read", "lineage", "verify-assisted", "selftest"],
+      write: [
+        "push",
+        "sync-base",
+        "recreate",
+        "request-review",
+        "comment",
+        "reply",
+        "manual-research",
+      ],
+    },
+    verifierBrokerOperationAllowlist: ["verify-prepared", "run-manifest"],
     readOperations: [
       "rest-get-fixed-repository",
       "graphql-template-pull-request-force-push-history",
       "graphql-template-pull-request-review-threads",
+      "verify-assisted-handoff",
     ],
     writeOperations: {
       branch: ["exact-cas-push", "exact-cas-base-sync"],
       "branch-maintenance": ["exact-dependabot-recreate"],
+      "manual-hygiene-gate": ["root-owned-research-gate-receipt"],
       "review-request": ["exact-coderabbit-review-request"],
       comment: ["bounded-top-level-comment"],
       reply: ["bounded-review-comment-reply"],
@@ -363,6 +392,35 @@ test("agent preparation policy pins the repository authority contract", () => {
         "requestedTargetBaseSha",
         "source",
       ],
+      manualHygieneReceiptSchema: "dependabot-prep-recreate-receipt:v2",
+      manualHygieneRecreateFields: [
+        "authorizedTargetPullRequestNumber",
+        "boundaryAfterSha",
+        "boundaryBeforeSha",
+        "boundaryCreatedAt",
+        "boundaryEventId",
+        "category",
+        "commentCreatedAt",
+        "commentId",
+        "commentUpdatedAt",
+        "kind",
+        "lane",
+        "oldHeadSha",
+        "oldNativeLineageSha256",
+        "oldNativeOriginHeadSha",
+        "oldNativePrefixCommitOids",
+        "operator",
+        "processingMode",
+        "quarantinedSuffixCommitOids",
+        "quarantinedSuffixSha256",
+        "receiptFile",
+        "receiptSha256",
+        "recreateProfile",
+        "requestSha256",
+        "requestedTargetBaseSha",
+        "researchReceiptSha256",
+        "source",
+      ],
       requiredKind: "controller-recreate",
       requiredSource: {
         kind: "root-owned-recreate-receipt",
@@ -405,8 +463,26 @@ test("agent preparation policy pins the repository authority contract", () => {
       eligibleEcosystem: "npm",
       processingMode: "full",
       requiresAuthenticatedNativeGeneration: true,
+      requiresSingleNativeCommit: true,
       oncePerExactNativeGeneration: true,
       postComment: "wait-for-and-reauthenticate-new-native-generation",
+      refMutationAuthority: "dependabot-only",
+    },
+    manualHygieneRecreate: {
+      operation: "recreate",
+      grant: "recreate",
+      body: "@dependabot recreate",
+      processingMode: "manual",
+      lane: "manual-hygiene",
+      eligibleEcosystems: ["npm", "github-actions"],
+      recreateProfiles: [
+        "native-npm",
+        "native-github-actions",
+        "legacy-prepare-bot-recovery",
+      ],
+      requiresAuthorizingResearchReceipt: true,
+      oncePerExactGenerationAnchor: true,
+      postComment: "wait-for-and-reauthenticate-wholly-new-native-generation",
       refMutationAuthority: "dependabot-only",
     },
   });
@@ -787,6 +863,7 @@ test("agent preparation policy pins the repository authority contract", () => {
       "upstream-release-notes",
       "upstream-migration-guide",
       "upstream-security-advisory",
+      "upstream-exact-oid-comparison",
       "upstream-project-or-package-fallback",
     ],
     desiredSourceKinds: [
@@ -808,6 +885,7 @@ test("agent preparation policy pins the repository authority contract", () => {
       "riskLevel",
       "confidenceLevel",
       "confidenceRationale",
+      "gaps",
       "packages",
       "sourceFailures",
     ],
@@ -834,11 +912,13 @@ test("agent preparation policy pins the repository authority contract", () => {
       "versionCoverage",
       "verifiedAt",
     ],
+    versionCoverage: "exact-fromVersion-space-arrow-space-toVersion",
     sourceKinds: [
       "changelog",
       "release-notes",
       "migration-guide",
       "security-advisory",
+      "compare",
       "upstream-project-or-package",
     ],
     sourceUrlScheme: "https",
@@ -848,12 +928,357 @@ test("agent preparation policy pins the repository authority contract", () => {
     sourceStatusValues: ["verified", "partial", "missing", "ambiguous"],
     riskLevels: ["low", "medium", "high", "critical", "unknown"],
     confidenceLevels: ["low", "medium", "high"],
+    overallRiskAggregation: "not-lower-than-highest-package-risk",
+    overallConfidenceAggregation:
+      "not-higher-than-lowest-package-confidence",
     noLiveVerifiedAuthoritativeSource: "operational-research-incomplete",
     operationalResearchIncompleteStatus: "unavailable",
     operationalResearchIncompleteRequiresLauncherFailure: true,
     incompleteSourceCoverageConfidence: "low-or-medium-only",
     candidateExecution: "forbidden",
   });
+  assert.deepEqual(policy.manualHygiene, {
+    lane: "manual-hygiene",
+    processingMode: "manual",
+    finalVerdicts: ["manual", "blocked", "read-only"],
+    allowedOperations: ["recreate", "request-review", "comment", "reply"],
+    forbiddenOperations: [
+      "push",
+      "sync-base",
+      "execute",
+      "rerun",
+      "approve",
+      "dismiss-review",
+      "merge",
+      "close",
+      "auto-merge",
+      "thread-resolution",
+    ],
+    researchGate: {
+      requiredBeforeEveryOperation: true,
+      receiptAuthority: "/var/lib/dependabot/lineage/manual-research",
+      receiptSchema: "dependabot-prep-manual-research-receipt:v1",
+      receiptRequiredFields: [
+        "schema",
+        "recordedAt",
+        "repository",
+        "runId",
+        "authorizedTargetPullRequestNumber",
+        "pullRequestNumber",
+        "headRefName",
+        "headSha",
+        "nativeOriginHeadSha",
+        "nativeLineageSha256",
+        "nativePrefixCommitOids",
+        "generationTransitionReceiptSha256",
+        "quarantinedSuffixSha256",
+        "quarantinedSuffixCommitOids",
+        "currentTargetBaseSha",
+        "policy",
+        "processingMode",
+        "lane",
+        "category",
+        "recreateProfile",
+        "dependencyTuples",
+        "packetSha256",
+        "authorizesOperations",
+        "projectionSha256",
+        "resultResearch",
+        "sourceEvidence",
+        "runAuthorizationSha256",
+      ],
+      receiptPolicyFields: ["blobSha", "commitSha", "sha256"],
+      requiredBindings: [
+        "repository",
+        "runId",
+        "authorizedTargetPullRequestNumber",
+        "pullRequestNumber",
+        "headRefName",
+        "headSha",
+        "nativeOriginHeadSha",
+        "nativeLineageSha256",
+        "nativePrefixCommitOids",
+        "generationTransitionReceiptSha256",
+        "quarantinedSuffixSha256",
+        "quarantinedSuffixCommitOids",
+        "currentTargetBaseSha",
+        "policy",
+        "processingMode",
+        "lane",
+        "category",
+        "recreateProfile",
+        "dependencyTuples",
+        "packetSha256",
+        "projectionSha256",
+        "runAuthorizationSha256",
+      ],
+      freshness:
+        "current-run-live-head-base-policy-tuples-and-sources-reverified-before-every-operation",
+      runAnchor: "first-receipt-base-and-policy-per-run",
+      modelWritable: false,
+      mutationAuthority: false,
+      authorizesOperations: {
+        completeWithOperationAuthorizingSourcePerTuple: true,
+        partialWithOperationAuthorizingSourcePerTuple: true,
+        partialFallbackOnly: false,
+        unavailable: false,
+      },
+      minimumVerifiedSourcesPerTuple: 1,
+      operationAuthorizingSourceKinds: [
+        "changelog",
+        "release-notes",
+        "migration-guide",
+        "security-advisory",
+        "compare",
+      ],
+      genericFallbackAuthorizesOperations: false,
+      unavailable: "forbid-all-operations",
+    },
+    categories: {
+      "local-action": {
+        ecosystem: "github-actions",
+        selector: {
+          kind: "changed-path-prefix",
+          policyPath: "protectedPaths.prefixes",
+          value: ".github/actions/",
+        },
+        recreateProfiles: ["native-github-actions"],
+      },
+      "protected-runtime": {
+        ecosystem: "npm",
+        selector: {
+          kind: "dependency-or-path-policy",
+          policyPath: "admission.protectedRuntimeManual",
+        },
+        recreateProfiles: ["native-npm"],
+      },
+      "legacy-lineage-recovery": {
+        ecosystem: "npm",
+        selector: {
+          kind: "legacy-suffix-actor",
+          policyPath:
+            "manualHygiene.recreateProfiles.legacy-prepare-bot-recovery.legacySuffixActor",
+        },
+        recreateProfiles: ["legacy-prepare-bot-recovery"],
+      },
+      "sensitive-action": {
+        ecosystem: "github-actions",
+        selector: {
+          kind: "dependency-pattern",
+          policyPath: "githubActions.routineGroup.sensitiveActionPatterns",
+        },
+        recreateProfiles: ["native-github-actions"],
+      },
+      "manual-risk": {
+        ecosystem: "npm",
+        selector: {
+          kind: "dependency-pattern",
+          policyPath: "admission.ordinaryNpm.manualRiskPackagePatterns",
+        },
+        recreateProfiles: ["native-npm"],
+      },
+    },
+    recreateProfiles: {
+      "native-npm": {
+        ecosystem: "npm",
+        requiresAuthenticatedNativeGeneration: true,
+        requiresStaleOrConflictingHead: true,
+        requiresUpdateStillNeededOnCurrentTargetBase: true,
+        replacement: "wholly-new-native-dependabot-generation",
+      },
+      "native-github-actions": {
+        ecosystem: "github-actions",
+        requiresAuthenticatedNativeGeneration: true,
+        requiresStaleOrConflictingHead: true,
+        requiresUpdateStillNeededOnCurrentTargetBase: true,
+        replacement: "wholly-new-native-dependabot-generation",
+      },
+      "legacy-prepare-bot-recovery": {
+        ecosystem: "npm",
+        requiresAuthenticatedNativePrefix: true,
+        legacySuffixActor: {
+          id: 315967666,
+          login: "mento-dependabot-prepare[bot]",
+          type: "Bot",
+        },
+        requiresContinuousOneParentSuffix: true,
+        requiresCompleteForcePushHistory: true,
+        requiresNoProtectedPathOrHumanIntervention: true,
+        requiresUpdateStillNeededOnCurrentTargetBase: true,
+        quarantinedSuffixNeverAdmitted: true,
+        replacement: "wholly-new-native-dependabot-generation",
+      },
+    },
+    recreateSafety: {
+      configPath: ".github/dependabot.yml",
+      expectedGitBlobSha: "145af6e07c4ff728553a46cfda379cd76bb93227",
+      requireExactConfigBlobAtCurrentBaseImmediatelyBeforeCommand: true,
+      requireExactConfigBlobAtCurrentBaseImmediatelyAfterCommand: true,
+      requireEveryOldTuplePresentOnCurrentBaseImmediatelyBeforeCommand: true,
+      requireEveryOldTuplePresentOnCurrentBaseImmediatelyAfterCommand: true,
+      requireEveryNewTupleAbsentOnCurrentBaseImmediatelyBeforeCommand: true,
+      requireEveryNewTupleAbsentOnCurrentBaseImmediatelyAfterCommand: true,
+      requirePullRequestOpenImmediatelyBeforeCommand: true,
+      requirePullRequestOpenImmediatelyAfterCommand: true,
+      requireBaseAndHeadUnchangedImmediatelyBeforeCommand: true,
+      requireBaseAndHeadUnchangedImmediatelyAfterCommand: true,
+      requireAutoMergeRequestNullImmediatelyBeforeCommand: true,
+      requireAutoMergeRequestNullImmediatelyAfterCommand: true,
+      externalServiceResidual:
+        "github-may-still-close-or-retarget-after-final-readback",
+      baseRaceResidual: "target-base-may-move-after-final-precondition-read",
+    },
+    authoritativeSourceRepositories: {
+      "@vitest/coverage-v8": "vitest-dev/vitest",
+      "actions/setup-node": "actions/setup-node",
+      "anthropics/claude-code-action": "anthropics/claude-code-action",
+      "github/codeql-action": "github/codeql-action",
+      "github/codeql-action/upload-sarif": "github/codeql-action",
+      pnpm: "pnpm/pnpm",
+      "pnpm/action-setup": "pnpm/action-setup",
+      vitest: "vitest-dev/vitest",
+      wagmi: "wevm/wagmi",
+    },
+    targeting: {
+      supervisedRollout: "single-root-authorized-target-required",
+      scheduledSweep: "all-open-authenticated-dependabot-pull-requests",
+    },
+    rollout: {
+      categoryPriority: [
+        "local-action",
+        "protected-runtime",
+        "legacy-lineage-recovery",
+        "sensitive-action",
+        "manual-risk",
+      ],
+      serializeFamilies: [["vitest", "@vitest/coverage-v8"]],
+      supervisedTargetSuccess: {
+        requiredResearchReceipt: "root-verified-and-authorizes-operations",
+        requiredAssistedHandoffReceipt: "root-verified-complete",
+        exactHeadCiPassedMayBeFalse: true,
+        prohibitedMutationCount: 0,
+        requiresLeaseReleased: true,
+        requiresCapabilityRemoved: true,
+        allDocumentedTargetsRequired: true,
+        schedulerEnablement: "separate-explicit-operator-confirmation",
+      },
+    },
+    assistedHandoff: {
+      receiptAuthority: "/var/lib/dependabot/lineage/assisted-handoffs",
+      receiptSchema: "dependabot-prep-assisted-handoff-receipt:v1",
+      receiptRequiredFields: [
+        "schema",
+        "verifiedAt",
+        "repository",
+        "runId",
+        "pullRequestNumber",
+        "headRefName",
+        "headSha",
+        "currentTargetBaseSha",
+        "policy",
+        "lane",
+        "category",
+        "recreateProfile",
+        "researchReceiptSha256",
+        "assistedHandoff",
+      ],
+      receiptPolicyFields: ["blobSha", "sha256"],
+      statusValues: [
+        "not-applicable",
+        "not-attempted",
+        "incomplete",
+        "complete",
+      ],
+      receiptStatusValues: ["incomplete", "complete"],
+      requiredFields: [
+        "status",
+        "lane",
+        "category",
+        "recreateProfile",
+        "containsCurrentTargetBase",
+        "conflictFree",
+        "exactHeadCiComplete",
+        "exactHeadCiPassed",
+        "currentHeadReviewTerminal",
+        "unansweredActionableCount",
+        "answeredButUnresolvedCount",
+        "autoMergeRequestNull",
+        "verificationSha256",
+        "note",
+      ],
+      completeRequires: {
+        autoMergeRequestNull: true,
+        containsCurrentTargetBase: true,
+        conflictFree: true,
+        exactHeadCiComplete: true,
+        currentHeadReviewTerminal: true,
+        unansweredActionableCount: 0,
+      },
+      freshness:
+        "root-verifier-double-live-read-of-head-base-policy-sources-checks-review-feedback-and-auto-merge",
+      modelWritable: false,
+      mutationAuthority: false,
+      exactHeadCiMayRemainRed: true,
+      unansweredActionableCount: 0,
+      threadResolution: "maintainer-only",
+      preparedVerdict: "forbidden",
+    },
+  });
+  assert.equal(
+    /(?:^|[^0-9])(871|872|892|897|917|919)(?:[^0-9]|$)/u.test(
+      JSON.stringify(policy),
+    ),
+    false,
+    "permanent Dependabot policy must not hard-code rollout PR numbers",
+  );
+  for (const category of Object.values(policy.manualHygiene.categories)) {
+    const selected = valueAtPolicyPath(policy, category.selector.policyPath);
+    if (Object.hasOwn(category.selector, "value")) {
+      assert.ok(Array.isArray(selected));
+      assert.ok(selected.includes(category.selector.value));
+    } else {
+      assert.notEqual(selected, undefined);
+    }
+  }
+  assert.ok(policy.manualResearch.sourceKinds.includes("compare"));
+  assert.ok(
+    policy.manualResearch.sourceKinds.includes("upstream-project-or-package"),
+  );
+  assert.ok(
+    !policy.manualHygiene.researchGate.operationAuthorizingSourceKinds.includes(
+      "upstream-project-or-package",
+    ),
+  );
+  assert.equal(
+    policy.manualHygiene.researchGate.genericFallbackAuthorizesOperations,
+    false,
+  );
+  assert.equal(policy.preparationModes.manual.allowsBaseSynchronization, false);
+  assert.equal(policy.preparationModes.manual.allowsBoundedDataOnlyRepairs, false);
+  for (const operation of policy.manualHygiene.forbiddenOperations) {
+    assert.ok(policy.manualHygiene.forbiddenOperations.includes(operation));
+    assert.ok(!policy.manualHygiene.allowedOperations.includes(operation));
+  }
+  assert.deepEqual(
+    Object.entries(policy.manualHygiene.assistedHandoff.completeRequires),
+    [
+      ["autoMergeRequestNull", true],
+      ["containsCurrentTargetBase", true],
+      ["conflictFree", true],
+      ["exactHeadCiComplete", true],
+      ["currentHeadReviewTerminal", true],
+      ["unansweredActionableCount", 0],
+    ],
+  );
+  assert.equal(
+    policy.manualHygiene.rollout.supervisedTargetSuccess
+      .requiredAssistedHandoffReceipt,
+    "root-verified-complete",
+  );
+  assert.equal(
+    policy.manualHygiene.rollout.supervisedTargetSuccess.schedulerEnablement,
+    "separate-explicit-operator-confirmation",
+  );
   assert.deepEqual(policy.lineageReceipts, {
     schema: "dependabot-prep-mutation-receipt:v1",
     broker: "/opt/dependabot-prep/mutation-broker.mjs",
@@ -948,7 +1373,18 @@ test("agent preparation policy pins the repository authority contract", () => {
     selftestOrchestrator: "/opt/dependabot-prep/selftest-run",
     selftestAttester: "/opt/dependabot-prep/selftest-attest.mjs",
     selftestAttestation: "/etc/dependabot-prep/selftest-attestation.json",
-    writeCommandArgv: ["sudo", "/opt/dependabot-prep/authorized-run"],
+    scheduledWriteCommandArgv: [
+      "sudo",
+      "/opt/dependabot-prep/authorized-run",
+    ],
+    supervisedWriteCommandArgvTemplate: [
+      "sudo",
+      "/opt/dependabot-prep/authorized-run",
+      "--runtime",
+      "{codex|claude}",
+      "--target",
+      "{positive-pull-request-number}",
+    ],
     scheduledGrants: [
       "branch",
       "recreate",
@@ -976,13 +1412,19 @@ test("agent preparation policy pins the repository authority contract", () => {
       lifetime: "single-run",
       requiredBindings: [
         "mode",
+        "runtime",
+        "targetPullRequestNumber",
         "grants",
         "runId",
+        "expectedPullRequestNumbers",
+        "expectedPullRequestsSha256",
         "authorizerPid",
         "authorizerBootId",
         "authorizerStartTimeTicks",
+        "authorizerSystemdUnit",
       ],
-      authorizerProcess: "live-root-pid-boot-id-and-start-time-required",
+      authorizerProcess:
+        "live-root-pid-boot-id-start-time-and-exact-transient-systemd-unit-required",
       modelWritable: false,
       brokerRequiresCapability: true,
     },
@@ -2542,6 +2984,74 @@ test("canonical instructions pin Dependabot preparation policy v2", () => {
       path,
     );
     assert.match(source, /root-owned.{0,120}receipt/iu, path);
+    assert.match(source, /manual-hygiene/iu, path);
+    assert.match(source, /research.{0,80}(?:gate|receipt)/iu, path);
+    assert.match(source, /never.{0,120}(?:prepared|thread)/iu, path);
+  }
+
+  const readmeDependabot = read("README.md").replace(/\s+/gu, " ");
+  assert.match(readmeDependabot, /manual-hygiene/iu);
+  assert.match(readmeDependabot, /root broker/iu);
+  assert.match(readmeDependabot, /never.{0,120}(?:prepared|thread)/iu);
+
+  const runbook = read("docs/dependabot-automation.md");
+  const normalizedRunbook = runbook.replace(/\s+/gu, " ");
+  assert.match(runbook, /^last_verified: 2026-09-04$/mu);
+  assert.match(
+    normalizedRunbook,
+    /exact order: `#917`, `#892`, `#871`, `#872`, `#897`, and `#919`/u,
+  );
+  assert.match(
+    normalizedRunbook,
+    /All six targets must pass in order.{0,160}separate explicit operator confirmation/iu,
+  );
+  assert.match(
+    normalizedRunbook,
+    /root-verified `complete` assisted-handoff receipt/iu,
+  );
+  assert.match(
+    normalizedRunbook,
+    /`manual`.{0,40}`blocked`.{0,120}not by themselves a passed rehearsal/iu,
+  );
+  assert.match(
+    normalizedRunbook,
+    /GitHub may still close or retarget/iu,
+  );
+  assert.doesNotMatch(
+    normalizedRunbook,
+    /prevent(?:s|ed|ing)?.{0,100}indirectly clos/iu,
+  );
+  assert.match(
+    normalizedRunbook,
+    /145af6e07c4ff728553a46cfda379cd76bb93227/u,
+  );
+  assert.match(
+    normalizedRunbook,
+    /`gh-read`.{0,80}`lineage`.{0,80}`verify-assisted`.{0,80}`selftest`/u,
+  );
+  assert.match(
+    normalizedRunbook,
+    /`push`.{0,80}`sync-base`.{0,80}`recreate`.{0,80}`request-review`.{0,80}`comment`.{0,80}`reply`.{0,80}`manual-research`/u,
+  );
+  assert.match(
+    normalizedRunbook,
+    /`verify-prepared`.{0,80}`run-manifest`/u,
+  );
+  assert.doesNotMatch(
+    normalizedRunbook,
+    /exactly one supervised no-exec preparation/iu,
+  );
+
+  for (const path of [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "docs/dependabot-automation.md",
+    "docs/adr/0009-external-agent-dependabot-preparation.md",
+  ]) {
+    const source = read(path).replace(/\s+/gu, " ");
+    assert.match(source, /exact scheduled.{0,80}authorized-run/iu, path);
+    assert.match(source, /--runtime.{0,80}--target/iu, path);
+    assert.match(source, /(?:nonce|capabil).{0,240}runtime.{0,120}target/iu, path);
   }
 
   const overrideRunbook = read("docs/dependency-overrides.md").replace(
