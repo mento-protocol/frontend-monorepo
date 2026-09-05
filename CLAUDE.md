@@ -297,30 +297,15 @@ For each pull request:
    stale base, or red CI result is admissible work for ordinary npm. The exact
    final head must still contain the target base and pass required checks,
    CodeRabbit review, feedback, mergeability, and absent-auto-merge gates.
-   `manual-hygiene` is the only exception to research-only `manual` mode. It
-   keeps the final verdict `manual`, `blocked`, or `read-only` and permits only
-   a broker-fixed Dependabot recreation, exact-head CodeRabbit request, and
-   bounded comment or reply after a current root-owned research-gate receipt.
-   It never permits `push`, `sync-base`, candidate execution, check reruns,
-   approval, dismissal, merge, close, auto-merge, or thread resolution. An
-   assisted handoff may report a current-base, conflict-free, review-clean head
-   even when exact-head CI is red; it must never call that head `prepared`.
-   A complete handoff requires a root-verified authorizing research receipt and
-   a root-verified complete assisted-handoff receipt. Before and immediately
-   after recreation, require the current base's exact pinned Dependabot-config
-   blob, old-present/new-absent tuples, an open PR, unchanged base and head, and
-   null auto-merge. Those checks reduce but cannot eliminate the residual that
-   GitHub may later close or retarget the PR or that the base may race.
-   After any research receipt is issued, movement of the target base or policy
-   blob ends the whole run's mutation path; start a fresh root-authorized
-   targeted run instead of replacing the receipt in-process.
-   Copy only `status`, `lane`, `category`, `recreateProfile`,
-   `autoMergeRequestNull`, `containsCurrentTargetBase`, `conflictFree`,
-   `exactHeadCiComplete`, `exactHeadCiPassed`, `currentHeadReviewTerminal`,
-   `unansweredActionableCount`, `answeredButUnresolvedCount`,
-   `verificationSha256`, and `note` from `verify-assisted` into
-   `assistedHandoff`; `receiptFile`, `receiptSha256`, and `verifiedAt` remain
-   root verification metadata outside that projection.
+   `manual-hygiene` permits only a fixed recreation, exact-head CodeRabbit
+   request, and bounded answers after a root-owned research-gate receipt.
+   It never permits branch edits or pushes, candidate execution, check reruns,
+   approval, dismissal, merge, close, auto-merge, or thread resolution, and never
+   reports `prepared`. A complete assisted handoff needs root-verified research
+   and handoff receipts; red CI stays visible. Follow the canonical
+   [manual-hygiene procedure](docs/dependabot-automation.md#manual-hygiene-lane)
+   for recreation guards, source requirements, result projection, and base or
+   policy drift handling.
 4. Never mutate a ref for a direct PR change below `.github/workflows/**` or
    `.github/actions/**`. Only an authenticated minor or patch version update in
    `github-actions-routine` may use `review-only`, and only with full lowercase
@@ -330,8 +315,9 @@ For each pull request:
    must already match `currentTargetBaseSha` byte-for-byte and mode-for-mode.
    GitHub requires workflow-write authority even for base-sourced workflow
    bytes, and this controller deliberately has none. A mismatch may use only the
-   `full`-mode broker-fixed `recreate` operation once for the exact authenticated native
-   npm generation, followed by complete authentication of the replacement
+   `full`-mode broker-fixed `recreate` operation once for an authenticated native
+   npm generation containing exactly one native Dependabot commit; multi-commit
+   generations stay `manual`. Require complete authentication of the replacement
    Dependabot-native head; otherwise it is manual.
    Verify equality before commit, in quarantine, and immediately before
    mutation. For npm,

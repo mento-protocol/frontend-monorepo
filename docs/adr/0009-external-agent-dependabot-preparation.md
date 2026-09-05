@@ -340,96 +340,25 @@ local-Action updates remain manual; grouping never reduces scope.
 
 ### Prepare manual pull requests mechanically without accepting their risk
 
-The `manual-hygiene` lane is an exception to "research only" for a small set of
-broker-authenticated mechanical operations while the processing mode and final
-ownership remain `manual`. It may request one fixed Dependabot recreation when
-needed and, on the exact unchanged current or replacement native head, request
-CodeRabbit review and post bounded answers to actionable feedback. It never edits or pushes a branch,
-executes candidate code, reruns checks, approves, dismisses, merges, closes,
-changes auto-merge, or resolves a review thread. It can therefore make a manual
-pull request conflict-free and review-clean without making the dependency
-decision for the maintainer.
+The `manual-hygiene` lane permits broker-fixed recreation, exact-head
+CodeRabbit requests, and bounded answers after a current root-owned research
+receipt. It never edits or pushes branches, executes candidate code, reruns
+checks, approves, dismisses, merges, closes, changes auto-merge, or resolves
+threads. This separates mechanical preparation from the maintainer's dependency
+risk decision: a complete assisted handoff can be conflict-free and review-clean
+while still reporting red CI and a `manual` verdict, never `prepared`.
 
-Before admitting the lane, the broker exact-validates the complete top-level
-`manualResearch` and `manualHygiene` trusted-base policy contracts. Generic
-research-only manual rows still pass through the pinned launcher and result
-verifier but confer no mutation authority.
+The broker binds each operation to verified upstream research, the exact
+head/base/policy, and a root authorization. A project-page fallback supports
+reporting but grants no hygiene authority. Legacy preparation-bot history may
+authorize recreation only; it never becomes trusted lineage. Base or policy
+movement after a research receipt ends writes for the run.
 
-Every such operation requires a current-run root-owned
-`dependabot-prep-manual-research-receipt:v1`. It binds the authorized target,
-exact PR/ref/head and native lineage, live base and policy, manual category and
-profile, dependency tuples, research projection, source evidence, and root run
-authorization. The broker revalidates the live bindings and independently
-verifies sources in the policy-mapped upstream repository. The generic
-project/package fallback may support a manual report but cannot authorize an
-operation. A partial packet is report-valid when it retains at least one
-live-verified authoritative source per tuple and discloses every gap; it
-authorizes hygiene only when every tuple also has at least one
-operation-authorizing source. An unavailable packet has at least one tuple with
-no verified source and authorizes no operation. Every gate-input source uses the tuple's exact
-values rendered as `<fromVersion> -> <toVersion>` (for example,
-`2.0.0 -> 3.0.0`); the angle-bracket names are placeholders and must not appear
-in the packet. Serialize the packet as exactly one compact JSON line followed
-by one newline, with no other insignificant whitespace; `jq -c` produces the
-required form. When desired source kinds are known absent but the fallback
-verifies, the research stays partial and retains the fallback while authorizing
-no hygiene. A known source absence is recorded in overall `gaps`, package
-`sourceNote`, and `missingSourceKinds`, with only unverified sources omitted and
-no `sourceFailures` entry unless a fetch or validation actually failed. Overall
-risk cannot be lower than the riskiest package and overall confidence cannot
-exceed the least-confident package.
-After any research receipt is issued, target-base or policy-blob movement ends
-the entire run's mutation path and requires a fresh root-authorized targeted
-run; the same run may not replace the receipt or attempt another mutation. The
-broker anchors the first receipt's base and policy for the entire run; a new
-receipt for a post-recreation head is allowed only while both remain unchanged.
-The receipt binds every authenticated native-prefix commit OID, and the manual
-recreate receipt copies that complete list into the replaced-history
-quarantine. This prevents an intermediate commit from the old native prefix
-from being replayed as part of a supposedly fresh generation.
-
-Recreation uses separate native npm, native GitHub Actions, and legacy recovery
-profiles. Legacy recovery admits only a continuous one-parent suffix by
-`mento-dependabot-prepare[bot]` (ID `315967666`) over an authenticated native
-prefix. That suffix is quarantined, never admitted as trusted lineage, and can
-authorize only one fixed recreation followed by a wholly new native Dependabot
-generation. Immediately before and after every recreation, the broker requires
-the current base's `.github/dependabot.yml` blob to equal
-`145af6e07c4ff728553a46cfda379cd76bb93227`, every old tuple to remain present,
-every new tuple to remain absent, and the PR to remain open with unchanged base,
-head, and null auto-merge. These checks guard the known obsolete-update path;
-they do not eliminate the external-service residual that GitHub may later close
-or retarget the PR, or the race in which the base moves after the final read.
-An assisted-handoff verifier publishes a root-owned
-`dependabot-prep-assisted-handoff-receipt:v1` and reports current-base
-containment, conflict state, complete terminal exact-head CI, current-head
-CodeRabbit state, unanswered findings, answered-but-unresolved threads, and
-null auto-merge state. Red CI is reported, not disguised as a passed
-preparation gate, and the verdict never becomes `prepared`.
-Only the schema-listed `status`, `lane`, `category`, `recreateProfile`,
-`autoMergeRequestNull`, `containsCurrentTargetBase`, `conflictFree`,
-`exactHeadCiComplete`, `exactHeadCiPassed`, `currentHeadReviewTerminal`,
-`unansweredActionableCount`, `answeredButUnresolvedCount`,
-`verificationSha256`, and `note` are copied into `assistedHandoff`.
-`receiptFile`, `receiptSha256`, and `verifiedAt` remain root verification
-metadata outside the result projection.
-Fallback-only partial and unavailable receipts preserve the research report but
-authorize no hygiene. The agent skips `verify-assisted` and emits the
-receipt-bound handoff as `not-attempted` with null observations; unavailable is
-`blocked` in write mode or `read-only` in a dry run. On a replacement head, the
-result retains the already-receipted recreation and generation transition as
-its sole prior action; no later operation is permitted.
-
-Supervised rollout is target-scoped and serial: `#917`, `#892`, `#871`, `#872`,
-`#897`, then `#919`. The PR numbers are an activation plan, not durable policy.
-Every target requires an operation-authorizing root research receipt, a
-root-verified complete assisted-handoff receipt, zero prohibited mutations, and
-released lease and capability; an exit `0` with a merely manual or blocked row
-does not pass. All six must pass before a separate explicit operator
-confirmation. Only after that confirmation may the untargeted scheduled sweep
-use the full authenticated open-Dependabot inventory, category
-priority, and coupled-family serialization. Any non-null root target remains an
-exact one-PR authorization.
+The [canonical manual-hygiene procedure](../dependabot-automation.md#manual-hygiene-lane)
+defines source requirements, recreation profiles and residual risks, receipt
+bindings, and result fields. Its
+[cutover checklist](../dependabot-automation.md#one-time-cutover) requires six
+serial targeted handoffs and separate operator confirmation before scheduling.
 
 Dependabot configuration isolates Next.js, Vercel CLI, Playwright runtime, and
 protected pnpm updates from ordinary libraries, and couples the Vitest family.

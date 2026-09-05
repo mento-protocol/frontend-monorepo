@@ -419,38 +419,14 @@ package-manager/runtime pin, workflow, Action, or security-policy state is
 `manual` too.
 The scheduled invocation does not grant check reruns or candidate execution.
 
-Manual dependencies can use the narrow `manual-hygiene` lane after their
-source-linked risk research is complete. The root broker may request one fixed
-Dependabot recreation when needed and may request exact-head CodeRabbit review
-or post bounded answers on the current or replacement native head; it never
-edits or pushes the branch, executes candidate code,
-resolves a thread, approves, merges, closes, or changes auto-merge. The result
-stays `manual` even when the assisted handoff is current-base, conflict-free,
-and free of unanswered actionable findings. Red exact-head CI remains visible
-for the maintainer rather than being treated as a passed preparation gate. The
-root research and assisted-handoff receipts are exact-head/base/policy-bound and
-not model-writable. Before and immediately after recreation, the broker requires
-the pinned current-base Dependabot-config blob, old-present/new-absent tuples,
-an open PR, unchanged base and head, and null auto-merge. These checks reduce,
-but cannot eliminate, GitHub's external-service close/retarget risk or a base
-race after the final read.
-After any research receipt is issued, target-base or policy-blob movement ends
-the whole run's mutation path and requires a fresh root-authorized targeted run.
-The broker anchors the first receipt's base and policy for the entire run; a
-post-recreation head may receive a new receipt only while both remain unchanged.
-Fallback-only partial and unavailable research receipts preserve their research
-but authorize no hygiene: `verify-assisted` is skipped and the bound
-`assistedHandoff` is `not-attempted` with null observations. Unavailable
-research is `blocked` in write mode or `read-only` in a dry run. If the receipt
-is for a replacement head, the result retains the already-receipted recreation
-and generation transition as its sole prior action.
-Only `status`, `lane`, `category`, `recreateProfile`, `autoMergeRequestNull`,
-`containsCurrentTargetBase`, `conflictFree`, `exactHeadCiComplete`,
-`exactHeadCiPassed`, `currentHeadReviewTerminal`,
-`unansweredActionableCount`, `answeredButUnresolvedCount`,
-`verificationSha256`, and `note` are copied from `verify-assisted` into
-`assistedHandoff`; `receiptFile`, `receiptSha256`, and `verifiedAt` remain root
-verification metadata outside that projection.
+The `manual-hygiene` lane lets the root broker request recreation and
+CodeRabbit review and answer feedback after verified upstream risk research.
+It never edits or pushes branches, executes candidate code, resolves threads,
+approves, merges, closes, changes auto-merge, or reports `prepared`. Its
+root-verified assisted handoff reports conflicts, feedback, and CI honestly;
+the dependency decision stays manual. See the
+[canonical procedure](docs/dependabot-automation.md#manual-hygiene-lane)
+for source gates, recreation safeguards, receipt fields, and rollout.
 
 Playwright and protected pnpm runtime updates are also isolated for maintainer
 takeover; Vitest family updates stay coupled. Ordinary npm updates may start
@@ -472,8 +448,9 @@ manual. Before an npm synchronization or repair, the old-head workflow and
 local-Action trees must already equal the exact current base byte-for-byte and
 mode-for-mode. GitHub requires workflow-write authority even for base-sourced
 workflow changes; this controller deliberately has none. A mismatch or conflict
-may use the `full`-mode broker-fixed `@dependabot recreate` request for the exact
-authenticated native npm generation, after which the replacement head must be
+may use the `full`-mode broker-fixed `@dependabot recreate` request once for an
+authenticated native npm generation containing exactly one native Dependabot
+commit; multi-commit generations stay manual. The replacement head must be
 fully re-authenticated as a new native generation. Otherwise it is manual. For eligible clean `sync-only`, the root broker creates and verifies the
 exact-base two-parent merge in quarantine, then exact-CAS pushes it through
 `sync-base`. Pre-existing

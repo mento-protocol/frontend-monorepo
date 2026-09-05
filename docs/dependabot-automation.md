@@ -495,11 +495,15 @@ review dismissal, merge, close, auto-merge, or review-thread resolution. It
 never edits candidate files or resolves a conflict itself. Recreation delegates
 the replacement generation to Dependabot and is permitted only through the
 broker's exact native npm, native GitHub Actions, or quarantined legacy-suffix
-profile. Immediately before and after issuing the command, the broker requires
+profile. Immediately before posting the fixed command comment and during its
+immediate readback, the broker requires
 the current target base to contain `.github/dependabot.yml` at exact Git blob
 `145af6e07c4ff728553a46cfda379cd76bb93227`, every old tuple to remain present,
 every new tuple to remain absent, and the pull request to remain open with the
-same base, head, and null auto-merge state. These checks guard the known
+same base, old head, and null auto-merge state. This is the command-posting guard,
+not the later generation-transition check. After that readback, wait for
+Dependabot to publish a new head, then authenticate the entire replacement
+generation from scratch. These checks guard the known
 no-longer-needed path, but they cannot guarantee the behavior of GitHub's
 external Dependabot service: GitHub may still close or retarget after the final
 readback, and the target base may race after the last precondition read. Treat
