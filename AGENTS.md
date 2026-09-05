@@ -89,18 +89,27 @@ write runs use the same atomic operator-owned lease. Never take over an existing
 or stale lease.
 
 The scheduled invocation enables write mode and grants branch updates, one
-broker-fixed Dependabot recreation per exact eligible native generation, review
+broker-fixed Dependabot recreation under the full native-npm path or the
+`manual-hygiene` lane under a policy-selected recreation profile, review
 requests, digest-bound top-level feedback responses, and review replies. It does
-not grant check reruns, status chatter, or review-thread resolution. A manual
-invocation must grant each required mutation class explicitly. The scheduled
-path uses a sanitized standalone clone and must not execute candidate code.
-Every write run must start through exact argv
-`["sudo", "/opt/dependabot-prep/authorized-run"]`. That executable wrapper runs
+not grant check reruns, status chatter, or review-thread resolution. Scheduled
+and supervised target invocations receive this same fixed, reviewed grant set;
+the supervised caller selects only the admitted runtime and target, never a
+per-invocation grant set. The scheduled path uses a sanitized standalone clone
+and must not execute candidate code.
+The exact scheduled argv is
+`["sudo", "/opt/dependabot-prep/authorized-run"]`; a supervised target uses
+`["sudo", "/opt/dependabot-prep/authorized-run", "--runtime", "{codex|claude}", "--target", "{positive-pull-request-number}"]`
+with concrete admitted values. That executable wrapper runs
 the separately pinned implementation at
 `/opt/dependabot-prep/authorized-run.mjs`. The root orchestrator issues a
 short-lived, non-model-writable nonce whose `mode` is `write`, bound to exact
-grants, run ID, and its live root PID, kernel boot ID, and process start time;
-the mutation broker requires it. Direct
+runtime, nullable scheduled or exact supervised target, grants, run ID, the
+canonical sorted launch inventory and its SHA-256, and its live root PID,
+kernel boot ID, process start time, and exact transient systemd unit. Root
+publishes it only after a stable inventory read; target `null` never expands
+writes beyond that bound set, and a supervised target requires an exact
+singleton. The mutation broker requires it. Direct
 launcher write mode must refuse. Direct `run --read-only` and `status` remain
 permitted. The activation test runs only as
 `sudo /opt/dependabot-prep/selftest-run`; that root orchestrator clears all
@@ -114,10 +123,17 @@ the repository PAT at `/var/lib/dependabot-mutator/gh`. Model GitHub access goes
 through the pinned broker clients: fixed-repository REST `GET` and sealed
 one-page `pull-request-force-push-history` and `pull-request-review-threads`
 GraphQL templates only;
-capability-bound CodeRabbit review request, bounded comment, and bounded reply
-operations; and exact-CAS `push` or exact-head-and-base `sync-base` for branch
-writes. `sync-base` constructs and verifies a clean exact-base merge in root
+root-owned `manual-research` and `verify-assisted` evidence; capability-bound
+CodeRabbit review request, bounded comment, and bounded reply operations; and
+exact-CAS `push` or exact-head-and-base `sync-base` for branch writes.
+`sync-base` constructs and verifies a clean exact-base merge in root
 quarantine, then uses exact-CAS push; no pull-request branch-update API is used.
+The exact client allowlists are read
+`gh-read`/`lineage`/`verify-assisted`/`selftest` and write
+`push`/`sync-base`/`recreate`/`request-review`/`comment`/`reply`/`manual-research`;
+the result verifier may call only `verify-prepared` and `run-manifest` directly.
+Invoke each write client, including `manual-research`, as the sole foreground
+command and preserve its direct exit status and complete output.
 Never expose the PAT or bypass the broker.
 Exact-head secretless CI provides validation. Local candidate execution requires
 a separate `execute` grant and a tested isolation adapter. It must not submit an
@@ -158,6 +174,15 @@ For each pull request:
    `manual` reserves the change for a maintainer or another controller. Final
    exact-head checks, CodeRabbit review, feedback, mergeability, current base,
    and absent auto-merge remain mandatory.
+   `manual-hygiene` permits only a fixed recreation, exact-head CodeRabbit
+   request, and bounded answers after a root-owned research-gate receipt.
+   It never permits branch edits or pushes, candidate execution, check reruns,
+   approval, dismissal, merge, close, auto-merge, or thread resolution, and never
+   reports `prepared`. A complete assisted handoff needs root-verified research
+   and handoff receipts; red CI stays visible. Follow the canonical
+   [manual-hygiene procedure](docs/dependabot-automation.md#manual-hygiene-lane)
+   for recreation guards, source requirements, result projection, and base or
+   policy drift handling.
 4. Never mutate a ref for a direct pull-request change below
    `.github/workflows/**` or `.github/actions/**`. Only an authenticated minor
    or patch version update from the `github-actions-routine` group may use
@@ -169,9 +194,10 @@ For each pull request:
    to match `currentTargetBaseSha` byte-for-byte and mode-for-mode before any
    ref mutation. GitHub requires workflow-write authority even when a push only
    carries workflow bytes from the base; this controller deliberately has no
-   such authority. The only automated recovery is the broker's fixed
-   `recreate` operation, once per exact authenticated native npm generation; it
-   posts `@dependabot recreate`, waits for a new head, and requires complete
+   such authority. The `full`-mode automated recovery is the broker's fixed
+   `recreate` operation, once per authenticated native npm generation containing
+   exactly one native Dependabot commit; multi-commit generations stay `manual`.
+   It posts `@dependabot recreate`, waits for a new head, and requires complete
    re-authentication as a new native generation. If that does not produce an
    admissible head, the result is `manual`. Neither the agent nor conflict
    resolution may carry or repair the mismatch. Verify equality before commit, in
@@ -269,9 +295,11 @@ preparation is complete when the head, base, checks, feedback, review, or
 mergeability changed after validation.
 
 A complete, schema-valid sweep that covers the exact inventory exits `0` even
-when individual pull requests are `manual` or `blocked`. Exit `1` is reserved
-for an operational failure or invalid/incomplete result, exit `2` for pin or
-self-test drift, and exit `3` for active lease contention. Report per-verdict
+when individual pull requests are `manual` or `blocked`, unless any manual
+research result is `unavailable`. Unavailable research remains reportable but
+makes the sweep operationally incomplete and exits `1`; other operational or
+invalid/incomplete-result failures also exit `1`, pin or self-test drift exits
+`2`, and active lease contention exits `3`. Report per-verdict
 and per-processing-mode counts separately from operational status.
 
 Dependabot pull requests remain secretless. Do not route them through a
