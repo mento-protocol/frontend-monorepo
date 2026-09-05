@@ -92,6 +92,24 @@ const MAX_HISTORY = 40;
 // terminal receipts need a small fixed number of rereads before publication.
 const MAX_RECONCILIATION_PROGRESS_PASSES = MAX_HISTORY + 4;
 const MAX_SERIALIZED_UPDATE_ATTEMPTS = 3;
+const IMMUTABLE_CONTENT_READ_ATTEMPTS = 3;
+const IMMUTABLE_CONTENT_READ_RETRY_BASE_MS = 250;
+const IMMUTABLE_CONTENT_RESPONSE_MAX_BYTES = 16_384;
+const RETRYABLE_IMMUTABLE_CONTENT_READ_STATUSES = new Set([500, 502, 503, 504]);
+const RETRYABLE_IMMUTABLE_CONTENT_READ_CODES = new Set([
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "EHOSTUNREACH",
+  "ENETDOWN",
+  "ENETRESET",
+  "ENETUNREACH",
+  "ETIMEDOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_SOCKET",
+]);
 // GitHub issue comments cap at 65,536 bytes; 64,000 retains 1,536 bytes of headroom.
 const MAX_JOURNAL_BYTES = 64_000;
 const ACTIVE_CHECKPOINT_BYTES = 40_000;
@@ -3926,16 +3944,135 @@ function ownerRepo(context) {
   return context.repo;
 }
 
-async function previewOwnerAtSha(github, context, target, sha) {
+function retryableImmutableContentReadError(error) {
+  const response = error?.response;
+  if (
+    response !== null &&
+    typeof response === "object" &&
+    Number.isSafeInteger(response.status) &&
+    response.status === error?.status
+  ) {
+    return RETRYABLE_IMMUTABLE_CONTENT_READ_STATUSES.has(response.status);
+  }
+  return [error?.code, error?.cause?.code, error?.cause?.cause?.code].some(
+    (code) =>
+      typeof code === "string" &&
+      RETRYABLE_IMMUTABLE_CONTENT_READ_CODES.has(code),
+  );
+}
+
+async function readBoundedJsonResponseBody(body) {
+  invariant(
+    body !== null &&
+      typeof body === "object" &&
+      typeof body.getReader === "function",
+    "Immutable repository content response body is not a readable stream",
+  );
+  const reader = body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const result = await reader.read();
+      invariant(
+        result !== null &&
+          typeof result === "object" &&
+          typeof result.done === "boolean",
+        "Immutable repository content response stream is invalid",
+      );
+      if (result.done) break;
+      invariant(
+        result.value instanceof Uint8Array,
+        "Immutable repository content response chunk is invalid",
+      );
+      invariant(
+        result.value.byteLength <=
+          IMMUTABLE_CONTENT_RESPONSE_MAX_BYTES - totalBytes,
+        "Immutable repository content response exceeded its size limit",
+      );
+      totalBytes += result.value.byteLength;
+      chunks.push(Buffer.from(result.value));
+    }
+  } catch (error) {
+    try {
+      await reader.cancel();
+    } catch {
+      // Preserve the original read or validation failure.
+    }
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = Buffer.concat(chunks, totalBytes);
+  const text = bytes.toString("utf8");
+  invariant(
+    Buffer.from(text, "utf8").equals(bytes),
+    "Immutable repository content response is not valid UTF-8",
+  );
+  return JSON.parse(text);
+}
+
+async function readImmutableRepositoryContent({
+  github,
+  request,
+  waitForRetry,
+}) {
+  // Keep body-stream transport failures inside the retry boundary. JSON and
+  // configuration validation failures do not match its narrow retry classes.
+  for (
+    let attempt = 0;
+    attempt < IMMUTABLE_CONTENT_READ_ATTEMPTS;
+    attempt += 1
+  ) {
+    try {
+      const response = await github.rest.repos.getContent(request);
+      invariant(
+        response !== null &&
+          typeof response === "object" &&
+          response.status === 200,
+        "Immutable repository content response is invalid",
+      );
+      const data = await readBoundedJsonResponseBody(response.data);
+      return { ...response, data };
+    } catch (error) {
+      if (
+        !retryableImmutableContentReadError(error) ||
+        attempt === IMMUTABLE_CONTENT_READ_ATTEMPTS - 1
+      ) {
+        throw error;
+      }
+      await waitForRetry(IMMUTABLE_CONTENT_READ_RETRY_BASE_MS * 2 ** attempt);
+    }
+  }
+  throw new Error("Immutable repository content read exhausted unexpectedly");
+}
+
+export async function previewOwnerAtSha(
+  github,
+  context,
+  target,
+  sha,
+  { waitForRetry = wait } = {},
+) {
   const targetConfiguration = previewTargetConfig(target);
   const immutableSha = exactSha(
     sha,
     `Candidate ${target} Vercel configuration SHA`,
   );
-  const { data } = await github.rest.repos.getContent({
+  invariant(
+    typeof waitForRetry === "function",
+    "Immutable repository content retry wait must be a function",
+  );
+  const request = Object.freeze({
     ...ownerRepo(context),
     path: targetConfiguration.vercelConfigurationPath,
     ref: immutableSha,
+    request: Object.freeze({ parseSuccessResponseBody: false }),
+  });
+  const { data } = await readImmutableRepositoryContent({
+    github,
+    request,
+    waitForRetry,
   });
   const file = plainObject(data, `Candidate ${target} Vercel configuration`);
   invariant(
