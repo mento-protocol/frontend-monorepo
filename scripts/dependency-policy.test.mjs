@@ -1098,6 +1098,13 @@ test("agent preparation policy pins the repository authority contract", () => {
     hygiene.rollout.supervisedTargetSuccess.schedulerEnablement,
     "separate-explicit-operator-confirmation",
   );
+  assert.equal(
+    /(?:^|[^0-9])(871|872|892|897|917|919)(?:[^0-9]|$)/u.test(
+      JSON.stringify(policy),
+    ),
+    false,
+    "permanent Dependabot policy must not hard-code rollout PR numbers",
+  );
   assert.deepEqual(policy.lineageReceipts, {
     schema: "dependabot-prep-mutation-receipt:v1",
     broker: "/opt/dependabot-prep/mutation-broker.mjs",
