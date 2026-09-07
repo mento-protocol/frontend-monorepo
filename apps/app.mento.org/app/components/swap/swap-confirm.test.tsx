@@ -33,10 +33,6 @@ vi.mock("@mento-protocol/mento-sdk", () => ({
   TokenSymbol: { USDm: "USDm", USDC: "USDC", CELO: "CELO" },
 }));
 
-vi.mock("@/env.mjs", () => ({
-  env: { NEXT_PUBLIC_BANNER_LINK: "https://example.test" },
-}));
-
 vi.mock("@/components/shared/chain-mismatch-banner", () => ({
   ChainMismatchBanner: () =>
     React.createElement("div", { "data-testid": "chain-mismatch-banner" }),

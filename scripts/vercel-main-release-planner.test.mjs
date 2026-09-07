@@ -11,7 +11,7 @@ const HEAD = "a".repeat(40);
 const BASE = "b".repeat(40);
 const TARGETS = ["app", "governance", "reserve", "ui"];
 const ALIASES = {
-  app: ["app.mento.org", "appmentoorg-env-v3-mentolabs.vercel.app"],
+  app: ["app.mento.org"],
   governance: ["governance.mento.org"],
   reserve: ["reserve.mento.org"],
   ui: ["ui.mento.org"],
@@ -32,8 +32,8 @@ function state(target, alias, git = {}) {
     projectId: `prj_${target}`,
     projectName: `${target}.mento.org`,
     readyState: "READY",
-    target: target === "app" ? null : "production",
-    customEnvironmentSlug: target === "app" ? "v3" : null,
+    target: "production",
+    customEnvironmentSlug: null,
     git: {
       org: "mento-protocol",
       repo: "frontend-monorepo",
@@ -150,7 +150,10 @@ test("baseline creates one exact manifest directly from the provider planning sn
   assert.deepEqual(value.manifest.activeTargets, ["governance", "ui"]);
   assert.equal(value.manifest.deploySha, HEAD);
   assert.equal(value.manifest.upstreamRunId, "123");
-  assert.equal(value.manifest.originalPriors.app.planningLeaves.length, 2);
+  assert.equal(value.manifest.originalPriors.app.planningLeaves.length, 1);
+  assert.deepEqual(value.manifest.originalPriors.app.aliases, [
+    "app.mento.org",
+  ]);
 });
 
 test("baseline canonicalizes production generated-alias supersets and recomputes the exact plan", () => {
@@ -229,10 +232,12 @@ test("baseline accepts every finite ordinary generated-alias subset and recomput
 test("production-shaped baseline alias supersets remain fail-closed", () => {
   const cases = [
     {
-      name: "App extra alias",
+      // Another main target's reviewed protected domain on the App prior means
+      // the reviewed mappings have crossed.
+      name: "App prior carrying a foreign reviewed domain",
       target: "app",
       mutate(aliases) {
-        aliases.push("appmentoorg-git-main-mentolabs.vercel.app");
+        aliases.push("governance.mento.org");
         aliases.sort();
       },
       error: /alias-set-ambiguous/,
@@ -299,12 +304,11 @@ test("baseline preserves fail-closed missing Git evidence inside the manifest", 
   );
 });
 
-test("baseline rejects a snapshot whose aliases disagree on one prior", () => {
+test("baseline rejects a snapshot that omits a reviewed prior alias", () => {
   const ambiguous = snapshot();
-  ambiguous.states.find(({ alias }) => alias === "app.mento.org").deploymentId =
-    "dpl_otherAppPrior123";
-  assert.throws(
-    () => baseline(ambiguous),
-    /rollback-target-ambiguous|prior is ambiguous/,
+  const appState = ambiguous.states.find(
+    ({ alias }) => alias === "app.mento.org",
   );
+  appState.alias = "appmentoorg-env-v3-mentolabs.vercel.app";
+  assert.throws(() => baseline(ambiguous), /app state is incomplete/);
 });

@@ -179,31 +179,7 @@ function candidateRecordFromReceipt({
   };
 }
 
-function pendingAppRecord({ manifest, identity, aliases }) {
-  const intent = expectedIntent({ manifest, target: "app", identity });
-  return {
-    deploymentId: null,
-    deploymentUrl: null,
-    aliases: [...aliases],
-    discovery: {
-      releaseId: intent.releaseId,
-      candidateId: intent.candidateId,
-      projectId: intent.projectId,
-      projectName: intent.projectName,
-      deploySha: intent.deploySha,
-      target: "app",
-      customEnvironmentSlug: intent.environment.customEnvironmentSlug,
-      immutableSmoke: null,
-      metrics: {
-        buildDurationMs: null,
-        deploymentDurationMs: null,
-        cacheHit: null,
-      },
-    },
-  };
-}
-
-function candidateState({ manifest, identity, candidateReceipts, pendingApp }) {
+function candidateState({ manifest, identity, candidateReceipts }) {
   assertExactKeys(
     candidateReceipts,
     APP_FIRST_TARGETS,
@@ -222,17 +198,9 @@ function candidateState({ manifest, identity, candidateReceipts, pendingApp }) {
         return [target, null];
       }
       if (rawReceipt === null) {
-        if (target === "app" && pendingApp) {
-          return [
-            target,
-            pendingAppRecord({
-              manifest,
-              identity,
-              aliases: manifest.originalPriors.app.aliases,
-            }),
-          ];
-        }
-        return [target, null];
+        throw new Error(
+          `Main journal is missing the ${target} candidate receipt`,
+        );
       }
       return [
         target,
@@ -253,7 +221,6 @@ function createJournal({
   currentMappings,
   candidateReceipts,
   identity,
-  pendingApp,
   allowTerminalAppRecoveryResidual = false,
 }) {
   const mappings = canonicalMappings({ value: currentMappings, manifest });
@@ -272,7 +239,6 @@ function createJournal({
       manifest,
       identity,
       candidateReceipts,
-      pendingApp,
     }),
     allowTerminalAppRecoveryResidual,
   });
@@ -296,7 +262,6 @@ export function createMainForwardTransactionJournal({
     currentMappings,
     candidateReceipts,
     identity,
-    pendingApp: true,
   });
 }
 
@@ -329,7 +294,6 @@ export function createMainInheritedRecoveryJournal({
     currentMappings,
     candidateReceipts,
     identity,
-    pendingApp: false,
     allowTerminalAppRecoveryResidual: true,
   });
   const recoveryPlan = planInheritedMainTransactionRecovery({

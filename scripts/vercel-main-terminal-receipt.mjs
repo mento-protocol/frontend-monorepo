@@ -20,13 +20,7 @@ const PRODUCER_JOBS = new Set([
 ]);
 const TARGETS = Object.freeze(["governance", "reserve", "ui", "app"]);
 const OPERATION_TARGETS = Object.freeze([...TARGETS]);
-const OPERATION_TYPES = Object.freeze([
-  "promote",
-  "app_v3_deploy",
-  "app_alias_set",
-  "ordinary_rollback",
-  "app_alias_restore",
-]);
+const OPERATION_TYPES = Object.freeze(["promote", "ordinary_rollback"]);
 const OPERATION_STATES = Object.freeze([
   "started",
   "command_returned",
@@ -419,19 +413,9 @@ function canonicalAffectedOperations(value) {
         "Main terminal receipt affected operation state is malformed",
       );
     }
-    const ordinary =
-      operation.type === "promote" || operation.type === "ordinary_rollback";
-    const appAlias =
-      operation.type === "app_alias_set" ||
-      operation.type === "app_alias_restore";
-    if (
-      (ordinary &&
-        (!["governance", "reserve", "ui"].includes(operation.target) ||
-          alias !== null)) ||
-      (operation.type === "app_v3_deploy" &&
-        (operation.target !== "app" || alias !== null)) ||
-      (appAlias && (operation.target !== "app" || alias === null))
-    ) {
+    // Every reviewed operation binds one main target and never an alias: no
+    // activation or recovery path moves a domain directly.
+    if (!OPERATION_TARGETS.includes(operation.target) || alias !== null) {
       throw new Error(
         "Main terminal receipt affected operation identity is malformed",
       );

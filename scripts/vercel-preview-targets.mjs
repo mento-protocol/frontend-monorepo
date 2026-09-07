@@ -22,18 +22,6 @@ const ACTIVE_GITHUB_VERCEL_CONFIGURATION = Object.freeze({
   }),
 });
 
-// The App's active shape before the MGP-18 v2 retirement. Recognition-only:
-// it lets the trusted controller classify open pre-retirement PR heads as
-// GitHub-owned. It is never a reviewed or tracked configuration, and it is
-// removed in the v3-normalization tighten step.
-const TRANSITIONAL_PRE_RETIREMENT_APP_ACTIVE_VERCEL_CONFIGURATION =
-  Object.freeze({
-    $schema: "https://openapi.vercel.sh/vercel.json",
-    git: Object.freeze({
-      deploymentEnabled: Object.freeze({ "**": false, v2: true }),
-    }),
-  });
-
 const MAIN_SHADOW_GITHUB_VERCEL_CONFIGURATION = Object.freeze({
   $schema: "https://openapi.vercel.sh/vercel.json",
   git: Object.freeze({
@@ -145,16 +133,6 @@ export const PREVIEW_TARGET_CONFIG = Object.freeze({
     previewShadowVercelConfiguration:
       PREVIEW_SHADOW_GITHUB_MAIN_VERCEL_CONFIGURATION,
     nativeVercelConfiguration: NATIVE_VERCEL_CONFIGURATION,
-    // Bounded transition for the MGP-18 v2 retirement. The App's reviewed
-    // configurations are now the generic shapes, but open pull requests
-    // branched before the retirement still carry the pre-retirement active
-    // shape at their heads. The trusted controller runs the default branch's
-    // constants, so it must keep recognizing that retired shape as
-    // GitHub-owned until those heads are refreshed. Remove this entry in the
-    // v3-normalization tighten step.
-    transitionalGithubVercelConfigurations: [
-      TRANSITIONAL_PRE_RETIREMENT_APP_ACTIVE_VERCEL_CONFIGURATION,
-    ],
   }),
   governance: targetConfiguration({
     logicalTarget: "governance",

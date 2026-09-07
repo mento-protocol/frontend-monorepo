@@ -42,7 +42,7 @@ function affectedOperation(overrides = {}) {
   return {
     operationId: "op-0001",
     target: "app",
-    type: "app_v3_deploy",
+    type: "promote",
     alias: null,
     state: "started",
     commandOutcome: null,
@@ -138,17 +138,16 @@ test("receipt shape is exactly the twenty-three reviewed keys", () => {
   );
 });
 
-test("affected operations admit exactly four targets and five operation types", () => {
+test("affected operations admit exactly four targets and two operation types", () => {
   const input = receiptInput("manual-intervention");
   const accepted = new Set();
   for (const [target, type, alias] of [
     ["governance", "promote", null],
     ["reserve", "promote", null],
     ["ui", "promote", null],
-    ["app", "app_v3_deploy", null],
-    ["app", "app_alias_set", "app.mento.org"],
+    ["app", "promote", null],
+    ["app", "ordinary_rollback", null],
     ["governance", "ordinary_rollback", null],
-    ["app", "app_alias_restore", "app.mento.org"],
   ]) {
     const receipt = createMainTerminalReceipt({
       ...input,
@@ -166,20 +165,22 @@ test("affected operations admit exactly four targets and five operation types", 
   );
   assert.equal(
     [...accepted].filter((value) =>
-      [
-        "promote",
-        "app_v3_deploy",
-        "app_alias_set",
-        "ordinary_rollback",
-        "app_alias_restore",
-      ].includes(value),
+      ["promote", "ordinary_rollback"].includes(value),
     ).length,
-    5,
+    2,
   );
+  // Neither the retired legacy path, the retired App custom-environment
+  // deploy, nor the retired transitional bridge alias operations may re-enter
+  // the receipt contract. No operation may carry an alias at all.
   for (const [target, type, alias] of [
     ["legacy-app", "app_alias_restore", "v2-app.mento.org"],
     ["app", "legacy_emergency_restore", "v2-app.mento.org"],
     ["legacy-app", "legacy_emergency_restore", "v2-app.mento.org"],
+    ["app", "app_v3_deploy", null],
+    ["app", "app_alias_set", "app.mento.org"],
+    ["app", "app_alias_restore", "app.mento.org"],
+    ["app", "promote", "app.mento.org"],
+    ["governance", "ordinary_rollback", "governance.mento.org"],
   ]) {
     assert.throws(
       () =>
@@ -187,7 +188,7 @@ test("affected operations admit exactly four targets and five operation types", 
           ...input,
           affectedOperations: [affectedOperation({ target, type, alias })],
         }),
-      /affected operation (?:target|type) is malformed/,
+      /affected operation (?:target|type|identity) is malformed/,
     );
   }
 });
@@ -644,13 +645,12 @@ test("manual receipt carries an exact canonical affected-operation set without i
     affectedOperation({
       operationId: "op-0001",
       target: "app",
-      type: "app_v3_deploy",
+      type: "promote",
     }),
     affectedOperation({
       operationId: "op-0002",
-      target: "app",
-      type: "app_alias_set",
-      alias: "app.mento.org",
+      target: "governance",
+      type: "promote",
       state: "verified",
       commandOutcome: "success",
       mappingState: "candidate",

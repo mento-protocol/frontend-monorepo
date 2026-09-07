@@ -7,7 +7,6 @@ interface SwapErrorOptions {
   toTokenSymbol?: string;
   chainId?: number;
   type?: "quote" | "swap";
-  insufficientLiquidityFallbackUrl?: string;
 }
 
 /**
@@ -44,33 +43,10 @@ export const USER_ERROR_MESSAGES = {
 export const SWAP_INSUFFICIENT_LIQUIDITY_LABEL =
   SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY_TEXT;
 export const SWAP_INSUFFICIENT_LIQUIDITY_MESSAGE =
-  "Liquidity for some Mento V3 pools is still being bootstrapped. Try a smaller amount, or use the V2 app for deeper liquidity.";
-export const SWAP_INSUFFICIENT_LIQUIDITY_LINK_LABEL = "Open V2 app";
+  "There isn't enough liquidity for this swap right now. Try a smaller amount or check back later.";
 
-interface InsufficientLiquidityContentOptions {
-  insufficientLiquidityFallbackUrl?: string;
-}
-
-export function getInsufficientLiquidityNoticeContent({
-  insufficientLiquidityFallbackUrl,
-}: InsufficientLiquidityContentOptions = {}): string | JSX.Element {
-  if (!insufficientLiquidityFallbackUrl) {
-    return SWAP_INSUFFICIENT_LIQUIDITY_MESSAGE;
-  }
-
-  return (
-    <>
-      {SWAP_INSUFFICIENT_LIQUIDITY_MESSAGE}{" "}
-      <a
-        href={insufficientLiquidityFallbackUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="underline"
-      >
-        {SWAP_INSUFFICIENT_LIQUIDITY_LINK_LABEL}
-      </a>
-    </>
-  );
+export function getInsufficientLiquidityNoticeContent(): string {
+  return SWAP_INSUFFICIENT_LIQUIDITY_MESSAGE;
 }
 /**
  * Converts swap error messages to user-friendly toast messages
@@ -81,7 +57,6 @@ export function getToastErrorMessage(
     fromTokenSymbol,
     toTokenSymbol,
     chainId,
-    insufficientLiquidityFallbackUrl,
   }: Omit<SwapErrorOptions, "type"> = {},
 ): string | JSX.Element {
   const checkedErrorMessage = extractFullErrorString(swapErrorMessage);
@@ -161,9 +136,7 @@ export function getToastErrorMessage(
         checkedErrorMessage.includes(
           SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY_NAME,
         ),
-      message: getInsufficientLiquidityNoticeContent({
-        insufficientLiquidityFallbackUrl,
-      }),
+      message: getInsufficientLiquidityNoticeContent(),
     },
     {
       condition: isFxMarketClosedError(checkedErrorMessage),
