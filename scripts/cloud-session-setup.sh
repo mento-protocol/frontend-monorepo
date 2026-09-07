@@ -22,7 +22,12 @@ fi
 
 cd "${repository_root}" || exit 0
 
-if [[ -d node_modules/.pnpm ]]; then
+# pnpm creates node_modules/.pnpm before it links anything, so that directory
+# exists even after a failed install and cannot stand in for success. Gate on a
+# stamp this script writes itself, so a partial tree is retried rather than
+# mistaken for a finished install.
+stamp_file="node_modules/.cloud-session-setup-complete"
+if [[ -f ${stamp_file} ]]; then
 	echo "cloud-session-setup: dependencies already installed"
 	exit 0
 fi
@@ -33,10 +38,16 @@ fi
 log_file="${TMPDIR:-/tmp}/cloud-session-setup.log"
 echo "cloud-session-setup: running pnpm install --frozen-lockfile (log: ${log_file})"
 if pnpm install --frozen-lockfile >"${log_file}" 2>&1; then
+	touch "${stamp_file}"
 	echo "cloud-session-setup: dependencies installed"
-else
-	echo "cloud-session-setup: pnpm install failed; last lines of ${log_file}:" >&2
-	tail -20 "${log_file}" >&2
+	exit 0
 fi
 
+# Report the failure on stdout as well: only stdout reaches the session context,
+# and an agent that cannot see the failure will read the empty node_modules as a
+# repository problem instead of an install that never finished.
+echo "cloud-session-setup: pnpm install FAILED; node_modules is incomplete."
+echo "cloud-session-setup: builds, type checks and tests will not run until it succeeds."
+echo "cloud-session-setup: last lines of ${log_file}:"
+tail -20 "${log_file}"
 exit 0

@@ -84,8 +84,11 @@ Always use `--filter` to avoid building/running everything unnecessarily.
 Cloud sessions start from a fresh clone with no `node_modules`. The
 `SessionStart` hook in [.claude/settings.json](.claude/settings.json) runs
 [scripts/cloud-session-setup.sh](scripts/cloud-session-setup.sh), which runs
-`pnpm install --frozen-lockfile` only when `CLAUDE_CODE_REMOTE=true` and
-`node_modules/.pnpm` is absent. Local sessions exit the script immediately.
+`pnpm install --frozen-lockfile` when `CLAUDE_CODE_REMOTE=true` and the
+`node_modules/.cloud-session-setup-complete` stamp is absent, so a partial tree
+from a failed install is retried rather than mistaken for a finished one. A
+failed install prints its last log lines to stdout, where the session can see
+them. Local sessions exit the script immediately.
 
 The cloud environment's setup script is a separate file. It is configured per
 environment at claude.ai/code, not in this repository. It runs as root before
@@ -95,7 +98,9 @@ Foundry and the Trunk launcher. Install tools into a shared path such as
 `/opt`, then symlink them into `/usr/local/bin`: the environment cache keeps
 files but not an exported `PATH`, and the session user cannot read `/root`.
 Fork tests additionally need the RPC hosts (`forno.celo.org`, `rpc.monad.xyz`)
-on a Custom network allowlist.
+on a Custom network allowlist. `pnpm install` needs `codeload.github.com` there
+too: it serves the `@metamask/jazzicon` git dependency, and allowing
+`github.com` alone is not enough.
 
 ## Visual Regression Testing
 
