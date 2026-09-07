@@ -168,248 +168,30 @@ control while `SLACK_BOT_TOKEN` remains org-shared.
 
 ## Dependabot preparation
 
-Dependabot opens native npm and GitHub Actions pull requests each Monday at
-06:00 UTC. An OpenClaw job is installed for Monday at 10:15 UTC. Keep it
-disabled until the one-time cutover in `docs/dependabot-automation.md` passes.
-After activation, OpenClaw is the scheduled operator. Manual sweeps may use
-Codex, Claude Code, OpenClaw, or another compatible agent runtime. Version 2 has
-no event webhook or standing poller.
+Use [the preparation playbook](docs/dependabot-automation.md) and
+`.github/dependabot-prep-policy.json` from the live default branch. The
+`trusted-openclaw-agent` workflow uses the ordinary coding session and existing
+GitHub authentication; its prohibitions are procedural, not a credential sandbox.
+Do not invoke the retired `/opt/dependabot-prep` launcher or the generic sealed
+`dependabot-prep` write path for this workflow.
 
-Use the installed, generic `dependabot-prep` skill. The skill defines the
-runtime-neutral loop. Repository policy remains in `AGENTS.md` and
-[`docs/dependabot-automation.md`](docs/dependabot-automation.md). The exact
-identity and history contract is `.github/dependabot-prep-policy.json`.
+Within the playbook's scope, normal installs, lockfile generation, builds, tests,
+conflict resolution, and dependency-related compatibility fixes are permitted.
+Majors, red CI, and documented runtime coupling are work to attempt, not automatic
+exclusions. Never weaken security or validation to obtain a green result.
+Never approve, dismiss reviews, merge, close, alter auto-merge, or resolve or
+unresolve review threads. Publish only fast-forward updates to the authenticated
+existing PR branch. Human approval, thread resolution, and merge remain separate.
 
-The scheduled declaration binds the canonical skill source path and reviewed
-SHA-256 digest. It also binds the canonical paths and reviewed SHA-256 digests
-of the trusted pre-model launcher, root `authorized-run` orchestrator, any
-runtime-specific instruction-isolation adapter, and the skill's bundled
-one-shot exact-CAS push adapter and credential helper. The launcher verifies
-every pin before it starts the model.
+The weekly OpenClaw job stays disabled until this policy is merged, a supervised
+preparation succeeds, and the operator separately confirms activation. Its
+reviewed entry prompt is `scripts/prompts/dependabot-weekly.md`. Never run the
+legacy launcher and the ordinary workflow concurrently. Follow the playbook's
+single-batch lock, recovery, budgets, progress, exact-head verification, and
+research requirements.
 
-Every write-capable session starts in an operator-owned,
-repository-instruction-free context outside every checkout, or in a clean,
-ordinary-file-only checkout proved before model launch to equal the exact live
-base SHA. The launcher keeps candidate clones outside the runtime project root.
-It passes a current-host test that proves candidate-path access cannot
-auto-import candidate `AGENTS.md`, `CLAUDE.md`, or another supported instruction
-file. Bind that result to the exact runtime binary, version, configuration,
-authorizer, launcher, adapter, host, and access operations. A model statement is
-not proof.
-The same test must prove that candidate-path read, edit, and command access
-starts no candidate process, loads no candidate configuration, and makes no
-candidate-triggered network request. Never start a shell or PTY in the
-candidate clone.
-An instruction-free launch must discard stale policy, candidate state, and
-evidence, then rebind policy and restart classification after `main` moves. An
-exact-base launch must stop writes and relaunch from the new base. A multi-base
-invocation requires the instruction-free context or one launcher process per
-exact base.
-An existing manual session without this pre-model proof stays read-only. Exit
-and relaunch it through the trusted launcher before granting a write class.
-
-A skill, authorizer, launcher, or adapter update requires a disabled schedule,
-complete review, byte-identical installation, expected-digest update, a
-repeated current-host boundary test, and a supervised rehearsal.
-
-The declaration also binds the exact repository, checkout, target, timing,
-timeout, worker limit, grants, denials, GitHub operator, credential source, and
-operator-owned repository lease. Scheduled and manual write runs use the same
-atomic lease. Never take over an existing or stale lease.
-
-Read-only is the skill default. The scheduled invocation explicitly grants
-branch updates, one broker-fixed Dependabot recreation under the full native-npm
-path or the `manual-hygiene` lane under a policy-selected recreation profile,
-review requests, digest-bound top-level feedback responses, and
-review replies. It grants neither check reruns, status chatter, nor
-review-thread resolution. Scheduled and supervised target invocations receive
-this same fixed, reviewed grant set; the supervised caller selects only the
-admitted runtime and target, never a per-invocation grant set. The scheduled
-path uses a sanitized standalone clone and does not execute candidate code.
-Exact-head CI validates the pushed result.
-
-The exact scheduled argv is
-`["sudo", "/opt/dependabot-prep/authorized-run"]`; a supervised target uses
-`["sudo", "/opt/dependabot-prep/authorized-run", "--runtime", "{codex|claude}", "--target", "{positive-pull-request-number}"]`
-with concrete admitted values. That executable wrapper runs
-the separately pinned implementation at
-`/opt/dependabot-prep/authorized-run.mjs`. The root orchestrator issues a
-short-lived, non-model-writable nonce whose `mode` is `write`, bound to the exact
-runtime, nullable scheduled or exact supervised target, grants, run ID, the
-canonical sorted launch inventory and its SHA-256, and its live root PID,
-kernel boot ID, process start time, and exact transient systemd unit. Root
-publishes it only after a stable inventory read; target `null` never expands
-writes beyond that bound set, and a supervised target requires an exact
-singleton. The mutation broker requires it. Direct
-launcher write mode must refuse. Direct `run --read-only` and `status` remain
-permitted. Run the activation test only as
-`sudo /opt/dependabot-prep/selftest-run`; it drops to the model identity with no
-supplementary groups or capabilities and publishes a root-owned, pin-bound
-`/etc/dependabot-prep/selftest-attestation.json`. `pin` and `selftest-run` are
-root-only maintenance; `lease-clear` is explicit `dependabot` maintenance.
-
-The model UID keeps `/var/lib/dependabot/gh` empty, so direct `/usr/bin/gh` has
-no credential. Only the separate `dependabot-mutator` nologin UID may read the
-repository PAT at `/var/lib/dependabot-mutator/gh`. Model GitHub access goes
-through the pinned broker clients: fixed-repository REST `GET` and sealed
-one-page `pull-request-force-push-history` and `pull-request-review-threads`
-GraphQL templates only;
-root-owned `manual-research` and `verify-assisted` evidence; capability-bound
-CodeRabbit review request, bounded comment, and bounded reply operations; and
-exact-CAS `push` or exact-head-and-base
-`sync-base` for branch writes. `sync-base` constructs and verifies a clean
-two-parent merge in root quarantine, then exact-CAS pushes it; it never calls
-the pull-request branch-update API. Never expose the PAT or bypass the broker.
-The exact client allowlists are read
-`gh-read`/`lineage`/`verify-assisted`/`selftest` and write
-`push`/`sync-base`/`recreate`/`request-review`/`comment`/`reply`/`manual-research`;
-the result verifier may call only `verify-prepared` and `run-manifest` directly.
-Invoke each write client, including `manual-research`, as the sole foreground
-command and preserve its direct exit status and complete output.
-
-Local candidate execution requires an `execute` grant and a tested adapter. The
-agent must not approve, dismiss a review, enable auto-merge, merge, or use a
-merge queue. A maintainer provides the current human approval and performs the
-final squash merge.
-
-For each pull request:
-
-1. Query the live pull request. Keep `generationBaseSha` (native-generation
-   ancestry), `currentTargetBaseSha` (live `main` used for this attempt), and
-   `policySha` (the policy file's exact 40-character Git blob OID) distinct.
-   Verify the exact bot identity, native lineage, `dependabot/**` head ref, live
-   head, and `autoMergeRequest: null`. Admit a pre-existing non-native head only
-   through the pinned root-owned broker's complete `dependabot-lineage`
-   receipt-chain proof; same-UID logs are not authority.
-2. Paginate all comments, reviews, threads, labels, and history. Collect force
-   pushes through GraphQL `HeadRefForcePushedEvent` with exact
-   `beforeCommit.oid`/`afterCommit.oid` values and complete cursor pagination.
-   Read applicable rules from `/rules/branches/{branch}` plus every completely
-   enumerated full ruleset, not the legacy branch-protection endpoint. Stop on
-   the exact veto, intervention, malformed-feedback, or force-push outcomes in
-   `.github/dependabot-prep-policy.json`. Inspect the full dependency, lockfile,
-   workflow, and transitive diff.
-   Require the sealed normalizer identity, status, and note. Rejected or
-   incomplete evidence and literal `unknown` `generationBaseSha`/`policySha`
-   are valid only for a non-prepared blocked row; `currentTargetBaseSha` remains
-   required, and prepared evidence permits no unknown SHA.
-3. Select `full`, `sync-only`, `review-only`, or `manual`. An initial conflict,
-   stale base, or red CI result is admissible work for ordinary npm. The exact
-   final head must still contain the target base and pass required checks,
-   CodeRabbit review, feedback, mergeability, and absent-auto-merge gates.
-   `manual-hygiene` permits only a fixed recreation, exact-head CodeRabbit
-   request, and bounded answers after a root-owned research-gate receipt.
-   It never permits branch edits or pushes, candidate execution, check reruns,
-   approval, dismissal, merge, close, auto-merge, or thread resolution, and never
-   reports `prepared`. A complete assisted handoff needs root-verified research
-   and handoff receipts; red CI stays visible. Follow the canonical
-   [manual-hygiene procedure](docs/dependabot-automation.md#manual-hygiene-lane)
-   for recreation guards, source requirements, result projection, and base or
-   policy drift handling.
-4. Never mutate a ref for a direct PR change below `.github/workflows/**` or
-   `.github/actions/**`. Only an authenticated minor or patch version update in
-   `github-actions-routine` may use `review-only`, and only with full lowercase
-   40-character old and new SHA refs on its unchanged native green exact head.
-   Major, security, sensitive, self-reviewing, ambiguous, and local-Action
-   updates remain manual. For npm, the protected subtrees at the exact old head
-   must already match `currentTargetBaseSha` byte-for-byte and mode-for-mode.
-   GitHub requires workflow-write authority even for base-sourced workflow
-   bytes, and this controller deliberately has none. A mismatch may use only the
-   `full`-mode broker-fixed `recreate` operation once for an authenticated native
-   npm generation containing exactly one native Dependabot commit; multi-commit
-   generations stay `manual`. Require complete authentication of the replacement
-   Dependabot-native head; otherwise it is manual.
-   Verify equality before commit, in quarantine, and immediately before
-   mutation. For npm,
-   merge the base with no-commit and no-fast-forward behavior. Create one merge
-   commit, one repair commit on an already-current base, or no commit. Never
-   create an empty second commit.
-   A clean `sync-only` branch may use only the root broker's `sync-base`
-   operation bound to the exact head and base. The broker builds and verifies
-   the two-parent merge in root quarantine, exact-CAS pushes it, and records the
-   receipt. Never grant `Workflows: write`; a protected-tree mismatch or
-   conflict may use fixed `recreate`, but direct ref mutation fails closed.
-5. Preserve the requested update while fixing conflicts and valid findings.
-   A semver-patch-only `next` update may use `full` only when its authenticated
-   original delta is confined to the exact coupled Next declaration, override,
-   lockfile-closure, and derived runtime-contract digest tuple. Keep every
-   other byte and mode identical to `currentTargetBaseSha`, including Vercel
-   identity/configuration, `packageManager` and pnpm/runtime pins, workflows,
-   Actions, and security policy, subject to the protected-tree precondition
-   above. A bounded data-only repair inside that tuple is allowed only when it
-   is deterministic without candidate or package-manager execution; otherwise
-   use `manual`. Next minor/major rotations are always `manual`, as are Vercel
-   CLI, protected Playwright, protected pnpm runtime or bootstrap rotations,
-   and packages matching the exact wallet, signing, transaction, or bridge risk
-   patterns.
-   Ordinary npm requires a strict forward stable-semver change with the same
-   range prefix; downgrade, prerelease, source/protocol, and ambiguous changes
-   are manual. An ordinary compatibility repair requires a separate clean base
-   sync and one child commit of the exact old head. It may modify only existing
-   non-protected files below `apps/` or `packages/`, never a dependency manifest
-   or lockfile, and its final
-   manifest tuples must exactly match the authenticated native tuples.
-   Follow [`docs/dependency-overrides.md`](docs/dependency-overrides.md) only
-   during the maintainer takeover. Keep Actions on full SHA pins. Classify
-   sensitive or self-reviewing Actions, including OSV
-   scanner/reporter updates, as `manual`. Move the OSV scanner action and the
-   OSV reporter action together, to the same pinned revision, in one update.
-   That is a version-pin rule about those two actions. It places no limit on
-   how many times a workflow may invoke either one.
-   A manual verdict must still research every package from authoritative
-   upstream changelogs, releases, migration guides, or advisories. At least one
-   authoritative upstream HTTPS URL per exact name/from/to tuple must be fetched
-   and live-verified. Only when none of those desired source classes exists may
-   an authoritative upstream project or package page be used as the explicit
-   fallback; record the exact missing classes and lower confidence. Report the
-   changelog or release-note links, breaking changes, repository impact,
-   recommendations, risk (`low`/`medium`/`high`/`critical`/`unknown`),
-   confidence and rationale, plus explicit missing or ambiguous sources. If no authoritative link can be
-   live-verified, research is operationally incomplete and the sweep exits `1`.
-   Do not execute candidate code for research. The exact name/from/to tuples in
-   `manualResearch.packages` must equal the result's complete `dependencies`
-   inventory.
-6. Do not run repository commands in the scheduled no-exec clone. Require
-   exact-head CI to run `pnpm dependency:policy:test` and all affected gates.
-   Require the override validators for root override changes. Use `manual` when
-   a required repair needs local candidate execution.
-7. Push only to the verified head ref with an explicit refspec and an exact
-   expected-old-head lease, through the root broker's exact-CAS `push` or
-   `sync-base` operation. Independently prove the update is a fast-forward.
-   The broker worker activates the reviewed one-shot HTTPS credential adapter
-   under `dependabot-mutator` and removes it after the attempt; never hold or
-   expose that credential. Request a new
-   CodeRabbit review once per eligible exact head, including an unchanged
-   `review-only` or no-op head, and again after every push, with one exact
-   `@coderabbitai review` issue comment. Bind that request to this invocation's stable comment ID,
-   authenticated operator tuple, and exact head. Require numeric ID
-   `136622811`, login `coderabbitai[bot]`, type `Bot`, and an immutable review
-   `commit_id` for the current head. Reply to every comment. Never resolve or
-   unresolve a review thread. Record each answered thread for the maintainer to
-   resolve at the final gate. Do not push when no new commit exists.
-8. Re-read the live head, base, and `autoMergeRequest`. Repeat the loop on
-   drift. Handoff only when required check runs or commit statuses from their
-   expected producers pass, every actionable item is answered, the exact-head
-   CodeRabbit review exists, and GitHub reports `MERGEABLE`. List every answered
-   but unresolved thread. Report thread resolution and final human approval as
-   separate gates.
-
-Report `prepared for maintainer decision`, `blocked`, `manual`, or `read-only`,
-plus the processing mode, all three SHA roles, normalized
-force-push/rules/mutation-lineage evidence, exact final head and base, dependency
-risk, checks, feedback, and blockers. Include the complete research packet for
-`manual`. During an active preparation run, monitor checks and reviews at
-intervals shorter than ten minutes. Human approval and squash merge remain.
-
-A complete schema-valid exact-inventory sweep exits `0` even when individual
-PRs are manual or blocked, unless any manual research result is `unavailable`.
-Unavailable research remains reportable but makes the sweep operationally
-incomplete and exits `1`; other operational or result failures also exit `1`,
-pin/self-test drift exits `2`, and active lease contention exits `3`. Keep verdict
-and processing-mode counts separate from launcher operational status.
-Dependabot pull requests stay secretless. Do not admit them to credentialed
-Vercel Preview workers or broaden
-the same-repository `User` author/sender credential rule.
+Dependabot CI remains secretless. Do not admit these PRs to credentialed Vercel
+Preview workers or broaden the existing author/sender rules.
 
 The automatic `.github/workflows/vercel-main-deployment.yml` path starts when
 the exact `CI/CD` push run for `main` is requested and runs read-only planning
