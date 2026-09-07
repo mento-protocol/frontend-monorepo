@@ -108,9 +108,26 @@ Stop early enough to publish the report. Provider exhaustion preserves work.
    resolutions. Do not use production secrets to make local checks pass.
 4. Inspect the final diff. Immediately before publishing, re-read open state,
    head/base, draft state, holds and auto-merge. Reconcile drift first. Prove the
-   new commit descends from the observed head. Use normal fast-forward Git push with explicit
-   `HEAD:refs/heads/<verified-head-ref>`, never a force flag. Read back the SHA.
+   new commit descends from the observed head. Publish only that proven
+   fast-forward update with an exact-ref, exact-observed-SHA lease. This is the
+   sole force-flag exception: the lease prevents recreating a deleted ref or
+   overwriting a concurrent update; it does not authorize history rewrites.
+   Require an existing, nonzero 40-hex observed SHA and the verified full branch
+   ref. Pin the local commit too, then run:
+
+   ```sh
+   preparedHead=$(git rev-parse HEAD)
+   git merge-base --is-ancestor "$observedHead" "$preparedHead" &&
+     git push --force-with-lease="$pushRef:$observedHead" "$pushRemote" "$preparedHead:$pushRef"
+   ```
+
+   `pushRef` is `refs/heads/<verified-head-ref>` and `pushRemote` is the verified
+   PR head repository. Never use an empty expected SHA, an implicit lease,
+   `--force`, a `+` refspec, or a non-fast-forward update. Lease rejection stops
+   publication: re-inventory and reconcile, never retry with a weakened lease.
+   Read back the remote SHA and PR state after success.
    A permission failure is a blocker, not permission to broaden the credential.
+
 5. Request CodeRabbit once per head only if no qualifying review or pending
    request exists, with the exact `@coderabbitai review` command. On resume,
    inspect prior requests; do not duplicate them. Require genuine

@@ -27,6 +27,9 @@ mark draft Dependabot PRs ready; report them as needs decision and research only
 Do not weaken tests/security, publish automation-authority changes, or send bot commands
 other than the documented CodeRabbit review request. Never modify this policy,
 the scheduler, or your own authority during the run.
+Publish only proven fast-forward updates using the playbook's exact-ref,
+exact-observed-SHA lease; this is the sole force-flag exception, not permission
+to rewrite history. Stop and reconcile if the lease rejects the push.
 
 Inventory first. Research each package with verified upstream links, assess risk
 and confidence, repair eligible PRs, run the relevant repository gates, and finish

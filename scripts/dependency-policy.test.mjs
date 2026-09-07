@@ -178,8 +178,15 @@ test("trusted-agent policy limits authority to existing Dependabot pull requests
     fastForwardOnly: true,
     explicitRefspec: true,
     recheckRemoteHeadBeforePush: true,
+    lease: "exact-ref-and-observed-nonzero-sha",
+    proveFastForwardBeforeLease: true,
     noOpPush: false,
   });
+  assert.match(read(policy.canonicalPlaybook), /git merge-base --is-ancestor/);
+  assert.match(
+    read(policy.canonicalPlaybook),
+    /--force-with-lease="\$pushRef:\$observedHead"/,
+  );
 });
 
 test("dependency repairs remain executable without granting security or final PR-state changes", () => {

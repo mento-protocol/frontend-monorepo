@@ -73,6 +73,8 @@
       "fastForwardOnly": true,
       "explicitRefspec": true,
       "recheckRemoteHeadBeforePush": true,
+      "lease": "exact-ref-and-observed-nonzero-sha",
+      "proveFastForwardBeforeLease": true,
       "noOpPush": false
     }
   },
