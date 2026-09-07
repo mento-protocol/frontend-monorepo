@@ -108,9 +108,23 @@ Foundry and the Trunk launcher. Install tools into a shared path such as
 `/opt`, then symlink them into `/usr/local/bin`: the environment cache keeps
 files but not an exported `PATH`, and the session user cannot read `/root`.
 Fork tests additionally need the RPC hosts (`forno.celo.org`, `rpc.monad.xyz`)
-on a Custom network allowlist. `pnpm install` needs `codeload.github.com` there
-too: it serves the `@metamask/jazzicon` git dependency, and allowing
-`github.com` alone is not enough.
+on a Custom network allowlist.
+
+`pnpm install` needs something different, and the network allowlist cannot
+supply it. The catalog pins `@metamask/jazzicon` to
+`github:jmrossy/jazzicon#<sha>`, which pnpm resolves to a
+`codeload.github.com` tarball. Cloud sessions gate GitHub by *repository*, not
+by host: every request to `github.com` and `codeload.github.com` for a
+repository outside the session's scope is answered by the proxy itself with
+HTTP 403 and the body `GitHub access to this repository is not enabled for this
+session`. Adding `codeload.github.com` to the allowlist does not change that —
+verified with the entry present and the install still failing, while an
+allowlisted non-GitHub host reached its origin normally.
+
+Anonymous `git clone` and `git ls-remote` of the same public repository do
+succeed through the proxy; only the tarball path is gated. So the install works
+when either `jmrossy/jazzicon` is in the session's GitHub repository scope, or
+the dependency is fetched over git rather than as a codeload tarball.
 
 ## Visual Regression Testing
 
