@@ -1,8 +1,8 @@
 ---
 title: External agents prepare weekly Dependabot pull requests for human merge
-status: active
+status: archived
 owner: eng
-canonical: true
+canonical: false
 last_verified: 2026-09-03
 scope: dependency-maintenance
 date: 2026-09-01
@@ -10,11 +10,13 @@ supersedes:
   - "0006"
   - "0007"
   - "0008"
+superseded_by: "0010"
 ---
 
 # ADR 0009 — External agents prepare weekly Dependabot pull requests for human merge
 
-**Status:** Accepted
+**Status:** Superseded by [ADR 0010](0010-trusted-agent-dependabot-preparation.md).
+This document is historical and does not authorize the current scheduled workflow.
 **Scope:** dependency-maintenance
 
 ## Context
