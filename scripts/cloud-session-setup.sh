@@ -36,15 +36,21 @@ fi
 # stamp this script writes itself, so a partial tree is retried rather than
 # mistaken for a finished install.
 #
-# The stamp records both inputs that decide the tree: the lockfile the install
-# was made from and the pnpm that made it. A resumed session whose lockfile
-# moved — a pull or a branch switch — or whose pin moved without touching the
-# lockfile therefore reinstalls instead of running against the previous
-# revision's dependencies. An unreadable digest stays empty and never matches,
-# so the uncertain case reinstalls too.
+# The stamp records every input that decides the tree: the lockfile, the pnpm
+# that installs it, and the configuration that shapes the layout. `.npmrc`
+# carries this workspace's `public-hoist-pattern` entries and
+# `pnpm-workspace.yaml` its `onlyBuiltDependencies`, and either can move on a
+# pull or a branch switch without the lockfile moving, so a resumed session
+# reinstalls instead of running against a tree laid out for the previous
+# revision. An unreadable lockfile digest stays empty and never matches, so the
+# uncertain case reinstalls too.
 stamp_file="node_modules/.cloud-session-setup-complete"
 lockfile_digest="$(sha256sum pnpm-lock.yaml 2>/dev/null | cut -d' ' -f1)"
-stamp_expected="${lockfile_digest} pnpm@${pinned_pnpm}"
+# Hash the per-file digests rather than the concatenated bytes: each line names
+# its file, so a file that is absent is distinguishable from one whose content
+# moved into its neighbour.
+config_digest="$(sha256sum pnpm-workspace.yaml .npmrc 2>/dev/null | sha256sum | cut -d' ' -f1)"
+stamp_expected="${lockfile_digest} ${config_digest} pnpm@${pinned_pnpm}"
 stamp_actual=""
 if [[ -f ${stamp_file} ]]; then
 	read -r stamp_actual <"${stamp_file}"
