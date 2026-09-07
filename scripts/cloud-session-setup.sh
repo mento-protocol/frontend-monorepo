@@ -26,8 +26,16 @@ cd "${repository_root}" || exit 0
 # exists even after a failed install and cannot stand in for success. Gate on a
 # stamp this script writes itself, so a partial tree is retried rather than
 # mistaken for a finished install.
+#
+# The stamp holds the lockfile digest the install was made from. A resumed
+# session whose lockfile moved since — a pull or a branch switch — therefore
+# reinstalls instead of running against dependencies from the previous
+# revision. An unreadable digest stays empty and never matches, so the
+# uncertain case reinstalls too.
 stamp_file="node_modules/.cloud-session-setup-complete"
-if [[ -f ${stamp_file} ]]; then
+lockfile_digest="$(sha256sum pnpm-lock.yaml 2>/dev/null | cut -d' ' -f1)"
+if [[ -n ${lockfile_digest} ]] && [[ -f ${stamp_file} ]] &&
+	[[ "$(cat "${stamp_file}" 2>/dev/null)" == "${lockfile_digest}" ]]; then
 	echo "cloud-session-setup: dependencies already installed"
 	exit 0
 fi
@@ -38,7 +46,7 @@ fi
 log_file="${TMPDIR:-/tmp}/cloud-session-setup.log"
 echo "cloud-session-setup: running pnpm install --frozen-lockfile (log: ${log_file})"
 if pnpm install --frozen-lockfile >"${log_file}" 2>&1; then
-	touch "${stamp_file}"
+	printf '%s\n' "${lockfile_digest}" >"${stamp_file}"
 	echo "cloud-session-setup: dependencies installed"
 	exit 0
 fi

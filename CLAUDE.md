@@ -85,10 +85,11 @@ Cloud sessions start from a fresh clone with no `node_modules`. The
 `SessionStart` hook in [.claude/settings.json](.claude/settings.json) runs
 [scripts/cloud-session-setup.sh](scripts/cloud-session-setup.sh), which runs
 `pnpm install --frozen-lockfile` when `CLAUDE_CODE_REMOTE=true` and the
-`node_modules/.cloud-session-setup-complete` stamp is absent, so a partial tree
-from a failed install is retried rather than mistaken for a finished one. A
-failed install prints its last log lines to stdout, where the session can see
-them. Local sessions exit the script immediately.
+`node_modules/.cloud-session-setup-complete` stamp does not match the current
+`pnpm-lock.yaml` digest, so both a partial tree from a failed install and a
+resumed session whose lockfile moved are reinstalled rather than mistaken for a
+finished install. A failed install prints its last log lines to stdout, where
+the session can see them. Local sessions exit the script immediately.
 
 The cloud environment's setup script is a separate file. It is configured per
 environment at claude.ai/code, not in this repository. It runs as root before
