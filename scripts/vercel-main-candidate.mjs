@@ -2,7 +2,10 @@ import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import { deflateRawSync, inflateRawSync } from "node:zlib";
 
-import { assertMainReleaseManifest } from "./vercel-main-release-reconciliation.mjs";
+import {
+  assertBridgeEraReleaseManifest,
+  assertMainReleaseManifest,
+} from "./vercel-main-release-reconciliation.mjs";
 import { generateVercelMainCandidateDeploymentId } from "./vercel-prebuilt.mjs";
 import { canonicalizeDeploymentUrl } from "./vercel-deployment-url.mjs";
 
@@ -130,13 +133,12 @@ function digest(value) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+// Every main candidate is an ordinary production deployment.
 function expectedEnvironment(target) {
   if (!MAIN_CANDIDATE_TARGETS.includes(target)) {
     throw new Error(`Unknown main candidate target: ${String(target)}`);
   }
-  return target === "app"
-    ? { target: null, customEnvironmentSlug: "v3" }
-    : { target: "production", customEnvironmentSlug: null };
+  return { target: "production", customEnvironmentSlug: null };
 }
 
 function expectedProjectName(target) {
@@ -204,14 +206,10 @@ function stableIntentBody({
   };
 }
 
-function canonicalStableContext({
-  target,
-  deploySha,
-  upstreamRunId,
-  projectId,
-  projectName,
-  releaseManifest,
-}) {
+function canonicalStableContext(
+  { target, deploySha, upstreamRunId, projectId, projectName, releaseManifest },
+  assertManifest = assertMainReleaseManifest,
+) {
   const canonicalTarget = requireString(
     target,
     "Main candidate target",
@@ -234,7 +232,7 @@ function canonicalStableContext({
   if (projectName !== expectedProjectName(canonicalTarget)) {
     throw new Error("Main candidate project name conflicts with target");
   }
-  const manifest = assertMainReleaseManifest(releaseManifest);
+  const manifest = assertManifest(releaseManifest);
   if (
     manifest.deploySha !== canonicalDeploySha ||
     manifest.upstreamRunId !== canonicalUpstreamRunId ||
@@ -382,7 +380,7 @@ export function mainCandidateVercelMetadataByteLength(metadata) {
   return Buffer.byteLength(JSON.stringify(candidateMetadata), "utf8");
 }
 
-function decodeManifest(metadata) {
+function decodeManifestBody(metadata) {
   const count = Number(metadata.mentoReleaseManifestChunkCount);
   if (
     !Number.isInteger(count) ||
@@ -439,7 +437,12 @@ function decodeManifest(metadata) {
       `Main candidate release manifest encoding is malformed: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  const manifest = assertMainReleaseManifest(parsed);
+  return parsed;
+}
+
+function decodeManifest(metadata, assertManifest) {
+  const parsed = decodeManifestBody(metadata);
+  const manifest = assertManifest(parsed);
   if (JSON.stringify(manifest) !== JSON.stringify(parsed)) {
     throw new Error("Main candidate release manifest is not canonical");
   }
@@ -493,7 +496,7 @@ function auditOriginFromMetadata(metadata) {
   });
 }
 
-export function canonicalizeMainCandidateVercelMetadata(metadata, context) {
+function canonicalizeCandidateMetadata(metadata, context, assertManifest) {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
     throw new Error("Main candidate Vercel metadata is malformed");
   }
@@ -525,7 +528,7 @@ export function canonicalizeMainCandidateVercelMetadata(metadata, context) {
   ) {
     throw new Error("Main candidate Vercel metadata schema is malformed");
   }
-  const manifest = decodeManifest(metadata);
+  const manifest = decodeManifest(metadata, assertManifest);
   const allowedMetadataKeys = new Set([
     "mentoCandidateSchema",
     "mentoReleaseId",
@@ -552,14 +555,17 @@ export function canonicalizeMainCandidateVercelMetadata(metadata, context) {
   if (!context || typeof context !== "object" || Array.isArray(context)) {
     throw new Error("Main candidate metadata context is required");
   }
-  const stable = canonicalStableContext({
-    target: context.target,
-    deploySha: context.deploySha,
-    upstreamRunId: manifest.upstreamRunId,
-    projectId: context.projectId,
-    projectName: context.projectName,
-    releaseManifest: manifest,
-  });
+  const stable = canonicalStableContext(
+    {
+      target: context.target,
+      deploySha: context.deploySha,
+      upstreamRunId: manifest.upstreamRunId,
+      projectId: context.projectId,
+      projectName: context.projectName,
+      releaseManifest: manifest,
+    },
+    assertManifest,
+  );
   if (
     metadata.mentoReleaseId !== stable.releaseId ||
     metadata.mentoCandidateId !== stable.candidateId ||
@@ -576,6 +582,50 @@ export function canonicalizeMainCandidateVercelMetadata(metadata, context) {
     stableIntentDigest: stable.stableIntentDigest,
     auditOrigin: auditOriginFromMetadata(metadata),
   };
+}
+
+export function canonicalizeMainCandidateVercelMetadata(metadata, context) {
+  return canonicalizeCandidateMetadata(
+    metadata,
+    context,
+    assertMainReleaseManifest,
+  );
+}
+
+// True only for metadata that is a complete, internally consistent candidate
+// seal whose embedded release manifest is bridge-era: the same schema, key
+// allowlist, size bound, manifest structure, stable release/candidate identity,
+// digest, and audit origin the current contract requires, with the single
+// permitted difference being the manifest's App prior — the retired `v3`
+// custom environment and one of that environment's two alias topologies. A
+// corrupt or partially bridge-era seal fails one of those checks and is not
+// admitted here, so it still reaches the ordinary assertion path and fails the
+// run closed. Seals are immutable, so this admission is permanent.
+//
+// The stable body stays production-shaped for every target, deliberately.
+// Verified by generating seals with the real modules at each merge commit
+// (see `scripts/fixtures/vercel-main-candidate/historical-seals.json`):
+//   - 3df6e091 (#890, bridge era) sealed App stable bodies with
+//     `{target: "production", customEnvironmentSlug: null}` — its `v3` stable
+//     body existed only on a read-side classifier, never on a sealing path.
+//   - 1a362e5d (#879, pre-conversion) is the only code that ever bound
+//     `{target: null, customEnvironmentSlug: "v3"}` into a stable body, and
+//     only for App. Those App deployments live in the retired environment, so
+//     `inspectDeploymentRecord` rejects them on the production expectation long
+//     before their metadata is read.
+// Admitting a `v3` stable body here would therefore admit a digest shape no
+// reachable deployment carries, so it is refused.
+export function isBridgeEraCandidateMetadata(metadata, context) {
+  try {
+    canonicalizeCandidateMetadata(
+      metadata,
+      context,
+      assertBridgeEraReleaseManifest,
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function canonicalCandidate(value, intent) {

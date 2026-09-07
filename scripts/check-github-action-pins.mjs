@@ -72,7 +72,7 @@ const NORMALIZED_POLICY_WORKFLOWS = new Map([
             {
               name: "Setup PNPM",
               uses: "pnpm/action-setup@<sha>",
-              with: { version: "10.34.4" },
+              with: { version: "10.34.5" },
             },
             {
               name: "Set up Node.js",
@@ -139,7 +139,7 @@ const NORMALIZED_POLICY_WORKFLOWS = new Map([
             {
               name: "Setup PNPM",
               uses: "pnpm/action-setup@<sha>",
-              with: { version: "10.34.4" },
+              with: { version: "10.34.5" },
             },
             {
               name: "Set up Node.js",

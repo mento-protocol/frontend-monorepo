@@ -1,6 +1,5 @@
 "use client";
 
-import { env } from "@/env.mjs";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import { Button, IconLoading, TokenIcon } from "@mento-protocol/ui";
 import {
@@ -62,7 +61,6 @@ export function SwapConfirm({ chainId }: { chainId: ChainId }) {
     toTokenUSDValue,
   } = useOptimizedSwapQuote(amount, tokenInSymbol, tokenOutSymbol, {
     chainId,
-    insufficientLiquidityFallbackUrl: env.NEXT_PUBLIC_BANNER_LINK,
   });
   const {
     data: limits,
@@ -119,7 +117,6 @@ export function SwapConfirm({ chainId }: { chainId: ChainId }) {
         fromAmount,
         toAmount,
       },
-      env.NEXT_PUBLIC_BANNER_LINK,
     );
 
   const {
@@ -342,11 +339,7 @@ export function SwapConfirm({ chainId }: { chainId: ChainId }) {
         </div>
       </div>
 
-      {hasInsufficientLiquidityError && (
-        <SwapInsufficientLiquidityNotice
-          fallbackUrl={env.NEXT_PUBLIC_BANNER_LINK}
-        />
-      )}
+      {hasInsufficientLiquidityError && <SwapInsufficientLiquidityNotice />}
 
       {tradingLimitError && (
         <p role="alert" className="text-sm text-destructive">

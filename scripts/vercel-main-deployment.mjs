@@ -14,11 +14,14 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  acceptsPriorEnvironment,
   MAIN_DEPLOYMENT_MODES,
   MAIN_DEPLOYMENT_TARGETS,
   MAIN_TARGET_CONTRACTS,
   assertMainDeploymentPlan,
+  foreignReviewedAliases,
   planMainDeployments,
+  riderAliasesFrom,
 } from "./vercel-main-plan.mjs";
 import {
   MAIN_TRANSACTION_MODE,
@@ -35,7 +38,6 @@ import {
   runMainTransaction,
 } from "./vercel-main-transaction.mjs";
 import {
-  assertMainCandidateIntent,
   assertMainCandidateReceipt,
   createMainCandidateIntent,
   createMainCandidateVercelMetadata,
@@ -104,15 +106,19 @@ export {
 
 export const MAIN_DEPLOYMENT_SCHEMA = "vercel-main-deployment:v1";
 export const MAIN_STAGE_SCHEMA = "vercel-main-stage:v1";
-export const MAIN_EVIDENCE_SCHEMA = "vercel-main-evidence:v1";
+// `:v2` of each evidence schema below adds the per-target `riderAliases` map to
+// every outcome that can represent a public mapping mutation. All are same-run
+// artifacts, so plain bumps are enough — nothing durable carries an older one,
+// and riders are deliberately absent from everything that is.
+export const MAIN_EVIDENCE_SCHEMA = "vercel-main-evidence:v2";
 export const MAIN_FAILURE_EVIDENCE_SCHEMA = "vercel-main-failure-evidence:v1";
-export const MAIN_ACTIVE_EVIDENCE_SCHEMA = "vercel-main-active-evidence:v1";
+export const MAIN_ACTIVE_EVIDENCE_SCHEMA = "vercel-main-active-evidence:v2";
 export const MAIN_ACTIVE_CURRENT_RELEASE_EVIDENCE_SCHEMA =
-  "vercel-main-active-current-release-evidence:v1";
+  "vercel-main-active-current-release-evidence:v2";
 export const MAIN_ACTIVE_SAFE_NOOP_EVIDENCE_SCHEMA =
   "vercel-main-active-safe-noop-evidence:v1";
 export const MAIN_ACTIVE_FAILURE_EVIDENCE_SCHEMA =
-  "vercel-main-active-failure-evidence:v1";
+  "vercel-main-active-failure-evidence:v2";
 export const MAIN_ACTIVE_CENSUS_FAILURE_SCHEMA =
   "vercel-main-active-census-failure:v1";
 export const MAIN_ACTIVE_PREPARATION_FAILURE_EVIDENCE_SCHEMA =
@@ -137,6 +143,12 @@ export const MAIN_ORDINARY_TARGETS = Object.freeze([
   "governance",
   "reserve",
   "ui",
+]);
+// Every main target promotes and rolls back through the activation
+// transaction.
+export const MAIN_PROMOTABLE_TARGETS = Object.freeze([
+  ...MAIN_ORDINARY_TARGETS,
+  "app",
 ]);
 
 const ACTIVE_STATE_SUMMARY_COUNT_KEYS = Object.freeze([
@@ -195,12 +207,13 @@ const VERIFICATION_KEYS = Object.freeze([
   "immutableSmoke",
   "protectedMappings",
 ]);
+// One compensation slot per started forward operation: one rollback slot for
+// every promotable target, and nothing else.
 export const MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS =
-  MAIN_ORDINARY_TARGETS.length + MAIN_TARGET_CONTRACTS.app.aliases.length;
+  MAIN_PROMOTABLE_TARGETS.length;
 const MAX_JSON_BYTES = 256 * 1024;
 export const MAIN_ACTIVE_JOURNAL_HISTORY_MAX_JSON_BYTES = 1024 * 1024;
 export const MAIN_ACTIVE_TERMINAL_PROOFS_MAX_JSON_BYTES = 1024 * 1024;
-const APP_BUILD_PROOF_SCHEMA = "vercel-main-app-build:v2";
 const CANONICAL_MAPPING_TARGETS = Object.freeze([
   "governance",
   "reserve",
@@ -242,15 +255,7 @@ const CLI_COMMAND_OPTIONS = Object.freeze({
     "output",
     "receipt",
   ]),
-  "active-event-verify-app": Object.freeze([
-    "app-candidate-receipt",
-    "app-deployment",
-    "authorization",
-    "current-mappings",
-    "freshness",
-    "output",
-    "receipt",
-  ]),
+
   "active-command-descriptor": Object.freeze(["authorization", "output"]),
   "active-evidence": Object.freeze([
     "final-mappings",
@@ -372,8 +377,7 @@ const CLI_COMMAND_OPTIONS = Object.freeze({
     "output",
     "receipt",
   ]),
-  "app-build-proof": Object.freeze(["intent", "output"]),
-  "app-candidate-expectation": Object.freeze(["journal", "output"]),
+
   "candidate-intent": Object.freeze(["execution", "output", "target"]),
   "candidate-metadata": Object.freeze(["intent", "output"]),
   "create-release-manifest": Object.freeze([
@@ -424,12 +428,7 @@ const CLI_COMMAND_OPTIONS = Object.freeze({
     "prepared-journal",
     "stage-barrier",
   ]),
-  "stage-barrier": Object.freeze([
-    "app-preparation",
-    "candidate-receipts",
-    "execution",
-    "output",
-  ]),
+  "stage-barrier": Object.freeze(["candidate-receipts", "execution", "output"]),
   "run-active-recovery": Object.freeze([
     "event",
     "journal-history",
@@ -680,25 +679,21 @@ function canonicalPlanningSnapshotForSpec({ snapshot, projectIds }) {
   );
   for (const [index, state] of ordered.entries()) {
     const expected = spec[index];
+    const target = MAIN_DEPLOYMENT_TARGETS.find((candidate) =>
+      MAIN_TARGET_CONTRACTS[candidate].aliases.includes(expected.alias),
+    );
     if (
       state.alias !== expected.alias ||
       state.projectId !== expected.projectId ||
       state.projectName !== expected.projectName ||
-      state.target !== expected.target ||
-      state.customEnvironmentSlug !== expected.customEnvironmentSlug ||
+      target === undefined ||
+      !acceptsPriorEnvironment(target, state) ||
       state.readyState !== "READY" ||
       !state.aliases.includes(expected.alias)
     ) {
       throw new Error(
         `Protected snapshot state is ambiguous for ${expected.alias}`,
       );
-    }
-    if (
-      expected.customEnvironmentSlug === "v3" &&
-      JSON.stringify(state.aliases) !==
-        JSON.stringify([...MAIN_TARGET_CONTRACTS.app.aliases])
-    ) {
-      throw new Error("Protected App alias set is ambiguous");
     }
   }
   return { schema: canonical.schema, states: ordered };
@@ -1088,125 +1083,6 @@ export function validateMainStageJobs({ plan, jobs, runId, runAttempt }) {
   };
 }
 
-export function createMainAppTransactionMetadata({
-  deploySha,
-  runId,
-  runAttempt,
-  transactionId,
-  nextDeploymentId,
-}) {
-  return {
-    githubCommitOrg: "mento-protocol",
-    githubCommitRepo: "frontend-monorepo",
-    githubCommitRef: "main",
-    githubCommitSha: requireSha(deploySha),
-    mentoTransactionId: requireString(
-      transactionId,
-      "App transaction ID",
-      /^main-[a-f0-9]{32}$/,
-    ),
-    mentoRunId: requirePositiveId(runId, "App run ID"),
-    mentoRunAttempt: requirePositiveId(runAttempt, "App run attempt"),
-    mentoNextDeploymentId: requireString(
-      nextDeploymentId,
-      "App custom Next deployment ID",
-      /^(?!dpl_)[A-Za-z0-9_-]{1,32}$/,
-    ),
-  };
-}
-
-export function createMainAppBuildProof({ intent }) {
-  const candidateIntent = assertMainCandidateIntent(intent);
-  if (
-    candidateIntent.target !== "app" ||
-    candidateIntent.environment.target !== null ||
-    candidateIntent.environment.customEnvironmentSlug !== "v3"
-  ) {
-    throw new Error(
-      "App build proof requires the exact App v3 candidate intent",
-    );
-  }
-  const identity = {
-    repository: MAIN_TRANSACTION_REPOSITORY,
-    deploySha: candidateIntent.deploySha,
-    runId: candidateIntent.originRunId,
-    runAttempt: candidateIntent.originAttempt,
-  };
-  const transactionId = createMainTransactionId(identity);
-  if (candidateIntent.originTransactionId !== transactionId) {
-    throw new Error(
-      "App candidate intent transaction differs from its current-attempt identity",
-    );
-  }
-  const nextDeploymentId = candidateIntent.candidateId;
-  return {
-    schema: APP_BUILD_PROOF_SCHEMA,
-    intent: candidateIntent,
-    target: "app",
-    deploySha: identity.deploySha,
-    runId: identity.runId,
-    runAttempt: identity.runAttempt,
-    transactionId,
-    projectId: candidateIntent.projectId,
-    projectName: "app.mento.org",
-    customEnvironmentSlug: "v3",
-    vercelEnv: "preview",
-    vercelTargetEnv: "v3",
-    nextPublicVercelEnv: "preview",
-    sentryAuthToken: "",
-    nextDeploymentId,
-    deployReachable: false,
-    metadata: createMainAppTransactionMetadata({
-      ...identity,
-      transactionId,
-      nextDeploymentId,
-    }),
-    candidateMetadata: createMainCandidateVercelMetadata({
-      intent: candidateIntent,
-    }),
-  };
-}
-
-export function createMainAppCandidateExpectation({ journal, projectId }) {
-  const canonical = assertMainTransactionJournal(journal);
-  const app = canonical.candidates.app;
-  if (app === null || app.discovery === null) {
-    throw new Error("Journal does not contain App candidate discovery");
-  }
-  if (app.discovery.projectId !== projectId) {
-    throw new Error("App recovery project does not match the journal");
-  }
-  const nextDeploymentId = generateVercelMainCandidateDeploymentId({
-    repository: canonical.repository,
-    target: "app",
-    commitSha: canonical.deploySha,
-    upstreamRunId: canonical.release.upstreamRunId,
-  });
-  if (app.discovery.candidateId !== nextDeploymentId) {
-    throw new Error(
-      "App recovery candidate differs from the stable release ID",
-    );
-  }
-  return {
-    projectId: requireString(projectId, "App project ID"),
-    projectName: "app.mento.org",
-    deploySha: canonical.deploySha,
-    runId: canonical.runId,
-    runAttempt: canonical.runAttempt,
-    transactionId: canonical.transactionId,
-    customEnvironmentSlug: "v3",
-    nextDeploymentId,
-  };
-}
-
-function assertAppBuildProof(proof, intent) {
-  const expected = createMainAppBuildProof({ intent });
-  if (JSON.stringify(expected) !== JSON.stringify(proof)) {
-    throw new Error("App v3 build proof is invalid");
-  }
-  return expected;
-}
-
 function releaseManifestFromHandoff(handoff) {
   const originalPriors = Object.fromEntries(
     ["governance", "reserve", "ui", "app"].map((target) => {
@@ -1307,7 +1183,7 @@ function v3Candidate(candidate, target, release) {
       projectName: prior.projectName,
       deploySha: release.deploySha,
       target,
-      customEnvironmentSlug: target === "app" ? "v3" : null,
+      customEnvironmentSlug: null,
       immutableSmoke: {
         immutableUrl: deploymentUrl,
         servedSha: release.deploySha,
@@ -1325,7 +1201,6 @@ function v3Candidate(candidate, target, release) {
 export function createMainTransactionInputs({
   plan,
   stageJobs,
-  appBuildProof = null,
   appCandidateReceipt = null,
   runId,
   runAttempt,
@@ -1380,27 +1255,20 @@ export function createMainTransactionInputs({
   let appCandidate = null;
   let appReceipt = null;
   if (handoff.planning.stagedTargets.includes("app")) {
-    if ((appBuildProof === null) === (appCandidateReceipt === null)) {
+    if (appCandidateReceipt === null) {
       throw new Error(
-        "Selected app requires exactly one build proof or provider candidate receipt",
+        "Selected app requires its exact provider candidate receipt",
       );
     }
-    appReceipt =
-      appCandidateReceipt === null
-        ? null
-        : assertMainCandidateReceipt(appCandidateReceipt);
-    if (appReceipt === null) {
-      assertAppBuildProof(appBuildProof, appIntent);
-    } else if (
-      JSON.stringify(appReceipt.intent) !== JSON.stringify(appIntent)
-    ) {
+    appReceipt = assertMainCandidateReceipt(appCandidateReceipt);
+    if (JSON.stringify(appReceipt.intent) !== JSON.stringify(appIntent)) {
       throw new Error(
         "App provider candidate receipt differs from the selected deployment",
       );
     }
     appCandidate = {
-      deploymentId: appReceipt?.candidate.deploymentId ?? null,
-      deploymentUrl: appReceipt?.candidate.deploymentUrl ?? null,
+      deploymentId: appReceipt.candidate.deploymentId,
+      deploymentUrl: appReceipt.candidate.deploymentUrl,
       aliases: [...prior.app.aliases],
       discovery: {
         projectId: handoff.projectIds.app,
@@ -1409,13 +1277,11 @@ export function createMainTransactionInputs({
         runId: identity.runId,
         runAttempt: identity.runAttempt,
         transactionId,
-        customEnvironmentSlug: "v3",
+        customEnvironmentSlug: null,
       },
     };
-  } else if (appBuildProof !== null || appCandidateReceipt !== null) {
-    throw new Error(
-      "Unselected app returned build proof or provider candidate receipt",
-    );
+  } else if (appCandidateReceipt !== null) {
+    throw new Error("Unselected app returned a provider candidate receipt");
   }
   const candidates = {
     app: appCandidate,
@@ -1444,7 +1310,6 @@ export function createMainTransactionInputs({
 export function createMainActiveTransactionInputs({
   plan,
   stageJobs,
-  appBuildProof = null,
   appCandidateReceipt = null,
   runId,
   runAttempt,
@@ -1453,7 +1318,6 @@ export function createMainActiveTransactionInputs({
   const inputs = createMainTransactionInputs({
     plan: handoff,
     stageJobs,
-    appBuildProof,
     appCandidateReceipt,
     runId,
     runAttempt,
@@ -1539,20 +1403,12 @@ export function createMainCurrentCandidateIntent({
   );
 }
 
-function canonicalAppPreparation(value, execution, identity) {
-  return assertAppBuildProof(
-    value,
-    expectedCurrentCandidateIntent(execution, identity, "app"),
-  );
-}
-
 // This is the only stage handoff the automatic controller accepts. It binds
 // every candidate to the asserted execution and this downstream attempt,
 // while keeping shadow receipts out of transaction mutation authority.
 export function createMainStageBarrier({
   execution,
   candidateReceipts,
-  appPreparation,
   runId,
   runAttempt,
 }) {
@@ -1573,19 +1429,6 @@ export function createMainStageBarrier({
       stages[target] = {
         kind: "not-selected",
         receipt: null,
-        preparation: null,
-      };
-      continue;
-    }
-    if (target === "app" && receipt === null) {
-      stages.app = {
-        kind: "pending-app",
-        receipt: null,
-        preparation: canonicalAppPreparation(
-          appPreparation,
-          current.execution,
-          current.identity,
-        ),
       };
       continue;
     }
@@ -1602,11 +1445,7 @@ export function createMainStageBarrier({
           target,
         ),
       ),
-      preparation: null,
     };
-  }
-  if (stages.app.kind !== "pending-app" && appPreparation !== null) {
-    throw new Error("Unexpected App preparation proof");
   }
   return {
     schema: MAIN_STAGE_BARRIER_SCHEMA,
@@ -1657,13 +1496,10 @@ export function assertMainStageBarrier(
     const stage = value.stages[target];
     assertExactKeys(
       stage,
-      ["kind", "receipt", "preparation"],
+      ["kind", "receipt"],
       `Current main barrier ${target}`,
     );
-    if (
-      !["not-selected", "receipt", "pending-app"].includes(stage.kind) ||
-      (stage.kind === "pending-app" && target !== "app")
-    ) {
+    if (!["not-selected", "receipt"].includes(stage.kind)) {
       throw new Error(`Current main barrier ${target} kind is invalid`);
     }
   }
@@ -1675,7 +1511,6 @@ export function assertMainStageBarrier(
         value.stages[target]?.receipt ?? null,
       ]),
     ),
-    appPreparation: value.stages.app?.preparation ?? null,
     runId: current.identity.runId,
     runAttempt: current.identity.runAttempt,
   });
@@ -1715,9 +1550,6 @@ export function createMainCurrentActiveInputs({
     STAGE_BARRIER_TARGETS.map((target) => {
       const stage = canonicalBarrier.stages[target];
       if (stage.kind === "not-selected") return [target, null];
-      if (stage.kind === "pending-app") {
-        return [target, { deploymentId: null, deploymentUrl: null }];
-      }
       return [
         target,
         {
@@ -1801,7 +1633,7 @@ function currentStateProject({ current, barrier, target, candidate }) {
   const stage = barrier.stages[target];
   const expected = isActive
     ? candidate
-    : isShadow && target !== "app" && stage.receipt !== null
+    : isShadow && stage.receipt !== null
       ? {
           deploymentId: stage.receipt.candidate.deploymentId,
           deploymentUrl: stage.receipt.candidate.deploymentUrl,
@@ -1819,13 +1651,13 @@ function currentStateProject({ current, barrier, target, candidate }) {
       projectName: `${target}.mento.org`,
       expectedDisposition: isActive
         ? "githubPrebuilt"
-        : isShadow && target !== "app"
+        : isShadow
           ? "githubShadowStage"
           : null,
       deploymentId: expected?.deploymentId ?? null,
       deploymentUrl: expected?.deploymentUrl ?? null,
-      target: target === "app" ? null : "production",
-      customEnvironmentSlug: target === "app" ? "v3" : null,
+      target: "production",
+      customEnvironmentSlug: null,
     },
   ];
 }
@@ -2203,22 +2035,11 @@ export function createMainActiveRecoveryDeploymentStateSpec({
       const isActive = active.includes(target);
       const isShadow = shadow.includes(target);
       const candidate = highest.candidates[target];
-      const appDeployStarted = highest.operations.some(
-        (operation) => operation.type === "app_v3_deploy",
-      );
-      const recoveredPriorApp =
-        target === "app" &&
-        isActive &&
-        candidate !== null &&
-        candidate.deploymentId === null &&
-        candidate.deploymentUrl === null &&
-        (!appDeployStarted || highest.status === "manual_intervention");
       if (
-        (isActive || (isShadow && target !== "app")) &&
+        isActive &&
         (candidate === null ||
           candidate.deploymentId === null ||
-          candidate.deploymentUrl === null) &&
-        !recoveredPriorApp
+          candidate.deploymentUrl === null)
       ) {
         throw new Error(
           `Active recovery state spec ${target} candidate is incomplete`,
@@ -2229,23 +2050,22 @@ export function createMainActiveRecoveryDeploymentStateSpec({
           `Active recovery state spec ${target} has an unselected candidate`,
         );
       }
+      // A shadow target is never mutated by this transaction and never enters
+      // the current-attempt journal, so terminal recovery evidence has no
+      // deployment to name for it. Declaring no expectation keeps the census
+      // fail-closed: a staged shadow deployment leaves the proof unproven.
+      const bound = isActive ? candidate : null;
       const prior = release.originalPriors[target];
       return [
         target,
         {
           projectId: prior.projectId,
           projectName: `${target}.mento.org`,
-          expectedDisposition: recoveredPriorApp
-            ? "recoveredPrior"
-            : isActive
-              ? "githubPrebuilt"
-              : isShadow && target !== "app"
-                ? "githubShadowStage"
-                : null,
-          deploymentId: candidate?.deploymentId ?? null,
-          deploymentUrl: candidate?.deploymentUrl ?? null,
-          target: target === "app" ? null : "production",
-          customEnvironmentSlug: target === "app" ? "v3" : null,
+          expectedDisposition: isActive ? "githubPrebuilt" : null,
+          deploymentId: bound?.deploymentId ?? null,
+          deploymentUrl: bound?.deploymentUrl ?? null,
+          target: "production",
+          customEnvironmentSlug: null,
         },
       ];
     }),
@@ -2438,47 +2258,14 @@ export function createMainCurrentActivePublicSmokes({
 function canonicalTerminalStateProof(value, { execution, runId, runAttempt }) {
   assertExactKeys(
     value,
-    [
-      "schema",
-      "deploymentStateProof",
-      "currentReleaseCandidates",
-      "appShadowPreparation",
-    ],
+    ["schema", "deploymentStateProof", "currentReleaseCandidates"],
     "Main terminal state proof",
   );
   const current = currentAttemptIdentity({ execution, runId, runAttempt });
   if (value.schema !== MAIN_TERMINAL_STATE_PROOF_SCHEMA) {
     throw new Error("Main terminal state proof schema is unsupported");
   }
-  const appIsShadow =
-    current.execution.projection.shadowTargets.includes("app");
-  assertExactKeys(
-    value.appShadowPreparation,
-    ["digest", "preparation"],
-    "Main terminal App shadow preparation",
-  );
-  let preparation = null;
-  let digest = null;
-  if (appIsShadow) {
-    preparation = canonicalAppPreparation(
-      value.appShadowPreparation.preparation,
-      current.execution,
-      current.identity,
-    );
-    digest = requireString(
-      value.appShadowPreparation.digest,
-      "Main terminal App shadow preparation digest",
-      /^[a-f0-9]{64}$/,
-    );
-    if (digest !== digestCanonicalJson(preparation)) {
-      throw new Error("Main terminal App shadow preparation digest conflicts");
-    }
-  } else if (
-    value.appShadowPreparation.preparation !== null ||
-    value.appShadowPreparation.digest !== null
-  ) {
-    throw new Error("Main terminal App shadow preparation is unexpected");
-  }
+
   const deploymentStateProof =
     value.deploymentStateProof === null
       ? null
@@ -2567,7 +2354,6 @@ function canonicalTerminalStateProof(value, { execution, runId, runAttempt }) {
     schema: MAIN_TERMINAL_STATE_PROOF_SCHEMA,
     deploymentStateProof,
     currentReleaseCandidates,
-    appShadowPreparation: { digest, preparation },
   };
 }
 
@@ -2584,9 +2370,6 @@ export function createMainActiveTerminalStateProof({
     runId: current.identity.runId,
     runAttempt: current.identity.runAttempt,
   });
-  const preparation = current.execution.projection.shadowTargets.includes("app")
-    ? canonicalBarrier.stages.app.preparation
-    : null;
   return canonicalTerminalStateProof(
     {
       schema: MAIN_TERMINAL_STATE_PROOF_SCHEMA,
@@ -2607,10 +2390,6 @@ export function createMainActiveTerminalStateProof({
             : null,
         ]),
       ),
-      appShadowPreparation: {
-        preparation,
-        digest: preparation === null ? null : digestCanonicalJson(preparation),
-      },
     },
     { execution: current.execution, ...current.identity },
   );
@@ -2649,22 +2428,21 @@ export function createMainActiveDeploymentStateSpec({
   const projects = Object.fromEntries(
     MAIN_DEPLOYMENT_TARGETS.map((target) => {
       const active = planning.activeTargets.includes(target);
-      const shadowStage =
-        target !== "app" && planning.shadowTargets.includes(target);
+      const shadowStage = planning.shadowTargets.includes(target);
       const expected = active
         ? canonicalJournal.candidates[target]
         : shadowStage
           ? stages[target]?.candidate
           : null;
+      const stageCandidate = MAIN_ORDINARY_TARGETS.includes(target)
+        ? stages[target]?.candidate
+        : expected;
       if (
         active &&
         (expected?.deploymentId === null ||
           expected === null ||
-          (target !== "app" &&
-            (expected.deploymentId !==
-              stages[target]?.candidate?.deploymentId ||
-              expected.deploymentUrl !==
-                stages[target]?.candidate?.deploymentUrl)))
+          expected.deploymentId !== stageCandidate?.deploymentId ||
+          expected.deploymentUrl !== stageCandidate?.deploymentUrl)
       ) {
         throw new Error(
           `Active state spec ${target} candidate is incomplete or inconsistent`,
@@ -2682,8 +2460,8 @@ export function createMainActiveDeploymentStateSpec({
               : null,
           deploymentId: expected?.deploymentId ?? null,
           deploymentUrl: expected?.deploymentUrl ?? null,
-          target: target === "app" ? null : "production",
-          customEnvironmentSlug: target === "app" ? "v3" : null,
+          target: "production",
+          customEnvironmentSlug: null,
         },
       ];
     }),
@@ -2813,7 +2591,6 @@ function activeRunHandoff({
 export async function runMainActiveTransaction({
   plan,
   stageJobs,
-  appBuildProof,
   appCandidateReceipt = null,
   runId,
   runAttempt,
@@ -2823,7 +2600,6 @@ export async function runMainActiveTransaction({
   const inputs = createMainActiveTransactionInputs({
     plan,
     stageJobs,
-    appBuildProof,
     appCandidateReceipt,
     runId,
     runAttempt,
@@ -2917,7 +2693,7 @@ export async function runMainActiveTransaction({
     });
   };
   const mutationAdapters = {};
-  for (const name of ["promote", "deployAppV3", "assignAlias"]) {
+  for (const name of ["promote"]) {
     const adapter = publicMutation(name);
     if (typeof adapter === "function") mutationAdapters[name] = adapter;
   }
@@ -2926,7 +2702,6 @@ export async function runMainActiveTransaction({
     "verifyMapping",
     "inspectProtectedMappings",
     "ordinaryRollback",
-    "restoreAppAlias",
   ]) {
     if (typeof adapters[name] === "function") {
       mutationAdapters[name] = adapters[name];
@@ -3068,7 +2843,6 @@ export async function runMainActiveRecovery({ recoveryPlan, adapters }) {
       plan: recoveryPlan,
       uploadJournal,
       ordinaryRollback: publicMutation("ordinaryRollback"),
-      restoreAppAlias: publicMutation("restoreAppAlias"),
       inspectMapping: adapters.inspectMapping,
       verifyMapping: adapters.verifyMapping,
     });
@@ -3259,7 +3033,7 @@ export function assertUploadedPreparedJournal({
 export async function runMainShadowTransaction({
   plan,
   stageJobs,
-  appBuildProof,
+  appCandidateReceipt = null,
   runId,
   runAttempt,
   journalBytes,
@@ -3270,7 +3044,7 @@ export async function runMainShadowTransaction({
   const inputs = createMainTransactionInputs({
     plan,
     stageJobs,
-    appBuildProof,
+    appCandidateReceipt,
     runId,
     runAttempt,
   });
@@ -3314,10 +3088,7 @@ export async function runMainShadowTransaction({
       },
       mutationAdapters: {
         promote: forbidden,
-        deployAppV3: forbidden,
-        assignAlias: forbidden,
         ordinaryRollback: forbidden,
-        restoreAppAlias: forbidden,
       },
     });
   } catch (error) {
@@ -3472,6 +3243,265 @@ export function createMainDeploymentFailureEvidence({
     publicServingMutationCommands: 0,
     outcome: "failed",
   };
+}
+
+// Rider evidence bounds. Riders are informational, and a project may
+// legitimately hold many long domains, so they are truncated rather than
+// allowed to fail a release: visibility must never become a new way for a
+// deploy to go red. That was the whole shape of the incident #898 fixed.
+// The budget is deliberately far below the 64 KiB base64url terminal-evidence
+// cap (MAIN_TERMINAL_EVIDENCE_MAX_ENCODED_BYTES) and the 256 KiB generic JSON
+// bridge cap, so the rider map can never be what pushes an artifact over.
+export const MAIN_RIDER_ALIAS_TARGET_LIMIT = 16;
+export const MAIN_RIDER_ALIAS_BYTE_BUDGET = 4096;
+const RIDER_ENTRY_KEYS = Object.freeze(["aliases", "omitted"]);
+
+// Truncation is deterministic — canonical sorted order, a fixed per-target
+// count cap, then a shared byte budget consumed in target order — so the same
+// observation always yields the same evidence.
+function boundRiderAliases(byTarget) {
+  let remaining = MAIN_RIDER_ALIAS_BYTE_BUDGET;
+  return Object.fromEntries(
+    Object.entries(byTarget).map(([target, riders]) => {
+      // A target the census could not attribute to a deployment this release
+      // owned carries no list and consumes no budget.
+      if (riders === null) return [target, null];
+      const capped = riders.slice(0, MAIN_RIDER_ALIAS_TARGET_LIMIT);
+      const kept = [];
+      for (const alias of capped) {
+        const cost = Buffer.byteLength(alias, "utf8") + 3;
+        if (cost > remaining) break;
+        remaining -= cost;
+        kept.push(alias);
+      }
+      return [target, { aliases: kept, omitted: riders.length - kept.length }];
+    }),
+  );
+}
+
+// Every deployment identity this release owned for a target: the prior it
+// captured and would roll back to, and the candidate it promoted. A census that
+// finds a reviewed domain served by neither found operator-owned state, and
+// those domains are not this release's to attribute.
+function releaseOwnedDeployments(journal) {
+  return Object.fromEntries(
+    MAIN_DEPLOYMENT_TARGETS.map((target) => [
+      target,
+      [journal.prior[target], journal.candidates[target]]
+        .filter((entry) => entry !== null && entry !== undefined)
+        .map((entry) => ({
+          deploymentId: entry.deploymentId,
+          deploymentUrl: entry.deploymentUrl,
+        })),
+    ]),
+  );
+}
+
+// The targets whose `promote` actually started, read from the same operation
+// log the mutation count is derived from. A rider line therefore cannot claim
+// movement the count printed beside it rules out: a journal still at `prepared`
+// names nothing, and one that started only a prefix of its plan names only that
+// prefix.
+function startedPromoteTargets(journal) {
+  const targets = new Set(
+    journal.operations
+      .filter(
+        (operation) =>
+          operation.type === "promote" && operation.state === "started",
+      )
+      .map((operation) => operation.target),
+  );
+  return MAIN_PROMOTABLE_TARGETS.filter((target) => targets.has(target));
+}
+
+// The rider domains each named target's served prior carried, observed in this
+// run's own planning census. `promote` moves them off that prior onto the
+// candidate and the compensating `rollback` restores them, so for a promoted
+// target this names exactly what the release repointed.
+//
+// `ownedDeployments` is supplied wherever a journal exists. A censused
+// deployment matching neither the captured prior nor the promoted candidate
+// yields a `null` entry — "not attributed" — never somebody else's domains
+// presented as this release's movement.
+function riderAliasEvidenceFromStates(
+  states,
+  targets,
+  ownedDeployments = null,
+) {
+  return boundRiderAliases(
+    Object.fromEntries(
+      targets.map((target) => {
+        const reviewed = [...MAIN_TARGET_CONTRACTS[target].aliases];
+        const leaf = states.find((state) => reviewed.includes(state.alias));
+        if (leaf === undefined) {
+          throw new Error(
+            `Rider evidence is missing the ${target} served prior`,
+          );
+        }
+        const owned = ownedDeployments?.[target];
+        if (
+          owned !== undefined &&
+          !owned.some(
+            (entry) =>
+              entry.deploymentId === leaf.deploymentId &&
+              entry.deploymentUrl === leaf.deploymentUrl,
+          )
+        ) {
+          return [target, null];
+        }
+        return [target, riderAliasesFrom(leaf.aliases, reviewed)];
+      }),
+    ),
+  );
+}
+
+function riderAliasEvidenceFromSnapshot(handoff, targets) {
+  return riderAliasEvidenceFromStates(
+    handoff.protectedSnapshot.states,
+    targets,
+  );
+}
+
+// Structural validation only. The rider map is carried, never re-derived: the
+// terminal producer has no alias census of its own, and riders are mutable
+// provider state that a later read would legitimately disagree with. What is
+// enforced is that the map is canonical, bounded, and scoped to targets this
+// release actually promoted.
+//
+// `exact` holds where every active target promoted by construction — a
+// committed release and an already-current one. A failure evidence's scope is
+// the journal's started promotes, which is a subset, so it keys on a canonical
+// ordered subset of the active targets instead. Either way no key outside that
+// set is admitted.
+function canonicalRiderAliasEvidence(
+  value,
+  allowedTargets,
+  label,
+  { exact = true } = {},
+) {
+  if (value === null) return null;
+  const allowed = MAIN_DEPLOYMENT_TARGETS.filter((target) =>
+    allowedTargets.includes(target),
+  );
+  let expectedTargets;
+  if (exact) {
+    assertExactKeys(value, allowed, label);
+    expectedTargets = allowed;
+  } else {
+    if (!isPlainObject(value)) {
+      throw new Error(`${label} is malformed`);
+    }
+    const keys = Object.keys(value);
+    expectedTargets = allowed.filter((target) => keys.includes(target));
+    if (
+      keys.length !== expectedTargets.length ||
+      JSON.stringify(keys) !== JSON.stringify(expectedTargets)
+    ) {
+      throw new Error(`${label} keys are not a canonical promoted subset`);
+    }
+  }
+  let remaining = MAIN_RIDER_ALIAS_BYTE_BUDGET;
+  return Object.fromEntries(
+    expectedTargets.map((target) => {
+      const entry = value[target];
+      // `null` is the deliberate "not attributed" entry: this release started a
+      // promote for the target, but the census found its reviewed domain served
+      // by a deployment the release does not own.
+      if (entry === null) return [target, null];
+      assertExactKeys(entry, RIDER_ENTRY_KEYS, `${label} ${target}`);
+      if (
+        !Array.isArray(entry.aliases) ||
+        entry.aliases.length > MAIN_RIDER_ALIAS_TARGET_LIMIT ||
+        !Number.isSafeInteger(entry.omitted) ||
+        entry.omitted < 0
+      ) {
+        throw new Error(`${label} ${target} is malformed`);
+      }
+      let aliases;
+      try {
+        aliases = entry.aliases.map((alias) => canonicalizeHostname(alias));
+      } catch {
+        throw new Error(`${label} ${target} is malformed`);
+      }
+      // A rider list may name anything the project carries except a reviewed
+      // protected domain: its own would be a duplicate of `aliases`, and
+      // another main target's would be cross-target contamination, which stays
+      // fail-closed everywhere it can appear.
+      const reviewed = new Set([
+        ...MAIN_TARGET_CONTRACTS[target].aliases,
+        ...foreignReviewedAliases(target),
+      ]);
+      if (
+        JSON.stringify(aliases) !== JSON.stringify(entry.aliases) ||
+        new Set(aliases).size !== aliases.length ||
+        JSON.stringify(aliases) !== JSON.stringify([...aliases].sort()) ||
+        aliases.some((alias) => reviewed.has(alias))
+      ) {
+        throw new Error(`${label} ${target} is not canonical`);
+      }
+      for (const alias of aliases) {
+        remaining -= Buffer.byteLength(alias, "utf8") + 3;
+      }
+      if (remaining < 0) {
+        throw new Error(`${label} exceeds its byte budget`);
+      }
+      return [target, { aliases, omitted: entry.omitted }];
+    }),
+  );
+}
+
+function formatRiderAliases(entry) {
+  if (entry === undefined) return "unknown";
+  // The census found this target's reviewed domain on a deployment neither the
+  // captured prior nor the promoted candidate — operator-owned state a manual
+  // intervention can leave behind. Its domains are reported as unattributable
+  // rather than as domains this release moved.
+  if (entry === null) {
+    return "not attributed (deployment this release does not own)";
+  }
+  const names = entry.aliases.join(", ") || "none";
+  return entry.omitted > 0
+    ? `${names} (+${entry.omitted} more, truncated)`
+    : names;
+}
+
+// A rider map may never claim more moved targets than the mutation count
+// printed beside it, and a run that proves zero started mutations must carry no
+// map at all. Both creator and reader enforce this, so a rewritten evidence
+// cannot smuggle movement past the count that contradicts it.
+function assertRiderMutationBound(riderAliases, mutationCount, label) {
+  if (riderAliases === null) return riderAliases;
+  const claimed = Object.keys(riderAliases).length;
+  if (mutationCount === 0 || claimed > mutationCount) {
+    throw new Error(`${label} claims movement no started mutation supports`);
+  }
+  return riderAliases;
+}
+
+// One line per target that actually promoted. Targets this release did not
+// promote moved nothing, so they get no line at all.
+//
+// With no census, what the report may claim depends on whether this run could
+// have moved anything. An outcome whose journal proves zero public-serving
+// mutation commands moved nothing, and "unknown" there would contradict the
+// mutation count printed beside it. "unknown" is reserved for the case it
+// actually describes: a mutation may have started and this job has no census.
+// Every job that can report a started mutation now takes one, so "unknown"
+// narrows to the census read that could not complete.
+function renderRiderAliasLines(riderAliases, targets, { mutated }) {
+  if (riderAliases === null) {
+    return [
+      mutated
+        ? "- Rider domains moved: unknown (no census in this job)"
+        : "- Rider domains moved: none (no mutation in this run)",
+    ];
+  }
+  return targets.map(
+    (target) =>
+      `- Rider domains moved with \`${target}\`: ${formatRiderAliases(
+        riderAliases[target],
+      )}`,
+  );
 }
 
 export function createMainDeploymentEvidence({
@@ -3664,6 +3694,11 @@ export function createMainDeploymentEvidence({
       buildAndTestConclusion: "success",
     },
     planning: handoff.planning,
+    // Shadow mode promotes nothing, so this is the served-prior census for
+    // every target, not a record of movement. The renderer says so.
+    riderAliases: riderAliasEvidenceFromSnapshot(handoff, [
+      ...MAIN_DEPLOYMENT_TARGETS,
+    ]),
     stages: canonicalStages,
     app: canonicalApp,
     coordinator: coordinatorEvidence,
@@ -4059,7 +4094,7 @@ function canonicalRollbackStateTargets(value) {
   if (
     !Array.isArray(value) ||
     new Set(value).size !== value.length ||
-    value.some((target) => !MAIN_ORDINARY_TARGETS.includes(target))
+    value.some((target) => !MAIN_PROMOTABLE_TARGETS.includes(target))
   ) {
     throw new Error("Active rollback-state targets are invalid");
   }
@@ -4172,6 +4207,11 @@ export function createMainActiveDeploymentEvidence({
     runAttempt: expectedRunAttempt,
     workflowRunUrl: expectedWorkflowRunUrl,
     planning,
+    // Only the targets this release promoted moved anything.
+    riderAliases: riderAliasEvidenceFromSnapshot(
+      handoff,
+      planning.activeTargets,
+    ),
     journal: {
       transactionId: highest.transactionId,
       artifactName: mainTransactionJournalArtifactName(highest),
@@ -4276,6 +4316,8 @@ export function createMainActiveDeploymentFailureEvidence({
   publicSmokes = null,
   stateProof = null,
   rollbackStateTargets = [],
+  riderAliases = null,
+  riderTargets = [],
   publicServingMutationCommands,
   coordinatorOutcome,
   recoveryOutcome,
@@ -4390,6 +4432,16 @@ export function createMainActiveDeploymentFailureEvidence({
     publicSmokes: canonicalFailurePublicSmokes(publicSmokes),
     stateProofSummary,
     rollbackStateTargets: canonicalRollbackStateTargets(rollbackStateTargets),
+    riderAliases: assertRiderMutationBound(
+      canonicalRiderAliasEvidence(
+        riderAliases,
+        riderTargets,
+        "Active failure rider domains",
+        { exact: false },
+      ),
+      mutationCount,
+      "Active failure rider domains",
+    ),
     publicServingMutationCommands: mutationCount,
     coordinatorOutcome: requireString(
       coordinatorOutcome,
@@ -4441,6 +4493,13 @@ export function renderMainActiveDeploymentEvidence(evidence) {
       (target) =>
         `\`${target}:${evidence.stateProofSummary.targets[target].expectedDisposition ?? "unselected"}\``,
     ).join(", ")}`,
+    // Every domain each promote moved with the reviewed alias, named but not
+    // verified. Targets this release did not promote get no line.
+    ...renderRiderAliasLines(
+      evidence.riderAliases,
+      evidence.planning.activeTargets,
+      { mutated: evidence.publicServingMutationCommands > 0 },
+    ),
     "- Recovery: `not-required`; ordinary rollback-state targets: none",
     "",
   ].join("\n");
@@ -4466,6 +4525,14 @@ export function renderMainCurrentReleaseVerificationEvidence(evidence) {
       (target) => `\`${target}:${evidence.publicSmokes[target].status}\``,
     ).join(", ")}`,
     `- Canonical deployment state proof: \`${evidence.stateProofSummary.proofSchema}\` is \`${evidence.stateProofSummary.outcome}\``,
+    // This run verifies an already-complete release and mutates nothing; the
+    // promotes that moved these domains belong to the earlier attempt, which
+    // this job took no census of. It must not imply movement here.
+    ...renderRiderAliasLines(
+      evidence.riderAliases,
+      evidence.planning.activeTargets,
+      { mutated: false },
+    ),
     "- Active journal: `not-applicable`",
     "- Public-serving mutation commands: `0`",
     "",
@@ -4531,6 +4598,14 @@ export function renderMainActiveDeploymentFailureEvidence(evidence) {
         .map((target) => `\`${target}\``)
         .join(", ") || "none"
     }`,
+    // A promote that was later recovered or left for manual intervention still
+    // moved these domains; the terminal report has to name them. A
+    // `verified-noop` proves zero mutation commands, so it says so instead.
+    ...renderRiderAliasLines(
+      evidence.riderAliases,
+      Object.keys(evidence.riderAliases ?? {}),
+      { mutated: evidence.publicServingMutationCommands > 0 },
+    ),
     "- Outcome: `failed`; publish this evidence before failing the release.",
     "",
   ].join("\n");
@@ -4558,14 +4633,18 @@ export function renderMainDeploymentEvidence(evidence) {
     "",
     "#### Served deployment priors",
     "",
-    "| Target | Deployment | Served SHA | Reviewed aliases |",
-    "|---|---|---|---|",
+    "| Target | Deployment | Served SHA | Reviewed aliases | Rider domains (served prior) |",
+    "|---|---|---|---|---|",
     ...evidence.planning.priors.map(
       (prior) =>
         `| ${prior.target} | \`${prior.deploymentId}\` / ${prior.deploymentUrl} | ${
           prior.servedSha ? `\`${prior.servedSha}\`` : "unknown"
-        } | ${prior.aliases.map((alias) => `\`${alias}\``).join(", ")} |`,
+        } | ${prior.aliases.map((alias) => `\`${alias}\``).join(", ")} | ${formatRiderAliases(
+          evidence.riderAliases[prior.target],
+        )} |`,
     ),
+    "",
+    "Rider domains are the other domains each served prior carried at planning time. A promote or rollback moves them wholesale with the reviewed alias; this shadow run promotes nothing, so they are a census, not a record of movement. Only the reviewed aliases are verified.",
     "",
     "#### Served-SHA ranges and selection reasons",
     "",
@@ -4599,7 +4678,7 @@ export function renderMainDeploymentEvidence(evidence) {
     }),
     evidence.app === null
       ? "| app | not built | n/a | n/a | n/a |"
-      : `| app | build-only Next ID \`${evidence.app.nextDeploymentId}\` | exact custom-v3 build proof; deploy unreachable | ${evidence.app.metrics.buildDurationMs} / n/a / ${evidence.app.metrics.totalDurationMs} ms | ${evidence.app.metrics.turboCacheHits} hit / ${evidence.app.metrics.turboCacheMisses} miss |`,
+      : `| app | build-only Next ID \`${evidence.app.nextDeploymentId}\` | exact production build proof; deploy unreachable | ${evidence.app.metrics.buildDurationMs} / n/a / ${evidence.app.metrics.totalDurationMs} ms | ${evidence.app.metrics.turboCacheHits} hit / ${evidence.app.metrics.turboCacheMisses} miss |`,
     "",
     `- Coordinator: \`${evidence.coordinator.outcome}\` in ${evidence.coordinator.totalDurationMs} ms`,
     `- Journal: ${
@@ -5443,7 +5522,7 @@ function terminalRollbackTargets(highest) {
       operation.rollbackState === "entered",
   );
   const targets = new Set(operations.map((operation) => operation.target));
-  return MAIN_ORDINARY_TARGETS.filter((target) => targets.has(target));
+  return MAIN_PROMOTABLE_TARGETS.filter((target) => targets.has(target));
 }
 
 const TERMINAL_AFFECTED_OPERATION_KEYS = Object.freeze([
@@ -5494,13 +5573,7 @@ function canonicalTerminalAffectedOperations(value) {
       /^op-[0-9]{4}$/,
     );
     if (
-      ![
-        "promote",
-        "app_v3_deploy",
-        "app_alias_set",
-        "ordinary_rollback",
-        "app_alias_restore",
-      ].includes(operation.type) ||
+      !["promote", "ordinary_rollback"].includes(operation.type) ||
       !["app", "governance", "reserve", "ui"].includes(operation.target) ||
       !["started", "command_returned", "verified"].includes(operation.state) ||
       ![null, "success", "unknown"].includes(operation.commandOutcome) ||
@@ -5726,11 +5799,35 @@ export function createMainActiveTerminalArtifacts({
   finalCensus,
   freshness,
   stageResults = null,
+  // This run's own planning snapshot, supplied by the jobs that took one. The
+  // terminal producer has no alias census of its own, so `null` means "this
+  // job did not observe one" and renders as unknown rather than as none. Both
+  // the activation and the recovery job supply one; a recovery job whose census
+  // read could not complete supplies a null snapshot, which is what keeps
+  // unknown reachable and honest.
+  riderCensus = null,
   runId,
   runAttempt,
 }) {
   const releaseExecution = assertMainReleaseExecution(execution);
   const planning = activePlanningFromExecution(releaseExecution);
+  const riderStates =
+    riderCensus === null
+      ? null
+      : assertMainPlanningSnapshot(riderCensus).states;
+  // Scope is decided per outcome, from that outcome's journal, never from the
+  // plan: `planning.activeTargets` is what the release intended to promote, and
+  // a failed or partial release moved a subset of it. An empty scope carries no
+  // map, so the report falls back to the mutation-count-aware line instead of
+  // naming targets nothing touched.
+  const ridersFor = (targets, journal) =>
+    riderStates === null || targets.length === 0
+      ? null
+      : riderAliasEvidenceFromStates(
+          riderStates,
+          targets,
+          releaseOwnedDeployments(journal),
+        );
   const canonicalRunId = requirePositiveId(runId, "Terminal producer run ID");
   const canonicalRunAttempt = requirePositiveId(
     runAttempt,
@@ -5928,6 +6025,15 @@ export function createMainActiveTerminalArtifacts({
       runAttempt: canonicalRunAttempt,
       workflowRunUrl: terminalWorkflowRunUrl(canonicalRunId),
       planning,
+      // An earlier attempt's promote is what serves production here, so these
+      // are the domains that release moved. This path is journal-free, so
+      // there is no prior/candidate identity to attribute against; the release
+      // is verified complete, which is what makes the served deployment its
+      // own.
+      riderAliases:
+        riderStates === null
+          ? null
+          : riderAliasEvidenceFromStates(riderStates, planning.activeTargets),
       freshness: [{ phase: "current-release-verification", status: "fresh" }],
       finalMappings: mappings,
       publicSmokes: smokes,
@@ -6172,6 +6278,12 @@ export function createMainActiveTerminalArtifacts({
       workflowRunUrl: terminalWorkflowRunUrl(canonicalRunId),
       mainOwnershipMode: planning.mainOwnershipMode,
       journalHistory: history,
+      // No compensation ran, so these domains are still wherever the forward
+      // promote left them. Naming them is the whole point of the census on
+      // this branch — but only for the promotes that actually started. A
+      // journal still at `prepared` moved nothing and names nothing.
+      riderAliases: ridersFor(startedPromoteTargets(highest), highest),
+      riderTargets: startedPromoteTargets(highest),
       publicServingMutationCommands: counts.started,
       coordinatorOutcome: "active-failed",
       recoveryOutcome: "recovery-failed",
@@ -6241,6 +6353,11 @@ export function createMainActiveTerminalArtifacts({
       finalMappings: mappings,
       publicSmokes: smokes,
       rollbackStateTargets: rollbackTargets,
+      // The final provider census is unproven, but the rider census is a
+      // separate read with its own outcome. When it succeeded, the domains the
+      // release moved and the rollback restored are still nameable here.
+      riderAliases: ridersFor(startedPromoteTargets(highest), highest),
+      riderTargets: startedPromoteTargets(highest),
       publicServingMutationCommands: counts.started,
       coordinatorOutcome: "active-failed",
       recoveryOutcome: "recovered",
@@ -6360,6 +6477,17 @@ export function createMainActiveTerminalArtifacts({
         runAttempt: canonicalRunAttempt,
         workflowRunUrl: terminalWorkflowRunUrl(canonicalRunId),
         planning,
+        // A committed release promoted every active target, so the scope is
+        // exactly those; attribution still applies, because the census must
+        // have found each reviewed domain on the prior this release captured.
+        riderAliases:
+          riderStates === null
+            ? null
+            : riderAliasEvidenceFromStates(
+                riderStates,
+                planning.activeTargets,
+                releaseOwnedDeployments(highest),
+              ),
         journal: {
           transactionId: highest.transactionId,
           artifactName: mainTransactionJournalArtifactName(highest),
@@ -6422,6 +6550,12 @@ export function createMainActiveTerminalArtifacts({
         publicSmokes: smokes,
         stateProof: completeStateProof,
         rollbackStateTargets: rollbackTargets,
+        // A recovered or manual outcome still moved these domains before the
+        // compensating rollback, so the terminal report must name them — for
+        // the promotes that started, and only where the census still finds a
+        // deployment this release owned.
+        riderAliases: ridersFor(startedPromoteTargets(highest), highest),
+        riderTargets: startedPromoteTargets(highest),
         publicServingMutationCommands: counts.started,
         coordinatorOutcome: "active-failed",
         recoveryOutcome:
@@ -6561,13 +6695,7 @@ function canonicalActiveVerifiedOperations(value) {
     }
     seen.add(operationId);
     if (
-      ![
-        "promote",
-        "app_v3_deploy",
-        "app_alias_set",
-        "ordinary_rollback",
-        "app_alias_restore",
-      ].includes(operation.type) ||
+      !["promote", "ordinary_rollback"].includes(operation.type) ||
       !MAIN_DEPLOYMENT_TARGETS.includes(operation.target)
     ) {
       throw new Error("Nested active verified operation is unsupported");
@@ -6890,6 +7018,7 @@ export function assertMainActiveTerminalEvidenceArtifact(
         "runAttempt",
         "workflowRunUrl",
         "planning",
+        "riderAliases",
         "freshness",
         "finalMappings",
         "publicSmokes",
@@ -6952,6 +7081,11 @@ export function assertMainActiveTerminalEvidenceArtifact(
       runAttempt: identity.runAttempt,
       workflowRunUrl: identity.workflowRunUrl,
       planning,
+      riderAliases: canonicalRiderAliasEvidence(
+        value.riderAliases,
+        planning.activeTargets,
+        "Nested current release rider domains",
+      ),
       freshness,
       finalMappings,
       publicSmokes,
@@ -7070,6 +7204,7 @@ export function assertMainActiveTerminalEvidenceArtifact(
         "runAttempt",
         "workflowRunUrl",
         "planning",
+        "riderAliases",
         "journal",
         "orderedVerifiedOperations",
         "freshness",
@@ -7171,6 +7306,14 @@ export function assertMainActiveTerminalEvidenceArtifact(
       runAttempt: identity.runAttempt,
       workflowRunUrl: identity.workflowRunUrl,
       planning,
+      // Re-derived from the release manifest, never trusted from the artifact.
+      // Carried, not re-derived: riders are mutable provider state and this
+      // reader has no census of its own. Validated for shape and scope only.
+      riderAliases: canonicalRiderAliasEvidence(
+        value.riderAliases,
+        planning.activeTargets,
+        "Nested active rider domains",
+      ),
       journal,
       orderedVerifiedOperations,
       freshness,
@@ -7212,6 +7355,7 @@ export function assertMainActiveTerminalEvidenceArtifact(
       "publicSmokes",
       "stateProofSummary",
       "rollbackStateTargets",
+      "riderAliases",
       "publicServingMutationCommands",
       "coordinatorOutcome",
       "recoveryOutcome",
@@ -7372,6 +7516,16 @@ export function assertMainActiveTerminalEvidenceArtifact(
     publicSmokes,
     stateProofSummary,
     rollbackStateTargets,
+    riderAliases: assertRiderMutationBound(
+      canonicalRiderAliasEvidence(
+        value.riderAliases,
+        activePlanningFromExecution(releaseExecution).activeTargets,
+        "Nested active failure rider domains",
+        { exact: false },
+      ),
+      mutationCount,
+      "Nested active failure rider domains",
+    ),
     publicServingMutationCommands: mutationCount,
     coordinatorOutcome,
     recoveryOutcome,
@@ -8185,9 +8339,9 @@ function writeMainActiveTransition({
   return result;
 }
 
-function appProofFromEnvironment(values) {
-  return values.APP_BUILD_PROOF
-    ? parseJson(values.APP_BUILD_PROOF, "App build proof")
+function appCandidateReceiptFromEnvironment(values) {
+  return values.APP_CANDIDATE_RECEIPT
+    ? parseJson(values.APP_CANDIDATE_RECEIPT, "App candidate receipt")
     : null;
 }
 
@@ -8310,20 +8464,11 @@ function buildMainActiveEvent(command, options) {
       result: readJson(options.result, "Active command result"),
     });
   }
-  if (
-    command === "active-event-verify" ||
-    command === "active-event-verify-app"
-  ) {
-    const authorization = authorizationFromTransition(
+  if (command === "active-event-verify") {
+    authorizationFromTransition(
       options.authorization,
       "Active verification authorization",
     );
-    const appVerification = command === "active-event-verify-app";
-    if ((authorization.command.kind === "app-v3-deploy") !== appVerification) {
-      throw new Error(
-        "Active verification materializer does not match the authorized command",
-      );
-    }
     return createMainActiveTransitionEvent({
       schema: "vercel-main-active-event:v1",
       kind: "verify",
@@ -8333,15 +8478,6 @@ function buildMainActiveEvent(command, options) {
         options["current-mappings"],
         "Active current mappings",
       ),
-      appCandidateReceipt: appVerification
-        ? readJson(
-            options["app-candidate-receipt"],
-            "Active App candidate receipt",
-          )
-        : null,
-      appDeployment: appVerification
-        ? readJson(options["app-deployment"], "Active App deployment")
-        : null,
     });
   }
   if (kind === "finalize") {
@@ -8638,10 +8774,6 @@ export async function runMainDeploymentCli({
       candidateReceipts: readJson(
         options["candidate-receipts"],
         "Current main candidate receipts",
-      ),
-      appPreparation: readJson(
-        options["app-preparation"],
-        "Current App preparation",
       ),
       runId: values.GITHUB_RUN_ID,
       runAttempt: values.GITHUB_RUN_ATTEMPT,
@@ -9341,24 +9473,7 @@ export async function runMainDeploymentCli({
     });
     return;
   }
-  if (command === "app-build-proof") {
-    const proof = createMainAppBuildProof({
-      intent: readJson(options.intent, "Current App candidate intent"),
-    });
-    writeCanonicalJson(options.output, proof);
-    appendOutput(values.GITHUB_OUTPUT, "proof", JSON.stringify(proof));
-    return proof;
-  }
-  if (command === "app-candidate-expectation") {
-    writeCanonicalJson(
-      options.output,
-      createMainAppCandidateExpectation({
-        journal: readJson(options.journal, "Prepared transaction journal"),
-        projectId: values.VERCEL_PROJECT_ID_APP,
-      }),
-    );
-    return;
-  }
+
   if (command === "stage-result") {
     const result = createMainStageResult({
       target: values.LOGICAL_TARGET,
@@ -9393,7 +9508,7 @@ export async function runMainDeploymentCli({
     const journal = createPreparedMainJournal({
       plan: parseJson(values.PLAN_JSON, "Main deployment plan"),
       stageJobs: stageJobsFromEnvironment(values),
-      appBuildProof: appProofFromEnvironment(values),
+      appCandidateReceipt: appCandidateReceiptFromEnvironment(values),
       runId: values.GITHUB_RUN_ID,
       runAttempt: values.GITHUB_RUN_ATTEMPT,
     });
@@ -9411,7 +9526,7 @@ export async function runMainDeploymentCli({
     const result = await runMainShadowTransaction({
       plan: parseJson(values.PLAN_JSON, "Main deployment plan"),
       stageJobs: stageJobsFromEnvironment(values),
-      appBuildProof: appProofFromEnvironment(values),
+      appCandidateReceipt: appCandidateReceiptFromEnvironment(values),
       runId: values.GITHUB_RUN_ID,
       runAttempt: values.GITHUB_RUN_ATTEMPT,
       journalBytes,

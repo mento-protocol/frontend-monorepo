@@ -1,5 +1,6 @@
 import { ProposalContent } from "@/components/proposal/content";
 import { env } from "@/env.mjs";
+import { getGraphRequestOrigin } from "@/graphql/graph-request-origin";
 import { Metadata } from "next";
 import { notFound } from "next/navigation";
 
@@ -116,6 +117,9 @@ async function fetchProposalData(id: string) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Origin: getGraphRequestOrigin({
+        vercelEnvironment: env.NEXT_PUBLIC_VERCEL_ENV,
+      }),
       ...(apiKey && { Authorization: `Bearer ${apiKey}` }),
     },
     body: JSON.stringify({

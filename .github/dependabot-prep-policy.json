@@ -1,0 +1,152 @@
+{
+  "schema": "dependabot-prep-policy:v3",
+  "executionModel": "trusted-openclaw-agent",
+  "repository": "mento-protocol/frontend-monorepo",
+  "baseRef": "main",
+  "canonicalPlaybook": "docs/dependabot-automation.md",
+  "entryPrompt": "scripts/prompts/dependabot-weekly.md",
+  "authority": {
+    "source": "live-main",
+    "candidateInstructions": "not-authority",
+    "requireCurrentPolicyBeforeWrites": true
+  },
+  "admission": {
+    "author": {
+      "id": 49699333,
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    },
+    "sameRepository": true,
+    "headRefPrefix": "dependabot/",
+    "openOnly": true,
+    "drafts": "needs-decision-no-state-change",
+    "autoMergeMustBeDisabled": true,
+    "vetoLabels": [
+      "dependencies:manual",
+      "dependabot:manual",
+      "do-not-merge",
+      "no-auto-merge",
+      "processor:veto"
+    ],
+    "unexplainedForeignCommits": "needs-decision"
+  },
+  "limits": {
+    "activeBatches": 1,
+    "batchMinutes": 360,
+    "perPullRequestMinutes": 45,
+    "repairAttempts": 3
+  },
+  "changes": {
+    "allowed": [
+      "dependency-source-repairs",
+      "manifest-and-lockfile-updates",
+      "documented-runtime-contract-updates",
+      "focused-tests",
+      "package-installation",
+      "local-build-and-test",
+      "merge-current-main",
+      "request-current-head-review",
+      "answer-review-feedback"
+    ],
+    "needsDecisionPaths": [
+      ".github/workflows/**",
+      ".github/actions/**",
+      ".github/dependabot-prep-policy.json",
+      "AGENTS.md",
+      "CLAUDE.md",
+      "docs/dependabot-automation.md",
+      "scripts/prompts/dependabot-weekly.md"
+    ],
+    "needsDecisionTriggers": [
+      "security-control-changes",
+      "automation-policy-changes",
+      "weakened-or-disabled-checks",
+      "credential-or-permission-changes",
+      "unexplained-history",
+      "disputed-review-findings",
+      "product-or-architecture-decisions"
+    ],
+    "needsDecisionPublication": false,
+    "majorOrRuntimeUpdate": "research-and-repair-with-documented-validation",
+    "push": {
+      "existingPullRequestBranchOnly": true,
+      "fastForwardOnly": true,
+      "explicitRefspec": true,
+      "recheckRemoteHeadBeforePush": true,
+      "lease": "exact-ref-and-observed-nonzero-sha",
+      "proveFastForwardBeforeLease": true,
+      "noOpPush": false
+    }
+  },
+  "forbiddenActions": [
+    "approve",
+    "merge",
+    "close",
+    "mark-ready-for-review",
+    "enable-auto-merge",
+    "disable-auto-merge",
+    "enqueue-merge",
+    "dismiss-review",
+    "resolve-thread",
+    "unresolve-thread",
+    "force-push",
+    "rebase",
+    "recreate",
+    "rerun-checks",
+    "publish-needs-decision-changes",
+    "weaken-security-or-checks",
+    "expose-secrets"
+  ],
+  "research": {
+    "scope": "every-dependency-in-every-pull-request-including-manual",
+    "tupleFields": ["name", "fromVersion", "toVersion"],
+    "sources": [
+      "upstream-release-notes",
+      "upstream-changelog",
+      "migration-guide",
+      "security-advisory"
+    ],
+    "fallback": "verified-upstream-project-page-with-explicit-source-gaps",
+    "requireLiveVerification": true,
+    "reportFields": [
+      "source-links",
+      "breaking-changes",
+      "repository-impact",
+      "recommendation",
+      "risk",
+      "confidence",
+      "confidence-rationale",
+      "source-gaps"
+    ],
+    "unavailable": "blocked-and-operationally-incomplete"
+  },
+  "handoff": {
+    "verdicts": ["ready-for-maintainer-decision", "needs-decision", "blocked"],
+    "exactHeadAndBase": true,
+    "containsCurrentMain": true,
+    "mergeable": true,
+    "autoMergeMustBeDisabled": true,
+    "requiredChecks": "all-live-required-checks-with-authenticated-producers",
+    "checkEvidence": "exact-head-app-or-status-creator-and-workflow-binding",
+    "additionalChecks": "all-affected-repository-gates",
+    "reviewer": {
+      "id": 136622811,
+      "login": "coderabbitai[bot]",
+      "type": "Bot"
+    },
+    "reviewCommit": "exact-final-head",
+    "feedback": "all-surfaces-including-walkthroughs-and-followups",
+    "actionableFeedback": "address-and-answer-every-item",
+    "disputedFeedback": "needs-decision",
+    "answeredUnresolvedThreads": "list-for-maintainer",
+    "humanApprovalAndMerge": "maintainer-only",
+    "recheckOnHeadOrBaseDrift": true
+  },
+  "security": {
+    "dependabotCi": "secretless",
+    "vercelCredentialedPreview": "forbidden",
+    "githubActionsRefs": "full-lowercase-40-hex-sha",
+    "osvScannerAndReporter": "same-revision",
+    "checksAndSecurityControls": "never-weaken"
+  }
+}
