@@ -79,6 +79,24 @@ Always use `--filter` to avoid building/running everything unnecessarily.
 2. Run `trunk check --fix` — confirm linting passes
 3. Verify changes visually on localhost (check the app's package.json `dev` script for the port)
 
+## Cloud Sessions (Claude Code on the Web)
+
+Cloud sessions start from a fresh clone with no `node_modules`. The
+`SessionStart` hook in [.claude/settings.json](.claude/settings.json) runs
+[scripts/cloud-session-setup.sh](scripts/cloud-session-setup.sh), which runs
+`pnpm install --frozen-lockfile` only when `CLAUDE_CODE_REMOTE=true` and
+`node_modules/.pnpm` is absent. Local sessions exit the script immediately.
+
+The cloud environment's setup script is a separate file. It is configured per
+environment at claude.ai/code, not in this repository. It runs as root before
+the repository is cloned, so it must not read repository files, and it must
+exit 0 or the session fails to start. Keep it to VM provisioning, such as
+Foundry and the Trunk launcher. Install tools into a shared path such as
+`/opt`, then symlink them into `/usr/local/bin`: the environment cache keeps
+files but not an exported `PATH`, and the session user cannot read `/root`.
+Fork tests additionally need the RPC hosts (`forno.celo.org`, `rpc.monad.xyz`)
+on a Custom network allowlist.
+
 ## Visual Regression Testing
 
 Two layers guard against unintended UI changes:
