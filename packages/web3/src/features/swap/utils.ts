@@ -56,18 +56,19 @@ export const formatWithMaxDecimals = (
   useThousandSeparators = true,
 ): string => {
   if (!value || value === "0") return "0";
+  let num: BigNumber;
   try {
-    const num = new BigNumber(value);
-    if (num.isNaN() || !num.isFinite()) return "0";
-
-    // Decimal, arbitrary-precision truncation — no IEEE-754 round-trip.
-    const truncated = num.decimalPlaces(maxDecimals, BigNumber.ROUND_DOWN);
-
-    // toFormat() groups thousands with ","; toFixed() (no dp arg) emits no trailing zeros.
-    return useThousandSeparators ? truncated.toFormat() : truncated.toFixed();
+    num = new BigNumber(value);
   } catch {
     return "0";
   }
+  if (num.isNaN() || !num.isFinite()) return "0";
+
+  // Decimal, arbitrary-precision truncation — no IEEE-754 round-trip.
+  const truncated = num.decimalPlaces(maxDecimals, BigNumber.ROUND_DOWN);
+
+  // toFormat() groups thousands with ","; toFixed() (no dp arg) emits no trailing zeros.
+  return useThousandSeparators ? truncated.toFormat() : truncated.toFixed();
 };
 
 export function parseSlippage(slippage?: string): number {
