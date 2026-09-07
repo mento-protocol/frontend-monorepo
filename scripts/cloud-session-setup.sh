@@ -40,6 +40,15 @@ if [[ -n ${lockfile_digest} ]] && [[ -f ${stamp_file} ]] &&
 	exit 0
 fi
 
+# The environment provides its own pnpm; package.json pins the one this
+# workspace expects. Report a mismatch rather than let a differing version
+# install quietly, and let the install itself fail loudly when pnpm is missing.
+pinned_pnpm="$(sed -n 's/.*"packageManager"[[:space:]]*:[[:space:]]*"pnpm@\([^"]*\)".*/\1/p' package.json)"
+running_pnpm="$(pnpm --version 2>/dev/null)"
+if [[ -n ${pinned_pnpm} ]] && [[ ${running_pnpm} != "${pinned_pnpm}" ]]; then
+	echo "cloud-session-setup: pnpm ${running_pnpm:-not found} does not match the pinned pnpm@${pinned_pnpm}"
+fi
+
 # The hook's output becomes session context, so keep the install log on disk and
 # print only a summary. A cold install of this workspace runs for minutes, which
 # is why the hook sets a 600 second timeout.
