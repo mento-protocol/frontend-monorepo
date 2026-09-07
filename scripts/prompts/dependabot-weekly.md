@@ -1,3 +1,5 @@
+# Weekly Dependabot preparation
+
 Prepare all open Dependabot PRs in mento-protocol/frontend-monorepo for a human
 merge decision using the ordinary trusted OpenClaw coding session. This is an
 explicit write task: ordinary installs, builds, tests, lockfile generation,
