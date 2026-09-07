@@ -49,4 +49,5 @@ adds a high-signal surface without a numbered ADR.
 | [0006](0006-dependabot-processing-controller.md)                      | Archived: repository-hosted Dependabot preparation; superseded by ADR 0009                |
 | [0007](0007-deterministic-protected-runtime-dependency-sync.md)       | Archived: typed protected-runtime dependency repair; superseded by ADR 0009               |
 | [0008](0008-authenticated-dependabot-native-generation-boundaries.md) | Archived: native Dependabot generation authentication; superseded by ADR 0009             |
-| [0009](0009-external-agent-dependabot-preparation.md)                 | Weekly runtime-neutral external-agent preparation with human approval and squash merge    |
+| [0009](0009-external-agent-dependabot-preparation.md)                 | Archived: sealed external-agent preparation; superseded by ADR 0010                       |
+| [0010](0010-trusted-agent-dependabot-preparation.md)                  | Ordinary trusted OpenClaw coding workflow with bounded weekly preparation                 |

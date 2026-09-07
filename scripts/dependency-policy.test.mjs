@@ -41,19 +41,6 @@ function nestedStrings(value) {
   return [];
 }
 
-function valueAtPolicyPath(policy, path) {
-  return path.split(".").reduce((value, segment) => {
-    assert.ok(
-      value !== null &&
-        typeof value === "object" &&
-        !Array.isArray(value) &&
-        Object.hasOwn(value, segment),
-      `manual-hygiene selector references missing policy path ${path}`,
-    );
-    return value[segment];
-  }, policy);
-}
-
 function filesBelow(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
@@ -122,38 +109,6 @@ const CLAUDE_PLUGIN_MARKETPLACE = "./.claude-code-plugin-marketplace";
 const CLAUDE_CODE_REVIEW_PLUGIN = `${CLAUDE_PLUGIN_MARKETPLACE}/plugins/code-review`;
 const CLAUDE_PLUGIN_MARKETPLACE_REF =
   "2bb60696142b493eafaeacfe00eac51d16c50c4f";
-const DEPENDABOT_POLICY_TOP_LEVEL_KEYS = [
-  "admission",
-  "baseRef",
-  "branchMaintenance",
-  "credentialBoundary",
-  "evidence",
-  "feedback",
-  "githubActions",
-  "history",
-  "identities",
-  "lineageReceipts",
-  "manualHygiene",
-  "manualResearch",
-  "nativeCommit",
-  "operationalExit",
-  "preparationModes",
-  "protectedPaths",
-  "repository",
-  "schema",
-  "trustedMaintainer",
-  "vetoLabels",
-  "writeAuthorization",
-];
-function hasExactKeys(value, expected) {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    JSON.stringify(Object.keys(value).sort()) === JSON.stringify(expected)
-  );
-}
-
 function osvReusableRevision(value) {
   return /^google\/osv-scanner-action\/\.github\/workflows\/osv-scanner-reusable\.yml@([0-9a-f]{40})$/u.exec(
     String(value ?? ""),
@@ -175,1097 +130,215 @@ function workspacePackagePaths() {
   return paths;
 }
 
-test("agent preparation policy pins the repository authority contract", () => {
-  assert.throws(() => authorityJson('{"schema":"first","schema":"second"}'));
-  assert.throws(() =>
-    authorityJson(
-      '{"schema":"dependabot-prep-policy:v2","identities":{"pullRequestAuthor":{},"pullRequestAuthor":{}}}',
-    ),
-  );
+test("trusted-agent policy limits authority to existing Dependabot pull requests", () => {
   const policy = authorityJson(read(".github/dependabot-prep-policy.json"));
-  assert.equal(hasExactKeys(policy, DEPENDABOT_POLICY_TOP_LEVEL_KEYS), true);
-  assert.equal(
-    hasExactKeys(
-      { ...policy, unknownAuthority: { merge: true } },
-      DEPENDABOT_POLICY_TOP_LEVEL_KEYS,
-    ),
-    false,
-  );
-  assert.equal(policy.schema, "dependabot-prep-policy:v2");
+  assert.equal(policy.schema, "dependabot-prep-policy:v3");
+  assert.equal(policy.executionModel, "trusted-openclaw-agent");
   assert.equal(policy.repository, "mento-protocol/frontend-monorepo");
   assert.equal(policy.baseRef, "main");
-  assert.deepEqual(policy.identities, {
-    pullRequestAuthor: {
-      id: 49699333,
-      login: "dependabot[bot]",
-      type: "Bot",
-    },
-    forcePushActor: { id: 49699333, login: "dependabot", type: "Bot" },
-    nativeCommitAuthor: {
-      id: 49699333,
-      login: "dependabot[bot]",
-      type: "Bot",
-    },
-    nativeCommitters: [
-      { id: 49699333, login: "dependabot[bot]", type: "Bot" },
-      { id: 19864447, login: "web-flow", type: "User" },
-    ],
+  assert.deepEqual(policy.authority, {
+    source: "live-main",
+    candidateInstructions: "not-authority",
+    requireCurrentPolicyBeforeWrites: true,
   });
-  assert.deepEqual(policy.nativeCommit, {
-    parentCount: 1,
-    verified: true,
-    verificationReason: "valid",
+  assert.deepEqual(policy.admission.author, {
+    id: 49699333,
+    login: "dependabot[bot]",
+    type: "Bot",
   });
-  assert.deepEqual(policy.credentialBoundary, {
-    modelGhConfig: "/var/lib/dependabot/gh",
-    modelCredential: "absent",
-    mutatorGhConfig: "/var/lib/dependabot-mutator/gh",
-    mutatorCredentialOwner: "dedicated-nologin-identity",
-    broker: "/opt/dependabot-prep/mutation-broker.mjs",
-    client: "/opt/dependabot-prep/mutation-client.mjs",
-    socket: "/run/dependabot-prep/broker.sock",
-    clientOperationAllowlist: {
-      read: ["gh-read", "lineage", "verify-assisted", "selftest"],
-      write: [
-        "push",
-        "sync-base",
-        "recreate",
-        "request-review",
-        "comment",
-        "reply",
-        "manual-research",
-      ],
-    },
-    verifierBrokerOperationAllowlist: ["verify-prepared", "run-manifest"],
-    readOperations: [
-      "rest-get-fixed-repository",
-      "graphql-template-pull-request-force-push-history",
-      "graphql-template-pull-request-review-threads",
-      "verify-assisted-handoff",
-    ],
-    writeOperations: {
-      branch: ["exact-cas-push", "exact-cas-base-sync"],
-      "branch-maintenance": ["exact-dependabot-recreate"],
-      "manual-hygiene-gate": ["root-owned-research-gate-receipt"],
-      "review-request": ["exact-coderabbit-review-request"],
-      comment: ["bounded-top-level-comment"],
-      reply: ["bounded-review-comment-reply"],
-    },
-    directAuthenticatedGh: "forbidden",
-  });
-  assert.deepEqual(policy.evidence, {
-    normalization: {
-      requiredFields: [
-        "normalizedBy",
-        "normalizationStatus",
-        "normalizationNote",
-      ],
-      statusValues: ["verified", "rejected"],
-      preparedRequiresVerified: true,
-      preparedRequiresCompletePagination: true,
-      preparedShaFormat: "40-lowercase-hex-git-oid",
-      nonPreparedUnknownShaValue: "unknown",
-      nonPreparedUnknownShaFields: ["generationBaseSha", "policySha"],
-      currentTargetBaseShaRequired: true,
-      rejectedEvidenceResult: "blocked-not-operational-failure",
-    },
-    shaRoles: {
-      generationBaseSha: "native-generation-ancestry-anchor",
-      currentTargetBaseSha: "live-base-ref-oid-used-for-preparation",
-      policySha: "git-blob-oid-of-policy-at-current-target-base",
-    },
-    forcePushTimeline: {
-      source: "graphql",
-      connection: "PullRequest.timelineItems",
-      itemType: "HeadRefForcePushedEvent",
-      beforeOidField: "beforeCommit.oid",
-      afterOidField: "afterCommit.oid",
-      requireCompletePagination: true,
-      resultEvidenceField: "forcePushHistory",
-      resultFields: [
-        "source",
-        "eventType",
-        "paginationComplete",
-        "transitions",
-      ],
-      resultTransitionFields: [
-        "eventId",
-        "createdAt",
-        "beforeSha",
-        "afterSha",
-        "actorLogin",
-        "actorType",
-        "actorId",
-      ],
-      normalizedFields: [
-        "eventType",
-        "paginationComplete",
-        "source",
-        "transitions",
-      ],
-      normalizedTransitionFields: [
-        "actorId",
-        "actorLogin",
-        "actorType",
-        "afterSha",
-        "beforeSha",
-        "createdAt",
-        "eventId",
-      ],
-      missingOid: "blocked",
-    },
-    repositoryRules: {
-      appliedBranchRulesEndpoint:
-        "/repos/{owner}/{repo}/rules/branches/{branch}",
-      rulesetsEndpoint: "/repos/{owner}/{repo}/rulesets",
-      rulesetEndpoint: "/repos/{owner}/{repo}/rulesets/{rulesetId}",
-      requireCompletePagination: true,
-      requireFullRulesetReadback: true,
-      resultEvidenceField: "repositoryRules",
-      resultFields: [
-        "source",
-        "branchRulesEndpoint",
-        "rulesetsEndpoint",
-        "paginationComplete",
-        "summary",
-      ],
-      normalizedFields: [
-        "branchRulesEndpoint",
-        "branchRules",
-        "complete",
-        "evidenceSha256",
-        "paginationComplete",
-        "rulesets",
-        "rulesetsEndpoint",
-        "source",
-        "targetRefName",
-      ],
-      legacyBranchProtection: "not-authoritative",
-      unreadable: "blocked",
-    },
-    mutationLineage: {
-      resultEvidenceField: "mutationLineage",
-      requiredFields: [
-        "complete",
-        "finalHeadSha",
-        "nativeLineageSha256",
-        "originHeadSha",
-        "source",
-        "transitions",
-      ],
-      sourceFields: ["kind", "modelWritable", "mutationAuthority"],
-      requiredSource: {
-        kind: "root-owned-mutation-receipts",
-        modelWritable: false,
-        mutationAuthority: false,
-      },
-      transitionFields: [
-        "kind",
-        "newHeadSha",
-        "oldHeadSha",
-        "receiptFile",
-        "receiptSha256",
-      ],
-      transitionKinds: ["exact-cas-push", "exact-cas-base-sync"],
-      preparedRequiresComplete: true,
-      preparedFinalHeadMustMatch: true,
-    },
-    generationTransition: {
-      resultEvidenceField: "generationTransition",
-      ordinaryValue: null,
-      rejectedValue: null,
-      recreateFields: [
-        "boundaryAfterSha",
-        "boundaryBeforeSha",
-        "boundaryCreatedAt",
-        "boundaryEventId",
-        "commentCreatedAt",
-        "commentId",
-        "commentUpdatedAt",
-        "kind",
-        "oldHeadSha",
-        "oldNativeOriginHeadSha",
-        "operator",
-        "receiptFile",
-        "receiptSha256",
-        "requestSha256",
-        "requestedTargetBaseSha",
-        "source",
-      ],
-      manualHygieneReceiptSchema: "dependabot-prep-recreate-receipt:v2",
-      manualHygieneRecreateFields: [
-        "authorizedTargetPullRequestNumber",
-        "boundaryAfterSha",
-        "boundaryBeforeSha",
-        "boundaryCreatedAt",
-        "boundaryEventId",
-        "category",
-        "commentCreatedAt",
-        "commentId",
-        "commentUpdatedAt",
-        "kind",
-        "lane",
-        "oldHeadSha",
-        "oldNativeLineageSha256",
-        "oldNativeOriginHeadSha",
-        "oldNativePrefixCommitOids",
-        "operator",
-        "processingMode",
-        "quarantinedSuffixCommitOids",
-        "quarantinedSuffixSha256",
-        "receiptFile",
-        "receiptSha256",
-        "recreateProfile",
-        "requestSha256",
-        "requestedTargetBaseSha",
-        "researchReceiptSha256",
-        "source",
-      ],
-      requiredKind: "controller-recreate",
-      requiredSource: {
-        kind: "root-owned-recreate-receipt",
-        modelWritable: false,
-        mutationAuthority: false,
-      },
-      receiptAuthority: "/var/lib/dependabot/lineage/recreates",
-      commentMustBeUnedited: true,
-      boundary: "first-normalized-force-push-after-comment-from-exact-old-head",
-      requiresNoHistoricalReplay: true,
-      requiredBaseBindings: [
-        "generationBaseSha",
-        "currentTargetBaseSha",
-        "requestedTargetBaseSha",
-      ],
-    },
-  });
-  assert.deepEqual(policy.trustedMaintainer, {
-    associations: ["COLLABORATOR", "MEMBER", "OWNER"],
-    branchMaintenancePermissions: ["admin", "write"],
-  });
-  assert.deepEqual(policy.vetoLabels, [
+  assert.equal(policy.admission.sameRepository, true);
+  assert.equal(policy.admission.openOnly, true);
+  assert.equal(policy.admission.drafts, "needs-decision-no-state-change");
+  assert.ok(policy.forbiddenActions.includes("mark-ready-for-review"));
+  assert.match(read("AGENTS.md"), /draft Dependabot PRs are maintainer holds/);
+  assert.match(read(policy.entryPrompt), /Only non-draft authenticated/);
+  assert.match(read(policy.canonicalPlaybook), /Require `isDraft: false`/);
+  assert.doesNotMatch(
+    read(".github/dependabot.yml"),
+    /strict patches have a narrow full lane|minor and major updates remain manual|own manual lane/,
+  );
+  assert.equal(policy.admission.headRefPrefix, "dependabot/");
+  assert.equal(policy.admission.autoMergeMustBeDisabled, true);
+  assert.equal(policy.admission.unexplainedForeignCommits, "needs-decision");
+  assert.deepEqual(policy.admission.vetoLabels, [
     "dependencies:manual",
     "dependabot:manual",
     "do-not-merge",
     "no-auto-merge",
     "processor:veto",
   ]);
-  assert.deepEqual(policy.branchMaintenance, {
-    commands: ["@dependabot rebase", "@dependabot recreate"],
-    requirePositiveCommentId: true,
-    requireUneditedComment: true,
-    requireValidUtcTimestamps: true,
-    rebaseResetsForcePushHistory: false,
-    recreateStartsGenerationAfterComment: true,
-    controllerRecreate: {
-      operation: "recreate",
-      grant: "recreate",
-      body: "@dependabot recreate",
-      eligibleEcosystem: "npm",
-      processingMode: "full",
-      requiresAuthenticatedNativeGeneration: true,
-      requiresSingleNativeCommit: true,
-      oncePerExactNativeGeneration: true,
-      postComment: "wait-for-and-reauthenticate-new-native-generation",
-      refMutationAuthority: "dependabot-only",
-    },
-    manualHygieneRecreate: {
-      operation: "recreate",
-      grant: "recreate",
-      body: "@dependabot recreate",
-      processingMode: "manual",
-      lane: "manual-hygiene",
-      eligibleEcosystems: ["npm", "github-actions"],
-      recreateProfiles: [
-        "native-npm",
-        "native-github-actions",
-        "legacy-prepare-bot-recovery",
-      ],
-      requiresAuthorizingResearchReceipt: true,
-      oncePerExactGenerationAnchor: true,
-      postComment: "wait-for-and-reauthenticate-wholly-new-native-generation",
-      refMutationAuthority: "dependabot-only",
-    },
+  assert.deepEqual(policy.limits, {
+    activeBatches: 1,
+    batchMinutes: 360,
+    perPullRequestMinutes: 45,
+    repairAttempts: 3,
   });
-  assert.deepEqual(policy.feedback, {
-    requireCompletePagination: true,
-    reviewRequest: {
-      acceptedStates: ["APPROVED", "COMMENTED"],
-      body: "@coderabbitai review",
-      reviewer: {
-        id: 136622811,
-        login: "coderabbitai[bot]",
-        type: "Bot",
-      },
-      requiresAuthenticatedOperator: true,
-      requiresAppendOnlyInvocationRecords: true,
-      requiresExactHeadBindingAtCreation: true,
-      requiresStableCommentId: true,
-      historicalAuthenticatedHeadsRemainAdmitted: true,
-    },
-    topLevelResponse: {
-      markerSchema: "dependabot-prep-comment:v1",
-      requiresAppendOnlyInvocationRecord: true,
-      requiresAuthenticatedOperator: true,
-      requiresExactHeadBindingAtCreation: true,
-      requiresRootBodyDigest: true,
-      requiresRootIdDigest: true,
-      requiresStableCommentId: true,
-      requiresVisibleBodyDigest: true,
-    },
-    dependabotOperationalComments: {
-      actor: {
-        id: 49699333,
-        login: "dependabot[bot]",
-        type: "Bot",
-      },
-      associations: ["CONTRIBUTOR", "NONE"],
-      bodyRule: "any-bounded-body",
-      maximumBodyLength: 50_000,
-    },
-    informationalBotIssueComments: {
-      maximumBodyLength: 50_000,
-      rules: [
-        {
-          actor: {
-            id: 41898282,
-            login: "github-actions[bot]",
-            type: "Bot",
-          },
-          app: { id: 15368, slug: "github-actions" },
-          associations: ["NONE"],
-          predicates: [
-            {
-              kind: "startsWith",
-              value: "<!-- vercel-preview-journal:v2 -->",
-            },
-            {
-              kind: "includes",
-              value: "**No reviewer action is required.**",
-            },
-          ],
-        },
-        {
-          actor: {
-            id: 62215774,
-            login: "argos-ci[bot]",
-            type: "Bot",
-          },
-          app: { id: 57576, slug: "argos-ci" },
-          associations: ["NONE"],
-          predicates: [
-            {
-              kind: "startsWith",
-              value:
-                "**The latest updates on your projects.** Learn more about [Argos notifications ↗︎](https://argos-ci.com/docs/learn/review-workflow/pull-request-comments)",
-            },
-          ],
-        },
-        {
-          actor: { id: 35613825, login: "vercel[bot]", type: "Bot" },
-          app: { id: 8329, slug: "vercel" },
-          associations: ["NONE"],
-          predicates: [{ kind: "startsWith", value: "[vc]: " }],
-        },
-        {
-          actor: {
-            id: 199175422,
-            login: "chatgpt-codex-connector[bot]",
-            type: "Bot",
-          },
-          app: { id: 1144995, slug: "chatgpt-codex-connector" },
-          associations: ["NONE"],
-          predicates: [
-            {
-              kind: "startsWith",
-              value: "Codex Review: Didn't find any major issues.",
-            },
-          ],
-        },
-      ],
-    },
-    trustedMaintainerIssueComment:
-      "manual-unless-exact-branch-command-or-current-invocation-procedural-comment",
-    unknownOrMalformedBotFeedback: "blocked",
+  assert.deepEqual(policy.changes.push, {
+    existingPullRequestBranchOnly: true,
+    fastForwardOnly: true,
+    explicitRefspec: true,
+    recheckRemoteHeadBeforePush: true,
+    lease: "exact-ref-and-observed-nonzero-sha",
+    proveFastForwardBeforeLease: true,
+    noOpPush: false,
   });
-  assert.deepEqual(policy.history, {
-    closeOrReopenByNonDependabot: "manual",
-    existingNonNativeHead: "admit-only-complete-validated-broker-receipt-chain",
-    forcePushRequiresCompletePagination: true,
-    forcePushRequiresContinuousShas: true,
-    forcePushRequiresNonCyclicShas: true,
-    forcePushRequiresOrderedUtcTimestamps: true,
-    forcePushRequiresUniqueEventIds: true,
-    unknownForcePush: "blocked",
-  });
-  assert.deepEqual(policy.admission, {
-    ordinaryNpm: {
-      ecosystem: "npm",
-      allowedProcessingModes: ["full", "sync-only"],
-      originalAllowedExactPaths: [
-        "package.json",
-        "pnpm-lock.yaml",
-        "pnpm-workspace.yaml",
-      ],
-      originalAllowedPathSuffixes: ["/package.json"],
-      forbiddenPathPrefixes: [
-        "scripts/vercel-cli-runtime/",
-        "scripts/vercel-pnpm-runtime/",
-        "scripts/vercel-pnpm-bootstrap/",
-      ],
-      finalForbiddenPathPrefixes: [
-        "scripts/vercel-cli-runtime/",
-        "scripts/vercel-pnpm-runtime/",
-        "scripts/vercel-pnpm-bootstrap/",
-      ],
-      finalPathRule: "reviewed-nonprotected-compatibility-repair",
-      candidateAuthoredRepair: {
-        requiresSeparateCleanBaseSync: true,
-        commitShape: "one-parent-from-exact-old-head",
-        pathStatus: "modified-existing-nonprotected-only",
-        allowedPathPrefixes: ["apps/", "packages/"],
-        dependencyManifestOrLockfileMutation: "forbidden",
-        finalDependencyTuples: "exact-authenticated-native-tuples",
-      },
-      excludedPackages: [
-        "next",
-        "vercel",
-        "pnpm",
-        "@pnpm/linux-x64",
-        "@playwright/test",
-        "@argos-ci/playwright",
-      ],
-      excludedPackagePrefixes: [],
-      manualRiskPackagePatterns: [
-        "wagmi",
-        "viem",
-        "viem-*",
-        "@wagmi/*",
-        "@rainbow-me/*",
-        "@metamask/*",
-        "ethers",
-        "ethers-*",
-        "@mento-protocol/*",
-        "@wormhole-foundation/*",
-        "@solana/*",
-        "@walletconnect/*",
-        "@reown/*",
-        "@celo/*",
-        "@ledgerhq/*",
-        "@trezor/*",
-        "@safe-global/*",
-        "@noble/*",
-        "@scure/*",
-        "*wallet*",
-        "*web3*",
-      ],
-      versionTransition: {
-        accepted: "strict-forward-stable-semver-with-identical-range-prefix",
-        unsupportedOrAmbiguous: "manual",
-      },
-      unknownDependency: "manual",
-    },
-    ordinaryNpmInitialState: {
-      behindCurrentTargetBase: "admissible-work",
-      conflicting: "admissible-work",
-      redRequiredChecks: "admissible-work",
-    },
-    protectedRuntimeManual: {
-      packages: [
-        "vercel",
-        "pnpm",
-        "@pnpm/linux-x64",
-        "@playwright/test",
-        "@argos-ci/playwright",
-      ],
-      packagePrefixes: [],
-      forbiddenPathPrefixes: [
-        "scripts/vercel-cli-runtime/",
-        "scripts/vercel-pnpm-runtime/",
-        "scripts/vercel-pnpm-bootstrap/",
-      ],
-      next: {
-        package: "next",
-        manualUpdateTypes: ["semver-minor", "semver-major"],
-        outOfContractPatch: true,
-      },
-    },
-    nextPatch: {
-      package: "next",
-      updateType: "semver-patch-only",
-      processingMode: "full",
-      originalDelta: "exact-next-dependency-and-lockfile-tuple-only",
-      allowedRegions: {
-        "pnpm-workspace.yaml": ["catalog.next"],
-        "package.json": ["pnpm.overrides.next"],
-        "pnpm-lock.yaml": ["exact-next-runtime-closure"],
-        "scripts/vercel-cli-runtime/package.json": ["pnpm.overrides.next"],
-        "scripts/vercel-cli-runtime/pnpm-lock.yaml": [
-          "exact-next-runtime-closure",
-        ],
-        "scripts/vercel-cli-runtime/contract.json": [
-          "lockfileSha256",
-          "manifestSha256",
-          "overridesSha256",
-        ],
-      },
-      agentRepair: "bounded-data-only-within-exact-tuple",
-      derivation: "deterministic-without-candidate-execution",
-      candidateExecution: "forbidden",
-      packageManagerExecution: "forbidden",
-      allOtherContent: "byte-and-mode-identical-to-currentTargetBaseSha",
-      unexpectedAmbiguousOrUnproducible: "manual",
-      finalGate: "same-as-admission.finalGate",
-    },
-    nextMinorOrMajor: {
-      package: "next",
-      updateTypes: ["semver-minor", "semver-major"],
-      processingMode: "manual",
-    },
-    finalGate: {
-      containsCurrentTargetBase: true,
-      exactHeadRequiredChecks: "passing",
-      exactHeadCodeRabbitReview: true,
-      feedback: "answered",
-      mergeability: "MERGEABLE",
-      autoMergeRequest: null,
-      requiredCheckProducers: [
-        {
-          acceptedConclusions: ["success", "neutral", "skipped"],
-          app: { id: 15368, slug: "github-actions" },
-          context: "Build and Test",
-          integrationId: 15368,
-          kind: "check-run",
-          workflow: {
-            event: "pull_request",
-            id: 156727246,
-            path: ".github/workflows/ci.yml",
-          },
-        },
-        {
-          acceptedConclusions: ["success", "neutral", "skipped"],
-          app: { id: 15368, slug: "github-actions" },
-          context: "Visual Regression (ui.mento.org)",
-          integrationId: 15368,
-          kind: "check-run",
-          workflow: {
-            event: "pull_request",
-            id: 296885588,
-            path: ".github/workflows/visual.yml",
-          },
-        },
-        {
-          acceptedConclusions: ["success", "neutral", "skipped"],
-          app: { id: 15368, slug: "github-actions" },
-          context: "osv-scanner / osv-scan",
-          integrationId: 15368,
-          kind: "check-run",
-          workflow: {
-            event: "pull_request",
-            id: 297207753,
-            path: ".github/workflows/supply-chain.yml",
-          },
-        },
-        {
-          acceptedStates: ["success"],
-          context: "Vercel Preview",
-          creator: {
-            id: 41898282,
-            login: "github-actions[bot]",
-            type: "Bot",
-          },
-          integrationId: 15368,
-          kind: "commit-status",
-          workflow: {
-            event: "pull_request_target",
-            id: 314322382,
-            path: ".github/workflows/vercel-preview-intake.yml",
-          },
-        },
-      ],
-    },
-  });
-  assert.deepEqual(policy.preparationModes, {
-    full: {
-      scope: "ordinary-npm-or-constrained-next-patch",
-      allowsBaseSynchronization: true,
-      allowsBoundedDataOnlyRepairs: true,
-    },
-    "sync-only": {
-      scope: "policy-admitted-npm-without-agent-authored-repair",
-      allowsBaseSynchronization: true,
-      allowsBoundedDataOnlyRepairs: false,
-    },
-    "review-only": {
-      scope: "unchanged-current-native-head",
-      allowsBaseSynchronization: false,
-      allowsBoundedDataOnlyRepairs: false,
-    },
-    manual: {
-      scope: "human-or-other-controller-reserved",
-      allowsBaseSynchronization: false,
-      allowsBoundedDataOnlyRepairs: false,
-    },
-  });
-  assert.deepEqual(policy.protectedPaths, {
-    prefixes: [".github/workflows/", ".github/actions/"],
-    originalPullRequestDelta: "must-not-contain-protected-paths",
-    protectedTreePrecondition: {
-      requiresIndependentVerification: true,
-      oldHead: "byte-and-mode-identical-to-currentTargetBaseSha",
-      candidate: "byte-and-mode-identical-to-currentTargetBaseSha",
-      agentEdit: "forbidden",
-      conflictResolution: "forbidden",
-      verifyBeforeCommit: true,
-      verifyInIndependentQuarantine: true,
-      verifyImmediatelyBeforeMutation: true,
-      mismatch: "recreate-or-manual-before-ref-mutation",
-      workflowsWriteGrant: "forbidden",
-    },
-    directPullRequestChanges: "no-ref-mutation",
-  });
-  assert.deepEqual(policy.githubActions, {
-    ecosystem: "github-actions",
-    refMutation: "forbidden",
-    sensitiveOrSelfReviewingProcessingMode: "manual",
-    nonRoutineVersionUpdateProcessingMode: "manual",
-    securityUpdates: { processingMode: "manual" },
-    ambiguousOrMixed: "manual",
-    preparedRequiresUnchangedNativeGreenHead: true,
-    routineGroup: {
-      name: "github-actions-routine",
-      headRefPrefix: "dependabot/github_actions/github-actions-routine",
-      appliesTo: "version-updates",
-      updateTypes: ["semver-minor", "semver-patch"],
-      processingMode: "review-only",
-      dependencyMatch: "authenticated-same-line-uses-ref-rotations",
-      requiredRefFormat: "40-lowercase-hex-git-oid",
-      originalAllowedPathPrefixes: [".github/workflows/"],
-      sensitiveActionPatterns: [
-        "actions/create-github-app-token",
-        "actions/dependency-review-action",
-        "anthropics/*",
-        "dependabot/*",
-        "github/codeql-action*",
-        "google/osv-scanner-action*",
-        "ossf/scorecard-action",
-      ],
-    },
-  });
-  assert.deepEqual(policy.manualResearch, {
-    requiredForManualVerdict: true,
-    dependencyInventoryField: "dependencies",
-    dependencyInventory:
-      "nonempty-unique-exact-name-fromVersion-toVersion-tuples",
-    packageCoverage: "exact-pull-request-dependency-set",
-    packageTupleEqualityRequired: true,
-    authoritativeSources: [
-      "upstream-changelog",
-      "upstream-release-notes",
-      "upstream-migration-guide",
-      "upstream-security-advisory",
-      "upstream-exact-oid-comparison",
-      "upstream-project-or-package-fallback",
-    ],
-    desiredSourceKinds: [
-      "changelog",
-      "release-notes",
-      "migration-guide",
-      "security-advisory",
-    ],
-    fallbackSourceKind: "upstream-project-or-package",
-    fallbackAllowedOnlyWhenAllDesiredSourceKindsAbsent: true,
-    missingDesiredSourceKindsField: "missingSourceKinds",
-    missingDesiredSourceKinds: "record-exact-absent-set-and-lower-confidence",
-    minimumLiveVerifiedAuthoritativeUrlsPerPackageTuple: 1,
-    liveVerification: "required-per-exact-package-tuple",
-    requiredFields: [
-      "status",
-      "overallRecommendation",
-      "repositoryImpact",
-      "riskLevel",
-      "confidenceLevel",
-      "confidenceRationale",
-      "gaps",
-      "packages",
-      "sourceFailures",
-    ],
-    statusValues: ["complete", "partial", "unavailable"],
-    packageRequiredFields: [
-      "name",
-      "fromVersion",
-      "toVersion",
-      "changeSummary",
-      "breakingChanges",
-      "recommendation",
-      "riskLevel",
-      "confidenceLevel",
-      "confidenceRationale",
-      "sourceStatus",
-      "sourceNote",
-      "missingSourceKinds",
-      "sources",
-    ],
-    sourceRequiredFields: [
-      "kind",
-      "url",
-      "title",
-      "versionCoverage",
-      "verifiedAt",
-    ],
-    versionCoverage: "exact-fromVersion-space-arrow-space-toVersion",
-    sourceKinds: [
-      "changelog",
-      "release-notes",
-      "migration-guide",
-      "security-advisory",
-      "compare",
-      "upstream-project-or-package",
-    ],
-    sourceUrlScheme: "https",
-    verifiedOrPartialSourceRequiresHttpsUrl: true,
-    acceptedSourceRequiresLiveFetch: true,
-    acceptedSourceRequiresAuthoritativeUpstreamOwnership: true,
-    sourceStatusValues: ["verified", "partial", "missing", "ambiguous"],
-    riskLevels: ["low", "medium", "high", "critical", "unknown"],
-    confidenceLevels: ["low", "medium", "high"],
-    overallRiskAggregation: "not-lower-than-highest-package-risk",
-    overallConfidenceAggregation: "not-higher-than-lowest-package-confidence",
-    noLiveVerifiedAuthoritativeSource: "operational-research-incomplete",
-    operationalResearchIncompleteStatus: "unavailable",
-    operationalResearchIncompleteRequiresLauncherFailure: true,
-    incompleteSourceCoverageConfidence: "low-or-medium-only",
-    candidateExecution: "forbidden",
-  });
-  const hygiene = policy.manualHygiene;
-  assert.equal(hygiene.lane, "manual-hygiene");
-  assert.equal(hygiene.processingMode, "manual");
-  assert.deepEqual(hygiene.finalVerdicts, ["manual", "blocked", "read-only"]);
-  assert.deepEqual(hygiene.allowedOperations, [
-    "recreate",
-    "request-review",
-    "comment",
-    "reply",
-  ]);
-  assert.deepEqual(hygiene.forbiddenOperations, [
-    "push",
-    "sync-base",
-    "execute",
-    "rerun",
+  assert.match(read(policy.canonicalPlaybook), /git merge-base --is-ancestor/);
+  assert.match(
+    read(policy.canonicalPlaybook),
+    /--force-with-lease="\$pushRef:\$observedHead"/,
+  );
+});
+
+test("dependency repairs remain executable without granting security or final PR-state changes", () => {
+  const policy = authorityJson(read(".github/dependabot-prep-policy.json"));
+  assert.deepEqual(
+    [...policy.changes.allowed].sort(),
+    [
+      "dependency-source-repairs",
+      "manifest-and-lockfile-updates",
+      "documented-runtime-contract-updates",
+      "focused-tests",
+      "package-installation",
+      "local-build-and-test",
+      "merge-current-main",
+      "request-current-head-review",
+      "answer-review-feedback",
+    ].sort(),
+  );
+  assert.equal(
+    policy.changes.majorOrRuntimeUpdate,
+    "research-and-repair-with-documented-validation",
+  );
+  assert.equal(policy.changes.needsDecisionPublication, false);
+  for (const path of [
+    ".github/workflows/**",
+    ".github/actions/**",
+    ".github/dependabot-prep-policy.json",
+    "AGENTS.md",
+    "CLAUDE.md",
+    policy.canonicalPlaybook,
+    policy.entryPrompt,
+  ])
+    assert.ok(policy.changes.needsDecisionPaths.includes(path), path);
+  for (const trigger of [
+    "security-control-changes",
+    "automation-policy-changes",
+    "weakened-or-disabled-checks",
+    "credential-or-permission-changes",
+    "unexplained-history",
+    "disputed-review-findings",
+    "product-or-architecture-decisions",
+  ])
+    assert.ok(policy.changes.needsDecisionTriggers.includes(trigger), trigger);
+  for (const action of [
     "approve",
-    "dismiss-review",
     "merge",
     "close",
-    "auto-merge",
-    "thread-resolution",
-  ]);
-  for (const operation of hygiene.forbiddenOperations) {
-    assert.ok(!hygiene.allowedOperations.includes(operation));
-  }
-  assert.equal(policy.preparationModes.manual.allowsBaseSynchronization, false);
-  assert.equal(
-    policy.preparationModes.manual.allowsBoundedDataOnlyRepairs,
-    false,
+    "enable-auto-merge",
+    "disable-auto-merge",
+    "enqueue-merge",
+    "dismiss-review",
+    "resolve-thread",
+    "unresolve-thread",
+    "force-push",
+    "rebase",
+    "recreate",
+    "rerun-checks",
+    "publish-needs-decision-changes",
+    "weaken-security-or-checks",
+    "expose-secrets",
+  ])
+    assert.ok(policy.forbiddenActions.includes(action), action);
+  assert.deepEqual(
+    policy.changes.allowed.filter((action) =>
+      policy.forbiddenActions.includes(action),
+    ),
+    [],
   );
-  for (const category of Object.values(hygiene.categories)) {
-    const selected = valueAtPolicyPath(policy, category.selector.policyPath);
-    if (Object.hasOwn(category.selector, "value")) {
-      assert.ok(Array.isArray(selected));
-      assert.ok(selected.includes(category.selector.value));
-    }
-    for (const profile of category.recreateProfiles) {
-      assert.equal(
-        hygiene.recreateProfiles[profile].ecosystem,
-        category.ecosystem,
-      );
-    }
-  }
-  const gate = hygiene.researchGate;
-  assert.equal(gate.requiredBeforeEveryOperation, true);
-  assert.equal(gate.modelWritable, false);
-  assert.equal(gate.mutationAuthority, false);
-  assert.equal(gate.runAnchor, "first-receipt-base-and-policy-per-run");
-  assert.equal(gate.minimumVerifiedSourcesPerTuple, 1);
-  assert.equal(gate.genericFallbackAuthorizesOperations, false);
-  assert.deepEqual(gate.authorizesOperations, {
-    completeWithOperationAuthorizingSourcePerTuple: true,
-    partialWithOperationAuthorizingSourcePerTuple: true,
-    partialFallbackOnly: false,
-    unavailable: false,
+  assert.deepEqual(policy.security, {
+    dependabotCi: "secretless",
+    vercelCredentialedPreview: "forbidden",
+    githubActionsRefs: "full-lowercase-40-hex-sha",
+    osvScannerAndReporter: "same-revision",
+    checksAndSecurityControls: "never-weaken",
   });
-  assert.deepEqual(gate.operationAuthorizingSourceKinds, [
-    "changelog",
-    "release-notes",
+});
+
+test("every dependency receives research and readiness requires exact-head review and checks", () => {
+  const policy = authorityJson(read(".github/dependabot-prep-policy.json"));
+  assert.equal(
+    policy.research.scope,
+    "every-dependency-in-every-pull-request-including-manual",
+  );
+  assert.deepEqual(policy.research.tupleFields, [
+    "name",
+    "fromVersion",
+    "toVersion",
+  ]);
+  assert.deepEqual(policy.research.sources, [
+    "upstream-release-notes",
+    "upstream-changelog",
     "migration-guide",
     "security-advisory",
-    "compare",
   ]);
-  for (const binding of gate.requiredBindings) {
-    assert.ok(gate.receiptRequiredFields.includes(binding), binding);
-  }
-  for (const binding of [
-    "repository",
-    "runId",
-    "authorizedTargetPullRequestNumber",
-    "pullRequestNumber",
-    "headSha",
-    "nativeOriginHeadSha",
-    "nativeLineageSha256",
-    "nativePrefixCommitOids",
-    "generationTransitionReceiptSha256",
-    "quarantinedSuffixSha256",
-    "quarantinedSuffixCommitOids",
-    "currentTargetBaseSha",
-    "policy",
-    "dependencyTuples",
-    "packetSha256",
-    "runAuthorizationSha256",
+  assert.equal(policy.research.requireLiveVerification, true);
+  assert.equal(
+    policy.research.fallback,
+    "verified-upstream-project-page-with-explicit-source-gaps",
+  );
+  assert.equal(
+    policy.research.unavailable,
+    "blocked-and-operationally-incomplete",
+  );
+  for (const field of [
+    "source-links",
+    "breaking-changes",
+    "repository-impact",
+    "recommendation",
+    "risk",
+    "confidence",
+    "confidence-rationale",
+    "source-gaps",
   ]) {
-    assert.ok(gate.requiredBindings.includes(binding), binding);
+    assert.ok(policy.research.reportFields.includes(field), field);
   }
-  for (const profile of ["native-npm", "native-github-actions"]) {
-    assert.equal(
-      hygiene.recreateProfiles[profile].requiresAuthenticatedNativeGeneration,
-      true,
-    );
-    assert.equal(
-      hygiene.recreateProfiles[profile].requiresStaleOrConflictingHead,
-      true,
-    );
-    assert.equal(
-      hygiene.recreateProfiles[profile]
-        .requiresUpdateStillNeededOnCurrentTargetBase,
-      true,
-    );
-  }
-  const legacy = hygiene.recreateProfiles["legacy-prepare-bot-recovery"];
-  assert.deepEqual(legacy.legacySuffixActor, {
-    id: 315967666,
-    login: "mento-dependabot-prepare[bot]",
+  const handoff = policy.handoff;
+  assert.deepEqual(handoff.verdicts, [
+    "ready-for-maintainer-decision",
+    "needs-decision",
+    "blocked",
+  ]);
+  for (const gate of [
+    "exactHeadAndBase",
+    "containsCurrentMain",
+    "mergeable",
+    "autoMergeMustBeDisabled",
+    "recheckOnHeadOrBaseDrift",
+  ])
+    assert.equal(handoff[gate], true, gate);
+  assert.equal(
+    handoff.requiredChecks,
+    "all-live-required-checks-with-authenticated-producers",
+  );
+  assert.equal(
+    handoff.checkEvidence,
+    "exact-head-app-or-status-creator-and-workflow-binding",
+  );
+  assert.equal(handoff.additionalChecks, "all-affected-repository-gates");
+  assert.deepEqual(handoff.reviewer, {
+    id: 136622811,
+    login: "coderabbitai[bot]",
     type: "Bot",
   });
-  for (const guard of [
-    "requiresAuthenticatedNativePrefix",
-    "requiresContinuousOneParentSuffix",
-    "requiresCompleteForcePushHistory",
-    "requiresNoProtectedPathOrHumanIntervention",
-    "requiresUpdateStillNeededOnCurrentTargetBase",
-    "quarantinedSuffixNeverAdmitted",
-  ]) {
-    assert.equal(legacy[guard], true, guard);
-  }
-  assert.equal(hygiene.recreateSafety.configPath, ".github/dependabot.yml");
+  assert.equal(handoff.reviewCommit, "exact-final-head");
   assert.equal(
-    hygiene.recreateSafety.expectedGitBlobSha,
-    "145af6e07c4ff728553a46cfda379cd76bb93227",
+    handoff.feedback,
+    "all-surfaces-including-walkthroughs-and-followups",
   );
-  for (const guard of [
-    "requireExactConfigBlobAtCurrentBase",
-    "requireEveryOldTuplePresentOnCurrentBase",
-    "requireEveryNewTupleAbsentOnCurrentBase",
-    "requirePullRequestOpen",
-    "requireBaseAndHeadUnchanged",
-    "requireAutoMergeRequestNull",
-  ]) {
-    for (const timing of [
-      "ImmediatelyBeforeCommand",
-      "ImmediatelyAfterCommand",
-    ]) {
-      assert.equal(
-        hygiene.recreateSafety[guard + timing],
-        true,
-        guard + timing,
-      );
-    }
-  }
-  const handoff = hygiene.assistedHandoff;
-  assert.deepEqual(handoff.completeRequires, {
-    autoMergeRequestNull: true,
-    containsCurrentTargetBase: true,
-    conflictFree: true,
-    exactHeadCiComplete: true,
-    currentHeadReviewTerminal: true,
-    unansweredActionableCount: 0,
-  });
-  assert.equal(handoff.modelWritable, false);
-  assert.equal(handoff.mutationAuthority, false);
-  assert.equal(handoff.preparedVerdict, "forbidden");
-  assert.equal(handoff.threadResolution, "maintainer-only");
-  assert.equal(
-    hygiene.rollout.supervisedTargetSuccess.requiredAssistedHandoffReceipt,
-    "root-verified-complete",
-  );
-  assert.equal(
-    hygiene.rollout.supervisedTargetSuccess.schedulerEnablement,
-    "separate-explicit-operator-confirmation",
-  );
-  assert.equal(
-    /(?:^|[^0-9])(871|872|892|897|917|919)(?:[^0-9]|$)/u.test(
-      JSON.stringify(policy),
-    ),
-    false,
-    "permanent Dependabot policy must not hard-code rollout PR numbers",
-  );
-  assert.deepEqual(policy.lineageReceipts, {
-    schema: "dependabot-prep-mutation-receipt:v1",
-    broker: "/opt/dependabot-prep/mutation-broker.mjs",
-    client: "/opt/dependabot-prep/mutation-client.mjs",
-    socket: "/run/dependabot-prep/broker.sock",
-    store: "/var/lib/dependabot/lineage/receipts",
-    intentStore: "/var/lib/dependabot/lineage/intents",
-    pendingStore: "/var/lib/dependabot/lineage/pending",
-    operationLock: "/var/lib/dependabot/lineage/operation.lock",
-    intentSchema: "dependabot-prep-mutation-intent:v1",
-    intentRequiredFields: [
-      "schema",
-      "recordedAt",
-      "repository",
-      "pullRequestNumber",
-      "headRefName",
-      "mutation",
-      "processingMode",
-      "runId",
-      "runAuthorizationSha256",
-      "oldHeadSha",
-      "proposedNewHeadSha",
-      "requestedTargetBaseSha",
-      "policy",
-      "operator",
-      "nativeAnchor",
-    ],
-    intentProposedNewHeadSha: {
-      "exact-cas-push": "40-lowercase-hex-git-oid",
-      "exact-cas-base-sync": "40-lowercase-hex-git-oid",
-    },
-    intentNativeAnchorFields: [
-      "generationBaseSha",
-      "nativeOriginHeadSha",
-      "nativeLineageSha256",
-    ],
-    intentArm: "durable-before-network-mutation",
-    mutationSerialization: "global-atomic-directory-lock",
-    intentFinalization:
-      "durable-receipt-reread-then-pending-rename-unlink-and-directory-fsync",
-    recovery:
-      "block-all-ref-mutation-until-explicit-human-forensic-recovery-no-automatic-delete-or-retry",
-    writer: "root-owned-pinned-least-privilege-service",
-    write: "atomic-before-control-returns-after-push-readback",
-    mutationKinds: ["exact-cas-push", "exact-cas-base-sync"],
-    requiredFields: [
-      "sequence",
-      "previousReceiptSha256",
-      "recordedAt",
-      "repository",
-      "pullRequestNumber",
-      "headRefName",
-      "mutation",
-      "processingMode",
-      "runAuthorizationSha256",
-      "oldHeadSha",
-      "newHeadSha",
-      "currentTargetBaseSha",
-      "postMutationTargetBaseSha",
-      "baseMoved",
-      "policy",
-      "runId",
-      "operator",
-      "evidence",
-      "components",
-    ],
-    policyFields: ["commitSha", "blobSha", "sha256"],
-    operatorFields: ["id", "login", "type"],
-    evidenceFields: [
-      "liveHeadSha",
-      "commitParents",
-      "protectedTreeSha256",
-      "generationBaseSha",
-      "nativeOriginHeadSha",
-      "nativeLineageSha256",
-    ],
-    componentFields: [
-      "pinsSha256",
-      "toolchainManifestSha256",
-      "skillSha256",
-      "brokerSha256",
-      "workerSha256",
-    ],
-    transition: "exact-non-force-parent-to-head",
-    crossInvocationCommand: "dependabot-lineage <pr> <ref> <headOid>",
-    crossInvocationAdmission: "complete-broker-verified-receipt-chain-only",
-    missingInvalidOrAmbiguous: "manual",
-  });
-  assert.deepEqual(policy.writeAuthorization, {
-    orchestrator: "/opt/dependabot-prep/authorized-run",
-    implementation: "/opt/dependabot-prep/authorized-run.mjs",
-    selftestOrchestrator: "/opt/dependabot-prep/selftest-run",
-    selftestAttester: "/opt/dependabot-prep/selftest-attest.mjs",
-    selftestAttestation: "/etc/dependabot-prep/selftest-attestation.json",
-    scheduledWriteCommandArgv: ["sudo", "/opt/dependabot-prep/authorized-run"],
-    supervisedWriteCommandArgvTemplate: [
-      "sudo",
-      "/opt/dependabot-prep/authorized-run",
-      "--runtime",
-      "{codex|claude}",
-      "--target",
-      "{positive-pull-request-number}",
-    ],
-    scheduledGrants: [
-      "branch",
-      "recreate",
-      "review-request",
-      "comment",
-      "reply",
-    ],
-    scheduledDeniedGrants: [
-      "rerun",
-      "execute",
-      "thread-resolution",
-      "approve",
-      "dismiss-review",
-      "auto-merge",
-      "merge",
-      "close",
-      "enqueue",
-    ],
-    directLauncherWrite: "refuse",
-    directLauncherNonWriteOperations: ["run --read-only", "status"],
-    rootOnlyMaintenanceOperations: ["pin", "selftest-run"],
-    dependabotMaintenanceOperations: ["lease-clear"],
-    capability: {
-      kind: "root-owned-short-lived-nonce",
-      lifetime: "single-run",
-      requiredBindings: [
-        "mode",
-        "runtime",
-        "targetPullRequestNumber",
-        "grants",
-        "runId",
-        "expectedPullRequestNumbers",
-        "expectedPullRequestsSha256",
-        "authorizerPid",
-        "authorizerBootId",
-        "authorizerStartTimeTicks",
-        "authorizerSystemdUnit",
-      ],
-      authorizerProcess:
-        "live-root-pid-boot-id-start-time-and-exact-transient-systemd-unit-required",
-      modelWritable: false,
-      brokerRequiresCapability: true,
-    },
-  });
-  assert.deepEqual(policy.operationalExit, {
-    completeValidatedInventory: 0,
-    operationalFailure: 1,
-    pinOrSelftestDrift: 2,
-    activeLeaseContention: 3,
-    perPullRequestManualOrBlockedIsOperationalFailure: false,
-    countBuckets: ["verdict", "processingMode"],
-    machineFields: [
-      "reportExit",
-      "operationalStatus",
-      "resultStatus",
-      "counts",
-    ],
-  });
+  assert.equal(handoff.actionableFeedback, "address-and-answer-every-item");
+  assert.equal(handoff.disputedFeedback, "needs-decision");
+  assert.equal(handoff.answeredUnresolvedThreads, "list-for-maintainer");
+  assert.equal(handoff.humanApprovalAndMerge, "maintainer-only");
 });
 
 test("Dependabot PRs keep repository credentials and caches disabled", () => {
@@ -2196,7 +1269,38 @@ test("Wagmi paths share one use-sync-external-store peer snapshot", () => {
 
 test("Dependabot groups isolate protected runtimes and couple test tooling", () => {
   const config = yaml(".github/dependabot.yml");
-  const policy = authorityJson(read(".github/dependabot-prep-policy.json"));
+  const web3Patterns = [
+    "wagmi",
+    "viem",
+    "viem-*",
+    "@wagmi/*",
+    "@rainbow-me/*",
+    "@metamask/*",
+    "ethers",
+    "ethers-*",
+    "@mento-protocol/*",
+    "@wormhole-foundation/*",
+    "@solana/*",
+    "@walletconnect/*",
+    "@reown/*",
+    "@celo/*",
+    "@ledgerhq/*",
+    "@trezor/*",
+    "@safe-global/*",
+    "@noble/*",
+    "@scure/*",
+    "*wallet*",
+    "*web3*",
+  ];
+  const sensitiveActionPatterns = [
+    "actions/create-github-app-token",
+    "actions/dependency-review-action",
+    "anthropics/*",
+    "dependabot/*",
+    "github/codeql-action*",
+    "google/osv-scanner-action*",
+    "ossf/scorecard-action",
+  ];
   const npmConfig = config.updates.find(
     (update) => update["package-ecosystem"] === "npm",
   );
@@ -2462,9 +1566,9 @@ test("Dependabot groups isolate protected runtimes and couple test tooling", () 
 
   const namedProductionGroups = ["frontend-core", "web3-stack", "ui-styling"];
   assert.deepEqual(
-    policy.admission.ordinaryNpm.manualRiskPackagePatterns,
+    web3Patterns,
     npmConfig.groups["web3-stack"].patterns,
-    "broker manual-risk patterns must match the focused web3 group",
+    "focused web3 dependency grouping must stay intact",
   );
   const namedProductionPatterns = namedProductionGroups.flatMap(
     (groupName) => npmConfig.groups[groupName].patterns,
@@ -2559,12 +1663,9 @@ test("Dependabot groups isolate protected runtimes and couple test tooling", () 
 
   assert.deepEqual(npmConfig.groups["web3-stack-security"], {
     "applies-to": "security-updates",
-    patterns: policy.admission.ordinaryNpm.manualRiskPackagePatterns,
+    patterns: web3Patterns,
   });
-  const securityExclusions = [
-    ...protectedRuntimeDependencies,
-    ...policy.admission.ordinaryNpm.manualRiskPackagePatterns,
-  ];
+  const securityExclusions = [...protectedRuntimeDependencies, ...web3Patterns];
   assert.deepEqual(npmConfig.groups["security-runtime"], {
     "applies-to": "security-updates",
     "dependency-type": "production",
@@ -2588,7 +1689,7 @@ test("Dependabot groups isolate protected runtimes and couple test tooling", () 
           "security-updates",
         ),
         ["web3-stack-security"],
-        `${dependency} security update must stay in the manual-risk group`,
+        `${dependency} security update must stay in the focused web3 security group`,
       );
     }
   }
@@ -2597,10 +1698,7 @@ test("Dependabot groups isolate protected runtimes and couple test tooling", () 
   const routine = actionsConfig.groups["github-actions-routine"];
   const manual = actionsConfig.groups["github-actions-manual"];
   assert.deepEqual(manual.patterns, routine["exclude-patterns"]);
-  assert.deepEqual(
-    policy.githubActions.routineGroup.sensitiveActionPatterns,
-    routine["exclude-patterns"],
-  );
+  assert.deepEqual(sensitiveActionPatterns, routine["exclude-patterns"]);
   const actionDependencies = new Set();
   const githubRoot = fileURLToPath(new URL("../.github/", import.meta.url));
   for (const path of filesBelow(githubRoot).filter((entry) =>
@@ -2708,216 +1806,37 @@ test("repository workflow code cannot merge Dependabot pull requests", () => {
   }
 });
 
-test("canonical instructions preserve the external preparation boundary", () => {
-  for (const path of [
-    "AGENTS.md",
-    "CLAUDE.md",
-    "README.md",
-    "docs/dependabot-automation.md",
-  ]) {
-    const source = read(path).replace(/\s+/gu, " ");
-    assert.match(source, /exact final head and base/iu, path);
-    assert.match(source, /(?:current-head|exact-head).{0,80}review/iu, path);
-    assert.match(source, /auto-merge/iu, path);
-    assert.match(
-      source,
-      /(?:must not|never).{0,100}approv.{0,100}(?:merge|auto-merge)/iu,
-      path,
-    );
-    assert.match(
-      source,
-      /(?:human approval.{0,80}(?:separate|final)|(?:separate|final).{0,80}human approval|maintainer.{0,80}(?:human|final) approval)/iu,
-      path,
-    );
-  }
-});
-
-test("canonical instructions pin Dependabot preparation policy v2", () => {
-  for (const path of [
-    "AGENTS.md",
-    "CLAUDE.md",
-    "README.md",
-    "docs/dependabot-automation.md",
-    "docs/adr/0009-external-agent-dependabot-preparation.md",
-  ]) {
-    const source = read(path).replace(/\s+/gu, " ");
-    assert.match(source, /generationBaseSha/iu, path);
-    assert.match(source, /currentTargetBaseSha/iu, path);
-    assert.match(source, /policySha/iu, path);
-    assert.match(
-      source,
-      /full.{0,80}sync-only.{0,80}review-only.{0,80}manual/iu,
-      path,
-    );
-    assert.match(
-      source,
-      /(?:changelog|release notes).{0,180}risk.{0,80}confidence/iu,
-      path,
-    );
-    assert.match(source, /live-verif/iu, path);
-    assert.match(source, /authoritative upstream HTTPS URL/iu, path);
-    assert.match(source, /upstream project or package page/iu, path);
-    assert.match(source, /operationally incomplete/iu, path);
-    assert.match(source, /critical.{0,20}unknown/iu, path);
-    assert.match(
-      source,
-      /(?:byte-and-mode|byte-for-byte.{0,40}mode-for-mode)/iu,
-      path,
-    );
-    assert.match(
-      source,
-      /(?:does not grant|grants neither|no).{0,80}(?:check reruns|`rerun`)/iu,
-      path,
-    );
-    assert.match(
-      source,
-      /(?:(?:Next\.js|`next`).{0,120}patch|patch.{0,120}(?:Next\.js|`next`)).{0,120}`full`/iu,
-      path,
-    );
-    assert.match(
-      source,
-      /Next.{0,100}(?:minor.{0,40}major|minor\/major).{0,100}`manual`/iu,
-      path,
-    );
-    assert.match(source, /\/opt\/dependabot-prep\/authorized-run/u, path);
-    assert.match(source, /\/opt\/dependabot-prep\/authorized-run\.mjs/u, path);
-    assert.match(source, /sudo \/opt\/dependabot-prep\/selftest-run/u, path);
-    assert.match(
-      source,
-      /\/etc\/dependabot-prep\/selftest-attestation\.json/u,
-      path,
-    );
-    assert.match(source, /\/var\/lib\/dependabot\/gh/u, path);
-    assert.match(source, /\/var\/lib\/dependabot-mutator\/gh/u, path);
-    assert.match(source, /(?:no credential|empty)/iu, path);
-  }
-
-  for (const path of [
-    "AGENTS.md",
-    "CLAUDE.md",
-    "docs/dependabot-automation.md",
-    "docs/adr/0009-external-agent-dependabot-preparation.md",
-  ]) {
-    const source = read(path).replace(/\s+/gu, " ");
-    assert.match(source, /HeadRefForcePushedEvent/iu, path);
-    assert.match(source, /rules\/branches/iu, path);
-    assert.match(
-      source,
-      /complete.{0,80}(?:inventory|sweep).{0,80}(?:exit|exits) `?0/iu,
-      path,
-    );
-    assert.match(source, /root-owned.{0,120}receipt/iu, path);
-    assert.match(source, /manual-hygiene/iu, path);
-    assert.match(source, /research.{0,80}(?:gate|receipt)/iu, path);
-    assert.match(source, /never.{0,120}(?:prepared|thread)/iu, path);
-  }
-
-  const readmeDependabot = read("README.md").replace(/\s+/gu, " ");
-  assert.match(readmeDependabot, /manual-hygiene/iu);
-  assert.match(readmeDependabot, /root broker/iu);
-  assert.match(readmeDependabot, /never.{0,120}(?:prepared|thread)/iu);
-
-  const runbook = read("docs/dependabot-automation.md");
-  const normalizedRunbook = runbook.replace(/\s+/gu, " ");
-  assert.match(runbook, /^last_verified: 2026-09-04$/mu);
-  assert.match(
-    normalizedRunbook,
-    /exact order: `#917`, `#892`, `#871`, `#872`, `#897`, and `#919`/u,
-  );
-  assert.match(
-    normalizedRunbook,
-    /All six targets must pass in order.{0,160}separate explicit operator confirmation/iu,
-  );
-  assert.match(
-    normalizedRunbook,
-    /root-verified `complete` assisted-handoff receipt/iu,
-  );
-  assert.match(
-    normalizedRunbook,
-    /`manual`.{0,40}`blocked`.{0,120}not by themselves a passed rehearsal/iu,
-  );
-  assert.match(normalizedRunbook, /GitHub may still close or retarget/iu);
-  assert.doesNotMatch(
-    normalizedRunbook,
-    /prevent(?:s|ed|ing)?.{0,100}indirectly clos/iu,
-  );
-  assert.match(normalizedRunbook, /145af6e07c4ff728553a46cfda379cd76bb93227/u);
-  assert.match(
-    normalizedRunbook,
-    /`gh-read`.{0,80}`lineage`.{0,80}`verify-assisted`.{0,80}`selftest`/u,
-  );
-  assert.match(
-    normalizedRunbook,
-    /`push`.{0,80}`sync-base`.{0,80}`recreate`.{0,80}`request-review`.{0,80}`comment`.{0,80}`reply`.{0,80}`manual-research`/u,
-  );
-  assert.match(normalizedRunbook, /`verify-prepared`.{0,80}`run-manifest`/u);
-  assert.doesNotMatch(
-    normalizedRunbook,
-    /exactly one supervised no-exec preparation/iu,
-  );
-
-  for (const path of [
-    "AGENTS.md",
-    "CLAUDE.md",
-    "docs/dependabot-automation.md",
-    "docs/adr/0009-external-agent-dependabot-preparation.md",
-  ]) {
-    const source = read(path).replace(/\s+/gu, " ");
-    assert.match(source, /exact scheduled.{0,80}authorized-run/iu, path);
-    assert.match(source, /--runtime.{0,80}--target/iu, path);
-    assert.match(
-      source,
-      /(?:nonce|capabil).{0,240}runtime.{0,120}target/iu,
-      path,
-    );
-  }
-
-  const overrideRunbook = read("docs/dependency-overrides.md").replace(
-    /\s+/gu,
-    " ",
-  );
-  assert.match(overrideRunbook, /semver-patch-only Next\.js.{0,120}`full`/iu);
-  for (const field of [
-    "lockfileSha256",
-    "manifestSha256",
-    "overridesSha256",
-    "runtimeDependenciesSha256",
-  ]) {
-    assert.match(overrideRunbook, new RegExp(field, "u"));
-  }
-});
-
-test("instruction files route every push through the broker and the cutover readback lists the exact scheduled grants", () => {
+test("entry instructions resolve to the canonical trusted-agent playbook", () => {
   const policy = authorityJson(read(".github/dependabot-prep-policy.json"));
-  const { scheduledGrants, scheduledDeniedGrants } = policy.writeAuthorization;
-  assert.deepEqual(
-    scheduledGrants.filter((grant) => scheduledDeniedGrants.includes(grant)),
-    [],
-    "scheduled and denied grants must be disjoint",
-  );
-  assert.deepEqual([...new Set(scheduledGrants)], scheduledGrants);
-  const readback = `Require only ${scheduledGrants
-    .slice(0, -1)
-    .map((grant) => `\`${grant}\``)
-    .join(", ")}, and \`${scheduledGrants.at(-1)}\` writes.`;
-  assert.ok(
-    read("docs/dependabot-automation.md")
-      .replace(/\s+/gu, " ")
-      .includes(readback),
-    `cutover readback must list the scheduled grants verbatim: ${readback}`,
-  );
-  for (const path of ["AGENTS.md", "CLAUDE.md"]) {
-    const source = read(path).replace(/\s+/gu, " ");
-    assert.doesNotMatch(
-      source,
-      /(?:Use|and) a reviewed one-shot HTTPS credential adapter\./u,
-      `${path} must not instruct the model to operate the credential adapter`,
-    );
-    assert.match(
-      source,
-      /broker(?:'s one-shot)? worker activates the reviewed (?:one-shot )?HTTPS credential adapter under `dependabot-mutator`/u,
-      path,
-    );
-    assert.match(source, /exact-CAS `push` or `sync-base` operation/u, path);
+  assert.equal(policy.canonicalPlaybook, "docs/dependabot-automation.md");
+  assert.equal(policy.entryPrompt, "scripts/prompts/dependabot-weekly.md");
+  for (const path of [policy.canonicalPlaybook, policy.entryPrompt]) {
+    assert.ok(existsSync(new URL(`../${path}`, import.meta.url)), path);
+    assert.ok(read(path).includes(".github/dependabot-prep-policy.json"), path);
+  }
+  for (const path of [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    policy.entryPrompt,
+  ]) {
+    assert.ok(read(path).includes(policy.canonicalPlaybook), path);
+  }
+});
+
+test("runtime guidance does not reinstate retired no-exec admission", () => {
+  const guide = read("docs/dependency-overrides.md");
+  assert.ok(guide.includes("[v3 playbook](dependabot-automation.md)"));
+  assert.doesNotMatch(guide, /scheduled no-exec agent must classify/u);
+  assert.doesNotMatch(guide, /generic external agent must not prepare/u);
+  assert.doesNotMatch(guide, /For the automatic patch lane/u);
+  for (const command of [
+    "pnpm supply-chain:version-skew",
+    "pnpm supply-chain:lockfile-lint",
+    "pnpm vercel:versions:check",
+    "pnpm vercel:production-shadow:test",
+    "pnpm vercel:workflow:test",
+  ]) {
+    assert.ok(guide.includes(command), command);
   }
 });
