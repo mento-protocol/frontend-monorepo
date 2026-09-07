@@ -175,18 +175,20 @@ test("trusted-agent policy limits authority to existing Dependabot pull requests
 
 test("dependency repairs remain executable without granting security or final PR-state changes", () => {
   const policy = authorityJson(read(".github/dependabot-prep-policy.json"));
-  for (const operation of [
-    "dependency-source-repairs",
-    "manifest-and-lockfile-updates",
-    "documented-runtime-contract-updates",
-    "focused-tests",
-    "package-installation",
-    "local-build-and-test",
-    "merge-current-main",
-    "request-current-head-review",
-    "answer-review-feedback",
-  ])
-    assert.ok(policy.changes.allowed.includes(operation), operation);
+  assert.deepEqual(
+    [...policy.changes.allowed].sort(),
+    [
+      "dependency-source-repairs",
+      "manifest-and-lockfile-updates",
+      "documented-runtime-contract-updates",
+      "focused-tests",
+      "package-installation",
+      "local-build-and-test",
+      "merge-current-main",
+      "request-current-head-review",
+      "answer-review-feedback",
+    ].sort(),
+  );
   assert.equal(
     policy.changes.majorOrRuntimeUpdate,
     "research-and-repair-with-documented-validation",
