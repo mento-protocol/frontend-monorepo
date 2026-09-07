@@ -34,8 +34,11 @@ cd "${repository_root}" || exit 0
 # uncertain case reinstalls too.
 stamp_file="node_modules/.cloud-session-setup-complete"
 lockfile_digest="$(sha256sum pnpm-lock.yaml 2>/dev/null | cut -d' ' -f1)"
-if [[ -n ${lockfile_digest} ]] && [[ -f ${stamp_file} ]] &&
-	[[ "$(cat "${stamp_file}" 2>/dev/null)" == "${lockfile_digest}" ]]; then
+stamp_digest=""
+if [[ -f ${stamp_file} ]]; then
+	read -r stamp_digest <"${stamp_file}"
+fi
+if [[ -n ${lockfile_digest} ]] && [[ ${stamp_digest} == "${lockfile_digest}" ]]; then
 	echo "cloud-session-setup: dependencies already installed"
 	exit 0
 fi
