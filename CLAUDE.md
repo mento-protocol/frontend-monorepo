@@ -113,7 +113,7 @@ on a Custom network allowlist.
 `pnpm install` needs something different, and the network allowlist cannot
 supply it. The catalog pins `@metamask/jazzicon` to
 `github:jmrossy/jazzicon#<sha>`, which pnpm resolves to a
-`codeload.github.com` tarball. Cloud sessions gate GitHub by *repository*, not
+`codeload.github.com` tarball. Cloud sessions gate GitHub by _repository_, not
 by host: every request to `github.com` and `codeload.github.com` for a
 repository outside the session's scope is answered by the proxy itself with
 HTTP 403 and the body `GitHub access to this repository is not enabled for this
