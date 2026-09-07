@@ -22,6 +22,8 @@ staging state. Draft PRs suppress automated AI reviews.
 After creating or locating a PR, verify `isDraft: false`. If a pre-existing PR
 is unexpectedly draft, run `gh pr ready <number>` immediately before requesting
 reviews or starting the babysit loop.
+Exception: draft Dependabot PRs are maintainer holds. The preparation workflow
+must report `needs decision`, leave them draft, and never run `gh pr ready`.
 
 ## Connected fork clock
 

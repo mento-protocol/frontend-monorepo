@@ -19,6 +19,7 @@
     "sameRepository": true,
     "headRefPrefix": "dependabot/",
     "openOnly": true,
+    "drafts": "needs-decision-no-state-change",
     "autoMergeMustBeDisabled": true,
     "vetoLabels": [
       "dependencies:manual",
@@ -79,6 +80,7 @@
     "approve",
     "merge",
     "close",
+    "mark-ready-for-review",
     "enable-auto-merge",
     "disable-auto-merge",
     "enqueue-merge",

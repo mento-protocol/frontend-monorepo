@@ -148,6 +148,15 @@ test("trusted-agent policy limits authority to existing Dependabot pull requests
   });
   assert.equal(policy.admission.sameRepository, true);
   assert.equal(policy.admission.openOnly, true);
+  assert.equal(policy.admission.drafts, "needs-decision-no-state-change");
+  assert.ok(policy.forbiddenActions.includes("mark-ready-for-review"));
+  assert.match(read("AGENTS.md"), /draft Dependabot PRs are maintainer holds/);
+  assert.match(read(policy.entryPrompt), /Only non-draft authenticated/);
+  assert.match(read(policy.canonicalPlaybook), /Require `isDraft: false`/);
+  assert.doesNotMatch(
+    read(".github/dependabot.yml"),
+    /strict patches have a narrow full lane|minor and major updates remain manual|own manual lane/,
+  );
   assert.equal(policy.admission.headRefPrefix, "dependabot/");
   assert.equal(policy.admission.autoMergeMustBeDisabled, true);
   assert.equal(policy.admission.unexplainedForeignCommits, "needs-decision");

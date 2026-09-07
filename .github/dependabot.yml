@@ -18,7 +18,7 @@ updates:
       # a malicious release that gets yanked days after publication.
       semver-patch-days: 7
 
-    # Manual/protected runtimes are deliberately isolated from ordinary
+    # Coupled deployment runtimes are deliberately isolated from ordinary
     # libraries. Leave enough room for those focused pull requests plus the
     # ordinary weekly batches.
     open-pull-requests-limit: 12
@@ -42,8 +42,8 @@ updates:
           - patch
 
       # Next.js is coupled to the protected Vercel deployment contract. Keep it
-      # out of ordinary React updates: strict patches have a narrow full lane,
-      # while minor and major updates remain manual.
+      # out of ordinary React updates for focused research and validation at
+      # every version level under docs/dependabot-automation.md.
       next-runtime:
         applies-to: version-updates
         patterns:
@@ -66,7 +66,8 @@ updates:
           - patch
 
       # The root package-manager declaration is coupled to workflow, bootstrap,
-      # and standalone protected-runtime pins. Keep it in its own manual lane.
+      # and standalone protected-runtime pins. Keep it separate for focused
+      # preparation; automation/security changes still require a human decision.
       pnpm-runtime:
         applies-to: version-updates
         patterns:

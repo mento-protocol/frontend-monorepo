@@ -19,11 +19,12 @@ Check that no legacy run is active, acquire the playbook's atomic single-batch
 lock, and keep its durable report outside checkouts. If the lock is held, stop;
 never clear another run's lock. Preserve existing local edits and remote commits.
 
-Only authenticated same-repository Dependabot PRs targeting main, with existing
-dependabot/\*\* refs and null auto-merge, are in scope. No approval, review dismissal,
+Only non-draft authenticated same-repository Dependabot PRs targeting main, with
+existing dependabot/\*\* refs and null auto-merge, are in scope. No approval, review dismissal,
 merge, close, auto-merge changes, thread resolution/unresolution, force-push,
 replacement PRs, repository settings changes, or production deployment. Do not
-weaken tests/security, publish automation-authority changes, or send bot commands
+mark draft Dependabot PRs ready; report them as needs decision and research only.
+Do not weaken tests/security, publish automation-authority changes, or send bot commands
 other than the documented CodeRabbit review request. Never modify this policy,
 the scheduler, or your own authority during the run.
 
