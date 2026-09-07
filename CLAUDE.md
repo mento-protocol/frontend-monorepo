@@ -86,11 +86,14 @@ Cloud sessions start from a fresh clone with no `node_modules`. The
 [scripts/cloud-session-setup.sh](scripts/cloud-session-setup.sh), which runs
 `pnpm install --frozen-lockfile` when `CLAUDE_CODE_REMOTE=true` and the
 `node_modules/.cloud-session-setup-complete` stamp does not match the current
-install inputs: the `pnpm-lock.yaml` digest, the `packageManager` pin, and the
-configuration that shapes the tree (`.npmrc`'s `public-hoist-pattern` entries
-and `pnpm-workspace.yaml`'s `onlyBuiltDependencies`, either of which can move
-without the lockfile moving). A partial tree from a failed install and a resumed
-session whose lockfile, pnpm pin, or install configuration moved are all
+install inputs: the `pnpm-lock.yaml` digest, the configuration that shapes the
+tree (`.npmrc`'s `public-hoist-pattern` entries and `pnpm-workspace.yaml`'s
+`onlyBuiltDependencies`, either of which can move without the lockfile moving),
+the pnpm that actually ran the install, and the `packageManager` pin. Recording
+the running pnpm rather than the pin keeps the stamp honest when the two differ,
+so correcting a drifted environment reinstalls instead of certifying a tree the
+pinned version never built. A partial tree from a failed install and a resumed
+session whose lockfile, install configuration, pnpm, or pin moved are all
 reinstalled rather than mistaken for a finished install. The stamp is cleared
 before pnpm runs and rewritten only on success, so an install that dies partway
 through cannot leave an older revision's stamp standing over the tree it

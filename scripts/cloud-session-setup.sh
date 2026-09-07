@@ -50,7 +50,13 @@ lockfile_digest="$(sha256sum pnpm-lock.yaml 2>/dev/null | cut -d' ' -f1)"
 # its file, so a file that is absent is distinguishable from one whose content
 # moved into its neighbour.
 config_digest="$(sha256sum pnpm-workspace.yaml .npmrc 2>/dev/null | sha256sum | cut -d' ' -f1)"
-stamp_expected="${lockfile_digest} ${config_digest} pnpm@${pinned_pnpm}"
+# Record the pnpm that actually ran the install, not the one package.json asks
+# for. Stamping the pin would certify a tree built by a different binary as if
+# the pinned version had produced it, and the stamp would keep matching after
+# the environment is corrected — so the wrong tree would never be rebuilt. The
+# pin is recorded alongside it so a revision that moves only the pin still
+# reinstalls.
+stamp_expected="${lockfile_digest} ${config_digest} pnpm@${running_pnpm:-none} pin@${pinned_pnpm}"
 stamp_actual=""
 if [[ -f ${stamp_file} ]]; then
 	read -r stamp_actual <"${stamp_file}"
