@@ -282,8 +282,10 @@ Use [the preparation playbook](docs/dependabot-automation.md) and
 `.github/dependabot-prep-policy.json` from the live default branch. The
 `trusted-openclaw-agent` workflow uses the ordinary coding session and existing
 GitHub authentication; its prohibitions are procedural, not a credential sandbox.
-Do not invoke the retired `/opt/dependabot-prep` launcher or the generic sealed
-`dependabot-prep` write path for this workflow.
+Use the portable `dependabot-prep` skill, revision `trusted-agent-v1`, with that
+playbook's repository overrides in OpenClaw, Codex or Claude. The historical
+execution-model identifier remains for compatibility. Never invoke the retired
+`/opt/dependabot-prep` launcher or the archived sealed skill procedure.
 
 Within the playbook's scope, normal installs, lockfile generation, builds, tests,
 conflict resolution, and dependency-related compatibility fixes are permitted.
