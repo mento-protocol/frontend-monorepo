@@ -226,8 +226,7 @@ test("dependency repairs remain executable without granting security or final PR
     "weakened-or-disabled-checks",
     "credential-or-permission-changes",
     "unexplained-history",
-    "disputed-review-findings",
-    "product-or-architecture-decisions",
+    "irreversible-or-out-of-scope-product-or-architecture-changes",
   ])
     assert.ok(policy.changes.needsDecisionTriggers.includes(trigger), trigger);
   for (const action of [
@@ -262,6 +261,63 @@ test("dependency repairs remain executable without granting security or final PR
     osvScannerAndReporter: "same-revision",
     checksAndSecurityControls: "never-weaken",
   });
+});
+
+test("agent decisions, delivered reports and serialized heavy work are the default", () => {
+  const policy = authorityJson(read(".github/dependabot-prep-policy.json"));
+  assert.equal(policy.operatingRevision, "autonomous-decisions-v1");
+  assert.equal(policy.decisions.uncertaintyAloneBlocks, false);
+  assert.equal(
+    policy.decisions.default,
+    "best-supported-reversible-choice-and-continue",
+  );
+  assert.equal(
+    policy.decisions.explicitHoldsAndForbiddenActions,
+    "never-override",
+  );
+  assert.deepEqual(policy.reporting.slack, [
+    "start",
+    "actionable-exception",
+    "final-report",
+  ]);
+  assert.equal(policy.reporting.periodicStatusMessages, false);
+  assert.equal(
+    policy.reporting.finalDelivery,
+    "full-readable-report-not-local-path-only",
+  );
+  assert.equal(policy.reporting.requireDeliveryReceipt, true);
+  assert.deepEqual(policy.hostResources, {
+    heavyTrees: 1,
+    memoryHigh: "2G",
+    memoryMax: "3G",
+    memorySwapMax: 0,
+    cpuQuota: "100%",
+    turboConcurrency: 1,
+    vitestWorkers: 1,
+    hooks: "enabled-verify-effective-serialization",
+  });
+  const prompt = read(policy.entryPrompt);
+  const playbook = read(policy.canonicalPlaybook);
+  assert.ok(prompt.includes(policy.operatingRevision));
+  assert.ok(playbook.includes(policy.reporting.prCommentMarker));
+  assert.ok(playbook.includes("Input welcome"));
+  assert.ok(playbook.includes("lowest-numbered eligible PR"));
+  assert.ok(playbook.includes("Retain the delivery receipt"));
+  assert.ok(playbook.includes("--concurrency=1"));
+  assert.doesNotMatch(prompt + playbook, /at-least-five-minute/);
+  assert.ok(
+    !policy.changes.needsDecisionTriggers.includes("disputed-review-findings"),
+  );
+  assert.ok(
+    !policy.changes.needsDecisionTriggers.includes(
+      "product-or-architecture-decisions",
+    ),
+  );
+  assert.ok(
+    policy.changes.needsDecisionTriggers.includes(
+      "irreversible-or-out-of-scope-product-or-architecture-changes",
+    ),
+  );
 });
 
 test("every dependency receives research and readiness requires exact-head review and checks", () => {
@@ -336,7 +392,10 @@ test("every dependency receives research and readiness requires exact-head revie
     "all-surfaces-including-walkthroughs-and-followups",
   );
   assert.equal(handoff.actionableFeedback, "address-and-answer-every-item");
-  assert.equal(handoff.disputedFeedback, "needs-decision");
+  assert.equal(
+    handoff.disputedFeedback,
+    "investigate-decide-and-answer-with-evidence-no-unproven-ready",
+  );
   assert.equal(handoff.answeredUnresolvedThreads, "list-for-maintainer");
   assert.equal(handoff.humanApprovalAndMerge, "maintainer-only");
 });
