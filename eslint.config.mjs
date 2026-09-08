@@ -9,6 +9,11 @@ import tseslint from "typescript-eslint";
 
 /** @type {import("eslint").Linter.Config} */
 export default [
+  {
+    // Vendored upstream JavaScript from jmrossy/jazzicon, kept byte-for-byte so
+    // it can be diffed against upstream. See packages/jazzicon/README.md.
+    ignores: ["packages/jazzicon/*.js"],
+  },
   ...config,
   js.configs.recommended,
   eslintConfigPrettier,

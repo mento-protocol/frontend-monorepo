@@ -1,0 +1,14 @@
+{
+  "name": "@metamask/jazzicon",
+  "version": "2.1.0",
+  "private": true,
+  "description": "Vendored jmrossy/jazzicon fork — deterministic identicons",
+  "license": "ISC",
+  "main": "index.js",
+  "files": [
+    "*.js"
+  ],
+  "dependencies": {
+    "mersenne-twister": "^1.1.0"
+  }
+}
