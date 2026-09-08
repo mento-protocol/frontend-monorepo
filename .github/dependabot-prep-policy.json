@@ -43,6 +43,14 @@
     "perPullRequestMinutes": 45,
     "repairAttempts": 3
   },
+  "coordination": {
+    "host": "giskard",
+    "lockPath": "/home/molt/.local/state/mento-dependabot/active",
+    "allWriters": "same-atomic-lock-before-writes",
+    "remoteAccess": "operator-configured-authenticated-connection",
+    "unavailable": "read-only",
+    "release": "owner-only-after-local-work-stops"
+  },
   "decisions": {
     "default": "best-supported-reversible-choice-and-continue",
     "uncertaintyAloneBlocks": false,

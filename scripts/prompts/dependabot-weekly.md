@@ -1,5 +1,10 @@
 # Weekly Dependabot preparation
 
+This is the giskard-only scheduled-job adapter, not the portable interactive
+entry. Verify the host before writes. On another host, stop this adapter and
+invoke dependabot-prep directly with the repository target and that host's
+playbook profile; do not apply giskard paths/cgroups or this Slack destination.
+
 Use the installed dependabot-prep skill, portable revision trusted-agent-v1,
 to prepare all open Dependabot PRs in mento-protocol/frontend-monorepo.
 This is an explicit write task within the repository's trusted-agent policy.

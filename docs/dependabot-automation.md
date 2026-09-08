@@ -118,18 +118,21 @@ do not waive affected browser, review or other readiness gates. Use standard uma
 
 ## Start, lock and resume
 
-Use the [checked-in entry prompt](../scripts/prompts/dependabot-weekly.md) in
-a fresh ordinary coding session. Use the configured Codex model initially, not a
-nested CLI launcher. Interactive Codex/Claude sessions use their current runtime.
-Do not change model routing or credentials during a batch.
+The [checked-in entry prompt](../scripts/prompts/dependabot-weekly.md) is the
+giskard-only scheduled-job adapter; it checks the host before writes. The cron
+uses a fresh ordinary coding session with its configured model, not a nested CLI.
+For interactive Codex/Claude on a Mac or another approved host, invoke
+`dependabot-prep mento-protocol/frontend-monorepo all --write` directly instead
+of copying the scheduled prompt. Use the current runtime and this playbook's
+host profile/delivery rules. Do not change routing or credentials during a batch.
 
 On macOS or another operator-approved development host, follow the portable skill's
-state-path and serialized-resource guidance instead of Linux systemd commands or
-`/home/molt` paths. The numeric `hostResources` caps apply on giskard; other hosts
+local state-path and serialized-resource guidance instead of Linux systemd commands
+or local `/home/molt` paths. The numeric `hostResources` caps apply on giskard; other hosts
 retain one heavy tree and explicit worker limits, with memory monitoring but no
-claim of cgroup enforcement. Local locks do not coordinate hosts: do not knowingly
-start a second batch elsewhere, and reconcile cross-host races through live state
-and exact-head leases. No gate or hook may be bypassed. Interactive final reports
+claim of cgroup enforcement. Every host must acquire the shared coordinator lock
+below; a host-local lock or exact-head lease is not a substitute. Exact-head leases
+still protect against unrelated writers outside this workflow. No gate or hook may be bypassed. Interactive final reports
 go to the invoking session unless another destination is explicitly requested;
 the Slack instructions below apply to the configured scheduled run.
 
@@ -140,6 +143,25 @@ If it already exists, stop writes and report contention; do not clear it.
 Immediately write session ID, start time and report path into `active/owner.md`.
 Check for an active legacy launcher before starting. Manual and scheduled sweeps
 must share this lock. If ownership metadata cannot be written, stop before writes.
+
+This existing giskard directory is the coordinator for **all** frontend preparation
+writers, not only jobs executing on giskard. Before any preparation write from a
+Mac/other host, use an operator-configured authenticated connection (for example
+SSH to giskard as molt) to perform that same atomic acquisition on giskard. Verify
+the destination machine/account and exact path; never create a substitute local
+directory or fall back to a second lock. Record a unique run ID, originating host,
+session, start/deadline and local report path in the shared owner file, and read it
+back before proceeding. Check legacy activity on the coordinator too. No new
+service, credential, SSH configuration or port is installed by the agent.
+
+An unavailable connection, existing lock or ambiguous acquisition means read-only
+until resolved. Before each remote mutation recheck shared ownership; on connection
+loss stop new writes and retain the lock. Stop owned local work before releasing
+the same remote lock, verify the unique owner ID again, and never clear another
+owner. A release failure leaves the lock held for operator recovery; age/deadline
+does not expire it. This is cooperative serialization among these workflows, not
+an enforced barrier against arbitrary token holders. Remote lock access needs its
+own runtime permission; a Mac without it can audit but cannot prepare this repo.
 
 Keep a timestamped Markdown report in the state directory. Update it after each
 meaningful step: inventory, each PR's head/base, checkout, saved commit/patch,
