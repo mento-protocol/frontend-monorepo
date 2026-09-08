@@ -149,12 +149,19 @@ the bundle and point the source at the local checkout:
 ```bash
 git clone --depth 1 --branch v1.7.3 \
   https://github.com/trunk-io/plugins /tmp/trunk-plugins
-# then, temporarily, in .trunk/trunk.yaml:
-#   uri: /tmp/trunk-plugins        (in place of https://github.com/trunk-io/plugins)
+# then, temporarily, in .trunk/trunk.yaml, replace the source's `uri` and `ref`:
+#   local: /tmp/trunk-plugins
 ```
 
-Keep that edit local — never commit the rewritten `uri` — and match `--branch` to
-the `ref` pinned in `.trunk/trunk.yaml`.
+`local` is Trunk's field for an on-disk plugin repository, and it takes
+precedence over `uri` and `ref`. Two consequences are worth knowing. The pinned
+`ref` is ignored once `local` is set, so the checkout alone decides which plugin
+version you get — match `--branch` to the `ref` that `.trunk/trunk.yaml` pins, or
+you will lint against a different bundle than CI does. And `local` reads
+`plugin.yaml` from the working tree, so the clone must be an ordinary checkout: a
+`--bare` one fails with `plugin load failed; expected plugin.yaml to be present`.
+
+Keep the edit local and never commit it.
 
 The hermetic runtimes in `.trunk/trunk.yaml` then need to be downloadable, which
 is a _network allowlist_ question rather than a repository-scope one. The two
