@@ -29,10 +29,17 @@ Two alternatives were rejected:
   gate to work around an environment restriction.
 
 Vendoring resolves from the workspace, so it needs no network fetch in any
-environment and no lockfile-lint exemption at all. It also removes a mutable
-`codeload` tarball (pinned by commit, but served without an integrity hash) from
-the dependency graph; `mersenne-twister` still resolves from the npm registry
-with a normal sha512.
+environment and no lockfile-lint exemption at all.
+
+It does **not** improve integrity verification, and should not be justified on
+that basis. The old lockfile entry did carry an integrity hash —
+`sha512-rMVzNrj+xp09XX/Tr3FmYwXOK0BKVWZ3R+5ZTDhPl0rWF6dMuiSE0TFE6jhF0fVEyMWw+bj+kNRr1Vbticfd7Q==`
+— and pnpm verified the downloaded bytes against it. What vendoring removes is
+the fetch itself: a `codeload` tarball whose availability depends on GitHub and
+on the session's repository scope, which is what broke cloud installs. The
+checksums in the table below are documentation for a future re-vendor, not an
+enforced gate; nothing in CI validates them. `mersenne-twister` still resolves
+from the npm registry with a normal sha512.
 
 ## Contents
 
