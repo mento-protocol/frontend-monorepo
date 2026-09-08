@@ -129,29 +129,22 @@ needs no GitHub fetch at all. See
 the rejected alternatives. Its upstream `.js` files are kept byte-for-byte and
 are excluded from Trunk in `.trunk/trunk.yaml`; do not reformat them.
 
-One consequence of the same gating is still open: **`trunk check` and
-`trunk fmt` cannot run out of the box in a cloud session.** Trunk downloads its
-plugin bundle from `https://github.com/trunk-io/plugins/archive/<ref>.zip`, which
-is refused with the same repository-scope 403, so the CLI exits before linting
-anything.
+One consequence of the same gating affects Trunk: **`trunk check` and `trunk fmt`
+do not work out of the box in a cloud session,** because Trunk fetches its plugin
+bundle from `https://github.com/trunk-io/plugins/archive/<ref>.zip` and that is
+refused with the repository-scope 403, so the CLI exits before linting anything.
 
-Day to day, use the underlying tools directly, scoped to the files you changed —
-`pnpm exec prettier --check <files>` and `pnpm exec eslint <files>` — and rely on
-CI for the full Trunk run. Repo-wide invocations are not equivalent to Trunk:
-Trunk applies the ignore list in `.trunk/trunk.yaml` and pins its own prettier
-(3.7.4, against the workspace's 3.9.6), so a bare `pnpm exec prettier --check .`
-reports pre-existing differences in generated and unrelated files. `pnpm exec
-eslint .` is clean repo-wide.
-
-Adding `trunk-io/plugins` to the session's GitHub repository scope is **not** a
+Adding `trunk-io/plugins` to the session's GitHub repository scope is **not** the
 way out, despite being the obvious one: `add_repo` refuses it with `cross-tier
-adds are not supported in v1`, because a session may only hold repositories from
-a single owner and `trunk-io` is not `mento-protocol`. No allowlist or admin
+adds are not supported in v1`, because a session may hold repositories from only
+one owner and `trunk-io` is not `mento-protocol`. No allowlist entry or admin
 setting lifts that.
 
-What does work is that the gate applies to _tarballs_, not to git: anonymous
-`git clone` of a public repository is served normally. Cloning the plugin bundle
-and pointing the source at the local checkout gets Trunk past the 403 —
+What works is that the gate covers repository _tarballs_ — `archive/<ref>.zip`
+and `codeload` — and not git. Two things are therefore still reachable:
+anonymous `git clone` of any public repository, and GitHub **release assets**
+under `releases/download/`, which several hermetic runtimes rely on. So clone
+the bundle and point the source at the local checkout:
 
 ```bash
 git clone --depth 1 --branch v1.7.3 \
@@ -160,19 +153,33 @@ git clone --depth 1 --branch v1.7.3 \
 #   uri: /tmp/trunk-plugins        (in place of https://github.com/trunk-io/plugins)
 ```
 
-— after which node-based linters run for real (`trunk check --filter=prettier`
-passes). Keep the edit local; do not commit the rewritten `uri`, and match the
-`--branch` to the `ref` pinned in `.trunk/trunk.yaml`.
+Keep that edit local — never commit the rewritten `uri` — and match `--branch` to
+the `ref` pinned in `.trunk/trunk.yaml`.
 
-That is still not a complete fix. `.trunk/trunk.yaml` also enables the `go` and
-`python` runtimes, whose downloads fail on the _network allowlist_ rather than
-the repository gate — a distinct failure that surfaces as `CONNECT tunnel
-failed, response 403` instead of an HTTP body. `nodejs.org` is allowed;
-`dl.google.com` (where `golang.org/dl` and `go.dev/dl` both redirect) and
-`www.python.org` are not. A full `trunk check` in a cloud session therefore needs
-both the local clone above and those two hosts on the environment's Custom
-network allowlist, alongside the `forno.celo.org` / `rpc.monad.xyz` entries the
-fork tests need.
+The hermetic runtimes in `.trunk/trunk.yaml` then need to be downloadable, which
+is a _network allowlist_ question rather than a repository-scope one. The two
+failures look different and should not be confused: an allowlist refusal appears
+as `CONNECT tunnel failed, response 403` with no HTTP body, whereas the
+repository gate returns a real body naming the session's scope. Of the three
+enabled runtimes, only `go` ever needed an allowlist entry:
+
+| Runtime         | Downloads from                                            | Notes                                                                                                                                                               |
+| --------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `node@22.16.0`  | `nodejs.org`                                              | Reachable by default.                                                                                                                                               |
+| `go@1.21.0`     | `golang.org/dl` → 301 → `dl.google.com`                   | **`dl.google.com` must be on the allowlist**; it is the redirect target, so allowlisting `golang.org` alone is not enough.                                          |
+| `python@3.10.8` | `github.com/…/python-build-standalone/releases/download/` | Reachable by default — a release asset, not a tarball, so the repository gate does not apply. `www.python.org` is not used by Trunk and does not need allowlisting. |
+
+With `dl.google.com` allowlisted and the local clone in place, a full
+`trunk check` runs and passes in a cloud session; both the `go` and `python`
+runtimes install normally.
+
+Absent that setup, use the underlying tools directly, scoped to the files you
+changed — `pnpm exec prettier --check <files>` and `pnpm exec eslint <files>` —
+and rely on CI for the full Trunk run. Repo-wide invocations are not equivalent
+to Trunk: Trunk applies the ignore list in `.trunk/trunk.yaml` and pins its own
+prettier (3.7.4, against the workspace's 3.9.6), so a bare `pnpm exec prettier
+--check .` reports pre-existing differences in generated and unrelated files.
+`pnpm exec eslint .` is clean repo-wide.
 
 ## Visual Regression Testing
 
