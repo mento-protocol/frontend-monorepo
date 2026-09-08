@@ -21,6 +21,7 @@ on:
       - apps/ui.mento.org/**
       - packages/ui/**
       - packages/web3/**
+      - packages/jazzicon/**
   pull_request:
     types: [opened, synchronize]
 
@@ -118,7 +119,7 @@ jobs:
                   run_app=true
                   run_ui=true
                   ;;
-                packages/web3/*)
+                packages/web3/* | packages/jazzicon/*)
                   run_app=true
                   ;;
               esac
