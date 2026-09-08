@@ -43,7 +43,27 @@ const PROVEN_NON_RUNTIME_DIRECTORIES = [
   "apps/ui.mento.org/e2e/",
 ];
 
-function failClosed(base, head, reason) {
+class PlanningError extends Error {
+  constructor(reason, message) {
+    super(message);
+    this.reason = reason;
+  }
+}
+
+function reportPlanningFailure(reason, error) {
+  // Do not publish child output: Turbo dry-run output can contain environment
+  // values, and Git diagnostics can contain credentials from remote URLs.
+  const diagnostic =
+    error instanceof PlanningError
+      ? error.message
+      : "Unexpected planner error (child output omitted)";
+  process.stderr.write(
+    `::warning::Vercel planner selected all targets: ${reason}: ${JSON.stringify(diagnostic)}\n`,
+  );
+}
+
+function failClosed(base, head, reason, error) {
+  if (error !== undefined) reportPlanningFailure(reason, error);
   return {
     deployments: [...VERCEL_DEPLOYMENTS],
     base: base ?? null,
@@ -60,7 +80,10 @@ function runGit(repoRoot, args) {
   });
 
   if (result.error || result.status !== 0) {
-    throw result.error ?? new Error("git command failed");
+    throw new PlanningError(
+      "git-command-failed",
+      `git ${args[0]} failed (status=${result.status ?? "none"}, signal=${result.signal ?? "none"}, code=${result.error?.code ?? "none"})`,
+    );
   }
 
   return result.stdout;
@@ -68,7 +91,10 @@ function runGit(repoRoot, args) {
 
 function resolveCommit(repoRoot, commit) {
   if (typeof commit !== "string" || !/^[a-fA-F0-9]{40,64}$/.test(commit)) {
-    throw new Error("commit must be an immutable SHA");
+    throw new PlanningError(
+      "invalid-commits",
+      "commit must be an immutable SHA",
+    );
   }
 
   return runGit(repoRoot, [
@@ -115,11 +141,23 @@ function isProvenNonRuntimePath(path) {
 
 function parseTurboJson(output) {
   if (typeof output === "object" && output !== null) return output;
-  if (typeof output !== "string") throw new Error("missing Turbo output");
+  if (typeof output !== "string")
+    throw new PlanningError("turbo-output-invalid", "missing Turbo output");
 
   const firstBrace = output.indexOf("{");
-  if (firstBrace === -1) throw new Error("Turbo output did not contain JSON");
-  return JSON.parse(output.slice(firstBrace));
+  if (firstBrace === -1)
+    throw new PlanningError(
+      "turbo-output-invalid",
+      "Turbo output did not contain JSON",
+    );
+  try {
+    return JSON.parse(output.slice(firstBrace));
+  } catch {
+    throw new PlanningError(
+      "turbo-output-invalid",
+      "Turbo output is not valid JSON",
+    );
+  }
 }
 
 export function runTurboAffectedPlan({
@@ -146,7 +184,10 @@ export function runTurboAffectedPlan({
   );
 
   if (result.error || result.status !== 0) {
-    throw result.error ?? new Error("Turbo planning failed");
+    throw new PlanningError(
+      result.error ? "turbo-spawn-failed" : "turbo-exit-failed",
+      `Turbo failed (status=${result.status ?? "none"}, signal=${result.signal ?? "none"}, code=${result.error?.code ?? "none"}); child output omitted`,
+    );
   }
 
   return parseTurboJson(result.stdout);
@@ -170,15 +211,15 @@ export function planVercelDeployments({
       resolvedBase,
       resolvedHead,
     ]);
-  } catch {
-    return failClosed(base, head, "invalid-commits");
+  } catch (error) {
+    return failClosed(base, head, "invalid-commits", error);
   }
 
   let changedPaths;
   try {
     changedPaths = changedPathsBetween(repoRoot, resolvedBase, resolvedHead);
-  } catch {
-    return failClosed(resolvedBase, resolvedHead, "diff-failed");
+  } catch (error) {
+    return failClosed(resolvedBase, resolvedHead, "diff-failed", error);
   }
 
   if (changedPaths.length === 0) {
@@ -205,20 +246,23 @@ export function planVercelDeployments({
       head: resolvedHead,
     });
     if (!turboPlan || !Array.isArray(turboPlan.tasks)) {
-      throw new Error("malformed Turbo plan");
+      throw new PlanningError("turbo-plan-malformed", "malformed Turbo plan");
     }
 
     const affected = new Set();
     for (const task of turboPlan.tasks) {
       if (!task || typeof task.package !== "string") {
-        throw new Error("malformed Turbo task");
+        throw new PlanningError("turbo-task-malformed", "malformed Turbo task");
       }
       const deployment = PACKAGE_TO_DEPLOYMENT.get(task.package);
       if (deployment) affected.add(deployment);
     }
 
     if (affected.size === 0) {
-      throw new Error("Turbo did not identify a deployable application");
+      throw new PlanningError(
+        "turbo-no-deployable-task",
+        "Turbo did not identify a deployable application",
+      );
     }
 
     return {
@@ -227,8 +271,13 @@ export function planVercelDeployments({
       head: resolvedHead,
       reason: "affected-packages",
     };
-  } catch {
-    return failClosed(resolvedBase, resolvedHead, "turbo-planning-failed");
+  } catch (error) {
+    return failClosed(
+      resolvedBase,
+      resolvedHead,
+      error instanceof PlanningError ? error.reason : "turbo-planning-failed",
+      error,
+    );
   }
 }
 

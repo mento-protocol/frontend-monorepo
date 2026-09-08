@@ -2,6 +2,12 @@
   "schema": "dependabot-prep-policy:v3",
   "executionModel": "trusted-openclaw-agent",
   "operatingRevision": "autonomous-decisions-v1",
+  "workflow": {
+    "skill": "dependabot-prep",
+    "revision": "trusted-agent-v1",
+    "runtimes": ["openclaw", "codex", "claude"],
+    "hostProfile": "giskard-capped-otherwise-portable-serial"
+  },
   "repository": "mento-protocol/frontend-monorepo",
   "baseRef": "main",
   "canonicalPlaybook": "docs/dependabot-automation.md",
@@ -36,6 +42,14 @@
     "batchMinutes": 360,
     "perPullRequestMinutes": 45,
     "repairAttempts": 3
+  },
+  "coordination": {
+    "host": "giskard",
+    "lockPath": "/home/molt/.local/state/mento-dependabot/active",
+    "allWriters": "same-atomic-lock-before-writes",
+    "remoteAccess": "operator-configured-authenticated-encrypted-connection",
+    "unavailable": "read-only",
+    "release": "owner-only-after-local-work-stops"
   },
   "decisions": {
     "default": "best-supported-reversible-choice-and-continue",

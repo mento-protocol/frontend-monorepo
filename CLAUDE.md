@@ -129,18 +129,64 @@ needs no GitHub fetch at all. See
 the rejected alternatives. Its upstream `.js` files are kept byte-for-byte and
 are excluded from Trunk in `.trunk/trunk.yaml`; do not reformat them.
 
-One consequence of the same gating is still open: **`trunk check` and
-`trunk fmt` cannot run in a cloud session.** Trunk downloads its plugin bundle
-from `https://github.com/trunk-io/plugins/archive/<ref>.zip`, which is refused
-with the same repository-scope 403, so the CLI exits before linting anything.
-Use the underlying tools directly instead, scoped to the files you changed —
-`pnpm exec prettier --check <files>` and `pnpm exec eslint <files>` — and rely on
-CI for the full Trunk run. Repo-wide invocations are not equivalent to Trunk:
-Trunk applies the ignore list in `.trunk/trunk.yaml` and pins its own prettier
-(3.7.4, against the workspace's 3.9.6), so a bare `pnpm exec prettier --check .`
-reports pre-existing differences in generated and unrelated files. `pnpm exec
-eslint .` is clean repo-wide. Adding `trunk-io/plugins` to the session's GitHub
-repository scope would also fix Trunk itself.
+One consequence of the same gating affects Trunk: **`trunk check` and `trunk fmt`
+do not work out of the box in a cloud session,** because Trunk fetches its plugin
+bundle from `https://github.com/trunk-io/plugins/archive/<ref>.zip` and that is
+refused with the repository-scope 403, so the CLI exits before linting anything.
+
+Adding `trunk-io/plugins` to the session's GitHub repository scope is **not** the
+way out, despite being the obvious one: `add_repo` refuses it with `cross-tier
+adds are not supported in v1`, because a session may hold repositories from only
+one owner and `trunk-io` is not `mento-protocol`. No allowlist entry or admin
+setting lifts that.
+
+What works is that the gate covers repository _tarballs_ — `archive/<ref>.zip`
+and `codeload` — and not git. Two things are therefore still reachable:
+anonymous `git clone` of any public repository, and GitHub **release assets**
+under `releases/download/`, which several hermetic runtimes rely on. So clone
+the bundle and point the source at the local checkout:
+
+```bash
+git clone --depth 1 --branch v1.7.3 \
+  https://github.com/trunk-io/plugins /tmp/trunk-plugins
+# then, temporarily, in .trunk/trunk.yaml, replace the source's `uri` and `ref`:
+#   local: /tmp/trunk-plugins
+```
+
+`local` is Trunk's field for an on-disk plugin repository, and it takes
+precedence over `uri` and `ref`. Two consequences are worth knowing. The pinned
+`ref` is ignored once `local` is set, so the checkout alone decides which plugin
+version you get — match `--branch` to the `ref` that `.trunk/trunk.yaml` pins, or
+you will lint against a different bundle than CI does. And `local` reads
+`plugin.yaml` from the working tree, so the clone must be an ordinary checkout: a
+`--bare` one fails with `plugin load failed; expected plugin.yaml to be present`.
+
+Keep the edit local and never commit it.
+
+The hermetic runtimes in `.trunk/trunk.yaml` then need to be downloadable, which
+is a _network allowlist_ question rather than a repository-scope one. The two
+failures look different and should not be confused: an allowlist refusal appears
+as `CONNECT tunnel failed, response 403` with no HTTP body, whereas the
+repository gate returns a real body naming the session's scope. Of the three
+enabled runtimes, only `go` ever needed an allowlist entry:
+
+| Runtime         | Downloads from                                            | Notes                                                                                                                                                               |
+| --------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `node@22.16.0`  | `nodejs.org`                                              | Reachable by default.                                                                                                                                               |
+| `go@1.21.0`     | `golang.org/dl` → 301 → `dl.google.com`                   | **`dl.google.com` must be on the allowlist**; it is the redirect target, so allowlisting `golang.org` alone is not enough.                                          |
+| `python@3.10.8` | `github.com/…/python-build-standalone/releases/download/` | Reachable by default — a release asset, not a tarball, so the repository gate does not apply. `www.python.org` is not used by Trunk and does not need allowlisting. |
+
+With `dl.google.com` allowlisted and the local clone in place, a full
+`trunk check` runs and passes in a cloud session; both the `go` and `python`
+runtimes install normally.
+
+Absent that setup, use the underlying tools directly, scoped to the files you
+changed — `pnpm exec prettier --check <files>` and `pnpm exec eslint <files>` —
+and rely on CI for the full Trunk run. Repo-wide invocations are not equivalent
+to Trunk: Trunk applies the ignore list in `.trunk/trunk.yaml` and pins its own
+prettier (3.7.4, against the workspace's 3.9.6), so a bare `pnpm exec prettier
+--check .` reports pre-existing differences in generated and unrelated files.
+`pnpm exec eslint .` is clean repo-wide.
 
 ## Visual Regression Testing
 
@@ -236,8 +282,10 @@ Use [the preparation playbook](docs/dependabot-automation.md) and
 `.github/dependabot-prep-policy.json` from the live default branch. The
 `trusted-openclaw-agent` workflow uses the ordinary coding session and existing
 GitHub authentication; its prohibitions are procedural, not a credential sandbox.
-Do not invoke the retired `/opt/dependabot-prep` launcher or the generic sealed
-`dependabot-prep` write path for this workflow.
+Use the portable `dependabot-prep` skill, revision `trusted-agent-v1`, with that
+playbook's repository overrides in OpenClaw, Codex or Claude. The historical
+execution-model identifier remains for compatibility. Never invoke the retired
+`/opt/dependabot-prep` launcher or the archived sealed skill procedure.
 
 Within the playbook's scope, normal installs, lockfile generation, builds, tests,
 conflict resolution, and dependency-related compatibility fixes are permitted.

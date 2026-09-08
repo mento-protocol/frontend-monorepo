@@ -10,7 +10,7 @@ last_verified: 2026-09-08
 
 ## Operating model
 
-Use the ordinary trusted OpenClaw coding session to prepare existing Dependabot
+Use an ordinary trusted OpenClaw, Codex or Claude coding session to prepare existing Dependabot
 PRs for a human merge decision. This accepts the same host, model, package
 execution and GitHub credential exposure as interactive coding. Scope and
 forbidden actions are instructions, not an enforced credential sandbox.
@@ -23,13 +23,14 @@ Require `dependabot-prep-policy:v3` and `trusted-openclaw-agent`.
 [ADR 0010](adr/0010-trusted-agent-dependabot-preparation.md) supersedes the
 sealed launcher, no-exec lanes and model-authored receipt protocol of ADR 0009.
 The legacy installation is retained for diagnosis, not invoked or reconfigured.
-Do not run it concurrently or invoke the generic sealed dependabot-prep write
-path. Use this repository playbook.
+Do not run it concurrently or invoke the archived sealed skill procedure.
 
-The generic `dependabot-prep` skill is not this workflow's execution procedure.
-Its investigation checklist informed the playbook, but its sealed launcher and
-no-exec requirements conflict with the operator-approved trusted-agent model.
-Do not load it as a second competing procedure or revive its retired restrictions.
+Use the installed portable `dependabot-prep` skill at revision `trusted-agent-v1`
+as the shared workflow, with this playbook and v3 policy as repository overrides.
+The `trusted-openclaw-agent` execution-model value is a historical compatibility
+identifier, not a runtime restriction. Require the policy's `workflow` binding;
+an older sealed skill cannot satisfy it. No second launcher or workflow is needed.
+The skill must be installed on each host; its update is not a MacBook execution test.
 
 ## Scope and authority
 
@@ -117,9 +118,23 @@ do not waive affected browser, review or other readiness gates. Use standard uma
 
 ## Start, lock and resume
 
-Use the [checked-in entry prompt](../scripts/prompts/dependabot-weekly.md) in
-a fresh ordinary coding session. Use the configured Codex model initially, not a
-nested CLI launcher. Do not change model routing or credentials during a batch.
+The [checked-in entry prompt](../scripts/prompts/dependabot-weekly.md) is the
+giskard-only scheduled-job adapter; it checks the host before writes. The cron
+uses a fresh ordinary coding session with its configured model, not a nested CLI.
+For interactive Codex/Claude on a Mac or another approved host, invoke
+`dependabot-prep mento-protocol/frontend-monorepo all --write` directly instead
+of copying the scheduled prompt. Use the current runtime and this playbook's
+host profile/delivery rules. Do not change routing or credentials during a batch.
+
+On macOS or another operator-approved development host, follow the portable skill's
+local state-path and serialized-resource guidance instead of Linux systemd commands
+or local `/home/molt` paths. The numeric `hostResources` caps apply on giskard; other hosts
+retain one heavy tree and explicit worker limits, with memory monitoring but no
+claim of cgroup enforcement. Every host must acquire the shared coordinator lock
+below; a host-local lock or exact-head lease is not a substitute. Exact-head leases
+still protect against unrelated writers outside this workflow. No gate or hook may be bypassed. Interactive final reports
+go to the invoking session unless another destination is explicitly requested;
+the Slack instructions below apply to the configured scheduled run.
 
 On giskard, keep state outside checkouts at
 `/home/molt/.local/state/mento-dependabot`. Create that parent if absent.
@@ -128,6 +143,26 @@ If it already exists, stop writes and report contention; do not clear it.
 Immediately write session ID, start time and report path into `active/owner.md`.
 Check for an active legacy launcher before starting. Manual and scheduled sweeps
 must share this lock. If ownership metadata cannot be written, stop before writes.
+
+This existing giskard directory is the coordinator for **all** frontend preparation
+writers, not only jobs executing on giskard. Before any preparation write from a
+Mac/other host, use an operator-configured authenticated, encrypted connection (for
+example SSH to giskard as molt) to perform that same atomic acquisition on giskard.
+Verify encrypted transport before any remote write; otherwise remain read-only. Verify
+the destination machine/account and exact path; never create a substitute local
+directory or fall back to a second lock. Record a unique run ID, originating host,
+session, start/deadline and local report path in the shared owner file, and read it
+back before proceeding. Check legacy activity on the coordinator too. No new
+service, credential, SSH configuration or port is installed by the agent.
+
+An unavailable connection, existing lock or ambiguous acquisition means read-only
+until resolved. Before each remote mutation recheck shared ownership; on connection
+loss stop new writes and retain the lock. Stop owned local work before releasing
+the same remote lock, verify the unique owner ID again, and never clear another
+owner. A release failure leaves the lock held for operator recovery; age/deadline
+does not expire it. This is cooperative serialization among these workflows, not
+an enforced barrier against arbitrary token holders. Remote lock access needs its
+own runtime permission; a Mac without it can audit but cannot prepare this repo.
 
 Keep a timestamped Markdown report in the state directory. Update it after each
 meaningful step: inventory, each PR's head/base, checkout, saved commit/patch,
