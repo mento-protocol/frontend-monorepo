@@ -85,7 +85,7 @@ The earlier generic-skill exclusion above describes the former sealed entry;
 it does not exclude this portable successor. No legacy pins are rotated.
 
 All frontend preparation writers acquire the existing giskard batch directory,
-including interactive hosts through an operator-configured authenticated connection.
+including interactive hosts through an operator-configured authenticated, encrypted connection.
 Local locks and Git leases alone cannot serialize comments or distinct PRs. Reuse
 the existing coordinator rather than add a lock service; if it is unreachable,
 other hosts stay read-only. This trades offline preparation availability for the

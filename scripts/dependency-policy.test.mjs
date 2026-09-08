@@ -177,7 +177,7 @@ test("trusted-agent policy limits authority to existing Dependabot pull requests
     host: "giskard",
     lockPath: "/home/molt/.local/state/mento-dependabot/active",
     allWriters: "same-atomic-lock-before-writes",
-    remoteAccess: "operator-configured-authenticated-connection",
+    remoteAccess: "operator-configured-authenticated-encrypted-connection",
     unavailable: "read-only",
     release: "owner-only-after-local-work-stops",
   });
