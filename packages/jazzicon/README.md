@@ -55,8 +55,16 @@ To verify against upstream:
 ```bash
 git clone https://github.com/jmrossy/jazzicon /tmp/jazzicon
 git -C /tmp/jazzicon checkout 7a8df28974b4e81129bfbe3cab76308b889032a6
-diff /tmp/jazzicon/index.js packages/jazzicon/index.js
+for file in index.js colors.js paper.js LICENSE; do
+  diff "/tmp/jazzicon/$file" "packages/jazzicon/$file" || echo "DIFFERS: $file"
+done
 ```
+
+Every file in the table above must be compared, not just `index.js`: it executes
+both `colors.js` and `paper.js` at runtime, and the checksums are recorded from
+the checked-in copies, so they prove only that these files have not changed
+since — never that they came from the stated upstream commit. The `diff` against
+a fresh checkout is what establishes provenance.
 
 ## Why there are no docstrings here
 
