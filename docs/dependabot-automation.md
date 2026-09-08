@@ -3,7 +3,7 @@ title: Dependabot preparation with the ordinary OpenClaw coding agent
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-09-07
+last_verified: 2026-09-08
 ---
 
 # Dependabot preparation
@@ -26,6 +26,11 @@ The legacy installation is retained for diagnosis, not invoked or reconfigured.
 Do not run it concurrently or invoke the generic sealed dependabot-prep write
 path. Use this repository playbook.
 
+The generic `dependabot-prep` skill is not this workflow's execution procedure.
+Its investigation checklist informed the playbook, but its sealed launcher and
+no-exec requirements conflict with the operator-approved trusted-agent model.
+Do not load it as a second competing procedure or revive its retired restrictions.
+
 ## Scope and authority
 
 - Repository: `mento-protocol/frontend-monorepo`; base: `main`.
@@ -44,8 +49,10 @@ path. Use this repository playbook.
   Normal installs, lockfile generation, tests, builds and necessary compatibility
   repairs are permitted. Read the documented runtime/override procedure first.
   Preserve the requested update; justify every coupled change. No unrelated work.
-- Keep PRs separate. Overlapping coupled updates need an explicit target decision,
-  not silent consolidation, duplicate counting or sibling closure.
+- Keep PRs separate when each can be prepared independently. If proven coupling
+  requires consolidation, the agent selects the lowest-numbered eligible PR as
+  target, explains the choice on every affected PR, and leaves siblings open.
+  Do not publish to a held sibling or count it as ready through the target's CI.
 - Do not automatically publish workflow/local-Action, automation-authority,
   credential, security-control or validation-machinery changes. Research and
   report `needs decision`. Never weaken a gate, coverage floor or security test
@@ -55,6 +62,58 @@ path. Use this repository playbook.
   or create replacement PRs. Never trigger production deployment or wallet actions.
   No Dependabot rebase/recreate/merge commands or check reruns in this workflow.
   Keep Dependabot CI secretless and existing Vercel credential admission unchanged.
+
+## Agent decisions and visible risk
+
+Default to the best-supported reversible choice and continue. Uncertainty alone,
+a major version, peer warnings, routine migration scope, a coupled-target choice,
+or disagreement with a bot is not a request for human takeover. Research and test
+the choice. Fix valid findings; answer false positives with concrete evidence.
+Never represent an unverified compatibility assumption or disputed failing gate
+as ready. Missing access/evidence is blocked; running out of time is unfinished
+work, not a product decision.
+
+For each PR, maintain one preparation-summary issue comment with the marker
+`<!-- mento-dependabot-preparation:v1 -->`. Record exact head/base, changes,
+validation/review links, researched risk/confidence and remaining work. For every
+consequential choice, include the decision, evidence and changelog links,
+alternatives, confidence rationale and what would change the recommendation.
+When confidence is not high and human input would help, explicitly flag
+"Input welcome — proceeding with this reversible choice" and ask the precise
+question there; continue safe preparation without waiting for a reply.
+
+Discover existing comments with complete pagination and verify the current
+authenticated author's identity before updating its marked comment. Never edit
+another author's comment or overwrite human additions. Reconcile uncertain posts
+before retrying and verify writes by reading them back. Preserve prior material
+decisions when updating, marking superseded choices rather than silently erasing
+them. Keep required inline replies on their original review threads.
+
+Only explicit holds/prohibitions, missing authority/access, irreversible or
+out-of-scope changes, and unsatisfied readiness evidence prevent the relevant
+action. Ask for an actual permission/product decision in the PR comment; continue
+independent work. Explicit holds and draft PRs still prohibit preparation writes,
+including these summary comments: report those exceptions in the final report.
+
+## Host memory safety
+
+On giskard, allow only one heavy process tree at a time, including installs,
+hooks, tests, builds and browsers. Run it in a separate systemd user scope outside
+the gateway with `MemoryHigh=2G`, `MemoryMax=3G`, `MemorySwapMax=0` and
+`CPUQuota=100%`; verify the live properties before proceeding. If unavailable,
+stop heavy execution, not the read-only investigation. Keep normal Git hooks.
+Use explicit Turbo `--concurrency=1` and Vitest min/max workers 1. Verify actual
+hook children: Trunk strips `TURBO_CONCURRENCY`, so an environment assignment is
+not proof. A batch-local PATH wrapper outside the checkout may append the explicit
+Turbo flag; verify its selection inside the real hook, not only in a parent shell.
+Retain all checks; never raise caps or bypass hooks to make a run finish.
+
+Keep bounded logs and terminal exit status outside checkouts. On persistent
+memory stalls, stop only the verified owned tree, reconcile remote state, and
+fix serialization before retrying. Clean up only verified owned lingering daemons.
+Prefer exact-head CI production-build evidence when local builds cannot fit;
+do not waive affected browser, review or other readiness gates. Use standard umask
+`0022` for repository tests whose permission fixtures require it.
 
 ## Start, lock and resume
 
@@ -136,18 +195,18 @@ Stop early enough to publish the report. Provider exhaustion preserves work.
 6. Mark a PR waiting while CI/review runs and work on another independent PR.
    Poll within the batch at bounded intervals, not a busy loop. Return to findings,
    fix/test/push and re-review. Reply with the actual fix commit or evidence for
-   a false positive. A material dispute requiring judgment is needs decision.
+   a false positive. Apply the agent-decision procedure, not automatic escalation.
 7. Perform a separate final live evidence sweep of diff, head/base, check
    producers and every feedback surface. Use a fresh read-only reviewer where
    practical. The repair worker's checklist alone is not proof.
 
 ## Progress and handoff
 
-Send start, meaningful-change and at-least-five-minute active progress updates
-to the configured Slack destination: PR, activity, latest successful action,
-wait reason and elapsed time. If delivery fails, preserve local progress and
-disclose the failure. Do not post repetitive status chatter on PRs.
-The scheduler's final announcement does not substitute for live progress.
+Send one start message, actionable exceptions that actually need operator action,
+and one final report to the configured Slack destination. No periodic status,
+unchanged wait messages, process IDs, memory samples or tool-session chatter.
+Keep those details in the local recovery log; answer status questions on demand.
+Deduplicate exception notifications across recovery.
 
 Report every selected PR as:
 
@@ -155,8 +214,9 @@ Report every selected PR as:
   required and affected checks passing on the final head from expected producers,
   CodeRabbit reviewed that head, substantive findings fixed or demonstrably
   inapplicable, research complete, and auto-merge null.
-- **Needs decision:** policy exception, material risk, disputed feedback, or a
-  coupled-target choice. Include research and the exact human decision.
+- **Needs decision:** an explicit hold or actual authority/irreversible product
+  decision the agent cannot make. Include the precise decision and PR comment
+  link where permitted. Risk or less-than-high confidence alone is insufficient.
 - **Blocked:** failed repair/validation, missing evidence, uncertain operation
   or exhausted budget. Preserve work and specify the next action.
 
@@ -168,6 +228,15 @@ pushes, base changes or substantive feedback invalidate it. Recheck on demand.
 Include exact SHAs, actual edits, CI/review links, risk/confidence/source links,
 remaining human actions and report path. Distinguish a completed inventory with
 blocked PRs from an interrupted/incomplete batch. An agent exit is not readiness.
+Deliver the full readable per-PR final report to Slack, with clickable PR and
+decision-comment links: ready/selected count, each outcome and reason, critical
+agent choices, remaining failures, and the next action. A local filesystem path
+is never delivery. Send the report as an attachment if necessary, with the useful
+summary in the message; if attachments are unavailable, send numbered sections.
+Retain the delivery receipt. On ambiguous delivery, reconcile before retrying;
+on failure preserve the report and surface an operational delivery error.
+Return the same useful final report from the agent for scheduler fallback, not
+just a receipt or local path; avoid duplicating an already confirmed delivery.
 End: `No approval, merge, close, auto-merge, or thread-state action was performed.`
 
 ## Schedule and activation
@@ -185,6 +254,18 @@ genuinely ready PR, visible progress/recovery evidence and separate operator
 confirmation. Keep the job disabled until then. A manual pilot uses the same
 prompt/lock/policy narrowed to an explicitly selected PR.
 Preparation sessions must not change the scheduler or their own policy.
+
+After these instructions are merged and the disabled job's prompt is refreshed,
+the operator can manually run it once without enabling the weekly schedule:
+
+```sh
+openclaw cron run 1b1cad5e-fa4e-48b3-a1f0-10bca3628175
+```
+
+Do not repeat the command just because it returns before completion. Check the
+existing session and batch lock first. A new operator-triggered batch has a fresh
+budget; reuse preserved work only after reconciling live policy, head/base, prior
+mutations and validation inputs. Resuming an interrupted batch retains its budget.
 
 Rollback disables the job and preserves evidence. Never automatically restore
 the retired launcher. Installed-tooling cleanup is a separate reviewed task.
