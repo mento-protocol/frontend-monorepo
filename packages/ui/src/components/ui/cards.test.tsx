@@ -141,7 +141,7 @@ describe("card components", () => {
       screen.getByRole("heading", { name: "Join our community" }),
     ).toBeTruthy();
     expect(screen.getByRole("link").getAttribute("href")).toBe(
-      "http://discord.mento.org",
+      "https://discord.mento.org",
     );
 
     rerender(

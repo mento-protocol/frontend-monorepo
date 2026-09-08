@@ -136,6 +136,9 @@ describe("shared components", () => {
   it("uses the swap footer by default", () => {
     render(<Footer />);
     expect(screen.getByRole("link", { name: "Reserve" })).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "Discord" }).getAttribute("href"),
+    ).toBe("https://discord.mento.org");
   });
 
   it("toggles light and dark themes", () => {

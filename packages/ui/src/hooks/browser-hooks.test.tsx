@@ -73,7 +73,7 @@ describe("browser hooks", () => {
   it.each([
     [500, true],
     [900, false],
-  ])("reports mobile=%s for a %spx viewport", (width, expected) => {
+  ])("reports mobile for a %spx viewport: %s", (width, expected) => {
     const match = installMatchMedia(expected);
     Object.defineProperty(window, "innerWidth", {
       configurable: true,
@@ -82,7 +82,12 @@ describe("browser hooks", () => {
     const { result, unmount } = renderHook(() => useIsMobile());
 
     expect(result.current).toBe(expected);
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: expected ? 1_200 : 400,
+    });
     act(() => match.setMatches(!expected));
+    expect(result.current).toBe(!expected);
 
     unmount();
     expect(match.media.removeEventListener).toHaveBeenCalledWith(

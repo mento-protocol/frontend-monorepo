@@ -106,6 +106,7 @@ describe("RateForm", () => {
   });
 
   it("accepts decimal input and submits with a five-percent fee buffer", () => {
+    mocks.fee = 1_000n;
     renderForm();
     fireEvent.change(
       screen.getByLabelText("New annual interest rate percent"),
@@ -117,7 +118,7 @@ describe("RateForm", () => {
     expect(mocks.mutate).toHaveBeenCalledWith(
       expect.objectContaining({
         newRate: 59_999_999_999_999_998n,
-        maxUpfrontFee: 10n,
+        maxUpfrontFee: 1_050n,
         successHref: "/borrow",
       }),
     );
