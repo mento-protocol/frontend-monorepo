@@ -17105,3 +17105,40 @@ test("a recovery bootstrap only escapes a contradictory epoch when PR metadata c
   assert.equal(recovered.nextDispatch.sha, SHA.A);
   assert.equal(recovered.nextDispatch.selection_receipt_run_id, 7_002);
 });
+
+test("preview receipts retain distinct planner failure reasons", () => {
+  const receipt = event({
+    run: 10,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+    targets: [],
+  });
+  const snapshot = structuredClone(receipt);
+  delete snapshot.plan;
+  for (const reason of [
+    "turbo-planning-failed",
+    "turbo-spawn-failed",
+    "turbo-exit-failed",
+    "turbo-output-invalid",
+    "turbo-plan-malformed",
+    "turbo-task-malformed",
+    "turbo-no-deployable-task",
+  ]) {
+    const plan = normalizePlannerResult(
+      {
+        deployments: PREVIEW_TARGETS,
+        reason,
+        base: snapshot.change_base_sha,
+        head: snapshot.head_sha,
+      },
+      snapshot,
+    );
+    assert.equal(plan.reason, reason);
+    assert.deepEqual(plan.targets, PREVIEW_TARGETS);
+    assert.equal(
+      validateEventReceipt({ ...snapshot, plan }).plan.reason,
+      reason,
+    );
+  }
+});

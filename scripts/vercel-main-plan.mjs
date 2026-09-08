@@ -33,12 +33,24 @@ const KNOWN_PLANNER_REASONS = new Set([
   "invalid-commits",
   "non-runtime-only",
   "turbo-planning-failed",
+  "turbo-spawn-failed",
+  "turbo-exit-failed",
+  "turbo-output-invalid",
+  "turbo-plan-malformed",
+  "turbo-task-malformed",
+  "turbo-no-deployable-task",
 ]);
 const FAIL_CLOSED_PLANNER_REASONS = new Set([
   "diff-failed",
   "empty-diff",
   "invalid-commits",
   "turbo-planning-failed",
+  "turbo-spawn-failed",
+  "turbo-exit-failed",
+  "turbo-output-invalid",
+  "turbo-plan-malformed",
+  "turbo-task-malformed",
+  "turbo-no-deployable-task",
 ]);
 const RANGE_REASONS = new Set([
   ...KNOWN_PLANNER_REASONS,
