@@ -1,7 +1,7 @@
 {
-  "lockfileSha256": "6b5d973de5fa16211e4df7ab5e28fc160ae23e80b42b0648b3bbd8491696f333",
-  "manifestSha256": "9abd44f255fafcb7d7c6f3d3a33e5b903ade9f35e2f637e75f04526b9f42d4c2",
-  "overridesSha256": "be7075518326cc8bcbf4542137a74aea04a7b6bc83e0ed66ce674a0097ce4845",
+  "lockfileSha256": "a2bbf7d45745ade697592e7df0f26afc3477026d0fc79522046a66d0fbc33690",
+  "manifestSha256": "9ad1b89e2c2f6298c09d904288ef2041b37df459dad51e12f156d479f5732474",
+  "overridesSha256": "c560672b75064a619fe155c8de4e7acce83dc661d0437c1c9425f1aaa3fe2858",
   "registryIntegrity": "sha512-wAKpT8DFSbnwlgbS711fbvxGjOfQeb1n+NcaBaSC4onq9eJAjbPfERrjrKE4GDsV8dkoBo0627lp0QxbLCGFiw==",
   "runtimeDependenciesSha256": "66675c4f5ff27d0bb315f5a1f4276b07cfa4745dfeb454874f047d05245328ec",
   "schema": "vercel-cli-runtime-contract:v1",

@@ -1,6 +1,7 @@
 {
   "schema": "dependabot-prep-policy:v3",
   "executionModel": "trusted-openclaw-agent",
+  "operatingRevision": "autonomous-decisions-v1",
   "repository": "mento-protocol/frontend-monorepo",
   "baseRef": "main",
   "canonicalPlaybook": "docs/dependabot-automation.md",
@@ -36,6 +37,31 @@
     "perPullRequestMinutes": 45,
     "repairAttempts": 3
   },
+  "decisions": {
+    "default": "best-supported-reversible-choice-and-continue",
+    "uncertaintyAloneBlocks": false,
+    "materialChoices": "maintained-pr-comment-with-evidence-risk-confidence-and-alternatives",
+    "lowConfidence": "request-input-in-pr-comment-and-continue-safe-work",
+    "consolidation": "only-proven-coupling-lowest-numbered-eligible-pr-keep-siblings-open",
+    "explicitHoldsAndForbiddenActions": "never-override"
+  },
+  "reporting": {
+    "slack": ["start", "actionable-exception", "final-report"],
+    "periodicStatusMessages": false,
+    "finalDelivery": "full-readable-report-not-local-path-only",
+    "requireDeliveryReceipt": true,
+    "prCommentMarker": "<!-- mento-dependabot-preparation:v1 -->"
+  },
+  "hostResources": {
+    "heavyTrees": 1,
+    "memoryHigh": "2G",
+    "memoryMax": "3G",
+    "memorySwapMax": 0,
+    "cpuQuota": "100%",
+    "turboConcurrency": 1,
+    "vitestWorkers": 1,
+    "hooks": "enabled-verify-effective-serialization"
+  },
   "changes": {
     "allowed": [
       "dependency-source-repairs",
@@ -63,8 +89,7 @@
       "weakened-or-disabled-checks",
       "credential-or-permission-changes",
       "unexplained-history",
-      "disputed-review-findings",
-      "product-or-architecture-decisions"
+      "irreversible-or-out-of-scope-product-or-architecture-changes"
     ],
     "needsDecisionPublication": false,
     "majorOrRuntimeUpdate": "research-and-repair-with-documented-validation",
@@ -137,7 +162,7 @@
     "reviewCommit": "exact-final-head",
     "feedback": "all-surfaces-including-walkthroughs-and-followups",
     "actionableFeedback": "address-and-answer-every-item",
-    "disputedFeedback": "needs-decision",
+    "disputedFeedback": "investigate-decide-and-answer-with-evidence-no-unproven-ready",
     "answeredUnresolvedThreads": "list-for-maintainer",
     "humanApprovalAndMerge": "maintainer-only",
     "recheckOnHeadOrBaseDrift": true

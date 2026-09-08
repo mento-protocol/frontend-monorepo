@@ -3,7 +3,7 @@ title: Use the ordinary trusted coding agent for Dependabot preparation
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-09-07
+last_verified: 2026-09-08
 scope: dependency-maintenance
 date: 2026-09-07
 supersedes:
@@ -49,6 +49,24 @@ Do not use or expand the legacy launcher, receipt schema, runtime adapters or
 manual-hygiene lanes. Preserve installed tooling for diagnosis. Ship the policy
 through normal review; do not let an agent adopt unmerged candidate instructions
 as its standing preparation authority.
+
+### Operational refinement — 2026-09-08
+
+The first completed batch prepared three of twelve PRs, but mixed genuine
+permission boundaries with unfinished migration work under "needs decision".
+Frequent Slack process updates obscured the outcome, and a local report path
+did not deliver the report. Default to agent-owned reversible decisions with
+consequential choices, evidence, alternatives and confidence visible in a
+maintained PR comment. Invite input without pausing safe work. Explicit holds,
+forbidden actions and unproven readiness gates still apply. Deliver a readable
+final report; send only start and actionable exceptions beforehand.
+
+Host OOM and stripped concurrency environment variables demonstrated that
+procedural limits need runtime verification: serialize heavy tasks and hook
+children inside capped sibling systemd scopes. This is resource containment,
+not a revival of the retired credential/isolation platform. Preserve normal
+checks and hooks. Keep the repository playbook authoritative rather than loading
+the conflicting generic sealed skill as a second execution procedure.
 
 ## Alternatives considered
 
