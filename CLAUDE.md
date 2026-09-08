@@ -110,14 +110,26 @@ files but not an exported `PATH`, and the session user cannot read `/root`.
 Fork tests additionally need the RPC hosts (`forno.celo.org`, `rpc.monad.xyz`)
 on a Custom network allowlist.
 
-Cloud sessions gate GitHub by _repository_, not by host: every request to
-`github.com` and `codeload.github.com` for a repository outside the session's
-scope is answered by the proxy itself with HTTP 403 and the body `GitHub access
-to this repository is not enabled for this session`. The network allowlist
-cannot lift this — verified with `codeload.github.com` present and the request
-still refused, while an allowlisted non-GitHub host reached its origin normally.
-Anonymous `git clone` and `git ls-remote` of the same public repository do
-succeed; only the tarball path is gated.
+Cloud sessions gate GitHub by _repository_, not by host, and the gate is far
+wider than a tarball path: the proxy fronts `github.com` as if it were the
+GitHub _API_, so ordinary web URLs are intercepted too. A request for a
+repository outside the session's scope is answered by the proxy itself with HTTP
+403 and the body `GitHub access to this repository is not enabled for this
+session`. That covers `codeload.github.com` tarballs, but equally
+`github.com/vercel/next.js`, `github.com/pnpm/pnpm/issues/13567`, and even
+`github.com/features/actions`, which the gateway parses as an owner/repo pair. An
+in-scope repository is not exempt either: a request for
+`github.com/mento-protocol/frontend-monorepo/actions/runs/<id>` returns a
+_different_ 403 — `This GitHub API path is not available: sessions are bound to
+their configured repositories` — because it is not a repository-scoped API
+endpoint. The network allowlist cannot lift any of this: `github.com` is on the
+allowlist and is still intercepted.
+
+Exactly two paths pass through, and every workaround below rests on them. The
+git protocol is not intercepted, so anonymous `git clone` and `git ls-remote` of
+any public repository succeed. And GitHub **release assets** under
+`releases/download/` are served normally, which several hermetic runtimes rely
+on.
 
 This used to break `pnpm install` outright. The catalog pinned
 `@metamask/jazzicon` to `github:jmrossy/jazzicon#<sha>`, which pnpm resolves to
@@ -129,18 +141,112 @@ needs no GitHub fetch at all. See
 the rejected alternatives. Its upstream `.js` files are kept byte-for-byte and
 are excluded from Trunk in `.trunk/trunk.yaml`; do not reformat them.
 
-One consequence of the same gating is still open: **`trunk check` and
-`trunk fmt` cannot run in a cloud session.** Trunk downloads its plugin bundle
-from `https://github.com/trunk-io/plugins/archive/<ref>.zip`, which is refused
-with the same repository-scope 403, so the CLI exits before linting anything.
-Use the underlying tools directly instead, scoped to the files you changed —
-`pnpm exec prettier --check <files>` and `pnpm exec eslint <files>` — and rely on
-CI for the full Trunk run. Repo-wide invocations are not equivalent to Trunk:
-Trunk applies the ignore list in `.trunk/trunk.yaml` and pins its own prettier
-(3.7.4, against the workspace's 3.9.6), so a bare `pnpm exec prettier --check .`
-reports pre-existing differences in generated and unrelated files. `pnpm exec
-eslint .` is clean repo-wide. Adding `trunk-io/plugins` to the session's GitHub
-repository scope would also fix Trunk itself.
+One consequence of the same gating affects Trunk: **`trunk check` and `trunk fmt`
+do not work out of the box in a cloud session,** because Trunk fetches its plugin
+bundle from `https://github.com/trunk-io/plugins/archive/<ref>.zip` and that is
+refused with the repository-scope 403, so the CLI exits before linting anything.
+
+Adding `trunk-io/plugins` to the session's GitHub repository scope is **not** the
+way out, despite being the obvious one: `add_repo` refuses it with `cross-tier
+adds are not supported in v1`, because a session may hold repositories from only
+one owner and `trunk-io` is not `mento-protocol`. No allowlist entry or admin
+setting lifts that.
+
+What works is the git protocol, which the gateway passes through. So clone the
+bundle and point the source at the local checkout:
+
+```bash
+git clone --depth 1 --branch v1.7.3 \
+  https://github.com/trunk-io/plugins /tmp/trunk-plugins
+# then, temporarily, in .trunk/trunk.yaml, replace the source's `uri` and `ref`:
+#   local: /tmp/trunk-plugins
+```
+
+`local` is Trunk's field for an on-disk plugin repository, and it takes
+precedence over `uri` and `ref`. Two consequences are worth knowing. The pinned
+`ref` is ignored once `local` is set, so the checkout alone decides which plugin
+version you get — match `--branch` to the `ref` that `.trunk/trunk.yaml` pins, or
+you will lint against a different bundle than CI does. And `local` reads
+`plugin.yaml` from the working tree, so the clone must be an ordinary checkout: a
+`--bare` one fails with `plugin load failed; expected plugin.yaml to be present`.
+
+Keep the edit local and never commit it.
+
+The hermetic runtimes in `.trunk/trunk.yaml` then need to be downloadable, which
+is a _network allowlist_ question rather than a repository-scope one. The two
+failures look different and should not be confused: an allowlist refusal appears
+as `CONNECT tunnel failed, response 403` with no HTTP body, whereas the
+repository gate returns a real body naming the session's scope. Of the three
+enabled runtimes, only `go` ever needed an allowlist entry:
+
+| Runtime         | Downloads from                                            | Notes                                                                                                                                                       |
+| --------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `node@22.16.0`  | `nodejs.org`                                              | Reachable by default.                                                                                                                                       |
+| `go@1.21.0`     | `golang.org/dl` → `go.dev/dl` → `dl.google.com`           | Two redirects, not one. **`dl.google.com` must be on the allowlist**; it is the final target, so allowlisting `golang.org` or `go.dev` alone is not enough. |
+| `python@3.10.8` | `github.com/…/python-build-standalone/releases/download/` | Reachable by default — a release asset, so the GitHub gateway does not apply. `www.python.org` is on the allowlist but Trunk never uses it.                 |
+
+With `dl.google.com` allowlisted and the local clone in place, `trunk check` runs
+and passes in a cloud session; both the `go` and `python` runtimes install
+normally. Measured from cold caches: a mixed markdown/yaml/shell/mjs/json check
+takes about 1m30s including every runtime and linter download, `trunk fmt
+--no-fix --all` about 30s over 1172 files, and `trunk check --all` about 2m45s
+cold or 1m15s warm over 1235 files.
+
+`trunk check --all` is therefore fast enough to be practical, but it **cannot
+pass in a cloud session** — not because of anything in the repo, but because two
+of the enabled linters depend on network the session does not have:
+
+- **`markdown-link-check`** reports every external link as a 403. About a quarter
+  are `github.com` links killed by the API gateway described above; the rest are
+  hosts that are simply not on the allowlist, among them `nextjs.org`,
+  `vercel.com`, `pnpm.io`, and `docs.trunk.io` — the allowlist carries `trunk.io`
+  and `api.trunk.io`, not `*.trunk.io`. None of it is evidence of a broken link.
+- **`trufflehog`** reports pinned GitHub Action SHAs and placeholder commit SHAs
+  in test fixtures as verified secrets. Trunk runs it with `--only-verified`, and
+  verification is precisely what should rule these out — but the proxy
+  authenticates GitHub API calls on the session's behalf (`api.github.com/user`
+  returns 200 with no `Authorization` header at all), so every 40-hex candidate
+  verifies.
+
+Skip exactly those two and the repository is clean — 1235 files, no issues:
+
+```bash
+trunk check --all --filter=-markdown-link-check,-trufflehog
+```
+
+That command is an iteration loop, not a substitute for the real gate: it
+disables both linters wholesale, including the parts of them that work fine here
+and that do catch real problems. Use it while iterating, then triage an
+unfiltered run before pushing. The cloud-session artifacts are distinguishable
+from genuine findings by their signature:
+
+- A `markdown-link-check/403` means the request never reached the origin, so on
+  its own it proves nothing: either the host is off the allowlist, or the GitHub
+  gateway answered first. On a link that was already in the tree, treat it as a
+  known-baseline artifact. On a link this change **adds or edits**, it is simply
+  unverified — a typo under an out-of-scope repository returns exactly the same
+  403 as a working URL — so confirm that link outside the cloud session, or let
+  CI's full-network run confirm it for you.
+- A **`markdown-link-check/400` is a broken relative link**: the file it points
+  at does not exist. Relative links need no network and are validated correctly
+  in a cloud session, so a 400 is always real and must be fixed.
+- `trufflehog/Github` verification fails in one direction only here: the proxy
+  makes candidates verify that should not, and never the reverse. So a hit is
+  never cleared by the tool and every one is triaged by reading the flagged line.
+  A 40-hex string that is a pinned action SHA, a placeholder SHA in a fixture, or
+  an upstream commit referenced by a documentation link is a known non-secret.
+  Anything you cannot account for that way is treated as a real credential until
+  it is checked outside the session. Never dismiss a secret-scanner finding you
+  have not looked at, and never disable a scanner to obtain a green run —
+  `.trunk/trunk.yaml` holds that same rule for the vendored files.
+
+Absent that setup, use the underlying tools directly, scoped to the files you
+changed — `pnpm exec prettier --check <files>` and `pnpm exec eslint <files>` —
+and rely on CI for the full Trunk run. Repo-wide invocations are not equivalent
+to Trunk: Trunk applies the ignore list in `.trunk/trunk.yaml` and pins its own
+prettier (3.7.4, against the workspace's 3.9.6), so a bare `pnpm exec prettier
+--check .` reports pre-existing differences in generated and unrelated files.
+`pnpm exec eslint .` is clean repo-wide.
 
 ## Visual Regression Testing
 
@@ -236,8 +342,10 @@ Use [the preparation playbook](docs/dependabot-automation.md) and
 `.github/dependabot-prep-policy.json` from the live default branch. The
 `trusted-openclaw-agent` workflow uses the ordinary coding session and existing
 GitHub authentication; its prohibitions are procedural, not a credential sandbox.
-Do not invoke the retired `/opt/dependabot-prep` launcher or the generic sealed
-`dependabot-prep` write path for this workflow.
+Use the portable `dependabot-prep` skill, revision `trusted-agent-v1`, with that
+playbook's repository overrides in OpenClaw, Codex or Claude. The historical
+execution-model identifier remains for compatibility. Never invoke the retired
+`/opt/dependabot-prep` launcher or the archived sealed skill procedure.
 
 Within the playbook's scope, normal installs, lockfile generation, builds, tests,
 conflict resolution, and dependency-related compatibility fixes are permitted.

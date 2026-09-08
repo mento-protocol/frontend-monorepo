@@ -1412,6 +1412,17 @@ evidence binds an explicit empty affected-target set. Affected and mixed
 releases retain exact-SHA candidate staging, journal checkpoints, bounded
 recovery, public runtime smoke, and the final provider census.
 
+Planner failures emit a GitHub warning on stderr. Stdout remains one JSON plan.
+The plan and preview journal distinguish `turbo-spawn-failed`,
+`turbo-exit-failed`, `turbo-output-invalid`, `turbo-plan-malformed`,
+`turbo-task-malformed`, and `turbo-no-deployable-task`. The legacy
+`turbo-planning-failed` reason remains valid for older receipts and unexpected
+errors. Git failures retain `invalid-commits` or `diff-failed`; diagnostics
+include the failed Git operation and process status. Process failures include
+exit status, signal, and spawn error code. Raw child output is omitted because
+Turbo output can include environment values and Git errors can include remote
+credentials. Every failure still selects all four targets.
+
 ### Trusted-base execution
 
 The planner imports only Node.js built-ins, but its affected-package query uses
@@ -1422,7 +1433,14 @@ materializing it, fetches the candidate only as an inert Git object, installs
 the trusted base's root workspace project without lifecycle scripts, and
 executes the base's planner. The filter is safe because the planner needs only
 the root `turbo` binary and reads workspace manifests plus the lockfile, never
-per-package `node_modules`. Dependency caching is disabled in these planner jobs
+per-package `node_modules`. A package introduced only on the PR branch is absent
+from this trusted graph. Changes confined to that package, or root scripts with
+no build task, can return zero Turbo tasks. This is `turbo-no-deployable-task`,
+not evidence of a failed install. Keep the full-target fallback: zero tasks do
+not prove that these changes have no runtime impact. Do not materialize candidate
+manifests or install candidate dependencies to narrow that result.
+
+Dependency caching is disabled in these planner jobs
 so they never restore or save a shared Actions cache across this trust boundary:
 
 ```bash
