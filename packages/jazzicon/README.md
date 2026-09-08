@@ -58,6 +58,15 @@ git -C /tmp/jazzicon checkout 7a8df28974b4e81129bfbe3cab76308b889032a6
 diff /tmp/jazzicon/index.js packages/jazzicon/index.js
 ```
 
+## Why there are no docstrings here
+
+The vendored `.js` carries no JSDoc, and none should be added. Documenting these
+functions would modify the upstream bytes and break both the checksums above and
+the `diff` against upstream that makes a future refresh reviewable. Automated
+docstring-coverage checks will flag this directory at 0%; that is the intended
+state for vendored third-party code, not an oversight. Describe behaviour here
+in the README instead.
+
 ## Updating
 
 Re-copy the files from the new upstream commit, refresh the commit hash and the
