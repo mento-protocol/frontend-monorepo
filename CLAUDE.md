@@ -220,17 +220,25 @@ and that do catch real problems. Use it while iterating, then triage an
 unfiltered run before pushing. The cloud-session artifacts are distinguishable
 from genuine findings by their signature:
 
-- A `markdown-link-check/403` is an unreachable host, so it is an artifact. A
-  **`markdown-link-check/400` is a broken relative link** — the file it points at
-  does not exist. Relative links need no network and are validated correctly in a
-  cloud session, so a 400 is always real and must be fixed.
-- A `trufflehog/Github` hit on a 40-hex string that is a pinned action SHA or a
-  placeholder commit SHA in a fixture is an artifact. Read the flagged line
-  before dismissing anything: a hit on anything else is a real credential, and
-  the verification step that would normally confirm it is precisely what is
-  broken here. Never dismiss a secret-scanner finding you have not looked at, and
-  never disable a scanner to obtain a green run — `.trunk/trunk.yaml` holds that
-  same rule for the vendored files.
+- A `markdown-link-check/403` means the request never reached the origin, so on
+  its own it proves nothing: either the host is off the allowlist, or the GitHub
+  gateway answered first. On a link that was already in the tree, treat it as a
+  known-baseline artifact. On a link this change **adds or edits**, it is simply
+  unverified — a typo under an out-of-scope repository returns exactly the same
+  403 as a working URL — so confirm that link outside the cloud session, or let
+  CI's full-network run confirm it for you.
+- A **`markdown-link-check/400` is a broken relative link**: the file it points
+  at does not exist. Relative links need no network and are validated correctly
+  in a cloud session, so a 400 is always real and must be fixed.
+- `trufflehog/Github` verification fails in one direction only here: the proxy
+  makes candidates verify that should not, and never the reverse. So a hit is
+  never cleared by the tool and every one is triaged by reading the flagged line.
+  A 40-hex string that is a pinned action SHA, a placeholder SHA in a fixture, or
+  an upstream commit referenced by a documentation link is a known non-secret.
+  Anything you cannot account for that way is treated as a real credential until
+  it is checked outside the session. Never dismiss a secret-scanner finding you
+  have not looked at, and never disable a scanner to obtain a green run —
+  `.trunk/trunk.yaml` holds that same rule for the vendored files.
 
 Absent that setup, use the underlying tools directly, scoped to the files you
 changed — `pnpm exec prettier --check <files>` and `pnpm exec eslint <files>` —
