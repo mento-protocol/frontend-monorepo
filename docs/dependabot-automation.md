@@ -146,8 +146,9 @@ must share this lock. If ownership metadata cannot be written, stop before write
 
 This existing giskard directory is the coordinator for **all** frontend preparation
 writers, not only jobs executing on giskard. Before any preparation write from a
-Mac/other host, use an operator-configured authenticated connection (for example
-SSH to giskard as molt) to perform that same atomic acquisition on giskard. Verify
+Mac/other host, use an operator-configured authenticated, encrypted connection (for
+example SSH to giskard as molt) to perform that same atomic acquisition on giskard.
+Verify encrypted transport before any remote write; otherwise remain read-only. Verify
 the destination machine/account and exact path; never create a substitute local
 directory or fall back to a second lock. Record a unique run ID, originating host,
 session, start/deadline and local report path in the shared owner file, and read it
