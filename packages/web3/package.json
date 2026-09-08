@@ -59,7 +59,7 @@
   "dependencies": {
     "@mento-protocol/mento-sdk": "catalog:",
     "@mento-protocol/ui": "workspace:*",
-    "@metamask/jazzicon": "catalog:",
+    "@metamask/jazzicon": "workspace:*",
     "@rainbow-me/rainbowkit": "catalog:",
     "@tanstack/react-query": "catalog:",
     "bignumber.js": "^11.1.5",

@@ -409,9 +409,11 @@ test("passes when packages: contains a local file: dependency without integrity"
   );
 });
 
-// 18. Frontend adaptation: a remote HTTPS-tarball entry (github codeload, no
-// integrity) — like `@metamask/jazzicon` — must be exempted, not flagged.
-test("passes when packages: contains a remote https tarball dependency without integrity", () => {
+// 18. REMOTE_TARBALL_ALLOWLIST is empty now that `@metamask/jazzicon` is
+// vendored at `packages/jazzicon`. Restoring the old github-codeload entry —
+// by a manifest edit, a bad merge, or a tampered lockfile — must FAIL rather
+// than inherit the retired exemption.
+test("fails when the retired jazzicon codeload tarball reappears without integrity", () => {
   const lockfile =
     `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n` +
     `  typescript@5.0.0:\n    resolution: {integrity: ${VALID_SHA512}}\n\n` +
@@ -420,12 +422,13 @@ test("passes when packages: contains a remote https tarball dependency without i
     `snapshots:\n`;
   const { exitCode, stdout, stderr } = run(lockfile);
   assert(
-    exitCode === 0,
-    `Expected exit 0, got ${exitCode}\n${stdout}\n${stderr}`,
+    exitCode !== 0,
+    `Expected non-zero (retired exemption must not apply), got ${exitCode}\n${stdout}\n${stderr}`,
   );
   assert(
-    stdout.includes("remote-tarball deps exempted"),
-    `expected remote-tarball exemption message: ${stdout}`,
+    stderr.includes("resolution block without a sha512") ||
+      stderr.includes("pointing off-npmjs"),
+    `expected integrity or off-npmjs failure: ${stderr}`,
   );
 });
 

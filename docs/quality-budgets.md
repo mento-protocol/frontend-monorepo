@@ -33,9 +33,11 @@ denominator to production `app/**` or `src/**` modules plus each app's runtime
 instrumentation; tests, specs, generated clients, configuration, and tooling
 are excluded. Vitest 4 keeps untested files matched by these explicit `include`
 lists in the denominator; the removed `all: true` option is no longer needed.
-Deleting the last importing test therefore cannot make the gate disappear. Integer
-floors leave modest headroom for V8 instrumentation noise while still preventing
-material regressions.
+Deleting the last importing test therefore cannot make the gate disappear.
+Vitest 4 also counts actual functions and branches in untested files, where the
+previous runner used empty-report placeholders. The historical percentages below
+are not directly comparable to v4 results. The enforced floors are unchanged;
+additional tests are required wherever the new accounting exposes a coverage gap.
 
 | Workspace                   | Measured statements | Measured branches | Measured functions | Measured lines | Enforced statements | Enforced branches | Enforced functions | Enforced lines |
 | --------------------------- | ------------------: | ----------------: | -----------------: | -------------: | ------------------: | ----------------: | -----------------: | -------------: |

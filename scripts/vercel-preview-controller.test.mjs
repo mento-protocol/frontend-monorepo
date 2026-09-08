@@ -8134,6 +8134,223 @@ for (const status of ["queued", "completed"]) {
   });
 }
 
+test("receipt repair breaks the cancelled-checkout and mirror-failure cycle without advancing an incomplete cursor", async () => {
+  const opened = event({
+    run: 70_001,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const receipts = [
+    event({
+      run: 70_002,
+      runNumber: 2,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      updated: timestamp(2),
+    }),
+    event({
+      run: 70_003,
+      runNumber: 3,
+      action: "synchronize",
+      before: SHA.B,
+      head: SHA.C,
+      updated: timestamp(3),
+    }),
+    event({
+      run: 70_004,
+      runNumber: 4,
+      action: "synchronize",
+      before: SHA.C,
+      head: SHA.D,
+      updated: timestamp(4),
+    }),
+  ];
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.D, updated: timestamp(4) }),
+    comments: [
+      journalComment({
+        events: [opened],
+        state: reconcile({
+          events: [opened],
+          pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+        }).state,
+      }),
+    ],
+    runs: receipts.map((receipt, index) =>
+      controllerEventRun({
+        id: receipt.event_run_id,
+        runNumber: receipt.event_run_number,
+        action: "synchronize",
+        before: receipt.before_sha,
+        sha: receipt.head_sha,
+        conclusion: index === 0 ? "cancelled" : "failure",
+        createdAt: receipt.pr_updated_at,
+      }),
+    ),
+  });
+  const initial = journalFromComment(fixture.comments[0]);
+  const record = (receipt, runAttempt = 2) =>
+    recordEventReceipt({
+      github: fixture.github,
+      context: fakeContext({
+        runId: receipt.event_run_id,
+        runNumber: receipt.event_run_number,
+        runAttempt,
+      }),
+      core: fakeCore(),
+      ...eventRecordInputs(receipt),
+    });
+
+  await assert.rejects(
+    reconcileControllerFixture(fixture),
+    /has no durable receipt/,
+  );
+  // A newer event preserves its own receipt despite the original interruption.
+  await assert.rejects(
+    record(receipts[2], 1),
+    /is durably recorded.*7000[23].*cursor has not advanced/,
+  );
+  let persisted = journalFromComment(fixture.comments[0]);
+  assert.deepEqual(persisted.admission, initial.admission);
+  assert.deepEqual(persisted.state, initial.state);
+  assert.deepEqual(persisted.receipts.events, [opened, receipts[2]]);
+  const afterFirstRepair = fixture.comments[0].body;
+  await assert.rejects(record(receipts[2]), /is durably recorded/);
+  assert.equal(fixture.comments[0].body, afterFirstRepair);
+  await assert.rejects(record(receipts[0]), /is durably recorded.*70003/);
+  persisted = journalFromComment(fixture.comments[0]);
+  assert.deepEqual(persisted.admission, initial.admission);
+  assert.deepEqual(persisted.state, initial.state);
+  const beforeReconcile = fixture.comments[0].body;
+  await assert.rejects(
+    reconcileControllerFixture(fixture),
+    /has no durable receipt/,
+  );
+  assert.equal(fixture.comments[0].body, beforeReconcile);
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.deployments.length, 0);
+
+  await record(receipts[1]);
+  persisted = journalFromComment(fixture.comments[0]);
+  assert.equal(persisted.admission.through_run_number, 4);
+  assert.equal(persisted.receipts.events.length, 4);
+  const reconciled = await reconcileControllerFixture(fixture);
+  assert.ok(reconciled);
+});
+
+test("receipt repair rejects a different run identity and contradictory event before writing", async () => {
+  const opened = event({
+    run: 70_001,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const receipt = event({
+    run: 70_003,
+    runNumber: 3,
+    action: "synchronize",
+    before: SHA.B,
+    head: SHA.C,
+    updated: timestamp(3),
+  });
+  for (const scenario of ["run identity", "event identity"]) {
+    const fixture = fakeGitHub({
+      pullRequest: pull({ head: SHA.C, updated: timestamp(3) }),
+      comments: [journalComment({ events: [opened] })],
+      runs: [
+        controllerEventRun({
+          id: 70_002,
+          runNumber: 2,
+          action: "synchronize",
+          before: SHA.A,
+          sha: SHA.B,
+          conclusion: "cancelled",
+        }),
+        controllerEventRun({
+          id: 70_003,
+          runNumber: 3,
+          action: "synchronize",
+          before: scenario === "event identity" ? SHA.A : SHA.B,
+          sha: SHA.C,
+        }),
+      ],
+    });
+    const before = fixture.comments[0].body;
+    await assert.rejects(
+      recordEventReceipt({
+        github: fixture.github,
+        context: fakeContext({
+          runId: scenario === "run identity" ? 70_004 : 70_003,
+          runNumber: 3,
+        }),
+        core: fakeCore(),
+        ...eventRecordInputs(receipt),
+      }),
+      /does not match/,
+    );
+    assert.equal(fixture.comments[0].body, before);
+    assert.equal(fixture.commentUpdates.length, 0);
+    assert.equal(fixture.commitStatuses.length, 0);
+    assert.equal(fixture.dispatches.length, 0);
+    assert.equal(fixture.deployments.length, 0);
+  }
+});
+
+test("an open-PR bootstrap resets legacy missing receipts after preview ownership is drained", async () => {
+  const opened = event({
+    run: 70_001,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const bootstrap = bootstrapEvent({
+    run: 70_004,
+    runNumber: 4,
+    head: SHA.C,
+    updated: timestamp(3),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.C, updated: timestamp(3) }),
+    comments: [journalComment({ events: [opened] })],
+    runs: [
+      controllerEventRun({
+        id: 70_002,
+        runNumber: 2,
+        action: "synchronize",
+        before: SHA.A,
+        sha: SHA.B,
+        conclusion: "cancelled",
+      }),
+      controllerEventRun({
+        id: 70_003,
+        runNumber: 3,
+        action: "synchronize",
+        before: SHA.B,
+        sha: SHA.C,
+        conclusion: "failure",
+      }),
+      controllerInertRun({ id: 70_004, runNumber: 4 }),
+    ],
+  });
+  await assert.rejects(
+    reconcileControllerFixture(fixture),
+    /has no durable receipt/,
+  );
+  await recordEventReceipt({
+    github: fixture.github,
+    context: fakeContext({ runId: 70_004, runNumber: 4 }),
+    core: fakeCore(),
+    ...eventRecordInputs(bootstrap),
+  });
+  const persisted = journalFromComment(fixture.comments[0]);
+  assert.equal(persisted.admission.through_run_id, 70_004);
+  assert.deepEqual(persisted.receipts.events, [opened, bootstrap]);
+  const state = await reconcileControllerFixture(fixture);
+  assert.equal(state.epoch.anchor_run_id, 70_004);
+});
+
 test("exact close then reopen receipts discharge the entire global interval", async () => {
   const opened = event({
     run: 70_001,
@@ -16887,4 +17104,41 @@ test("a recovery bootstrap only escapes a contradictory epoch when PR metadata c
   assert.equal(recovered.state.epoch.anchor_action, "bootstrap");
   assert.equal(recovered.nextDispatch.sha, SHA.A);
   assert.equal(recovered.nextDispatch.selection_receipt_run_id, 7_002);
+});
+
+test("preview receipts retain distinct planner failure reasons", () => {
+  const receipt = event({
+    run: 10,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+    targets: [],
+  });
+  const snapshot = structuredClone(receipt);
+  delete snapshot.plan;
+  for (const reason of [
+    "turbo-planning-failed",
+    "turbo-spawn-failed",
+    "turbo-exit-failed",
+    "turbo-output-invalid",
+    "turbo-plan-malformed",
+    "turbo-task-malformed",
+    "turbo-no-deployable-task",
+  ]) {
+    const plan = normalizePlannerResult(
+      {
+        deployments: PREVIEW_TARGETS,
+        reason,
+        base: snapshot.change_base_sha,
+        head: snapshot.head_sha,
+      },
+      snapshot,
+    );
+    assert.equal(plan.reason, reason);
+    assert.deepEqual(plan.targets, PREVIEW_TARGETS);
+    assert.equal(
+      validateEventReceipt({ ...snapshot, plan }).plan.reason,
+      reason,
+    );
+  }
 });
