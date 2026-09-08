@@ -110,21 +110,32 @@ files but not an exported `PATH`, and the session user cannot read `/root`.
 Fork tests additionally need the RPC hosts (`forno.celo.org`, `rpc.monad.xyz`)
 on a Custom network allowlist.
 
-`pnpm install` needs something different, and the network allowlist cannot
-supply it. The catalog pins `@metamask/jazzicon` to
-`github:jmrossy/jazzicon#<sha>`, which pnpm resolves to a
-`codeload.github.com` tarball. Cloud sessions gate GitHub by _repository_, not
-by host: every request to `github.com` and `codeload.github.com` for a
-repository outside the session's scope is answered by the proxy itself with
-HTTP 403 and the body `GitHub access to this repository is not enabled for this
-session`. Adding `codeload.github.com` to the allowlist does not change that —
-verified with the entry present and the install still failing, while an
-allowlisted non-GitHub host reached its origin normally.
-
+Cloud sessions gate GitHub by _repository_, not by host: every request to
+`github.com` and `codeload.github.com` for a repository outside the session's
+scope is answered by the proxy itself with HTTP 403 and the body `GitHub access
+to this repository is not enabled for this session`. The network allowlist
+cannot lift this — verified with `codeload.github.com` present and the request
+still refused, while an allowlisted non-GitHub host reached its origin normally.
 Anonymous `git clone` and `git ls-remote` of the same public repository do
-succeed through the proxy; only the tarball path is gated. So the install works
-when either `jmrossy/jazzicon` is in the session's GitHub repository scope, or
-the dependency is fetched over git rather than as a codeload tarball.
+succeed; only the tarball path is gated.
+
+This used to break `pnpm install` outright. The catalog pinned
+`@metamask/jazzicon` to `github:jmrossy/jazzicon#<sha>`, which pnpm resolves to
+a `codeload.github.com` tarball, so every cloud session died mid-install and
+left an unusable `node_modules`. That fork is now vendored at
+`packages/jazzicon` and consumed as a `workspace:*` dependency, so the install
+needs no GitHub fetch at all. See
+[packages/jazzicon/README.md](packages/jazzicon/README.md) for provenance and
+the rejected alternatives. Its upstream `.js` files are kept byte-for-byte and
+are excluded from Trunk in `.trunk/trunk.yaml`; do not reformat them.
+
+One consequence of the same gating is still open: **`trunk check` and
+`trunk fmt` cannot run in a cloud session.** Trunk downloads its plugin bundle
+from `https://github.com/trunk-io/plugins/archive/<ref>.zip`, which is refused
+with the same repository-scope 403, so the CLI exits before linting anything.
+Use the underlying tools directly instead — `pnpm exec prettier --check .` and
+`pnpm exec eslint .` — and rely on CI for the full Trunk run. Adding
+`trunk-io/plugins` to the session's GitHub repository scope would also fix it.
 
 ## Visual Regression Testing
 
