@@ -11,13 +11,50 @@ import { FormProvider, useForm, useFormContext } from "react-hook-form";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@mento-protocol/ui", () => ({
-  Checkbox: () => null,
+  Checkbox: ({
+    checked,
+    onCheckedChange,
+  }: {
+    checked: boolean;
+    onCheckedChange: (value: boolean) => void;
+  }) => (
+    <input
+      type="checkbox"
+      checked={checked}
+      onChange={(event) => onCheckedChange(event.target.checked)}
+    />
+  ),
   CoinInput: React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
     function MockCoinInput(props, ref) {
       return <input ref={ref} {...props} />;
     },
   ),
-  Datepicker: () => null,
+  Datepicker: ({
+    value,
+    onChange,
+    formatter,
+    disabled,
+    fromDate,
+    toDate,
+  }: {
+    value?: Date;
+    onChange: (date: Date) => void;
+    formatter: (date: Date) => string;
+    disabled: (date: Date) => boolean;
+    fromDate: Date;
+    toDate: Date;
+  }) => (
+    <div>
+      <span>{value ? formatter(value) : "no date"}</span>
+      <button type="button" onClick={() => onChange(fromDate)}>
+        pick date
+      </button>
+      <span data-testid="dateChecks">
+        {String(disabled(new Date("2020-01-01")))}:
+        {String(disabled(new Date("2035-01-01")))}:{String(disabled(toDate))}
+      </span>
+    </div>
+  ),
   Input: React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
     function MockInput(props, ref) {
       return <input ref={ref} {...props} />;
@@ -26,7 +63,16 @@ vi.mock("@mento-protocol/ui", () => ({
   Label: ({ children }: { children: React.ReactNode }) => (
     <label>{children}</label>
   ),
-  Slider: () => null,
+  Slider: ({ onValueChange }: { onValueChange: (value: number[]) => void }) => (
+    <div>
+      <button type="button" onClick={() => onValueChange([2])}>
+        move slider
+      </button>
+      <button type="button" onClick={() => onValueChange([])}>
+        empty slider
+      </button>
+    </div>
+  ),
   useDebounce: <T,>(value: T) => value,
 }));
 
@@ -63,7 +109,17 @@ function AmountError() {
   );
 }
 
-function LockFormHarness({ mentoBalance }: { mentoBalance: bigint }) {
+function LockFormHarness({
+  mentoBalance,
+  lock,
+  currentAddress,
+  onVeMentoCalculated,
+}: {
+  mentoBalance: bigint;
+  lock?: never;
+  currentAddress?: string;
+  onVeMentoCalculated?: (value: number, loading: boolean) => void;
+}) {
   const methods = useForm({
     mode: "onChange",
     defaultValues: {
@@ -77,7 +133,12 @@ function LockFormHarness({ mentoBalance }: { mentoBalance: bigint }) {
 
   return (
     <FormProvider {...methods}>
-      <LockFormFields mentoBalance={mentoBalance} />
+      <LockFormFields
+        mentoBalance={mentoBalance}
+        lock={lock}
+        currentAddress={currentAddress}
+        onVeMentoCalculated={onVeMentoCalculated}
+      />
       <AmountError />
     </FormProvider>
   );
@@ -136,5 +197,69 @@ describe("LockFormFields balance validation", () => {
     expect(
       validateAmountWithinBalance("1.000000000000000001", MENTO_DECIMALS),
     ).toBe("Insufficient balance");
+  });
+
+  it("supports max, delegation, dates, sliders, and an imperative focus", async () => {
+    const onCalculated = vi.fn();
+    const ref = React.createRef<{ focusAmountInput: () => void }>();
+    function Harness() {
+      const methods = useForm({
+        defaultValues: {
+          amount: "",
+          delegateAddress: "",
+          delegateEnabled: false,
+          duration: 0,
+          unlockDate: "",
+        },
+      });
+      return (
+        <FormProvider {...methods}>
+          <LockFormFields
+            ref={ref}
+            mentoBalance={2n * MENTO_DECIMALS}
+            onVeMentoCalculated={onCalculated}
+          />
+        </FormProvider>
+      );
+    }
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "MAX" }));
+    expect(
+      (screen.getByTestId("lockAmountInput") as HTMLInputElement).value,
+    ).toBe("2");
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.change(screen.getByTestId("delegateAddressInput"), {
+      target: { value: "0xabc-!?" },
+    });
+    expect(
+      (screen.getByTestId("delegateAddressInput") as HTMLInputElement).value,
+    ).toBe("0xabc");
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "pick date" }));
+    fireEvent.click(screen.getByRole("button", { name: "move slider" }));
+    fireEvent.click(screen.getByRole("button", { name: "empty slider" }));
+    act(() => ref.current?.focusAmountInput());
+    expect(document.activeElement).toBe(screen.getByTestId("lockAmountInput"));
+    expect(onCalculated).toHaveBeenCalled();
+  });
+
+  it("initializes an existing delegated lock", async () => {
+    const lock = {
+      expiration: new Date("2027-01-06T00:00:00Z"),
+      slope: 10,
+      delegate: { id: "0x00000000000000000000000000000000000000bb" },
+    } as never;
+    render(
+      <LockFormHarness
+        mentoBalance={2n * MENTO_DECIMALS}
+        lock={lock}
+        currentAddress="0x00000000000000000000000000000000000000aa"
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("delegateAddressInput")).toBeTruthy(),
+    );
+    expect(screen.getByText(/Currently delegated to/)).toBeTruthy();
+    expect(screen.getByTestId("dateChecks").textContent).toContain("true");
   });
 });
