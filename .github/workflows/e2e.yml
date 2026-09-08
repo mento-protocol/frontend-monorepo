@@ -166,7 +166,7 @@ jobs:
               apps/governance.mento.org/*)
                 run_gov=true
                 ;;
-              packages/web3/* | packages/ui/*)
+              packages/web3/* | packages/ui/* | packages/jazzicon/*)
                 run_app=true
                 run_gov=true
                 run_monad=true
