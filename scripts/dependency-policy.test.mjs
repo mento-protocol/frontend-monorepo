@@ -308,6 +308,16 @@ test("agent decisions, delivered reports and serialized heavy work are the defau
   assert.ok(
     !policy.changes.needsDecisionTriggers.includes("disputed-review-findings"),
   );
+  assert.ok(
+    !policy.changes.needsDecisionTriggers.includes(
+      "product-or-architecture-decisions",
+    ),
+  );
+  assert.ok(
+    policy.changes.needsDecisionTriggers.includes(
+      "irreversible-or-out-of-scope-product-or-architecture-changes",
+    ),
+  );
 });
 
 test("every dependency receives research and readiness requires exact-head review and checks", () => {
