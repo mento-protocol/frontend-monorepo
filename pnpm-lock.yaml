@@ -12,9 +12,6 @@ catalogs:
     '@mento-protocol/mento-sdk':
       specifier: 3.4.0
       version: 3.4.0
-    '@metamask/jazzicon':
-      specifier: github:jmrossy/jazzicon#7a8df28974b4e81129bfbe3cab76308b889032a6
-      version: 2.1.0
     '@playwright/test':
       specifier: 1.61.1
       version: 1.61.1
@@ -670,6 +667,12 @@ importers:
         specifier: 'catalog:'
         version: 8.65.0(eslint@9.39.2(jiti@2.7.0))(typescript@5.9.3)
 
+  packages/jazzicon:
+    dependencies:
+      mersenne-twister:
+        specifier: ^1.1.0
+        version: 1.1.0
+
   packages/typescript-config: {}
 
   packages/ui:
@@ -877,8 +880,8 @@ importers:
         specifier: workspace:*
         version: link:../ui
       '@metamask/jazzicon':
-        specifier: 'catalog:'
-        version: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28974b4e81129bfbe3cab76308b889032a6
+        specifier: workspace:*
+        version: link:../jazzicon
       '@rainbow-me/rainbowkit':
         specifier: 'catalog:'
         version: 2.2.11(@tanstack/react-query@5.102.8(react@19.2.8))(@types/react@19.2.18)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@5.9.3)(viem@2.55.10(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.4.3))(wagmi@2.19.5(@tanstack/query-core@5.102.8)(@tanstack/react-query@5.102.8(react@19.2.8))(@types/react@19.2.18)(@vercel/blob@2.4.0)(bufferutil@4.1.0)(immer@11.1.3)(react-native@0.84.1(@babel/core@7.29.7)(@types/react@19.2.18)(bufferutil@4.1.0)(react@19.2.8)(utf-8-validate@5.0.10))(react@19.2.8)(typescript@5.9.3)(utf-8-validate@5.0.10)(viem@2.55.10(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.4.3))(zod@4.4.3))
@@ -2834,10 +2837,6 @@ packages:
   '@metamask/eth-json-rpc-provider@1.0.1':
     resolution: {integrity: sha512-whiUMPlAOrVGmX8aKYVPvlKyG4CpQXiNNyt74vE1xb5sPvmx5oA7B/kOi/JdBvhGQq97U1/AVdXEdk2zkP8qyA==}
     engines: {node: '>=14.0.0'}
-
-  '@metamask/jazzicon@https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28974b4e81129bfbe3cab76308b889032a6':
-    resolution: {gitHosted: true, integrity: sha512-rMVzNrj+xp09XX/Tr3FmYwXOK0BKVWZ3R+5ZTDhPl0rWF6dMuiSE0TFE6jhF0fVEyMWw+bj+kNRr1Vbticfd7Q==, tarball: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28974b4e81129bfbe3cab76308b889032a6}
-    version: 2.1.0
 
   '@metamask/json-rpc-engine@10.5.0':
     resolution: {integrity: sha512-16ZjhuMGH5YUE7MLTKLclpHl7M5DZxrtAQu8AjEs1r3aRQnzslItDvjm3qk2lhm1kFddHtmDfh/ktcxaFpRkiw==}
@@ -16171,10 +16170,6 @@ snapshots:
       '@metamask/utils': 5.0.2
     transitivePeerDependencies:
       - supports-color
-
-  '@metamask/jazzicon@https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28974b4e81129bfbe3cab76308b889032a6':
-    dependencies:
-      mersenne-twister: 1.1.0
 
   '@metamask/json-rpc-engine@10.5.0(typescript@5.9.3)':
     dependencies:

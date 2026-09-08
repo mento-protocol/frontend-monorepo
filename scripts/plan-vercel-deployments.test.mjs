@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   appendFileSync,
   existsSync,
@@ -252,7 +252,7 @@ for (const path of [
         },
       });
       assert.deepEqual(plan.deployments, VERCEL_DEPLOYMENTS);
-      assert.equal(plan.reason, "turbo-planning-failed");
+      assert.equal(plan.reason, "turbo-no-deployable-task");
       assert.equal(turboCalled, true);
     });
   });
@@ -479,7 +479,11 @@ test("a rename preserves the deleted global path and fails closed", () => {
 });
 
 test("malformed or ambiguous Turbo output fails closed", () => {
-  for (const output of [{ nope: [] }, { tasks: [] }, { tasks: [{}] }]) {
+  for (const [output, reason] of [
+    [{ nope: [] }, "turbo-plan-malformed"],
+    [{ tasks: [] }, "turbo-no-deployable-task"],
+    [{ tasks: [{}] }, "turbo-task-malformed"],
+  ]) {
     withFixture("packages/unknown/src/index.ts", (fixture) => {
       const plan = planVercelDeployments({
         repoRoot: fixture.directory,
@@ -488,7 +492,7 @@ test("malformed or ambiguous Turbo output fails closed", () => {
         runTurbo: () => output,
       });
       assert.deepEqual(plan.deployments, VERCEL_DEPLOYMENTS);
-      assert.equal(plan.reason, "turbo-planning-failed");
+      assert.equal(plan.reason, reason);
     });
   }
 });
@@ -535,4 +539,91 @@ test("CLI emits stable fail-closed JSON when required SHAs are absent", () => {
     head: null,
     reason: "invalid-commits",
   });
+});
+
+for (const [result, reason] of [
+  [
+    {
+      error: Object.assign(new Error("secret child error"), { code: "ENOENT" }),
+      status: null,
+    },
+    "turbo-spawn-failed",
+  ],
+  [
+    { status: 1, stderr: "secret child stderr", stdout: "secret child stdout" },
+    "turbo-exit-failed",
+  ],
+  [{ status: 0, stdout: "not JSON" }, "turbo-output-invalid"],
+  [{ status: 0, stdout: "{broken secret JSON" }, "turbo-output-invalid"],
+]) {
+  test(`Turbo failure is classified as ${reason} without exposing child output`, () => {
+    assert.throws(
+      () =>
+        runTurboAffectedPlan({
+          repoRoot,
+          base: "a".repeat(40),
+          head: "b".repeat(40),
+          spawn: () => result,
+        }),
+      (error) => {
+        assert.equal(error.reason, reason);
+        assert.doesNotMatch(error.message, /secret/);
+        return true;
+      },
+    );
+  });
+}
+
+test("trusted checkout still narrows existing packages but fails closed for absent packages and root scripts", () => {
+  const directory = mkdtempSync(join(tmpdir(), "vercel-trusted-plan-"));
+  try {
+    execFileSync("git", ["clone", "--quiet", "--shared", repoRoot, directory]);
+    symlinkSync(
+      join(repoRoot, "node_modules"),
+      join(directory, "node_modules"),
+    );
+    const base = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: directory,
+      encoding: "utf8",
+    }).trim();
+    for (const [path, expected, reason] of [
+      [
+        "packages/web3/src/index.ts",
+        ["app", "governance", "reserve"],
+        "affected-packages",
+      ],
+      [
+        "packages/absent-package/README.md",
+        VERCEL_DEPLOYMENTS,
+        "turbo-no-deployable-task",
+      ],
+      [
+        "scripts/root-controller-fixture.mjs",
+        VERCEL_DEPLOYMENTS,
+        "turbo-no-deployable-task",
+      ],
+    ]) {
+      mkdirSync(dirname(join(directory, path)), { recursive: true });
+      appendFileSync(join(directory, path), "\nfixture change\n");
+      const head = commit(directory, "candidate change");
+      execFileSync("git", ["checkout", "--quiet", "--detach", base], {
+        cwd: directory,
+      });
+      const plan = planVercelDeployments({ repoRoot: directory, base, head });
+      assert.deepEqual(plan.deployments, expected);
+      assert.equal(plan.reason, reason);
+    }
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("CLI warns on stderr while stdout remains one JSON plan", () => {
+  const result = spawnSync(process.execPath, [scriptPath], {
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0);
+  assert.equal(JSON.parse(result.stdout).reason, "invalid-commits");
+  assert.match(result.stderr, /::warning::.*invalid-commits.*immutable SHA/);
+  assert.equal(result.stdout.trim().split("\n").length, 1);
 });
