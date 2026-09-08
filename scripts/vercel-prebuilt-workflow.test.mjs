@@ -1715,7 +1715,7 @@ test("trusted runtime copies hosted Node and the authenticated Linux pnpm bootst
   const pnpmExecutableContents = [
     "#!/bin/sh",
     'if [ "$1" = "--version" ]; then',
-    '  echo "10.34.4"',
+    '  echo "10.34.5"',
     "else",
     '  echo "pnpm"',
     "fi",
@@ -1740,7 +1740,7 @@ test("trusted runtime copies hosted Node and the authenticated Linux pnpm bootst
       join(pnpmPackageRoot, "package.json"),
       JSON.stringify({
         name: "@pnpm/linux-x64",
-        version: "10.34.4",
+        version: "10.34.5",
         scripts: {},
         bin: { pnpm: "pnpm" },
         os: ["linux"],
@@ -1804,7 +1804,7 @@ test("trusted runtime copies hosted Node and the authenticated Linux pnpm bootst
       execFileSync(staged.pnpmBootstrapPath, ["--version"], {
         encoding: "utf8",
       }).trim(),
-      "10.34.4",
+      "10.34.5",
     );
     assert.throws(
       () =>
@@ -2006,7 +2006,7 @@ test("trusted pnpm runtime manifest and lockfile are exact before copying outsid
     const lockfileMutations = [
       [
         "changed integrity",
-        originalLockfile.replace("sha512-h2i+VSAK", "sha512-i2i+VSAK"),
+        originalLockfile.replace("sha512-pO4F8vc2", "sha512-qO4F8vc2"),
       ],
       [
         "custom tarball",
@@ -2025,15 +2025,15 @@ test("trusted pnpm runtime manifest and lockfile are exact before copying outsid
       [
         "extra package",
         originalLockfile.replace(
-          "packages:\n\n  pnpm@10.34.4:",
-          "packages:\n\n  injected@1.0.0:\n    resolution: {integrity: sha512-injected}\n\n  pnpm@10.34.4:",
+          "packages:\n\n  pnpm@10.34.5:",
+          "packages:\n\n  injected@1.0.0:\n    resolution: {integrity: sha512-injected}\n\n  pnpm@10.34.5:",
         ),
       ],
       [
         "extra snapshot",
         originalLockfile.replace(
-          "snapshots:\n\n  pnpm@10.34.4:",
-          "snapshots:\n\n  injected@1.0.0: {}\n\n  pnpm@10.34.4:",
+          "snapshots:\n\n  pnpm@10.34.5:",
+          "snapshots:\n\n  injected@1.0.0: {}\n\n  pnpm@10.34.5:",
         ),
       ],
     ];
@@ -2069,7 +2069,7 @@ test("trusted pnpm runtime manifest and lockfile are exact before copying outsid
         private: true,
         description:
           "Isolated pnpm runtime for candidate-controlled Vercel builds",
-        dependencies: { injected: "1.0.0", pnpm: "10.34.4" },
+        dependencies: { injected: "1.0.0", pnpm: "10.34.5" },
       },
       {
         name: "@mento-protocol/vercel-pnpm-runtime",
@@ -2077,7 +2077,7 @@ test("trusted pnpm runtime manifest and lockfile are exact before copying outsid
         private: true,
         description:
           "Isolated pnpm runtime for candidate-controlled Vercel builds",
-        dependencies: { pnpm: "10.34.4" },
+        dependencies: { pnpm: "10.34.5" },
         pnpm: { overrides: { pnpm: "10.34.3" } },
       },
       {
@@ -2086,8 +2086,8 @@ test("trusted pnpm runtime manifest and lockfile are exact before copying outsid
         private: true,
         description:
           "Isolated pnpm runtime for candidate-controlled Vercel builds",
-        dependencies: { pnpm: "10.34.4" },
-        packageManager: "pnpm@10.34.4",
+        dependencies: { pnpm: "10.34.5" },
+        packageManager: "pnpm@10.34.5",
       },
     ];
     for (const packageMetadata of manifestMutations) {
@@ -2189,7 +2189,7 @@ test("standalone Vercel CLI runtime is exact, override-aligned, and independentl
       },
       {
         ...originalManifest,
-        packageManager: "pnpm@10.34.4",
+        packageManager: "pnpm@10.34.5",
       },
       {
         ...originalManifest,
@@ -2479,7 +2479,7 @@ test("trusted candidate pnpm launcher uses the lockfile-pinned JavaScript packag
     });
     writeFileSync(
       join(packageRoot, "package.json"),
-      JSON.stringify({ name: "pnpm", version: "10.34.4" }),
+      JSON.stringify({ name: "pnpm", version: "10.34.5" }),
       { mode: 0o444 },
     );
     writeFileSync(
@@ -2489,7 +2489,7 @@ test("trusted candidate pnpm launcher uses the lockfile-pinned JavaScript packag
         'if [ "$1" = "--version" ]; then',
         '  [ "$npm_config_manage_package_manager_versions" = "false" ] || exit 3',
         '  [ "$npm_config_package_manager_strict_version" = "false" ] || exit 4',
-        '  echo "10.34.4"',
+        '  echo "10.34.5"',
         "else",
         "  exit 2",
         "fi",
@@ -2538,7 +2538,7 @@ test("trusted candidate pnpm launcher uses the lockfile-pinned JavaScript packag
       execFileSync(launcherPath, ["--version"], {
         encoding: "utf8",
       }).trim(),
-      "10.34.4",
+      "10.34.5",
     );
     assert.throws(
       () => stageTrustedPnpmLauncher({ toolsRoot }),
@@ -2577,7 +2577,7 @@ test("trusted runtime rejects missing, malformed, digest-drifted, and hardlinked
     "pnpm",
   );
   const pnpmPackageJson = join(dirname(pnpmExecutable), "package.json");
-  const executableContents = "#!/bin/sh\necho 10.34.4\n";
+  const executableContents = "#!/bin/sh\necho 10.34.5\n";
   const expectedPnpmSha256 = createHash("sha256")
     .update(executableContents)
     .digest("hex");
@@ -2627,7 +2627,7 @@ test("trusted runtime rejects missing, malformed, digest-drifted, and hardlinked
       pnpmPackageJson,
       JSON.stringify({
         name: "@pnpm/linux-x64",
-        version: "10.34.4",
+        version: "10.34.5",
         scripts: {},
         bin: { pnpm: "pnpm" },
         os: ["linux"],
@@ -2673,7 +2673,7 @@ test("trusted runtime rejects a pnpm bootstrap package link outside its fixed ro
       join(outsideRoot, "package.json"),
       JSON.stringify({
         name: "@pnpm/linux-x64",
-        version: "10.34.4",
+        version: "10.34.5",
         scripts: {},
         bin: { pnpm: "pnpm" },
         os: ["linux"],
@@ -2681,7 +2681,7 @@ test("trusted runtime rejects a pnpm bootstrap package link outside its fixed ro
       }),
       { mode: 0o444 },
     );
-    writeFileSync(join(outsideRoot, "pnpm"), "#!/bin/sh\necho 10.34.4\n", {
+    writeFileSync(join(outsideRoot, "pnpm"), "#!/bin/sh\necho 10.34.5\n", {
       mode: 0o555,
     });
     symlinkSync(outsideRoot, packageLink);
@@ -2947,7 +2947,7 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   assert.doesNotMatch(raw, /standalone: true/);
   assert.match(
     raw,
-    /EXPECTED_PNPM_LINUX_X64_SHA256: e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193/,
+    /EXPECTED_PNPM_LINUX_X64_SHA256: 69a535476f407fb0f64427913c2b592ca2ed6bf93f92e2cb82a32349e31f36eb/,
   );
   const pnpmBootstrapBlock = raw.slice(
     raw.indexOf("- name: Stage and authenticate pinned pnpm bootstrap"),
@@ -3168,7 +3168,7 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
     installBlock.indexOf("candidate_status=$?"),
   );
   assert.match(installBlock, /"\$pnpm_bin" --version \|/);
-  assert.match(installBlock, /\/usr\/bin\/grep -Fxq "10\.34\.4"/);
+  assert.match(installBlock, /\/usr\/bin\/grep -Fxq "10\.34\.5"/);
   assert.match(
     installBlock,
     /Isolated candidate cannot execute the protected pnpm launcher/,

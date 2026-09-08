@@ -3,7 +3,7 @@ title: GitHub Actions owns Vercel build and deployment orchestration; Vercel rem
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-09-01
+last_verified: 2026-09-02
 scope: ci/deployment
 date: 2026-07
 ---
@@ -11,7 +11,9 @@ date: 2026-07
 # ADR 0001 — GitHub Actions owns Vercel build and deployment orchestration; Vercel remains hosting and runtime
 
 **Status:** Accepted (Jul 2026); preview and active-main cutovers are complete.
-Amended 2026-09-01 to retire the legacy App v2 path per MGP-18.
+Amended 2026-09-01 to retire the legacy App v2 path per MGP-18. Amended
+2026-09-02 to retire the App custom `v3` environment and its transitional
+bridge, completing MGP-18's normalization.
 **Scope:** ci/deployment
 
 ## Context
@@ -169,11 +171,12 @@ one-full-smoke-per-qualifying-event invariant.
 
 Deployment planning is repository-owned, deterministic, and offline-testable.
 It uses the real Turborepo package graph and a small reviewed list of proven
-non-runtime paths. The list names each current Dependabot control-plane file
-instead of matching the `scripts/dependabot-` prefix. New, renamed, or
+non-runtime paths. The list names each current documentation or dependency
+policy file. It does not match a workflow or script prefix. New, renamed, or
 near-match files remain unknown. Unknown paths, empty or unresolved diffs,
-shallow history, non-ancestral ranges, malformed planner output, or graph errors
-select all four targets rather than silently skipping a required deployment.
+shallow history, non-ancestral ranges, malformed planner output, or graph
+errors select all four targets rather than silently skipping a required
+deployment.
 
 For previews, planning compares the immutable base and snapshotted PR head. For
 `main`, planning compares the SHA currently served by each logical target with
@@ -478,7 +481,7 @@ failure of the hosting/runtime platform.
   becomes unacceptable, or Vercel introduces a simpler build-offload mechanism
   with equivalent security and transaction semantics.
 
-## Amendment — 2026-09-01: legacy App v2 retired (MGP-18)
+## Amendment — 2026-09-01 to 2026-09-02: App normalized under MGP-18
 
 Governance proposal MGP-18 passed. The legacy App v2 path is removed from the
 pipeline: Vercel-native Git production from branch `v2` serving
@@ -492,6 +495,56 @@ Recovery now has five static turns (three ordinary plus two App-alias
 transitions) instead of nine. The custom-v3 App path is unchanged by this
 amendment. A follow-up change (planned) will also normalize the App target
 to the ordinary production target described elsewhere in this ADR.
+
+That follow-up shipped, in three steps: normalizing App onto the same
+staged-production model as every other target; a manual dashboard move of the
+`app.mento.org` domain into the Production environment; and a final tighten
+step that removed every transitional mechanism the move needed. All three are
+complete. App now stages and promotes through the native Production
+environment exactly like Governance, Reserve, and UI: `stage-app` builds and
+uploads a real candidate with production semantics, and activation promotes
+it with the same `vercel promote` command every other target uses, verified
+at `candidate`. There is no bridge alias operation; `promote` and
+`ordinary_rollback` are the only operation types, and recovery is back down to
+four static turns — one per promotable target (Governance, Reserve, UI, App) —
+instead of the five the bridge slot required. The custom `v3` environment
+is retired: `ENVIRONMENT_SEMANTICS.v3` is deleted from
+`scripts/vercel-build-environment.mjs`, `TARGET_ENVIRONMENTS.app` is
+`["preview", "production"]`, and the retired generated alias
+`appmentoorg-env-v3-mentolabs.vercel.app` is rejected everywhere. Every
+`TRANSITION-V3-PRIOR` tolerance — the App-only prior shape and the
+bridge-specific `verified_noop` recovery rule — is deleted; App's prior is
+now held to the same production contract as its candidate, exactly like
+every other target. One narrow admission remains permanently: an immutable
+bridge-era sealed manifest on a mapped production deployment — valid under
+the current contract except for the exact bridge-era App prior shape — is
+admitted as an unmarked rollback-only prior, because seals are immutable and
+operator rollbacks can re-map one at any time. The
+v3-specific deploy command (`vercel deploy --prebuilt --target=v3`), the
+same-run App payload handoff between `stage-app` and activation, and the
+post-hoc App candidate-discovery machinery remain removed; App carries a
+known staged `deploymentId` before activation, exactly like every other
+target. Provider-side, `app.mento.org` is a Production-environment domain and
+`v2-app.mento.org` is a 308 redirect to it; the `v3` custom environment is
+empty and is deleted from the Vercel project after this PR merges.
+
+## Amendment — 2026-09-02: manual production-shadow pilot retired
+
+The manually dispatched `Vercel Production Shadow` workflow is removed.
+It rehearsed a release — building all four targets, uploading production-shaped
+deployments with `--skip-domain`, smoking the immutable URLs, and writing an
+evidence summary — without touching a public domain. Preview deployments cover
+pre-merge verification, and the automatic `Vercel Main Deployment` workflow now
+stages and verifies every target on `main`, so the pilot's rehearsal added cost
+without adding proof. Every trust boundary it proved stays in force: the same
+`scripts/vercel-production-shadow.mjs` toolkit (kept under its old name to avoid
+churn), the `vercel-candidate-build` and `vercel-protected-runtime` composite
+actions, and their structural tests still build and upload every staged main
+candidate. Removed with the workflow: the pilot's baseline alias census and
+protected-alias comparison, its evidence-summary rendering, its final job-result
+gate, and the App-side Playwright production-shadow smoke and routing
+regression. Sections above that describe the pilot as part of the rollout are
+historical.
 
 ## Evidence
 

@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { deflateRawSync } from "node:zlib";
 
 import {
+  MAIN_CANDIDATE_MANIFEST_CHUNK_BYTES,
   createMainCandidateIntent,
   createMainCandidateReceipt,
   createMainCandidateVercelMetadata,
+  isBridgeEraCandidateMetadata,
 } from "./vercel-main-candidate.mjs";
 import {
   assertMainCandidateHandoff,
@@ -21,6 +26,7 @@ import {
   planMainDeployments,
 } from "./vercel-main-plan.mjs";
 import { PRODUCTION_GENERATED_ALIAS_CONTRACTS } from "./vercel-production-generated-aliases.mjs";
+import { generateVercelMainCandidateDeploymentId } from "./vercel-prebuilt.mjs";
 
 const fixtureUrl = new URL(
   "./fixtures/vercel-main-plan/valid-priors.json",
@@ -531,9 +537,15 @@ test("automatic inherited ordinary finalization requires its protected alias and
         /missing its reviewed protected alias/,
       ],
       [
-        "unknown generated residual",
-        [protectedAlias, `${target}-unknown.vercel.app`].toSorted(),
-        /served-prior generated-alias topology mismatch/,
+        // A served prior may carry the project's other production domains, but
+        // never another main target's reviewed protected domain.
+        "another target's reviewed protected domain",
+        [
+          protectedAlias,
+          MAIN_TARGET_CONTRACTS[otherTarget].aliases[0],
+          contract.generatedProjectAlias,
+        ].toSorted(),
+        /carries another target's reviewed protected domain/,
       ],
     ]) {
       await assert.rejects(
@@ -644,51 +656,49 @@ test("deserialized ordinary handoffs reject mutable generated aliases as the imm
   }
 });
 
-test("App candidate finalization remains on the custom-v3 contract path", async () => {
-  const handoff = await resolveHandoff("app", []);
+// App is an ordinary production candidate: it proves the same reviewed
+// generated-alias topology as every other target, in both candidate and
+// served-prior modes.
+test("App candidate finalization uses the ordinary generated-alias contract", async () => {
+  const handoff = await resolveHandoff("app", [
+    "appmentoorg-mentolabs.vercel.app",
+  ]);
   assert.equal(handoff.intent.target, "app");
-  assert.deepEqual(handoff.canonicalState.aliases, []);
+  assert.deepEqual(handoff.canonicalState.aliases, [
+    "appmentoorg-mentolabs.vercel.app",
+  ]);
   assert.deepEqual(assertMainCandidateHandoff(handoff), handoff);
+
+  await assert.rejects(
+    () => resolveHandoff("app", []),
+    /generated-alias topology mismatch/,
+  );
+  await assert.rejects(
+    () => resolveHandoff("app", ["appmentoorg.vercel.app"]),
+    /generated-alias topology mismatch/,
+  );
 });
 
-test("served-prior finalization rejects App before zero-census resolution or create-handoff assertion", async () => {
-  const currentIntent = intent("app");
-  let listCalls = 0;
-  const provider = {
-    listCandidateDeploymentIds: async () => {
-      listCalls += 1;
-      return { deploymentIds: [], complete: true };
-    },
-    inspectCandidate: async () =>
-      assert.fail("zero-census App inspection must not run"),
-  };
+test("App served-prior finalization proves its reviewed protected alias", async () => {
+  const servedPrior = await resolveHandoff(
+    "app",
+    ["app.mento.org", "appmentoorg-mentolabs.vercel.app"],
+    { servedPrior: true },
+  );
+  assert.deepEqual(
+    assertMainServedPriorCandidateHandoff(servedPrior),
+    servedPrior,
+  );
   await assert.rejects(
     () =>
-      resolveMainServedPriorCandidateHandoff({
-        intent: currentIntent,
-        provider,
-        smokeCandidate: async () =>
-          assert.fail("zero-census App smoke must not run"),
+      resolveHandoff("app", ["appmentoorg-mentolabs.vercel.app"], {
+        servedPrior: true,
       }),
-    /excludes App/,
-  );
-  assert.equal(listCalls, 0);
-
-  const createHandoff = await resolveMainCandidateHandoff({
-    intent: currentIntent,
-    provider,
-    smokeCandidate: async () =>
-      assert.fail("zero-census App smoke must not run"),
-  });
-  assert.equal(createHandoff.action, "create");
-  assert.equal(listCalls, 2);
-  assert.throws(
-    () => assertMainServedPriorCandidateHandoff(createHandoff),
-    /excludes App/,
+    /missing its reviewed protected alias/,
   );
 });
 
-test("pre-plan mapped inspection reconstructs an older App v3 candidate without a current intent", async () => {
+test("pre-plan mapped inspection reconstructs a marked current-contract candidate", async () => {
   const oldIntent = intent("app");
   const response = deploymentResponse(oldIntent);
   const provider = createMainCandidateVercelProvider({
@@ -714,9 +724,397 @@ test("pre-plan mapped inspection reconstructs an older App v3 candidate without 
       target: mapped.canonicalState.target,
       customEnvironmentSlug: mapped.canonicalState.customEnvironmentSlug,
     },
-    { target: null, customEnvironmentSlug: "v3" },
+    { target: "production", customEnvironmentSlug: null },
   );
   assert.equal(mapped.canonicalState.git.sha, oldIntent.deploySha);
+});
+
+// A candidate seal is immutable, so a manifest sealed while `app.mento.org`
+// still hung off the retired `v3` custom environment stays readable forever.
+// These helpers build both shapes that environment ever sealed - the bridge
+// era's single reviewed App alias and the two-alias topology that preceded it -
+// digest-rebound so each fixture is a genuine seal rather than a corrupt one.
+const BRIDGE_ERA_APP_ALIASES = Object.freeze(["app.mento.org"]);
+const PRE_CONVERSION_APP_ALIASES = Object.freeze([
+  "app.mento.org",
+  "appmentoorg-env-v3-mentolabs.vercel.app",
+]);
+
+function applyBridgeEraAppTopology(aliases) {
+  return (manifest) => {
+    const prior = manifest.originalPriors.app;
+    prior.target = null;
+    prior.customEnvironmentSlug = "v3";
+    prior.aliases = [...aliases].toSorted();
+    const leaf = prior.planningLeaves[0];
+    prior.planningLeaves = [...aliases].toSorted().map((alias) => ({
+      ...leaf,
+      alias,
+      aliases: [...aliases].toSorted(),
+      target: null,
+      customEnvironmentSlug: "v3",
+    }));
+    return manifest;
+  };
+}
+
+const applyPreConversionAppTopology = applyBridgeEraAppTopology(
+  PRE_CONVERSION_APP_ALIASES,
+);
+
+// An independent pin of the sealed wire format. A bridge-era candidate's stable
+// digest is a sha256 over exactly this body: the ordinary production
+// environment for every target - a deployment served from the retired custom
+// environment fails its production expectation long before its metadata is
+// read - and the bridge-era manifest. Rebinding it, rather than swapping only
+// the encoded manifest, is what makes the fixture a genuine seal instead of a
+// corrupt one.
+const CANDIDATE_INTENT_SCHEMA = "vercel-main-candidate-intent:v3";
+const CANDIDATE_REPOSITORY = "mento-protocol/frontend-monorepo";
+
+function sealedEnvironment() {
+  return { target: "production", customEnvironmentSlug: null };
+}
+
+function sealedMetadata(currentIntent, mutate, overrides = {}) {
+  const manifest = mutate(structuredClone(currentIntent.releaseManifest));
+  const { target, deploySha, projectId, projectName } = currentIntent;
+  const candidateId = generateVercelMainCandidateDeploymentId({
+    repository: CANDIDATE_REPOSITORY,
+    target,
+    commitSha: deploySha,
+    upstreamRunId: currentIntent.upstreamRunId,
+  });
+  const stableIntentDigest = createHash("sha256")
+    .update(
+      JSON.stringify({
+        schema: CANDIDATE_INTENT_SCHEMA,
+        repository: CANDIDATE_REPOSITORY,
+        releaseId: manifest.releaseId,
+        candidateId,
+        target,
+        environment: sealedEnvironment(),
+        deploySha,
+        upstreamRunId: currentIntent.upstreamRunId,
+        source: "cli",
+        projectId,
+        projectName,
+        releaseManifest: manifest,
+      }),
+    )
+    .digest("hex");
+  const encoded = deflateRawSync(
+    Buffer.from(JSON.stringify(manifest), "utf8"),
+    {
+      level: 9,
+    },
+  ).toString("base64url");
+  const chunks = encoded.match(
+    new RegExp(`.{1,${MAIN_CANDIDATE_MANIFEST_CHUNK_BYTES}}`, "g"),
+  );
+  const metadata = createMainCandidateVercelMetadata({ intent: currentIntent });
+  for (const key of Object.keys(metadata)) {
+    if (key.startsWith("mentoReleaseManifestChunk")) delete metadata[key];
+  }
+  metadata.mentoReleaseId = manifest.releaseId;
+  metadata.mentoCandidateId = candidateId;
+  metadata.mentoNextDeploymentId = candidateId;
+  metadata.mentoStableIntentDigest = stableIntentDigest;
+  metadata.mentoReleaseManifestChunkCount = String(chunks.length);
+  for (const [index, chunk] of chunks.entries()) {
+    metadata[`mentoReleaseManifestChunk${index}`] = chunk;
+  }
+  const sealed = { ...metadata, ...overrides };
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) delete sealed[key];
+  }
+  return sealed;
+}
+
+function preConversionMetadata(currentIntent, overrides = {}) {
+  return sealedMetadata(
+    currentIntent,
+    applyPreConversionAppTopology,
+    overrides,
+  );
+}
+
+function mappedProvider(response) {
+  return createMainCandidateVercelProvider({
+    client: {
+      requestWithRetry: async () =>
+        assert.fail("mapped inspection does not list by a new release"),
+      inspectDeployment: async () => response,
+      listDeploymentAliases: async () => ({ aliases: [] }),
+    },
+  });
+}
+
+// Seals are immutable. A mapping sealed while `app.mento.org` still hung off
+// the retired `v3` custom environment - the bridge era's single-alias App
+// prior, or the two-alias topology before it - stays readable permanently and
+// classifies as an unmarked rollback-only prior. The deployments themselves are
+// ordinary production deployments; only the manifest's App prior differs.
+// End-to-end proof against seals produced by the REAL modules at merge commits
+// 3df6e091 (#890) and 1a362e5d (#879). This is the exact wire format the
+// currently serving App production deployment carries, so pre-planning must
+// classify it rather than abort.
+const HISTORICAL_SEALS = JSON.parse(
+  readFileSync(
+    new URL(
+      "./fixtures/vercel-main-candidate/historical-seals.json",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+);
+
+test("pre-planning classifies a genuine historical seal as rollback-only", async () => {
+  for (const [era, target] of [
+    ["bridgeEra", "app"],
+    ["bridgeEra", "governance"],
+    ["preConversion", "governance"],
+  ]) {
+    const { deployment } = HISTORICAL_SEALS[era].seals[target];
+    const response = {
+      ...deployment,
+      customEnvironment:
+        deployment.customEnvironmentSlug === null
+          ? undefined
+          : { slug: deployment.customEnvironmentSlug },
+      meta: {
+        ...deployment.meta,
+        githubCommitSha: deployment.meta.githubCommitSha,
+      },
+    };
+    delete response.customEnvironmentSlug;
+    const mapped = await mappedProvider(response).inspectMappedCandidate({
+      deploymentId: response.id,
+      target,
+      projectId: deployment.projectId,
+    });
+    assert.equal(mapped.metadata, null, `${era}/${target}`);
+    assert.equal(mapped.canonicalState.deploymentId, deployment.id);
+    assert.deepEqual(
+      {
+        target: mapped.canonicalState.target,
+        customEnvironmentSlug: mapped.canonicalState.customEnvironmentSlug,
+      },
+      { target: "production", customEnvironmentSlug: null },
+      `${era}/${target}`,
+    );
+  }
+});
+
+test("a mapping sealed during or before the bridge era is admitted as rollback-only", async () => {
+  for (const aliases of [BRIDGE_ERA_APP_ALIASES, PRE_CONVERSION_APP_ALIASES]) {
+    for (const target of ["governance", "reserve", "ui", "app"]) {
+      const oldIntent = intent(target);
+      const response = deploymentResponse(oldIntent);
+      response.meta = {
+        ...response.meta,
+        ...sealedMetadata(oldIntent, applyBridgeEraAppTopology(aliases)),
+      };
+      const mapped = await mappedProvider(response).inspectMappedCandidate({
+        deploymentId: response.id,
+        target,
+        projectId: oldIntent.projectId,
+      });
+      assert.equal(mapped.metadata, null, `${target} ${aliases.length}`);
+      assert.deepEqual(
+        {
+          target: mapped.canonicalState.target,
+          customEnvironmentSlug: mapped.canonicalState.customEnvironmentSlug,
+        },
+        { target: "production", customEnvironmentSlug: null },
+      );
+    }
+  }
+  // The deployment itself is still held to the production contract: one served
+  // from the retired custom environment is rejected before its metadata is even
+  // read, so the manifest admission can never launder a v3 deployment in.
+  const appIntent = intent("app");
+  const v3Response = deploymentResponse(appIntent);
+  v3Response.target = null;
+  v3Response.customEnvironment = { slug: "v3" };
+  await assert.rejects(
+    () =>
+      mappedProvider(v3Response).inspectMappedCandidate({
+        deploymentId: v3Response.id,
+        target: "app",
+        projectId: appIntent.projectId,
+      }),
+    /Unexpected deployment target/,
+  );
+});
+
+// The bridge-era App prior is an allowance, never a bypass: a seal that carries
+// it but is corrupt anywhere else is not a bridge-era mapping and must still
+// fail the run closed rather than be downgraded to a rollback-only prior.
+test("a corrupt seal carrying the bridge-era App topology still fails closed", async () => {
+  const oldIntent = intent("app");
+  const context = {
+    target: "app",
+    projectId: oldIntent.projectId,
+    projectName: oldIntent.projectName,
+    deploySha: oldIntent.deploySha,
+  };
+  // The uncorrupted fixture is genuinely admitted, so each case below isolates
+  // exactly one corruption.
+  assert.equal(
+    isBridgeEraCandidateMetadata(preConversionMetadata(oldIntent), context),
+    true,
+  );
+  for (const [name, mutate, overrides] of [
+    [
+      "manifest carries only the App prior",
+      (manifest) => {
+        applyPreConversionAppTopology(manifest);
+        manifest.originalPriors = { app: manifest.originalPriors.app };
+        return manifest;
+      },
+      {},
+    ],
+    [
+      "another target's prior",
+      (manifest) => {
+        applyPreConversionAppTopology(manifest);
+        manifest.originalPriors.governance.aliases = ["app.mento.org"];
+        return manifest;
+      },
+      {},
+    ],
+    [
+      "manifest key set",
+      (manifest) => ({ ...applyPreConversionAppTopology(manifest), extra: 1 }),
+      {},
+    ],
+    [
+      "release ID",
+      (manifest) => {
+        applyPreConversionAppTopology(manifest);
+        manifest.releaseId = `mr-${"0".repeat(18)}`;
+        return manifest;
+      },
+      {},
+    ],
+    [
+      "candidate ID",
+      applyPreConversionAppTopology,
+      { mentoCandidateId: `mr-app-${"0".repeat(18)}` },
+    ],
+    [
+      "stable intent digest",
+      applyPreConversionAppTopology,
+      { mentoStableIntentDigest: "0".repeat(64) },
+    ],
+    [
+      "audit origin",
+      applyPreConversionAppTopology,
+      { mentoOriginRunId: undefined },
+    ],
+  ]) {
+    const metadata = sealedMetadata(oldIntent, mutate, overrides);
+    assert.equal(isBridgeEraCandidateMetadata(metadata, context), false, name);
+    const response = deploymentResponse(oldIntent);
+    response.meta = { ...response.meta, ...metadata };
+    if (Object.hasOwn(overrides, "mentoOriginRunId")) {
+      delete response.meta.mentoOriginRunId;
+    }
+    await assert.rejects(
+      () =>
+        mappedProvider(response).inspectMappedCandidate({
+          deploymentId: response.id,
+          target: "app",
+          projectId: oldIntent.projectId,
+        }),
+      /Main (?:release manifest|candidate)/,
+      name,
+    );
+  }
+});
+
+// Only the two topologies the retired custom environment actually sealed are
+// admitted. Every near miss - the retired alias set without the retired
+// environment, the retired environment with an extra alias, or an ordinary
+// unreadable manifest - fails closed.
+test("only the two exact bridge-era App topologies are admitted", async () => {
+  const oldIntent = intent("app");
+  const context = {
+    target: "app",
+    projectId: oldIntent.projectId,
+    projectName: oldIntent.projectName,
+    deploySha: oldIntent.deploySha,
+  };
+  for (const [name, mutate] of [
+    [
+      // A production-shaped App prior carrying the retired two-alias topology
+      // was never sealed by any code.
+      "retired aliases without the retired environment",
+      (manifest) => {
+        applyPreConversionAppTopology(manifest);
+        manifest.originalPriors.app.target = "production";
+        manifest.originalPriors.app.customEnvironmentSlug = null;
+        for (const leaf of manifest.originalPriors.app.planningLeaves) {
+          leaf.target = "production";
+          leaf.customEnvironmentSlug = null;
+        }
+        return manifest;
+      },
+    ],
+    [
+      "the retired environment with a third alias",
+      (manifest) => {
+        applyPreConversionAppTopology(manifest);
+        manifest.originalPriors.app.aliases.push("appmentoorg.vercel.app");
+        return manifest;
+      },
+    ],
+    [
+      "a current-contract manifest that is merely unreadable",
+      (manifest) => {
+        manifest.originalPriors.governance.aliases = ["app.mento.org"];
+        return manifest;
+      },
+    ],
+    [
+      // The retired environment may only ever appear on the App prior.
+      "the retired environment on an ordinary prior",
+      (manifest) => {
+        manifest.originalPriors.governance.target = null;
+        manifest.originalPriors.governance.customEnvironmentSlug = "v3";
+        for (const leaf of manifest.originalPriors.governance.planningLeaves) {
+          leaf.target = null;
+          leaf.customEnvironmentSlug = "v3";
+        }
+        return manifest;
+      },
+    ],
+  ]) {
+    const metadata = sealedMetadata(oldIntent, mutate);
+    assert.equal(isBridgeEraCandidateMetadata(metadata, context), false, name);
+    const response = deploymentResponse(oldIntent);
+    response.meta = { ...response.meta, ...metadata };
+    await assert.rejects(
+      () =>
+        mappedProvider(response).inspectMappedCandidate({
+          deploymentId: response.id,
+          target: "app",
+          projectId: oldIntent.projectId,
+        }),
+      /Main release manifest/,
+      name,
+    );
+  }
+  // A current-contract seal must never be laundered through the bridge-era
+  // admission either.
+  assert.equal(
+    isBridgeEraCandidateMetadata(
+      createMainCandidateVercelMetadata({ intent: oldIntent }),
+      context,
+    ),
+    false,
+  );
 });
 
 test("pre-plan release census resolves one exact staged candidate without prior GitHub artifacts", async () => {
@@ -854,9 +1252,7 @@ test("mapped inspection admits unmarked priors regardless of optional provider s
           target: mapped.canonicalState.target,
           customEnvironmentSlug: mapped.canonicalState.customEnvironmentSlug,
         },
-        target === "app"
-          ? { target: null, customEnvironmentSlug: "v3" }
-          : { target: "production", customEnvironmentSlug: null },
+        { target: "production", customEnvironmentSlug: null },
       );
     }
   }

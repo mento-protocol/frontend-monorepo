@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
+import BigNumber from "bignumber.js";
 import {
   calcExchangeRate,
   formatBalance,
@@ -100,6 +101,17 @@ describe("formatWithMaxDecimals", () => {
     expect(formatWithMaxDecimals("")).toBe("0");
     expect(formatWithMaxDecimals("0")).toBe("0");
     expect(formatWithMaxDecimals("abc")).toBe("0");
+  });
+
+  it("does not suppress unexpected formatting errors", () => {
+    const unexpectedError = new Error("unexpected formatting failure");
+    vi.spyOn(BigNumber.prototype, "decimalPlaces").mockImplementationOnce(
+      () => {
+        throw unexpectedError;
+      },
+    );
+
+    expect(() => formatWithMaxDecimals("1.23")).toThrow(unexpectedError);
   });
 
   it("preserves >15-significant-digit integers without precision loss", () => {

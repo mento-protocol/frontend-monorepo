@@ -15,9 +15,8 @@ permissions: read-all
 jobs:
   claude-review-human:
     name: claude-review-human
-    # Dependabot reviews run from the separate authenticated workflow_run
-    # workflow. Keeping this job human-only prevents its skipped result from
-    # shadowing the exact-head `claude-review` evidence used by the processor.
+    # Keep repository review credentials unavailable to bot-authored and fork
+    # pull requests.
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.user.type == 'User'

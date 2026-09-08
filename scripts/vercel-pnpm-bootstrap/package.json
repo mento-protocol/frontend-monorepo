@@ -4,6 +4,6 @@
   "private": true,
   "description": "Integrity-pinned Linux pnpm bootstrap for trusted Vercel builds",
   "dependencies": {
-    "@pnpm/linux-x64": "10.34.4"
+    "@pnpm/linux-x64": "10.34.5"
   }
 }

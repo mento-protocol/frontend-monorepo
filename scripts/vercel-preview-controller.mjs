@@ -92,6 +92,24 @@ const MAX_HISTORY = 40;
 // terminal receipts need a small fixed number of rereads before publication.
 const MAX_RECONCILIATION_PROGRESS_PASSES = MAX_HISTORY + 4;
 const MAX_SERIALIZED_UPDATE_ATTEMPTS = 3;
+const IMMUTABLE_CONTENT_READ_ATTEMPTS = 3;
+const IMMUTABLE_CONTENT_READ_RETRY_BASE_MS = 250;
+const IMMUTABLE_CONTENT_RESPONSE_MAX_BYTES = 16_384;
+const RETRYABLE_IMMUTABLE_CONTENT_READ_STATUSES = new Set([500, 502, 503, 504]);
+const RETRYABLE_IMMUTABLE_CONTENT_READ_CODES = new Set([
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "EHOSTUNREACH",
+  "ENETDOWN",
+  "ENETRESET",
+  "ENETUNREACH",
+  "ETIMEDOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_SOCKET",
+]);
 // GitHub issue comments cap at 65,536 bytes; 64,000 retains 1,536 bytes of headroom.
 const MAX_JOURNAL_BYTES = 64_000;
 const ACTIVE_CHECKPOINT_BYTES = 40_000;
@@ -3316,6 +3334,7 @@ export function reconcileState({
     results: epochResults.map(canonicalJson).sort(),
   });
   const sameEpoch = previous?.epoch?.anchor_run_id === epochAnchorRunId;
+  const liveEventRunIds = new Set(events.map((event) => event.event_run_id));
   const controllerTargetUrl = optionalHttpsUrl(controllerUrl, "Controller URL");
   const targetStates = {};
   const targetStatuses = {};
@@ -3487,6 +3506,8 @@ export function reconcileState({
     const selectedRunIds = new Set(
       targetSelections.map((selection) => selection.selection_receipt_run_id),
     );
+    const checkpointFoldedRunIds =
+      checkpointTarget?.folded_event_run_ids ?? null;
     const coalescedToByRun = new Map();
     for (const selection of targetSelections) {
       const selectedEvent = candidateByRun.get(
@@ -3499,13 +3520,49 @@ export function reconcileState({
         const coalescedIndex = candidates.findIndex(
           (event) => event.event_run_id === coalescedRunId,
         );
+        // A checkpoint folds a strict lineage prefix into its cumulative
+        // digest and drops those event receipts. A durable later selection
+        // keeps naming the coalesced identities it batched away, so one of
+        // them can outlive its own receipt. That is settled checkpoint
+        // evidence, not contradictory ownership, only when the checkpoint
+        // itself proves the identity: the fold recorded it, in lineage order,
+        // as a receipt this target's retained selections still name.
+        //
+        // Membership carries the ordering too. Every recorded identity was
+        // folded, so it sits at or before the checkpoint anchor, and the
+        // anchor precedes every live candidate. When the selection receipt is
+        // itself folded — kept only as the checkpoint's pending owner or
+        // runtime event — both identities appear in that lineage-ordered list
+        // and their recorded positions decide the order. Workflow run IDs
+        // never enter this proof: a lifecycle receipt can arrive late and
+        // carry a lower run ID than the receipts it follows.
+        //
+        // A checkpoint written before this evidence existed records nothing,
+        // so every folded identity under it fails closed. So does an identity
+        // that is live but outside this target's candidate lineage, one the
+        // fold never covered, and one holding a current-epoch result or
+        // selection.
+        const foldedIndex = checkpointFoldedRunIds
+          ? checkpointFoldedRunIds.indexOf(coalescedRunId)
+          : -1;
+        const foldedSelectionIndex = checkpointFoldedRunIds
+          ? checkpointFoldedRunIds.indexOf(selection.selection_receipt_run_id)
+          : -1;
+        const checkpointSettled =
+          coalescedIndex < 0 &&
+          selectedCheckpoint !== null &&
+          !liveEventRunIds.has(coalescedRunId) &&
+          foldedIndex >= 0 &&
+          (foldedSelectionIndex < 0 || foldedIndex < foldedSelectionIndex);
         invariant(
-          coalescedIndex >= 0 &&
-            coalescedIndex < selectedIndex &&
+          (checkpointSettled ||
+            (coalescedIndex >= 0 && coalescedIndex < selectedIndex)) &&
             !resultByRun.has(coalescedRunId) &&
             !selectedRunIds.has(coalescedRunId),
           `${target} coalescing evidence contradicts durable ownership`,
         );
+        // A folded identity keeps its owner recorded here. Skipping it would
+        // let two durable selections claim the same receipt unchallenged.
         const prior = coalescedToByRun.get(coalescedRunId);
         invariant(
           !prior || prior.event_run_id === selectedEvent.event_run_id,
@@ -3662,12 +3719,17 @@ export function reconcileState({
           )
         : -1;
       const coalescingStartIndex = pendingOwnerResult ? 0 : completedIndex + 1;
+      // A retained selection keeps owning every identity it already coalesced,
+      // including one whose own receipt a checkpoint folded away. Claiming it
+      // again here would leave two durable selections naming it, which every
+      // later reconciliation rejects as conflicting coalescing evidence.
       const coalescedReceiptRunIds = candidates
         .slice(coalescingStartIndex, selectedIndex)
         .filter(
           (event) =>
             !resultByRun.has(event.event_run_id) &&
-            !selectedRunIds.has(event.event_run_id),
+            !selectedRunIds.has(event.event_run_id) &&
+            !coalescedToByRun.has(event.event_run_id),
         )
         .map((event) => event.event_run_id);
       nextDispatches.push({
@@ -3882,16 +3944,135 @@ function ownerRepo(context) {
   return context.repo;
 }
 
-async function previewOwnerAtSha(github, context, target, sha) {
+function retryableImmutableContentReadError(error) {
+  const response = error?.response;
+  if (
+    response !== null &&
+    typeof response === "object" &&
+    Number.isSafeInteger(response.status) &&
+    response.status === error?.status
+  ) {
+    return RETRYABLE_IMMUTABLE_CONTENT_READ_STATUSES.has(response.status);
+  }
+  return [error?.code, error?.cause?.code, error?.cause?.cause?.code].some(
+    (code) =>
+      typeof code === "string" &&
+      RETRYABLE_IMMUTABLE_CONTENT_READ_CODES.has(code),
+  );
+}
+
+async function readBoundedJsonResponseBody(body) {
+  invariant(
+    body !== null &&
+      typeof body === "object" &&
+      typeof body.getReader === "function",
+    "Immutable repository content response body is not a readable stream",
+  );
+  const reader = body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const result = await reader.read();
+      invariant(
+        result !== null &&
+          typeof result === "object" &&
+          typeof result.done === "boolean",
+        "Immutable repository content response stream is invalid",
+      );
+      if (result.done) break;
+      invariant(
+        result.value instanceof Uint8Array,
+        "Immutable repository content response chunk is invalid",
+      );
+      invariant(
+        result.value.byteLength <=
+          IMMUTABLE_CONTENT_RESPONSE_MAX_BYTES - totalBytes,
+        "Immutable repository content response exceeded its size limit",
+      );
+      totalBytes += result.value.byteLength;
+      chunks.push(Buffer.from(result.value));
+    }
+  } catch (error) {
+    try {
+      await reader.cancel();
+    } catch {
+      // Preserve the original read or validation failure.
+    }
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = Buffer.concat(chunks, totalBytes);
+  const text = bytes.toString("utf8");
+  invariant(
+    Buffer.from(text, "utf8").equals(bytes),
+    "Immutable repository content response is not valid UTF-8",
+  );
+  return JSON.parse(text);
+}
+
+async function readImmutableRepositoryContent({
+  github,
+  request,
+  waitForRetry,
+}) {
+  // Keep body-stream transport failures inside the retry boundary. JSON and
+  // configuration validation failures do not match its narrow retry classes.
+  for (
+    let attempt = 0;
+    attempt < IMMUTABLE_CONTENT_READ_ATTEMPTS;
+    attempt += 1
+  ) {
+    try {
+      const response = await github.rest.repos.getContent(request);
+      invariant(
+        response !== null &&
+          typeof response === "object" &&
+          response.status === 200,
+        "Immutable repository content response is invalid",
+      );
+      const data = await readBoundedJsonResponseBody(response.data);
+      return { ...response, data };
+    } catch (error) {
+      if (
+        !retryableImmutableContentReadError(error) ||
+        attempt === IMMUTABLE_CONTENT_READ_ATTEMPTS - 1
+      ) {
+        throw error;
+      }
+      await waitForRetry(IMMUTABLE_CONTENT_READ_RETRY_BASE_MS * 2 ** attempt);
+    }
+  }
+  throw new Error("Immutable repository content read exhausted unexpectedly");
+}
+
+export async function previewOwnerAtSha(
+  github,
+  context,
+  target,
+  sha,
+  { waitForRetry = wait } = {},
+) {
   const targetConfiguration = previewTargetConfig(target);
   const immutableSha = exactSha(
     sha,
     `Candidate ${target} Vercel configuration SHA`,
   );
-  const { data } = await github.rest.repos.getContent({
+  invariant(
+    typeof waitForRetry === "function",
+    "Immutable repository content retry wait must be a function",
+  );
+  const request = Object.freeze({
     ...ownerRepo(context),
     path: targetConfiguration.vercelConfigurationPath,
     ref: immutableSha,
+    request: Object.freeze({ parseSuccessResponseBody: false }),
+  });
+  const { data } = await readImmutableRepositoryContent({
+    github,
+    request,
+    waitForRetry,
   });
   const file = plainObject(data, `Candidate ${target} Vercel configuration`);
   invariant(
@@ -4207,11 +4388,32 @@ function validatePreviewCheckpoint(value, expectedPr) {
       targets[target],
       `${target} preview checkpoint`,
     );
+    // Checkpoints written before folded membership evidence existed omit
+    // folded_event_run_ids. They stay readable, and reconciliation fails
+    // closed on every folded identity under them rather than assuming one.
     invariant(
-      Object.keys(targetCheckpoint).sort().join(",") ===
+      [
+        "first_eligible_sha,folded_event_run_ids,last_successful_runtime_sha,last_successful_runtime_url,latest_desired_sha,latest_runtime_event,pending_owner_attempt_count,pending_owner_event,pending_owner_key_digest,status",
         "first_eligible_sha,last_successful_runtime_sha,last_successful_runtime_url,latest_desired_sha,latest_runtime_event,pending_owner_attempt_count,pending_owner_event,pending_owner_key_digest,status",
+      ].includes(Object.keys(targetCheckpoint).sort().join(",")),
       `${target} preview checkpoint fields are invalid`,
     );
+    if (Object.hasOwn(targetCheckpoint, "folded_event_run_ids")) {
+      const foldedRunIds = targetCheckpoint.folded_event_run_ids;
+      invariant(
+        Array.isArray(foldedRunIds) && foldedRunIds.length <= MAX_RECEIPTS,
+        `${target} checkpoint folded receipt evidence is invalid`,
+      );
+      const seenFoldedRunIds = new Set();
+      for (const runId of foldedRunIds) {
+        invariant(
+          exactRunId(runId, `${target} checkpoint folded receipt`) === runId &&
+            !seenFoldedRunIds.has(runId),
+          `${target} checkpoint folded receipt evidence is invalid`,
+        );
+        seenFoldedRunIds.add(runId);
+      }
+    }
     for (const [name, sha] of [
       ["first eligible", targetCheckpoint.first_eligible_sha],
       ["latest desired", targetCheckpoint.latest_desired_sha],
@@ -5030,6 +5232,19 @@ export function compactPreviewJournal(
     pull,
     journal.checkpoint,
   );
+  // The epoch reconciliation will read this checkpoint under. That is always
+  // the persisted one: a reader that finds a checkpoint resolves the epoch
+  // from state, never from the anchor it just computed. Compaction can see a
+  // newer anchor than state does — a reopened receipt can land before state
+  // reconciliation runs — so following the computed anchor here would build
+  // membership for an epoch no reader will ask about.
+  //
+  // Binding to the persisted epoch also keeps the evidence bounded. Selections
+  // from retired epochs vouch for nothing: an unresolved owner retires across
+  // an epoch boundary and keeps naming its coalesced identities, so carrying
+  // their membership forward would grow the list without bound until the
+  // writer rejected its own checkpoint.
+  const currentEpochAnchorRunId = state.epoch.anchor_run_id;
   const fullTailEvent = closure ?? lineage.at(-1) ?? null;
   const partialCheckpoint = throughEventRunId !== null;
   const cutoffRunId = partialCheckpoint
@@ -5221,6 +5436,36 @@ export function compactPreviewJournal(
         ),
       }
     : { events: [], selections: [], worker_evidence: [], results: [] };
+  // Membership evidence for the identities this fold removes. A retained
+  // selection can name a receipt the fold drops, and reconciliation may only
+  // treat that identity as settled when the checkpoint proves it existed and
+  // says where it sat. The list is lineage-ordered, so it carries the ordering
+  // proof as well. Scope is one epoch: only selections in the epoch this
+  // checkpoint will be read under contribute names, and the lineage it draws
+  // from is that same epoch, so the list can never exceed one epoch's receipts
+  // no matter how many epochs retire an unresolved owner.
+  const foldedLineageRunIds = checkpointLineage.map(
+    (event) => event.event_run_id,
+  );
+  for (const target of PREVIEW_TARGETS) {
+    const namedRunIds = new Set(
+      retainedReceipts.selections
+        .filter(
+          (selection) =>
+            selection.target === target &&
+            selection.epoch_anchor_run_id === currentEpochAnchorRunId,
+        )
+        .flatMap((selection) => [
+          selection.selection_receipt_run_id,
+          ...selection.coalesced_receipt_run_ids,
+        ]),
+    );
+    const priorFolded =
+      journal.checkpoint?.targets[target].folded_event_run_ids ?? [];
+    checkpointTargets[target].folded_event_run_ids = [
+      ...new Set([...priorFolded, ...foldedLineageRunIds]),
+    ].filter((runId) => namedRunIds.has(runId));
+  }
   const prunedReceipts = {
     events: checkpointEvents,
     selections: journal.receipts.selections.filter(
@@ -5771,8 +6016,38 @@ function foldCheckpointSemanticEvent(journal, event) {
     worker_evidence: [],
     results: [],
   };
+  // This fold removes one more receipt, so record it wherever a retained
+  // selection still names it. It is a semantic duplicate of the checkpoint
+  // anchor, which is the last folded position, so it appends in lineage order.
+  const foldedTargets = Object.fromEntries(
+    PREVIEW_TARGETS.map((target) => {
+      const targetCheckpoint = structuredClone(checkpoint.targets[target]);
+      const named = journal.receipts.selections.some(
+        (selection) =>
+          selection.target === target &&
+          (selection.selection_receipt_run_id === event.event_run_id ||
+            selection.coalesced_receipt_run_ids.includes(event.event_run_id)),
+      );
+      if (!named || !Object.hasOwn(targetCheckpoint, "folded_event_run_ids")) {
+        return [target, targetCheckpoint];
+      }
+      return [
+        target,
+        {
+          ...targetCheckpoint,
+          folded_event_run_ids: [
+            ...new Set([
+              ...targetCheckpoint.folded_event_run_ids,
+              event.event_run_id,
+            ]),
+          ],
+        },
+      ];
+    }),
+  );
   journal.checkpoint = {
     ...structuredClone(checkpoint),
+    targets: foldedTargets,
     sequence: checkpoint.sequence + 1,
     cumulative_receipts_digest: digest({
       previous: checkpoint.cumulative_receipts_digest,
