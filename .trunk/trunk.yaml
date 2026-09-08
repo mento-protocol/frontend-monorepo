@@ -46,10 +46,14 @@ lint:
     - linters: [ALL]
       paths:
         - scripts/ralph/** # Ralph autonomous agent tooling — externally managed
-    - linters: [ALL]
+    # Vendored upstream JavaScript from jmrossy/jazzicon, kept byte-for-byte so
+    # it can be diffed against upstream. See packages/jazzicon/README.md.
+    # Only the formatters and code-quality linters are skipped, because those
+    # would rewrite or reject the upstream bytes. Security scanning (gitleaks,
+    # trufflehog, osv-scanner) deliberately still runs: vendored third-party
+    # code is exactly where a secret must not slip in on a future refresh.
+    - linters: [eslint, prettier]
       paths:
-        # Vendored upstream JavaScript from jmrossy/jazzicon, kept byte-for-byte
-        # so it can be diffed against upstream. See packages/jazzicon/README.md.
         - packages/jazzicon/*.js
 
   # All enabled linters - organized by category for clarity

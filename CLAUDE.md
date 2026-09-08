@@ -133,9 +133,14 @@ One consequence of the same gating is still open: **`trunk check` and
 `trunk fmt` cannot run in a cloud session.** Trunk downloads its plugin bundle
 from `https://github.com/trunk-io/plugins/archive/<ref>.zip`, which is refused
 with the same repository-scope 403, so the CLI exits before linting anything.
-Use the underlying tools directly instead — `pnpm exec prettier --check .` and
-`pnpm exec eslint .` — and rely on CI for the full Trunk run. Adding
-`trunk-io/plugins` to the session's GitHub repository scope would also fix it.
+Use the underlying tools directly instead, scoped to the files you changed —
+`pnpm exec prettier --check <files>` and `pnpm exec eslint <files>` — and rely on
+CI for the full Trunk run. Repo-wide invocations are not equivalent to Trunk:
+Trunk applies the ignore list in `.trunk/trunk.yaml` and pins its own prettier
+(3.7.4, against the workspace's 3.9.6), so a bare `pnpm exec prettier --check .`
+reports pre-existing differences in generated and unrelated files. `pnpm exec
+eslint .` is clean repo-wide. Adding `trunk-io/plugins` to the session's GitHub
+repository scope would also fix Trunk itself.
 
 ## Visual Regression Testing
 
