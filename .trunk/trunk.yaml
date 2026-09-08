@@ -48,11 +48,14 @@ lint:
         - scripts/ralph/** # Ralph autonomous agent tooling — externally managed
     # Vendored upstream JavaScript from jmrossy/jazzicon, kept byte-for-byte so
     # it can be diffed against upstream. See packages/jazzicon/README.md.
-    # Only the formatters and code-quality linters are skipped, because those
-    # would rewrite or reject the upstream bytes. Security scanning (gitleaks,
-    # trufflehog, osv-scanner) deliberately still runs: vendored third-party
-    # code is exactly where a secret must not slip in on a future refresh.
-    - linters: [eslint, prettier]
+    # Only the formatters and whitespace checks are skipped, because those would
+    # rewrite or reject the upstream bytes. `git-diff-check` is included for the
+    # refresh case: upstream carries trailing whitespace (index.js:132-133), and
+    # a future re-vendor produces diff hunks it would reject for bytes that must
+    # be preserved verbatim. Security scanning (gitleaks, trufflehog,
+    # osv-scanner) deliberately still runs: vendored third-party code is exactly
+    # where a secret must not slip in on a future refresh.
+    - linters: [eslint, prettier, git-diff-check]
       paths:
         - packages/jazzicon/*.js
 
