@@ -2,6 +2,12 @@
   "schema": "dependabot-prep-policy:v3",
   "executionModel": "trusted-openclaw-agent",
   "operatingRevision": "autonomous-decisions-v1",
+  "workflow": {
+    "skill": "dependabot-prep",
+    "revision": "trusted-agent-v1",
+    "runtimes": ["openclaw", "codex", "claude"],
+    "hostProfile": "giskard-capped-otherwise-portable-serial"
+  },
   "repository": "mento-protocol/frontend-monorepo",
   "baseRef": "main",
   "canonicalPlaybook": "docs/dependabot-automation.md",

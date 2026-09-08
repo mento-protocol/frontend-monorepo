@@ -1869,6 +1869,16 @@ test("entry instructions resolve to the canonical trusted-agent playbook", () =>
   const policy = authorityJson(read(".github/dependabot-prep-policy.json"));
   assert.equal(policy.canonicalPlaybook, "docs/dependabot-automation.md");
   assert.equal(policy.entryPrompt, "scripts/prompts/dependabot-weekly.md");
+  assert.deepEqual(policy.workflow, {
+    skill: "dependabot-prep",
+    revision: "trusted-agent-v1",
+    runtimes: ["openclaw", "codex", "claude"],
+    hostProfile: "giskard-capped-otherwise-portable-serial",
+  });
+  const entry = read(policy.entryPrompt);
+  assert.ok(entry.includes(policy.workflow.skill));
+  assert.ok(entry.includes(policy.workflow.revision));
+  assert.ok(entry.includes(policy.repository));
   for (const path of [policy.canonicalPlaybook, policy.entryPrompt]) {
     assert.ok(existsSync(new URL(`../${path}`, import.meta.url)), path);
     assert.ok(read(path).includes(".github/dependabot-prep-policy.json"), path);

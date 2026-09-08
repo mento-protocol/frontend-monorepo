@@ -10,7 +10,7 @@ last_verified: 2026-09-08
 
 ## Operating model
 
-Use the ordinary trusted OpenClaw coding session to prepare existing Dependabot
+Use an ordinary trusted OpenClaw, Codex or Claude coding session to prepare existing Dependabot
 PRs for a human merge decision. This accepts the same host, model, package
 execution and GitHub credential exposure as interactive coding. Scope and
 forbidden actions are instructions, not an enforced credential sandbox.
@@ -23,13 +23,14 @@ Require `dependabot-prep-policy:v3` and `trusted-openclaw-agent`.
 [ADR 0010](adr/0010-trusted-agent-dependabot-preparation.md) supersedes the
 sealed launcher, no-exec lanes and model-authored receipt protocol of ADR 0009.
 The legacy installation is retained for diagnosis, not invoked or reconfigured.
-Do not run it concurrently or invoke the generic sealed dependabot-prep write
-path. Use this repository playbook.
+Do not run it concurrently or invoke the archived sealed skill procedure.
 
-The generic `dependabot-prep` skill is not this workflow's execution procedure.
-Its investigation checklist informed the playbook, but its sealed launcher and
-no-exec requirements conflict with the operator-approved trusted-agent model.
-Do not load it as a second competing procedure or revive its retired restrictions.
+Use the installed portable `dependabot-prep` skill at revision `trusted-agent-v1`
+as the shared workflow, with this playbook and v3 policy as repository overrides.
+The `trusted-openclaw-agent` execution-model value is a historical compatibility
+identifier, not a runtime restriction. Require the policy's `workflow` binding;
+an older sealed skill cannot satisfy it. No second launcher or workflow is needed.
+The skill must be installed on each host; its update is not a MacBook execution test.
 
 ## Scope and authority
 
@@ -119,7 +120,18 @@ do not waive affected browser, review or other readiness gates. Use standard uma
 
 Use the [checked-in entry prompt](../scripts/prompts/dependabot-weekly.md) in
 a fresh ordinary coding session. Use the configured Codex model initially, not a
-nested CLI launcher. Do not change model routing or credentials during a batch.
+nested CLI launcher. Interactive Codex/Claude sessions use their current runtime.
+Do not change model routing or credentials during a batch.
+
+On macOS or another operator-approved development host, follow the portable skill's
+state-path and serialized-resource guidance instead of Linux systemd commands or
+`/home/molt` paths. The numeric `hostResources` caps apply on giskard; other hosts
+retain one heavy tree and explicit worker limits, with memory monitoring but no
+claim of cgroup enforcement. Local locks do not coordinate hosts: do not knowingly
+start a second batch elsewhere, and reconcile cross-host races through live state
+and exact-head leases. No gate or hook may be bypassed. Interactive final reports
+go to the invoking session unless another destination is explicitly requested;
+the Slack instructions below apply to the configured scheduled run.
 
 On giskard, keep state outside checkouts at
 `/home/molt/.local/state/mento-dependabot`. Create that parent if absent.
