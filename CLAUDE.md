@@ -214,8 +214,23 @@ Skip exactly those two and the repository is clean — 1235 files, no issues:
 trunk check --all --filter=-markdown-link-check,-trufflehog
 ```
 
-Do not treat either linter's cloud-session findings as real, and do not "fix"
-them.
+That command is an iteration loop, not a substitute for the real gate: it
+disables both linters wholesale, including the parts of them that work fine here
+and that do catch real problems. Use it while iterating, then triage an
+unfiltered run before pushing. The cloud-session artifacts are distinguishable
+from genuine findings by their signature:
+
+- A `markdown-link-check/403` is an unreachable host, so it is an artifact. A
+  **`markdown-link-check/400` is a broken relative link** — the file it points at
+  does not exist. Relative links need no network and are validated correctly in a
+  cloud session, so a 400 is always real and must be fixed.
+- A `trufflehog/Github` hit on a 40-hex string that is a pinned action SHA or a
+  placeholder commit SHA in a fixture is an artifact. Read the flagged line
+  before dismissing anything: a hit on anything else is a real credential, and
+  the verification step that would normally confirm it is precisely what is
+  broken here. Never dismiss a secret-scanner finding you have not looked at, and
+  never disable a scanner to obtain a green run — `.trunk/trunk.yaml` holds that
+  same rule for the vendored files.
 
 Absent that setup, use the underlying tools directly, scoped to the files you
 changed — `pnpm exec prettier --check <files>` and `pnpm exec eslint <files>` —
