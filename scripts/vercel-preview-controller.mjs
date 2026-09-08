@@ -2423,6 +2423,7 @@ async function proveControllerAdmissionDelta({
   pull,
   budget,
   waitForRetry,
+  receiptToPersist = null,
 }) {
   const rawEvents = events.map((event) => validateEventReceipt(event));
   const baselineRunNumber = cursor.through_run_number;
@@ -2447,6 +2448,14 @@ async function proveControllerAdmissionDelta({
     rawEvents.map((event) => [event.event_run_id, event]),
   );
   const pending = unresolvedPendingRunIds.map((runId) => ({ runId }));
+  const missingReceiptRunIds = [];
+  // Receipt repair may retain its own authenticated event without authorizing
+  // the incomplete interval. Reconciliation never supplies this capability.
+  const persistenceAdmission = receiptToPersist
+    ? admissions.find(
+        (admission) => admission.runId === receiptToPersist.event_run_id,
+      )
+    : null;
   for (const admission of admissions.filter(
     (candidate) => candidate.receiptRequired,
   )) {
@@ -2459,8 +2468,20 @@ async function proveControllerAdmissionDelta({
       pending.push(admission);
       continue;
     }
+    if (persistenceAdmission) {
+      invariant(
+        persistenceAdmission.receiptRequired &&
+          persistenceAdmission.runId === exactRunId(context.runId) &&
+          persistenceAdmission.runNumber === exactRunId(context.runNumber),
+        "Receipt persistence does not match the current controller run",
+      );
+      assertAdmissionMatchesReceipt(persistenceAdmission, receiptToPersist);
+      missingReceiptRunIds.push(admission.runId);
+      pending.push(admission);
+      continue;
+    }
     throw new Error(
-      `Completed controller event run ${admission.runId} has no durable receipt`,
+      `Completed controller event run ${admission.runId} has no durable receipt. Restore its receipt before reconciliation; see docs/vercel-deployments.md#missing-controller-event-receipts`,
     );
   }
   for (const receipt of rawEvents.filter(
@@ -2497,6 +2518,7 @@ async function proveControllerAdmissionDelta({
     cursor: scanned.cursor,
     complete: pending.length === 0,
     pendingRunIds: [...new Set(pending.map((admission) => admission.runId))],
+    missingReceiptRunIds,
     admissions: admissions.map((admission) => ({
       runId: admission.runId,
       runNumber: admission.runNumber,
@@ -2542,7 +2564,7 @@ async function createControllerAdmissionSession({
         budget,
       });
     },
-    async refresh({ events: currentEvents, pull }) {
+    async refresh({ events: currentEvents, pull, receiptToPersist = null }) {
       const proof = await proveControllerAdmissionDelta({
         github,
         context,
@@ -2552,6 +2574,7 @@ async function createControllerAdmissionSession({
         pull,
         budget,
         waitForRetry,
+        receiptToPersist,
       });
       if (proof.complete) cursor = proof.cursor;
       return proof;
@@ -7059,6 +7082,7 @@ export async function recordEventReceipt({
   const eventAdmissionProof = await admissionSession.refresh({
     events: representedEvents,
     pull: currentBefore,
+    receiptToPersist: operatorBootstrap ? null : receipt,
   });
   if (preFloorEvent) eventAdmissionProof.preFloorEvent = preFloorEvent;
   if (closedBootstrapTerminalRecoveryState !== null) {
@@ -7126,6 +7150,10 @@ export async function recordEventReceipt({
     receipt,
     targetUrl: controllerRunUrl,
   });
+  invariant(
+    eventAdmissionProof.missingReceiptRunIds.length === 0,
+    `Event receipt ${receipt.event_run_id} is durably recorded, but completed controller runs ${eventAdmissionProof.missingReceiptRunIds.join(", ")} still have no durable receipt. The admission cursor has not advanced. Restore those receipts, then rerun reconciliation; see docs/vercel-deployments.md#missing-controller-event-receipts`,
+  );
   const current = normalizePullRequest(
     await pullFromApi(github, context, receipt.pr),
   );
