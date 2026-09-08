@@ -1412,6 +1412,17 @@ evidence binds an explicit empty affected-target set. Affected and mixed
 releases retain exact-SHA candidate staging, journal checkpoints, bounded
 recovery, public runtime smoke, and the final provider census.
 
+Planner failures emit a GitHub warning on stderr. Stdout remains one JSON plan.
+The plan and preview journal distinguish `turbo-spawn-failed`,
+`turbo-exit-failed`, `turbo-output-invalid`, `turbo-plan-malformed`,
+`turbo-task-malformed`, and `turbo-no-deployable-task`. The legacy
+`turbo-planning-failed` reason remains valid for older receipts and unexpected
+errors. Git failures retain `invalid-commits` or `diff-failed`; diagnostics
+include the failed Git operation and process status. Process failures include
+exit status, signal, and spawn error code. Raw child output is omitted because
+Turbo output can include environment values and Git errors can include remote
+credentials. Every failure still selects all four targets.
+
 ### Trusted-base execution
 
 The planner imports only Node.js built-ins, but its affected-package query uses
@@ -1422,7 +1433,14 @@ materializing it, fetches the candidate only as an inert Git object, installs
 the trusted base's root workspace project without lifecycle scripts, and
 executes the base's planner. The filter is safe because the planner needs only
 the root `turbo` binary and reads workspace manifests plus the lockfile, never
-per-package `node_modules`. Dependency caching is disabled in these planner jobs
+per-package `node_modules`. A package introduced only on the PR branch is absent
+from this trusted graph. Changes confined to that package, or root scripts with
+no build task, can return zero Turbo tasks. This is `turbo-no-deployable-task`,
+not evidence of a failed install. Keep the full-target fallback: zero tasks do
+not prove that these changes have no runtime impact. Do not materialize candidate
+manifests or install candidate dependencies to narrow that result.
+
+Dependency caching is disabled in these planner jobs
 so they never restore or save a shared Actions cache across this trust boundary:
 
 ```bash
@@ -2554,6 +2572,37 @@ Retry behavior is bounded and serialized:
 This is a bounded convergence protocol that reduces duplicate risk and fails
 closed on contradictory evidence. It is not proof of mathematical uniqueness
 or exactly-once delivery across GitHub and Vercel.
+
+### Missing controller event receipts
+
+A checkout timeout or cancellation can stop a controller event before it writes
+its receipt. Reconciliation still fails closed for a completed run with no
+receipt, regardless of its conclusion. Cancellation does not prove that an
+event can be discarded.
+
+The receipt job can persist its own exact, authenticated event while other
+completed runs lack receipts. It preserves the admission cursor and controller
+state. It then fails with the missing run IDs and this recovery reference.
+It does not dispatch a worker or create a Deployment. This separates durable
+event capture from permission to reconcile the complete event history, so
+receipt jobs cannot prevent each other from restoring their receipts.
+
+1. Inspect the named runs and confirm which receipt jobs failed.
+2. Rerun their failed jobs. A job that reports `is durably recorded` has saved
+   its receipt even if it still reports other missing runs.
+3. Continue until every named event has its exact receipt. No missing event is
+   replaced with a receipt reconstructed from the current PR or a run title.
+4. Rerun the remaining failed jobs, or send the documented
+   `vercel-preview-reconcile` request. The complete admission proof must pass
+   before previews resume.
+
+Reruns retain their original workflow source. Runs created before this repair
+still use the old receipt writer. If those runs already block each other, use
+the open-PR bootstrap procedure below after inspecting and draining preview
+ownership. The authenticated bootstrap establishes a new admission floor;
+it does not invent the missing historical receipts. A new push or a reconcile
+request alone cannot reset that floor. Never edit the journal by hand, ignore
+cancelled admissions, or weaken the required receipt check.
 
 ### Bootstrap and operator recovery
 

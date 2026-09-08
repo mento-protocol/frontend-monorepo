@@ -68,6 +68,30 @@ not a revival of the retired credential/isolation platform. Preserve normal
 checks and hooks. Keep the repository playbook authoritative rather than loading
 the conflicting generic sealed skill as a second execution procedure.
 
+### Portable skill refinement — 2026-09-08
+
+Share the trusted-agent preparation procedure through `dependabot-prep` revision
+`trusted-agent-v1` across OpenClaw, Codex and Claude. This playbook remains the
+repository-specific policy override, not a competing sealed procedure. Preserve
+the v3 execution-model identifier for compatibility and add an explicit workflow
+binding. Keep the cron prompt thin: skill, repository, policy guard, host profile,
+budget and delivery. Giskard retains enforced resource caps; Mac sessions serialize
+work and report their unenforced memory-containment residual. No new credential
+isolation is claimed. Roll out the skill first, then merged repository policy,
+then refresh the disabled job; never fall back to the old skill or start a batch
+as part of rollout. An actual Mac/scheduled run remains acceptance evidence.
+
+The earlier generic-skill exclusion above describes the former sealed entry;
+it does not exclude this portable successor. No legacy pins are rotated.
+
+All frontend preparation writers acquire the existing giskard batch directory,
+including interactive hosts through an operator-configured authenticated, encrypted connection.
+Local locks and Git leases alone cannot serialize comments or distinct PRs. Reuse
+the existing coordinator rather than add a lock service; if it is unreachable,
+other hosts stay read-only. This trades offline preparation availability for the
+existing one-batch invariant. The scheduled entry is giskard-only; interactive
+hosts invoke the portable skill directly with this repository override.
+
 ## Alternatives considered
 
 - Continue the sealed launcher: stronger credential separation, but substantial

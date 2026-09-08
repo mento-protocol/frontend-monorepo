@@ -146,6 +146,7 @@ test("default-branch visual successes prove that both surfaces recovered", () =>
     "apps/ui.mento.org/**",
     "packages/ui/**",
     "packages/web3/**",
+    "packages/jazzicon/**",
   ]);
   assert.match(
     workflow,
