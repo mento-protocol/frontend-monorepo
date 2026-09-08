@@ -110,14 +110,26 @@ files but not an exported `PATH`, and the session user cannot read `/root`.
 Fork tests additionally need the RPC hosts (`forno.celo.org`, `rpc.monad.xyz`)
 on a Custom network allowlist.
 
-Cloud sessions gate GitHub by _repository_, not by host: every request to
-`github.com` and `codeload.github.com` for a repository outside the session's
-scope is answered by the proxy itself with HTTP 403 and the body `GitHub access
-to this repository is not enabled for this session`. The network allowlist
-cannot lift this — verified with `codeload.github.com` present and the request
-still refused, while an allowlisted non-GitHub host reached its origin normally.
-Anonymous `git clone` and `git ls-remote` of the same public repository do
-succeed; only the tarball path is gated.
+Cloud sessions gate GitHub by _repository_, not by host, and the gate is far
+wider than a tarball path: the proxy fronts `github.com` as if it were the
+GitHub _API_, so ordinary web URLs are intercepted too. A request for a
+repository outside the session's scope is answered by the proxy itself with HTTP
+403 and the body `GitHub access to this repository is not enabled for this
+session`. That covers `codeload.github.com` tarballs, but equally
+`github.com/vercel/next.js`, `github.com/pnpm/pnpm/issues/13567`, and even
+`github.com/features/actions`, which the gateway parses as an owner/repo pair. An
+in-scope repository is not exempt either: a request for
+`github.com/mento-protocol/frontend-monorepo/actions/runs/<id>` returns a
+_different_ 403 — `This GitHub API path is not available: sessions are bound to
+their configured repositories` — because it is not a repository-scoped API
+endpoint. The network allowlist cannot lift any of this: `github.com` is on the
+allowlist and is still intercepted.
+
+Exactly two paths pass through, and every workaround below rests on them. The
+git protocol is not intercepted, so anonymous `git clone` and `git ls-remote` of
+any public repository succeed. And GitHub **release assets** under
+`releases/download/` are served normally, which several hermetic runtimes rely
+on.
 
 This used to break `pnpm install` outright. The catalog pinned
 `@metamask/jazzicon` to `github:jmrossy/jazzicon#<sha>`, which pnpm resolves to
@@ -140,11 +152,8 @@ adds are not supported in v1`, because a session may hold repositories from only
 one owner and `trunk-io` is not `mento-protocol`. No allowlist entry or admin
 setting lifts that.
 
-What works is that the gate covers repository _tarballs_ — `archive/<ref>.zip`
-and `codeload` — and not git. Two things are therefore still reachable:
-anonymous `git clone` of any public repository, and GitHub **release assets**
-under `releases/download/`, which several hermetic runtimes rely on. So clone
-the bundle and point the source at the local checkout:
+What works is the git protocol, which the gateway passes through. So clone the
+bundle and point the source at the local checkout:
 
 ```bash
 git clone --depth 1 --branch v1.7.3 \
@@ -170,15 +179,66 @@ as `CONNECT tunnel failed, response 403` with no HTTP body, whereas the
 repository gate returns a real body naming the session's scope. Of the three
 enabled runtimes, only `go` ever needed an allowlist entry:
 
-| Runtime         | Downloads from                                            | Notes                                                                                                                                                               |
-| --------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `node@22.16.0`  | `nodejs.org`                                              | Reachable by default.                                                                                                                                               |
-| `go@1.21.0`     | `golang.org/dl` → 301 → `dl.google.com`                   | **`dl.google.com` must be on the allowlist**; it is the redirect target, so allowlisting `golang.org` alone is not enough.                                          |
-| `python@3.10.8` | `github.com/…/python-build-standalone/releases/download/` | Reachable by default — a release asset, not a tarball, so the repository gate does not apply. `www.python.org` is not used by Trunk and does not need allowlisting. |
+| Runtime         | Downloads from                                            | Notes                                                                                                                                                       |
+| --------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `node@22.16.0`  | `nodejs.org`                                              | Reachable by default.                                                                                                                                       |
+| `go@1.21.0`     | `golang.org/dl` → `go.dev/dl` → `dl.google.com`           | Two redirects, not one. **`dl.google.com` must be on the allowlist**; it is the final target, so allowlisting `golang.org` or `go.dev` alone is not enough. |
+| `python@3.10.8` | `github.com/…/python-build-standalone/releases/download/` | Reachable by default — a release asset, so the GitHub gateway does not apply. `www.python.org` is on the allowlist but Trunk never uses it.                 |
 
-With `dl.google.com` allowlisted and the local clone in place, a full
-`trunk check` runs and passes in a cloud session; both the `go` and `python`
-runtimes install normally.
+With `dl.google.com` allowlisted and the local clone in place, `trunk check` runs
+and passes in a cloud session; both the `go` and `python` runtimes install
+normally. Measured from cold caches: a mixed markdown/yaml/shell/mjs/json check
+takes about 1m30s including every runtime and linter download, `trunk fmt
+--no-fix --all` about 30s over 1172 files, and `trunk check --all` about 2m45s
+cold or 1m15s warm over 1235 files.
+
+`trunk check --all` is therefore fast enough to be practical, but it **cannot
+pass in a cloud session** — not because of anything in the repo, but because two
+of the enabled linters depend on network the session does not have:
+
+- **`markdown-link-check`** reports every external link as a 403. About a quarter
+  are `github.com` links killed by the API gateway described above; the rest are
+  hosts that are simply not on the allowlist, among them `nextjs.org`,
+  `vercel.com`, `pnpm.io`, and `docs.trunk.io` — the allowlist carries `trunk.io`
+  and `api.trunk.io`, not `*.trunk.io`. None of it is evidence of a broken link.
+- **`trufflehog`** reports pinned GitHub Action SHAs and placeholder commit SHAs
+  in test fixtures as verified secrets. Trunk runs it with `--only-verified`, and
+  verification is precisely what should rule these out — but the proxy
+  authenticates GitHub API calls on the session's behalf (`api.github.com/user`
+  returns 200 with no `Authorization` header at all), so every 40-hex candidate
+  verifies.
+
+Skip exactly those two and the repository is clean — 1235 files, no issues:
+
+```bash
+trunk check --all --filter=-markdown-link-check,-trufflehog
+```
+
+That command is an iteration loop, not a substitute for the real gate: it
+disables both linters wholesale, including the parts of them that work fine here
+and that do catch real problems. Use it while iterating, then triage an
+unfiltered run before pushing. The cloud-session artifacts are distinguishable
+from genuine findings by their signature:
+
+- A `markdown-link-check/403` means the request never reached the origin, so on
+  its own it proves nothing: either the host is off the allowlist, or the GitHub
+  gateway answered first. On a link that was already in the tree, treat it as a
+  known-baseline artifact. On a link this change **adds or edits**, it is simply
+  unverified — a typo under an out-of-scope repository returns exactly the same
+  403 as a working URL — so confirm that link outside the cloud session, or let
+  CI's full-network run confirm it for you.
+- A **`markdown-link-check/400` is a broken relative link**: the file it points
+  at does not exist. Relative links need no network and are validated correctly
+  in a cloud session, so a 400 is always real and must be fixed.
+- `trufflehog/Github` verification fails in one direction only here: the proxy
+  makes candidates verify that should not, and never the reverse. So a hit is
+  never cleared by the tool and every one is triaged by reading the flagged line.
+  A 40-hex string that is a pinned action SHA, a placeholder SHA in a fixture, or
+  an upstream commit referenced by a documentation link is a known non-secret.
+  Anything you cannot account for that way is treated as a real credential until
+  it is checked outside the session. Never dismiss a secret-scanner finding you
+  have not looked at, and never disable a scanner to obtain a green run —
+  `.trunk/trunk.yaml` holds that same rule for the vendored files.
 
 Absent that setup, use the underlying tools directly, scoped to the files you
 changed — `pnpm exec prettier --check <files>` and `pnpm exec eslint <files>` —
