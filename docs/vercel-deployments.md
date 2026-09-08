@@ -2555,6 +2555,37 @@ This is a bounded convergence protocol that reduces duplicate risk and fails
 closed on contradictory evidence. It is not proof of mathematical uniqueness
 or exactly-once delivery across GitHub and Vercel.
 
+### Missing controller event receipts
+
+A checkout timeout or cancellation can stop a controller event before it writes
+its receipt. Reconciliation still fails closed for a completed run with no
+receipt, regardless of its conclusion. Cancellation does not prove that an
+event can be discarded.
+
+The receipt job can persist its own exact, authenticated event while other
+completed runs lack receipts. It preserves the admission cursor and controller
+state. It then fails with the missing run IDs and this recovery reference.
+It does not dispatch a worker or create a Deployment. This separates durable
+event capture from permission to reconcile the complete event history, so
+receipt jobs cannot prevent each other from restoring their receipts.
+
+1. Inspect the named runs and confirm which receipt jobs failed.
+2. Rerun their failed jobs. A job that reports `is durably recorded` has saved
+   its receipt even if it still reports other missing runs.
+3. Continue until every named event has its exact receipt. No missing event is
+   replaced with a receipt reconstructed from the current PR or a run title.
+4. Rerun the remaining failed jobs, or send the documented
+   `vercel-preview-reconcile` request. The complete admission proof must pass
+   before previews resume.
+
+Reruns retain their original workflow source. Runs created before this repair
+still use the old receipt writer. If those runs already block each other, use
+the open-PR bootstrap procedure below after inspecting and draining preview
+ownership. The authenticated bootstrap establishes a new admission floor;
+it does not invent the missing historical receipts. A new push or a reconcile
+request alone cannot reset that floor. Never edit the journal by hand, ignore
+cancelled admissions, or weaken the required receipt check.
+
 ### Bootstrap and operator recovery
 
 Before `Vercel Preview` became required during Phase A, maintainers had to
