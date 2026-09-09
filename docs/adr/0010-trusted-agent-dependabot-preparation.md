@@ -3,7 +3,7 @@ title: Use the ordinary trusted coding agent for Dependabot preparation
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-09-08
+last_verified: 2026-09-09
 scope: dependency-maintenance
 date: 2026-09-07
 supersedes:
@@ -91,6 +91,54 @@ the existing coordinator rather than add a lock service; if it is unreachable,
 other hosts stay read-only. This trades offline preparation availability for the
 existing one-batch invariant. The scheduled entry is giskard-only; interactive
 hosts invoke the portable skill directly with this repository override.
+
+### Claim-based coordination refinement — 2026-09-09
+
+The giskard batch directory above serialized every frontend preparation writer
+through one host. A writer without an authenticated connection to that host could
+prepare nothing, the mechanism is unverified for cloud coding sessions, and it
+also serialized unrelated pull requests against each other.
+
+Replace the repository-wide batch lock with a per-pull-request lease held in a
+custom Git ref, `refs/mento-claims/v1/pr/<number>`, moved by GraphQL `updateRefs`
+compare-and-swap. The state machine and payload format are unchanged from
+monitoring-monorepo ADR 0082. The lease fields — `expiresAt`, `ownerRunId`,
+`ownerHost`, `ownerRuntime`, `ownerLogin` — are opt-in LOCK payload fields, and
+the current LOCK object id is the fencing token. A `guard` subcommand proves that
+token immediately before a branch push or a review request, renews the lease for
+the guarded child's lifetime, and stops the child when the claim is lost. The
+claim CLI ships as `@mento-protocol/issues`, pinned by exact version in the
+policy and run through `pnpm dlx`, so this repository adds no dependency.
+
+The one-batch invariant recorded above is superseded, not deleted. Different
+hosts now prepare different pull requests concurrently, while one pull request
+stays exclusive through the ref compare-and-swap. Claim refs accumulate one per
+prepared pull request and an operator prunes them; the tool deletes nothing.
+Cloud coding sessions stay refused through `allowCloudWriters: false` until a
+live probe settles whether their GitHub proxy injects an identity.
+
+Comment serialization is now advisory, which the superseded rationale above
+treated as a reason for the batch lock. `requiredBefore` covers branch pushes and
+review requests only. Summary comments and inline replies check the claim without
+blocking on it, and one summary comment per author login per PR prevents
+duplicates.
+
+The shared skill revision moves to `trusted-agent-v2` and the policy schema to
+`dependabot-prep-policy:v4`. The `trusted-agent-v1` binding recorded above is
+superseded, not deleted: a v1 skill refuses a v4 policy and a v2 skill refuses a
+v3 policy, so hosts and policy move in opposite orders on rollout and rollback.
+
+Evidence, verified: the capability probe ref `refs/mento-claims/v1/probe` at
+commit `99291e8cb6b4f50ba8910ad40c9a904db56f224f` in repository `R_kgDOObNo8w`,
+created by `updateRefs` from the zero object id with `force:false` on
+2026-09-09, and confirmed there to refuse a second identical compare-and-swap.
+The ref stays in place as the first audit artifact.
+
+Pending, and not yet evidence: the claims package (PR link TBD), the portable
+skill at revision `trusted-agent-v2` (PR link TBD), this repository's
+`dependabot-prep-policy:v4` (PR link TBD), and the live rehearsal on PR #872.
+Fill the three links and date the rehearsal before this refinement counts as
+validated.
 
 ## Alternatives considered
 

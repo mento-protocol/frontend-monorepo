@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -11,7 +11,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { delimiter, dirname, join, relative } from "node:path";
+import process from "node:process";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -130,9 +131,150 @@ function workspacePackagePaths() {
   return paths;
 }
 
+const CLAIM_WRAPPER = "scripts/dependabot-claim.mjs";
+const CLAIM_POLICY = ".github/dependabot-prep-policy.json";
+const HOST_LOCK_PATH_TEMPLATE =
+  "${XDG_STATE_HOME:-$HOME/.local/state}/dependabot-prep/<host>__<owner>__<repo>/active";
+const HOST_LOCK_PATH_MACOS =
+  "$HOME/Library/Application Support/dependabot-prep/<host>__<owner>__<repo>/active";
+
+function claimPolicyPath() {
+  return fileURLToPath(new URL(`../${CLAIM_POLICY}`, import.meta.url));
+}
+
+// Puts a stub `pnpm` first on PATH. The stub prints one argument per line, or
+// appends them to `argvFile` when the caller cannot read the child's stdout,
+// and exits with the requested code. A test therefore observes the exact
+// `pnpm dlx` argv the wrapper builds without touching the network.
+function withStubPnpm(exitCode, run, { argvFile } = {}) {
+  const stubDirectory = mkdtempSync(join(tmpdir(), "dependabot-claim-"));
+  try {
+    const sink = argvFile ? ` >> '${argvFile}'` : "";
+    writeFileSync(
+      join(stubDirectory, "pnpm"),
+      `#!/bin/sh\nfor argument in "$@"; do printf '%s\\n' "$argument"${sink}; done\nexit ${exitCode}\n`,
+      { mode: 0o755 },
+    );
+    const environment = { ...process.env };
+    environment.PATH = `${stubDirectory}${delimiter}${environment.PATH}`;
+    return run(environment);
+  } finally {
+    rmSync(stubDirectory, { recursive: true, force: true });
+  }
+}
+
+// Resolves the real pnpm before any stub reaches PATH, so a test can run the
+// documented `pnpm dependabot:claim -- ...` form through the package manager
+// itself instead of assuming how it forwards its own separator.
+function realPnpmCommand() {
+  // Read the variable from a copy of the environment: the repository's lint
+  // rules require every directly named `process.env` key to be declared in
+  // turbo.json, and this one belongs to the package manager, not the build.
+  const { npm_execpath: execPath } = { ...process.env };
+  if (execPath && existsSync(execPath)) return [process.execPath, execPath];
+  const found = spawnSync("/usr/bin/env", ["sh", "-c", "command -v pnpm"], {
+    encoding: "utf8",
+  });
+  const resolved = found.stdout?.trim();
+  return found.status === 0 && resolved ? [resolved] : null;
+}
+
+// Runs the wrapper the way the playbook documents it: through `pnpm run`, in a
+// throwaway project whose script is this repository's wrapper. The stub `pnpm`
+// records the wrapper's own child argv in a file, because `pnpm run` writes its
+// banner to the same stdout.
+function runDocumentedForm(args) {
+  const command = realPnpmCommand();
+  assert.ok(command, "pnpm must be resolvable to exercise the documented form");
+  const project = mkdtempSync(join(tmpdir(), "dependabot-claim-project-"));
+  try {
+    const wrapper = fileURLToPath(
+      new URL(`../${CLAIM_WRAPPER}`, import.meta.url),
+    );
+    writeFileSync(
+      join(project, "package.json"),
+      `${JSON.stringify(
+        {
+          name: "dependabot-claim-documented-form",
+          version: "0.0.0",
+          private: true,
+          scripts: { "dependabot:claim": `node '${wrapper}'` },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    const argvFile = join(project, "argv.txt");
+    const [executable, ...prefix] = command;
+    const run = withStubPnpm(
+      0,
+      (environment) =>
+        spawnSync(
+          executable,
+          [...prefix, "--dir", project, "run", "dependabot:claim", ...args],
+          { encoding: "utf8", env: environment },
+        ),
+      { argvFile },
+    );
+    const argv = existsSync(argvFile)
+      ? readFileSync(argvFile, "utf8").trim().split("\n")
+      : [];
+    return { run, argv };
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
+}
+
+// Polls for a file a spawned shell writes, so a signal test never races the
+// child's startup and never depends on a fixed delay.
+async function waitForFile(path, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!existsSync(path)) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${path}`);
+    await new Promise((resolve) => {
+      setTimeout(resolve, 25);
+    });
+  }
+}
+
+function runClaimWrapper(args, { exitCode = 0 } = {}) {
+  return withStubPnpm(exitCode, (environment) =>
+    spawnSync(
+      process.execPath,
+      [fileURLToPath(new URL(`../${CLAIM_WRAPPER}`, import.meta.url)), ...args],
+      { encoding: "utf8", env: environment },
+    ),
+  );
+}
+
+// Runs a copy of the wrapper beside a temporary policy, so a test can observe
+// how the wrapper validates policy values it must never trust.
+function runClaimWrapperWithPin(packageOverrides, args) {
+  const root = mkdtempSync(join(tmpdir(), "dependabot-claim-policy-"));
+  try {
+    mkdirSync(join(root, "scripts"));
+    mkdirSync(join(root, ".github"));
+    writeFileSync(join(root, CLAIM_WRAPPER), read(CLAIM_WRAPPER));
+    const policy = authorityJson(read(CLAIM_POLICY));
+    policy.coordination.claims.package = {
+      ...policy.coordination.claims.package,
+      ...packageOverrides,
+    };
+    writeFileSync(join(root, CLAIM_POLICY), JSON.stringify(policy));
+    return withStubPnpm(0, (environment) =>
+      spawnSync(process.execPath, [join(root, CLAIM_WRAPPER), ...args], {
+        encoding: "utf8",
+        env: environment,
+      }),
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 test("trusted-agent policy limits authority to existing Dependabot pull requests", () => {
   const policy = authorityJson(read(".github/dependabot-prep-policy.json"));
-  assert.equal(policy.schema, "dependabot-prep-policy:v3");
+  assert.equal(policy.schema, "dependabot-prep-policy:v4");
   assert.equal(policy.executionModel, "trusted-openclaw-agent");
   assert.equal(policy.repository, "mento-protocol/frontend-monorepo");
   assert.equal(policy.baseRef, "main");
@@ -168,18 +310,48 @@ test("trusted-agent policy limits authority to existing Dependabot pull requests
     "processor:veto",
   ]);
   assert.deepEqual(policy.limits, {
-    activeBatches: 1,
     batchMinutes: 360,
     perPullRequestMinutes: 45,
     repairAttempts: 3,
   });
   assert.deepEqual(policy.coordination, {
-    host: "giskard",
-    lockPath: "/home/molt/.local/state/mento-dependabot/active",
-    allWriters: "same-atomic-lock-before-writes",
-    remoteAccess: "operator-configured-authenticated-encrypted-connection",
-    unavailable: "read-only",
-    release: "owner-only-after-local-work-stops",
+    primitive: "github-ref-claims",
+    claims: {
+      schema: "mento-claims-config:v1",
+      profile: "pr",
+      namespace: "refs/mento-claims/v1/pr",
+      scopeTemplate: "refs/mento-claims/v1/pr/{pr}",
+      kind: "mento-claim",
+      payloadVersion: 1,
+      author: {
+        name: "Mento claims",
+        email: "claims@users.noreply.github.com",
+      },
+      ttlMinutes: 30,
+      renewMinutes: 10,
+      graceMinutes: 10,
+      maxTtlMinutes: 360,
+      minRemainingSeconds: 360,
+      skewToleranceSeconds: 300,
+      label: "dependabot-prep:claimed",
+      markerRevision: "v2",
+      requiredBefore: ["branch-push", "review-request"],
+      advisoryBefore: ["summary-comment", "inline-reply", "long-wait"],
+      allowOverrides: false,
+      allowCloudWriters: false,
+      command: ["pnpm", "dependabot:claim", "--"],
+      package: { name: "@mento-protocol/issues", version: "0.1.0" },
+    },
+    hostLock: {
+      scope: "host-local-heavy-tree",
+      path: HOST_LOCK_PATH_TEMPLATE,
+      pathMacos: HOST_LOCK_PATH_MACOS,
+      purpose: "process-tree-resource-cap-only-not-cross-host-serialization",
+    },
+    allWriters:
+      "claim-required-before-push-and-review-request-advisory-otherwise",
+    unavailable: "read-only-for-that-pull-request",
+    release: "owner-only-on-terminal-verdict-or-expiry-takeover",
   });
   assert.deepEqual(policy.changes.push, {
     existingPullRequestBranchOnly: true,
@@ -224,6 +396,7 @@ test("dependency repairs remain executable without granting security or final PR
     ".github/dependabot-prep-policy.json",
     "AGENTS.md",
     "CLAUDE.md",
+    CLAIM_WRAPPER,
     policy.canonicalPlaybook,
     policy.entryPrompt,
   ])
@@ -254,6 +427,9 @@ test("dependency repairs remain executable without granting security or final PR
     "publish-needs-decision-changes",
     "weaken-security-or-checks",
     "expose-secrets",
+    // The quarterly prune is the only destructive operation the claim design
+    // adds, and its copy-pasteable mutation sits in the agent-facing playbook.
+    "delete-claim-refs",
   ])
     assert.ok(policy.forbiddenActions.includes(action), action);
   assert.deepEqual(
@@ -1879,7 +2055,7 @@ test("entry instructions resolve to the canonical trusted-agent playbook", () =>
   assert.equal(policy.entryPrompt, "scripts/prompts/dependabot-weekly.md");
   assert.deepEqual(policy.workflow, {
     skill: "dependabot-prep",
-    revision: "trusted-agent-v1",
+    revision: "trusted-agent-v2",
     runtimes: ["openclaw", "codex", "claude"],
     hostProfile: "giskard-capped-otherwise-portable-serial",
   });
@@ -1906,7 +2082,8 @@ test("entry instructions resolve to the canonical trusted-agent playbook", () =>
 
 test("runtime guidance does not reinstate retired no-exec admission", () => {
   const guide = read("docs/dependency-overrides.md");
-  assert.ok(guide.includes("[v3 playbook](dependabot-automation.md)"));
+  assert.ok(guide.includes("[canonical playbook](dependabot-automation.md)"));
+  assert.doesNotMatch(guide, /v3 playbook|under v3/u);
   assert.doesNotMatch(guide, /scheduled no-exec agent must classify/u);
   assert.doesNotMatch(guide, /generic external agent must not prepare/u);
   assert.doesNotMatch(guide, /For the automatic patch lane/u);
@@ -1919,4 +2096,538 @@ test("runtime guidance does not reinstate retired no-exec admission", () => {
   ]) {
     assert.ok(guide.includes(command), command);
   }
+});
+
+test("claims policy validates against mento-claims-config v1", () => {
+  const policy = authorityJson(read(CLAIM_POLICY));
+  const claims = policy.coordination.claims;
+  assert.equal(policy.coordination.primitive, "github-ref-claims");
+  assert.equal(claims.schema, "mento-claims-config:v1");
+  assert.equal(claims.profile, "pr");
+  assert.match(claims.namespace, /^refs\/[A-Za-z0-9][A-Za-z0-9._/-]*$/u);
+  assert.equal(claims.scopeTemplate, `${claims.namespace}/{pr}`);
+  assert.ok(claims.renewMinutes > 0);
+  assert.ok(claims.renewMinutes * 2 <= claims.ttlMinutes);
+  assert.ok(claims.ttlMinutes <= claims.maxTtlMinutes);
+  assert.ok(claims.maxTtlMinutes <= 360);
+  assert.ok(claims.graceMinutes >= 1);
+  // Grace absorbs clock disagreement between the expiring owner and the taker,
+  // so it must exceed the tolerated skew or the two can both believe they own
+  // the claim.
+  assert.ok(claims.graceMinutes * 60 > claims.skewToleranceSeconds);
+  assert.ok(claims.minRemainingSeconds >= 30);
+  assert.ok(claims.minRemainingSeconds * 1000 < claims.renewMinutes * 60_000);
+  assert.match(claims.label, /^[A-Za-z0-9][A-Za-z0-9 ._:/-]{0,49}$/u);
+  assert.deepEqual(claims.requiredBefore, ["branch-push", "review-request"]);
+  assert.deepEqual(claims.advisoryBefore, [
+    "summary-comment",
+    "inline-reply",
+    "long-wait",
+  ]);
+  // The policy names purposes and the CLI names `--gate` values. Two of the five
+  // differ, so the playbook has to carry the mapping; without it an agent that
+  // reads `requiredBefore` as operating parameters passes `--gate branch-push`
+  // and is refused.
+  const playbookGates = read(policy.canonicalPlaybook).replaceAll(/\s+/gu, " ");
+  assert.ok(
+    playbookGates.includes(
+      "`branch-push` in `requiredBefore` is `--gate push`",
+    ),
+  );
+  assert.ok(
+    playbookGates.includes("`long-wait` in `advisoryBefore` is `--gate wait`"),
+  );
+  for (const purpose of [...claims.requiredBefore, ...claims.advisoryBefore]) {
+    assert.ok(playbookGates.includes(`\`${purpose}\``), purpose);
+  }
+  assert.equal(claims.allowOverrides, false);
+  assert.equal(claims.allowCloudWriters, false);
+  assert.equal(Object.hasOwn(claims, "waitUnderGuard"), false);
+  assert.deepEqual(claims.command, ["pnpm", "dependabot:claim", "--"]);
+  assert.equal(policy.coordination.hostLock.scope, "host-local-heavy-tree");
+  assert.equal(policy.coordination.hostLock.path, HOST_LOCK_PATH_TEMPLATE);
+  assert.equal(policy.coordination.hostLock.pathMacos, HOST_LOCK_PATH_MACOS);
+});
+
+test("activeBatches cannot reappear in policy limits", () => {
+  const policy = authorityJson(read(CLAIM_POLICY));
+  assert.equal(Object.hasOwn(policy.limits, "activeBatches"), false);
+  assert.doesNotMatch(read(CLAIM_POLICY), /activeBatches/u);
+});
+
+test("the claims package pin is exact and consumed through pnpm dlx", () => {
+  const policy = authorityJson(read(CLAIM_POLICY));
+  const pin = policy.coordination.claims.package;
+  assert.equal(pin.name, "@mento-protocol/issues");
+  assert.match(pin.version, /^\d+\.\d+\.\d+$/u);
+  assert.equal(Object.hasOwn(pin, "minimumVersion"), false);
+  const manifest = JSON.parse(read("package.json"));
+  for (const field of [
+    "dependencies",
+    "devDependencies",
+    "optionalDependencies",
+  ]) {
+    assert.equal(Object.hasOwn(manifest[field] ?? {}, pin.name), false, field);
+  }
+  assert.doesNotMatch(read("pnpm-lock.yaml"), /@mento-protocol\/issues/u);
+  // `--package=<spec>` selects the binary by name. Without it `pnpm dlx` reads
+  // its first positional as the package specifier alone and forwards the rest
+  // to the binary it derives, so `pnpm dlx <spec> mento-issues …` would deliver
+  // `mento-issues` to the CLI as its first argument. `--ignore-scripts` is not
+  // a `dlx` option, so the suppression is spelled `--config.ignore-scripts=true`
+  // and keeps the whole resolved tree's install scripts off.
+  const run = runClaimWrapper(["claims", "read", "--pr", "872", "--json"]);
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(run.stdout.trim().split("\n"), [
+    "--config.ignore-scripts=true",
+    `--package=${pin.name}@${pin.version}`,
+    "dlx",
+    "mento-issues",
+    "claims",
+    "read",
+    "--config",
+    claimPolicyPath(),
+    "--pr",
+    "872",
+    "--json",
+  ]);
+});
+
+test("the documented pnpm invocation reaches the wrapper intact", () => {
+  // pnpm 10.34.5 forwards its own `--` as the script's first argument, so the
+  // documented `pnpm dependabot:claim -- claims claim ...` form arrives at the
+  // wrapper with a leading separator that must not be read as the guard
+  // separator. Both documented shapes run through the real pnpm here, so a
+  // change in that behaviour fails this test instead of the weekly job.
+  const pin = authorityJson(read(CLAIM_POLICY)).coordination.claims.package;
+  const plain = runDocumentedForm([
+    "--",
+    "claims",
+    "claim",
+    "--pr",
+    "872",
+    "--json",
+  ]);
+  assert.equal(plain.run.status, 0, plain.run.stderr);
+  assert.deepEqual(plain.argv, [
+    "--config.ignore-scripts=true",
+    `--package=${pin.name}@${pin.version}`,
+    "dlx",
+    "mento-issues",
+    "claims",
+    "claim",
+    "--config",
+    claimPolicyPath(),
+    "--pr",
+    "872",
+    "--json",
+  ]);
+
+  const guarded = runDocumentedForm([
+    "--",
+    "claims",
+    "guard",
+    "--pr",
+    "872",
+    "--token",
+    "a".repeat(40),
+    "--run-id",
+    "rehearsal-a",
+    "--gate",
+    "push",
+    "--",
+    "/bin/echo",
+    "pushed",
+  ]);
+  assert.equal(guarded.run.status, 0, guarded.run.stderr);
+  assert.deepEqual(guarded.argv, [
+    "--config.ignore-scripts=true",
+    `--package=${pin.name}@${pin.version}`,
+    "dlx",
+    "mento-issues",
+    "claims",
+    "guard",
+    "--config",
+    claimPolicyPath(),
+    "--pr",
+    "872",
+    "--token",
+    "a".repeat(40),
+    "--run-id",
+    "rehearsal-a",
+    "--gate",
+    "push",
+    "--",
+    "/bin/echo",
+    "pushed",
+  ]);
+});
+
+test("the claim wrapper drops the separator pnpm forwards", () => {
+  const pin = authorityJson(read(CLAIM_POLICY)).coordination.claims.package;
+  const run = runClaimWrapper([
+    "--",
+    "claims",
+    "claim",
+    "--pr",
+    "872",
+    "--json",
+  ]);
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(run.stdout.trim().split("\n"), [
+    "--config.ignore-scripts=true",
+    `--package=${pin.name}@${pin.version}`,
+    "dlx",
+    "mento-issues",
+    "claims",
+    "claim",
+    "--config",
+    claimPolicyPath(),
+    "--pr",
+    "872",
+    "--json",
+  ]);
+});
+
+test("the claim wrapper forwards a guarded child's own config flag", () => {
+  const pin = authorityJson(read(CLAIM_POLICY)).coordination.claims.package;
+  const run = runClaimWrapper([
+    "--",
+    "claims",
+    "guard",
+    "--pr",
+    "872",
+    "--token",
+    "a".repeat(40),
+    "--run-id",
+    "rehearsal-a",
+    "--gate",
+    "push",
+    "--",
+    "git",
+    "push",
+    "--config",
+    "push.default=simple",
+  ]);
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(run.stdout.trim().split("\n"), [
+    "--config.ignore-scripts=true",
+    `--package=${pin.name}@${pin.version}`,
+    "dlx",
+    "mento-issues",
+    "claims",
+    "guard",
+    "--config",
+    claimPolicyPath(),
+    "--pr",
+    "872",
+    "--token",
+    "a".repeat(40),
+    "--run-id",
+    "rehearsal-a",
+    "--gate",
+    "push",
+    "--",
+    "git",
+    "push",
+    "--config",
+    "push.default=simple",
+  ]);
+});
+
+test("the claim wrapper refuses a policy package name it cannot trust", () => {
+  // A name that begins with a dash is refused too: the pin is concatenated into
+  // a `pnpm` argument, and the guard must not depend on that concatenation
+  // happening to defuse a flag.
+  for (const name of ["--package=other-package", "--registry", "-r", "-"]) {
+    const refused = runClaimWrapperWithPin({ name }, [
+      "claims",
+      "read",
+      "--pr",
+      "872",
+    ]);
+    assert.equal(refused.status, 3, name);
+    assert.match(refused.stderr, /must be an npm package name/u, name);
+  }
+  const accepted = runClaimWrapperWithPin({}, [
+    "claims",
+    "read",
+    "--pr",
+    "872",
+  ]);
+  assert.equal(accepted.status, 0, accepted.stderr);
+});
+
+test("the claim wrapper inserts its config flag before a guard separator", () => {
+  const run = runClaimWrapper([
+    "claims",
+    "guard",
+    "--pr",
+    "872",
+    "--token",
+    "a".repeat(40),
+    "--run-id",
+    "rehearsal-a",
+    "--gate",
+    "push",
+    "--",
+    "/bin/echo",
+    "ok",
+  ]);
+  assert.equal(run.status, 0, run.stderr);
+  const argv = run.stdout.trim().split("\n");
+  assert.deepEqual(argv.slice(-3), ["--", "/bin/echo", "ok"]);
+  // The flag follows the group and command words, so no caller flag can take
+  // the policy path as its value, and it stays before the guard separator. The
+  // four leading tokens are pnpm's own: the script suppression, the package
+  // selector, `dlx` and the binary name.
+  assert.deepEqual(argv.slice(4, 8), [
+    "claims",
+    "guard",
+    "--config",
+    claimPolicyPath(),
+  ]);
+  assert.ok(argv.indexOf("--config") < argv.indexOf("--"));
+});
+
+test("the claim wrapper refuses a caller config and forwards the exit code", () => {
+  const refused = runClaimWrapper([
+    "claims",
+    "read",
+    "--pr",
+    "872",
+    "--config",
+    "/nonexistent/other-policy.json",
+  ]);
+  assert.equal(refused.status, 2);
+  assert.match(refused.stderr, /supplies --config from repository policy/u);
+  const joined = runClaimWrapper([
+    "claims",
+    "read",
+    "--pr",
+    "872",
+    "--config=/nonexistent/other-policy.json",
+  ]);
+  assert.equal(joined.status, 2);
+  assert.match(joined.stderr, /supplies --config from repository policy/u);
+  const superseded = runClaimWrapper(
+    ["claims", "verify", "--pr", "872", "--json"],
+    { exitCode: 13 },
+  );
+  assert.equal(superseded.status, 13);
+});
+
+test("the claim wrapper forwards a termination signal to the claim command", async () => {
+  // A signal addressed to the wrapper's pid alone must not orphan a guard that
+  // keeps renewing the claim. The child runs in its own process group here, so
+  // only the wrapper receives the signal.
+  const stubDirectory = mkdtempSync(join(tmpdir(), "dependabot-claim-signal-"));
+  const started = join(stubDirectory, "started.txt");
+  const terminated = join(stubDirectory, "terminated.txt");
+  try {
+    writeFileSync(
+      join(stubDirectory, "pnpm"),
+      `#!/bin/sh\ntrap "printf terminated > '${terminated}'; exit 0" TERM\nprintf started > '${started}'\nwhile true; do sleep 1; done\n`,
+      { mode: 0o755 },
+    );
+    const environment = { ...process.env };
+    environment.PATH = `${stubDirectory}${delimiter}${environment.PATH}`;
+    const child = spawn(
+      process.execPath,
+      [
+        fileURLToPath(new URL(`../${CLAIM_WRAPPER}`, import.meta.url)),
+        "claims",
+        "guard",
+        "--pr",
+        "872",
+        "--gate",
+        "push",
+      ],
+      { env: environment, detached: true, stdio: "ignore" },
+    );
+    const exited = new Promise((resolve) => child.on("exit", resolve));
+    await waitForFile(started);
+    process.kill(child.pid, "SIGTERM");
+    const exitCode = await exited;
+    await waitForFile(terminated);
+    assert.equal(readFileSync(terminated, "utf8"), "terminated");
+    // The stub traps the signal and exits 0. An interrupted run must not reach
+    // the caller as "proceed", and `128 + signal` is outside the coarse rule, so
+    // the wrapper reports the rule's "stop and report" code instead.
+    assert.equal(exitCode, 3);
+  } finally {
+    rmSync(stubDirectory, { recursive: true, force: true });
+  }
+});
+
+test("the claim wrapper exists and is wired to the policy", () => {
+  assert.ok(existsSync(new URL(`../${CLAIM_WRAPPER}`, import.meta.url)));
+  const manifest = JSON.parse(read("package.json"));
+  assert.equal(
+    manifest.scripts["dependabot:claim"],
+    "node scripts/dependabot-claim.mjs",
+  );
+  const policy = authorityJson(read(CLAIM_POLICY));
+  assert.ok(policy.changes.needsDecisionPaths.includes(CLAIM_WRAPPER));
+  const wrapper = read(CLAIM_WRAPPER);
+  assert.ok(wrapper.includes(policy.schema));
+  assert.doesNotMatch(wrapper, /@mento-protocol\/issues/u);
+  assert.doesNotMatch(wrapper, /\bimport\s*\(/u);
+  // `pnpm dlx` resolves the package into a temporary project outside this
+  // workspace, so `onlyBuiltDependencies` does not gate that install. The
+  // suppression the wrapper passes covers the whole resolved tree, and both
+  // documents say so rather than naming a per-package check as the control.
+  assert.match(wrapper, /--config\.ignore-scripts=true/u);
+  assert.match(wrapper, /--package=/u);
+  assert.match(
+    read(policy.canonicalPlaybook),
+    /--config\.ignore-scripts=true/u,
+  );
+  assert.doesNotMatch(wrapper, /lifecycle scripts run/u);
+});
+
+test("the summary marker keeps the v1 token and adds the v2 claim schema", () => {
+  const policy = authorityJson(read(CLAIM_POLICY));
+  assert.equal(
+    policy.reporting.prCommentMarker,
+    "<!-- mento-dependabot-preparation:v1 -->",
+  );
+  assert.equal(
+    policy.reporting.prCommentClaimMarkerSchema,
+    "mento-dependabot-preparation:v2",
+  );
+  assert.equal(Object.hasOwn(policy.reporting, "prCommentMarkerPrefix"), false);
+  assert.equal(Object.hasOwn(policy.reporting, "prCommentMarkerSchema"), false);
+  const playbook = read(policy.canonicalPlaybook);
+  assert.ok(playbook.includes(policy.reporting.prCommentMarker));
+  assert.ok(
+    playbook.includes(
+      `<!-- ${policy.reporting.prCommentClaimMarkerSchema} pr=`,
+    ),
+  );
+});
+
+test("the playbook and prompt carry the skill revision stop sentence", () => {
+  const policy = authorityJson(read(CLAIM_POLICY));
+  for (const path of [policy.canonicalPlaybook, policy.entryPrompt]) {
+    const document = read(path);
+    assert.ok(document.includes(policy.workflow.revision), path);
+    assert.ok(document.includes("stop before any write"), path);
+  }
+});
+
+test("the playbook and prompt carry the coarse exit-code rule", () => {
+  const policy = authorityJson(read(CLAIM_POLICY));
+  for (const path of [policy.canonicalPlaybook, policy.entryPrompt]) {
+    // Both documents hard-wrap, so compare against collapsed whitespace and let
+    // the rule's wording, not its line breaks, decide.
+    const document = read(path).replaceAll(/\s+/gu, " ");
+    // The rule is copied verbatim from the CLI's COARSE_EXIT_RULE, which spells
+    // the command bare. Backticks around `adopt` would read the same but make
+    // the four prose copies differ from the string they quote.
+    assert.ok(document.includes("12 run adopt;"), path);
+    // The contract's exit-13 clause scopes the stop to this PR and states the
+    // forfeit; a bare "stop publishing" reads as halting the whole batch and
+    // leaves the prepared commit looking reusable.
+    assert.ok(
+      document.includes(
+        "13 stop publishing this PR and treat work in flight as forfeit",
+      ),
+      path,
+    );
+  }
+});
+
+test("the playbook documents the claim label and the legacy lock migration", () => {
+  const policy = authorityJson(read(CLAIM_POLICY));
+  const playbook = read(policy.canonicalPlaybook);
+  assert.ok(playbook.includes(policy.coordination.claims.label));
+  assert.ok(
+    playbook.includes(`${policy.coordination.claims.namespace}/<number>`),
+  );
+  assert.ok(playbook.includes("/home/molt/.local/state/mento-dependabot"));
+  assert.ok(playbook.includes("Rollback"));
+  // The retired directory also holds the v1 runs' reports, so the migration
+  // removes the lock child alone and the preservation rule stays written down.
+  assert.ok(
+    playbook.includes(
+      "ssh giskard 'rm -rf /home/molt/.local/state/mento-dependabot/active'",
+    ),
+  );
+  assert.doesNotMatch(
+    playbook,
+    /rm -rf \/home\/molt\/\.local\/state\/mento-dependabot'/u,
+  );
+  assert.ok(playbook.includes("Preserve reports and checkouts"));
+  // The rollback meets the state it is most likely to meet — a claim still held
+  // — so it stops there first, and it names the revert rather than a hand-edited
+  // subset that would leave the suites red.
+  assert.ok(playbook.includes("claims list --stale --json"));
+  assert.ok(playbook.includes("--outcome family-rollback"));
+  assert.ok(playbook.includes("label:%22dependabot-prep:claimed%22"));
+  assert.match(playbook, /Revert the pull request that introduced/u);
+  // The prune is the operator's, and the playbook the preparation agent reads
+  // says so beside the mutation.
+  assert.ok(playbook.includes("`delete-claim-refs` is"));
+});
+
+test("the publication steps name the mandatory claim gates", () => {
+  const policy = authorityJson(read(CLAIM_POLICY));
+  const playbook = read(policy.canonicalPlaybook);
+  assert.deepEqual(policy.coordination.claims.requiredBefore, [
+    "branch-push",
+    "review-request",
+  ]);
+  // The fenced push block is byte-pinned above, so the fence is named in the
+  // prose that introduces it and in the review-request step beside it.
+  const [, pushStep] = playbook.split("   Require an existing, nonzero 40-hex");
+  assert.match(pushStep.split("```")[0], /claims guard --gate push/u);
+  const [, reviewStep] = playbook.split("5. Request CodeRabbit once per head");
+  assert.match(
+    reviewStep.split("\n6.")[0],
+    /claims guard --gate review-request/u,
+  );
+});
+
+test("the playbook names the read-only, advisory and record-keeping commands", () => {
+  const policy = authorityJson(read(CLAIM_POLICY));
+  const playbook = read(policy.canonicalPlaybook).replaceAll(/\s+/gu, " ");
+  assert.ok(playbook.includes("claims read --pr <n>"));
+  assert.ok(playbook.includes("--gate summary-comment"));
+  assert.ok(playbook.includes("--set lastPushedHead=<sha>"));
+  assert.ok(playbook.includes("reviewRequestedHead=<sha>"));
+  assert.ok(playbook.includes("summaryCommentUrl=<url>"));
+  assert.ok(playbook.includes("--if-due"));
+  // `pnpm run` resolves the script from the nearest package.json, and the
+  // wrapper hands its own working directory to a guarded child, so a per-PR
+  // tree needs both an explicit `--dir` and an explicit `git -C`.
+  assert.ok(
+    playbook.includes(
+      "pnpm --dir <main-tracking-checkout> dependabot:claim -- claims <command>",
+    ),
+  );
+  assert.ok(playbook.includes("git -C <pr-worktree>"));
+  assert.ok(playbook.includes("linked `git worktree`"));
+});
+
+test("the retired coordinator instruction is gone from the playbook and prompt", () => {
+  const policy = authorityJson(read(CLAIM_POLICY));
+  const documents = read(policy.canonicalPlaybook) + read(policy.entryPrompt);
+  assert.doesNotMatch(
+    documents,
+    /shared batch lock|single-batch lock|SSH to giskard as molt|existing session and batch lock|Acquire a single-batch lock/u,
+  );
+  for (const path of ["AGENTS.md", "CLAUDE.md"]) {
+    assert.doesNotMatch(
+      read(path),
+      /single-batch lock|trusted-agent-v1/u,
+      path,
+    );
+  }
+});
+
+test("README no longer claims a single active batch", () => {
+  const readme = read("README.md");
+  assert.doesNotMatch(readme, /One active batch/u);
+  assert.match(readme, /One claim\s+per pull request/u);
 });
