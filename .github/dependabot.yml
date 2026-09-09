@@ -30,6 +30,17 @@ updates:
       prefix: chore(deps)
       prefix-development: chore(deps-dev)
 
+    # RainbowKit 2.2.11 supports Wagmi 2 and supplies the connector and modal
+    # layer used by App and Governance. Recheck official RainbowKit support by
+    # this UTC date. The dependency-policy test fails on and after the date
+    # until this hold is removed or renewed with current evidence.
+    # Context: https://github.com/mento-protocol/frontend-monorepo/pull/919
+    # wagmi-major-review-deadline: 2027-03-09
+    ignore:
+      - dependency-name: wagmi
+        update-types:
+          - version-update:semver-major
+
     groups:
       # The protected deployment runtime mirrors the root Vercel CLI pin.
       # Keep routine CLI rotations isolated for focused review.
