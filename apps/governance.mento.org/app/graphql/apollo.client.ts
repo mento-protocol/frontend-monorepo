@@ -11,26 +11,31 @@ import { SetContextLink } from "@apollo/client/link/context";
 import { HttpLink } from "@apollo/client/link/http";
 import { LocalState } from "@apollo/client/local-state";
 import { env } from "@/env.mjs";
+import { getGraphAuthorization } from "./graph-gateway";
+
+// One source of truth for "which URL does this apiName hit". Both the
+// transport and the auth link consult it, so the key decision can never
+// disagree with the destination.
+function resolveEndpoint(apiName: unknown): string {
+  switch (apiName) {
+    case "celoExplorer":
+      return env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL;
+    case "celoExplorerCeloSepolia":
+      return env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA;
+    case "subgraph":
+      return env.NEXT_PUBLIC_SUBGRAPH_URL;
+    case "subgraphCeloSepolia":
+      return env.NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA;
+    default:
+      return env.NEXT_PUBLIC_SUBGRAPH_URL;
+  }
+}
 
 // have a function to create a client for you
 export function makeClient() {
   const httpLink = new HttpLink({
     // needs to be an absolute url, as relative urls cannot be used in SSR
-    uri: (operation) => {
-      const { apiName } = operation.getContext();
-      switch (apiName) {
-        case "celoExplorer":
-          return env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL;
-        case "celoExplorerCeloSepolia":
-          return env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA;
-        case "subgraph":
-          return env.NEXT_PUBLIC_SUBGRAPH_URL;
-        case "subgraphCeloSepolia":
-          return env.NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA;
-        default:
-          return env.NEXT_PUBLIC_SUBGRAPH_URL;
-      }
-    },
+    uri: (operation) => resolveEndpoint(operation.getContext().apiName),
 
     // you can disable result caching here if you want to
     // (this does not work if you are rendering your page with `export const dynamic = "force-static"`)
@@ -43,25 +48,23 @@ export function makeClient() {
 
   // Auth link to add API keys to requests
   const authLink = new SetContextLink(({ apiName, headers }) => {
-    // Determine which API key to use based on the API name
-    let authToken = "";
-
-    switch (apiName) {
-      case "subgraph":
-      case "subgraphCeloSepolia":
-        authToken = env.NEXT_PUBLIC_GRAPH_API_KEY;
-        break;
-      default:
-        authToken = "";
-        break;
-    }
+    // Only subgraph operations are candidates for the key, and only when the
+    // resolved endpoint is the gateway. A chain that has moved to a Studio
+    // dev endpoint gets no key, since Studio does not take one.
+    const isSubgraphOperation =
+      apiName === "subgraph" || apiName === "subgraphCeloSepolia";
+    const authorization = isSubgraphOperation
+      ? getGraphAuthorization(
+          resolveEndpoint(apiName),
+          env.NEXT_PUBLIC_GRAPH_API_KEY,
+        )
+      : undefined;
 
     // Return the headers to the context so httpLink can read them
     return {
       headers: {
         ...headers,
-        // Add authorization header if API key exists
-        ...(authToken && { authorization: `Bearer ${authToken}` }),
+        ...(authorization && { authorization }),
       },
     };
   });
