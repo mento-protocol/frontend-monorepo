@@ -2562,6 +2562,16 @@ test("the playbook documents the claim label and the legacy lock migration", () 
   // The rollback meets the state it is most likely to meet — a claim still held
   // — so it stops there first, and it names the revert rather than a hand-edited
   // subset that would leave the suites red.
+  // The rollback inventory must list every claim: `--stale` filters to expired
+  // leases, so a writer holding a fresh LOCK would be invisible and rollback
+  // could restore the legacy lock while that writer still publishes.
+  const rollbackStart = playbook.indexOf("Rollback runs in reverse");
+  assert.ok(rollbackStart > 0, "playbook has a rollback section");
+  const rollback = playbook.slice(rollbackStart);
+  assert.ok(rollback.includes("claims list --json"));
+  assert.ok(!rollback.includes("list --stale"));
+  assert.match(rollback, /every returned `state` is `UNLOCK`/u);
+  // The stale-lock recovery path elsewhere still uses the filtered listing.
   assert.ok(playbook.includes("claims list --stale --json"));
   assert.ok(playbook.includes("--outcome family-rollback"));
   assert.ok(playbook.includes("label:%22dependabot-prep:claimed%22"));
@@ -2578,7 +2588,7 @@ test("the publication steps name the mandatory claim gates", () => {
     "branch-push",
     "review-request",
   ]);
-  // The fenced push block is byte-pinned above, so the fence is named in the
+  // The fenced push block's fragments are pinned above, so the fence is named in the
   // prose that introduces it and in the review-request step beside it.
   const [, pushStep] = playbook.split("   Require an existing, nonzero 40-hex");
   assert.match(pushStep.split("```")[0], /claims guard --gate push/u);

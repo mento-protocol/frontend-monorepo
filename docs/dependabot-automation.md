@@ -385,10 +385,13 @@ run held it. Migrate in this order:
 Rollback runs in reverse, in this order:
 
 1. Stop while any claim is still held, as migration step 6 stops for the legacy
-   directory. List the claims and continue only when every ref is at UNLOCK:
+   directory. List every claim, not only the stale ones, and continue only
+   when every returned `state` is `UNLOCK`. A `LOCK` with a live lease is a
+   writer still at work; `--stale` would hide it. Stop on any error or
+   `invalid` entry:
 
    ```sh
-   pnpm dependabot:claim -- claims list --stale --json
+   pnpm dependabot:claim -- claims list --json
    ```
 
    A held claim is released by its own run, with `--outcome family-rollback`.
