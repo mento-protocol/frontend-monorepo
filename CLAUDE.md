@@ -202,9 +202,18 @@ every later invocation re-arming it — so `git config --unset core.hooksPath` i
 one-shot escape that the next Trunk run undoes, which is why the action is
 disabled in configuration instead.
 
-The pre-push actions that do pass in a cloud session stay enabled, so a push is
-still gated on real checks rather than on nothing: `check-types-pre-push`,
-`check-knip-pre-push`, and `adr-reminder-pre-push`.
+The pre-push actions that can pass here stay enabled, so a push is still gated on
+real checks rather than on nothing: `check-types-pre-push`, `check-knip-pre-push`,
+and `adr-reminder-pre-push`. Budget a couple of minutes for a push, most of it
+`check-types`.
+
+Disabling the first blocker exposed a second one, worth knowing if you add an
+action. Trunk runs git hooks without the workspace's `node_modules/.bin` on
+`PATH`, so an action invoking a bare workspace binary is not found and the action
+fails closed — blocking the push it was meant to gate. `check-types-pre-push` ran
+`turbo run check-types` and died with `turbo: command not found`; it now goes
+through `pnpm exec`, like every other action in `.trunk/trunk.yaml`. Invoke
+workspace tooling through `pnpm` in an action's `run`, never directly.
 
 The hermetic runtimes in `.trunk/trunk.yaml` then need to be downloadable, which
 is a _network allowlist_ question rather than a repository-scope one. The two
