@@ -134,11 +134,25 @@ created by `updateRefs` from the zero object id with `force:false` on
 2026-09-09, and confirmed there to refuse a second identical compare-and-swap.
 The ref stays in place as the first audit artifact.
 
-Pending, and not yet evidence: the claims package (PR link TBD), the portable
-skill at revision `trusted-agent-v2` (PR link TBD), this repository's
-`dependabot-prep-policy:v4` (PR link TBD), and the live rehearsal on PR #872.
-Fill the three links and date the rehearsal before this refinement counts as
-validated.
+Evidence, verified: the live rehearsal on the closed PR #872 on 2026-09-09,
+run with the package checkout's binary against this policy and a two-minute
+rehearsal lease. The chain on `refs/mento-claims/v1/pr/872` records bootstrap
+UNLOCK `5315e664`, acquire `ec905e78`, renew `81f41e3b`, release `87fbe0d7`,
+acquire `a163e0ba`, takeover `7b526031` after expiry plus grace, renew
+`164628bf` from a fresh process, and release `ff5d88d3`. A second run was
+refused while the lease was live, a supplied run id was rejected, the
+superseded token failed verify, guard and release with exit 13, and the label
+followed the ref in both directions. No comment, commit, review request or
+workflow run was created on the PR.
+
+Pending review, and not yet merged: the claims package
+([mento-protocol/agents#1](https://github.com/mento-protocol/agents/pull/1)),
+the portable skill at revision `trusted-agent-v2` (chapati23/agent-skills#19,
+a private repository),
+and this repository's `dependabot-prep-policy:v4`
+([#948](https://github.com/mento-protocol/frontend-monorepo/pull/948)). The
+drop-in adoption in monitoring-monorepo is tracked in
+[mento-protocol/monitoring-monorepo#2343](https://github.com/mento-protocol/monitoring-monorepo/issues/2343).
 
 ## Alternatives considered
 
