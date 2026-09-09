@@ -1,9 +1,8 @@
 name: Notify Slack on main-branch workflow failure
 
 # Reports a watched operational failure only when it remains current for 15
-# minutes. Reconciliation suppresses a recovered failure and lets only the first
-# failure in an active episode post, including when GitHub delivers callbacks out
-# of order.
+# minutes. Reconciliation suppresses a recovered failure, including when GitHub
+# delivers callbacks out of order.
 #
 # Relationship to `.github/workflows/ci-failure-notifier.yml`: that workflow
 # owns the managed GitHub issue lifecycle (open, update, close after recovery)
@@ -134,15 +133,15 @@ jobs:
       # A `workflow_run` callback can arrive out of order: run N's failure can
       # land after run N+1 already succeeded, and an older attempt can land
       # after a successful rerun. `scripts/ci-failure-issue.mjs` handles that
-      # by reconciling every callback against decisive runs in its
-      # partition (`workflow_id` + `event` + target ref). Slack needs one alert
-      # per active failure episode. A newer success suppresses this callback.
-      # When no newer success exists, only the first failure after the nearest
-      # prior success posts. Later failures in that same episode skip.
+      # by reconciling every callback against decisive runs in its partition
+      # (`workflow_id` + `event` + target ref). A newer success suppresses this
+      # callback. Every failure otherwise posts after its own recovery window.
+      # Coalescing sustained failures would require durable proof that an earlier
+      # Slack delivery succeeded.
       #
       # Fails open: any API error, or a callback run missing from the page,
       # posts anyway. A rare duplicate beats a dropped alert.
-      - name: Reconcile the active failure episode
+      - name: Reconcile against newer success
         id: freshness
         if: github.event_name != 'workflow_dispatch'
         env:
@@ -167,9 +166,9 @@ jobs:
           fi
 
           # Pages of 100 completed runs are newest first. The query is already
-          # restricted to this callback's event. Scan until a newer success or
-          # the closest older decisive run in this partition is known. The page
-          # limit bounds the job; exhausting it fails open.
+          # restricted to this callback's event. Scan until a newer success is
+          # found or the listing reaches this callback. The page limit bounds
+          # the job; exhausting it fails open.
           STALE=false
           PAGE=1
           PAGE_LIMIT=10
@@ -190,9 +189,8 @@ jobs:
               exit 0
             fi
 
-            # `isDecisiveRun()` is `success` plus FAILURE_CONCLUSIONS, and
             # `compareRuns()` orders by run_number then run_attempt. The target
-            # ref uses the same fallback as `targetRefFor()`. Candidates must
+            # ref uses the same fallback as `targetRefFor()`. Successes must
             # also be owned by this repository, mirroring the
             # `head_repository.full_name` clause in `isRelevantRun()`: a fork
             # PR whose head branch is named `main` produces a skipped-success
@@ -212,17 +210,17 @@ jobs:
               --argjson number "${RUN_NUMBER:-0}" \
               --argjson attempt "${RUN_ATTEMPT:-1}" '
                 (if $head_branch != "" then $head_branch elif $event == "push" then "release tag" else $default_branch end) as $target
-                | ["success", "action_required", "failure", "startup_failure", "timed_out"] as $decisive
                 | (.workflow_runs // []) as $runs
+                | [ $runs[] | [(.run_number // 0), (.run_attempt // 1)] ] as $positions
                 | [ $runs[]
                     | select(.status == "completed")
-                    | select(.conclusion as $c | $decisive | index($c))
+                    | select(.conclusion == "success")
                     | select((if (.head_branch // "") != "" then .head_branch elif $event == "push" then "release tag" else $default_branch end) == $target)
                     | select((.head_repository.full_name // "") == $repository)
-                    | {position: [(.run_number // 0), (.run_attempt // 1)], conclusion}
-                  ] as $decisiveRuns
-                | [ ($decisiveRuns | map(select(.conclusion == "success" and .position > [$number, $attempt])) | length > 0),
-                    ($decisiveRuns | map(select(.position < [$number, $attempt])) | sort_by(.position) | last | .conclusion // "none"),
+                    | select([(.run_number // 0), (.run_attempt // 1)] > [$number, $attempt])
+                  ] as $newerSuccesses
+                | [ ($newerSuccesses | length > 0),
+                    ($positions | map(select(. <= [$number, $attempt])) | length > 0),
                     ($runs | length)
                   ]
                 | @tsv
@@ -232,27 +230,20 @@ jobs:
               exit 0
             fi
 
-            IFS=$'\t' read -r PAGE_RECOVERED PAGE_PRIOR PAGE_COUNT <<<"$RESULT"
+            IFS=$'\t' read -r PAGE_RECOVERED PAGE_REACHED PAGE_COUNT <<<"$RESULT"
             if [ "$PAGE_RECOVERED" = "true" ]; then
               STALE=true
               echo "A newer success recovered this failure; skipping the Slack post."
               break
             fi
-            if [ "$PAGE_PRIOR" != "none" ]; then
-              if [ "$PAGE_PRIOR" != "success" ]; then
-                STALE=true
-                echo "An earlier failure owns this active episode; skipping the Slack post."
-              fi
-              break
-            fi
-            if [ "${PAGE_COUNT:-0}" -lt 100 ]; then
+            if [ "$PAGE_REACHED" = "true" ] || [ "${PAGE_COUNT:-0}" -lt 100 ]; then
               break
             fi
             PAGE=$((PAGE + 1))
           done
 
           if [ "$PAGE" -gt "$PAGE_LIMIT" ]; then
-            echo "Reached the $PAGE_LIMIT-page scan limit without finding a prior decisive run; posting without reconciliation."
+            echo "Reached the $PAGE_LIMIT-page scan limit without finding this run; posting without reconciliation."
             echo "stale=false" >>"$GITHUB_OUTPUT"
             exit 0
           fi

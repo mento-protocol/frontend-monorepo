@@ -316,8 +316,8 @@ test("the Slack notifier watches the issue notifier's allowlist and never shells
   assert.deepEqual([...referencedSecrets], ["SLACK_BOT_TOKEN"]);
 
   // Failure callbacks must wait independently. GitHub keeps at most one
-  // pending member per concurrency group and can otherwise discard the older
-  // callback that owns the active episode.
+  // pending member per concurrency group and can otherwise discard an older
+  // failure callback before it evaluates current state.
   assert.doesNotMatch(slack, /^concurrency:/m);
   assert.match(slack, /^ {4}timeout-minutes: 20$/m);
 
@@ -498,12 +498,12 @@ test("the Slack notifier names the same target ref as the managed issue", () => 
   }
 });
 
-test("the Slack notifier suppresses recovered and repeated failure callbacks", () => {
+test("the Slack notifier suppresses only recovered failure callbacks", () => {
   const slack = read(".github/workflows/notify-slack-on-main-failure.yml");
   const issueScript = read("scripts/ci-failure-issue.mjs");
 
-  // Parity anchors on the three pieces of the issue notifier's freshness rule.
-  // If any changes, this fails and forces the jq mirror to change with it.
+  // Parity anchors on the issue notifier's run ordering. If it changes, this
+  // fails and forces the jq mirror to change with it.
   assert.match(
     issueScript,
     /function runPosition\(run\) \{\n {2}return \[run\.run_number \?\? 0, run\.run_attempt \?\? 1\];\n\}/,
@@ -513,11 +513,6 @@ test("the Slack notifier suppresses recovered and repeated failure callbacks", (
     issueScript,
     /return leftNumber - rightNumber \|\| leftAttempt - rightAttempt;/,
     "compareRuns changed; update the freshness mirror in the Slack notifier",
-  );
-  assert.match(
-    issueScript,
-    /run\.conclusion === "success" \|\| FAILURE_CONCLUSIONS\.has\(run\.conclusion\)/,
-    "isDecisiveRun changed; update the freshness mirror in the Slack notifier",
   );
 
   // The gate itself, and the query shape it mirrors.
@@ -548,26 +543,20 @@ test("the Slack notifier suppresses recovered and repeated failure callbacks", (
       `the run query must mirror listCompletedWorkflowRuns (${parameter})`,
     );
   }
-  const decisiveInWorkflow =
-    /\[("success", "action_required", "failure", "startup_failure", "timed_out")\] as \$decisive/.exec(
-      slack,
-    )?.[1];
-  assert.equal(
-    decisiveInWorkflow,
-    '"success", "action_required", "failure", "startup_failure", "timed_out"',
-    "the decisive set must be success plus FAILURE_CONCLUSIONS",
-  );
   assert.ok(
-    slack.includes(
-      '($decisiveRuns | map(select(.conclusion == "success" and .position > [$number, $attempt])) | length > 0)',
-    ),
+    slack.includes('| select(.conclusion == "success")'),
     "a newer success must suppress a recovered failure",
   );
   assert.ok(
     slack.includes(
-      '($decisiveRuns | map(select(.position < [$number, $attempt])) | sort_by(.position) | last | .conclusion // "none")',
+      "| select([(.run_number // 0), (.run_attempt // 1)] > [$number, $attempt])",
     ),
-    "the closest prior decisive run must identify the failure episode leader",
+    "only successes newer than the callback may suppress it",
+  );
+  assert.doesNotMatch(
+    slack,
+    /earlier failure owns|nearest prior success|first failure in an active episode/,
+    "a prior failure cannot prove that its Slack delivery succeeded",
   );
 
   // Candidates must also be repository-owned, mirroring the
@@ -588,14 +577,15 @@ test("the Slack notifier suppresses recovered and repeated failure callbacks", (
     slack.includes(
       '| select((.head_repository.full_name // "") == $repository)',
     ),
-    "decisive candidates must be filtered to runs this repository owns",
+    "success candidates must be filtered to runs this repository owns",
   );
 
-  // A long tail of non-decisive runs can push recovery or the previous episode
-  // boundary past the first page.
+  // A long tail of newer non-success runs can push recovery past the first page.
   assert.ok(
-    slack.includes('if [ "${PAGE_COUNT:-0}" -lt 100 ]; then'),
-    "pagination must stop on a short final page",
+    slack.includes(
+      'if [ "$PAGE_REACHED" = "true" ] || [ "${PAGE_COUNT:-0}" -lt 100 ]; then',
+    ),
+    "pagination must stop after reaching the callback or a short final page",
   );
   assert.match(
     slack,
@@ -604,31 +594,22 @@ test("the Slack notifier suppresses recovered and repeated failure callbacks", (
   );
   assert.ok(
     slack.includes(
-      'echo "Reached the $PAGE_LIMIT-page scan limit without finding a prior decisive run; posting without reconciliation."',
+      'echo "Reached the $PAGE_LIMIT-page scan limit without finding this run; posting without reconciliation."',
     ),
     "exhausting the page limit must fail open",
   );
 
-  // Reference helpers preserve the shared partition, ordering, and decisive
-  // conclusion rules. Slack then applies its episode-leader rule.
+  // Reference helpers preserve the shared partition and ordering rules.
   const runPosition = (run) => [run.run_number ?? 0, run.run_attempt ?? 1];
   const compareRuns = (left, right) => {
     const [ln, la] = runPosition(left);
     const [rn, ra] = runPosition(right);
     return ln - rn || la - ra;
   };
-  const decisive = new Set([
-    "success",
-    "action_required",
-    "failure",
-    "startup_failure",
-    "timed_out",
-  ]);
   const repository = "mento-protocol/frontend-monorepo";
-  // The workflow step, reimplemented. A newer success means this callback
-  // recovered. Otherwise, the nearest older decisive run says whether this is
-  // the first failure in the current episode. `runs` is the full newest-first
-  // listing; pageSize keeps pagination testable without 100 fixtures.
+  // The workflow step, reimplemented. Only a newer success suppresses this
+  // callback. `runs` is the full newest-first listing; pageSize keeps
+  // pagination testable without 100 fixtures.
   const workflowSkips = (callback, runs, defaultBranch, pageSize = 100) => {
     const partition =
       callback.head_branch !== ""
@@ -653,28 +634,20 @@ test("the Slack notifier suppresses recovered and repeated failure callbacks", (
     const pageLimit = 10;
     for (let page = 0; page < pageLimit; page += 1) {
       const rows = runs.slice(page * pageSize, (page + 1) * pageSize);
-      const candidates = rows
+      const newerSuccess = rows
         .filter((candidate) => candidate.status === "completed")
-        .filter((candidate) => decisive.has(candidate.conclusion))
+        .filter((candidate) => candidate.conclusion === "success")
         .filter(inPartition)
         .filter(
           (candidate) =>
             (candidate.head_repository?.full_name ?? "") === repository,
-        );
-      if (
-        candidates.some(
-          (candidate) =>
-            candidate.conclusion === "success" &&
-            compareRuns(candidate, callbackPosition) > 0,
         )
-      ) {
-        return true;
-      }
-      const prior = candidates
-        .filter((candidate) => compareRuns(candidate, callbackPosition) < 0)
-        .sort((left, right) => compareRuns(right, left))[0];
-      if (prior) return prior.conclusion !== "success";
-      if (rows.length < pageSize) return false;
+        .some((candidate) => compareRuns(candidate, callbackPosition) > 0);
+      if (newerSuccess) return true;
+      const reached = rows.some(
+        (candidate) => compareRuns(candidate, callbackPosition) <= 0,
+      );
+      if (reached || rows.length < pageSize) return false;
     }
     // Page limit exhausted: fail open.
     return false;
@@ -690,7 +663,7 @@ test("the Slack notifier suppresses recovered and repeated failure callbacks", (
     run_attempt: 1,
   };
   const scenarios = [
-    { name: "callback is the newest decisive run", runs: [], skip: false },
+    { name: "callback is the newest run", runs: [], skip: false },
     {
       name: "a newer run already succeeded",
       runs: [{ ...callback, conclusion: "success", run_number: 12 }],
@@ -702,14 +675,20 @@ test("the Slack notifier suppresses recovered and repeated failure callbacks", (
       skip: true,
     },
     {
-      name: "a newer failure keeps the first failure as episode owner",
+      name: "a newer failure does not prove Slack delivery",
       runs: [{ ...callback, run_number: 12 }],
       skip: false,
     },
     {
-      name: "an earlier failure already owns the active episode",
+      name: "an earlier failure does not prove Slack delivery",
       runs: [{ ...callback, run_number: 10 }],
-      skip: true,
+      skip: false,
+    },
+    {
+      name: "a failed rerun posts when an earlier success is no longer listed",
+      callback: { ...callback, run_attempt: 2 },
+      runs: [{ ...callback, run_number: 10 }],
+      skip: false,
     },
     {
       name: "the newer run was cancelled, which is not decisive",
@@ -729,7 +708,7 @@ test("the Slack notifier suppresses recovered and repeated failure callbacks", (
       skip: false,
     },
     {
-      name: "the nearest older success starts this failure episode",
+      name: "an older success does not suppress a later failure",
       runs: [{ ...callback, conclusion: "success", run_number: 10 }],
       skip: false,
     },
@@ -748,23 +727,15 @@ test("the Slack notifier suppresses recovered and repeated failure callbacks", (
       pageSize: 4,
       skip: true,
     },
-    {
-      name: "the previous episode failure sits beyond the first page",
-      runs: [
-        ...Array.from({ length: 4 }, (_unused, index) => ({
-          ...callback,
-          conclusion: "cancelled",
-          run_number: 100 - index,
-        })),
-        { ...callback, run_number: 10 },
-      ],
-      pageSize: 4,
-      skip: true,
-    },
   ];
   for (const scenario of scenarios) {
     assert.equal(
-      workflowSkips(callback, scenario.runs, "main", scenario.pageSize),
+      workflowSkips(
+        scenario.callback ?? callback,
+        scenario.runs,
+        "main",
+        scenario.pageSize,
+      ),
       scenario.skip,
       `workflow mirror wrong: ${scenario.name}`,
     );
@@ -810,7 +781,7 @@ test("the Slack notifier suppresses recovered and repeated failure callbacks", (
 
   // Prove the pagination scenario is a real regression guard: a lookup capped
   // at one page reports "not stale" for it, which is the bug being fixed.
-  const buriedSuccess = scenarios.at(-2);
+  const buriedSuccess = scenarios.at(-1);
   assert.equal(
     workflowSkips(callback, buriedSuccess.runs, "main", 1000),
     true,

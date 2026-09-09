@@ -197,12 +197,11 @@ search; it opens, updates, and closes nothing, so the issue lifecycle above
 stays the single source of truth.
 
 The notifier waits 15 minutes before it evaluates and posts a failure. Each
-failure callback waits independently. This prevents GitHub's concurrency queue
-from discarding the callback that owns the episode. Reconciliation then
-suppresses a callback after a newer success and lets only the first failure after
-the nearest prior success post. This keeps one red message per active failure
-episode, including when failures continue more often than the recovery window.
-The workflow stores no Slack receipt and does not update old messages.
+failure callback waits independently. Reconciliation then suppresses a callback
+after a newer success. Every sustained failure otherwise posts. The workflow
+stores no Slack receipt and does not update old messages. It also does not
+coalesce sustained failures because it cannot prove that an earlier Slack
+delivery succeeded without durable delivery state.
 
 `chat.postMessage` accepts a channel name for a public channel, so the payload
 passes `#ci-failures` rather than an encoded ID. Configure an ID instead only
@@ -252,16 +251,15 @@ callback to the latest decisive run in its partition — `workflow_id` plus
 "decisive" is `success` plus `FAILURE_CONCLUSIONS` — and acting on that run, so
 it closes or leaves closed the managed issue.
 
-Slack is not idempotent the way one managed issue is. The workflow therefore
-posts only for the first failure in an active episode. A newer success
-suppresses an older callback. A prior failure suppresses a later failure until
-the nearest prior decisive run is a success. A `Reconcile the active failure
-episode` step lists the workflow's completed runs for the callback's own
-event with `actions: read` and sets a `stale` output that gates the post step;
-the smoke-test dispatch skips it entirely.
+Slack is not idempotent the way one managed issue is. A `Reconcile against newer
+success` step lists the workflow's completed runs for the callback's own event
+with `actions: read`. A newer success suppresses an older callback. Other
+failures do not suppress the callback because their Slack delivery may have
+failed. The step sets a `stale` output that gates the post step; the smoke-test
+dispatch skips it entirely.
 
-It paginates until it finds a newer success, the nearest older decisive run, or
-a short final page. This handles a long tail of non-decisive runs. The scan is
+It paginates until it finds a newer success, reaches the callback's position, or
+finds a short final page. This handles a long tail of newer runs. The scan is
 bounded to ten pages. Each GitHub and Slack request has a 20-second deadline.
 
 It fails open. An API error, an unexpected workflow id, malformed or

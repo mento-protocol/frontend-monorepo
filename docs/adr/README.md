@@ -51,4 +51,4 @@ adds a high-signal surface without a numbered ADR.
 | [0008](0008-authenticated-dependabot-native-generation-boundaries.md) | Archived: native Dependabot generation authentication; superseded by ADR 0009             |
 | [0009](0009-external-agent-dependabot-preparation.md)                 | Archived: sealed external-agent preparation; superseded by ADR 0010                       |
 | [0010](0010-trusted-agent-dependabot-preparation.md)                  | Ordinary trusted OpenClaw coding workflow with bounded weekly preparation                 |
-| [0011](0011-delayed-slack-failure-alerts.md)                          | Delay Slack alerts and post once per active failure episode                               |
+| [0011](0011-delayed-slack-failure-alerts.md)                          | Delay Slack alerts and suppress failures that recover within the window                   |

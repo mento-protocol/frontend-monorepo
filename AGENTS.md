@@ -103,8 +103,7 @@ allowlist and posts the same failures to Slack's `#ci-failures` with a link to
 the run and to the managed issue; it opens no issue and duplicates no issue
 logic. It waits 15 minutes before posting. Reconciliation then suppresses a
 failure when a newer success exists in the same workflow, event, and target-ref
-partition. When failures continue, only the first failure in the active episode
-posts. It alerts on exactly the
+partition. Every sustained failure otherwise posts. It alerts on exactly the
 `FAILURE_CONCLUSIONS` set from
 `scripts/ci-failure-issue.mjs` and uses the same target-ref, run-order,
 decisive-conclusion, and repository-ownership rules. This prevents an
