@@ -336,15 +336,20 @@ knowing:
   only difference is the warning. Such a test sets `NODE_NO_WARNINGS: "1"` on
   the child (see `scripts/vercel-main-release-cli.test.mjs`); prefer that over
   running the shard with the variable unset, which only hides the problem.
-- **Playwright needs the browser it was pinned against.** The workspace pins
-  `@playwright/test` 1.61.1, which wants chromium revision 1228, and the image
-  ships 1194 under `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`, so `launch()`
-  fails with `Executable doesn't exist`. Do **not** run `playwright install`.
-  For an ad-hoc script, pass `executablePath: '/opt/pw-browsers/chromium'`. To
-  run a suite that does not set that option, point
-  `PLAYWRIGHT_BROWSERS_PATH` at a directory of symlinks that also aliases the
-  1194 builds under the 1228 names — note the 1194 headless shell keeps the
-  older `chrome-linux/headless_shell` layout, not
+- **Playwright needs the browser it was pinned against.** The image ships
+  chromium 1194 under `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`, and the
+  workspace's pinned Playwright wants a newer revision, so `launch()` fails with
+  `Executable doesn't exist`. Do **not** run `playwright install`. The two
+  numbers drift apart on every Playwright bump, so read them rather than trusting
+  a figure written here: `ls /opt/pw-browsers` for what exists, and the
+  `revision` fields of
+  `node_modules/.pnpm/playwright-core@*/node_modules/playwright-core/browsers.json`
+  for what is wanted. (At the 1.62.1 pin: 1194 shipped, 1234 wanted.) For an
+  ad-hoc script, pass `executablePath: '/opt/pw-browsers/chromium'`. To run a
+  suite that does not set that option, point `PLAYWRIGHT_BROWSERS_PATH` at a
+  directory of symlinks aliasing the shipped builds under the wanted revision's
+  names — note the shipped headless shell keeps the older
+  `chrome-linux/headless_shell` layout, not
   `chrome-headless-shell-linux64/chrome-headless-shell`.
 - **The anvil fork suites do run here.** Foundry is installed and
   `forno.celo.org`, `rpc.monad.xyz`, and `monad.drpc.org` are all reachable, so
