@@ -155,12 +155,21 @@ pnpm dependabot:claim -- claims claim --pr 872 --json
 ```
 
 Every `claims …` command in this document runs through that wrapper: write
-`pnpm dependabot:claim -- claims <command>`. Run it from a checkout that tracks
-live `main`. The wrapper reads the policy beside itself, so a candidate branch
-that edits the policy would otherwise supply its own pin, TTLs and gates. `pnpm`
-resolves the script from the nearest `package.json` above the working directory,
-so from inside a per-PR tree write
+`pnpm dependabot:claim -- claims <command>`. The wrapper reads
+`.github/dependabot-prep-policy.json` from the fetched default branch, never
+from the checkout it runs in. It resolves `refs/remotes/origin/main` in the
+local object store, reads the policy blob out of that revision, and passes a
+private copy of those bytes as `--config`. A candidate branch that edits the
+policy therefore cannot supply its own pin, TTLs, namespace or gates, whichever
+checkout the command runs from. The wrapper prints the ref and its object id on
+every run and never fetches, so refresh a stale ref with `git fetch origin main`.
+It stops with exit 3 when that ref is missing, when the policy is missing at
+that revision, or when `git` is unavailable.
+
+`pnpm` resolves the script from the nearest `package.json` above the working
+directory, so from inside a per-PR tree write
 `pnpm --dir <main-tracking-checkout> dependabot:claim -- claims <command>`.
+`--dir` locates the wrapper; it no longer decides which policy the wrapper reads.
 
 The wrapper gives its own working directory to the claim command, and the claim
 command gives it to a guarded child. A guarded command that must act on a per-PR
@@ -205,9 +214,10 @@ also carries an exact-head lease.
 ### Fence every publication
 
 Run every branch push and every review request under `claims guard`. Guard proves
-the claim is held, renews it for the child's whole lifetime, and stops the child
-when the claim is lost. The fast-forward proof runs before the guard, unguarded,
-because it only reads the per-PR tree; the guard then carries the push alone:
+the claim is held at spawn time, renews it for the child's whole lifetime, and
+stops the child when the claim is lost. The fast-forward proof runs before the
+guard, unguarded, because it only reads the per-PR tree; the guard then carries
+the push alone:
 
 ```sh
 pnpm --dir "$mainCheckout" dependabot:claim -- claims guard --pr 872 \
@@ -228,6 +238,22 @@ the child without a held claim, and kills it if the claim is lost mid-flight.
 claim is held. Run any operation expected to exceed ten minutes under guard.
 Summary comments and inline replies are advisory; check the claim, but do not
 block on it.
+
+Neither mandatory gate carries the claim to GitHub, and the two publications
+end differently because of it. The push carries an exact-head lease, so a push
+overtaken by a takeover is refused at the remote: the gate is not the only
+fence. `gh pr comment` carries nothing comparable, because GitHub has no claim
+token and the request is not conditional on anything this run holds. A review
+request that starts inside the residual window between guard's check and the
+child's first byte can therefore still be published by a run that has just lost
+the claim. Guard bounds that window and kills the child, but it cannot retract a
+request already sent, so do not treat `--gate review-request` as proof that no
+stale request exists. Reconcile instead: record `reviewRequestedHead=<sha>` on
+the claim immediately after each request, and read that field before requesting
+a review, so a takeover inherits what the prior owner published. A stale request
+is then superseded rather than trusted, because `handoff.reviewCommit` is the
+exact final head — the next owner re-requests at its own head, and only a
+verdict bound to that SHA counts toward readiness.
 
 The policy names purposes and the CLI names flags. `branch-push` in
 `requiredBefore` is `--gate push`, `long-wait` in `advisoryBefore` is
@@ -324,9 +350,24 @@ run held it. Migrate in this order:
    the operating parameters the run will use, so a policy the CLI rejects
    surfaces here rather than at the first claim.
 
-   Until `@mento-protocol/issues@0.1.0` is published, run the package checkout's
-   `mento-issues` binary directly instead. An unpublished pin fails every claim
-   command closed, which stalls the rollout; it does not weaken it.
+   Until `@mento-protocol/issues@0.1.0` is published, keep the fallback under
+   the wrapper rather than running the package checkout's binary directly. Name
+   the checkout in `DEPENDABOT_CLAIM_PACKAGE_DIR` and run the same commands:
+
+   ```sh
+   DEPENDABOT_CLAIM_PACKAGE_DIR=<package-checkout> \
+     pnpm dependabot:claim -- claims doctor
+   ```
+
+   The wrapper then runs that checkout's `mento-issues` binary in place of
+   `pnpm dlx` and keeps every check it makes for a published pin: the policy
+   still comes from the default branch, the schema must still be
+   `dependabot-prep-policy:v4`, `--config` is still the wrapper's own private
+   copy of those bytes, and the checkout's manifest must carry exactly the
+   pinned name and version before its binary runs. Invoking the binary directly
+   skips all four, which is why the fallback is spelled this way. Without that
+   variable an unpublished pin fails every claim command closed, which stalls
+   the rollout; it does not weaken it.
    `pnpm dlx` resolves the package into a temporary project outside this
    workspace, so `onlyBuiltDependencies` does not gate that install. pnpm 10
    blocks a dependency's lifecycle scripts by default, and the wrapper also

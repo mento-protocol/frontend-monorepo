@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, join, relative } from "node:path";
+import { basename, delimiter, dirname, join, relative } from "node:path";
 import process from "node:process";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -142,25 +142,79 @@ function claimPolicyPath() {
   return fileURLToPath(new URL(`../${CLAIM_POLICY}`, import.meta.url));
 }
 
+const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
+
+function git(argv, input) {
+  const result = spawnSync("git", argv, {
+    cwd: repositoryRoot,
+    input,
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, `git ${argv.join(" ")}: ${result.stderr}`);
+  return result.stdout.trim();
+}
+
+// The wrapper reads its policy from the default branch's revision, not from the
+// working tree, so a test that wants the wrapper to see a particular policy has
+// to put that policy in the object store. `hash-object -w` and `mktree` write
+// loose objects only: no ref moves, no index writes and no working-tree change,
+// and an unreferenced object is collected by the next `git gc`.
+//
+// This also supplies a v4 revision while this change is still on a candidate
+// branch, because `origin/main` still carries v3 until it merges.
+function policyRevision(policyText = read(CLAIM_POLICY)) {
+  const blob = git(["hash-object", "-w", "--stdin"], policyText);
+  const directory = git(
+    ["mktree"],
+    `100644 blob ${blob}\t${basename(CLAIM_POLICY)}\n`,
+  );
+  return git(
+    ["mktree"],
+    `040000 tree ${directory}\t${dirname(CLAIM_POLICY)}\n`,
+  );
+}
+
 // Puts a stub `pnpm` first on PATH. The stub prints one argument per line, or
 // appends them to `argvFile` when the caller cannot read the child's stdout,
 // and exits with the requested code. A test therefore observes the exact
-// `pnpm dlx` argv the wrapper builds without touching the network.
-function withStubPnpm(exitCode, run, { argvFile } = {}) {
+// `pnpm dlx` argv the wrapper builds without touching the network. With
+// `configCopy` it also copies the policy file the wrapper injected, which the
+// wrapper deletes as it exits.
+function withStubPnpm(exitCode, run, { argvFile, configCopy, policyRef } = {}) {
   const stubDirectory = mkdtempSync(join(tmpdir(), "dependabot-claim-"));
   try {
     const sink = argvFile ? ` >> '${argvFile}'` : "";
+    const capture = configCopy
+      ? `\n  case "$argument" in */dependabot-prep-policy.json) cp "$argument" '${configCopy}' ;; esac`
+      : "";
     writeFileSync(
       join(stubDirectory, "pnpm"),
-      `#!/bin/sh\nfor argument in "$@"; do printf '%s\\n' "$argument"${sink}; done\nexit ${exitCode}\n`,
+      `#!/bin/sh\nfor argument in "$@"; do printf '%s\\n' "$argument"${sink}${capture}\ndone\nexit ${exitCode}\n`,
       { mode: 0o755 },
     );
     const environment = { ...process.env };
     environment.PATH = `${stubDirectory}${delimiter}${environment.PATH}`;
+    environment.DEPENDABOT_CLAIM_POLICY_REF = policyRef ?? policyRevision();
     return run(environment);
   } finally {
     rmSync(stubDirectory, { recursive: true, force: true });
   }
+}
+
+// The wrapper writes the resolved policy to a private temporary file and passes
+// that path, so a test asserts the shape of the path rather than a fixed value.
+function assertInjectedConfig(argv, { after }) {
+  const flag = argv.indexOf("--config");
+  assert.ok(flag !== -1, "the wrapper must inject --config");
+  assert.deepEqual(argv.slice(flag - after.length, flag), after);
+  const path = argv[flag + 1];
+  assert.notEqual(path, claimPolicyPath());
+  assert.equal(relative(repositoryRoot, path).startsWith(".."), true);
+  assert.match(
+    path,
+    /dependabot-claim-policy-[^/]*\/dependabot-prep-policy\.json$/u,
+  );
+  return path;
 }
 
 // Resolves the real pnpm before any stub reaches PATH, so a test can run the
@@ -247,29 +301,27 @@ function runClaimWrapper(args, { exitCode = 0 } = {}) {
   );
 }
 
-// Runs a copy of the wrapper beside a temporary policy, so a test can observe
-// how the wrapper validates policy values it must never trust.
+// Runs the wrapper against a throwaway revision carrying an edited policy, so a
+// test can observe how the wrapper validates policy values it must never trust.
 function runClaimWrapperWithPin(packageOverrides, args) {
-  const root = mkdtempSync(join(tmpdir(), "dependabot-claim-policy-"));
-  try {
-    mkdirSync(join(root, "scripts"));
-    mkdirSync(join(root, ".github"));
-    writeFileSync(join(root, CLAIM_WRAPPER), read(CLAIM_WRAPPER));
-    const policy = authorityJson(read(CLAIM_POLICY));
-    policy.coordination.claims.package = {
-      ...policy.coordination.claims.package,
-      ...packageOverrides,
-    };
-    writeFileSync(join(root, CLAIM_POLICY), JSON.stringify(policy));
-    return withStubPnpm(0, (environment) =>
-      spawnSync(process.execPath, [join(root, CLAIM_WRAPPER), ...args], {
-        encoding: "utf8",
-        env: environment,
-      }),
-    );
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+  const policy = authorityJson(read(CLAIM_POLICY));
+  policy.coordination.claims.package = {
+    ...policy.coordination.claims.package,
+    ...packageOverrides,
+  };
+  return withStubPnpm(
+    0,
+    (environment) =>
+      spawnSync(
+        process.execPath,
+        [
+          fileURLToPath(new URL(`../${CLAIM_WRAPPER}`, import.meta.url)),
+          ...args,
+        ],
+        { encoding: "utf8", env: environment },
+      ),
+    { policyRef: policyRevision(JSON.stringify(policy)) },
+  );
 }
 
 test("trusted-agent policy limits authority to existing Dependabot pull requests", () => {
@@ -2178,7 +2230,9 @@ test("the claims package pin is exact and consumed through pnpm dlx", () => {
   // and keeps the whole resolved tree's install scripts off.
   const run = runClaimWrapper(["claims", "read", "--pr", "872", "--json"]);
   assert.equal(run.status, 0, run.stderr);
-  assert.deepEqual(run.stdout.trim().split("\n"), [
+  const argv = run.stdout.trim().split("\n");
+  const injected = assertInjectedConfig(argv, { after: ["claims", "read"] });
+  assert.deepEqual(argv, [
     "--config.ignore-scripts=true",
     `--package=${pin.name}@${pin.version}`,
     "dlx",
@@ -2186,7 +2240,7 @@ test("the claims package pin is exact and consumed through pnpm dlx", () => {
     "claims",
     "read",
     "--config",
-    claimPolicyPath(),
+    injected,
     "--pr",
     "872",
     "--json",
@@ -2209,6 +2263,9 @@ test("the documented pnpm invocation reaches the wrapper intact", () => {
     "--json",
   ]);
   assert.equal(plain.run.status, 0, plain.run.stderr);
+  const plainConfig = assertInjectedConfig(plain.argv, {
+    after: ["claims", "claim"],
+  });
   assert.deepEqual(plain.argv, [
     "--config.ignore-scripts=true",
     `--package=${pin.name}@${pin.version}`,
@@ -2217,7 +2274,7 @@ test("the documented pnpm invocation reaches the wrapper intact", () => {
     "claims",
     "claim",
     "--config",
-    claimPolicyPath(),
+    plainConfig,
     "--pr",
     "872",
     "--json",
@@ -2240,6 +2297,9 @@ test("the documented pnpm invocation reaches the wrapper intact", () => {
     "pushed",
   ]);
   assert.equal(guarded.run.status, 0, guarded.run.stderr);
+  const guardedConfig = assertInjectedConfig(guarded.argv, {
+    after: ["claims", "guard"],
+  });
   assert.deepEqual(guarded.argv, [
     "--config.ignore-scripts=true",
     `--package=${pin.name}@${pin.version}`,
@@ -2248,7 +2308,7 @@ test("the documented pnpm invocation reaches the wrapper intact", () => {
     "claims",
     "guard",
     "--config",
-    claimPolicyPath(),
+    guardedConfig,
     "--pr",
     "872",
     "--token",
@@ -2274,7 +2334,9 @@ test("the claim wrapper drops the separator pnpm forwards", () => {
     "--json",
   ]);
   assert.equal(run.status, 0, run.stderr);
-  assert.deepEqual(run.stdout.trim().split("\n"), [
+  const argv = run.stdout.trim().split("\n");
+  const injected = assertInjectedConfig(argv, { after: ["claims", "claim"] });
+  assert.deepEqual(argv, [
     "--config.ignore-scripts=true",
     `--package=${pin.name}@${pin.version}`,
     "dlx",
@@ -2282,7 +2344,7 @@ test("the claim wrapper drops the separator pnpm forwards", () => {
     "claims",
     "claim",
     "--config",
-    claimPolicyPath(),
+    injected,
     "--pr",
     "872",
     "--json",
@@ -2310,7 +2372,9 @@ test("the claim wrapper forwards a guarded child's own config flag", () => {
     "push.default=simple",
   ]);
   assert.equal(run.status, 0, run.stderr);
-  assert.deepEqual(run.stdout.trim().split("\n"), [
+  const argv = run.stdout.trim().split("\n");
+  const injected = assertInjectedConfig(argv, { after: ["claims", "guard"] });
+  assert.deepEqual(argv, [
     "--config.ignore-scripts=true",
     `--package=${pin.name}@${pin.version}`,
     "dlx",
@@ -2318,7 +2382,7 @@ test("the claim wrapper forwards a guarded child's own config flag", () => {
     "claims",
     "guard",
     "--config",
-    claimPolicyPath(),
+    injected,
     "--pr",
     "872",
     "--token",
@@ -2381,13 +2445,194 @@ test("the claim wrapper inserts its config flag before a guard separator", () =>
   // the policy path as its value, and it stays before the guard separator. The
   // four leading tokens are pnpm's own: the script suppression, the package
   // selector, `dlx` and the binary name.
-  assert.deepEqual(argv.slice(4, 8), [
-    "claims",
-    "guard",
-    "--config",
-    claimPolicyPath(),
-  ]);
+  const injected = assertInjectedConfig(argv, { after: ["claims", "guard"] });
+  assert.deepEqual(argv.slice(4, 8), ["claims", "guard", "--config", injected]);
   assert.ok(argv.indexOf("--config") < argv.indexOf("--"));
+});
+
+test("the claim wrapper reads its policy from the default branch, not the tree", () => {
+  // The wrapper must not trust the checkout it runs from: a per-PR worktree is
+  // a candidate branch, and a candidate branch may edit the policy. Everything
+  // the wrapper acts on therefore comes out of the object store.
+  const wrapper = read(CLAIM_WRAPPER);
+  assert.match(wrapper, /refs\/remotes\/origin\/main/u);
+  assert.match(wrapper, /cat-file/u);
+  assert.doesNotMatch(wrapper, /new URL\(\s*"\.\.\/\.github/u);
+
+  // A revision whose policy differs from the working tree's decides the pin and
+  // the injected bytes, which the working tree could not do if it were read.
+  const edited = authorityJson(read(CLAIM_POLICY));
+  edited.coordination.claims.package.version = "9.9.9";
+  edited.coordination.claims.namespace = "refs/mento-claims/v1/rehearsal";
+  const editedText = JSON.stringify(edited);
+  const revision = policyRevision(editedText);
+
+  const captured = mkdtempSync(join(tmpdir(), "dependabot-claim-config-"));
+  try {
+    const configCopy = join(captured, "forwarded.json");
+    const run = withStubPnpm(
+      0,
+      (environment) =>
+        spawnSync(
+          process.execPath,
+          [
+            fileURLToPath(new URL(`../${CLAIM_WRAPPER}`, import.meta.url)),
+            "claims",
+            "read",
+            "--pr",
+            "872",
+          ],
+          { encoding: "utf8", env: environment },
+        ),
+      { configCopy, policyRef: revision },
+    );
+    assert.equal(run.status, 0, run.stderr);
+    const argv = run.stdout.trim().split("\n");
+    const pin = authorityJson(read(CLAIM_POLICY)).coordination.claims.package;
+    assert.ok(argv.includes(`--package=${pin.name}@9.9.9`));
+    assert.equal(argv.includes(`--package=${pin.name}@${pin.version}`), false);
+
+    // The forwarded file is byte-identical to the blob at that revision, and it
+    // is not the working tree's file.
+    assert.equal(readFileSync(configCopy, "utf8"), editedText);
+    assert.equal(
+      readFileSync(configCopy, "utf8"),
+      git(["cat-file", "blob", `${revision}:${CLAIM_POLICY}`]),
+    );
+    assert.notEqual(readFileSync(configCopy, "utf8"), read(CLAIM_POLICY));
+
+    // The wrapper names the revision it used, so a stale fetch is visible, and
+    // it removes the copy as it exits rather than leaving policy bytes behind.
+    assert.match(run.stderr, new RegExp(revision, "u"));
+    assert.equal(existsSync(assertInjectedConfig(argv, { after: [] })), false);
+  } finally {
+    rmSync(captured, { recursive: true, force: true });
+  }
+});
+
+test("the claim wrapper fails closed when the policy revision is missing", () => {
+  const missingRef = withStubPnpm(
+    0,
+    (environment) =>
+      spawnSync(
+        process.execPath,
+        [
+          fileURLToPath(new URL(`../${CLAIM_WRAPPER}`, import.meta.url)),
+          "claims",
+          "read",
+          "--pr",
+          "872",
+        ],
+        { encoding: "utf8", env: environment },
+      ),
+    { policyRef: "refs/remotes/origin/no-such-default-branch" },
+  );
+  assert.equal(missingRef.status, 3);
+  assert.match(missingRef.stderr, /cannot resolve/u);
+
+  // A revision that exists but carries no policy file is refused just as hard,
+  // so a truncated fetch cannot silently fall back to anything.
+  const emptyTree = git(["mktree"], "");
+  const missingFile = withStubPnpm(
+    0,
+    (environment) =>
+      spawnSync(
+        process.execPath,
+        [
+          fileURLToPath(new URL(`../${CLAIM_WRAPPER}`, import.meta.url)),
+          "claims",
+          "read",
+          "--pr",
+          "872",
+        ],
+        { encoding: "utf8", env: environment },
+      ),
+    { policyRef: emptyTree },
+  );
+  assert.equal(missingFile.status, 3);
+  assert.match(missingFile.stderr, /cannot read \.github/u);
+
+  // A ref that could reach `git` as a flag is refused before `git` runs.
+  const flagRef = withStubPnpm(
+    0,
+    (environment) =>
+      spawnSync(
+        process.execPath,
+        [
+          fileURLToPath(new URL(`../${CLAIM_WRAPPER}`, import.meta.url)),
+          "claims",
+          "read",
+          "--pr",
+          "872",
+        ],
+        { encoding: "utf8", env: environment },
+      ),
+    { policyRef: "--upload-pack=touch" },
+  );
+  assert.equal(flagRef.status, 3);
+  assert.match(flagRef.stderr, /must be a git ref or object id/u);
+});
+
+test("the unpublished-package fallback stays under the wrapper's checks", () => {
+  // The playbook's fallback for an unpublished pin runs through the wrapper, so
+  // it keeps the default-branch policy, the schema check and the injected
+  // `--config`, and it adds an exact-pin check the raw binary could not make.
+  const pin = authorityJson(read(CLAIM_POLICY)).coordination.claims.package;
+  const checkout = mkdtempSync(join(tmpdir(), "dependabot-claim-package-"));
+  try {
+    mkdirSync(join(checkout, "bin"));
+    writeFileSync(
+      join(checkout, "bin", "mento-issues.mjs"),
+      `#!/usr/bin/env node\nfor (const argument of process.argv.slice(2)) console.log(argument);\n`,
+    );
+    const manifest = (version) =>
+      writeFileSync(
+        join(checkout, "package.json"),
+        `${JSON.stringify({
+          name: pin.name,
+          version,
+          bin: { "mento-issues": "bin/mento-issues.mjs" },
+        })}\n`,
+      );
+
+    manifest(pin.version);
+    const environment = { ...process.env };
+    environment.DEPENDABOT_CLAIM_POLICY_REF = policyRevision();
+    environment.DEPENDABOT_CLAIM_PACKAGE_DIR = checkout;
+    const wrapperPath = fileURLToPath(
+      new URL(`../${CLAIM_WRAPPER}`, import.meta.url),
+    );
+    const run = spawnSync(
+      process.execPath,
+      [wrapperPath, "claims", "doctor", "--json"],
+      { encoding: "utf8", env: environment },
+    );
+    assert.equal(run.status, 0, run.stderr);
+    const argv = run.stdout.trim().split("\n");
+    const injected = assertInjectedConfig(argv, {
+      after: ["claims", "doctor"],
+    });
+    assert.deepEqual(argv, [
+      "claims",
+      "doctor",
+      "--config",
+      injected,
+      "--json",
+    ]);
+
+    // A checkout that is not exactly the pinned version is refused, so the
+    // fallback cannot run a version the policy does not name.
+    manifest("9.9.9");
+    const mismatched = spawnSync(
+      process.execPath,
+      [wrapperPath, "claims", "doctor"],
+      { encoding: "utf8", env: environment },
+    );
+    assert.equal(mismatched.status, 3);
+    assert.match(mismatched.stderr, /must hold .*@/u);
+  } finally {
+    rmSync(checkout, { recursive: true, force: true });
+  }
 });
 
 test("the claim wrapper refuses a caller config and forwards the exit code", () => {
@@ -2432,6 +2677,7 @@ test("the claim wrapper forwards a termination signal to the claim command", asy
     );
     const environment = { ...process.env };
     environment.PATH = `${stubDirectory}${delimiter}${environment.PATH}`;
+    environment.DEPENDABOT_CLAIM_POLICY_REF = policyRevision();
     const child = spawn(
       process.execPath,
       [

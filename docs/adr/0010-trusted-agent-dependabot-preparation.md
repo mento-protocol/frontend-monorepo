@@ -32,7 +32,9 @@ live state and visible progress, not another bespoke execution platform.
 ## Decision
 
 Use one ordinary OpenClaw agent job and the checked-in preparation prompt,
-canonical playbook and v3 policy. Permit normal coding and local validation for
+canonical playbook and v3 policy. That v3 binding is superseded, not deleted:
+the claim-based refinement below makes `dependabot-prep-policy:v4` the active
+policy, and `trusted-agent-v2` refuses v3. Permit normal coding and local validation for
 dependency-related repairs. Keep credentials in their existing provider/config
 paths; never print or copy them into artifacts. The worker may technically access
 more than its task permits: forbidden actions are procedural instructions, not
