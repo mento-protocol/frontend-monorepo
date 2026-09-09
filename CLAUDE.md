@@ -251,6 +251,11 @@ tree will tell you what is missing. The entries this repository needs:
 | `notion.com`                                            | the `www.notion.so` link — Notion rebranded onto another TLD             |
 | `www.typescriptlang.org`, `www.conventionalcommits.org` | the remaining documentation links                                        |
 
+One entry is deliberately absent: `cdn.playwright.dev`. Without it a session
+cannot download the browser revision the workspace pins, which is why the
+`SessionStart` hook aliases the shipped build instead. Add it if you need a
+locally installed browser that genuinely matches the pin.
+
 The last four rows exist only to keep `markdown-link-check` honest. Two of them
 are the plain hosts the links name, but `turborepo.dev`, `getfoundry.sh`, and
 `notion.com` are not written in any document: each is where a documented URL
@@ -345,15 +350,32 @@ knowing:
   `Executable doesn't exist`.
   [scripts/cloud-session-setup.sh](scripts/cloud-session-setup.sh) now symlinks
   every wanted revision onto the shipped build, so suites run unmodified and need
-  no `executablePath` and no `PLAYWRIGHT_BROWSERS_PATH` override. Do **not** run
-  `playwright install`. Two things to know if it ever stops working: more than one
-  revision can be wanted at once, because workspaces pin different Playwright
-  versions (the apps are on 1.62.1, wanting 1234, while the root catalog resolves
-  1.61.1, wanting 1228, and both get aliased); and a real browser directory is
-  never shadowed, so an actual install always wins. `launch()` naming a path under
-  a revision that does not exist means the alias was not built — check
-  `ls /opt/pw-browsers` against the `revision` fields in
+  no `executablePath` and no `PLAYWRIGHT_BROWSERS_PATH` override.
+
+  **The alias is an approximation, not the pinned browser.** It makes the shipped
+  build answer at the wanted revision's path; the binary is still the older one.
+  Treat it as good enough to run and debug a suite, and never as evidence about
+  pixel output or about behaviour that depends on the browser revision. This does
+  not weaken CI: every Playwright job in `visual.yml` and `e2e.yml` runs inside
+  the pinned `mcr.microsoft.com/playwright:v1.62.1-noble` container, so Argos
+  baselines and the fork E2E suites never see the approximation. A local pixel
+  diff against an Argos baseline is therefore not a regression on its own.
+
+  Installing the true revision would be better, and the hook defers to it: an
+  existing revision directory is never shadowed, so the real build wins as soon as
+  there is one. Today there cannot be — `npx playwright install` is refused with
+  `no rule or allowlist entry allows host "cdn.playwright.dev"`. Adding that host
+  to the session allowlist is what would fix this properly; until then do **not**
+  run `playwright install` expecting it to work.
+
+  Two more things if it ever stops working: more than one revision can be wanted
+  at once, because workspaces pin different Playwright versions (the apps are on
+  1.62.1, wanting 1234, while the root catalog resolves 1.61.1, wanting 1228, and
+  both get aliased); and `launch()` naming a path under a revision that does not
+  exist means the alias was not built — check `ls /opt/pw-browsers` against the
+  `revision` fields in
   `node_modules/.pnpm/playwright-core@*/node_modules/playwright-core/browsers.json`.
+
 - **The anvil fork suites do run here.** Foundry is installed and
   `forno.celo.org`, `rpc.monad.xyz`, and `monad.drpc.org` are all reachable, so
   `pnpm fork:mainnet` + `pnpm fork:seed` +

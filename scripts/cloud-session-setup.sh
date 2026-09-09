@@ -110,6 +110,18 @@ configure_trunk_for_cloud_session
 # creates a revision directory that does not already exist, so a real browser
 # install is never shadowed.
 #
+# The alias is an approximation, not the pinned browser: it makes the shipped
+# build answer at the wanted revision's path, so Playwright starts and drives it,
+# but the binary is still the older one. Good enough to run and debug a suite;
+# not authoritative for pixel comparisons. CI does not rely on any of this -- the
+# Playwright jobs run inside the pinned mcr.microsoft.com/playwright container --
+# so the approximation never reaches Argos baselines or a required check.
+#
+# Installing the real revision would be better and is what this defers to: an
+# existing directory is left alone, so once `npx playwright install` can fetch it
+# the true build wins automatically. Today it cannot -- cdn.playwright.dev is not
+# on the session's network allowlist and the download is refused with HTTP 403.
+#
 # If a future Playwright changes the path it looks for, the alias is simply not
 # where it looks and `launch()` reports the path it wanted, which names the fix.
 configure_playwright_browser_aliases() {
@@ -165,7 +177,7 @@ configure_playwright_browser_aliases() {
 	done
 
 	if [[ -n ${created} ]]; then
-		echo "cloud-session-setup: aliased playwright browsers onto the shipped build:${created}"
+		echo "cloud-session-setup: aliased playwright browsers onto the shipped build (approximate, not the pinned revision):${created}"
 	fi
 }
 
