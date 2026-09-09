@@ -318,7 +318,11 @@ test("the Slack notifier watches the issue notifier's allowlist and never shells
   // Failure callbacks must wait independently. GitHub keeps at most one
   // pending member per concurrency group and can otherwise discard an older
   // failure callback before it evaluates current state.
-  assert.doesNotMatch(slack, /^concurrency:/m);
+  assert.doesNotMatch(
+    slack,
+    /^ *concurrency:/m,
+    "a workflow- or job-level concurrency group can discard a pending failure callback",
+  );
   assert.match(slack, /^ {4}timeout-minutes: 20$/m);
 
   // The Slack side channel must cover exactly the incident set the issue
