@@ -107,8 +107,9 @@ exit 0 or the session fails to start. Keep it to VM provisioning, such as
 Foundry and the Trunk launcher. Install tools into a shared path such as
 `/opt`, then symlink them into `/usr/local/bin`: the environment cache keeps
 files but not an exported `PATH`, and the session user cannot read `/root`.
-Fork tests additionally need the RPC hosts (`forno.celo.org`, `rpc.monad.xyz`)
-on a Custom network allowlist.
+The session's Custom network allowlist is configured in the same place and is
+just as invisible from the tree; the entries this repository needs are
+tabulated under the Trunk runtimes below.
 
 Cloud sessions gate GitHub by _repository_, not by host, and the gate is far
 wider than a tarball path: the proxy fronts `github.com` as if it were the
@@ -172,6 +173,22 @@ you will lint against a different bundle than CI does. And `local` reads
 
 Keep the edit local and never commit it.
 
+Once the workaround makes Trunk run, it arms a push-blocker, and this is the
+fastest way to wedge a cloud session. The repository enables
+`trunk-check-all-pre-push`, so `git push` runs `trunk check --all` — which
+cannot pass here (see below). The trap is that Trunk does not write into
+`.git/hooks`, so an empty `.git/hooks` proves nothing: it sets `core.hooksPath`
+in `.git/config` to a directory under `~/.cache/trunk` holding `pre-push`,
+`pre-commit`, and `commit-msg`. **Any** successful `trunk` invocation arms it,
+including a single-file `trunk check README.md`, and it is re-armed by every
+later invocation, so unsetting it once is not enough. A wedged push spends
+several minutes running every linter and then fails with `✖ Push blocked by git
+hook 'trunk-check-all-pre-push'`. Clear it immediately before pushing:
+
+```bash
+git config --unset core.hooksPath
+```
+
 The hermetic runtimes in `.trunk/trunk.yaml` then need to be downloadable, which
 is a _network allowlist_ question rather than a repository-scope one. The two
 failures look different and should not be confused: an allowlist refusal appears
@@ -190,17 +207,45 @@ and passes in a cloud session; both the `go` and `python` runtimes install
 normally. Measured from cold caches: a mixed markdown/yaml/shell/mjs/json check
 takes about 1m30s including every runtime and linter download, `trunk fmt
 --no-fix --all` about 30s over 1172 files, and `trunk check --all` about 2m45s
-cold or 1m15s warm over 1235 files.
+cold or about 2m15s warm over 1235 files.
+
+The allowlist itself lives with the environment at claude.ai/code, not in this
+repository, so a fresh environment starts with none of it and nothing in the
+tree will tell you what is missing. The entries this repository needs:
+
+| Entry                                                   | Needed by                                                                |
+| ------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `dl.google.com`                                         | Trunk's `go` runtime                                                     |
+| `forno.celo.org`, `rpc.monad.xyz`, `monad.drpc.org`     | the anvil fork suites                                                    |
+| `turborepo.dev`                                         | the `turbo.build` and `turborepo.com` links in the docs                  |
+| `getfoundry.sh`                                         | the `book.getfoundry.sh` link — the apex, which `*.getfoundry.sh` misses |
+| `notion.com`                                            | the `www.notion.so` link — Notion rebranded onto another TLD             |
+| `www.typescriptlang.org`, `www.conventionalcommits.org` | the remaining documentation links                                        |
+
+The last four rows exist only to keep `markdown-link-check` honest. Two of them
+are the plain hosts the links name, but `turborepo.dev`, `getfoundry.sh`, and
+`notion.com` are not written in any document: each is where a documented URL
+_redirects_ to, and the linter follows the redirect. So **allowlist the final
+host in the chain, not the one written in the markdown** — it may be a different
+subdomain, the bare apex (a wildcard does not cover the apex it sits under), or
+an entirely different domain.
+
+Editing the allowlist takes effect in sessions that are already running; there
+is no need to start a new one to pick up an entry.
 
 `trunk check --all` is therefore fast enough to be practical, but it **cannot
 pass in a cloud session** — not because of anything in the repo, but because two
 of the enabled linters depend on network the session does not have:
 
-- **`markdown-link-check`** reports every external link as a 403. About a quarter
-  are `github.com` links killed by the API gateway described above; the rest are
-  hosts that are simply not on the allowlist, among them `nextjs.org`,
-  `vercel.com`, `pnpm.io`, and `docs.trunk.io` — the allowlist carries `trunk.io`
-  and `api.trunk.io`, not `*.trunk.io`. None of it is evidence of a broken link.
+- **`markdown-link-check`** cannot verify a `github.com` link, and 15 of this
+  repository's markdown links are GitHub links. Each returns the repository-gate
+  403 described above, whether or not the link is good, so none of it is
+  evidence of a broken link. That 15 is the floor: with the allowlist entries
+  above in place, every _non_-GitHub external link passes. On any other host,
+  read the status before concluding: a 403 is the proxy answering — an allowlist
+  refusal or the repository gate — and usually means a missing entry for the
+  final host in a redirect chain. Any other status came from the origin, so a
+  404 on a link this change adds is a real broken link, not an artifact.
 - **`trufflehog`** reports pinned GitHub Action SHAs and placeholder commit SHAs
   in test fixtures as verified secrets. Trunk runs it with `--only-verified`, and
   verification is precisely what should rule these out — but the proxy
@@ -247,6 +292,41 @@ to Trunk: Trunk applies the ignore list in `.trunk/trunk.yaml` and pins its own
 prettier (3.7.4, against the workspace's 3.9.6), so a bare `pnpm exec prettier
 --check .` reports pre-existing differences in generated and unrelated files.
 `pnpm exec eslint .` is clean repo-wide.
+
+Everything else in the ordinary dev loop works unmodified: `pnpm check-types`,
+`pnpm knip`, `pnpm adr:check`, `pnpm test:ci:workspaces`, every `*:test`
+script, every `*:check` script except `format:check` (which runs
+`@trunkio/launcher` and so needs the plugin workaround above), and a real
+`pnpm exec turbo run build --filter app.mento.org`
+(create `apps/app.mento.org/.env.local` from `.env.example` first; the values
+need only be syntactically valid). Three cloud-specific gotchas are worth
+knowing:
+
+- **`pnpm test:ci:vercel` and Node's own warnings.** The environment sets
+  `NODE_USE_ENV_PROXY=1`, so every Node process prints an experimental
+  `EnvHttpProxyAgent` warning to stderr. Any test that asserts a spawned
+  process's stderr exactly will fail on that warning alone, with a diff whose
+  only difference is the warning. Such a test sets `NODE_NO_WARNINGS: "1"` on
+  the child (see `scripts/vercel-main-release-cli.test.mjs`); prefer that over
+  running the shard with the variable unset, which only hides the problem.
+- **Playwright needs the browser it was pinned against.** The workspace pins
+  `@playwright/test` 1.61.1, which wants chromium revision 1228, and the image
+  ships 1194 under `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`, so `launch()`
+  fails with `Executable doesn't exist`. Do **not** run `playwright install`.
+  For an ad-hoc script, pass `executablePath: '/opt/pw-browsers/chromium'`. To
+  run a suite that does not set that option, point
+  `PLAYWRIGHT_BROWSERS_PATH` at a directory of symlinks that also aliases the
+  1194 builds under the 1228 names — note the 1194 headless shell keeps the
+  older `chrome-linux/headless_shell` layout, not
+  `chrome-headless-shell-linux64/chrome-headless-shell`.
+- **The anvil fork suites do run here.** Foundry is installed and
+  `forno.celo.org`, `rpc.monad.xyz`, and `monad.drpc.org` are all reachable, so
+  `pnpm fork:mainnet` + `pnpm fork:seed` +
+  `pnpm --filter app.mento.org test:connected` completes green, given the
+  Playwright shim above and a build carrying `NEXT_PUBLIC_E2E_TEST=true
+NEXT_PUBLIC_USE_FORK=true`. The first seed takes several minutes; later ones
+  are quick, and oracle reports go stale in 360s, so re-seed immediately before
+  the suite rather than before the build.
 
 ## Visual Regression Testing
 
