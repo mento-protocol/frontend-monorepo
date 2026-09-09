@@ -150,7 +150,13 @@ describe("TipTapFloatingMenu", () => {
 
     expect(harness.chain.deleteRange).toHaveBeenCalled();
     expect(harness.focus).toHaveBeenCalled();
-  });
+    // This case drives all fourteen commands through a full
+    // render/interact/flush cycle, so it costs roughly five times the heaviest
+    // other test in this file — about 0.7s on a developer machine but ~5.6s on
+    // a CI runner, which overran Vitest's 5s default and failed the shard on
+    // runner speed rather than on behaviour. Budget it explicitly instead of
+    // leaving it balanced on the default.
+  }, 15_000);
 
   it("filters commands and supports keyboard selection and dismissal", () => {
     const harness = createEditor();
