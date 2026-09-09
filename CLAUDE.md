@@ -241,9 +241,11 @@ of the enabled linters depend on network the session does not have:
   repository's markdown links are GitHub links. Each returns the repository-gate
   403 described above, whether or not the link is good, so none of it is
   evidence of a broken link. That 15 is the floor: with the allowlist entries
-  above in place, every _non_-GitHub external link passes. So a failure on any
-  other host is a missing allowlist entry rather than a broken link — check the
-  final host in its redirect chain before concluding otherwise.
+  above in place, every _non_-GitHub external link passes. On any other host,
+  read the status before concluding: a 403 is the proxy answering — an allowlist
+  refusal or the repository gate — and usually means a missing entry for the
+  final host in a redirect chain. Any other status came from the origin, so a
+  404 on a link this change adds is a real broken link, not an artifact.
 - **`trufflehog`** reports pinned GitHub Action SHAs and placeholder commit SHAs
   in test fixtures as verified secrets. Trunk runs it with `--only-verified`, and
   verification is precisely what should rule these out — but the proxy
@@ -292,8 +294,10 @@ prettier (3.7.4, against the workspace's 3.9.6), so a bare `pnpm exec prettier
 `pnpm exec eslint .` is clean repo-wide.
 
 Everything else in the ordinary dev loop works unmodified: `pnpm check-types`,
-`pnpm knip`, `pnpm adr:check`, `pnpm test:ci:workspaces`, every `*:test` and
-`*:check` script, and a real `pnpm exec turbo run build --filter app.mento.org`
+`pnpm knip`, `pnpm adr:check`, `pnpm test:ci:workspaces`, every `*:test`
+script, every `*:check` script except `format:check` (which runs
+`@trunkio/launcher` and so needs the plugin workaround above), and a real
+`pnpm exec turbo run build --filter app.mento.org`
 (create `apps/app.mento.org/.env.local` from `.env.example` first; the values
 need only be syntactically valid). Three cloud-specific gotchas are worth
 knowing:
